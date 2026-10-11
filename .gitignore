@@ -1,0 +1,26 @@
+# JavaScript and TypeScript dependencies
+node_modules/
+.pnpm-store/
+
+# Build and test output
+dist/
+build/
+coverage/
+.turbo/
+.vite/
+
+# Local configuration
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+
+# Local research material is intentionally excluded from the public repository.
+/work/
+
+# Editors and operating-system metadata
+.idea/
+.vscode/
+*.swp
+*.swo
