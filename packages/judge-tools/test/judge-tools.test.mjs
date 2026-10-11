@@ -114,6 +114,41 @@ test("strictly validates source URL, version, and ref metadata", () => {
   const invalidRef = validateEvidenceRef(source({ ref: "section with spaces" }));
   assert.equal(invalidRef.ok, false);
   assert.ok(invalidRef.issues.some(issue => issue.code === "invalid-identifier"));
+
+  const isoDateVersion = validateEvidenceRef(source({ version: "2026-10-09" }));
+  assert.equal(isoDateVersion.ok, true);
+  assert.equal(isoDateVersion.value.version, "2026-10-09");
+
+  const malformedDateVersion = validateEvidenceRef(source({ version: "2026-10" }));
+  assert.equal(malformedDateVersion.ok, false);
+  assert.ok(malformedDateVersion.issues.some(issue => issue.code === "invalid-identifier"));
+});
+
+test("requires judge events to use positive replay sequence numbers", () => {
+  const result = validateJudgeReviewRequest({
+    kind: "judge-review-request",
+    schemaVersion: 1,
+    requestId: "judge-review-0000000000000000",
+    profile: { id: "judge.synthetic-demo", version: "1.0.0" },
+    rulesetId: "synthetic-demo",
+    event: event({ sequence: 0 }),
+    checks: [check()],
+    reasons: [
+      {
+        code: "ambiguous-rule",
+        explanation: "The synthetic check cannot select a deterministic result.",
+        evidence: [source()]
+      }
+    ],
+    evidence: [source()],
+    requestedAt: REQUESTED_AT,
+    status: "pending"
+  });
+
+  assert.equal(result.ok, false);
+  assert.ok(result.issues.some(issue =>
+    issue.path === "$.event.sequence" && issue.code === "invalid-integer"
+  ));
 });
 
 test("creates a pending manual review request from an indeterminate check", () => {

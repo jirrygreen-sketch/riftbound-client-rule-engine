@@ -5,6 +5,7 @@ import {
   type DeckBuilderEntry,
   buildDeckGroups,
   isAddDisabled,
+  isCardAvailable,
   removeCard
 } from "../src/components/DeckBuilder";
 
@@ -144,6 +145,29 @@ describe("DeckBuilder", () => {
     ]);
     expect(blockedUnreleased).toBe(deck);
     expect(blockedWhenUnreleasedIsFirst).toEqual([]);
+  });
+
+  it("blocks a banned printing without zeroing the shared canonical limit", () => {
+    const banned = card({
+      id: "flame-banned",
+      banned: true,
+      available: true,
+      availabilityReason: "banned"
+    });
+    const catalog = [standard, alternate, banned];
+    const limits = new Map([["flame", 3]]);
+
+    const deck = addCard([], catalog, "flame-standard", limits);
+    const blockedBanned = addCard(deck, catalog, "flame-banned", limits);
+    const releasedAlternate = addCard(deck, catalog, "flame-alternate", limits);
+
+    expect(isCardAvailable(banned)).toBe(false);
+    expect(isCardAvailable(standard)).toBe(true);
+    expect(blockedBanned).toBe(deck);
+    expect(releasedAlternate).toEqual([
+      { cardId: "flame-standard", quantity: 1 },
+      { cardId: "flame-alternate", quantity: 1 }
+    ]);
   });
 
   it("keeps localized full titles with subtitles and picks a representative thumbnail", () => {

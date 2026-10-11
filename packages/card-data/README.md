@@ -65,8 +65,9 @@ restrictions are outside the current policy.
 
 The current-card sync downloads the community correction dataset and both
 official gallery locales, reconciles IDs and pagination, merges official records
-with community corrections, validates the generated bundle, and atomically writes
-the snapshot and image catalog.
+with community corrections, rejects invalid or duplicate community card codes,
+validates the generated bundle, and atomically writes the snapshot and image
+catalog.
 
 ```text
 pnpm cards:sync
@@ -128,9 +129,9 @@ The package-filtered form shown above is the supported syntax for all scripts.
 
 The data sync run above exited 0 and persisted the 1,381-record snapshot.
 `pnpm build`, `pnpm typecheck`, frozen install, and audit checks exit 0 for the
-workspace. The latest agent-verified full `pnpm test` passes 198 tests:
-card-data 48, desktop-client 37, game-server 47, integration-tests 23,
-card-dsl 8, judge-tools 9, protocol 3, replay-core 10, and engine-core 13.
+workspace. The latest agent-verified full `pnpm test` passes 208 tests:
+card-data 49, desktop-client 41, game-server 48, integration-tests 23,
+card-dsl 10, judge-tools 10, protocol 3, replay-core 10, and engine-core 14.
 
 ```text
 pnpm --filter @riftbound/card-data typecheck

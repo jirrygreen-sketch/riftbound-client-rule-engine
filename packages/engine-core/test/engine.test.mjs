@@ -170,7 +170,42 @@ test("ending the game marks a winner and rejects further commands", () => {
   assert.equal(result.state.phase, "ended");
   assert.equal(result.state.winnerPlayerId, "player-1");
   assert.equal(result.events.at(-1)?.type, "game-ended");
+  assert.equal(result.state.prompt, null);
+  assert.equal(result.state.outstandingTasks.length, 0);
   assert.equal(afterEnd.error?.code, "game_ended");
+});
+
+test("resolving a game-ending prompt clears pending automation consistently", () => {
+  const played = submitCommand(newGame(), {
+    type: "play-card",
+    playerId: "player-1",
+    instanceId: "player-1:trigger-conquer"
+  }).state;
+  played.players[1].life = 1;
+
+  const result = submitCommand(played, {
+    type: "respond-to-prompt",
+    playerId: "player-1",
+    promptId: played.prompt?.id,
+    optionId: "resolve"
+  });
+
+  assert.equal(result.error, null);
+  assert.equal(result.state.phase, "ended");
+  assert.equal(result.state.prompt, null);
+  assert.deepEqual(result.state.outstandingTasks, []);
+  assert.equal(
+    result.state.eventLog.filter(event => event.type === "game-ended").length,
+    1
+  );
+  assert.deepEqual(
+    result.events.map(event => event.type),
+    [
+      "prompt-answered",
+      "damage-dealt",
+      "game-ended"
+    ]
+  );
 });
 
 test("public projection hides hands and room snapshot exposes the public view", () => {

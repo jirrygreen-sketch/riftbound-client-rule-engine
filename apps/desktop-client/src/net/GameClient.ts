@@ -30,8 +30,11 @@ export interface StoredSession extends ClientSession {
 }
 
 interface PendingCommand {
-  readonly requestId: string;
+  requestId: string;
   readonly commandId: string;
+  readonly command: PlayerCommand;
+  attempt: number;
+  retryDue: boolean;
   timeoutTimer: number | null;
 }
 
@@ -41,6 +44,7 @@ const MAX_RECONNECT_DELAY_MS = 15_000;
 const HEARTBEAT_INTERVAL_MS = 20_000;
 const HEARTBEAT_TIMEOUT_MS = 50_000;
 const COMMAND_TIMEOUT_MS = 10_000;
+const MAX_COMMAND_ATTEMPTS = 3;
 
 export class GameClient {
   status: GameClientStatus = "idle";
@@ -74,9 +78,10 @@ export class GameClient {
     this.reconnectAttempt = 0;
     if (this.session && this.session.serverUrl !== normalizedUrl) {
       this.applySession(null);
+      this.clearPendingCommand();
     }
     this.setHandshakeReady(false);
-    this.clearPendingCommand();
+    this.preparePendingCommandForRetry();
     this.latestProjectionVersion = null;
     this.handlers.onProjection(null);
     this.openSocket("connecting");
@@ -198,6 +203,9 @@ export class GameClient {
     this.pendingCommand = {
       requestId,
       commandId,
+      command,
+      attempt: 1,
+      retryDue: false,
       timeoutTimer: null
     };
     this.handlers.onPendingCommand?.(true);
@@ -210,8 +218,7 @@ export class GameClient {
     this.pendingCommand.timeoutTimer = setTimer(() => {
       const pending = this.pendingCommand;
       if (!pending || pending.commandId !== commandId) return;
-      this.clearPendingCommand();
-      this.handlers.onError("操作确认超时，请重试。");
+      this.retryPendingCommand(true);
     }, COMMAND_TIMEOUT_MS);
     return true;
   }
@@ -225,8 +232,9 @@ export class GameClient {
     if (!this.serverUrl) return;
 
     this.clearReconnectTimer();
+    this.stopHeartbeat();
     this.setHandshakeReady(false);
-    this.clearPendingCommand();
+    this.preparePendingCommandForRetry();
     this.latestProjectionVersion = null;
     this.handlers.onProjection(null);
 
@@ -260,7 +268,7 @@ export class GameClient {
       this.socket = null;
       this.stopHeartbeat();
       this.setHandshakeReady(false);
-      this.clearPendingCommand();
+      this.preparePendingCommandForRetry();
       this.latestProjectionVersion = null;
       this.handlers.onProjection(null);
       if (this.intentionallyClosed) {
@@ -273,7 +281,7 @@ export class GameClient {
     socket.addEventListener("error", () => {
       if (this.socket !== socket) return;
       this.setHandshakeReady(false);
-      this.clearPendingCommand();
+      this.preparePendingCommandForRetry();
       this.handlers.onError("无法连接游戏服务端，请检查地址或稍后重试。");
     });
   }
@@ -317,7 +325,6 @@ export class GameClient {
 
         this.reconnectAttempt = 0;
         this.lastPongAt = Date.now();
-        this.clearPendingCommand();
         if (parsed.session) {
           this.applySession({ ...parsed.session, serverUrl: this.serverUrl });
         } else if (this.session?.serverUrl === this.serverUrl) {
@@ -326,6 +333,7 @@ export class GameClient {
         this.setHandshakeReady(true);
         this.startHeartbeat();
         this.setStatus("connected");
+        this.retryPendingCommand();
         return;
       }
       case "request-result": {
@@ -349,6 +357,7 @@ export class GameClient {
         this.latestProjectionVersion = parsed.projection.version;
         this.handlers.onProjection(parsed.projection);
         this.handlers.onRoom(parsed.roomId);
+        this.retryPendingCommand();
         return;
       case "error":
         this.handleServerError(parsed);
@@ -524,6 +533,50 @@ export class GameClient {
       clearTimer(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+  }
+
+  private preparePendingCommandForRetry(): void {
+    const pending = this.pendingCommand;
+    if (!pending) return;
+
+    if (pending.timeoutTimer !== null) clearTimer(pending.timeoutTimer);
+    pending.timeoutTimer = null;
+    pending.retryDue = true;
+  }
+
+  private retryPendingCommand(force = false): void {
+    const pending = this.pendingCommand;
+    if (!pending || (!force && !pending.retryDue) || !this.session) return;
+    if (this.status !== "connected" || !this.handshakeReady) return;
+    if (this.socket?.readyState !== WebSocket.OPEN) return;
+
+    if (pending.attempt >= MAX_COMMAND_ATTEMPTS) {
+      this.clearPendingCommand();
+      this.handlers.onError("操作确认超时，请重试。");
+      return;
+    }
+    if (this.latestProjectionVersion === null) return;
+
+    pending.attempt += 1;
+    pending.retryDue = false;
+    const requestId = this.nextRequestId("command");
+    pending.requestId = requestId;
+    if (!this.send({
+      type: "command",
+      requestId,
+      commandId: pending.commandId,
+      expectedVersion: this.latestProjectionVersion,
+      command: pending.command
+    })) {
+      this.preparePendingCommandForRetry();
+      return;
+    }
+
+    pending.timeoutTimer = setTimer(() => {
+      const current = this.pendingCommand;
+      if (!current || current.commandId !== pending.commandId) return;
+      this.retryPendingCommand(true);
+    }, COMMAND_TIMEOUT_MS);
   }
 
   private clearPendingCommand(): void {

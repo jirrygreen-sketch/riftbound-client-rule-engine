@@ -89,11 +89,15 @@ Completed verification:
   1,381 cards and 1,080 groups, and `/health` returned `{"status":"ok","rooms":0}`.
 - Deck-catalog generation processed 1,381 printings into 1,080 official English
   full-name identities, including 46 cross-set identities.
-- The latest agent-verified full `pnpm test` passed 198 tests: card-data 48,
-  desktop-client 37, game-server 47, integration-tests 23, card-dsl 8,
-  judge-tools 9, protocol 3, replay-core 10, and engine-core 13.
+- The current full `pnpm test` passed 208 tests: card-data 49,
+  desktop-client 41, game-server 48, integration-tests 23, card-dsl 10,
+  judge-tools 10, protocol 3, replay-core 10, and engine-core 14.
 - Frozen install and audit checks passed locally. The local toolchain uses
   Vitest 5.0.3 and Vite 7.3.7.
+- The Windows CI workflow is configured to run `pnpm build`, `pnpm typecheck`,
+  and `pnpm test`, then build the Tauri NSIS bundle and upload the resulting
+  installer artifact. The latest post-change workflow run has not yet been
+  observed.
 
 DeckBuilder no longer adds printings marked `available: false`, preserves API
 `printingIssues`, and includes a full-art preview. The former

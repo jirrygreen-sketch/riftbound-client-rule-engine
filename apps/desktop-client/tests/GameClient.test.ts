@@ -248,6 +248,21 @@ describe("GameClient", () => {
     expect(harness.handshakes.at(-1)).toBe(true);
   });
 
+  it("does not let an old heartbeat timer close the replacement socket", () => {
+    const harness = createHarness();
+    const first = connect(harness);
+    first.open();
+    first.receive({ type: "welcome", protocolVersion: PROTOCOL_VERSION });
+
+    const second = connect(harness);
+    second.open();
+    second.receive({ type: "welcome", protocolVersion: PROTOCOL_VERSION });
+
+    vi.advanceTimersByTime(40_000);
+    expect(first.closeCalls).toBe(1);
+    expect(second.readyState).toBe(FakeWebSocket.OPEN);
+  });
+
   it.each(["invalid-token", "room-not-found"] as const)(
     "drops stale resume state and reconnects cleanly after %s",
     code => {
@@ -432,14 +447,14 @@ describe("GameClient", () => {
     expect(socket.sentJson().at(-1)).toMatchObject({ expectedVersion: 2 });
   });
 
-  it("clears a pending command on disconnect and resumes from the stored session", () => {
+  it("keeps a command pending across reconnect and resumes from the stored session", () => {
     const harness = createPlayableClient();
     const first = latestSocket();
 
     expect(harness.client.pass()).toBe(true);
     first.serverClose();
 
-    expect(harness.pending).toEqual([true, false]);
+    expect(harness.pending).toEqual([true]);
     expect(harness.projections.at(-1)).toBeNull();
     expect(harness.client.pass()).toBe(false);
     expect(harness.statuses.at(-1)).toBe("reconnecting");
@@ -461,21 +476,98 @@ describe("GameClient", () => {
       resumed: true
     });
     receiveProjection(second, 3);
-    expect(harness.client.pass()).toBe(true);
-    expect(second.sentJson().at(-1)).toMatchObject({ expectedVersion: 3 });
+    expect(harness.client.pass()).toBe(false);
+    expect(harness.errors.at(-1)).toContain("确认中");
+    const retry = second.sentJson().find(
+      message => message.type === "command" && message.expectedVersion === 3
+    );
+    expect(retry).toMatchObject({ expectedVersion: 3 });
   });
 
-  it("clears a pending command after the acknowledgement timeout", () => {
+  it("retries a command with the same id after an acknowledgement timeout", () => {
+    const harness = createPlayableClient();
+    const socket = latestSocket();
+
+    expect(harness.client.pass()).toBe(true);
+    const firstCommand = socket.sentJson().at(-1)!;
+    vi.advanceTimersByTime(10_000);
+
+    const commands = socket
+      .sentJson()
+      .filter(message => message.type === "command") as Array<{
+      commandId: string;
+      requestId: string;
+      expectedVersion: number;
+    }>;
+    expect(commands).toHaveLength(2);
+    expect(new Set(commands.map(command => command.commandId)).size).toBe(1);
+    expect(commands.at(-1)?.requestId).not.toBe(firstCommand.requestId);
+    expect(harness.pending).toEqual([true]);
+  });
+
+  it("retries a command with the same id after reconnecting", () => {
+    const harness = createPlayableClient();
+    const first = latestSocket();
+
+    expect(harness.client.pass()).toBe(true);
+    const firstCommand = first.sentJson().at(-1)!;
+    first.serverClose();
+
+    vi.advanceTimersByTime(1_000);
+    const second = latestSocket();
+    second.open();
+    second.receive({
+      type: "welcome",
+      protocolVersion: PROTOCOL_VERSION,
+      session: SESSION,
+      resumed: true
+    });
+    receiveProjection(second, 3);
+
+    const retry = second.sentJson().find(
+      message => message.type === "command" && message.commandId === firstCommand.commandId
+    );
+    expect(retry).toMatchObject({
+      type: "command",
+      commandId: firstCommand.commandId,
+      expectedVersion: 3,
+      command: { type: "pass" }
+    });
+    expect(retry?.requestId).not.toBe(firstCommand.requestId);
+    expect(harness.pending).toEqual([true]);
+
+    second.receive({
+      type: "request-result",
+      requestId: retry?.requestId,
+      ok: true,
+      commandId: firstCommand.commandId,
+      appliedVersion: 3,
+      eventSeq: 2,
+      duplicate: true
+    });
+    expect(harness.pending).toEqual([true, false]);
+  });
+
+  it("abandons a command after exhausting idempotent retries", () => {
     const harness = createPlayableClient();
     const socket = latestSocket();
 
     expect(harness.client.pass()).toBe(true);
     vi.advanceTimersByTime(10_000);
+    vi.advanceTimersByTime(10_000);
+    vi.advanceTimersByTime(10_000);
 
+    const commands = socket
+      .sentJson()
+      .filter(message => message.type === "command") as Array<{
+      commandId: string;
+      requestId: string;
+      expectedVersion: number;
+    }>;
+    expect(commands).toHaveLength(3);
+    expect(new Set(commands.map(command => command.commandId)).size).toBe(1);
     expect(harness.pending).toEqual([true, false]);
     expect(harness.errors.at(-1)).toContain("超时");
-    expect(harness.client.pass()).toBe(true);
-    expect(socket.sentJson().filter(message => message.type === "command")).toHaveLength(2);
   });
 });
 

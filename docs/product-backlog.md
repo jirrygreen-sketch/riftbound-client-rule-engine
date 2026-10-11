@@ -10,11 +10,11 @@ synthetic-demo slice.
 
 | Priority | Scope | Current state |
 | --- | --- | --- |
-| P0 | Shared protocol, engine slice, in-memory server rooms, desktop client, DSL/replay/judge package foundations | Implemented; the latest agent-verified full workspace test pass is 198 tests. |
+| P0 | Shared protocol, engine slice, in-memory server rooms, desktop client, DSL/replay/judge package foundations | Implemented; the current full workspace test pass is 208 tests. |
 | P1 | Official card snapshot, image cache, catalog APIs, six-zone deck builder, official bans | Complete for the current snapshot: 1,381 images with zero missing or failed. |
 | P1 | Complete official rules engine and executable 1,381-card effects | Not complete; only the synthetic-demo effect is executable. |
 | P2 | Durable rooms, reconnect backfill, deterministic replay, full desktop gameplay | Not complete. |
-| P3 | Installer, update, judge workflow, release gates | Configuration exists; installer remains unverified. |
+| P3 | Installer, update, judge workflow, release gates | The workflow builds NSIS and uploads the artifact; installation and update behavior remain unverified. |
 
 ## P0: Foundation
 
@@ -94,7 +94,8 @@ work is:
 ## P3: Release
 
 - Verify `desktop:dev`, `desktop:build`, and the generated NSIS installer on a
-  Rust-enabled Windows host; GitHub Windows CI verification is pending.
+  Rust-enabled Windows host. GitHub CI must be observed after each release
+  candidate; artifact upload success alone does not verify installation.
 - Generate and lock `src-tauri/Cargo.lock`.
 - Add installer, upgrade, rollback, and crash-recovery tests.
 - Complete judge review/correction workflows and release evidence packaging.

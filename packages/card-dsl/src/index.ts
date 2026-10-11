@@ -122,6 +122,7 @@ interface ValidationContext {
   readonly targetIds: Set<string>;
   readonly targetReferences: { readonly id: string; readonly path: string }[];
   readonly ancestors: WeakSet<object>;
+  autoResolveDepth: number;
 }
 
 function formatIssues(issues: readonly ValidationIssue[]): string {
@@ -452,6 +453,14 @@ function readEffectNode(
     : undefined;
 
   if (targetId !== undefined && targetId !== null) {
+    if (context.autoResolveDepth > 0) {
+      addIssue(
+        context,
+        `${path}.targetId`,
+        "auto-resolve-target",
+        "Target selection requires a player decision and cannot be automated."
+      );
+    }
     context.targetReferences.push({ id: targetId, path: `${path}.targetId` });
   }
 
@@ -599,7 +608,10 @@ function readAutoResolveNode(
 
   const id = readString(value.id, `${path}.id`, context, { pattern: ID_PATTERN });
   registerNodeId(id, `${path}.id`, context);
+
+  context.autoResolveDepth += 1;
   const body = readBody(value.body, `${path}.body`, context, 1);
+  context.autoResolveDepth -= 1;
 
   if (id === null || body === null) {
     return null;
@@ -678,6 +690,27 @@ function readNode(
     return null;
   }
 
+  if (context.autoResolveDepth > 0 &&
+      (value.type === "choice" || value.type === "optional")) {
+    addIssue(
+      context,
+      `${path}.type`,
+      "auto-resolve-choice",
+      "A strategy choice cannot be nested inside an auto-resolve body."
+    );
+    return null;
+  }
+
+  if (context.autoResolveDepth > 0 && value.type === "target") {
+    addIssue(
+      context,
+      `${path}.type`,
+      "auto-resolve-target",
+      "A target node cannot be nested inside an auto-resolve body."
+    );
+    return null;
+  }
+
   switch (value.type) {
     case "effect":
       return readEffectNode(value, path, context);
@@ -702,7 +735,8 @@ function readDocument(value: unknown): ValidationResult {
     nodeIds: new Set(),
     targetIds: new Set(),
     targetReferences: [],
-    ancestors: new WeakSet()
+    ancestors: new WeakSet(),
+    autoResolveDepth: 0
   };
 
   if (!isRecord(value)) {

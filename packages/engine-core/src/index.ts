@@ -137,6 +137,13 @@ export function submitCommand(
   processOutstandingTasks(state);
   checkGameEnd(state);
 
+  if (state.phase === "ended" && (state.prompt !== null || state.outstandingTasks.length > 0)) {
+    return failure(currentState, {
+      code: ENGINE_ERRORS.invalidCommand,
+      message: "Engine transaction produced an invalid state."
+    });
+  }
+
   if (state.version < startingVersion || state.eventSeq < startingSeq) {
     return failure(currentState, {
       code: ENGINE_ERRORS.invalidCommand,
@@ -488,6 +495,9 @@ function checkGameEnd(state: GameState): void {
     type: "game-ended",
     winnerPlayerId: winner.id
   });
+
+  state.prompt = null;
+  state.outstandingTasks = [];
 }
 
 function getPlayer(state: GameState, playerId: PlayerId): PlayerState {

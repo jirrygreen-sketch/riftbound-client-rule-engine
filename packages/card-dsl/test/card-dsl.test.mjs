@@ -157,6 +157,93 @@ test("checks choice option constraints", () => {
   assert.ok(defaultResult.issues.some(issue => issue.code === "unknown-default-option"));
 });
 
+test("rejects hidden player choices inside an auto-resolve body", () => {
+  const autoResolvedChoice = fixture();
+  autoResolvedChoice.body[1].body[0].decline[0].body.push({
+    type: "choice",
+    id: "demo.choice.hidden",
+    prompt: "Hidden choice?",
+    options: [
+      {
+        id: "one",
+        label: "One",
+        body: [
+          {
+            type: "effect",
+            id: "demo.effect.hidden-one",
+            operation: "demo.record-note",
+            arguments: { note: "one" }
+          }
+        ]
+      },
+      {
+        id: "two",
+        label: "Two",
+        body: [
+          {
+            type: "effect",
+            id: "demo.effect.hidden-two",
+            operation: "demo.record-note",
+            arguments: { note: "two" }
+          }
+        ]
+      }
+    ]
+  });
+  const choiceResult = validateCardDsl(autoResolvedChoice);
+  assert.equal(choiceResult.ok, false);
+  assert.ok(choiceResult.issues.some(issue => issue.code === "auto-resolve-choice"));
+
+  const autoResolvedOptional = fixture();
+  autoResolvedOptional.body[1].body[0].decline[0].body.push({
+    type: "optional",
+    id: "demo.optional.hidden",
+    prompt: "Hidden optional action?",
+    body: [
+      {
+        type: "effect",
+        id: "demo.effect.hidden",
+        operation: "demo.record-note",
+        arguments: { note: "hidden" }
+      }
+    ],
+    decline: []
+  });
+  const optionalResult = validateCardDsl(autoResolvedOptional);
+  assert.equal(optionalResult.ok, false);
+  assert.ok(optionalResult.issues.some(issue => issue.code === "auto-resolve-choice"));
+});
+
+test("rejects target selection inside an auto-resolve body", () => {
+  const targetNode = fixture();
+  targetNode.body[1].body[0].decline[0].body.push({
+    type: "target",
+    id: "demo.target.hidden",
+    placeholder: "hidden-target",
+    minCount: 1,
+    maxCount: 1
+  });
+  const targetResult = validateCardDsl(targetNode);
+  assert.equal(targetResult.ok, false);
+  assert.ok(targetResult.issues.some(issue => issue.code === "auto-resolve-target"));
+
+  const referencedTarget = fixture();
+  referencedTarget.body[1].body[0].decline[0].body.push({
+    type: "effect",
+    id: "demo.effect.hidden-target",
+    operation: "demo.adjust-counter",
+    arguments: { amount: 1, counter: "pulse" },
+    targetId: "demo.target.opponent"
+  });
+  const referencedResult = validateCardDsl(referencedTarget);
+  assert.equal(referencedResult.ok, false);
+  assert.ok(
+    referencedResult.issues.some(issue =>
+      issue.code === "auto-resolve-target" && issue.path.endsWith("targetId")
+    )
+  );
+});
+
 test("rejects values that are not pure JSON data", () => {
   const withUndefined = fixture();
   withUndefined.body[1].body[0].body[0].options[0].body[0].arguments.amount =

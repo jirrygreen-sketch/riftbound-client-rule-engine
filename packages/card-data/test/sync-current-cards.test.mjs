@@ -380,6 +380,26 @@ test("uses community corrections and fills official-only records", () => {
   assert.equal(merged.cards[1].fullName, "Official Only");
 });
 
+test("rejects invalid or duplicate community card codes", () => {
+  const community = normalizeOfficialCard(
+    officialCard(),
+    "2026-10-11T00:00:00.000Z"
+  );
+
+  assert.throws(
+    () => mergeCards([], [community, community]),
+    /duplicate cardCode unl-022-219/
+  );
+  assert.throws(
+    () => mergeCards([], [{ ...community, cardCode: "" }]),
+    /missing a non-empty cardCode/
+  );
+  assert.throws(
+    () => mergeCards([], [null]),
+    /missing a non-empty cardCode/
+  );
+});
+
 test("rejects duplicate official IDs and exact CLI options", () => {
   assert.equal(parseArguments(["--", "--dry-run"]).dryRun, true);
   assert.throws(

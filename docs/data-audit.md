@@ -312,3 +312,12 @@ not modify tracked production source.
 
 No unresolved production-data issue was found by this audit. Keep the complete
 official-rules boundary separate from data completion.
+
+Follow-up validation on 2026-10-11 found one reproducible synchronization
+guard gap: `mergeCards` previously allowed a later community record to silently
+overwrite an earlier record with the same `cardCode`. Current source data is
+not affected, because it contains no duplicate community card codes. The guard
+is now explicit: invalid, empty, and duplicate community card codes fail the
+sync before merge. The focused regression suite passes 49 card-data tests, and
+the persisted data totals, variant counts, localization counts, and deck digest
+remain unchanged.

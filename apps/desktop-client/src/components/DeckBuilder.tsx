@@ -27,6 +27,7 @@ export interface DeckBuilderCard {
   readonly cardNumber: string;
   readonly variant: DeckCardVariant;
   readonly imageUrl: string | null;
+  readonly banned?: boolean;
   readonly available?: boolean;
   readonly availabilityReason?: string;
 }
@@ -254,7 +255,7 @@ export function addCard(
   cardLimits: ReadonlyMap<string, number>
 ): readonly DeckBuilderEntry[] {
   const card = cards.find(candidate => candidate.id === cardId);
-  if (!card || !isCardAvailable(card)) return deck;
+  if (!card || card.banned === true || card.available === false) return deck;
 
   const limit = cardLimits.get(card.canonicalCardId);
   if (limit === undefined) return deck;
@@ -276,8 +277,8 @@ export function isAddDisabled(quantity: number, limit: number | null): boolean {
   return limit === null || quantity >= limit;
 }
 
-function isCardAvailable(card: DeckBuilderCard): boolean {
-  return card.available !== false;
+export function isCardAvailable(card: DeckBuilderCard): boolean {
+  return card.available !== false && card.banned !== true;
 }
 
 function formatAvailabilityReason(reason: string | undefined): string {

@@ -27,9 +27,13 @@ interface EvidenceRef {
 ```
 
 `url` must be a public HTTPS URL without credentials, a port, query, or
-fragment. `version` must be a numeric dotted source version. `ref` identifies a
-relative section, rule, or case reference. There is no field for an excerpt,
+fragment. `version` must be a numeric dotted or ISO date source version. `ref`
+identifies a relative section, rule, or case reference. There is no field for an excerpt,
 quote, body, or copied case text.
+
+`JudgeEvent.sequence` is the replay event sequence. It must be a positive
+integer so a review request can be linked to the replay event stream without
+an extra offset convention.
 
 A `JudgePolicyProfile` maps event types and rule-check outcomes to
 `JudgeRequiredReason` entries through declarative escalation rules. All

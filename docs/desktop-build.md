@@ -37,6 +37,31 @@ Not verified:
 Therefore, the active bundle configuration is not evidence that a Windows
 installer has been produced.
 
+## Static Verification
+
+The following checks were run on this Windows machine:
+
+- `tauri --version` reports `tauri-cli 2.12.2`.
+- `tauri info` parses the Tauri configuration and reports:
+  - WebView2 Runtime is installed.
+  - Visual Studio 2019 and 2022 MSVC build tools are visible.
+  - `rustc`, `cargo`, and `rustup` are unavailable.
+  - The active bundle type is bundle, the frontend dist is `../dist`, and the
+    dev URL is `http://127.0.0.1:5173/`.
+- `tauri.conf.json` and `capabilities/default.json` parse as valid JSON.
+- The configured icons exist. PNG dimensions are 32x32, 128x128, 256x256, and
+  512x512; the source PNG is 1024x1024. `icon.ico` contains 16, 24, 32, 48,
+  64, and 256-pixel 32-bit entries.
+- `desktop:build` reaches the Rust toolchain check and fails at
+  `cargo metadata` because `cargo` is not installed. It does not produce an
+  NSIS installer.
+
+The production and development CSPs intentionally allow arbitrary
+`http:`, `https:`, `ws:`, and `wss:` connections because both the card catalog
+and game server addresses are user-configurable in the client. This is a broad
+network policy, not an accidental wildcard. No Tauri filesystem, shell, or
+other plugin permissions are granted by the default capability.
+
 ## Commands
 
 From the repository root:

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  buildCardLimits,
   allowedZonesFor,
   limitFor,
   sharedLimitZones,
@@ -402,6 +403,27 @@ describe("CardCatalogClient", () => {
     };
     expect(zoneCanonicalCount(deck, "champion", "flame-warden", cards)).toBe(1);
     expect(zoneCanonicalCount(deck, "sideboard", "flame-warden", cards)).toBe(2);
+
+    const cardsWithAlternates = [
+      { ...flame, allowedZones: ["mainDeck", "champion", "sideboard"] as const },
+      { ...flameArt, allowedZones: ["mainDeck", "champion", "sideboard"] as const }
+    ];
+    expect(buildCardLimits(cardsWithAlternates, "mainDeck", {
+      ...emptyDeckByZone(),
+      champion: { "flame-standard": 1 }
+    }).get("flame-warden")).toBe(2);
+
+    expect(buildCardLimits(cardsWithAlternates, "sideboard", {
+      ...emptyDeckByZone(),
+      mainDeck: { "flame-standard": 1 },
+      champion: { "flame-art": 1 }
+    }).get("flame-warden")).toBe(1);
+
+    expect(buildCardLimits(cardsWithAlternates, "champion", {
+      ...emptyDeckByZone(),
+      mainDeck: { "flame-standard": 2 },
+      sideboard: { "flame-art": 1 }
+    }).get("flame-warden")).toBe(0);
   });
 
   it("exposes a stable error class for callers", () => {

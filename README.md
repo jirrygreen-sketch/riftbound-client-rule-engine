@@ -28,13 +28,21 @@ Implemented:
 
 Verification and remaining boundaries:
 
-- `pnpm build`, `pnpm typecheck`, the latest agent-verified full `pnpm test`
-  (198 tests), frozen install, and audit checks pass locally. Vitest is 5.0.3
-  and Vite is 7.3.7.
+- `pnpm build`, `pnpm typecheck`, and the current full `pnpm test` pass
+  locally: 208 tests in total (card-data 49, desktop-client 41, game-server 48,
+  integration-tests 23, card-dsl 10, judge-tools 10, replay-core 10,
+  engine-core 14, protocol 3). Frozen install and audit checks also pass.
+  Vitest is 5.0.3 and Vite is 7.3.7.
 - The Windows installer is not verified locally because the checkout lacks
   Rust; GitHub Windows CI verification is pending.
 - The complete official 1,381-card effect set is not compiled or executable.
   The only runtime rules implementation is the synthetic-demo slice.
+
+Delivery is automated through `.github/workflows/desktop-build.yml`. The
+workflow runs the full workspace build, typecheck, and test suite, then builds
+the Tauri NSIS bundle and uploads matching `*-setup.exe` files as an artifact.
+A successful artifact upload verifies packaging on the Windows runner, but it
+does not by itself verify installation, upgrade, or rollback behavior.
 
 Card data and playable effects are different scopes. The completed snapshot
 covers identity, text, image references, and the bounded Constructed policy. It

@@ -350,4 +350,129 @@ describe("game server", () => {
     resumed.send({ type: "ping" });
     await resumed.waitFor("pong", message => message.type === "pong", "resumed pong");
   });
+
+  it("enforces prompt ownership and idempotent prompt responses", async () => {
+    const { url } = await startServer();
+    const alice = await connect(url);
+    const bob = await connect(url);
+    const aliceSession = await createRoom(alice, "Alice");
+    const bobSession = await joinRoom(bob, "Bob", aliceSession.roomId);
+    const initial = await waitForProjection(
+      alice,
+      projection => projection.players.length === 2 && projection.prompt === null,
+      "initial projection"
+    );
+
+    alice.send({
+      type: "command",
+      requestId: "play-request",
+      commandId: "play-command",
+      expectedVersion: initial.version,
+      command: {
+        type: "play-card",
+        instanceId: `${aliceSession.playerId}:trigger-conquer`
+      }
+    });
+    await alice.waitFor(
+      "request-result",
+      message => message.type === "request-result" &&
+        message.requestId === "play-request",
+      "play receipt"
+    );
+    const prompted = await waitForProjection(
+      alice,
+      projection => projection.prompt !== null,
+      "prompt projection"
+    );
+    const prompt = prompted.prompt;
+    if (!prompt) throw new Error("Expected a prompt");
+
+    bob.send({
+      type: "command",
+      requestId: "wrong-owner",
+      commandId: "wrong-owner-command",
+      expectedVersion: prompted.version,
+      command: {
+        type: "respond-to-prompt",
+        promptId: prompt.id,
+        optionId: "resolve"
+      }
+    });
+    const wrongOwner = await bob.waitFor(
+      "error",
+      message => message.type === "error" && message.requestId === "wrong-owner",
+      "wrong owner error"
+    );
+    expect(wrongOwner.code).toBe("not_your_turn");
+
+    alice.send({
+      type: "command",
+      requestId: "respond-request",
+      commandId: "respond-command",
+      expectedVersion: prompted.version,
+      command: {
+        type: "respond-to-prompt",
+        promptId: prompt.id,
+        optionId: "resolve",
+        stateVersion: prompt.stateVersion
+      }
+    });
+    const first = await alice.waitFor(
+      "request-result",
+      message => message.type === "request-result" &&
+        message.requestId === "respond-request",
+      "first response receipt"
+    );
+
+    alice.send({
+      type: "command",
+      requestId: "respond-duplicate",
+      commandId: "respond-command",
+      expectedVersion: initial.version,
+      command: {
+        type: "respond-to-prompt",
+        promptId: prompt.id,
+        optionId: "resolve",
+        stateVersion: prompt.stateVersion
+      }
+    });
+    const duplicate = await alice.waitFor(
+      "request-result",
+      message => message.type === "request-result" &&
+        message.requestId === "respond-duplicate",
+      "duplicate response receipt"
+    );
+    expect(duplicate.duplicate).toBe(true);
+    expect(duplicate.appliedVersion).toBe(first.appliedVersion);
+
+    alice.send({
+      type: "command",
+      requestId: "respond-conflict",
+      commandId: "respond-command",
+      expectedVersion: initial.version,
+      command: {
+        type: "respond-to-prompt",
+        promptId: prompt.id,
+        optionId: "skip",
+        stateVersion: prompt.stateVersion
+      }
+    });
+    const conflict = await alice.waitFor(
+      "error",
+      message => message.type === "error" &&
+        message.requestId === "respond-conflict",
+      "response conflict error"
+    );
+    expect(conflict.code).toBe("idempotency-conflict");
+
+    await waitForProjection(
+      alice,
+      projection =>
+        projection.prompt === null &&
+        projection.players.some(
+          player => player.id === bobSession.playerId && player.life === 19
+        ),
+      "resolved projection"
+    );
+  });
 });

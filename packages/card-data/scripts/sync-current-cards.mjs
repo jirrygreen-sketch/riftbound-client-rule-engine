@@ -590,9 +590,25 @@ export function normalizeOfficialCard(card, fetchedAt) {
 }
 
 export function mergeCards(officialCards, communityCards, fetchedAt) {
-  const communityByCode = new Map(
-    communityCards.map((card) => [card.cardCode, card])
-  );
+  const communityByCode = new Map();
+  for (const [index, card] of communityCards.entries()) {
+    if (
+      card === null ||
+      typeof card !== "object" ||
+      typeof card.cardCode !== "string" ||
+      card.cardCode === ""
+    ) {
+      throw new CurrentCardsSyncError(
+        `Community card ${index} is missing a non-empty cardCode`
+      );
+    }
+    if (communityByCode.has(card.cardCode)) {
+      throw new CurrentCardsSyncError(
+        `Community source contains duplicate cardCode ${card.cardCode}`
+      );
+    }
+    communityByCode.set(card.cardCode, card);
+  }
   const officialIds = new Set();
   const missingFromCommunity = [];
   const cards = officialCards.map((officialCard) => {

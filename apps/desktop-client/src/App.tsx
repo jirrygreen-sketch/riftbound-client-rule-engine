@@ -130,28 +130,10 @@ export function App() {
     ];
   }, [validation]);
 
-  const cardLimits = useMemo(() => {
-    const limits = new Map<string, number>();
-    if (!catalog) return limits;
-    for (const card of catalog.cards) {
-      if (card.banned === true) {
-        limits.set(card.canonicalCardId, 0);
-        continue;
-      }
-      if (!allowedZonesFor(card).includes(activeDeckZone)) continue;
-      const limit = limitFor(card, activeDeckZone);
-      const usedElsewhere = sharedLimitZones(activeDeckZone)
-        .filter(zone => zone !== activeDeckZone)
-        .reduce(
-          (total, zone) =>
-            total + zoneCanonicalCount(deck, zone, card.canonicalCardId, catalog.cards),
-          0
-        );
-      const remaining = limit - usedElsewhere;
-      limits.set(card.canonicalCardId, Math.max(0, remaining));
-    }
-    return limits;
-  }, [activeDeckZone, catalog, deck]);
+  const cardLimits = useMemo(
+    () => buildCardLimits(catalog?.cards ?? [], activeDeckZone, deck),
+    [activeDeckZone, catalog, deck]
+  );
 
   const deckCardCount = useMemo(
     () => DECK_ZONE_ORDER.reduce(
@@ -429,6 +411,30 @@ export function limitFor(card: CatalogCard, zone: DeckZone): number {
     zone === "legend" ? 1 :
     3;
   return card.maxCopies === undefined ? zoneLimit : Math.min(card.maxCopies, zoneLimit);
+}
+
+export function buildCardLimits(
+  cards: readonly CatalogCard[],
+  activeZone: DeckZone,
+  deck: DeckByZone
+): Map<string, number> {
+  const limits = new Map<string, number>();
+  for (const card of cards) {
+    if (card.banned === true) {
+      limits.set(card.canonicalCardId, 0);
+      continue;
+    }
+    if (!allowedZonesFor(card).includes(activeZone)) continue;
+    const limit = limitFor(card, activeZone);
+    const usedElsewhere = sharedLimitZones(activeZone)
+      .filter(zone => zone !== activeZone)
+      .reduce(
+        (total, zone) => total + zoneCanonicalCount(deck, zone, card.canonicalCardId, cards),
+        0
+      );
+    limits.set(card.canonicalCardId, Math.max(0, limit - usedElsewhere));
+  }
+  return limits;
 }
 
 export function sharedLimitZones(activeZone: DeckZone): readonly DeckZone[] {

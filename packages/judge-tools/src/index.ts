@@ -165,7 +165,7 @@ interface ValidationContext {
 const STABLE_ID_PATTERN = /^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/;
 const EVENT_TYPE_PATTERN = /^[a-z][a-z0-9]*(?:[.:-][a-z0-9]+)*$/;
 const VERSION_PATTERN =
-  /^[0-9]+(?:\.[0-9]+){0,3}(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?$/;
+  /^(?:[0-9]+(?:\.[0-9]+){0,3}|[0-9]{4}-[0-9]{2}-[0-9]{2})(?:-[A-Za-z][0-9A-Za-z.-]*)?$/;
 const REF_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/;
 const DECIDED_BY_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const REQUEST_ID_PATTERN = /^judge-review-[0-9a-f]{16}$/;
@@ -532,7 +532,7 @@ function readVersion(
   return readString(value, path, context, {
     pattern: VERSION_PATTERN,
     maxLength: 64,
-    description: "a numeric dotted source version"
+    description: "a numeric dotted or ISO date source version"
   });
 }
 
@@ -1072,7 +1072,7 @@ function readJudgeEvent(
     maxLength: 128,
     description: "a stable event type"
   });
-  const sequence = readSafeInteger(record.sequence, `${path}.sequence`, context, 0);
+  const sequence = readSafeInteger(record.sequence, `${path}.sequence`, context, 1);
   const payload = readJsonObject(record.payload, `${path}.payload`, context);
 
   if (id === null || type === null || sequence === null || payload === null) {
