@@ -2,7 +2,7 @@
 
 ## 一句话结论
 
-先做一个服务器权威、事件驱动、可确定性回放的规则引擎，再用 React 牌桌呈现 Projection。卡牌强制触发由引擎自动检测，可选和战略选择通过 Prompt 交给玩家；YGO 只借鉴卡牌生态和交互表达，不直接套用 YGO 连锁规则。
+先做一个可嵌入独立桌面客户端、也可运行在服务端的服务器权威、事件驱动、可确定性回放的规则引擎，再用 Tauri 2 + React 牌桌呈现 Projection。卡牌强制触发由引擎自动检测，可选和战略选择通过 Prompt 交给玩家；YGO 只借鉴卡牌生态和交互表达，不直接套用 YGO 连锁规则。
 
 ## 1. 产品目标
 
@@ -15,7 +15,7 @@
 ## 2. 总体架构
 
 ```text
-React Client
+Desktop Client (Tauri 2 + React)
   <-> WebSocket Protocol
 Authoritative Game Server
   -> engine-core
@@ -27,9 +27,10 @@ Authoritative Game Server
 建议使用 TypeScript monorepo：
 
 ```text
-apps/web-client
+apps/desktop-client
 apps/game-server
 packages/engine-core
+packages/desktop-bridge
 packages/card-data
 packages/card-dsl
 packages/protocol

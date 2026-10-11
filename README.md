@@ -1,8 +1,8 @@
 # Riftbound Client Rule Engine
 
-一个面向《Riftbound》的非官方客户端与规则引擎设计仓库。项目目标是把卡牌游戏中容易被遗漏的触发、目标、费用、替代效果和时序交给确定性的规则引擎处理，让玩家主要做真正有策略意义的选择，而不是反复点击卡牌来“触发”效果。
+一个面向《Riftbound》的非官方独立桌面游戏客户端与规则引擎设计仓库。项目目标是把卡牌游戏中容易被遗漏的触发、目标、费用、替代效果和时序交给确定性的规则引擎处理，让玩家主要做真正有策略意义的选择，而不是反复点击卡牌来“触发”效果。
 
-本仓库当前是设计阶段交付物，不包含可运行客户端。所有设计文档、规则映射、卡牌 DSL 草案、裁判策略和测试矩阵都已按模块放在 `docs/` 中，并在 `outputs/` 提供一份可单独阅读的总方案。
+本仓库当前是设计阶段交付物，不包含可运行客户端。目标交付形态是可安装、可离线启动的独立桌面程序，不依赖浏览器页面或 Rift Atlas；联网对战服务端是可选后端。所有设计文档、规则映射、卡牌 DSL 草案、裁判策略和测试矩阵都已按模块放在 `docs/` 中，并在 `outputs/` 提供一份可单独阅读的总方案。
 
 ## 目标
 
@@ -20,6 +20,7 @@
 | --- | --- |
 | [总方案](outputs/riftbound-client-rule-engine-plan.md) | 适合产品、研发和评审快速浏览的完整摘要 |
 | [开发方案](docs/development-plan.md) | 技术选型、模块边界、里程碑、交付门禁 |
+| [独立客户端设计](docs/standalone-client-design.md) | 桌面程序形态、本地运行、联网模式和打包方案 |
 | [规则引擎架构](docs/rule-engine-architecture.md) | 状态模型、时序、费用、目标、触发、替代效果 |
 | [客户端设计](docs/client-ux-design.md) | 桌面牌桌、自动触发、Prompt、日志和可访问性 |
 | [卡牌 DSL](docs/card-dsl.md) | 卡牌效果的声明式表示、编译和降级策略 |
@@ -58,10 +59,11 @@ YGO 生态对“卡牌详情、响应队列、结算日志、效果脚本化”�
 
 ```text
 apps/
-  web-client/       # React + Vite 的牌桌和牌组工具
+  desktop-client/   # Tauri 2 + React 的独立桌面牌桌
   game-server/      # WebSocket 会话、房间、权限与回放
 packages/
   engine-core/      # 纯函数、确定性、无 DOM 的规则引擎
+  desktop-bridge/   # Tauri 命令、文件、窗口和本地存储边界
   card-data/        # 版本化卡牌定义和勘误
   card-dsl/         # DSL AST、校验器、编译器
   protocol/         # Command/Event/Projection 协议
