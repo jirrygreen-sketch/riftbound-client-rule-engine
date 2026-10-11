@@ -1,0 +1,29 @@
+{
+  "name": "riftbound-client-rule-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.9.0",
+  "engines": {
+    "node": "^22.12.0 || ^24.0.0 || >=26.0.0"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @riftbound/desktop-client dev",
+    "desktop:dev": "pnpm --filter @riftbound/desktop-client tauri:dev",
+    "desktop:build": "pnpm --filter @riftbound/desktop-client tauri:build",
+    "dev:server": "pnpm --filter @riftbound/game-server dev",
+    "start:server": "pnpm --filter @riftbound/game-server start",
+    "build": "pnpm --recursive --if-present run build",
+    "test": "pnpm --recursive --if-present run test",
+    "typecheck": "pnpm --recursive --if-present run typecheck",
+    "preview": "pnpm --filter @riftbound/desktop-client preview",
+    "cards:sync": "pnpm --filter @riftbound/card-data sync:cards",
+    "cards:images": "pnpm --filter @riftbound/card-data sync:images",
+    "cards:catalog": "pnpm --filter @riftbound/card-data build:catalog",
+    "test:server": "pnpm --filter @riftbound/game-server test",
+    "typecheck:server": "pnpm --filter @riftbound/game-server typecheck"
+  },
+  "devDependencies": {
+    "vitest": "^5.0.3"
+  }
+}

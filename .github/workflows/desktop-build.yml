@@ -1,0 +1,104 @@
+name: Desktop build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/desktop-build.yml"
+      - "apps/desktop-client/**"
+      - "apps/game-server/**"
+      - "packages/card-data/**"
+      - "packages/protocol/**"
+      - "packages/engine-core/**"
+      - "packages/integration-tests/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "tsconfig.base.json"
+  pull_request:
+    paths:
+      - ".github/workflows/desktop-build.yml"
+      - "apps/desktop-client/**"
+      - "apps/game-server/**"
+      - "packages/card-data/**"
+      - "packages/protocol/**"
+      - "packages/engine-core/**"
+      - "packages/integration-tests/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "tsconfig.base.json"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Windows NSIS
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+          run_install: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.21.1
+          cache: pnpm
+
+      - name: Install Rust stable MSVC
+        shell: pwsh
+        run: |
+          rustup toolchain install stable-x86_64-pc-windows-msvc --profile minimal
+          rustup default stable-x86_64-pc-windows-msvc
+          rustc --version
+          cargo --version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify CI receives no locally synchronized card data
+        shell: pwsh
+        run: |
+          $ignoredData = @(
+            "packages/card-data/data/deck-catalog.json",
+            "packages/card-data/data/catalog.json",
+            "packages/card-data/data/images-manifest.json"
+          )
+          foreach ($path in $ignoredData) {
+            if (Test-Path -LiteralPath $path) {
+              throw ("CI checkout contains ignored card data: " + $path)
+            }
+          }
+          if (Test-Path -LiteralPath "packages/card-data/data/images") {
+            throw "CI checkout contains the ignored card image cache."
+          }
+
+      - name: Build workspace
+        run: pnpm build
+
+      - name: Typecheck workspace
+        run: pnpm typecheck
+
+      - name: Test workspace
+        run: pnpm test
+
+      - name: Build desktop package
+        run: pnpm desktop:build
+
+      - name: Upload NSIS installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: riftbound-desktop-windows-nsis
+          path: apps/desktop-client/src-tauri/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error

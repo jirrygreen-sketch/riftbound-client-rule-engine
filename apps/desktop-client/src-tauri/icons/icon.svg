@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Riftbound client icon">
+  <defs>
+    <linearGradient id="board" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#273a34" />
+      <stop offset="1" stop-color="#16232b" />
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="18" fill="#121c22" />
+  <rect x="10" y="10" width="108" height="108" rx="14" fill="url(#board)" stroke="#57b8ae" stroke-width="3" />
+  <path d="M64 24c11 15 24 25 24 39a24 24 0 0 1-48 0c0-14 13-24 24-39Z" fill="#57b8ae" opacity=".22" />
+  <path d="M64 32c8 12 18 19 18 29a18 18 0 0 1-36 0c0-10 10-17 18-29Z" fill="#f0b64b" />
+  <path d="M64 46c4 7 9 11 9 17a9 9 0 0 1-18 0c0-6 5-10 9-17Z" fill="#fff8e7" />
+  <path d="M38 88h52" stroke="#f0b64b" stroke-width="7" stroke-linecap="round" />
+</svg>

@@ -1,0 +1,29 @@
+{
+  "name": "@riftbound/card-data",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "sync:cards": "pnpm build && node scripts/sync-current-cards.mjs",
+    "sync:community-cards": "pnpm build && node scripts/sync-cards.mjs",
+    "sync:images": "node scripts/sync-images.mjs",
+    "build:catalog": "node scripts/build-deck-catalog.mjs",
+    "test": "tsc -p tsconfig.json && node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

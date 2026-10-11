@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": "../..",
+    "paths": {
+      "@riftbound/protocol": ["packages/protocol/src/index.ts"],
+      "@riftbound/engine-core": ["packages/engine-core/src/index.ts"]
+    },
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.d.ts", "vitest.config.ts"]
+}

@@ -8,6 +8,8 @@ build/
 coverage/
 .turbo/
 .vite/
+apps/desktop-client/src-tauri/target/
+apps/desktop-client/src-tauri/gen/
 
 # Local configuration
 .env
@@ -18,6 +20,12 @@ Thumbs.db
 
 # Local research material is intentionally excluded from the public repository.
 /work/
+
+# Locally synchronized official card catalog and image cache.
+packages/card-data/data/catalog.json
+packages/card-data/data/deck-catalog.json
+packages/card-data/data/images/
+packages/card-data/data/images-manifest.json
 
 # Editors and operating-system metadata
 .idea/

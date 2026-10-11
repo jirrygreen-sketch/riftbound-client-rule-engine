@@ -1,0 +1,461 @@
+import { describe, expect, it } from "vitest";
+import {
+  createConstructedRules,
+  getConstructedCardPolicy,
+  getConstructedPrintingPolicy,
+  validateConstructedDeck,
+  type ConstructedPolicyCard
+} from "../src/constructed-policy.js";
+import {
+  validateDeck,
+  type DeckCardDefinition,
+  type DeckSubmission
+} from "../src/deck-validation.js";
+
+function card(
+  values: Partial<ConstructedPolicyCard> & {
+    readonly canonicalCardId: string;
+    readonly fullName: string;
+  }
+): ConstructedPolicyCard {
+  return {
+    id: values.id ?? `${values.canonicalCardId}.base`,
+    setCode: "ogn",
+    cardType: "Unit",
+    ...values
+  };
+}
+
+const banCardTypes: Readonly<Record<string, string>> = {
+  "card.called-shot": "Spell",
+  "card.ekko": "Unit",
+  "card.draven": "Unit",
+  "card.fight-or-flight": "Spell",
+  "card.scrapheap": "Gear",
+  "card.stealthy-pursuer": "Unit",
+  "card.stacked-deck": "Spell",
+  "card.arena": "Battlefield",
+  "card.aspirants-climb": "Battlefield",
+  "card.dreaming-tree": "Battlefield",
+  "card.obelisk": "Battlefield",
+  "card.reavers-row": "Battlefield"
+};
+
+const officialBans: readonly {
+  readonly officialName: string;
+  readonly snapshotName: string;
+  readonly canonicalCardId: string;
+}[] = [
+  { officialName: "Called Shot", snapshotName: "Called Shot", canonicalCardId: "card.called-shot" },
+  { officialName: "Ekko, Recurrent", snapshotName: "Ekko, Recurrent", canonicalCardId: "card.ekko" },
+  { officialName: "Draven, Vanquisher", snapshotName: "Draven, Vanquisher", canonicalCardId: "card.draven" },
+  { officialName: "Fight or Flight", snapshotName: "Fight or Flight", canonicalCardId: "card.fight-or-flight" },
+  { officialName: "Scrapheap", snapshotName: "Scrapheap", canonicalCardId: "card.scrapheap" },
+  { officialName: "Stealthy Pursuer", snapshotName: "Stealthy Pursuer", canonicalCardId: "card.stealthy-pursuer" },
+  { officialName: "Stacked Deck", snapshotName: "Stacked Deck", canonicalCardId: "card.stacked-deck" },
+  { officialName: "The Arena’s Greatest", snapshotName: "The Arena’s Greatest", canonicalCardId: "card.arena" },
+  { officialName: "Aspirant’s Climb", snapshotName: "Aspirant’s Climb", canonicalCardId: "card.aspirants-climb" },
+  { officialName: "Dreaming Tree", snapshotName: "The Dreaming Tree", canonicalCardId: "card.dreaming-tree" },
+  { officialName: "Obelisk of Power", snapshotName: "Obelisk of Power", canonicalCardId: "card.obelisk" },
+  { officialName: "Reaver’s Row", snapshotName: "Reaver’s Row", canonicalCardId: "card.reavers-row" }
+];
+
+const legalCards: readonly ConstructedPolicyCard[] = [
+  ...Array.from({ length: 14 }, (_, index): ConstructedPolicyCard => card({
+    canonicalCardId: `card.filler-${index}`,
+    fullName: `Neutral Filler ${index}`,
+    cardType: "Unit"
+  })),
+  card({
+    canonicalCardId: "card.rune",
+    fullName: "Fixture Rune",
+    cardType: "Rune"
+  }),
+  card({
+    id: "card.rune.alternate",
+    canonicalCardId: "card.rune",
+    fullName: "Fixture Rune",
+    cardType: "Rune",
+    setCode: "ogn"
+  }),
+  ...Array.from({ length: 3 }, (_, index): ConstructedPolicyCard => card({
+    canonicalCardId: `card.battlefield-${index}`,
+    fullName: `Fixture Battlefield ${index}`,
+    cardType: "Battlefield"
+  })),
+  card({
+    canonicalCardId: "card.champion",
+    fullName: "Fixture Champion",
+    cardType: "Unit"
+  }),
+  card({
+    canonicalCardId: "card.legend",
+    fullName: "Fixture Legend",
+    cardType: "Legend"
+  })
+];
+
+const cards: readonly ConstructedPolicyCard[] = [
+  ...officialBans.map(ban => card({
+    canonicalCardId: ban.canonicalCardId,
+    fullName: ban.snapshotName,
+    cardType: banCardTypes[ban.canonicalCardId] ?? "Unit"
+  })),
+  ...legalCards,
+  card({
+    canonicalCardId: "card.radiance",
+    fullName: "Radiance Preview",
+    setCode: "rad"
+  }),
+  card({
+    id: "card.reprint.ogn",
+    canonicalCardId: "card.reprint",
+    fullName: "Released Reprint",
+    setCode: "ogn"
+  }),
+  card({
+    id: "card.reprint.rad",
+    canonicalCardId: "card.reprint",
+    fullName: "Released Reprint",
+    setCode: "rad"
+  }),
+  card({
+    id: "card.proving-ground.base",
+    canonicalCardId: "card.proving-ground",
+    fullName: "Proving Ground Card",
+    setCode: "ogs"
+  }),
+  card({
+    canonicalCardId: "card.eternal",
+    fullName: "Eternal Fixture",
+    setCode: "eternal"
+  })
+];
+
+const constructed = createConstructedRules(cards);
+
+const validationCards: readonly DeckCardDefinition[] = cards.map(item => ({
+  id: item.id,
+  canonicalCardId: item.canonicalCardId,
+  name: item.fullName
+}));
+
+function legalDeck(): DeckSubmission {
+  return {
+    mainDeck: [
+      ...Array.from({ length: 13 }, (_, index) => ({
+        cardId: `card.filler-${index}.base`,
+        quantity: 3
+      }))
+    ],
+    runes: [
+      { cardId: "card.rune.base", quantity: 11 },
+      { cardId: "card.rune.alternate", quantity: 1 }
+    ],
+    legend: [{ cardId: "card.legend.base", quantity: 1 }],
+    champion: [{ cardId: "card.champion.base", quantity: 1 }],
+    battlefields: [
+      ...Array.from({ length: 3 }, (_, index) => ({
+        cardId: `card.battlefield-${index}.base`,
+        quantity: 1
+      }))
+    ],
+    sideboard: [{ cardId: "card.filler-13.base", quantity: 1 }]
+  };
+}
+
+function deckWithMainDeckId(
+  legal: DeckSubmission,
+  cardId: string
+): DeckSubmission {
+  return {
+    ...legal,
+    mainDeck: [{ cardId, quantity: 1 }]
+  };
+}
+
+describe("createConstructedRules", () => {
+  it("exposes the official rules and public policy shape", () => {
+    expect(constructed.policy.format).toBe("standard");
+    expect(constructed.policy.checkedAt).toBe("2026-10-11");
+    expect(constructed.policy.banResolutionComplete).toBe(true);
+    expect(constructed.policy.tournamentComplete).toBe(false);
+    expect(constructed.policy.limitations.map(item => item.id)).toEqual([
+      "domain-identity",
+      "champion-legend-signature",
+      "regional-product-availability"
+    ]);
+    expect(constructed.policy.missingBannedNames).toEqual([]);
+    expect(constructed.policy.sources.map(source => source.id)).toEqual([
+      "rules-hub-constructed-legality",
+      "card-snapshot-official-english-full-name"
+    ]);
+    expect(constructed.rules.sizeRules).toEqual({
+      legend: { minimum: 1, maximum: 1 },
+      champion: { minimum: 1, maximum: 1 },
+      runes: { minimum: 12, maximum: 12 },
+      battlefields: { minimum: 3, maximum: 3 },
+      sideboard: { minimum: 0, maximum: 10 }
+    });
+    expect(constructed.rules.sizeGroups).toEqual([
+      { zones: ["mainDeck", "champion"], rule: { minimum: 40, maximum: 40 } }
+    ]);
+    expect(constructed.rules.uniqueCanonicalZones).toEqual(["battlefields"]);
+  });
+
+  it("resolves every official ban by exact name or explicit source alias", () => {
+    expect(constructed.policy.bannedTargets).toHaveLength(12);
+    for (const ban of officialBans) {
+      const target = constructed.policy.bannedTargets.find(
+        candidate => candidate.officialName === ban.officialName
+      );
+      expect(target).toMatchObject({
+        canonicalCardId: ban.canonicalCardId,
+        resolvedFullName: ban.snapshotName,
+        sourceId: "rules-hub-constructed-legality"
+      });
+      expect(constructed.policy.cardPolicies[ban.canonicalCardId]).toEqual({
+        status: "banned",
+        maxCopies: 0
+      });
+    }
+
+    const dreamingTree = constructed.policy.bannedTargets.find(
+      target => target.officialName === "Dreaming Tree"
+    );
+    expect(dreamingTree?.aliases).toEqual(["The Dreaming Tree"]);
+  });
+
+  it("bans every art and printing of the canonical identity", () => {
+    const result = validateDeck(deckWithMainDeckId(
+      legalDeck(),
+      "card.draven.base"
+    ), validationCards, constructed.rules);
+
+    expect(result.valid).toBe(false);
+    expect(result.issues.map(issue => issue.code)).toContain("banned_card");
+    expect(result.issues.find(issue => issue.code === "banned_card"))
+      .toMatchObject({ canonicalCardId: "card.draven" });
+  });
+
+  it("allows a twelve-copy rune across printings and rejects thirteen", () => {
+    const valid = validateDeck(legalDeck(), validationCards, constructed.rules);
+    const tooMany = validateDeck({
+      ...legalDeck(),
+      runes: [{ cardId: "card.rune.base", quantity: 13 }]
+    }, validationCards, constructed.rules);
+
+    expect(valid.valid).toBe(true);
+    expect(valid.totalCards).toBe(57);
+    expect(tooMany.valid).toBe(false);
+    expect(tooMany.issues.map(issue => issue.code)).toContain(
+      "copy_limit_exceeded"
+    );
+  });
+
+  it("requires exactly three battlefields with one copy of each canonical battlefield", () => {
+    const two = validateDeck({
+      ...legalDeck(),
+      battlefields: [{ cardId: "card.battlefield-0.base", quantity: 2 }]
+    }, validationCards, constructed.rules);
+    const duplicateCanonical = validateDeck({
+      ...legalDeck(),
+      battlefields: [
+        { cardId: "card.battlefield-0.base", quantity: 2 },
+        { cardId: "card.obelisk.base", quantity: 1 }
+      ]
+    }, validationCards, constructed.rules);
+
+    expect(two.valid).toBe(false);
+    expect(two.issues.map(issue => issue.code)).toContain(
+      "zone_size_out_of_range"
+    );
+    expect(duplicateCanonical.valid).toBe(false);
+    expect(duplicateCanonical.issues.map(issue => issue.code)).toContain(
+      "copy_limit_exceeded"
+    );
+  });
+
+  it("requires main deck plus champion to total exactly forty", () => {
+    const result = validateDeck({
+      ...legalDeck(),
+      mainDeck: [{ cardId: "card.filler-0.base", quantity: 38 }]
+    }, validationCards, constructed.rules);
+
+    expect(result.valid).toBe(false);
+    expect(result.issues.map(issue => issue.code)).toContain(
+      "deck_size_out_of_range"
+    );
+    expect(result.zoneCounts.mainDeck + result.zoneCounts.champion).toBe(39);
+  });
+
+  it("exposes card policies by canonicalCardId, including bans at zero", () => {
+    expect(getConstructedCardPolicy(
+      constructed.policy,
+      "card.rune"
+    )).toEqual({ status: "legal", maxCopies: 12 });
+    expect(getConstructedCardPolicy(
+      constructed.policy,
+      "card.battlefield-0"
+    )).toEqual({ status: "legal", maxCopies: 1 });
+    expect(getConstructedCardPolicy(
+      constructed.policy,
+      "card.filler-0"
+    )).toEqual({ status: "legal", maxCopies: 3 });
+    expect(getConstructedCardPolicy(
+      constructed.policy,
+      "card.called-shot"
+    )).toEqual({ status: "banned", maxCopies: 0 });
+    expect(getConstructedCardPolicy(
+      constructed.policy,
+      "card.radiance"
+    )).toEqual({ status: "unreleased", maxCopies: 0 });
+    expect(getConstructedCardPolicy(
+      constructed.policy,
+      "card.eternal"
+    )).toEqual({ status: "notStandard", maxCopies: 0 });
+  });
+
+  it("keeps a released identity legal while marking only its Radiance reprint unavailable", () => {
+    expect(getConstructedCardPolicy(
+      constructed.policy,
+      "card.reprint"
+    )).toEqual({ status: "legal", maxCopies: 3 });
+    expect(getConstructedPrintingPolicy(
+      constructed.policy,
+      "card.reprint.ogn"
+    )).toEqual({ status: "available", available: true, setCode: "ogn" });
+    expect(getConstructedPrintingPolicy(
+      constructed.policy,
+      "card.reprint.rad"
+    )).toEqual({
+      status: "previewNotReleased",
+      available: false,
+      setCode: "rad"
+    });
+    expect(getConstructedPrintingPolicy(
+      constructed.policy,
+      "card.radiance.base"
+    )).toEqual({
+      status: "previewNotReleased",
+      available: false,
+      setCode: "rad"
+    });
+  });
+
+  it("rejects unavailable printings through the policy validation helper", () => {
+    const result = validateConstructedDeck(
+      {
+        ...legalDeck(),
+        mainDeck: [
+          ...Array.from({ length: 12 }, (_, index) => ({
+            cardId: `card.filler-${index}.base`,
+            quantity: 3
+          })),
+          { cardId: "card.reprint.rad", quantity: 1 }
+        ]
+      },
+      validationCards,
+      constructed
+    );
+    const releasedResult = validateConstructedDeck(
+      {
+        ...legalDeck(),
+        mainDeck: [
+          ...Array.from({ length: 12 }, (_, index) => ({
+            cardId: `card.filler-${index}.base`,
+            quantity: 3
+          })),
+          { cardId: "card.reprint.ogn", quantity: 3 }
+        ]
+      },
+      validationCards,
+      constructed
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.printingIssues).toEqual([
+      {
+        cardId: "card.reprint.rad",
+        canonicalCardId: "card.reprint",
+        zone: "mainDeck",
+        status: "previewNotReleased",
+        message: "Printing card.reprint.rad is a Radiance preview printing and is not released as of 2026-10-11."
+      }
+    ]);
+    expect(releasedResult.valid).toBe(true);
+    expect(releasedResult.printingIssues).toEqual([]);
+  });
+
+  it("does not silently turn missing ban targets into an empty banlist", () => {
+    const missing = createConstructedRules([
+      ...legalCards,
+      ...officialBans
+        .filter(ban => ban.canonicalCardId !== "card.dreaming-tree")
+        .map(ban => card({
+          canonicalCardId: ban.canonicalCardId,
+          fullName: ban.snapshotName,
+          cardType: banCardTypes[ban.canonicalCardId] ?? "Unit"
+        }))
+    ]);
+
+    expect(missing.policy.banResolutionComplete).toBe(false);
+    expect(missing.policy.missingBannedNames).toEqual(["Dreaming Tree"]);
+    expect(missing.policy.missingBannedTargets).toEqual([
+      {
+        officialName: "Dreaming Tree",
+        sourceId: "rules-hub-constructed-legality",
+        reason: "No card in the snapshot has this exact official English fullName or an explicitly recorded source alias."
+      }
+    ]);
+    expect(missing.policy.bannedTargets).toHaveLength(11);
+  });
+
+  it("rejects ambiguous official names instead of guessing a ban target", () => {
+    const ambiguousCards = [
+      ...legalCards,
+      card({
+        canonicalCardId: "card.dreaming-tree-a",
+        fullName: "Dreaming Tree",
+        cardType: "Battlefield"
+      }),
+      card({
+        canonicalCardId: "card.dreaming-tree-b",
+        fullName: "Dreaming Tree",
+        cardType: "Battlefield"
+      })
+    ];
+
+    expect(() => createConstructedRules(ambiguousCards)).toThrow(
+      /Dreaming Tree.*canonical cards/
+    );
+  });
+
+  it("marks Radiance preview cards as unreleased rather than Standard legal", () => {
+    expect(constructed.policy.standard).toEqual({
+      legalSetCodes: ["ogs", "ogn", "sfd", "unl", "ven"],
+      radiance: {
+        status: "preview-not-released",
+        effectiveDate: "2026-10-16",
+        releaseDate: "2026-10-23"
+      }
+    });
+  });
+
+  it("treats the official Proving Grounds set code OGS as Standard-legal", () => {
+    expect(getConstructedCardPolicy(
+      constructed.policy,
+      "card.proving-ground"
+    )).toEqual({ status: "legal", maxCopies: 3 });
+    expect(getConstructedPrintingPolicy(
+      constructed.policy,
+      "card.proving-ground.base"
+    )).toEqual({
+      status: "available",
+      available: true,
+      setCode: "ogs"
+    });
+    expect(constructed.policy.standard.legalSetCodes).toContain("ogs");
+    expect(constructed.policy.standard.legalSetCodes).not.toContain("pgs");
+  });
+});
