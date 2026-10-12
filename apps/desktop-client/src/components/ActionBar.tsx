@@ -1,5 +1,5 @@
 import { Hand, Play, SkipForward } from "lucide-react";
-import { TRIGGER_CONQUER_CARD, type CardInstance } from "@riftbound/protocol";
+import type { CardInstance } from "@riftbound/protocol";
 
 interface ActionBarProps {
   selectedCard: CardInstance | null;
@@ -8,6 +8,7 @@ interface ActionBarProps {
   blockedReason: string | null;
   onPass: () => void;
   onPlayCard: (instanceId: string) => void;
+  selectedCardLabel: string;
 }
 
 export function ActionBar({
@@ -16,12 +17,9 @@ export function ActionBar({
   canPlay,
   blockedReason,
   onPass,
-  onPlayCard
+  onPlayCard,
+  selectedCardLabel
 }: ActionBarProps) {
-  const playable =
-    canPlay &&
-    selectedCard?.cardId === TRIGGER_CONQUER_CARD.id;
-
   return (
     <section className="action-bar" aria-label="行动控制">
       <button type="button" className="button" onClick={onPass} disabled={!canAct}>
@@ -32,8 +30,8 @@ export function ActionBar({
         type="button"
         className="button primary"
         onClick={() => selectedCard && onPlayCard(selectedCard.instanceId)}
-        disabled={!playable}
-        title={blockedReason ?? `打出 ${TRIGGER_CONQUER_CARD.name}`}
+        disabled={!canPlay}
+        title={blockedReason ?? `打出 ${selectedCardLabel}`}
       >
         <Play size={16} aria-hidden />
         打出卡牌
@@ -41,11 +39,7 @@ export function ActionBar({
       <div className="selected-card">
         <Hand size={16} aria-hidden />
         <span>
-          {selectedCard
-            ? selectedCard.cardId === TRIGGER_CONQUER_CARD.id
-              ? TRIGGER_CONQUER_CARD.name
-              : selectedCard.cardId
-            : "未选择手牌"}
+          {selectedCard ? selectedCardLabel : "未选择手牌"}
         </span>
       </div>
     </section>

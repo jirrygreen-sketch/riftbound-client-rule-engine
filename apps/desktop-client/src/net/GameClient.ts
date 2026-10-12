@@ -1,10 +1,16 @@
 import {
+  OFFICIAL_RULESET_ID,
   PROTOCOL_VERSION,
+  RULESET_ID,
   isServerMessage,
   type ClientSession,
   type ClientToServerMessage,
   type GameProjection,
+  type GameEvent,
   type PlayerCommand,
+  type RoomDeckSubmission,
+  type RoomEvent,
+  type RoomView,
   type ServerToClientMessage
 } from "@riftbound/protocol";
 
@@ -21,9 +27,15 @@ export interface GameClientHandlers {
   onProjection: (projection: GameProjection | null) => void;
   onError: (message: string) => void;
   onRoom: (roomId: string | null) => void;
+  onRoomView?: (room: RoomView | null) => void;
+  onEvents?: (events: readonly GameEvent[]) => void;
+  onRoomEvents?: (events: readonly RoomEvent[]) => void;
   onHandshake: (ready: boolean) => void;
   onPendingCommand?: (pending: boolean) => void;
+  onPendingRequest?: (pending: boolean) => void;
 }
+
+export type CreateRoomRuleset = typeof OFFICIAL_RULESET_ID | typeof RULESET_ID;
 
 export interface StoredSession extends ClientSession {
   serverUrl: string;
@@ -38,6 +50,11 @@ interface PendingCommand {
   timeoutTimer: number | null;
 }
 
+interface PendingRoomRequest {
+  readonly requestId: string;
+  timeoutTimer: number | null;
+}
+
 const STORAGE_KEY = "riftbound.desktop-client.session";
 const DEFAULT_SERVER_URL = "ws://127.0.0.1:8787/ws";
 const MAX_RECONNECT_DELAY_MS = 15_000;
@@ -45,6 +62,7 @@ const HEARTBEAT_INTERVAL_MS = 20_000;
 const HEARTBEAT_TIMEOUT_MS = 50_000;
 const COMMAND_TIMEOUT_MS = 10_000;
 const MAX_COMMAND_ATTEMPTS = 3;
+const ROOM_REQUEST_TIMEOUT_MS = 10_000;
 
 export class GameClient {
   status: GameClientStatus = "idle";
@@ -53,7 +71,11 @@ export class GameClient {
   private serverUrl = "";
   private session: StoredSession | null;
   private latestProjectionVersion: number | null = null;
+  private roomVersion: number | null = null;
+  private latestEventSeq: number | null = null;
+  private latestRoomEventSeq: number | null = null;
   private pendingCommand: PendingCommand | null = null;
+  private pendingRoomRequest: PendingRoomRequest | null = null;
   private requestSeq = 0;
   private reconnectTimer: number | null = null;
   private heartbeatTimer: number | null = null;
@@ -84,6 +106,7 @@ export class GameClient {
     this.preparePendingCommandForRetry();
     this.latestProjectionVersion = null;
     this.handlers.onProjection(null);
+    this.clearPendingRequest();
     this.openSocket("connecting");
   }
 
@@ -99,6 +122,7 @@ export class GameClient {
     this.stopHeartbeat();
     this.setHandshakeReady(false);
     this.clearPendingCommand();
+    this.clearPendingRequest();
 
     const socket = this.socket;
     this.socket = null;
@@ -106,7 +130,10 @@ export class GameClient {
     this.setStatus("disconnected");
   }
 
-  createRoom(playerName: string): boolean {
+  createRoom(
+    playerName: string,
+    ruleset: CreateRoomRuleset = OFFICIAL_RULESET_ID
+  ): boolean {
     const name = requirePlayerName(playerName);
     if (!name) {
       this.handlers.onError("昵称无效，请重新输入。");
@@ -116,7 +143,8 @@ export class GameClient {
     return this.send({
       type: "create-room",
       requestId: this.nextRequestId("create"),
-      playerName: name
+      playerName: name,
+      rulesetId: ruleset
     });
   }
 
@@ -167,6 +195,82 @@ export class GameClient {
       optionId,
       ...(stateVersion === undefined ? {} : { stateVersion })
     });
+  }
+
+  submitDeck(deck: RoomDeckSubmission): boolean {
+    const normalized = normalizeRoomDeck(deck);
+    if (!normalized) {
+      this.handlers.onError("卡组数据无效，无法提交。");
+      return false;
+    }
+    if (this.roomVersion === null) {
+      this.handlers.onError("尚未收到房间状态，无法提交卡组。");
+      return false;
+    }
+
+    return this.sendTrackedRequest({
+      type: "submit-deck",
+      requestId: this.nextRequestId("submit-deck"),
+      expectedRoomVersion: this.roomVersion,
+      deck: normalized
+    });
+  }
+
+  setReady(ready: boolean): boolean {
+    if (this.roomVersion === null) {
+      this.handlers.onError("尚未收到房间状态，无法切换准备状态。");
+      return false;
+    }
+    return this.sendTrackedRequest({
+      type: "set-ready",
+      requestId: this.nextRequestId("set-ready"),
+      expectedRoomVersion: this.roomVersion,
+      ready
+    });
+  }
+
+  syncEvents(): boolean {
+    if (!this.session) {
+      this.handlers.onError("尚未进入房间，无法同步事件。");
+      return false;
+    }
+    return this.send({
+      type: "sync-events",
+      requestId: this.nextRequestId("sync-events"),
+      ...(this.latestEventSeq === null
+        ? {}
+        : { afterEventSeq: this.latestEventSeq }),
+      ...(this.latestRoomEventSeq === null
+        ? {}
+        : { afterRoomEventSeq: this.latestRoomEventSeq })
+    });
+  }
+
+  private sendTrackedRequest(message: ClientToServerMessage): boolean {
+    if (this.pendingRoomRequest !== null) {
+      this.handlers.onError("上一项房间请求仍在处理中，请稍候。");
+      return false;
+    }
+    if (message.type !== "submit-deck" && message.type !== "set-ready") {
+      return this.send(message);
+    }
+
+    this.pendingRoomRequest = {
+      requestId: message.requestId,
+      timeoutTimer: null
+    };
+    this.handlers.onPendingRequest?.(true);
+    if (!this.send(message)) {
+      this.clearPendingRequest();
+      return false;
+    }
+    this.pendingRoomRequest.timeoutTimer = setTimer(() => {
+      const pending = this.pendingRoomRequest;
+      if (!pending || pending.requestId !== message.requestId) return;
+      this.clearPendingRequest();
+      this.handlers.onError("房间请求确认超时，请重试。");
+    }, ROOM_REQUEST_TIMEOUT_MS);
+    return true;
   }
 
   private sendCommand(command: PlayerCommand): boolean {
@@ -236,7 +340,9 @@ export class GameClient {
     this.setHandshakeReady(false);
     this.preparePendingCommandForRetry();
     this.latestProjectionVersion = null;
-    this.handlers.onProjection(null);
+    if (status === "connecting") {
+      this.handlers.onProjection(null);
+    }
 
     const previous = this.socket;
     this.socket = null;
@@ -270,7 +376,6 @@ export class GameClient {
       this.setHandshakeReady(false);
       this.preparePendingCommandForRetry();
       this.latestProjectionVersion = null;
-      this.handlers.onProjection(null);
       if (this.intentionallyClosed) {
         this.setStatus("disconnected");
         return;
@@ -298,7 +403,17 @@ export class GameClient {
     this.sendRaw({
       type: "hello",
       protocolVersion: PROTOCOL_VERSION,
-      ...resume
+      ...resume,
+      ...(resume.roomId === undefined
+        ? {}
+        : {
+            ...(this.latestEventSeq === null
+              ? {}
+              : { afterEventSeq: this.latestEventSeq }),
+            ...(this.latestRoomEventSeq === null
+              ? {}
+              : { afterRoomEventSeq: this.latestRoomEventSeq })
+          })
     });
   }
 
@@ -338,6 +453,9 @@ export class GameClient {
       }
       case "request-result": {
         const pending = this.pendingCommand;
+        if (this.pendingRoomRequest?.requestId === parsed.requestId) {
+          this.clearPendingRequest();
+        }
         if (
           pending &&
           (parsed.commandId === pending.commandId ||
@@ -351,14 +469,34 @@ export class GameClient {
         return;
       }
       case "room":
+        this.roomVersion = parsed.room.roomVersion;
+        this.latestRoomEventSeq = parsed.room.roomEventSeq;
         this.handlers.onRoom(parsed.room.roomId);
+        this.handlers.onRoomView?.(parsed.room);
         return;
       case "projection":
         this.latestProjectionVersion = parsed.projection.version;
+        this.latestEventSeq = Math.max(this.latestEventSeq ?? 0, parsed.projection.eventSeq);
         this.handlers.onProjection(parsed.projection);
         this.handlers.onRoom(parsed.roomId);
         this.retryPendingCommand();
         return;
+      case "events": {
+        this.latestEventSeq = Math.max(
+          this.latestEventSeq ?? parsed.afterEventSeq,
+          parsed.nextEventSeq
+        );
+        this.handlers.onEvents?.(parsed.events);
+        return;
+      }
+      case "room-events": {
+        this.latestRoomEventSeq = Math.max(
+          this.latestRoomEventSeq ?? parsed.afterRoomEventSeq,
+          parsed.nextRoomEventSeq
+        );
+        this.handlers.onRoomEvents?.(parsed.events);
+        return;
+      }
       case "error":
         this.handleServerError(parsed);
         return;
@@ -372,6 +510,12 @@ export class GameClient {
     message: Extract<ServerToClientMessage, { type: "error" }>
   ): void {
     const pending = this.pendingCommand;
+    if (
+      this.pendingRoomRequest !== null &&
+      message.requestId === this.pendingRoomRequest.requestId
+    ) {
+      this.clearPendingRequest();
+    }
     const pendingAffected =
       pending !== null &&
       (message.requestId === pending.requestId ||
@@ -406,6 +550,9 @@ export class GameClient {
         return;
       case "room-full":
         this.handlers.onError("房间人数已满，无法加入。");
+        return;
+      case "invalid-deck":
+        this.handlers.onError("卡组未通过服务端校验，请调整后再提交。");
         return;
       case "already-in-room":
         this.handlers.onError("当前连接已经进入房间。");
@@ -466,8 +613,12 @@ export class GameClient {
 
   private reconnectWithoutSession(): void {
     this.latestProjectionVersion = null;
+    this.roomVersion = null;
+    this.latestEventSeq = null;
+    this.latestRoomEventSeq = null;
     this.setHandshakeReady(false);
     this.clearPendingCommand();
+    this.clearPendingRequest();
     this.applySession(null);
     this.handlers.onProjection(null);
     this.stopHeartbeat();
@@ -482,7 +633,11 @@ export class GameClient {
     this.stopHeartbeat();
     this.setHandshakeReady(false);
     this.clearPendingCommand();
+    this.clearPendingRequest();
     this.latestProjectionVersion = null;
+    this.roomVersion = null;
+    this.latestEventSeq = null;
+    this.latestRoomEventSeq = null;
     this.applySession(null);
     this.handlers.onProjection(null);
 
@@ -498,7 +653,11 @@ export class GameClient {
     this.stopHeartbeat();
     this.setHandshakeReady(false);
     this.clearPendingCommand();
+    this.clearPendingRequest();
     this.latestProjectionVersion = null;
+    this.roomVersion = null;
+    this.latestEventSeq = null;
+    this.latestRoomEventSeq = null;
     this.handlers.onError("客户端与服务端版本不兼容，请更新后重试。");
     this.handlers.onProjection(null);
 
@@ -536,6 +695,7 @@ export class GameClient {
   }
 
   private preparePendingCommandForRetry(): void {
+    this.clearPendingRequest();
     const pending = this.pendingCommand;
     if (!pending) return;
 
@@ -588,6 +748,14 @@ export class GameClient {
     this.handlers.onPendingCommand?.(false);
   }
 
+  private clearPendingRequest(): void {
+    const pending = this.pendingRoomRequest;
+    if (!pending) return;
+    this.pendingRoomRequest = null;
+    if (pending.timeoutTimer !== null) clearTimer(pending.timeoutTimer);
+    this.handlers.onPendingRequest?.(false);
+  }
+
   private setStatus(status: GameClientStatus): void {
     this.status = status;
     this.handlers.onStatus(status);
@@ -625,7 +793,29 @@ export class GameClient {
     writeSession(session);
     this.handlers.onSession(session);
     this.handlers.onRoom(session?.roomId ?? null);
+    this.handlers.onRoomView?.(null);
   }
+}
+
+function normalizeRoomDeck(deck: RoomDeckSubmission): RoomDeckSubmission | null {
+  if (typeof deck !== "object" || deck === null) return null;
+  const result: Record<string, { cardId: string; quantity: number }[]> = {};
+  for (const [zone, entries] of Object.entries(deck)) {
+    if (!Array.isArray(entries)) return null;
+    const normalizedEntries: { cardId: string; quantity: number }[] = [];
+    for (const entry of entries) {
+      if (
+        typeof entry?.cardId !== "string" ||
+        !entry.cardId ||
+        typeof entry.quantity !== "number" ||
+        !Number.isSafeInteger(entry.quantity) ||
+        entry.quantity <= 0
+      ) return null;
+      normalizedEntries.push({ cardId: entry.cardId, quantity: entry.quantity });
+    }
+    result[zone] = normalizedEntries;
+  }
+  return result;
 }
 
 function requirePlayerName(input: string): string | null {

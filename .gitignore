@@ -24,6 +24,7 @@ Thumbs.db
 # Locally synchronized official card catalog and image cache.
 packages/card-data/data/catalog.json
 packages/card-data/data/deck-catalog.json
+packages/card-data/data/effect-coverage.json
 packages/card-data/data/images/
 packages/card-data/data/images-manifest.json
 

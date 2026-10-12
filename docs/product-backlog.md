@@ -10,9 +10,9 @@ synthetic-demo slice.
 
 | Priority | Scope | Current state |
 | --- | --- | --- |
-| P0 | Shared protocol, engine slice, in-memory server rooms, desktop client, DSL/replay/judge package foundations | Implemented; the current full workspace test pass is 208 tests. |
+| P0 | Shared protocol, engine slice, in-memory server rooms, desktop client, DSL/replay/judge package foundations | Implemented; see `docs/implementation-status.md` for the current full-workspace verification status and test totals. |
 | P1 | Official card snapshot, image cache, catalog APIs, six-zone deck builder, official bans | Complete for the current snapshot: 1,381 images with zero missing or failed. |
-| P1 | Complete official rules engine and executable 1,381-card effects | Not complete; only the synthetic-demo effect is executable. |
+| P1 | Complete official rules engine and executable 1,381-card effects | Not complete; persisted effect coverage is 0 executable, 1,348 judge-required, and 33 no-ability printings. |
 | P2 | Durable rooms, reconnect backfill, deterministic replay, full desktop gameplay | Not complete. |
 | P3 | Installer, update, judge workflow, release gates | The workflow builds NSIS and uploads the artifact; installation and update behavior remain unverified. |
 
@@ -68,7 +68,15 @@ Acceptance:
 
 ## P1: Complete Rules Engine
 
-The existing catalog must not be mistaken for executable rules. The remaining
+The existing catalog must not be mistaken for executable rules.
+The persisted effect-coverage report distinguishes 1,381 printings from 1,080
+canonical identities. Its 33 no-ability printings represent 15 identities:
+24 Basic Rune printings across 6 identities and 9 no-text Unit printings across
+9 identities. The Basic Runes have rules-defined activated abilities despite
+empty upstream text, so `noAbility` is a text/coverage classification rather
+than an executable status.
+
+The remaining work is:
 work is:
 
 1. Replace the synthetic state model with official game objects, stable IDs,

@@ -77,12 +77,6 @@ export class ProtocolWebSocketClient {
     const deadline = Date.now() + timeoutMs;
 
     while (true) {
-      if (this.invalidMessages.length > 0) {
-        throw new Error(
-          `Game server sent invalid protocol messages: ${JSON.stringify(this.invalidMessages)}`
-        );
-      }
-
       const index = this.queued.findIndex(
         (message): message is MessageByType<T> =>
           message.type === type && predicate(message as MessageByType<T>)
@@ -92,10 +86,17 @@ export class ProtocolWebSocketClient {
         return message as MessageByType<T>;
       }
 
+      if (this.invalidMessages.length > 0) {
+        throw new Error(
+          `Game server sent invalid protocol messages: ${JSON.stringify(this.invalidMessages)}`
+        );
+      }
+
       const remaining = deadline - Date.now();
       if (remaining <= 0) {
         throw new Error(
-          `Timed out waiting for ${label}. Queued messages: ${JSON.stringify(this.queued)}`
+          `Timed out waiting for ${label}. Queued messages: ${JSON.stringify(this.queued)}` +
+          ` Invalid messages: ${JSON.stringify(this.invalidMessages)}`
         );
       }
 
@@ -109,7 +110,8 @@ export class ProtocolWebSocketClient {
           this.waiters.delete(wake);
           reject(
             new Error(
-              `Timed out waiting for ${label}. Queued messages: ${JSON.stringify(this.queued)}`
+              `Timed out waiting for ${label}. Queued messages: ${JSON.stringify(this.queued)}` +
+              ` Invalid messages: ${JSON.stringify(this.invalidMessages)}`
             )
           );
         }, remaining);

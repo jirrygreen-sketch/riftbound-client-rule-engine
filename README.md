@@ -9,6 +9,10 @@ and judge packages.
 Implemented:
 
 - WebSocket game rooms and HTTP catalog, card-image, and deck-validation APIs.
+- Submitted decks, readiness, reconnect with connection replacement, versioned
+  commands, and viewer-filtered game and room event backfill.
+- A separate foundation rules slice with score, energy, zones, private hands
+  and rune decks, target prompts, and blocking `judge-required` effects.
 - A React client with canonical card grouping, printing selection, a six-zone
   deck builder, unavailable-printing protection, preserved API
   `printingIssues`, and a full-art preview.
@@ -28,15 +32,18 @@ Implemented:
 
 Verification and remaining boundaries:
 
-- `pnpm build`, `pnpm typecheck`, and the current full `pnpm test` pass
-  locally: 208 tests in total (card-data 49, desktop-client 41, game-server 48,
-  integration-tests 23, card-dsl 10, judge-tools 10, replay-core 10,
-  engine-core 14, protocol 3). Frozen install and audit checks also pass.
-  Vitest is 5.0.3 and Vite is 7.3.7.
+- [Implementation status](docs/implementation-status.md) records verification
+  commands, results, and remaining gaps for the current revision.
 - The Windows installer is not verified locally because the checkout lacks
   Rust; GitHub Windows CI verification is pending.
 - The complete official 1,381-card effect set is not compiled or executable.
-  The only runtime rules implementation is the synthetic-demo slice.
+  Effect coverage reports 0 executable, 1,348 judge-required, and 33 empty-text
+  printings. Empty text is a data classification, not proof that a card has no
+  abilities; the 24 Basic Rune printings still require unimplemented core rules.
+- Foundation rooms start from submitted printings with four opening hand cards
+  in submitted order. Shuffle, mulligan, the full opening procedure, channeling,
+  combat, Showdown, and complete card-effect resolution remain unimplemented.
+  Synthetic-demo rooms remain available separately for protocol regression.
 
 Delivery is automated through `.github/workflows/desktop-build.yml`. The
 workflow runs the full workspace build, typecheck, and test suite, then builds
@@ -49,10 +56,11 @@ covers identity, text, image references, and the bounded Constructed policy. It
 does not compile or execute official card abilities.
 
 Implemented multiplayer/deck surfaces are also narrower than a complete game:
-the server provides in-memory WebSocket rooms, and the client provides room
-connection controls and a deck builder against the persisted catalog. They are
-not a complete playable Riftbound game because official card effects and the
-official rules engine remain unimplemented.
+the server provides in-memory WebSocket rooms, and the client provides room,
+deck-submission, readiness, and play controls against server projections.
+Foundation rules are a partial implementation; this is not yet a complete
+playable Riftbound game. Unmodeled effects block for a judge instead of silently
+resolving. Restarting the server still loses rooms and their event history.
 
 ## Workspace
 
@@ -62,11 +70,11 @@ apps/
   desktop-client/    React + Vite UI and Tauri 2 shell
 packages/
   protocol/          shared contracts and validators
-  engine-core/       synthetic-demo rules engine
+  engine-core/       foundation and synthetic-demo rules slices
   card-data/         versioned card data and sync tooling
-  card-dsl/          synthetic-demo DSL AST validation
+  card-dsl/          DSL validation and verified effect IR compilation
   replay-core/       replay envelope validation
-  judge-tools/       judge policy and decision metadata
+  judge-tools/       versioned rule fixtures, policy, and judge metadata
   integration-tests/ cross-package integration tests
 ```
 

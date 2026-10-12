@@ -1,7 +1,13 @@
 import {
+  OFFICIAL_RULESET_ID,
+  RULESET_ID,
   PROTOCOL_VERSION,
   type ClientSession,
-  type GameProjection
+  type GameProjection,
+  type GameEvent,
+  type RoomEvent,
+  type RoomPlayer,
+  type RoomView
 } from "@riftbound/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -115,6 +121,10 @@ interface Harness {
   rooms: Array<string | null>;
   handshakes: boolean[];
   pending: boolean[];
+  roomViews: Array<RoomView | null>;
+  gameEvents: GameEvent[][];
+  roomEvents: RoomEvent[][];
+  requestPending: boolean[];
 }
 
 let originalWindow: unknown;
@@ -455,7 +465,7 @@ describe("GameClient", () => {
     first.serverClose();
 
     expect(harness.pending).toEqual([true]);
-    expect(harness.projections.at(-1)).toBeNull();
+    expect(harness.projections.at(-1)).toStrictEqual(makeProjection(1));
     expect(harness.client.pass()).toBe(false);
     expect(harness.statuses.at(-1)).toBe("reconnecting");
 
@@ -482,6 +492,22 @@ describe("GameClient", () => {
       message => message.type === "command" && message.expectedVersion === 3
     );
     expect(retry).toMatchObject({ expectedVersion: 3 });
+  });
+
+  it("keeps the last confirmed projection visible while reconnecting", () => {
+    const harness = createPlayableClient();
+    const first = latestSocket();
+    const confirmed = makeProjection(1);
+
+    receiveProjection(first, 1);
+    expect(harness.projections.at(-1)).toStrictEqual(confirmed);
+
+    first.serverClose();
+    expect(harness.projections.at(-1)).toStrictEqual(confirmed);
+    expect(harness.statuses.at(-1)).toBe("reconnecting");
+
+    vi.advanceTimersByTime(1_000);
+    expect(harness.projections.at(-1)).toStrictEqual(confirmed);
   });
 
   it("retries a command with the same id after an acknowledgement timeout", () => {
@@ -569,6 +595,205 @@ describe("GameClient", () => {
     expect(harness.pending).toEqual([true, false]);
     expect(harness.errors.at(-1)).toContain("超时");
   });
+
+  it("creates foundation rooms by default and keeps synthetic demo explicit", () => {
+    const harness = createPlayableClient();
+    const socket = latestSocket();
+
+    expect(harness.client.createRoom("Alice")).toBe(true);
+    expect(socket.sentJson().at(-1)).toMatchObject({
+      type: "create-room",
+      playerName: "Alice",
+      rulesetId: OFFICIAL_RULESET_ID
+    });
+
+    expect(harness.client.createRoom("Alice", RULESET_ID)).toBe(true);
+    expect(socket.sentJson().at(-1)).toMatchObject({
+      type: "create-room",
+      playerName: "Alice",
+      rulesetId: RULESET_ID
+    });
+  });
+
+  it("submits all six deck zones using the room version", () => {
+    const harness = createPlayableClient();
+    const socket = latestSocket();
+    receiveRoom(socket, {
+      self: { deckSubmitted: false, ready: false },
+      roomVersion: 3
+      ,
+      roomEventSeq: 3
+    });
+    expect(harness.roomViews.at(-1)).toMatchObject({ roomVersion: 3 });
+    expect(harness.errors).toEqual([]);
+
+    expect(harness.client.submitDeck({
+      mainDeck: [{ cardId: "card-1", quantity: 3 }],
+      runes: [{ cardId: "rune-1", quantity: 12 }],
+      legend: [{ cardId: "legend-1", quantity: 1 }],
+      champion: [{ cardId: "champion-1", quantity: 1 }],
+      battlefields: [{ cardId: "battlefield-1", quantity: 1 }],
+      sideboard: [{ cardId: "card-2", quantity: 2 }]
+    })).toBe(true);
+
+    expect(socket.sentJson().at(-1)).toMatchObject({
+      type: "submit-deck",
+      expectedRoomVersion: 3,
+      deck: {
+        mainDeck: [{ cardId: "card-1", quantity: 3 }],
+        runes: [{ cardId: "rune-1", quantity: 12 }],
+        legend: [{ cardId: "legend-1", quantity: 1 }],
+        champion: [{ cardId: "champion-1", quantity: 1 }],
+        battlefields: [{ cardId: "battlefield-1", quantity: 1 }],
+        sideboard: [{ cardId: "card-2", quantity: 2 }]
+      }
+    });
+    expect(harness.requestPending).toEqual([true]);
+  });
+
+  it("tracks ready state, errors, and request receipts", () => {
+    const harness = createPlayableClient();
+    const socket = latestSocket();
+    receiveRoom(socket, {
+      self: { deckSubmitted: true, ready: false },
+      roomVersion: 4,
+      roomEventSeq: 4
+    });
+
+    expect(harness.client.setReady(true)).toBe(true);
+    const request = socket.sentJson().at(-1)!;
+    expect(request).toMatchObject({
+      type: "set-ready",
+      expectedRoomVersion: 4,
+      ready: true
+    });
+    expect(harness.requestPending).toEqual([true]);
+
+    expect(harness.client.setReady(false)).toBe(false);
+
+    socket.receive({
+      type: "error",
+      requestId: request.requestId,
+      code: "invalid-deck",
+      message: "invalid deck"
+    });
+    expect(harness.requestPending).toEqual([true, false]);
+    expect(harness.errors.at(-1)).toContain("卡组");
+  });
+
+  it("recovers a pending room request after disconnect or acknowledgement timeout", () => {
+    const harness = createPlayableClient();
+    const first = latestSocket();
+    receiveRoom(first, {
+      self: { deckSubmitted: true, ready: false },
+      roomVersion: 4,
+      roomEventSeq: 4
+    });
+
+    expect(harness.client.setReady(true)).toBe(true);
+    expect(harness.requestPending).toEqual([true]);
+
+    first.serverClose();
+    expect(harness.requestPending).toEqual([true, false]);
+    expect(harness.client.setReady(true)).toBe(false);
+
+    vi.advanceTimersByTime(1_000);
+    const second = latestSocket();
+    second.open();
+    second.receive({
+      type: "welcome",
+      protocolVersion: PROTOCOL_VERSION,
+      session: SESSION,
+      resumed: true
+    });
+    receiveRoom(second, { roomVersion: 5, roomEventSeq: 5 });
+
+    expect(harness.client.setReady(true)).toBe(true);
+    expect(harness.requestPending).toEqual([true, false, true, false, true]);
+
+    vi.advanceTimersByTime(10_000);
+    expect(harness.requestPending).toEqual(
+      [true, false, true, false, true, false]
+    );
+    expect(harness.errors.at(-1)).toContain("超时");
+
+    receiveRoom(second, { roomVersion: 6, roomEventSeq: 6 });
+    expect(harness.client.setReady(true)).toBe(true);
+  });
+
+  it("clears a pending room request when the client is explicitly disconnected", () => {
+    const harness = createPlayableClient();
+    const socket = latestSocket();
+    receiveRoom(socket, {
+      self: { deckSubmitted: true, ready: false },
+      roomVersion: 4,
+      roomEventSeq: 4
+    });
+
+    expect(harness.client.setReady(true)).toBe(true);
+    harness.client.disconnect();
+
+    expect(harness.requestPending).toEqual([true, false]);
+    vi.advanceTimersByTime(10_000);
+    expect(harness.errors).toEqual([]);
+  });
+
+  it("merges server events and room events by sequence and resumes with cursors", () => {
+    const harness = createPlayableClient();
+    const first = latestSocket();
+
+    first.receive({
+      type: "events",
+      roomId: SESSION.roomId,
+      afterEventSeq: 0,
+      nextEventSeq: 2,
+      version: 1,
+      events: [
+        makeGameEvent(1),
+        makeGameEvent(2)
+      ]
+    });
+    first.receive({
+      type: "events",
+      roomId: SESSION.roomId,
+      afterEventSeq: 1,
+      nextEventSeq: 3,
+      version: 1,
+      events: [
+        makeGameEvent(2, { activePlayerId: "player-2" }),
+        makeGameEvent(3)
+      ]
+    });
+    first.receive({
+      type: "room-events",
+      roomId: SESSION.roomId,
+      afterRoomEventSeq: 0,
+      nextRoomEventSeq: 2,
+      roomVersion: 2,
+      events: [
+        makeRoomEvent(1),
+        makeRoomEvent(2, { type: "player-ready", playerId: SESSION.playerId, ready: true })
+      ]
+    });
+
+    expect(harness.gameEvents.map(events => events.map(event => event.seq))).toEqual([[1, 2], [2, 3]]);
+    expect(harness.gameEvents.flatMap(events => events).filter(
+      (event, index, all) => all.findIndex(candidate => candidate.seq === event.seq) === index
+    )).toHaveLength(3);
+    expect(harness.roomEvents.flatMap(events => events.map(event => event.seq))).toEqual([1, 2]);
+
+    first.serverClose();
+    vi.advanceTimersByTime(1_000);
+    const second = latestSocket();
+    second.open();
+    expect(second.sentJson().at(-1)).toMatchObject({
+      type: "hello",
+      roomId: SESSION.roomId,
+      resumeToken: SESSION.resumeToken,
+      afterEventSeq: 3,
+      afterRoomEventSeq: 2
+    });
+  });
 });
 
 function createHarness(): Harness {
@@ -579,6 +804,10 @@ function createHarness(): Harness {
   const rooms: Array<string | null> = [];
   const handshakes: boolean[] = [];
   const pending: boolean[] = [];
+  const roomViews: Array<RoomView | null> = [];
+  const gameEvents: GameEvent[][] = [];
+  const roomEvents: RoomEvent[][] = [];
+  const requestPending: boolean[] = [];
   const handlers: GameClientHandlers = {
     onStatus: status => statuses.push(status),
     onSession: session => sessions.push(session),
@@ -586,7 +815,11 @@ function createHarness(): Harness {
     onError: error => errors.push(error),
     onRoom: roomId => rooms.push(roomId),
     onHandshake: ready => handshakes.push(ready),
-    onPendingCommand: value => pending.push(value)
+    onPendingCommand: value => pending.push(value),
+    onRoomView: room => roomViews.push(room),
+    onEvents: events => gameEvents.push([...events]),
+    onRoomEvents: events => roomEvents.push([...events]),
+    onPendingRequest: value => requestPending.push(value)
   };
   const client = new GameClient(handlers);
   clients.push(client);
@@ -599,6 +832,11 @@ function createHarness(): Harness {
     rooms,
     handshakes,
     pending
+    ,
+    roomViews,
+    gameEvents,
+    roomEvents,
+    requestPending
   };
 }
 
@@ -627,6 +865,72 @@ function receiveProjection(socket: FakeWebSocket, version: number): void {
     roomId: SESSION.roomId,
     projection: makeProjection(version)
   });
+}
+
+function receiveRoom(
+  socket: FakeWebSocket,
+  overrides: {
+    self?: Partial<RoomPlayer>;
+    opponent?: Partial<RoomPlayer>;
+  } & Partial<Omit<RoomView, "players">> = {}
+): void {
+  const self = {
+    id: SESSION.playerId,
+    name: "Alice",
+    connected: true,
+    ready: false,
+    deckSubmitted: false,
+    ...overrides.self
+  };
+  const opponent = {
+    id: "player-2",
+    name: "Bob",
+    connected: true,
+    ready: false,
+    deckSubmitted: false,
+    ...overrides.opponent
+  };
+  const { self: _self, opponent: _opponent, ...room } = overrides;
+  socket.receive({
+    type: "room",
+    room: {
+      roomId: SESSION.roomId,
+      status: "waiting",
+      rulesetId: OFFICIAL_RULESET_ID,
+      version: 1,
+      roomVersion: 1,
+      roomEventSeq: 1,
+      players: [self, opponent],
+      ...room
+    }
+  });
+}
+
+function makeGameEvent(
+  seq: number,
+  overrides: Partial<GameEvent> = {}
+): GameEvent {
+  return {
+    type: "turn-passed",
+    seq,
+    turnNumber: 1,
+    activePlayerId: SESSION.playerId,
+    playerId: SESSION.playerId,
+    ...overrides
+  } as GameEvent;
+}
+
+function makeRoomEvent(
+  seq: number,
+  overrides: Partial<RoomEvent> = {}
+): RoomEvent {
+  return {
+    type: "deck-submitted",
+    seq,
+    roomId: SESSION.roomId,
+    playerId: SESSION.playerId,
+    ...overrides
+  };
 }
 
 function makeProjection(version: number): GameProjection {

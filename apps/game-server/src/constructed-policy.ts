@@ -23,6 +23,7 @@ export type ConstructedPrintingPolicyStatus =
 export interface ConstructedCardPolicy {
   readonly status: ConstructedCardPolicyStatus;
   readonly maxCopies: number;
+  readonly policyType: "limited";
 }
 
 export interface ConstructedPolicyCard {
@@ -74,7 +75,7 @@ export interface ConstructedPolicyLimitation {
 
 export interface ConstructedPublicPolicy {
   readonly format: ConstructedFormat;
-  readonly checkedAt: "2026-10-11";
+  readonly checkedAt: string;
   readonly banResolutionComplete: boolean;
   readonly tournamentComplete: false;
   readonly policyScope: string;
@@ -89,11 +90,15 @@ export interface ConstructedPublicPolicy {
   readonly standard: {
     readonly legalSetCodes: readonly string[];
     readonly radiance: {
-      readonly status: "preview-not-released";
+      readonly status: "preview-not-released" | "active";
       readonly effectiveDate: "2026-10-16";
       readonly releaseDate: "2026-10-23";
     };
   };
+}
+
+export interface ConstructedRulesOptions {
+  readonly asOf?: string | Date;
 }
 
 export interface ConstructedRules {
@@ -118,9 +123,11 @@ interface OfficialBanDefinition {
   readonly aliases?: readonly string[];
 }
 
-const CHECKED_AT = "2026-10-11" as const;
 const STANDARD_LEGAL_SET_CODES = ["ogs", "ogn", "sfd", "unl", "ven"] as const;
 const RADIANCE_SET_CODE = "rad";
+const RADIANCE_EFFECTIVE_DATE = "2026-10-16";
+const RADIANCE_EFFECTIVE_AT = "2026-10-16T00:00:00.000Z";
+const RADIANCE_RELEASE_DATE = "2026-10-23";
 const RUNE_MAX_COPIES = 12;
 const BATTLEFIELD_MAX_COPIES = 1;
 const DEFAULT_MAX_COPIES = 3;
@@ -206,6 +213,23 @@ function isStandardLegalSet(setCode: string): boolean {
 
 function isRadianceSet(setCode: string): boolean {
   return setCode.trim().toLowerCase() === RADIANCE_SET_CODE;
+}
+
+function resolveAsOf(value: string | Date | undefined): {
+  readonly checkedAt: string;
+  readonly radianceActive: boolean;
+} {
+  const instant = value instanceof Date
+    ? new Date(value.getTime())
+    : new Date(value ?? Date.now());
+  if (Number.isNaN(instant.getTime())) {
+    throw new Error("Constructed policy asOf must be a valid date.");
+  }
+
+  return {
+    checkedAt: instant.toISOString().slice(0, 10),
+    radianceActive: instant.getTime() >= Date.parse(RADIANCE_EFFECTIVE_AT)
+  };
 }
 
 function buildCanonicalIndex(
@@ -318,12 +342,14 @@ function resolveBans(
 
 export function createConstructedRules(
   cards: readonly ConstructedPolicyCard[],
-  format: ConstructedFormat = "standard"
+  format: ConstructedFormat = "standard",
+  options: ConstructedRulesOptions = {}
 ): ConstructedRules {
   if (format !== "standard") {
     throw new Error(`Unsupported constructed format ${format}.`);
   }
 
+  const { checkedAt, radianceActive } = resolveAsOf(options.asOf);
   const fullNameToCanonical = buildCanonicalIndex(cards);
   const { bannedTargets, missingBannedTargets } = resolveBans(
     fullNameToCanonical
@@ -342,13 +368,15 @@ export function createConstructedRules(
       status: bannedCanonicalIds.has(card.canonicalCardId)
         ? "banned"
         : isRadianceSet(card.setCode)
-          ? "previewNotReleased"
+          ? radianceActive
+            ? "available"
+            : "previewNotReleased"
           : isStandardLegalSet(card.setCode)
             ? "available"
             : "notStandard",
       available: bannedCanonicalIds.has(card.canonicalCardId) === false &&
-        isRadianceSet(card.setCode) === false &&
-        isStandardLegalSet(card.setCode),
+        (isStandardLegalSet(card.setCode) ||
+          (radianceActive && isRadianceSet(card.setCode))),
       setCode: card.setCode
     };
     if (!canonicalCards.has(card.canonicalCardId)) {
@@ -360,7 +388,8 @@ export function createConstructedRules(
     if (bannedCanonicalIds.has(canonicalCardId)) {
       cardPolicies[card.canonicalCardId] = {
         status: "banned",
-        maxCopies: 0
+        maxCopies: 0,
+        policyType: "limited"
       };
       bannedServerPolicies[canonicalCardId] = { type: "banned" };
       continue;
@@ -368,29 +397,31 @@ export function createConstructedRules(
 
     const hasAvailablePrinting = cards.some(candidate =>
       candidate.canonicalCardId === canonicalCardId &&
-      isStandardLegalSet(candidate.setCode)
+      (isStandardLegalSet(candidate.setCode) ||
+        (radianceActive && isRadianceSet(candidate.setCode)))
     );
     if (!hasAvailablePrinting && isRadianceSet(card.setCode)) {
       cardPolicies[card.canonicalCardId] = {
         status: "unreleased",
-        maxCopies: 0
+        maxCopies: 0,
+        policyType: "limited"
       };
-      bannedServerPolicies[canonicalCardId] = { type: "banned" };
       continue;
     }
 
     if (!hasAvailablePrinting) {
       cardPolicies[card.canonicalCardId] = {
         status: "notStandard",
-        maxCopies: 0
+        maxCopies: 0,
+        policyType: "limited"
       };
-      bannedServerPolicies[canonicalCardId] = { type: "banned" };
       continue;
     }
 
     cardPolicies[canonicalCardId] = {
       status: "legal",
-      maxCopies: cardTypeZoneMaxCopies(card.cardType)
+      maxCopies: cardTypeZoneMaxCopies(card.cardType),
+      policyType: "limited"
     };
   }
 
@@ -424,7 +455,7 @@ export function createConstructedRules(
 
   const policy: ConstructedPublicPolicy = {
     format,
-    checkedAt: CHECKED_AT,
+    checkedAt,
     banResolutionComplete: missingBannedTargets.length === 0,
     tournamentComplete: false,
     policyScope: "Bounded official Constructed policy: bans and deck/zone structure only",
@@ -452,11 +483,13 @@ export function createConstructedRules(
     missingBannedNames: missingBannedTargets.map(target => target.officialName),
     missingBannedTargets,
     standard: {
-      legalSetCodes: STANDARD_LEGAL_SET_CODES,
+      legalSetCodes: radianceActive
+        ? [...STANDARD_LEGAL_SET_CODES, RADIANCE_SET_CODE]
+        : STANDARD_LEGAL_SET_CODES,
       radiance: {
-        status: "preview-not-released",
-        effectiveDate: "2026-10-16",
-        releaseDate: "2026-10-23"
+        status: radianceActive ? "active" : "preview-not-released",
+        effectiveDate: RADIANCE_EFFECTIVE_DATE,
+        releaseDate: RADIANCE_RELEASE_DATE
       }
     }
   };

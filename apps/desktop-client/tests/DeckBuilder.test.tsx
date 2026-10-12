@@ -4,6 +4,7 @@ import {
   type DeckBuilderCard,
   type DeckBuilderEntry,
   buildDeckGroups,
+  expandedGroupsForSearch,
   isAddDisabled,
   isCardAvailable,
   removeCard
@@ -145,6 +146,22 @@ describe("DeckBuilder", () => {
     ]);
     expect(blockedUnreleased).toBe(deck);
     expect(blockedWhenUnreleasedIsFirst).toEqual([]);
+  });
+
+  it("automatically expands canonical groups while a search is active", () => {
+    const untouched = new Set(["already-open"]);
+    expect(expandedGroupsForSearch(untouched, [], "flame")).toBe(untouched);
+    expect(expandedGroupsForSearch(untouched, ["already-open"], "flame")).toBe(untouched);
+
+    const expanded = expandedGroupsForSearch(
+      new Set(["already-open"]),
+      ["already-open", "flame"],
+      "flame"
+    );
+    expect([...expanded].sort()).toEqual(["already-open", "flame"]);
+
+    const clearedSearch = new Set(["already-open", "flame"]);
+    expect(expandedGroupsForSearch(clearedSearch, ["flame"], "")).toBe(clearedSearch);
   });
 
   it("blocks a banned printing without zeroing the shared canonical limit", () => {

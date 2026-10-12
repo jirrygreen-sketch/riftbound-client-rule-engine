@@ -42,6 +42,40 @@ the synthetic-demo rules. Official card text, images, and canonical identities
 do not imply that the complete official 1,381-card effect set is compiled or
 playable.
 
+## Effect Coverage
+
+`buildEffectCoverageReport` compiles persisted catalog entries with the
+conservative `@riftbound/card-dsl` compiler. Its report distinguishes:
+
+- `printingCount`: the number of physical/catalog printings, currently 1,381.
+- `canonicalIdentityCount`: unique `canonicalCardId` values, currently 1,080.
+- `executableCount`: printings whose complete text compiled to verified EffectIR.
+- `judgeRequiredCount`: printings with text outside verified compiler coverage.
+- `noAbilityCount`: printings with no ability text.
+
+The persisted report currently records 0 executable, 1,348 judge-required,
+and 33 no-ability printings. The 33 no-ability printings represent 15
+canonical identities: 24 Basic Rune printings across 6 identities and 9
+no-text Unit printings across 9 identities.
+
+`noAbility` is a data and coverage classification. The six Basic Runes have
+empty upstream `ability` text, but Core Rules 164.2 defines two activated
+abilities for every Basic Rune. Those printings are not executable until the
+runtime supports Rune objects, the Rune Deck, recycling, resources, and the
+activated-ability lifecycle.
+
+`executableCount` is deliberately not a claim of full-card playability; host
+trigger timing, legality, and effect ownership still come from the engine. To
+build the persisted report, run:
+
+```text
+pnpm --filter @riftbound/card-data build:coverage
+```
+
+Unknown text is always classified as `judgeRequired`. The package does not
+silently infer a damaging, drawing, resource, or summon effect from partial
+word matches.
+
 ## Runtime Boundary
 
 The package exports:
@@ -128,10 +162,8 @@ The package-filtered form shown above is the supported syntax for all scripts.
 ## Verification
 
 The data sync run above exited 0 and persisted the 1,381-record snapshot.
-`pnpm build`, `pnpm typecheck`, frozen install, and audit checks exit 0 for the
-workspace. The latest agent-verified full `pnpm test` passes 208 tests:
-card-data 49, desktop-client 41, game-server 48, integration-tests 23,
-card-dsl 10, judge-tools 10, protocol 3, replay-core 10, and engine-core 14.
+`docs/implementation-status.md` maintains the current full-workspace
+verification status and test totals.
 
 ```text
 pnpm --filter @riftbound/card-data typecheck

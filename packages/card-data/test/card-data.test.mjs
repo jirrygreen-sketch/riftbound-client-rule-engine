@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
   CARD_DATA_SCHEMA_VERSION,
@@ -13,6 +14,7 @@ import {
   createCardDataManifest,
   createCardDataRegistry,
   createCardDataSet,
+  buildEffectCoverageReport,
   isCardDataBundle,
   isCardDataManifest,
   isCardDataRegistry,
@@ -297,4 +299,88 @@ test("validates deck references and policy without official assumptions", () => 
     ]
   }), false);
   assert.equal(isDeckList({ ...validDeck, unexpected: true }), false);
+});
+
+test("builds conservative effect coverage by printing and identity", () => {
+  const executable = {
+    ...identityPrintingCard,
+    id: "fix-001-100",
+    ability: "When this card arrives, draw 1 card."
+  };
+  const alternateExecutable = {
+    ...executable,
+    id: "fix-001a-100",
+    ability: "When this card arrives, draw 1 card."
+  };
+  const unknown = {
+    ...identityPrintingCard,
+    id: "fix-002-100",
+    canonicalCardId: "card.hash-unknown",
+    ability: "When this card arrives, each player discards a card."
+  };
+  const noAbility = {
+    ...identityPrintingCard,
+    id: "fix-003-100",
+    canonicalCardId: "card.hash-empty",
+    ability: "   "
+  };
+
+  const report = buildEffectCoverageReport([
+    executable,
+    alternateExecutable,
+    unknown,
+    noAbility
+  ]);
+
+  assert.equal(report.schemaVersion, 1);
+  assert.equal(report.printingCount, 4);
+  assert.equal(report.canonicalIdentityCount, 3);
+  assert.equal(report.executableCount, 2);
+  assert.equal(report.judgeRequiredCount, 1);
+  assert.equal(report.noAbilityCount, 1);
+  assert.equal(report.entries[0].status, "executable");
+  assert.equal(report.entries[0].reason, "compiled to verified EffectIR");
+  assert.equal(report.entries[2].status, "judge-required");
+  assert.match(report.entries[2].reason, /verified compiler coverage/);
+  assert.equal(report.entries[3].status, "no-ability");
+
+  assert.throws(
+    () => buildEffectCoverageReport([{ nope: true }]),
+    /every coverage input must be a valid coverage card/
+  );
+  assert.throws(
+    () => buildEffectCoverageReport([executable, executable]),
+    /duplicate printing id/
+  );
+});
+
+test("effect coverage script reports persisted catalog totals without guessing", async () => {
+  const { parseArguments, main } = await import("../scripts/build-effect-coverage.mjs");
+  assert.deepEqual(parseArguments([
+    "--catalog",
+    "catalog.json",
+    "--output",
+    "coverage.json",
+    "--dry-run"
+  ]), {
+    catalog: "catalog.json",
+    output: "coverage.json",
+    dryRun: true,
+    help: false
+  });
+  assert.throws(
+    () => parseArguments(["--nope"]),
+    error => error.name === "BuildEffectCoverageError"
+  );
+
+  const logs = [];
+  const exitCode = await main([
+    "--catalog",
+    fileURLToPath(new URL("../data/deck-catalog.json", import.meta.url)),
+    "--dry-run"
+  ], { log: message => logs.push(message) });
+
+  assert.equal(exitCode, 0);
+  assert.match(logs[0], /^Effect coverage dry run:/);
+  assert.match(logs[0], /printings=1381 canonicalIdentities=1080/);
 });

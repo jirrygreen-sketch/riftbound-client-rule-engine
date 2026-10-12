@@ -39,6 +39,13 @@
 11. Cleanup 完成前不能 Finalize、Resolve、传递 Priority 或 Focus。
 12. Repeat 不会凭空增加第二个 Chain Item。
 
+规则 fixture 版本基线为 [rule-fixtures.md](rule-fixtures.md) 中的
+`official.core-1.5-radiance.2026-10-11`。该 fixture 的 `asOf` 是
+`2026-10-11`。2026-10-12 时，当前生效 Core Rules 是 `v1.4 / 2026-07-16`；
+Radiance 与 2026-10 Tournament Rules 虽然已在 2026-10-09 发布，但到官方核实的
+`2026-10-16` 才生效，因此是 future target。生效前的对局不得把它们当成默认
+权威。
+
 ## 4. 回归用例
 
 | ID | 场景 | 断言 |
@@ -66,6 +73,27 @@
 | RB-021 | Simple Rewind | 通过 `JudgeCorrectionEvent` 恢复并可重放 |
 | RB-022 | Complex Rewind | 要求证据包和随机恢复策略 |
 | RB-023 | Slow Play | 计时事实与违规裁决分离 |
+
+### 4.1 官方 fixture 映射
+
+以下 RB 用例的 fixture 映射如下：
+
+| RB ID | Fixture ID | 官方引用 | decision |
+| --- | --- | --- | --- |
+| RB-006 | `cleanup.recursive-fixed-point`（部分） | CR 322、322.1 | auto |
+| RB-009 | `execute.partially-impossible` | CR 55、55.1 | notImplemented |
+| RB-010 | 未映射 | CR 107.3.f、128.4 | - |
+| RB-011 | `object.identity.non-board-boundary` | CR 124、124.1 | notImplemented |
+| RB-012 | `object.identity.non-board-boundary` | CR 124、124.1 | notImplemented |
+| RB-016 | `judge.tournament-policy-separate-layer` | CR 333、Tournament Rules | judgeRequired |
+| RB-017 | `judge.tournament-policy-separate-layer` | CR 333、Tournament Rules | judgeRequired |
+| RB-020 | 未映射 | CR 128.6、128.6.a | - |
+| RB-021 | `judge.tournament-policy-separate-layer`（部分） | CR 333、Tournament Rules | judgeRequired |
+| RB-022 | `judge.tournament-policy-separate-layer`（部分） | CR 333、Tournament Rules | judgeRequired |
+| RB-023 | `judge.tournament-policy-separate-layer`（部分） | CR 333、Tournament Rules | judgeRequired |
+
+没有完整映射的 RB 用例仍属于卡牌组合或具体效果层。不得为了凑满矩阵而虚构官方语义；
+应先为每个用例登记来源、版本和适用条目，再创建 fixture。
 
 ## 5. 属性测试
 

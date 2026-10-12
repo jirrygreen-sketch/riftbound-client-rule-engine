@@ -1,6 +1,9 @@
 import { type FormEvent, useState } from "react";
 import { Cable, LogIn, Plus, RefreshCw, Users } from "lucide-react";
+import { OFFICIAL_RULESET_ID, RULESET_ID } from "@riftbound/protocol";
 import type { GameClientStatus, StoredSession } from "../net/GameClient";
+
+export type RoomRulesetChoice = typeof OFFICIAL_RULESET_ID | typeof RULESET_ID;
 
 interface ConnectionPanelProps {
   status: GameClientStatus;
@@ -9,7 +12,7 @@ interface ConnectionPanelProps {
   storedSession: StoredSession | null;
   lastError: string | null;
   onConnect: (serverUrl: string) => void;
-  onCreateRoom: (playerName: string) => void;
+  onCreateRoom: (playerName: string, ruleset: RoomRulesetChoice) => void;
   onJoinRoom: (playerName: string, roomId: string) => void;
   onClearError: () => void;
 }
@@ -38,6 +41,7 @@ export function ConnectionPanel({
   );
   const [playerName, setPlayerName] = useState("玩家");
   const [joinRoomId, setJoinRoomId] = useState("");
+  const [ruleset, setRuleset] = useState<RoomRulesetChoice>(OFFICIAL_RULESET_ID);
   const connected = status === "connected";
   const canEnterRoom = connected && handshakeReady && !roomId;
   const restoringSession =
@@ -49,7 +53,7 @@ export function ConnectionPanel({
   };
 
   const handleCreate = () => {
-    onCreateRoom(playerName);
+    onCreateRoom(playerName, ruleset);
   };
 
   const handleJoin = (event: FormEvent) => {
@@ -93,6 +97,24 @@ export function ConnectionPanel({
           <Plus size={16} aria-hidden />
           创建房间
         </button>
+      </div>
+
+      <div className="connection-row ruleset-row" role="radiogroup" aria-label="规则模式">
+        {([
+          [OFFICIAL_RULESET_ID, "Foundation 规则"],
+          [RULESET_ID, "Synthetic Demo"]
+        ] as const).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            className={`ruleset-button ${ruleset === id ? "active" : ""}`}
+            onClick={() => setRuleset(id)}
+            aria-pressed={ruleset === id}
+            disabled={roomId !== null}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       <form className="connection-row" onSubmit={handleJoin}>

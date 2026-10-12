@@ -1,5 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, Layers, Radio, RefreshCw, ShieldCheck } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Layers,
+  ListChecks,
+  Radio,
+  RefreshCw,
+  ShieldCheck,
+  UserCheck
+} from "lucide-react";
 import { ActionBar } from "./components/ActionBar";
 import { ChainPanel } from "./components/ChainPanel";
 import { ConnectionPanel } from "./components/ConnectionPanel";
@@ -7,6 +16,12 @@ import { DeckBuilder, type DeckBuilderEntry } from "./components/DeckBuilder";
 import { LogPanel } from "./components/LogPanel";
 import { PlayerBoard } from "./components/PlayerBoard";
 import { PromptPanel } from "./components/PromptPanel";
+import {
+  buildProjectedGameView,
+  buildProjectedPlayerView,
+  getActionState,
+  type BoardCardInfo
+} from "./game/projectionContract";
 import { useCardCatalog, type DeckByZone } from "./hooks/useCardCatalog";
 import { useGameClient } from "./hooks/useGameClient";
 import {
@@ -16,7 +31,7 @@ import {
   type CatalogCard,
   type DeckZone
 } from "./net/CardCatalogClient";
-import { TRIGGER_CONQUER_CARD, type CardInstance } from "@riftbound/protocol";
+import type { CardInstance, GameEvent } from "@riftbound/protocol";
 
 type AppTab = "deck-builder" | "game-table";
 
@@ -43,10 +58,14 @@ export function App() {
     status,
     handshakeReady,
     commandPending,
+    requestPending,
     projection,
     lastError,
     errorRevision,
     roomId,
+    roomView,
+    gameEvents,
+    roomEvents,
     session,
     storedSession,
     connect,
@@ -55,6 +74,9 @@ export function App() {
     pass,
     playCard,
     respondPrompt,
+    submitDeck,
+    setReady,
+    syncEvents,
     clearError
   } = useGameClient();
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
@@ -78,23 +100,44 @@ export function App() {
   } = useCardCatalog({ serverUrl: catalogServerUrl, retryToken });
 
   const viewerPlayerId = session?.playerId ?? null;
-  const self = projection?.players.find(player => player.id === viewerPlayerId) ?? null;
-  const opponent = projection?.players.find(player => player.id !== viewerPlayerId) ?? null;
+  const roomSelf = useMemo(
+    () => roomView?.players.find(player => player.id === viewerPlayerId) ?? null,
+    [roomView, viewerPlayerId]
+  );
+  const roomOpponent = useMemo(
+    () => roomView?.players.find(player => player.id !== viewerPlayerId) ?? null,
+    [roomView, viewerPlayerId]
+  );
+  const projectedGame = useMemo(() => buildProjectedGameView(projection), [projection]);
+  const self = useMemo(
+    () => buildProjectedPlayerView(projectedGame, viewerPlayerId),
+    [projectedGame, viewerPlayerId]
+  );
+  const opponent = useMemo(
+    () =>
+      buildProjectedPlayerView(
+        projectedGame,
+        projectedGame.players.find(player => player.id !== viewerPlayerId)?.id ?? null
+      ),
+    [projectedGame, viewerPlayerId]
+  );
   const selectedCard = useMemo<CardInstance | null>(() => {
     if (!self || !selectedCardId) return null;
     return self.hand.find(card => card.instanceId === selectedCardId) ?? null;
   }, [self, selectedCardId]);
 
   const connected = status === "connected" && handshakeReady;
-  const canAct =
-    connected &&
-    !commandPending &&
-    projection !== null &&
-    projection.players.length === 2 &&
-    projection.phase !== "ended" &&
-    projection.prompt === null &&
-    projection.activePlayerId === viewerPlayerId;
-  const canPlay = canAct && selectedCard?.cardId === TRIGGER_CONQUER_CARD.id;
+  const mergedGameEvents = useMemo(
+    () => mergeEvents(projection?.events ?? [], gameEvents),
+    [gameEvents, projection?.events]
+  );
+  const actionState = getActionState({
+    connected,
+    commandPending,
+    projection,
+    viewerPlayerId,
+    selectedCard
+  });
 
   const builderCards = useMemo(() => {
     if (!catalog) return [];
@@ -135,6 +178,28 @@ export function App() {
     [activeDeckZone, catalog, deck]
   );
 
+  const resolveCardInfo = useCallback(
+    (cardId: string): BoardCardInfo | null => {
+      const card =
+        catalog?.cards.find(candidate => candidate.id === cardId) ??
+        catalog?.cards.find(candidate => candidate.canonicalCardId === cardId) ??
+        null;
+      if (!card) return null;
+      return {
+        title: [card.localizedName ?? card.name, card.localizedSubtitle ?? card.subtitle]
+          .filter(Boolean)
+          .join(" · "),
+        imageUrl: card.imageUrl ?? cardImageServerUrl(catalogServerUrl, card.id),
+        typeLabel: [card.cardType, ...card.domains].join(" · "),
+        implemented: isCardAbilityImplemented(card)
+      };
+    },
+    [catalog, catalogServerUrl]
+  );
+  const selectedCardLabel = selectedCard
+    ? resolveCardInfo(selectedCard.cardId)?.title ?? selectedCard.cardId
+    : "未选择手牌";
+
   const deckCardCount = useMemo(
     () => DECK_ZONE_ORDER.reduce(
       (total, zone) => total + Object.values(deck[zone]).reduce((sum, count) => sum + count, 0),
@@ -142,21 +207,6 @@ export function App() {
     ),
     [deck]
   );
-  const blockedReason =
-    !connected
-      ? "尚未连接游戏服务端"
-      : !projection
-        ? "等待对手加入"
-        : commandPending
-          ? "操作确认中"
-          : projection.phase === "ended"
-            ? "对局已结束"
-            : projection.prompt
-              ? "请先响应 Prompt"
-              : projection.activePlayerId !== viewerPlayerId
-                ? "尚未轮到你的回合"
-                : null;
-
   useEffect(() => {
     if (!projection) {
       setSelectedCardId(null);
@@ -177,6 +227,18 @@ export function App() {
   useEffect(() => {
     if (errorRevision > 0) setPendingOptionId(null);
   }, [errorRevision]);
+
+  useEffect(() => {
+    if (roomView?.status === "playing") setActiveTab("game-table");
+  }, [roomView?.status]);
+
+  const submitCurrentDeck = useCallback(() => {
+    submitDeck(deck);
+  }, [deck, submitDeck]);
+
+  const toggleReady = useCallback(() => {
+    setReady(!(roomSelf?.ready ?? false));
+  }, [roomSelf?.ready, setReady]);
 
   return (
     <div className="app-shell">
@@ -261,7 +323,62 @@ export function App() {
               <ShieldCheck size={16} aria-hidden />
               校验卡组
             </button>
+            <button
+              className="button primary"
+              type="button"
+              onClick={submitCurrentDeck}
+              disabled={!canSubmitRoomDeck({
+                requestPending,
+                roomStatus: roomView?.status ?? null
+              })}
+            >
+              <ListChecks size={16} aria-hidden />
+              提交卡组
+            </button>
+            <button
+              className="button primary"
+              type="button"
+              onClick={toggleReady}
+              disabled={
+                requestPending ||
+                roomView === null ||
+                roomView.status !== "waiting" ||
+                roomSelf?.deckSubmitted !== true
+              }
+            >
+              <UserCheck size={16} aria-hidden />
+              {roomSelf?.ready ? "取消准备" : "准备开局"}
+            </button>
           </section>
+
+          {roomView ? (
+            <section className="lobby-panel" aria-label="房间状态">
+              <div>
+                <span>房间</span>
+                <strong>{`${roomView.roomId} · ${roomView.status}`}</strong>
+              </div>
+              <div>
+                <span>规则</span>
+                <strong>{roomView.rulesetId}</strong>
+              </div>
+              <div>
+                <span>我</span>
+                <strong>{`卡组 ${roomSelf?.deckSubmitted ? "已提交" : "未提交"} · 准备 ${roomSelf?.ready ? "是" : "否"}`}</strong>
+              </div>
+              <div>
+                <span>对手</span>
+                <strong>
+                  {roomOpponent
+                    ? `${roomOpponent.name} · 卡组 ${roomOpponent.deckSubmitted ? "已提交" : "未提交"} · 准备 ${roomOpponent.ready ? "是" : "否"}`
+                    : "等待加入"}
+                </strong>
+              </div>
+              <button className="button" type="button" onClick={syncEvents}>
+                <RefreshCw size={16} aria-hidden />
+                同步事件
+              </button>
+            </section>
+          ) : null}
 
           {catalogStatus === "loading" ? (
             <section className="catalog-state">
@@ -328,29 +445,28 @@ export function App() {
         <main className="table-shell">
           <PlayerBoard
             player={opponent}
+            viewerPlayerId={viewerPlayerId}
             sideName="对手公开区域"
             selectedCardId={null}
-            viewerIsSelf={false}
-            isActive={projection?.activePlayerId === opponent?.id}
+            canSelect={false}
+            isActive={projection?.activePlayerId === opponent?.playerId}
+            resolveCardInfo={resolveCardInfo}
           />
 
           <ChainPanel projection={projection} />
 
           <PlayerBoard
             player={self}
+            viewerPlayerId={viewerPlayerId}
             sideName="我的区域"
             selectedCardId={selectedCardId}
             onSelectCard={card => {
               setSelectedCardId(card.instanceId);
-              if (
-                canAct &&
-                card.cardId === TRIGGER_CONQUER_CARD.id
-              ) {
-                playCard(card.instanceId);
-              }
             }}
-            viewerIsSelf
+            onPlayCard={playCard}
+            canSelect={actionState.canPass || actionState.canRespondPrompt}
             isActive={projection?.activePlayerId === viewerPlayerId}
+            resolveCardInfo={resolveCardInfo}
           />
         </main>
       )}
@@ -359,11 +475,12 @@ export function App() {
         <footer className="bottom-rail">
           <ActionBar
             selectedCard={selectedCard}
-            canAct={Boolean(canAct)}
-            canPlay={Boolean(canPlay)}
-            blockedReason={blockedReason}
+            canAct={actionState.canPass}
+            canPlay={actionState.canPlay}
+            blockedReason={actionState.blockedReason}
             onPass={pass}
             onPlayCard={playCard}
+            selectedCardLabel={selectedCardLabel}
           />
         </footer>
       ) : null}
@@ -374,13 +491,13 @@ export function App() {
             prompt={projection?.prompt ?? null}
             viewerPlayerId={viewerPlayerId}
             pendingOptionId={pendingOptionId}
-            disabled={commandPending}
+            disabled={commandPending || !actionState.canRespondPrompt}
             onRespond={(promptId, optionId, stateVersion) => {
               setPendingOptionId(optionId);
               respondPrompt(promptId, optionId, stateVersion);
             }}
           />
-          <LogPanel log={projection?.events ?? []} />
+          <LogPanel log={mergedGameEvents} />
         </aside>
       ) : null}
     </div>
@@ -390,6 +507,35 @@ export function App() {
 export function allowedZonesFor(card: CatalogCard): readonly DeckZone[] {
   if (card.allowedZones !== undefined) return card.allowedZones;
   return allowedZonesFromCardType(card);
+}
+
+export function isCardAbilityImplemented(card: CatalogCard): boolean {
+  const supportedFoundationTypes = new Set([
+    "unit",
+    "spell",
+    "battlefield",
+    "champion",
+    "legend"
+  ]);
+
+  return card.ability.trim().length === 0 &&
+    supportedFoundationTypes.has(card.cardType.trim().toLowerCase());
+}
+
+export function canSubmitRoomDeck(options: {
+  requestPending: boolean;
+  roomStatus: "waiting" | "playing" | "ended" | null;
+}): boolean {
+  return !options.requestPending && options.roomStatus === "waiting";
+}
+
+function mergeEvents(
+  left: readonly GameEvent[],
+  right: readonly GameEvent[]
+): readonly GameEvent[] {
+  const bySeq = new Map(left.map(event => [event.seq, event]));
+  for (const event of right) bySeq.set(event.seq, event);
+  return [...bySeq.values()].sort((a, b) => a.seq - b.seq);
 }
 
 function allowedZonesFromCardType(card: CatalogCard): readonly DeckZone[] {
@@ -418,21 +564,41 @@ export function buildCardLimits(
   activeZone: DeckZone,
   deck: DeckByZone
 ): Map<string, number> {
+  const candidates = new Map<string, { limit: number; hasLegalPrinting: boolean }>();
+
   const limits = new Map<string, number>();
   for (const card of cards) {
-    if (card.banned === true) {
-      limits.set(card.canonicalCardId, 0);
-      continue;
-    }
     if (!allowedZonesFor(card).includes(activeZone)) continue;
-    const limit = limitFor(card, activeZone);
+
+    const current = candidates.get(card.canonicalCardId) ?? {
+      limit: 0,
+      hasLegalPrinting: false
+    };
+    const printingLimit = limitFor(card, activeZone);
+    if (
+      card.banned !== true &&
+      card.available !== false &&
+      printingLimit > 0
+    ) {
+      current.limit = Math.max(current.limit, printingLimit);
+      current.hasLegalPrinting = true;
+    }
+    candidates.set(card.canonicalCardId, current);
+  }
+
+  for (const [canonicalCardId, candidate] of candidates) {
     const usedElsewhere = sharedLimitZones(activeZone)
       .filter(zone => zone !== activeZone)
       .reduce(
-        (total, zone) => total + zoneCanonicalCount(deck, zone, card.canonicalCardId, cards),
+        (total, zone) => total + zoneCanonicalCount(deck, zone, canonicalCardId, cards),
         0
       );
-    limits.set(card.canonicalCardId, Math.max(0, limit - usedElsewhere));
+    limits.set(
+      canonicalCardId,
+      candidate.hasLegalPrinting
+        ? Math.max(0, candidate.limit - usedElsewhere)
+        : 0
+    );
   }
   return limits;
 }

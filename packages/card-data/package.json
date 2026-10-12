@@ -14,6 +14,9 @@
   "files": [
     "dist"
   ],
+  "dependencies": {
+    "@riftbound/card-dsl": "workspace:*"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -21,6 +24,7 @@
     "sync:community-cards": "pnpm build && node scripts/sync-cards.mjs",
     "sync:images": "node scripts/sync-images.mjs",
     "build:catalog": "node scripts/build-deck-catalog.mjs",
+    "build:coverage": "pnpm build && node scripts/build-effect-coverage.mjs",
     "test": "tsc -p tsconfig.json && node --test test/*.test.mjs"
   },
   "devDependencies": {

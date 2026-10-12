@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   PROTOCOL_VERSION,
+  RULESET_ID,
   type ClientSession,
   type GameProjection,
   type ServerToClientMessage
@@ -96,7 +97,12 @@ async function createRoom(
   client: ProtocolWebSocketClient,
   playerName: string
 ): Promise<ClientSession> {
-  client.send({ type: "create-room", requestId: "create-1", playerName });
+  client.send({
+    type: "create-room",
+    requestId: "create-1",
+    playerName,
+    rulesetId: RULESET_ID
+  });
   const receipt = await client.waitFor(
     "request-result",
     message => message.type === "request-result" && message.requestId === "create-1",
@@ -143,10 +149,7 @@ async function waitForProjection(
   );
 }
 
-describe("real WebSocket game-server vertical slice", () => {
-  // TODO(upstream): apps/game-server still emits legacy flat welcome/room
-  // payloads and reads commandId from the nested command. These tests must
-  // stay red until the server owns the @riftbound/protocol contract.
+describe("synthetic-demo WebSocket vertical slice", () => {
   it("creates a room, joins a second player, plays, prompts, and responds", async () => {
     const { url } = await startServer();
     const alice = await connect(url);

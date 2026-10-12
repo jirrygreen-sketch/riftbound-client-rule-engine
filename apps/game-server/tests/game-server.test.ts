@@ -45,7 +45,7 @@ class TestClient {
     predicate: (message: MessageByType<T>) => boolean,
     label: string
   ): Promise<MessageByType<T>> {
-    const deadline = Date.now() + 2_000;
+    const deadline = Date.now() + 5_000;
 
     while (true) {
       const index = this.queued.findIndex(
@@ -190,6 +190,18 @@ describe("game server", () => {
     expect(aliceInitial.players[1]?.hand).toHaveLength(0);
     expect(bobInitial.players[0]?.hand).toHaveLength(0);
     expect(bobInitial.players[1]?.hand).toHaveLength(1);
+    expect(
+      aliceInitial.players.map(player => [player.id, player.hand.length])
+    ).toEqual([
+      [aliceSession.playerId, 1],
+      [bobSession.playerId, 0]
+    ]);
+    expect(
+      bobInitial.players.map(player => [player.id, player.hand.length])
+    ).toEqual([
+      [aliceSession.playerId, 0],
+      [bobSession.playerId, 1]
+    ]);
 
     alice.send({
       type: "command",

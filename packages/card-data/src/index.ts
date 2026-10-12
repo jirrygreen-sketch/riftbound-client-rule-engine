@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { compileEffectText } from "@riftbound/card-dsl";
 
 export type CardDefinitionId = string;
 export type CollectionId = string;
@@ -181,6 +182,34 @@ export interface DeckValidationResult {
   valid: boolean;
   totalCards: number;
   issues: readonly DeckValidationIssue[];
+}
+
+export type EffectCoverageStatus =
+  | "executable"
+  | "judge-required"
+  | "no-ability";
+
+export interface EffectCoverageEntry {
+  readonly printingId: CardDefinitionId;
+  readonly canonicalCardId: CanonicalCardId | null;
+  readonly status: EffectCoverageStatus;
+  readonly reason: string;
+}
+
+export interface EffectCoverageReport {
+  readonly schemaVersion: 1;
+  readonly printingCount: number;
+  readonly canonicalIdentityCount: number;
+  readonly executableCount: number;
+  readonly judgeRequiredCount: number;
+  readonly noAbilityCount: number;
+  readonly entries: readonly EffectCoverageEntry[];
+}
+
+export interface EffectCoverageCard {
+  readonly id: CardDefinitionId;
+  readonly canonicalCardId?: CanonicalCardId;
+  readonly ability?: string;
 }
 
 export const CARD_DATA_SCHEMA_VERSION = 1 as const;
@@ -903,6 +932,70 @@ export function validateDeck(
     valid: issues.length === 0,
     totalCards,
     issues
+  };
+}
+
+function isEffectCoverageCard(value: unknown): value is EffectCoverageCard {
+  return record(value) &&
+    typeof value.id === "string" &&
+    isStableId(value.id) &&
+    (value.canonicalCardId === undefined || isStableId(value.canonicalCardId)) &&
+    (value.ability === undefined || typeof value.ability === "string");
+}
+
+export function buildEffectCoverageReport(
+  cards: readonly unknown[]
+): EffectCoverageReport {
+  const seenPrintings = new Set<string>();
+  const canonicalIdentities = new Set<string>();
+  const entries: EffectCoverageEntry[] = [];
+
+  for (const candidate of cards) {
+    if (!isEffectCoverageCard(candidate)) {
+      throw new CardDataValidationError("effect coverage", [
+        "every coverage input must be a valid coverage card"
+      ]);
+    }
+    if (seenPrintings.has(candidate.id)) {
+      throw new CardDataValidationError("effect coverage", [
+        `duplicate printing id: ${candidate.id}`
+      ]);
+    }
+    seenPrintings.add(candidate.id);
+
+    if (candidate.canonicalCardId !== undefined) {
+      canonicalIdentities.add(candidate.canonicalCardId);
+    }
+
+    const text = typeof candidate.ability === "string" ? candidate.ability : "";
+    const compiled = compileEffectText({ id: candidate.id, text });
+    const reason = compiled.status === "executable"
+      ? "compiled to verified EffectIR"
+      : compiled.issues[0]?.message ?? "effect compilation failed";
+    entries.push({
+      printingId: candidate.id,
+      canonicalCardId: candidate.canonicalCardId ?? null,
+      status: compiled.status === "executable"
+        ? "executable"
+        : compiled.issues[0]?.code === "empty-text"
+          ? "no-ability"
+          : "judge-required",
+      reason
+    });
+  }
+
+  const executableCount = entries.filter(entry => entry.status === "executable").length;
+  const judgeRequiredCount = entries.filter(entry => entry.status === "judge-required").length;
+  const noAbilityCount = entries.filter(entry => entry.status === "no-ability").length;
+
+  return {
+    schemaVersion: 1,
+    printingCount: entries.length,
+    canonicalIdentityCount: canonicalIdentities.size,
+    executableCount,
+    judgeRequiredCount,
+    noAbilityCount,
+    entries
   };
 }
 

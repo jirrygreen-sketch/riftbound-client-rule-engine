@@ -427,11 +427,20 @@ function normalizeCardCatalogRuntime(
         `The constructed policy has no entry for printing ${card.id}.`
       );
     }
+    const configuredPolicy =
+      configuredRules?.cardPolicies?.[card.canonicalCardId];
+    const publicMaxCopies = configuredPolicy?.type === "limited"
+      ? configuredPolicy.maxCopies
+      : configuredPolicy?.type === "restricted"
+        ? 1
+        : policy.policyType === "limited"
+          ? policy.maxCopies
+          : 0;
     return {
       ...publicCard(card, {
         allowedZones: allowedZonesFor(card.cardType, card.tags),
-        maxCopies: policy.maxCopies,
-        banned: policy.status !== "legal",
+        maxCopies: publicMaxCopies,
+        banned: policy.status === "banned",
         available: printingPolicy.available,
         availabilityReason: printingPolicy.status
       }),

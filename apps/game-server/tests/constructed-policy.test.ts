@@ -132,7 +132,9 @@ const cards: readonly ConstructedPolicyCard[] = [
   })
 ];
 
-const constructed = createConstructedRules(cards);
+const constructed = createConstructedRules(cards, "standard", {
+  asOf: "2026-10-11T00:00:00.000Z"
+});
 
 const validationCards: readonly DeckCardDefinition[] = cards.map(item => ({
   id: item.id,
@@ -216,7 +218,8 @@ describe("createConstructedRules", () => {
       });
       expect(constructed.policy.cardPolicies[ban.canonicalCardId]).toEqual({
         status: "banned",
-        maxCopies: 0
+        maxCopies: 0,
+        policyType: "limited"
       });
     }
 
@@ -293,34 +296,34 @@ describe("createConstructedRules", () => {
     expect(getConstructedCardPolicy(
       constructed.policy,
       "card.rune"
-    )).toEqual({ status: "legal", maxCopies: 12 });
+    )).toEqual({ status: "legal", maxCopies: 12, policyType: "limited" });
     expect(getConstructedCardPolicy(
       constructed.policy,
       "card.battlefield-0"
-    )).toEqual({ status: "legal", maxCopies: 1 });
+    )).toEqual({ status: "legal", maxCopies: 1, policyType: "limited" });
     expect(getConstructedCardPolicy(
       constructed.policy,
       "card.filler-0"
-    )).toEqual({ status: "legal", maxCopies: 3 });
+    )).toEqual({ status: "legal", maxCopies: 3, policyType: "limited" });
     expect(getConstructedCardPolicy(
       constructed.policy,
       "card.called-shot"
-    )).toEqual({ status: "banned", maxCopies: 0 });
+    )).toEqual({ status: "banned", maxCopies: 0, policyType: "limited" });
     expect(getConstructedCardPolicy(
       constructed.policy,
       "card.radiance"
-    )).toEqual({ status: "unreleased", maxCopies: 0 });
+    )).toEqual({ status: "unreleased", maxCopies: 0, policyType: "limited" });
     expect(getConstructedCardPolicy(
       constructed.policy,
       "card.eternal"
-    )).toEqual({ status: "notStandard", maxCopies: 0 });
+    )).toEqual({ status: "notStandard", maxCopies: 0, policyType: "limited" });
   });
 
   it("keeps a released identity legal while marking only its Radiance reprint unavailable", () => {
     expect(getConstructedCardPolicy(
       constructed.policy,
       "card.reprint"
-    )).toEqual({ status: "legal", maxCopies: 3 });
+    )).toEqual({ status: "legal", maxCopies: 3, policyType: "limited" });
     expect(getConstructedPrintingPolicy(
       constructed.policy,
       "card.reprint.ogn"
@@ -387,6 +390,41 @@ describe("createConstructedRules", () => {
     expect(releasedResult.printingIssues).toEqual([]);
   });
 
+  it("does not report unreleased or non-Standard identities as officially banned", () => {
+    const unreleased = validateConstructedDeck(
+      deckWithMainDeckId(legalDeck(), "card.radiance.base"),
+      validationCards,
+      constructed
+    );
+    const notStandard = validateConstructedDeck(
+      deckWithMainDeckId(legalDeck(), "card.eternal.base"),
+      validationCards,
+      constructed
+    );
+
+    expect(unreleased.valid).toBe(false);
+    expect(unreleased.printingIssues).toEqual([
+      expect.objectContaining({
+        cardId: "card.radiance.base",
+        status: "previewNotReleased"
+      })
+    ]);
+    expect(unreleased.issues.map(issue => issue.code)).not.toContain(
+      "banned_card"
+    );
+
+    expect(notStandard.valid).toBe(false);
+    expect(notStandard.printingIssues).toEqual([
+      expect.objectContaining({
+        cardId: "card.eternal.base",
+        status: "notStandard"
+      })
+    ]);
+    expect(notStandard.issues.map(issue => issue.code)).not.toContain(
+      "banned_card"
+    );
+  });
+
   it("does not silently turn missing ban targets into an empty banlist", () => {
     const missing = createConstructedRules([
       ...legalCards,
@@ -442,11 +480,59 @@ describe("createConstructedRules", () => {
     });
   });
 
+  it("activates Radiance on the rules-effective instant without changing official bans", () => {
+    const active = createConstructedRules(cards, "standard", {
+      asOf: "2026-10-16T00:00:00.000Z"
+    });
+
+    expect(active.policy.checkedAt).toBe("2026-10-16");
+    expect(active.policy.standard).toEqual({
+      legalSetCodes: ["ogs", "ogn", "sfd", "unl", "ven", "rad"],
+      radiance: {
+        status: "active",
+        effectiveDate: "2026-10-16",
+        releaseDate: "2026-10-23"
+      }
+    });
+    expect(getConstructedCardPolicy(active.policy, "card.radiance")).toEqual({
+      status: "legal",
+      maxCopies: 3,
+      policyType: "limited"
+    });
+    expect(getConstructedPrintingPolicy(
+      active.policy,
+      "card.radiance.base"
+    )).toEqual({
+      status: "available",
+      available: true,
+      setCode: "rad"
+    });
+    expect(getConstructedPrintingPolicy(
+      active.policy,
+      "card.reprint.rad"
+    )).toEqual({
+      status: "available",
+      available: true,
+      setCode: "rad"
+    });
+    expect(getConstructedCardPolicy(active.policy, "card.called-shot")).toEqual({
+      status: "banned",
+      maxCopies: 0,
+      policyType: "limited"
+    });
+  });
+
+  it("rejects an invalid asOf instant", () => {
+    expect(() => createConstructedRules(cards, "standard", {
+      asOf: "not-a-date"
+    })).toThrow(/asOf must be a valid date/);
+  });
+
   it("treats the official Proving Grounds set code OGS as Standard-legal", () => {
     expect(getConstructedCardPolicy(
       constructed.policy,
       "card.proving-ground"
-    )).toEqual({ status: "legal", maxCopies: 3 });
+    )).toEqual({ status: "legal", maxCopies: 3, policyType: "limited" });
     expect(getConstructedPrintingPolicy(
       constructed.policy,
       "card.proving-ground.base"

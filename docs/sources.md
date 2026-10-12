@@ -7,11 +7,20 @@
 | Riftbound 官方规则中心 | Core Rules、Tournament Rules、FAQ 和版本入口 | https://playriftbound.com/en-us/rules-hub/ |
 | Tournament Rules 变更说明 | 赛事规则变更和当前版本核对 | https://playriftbound.com/en-us/news/announcements/october-2026-tournament-rules-changelog/ |
 
-设计基线：
+规则版本状态（2026-10-12 核查）：
 
-- Core Rules：`v1.5 / Radiance`。
-- Tournament Rules：`2026-10-09`。
+- 当前生效：Core Rules `v1.4`，PDF 与本地规则文本均标注 last updated `2026-07-16`。
+- 未来目标：Core Rules `v1.5 / Radiance`，PDF 标注 last updated `2026-10-09`；官方 patch notes 明确其生效日为 `2026-10-16`。
+- 未来目标：Tournament Rules `2026-10-09`；官方 changelog 明确其随 Radiance Pre-Rift 于 `2026-10-16` 生效。
+- 发布日期不等于生效日期；Radiance 产品发售日为 `2026-10-23`，不能据此推导或替代规则生效日。
 - 具体对局必须把实际使用的规则版本写入 Replay Envelope，不依赖“最新”这个相对词。
+
+2026-10-12 已核实两个官方正文：
+
+- [Radiance Rules Update](https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/) 首句为 "Radiance Rules Update Effective October 16, 2026"，页面发布时间为 `2026-10-09T16:00Z`。
+- [October 2026 Tournament Rules Changelog](https://playriftbound.com/en-us/news/announcements/october-2026-tournament-rules-changelog/) 说明 "Today's rules go into effect with the Radiance Pre-Rift on October 16, 2026"。
+
+官方正文只给出日历日期。若规则 fixture 把该日期表示为 `2026-10-16T00:00:00.000Z`，`00Z` 是本项目的实现假设，不是官方指定的 UTC 午夜。
 
 官方规则中心是规范来源。若官方页面后续更新，先更新 manifest、测试夹具和回放兼容策略，再修改实现。
 
@@ -33,6 +42,7 @@
 
 ```text
 work/riftboundfaq/sources/CR-v1.5.pdf
+work/riftboundfaq/sources/CR-v1.4.pdf
 work/riftboundfaq/sources/Tournament-Rules-2026-10-09.pdf
 work/riftboundfaq/sources/card-catalog.json
 work/riftboundfaq/sources/card-errata.json
@@ -49,6 +59,7 @@ work/riftboundfaq/content/(rulings)/
 
 ```text
 ruleset/
+  core-1.4/
   core-1.5/
   tournament-2026-10-09/
 cards/
@@ -100,10 +111,8 @@ missing/failures 均为 0；`sync:images --dry-run` 报告 1,381 resumed、
 
 工作区验证必须区分通过和失败项。2026-10-11 的 `pnpm build`、
 `pnpm typecheck`、全量 `pnpm test`、frozen install 和 audit 检查均通过。
-本地 agent 验证记录的全量测试为 198 个：card-data 48、desktop-client 37、
-game-server 47、integration-tests 23、card-dsl 8、judge-tools 9、
-protocol 3、replay-core 10、engine-core 13；本地工具链为 Vitest 5.0.3 和
-Vite 7.3.7。主验证流程确认后即可引用该结果。
+当前测试总数和分包结果以 [implementation-status.md](implementation-status.md)
+为准，不在此处维护第二份计数。
 
 更新流程：
 

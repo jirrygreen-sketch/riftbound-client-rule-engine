@@ -27,6 +27,21 @@ The AST deliberately has no link, chain, priority, or pass-order node. Those
 concepts are not implied by this DSL and must not be inferred from another
 game's rules.
 
+## EffectIR
+
+`EffectIR` is a strict, executable subset of the DSL. Every operation is an
+explicit opcode with an argument schema. The current verified opcode set is:
+
+- `draw.cards`: draw an explicit number of cards.
+- `damage.target`: deal explicit damage to a selected target.
+- `gain.energy`: grant explicit energy to `self` or `opponent`.
+- `summon.self`: put this card onto an engine-defined summon surface.
+
+Use `validateEffectIr` for untrusted input and `compileEffectText` for
+conservative text compilation. The compiler intentionally recognizes only a
+small list of fully verified basic sentences. Unknown, complex, or empty text
+returns `judgeRequired`; it is never guessed into an opcode.
+
 ## Example
 
 ```json

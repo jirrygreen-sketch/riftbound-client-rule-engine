@@ -7,6 +7,9 @@ import {
 } from "node:http";
 import { WebSocketServer, type WebSocket } from "ws";
 import {
+  FOUNDATION_RULESET_ID,
+  RULESET_ID,
+  RULESET_IDS,
   PROTOCOL_VERSION,
   isClientMessage,
   type ClientSession,
@@ -22,6 +25,7 @@ import {
 } from "./card-catalog.js";
 import { validateConstructedDeck } from "./constructed-policy.js";
 import { createRoomId, GameRoom, RoomError } from "./room.js";
+import { InMemoryRoomStore, type RoomStore } from "./room-store.js";
 
 export interface GameServerOptions {
   host?: string;
@@ -31,6 +35,7 @@ export interface GameServerOptions {
   imagesDirectory?: string;
   catalog?: unknown;
   deckRules?: CardCatalogRuntime["deckRules"];
+  roomStore?: RoomStore;
 }
 
 export interface GameServer {
@@ -44,6 +49,7 @@ interface SocketContext {
   handshaken: boolean;
   session?: ClientSession;
   connectionId: string;
+  queue: Promise<void>;
 }
 
 const MAX_DECK_REQUEST_BYTES = 64 * 1024;
@@ -57,7 +63,15 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
   const host = options.host ?? "127.0.0.1";
   const port = options.port ?? 8787;
   const makeRoomId = options.roomIdFactory ?? createRoomId;
+  const roomStore = options.roomStore ?? new InMemoryRoomStore();
   const rooms = new Map<string, GameRoom>();
+  let roomMutationQueue: Promise<unknown> = Promise.resolve();
+
+  const runRoomMutation = <T>(operation: () => Promise<T>): Promise<T> => {
+    const result = roomMutationQueue.then(operation, operation);
+    roomMutationQueue = result.catch(() => undefined);
+    return result;
+  };
 
   const serverWithCatalog = {
     runtime: null as CardCatalogRuntime | null,
@@ -270,7 +284,8 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
   webSocketServer.on("connection", websocket => {
     const context: SocketContext = {
       handshaken: false,
-      connectionId: randomUUID()
+      connectionId: randomUUID(),
+      queue: Promise.resolve()
     };
 
     const send = (message: ServerToClientMessage): void => {
@@ -280,19 +295,37 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
     };
 
     websocket.on("message", raw => {
-      handleInbound(websocket, raw, context, send, rooms, makeRoomId);
+      context.queue = context.queue
+        .then(() => handleInbound(
+          raw,
+          context,
+          send,
+          roomStore,
+          rooms,
+          makeRoomId,
+          loadCatalog,
+          requireCatalog,
+          runRoomMutation
+        ))
+        .catch(error => {
+          sendError(send, error);
+        });
     });
 
     websocket.on("close", () => {
       const session = context.session;
       if (!session) return;
 
-      const room = rooms.get(session.roomId);
-      if (!room) return;
-
-      if (room.disconnect(session.playerId, context.connectionId)) {
-        room.broadcastRoom();
-      }
+      context.queue = context.queue
+        .then(() => roomStore.get(session.roomId))
+        .then(room => {
+          if (!room) return;
+          rooms.set(room.roomId, room);
+          if (room.disconnect(session.playerId, context.connectionId)) {
+            room.broadcastRoom();
+          }
+        })
+        .catch(() => undefined);
     });
   });
 
@@ -345,14 +378,17 @@ function readRequestBytes(
   });
 }
 
-function handleInbound(
-  websocket: WebSocket,
+async function handleInbound(
   raw: unknown,
   context: SocketContext,
   send: (message: ServerToClientMessage) => void,
+  roomStore: RoomStore,
   rooms: Map<string, GameRoom>,
-  makeRoomId: () => string
-): void {
+  makeRoomId: () => string,
+  loadCatalog: () => Promise<void>,
+  requireCatalog: () => CardCatalogRuntime,
+  runRoomMutation: <T>(operation: () => Promise<T>) => Promise<T>
+): Promise<void> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(String(raw));
@@ -368,9 +404,8 @@ function handleInbound(
 
   try {
     if (!context.handshaken &&
-        (parsed.type === "create-room" ||
-          parsed.type === "join-room" ||
-          parsed.type === "command")) {
+        parsed.type !== "hello" &&
+        parsed.type !== "ping") {
       throw new RoomError("Send hello before any other message", "handshake-required");
     }
     if (context.handshaken &&
@@ -383,7 +418,7 @@ function handleInbound(
 
     switch (parsed.type) {
       case "hello":
-        handleHello(parsed, context, send, rooms);
+        await handleHello(parsed, context, send, roomStore, rooms);
         return;
 
       case "create-room": {
@@ -391,18 +426,44 @@ function handleInbound(
           throw new RoomError("Socket already has a room session", "already-in-room");
         }
 
-        const room = new GameRoom(makeRoomId());
-        rooms.set(room.roomId, room);
-        const connection = room.join(parsed.playerName, send, context.connectionId);
-        const session = sessionFor(room, connection);
-        context.session = session;
+        const rulesetId = parsed.rulesetId ?? "synthetic-demo";
+        if (!(RULESET_IDS as readonly string[]).includes(rulesetId)) {
+          throw new RoomError(
+            `Unsupported ruleset ${rulesetId}`,
+            "command-rejected"
+          );
+        }
+        const roomId = makeRoomId();
+        await runRoomMutation(async () => {
+          if (rooms.has(roomId)) {
+            throw new RoomError(`Room ${roomId} already exists`, "command-rejected");
+          }
+          const catalog = rulesetId === FOUNDATION_RULESET_ID
+            ? await loadCatalog().then(() => requireCatalog())
+            : null;
+          const room = new GameRoom(
+            roomId,
+            rulesetId,
+            catalog ?? undefined
+          );
+          rooms.set(room.roomId, room);
+          try {
+            await roomStore.create(room);
+          } catch (error) {
+            rooms.delete(room.roomId);
+            throw error;
+          }
+          const connection = room.join(parsed.playerName, send, context.connectionId);
+          const session = sessionFor(room, connection);
+          context.session = session;
 
-        sendWelcome(send, session, false);
-        send({ type: "room", room: room.roomView() });
-        send({
-          type: "request-result",
-          requestId: parsed.requestId,
-          ok: true
+          sendWelcome(send, session, false);
+          send({ type: "room", room: room.roomView() });
+          send({
+            type: "request-result",
+            requestId: parsed.requestId,
+            ok: true
+          });
         });
         return;
       }
@@ -412,24 +473,31 @@ function handleInbound(
           throw new RoomError("Socket already has a room session", "already-in-room");
         }
 
-        const room = requireRoom(rooms, parsed.roomId);
-        const connection = room.join(parsed.playerName, send, context.connectionId);
-        const session = sessionFor(room, connection);
-        context.session = session;
+        const room = await requireRoom(roomStore, rooms, parsed.roomId);
+        await runRoomMutation(async () => {
+          const connection = room.join(parsed.playerName, send, context.connectionId);
+          const session = sessionFor(room, connection);
+          context.session = session;
 
-        sendWelcome(send, session, false);
-        send({ type: "room", room: room.roomView() });
-        send({
-          type: "request-result",
-          requestId: parsed.requestId,
-          ok: true
-        });
+          sendWelcome(send, session, false);
+          send({ type: "room", room: room.roomView() });
+          send({
+            type: "request-result",
+            requestId: parsed.requestId,
+            ok: true
+          });
 
-        if (room.playerCount === 2 && room.status === "waiting") {
-          room.start();
+          // Join changes roomVersion for both seats, including the joiner.
           room.broadcastRoom();
-          room.broadcastProjections();
-        }
+
+          if (room.rulesetId === RULESET_ID &&
+              room.playerCount === 2 &&
+              room.status === "waiting") {
+            room.start();
+            room.broadcastRoom();
+            room.broadcastProjections();
+          }
+        });
         return;
       }
 
@@ -439,7 +507,7 @@ function handleInbound(
           throw new RoomError("No room session is attached to this socket", "command-rejected");
         }
 
-        const room = requireRoom(rooms, session.roomId);
+        const room = await requireRoom(roomStore, rooms, session.roomId);
         room.submit(
           session,
           context.connectionId,
@@ -449,6 +517,78 @@ function handleInbound(
           parsed.requestId,
           send
         );
+        return;
+      }
+
+      case "submit-deck": {
+        const session = context.session;
+        if (!session) {
+          throw new RoomError("No room session is attached to this socket", "command-rejected");
+        }
+
+        const room = await requireRoom(roomStore, rooms, session.roomId);
+        room.submitDeck(
+          session,
+          context.connectionId,
+          parsed.expectedRoomVersion,
+          parsed.deck,
+          parsed.requestId,
+          send
+        );
+        return;
+      }
+
+      case "set-ready": {
+        const session = context.session;
+        if (!session) {
+          throw new RoomError("No room session is attached to this socket", "command-rejected");
+        }
+
+        const room = await requireRoom(roomStore, rooms, session.roomId);
+        room.setReady(
+          session,
+          context.connectionId,
+          parsed.expectedRoomVersion,
+          parsed.ready,
+          parsed.requestId,
+          send
+        );
+        return;
+      }
+
+      case "sync-events": {
+        const session = context.session;
+        if (!session) {
+          throw new RoomError("No room session is attached to this socket", "command-rejected");
+        }
+
+        const room = await requireRoom(roomStore, rooms, session.roomId);
+        if (parsed.afterEventSeq !== undefined) {
+          room.validateGameEventCursor(
+            session,
+            context.connectionId,
+            parsed.afterEventSeq
+          );
+        }
+        if (parsed.afterRoomEventSeq !== undefined) {
+          room.validateRoomEventCursor(parsed.afterRoomEventSeq);
+        }
+
+        send({
+          type: "request-result",
+          requestId: parsed.requestId,
+          ok: true
+        });
+        if (parsed.afterEventSeq !== undefined) {
+          room.sendEvents(session, context.connectionId, parsed.afterEventSeq);
+        }
+        if (parsed.afterRoomEventSeq !== undefined) {
+          room.sendRoomEvents(
+            session,
+            context.connectionId,
+            parsed.afterRoomEventSeq
+          );
+        }
         return;
       }
 
@@ -462,12 +602,13 @@ function handleInbound(
   }
 }
 
-function handleHello(
+async function handleHello(
   inbound: Extract<ClientToServerMessage, { type: "hello" }>,
   context: SocketContext,
   send: (message: ServerToClientMessage) => void,
+  roomStore: RoomStore,
   rooms: Map<string, GameRoom>
-): void {
+): Promise<void> {
   if (inbound.protocolVersion !== PROTOCOL_VERSION) {
     throw new RoomError("Unsupported protocol version", "protocol-error");
   }
@@ -478,7 +619,7 @@ function handleHello(
     return;
   }
 
-  const room = requireRoom(rooms, inbound.roomId!);
+  const room = await requireRoom(roomStore, rooms, inbound.roomId!);
   const connection = room.reconnect(
     inbound.resumeToken!,
     send,
@@ -492,9 +633,30 @@ function handleHello(
   context.handshaken = true;
   context.session = session;
 
+  if (inbound.afterEventSeq !== undefined) {
+    room.validateGameEventCursor(
+      session,
+      context.connectionId,
+      inbound.afterEventSeq
+    );
+  }
+  if (inbound.afterRoomEventSeq !== undefined) {
+    room.validateRoomEventCursor(inbound.afterRoomEventSeq);
+  }
+
   sendWelcome(send, session, true);
   send({ type: "room", room: room.roomView() });
   room.sendProjection(session.playerId, send);
+  if (inbound.afterRoomEventSeq !== undefined) {
+    room.sendRoomEvents(
+      session,
+      context.connectionId,
+      inbound.afterRoomEventSeq
+    );
+  }
+  if (inbound.afterEventSeq !== undefined) {
+    room.sendEvents(session, context.connectionId, inbound.afterEventSeq);
+  }
   room.broadcastRoom();
 }
 
@@ -522,9 +684,14 @@ function sendWelcome(
   });
 }
 
-function requireRoom(rooms: ReadonlyMap<string, GameRoom>, roomId: string): GameRoom {
-  const room = rooms.get(roomId);
+async function requireRoom(
+  roomStore: RoomStore,
+  rooms: Map<string, GameRoom>,
+  roomId: string
+): Promise<GameRoom> {
+  const room = await roomStore.get(roomId);
   if (!room) throw new RoomError("Room not found", "room-not-found");
+  rooms.set(room.roomId, room);
   return room;
 }
 

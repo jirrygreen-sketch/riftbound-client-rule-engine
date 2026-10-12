@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { createConstructedRules } from "../src/constructed-policy.js";
 import { createGameServer, type GameServer } from "../src/server.js";
 
 interface StartedServer {
@@ -159,6 +160,40 @@ const printingPolicyCatalog = {
       power: 1,
       might: null,
       ability: "Radiance printing fixture."
+    },
+    {
+      id: "fixture.radiance-only.rad",
+      canonicalCardId: "fixture.radiance-only",
+      name: "Radiance Only",
+      fullName: "Radiance Only",
+      cardType: "Unit",
+      domains: [],
+      tags: [],
+      setCode: "rad",
+      cardNumber: "201",
+      variant: "standard",
+      imageUrl: null,
+      energy: 1,
+      power: 1,
+      might: null,
+      ability: "Radiance-only fixture."
+    },
+    {
+      id: "fixture.nonstandard-only.arc",
+      canonicalCardId: "fixture.nonstandard-only",
+      name: "Non-Standard Only",
+      fullName: "Non-Standard Only",
+      cardType: "Unit",
+      domains: [],
+      tags: [],
+      setCode: "arc",
+      cardNumber: "202",
+      variant: "standard",
+      imageUrl: null,
+      energy: 1,
+      power: 1,
+      might: null,
+      ability: "Non-Standard fixture."
     }
   ]
 };
@@ -657,6 +692,31 @@ describe("card HTTP API", () => {
     ]);
   });
 
+  it("projects limited card policies into the public catalog maxCopies", async () => {
+    const { baseUrl } = await startServer({
+      catalog,
+      imagesDirectory: (await emptyImagesDirectory()).imagesDirectory,
+      deckRules: {
+        defaultMaxCopiesPerCanonical: 3,
+        cardPolicies: {
+          "fixture.flame-warden": { type: "restricted" },
+          "fixture.tide-oracle": { type: "limited", maxCopies: 1 }
+        }
+      }
+    });
+
+    const response = await fetch(`${baseUrl}/api/cards`);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    const cardsById = new Map(
+      body.cards.map((card: { id: string }) => [card.id, card])
+    );
+
+    expect(cardsById.get("fixture.flame-warden.standard")?.maxCopies).toBe(1);
+    expect(cardsById.get("fixture.flame-warden.alternate")?.maxCopies).toBe(1);
+    expect(cardsById.get("fixture.tide-oracle")?.maxCopies).toBe(1);
+  });
+
   it("rejects unreleased printings without banning released same-identity printings", async () => {
     const { baseUrl } = await startServer({
       catalog: printingPolicyCatalog,
@@ -665,9 +725,11 @@ describe("card HTTP API", () => {
 
     const cardsResponse = await fetch(`${baseUrl}/api/cards`);
     expect(cardsResponse.status).toBe(200);
-    const cards = (await cardsResponse.json()).cards as Array<{
+    const body = await cardsResponse.json();
+    const cards = body.cards as Array<{
       id: string;
       canonicalCardId: string;
+      maxCopies: number;
       available: boolean;
       availabilityReason: string;
       banned: boolean;
@@ -685,6 +747,22 @@ describe("card HTTP API", () => {
         canonicalCardId: "fixture.released-identity",
         available: false,
         availabilityReason: "previewNotReleased",
+        banned: false
+      }),
+      expect.objectContaining({
+        id: "fixture.radiance-only.rad",
+        canonicalCardId: "fixture.radiance-only",
+        maxCopies: 0,
+        available: false,
+        availabilityReason: "previewNotReleased",
+        banned: false
+      }),
+      expect.objectContaining({
+        id: "fixture.nonstandard-only.arc",
+        canonicalCardId: "fixture.nonstandard-only",
+        maxCopies: 0,
+        available: false,
+        availabilityReason: "notStandard",
         banned: false
       })
     ]);
@@ -742,6 +820,55 @@ describe("card HTTP API", () => {
         expect.objectContaining({ code: "copy_limit_exceeded" })
       ])
     );
+  });
+
+  it("activates Radiance printings from the rules-effective instant", async () => {
+    const activePolicy = createConstructedRules(
+      printingPolicyCatalog.cards.map(card => ({
+        id: card.id,
+        canonicalCardId: card.canonicalCardId,
+        fullName: card.fullName,
+        cardType: card.cardType,
+        setCode: card.setCode
+      })),
+      "standard",
+      { asOf: "2026-10-16T00:00:00.000Z" }
+    );
+    const cardsById = new Map(
+      printingPolicyCatalog.cards.map(card => [
+        card.id,
+        activePolicy.policy.printingPolicies[card.id]
+      ])
+    );
+
+    expect(activePolicy.policy.standard).toEqual({
+      legalSetCodes: ["ogs", "ogn", "sfd", "unl", "ven", "rad"],
+      radiance: {
+        status: "active",
+        effectiveDate: "2026-10-16",
+        releaseDate: "2026-10-23"
+      }
+    });
+    expect(cardsById.get("fixture.released-printing.ogn")).toEqual({
+      status: "available",
+      available: true,
+      setCode: "ogn"
+    });
+    expect(cardsById.get("fixture.released-printing.rad")).toEqual({
+      status: "available",
+      available: true,
+      setCode: "rad"
+    });
+    expect(cardsById.get("fixture.radiance-only.rad")).toEqual({
+      status: "available",
+      available: true,
+      setCode: "rad"
+    });
+    expect(cardsById.get("fixture.nonstandard-only.arc")).toEqual({
+      status: "notStandard",
+      available: false,
+      setCode: "arc"
+    });
   });
 
   it("uses one zone mapping for public cards and deck validation", async () => {

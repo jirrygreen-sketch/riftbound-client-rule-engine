@@ -1,6 +1,6 @@
 # 官方组卡规则与限禁表核查
 
-核查日期：2026-10-11。本文只以 Riot Games / Riftbound 官方规则中心及官方 PDF 为权威依据；Rift Atlas、社区站、第三方数据库、卡图预览页或抓取数据都不能替代官方材料。
+核查日期：2026-10-11；生效信息于 2026-10-12 由官方 patch notes 和 Tournament Rules changelog 正文核实。本文只以 Riot Games / Riftbound 官方规则中心及官方 PDF 为权威依据；Rift Atlas、社区站、第三方数据库、卡图预览页或抓取数据都不能替代官方材料。
 
 ## 版本基线
 
@@ -9,6 +9,10 @@
 | Riftbound Core Rules | Radiance 更新版，PDF 标注 last updated `2026-10-09`；patch notes 标注 effective `2026-10-16` | [Rules Hub](https://playriftbound.com/en-us/rules-hub/) / [Core Rules PDF](https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf) / [Radiance Patch Notes](https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/) | `94D41FEE86F88B61C4157C0389C0595D990B98E5B42555C99D9F649EE64D1FEC` |
 | Riftbound Tournament Rules | `2026-10-09`；changelog 标注随 Radiance Pre-Rift 于 `2026-10-16` 生效 | [Rules Hub](https://playriftbound.com/en-us/rules-hub/) / [Tournament Rules PDF](https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/861752822d217edf37d9febaeaf77a7d924c1bb6.pdf) / [October 2026 Changelog](https://playriftbound.com/en-us/news/announcements/october-2026-tournament-rules-changelog/) | `CE07DA4FB632526AFBBCE7F058287A57E7444FA6BDE17B0938FF52CE3FAB3D07` |
 | Rules Hub: Constructed Format Legality | `2026-09-18` | [Rules Hub](https://playriftbound.com/en-us/rules-hub/) | 页面，无 PDF 哈希 |
+
+2026-10-12 时，当前生效 Core Rules 为 `v1.4 / 2026-07-16`；`v1.5 / Radiance`
+是已发布、2026-10-16 生效的未来目标。官方文章只给出日历日期；实现层若使用
+`2026-10-16T00:00:00.000Z`，该 `00Z` 时间是工程假设，不是官方指定 UTC 午夜。
 
 ## 官方规则事实
 
@@ -79,7 +83,7 @@
   - Vendetta（VEN）
   - Radiance（RAD）
 - TR `601.3.c.6.a`：Radiance 发售日为 `2026-10-23`。
-- Tournament Rules changelog 说明该版规则随 Radiance Pre-Rift 于 `2026-10-16` 生效。因此在 `2026-10-11` 核查时：Radiance 已被 `2026-10-09` 版 Tournament Rules 列入 Standard，但该规则尚未生效，产品也未发售；实际可用性还会受 TR `601.2.b` 的地区官方产品上线日限制。
+- Tournament Rules changelog 说明该版规则随 Radiance Pre-Rift 于 `2026-10-16` 生效。因此在 `2026-10-12` 核查时：Radiance 已被 `2026-10-09` 版 Tournament Rules 列入 Standard，但该规则尚未生效，产品也未发售；实际可用性还会受 TR `601.2.b` 的地区官方产品上线日限制。
 - 已公开或已预览不等于已可使用。规则只授予“合法系列中的卡”资格；不能把全部预览内容自动视为可用产品池。
 - Rules Hub 说明官方计划从 `2028` 年开始为 Standard Constructed 引入系列轮换。
 

@@ -116,6 +116,25 @@ function runMain(script, argv) {
   }).then((exitCode) => ({ exitCode, logs, errors }));
 }
 
+async function withFixedDownloadDate(isoDate, callback) {
+  const originalDate = Date;
+  globalThis.Date = class extends originalDate {
+    constructor(...args) {
+      super(...(args.length === 0 ? [originalDate.parse(isoDate)] : args));
+    }
+
+    static now() {
+      return originalDate.parse(isoDate);
+    }
+  };
+
+  try {
+    return await callback();
+  } finally {
+    globalThis.Date = originalDate;
+  }
+}
+
 function runCli(args) {
   return new Promise((resolve) => {
     execFile(
@@ -206,14 +225,17 @@ test("round-trips a synthetic full-field fixture without losing source records",
     await withMockFetch(
       async () => new Response(JSON.stringify(syntheticCards), { status: 200 }),
       async () => {
-        const result = await runMain(script, [
-          "--source",
-          "https://example.com/cards.json",
-          "--output",
-          outputPath,
-          "--timeout-ms",
-          "1000"
-        ]);
+        const result = await withFixedDownloadDate(
+          "2026-10-11T00:00:00.000Z",
+          () => runMain(script, [
+            "--source",
+            "https://example.com/cards.json",
+            "--output",
+            outputPath,
+            "--timeout-ms",
+            "1000"
+          ])
+        );
 
         assert.equal(result.exitCode, 0);
         const written = JSON.parse(await readFile(outputPath, "utf8"));

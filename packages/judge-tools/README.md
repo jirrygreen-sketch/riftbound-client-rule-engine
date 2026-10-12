@@ -11,8 +11,9 @@ with their terms.
 
 ## Boundary
 
-All package-defined objects reject unknown fields. The only open-ended JSON
-region is `JudgeEvent.payload`.
+All package-defined objects reject unknown fields. The open-ended JSON regions
+are `JudgeEvent.payload` and the `given` and `expected` fields on rule-fixture
+assertions.
 
 `EvidenceRef` is intentionally limited to:
 
@@ -92,10 +93,39 @@ The public surface includes:
 - `validateJudgeReviewRequest`, `parseJudgeReviewRequest`, and
   `createJudgeReviewRequest`
 - `validateJudgeDecision` and `parseJudgeDecision`
+- `validateRuleFixtureSet` and `parseRuleFixtureSet`
 - stable serializers and hashes for profiles, review requests, and decisions
+- `createOfficialRadianceRuleFixtureSet`, plus rule-fixture serialization and hashing
 
-Stable serializers recursively sort object keys and preserve array order.
-Hashes use a pure JavaScript FNV-1a 64-bit implementation.
+Stable serializers recursively sort object keys and preserve array order. Hashes use
+a pure JavaScript FNV-1a 64-bit implementation.
+
+## Official Rule Fixtures
+
+`createOfficialRadianceRuleFixtureSet()` returns a traceable test specification for
+the published Core Rules 1.5 Radiance set. It is metadata and original assertions
+only; it neither implements engine behavior nor claims that any card effect is
+supported.
+
+The fixture records `asOf: 2026-10-11T00:00:00.000Z`. The Radiance Core Rules and
+October 2026 Tournament Rules were published on 2026-10-09 but take effect at
+`2026-10-16T00:00:00.000Z`. A match must not activate that ruleset merely because
+the sources have been published.
+
+Fixture decisions are explicit:
+
+- `auto`: a future engine may assert the observable result automatically.
+- `prompt`: a future engine must stop for a player choice.
+- `notImplemented`: the official semantics are recorded, but no implementation is
+  claimed yet.
+- `judgeRequired`: automatic resolution must block and escalate; the case must cite
+  registered evidence through `judgeReason`.
+
+`JudgeEvent.payload` and rule-fixture `given`/`expected` data are open-ended JSON,
+but hidden hand keys are rejected recursively in a format compatible with
+replay-core. See
+[docs/rule-fixtures.md](../../docs/rule-fixtures.md) for the source manifest,
+validation rules, privacy guarantees, and executable test matrix.
 
 ## Development
 

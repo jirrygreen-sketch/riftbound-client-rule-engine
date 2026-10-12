@@ -32,7 +32,7 @@ function eventText(event: GameEvent): string {
     case "game-started":
       return `对局开始：${event.playerIds.join(" / ")}`;
     case "turn-started":
-      return `${event.playerId} 回合开始，资源 ${event.mana}`;
+      return `${event.playerId} 回合开始，能量 ${event.energy ?? event.mana ?? "-"}`;
     case "card-played":
       return `${event.playerId} 打出 ${event.cardId}`;
     case "prompt-created":
@@ -41,6 +41,8 @@ function eventText(event: GameEvent): string {
       return `${event.playerId} 选择 ${event.optionId}`;
     case "damage-dealt":
       return `${event.sourcePlayerId} 对 ${event.targetPlayerId} 造成 ${event.amount} 点伤害`;
+    case "points-gained":
+      return `${event.sourcePlayerId} 使 ${event.targetPlayerId} 获得 ${event.amount} 分`;
     case "task-resolved":
       return `任务自动结算：${event.reason}`;
     case "trigger-skipped":

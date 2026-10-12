@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  FOUNDATION_RULESET_ID,
   PROTOCOL_VERSION,
+  PROJECTION_SCHEMA_V1,
   RULESET_ID,
   isClientMessage,
   isGameEvent,
@@ -14,7 +16,7 @@ import {
 function makeProjection(overrides: Partial<GameProjection> = {}): GameProjection {
   return {
     version: 3,
-    eventSeq: 3,
+    eventSeq: 2,
     phase: "main",
     turnNumber: 1,
     activePlayerId: "player-1",
@@ -53,10 +55,51 @@ function makeProjection(overrides: Partial<GameProjection> = {}): GameProjection
         turnNumber: 1,
         activePlayerId: "player-1",
         playerId: "player-1",
-        mana: 1
+        energy: 0
       }
     ],
     ...overrides
+  };
+}
+
+function makeFoundationProjection(): GameProjection {
+  const legacy = makeProjection();
+  const owner = legacy.players[0]!;
+  const opponent = legacy.players[1]!;
+  const { life: _ownerLife, mana: _ownerMana, ...ownerFields } = owner;
+  const { life: _opponentLife, mana: _opponentMana, ...opponentFields } = opponent;
+  const ownerHandObject = {
+    objectId: owner.hand[0]!.instanceId,
+    cardId: owner.hand[0]!.cardId,
+    zone: "hand",
+    controllerId: owner.id,
+    ownerPlayerId: owner.id,
+    faceUp: true
+  } as const;
+  return {
+    ...legacy,
+    projectionSchema: PROJECTION_SCHEMA_V1,
+    rulesetId: FOUNDATION_RULESET_ID,
+    priority: { playerId: legacy.activePlayerId },
+    objects: [ownerHandObject],
+    players: [
+      {
+        ...ownerFields,
+        score: 0,
+        energy: 0,
+        power: {},
+        zoneCounts: { hand: owner.handCount },
+        playableInstanceIds: owner.hand.map(card => card.instanceId)
+      },
+      {
+        ...opponentFields,
+        score: 0,
+        energy: 0,
+        power: {},
+        zoneCounts: { hand: opponent.handCount },
+        playableInstanceIds: opponent.hand.map(card => card.instanceId)
+      }
+    ]
   };
 }
 
@@ -148,9 +191,24 @@ describe("server message and projection validators", () => {
           roomId: "room-1",
           status: "playing",
           rulesetId: RULESET_ID,
+          version: 3,
+          roomVersion: 6,
+          roomEventSeq: 6,
           players: [
-            { id: "player-1", name: "Alice", connected: true },
-            { id: "player-2", name: "Bob", connected: true }
+            {
+              id: "player-1",
+              name: "Alice",
+              connected: true,
+              ready: true,
+              deckSubmitted: true
+            },
+            {
+              id: "player-2",
+              name: "Bob",
+              connected: true,
+              ready: true,
+              deckSubmitted: true
+            }
           ]
         }
       },
@@ -217,6 +275,73 @@ describe("server message and projection validators", () => {
     expect(isPrompt({ ...prompt, ownerPlayerId: "player-2" })).toBe(false);
     expect(isPrompt({ ...prompt, options: [prompt.options[0], prompt.options[0]] })).toBe(false);
     expect(isGameProjection(makeProjection({ players: [makeProjection().players[0]!] }))).toBe(false);
+    expect(isGameProjection({
+      ...makeProjection(),
+      prompt,
+      waitingForPlayerId: "player-2"
+    })).toBe(false);
+  });
+
+  it("rejects projections with invalid privacy, score, hand, and replay metadata", () => {
+    const valid = makeFoundationProjection();
+    expect(isGameProjection(valid)).toBe(true);
+    const ownerHand = valid.players[0]!.hand;
+
+    expect(isGameProjection({
+      ...valid,
+      players: [
+        valid.players[0]!,
+        { ...valid.players[1]!, hand: ownerHand }
+      ]
+    })).toBe(false);
+    expect(isGameProjection({
+      ...valid,
+      players: [
+        { ...valid.players[0]!, handCount: ownerHand.length - 1 },
+        valid.players[1]!
+      ]
+    })).toBe(false);
+    expect(isGameProjection({ ...valid, eventSeq: 1 })).toBe(false);
+    expect(isGameProjection({ ...valid, turnNumber: 0 })).toBe(false);
+    expect(isGameProjection({ ...valid, winnerPlayerId: "" })).toBe(false);
+    expect(isGameProjection({ ...valid, events: [{ ...valid.events[0]!, seq: 0 }] })).toBe(false);
+    expect(isGameProjection({
+      ...valid,
+      players: valid.players.map(player => ({ ...player, score: undefined }))
+    })).toBe(false);
+    expect(isGameProjection({
+      ...valid,
+      players: valid.players.map(player => ({ ...player, life: 20 }))
+    })).toBe(false);
+  });
+
+  it("separates synthetic-demo and foundation projection contracts", () => {
+    const synthetic = makeProjection();
+    const foundation = makeFoundationProjection();
+
+    expect(isGameProjection(synthetic)).toBe(true);
+    expect(isGameProjection(foundation)).toBe(true);
+    expect(isGameProjection({
+      ...foundation,
+      players: foundation.players.map(player => ({ ...player, life: player.score }))
+    })).toBe(false);
+    expect(isGameProjection({
+      ...synthetic,
+      players: synthetic.players.map(player => ({ ...player, score: player.life }))
+    })).toBe(false);
+    expect(isGameProjection({
+      ...synthetic,
+      players: synthetic.players.map(player => ({
+        ...player,
+        life: undefined,
+        score: 8,
+        energy: 0
+      }))
+    })).toBe(false);
+    expect(isGameProjection({
+      ...foundation,
+      rulesetId: RULESET_ID
+    })).toBe(false);
   });
 
   it("validates event discriminants and rejects extra event fields", () => {

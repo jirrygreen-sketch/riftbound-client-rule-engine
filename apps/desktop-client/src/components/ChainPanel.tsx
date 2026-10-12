@@ -108,6 +108,10 @@ function eventTitle(event: GameEvent): string {
       return "跳过回合";
     case "game-ended":
       return "对局结束";
+    case "points-gained":
+      return "获得分数";
+    default:
+      return "规则事件";
   }
 }
 
@@ -119,7 +123,7 @@ function eventDetail(
     case "game-started":
       return event.playerIds.map(playerName).join(" vs ");
     case "turn-started":
-      return `${playerName(event.playerId)} · ${event.mana} 资源`;
+      return `${playerName(event.playerId)} · 能量 ${event.energy ?? event.mana ?? "-"}`;
     case "card-played":
       return `${playerName(event.playerId)} · ${event.cardId}`;
     case "prompt-created":
@@ -128,6 +132,8 @@ function eventDetail(
       return `${playerName(event.playerId)} · ${event.optionId}`;
     case "damage-dealt":
       return `${playerName(event.sourcePlayerId)} → ${playerName(event.targetPlayerId)} · ${event.amount}`;
+    case "points-gained":
+      return `${playerName(event.sourcePlayerId)} → ${playerName(event.targetPlayerId)} · ${event.amount} 分`;
     case "task-resolved":
       return `${event.reason} · 自动`;
     case "trigger-skipped":

@@ -2,11 +2,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   CardDslValidationError,
+  compileEffectText,
+  EFFECT_OPCODES,
+  EffectIrValidationError,
   isCardDsl,
+  isEffectIr,
   parseCardDsl,
+  parseEffectIr,
   serializeCardDsl,
   stableHashCardDsl,
-  validateCardDsl
+  validateCardDsl,
+  validateEffectIr
 } from "../dist/index.js";
 
 function fixture() {
@@ -291,4 +297,232 @@ test("parseCardDsl throws a structured validation error", () => {
       error instanceof CardDslValidationError &&
       error.issues.some(issue => issue.code === "unsupported-ruleset")
   );
+});
+
+test("defines explicit executable effect opcodes", () => {
+  assert.deepEqual([...EFFECT_OPCODES], [
+    "draw.cards",
+    "damage.target",
+    "gain.energy",
+    "summon.self"
+  ]);
+});
+
+test("compiles only explicitly verified basic effects", () => {
+  const draw = compileEffectText({
+    id: "card.verified-draw",
+    text: " When   THIS card ARRIVES, draw 1 card. "
+  });
+  assert.equal(draw.status, "executable");
+  assert.equal(isEffectIr(draw.ir), true);
+  assert.deepEqual(draw.ir.body, [
+    {
+      type: "trigger",
+      id: "card.verified-draw.trigger",
+      event: "card.arrives",
+      body: [
+        {
+          type: "effect",
+          id: "card.verified-draw.effect",
+          opcode: "draw.cards",
+          args: { count: 1 }
+        }
+      ]
+    }
+  ]);
+
+  const damage = compileEffectText({
+    id: "card.verified-damage",
+    text: "When this card arrives, deal 2 damage to target."
+  });
+  assert.equal(damage.status, "executable");
+  assert.equal(damage.ir.body[0].id, "card.verified-damage.target.selected");
+  assert.equal(
+    damage.ir.body[1].body[0].targetId,
+    "card.verified-damage.target.selected"
+  );
+});
+
+test("returns judgeRequired instead of guessing unknown text", () => {
+  const unknown = compileEffectText({
+    id: "card.unknown-effect",
+    text: "When this card arrives, each player discards a card."
+  });
+  assert.equal(unknown.status, "judgeRequired");
+  assert.equal(unknown.ir, null);
+  assert.deepEqual(unknown.issues, [
+    {
+      path: "card.unknown-effect.ability",
+      code: "judge-required",
+      message: "The ability text is outside the explicitly verified compiler coverage."
+    }
+  ]);
+
+  const empty = compileEffectText({
+    id: "card.no-text",
+    text: "   "
+  });
+  assert.equal(empty.status, "judgeRequired");
+  assert.equal(empty.issues[0].code, "empty-text");
+
+  for (const text of [
+    "When this card arrives, draw 2 cards.",
+    "When this card arrives, deal 1 damage to target.",
+    "When this card arrives, gain 2 energy.",
+    "When this card arrives, summon a token."
+  ]) {
+    const nearMiss = compileEffectText({
+      id: "card.near-miss-effect",
+      text
+    });
+    assert.equal(nearMiss.status, "judgeRequired");
+  }
+});
+
+test("validates EffectIR opcodes, arguments, targets, and node ids", () => {
+  const goodIr = {
+    kind: "effect-ir",
+    schemaVersion: 1,
+    ruleset: "synthetic-demo",
+    id: "card.good-effect",
+    body: [
+      {
+        type: "target",
+        id: "card.good-effect.target",
+        placeholder: "selected-target",
+        minCount: 1,
+        maxCount: 1
+      },
+      {
+        type: "trigger",
+        id: "card.good-effect.trigger",
+        event: "card.arrives",
+        body: [
+          {
+            type: "effect",
+            id: "card.good-effect.effect",
+            opcode: "damage.target",
+            args: { amount: 2 },
+            targetId: "card.good-effect.target"
+          }
+        ]
+      }
+    ]
+  };
+  assert.equal(isEffectIr(goodIr), true);
+  assert.equal(parseEffectIr(goodIr).id, "card.good-effect");
+
+  const unknownOpcode = structuredClone(goodIr);
+  unknownOpcode.body[1].body[0].opcode = "destroy.everything";
+  assert.throws(
+    () => {
+      throw new EffectIrValidationError([{ path: "$", code: "test", message: "test" }]);
+    },
+    (error) => error instanceof EffectIrValidationError
+  );
+  assert.equal(isEffectIr(unknownOpcode), false);
+
+  const badArguments = structuredClone(goodIr);
+  badArguments.body[1].body[0].args = { count: 2 };
+  assert.equal(isEffectIr(badArguments), false);
+
+  const missingTarget = structuredClone(goodIr);
+  delete missingTarget.body[1].body[0].targetId;
+  assert.equal(isEffectIr(missingTarget), false);
+
+  const unexpectedTarget = structuredClone(goodIr);
+  unexpectedTarget.body[1].body[0].opcode = "draw.cards";
+  assert.equal(isEffectIr(unexpectedTarget), false);
+
+  const duplicateId = structuredClone(goodIr);
+  duplicateId.body[1].id = "card.good-effect.target";
+  assert.equal(isEffectIr(duplicateId), false);
+
+  assert.throws(
+    () => parseEffectIr(unknownOpcode),
+    error =>
+      error instanceof EffectIrValidationError &&
+      error.issues.some(issue => issue.code === "unknown-opcode")
+  );
+});
+
+test("rejects unknown EffectIR argument keys", () => {
+  const goodIr = {
+    kind: "effect-ir",
+    schemaVersion: 1,
+    ruleset: "synthetic-demo",
+    id: "card.extra-argument",
+    body: [
+      {
+        type: "trigger",
+        id: "card.extra-argument.trigger",
+        event: "card.arrives",
+        body: [
+          {
+            type: "effect",
+            id: "card.extra-argument.effect",
+            opcode: "draw.cards",
+            args: { count: 1, surprise: "not in the opcode spec" }
+          }
+        ]
+      }
+    ]
+  };
+
+  const result = validateEffectIr(goodIr);
+  assert.equal(result.ok, false);
+  assert.equal(isEffectIr(goodIr), false);
+  assert.ok(
+    result.issues.some(issue =>
+      issue.code === "unknown-argument" &&
+      issue.path === "$.body[0].body[0].args.surprise"
+    )
+  );
+});
+
+test("keeps compiled EffectIR arguments isolated between calls", () => {
+  const first = compileEffectText({
+    id: "card.argument-isolation",
+    text: "When this card arrives, draw 1 card."
+  });
+  assert.equal(first.status, "executable");
+
+  first.ir.body[0].body[0].args.count = 7;
+
+  const second = compileEffectText({
+    id: "card.argument-isolation-two",
+    text: "When this card arrives, draw 1 card."
+  });
+  assert.equal(second.status, "executable");
+  assert.deepEqual(second.ir.body[0].body[0].args, { count: 1 });
+});
+
+test("rejects non-plain EffectIR documents", () => {
+  class EffectIrLike {
+    constructor() {
+      this.kind = "effect-ir";
+      this.schemaVersion = 1;
+      this.ruleset = "synthetic-demo";
+      this.id = "card.class-instance";
+      this.body = [
+        {
+          type: "trigger",
+          id: "card.class-instance.trigger",
+          event: "card.arrives",
+          body: [
+            {
+              type: "effect",
+              id: "card.class-instance.effect",
+              opcode: "draw.cards",
+              args: { count: 1 }
+            }
+          ]
+        }
+      ];
+    }
+  }
+
+  const result = validateEffectIr(new EffectIrLike());
+  assert.equal(result.ok, false);
+  assert.ok(result.issues.some(issue => issue.code === "invalid-document"));
 });

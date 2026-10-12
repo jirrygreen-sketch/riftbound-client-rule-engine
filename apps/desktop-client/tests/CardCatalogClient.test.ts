@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  canSubmitRoomDeck,
+  isCardAbilityImplemented,
   buildCardLimits,
   allowedZonesFor,
   limitFor,
@@ -424,6 +426,59 @@ describe("CardCatalogClient", () => {
       mainDeck: { "flame-standard": 2 },
       sideboard: { "flame-art": 1 }
     }).get("flame-warden")).toBe(0);
+
+    const bannedAlternate = {
+      ...flameArt,
+      id: "flame-banned-art",
+      banned: true
+    };
+    expect(buildCardLimits(
+      [...cardsWithAlternates, bannedAlternate],
+      "mainDeck",
+      emptyDeckByZone()
+    ).get("flame-warden")).toBe(3);
+  });
+
+  it("keeps catalog presence separate from implemented card abilities", () => {
+    const effectFree = { ...catalog.cards[0], ability: "" };
+    const withAbility = catalog.cards[0];
+    const gear = {
+      ...catalog.cards[0],
+      id: "basic-gear",
+      cardType: "Gear",
+      ability: ""
+    };
+    const basicRune = {
+      ...catalog.cards[0],
+      id: "basic-rune",
+      cardType: "Rune",
+      ability: ""
+    };
+    const unknownType = {
+      ...catalog.cards[0],
+      id: "unknown-card",
+      cardType: "Relic",
+      ability: ""
+    };
+
+    expect(isCardAbilityImplemented(effectFree)).toBe(true);
+    expect(isCardAbilityImplemented(withAbility)).toBe(false);
+    expect(isCardAbilityImplemented(gear)).toBe(false);
+    expect(isCardAbilityImplemented(basicRune)).toBe(false);
+    expect(isCardAbilityImplemented(unknownType)).toBe(false);
+    expect(withAbility.name).toBe("Flame Warden");
+    expect(withAbility.imageUrl).toBeNull();
+  });
+
+  it("allows resubmitting a submitted deck while the room is still waiting", () => {
+    expect(canSubmitRoomDeck({ requestPending: false, roomStatus: "waiting" }))
+      .toBe(true);
+    expect(canSubmitRoomDeck({ requestPending: true, roomStatus: "waiting" }))
+      .toBe(false);
+    expect(canSubmitRoomDeck({ requestPending: false, roomStatus: "playing" }))
+      .toBe(false);
+    expect(canSubmitRoomDeck({ requestPending: false, roomStatus: null }))
+      .toBe(false);
   });
 
   it("exposes a stable error class for callers", () => {

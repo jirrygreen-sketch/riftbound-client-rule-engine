@@ -1,16 +1,24 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  RULESET_ID,
+  createConfiguredGame,
   createInitialGame,
   createRoomSnapshot,
+  getHotFeprStep,
+  projectObject,
   projectGame,
+  projectZones,
   submitCommand
 } from "../dist/index.js";
 import {
   isClientMessage,
   isCommand,
+  isGameEvent,
   isGameProjection,
-  isPlayerCommand
+  isPlayerCommand,
+  FOUNDATION_RULESET_ID,
+  PROJECTION_SCHEMA_V1
 } from "@riftbound/protocol";
 
 const players = [
@@ -20,6 +28,103 @@ const players = [
 
 function newGame() {
   return createInitialGame({ players });
+}
+
+function newFoundationGame() {
+  return createConfiguredGame({
+    players: [
+      {
+        id: "player-1",
+        name: "Player One",
+        startingHand: [
+          { instanceId: "p1:unit", cardId: "card.unit" },
+          { instanceId: "p1:score", cardId: "card.score" },
+          { instanceId: "p1:target", cardId: "card.target" },
+          { instanceId: "p1:judge", cardId: "card.judge" }
+        ],
+        deck: [
+          { instanceId: "p1:deck-1", cardId: "card.score" },
+          { instanceId: "p1:deck-2", cardId: "card.score" }
+        ]
+      },
+      {
+        id: "player-2",
+        name: "Player Two",
+        startingHand: [],
+        deck: [{ instanceId: "p2:deck-1", cardId: "card.score" }]
+      }
+    ],
+    cards: [
+      {
+        id: "card.unit",
+        name: "Foundation Unit",
+        cost: 1,
+        types: ["unit"],
+        health: 2
+      },
+      {
+        id: "card.score",
+        name: "Foundation Score",
+        cost: 0,
+        types: ["spell"],
+        effect: {
+          kind: "gain-points",
+          amount: 3,
+          targets: [{ kind: "player", playerId: "player-1" }]
+        }
+      },
+      {
+        id: "card.target",
+        name: "Foundation Target Strike",
+        cost: 0,
+        types: ["spell"],
+        effect: {
+          kind: "damage",
+          amount: 2,
+          targets: []
+        }
+      },
+      {
+        id: "card.judge",
+        name: "Judge Required",
+        cost: 0,
+        types: ["spell"],
+        effect: { kind: "judge-required", reason: "official text not modeled" }
+      }
+    ],
+    rules: { targetPoints: 3, startingEnergy: 2 }
+  });
+}
+
+function newRuneDeckGame() {
+  return createConfiguredGame({
+    players: [
+      {
+        id: "player-1",
+        name: "Player One",
+        startingHand: [],
+        rune: [{ instanceId: "p1:rune", cardId: "card.rune" }],
+        runeDeck: [
+          { instanceId: "p1:rune-deck-1", cardId: "card.rune" },
+          { instanceId: "p1:rune-deck-2", cardId: "card.rune" }
+        ]
+      },
+      {
+        id: "player-2",
+        name: "Player Two",
+        startingHand: [],
+        rune: [{ instanceId: "p2:rune", cardId: "card.rune" }],
+        runeDeck: [{ instanceId: "p2:rune-deck-1", cardId: "card.rune" }]
+      }
+    ],
+    cards: [{
+      id: "card.rune",
+      name: "Foundation Rune",
+      cost: 0,
+      types: ["rune"]
+    }],
+    rules: { targetPoints: 8 }
+  });
 }
 
 test("createInitialGame is deterministic and emits ordered events", () => {
@@ -63,6 +168,295 @@ test("playing trigger-conquer creates the automatic optional prompt", () => {
   );
 });
 
+test("foundation rules create a separate finite resource model", () => {
+  const state = newFoundationGame();
+
+  assert.equal(RULESET_ID, "riftbound-foundation");
+  assert.equal(state.rules.rulesetId, "riftbound-foundation");
+  assert.equal(state.rules.targetPoints, 3);
+  assert.equal(state.players[0].score, 0);
+  assert.equal(state.players[0].energy, 2);
+  assert.deepEqual(state.players[0].deck, ["p1:deck-1", "p1:deck-2"]);
+  assert.deepEqual(state.players[0].battlefield, []);
+  assert.equal(state.objects["p1:unit"].zone, "hand");
+});
+
+test("foundation turn draws and restores energy", () => {
+  const result = submitCommand(newFoundationGame(), {
+    type: "pass",
+    playerId: "player-1"
+  });
+
+  assert.equal(result.state.activePlayerId, "player-2");
+  assert.equal(result.state.turnNumber, 2);
+  assert.equal(result.state.players[1].energy, 3);
+  assert.equal(result.events.find(event => event.type === "turn-started")?.energy, 3);
+  assert.deepEqual(result.state.players[1].hand.map(card => card.instanceId), [
+    "p2:deck-1"
+  ]);
+});
+
+test("foundation initial turn event uses energy rather than mana", () => {
+  const state = newFoundationGame();
+  const event = state.eventLog.find(candidate => candidate.type === "turn-started");
+
+  assert.equal(event?.energy, 2);
+  assert.equal(event?.mana, undefined);
+  assert.equal(isGameEvent(event), true);
+});
+
+test("playing a unit enters the board and playing a score spell wins", () => {
+  const playedUnit = submitCommand(newFoundationGame(), {
+    type: "play-card",
+    playerId: "player-1",
+    instanceId: "p1:unit"
+  });
+  assert.deepEqual(playedUnit.state.players[0].board, ["p1:unit"]);
+  assert.equal(playedUnit.state.objects["p1:unit"].zone, "board");
+  assert.equal(projectObject(playedUnit.state, "p1:unit").objectId, "p1:unit");
+
+  const playedScore = submitCommand(playedUnit.state, {
+    type: "play-card",
+    playerId: "player-1",
+    instanceId: "p1:score"
+  });
+
+  assert.equal(playedScore.error, null);
+  assert.equal(playedScore.state.phase, "ended");
+  assert.equal(playedScore.state.winnerPlayerId, "player-1");
+  assert.deepEqual(playedScore.state.players[0].discard, ["p1:score"]);
+});
+
+test("foundation target prompts select a specific object and resolve", () => {
+  const playedUnit = submitCommand(newFoundationGame(), {
+    type: "play-card",
+    playerId: "player-1",
+    instanceId: "p1:unit"
+  });
+  const playedTarget = submitCommand(playedUnit.state, {
+    type: "play-card",
+    playerId: "player-1",
+    instanceId: "p1:target"
+  });
+
+  assert.equal(playedTarget.error, null);
+  assert.equal(playedTarget.state.prompt.reason, "resolve-effect");
+  assert.ok(
+    playedTarget.state.prompt.options.some(
+      option => option.id === "target:object:p1:unit"
+    )
+  );
+
+  const answer = submitCommand(playedTarget.state, {
+    type: "respond-to-prompt",
+    playerId: "player-1",
+    promptId: playedTarget.state.prompt.id,
+    optionId: "target:object:p1:unit"
+  });
+
+  assert.equal(answer.error, null);
+  assert.equal(answer.state.objects["p1:unit"].damage, 2);
+  assert.equal(answer.state.players[0].score, 0);
+  assert.equal(answer.state.prompt, null);
+  assert.equal(answer.state.outstandingTasks.length, 0);
+  assert.deepEqual(answer.state.players[0].discard, ["p1:target"]);
+  assert.equal(answer.state.objects["p1:target"].zone, "discard");
+});
+
+test("unknown official effects require an explicit judge prompt", () => {
+  const played = submitCommand(newFoundationGame(), {
+    type: "play-card",
+    playerId: "player-1",
+    instanceId: "p1:judge"
+  });
+
+  assert.equal(played.state.prompt.reason, "judge-required");
+  assert.deepEqual(played.state.prompt.options.map(option => option.id), [
+    "judge-required"
+  ]);
+  assert.equal(getHotFeprStep(played.state), "handle-outstanding-tasks");
+  assert.equal(played.state.objects["p1:judge"].zone, "chain");
+
+  const playerConfirmation = submitCommand(played.state, {
+    type: "respond-to-prompt",
+    playerId: "player-1",
+    promptId: played.state.prompt.id,
+    optionId: "judge-required"
+  });
+  assert.equal(playerConfirmation.error?.code, "judge_required");
+  assert.deepEqual(playerConfirmation.state, played.state);
+  assert.equal(played.state.objects["p1:judge"].zone, "chain");
+  assert.deepEqual(played.state.players[0].discard, []);
+});
+
+test("duplicate instance IDs are rejected including deck placements", () => {
+  assert.throws(() => createConfiguredGame({
+    players: [
+      {
+        id: "player-1",
+        name: "Player One",
+        startingHand: [{ instanceId: "same", cardId: "card.unit" }],
+        deck: [{ instanceId: "same", cardId: "card.unit" }]
+      },
+      { id: "player-2", name: "Player Two" }
+    ],
+    cards: [{
+      id: "card.unit",
+      name: "Unit",
+      cost: 0,
+      types: ["unit"]
+    }],
+    rules: { targetPoints: 8, drawOnTurnStart: true }
+  }), /Duplicate card instance same/);
+});
+
+test("invalid card definitions are rejected during configuration", () => {
+  const cards = [{
+    id: "card.bad",
+    name: "Bad Card",
+    cost: -1,
+    types: ["unit"]
+  }];
+  assert.throws(() => createConfiguredGame({
+    players: [
+      { id: "player-1", name: "Player One" },
+      { id: "player-2", name: "Player Two" }
+    ],
+    cards,
+    rules: { targetPoints: 8 }
+  }), /invalid cost/);
+});
+
+test("foundation projection exposes only public zones and the viewer hand", () => {
+  const playedUnit = submitCommand(newFoundationGame(), {
+    type: "play-card",
+    playerId: "player-1",
+    instanceId: "p1:unit"
+  }).state;
+  const projection = projectGame(playedUnit, "player-1");
+  const opponentProjection = projectGame(playedUnit, "player-2");
+
+  assert.equal(isGameProjection(projection), true);
+  assert.equal(projection.projectionSchema, "riftbound.projection.v1");
+  assert.equal(projection.rulesetId, "riftbound-foundation");
+  assert.equal(projection.priority.playerId, "player-1");
+  assert.ok(projection.objects.some(object =>
+    object.objectId === "p1:unit" && object.zone === "board"
+  ));
+  assert.equal(projection.objects.some(object => object.zone === "deck"), false);
+  assert.equal(projection.objects.some(object =>
+    object.objectId === "p1:deck-1"
+  ), false);
+  assert.equal(projection.players[0].hand.some(card =>
+    card.instanceId === "p1:score"
+  ), true);
+  assert.equal(opponentProjection.players[0].hand.length, 0);
+  assert.equal(projection.players[0].score, 0);
+  assert.equal(newFoundationGame().players[0].energy, 2);
+  assert.equal(projection.players[0].energy, 1);
+  assert.deepEqual(projection.players[0].power, {});
+  assert.equal(projection.players[0].zoneCounts.deck, 2);
+  assert.deepEqual(projection.players[0].playableInstanceIds, [
+    "p1:score",
+    "p1:target",
+    "p1:judge"
+  ]);
+});
+
+test("foundation rune deck stays private while public runes are visible", () => {
+  const state = newRuneDeckGame();
+  const projection = projectGame(state, "player-1");
+
+  assert.equal(state.objects["p1:rune-deck-1"].zone, "rune-deck");
+  assert.equal(state.players[0].runeDeck.length, 2);
+  assert.equal(projection.objects.some(object =>
+    object.objectId === "p1:rune" && object.zone === "rune"
+  ), true);
+  assert.equal(projection.objects.some(object =>
+    object.zone === "rune-deck"
+  ), false);
+  assert.equal(projection.objects.some(object =>
+    object.objectId === "p1:rune-deck-1"
+  ), false);
+  assert.equal(projection.players[0].zoneCounts.rune, 1);
+  assert.equal(projection.players[0].zoneCounts["rune-deck"], 2);
+  assert.equal(projection.players[1].zoneCounts["rune-deck"], 1);
+  assert.equal(projection.projectionSchema, PROJECTION_SCHEMA_V1);
+  assert.equal(projection.rulesetId, FOUNDATION_RULESET_ID);
+  assert.equal(isGameProjection(projection), true);
+  assert.deepEqual(projectZones(state, "player-1").runeDeck, [
+    "p1:rune-deck-1",
+    "p1:rune-deck-2"
+  ]);
+});
+
+test("foundation playable cards are gated to legal action points", () => {
+  const playedUnit = submitCommand(newFoundationGame(), {
+    type: "play-card",
+    playerId: "player-1",
+    instanceId: "p1:unit"
+  }).state;
+  const playedTarget = submitCommand(playedUnit, {
+    type: "play-card",
+    playerId: "player-1",
+    instanceId: "p1:target"
+  }).state;
+  const viewerProjection = projectGame(playedTarget, "player-1");
+  const opponentProjection = projectGame(playedTarget, "player-2");
+
+  assert.equal(playedTarget.prompt !== null, true);
+  assert.deepEqual(viewerProjection.players[0].playableInstanceIds, []);
+  assert.deepEqual(opponentProjection.players[1].playableInstanceIds, []);
+  assert.equal(isGameProjection(viewerProjection), true);
+});
+
+test("foundation handCount reports the real hand size to every viewer", () => {
+  const projection = projectGame(newFoundationGame(), "player-2");
+
+  assert.equal(projection.players[0].hand.length, 0);
+  assert.equal(projection.players[0].handCount, 4);
+  assert.equal(projection.players[1].handCount, 0);
+});
+
+test("foundation end waits for resolved tasks and a sole leader", () => {
+  const playedUnit = submitCommand(newFoundationGame(), {
+    type: "play-card",
+    playerId: "player-1",
+    instanceId: "p1:unit"
+  }).state;
+  const playedTarget = submitCommand(playedUnit, {
+    type: "play-card",
+    playerId: "player-1",
+    instanceId: "p1:target"
+  }).state;
+  assert.equal(playedTarget.prompt !== null, true);
+  playedTarget.players[0].score = 3;
+  playedTarget.players[0].hand.push({
+    instanceId: "p1:board-unit",
+    cardId: "card.unit"
+  });
+  playedTarget.players[0].board.push("p1:board-unit");
+  playedTarget.objects["p1:board-unit"] = {
+    ...playedTarget.objects["p1:unit"],
+    objectId: "p1:board-unit",
+    instanceId: "p1:board-unit",
+    zone: "board"
+  };
+
+  const answered = submitCommand(playedTarget, {
+    type: "respond-to-prompt",
+    playerId: "player-1",
+    promptId: playedTarget.prompt.id,
+    optionId: "target:object:p1:unit"
+  });
+
+  assert.equal(answered.error, null);
+  assert.equal(answered.state.prompt, null);
+  assert.equal(answered.state.outstandingTasks.length, 0);
+  assert.equal(answered.state.phase, "ended");
+  assert.equal(answered.state.winnerPlayerId, "player-1");
+});
+
 test("resolving the prompt applies damage and clears the task", () => {
   const played = submitCommand(newGame(), {
     type: "play-card",
@@ -79,7 +473,7 @@ test("resolving the prompt applies damage and clears the task", () => {
   });
 
   assert.equal(result.error, null);
-  assert.equal(result.state.players[1].life, 19);
+  assert.equal(result.state.players[1].points, 19);
   assert.equal(result.state.prompt, null);
   assert.equal(result.state.outstandingTasks.length, 0);
   assert.deepEqual(
@@ -106,7 +500,7 @@ test("skipping the optional trigger does not deal damage", () => {
   });
 
   assert.equal(result.error, null);
-  assert.equal(result.state.players[1].life, 20);
+  assert.equal(result.state.players[1].points, 20);
   assert.equal(result.state.outstandingTasks.length, 0);
   assert.equal(result.events.at(-1)?.type, "trigger-skipped");
 });
@@ -154,7 +548,7 @@ test("ending the game marks a winner and rejects further commands", () => {
     playerId: "player-1",
     instanceId: "player-1:trigger-conquer"
   }).state;
-  played.players[1].life = 1;
+  played.players[1].points = 1;
 
   const result = submitCommand(played, {
     type: "respond-to-prompt",
@@ -181,7 +575,7 @@ test("resolving a game-ending prompt clears pending automation consistently", ()
     playerId: "player-1",
     instanceId: "player-1:trigger-conquer"
   }).state;
-  played.players[1].life = 1;
+  played.players[1].points = 1;
 
   const result = submitCommand(played, {
     type: "respond-to-prompt",
@@ -219,10 +613,13 @@ test("public projection hides hands and room snapshot exposes the public view", 
   const ownProjection = projectGame(state, "player-1");
   assert.equal(ownProjection.players[0].hand.length, 1);
   assert.equal(ownProjection.players[1].hand.length, 0);
+  assert.equal(ownProjection.players[0].handCount, 1);
+  assert.equal(ownProjection.players[1].handCount, 1);
 
   const snapshot = createRoomSnapshot(state, "room-1");
   assert.equal(snapshot.roomId, "room-1");
   assert.equal(snapshot.eventSeq, 2);
+  assert.equal(snapshot.projection.players[1].hand.length, 0);
   assert.equal(snapshot.projection.players[1].handCount, 1);
 });
 
@@ -329,6 +726,10 @@ test("projection exposes only the viewer hand and viewer prompt", () => {
   );
   assert.equal(isGameProjection(playerOneView), true);
   assert.equal(isGameProjection(playerTwoView), true);
+  assert.equal(playerOneView.projectionSchema, undefined);
+  assert.equal(playerOneView.rulesetId, undefined);
+  assert.equal(playerOneView.priority, undefined);
+  assert.equal(playerOneView.objects, undefined);
   assert.equal(publicView.players.every(player => player.hand.length === 0), true);
 });
 

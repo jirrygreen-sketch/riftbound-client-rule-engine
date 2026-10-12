@@ -78,6 +78,10 @@ importers:
         version: 5.0.3(@types/node@22.20.5)(vite@7.3.7(@types/node@22.20.5)(tsx@4.23.15))
 
   packages/card-data:
+    dependencies:
+      '@riftbound/card-dsl':
+        specifier: workspace:*
+        version: link:../card-dsl
     devDependencies:
       typescript:
         specifier: ^5.9.3

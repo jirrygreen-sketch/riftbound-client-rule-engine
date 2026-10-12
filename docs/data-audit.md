@@ -248,12 +248,27 @@ No empty required text scalar was found except the intentionally empty
 
 ### Empty Ability
 
-Thirty-three cards have an empty `ability`:
+Thirty-three printings have an empty `ability`. They represent 15 canonical
+identities:
 
-| Card type | Count |
+| Card type | Printings | Canonical identities |
 | --- | ---: |
-| Rune | 24 |
-| Unit | 9 |
+| Rune | 24 | 6 |
+| Unit | 9 | 9 |
+
+The 24 Rune printings are the six Basic Runes, with four printings each:
+Fury, Calm, Mind, Body, Chaos, and Order. Their upstream `ability` text is
+empty, but Core Rules 164.2 gives every Basic Rune two activated abilities:
+`[E]: [Reaction] - Add [1]` and `Recycle this: [Reaction] - Add [C]`, where
+the recycled resource matches the Rune's Domain. They therefore need structural
+Rune Deck, recycle, resource, and activated-ability support before they can be
+executable.
+
+The persisted effect-coverage report currently records `executableCount: 0`,
+`judgeRequiredCount: 1,348`, and `noAbilityCount: 33` across 1,381 printings.
+In this report, `noAbility` means that no ability text is available to compile;
+it does not mean the game object has no rules-defined abilities and it must not
+be counted as executable.
 
 The nine units are token or simple generated units:
 
@@ -307,8 +322,9 @@ Command:
 pnpm --filter @riftbound/card-data test
 ```
 
-Result: passed, 48 tests. The test run rebuilds ignored `dist/` files but did
-not modify tracked production source.
+Result: passed on the audit date. The test run rebuilt ignored `dist/` files
+but did not modify tracked production source. Current workspace test status is
+maintained in `docs/implementation-status.md`.
 
 No unresolved production-data issue was found by this audit. Keep the complete
 official-rules boundary separate from data completion.
@@ -318,6 +334,68 @@ guard gap: `mergeCards` previously allowed a later community record to silently
 overwrite an earlier record with the same `cardCode`. Current source data is
 not affected, because it contains no duplicate community card codes. The guard
 is now explicit: invalid, empty, and duplicate community card codes fail the
-sync before merge. The focused regression suite passes 49 card-data tests, and
-the persisted data totals, variant counts, localization counts, and deck digest
-remain unchanged.
+sync before merge. At that follow-up date, the focused regression suite passed
+49 card-data tests; the persisted data totals, variant counts, localization
+counts, and deck digest remained unchanged.
+
+## Constructed Policy Follow-Up
+
+A follow-up validation on 2026-10-12 checked the Constructed banlist, image
+integrity, and Radiance activation behavior against the persisted deck catalog.
+The deck catalog contains 1,381 printings, 1,080 canonical identities, and 192
+printings with set code `rad`.
+
+### Official Ban Resolution
+
+All 12 official Constructed bans resolve to a canonical identity, and
+`missingBannedTargets` is empty. Eight resolve by exact `fullName`. The
+remaining four resolve through aliases:
+
+| Official source name | Resolved catalog name |
+| --- | --- |
+| `The Arena’s Greatest` | `The Arena's Greatest` |
+| `Aspirant’s Climb` | `Aspirant's Climb` |
+| `Dreaming Tree` | `The Dreaming Tree` |
+| `Reaver’s Row` | `Reaver's Row` |
+
+The policy source uses typographic apostrophes (`U+2019`) in the three official
+names, with ASCII-apostrophe aliases (`U+0027`) matching the catalog. Console
+rendering can make these characters appear as mojibake; direct code-point
+inspection found no replacement or control characters.
+
+### Image Integrity
+
+The image manifest and disk set were checked against the manifest's actual
+`images` array:
+
+| Check | Result |
+| --- | ---: |
+| Manifest images | 1,381 |
+| Disk image files | 1,381 |
+| Missing files | 0 |
+| Extra files | 0 |
+| Duplicate image IDs | 0 |
+| Duplicate file names | 0 |
+| Byte-size mismatches | 0 |
+| SHA-256 mismatches | 0 |
+| Unsafe file names | 0 |
+
+The manifest records `partial: false`, `ok: true`, zero missing entries, and
+zero failures. Its counts are 1,381 selected cards, one downloaded image, and
+1,380 resumed images.
+
+### Radiance Effective Date
+
+`createConstructedRules` now accepts an optional `asOf` string or `Date`.
+Before `2026-10-16T00:00:00.000Z`, Radiance printings remain
+`previewNotReleased`, `available: false`, `banned: false`, and `maxCopies: 0`;
+they produce printing issues rather than `banned_card` validation errors. On and
+after that instant, `rad` is included in the Standard legal set codes, the
+public Radiance status changes to `active`, and Radiance printings become
+available. Official bans remain unaffected.
+
+The official sources specify the Radiance effective date as the calendar date
+`2026-10-16`, not a time of day. Treating `2026-10-16T00:00:00.000Z` as the
+effective instant is an explicit engineering assumption. The product release
+date remains `2026-10-23`; regional product availability is still represented
+as policy metadata and is not independently verified.

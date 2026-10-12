@@ -1,34 +1,49 @@
-import { Coins, Heart, Layers, Swords } from "lucide-react";
+import { Coins, Heart, Layers, Star, Swords } from "lucide-react";
 import {
-  TRIGGER_CONQUER_CARD,
-  type CardInstance,
-  type PlayerProjection
-} from "@riftbound/protocol";
+  buildProjectedZones,
+  type BoardCardInfo,
+  type ProjectedPlayerView,
+  type ProjectedZoneView
+} from "../game/projectionContract";
+import type { CardInstance } from "@riftbound/protocol";
 
 interface PlayerBoardProps {
-  player: PlayerProjection | null;
+  player: ProjectedPlayerView | null;
+  viewerPlayerId: string | null;
   sideName: string;
   selectedCardId: string | null;
   onSelectCard?: (card: CardInstance) => void;
-  viewerIsSelf: boolean;
+  onPlayCard?: (instanceId: string) => void;
+  canSelect: boolean;
   isActive: boolean;
+  resolveCardInfo: (cardId: string) => BoardCardInfo | null;
 }
 
 export function PlayerBoard({
   player,
+  viewerPlayerId,
   sideName,
   selectedCardId,
   onSelectCard,
-  viewerIsSelf,
-  isActive
+  onPlayCard,
+  canSelect,
+  isActive,
+  resolveCardInfo
 }: PlayerBoardProps) {
-  const hand = viewerIsSelf ? (player?.hand ?? []) : [];
+  const zones = buildProjectedZones(player, viewerPlayerId);
+  const handObjects = zones.find(zone => zone.zone === "hand")?.objects ?? [];
+  const isSelf = player !== null && viewerPlayerId === player.playerId;
+  const showLegacyHand = player?.isLegacy === true && isSelf;
+  const playableIds =
+    isSelf && (player?.playableInstanceIds !== undefined || !player?.isLegacy)
+      ? player?.playableInstanceIds
+      : undefined;
 
   return (
-    <section className={`player-board ${viewerIsSelf ? "self" : "opponent"}`} aria-label={sideName}>
+    <section className={`player-board ${isSelf ? "self" : "opponent"}`} aria-label={sideName}>
       <header className="player-header">
         <div>
-          <h2>{player?.name ?? "等待玩家"}</h2>
+          <h2>{player?.displayName ?? "等待玩家"}</h2>
           <p>
             {sideName}
             {isActive ? " · 当前回合" : ""}
@@ -36,87 +51,230 @@ export function PlayerBoard({
         </div>
         <dl className="resource-strip">
           <div>
-            <dt><Heart size={15} aria-hidden />生命</dt>
-            <dd>{player?.life ?? 0}</dd>
+            <dt><Star size={15} aria-hidden />分数</dt>
+            <dd>{player?.score ?? "-"}</dd>
           </div>
           <div>
-            <dt><Coins size={15} aria-hidden />资源</dt>
-            <dd>{player?.mana ?? 0}</dd>
+            <dt><Layers size={15} aria-hidden />符文</dt>
+            <dd>{player?.runes.length ?? 0}</dd>
           </div>
-          <div>
-            <dt><Layers size={15} aria-hidden />手牌</dt>
-            <dd>{player?.handCount ?? 0}</dd>
-          </div>
-          <div>
-            <dt><Swords size={15} aria-hidden />身份</dt>
-            <dd>{player?.id ?? "-"}</dd>
-          </div>
+          {!player?.isLegacy ? (
+            <>
+              <div>
+                <dt><Coins size={15} aria-hidden />能量</dt>
+                <dd>{player?.energy ?? "-"}</dd>
+              </div>
+              <div>
+                <dt><Swords size={15} aria-hidden />势力</dt>
+                <dd>
+                  {player?.power
+                    ? Object.entries(player.power)
+                        .map(([domain, value]) => `${domain}:${value}`)
+                        .join(" / ") || "0"
+                    : "-"}
+                </dd>
+              </div>
+            </>
+          ) : null}
+          {player?.isLegacy ? (
+            <>
+              <div>
+                <dt><Heart size={15} aria-hidden />Synthetic 生命</dt>
+                <dd>{player.life ?? "-"}</dd>
+              </div>
+              <div>
+                <dt><Coins size={15} aria-hidden />Synthetic 资源</dt>
+                <dd>{player.mana ?? "-"}</dd>
+              </div>
+            </>
+          ) : (
+            <div>
+              <dt><Swords size={15} aria-hidden />玩家</dt>
+              <dd>{player?.playerId ?? "-"}</dd>
+            </div>
+          )}
         </dl>
       </header>
 
-      <div className="zone-grid">
-        <div className="zone">
-          <h3>公开区域</h3>
-          <div className="card-row">
-            <span className="empty-zone">synthetic-demo 暂无基地与战场</span>
-          </div>
-        </div>
-        <div className="zone">
-          <h3>状态</h3>
-          <div className="card-row">
-            <span className="empty-zone">
-              {player ? `${player.handCount} 张手牌` : "等待玩家加入"}
-            </span>
-          </div>
-        </div>
+      <div className="board-zone-grid" aria-label={`${sideName} zones`}>
+        {zones.map(zone => (
+          <BoardZone
+            key={zone.zone}
+            zone={zone}
+            canSelect={canSelect && isSelf}
+            selectedCardId={selectedCardId}
+            onSelectCard={onSelectCard}
+            onPlayCard={onPlayCard}
+            playableInstanceIds={playableIds}
+            resolveCardInfo={resolveCardInfo}
+          />
+        ))}
       </div>
 
       <div className="hand-zone">
-        <h3>{viewerIsSelf ? "我的手牌" : "对手手牌不可见"}</h3>
+        <h3>{isSelf ? "我的手牌" : "对手手牌不可见"}</h3>
         <div className="card-row">
-          {hand.length === 0 && viewerIsSelf ? (
-            <span className="empty-zone">暂无可选手牌</span>
-          ) : null}
-          {hand.map(card => (
-            <CardTile
-              key={card.instanceId}
-              card={card}
-              selected={card.instanceId === selectedCardId}
-              onSelect={viewerIsSelf && onSelectCard ? () => onSelectCard(card) : undefined}
-            />
-          ))}
+          {!isSelf ? (
+            <span className="empty-zone">
+              {player ? `${player.handCount ?? handObjects.length} 张手牌` : "等待玩家加入"}
+            </span>
+          ) : showLegacyHand || handObjects.length > 0 ? (
+            handObjects.length === 0
+              ? <span className="empty-zone">暂无可选手牌</span>
+              : handObjects.map(object => (
+                  <CardTile
+                    key={object.objectId}
+                    card={{ instanceId: object.objectId, cardId: object.cardId }}
+                    selected={object.objectId === selectedCardId}
+                    canSelect={canSelect}
+                    onSelect={() =>
+                      onSelectCard?.({ instanceId: object.objectId, cardId: object.cardId })
+                    }
+                    onPlay={makePlayHandler({
+                      instanceId: object.objectId,
+                      playableInstanceIds: playableIds,
+                      onPlayCard
+                    })}
+                    resolveCardInfo={resolveCardInfo}
+                  />
+                ))
+          ) : handObjects.length === 0 ? (
+            <span className="empty-zone">等待投影</span>
+          ) : (
+            handObjects.map(object => (
+              <CardTile
+                key={object.objectId}
+                card={{ instanceId: object.objectId, cardId: object.cardId }}
+                selected={object.objectId === selectedCardId}
+                canSelect={canSelect}
+                onSelect={() =>
+                  onSelectCard?.({ instanceId: object.objectId, cardId: object.cardId })
+                }
+                onPlay={makePlayHandler({
+                  instanceId: object.objectId,
+                  playableInstanceIds: playableIds,
+                  onPlayCard
+                })}
+                resolveCardInfo={resolveCardInfo}
+              />
+            ))
+          )}
         </div>
       </div>
     </section>
   );
 }
 
+function BoardZone({
+  zone,
+  canSelect,
+  selectedCardId,
+  onSelectCard,
+  onPlayCard,
+  playableInstanceIds,
+  resolveCardInfo
+}: {
+  zone: ProjectedZoneView;
+  canSelect: boolean;
+  selectedCardId: string | null;
+  onSelectCard?: (card: CardInstance) => void;
+  onPlayCard?: (instanceId: string) => void;
+  playableInstanceIds?: readonly string[] | null;
+  resolveCardInfo: (cardId: string) => BoardCardInfo | null;
+}) {
+  return (
+    <section className={`board-zone ${zone.state}`} aria-label={`${zone.label}区域`}>
+      <header>
+        <h3>{zone.label}</h3>
+        <span>{zone.count === null ? "等待投影" : zone.count}</span>
+      </header>
+      <div className="zone-card-row">
+        {zone.state === "awaiting-projection" ? (
+          <span className="empty-zone">等待共享投影</span>
+        ) : zone.objects.length === 0 ? (
+          <span className="empty-zone">空区域</span>
+        ) : (
+          zone.objects.map(object => (
+            <CardTile
+              key={object.objectId}
+              card={{ instanceId: object.objectId, cardId: object.cardId }}
+              selected={object.objectId === selectedCardId}
+              canSelect={canSelect}
+              onSelect={() =>
+                onSelectCard?.({ instanceId: object.objectId, cardId: object.cardId })
+              }
+              onPlay={makePlayHandler({
+                instanceId: object.objectId,
+                playableInstanceIds,
+                onPlayCard
+              })}
+              resolveCardInfo={resolveCardInfo}
+            />
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
+function makePlayHandler({
+  instanceId,
+  playableInstanceIds,
+  onPlayCard
+}: {
+  instanceId: string;
+  playableInstanceIds?: readonly string[] | null;
+  onPlayCard?: (instanceId: string) => void;
+}): (() => void) | undefined {
+  if (!onPlayCard) return undefined;
+  if (playableInstanceIds === null) return undefined;
+  if (playableInstanceIds !== undefined && !playableInstanceIds.includes(instanceId)) {
+    return undefined;
+  }
+  return () => onPlayCard(instanceId);
+}
+
 function CardTile({
   card,
   selected,
-  onSelect
+  canSelect,
+  onSelect,
+  onPlay,
+  resolveCardInfo
 }: {
   card: CardInstance;
   selected?: boolean;
+  canSelect: boolean;
   onSelect?: () => void;
+  onPlay?: () => void;
+  resolveCardInfo: (cardId: string) => BoardCardInfo | null;
 }) {
-  const isTriggerConquer = card.cardId === TRIGGER_CONQUER_CARD.id;
-  const name = isTriggerConquer ? TRIGGER_CONQUER_CARD.name : card.cardId;
+  const info = resolveCardInfo(card.cardId);
+  const name = info?.title ?? "未实现";
+  const typeLabel = info?.typeLabel ?? "未实现";
 
   return (
     <button
       type="button"
-      className={`card-tile ${selected ? "selected" : ""} ${
-        isTriggerConquer ? "trigger-conquer" : ""
-      }`}
+      className={`card-tile ${selected ? "selected" : ""} ${info?.implemented ? "card-playable" : "state-unknown"}`}
       onClick={onSelect}
-      disabled={!onSelect}
+      onDoubleClick={onPlay}
+      disabled={!canSelect}
       title={`${name} (${card.instanceId})`}
     >
-      <span className="card-cost">{isTriggerConquer ? TRIGGER_CONQUER_CARD.cost : "-"}</span>
+      {info?.imageUrl ? (
+        <img className="card-image" src={info.imageUrl} alt="" loading="lazy" />
+      ) : null}
+      <span className="card-cost">-</span>
       <span className="card-name">{name}</span>
-      <span className="card-types">{card.cardId}</span>
-      <span className="card-state">点击打出</span>
+      <span className="card-types">{typeLabel}</span>
+      <span className="card-state">
+        {info?.implemented
+          ? canSelect
+            ? "点击选中 · 双击打出"
+            : "不可操作"
+          : "能力未实现 · 需裁判"}
+      </span>
     </button>
   );
 }

@@ -1,11 +1,12 @@
 # Implementation Status
 
-Last reviewed: 2026-10-11
+Last reviewed: 2026-10-12
 
-This is a current-state summary, not a historical audit. The counts below were
-checked against the persisted files and rerun on this machine on 2026-10-11.
-The card-data commands were run without writing their persisted snapshots;
-the image command was a dry run and changed no image files.
+This is a current-state summary, not a historical audit. Data and catalog
+statements below describe the persisted snapshot last verified on
+2026-10-11. The verification below reflects the full recursive test, typecheck,
+and build runs completed on 2026-10-12. It does not re-assert server smoke,
+frozen-install, audit, or CI verification.
 
 ## Current Shape
 
@@ -17,9 +18,9 @@ apps/
   desktop-client/    React + Vite client with a Tauri 2 desktop shell
 packages/
   protocol/          shared command, event, and projection contracts
-  engine-core/       deterministic synthetic-demo rules slice
+  engine-core/       deterministic synthetic-demo and foundation game state
   card-data/         versioned card data, sync scripts, and image manifest
-  card-dsl/          synthetic-demo DSL AST validation
+  card-dsl/          synthetic-demo DSL and EffectIR validation
   replay-core/       replay envelope and event-log validation
   judge-tools/       judge policy, review, and decision metadata
   integration-tests/ cross-package WebSocket and protocol tests
@@ -42,9 +43,21 @@ Implemented surfaces include:
   a package dependency.
 
 These implemented surfaces do not add up to a complete playable game. The
-WebSocket rooms are in-memory and use the synthetic-demo engine, and the deck
-builder covers catalog selection and bounded Constructed validation. Official
-card-effect execution is outside both surfaces and is not implemented.
+WebSocket rooms are in-memory. The synthetic-demo mode uses the narrow demo
+engine, while the foundation mode maps submitted official printings through the
+server adapter into `createConfiguredGame`. That foundation surface is a
+deliberately narrow CR v1.4 1v1 Duel vertical slice, not a complete official
+rules implementation. It starts with four submitted Main Deck cards in submitted
+order and does not model official shuffling, mulligans, first-player selection,
+battlefield selection, rune channeling, sideboarding, or official ability
+execution.
+
+Official card ability text is not parsed. Cards with unmodeled official text,
+inherent rune abilities, token-like definitions, or a mapped multi-type
+definition become judge-required effects and block automatic resolution rather
+than being approximated. Unsupported card types are rejected rather than being
+guessed as another engine type. Player confirmation cannot resolve
+judge-required effects; an authoritative ruling is required.
 
 ## Data, Catalog, And Effects
 
@@ -57,7 +70,7 @@ card-effect execution is outside both surfaces and is not implemented.
 | Localized display names | 1,355 printings have a localized Chinese name and 26 fall back to the official English name. |
 | Card image cache | Complete for this snapshot. `data/images` contains 1,381 files, including `ogn-028-298.png` (840,102 bytes). `images-manifest.json` is `ok=true`, `partial=false`, with 1,381 entries and zero missing or failed entries. `sync:images --dry-run` reports `total=1381 resumed=1381 missing=0 failed=0 pending=0 partial=false`. |
 | Catalog and deck builder | Implemented against the persisted catalog, including canonical grouping, printing selection, six zones, official bans, grouped copy limits, and zone structure. Domain Identity, Champion/Legend/Signature, and independently verified regional availability are not implemented. |
-| Playable card effects | Not complete. `engine-core` and `card-dsl` remain a synthetic-demo slice; this is not a complete 1,381-card rules engine. |
+| Playable card effects | Not complete. `engine-core` covers explicitly modeled synthetic-demo and foundation semantics, while `card-dsl` validates synthetic-demo DSL and EffectIR; neither is a complete 1,381-card rules engine. Unmodeled official text and object semantics are judge-required. |
 
 This distinction is important: 1,381 reconciled data records establish card
 identity, text, image references, and the bounded Constructed policy. They do
@@ -72,7 +85,29 @@ ASCII `*` as alternate printings and left every `primaryPrintingId` unchanged.
 
 ## Verification Status
 
-Completed verification:
+Current test verification reported on 2026-10-12:
+
+- `protocol`: 8 passed.
+- `engine-core`: 27 passed.
+- `game-server`: 78 passed.
+- `desktop-client`: 58 passed.
+- `card-data`: 51 passed.
+- `card-dsl`: 17 passed.
+- `judge-tools`: 18 passed.
+- `replay-core`: 10 passed.
+- `integration-tests`: 34 passed.
+
+A full `pnpm test` run exited 0 with these package results: 301 tests passed.
+`pnpm typecheck`, `pnpm build`, and `git diff --check` also exited 0.
+After the final reconnect visibility fix, the desktop-client tests passed
+58/58 again and its build, including TypeScript checking, exited 0.
+
+One isolated
+`game-server` package run had a timing-sensitive reconnect failure, but that
+failure did not reproduce in the full recursive run; it is not a verified
+stable result.
+
+Persisted data checks last completed on 2026-10-11:
 
 - `node scripts/sync-current-cards.mjs --dry-run` exited 0. It loaded 1,380
   community records, 1,381 English official records, and 1,381 Chinese official
@@ -83,21 +118,12 @@ Completed verification:
 - `pnpm --filter @riftbound/card-data sync:images --dry-run` exited 0 and
   reported 1,381 resumed, zero missing, zero failed, zero pending, and
   `partial=false`; no files were written.
-- `pnpm build` exited 0.
-- `pnpm typecheck` exited 0.
-- The local server on `127.0.0.1:8787` returned HTTP 200 for `/api/cards` with
-  1,381 cards and 1,080 groups, and `/health` returned `{"status":"ok","rooms":0}`.
 - Deck-catalog generation processed 1,381 printings into 1,080 official English
   full-name identities, including 46 cross-set identities.
-- The current full `pnpm test` passed 208 tests: card-data 49,
-  desktop-client 41, game-server 48, integration-tests 23, card-dsl 10,
-  judge-tools 10, protocol 3, replay-core 10, and engine-core 14.
-- Frozen install and audit checks passed locally. The local toolchain uses
-  Vitest 5.0.3 and Vite 7.3.7.
-- The Windows CI workflow is configured to run `pnpm build`, `pnpm typecheck`,
-  and `pnpm test`, then build the Tauri NSIS bundle and upload the resulting
-  installer artifact. The latest post-change workflow run has not yet been
-  observed.
+
+Server smoke, frozen-install, and audit checks also passed in that earlier
+workspace state on 2026-10-11. Those three checks have not been re-asserted for
+the current workspace.
 
 DeckBuilder no longer adds printings marked `available: false`, preserves API
 `printingIssues`, and includes a full-art preview. The former
@@ -108,7 +134,7 @@ Not yet verified:
 - Windows NSIS installer creation or installation. The local checkout has no
   `cargo`, `rustc`, or `rustup`, and GitHub Windows CI verification is pending.
 - Complete Constructed validation beyond the bounded policy, complete official
-  rules, full-card effect execution, persistent rooms, event replay/backfill,
+  rules, full-card effect execution, persistent rooms and event history,
   and production installer/update behavior.
 
 ## Commands

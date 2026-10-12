@@ -76,6 +76,16 @@ export function DeckBuilder({
     [cards, quantityByCardId, cardLimits, query]
   );
 
+  useEffect(() => {
+    setExpandedGroups(current =>
+      expandedGroupsForSearch(
+        current,
+        groups.map(group => group.canonicalCardId),
+        query
+      )
+    );
+  }, [groups, query]);
+
   const toggleGroup = (canonicalCardId: string) => {
     setExpandedGroups(current => {
       const next = new Set(current);
@@ -275,6 +285,23 @@ export function addCard(
 
 export function isAddDisabled(quantity: number, limit: number | null): boolean {
   return limit === null || quantity >= limit;
+}
+
+export function expandedGroupsForSearch(
+  current: ReadonlySet<string>,
+  matchedCanonicalCardIds: readonly string[],
+  query: string
+): ReadonlySet<string> {
+  if (!query.trim()) return current;
+
+  let changed = false;
+  const next = new Set(current);
+  for (const canonicalCardId of matchedCanonicalCardIds) {
+    if (next.has(canonicalCardId)) continue;
+    next.add(canonicalCardId);
+    changed = true;
+  }
+  return changed ? next : current;
 }
 
 export function isCardAvailable(card: DeckBuilderCard): boolean {
