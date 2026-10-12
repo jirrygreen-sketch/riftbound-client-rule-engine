@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./experimental": {
+      "types": "./dist/full-product/runtime.d.ts",
+      "default": "./dist/full-product/runtime.js"
     }
   },
   "files": [
@@ -17,7 +21,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "pnpm --filter @riftbound/protocol build && pnpm build && node --test test/*.test.mjs"
+    "test": "pnpm --filter @riftbound/protocol build && pnpm build && node --test test/*.test.mjs test/full-product/*.test.mjs"
   },
   "dependencies": {
     "@riftbound/protocol": "workspace:*"

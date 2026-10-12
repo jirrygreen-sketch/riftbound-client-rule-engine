@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./full-product": {
+      "types": "./dist/full-product-contract.d.ts",
+      "default": "./dist/full-product-contract.js"
     }
   },
   "files": [

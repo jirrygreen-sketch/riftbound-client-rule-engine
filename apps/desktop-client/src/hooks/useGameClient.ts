@@ -7,8 +7,10 @@ import {
 } from "../net/GameClient";
 import type {
   ClientSession,
+  CommandTarget,
   GameEvent,
   GameProjection,
+  PlayerCommand,
   RoomDeckSubmission,
   RoomEvent,
   RoomView,
@@ -16,6 +18,7 @@ import type {
   DeckZoneName
 } from "@riftbound/protocol";
 import { DECK_ZONES } from "../net/CardCatalogClient";
+import { acceptConfirmedProjection } from "../full-product/transport";
 import type { DeckByZone } from "./useCardCatalog";
 
 const DEFAULT_SERVER_URL = "ws://127.0.0.1:8787";
@@ -41,7 +44,9 @@ interface UseGameClientResult {
   setReady: (ready: boolean) => void;
   syncEvents: () => void;
   pass: () => void;
-  playCard: (instanceId: string) => void;
+  playCard: (instanceId: string, targets?: readonly CommandTarget[]) => void;
+  submitPlayerCommand: (command: PlayerCommand) => void;
+  concede: () => void;
   respondPrompt: (promptId: string, optionId: string, stateVersion?: number) => void;
   clearError: () => void;
 }
@@ -89,7 +94,8 @@ export function useGameClient(): UseGameClientResult {
     if (!clientRef.current) {
       clientRef.current = new GameClient({
         onStatus: setStatus,
-        onProjection: setProjection,
+        onProjection: incoming =>
+          setProjection(current => acceptConfirmedProjection(current, incoming)),
         onError: message => {
           setLastError(message);
           setErrorRevision(revision => revision + 1);
@@ -151,11 +157,22 @@ export function useGameClient(): UseGameClientResult {
   }, [client]);
 
   const playCard = useCallback(
-    (instanceId: string) => {
-      client.playCard(instanceId);
+    (instanceId: string, targets?: readonly CommandTarget[]) => {
+      client.playCard(instanceId, targets);
     },
     [client]
   );
+
+  const submitPlayerCommand = useCallback(
+    (command: PlayerCommand) => {
+      client.submitPlayerCommand(command);
+    },
+    [client]
+  );
+
+  const concede = useCallback(() => {
+    client.concede();
+  }, [client]);
 
   const respondPrompt = useCallback(
     (promptId: string, optionId: string, stateVersion?: number) => {
@@ -206,6 +223,8 @@ export function useGameClient(): UseGameClientResult {
     syncEvents,
     pass,
     playCard,
+    submitPlayerCommand,
+    concede,
     respondPrompt,
     clearError
   };

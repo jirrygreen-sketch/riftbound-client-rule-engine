@@ -1,0 +1,15 @@
+{
+  "extends": "../../../../tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": "./",
+    "paths": {
+      "@riftbound/protocol": ["../../../../packages/protocol/src/index.ts"],
+      "@riftbound/engine-core": ["../../../../packages/engine-core/src/index.ts"]
+    }
+  },
+  "include": [
+    "**/*.ts",
+    "../../src/test-support/**/*.ts",
+    "../../src/**/*.d.ts"
+  ]
+}

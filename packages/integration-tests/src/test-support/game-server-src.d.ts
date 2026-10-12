@@ -53,6 +53,7 @@ declare module "@riftbound/game-server-src" {
     imagesDirectory?: string;
     catalog?: unknown;
     deckRules?: DeckValidationRules;
+    storageDirectory?: string;
   }
 
   export interface GameRoom {

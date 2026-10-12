@@ -18,6 +18,7 @@
     "test": "vitest run --config vitest.config.ts"
   },
   "dependencies": {
+    "@riftbound/replay-core": "workspace:*",
     "@riftbound/engine-core": "workspace:*",
     "@riftbound/protocol": "workspace:*",
     "ws": "^8.18.0"

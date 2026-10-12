@@ -5,6 +5,7 @@ import {
   isServerMessage,
   type ClientSession,
   type ClientToServerMessage,
+  type CommandTarget,
   type GameProjection,
   type GameEvent,
   type PlayerCommand,
@@ -172,12 +173,24 @@ export class GameClient {
     return this.sendCommand({ type: "pass" });
   }
 
-  playCard(instanceId: string): boolean {
+  playCard(instanceId: string, targets?: readonly CommandTarget[]): boolean {
     if (!instanceId) {
       this.handlers.onError("手牌实例无效，无法打出。");
       return false;
     }
-    return this.sendCommand({ type: "play-card", instanceId });
+    return this.sendCommand({
+      type: "play-card",
+      instanceId,
+      ...(targets === undefined ? {} : { targets })
+    });
+  }
+
+  submitPlayerCommand(command: PlayerCommand): boolean {
+    return this.sendCommand(command);
+  }
+
+  concede(): boolean {
+    return this.sendCommand({ type: "concede" });
   }
 
   respondPrompt(

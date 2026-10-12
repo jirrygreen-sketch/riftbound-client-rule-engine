@@ -2,8 +2,9 @@ import { createGameServer } from "./server.js";
 
 const port = Number(process.env.PORT ?? 8787);
 const host = process.env.HOST ?? "127.0.0.1";
+const storageDirectory = process.env.RIFTBOUND_STORAGE_DIRECTORY;
 
-const server = createGameServer({ host, port });
+const server = createGameServer({ host, port, storageDirectory });
 
 server.httpServer.on("listening", () => {
   console.log(`Riftbound game server`);

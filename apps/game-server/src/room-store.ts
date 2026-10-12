@@ -8,9 +8,12 @@ import type { GameRoom } from "./room.js";
  */
 export interface RoomStore {
   create(room: GameRoom): Promise<void>;
+  save(room: GameRoom): Promise<void>;
   get(roomId: RoomId): Promise<GameRoom | null>;
   remove(room: GameRoom): Promise<void>;
   count(): Promise<number>;
+  list?(): Promise<readonly GameRoom[]>;
+  close?(): Promise<void>;
 }
 
 export class InMemoryRoomStore implements RoomStore {
@@ -21,6 +24,13 @@ export class InMemoryRoomStore implements RoomStore {
       return Promise.reject(new Error(`Room ${room.roomId} already exists`));
     }
     this.rooms.set(room.roomId, room);
+    return Promise.resolve();
+  }
+
+  save(room: GameRoom): Promise<void> {
+    if (!this.rooms.has(room.roomId)) {
+      return Promise.reject(new Error(`Room ${room.roomId} does not exist`));
+    }
     return Promise.resolve();
   }
 
@@ -35,6 +45,10 @@ export class InMemoryRoomStore implements RoomStore {
 
   count(): Promise<number> {
     return Promise.resolve(this.rooms.size);
+  }
+
+  list(): Promise<readonly GameRoom[]> {
+    return Promise.resolve([...this.rooms.values()]);
   }
 }
 

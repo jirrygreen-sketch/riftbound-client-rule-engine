@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./full-product": {
+      "types": "./dist/full-product/index.d.ts",
+      "default": "./dist/full-product/index.js"
     }
   },
   "files": [
@@ -17,7 +21,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "pnpm build && node --test test/*.test.mjs"
+    "test": "pnpm build && node --test test/*.test.mjs test/full-product/*.test.mjs"
   },
   "devDependencies": {
     "typescript": "^5.9.3"

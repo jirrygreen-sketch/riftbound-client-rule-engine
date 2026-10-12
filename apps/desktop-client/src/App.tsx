@@ -16,6 +16,14 @@ import { DeckBuilder, type DeckBuilderEntry } from "./components/DeckBuilder";
 import { LogPanel } from "./components/LogPanel";
 import { PlayerBoard } from "./components/PlayerBoard";
 import { PromptPanel } from "./components/PromptPanel";
+import { PlayableMatchBoard } from "./full-product/PlayableMatchBoard";
+import {
+  buildPlayableCommand,
+  buildPlayableMatchView,
+  isFullProductRuleset,
+  toPlayableConnectionStatus
+} from "./full-product/transport";
+import type { ActionSelection } from "./full-product/types";
 import {
   buildProjectedGameView,
   buildProjectedPlayerView,
@@ -73,6 +81,8 @@ export function App() {
     joinRoom,
     pass,
     playCard,
+    submitPlayerCommand,
+    concede,
     respondPrompt,
     submitDeck,
     setReady,
@@ -80,6 +90,11 @@ export function App() {
     clearError
   } = useGameClient();
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+  const [actionSelection, setActionSelection] = useState<ActionSelection>({
+    actionId: null,
+    cardId: null,
+    targetIds: []
+  });
   const [pendingOptionId, setPendingOptionId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<AppTab>("deck-builder");
   const [catalogServerUrl, setCatalogServerUrl] = useState(DEFAULT_CARD_SERVER_URL);
@@ -127,6 +142,7 @@ export function App() {
   }, [self, selectedCardId]);
 
   const connected = status === "connected" && handshakeReady;
+  const fullProductEnabled = isFullProductRuleset(projection?.rulesetId);
   const mergedGameEvents = useMemo(
     () => mergeEvents(projection?.events ?? [], gameEvents),
     [gameEvents, projection?.events]
@@ -196,6 +212,37 @@ export function App() {
     },
     [catalog, catalogServerUrl]
   );
+  const resolvePlayableCard = useCallback(
+    (cardId: string) => {
+      const info = resolveCardInfo(cardId);
+      return info === null ? null : {
+        title: info.title,
+        imageUrl: info.imageUrl
+      };
+    },
+    [resolveCardInfo]
+  );
+  const playableMatchView = useMemo(
+    () =>
+      fullProductEnabled && projection !== null && viewerPlayerId !== null
+        ? buildPlayableMatchView({
+            projection,
+            viewerPlayerId,
+            connectionStatus: toPlayableConnectionStatus(status, handshakeReady),
+            commandPending,
+            resolveCard: resolvePlayableCard
+          })
+        : null,
+    [
+      commandPending,
+      fullProductEnabled,
+      handshakeReady,
+      projection,
+      resolvePlayableCard,
+      status,
+      viewerPlayerId
+    ]
+  );
   const selectedCardLabel = selectedCard
     ? resolveCardInfo(selectedCard.cardId)?.title ?? selectedCard.cardId
     : "未选择手牌";
@@ -225,6 +272,25 @@ export function App() {
   }, [projection?.prompt]);
 
   useEffect(() => {
+    if (!fullProductEnabled) {
+      setActionSelection({ actionId: null, cardId: null, targetIds: [] });
+      return;
+    }
+    if (playableMatchView === null) return;
+    const selectedCard = playableMatchView.projection.players
+      .find(player => player.id === viewerPlayerId)
+      ?.hand.find(card => card.instanceId === actionSelection.cardId);
+    if (selectedCard === undefined) {
+      setActionSelection({ actionId: null, cardId: null, targetIds: [] });
+    }
+  }, [
+    actionSelection.cardId,
+    fullProductEnabled,
+    playableMatchView,
+    viewerPlayerId
+  ]);
+
+  useEffect(() => {
     if (errorRevision > 0) setPendingOptionId(null);
   }, [errorRevision]);
 
@@ -239,6 +305,12 @@ export function App() {
   const toggleReady = useCallback(() => {
     setReady(!(roomSelf?.ready ?? false));
   }, [roomSelf?.ready, setReady]);
+
+  const submitPlayableSelection = useCallback(() => {
+    if (playableMatchView === null) return;
+    const command = buildPlayableCommand(actionSelection, playableMatchView);
+    if (command !== null) submitPlayerCommand(command);
+  }, [actionSelection, playableMatchView, submitPlayerCommand]);
 
   return (
     <div className="app-shell">
@@ -440,6 +512,23 @@ export function App() {
               </div>
             </section>
           ) : null}
+        </main>
+      ) : fullProductEnabled && playableMatchView !== null ? (
+        <main className="table-shell">
+          <PlayableMatchBoard
+            view={playableMatchView}
+            selection={actionSelection}
+            onSelectionChange={setActionSelection}
+            onSubmit={() => submitPlayableSelection()}
+          />
+          <button
+            className="button"
+            type="button"
+            onClick={concede}
+            disabled={!connected || commandPending || projection?.phase === "ended"}
+          >
+            认输
+          </button>
         </main>
       ) : (
         <main className="table-shell">

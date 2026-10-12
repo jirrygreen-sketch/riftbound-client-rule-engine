@@ -9,27 +9,14 @@ import {
   Sparkles
 } from "lucide-react";
 import { CardArtPreview, CardArtThumbnail } from "./CardArtPreview";
+import type { CatalogCard } from "../net/CardCatalogClient";
 
-export type DeckCardVariant = "standard" | "alternate" | "unknown";
+export type DeckCardVariant = CatalogCard["variant"];
 
-export interface DeckBuilderCard {
-  readonly id: string;
-  readonly canonicalCardId: string;
-  readonly name: string;
+export interface DeckBuilderCard extends CatalogCard {
   readonly subtitle: string;
-  readonly fullName: string;
   readonly localizedName: string;
   readonly localizedSubtitle: string;
-  readonly cardType: string;
-  readonly domains: readonly string[];
-  readonly tags: readonly string[];
-  readonly setCode: string;
-  readonly cardNumber: string;
-  readonly variant: DeckCardVariant;
-  readonly imageUrl: string | null;
-  readonly banned?: boolean;
-  readonly available?: boolean;
-  readonly availabilityReason?: string;
 }
 
 export interface DeckBuilderEntry {
@@ -52,6 +39,7 @@ interface CardGroup {
   readonly cards: readonly DeckBuilderCard[];
   readonly quantity: number;
   readonly limit: number | null;
+  readonly remaining: number | null;
 }
 
 export function DeckBuilder({
@@ -152,6 +140,9 @@ function DeckGroup({
 }) {
   const addDisabled = isAddDisabled(group.quantity, group.limit);
   const atLimit = group.limit !== null && addDisabled;
+  const countLabel = group.limit === null
+    ? `${group.quantity}/-`
+    : `${group.quantity}/${group.limit} · 剩余 ${group.remaining}`;
 
   return (
     <li className={`deck-group ${atLimit ? "at-limit" : ""}`}>
@@ -168,7 +159,7 @@ function DeckGroup({
         />
         <span className="deck-group-title">{group.title}</span>
         <span className={`deck-count ${atLimit ? "full" : ""}`}>
-          {`${group.quantity}/${group.limit ?? "-"}`}
+          {countLabel}
         </span>
       </button>
 
@@ -346,14 +337,17 @@ export function buildDeckGroups(
     if (!representative) continue;
     if (trimmedQuery && !groupCards.some(card => matchesQuery(card, trimmedQuery))) continue;
 
+    const quantity = totalQuantityForCards(groupCards, quantityByCardId);
+    const limit = cardLimits.get(canonicalCardId) ?? null;
     groups.push({
       canonicalCardId,
       title: displayCardTitle(representative),
       subtitle: representative.localizedSubtitle || representative.subtitle,
       representativeImageUrl: selectRepresentativeImageUrl(groupCards, quantityByCardId),
       cards: [...groupCards].sort(compareCards),
-      quantity: totalQuantityForCards(groupCards, quantityByCardId),
-      limit: cardLimits.get(canonicalCardId) ?? null
+      quantity,
+      limit,
+      remaining: limit === null ? null : Math.max(0, limit - quantity)
     });
   }
 
@@ -390,6 +384,7 @@ function matchesQuery(card: DeckBuilderCard, query: string): boolean {
     card.fullName,
     card.localizedName,
     card.localizedSubtitle,
+    displayCardTitle(card),
     card.cardType,
     ...card.domains,
     ...card.tags,
@@ -400,10 +395,15 @@ function matchesQuery(card: DeckBuilderCard, query: string): boolean {
 
 function compareCards(left: DeckBuilderCard, right: DeckBuilderCard): number {
   if (left.variant !== right.variant) {
-    if (left.variant === "standard") return -1;
-    if (right.variant === "standard") return 1;
+    return variantOrder(left.variant) - variantOrder(right.variant);
   }
   return left.id.localeCompare(right.id);
+}
+
+function variantOrder(variant: DeckCardVariant): number {
+  if (variant === "standard") return 0;
+  if (variant === "alternate") return 1;
+  return 2;
 }
 
 function totalQuantityForCards(

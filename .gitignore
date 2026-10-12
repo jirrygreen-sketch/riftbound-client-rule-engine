@@ -17,9 +17,12 @@ apps/desktop-client/src-tauri/gen/
 !.env.example
 .DS_Store
 Thumbs.db
+.riftbound/
 
 # Local research material is intentionally excluded from the public repository.
 /work/
+/outputs/coordination/
+/outputs/verification/
 
 # Locally synchronized official card catalog and image cache.
 packages/card-data/data/catalog.json

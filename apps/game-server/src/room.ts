@@ -36,20 +36,43 @@ export interface RoomConnection {
   readonly send: ServerTransport;
 }
 
-interface Seat {
+export interface RoomSeatArchive {
   readonly id: PlayerId;
   readonly name: string;
   readonly resumeToken: string;
   ready: boolean;
   deck: RoomDeckSubmission | null;
 }
+type Seat = RoomSeatArchive;
 
-interface ProcessedCommand {
+export interface ProcessedCommand {
   readonly commandId: string;
   readonly playerId: PlayerId;
   readonly payloadHash: string;
   readonly appliedVersion: number;
   readonly eventSeq: number;
+}
+
+export interface ProcessedRoomRequest {
+  readonly playerId: PlayerId;
+  readonly requestId: string;
+  readonly payloadHash: string;
+  readonly roomVersion: number;
+  readonly roomEventSeq: number;
+}
+
+/** Server-private state. Never send this archive through client transports. */
+export interface RoomArchive {
+  readonly schemaVersion: 1;
+  readonly roomId: string;
+  readonly rulesetId: string;
+  readonly seats: readonly RoomSeatArchive[];
+  readonly state: GameState | null;
+  readonly roomVersion: number;
+  readonly roomEventSeq: number;
+  readonly roomEventLog: readonly RoomEvent[];
+  readonly processedCommands: readonly ProcessedCommand[];
+  readonly processedRoomRequests?: readonly ProcessedRoomRequest[];
 }
 
 type DistributiveOmit<T, Keys extends keyof T> = T extends unknown
@@ -64,6 +87,7 @@ type DistributiveOmit<T, Keys extends keyof T> = T extends unknown
 export class GameRoom {
   readonly players = new Map<PlayerId, RoomConnection>();
   readonly processedCommands = new Map<string, ProcessedCommand>();
+  private readonly processedRoomRequests = new Map<string, ProcessedRoomRequest>();
 
   private readonly seats = new Map<PlayerId, Seat>();
   private state: GameState | null = null;
@@ -87,6 +111,130 @@ export class GameRoom {
 
   get isFull(): boolean {
     return this.seats.size >= 2;
+  }
+
+  exportArchive(): RoomArchive {
+    return structuredClone({
+      schemaVersion: 1,
+      roomId: this.roomId,
+      rulesetId: this.rulesetId,
+      seats: [...this.seats.values()],
+      state: this.state,
+      roomVersion: this.roomVersion,
+      roomEventSeq: this.roomEventSeq,
+      roomEventLog: this.roomEventLog,
+      processedCommands: [...this.processedCommands.values()],
+      processedRoomRequests: [...this.processedRoomRequests.values()]
+    });
+  }
+
+  static restore(archive: unknown, catalog?: CardCatalogRuntime): GameRoom {
+    if (!isRecord(archive)) {
+      throw new Error("Invalid server room archive");
+    }
+    const roomArchive = archive as unknown as RoomArchive;
+    const expectedSeatIds: readonly PlayerId[] = roomArchive.seats?.length === 2
+      ? ["player-1", "player-2"]
+      : roomArchive.seats?.length === 1
+        ? ["player-1"]
+        : [];
+    if (roomArchive.schemaVersion !== 1 ||
+        typeof roomArchive.roomId !== "string" || !roomArchive.roomId ||
+        typeof roomArchive.rulesetId !== "string" || !roomArchive.rulesetId ||
+        !Array.isArray(roomArchive.seats) || roomArchive.seats.length > 2 ||
+        roomArchive.seats.some((seat, index) => seat?.id !== expectedSeatIds[index]) ||
+        roomArchive.seats.some(seat =>
+          typeof seat?.id !== "string" ||
+          !expectedSeatIds.includes(seat.id) ||
+          typeof seat?.resumeToken !== "string" || !seat.resumeToken ||
+          typeof seat?.name !== "string" || !seat.name) ||
+        !Number.isSafeInteger(roomArchive.roomVersion) ||
+        roomArchive.roomVersion < 1 ||
+        !Number.isSafeInteger(roomArchive.roomEventSeq) ||
+        roomArchive.roomEventSeq < 0 ||
+        !Array.isArray(roomArchive.roomEventLog) ||
+        roomArchive.roomEventLog.length !== roomArchive.roomEventSeq ||
+        roomArchive.roomEventLog.some((event, index) =>
+          event?.seq !== index + 1 || event?.roomId !== roomArchive.roomId) ||
+        !Array.isArray(roomArchive.processedCommands) ||
+        (roomArchive.processedRoomRequests !== undefined &&
+          !Array.isArray(roomArchive.processedRoomRequests))) {
+      throw new Error("Invalid server room archive");
+    }
+    if (!roomArchive.processedCommands.every(command =>
+      isRecord(command) &&
+      typeof command.commandId === "string" && command.commandId.length > 0 &&
+      typeof command.playerId === "string" && expectedSeatIds.includes(command.playerId) &&
+      typeof command.payloadHash === "string" && command.payloadHash.length > 0 &&
+      typeof command.appliedVersion === "number" &&
+      Number.isSafeInteger(command.appliedVersion) && command.appliedVersion >= 0 &&
+      typeof command.eventSeq === "number" &&
+      Number.isSafeInteger(command.eventSeq) && command.eventSeq >= 0
+    ) || new Set(roomArchive.processedCommands.map(command =>
+      (command as { commandId?: unknown })?.commandId
+    )).size !== roomArchive.processedCommands.length) {
+      throw new Error("Room archive contains an invalid processed command");
+    }
+    const processedRoomRequests = roomArchive.processedRoomRequests ?? [];
+    if (!processedRoomRequests.every(request =>
+      isRecord(request) &&
+      typeof request.requestId === "string" && request.requestId.length > 0 &&
+      typeof request.playerId === "string" &&
+      expectedSeatIds.includes(request.playerId) &&
+      typeof request.payloadHash === "string" && request.payloadHash.length > 0 &&
+      typeof request.roomVersion === "number" &&
+      Number.isSafeInteger(request.roomVersion) && request.roomVersion >= 1 &&
+      typeof request.roomEventSeq === "number" &&
+      Number.isSafeInteger(request.roomEventSeq) && request.roomEventSeq >= 0
+    ) || new Set(processedRoomRequests.map(request =>
+      requestKey(
+        (request as ProcessedRoomRequest).playerId,
+        (request as ProcessedRoomRequest).requestId
+      )
+    )).size !== processedRoomRequests.length) {
+      throw new Error("Room archive contains an invalid processed room request");
+    }
+    if (roomArchive.state !== null) {
+      if (typeof roomArchive.state !== "object" ||
+          Array.isArray(roomArchive.state)) {
+        throw new Error("Invalid server room archive");
+      }
+      const state = roomArchive.state as GameState;
+      if (!isRecord(state.rules) ||
+          state.rules.rulesetId !== roomArchive.rulesetId ||
+          !Array.isArray(state.players) || state.players.length !== 2 ||
+          state.players.some(player =>
+            !isRecord(player) ||
+            !expectedSeatIds.includes(player.id as PlayerId))) {
+        throw new Error("Room archive state does not match its seats or rules");
+      }
+    }
+    const room = new GameRoom(roomArchive.roomId, roomArchive.rulesetId, catalog);
+    room.restoreArchive(roomArchive);
+    return room;
+  }
+
+  /** Roll back a failed durable transaction while retaining socket bindings. */
+  restoreArchive(archive: RoomArchive): void {
+    if (archive.roomId !== this.roomId || archive.rulesetId !== this.rulesetId) {
+      throw new Error("Cannot restore a different room");
+    }
+    const copy = structuredClone(archive);
+    this.seats.clear();
+    for (const seat of copy.seats) this.seats.set(seat.id, seat);
+    this.state = copy.state;
+    this.roomVersion = copy.roomVersion;
+    this.roomEventSeq = copy.roomEventSeq;
+    this.roomEventLog.splice(0, this.roomEventLog.length, ...copy.roomEventLog);
+    this.processedCommands.clear();
+    for (const command of copy.processedCommands) {
+      this.processedCommands.set(command.commandId, command);
+    }
+    const processedRoomRequests = copy.processedRoomRequests ?? [];
+    this.processedRoomRequests.clear();
+    for (const request of processedRoomRequests) {
+      this.processedRoomRequests.set(requestKey(request.playerId, request.requestId), request);
+    }
   }
 
   get playerCount(): number {
@@ -360,6 +508,53 @@ export class GameRoom {
     }
   }
 
+  validateResumeCursors(
+    resumeToken: string,
+    afterEventSeq?: number,
+    afterRoomEventSeq?: number
+  ): void {
+    const seat = this.authenticate(resumeToken);
+    if (!seat) {
+      throw new RoomError("Invalid resume token", "invalid-token");
+    }
+
+    if (afterEventSeq !== undefined) {
+      if (!Number.isSafeInteger(afterEventSeq) || afterEventSeq < 0) {
+        throw new RoomError(
+          "Event cursor must be a safe non-negative integer",
+          "command-rejected"
+        );
+      }
+      if (!this.state) {
+        throw new RoomError(
+          "Game events are not available before the game starts",
+          "command-rejected"
+        );
+      }
+      if (afterEventSeq > this.state.eventSeq) {
+        throw new RoomError(
+          "Event cursor is ahead of the authoritative log",
+          "command-rejected"
+        );
+      }
+    }
+
+    if (afterRoomEventSeq !== undefined) {
+      if (!Number.isSafeInteger(afterRoomEventSeq) || afterRoomEventSeq < 0) {
+        throw new RoomError(
+          "Room event cursor must be a safe non-negative integer",
+          "command-rejected"
+        );
+      }
+      if (afterRoomEventSeq > this.roomEventSeq) {
+        throw new RoomError(
+          "Room event cursor is ahead of the authoritative log",
+          "command-rejected"
+        );
+      }
+    }
+  }
+
   submitDeck(
     session: ClientSession,
     connectionId: string,
@@ -369,6 +564,26 @@ export class GameRoom {
     transport: ServerTransport
   ): void {
     const playerId = this.requireCurrentSession(session, connectionId);
+    const payloadHash = hashRoomRequest("submit-deck", playerId, deck);
+    const previous = this.findProcessedRoomRequest(playerId, requestId);
+    if (previous) {
+      if (previous.payloadHash !== payloadHash) {
+        throw new RoomError(
+          "Room request id was already used with a different payload",
+          "idempotency-conflict"
+        );
+      }
+
+      transport({
+        type: "request-result",
+        requestId,
+        ok: true,
+        roomVersion: previous.roomVersion,
+        roomEventSeq: previous.roomEventSeq,
+        duplicate: true
+      });
+      return;
+    }
     if (this.state) {
       throw new RoomError("The game has already started", "command-rejected");
     }
@@ -403,14 +618,21 @@ export class GameRoom {
     }
     this.appendRoomEvent({ type: "deck-submitted", playerId });
 
-    this.sendRoomReceipt(requestId, transport);
-    this.broadcastRoom();
-
     if (this.canStart()) {
       this.start();
-      this.broadcastRoom();
-      this.broadcastProjections();
     }
+
+    this.recordProcessedRoomRequest(playerId, requestId, payloadHash);
+    transport({
+      type: "request-result",
+      requestId,
+      ok: true,
+      roomVersion: this.roomVersion,
+      roomEventSeq: this.roomEventSeq,
+      duplicate: false
+    });
+    this.broadcastRoom();
+    if (this.state) this.broadcastProjections();
   }
 
   setReady(
@@ -422,6 +644,26 @@ export class GameRoom {
     transport: ServerTransport
   ): void {
     const playerId = this.requireCurrentSession(session, connectionId);
+    const payloadHash = hashRoomRequest("set-ready", playerId, ready);
+    const previous = this.findProcessedRoomRequest(playerId, requestId);
+    if (previous) {
+      if (previous.payloadHash !== payloadHash) {
+        throw new RoomError(
+          "Room request id was already used with a different payload",
+          "idempotency-conflict"
+        );
+      }
+
+      transport({
+        type: "request-result",
+        requestId,
+        ok: true,
+        roomVersion: previous.roomVersion,
+        roomEventSeq: previous.roomEventSeq,
+        duplicate: true
+      });
+      return;
+    }
     if (this.state) {
       throw new RoomError("The game has already started", "command-rejected");
     }
@@ -438,14 +680,21 @@ export class GameRoom {
     seat.ready = ready;
     this.appendRoomEvent({ type: "player-ready", playerId, ready });
 
-    this.sendRoomReceipt(requestId, transport);
-    this.broadcastRoom();
-
     if (this.canStart()) {
       this.start();
-      this.broadcastRoom();
-      this.broadcastProjections();
     }
+
+    this.recordProcessedRoomRequest(playerId, requestId, payloadHash);
+    transport({
+      type: "request-result",
+      requestId,
+      ok: true,
+      roomVersion: this.roomVersion,
+      roomEventSeq: this.roomEventSeq,
+      duplicate: false
+    });
+    this.broadcastRoom();
+    if (this.state) this.broadcastProjections();
   }
 
   snapshot(viewerPlayerId: PlayerId | null = null): RoomSnapshot | null {
@@ -536,6 +785,7 @@ export class GameRoom {
       duplicate: false
     });
     this.broadcastProjections();
+    if (this.state.phase === "ended") this.broadcastRoom();
   }
 
   private canStart(): boolean {
@@ -560,19 +810,6 @@ export class GameRoom {
     });
   }
 
-  private sendRoomReceipt(
-    requestId: string,
-    transport: ServerTransport
-  ): void {
-    transport({
-      type: "request-result",
-      requestId,
-      ok: true,
-      roomVersion: this.roomVersion,
-      roomEventSeq: this.roomEventSeq
-    });
-  }
-
   private requireSeat(playerId: PlayerId): Seat {
     const seat = this.seats.get(playerId);
     if (!seat) {
@@ -588,6 +825,27 @@ export class GameRoom {
         "stale-version"
       );
     }
+  }
+
+  private findProcessedRoomRequest(
+    playerId: PlayerId,
+    requestId: string
+  ): ProcessedRoomRequest | undefined {
+    return this.processedRoomRequests.get(requestKey(playerId, requestId));
+  }
+
+  private recordProcessedRoomRequest(
+    playerId: PlayerId,
+    requestId: string,
+    payloadHash: string
+  ): void {
+    this.processedRoomRequests.set(requestKey(playerId, requestId), {
+      playerId,
+      requestId,
+      payloadHash,
+      roomVersion: this.roomVersion,
+      roomEventSeq: this.roomEventSeq
+    });
   }
 
   private requireCurrentSession(
@@ -642,11 +900,14 @@ function commandWithActor(command: PlayerCommand, playerId: PlayerId): Command {
   switch (command.type) {
     case "pass":
       return { type: "pass", playerId };
+    case "concede":
+      return { type: "concede", playerId };
     case "play-card":
       return {
         type: "play-card",
         playerId,
-        instanceId: command.instanceId
+        instanceId: command.instanceId,
+        ...(command.targets === undefined ? {} : { targets: command.targets })
       };
     case "respond-to-prompt":
       return {
@@ -671,6 +932,20 @@ function hashCommand(
     .digest("hex");
 }
 
+function hashRoomRequest(
+  requestType: "submit-deck" | "set-ready",
+  playerId: PlayerId,
+  payload: unknown
+): string {
+  return createHash("sha256")
+    .update(stableStringify({ requestType, playerId, payload }))
+    .digest("hex");
+}
+
+function requestKey(playerId: PlayerId, requestId: string): string {
+  return `${playerId}\0${requestId}`;
+}
+
 function stableStringify(value: unknown): string {
   if (value === null) return "null";
   if (Array.isArray(value)) {
@@ -693,6 +968,10 @@ function timingSafeEqual(actual: string, expected: string): boolean {
     result |= actual.charCodeAt(index) ^ expected.charCodeAt(index);
   }
   return result === 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function createRoomId(): string {

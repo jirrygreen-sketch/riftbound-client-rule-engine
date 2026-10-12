@@ -807,6 +807,20 @@ function executeCommand(
   state: GameState,
   command: Command
 ): EngineError | null {
+  if (!state.players.some(player => player.id === command.playerId)) {
+    return { code: ENGINE_ERRORS.invalidCommand, message: "Unknown player." };
+  }
+  // CR 650-651: a concession may end a duel even while a prompt is pending.
+  if (command.type === "concede") {
+    const winner = state.players.find(player => player.id !== command.playerId)!;
+    state.phase = "ended";
+    state.turnPhase = "ended";
+    state.winnerPlayerId = winner.id;
+    state.prompt = null;
+    state.outstandingTasks = [];
+    appendEvent(state, { type: "game-ended", winnerPlayerId: winner.id });
+    return null;
+  }
   if (state.prompt) {
     if (command.type !== "respond-to-prompt") {
       return {
@@ -960,6 +974,12 @@ function playCard(
   if (activeError) return activeError;
 
   if (state.rules.rulesetId === SYNTHETIC_RULESET_ID) {
+    if ((command.targets?.length ?? 0) > 0) {
+      return {
+        code: ENGINE_ERRORS.invalidCommand,
+        message: "This demo card does not accept chosen targets."
+      };
+    }
     return playSyntheticCard(state, command);
   }
 
@@ -996,6 +1016,25 @@ function playCard(
       code: ENGINE_ERRORS.notEnoughMana,
       message: "The player does not have enough energy."
     };
+  }
+
+  const selectedTargets = command.targets ?? [];
+  const effect = definition.effect;
+  const fixedTargets = effect && effect.kind !== "judge-required"
+    ? effect.targets
+    : [];
+  if (selectedTargets.length > 0) {
+    const choices = availableTargets(state, player.id);
+    if (!effect || effect.kind === "judge-required" ||
+        effect.kind !== "damage" || fixedTargets.length > 0 ||
+        selectedTargets.length !== 1 ||
+        !selectedTargets.every(target => choices.some(choice =>
+          targetOptionId(choice) === targetOptionId(target)))) {
+      return {
+        code: ENGINE_ERRORS.invalidCommand,
+        message: "The selected targets are not legal for this effect."
+      };
+    }
   }
 
   const [cardInstance] = player.hand.splice(cardIndex, 1) as [CardInstanceLike];
@@ -1042,9 +1081,9 @@ function playCard(
     return null;
   }
 
-  const effectTargets = definition.effect
-    ? effectDefinitionTargets(definition.effect)
-    : [];
+  const effectTargets = selectedTargets.length > 0
+    ? [...selectedTargets]
+    : definition.effect ? effectDefinitionTargets(definition.effect) : [];
   if (definition.effect &&
       (effectTargets.length > 0 || availableTargets(state, player.id).length > 0)) {
     state.outstandingTasks.push({
@@ -1054,7 +1093,9 @@ function playCard(
       sourcePlayerId: player.id,
       reason: "resolve-effect",
       optional: false,
-      effect: definition.effect,
+      effect: selectedTargets.length > 0
+        ? { ...definition.effect, targets: effectTargets }
+        : definition.effect,
       targetChoices: effectTargets.length > 0
         ? effectTargets
         : availableTargets(state, player.id),

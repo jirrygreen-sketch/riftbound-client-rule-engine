@@ -26,6 +26,15 @@ export interface PassPlayerCommand {
 export interface PlayCardPlayerCommand {
   type: "play-card";
   instanceId: string;
+  targets?: readonly CommandTarget[];
+}
+
+export type CommandTarget =
+  | { kind: "object"; objectId: string }
+  | { kind: "player"; playerId: PlayerId };
+
+export interface ConcedePlayerCommand {
+  type: "concede";
 }
 
 export interface RespondToPromptPlayerCommand {
@@ -45,7 +54,8 @@ export interface RespondToPromptPlayerCommand {
 export type PlayerCommand =
   | PassPlayerCommand
   | PlayCardPlayerCommand
-  | RespondToPromptPlayerCommand;
+  | RespondToPromptPlayerCommand
+  | ConcedePlayerCommand;
 
 type CommandWithActor<T extends PlayerCommand> = T & {
   playerId: PlayerId;
@@ -58,7 +68,8 @@ type CommandWithActor<T extends PlayerCommand> = T & {
 export type Command =
   | CommandWithActor<PassPlayerCommand>
   | CommandWithActor<PlayCardPlayerCommand>
-  | CommandWithActor<RespondToPromptPlayerCommand>;
+  | CommandWithActor<RespondToPromptPlayerCommand>
+  | CommandWithActor<ConcedePlayerCommand>;
 
 export type CommandName = Command["type"];
 
@@ -874,10 +885,16 @@ function isCommandShape(value: Record<string, unknown>, actor: boolean): boolean
 
   switch (value.type) {
     case "pass":
+    case "concede":
       return withActor(["type"]);
     case "play-card":
-      return withActor(["type", "instanceId"]) &&
-        text(value.instanceId, 256);
+      return hasExactKeys(
+        value,
+        actor ? ["type", "instanceId", "playerId"] : ["type", "instanceId"],
+        ["targets"]
+      ) &&
+        text(value.instanceId, 256) &&
+        (value.targets === undefined || isCommandTargets(value.targets));
     case "respond-to-prompt":
       return actor
         ? hasExactKeys(
@@ -895,6 +912,26 @@ function isCommandShape(value: Record<string, unknown>, actor: boolean): boolean
     default:
       return false;
   }
+}
+
+function isCommandTargets(value: unknown): value is readonly CommandTarget[] {
+  if (!Array.isArray(value) || value.length > 32) return false;
+  const keys: string[] = [];
+  for (const target of value) {
+    if (!record(target)) return false;
+    if (target.kind === "object" &&
+        hasExactKeys(target, ["kind", "objectId"]) &&
+        text(target.objectId, 256)) {
+      keys.push(`object:${target.objectId}`);
+    } else if (target.kind === "player" &&
+        hasExactKeys(target, ["kind", "playerId"]) &&
+        text(target.playerId)) {
+      keys.push(`player:${target.playerId}`);
+    } else {
+      return false;
+    }
+  }
+  return new Set(keys).size === keys.length;
 }
 
 export function isPlayerCommand(value: unknown): value is PlayerCommand {

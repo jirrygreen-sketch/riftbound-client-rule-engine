@@ -14,7 +14,8 @@ import {
   isClientMessage,
   type ClientSession,
   type ClientToServerMessage,
-  type ServerToClientMessage
+  type ServerToClientMessage,
+  type ServerTransport
 } from "@riftbound/protocol";
 import {
   isManifestImageAvailable,
@@ -25,6 +26,7 @@ import {
 } from "./card-catalog.js";
 import { validateConstructedDeck } from "./constructed-policy.js";
 import { createRoomId, GameRoom, RoomError } from "./room.js";
+import { FileRoomStore } from "./file-room-store.js";
 import { InMemoryRoomStore, type RoomStore } from "./room-store.js";
 
 export interface GameServerOptions {
@@ -36,6 +38,7 @@ export interface GameServerOptions {
   catalog?: unknown;
   deckRules?: CardCatalogRuntime["deckRules"];
   roomStore?: RoomStore;
+  storageDirectory?: string;
 }
 
 export interface GameServer {
@@ -52,6 +55,13 @@ interface SocketContext {
   queue: Promise<void>;
 }
 
+type ServerLifecycle =
+  | "created"
+  | "starting"
+  | "started"
+  | "stopping"
+  | "stopped";
+
 const MAX_DECK_REQUEST_BYTES = 64 * 1024;
 const PUBLIC_CORS_HEADERS = {
   "access-control-allow-origin": "*",
@@ -63,9 +73,14 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
   const host = options.host ?? "127.0.0.1";
   const port = options.port ?? 8787;
   const makeRoomId = options.roomIdFactory ?? createRoomId;
-  const roomStore = options.roomStore ?? new InMemoryRoomStore();
   const rooms = new Map<string, GameRoom>();
+  const contexts = new Set<SocketContext>();
   let roomMutationQueue: Promise<unknown> = Promise.resolve();
+  let stopping = false;
+  let lifecycle: ServerLifecycle = "created";
+  let startupPromise: Promise<void> | undefined;
+  let stopRequested = false;
+  let stopCompletion: Promise<void> | undefined;
 
   const runRoomMutation = <T>(operation: () => Promise<T>): Promise<T> => {
     const result = roomMutationQueue.then(operation, operation);
@@ -100,6 +115,14 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
     }
     return runtime;
   };
+
+  const roomStore: RoomStore = options.roomStore ??
+    (options.storageDirectory
+      ? new FileRoomStore(options.storageDirectory, async () => {
+          await loadCatalog();
+          return requireCatalog();
+        })
+      : new InMemoryRoomStore());
 
   const sendJson = (
     response: ServerResponse,
@@ -268,7 +291,46 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
 
   const webSocketServer = new WebSocketServer({ noServer: true });
 
+  const cleanup = async (): Promise<void> => {
+    const contextSnapshot = [...contexts];
+    for (const context of contexts) await context.queue;
+    await roomMutationQueue.catch(() => undefined);
+
+    for (const client of webSocketServer.clients) client.terminate();
+    await new Promise(resolve => webSocketServer.close(() => resolve(undefined)));
+    if (httpServer.listening) {
+      await new Promise<void>((resolve, reject) => {
+        httpServer.close(cause => (cause ? reject(cause) : resolve()));
+      });
+    }
+    await roomStore.close?.();
+    contexts.clear();
+    for (const context of contextSnapshot) {
+      contexts.delete(context);
+    }
+    lifecycle = "stopped";
+  };
+
+  const finishStop = (): void => {
+    stopRequested = true;
+    stopping = true;
+    stopCompletion ??= cleanup().then(
+      () => undefined,
+      error => {
+        // Keep the main failure visible. A later stop retries only the cleanup
+        // work that was not known to have completed.
+        stopCompletion = undefined;
+        lifecycle = "stopping";
+        throw error;
+      }
+    );
+  };
+
   httpServer.on("upgrade", (request, socket, head) => {
+    if (stopping) {
+      socket.destroy();
+      return;
+    }
     const url = new URL(request.url ?? "/", `http://${request.headers.host ?? host}`);
     if (url.pathname !== "/ws") {
       socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
@@ -287,16 +349,18 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
       connectionId: randomUUID(),
       queue: Promise.resolve()
     };
+    contexts.add(context);
 
     const send = (message: ServerToClientMessage): void => {
       if (websocket.readyState === websocket.OPEN) {
-        websocket.send(JSON.stringify(message));
+        websocket.send(JSON.stringify(message), () => {});
       }
     };
 
     websocket.on("message", raw => {
+      if (stopping) return;
       context.queue = context.queue
-        .then(() => handleInbound(
+        .then(() => runRoomMutation(() => handleInbound(
           raw,
           context,
           send,
@@ -304,28 +368,34 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
           rooms,
           makeRoomId,
           loadCatalog,
-          requireCatalog,
-          runRoomMutation
-        ))
+          requireCatalog
+        )))
         .catch(error => {
           sendError(send, error);
         });
     });
 
     websocket.on("close", () => {
-      const session = context.session;
-      if (!session) return;
-
+      if (stopping) return;
       context.queue = context.queue
-        .then(() => roomStore.get(session.roomId))
-        .then(room => {
-          if (!room) return;
-          rooms.set(room.roomId, room);
-          if (room.disconnect(session.playerId, context.connectionId)) {
-            room.broadcastRoom();
-          }
-        })
-        .catch(() => undefined);
+        .then(() => runRoomMutation(async () => {
+          const session = context.session;
+          if (!session) return;
+          const room = await requireRoom(roomStore, rooms, session.roomId);
+          await runRoomTransaction(
+            room,
+            context,
+            send,
+            roomStore,
+            () => {
+              if (room.disconnect(session.playerId, context.connectionId)) {
+                room.broadcastRoom();
+              }
+            }
+          );
+        }))
+        .catch(() => undefined)
+        .finally(() => contexts.delete(context));
     });
   });
 
@@ -333,20 +403,59 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
     httpServer,
     rooms,
     async start() {
-      // Catalog routes load lazily so a missing data snapshot cannot take down
-      // the existing WebSocket service.
-      loadCatalog();
-      void serverWithCatalog.ready?.catch(() => undefined);
-      await new Promise(resolve => {
-        httpServer.listen(port, host, () => resolve(undefined));
-      });
+      if (lifecycle === "started") return;
+      if (lifecycle === "starting") return startupPromise;
+      if (lifecycle !== "created") {
+        throw new Error(`The game server cannot start while ${lifecycle}`);
+      }
+
+      lifecycle = "starting";
+      startupPromise = (async () => {
+        // Catalog routes load lazily so a missing data snapshot cannot take
+        // down the existing WebSocket service.
+        loadCatalog();
+        void serverWithCatalog.ready?.catch(() => undefined);
+        try {
+          const restoredRooms = await roomStore.list?.();
+          if (stopRequested) return;
+          if (restoredRooms) {
+            for (const room of restoredRooms) {
+              rooms.set(room.roomId, room);
+            }
+          }
+          await new Promise<void>((resolve, reject) => {
+            httpServer.once("error", reject);
+            httpServer.listen(port, host, () => {
+              httpServer.off("error", reject);
+              resolve();
+            });
+          });
+          if (stopRequested) return;
+          lifecycle = "started";
+        } catch (error) {
+          lifecycle = "stopping";
+          let cleanupError: unknown;
+          try {
+            await roomStore.close?.();
+          } catch (caught) {
+            cleanupError = caught;
+          } finally {
+            contexts.clear();
+            lifecycle = "stopped";
+            stopping = true;
+            stopRequested = true;
+          }
+          if (cleanupError !== undefined && error instanceof Error) {
+            error.cause = cleanupError;
+          }
+          throw error;
+        }
+      })();
+      return startupPromise;
     },
-    async stop() {
-      for (const client of webSocketServer.clients) client.terminate();
-      await new Promise(resolve => webSocketServer.close(() => resolve(undefined)));
-      await new Promise((resolve, reject) => {
-        httpServer.close(cause => (cause ? reject(cause) : resolve(undefined)));
-      });
+    stop(): Promise<void> {
+      finishStop();
+      return stopCompletion ?? Promise.resolve();
     }
   };
 }
@@ -386,8 +495,7 @@ async function handleInbound(
   rooms: Map<string, GameRoom>,
   makeRoomId: () => string,
   loadCatalog: () => Promise<void>,
-  requireCatalog: () => CardCatalogRuntime,
-  runRoomMutation: <T>(operation: () => Promise<T>) => Promise<T>
+  requireCatalog: () => CardCatalogRuntime
 ): Promise<void> {
   let parsed: unknown;
   try {
@@ -417,9 +525,27 @@ async function handleInbound(
     }
 
     switch (parsed.type) {
-      case "hello":
-        await handleHello(parsed, context, send, roomStore, rooms);
+      case "hello": {
+        if (parsed.roomId === undefined && parsed.resumeToken === undefined) {
+          await handleHello(parsed, context, send);
+          return;
+        }
+
+        const room = await requireRoom(roomStore, rooms, parsed.roomId!);
+        await runRoomTransaction(
+          room,
+          context,
+          send,
+          roomStore,
+          transactionSend => handleResumeHello(
+            parsed,
+            context,
+            transactionSend,
+            room
+          )
+        );
         return;
+      }
 
       case "create-room": {
         if (context.session) {
@@ -434,37 +560,52 @@ async function handleInbound(
           );
         }
         const roomId = makeRoomId();
-        await runRoomMutation(async () => {
-          if (rooms.has(roomId)) {
-            throw new RoomError(`Room ${roomId} already exists`, "command-rejected");
-          }
-          const catalog = rulesetId === FOUNDATION_RULESET_ID
-            ? await loadCatalog().then(() => requireCatalog())
-            : null;
-          const room = new GameRoom(
-            roomId,
-            rulesetId,
-            catalog ?? undefined
-          );
+        const catalog = rulesetId === FOUNDATION_RULESET_ID
+          ? await loadCatalog().then(() => requireCatalog())
+          : null;
+        const room = new GameRoom(
+          roomId,
+          rulesetId,
+          catalog ?? undefined
+        );
+        if (rooms.has(roomId)) {
+          throw new RoomError(`Room ${roomId} already exists`, "command-rejected");
+        }
+        let registered = false;
+        try {
+          await roomStore.create(room);
+          registered = true;
           rooms.set(room.roomId, room);
-          try {
-            await roomStore.create(room);
-          } catch (error) {
-            rooms.delete(room.roomId);
-            throw error;
-          }
-          const connection = room.join(parsed.playerName, send, context.connectionId);
-          const session = sessionFor(room, connection);
-          context.session = session;
+          await runRoomTransaction(
+            room,
+            context,
+            send,
+            roomStore,
+            transactionSend => {
+              const connection = room.join(
+                parsed.playerName,
+                transactionSend,
+                context.connectionId
+              );
+              const session = sessionFor(room, connection);
+              context.session = session;
 
-          sendWelcome(send, session, false);
-          send({ type: "room", room: room.roomView() });
-          send({
-            type: "request-result",
-            requestId: parsed.requestId,
-            ok: true
-          });
-        });
+              sendWelcome(transactionSend, session, false);
+              transactionSend({ type: "room", room: room.roomView() });
+              transactionSend({
+                type: "request-result",
+                requestId: parsed.requestId,
+                ok: true
+              });
+            }
+          );
+        } catch (error) {
+          if (registered) {
+            rooms.delete(room.roomId);
+            await roomStore.remove(room).catch(() => undefined);
+          }
+          throw error;
+        }
         return;
       }
 
@@ -474,30 +615,40 @@ async function handleInbound(
         }
 
         const room = await requireRoom(roomStore, rooms, parsed.roomId);
-        await runRoomMutation(async () => {
-          const connection = room.join(parsed.playerName, send, context.connectionId);
-          const session = sessionFor(room, connection);
-          context.session = session;
+        await runRoomTransaction(
+          room,
+          context,
+          send,
+          roomStore,
+          transactionSend => {
+            const connection = room.join(
+              parsed.playerName,
+              transactionSend,
+              context.connectionId
+            );
+            const session = sessionFor(room, connection);
+            context.session = session;
 
-          sendWelcome(send, session, false);
-          send({ type: "room", room: room.roomView() });
-          send({
-            type: "request-result",
-            requestId: parsed.requestId,
-            ok: true
-          });
+            sendWelcome(transactionSend, session, false);
+            transactionSend({ type: "room", room: room.roomView() });
+            transactionSend({
+              type: "request-result",
+              requestId: parsed.requestId,
+              ok: true
+            });
 
-          // Join changes roomVersion for both seats, including the joiner.
-          room.broadcastRoom();
-
-          if (room.rulesetId === RULESET_ID &&
-              room.playerCount === 2 &&
-              room.status === "waiting") {
-            room.start();
+            // Join changes roomVersion for both seats, including the joiner.
             room.broadcastRoom();
-            room.broadcastProjections();
+
+            if (room.rulesetId === RULESET_ID &&
+                room.playerCount === 2 &&
+                room.status === "waiting") {
+              room.start();
+              room.broadcastRoom();
+              room.broadcastProjections();
+            }
           }
-        });
+        );
         return;
       }
 
@@ -508,14 +659,22 @@ async function handleInbound(
         }
 
         const room = await requireRoom(roomStore, rooms, session.roomId);
-        room.submit(
-          session,
-          context.connectionId,
-          parsed.command,
-          parsed.commandId,
-          parsed.expectedVersion,
-          parsed.requestId,
-          send
+        await runRoomTransaction(
+          room,
+          context,
+          send,
+          roomStore,
+          transactionSend => {
+            room.submit(
+              session,
+              context.connectionId,
+              parsed.command,
+              parsed.commandId,
+              parsed.expectedVersion,
+              parsed.requestId,
+              transactionSend
+            );
+          }
         );
         return;
       }
@@ -527,13 +686,21 @@ async function handleInbound(
         }
 
         const room = await requireRoom(roomStore, rooms, session.roomId);
-        room.submitDeck(
-          session,
-          context.connectionId,
-          parsed.expectedRoomVersion,
-          parsed.deck,
-          parsed.requestId,
-          send
+        await runRoomTransaction(
+          room,
+          context,
+          send,
+          roomStore,
+          transactionSend => {
+            room.submitDeck(
+              session,
+              context.connectionId,
+              parsed.expectedRoomVersion,
+              parsed.deck,
+              parsed.requestId,
+              transactionSend
+            );
+          }
         );
         return;
       }
@@ -545,13 +712,21 @@ async function handleInbound(
         }
 
         const room = await requireRoom(roomStore, rooms, session.roomId);
-        room.setReady(
-          session,
-          context.connectionId,
-          parsed.expectedRoomVersion,
-          parsed.ready,
-          parsed.requestId,
-          send
+        await runRoomTransaction(
+          room,
+          context,
+          send,
+          roomStore,
+          transactionSend => {
+            room.setReady(
+              session,
+              context.connectionId,
+              parsed.expectedRoomVersion,
+              parsed.ready,
+              parsed.requestId,
+              transactionSend
+            );
+          }
         );
         return;
       }
@@ -563,6 +738,12 @@ async function handleInbound(
         }
 
         const room = await requireRoom(roomStore, rooms, session.roomId);
+        if (!room.isCurrentConnection(session.playerId, context.connectionId)) {
+          throw new RoomError(
+            "The session was replaced by a newer connection",
+            "session-replaced"
+          );
+        }
         if (parsed.afterEventSeq !== undefined) {
           room.validateGameEventCursor(
             session,
@@ -605,21 +786,31 @@ async function handleInbound(
 async function handleHello(
   inbound: Extract<ClientToServerMessage, { type: "hello" }>,
   context: SocketContext,
-  send: (message: ServerToClientMessage) => void,
-  roomStore: RoomStore,
-  rooms: Map<string, GameRoom>
+  send: ServerTransport
 ): Promise<void> {
   if (inbound.protocolVersion !== PROTOCOL_VERSION) {
     throw new RoomError("Unsupported protocol version", "protocol-error");
   }
 
-  if (inbound.roomId === undefined && inbound.resumeToken === undefined) {
-    context.handshaken = true;
-    send({ type: "welcome", protocolVersion: PROTOCOL_VERSION });
-    return;
+  context.handshaken = true;
+  send({ type: "welcome", protocolVersion: PROTOCOL_VERSION });
+}
+
+function handleResumeHello(
+  inbound: Extract<ClientToServerMessage, { type: "hello" }>,
+  context: SocketContext,
+  send: ServerTransport,
+  room: GameRoom
+): void {
+  if (inbound.protocolVersion !== PROTOCOL_VERSION) {
+    throw new RoomError("Unsupported protocol version", "protocol-error");
   }
 
-  const room = await requireRoom(roomStore, rooms, inbound.roomId!);
+  room.validateResumeCursors(
+    inbound.resumeToken!,
+    inbound.afterEventSeq,
+    inbound.afterRoomEventSeq
+  );
   const connection = room.reconnect(
     inbound.resumeToken!,
     send,
@@ -632,17 +823,6 @@ async function handleHello(
   const session = sessionFor(room, connection);
   context.handshaken = true;
   context.session = session;
-
-  if (inbound.afterEventSeq !== undefined) {
-    room.validateGameEventCursor(
-      session,
-      context.connectionId,
-      inbound.afterEventSeq
-    );
-  }
-  if (inbound.afterRoomEventSeq !== undefined) {
-    room.validateRoomEventCursor(inbound.afterRoomEventSeq);
-  }
 
   sendWelcome(send, session, true);
   send({ type: "room", room: room.roomView() });
@@ -658,6 +838,68 @@ async function handleHello(
     room.sendEvents(session, context.connectionId, inbound.afterEventSeq);
   }
   room.broadcastRoom();
+}
+
+/**
+ * Buffer every affected transport until the archive is durable. Failed writes
+ * restore both authoritative state and the old live-session bindings.
+ */
+async function runRoomTransaction(
+  room: GameRoom,
+  context: SocketContext,
+  transport: ServerTransport,
+  store: RoomStore,
+  operation: (send: ServerTransport) => void | Promise<void>
+): Promise<void> {
+  const archive = room.exportArchive();
+  const connections = new Map(room.players);
+  const oldSession = context.session;
+  const oldHandshake = context.handshaken;
+  const outbox: { transport: ServerTransport; message: ServerToClientMessage }[] = [];
+  let buffering = true;
+  const buffer = (destination: ServerTransport): ServerTransport => message => {
+    if (buffering) {
+      outbox.push({ transport: destination, message: structuredClone(message) });
+    } else {
+      destination(message);
+    }
+  };
+  for (const [playerId, connection] of connections) {
+    room.players.set(playerId, { ...connection, send: buffer(connection.send) });
+  }
+  try {
+    await operation(buffer(transport));
+    if (JSON.stringify(archive) !== JSON.stringify(room.exportArchive())) {
+      await store.save(room);
+    }
+  } catch (error) {
+    room.restoreArchive(archive);
+    room.players.clear();
+    for (const [playerId, connection] of connections) {
+      room.players.set(playerId, connection);
+    }
+    context.handshaken = oldHandshake;
+    if (oldSession) context.session = oldSession;
+    else delete context.session;
+    throw error;
+  }
+
+  // Reuse pre-existing transports and let new transports send normally after
+  // commit. A network failure after this point must never undo a durable move.
+  buffering = false;
+  for (const [playerId, connection] of connections) {
+    if (room.players.get(playerId)?.connectionId === connection.connectionId) {
+      room.players.set(playerId, connection);
+    }
+  }
+  for (const entry of outbox) {
+    try {
+      entry.transport(entry.message);
+    } catch {
+      // The persisted receipt can be recovered by the authenticated retry.
+    }
+  }
+  outbox.length = 0;
 }
 
 function sessionFor(room: GameRoom, connection: {
