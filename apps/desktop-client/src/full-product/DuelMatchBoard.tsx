@@ -199,6 +199,7 @@ interface DuelCardInteractionContextValue {
   readonly viewerPlayerId: string | null;
   readonly sceneKey: string;
   readonly canInteract: boolean;
+  readonly isCardActionable: (cardUID: string) => boolean;
   readonly onCardClick: (
     event: SyntheticEvent<HTMLElement>,
     cardUID: string,
@@ -898,7 +899,8 @@ function UnitChip({
   const label = unitDisplayLabel(unit, resolveCardTitle);
   const cardInteraction = useDuelCardInteraction();
   const interactive = cardInteraction?.canInteract === true &&
-    cardInteraction.viewerPlayerId === unit.controllerPlayerId;
+    cardInteraction.viewerPlayerId === unit.controllerPlayerId &&
+    cardInteraction.isCardActionable(unit.objectId);
   const onCardClick = (event: ReactMouseEvent<HTMLElement> | ReactPointerEvent<HTMLElement>): void => {
     if (!interactive || cardEventIsInspect(event)) return;
     cardInteraction?.onCardClick(event, unit.objectId, unit.trait.kind === "card" ? unit.trait.cardId : null, "unit");
@@ -1023,7 +1025,9 @@ function BaseRuneChip({
   readonly onInspect?: (cardId: string) => void;
 }) {
   const cardInteraction = useDuelCardInteraction();
-  const interactive = cardInteraction?.canInteract === true && cardInteraction.viewerPlayerId === ownerPlayerId;
+  const interactive = cardInteraction?.canInteract === true &&
+    cardInteraction.viewerPlayerId === ownerPlayerId &&
+    cardInteraction.isCardActionable(rune.uid);
   const domainLabel = DUEL_DOMAIN_LABELS[rune.domain];
   const state = rune.readied ? DUEL_READY_LABEL : DUEL_TAPPED_LABEL;
   const title = resolveCardTitle(rune.cardId);
@@ -1145,7 +1149,8 @@ function GoldTokenList({
   readonly tokens: readonly DuelWireGoldToken[];
 }) {
   const cardInteraction = useDuelCardInteraction();
-  const interactive = cardInteraction?.canInteract === true && cardInteraction.viewerPlayerId === ownerPlayerId;
+  const isInteractive = (uid: string): boolean => cardInteraction?.canInteract === true &&
+    cardInteraction.viewerPlayerId === ownerPlayerId && cardInteraction.isCardActionable(uid);
   const readied = tokens.filter(token => token.readied).length;
   return (
     <div className="full-product-duel-gold-line" aria-label={`${playerName} ${DUEL_GOLD_LABEL}`}>
@@ -1155,35 +1160,38 @@ function GoldTokenList({
       </span>
       {tokens.length > 0 ? (
         <ul className="full-product-duel-gold-list">
-          {tokens.map(token => (
-            <li
-              key={token.uid}
-              className={interactive ? "full-product-duel-gold full-product-duel-card-surface" : "full-product-duel-gold"}
-              data-card-uid={interactive ? token.uid : undefined}
-              data-card-zone={interactive ? "gold" : undefined}
-              data-readied={token.readied ? "true" : "false"}
-              aria-label={`${DUEL_GOLD_LABEL} ${token.readied ? DUEL_READY_LABEL : DUEL_TAPPED_LABEL}`}
-              role={interactive ? "button" : undefined}
-              tabIndex={interactive ? 0 : undefined}
-              onKeyDown={interactive ? event => {
-                if (event.target !== event.currentTarget || event.key !== "Enter" && event.key !== " ") return;
-                event.preventDefault();
-                cardInteraction?.onCardClick(event, token.uid, null, "gold");
-              } : undefined}
-              onClick={interactive ? event => cardInteraction?.onCardClick(event, token.uid, null, "gold") : undefined}
-              onPointerDown={interactive ? event => cardInteraction?.onCardPointerDown(event, token.uid, "gold") : undefined}
-              onPointerMove={interactive ? event => cardInteraction?.onCardPointerMove(event) : undefined}
-              onPointerUp={interactive ? event => cardInteraction?.onCardPointerUp(event) : undefined}
-            >
-              {/* No card id, no printing metadata: a plain gold mark only. */}
-              <span className="full-product-duel-gold-glyph" aria-hidden="true">
-                金
-              </span>
-              <span className="full-product-duel-gold-state">
-                {token.readied ? DUEL_READY_LABEL : DUEL_TAPPED_LABEL}
-              </span>
-            </li>
-          ))}
+          {tokens.map(token => {
+            const interactive = isInteractive(token.uid);
+            return (
+              <li
+                key={token.uid}
+                className={interactive ? "full-product-duel-gold full-product-duel-card-surface" : "full-product-duel-gold"}
+                data-card-uid={interactive ? token.uid : undefined}
+                data-card-zone={interactive ? "gold" : undefined}
+                data-readied={token.readied ? "true" : "false"}
+                aria-label={`${DUEL_GOLD_LABEL} ${token.readied ? DUEL_READY_LABEL : DUEL_TAPPED_LABEL}`}
+                role={interactive ? "button" : undefined}
+                tabIndex={interactive ? 0 : undefined}
+                onKeyDown={interactive ? event => {
+                  if (event.target !== event.currentTarget || event.key !== "Enter" && event.key !== " ") return;
+                  event.preventDefault();
+                  cardInteraction?.onCardClick(event, token.uid, null, "gold");
+                } : undefined}
+                onClick={interactive ? event => cardInteraction?.onCardClick(event, token.uid, null, "gold") : undefined}
+                onPointerDown={interactive ? event => cardInteraction?.onCardPointerDown(event, token.uid, "gold") : undefined}
+                onPointerMove={interactive ? event => cardInteraction?.onCardPointerMove(event) : undefined}
+                onPointerUp={interactive ? event => cardInteraction?.onCardPointerUp(event) : undefined}
+              >
+                {/* No card id, no printing metadata: a plain gold mark only. */}
+                <span className="full-product-duel-gold-glyph" aria-hidden="true">
+                  金
+                </span>
+                <span className="full-product-duel-gold-state">
+                  {token.readied ? DUEL_READY_LABEL : DUEL_TAPPED_LABEL}
+                </span>
+              </li>
+            );
+          })}
         </ul>
       ) : null}
     </div>
@@ -1747,6 +1755,8 @@ export function DuelMatchBoard({
 
   const isP4Interactive = projectionValidP4 &&
     projection.viewerPlayerId !== null && lockReason === null;
+  const isCardActionable = (cardUID: string): boolean =>
+    isP4Interactive && duelCardActionIds(p4Projection, cardUID).length > 0;
 
   const openCardPopover = (
     event: SyntheticEvent<HTMLElement>,
@@ -1803,6 +1813,7 @@ export function DuelMatchBoard({
     viewerPlayerId: projection.viewerPlayerId,
     sceneKey: resetKey,
     canInteract: isP4Interactive,
+    isCardActionable,
     onCardClick: (event, cardUID, cardId, sourceZone) => {
       if (suppressCardClickRef.current) {
         suppressCardClickRef.current = false;
@@ -2249,37 +2260,40 @@ export function DuelMatchBoard({
       <HiddenHand playerName={nameFor(projection, bottomPlayer.playerId)} count={bottomPlayer.handCount} spectator />
     ) : (
       <ul className="full-product-duel-hand">
-        {viewerHand.map(card => (
-          <li key={card.uid}
-            className={`full-product-duel-hand-card${isP4Interactive ? " full-product-duel-card-surface" : ""}${lockReason === null && windowStatus?.responseAvailable && windowStatus.playableCardUIDs.includes(card.uid) ? " full-product-duel-hand-response" : ""}`}
-            data-uid={card.uid}
-            data-card-uid={sides.viewerSeated && lockReason === null ? card.uid : undefined}
-            data-card-zone={sides.viewerSeated && lockReason === null ? "hand" : undefined}
-            onClick={sides.viewerSeated && lockReason === null ? event => {
-              if (cardEventIsInspect(event)) return;
-              cardInteractionValue?.onCardClick(event, card.uid, card.cardId, "hand");
-            } : undefined}
-            onPointerDown={sides.viewerSeated && lockReason === null ? event => {
-              if (!cardEventIsInspect(event)) cardInteractionValue?.onCardPointerDown(event, card.uid, "hand");
-            } : undefined}
-            onPointerMove={sides.viewerSeated && lockReason === null ? event => cardInteractionValue?.onCardPointerMove(event) : undefined}
-            onPointerUp={sides.viewerSeated && lockReason === null ? event => cardInteractionValue?.onCardPointerUp(event) : undefined}
-            onPointerCancel={() => cardInteractionValue.onCardPointerCancel()}>
+        {viewerHand.map(card => {
+          const actionable = isCardActionable(card.uid);
+          return (
+            <li key={card.uid}
+              className={`full-product-duel-hand-card${actionable ? " full-product-duel-card-surface" : ""}${lockReason === null && windowStatus?.responseAvailable && windowStatus.playableCardUIDs.includes(card.uid) ? " full-product-duel-hand-response" : ""}`}
+              data-uid={card.uid}
+              data-card-uid={actionable ? card.uid : undefined}
+              data-card-zone={actionable ? "hand" : undefined}
+              onClick={actionable ? event => {
+                if (cardEventIsInspect(event)) return;
+                cardInteractionValue?.onCardClick(event, card.uid, card.cardId, "hand");
+              } : undefined}
+              onPointerDown={actionable ? event => {
+                if (!cardEventIsInspect(event)) cardInteractionValue?.onCardPointerDown(event, card.uid, "hand");
+              } : undefined}
+              onPointerMove={actionable ? event => cardInteractionValue?.onCardPointerMove(event) : undefined}
+              onPointerUp={actionable ? event => cardInteractionValue?.onCardPointerUp(event) : undefined}
+              onPointerCancel={actionable ? () => cardInteractionValue.onCardPointerCancel() : undefined}>
             <CardArt
               cardId={card.cardId}
               resolveCardTitle={resolveCardTitle}
               resolveCardImage={resolveCardImage}
               className="full-product-duel-hand-thumb"
               onInspect={onInspect}
-              interactionUID={isP4Interactive ? card.uid : undefined}
+              interactionUID={actionable ? card.uid : undefined}
             />
             <span className="full-product-duel-hand-title">
               {resolveCardTitle(card.cardId)}
             </span>
             {lockReason === null && windowStatus?.responseAvailable && windowStatus.playableCardUIDs.includes(card.uid)
               ? <span className="full-product-duel-response-label">当前可连锁</span> : null}
-          </li>
-        ))}
+            </li>
+          );
+        })}
       </ul>
     );
 
