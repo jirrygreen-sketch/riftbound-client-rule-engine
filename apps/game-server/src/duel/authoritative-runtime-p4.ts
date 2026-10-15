@@ -105,7 +105,7 @@ import {
   type DuelProtectedGlobalSourceSnapshotV2,
 } from "./production-source-services-v2.js";
 import { buildDuelSetupSeats } from "./setup-seats.js";
-import { projectDuelRuntimeV3 } from "./runtime-v3.js";
+import { projectDuelRuntimeV3 } from "./runtime/projection.js";
 import { createDuelNativeOperationJournalV2, type DuelNativeOperationJournalV2,
   type DuelNativeObservedCommitV2 } from "./operation-journal-v2.js";
 import { createDuelEngagementServicesV2 } from "./engagement-services-v2.js";
