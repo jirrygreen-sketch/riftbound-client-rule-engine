@@ -5,41 +5,41 @@ synchronization, community corrections, and the resumable official image cache.
 
 ## Current Snapshot
 
-The current persisted data phase is complete:
+The 2026-10-15 sync covers Radiance and the current errata set:
 
-- English and Chinese official galleries each contain 1,381 records with matching
-  IDs.
-- Official set coverage is OGN 352, OGS 24, RAD 192, SFD 288, UNL 288, and
+- English and Chinese official galleries each contain 1,408 records with matching
+  IDs. Radiance grew from 192 to 219 printings, so the official source now
+  carries the set ahead of its `2026-10-23` product release.
+- Official set coverage is OGN 352, OGS 24, RAD 219, SFD 288, UNL 288, and
   VEN 237.
-- The community source's missing `unl-022-219` regular printing was filled from
-  the official gallery.
-- A dry run on 2026-10-11 loaded 1,380 community cards plus 1,381 English and
-  1,381 Chinese official records, generated 1,381 cards, and exited 0 without
-  changing the persisted snapshot.
-- The successful run exited 0 and wrote:
+- The community `v2026-10-14` release has 1,406 cards and matches every official
+  ID except `sfd-054-221` and `unl-224-219`, which the official gallery fills.
+- A `sync:cards` run on 2026-10-15 loaded 1,406 community cards plus 1,408
+  English and 1,408 Chinese official records, generated 1,408 cards, and exited
+  0. It wrote:
   - `packages/card-data/dist/cards.json`
   - `packages/card-data/data/catalog.json`
-- `build-deck-catalog` processed 1,381 printings into 1,080 official English
-  full-name identities, including 46 cross-set identities. A 2026-10-11 run
-  exited 0 and reported the same totals. It classified 169 printings as
-  alternate and 1,212 as standard. The 45 official public codes ending in ASCII
-  `*` are alternate; this reclassification left every `primaryPrintingId`
-  unchanged.
-- The persisted deck-catalog digest is
-  `sha256:c06644d45b8a5ee2fe868a0cbb5edcf7eb3c807e4b482cf982f2a8811df51331`.
-- The persisted deck catalog has 1,355 localized Chinese display names and 26
-  English-name fallbacks.
+  - `packages/card-data/data/deck-catalog.json`
+- `build-deck-catalog` processed 1,408 printings into 1,103 official English
+  full-name identities, including 46 cross-set identities and 210 identities with
+  more than one printing. It classified 171 printings as alternate and 1,237 as
+  standard.
+- The persisted deck catalog has 1,408 localized Chinese display names, so no
+  printing falls back to its English display name.
+- `build:coverage` reports 1,408 printings, 1,103 canonical identities, 0
+  executable, 1,375 judge-required, and 33 no-ability printings.
 
-The image cache is complete for this snapshot. `data/images` contains 1,381
-files with no zero-byte files; `ogn-028-298.png` is present and is 840,102
-bytes. `data/images-manifest.json` is `ok=true` and `partial=false` with
-1,381 entries, zero missing entries, and zero failures. A 2026-10-11
-`sync:images --dry-run` reported `total=1381 downloaded=0 resumed=1381
-missing=0 failed=0 pending=0 partial=false` and wrote no files.
+The image cache is complete for this snapshot. `data/images` contains 1,408
+files with no zero-byte files. `data/images-manifest.json` is `ok=true` and
+`partial=false` with 1,408 entries, zero missing entries, and zero failures; the
+run reported `total=1408 downloaded=5 resumed=1403 missing=0 failed=0
+pending=0 partial=false`.
+
+Data completion is not effect completion. The runtime currently executes only
 
 Data completion is not effect completion. The runtime currently executes only
 the synthetic-demo rules. Official card text, images, and canonical identities
-do not imply that the complete official 1,381-card effect set is compiled or
+do not imply that the complete official 1,408-card effect set is compiled or
 playable.
 
 ## Effect Coverage
@@ -47,13 +47,13 @@ playable.
 `buildEffectCoverageReport` compiles persisted catalog entries with the
 conservative `@riftbound/card-dsl` compiler. Its report distinguishes:
 
-- `printingCount`: the number of physical/catalog printings, currently 1,381.
-- `canonicalIdentityCount`: unique `canonicalCardId` values, currently 1,080.
+- `printingCount`: the number of physical/catalog printings, currently 1,408.
+- `canonicalIdentityCount`: unique `canonicalCardId` values, currently 1,103.
 - `executableCount`: printings whose complete text compiled to verified EffectIR.
 - `judgeRequiredCount`: printings with text outside verified compiler coverage.
 - `noAbilityCount`: printings with no ability text.
 
-The persisted report currently records 0 executable, 1,348 judge-required,
+The persisted report currently records 0 executable, 1,375 judge-required,
 and 33 no-ability printings. The 33 no-ability printings represent 15
 canonical identities: 24 Basic Rune printings across 6 identities and 9
 no-text Unit printings across 9 identities.
@@ -115,6 +115,44 @@ Useful options include:
 - `--timeout-ms <milliseconds>`: override the 30,000 ms request timeout.
 - `--output <file>` and `--catalog-output <file>`: override default paths.
 
+## Card Errata
+
+The official gallery is a *printed* record: it keeps a card's original wording
+even after Riot publishes errata for that card. The authoritative corrected
+text lives in the errata announcements (Origins, Spiritforged, Unleashed,
+Vendetta, and Radiance), which the community dataset carries per printing as
+`abilityCorrected` / `abilityEffective` / `matchedErrataCode`.
+
+`scripts/errata.mjs` merges that corrected wording under an evidence rule
+instead of trusting it outright. Announcements and the community dataset write
+costs in printed notation (`[1]`, `[A]`, `[M]`, `[C]`), while the gallery writes
+`:rb_*:` symbols, so the translation is derived from each printing's own
+`[OLD TEXT]` against its gallery text and is then required to reproduce that
+gallery text character for character. A corrected text is only adopted when:
+
+1. its printed evidence tokenizes in step with the printing's gallery text and
+   maps each printed symbol to exactly one gallery symbol;
+2. the printed evidence renders back to the gallery text exactly;
+3. every `[NEW TEXT]` symbol is justified by that derived correspondence, by the
+   printing's own gallery text, or by a documented table entry (`[n]` Energy,
+   `[A]` any-Domain Power, `[M]` / `[S]` Might, `[E]` / `[T]` exhaust) whose
+   `:rb_*:` form is attested in the gallery corpus vocabulary.
+
+`[C]` (a single rune of the card's own Domain) is deliberately absent from that
+table, so an ambiguous `[C]` can never guess a Domain. Errata are published per
+identity; a printing without its own annotation inherits a verified sibling's
+wording only when the printed text is identical and no matching sibling
+disagrees. Everything else is left printed and is therefore classified
+`judge-required` by the effect compiler. The 2026-10-15 run resolved 79 annotated
+printings into 74 corrected texts, 11 that already matched their printed text,
+and 6 inherited by an identical sibling printing, with 0 unresolved.
+
+Errata resolution is data provenance only. Corrected wording is not executable
+just because it is verified: unknown mechanics still require an explicit judge
+decision, and the deck catalog's `judge-required` count is the authority on what
+the runtime may execute.
+
+## Image Synchronization
 ## Image Synchronization
 
 The image sync reads `data/catalog.json`, downloads only HTTPS URLs from the
@@ -166,8 +204,8 @@ pnpm --filter @riftbound/card-data build:coverage
 pnpm --filter @riftbound/card-data exec node --test test/persisted-catalog-audit.mjs
 ```
 
-It asserts the real persisted totals (1,381 printings, 1,080 canonical
-identities, 1,348 judge-required, 33 no-ability) and fails loudly with the
+It asserts the real persisted totals (1,408 printings, 1,103 canonical
+identities, 1,375 judge-required, 33 no-ability) and fails loudly with the
 missing file path when `data/deck-catalog.json` or `data/effect-coverage.json`
 has not been built. It never skips and never fabricates official data.
 
@@ -186,7 +224,7 @@ The package-filtered form shown above is the supported syntax for all scripts.
 
 ## Verification
 
-The data sync run above exited 0 and persisted the 1,381-record snapshot.
+The data sync run above exited 0 and persisted the 1,408-record snapshot.
 `docs/implementation-status.md` maintains the current full-workspace
 verification status and test totals.
 
