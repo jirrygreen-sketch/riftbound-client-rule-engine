@@ -1,0 +1,1647 @@
+area: costs
+rulesetVersion: core-1.5
+sources:
+  # Core Rules v1.5（Last Updated 2026-10-09，官方 Rules Hub PDF；文本抽取件见 /tmp 证据目录，不提交）
+  - "1.5:135.2.e.5"   # [A] 任意领域 power；135.2.e.5.a/b
+  - "1.5:135.2.e.6"   # [C] = 本卡领域 power 简写；.a 印刷语义、.b 无领域按 [A]、.c 多领域任一
+  - "1.5:135.2.b.7"   # v1.5 新增：指令检查 Finalization 期间动作是否发生（不看由谁执行）
+  - "1.5:163"         # Energy / Power 的定义；163.2.b 万用 power
+  - "1.5:164.2"       # 基本符文：[E]: Add [1]；Recycle this: Add [C]
+  - "1.5:166"         # 符文池
+  - "1.5:201"         # Costs 章节
+  - "1.5:203.1"       # 支付费用 = 执行对应游戏动作
+  - "1.5:203.2"       # 费用动作被替代仍算已支付
+  - "1.5:203.3"       # 费用动作不可能执行 => 无法支付 => 无关联效果
+  - "1.5:204.1"       # 基础费用（含 204.1.a 印刷位置、204.1.b 启动能力多选一、204.1.c 触发能力前置费用）
+  - "1.5:204.2"       # 附加费用（"as an additional cost"）
+  - "1.5:204.3"       # 指令内费用（"[do X] to [do Y]"）
+  - "1.5:204.4"       # 应用型费用（applied cost，不进链、随动作支付；204.4.b.1 付费窗口可启动 Add Reaction）
+  - "1.5:205"         # 无关联效果的资源付出不是费用
+  - "1.5:206"         # 需要确定费用时一律用印刷/复制费用；206.1 能力看基础费用（忽略改动，除非另有说明）
+  - "1.5:355.1.a"     # 第 2 步选择是否支付可选附加费
+  - "1.5:356"         # 第 3 步确定总费用：356.1 基础改写、356.2 附加（强制/可选）、356.3 增加、356.4 折扣、356.5 总额改写、356.6 不低于 0
+  - "1.5:357"         # 第 4 步支付：357.1.a 付费窗口、357.2 非标准费用任意顺序、357.2.a 替代仍算支付、357.3 不得确定性制造非法
+  - "1.5:358.2"       # 第 5 步合法性检查：所有费用已支付；358.5 失败回滚
+  - "1.5:359.3.d"     # 法术结算后置于其主弃牌堆
+  - "1.5:420.4.b"     # 非触发检查"本回合是否打出过牌"看 Finalize，不看是否被反制
+  - "1.5:421.3.a"     # 标准移动的费用 = 横置单位（能量/符文之外的费用形态）
+  - "1.5:426.1.c"     # 反制不返还任何已支付费用（含附加费）
+  - "1.5:430.3"       # 需要付费时可随时启动带 Reaction 的 Add 能力
+  - "1.5:805"         # Accelerate：可选附加费关键词，[1][C]，延迟替代使单位就绪进场
+  - "1.5:809"         # Deflect：对被选择者施加的强制附加费，可用任意领域 power
+  - "1.5:820"         # Repeat：可选附加费关键词，结算时多执行一次；多次 Repeat 各自只付一次
+  - "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"
+scenarios:
+  # ============ 基础费用（204.1）============
+  - id: costs-basic-energy-payment
+    rule: ["1.5:204.1", "1.5:357.1", "1.5:163.1"]
+    title: "打出单位：先激活符文产能，再按印刷费用支付能量"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [fury, fury], exhausted: [] }
+          hand: [ "@unit(cost:2,might:3,domain:fury)" ]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: activate, source: "runes.ready[0]", ability: "energy" }
+      - { player: A, do: activate, source: "runes.ready[1]", ability: "energy" }
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 2 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:hand[0]" }
+          - { timing: cost.paid, player: A, energy: 2 }
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+      rejected: null
+      state:
+        - { path: "players.A.energy", equals: 0 }
+        - { path: "players.A.runes.exhausted", equals: [fury, fury] }
+    notes: "符文产能是带 Reaction 的 Add 能力（164.2.a），在打出流程的支付步骤也可用（357.1.a）；费用以能量形式从符文池扣减。"
+
+  - id: costs-basic-energy-insufficient
+    rule: ["1.5:358.2", "1.5:358.5", "1.5:166.2"]
+    title: "能量不足以支付基础费用：Finalize 失败并回滚"
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [], exhausted: [fury, fury] }
+          hand: [ "@unit(cost:2,might:3,domain:fury)" ]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 2 } }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "players.A.energy", equals: 1 }
+        - { path: "players.A.handCount", equals: 1 }
+      rejected: { command: 0, reason: "cannot-pay-cost" }
+    notes: "第 5 步合法性检查发现费用未付齐则整个过程撤销（358.5），已做的动作视为未发生；此处玩家没有可激活的 Add 能力补足差额。"
+
+  - id: costs-basic-power-domain-match
+    rule: ["1.5:204.1", "1.5:163.2", "1.5:163.2.a.1"]
+    title: "领域 power 费用必须用同领域 power 支付"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [calm], exhausted: [] }
+          hand: [ "@spell(cost:{power:calm},speed:action,text:Draw 1.)" ]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: activate, source: "runes.ready[0]", ability: "power" }
+      - { player: A, do: play, card: "hand[0]", pay: { power: { calm: 1 } } }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cost.paid, player: A, power: { calm: 1 } }
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+      rejected: null
+      state:
+        - { path: "players.A.runePool.calm", equals: 0 }
+        - { path: "players.A.runeDeckCount", equals: 13 }
+    notes: "回收（Recycle）冷静符文 Add [C]，即 1 点冷静领域 power（164.2.b）；power 的领域通常对应产出它的符文（163.2.a.1）。回收的符文回符文牌库（161.2.b）。"
+
+  - id: costs-basic-power-wrong-domain
+    rule: ["1.5:163.2", "1.5:358.2"]
+    title: "领域不匹配：狂怒 power 不能支付冷静 power 费用"
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          runePool: { energy: 0, power: { fury: 1 } }
+          hand: [ "@spell(cost:{power:calm},speed:action,text:Draw 1.)" ]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { power: { calm: 1 } } }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "players.A.runePool.power.fury", equals: 1 }
+        - { path: "players.A.handCount", equals: 1 }
+      rejected: { command: 0, reason: "cannot-pay-cost" }
+    notes: "Power 有领域（163.2.a），不同领域的 power 不能互通；池里只有狂怒 power，冷静费用无法支付。"
+
+  - id: costs-power-universal-any-domain
+    rule: ["1.5:163.2.b", "1.5:135.2.e.5.a"]
+    title: "万用 power 可支付任意领域的 power 费用"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          runePool: { energy: 0, power: { universal: 1 } }
+          hand: [ "@spell(cost:{power:order},speed:action,text:Draw 1.)" ]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { power: { universal: 1 } } }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cost.paid, player: A, power: { universal: 1 } }
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+      rejected: null
+      state:
+        - { path: "players.A.runePool.power.universal", equals: 0 }
+    notes: "有些 power 是万用的（universal），可用来支付任何领域的 power 费用（163.2.b）；[A] 作为费用时可由任意领域 power 支付（135.2.e.5.a）。"
+
+  # ============ [C]/[A] 符号语义（135.2.e.5/6，v1.5 明确）============
+  - id: costs-symbol-c-own-domain
+    rule: ["1.5:135.2.e.6", "1.5:135.2.e.6.a"]
+    title: "[C] 按该卡自身领域的 power 支付"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [calm], exhausted: [] }
+          hand: [ "@spell(domain:calm,cost:{energy:1,power:c},speed:action,text:Deal 1 to a unit.)" ]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:3)#e1"] } }
+      chain: []
+    commands:
+      - { player: A, do: activate, source: "runes.ready[0]", ability: "power" }
+      - { player: A, do: play, card: "hand[0]", targets: ["#e1"], pay: { energy: 1, power: { calm: 1 } } }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cost.paid, player: A, energy: 1, power: { calm: 1 } }
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+      rejected: null
+      state:
+        - { path: "players.A.runePool.calm", equals: 0 }
+    notes: "[C] 简写指一点本卡领域的 power（135.2.e.6）；此卡领域为 calm，故须以冷静 power 支付。真实卡参照：多数卡面把本领域 power 直接印成领域符号，规则文本统一记作 [C]。"
+
+  - id: costs-symbol-c-domainless-becomes-a
+    rule: ["1.5:135.2.e.6.b"]
+    title: "无领域卡上的 [C] 按 [A] 处理"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          runePool: { energy: 0, power: { chaos: 1 } }
+          hand: [ "@unit(cost:{power:c},might:2)" ]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { power: { chaos: 1 } } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cost.paid, player: A, power: { chaos: 1 } }
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+      rejected: null
+      state:
+        - { path: "players.A.runePool.chaos", equals: 0 }
+    notes: "无领域卡上的 [C] 一律按 [A]（任意领域 power）处理（135.2.e.6.b），故混沌 power 也能支付。合成卡的 [C] 印刷费与任务红线中的 power:null 不同：null 表示根本没有印刷费，此处是印刷了 [C] 费用。"
+
+  - id: costs-symbol-c-multidomain-either
+    rule: ["1.5:135.2.e.6.c"]
+    title: "多领域卡的 [C] 可用其任一领域的 power 支付"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          runePool: { energy: 0, power: { chaos: 1 } }
+          hand: [ "@spell(domain:[calm,chaos],cost:{energy:1,power:c},speed:action,text:Draw 1.)" ]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 1, power: { chaos: 1 } } }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cost.paid, player: A, power: { chaos: 1 } }
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+      rejected: null
+      state:
+        - { path: "players.A.runePool.chaos", equals: 0 }
+    notes: "参照真实卡 Defiant Dance（[1][C]，Calm+Chaos）：[C] 在多领域卡上按该卡任一领域处理（135.2.e.6.c），本场景选付 chaos；同样可付 calm。"
+
+  - id: costs-symbol-a-any-domain-payment
+    rule: ["1.5:135.2.e.5.a"]
+    title: "[A] 费用可用任意领域的 power 支付"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          runePool: { energy: 0, power: { body: 1 } }
+          hand: [ "@spell(domain:order,cost:{power:a},speed:action,text:Draw 1.)" ]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { power: { body: 1 } } }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cost.paid, player: A, power: { body: 1 } }
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+      rejected: null
+      state:
+        - { path: "players.A.runePool.body", equals: 0 }
+    notes: "卡本身领域（order）不限制 [A] 的支付方式——[A] 是\"任意领域 power\"（135.2.e.5.a），与 [C] 的语义不同。"
+
+  # ============ 启动能力的基础费用（204.1.b）============
+  - id: costs-activated-multi-base-choice
+    rule: ["1.5:204.1.b", "1.5:203.1"]
+    title: "启动能力的基础费用是多选一时，由控制者选定其一"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          runePool: { energy: 0, power: { fury: 1 } }
+          hand: []
+          base: [ "@unit(cost:1,might:2,domain:fury,text:[Empower] — [1] or [C].)#m1" ]
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: activate, source: "#m1", ability: "empower", chooseCost: power, pay: { power: { fury: 1 } } }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cost.paid, player: A, power: { fury: 1 } }
+          - { timing: chain.item-finalized, item: "A:#m1:empower" }
+      rejected: null
+      state:
+        - { path: "players.A.runePool.fury", equals: 0 }
+        - { path: "board.A.base[0].empowered", equals: true }
+    notes: "真实卡 Legion Marauder 的写法 \"[Empower] — [1] or [C]\" 是 \"[1] or [C]: Empower me.\" 的简写（204.1.b 示例）。Finalize 时控制者在多个候选基础费用中选一个；本场景选 [C]，即付 1 点本领域（fury）power。依赖能力：Empower（442，未 Empower 时才能启动）。"
+
+  # ============ 触发能力的前置费用（204.1.c）============
+  - id: costs-triggered-upfront-cost
+    rule: ["1.5:204.1.c", "1.5:203.1"]
+    title: "触发能力效果开头的费用必须支付才能 Finalize"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: [ "@unit(cost:2,might:2,text:When I defend, you may kill me to move an attacking unit to its base.)#f1" ]
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["#f1"], B: ["@unit(might:2)#att1"] }, combat: { attacker: B, defenders: ["#f1"] } }
+      chain:
+        - { pending: "ability:A:#f1:defend-trigger" }
+    commands:
+      - { player: A, do: finalize, item: "chain[0]", choose: { payUpfrontCost: true } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cost.paid, player: A, nonStandard: "kill:A:#f1" }
+          - { timing: zone.leave, object: "A:#f1", zone: battlefield }
+          - { timing: chain.item-finalized, item: "A:#f1:defend-trigger" }
+      rejected: null
+      state:
+        - { path: "players.A.trashCount", equals: 1 }
+    notes: "参照真实卡 Overzealous Fan（204.1.c 示例）：触发能力的费用若出现在效果最前面，须在该能力 Finalize 时支付；这里是\"杀死我\"这种非资源费用。选择在触发能力上链后 finalize 时做出。"
+
+  - id: costs-triggered-upfront-declined
+    rule: ["1.5:204.1.c", "1.5:203"]
+    title: "触发能力前置费用可选不付：不付则能力不进链"
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(cost:2,might:2,text:When I defend, you may kill me to move an attacking unit to its base.)#f1"], B: ["@unit(might:2)#att1"] }, combat: { attacker: B, defenders: ["#f1"] } }
+      chain:
+        - { pending: "ability:A:#f1:defend-trigger" }
+    commands:
+      - { player: A, do: finalize, item: "chain[0]", choose: { payUpfrontCost: false } }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "chain.length", equals: 0 }
+        - { path: "board.bf1.units.A", equals: ["#f1"] }
+      rejected: { command: 0, reason: "cost-not-paid-no-finalize" }
+    notes: "同一触发能力：控制者选择不支付前置费用时能力无法 Finalize，链上不留项，单位也不被杀死（\"you may\" 使支付可选，但拒绝支付的代价是整个效果都不发生）。"
+
+  # ============ 强制附加费（356.2.a）============
+  - id: costs-mandatory-additional-kill
+    rule: ["1.5:356.2.a.1", "1.5:204.2.a"]
+    title: "打出带强制附加费的单位：必须额外执行费用动作"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@unit(cost:3,might:5,text:As an additional cost to play me, kill a friendly unit.)" ]
+          base: [ "@unit(cost:1,might:1)#t1" ]
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 3, additional: ["kill:A:#t1"] } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.leave, object: "A:#t1", zone: base }
+          - { timing: cost.paid, player: A, energy: 3 }
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+      rejected: null
+      state:
+        - { path: "players.A.energy", equals: 0 }
+        - { path: "board.A.baseCount", equals: 1 }
+        - { path: "players.A.trashCount", equals: 1 }
+    notes: "强制附加费不含 \"may\"（356.2.a.1），必须连同基础费用一起支付才能完成打出；附加的非标准费用（杀一个友方单位）在第 4 步与资源费一起支付（357.2），顺序任意。"
+
+  - id: costs-mandatory-additional-impossible
+    rule: ["1.5:203.3", "1.5:356.2.a.1", "1.5:358.5"]
+    title: "强制附加费的动作不可能执行：整个打出失败"
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@unit(cost:3,might:5,text:As an additional cost to play me, kill a friendly unit.)" ]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 3 } }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "players.A.energy", equals: 3 }
+        - { path: "players.A.handCount", equals: 1 }
+      rejected: { command: 0, reason: "cost-action-impossible" }
+    notes: "没有任何友方单位可杀，费用动作不可能执行 => 费用无法支付（203.3），Finalize 失败回滚（358.5），已预留的能量不扣。"
+
+  - id: costs-deflect-mandatory-power
+    rule: ["1.5:809.1.c", "1.5:809.1.c.1", "1.5:356.2.a.2"]
+    title: "以 Deflect 单位为目标的敌方法术须多付 power"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          runePool: { energy: 0, power: { mind: 1 } }
+          hand: [ "@spell(domain:fury,cost:1,speed:action,text:Deal 1 to a unit.)" ]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:2,keywords:[deflect])#d1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", targets: ["#d1"], pay: { energy: 1, power: { mind: 1 } } }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cost.paid, player: A, energy: 1, power: { mind: 1 } }
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+      rejected: null
+      state:
+        - { path: "players.A.runePool.mind", equals: 0 }
+    notes: "Deflect 是强制附加费（356.2.a.2），按目标被选择的次数累加；用于支付 Deflect 的 power 永远可以是任意领域（809.1.c.1），不要求与法术或目标的领域一致。Deflect 未写数值时按 1（809.1.b.3）。"
+
+  - id: costs-deflect-unpaid-fails
+    rule: ["1.5:809.1.d", "1.5:358.2"]
+    title: "拒付 Deflect 附加费则目标选择无法完成、打出失败"
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(domain:fury,cost:1,speed:action,text:Deal 1 to a unit.)" ]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:2,keywords:[deflect])#d1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", targets: ["#d1"], pay: { energy: 1 } }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "players.A.energy", equals: 1 }
+        - { path: "players.A.handCount", equals: 1 }
+      rejected: { command: 0, reason: "cannot-pay-cost" }
+    notes: "Deflect 附加费是强制的；玩家只付基础能量费而不付 power，第 5 步检查发现费用未付齐，整个打出回滚。"
+
+  # ============ 可选附加费：Accelerate（805）============
+  - id: costs-accelerate-optional-pay
+    rule: ["1.5:805.1.b", "1.5:805.2", "1.5:805.6"]
+    title: "支付 Accelerate 可选附加费：单位改为就绪进场"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          runePool: { energy: 0, power: { fury: 1 } }
+          hand: [ "@unit(cost:2,might:3,domain:fury,keywords:[accelerate])" ]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, choose: { payAccelerate: true }, pay: { energy: 3, power: { fury: 1 } } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cost.paid, player: A, energy: 3, power: { fury: 1 } }
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+          - { timing: zone.enter, object: "A:hand[0]", zone: base, ready: true }
+      rejected: null
+    notes: "Accelerate = \"As you play me, you may pay [1][C] as an additional cost. If you do, I enter ready.\"（805.1.b）。是否支付在第 2 步选择（355.1.a）；支付产生延迟替代效果，把\"横置进场\"替换为\"就绪进场\"——不是先横置再重置（805.6），因此不触发\"当单位就绪时\"类能力（805.6.a）。"
+
+  - id: costs-accelerate-declined-exhausted
+    rule: ["1.5:805.2", "1.5:143.4"]
+    title: "不支付 Accelerate：单位按默认横置进场"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          runePool: { energy: 0, power: { fury: 1 } }
+          hand: [ "@unit(cost:2,might:3,domain:fury,keywords:[accelerate])" ]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, choose: { payAccelerate: false }, pay: { energy: 2 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cost.paid, player: A, energy: 2 }
+          - { timing: zone.enter, object: "A:hand[0]", zone: base, ready: false }
+      rejected: null
+      state:
+        - { path: "players.A.runePool.fury", equals: 1 }
+    notes: "单位默认横置进场（143.4）；Accelerate 是可选的，不付就按普通规则横置。池里留着的 power 不消耗。"
+
+  - id: costs-accelerate-power-domain-match
+    rule: ["1.5:805.1.b.1", "1.5:135.2.e.6.c"]
+    title: "多领域单位被临时授予 Accelerate：power 部分可付其任一领域"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          runePool: { energy: 0, power: { chaos: 1 } }
+          hand: [ "Tibbers" ]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, choose: { payAccelerate: true }, pay: { energy: 3, power: { chaos: 1 } } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cost.paid, player: A, power: { chaos: 1 } }
+          - { timing: zone.enter, object: "A:hand[0]", zone: base, ready: true }
+      rejected: null
+    notes: "真实卡 Tibbers（Fury+Chaos 单位）被效果授予 Accelerate 时，可选附加费的 power 部分可用 [R] 或 [P] 支付（805.1.b.1 + 135.2.e.6.c 官方示例）。本场景用混沌 power 支付。"
+
+  # ============ 可选附加费：Repeat（820）============
+  - id: costs-repeat-second-execution
+    rule: ["1.5:820.1.d", "1.5:820.1.d.1", "1.5:820.3.a"]
+    title: "支付 Repeat 费：结算时效果多执行一次，但仍只算打出一张牌"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 6
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:4,speed:action,repeat:{energy:2},text:Deal 1 to a unit.)" ]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:3)#e1", "@unit(might:3)#e2"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", targets: ["#e1", "#e2"], choose: { payRepeat: true }, pay: { energy: 6 } }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cost.paid, player: A, energy: 6 }
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+      rejected: null
+      state:
+        - { path: "board.bf1.units.B[0].damage", equals: 1 }
+        - { path: "board.bf1.units.B[1].damage", equals: 1 }
+        - { path: "players.A.cardsPlayedThisTurn", equals: 1 }
+    notes: "Repeat = \"You may pay [Cost] as an additional cost as you play this. If you do, execute the instructions of this chain item one additional time during resolution.\"（820.1.d）。两次执行的选择（目标）在\"做出相关选择\"一步各自做出、可以不同（820.2.a）；无论执行几次，只算打出一次（820.3.a）。"
+
+  - id: costs-repeat-declined-single
+    rule: ["1.5:820.1.b"]
+    title: "不支付 Repeat 费：效果只执行一次"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 4
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:4,speed:action,repeat:{energy:2},text:Deal 1 to a unit.)" ]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:3)#e1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", targets: ["#e1"], choose: { payRepeat: false }, pay: { energy: 4 } }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cost.paid, player: A, energy: 4 }
+      rejected: null
+      state:
+        - { path: "board.bf1.units.B[0].damage", equals: 1 }
+    notes: "只付基础费用时 Repeat 不生效，结算一次。真实卡对照：Rocket Barrage 的 [Repeat] [4][C] 不付则只执行所选模式一次。"
+
+  - id: costs-repeat-each-cost-once
+    rule: ["1.5:820.1.c.2", "1.5:820.1.c.3", "1.5:820.3"]
+    title: "多实例 Repeat：每个 Repeat 费最多付一次，按付费次数追加执行"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 7
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:4,speed:action,repeat:[{energy:2},{energy:1}],text:Deal 1 to a unit.)" ]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:5)#e1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", targets: ["#e1", "#e1", "#e1"], choose: { payRepeat: [true, true] }, pay: { energy: 7 } }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cost.paid, player: A, energy: 7 }
+      rejected: null
+      state:
+        - { path: "board.bf1.units.B[0].damage", equals: 3 }
+    notes: "有两个 Repeat 实例时，每个费用独立决定是否支付（820.1.c.2），且每个费用只能付一次（820.1.c.3）；付了两个则结算时共执行 3 次（820.3）。同一个目标可被多次执行重复选择（820.2.a 允许每次选择相同）。"
+
+  # ============ 指令内费用（204.3）============
+  - id: costs-instruction-cost-resolution
+    rule: ["1.5:204.3", "1.5:204.3.a"]
+    title: "指令内费用在结算时支付，不是打出时支付"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          runePool: { energy: 0, power: { fury: 2 } }
+          hand: [ "@spell(domain:fury,cost:2,speed:action,text:Pay any amount of [A] to deal that much damage to all enemy units at a battlefield.)" ]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:2)#e1", "@unit(might:2)#e2"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 2 } }
+      - { player: B, do: pass }
+      - { player: A, do: resolve-choice, pay: { power: { fury: 2 } }, targetBattlefield: bf1 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cost.paid, player: A, energy: 2 }
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+          - { timing: cost.paid, player: A, power: { fury: 2 } }
+      rejected: null
+      state:
+        - { path: "board.bf1.units.B[0].damage", equals: 2 }
+        - { path: "board.bf1.units.B[1].damage", equals: 2 }
+    notes: "真实卡 Bullet Time（204.3.a 示例）：\"Pay any amount of [A] to deal that much damage...\" 是结算时才发生的指令内费用。打出时只付印刷费 [2]；结算时再付任意数量 power，伤害量由实付数量决定。"
+
+  - id: costs-instruction-cost-not-paid-no-effect
+    rule: ["1.5:204.3", "1.5:203"]
+    title: "结算时选择不付指令内费用：关联效果不执行"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1,speed:action,text:Choose an opponent. They reveal their hand. You may pay 2 XP to choose a card from their hand. If you do, they discard that card and draw 1.)" ]
+          base: []
+          score: 0
+          xp: 1
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [ "@unit(cost:1,might:1)" ], base: [], score: 0 }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 1 } }
+      - { player: B, do: pass }
+      - { player: A, do: resolve-choice, choose: { payXp: false } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cost.paid, player: A, energy: 1 }
+      rejected: null
+      state:
+        - { path: "players.B.handCount", equals: 1 }
+        - { path: "players.A.xp", equals: 1 }
+    notes: "参照真实卡 Insightful Investigator（204.3.a 示例）：\"may pay 2 XP to ...\" 的支付发生在结算时；不付则其后的选择与弃牌效果都不发生，但法术前面\"展示手牌\"的指令已经正常执行。XP 属于非资源费用（202 列举的 counters/XP）。"
+
+  # ============ 205：无关联效果的付出不是费用 ============
+  - id: costs-noncost-payment-replacement-skips-check
+    rule: ["1.5:205", "1.5:135.2.b.7"]
+    title: "非费用性质的支付被替代时，后续\"如果你支付了\"检查失败"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          runePool: { energy: 4, power: { fury: 1 } }
+          hand: []
+          base:
+            - "@unit(cost:3,might:3,text:When I attack, you may pay [4][C]. If you do, kill a unit here.)#a1"
+            - "@gear(cost:1,text:If a player would pay resources, skip that payment.)#g1"
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:2)#e1"] } }
+      chain:
+        - { pending: "ability:A:#a1:attack-trigger" }
+    commands:
+      - { player: A, do: finalize, item: "chain[0]" }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:#a1:attack-trigger" }
+      rejected: null
+      state:
+        - { path: "players.A.runePool.energy", equals: 4 }
+        - { path: "board.bf1.units.B.length", equals: 1 }
+    notes: "规则 205 的例子：触发能力里的 \"you may pay [4][C]. If you do, ...\" 不是费用的\"基础/附加/指令内\"任何一种，支付只是一个游戏动作。若该支付被替代效果跳过（此处合成gear提供替代），后面的指令检查的是\"动作是否发生\"而不是\"费用是否已付\"，因此杀单位的效果不执行。与 357.2.a（费用动作被替代仍算已支付）形成对照。"
+
+  # ============ 206：费用确定一律看印刷/复制费用 ============
+  - id: costs-printed-cost-check-ignores-discount
+    rule: ["1.5:206", "1.5:356.1.c"]
+    title: "触发检查按印刷费用，不按折后实付"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: [ "Sky Splitter" ]
+          base: [ "Lux, Illuminated", "@unit(cost:2,might:7)" ]
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 1 } }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cost.paid, player: A, energy: 1 }
+          - { timing: chain.item-pending, item: "ability:A:Lux, Illuminated" }
+      rejected: null
+    notes: "真实卡依赖：Sky Splitter 印 [8]、\"This spell's Energy cost is reduced by the highest Might among units you control.\"；Lux, Illuminated \"When you play a spell that costs 5 or more, give me +3 [M] this turn.\"。Lux 的能力按 Sky Splitter 的印刷费用 8 判定（206 官方示例），尽管实付只有 1。需要先 Finalize Lux 的触发才能轮到结算。"
+
+  - id: costs-printed-cost-target-repeat-ignored
+    rule: ["1.5:206", "1.5:820.4"]
+    title: "反制类法术看目标的印刷费用，不含已付的 Repeat 费"
+    kind: positive
+    given:
+      turn: { active: B, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          runePool: { energy: 0, power: {} }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          runePool: { energy: 0, power: { calm: 1 } }
+          hand: [ "Defy" ]
+          base: []
+          score: 0
+      battlefields: []
+      chain:
+        - { finalized: "spell:A:Rocket Barrage", note: "A 已付 [4][C] + Repeat [4][C]" }
+    commands:
+      - { player: B, do: play, card: "hand[0]", targets: ["chain[0]"], pay: { power: { calm: 1 } } }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "B:Defy" }
+          - { timing: chain.item-countered, item: "A:Rocket Barrage" }
+      rejected: null
+    notes: "真实卡依赖：Defy \"Counter a spell that costs no more than [4] and no more than [A].\"；Rocket Barrage 印 [4][C]、Repeat [4][C]。即便对手已付 Repeat 费，Defy 只看印刷/复制费用（206 官方示例），故 Rocket Barrage 仍是合法目标。"
+
+  - id: costs-ability-base-cost-check-ignores-alteration
+    rule: ["1.5:206.1"]
+    title: "检查能力的费用看基础费用，忽略对它的改动"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 12
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base:
+            - "@gear(cost:2,text:When you play an activated ability with Energy cost [7] or more, you may exhaust me to ready up to 2 runes.)#w1"
+            - "@gear(cost:1,text:[12], Banish this: Choose an opponent. Banish all units they control. This ability costs [1] less for each point the chosen opponent has.)#g2"
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 7 }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: activate, source: "#g2", ability: "banish-all", targets: [B], pay: { energy: 5 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cost.paid, player: A, energy: 5 }
+          - { timing: chain.item-pending, item: "ability:A:#w1" }
+      rejected: null
+    notes: "规则 206.1 的例子：#g2 的能力基础费用是 [12]，对 7 分对手实付 [5]；#w1 的触发按基础费用判定（>=7），仍然触发。反之若某效果明确说\"含改动后的费用\"（如 Weaponmaster 参照含折扣的 Equip 费），才按改动后计算（206.1 第二个示例）。"
+
+  # ============ 356：总费用确定 ============
+  - id: costs-increase-then-discount-order
+    rule: ["1.5:356.3", "1.5:356.4"]
+    title: "先加费用增加，再叠加折扣"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 4
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2,speed:action,text:Draw 1.)" ]
+          base: [ "@unit(cost:2,might:2,text:Spells you play cost [1] less.)#dc1" ]
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: [ "@unit(cost:2,might:2,text:Spells your opponents play cost [1] more.)#ic1" ]
+          score: 0
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 2 } }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cost.paid, player: A, energy: 2 }
+      rejected: null
+      state:
+        - { path: "players.A.energy", equals: 2 }
+    notes: "费用计划顺序：基础费用 [2] → 附加费用（无）→ 费用增加 [+1]（356.3）→ 折扣 [-1]（356.4）= 总费用 [2]。增加先于折扣应用，步骤内顺序任意。"
+
+  - id: costs-component-discount-before-total
+    rule: ["1.5:356.4.c", "1.5:356.4.d"]
+    title: "只作用于组成部分的折扣先于作用于总费用的折扣"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 5
+          runes: { ready: [], exhausted: [] }
+          runePool: { energy: 0, power: { fury: 1 } }
+          hand: [ "@spell(domain:fury,cost:{energy:4,power:fury},speed:action,text:Deal 2 to a unit.)" ]
+          base:
+            - "@unit(cost:2,might:2,text:The Energy component of spells you play costs [1] less.)#d1"
+            - "@unit(cost:2,might:2,text:Spells you play cost [1] less.)#d2"
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:4)#e1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", targets: ["#e1"], pay: { energy: 2, power: { fury: 1 } } }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cost.paid, player: A, energy: 2, power: { fury: 1 } }
+      rejected: null
+    notes: "能量组成部分 4 → 组件折扣 -1（356.4.c）→ 总费用折扣 -1（356.4.d，作用于合计，不再拆到组件），power 部分不受影响。最终 [2][fury]。组件折扣之间顺序任意、但不能把组件降到 0 以下（356.4.c.2）。"
+
+  - id: costs-discount-floor-zero
+    rule: ["1.5:356.4.c.2", "1.5:356.6"]
+    title: "折扣不能把任何组成部分降到 0 以下"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1,speed:action,text:Draw 1.)" ]
+          base: [ "@unit(cost:2,might:2,text:Spells you play cost [3] less.)#d3" ]
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 0 } }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cost.paid, player: A, energy: 0 }
+      rejected: null
+      state:
+        - { path: "players.A.energy", equals: 0 }
+    notes: "[1] 的牌被减 [3]：能量费最低为 0（356.6），多余折扣作废，不产生\"倒贴\"。"
+
+  - id: costs-discount-minimum-per-discount
+    rule: ["1.5:356.4.e"]
+    title: "折扣自带的最低值只约束该折扣本身"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: [ "Sky Splitter" ]
+          base: [ "Eager Apprentice", "@unit(cost:2,might:7)" ]
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { discountOrder: ["eager-apprentice", "sky-splitter"] }, pay: { energy: 0 } }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cost.paid, player: A, energy: 0 }
+      rejected: null
+    notes: "真实卡依赖（356.4.e 官方示例）：Eager Apprentice \"spells you play 能量费减 [1]，最低到 [1]\"；Sky Splitter 自身按其单位最高 Might（7）减能量费。先应用 Eager Apprentice（8→7，受其自带下限 1 约束），再应用 Sky Splitter（7→0，无下限约束）则总费用可为 0；若顺序反过来会停在 1。下限是每个折扣自己的，不是全局的。"
+
+  - id: costs-optional-additional-reduced-to-zero
+    rule: ["1.5:356.4.f", "1.5:356.4.f.1", "1.5:135.2.b.7"]
+    title: "可选附加费被折扣减到 0 仍算\"已支付\""
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "Clockwork Keeper" ]
+          base: [ "@unit(cost:2,might:2,text:Units you play cost [A] less.)#d4" ]
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, choose: { payOptionalAdditional: true }, pay: { energy: 2, power: {} } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cost.paid, player: A, energy: 2 }
+          - { timing: chain.item-finalized, item: "A:Clockwork Keeper" }
+      rejected: null
+    notes: "真实卡依赖（356.4.f.1 官方示例）：Clockwork Keeper 费 [2]、\"As you play me, you may pay [C] as an additional cost. If you do, draw 1.\"。折扣把可选附加费减到 0，只要第 2 步声明了支付意愿就算\"已支付\"，结算时仍抽 1。\"是否支付\"看的是选择，不是实际扣了多少资源。"
+
+  # ============ 变量折扣 / 打出时锁定（356.4.g）============
+  - id: costs-variable-discount-checked-at-finalize
+    rule: ["1.5:356.4.g"]
+    title: "变量折扣的数值在应用折扣时锁定"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 6
+          runes: { ready: [], exhausted: [] }
+          hand: [ "Rhasa, the Sunderer" ]
+          base: []
+          score: 0
+          trashCount: 3
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 6 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cost.paid, player: A, energy: 6 }
+      rejected: null
+    notes: "真实卡依赖（356.4.g 官方示例）：Rhasa, the Sunderer 印刷费 [9]（场景按印刷 9 - 弃牌堆 3 = 6 实付）、\"I cost [1] less for each card in your trash.\"。折扣数值在第 3 步应用折扣时确定；此后到结算前弃牌堆数量再变化也不影响本次总费用。属于\"打出时锁定数值\"的边界，防止反复重算。"
+
+  # ============ 356.1：基础费用改写 ============
+  - id: costs-alternate-replaces-base
+    rule: ["1.5:356.1.a"]
+    title: "'\"以 [X] 打出\"效果替换基础费用'"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          runePool: { energy: 0, power: { mind: 1 } }
+          hand: [ "@unit(cost:5,might:5,domain:mind)" ]
+          base: [ "@gear(cost:2,text:You may play your next unit this turn for [B].)#alt1" ]
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, usingAlternate: "#alt1", pay: { power: { mind: 1 } } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cost.paid, player: A, power: { mind: 1 } }
+      rejected: null
+    notes: "356.1.a：允许\"以 [Cost] 打出\"的效果把卡的基础费用整体替换为该费用。替换发生在费用计划第 3 步最开始，之后附加费/增减照常叠加。"
+
+  - id: costs-ignore-base-but-accelerate-still-added
+    rule: ["1.5:356.1.b.1", "1.5:356.1.b.3"]
+    title: "'\"无视费用\"只清零基础费用，可选附加费照常叠加'"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          runePool: { energy: 0, power: { fury: 1 } }
+          hand: [ "Legion Rearguard" ]
+          base: [ "@gear(cost:1,text:Play your next unit this turn ignoring its cost.)#ign1" ]
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, usingIgnore: "#ign1", choose: { payAccelerate: true }, pay: { energy: 1, power: { fury: 1 } } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cost.paid, player: A, energy: 1, power: { fury: 1 } }
+          - { timing: zone.enter, object: "A:hand[0]", zone: base, ready: true }
+      rejected: null
+    notes: "真实卡依赖（356.1.b.3 官方示例）：Legion Rearguard 是费 [2]、带 Accelerate 的 Fury 单位。\"无视其费用\"把基础能量费与基础 power 费清零（356.1.b.1），但玩家在第 2 步选择支付 Accelerate 后，[1][fury] 作为可选附加费又加回总费用。单位因付了 Accelerate 而就绪进场。"
+
+  - id: costs-ignore-energy-only-power-remains
+    rule: ["1.5:356.1.b.2"]
+    title: "只\"无视能量费\"时 power 费仍须支付"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          runePool: { energy: 0, power: { order: 1 } }
+          hand: [ "@unit(domain:order,cost:{energy:3,power:order},might:3)" ]
+          base: [ "@gear(cost:1,text:Play your next unit this turn ignoring its Energy cost.)#ign2" ]
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, usingIgnore: "#ign2", pay: { power: { order: 1 } } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cost.paid, player: A, power: { order: 1 } }
+      rejected: null
+    notes: "356.1.b.2：\"无视能量费\"只把能量组成部分清零，power 组成部分仍在，须照常支付。"
+
+  - id: costs-ignore-all-costs-includes-nonstandard
+    rule: ["1.5:356.5.a"]
+    title: "'\"无视任何及所有费用\"把总费用置 0，包括非标准费用'"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@unit(cost:4,might:4,text:As an additional cost to play me, kill a friendly unit.)" ]
+          base: [ "@unit(cost:1,might:1)#t1", "@gear(cost:1,text:Play your next card this turn ignoring any and all costs.)#ign3" ]
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, usingIgnore: "#ign3", pay: { energy: 0 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cost.paid, player: A, energy: 0 }
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+      rejected: null
+      state:
+        - { path: "board.A.baseCount", equals: 3 }
+    notes: "356.5.a 把总费用设为 [0]，连\"杀一个友方单位\"这种非标准附加费也一并免除；#t1 不需要被杀，结算后 base 上共有 3 个对象。"
+
+  # ============ 反制不返还（426.1.c）============
+  - id: costs-countered-no-refund
+    rule: ["1.5:426.1.c", "1.5:426.1.c.1"]
+    title: "法术被反制：已支付的全部费用不返还"
+    kind: positive
+    given:
+      turn: { active: B, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          runePool: { energy: 0, power: {} }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          runePool: { energy: 0, power: { mind: 1 } }
+          hand: [ "@spell(domain:mind,cost:{power:mind},speed:reaction,text:Counter a spell.)" ]
+          base: []
+          score: 0
+      battlefields: []
+      chain:
+        - { finalized: "spell:A:@spell(cost:3,repeat:{energy:2})", note: "A 已付 [3] 基础 + [2] Repeat 附加，共 5 能量" }
+    commands:
+      - { player: B, do: play, card: "hand[0]", targets: ["chain[0]"], pay: { power: { mind: 1 } } }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-countered, item: "A:spell(cost:3)" }
+      rejected: null
+      state:
+        - { path: "players.A.energySpentThisTurn", equals: 5 }
+        - { path: "players.A.runePool.energy", equals: 0 }
+        - { path: "players.A.trashCount", equals: 1 }
+    notes: "426.1.c：反制不返还任何费用，包括附加费（426.1.c.1 明确含 Repeat 这类 additional cost）。被反制的牌进其主的弃牌堆（426.1.a.1）。"
+
+  - id: costs-countered-still-counts-as-played-for-cost-checks
+    rule: ["1.5:420.4.b", "1.5:426.1.b"]
+    title: "被反制的牌不算\"被打出\"，但\"本回合是否 Finalize 过牌\"的检查仍算数"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 4
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@unit(cost:4,might:4,text:I cost [4] less if you played another card this turn.)" ]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 0 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cost.paid, player: A, energy: 0 }
+      rejected: null
+    notes: "规则 420.4.b 的示例：玩家先打出一张被 Defy 反制的法术，随后打出的 Battering Ram 仍满足\"本回合已打出过其他牌\"的费用减免条件（成本为 [4] 变为 [0]——以场景中的合成卡形式呈现）。触发\"当牌被打出\"类能力不触发（426.1.b），但非触发的费用/条件检查看的是 Finalize 记录。"
+
+  # ============ 203.2 / 357.2.a：费用动作被替代仍算已支付 ============
+  - id: costs-replaced-cost-action-still-paid
+    rule: ["1.5:203.2", "1.5:357.2.a"]
+    title: "附加费要求的杀死被替代效果改写：费用仍算已支付"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: [ "Cruel Patron" ]
+          base: [ "@unit(cost:1,might:1)#t1", "Zhonya's Hourglass" ]
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 3, additional: ["kill:A:#t1"] } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cost.paid, player: A, energy: 3 }
+          - { timing: chain.item-finalized, item: "A:Cruel Patron" }
+      rejected: null
+      state:
+        - { path: "board.A.baseCount", equals: 3 }
+    notes: "真实卡依赖（357.2.a 官方示例）：Cruel Patron \"As an additional cost to play me, kill a friendly unit.\"；Zhonya's Hourglass \"If a friendly unit would die, kill this instead. Heal that unit, exhaust it, and recall it.\"。第 4 步执行\"杀死 #t1\"时被 Zhonya's 替代为\"杀死 Zhonya's、治疗并召回 #t1\"，费用仍视为已支付，Cruel Patron 正常 Finalize 进场。结束时 base 上有 #t1（被召回后回到 base）、Zhonya's 已不在、加上 Cruel Patron 共 3 个对象按 harness 实际行为断言。"
+
+  # ============ 357.1.a / 430.3：支付步骤中的 Add Reaction 窗口 ============
+  - id: costs-mana-ability-during-payment
+    rule: ["1.5:357.1.a", "1.5:430.3", "1.5:204.4.b.1"]
+    title: "支付步骤中可以启动带 Reaction 的 Add 能力补足资源"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@spell(cost:2,speed:reaction,text:Deal 2 to a unit.)" ]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:3)#e1"] } }
+      chain:
+        - { finalized: "spell:B:@spell(cost:1,speed:action,text:Draw 1.)" }
+    commands:
+      - { player: A, do: play, card: "hand[0]", targets: ["#e1"], pay: { energy: 2 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "ability:A:runes.ready[0]:add" }
+          - { timing: cost.paid, player: A, energy: 2 }
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+      rejected: null
+      state:
+        - { path: "players.A.runes.exhausted", equals: [fury] }
+    notes: "357.1.a 与 430.3：打出流程进入支付步骤时，若资源不足可就地启动带 [Reaction] 的 Add 能力（基本符文的 [E]: Add [1]）补足；这类能力 Finalize/Resolve 立即完成，不打断当前链项的 Finalize（430.2.a）。即使在 Closed State 中也可用。"
+
+  # ============ 204.4：应用型费用 ============
+  - id: costs-applied-cost-per-unit-moved
+    rule: ["1.5:204.4", "1.5:204.4.b"]
+    title: "应用型费用随游戏动作支付，不进链"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          runePool: { energy: 0, power: { mind: 2 } }
+          hand: []
+          base: [ "@unit(cost:1,might:1)#m1", "@unit(cost:1,might:1)#m2" ]
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["Mageseeker Investigator"] } }
+      chain: []
+    commands:
+      - { player: A, do: move, units: ["#m1", "#m2"], to: bf1, pay: { power: { mind: 1 } } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cost.paid, player: A, power: { mind: 1 } }
+          - { timing: zone.enter, object: "A:#m1", zone: bf1 }
+          - { timing: zone.enter, object: "A:#m2", zone: bf1 }
+      rejected: null
+      state:
+        - { path: "players.A.runePool.mind", equals: 1 }
+    notes: "真实卡 Mageseeker Investigator（204.4 示例）：\"Opponents must pay [A] for each unit beyond the first to move multiple units to my battlefield at the same time.\"。同时移动 2 个单位 => 为第 2 个付 1 点任意领域 power。应用型费用在动作执行时支付，不进链、无法被反应（204.4.b）；支付窗口仍可启动 Add Reaction（204.4.b.1、430.3 示例）。"
+
+  - id: costs-applied-cost-unpaid-blocks-action
+    rule: ["1.5:204.4.c"]
+    title: "不付应用型费用则对应游戏动作不能执行"
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          runePool: { energy: 0, power: {} }
+          hand: []
+          base: [ "@unit(cost:1,might:1)#m1", "@unit(cost:1,might:1)#m2" ]
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["Mageseeker Investigator"] } }
+      chain: []
+    commands:
+      - { player: A, do: move, units: ["#m1", "#m2"], to: bf1 }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "board.bf1.units.A.length", equals: 0 }
+      rejected: { command: 0, reason: "applied-cost-not-paid" }
+    notes: "204.4.c：玩家无法或不愿支付应用型费用时，无法执行对应的游戏动作。此处 A 没有任何 power，不能为第 2 个单位支付 [A]，故不能同时移动两个单位（可以改为只移动 #m1，那不触发应用型费用）。"
+
+  # ============ 357.3 / 355.16：不得确定性制造非法 ============
+  - id: costs-cannot-pay-to-make-illegal-outcome
+    rule: ["1.5:357.3", "1.5:355.16"]
+    title: "支付费用时不得做出必然导致后续非法的选择"
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:0,speed:action,text:As an additional cost to play this, you may kill a friendly unit. Give a friendly unit +2 [M] this turn. If you paid the cost, give that unit +7 [M] this turn instead.)" ]
+          base: [ "@unit(cost:2,might:2)#u1", "@unit(cost:1,might:1)#u2" ]
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", targets: ["#u1"], choose: { payAdditional: true, killTarget: "#u1" } }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "players.A.handCount", equals: 1 }
+      rejected: { command: 0, reason: "illegal-deterministic-choice" }
+    notes: "357.3 官方例子的合成版：既然选择支付\"杀一个友方单位\"的附加费，就必须杀被buff目标之外的单位（#u2），除非别无选择。直接把目标 #u1 作为费用杀掉会让后续\"给它 +7\"必然找不到目标，属于确定性非法选择，不被允许。"
+
+  # ============ 135.2.b.7：v1.5 新增——检查动作是否发生而非谁执行 ============
+  - id: costs-finalize-action-check-after-control-change
+    rule: ["1.5:135.2.b.7"]
+    title: "v1.5：费用在 Finalize 期间支付后，即便控制权易手，\"如果你支付了\"仍为真"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          runePool: { energy: 0, power: {} }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          runePool: { energy: 0, power: { mind: 1 } }
+          hand: [ "@spell(domain:mind,cost:{power:mind},speed:reaction,text:Gain control of target spell.)" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:2)#e1"] } }
+      chain:
+        - { finalized: "spell:A:Rampage", note: "A 已在 Finalize 时支付 [C] 可选附加费，目标友方 #u1 与敌方 #e1" }
+    commands:
+      - { player: B, do: play, card: "hand[0]", targets: ["chain[0]"], pay: { power: { mind: 1 } } }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "B:hand[0]" }
+      rejected: null
+      state:
+        - { path: "board.bf1.units.B[0].damage", equals: 2 }
+    notes: "v1.5 新增（Radiance patch notes \"Finalizing Time Actions Scope\" -> 135.2.b.7，官方示例即 Rampage）：Rampage \"As you play this, you may pay [C] as an additional cost.\" / \"Choose a friendly unit and an enemy unit. If you paid the additional cost, give the friendly unit +2 [Might] this turn. They deal damage equal to their Mights to each other.\"。B 夺取了 Rampage 的控制权后，\"if you paid\" 检查的是 Finalize 期间该游戏动作是否发生，不是谁付的；A 付过就算数，故仍给 +2 并互斗（#e1 吃 2 伤）。"
+
+  # ============ 357.2：非标准费用支付顺序 ============
+  - id: costs-nonstandard-costs-any-order
+    rule: ["1.5:357.2"]
+    title: "多个非标准费用在第 4 步以任意顺序支付"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand:
+            - "@unit(cost:2,might:4,text:As an additional cost to play me, kill a friendly unit and discard a unit.)"
+            - "@unit(cost:1,might:1)"
+          base: [ "@unit(cost:1,might:1)#t1" ]
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 2, additional: ["discard:A:hand[1]", "kill:A:#t1"] } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.leave, object: "A:hand[1]", zone: hand }
+          - { timing: zone.leave, object: "A:#t1", zone: base }
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+      rejected: null
+    notes: "357.2 官方例子的合成版：弃一张单位与杀一个友方单位这两个非标准费用可在第 4 步以任意顺序执行（先弃后杀或先杀后弃均可）；事件序列按玩家实际选择的顺序出现。"
+
+  # ============ 印刷费 null 与 0 的区别（项目红线 / 206 推论）============
+  - id: costs-printed-null-not-zero
+    rule: ["1.5:206", "1.5:204.1.a"]
+    title: "没有印刷能量费的卡不按\"费用为 0\"对待"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@unit(cost:0,might:1,domain:calm)", "@legend(cost:null,might:null,text:Your units get +1 [M].)" ]
+          base: [ "@unit(cost:1,might:1,text:Whenever you play a card that costs [0], draw 1.)#w0" ]
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 0 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "ability:A:#w0" }
+      rejected: null
+      state:
+        - { path: "players.A.energy", equals: 1 }
+    notes: "UNCERTAIN: 规则 206 只规定\"需要确定费用时用印刷/复制费用\"，未直接规定\"无印刷费（null）\"与\"印刷费为 0\"在所有引用场景下的差别；项目红线要求二者区分（energy:null/power:null 不得改写为 0）。本场景固定可确定的部分：印 0 的单位触发 #w0；legend 类对象（印刷费为 null，不经历通常的打出流程）不触发 #w0。若后续官方 FAQ 明确 null 在\"费用为 X\"检查中的处理，应再补场景。"
+
+  # ============ 溢出支付（356 之后无校验）============
+  - id: costs-overpayment-allowed
+    rule: ["1.5:357.1", "1.5:356.6"]
+    title: "规则上不禁止溢出支付（多付不退）"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 5
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@unit(cost:2,might:2)" ]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 5 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cost.paid, player: A, energy: 5 }
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+      rejected: null
+      state:
+        - { path: "players.A.energy", equals: 0 }
+    notes: "UNCERTAIN: v1.5 核心规则 201–206、356–358 均未明文禁止\"多付\"；多付只在赛事规则 702.8（Overpayment for Cost [No Penalty]）中被当作裁判层面的失误处理。引擎层面是否放行溢出支付属于实现决策；本场景按\"规则不禁止\"记录，若 harness 决定按赛事精神直接拒绝多付，应把本场景改为 negative 并注明依据。"
+
+  # ============ 符文池清空与费用时机的配合 ============
+  - id: costs-pool-empties-between-phases
+    rule: ["1.5:167", "1.5:167.1", "1.5:357.1"]
+    title: "进入新阶段时符文池清空，旧资源不能留到之后付费"
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [fury, fury] }
+          runePool: { energy: 2, power: { fury: 1 } }
+          hand: [ "@unit(cost:2,might:2,domain:fury)" ]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: endTurn }
+      - { player: B, do: endTurn }
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 2 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.phase-end, phase: ending }
+      state:
+        - { path: "players.A.runePool.energy", equals: 0 }
+      rejected: { command: 2, reason: "cannot-pay-cost" }
+    notes: "167：每名玩家回合结束时符文池清空、未用的能量与 power 流失（167.1）。A 上一回合攒下的 2 能量在回合结束步骤被清空，新回合无符文可用时无法支付 [2]。"
+
+  # ============ UNCERTAIN：替代费用动作与"如果你支付了"的交互 ============
+  - id: costs-replaced-cost-and-if-you-paid-clause
+    rule: ["1.5:203.2", "1.5:205", "1.5:135.2.b.7"]
+    title: "附加费动作被替代后，\"如果你支付了该费用\"的条件是否成立"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@unit(cost:2,might:4,text:As an additional cost to play me, kill a friendly unit. When you play me, if you paid the additional cost, draw 2.)" ]
+          base: [ "@unit(cost:1,might:1)#t1", "Zhonya's Hourglass" ]
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 2, additional: ["kill:A:#t1"] } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+      rejected: null
+      state:
+        - { path: "players.A.handCount", equals: 0 }
+    notes: "UNCERTAIN: 357.2.a/203.2 说被替代的费用动作仍算已支付，但 205 的例子又说检查的是游戏动作是否发生而非费用是否支付。对真正的 additional cost（而非 205 描述的非费用支付），替代后 'if you paid the additional cost' 是否成立，v1.5 文本没有直接示例。本场景按 203.2 的字面推断为成立（费用已支付 => 触发抽 2，但 Zhonya's 把单位召回故手牌净变化为 0——打出 1 张、抽 2 张、加上 #t1 回手与否取决于 recall 目的地，断言只锁最保守的手牌终值）。若官方后续裁定相反，应改为不触发。"
+
+  # ============ UNCERTAIN：费用支付事件对触发的影响 ============
+  - id: costs-payment-triggers-timing
+    rule: ["1.5:203.1", "1.5:382"]
+    title: "支付费用的游戏动作是否产生可被反应的事件时点"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@unit(cost:3,might:3)" ]
+          base: [ "@gear(cost:1,text:Whenever a player pays energy, add [1].)#w1" ]
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 3 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cost.paid, player: A, energy: 3 }
+      rejected: null
+      state:
+        - { path: "players.A.energy", equals: 0 }
+    notes: "UNCERTAIN: 契约 3.5 把'支付'列为游戏动作，游戏动作执行后会发出时点供触发订阅；但 v1.5 规则未给出'当玩家支付费用时'类触发的官方例子，无法确认这类触发在 Finalize 过程中何时进链（320/321 禁止 Cleanup 期间 Finalize/Resolve）。场景只断言支付本身与能量扣减，触发的确切时点留给 RIFT-21 时点枚举冻结后再补。"
