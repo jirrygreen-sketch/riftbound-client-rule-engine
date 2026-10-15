@@ -1,4 +1,4 @@
-import { isTimingPointId, type TimingPointId } from "./timing-points.js";
+import { getTimingPoint, isTimingPointId, type TimingPointId } from "./timing-points.js";
 
 export const TRIGGER_ONCE_SCOPES = [
   "per-turn",
@@ -434,6 +434,8 @@ export function validateTriggerSpec(value: unknown): ValidationResult<TriggerSpe
     addIssue(issues, "trigger.at", "missing-field", "必须提供 at。");
   } else if (!isTimingPointId(value.at)) {
     addIssue(issues, "trigger.at", "invalid-timing-point", "at 必须是 TIMING_POINTS 中的封闭时点 ID。");
+  } else if (getTimingPoint(value.at).triggerable === false) {
+    addIssue(issues, "trigger.at", "invalid-timing-point", "该时点仅供规则内部流程，不能被卡牌触发引用。");
   }
   if (!hasOwn(value, "filter")) {
     addIssue(issues, "trigger.filter", "missing-field", "必须提供 filter。");
