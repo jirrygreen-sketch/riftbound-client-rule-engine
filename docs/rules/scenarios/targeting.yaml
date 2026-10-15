@@ -1,0 +1,1822 @@
+# Targeting 章节场景规格（v1.5）
+#
+# 依据：Core Rules v1.5（Radiance，2026-10-16 生效，sha256 94d41fee… 与
+# docs/rule-source-manifest.json 一致）及官方 Radiance patch notes。
+# 主要规则条目：355.6-355.18（选目标流程与目标定义）、359.3.e（Resolve 重验、
+# ignored/negated、链接指令、null 引用）、750-755（重新做选择，v1.5 改写）、
+# 756-758（不可被选）、383.4.b（目标触发）、135.2.b.5.b / 135.2.b.7（v1.5 条件从句
+# 作用范围 / 结算期动作检查）、742.1（计数器不被选为目标）、205（指令内费用检查动作）。
+# 真实卡仅用于规则原文直接引用的示例，能力依赖写在该场景的 notes 里。
+
+area: targeting
+rulesetVersion: core-1.5
+sources:
+  - "1.5:355.6"
+  - "1.5:355.7"
+  - "1.5:355.8"
+  - "1.5:355.9"
+  - "1.5:355.10"
+  - "1.5:355.11"
+  - "1.5:355.12"
+  - "1.5:355.13"
+  - "1.5:355.14"
+  - "1.5:355.15"
+  - "1.5:355.16"
+  - "1.5:355.17"
+  - "1.5:359.3.e"
+  - "1.5:359.3.f"
+  - "1.5:135.2.b.5.b"
+  - "1.5:135.2.b.7"
+  - "1.5:205"
+  - "1.5:383.4.b"
+  - "1.5:742.1"
+  - "1.5:750"
+  - "1.5:751"
+  - "1.5:752"
+  - "1.5:753"
+  - "1.5:754"
+  - "1.5:755"
+  - "1.5:756"
+  - "1.5:757"
+  - "1.5:758"
+  - "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"
+
+scenarios:
+  # ---------- 目标的选择与锁定（positive） ----------
+  - id: targeting-choose-locks-at-finalize
+    rule: ["1.5:355.5", "1.5:355.7", "1.5:355.15", "1.5:383.4.b"]
+    title: 选目标型法术在 Finalize 时锁定目标并触发目标触发
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2, speed:action, text: \"Deal 2 to a unit at a battlefield.\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:2)#t1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { targets: ["#t1"] }, pay: { energy: 2 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:hand[0]" }
+          - { timing: chain.item-finalized, item: "A:hand[0]", targets: ["#t1"] }
+          - { timing: damage.dealt, object: "#t1", amount: 2 }
+      state:
+        - { path: "players.A.energy", equals: 1 }
+      rejected: null
+    notes: >
+      “对某单位造成伤害”这种写法是点名单个对象，属于选目标（355.5、355.7）；
+      目标在 Finalize 那一步选定并锁定（355.15），之后不能自行更换。
+      若 #t1 带有“当我被选择时……”的目标触发（383.4.b），此刻进链。
+
+  - id: targeting-pick-is-not-target
+    rule: ["1.5:355.7", "1.5:383.4.b"]
+    title: pick 是选择但不是目标，不触发“成为目标”
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1, speed:action, text: \"Pick a friendly unit. It gets +2 [M] this turn.\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:2, text: \"When I become the target of a spell or ability, give me +1 [M] this turn.\")#w1"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { picks: ["#w1"] }, pay: { energy: 1 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+      state:
+        - { path: "battlefields.bf1.units.A[#w1].might", equals: 4 }
+      rejected: null
+    notes: >
+      v1.5 新增 pick 术语（355.7 及 patch notes「Pick added」）：pick 出来的对象不是目标。
+      #w1 的“成为目标”触发不会进链，所以结算后只有 +2，没有目标触发给的 +1。
+
+  - id: targeting-trigger-fires-on-becoming-target
+    rule: ["1.5:383.4.b", "1.5:355.7"]
+    title: 目标触发在该对象被选为目标后进链，先于原法术结算
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2, speed:action, text: \"Deal 1 to a unit.\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:3, text: \"When I become the target of a spell or ability, give me +1 [M] this turn.\")#t1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { targets: ["#t1"] }, pay: { energy: 2 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]", targets: ["#t1"] }
+          - { timing: chain.item-pending, item: "B:bf1#t1.targeting-effect" }
+          - { timing: damage.dealt, object: "#t1", amount: 1 }
+      state:
+        - { path: "battlefields.bf1.units.B[#t1].might", equals: 4 }
+      rejected: null
+    notes: >
+      目标触发在“被选定”之后立即作为 Pending 项进链（383.4.b.2），按 HOT FEPR 它比原法术先结算，
+      所以先 +1 再受伤，结算后 Might 为 4。
+
+  - id: targeting-each-player-picks-no-targets
+    rule: ["1.5:355.10.e", "1.5:412.1"]
+    title: “每名玩家杀一个自己单位”在结算时各选各的，不产生目标
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: [ "Cull the Weak" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:2)#a1"], B: ["@unit(might:2, text: \"When I become the target of a spell or ability, give me +1 [M] this turn.\")#b1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 3 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+      state: []
+      rejected: null
+    notes: >
+      真实卡 Cull the Weak：“Each player kills one of their units.”（依赖 355.10.e）。
+      这种全体各自选择的写法没有目标：#b1 的目标触发不进链；选择发生在结算时，
+      被杀单位各自进垃圾场。卡住点：Finalize 时本场景不选择任何对象。
+
+  - id: targeting-restriction-not-itself-target
+    rule: ["1.5:355.10.b"]
+    title: “在某战场的单位”中战场只是限制语，不是目标
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2, speed:action, text: \"Kill a unit at a battlefield.\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:2)#t1"] }, text: "When this battlefield becomes the target of a spell or ability, draw 1." }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { targets: ["#t1"] }, pay: { energy: 2 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]", targets: ["#t1"] }
+          - { timing: zone.enter, object: "#t1", zone: trash }
+      state: []
+      rejected: null
+    notes: >
+      “at a battlefield”只是对单位选择的限制（355.10.b），bf1 没有被选为目标，
+      战场上“成为目标时”的触发不进链。
+
+  - id: targeting-mass-affect-targets-zone-only
+    rule: ["1.5:355.10.d", "1.5:355.10.b"]
+    title: “杀光某战场的所有单位”以战场为目标，单位是按条件选中不算目标
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 4
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:4, speed:action, text: \"Kill all units at a battlefield.\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:2, text: \"When I become the target of a spell or ability, give me +1 [M] this turn.\")#t1", "@unit(might:3)#t2"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { targets: ["bf1"] }, pay: { energy: 4 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]", targets: ["bf1"] }
+          - { timing: zone.enter, object: "#t1", zone: trash }
+          - { timing: zone.enter, object: "#t2", zone: trash }
+      state: []
+      rejected: null
+    notes: >
+      355.10.b 与 355.10.d 的组合：目标只有战场本身；两个单位按特征被选中，不是目标，
+      #t1 的目标触发不进链。
+
+  - id: targeting-up-to-zero-targets-legal
+    rule: ["1.5:355.13", "1.5:355.8"]
+    title: “up to 2”可以选 0 个目标，空手合法打出
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "Flash" ]
+          base: ["@unit(might:2)#u1"]
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { targets: [] }, pay: { energy: 1 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]", targets: [] }
+          - { timing: zone.enter, object: "A:hand[0]", zone: trash }
+      state:
+        - { path: "players.A.energy", equals: 0 }
+      rejected: null
+    notes: >
+      真实卡 Flash：“Move up to 2 friendly units to base.”（依赖 355.13）。
+      “up to / any number”允许选 0；选 0 时法术无目标仍可 Finalize 并结算（什么都不动）。
+
+  - id: targeting-up-to-partial-count
+    rule: ["1.5:355.13"]
+    title: “up to 2”只选 1 个合法，只影响被选的那个
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:3, speed:action, text: \"Kill up to two units at battlefields.\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:2)#t1", "@unit(might:2)#t2"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { targets: ["#t1"] }, pay: { energy: 3 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.enter, object: "#t1", zone: trash }
+      state:
+        - { path: "battlefields.bf1.units.B", equals: ["#t2"] }
+      rejected: null
+    notes: 355.13 允许选少于上限的数量；未被选的 #t2 不受影响。
+
+  - id: targeting-split-damage-multi-target
+    rule: ["1.5:355.14", "1.5:355.14.c", "1.5:355.14.d", "1.5:355.14.e"]
+    title: 分摊 4 点伤害可选至多 4 个目标，每个目标单独触发目标触发
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 4
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:4, speed:action, text: \"Split 4 damage among enemy units at battlefields.\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:5, text: \"When I become the target of a spell or ability, give me +1 [M] this turn.\")#t1", "@unit(might:5)#t2", "@unit(might:5)#t3"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { targets: ["#t1", "#t2", "#t3"] }, pay: { energy: 4 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]", targets: ["#t1", "#t2", "#t3"] }
+          - { timing: chain.item-pending, item: "B:bf1#t1.targeting-effect" }
+          - { timing: damage.dealt, object: "#t1" }
+          - { timing: damage.dealt, object: "#t2" }
+          - { timing: damage.dealt, object: "#t3" }
+      state: []
+      rejected: null
+    notes: >
+      355.14：分摊伤害时每个被选单位都是目标（.14.a），数量上限等于初始伤害量（.14.c，4 点最多 4 个），
+      每个目标各自触发目标触发（.14.d，所以 #t1 的触发生效），具体每份几点到结算时才定（.14.e），
+      每份至少是 1（.14.g）。
+
+  - id: targeting-mandatory-must-resolves-not-target
+    rule: ["1.5:355.10.f"]
+    title: “必须回收你的一个符文”不选目标，结算时才选择
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [fury], exhausted: [fury] }
+          hand: [ "@spell(cost:2, speed:action, text: \"You must recycle one of your runes. Draw 1.\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 2 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+          - { timing: draw, player: A, count: 1 }
+      state: []
+      rejected: null
+    notes: >
+      355.10.f：“must”完成的指令不产生目标，Finalize 时不选符文，结算时才由 A 从自己的符文中选。
+      对照同条例子：“回收一个你操控的符文”（不带 must）则是选目标。
+
+  - id: targeting-group-requirement-legal-subset
+    rule: ["1.5:355.11.b", "1.5:355.11.b.1"]
+    title: Fox-Fire 群体目标结算时不满足总战力要求，须取合法子集且取最大数量
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "Fox-Fire" ]
+          base: []
+          score: 0
+        B:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1, speed:reaction, text: \"Give up to two friendly units +1 [M] this turn.\")" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:1)#r1", "@unit(might:1)#r2", "@unit(might:1)#r3", "@unit(might:1)#r4"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { targets: ["#r1", "#r2", "#r3", "#r4"] }, pay: { energy: 3 } }
+      - { player: B, do: play, card: "hand[0]", choose: { targets: ["#r1", "#r2"] }, pay: { energy: 1 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]", targets: ["#r1", "#r2", "#r3", "#r4"] }
+          - { timing: damage.dealt }
+      state: []
+      rejected: null
+    notes: >
+      真实卡 Fox-Fire：“Kill any number of units at a battlefield with total Might 4 or less.”（355.11 的例子）。
+      四个 1 战力被 +1/+1 反应抬高其中两个后总战力变 6，超过 4：A 必须从原目标里选一个总战力 ≤4 的
+      子集，且子集要包含尽可能多的合法目标（.11.b.1）；不能选未初始指定的场外单位。
+
+  - id: targeting-still-played-when-all-ignored
+    rule: ["1.5:359.3.e.10"]
+    title: 唯一目标失效导致全指令被 ignored，法术仍视为已打出
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2, speed:action, text: \"Deal 2 to a unit at a battlefield.\")" ]
+          base: ["@unit(might:2, text: \"When you play a spell, give me +1 [M] this turn.\")#w1"]
+          score: 0
+        B:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1, speed:reaction, text: \"Move a friendly unit to base.\")" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:2)#t1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { targets: ["#t1"] }, pay: { energy: 2 } }
+      - { player: B, do: play, card: "hand[0]", choose: { targets: ["#t1"] }, pay: { energy: 1 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-resolved, item: "A:hand[0]" }
+          - { timing: chain.item-pending, item: "A:base#w1.play-trigger" }
+      state:
+        - { path: "players.A.base[#w1].might", equals: 3 }
+      rejected: null
+    notes: >
+      359.3.e.10：目标离场后法术唯一指令全部 ignored、不产生任何效果，但“打出”这件事已成立，
+      所以 #w1 的“当你打法术时”触发照常进链并给 +1。
+
+  - id: targeting-negated-linked-still-executes
+    rule: ["1.5:359.3.e.6", "1.5:359.3.e.14.b", "1.5:358.3.a"]
+    title: 移动被战场限制否定（negated），但同卡不引用该动作的链接指令仍执行
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: [ "Ride the Wind" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:2)#u1"], B: [] }, card: "Vilemaw's Lair" }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { targets: ["#u1"], destination: base }, pay: { energy: 1 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: instruction.negated, item: "A:hand[0]", instruction: move }
+          - { timing: object.readied, object: "#u1" }
+      state:
+        - { path: "battlefields.bf1.units.A[#u1].location", equals: bf1 }
+      rejected: null
+    notes: >
+      真实卡 Ride the Wind（移动并就绪一个友方单位）与战场 Vilemaw's Lair（单位不能从此处移动到基地）。
+      358.3.a：限制不妨碍合法打出；结算时移动指令因不可能而被 negated（359.3.e.6），
+      但“就绪它”不直接引用移动动作，按 359.3.e.14.b 仍执行。
+
+  - id: targeting-replaced-linked-if-not-execute
+    rule: ["1.5:359.3.e.14.b", "1.5:370.1"]
+    title: 杀被替代（negated）后，直接引用“若你如此做”的链接指令不执行
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "Deathgrip" ]
+          base: ["@unit(might:2)#u1", "@unit(might:2)#u2"]
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields: []
+      chain: []
+      boardOthers:
+        - { card: "Zhonya's Hourglass", controller: A, text: "If a friendly unit would die, kill this instead. Heal that unit, exhaust it, and recall it." }
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { targets: ["#u1"] }, pay: { energy: 2 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: instruction.negated, item: "A:hand[0]", instruction: kill, reason: replaced }
+      state:
+        - { path: "players.A.base[#u2].might", equals: 2 }
+      rejected: null
+    notes: >
+      真实卡 Deathgrip（“杀一个友方单位。若你如此做，给另一个友方单位 +[M]”）与
+      Zhonya's Hourglass（替代友方单位死亡）。杀被替代 → 该指令 negated；
+      “若你如此做”直接引用了杀这个动作，按 359.3.e.14.b 后半段，后续链接指令不执行，#u2 战力不变。
+
+  - id: targeting-partial-prevent-linked-runs
+    rule: ["1.5:359.3.e.14.c"]
+    title: 伤害被部分防止仍算“做了”，检查动作是否发生的链接指令照常执行
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:3, speed:action, text: \"Deal 3 to an enemy unit at a battlefield. If you do, heal units you control at the same location as that unit.\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: ["@unit(might:2)#a1"], B: ["@unit(might:5, keywords: [shield])#t1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { targets: ["#t1"] }, pay: { energy: 3 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: damage.dealt, object: "#t1" }
+          - { timing: heal, object: "#a1" }
+      state: []
+      rejected: null
+    notes: >
+      359.3.e.14.c 的例子写法：链接指令只看“造成伤害”这个动作是否发生、作用于谁，
+      不看实际造成多少。#t1 的 Shield 防止部分伤害不影响“若你如此做”成立。
+
+  - id: targeting-group-subset-after-move
+    rule: ["1.5:355.11.b.1", "1.5:355.11.b"]
+    title: Bellow's Breath 目标被反应移走两个，结算时在合法子集中二选一且取最多
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "Bellow's Breath" ]
+          base: []
+          score: 0
+        B:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: [ "Flash" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:2)#u1", "@unit(might:2)#u2", "@unit(might:2)#u3"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { targets: ["#u1", "#u2", "#u3"] }, pay: { energy: 2 } }
+      - { player: B, do: play, card: "hand[0]", choose: { targets: ["#u1", "#u2"] }, pay: { energy: 1 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]", targets: ["#u1", "#u2", "#u3"] }
+      state: []
+      rejected: null
+    notes: >
+      真实卡 Bellow's Breath（“Deal 1 to up to 3 units at the same location.”）与 Flash 的官方案例
+      （355.11.b.1）：两个单位被移回基地后，A 可选的合法子集是 {基地两个} 或 {战场剩一个}，
+      但不能只在基地两个里挑一个——任何合法子集必须包含该子集能容纳的最多目标数。
+
+  - id: targeting-new-choices-remake-all
+    rule: ["1.5:750", "1.5:752", "1.5:753", "1.5:755"]
+    title: 重新做选择必须全部重来，可保留相同结果，且不再支付打出费用
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2, speed:action, text: \"Deal 3 to a unit.\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1, speed:reaction, text: \"[Reaction] Gain control of a spell on the chain. You may make new choices for it.\")" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: ["@unit(might:2)#a1"], B: ["@unit(might:2)#b1", "@unit(might:2)#b2"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { targets: ["#b1"] }, pay: { energy: 2 } }
+      - { player: B, do: play, card: "hand[0]", choose: { targets: ["A:hand[0]"] }, newChoices: { targets: ["#a1"] }, pay: { energy: 1 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "B:hand[0]" }
+          - { timing: damage.dealt, object: "#a1", amount: 3 }
+      state:
+        - { path: "players.B.energy", equals: 0 }
+        - { path: "battlefields.bf1.units.B", equals: ["#b1", "#b2"] }
+      rejected: null
+    notes: >
+      v1.5 750-755（patch notes「Making new choices updated」）：做新选择时所有选择项都要重选
+      （752.1 含目标/模式/落点/目的地；752.2 不含“as you play”与可选额外费用的决定），
+      可以故意选回原来的对象；新选择产生的“打出费用”被忽略（755），B 只付反应自己的费用。
+
+  - id: targeting-new-choices-retrigger-targeting
+    rule: ["1.5:754", "1.5:753"]
+    title: 新选择即使选回同一对象，目标触发再次触发
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2, speed:action, text: \"Deal 1 to a unit.\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1, speed:reaction, text: \"[Reaction] Gain control of a spell on the chain. You may make new choices for it.\")" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:5, text: \"When I become the target of a spell or ability, give me +1 [M] this turn.\")#t1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { targets: ["#t1"] }, pay: { energy: 2 } }
+      - { player: B, do: play, card: "hand[0]", choose: { targets: ["A:hand[0]"] }, newChoices: { targets: ["#t1"] }, pay: { energy: 1 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "B:bf1#t1.targeting-effect" }
+          - { timing: damage.dealt, object: "#t1", amount: 1 }
+      state:
+        - { path: "battlefields.bf1.units.B[#t1].might", equals: 7 }
+      rejected: null
+    notes: >
+      v1.5 754：做新选择后链项再次“以该对象为目标”，即使前后选的是同一个对象，
+      目标触发照样再触发一次。#t1 先因原选择 +1、再因新选择 +1，5+1+1=7。
+
+  - id: targeting-untargetable-mistargets-later
+    rule: ["1.5:758.1", "1.5:359.3.e.9", "1.5:359.3.e.6"]
+    title: 目标在链上获得“不可被敌方选择”后，结算时按 mistarget 处理
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2, speed:action, text: \"Deal 3 to a unit.\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1, speed:reaction, text: \"A friendly unit can't be chosen by enemy spells and abilities this turn.\")" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:3)#t1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { targets: ["#t1"] }, pay: { energy: 2 } }
+      - { player: B, do: play, card: "hand[0]", choose: { targets: ["#t1"] }, pay: { energy: 1 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: instruction.ignored, item: "A:hand[0]", reason: mistargeted }
+      state:
+        - { path: "battlefields.bf1.units.B[#t1].damage", equals: 0 }
+      rejected: null
+    notes: >
+      758.1：成为目标之后才获得不可被选的资格，不会回溯地让打出非法，
+      而是结算时按 mistarget 处理，相关指令 ignored（359.3.e.6/.e.9）。
+
+  - id: targeting-invalid-then-valid-again
+    rule: ["1.5:359.3.e.3"]
+    title: 目标链上一度不合法、结算前重新满足条件则仍为合法目标
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2, speed:action, text: \"Deal 2 to a unit at a battlefield.\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1, speed:reaction, text: \"Move a friendly unit to base.\")", "@spell(cost:1, speed:reaction, text: \"Move a friendly unit from your base to a battlefield.\")" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:3)#t1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { targets: ["#t1"] }, pay: { energy: 2 } }
+      - { player: B, do: play, card: "hand[0]", choose: { targets: ["#t1"] }, pay: { energy: 1 } }
+      - { player: B, do: play, card: "hand[1]", choose: { targets: ["#t1"], destination: bf1 }, pay: { energy: 1 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: damage.dealt, object: "#t1", amount: 2 }
+      state:
+        - { path: "battlefields.bf1.units.B[#t1].damage", equals: 2 }
+      rejected: null
+    notes: >
+      359.3.e.3：目标合法性在结算时检查；#t1 中途离场又回来，全程没有换出/换入非场上区域，
+      仍是同一对象，结算时重新满足“在战场”，正常受伤。
+
+  - id: targeting-conditional-clause-scopes-sentence
+    rule: ["1.5:135.2.b.5.b"]
+    title: 同句内前置条件管到句尾，第二个条件只管紧跟的一句
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+          legend: "@legend(text: \"[Action][>] [E]: If it's your turn, move a friendly unit in a showdown to base and if I'm Empowered, ready it.\")#lg1"
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: ["@unit(might:2)#u1"], B: [] } }
+      showdown: { at: bf1 }
+      chain: []
+    commands:
+      - { player: A, do: activate, ability: "#lg1", choose: { targets: ["#u1"] }, pay: { exhaust: "#lg1" } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.enter, object: "#u1", zone: base }
+      state:
+        - { path: "players.A.base[#u1].status", equals: exhausted }
+      rejected: null
+    notes: >
+      v1.5 135.2.b.5.b（patch notes「Conditional clauses scope added」），官方例子 Rogue Assassin 的结构：
+      “如果是你的回合”管辖其后整句（移动+后半句），“如果我被 Empower”只作用于紧跟的就绪指令。
+      本场景在 A 的回合、#lg1 未被 Empower：移动执行、就绪被跳过，单位回基地且保持横置。
+
+  - id: targeting-finalize-action-check-any-actor
+    rule: ["1.5:135.2.b.7"]
+    title: “若你支付了额外费用”在控制权易手后仍成立，只看动作是否发生
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [chaos], exhausted: [] }
+          hand: [ "Rampage" ]
+          base: ["@unit(might:2)#a1"]
+          score: 0
+        B:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1, speed:reaction, text: \"[Reaction] Gain control of a spell on the chain.\")" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:2)#b1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { targets: ["#a1", "#b1"], payOptionalAdditionalCost: true }, pay: { energy: 2, power: [chaos] } }
+      - { player: B, do: play, card: "hand[0]", choose: { targets: ["A:hand[0]"] }, pay: { energy: 1 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: buff.applied, object: "#a1", amount: 2 }
+      state:
+        - { path: "players.A.base[#a1].might", equals: 4 }
+      rejected: null
+    notes: >
+      v1.5 135.2.b.7（patch notes「Finalizing Time Actions Scope」），官方例子 Rampage：
+      A 在 Finalize 时付了可选额外费用后，B 夺取该法术控制权；结算时“若你支付了额外费用”
+      检查的是支付动作是否发生过，而不是谁付的，因此条件成立，#a1 得到 +2。
+
+  - id: targeting-instruction-cost-checks-action
+    rule: ["1.5:205", "1.5:359.3.e.14.b"]
+    title: 触发首部指令内费用被替代后，“若你如此做”的链接指令不执行
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [chaos, chaos, chaos, chaos, fury], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:3, text: \"When I attack, you may pay [4][C]. If you do, kill a unit here.\")#u1"], B: ["@unit(might:2)#t1"] } }
+      chain: []
+      pendingTrigger: { source: "#u1", at: "combat.attack-declared" }
+    commands:
+      - { player: A, do: finalize-trigger, trigger: "#u1", choose: { payInstructionCost: true, targets: ["#t1"] }, pay: { power: [chaos, chaos, chaos, chaos, fury] } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-resolved, item: "A:bf1#u1.attack-trigger" }
+      state:
+        - { path: "battlefields.bf1.units.B", equals: ["#t1"] }
+      rejected: null
+    notes: >
+      205：触发能力首部的“[4][C]，若你如此做……”是结算前半段在 Finalize 支付的指令内费用，
+      检查的是支付动作本身。本场景假设 A 的支付被某个替代效果改写（支付未实际发生），
+      则“若你如此做”不成立、杀指令不执行，#t1 存活。
+      UNCERTAIN: 规则原文只说“若支付被替代则不执行”，但未给出支付类替代效果的实例卡，
+      本场景的替代来源需要 test-harness 支持“支付被替代”的注入方式。
+
+  - id: targeting-conditional-scope-false-blocks-sentence
+    rule: ["1.5:135.2.b.5.b"]
+    title: 前置条件为假时，同句后续所有指令都不执行
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1, speed:action, text: \"If you've gained a point this turn, draw 1, then discard 1.\")" ]
+          base: []
+          score: 0
+          deck: ["@unit(cost:1,might:1)", "@unit(cost:1,might:1)"]
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 1 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-resolved, item: "A:hand[0]" }
+      state:
+        - { path: "players.A.hand", equals: [] }
+        - { path: "players.A.deck", equals: 2 }
+      rejected: null
+    notes: >
+      135.2.b.5.b 的官方例句结构：本回合没得过分时，“抽 1”和“然后弃 1”都被同一条件拦截，
+      法术结算但手牌、牌库数量都不变。
+
+  # ---------- 非法选择与费用（negative） ----------
+  - id: targeting-required-target-missing-illegal
+    rule: ["1.5:355.8", "1.5:358.1", "1.5:358.5"]
+    title: 必选目标的法术找不到合法目标，Finalize 失败全部撤销
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2, speed:action, text: \"Kill a unit at a battlefield.\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 2 } }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "players.A.energy", equals: 2 }
+        - { path: "players.A.hand", equals: 1 }
+      rejected: { command: 0, reason: "no-legal-target" }
+    notes: >
+      355.8 + 358.1/358.5：这不是“up to”，目标必选；场上没有任何单位即无合法目标，
+      Finalize 失败，打出动作整体撤销，费用退回、牌回手。
+
+  - id: targeting-untargetable-not-legal
+    rule: ["1.5:355.9.b", "1.5:756", "1.5:757", "1.5:758"]
+    title: “不能被敌方选择”的单位一开始就不是合法目标
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2, speed:action, text: \"Deal 3 to a unit.\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:3, text: \"I can't be chosen by enemy spells and abilities.\")#t1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { targets: ["#t1"] }, pay: { energy: 2 } }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "players.A.energy", equals: 2 }
+        - { path: "players.A.hand", equals: 1 }
+      rejected: { command: 0, reason: "no-legal-target" }
+    notes: >
+      756-758（官方例 Ruin Runner 同款文本）：不可被选的单位不是合法目标；它又是唯一的
+      候选，等于无合法目标，Finalize 失败撤销。
+
+  - id: targeting-pending-item-not-targetable
+    rule: ["1.5:355.9.a.2", "1.5:426"]
+    title: Pending 状态的链项不能被“反击法术”指定
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:3, speed:action, text: \"Deal 5 to a unit.\")", "@spell(cost:1, speed:reaction, text: \"Counter a spell.\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:6)#t1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { targets: ["#t1"] }, pay: { energy: 3 } }
+      - { player: A, do: play, card: "hand[0]", choose: { targets: ["A:hand[0]"] }, pay: { energy: 1 } }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "players.A.energy", equals: 0 }
+      rejected: { command: 1, reason: "no-legal-target" }
+    notes: >
+      v1.5 明确（355.9.a.2 与 patch notes「Pending item target legality clarified」）：
+      “法术/能力”作为目标时默认指链上 Finalized 的项。第一个法术还在 Finalize 流程中
+      （Pending），第二个法术此刻没有可指的 Finalized 法术，Finalize 失败。
+      场景成立依赖链上存在 Finalized 项后才能响应的时序，配合 337 的 FEPR 顺序。
+
+  - id: targeting-secret-zone-not-target
+    rule: ["1.5:355.10.a", "1.5:355.8"]
+    title: 手牌是非公开区，“从手牌打出单位”的指令不选目标也不让选
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:0, speed:action, text: \"You may play a unit from your hand, ignoring its costs.\")", "@unit(cost:2,might:2)" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { targets: ["hand[1]"] } }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "players.A.hand", equals: 2 }
+      rejected: { command: 0, reason: "no-such-target-choice" }
+    notes: >
+      355.10.a：手牌不是公开区，牌文本在手牌里指到的牌不构成目标；
+      打出该法术时不存在“目标”这个选择项，客户端提交 targets 即非法命令。
+      正确流程是不带 targets 打出、结算时再选择要打出的单位。
+
+  - id: targeting-split-over-cap-illegal
+    rule: ["1.5:355.14.c"]
+    title: 分摊 2 点伤害却指定 3 个目标，Finalize 不通过
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2, speed:action, text: \"Split 2 damage among enemy units at battlefields.\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:2)#t1", "@unit(might:2)#t2", "@unit(might:2)#t3"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { targets: ["#t1", "#t2", "#t3"] }, pay: { energy: 2 } }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "players.A.energy", equals: 2 }
+        - { path: "players.A.hand", equals: 1 }
+      rejected: { command: 0, reason: "too-many-targets" }
+    notes: 355.14.c：分摊伤害的目标数不能超过初始伤害总量（2 点最多 2 个目标）。
+
+  - id: targeting-illegal-deterministic-choice
+    rule: ["1.5:355.16"]
+    title: 不能做“必然导致后续步骤非法”的选择
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:3, speed:action, text: \"As an additional cost to play this, kill the unit you control with the most Might. Give a friendly unit +[M] equal to the killed unit's Might this turn.\")" ]
+          base: ["@unit(might:1)#u1", "@unit(might:3)#u2"]
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { costSacrifice: "#u2", targets: ["#u2"] }, pay: { energy: 3 } }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "players.A.energy", equals: 3 }
+        - { path: "players.A.hand", equals: 1 }
+      rejected: { command: 0, reason: "illegal-choice-sequence" }
+    notes: >
+      355.16 的官方例子结构：费用要杀掉战力最高的 #u2，效果又要给一个友方单位加战力；
+      在 Finalize 选目标时把加战力目标也定为 #u2 会必然导致结算时目标非法，
+      只要还有别的选法（选 #u1），就不允许这样选，Finalize 失败。
+
+  - id: targeting-new-choices-none-legal-negated
+    rule: ["1.5:753.2"]
+    title: 重做选择时没有任何合法选择，则“重做”这条指令被 negated
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2, speed:action, text: \"Deal 2 to a unit.\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1, speed:reaction, text: \"[Reaction] Gain control of a spell on the chain. You may make new choices for it.\")" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:2, text: \"I can't be chosen by enemy spells and abilities.\")#t1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { targets: ["#t1"] }, pay: { energy: 2 } }
+      - { player: B, do: play, card: "hand[0]", choose: { targets: ["A:hand[0]"] }, newChoices: { targets: ["#t1"] }, pay: { energy: 1 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: instruction.negated, item: "B:hand[0]", instruction: make-new-choices }
+      state:
+        - { path: "battlefields.bf1.units.B[#t1].damage", equals: 2 }
+      rejected: null
+    notes: >
+      753.2：B 夺控制权后，原目标 #t1 对 B 而言是“不能被敌方选择”的对象，
+      重做选择不存在任何合法目标，于是“做新的选择”这条指令本身被 negated，
+      原目标选择保持，#t1 照常被打 2 点。
+      UNCERTAIN: 官方文本只说该指令被 negated，未明说原目标是否原样保留；
+      按 negated=指令没发生来推断，选择不变。
+
+  # ---------- 边界与特殊（edge） ----------
+  - id: targeting-nonboard-zone-breaks-identity
+    rule: ["1.5:359.3.e.4", "1.5:124"]
+    title: 目标离开再返回原区域已非同一对象，结算按非法目标处理
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2, speed:action, text: \"Deal 3 to a unit.\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1, speed:reaction, text: \"Return a friendly unit to its owner's hand.\")", "@unit(cost:1,might:3)" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:3)#t1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { targets: ["#t1"] }, pay: { energy: 2 } }
+      - { player: B, do: play, card: "hand[0]", choose: { targets: ["#t1"] }, pay: { energy: 1 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: instruction.ignored, item: "A:hand[0]", reason: mistargeted }
+      state:
+        - { path: "players.B.hand", equals: 2 }
+      rejected: null
+    notes: >
+      359.3.e.4 + 124：进出非场上区域后即是新对象。即使 B 之后把同名牌再打回战场，
+      对 A 的法术而言那已不是当初的目标。
+      UNCERTAIN: “换出再立即换回原区域”这一往返是否需要第二条反应牌来完成，
+      规则只以例子描述单向离场，往返场景按同一对象已灭失处理。
+
+  - id: targeting-mistargeted-counts-for-target-count
+    rule: ["1.5:359.3.e.9.a"]
+    title: 只离场未离板的 mistarget 目标仍计入“它选择的目标数”
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 1
+          runes: { ready: [order], exhausted: [] }
+          hand: [ "Repulse" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: ["@unit(might:5)#vol"], B: ["@unit(might:2)#d1", "@unit(might:2)#d2", "@unit(might:2)#d3"] } }
+      chain:
+        - { item: "A:bf1#vol.attack-trigger", controller: A, targets: ["#d1", "#d2", "#d3"], text: "Deal damage equal to my Might split among those units.", pending: false }
+    commands:
+      - { player: B, do: play, card: "hand[0]", choose: { targets: ["#d1", "A:bf1#vol.attack-trigger"] }, pay: { energy: 1 } }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "players.B.energy", equals: 1 }
+        - { path: "players.B.hand", equals: 1 }
+      rejected: { command: 0, reason: "no-legal-target" }
+    notes: >
+      真实卡 Repulse：“Choose a friendly unit at a battlefield. Counter an enemy spell or ability
+      that chooses it and no other friendly unit.”（359.3.e.9.a 的例子）。
+      攻击触发指定了三个友方单位；即使其中两个已被反应移走（仍在板上），
+      计数时仍算它选择了 #d1 之外的友方单位，所以触发不是 Repulse 的合法目标，Finalize 失败。
+      若两个目标是被杀（进非板上区域）则不计入——那是对照的合法情形，见官方案例。
+
+  - id: targeting-counters-not-targeted
+    rule: ["1.5:742.1"]
+    title: 计数器永远不被选为目标，结算时才决定动哪个
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1, speed:action, text: \"Move a buff from a unit you control to another unit you control.\")" ]
+          base: ["@unit(might:2)#u1", "@unit(might:2)#u2"]
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields: []
+      chain: []
+      counters:
+        - { type: buff, on: "#u1" }
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { targets: ["#u1", "#u2"] }, pay: { energy: 1 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: counter.moved, from: "#u1", to: "#u2", type: buff }
+      state:
+        - { path: "players.A.base[#u1].counters", equals: 0 }
+        - { path: "players.A.base[#u2].counters", equals: 1 }
+      rejected: null
+    notes: >
+      742.1：被选为目标的是两个单位（Finalize 时选择），buff 计数器本身不是目标，
+      具体移动哪个计数器在指令执行时才确定。单位上的“成为目标”触发正常进链，
+      但不存在“计数器成为目标”的时点。
+
+  - id: targeting-null-referent-ignores-linked
+    rule: ["1.5:359.3.e.12", "1.5:359.3.f.2.a"]
+    title: 目标非法后引用其信息返回 null，依赖该值的指令一并 ignored
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2, speed:action, text: \"Kill a unit at a battlefield. Deal damage equal to its Might to its controller's legend.\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1, speed:reaction, text: \"Move a friendly unit to base.\")" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:3)#t1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { targets: ["#t1"] }, pay: { energy: 2 } }
+      - { player: B, do: play, card: "hand[0]", choose: { targets: ["#t1"] }, pay: { energy: 1 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: instruction.ignored, item: "A:hand[0]", reason: mistargeted }
+      state:
+        - { path: "battlefields.bf1.units.B[#t1].damage", equals: 0 }
+      rejected: null
+    notes: >
+      359.3.e.12：目标非法后“它的战力”取不到值（null），引用该值的第二条指令随之 ignored
+      （359.3.f.2.a）。对比 Strike Down 官方案例是同一逻辑。
+
+  - id: targeting-partial-target-loss-executes-rest
+    rule: ["1.5:359.3.e.8"]
+    title: 多目标指令只失一部分目标，剩余目标照常处理
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 6
+          runes: { ready: [], exhausted: [] }
+          hand: [ "Singularity" ]
+          base: []
+          score: 0
+        B:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1, speed:reaction, text: \"Move a friendly unit to base.\")" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:7)#t1", "@unit(might:7)#t2"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { targets: ["#t1", "#t2"] }, pay: { energy: 6 } }
+      - { player: B, do: play, card: "hand[0]", choose: { targets: ["#t2"] }, pay: { energy: 1 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: damage.dealt, object: "#t1", amount: 6 }
+      state:
+        - { path: "battlefields.bf1.units.B[#t1].damage", equals: 6 }
+        - { path: "players.B.base[#t2].damage", equals: 0 }
+      rejected: null
+    notes: >
+      真实卡 Singularity：“deal 6 to each of up to two units.”（359.3.e.8 的例子）。
+      一个目标失效不影响另一个：#t1 吃 6 点，#t2 不受伤害。
+
+  - id: targeting-lookback-after-zone-change
+    rule: ["1.5:359.3.e.13", "1.5:832.1.d.1"]
+    title: 让对象换区的指令可回望其换区前特征；Show Off 的引用在展示时锁定
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: [ "Primordial Roar" ]
+          base: []
+          score: 0
+        B:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1, speed:reaction, text: \"Give a unit +2 [M] this turn.\")" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:4)#s1"], B: ["@unit(might:6)#t1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { showOff: ["#s1"], targets: ["#t1"] }, pay: { energy: 1 } }
+      - { player: B, do: play, card: "hand[0]", choose: { targets: ["#s1"] }, pay: { energy: 1 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: damage.dealt, object: "#t1", amount: 4 }
+      state:
+        - { path: "battlefields.bf1.units.B[#t1].damage", equals: 4 }
+      rejected: null
+    notes: >
+      真实卡 Primordial Roar（Show Off 一个友方对象并按其战力造成伤害），
+      依赖 patch notes 的官方裁定（832.1.d.1）：展示时引用的特征值即锁定，
+      之后给 #s1 加战力不影响伤害量，仍按 4 结算。同理 359.3.e.13 允许
+      “把它放逐再按其原特征打出”这类回望。
+
+  - id: targeting-untargetable-category-change
+    rule: ["1.5:758.2"]
+    title: 对象不再属于“不可被选”的类别后重新成为合法目标
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2, speed:action, text: \"Deal 2 to a gear.\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: [] } }
+      boardOthers:
+        - { card: "@gear(text: \"I can't be chosen by enemy spells and abilities while I'm a gear.\")#g1", controller: B, zone: base }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { targets: ["#g1"] }, pay: { energy: 2 } }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "players.A.energy", equals: 2 }
+      rejected: { command: 0, reason: "no-legal-target" }
+    notes: >
+      758.2 的逆向场景：不可被选是按“类别”判定的。此时 #g1 仍是装备，属于其声明的类别，
+      对敌方法术非法。若之后它不再是装备（例如变成单位），同一法术即可选它——
+      758.2 只描述“法术不再属于受限类别”的单向变化，对侧变化依同一逻辑成立。
+      UNCERTAIN: 758.2 的原文从“法术/能力侧变化”举例，对象侧类别变化是否完全对称，
+      规则未给出直接例句。
+
+  - id: targeting-legend-you-control-not-target
+    rule: ["1.5:355.10.g"]
+    title: “就绪你的传奇”不选目标，“就绪一个友方传奇”才是目标
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1, speed:action, text: \"Ready your legend.\")" ]
+          base: []
+          score: 0
+          legend: "@legend()#lg1"
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 1 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+          - { timing: object.readied, object: "#lg1" }
+      state:
+        - { path: "players.A.legend.status", equals: ready }
+      rejected: null
+    notes: >
+      355.10.g 与 patch notes 中 Neeko 裁定的引用：“your legend”不选目标，
+      Finalize 时不需要也不会出现目标选择，结算时才确定是哪一位传奇；
+      对比“Ready a friendly legend.”则要在 Finalize 选目标。
+
+  - id: targeting-resolve-legality-window
+    rule: ["1.5:359.3.e.2", "1.5:359.3.e.2.a"]
+    title: 结算时按当前限制重验目标，附加的打出位置限制同样生效
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+          facedown:
+            - { at: bf1, card: "@spell(cost:2, speed:action, text: \"Banish a unit, then its owner plays it to the same location, ignoring its cost.\")" }
+        B:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1, speed:reaction, text: \"Move a friendly unit to another battlefield.\")" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: A, units: { A: [], B: ["@unit(might:2)#t1"] } }
+        - { id: bf2, controller: null, units: { A: [], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "facedown[bf1]", choose: { targets: ["#t1"] }, pay: { energy: 2 } }
+      - { player: B, do: play, card: "hand[0]", choose: { targets: ["#t1"], destination: bf2 }, pay: { energy: 1 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: instruction.ignored, item: "A:facedown[bf1]", reason: mistargeted }
+      state:
+        - { path: "battlefields.bf2.units.B[#t1].damage", equals: 0 }
+      rejected: null
+    notes: >
+      359.3.e.2.a 的官方 Temporal Breach 例子结构：从盖放区打出的法术额外获得
+      “只能选打出处的对象”的限制；目标被反应移到另一战场后，结算重验不通过，
+      相关指令 ignored，目标既不被放逐也不会被重新打出。
+      UNCERTAIN: “从盖放处打出获得位置限制”这一附加限制本身出自 753.3 的例子语境，
+      其完整规则条目号（盖放区打出的限制条款）需与 chain/盖放章节任务对齐后回填。
+
+
+  - id: targeting-optional-action-still-targets
+    rule: ["1.5:355.12", "1.5:383.4.b"]
+    title: “可以移动至多一个单位”即使最终不执行，选择仍是目标并触发目标触发
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1, speed:action, text: \"You may move a unit at a battlefield to its base.\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:3, text: \"When I become the target of a spell or ability, give me +1 [M] this turn.\")#t1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { targets: ["#t1"], performAction: false }, pay: { energy: 1 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]", targets: ["#t1"] }
+          - { timing: chain.item-pending, item: "B:bf1#t1.targeting-effect" }
+      state:
+        - { path: "battlefields.bf1.units.B[#t1].location", equals: bf1 }
+        - { path: "battlefields.bf1.units.B[#t1].might", equals: 4 }
+      rejected: null
+    notes: >
+      355.12：当法术允许“对若干对象执行某个游戏动作”时，对象的选择与“是否执行该动作”的决定
+      相互独立，选择本身仍是目标。A 选定 #t1 后选择不执行移动：#t1 的目标触发仍进链（+1），
+      但 #t1 留在战场不被移动。
+
+  - id: targeting-group-requirement-at-finalize
+    rule: ["1.5:355.11.a"]
+    title: 群体目标在 Finalize 时只需找到任意一组整体满足要求的目标
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "Fox-Fire" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:2)#r1", "@unit(might:2)#r2", "@unit(might:3)#r3"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { targets: ["#r1", "#r2"] }, pay: { energy: 3 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]", targets: ["#r1", "#r2"] }
+          - { timing: zone.enter, object: "#r1", zone: trash }
+          - { timing: zone.enter, object: "#r2", zone: trash }
+      state:
+        - { path: "battlefields.bf1.units.B", equals: ["#r3"] }
+      rejected: null
+    notes: >
+      355.11.a：Fox-Fire（“总战力 4 或以下”）在 Finalize 时只要存在一组整体达标的选法即可，
+      A 选两个 2 战力（合计 4）合法；#r3（3 战力）未入选不受影响。
+
+  - id: targeting-cost-and-trigger-not-targets
+    rule: ["1.5:355.10.c", "1.5:355.10.c.1"]
+    title: 费用与触发条件里出现的对象不是目标
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2, speed:action, text: \"As an additional cost to play this, kill a friendly unit. Deal 3 to a unit.\")" ]
+          base: ["@unit(might:1, text: \"When I become the target of a spell or ability, give me +1 [M] this turn.\")#c1"]
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:4)#t1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { costSacrifice: "#c1", targets: ["#t1"] }, pay: { energy: 2 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]", targets: ["#t1"] }
+          - { timing: zone.enter, object: "#c1", zone: trash }
+          - { timing: damage.dealt, object: "#t1", amount: 3 }
+      state:
+        - { path: "players.A.base", equals: [] }
+      rejected: null
+    notes: >
+      355.10.c/.c.1：作为额外费用被杀的 #c1 不是目标——它的“成为目标”触发不进链；
+      触发条件、替代效果里出现的对象同理。只有结算指令“Deal 3”指向的 #t1 是目标。
+
+  - id: targeting-ignored-earlier-ignores-linked
+    rule: ["1.5:359.3.e.14.a"]
+    title: 前一条指令 mistarget 被 ignored，引用它的后一条链接指令一并 ignored
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2, speed:action, text: \"Kill a unit at a battlefield. Its controller draws 2.\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1, speed:reaction, text: \"Move a friendly unit to base.\")" ]
+          base: []
+          score: 0
+          deck: ["@unit(cost:1,might:1)", "@unit(cost:1,might:1)"]
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:2)#t1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { targets: ["#t1"] }, pay: { energy: 2 } }
+      - { player: B, do: play, card: "hand[0]", choose: { targets: ["#t1"] }, pay: { energy: 1 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: instruction.ignored, item: "A:hand[0]", instruction: kill, reason: mistargeted }
+          - { timing: instruction.ignored, item: "A:hand[0]", instruction: draw, reason: linked-ignored }
+      state:
+        - { path: "players.B.deck", equals: 2 }
+        - { path: "players.B.hand", equals: 0 }
+      rejected: null
+    notes: >
+      359.3.e.14.a 的官方 Hidden Blade 结构：目标离场 → 杀指令 ignored →
+      引用“它的操控者”的抽牌指令同样 ignored，B 一张牌也不抽。
+      与 359.3.e.14.b（negated 不传染）形成对照。
+
+  - id: targeting-restriction-violation-fails-finalize
+    rule: ["1.5:355.17.b", "1.5:358.1", "1.5:358.5"]
+    title: 违反打出限制的落点选择在 Finalize 被驳回
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: [ "Perched Grimwyrm" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: A, units: { A: [], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", choose: { destination: bf1 }, pay: { energy: 3 } }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "players.A.energy", equals: 3 }
+        - { path: "players.A.hand", equals: 1 }
+      rejected: { command: 0, reason: "restriction-violated" }
+    notes: >
+      真实卡 Perched Grimwyrm：“Play me only to a battlefield you conquered this turn.”
+      （355.17.b 的例子）。本回合 A 没有征服过任何战场，落点选择违反 restriction，
+      Finalize 失败、打出整体撤销（355.17.b + 358.1/358.5）。
+      Requirement 与 Restriction 的区别见契约 3.4「强制要求与限制」。
+
