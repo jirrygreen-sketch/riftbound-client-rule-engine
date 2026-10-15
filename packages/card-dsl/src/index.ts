@@ -3,6 +3,8 @@ export const CARD_DSL_SCHEMA_VERSION = 1 as const;
 export const SYNTHETIC_DEMO_RULESET = "synthetic-demo" as const;
 export const EFFECT_IR_SCHEMA_VERSION = 1 as const;
 
+export * from "./ir/index.js";
+
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonObject | readonly JsonValue[];
 
