@@ -1,0 +1,99 @@
+name: CI
+
+# Every push and every pull request, with no path filters, so the workspace gate
+# can fail on any change including shared contract and lockfile edits.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  verify:
+    name: install, typecheck, test
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+          run_install: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.21.1
+          cache: pnpm
+
+      # The official catalog, deck catalog, image manifest and image cache are
+      # gitignored generated data and must not exist here. A failure is only
+      # reclassified as an explicit skip when that data is verifiably absent, so
+      # a dirty checkout has to fail loudly before the tests run.
+      - name: Verify official card data is absent
+        run: node scripts/ci/verify-card-data-absence.mjs
+
+      # Guards the guard: proves the log parser, the skip classifier and the
+      # failure detection behave as documented before they decide this job.
+      - name: Self-check CI scripts
+        run: node --test scripts/ci/tests/*.test.mjs
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck workspace
+        run: pnpm typecheck
+
+      # The required recursive test command. --no-bail keeps every package
+      # running so one failure cannot hide the rest. The step is allowed to fail
+      # the run so the real exit code reaches the classification below, which
+      # decides the job verdict: a failure caused only by the absent official
+      # card data is reported as an explicit skip rather than a red build.
+      # Piping through tee would otherwise mask the exit code, so the pipeline
+      # status is captured explicitly and persisted for that step.
+      - name: Run workspace tests
+        id: workspace-tests
+        continue-on-error: true
+        # The runner context is only available at step level, so the log and the
+        # exit code paths are defined here. Both are uploaded as artifacts below.
+        env:
+          WORKSPACE_TEST_LOG: ${{ runner.temp }}/workspace-test.log
+          WORKSPACE_TEST_EXIT_CODE_PATH: ${{ runner.temp }}/workspace-test.exit-code
+        run: |
+          set -o pipefail
+          status=0
+          pnpm -r --no-bail --if-present run test 2>&1 | tee "$WORKSPACE_TEST_LOG" ||
+            status=$?
+          printf '%s\n' "$status" > "$WORKSPACE_TEST_EXIT_CODE_PATH"
+          exit "$status"
+
+      - name: Classify workspace test result
+        # Runs whenever the test step ran; its exit code is this job's verdict.
+        if: always() && steps.workspace-tests.outcome != 'skipped'
+        env:
+          WORKSPACE_TEST_LOG: ${{ runner.temp }}/workspace-test.log
+          WORKSPACE_TEST_EXIT_CODE_PATH: ${{ runner.temp }}/workspace-test.exit-code
+        run: |
+          export WORKSPACE_TEST_EXIT_CODE="$(cat "$WORKSPACE_TEST_EXIT_CODE_PATH" 2>/dev/null || printf '1')"
+          node scripts/ci/analyze-workspace-test-log.mjs --log "$WORKSPACE_TEST_LOG"
+
+      - name: Upload raw workspace test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: workspace-test-log
+          path: |
+            ${{ runner.temp }}/workspace-test.log
+            ${{ runner.temp }}/workspace-test.exit-code
+          if-no-files-found: ignore
+          retention-days: 7

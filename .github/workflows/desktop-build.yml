@@ -102,12 +102,6 @@ jobs:
       - name: Build workspace
         run: pnpm build
 
-      - name: Typecheck workspace
-        run: pnpm typecheck
-
-      - name: Test workspace
-        run: pnpm test
-
       - name: Build desktop package
         run: pnpm desktop:build
 
