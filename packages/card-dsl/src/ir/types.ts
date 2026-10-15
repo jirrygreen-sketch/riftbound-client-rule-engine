@@ -19,8 +19,11 @@ export type Value =
   | readonly Value[]
   | { readonly [key: string]: Value };
 
-/** A reference to an object, player, event, or other rules entity. */
-export type ObjectRef = string;
+/** A zone-bound object identity; leaving its zone invalidates this reference. */
+export interface ObjectRef {
+  readonly id: string;
+  readonly zoneEntryId: number;
+}
 
 /** A JSON-like filter used to describe the objects or events a rule can see. */
 export type ObjectFilter = Readonly<Record<string, Value>>;
