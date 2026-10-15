@@ -1,0 +1,1606 @@
+area: privacy
+rulesetVersion: core-1.5
+sources:
+  - "1.5:107.1.d-107.4"        # 基地/战场/面朝下区/传奇区的信息等级
+  - "1.5:108.1.b-108.7.e"      # 链/弃牌/英雄区/牌库/符文库/放逐/手牌的信息等级
+  - "1.5:109-109.2"            # 场上游戏对象及其状态公开
+  - "1.5:128-128.6.a"          # 隐私三等级与私有信息反强迫
+  - "1.5:323.6.a"              # 清理移除失控战场的面朝下牌
+  - "1.5:355.10.a-355.10.a.1"  # 非公开区域内的选择不构成目标
+  - "1.5:422.1-422.4"          # Hide；面朝下牌换区或游戏结束时向所有人展示
+  - "1.5:423.1.a"              # 弃牌者可用私有信息选择弃哪张
+  - "1.5:425.1-425.4.a"        # 展示：临时状态、区域不变、限于效果指示、主动出示不算展示
+  - "1.5:437.1-437.4.a"        # Predict：查看牌库顶并选择是否回收
+  - "1.5:811.1-811.6.a"        # Hidden 关键词与面朝下牌的权限
+  - "1.5:832.1.b-832.1.d.1"    # Show Off：打出时从手牌展示对象
+# views 用法（本章扩展字段，格式冻结文件允许）：
+#   expect.views 按视角断言投影：A / B 为座位视角，spectator 为观战视角，回放视角与 spectator 同级处理。
+#   每个视角是 路径 -> 期望 的映射：
+#     绝对路径（如 "players.B.hand"）断言该视角投影后的整个区域：
+#       "count-only" 只看到数量看不到身份；"faces" 能看到牌面；"empty" 投影后为空；
+#       列表字面量 断言可见身份集合（如 [hidden-card] 表示只看到一个无名背面）。
+#     带对象锚点的键（如 "battlefields.bf1.#f1.#identity"）断言该锚点对象在该视角下的可见面：
+#       "identity" 可见完整身份；"face-down" 只看到背面（无身份、无可引用特征）；"absent" 该对象不出现在此视角。
+#   投影断言的是「该视角收到的信息」，不含权威状态。
+scenarios:
+  # ---------- 区域信息等级 ----------
+  - id: privacy-hand-faces-private-count-public
+    rule: ["1.5:108.7.c", "1.5:108.7.e"]
+    title: 手牌内容仅持有者可读，数量对所有视角公开
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@unit(cost:1,might:2)#h1" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1,text:\"deal 1 to a unit\")#h2", "@spell(cost:1,text:\"deal 1 to a unit\")#h3" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: A, units: { A: [], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.priority-passed, player: A }
+      state:
+        - { path: "players.B.hand.count", equals: 2 }
+      views:
+        A: { "players.B.hand": count-only, "players.B.hand.count": 2, "players.A.hand.#h1.#identity": identity }
+        B: { "players.A.hand": count-only, "players.A.hand.count": 1, "players.B.hand.#h2.#identity": identity }
+        spectator: { "players.A.hand": count-only, "players.B.hand": count-only }
+      rejected: null
+    notes: 手牌内容对手牌拥有者是 Private（仅其可读正面），数量对所有人公开（108.7.e）；观战视角两个区域都只有数量。
+
+  - id: privacy-spectator-deck-runedeck-secret-order
+    rule: ["1.5:108.4.d", "1.5:108.4.e", "1.5:108.5.d"]
+    title: 观战视角下双方牌库与符文库只有数量，无顺序与内容
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [fury], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+          mainDeck: [ "@unit(cost:1,might:1)", "@spell(cost:1,text:\"draw 1\")" ]
+          runeDeck: [ fury, fury, fury ]
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+          mainDeck: [ "@unit(cost:1,might:1)" ]
+          runeDeck: [ calm ]
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.priority-passed, player: A }
+      state:
+        - { path: "players.A.mainDeck.count", equals: 2 }
+        - { path: "players.B.runeDeck.count", equals: 1 }
+      views:
+        A: { "players.A.mainDeck": count-only, "players.B.mainDeck": count-only, "players.A.runeDeck": count-only }
+        B: { "players.A.mainDeck": count-only, "players.B.mainDeck": count-only }
+        spectator: { "players.A.mainDeck": count-only, "players.B.mainDeck": count-only, "players.A.runeDeck": count-only, "players.B.runeDeck": count-only }
+      rejected: null
+    notes: 牌库/符文库的顺序与内容对所有人是 Secret（108.4.e、108.5.d），连牌库拥有者自己也不知道顺序；只有数量公开（108.4.d）。投影对四个视角都只给数量。
+
+  - id: privacy-public-zones-visible-all-views
+    rule: ["1.5:108.2.d", "1.5:108.6.e", "1.5:108.3.e", "1.5:107.1.d"]
+    title: 弃牌、放逐、英雄区、基地内容对三个视角完全公开
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [fury], exhausted: [] }
+          hand: []
+          base: [ "@unit(might:3)#a1" ]
+          score: 0
+          trash: [ "@spell(cost:1,text:\"draw 1\")#t1" ]
+          banishment: [ "@gear(cost:1)#x1" ]
+          championZone: [ "@unit(might:4)#c1" ]
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: A, units: { A: [], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.priority-passed, player: A }
+      state:
+        - { path: "players.A.trash", contains: "#t1" }
+      views:
+        A: { "players.A.trash.#t1.#identity": identity, "players.A.banishment.#x1.#identity": identity, "players.A.championZone.#c1.#identity": identity, "players.A.base.#a1.#identity": identity }
+        B: { "players.A.trash.#t1.#identity": identity, "players.A.banishment.#x1.#identity": identity, "players.A.championZone.#c1.#identity": identity, "players.A.base.#a1.#identity": identity }
+        spectator: { "players.A.trash.#t1.#identity": identity, "players.A.banishment.#x1.#identity": identity, "players.A.championZone.#c1.#identity": identity, "players.A.base.#a1.#identity": identity }
+      rejected: null
+    notes: Trash（108.2.d）、Banishment（108.6.e）、Champion Zone（108.3.e）、Base 中的永久物与符文（107.1.d）都是 Public，三种视角看到的内容一致。
+
+  - id: privacy-board-objects-state-public
+    rule: ["1.5:109", "1.5:109.2"]
+    title: 战场与基地上对象的正面信息与状态（横置/增益/伤害）全视角公开
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [fury], exhausted: [] }
+          hand: []
+          base: [ "@gear(cost:1,exhausted:true)#g1" ]
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:2,damage:1,buffed:true)#u1"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.priority-passed, player: A }
+      state:
+        - { path: "battlefields.bf1.units.A.#u1.damage", equals: 1 }
+      views:
+        A: { "battlefields.bf1.#u1.#identity": identity, "battlefields.bf1.#u1.state": visible, "players.A.base.#g1.state": visible }
+        B: { "battlefields.bf1.#u1.#identity": identity, "battlefields.bf1.#u1.state": visible, "players.A.base.#g1.state": visible }
+        spectator: { "battlefields.bf1.#u1.#identity": identity, "battlefields.bf1.#u1.state": visible, "players.A.base.#g1.state": visible }
+      rejected: null
+    notes: 场上对象的身份与状态（横置、Buff、已受伤害等）全部公开（109、109.2）；投影不应对任何视角隐藏伤害计数或横置状态。
+
+  - id: privacy-facedown-slot-occupied-public-identity-private
+    rule: ["1.5:107.3.f", "1.5:128.4"]
+    title: 面朝下位置区占用状态公开，牌的身份仅控制者可见
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [fury], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: A, units: { A: [], B: [] }, facedown: { A: [ "@spell(cost:1,keywords:[hidden],text:\"kill a unit\")#f1" ] } }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.priority-passed, player: A }
+      state:
+        - { path: "battlefields.bf1.facedown.A.count", equals: 1 }
+      views:
+        A: { "battlefields.bf1.facedown.A.count": 1, "battlefields.bf1.#f1.#identity": identity }
+        B: { "battlefields.bf1.facedown.A.count": 1, "battlefields.bf1.#f1.#identity": face-down }
+        spectator: { "battlefields.bf1.facedown.A.count": 1, "battlefields.bf1.#f1.#identity": face-down }
+      rejected: null
+    notes: Facedown Zone 是公开区——对手与观战都能看到「A 在 bf1 有一张背面牌」（107.3.f）；但牌的正面是 Private，只有其控制者可读（128.4）。对 B 与观战者，#f1 没有身份、费用、关键词等任何可引用特征。
+
+  - id: privacy-chain-items-public
+    rule: ["1.5:108.1.b"]
+    title: 链上的牌与能力对所有视角公开
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@spell(cost:1,text:\"deal 1 to a unit\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:2)#u1"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 1 }, targets: ["#u1"] }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:hand[0]" }
+      state:
+        - { path: "chain.count", equals: 1 }
+      views:
+        A: { "chain[0].#identity": identity }
+        B: { "chain[0].#identity": identity }
+        spectator: { "chain[0].#identity": identity }
+      rejected: null
+    notes: 打出的牌一进链就是 Public（108.1.b）：手牌中的 Private 状态在成为链项时结束，对手与观战者都能看到是哪张牌、选择了什么目标。
+
+  # ---------- Hidden 与面朝下 ----------
+  - id: privacy-hide-no-chain-preserves-privacy
+    rule: ["1.5:422.1", "1.5:811.1.c.2", "1.5:107.3.f"]
+    title: Hide 动作不开链，身份从手牌私有无缝转为面朝下私有
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@spell(cost:2,keywords:[hidden],text:\"kill a unit\")#h1" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:2)#u1"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: hide, card: "hand[0]", to: bf1, pay: { energy: 1 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.enter, object: "A:hand[0]", zone: "bf1.facedown" }
+      state:
+        - { path: "battlefields.bf1.facedown.A.count", equals: 1 }
+        - { path: "players.A.hand.count", equals: 0 }
+        - { path: "chain.count", equals: 0 }
+      views:
+        A: { "battlefields.bf1.#h1.#identity": identity }
+        B: { "battlefields.bf1.#h1.#identity": face-down, "players.A.hand": count-only }
+        spectator: { "battlefields.bf1.#h1.#identity": face-down }
+      rejected: null
+    notes: Hide 是自由动作、不开链（811.1.c.2），B 的视角里 A 手牌数量减 1、bf1 背面位多一张，但全程没有 chain.item-pending 事件泄露身份；B 无法从事件流知道藏的是哪张牌。
+
+  - id: privacy-facedown-controller-not-owner-reads
+    rule: ["1.5:128.4"]
+    title: 面朝下牌的读取权属于控制者而非拥有者
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: [] }, facedown: { B: [ "@unit(cost:3,might:3,keywords:[hidden],owner:A)#f1" ] } }
+      chain: []
+    commands:
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.priority-passed, player: B }
+      state:
+        - { path: "battlefields.bf1.facedown.B.count", equals: 1 }
+      views:
+        A: { "battlefields.bf1.#f1.#identity": face-down }
+        B: { "battlefields.bf1.#f1.#identity": identity }
+        spectator: { "battlefields.bf1.#f1.#identity": face-down }
+      rejected: null
+    notes: "128.4 的例子明确：控制战场上面朝下牌的玩家可看其正面，无论拥有者是谁。拥有者 A 反而只能看到背面。UNCERTAIN: 128.4 直接给出结论，但规则没有说明「控制权如何转移给非拥有者」的完整路径（通常是效果把对手牌面朝下放置到自己战场），本场景只断言投影结论。"
+
+  - id: privacy-facedown-leaves-zone-revealed-to-all
+    rule: ["1.5:422.4"]
+    title: 面朝下牌换区时向所有人展示，之后进入公开区仍可见
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 1
+          runes: { ready: [calm], exhausted: [] }
+          hand: [ "@spell(cost:1,speed:reaction,text:\"return a facedown card to its owner's hand\")" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: A, units: { A: [], B: [] }, facedown: { A: [ "@spell(cost:1,keywords:[hidden],text:\"deal 2 to a unit\")#f1" ] } }
+      chain: []
+    commands:
+      - { player: B, do: play, card: "hand[0]", pay: { energy: 1 }, targets: ["#f1"] }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: card.revealed, object: "#f1", audience: all }
+          - { timing: zone.leave, object: "#f1", zone: "bf1.facedown" }
+          - { timing: zone.enter, object: "#f1", zone: hand }
+      state:
+        - { path: "players.A.hand.count", equals: 1 }
+        - { path: "battlefields.bf1.facedown.A.count", equals: 0 }
+      views:
+        A: { "players.A.hand.#f1.#identity": identity }
+        B: { "players.A.hand.#f1.#identity": face-down, "players.A.hand": count-only }
+        spectator: { "players.A.hand.#f1.#identity": face-down }
+      rejected: null
+    notes: "422.4 要求换区瞬间向所有人展示（card.revealed 事件对 B 与观战者含身份）；但展示状态随法术结算结束（425.1.a.3），进入手牌后恢复 Private——B 事后能凭记忆知道那是哪张，但投影里手牌中的 #f1 必须回到背面表示，这是投影正确性的关键断言。"
+
+  - id: privacy-facedown-removed-on-cleanup-still-hidden-then-revealed
+    rule: ["1.5:323.6.a", "1.5:107.3.d", "1.5:422.4"]
+    title: 失控战场的面朝下牌在清理时移除，进入弃牌堆前向所有人展示
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:3)#u1"] }, facedown: { A: [ "@spell(cost:1,keywords:[hidden],text:\"kill a unit\")#f1" ] } }
+      chain: []
+    commands:
+      - { player: A, do: pass, note: "触发一次清理：bf1 控制者 B 与 #f1 控制者 A 不同" }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cleanup.started }
+          - { timing: card.revealed, object: "#f1", audience: all }
+          - { timing: zone.enter, object: "#f1", zone: trash }
+      state:
+        - { path: "battlefields.bf1.facedown.A.count", equals: 0 }
+        - { path: "players.A.trash", contains: "#f1" }
+      views:
+        A: { "players.A.trash.#f1.#identity": identity }
+        B: { "players.A.trash.#f1.#identity": identity }
+        spectator: { "players.A.trash.#f1.#identity": identity }
+      rejected: null
+    notes: "清理移除失控战场的面朝下牌（323.6.a、107.3.d），移除即换区触发 422.4 展示，之后进入 Trash 是公开区，所有视角从此可见身份。UNCERTAIN: 323.6.a 写明 remove，107.3.d 的默认目的地按弃牌处理（107.3.b.2 同用 trash），但规则未在 323.6.a 处逐字写明目的地是 Trash，按「移除出游戏区域默认进拥有者弃牌堆」理解。"
+
+  - id: privacy-game-end-facedown-revealed-all
+    rule: ["1.5:422.4"]
+    title: 游戏结束时仍面朝下的牌向所有人展示
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 8
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 3
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:3)#u1"], B: [] }, facedown: { A: [ "@unit(cost:2,might:2,keywords:[hidden])#f1" ] } }
+      chain: []
+    commands:
+      - { player: A, do: pass, note: "A 已达成获胜分数，游戏结束" }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: game.ended }
+          - { timing: card.revealed, object: "#f1", audience: all }
+      state:
+        - { path: "game.winner", equals: "A" }
+      views:
+        A: { "battlefields.bf1.#f1.#identity": identity }
+        B: { "battlefields.bf1.#f1.#identity": identity }
+        spectator: { "battlefields.bf1.#f1.#identity": identity }
+      rejected: null
+    notes: 422.4 并列规定「游戏结束」与换区一样触发向所有人展示；结束后该牌对所有视角（含回放）身份可见，防止赛后回放缺失信息。
+
+  - id: privacy-facedown-not-referenceable-by-characteristics
+    rule: ["1.5:811.5.a", "1.5:107.3.f"]
+    title: 面朝下牌失去一切可引用特征，效果不能把它当作 Hidden 牌或某张牌
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@spell(cost:1,text:\"deal 1 to you for each card with Hidden you control\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: A, units: { A: [], B: [] }, facedown: { A: [ "@spell(cost:1,keywords:[hidden],text:\"deal 2 to a unit\")#f1" ] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 1 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-resolved, item: "A:hand[0]" }
+      state:
+        - { path: "players.A.damage", equals: 0 }
+      views:
+        A: { "battlefields.bf1.#f1.#identity": identity }
+        B: { "battlefields.bf1.#f1.#identity": face-down }
+      rejected: null
+    notes: "#f1 的印刷含 Hidden，但 811.5.a 规定背面牌「不是带 Hidden 的牌」——数 Hidden 牌的效果数到 0，对 A 造成 0 伤害。断言点：引擎的特征查询对背面牌必须返回空特征，不能读到底层牌面。"
+
+  - id: privacy-hidden-reaction-grant-not-public
+    rule: ["1.5:811.6", "1.5:811.6.a"]
+    title: 面朝下牌次回合获得的 Reaction 权限不对对手公开
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [fury], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 1
+          runes: { ready: [calm], exhausted: [] }
+          hand: [ "@spell(cost:1,speed:reaction,text:\"deal 1 to a unit\")" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:2)#u1"], B: [] }, facedown: { A: [ "@spell(cost:0,keywords:[hidden],text:\"deal 2 to a unit\")#f1(hiddenOnTurn:1)" ] } }
+      chain: []
+    commands:
+      - { player: B, do: play, card: "hand[0]", pay: { energy: 1 }, targets: ["#u1"] }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "B:hand[0]" }
+      state:
+        - { path: "chain.count", equals: 1 }
+      views:
+        A: { "battlefields.bf1.#f1.speed": reaction, "battlefields.bf1.#f1.#identity": identity }
+        B: { "battlefields.bf1.#f1.#identity": face-down, "battlefields.bf1.#f1.speed": absent }
+        spectator: { "battlefields.bf1.#f1.#identity": face-down, "battlefields.bf1.#f1.speed": absent }
+      rejected: null
+    notes: "811.6.a 明确次回合 Reaction 授予「不是公开信息」：A 的投影里 #f1 显示可打出时机，B 与观战者的投影里 #f1 仍是没有任何特征字段的背面牌；合法性检查由服务端权威执行，不依赖 B 的投影。"
+
+  - id: privacy-play-from-facedown-reveals-at-pending
+    rule: ["1.5:811.1.c.3", "1.5:108.1.b"]
+    title: 从面朝下打出时牌在入链瞬间公开
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [fury], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: A, units: { A: [], B: ["@unit(might:2)#u1"] }, facedown: { A: [ "@spell(cost:0,keywords:[hidden],text:\"kill a unit\")#f1(hiddenOnTurn:1)" ] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "#f1", from: facedown, pay: { energy: 0 }, targets: ["#u1"] }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:#f1" }
+          - { timing: zone.leave, object: "#f1", zone: "bf1.facedown" }
+      state:
+        - { path: "chain.count", equals: 1 }
+        - { path: "battlefields.bf1.facedown.A.count", equals: 0 }
+      views:
+        A: { "chain[0].#identity": identity }
+        B: { "chain[0].#identity": identity }
+        spectator: { "chain[0].#identity": identity }
+      rejected: null
+    notes: "从背面打出会开链（811.1.c.3），入链瞬间身份成为 Public（108.1.b）；目标选择随链项公开，B 与观战者从此看到 #f1 的全部信息。"
+
+  # ---------- 展示与查看 ----------
+  - id: privacy-reveal-top-cards-all-views-then-secret-again
+    rule: ["1.5:425.1", "1.5:425.1.a.3", "1.5:425.3", "1.5:108.4.e"]
+    title: 展示牌库顶期间所有视角可见，效果结算后回到 Secret
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@spell(cost:1,text:\"reveal the top 2 cards of your Main Deck\")" ]
+          base: []
+          score: 0
+          mainDeck: [ "@unit(cost:1,might:1)#d1", "@spell(cost:1,text:\"draw 1\")#d2", "@gear(cost:1)#d3" ]
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 1 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-resolved, item: "A:hand[0]" }
+          - { timing: card.revealed, object: "#d1", audience: all }
+          - { timing: card.revealed, object: "#d2", audience: all }
+          - { timing: card.reveal-ended, object: "#d1" }
+          - { timing: card.reveal-ended, object: "#d2" }
+      state:
+        - { path: "players.A.mainDeck.count", equals: 3 }
+        - { path: "players.A.mainDeck[0]", equals: "#d1" }
+      views:
+        A: { "players.A.mainDeck": count-only }
+        B: { "players.A.mainDeck": count-only }
+        spectator: { "players.A.mainDeck": count-only }
+      rejected: null
+    notes: "展示期间（事件序列内）三视角都看到 #d1/#d2 身份；展示是临时状态而非区域（425.1.a），结算完成后两牌以原顺序回到牌库顶（425.3 示例），投影立刻恢复为 count-only。终态断言牌库顶仍是 #d1。"
+
+  - id: privacy-revealed-card-stays-in-zone
+    rule: ["1.5:425.1.a.2"]
+    title: 展示中的牌仍留在原区域，触发以「从牌库展示」为条件的替换效应
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@spell(cost:1,text:\"reveal the top card of your Main Deck\")" ]
+          base: []
+          score: 0
+          mainDeck: [ "@unit(cost:1,might:5,text:\"As I'm revealed from your Main Deck, Add 2 energy\")#d1", "@gear(cost:1)#d2" ]
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 1 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: card.revealed, object: "#d1", audience: all }
+          - { timing: effect.replacement-applied, object: "#d1" }
+          - { timing: resource.added, player: A, amount: 2 }
+      state:
+        - { path: "players.A.energy", equals: 2 }
+        - { path: "players.A.mainDeck.count", equals: 2 }
+      views:
+        A: { "players.A.mainDeck": count-only }
+        B: { "players.A.mainDeck": count-only }
+        spectator: { "players.A.mainDeck": count-only }
+      rejected: null
+    notes: "425.1.a.2：展示中的牌仍是牌库顶牌，「As I'm revealed from your Main Deck」替换效应正常生效（加 2 能量）；展示结束牌不换区。投影上结算完成后 B 与观战者不再看到 #d1。UNCERTAIN: 该替换效应的收益时点（随展示动作立即执行还是入链）按 v1.5 替换效应改写动作执行理解，契约 3.5 也规定替代效果在动作执行前拦截。"
+
+  - id: privacy-predict-look-owner-only
+    rule: ["1.5:437.1", "1.5:437.1.a", "1.5:108.4.e"]
+    title: Predict 查看牌库顶仅执行者可见，回收决定公开但内容不公开
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@spell(cost:1,text:\"Predict 2\")" ]
+          base: []
+          score: 0
+          mainDeck: [ "@unit(cost:1,might:1)#d1", "@spell(cost:1,text:\"draw 1\")#d2", "@gear(cost:1)#d3" ]
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 1 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+      - { player: A, do: resolve-choice, item: "A:hand[0]", choose: { recycle: ["#d2"], keepOrder: ["#d1"] } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-resolved, item: "A:hand[0]" }
+          - { timing: zone.enter, object: "#d2", zone: "mainDeck.bottom" }
+      state:
+        - { path: "players.A.mainDeck.count", equals: 3 }
+        - { path: "players.A.mainDeck[0]", equals: "#d1" }
+      views:
+        A: { "players.A.mainDeck": count-only, "players.A.mainDeck[0].#identity": identity }
+        B: { "players.A.mainDeck": count-only, "players.A.mainDeck[0].#identity": face-down }
+        spectator: { "players.A.mainDeck": count-only, "players.A.mainDeck[0].#identity": face-down }
+      rejected: null
+    notes: "437.1 的「look」只授予执行者，不等于展示（425 要求所有玩家可见才算展示）。A 在结算中选择把 #d2 回收到底部、#d1 放回顶；B 与观战只能看到「牌库数量不变、发生过一次回收」，看不到看了哪两张、放了哪张到底。A 视角在效果结算窗口内可见 #d1/#d2，终态仍 count-only（顶牌身份保留在权威状态供后续验证）。"
+
+  - id: privacy-reveal-hand-snapshot-later-draws-private
+    rule: ["1.5:425.3.a", "1.5:425.3.a.1", "1.5:108.7.c"]
+    title: 展示手牌是快照，之后抽到的牌不继承展示状态
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@spell(cost:1,text:\"reveal your hand\")", "@spell(cost:1,text:\"draw 1\")" ]
+          base: []
+          score: 0
+          mainDeck: [ "@unit(cost:1,might:1)#d1" ]
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 1 }, note: "展示手牌" }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+      - { player: A, do: play, card: "hand[1]", pay: { energy: 1 }, note: "展示结束后抽 1" }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: card.revealed, object: "A:hand[1]", audience: all }
+          - { timing: zone.enter, object: "#d1", zone: hand }
+      state:
+        - { path: "players.A.hand.count", equals: 1 }
+      views:
+        A: { "players.A.hand.#d1.#identity": identity }
+        B: { "players.A.hand.#d1.#identity": face-down, "players.A.hand": count-only }
+        spectator: { "players.A.hand.#d1.#identity": face-down }
+      rejected: null
+    notes: "425.3.a.1：展示状态只施加在执行展示时区域内已有的牌；展示结束后抽到的 #d1 从未被展示，对 B 与观战保持背面。第一次展示时 A 手里只剩第二张法术（第一张已在链上），它被公开；#d1 则不在快照内。"
+
+  - id: privacy-reveal-hand-includes-all-current-cards
+    rule: ["1.5:425.3.a"]
+    title: 不指定数量的展示手牌等于展示当前全部手牌
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@unit(cost:1,might:1)#h1", "@unit(cost:2,might:2)#h2", "@spell(cost:3,text:\"draw 2\")#h3" ]
+          base: []
+          score: 0
+        B:
+          energy: 1
+          runes: { ready: [calm], exhausted: [] }
+          hand: [ "@spell(cost:1,text:\"choose an opponent and they reveal their hand\")" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: B, do: play, card: "hand[0]", pay: { energy: 1 }, targets: ["A"] }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: card.revealed, object: "#h1", audience: all }
+          - { timing: card.revealed, object: "#h2", audience: all }
+          - { timing: card.revealed, object: "#h3", audience: all }
+      state:
+        - { path: "players.A.hand.count", equals: 3 }
+      views:
+        A: { "players.A.hand.#h1.#identity": identity }
+        B: { "players.A.hand.#h1.#identity": identity, "players.A.hand.#h2.#identity": identity, "players.A.hand.#h3.#identity": identity }
+        spectator: { "players.A.hand.#h1.#identity": identity, "players.A.hand.#h3.#identity": identity }
+      rejected: null
+    notes: 425.3.a：不指定张数即「当前该区域内所有牌」。结算窗口内三视角都看到三张身份；结算结束后展示状态到期（425.1.a.3），手牌恢复 Private——投影快照应在 card.reveal-ended 后回到 count-only（本场景终态用 events 子序列锁定展示范围，views 断言窗口内的可见性）。
+
+  - id: privacy-reveal-only-when-instructed
+    rule: ["1.5:425.2", "1.5:425.2.a"]
+    title: 没有游戏效果指示时不得主动执行 Reveal
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@unit(cost:1,might:1)#h1" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: reveal, card: "hand[0]" }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "players.A.hand.count", equals: 1 }
+      views:
+        A: { "players.A.hand.#h1.#identity": identity }
+        B: { "players.A.hand.#h1.#identity": face-down }
+        spectator: { "players.A.hand.#h1.#identity": face-down }
+      rejected: { command: 0, reason: "reveal-not-instructed" }
+    notes: 425.2.a：Reveal 是 Limited Action，只能由游戏效果指示；玩家主动提交的 reveal 命令必须被拒（投影不产生任何 card.revealed 事件）。
+
+  - id: privacy-voluntary-show-not-reveal-no-trigger
+    rule: ["1.5:425.2.b"]
+    title: 玩家主动出示手牌不构成 Reveal，不触发展示触发
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@unit(cost:1,might:1)#h1" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: [ "@unit(might:2,text:\"Whenever a card is revealed, draw 1\")#u1" ]
+          score: 0
+          mainDeck: [ "@gear(cost:1)" ]
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: show, card: "hand[0]", to: B }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: card.shown, object: "#h1", audience: B }
+      state:
+        - { path: "players.B.mainDeck.count", equals: 1 }
+        - { path: "players.B.hand.count", equals: 0 }
+      views:
+        A: { "players.A.hand.#h1.#identity": identity }
+        B: { "players.A.hand.#h1.#identity": identity }
+        spectator: { "players.A.hand.#h1.#identity": face-down }
+      rejected: null
+    notes: "425.2.b：主动出示可以选择受众（只给 B），不算展示、不进链、不触发「当牌被展示时」（B 的 #u1 不触发、不抽牌）；观战者视角 #h1 仍是背面。引擎应发出 card.shown 而非 card.revealed，且受众字段限定 B。"
+
+  - id: privacy-show-off-hand-card-only-not-hand
+    rule: ["1.5:832.1.c", "1.5:832.1.b.1"]
+    title: Show Off 只公开被展示的那张手牌，不公开整只手
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@unit(cost:2,might:3,text:\"Show Off a unit\")", "@unit(cost:4,might:4)#s1", "@spell(cost:1,text:\"draw 1\")#s2" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 2 }, to: base, showOff: ["#s1"] }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:hand[0]" }
+          - { timing: card.revealed, object: "#s1", audience: all }
+      state:
+        - { path: "players.A.base.count", equals: 1 }
+        - { path: "players.A.hand.count", equals: 1 }
+      views:
+        A: { "players.A.hand.#s2.#identity": identity }
+        B: { "players.A.hand.#s2.#identity": face-down, "players.A.hand": count-only }
+        spectator: { "players.A.hand.#s2.#identity": face-down }
+      rejected: null
+    notes: "832.1.c 只授权从手牌展示满足条件的那个对象（#s1）；同在手牌的 #s2 全程保持 Private。事件流里只有 #s1 的 card.revealed，没有 #s2 的；#s1 展示后仍在手牌（Show Off 不移动它），其展示状态随链项结算结束而到期。"
+
+  - id: privacy-show-off-declined-nothing-leaked
+    rule: ["1.5:832.1.c", "1.5:832.1.c.2"]
+    title: 放弃 Show Off 时不展示任何手牌内容
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@unit(cost:2,might:3,text:\"Show Off a unit\")", "@unit(cost:4,might:4)#s1" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 2 }, to: base, showOff: decline }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:hand[0]" }
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+      state:
+        - { path: "players.A.base.count", equals: 1 }
+      views:
+        A: { "players.A.hand.#s1.#identity": identity }
+        B: { "players.A.hand.#s1.#identity": face-down }
+        spectator: { "players.A.hand.#s1.#identity": face-down }
+      rejected: null
+    notes: Show Off 是「you may」（832.1.c），决定权在 Finalize 时的控制者（832.1.c.2）。放弃时事件流完全没有 card.revealed，B 与观战者连「手牌里有一张单位」都不知道——Show Off 的放弃本身只产生公开可见的「未展示」事实。
+
+  # ---------- 私密选择与反强迫 ----------
+  - id: privacy-discard-choice-private-until-trash
+    rule: ["1.5:423.1.a", "1.5:108.7.c", "1.5:108.2.d"]
+    title: 弃牌者用私有信息选择弃哪张，对手只看到数量变化和最终公开结果
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@unit(cost:1,might:1)#h1", "@spell(cost:5,text:\"draw 3\")#h2" ]
+          base: []
+          score: 0
+        B:
+          energy: 1
+          runes: { ready: [calm], exhausted: [] }
+          hand: [ "@spell(cost:1,text:\"target opponent discards 1\")" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: B, do: play, card: "hand[0]", pay: { energy: 1 }, targets: ["A"] }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+      - { player: A, do: resolve-choice, item: "B:hand[0]", choose: { discard: "#h1" } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.enter, object: "#h1", zone: trash }
+      state:
+        - { path: "players.A.hand.count", equals: 1 }
+        - { path: "players.A.trash", contains: "#h1" }
+      views:
+        A: { "players.A.hand.#h2.#identity": identity, "players.A.trash.#h1.#identity": identity }
+        B: { "players.A.hand.#h2.#identity": face-down, "players.A.trash.#h1.#identity": identity, "players.A.hand": count-only }
+        spectator: { "players.A.hand.#h2.#identity": face-down, "players.A.trash.#h1.#identity": identity }
+      rejected: null
+    notes: "423.1.a 明确弃牌者「可使用私有信息」做选择——选择过程对 B 不可见，B 只在结果进入公开 Trash（108.2.d）时才知道弃的是 #h1；留在手牌的 #h2 对 B 仍是背面。事件流不应包含「A 考虑过 #h2」之类的选择痕迹。"
+
+  - id: privacy-pick-from-private-zone-opponent-sees-result-only
+    rule: ["1.5:355.10.a", "1.5:423.1.a", "1.5:108.7.c"]
+    title: 从私密区域做的选择（pick/选择项）在执行前不外泄
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@spell(cost:1,text:\"look at the top 3 cards of your Main Deck, put one into your hand and recycle the rest\")" ]
+          base: []
+          score: 0
+          mainDeck: [ "@unit(cost:1,might:1)#d1", "@unit(cost:2,might:2)#d2", "@spell(cost:1,text:\"draw 1\")#d3", "@gear(cost:1)#d4" ]
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 1 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+      - { player: A, do: resolve-choice, item: "A:hand[0]", choose: { take: "#d2", recycle: ["#d1", "#d3"] } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-resolved, item: "A:hand[0]" }
+          - { timing: zone.enter, object: "#d2", zone: hand }
+      state:
+        - { path: "players.A.hand.count", equals: 1 }
+        - { path: "players.A.mainDeck.count", equals: 3 }
+      views:
+        A: { "players.A.hand.#d2.#identity": identity }
+        B: { "players.A.hand.#d2.#identity": face-down, "players.A.hand": count-only, "players.A.mainDeck": count-only }
+        spectator: { "players.A.hand.#d2.#identity": face-down, "players.A.mainDeck": count-only }
+      rejected: null
+    notes: "查看（look）与挑选都在 A 的私密信息域内：B 只能看到「A 手牌数量 0→1、牌库数量 4→3」，看不到看了哪三张、拿走了哪张、回收了哪两张。本场景的「look+pick」属非公开区域选择，不构成目标（355.10.a），也不产生展示事件。UNCERTAIN: 规则在 425（Reveal 对所有人）与 437（Predict 仅自己看）之间没有逐字定义「look at N 张并取一张」的事件粒度，本场景按「无 card.revealed 事件、只有最终 zone.enter 公开」理解；被拿走牌的 zone.enter 事件对 B 不含身份。"
+
+  - id: privacy-secret-quality-action-not-compelled
+    rule: ["1.5:128.6", "1.5:128.6.a"]
+    title: 效果要求从手牌放特定类型的牌进场时，玩家可拒绝且不算违规
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@spell(cost:1,text:\"play a unit from your hand, ignoring its costs\")", "@unit(cost:6,might:6)#h1" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 1 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+      - { player: A, do: resolve-choice, item: "A:hand[0]", choose: decline }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-resolved, item: "A:hand[0]" }
+          - { timing: instruction.ignored, item: "A:hand[0]", reason: "private-choice-declined" }
+      state:
+        - { path: "players.A.hand.count", equals: 1 }
+        - { path: "players.A.base.count", equals: 0 }
+      views:
+        A: { "players.A.hand.#h1.#identity": identity }
+        B: { "players.A.hand.#h1.#identity": face-down, "players.A.hand": count-only }
+        spectator: { "players.A.hand.#h1.#identity": face-down }
+      rejected: null
+    notes: "128.6 的例子正是本条：效果没说「可以」、玩家手里也确实有单位 #h1，但因指令指定了牌的类型（涉及私有信息质量），玩家可忽略该指令，忽略视为不可能（128.6.a）。B 不能从「A 拒绝了」反推 A 手里有没有单位——指令忽略是合法结果而非信息泄露。"
+
+  - id: privacy-secret-quality-action-accepted-reveals-minimum
+    rule: ["1.5:128.6", "1.5:108.1.b", "1.5:107.1.d"]
+    title: 玩家选择执行私密质量动作时，只公开被放进场的那张牌
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@spell(cost:1,text:\"play a unit from your hand, ignoring its costs\")", "@unit(cost:6,might:6)#h1", "@unit(cost:1,might:1)#h2" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 1 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+      - { player: A, do: resolve-choice, item: "A:hand[0]", choose: { play: "#h1" } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.leave, object: "#h1", zone: hand }
+          - { timing: zone.enter, object: "#h1", zone: base }
+      state:
+        - { path: "players.A.base.count", equals: 1 }
+        - { path: "players.A.hand.count", equals: 1 }
+      views:
+        A: { "players.A.hand.#h2.#identity": identity, "players.A.base.#h1.#identity": identity }
+        B: { "players.A.base.#h1.#identity": identity, "players.A.hand.#h2.#identity": face-down }
+        spectator: { "players.A.base.#h1.#identity": identity, "players.A.hand.#h2.#identity": face-down }
+      rejected: null
+    notes: "同一指令若玩家选择执行，只公开被选的 #h1（进场即 Public，107.1.d）；未被选的 #h2 保持 Private。B 知道「A 手里至少还有一张牌」（数量）但不知道那是什么。UNCERTAIN: 规则未规定该效果是否要求玩家向对手证明「选的确实是单位」——按服务端权威校验理解，证明发生在服务端，投影不额外公开手牌。"
+
+  - id: privacy-hand-not-targetable-pick-not-target
+    rule: ["1.5:355.10.a", "1.5:355.10.a.1"]
+    title: 「从手牌打出单位」不构成目标，无需也不能在目标阶段公开手牌
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@spell(cost:1,text:\"you may play a unit from your hand, ignoring its costs\")", "@unit(cost:3,might:3)#h1" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 1 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:hand[0]" }
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+      state:
+        - { path: "chain[0].targets.count", equals: 0 }
+      views:
+        A: { "players.A.hand.#h1.#identity": identity }
+        B: { "players.A.hand.#h1.#identity": face-down, "chain[0].targets": empty }
+        spectator: { "chain[0].targets": empty }
+      rejected: null
+    notes: 355.10.a 的例子：手牌是非公开区域，「you may play a unit from your hand」里的单位不是目标。链项 Finalize 阶段没有合法目标可公布，B 的投影中 targets 为空；选择发生在结算阶段且只公开结果。
+
+  # ---------- 负例：任何视角拿到不该拿的信息都是缺陷 ----------
+  - id: privacy-negative-opponent-view-must-not-contain-hand-identity
+    rule: ["1.5:108.7.c", "1.5:128.4"]
+    title: 负例：对手视角的任何快照/事件都不得携带手牌身份字段
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@unit(cost:2,might:2)#h1", "@spell(cost:1,text:\"draw 1\")#h2" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@gear(cost:1)#h3" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.priority-passed, player: A }
+      state:
+        - { path: "players.A.hand.count", equals: 2 }
+      views:
+        B: { "players.A.hand.#h1.#identity": face-down, "players.A.hand.#h2.#identity": face-down, "players.A.hand": count-only }
+        spectator: { "players.A.hand.#h1.#identity": face-down, "players.B.hand.#h3.#identity": face-down }
+      rejected: null
+    notes: 这是投影的验收负例：任何实现若在 B 或观战视角的状态快照、事件负载、错误消息里带出手牌身份（名称/费用/文本），本场景即失败。投影断言用 face-down 锁定「只看到背面」。
+
+  - id: privacy-negative-spectator-view-equals-non-owner
+    rule: ["1.5:128.4", "1.5:108.7.c", "1.5:107.3.f"]
+    title: 负例：观战视角不得比「非控制者玩家」多看到任何私有面
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@unit(cost:1,might:1)#h1" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: A, units: { A: [], B: [] }, facedown: { A: [ "@spell(cost:1,keywords:[hidden],text:\"kill a unit\")#f1" ] } }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.priority-passed, player: A }
+      state:
+        - { path: "battlefields.bf1.facedown.A.count", equals: 1 }
+      views:
+        A: { "players.A.hand.#h1.#identity": identity, "battlefields.bf1.#f1.#identity": identity }
+        B: { "players.A.hand.#h1.#identity": face-down, "battlefields.bf1.#f1.#identity": face-down }
+        spectator: { "players.A.hand.#h1.#identity": face-down, "battlefields.bf1.#f1.#identity": face-down }
+      rejected: null
+    notes: 观战者不是任何对象的拥有者或控制者，其视角必须是「最受限」视角：B 看不到的（A 的手牌、A 控制的背面牌），观战同样看不到。若实现给观战开了上帝视角，本场景失败。
+
+  - id: privacy-negative-deck-top-never-in-projection
+    rule: ["1.5:108.4.e", "1.5:128.3"]
+    title: 负例：未被查看/展示的牌库顶牌对包括拥有者在内的所有视角都是 Secret
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [fury], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+          mainDeck: [ "@unit(cost:1,might:1)#d1", "@unit(cost:1,might:2)#d2" ]
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.priority-passed, player: A }
+      state:
+        - { path: "players.A.mainDeck.count", equals: 2 }
+      views:
+        A: { "players.A.mainDeck": count-only, "players.A.mainDeck[0].#identity": face-down }
+        B: { "players.A.mainDeck": count-only }
+        spectator: { "players.A.mainDeck": count-only }
+      rejected: null
+    notes: 牌库顺序是 Secret（108.4.e）——连拥有者 A 的客户端也不得收到牌库顶身份（128.3 任何玩家都不得看），这防止作弊客户端从投影里读未来。只有经 look/predict/reveal 等明确动作后，信息才在限定范围与限定时间内出现。
+
+  - id: privacy-negative-error-message-must-not-leak-private-card
+    rule: ["1.5:128.4", "1.5:108.7.c"]
+    title: 负例：非法命令的错误反馈不得泄露私密牌信息
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@unit(cost:2,might:2)#h1" ]
+          base: []
+          score: 0
+        B:
+          energy: 1
+          runes: { ready: [calm], exhausted: [] }
+          hand: [ "@spell(cost:1,text:\"deal 1 to a unit\")" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null, units: { A: ["@unit(might:2)#u1"], B: [] } }
+      chain: []
+    commands:
+      - { player: B, do: play, card: "hand[0]", pay: { energy: 1 }, targets: ["A:hand[0]"] }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "players.A.hand.count", equals: 1 }
+        - { path: "players.B.energy", equals: 1 }
+      views:
+        B: { "players.A.hand.#h1.#identity": face-down }
+        spectator: { "players.A.hand.#h1.#identity": face-down }
+      rejected: { command: 0, reason: "illegal-target" }
+    notes: B 尝试把 A 的手牌当目标属于非法（355.10.a，非公开区域里的对象不是目标）。拒绝原因只能是通用 illegal-target，不得在 reason 或事件负载里回显「A:hand[0] 是 @unit(might:2)」之类内容——错误通道也是信息通道。
+
+  - id: privacy-negative-facedown-characteristics-not-in-events
+    rule: ["1.5:811.5.a", "1.5:128.4"]
+    title: 负例：背面牌离区展示前，事件负载不得提前携带其身份
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 1
+          runes: { ready: [calm], exhausted: [] }
+          hand: [ "@spell(cost:1,speed:reaction,text:\"return a facedown card to its owner's hand\")" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: A, units: { A: [], B: [] }, facedown: { A: [ "@spell(cost:1,keywords:[hidden],text:\"deal 2 to a unit\")#f1" ] } }
+      chain: []
+    commands:
+      - { player: B, do: play, card: "hand[0]", pay: { energy: 1 }, targets: ["#f1"] }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "B:hand[0]" }
+      state:
+        - { path: "battlefields.bf1.facedown.A.count", equals: 1 }
+      views:
+        B: { "battlefields.bf1.#f1.#identity": face-down }
+        spectator: { "battlefields.bf1.#f1.#identity": face-down }
+      rejected: null
+    notes: "锁定事件顺序：B 的法术入链、目标锁定 #f1 时，#f1 对 B 仍是背面；#f1 的身份只允许出现在 422.4 规定的「换区展示」事件及其之后。若链项 Pending 事件就把目标身份展开给 B，等于提前泄露，本场景失败。B 可以合法地以「一张面朝下牌」为目标（355.9.a.3），不需要知道它是什么。"
+
+  - id: privacy-negative-replay-view-matches-spectator
+    rule: ["1.5:128.3", "1.5:128.4", "1.5:108.7.c"]
+    title: 负例：游戏进行中的回放视角不得包含任何私密或秘密信息
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@unit(cost:1,might:1)#h1" ]
+          base: []
+          score: 0
+          mainDeck: [ "@unit(cost:1,might:1)#d1" ]
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1,text:\"draw 1\")#h2" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: pass, note: "以 spectator 视角重放到当前状态（契约第 4 节：投影由重放得到）" }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.priority-passed, player: A }
+      state:
+        - { path: "players.A.hand.count", equals: 1 }
+      views:
+        spectator: { "players.A.hand": count-only, "players.A.hand.#h1.#identity": face-down, "players.B.hand.#h2.#identity": face-down, "players.A.mainDeck": count-only }
+      rejected: null
+    notes: 契约第 4 节规定事件与投影由 journal 重放得到。进行中对局的观战/回放投影必须与 spectator 一致：双方手牌与牌库全隐藏。若重放链路为调试方便把权威状态直接下发，本场景失败。终局后的回放不受此限（422.4 游戏结束展示背面牌）。
+
+  - id: privacy-draw-not-revealed-to-opponent
+    rule: ["1.5:414.1", "1.5:108.7.c"]
+    title: 抽牌只产生数量变化事件，内容不进对手视角
+    kind: positive
+    given:
+      turn: { active: A, phase: draw, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [fury], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+          mainDeck: [ "@unit(cost:1,might:1)#d1", "@gear(cost:1)#d2" ]
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: pass, note: "抽牌阶段游戏动作自动执行抽 1" }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.leave, object: "#d1", zone: mainDeck }
+          - { timing: zone.enter, object: "#d1", zone: hand }
+      state:
+        - { path: "players.A.hand.count", equals: 1 }
+        - { path: "players.A.mainDeck.count", equals: 1 }
+      views:
+        A: { "players.A.hand.#d1.#identity": identity }
+        B: { "players.A.hand.#d1.#identity": face-down, "players.A.hand.count": 1, "players.A.mainDeck": count-only }
+        spectator: { "players.A.hand.#d1.#identity": face-down }
+      rejected: null
+    notes: "抽牌对 B 与观战者表现为「牌库数量 -1、手牌数量 +1」，事件负载中的 object 引用在他们的投影里必须替换为匿名引用（只有 A 的投影保留 #d1 身份）。"
+
+  - id: privacy-mulligan-set-aside-not-revealed
+    rule: ["1.5:117.1-117.3", "1.5:108.7.c", "1.5:108.4.e"]
+    title: 调度置旁的牌不公开，回收洗入后牌库恢复 Secret
+    kind: edge
+    given:
+      turn: { active: A, phase: setup, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@unit(cost:1,might:1)#h1", "@unit(cost:2,might:2)#h2", "@spell(cost:1,text:\"draw 1\")#h3", "@gear(cost:1)#h4" ]
+          base: []
+          score: 0
+          mainDeck: [ "@unit(cost:1,might:3)#d1", "@unit(cost:1,might:4)#d2" ]
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: mulligan, setAside: ["#h1", "#h2"] }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.enter, object: "#d1", zone: hand }
+          - { timing: zone.enter, object: "#d2", zone: hand }
+          - { timing: deck.shuffled, player: A }
+      state:
+        - { path: "players.A.hand.count", equals: 4 }
+      views:
+        A: { "players.A.hand": faces }
+        B: { "players.A.hand": count-only, "players.A.mainDeck": count-only }
+        spectator: { "players.A.hand": count-only }
+      rejected: null
+    notes: "117.1-117.3：置旁→抽等量→回收置旁牌。被置旁的 #h1/#h2 全程不公开；新抽的 #d1/#d2 只有 A 可见；回收洗入后牌库重新完全 Secret。B 只能观察到「A 调度了 2 张」这一数量事实。UNCERTAIN: 117 条没有逐字写明「对手是否知道调度了几张」；按数量公开（108.7.e 手牌数公开、置旁与补抽的数量变化可观察）理解，B 可推出调度张数但看不到内容。"
+
+  - id: privacy-runedeck-top-channel-reveals-on-board-only
+    rule: ["1.5:108.5.d", "1.5:431.2", "1.5:107.1.d"]
+    title: Channel 翻出符文库顶前其身份 Secret，进场后转为公开
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@spell(cost:1,text:\"channel 1 rune exhausted\")" ]
+          base: []
+          score: 0
+          runeDeck: [ fury, calm ]
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 1 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.leave, object: "A:runeDeck[0]", zone: runeDeck }
+          - { timing: zone.enter, object: "A:runeDeck[0]", zone: base }
+      state:
+        - { path: "players.A.runes.exhausted.count", equals: 2 }
+      views:
+        A: { "players.A.base.runes": faces }
+        B: { "players.A.base.runes": faces, "players.A.runeDeck": count-only }
+        spectator: { "players.A.base.runes": faces, "players.A.runeDeck": count-only }
+      rejected: null
+    notes: 符文库顺序 Secret（108.5.d）；channel 把顶牌带进基地后，它成为场上对象、身份公开（107.1.d、109）。信息转换发生在「进场」这一刻，之前任何视角（包括 A）都不应看到符文库顶是什么。
+
+  - id: privacy-opponent-hand-count-across-moves
+    rule: ["1.5:108.7.e", "1.5:108.7.c"]
+    title: 连续行动中对手手牌数量逐步公开更新，内容始终不公开
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@unit(cost:1,might:1)", "@unit(cost:1,might:1)" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1,text:\"draw 1\")#h1", "@spell(cost:1,text:\"draw 1\")#h2", "@spell(cost:1,text:\"draw 1\")#h3" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 1 }, to: base }
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 1 }, to: base }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.enter, object: "A:hand[0]", zone: base }
+          - { timing: zone.enter, object: "A:hand[0]", zone: base }
+      state:
+        - { path: "players.A.hand.count", equals: 0 }
+        - { path: "players.A.base.count", equals: 2 }
+      views:
+        A: { "players.B.hand": count-only }
+        B: { "players.A.hand": count-only, "players.A.base": faces }
+        spectator: { "players.A.hand": count-only, "players.A.base": faces }
+      rejected: null
+    notes: "A 连打两张单位：每次手牌数量变化（2→1→0）对所有视角立即可见（108.7.e），进场的牌身份公开（107.1.d）；B 的三张手牌 #h1-#h3 全程身份不公开。数量信息是实时的、内容是受控的，两个通道不能混。"
+
+  - id: privacy-base-runes-exhaustion-state-public
+    rule: ["1.5:107.1.d", "1.5:109.2"]
+    title: 基地符文的横置/重置状态对所有视角公开
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [fury], exhausted: [calm] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.priority-passed, player: A }
+      state:
+        - { path: "players.A.runes.ready.count", equals: 1 }
+        - { path: "players.A.runes.exhausted.count", equals: 1 }
+      views:
+        A: { "players.A.runes": faces }
+        B: { "players.A.runes": faces }
+        spectator: { "players.A.runes": faces }
+      rejected: null
+    notes: 已进场符文的种类与横置状态属于场上公开状态（107.1.d、109.2）；观战者与对手都能看到 A 有 1 个就绪 fury、1 个横置 calm。注意与符文库（Secret）区分：同一名玩家的「库」与「场上符文」信息等级不同。
