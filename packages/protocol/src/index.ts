@@ -15,6 +15,7 @@ import {
   type OwnerDeckConfirmationMessage
 } from './owner-deck-confirmation.js';
 export * from './owner-deck-confirmation.js';
+export * from './journal-v1.js';
 
 export type PlayerId = string;
 export type RoomId = string;
