@@ -279,6 +279,10 @@ function render(props: Partial<DuelMatchBoardProps> & { projection: DuelProjecti
 
 const count = (haystack: string, needle: string): number => haystack.split(needle).length - 1;
 
+function countClass(html: string, className: string): number {
+  return [...html.matchAll(new RegExp(`class="(?:[^"]* )?${className}(?= |")`, "g"))].length;
+}
+
 /** The rendered base `<section>` for one seat position (`opponent` / `player`). */
 function baseBandSection(html: string, position: string): string {
   const start = html.indexOf(`data-position="${position}"`);
@@ -301,7 +305,7 @@ describe("base ribbon · rune preservation (2 / 8 / 12)", () => {
       const html = render({ projection: baseRibbonProjection({ viewer: "alice", runeCount }) });
       const ownBand = baseBandSection(html, "player");
       // Every rune chip survives; none is dropped to make the band fit.
-      expect(count(ownBand, 'class="full-product-duel-baserune"')).toBe(runeCount);
+      expect(countClass(ownBand, "full-product-duel-baserune")).toBe(runeCount);
       // Each chip keeps its domain and ready/exhaust caption in the same chip.
       expect(count(ownBand, 'class="full-product-duel-baserune-caption"')).toBe(runeCount);
       expect(count(ownBand, 'class="full-product-duel-baserune-domain"')).toBe(runeCount);
@@ -414,9 +418,9 @@ describe("base ribbon · empty base and observer", () => {
     });
     const opponentBand = baseBandSection(html, "opponent");
     // Bob's base projects nothing: no rune chips, no unit, no gear at all.
-    expect(count(opponentBand, 'class="full-product-duel-baserune"')).toBe(0);
-    expect(count(opponentBand, 'class="full-product-duel-unit"')).toBe(0);
-    expect(count(opponentBand, 'class="full-product-duel-gear"')).toBe(0);
+    expect(countClass(opponentBand, "full-product-duel-baserune")).toBe(0);
+    expect(countClass(opponentBand, "full-product-duel-unit")).toBe(0);
+    expect(countClass(opponentBand, "full-product-duel-gear")).toBe(0);
     // The honest empty notice renders instead of an invented rune.
     expect(opponentBand).toContain("full-product-duel-empty");
     // Below the title the empty notice is still inside the body ribbon.

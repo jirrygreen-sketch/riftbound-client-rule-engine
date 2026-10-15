@@ -1,0 +1,1053 @@
+# v1.5 规则「计分（Scoring）」章节场景规格。
+# 依据：Core Rules 条目（193/194 胜利与分数、315 起始阶段、323 Open 清理、348/466 Showdown 与战斗收尾、
+# 467-472 计分/固守/征服/Final Point/清理胜利、485 1v1 Duel 配置）+ 官方 Radiance patch notes
+# https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/
+# 环境无法下载 v1.5 PDF：条目号沿用仓库已核对的 CR v1.4 编号并加 "1.4:" 前缀；
+# 依据契约 v1.5 语义（3.4 Deploy、3.5 时点）与官方 patch notes 标题给出的条目以 "1.5:" 前缀标注。
+area: scoring
+rulesetVersion: core-1.5
+sources:
+  - "1.4:193.1"
+  - "1.4:194.1.c"
+  - "1.4:194.1.d"
+  - "1.4:194.2.a"
+  - "1.4:194.2.b"
+  - "1.4:194.3"
+  - "1.4:194.3.a"
+  - "1.4:194.4.a"
+  - "1.4:194.4.b"
+  - "1.4:315.2.b"
+  - "1.4:323.6"
+  - "1.4:323.11"
+  - "1.4:348.2"
+  - "1.4:466.3.d.1"
+  - "1.4:466.5"
+  - "1.4:468"
+  - "1.4:469.1"
+  - "1.4:469.2"
+  - "1.4:470"
+  - "1.4:471.1"
+  - "1.4:471.1.a.1"
+  - "1.4:471.1.b.1"
+  - "1.4:471.2"
+  - "1.4:472"
+  - "1.5:472"
+  - "1.4:485.3"
+  - "1.4:485.4"
+  - "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"
+scenarios:
+  # ---------- 固守（Hold） ----------
+  - id: scoring-hold-basic-one-point
+    rule: ["1.4:315.2.b", "1.4:469.2"]
+    title: 回合玩家在起始阶段计分步固守其控制的战场，得 1 分
+    kind: positive
+    given:
+      turn: { number: 3, active: A, phase: beginning, step: scoring, state: neutral-open }
+      players:
+        A: { score: 2 }
+        B: { score: 4 }
+      battlefields:
+        - { id: bf1, controller: A, contested: false, units: { A: ["@unit(might:2)#u1"], B: [] } }
+        - { id: bf2, controller: B, contested: false, units: { A: [], B: ["@unit(might:3)#u2"] } }
+      chain: []
+    commands:
+      - { player: A, do: hold, battlefield: bf1 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: scoring.hold, player: A, battlefield: bf1 }
+          - { timing: scoring.scored, player: A, battlefield: bf1, method: hold }
+      state:
+        - { path: "players.A.score", equals: 3 }
+        - { path: "players.B.score", equals: 4 }
+        - { path: "players.A.scoredBattlefieldsThisTurn", contains: [bf1] }
+      rejected: null
+    notes: "计分步是起始阶段的一个规则步骤，不需要优先权；固守只要求当前控制，不要求本回合一直控制。"
+
+  - id: scoring-hold-multiple-battlefields-same-step
+    rule: ["1.4:315.2.b", "1.4:469.2"]
+    title: 同一计分步内可固守所有由自己控制的战场，各得 1 分
+    kind: positive
+    given:
+      turn: { number: 2, active: A, phase: beginning, step: scoring, state: neutral-open }
+      players:
+        A: { score: 1 }
+        B: { score: 0 }
+      battlefields:
+        - { id: bf1, controller: A, contested: false, units: { A: ["@unit(might:2)#u1"], B: [] } }
+        - { id: bf2, controller: A, contested: false, units: { A: ["@unit(might:4)#u2"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: hold, battlefield: bf1 }
+      - { player: A, do: hold, battlefield: bf2 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: scoring.scored, player: A, battlefield: bf1, method: hold }
+          - { timing: scoring.scored, player: A, battlefield: bf2, method: hold }
+      state:
+        - { path: "players.A.score", equals: 3 }
+        - { path: "players.A.scoredBattlefieldsThisTurn", contains: [bf1, bf2] }
+      rejected: null
+    notes: "计分步对每个控制中的战场各处理一次固守，而不是只选一个。"
+
+  - id: scoring-hold-not-turn-player
+    rule: ["1.4:315.2.b", "1.4:469.2"]
+    title: 非回合玩家在对手的起始阶段不能固守
+    kind: negative
+    given:
+      turn: { number: 3, active: A, phase: beginning, step: scoring, state: neutral-open }
+      players:
+        A: { score: 2 }
+        B: { score: 4 }
+      battlefields:
+        - { id: bf1, controller: A, contested: false, units: { A: ["@unit(might:2)#u1"], B: [] } }
+        - { id: bf2, controller: B, contested: false, units: { A: [], B: ["@unit(might:3)#u2"] } }
+      chain: []
+    commands:
+      - { player: B, do: hold, battlefield: bf2 }
+    expect:
+      rejected: { command: 0, reason: "not-turn-player" }
+      state:
+        - { path: "players.B.score", equals: 4 }
+    notes: "只有回合玩家在自己的计分步固守；B 控制的战场要等 B 的回合才计分。"
+
+  - id: scoring-hold-only-in-scoring-step
+    rule: ["1.4:315.2.b"]
+    title: 主要阶段不能发起固守，固守只发生在起始阶段计分步
+    kind: negative
+    given:
+      turn: { number: 3, active: A, phase: main, state: neutral-open }
+      players:
+        A: { score: 2 }
+        B: { score: 0 }
+      battlefields:
+        - { id: bf1, controller: A, contested: false, units: { A: ["@unit(might:2)#u1"], B: [] } }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: hold, battlefield: bf1 }
+    expect:
+      rejected: { command: 0, reason: "not-scoring-step" }
+      state:
+        - { path: "players.A.score", equals: 2 }
+    notes: "若计分步因故未处理（例如被跳过），本回合不再有补固守的机会。"
+
+  - id: scoring-hold-requires-current-control
+    rule: ["1.4:315.2.b", "1.4:469.2"]
+    title: 不控制战场时不能固守它
+    kind: negative
+    given:
+      turn: { number: 4, active: A, phase: beginning, step: scoring, state: neutral-open }
+      players:
+        A: { score: 3 }
+        B: { score: 3 }
+      battlefields:
+        - { id: bf1, controller: B, contested: false, units: { A: [], B: ["@unit(might:3)#u2"] } }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: hold, battlefield: bf1 }
+    expect:
+      rejected: { command: 0, reason: "not-controller" }
+      state:
+        - { path: "players.A.score", equals: 3 }
+    notes: "上一回合结束时控制不够；计分步到达的那一刻谁控制才算数。"
+
+  - id: scoring-hold-no-units-but-controller
+    rule: ["1.4:469.2"]
+    title: 控制中的战场上没有单位也可以固守（直到清理才失去控制）
+    kind: edge
+    given:
+      turn: { number: 5, active: A, phase: beginning, step: scoring, state: neutral-open }
+      players:
+        A: { score: 1 }
+        B: { score: 0 }
+      battlefields:
+        - { id: bf1, controller: A, contested: false, units: { A: [], B: [] } }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: hold, battlefield: bf1 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: scoring.scored, player: A, battlefield: bf1, method: hold }
+      state:
+        - { path: "players.A.score", equals: 2 }
+      rejected: null
+    notes: "控制是持续状态，单位回手/被消灭后要到 Open 清理才移除控制；计分步早于该清理时不影响固守。若实际规则顺序使清理先发生，此场景应改为拒绝，交给 harness 的规则流程裁决。"
+
+  - id: scoring-hold-while-contested
+    rule: ["1.4:315.2.b", "1.4:469.2"]
+    title: 战场被争夺时仍是控制者，计分步照常固守
+    kind: positive
+    given:
+      turn: { number: 4, active: A, phase: beginning, step: scoring, state: neutral-open }
+      players:
+        A: { score: 2 }
+        B: { score: 2 }
+      battlefields:
+        - { id: bf1, controller: A, contested: true, contestingPlayer: B, units: { A: ["@unit(might:2)#u1"], B: ["@unit(might:2)#u3"] } }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: hold, battlefield: bf1 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: scoring.scored, player: A, battlefield: bf1, method: hold }
+      state:
+        - { path: "players.A.score", equals: 3 }
+      rejected: null
+    notes: "争夺不解除控制；控制要到 Open 清理或对方真正确立控制时才改变。"
+
+  - id: scoring-hold-at-final-point-still-scores
+    rule: ["1.4:471.1.a.1", "1.4:469.2"]
+    title: 7 分时固守不受 Final Point 限制，照常得第 8 分
+    kind: edge
+    given:
+      turn: { number: 9, active: A, phase: beginning, step: scoring, state: neutral-open }
+      players:
+        A: { score: 7 }
+        B: { score: 6 }
+      battlefields:
+        - { id: bf1, controller: A, contested: false, units: { A: ["@unit(might:2)#u1"], B: [] } }
+        - { id: bf2, controller: B, contested: false, units: { A: [], B: ["@unit(might:3)#u2"] } }
+      chain: []
+    commands:
+      - { player: A, do: hold, battlefield: bf1 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: scoring.scored, player: A, battlefield: bf1, method: hold }
+      state:
+        - { path: "players.A.score", equals: 8 }
+      rejected: null
+    notes: "Final Point 限制只约束征服；固守、卡牌能力得分都不是征服，到 8 分后等清理阶段判胜。"
+
+  - id: scoring-hold-at-or-above-victory-still-scores
+    rule: ["1.4:469.2", "1.4:472"]
+    title: 已达 8 分后仍可继续固守加分（胜利要等清理唯一领先检查）
+    kind: edge
+    given:
+      turn: { number: 12, active: A, phase: beginning, step: scoring, state: neutral-open }
+      players:
+        A: { score: 8 }
+        B: { score: 8 }
+      battlefields:
+        - { id: bf1, controller: A, contested: false, units: { A: ["@unit(might:2)#u1"], B: [] } }
+        - { id: bf2, controller: B, contested: false, units: { A: [], B: ["@unit(might:3)#u2"] } }
+      chain: []
+    commands:
+      - { player: A, do: hold, battlefield: bf1 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: scoring.scored, player: A, battlefield: bf1, method: hold }
+      state:
+        - { path: "players.A.score", equals: 9 }
+      rejected: null
+    notes: "到分不立即结束对局；8:8 时清理检查不通过所以游戏继续，此后 A 的每次计分都让领先扩大。"
+
+  # ---------- 征服（Conquer） ----------
+  - id: scoring-conquer-basic-on-control
+    rule: ["1.4:466.5", "1.4:469.1"]
+    title: 战斗后留在战场的唯一一方确立控制，征服得 1 分
+    kind: positive
+    given:
+      turn: { number: 3, active: B, phase: combat, state: showdown-closed }
+      players:
+        A: { score: 2 }
+        B: { score: 3 }
+      battlefields:
+        - { id: bf1, controller: A, contested: true, contestingPlayer: B, showdown: active, combat: active, units: { A: [], B: ["@unit(might:4)#u3"] } }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: B, do: resolve-combat, battlefield: bf1, outcome: { winner: B, loserRemoved: "A:u1" } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: battlefield.control-established, battlefield: bf1, player: B, previousController: A }
+          - { timing: scoring.conquer, player: B, battlefield: bf1 }
+          - { timing: scoring.scored, player: B, battlefield: bf1, method: conquer }
+      state:
+        - { path: "players.B.score", equals: 4 }
+        - { path: "battlefields.bf1.controller", equals: B }
+        - { path: "battlefields.bf1.contested", equals: false }
+      rejected: null
+    notes: "征服紧跟控制确立（466.5），同一事件链内先改控制再计分；given 是战斗伤害结算后、战斗收尾前的场面。"
+
+  - id: scoring-conquer-via-noncombat-showdown
+    rule: ["1.4:348.2", "1.4:469.1"]
+    title: 非战斗 Showdown 结束时剩余一方确立控制并征服
+    kind: positive
+    given:
+      turn: { number: 4, active: B, phase: main, state: showdown-open }
+      players:
+        A: { score: 1 }
+        B: { score: 2 }
+      battlefields:
+        - { id: bf1, controller: null, contested: false, showdown: active, combat: none, units: { A: [], B: ["@unit(might:2)#u3"] } }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: showdown.closed, battlefield: bf1 }
+          - { timing: battlefield.control-established, battlefield: bf1, player: B }
+          - { timing: scoring.scored, player: B, battlefield: bf1, method: conquer }
+      state:
+        - { path: "players.B.score", equals: 3 }
+        - { path: "battlefields.bf1.controller", equals: B }
+      rejected: null
+    notes: "无人战场上的非战斗 Showdown 只剩一方单位时，收尾即确立控制；这与战斗征服走同一条 469.1 计分路径。"
+
+  - id: scoring-no-conquer-without-control-event
+    rule: ["1.4:469.1"]
+    title: 没有确立控制的事件时不能声明征服
+    kind: negative
+    given:
+      turn: { number: 3, active: A, phase: main, state: neutral-open }
+      players:
+        A: { score: 2 }
+        B: { score: 1 }
+      battlefields:
+        - { id: bf1, controller: null, contested: false, units: { A: ["@unit(might:2)#u1"], B: [] } }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: conquer, battlefield: bf1 }
+    expect:
+      rejected: { command: 0, reason: "no-control-established" }
+      state:
+        - { path: "players.A.score", equals: 2 }
+    notes: "单位进驻无人战场只是占领位置；控制要等 Showdown 收尾或 Open 清理路径确立，不能直接把“在场”当征服。"
+
+  - id: scoring-no-result-combat-no-conquer
+    rule: ["1.4:466.3.d.1", "1.4:466.5"]
+    title: 战斗无结果且双方单位都留在战场时，不确立控制、不征服
+    kind: negative
+    given:
+      turn: { number: 3, active: B, phase: combat, state: showdown-closed }
+      players:
+        A: { score: 1 }
+        B: { score: 1 }
+      battlefields:
+        - { id: bf1, controller: A, contested: true, contestingPlayer: B, showdown: active, combat: active, units: { A: ["@unit(might:3)#u1"], B: ["@unit(might:3)#u3"] } }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: B, do: close-combat, battlefield: bf1, outcome: { result: no-result } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: combat.resolved, battlefield: bf1, result: no-result }
+      state:
+        - { path: "players.A.score", equals: 1 }
+        - { path: "players.B.score", equals: 1 }
+        - { path: "battlefields.bf1.controller", equals: A }
+      rejected: null
+    notes: "无结果时双方单位留场、战斗与 Showdown 重新挂起；控制不变化，任何一方都不征服。"
+
+  - id: scoring-no-conquer-when-already-controller
+    rule: ["1.4:469.1", "1.4:348.2"]
+    title: 本就控制战场的一方清走挑战者后是保持控制，不再次征服
+    kind: negative
+    given:
+      turn: { number: 6, active: A, phase: main, state: showdown-open }
+      players:
+        A: { score: 4 }
+        B: { score: 2 }
+      battlefields:
+        - { id: bf1, controller: A, contested: true, contestingPlayer: B, showdown: active, combat: none, units: { A: ["@unit(might:2)#u1"], B: [] } }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: showdown.closed, battlefield: bf1 }
+      state:
+        - { path: "players.A.score", equals: 4 }
+        - { path: "battlefields.bf1.controller", equals: A }
+        - { path: "battlefields.bf1.contested", equals: false }
+      rejected: null
+    notes: "征服要求控制权发生确立（易手或从无主到有主）；控制者没变时 Showdown 收尾只解除争夺。"
+
+  - id: scoring-conquer-not-turn-player
+    rule: ["1.4:469.1"]
+    title: 非回合玩家通过战斗确立控制时同样征服（征服不看回合身份）
+    kind: positive
+    given:
+      turn: { number: 5, active: A, phase: combat, state: showdown-closed }
+      players:
+        A: { score: 3 }
+        B: { score: 5 }
+      battlefields:
+        - { id: bf1, controller: A, contested: true, contestingPlayer: B, showdown: active, combat: active, units: { A: [], B: ["@unit(might:5)#u3"] } }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: B, do: resolve-combat, battlefield: bf1, outcome: { winner: B, loserRemoved: "A:u1" } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: scoring.scored, player: B, battlefield: bf1, method: conquer }
+      state:
+        - { path: "players.B.score", equals: 6 }
+      rejected: null
+    notes: "固守必须回合玩家，征服只看谁确立了控制；防守方反杀夺场同样得分。"
+
+  # ---------- 每战场每回合一次（470） ----------
+  - id: scoring-once-per-turn-hold-then-conquer-blocked
+    rule: ["1.4:470"]
+    title: 同一战场同一回合被固守后，即使易主也不能被再征服
+    kind: negative
+    given:
+      turn: { number: 7, active: A, phase: main, state: neutral-open }
+      players:
+        A: { score: 3 }
+        B: { score: 2 }
+      battlefields:
+        - { id: bf1, controller: B, contested: false, units: { A: [], B: ["@unit(might:3)#u2"] } }
+        - { id: bf2, controller: null }
+      chain: []
+    setupHistory:
+      - { player: A, did: hold, battlefield: bf1, turn: 7 }
+    commands:
+      - { player: B, do: conquer, battlefield: bf1 }
+    expect:
+      rejected: { command: 0, reason: "battlefield-already-scored-this-turn" }
+      state:
+        - { path: "players.B.score", equals: 2 }
+    notes: "计分台账按“玩家×战场×回合”记录；A 已在 bf1 计过分，B 本回合在 bf1 的任何计分方式都被拒。"
+
+  - id: scoring-once-per-turn-is-per-player
+    rule: ["1.4:470"]
+    title: 一次计分限制按玩家分别计算：A 上回合征服后，B 本回合夺回仍可征服
+    kind: edge
+    given:
+      turn: { number: 8, active: B, phase: combat, state: showdown-closed }
+      players:
+        A: { score: 4 }
+        B: { score: 4 }
+      battlefields:
+        - { id: bf1, controller: A, contested: true, contestingPlayer: B, showdown: active, combat: active, units: { A: [], B: ["@unit(might:6)#u3"] } }
+        - { id: bf2, controller: null }
+      chain: []
+    setupHistory:
+      - { player: A, did: conquer, battlefield: bf1, turn: 7 }
+    commands:
+      - { player: B, do: resolve-combat, battlefield: bf1, outcome: { winner: B, loserRemoved: "A:u2" } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: scoring.scored, player: B, battlefield: bf1, method: conquer }
+      state:
+        - { path: "players.B.score", equals: 5 }
+      rejected: null
+    notes: "台账在上回合末已清空且本来就只限制对应玩家；B 本回合首次在 bf1 计分，合法。"
+
+  - id: scoring-ledger-resets-next-turn
+    rule: ["1.4:470"]
+    title: 进入新回合后计分台账清空，同一战场可以再次计分
+    kind: positive
+    given:
+      turn: { number: 9, active: A, phase: beginning, step: scoring, state: neutral-open }
+      players:
+        A: { score: 5 }
+        B: { score: 3 }
+      battlefields:
+        - { id: bf1, controller: A, contested: false, units: { A: ["@unit(might:2)#u1"], B: [] } }
+        - { id: bf2, controller: null }
+      chain: []
+    setupHistory:
+      - { player: A, did: hold, battlefield: bf1, turn: 8 }
+    commands:
+      - { player: A, do: hold, battlefield: bf1 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: scoring.scored, player: A, battlefield: bf1, method: hold }
+      state:
+        - { path: "players.A.score", equals: 6 }
+      rejected: null
+    notes: "台账只记当前回合；turn number 前进时清空，分数本身保留。"
+
+  # ---------- Final Point（471.1） ----------
+  - id: scoring-final-point-conquer-single-battlefield-draws
+    rule: ["1.4:471.1.b.1"]
+    title: 7 分时征服但本回合未曾固守，改为抽 1 张牌不得分
+    kind: positive
+    given:
+      turn: { number: 10, active: A, phase: combat, state: showdown-closed }
+      players:
+        A: { score: 7 }
+        B: { score: 5 }
+      battlefields:
+        - { id: bf1, controller: B, contested: true, contestingPlayer: A, showdown: active, combat: active, units: { A: ["@unit(might:4)#u1"], B: [] } }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: resolve-combat, battlefield: bf1, outcome: { winner: A, loserRemoved: "B:u2" } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: scoring.conquer, player: A, battlefield: bf1 }
+          - { timing: scoring.scored, player: A, battlefield: bf1, method: conquer }
+          - { timing: draw.cards, player: A, count: 1 }
+      state:
+        - { path: "players.A.score", equals: 7 }
+      rejected: null
+    notes: "仍是完整的一次计分（触发照常），只是分数被替换成抽牌；台账照常记录 bf1 已计分。"
+
+  - id: scoring-final-point-second-conquer-after-hold-scores
+    rule: ["1.4:471.1.b.1"]
+    title: 7 分时先固守 bf1、再征服 bf2：本回合对所有战场都计过分，征服照常得分
+    kind: positive
+    given:
+      turn: { number: 11, active: A, phase: combat, state: showdown-closed }
+      players:
+        A: { score: 7 }
+        B: { score: 6 }
+      battlefields:
+        - { id: bf1, controller: A, contested: false, units: { A: ["@unit(might:2)#u1"], B: [] } }
+        - { id: bf2, controller: B, contested: true, contestingPlayer: A, showdown: active, combat: active, units: { A: ["@unit(might:4)#u2"], B: [] } }
+      chain: []
+    setupHistory:
+      - { player: A, did: hold, battlefield: bf1, turn: 11 }
+    commands:
+      - { player: A, do: resolve-combat, battlefield: bf2, outcome: { winner: A, loserRemoved: "B:u3" } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: scoring.scored, player: A, battlefield: bf2, method: conquer }
+      state:
+        - { path: "players.A.score", equals: 8 }
+      rejected: null
+    notes: "台账在“是否所有战场都计过”判断前先写入本次征服，因此第二次征服满足例外、正常拿下第 8 分。"
+
+  - id: scoring-final-point-above-victory-still-restricted
+    rule: ["1.4:471.1.b.1"]
+    title: 已达 8 分（平局继续中）时再征服且未全战场计分，仍然只能抽牌
+    kind: edge
+    given:
+      turn: { number: 14, active: A, phase: combat, state: showdown-closed }
+      players:
+        A: { score: 8 }
+        B: { score: 8 }
+      battlefields:
+        - { id: bf1, controller: B, contested: true, contestingPlayer: A, showdown: active, combat: active, units: { A: ["@unit(might:4)#u1"], B: [] } }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: resolve-combat, battlefield: bf1, outcome: { winner: A, loserRemoved: "B:u2" } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: scoring.scored, player: A, battlefield: bf1, method: conquer }
+          - { timing: draw.cards, player: A, count: 1 }
+      state:
+        - { path: "players.A.score", equals: 8 }
+      rejected: null
+    notes: "Final Point 的触发条件是“征服后将达到或超过胜利分”且未满足全战场例外；已到 8 分时依然适用，不因超出而豁免。"
+
+  - id: scoring-ability-point-no-final-point-restriction
+    rule: ["1.4:471.1.a.1", "1.4:194.1.c"]
+    title: 卡牌能力直接给的第 8 分不受 Final Point 限制
+    kind: positive
+    given:
+      turn: { number: 9, active: A, phase: main, state: neutral-open }
+      players:
+        A: { score: 7 }
+        B: { score: 4 }
+      battlefields:
+        - { id: bf1, controller: A, contested: false, units: { A: ["@unit(might:2)#u1"], B: [] } }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "@spell(speed:action,text:'You score 1 point.')#s1", to: chain }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:s1" }
+          - { timing: scoring.points-gained, player: A, amount: 1 }
+      state:
+        - { path: "players.A.score", equals: 8 }
+      rejected: null
+    notes: "限制只点名征服；能力得分不写计分台账、不触发征服/固守触发（是否触发“得分时”触发见 471.2 的专条场景）。"
+
+  # ---------- 得分触发（471.2） ----------
+  - id: scoring-triggers-fire-on-score-conquer-hold
+    rule: ["1.4:471.2"]
+    title: 得分时、征服时、固守时三类触发各自在进入链后结算
+    kind: positive
+    given:
+      turn: { number: 4, active: A, phase: beginning, step: scoring, state: neutral-open }
+      players:
+        A: { score: 2 }
+        B: { score: 2 }
+      battlefields:
+        - { id: bf1, controller: A, contested: false, units: { A: ["@unit(might:2,text:'When you score, draw a card.')#u1"], B: [] } }
+        - { id: bf2, controller: null, units: { A: [], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: hold, battlefield: bf1 }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: scoring.scored, player: A, battlefield: bf1, method: hold }
+          - { timing: chain.item-pending, item: "A:u1(when-you-score)" }
+          - { timing: draw.cards, player: A, count: 1 }
+      state:
+        - { path: "players.A.score", equals: 3 }
+      rejected: null
+    notes: "触发因计分而产生，但一律作为待结算能力进链（契约 3.5），不是计分动作内联结算。"
+
+  - id: scoring-trigger-fires-on-final-point-draw
+    rule: ["1.4:471.1.b.1", "1.4:471.2"]
+    title: Final Point 被替换为抽牌的那次征服仍然触发“当你征服时”
+    kind: edge
+    given:
+      turn: { number: 10, active: A, phase: combat, state: showdown-closed }
+      players:
+        A: { score: 7 }
+        B: { score: 3 }
+      battlefields:
+        - { id: bf1, controller: B, contested: true, contestingPlayer: A, showdown: active, combat: active, units: { A: ["@unit(might:4,text:'When you conquer, gain 2 energy.')#u1"], B: [] } }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: resolve-combat, battlefield: bf1, outcome: { winner: A, loserRemoved: "B:u2" } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: scoring.scored, player: A, battlefield: bf1, method: conquer }
+          - { timing: draw.cards, player: A, count: 1 }
+          - { timing: chain.item-pending, item: "A:u1(when-you-conquer)" }
+      state:
+        - { path: "players.A.score", equals: 7 }
+      rejected: null
+    notes: "分数被替换不影响“发生了一次征服计分”这个事实；抽牌与触发按顺序各自进链结算。"
+
+  # ---------- 胜利条件与清理检查（193/194.2/472） ----------
+  - id: scoring-victory-unique-leader-at-cleanup
+    rule: ["1.4:472", "1.4:194.2.a", "1.4:193.1"]
+    title: 清理阶段唯一达到 8 分且严格领先的玩家获胜
+    kind: positive
+    given:
+      turn: { number: 11, active: A, phase: ending, step: cleanup, state: neutral-open }
+      players:
+        A: { score: 8 }
+        B: { score: 6 }
+      battlefields:
+        - { id: bf1, controller: A, contested: false, units: { A: ["@unit(might:2)#u1"], B: [] } }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: run-cleanup }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: game.victory, player: A, reason: victory-score }
+      state:
+        - { path: "winner", equals: A }
+      rejected: null
+    notes: "胜利检查发生在清理阶段（194.2/472），而不是得分瞬间；得分到达 8 分后本回合其余动作照常进行。"
+
+  - id: scoring-victory-tie-at-victory-score-continues
+    rule: ["1.4:472", "1.4:194.2.b"]
+    title: 清理时双方同为 8 分则不产生胜者，游戏继续
+    kind: negative
+    given:
+      turn: { number: 11, active: A, phase: ending, step: cleanup, state: neutral-open }
+      players:
+        A: { score: 8 }
+        B: { score: 8 }
+      battlefields:
+        - { id: bf1, controller: A, contested: false, units: { A: ["@unit(might:2)#u1"], B: [] } }
+        - { id: bf2, controller: B, contested: false, units: { A: [], B: ["@unit(might:3)#u2"] } }
+      chain: []
+    commands:
+      - { player: A, do: run-cleanup }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "winner", equals: null }
+      rejected: null
+    notes: "胜利要求严格多于每个对手；平分达标不算。这里“不产生胜者”就是对错误即终局的否定断言。"
+
+  - id: scoring-victory-not-checked-midturn
+    rule: ["1.4:472", "1.4:194.2"]
+    title: 主要阶段达到 8 分不立即结束对局，对手仍可按优先权行动
+    kind: negative
+    given:
+      turn: { number: 9, active: A, phase: main, state: neutral-open }
+      players:
+        A: { score: 8 }
+        B: { score: 6 }
+      battlefields:
+        - { id: bf1, controller: A, contested: false, units: { A: ["@unit(might:2)#u1"], B: [] } }
+        - { id: bf2, controller: B, contested: false, units: { A: [], B: ["@unit(might:3)#u2"] } }
+      chain: []
+    commands:
+      - { player: B, do: activate, card: "@legend(text:'[Action]: Gain 1 energy.')#l1", ability: 0 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "B:l1[0]" }
+      state:
+        - { path: "winner", equals: null }
+      rejected: null
+    notes: "若计分瞬间即终局，B 的这个启动式能力将没有合法时点；场景锁定“清理才判胜”的顺序。"
+
+  - id: scoring-ability-point-past-victory-wins-at-cleanup
+    rule: ["1.4:194.1.c", "1.4:472"]
+    title: 用卡牌能力从 7 加到 9（超过胜利分）同样满足清理胜利
+    kind: positive
+    given:
+      turn: { number: 9, active: A, phase: ending, step: cleanup, state: neutral-open }
+      players:
+        A: { score: 9 }
+        B: { score: 6 }
+      battlefields:
+        - { id: bf1, controller: A, contested: false, units: { A: [], B: [] } }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: run-cleanup }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: game.victory, player: A, reason: victory-score }
+      state:
+        - { path: "winner", equals: A }
+      rejected: null
+    notes: "胜利检查只看“达到胜利分且唯一领先”，不关心分数来源是固守、征服还是能力。"
+
+  - id: scoring-victory-score-altered-by-effect
+    rule: ["1.4:194.3.a", "1.4:472"]
+    title: 效果把胜利分改为 10 后，8 分不再触发清理胜利
+    kind: edge
+    given:
+      turn: { number: 11, active: A, phase: ending, step: cleanup, state: neutral-open }
+      match: { victoryScore: 10 }
+      players:
+        A: { score: 9 }
+        B: { score: 5 }
+      battlefields:
+        - { id: bf1, controller: A, contested: false, units: { A: ["@unit(might:2)#u1"], B: [] } }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: run-cleanup }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "winner", equals: null }
+      rejected: null
+    notes: "胜利分是可被模式/效果改写的参数（默认 8）；检查永远对照当前胜利分。"
+
+  # ---------- 分数增减与 Burn Out（194.1/194.4） ----------
+  - id: scoring-points-never-negative
+    rule: ["1.4:194.4", "1.4:194.4.a"]
+    title: 失去分数扣到 0 为止，不会变成负数
+    kind: edge
+    given:
+      turn: { number: 6, active: A, phase: main, state: neutral-open }
+      players:
+        A: { score: 1 }
+        B: { score: 3 }
+      battlefields:
+        - { id: bf1, controller: null }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: B, do: play, card: "@spell(speed:action,text:'Target player loses 5 points.')#s1", to: chain, targets: [A] }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: scoring.points-lost, player: A, amount: 1 }
+      state:
+        - { path: "players.A.score", equals: 0 }
+      rejected: null
+    notes: "实际失去量按现有分数截断；事件里的 amount 是实际失去的 1，不是卡面写的 5。"
+
+  - id: scoring-zero-loss-no-trigger
+    rule: ["1.4:194.4.b"]
+    title: 0 分时“失去 2 分”什么都不发生，也不触发“失去分数时”
+    kind: edge
+    given:
+      turn: { number: 6, active: B, phase: main, state: neutral-open }
+      players:
+        A: { score: 0, base: ["@unit(might:1,text:'When you lose points, draw a card.')#u4"] }
+        B: { score: 2 }
+      battlefields:
+        - { id: bf1, controller: null }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: B, do: play, card: "@spell(speed:action,text:'Target player loses 2 points.')#s1", to: chain, targets: [A] }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "players.A.score", equals: 0 }
+      rejected: null
+    notes: "没有实际失去就没有“失去分数”事件；不能为了触发而虚构 0 分失去事件。"
+
+  - id: scoring-burnout-draw-empty-grants-point
+    rule: ["1.4:194.1.d"]
+    title: 牌库抽空需抽牌时改为获得 1 分（Burn Out）
+    kind: positive
+    given:
+      turn: { number: 7, active: A, phase: beginning, step: draw, state: neutral-open }
+      players:
+        A: { score: 3, deck: [] }
+        B: { score: 3, deck: ["@unit(cost:1,might:1)"] }
+      battlefields:
+        - { id: bf1, controller: null }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: draw-cards, count: 1 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: scoring.burnout, player: A }
+          - { timing: scoring.points-gained, player: A, amount: 1 }
+      state:
+        - { path: "players.A.score", equals: 4 }
+      rejected: null
+    notes: "Burn Out 是得分而非计分：不写计分台账、不是征服/固守，也不受 Final Point 限制。"
+
+  # ---------- v1.5：胜利检查移到清理（Radiance patch notes） ----------
+  - id: scoring-v15-victory-check-moved-to-cleanup
+    rule: ["1.5:472", "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"]
+    title: v1.5：达到胜利分后若同回合被追平，清理阶段不产生胜者
+    kind: edge
+    given:
+      turn: { number: 10, active: A, phase: ending, step: cleanup, state: neutral-open }
+      players:
+        A: { score: 8 }
+        B: { score: 8 }
+      battlefields:
+        - { id: bf1, controller: A, contested: false, units: { A: ["@unit(might:2)#u1"], B: [] } }
+        - { id: bf2, controller: B, contested: false, units: { A: [], B: ["@unit(might:3)#u2"] } }
+      chain: []
+    setupHistory:
+      - { player: A, did: hold, battlefield: bf1, turn: 10, note: "A 本回合先到 8:7" }
+      - { player: B, did: conquer, battlefield: bf2, turn: 10, note: "B 同一回合追平 8:8" }
+    commands:
+      - { player: A, do: run-cleanup }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "winner", equals: null }
+      rejected: null
+    notes: "Radiance patch notes 把胜利判定收敛到清理阶段；同回合内先到 8 分不构成锁定，清理时只看当时的唯一领先。UNCERTAIN: 本环境无法下载 v1.5 PDF 逐字核对 472 新文本，此场景按契约 1（一律以 v1.5 为准）与 patch notes 标题所述方向编写；若 v1.5 反而规定“达到即锁定”，本条应改写。"
+
+  # ---------- v1.5：Deploy 装备在对手固守时被消灭（契约 3.4） ----------
+  - id: scoring-deploy-gear-destroyed-on-opponent-hold
+    rule: ["1.5:469.2", "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"]
+    title: v1.5：对手固守其控制的战场时，该战场上己方的 Deploy 装备被消灭
+    kind: positive
+    given:
+      turn: { number: 5, active: B, phase: beginning, step: scoring, state: neutral-open }
+      players:
+        A: { score: 2 }
+        B: { score: 3 }
+      battlefields:
+        - { id: bf1, controller: B, contested: false, units: { A: [], B: ["@unit(might:3)#u2"] }, gear: { A: ["@gear(keywords:[deploy],text:'Deploy: you may play this to a battlefield.')#g1"], B: [] } }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: B, do: hold, battlefield: bf1 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: scoring.scored, player: B, battlefield: bf1, method: hold }
+          - { timing: zone.enter, object: "A:g1", zone: trash }
+      state:
+        - { path: "players.B.score", equals: 4 }
+        - { path: "battlefields.bf1.gear.A", equals: [] }
+      rejected: null
+    notes: "Deploy 关键词注册“对手在此固守时消灭”（契约 3.4）；消灭在固守计分之后按触发/时点进入事件流，不阻止这次固守得分。"
+
+  - id: scoring-deploy-gear-survives-own-hold
+    rule: ["1.5:469.2", "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"]
+    title: v1.5：装备的控制者自己固守该战场时，自己的 Deploy 装备不被消灭
+    kind: negative
+    given:
+      turn: { number: 5, active: A, phase: beginning, step: scoring, state: neutral-open }
+      players:
+        A: { score: 2 }
+        B: { score: 3 }
+      battlefields:
+        - { id: bf1, controller: A, contested: false, units: { A: ["@unit(might:2)#u1"], B: [] }, gear: { A: ["@gear(keywords:[deploy])#g1"], B: [] } }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: hold, battlefield: bf1 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: scoring.scored, player: A, battlefield: bf1, method: hold }
+      state:
+        - { path: "players.A.score", equals: 3 }
+        - { path: "battlefields.bf1.gear.A", equals: ["@gear(keywords:[deploy])#g1"] }
+      rejected: null
+    notes: "消灭条件点名“对手”固守；自己的固守不含此触发，装备留场（对“固守即清场”错误实现的否定断言）。"
+
+  - id: scoring-deploy-gear-survives-conquer
+    rule: ["1.5:469.1", "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"]
+    title: v1.5：对手征服该战场时不触发 Deploy 装备的固守消灭
+    kind: edge
+    given:
+      turn: { number: 6, active: B, phase: combat, state: showdown-closed }
+      players:
+        A: { score: 2 }
+        B: { score: 2 }
+      battlefields:
+        - { id: bf1, controller: A, contested: true, contestingPlayer: B, showdown: active, combat: active, units: { A: [], B: ["@unit(might:4)#u3"] }, gear: { A: ["@gear(keywords:[deploy])#g1"], B: [] } }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: B, do: resolve-combat, battlefield: bf1, outcome: { winner: B, loserRemoved: "A:u1" } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: scoring.scored, player: B, battlefield: bf1, method: conquer }
+      state:
+        - { path: "battlefields.bf1.gear.A", equals: ["@gear(keywords:[deploy])#g1"] }
+      rejected: null
+    notes: "契约 3.4 的消灭钩子只挂在“固守（Hold）”上。UNCERTAIN: 无法核对 v1.5 原文，若官方文本实为“对手在此计分（scored）时消灭”，则征服同样会消灭该装备，本场景应改为期待 zone.enter trash。"
+
+  # ---------- 战场易主的边界 ----------
+  - id: scoring-control-lost-at-open-cleanup-no-score
+    rule: ["1.4:323.6", "1.4:469.2"]
+    title: 控制者在 Open 清理时无单位在场会失去控制，下一回合不能固守
+    kind: negative
+    given:
+      turn: { number: 6, active: A, phase: beginning, step: scoring, state: neutral-open }
+      players:
+        A: { score: 3 }
+        B: { score: 3 }
+      battlefields:
+        - { id: bf1, controller: null, contested: false, units: { A: [], B: [] } }
+        - { id: bf2, controller: null }
+      chain: []
+    setupHistory:
+      - { player: A, did: hold, battlefield: bf1, turn: 5, note: "随后单位被消灭，清理移除了 A 的控制" }
+    commands:
+      - { player: A, do: hold, battlefield: bf1 }
+    expect:
+      rejected: { command: 0, reason: "not-controller" }
+      state:
+        - { path: "players.A.score", equals: 3 }
+    notes: "控制以当前状态为准；历史控制不授予固守资格。本场景同时锁定“失去控制不是反向计分”——只是没有资格，不扣分。"
+
+  - id: scoring-reconquer-after-losing-battlefield
+    rule: ["1.4:469.1", "1.4:470"]
+    title: 失去战场后在后续回合重新确立控制，可以再次征服得分
+    kind: positive
+    given:
+      turn: { number: 9, active: A, phase: combat, state: showdown-closed }
+      players:
+        A: { score: 5 }
+        B: { score: 5 }
+      battlefields:
+        - { id: bf1, controller: B, contested: true, contestingPlayer: A, showdown: active, combat: active, units: { A: ["@unit(might:5)#u2"], B: [] } }
+        - { id: bf2, controller: null }
+      chain: []
+    setupHistory:
+      - { player: A, did: conquer, battlefield: bf1, turn: 3 }
+      - { player: B, did: conquer, battlefield: bf1, turn: 6 }
+    commands:
+      - { player: A, do: resolve-combat, battlefield: bf1, outcome: { winner: A, loserRemoved: "B:u3" } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: scoring.scored, player: A, battlefield: bf1, method: conquer }
+      state:
+        - { path: "players.A.score", equals: 6 }
+      rejected: null
+    notes: "每战场每回合一次是唯一限制；战场没有“被征服过就不再得分”的全局记忆。"
+
+  # ---------- 1v1 配置（485） ----------
+  - id: scoring-duel-victory-score-eight-two-battlefields
+    rule: ["1.4:485.3", "1.4:485.4", "1.4:194.3"]
+    title: 1v1 Duel 配置：胜利分 8、使用 2 个战场（双方各提供 3 选 1）
+    kind: edge
+    given:
+      turn: { number: 0, active: A, phase: setup, state: neutral-open }
+      players:
+        A: { score: 0, battlefields: ["@battlefield(text:'')#bfa1", "@battlefield(text:'')#bfa2", "@battlefield(text:'')#bfa3"] }
+        B: { score: 0, battlefields: ["@battlefield(text:'')#bfb1", "@battlefield(text:'')#bfb2", "@battlefield(text:'')#bfb3"] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: select-battlefield, card: "#bfa2" }
+      - { player: B, do: select-battlefield, card: "#bfb1" }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: setup.battlefields-selected, battlefields: ["#bfa2", "#bfb1"] }
+      state:
+        - { path: "match.victoryScore", equals: 8 }
+        - { path: "battlefields.count", equals: 2 }
+      rejected: null
+    notes: "配置是计分章节的前提断言：victoryScore 默认 8、战场数 2；Final Point 的“所有战场”例外里的“所有”就是这两个。"

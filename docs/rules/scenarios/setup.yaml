@@ -1,0 +1,1005 @@
+area: setup
+rulesetVersion: core-1.5
+sources:
+  - "1.5:103.1"
+  - "1.5:103.2"
+  - "1.5:103.3.a"
+  - "1.5:107.4"
+  - "1.5:108.3"
+  - "1.5:110"
+  - "1.5:111"
+  - "1.5:112"
+  - "1.5:113"
+  - "1.5:114"
+  - "1.5:115"
+  - "1.5:116"
+  - "1.5:117"
+  - "1.5:118"
+  - "1.5:133.6"
+  - "1.5:174"
+  - "1.5:315.3"
+  - "1.5:315.4"
+  - "1.5:417.1"
+  - "1.5:417.5"
+  - "1.5:431.1"
+  - "1.5:431.4"
+  - "1.5:487.5"
+  - "1.5:487.7"
+  - "1.5:488.5"
+  - "1.5:488.6"
+  - "1.5:489.5"
+  - "1.5:490.4"
+  - "1.5:491.5"
+  - "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"
+scenarios:
+  # ---------- 开局区域布置（111/112/133.6/107.4/108.3） ----------
+  - id: setup-legend-and-champion-zones-populated
+    rule: ["1.5:111", "1.5:112", "1.5:107.4", "1.5:108.3", "1.5:133.6"]
+    title: "开局各玩家把冠军传奇放进传奇区、所选冠军放进冠军区"
+    kind: positive
+    given:
+      setup: { mode: duel-1v1, step: initial-placement }
+      players:
+        A:
+          championLegend: "@legend(tag:test, domains:[fury])#legA"
+          chosenChampion: "@unit(champion, tag:test, cost:3, might:3)#champA"
+        B:
+          championLegend: "@legend(tag:test2, domains:[calm])#legB"
+          chosenChampion: "@unit(champion, tag:test2, cost:2, might:2)#champB"
+    commands:
+      - { player: A, do: setup-place-legend }
+      - { player: B, do: setup-place-legend }
+      - { player: A, do: setup-place-champion }
+      - { player: B, do: setup-place-champion }
+    expect:
+      state:
+        - { path: "players.A.legendZone", contains: "legA" }
+        - { path: "players.A.championZone", contains: "champA" }
+        - { path: "players.B.legendZone", contains: "legB" }
+        - { path: "players.B.championZone", contains: "champB" }
+        - { path: "players.A.deck", notContains: "legA" }
+        - { path: "players.A.deck", notContains: "champA" }
+      rejected: null
+    notes: "传奇与所选冠军开局就位（1.5:111/112）；两者都不是\"打出\"的，也不进主牌组洗牌（1.5:133.6、1.5:174.2）。传奇区、冠军区都是公开信息。"
+
+  - id: setup-legend-not-shuffled-into-deck
+    rule: ["1.5:174.2", "1.5:114", "1.5:133.6.b"]
+    title: "传奇与所选冠军不参与洗牌，主牌组仍是 40 张"
+    kind: positive
+    given:
+      setup: { mode: duel-1v1, step: shuffle }
+      players:
+        A:
+          deck: [ "@unit(cost:2,might:2) x40" ]
+          championLegend: "@legend(tag:test, domains:[fury])#legA"
+          chosenChampion: "@unit(champion, tag:test, cost:3, might:3)#champA"
+        B: {}
+    commands:
+      - { player: A, do: setup-shuffle-decks }
+    expect:
+      state:
+        - { path: "players.A.deck.count", equals: 40 }
+        - { path: "players.A.deck", notContains: "legA" }
+        - { path: "players.A.deck", notContains: "champA" }
+        - { path: "players.A.legendZone", contains: "legA" }
+        - { path: "players.A.championZone", contains: "champA" }
+      rejected: null
+    notes: "1.5:174.2 明确传奇不洗入牌组；所选冠军开局放冠军区，也不留在主牌组。"
+
+  - id: setup-champion-legend-cannot-be-displaced
+    rule: ["1.5:107.4.d", "1.5:174.3", "1.5:174.4"]
+    title: "冠军传奇不能被移动、消灭或放逐效果脱离传奇区"
+    kind: negative
+    given:
+      setup: { mode: duel-1v1, complete: true }
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          legendZone: [ "@legend(tag:test, domains:[fury])#legA" ]
+        B:
+          energy: 3
+          runes: { ready: [fury, fury, fury], exhausted: [] }
+          hand: [ "@spell(cost:3, speed:action, text: \"Banish target legend.\")" ]
+    commands:
+      - { player: B, do: play, card: "hand[0]", target: "legA", pay: { energy: 3 } }
+    expect:
+      state:
+        - { path: "players.A.legendZone", contains: "legA" }
+      rejected: { command: 0, reason: "illegal-target" }
+    notes: "冠军传奇不能被移除、移动或移出传奇区（1.5:107.4.d）；也不能被消灭或移动（1.5:174.3/174.4）。用一条\"放逐目标传奇\"的效果去尝试，要么选目标非法、要么指令被否定——总之传奇必须留在传奇区。rejected 的 reason 供 harness 对齐，语义是\"该效果不能动到冠军传奇\"。"
+
+  - id: setup-non-champion-legend-zone-restriction
+    rule: ["1.5:107.4.d.2"]
+    title: "非冠军传奇只能存在于传奇区或放逐区，进手牌的指令被否定"
+    kind: negative
+    given:
+      setup: { mode: duel-1v1, complete: true }
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          legendZone:
+            - "@legend(tag:test, domains:[fury])#legA"
+            - "@legend(tag:bonus, domains:[fury])#extraL"
+          hand: [ "@spell(cost:1, speed:action, text: \"Return target legend to its owner's hand.\")" ]
+          energy: 1
+          runes: { ready: [fury], exhausted: [] }
+        B: {}
+    commands:
+      - { player: A, do: play, card: "hand[0]", target: "extraL", pay: { energy: 1 } }
+    expect:
+      state:
+        - { path: "players.A.legendZone", contains: "extraL" }
+        - { path: "players.A.hand", notContains: "extraL" }
+      rejected: { command: 0, reason: "illegal-target" }
+    notes: "1.5:107.4.d.2：非冠军传奇可以被移出传奇区（与冠军传奇不同），但只能存在于传奇区或放逐区，\"回手\"这类指令无法实现。UNCERTAIN: 规则只说\"不能存在于其他区域\"，没有写效果是整卡不合法还是单条指令被否定；此处按目标非法处理，harness 若按指令 negated 实现也符合规则意图。"
+
+  # ---------- 洗牌与牌组区域（114） ----------
+  - id: setup-main-and-rune-decks-shuffled-separately
+    rule: ["1.5:114", "1.5:103.4.b"]
+    title: "主牌组与符文牌组分别洗入各自区域，互不混入"
+    kind: positive
+    given:
+      setup: { mode: duel-1v1, step: shuffle }
+      players:
+        A:
+          deck: [ "@unit(cost:2,might:2) x40" ]
+          runeDeck: [ "@rune(fury) x6", "@rune(calm) x6" ]
+        B: {}
+    commands:
+      - { player: A, do: setup-shuffle-decks }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: setup.deck-shuffled, player: A, deck: main }
+          - { timing: setup.deck-shuffled, player: A, deck: rune }
+      state:
+        - { path: "players.A.deck.count", equals: 40 }
+        - { path: "players.A.runeDeck.count", equals: 12 }
+        - { path: "players.A.deck", allOfType: main-deck-card }
+        - { path: "players.A.runeDeck", allOfType: rune }
+      rejected: null
+    notes: "1.5:114 要求两叠牌分开洗并各自进对应区域；符文牌不属于主牌组。事件名 setup.deck-shuffled 待 RIFT-21 时点枚举核对。"
+
+  - id: setup-deck-order-secret-count-public
+    rule: ["1.5:108.4.d", "1.5:108.4.e", "1.5:108.5.d"]
+    title: "洗牌完成后牌组张数公开、顺序保密"
+    kind: edge
+    given:
+      setup: { mode: duel-1v1, complete: true }
+      players:
+        A:
+          deck: [ "@unit(cost:2,might:2) x40" ]
+          runeDeck: [ "@rune(fury) x12" ]
+        B: {}
+    commands: []
+    expect:
+      state:
+        - { path: "projection(B).players.A.deck.count", equals: 40 }
+        - { path: "projection(B).players.A.deck.order", equals: hidden }
+        - { path: "projection(B).players.A.runeDeck.order", equals: hidden }
+      rejected: null
+    notes: "张数是公开信息、牌序是保密信息（1.5:108.4.d-e、1.5:108.5.d），开局洗牌完成后即生效。projection(B) 表示按 B 视角的投影，具体投影断言写法以 test-harness 为准。"
+
+  # ---------- 先后手（115/118） ----------
+  - id: setup-first-player-takes-first-turn
+    rule: ["1.5:115", "1.5:118"]
+    title: "随机定先后手后，由先手玩家开始第一个回合"
+    kind: positive
+    given:
+      setup: { mode: duel-1v1, step: determine-turn-order, random: { firstPlayer: B } }
+      players:
+        A: {}
+        B: {}
+    commands:
+      - { do: setup-determine-turn-order }
+    expect:
+      state:
+        - { path: "turnOrder", equals: ["B", "A"] }
+        - { path: "turn.active", equals: "B" }
+        - { path: "turn.number", equals: 1 }
+      rejected: null
+    notes: "1.5:115 用双方都认可的公平随机方式定顺序；1.5:118 从先手玩家的回合开始游戏。"
+
+  - id: setup-turn-order-loops
+    rule: ["1.5:115.1", "1.5:115.1.c"]
+    title: "回合顺序构成循环队列，每轮从先手开始重复"
+    kind: edge
+    given:
+      setup: { mode: duel-1v1, complete: true, random: { firstPlayer: A } }
+      turn: { active: A, phase: end, state: neutral-closed }
+      players:
+        A: {}
+        B: {}
+    commands:
+      - { player: A, do: end-turn }
+      - { player: B, do: end-turn }
+    expect:
+      state:
+        - { path: "turnHistory.active", equals: ["A", "B", "A"] }
+        - { path: "turn.active", equals: "A" }
+      rejected: null
+    notes: "1.5:115.1.c：回合队列从先手开始循环直到游戏结束，不存在\"换边重定顺序\"。"
+
+  # ---------- 起手（116） ----------
+  - id: setup-opening-draw-four
+    rule: ["1.5:116", "1.5:414.1"]
+    title: "洗牌后两名玩家各抽 4 张起手牌"
+    kind: positive
+    given:
+      setup: { mode: duel-1v1, step: opening-draw }
+      players:
+        A:
+          deck: [ "@unit(cost:2,might:2) x40" ]
+        B:
+          deck: [ "@unit(cost:3,might:3) x40" ]
+    commands:
+      - { do: setup-opening-draw }
+    expect:
+      state:
+        - { path: "players.A.hand.count", equals: 4 }
+        - { path: "players.B.hand.count", equals: 4 }
+        - { path: "players.A.deck.count", equals: 36 }
+        - { path: "players.B.deck.count", equals: 36 }
+      rejected: null
+    notes: "1.5:116 是双方同时各抽 4 张，发生在调度之前；从主牌组顶抽取（1.5:414.1.a）。"
+
+  - id: setup-opening-hand-private-count-public
+    rule: ["1.5:108.7.c", "1.5:108.7.e", "1.5:116"]
+    title: "起手牌内容对对手保密，手牌张数公开"
+    kind: edge
+    given:
+      setup: { mode: duel-1v1, complete: true }
+      players:
+        A:
+          deck: [ "@unit(cost:2,might:2) x36" ]
+          hand: [ "@unit(cost:2,might:2) x4" ]
+        B: {}
+    commands: []
+    expect:
+      state:
+        - { path: "projection(B).players.A.hand.count", equals: 4 }
+        - { path: "projection(B).players.A.hand.cards", equals: hidden }
+      rejected: null
+    notes: "手牌内容私有、张数公开（1.5:108.7.c/e），从起手 4 张抽完那一刻就成立。"
+
+  # ---------- 调度（117） ----------
+  - id: setup-mulligan-partial-two
+    rule: ["1.5:117.1", "1.5:117.2", "1.5:117.3"]
+    title: "调度 2 张：先置旁 2 张、补抽 2 张、再把置旁的回收到主牌组底"
+    kind: positive
+    given:
+      setup: { mode: duel-1v1, step: mulligan, completeUntil: mulligan }
+      players:
+        A:
+          deck: [ "@unit(cost:1,might:1)#d1", "@unit(cost:2,might:2)#d2", "@unit(cost:3,might:3)#d3", "@unit(cost:4,might:4)#d4", "@unit(cost:5,might:5) x32" ]
+          hand: [ "@unit(cost:6,might:6)#h1", "@unit(cost:7,might:7)#h2", "@unit(cost:2,might:2)#h3", "@unit(cost:3,might:3)#h4" ]
+        B: {}
+    commands:
+      - { player: A, do: mulligan, cards: ["h1", "h2"] }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: setup.mulligan-set-aside, player: A, count: 2 }
+          - { timing: draw, player: A, count: 2 }
+          - { timing: recycle, player: A, cards: ["h1", "h2"], zone: deck }
+      state:
+        - { path: "players.A.hand.count", equals: 4 }
+        - { path: "players.A.hand", contains: "d1" }
+        - { path: "players.A.hand", contains: "d2" }
+        - { path: "players.A.hand", notContains: "h1" }
+        - { path: "players.A.hand", notContains: "h2" }
+        - { path: "players.A.deck.bottom", contains: "h1" }
+        - { path: "players.A.deck.bottom", contains: "h2" }
+      rejected: null
+    notes: "1.5:117 三步严格按序：置旁→补抽→回收，置旁的牌在补抽时不在牌组里，所以不可能立刻抽回。回收的 2 张同时进主牌组底时顺序随机（1.5:417.5），故断言只查\"在牌组底部区域\"。"
+
+  - id: setup-mulligan-keep-all
+    rule: ["1.5:117.1", "1.5:117.2"]
+    title: "调度 0 张（全留）：不抽牌、不回收"
+    kind: positive
+    given:
+      setup: { mode: duel-1v1, step: mulligan, completeUntil: mulligan }
+      players:
+        A:
+          deck: [ "@unit(cost:2,might:2) x36" ]
+          hand: [ "@unit(cost:2,might:2)#h1", "@unit(cost:3,might:3)#h2", "@unit(cost:4,might:4)#h3", "@unit(cost:5,might:5)#h4" ]
+        B: {}
+    commands:
+      - { player: A, do: mulligan, cards: [] }
+    expect:
+      state:
+        - { path: "players.A.hand.count", equals: 4 }
+        - { path: "players.A.hand", contains: "h1" }
+        - { path: "players.A.deck.count", equals: 36 }
+      rejected: null
+    notes: "1.5:117.1 是至多两张，选 0 张合法，整个调度什么都不发生。"
+
+  - id: setup-mulligan-max-two
+    rule: ["1.5:117.1"]
+    title: "调度超过 2 张被拒绝"
+    kind: negative
+    given:
+      setup: { mode: duel-1v1, step: mulligan, completeUntil: mulligan }
+      players:
+        A:
+          deck: [ "@unit(cost:2,might:2) x36" ]
+          hand: [ "@unit(cost:2,might:2)#h1", "@unit(cost:3,might:3)#h2", "@unit(cost:4,might:4)#h4", "@unit(cost:5,might:5)#h5" ]
+        B: {}
+    commands:
+      - { player: A, do: mulligan, cards: ["h1", "h2", "h4"] }
+    expect:
+      state:
+        - { path: "players.A.hand.count", equals: 4 }
+        - { path: "players.A.deck.count", equals: 36 }
+      rejected: { command: 0, reason: "mulligan-limit-exceeded" }
+    notes: "1.5:117.1 上限是 2 张，选 3 张属于非法指令，整体拒绝且状态不变。"
+
+  - id: setup-mulligan-twice-not-allowed
+    rule: ["1.5:117"]
+    title: "每名玩家只能调度一次，重复调度被拒绝"
+    kind: negative
+    given:
+      setup: { mode: duel-1v1, step: mulligan, completeUntil: mulligan }
+      players:
+        A:
+          deck: [ "@unit(cost:2,might:2) x36" ]
+          hand: [ "@unit(cost:2,might:2)#h1", "@unit(cost:3,might:3)#h2", "@unit(cost:4,might:4)#h3", "@unit(cost:5,might:5)#h4" ]
+        B: {}
+    commands:
+      - { player: A, do: mulligan, cards: ["h1"] }
+      - { player: A, do: mulligan, cards: ["h2"] }
+    expect:
+      state:
+        - { path: "players.A.hand.count", equals: 4 }
+      rejected: { command: 1, reason: "mulligan-already-performed" }
+    notes: "1.5:117 给每名玩家一次调度机会，规则没有\"二次调度\"概念。"
+
+  - id: setup-mulligan-turn-order
+    rule: ["1.5:117", "1.5:115"]
+    title: "调度按回合顺序进行，先手先调度"
+    kind: positive
+    given:
+      setup: { mode: duel-1v1, step: mulligan, completeUntil: mulligan, random: { firstPlayer: A } }
+      players:
+        A:
+          deck: [ "@unit(cost:1,might:1) x36" ]
+          hand: [ "@unit(cost:9,might:9)#ha1", "@unit(cost:2,might:2)#ha2", "@unit(cost:2,might:2)#ha3", "@unit(cost:2,might:2)#ha4" ]
+        B:
+          deck: [ "@unit(cost:1,might:1) x36" ]
+          hand: [ "@unit(cost:9,might:9)#hb1", "@unit(cost:2,might:2)#hb2", "@unit(cost:2,might:2)#hb3", "@unit(cost:2,might:2)#hb4" ]
+    commands:
+      - { player: A, do: mulligan, cards: ["ha1"] }
+      - { player: B, do: mulligan, cards: ["hb1"] }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: setup.mulligan-set-aside, player: A }
+          - { timing: recycle, player: A }
+          - { timing: setup.mulligan-set-aside, player: B }
+          - { timing: recycle, player: B }
+      state:
+        - { path: "players.A.hand.count", equals: 4 }
+        - { path: "players.B.hand.count", equals: 4 }
+      rejected: null
+    notes: "1.5:117 按回合顺序：A 的整个调度流程（置旁、补抽、回收）全部结束后才轮到 B。"
+
+  - id: setup-mulligan-out-of-order-rejected
+    rule: ["1.5:117", "1.5:410"]
+    title: "调度阶段轮到先手时，后手抢先调度被拒绝"
+    kind: negative
+    given:
+      setup: { mode: duel-1v1, step: mulligan, completeUntil: mulligan, random: { firstPlayer: A } }
+      players:
+        A:
+          deck: [ "@unit(cost:1,might:1) x36" ]
+          hand: [ "@unit(cost:2,might:2) x4" ]
+        B:
+          deck: [ "@unit(cost:1,might:1) x36" ]
+          hand: [ "@unit(cost:9,might:9)#hb1", "@unit(cost:2,might:2)#hb2", "@unit(cost:2,might:2)#hb3", "@unit(cost:2,might:2)#hb4" ]
+    commands:
+      - { player: B, do: mulligan, cards: ["hb1"] }
+    expect:
+      state:
+        - { path: "players.B.hand", contains: "hb1" }
+      rejected: { command: 0, reason: "not-your-mulligan-window" }
+    notes: "调度按回合顺序（1.5:117），不在自己调度窗口内的动作不合法（结合 1.5:410 的顺序责任）。"
+
+  - id: setup-mulligan-with-empty-deck
+    rule: ["1.5:117.2", "1.5:414.4", "1.5:432"]
+    title: "起手 4 张后牌组刚好抽空，调度 2 张时先燃尽再补抽"
+    kind: edge
+    given:
+      setup: { mode: duel-1v1, step: mulligan, completeUntil: mulligan }
+      players:
+        A:
+          deck: []
+          trash: [ "@unit(cost:2,might:2)#t1", "@unit(cost:3,might:3)#t2", "@unit(cost:4,might:4)#t3" ]
+          hand: [ "@unit(cost:6,might:6)#h1", "@unit(cost:7,might:7)#h2", "@unit(cost:2,might:2)#h3", "@unit(cost:3,might:3)#h4" ]
+        B: { score: 0 }
+    commands:
+      - { player: A, do: mulligan, cards: ["h1", "h2"] }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: burn-out, player: A }
+          - { timing: score.gained, player: B, amount: 1 }
+          - { timing: recycle, player: A, cards: ["h1", "h2"], zone: deck }
+      state:
+        - { path: "players.A.hand.count", equals: 4 }
+        - { path: "players.B.score", equals: 1 }
+        - { path: "players.A.hand", notContains: "h1" }
+      rejected: null
+    notes: "调度补抽时牌组为空，按 1.5:414.4/432 先燃尽（废牌回收洗牌、指定对手得 1 分）再完成抽牌；燃尽之后置旁牌才回收进主牌组底，所以补抽不可能抽到 h1/h2。UNCERTAIN: 燃尽是否让\"调度的补抽\"与正常抽牌走完全相同的补偿流程，v1.5 文本按\"抽牌动作\"统一处理，此处按相同处理。"
+
+  # ---------- 战场选择（113/487.5/488.5/489.5/490.4） ----------
+  - id: setup-battlefield-selection-duel-random
+    rule: ["1.5:113", "1.5:113.1", "1.5:487.5"]
+    title: "1v1（Duel）开局：双方各随机选 1 个战场，另 2 个移出本局"
+    kind: positive
+    given:
+      setup: { mode: duel-1v1, step: battlefield-selection, random: { battlefieldChoice: { A: 1, B: 2 } } }
+      players:
+        A:
+          battlefields: [ "@battlefield(name:Alpha)#bfA1", "@battlefield(name:Beta)#bfA2", "@battlefield(name:Gamma)#bfA3" ]
+        B:
+          battlefields: [ "@battlefield(name:Delta)#bfB1", "@battlefield(name:Epsilon)#bfB2", "@battlefield(name:Zeta)#bfB3" ]
+    commands:
+      - { do: setup-select-battlefields }
+    expect:
+      state:
+        - { path: "battlefields.zone", equals: ["bfA1", "bfB2"] }
+        - { path: "players.A.battlefields.count", equals: 0 }
+        - { path: "players.B.battlefields.count", equals: 0 }
+        - { path: "outOfGame.battlefields.A", contains: "bfA2" }
+        - { path: "outOfGame.battlefields.A", contains: "bfA3" }
+      rejected: null
+    notes: "1.5:487.5：每人 3 选 1（随机），被选的同时放进战场区，其余本局不用。Duel 模式是随机选择。"
+
+  - id: setup-battlefields-enter-simultaneously
+    rule: ["1.5:487.5", "1.5:107.2"]
+    title: "被选战场同时放进战场区，没有先后"
+    kind: edge
+    given:
+      setup: { mode: duel-1v1, step: battlefield-selection, random: { battlefieldChoice: { A: 0, B: 0 } } }
+      players:
+        A:
+          battlefields: [ "@battlefield(name:Alpha)#bfA1", "@battlefield(name:Beta)#bfA2", "@battlefield(name:Gamma)#bfA3" ]
+        B:
+          battlefields: [ "@battlefield(name:Delta)#bfB1", "@battlefield(name:Epsilon)#bfB2", "@battlefield(name:Zeta)#bfB3" ]
+    commands:
+      - { do: setup-select-battlefields }
+    expect:
+      events:
+        ordered: simultaneous
+        list:
+          - { timing: zone.enter, object: "bfA1", zone: battlefields }
+          - { timing: zone.enter, object: "bfB1", zone: battlefields }
+      state:
+        - { path: "battlefields.zone.count", equals: 2 }
+      rejected: null
+    notes: "1.5:487.5 写明同时放置。事件按同时处理，不进链、不分先后。ordered: simultaneous 是给 harness 的无序集合语义，若 harness 不支持可退化为只断言 state。"
+
+  - id: setup-battlefield-selection-match-choice
+    rule: ["1.5:488.5", "1.5:488.6"]
+    title: "1v1（Match）第一局：双方自选 1 个战场，胜者用过的战场后续局不能再选"
+    kind: positive
+    given:
+      setup: { mode: match-1v1, step: battlefield-selection, matchState: { game: 1, wins: { A: 0, B: 0 } } }
+      players:
+        A:
+          battlefields: [ "@battlefield(name:Alpha)#bfA1", "@battlefield(name:Beta)#bfA2", "@battlefield(name:Gamma)#bfA3" ]
+        B:
+          battlefields: [ "@battlefield(name:Delta)#bfB1", "@battlefield(name:Epsilon)#bfB2", "@battlefield(name:Zeta)#bfB3" ]
+    commands:
+      - { player: A, do: setup-choose-battlefield, card: "bfA2" }
+      - { player: B, do: setup-choose-battlefield, card: "bfB3" }
+    expect:
+      state:
+        - { path: "battlefields.zone", equals: ["bfA2", "bfB3"] }
+        - { path: "match.setAside.A", contains: "bfA1" }
+        - { path: "match.setAside.A", contains: "bfA3" }
+      rejected: null
+    notes: "1.5:488.5：Match 模式是自选（非随机）；未选的置旁，本局不用。1.5:488.6：赛后胜者移除本局用过的战场，下一局从置旁的里选。"
+
+  - id: setup-battlefield-reuse-match-winner
+    rule: ["1.5:488.5"]
+    title: "Match 第二局：胜方想再选上局用过的战场被拒绝"
+    kind: negative
+    given:
+      setup:
+        mode: match-1v1
+        step: battlefield-selection
+        matchState:
+          game: 2
+          wins: { A: 1, B: 0 }
+          removedBattlefields: { A: ["bfA1"], B: ["bfB1"] }
+      players:
+        A:
+          battlefields: [ "@battlefield(name:Beta)#bfA2", "@battlefield(name:Gamma)#bfA3" ]
+        B:
+          battlefields: [ "@battlefield(name:Epsilon)#bfB2", "@battlefield(name:Zeta)#bfB3" ]
+    commands:
+      - { player: A, do: setup-choose-battlefield, card: "bfA1" }
+    expect:
+      rejected: { command: 0, reason: "battlefield-removed-from-match" }
+      state:
+        - { path: "battlefields.zone.count", equals: 0 }
+    notes: "1.5:488.5：赢过的玩家，其用过的战场被移出且本场不能再选；bfA1 已不在 A 的可选集合里。"
+
+  - id: setup-battlefield-reuse-after-draw
+    rule: ["1.5:488.5.a"]
+    title: "Match 上一局无人获胜（平局）：本局战场可以再次出示"
+    kind: edge
+    given:
+      setup:
+        mode: match-1v1
+        step: battlefield-selection
+        matchState:
+          game: 2
+          wins: { A: 0, B: 0 }
+          drawnGame: true
+      players:
+        A:
+          battlefields: [ "@battlefield(name:Alpha)#bfA1", "@battlefield(name:Beta)#bfA2", "@battlefield(name:Gamma)#bfA3" ]
+        B:
+          battlefields: [ "@battlefield(name:Delta)#bfB1", "@battlefield(name:Epsilon)#bfB2", "@battlefield(name:Zeta)#bfB3" ]
+    commands:
+      - { player: A, do: setup-choose-battlefield, card: "bfA1" }
+      - { player: B, do: setup-choose-battlefield, card: "bfB1" }
+    expect:
+      state:
+        - { path: "battlefields.zone", equals: ["bfA1", "bfB1"] }
+      rejected: null
+    notes: "1.5:488.5.a：上一局没有胜者时，该局出示过的战场允许在后续局重复使用。"
+
+  - id: setup-battlefield-selection-ffa3
+    rule: ["1.5:489.4", "1.5:489.5"]
+    title: "FFA3（Skirmish）：三人各随机选 1 个战场，共 3 个进入战场区"
+    kind: positive
+    given:
+      setup: { mode: ffa3, step: battlefield-selection, random: { battlefieldChoice: { A: 0, B: 1, C: 2 } } }
+      players:
+        A:
+          battlefields: [ "@battlefield(name:Alpha)#bfA1", "@battlefield(name:Beta)#bfA2", "@battlefield(name:Gamma)#bfA3" ]
+        B:
+          battlefields: [ "@battlefield(name:Delta)#bfB1", "@battlefield(name:Epsilon)#bfB2", "@battlefield(name:Zeta)#bfB3" ]
+        C:
+          battlefields: [ "@battlefield(name:Theta)#bfC1", "@battlefield(name:Iota)#bfC2", "@battlefield(name:Kappa)#bfC3" ]
+    commands:
+      - { do: setup-select-battlefields }
+    expect:
+      state:
+        - { path: "battlefields.zone", equals: ["bfA1", "bfB2", "bfC3"] }
+        - { path: "battlefields.zone.count", equals: 3 }
+      rejected: null
+    notes: "1.5:489.4/489.5：FFA3 战场数 3，每名玩家 3 选 1（随机），其余弃置本局不用。"
+
+  - id: setup-battlefield-first-player-removes-ffa4
+    rule: ["1.5:490.4", "1.5:490.4.b", "1.5:490.5"]
+    title: "FFA4（War）：先手玩家的 3 个战场全部移出，其余三人各随机选 1 个"
+    kind: positive
+    given:
+      setup: { mode: ffa4, step: battlefield-selection, random: { firstPlayer: A, battlefieldChoice: { B: 0, C: 1, D: 2 } } }
+      players:
+        A:
+          battlefields: [ "@battlefield(name:Alpha)#bfA1", "@battlefield(name:Beta)#bfA2", "@battlefield(name:Gamma)#bfA3" ]
+        B:
+          battlefields: [ "@battlefield(name:Delta)#bfB1", "@battlefield(name:Epsilon)#bfB2", "@battlefield(name:Zeta)#bfB3" ]
+        C:
+          battlefields: [ "@battlefield(name:Theta)#bfC1", "@battlefield(name:Iota)#bfC2", "@battlefield(name:Kappa)#bfC3" ]
+        D:
+          battlefields: [ "@battlefield(name:Lambda)#bfD1", "@battlefield(name:Mu)#bfD2", "@battlefield(name:Nu)#bfD3" ]
+    commands:
+      - { do: setup-select-battlefields }
+    expect:
+      state:
+        - { path: "battlefields.zone", equals: ["bfB1", "bfC2", "bfD3"] }
+        - { path: "battlefields.zone.count", equals: 3 }
+        - { path: "outOfGame.battlefields.A.count", equals: 3 }
+      rejected: null
+    notes: "1.5:490.4.b：FFA4 战场数 3 但有 4 名玩家，拿第一回合的玩家的战场不被使用，其余三人各贡献 1 个。"
+
+  - id: setup-battlefield-selection-2v2
+    rule: ["1.5:491.5.a", "1.5:491.5.b"]
+    title: "2v2（Magma Chamber）：先手玩家移出战场，其余三名玩家各随机选 1 个"
+    kind: positive
+    given:
+      setup: { mode: magma-chamber-2v2, step: battlefield-selection, random: { firstPlayer: A, battlefieldChoice: { B: 0, C: 1, D: 2 } }, teams: [["A", "C"], ["B", "D"]] }
+      players:
+        A:
+          battlefields: [ "@battlefield(name:Alpha)#bfA1", "@battlefield(name:Beta)#bfA2", "@battlefield(name:Gamma)#bfA3" ]
+        B:
+          battlefields: [ "@battlefield(name:Delta)#bfB1", "@battlefield(name:Epsilon)#bfB2", "@battlefield(name:Zeta)#bfB3" ]
+        C:
+          battlefields: [ "@battlefield(name:Theta)#bfC1", "@battlefield(name:Iota)#bfC2", "@battlefield(name:Kappa)#bfC3" ]
+        D:
+          battlefields: [ "@battlefield(name:Lambda)#bfD1", "@battlefield(name:Mu)#bfD2", "@battlefield(name:Nu)#bfD3" ]
+    commands:
+      - { do: setup-select-battlefields }
+    expect:
+      state:
+        - { path: "battlefields.zone.count", equals: 3 }
+        - { path: "battlefields.zone", contains: "bfB1" }
+        - { path: "battlefields.zone", contains: "bfC2" }
+        - { path: "battlefields.zone", contains: "bfD3" }
+        - { path: "outOfGame.battlefields.A.count", equals: 3 }
+      rejected: null
+    notes: "1.5:491.5：与 FFA4 同构——先手（A）的战场移出本局，B/C/D 各随机选 1 个同时放置。"
+
+  # ---------- 第一回合流程（487.7/489.7 等，setup 的延伸） ----------
+  - id: setup-second-player-extra-rune-duel
+    rule: ["1.5:487.7", "1.5:315.3", "1.5:431.1"]
+    title: "1v1 后手补偿：后手玩家本局第一个充能阶段多充能 1 个符文"
+    kind: positive
+    given:
+      setup: { mode: duel-1v1, complete: true, random: { firstPlayer: A } }
+      turn: { active: B, phase: channel, state: neutral-closed, number: 2 }
+      players:
+        A: {}
+        B:
+          runeDeck: [ "@rune(calm) x12" ]
+          base: []
+    commands:
+      - { player: B, do: channel-phase }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: rune.channeled, player: B, count: 3 }
+      state:
+        - { path: "players.B.base.runes.count", equals: 3 }
+        - { path: "players.B.runeDeck.count", equals: 9 }
+      rejected: null
+    notes: "1.5:487.7 的第一回合补偿叠加在 1.5:315.3 的常规充能 2 个之上，共 3 个；符文默认就绪进场（1.5:431.2.a）。事件名 rune.channeled 待 RIFT-21 核对。"
+
+  - id: setup-first-player-normal-channel-duel
+    rule: ["1.5:487.7", "1.5:315.3"]
+    title: "1v1 先手无补偿：第一个充能阶段只充能 2 个符文"
+    kind: negative
+    given:
+      setup: { mode: duel-1v1, complete: true, random: { firstPlayer: A } }
+      turn: { active: A, phase: channel, state: neutral-closed, number: 1 }
+      players:
+        A:
+          runeDeck: [ "@rune(fury) x12" ]
+          base: []
+        B: {}
+    commands:
+      - { player: A, do: channel-phase }
+    expect:
+      state:
+        - { path: "players.A.base.runes.count", equals: 2 }
+        - { path: "players.A.runeDeck.count", equals: 10 }
+      rejected: null
+    notes: "negative 语义为多充能这种期待不成立：先手玩家的第一回合没有任何额外充能，1.5:487.7 只补给后手。"
+
+  - id: setup-ffa-first-player-skips-draw
+    rule: ["1.5:489.7", "1.5:315.4", "1.5:414.2"]
+    title: "FFA 先手第一个抽牌阶段不抽牌，其他玩家照常抽 1"
+    kind: negative
+    given:
+      setup: { mode: ffa3, complete: true, random: { firstPlayer: A } }
+      turn: { active: A, phase: draw, state: neutral-closed, number: 1 }
+      players:
+        A:
+          deck: [ "@unit(cost:2,might:2) x36" ]
+          hand: [ "@unit(cost:2,might:2) x4" ]
+        B: {}
+        C: {}
+    commands:
+      - { player: A, do: draw-phase }
+    expect:
+      state:
+        - { path: "players.A.hand.count", equals: 4 }
+        - { path: "players.A.deck.count", equals: 36 }
+      rejected: null
+    notes: "1.5:489.7（FFA3/FFA4/2v2 同）：先手第一次抽牌阶段跳过常规抽 1，以免先手优势叠加。negative 语义为照常抽牌不成立。FFA3 里最后行动的玩家仍享受额外符文补偿。"
+
+  # ---------- v1.5 组牌阶段额外决定（103.1 + Neeko） ----------
+  - id: setup-neeko-deckbuilding-three-legends
+    rule: ["1.5:103.1"]
+    title: "牌组含 Neeko, Blending In 时，组牌阶段额外选定 3 个传奇"
+    kind: positive
+    given:
+      deckbuilding:
+        championLegend: "@legend(tag:test, domains:[fury])"
+        deck: [ "Neeko, Blending In x2", "@unit(cost:2,might:2) x37" ]
+    commands:
+      - { player: A, do: deckbuilding-choose, decision: neeko-legends, legends: ["@legend(name:L1, domains:[fury])", "@legend(name:L2, domains:[calm])", "@legend(name:L3, domains:[mind])"] }
+    expect:
+      state:
+        - { path: "deckbuilding.neekoLegends.count", equals: 3 }
+        - { path: "deckbuilding.valid", equals: true }
+      rejected: null
+    notes: "真实卡 Neeko, Blending In：能力要求\"若此卡在你的牌组中，除起始传奇外另选 3 个不同传奇\"。官方 Radiance patch notes FAQ 确认：选传奇是组牌决定、竞技环境需登记在牌表、可与备牌放一起；不论牌组里有几张 Neeko 都只选 3 个；进入传奇区前不需要向对手展示。"
+
+  - id: setup-neeko-legends-must-differ-from-champion
+    rule: ["1.5:103.1"]
+    title: "Neeko 额外传奇与冠军传奇重复时组牌不合法"
+    kind: negative
+    given:
+      deckbuilding:
+        championLegend: "@legend(name:L1, tag:test, domains:[fury])"
+        deck: [ "Neeko, Blending In x1", "@unit(cost:2,might:2) x39" ]
+    commands:
+      - { player: A, do: deckbuilding-choose, decision: neeko-legends, legends: ["@legend(name:L1, domains:[fury])", "@legend(name:L2, domains:[calm])", "@legend(name:L3, domains:[mind])"] }
+    expect:
+      rejected: { command: 0, reason: "duplicate-champion-legend" }
+      state:
+        - { path: "deckbuilding.valid", equals: false }
+    notes: "官方 FAQ：3 个额外传奇必须互不相同，且必须与冠军传奇不同。"
+
+  - id: setup-neeko-legends-must-differ-from-each-other
+    rule: ["1.5:103.1"]
+    title: "Neeko 额外传奇互相重复时组牌不合法"
+    kind: negative
+    given:
+      deckbuilding:
+        championLegend: "@legend(name:L0, tag:test, domains:[fury])"
+        deck: [ "Neeko, Blending In x1", "@unit(cost:2,might:2) x39" ]
+    commands:
+      - { player: A, do: deckbuilding-choose, decision: neeko-legends, legends: ["@legend(name:L2, domains:[calm])", "@legend(name:L2, domains:[calm])", "@legend(name:L3, domains:[mind])"] }
+    expect:
+      rejected: { command: 0, reason: "duplicate-extra-legend" }
+      state:
+        - { path: "deckbuilding.valid", equals: false }
+    notes: "官方 FAQ 同一条：不能往传奇区加同名传奇的第二个副本，组牌阶段就不允许重复选择。"
+
+  - id: setup-neeko-shared-across-copies
+    rule: ["1.5:103.1"]
+    title: "牌组有 3 张 Neeko 也只选 3 个额外传奇，不叠加"
+    kind: edge
+    given:
+      deckbuilding:
+        championLegend: "@legend(name:L0, tag:test, domains:[fury])"
+        deck: [ "Neeko, Blending In x3", "@unit(cost:2,might:2) x37" ]
+    commands:
+      - { player: A, do: deckbuilding-choose, decision: neeko-legends, legends: ["@legend(name:L1, domains:[fury])", "@legend(name:L2, domains:[calm])", "@legend(name:L3, domains:[mind])"] }
+    expect:
+      state:
+        - { path: "deckbuilding.neekoLegends.count", equals: 3 }
+        - { path: "deckbuilding.valid", equals: true }
+      rejected: null
+    notes: "官方 FAQ：3 个传奇由牌组里所有 Neeko 共享，Neeko 张数不改变选择数量。若引擎按每张 Neeko 各要 3 个就会错。"
+
+  - id: setup-neeko-play-adds-legend-ready
+    rule: ["1.5:103.1", "1.5:174.2.b"]
+    title: "Neeko 打出效果结算：从组牌选定的 3 个传奇中选 1 个就绪放进传奇区"
+    kind: positive
+    given:
+      setup: { mode: duel-1v1, complete: true }
+      deckbuilding:
+        neekoLegends: [ "@legend(name:L1, domains:[fury])#nl1", "@legend(name:L2, domains:[calm])#nl2", "@legend(name:L3, domains:[mind])#nl3" ]
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          legendZone: [ "@legend(name:L0, tag:test, domains:[fury])#legA" ]
+          energy: 2
+          runes: { ready: [fury, fury], exhausted: [] }
+          hand: [ "Neeko, Blending In" ]
+        B: {}
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 2 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+      - { player: A, do: choose, for: "neeko-play-trigger", legend: "nl2" }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.enter, object: "A:hand[0]", zone: base }
+          - { timing: zone.enter, object: "nl2", zone: legendZone }
+      state:
+        - { path: "players.A.legendZone", contains: "legA" }
+        - { path: "players.A.legendZone", contains: "nl2" }
+        - { path: "players.A.legendZone.nl2.state", equals: ready }
+      rejected: null
+    notes: "依赖 Neeko, Blending In 的打出能力：从组牌选定的 3 个传奇里挑 1 个加进传奇区，只要 Neeko 在场上就存在。官方 FAQ：进入的传奇是就绪的、不是衍生物、是正式传奇卡。触发进链后结算时做选择。"
+
+  - id: setup-neeko-legend-ceases-when-neeko-leaves
+    rule: ["1.5:103.1"]
+    title: "Neeko 离场后，它带来的传奇同时消失"
+    kind: edge
+    given:
+      setup: { mode: duel-1v1, complete: true }
+      turn: { active: B, phase: main, state: neutral-open }
+      players:
+        A:
+          legendZone: [ "@legend(name:L0, tag:test, domains:[fury])#legA", "@legend(name:L2, domains:[calm])#nl2" ]
+          base: [ "Neeko, Blending In#nk1" ]
+        B:
+          energy: 3
+          runes: { ready: [fury, fury, fury], exhausted: [] }
+          hand: [ "@spell(cost:3, speed:action, text: \"Kill target unit.\")" ]
+      chain: []
+    commands:
+      - { player: B, do: play, card: "hand[0]", target: "nk1", pay: { energy: 3 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: unit.killed, object: "nk1" }
+      state:
+        - { path: "players.A.legendZone", notContains: "nl2" }
+        - { path: "players.A.legendZone", contains: "legA" }
+    notes: "官方 FAQ：Neeko 离场时该传奇也不复存在——不进入任何区域（不是进放逐区）。冠军传奇不受影响。"
+
+  - id: setup-neeko-cannot-duplicate-legend-on-board
+    rule: ["1.5:103.1", "1.5:107.4.d.1"]
+    title: "第四个 Neeko 结算时 3 个备选传奇都已在场，添加失败"
+    kind: edge
+    given:
+      setup: { mode: duel-1v1, complete: true }
+      deckbuilding:
+        neekoLegends: [ "@legend(name:L1, domains:[fury])#nl1", "@legend(name:L2, domains:[calm])#nl2", "@legend(name:L3, domains:[mind])#nl3" ]
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          legendZone: [ "@legend(name:L0, tag:test, domains:[fury])#legA", "@legend(name:L1, domains:[fury])#nl1", "@legend(name:L2, domains:[calm])#nl2", "@legend(name:L3, domains:[mind])#nl3" ]
+          energy: 2
+          runes: { ready: [fury, fury], exhausted: [] }
+          hand: [ "Neeko, Blending In" ]
+          base: [ "Neeko, Blending In#nk1", "Neeko, Blending In#nk2", "Neeko, Blending In#nk3" ]
+        B: {}
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 2 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      state:
+        - { path: "players.A.legendZone.count", equals: 4 }
+      rejected: null
+    notes: "官方 FAQ：每个组牌选定的传奇至多一个版本在场；若 3 个都已在场，再结算 Neeko 的添加效果时会失败——单位照常进场，只是传奇添加失败。这依赖规则 055（做能做的部分），效果是部分结算而非整卡被拒。"
+
+  # ---------- 组牌合法性（setup 的前置，103.2/103.3） ----------
+  - id: setup-domain-identity-single-domain-ok
+    rule: ["1.5:103.2.b.1", "1.5:103.2.b.3"]
+    title: "组牌：单领域卡与冠军传奇领域一致时合法"
+    kind: positive
+    given:
+      deckbuilding:
+        championLegend: "@legend(tag:test, domains:[fury])"
+        deck: [ "@unit(champion, tag:test, cost:3, might:3)", "@unit(cost:2, might:2, domains:[fury]) x39" ]
+        runeDeck: [ "@rune(fury) x12" ]
+    commands:
+      - { player: A, do: deckbuilding-validate }
+    expect:
+      state:
+        - { path: "deckbuilding.valid", equals: true }
+      rejected: null
+    notes: "1.5:103.2.b.3：单领域卡允许进入对应领域的牌组。领域一致性是开局合法性的前置条件。"
+
+  - id: setup-domain-identity-off-domain-card
+    rule: ["1.5:103.2.b.1", "1.5:103.2.b.3"]
+    title: "组牌：牌组含领域外的卡，校验失败"
+    kind: negative
+    given:
+      deckbuilding:
+        championLegend: "@legend(tag:test, domains:[fury])"
+        deck: [ "@unit(champion, tag:test, cost:3, might:3)", "@unit(cost:2, might:2, domains:[fury]) x38", "@unit(cost:1, might:1, domains:[mind])" ]
+        runeDeck: [ "@rune(fury) x12" ]
+    commands:
+      - { player: A, do: deckbuilding-validate }
+    expect:
+      rejected: { command: 0, reason: "domain-identity-violation" }
+      state:
+        - { path: "deckbuilding.valid", equals: false }
+    notes: "冠军传奇决定领域身份（1.5:103.2.b.2），fury 牌组不能放 mind 单领域卡。"
+
+  - id: setup-domain-identity-multidomain-card
+    rule: ["1.5:103.2.b.4", "1.5:103.2.b.5"]
+    title: "组牌：多领域卡要求领域身份包含其全部领域，无领域卡任意牌组可用"
+    kind: edge
+    given:
+      deckbuilding:
+        championLegend: "@legend(tag:test, domains:[fury, calm])"
+        deck: [ "@unit(champion, tag:test, cost:3, might:3)", "@unit(cost:2, might:2, domains:[fury, calm]) x19", "@unit(cost:1, might:1, domains:[]) x10", "@unit(cost:4, might:4, domains:[fury]) x10" ]
+        runeDeck: [ "@rune(fury) x6", "@rune(calm) x6" ]
+    commands:
+      - { player: A, do: deckbuilding-validate }
+    expect:
+      state:
+        - { path: "deckbuilding.valid", equals: true }
+      rejected: null
+    notes: "1.5:103.2.b.4：多领域卡只在领域身份包含其全部领域时可用（fury+calm 传奇能放 fury+calm 卡）；1.5:103.2.b.5：无领域卡不受限。反例（fury+calm 卡放进纯 fury 身份）属非法，可据此再写 negative。"
+
+  - id: setup-chosen-champion-tag-must-match
+    rule: ["1.5:103.3.a.2"]
+    title: "所选冠军的冠军标签必须与冠军传奇的标签一致，不一致则组牌非法"
+    kind: negative
+    given:
+      deckbuilding:
+        championLegend: "@legend(tag:testA, domains:[fury])"
+        deck: [ "@unit(champion, tag:testB, cost:3, might:3)", "@unit(cost:2, might:2, domains:[fury]) x39" ]
+        runeDeck: [ "@rune(fury) x12" ]
+    commands:
+      - { player: A, do: deckbuilding-validate }
+    expect:
+      rejected: { command: 0, reason: "champion-tag-mismatch" }
+      state:
+        - { path: "deckbuilding.valid", equals: false }
+    notes: "1.5:103.3.a.2：所选冠军必须是冠军单位且标签与冠军传奇一致（规则例：传奇挂 Jinx 标签才能选 Jinx 系冠军；Tibbers 是 signature 单位，即使挂 Annie 标签也不能当所选冠军）。"
+
+  - id: setup-chosen-champion-must-be-champion-unit
+    rule: ["1.5:103.3.a.2", "1.5:103.3.d.3"]
+    title: "Signature 单位不能作为所选冠军放进冠军区"
+    kind: negative
+    given:
+      deckbuilding:
+        championLegend: "@legend(tag:test, domains:[fury])"
+        deck: [ "@unit(signature, tag:test, cost:3, might:3)", "@unit(cost:2, might:2, domains:[fury]) x39" ]
+        runeDeck: [ "@rune(fury) x12" ]
+    commands:
+      - { player: A, do: deckbuilding-validate }
+    expect:
+      rejected: { command: 0, reason: "chosen-champion-not-champion" }
+      state:
+        - { path: "deckbuilding.valid", equals: false }
+    notes: "1.5:103.3.d.3：Signature 卡不是冠军单位、不能进冠军区；即使标签匹配也不行（规则原文的 Tibbers/Annie 例子）。"
+
+  - id: setup-rune-deck-domain-and-size
+    rule: ["1.5:103.4.a", "1.5:103.4.a.1"]
+    title: "符文牌组 12 张且全部符合冠军传奇的领域身份"
+    kind: negative
+    given:
+      deckbuilding:
+        championLegend: "@legend(tag:test, domains:[fury])"
+        deck: [ "@unit(champion, tag:test, cost:3, might:3)", "@unit(cost:2, might:2, domains:[fury]) x39" ]
+        runeDeck: [ "@rune(fury) x11", "@rune(mind) x1" ]
+    commands:
+      - { player: A, do: deckbuilding-validate }
+    expect:
+      rejected: { command: 0, reason: "rune-domain-identity-violation" }
+      state:
+        - { path: "deckbuilding.valid", equals: false }
+    notes: "1.5:103.4.a/103.4.a.1：符文牌组 12 张、全部属于冠军传奇的领域身份。数量错或混入领域外符文都不合法。"
+
+  # ---------- 杂项边界 ----------
+  - id: setup-full-sequence-order
+    rule: ["1.5:110", "1.5:111", "1.5:112", "1.5:113", "1.5:114", "1.5:115", "1.5:116", "1.5:117", "1.5:118"]
+    title: "完整开局流程的顺序：放传奇冠军、备战场、洗两叠、定顺序、各抽 4、按序调度、先手开始"
+    kind: positive
+    given:
+      setup: { mode: duel-1v1, step: begin }
+      players:
+        A:
+          championLegend: "@legend(tag:test, domains:[fury])"
+          chosenChampion: "@unit(champion, tag:test, cost:3, might:3)"
+          battlefields: [ "@battlefield(name:Alpha)", "@battlefield(name:Beta)", "@battlefield(name:Gamma)" ]
+          deck: [ "@unit(cost:2,might:2) x40" ]
+          runeDeck: [ "@rune(fury) x12" ]
+        B:
+          championLegend: "@legend(tag:test2, domains:[calm])"
+          chosenChampion: "@unit(champion, tag:test2, cost:2, might:2)"
+          battlefields: [ "@battlefield(name:Delta)", "@battlefield(name:Epsilon)", "@battlefield(name:Zeta)" ]
+          deck: [ "@unit(cost:3,might:3) x40" ]
+          runeDeck: [ "@rune(calm) x12" ]
+    commands:
+      - { do: setup-run }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: setup.legend-placed, player: A }
+          - { timing: setup.champion-placed, player: A }
+          - { timing: setup.battlefields-selected }
+          - { timing: setup.deck-shuffled, player: A, deck: main }
+          - { timing: setup.turn-order-determined }
+          - { timing: setup.opening-hand, player: A, count: 4 }
+          - { timing: setup.mulligan-window, player: A }
+          - { timing: setup.mulligan-window, player: B }
+          - { timing: turn.started, player: A }
+      state:
+        - { path: "players.A.hand.count", equals: 4 }
+        - { path: "players.B.hand.count", equals: 4 }
+        - { path: "turn.number", equals: 1 }
+      rejected: null
+    notes: "1.5:110–118 的固定顺序总览；先手为 A 是 given 的随机结果。此场景是其余各条的总装回归，事件名为占位、待 RIFT-21 冻结后统一改名。"
