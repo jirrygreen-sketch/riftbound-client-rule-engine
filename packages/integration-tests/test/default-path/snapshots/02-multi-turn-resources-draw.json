@@ -1,0 +1,5437 @@
+{
+  "schemaVersion": 1,
+  "scenario": "02-multi-turn-resources-draw",
+  "source": {
+    "roomProfile": "p4",
+    "runtimeProfile": "optional-unit-choice-clock-v4",
+    "journalSchemaVersion": 7,
+    "seed": 77,
+    "random": "lcg32:1664525,1013904223",
+    "dataVersion": "2026-10-12-official-gallery",
+    "catalogDigest": "sha256:53b974c8472d82053bf61f6836842c8f0d62c2fafb4411fa502256912a504d10",
+    "decks": {
+      "fixture": "apps/game-server/tests/duel/fixtures/fury77-real-decks.ts",
+      "hashes": [
+        "sha256:3ea131e25d13d0db558b40debe46e8e4d115793c41fe0f8d83cf9fdce16cbcf9",
+        "sha256:1eef3c74380d0179be1839f37feae8e1d4bf960c2c5afc185cece03e1b3dd937"
+      ]
+    }
+  },
+  "coverage": [
+    "turn start and end",
+    "automatic channel and draw",
+    "energy exhaust",
+    "power recycle",
+    "turn resource expiry and readiness",
+    "both players' hidden hand counts"
+  ],
+  "stop": "Main of turn 6 after five real End commands.",
+  "steps": [
+    {
+      "label": "room-ready",
+      "roomEvents": [
+        {
+          "type": "room-created",
+          "playerId": "player-1",
+          "seq": 1,
+          "roomId": "default-path"
+        },
+        {
+          "type": "player-joined",
+          "playerId": "player-1",
+          "seq": 2,
+          "roomId": "default-path"
+        },
+        {
+          "type": "player-joined",
+          "playerId": "player-2",
+          "seq": 3,
+          "roomId": "default-path"
+        },
+        {
+          "type": "deck-submitted",
+          "playerId": "player-1",
+          "seq": 4,
+          "roomId": "default-path"
+        },
+        {
+          "type": "deck-submitted",
+          "playerId": "player-2",
+          "seq": 5,
+          "roomId": "default-path"
+        },
+        {
+          "type": "player-ready",
+          "playerId": "player-1",
+          "ready": true,
+          "seq": 6,
+          "roomId": "default-path"
+        },
+        {
+          "type": "player-ready",
+          "playerId": "player-2",
+          "ready": true,
+          "seq": 7,
+          "roomId": "default-path"
+        },
+        {
+          "type": "game-started",
+          "seq": 8,
+          "roomId": "default-path"
+        }
+      ],
+      "events": [
+        {
+          "recipient": "player-1",
+          "type": "room",
+          "room": {
+            "roomId": "default-path",
+            "status": "waiting",
+            "rulesetId": "riftbound-duel",
+            "version": 0,
+            "roomVersion": 4,
+            "roomEventSeq": 3,
+            "players": [
+              {
+                "id": "player-1",
+                "name": "Alice",
+                "connected": true,
+                "ready": false,
+                "deckSubmitted": false
+              },
+              {
+                "id": "player-2",
+                "name": "Bob",
+                "connected": true,
+                "ready": false,
+                "deckSubmitted": false
+              }
+            ]
+          }
+        },
+        {
+          "recipient": "player-1",
+          "type": "owner-deck-confirmation"
+        },
+        {
+          "recipient": "player-2",
+          "type": "room",
+          "room": {
+            "roomId": "default-path",
+            "status": "waiting",
+            "rulesetId": "riftbound-duel",
+            "version": 0,
+            "roomVersion": 4,
+            "roomEventSeq": 3,
+            "players": [
+              {
+                "id": "player-1",
+                "name": "Alice",
+                "connected": true,
+                "ready": false,
+                "deckSubmitted": false
+              },
+              {
+                "id": "player-2",
+                "name": "Bob",
+                "connected": true,
+                "ready": false,
+                "deckSubmitted": false
+              }
+            ]
+          }
+        },
+        {
+          "recipient": "player-2",
+          "type": "owner-deck-confirmation"
+        },
+        {
+          "recipient": "player-1",
+          "type": "request-result",
+          "requestId": "deck-player-1",
+          "ok": true,
+          "roomVersion": 5,
+          "roomEventSeq": 4,
+          "duplicate": false
+        },
+        {
+          "recipient": "player-1",
+          "type": "room",
+          "room": {
+            "roomId": "default-path",
+            "status": "waiting",
+            "rulesetId": "riftbound-duel",
+            "version": 0,
+            "roomVersion": 5,
+            "roomEventSeq": 4,
+            "players": [
+              {
+                "id": "player-1",
+                "name": "Alice",
+                "connected": true,
+                "ready": false,
+                "deckSubmitted": true
+              },
+              {
+                "id": "player-2",
+                "name": "Bob",
+                "connected": true,
+                "ready": false,
+                "deckSubmitted": false
+              }
+            ]
+          }
+        },
+        {
+          "recipient": "player-1",
+          "type": "owner-deck-confirmation"
+        },
+        {
+          "recipient": "player-2",
+          "type": "room",
+          "room": {
+            "roomId": "default-path",
+            "status": "waiting",
+            "rulesetId": "riftbound-duel",
+            "version": 0,
+            "roomVersion": 5,
+            "roomEventSeq": 4,
+            "players": [
+              {
+                "id": "player-1",
+                "name": "Alice",
+                "connected": true,
+                "ready": false,
+                "deckSubmitted": true
+              },
+              {
+                "id": "player-2",
+                "name": "Bob",
+                "connected": true,
+                "ready": false,
+                "deckSubmitted": false
+              }
+            ]
+          }
+        },
+        {
+          "recipient": "player-2",
+          "type": "owner-deck-confirmation"
+        },
+        {
+          "recipient": "player-2",
+          "type": "request-result",
+          "requestId": "deck-player-2",
+          "ok": true,
+          "roomVersion": 6,
+          "roomEventSeq": 5,
+          "duplicate": false
+        },
+        {
+          "recipient": "player-1",
+          "type": "room",
+          "room": {
+            "roomId": "default-path",
+            "status": "waiting",
+            "rulesetId": "riftbound-duel",
+            "version": 0,
+            "roomVersion": 6,
+            "roomEventSeq": 5,
+            "players": [
+              {
+                "id": "player-1",
+                "name": "Alice",
+                "connected": true,
+                "ready": false,
+                "deckSubmitted": true
+              },
+              {
+                "id": "player-2",
+                "name": "Bob",
+                "connected": true,
+                "ready": false,
+                "deckSubmitted": true
+              }
+            ]
+          }
+        },
+        {
+          "recipient": "player-1",
+          "type": "owner-deck-confirmation"
+        },
+        {
+          "recipient": "player-2",
+          "type": "room",
+          "room": {
+            "roomId": "default-path",
+            "status": "waiting",
+            "rulesetId": "riftbound-duel",
+            "version": 0,
+            "roomVersion": 6,
+            "roomEventSeq": 5,
+            "players": [
+              {
+                "id": "player-1",
+                "name": "Alice",
+                "connected": true,
+                "ready": false,
+                "deckSubmitted": true
+              },
+              {
+                "id": "player-2",
+                "name": "Bob",
+                "connected": true,
+                "ready": false,
+                "deckSubmitted": true
+              }
+            ]
+          }
+        },
+        {
+          "recipient": "player-2",
+          "type": "owner-deck-confirmation"
+        },
+        {
+          "recipient": "player-1",
+          "type": "request-result",
+          "requestId": "ready-player-1",
+          "ok": true,
+          "roomVersion": 7,
+          "roomEventSeq": 6,
+          "duplicate": false
+        },
+        {
+          "recipient": "player-1",
+          "type": "room",
+          "room": {
+            "roomId": "default-path",
+            "status": "waiting",
+            "rulesetId": "riftbound-duel",
+            "version": 0,
+            "roomVersion": 7,
+            "roomEventSeq": 6,
+            "players": [
+              {
+                "id": "player-1",
+                "name": "Alice",
+                "connected": true,
+                "ready": true,
+                "deckSubmitted": true
+              },
+              {
+                "id": "player-2",
+                "name": "Bob",
+                "connected": true,
+                "ready": false,
+                "deckSubmitted": true
+              }
+            ]
+          }
+        },
+        {
+          "recipient": "player-1",
+          "type": "owner-deck-confirmation"
+        },
+        {
+          "recipient": "player-2",
+          "type": "room",
+          "room": {
+            "roomId": "default-path",
+            "status": "waiting",
+            "rulesetId": "riftbound-duel",
+            "version": 0,
+            "roomVersion": 7,
+            "roomEventSeq": 6,
+            "players": [
+              {
+                "id": "player-1",
+                "name": "Alice",
+                "connected": true,
+                "ready": true,
+                "deckSubmitted": true
+              },
+              {
+                "id": "player-2",
+                "name": "Bob",
+                "connected": true,
+                "ready": false,
+                "deckSubmitted": true
+              }
+            ]
+          }
+        },
+        {
+          "recipient": "player-2",
+          "type": "owner-deck-confirmation"
+        },
+        {
+          "recipient": "player-2",
+          "type": "request-result",
+          "requestId": "ready-player-2",
+          "ok": true,
+          "roomVersion": 9,
+          "roomEventSeq": 8,
+          "duplicate": false
+        },
+        {
+          "recipient": "player-1",
+          "type": "owner-deck-confirmation"
+        },
+        {
+          "recipient": "player-1",
+          "type": "room",
+          "room": {
+            "roomId": "default-path",
+            "status": "playing",
+            "rulesetId": "riftbound-duel",
+            "version": 0,
+            "roomVersion": 9,
+            "roomEventSeq": 8,
+            "players": [
+              {
+                "id": "player-1",
+                "name": "Alice",
+                "connected": true,
+                "ready": true,
+                "deckSubmitted": true
+              },
+              {
+                "id": "player-2",
+                "name": "Bob",
+                "connected": true,
+                "ready": true,
+                "deckSubmitted": true
+              }
+            ]
+          }
+        },
+        {
+          "recipient": "player-2",
+          "type": "owner-deck-confirmation"
+        },
+        {
+          "recipient": "player-2",
+          "type": "room",
+          "room": {
+            "roomId": "default-path",
+            "status": "playing",
+            "rulesetId": "riftbound-duel",
+            "version": 0,
+            "roomVersion": 9,
+            "roomEventSeq": 8,
+            "players": [
+              {
+                "id": "player-1",
+                "name": "Alice",
+                "connected": true,
+                "ready": true,
+                "deckSubmitted": true
+              },
+              {
+                "id": "player-2",
+                "name": "Bob",
+                "connected": true,
+                "ready": true,
+                "deckSubmitted": true
+              }
+            ]
+          }
+        },
+        {
+          "recipient": "player-1",
+          "type": "duel-projection",
+          "stateVersion": 0,
+          "eventSeq": 0,
+          "stage": "setup"
+        },
+        {
+          "recipient": "player-2",
+          "type": "duel-projection",
+          "stateVersion": 0,
+          "eventSeq": 0,
+          "stage": "setup"
+        }
+      ],
+      "projections": [
+        {
+          "hash": "sha256:faef032108bfbe1a0daa108a4c434a22b2ca8247426c61f28a325840d9e010c2",
+          "viewer": "player-1",
+          "schema": "riftbound-duel-v3-actions-1",
+          "stage": "setup",
+          "stateVersion": 0,
+          "eventSeq": 0,
+          "setup": {
+            "stage": "mulligan",
+            "turnOrder": [
+              "player-2",
+              "player-1"
+            ],
+            "firstPlayerId": "player-2",
+            "currentMulliganOwner": "player-2",
+            "players": [
+              {
+                "playerId": "player-1",
+                "legend": {
+                  "cardId": "unl-187-219"
+                },
+                "champion": {
+                  "cardId": "ogn-036-298"
+                },
+                "handCount": 4,
+                "mainDeckCount": 35,
+                "runeDeckCount": 12,
+                "mulliganStatus": "pending",
+                "hand": [
+                  {
+                    "uid": "uid-001",
+                    "cardId": "ogs-016-024"
+                  },
+                  {
+                    "uid": "uid-002",
+                    "cardId": "sfd-156-221"
+                  },
+                  {
+                    "uid": "uid-003",
+                    "cardId": "ogn-209-298"
+                  },
+                  {
+                    "uid": "uid-004",
+                    "cardId": "sfd-006-221"
+                  }
+                ]
+              },
+              {
+                "playerId": "player-2",
+                "legend": {
+                  "cardId": "unl-187-219"
+                },
+                "champion": {
+                  "cardId": "ogn-036-298"
+                },
+                "handCount": 4,
+                "mainDeckCount": 35,
+                "runeDeckCount": 12,
+                "mulliganStatus": "pending"
+              }
+            ],
+            "selectedBattlefields": [
+              {
+                "playerId": "player-1",
+                "instanceId": "uid-005",
+                "cardId": "ogn-278-298"
+              },
+              {
+                "playerId": "player-2",
+                "instanceId": "uid-006",
+                "cardId": "ogn-278-298"
+              }
+            ]
+          },
+          "actions": []
+        },
+        {
+          "hash": "sha256:1ed94eecdf5e4a1ad622a676d4f0ddfef06e4f7290180167e709b583b58af6bf",
+          "viewer": "player-2",
+          "schema": "riftbound-duel-v3-actions-1",
+          "stage": "setup",
+          "stateVersion": 0,
+          "eventSeq": 0,
+          "setup": {
+            "stage": "mulligan",
+            "turnOrder": [
+              "player-2",
+              "player-1"
+            ],
+            "firstPlayerId": "player-2",
+            "currentMulliganOwner": "player-2",
+            "players": [
+              {
+                "playerId": "player-1",
+                "legend": {
+                  "cardId": "unl-187-219"
+                },
+                "champion": {
+                  "cardId": "ogn-036-298"
+                },
+                "handCount": 4,
+                "mainDeckCount": 35,
+                "runeDeckCount": 12,
+                "mulliganStatus": "pending"
+              },
+              {
+                "playerId": "player-2",
+                "legend": {
+                  "cardId": "unl-187-219"
+                },
+                "champion": {
+                  "cardId": "ogn-036-298"
+                },
+                "handCount": 4,
+                "mainDeckCount": 35,
+                "runeDeckCount": 12,
+                "mulliganStatus": "pending",
+                "hand": [
+                  {
+                    "uid": "uid-007",
+                    "cardId": "sfd-006-221"
+                  },
+                  {
+                    "uid": "uid-008",
+                    "cardId": "sfd-006-221"
+                  },
+                  {
+                    "uid": "uid-009",
+                    "cardId": "ogn-010-298"
+                  },
+                  {
+                    "uid": "uid-010",
+                    "cardId": "sfd-006-221"
+                  }
+                ]
+              }
+            ],
+            "selectedBattlefields": [
+              {
+                "playerId": "player-1",
+                "instanceId": "uid-005",
+                "cardId": "ogn-278-298"
+              },
+              {
+                "playerId": "player-2",
+                "instanceId": "uid-006",
+                "cardId": "ogn-278-298"
+              }
+            ]
+          },
+          "actions": [
+            {
+              "kind": "mulligan",
+              "enabled": true,
+              "selectableUIDs": [
+                "uid-007",
+                "uid-008",
+                "uid-009",
+                "uid-010"
+              ],
+              "maxSelections": 2
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "player-2-keep",
+      "submitted": {
+        "player": "player-2",
+        "packet": {
+          "type": "duel-command",
+          "commandProfile": "duel-command-v3-actions-1",
+          "requestId": "request-1",
+          "commandId": "command-1",
+          "expectedVersion": 0,
+          "command": {
+            "type": "mulligan",
+            "selectedUIDs": []
+          }
+        }
+      },
+      "roomEvents": [],
+      "events": [
+        {
+          "recipient": "player-2",
+          "type": "request-result",
+          "requestId": "request-1",
+          "commandId": "command-1",
+          "ok": true,
+          "appliedVersion": 1,
+          "eventSeq": 1,
+          "duplicate": false,
+          "roomVersion": 9,
+          "roomEventSeq": 8
+        },
+        {
+          "recipient": "player-1",
+          "type": "duel-projection",
+          "stateVersion": 1,
+          "eventSeq": 1,
+          "stage": "setup"
+        },
+        {
+          "recipient": "player-2",
+          "type": "duel-projection",
+          "stateVersion": 1,
+          "eventSeq": 1,
+          "stage": "setup"
+        }
+      ],
+      "projections": [
+        {
+          "hash": "sha256:2ddd56682394a3410597d658b3c9bf402a0d84aa26ba435e9cfd43cc302db5a2",
+          "viewer": "player-1",
+          "schema": "riftbound-duel-v3-actions-1",
+          "stage": "setup",
+          "stateVersion": 1,
+          "eventSeq": 1,
+          "setup": {
+            "stage": "mulligan",
+            "turnOrder": [
+              "player-2",
+              "player-1"
+            ],
+            "firstPlayerId": "player-2",
+            "currentMulliganOwner": "player-1",
+            "players": [
+              {
+                "playerId": "player-1",
+                "legend": {
+                  "cardId": "unl-187-219"
+                },
+                "champion": {
+                  "cardId": "ogn-036-298"
+                },
+                "handCount": 4,
+                "mainDeckCount": 35,
+                "runeDeckCount": 12,
+                "mulliganStatus": "pending",
+                "hand": [
+                  {
+                    "uid": "uid-001",
+                    "cardId": "ogs-016-024"
+                  },
+                  {
+                    "uid": "uid-002",
+                    "cardId": "sfd-156-221"
+                  },
+                  {
+                    "uid": "uid-003",
+                    "cardId": "ogn-209-298"
+                  },
+                  {
+                    "uid": "uid-004",
+                    "cardId": "sfd-006-221"
+                  }
+                ]
+              },
+              {
+                "playerId": "player-2",
+                "legend": {
+                  "cardId": "unl-187-219"
+                },
+                "champion": {
+                  "cardId": "ogn-036-298"
+                },
+                "handCount": 4,
+                "mainDeckCount": 35,
+                "runeDeckCount": 12,
+                "mulliganStatus": "complete"
+              }
+            ],
+            "selectedBattlefields": [
+              {
+                "playerId": "player-1",
+                "instanceId": "uid-005",
+                "cardId": "ogn-278-298"
+              },
+              {
+                "playerId": "player-2",
+                "instanceId": "uid-006",
+                "cardId": "ogn-278-298"
+              }
+            ]
+          },
+          "actions": [
+            {
+              "kind": "mulligan",
+              "enabled": true,
+              "selectableUIDs": [
+                "uid-001",
+                "uid-002",
+                "uid-003",
+                "uid-004"
+              ],
+              "maxSelections": 2
+            }
+          ]
+        },
+        {
+          "hash": "sha256:4ca28b56f7d315326560718b61ee1ce07de263b787e8d625857318b27c6a7900",
+          "viewer": "player-2",
+          "schema": "riftbound-duel-v3-actions-1",
+          "stage": "setup",
+          "stateVersion": 1,
+          "eventSeq": 1,
+          "setup": {
+            "stage": "mulligan",
+            "turnOrder": [
+              "player-2",
+              "player-1"
+            ],
+            "firstPlayerId": "player-2",
+            "currentMulliganOwner": "player-1",
+            "players": [
+              {
+                "playerId": "player-1",
+                "legend": {
+                  "cardId": "unl-187-219"
+                },
+                "champion": {
+                  "cardId": "ogn-036-298"
+                },
+                "handCount": 4,
+                "mainDeckCount": 35,
+                "runeDeckCount": 12,
+                "mulliganStatus": "pending"
+              },
+              {
+                "playerId": "player-2",
+                "legend": {
+                  "cardId": "unl-187-219"
+                },
+                "champion": {
+                  "cardId": "ogn-036-298"
+                },
+                "handCount": 4,
+                "mainDeckCount": 35,
+                "runeDeckCount": 12,
+                "mulliganStatus": "complete",
+                "hand": [
+                  {
+                    "uid": "uid-007",
+                    "cardId": "sfd-006-221"
+                  },
+                  {
+                    "uid": "uid-008",
+                    "cardId": "sfd-006-221"
+                  },
+                  {
+                    "uid": "uid-009",
+                    "cardId": "ogn-010-298"
+                  },
+                  {
+                    "uid": "uid-010",
+                    "cardId": "sfd-006-221"
+                  }
+                ]
+              }
+            ],
+            "selectedBattlefields": [
+              {
+                "playerId": "player-1",
+                "instanceId": "uid-005",
+                "cardId": "ogn-278-298"
+              },
+              {
+                "playerId": "player-2",
+                "instanceId": "uid-006",
+                "cardId": "ogn-278-298"
+              }
+            ]
+          },
+          "actions": []
+        }
+      ]
+    },
+    {
+      "label": "player-1-keep",
+      "submitted": {
+        "player": "player-1",
+        "packet": {
+          "type": "duel-command",
+          "commandProfile": "duel-command-v3-actions-1",
+          "requestId": "request-2",
+          "commandId": "command-2",
+          "expectedVersion": 1,
+          "command": {
+            "type": "mulligan",
+            "selectedUIDs": []
+          }
+        }
+      },
+      "roomEvents": [],
+      "events": [
+        {
+          "recipient": "player-1",
+          "type": "request-result",
+          "requestId": "request-2",
+          "commandId": "command-2",
+          "ok": true,
+          "appliedVersion": 2,
+          "eventSeq": 2,
+          "duplicate": false,
+          "roomVersion": 9,
+          "roomEventSeq": 8
+        },
+        {
+          "recipient": "player-1",
+          "type": "duel-projection",
+          "stateVersion": 10,
+          "eventSeq": 10,
+          "stage": "playing"
+        },
+        {
+          "recipient": "player-2",
+          "type": "duel-projection",
+          "stateVersion": 10,
+          "eventSeq": 10,
+          "stage": "playing"
+        }
+      ],
+      "projections": [
+        {
+          "hash": "sha256:f92d12335fee23c4d9003d8057c240e3dadd5df8248d745e9883761057fc72c0",
+          "viewer": "player-1",
+          "schema": "riftbound-duel-v3-actions-1",
+          "stage": "playing",
+          "stateVersion": 10,
+          "eventSeq": 10,
+          "frame": {
+            "phase": "main",
+            "turnNumber": 1,
+            "turnPlayerId": "player-2",
+            "priorityPlayerId": "player-2",
+            "focusPlayerId": null,
+            "stateOpen": true,
+            "pendingPayment": null,
+            "chain": {
+              "active": false
+            },
+            "pendingChoice": null,
+            "execution": {
+              "status": "ready"
+            }
+          },
+          "players": [
+            {
+              "playerId": "player-1",
+              "handCount": 4,
+              "mainDeckCount": 35,
+              "hand": [
+                {
+                  "uid": "uid-001",
+                  "cardId": "ogs-016-024"
+                },
+                {
+                  "uid": "uid-002",
+                  "cardId": "sfd-156-221"
+                },
+                {
+                  "uid": "uid-003",
+                  "cardId": "ogn-209-298"
+                },
+                {
+                  "uid": "uid-004",
+                  "cardId": "sfd-006-221"
+                }
+              ],
+              "trash": [],
+              "champion": {
+                "cardId": "ogn-036-298"
+              },
+              "legend": {
+                "cardId": "unl-187-219",
+                "controllerPlayerId": "player-1",
+                "readiness": "ready"
+              }
+            },
+            {
+              "playerId": "player-2",
+              "handCount": 5,
+              "mainDeckCount": 34,
+              "trash": [],
+              "champion": {
+                "cardId": "ogn-036-298"
+              },
+              "legend": {
+                "cardId": "unl-187-219",
+                "controllerPlayerId": "player-2",
+                "readiness": "ready"
+              }
+            }
+          ],
+          "resources": {
+            "players": [
+              {
+                "playerId": "player-1",
+                "runePool": {
+                  "energy": 0,
+                  "power": {
+                    "Fury": 0,
+                    "Calm": 0,
+                    "Mind": 0,
+                    "Body": 0,
+                    "Chaos": 0,
+                    "Order": 0,
+                    "any": 0
+                  }
+                },
+                "runeDeckCount": 12
+              },
+              {
+                "playerId": "player-2",
+                "runePool": {
+                  "energy": 0,
+                  "power": {
+                    "Fury": 0,
+                    "Calm": 0,
+                    "Mind": 0,
+                    "Body": 0,
+                    "Chaos": 0,
+                    "Order": 0,
+                    "any": 0
+                  }
+                },
+                "runeDeckCount": 10
+              }
+            ],
+            "bases": [
+              {
+                "playerId": "player-1",
+                "runes": [],
+                "goldTokens": []
+              },
+              {
+                "playerId": "player-2",
+                "runes": [
+                  {
+                    "uid": "uid-011",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-012",
+                    "domain": "Fury",
+                    "readied": true
+                  }
+                ],
+                "goldTokens": []
+              }
+            ]
+          },
+          "board": {
+            "battlefields": [
+              {
+                "locationId": "[\"duel-battlefield\",\"uid-005\"]",
+                "instanceId": "uid-005",
+                "cardId": "ogn-278-298",
+                "ownerPlayerId": "player-1",
+                "controllerPlayerId": null,
+                "contested": false,
+                "contestingPlayerId": null,
+                "showdown": "none",
+                "combat": "none",
+                "occupancy": []
+              },
+              {
+                "locationId": "[\"duel-battlefield\",\"uid-006\"]",
+                "instanceId": "uid-006",
+                "cardId": "ogn-278-298",
+                "ownerPlayerId": "player-2",
+                "controllerPlayerId": null,
+                "contested": false,
+                "contestingPlayerId": null,
+                "showdown": "none",
+                "combat": "none",
+                "occupancy": []
+              }
+            ],
+            "units": [],
+            "gears": []
+          },
+          "scoring": {
+            "playerIds": [
+              "player-1",
+              "player-2"
+            ],
+            "battlefieldLocationIds": [
+              "[\"duel-battlefield\",\"uid-005\"]",
+              "[\"duel-battlefield\",\"uid-006\"]"
+            ],
+            "victoryScore": 8,
+            "turnNumber": 1,
+            "players": [
+              {
+                "playerId": "player-1",
+                "points": 0,
+                "scoredBattlefieldLocationIds": []
+              },
+              {
+                "playerId": "player-2",
+                "points": 0,
+                "scoredBattlefieldLocationIds": []
+              }
+            ]
+          },
+          "actions": [
+            {
+              "kind": "standard-move",
+              "enabled": false,
+              "reason": "当前没有可移动的单位",
+              "windowId": "[\"duel:default-path\",10,1,\"main\",\"player-2\",\"player-2\",null]",
+              "selectableUnitUIDs": [],
+              "destinations": []
+            },
+            {
+              "kind": "end-turn",
+              "enabled": false,
+              "windowId": "[\"duel:default-path\",10,1,\"main\",\"player-2\",\"player-2\",null]",
+              "reason": "当前回合仍有待处理规则"
+            }
+          ]
+        },
+        {
+          "hash": "sha256:67a168a832033b5e3ec00d7fe8bfe29ce5759fa3407958d180e2c2d8ab04ebaa",
+          "viewer": "player-2",
+          "schema": "riftbound-duel-v3-actions-1",
+          "stage": "playing",
+          "stateVersion": 10,
+          "eventSeq": 10,
+          "frame": {
+            "phase": "main",
+            "turnNumber": 1,
+            "turnPlayerId": "player-2",
+            "priorityPlayerId": "player-2",
+            "focusPlayerId": null,
+            "stateOpen": true,
+            "pendingPayment": null,
+            "chain": {
+              "active": false
+            },
+            "pendingChoice": null,
+            "execution": {
+              "status": "ready"
+            }
+          },
+          "players": [
+            {
+              "playerId": "player-1",
+              "handCount": 4,
+              "mainDeckCount": 35,
+              "trash": [],
+              "champion": {
+                "cardId": "ogn-036-298"
+              },
+              "legend": {
+                "cardId": "unl-187-219",
+                "controllerPlayerId": "player-1",
+                "readiness": "ready"
+              }
+            },
+            {
+              "playerId": "player-2",
+              "handCount": 5,
+              "mainDeckCount": 34,
+              "hand": [
+                {
+                  "uid": "uid-007",
+                  "cardId": "sfd-006-221"
+                },
+                {
+                  "uid": "uid-008",
+                  "cardId": "sfd-006-221"
+                },
+                {
+                  "uid": "uid-009",
+                  "cardId": "ogn-010-298"
+                },
+                {
+                  "uid": "uid-010",
+                  "cardId": "sfd-006-221"
+                },
+                {
+                  "uid": "uid-013",
+                  "cardId": "ogn-013-298"
+                }
+              ],
+              "trash": [],
+              "champion": {
+                "cardId": "ogn-036-298"
+              },
+              "legend": {
+                "cardId": "unl-187-219",
+                "controllerPlayerId": "player-2",
+                "readiness": "ready"
+              }
+            }
+          ],
+          "resources": {
+            "players": [
+              {
+                "playerId": "player-1",
+                "runePool": {
+                  "energy": 0,
+                  "power": {
+                    "Fury": 0,
+                    "Calm": 0,
+                    "Mind": 0,
+                    "Body": 0,
+                    "Chaos": 0,
+                    "Order": 0,
+                    "any": 0
+                  }
+                },
+                "runeDeckCount": 12
+              },
+              {
+                "playerId": "player-2",
+                "runePool": {
+                  "energy": 0,
+                  "power": {
+                    "Fury": 0,
+                    "Calm": 0,
+                    "Mind": 0,
+                    "Body": 0,
+                    "Chaos": 0,
+                    "Order": 0,
+                    "any": 0
+                  }
+                },
+                "runeDeckCount": 10
+              }
+            ],
+            "bases": [
+              {
+                "playerId": "player-1",
+                "runes": [],
+                "goldTokens": []
+              },
+              {
+                "playerId": "player-2",
+                "runes": [
+                  {
+                    "uid": "uid-011",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-012",
+                    "domain": "Fury",
+                    "readied": true
+                  }
+                ],
+                "goldTokens": []
+              }
+            ]
+          },
+          "board": {
+            "battlefields": [
+              {
+                "locationId": "[\"duel-battlefield\",\"uid-005\"]",
+                "instanceId": "uid-005",
+                "cardId": "ogn-278-298",
+                "ownerPlayerId": "player-1",
+                "controllerPlayerId": null,
+                "contested": false,
+                "contestingPlayerId": null,
+                "showdown": "none",
+                "combat": "none",
+                "occupancy": []
+              },
+              {
+                "locationId": "[\"duel-battlefield\",\"uid-006\"]",
+                "instanceId": "uid-006",
+                "cardId": "ogn-278-298",
+                "ownerPlayerId": "player-2",
+                "controllerPlayerId": null,
+                "contested": false,
+                "contestingPlayerId": null,
+                "showdown": "none",
+                "combat": "none",
+                "occupancy": []
+              }
+            ],
+            "units": [],
+            "gears": []
+          },
+          "scoring": {
+            "playerIds": [
+              "player-1",
+              "player-2"
+            ],
+            "battlefieldLocationIds": [
+              "[\"duel-battlefield\",\"uid-005\"]",
+              "[\"duel-battlefield\",\"uid-006\"]"
+            ],
+            "victoryScore": 8,
+            "turnNumber": 1,
+            "players": [
+              {
+                "playerId": "player-1",
+                "points": 0,
+                "scoredBattlefieldLocationIds": []
+              },
+              {
+                "playerId": "player-2",
+                "points": 0,
+                "scoredBattlefieldLocationIds": []
+              }
+            ]
+          },
+          "actions": [
+            {
+              "kind": "rune-energy",
+              "uid": "uid-011",
+              "enabled": true
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-011",
+              "enabled": true
+            },
+            {
+              "kind": "rune-energy",
+              "uid": "uid-012",
+              "enabled": true
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-012",
+              "enabled": true
+            },
+            {
+              "kind": "play-card",
+              "enabled": true,
+              "cardUID": "uid-009",
+              "windowId": "[\"duel:default-path\",10,1,\"main\",\"player-2\",\"player-2\",null]"
+            },
+            {
+              "kind": "standard-move",
+              "enabled": false,
+              "reason": "当前没有可移动的单位",
+              "windowId": "[\"duel:default-path\",10,1,\"main\",\"player-2\",\"player-2\",null]",
+              "selectableUnitUIDs": [],
+              "destinations": []
+            },
+            {
+              "kind": "end-turn",
+              "enabled": true,
+              "windowId": "[\"duel:default-path\",10,1,\"main\",\"player-2\",\"player-2\",null]"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "exhaust-rune-for-energy",
+      "submitted": {
+        "player": "player-2",
+        "packet": {
+          "type": "duel-command",
+          "commandProfile": "duel-command-v3-actions-1",
+          "requestId": "request-3",
+          "commandId": "command-3",
+          "expectedVersion": 10,
+          "command": {
+            "type": "rune-energy",
+            "uid": "uid-011"
+          }
+        }
+      },
+      "roomEvents": [],
+      "events": [
+        {
+          "recipient": "player-2",
+          "type": "request-result",
+          "requestId": "request-3",
+          "commandId": "command-3",
+          "ok": true,
+          "appliedVersion": 11,
+          "eventSeq": 11,
+          "duplicate": false,
+          "roomVersion": 9,
+          "roomEventSeq": 8
+        },
+        {
+          "recipient": "player-1",
+          "type": "duel-projection",
+          "stateVersion": 11,
+          "eventSeq": 11,
+          "stage": "playing"
+        },
+        {
+          "recipient": "player-2",
+          "type": "duel-projection",
+          "stateVersion": 11,
+          "eventSeq": 11,
+          "stage": "playing"
+        }
+      ],
+      "projections": [
+        {
+          "hash": "sha256:befee69c867a393f2adce95d1dfadb3e020a80215d18a4f596ac70f57f8f2468",
+          "viewer": "player-1",
+          "schema": "riftbound-duel-v3-actions-1",
+          "stage": "playing",
+          "stateVersion": 11,
+          "eventSeq": 11,
+          "frame": {
+            "phase": "main",
+            "turnNumber": 1,
+            "turnPlayerId": "player-2",
+            "priorityPlayerId": "player-2",
+            "focusPlayerId": null,
+            "stateOpen": true,
+            "pendingPayment": null,
+            "chain": {
+              "active": false
+            },
+            "pendingChoice": null,
+            "execution": {
+              "status": "ready"
+            }
+          },
+          "players": [
+            {
+              "playerId": "player-1",
+              "handCount": 4,
+              "mainDeckCount": 35,
+              "hand": [
+                {
+                  "uid": "uid-001",
+                  "cardId": "ogs-016-024"
+                },
+                {
+                  "uid": "uid-002",
+                  "cardId": "sfd-156-221"
+                },
+                {
+                  "uid": "uid-003",
+                  "cardId": "ogn-209-298"
+                },
+                {
+                  "uid": "uid-004",
+                  "cardId": "sfd-006-221"
+                }
+              ],
+              "trash": [],
+              "champion": {
+                "cardId": "ogn-036-298"
+              },
+              "legend": {
+                "cardId": "unl-187-219",
+                "controllerPlayerId": "player-1",
+                "readiness": "ready"
+              }
+            },
+            {
+              "playerId": "player-2",
+              "handCount": 5,
+              "mainDeckCount": 34,
+              "trash": [],
+              "champion": {
+                "cardId": "ogn-036-298"
+              },
+              "legend": {
+                "cardId": "unl-187-219",
+                "controllerPlayerId": "player-2",
+                "readiness": "ready"
+              }
+            }
+          ],
+          "resources": {
+            "players": [
+              {
+                "playerId": "player-1",
+                "runePool": {
+                  "energy": 0,
+                  "power": {
+                    "Fury": 0,
+                    "Calm": 0,
+                    "Mind": 0,
+                    "Body": 0,
+                    "Chaos": 0,
+                    "Order": 0,
+                    "any": 0
+                  }
+                },
+                "runeDeckCount": 12
+              },
+              {
+                "playerId": "player-2",
+                "runePool": {
+                  "energy": 1,
+                  "power": {
+                    "Fury": 0,
+                    "Calm": 0,
+                    "Mind": 0,
+                    "Body": 0,
+                    "Chaos": 0,
+                    "Order": 0,
+                    "any": 0
+                  }
+                },
+                "runeDeckCount": 10
+              }
+            ],
+            "bases": [
+              {
+                "playerId": "player-1",
+                "runes": [],
+                "goldTokens": []
+              },
+              {
+                "playerId": "player-2",
+                "runes": [
+                  {
+                    "uid": "uid-011",
+                    "domain": "Order",
+                    "readied": false
+                  },
+                  {
+                    "uid": "uid-012",
+                    "domain": "Fury",
+                    "readied": true
+                  }
+                ],
+                "goldTokens": []
+              }
+            ]
+          },
+          "board": {
+            "battlefields": [
+              {
+                "locationId": "[\"duel-battlefield\",\"uid-005\"]",
+                "instanceId": "uid-005",
+                "cardId": "ogn-278-298",
+                "ownerPlayerId": "player-1",
+                "controllerPlayerId": null,
+                "contested": false,
+                "contestingPlayerId": null,
+                "showdown": "none",
+                "combat": "none",
+                "occupancy": []
+              },
+              {
+                "locationId": "[\"duel-battlefield\",\"uid-006\"]",
+                "instanceId": "uid-006",
+                "cardId": "ogn-278-298",
+                "ownerPlayerId": "player-2",
+                "controllerPlayerId": null,
+                "contested": false,
+                "contestingPlayerId": null,
+                "showdown": "none",
+                "combat": "none",
+                "occupancy": []
+              }
+            ],
+            "units": [],
+            "gears": []
+          },
+          "scoring": {
+            "playerIds": [
+              "player-1",
+              "player-2"
+            ],
+            "battlefieldLocationIds": [
+              "[\"duel-battlefield\",\"uid-005\"]",
+              "[\"duel-battlefield\",\"uid-006\"]"
+            ],
+            "victoryScore": 8,
+            "turnNumber": 1,
+            "players": [
+              {
+                "playerId": "player-1",
+                "points": 0,
+                "scoredBattlefieldLocationIds": []
+              },
+              {
+                "playerId": "player-2",
+                "points": 0,
+                "scoredBattlefieldLocationIds": []
+              }
+            ]
+          },
+          "actions": [
+            {
+              "kind": "standard-move",
+              "enabled": false,
+              "reason": "当前没有可移动的单位",
+              "windowId": "[\"duel:default-path\",11,1,\"main\",\"player-2\",\"player-2\",null]",
+              "selectableUnitUIDs": [],
+              "destinations": []
+            },
+            {
+              "kind": "end-turn",
+              "enabled": false,
+              "windowId": "[\"duel:default-path\",11,1,\"main\",\"player-2\",\"player-2\",null]",
+              "reason": "当前回合仍有待处理规则"
+            }
+          ]
+        },
+        {
+          "hash": "sha256:d62e60a464fc77f4bbfa2e4d37bb2da1b0ebe688bf04e427ff612f020cd58f31",
+          "viewer": "player-2",
+          "schema": "riftbound-duel-v3-actions-1",
+          "stage": "playing",
+          "stateVersion": 11,
+          "eventSeq": 11,
+          "frame": {
+            "phase": "main",
+            "turnNumber": 1,
+            "turnPlayerId": "player-2",
+            "priorityPlayerId": "player-2",
+            "focusPlayerId": null,
+            "stateOpen": true,
+            "pendingPayment": null,
+            "chain": {
+              "active": false
+            },
+            "pendingChoice": null,
+            "execution": {
+              "status": "ready"
+            }
+          },
+          "players": [
+            {
+              "playerId": "player-1",
+              "handCount": 4,
+              "mainDeckCount": 35,
+              "trash": [],
+              "champion": {
+                "cardId": "ogn-036-298"
+              },
+              "legend": {
+                "cardId": "unl-187-219",
+                "controllerPlayerId": "player-1",
+                "readiness": "ready"
+              }
+            },
+            {
+              "playerId": "player-2",
+              "handCount": 5,
+              "mainDeckCount": 34,
+              "hand": [
+                {
+                  "uid": "uid-007",
+                  "cardId": "sfd-006-221"
+                },
+                {
+                  "uid": "uid-008",
+                  "cardId": "sfd-006-221"
+                },
+                {
+                  "uid": "uid-009",
+                  "cardId": "ogn-010-298"
+                },
+                {
+                  "uid": "uid-010",
+                  "cardId": "sfd-006-221"
+                },
+                {
+                  "uid": "uid-013",
+                  "cardId": "ogn-013-298"
+                }
+              ],
+              "trash": [],
+              "champion": {
+                "cardId": "ogn-036-298"
+              },
+              "legend": {
+                "cardId": "unl-187-219",
+                "controllerPlayerId": "player-2",
+                "readiness": "ready"
+              }
+            }
+          ],
+          "resources": {
+            "players": [
+              {
+                "playerId": "player-1",
+                "runePool": {
+                  "energy": 0,
+                  "power": {
+                    "Fury": 0,
+                    "Calm": 0,
+                    "Mind": 0,
+                    "Body": 0,
+                    "Chaos": 0,
+                    "Order": 0,
+                    "any": 0
+                  }
+                },
+                "runeDeckCount": 12
+              },
+              {
+                "playerId": "player-2",
+                "runePool": {
+                  "energy": 1,
+                  "power": {
+                    "Fury": 0,
+                    "Calm": 0,
+                    "Mind": 0,
+                    "Body": 0,
+                    "Chaos": 0,
+                    "Order": 0,
+                    "any": 0
+                  }
+                },
+                "runeDeckCount": 10
+              }
+            ],
+            "bases": [
+              {
+                "playerId": "player-1",
+                "runes": [],
+                "goldTokens": []
+              },
+              {
+                "playerId": "player-2",
+                "runes": [
+                  {
+                    "uid": "uid-011",
+                    "domain": "Order",
+                    "readied": false
+                  },
+                  {
+                    "uid": "uid-012",
+                    "domain": "Fury",
+                    "readied": true
+                  }
+                ],
+                "goldTokens": []
+              }
+            ]
+          },
+          "board": {
+            "battlefields": [
+              {
+                "locationId": "[\"duel-battlefield\",\"uid-005\"]",
+                "instanceId": "uid-005",
+                "cardId": "ogn-278-298",
+                "ownerPlayerId": "player-1",
+                "controllerPlayerId": null,
+                "contested": false,
+                "contestingPlayerId": null,
+                "showdown": "none",
+                "combat": "none",
+                "occupancy": []
+              },
+              {
+                "locationId": "[\"duel-battlefield\",\"uid-006\"]",
+                "instanceId": "uid-006",
+                "cardId": "ogn-278-298",
+                "ownerPlayerId": "player-2",
+                "controllerPlayerId": null,
+                "contested": false,
+                "contestingPlayerId": null,
+                "showdown": "none",
+                "combat": "none",
+                "occupancy": []
+              }
+            ],
+            "units": [],
+            "gears": []
+          },
+          "scoring": {
+            "playerIds": [
+              "player-1",
+              "player-2"
+            ],
+            "battlefieldLocationIds": [
+              "[\"duel-battlefield\",\"uid-005\"]",
+              "[\"duel-battlefield\",\"uid-006\"]"
+            ],
+            "victoryScore": 8,
+            "turnNumber": 1,
+            "players": [
+              {
+                "playerId": "player-1",
+                "points": 0,
+                "scoredBattlefieldLocationIds": []
+              },
+              {
+                "playerId": "player-2",
+                "points": 0,
+                "scoredBattlefieldLocationIds": []
+              }
+            ]
+          },
+          "actions": [
+            {
+              "kind": "rune-energy",
+              "uid": "uid-011",
+              "enabled": false,
+              "reason": "当前不能横置该符文"
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-011",
+              "enabled": true
+            },
+            {
+              "kind": "rune-energy",
+              "uid": "uid-012",
+              "enabled": true
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-012",
+              "enabled": true
+            },
+            {
+              "kind": "play-card",
+              "enabled": true,
+              "cardUID": "uid-009",
+              "windowId": "[\"duel:default-path\",11,1,\"main\",\"player-2\",\"player-2\",null]"
+            },
+            {
+              "kind": "standard-move",
+              "enabled": false,
+              "reason": "当前没有可移动的单位",
+              "windowId": "[\"duel:default-path\",11,1,\"main\",\"player-2\",\"player-2\",null]",
+              "selectableUnitUIDs": [],
+              "destinations": []
+            },
+            {
+              "kind": "end-turn",
+              "enabled": true,
+              "windowId": "[\"duel:default-path\",11,1,\"main\",\"player-2\",\"player-2\",null]"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "recycle-rune-for-power",
+      "submitted": {
+        "player": "player-2",
+        "packet": {
+          "type": "duel-command",
+          "commandProfile": "duel-command-v3-actions-1",
+          "requestId": "request-4",
+          "commandId": "command-4",
+          "expectedVersion": 11,
+          "command": {
+            "type": "rune-power",
+            "uid": "uid-011"
+          }
+        }
+      },
+      "roomEvents": [],
+      "events": [
+        {
+          "recipient": "player-2",
+          "type": "request-result",
+          "requestId": "request-4",
+          "commandId": "command-4",
+          "ok": true,
+          "appliedVersion": 12,
+          "eventSeq": 12,
+          "duplicate": false,
+          "roomVersion": 9,
+          "roomEventSeq": 8
+        },
+        {
+          "recipient": "player-1",
+          "type": "duel-projection",
+          "stateVersion": 12,
+          "eventSeq": 12,
+          "stage": "playing"
+        },
+        {
+          "recipient": "player-2",
+          "type": "duel-projection",
+          "stateVersion": 12,
+          "eventSeq": 12,
+          "stage": "playing"
+        }
+      ],
+      "projections": [
+        {
+          "hash": "sha256:96fedd3fd32c953a9a9ec4f712a1a1e4ee94dc23e0bceb4be6c95aef29378296",
+          "viewer": "player-1",
+          "schema": "riftbound-duel-v3-actions-1",
+          "stage": "playing",
+          "stateVersion": 12,
+          "eventSeq": 12,
+          "frame": {
+            "phase": "main",
+            "turnNumber": 1,
+            "turnPlayerId": "player-2",
+            "priorityPlayerId": "player-2",
+            "focusPlayerId": null,
+            "stateOpen": true,
+            "pendingPayment": null,
+            "chain": {
+              "active": false
+            },
+            "pendingChoice": null,
+            "execution": {
+              "status": "ready"
+            }
+          },
+          "players": [
+            {
+              "playerId": "player-1",
+              "handCount": 4,
+              "mainDeckCount": 35,
+              "hand": [
+                {
+                  "uid": "uid-001",
+                  "cardId": "ogs-016-024"
+                },
+                {
+                  "uid": "uid-002",
+                  "cardId": "sfd-156-221"
+                },
+                {
+                  "uid": "uid-003",
+                  "cardId": "ogn-209-298"
+                },
+                {
+                  "uid": "uid-004",
+                  "cardId": "sfd-006-221"
+                }
+              ],
+              "trash": [],
+              "champion": {
+                "cardId": "ogn-036-298"
+              },
+              "legend": {
+                "cardId": "unl-187-219",
+                "controllerPlayerId": "player-1",
+                "readiness": "ready"
+              }
+            },
+            {
+              "playerId": "player-2",
+              "handCount": 5,
+              "mainDeckCount": 34,
+              "trash": [],
+              "champion": {
+                "cardId": "ogn-036-298"
+              },
+              "legend": {
+                "cardId": "unl-187-219",
+                "controllerPlayerId": "player-2",
+                "readiness": "ready"
+              }
+            }
+          ],
+          "resources": {
+            "players": [
+              {
+                "playerId": "player-1",
+                "runePool": {
+                  "energy": 0,
+                  "power": {
+                    "Fury": 0,
+                    "Calm": 0,
+                    "Mind": 0,
+                    "Body": 0,
+                    "Chaos": 0,
+                    "Order": 0,
+                    "any": 0
+                  }
+                },
+                "runeDeckCount": 12
+              },
+              {
+                "playerId": "player-2",
+                "runePool": {
+                  "energy": 1,
+                  "power": {
+                    "Fury": 0,
+                    "Calm": 0,
+                    "Mind": 0,
+                    "Body": 0,
+                    "Chaos": 0,
+                    "Order": 1,
+                    "any": 0
+                  }
+                },
+                "runeDeckCount": 11
+              }
+            ],
+            "bases": [
+              {
+                "playerId": "player-1",
+                "runes": [],
+                "goldTokens": []
+              },
+              {
+                "playerId": "player-2",
+                "runes": [
+                  {
+                    "uid": "uid-012",
+                    "domain": "Fury",
+                    "readied": true
+                  }
+                ],
+                "goldTokens": []
+              }
+            ]
+          },
+          "board": {
+            "battlefields": [
+              {
+                "locationId": "[\"duel-battlefield\",\"uid-005\"]",
+                "instanceId": "uid-005",
+                "cardId": "ogn-278-298",
+                "ownerPlayerId": "player-1",
+                "controllerPlayerId": null,
+                "contested": false,
+                "contestingPlayerId": null,
+                "showdown": "none",
+                "combat": "none",
+                "occupancy": []
+              },
+              {
+                "locationId": "[\"duel-battlefield\",\"uid-006\"]",
+                "instanceId": "uid-006",
+                "cardId": "ogn-278-298",
+                "ownerPlayerId": "player-2",
+                "controllerPlayerId": null,
+                "contested": false,
+                "contestingPlayerId": null,
+                "showdown": "none",
+                "combat": "none",
+                "occupancy": []
+              }
+            ],
+            "units": [],
+            "gears": []
+          },
+          "scoring": {
+            "playerIds": [
+              "player-1",
+              "player-2"
+            ],
+            "battlefieldLocationIds": [
+              "[\"duel-battlefield\",\"uid-005\"]",
+              "[\"duel-battlefield\",\"uid-006\"]"
+            ],
+            "victoryScore": 8,
+            "turnNumber": 1,
+            "players": [
+              {
+                "playerId": "player-1",
+                "points": 0,
+                "scoredBattlefieldLocationIds": []
+              },
+              {
+                "playerId": "player-2",
+                "points": 0,
+                "scoredBattlefieldLocationIds": []
+              }
+            ]
+          },
+          "actions": [
+            {
+              "kind": "standard-move",
+              "enabled": false,
+              "reason": "当前没有可移动的单位",
+              "windowId": "[\"duel:default-path\",12,1,\"main\",\"player-2\",\"player-2\",null]",
+              "selectableUnitUIDs": [],
+              "destinations": []
+            },
+            {
+              "kind": "end-turn",
+              "enabled": false,
+              "windowId": "[\"duel:default-path\",12,1,\"main\",\"player-2\",\"player-2\",null]",
+              "reason": "当前回合仍有待处理规则"
+            }
+          ]
+        },
+        {
+          "hash": "sha256:54d7e34df758d932903f11fd38f0c70e6b63f899aaf2d20e1163a52f140e463e",
+          "viewer": "player-2",
+          "schema": "riftbound-duel-v3-actions-1",
+          "stage": "playing",
+          "stateVersion": 12,
+          "eventSeq": 12,
+          "frame": {
+            "phase": "main",
+            "turnNumber": 1,
+            "turnPlayerId": "player-2",
+            "priorityPlayerId": "player-2",
+            "focusPlayerId": null,
+            "stateOpen": true,
+            "pendingPayment": null,
+            "chain": {
+              "active": false
+            },
+            "pendingChoice": null,
+            "execution": {
+              "status": "ready"
+            }
+          },
+          "players": [
+            {
+              "playerId": "player-1",
+              "handCount": 4,
+              "mainDeckCount": 35,
+              "trash": [],
+              "champion": {
+                "cardId": "ogn-036-298"
+              },
+              "legend": {
+                "cardId": "unl-187-219",
+                "controllerPlayerId": "player-1",
+                "readiness": "ready"
+              }
+            },
+            {
+              "playerId": "player-2",
+              "handCount": 5,
+              "mainDeckCount": 34,
+              "hand": [
+                {
+                  "uid": "uid-007",
+                  "cardId": "sfd-006-221"
+                },
+                {
+                  "uid": "uid-008",
+                  "cardId": "sfd-006-221"
+                },
+                {
+                  "uid": "uid-009",
+                  "cardId": "ogn-010-298"
+                },
+                {
+                  "uid": "uid-010",
+                  "cardId": "sfd-006-221"
+                },
+                {
+                  "uid": "uid-013",
+                  "cardId": "ogn-013-298"
+                }
+              ],
+              "trash": [],
+              "champion": {
+                "cardId": "ogn-036-298"
+              },
+              "legend": {
+                "cardId": "unl-187-219",
+                "controllerPlayerId": "player-2",
+                "readiness": "ready"
+              }
+            }
+          ],
+          "resources": {
+            "players": [
+              {
+                "playerId": "player-1",
+                "runePool": {
+                  "energy": 0,
+                  "power": {
+                    "Fury": 0,
+                    "Calm": 0,
+                    "Mind": 0,
+                    "Body": 0,
+                    "Chaos": 0,
+                    "Order": 0,
+                    "any": 0
+                  }
+                },
+                "runeDeckCount": 12
+              },
+              {
+                "playerId": "player-2",
+                "runePool": {
+                  "energy": 1,
+                  "power": {
+                    "Fury": 0,
+                    "Calm": 0,
+                    "Mind": 0,
+                    "Body": 0,
+                    "Chaos": 0,
+                    "Order": 1,
+                    "any": 0
+                  }
+                },
+                "runeDeckCount": 11
+              }
+            ],
+            "bases": [
+              {
+                "playerId": "player-1",
+                "runes": [],
+                "goldTokens": []
+              },
+              {
+                "playerId": "player-2",
+                "runes": [
+                  {
+                    "uid": "uid-012",
+                    "domain": "Fury",
+                    "readied": true
+                  }
+                ],
+                "goldTokens": []
+              }
+            ]
+          },
+          "board": {
+            "battlefields": [
+              {
+                "locationId": "[\"duel-battlefield\",\"uid-005\"]",
+                "instanceId": "uid-005",
+                "cardId": "ogn-278-298",
+                "ownerPlayerId": "player-1",
+                "controllerPlayerId": null,
+                "contested": false,
+                "contestingPlayerId": null,
+                "showdown": "none",
+                "combat": "none",
+                "occupancy": []
+              },
+              {
+                "locationId": "[\"duel-battlefield\",\"uid-006\"]",
+                "instanceId": "uid-006",
+                "cardId": "ogn-278-298",
+                "ownerPlayerId": "player-2",
+                "controllerPlayerId": null,
+                "contested": false,
+                "contestingPlayerId": null,
+                "showdown": "none",
+                "combat": "none",
+                "occupancy": []
+              }
+            ],
+            "units": [],
+            "gears": []
+          },
+          "scoring": {
+            "playerIds": [
+              "player-1",
+              "player-2"
+            ],
+            "battlefieldLocationIds": [
+              "[\"duel-battlefield\",\"uid-005\"]",
+              "[\"duel-battlefield\",\"uid-006\"]"
+            ],
+            "victoryScore": 8,
+            "turnNumber": 1,
+            "players": [
+              {
+                "playerId": "player-1",
+                "points": 0,
+                "scoredBattlefieldLocationIds": []
+              },
+              {
+                "playerId": "player-2",
+                "points": 0,
+                "scoredBattlefieldLocationIds": []
+              }
+            ]
+          },
+          "actions": [
+            {
+              "kind": "rune-energy",
+              "uid": "uid-012",
+              "enabled": true
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-012",
+              "enabled": true
+            },
+            {
+              "kind": "play-card",
+              "enabled": true,
+              "cardUID": "uid-009",
+              "windowId": "[\"duel:default-path\",12,1,\"main\",\"player-2\",\"player-2\",null]"
+            },
+            {
+              "kind": "standard-move",
+              "enabled": false,
+              "reason": "当前没有可移动的单位",
+              "windowId": "[\"duel:default-path\",12,1,\"main\",\"player-2\",\"player-2\",null]",
+              "selectableUnitUIDs": [],
+              "destinations": []
+            },
+            {
+              "kind": "end-turn",
+              "enabled": true,
+              "windowId": "[\"duel:default-path\",12,1,\"main\",\"player-2\",\"player-2\",null]"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "end-turn-1",
+      "submitted": {
+        "player": "player-2",
+        "packet": {
+          "type": "duel-command",
+          "commandProfile": "duel-command-v3-actions-1",
+          "requestId": "request-5",
+          "commandId": "command-5",
+          "expectedVersion": 12,
+          "command": {
+            "type": "end-turn",
+            "windowId": "[\"duel:default-path\",12,1,\"main\",\"player-2\",\"player-2\",null]"
+          }
+        }
+      },
+      "roomEvents": [],
+      "events": [
+        {
+          "recipient": "player-2",
+          "type": "request-result",
+          "requestId": "request-5",
+          "commandId": "command-5",
+          "ok": true,
+          "appliedVersion": 16,
+          "eventSeq": 16,
+          "duplicate": false,
+          "roomVersion": 9,
+          "roomEventSeq": 8
+        },
+        {
+          "recipient": "player-1",
+          "type": "duel-projection",
+          "stateVersion": 24,
+          "eventSeq": 24,
+          "stage": "playing"
+        },
+        {
+          "recipient": "player-2",
+          "type": "duel-projection",
+          "stateVersion": 24,
+          "eventSeq": 24,
+          "stage": "playing"
+        }
+      ],
+      "projections": [
+        {
+          "hash": "sha256:2d4d9aba9b69a1041ecb3d51c5ad3098cf24823543b6176fc5f79f0f62d3e26a",
+          "viewer": "player-1",
+          "schema": "riftbound-duel-v3-actions-1",
+          "stage": "playing",
+          "stateVersion": 24,
+          "eventSeq": 24,
+          "frame": {
+            "phase": "main",
+            "turnNumber": 2,
+            "turnPlayerId": "player-1",
+            "priorityPlayerId": "player-1",
+            "focusPlayerId": null,
+            "stateOpen": true,
+            "pendingPayment": null,
+            "chain": {
+              "active": false
+            },
+            "pendingChoice": null,
+            "execution": {
+              "status": "ready"
+            }
+          },
+          "players": [
+            {
+              "playerId": "player-1",
+              "handCount": 5,
+              "mainDeckCount": 34,
+              "hand": [
+                {
+                  "uid": "uid-001",
+                  "cardId": "ogs-016-024"
+                },
+                {
+                  "uid": "uid-002",
+                  "cardId": "sfd-156-221"
+                },
+                {
+                  "uid": "uid-003",
+                  "cardId": "ogn-209-298"
+                },
+                {
+                  "uid": "uid-004",
+                  "cardId": "sfd-006-221"
+                },
+                {
+                  "uid": "uid-014",
+                  "cardId": "ogn-001-298"
+                }
+              ],
+              "trash": [],
+              "champion": {
+                "cardId": "ogn-036-298"
+              },
+              "legend": {
+                "cardId": "unl-187-219",
+                "controllerPlayerId": "player-1",
+                "readiness": "ready"
+              }
+            },
+            {
+              "playerId": "player-2",
+              "handCount": 5,
+              "mainDeckCount": 34,
+              "trash": [],
+              "champion": {
+                "cardId": "ogn-036-298"
+              },
+              "legend": {
+                "cardId": "unl-187-219",
+                "controllerPlayerId": "player-2",
+                "readiness": "ready"
+              }
+            }
+          ],
+          "resources": {
+            "players": [
+              {
+                "playerId": "player-1",
+                "runePool": {
+                  "energy": 0,
+                  "power": {
+                    "Fury": 0,
+                    "Calm": 0,
+                    "Mind": 0,
+                    "Body": 0,
+                    "Chaos": 0,
+                    "Order": 0,
+                    "any": 0
+                  }
+                },
+                "runeDeckCount": 9
+              },
+              {
+                "playerId": "player-2",
+                "runePool": {
+                  "energy": 0,
+                  "power": {
+                    "Fury": 0,
+                    "Calm": 0,
+                    "Mind": 0,
+                    "Body": 0,
+                    "Chaos": 0,
+                    "Order": 0,
+                    "any": 0
+                  }
+                },
+                "runeDeckCount": 11
+              }
+            ],
+            "bases": [
+              {
+                "playerId": "player-1",
+                "runes": [
+                  {
+                    "uid": "uid-015",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-016",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-017",
+                    "domain": "Order",
+                    "readied": true
+                  }
+                ],
+                "goldTokens": []
+              },
+              {
+                "playerId": "player-2",
+                "runes": [
+                  {
+                    "uid": "uid-012",
+                    "domain": "Fury",
+                    "readied": true
+                  }
+                ],
+                "goldTokens": []
+              }
+            ]
+          },
+          "board": {
+            "battlefields": [
+              {
+                "locationId": "[\"duel-battlefield\",\"uid-005\"]",
+                "instanceId": "uid-005",
+                "cardId": "ogn-278-298",
+                "ownerPlayerId": "player-1",
+                "controllerPlayerId": null,
+                "contested": false,
+                "contestingPlayerId": null,
+                "showdown": "none",
+                "combat": "none",
+                "occupancy": []
+              },
+              {
+                "locationId": "[\"duel-battlefield\",\"uid-006\"]",
+                "instanceId": "uid-006",
+                "cardId": "ogn-278-298",
+                "ownerPlayerId": "player-2",
+                "controllerPlayerId": null,
+                "contested": false,
+                "contestingPlayerId": null,
+                "showdown": "none",
+                "combat": "none",
+                "occupancy": []
+              }
+            ],
+            "units": [],
+            "gears": []
+          },
+          "scoring": {
+            "playerIds": [
+              "player-1",
+              "player-2"
+            ],
+            "battlefieldLocationIds": [
+              "[\"duel-battlefield\",\"uid-005\"]",
+              "[\"duel-battlefield\",\"uid-006\"]"
+            ],
+            "victoryScore": 8,
+            "turnNumber": 2,
+            "players": [
+              {
+                "playerId": "player-1",
+                "points": 0,
+                "scoredBattlefieldLocationIds": []
+              },
+              {
+                "playerId": "player-2",
+                "points": 0,
+                "scoredBattlefieldLocationIds": []
+              }
+            ]
+          },
+          "actions": [
+            {
+              "kind": "rune-energy",
+              "uid": "uid-015",
+              "enabled": true
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-015",
+              "enabled": true
+            },
+            {
+              "kind": "rune-energy",
+              "uid": "uid-016",
+              "enabled": true
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-016",
+              "enabled": true
+            },
+            {
+              "kind": "rune-energy",
+              "uid": "uid-017",
+              "enabled": true
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-017",
+              "enabled": true
+            },
+            {
+              "kind": "play-card",
+              "enabled": true,
+              "cardUID": "uid-014",
+              "windowId": "[\"duel:default-path\",24,2,\"main\",\"player-1\",\"player-1\",null]"
+            },
+            {
+              "kind": "standard-move",
+              "enabled": false,
+              "reason": "当前没有可移动的单位",
+              "windowId": "[\"duel:default-path\",24,2,\"main\",\"player-1\",\"player-1\",null]",
+              "selectableUnitUIDs": [],
+              "destinations": []
+            },
+            {
+              "kind": "end-turn",
+              "enabled": true,
+              "windowId": "[\"duel:default-path\",24,2,\"main\",\"player-1\",\"player-1\",null]"
+            }
+          ]
+        },
+        {
+          "hash": "sha256:99b76466fe9c7ea00805705cfc5a04a14098961df044f577ce889f03d2cb2da8",
+          "viewer": "player-2",
+          "schema": "riftbound-duel-v3-actions-1",
+          "stage": "playing",
+          "stateVersion": 24,
+          "eventSeq": 24,
+          "frame": {
+            "phase": "main",
+            "turnNumber": 2,
+            "turnPlayerId": "player-1",
+            "priorityPlayerId": "player-1",
+            "focusPlayerId": null,
+            "stateOpen": true,
+            "pendingPayment": null,
+            "chain": {
+              "active": false
+            },
+            "pendingChoice": null,
+            "execution": {
+              "status": "ready"
+            }
+          },
+          "players": [
+            {
+              "playerId": "player-1",
+              "handCount": 5,
+              "mainDeckCount": 34,
+              "trash": [],
+              "champion": {
+                "cardId": "ogn-036-298"
+              },
+              "legend": {
+                "cardId": "unl-187-219",
+                "controllerPlayerId": "player-1",
+                "readiness": "ready"
+              }
+            },
+            {
+              "playerId": "player-2",
+              "handCount": 5,
+              "mainDeckCount": 34,
+              "hand": [
+                {
+                  "uid": "uid-007",
+                  "cardId": "sfd-006-221"
+                },
+                {
+                  "uid": "uid-008",
+                  "cardId": "sfd-006-221"
+                },
+                {
+                  "uid": "uid-009",
+                  "cardId": "ogn-010-298"
+                },
+                {
+                  "uid": "uid-010",
+                  "cardId": "sfd-006-221"
+                },
+                {
+                  "uid": "uid-013",
+                  "cardId": "ogn-013-298"
+                }
+              ],
+              "trash": [],
+              "champion": {
+                "cardId": "ogn-036-298"
+              },
+              "legend": {
+                "cardId": "unl-187-219",
+                "controllerPlayerId": "player-2",
+                "readiness": "ready"
+              }
+            }
+          ],
+          "resources": {
+            "players": [
+              {
+                "playerId": "player-1",
+                "runePool": {
+                  "energy": 0,
+                  "power": {
+                    "Fury": 0,
+                    "Calm": 0,
+                    "Mind": 0,
+                    "Body": 0,
+                    "Chaos": 0,
+                    "Order": 0,
+                    "any": 0
+                  }
+                },
+                "runeDeckCount": 9
+              },
+              {
+                "playerId": "player-2",
+                "runePool": {
+                  "energy": 0,
+                  "power": {
+                    "Fury": 0,
+                    "Calm": 0,
+                    "Mind": 0,
+                    "Body": 0,
+                    "Chaos": 0,
+                    "Order": 0,
+                    "any": 0
+                  }
+                },
+                "runeDeckCount": 11
+              }
+            ],
+            "bases": [
+              {
+                "playerId": "player-1",
+                "runes": [
+                  {
+                    "uid": "uid-015",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-016",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-017",
+                    "domain": "Order",
+                    "readied": true
+                  }
+                ],
+                "goldTokens": []
+              },
+              {
+                "playerId": "player-2",
+                "runes": [
+                  {
+                    "uid": "uid-012",
+                    "domain": "Fury",
+                    "readied": true
+                  }
+                ],
+                "goldTokens": []
+              }
+            ]
+          },
+          "board": {
+            "battlefields": [
+              {
+                "locationId": "[\"duel-battlefield\",\"uid-005\"]",
+                "instanceId": "uid-005",
+                "cardId": "ogn-278-298",
+                "ownerPlayerId": "player-1",
+                "controllerPlayerId": null,
+                "contested": false,
+                "contestingPlayerId": null,
+                "showdown": "none",
+                "combat": "none",
+                "occupancy": []
+              },
+              {
+                "locationId": "[\"duel-battlefield\",\"uid-006\"]",
+                "instanceId": "uid-006",
+                "cardId": "ogn-278-298",
+                "ownerPlayerId": "player-2",
+                "controllerPlayerId": null,
+                "contested": false,
+                "contestingPlayerId": null,
+                "showdown": "none",
+                "combat": "none",
+                "occupancy": []
+              }
+            ],
+            "units": [],
+            "gears": []
+          },
+          "scoring": {
+            "playerIds": [
+              "player-1",
+              "player-2"
+            ],
+            "battlefieldLocationIds": [
+              "[\"duel-battlefield\",\"uid-005\"]",
+              "[\"duel-battlefield\",\"uid-006\"]"
+            ],
+            "victoryScore": 8,
+            "turnNumber": 2,
+            "players": [
+              {
+                "playerId": "player-1",
+                "points": 0,
+                "scoredBattlefieldLocationIds": []
+              },
+              {
+                "playerId": "player-2",
+                "points": 0,
+                "scoredBattlefieldLocationIds": []
+              }
+            ]
+          },
+          "actions": [
+            {
+              "kind": "rune-energy",
+              "uid": "uid-012",
+              "enabled": false,
+              "reason": "当前不能横置该符文"
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-012",
+              "enabled": false,
+              "reason": "当前不能回收该符文"
+            },
+            {
+              "kind": "play-card",
+              "enabled": false,
+              "cardUID": "uid-009",
+              "windowId": "[\"duel:default-path\",24,2,\"main\",\"player-1\",\"player-1\",null]",
+              "reason": "等待规则闭合"
+            },
+            {
+              "kind": "standard-move",
+              "enabled": false,
+              "reason": "当前没有可移动的单位",
+              "windowId": "[\"duel:default-path\",24,2,\"main\",\"player-1\",\"player-1\",null]",
+              "selectableUnitUIDs": [],
+              "destinations": []
+            },
+            {
+              "kind": "end-turn",
+              "enabled": false,
+              "windowId": "[\"duel:default-path\",24,2,\"main\",\"player-1\",\"player-1\",null]",
+              "reason": "当前回合仍有待处理规则"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "end-turn-2",
+      "submitted": {
+        "player": "player-1",
+        "packet": {
+          "type": "duel-command",
+          "commandProfile": "duel-command-v3-actions-1",
+          "requestId": "request-6",
+          "commandId": "command-6",
+          "expectedVersion": 24,
+          "command": {
+            "type": "end-turn",
+            "windowId": "[\"duel:default-path\",24,2,\"main\",\"player-1\",\"player-1\",null]"
+          }
+        }
+      },
+      "roomEvents": [],
+      "events": [
+        {
+          "recipient": "player-1",
+          "type": "request-result",
+          "requestId": "request-6",
+          "commandId": "command-6",
+          "ok": true,
+          "appliedVersion": 27,
+          "eventSeq": 27,
+          "duplicate": false,
+          "roomVersion": 9,
+          "roomEventSeq": 8
+        },
+        {
+          "recipient": "player-1",
+          "type": "duel-projection",
+          "stateVersion": 35,
+          "eventSeq": 35,
+          "stage": "playing"
+        },
+        {
+          "recipient": "player-2",
+          "type": "duel-projection",
+          "stateVersion": 35,
+          "eventSeq": 35,
+          "stage": "playing"
+        }
+      ],
+      "projections": [
+        {
+          "hash": "sha256:a24ba2fe0688f8d07e2f4e4c32bfe9bb9c9996eb5cb7c426e602d3dd846c69ca",
+          "viewer": "player-1",
+          "schema": "riftbound-duel-v3-actions-1",
+          "stage": "playing",
+          "stateVersion": 35,
+          "eventSeq": 35,
+          "frame": {
+            "phase": "main",
+            "turnNumber": 3,
+            "turnPlayerId": "player-2",
+            "priorityPlayerId": "player-2",
+            "focusPlayerId": null,
+            "stateOpen": true,
+            "pendingPayment": null,
+            "chain": {
+              "active": false
+            },
+            "pendingChoice": null,
+            "execution": {
+              "status": "ready"
+            }
+          },
+          "players": [
+            {
+              "playerId": "player-1",
+              "handCount": 5,
+              "mainDeckCount": 34,
+              "hand": [
+                {
+                  "uid": "uid-001",
+                  "cardId": "ogs-016-024"
+                },
+                {
+                  "uid": "uid-002",
+                  "cardId": "sfd-156-221"
+                },
+                {
+                  "uid": "uid-003",
+                  "cardId": "ogn-209-298"
+                },
+                {
+                  "uid": "uid-004",
+                  "cardId": "sfd-006-221"
+                },
+                {
+                  "uid": "uid-014",
+                  "cardId": "ogn-001-298"
+                }
+              ],
+              "trash": [],
+              "champion": {
+                "cardId": "ogn-036-298"
+              },
+              "legend": {
+                "cardId": "unl-187-219",
+                "controllerPlayerId": "player-1",
+                "readiness": "ready"
+              }
+            },
+            {
+              "playerId": "player-2",
+              "handCount": 6,
+              "mainDeckCount": 33,
+              "trash": [],
+              "champion": {
+                "cardId": "ogn-036-298"
+              },
+              "legend": {
+                "cardId": "unl-187-219",
+                "controllerPlayerId": "player-2",
+                "readiness": "ready"
+              }
+            }
+          ],
+          "resources": {
+            "players": [
+              {
+                "playerId": "player-1",
+                "runePool": {
+                  "energy": 0,
+                  "power": {
+                    "Fury": 0,
+                    "Calm": 0,
+                    "Mind": 0,
+                    "Body": 0,
+                    "Chaos": 0,
+                    "Order": 0,
+                    "any": 0
+                  }
+                },
+                "runeDeckCount": 9
+              },
+              {
+                "playerId": "player-2",
+                "runePool": {
+                  "energy": 0,
+                  "power": {
+                    "Fury": 0,
+                    "Calm": 0,
+                    "Mind": 0,
+                    "Body": 0,
+                    "Chaos": 0,
+                    "Order": 0,
+                    "any": 0
+                  }
+                },
+                "runeDeckCount": 9
+              }
+            ],
+            "bases": [
+              {
+                "playerId": "player-1",
+                "runes": [
+                  {
+                    "uid": "uid-015",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-016",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-017",
+                    "domain": "Order",
+                    "readied": true
+                  }
+                ],
+                "goldTokens": []
+              },
+              {
+                "playerId": "player-2",
+                "runes": [
+                  {
+                    "uid": "uid-012",
+                    "domain": "Fury",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-018",
+                    "domain": "Fury",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-019",
+                    "domain": "Order",
+                    "readied": true
+                  }
+                ],
+                "goldTokens": []
+              }
+            ]
+          },
+          "board": {
+            "battlefields": [
+              {
+                "locationId": "[\"duel-battlefield\",\"uid-005\"]",
+                "instanceId": "uid-005",
+                "cardId": "ogn-278-298",
+                "ownerPlayerId": "player-1",
+                "controllerPlayerId": null,
+                "contested": false,
+                "contestingPlayerId": null,
+                "showdown": "none",
+                "combat": "none",
+                "occupancy": []
+              },
+              {
+                "locationId": "[\"duel-battlefield\",\"uid-006\"]",
+                "instanceId": "uid-006",
+                "cardId": "ogn-278-298",
+                "ownerPlayerId": "player-2",
+                "controllerPlayerId": null,
+                "contested": false,
+                "contestingPlayerId": null,
+                "showdown": "none",
+                "combat": "none",
+                "occupancy": []
+              }
+            ],
+            "units": [],
+            "gears": []
+          },
+          "scoring": {
+            "playerIds": [
+              "player-1",
+              "player-2"
+            ],
+            "battlefieldLocationIds": [
+              "[\"duel-battlefield\",\"uid-005\"]",
+              "[\"duel-battlefield\",\"uid-006\"]"
+            ],
+            "victoryScore": 8,
+            "turnNumber": 3,
+            "players": [
+              {
+                "playerId": "player-1",
+                "points": 0,
+                "scoredBattlefieldLocationIds": []
+              },
+              {
+                "playerId": "player-2",
+                "points": 0,
+                "scoredBattlefieldLocationIds": []
+              }
+            ]
+          },
+          "actions": [
+            {
+              "kind": "rune-energy",
+              "uid": "uid-015",
+              "enabled": false,
+              "reason": "当前不能横置该符文"
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-015",
+              "enabled": false,
+              "reason": "当前不能回收该符文"
+            },
+            {
+              "kind": "rune-energy",
+              "uid": "uid-016",
+              "enabled": false,
+              "reason": "当前不能横置该符文"
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-016",
+              "enabled": false,
+              "reason": "当前不能回收该符文"
+            },
+            {
+              "kind": "rune-energy",
+              "uid": "uid-017",
+              "enabled": false,
+              "reason": "当前不能横置该符文"
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-017",
+              "enabled": false,
+              "reason": "当前不能回收该符文"
+            },
+            {
+              "kind": "play-card",
+              "enabled": false,
+              "cardUID": "uid-014",
+              "windowId": "[\"duel:default-path\",35,3,\"main\",\"player-2\",\"player-2\",null]",
+              "reason": "等待规则闭合"
+            },
+            {
+              "kind": "standard-move",
+              "enabled": false,
+              "reason": "当前没有可移动的单位",
+              "windowId": "[\"duel:default-path\",35,3,\"main\",\"player-2\",\"player-2\",null]",
+              "selectableUnitUIDs": [],
+              "destinations": []
+            },
+            {
+              "kind": "end-turn",
+              "enabled": false,
+              "windowId": "[\"duel:default-path\",35,3,\"main\",\"player-2\",\"player-2\",null]",
+              "reason": "当前回合仍有待处理规则"
+            }
+          ]
+        },
+        {
+          "hash": "sha256:339e4ea2c10c13e03bee4c77952a7afcaf08bcfa51f9d585ae7ae4d313db94d2",
+          "viewer": "player-2",
+          "schema": "riftbound-duel-v3-actions-1",
+          "stage": "playing",
+          "stateVersion": 35,
+          "eventSeq": 35,
+          "frame": {
+            "phase": "main",
+            "turnNumber": 3,
+            "turnPlayerId": "player-2",
+            "priorityPlayerId": "player-2",
+            "focusPlayerId": null,
+            "stateOpen": true,
+            "pendingPayment": null,
+            "chain": {
+              "active": false
+            },
+            "pendingChoice": null,
+            "execution": {
+              "status": "ready"
+            }
+          },
+          "players": [
+            {
+              "playerId": "player-1",
+              "handCount": 5,
+              "mainDeckCount": 34,
+              "trash": [],
+              "champion": {
+                "cardId": "ogn-036-298"
+              },
+              "legend": {
+                "cardId": "unl-187-219",
+                "controllerPlayerId": "player-1",
+                "readiness": "ready"
+              }
+            },
+            {
+              "playerId": "player-2",
+              "handCount": 6,
+              "mainDeckCount": 33,
+              "hand": [
+                {
+                  "uid": "uid-007",
+                  "cardId": "sfd-006-221"
+                },
+                {
+                  "uid": "uid-008",
+                  "cardId": "sfd-006-221"
+                },
+                {
+                  "uid": "uid-009",
+                  "cardId": "ogn-010-298"
+                },
+                {
+                  "uid": "uid-010",
+                  "cardId": "sfd-006-221"
+                },
+                {
+                  "uid": "uid-013",
+                  "cardId": "ogn-013-298"
+                },
+                {
+                  "uid": "uid-020",
+                  "cardId": "ogn-001-298"
+                }
+              ],
+              "trash": [],
+              "champion": {
+                "cardId": "ogn-036-298"
+              },
+              "legend": {
+                "cardId": "unl-187-219",
+                "controllerPlayerId": "player-2",
+                "readiness": "ready"
+              }
+            }
+          ],
+          "resources": {
+            "players": [
+              {
+                "playerId": "player-1",
+                "runePool": {
+                  "energy": 0,
+                  "power": {
+                    "Fury": 0,
+                    "Calm": 0,
+                    "Mind": 0,
+                    "Body": 0,
+                    "Chaos": 0,
+                    "Order": 0,
+                    "any": 0
+                  }
+                },
+                "runeDeckCount": 9
+              },
+              {
+                "playerId": "player-2",
+                "runePool": {
+                  "energy": 0,
+                  "power": {
+                    "Fury": 0,
+                    "Calm": 0,
+                    "Mind": 0,
+                    "Body": 0,
+                    "Chaos": 0,
+                    "Order": 0,
+                    "any": 0
+                  }
+                },
+                "runeDeckCount": 9
+              }
+            ],
+            "bases": [
+              {
+                "playerId": "player-1",
+                "runes": [
+                  {
+                    "uid": "uid-015",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-016",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-017",
+                    "domain": "Order",
+                    "readied": true
+                  }
+                ],
+                "goldTokens": []
+              },
+              {
+                "playerId": "player-2",
+                "runes": [
+                  {
+                    "uid": "uid-012",
+                    "domain": "Fury",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-018",
+                    "domain": "Fury",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-019",
+                    "domain": "Order",
+                    "readied": true
+                  }
+                ],
+                "goldTokens": []
+              }
+            ]
+          },
+          "board": {
+            "battlefields": [
+              {
+                "locationId": "[\"duel-battlefield\",\"uid-005\"]",
+                "instanceId": "uid-005",
+                "cardId": "ogn-278-298",
+                "ownerPlayerId": "player-1",
+                "controllerPlayerId": null,
+                "contested": false,
+                "contestingPlayerId": null,
+                "showdown": "none",
+                "combat": "none",
+                "occupancy": []
+              },
+              {
+                "locationId": "[\"duel-battlefield\",\"uid-006\"]",
+                "instanceId": "uid-006",
+                "cardId": "ogn-278-298",
+                "ownerPlayerId": "player-2",
+                "controllerPlayerId": null,
+                "contested": false,
+                "contestingPlayerId": null,
+                "showdown": "none",
+                "combat": "none",
+                "occupancy": []
+              }
+            ],
+            "units": [],
+            "gears": []
+          },
+          "scoring": {
+            "playerIds": [
+              "player-1",
+              "player-2"
+            ],
+            "battlefieldLocationIds": [
+              "[\"duel-battlefield\",\"uid-005\"]",
+              "[\"duel-battlefield\",\"uid-006\"]"
+            ],
+            "victoryScore": 8,
+            "turnNumber": 3,
+            "players": [
+              {
+                "playerId": "player-1",
+                "points": 0,
+                "scoredBattlefieldLocationIds": []
+              },
+              {
+                "playerId": "player-2",
+                "points": 0,
+                "scoredBattlefieldLocationIds": []
+              }
+            ]
+          },
+          "actions": [
+            {
+              "kind": "rune-energy",
+              "uid": "uid-012",
+              "enabled": true
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-012",
+              "enabled": true
+            },
+            {
+              "kind": "rune-energy",
+              "uid": "uid-018",
+              "enabled": true
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-018",
+              "enabled": true
+            },
+            {
+              "kind": "rune-energy",
+              "uid": "uid-019",
+              "enabled": true
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-019",
+              "enabled": true
+            },
+            {
+              "kind": "play-card",
+              "enabled": true,
+              "cardUID": "uid-009",
+              "windowId": "[\"duel:default-path\",35,3,\"main\",\"player-2\",\"player-2\",null]"
+            },
+            {
+              "kind": "play-card",
+              "enabled": true,
+              "cardUID": "uid-020",
+              "windowId": "[\"duel:default-path\",35,3,\"main\",\"player-2\",\"player-2\",null]"
+            },
+            {
+              "kind": "standard-move",
+              "enabled": false,
+              "reason": "当前没有可移动的单位",
+              "windowId": "[\"duel:default-path\",35,3,\"main\",\"player-2\",\"player-2\",null]",
+              "selectableUnitUIDs": [],
+              "destinations": []
+            },
+            {
+              "kind": "end-turn",
+              "enabled": true,
+              "windowId": "[\"duel:default-path\",35,3,\"main\",\"player-2\",\"player-2\",null]"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "end-turn-3",
+      "submitted": {
+        "player": "player-2",
+        "packet": {
+          "type": "duel-command",
+          "commandProfile": "duel-command-v3-actions-1",
+          "requestId": "request-7",
+          "commandId": "command-7",
+          "expectedVersion": 35,
+          "command": {
+            "type": "end-turn",
+            "windowId": "[\"duel:default-path\",35,3,\"main\",\"player-2\",\"player-2\",null]"
+          }
+        }
+      },
+      "roomEvents": [],
+      "events": [
+        {
+          "recipient": "player-2",
+          "type": "request-result",
+          "requestId": "request-7",
+          "commandId": "command-7",
+          "ok": true,
+          "appliedVersion": 38,
+          "eventSeq": 38,
+          "duplicate": false,
+          "roomVersion": 9,
+          "roomEventSeq": 8
+        },
+        {
+          "recipient": "player-1",
+          "type": "duel-projection",
+          "stateVersion": 46,
+          "eventSeq": 46,
+          "stage": "playing"
+        },
+        {
+          "recipient": "player-2",
+          "type": "duel-projection",
+          "stateVersion": 46,
+          "eventSeq": 46,
+          "stage": "playing"
+        }
+      ],
+      "projections": [
+        {
+          "hash": "sha256:29d0df2c6f65de839cbbab10961aa34f95044e9a83f091c92f9389247b57ee3e",
+          "viewer": "player-1",
+          "schema": "riftbound-duel-v3-actions-1",
+          "stage": "playing",
+          "stateVersion": 46,
+          "eventSeq": 46,
+          "frame": {
+            "phase": "main",
+            "turnNumber": 4,
+            "turnPlayerId": "player-1",
+            "priorityPlayerId": "player-1",
+            "focusPlayerId": null,
+            "stateOpen": true,
+            "pendingPayment": null,
+            "chain": {
+              "active": false
+            },
+            "pendingChoice": null,
+            "execution": {
+              "status": "ready"
+            }
+          },
+          "players": [
+            {
+              "playerId": "player-1",
+              "handCount": 6,
+              "mainDeckCount": 33,
+              "hand": [
+                {
+                  "uid": "uid-001",
+                  "cardId": "ogs-016-024"
+                },
+                {
+                  "uid": "uid-002",
+                  "cardId": "sfd-156-221"
+                },
+                {
+                  "uid": "uid-003",
+                  "cardId": "ogn-209-298"
+                },
+                {
+                  "uid": "uid-004",
+                  "cardId": "sfd-006-221"
+                },
+                {
+                  "uid": "uid-014",
+                  "cardId": "ogn-001-298"
+                },
+                {
+                  "uid": "uid-021",
+                  "cardId": "ogn-234-298"
+                }
+              ],
+              "trash": [],
+              "champion": {
+                "cardId": "ogn-036-298"
+              },
+              "legend": {
+                "cardId": "unl-187-219",
+                "controllerPlayerId": "player-1",
+                "readiness": "ready"
+              }
+            },
+            {
+              "playerId": "player-2",
+              "handCount": 6,
+              "mainDeckCount": 33,
+              "trash": [],
+              "champion": {
+                "cardId": "ogn-036-298"
+              },
+              "legend": {
+                "cardId": "unl-187-219",
+                "controllerPlayerId": "player-2",
+                "readiness": "ready"
+              }
+            }
+          ],
+          "resources": {
+            "players": [
+              {
+                "playerId": "player-1",
+                "runePool": {
+                  "energy": 0,
+                  "power": {
+                    "Fury": 0,
+                    "Calm": 0,
+                    "Mind": 0,
+                    "Body": 0,
+                    "Chaos": 0,
+                    "Order": 0,
+                    "any": 0
+                  }
+                },
+                "runeDeckCount": 7
+              },
+              {
+                "playerId": "player-2",
+                "runePool": {
+                  "energy": 0,
+                  "power": {
+                    "Fury": 0,
+                    "Calm": 0,
+                    "Mind": 0,
+                    "Body": 0,
+                    "Chaos": 0,
+                    "Order": 0,
+                    "any": 0
+                  }
+                },
+                "runeDeckCount": 9
+              }
+            ],
+            "bases": [
+              {
+                "playerId": "player-1",
+                "runes": [
+                  {
+                    "uid": "uid-015",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-016",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-017",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-022",
+                    "domain": "Fury",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-023",
+                    "domain": "Fury",
+                    "readied": true
+                  }
+                ],
+                "goldTokens": []
+              },
+              {
+                "playerId": "player-2",
+                "runes": [
+                  {
+                    "uid": "uid-012",
+                    "domain": "Fury",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-018",
+                    "domain": "Fury",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-019",
+                    "domain": "Order",
+                    "readied": true
+                  }
+                ],
+                "goldTokens": []
+              }
+            ]
+          },
+          "board": {
+            "battlefields": [
+              {
+                "locationId": "[\"duel-battlefield\",\"uid-005\"]",
+                "instanceId": "uid-005",
+                "cardId": "ogn-278-298",
+                "ownerPlayerId": "player-1",
+                "controllerPlayerId": null,
+                "contested": false,
+                "contestingPlayerId": null,
+                "showdown": "none",
+                "combat": "none",
+                "occupancy": []
+              },
+              {
+                "locationId": "[\"duel-battlefield\",\"uid-006\"]",
+                "instanceId": "uid-006",
+                "cardId": "ogn-278-298",
+                "ownerPlayerId": "player-2",
+                "controllerPlayerId": null,
+                "contested": false,
+                "contestingPlayerId": null,
+                "showdown": "none",
+                "combat": "none",
+                "occupancy": []
+              }
+            ],
+            "units": [],
+            "gears": []
+          },
+          "scoring": {
+            "playerIds": [
+              "player-1",
+              "player-2"
+            ],
+            "battlefieldLocationIds": [
+              "[\"duel-battlefield\",\"uid-005\"]",
+              "[\"duel-battlefield\",\"uid-006\"]"
+            ],
+            "victoryScore": 8,
+            "turnNumber": 4,
+            "players": [
+              {
+                "playerId": "player-1",
+                "points": 0,
+                "scoredBattlefieldLocationIds": []
+              },
+              {
+                "playerId": "player-2",
+                "points": 0,
+                "scoredBattlefieldLocationIds": []
+              }
+            ]
+          },
+          "actions": [
+            {
+              "kind": "rune-energy",
+              "uid": "uid-015",
+              "enabled": true
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-015",
+              "enabled": true
+            },
+            {
+              "kind": "rune-energy",
+              "uid": "uid-016",
+              "enabled": true
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-016",
+              "enabled": true
+            },
+            {
+              "kind": "rune-energy",
+              "uid": "uid-017",
+              "enabled": true
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-017",
+              "enabled": true
+            },
+            {
+              "kind": "rune-energy",
+              "uid": "uid-022",
+              "enabled": true
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-022",
+              "enabled": true
+            },
+            {
+              "kind": "rune-energy",
+              "uid": "uid-023",
+              "enabled": true
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-023",
+              "enabled": true
+            },
+            {
+              "kind": "play-card",
+              "enabled": true,
+              "cardUID": "uid-014",
+              "windowId": "[\"duel:default-path\",46,4,\"main\",\"player-1\",\"player-1\",null]"
+            },
+            {
+              "kind": "standard-move",
+              "enabled": false,
+              "reason": "当前没有可移动的单位",
+              "windowId": "[\"duel:default-path\",46,4,\"main\",\"player-1\",\"player-1\",null]",
+              "selectableUnitUIDs": [],
+              "destinations": []
+            },
+            {
+              "kind": "end-turn",
+              "enabled": true,
+              "windowId": "[\"duel:default-path\",46,4,\"main\",\"player-1\",\"player-1\",null]"
+            }
+          ]
+        },
+        {
+          "hash": "sha256:ab70f13a0a41cf832d46a675fff2b4b4f151521aa827e930c6d40219190a2045",
+          "viewer": "player-2",
+          "schema": "riftbound-duel-v3-actions-1",
+          "stage": "playing",
+          "stateVersion": 46,
+          "eventSeq": 46,
+          "frame": {
+            "phase": "main",
+            "turnNumber": 4,
+            "turnPlayerId": "player-1",
+            "priorityPlayerId": "player-1",
+            "focusPlayerId": null,
+            "stateOpen": true,
+            "pendingPayment": null,
+            "chain": {
+              "active": false
+            },
+            "pendingChoice": null,
+            "execution": {
+              "status": "ready"
+            }
+          },
+          "players": [
+            {
+              "playerId": "player-1",
+              "handCount": 6,
+              "mainDeckCount": 33,
+              "trash": [],
+              "champion": {
+                "cardId": "ogn-036-298"
+              },
+              "legend": {
+                "cardId": "unl-187-219",
+                "controllerPlayerId": "player-1",
+                "readiness": "ready"
+              }
+            },
+            {
+              "playerId": "player-2",
+              "handCount": 6,
+              "mainDeckCount": 33,
+              "hand": [
+                {
+                  "uid": "uid-007",
+                  "cardId": "sfd-006-221"
+                },
+                {
+                  "uid": "uid-008",
+                  "cardId": "sfd-006-221"
+                },
+                {
+                  "uid": "uid-009",
+                  "cardId": "ogn-010-298"
+                },
+                {
+                  "uid": "uid-010",
+                  "cardId": "sfd-006-221"
+                },
+                {
+                  "uid": "uid-013",
+                  "cardId": "ogn-013-298"
+                },
+                {
+                  "uid": "uid-020",
+                  "cardId": "ogn-001-298"
+                }
+              ],
+              "trash": [],
+              "champion": {
+                "cardId": "ogn-036-298"
+              },
+              "legend": {
+                "cardId": "unl-187-219",
+                "controllerPlayerId": "player-2",
+                "readiness": "ready"
+              }
+            }
+          ],
+          "resources": {
+            "players": [
+              {
+                "playerId": "player-1",
+                "runePool": {
+                  "energy": 0,
+                  "power": {
+                    "Fury": 0,
+                    "Calm": 0,
+                    "Mind": 0,
+                    "Body": 0,
+                    "Chaos": 0,
+                    "Order": 0,
+                    "any": 0
+                  }
+                },
+                "runeDeckCount": 7
+              },
+              {
+                "playerId": "player-2",
+                "runePool": {
+                  "energy": 0,
+                  "power": {
+                    "Fury": 0,
+                    "Calm": 0,
+                    "Mind": 0,
+                    "Body": 0,
+                    "Chaos": 0,
+                    "Order": 0,
+                    "any": 0
+                  }
+                },
+                "runeDeckCount": 9
+              }
+            ],
+            "bases": [
+              {
+                "playerId": "player-1",
+                "runes": [
+                  {
+                    "uid": "uid-015",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-016",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-017",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-022",
+                    "domain": "Fury",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-023",
+                    "domain": "Fury",
+                    "readied": true
+                  }
+                ],
+                "goldTokens": []
+              },
+              {
+                "playerId": "player-2",
+                "runes": [
+                  {
+                    "uid": "uid-012",
+                    "domain": "Fury",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-018",
+                    "domain": "Fury",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-019",
+                    "domain": "Order",
+                    "readied": true
+                  }
+                ],
+                "goldTokens": []
+              }
+            ]
+          },
+          "board": {
+            "battlefields": [
+              {
+                "locationId": "[\"duel-battlefield\",\"uid-005\"]",
+                "instanceId": "uid-005",
+                "cardId": "ogn-278-298",
+                "ownerPlayerId": "player-1",
+                "controllerPlayerId": null,
+                "contested": false,
+                "contestingPlayerId": null,
+                "showdown": "none",
+                "combat": "none",
+                "occupancy": []
+              },
+              {
+                "locationId": "[\"duel-battlefield\",\"uid-006\"]",
+                "instanceId": "uid-006",
+                "cardId": "ogn-278-298",
+                "ownerPlayerId": "player-2",
+                "controllerPlayerId": null,
+                "contested": false,
+                "contestingPlayerId": null,
+                "showdown": "none",
+                "combat": "none",
+                "occupancy": []
+              }
+            ],
+            "units": [],
+            "gears": []
+          },
+          "scoring": {
+            "playerIds": [
+              "player-1",
+              "player-2"
+            ],
+            "battlefieldLocationIds": [
+              "[\"duel-battlefield\",\"uid-005\"]",
+              "[\"duel-battlefield\",\"uid-006\"]"
+            ],
+            "victoryScore": 8,
+            "turnNumber": 4,
+            "players": [
+              {
+                "playerId": "player-1",
+                "points": 0,
+                "scoredBattlefieldLocationIds": []
+              },
+              {
+                "playerId": "player-2",
+                "points": 0,
+                "scoredBattlefieldLocationIds": []
+              }
+            ]
+          },
+          "actions": [
+            {
+              "kind": "rune-energy",
+              "uid": "uid-012",
+              "enabled": false,
+              "reason": "当前不能横置该符文"
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-012",
+              "enabled": false,
+              "reason": "当前不能回收该符文"
+            },
+            {
+              "kind": "rune-energy",
+              "uid": "uid-018",
+              "enabled": false,
+              "reason": "当前不能横置该符文"
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-018",
+              "enabled": false,
+              "reason": "当前不能回收该符文"
+            },
+            {
+              "kind": "rune-energy",
+              "uid": "uid-019",
+              "enabled": false,
+              "reason": "当前不能横置该符文"
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-019",
+              "enabled": false,
+              "reason": "当前不能回收该符文"
+            },
+            {
+              "kind": "play-card",
+              "enabled": false,
+              "cardUID": "uid-009",
+              "windowId": "[\"duel:default-path\",46,4,\"main\",\"player-1\",\"player-1\",null]",
+              "reason": "等待规则闭合"
+            },
+            {
+              "kind": "play-card",
+              "enabled": false,
+              "cardUID": "uid-020",
+              "windowId": "[\"duel:default-path\",46,4,\"main\",\"player-1\",\"player-1\",null]",
+              "reason": "等待规则闭合"
+            },
+            {
+              "kind": "standard-move",
+              "enabled": false,
+              "reason": "当前没有可移动的单位",
+              "windowId": "[\"duel:default-path\",46,4,\"main\",\"player-1\",\"player-1\",null]",
+              "selectableUnitUIDs": [],
+              "destinations": []
+            },
+            {
+              "kind": "end-turn",
+              "enabled": false,
+              "windowId": "[\"duel:default-path\",46,4,\"main\",\"player-1\",\"player-1\",null]",
+              "reason": "当前回合仍有待处理规则"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "end-turn-4",
+      "submitted": {
+        "player": "player-1",
+        "packet": {
+          "type": "duel-command",
+          "commandProfile": "duel-command-v3-actions-1",
+          "requestId": "request-8",
+          "commandId": "command-8",
+          "expectedVersion": 46,
+          "command": {
+            "type": "end-turn",
+            "windowId": "[\"duel:default-path\",46,4,\"main\",\"player-1\",\"player-1\",null]"
+          }
+        }
+      },
+      "roomEvents": [],
+      "events": [
+        {
+          "recipient": "player-1",
+          "type": "request-result",
+          "requestId": "request-8",
+          "commandId": "command-8",
+          "ok": true,
+          "appliedVersion": 49,
+          "eventSeq": 49,
+          "duplicate": false,
+          "roomVersion": 9,
+          "roomEventSeq": 8
+        },
+        {
+          "recipient": "player-1",
+          "type": "duel-projection",
+          "stateVersion": 57,
+          "eventSeq": 57,
+          "stage": "playing"
+        },
+        {
+          "recipient": "player-2",
+          "type": "duel-projection",
+          "stateVersion": 57,
+          "eventSeq": 57,
+          "stage": "playing"
+        }
+      ],
+      "projections": [
+        {
+          "hash": "sha256:79b3c531b9e02419ec5fc7a4b387e421109a29564c44e8f09e81aac330b161d1",
+          "viewer": "player-1",
+          "schema": "riftbound-duel-v3-actions-1",
+          "stage": "playing",
+          "stateVersion": 57,
+          "eventSeq": 57,
+          "frame": {
+            "phase": "main",
+            "turnNumber": 5,
+            "turnPlayerId": "player-2",
+            "priorityPlayerId": "player-2",
+            "focusPlayerId": null,
+            "stateOpen": true,
+            "pendingPayment": null,
+            "chain": {
+              "active": false
+            },
+            "pendingChoice": null,
+            "execution": {
+              "status": "ready"
+            }
+          },
+          "players": [
+            {
+              "playerId": "player-1",
+              "handCount": 6,
+              "mainDeckCount": 33,
+              "hand": [
+                {
+                  "uid": "uid-001",
+                  "cardId": "ogs-016-024"
+                },
+                {
+                  "uid": "uid-002",
+                  "cardId": "sfd-156-221"
+                },
+                {
+                  "uid": "uid-003",
+                  "cardId": "ogn-209-298"
+                },
+                {
+                  "uid": "uid-004",
+                  "cardId": "sfd-006-221"
+                },
+                {
+                  "uid": "uid-014",
+                  "cardId": "ogn-001-298"
+                },
+                {
+                  "uid": "uid-021",
+                  "cardId": "ogn-234-298"
+                }
+              ],
+              "trash": [],
+              "champion": {
+                "cardId": "ogn-036-298"
+              },
+              "legend": {
+                "cardId": "unl-187-219",
+                "controllerPlayerId": "player-1",
+                "readiness": "ready"
+              }
+            },
+            {
+              "playerId": "player-2",
+              "handCount": 7,
+              "mainDeckCount": 32,
+              "trash": [],
+              "champion": {
+                "cardId": "ogn-036-298"
+              },
+              "legend": {
+                "cardId": "unl-187-219",
+                "controllerPlayerId": "player-2",
+                "readiness": "ready"
+              }
+            }
+          ],
+          "resources": {
+            "players": [
+              {
+                "playerId": "player-1",
+                "runePool": {
+                  "energy": 0,
+                  "power": {
+                    "Fury": 0,
+                    "Calm": 0,
+                    "Mind": 0,
+                    "Body": 0,
+                    "Chaos": 0,
+                    "Order": 0,
+                    "any": 0
+                  }
+                },
+                "runeDeckCount": 7
+              },
+              {
+                "playerId": "player-2",
+                "runePool": {
+                  "energy": 0,
+                  "power": {
+                    "Fury": 0,
+                    "Calm": 0,
+                    "Mind": 0,
+                    "Body": 0,
+                    "Chaos": 0,
+                    "Order": 0,
+                    "any": 0
+                  }
+                },
+                "runeDeckCount": 7
+              }
+            ],
+            "bases": [
+              {
+                "playerId": "player-1",
+                "runes": [
+                  {
+                    "uid": "uid-015",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-016",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-017",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-022",
+                    "domain": "Fury",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-023",
+                    "domain": "Fury",
+                    "readied": true
+                  }
+                ],
+                "goldTokens": []
+              },
+              {
+                "playerId": "player-2",
+                "runes": [
+                  {
+                    "uid": "uid-012",
+                    "domain": "Fury",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-018",
+                    "domain": "Fury",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-019",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-024",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-025",
+                    "domain": "Fury",
+                    "readied": true
+                  }
+                ],
+                "goldTokens": []
+              }
+            ]
+          },
+          "board": {
+            "battlefields": [
+              {
+                "locationId": "[\"duel-battlefield\",\"uid-005\"]",
+                "instanceId": "uid-005",
+                "cardId": "ogn-278-298",
+                "ownerPlayerId": "player-1",
+                "controllerPlayerId": null,
+                "contested": false,
+                "contestingPlayerId": null,
+                "showdown": "none",
+                "combat": "none",
+                "occupancy": []
+              },
+              {
+                "locationId": "[\"duel-battlefield\",\"uid-006\"]",
+                "instanceId": "uid-006",
+                "cardId": "ogn-278-298",
+                "ownerPlayerId": "player-2",
+                "controllerPlayerId": null,
+                "contested": false,
+                "contestingPlayerId": null,
+                "showdown": "none",
+                "combat": "none",
+                "occupancy": []
+              }
+            ],
+            "units": [],
+            "gears": []
+          },
+          "scoring": {
+            "playerIds": [
+              "player-1",
+              "player-2"
+            ],
+            "battlefieldLocationIds": [
+              "[\"duel-battlefield\",\"uid-005\"]",
+              "[\"duel-battlefield\",\"uid-006\"]"
+            ],
+            "victoryScore": 8,
+            "turnNumber": 5,
+            "players": [
+              {
+                "playerId": "player-1",
+                "points": 0,
+                "scoredBattlefieldLocationIds": []
+              },
+              {
+                "playerId": "player-2",
+                "points": 0,
+                "scoredBattlefieldLocationIds": []
+              }
+            ]
+          },
+          "actions": [
+            {
+              "kind": "rune-energy",
+              "uid": "uid-015",
+              "enabled": false,
+              "reason": "当前不能横置该符文"
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-015",
+              "enabled": false,
+              "reason": "当前不能回收该符文"
+            },
+            {
+              "kind": "rune-energy",
+              "uid": "uid-016",
+              "enabled": false,
+              "reason": "当前不能横置该符文"
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-016",
+              "enabled": false,
+              "reason": "当前不能回收该符文"
+            },
+            {
+              "kind": "rune-energy",
+              "uid": "uid-017",
+              "enabled": false,
+              "reason": "当前不能横置该符文"
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-017",
+              "enabled": false,
+              "reason": "当前不能回收该符文"
+            },
+            {
+              "kind": "rune-energy",
+              "uid": "uid-022",
+              "enabled": false,
+              "reason": "当前不能横置该符文"
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-022",
+              "enabled": false,
+              "reason": "当前不能回收该符文"
+            },
+            {
+              "kind": "rune-energy",
+              "uid": "uid-023",
+              "enabled": false,
+              "reason": "当前不能横置该符文"
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-023",
+              "enabled": false,
+              "reason": "当前不能回收该符文"
+            },
+            {
+              "kind": "play-card",
+              "enabled": false,
+              "cardUID": "uid-014",
+              "windowId": "[\"duel:default-path\",57,5,\"main\",\"player-2\",\"player-2\",null]",
+              "reason": "等待规则闭合"
+            },
+            {
+              "kind": "standard-move",
+              "enabled": false,
+              "reason": "当前没有可移动的单位",
+              "windowId": "[\"duel:default-path\",57,5,\"main\",\"player-2\",\"player-2\",null]",
+              "selectableUnitUIDs": [],
+              "destinations": []
+            },
+            {
+              "kind": "end-turn",
+              "enabled": false,
+              "windowId": "[\"duel:default-path\",57,5,\"main\",\"player-2\",\"player-2\",null]",
+              "reason": "当前回合仍有待处理规则"
+            }
+          ]
+        },
+        {
+          "hash": "sha256:235c4ff4bfbd6b9e8836dfcf81d61fcd499989988d4a35098110fb26c777560d",
+          "viewer": "player-2",
+          "schema": "riftbound-duel-v3-actions-1",
+          "stage": "playing",
+          "stateVersion": 57,
+          "eventSeq": 57,
+          "frame": {
+            "phase": "main",
+            "turnNumber": 5,
+            "turnPlayerId": "player-2",
+            "priorityPlayerId": "player-2",
+            "focusPlayerId": null,
+            "stateOpen": true,
+            "pendingPayment": null,
+            "chain": {
+              "active": false
+            },
+            "pendingChoice": null,
+            "execution": {
+              "status": "ready"
+            }
+          },
+          "players": [
+            {
+              "playerId": "player-1",
+              "handCount": 6,
+              "mainDeckCount": 33,
+              "trash": [],
+              "champion": {
+                "cardId": "ogn-036-298"
+              },
+              "legend": {
+                "cardId": "unl-187-219",
+                "controllerPlayerId": "player-1",
+                "readiness": "ready"
+              }
+            },
+            {
+              "playerId": "player-2",
+              "handCount": 7,
+              "mainDeckCount": 32,
+              "hand": [
+                {
+                  "uid": "uid-007",
+                  "cardId": "sfd-006-221"
+                },
+                {
+                  "uid": "uid-008",
+                  "cardId": "sfd-006-221"
+                },
+                {
+                  "uid": "uid-009",
+                  "cardId": "ogn-010-298"
+                },
+                {
+                  "uid": "uid-010",
+                  "cardId": "sfd-006-221"
+                },
+                {
+                  "uid": "uid-013",
+                  "cardId": "ogn-013-298"
+                },
+                {
+                  "uid": "uid-020",
+                  "cardId": "ogn-001-298"
+                },
+                {
+                  "uid": "uid-026",
+                  "cardId": "ogn-234-298"
+                }
+              ],
+              "trash": [],
+              "champion": {
+                "cardId": "ogn-036-298"
+              },
+              "legend": {
+                "cardId": "unl-187-219",
+                "controllerPlayerId": "player-2",
+                "readiness": "ready"
+              }
+            }
+          ],
+          "resources": {
+            "players": [
+              {
+                "playerId": "player-1",
+                "runePool": {
+                  "energy": 0,
+                  "power": {
+                    "Fury": 0,
+                    "Calm": 0,
+                    "Mind": 0,
+                    "Body": 0,
+                    "Chaos": 0,
+                    "Order": 0,
+                    "any": 0
+                  }
+                },
+                "runeDeckCount": 7
+              },
+              {
+                "playerId": "player-2",
+                "runePool": {
+                  "energy": 0,
+                  "power": {
+                    "Fury": 0,
+                    "Calm": 0,
+                    "Mind": 0,
+                    "Body": 0,
+                    "Chaos": 0,
+                    "Order": 0,
+                    "any": 0
+                  }
+                },
+                "runeDeckCount": 7
+              }
+            ],
+            "bases": [
+              {
+                "playerId": "player-1",
+                "runes": [
+                  {
+                    "uid": "uid-015",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-016",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-017",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-022",
+                    "domain": "Fury",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-023",
+                    "domain": "Fury",
+                    "readied": true
+                  }
+                ],
+                "goldTokens": []
+              },
+              {
+                "playerId": "player-2",
+                "runes": [
+                  {
+                    "uid": "uid-012",
+                    "domain": "Fury",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-018",
+                    "domain": "Fury",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-019",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-024",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-025",
+                    "domain": "Fury",
+                    "readied": true
+                  }
+                ],
+                "goldTokens": []
+              }
+            ]
+          },
+          "board": {
+            "battlefields": [
+              {
+                "locationId": "[\"duel-battlefield\",\"uid-005\"]",
+                "instanceId": "uid-005",
+                "cardId": "ogn-278-298",
+                "ownerPlayerId": "player-1",
+                "controllerPlayerId": null,
+                "contested": false,
+                "contestingPlayerId": null,
+                "showdown": "none",
+                "combat": "none",
+                "occupancy": []
+              },
+              {
+                "locationId": "[\"duel-battlefield\",\"uid-006\"]",
+                "instanceId": "uid-006",
+                "cardId": "ogn-278-298",
+                "ownerPlayerId": "player-2",
+                "controllerPlayerId": null,
+                "contested": false,
+                "contestingPlayerId": null,
+                "showdown": "none",
+                "combat": "none",
+                "occupancy": []
+              }
+            ],
+            "units": [],
+            "gears": []
+          },
+          "scoring": {
+            "playerIds": [
+              "player-1",
+              "player-2"
+            ],
+            "battlefieldLocationIds": [
+              "[\"duel-battlefield\",\"uid-005\"]",
+              "[\"duel-battlefield\",\"uid-006\"]"
+            ],
+            "victoryScore": 8,
+            "turnNumber": 5,
+            "players": [
+              {
+                "playerId": "player-1",
+                "points": 0,
+                "scoredBattlefieldLocationIds": []
+              },
+              {
+                "playerId": "player-2",
+                "points": 0,
+                "scoredBattlefieldLocationIds": []
+              }
+            ]
+          },
+          "actions": [
+            {
+              "kind": "rune-energy",
+              "uid": "uid-012",
+              "enabled": true
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-012",
+              "enabled": true
+            },
+            {
+              "kind": "rune-energy",
+              "uid": "uid-018",
+              "enabled": true
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-018",
+              "enabled": true
+            },
+            {
+              "kind": "rune-energy",
+              "uid": "uid-019",
+              "enabled": true
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-019",
+              "enabled": true
+            },
+            {
+              "kind": "rune-energy",
+              "uid": "uid-024",
+              "enabled": true
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-024",
+              "enabled": true
+            },
+            {
+              "kind": "rune-energy",
+              "uid": "uid-025",
+              "enabled": true
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-025",
+              "enabled": true
+            },
+            {
+              "kind": "play-card",
+              "enabled": true,
+              "cardUID": "uid-009",
+              "windowId": "[\"duel:default-path\",57,5,\"main\",\"player-2\",\"player-2\",null]"
+            },
+            {
+              "kind": "play-card",
+              "enabled": true,
+              "cardUID": "uid-020",
+              "windowId": "[\"duel:default-path\",57,5,\"main\",\"player-2\",\"player-2\",null]"
+            },
+            {
+              "kind": "standard-move",
+              "enabled": false,
+              "reason": "当前没有可移动的单位",
+              "windowId": "[\"duel:default-path\",57,5,\"main\",\"player-2\",\"player-2\",null]",
+              "selectableUnitUIDs": [],
+              "destinations": []
+            },
+            {
+              "kind": "end-turn",
+              "enabled": true,
+              "windowId": "[\"duel:default-path\",57,5,\"main\",\"player-2\",\"player-2\",null]"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "end-turn-5",
+      "submitted": {
+        "player": "player-2",
+        "packet": {
+          "type": "duel-command",
+          "commandProfile": "duel-command-v3-actions-1",
+          "requestId": "request-9",
+          "commandId": "command-9",
+          "expectedVersion": 57,
+          "command": {
+            "type": "end-turn",
+            "windowId": "[\"duel:default-path\",57,5,\"main\",\"player-2\",\"player-2\",null]"
+          }
+        }
+      },
+      "roomEvents": [],
+      "events": [
+        {
+          "recipient": "player-2",
+          "type": "request-result",
+          "requestId": "request-9",
+          "commandId": "command-9",
+          "ok": true,
+          "appliedVersion": 60,
+          "eventSeq": 60,
+          "duplicate": false,
+          "roomVersion": 9,
+          "roomEventSeq": 8
+        },
+        {
+          "recipient": "player-1",
+          "type": "duel-projection",
+          "stateVersion": 68,
+          "eventSeq": 68,
+          "stage": "playing"
+        },
+        {
+          "recipient": "player-2",
+          "type": "duel-projection",
+          "stateVersion": 68,
+          "eventSeq": 68,
+          "stage": "playing"
+        }
+      ],
+      "projections": [
+        {
+          "hash": "sha256:dca61fe47ba8656d1c2d50e173a316aa3977be8b5d2736473984c16066e18545",
+          "viewer": "player-1",
+          "schema": "riftbound-duel-v3-actions-1",
+          "stage": "playing",
+          "stateVersion": 68,
+          "eventSeq": 68,
+          "frame": {
+            "phase": "main",
+            "turnNumber": 6,
+            "turnPlayerId": "player-1",
+            "priorityPlayerId": "player-1",
+            "focusPlayerId": null,
+            "stateOpen": true,
+            "pendingPayment": null,
+            "chain": {
+              "active": false
+            },
+            "pendingChoice": null,
+            "execution": {
+              "status": "ready"
+            }
+          },
+          "players": [
+            {
+              "playerId": "player-1",
+              "handCount": 7,
+              "mainDeckCount": 32,
+              "hand": [
+                {
+                  "uid": "uid-001",
+                  "cardId": "ogs-016-024"
+                },
+                {
+                  "uid": "uid-002",
+                  "cardId": "sfd-156-221"
+                },
+                {
+                  "uid": "uid-003",
+                  "cardId": "ogn-209-298"
+                },
+                {
+                  "uid": "uid-004",
+                  "cardId": "sfd-006-221"
+                },
+                {
+                  "uid": "uid-014",
+                  "cardId": "ogn-001-298"
+                },
+                {
+                  "uid": "uid-021",
+                  "cardId": "ogn-234-298"
+                },
+                {
+                  "uid": "uid-027",
+                  "cardId": "sfd-156-221"
+                }
+              ],
+              "trash": [],
+              "champion": {
+                "cardId": "ogn-036-298"
+              },
+              "legend": {
+                "cardId": "unl-187-219",
+                "controllerPlayerId": "player-1",
+                "readiness": "ready"
+              }
+            },
+            {
+              "playerId": "player-2",
+              "handCount": 7,
+              "mainDeckCount": 32,
+              "trash": [],
+              "champion": {
+                "cardId": "ogn-036-298"
+              },
+              "legend": {
+                "cardId": "unl-187-219",
+                "controllerPlayerId": "player-2",
+                "readiness": "ready"
+              }
+            }
+          ],
+          "resources": {
+            "players": [
+              {
+                "playerId": "player-1",
+                "runePool": {
+                  "energy": 0,
+                  "power": {
+                    "Fury": 0,
+                    "Calm": 0,
+                    "Mind": 0,
+                    "Body": 0,
+                    "Chaos": 0,
+                    "Order": 0,
+                    "any": 0
+                  }
+                },
+                "runeDeckCount": 5
+              },
+              {
+                "playerId": "player-2",
+                "runePool": {
+                  "energy": 0,
+                  "power": {
+                    "Fury": 0,
+                    "Calm": 0,
+                    "Mind": 0,
+                    "Body": 0,
+                    "Chaos": 0,
+                    "Order": 0,
+                    "any": 0
+                  }
+                },
+                "runeDeckCount": 7
+              }
+            ],
+            "bases": [
+              {
+                "playerId": "player-1",
+                "runes": [
+                  {
+                    "uid": "uid-015",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-016",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-017",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-022",
+                    "domain": "Fury",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-023",
+                    "domain": "Fury",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-028",
+                    "domain": "Fury",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-029",
+                    "domain": "Fury",
+                    "readied": true
+                  }
+                ],
+                "goldTokens": []
+              },
+              {
+                "playerId": "player-2",
+                "runes": [
+                  {
+                    "uid": "uid-012",
+                    "domain": "Fury",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-018",
+                    "domain": "Fury",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-019",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-024",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-025",
+                    "domain": "Fury",
+                    "readied": true
+                  }
+                ],
+                "goldTokens": []
+              }
+            ]
+          },
+          "board": {
+            "battlefields": [
+              {
+                "locationId": "[\"duel-battlefield\",\"uid-005\"]",
+                "instanceId": "uid-005",
+                "cardId": "ogn-278-298",
+                "ownerPlayerId": "player-1",
+                "controllerPlayerId": null,
+                "contested": false,
+                "contestingPlayerId": null,
+                "showdown": "none",
+                "combat": "none",
+                "occupancy": []
+              },
+              {
+                "locationId": "[\"duel-battlefield\",\"uid-006\"]",
+                "instanceId": "uid-006",
+                "cardId": "ogn-278-298",
+                "ownerPlayerId": "player-2",
+                "controllerPlayerId": null,
+                "contested": false,
+                "contestingPlayerId": null,
+                "showdown": "none",
+                "combat": "none",
+                "occupancy": []
+              }
+            ],
+            "units": [],
+            "gears": []
+          },
+          "scoring": {
+            "playerIds": [
+              "player-1",
+              "player-2"
+            ],
+            "battlefieldLocationIds": [
+              "[\"duel-battlefield\",\"uid-005\"]",
+              "[\"duel-battlefield\",\"uid-006\"]"
+            ],
+            "victoryScore": 8,
+            "turnNumber": 6,
+            "players": [
+              {
+                "playerId": "player-1",
+                "points": 0,
+                "scoredBattlefieldLocationIds": []
+              },
+              {
+                "playerId": "player-2",
+                "points": 0,
+                "scoredBattlefieldLocationIds": []
+              }
+            ]
+          },
+          "actions": [
+            {
+              "kind": "rune-energy",
+              "uid": "uid-015",
+              "enabled": true
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-015",
+              "enabled": true
+            },
+            {
+              "kind": "rune-energy",
+              "uid": "uid-016",
+              "enabled": true
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-016",
+              "enabled": true
+            },
+            {
+              "kind": "rune-energy",
+              "uid": "uid-017",
+              "enabled": true
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-017",
+              "enabled": true
+            },
+            {
+              "kind": "rune-energy",
+              "uid": "uid-022",
+              "enabled": true
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-022",
+              "enabled": true
+            },
+            {
+              "kind": "rune-energy",
+              "uid": "uid-023",
+              "enabled": true
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-023",
+              "enabled": true
+            },
+            {
+              "kind": "rune-energy",
+              "uid": "uid-028",
+              "enabled": true
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-028",
+              "enabled": true
+            },
+            {
+              "kind": "rune-energy",
+              "uid": "uid-029",
+              "enabled": true
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-029",
+              "enabled": true
+            },
+            {
+              "kind": "play-card",
+              "enabled": true,
+              "cardUID": "uid-014",
+              "windowId": "[\"duel:default-path\",68,6,\"main\",\"player-1\",\"player-1\",null]"
+            },
+            {
+              "kind": "standard-move",
+              "enabled": false,
+              "reason": "当前没有可移动的单位",
+              "windowId": "[\"duel:default-path\",68,6,\"main\",\"player-1\",\"player-1\",null]",
+              "selectableUnitUIDs": [],
+              "destinations": []
+            },
+            {
+              "kind": "end-turn",
+              "enabled": true,
+              "windowId": "[\"duel:default-path\",68,6,\"main\",\"player-1\",\"player-1\",null]"
+            }
+          ]
+        },
+        {
+          "hash": "sha256:2ae80c4330b3d93708728da46778ef1c0ef3eb157176c93d9c08cc062a65d333",
+          "viewer": "player-2",
+          "schema": "riftbound-duel-v3-actions-1",
+          "stage": "playing",
+          "stateVersion": 68,
+          "eventSeq": 68,
+          "frame": {
+            "phase": "main",
+            "turnNumber": 6,
+            "turnPlayerId": "player-1",
+            "priorityPlayerId": "player-1",
+            "focusPlayerId": null,
+            "stateOpen": true,
+            "pendingPayment": null,
+            "chain": {
+              "active": false
+            },
+            "pendingChoice": null,
+            "execution": {
+              "status": "ready"
+            }
+          },
+          "players": [
+            {
+              "playerId": "player-1",
+              "handCount": 7,
+              "mainDeckCount": 32,
+              "trash": [],
+              "champion": {
+                "cardId": "ogn-036-298"
+              },
+              "legend": {
+                "cardId": "unl-187-219",
+                "controllerPlayerId": "player-1",
+                "readiness": "ready"
+              }
+            },
+            {
+              "playerId": "player-2",
+              "handCount": 7,
+              "mainDeckCount": 32,
+              "hand": [
+                {
+                  "uid": "uid-007",
+                  "cardId": "sfd-006-221"
+                },
+                {
+                  "uid": "uid-008",
+                  "cardId": "sfd-006-221"
+                },
+                {
+                  "uid": "uid-009",
+                  "cardId": "ogn-010-298"
+                },
+                {
+                  "uid": "uid-010",
+                  "cardId": "sfd-006-221"
+                },
+                {
+                  "uid": "uid-013",
+                  "cardId": "ogn-013-298"
+                },
+                {
+                  "uid": "uid-020",
+                  "cardId": "ogn-001-298"
+                },
+                {
+                  "uid": "uid-026",
+                  "cardId": "ogn-234-298"
+                }
+              ],
+              "trash": [],
+              "champion": {
+                "cardId": "ogn-036-298"
+              },
+              "legend": {
+                "cardId": "unl-187-219",
+                "controllerPlayerId": "player-2",
+                "readiness": "ready"
+              }
+            }
+          ],
+          "resources": {
+            "players": [
+              {
+                "playerId": "player-1",
+                "runePool": {
+                  "energy": 0,
+                  "power": {
+                    "Fury": 0,
+                    "Calm": 0,
+                    "Mind": 0,
+                    "Body": 0,
+                    "Chaos": 0,
+                    "Order": 0,
+                    "any": 0
+                  }
+                },
+                "runeDeckCount": 5
+              },
+              {
+                "playerId": "player-2",
+                "runePool": {
+                  "energy": 0,
+                  "power": {
+                    "Fury": 0,
+                    "Calm": 0,
+                    "Mind": 0,
+                    "Body": 0,
+                    "Chaos": 0,
+                    "Order": 0,
+                    "any": 0
+                  }
+                },
+                "runeDeckCount": 7
+              }
+            ],
+            "bases": [
+              {
+                "playerId": "player-1",
+                "runes": [
+                  {
+                    "uid": "uid-015",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-016",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-017",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-022",
+                    "domain": "Fury",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-023",
+                    "domain": "Fury",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-028",
+                    "domain": "Fury",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-029",
+                    "domain": "Fury",
+                    "readied": true
+                  }
+                ],
+                "goldTokens": []
+              },
+              {
+                "playerId": "player-2",
+                "runes": [
+                  {
+                    "uid": "uid-012",
+                    "domain": "Fury",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-018",
+                    "domain": "Fury",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-019",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-024",
+                    "domain": "Order",
+                    "readied": true
+                  },
+                  {
+                    "uid": "uid-025",
+                    "domain": "Fury",
+                    "readied": true
+                  }
+                ],
+                "goldTokens": []
+              }
+            ]
+          },
+          "board": {
+            "battlefields": [
+              {
+                "locationId": "[\"duel-battlefield\",\"uid-005\"]",
+                "instanceId": "uid-005",
+                "cardId": "ogn-278-298",
+                "ownerPlayerId": "player-1",
+                "controllerPlayerId": null,
+                "contested": false,
+                "contestingPlayerId": null,
+                "showdown": "none",
+                "combat": "none",
+                "occupancy": []
+              },
+              {
+                "locationId": "[\"duel-battlefield\",\"uid-006\"]",
+                "instanceId": "uid-006",
+                "cardId": "ogn-278-298",
+                "ownerPlayerId": "player-2",
+                "controllerPlayerId": null,
+                "contested": false,
+                "contestingPlayerId": null,
+                "showdown": "none",
+                "combat": "none",
+                "occupancy": []
+              }
+            ],
+            "units": [],
+            "gears": []
+          },
+          "scoring": {
+            "playerIds": [
+              "player-1",
+              "player-2"
+            ],
+            "battlefieldLocationIds": [
+              "[\"duel-battlefield\",\"uid-005\"]",
+              "[\"duel-battlefield\",\"uid-006\"]"
+            ],
+            "victoryScore": 8,
+            "turnNumber": 6,
+            "players": [
+              {
+                "playerId": "player-1",
+                "points": 0,
+                "scoredBattlefieldLocationIds": []
+              },
+              {
+                "playerId": "player-2",
+                "points": 0,
+                "scoredBattlefieldLocationIds": []
+              }
+            ]
+          },
+          "actions": [
+            {
+              "kind": "rune-energy",
+              "uid": "uid-012",
+              "enabled": false,
+              "reason": "当前不能横置该符文"
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-012",
+              "enabled": false,
+              "reason": "当前不能回收该符文"
+            },
+            {
+              "kind": "rune-energy",
+              "uid": "uid-018",
+              "enabled": false,
+              "reason": "当前不能横置该符文"
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-018",
+              "enabled": false,
+              "reason": "当前不能回收该符文"
+            },
+            {
+              "kind": "rune-energy",
+              "uid": "uid-019",
+              "enabled": false,
+              "reason": "当前不能横置该符文"
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-019",
+              "enabled": false,
+              "reason": "当前不能回收该符文"
+            },
+            {
+              "kind": "rune-energy",
+              "uid": "uid-024",
+              "enabled": false,
+              "reason": "当前不能横置该符文"
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-024",
+              "enabled": false,
+              "reason": "当前不能回收该符文"
+            },
+            {
+              "kind": "rune-energy",
+              "uid": "uid-025",
+              "enabled": false,
+              "reason": "当前不能横置该符文"
+            },
+            {
+              "kind": "rune-power",
+              "uid": "uid-025",
+              "enabled": false,
+              "reason": "当前不能回收该符文"
+            },
+            {
+              "kind": "play-card",
+              "enabled": false,
+              "cardUID": "uid-009",
+              "windowId": "[\"duel:default-path\",68,6,\"main\",\"player-1\",\"player-1\",null]",
+              "reason": "等待规则闭合"
+            },
+            {
+              "kind": "play-card",
+              "enabled": false,
+              "cardUID": "uid-020",
+              "windowId": "[\"duel:default-path\",68,6,\"main\",\"player-1\",\"player-1\",null]",
+              "reason": "等待规则闭合"
+            },
+            {
+              "kind": "standard-move",
+              "enabled": false,
+              "reason": "当前没有可移动的单位",
+              "windowId": "[\"duel:default-path\",68,6,\"main\",\"player-1\",\"player-1\",null]",
+              "selectableUnitUIDs": [],
+              "destinations": []
+            },
+            {
+              "kind": "end-turn",
+              "enabled": false,
+              "windowId": "[\"duel:default-path\",68,6,\"main\",\"player-1\",\"player-1\",null]",
+              "reason": "当前回合仍有待处理规则"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "finalScoring": {
+    "playerIds": [
+      "player-1",
+      "player-2"
+    ],
+    "battlefieldLocationIds": [
+      "[\"duel-battlefield\",\"uid-005\"]",
+      "[\"duel-battlefield\",\"uid-006\"]"
+    ],
+    "victoryScore": 8,
+    "turnNumber": 6,
+    "players": [
+      {
+        "playerId": "player-1",
+        "points": 0,
+        "scoredBattlefieldLocationIds": []
+      },
+      {
+        "playerId": "player-2",
+        "points": 0,
+        "scoredBattlefieldLocationIds": []
+      }
+    ]
+  }
+}
