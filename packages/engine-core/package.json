@@ -32,7 +32,7 @@
     "pretypecheck": "node ../../scripts/gen-registries.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "pretest": "node ../../scripts/gen-registries.mjs",
-    "test": "pnpm --filter @riftbound/protocol build && pnpm --filter @riftbound/card-dsl build && pnpm build && node --import ./test/support/register.mjs --test test/*.test.mjs test/full-product/*.test.mjs",
+    "test": "pnpm --filter @riftbound/protocol build && pnpm --filter @riftbound/card-dsl build && pnpm build && node ../../scripts/list-tests.mjs --run --import ./test/support/register.mjs",
     "audit:printed-costs": "pnpm build && node --test test/duel-printed-costs.audit.mjs"
   },
   "dependencies": {
