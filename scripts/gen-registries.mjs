@@ -279,6 +279,19 @@ async function listSourceFiles(directory) {
     .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
 }
 
+async function listCardSourceFiles(cardsRoot) {
+  const children = await readdir(cardsRoot, { withFileTypes: true });
+  const cardSets = children
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+  const files = [];
+  for (const setName of cardSets) {
+    files.push(...(await listSourceFiles(path.join(cardsRoot, setName))));
+  }
+  return files.sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+}
+
 function validateUniqueIds(entries) {
   const locations = new Map();
   for (const entry of entries) {
@@ -293,9 +306,12 @@ function validateUniqueIds(entries) {
   }
 }
 
-async function collectTargetAsync({ directory, kind }) {
+async function collectTargetAsync({ directory, kind, sourceDirectory = directory }) {
   await mkdir(directory, { recursive: true });
-  const files = await listSourceFiles(directory);
+  const files =
+    kind === "cards"
+      ? await listCardSourceFiles(sourceDirectory)
+      : await listSourceFiles(sourceDirectory);
   const entries = [];
   for (const filePath of files) {
     const source = await readFile(filePath, "utf8");
@@ -311,19 +327,9 @@ async function discoverTargets(repoRoot) {
     directory: path.join(repoRoot, ...target.directory),
     kind: target.kind
   }));
-  const cardsRoot = path.join(repoRoot, "packages", "card-dsl", "cards");
+  const cardsRoot = path.join(repoRoot, "packages", "card-dsl", "src", "cards");
   await mkdir(cardsRoot, { recursive: true });
-  const children = await readdir(cardsRoot, { withFileTypes: true });
-  const cardSets = children
-    .filter((entry) => entry.isDirectory())
-    .map((entry) => entry.name)
-    .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
-  targets.push(
-    ...cardSets.map((setName) => ({
-      directory: path.join(cardsRoot, setName),
-      kind: "cards"
-    }))
-  );
+  targets.push({ directory: cardsRoot, kind: "cards", sourceDirectory: cardsRoot });
   return targets;
 }
 

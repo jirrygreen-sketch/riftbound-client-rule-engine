@@ -28,7 +28,7 @@ async function createFixture() {
       "effects",
       "keywords"
     ),
-    cards: path.join(root, "packages", "card-dsl", "cards")
+    cards: path.join(root, "packages", "card-dsl", "src", "cards")
   };
   await Promise.all(
     Object.values(directories).map((directory) =>
@@ -52,6 +52,7 @@ test("generates valid empty registries for empty source directories", async () =
         .map((result) => path.relative(fixture.root, result.outputPath))
         .sort(),
       [
+        "packages/card-dsl/src/cards/registry.generated.ts",
         "packages/engine-core/src/effects/instructions/registry.generated.ts",
         "packages/engine-core/src/effects/keywords/registry.generated.ts"
       ]
@@ -102,7 +103,9 @@ test("sorts imports, ignores tests, and generates card-set registries", async ()
     const instructionRegistry = results.find(
       (result) => result.directory === fixture.directories.instructions
     );
-    const cardRegistry = results.find((result) => result.directory === cardSet);
+    const cardRegistry = results.find(
+      (result) => result.directory === fixture.directories.cards
+    );
     assert.ok(instructionRegistry);
     assert.ok(cardRegistry);
 
@@ -114,7 +117,9 @@ test("sorts imports, ignores tests, and generates card-set registries", async ()
     assert.match(instructions, /instructionDefinitionsById/);
 
     const cards = await readFile(cardRegistry.outputPath, "utf8");
-    assert.ok(cards.indexOf('"./first.js"') < cards.indexOf('"./second.js"'));
+    assert.ok(
+      cards.indexOf('"./set-a/first.js"') < cards.indexOf('"./set-a/second.js"')
+    );
     assert.match(cards, /cardProgramsById/);
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
