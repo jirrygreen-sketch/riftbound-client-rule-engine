@@ -9,9 +9,9 @@ const suffix = process.env.DUEL_CONQUER_SOURCE_TEST ? '.ts' : '.js';
 const {
   selectDuelBattlefields, createDuelBoard, placeDuelUnit, removeDuelUnit, applyOpenDuelCleanup,
   beginDuelShowdown, endDuelNonCombatShowdown, beginDuelCombat, endDuelCombat,
-} = await import(`${root}battlefields.js`);
+} = await import(`${root}battlefields${suffix}`);
 const { createDuelScoring, beginDuelScoreTurn, gainDuelPoints, scoreDuelBattlefield } =
-  await import(`${root}scoring.js`);
+  await import(`${root}scoring${suffix}`);
 const { createDuelConquerAuthorityV2, issueDuelControlEstablishedEventV2, scoreDuelConquerWithEventV2 } =
   await import(`${root}conquer-v2${suffix}`);
 
