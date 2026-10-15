@@ -9,6 +9,11 @@ import { fileURLToPath } from "node:url";
 import {
   applyReviewedTagCorrections
 } from "./reviewed-card-tags.mjs";
+import {
+  buildErrataIndex,
+  errataAuditReport,
+  galleryTokenVocabulary
+} from "./errata.mjs";
 
 export const DEFAULT_SNAPSHOT_PATH = fileURLToPath(
   new URL("../dist/cards.json", import.meta.url)
@@ -29,6 +34,11 @@ const usage = `Usage:
   node scripts/build-deck-catalog.mjs [options]
 
 Builds the client/server-safe deck catalog from a current cards snapshot.
+
+Card errata are resolved from the snapshot's own annotations against each
+printing's official gallery text. A printing whose printed notation cannot be
+reproduced exactly keeps its printed text (and is then classified
+\`judge-required\` by the effect compiler).
 
 Options:
   --snapshot <file>     Snapshot file. Default: dist/cards.json in this
@@ -340,8 +350,22 @@ function officialNumber(card, field) {
   return numberOrNull(card[field]?.value?.id ?? card[field], field);
 }
 
-function officialAbility(card) {
-  const effective = card.abilityEffective ??
+/**
+ * Ability text for one printing.
+ *
+ * The official gallery only ever carries the *printed* wording, including for
+ * cards that Riot has since errata'd. The merged snapshot carries each printing's
+ * errata annotation, which `errata.mjs` verifies against that same gallery text
+ * before the corrected wording is used. Without a verified resolution the printed
+ * text is used verbatim; the effect compiler then classifies the printing as
+ * `judge-required` instead of producing an approximation.
+ */
+function officialAbility(card, errata) {
+  const verified = errata?.resolutions.get(
+    typeof card.cardCode === "string" ? card.cardCode : card.id
+  );
+  const effective = verified?.effectiveText ??
+    card.abilityEffective ??
     card.abilityOriginal ??
     htmlText(card.text?.richText?.body);
   return abilityText(effective ?? "", "ability");
@@ -455,7 +479,7 @@ function reviewedTags(id, name, fullName, imageUrl, tags, onConflict, correction
   return result.tags;
 }
 
-function publicCard(id, source, official, chinese, corrections) {
+function publicCard(id, source, official, chinese, corrections, errata) {
   const card = official ?? source;
   const fullName = officialFullName(card);
   const name = official === undefined
@@ -490,11 +514,11 @@ function publicCard(id, source, official, chinese, corrections) {
     energy: officialNumber(card, "energy"),
     power: officialNumber(card, "power"),
     might: officialNumber(card, "might"),
-    ability: officialAbility(card)
+    ability: officialAbility(card, errata)
   };
 }
 
-function unknownCommunityCard(id, source, corrections) {
+function unknownCommunityCard(id, source, corrections, errata) {
   const fullName = officialFullName(source);
   const name = text(source.name ?? fullName, 256, "name");
   const imageUrl = officialImageUrl(source);
@@ -527,7 +551,7 @@ function unknownCommunityCard(id, source, corrections) {
     energy: officialNumber(source, "energy"),
     power: officialNumber(source, "power"),
     might: officialNumber(source, "might"),
-    ability: officialAbility(source)
+    ability: officialAbility(source, errata)
   };
 }
 
@@ -577,6 +601,21 @@ export function buildDeckCatalog(snapshot, options = {}) {
     : undefined;
   const cards = [];
   const ids = new Set();
+  // The official gallery only ever carries printed wording. Verified errata are
+  // resolved from the merged snapshot's own annotations against each printing's
+  // gallery text; anything that cannot be reproduced exactly stays printed.
+  const errata = buildErrataIndex({
+    cards: snapshot.cards,
+    galleryTextById: new Map(
+      [...english].map(([id, card]) => [id, htmlText(card.text?.richText?.body)])
+    ),
+    vocabulary: galleryTokenVocabulary(
+      [...english.values()].map((card) => htmlText(card.text?.richText?.body))
+    )
+  });
+  if (Array.isArray(options.errata)) {
+    options.errata.push(errataAuditReport(errata));
+  }
   for (const [index, source] of snapshot.cards.entries()) {
     if (!isRecord(source)) {
       throw new BuildDeckCatalogError(`Snapshot card ${index} is not an object`);
@@ -590,9 +629,9 @@ export function buildDeckCatalog(snapshot, options = {}) {
     const key = source.cardCode ?? source.id;
     const official = typeof key === "string" ? english.get(key) : undefined;
     if (official === undefined) {
-      cards.push(unknownCommunityCard(id, source, corrections));
+      cards.push(unknownCommunityCard(id, source, corrections, errata));
     } else {
-      cards.push(publicCard(id, source, official, chinese.get(key), corrections));
+      cards.push(publicCard(id, source, official, chinese.get(key), corrections, errata));
     }
   }
 
@@ -716,6 +755,24 @@ function reportReviewedCorrections(corrections, log) {
   log(`Reviewed tag corrections applied: ${summary}.`);
 }
 
+function reportErrata(errataReports, log) {
+  const [report] = errataReports;
+  if (report === undefined) return;
+  const { stats, unresolved } = report;
+  log(
+    `Errata resolved: ${stats.changed} changed, ${stats.unchanged} already ` +
+    `effective, ${stats.propagated} inherited by an identical sibling printing; ` +
+    `${stats.unresolved} unresolved.`
+  );
+  if (unresolved.length > 0) {
+    log(
+      `Errata left printed (judge-required): ` +
+      unresolved.map((entry) => `${entry.printingId} (${entry.reason})`).join(", ") +
+      "."
+    );
+  }
+}
+
 export async function main(argv = process.argv.slice(2), io = {}) {
   const log = io.log ?? console.log;
   const error = io.error ?? console.error;
@@ -729,7 +786,8 @@ export async function main(argv = process.argv.slice(2), io = {}) {
     const outputPath = resolveOutputPath(options.output);
     const snapshot = await readSnapshot(snapshotPath);
     const corrections = [];
-    const catalog = buildDeckCatalog(snapshot, { ...options, corrections });
+    const errataReports = [];
+    const catalog = buildDeckCatalog(snapshot, { ...options, corrections, errata: errataReports });
     const contents = `${JSON.stringify(catalog, null, 2)}\n`;
     if (options.dryRun) {
       log(
@@ -737,6 +795,7 @@ export async function main(argv = process.argv.slice(2), io = {}) {
         `${catalog.groups.length} identity groups. Output would be ${outputPath}.`
       );
       reportReviewedCorrections(corrections, log);
+      reportErrata(errataReports, log);
       return 0;
     }
     await writeAtomically(outputPath, contents);
@@ -745,6 +804,7 @@ export async function main(argv = process.argv.slice(2), io = {}) {
       `identity groups at ${outputPath}.`
     );
     reportReviewedCorrections(corrections, log);
+    reportErrata(errataReports, log);
     return 0;
   } catch (caught) {
     error(

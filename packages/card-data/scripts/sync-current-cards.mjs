@@ -798,6 +798,9 @@ export async function run(options, io = {}) {
       localizedOfficialCardCount: localized.cards.length,
       communityCardCount: communityCards.length,
       mergedCardCount: merged.cards.length,
+      errataAnnotationCount: merged.cards.filter(
+        (card) => card.hasErrata
+      ).length,
       missingFromCommunity: merged.missingFromCommunity,
       communityOnly: merged.communityOnly,
       officialSetCounts: setCounts(
@@ -872,7 +875,26 @@ export async function run(options, io = {}) {
     }))
   };
   const catalogSerialized = `${JSON.stringify(catalog, null, 2)}\n`;
-  const deckCatalog = buildDeckCatalog(output);
+  const errataReports = [];
+  const deckCatalog = buildDeckCatalog(output, { errata: errataReports });
+  const errataReport = errataReports[0];
+  if (errataReport !== undefined) {
+    log(
+      `Errata: ${errataReport.stats.annotations} annotated printings; ` +
+      `${errataReport.stats.changed} resolved to corrected text; ` +
+      `${errataReport.stats.unchanged} already match their printed text; ` +
+      `${errataReport.stats.propagated} inherited by an identical sibling ` +
+      `printing; ${errataReport.stats.unresolved} left printed.`
+    );
+    if (errataReport.unresolved.length > 0) {
+      log(
+        `Errata left printed (judge-required): ` +
+        errataReport.unresolved
+          .map((entry) => `${entry.printingId} (${entry.reason})`)
+          .join(", ") + "."
+      );
+    }
+  }
 
   if (options.dryRun) {
     log(
@@ -881,7 +903,7 @@ export async function run(options, io = {}) {
       `No file written. Output would be ${outputPath}; ` +
       `image catalog would be ${catalogPath}.`
     );
-    return { ...output, catalog };
+    return { ...output, catalog, errata: errataReport };
   }
 
   await writeAtomically(outputPath, serialized);
@@ -892,7 +914,7 @@ export async function run(options, io = {}) {
     `${merged.missingFromCommunity.length} official-only records merged. ` +
     `Image catalog written to ${catalogPath}; deck catalog written to ${DECK_CATALOG_PATH}.`
   );
-  return { ...output, catalog };
+  return { ...output, catalog, errata: errataReport };
 }
 
 function formatError(error, timeoutMs) {
