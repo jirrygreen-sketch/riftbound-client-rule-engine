@@ -1,0 +1,1626 @@
+[
+  {
+    "canonicalCardId": "card.hash-94735882304ffe96826dd127aea87fdfaac6f979e3b075524de966b982a9c89f",
+    "printingId": "ogn-014-298",
+    "verdict": "mappable",
+    "templates": [
+      "cost-modify",
+      "damage",
+      "filter",
+      "implicit-printed-cost",
+      "kw-action",
+      "location",
+      "target",
+      "value"
+    ],
+    "primitives": [
+      "condition.value",
+      "continuous.timing",
+      "cost.modify",
+      "cost.printed",
+      "effect.damage",
+      "target.filter",
+      "target.location",
+      "target.query"
+    ],
+    "reason": "漏识别的是减费句，不是新效果。用己方单位查询的最大 Might 给 cost.modify 参数；356.4.e 的官方示例直接包含本卡与 Eager Apprentice。减费在总费用步骤读取，不改印刷费用，也不把其他折扣的最低值当全局下限。",
+    "ruleRefs": [
+      "CR v1.5 356.4.b",
+      "CR v1.5 356.4.e",
+      "CR v1.5 356.4.g",
+      "CR v1.5 418.1",
+      "CR v1.5 806.1"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-5d9f81372ed036e6b436801528f2d8f8c5ebcc636cfa4c396219c28c446bdfac",
+    "printingId": "ogn-025-298",
+    "verdict": "mappable",
+    "templates": [
+      "banish",
+      "cost-modify",
+      "implicit-printed-cost",
+      "kw-action",
+      "many",
+      "player",
+      "recycle",
+      "result",
+      "reveal",
+      "special-play",
+      "target"
+    ],
+    "primitives": [
+      "condition.predicate",
+      "condition.result",
+      "condition.value",
+      "continuous.timing",
+      "cost.modify",
+      "cost.printed",
+      "effect.banish",
+      "effect.play",
+      "effect.recycle",
+      "effect.reveal",
+      "effect.zone",
+      "target.many",
+      "target.player",
+      "target.query"
+    ],
+    "reason": "主目录已经包含 S-ORIGINS Blind Fury 的先放逐步骤。每位对手及其牌库是循环绑定；公开不会改变牌的所在区，不能省略 banish，忽略的是基础 Energy 与 Power 而非全部追加费用；未选牌回到各自拥有者牌库。",
+    "ruleRefs": [
+      "CR v1.5 056.2",
+      "CR v1.5 355.18",
+      "CR v1.5 356.1.b.1",
+      "CR v1.5 356.1.b.3",
+      "CR v1.5 417.1.c",
+      "CR v1.5 425.1.a.2",
+      "CR v1.5 420.5",
+      "S-ORIGINS Blind Fury"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-2fce7f4e1db0ed6a111d74a7702d3846593794a9cddf1a1722959543f53ec58e",
+    "printingId": "ogn-028-298",
+    "verdict": "data-issue",
+    "templates": [
+      "implicit-printed-cost",
+      "might",
+      "value"
+    ],
+    "primitives": [
+      "condition.value",
+      "continuous.duration",
+      "continuous.might",
+      "cost.printed",
+      "target.query"
+    ],
+    "reason": "OGN 带 Noxus，ven-172-166 不带；本次官方 API 仍重复这一差异，不是 RIFT-9 误报。133.8.a 允许效果引用标签，不能把它当纯展示差异或自动取并集。能力本身可用持续战力与分数值表达，但身份元数据须由 card-data 对照正式牌面/勘误统一。",
+    "ruleRefs": [
+      "CR v1.5 132.4",
+      "CR v1.5 133.8.a",
+      "CR v1.5 479.4",
+      "S-GALLERY ogn-028-298 / ven-172-166"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-ebb7c06b81cac9f92ad088fcd2b809aa1e4f83f98e4ae2bbe3ad591e7259a141",
+    "printingId": "ogn-030-298",
+    "verdict": "data-issue",
+    "templates": [
+      "discard",
+      "implicit-printed-cost",
+      "kw-accelerate",
+      "kw-assault",
+      "trigger-play"
+    ],
+    "primitives": [
+      "choice.optional",
+      "condition.predicate",
+      "continuous.duration",
+      "continuous.might",
+      "cost.additional",
+      "cost.pay",
+      "cost.printed",
+      "effect.discard",
+      "effect.zone",
+      "replacement.enter",
+      "target.query",
+      "trigger.play"
+    ],
+    "reason": "OGN 带 Zaun，ven-168-166 缺失；官方 API 同样冲突。省略 Accelerate/Assault 提醒不改变能力，但不能据此忽略标签差异。元数据修复后可按既有关键词和弃牌原语编译；弃两张是效果，不是可退款/不可支付的弃牌费用。",
+    "ruleRefs": [
+      "CR v1.5 133.8.a",
+      "CR v1.5 423.4",
+      "CR v1.5 807.1",
+      "CR v1.5 805.1",
+      "S-GALLERY ogn-030-298 / ven-168-166"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-ba7c14228a3f1b238f24fea9d3c946f61d32728e8186d24e325cee8bce8302f3",
+    "printingId": "ogn-033-298",
+    "verdict": "mappable",
+    "templates": [
+      "condition",
+      "damage",
+      "draw",
+      "filter",
+      "implicit-printed-cost",
+      "kw-reaction",
+      "mode",
+      "player",
+      "result",
+      "target"
+    ],
+    "primitives": [
+      "choice.mode",
+      "condition.predicate",
+      "condition.result",
+      "continuous.timing",
+      "cost.printed",
+      "effect.damage",
+      "effect.draw",
+      "effect.zone",
+      "target.filter",
+      "target.player",
+      "target.query"
+    ],
+    "reason": "Choose 单句只是目标绑定。目标在 finalization 选，unless 分支由该单位控制者在结算时决定，不能把选择权交给施法者；抽牌与伤害分支使用现有选择、结果绑定和效果原语，空牌库交给 Burn Out 内核处理。",
+    "ruleRefs": [
+      "CR v1.5 355.5",
+      "CR v1.5 355.18",
+      "CR v1.5 359.3.e.5",
+      "CR v1.5 414.1",
+      "CR v1.5 418.1",
+      "CR v1.5 432.1"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-af6a9ff16e9f4f9849e489bb4ab37b18a1f12ed88da4b151ac85c770eb68d8c6",
+    "printingId": "ogn-035-298",
+    "verdict": "data-issue",
+    "templates": [
+      "condition",
+      "cost-resources",
+      "enter",
+      "implicit-printed-cost",
+      "kw-assault",
+      "optional",
+      "player",
+      "trigger-score",
+      "zone"
+    ],
+    "primitives": [
+      "choice.optional",
+      "condition.predicate",
+      "continuous.duration",
+      "continuous.might",
+      "cost.pay",
+      "cost.printed",
+      "effect.zone",
+      "replacement.enter",
+      "target.player",
+      "target.query",
+      "trigger.score"
+    ],
+    "reason": "SFD 两印刷多 Sentinel，OGN 没有，官方 API 可复现。不能凭重印较新就为全部身份加 Sentinel，或静默丢弃它。能力可由既有模板表达，但须先固定权威标签；enter ready 是替代，不是先横置再 ready。",
+    "ruleRefs": [
+      "CR v1.5 133.8.a",
+      "CR v1.5 359.2.c",
+      "CR v1.5 471.1",
+      "CR v1.5 369.3",
+      "S-GALLERY ogn-035-298 / sfd-223-221 / sfd-223-star-221"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-bcfd5b90d3252713ccfca0703a0d9aef17711a45ff2065bd68d7dd7822950b51",
+    "printingId": "ogn-036-298",
+    "verdict": "data-issue",
+    "templates": [
+      "activated",
+      "cost-recycle",
+      "duration",
+      "implicit-printed-cost",
+      "kw-ganking",
+      "might"
+    ],
+    "primitives": [
+      "continuous.duration",
+      "continuous.might",
+      "continuous.movement",
+      "cost.activated",
+      "cost.printed",
+      "cost.recycle",
+      "effect.recycle",
+      "effect.zone",
+      "target.location",
+      "target.query"
+    ],
+    "reason": "OGN 带 Piltover，ven-167-166 缺失，官方 API 一致复现；Ganking 提醒省略不是语义冲突。能力可映射；417.3 以本卡为例明确回收是费用，弃牌区无牌时不能激活。标签问题不能用只比较能力文本绕过。",
+    "ruleRefs": [
+      "CR v1.5 133.8.a",
+      "CR v1.5 417.3",
+      "CR v1.5 810.1",
+      "S-GALLERY ogn-036-298 / ven-167-166"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-6109f0c3bc10309b97f11204acad6c44060c1d502ba47608e1a7e5f37dc4f87f",
+    "printingId": "ogn-039-298",
+    "verdict": "data-issue",
+    "templates": [
+      "draw",
+      "implicit-printed-cost",
+      "kw-accelerate",
+      "trigger-score"
+    ],
+    "primitives": [
+      "choice.optional",
+      "cost.additional",
+      "cost.pay",
+      "cost.printed",
+      "effect.draw",
+      "effect.zone",
+      "replacement.enter",
+      "target.query",
+      "trigger.score"
+    ],
+    "reason": "OGN 两印刷带 The Void，ven-sp1-006 缺失，官方 API 同样冲突。删掉关键词提醒本身无碍，但标签是可引用特征，须独立修复；能力可用加速和征服抽牌路线，不需新原语。",
+    "ruleRefs": [
+      "CR v1.5 133.8.a",
+      "CR v1.5 414.1",
+      "CR v1.5 471.1",
+      "CR v1.5 805.1",
+      "S-GALLERY ogn-039-298 / ven-sp1-006"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-545730428f68ed4f654f780ffcb9e3789ff51480ea2f17983910893660b0dc3f",
+    "printingId": "ogn-071-298",
+    "verdict": "mappable",
+    "templates": [
+      "channel",
+      "draw",
+      "enter",
+      "implicit-printed-cost",
+      "many",
+      "mode",
+      "player",
+      "result"
+    ],
+    "primitives": [
+      "choice.mode",
+      "condition.predicate",
+      "condition.result",
+      "cost.printed",
+      "effect.channel",
+      "effect.draw",
+      "effect.zone",
+      "replacement.enter",
+      "target.many",
+      "target.player",
+      "target.query"
+    ],
+    "reason": "为每位其他玩家保存独立模式值，再遍历两类结果；不是所有人共用一个模式，也不是施法者只领取一次奖励。channel exhausted 使用符文入场状态，不是 Add 能量或先重置入场再横置；多人选择在结算执行。",
+    "ruleRefs": [
+      "CR v1.5 303.2.a",
+      "CR v1.5 355.10.e",
+      "CR v1.5 355.18",
+      "CR v1.5 414.1",
+      "CR v1.5 431.1",
+      "CR v1.5 431.2"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-dfe8783713db3f1121fbe8f02d18a936119747140a56f3207d218839b579f070",
+    "printingId": "ogn-073-298",
+    "verdict": "data-issue",
+    "templates": [
+      "condition",
+      "filter",
+      "implicit-printed-cost",
+      "location",
+      "many",
+      "ready",
+      "trigger-phase"
+    ],
+    "primitives": [
+      "condition.predicate",
+      "cost.printed",
+      "effect.ready",
+      "target.filter",
+      "target.location",
+      "target.many",
+      "target.query",
+      "trigger.phase"
+    ],
+    "reason": "S-ORIGINS Sona 已改写触发条件位置并加入 up to，ven-sp2-006 已采用新版而 OGN 仍旧版；另有 Demacia 标签差异。383.2.a.1 直接以新版 Sona 为例：触发时在战场即可，之后响应移走不取消该效果。不能将旧 while 作为持续重验条件继续实现。",
+    "ruleRefs": [
+      "CR v1.5 133.8.a",
+      "CR v1.5 383.2.a.1",
+      "CR v1.5 416.1",
+      "S-ORIGINS Sona, Harmonious",
+      "S-GALLERY ogn-073-298 / ven-sp2-006"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-ea7dd5402b09dfde273f51aee83776f88c4e3f1fb8f52b4863aa43d307a8ebda",
+    "printingId": "ogn-080-298",
+    "verdict": "needs-new-primitive",
+    "templates": [
+      "control",
+      "filter",
+      "implicit-printed-cost",
+      "kw-reaction",
+      "optional",
+      "target"
+    ],
+    "primitives": [
+      "choice.optional",
+      "continuous.duration",
+      "continuous.timing",
+      "cost.printed",
+      "effect.control",
+      "target.filter",
+      "target.query"
+    ],
+    "newPrimitive": {
+      "id": "effect.rechoose",
+      "semantics": "对已 finalized 的链项目重新绑定全部可重做选择：入场地点、模式、移动目的地、目标；排除 as-played 决定和可选额外费用。不允许只改一部分，不重打原牌，不再付款；无合法完整选择时否定该指令，重新产生适用的选中触发并保留原有来源限制。",
+      "ruleRefs": [
+        "CR v1.5 752.1",
+        "CR v1.5 752.2",
+        "CR v1.5 753",
+        "CR v1.5 753.1",
+        "CR v1.5 753.2",
+        "CR v1.5 753.3",
+        "CR v1.5 754",
+        "CR v1.5 755"
+      ],
+      "otherCards": [
+        {
+          "printingId": "ven-152-166",
+          "name": "Rebuttal",
+          "basis": "本地目录新选择语句；S-RADIANCE Making New Choices 明确点名"
+        }
+      ],
+      "stage": "required"
+    },
+    "reason": "effect.control 能改控制者，但 target.query 的正常选择/重验和 choice.mode 的初次模式选择不能代表 750 节的重新选择生命周期。须新增 effect.rechoose；Radiance 专门改为全部选择重做，并再次触发适用的选中效果。只换目标、不重验来源限制或重新付款均不正确。",
+    "ruleRefs": [
+      "CR v1.5 355.9.a",
+      "CR v1.5 355.15",
+      "CR v1.5 191.3",
+      "CR v1.5 752.1",
+      "CR v1.5 752.2",
+      "CR v1.5 753",
+      "CR v1.5 753.3",
+      "CR v1.5 754",
+      "CR v1.5 755",
+      "S-RADIANCE Making New Choices"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-e5d8b2e1e9ee0d9e2669fae947f4252a33dfc970df9cd39ad8477263b66fccc6",
+    "printingId": "ogn-084-298",
+    "verdict": "mappable",
+    "templates": [
+      "condition",
+      "cost-modify",
+      "filter",
+      "implicit-printed-cost",
+      "location",
+      "value"
+    ],
+    "primitives": [
+      "condition.predicate",
+      "condition.value",
+      "cost.modify",
+      "cost.printed",
+      "target.filter",
+      "target.location",
+      "target.query"
+    ],
+    "reason": "只是旧扫描器漏掉 reduced by。cost.modify 的 min 参数只约束本次折扣，不把基础零费抬到一，也不阻止其他折扣继续降到零；356.4.e 直接列本卡与 Sky Splitter 的折扣顺序。离开战场后被动效果不再适用。",
+    "ruleRefs": [
+      "CR v1.5 356.4.b",
+      "CR v1.5 356.4.e",
+      "CR v1.5 365.1",
+      "CR v1.5 479.4"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-6d70f12e2dfb5fbc2398e27f4f4f03110c0310091884499b782107d95b9d6c65",
+    "printingId": "ogn-108-298",
+    "verdict": "mappable",
+    "templates": [
+      "duration",
+      "filter",
+      "implicit-printed-cost",
+      "kw-reaction",
+      "many",
+      "might",
+      "target",
+      "value"
+    ],
+    "primitives": [
+      "condition.value",
+      "continuous.duration",
+      "continuous.might",
+      "continuous.timing",
+      "cost.printed",
+      "target.filter",
+      "target.many",
+      "target.query"
+    ],
+    "reason": "主目录符合 S-ORIGINS 新文本。两个不同友方单位均须按目标规则绑定，结算读取合法对象的当前 Might；增量取不能为负的差值并按 arithmetic snapshot 保存，不是修改 base Might、持续追随另一单位或降低较高战力。任一所需引用变 null 时忽略相关指令。",
+    "ruleRefs": [
+      "CR v1.5 355.10",
+      "CR v1.5 359.3.e.12",
+      "CR v1.5 359.3.f.2",
+      "CR v1.5 479.4.b",
+      "CR v1.5 479.4.c",
+      "S-ORIGINS Convergent Mutation"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-d7bf59ee29e8ca9c306efe1bf2bd701f4edb154b5dea8674d4b6dc7aff35f61d",
+    "printingId": "ogn-115-298",
+    "verdict": "data-issue",
+    "templates": [
+      "banish",
+      "choice-order",
+      "cost-modify",
+      "implicit-printed-cost",
+      "inspect",
+      "many",
+      "player",
+      "recycle",
+      "result",
+      "special-play"
+    ],
+    "primitives": [
+      "choice.order",
+      "condition.predicate",
+      "condition.result",
+      "condition.value",
+      "continuous.timing",
+      "cost.modify",
+      "cost.printed",
+      "effect.banish",
+      "effect.inspect",
+      "effect.play",
+      "effect.recycle",
+      "effect.zone",
+      "target.many",
+      "target.player",
+      "target.query"
+    ],
+    "reason": "S-ORIGINS Promising Future 要求从五张中先放逐一张，目录主印刷和本次图库仍是只选择，缺少关键转区。修复后可复用 inspect/banish/play：从下一玩家开始入链，只免 Energy，Power 与追加费用仍支付；pending 项不能被 Mystic Reversal 等选择。不能从未获许可的牌库直接打出。",
+    "ruleRefs": [
+      "CR v1.5 303.2.a",
+      "CR v1.5 355.9.a",
+      "CR v1.5 356.1.b.2",
+      "CR v1.5 420.5",
+      "CR v1.5 738",
+      "S-ORIGINS Promising Future",
+      "S-RADIANCE Pending Item Target Legality"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-27a69aef36a430f79f170618dfa72e36b2605b39fa8a3a67366ac01669844aa0",
+    "printingId": "ogn-117-298",
+    "verdict": "data-issue",
+    "templates": [
+      "condition",
+      "implicit-printed-cost",
+      "location",
+      "player",
+      "token",
+      "trigger-play"
+    ],
+    "primitives": [
+      "condition.predicate",
+      "cost.printed",
+      "effect.token",
+      "effect.zone",
+      "target.location",
+      "target.player",
+      "target.query",
+      "trigger.play"
+    ],
+    "reason": "OGN 带 Zaun，ven-176-166 缺失；官方 API 同样冲突。in/to your base 的文字差异在该效果中是同一入场地点，不是新机制；整卡仍需解决标签。token 使用正式 Recruit 定义，不能临时拼一个不带规则来源的单位。",
+    "ruleRefs": [
+      "CR v1.5 133.8.a",
+      "CR v1.5 187.1",
+      "CR v1.5 383.1",
+      "S-GALLERY ogn-117-298 / ven-176-166"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-c68ef91624a369cffdc5c5e3f81ab2700878a51de07b1cde21bbfc25db8dea10",
+    "printingId": "ogn-119-298",
+    "verdict": "data-issue",
+    "templates": [
+      "duration",
+      "filter",
+      "implicit-printed-cost",
+      "location",
+      "might",
+      "target",
+      "trigger-combat"
+    ],
+    "primitives": [
+      "continuous.duration",
+      "continuous.might",
+      "cost.printed",
+      "target.filter",
+      "target.location",
+      "target.query",
+      "trigger.combat"
+    ],
+    "reason": "OGN 与 VEN 特印含 Ionia，SFD 两印刷不含；官方 API 可复现。攻击/防守是两个可触发事件，不是玩家二选一模式；能力可映射到战斗触发、地点和带下限快照的减战力，但不能略过标签冲突。",
+    "ruleRefs": [
+      "CR v1.5 133.8.a",
+      "CR v1.5 359.3.f.2",
+      "CR v1.5 383.1",
+      "CR v1.5 479.4.b",
+      "S-GALLERY ogn-119-298 / sfd-227-221 / ven-sp3-006"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-605d9e63c28576716347062f9abdcd9fe543138a4b9bee8f5308c24ffac2ae1e",
+    "printingId": "ogn-121-298",
+    "verdict": "data-issue",
+    "templates": [
+      "damage",
+      "filter",
+      "implicit-printed-cost",
+      "kw-hidden",
+      "location",
+      "recycle",
+      "result",
+      "reveal",
+      "target",
+      "trigger-combat",
+      "value"
+    ],
+    "primitives": [
+      "condition.predicate",
+      "condition.result",
+      "condition.value",
+      "continuous.timing",
+      "cost.hidden",
+      "cost.pay",
+      "cost.printed",
+      "effect.damage",
+      "effect.recycle",
+      "effect.reveal",
+      "effect.zone",
+      "target.filter",
+      "target.location",
+      "target.query",
+      "trigger.combat"
+    ],
+    "reason": "S-ORIGINS Teemo 删除 played-from-Hidden 分支并明确目标选择早于公开五张牌；主印刷及 SFD 仍是旧文字，且 Bandle City 标签不一致。135.2.b.5.a 和 715.4 已引用新版。须以正式勘误更新能力，不能保留双触发或看完牌才选目标。",
+    "ruleRefs": [
+      "CR v1.5 133.8.a",
+      "CR v1.5 135.2.b.5.a",
+      "CR v1.5 355.5",
+      "CR v1.5 715.4",
+      "CR v1.5 811.1",
+      "S-ORIGINS Teemo, Strategist",
+      "S-GALLERY ogn-121-298 / sfd-230-221"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-037ac90c7e1ee070f9dea523811caa91e2b1f5c8018e4cc7753149ebb5eba7d7",
+    "printingId": "ogn-122-298",
+    "verdict": "needs-new-primitive",
+    "templates": [
+      "banish",
+      "implicit-printed-cost",
+      "player"
+    ],
+    "primitives": [
+      "cost.printed",
+      "effect.banish",
+      "effect.zone",
+      "target.player",
+      "target.query"
+    ],
+    "newPrimitive": {
+      "id": "effect.extra-turn",
+      "semantics": "向当前回合之后的临时回合队列插入指定玩家的额外回合；不改永久座次。多个效果按规则队列顺序插入；额外回合走完整阶段与清理，结束后恢复原队列，不能用直接重置阶段或跳过正常回合模拟。",
+      "ruleRefs": [
+        "CR v1.5 735",
+        "CR v1.5 736",
+        "CR v1.5 737",
+        "CR v1.5 738"
+      ],
+      "otherCards": [
+        {
+          "name": "Promising Future → Time Warp",
+          "basis": "CR v1.5 738 示例是间接调用，不是 Promising Future 自身直接创建回合；本地 1080 身份未发现第二个直接文本调用者"
+        }
+      ],
+      "stage": "required"
+    },
+    "reason": "RIFT-9 的 78 个原语没有回合队列修改能力；effect.zone 或 trigger.phase 不能创建一个完整回合。新增 effect.extra-turn，按 735–738 处理插入顺序及原座次恢复，自身放逐仍用现有 banish。规则本身明确，不应因缺代码而标规则歧义。",
+    "ruleRefs": [
+      "CR v1.5 359.3.e.15",
+      "CR v1.5 428.1",
+      "CR v1.5 735",
+      "CR v1.5 736",
+      "CR v1.5 737",
+      "CR v1.5 738"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-27cf1792f7bb4da955117bb4a15cb33f4e4705984cacfac9055a2884b061e4e1",
+    "printingId": "ogn-128-298",
+    "verdict": "mappable",
+    "templates": [
+      "damage",
+      "filter",
+      "implicit-printed-cost",
+      "kw-action",
+      "many",
+      "target",
+      "value"
+    ],
+    "primitives": [
+      "condition.value",
+      "continuous.timing",
+      "cost.printed",
+      "effect.damage",
+      "target.filter",
+      "target.many",
+      "target.query"
+    ],
+    "reason": "Choose 句是两个目标的绑定。418.6.b.3 直接用本卡说明伤害来源是两个单位而非咒语；用 effect.damage 的来源及多对象批次表达，先取得合法双方当前 Might，不能调用战斗步骤、触发攻击/防守或把双方伤害错误归给施法者。",
+    "ruleRefs": [
+      "CR v1.5 355.5",
+      "CR v1.5 359.3.f.2",
+      "CR v1.5 418.1.d",
+      "CR v1.5 418.6.b.3",
+      "CR v1.5 418.6.b.4"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-8f0ac98c17845f49a654e9543fdfa1946ec646cc7efc52fbd3395790fb4be660",
+    "printingId": "ogn-140-298",
+    "verdict": "mappable",
+    "templates": [
+      "cost-modify",
+      "filter",
+      "implicit-printed-cost",
+      "value"
+    ],
+    "primitives": [
+      "condition.value",
+      "cost.modify",
+      "cost.printed",
+      "target.filter",
+      "target.query"
+    ],
+    "reason": "Dragon 标签筛选加 cost.modify 即可，不是新原语。只作用于己方符合标签的牌的 Energy 分量；最低值只限制此折扣，不提升原本更低的费用，也不修改 Power 或印刷费用。",
+    "ruleRefs": [
+      "CR v1.5 133.8.a",
+      "CR v1.5 356.4.b",
+      "CR v1.5 356.4.e",
+      "CR v1.5 479.4"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-d17776003a48b0ee24115e1938482e85fa10ac7c582b993ca9d4b891b3dd1d48",
+    "printingId": "ogn-146-298",
+    "verdict": "mappable",
+    "templates": [
+      "additional-cost",
+      "buff",
+      "cost-modify",
+      "implicit-printed-cost",
+      "kw-action",
+      "optional",
+      "ready",
+      "result",
+      "target"
+    ],
+    "primitives": [
+      "choice.optional",
+      "condition.predicate",
+      "condition.result",
+      "condition.value",
+      "continuous.duration",
+      "continuous.might",
+      "continuous.timing",
+      "cost.additional",
+      "cost.modify",
+      "cost.printed",
+      "effect.buff",
+      "effect.ready",
+      "target.query"
+    ],
+    "reason": "RIFT-9 effect.buff 的边界已包含添加/消耗；与 cost.additional 和支付记录组合即可，不需把 buff 当 Energy，也不需新资源系统。finalization 声明并支付合法己方 buff；忽略基础 Energy/Power 不免其他追加费用。counter 费用选择不属于目标选择。",
+    "ruleRefs": [
+      "CR v1.5 355.10.c",
+      "CR v1.5 356.1.b",
+      "CR v1.5 356.2.b",
+      "CR v1.5 357.2",
+      "CR v1.5 702.2.b",
+      "CR v1.5 742.1",
+      "CR v1.5 745.2"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-ec4ca2df92b603ace480ec363b3bd1f1ce182f05602b2dd361a08eadfd7574a6",
+    "printingId": "ogn-156-298",
+    "verdict": "mappable",
+    "templates": [
+      "filter",
+      "implicit-printed-cost",
+      "player",
+      "recycle",
+      "result",
+      "reveal",
+      "target"
+    ],
+    "primitives": [
+      "condition.predicate",
+      "condition.result",
+      "cost.printed",
+      "effect.recycle",
+      "effect.reveal",
+      "effect.zone",
+      "target.filter",
+      "target.player",
+      "target.query"
+    ],
+    "reason": "先在 finalization 选择对手；手牌对象属于非公开区，公开信息不会把手牌区变成 Public Zone，因此牌的选择在结算时按公开集合进行，不能把未知手牌预先列为公共目标，也不能伪造弃牌动作。回收去拥有者对应牌库。",
+    "ruleRefs": [
+      "CR v1.5 355.5",
+      "CR v1.5 355.10.a",
+      "CR v1.5 355.18",
+      "CR v1.5 417.1.c",
+      "CR v1.5 425.1.a",
+      "CR v1.5 425.3.a",
+      "CR v1.5 425.4"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-7f8a999072e7b65566be686c006f6ade129a206d08922b9e25ebe2d9167d26ae",
+    "printingId": "ogn-164-298",
+    "verdict": "data-issue",
+    "templates": [
+      "activated",
+      "buff",
+      "duration",
+      "implicit-printed-cost",
+      "might",
+      "trigger-play",
+      "trigger-score"
+    ],
+    "primitives": [
+      "condition.predicate",
+      "continuous.duration",
+      "continuous.might",
+      "cost.activated",
+      "cost.printed",
+      "effect.buff",
+      "target.query",
+      "trigger.play",
+      "trigger.score"
+    ],
+    "reason": "OGN 带 Ionia，SFD/VEN 缺失，官方 API 仍冲突；新版 When you play me or when I conquer 与旧版双事件不是模式选择。effect.buff 已覆盖消耗，成本置于 activated 边界，不能把 spend 降为结算时可失败的免费效果。元数据统一后走既有路线。",
+    "ruleRefs": [
+      "CR v1.5 133.8.a",
+      "CR v1.5 204.1.b",
+      "CR v1.5 357.2",
+      "CR v1.5 383.1",
+      "CR v1.5 702.2.b",
+      "S-GALLERY ogn-164-298 / sfd-232-221 / ven-sp4-006"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-713732fef292fb529d388efbec2020949fdfaeca0c39e3afeb5ed43119a7f3e5",
+    "printingId": "ogn-193-298",
+    "verdict": "mappable",
+    "templates": [
+      "condition",
+      "filter",
+      "implicit-printed-cost",
+      "location",
+      "special-play"
+    ],
+    "primitives": [
+      "condition.predicate",
+      "continuous.location",
+      "continuous.timing",
+      "cost.printed",
+      "effect.play",
+      "effect.zone",
+      "target.filter",
+      "target.location",
+      "target.query"
+    ],
+    "reason": "用 continuous.location 添加入场地点许可；170.11.c 明确 open 同时要求无单位与无控制者，不能只判断无人控制，也不是 Ganking 或改变出牌时机。自身许可在打出时可用，友方许可随该被动在场生效；目标地点按 355.2.b 校验。",
+    "ruleRefs": [
+      "CR v1.5 170.11.c",
+      "CR v1.5 355.2.b",
+      "CR v1.5 365.1",
+      "CR v1.5 366.1"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-6d4a83a454e91140b5cccaf25cef83d38b553d0863d8f7c80b8719fe33d8475e",
+    "printingId": "ogn-200-298",
+    "verdict": "needs-new-primitive",
+    "templates": [
+      "condition",
+      "damage",
+      "draw",
+      "filter",
+      "implicit-printed-cost",
+      "location",
+      "many",
+      "recycle",
+      "result",
+      "reveal",
+      "stun",
+      "trigger-combat"
+    ],
+    "primitives": [
+      "condition.predicate",
+      "condition.result",
+      "continuous.combat",
+      "continuous.duration",
+      "cost.printed",
+      "effect.damage",
+      "effect.draw",
+      "effect.recycle",
+      "effect.reveal",
+      "effect.stun",
+      "effect.zone",
+      "target.filter",
+      "target.location",
+      "target.many",
+      "target.query",
+      "trigger.combat"
+    ],
+    "newPrimitive": {
+      "id": "trigger.reflexive",
+      "semantics": "执行 Do this / Do one of the following 指令时，按条件生成独立的 pending chain item；捕获上一步对象或数值绑定，再按 FEPR 独立完成选择、费用、合法性和结算。不是把后续效果内联执行，也不是任意触发所有分支。",
+      "ruleRefs": [
+        "CR v1.5 388.1",
+        "CR v1.5 388.1.b",
+        "CR v1.5 389.1",
+        "CR v1.5 389.2"
+      ],
+      "otherCards": [
+        {
+          "printingId": "ogn-258-298",
+          "name": "Dragon's Rage, Lee Sin",
+          "basis": "S-ORIGINS Dragon's Rage；须先修复旧文本"
+        },
+        {
+          "name": "Arise!",
+          "basis": "S-SPIRITFORGED Arise! 新文本",
+          "printingId": "sfd-198-221"
+        },
+        {
+          "name": "Guards!",
+          "basis": "S-UNLEASHED Guards! 新文本",
+          "printingId": "sfd-154-221"
+        },
+        {
+          "name": "Disintegrate",
+          "basis": "S-ORIGINS Disintegrate 新文本",
+          "printingId": "ogn-005-298"
+        },
+        {
+          "name": "Forgotten Relic",
+          "basis": "本地目录 ven-108-166；仅后续复用候选，不是本次裁定",
+          "printingId": "ven-108-166"
+        },
+        {
+          "name": "Hwei, Brooding Painter",
+          "basis": "本地目录 unl-080-219；仅后续复用候选，不是本次裁定",
+          "printingId": "unl-080-219"
+        }
+      ],
+      "stage": "required"
+    },
+    "reason": "Do one of the following 在 388.1.b 是反身触发，不是玩家任意选模式，也不能把所有后续效果内联进攻击触发。新增 trigger.reflexive，保存已公开并回收符文的域，再生成对应独立 pending 项，由该项进行自己的目标选择/结算。目录三个分支连写是列表序列化缺失换行，S-GALLERY 的 ul/li 能恢复边界，文字未截断。",
+    "ruleRefs": [
+      "CR v1.5 388.1.b",
+      "CR v1.5 389.1",
+      "CR v1.5 389.2",
+      "CR v1.5 417.1.b",
+      "CR v1.5 425.1.a.2",
+      "CR v1.5 359.3.e.13",
+      "S-GALLERY ogn-200-298 text.richText.body"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-18e556f7feed1c4774ba2262a9ef50441960dfa08dadbf07fd4011f655b4f544",
+    "printingId": "ogn-203-298",
+    "verdict": "mappable",
+    "templates": [
+      "control",
+      "filter",
+      "implicit-printed-cost",
+      "kw-action",
+      "location",
+      "move",
+      "result",
+      "target"
+    ],
+    "primitives": [
+      "condition.predicate",
+      "condition.result",
+      "continuous.duration",
+      "continuous.timing",
+      "cost.printed",
+      "effect.control",
+      "effect.move",
+      "target.filter",
+      "target.location",
+      "target.query"
+    ],
+    "reason": "选择单位后按顺序先改变控制者，再执行 recall。RIFT-9 effect.move 明列 move/recall，但 IR 必须保留 recall 变体，不发 Move 事件，不凭空横置或治疗；不把单位送入卡牌拥有者而非新控制者的基地。无明示期限的控制不添加回合末归还。",
+    "ruleRefs": [
+      "CR v1.5 191.4",
+      "CR v1.5 359.3.e.14",
+      "CR v1.5 457",
+      "CR v1.5 458",
+      "CR v1.5 460.1"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-03848f0e530587876003913478c758509f6b05e8b89b33575cb4fd9da70f9cf1",
+    "printingId": "ogn-205-298",
+    "verdict": "data-issue",
+    "templates": [
+      "history",
+      "implicit-printed-cost",
+      "kw-ganking",
+      "score",
+      "trigger-move"
+    ],
+    "primitives": [
+      "condition.history",
+      "continuous.movement",
+      "cost.printed",
+      "effect.score",
+      "target.location",
+      "target.player",
+      "target.query",
+      "trigger.move"
+    ],
+    "reason": "OGN 带 Ionia，SFD 两印刷缺失，官方 API 同样冲突。能力可用对象级移动历史和第三次事件触发；recall 不计 Move，不能把每三次循环触发写成第三次。470.2 明确卡文 score 1 point 是获分，不是战场征服计分流程。",
+    "ruleRefs": [
+      "CR v1.5 133.8.a",
+      "CR v1.5 383.1",
+      "CR v1.5 458",
+      "CR v1.5 470.2",
+      "CR v1.5 810.1",
+      "S-GALLERY ogn-205-298 / sfd-235-221"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-9eef9a0508648141992bbe70aa56b64551bbd00d06fd8be401c85dda6f542339",
+    "printingId": "ogn-207-298",
+    "verdict": "mappable",
+    "templates": [
+      "additional-cost",
+      "buff",
+      "cost-modify",
+      "duration",
+      "implicit-printed-cost",
+      "kw-reaction",
+      "might",
+      "optional",
+      "result",
+      "target"
+    ],
+    "primitives": [
+      "choice.optional",
+      "condition.predicate",
+      "condition.result",
+      "condition.value",
+      "continuous.duration",
+      "continuous.might",
+      "continuous.timing",
+      "cost.additional",
+      "cost.modify",
+      "cost.printed",
+      "effect.buff",
+      "target.query"
+    ],
+    "reason": "同 Wallop 的成本组合可复用。消耗 buff 是 finalization 非资源追加费用；按结果记录决定基础费用忽略，不吞掉其他费用。buff 的来源对象不是因为付费而成为本咒语目标，战力目标另行选择，持续至回合末。",
+    "ruleRefs": [
+      "CR v1.5 355.10.c",
+      "CR v1.5 356.1.b",
+      "CR v1.5 356.2.b",
+      "CR v1.5 357.2",
+      "CR v1.5 702.2.b",
+      "CR v1.5 742.1",
+      "CR v1.5 745.2"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-65e0ab54a0954e391f643dc900a7a0faa2cd298faa850e7c436e13659498922d",
+    "printingId": "ogn-235-298",
+    "verdict": "data-issue",
+    "templates": [
+      "buff",
+      "condition",
+      "filter",
+      "implicit-printed-cost",
+      "kw-vision",
+      "recycle",
+      "target",
+      "trigger-state"
+    ],
+    "primitives": [
+      "choice.optional",
+      "condition.predicate",
+      "continuous.duration",
+      "continuous.might",
+      "cost.printed",
+      "effect.buff",
+      "effect.inspect",
+      "effect.recycle",
+      "effect.zone",
+      "target.filter",
+      "target.query",
+      "trigger.play",
+      "trigger.state"
+    ],
+    "reason": "S-ORIGINS Karma 为回收触发加上 to your Main Deck，主目录仍缺这一区域条件。还存在 Ionia 缺失的重印差异；本次官方 API 的 OGN 甚至把英雄标签写成 Vi，不能用图库覆盖勘误或覆盖目录中 Karma 标签。一次一批回收只触发一次，符文回收不满足新条件。",
+    "ruleRefs": [
+      "CR v1.5 052",
+      "CR v1.5 133.8.a",
+      "CR v1.5 383.1",
+      "CR v1.5 417.1.a",
+      "CR v1.5 417.1.b",
+      "CR v1.5 817.1",
+      "S-ORIGINS Karma, Channeler",
+      "S-GALLERY ogn-235-298 / sfd-237-221"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-b27ddd6f340335a3b0cd6b5ad2ba3cd49695bb3a7430d3cfe541271f528f0baf",
+    "printingId": "ogn-237-298",
+    "verdict": "mappable",
+    "templates": [
+      "choice-order",
+      "filter",
+      "implicit-printed-cost",
+      "kill",
+      "many",
+      "player",
+      "result",
+      "target"
+    ],
+    "primitives": [
+      "choice.order",
+      "condition.predicate",
+      "condition.result",
+      "cost.printed",
+      "effect.kill",
+      "effect.zone",
+      "target.filter",
+      "target.many",
+      "target.player",
+      "target.query"
+    ],
+    "reason": "使用有序玩家循环和已选集合去重，不用随机选取或只支持 1v1。355.10.e 规定这种由其他玩家选取的集合不是咒语目标，355.18 使选择在结算完成；不能在 finalization 预填所有选择，也不把每次选择误作独立 kill。",
+    "ruleRefs": [
+      "CR v1.5 055",
+      "CR v1.5 303.2.a",
+      "CR v1.5 355.10.e",
+      "CR v1.5 355.18",
+      "CR v1.5 429.1"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-5cbcf053019f85d2ed95e9f9710c31e3286d72d0e93b515699b5b03dc6f9d0e4",
+    "printingId": "ogn-238-298",
+    "verdict": "data-issue",
+    "templates": [
+      "filter",
+      "implicit-printed-cost",
+      "kw-shield",
+      "location",
+      "stun",
+      "target",
+      "trigger-combat"
+    ],
+    "primitives": [
+      "condition.predicate",
+      "continuous.combat",
+      "continuous.duration",
+      "continuous.might",
+      "cost.printed",
+      "effect.stun",
+      "target.filter",
+      "target.location",
+      "target.query",
+      "trigger.combat"
+    ],
+    "reason": "OGN 带 Mount Targon，ven-184-166 不带，官方 API 同样冲突。提醒删减不改变 Shield 或 Stun；能力可映射，但整卡身份元数据待统一。晕眩不横置单位，也不是让它不承受伤害。",
+    "ruleRefs": [
+      "CR v1.5 133.8.a",
+      "CR v1.5 424.1.b",
+      "CR v1.5 814.1",
+      "S-GALLERY ogn-238-298 / ven-184-166"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-e6a58258933ab19a3c7228a2f9c1ca8bc777a3d378b3ee92ae1b4deca50792b9",
+    "printingId": "ogn-243-298",
+    "verdict": "data-issue",
+    "templates": [
+      "filter",
+      "implicit-printed-cost",
+      "kw-legion",
+      "location",
+      "might",
+      "ready",
+      "trigger-play"
+    ],
+    "primitives": [
+      "condition.history",
+      "condition.predicate",
+      "continuous.duration",
+      "continuous.might",
+      "cost.printed",
+      "effect.ready",
+      "target.filter",
+      "target.location",
+      "target.query",
+      "trigger.play"
+    ],
+    "reason": "OGN 带 Noxus，SFD 两印刷缺失，官方 API 同样冲突；Trifarian 保留，不能把所有非英雄标签一并清掉。能力用既有 Legion 历史条件与同地排除自身的持续修正；打出后的 ready 是触发效果，不改写成 enter-ready 替代。",
+    "ruleRefs": [
+      "CR v1.5 133.8.a",
+      "CR v1.5 359.2.c",
+      "CR v1.5 416.1",
+      "CR v1.5 479.4",
+      "CR v1.5 812.1",
+      "S-GALLERY ogn-243-298 / sfd-236-221"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-adf97d6260131adb3a3b5b54d1904b16d8330ea2476fe31e8652a57b081a380a",
+    "printingId": "ogn-244-298",
+    "verdict": "judge-required",
+    "templates": [
+      "filter",
+      "implicit-printed-cost",
+      "many",
+      "player",
+      "recycle",
+      "result",
+      "target"
+    ],
+    "primitives": [
+      "condition.predicate",
+      "condition.result",
+      "cost.printed",
+      "effect.recycle",
+      "effect.zone",
+      "target.filter",
+      "target.many",
+      "target.player",
+      "target.query"
+    ],
+    "reason": "具体缺口是集合范围，不是回收动作：原文只在手牌桶写明 their hands，未为 units/gear/runes 限定各玩家控制/拥有的集合；Recycle the rest 也未明确是每位玩家自身集合的补集还是全部已选集合的全局补集。133.3.a 只把未限定单位等指向 board，355.10.e/355.18 只确定非目标选择及结算时机，417.1/417.2 只确定回收目的地/须指定来源，均不能推出“各自保留自己控制的两件”。本次所查官方勘误及 Radiance 说明没有补足这一区域/控制者限定；提交精确场景请裁判/规则负责人确认，暂不赋予可执行语义。",
+    "ruleRefs": [
+      "CR v1.5 133.3.a",
+      "CR v1.5 355.10.e",
+      "CR v1.5 355.18",
+      "CR v1.5 417.1",
+      "CR v1.5 417.2.a",
+      "S-GALLERY ogn-244-298",
+      "S-ORIGINS / S-SPIRITFORGED / S-UNLEASHED / S-VENDETTA / S-RADIANCE-ERRATA 检索未有该卡条目"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-0ff7c0201c85564ecdaf790021fc4115874fec7665a462b27901498984988f3c",
+    "printingId": "ogn-250-298",
+    "verdict": "mappable",
+    "templates": [
+      "damage",
+      "filter",
+      "implicit-printed-cost",
+      "location",
+      "many",
+      "move",
+      "result",
+      "target",
+      "value"
+    ],
+    "primitives": [
+      "condition.predicate",
+      "condition.result",
+      "condition.value",
+      "cost.printed",
+      "effect.damage",
+      "effect.move",
+      "target.filter",
+      "target.location",
+      "target.many",
+      "target.query"
+    ],
+    "reason": "绑定基地单位和目标战场，先 damage 再 Move，地点与伤害值引用相同上下文；all enemy units 是自动集合而非逐个目标。伤害文本未指定该友方单位为来源，418.6.a 的默认来源仍是本咒语，不可因为读取其 Might 而把伤害归给单位。移动仍服从合法地点及禁止规则。",
+    "ruleRefs": [
+      "CR v1.5 355.4",
+      "CR v1.5 355.10.b",
+      "CR v1.5 355.10.d",
+      "CR v1.5 359.3.f.2",
+      "CR v1.5 418.6.a",
+      "CR v1.5 451.1"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-c973c5f4508531db7ec8b07e87359987755e8136cf2abb7b2e92df957e1ff837",
+    "printingId": "ogn-254-298",
+    "verdict": "mappable",
+    "templates": [
+      "condition",
+      "delayed",
+      "duration",
+      "implicit-printed-cost",
+      "kill",
+      "kw-action",
+      "kw-legion",
+      "target",
+      "trigger-state"
+    ],
+    "primitives": [
+      "condition.history",
+      "condition.predicate",
+      "continuous.duration",
+      "continuous.timing",
+      "cost.printed",
+      "effect.kill",
+      "effect.zone",
+      "target.query",
+      "trigger.delayed",
+      "trigger.phase",
+      "trigger.state"
+    ],
+    "reason": "158.2 的官方例子直接说明后面的 Legion 指令会替换前面的延迟指令，不是为受伤/死亡事件注册替代。非 Legion 路径建立一次性受伤延迟触发，必须实际有伤害事件；Legion 路径立即 kill，不能同时留下延迟触发，也不能伪造 damage 回调。",
+    "ruleRefs": [
+      "CR v1.5 158.2",
+      "CR v1.5 383.1",
+      "CR v1.5 391.2",
+      "CR v1.5 392",
+      "CR v1.5 418.1.e.1",
+      "CR v1.5 812.1"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-5db2b31990da2ad96271bf74f4d78f1ae9ef9c614ec7bcec1735b3cc17f301ae",
+    "printingId": "ogn-258-298",
+    "verdict": "data-issue",
+    "templates": [
+      "damage",
+      "filter",
+      "implicit-printed-cost",
+      "location",
+      "many",
+      "move",
+      "result",
+      "target",
+      "value"
+    ],
+    "primitives": [
+      "condition.predicate",
+      "condition.result",
+      "condition.value",
+      "cost.printed",
+      "effect.damage",
+      "effect.move",
+      "target.filter",
+      "target.location",
+      "target.many",
+      "target.query"
+    ],
+    "newPrimitive": {
+      "id": "trigger.reflexive",
+      "semantics": "执行 Do this / Do one of the following 指令时，按条件生成独立的 pending chain item；捕获上一步对象或数值绑定，再按 FEPR 独立完成选择、费用、合法性和结算。不是把后续效果内联执行，也不是任意触发所有分支。",
+      "ruleRefs": [
+        "CR v1.5 388.1",
+        "CR v1.5 388.1.b",
+        "CR v1.5 389.1",
+        "CR v1.5 389.2"
+      ],
+      "otherCards": [
+        {
+          "printingId": "ogn-258-298",
+          "name": "Dragon's Rage, Lee Sin",
+          "basis": "S-ORIGINS Dragon's Rage；须先修复旧文本"
+        },
+        {
+          "name": "Arise!",
+          "basis": "S-SPIRITFORGED Arise! 新文本",
+          "printingId": "sfd-198-221"
+        },
+        {
+          "name": "Guards!",
+          "basis": "S-UNLEASHED Guards! 新文本",
+          "printingId": "sfd-154-221"
+        },
+        {
+          "name": "Disintegrate",
+          "basis": "S-ORIGINS Disintegrate 新文本",
+          "printingId": "ogn-005-298"
+        },
+        {
+          "name": "Forgotten Relic",
+          "basis": "本地目录 ven-108-166；仅后续复用候选，不是本次裁定",
+          "printingId": "ven-108-166"
+        },
+        {
+          "name": "Hwei, Brooding Painter",
+          "basis": "本地目录 unl-080-219；仅后续复用候选，不是本次裁定",
+          "printingId": "unl-080-219"
+        }
+      ],
+      "stage": "after-data-fix"
+    },
+    "reason": "S-ORIGINS Dragon's Rage 在移动之后加入 Then do this，旧目录没有该反身触发边界。不是可忽略标点：第二个目标应由新 pending 项完成选择，不是在原咒语 finalization 固定，也不是移动后无响应窗口立刻互伤。先更新权威文本，再用拟议 trigger.reflexive 配合现有 move/damage；不以同步内联近似。",
+    "ruleRefs": [
+      "CR v1.5 355.5.b",
+      "CR v1.5 388.1",
+      "CR v1.5 389.1",
+      "CR v1.5 418.6.b.3",
+      "CR v1.5 451.1",
+      "S-ORIGINS Dragon's Rage"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-6c69039e3668542be770179f1820017af14307a2e3e79a1c71a35edc3e408061",
+    "printingId": "ogn-259-298",
+    "verdict": "data-issue",
+    "templates": [
+      "activated",
+      "cost-exhaust",
+      "cost-resources",
+      "filter",
+      "location",
+      "move",
+      "target"
+    ],
+    "primitives": [
+      "cost.activated",
+      "cost.exhaust",
+      "cost.pay",
+      "effect.move",
+      "target.filter",
+      "target.location",
+      "target.query"
+    ],
+    "reason": "S-ORIGINS Unforgiven 明确将 your base 改为 its base；主印刷仍旧版，ogn-305-298 与 star 版已新版。两者在队友场景不等价，不能在归一化时随便选一个；修复后按单位控制者基地约束移动路径。Legend 的 energy/power null 保持 null，激活两能量另行支付。",
+    "ruleRefs": [
+      "CR v1.5 107.1",
+      "CR v1.5 127.1",
+      "CR v1.5 204.1.b",
+      "CR v1.5 449.1",
+      "CR v1.5 449.2",
+      "CR v1.5 451.1",
+      "S-ORIGINS Unforgiven",
+      "S-GALLERY ogn-259-298 / ogn-305-298"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-1175fb7ab62c4d777b8ccd63b423982a0b70440ed2d5652d2b61dde6fb07b06f",
+    "printingId": "ogn-264-298",
+    "verdict": "mappable",
+    "templates": [
+      "cost-modify",
+      "duration",
+      "filter",
+      "implicit-printed-cost",
+      "kw-hidden",
+      "many",
+      "restrict",
+      "target",
+      "zone"
+    ],
+    "primitives": [
+      "condition.predicate",
+      "condition.value",
+      "continuous.duration",
+      "continuous.restrict",
+      "continuous.timing",
+      "cost.hidden",
+      "cost.modify",
+      "cost.pay",
+      "cost.printed",
+      "effect.zone",
+      "target.filter",
+      "target.many",
+      "target.query"
+    ],
+    "reason": "cost.hidden 已覆盖隐藏动作和费用，cost.modify 与本回合持续许可可免隐藏费用，不必新设 Hide 效果。811.1.c.1 明确 Hide 不是 Play；只免费用，不免己方回合/open 状态、控制战场、槽位及次回合才能反应的限制，也不让无 Hidden 的牌可隐藏。",
+    "ruleRefs": [
+      "CR v1.5 422.1",
+      "CR v1.5 811.1.b",
+      "CR v1.5 811.1.c.1",
+      "CR v1.5 811.6"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-d619150ac39f656ea38c332ad3a03989be755c3114becae61bb346ae3996951d",
+    "printingId": "ogn-266-298",
+    "verdict": "mappable",
+    "templates": [
+      "duration",
+      "filter",
+      "implicit-printed-cost",
+      "kw-reaction",
+      "location",
+      "many",
+      "might",
+      "target"
+    ],
+    "primitives": [
+      "continuous.duration",
+      "continuous.might",
+      "continuous.timing",
+      "cost.printed",
+      "target.filter",
+      "target.location",
+      "target.many",
+      "target.query"
+    ],
+    "reason": "Choose battlefield 是地点目标，双方单位是程序筛选集合，不能逐一收 Deflect 费用。按施法者的友敌关系分组，分别施加 arithmetic 效果；敌方最低值以应用时快照限制。478.1.c 官方示例明确提及本卡与单位依赖层计算。",
+    "ruleRefs": [
+      "CR v1.5 355.10.b",
+      "CR v1.5 355.10.d",
+      "CR v1.5 478.1.c",
+      "CR v1.5 479.4.b",
+      "CR v1.5 479.4.e"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-5440d378426747276f389ce3e9731d1378a3a303a7309d785ef183114d2c326c",
+    "printingId": "ogn-278-298",
+    "verdict": "mappable",
+    "templates": [
+      "kw-hidden",
+      "location",
+      "restrict",
+      "value"
+    ],
+    "primitives": [
+      "condition.predicate",
+      "condition.value",
+      "continuous.restrict",
+      "continuous.timing",
+      "cost.hidden",
+      "cost.pay",
+      "effect.zone",
+      "target.location",
+      "target.query"
+    ],
+    "reason": "continuous.restrict 的数量例外与 cost.hidden 的槽位检查可表达常规一张加一张；不授予免付费、立即使用或跨战场隐藏许可。“you” 按190.6.d 指战场控制者，无控制者时不授予玩家额外槽位；秘密信息仍不可暴露。",
+    "ruleRefs": [
+      "CR v1.5 107.3",
+      "CR v1.5 190.6.d",
+      "CR v1.5 811.1.b"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-2837500ae259cc6b529efd728cf65b05c957555d4e133c0d55310df08cf1b7d7",
+    "printingId": "ogs-008-024",
+    "verdict": "mappable",
+    "templates": [
+      "damage",
+      "duration",
+      "filter",
+      "implicit-printed-cost",
+      "kw-action",
+      "many",
+      "might",
+      "target",
+      "value"
+    ],
+    "primitives": [
+      "condition.value",
+      "continuous.duration",
+      "continuous.might",
+      "continuous.timing",
+      "cost.printed",
+      "effect.damage",
+      "target.filter",
+      "target.many",
+      "target.query"
+    ],
+    "reason": "Then choose 不是 388.1 的 Do this 反身触发标记，因此两个目标均在原咒语 finalization 选择；不能先加战力、看响应结果再选敌人。结算先加三，再读取双方合法当前 Might 执行互伤，来源是单位而非咒语；保留 linked instruction 的失去目标语义。",
+    "ruleRefs": [
+      "CR v1.5 355.5",
+      "CR v1.5 359.3.e.14",
+      "CR v1.5 359.3.f.2",
+      "CR v1.5 388.1",
+      "CR v1.5 418.6.b.3",
+      "CR v1.5 479.4"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-6f9f9006a5d35f01fe282aeeb87157def728c3d5ae72e9d0eb39f4f0e496b14e",
+    "printingId": "ogs-014-024",
+    "verdict": "data-issue",
+    "templates": [
+      "activated",
+      "cost-exhaust",
+      "implicit-printed-cost",
+      "kw-reaction",
+      "resources",
+      "restrict"
+    ],
+    "primitives": [
+      "condition.predicate",
+      "continuous.restrict",
+      "continuous.timing",
+      "cost.activated",
+      "cost.exhaust",
+      "cost.printed",
+      "effect.resources",
+      "target.query"
+    ],
+    "reason": "OGS 带 Demacia，ven-sp6-006 缺失，官方 API 同样冲突。Use only 与 Spend this Energy only 是限制所产资源用途的明确/旧写法，不应把旧短句误读为该能力只能在付咒语费时激活。修复标签后由 effect.resources 配 continuous.restrict 表达资源来源/用途谓词；池中受限份额必须独立记账，不能给所有能量套全局限制或忽略限制。Add 按430.2即时完成，非普通可响应链。",
+    "ruleRefs": [
+      "CR v1.5 133.8.a",
+      "CR v1.5 163.1",
+      "CR v1.5 166.1",
+      "CR v1.5 430.2",
+      "CR v1.5 430.3",
+      "CR v1.5 054.2",
+      "S-GALLERY ogs-014-024 / ven-sp6-006"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-65c099c33a6f39283027cbf4532037cbd7fe982a1e896afd5bf5d35e0fc16512",
+    "printingId": "ogs-020-024",
+    "verdict": "data-issue",
+    "templates": [
+      "duration",
+      "exhaust",
+      "filter",
+      "heal",
+      "implicit-printed-cost",
+      "kw-reaction",
+      "move",
+      "replacement",
+      "target"
+    ],
+    "primitives": [
+      "condition.predicate",
+      "continuous.duration",
+      "continuous.timing",
+      "cost.printed",
+      "effect.exhaust",
+      "effect.heal",
+      "effect.move",
+      "replacement.event",
+      "target.filter",
+      "target.location",
+      "target.query"
+    ],
+    "reason": "S-ORIGINS Highlander 把 dies 改为 would die，并补 heal 与明确 exhaust；主目录仍是旧版。省略治疗会让伤害仍致命，在清理时再次死亡。修复后用一次性 delayed replacement 加治疗/横置/recall，死亡被替代就没有实际死亡事件，不触发 Deathknell；recall 不发 Move。",
+    "ruleRefs": [
+      "CR v1.5 391.3",
+      "CR v1.5 419.1",
+      "CR v1.5 370.1.a.1",
+      "CR v1.5 458",
+      "CR v1.5 460.1",
+      "CR v1.5 808.1.d.1",
+      "S-ORIGINS Highlander"
+    ]
+  }
+]
