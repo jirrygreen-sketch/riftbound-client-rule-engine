@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-14",
+  "generatedAt": "2026-10-15",
   "description": "Tracked, offline-verifiable manifest of Riftbound rule sources. The official PDFs themselves remain gitignored under work/ (see .gitignore /work/); this file only records URL, version, effective date and SHA-256 so the sources can be re-checked without downloading anything. Unknown hashes are recorded as null with hashStatus \"pending\" and must never be guessed.",
   "sources": [
     {
@@ -61,15 +61,21 @@
       ],
       "localFiles": [
         {
+          "path": "work/rules/CR-v1.5.pdf",
+          "sha256": "94d41fee86f88b61c4157c0389c0595d990b98e5b42555c99d9f649ee64d1fec"
+        },
+        {
           "path": "work/riftboundfaq/sources/CR-v1.5.pdf"
         }
       ],
       "sourcesCited": [
         "docs/sources.md",
         "docs/full-product/rules-coverage.md",
-        "docs/full-product/delivery-goal.md"
+        "docs/full-product/delivery-goal.md",
+        "docs/rules/core-1.5-sections.md",
+        "docs/rules/core-1.4-to-1.5-diff.md"
       ],
-      "notes": "Published future target. effectiveDate 2026-10-16 is stated by the official Radiance patch notes; the release date 2026-10-23 must not be substituted. Must not be mixed into v1.4 behavior before 2026-10-16."
+      "notes": "Published future target. Downloaded again from the official Rules Hub document link and SHA-256 verified on 2026-10-15; the local PDF has 142 pages and Last Updated 2026-10-09. effectiveDate 2026-10-16 is stated by the official Radiance patch notes; the release date 2026-10-23 must not be substituted. Must not be mixed into v1.4 behavior before 2026-10-16."
     },
     {
       "id": "riftbound.tournament-rules",
@@ -89,18 +95,27 @@
         {
           "role": "changelog",
           "url": "https://playriftbound.com/en-us/news/announcements/october-2026-tournament-rules-changelog/"
+        },
+        {
+          "role": "rules-hub",
+          "url": "https://playriftbound.com/en-us/rules-hub/"
         }
       ],
       "localFiles": [
+        {
+          "path": "work/rules/Tournament-Rules-2026-10-09.pdf",
+          "sha256": "ce07da4fb632526afbbce7f058287a57e7444fa6bde17b0938ff52ce3fab3d07"
+        },
         {
           "path": "work/riftboundfaq/sources/Tournament-Rules-2026-10-09.pdf"
         }
       ],
       "sourcesCited": [
         "docs/sources.md",
-        "docs/full-product/rules-coverage.md"
+        "docs/full-product/rules-coverage.md",
+        "docs/rules/core-1.5-sections.md"
       ],
-      "notes": "Dated 2026-10-09; the official changelog states it takes effect with the Radiance Pre-Rift on 2026-10-16. Not the currently effective Tournament Rules."
+      "notes": "Dated 2026-10-09; downloaded again from the official Rules Hub document link and SHA-256 verified on 2026-10-15. The local PDF has 53 pages and Last Updated October 9, 2026. The official changelog states it takes effect with the Radiance Pre-Rift on 2026-10-16. Not the currently effective Tournament Rules."
     },
     {
       "id": "riftbound.radiance-patch-notes",
