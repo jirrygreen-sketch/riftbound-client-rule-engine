@@ -1,0 +1,2543 @@
+area: keywords
+rulesetVersion: core-1.5
+sources:
+  - "1.5:800-832"            # Keywords 章节全部条目（v1.5 Core Rules，2026-10-09）
+  - "1.5:442"                # Empower 游戏动作（多次 Empower 叠加，v1.5 新增 442.1.c.1）
+  - "1.5:443"                # Disempower 游戏动作
+  - "1.5:355.6"              # Targeting（choose=target / pick=非目标）
+  - "1.5:435.1.h"            # 单位不能被附着（v1.5 澄清）
+  - "1.5:129.4"              # facedown 卡的正面是隐私信息
+  - "1.5:466.2.c.3"          # 战斗开始时获得 Attacker/Defender 指定
+  - "1.5:468.7"              # 战斗结束移除 Attacker/Defender 指定
+  - "1.5:103.3.b"            # 组牌张数限制（Unique 的前置）
+  - "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"
+scenarios:
+
+  # ========== 通用关键词规则 801-803 ==========
+  - id: keywords-general-grant-no-duration-persists
+    rule: ["1.5:801.3.a.3"]
+    title: 效果授予关键词且未写期限时，持续到该对象离开当前区域
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2,text:\"Give a unit [Assault 2].\")" ]
+          base: [ "@unit(might:3)#u1" ]
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: chain, targets: ["#u1"], pay: { energy: 2 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+          - { timing: effect.apply, object: "#u1", detail: "grant-keyword:assault:2" }
+      state:
+        - { path: "objects.u1.keywords", contains: "assault:2" }
+      rejected: null
+    notes: 801.3.a.3——授予效果未写期限时，只要对象仍在当前区域就持续存在；本场景验证效果结算后关键词已挂上。
+
+  - id: keywords-general-execution-order
+    rule: ["1.5:803"]
+    title: 一张卡有多个关键词时按文本自上而下的顺序执行其效果
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@unit(cost:3,might:2,keywords:[temporary],text:\"[Temporary]. When you play me, draw 1.\")" ]
+          base: []
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 3 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.enter, object: "A:hand[0]", zone: base }
+          - { timing: chain.item-pending, item: "trigger:when-played" }
+          - { timing: player.draw, player: A }
+      state:
+        - { path: "players.A.base", count: 1 }
+      rejected: null
+    notes: 803 要求按文本从上到下执行。本场景用 Temporary + 打出触发共存验证顺序语义。
+
+  # ========== Accelerate 805 ==========
+  - id: keywords-accelerate-paid-enters-ready
+    rule: ["1.5:805.1.b", "1.5:805.2"]
+    title: 打出时支付 Accelerate 附加费，单位进场时已就绪
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 4
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@unit(cost:3,might:2,domain:fury,keywords:[accelerate])" ]
+          base: []
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 4, power: [fury] }, choices: { accelerate: true } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+          - { timing: zone.enter, object: "A:hand[0]", zone: base, detail: "ready" }
+      state:
+        - { path: "players.A.base[0].state", equals: "ready" }
+      rejected: null
+    notes: 805.1.b——Accelerate 是打出时的可选附加费用 [1][C]；支付后单位直接以就绪状态进场。
+
+  - id: keywords-accelerate-not-paid-enters-exhausted
+    rule: ["1.5:805.1.b"]
+    title: 不支付 Accelerate 附加费，单位按默认横置进场
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@unit(cost:3,might:2,domain:fury,keywords:[accelerate])" ]
+          base: []
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 3 }, choices: { accelerate: false } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.enter, object: "A:hand[0]", zone: base, detail: "exhausted" }
+      state:
+        - { path: "players.A.base[0].state", equals: "exhausted" }
+      rejected: null
+    notes: 不付 Accelerate 费时单位按普通规则横置进场；Accelerate 不产生任何其他效果。
+
+  - id: keywords-accelerate-enters-ready-not-a-ready-trigger
+    rule: ["1.5:805.6", "1.5:805.6.a"]
+    title: Accelerate 让单位直接就绪进场，不触发“当单位就绪时”类触发
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 4
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@unit(cost:3,might:2,domain:fury,keywords:[accelerate])" ]
+          base: [ "@unit(might:1,text:\"Whenever a friendly unit becomes ready, draw 1.\")#watcher" ]
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 4, power: [fury] }, choices: { accelerate: true } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.enter, object: "A:hand[0]", zone: base, detail: "ready" }
+      state:
+        - { path: "players.A.hand", count: 0 }
+      rejected: null
+    notes: 805.6/805.6.a——Accelerate 产生延迟替代效果把“横置进场”替换为“就绪进场”；不是先横置再就绪，因此不触发“成为就绪”类能力。#watcher 不应触发抽牌。
+
+  - id: keywords-accelerate-on-board-no-function
+    rule: ["1.5:805.3", "1.5:805.2.a"]
+    title: 单位已在场上后不能再支付 Accelerate 费用使其就绪
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [fury], exhausted: [] }
+          hand: []
+          base: [ "@unit(might:2,domain:fury,keywords:[accelerate],state:exhausted)#u1" ]
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: activate, ability: "accelerate", source: "#u1", pay: { energy: 1, power: [fury] } }
+    expect:
+      events: { ordered: subsequence, list: [] }
+      state:
+        - { path: "objects.u1.state", equals: "exhausted" }
+      rejected: { command: 0, reason: "keyword-not-activatable-on-board" }
+    notes: 805.2.a/805.3——Accelerate 费用只能在打出该单位的过程中支付；场上的单位没有可启动的 Accelerate 能力。
+
+  - id: keywords-accelerate-power-domain-must-match
+    rule: ["1.5:805.1.b.1"]
+    title: 单域单位的 Accelerate 力量费只能用同域力量支付
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 4
+          runes: { ready: [calm], exhausted: [] }
+          hand: [ "@unit(cost:3,might:2,domain:fury,keywords:[accelerate])" ]
+          base: []
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 4, power: [calm] }, choices: { accelerate: true } }
+    expect:
+      events: { ordered: subsequence, list: [] }
+      state: []
+      rejected: { command: 0, reason: "power-domain-mismatch" }
+    notes: 805.1.b.1——单位有域时，Accelerate 的 [C] 力量部分只能用与该单位域匹配的力量支付；Fury 单位不能用 Calm 力量付 Accelerate 费。
+
+  - id: keywords-accelerate-multiple-instances-redundant
+    rule: ["1.5:805.4"]
+    title: 同一单位上有多个 Accelerate 时是冗余的，只需付一次
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 4
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@unit(cost:3,might:2,domain:fury,keywords:[accelerate],grantedKeywords:[accelerate])" ]
+          base: []
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 4, power: [fury] }, choices: { accelerate: true } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.enter, object: "A:hand[0]", zone: base, detail: "ready" }
+      state:
+        - { path: "players.A.base[0].state", equals: "ready" }
+      rejected: null
+    notes: 805.4——多个 Accelerate 冗余；合成卡自带一个 Accelerate 且被另一效果再授予一个，仍然只付一次 [1][C] 即就绪进场。
+
+  # ========== Assault 807 ==========
+  - id: keywords-assault-default-value-1
+    rule: ["1.5:807.1.b.3", "1.5:807.1.c"]
+    title: Assault 未写数值时默认为 1，攻击时 Might+1
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: showdown-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields:
+        - { id: bf1, controller: B, contested: true, units: { A: ["@unit(might:2,keywords:[assault],designation:attacker)#u1"], B: ["@unit(might:3,designation:defender)#u2"] } }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: combat.damage-assigned, battlefield: bf1 }
+      state:
+        - { path: "objects.u1.effectiveMight", equals: 3 }
+        - { path: "objects.u2.damage", equals: 3 }
+        - { path: "objects.u1.damage", equals: 3 }
+      rejected: null
+    notes: 807.1.b.3/807.1.c——Assault 省略 X 时按 1 计；攻击方指定期间 Might+1。双方 3 点对换。
+
+  - id: keywords-assault-inactive-while-defending
+    rule: ["1.5:807.1.c", "1.5:807.1.d"]
+    title: 有 Assault 的单位作为防守方时 Might 不加成
+    kind: positive
+    given:
+      turn: { active: B, phase: main, state: showdown-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields:
+        - { id: bf1, controller: A, contested: true, units: { A: ["@unit(might:2,keywords:[assault:2],designation:defender)#u1"], B: ["@unit(might:3,designation:attacker)#u2"] } }
+      chain: []
+    commands:
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: combat.damage-assigned, battlefield: bf1 }
+      state:
+        - { path: "objects.u1.effectiveMight", equals: 2 }
+        - { path: "objects.u2.damage", equals: 2 }
+        - { path: "objects.u1.damage", equals: 3 }
+      rejected: null
+    notes: 807.1.d——Assault 只在单位持有 Attacker 指定期间生效；防守时 2 点 Might 不变。
+
+  - id: keywords-assault-stacks-from-multiple-sources
+    rule: ["1.5:807.2"]
+    title: 多个来源授予的 Assault 数值相加
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: showdown-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: [ "Cleave" ]
+          base: []
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields:
+        - { id: bf1, controller: B, contested: true, units: { A: ["Petty Officer#u1"], B: ["@unit(might:9,designation:defender)#u9"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", targets: ["#u1"], pay: { energy: 1 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+          - { timing: combat.damage-assigned, battlefield: bf1 }
+      state:
+        - { path: "objects.u1.effectiveMight", equals: 9 }
+        - { path: "objects.u9.damage", equals: 9 }
+      rejected: null
+    notes: 807.2 官方例——Petty Officer 自带 Assault（默认 1），被 Cleave（“Give a unit [Assault 3] this turn”）加成后 Assault 4，攻击时 Might 5+4=9。
+
+  - id: keywords-assault-ends-when-combat-ends
+    rule: ["1.5:807.1.d.1", "1.5:468.7.a"]
+    title: 战斗结束移除 Attacker 指定后，Assault 加成同步失效
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [ "@unit(might:2,keywords:[assault:2])#u1" ] }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields: []
+      chain: []
+    commands: []
+    expect:
+      events: { ordered: subsequence, list: [] }
+      state:
+        - { path: "objects.u1.effectiveMight", equals: 2 }
+      rejected: null
+    notes: 807.1.d.1 + 468.7.a——战斗结束时移除全部 Attacker/Defender 指定，Assault 不再加成；场景用已在 base 的单位断言其 Might 回到印刷值。
+
+  # ========== Shield 814 ==========
+  - id: keywords-shield-bonus-while-defending
+    rule: ["1.5:814.1.c"]
+    title: 单位作为防守方时 Shield 提供 Might 加成
+    kind: positive
+    given:
+      turn: { active: B, phase: main, state: showdown-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields:
+        - { id: bf1, controller: A, contested: true, units: { A: ["@unit(might:2,keywords:[shield:2],designation:defender)#u1"], B: ["@unit(might:3,designation:attacker)#u2"] } }
+      chain: []
+    commands:
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: combat.damage-assigned, battlefield: bf1 }
+      state:
+        - { path: "objects.u1.effectiveMight", equals: 4 }
+        - { path: "objects.u2.damage", equals: 4 }
+        - { path: "objects.u1.damage", equals: 3 }
+      rejected: null
+    notes: 814.1.c——Shield 2 让防守单位 Might+2；2+2=4 点伤害反击给攻击者，自身受 3 点伤害存活。
+
+  - id: keywords-shield-inactive-while-attacking
+    rule: ["1.5:814.1.d"]
+    title: 有 Shield 的单位攻击时不获得加成
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: showdown-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields:
+        - { id: bf1, controller: B, contested: true, units: { A: ["@unit(might:2,keywords:[shield:2],designation:attacker)#u1"], B: ["@unit(might:3,designation:defender)#u2"] } }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: combat.damage-assigned, battlefield: bf1 }
+      state:
+        - { path: "objects.u1.effectiveMight", equals: 2 }
+        - { path: "objects.u2.damage", equals: 2 }
+        - { path: "objects.u1.damage", equals: 3 }
+      rejected: null
+    notes: 814.1.d——Shield 只在 Defender 指定期间生效；攻击方 2 点 Might 不加。
+
+  - id: keywords-shield-stacks-from-multiple-sources
+    rule: ["1.5:814.2"]
+    title: 多个来源授予的 Shield 数值相加
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: showdown-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1,speed:reaction,text:\"Give a unit [Shield 3] and [Tank] this turn.\")" ]
+          base: []
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields:
+        - { id: bf1, controller: A, contested: true, units: { A: ["Stalwart Poro#u1"], B: ["@unit(might:5,designation:attacker)#u5"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", targets: ["#u1"], pay: { energy: 1 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+          - { timing: combat.damage-assigned, battlefield: bf1 }
+      state:
+        - { path: "objects.u1.effectiveMight", equals: 6 }
+        - { path: "objects.u5.damage", equals: 6 }
+      rejected: null
+    notes: 814.2 官方例——Stalwart Poro 自带 Shield（默认 1），被“Give a unit [Shield 3] and [Tank] this turn”加成后 Shield 4，防守时 Might 2+4=6。
+
+  # ========== Deflect 809 ==========
+  - id: keywords-deflect-mandatory-additional-power-cost
+    rule: ["1.5:809.1.c", "1.5:809.1.d"]
+    title: 对手法术选择有 Deflect 的对象为目标时必须额外付力量费
+    kind: positive
+    given:
+      turn: { active: B, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [ "@unit(might:3,keywords:[deflect:2])#u1" ] }
+        B:
+          energy: 1
+          runes: { ready: [fury, fury], exhausted: [] }
+          hand: [ "@spell(cost:1,speed:action,text:\"Deal 3 to a unit.\")" ]
+          base: []
+      battlefields: []
+      chain: []
+    commands:
+      - { player: B, do: play, card: "hand[0]", targets: ["#u1"], pay: { energy: 1, power: [fury, fury] } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "B:hand[0]" }
+          - { timing: effect.apply, object: "#u1", detail: "damage:3" }
+      state:
+        - { path: "objects.u1.damage", equals: 3 }
+      rejected: null
+    notes: 809.1.c/809.1.d——Deflect 2 是强制附加费；对手除了要付法术的 1 点能量，还须额外付 2 点力量才能合法选择该单位为目标。
+
+  - id: keywords-deflect-insufficient-power-rejected
+    rule: ["1.5:809.1.d"]
+    title: 无法支付 Deflect 附加费时，选择该对象不合法，打出被拒绝
+    kind: negative
+    given:
+      turn: { active: B, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [ "@unit(might:3,keywords:[deflect:2])#u1" ] }
+        B:
+          energy: 1
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@spell(cost:1,speed:action,text:\"Deal 3 to a unit.\")" ]
+          base: []
+      battlefields: []
+      chain: []
+    commands:
+      - { player: B, do: play, card: "hand[0]", targets: ["#u1"], pay: { energy: 1, power: [fury] } }
+    expect:
+      events: { ordered: subsequence, list: [] }
+      state:
+        - { path: "objects.u1.damage", equals: 0 }
+      rejected: { command: 0, reason: "cannot-pay-deflect-cost" }
+    notes: Deflect 2 需要 2 点力量附加费；只有 1 点力量时不满足强制附加费，合法性检查（Finalize 第 5 步）应拒绝。
+
+  - id: keywords-deflect-power-any-domain
+    rule: ["1.5:809.1.c.1"]
+    title: 支付 Deflect 附加费的力量可以是任意域
+    kind: positive
+    given:
+      turn: { active: B, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [ "@unit(might:3,domain:order,keywords:[deflect:1])#u1" ] }
+        B:
+          energy: 1
+          runes: { ready: [chaos], exhausted: [] }
+          hand: [ "@spell(cost:1,domain:fury,speed:action,text:\"Deal 3 to a unit.\")" ]
+          base: []
+      battlefields: []
+      chain: []
+    commands:
+      - { player: B, do: play, card: "hand[0]", targets: ["#u1"], pay: { energy: 1, power: [chaos] } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "B:hand[0]" }
+      state:
+        - { path: "objects.u1.damage", equals: 3 }
+      rejected: null
+    notes: 809.1.c.1 官方例——Fury 法术选择 Order 单位的 Deflect 目标时，附加力量费可以用任意域（这里用 Chaos）支付，不需要匹配法术或目标的域。
+
+  - id: keywords-deflect-multiple-times-chosen-cost-multiplies
+    rule: ["1.5:809.1.c"]
+    title: 同一个多目标效果多次选择有 Deflect 的对象时，每选一次就加收一次费用
+    kind: edge
+    given:
+      turn: { active: B, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [ "@unit(might:5,keywords:[deflect:1])#u1", "@unit(might:1)#u2" ] }
+        B:
+          energy: 1
+          runes: { ready: [fury, fury, fury], exhausted: [] }
+          hand: [ "@spell(cost:1,speed:action,text:\"Deal 2 to a unit. Deal 2 to a unit. (may choose the same unit twice)\")" ]
+          base: []
+      battlefields: []
+      chain: []
+    commands:
+      - { player: B, do: play, card: "hand[0]", targets: ["#u1", "#u1"], pay: { energy: 1, power: [fury, fury] } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "B:hand[0]" }
+      state:
+        - { path: "objects.u1.damage", equals: 4 }
+      rejected: null
+    notes: 809.1.c——“cost ... more ... for each time they choose me”：同一法术两次选择同一 Deflect 单位，每次选择都各加 1 点力量附加费，共多付 2 点力量。
+
+  - id: keywords-deflect-stacks-from-multiple-sources
+    rule: ["1.5:809.2"]
+    title: 多个来源授予的 Deflect 数值相加
+    kind: positive
+    given:
+      turn: { active: B, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [ "@unit(might:4,keywords:[deflect:1],grantedKeywords:[deflect:2])#u1" ] }
+        B:
+          energy: 1
+          runes: { ready: [fury, fury, fury], exhausted: [] }
+          hand: [ "@spell(cost:1,speed:action,text:\"Deal 3 to a unit.\")" ]
+          base: []
+      battlefields: []
+      chain: []
+    commands:
+      - { player: B, do: play, card: "hand[0]", targets: ["#u1"], pay: { energy: 1, power: [fury, fury, fury] } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "B:hand[0]" }
+      state:
+        - { path: "objects.u1.damage", equals: 3 }
+      rejected: null
+    notes: 809.2——自带 Deflect 1 再被授予 Deflect 2 后按 Deflect 3 计算；对手需额外付 3 点力量才能以该单位为目标。
+
+  # ========== Deathknell 808 ==========
+  - id: keywords-deathknell-triggers-on-kill
+    rule: ["1.5:808.1.c", "1.5:808.1.d.2"]
+    title: 永久物被消灭进入垃圾场时触发 Deathknell
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [ "@unit(might:2,keywords:[deathknell],text:\"[Deathknell][>] Draw 1.\")#u1" ] }
+        B:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2,speed:action,text:\"Kill a unit.\")" ]
+          base: []
+      battlefields: []
+      chain: []
+    commands:
+      - { player: B, do: play, card: "hand[0]", targets: ["#u1"], pay: { energy: 2 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.enter, object: "#u1", zone: trash }
+          - { timing: chain.item-pending, item: "trigger:deathknell:#u1" }
+          - { timing: player.draw, player: A }
+      state:
+        - { path: "players.A.hand", count: 1 }
+      rejected: null
+    notes: 808.1.d.2——Deathknell 触发在卡进垃圾场前进入链（Pending）；本场景在 kill 法术结算后断言触发进链并抽牌。
+
+  - id: keywords-deathknell-removed-when-death-replaced
+    rule: ["1.5:808.1.d.1"]
+    title: 死亡被替代为召回等其他事件时，Deathknell 触发从链上移除
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: showdown-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: [ "@gear(cost:2,text:\"When a friendly unit would die in combat, instead heal it, recall it, and exhaust it.\")#zhonya" ]
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields:
+        - { id: bf1, controller: B, contested: true, units: { A: ["@unit(might:2,keywords:[deathknell],text:\"[Deathknell][>] An opponent gains 1 point.\",designation:attacker)#u1"], B: ["@unit(might:5,designation:defender)#u5"] } }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: combat.damage-assigned, battlefield: bf1 }
+          - { timing: effect.replace, detail: "death->recall:#u1" }
+          - { timing: chain.item-removed, item: "trigger:deathknell:#u1" }
+      state:
+        - { path: "players.B.score", equals: 0 }
+        - { path: "objects.u1.zone", equals: "base" }
+      rejected: null
+    notes: 808.1.d.1 官方例——Draven 式的“当我在战斗中死亡”触发，因 Zhonya 式替代效果把死亡替换为治疗+召回+横置，触发被从链上移除，对手不得分。
+
+  - id: keywords-deathknell-multiple-instances-trigger-separately
+    rule: ["1.5:808.2", "1.5:808.2.a"]
+    title: 同一永久物有多个 Deathknell 时各自独立触发，控制者决定入链顺序
+    kind: positive
+    given:
+      turn: { active: B, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: [ "@unit(might:2,keywords:[deathknell],text:\"[Deathknell][>] Draw 1. [Deathknell][>] Gain 1 energy.\")#u1" ]
+        B:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2,speed:action,text:\"Kill a unit.\")" ]
+          base: []
+      battlefields: []
+      chain: []
+    commands:
+      - { player: B, do: play, card: "hand[0]", targets: ["#u1"], pay: { energy: 2 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.enter, object: "#u1", zone: trash }
+          - { timing: chain.item-pending, item: "trigger:deathknell:draw" }
+          - { timing: chain.item-pending, item: "trigger:deathknell:energy" }
+          - { timing: player.draw, player: A }
+      state:
+        - { path: "players.A.hand", count: 1 }
+      rejected: null
+    notes: 808.2——每个 Deathknell 实例独立进链；控制者 A 选择二者顺序。两个触发各自结算。
+
+  # ========== Ganking 810 ==========
+  - id: keywords-ganking-battlefield-to-battlefield-move
+    rule: ["1.5:810.1.b", "1.5:144.4.c.1"]
+    title: Ganking 允许单位用标准移动在两个战场之间移动
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:2,keywords:[ganking],state:ready)#u1"], B: [] } }
+        - { id: bf2, controller: null, units: { A: [], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: move, unit: "#u1", from: bf1, to: bf2 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.leave, object: "#u1", zone: bf1 }
+          - { timing: zone.enter, object: "#u1", zone: bf2 }
+      state:
+        - { path: "objects.u1.zone", equals: "bf2" }
+        - { path: "objects.u1.state", equals: "exhausted" }
+      rejected: null
+    notes: 810.1.b + 144.4.c.1——Ganking 给标准移动新增“战场→战场”选项；支付横置费用后单位从 bf1 移到 bf2。
+
+  - id: keywords-ganking-multiple-redundant
+    rule: ["1.5:810.2"]
+    title: 多个 Ganking 冗余，不提供额外移动次数
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:2,keywords:[ganking],grantedKeywords:[ganking],state:ready)#u1"], B: [] } }
+        - { id: bf2, controller: null, units: { A: [], B: [] } }
+        - { id: bf3, controller: null, units: { A: [], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: move, unit: "#u1", from: bf1, to: bf2 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.enter, object: "#u1", zone: bf2 }
+      state:
+        - { path: "objects.u1.zone", equals: "bf2" }
+        - { path: "objects.u1.state", equals: "exhausted" }
+      rejected: null
+    notes: 810.2/810.1.c.3——多个 Ganking 冗余，也不增加移动次数；移动后单位横置，本回合不能再标准移动去 bf3。
+
+  # ========== Hidden 811 ==========
+  - id: keywords-hidden-hide-from-hand
+    rule: ["1.5:811.1.b", "1.5:811.1.c", "1.5:422.2"]
+    title: 手牌中的 Hidden 卡可付 [A] 背面朝下藏到自己控制的战场
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@unit(cost:3,might:2,keywords:[hidden])" ]
+          base: []
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields:
+        - { id: bf1, controller: A, hidden: [], units: { A: [], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: hide, card: "hand[0]", to: bf1, pay: { power: [fury] } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.leave, object: "A:hand[0]", zone: hand }
+          - { timing: zone.enter, object: "A:hand[0]", zone: bf1, detail: "facedown" }
+      state:
+        - { path: "battlefields.bf1.hidden", count: 1 }
+      rejected: null
+    notes: 811.1.b——藏牌是自由动作（Hide），不开链；付 [A] 任意域力量即可。从手牌藏到自己控制的、当前没有背面卡的战场。
+
+  - id: keywords-hidden-play-facedown-next-turn
+    rule: ["1.5:811.1.b", "1.5:811.6"]
+    title: 从下一个回合开始，被藏的卡获得 Reaction，可忽略基础费打出
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open, turnNumber: 2 }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields:
+        - { id: bf1, controller: A, hidden: [ "@unit(cost:3,might:2,keywords:[hidden],hiddenSinceTurn:1)#h1" ], units: { A: [], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "#h1", to: bf1, pay: { energy: 0 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:#h1" }
+          - { timing: zone.enter, object: "#h1", zone: bf1, detail: "face-up" }
+      state:
+        - { path: "battlefields.bf1.units.A", count: 1 }
+      rejected: null
+    notes: 811.1.b/811.6——隐藏的卡从下一回合起获得 Reaction，可忽略基础费打出；本场景 turn 1 藏入，turn 2 以 0 费从背面打出。
+
+  - id: keywords-hidden-facedown-no-referenceable-characteristics
+    rule: ["1.5:811.5.a", "1.5:129.4"]
+    title: 背面朝下的卡没有可引用的正面特征（Gutter Guardian 裁定）
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 4
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@unit(cost:4,might:3,keywords:[show-off],text:\"[Show Off] a unit.\")" ]
+          base: []
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields:
+        - { id: bf1, controller: A, hidden: [ "@unit(cost:2,might:2,keywords:[hidden])#h1" ], units: { A: [], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 4 }, choices: { showOff: { pickFromBoard: ["#h1"] } } }
+    expect:
+      events: { ordered: subsequence, list: [] }
+      state: []
+      rejected: { command: 0, reason: "facedown-card-no-referenceable-characteristics" }
+    notes: "UNCERTAIN: 按 Radiance 官方 FAQ（Gutter Guardian 问答，引用 811.5.a/129.4），背面卡没有可引用的正面特征，不能被 Show Off 选中；但此处 Show Off 是可选动作，引擎应报“没有合法的 Show Off 选项/选择非法”。具体拒绝形态待 harness 确认。"
+
+  - id: keywords-hidden-normal-play-still-allowed
+    rule: ["1.5:811.3"]
+    title: 有 Hidden 的卡仍可按正常费用、正常时机从手牌打出
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@unit(cost:3,might:2,keywords:[hidden])" ]
+          base: []
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 3 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+          - { timing: zone.enter, object: "A:hand[0]", zone: base }
+      state:
+        - { path: "players.A.base", count: 1 }
+      rejected: null
+    notes: 811.3——Hidden 提供另一种玩法，并不禁止按正常费用打出；此时对目标没有任何 Hidden 附加限制。
+
+  - id: keywords-hidden-spell-targets-must-be-at-battlefield
+    rule: ["1.5:811.1.d.2"]
+    title: 从背面打出 Hidden 法术时，目标必须选在其被藏的战场
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open, turnNumber: 2 }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields:
+        - { id: bf1, controller: A, hidden: [ "@spell(cost:1,keywords:[hidden],text:\"Deal 2 to a unit.\",hiddenSinceTurn:1)#h1" ], units: { A: [], B: ["@unit(might:2)#e1"] } }
+        - { id: bf2, controller: B, units: { A: [], B: ["@unit(might:2)#e2"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "#h1", targets: ["#e2"], pay: { energy: 0 } }
+    expect:
+      events: { ordered: subsequence, list: [] }
+      state:
+        - { path: "objects.e2.damage", equals: 0 }
+      rejected: { command: 0, reason: "hidden-target-not-at-battlefield" }
+    notes: 811.1.d.2——从背面打出带目标的 Hidden 法术时，目标必须来自它被藏的战场（bf1）；试图选 bf2 的单位 #e2 应被拒绝。
+
+  - id: keywords-hidden-gear-played-to-battlefield-overrides-base-restriction
+    rule: ["1.5:811.1.d.1", "1.5:811.1.d.1.a"]
+    title: 从背面打出 Hidden 装备时必须打到被藏的战场，覆盖装备只能进基地的限制
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open, turnNumber: 2 }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields:
+        - { id: bf1, controller: A, hidden: [ "@gear(cost:2,keywords:[hidden],hiddenSinceTurn:1)#h1" ], units: { A: [], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "#h1", to: bf1, pay: { energy: 0 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.enter, object: "#h1", zone: bf1, detail: "face-up" }
+      state:
+        - { path: "battlefields.bf1.gear.A", count: 1 }
+      rejected: null
+    notes: 811.1.d.1.a——Hidden 装备从背面打出时必须打到其被藏的战场；这一规则覆盖“装备只能打到基地”的一般限制。
+
+  - id: keywords-hidden-play-effect-mistargets-when-source-leaves
+    rule: ["1.5:811.1.d.3.a"]
+    title: 背面打出的永久物在打出效应结算前离场时，其打出效应因无法引用来源战场而脱靶
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open, turnNumber: 2 }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields:
+        - { id: bf1, controller: A, hidden: [ "@unit(cost:2,might:2,keywords:[hidden],text:\"When you play me, kill another friendly unit.\",hiddenSinceTurn:1)#h1" ], units: { A: ["@unit(might:1)#ally"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "#h1", to: bf1, pay: { energy: 0 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:#h1" }
+          - { timing: zone.enter, object: "#h1", zone: bf1 }
+          - { timing: chain.item-pending, item: "trigger:when-played:#h1" }
+      state:
+        - { path: "battlefields.bf1.units.A", count: 2 }
+      rejected: null
+    notes: "UNCERTAIN: 811.1.d.3.a 描述了“若来源在打出效应结算时不在场上则脱靶”的情形；本场景来源正常进场，因此打出效应正常选择 #ally。真正脱靶（来源被反应消灭）需要链中反应窗口，harness 暂不支持时先验证正常路径。"
+
+  # ========== Legion 812 ==========
+  - id: keywords-legion-satisfied-after-another-card-finalized
+    rule: ["1.5:812.1.b.1", "1.5:812.1.c"]
+    title: 本回合已结算另一张牌后，带 Legion 的卡获得其依赖能力
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 5
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2,text:\"Draw 1.\")", "@unit(cost:3,might:2,keywords:[legion],text:\"[Legion][>] I have +2 [M].\")" ]
+          base: []
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: chain, pay: { energy: 2 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+      - { player: A, do: play, card: "hand[1]", to: base, pay: { energy: 3 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+          - { timing: zone.enter, object: "A:hand[1]", zone: base }
+      state:
+        - { path: "players.A.base[0].effectiveMight", equals: 4 }
+      rejected: null
+    notes: 812.1.c——A 先结算一张法术后，带 Legion 的单位满足条件，Might 2+2=4。
+
+  - id: keywords-legion-not-satisfied-first-card-of-turn
+    rule: ["1.5:812.1.b.1"]
+    title: Legion 卡是本回合第一张被结算的牌时，依赖能力不生效
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@unit(cost:3,might:2,keywords:[legion],text:\"[Legion][>] I have +2 [M].\")" ]
+          base: []
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 3 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.enter, object: "A:hand[0]", zone: base }
+      state:
+        - { path: "players.A.base[0].effectiveMight", equals: 2 }
+      rejected: null
+    notes: 812.1.b.1——Legion 条件是“你已经结算过另一张牌”；作为本回合第一张结算的牌，其依赖能力不生效，Might 仍为 2。
+
+  - id: keywords-legion-one-card-satisfies-all-legion
+    rule: ["1.5:812.2"]
+    title: 玩家打出一牌后，其控制的所有 Legion 同时满足
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 7
+          runes: { ready: [], exhausted: [] }
+          hand:
+            - "@spell(cost:1,text:\"Draw 1.\")"
+            - "@unit(cost:3,might:2,keywords:[legion],text:\"[Legion][>] I have +1 [M].\")"
+            - "@unit(cost:3,might:3,keywords:[legion],text:\"[Legion][>] I have Ganking.\")"
+          base: []
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields:
+        - { id: bf1, controller: A, units: { A: [], B: [] } }
+        - { id: bf2, controller: null, units: { A: [], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: chain, pay: { energy: 1 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+      - { player: A, do: play, card: "hand[1]", to: base, pay: { energy: 3 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+      - { player: A, do: play, card: "hand[2]", to: base, pay: { energy: 3 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+      - { player: A, do: move, unit: "players.A.base[1]", from: base, to: bf1 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.enter, object: "A:hand[2]", zone: base }
+      state:
+        - { path: "players.A.base[0].effectiveMight", equals: 3 }
+        - { path: "battlefields.bf1.units.A", count: 1 }
+      rejected: null
+    notes: 812.2 官方例——A 打出任意一张牌后，其控制的所有 Legion 依赖能力同时激活；第二张 Legion 单位 Might+1，第三张 Legion 单位获得 Ganking 并能从 base 直接移到战场。
+
+  # ========== Reaction 813 / Action 806 ==========
+  - id: keywords-reaction-play-on-opponent-turn-closed-state
+    rule: ["1.5:813.1.c.1"]
+    title: Reaction 法术可在对手回合的 Closed State 打出
+    kind: positive
+    given:
+      turn: { active: B, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1,speed:reaction,text:\"Deal 1 to a unit.\")" ]
+          base: []
+        B:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2,speed:action,text:\"Deal 2 to a unit.\")" ]
+          base: [ "@unit(might:3)#u1" ]
+      battlefields: []
+      chain: [ { item: "B:hand[0]", state: pending } ]
+    commands:
+      - { player: A, do: play, card: "hand[0]", targets: ["#u1"], pay: { energy: 1 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+          - { timing: chain.item-resolved, item: "A:hand[0]" }
+          - { timing: chain.item-resolved, item: "B:hand[0]" }
+      state:
+        - { path: "objects.u1.damage", equals: 3 }
+      rejected: null
+    notes: 813.1.c.1——Reaction 允许在任意玩家回合的 Closed State 打出；A 在 B 的回合、链上有 B 的待结算法术时插入反应，最后入链先结算。
+
+  - id: keywords-action-not-playable-in-closed-state
+    rule: ["1.5:806.1.b", "1.5:813.1"]
+    title: 只有 Action（无 Reaction）的牌不能在 Closed State 打出
+    kind: negative
+    given:
+      turn: { active: B, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1,speed:action,text:\"Deal 1 to a unit.\")" ]
+          base: []
+        B:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2,speed:action,text:\"Draw 1.\")" ]
+          base: [ "@unit(might:3)#u1" ]
+      battlefields: []
+      chain: [ { item: "B:hand[0]", state: pending } ]
+    commands:
+      - { player: A, do: play, card: "hand[0]", targets: ["#u1"], pay: { energy: 1 } }
+    expect:
+      events: { ordered: subsequence, list: [] }
+      state:
+        - { path: "objects.u1.damage", equals: 0 }
+      rejected: { command: 0, reason: "action-speed-not-legal-in-closed-state" }
+    notes: 806 vs 813——Action 只授予在 Showdown 中（含自己回合外的 Open State）打出的许可，不授予 Closed State 许可；只有 Reaction 才覆盖 Closed State。
+
+  - id: keywords-action-unit-still-restricted-to-base-or-own-battlefield
+    rule: ["1.5:806.3"]
+    title: 即使单位有 Action 许可，打出位置仍受固有限制
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: showdown-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@unit(cost:3,might:2,keywords:[action])" ]
+          base: []
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields:
+        - { id: bf1, controller: B, contested: true, units: { A: [], B: ["@unit(might:3)#e1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: bf1, pay: { energy: 3 } }
+    expect:
+      events: { ordered: subsequence, list: [] }
+      state: []
+      rejected: { command: 0, reason: "unit-play-location-restricted" }
+    notes: 806.3 官方例——Action 只给时机许可，不改变打出位置限制；单位仍只能打到自己基地或自己控制的战场，不能借 Action 打到对手控制的战场。
+
+  # ========== Tank 815 ==========
+  - id: keywords-tank-must-be-assigned-lethal-first
+    rule: ["1.5:815.1.b", "1.5:815.1.c.2"]
+    title: 有 Tank 的单位必须先被分配致命伤害，其他单位才是合法分配对象
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: showdown-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields:
+        - { id: bf1, controller: A, contested: true, units: { A: ["@unit(might:2,keywords:[tank],designation:defender)#t1", "@unit(might:3,designation:defender)#n1"], B: ["@unit(might:4,designation:attacker)#atk"] } }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+      - { player: B, do: assign-damage, assignments: [ { target: "#n1", amount: 3 }, { target: "#t1", amount: 1 } ] }
+    expect:
+      events: { ordered: subsequence, list: [] }
+      state:
+        - { path: "objects.n1.damage", equals: 0 }
+      rejected: { command: 2, reason: "must-assign-lethal-to-tank-first" }
+    notes: 815.1.c.2——Tank 在场时，非 Tank 单位不是合法分配对象，必须先给 Tank 分满致命伤害；试图先给非 Tank 单位分配应被拒绝。
+
+  - id: keywords-tank-multiple-tanks-any-order
+    rule: ["1.5:815.1.c.2"]
+    title: 多个 Tank 单位之间可自由选择先分给谁
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: showdown-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields:
+        - { id: bf1, controller: A, contested: true, units: { A: ["@unit(might:2,keywords:[tank],designation:defender)#t1", "@unit(might:4,keywords:[tank],designation:defender)#t2", "@unit(might:3,designation:defender)#n1"], B: ["@unit(might:4,designation:attacker)#atk"] } }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+      - { player: B, do: assign-damage, assignments: [ { target: "#t2", amount: 4 } ] }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: combat.damage-assigned, battlefield: bf1 }
+      state:
+        - { path: "objects.t2.damage", equals: 4 }
+        - { path: "objects.t1.damage", equals: 0 }
+      rejected: null
+    notes: 815.1.c.2——多个 Tank 时攻击方可任选先分给谁；这里 4 点伤害全部分给 #t2 是合法的（已满足对 Tank 的致命分配要求）。
+
+  # ========== Temporary 816 ==========
+  - id: keywords-temporary-killed-at-controller-beginning-phase
+    rule: ["1.5:816.1.b", "1.5:816.1.c"]
+    title: Temporary 永久物在其控制者的开始阶段（计分前）被消灭
+    kind: positive
+    given:
+      turn: { active: A, phase: beginning, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [ "@unit(might:2,keywords:[temporary])#t1" ] }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields: []
+      chain: []
+    commands: []
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.phase-begin, phase: beginning }
+          - { timing: chain.item-pending, item: "trigger:temporary:#t1" }
+          - { timing: zone.enter, object: "#t1", zone: trash }
+      state:
+        - { path: "players.A.base", count: 0 }
+      rejected: null
+    notes: 816.1.b——Temporary 在控制者的开始阶段、计分之前触发“消灭此物”。
+
+  - id: keywords-temporary-multiple-instances-trigger-once
+    rule: ["1.5:816.2", "1.5:816.2.a"]
+    title: 多个 Temporary 实例仍只触发一次消灭
+    kind: edge
+    given:
+      turn: { active: A, phase: beginning, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [ "@unit(might:2,keywords:[temporary],grantedKeywords:[temporary])#t1" ] }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields: []
+      chain: []
+    commands: []
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "trigger:temporary:#t1" }
+          - { timing: zone.enter, object: "#t1", zone: trash }
+      state:
+        - { path: "players.A.base", count: 0 }
+      rejected: null
+    notes: 816.2.a——无论有多少个 Temporary 实例，该能力只触发一次；只应看到一个消灭触发。
+
+  # ========== Vision 817 ==========
+  - id: keywords-vision-trigger-on-played
+    rule: ["1.5:817.1.b", "1.5:817.1.c"]
+    title: 带 Vision 的永久物被打出时触发 Predict
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@unit(cost:3,might:2,keywords:[vision])" ]
+          base: []
+          deck: [ "@unit(cost:1,might:1)#top" ]
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 3 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.enter, object: "A:hand[0]", zone: base }
+          - { timing: chain.item-pending, item: "trigger:vision" }
+          - { timing: player.predict, player: A }
+      state:
+        - { path: "players.A.base", count: 1 }
+      rejected: null
+    notes: 817.1.b/817.1.c——Vision 在永久物进场时触发一次 Predict；玩家查看牌库顶并决定是否回收。
+
+  - id: keywords-vision-multiple-instances-trigger-separately
+    rule: ["1.5:817.2", "1.5:817.2.b"]
+    title: 多个 Vision 实例各自独立触发；中间无其他事件时各自看到同一张牌
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@unit(cost:3,might:2,keywords:[vision],grantedKeywords:[vision])" ]
+          base: []
+          deck: [ "@unit(cost:1,might:1)#top" ]
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 3 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "trigger:vision:1" }
+          - { timing: player.predict, player: A, detail: "see:#top" }
+          - { timing: chain.item-pending, item: "trigger:vision:2" }
+          - { timing: player.predict, player: A, detail: "see:#top" }
+      state:
+        - { path: "players.A.deck[0]", equals: "#top" }
+      rejected: null
+    notes: 817.2/817.2.b——每个 Vision 实例独立触发、各自决定是否回收；若第一次没有回收且中间无其他动作，第二次仍看到同一张 #top。
+
+  # ========== Equip 818 ==========
+  - id: keywords-equip-attach-gear-to-unit
+    rule: ["1.5:818.1.c.2", "1.5:818.2"]
+    title: 支付 Equip 费用把装备附着到己方单位，装备效果文本并入该单位
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: [ "@gear(cost:1,tag:equipment,keywords:[equip],text:\"Equip [1]. Attached unit has +2 [M].\")#g1", "@unit(might:2)#u1" ]
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: activate, ability: "equip", source: "#g1", targets: ["#u1"], pay: { energy: 1 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "ability:equip:#g1" }
+          - { timing: effect.attach, object: "#g1", to: "#u1" }
+      state:
+        - { path: "objects.u1.effectiveMight", equals: 4 }
+        - { path: "objects.g1.attachedTo", equals: "#u1" }
+      rejected: null
+    notes: 818.1.c.2/818.2——Equip 是启动能力，费用付完后把装备附着到选定单位；单位因装备效果文本获得 +2 Might（719.1）。
+
+  - id: keywords-equip-target-must-be-friendly-unit
+    rule: ["1.5:818.1.c.2", "1.5:818.1.b.1"]
+    title: Equip 只能选择己方单位为目标，不能选择对手单位
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: [ "@gear(cost:1,tag:equipment,keywords:[equip],text:\"Equip [1].\")#g1" ]
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [ "@unit(might:2)#e1" ] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: activate, ability: "equip", source: "#g1", targets: ["#e1"], pay: { energy: 1 } }
+    expect:
+      events: { ordered: subsequence, list: [] }
+      state:
+        - { path: "objects.g1.attachedTo", equals: null }
+      rejected: { command: 0, reason: "equip-target-not-friendly-unit" }
+    notes: 818.1.c.2——Equip 的功能文本是“Attach this gear to a unit you control”；选择对手单位不合法。
+
+  - id: keywords-equip-unit-cannot-be-attached
+    rule: ["1.5:435.1.h", "1.5:435.1.h.2"]
+    title: 试图把单位附着到其他对象时什么也不发生（v1.5 澄清）
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2,speed:action,text:\"Attach target unit to another unit.\")" ]
+          base: [ "@unit(might:2)#u1", "@unit(might:3)#u2" ]
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", targets: ["#u1", "#u2"], pay: { energy: 2 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+          - { timing: effect.negated, detail: "attach-unit-impossible" }
+      state:
+        - { path: "objects.u1.attachedTo", equals: null }
+      rejected: null
+    notes: 435.1.h.1——v1.5 澄清：单位不能被附着；试图让单位成为被附着方时该指令被否定（什么也不发生），但卡本身仍结算。
+
+  - id: keywords-equip-attached-equipment-detaches-when-becomes-unit
+    rule: ["1.5:435.1.h.2"]
+    title: 被附着的非单位对象变成单位时立即脱离（Orianna 式裁定）
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2,speed:action,text:\"Target gear becomes a unit with Might equal to its cost until end of turn.\")" ]
+          base: [ "@gear(cost:2,tag:equipment)#g1", "@unit(might:3,attached:[\"#g1\"])#u1" ]
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", targets: ["#g1"], pay: { energy: 2 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+          - { timing: effect.detach, object: "#g1", from: "#u1" }
+      state:
+        - { path: "objects.g1.attachedTo", equals: null }
+        - { path: "objects.g1.cardType", contains: "Unit" }
+      rejected: null
+    notes: 435.1.h.2 + Radiance Orianna 裁定——被附着的装备变成单位时立即脱离原 Top-Most 卡；之后它作为单位留在原位置。
+
+  # ========== Quick-Draw 819 ==========
+  - id: keywords-quickdraw-attach-on-play
+    rule: ["1.5:819.1.d"]
+    title: Quick-Draw 装备被打出时立即附着到己方单位
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@gear(cost:2,tag:equipment,keywords:[quick-draw],text:\"Attached unit has +1 [M].\")" ]
+          base: [ "@unit(might:2)#u1" ]
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 2 }, choices: { attachTo: "#u1" } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.enter, object: "A:hand[0]", zone: base }
+          - { timing: effect.attach, object: "A:hand[0]", to: "#u1" }
+      state:
+        - { path: "objects.u1.effectiveMight", equals: 3 }
+      rejected: null
+    notes: 819.1.d——Quick-Draw = “[Reaction]”+“当你打出此卡时，附着到一个你控制的单位”；打出即附着，不需再启动 Equip。
+
+  - id: keywords-quickdraw-playable-with-reaction-timing
+    rule: ["1.5:819.1.b", "1.5:819.1.c"]
+    title: Quick-Draw 装备可在 Closed State 以 Reaction 时机打出并附着
+    kind: positive
+    given:
+      turn: { active: B, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@gear(cost:2,tag:equipment,keywords:[quick-draw],text:\"Attached unit has +1 [M].\")" ]
+          base: [ "@unit(might:2)#u1" ]
+        B:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2,speed:action,text:\"Deal 2 to a unit.\")" ]
+          base: []
+      battlefields: []
+      chain: [ { item: "B:hand[0]", state: pending } ]
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 2 }, choices: { attachTo: "#u1" } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+          - { timing: effect.attach, object: "A:hand[0]", to: "#u1" }
+          - { timing: chain.item-resolved, item: "B:hand[0]" }
+      state:
+        - { path: "objects.u1.effectiveMight", equals: 3 }
+        - { path: "objects.u1.damage", equals: 2 }
+      rejected: null
+    notes: 819.1.b/819.1.c——Quick-Draw 装备固有 Reaction；可在 Closed State（如对手法术在链上时）打出并立即附着，使本单位在对方伤害结算前获得 +1。
+
+  # ========== Repeat 820 ==========
+  - id: keywords-repeat-paid-executes-twice
+    rule: ["1.5:820.1.d", "1.5:820.1.d.1"]
+    title: 支付 Repeat 附加费后，结算时指令额外执行一次
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 4
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2,keywords:[repeat],repeatCost:{energy:2},text:\"Play a 2 [M] Sand Soldier unit token.\")" ]
+          base: []
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: chain, pay: { energy: 4 }, choices: { repeat: true } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+          - { timing: effect.create-token, detail: "sand-soldier:2" }
+      state:
+        - { path: "players.A.base", count: 2 }
+      rejected: null
+    notes: 820.1.d.1 官方例（Desert's Call）——付 Repeat 费后指令像被写了两遍一样各执行一次，得到 2 个 2/2 衍生物。
+
+  - id: keywords-repeat-not-paid-executes-once
+    rule: ["1.5:820.1.d"]
+    title: 不支付 Repeat 附加费时指令只执行一次
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2,keywords:[repeat],repeatCost:{energy:2},text:\"Play a 2 [M] Sand Soldier unit token.\")" ]
+          base: []
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: chain, pay: { energy: 2 }, choices: { repeat: false } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: effect.create-token, detail: "sand-soldier:1" }
+      state:
+        - { path: "players.A.base", count: 1 }
+      rejected: null
+    notes: 不付 Repeat 费时按默认只执行一次，只出 1 个衍生物。
+
+  - id: keywords-repeat-played-only-once
+    rule: ["1.5:820.3.a"]
+    title: 无论 Repeat 执行多少次，该牌只被“打出”一次
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 6
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2,keywords:[repeat],repeatCost:{energy:2},text:\"Deal 1 to a unit.\")" ]
+          base: []
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [ "@unit(might:3,keywords:[],text:\"Whenever a spell is played, I gain +1 [M] this turn.\")#watcher" ] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", targets: ["#watcher"], pay: { energy: 4 }, choices: { repeat: true } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+      state:
+        - { path: "objects.watcher.effectiveMight", equals: 4 }
+        - { path: "objects.watcher.damage", equals: 2 }
+      rejected: null
+    notes: 820.3.a——指令执行两次（#watcher 受到 2 点伤害），但“当一张法术被打出”类触发只触发一次，#watcher 只 +1。
+
+  - id: keywords-repeat-multiple-instances-paid-separately
+    rule: ["1.5:820.1.c.2", "1.5:820.3"]
+    title: 有多个 Repeat 实例时可分别支付，每付一个就多加一次执行
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 7
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2,keywords:[repeat,repeat],repeatCost:[{energy:2},{energy:3}],text:\"Draw 1.\")" ]
+          base: []
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: chain, pay: { energy: 7 }, choices: { repeat: [true, true] } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+          - { timing: player.draw, player: A }
+          - { timing: player.draw, player: A }
+          - { timing: player.draw, player: A }
+      state:
+        - { path: "players.A.hand", count: 3 }
+      rejected: null
+    notes: 820.1.c.2/820.3——两个 Repeat 实例分别支付（2+3 点能量）后，指令共执行 3 次（原始 1 次 + 每个已付 Repeat 各加 1 次）。
+
+  # ========== Weaponmaster 821 ==========
+  - id: keywords-weaponmaster-discount-attach-on-play
+    rule: ["1.5:821.1.c"]
+    title: Weaponmaster 打出时可选一件装备，按减免 [A] 的 Equip 费立即附着到本单位
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 4
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@unit(cost:3,might:2,keywords:[weaponmaster])" ]
+          base: [ "@gear(cost:1,tag:equipment,keywords:[equip],text:\"Equip [2][C]. Attached unit has +2 [M].\")#g1" ]
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 3 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+      - { player: A, do: pay, for: "weaponmaster:#g1", cost: { energy: 2, power: [fury] } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.enter, object: "A:hand[0]", zone: base }
+          - { timing: chain.item-pending, item: "trigger:weaponmaster" }
+          - { timing: effect.attach, object: "#g1", to: "players.A.base[0]" }
+      state:
+        - { path: "players.A.base[0].effectiveMight", equals: 4 }
+        - { path: "objects.g1.attachedTo", equals: "players.A.base[0]" }
+      rejected: null
+    notes: 821.1.c——Weaponmaster 打出触发：可选一件装备，按其 Equip 费减免 [A]（任意 1 点力量）后立即附着到该单位；不是真的启动 Equip 能力。
+
+  - id: keywords-weaponmaster-no-function-on-board
+    rule: ["1.5:821.2"]
+    title: Weaponmaster 在场上没有持续功能，不能再次触发
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: [ "@unit(might:2,keywords:[weaponmaster])#u1", "@gear(cost:1,tag:equipment,keywords:[equip])#g1" ]
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: activate, ability: "weaponmaster", source: "#u1", targets: ["#g1"] }
+    expect:
+      events: { ordered: subsequence, list: [] }
+      state:
+        - { path: "objects.g1.attachedTo", equals: null }
+      rejected: { command: 0, reason: "keyword-not-activatable-on-board" }
+    notes: 821.2——Weaponmaster 只在打出时触发一次；已在场上的单位不能再“发动” Weaponmaster。
+
+  # ========== Ambush 822 ==========
+  - id: keywords-ambush-play-to-friendly-occupied-battlefield
+    rule: ["1.5:822.1.b"]
+    title: Ambush 单位可打到有自己单位的战场，且此时具有 Reaction
+    kind: positive
+    given:
+      turn: { active: B, phase: main, state: showdown-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@unit(cost:3,might:2,keywords:[ambush])" ]
+          base: []
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields:
+        - { id: bf1, controller: B, contested: true, units: { A: ["@unit(might:2,designation:defender)#ally"], B: ["@unit(might:3,designation:attacker)#e1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: bf1, pay: { energy: 3 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+          - { timing: zone.enter, object: "A:hand[0]", zone: bf1 }
+      state:
+        - { path: "battlefields.bf1.units.A", count: 2 }
+      rejected: null
+    notes: 822.1.b——Ambush 允许打到有自己单位的战场，并且这样打出时具有 Reaction；可在对手回合的 Showdown Open 时增援。
+
+  - id: keywords-ambush-invalid-when-no-friendly-units
+    rule: ["1.5:822.3"]
+    title: 目标战场在 Finalize 前已没有己方单位时，Ambush 许可失效
+    kind: negative
+    given:
+      turn: { active: B, phase: main, state: showdown-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@unit(cost:3,might:2,keywords:[ambush])" ]
+          base: []
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields:
+        - { id: bf1, controller: B, contested: true, units: { A: [], B: ["@unit(might:3,designation:attacker)#e1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: bf1, pay: { energy: 3 } }
+    expect:
+      events: { ordered: subsequence, list: [] }
+      state: []
+      rejected: { command: 0, reason: "ambush-location-no-friendly-unit" }
+    notes: 822.3——选择时战场没有己方单位，Ambush 的许可不成立；除非有其他效果允许，否则不能打到该位置。
+
+  # ========== Hunt 823 ==========
+  - id: keywords-hunt-gains-xp-on-conquer
+    rule: ["1.5:823.1.c.1", "1.5:823.1.c.2"]
+    title: 带 Hunt 的单位征服战场时控制者获得对应 XP
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], xp: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields:
+        - { id: bf1, controller: null, contested: false, units: { A: ["@unit(might:3,keywords:[hunt:2])#u1"], B: [] } }
+      chain: []
+    commands: []
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: score.conquer, battlefield: bf1, player: A }
+          - { timing: chain.item-pending, item: "trigger:hunt:#u1" }
+          - { timing: player.gain-xp, player: A, amount: 2 }
+      state:
+        - { path: "players.A.xp", equals: 2 }
+      rejected: null
+    notes: 823.1.c.1——Hunt X 是“当我征服或固守时，控制者获得 X XP”；征服发生时触发，X=2。
+
+  - id: keywords-hunt-stacks-from-multiple-sources
+    rule: ["1.5:823.2"]
+    title: 多个来源授予的 Hunt 数值相加
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], xp: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields:
+        - { id: bf1, controller: null, contested: false, units: { A: ["@unit(might:3,keywords:[hunt:1],grantedKeywords:[hunt:2])#u1"], B: [] } }
+      chain: []
+    commands: []
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: player.gain-xp, player: A, amount: 3 }
+      state:
+        - { path: "players.A.xp", equals: 3 }
+      rejected: null
+    notes: 823.2——自带 Hunt 1 再被授予 Hunt 2 后按 Hunt 3 结算。
+
+  # ========== Level 824 ==========
+  - id: keywords-level-active-when-xp-threshold-met
+    rule: ["1.5:824.1.b.1", "1.5:824.1.c"]
+    title: 控制者 XP 达到阈值时，Level 依赖能力生效
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [ "@unit(might:2,keywords:[level:3],text:\"[Level 3][>] I have +1 [M] and Ganking.\")#u1" ], xp: 3 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields:
+        - { id: bf1, controller: A, units: { A: [], B: [] } }
+        - { id: bf2, controller: null, units: { A: [], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: move, unit: "#u1", from: bf1, to: bf2 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.enter, object: "#u1", zone: bf2 }
+      state:
+        - { path: "objects.u1.effectiveMight", equals: 3 }
+        - { path: "objects.u1.zone", equals: "bf2" }
+      rejected: null
+    notes: 824.1.b.1 + 727.1.b.2 官方例（Gustwalker）——控制者 XP≥3 时 Level 依赖能力生效：+1 Might 且获得 Ganking，可从战场移到战场。
+
+  - id: keywords-level-inactive-below-threshold
+    rule: ["1.5:824.1.d"]
+    title: 控制者 XP 低于阈值时，Level 依赖能力立即失效
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], xp: 2 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:2,keywords:[level:3],text:\"[Level 3][>] I have +1 [M] and Ganking.\")#u1"], B: [] } }
+        - { id: bf2, controller: null, units: { A: [], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: move, unit: "#u1", from: bf1, to: bf2 }
+    expect:
+      events: { ordered: subsequence, list: [] }
+      state:
+        - { path: "objects.u1.zone", equals: "bf1" }
+        - { path: "objects.u1.effectiveMight", equals: 2 }
+      rejected: { command: 0, reason: "ganking-not-active" }
+    notes: 824.1.d——XP 只有 2（低于阈值 3）时 Level 依赖能力失效，既不 +1 Might 也没有 Ganking，因此不能从战场移到战场。
+
+  # ========== Unique 825 ==========
+  - id: keywords-unique-deck-limit-one
+    rule: ["1.5:825.3.a", "1.5:103.3.b"]
+    title: 带 Unique 的卡同一卡组只能放一张
+    kind: negative
+    given:
+      deckbuilding:
+        mainDeck:
+          - { card: "@unit(cost:3,might:3,keywords:[unique])", count: 2 }
+          - { card: "@unit(cost:1,might:1)", count: 38 }
+        championLegend: "@legend(domain:fury)"
+        chosenChampion: "@unit(cost:5,might:5,tags:[champion])"
+    commands: []
+    expect:
+      events: { ordered: subsequence, list: [] }
+      state: []
+      rejected: { command: 0, reason: "deck-construction-unique-limit" }
+    notes: 825.3.a——带 Unique 的卡每个卡组只能有 1 张同名卡；放 2 张同名 Unique 单位应在校验时被拒绝。组牌阶段场景，无对局局面。
+
+  - id: keywords-unique-signature-combined-limit
+    rule: ["1.5:825.3.b"]
+    title: Signature 且 Unique 的卡仍受“同名一张”限制，但 Signature 总数可组合
+    kind: edge
+    given:
+      deckbuilding:
+        mainDeck:
+          - { card: "@unit(cost:3,might:3,keywords:[unique],tags:[signature],name:\"Sig A\")", count: 1 }
+          - { card: "@unit(cost:3,might:3,keywords:[unique],tags:[signature],name:\"Sig B\")", count: 1 }
+          - { card: "@unit(cost:3,might:3,keywords:[unique],tags:[signature],name:\"Sig C\")", count: 1 }
+          - { card: "@unit(cost:1,might:1)", count: 37 }
+        championLegend: "@legend(domain:fury)"
+        chosenChampion: "@unit(cost:5,might:5,tags:[champion])"
+    commands: []
+    expect:
+      events: { ordered: subsequence, list: [] }
+      state: []
+      rejected: null
+    notes: 825.3.b——Signature+Unique 时三张 Signature 可任意组合，但同名 Unique 仍只能一张；本例三张不同名 Signature Unique 各一张合法。
+
+  # ========== Backline 826 ==========
+  - id: keywords-backline-assigned-last
+    rule: ["1.5:826.3", "1.5:826.4.b"]
+    title: 有 Backline 的单位必须最后才被分配致命伤害
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: showdown-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields:
+        - { id: bf1, controller: A, contested: true, units: { A: ["@unit(might:2,keywords:[backline],designation:defender)#b1", "@unit(might:3,designation:defender)#n1"], B: ["@unit(might:2,designation:attacker)#atk"] } }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+      - { player: B, do: assign-damage, assignments: [ { target: "#b1", amount: 2 } ] }
+    expect:
+      events: { ordered: subsequence, list: [] }
+      state:
+        - { path: "objects.b1.damage", equals: 0 }
+      rejected: { command: 2, reason: "must-assign-non-backline-first" }
+    notes: 826.3/826.4.b——Backline 单位必须在所有非 Backline 单位都被分满致命伤害后才能分配；试图先给 Backline 分配应被拒绝。
+
+  - id: keywords-backline-multiple-any-order
+    rule: ["1.5:826.4.b"]
+    title: 多个 Backline 单位之间可自由选择分配顺序
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: showdown-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields:
+        - { id: bf1, controller: A, contested: true, units: { A: ["@unit(might:3,keywords:[backline],designation:defender)#b1", "@unit(might:4,keywords:[backline],designation:defender)#b2"], B: ["@unit(might:4,designation:attacker)#atk"] } }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+      - { player: B, do: assign-damage, assignments: [ { target: "#b2", amount: 4 } ] }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: combat.damage-assigned, battlefield: bf1 }
+      state:
+        - { path: "objects.b2.damage", equals: 4 }
+        - { path: "objects.b1.damage", equals: 0 }
+      rejected: null
+    notes: 826.4.b——多个 Backline 时攻击方可任选先分给谁；这里 4 点全分给 #b2 合法。
+
+  # ========== Empower 827 / Empowered 828（v1.5 改动重点） ==========
+  - id: keywords-empower-first-activation-becomes-empowered
+    rule: ["1.5:827.1.c.1", "1.5:827.2"]
+    title: 首次启动 Empower 能力后，来源永久物变为 Empowered
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: [ "@unit(might:3,keywords:[empower],empowerCost:{energy:2})#u1" ]
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: activate, ability: "empower", source: "#u1", pay: { energy: 2 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "ability:empower:#u1" }
+          - { timing: effect.empower, object: "#u1" }
+      state:
+        - { path: "objects.u1.empowered", equals: 1 }
+      rejected: null
+    notes: 827.1.c.1/827.2——Empower 是启动能力；付费结算后来源变为 Empowered（计数为 1）。
+
+  - id: keywords-empower-binary-cannot-reactivate-when-empowered
+    rule: ["1.5:827.1.c.1", "1.5:442.1.b"]
+    title: 没有多次许可时，已 Empowered 的对象不能再启动 Empower
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 4
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: [ "@unit(might:3,keywords:[empower],empowerCost:{energy:2},empowered:1)#u1" ]
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: activate, ability: "empower", source: "#u1", pay: { energy: 2 } }
+    expect:
+      events: { ordered: subsequence, list: [] }
+      state:
+        - { path: "objects.u1.empowered", equals: 1 }
+      rejected: { command: 0, reason: "already-empowered" }
+    notes: 827.1.c.1 + 442.1.b——没有多次 Empower 许可的对象受“Play only if not Empowered”限制；已 Empowered 时启动被拒绝。
+
+  - id: keywords-empower-multiple-permission-ignores-restriction
+    rule: ["1.5:827.1.c.5", "1.5:442.1.c.1"]
+    title: v1.5——有多次 Empower 许可的对象忽略“仅在未 Empower 时”限制，可叠加
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 6
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: [ "@unit(might:3,keywords:[empower],empowerCost:{energy:2},empowered:1,maxEmpowered:3)#u1" ]
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: activate, ability: "empower", source: "#u1", pay: { energy: 2 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "ability:empower:#u1" }
+          - { timing: effect.empower, object: "#u1" }
+      state:
+        - { path: "objects.u1.empowered", equals: 2 }
+      rejected: null
+    notes: 827.1.c.5 + 442.1.c.1（v1.5 新增）——有多次 Empower 许可（maxEmpowered 3）的对象忽略“仅在未 Empower 时”限制，Empowered 从 1 叠到 2。
+
+  - id: keywords-empower-at-max-activation-legal-but-no-effect
+    rule: ["1.5:827.1.c.5", "1.5:442.1.c"]
+    title: v1.5——达到 Empower 上限时启动仍合法但无效果
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 4
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: [ "@unit(might:3,keywords:[empower],empowerCost:{energy:2},empowered:3,maxEmpowered:3)#u1" ]
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: activate, ability: "empower", source: "#u1", pay: { energy: 2 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "ability:empower:#u1" }
+          - { timing: effect.negated, object: "#u1", detail: "empower-at-max" }
+      state:
+        - { path: "objects.u1.empowered", equals: 3 }
+        - { path: "players.A.energy", equals: 2 }
+      rejected: null
+    notes: 827.1.c.5 + Radiance patch notes——达到 maxEmpowered 上限时启动仍合法（费用照付），但 Empower 动作本身无效果，Empowered 计数保持 3。
+
+  - id: keywords-empowered-dependent-ability-active
+    rule: ["1.5:828.1.b.1", "1.5:828.1.c"]
+    title: Empowered 状态存在时，Empowered 依赖能力生效
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: [ "@unit(might:2,keywords:[empowered],empowered:1,text:\"[Empowered][>] I have +2 [M].\")#u1" ]
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields: []
+      chain: []
+    commands: []
+    expect:
+      events: { ordered: subsequence, list: [] }
+      state:
+        - { path: "objects.u1.effectiveMight", equals: 4 }
+      rejected: null
+    notes: 828.1.b.1/828.1.c——只要对象处于 Empowered 状态，Empowered 依赖能力持续生效；+2 Might。
+
+  - id: keywords-empowered-becomes-empowered-trigger
+    rule: ["1.5:828.1.d", "1.5:827.2.a"]
+    title: 依赖能力为“当我被 Empower 时”的触发在对象被 Empower 时触发
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: [ "@unit(might:2,keywords:[empower,empowered],empowerCost:{energy:2},text:\"[Empowered][>] When I become Empowered, draw 1.\")#u1" ]
+          deck: [ "@unit(cost:1,might:1)#top" ]
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: activate, ability: "empower", source: "#u1", pay: { energy: 2 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: effect.empower, object: "#u1" }
+          - { timing: chain.item-pending, item: "trigger:when-empowered:#u1" }
+          - { timing: player.draw, player: A }
+      state:
+        - { path: "players.A.hand", count: 1 }
+      rejected: null
+    notes: 828.1.d + 827.2.a——“When I become Empowered”式触发在 Empower 动作完成时触发；此处与 Empower 结算后的抽牌关联。
+
+  - id: keywords-disempower-removes-one-status
+    rule: ["1.5:443.1.b"]
+    title: Disempower 只移除一层 Empowered 状态
+    kind: edge
+    given:
+      turn: { active: B, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [ "@unit(might:3,empowered:2,maxEmpowered:3)#u1" ] }
+        B:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1,speed:action,text:\"Disempower a unit.\")" ]
+          base: []
+      battlefields: []
+      chain: []
+    commands:
+      - { player: B, do: play, card: "hand[0]", targets: ["#u1"], pay: { energy: 1 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: effect.disempower, object: "#u1" }
+      state:
+        - { path: "objects.u1.empowered", equals: 1 }
+      rejected: null
+    notes: 443.1.b——对叠加了多层的对象，Disempower 只移除一层；empowered 从 2 变 1，依赖能力是否仍生效取决于是否至少保留 1 层。
+
+  # ========== Flow 829 ==========
+  - id: keywords-flow-play-from-trash-for-flow-cost
+    rule: ["1.5:829.1.b", "1.5:829.1.c.1"]
+    title: 带 Flow 的法术可从垃圾场以 Flow 费打出，结算后放逐
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          trash: [ "@spell(cost:5,keywords:[flow],flowCost:{energy:3},text:\"Deal 3 to a unit.\")#s1" ]
+          base: []
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [ "@unit(might:3)#u1" ] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "trash[#s1]", targets: ["#u1"], pay: { energy: 3 }, choices: { flow: true } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:#s1" }
+          - { timing: effect.apply, object: "#u1", detail: "damage:3" }
+          - { timing: zone.enter, object: "#s1", zone: exile }
+      state:
+        - { path: "objects.u1.damage", equals: 3 }
+        - { path: "players.A.trash", count: 0 }
+        - { path: "players.A.exile", count: 1 }
+      rejected: null
+    notes: 829.1.b/829.1.c.1——Flow 是替代费用；从垃圾场打出结算后由延迟替代效果放逐（不回垃圾场）。
+
+  - id: keywords-flow-timing-unchanged
+    rule: ["1.5:829.1.b.2"]
+    title: Flow 不改变法术的时机许可，对手回合不能用 Flow 从垃圾场打出
+    kind: negative
+    given:
+      turn: { active: B, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          trash: [ "@spell(cost:5,keywords:[flow],flowCost:{energy:3},text:\"Deal 3 to a unit.\")#s1" ]
+          base: []
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [ "@unit(might:3)#u1" ] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "trash[#s1]", targets: ["#u1"], pay: { energy: 3 }, choices: { flow: true } }
+    expect:
+      events: { ordered: subsequence, list: [] }
+      state:
+        - { path: "objects.u1.damage", equals: 0 }
+      rejected: { command: 0, reason: "not-your-turn-action-timing" }
+    notes: 829.1.b.2——Flow 只改“从哪里打出”，不改时机；该法术没有 Reaction，对手回合的 Open State 不能打出。
+
+  # ========== Deploy 830（v1.5 新增） ==========
+  - id: keywords-deploy-play-gear-to-any-battlefield
+    rule: ["1.5:830.1.b", "1.5:830.1.b.1"]
+    title: 带 Deploy 的装备可打到任意战场（含敌方占用/未控制）
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@gear(cost:2,keywords:[deploy],text:\"Opposing units here have -1 [M].\")" ]
+          base: []
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:3)#e1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: bf1, pay: { energy: 2 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+          - { timing: zone.enter, object: "A:hand[0]", zone: bf1 }
+      state:
+        - { path: "battlefields.bf1.gear.A", count: 1 }
+        - { path: "objects.e1.effectiveMight", equals: 2 }
+      rejected: null
+    notes: 830.1.b.1（v1.5 新增）——Deploy 允许把装备打到任意战场；本场景打到 B 控制的战场并立即给对手单位 -1 Might。
+
+  - id: keywords-deploy-gear-not-recalled-in-cleanup
+    rule: ["1.5:830.1.b.3"]
+    title: 带 Deploy 的非单位装备在清理步骤中不从战场召回
+    kind: positive
+    given:
+      turn: { active: A, phase: ending, state: neutral-closed }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields:
+        - { id: bf1, controller: A, gear: { A: ["@gear(cost:2,keywords:[deploy])#g1"] }, units: { A: [], B: [] } }
+      chain: []
+    commands: []
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.cleanup, phase: ending }
+      state:
+        - { path: "battlefields.bf1.gear.A", count: 1 }
+      rejected: null
+    notes: 830.1.b.3——非单位的 Deploy 装备在清理步骤第 5 步不被召回；回合结束后仍留在战场。
+
+  - id: keywords-deploy-killed-when-opponent-holds
+    rule: ["1.5:830.1.b"]
+    title: 对手在部署装备的战场固守时，该 Deploy 装备被消灭
+    kind: positive
+    given:
+      turn: { active: B, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields:
+        - { id: bf1, controller: B, gear: { A: ["@gear(cost:2,keywords:[deploy])#g1"] }, units: { A: [], B: ["@unit(might:2)#e1"] } }
+      chain: []
+    commands: []
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: score.hold, battlefield: bf1, player: B }
+          - { timing: chain.item-pending, item: "trigger:deploy:#g1" }
+          - { timing: zone.enter, object: "#g1", zone: trash }
+      state:
+        - { path: "battlefields.bf1.gear.A", count: 0 }
+      rejected: null
+    notes: 830.1.b——“When an opponent holds here, kill this.”：B 在 bf1 固守（开始阶段对已有控制权的战场计分）时触发，A 的 Deploy 装备被消灭。
+
+  - id: keywords-deploy-multiple-redundant
+    rule: ["1.5:830.2"]
+    title: 多个 Deploy 实例冗余
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@gear(cost:2,keywords:[deploy],grantedKeywords:[deploy])" ]
+          base: []
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: [], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: bf1, pay: { energy: 2 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.enter, object: "A:hand[0]", zone: bf1 }
+      state:
+        - { path: "battlefields.bf1.gear.A", count: 1 }
+      rejected: null
+    notes: 830.2——多个 Deploy 冗余；行为和单个 Deploy 完全一致。
+
+  # ========== Disarm 831（v1.5 新增） ==========
+  - id: keywords-disarm-attack-trigger-minus-might
+    rule: ["1.5:831.1.d", "1.5:831.1.c.3"]
+    title: 带 Disarm 的单位攻击时给同战场一个敌方单位 -X Might 本回合
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: showdown-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields:
+        - { id: bf1, controller: B, contested: true, units: { A: ["@unit(might:2,keywords:[disarm:2],designation:attacker)#u1"], B: ["@unit(might:4,designation:defender)#e1"] } }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: combat.attack-declared, object: "#u1" }
+          - { timing: chain.item-pending, item: "trigger:disarm:#u1" }
+          - { timing: effect.apply, object: "#e1", detail: "might:-2" }
+      state:
+        - { path: "objects.e1.effectiveMight", equals: 2 }
+      rejected: null
+    notes: 831.1.d（v1.5 新增）——Disarm 2 是攻击触发：该单位攻击时给同战场一个敌方单位 -2 Might 本回合。
+
+  - id: keywords-disarm-multiple-instances-single-trigger
+    rule: ["1.5:831.1.d.1", "1.5:831.2"]
+    title: 同一单位多个 Disarm 合并为一个触发，数值相加
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: showdown-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields:
+        - { id: bf1, controller: B, contested: true, units: { A: ["@unit(might:2,keywords:[disarm:1],grantedKeywords:[disarm:2],designation:attacker,tags:[mech])#u1"], B: ["@unit(might:5,designation:defender)#e1"] } }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "trigger:disarm:#u1" }
+          - { timing: effect.apply, object: "#e1", detail: "might:-3" }
+      state:
+        - { path: "objects.e1.effectiveMight", equals: 2 }
+      rejected: null
+    notes: 831.1.d.1/831.2 官方例（Clanging Sentry）——自带 Disarm 1 再被授予 Disarm 2 后合并为一个触发，共 -3 Might；只触发一次。
+
+  - id: keywords-disarm-no-enemy-unit-trigger-fizzles
+    rule: ["1.5:831.1.d"]
+    title: 攻击时同战场没有敌方单位可选时，Disarm 触发不产生效果
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: showdown-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields:
+        - { id: bf1, controller: null, contested: true, units: { A: ["@unit(might:2,keywords:[disarm:1],designation:attacker)#u1"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "trigger:disarm:#u1" }
+          - { timing: effect.negated, detail: "disarm-no-target" }
+      state: []
+      rejected: null
+    notes: "UNCERTAIN: 831.1.d 未明文写“无目标时是否仍进链后脱靶”；按通用目标规则（355.8/脱靶则 ignored），推断触发进链但因没有敌方单位可选而不产生 -Might 效果。具体进链/否定形态待 harness 确认。"
+
+  # ========== Show Off 832（v1.5 新增） ==========
+  - id: keywords-showoff-reveal-from-hand-locks-value
+    rule: ["1.5:832.1.c", "1.5:832.1.d.1"]
+    title: 从手牌展示后，其特征值在 Finalize 时锁定，之后变化不影响
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 6
+          runes: { ready: [fury, fury], exhausted: [] }
+          hand: [ "Primordial Roar", "@unit(cost:5,might:4)#shown" ]
+          base: []
+        B:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1,speed:reaction,text:\"Give a unit -2 [M] this turn.\")" ]
+          base: [ "@unit(might:3)#target" ]
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", targets: ["#target"], pay: { energy: 4, power: [fury, fury] }, choices: { showOff: { revealFromHand: ["#shown"] } } }
+      - { player: B, do: play, card: "hand[0]", targets: ["#shown"], pay: { energy: 1 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]", detail: "locked-might:4" }
+          - { timing: chain.item-finalized, item: "B:hand[0]" }
+          - { timing: effect.apply, object: "#target", detail: "damage:4" }
+      state:
+        - { path: "objects.target.damage", equals: 4 }
+      rejected: null
+    notes: 832.1.d.1 官方例（Primordial Roar）——Finalize 时锁定被展示单位的 Might=4；对手反应给 -2 后仍按 4 点伤害结算。
+
+  - id: keywords-showoff-pick-from-board
+    rule: ["1.5:832.1.c"]
+    title: 也可从场上挑选己方单位作为 Show Off 对象（非揭示）
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 6
+          runes: { ready: [fury, fury], exhausted: [] }
+          hand: [ "Primordial Roar" ]
+          base: [ "@unit(might:5)#u1" ]
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [ "@unit(might:4)#target" ] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", targets: ["#target"], pay: { energy: 4, power: [fury, fury] }, choices: { showOff: { pickFromBoard: ["#u1"] } } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]", detail: "locked-might:5" }
+          - { timing: effect.apply, object: "#target", detail: "damage:5" }
+      state:
+        - { path: "objects.target.damage", equals: 5 }
+      rejected: null
+    notes: 832.1.c——Show Off 可以从手牌揭示、也可以从场上 pick 己方单位；从场上 pick 不揭示该单位，但其 Might 仍在 Finalize 时锁定。
+
+  - id: keywords-showoff-set-can-mix-hand-and-board
+    rule: ["1.5:832.1.c.3"]
+    title: Show Off 一组对象时可混合手牌揭示与场上挑选，只要整组满足条件
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 6
+          runes: { ready: [], exhausted: [] }
+          hand:
+            - "@unit(cost:6,might:6,keywords:[show-off],text:\"[Show Off] five units with different names. When you play me, kill all other units. If you showed off, the next unit you play this turn costs [1] less for each killed unit.\")"
+            - "@unit(cost:2,might:2,name:\"Alpha\")#h1"
+            - "@unit(cost:2,might:2,name:\"Beta\")#h2"
+          base:
+            - "@unit(might:1,name:\"Gamma\")#b1"
+            - "@unit(might:1,name:\"Delta\")#b2"
+            - "@unit(might:1,name:\"Epsilon\")#b3"
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 6 }, choices: { showOff: { revealFromHand: ["#h1", "#h2"], pickFromBoard: ["#b1", "#b2", "#b3"] } } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+      state:
+        - { path: "players.A.base", count: 1 }
+      rejected: null
+    notes: 832.1.c.3 官方例——5 个不同名单位可以任意来自手牌揭示和场上挑选；满足后“kill all other units”结算，base 只剩刚打出的单位。
+
+  - id: keywords-showoff-leaving-zone-after-shown-still-finalizes
+    rule: ["1.5:832.1.c.4"]
+    title: 被展示的对象在 Finalize 过程中离开对应区域，不阻止 Show Off 卡完成 Finalize
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand:
+            - "@spell(cost:3,keywords:[show-off],text:\"[Show Off] a Mech. As an additional cost to play this, discard 1. Deal 2 to a unit.\")"
+            - "@unit(cost:1,might:1,tags:[mech])#mech"
+          base: []
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [ "@unit(might:2)#target" ] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", targets: ["#target"], pay: { energy: 3 }, choices: { showOff: { revealFromHand: ["#mech"] }, discard: ["#mech"] } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+          - { timing: effect.apply, object: "#target", detail: "damage:2" }
+      state:
+        - { path: "objects.target.damage", equals: 2 }
+        - { path: "players.A.trash", count: 1 }
+      rejected: null
+    notes: 832.1.c.4 官方例——同一张 Mech 既可被 Show Off 揭示、又可作为强制附加费被弃掉；它离开手牌不影响 Show Off 卡完成 Finalize。
+
+  - id: keywords-showoff-no-valid-choice-play-normally
+    rule: ["1.5:832.1.c", "1.5:832.1.c.2"]
+    title: 玩家可以选择不 Show Off，卡仍按无 Show Off 效果结算
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 6
+          runes: { ready: [fury, fury], exhausted: [] }
+          hand: [ "Primordial Roar" ]
+          base: []
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [ "@unit(might:3)#target" ] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", targets: ["#target"], pay: { energy: 4, power: [fury, fury] }, choices: { showOff: null } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+      state:
+        - { path: "objects.target.damage", equals: 0 }
+      rejected: null
+    notes: 832.1.c/832.1.c.2——Show Off 是可选动作；不展示时“If you showed off”条件不满足，Primordial Roar 不造成伤害。
+
+  - id: keywords-showoff-multiple-instances-linked-separately
+    rule: ["1.5:832.2", "1.5:832.2.a"]
+    title: 多个 Show Off 实例各自独立；来自不同来源的引用互不通用
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 8
+          runes: { ready: [], exhausted: [] }
+          hand:
+            - "@spell(cost:8,keywords:[show-off],grantedKeywords:[show-off],text:\"[Show Off] a spell with Energy cost [7] or more. If you showed off, this can't be countered.\",grantedText:\"[Show Off] a Mighty unit. If you showed off, this costs [A] less.\")"
+            - "@unit(cost:5,might:5)#mighty"
+          base: []
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [] }
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 8 }, choices: { showOff: { pickFromBoard: ["#mighty"] } } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+      state:
+        - { path: "players.A.energy", equals: 0 }
+      rejected: null
+    notes: 832.2.a 官方例——只展示了 Mighty 单位满足的是被授予的那条 Show Off（减费）；卡牌自身的“Show Off 7 费以上法术”未满足，因此仍可以被反击，且这里实际付了 8 点能量（未减费）。
+
