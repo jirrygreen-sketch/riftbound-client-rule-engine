@@ -53,6 +53,7 @@ export function CardArt({
   readonly interactionUID?: string;
 }) {
   const cardInteraction = useDuelCardInteraction();
+  if (cardInteraction !== null && !cardInteraction.canInspectCard(cardId)) return null;
   const interactive = interactionUID !== undefined && cardInteraction?.canInteract === true;
   const imageUrl = resolveCardImage?.(cardId) ?? null;
   const title = resolveCardTitle(cardId);
@@ -364,6 +365,7 @@ export function BaseRuneChip({
   readonly onInspect?: (cardId: string) => void;
 }) {
   const cardInteraction = useDuelCardInteraction();
+  if (cardInteraction !== null && !cardInteraction.canInspectCard(rune.cardId)) return null;
   const interactive = cardInteraction?.canInteract === true &&
     cardInteraction.viewerPlayerId === ownerPlayerId &&
     cardInteraction.isCardActionable(rune.uid);
@@ -416,6 +418,7 @@ export function BaseRuneChip({
         <button
           type="button"
           className="full-product-duel-baserune-button"
+          data-card-id={rune.cardId}
           data-card-inspect-only={interactive ? undefined : "true"}
           aria-label={`${interactive ? "操作符文：" : DUEL_INSPECT_TRIGGER_PREFIX}${domainLabel}符文`}
           title={`${title}（${state}）`}

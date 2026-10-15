@@ -1,0 +1,3818 @@
+{
+  "schema": "riftbound.m1-precon-decks.v1",
+  "generated": "2026-10-15",
+  "ruleset": "Core Rules v1.5",
+  "catalogDigest": "sha256:53b974c8472d82053bf61f6836842c8f0d62c2fafb4411fa502256912a504d10",
+  "catalogDataVersion": "2026-10-12-official-gallery",
+  "surveyBaseCommit": "e2cbcdf45ae6f98764951f20a6b67b9dfc4bb95a0",
+  "asOf": "2026-10-15",
+  "rift9PrimitiveOrder": [
+    "cost.printed",
+    "cost.activated",
+    "cost.pay",
+    "target.query",
+    "target.filter",
+    "target.location",
+    "effect.attach",
+    "condition.predicate",
+    "continuous.combat",
+    "continuous.duration",
+    "continuous.might",
+    "continuous.timing",
+    "effect.damage",
+    "target.many",
+    "choice.mode",
+    "condition.value",
+    "cost.modify",
+    "effect.zone",
+    "effect.draw",
+    "trigger.play",
+    "trigger.state",
+    "trigger.combat",
+    "effect.ready",
+    "replacement.enter",
+    "condition.history",
+    "continuous.movement",
+    "continuous.restrict",
+    "effect.move",
+    "cost.exhaust",
+    "effect.empower",
+    "target.tax",
+    "choice.optional",
+    "effect.exhaust",
+    "effect.play",
+    "effect.token",
+    "trigger.score",
+    "effect.buff",
+    "cost.hidden",
+    "effect.kill",
+    "trigger.phase",
+    "cost.additional",
+    "trigger.move",
+    "effect.resources",
+    "trigger.leave",
+    "effect.stun",
+    "target.player",
+    "effect.channel",
+    "condition.result",
+    "cost.sacrifice",
+    "replacement.event",
+    "continuous.location",
+    "effect.discard",
+    "effect.repeat",
+    "effect.score",
+    "effect.xp",
+    "effect.banish",
+    "effect.inspect",
+    "effect.recycle",
+    "effect.reveal",
+    "cost.xp",
+    "cost.discard",
+    "cost.recycle",
+    "effect.counter",
+    "choice.order",
+    "effect.order",
+    "effect.mill",
+    "effect.copy",
+    "continuous.deck",
+    "effect.heal",
+    "effect.control",
+    "effect.win",
+    "replacement.prevent",
+    "effect.detach",
+    "cost.reveal",
+    "continuous.suppress",
+    "trigger.delayed"
+  ],
+  "candidates": [
+    {
+      "id": "rumble-sfd",
+      "name": "Rumble (Mechanized Menace)",
+      "product": "Spiritforged Champion Preconstructed Deck",
+      "set": "sfd",
+      "sourceUrl": "https://playriftbound.com/en-us/news/announcements/spiritforged-precons-fiora-rumble/",
+      "legendDisplay": "Rumble, Mechanized Menace",
+      "legendCanonicalCardId": "card.hash-fadaa09c681d3d967954f99504cd9d3d749242dc99dbc40d60adfa60bf53cca7",
+      "legendDomains": [
+        "Fury",
+        "Mind"
+      ],
+      "championOptions": [
+        "Rumble, Hotheaded",
+        "Rumble, Scrapper"
+      ],
+      "chosenChampion": "Rumble, Hotheaded",
+      "officialTotal": 40,
+      "finalAdjustment": "选定 Rumble, Hotheaded 为 Chosen Champion：1 张进 Champion 区，主牌组保留其另 1 张（共 2 张），其余不动，主牌组+Champion 区=40。",
+      "stats": {
+        "identityCount": 23,
+        "primitiveCount": 42,
+        "judgeRequired": 23,
+        "unclassified": 0,
+        "noAbility": 0
+      },
+      "requiredPrimitives": [
+        {
+          "id": "cost.printed",
+          "category": "cost",
+          "title": "印刷费用；null 保留为无印刷值",
+          "difficulty": "中",
+          "rift9Order": 1
+        },
+        {
+          "id": "cost.activated",
+          "category": "cost",
+          "title": "激活费用与效果的边界",
+          "difficulty": "中",
+          "rift9Order": 2
+        },
+        {
+          "id": "cost.pay",
+          "category": "cost",
+          "title": "支付能量 / 指定域或通用 Power",
+          "difficulty": "中",
+          "rift9Order": 3
+        },
+        {
+          "id": "target.query",
+          "category": "target",
+          "title": "对象查询 / 选择与重验",
+          "difficulty": "中",
+          "rift9Order": 4
+        },
+        {
+          "id": "target.filter",
+          "category": "target",
+          "title": "类型 / 控制者 / 标签 / 数值筛选",
+          "difficulty": "中",
+          "rift9Order": 5
+        },
+        {
+          "id": "target.location",
+          "category": "target",
+          "title": "here / there / base / battlefield 引用",
+          "difficulty": "高",
+          "rift9Order": 6
+        },
+        {
+          "id": "effect.attach",
+          "category": "effect",
+          "title": "装备附着 / 重附着",
+          "difficulty": "高",
+          "rift9Order": 7
+        },
+        {
+          "id": "condition.predicate",
+          "category": "condition",
+          "title": "条件 / 布尔 / 逻辑分支",
+          "difficulty": "中",
+          "rift9Order": 8
+        },
+        {
+          "id": "continuous.duration",
+          "category": "continuous",
+          "title": "效果持续时间 / 清理",
+          "difficulty": "高",
+          "rift9Order": 10
+        },
+        {
+          "id": "continuous.might",
+          "category": "continuous",
+          "title": "Might 加减 / 设值 / 倍增",
+          "difficulty": "中",
+          "rift9Order": 11
+        },
+        {
+          "id": "continuous.timing",
+          "category": "continuous",
+          "title": "Action / Reaction / Ambush 时机",
+          "difficulty": "高",
+          "rift9Order": 12
+        },
+        {
+          "id": "effect.damage",
+          "category": "effect",
+          "title": "造成 / 分配伤害",
+          "difficulty": "中",
+          "rift9Order": 13
+        },
+        {
+          "id": "target.many",
+          "category": "target",
+          "title": "数量范围与集合分配",
+          "difficulty": "高",
+          "rift9Order": 14
+        },
+        {
+          "id": "choice.mode",
+          "category": "choice",
+          "title": "模式 / or / 分支选择",
+          "difficulty": "中",
+          "rift9Order": 15
+        },
+        {
+          "id": "condition.value",
+          "category": "condition",
+          "title": "动态数值 / 阈值 / X / 指代",
+          "difficulty": "高",
+          "rift9Order": 16
+        },
+        {
+          "id": "cost.modify",
+          "category": "cost",
+          "title": "费用增减与忽略 / 替代支付",
+          "difficulty": "高",
+          "rift9Order": 17
+        },
+        {
+          "id": "effect.zone",
+          "category": "effect",
+          "title": "跨区域移动与对象身份",
+          "difficulty": "高",
+          "rift9Order": 18
+        },
+        {
+          "id": "effect.draw",
+          "category": "effect",
+          "title": "抽牌",
+          "difficulty": "低",
+          "rift9Order": 19
+        },
+        {
+          "id": "trigger.play",
+          "category": "trigger",
+          "title": "打出自身 / 其他卡触发",
+          "difficulty": "高",
+          "rift9Order": 20
+        },
+        {
+          "id": "trigger.state",
+          "category": "trigger",
+          "title": "状态改变 / 其余事件触发",
+          "difficulty": "高",
+          "rift9Order": 21
+        },
+        {
+          "id": "trigger.combat",
+          "category": "trigger",
+          "title": "攻击 / 防守 / 战斗胜负触发",
+          "difficulty": "高",
+          "rift9Order": 22
+        },
+        {
+          "id": "effect.ready",
+          "category": "effect",
+          "title": "重置",
+          "difficulty": "低",
+          "rift9Order": 23
+        },
+        {
+          "id": "replacement.enter",
+          "category": "replacement",
+          "title": "入场 ready / exhausted",
+          "difficulty": "高",
+          "rift9Order": 24
+        },
+        {
+          "id": "condition.history",
+          "category": "condition",
+          "title": "本回合 / 次数 / Flow / Legion 历史",
+          "difficulty": "高",
+          "rift9Order": 25
+        },
+        {
+          "id": "continuous.movement",
+          "category": "continuous",
+          "title": "Ganking / 移动许可和限制",
+          "difficulty": "高",
+          "rift9Order": 26
+        },
+        {
+          "id": "cost.exhaust",
+          "category": "cost",
+          "title": "横置自身或其他对象作为费用",
+          "difficulty": "中",
+          "rift9Order": 29
+        },
+        {
+          "id": "target.tax",
+          "category": "target",
+          "title": "Deflect 目标附加支付",
+          "difficulty": "高",
+          "rift9Order": 31
+        },
+        {
+          "id": "choice.optional",
+          "category": "choice",
+          "title": "may 可选执行",
+          "difficulty": "中",
+          "rift9Order": 32
+        },
+        {
+          "id": "effect.exhaust",
+          "category": "effect",
+          "title": "横置",
+          "difficulty": "低",
+          "rift9Order": 33
+        },
+        {
+          "id": "effect.play",
+          "category": "effect",
+          "title": "从区域打出卡 / 获得打出许可",
+          "difficulty": "高",
+          "rift9Order": 34
+        },
+        {
+          "id": "effect.token",
+          "category": "effect",
+          "title": "创建 / 打出 token",
+          "difficulty": "高",
+          "rift9Order": 35
+        },
+        {
+          "id": "trigger.score",
+          "category": "trigger",
+          "title": "Hold / Conquer / 计分触发",
+          "difficulty": "高",
+          "rift9Order": 36
+        },
+        {
+          "id": "cost.hidden",
+          "category": "cost",
+          "title": "Hidden 隐藏与解禁成本",
+          "difficulty": "高",
+          "rift9Order": 38
+        },
+        {
+          "id": "cost.additional",
+          "category": "cost",
+          "title": "可选 / 强制附加费用及支付记录",
+          "difficulty": "中",
+          "rift9Order": 41
+        },
+        {
+          "id": "trigger.leave",
+          "category": "trigger",
+          "title": "死亡 / 离场 / Deathknell",
+          "difficulty": "高",
+          "rift9Order": 44
+        },
+        {
+          "id": "effect.repeat",
+          "category": "effect",
+          "title": "重复 spell 效果",
+          "difficulty": "高",
+          "rift9Order": 53
+        },
+        {
+          "id": "effect.inspect",
+          "category": "effect",
+          "title": "查看 / 搜索卡库",
+          "difficulty": "中",
+          "rift9Order": 57
+        },
+        {
+          "id": "effect.recycle",
+          "category": "effect",
+          "title": "recycle 回收",
+          "difficulty": "中",
+          "rift9Order": 58
+        },
+        {
+          "id": "effect.reveal",
+          "category": "effect",
+          "title": "展示信息",
+          "difficulty": "中",
+          "rift9Order": 59
+        },
+        {
+          "id": "cost.recycle",
+          "category": "cost",
+          "title": "回收对象作为费用",
+          "difficulty": "中",
+          "rift9Order": 62
+        },
+        {
+          "id": "choice.order",
+          "category": "choice",
+          "title": "牌序 / 多事件排序",
+          "difficulty": "高",
+          "rift9Order": 64
+        },
+        {
+          "id": "effect.order",
+          "category": "effect",
+          "title": "排序 / 放回牌库",
+          "difficulty": "中",
+          "rift9Order": 65
+        }
+      ],
+      "gaps": {
+        "unclassifiedCards": [],
+        "ruleReviewCards": []
+      },
+      "officialCardList": [
+        {
+          "zone": "legend",
+          "canonicalCardId": "card.hash-fadaa09c681d3d967954f99504cd9d3d749242dc99dbc40d60adfa60bf53cca7",
+          "name": "Mechanized Menace",
+          "quantity": 1,
+          "cardType": "Legend",
+          "domains": [
+            "Fury",
+            "Mind"
+          ]
+        },
+        {
+          "zone": "champion",
+          "canonicalCardId": "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
+          "name": "Rumble, Hotheaded",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Fury"
+          ],
+          "note": "champion option"
+        },
+        {
+          "zone": "champion",
+          "canonicalCardId": "card.hash-01bd7d3ff52eabd0afc59248a33845b648d9f61db8b544052f51057f967ceb7c",
+          "name": "Rumble, Scrapper",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Mind"
+          ],
+          "note": "champion option"
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-057dababf241fe29f90a9a6c306d4463227bed0d80f3df33c8261f7f43f5fed3",
+          "name": "Ferrous Forerunner",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
+          "name": "Rumble, Hotheaded",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-f0ac9d90de705764ec57a50fb7483a35117949080af9f6a959eb42a7b887c9e9",
+          "name": "Gem Jammer",
+          "quantity": 3,
+          "cardType": "Unit",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-d4e849d845765608b07bf4af4aa19877f6303dfff539b541d0d070320dd05d91",
+          "name": "Dangerous Duo",
+          "quantity": 3,
+          "cardType": "Unit",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-cdeb1c4bb2202d43d0f4ccb7c3e0ddfa25caf4f81c41dde5c8bdaa6bbeddfe40",
+          "name": "Forecaster",
+          "quantity": 3,
+          "cardType": "Unit",
+          "domains": [
+            "Mind"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-34880fcae16bd9461e4c318dfb455365ff9e353db357f948b4a15dea7e01b389",
+          "name": "Bubble Bot",
+          "quantity": 3,
+          "cardType": "Unit",
+          "domains": [
+            "Mind"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-569dc9079a6d404c0d850d27b510585b856ab3def5e1e0bbafa30a3bf9d48e82",
+          "name": "Plundering Poro",
+          "quantity": 3,
+          "cardType": "Unit",
+          "domains": [
+            "Mind"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-cb2ea7576d42c76d8ecf8fa3cdb082f007639b144aecc69402230df6bcc131ab",
+          "name": "Breakneck Mech",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Mind"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-01bd7d3ff52eabd0afc59248a33845b648d9f61db8b544052f51057f967ceb7c",
+          "name": "Rumble, Scrapper",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Mind"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-2ebf1fe6e5ed7bb875f1c112b3e0ed1635b557c0c0ad550d752b8dd376243007",
+          "name": "Consult the Past",
+          "quantity": 2,
+          "cardType": "Spell",
+          "domains": [
+            "Mind"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-10b7d5be25093a4d318efd8639b6e34583bad10bf38adbf93b4c3733ea54221b",
+          "name": "Singularity",
+          "quantity": 1,
+          "cardType": "Spell",
+          "domains": [
+            "Mind"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-431738fdce44471075e7d0f77a009dde71d56c7be7e2c9ef022d6b124a857a3c",
+          "name": "Wages of Pain",
+          "quantity": 2,
+          "cardType": "Spell",
+          "domains": [
+            "Mind"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-153eb4df721b70662a63652ba1602985ceed08d81a0b23fc0d6b10349ee15ca9",
+          "name": "Frigid Touch",
+          "quantity": 2,
+          "cardType": "Spell",
+          "domains": [
+            "Mind"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-1504d8f14af5ce1b9f7a3663c23e6ef7cb57d59a6274dc921cd9296ee8e2494b",
+          "name": "Production Surge",
+          "quantity": 3,
+          "cardType": "Spell",
+          "domains": [
+            "Mind"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-5b08b5b8648e8c5c057d15279d1b4e677457eb0b43fcf2810e2ec4f4c4d1b7cf",
+          "name": "Stupefy",
+          "quantity": 2,
+          "cardType": "Spell",
+          "domains": [
+            "Mind"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-600e0796e82099284b213e87b112b1c5df42777ef72b70a3b4cd49a84d27dd10",
+          "name": "Void Seeker",
+          "quantity": 3,
+          "cardType": "Spell",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-3c1c01b405853556e3e1c12bbd758e94d73f5ed474a5643bb068eaa7cb549c6e",
+          "name": "Danger Zone",
+          "quantity": 1,
+          "cardType": "Spell",
+          "domains": [
+            "Fury",
+            "Mind"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-d490b51d08bdd7f97b1708aabfa6309995106f10de815b6fd927368e4a630569",
+          "name": "Assembly Rig",
+          "quantity": 1,
+          "cardType": "Gear",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-cab923a670e4baa826aa3de381c8b992bf33987fcb0d65feb75ca538a8681010",
+          "name": "Long Sword",
+          "quantity": 1,
+          "cardType": "Gear",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "battlefields",
+          "canonicalCardId": "card.hash-0c36f22df8ffa7bed49f59fd138d24b9b0a52a7b8ad4c720afcaa12ec816eee4",
+          "name": "Minefield",
+          "quantity": 1,
+          "cardType": "Battlefield",
+          "domains": [
+            "Colorless"
+          ]
+        },
+        {
+          "zone": "battlefields",
+          "canonicalCardId": "card.hash-5a86b358540e9ab2512400c77f3291739c2aa6ccb7b537449298a640b02b0e82",
+          "name": "Ravenbloom Conservatory",
+          "quantity": 1,
+          "cardType": "Battlefield",
+          "domains": [
+            "Colorless"
+          ]
+        },
+        {
+          "zone": "battlefields",
+          "canonicalCardId": "card.hash-77763eae5320de558954776a37677e8638b6d4af73399e5a7c4f5d5321a2b564",
+          "name": "Treasure Hoard",
+          "quantity": 1,
+          "cardType": "Battlefield",
+          "domains": [
+            "Colorless"
+          ]
+        },
+        {
+          "zone": "runes",
+          "canonicalCardId": "card.hash-a8a4cb783649a0339782e2d3808d6144661c621634da7c9f79b4f87981fac97b",
+          "name": "Mind Rune",
+          "quantity": 6,
+          "cardType": "Rune",
+          "domains": [
+            "Mind"
+          ]
+        },
+        {
+          "zone": "runes",
+          "canonicalCardId": "card.hash-30497c69657abd1d3abf17f9b3766e7d064817473a88828ca2ef4ab9b51f7902",
+          "name": "Fury Rune",
+          "quantity": 6,
+          "cardType": "Rune",
+          "domains": [
+            "Fury"
+          ]
+        }
+      ],
+      "recommendedCardList": [
+        {
+          "zone": "legend",
+          "canonicalCardId": "card.hash-fadaa09c681d3d967954f99504cd9d3d749242dc99dbc40d60adfa60bf53cca7",
+          "name": "Mechanized Menace",
+          "quantity": 1,
+          "cardType": "Legend",
+          "domains": [
+            "Fury",
+            "Mind"
+          ]
+        },
+        {
+          "zone": "champion",
+          "canonicalCardId": "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
+          "name": "Rumble, Hotheaded",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Fury"
+          ],
+          "note": "chosen champion"
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-057dababf241fe29f90a9a6c306d4463227bed0d80f3df33c8261f7f43f5fed3",
+          "name": "Ferrous Forerunner",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
+          "name": "Rumble, Hotheaded",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-f0ac9d90de705764ec57a50fb7483a35117949080af9f6a959eb42a7b887c9e9",
+          "name": "Gem Jammer",
+          "quantity": 3,
+          "cardType": "Unit",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-d4e849d845765608b07bf4af4aa19877f6303dfff539b541d0d070320dd05d91",
+          "name": "Dangerous Duo",
+          "quantity": 3,
+          "cardType": "Unit",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-cdeb1c4bb2202d43d0f4ccb7c3e0ddfa25caf4f81c41dde5c8bdaa6bbeddfe40",
+          "name": "Forecaster",
+          "quantity": 3,
+          "cardType": "Unit",
+          "domains": [
+            "Mind"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-34880fcae16bd9461e4c318dfb455365ff9e353db357f948b4a15dea7e01b389",
+          "name": "Bubble Bot",
+          "quantity": 3,
+          "cardType": "Unit",
+          "domains": [
+            "Mind"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-569dc9079a6d404c0d850d27b510585b856ab3def5e1e0bbafa30a3bf9d48e82",
+          "name": "Plundering Poro",
+          "quantity": 3,
+          "cardType": "Unit",
+          "domains": [
+            "Mind"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-cb2ea7576d42c76d8ecf8fa3cdb082f007639b144aecc69402230df6bcc131ab",
+          "name": "Breakneck Mech",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Mind"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-01bd7d3ff52eabd0afc59248a33845b648d9f61db8b544052f51057f967ceb7c",
+          "name": "Rumble, Scrapper",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Mind"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-2ebf1fe6e5ed7bb875f1c112b3e0ed1635b557c0c0ad550d752b8dd376243007",
+          "name": "Consult the Past",
+          "quantity": 2,
+          "cardType": "Spell",
+          "domains": [
+            "Mind"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-10b7d5be25093a4d318efd8639b6e34583bad10bf38adbf93b4c3733ea54221b",
+          "name": "Singularity",
+          "quantity": 1,
+          "cardType": "Spell",
+          "domains": [
+            "Mind"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-431738fdce44471075e7d0f77a009dde71d56c7be7e2c9ef022d6b124a857a3c",
+          "name": "Wages of Pain",
+          "quantity": 2,
+          "cardType": "Spell",
+          "domains": [
+            "Mind"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-153eb4df721b70662a63652ba1602985ceed08d81a0b23fc0d6b10349ee15ca9",
+          "name": "Frigid Touch",
+          "quantity": 2,
+          "cardType": "Spell",
+          "domains": [
+            "Mind"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-1504d8f14af5ce1b9f7a3663c23e6ef7cb57d59a6274dc921cd9296ee8e2494b",
+          "name": "Production Surge",
+          "quantity": 3,
+          "cardType": "Spell",
+          "domains": [
+            "Mind"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-5b08b5b8648e8c5c057d15279d1b4e677457eb0b43fcf2810e2ec4f4c4d1b7cf",
+          "name": "Stupefy",
+          "quantity": 2,
+          "cardType": "Spell",
+          "domains": [
+            "Mind"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-600e0796e82099284b213e87b112b1c5df42777ef72b70a3b4cd49a84d27dd10",
+          "name": "Void Seeker",
+          "quantity": 3,
+          "cardType": "Spell",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-3c1c01b405853556e3e1c12bbd758e94d73f5ed474a5643bb068eaa7cb549c6e",
+          "name": "Danger Zone",
+          "quantity": 1,
+          "cardType": "Spell",
+          "domains": [
+            "Fury",
+            "Mind"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-d490b51d08bdd7f97b1708aabfa6309995106f10de815b6fd927368e4a630569",
+          "name": "Assembly Rig",
+          "quantity": 1,
+          "cardType": "Gear",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-cab923a670e4baa826aa3de381c8b992bf33987fcb0d65feb75ca538a8681010",
+          "name": "Long Sword",
+          "quantity": 1,
+          "cardType": "Gear",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "battlefields",
+          "canonicalCardId": "card.hash-0c36f22df8ffa7bed49f59fd138d24b9b0a52a7b8ad4c720afcaa12ec816eee4",
+          "name": "Minefield",
+          "quantity": 1,
+          "cardType": "Battlefield",
+          "domains": [
+            "Colorless"
+          ]
+        },
+        {
+          "zone": "battlefields",
+          "canonicalCardId": "card.hash-5a86b358540e9ab2512400c77f3291739c2aa6ccb7b537449298a640b02b0e82",
+          "name": "Ravenbloom Conservatory",
+          "quantity": 1,
+          "cardType": "Battlefield",
+          "domains": [
+            "Colorless"
+          ]
+        },
+        {
+          "zone": "battlefields",
+          "canonicalCardId": "card.hash-77763eae5320de558954776a37677e8638b6d4af73399e5a7c4f5d5321a2b564",
+          "name": "Treasure Hoard",
+          "quantity": 1,
+          "cardType": "Battlefield",
+          "domains": [
+            "Colorless"
+          ]
+        },
+        {
+          "zone": "runes",
+          "canonicalCardId": "card.hash-a8a4cb783649a0339782e2d3808d6144661c621634da7c9f79b4f87981fac97b",
+          "name": "Mind Rune",
+          "quantity": 6,
+          "cardType": "Rune",
+          "domains": [
+            "Mind"
+          ]
+        },
+        {
+          "zone": "runes",
+          "canonicalCardId": "card.hash-30497c69657abd1d3abf17f9b3766e7d064817473a88828ca2ef4ab9b51f7902",
+          "name": "Fury Rune",
+          "quantity": 6,
+          "cardType": "Rune",
+          "domains": [
+            "Fury"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "fiora-sfd",
+      "name": "Fiora (Grand Duelist)",
+      "product": "Spiritforged Champion Preconstructed Deck",
+      "set": "sfd",
+      "sourceUrl": "https://playriftbound.com/en-us/news/announcements/spiritforged-precons-fiora-rumble/",
+      "legendDisplay": "Fiora, Grand Duelist",
+      "legendCanonicalCardId": "card.hash-ccfc067dad8a1bf92c6ae1aa5f7110e9d211a1842a9254bb9320705c2f96c6c4",
+      "legendDomains": [
+        "Body",
+        "Order"
+      ],
+      "championOptions": [
+        "Fiora, Peerless",
+        "Fiora, Worthy"
+      ],
+      "chosenChampion": "Fiora, Peerless",
+      "officialTotal": 40,
+      "finalAdjustment": "选定 Fiora, Peerless 为 Chosen Champion：1 张进 Champion 区，主牌组保留其另 1 张（共 2 张），其余不动，主牌组+Champion 区=40。",
+      "stats": {
+        "identityCount": 24,
+        "primitiveCount": 36,
+        "judgeRequired": 24,
+        "unclassified": 2,
+        "noAbility": 0
+      },
+      "requiredPrimitives": [
+        {
+          "id": "cost.printed",
+          "category": "cost",
+          "title": "印刷费用；null 保留为无印刷值",
+          "difficulty": "中",
+          "rift9Order": 1
+        },
+        {
+          "id": "cost.activated",
+          "category": "cost",
+          "title": "激活费用与效果的边界",
+          "difficulty": "中",
+          "rift9Order": 2
+        },
+        {
+          "id": "cost.pay",
+          "category": "cost",
+          "title": "支付能量 / 指定域或通用 Power",
+          "difficulty": "中",
+          "rift9Order": 3
+        },
+        {
+          "id": "target.query",
+          "category": "target",
+          "title": "对象查询 / 选择与重验",
+          "difficulty": "中",
+          "rift9Order": 4
+        },
+        {
+          "id": "target.filter",
+          "category": "target",
+          "title": "类型 / 控制者 / 标签 / 数值筛选",
+          "difficulty": "中",
+          "rift9Order": 5
+        },
+        {
+          "id": "target.location",
+          "category": "target",
+          "title": "here / there / base / battlefield 引用",
+          "difficulty": "高",
+          "rift9Order": 6
+        },
+        {
+          "id": "effect.attach",
+          "category": "effect",
+          "title": "装备附着 / 重附着",
+          "difficulty": "高",
+          "rift9Order": 7
+        },
+        {
+          "id": "condition.predicate",
+          "category": "condition",
+          "title": "条件 / 布尔 / 逻辑分支",
+          "difficulty": "中",
+          "rift9Order": 8
+        },
+        {
+          "id": "continuous.duration",
+          "category": "continuous",
+          "title": "效果持续时间 / 清理",
+          "difficulty": "高",
+          "rift9Order": 10
+        },
+        {
+          "id": "continuous.might",
+          "category": "continuous",
+          "title": "Might 加减 / 设值 / 倍增",
+          "difficulty": "中",
+          "rift9Order": 11
+        },
+        {
+          "id": "continuous.timing",
+          "category": "continuous",
+          "title": "Action / Reaction / Ambush 时机",
+          "difficulty": "高",
+          "rift9Order": 12
+        },
+        {
+          "id": "effect.damage",
+          "category": "effect",
+          "title": "造成 / 分配伤害",
+          "difficulty": "中",
+          "rift9Order": 13
+        },
+        {
+          "id": "target.many",
+          "category": "target",
+          "title": "数量范围与集合分配",
+          "difficulty": "高",
+          "rift9Order": 14
+        },
+        {
+          "id": "choice.mode",
+          "category": "choice",
+          "title": "模式 / or / 分支选择",
+          "difficulty": "中",
+          "rift9Order": 15
+        },
+        {
+          "id": "condition.value",
+          "category": "condition",
+          "title": "动态数值 / 阈值 / X / 指代",
+          "difficulty": "高",
+          "rift9Order": 16
+        },
+        {
+          "id": "cost.modify",
+          "category": "cost",
+          "title": "费用增减与忽略 / 替代支付",
+          "difficulty": "高",
+          "rift9Order": 17
+        },
+        {
+          "id": "effect.zone",
+          "category": "effect",
+          "title": "跨区域移动与对象身份",
+          "difficulty": "高",
+          "rift9Order": 18
+        },
+        {
+          "id": "effect.draw",
+          "category": "effect",
+          "title": "抽牌",
+          "difficulty": "低",
+          "rift9Order": 19
+        },
+        {
+          "id": "trigger.play",
+          "category": "trigger",
+          "title": "打出自身 / 其他卡触发",
+          "difficulty": "高",
+          "rift9Order": 20
+        },
+        {
+          "id": "trigger.state",
+          "category": "trigger",
+          "title": "状态改变 / 其余事件触发",
+          "difficulty": "高",
+          "rift9Order": 21
+        },
+        {
+          "id": "trigger.combat",
+          "category": "trigger",
+          "title": "攻击 / 防守 / 战斗胜负触发",
+          "difficulty": "高",
+          "rift9Order": 22
+        },
+        {
+          "id": "effect.ready",
+          "category": "effect",
+          "title": "重置",
+          "difficulty": "低",
+          "rift9Order": 23
+        },
+        {
+          "id": "replacement.enter",
+          "category": "replacement",
+          "title": "入场 ready / exhausted",
+          "difficulty": "高",
+          "rift9Order": 24
+        },
+        {
+          "id": "condition.history",
+          "category": "condition",
+          "title": "本回合 / 次数 / Flow / Legion 历史",
+          "difficulty": "高",
+          "rift9Order": 25
+        },
+        {
+          "id": "choice.optional",
+          "category": "choice",
+          "title": "may 可选执行",
+          "difficulty": "中",
+          "rift9Order": 32
+        },
+        {
+          "id": "effect.exhaust",
+          "category": "effect",
+          "title": "横置",
+          "difficulty": "低",
+          "rift9Order": 33
+        },
+        {
+          "id": "effect.play",
+          "category": "effect",
+          "title": "从区域打出卡 / 获得打出许可",
+          "difficulty": "高",
+          "rift9Order": 34
+        },
+        {
+          "id": "effect.token",
+          "category": "effect",
+          "title": "创建 / 打出 token",
+          "difficulty": "高",
+          "rift9Order": 35
+        },
+        {
+          "id": "trigger.score",
+          "category": "trigger",
+          "title": "Hold / Conquer / 计分触发",
+          "difficulty": "高",
+          "rift9Order": 36
+        },
+        {
+          "id": "effect.buff",
+          "category": "effect",
+          "title": "Buff 标记的添加 / 消耗",
+          "difficulty": "中",
+          "rift9Order": 37
+        },
+        {
+          "id": "effect.kill",
+          "category": "effect",
+          "title": "kill / 死亡处理",
+          "difficulty": "中",
+          "rift9Order": 39
+        },
+        {
+          "id": "cost.additional",
+          "category": "cost",
+          "title": "可选 / 强制附加费用及支付记录",
+          "difficulty": "中",
+          "rift9Order": 41
+        },
+        {
+          "id": "trigger.leave",
+          "category": "trigger",
+          "title": "死亡 / 离场 / Deathknell",
+          "difficulty": "高",
+          "rift9Order": 44
+        },
+        {
+          "id": "effect.channel",
+          "category": "effect",
+          "title": "channel 符文",
+          "difficulty": "中",
+          "rift9Order": 47
+        },
+        {
+          "id": "effect.counter",
+          "category": "effect",
+          "title": "反制链上 spell / ability",
+          "difficulty": "高",
+          "rift9Order": 63
+        },
+        {
+          "id": "effect.detach",
+          "category": "effect",
+          "title": "脱离装备",
+          "difficulty": "中",
+          "rift9Order": 73
+        }
+      ],
+      "gaps": {
+        "unclassifiedCards": [
+          {
+            "canon": "card.hash-292f685c7578235f29f2c362a52c7975eafab592cc437e2445ca68309b294c56",
+            "name": "Yone, Blademaster",
+            "cardType": "Unit"
+          },
+          {
+            "canon": "card.hash-6e1bdc294002f23d867897b239a644801a07effca16fc07c31ab55c7f41ff26d",
+            "name": "Riposte",
+            "cardType": "Spell"
+          }
+        ],
+        "ruleReviewCards": [
+          {
+            "canonicalCardId": "card.hash-292f685c7578235f29f2c362a52c7975eafab592cc437e2445ca68309b294c56",
+            "name": "Yone, Blademaster",
+            "cardType": "Unit",
+            "blockers": [
+              "non-reminder-printing-difference"
+            ]
+          },
+          {
+            "canonicalCardId": "card.hash-6e1bdc294002f23d867897b239a644801a07effca16fc07c31ab55c7f41ff26d",
+            "name": "Riposte",
+            "cardType": "Spell",
+            "blockers": [
+              "unmatched-functional-clause"
+            ]
+          }
+        ]
+      },
+      "officialCardList": [
+        {
+          "zone": "legend",
+          "canonicalCardId": "card.hash-ccfc067dad8a1bf92c6ae1aa5f7110e9d211a1842a9254bb9320705c2f96c6c4",
+          "name": "Grand Duelist",
+          "quantity": 1,
+          "cardType": "Legend",
+          "domains": [
+            "Body",
+            "Order"
+          ]
+        },
+        {
+          "zone": "champion",
+          "canonicalCardId": "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f",
+          "name": "Fiora, Peerless",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Body"
+          ],
+          "note": "champion option"
+        },
+        {
+          "zone": "champion",
+          "canonicalCardId": "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
+          "name": "Fiora, Worthy",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Order"
+          ],
+          "note": "champion option"
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f",
+          "name": "Fiora, Peerless",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Body"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-db90e8eaf24230cfbc3b68d99971c58f465f65465b5c52be37ae1564d6e86732",
+          "name": "Jaull-Fish",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Body"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-7cbc2a92adfe5cf5c7126a8d72869cf933d006002fe1f46b4804c2040a51c9c6",
+          "name": "Laurent Duelist",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Order"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-c403c2d9835df87cc0774a86145ef937226d5e7ebcfe75282053e23df744f5ef",
+          "name": "Lucian, Merciless",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Body"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-77fdefa1bb982497df81cd6fd64fdde8c460c8cfb52aa2708aa568b849ca42e7",
+          "name": "Veteran Poro",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Body"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-e2638655ff5ed3a1e60a501be3c23d74e46ef7f1900bed31b436f1a579b316ed",
+          "name": "Pit Rookie",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Body"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-cf0b322a78010676e3d8b287830194a3bdc8970e65a141578ae8a3074ebd956f",
+          "name": "Dauntless Vanguard",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Body"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-afc40c373a9fb4e48492323d7af26d3a58b824c385707dd3c269e97fee236103",
+          "name": "Unsung Hero",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Order"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-0ba141b975db96cac65aab56bfd7dbb63904c538cc3d9c32bdfb3b2d98e486de",
+          "name": "Royal Guard",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Order"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
+          "name": "Fiora, Worthy",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Order"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-292f685c7578235f29f2c362a52c7975eafab592cc437e2445ca68309b294c56",
+          "name": "Yone, Blademaster",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Body"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-8d49727ab9ae782b8a21802c9ae0b51e5d712a37a072d991629bfbf3645535b3",
+          "name": "Punch First",
+          "quantity": 2,
+          "cardType": "Spell",
+          "domains": [
+            "Body"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-f7e9f4f53ed55ffc9e6b1d38d72324ad29bb9ebf5f25c356bcd7f723aa08b177",
+          "name": "Strike Down",
+          "quantity": 3,
+          "cardType": "Spell",
+          "domains": [
+            "Body"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-f67321dac096b3ad1e49b55231663e26f3f9d96efafe79d75719a6eb72fc5caa",
+          "name": "Vengeance",
+          "quantity": 2,
+          "cardType": "Spell",
+          "domains": [
+            "Order"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-6e1bdc294002f23d867897b239a644801a07effca16fc07c31ab55c7f41ff26d",
+          "name": "Riposte",
+          "quantity": 1,
+          "cardType": "Spell",
+          "domains": [
+            "Body",
+            "Order"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-7be9e4bed44d19de26a4a7a292ab8406e43694b33916fc5246d46347fa4ad85f",
+          "name": "Show of Strength",
+          "quantity": 2,
+          "cardType": "Spell",
+          "domains": [
+            "Body"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-959c19d68f06f8f929625bfde93a1132701da5a5d0b49e91583db341384f0bfe",
+          "name": "B.F. Sword",
+          "quantity": 3,
+          "cardType": "Gear",
+          "domains": [
+            "Order"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-902c6a1366a1a0e653ccb65102ff621b109af3b0b40f5bbeb7d8d3a5aeae2322",
+          "name": "Warmog's Armor",
+          "quantity": 3,
+          "cardType": "Gear",
+          "domains": [
+            "Body"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-d3579e6825470471f5ce05c53533806a5244c5e84364fe57b2aab0b7cc0f14e0",
+          "name": "Sacred Shears",
+          "quantity": 1,
+          "cardType": "Gear",
+          "domains": [
+            "Order"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-a1ee07f71d453092ab7d54f9491684e972b735b22bb1f3fda73f2641bcedbfe1",
+          "name": "Doran's Blade",
+          "quantity": 3,
+          "cardType": "Gear",
+          "domains": [
+            "Body"
+          ]
+        },
+        {
+          "zone": "battlefields",
+          "canonicalCardId": "card.hash-44e95dd0a87b7dfcd7565b73a33e204f85c97ac82e004a6127ff7ed649fb41ad",
+          "name": "Ornn's Forge",
+          "quantity": 1,
+          "cardType": "Battlefield",
+          "domains": [
+            "Colorless"
+          ]
+        },
+        {
+          "zone": "battlefields",
+          "canonicalCardId": "card.hash-9daf60cdf4c82e4fba1f685af1c9b0d748003f7e9ad9c68f02f429bdd0cf85e5",
+          "name": "Veiled Temple",
+          "quantity": 1,
+          "cardType": "Battlefield",
+          "domains": [
+            "Colorless"
+          ]
+        },
+        {
+          "zone": "battlefields",
+          "canonicalCardId": "card.hash-c225141f743b61c67ddf269932c6bbdef739f37888f62163906faa7fa1e6dc2b",
+          "name": "Sunken Temple",
+          "quantity": 1,
+          "cardType": "Battlefield",
+          "domains": [
+            "Colorless"
+          ]
+        },
+        {
+          "zone": "runes",
+          "canonicalCardId": "card.hash-e0efe08be77e60ed68f2e43ba425b763efd364eb44b0c760d26ef1fcc1b6df67",
+          "name": "Order Rune",
+          "quantity": 6,
+          "cardType": "Rune",
+          "domains": [
+            "Order"
+          ]
+        },
+        {
+          "zone": "runes",
+          "canonicalCardId": "card.hash-a2227b03e9e13c8e2ddae7a973c746cc4243ff631dfaf462dc9823e687bbbf17",
+          "name": "Body Rune",
+          "quantity": 6,
+          "cardType": "Rune",
+          "domains": [
+            "Body"
+          ]
+        }
+      ],
+      "recommendedCardList": [
+        {
+          "zone": "legend",
+          "canonicalCardId": "card.hash-ccfc067dad8a1bf92c6ae1aa5f7110e9d211a1842a9254bb9320705c2f96c6c4",
+          "name": "Grand Duelist",
+          "quantity": 1,
+          "cardType": "Legend",
+          "domains": [
+            "Body",
+            "Order"
+          ]
+        },
+        {
+          "zone": "champion",
+          "canonicalCardId": "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f",
+          "name": "Fiora, Peerless",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Body"
+          ],
+          "note": "chosen champion"
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f",
+          "name": "Fiora, Peerless",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Body"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-db90e8eaf24230cfbc3b68d99971c58f465f65465b5c52be37ae1564d6e86732",
+          "name": "Jaull-Fish",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Body"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-7cbc2a92adfe5cf5c7126a8d72869cf933d006002fe1f46b4804c2040a51c9c6",
+          "name": "Laurent Duelist",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Order"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-c403c2d9835df87cc0774a86145ef937226d5e7ebcfe75282053e23df744f5ef",
+          "name": "Lucian, Merciless",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Body"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-77fdefa1bb982497df81cd6fd64fdde8c460c8cfb52aa2708aa568b849ca42e7",
+          "name": "Veteran Poro",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Body"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-e2638655ff5ed3a1e60a501be3c23d74e46ef7f1900bed31b436f1a579b316ed",
+          "name": "Pit Rookie",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Body"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-cf0b322a78010676e3d8b287830194a3bdc8970e65a141578ae8a3074ebd956f",
+          "name": "Dauntless Vanguard",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Body"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-afc40c373a9fb4e48492323d7af26d3a58b824c385707dd3c269e97fee236103",
+          "name": "Unsung Hero",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Order"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-0ba141b975db96cac65aab56bfd7dbb63904c538cc3d9c32bdfb3b2d98e486de",
+          "name": "Royal Guard",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Order"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-261f97a75639fd51dc63b8c4b2a577b52d5bd6893227a1a3a13da5375880fe6f",
+          "name": "Fiora, Worthy",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Order"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-292f685c7578235f29f2c362a52c7975eafab592cc437e2445ca68309b294c56",
+          "name": "Yone, Blademaster",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Body"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-8d49727ab9ae782b8a21802c9ae0b51e5d712a37a072d991629bfbf3645535b3",
+          "name": "Punch First",
+          "quantity": 2,
+          "cardType": "Spell",
+          "domains": [
+            "Body"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-f7e9f4f53ed55ffc9e6b1d38d72324ad29bb9ebf5f25c356bcd7f723aa08b177",
+          "name": "Strike Down",
+          "quantity": 3,
+          "cardType": "Spell",
+          "domains": [
+            "Body"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-f67321dac096b3ad1e49b55231663e26f3f9d96efafe79d75719a6eb72fc5caa",
+          "name": "Vengeance",
+          "quantity": 2,
+          "cardType": "Spell",
+          "domains": [
+            "Order"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-6e1bdc294002f23d867897b239a644801a07effca16fc07c31ab55c7f41ff26d",
+          "name": "Riposte",
+          "quantity": 1,
+          "cardType": "Spell",
+          "domains": [
+            "Body",
+            "Order"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-7be9e4bed44d19de26a4a7a292ab8406e43694b33916fc5246d46347fa4ad85f",
+          "name": "Show of Strength",
+          "quantity": 2,
+          "cardType": "Spell",
+          "domains": [
+            "Body"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-959c19d68f06f8f929625bfde93a1132701da5a5d0b49e91583db341384f0bfe",
+          "name": "B.F. Sword",
+          "quantity": 3,
+          "cardType": "Gear",
+          "domains": [
+            "Order"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-902c6a1366a1a0e653ccb65102ff621b109af3b0b40f5bbeb7d8d3a5aeae2322",
+          "name": "Warmog's Armor",
+          "quantity": 3,
+          "cardType": "Gear",
+          "domains": [
+            "Body"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-d3579e6825470471f5ce05c53533806a5244c5e84364fe57b2aab0b7cc0f14e0",
+          "name": "Sacred Shears",
+          "quantity": 1,
+          "cardType": "Gear",
+          "domains": [
+            "Order"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-a1ee07f71d453092ab7d54f9491684e972b735b22bb1f3fda73f2641bcedbfe1",
+          "name": "Doran's Blade",
+          "quantity": 3,
+          "cardType": "Gear",
+          "domains": [
+            "Body"
+          ]
+        },
+        {
+          "zone": "battlefields",
+          "canonicalCardId": "card.hash-44e95dd0a87b7dfcd7565b73a33e204f85c97ac82e004a6127ff7ed649fb41ad",
+          "name": "Ornn's Forge",
+          "quantity": 1,
+          "cardType": "Battlefield",
+          "domains": [
+            "Colorless"
+          ]
+        },
+        {
+          "zone": "battlefields",
+          "canonicalCardId": "card.hash-9daf60cdf4c82e4fba1f685af1c9b0d748003f7e9ad9c68f02f429bdd0cf85e5",
+          "name": "Veiled Temple",
+          "quantity": 1,
+          "cardType": "Battlefield",
+          "domains": [
+            "Colorless"
+          ]
+        },
+        {
+          "zone": "battlefields",
+          "canonicalCardId": "card.hash-c225141f743b61c67ddf269932c6bbdef739f37888f62163906faa7fa1e6dc2b",
+          "name": "Sunken Temple",
+          "quantity": 1,
+          "cardType": "Battlefield",
+          "domains": [
+            "Colorless"
+          ]
+        },
+        {
+          "zone": "runes",
+          "canonicalCardId": "card.hash-e0efe08be77e60ed68f2e43ba425b763efd364eb44b0c760d26ef1fcc1b6df67",
+          "name": "Order Rune",
+          "quantity": 6,
+          "cardType": "Rune",
+          "domains": [
+            "Order"
+          ]
+        },
+        {
+          "zone": "runes",
+          "canonicalCardId": "card.hash-a2227b03e9e13c8e2ddae7a973c746cc4243ff631dfaf462dc9823e687bbbf17",
+          "name": "Body Rune",
+          "quantity": 6,
+          "cardType": "Rune",
+          "domains": [
+            "Body"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "vex-unl",
+      "name": "Vex (Gloomist)",
+      "product": "Unleashed Champion Deck",
+      "set": "unl",
+      "sourceUrl": "https://playriftbound.com/en-us/news/announcements/vi--vex-champion-decks/",
+      "legendDisplay": "Vex, Gloomist",
+      "legendCanonicalCardId": "card.hash-d4c1740a3cac0cbe0b049d4705dd1cf67e9d7b241433c1fcfd3afc3288bd7084",
+      "legendDomains": [
+        "Calm",
+        "Chaos"
+      ],
+      "championOptions": [
+        "Vex, Apathetic",
+        "Vex, Cheerless",
+        "Vex, Mocking"
+      ],
+      "chosenChampion": "Vex, Mocking",
+      "officialTotal": 36,
+      "finalAdjustment": "官方清单为 36 张（ready-to-tweak，留空位）。推荐定稿：Mutated Mouser/Existential Dread/Soul Sword 各补到 3 张，主牌组 39 张 + Champion 区 1 张选定冠军（Vex, Mocking）= 40。",
+      "stats": {
+        "identityCount": 26,
+        "primitiveCount": 51,
+        "judgeRequired": 26,
+        "unclassified": 1,
+        "noAbility": 0
+      },
+      "requiredPrimitives": [
+        {
+          "id": "cost.printed",
+          "category": "cost",
+          "title": "印刷费用；null 保留为无印刷值",
+          "difficulty": "中",
+          "rift9Order": 1
+        },
+        {
+          "id": "cost.activated",
+          "category": "cost",
+          "title": "激活费用与效果的边界",
+          "difficulty": "中",
+          "rift9Order": 2
+        },
+        {
+          "id": "cost.pay",
+          "category": "cost",
+          "title": "支付能量 / 指定域或通用 Power",
+          "difficulty": "中",
+          "rift9Order": 3
+        },
+        {
+          "id": "target.query",
+          "category": "target",
+          "title": "对象查询 / 选择与重验",
+          "difficulty": "中",
+          "rift9Order": 4
+        },
+        {
+          "id": "target.filter",
+          "category": "target",
+          "title": "类型 / 控制者 / 标签 / 数值筛选",
+          "difficulty": "中",
+          "rift9Order": 5
+        },
+        {
+          "id": "target.location",
+          "category": "target",
+          "title": "here / there / base / battlefield 引用",
+          "difficulty": "高",
+          "rift9Order": 6
+        },
+        {
+          "id": "effect.attach",
+          "category": "effect",
+          "title": "装备附着 / 重附着",
+          "difficulty": "高",
+          "rift9Order": 7
+        },
+        {
+          "id": "condition.predicate",
+          "category": "condition",
+          "title": "条件 / 布尔 / 逻辑分支",
+          "difficulty": "中",
+          "rift9Order": 8
+        },
+        {
+          "id": "continuous.combat",
+          "category": "continuous",
+          "title": "战斗伤害限制 / Tank / Backline",
+          "difficulty": "高",
+          "rift9Order": 9
+        },
+        {
+          "id": "continuous.duration",
+          "category": "continuous",
+          "title": "效果持续时间 / 清理",
+          "difficulty": "高",
+          "rift9Order": 10
+        },
+        {
+          "id": "continuous.might",
+          "category": "continuous",
+          "title": "Might 加减 / 设值 / 倍增",
+          "difficulty": "中",
+          "rift9Order": 11
+        },
+        {
+          "id": "continuous.timing",
+          "category": "continuous",
+          "title": "Action / Reaction / Ambush 时机",
+          "difficulty": "高",
+          "rift9Order": 12
+        },
+        {
+          "id": "target.many",
+          "category": "target",
+          "title": "数量范围与集合分配",
+          "difficulty": "高",
+          "rift9Order": 14
+        },
+        {
+          "id": "choice.mode",
+          "category": "choice",
+          "title": "模式 / or / 分支选择",
+          "difficulty": "中",
+          "rift9Order": 15
+        },
+        {
+          "id": "condition.value",
+          "category": "condition",
+          "title": "动态数值 / 阈值 / X / 指代",
+          "difficulty": "高",
+          "rift9Order": 16
+        },
+        {
+          "id": "cost.modify",
+          "category": "cost",
+          "title": "费用增减与忽略 / 替代支付",
+          "difficulty": "高",
+          "rift9Order": 17
+        },
+        {
+          "id": "effect.zone",
+          "category": "effect",
+          "title": "跨区域移动与对象身份",
+          "difficulty": "高",
+          "rift9Order": 18
+        },
+        {
+          "id": "effect.draw",
+          "category": "effect",
+          "title": "抽牌",
+          "difficulty": "低",
+          "rift9Order": 19
+        },
+        {
+          "id": "trigger.play",
+          "category": "trigger",
+          "title": "打出自身 / 其他卡触发",
+          "difficulty": "高",
+          "rift9Order": 20
+        },
+        {
+          "id": "trigger.state",
+          "category": "trigger",
+          "title": "状态改变 / 其余事件触发",
+          "difficulty": "高",
+          "rift9Order": 21
+        },
+        {
+          "id": "effect.ready",
+          "category": "effect",
+          "title": "重置",
+          "difficulty": "低",
+          "rift9Order": 23
+        },
+        {
+          "id": "replacement.enter",
+          "category": "replacement",
+          "title": "入场 ready / exhausted",
+          "difficulty": "高",
+          "rift9Order": 24
+        },
+        {
+          "id": "continuous.movement",
+          "category": "continuous",
+          "title": "Ganking / 移动许可和限制",
+          "difficulty": "高",
+          "rift9Order": 26
+        },
+        {
+          "id": "effect.move",
+          "category": "effect",
+          "title": "场上移动 / recall",
+          "difficulty": "高",
+          "rift9Order": 28
+        },
+        {
+          "id": "cost.exhaust",
+          "category": "cost",
+          "title": "横置自身或其他对象作为费用",
+          "difficulty": "中",
+          "rift9Order": 29
+        },
+        {
+          "id": "target.tax",
+          "category": "target",
+          "title": "Deflect 目标附加支付",
+          "difficulty": "高",
+          "rift9Order": 31
+        },
+        {
+          "id": "choice.optional",
+          "category": "choice",
+          "title": "may 可选执行",
+          "difficulty": "中",
+          "rift9Order": 32
+        },
+        {
+          "id": "effect.exhaust",
+          "category": "effect",
+          "title": "横置",
+          "difficulty": "低",
+          "rift9Order": 33
+        },
+        {
+          "id": "effect.play",
+          "category": "effect",
+          "title": "从区域打出卡 / 获得打出许可",
+          "difficulty": "高",
+          "rift9Order": 34
+        },
+        {
+          "id": "effect.token",
+          "category": "effect",
+          "title": "创建 / 打出 token",
+          "difficulty": "高",
+          "rift9Order": 35
+        },
+        {
+          "id": "trigger.score",
+          "category": "trigger",
+          "title": "Hold / Conquer / 计分触发",
+          "difficulty": "高",
+          "rift9Order": 36
+        },
+        {
+          "id": "effect.buff",
+          "category": "effect",
+          "title": "Buff 标记的添加 / 消耗",
+          "difficulty": "中",
+          "rift9Order": 37
+        },
+        {
+          "id": "cost.hidden",
+          "category": "cost",
+          "title": "Hidden 隐藏与解禁成本",
+          "difficulty": "高",
+          "rift9Order": 38
+        },
+        {
+          "id": "effect.kill",
+          "category": "effect",
+          "title": "kill / 死亡处理",
+          "difficulty": "中",
+          "rift9Order": 39
+        },
+        {
+          "id": "trigger.phase",
+          "category": "trigger",
+          "title": "阶段开始 / 回合结束触发",
+          "difficulty": "高",
+          "rift9Order": 40
+        },
+        {
+          "id": "cost.additional",
+          "category": "cost",
+          "title": "可选 / 强制附加费用及支付记录",
+          "difficulty": "中",
+          "rift9Order": 41
+        },
+        {
+          "id": "trigger.move",
+          "category": "trigger",
+          "title": "移动触发",
+          "difficulty": "高",
+          "rift9Order": 42
+        },
+        {
+          "id": "effect.stun",
+          "category": "effect",
+          "title": "Stun 状态",
+          "difficulty": "中",
+          "rift9Order": 45
+        },
+        {
+          "id": "target.player",
+          "category": "target",
+          "title": "玩家 / 对手选择",
+          "difficulty": "中",
+          "rift9Order": 46
+        },
+        {
+          "id": "effect.channel",
+          "category": "effect",
+          "title": "channel 符文",
+          "difficulty": "中",
+          "rift9Order": 47
+        },
+        {
+          "id": "condition.result",
+          "category": "condition",
+          "title": "if-do / paid / this-way 结果绑定",
+          "difficulty": "高",
+          "rift9Order": 48
+        },
+        {
+          "id": "cost.sacrifice",
+          "category": "cost",
+          "title": "消灭友方 / 自身作为费用",
+          "difficulty": "高",
+          "rift9Order": 49
+        },
+        {
+          "id": "replacement.event",
+          "category": "replacement",
+          "title": "would / instead 事件替代",
+          "difficulty": "高",
+          "rift9Order": 50
+        },
+        {
+          "id": "effect.repeat",
+          "category": "effect",
+          "title": "重复 spell 效果",
+          "difficulty": "高",
+          "rift9Order": 53
+        },
+        {
+          "id": "effect.xp",
+          "category": "effect",
+          "title": "获得 XP",
+          "difficulty": "低",
+          "rift9Order": 55
+        },
+        {
+          "id": "effect.inspect",
+          "category": "effect",
+          "title": "查看 / 搜索卡库",
+          "difficulty": "中",
+          "rift9Order": 57
+        },
+        {
+          "id": "effect.recycle",
+          "category": "effect",
+          "title": "recycle 回收",
+          "difficulty": "中",
+          "rift9Order": 58
+        },
+        {
+          "id": "cost.xp",
+          "category": "cost",
+          "title": "支付 XP",
+          "difficulty": "中",
+          "rift9Order": 60
+        },
+        {
+          "id": "choice.order",
+          "category": "choice",
+          "title": "牌序 / 多事件排序",
+          "difficulty": "高",
+          "rift9Order": 64
+        },
+        {
+          "id": "effect.order",
+          "category": "effect",
+          "title": "排序 / 放回牌库",
+          "difficulty": "中",
+          "rift9Order": 65
+        },
+        {
+          "id": "trigger.delayed",
+          "category": "trigger",
+          "title": "延迟触发注册",
+          "difficulty": "高",
+          "rift9Order": 76
+        }
+      ],
+      "gaps": {
+        "unclassifiedCards": [
+          {
+            "canon": "card.hash-ea5887640ac2868198c368d889903ebf8fd5895f4ac0b6e2f8db54a5178aad74",
+            "name": "Gardens of Becoming",
+            "cardType": "Battlefield"
+          }
+        ],
+        "ruleReviewCards": [
+          {
+            "canonicalCardId": "card.hash-ea5887640ac2868198c368d889903ebf8fd5895f4ac0b6e2f8db54a5178aad74",
+            "name": "Gardens of Becoming",
+            "cardType": "Battlefield",
+            "blockers": [
+              "unmatched-functional-clause"
+            ]
+          }
+        ]
+      },
+      "officialCardList": [
+        {
+          "zone": "legend",
+          "canonicalCardId": "card.hash-d4c1740a3cac0cbe0b049d4705dd1cf67e9d7b241433c1fcfd3afc3288bd7084",
+          "name": "Gloomist",
+          "quantity": 1,
+          "cardType": "Legend",
+          "domains": [
+            "Calm",
+            "Chaos"
+          ]
+        },
+        {
+          "zone": "champion",
+          "canonicalCardId": "card.hash-716820b241f51e2a45c749824d33ddeaa97919c6443d116c499135360b20184c",
+          "name": "Vex, Apathetic",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Chaos"
+          ],
+          "note": "champion option"
+        },
+        {
+          "zone": "champion",
+          "canonicalCardId": "card.hash-f53634b94e6fae93d877ca3bb7f92c97c1f881953a9d82fc5a297b398f35d3ad",
+          "name": "Vex, Cheerless",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Chaos"
+          ],
+          "note": "champion option"
+        },
+        {
+          "zone": "champion",
+          "canonicalCardId": "card.hash-6c81da534f503cae7bc5118d6be12f7c349fa24deecee1dad3aff06abb20eefd",
+          "name": "Vex, Mocking",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Calm"
+          ],
+          "note": "champion option"
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-772d03e9b0b696718afe836a8028877765e2a10ff2fd39781dc7d52e3b05e8b8",
+          "name": "Mutated Mouser",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Calm"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-f6fc6f5dbe6ceebe1e128bfe16a67f81a7cc149370db212b7fbda2bbd71599e4",
+          "name": "Monch",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Calm"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-2ac2d6f3f32c301570d1dfe70ea13dd6550a4c9e791dee4da9ddfc79cc63a87c",
+          "name": "Existential Dread",
+          "quantity": 2,
+          "cardType": "Spell",
+          "domains": [
+            "Chaos"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-bd653b8aaef730f2cda1c769f847ec6222a08a3ec41066a74de13321000d898d",
+          "name": "Allay, Eager Admirer",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Calm"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-8976907cb3568b5c00ce51faf4a35f8342adffe884444d535f12324bb4ae3778",
+          "name": "Back Off",
+          "quantity": 3,
+          "cardType": "Spell",
+          "domains": [
+            "Calm"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-c887e5d6b316e9709bd403596c8e7217fa050f03dc482385655b7654202cea8d",
+          "name": "Enthusiastic Promoter",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Calm"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-2becbc4280283ab4687ffaf051fc67d926dcc7f221810d14f31c9181a9b5cd0e",
+          "name": "Trevor Snoozebottom",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Calm"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-3ffea48ff592a10eca59908e205019c7f50fddff02d49b1eede58694d9b2b348",
+          "name": "Blast Cone",
+          "quantity": 2,
+          "cardType": "Gear",
+          "domains": [
+            "Chaos"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-1c5a34df03f1f2101ee472f6d3fd4673e56683b49f28e64e3d9d4291bc6d8448",
+          "name": "Megatusk",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Chaos"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-650842dbdfc1ff881b1b846ecbefb168d4230c218aa64ca678d3a085546fd872",
+          "name": "Evelynn, Entrancing",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Chaos"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-a9a744726a85225a5f09812cc8545795d64c7f24f2a06e46af7895230c6deeb2",
+          "name": "Nami, Headstrong",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Calm"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-0167db5ef0a7cb8ad9866e8d7785e98b8be61001fe1303b0a80af41c6bdfffcc",
+          "name": "Iascylla",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Calm"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-4c764cb6248ef9337fc1c8769d4b74fc1d4c1fff6a9e8d00ca6753a560b3e74b",
+          "name": "Shadow",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Calm",
+            "Chaos"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-12391b1b0c8fa259528e28974f6a47bd51892b5b66931b7c3529759298d8deb7",
+          "name": "Scryer's Bloom",
+          "quantity": 1,
+          "cardType": "Gear",
+          "domains": [
+            "Chaos"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-87e2eedcbebff6711e1c1841d161efbe5d63d047836446fb4ececd034911f1be",
+          "name": "Soul Sword",
+          "quantity": 2,
+          "cardType": "Gear",
+          "domains": [
+            "Calm"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-2f32c6395b7dc0bd6975c6b7bb280cc4c1c63da74289ee612c41dd38e92b8074",
+          "name": "Mister Root",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Chaos"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-62a9f2d639b7330735e8fe37e90125f696cee6bef52e5005de3b0701be88e001",
+          "name": "Skyward Strike",
+          "quantity": 2,
+          "cardType": "Spell",
+          "domains": [
+            "Calm"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-9e75e74352d500dfa1b7c1192957a26c7b4c5e2cc9471eb6057e9d0147ebf803",
+          "name": "Combat Experience",
+          "quantity": 2,
+          "cardType": "Spell",
+          "domains": [
+            "Calm"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-31eb0f7b272ead3837c42e44cd4050722667b2142fc50acd5a91843a859b42cf",
+          "name": "Herald of Spring",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Calm"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-e074cc6d861492ad66a59dfbd4aee7f822557cbb0d0e6d32f02e2690c97a07a2",
+          "name": "Wuju Apprentice",
+          "quantity": 3,
+          "cardType": "Unit",
+          "domains": [
+            "Calm"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-3237f73ddd77661179f659d36e72559c7bdf667aadbeeb1a45d74e35b239ea35",
+          "name": "Mosstomper",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Calm"
+          ]
+        },
+        {
+          "zone": "battlefields",
+          "canonicalCardId": "card.hash-16deedb0db72d0ab2151c19d3fe3648037a218f76385c1a46853b273e5671102",
+          "name": "Amateur Recital",
+          "quantity": 1,
+          "cardType": "Battlefield",
+          "domains": [
+            "Colorless"
+          ]
+        },
+        {
+          "zone": "battlefields",
+          "canonicalCardId": "card.hash-ea5887640ac2868198c368d889903ebf8fd5895f4ac0b6e2f8db54a5178aad74",
+          "name": "Gardens of Becoming",
+          "quantity": 1,
+          "cardType": "Battlefield",
+          "domains": [
+            "Colorless"
+          ]
+        },
+        {
+          "zone": "battlefields",
+          "canonicalCardId": "card.hash-3d96eb343671872c717cc1217d0c5e82368ec20ade63cc420ecdaf7d9aee1cef",
+          "name": "Ripper's Bay",
+          "quantity": 1,
+          "cardType": "Battlefield",
+          "domains": [
+            "Colorless"
+          ]
+        },
+        {
+          "zone": "runes",
+          "canonicalCardId": "card.hash-efe5e5f4811f4089cd86b83cd6b8385613b0f469b2c2ae9f6b74a55ceb5cf0ed",
+          "name": "Calm Rune",
+          "quantity": 6,
+          "cardType": "Rune",
+          "domains": [
+            "Calm"
+          ]
+        },
+        {
+          "zone": "runes",
+          "canonicalCardId": "card.hash-055d9ad1c38fc05b800d053d3845209673f5397b39fb7bf76787adbc8cf42743",
+          "name": "Chaos Rune",
+          "quantity": 6,
+          "cardType": "Rune",
+          "domains": [
+            "Chaos"
+          ]
+        }
+      ],
+      "recommendedCardList": [
+        {
+          "zone": "legend",
+          "canonicalCardId": "card.hash-d4c1740a3cac0cbe0b049d4705dd1cf67e9d7b241433c1fcfd3afc3288bd7084",
+          "name": "Gloomist",
+          "quantity": 1,
+          "cardType": "Legend",
+          "domains": [
+            "Calm",
+            "Chaos"
+          ]
+        },
+        {
+          "zone": "champion",
+          "canonicalCardId": "card.hash-6c81da534f503cae7bc5118d6be12f7c349fa24deecee1dad3aff06abb20eefd",
+          "name": "Vex, Mocking",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Calm"
+          ],
+          "note": "chosen champion"
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-772d03e9b0b696718afe836a8028877765e2a10ff2fd39781dc7d52e3b05e8b8",
+          "name": "Mutated Mouser",
+          "quantity": 3,
+          "cardType": "Unit",
+          "domains": [
+            "Calm"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-f6fc6f5dbe6ceebe1e128bfe16a67f81a7cc149370db212b7fbda2bbd71599e4",
+          "name": "Monch",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Calm"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-2ac2d6f3f32c301570d1dfe70ea13dd6550a4c9e791dee4da9ddfc79cc63a87c",
+          "name": "Existential Dread",
+          "quantity": 3,
+          "cardType": "Spell",
+          "domains": [
+            "Chaos"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-bd653b8aaef730f2cda1c769f847ec6222a08a3ec41066a74de13321000d898d",
+          "name": "Allay, Eager Admirer",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Calm"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-8976907cb3568b5c00ce51faf4a35f8342adffe884444d535f12324bb4ae3778",
+          "name": "Back Off",
+          "quantity": 3,
+          "cardType": "Spell",
+          "domains": [
+            "Calm"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-c887e5d6b316e9709bd403596c8e7217fa050f03dc482385655b7654202cea8d",
+          "name": "Enthusiastic Promoter",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Calm"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-2becbc4280283ab4687ffaf051fc67d926dcc7f221810d14f31c9181a9b5cd0e",
+          "name": "Trevor Snoozebottom",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Calm"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-3ffea48ff592a10eca59908e205019c7f50fddff02d49b1eede58694d9b2b348",
+          "name": "Blast Cone",
+          "quantity": 2,
+          "cardType": "Gear",
+          "domains": [
+            "Chaos"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-1c5a34df03f1f2101ee472f6d3fd4673e56683b49f28e64e3d9d4291bc6d8448",
+          "name": "Megatusk",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Chaos"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-650842dbdfc1ff881b1b846ecbefb168d4230c218aa64ca678d3a085546fd872",
+          "name": "Evelynn, Entrancing",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Chaos"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-a9a744726a85225a5f09812cc8545795d64c7f24f2a06e46af7895230c6deeb2",
+          "name": "Nami, Headstrong",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Calm"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-0167db5ef0a7cb8ad9866e8d7785e98b8be61001fe1303b0a80af41c6bdfffcc",
+          "name": "Iascylla",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Calm"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-4c764cb6248ef9337fc1c8769d4b74fc1d4c1fff6a9e8d00ca6753a560b3e74b",
+          "name": "Shadow",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Calm",
+            "Chaos"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-12391b1b0c8fa259528e28974f6a47bd51892b5b66931b7c3529759298d8deb7",
+          "name": "Scryer's Bloom",
+          "quantity": 1,
+          "cardType": "Gear",
+          "domains": [
+            "Chaos"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-87e2eedcbebff6711e1c1841d161efbe5d63d047836446fb4ececd034911f1be",
+          "name": "Soul Sword",
+          "quantity": 3,
+          "cardType": "Gear",
+          "domains": [
+            "Calm"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-2f32c6395b7dc0bd6975c6b7bb280cc4c1c63da74289ee612c41dd38e92b8074",
+          "name": "Mister Root",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Chaos"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-62a9f2d639b7330735e8fe37e90125f696cee6bef52e5005de3b0701be88e001",
+          "name": "Skyward Strike",
+          "quantity": 2,
+          "cardType": "Spell",
+          "domains": [
+            "Calm"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-9e75e74352d500dfa1b7c1192957a26c7b4c5e2cc9471eb6057e9d0147ebf803",
+          "name": "Combat Experience",
+          "quantity": 2,
+          "cardType": "Spell",
+          "domains": [
+            "Calm"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-31eb0f7b272ead3837c42e44cd4050722667b2142fc50acd5a91843a859b42cf",
+          "name": "Herald of Spring",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Calm"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-e074cc6d861492ad66a59dfbd4aee7f822557cbb0d0e6d32f02e2690c97a07a2",
+          "name": "Wuju Apprentice",
+          "quantity": 3,
+          "cardType": "Unit",
+          "domains": [
+            "Calm"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-3237f73ddd77661179f659d36e72559c7bdf667aadbeeb1a45d74e35b239ea35",
+          "name": "Mosstomper",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Calm"
+          ]
+        },
+        {
+          "zone": "battlefields",
+          "canonicalCardId": "card.hash-16deedb0db72d0ab2151c19d3fe3648037a218f76385c1a46853b273e5671102",
+          "name": "Amateur Recital",
+          "quantity": 1,
+          "cardType": "Battlefield",
+          "domains": [
+            "Colorless"
+          ]
+        },
+        {
+          "zone": "battlefields",
+          "canonicalCardId": "card.hash-ea5887640ac2868198c368d889903ebf8fd5895f4ac0b6e2f8db54a5178aad74",
+          "name": "Gardens of Becoming",
+          "quantity": 1,
+          "cardType": "Battlefield",
+          "domains": [
+            "Colorless"
+          ]
+        },
+        {
+          "zone": "battlefields",
+          "canonicalCardId": "card.hash-3d96eb343671872c717cc1217d0c5e82368ec20ade63cc420ecdaf7d9aee1cef",
+          "name": "Ripper's Bay",
+          "quantity": 1,
+          "cardType": "Battlefield",
+          "domains": [
+            "Colorless"
+          ]
+        },
+        {
+          "zone": "runes",
+          "canonicalCardId": "card.hash-efe5e5f4811f4089cd86b83cd6b8385613b0f469b2c2ae9f6b74a55ceb5cf0ed",
+          "name": "Calm Rune",
+          "quantity": 6,
+          "cardType": "Rune",
+          "domains": [
+            "Calm"
+          ]
+        },
+        {
+          "zone": "runes",
+          "canonicalCardId": "card.hash-055d9ad1c38fc05b800d053d3845209673f5397b39fb7bf76787adbc8cf42743",
+          "name": "Chaos Rune",
+          "quantity": 6,
+          "cardType": "Rune",
+          "domains": [
+            "Chaos"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "vi-unl",
+      "name": "Vi (Piltover Enforcer)",
+      "product": "Unleashed Champion Deck",
+      "set": "unl",
+      "sourceUrl": "https://playriftbound.com/en-us/news/announcements/vi--vex-champion-decks/",
+      "legendDisplay": "Vi, Piltover Enforcer",
+      "legendCanonicalCardId": "card.hash-8e09f40d2b739aa2e5e38a58cb0c9b9a2682ab534807bcc62c90206e763d6856",
+      "legendDomains": [
+        "Fury",
+        "Order"
+      ],
+      "championOptions": [
+        "Vi, Destructive",
+        "Vi, Hotheaded",
+        "Vi, Peacekeeper"
+      ],
+      "chosenChampion": "Vi, Peacekeeper",
+      "officialTotal": 35,
+      "finalAdjustment": "官方清单为 35 张（ready-to-tweak，留空位）。推荐定稿：Vault Breaker/Loyal Poro/Square Up/Carrion Dredger 各补到 3 张，主牌组 39 张 + Champion 区 1 张选定冠军（Vi, Peacekeeper）= 40。",
+      "stats": {
+        "identityCount": 26,
+        "primitiveCount": 47,
+        "judgeRequired": 26,
+        "unclassified": 2,
+        "noAbility": 0
+      },
+      "requiredPrimitives": [
+        {
+          "id": "cost.printed",
+          "category": "cost",
+          "title": "印刷费用；null 保留为无印刷值",
+          "difficulty": "中",
+          "rift9Order": 1
+        },
+        {
+          "id": "cost.activated",
+          "category": "cost",
+          "title": "激活费用与效果的边界",
+          "difficulty": "中",
+          "rift9Order": 2
+        },
+        {
+          "id": "cost.pay",
+          "category": "cost",
+          "title": "支付能量 / 指定域或通用 Power",
+          "difficulty": "中",
+          "rift9Order": 3
+        },
+        {
+          "id": "target.query",
+          "category": "target",
+          "title": "对象查询 / 选择与重验",
+          "difficulty": "中",
+          "rift9Order": 4
+        },
+        {
+          "id": "target.filter",
+          "category": "target",
+          "title": "类型 / 控制者 / 标签 / 数值筛选",
+          "difficulty": "中",
+          "rift9Order": 5
+        },
+        {
+          "id": "target.location",
+          "category": "target",
+          "title": "here / there / base / battlefield 引用",
+          "difficulty": "高",
+          "rift9Order": 6
+        },
+        {
+          "id": "effect.attach",
+          "category": "effect",
+          "title": "装备附着 / 重附着",
+          "difficulty": "高",
+          "rift9Order": 7
+        },
+        {
+          "id": "condition.predicate",
+          "category": "condition",
+          "title": "条件 / 布尔 / 逻辑分支",
+          "difficulty": "中",
+          "rift9Order": 8
+        },
+        {
+          "id": "continuous.combat",
+          "category": "continuous",
+          "title": "战斗伤害限制 / Tank / Backline",
+          "difficulty": "高",
+          "rift9Order": 9
+        },
+        {
+          "id": "continuous.duration",
+          "category": "continuous",
+          "title": "效果持续时间 / 清理",
+          "difficulty": "高",
+          "rift9Order": 10
+        },
+        {
+          "id": "continuous.might",
+          "category": "continuous",
+          "title": "Might 加减 / 设值 / 倍增",
+          "difficulty": "中",
+          "rift9Order": 11
+        },
+        {
+          "id": "continuous.timing",
+          "category": "continuous",
+          "title": "Action / Reaction / Ambush 时机",
+          "difficulty": "高",
+          "rift9Order": 12
+        },
+        {
+          "id": "effect.damage",
+          "category": "effect",
+          "title": "造成 / 分配伤害",
+          "difficulty": "中",
+          "rift9Order": 13
+        },
+        {
+          "id": "target.many",
+          "category": "target",
+          "title": "数量范围与集合分配",
+          "difficulty": "高",
+          "rift9Order": 14
+        },
+        {
+          "id": "choice.mode",
+          "category": "choice",
+          "title": "模式 / or / 分支选择",
+          "difficulty": "中",
+          "rift9Order": 15
+        },
+        {
+          "id": "condition.value",
+          "category": "condition",
+          "title": "动态数值 / 阈值 / X / 指代",
+          "difficulty": "高",
+          "rift9Order": 16
+        },
+        {
+          "id": "effect.zone",
+          "category": "effect",
+          "title": "跨区域移动与对象身份",
+          "difficulty": "高",
+          "rift9Order": 18
+        },
+        {
+          "id": "effect.draw",
+          "category": "effect",
+          "title": "抽牌",
+          "difficulty": "低",
+          "rift9Order": 19
+        },
+        {
+          "id": "trigger.play",
+          "category": "trigger",
+          "title": "打出自身 / 其他卡触发",
+          "difficulty": "高",
+          "rift9Order": 20
+        },
+        {
+          "id": "trigger.state",
+          "category": "trigger",
+          "title": "状态改变 / 其余事件触发",
+          "difficulty": "高",
+          "rift9Order": 21
+        },
+        {
+          "id": "trigger.combat",
+          "category": "trigger",
+          "title": "攻击 / 防守 / 战斗胜负触发",
+          "difficulty": "高",
+          "rift9Order": 22
+        },
+        {
+          "id": "effect.ready",
+          "category": "effect",
+          "title": "重置",
+          "difficulty": "低",
+          "rift9Order": 23
+        },
+        {
+          "id": "replacement.enter",
+          "category": "replacement",
+          "title": "入场 ready / exhausted",
+          "difficulty": "高",
+          "rift9Order": 24
+        },
+        {
+          "id": "condition.history",
+          "category": "condition",
+          "title": "本回合 / 次数 / Flow / Legion 历史",
+          "difficulty": "高",
+          "rift9Order": 25
+        },
+        {
+          "id": "continuous.movement",
+          "category": "continuous",
+          "title": "Ganking / 移动许可和限制",
+          "difficulty": "高",
+          "rift9Order": 26
+        },
+        {
+          "id": "continuous.restrict",
+          "category": "continuous",
+          "title": "一般许可 / 禁止 / 数量限制",
+          "difficulty": "高",
+          "rift9Order": 27
+        },
+        {
+          "id": "effect.move",
+          "category": "effect",
+          "title": "场上移动 / recall",
+          "difficulty": "高",
+          "rift9Order": 28
+        },
+        {
+          "id": "cost.exhaust",
+          "category": "cost",
+          "title": "横置自身或其他对象作为费用",
+          "difficulty": "中",
+          "rift9Order": 29
+        },
+        {
+          "id": "target.tax",
+          "category": "target",
+          "title": "Deflect 目标附加支付",
+          "difficulty": "高",
+          "rift9Order": 31
+        },
+        {
+          "id": "choice.optional",
+          "category": "choice",
+          "title": "may 可选执行",
+          "difficulty": "中",
+          "rift9Order": 32
+        },
+        {
+          "id": "effect.exhaust",
+          "category": "effect",
+          "title": "横置",
+          "difficulty": "低",
+          "rift9Order": 33
+        },
+        {
+          "id": "effect.token",
+          "category": "effect",
+          "title": "创建 / 打出 token",
+          "difficulty": "高",
+          "rift9Order": 35
+        },
+        {
+          "id": "trigger.score",
+          "category": "trigger",
+          "title": "Hold / Conquer / 计分触发",
+          "difficulty": "高",
+          "rift9Order": 36
+        },
+        {
+          "id": "effect.buff",
+          "category": "effect",
+          "title": "Buff 标记的添加 / 消耗",
+          "difficulty": "中",
+          "rift9Order": 37
+        },
+        {
+          "id": "effect.kill",
+          "category": "effect",
+          "title": "kill / 死亡处理",
+          "difficulty": "中",
+          "rift9Order": 39
+        },
+        {
+          "id": "cost.additional",
+          "category": "cost",
+          "title": "可选 / 强制附加费用及支付记录",
+          "difficulty": "中",
+          "rift9Order": 41
+        },
+        {
+          "id": "effect.resources",
+          "category": "effect",
+          "title": "增加 Energy / Power",
+          "difficulty": "中",
+          "rift9Order": 43
+        },
+        {
+          "id": "trigger.leave",
+          "category": "trigger",
+          "title": "死亡 / 离场 / Deathknell",
+          "difficulty": "高",
+          "rift9Order": 44
+        },
+        {
+          "id": "effect.stun",
+          "category": "effect",
+          "title": "Stun 状态",
+          "difficulty": "中",
+          "rift9Order": 45
+        },
+        {
+          "id": "target.player",
+          "category": "target",
+          "title": "玩家 / 对手选择",
+          "difficulty": "中",
+          "rift9Order": 46
+        },
+        {
+          "id": "cost.sacrifice",
+          "category": "cost",
+          "title": "消灭友方 / 自身作为费用",
+          "difficulty": "高",
+          "rift9Order": 49
+        },
+        {
+          "id": "replacement.event",
+          "category": "replacement",
+          "title": "would / instead 事件替代",
+          "difficulty": "高",
+          "rift9Order": 50
+        },
+        {
+          "id": "effect.discard",
+          "category": "effect",
+          "title": "弃牌",
+          "difficulty": "低",
+          "rift9Order": 52
+        },
+        {
+          "id": "effect.repeat",
+          "category": "effect",
+          "title": "重复 spell 效果",
+          "difficulty": "高",
+          "rift9Order": 53
+        },
+        {
+          "id": "effect.inspect",
+          "category": "effect",
+          "title": "查看 / 搜索卡库",
+          "difficulty": "中",
+          "rift9Order": 57
+        },
+        {
+          "id": "effect.recycle",
+          "category": "effect",
+          "title": "recycle 回收",
+          "difficulty": "中",
+          "rift9Order": 58
+        },
+        {
+          "id": "effect.heal",
+          "category": "effect",
+          "title": "清除伤害 / heal",
+          "difficulty": "中",
+          "rift9Order": 69
+        }
+      ],
+      "gaps": {
+        "unclassifiedCards": [
+          {
+            "canon": "card.hash-955bd858659e4d3eb8edfd20347a7496c51932de05cafd32fc71d86d94f96e47",
+            "name": "Hextech Gauntlets",
+            "cardType": "Gear"
+          },
+          {
+            "canon": "card.hash-6e703faa3d5dcede2068e4872e8021e824403fe96e25a18904960e6595699c35",
+            "name": "Tactical Retreat",
+            "cardType": "Spell"
+          }
+        ],
+        "ruleReviewCards": [
+          {
+            "canonicalCardId": "card.hash-955bd858659e4d3eb8edfd20347a7496c51932de05cafd32fc71d86d94f96e47",
+            "name": "Hextech Gauntlets",
+            "cardType": "Gear",
+            "blockers": [
+              "unmatched-functional-clause"
+            ]
+          },
+          {
+            "canonicalCardId": "card.hash-6e703faa3d5dcede2068e4872e8021e824403fe96e25a18904960e6595699c35",
+            "name": "Tactical Retreat",
+            "cardType": "Spell",
+            "blockers": [
+              "unmatched-functional-clause"
+            ]
+          }
+        ]
+      },
+      "officialCardList": [
+        {
+          "zone": "legend",
+          "canonicalCardId": "card.hash-8e09f40d2b739aa2e5e38a58cb0c9b9a2682ab534807bcc62c90206e763d6856",
+          "name": "Piltover Enforcer",
+          "quantity": 1,
+          "cardType": "Legend",
+          "domains": [
+            "Fury",
+            "Order"
+          ]
+        },
+        {
+          "zone": "champion",
+          "canonicalCardId": "card.hash-bcfd5b90d3252713ccfca0703a0d9aef17711a45ff2065bd68d7dd7822950b51",
+          "name": "Vi, Destructive",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Fury"
+          ],
+          "note": "champion option"
+        },
+        {
+          "zone": "champion",
+          "canonicalCardId": "card.hash-8cb7905705a7f0e4995a084c0d8fa96d23d5387f51a0294a9e8cdc4250cb4b83",
+          "name": "Vi, Hotheaded",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Fury"
+          ],
+          "note": "champion option"
+        },
+        {
+          "zone": "champion",
+          "canonicalCardId": "card.hash-940239e930273675dbfef51d216846a7ba2391c6eb507a28893f250c32eee6cd",
+          "name": "Vi, Peacekeeper",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Order"
+          ],
+          "note": "champion option"
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-b80a5751bd715a9eea06f849357e5792330b5cc9e83d549c928891740c31e9d8",
+          "name": "Vault Breaker",
+          "quantity": 2,
+          "cardType": "Spell",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-90eefb9ab8b0769620abebf96a6feb3bfd91535bf652b0311542f4d61d68a2e7",
+          "name": "Inferna",
+          "quantity": 3,
+          "cardType": "Unit",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-189fb540b58840dbea672bf530705d9fc1548c9fb015ca1b98912e7e4bff7fc1",
+          "name": "Loyal Poro",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Order"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-202a6a8d0996a1526ced8874bdc194188d33ba1a216fb691a29e5fd4a678afd7",
+          "name": "Crimson Pigeons",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Order"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-a9d231899d6f3cc46b5f8d00320977ba937b799647d39e1c0b6ccf4ddb83b162",
+          "name": "Sharkling",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-e4dc01dd2f105796f021b575a0dcf055c0b996025247706f3605affedf193ce6",
+          "name": "Square Up",
+          "quantity": 2,
+          "cardType": "Spell",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-955bd858659e4d3eb8edfd20347a7496c51932de05cafd32fc71d86d94f96e47",
+          "name": "Hextech Gauntlets",
+          "quantity": 1,
+          "cardType": "Gear",
+          "domains": [
+            "Fury",
+            "Order"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-ac792fa285c45d86be2109bf1f688aa066f3a5d5e837443e35ddfd35df6c6392",
+          "name": "Right of Conquest",
+          "quantity": 2,
+          "cardType": "Spell",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-42a7a3191d0a9e6cd6ac270c7dc6e9f36ee510fbfccf82e3b005ffd797864187",
+          "name": "Arena Kingpin",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-7fca30537894dafdae14a16780cb746b71b61799934fb26663599e56c55fe2bd",
+          "name": "Lord Broadmane",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-236b348b03423e44bd4951c615315452d5da4f0e0be98b47ebafeddb51fe1f8a",
+          "name": "Towering Pairofant",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-372a2d2a0b9116fc9b30d8a6f4899848963d12a45cf804935f7f8f9d355c80be",
+          "name": "Yeti Brawler",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-eecb1b7c0e454c85db65c33eaab1cd2d826115fe40c063e70baa81ad2bf8a7d7",
+          "name": "Carrion Dredger",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Order"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-aefc9e1b1b204e123d076f130b2b9b284f4a1f64a08fa9127a1a92c95ff3f6d9",
+          "name": "Rengar, Unseen",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-2d46595233b37a0868857eab035ad4fa4dc53fc8c932d35ad32cca2c54ff06d2",
+          "name": "Serrated Dirk",
+          "quantity": 2,
+          "cardType": "Gear",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-6e703faa3d5dcede2068e4872e8021e824403fe96e25a18904960e6595699c35",
+          "name": "Tactical Retreat",
+          "quantity": 1,
+          "cardType": "Spell",
+          "domains": [
+            "Order"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-936666b1ffbf93681f930f27e502217a077f8c82e423bac72257ce1acaf12420",
+          "name": "Divining Shells",
+          "quantity": 2,
+          "cardType": "Gear",
+          "domains": [
+            "Order"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-b160c71d3dd5254b9c98867feb0f67b7805cefc8624fcf4d00f8f427ab3be532",
+          "name": "Mageseeker Investigator",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Order"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-df5f8cc7c386af601102e9b0239a7e699523e75147d4cf3cfa84225e77cdc759",
+          "name": "Xerath, Freed",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-f114e7d87a034d2ab43ead3320c3723924539deedb6f03584549c1f824a5c6c5",
+          "name": "Upstage Comedy",
+          "quantity": 1,
+          "cardType": "Spell",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-1874eb10cc2af76bced76159e28914196dd012c232435193372275264084a018",
+          "name": "Soul Harvest",
+          "quantity": 1,
+          "cardType": "Spell",
+          "domains": [
+            "Order"
+          ]
+        },
+        {
+          "zone": "battlefields",
+          "canonicalCardId": "card.hash-7a01ecd3aa462214de6a41d9b27507498954ccd6e7095b6e731dbe742c275f90",
+          "name": "Trapping Grounds",
+          "quantity": 1,
+          "cardType": "Battlefield",
+          "domains": [
+            "Colorless"
+          ]
+        },
+        {
+          "zone": "battlefields",
+          "canonicalCardId": "card.hash-947f958ba5d9376078dbb3ffcb143e3e833bc4d2ed24f6d6bb472e1c5d8f256b",
+          "name": "Star Spring",
+          "quantity": 1,
+          "cardType": "Battlefield",
+          "domains": [
+            "Colorless"
+          ]
+        },
+        {
+          "zone": "battlefields",
+          "canonicalCardId": "card.hash-8bf10670367f6b61f3c498325e7f4439d4e2341b2c8c6d47e1771e902955a174",
+          "name": "Valley of Idols",
+          "quantity": 1,
+          "cardType": "Battlefield",
+          "domains": [
+            "Colorless"
+          ]
+        },
+        {
+          "zone": "runes",
+          "canonicalCardId": "card.hash-e0efe08be77e60ed68f2e43ba425b763efd364eb44b0c760d26ef1fcc1b6df67",
+          "name": "Order Rune",
+          "quantity": 6,
+          "cardType": "Rune",
+          "domains": [
+            "Order"
+          ]
+        },
+        {
+          "zone": "runes",
+          "canonicalCardId": "card.hash-30497c69657abd1d3abf17f9b3766e7d064817473a88828ca2ef4ab9b51f7902",
+          "name": "Fury Rune",
+          "quantity": 6,
+          "cardType": "Rune",
+          "domains": [
+            "Fury"
+          ]
+        }
+      ],
+      "recommendedCardList": [
+        {
+          "zone": "legend",
+          "canonicalCardId": "card.hash-8e09f40d2b739aa2e5e38a58cb0c9b9a2682ab534807bcc62c90206e763d6856",
+          "name": "Piltover Enforcer",
+          "quantity": 1,
+          "cardType": "Legend",
+          "domains": [
+            "Fury",
+            "Order"
+          ]
+        },
+        {
+          "zone": "champion",
+          "canonicalCardId": "card.hash-940239e930273675dbfef51d216846a7ba2391c6eb507a28893f250c32eee6cd",
+          "name": "Vi, Peacekeeper",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Order"
+          ],
+          "note": "chosen champion"
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-b80a5751bd715a9eea06f849357e5792330b5cc9e83d549c928891740c31e9d8",
+          "name": "Vault Breaker",
+          "quantity": 3,
+          "cardType": "Spell",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-90eefb9ab8b0769620abebf96a6feb3bfd91535bf652b0311542f4d61d68a2e7",
+          "name": "Inferna",
+          "quantity": 3,
+          "cardType": "Unit",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-189fb540b58840dbea672bf530705d9fc1548c9fb015ca1b98912e7e4bff7fc1",
+          "name": "Loyal Poro",
+          "quantity": 3,
+          "cardType": "Unit",
+          "domains": [
+            "Order"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-202a6a8d0996a1526ced8874bdc194188d33ba1a216fb691a29e5fd4a678afd7",
+          "name": "Crimson Pigeons",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Order"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-a9d231899d6f3cc46b5f8d00320977ba937b799647d39e1c0b6ccf4ddb83b162",
+          "name": "Sharkling",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-e4dc01dd2f105796f021b575a0dcf055c0b996025247706f3605affedf193ce6",
+          "name": "Square Up",
+          "quantity": 3,
+          "cardType": "Spell",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-955bd858659e4d3eb8edfd20347a7496c51932de05cafd32fc71d86d94f96e47",
+          "name": "Hextech Gauntlets",
+          "quantity": 1,
+          "cardType": "Gear",
+          "domains": [
+            "Fury",
+            "Order"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-ac792fa285c45d86be2109bf1f688aa066f3a5d5e837443e35ddfd35df6c6392",
+          "name": "Right of Conquest",
+          "quantity": 2,
+          "cardType": "Spell",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-42a7a3191d0a9e6cd6ac270c7dc6e9f36ee510fbfccf82e3b005ffd797864187",
+          "name": "Arena Kingpin",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-7fca30537894dafdae14a16780cb746b71b61799934fb26663599e56c55fe2bd",
+          "name": "Lord Broadmane",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-236b348b03423e44bd4951c615315452d5da4f0e0be98b47ebafeddb51fe1f8a",
+          "name": "Towering Pairofant",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-372a2d2a0b9116fc9b30d8a6f4899848963d12a45cf804935f7f8f9d355c80be",
+          "name": "Yeti Brawler",
+          "quantity": 2,
+          "cardType": "Unit",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-eecb1b7c0e454c85db65c33eaab1cd2d826115fe40c063e70baa81ad2bf8a7d7",
+          "name": "Carrion Dredger",
+          "quantity": 3,
+          "cardType": "Unit",
+          "domains": [
+            "Order"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-aefc9e1b1b204e123d076f130b2b9b284f4a1f64a08fa9127a1a92c95ff3f6d9",
+          "name": "Rengar, Unseen",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-2d46595233b37a0868857eab035ad4fa4dc53fc8c932d35ad32cca2c54ff06d2",
+          "name": "Serrated Dirk",
+          "quantity": 2,
+          "cardType": "Gear",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-6e703faa3d5dcede2068e4872e8021e824403fe96e25a18904960e6595699c35",
+          "name": "Tactical Retreat",
+          "quantity": 1,
+          "cardType": "Spell",
+          "domains": [
+            "Order"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-936666b1ffbf93681f930f27e502217a077f8c82e423bac72257ce1acaf12420",
+          "name": "Divining Shells",
+          "quantity": 2,
+          "cardType": "Gear",
+          "domains": [
+            "Order"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-b160c71d3dd5254b9c98867feb0f67b7805cefc8624fcf4d00f8f427ab3be532",
+          "name": "Mageseeker Investigator",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Order"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-df5f8cc7c386af601102e9b0239a7e699523e75147d4cf3cfa84225e77cdc759",
+          "name": "Xerath, Freed",
+          "quantity": 1,
+          "cardType": "Unit",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-f114e7d87a034d2ab43ead3320c3723924539deedb6f03584549c1f824a5c6c5",
+          "name": "Upstage Comedy",
+          "quantity": 1,
+          "cardType": "Spell",
+          "domains": [
+            "Fury"
+          ]
+        },
+        {
+          "zone": "mainDeck",
+          "canonicalCardId": "card.hash-1874eb10cc2af76bced76159e28914196dd012c232435193372275264084a018",
+          "name": "Soul Harvest",
+          "quantity": 1,
+          "cardType": "Spell",
+          "domains": [
+            "Order"
+          ]
+        },
+        {
+          "zone": "battlefields",
+          "canonicalCardId": "card.hash-7a01ecd3aa462214de6a41d9b27507498954ccd6e7095b6e731dbe742c275f90",
+          "name": "Trapping Grounds",
+          "quantity": 1,
+          "cardType": "Battlefield",
+          "domains": [
+            "Colorless"
+          ]
+        },
+        {
+          "zone": "battlefields",
+          "canonicalCardId": "card.hash-947f958ba5d9376078dbb3ffcb143e3e833bc4d2ed24f6d6bb472e1c5d8f256b",
+          "name": "Star Spring",
+          "quantity": 1,
+          "cardType": "Battlefield",
+          "domains": [
+            "Colorless"
+          ]
+        },
+        {
+          "zone": "battlefields",
+          "canonicalCardId": "card.hash-8bf10670367f6b61f3c498325e7f4439d4e2341b2c8c6d47e1771e902955a174",
+          "name": "Valley of Idols",
+          "quantity": 1,
+          "cardType": "Battlefield",
+          "domains": [
+            "Colorless"
+          ]
+        },
+        {
+          "zone": "runes",
+          "canonicalCardId": "card.hash-e0efe08be77e60ed68f2e43ba425b763efd364eb44b0c760d26ef1fcc1b6df67",
+          "name": "Order Rune",
+          "quantity": 6,
+          "cardType": "Rune",
+          "domains": [
+            "Order"
+          ]
+        },
+        {
+          "zone": "runes",
+          "canonicalCardId": "card.hash-30497c69657abd1d3abf17f9b3766e7d064817473a88828ca2ef4ab9b51f7902",
+          "name": "Fury Rune",
+          "quantity": 6,
+          "cardType": "Rune",
+          "domains": [
+            "Fury"
+          ]
+        }
+      ]
+    }
+  ],
+  "recommended": [
+    "rumble-sfd",
+    "fiora-sfd",
+    "vex-unl",
+    "vi-unl"
+  ]
+}

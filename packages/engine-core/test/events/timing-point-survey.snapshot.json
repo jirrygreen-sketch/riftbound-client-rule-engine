@@ -1,0 +1,305 @@
+{
+  "surveySha256": "d70df5ed938ef2cb1544ec6bc0485aea1d5181890127dae28857f84e87cb12de",
+  "legacyIds": [
+    "turn-start",
+    "awaken-start",
+    "awaken-end",
+    "beginning-start",
+    "beginning-end",
+    "channel-start",
+    "channel-end",
+    "draw-start",
+    "draw-end",
+    "main-start",
+    "main-end",
+    "turn-end",
+    "cleanup-start",
+    "cleanup-end",
+    "object-enters-zone",
+    "object-leaves-zone",
+    "object-enters-board",
+    "object-leaves-board",
+    "object-enters-battlefield",
+    "object-leaves-battlefield",
+    "object-enters-base",
+    "object-leaves-base",
+    "object-enters-deck",
+    "object-leaves-deck",
+    "object-enters-hand",
+    "object-leaves-hand",
+    "object-enters-rune-deck",
+    "object-leaves-rune-deck",
+    "object-enters-rune-zone",
+    "object-leaves-rune-zone",
+    "object-enters-trash",
+    "object-leaves-trash",
+    "object-enters-banishment",
+    "object-leaves-banishment",
+    "object-enters-chain",
+    "object-leaves-chain",
+    "card-played",
+    "became-target",
+    "object-killed",
+    "object-readied",
+    "object-exhausted",
+    "attack-declared",
+    "defense-declared",
+    "showdown-open",
+    "combat-damage-before",
+    "combat-damage-after",
+    "showdown-close",
+    "combat-end",
+    "chain-item-pending",
+    "chain-item-finalize",
+    "chain-item-resolve",
+    "control-established",
+    "control-lost",
+    "conquer",
+    "hold",
+    "score",
+    "final-point"
+  ],
+  "templateRows": [
+    {
+      "templateId": "kw-deathknell",
+      "identityCount": 29,
+      "timingPointIds": [
+        "object-killed"
+      ],
+      "ruleRefs": [
+        "808.1.c",
+        "808.1.d"
+      ]
+    },
+    {
+      "templateId": "kw-temporary",
+      "identityCount": 24,
+      "timingPointIds": [
+        "beginning-start"
+      ],
+      "ruleRefs": [
+        "816.1.b"
+      ]
+    },
+    {
+      "templateId": "kw-vision",
+      "identityCount": 9,
+      "timingPointIds": [
+        "card-played"
+      ],
+      "ruleRefs": [
+        "817.1.b"
+      ]
+    },
+    {
+      "templateId": "kw-hunt",
+      "identityCount": 12,
+      "timingPointIds": [
+        "conquer",
+        "hold"
+      ],
+      "ruleRefs": [
+        "823.1.c.1"
+      ]
+    },
+    {
+      "templateId": "kw-quick-draw",
+      "identityCount": 5,
+      "timingPointIds": [
+        "card-played"
+      ],
+      "ruleRefs": [
+        "819.1.d"
+      ]
+    },
+    {
+      "templateId": "kw-weaponmaster",
+      "identityCount": 12,
+      "timingPointIds": [
+        "card-played"
+      ],
+      "ruleRefs": [
+        "821.1.c"
+      ]
+    },
+    {
+      "templateId": "kw-disarm",
+      "identityCount": 7,
+      "timingPointIds": [
+        "attack-declared"
+      ],
+      "ruleRefs": [
+        "831.1.d"
+      ]
+    },
+    {
+      "templateId": "trigger-play",
+      "identityCount": 231,
+      "timingPointIds": [
+        "card-played"
+      ],
+      "ruleRefs": [
+        "383.4.a"
+      ]
+    },
+    {
+      "templateId": "trigger-leave",
+      "identityCount": 18,
+      "timingPointIds": [
+        "object-killed",
+        "object-leaves-board"
+      ],
+      "ruleRefs": [
+        "383.2.c.3",
+        "383.2.c.3.a"
+      ]
+    },
+    {
+      "templateId": "trigger-combat",
+      "identityCount": 61,
+      "timingPointIds": [
+        "attack-declared",
+        "defense-declared",
+        "combat-start",
+        "combat-result",
+        "combat-end",
+        "showdown-open"
+      ],
+      "ruleRefs": [
+        "383.4.e",
+        "383.4.f",
+        "466.2.b",
+        "468.3",
+        "468.7.b"
+      ]
+    },
+    {
+      "templateId": "trigger-score",
+      "identityCount": 93,
+      "timingPointIds": [
+        "conquer",
+        "hold",
+        "score"
+      ],
+      "ruleRefs": [
+        "471.1",
+        "471.2",
+        "473.2"
+      ]
+    },
+    {
+      "templateId": "trigger-phase",
+      "identityCount": 30,
+      "timingPointIds": [
+        "beginning-start",
+        "main-start",
+        "turn-end"
+      ],
+      "ruleRefs": [
+        "315.2.a.1",
+        "316.4",
+        "317.1.a"
+      ]
+    },
+    {
+      "templateId": "trigger-move",
+      "identityCount": 51,
+      "timingPointIds": [
+        "object-moved"
+      ],
+      "ruleRefs": [
+        "421.1",
+        "449"
+      ]
+    },
+    {
+      "templateId": "trigger-state",
+      "identityCount": 420,
+      "timingPointIds": [
+        "card-played",
+        "object-killed",
+        "object-leaves-board",
+        "object-enters-hand",
+        "object-moved",
+        "object-readied",
+        "object-exhausted",
+        "became-target",
+        "attack-declared",
+        "defense-declared",
+        "conquer",
+        "hold",
+        "score",
+        "combat-start",
+        "combat-result",
+        "combat-end",
+        "showdown-open",
+        "card-drawn",
+        "card-discarded",
+        "damage-dealt",
+        "unit-stunned",
+        "buff-added",
+        "buff-spent",
+        "empowered-changed",
+        "card-recycled",
+        "card-banished",
+        "card-hidden",
+        "card-burned",
+        "cards-looked-at",
+        "object-attached",
+        "might-changed",
+        "ability-activated"
+      ],
+      "ruleRefs": [
+        "383.1",
+        "383.2.c"
+      ]
+    },
+    {
+      "templateId": "delayed",
+      "identityCount": 2,
+      "timingPointIds": [
+        "main-start"
+      ],
+      "ruleRefs": [
+        "391.2",
+        "393"
+      ]
+    }
+  ],
+  "mappedObservationCount": 484,
+  "exceptionKeys": [
+    "ogn-023-298:The next time it dies this turn",
+    "ogn-077-298:The next time a friendly unit would die",
+    "ogn-269-298:When a buffed unit you control would die",
+    "ogs-020-024:The next time it dies this turn",
+    "sfd-194-221:The next time that unit would be dealt damage this turn",
+    "unl-175-219:The next time it would die this turn",
+    "ven-036-166:at the start of their Channel Phase."
+  ],
+  "newPointTriggerCounts": {
+    "object-moved": 37,
+    "card-drawn": 2,
+    "card-discarded": 3,
+    "damage-dealt": 2,
+    "unit-stunned": 3,
+    "xp-gained": 0,
+    "buff-added": 2,
+    "buff-spent": 1,
+    "empowered-changed": 6,
+    "contested-applied": 0,
+    "contested-removed": 0,
+    "card-recycled": 2,
+    "card-banished": 1,
+    "card-revealed": 0,
+    "objects-shown-off": 0,
+    "card-hidden": 2,
+    "card-burned": 1,
+    "cards-looked-at": 1,
+    "object-attached": 2,
+    "might-changed": 4,
+    "ability-activated": 1,
+    "combat-start": 1,
+    "combat-result": 8,
+    "points-gained": 0
+  }
+}

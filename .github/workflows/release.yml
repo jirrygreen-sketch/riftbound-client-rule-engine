@@ -1,0 +1,333 @@
+# Builds the Tauri desktop installers for a release tag and attaches them to the
+# matching GitHub Release.
+#
+# Triggered by a "v*" tag push, or by a manual dispatch that names an existing
+# tag. The toolchain pins (Node 22.21.1, pnpm 11.9.0, Rust 1.90.0) are copied
+# from .github/workflows/desktop-build.yml so a release build cannot drift from
+# the desktop build that is already exercised in CI.
+name: Release desktop installers
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to release, for example v0.4.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Prepare release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Resolve the tag and make sure the release exists
+        id: resolve
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REQUESTED_TAG: ${{ github.event.inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
+            tag="$(printf '%s' "${REQUESTED_TAG}" | tr -d '[:space:]')"
+          else
+            tag="${REF_NAME}"
+          fi
+
+          if ! printf '%s' "${tag}" | grep -Eq '^v[0-9A-Za-z][0-9A-Za-z._-]*$'; then
+            echo "::error::Refusing to release '${tag}': expected an existing tag such as v0.4.0."
+            exit 1
+          fi
+
+          tag_refs="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/git/matching-refs/tags/${tag}" --jq '.[].ref')"
+          if ! grep -qx "refs/tags/${tag}" <<<"${tag_refs}"; then
+            echo "::error::Tag '${tag}' does not exist in ${GITHUB_REPOSITORY}; push the tag first."
+            exit 1
+          fi
+
+          # Every call passes an explicit repo, so this job needs no checkout.
+          if gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" >/dev/null 2>&1; then
+            echo "Release ${tag} already exists; the installers will be attached to it."
+          else
+            echo "Release ${tag} does not exist yet; creating a draft release."
+            jq -n --arg tag "${tag}" \
+              '{tag_name: $tag, name: $tag, draft: true, generate_release_notes: true}' \
+              >"${RUNNER_TEMP}/create-release.json"
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/releases" \
+              --input "${RUNNER_TEMP}/create-release.json" >/dev/null
+          fi
+
+          echo "tag=${tag}" >>"${GITHUB_OUTPUT}"
+
+      - name: Append the unsigned build notice
+        shell: bash
+        env:
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          marker='<!-- unsigned-release-notice -->'
+          notice="${RUNNER_TEMP}/unsigned-release-notice.md"
+          body="${RUNNER_TEMP}/release-body.md"
+
+          {
+            echo '<!-- unsigned-release-notice -->'
+            echo '## Unsigned builds'
+            echo
+            echo 'These installers are **not code-signed or notarized**, so macOS Gatekeeper and Windows SmartScreen warn on the first launch. Verify every download against the sibling SHA256 file before allowing it to run.'
+            echo
+            echo '### macOS (DMG)'
+            echo
+            echo '1. Open the DMG and drag Riftbound Desktop Client.app into Applications.'
+            echo '2. Right-click the app inside Applications, choose **Open**, then confirm **Open**. macOS remembers this exception afterwards.'
+            echo '3. If macOS keeps blocking the app, open **System Settings > Privacy & Security**, find the blocked-app notice for Riftbound, and choose **Open Anyway**.'
+            echo '4. Command-line fallback: xattr -dr com.apple.quarantine "/Applications/Riftbound Desktop Client.app"'
+            echo
+            echo '### Windows (NSIS EXE)'
+            echo
+            echo '1. Run the installer. If SmartScreen reports an unrecognized app, choose **More info**, then **Run anyway**.'
+            echo '2. If the browser or Microsoft Defender blocked the download, open the download entry, choose **Keep**, and run the installer again.'
+            echo
+            echo 'Checksums: each installer riftbound-desktop-<tag>-<os>-<arch>.<ext> is published next to riftbound-desktop-<tag>-<os>-<arch>.<ext>.sha256 (verify with shasum -a 256 -c on macOS, or certutil -hashfile <file> SHA256 on Windows).'
+          } >"${notice}"
+
+          release="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}")"
+          release_id="$(jq -r '.id' <<<"${release}")"
+          existing="$(jq -r '.body // ""' <<<"${release}")"
+          if grep -qF "${marker}" <<<"${existing}"; then
+            echo "The unsigned build notice is already on ${TAG}; leaving the notes untouched."
+            exit 0
+          fi
+
+          if [ -n "${existing}" ]; then
+            printf '%s\n\n' "${existing}" >"${body}"
+          else
+            : >"${body}"
+          fi
+          cat "${notice}" >>"${body}"
+          # PATCH only the body so the draft/published state of the release is
+          # never changed as a side effect of adding the notice.
+          jq -n --rawfile body "${body}" '{body: $body}' >"${RUNNER_TEMP}/release-body.json"
+          gh api -X PATCH "repos/${GITHUB_REPOSITORY}/releases/${release_id}" \
+            --input "${RUNNER_TEMP}/release-body.json" >/dev/null
+          echo "Appended the unsigned build notice to ${TAG}."
+
+  build:
+    name: Build ${{ matrix.os }} ${{ matrix.arch }}
+    needs: prepare
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Both macOS entries run on macos-latest and pin the packaged
+          # architecture with --target, so releases do not depend on
+          # architecture-specific runner labels staying available.
+          - os: macos
+            arch: arm64
+            runner: macos-latest
+            target: aarch64-apple-darwin
+            bundles: dmg
+            pattern: "*.dmg"
+          - os: macos
+            arch: x64
+            runner: macos-latest
+            target: x86_64-apple-darwin
+            bundles: dmg
+            pattern: "*.dmg"
+          - os: windows
+            arch: x64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+            pattern: "*-setup.exe"
+    steps:
+      - name: Check out the released tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.tag }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+          run_install: false
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.21.1
+          cache: pnpm
+
+      # Pinned to the same version as apps/desktop-client/src-tauri/rust-toolchain.toml
+      # and Cargo.toml rust-version = "1.90", so CI cannot drift onto a newer stable.
+      - name: Install Rust 1.90.0 (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          rustup toolchain install 1.90.0 --profile minimal --no-self-update
+          rustup default 1.90.0
+          rustup target add --toolchain 1.90.0 ${{ matrix.target }}
+          rustup show
+          rustc --version
+          cargo --version
+
+      - name: Install Rust 1.90.0 MSVC (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          rustup toolchain install 1.90.0-x86_64-pc-windows-msvc --profile minimal --no-self-update
+          rustup default 1.90.0-x86_64-pc-windows-msvc
+          rustup target add --toolchain 1.90.0-x86_64-pc-windows-msvc ${{ matrix.target }}
+          rustup show
+          rustc --version
+          cargo --version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify CI receives no locally synchronized card data
+        shell: bash
+        run: |
+          ignored=(
+            "packages/card-data/data/catalog.json"
+            "packages/card-data/data/deck-catalog.json"
+            "packages/card-data/data/images-manifest.json"
+          )
+          for path in "${ignored[@]}"; do
+            if [ -e "${path}" ]; then
+              echo "::error::CI checkout contains ignored card data: ${path}"
+              exit 1
+            fi
+          done
+          if [ -e "packages/card-data/data/images" ]; then
+            echo "::error::CI checkout contains the ignored card image cache."
+            exit 1
+          fi
+          echo "No locally synchronized card data or image cache in the checkout."
+
+      # Same workspace build as desktop-build.yml. apps/desktop-client/tsconfig.json
+      # lists ../../packages/protocol as a composite project reference, so
+      # packages/protocol/dist must exist before the client is type-checked;
+      # without this the client build fails with TS6305. Running the package
+      # "build" scripts (not a bare tsc) also fires any prebuild hook that
+      # generates a gitignored index, such as the planned registry.generated.ts.
+      - name: Build the workspace
+        run: pnpm build
+
+      - name: Build the desktop installer
+        run: >-
+          pnpm --filter @riftbound/desktop-client exec tauri build --ci --no-sign
+          --bundles ${{ matrix.bundles }} --target ${{ matrix.target }}
+
+      - name: Upload the installer for publishing
+        uses: actions/upload-artifact@v4
+        with:
+          name: riftbound-desktop-${{ matrix.os }}-${{ matrix.arch }}
+          path: apps/desktop-client/src-tauri/target/${{ matrix.target }}/release/bundle/${{ matrix.bundles }}/${{ matrix.pattern }}
+          if-no-files-found: error
+
+  publish:
+    name: Publish release assets
+    needs:
+      - prepare
+      - build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Download the built installers
+        uses: actions/download-artifact@v4
+        with:
+          path: incoming
+
+      - name: Rename the installers and write the SHA256 checksums
+        shell: bash
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+
+          stage() {
+            local artifact="$1" os="$2" arch="$3" ext="$4" pattern="$5"
+            local name="riftbound-desktop-${TAG}-${os}-${arch}.${ext}"
+            local dir="incoming/${artifact}"
+            local -a matches=()
+
+            mapfile -t matches < <(find "${dir}" -maxdepth 1 -type f -name "${pattern}" | sort)
+            if [ "${#matches[@]}" -ne 1 ]; then
+              echo "::error::Expected exactly one '${pattern}' in ${artifact}, found ${#matches[@]}."
+              find "${dir}" -type f | sort || true
+              exit 1
+            fi
+
+            cp "${matches[0]}" "release-assets/${name}"
+            ( cd release-assets && sha256sum "${name}" > "${name}.sha256" )
+            cat "release-assets/${name}.sha256"
+          }
+
+          stage riftbound-desktop-macos-arm64 macos arm64 dmg "*.dmg"
+          stage riftbound-desktop-macos-x64 macos x64 dmg "*.dmg"
+          stage riftbound-desktop-windows-x64 windows x64 exe "*-setup.exe"
+
+          ls -l release-assets
+
+      - name: Upload the assets to the release
+        shell: bash
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          assets=(release-assets/*)
+          if [ "${#assets[@]}" -ne 6 ]; then
+            echo "::error::Expected 3 installers and 3 checksum files, found a different count."
+            ls -l release-assets
+            exit 1
+          fi
+          gh release upload "${TAG}" "${assets[@]}" --clobber
+          gh release view "${TAG}" --json url,isDraft,assets --jq '"release: \(.url) draft=\(.isDraft)", (.assets[] | "asset: \(.name) (\(.size) bytes)")'
+
+      - name: Write the job summary
+        if: always()
+        shell: bash
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          {
+            echo "## Desktop release ${TAG}"
+            echo
+            echo "Installers and their SHA256 checksum files are attached to the GitHub Release."
+          } >>"${GITHUB_STEP_SUMMARY}"
+          # Every call passes an explicit repo, so this job works without a checkout.
+          if gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${tag}" >/dev/null 2>&1; then
+            echo "Release ${tag} already exists; the installers will be attached to it."
+          else
+            echo "Release ${tag} does not exist yet; creating a draft release."
+            jq -n --arg tag "${tag}" \
+              '{tag_name: $tag, name: $tag, draft: true, generate_release_notes: true}' \
+              >"${RUNNER_TEMP}/create-release.json"
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/releases" \
+              --input "${RUNNER_TEMP}/create-release.json" >/dev/null
+          fi

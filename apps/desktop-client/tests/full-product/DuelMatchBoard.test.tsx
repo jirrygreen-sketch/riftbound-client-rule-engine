@@ -105,6 +105,42 @@ function buttonTag(html: string, ariaLabel: string): string {
   return html.slice(open, close + 1);
 }
 
+function inspectButtonTags(html: string): readonly string[] {
+  return buttonTags(html).filter(button => button.includes('data-card-inspect-only="true"'));
+}
+
+function inspectButtonCardIds(html: string): readonly string[] {
+  return inspectButtonTags(html).map(button => {
+    const cardId = button.match(/data-card-id="([^"]+)"/)?.[1];
+    expect(button, "every inspect button must identify its visible card").toMatch(/data-card-id="[^"]+"/);
+    return cardId!;
+  });
+}
+
+function hiddenHandRegions(html: string): readonly string[] {
+  const regions: string[] = [];
+  let searchFrom = 0;
+  while (true) {
+    const start = html.indexOf('<div class="full-product-duel-hidden-hand"', searchFrom);
+    if (start === -1) return regions;
+    let end = start;
+    for (let closeCount = 0; closeCount < 2; closeCount += 1) {
+      end = html.indexOf("</div>", end) + "</div>".length;
+      if (end < "</div>".length) return regions;
+    }
+    regions.push(html.slice(start, end));
+    searchFrom = end;
+  }
+}
+
+function pileRegion(html: string, area: string): string {
+  const start = html.indexOf(`class="full-product-duel-mat-pile full-product-duel-mat-${area}"`);
+  if (start === -1) return "";
+  const open = html.lastIndexOf("<dl", start);
+  const close = html.indexOf("</dl>", start);
+  return html.slice(open, close === -1 ? html.length : close + "</dl>".length);
+}
+
 /*
  * Canonical Duel wire match, inlined from the 68-case checkpoint projection
  * sample (`public-duel-wire-contract-v1/canonical-projections.json`). The
@@ -930,6 +966,66 @@ describe("DuelMatchBoard card preview privacy", () => {
     const spectatorHtml = render({ ...baseProps, projection: spectator, resolveCardImage });
     expect(spectatorHtml).not.toContain("card.0.5");
   });
+});
+
+describe("DuelMatchBoard inspect-button privacy", () => {
+  const cases: readonly {
+    readonly label: string;
+    readonly projection: DuelProjection;
+    readonly hiddenCards: readonly DuelWireCard[];
+  }[] = [
+    {
+      label: "setup",
+      projection: setupProjection("p1", HAND_P1),
+      hiddenCards: HAND_P2
+    },
+    {
+      label: "playing",
+      projection: richPlayingProjection("p1"),
+      hiddenCards: HAND_P2
+    },
+    {
+      label: "spectator",
+      projection: richPlayingProjection(null),
+      hiddenCards: [...HAND_P1, ...HAND_P2]
+    },
+    {
+      label: "second seat",
+      projection: richPlayingViewer2(),
+      hiddenCards: HAND_P1
+    }
+  ];
+
+  for (const { label, projection, hiddenCards } of cases) {
+    it(`exposes inspect buttons only for visible projected cards (${label})`, () => {
+      const html = render({ ...baseProps, projection, resolveCardImage });
+      const inspectButtons = inspectButtonTags(html);
+      const visibleCardIds = new Set(duelVisibleCardIds(projection));
+      const hiddenOnlyCards = hiddenCards.filter(card => !visibleCardIds.has(card.cardId));
+
+      expect(inspectButtons.length, `${label} should have public inspect controls`).toBeGreaterThan(0);
+      for (const cardId of inspectButtonCardIds(html)) {
+        expect(visibleCardIds.has(cardId), `${label} inspect target ${cardId}`).toBe(true);
+      }
+
+      for (const region of hiddenHandRegions(html)) {
+        expect(region, `${label} hidden hand`).not.toContain("<button");
+      }
+      for (const area of ["main-deck", "rune-deck", "trash"]) {
+        expect(pileRegion(html, area), `${label} ${area}`).not.toContain("<button");
+      }
+
+      for (const hiddenCard of hiddenOnlyCards) {
+        const hiddenTitle = CARD_TITLES[hiddenCard.cardId]!;
+        const hiddenImage = `https://cards.example/${hiddenCard.cardId}.png`;
+        for (const button of inspectButtons) {
+          expect(button).not.toContain(hiddenCard.cardId);
+          expect(button).not.toContain(hiddenTitle);
+          expect(button).not.toContain(hiddenImage);
+        }
+      }
+    });
+  }
 });
 
 describe("DuelMatchBoard read-only card preview", () => {

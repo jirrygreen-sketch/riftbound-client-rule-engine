@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   assertTriggerSpec,
+  TIMING_POINTS,
   isEventPattern,
   isObjectFilter,
   isTriggerSpec,
@@ -53,4 +54,18 @@ test("rejects conflicting event discriminants and cyclic conditions", () => {
   const cyclic = validateTriggerSpec({ at: "score", filter: {}, condition });
   assert.equal(cyclic.ok, false);
   if (!cyclic.ok) assert.ok(cyclic.issues.some(issue => issue.code === "cyclic-condition"));
+});
+
+test("all card-triggerable timing points can be subscribed through existing object filters", () => {
+  for (const point of TIMING_POINTS.filter(point => point.triggerable !== false)) {
+    assert.equal(isTriggerSpec({ at: point.id, filter: { controller: "self" } }), true, point.id);
+  }
+});
+
+test("Contested timings remain internal under v1.5 rule 190.3.d", () => {
+  for (const at of ["contested-applied", "contested-removed"]) {
+    const result = validateTriggerSpec({ at, filter: {} });
+    assert.equal(result.ok, false, at);
+    assert.ok(result.issues.some(issue => issue.code === "invalid-timing-point"), at);
+  }
 });
