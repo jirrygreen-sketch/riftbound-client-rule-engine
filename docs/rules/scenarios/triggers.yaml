@@ -1,0 +1,1789 @@
+# 规则场景规格：triggers（触发能力与替代效果）
+# 依据：Core Rules v1.5（2026-10-09 更新，Radiance 2026-10-16 生效），
+# 官方 Radiance patch notes（playriftbound.com 公告，Effective October 16, 2026）。
+# 触发主体条款 382-407；替代效果 367-375；每回合频率限制 371/383.3.e/386；
+# 离场信息/离场触发时序 383.2.c.* / 359.3.f.*；区域变更清除临时修改 124/124.1；
+# 触发进链步骤 399-407（Pending -> Finalize -> Resolve）。
+area: triggers
+rulesetVersion: core-1.5
+sources:
+  - "1.5:124"
+  - "1.5:124.1"
+  - "1.5:204.1.c"
+  - "1.5:303.2.a"
+  - "1.5:317.1.a"
+  - "1.5:359.3.e.15"
+  - "1.5:359.3.e.16"
+  - "1.5:359.3.f.3"
+  - "1.5:359.3.f.4"
+  - "1.5:368"
+  - "1.5:369.1"
+  - "1.5:369.2"
+  - "1.5:369.3"
+  - "1.5:370.1"
+  - "1.5:370.1.a.1"
+  - "1.5:370.1.b"
+  - "1.5:370.1.b.1"
+  - "1.5:370.1.c"
+  - "1.5:370.1.c.1"
+  - "1.5:370.2"
+  - "1.5:370.3"
+  - "1.5:370.4"
+  - "1.5:371.1"
+  - "1.5:371.2"
+  - "1.5:371.2.b"
+  - "1.5:372"
+  - "1.5:372.1"
+  - "1.5:373.1"
+  - "1.5:373.1.a"
+  - "1.5:373.2"
+  - "1.5:374"
+  - "1.5:375"
+  - "1.5:383.1"
+  - "1.5:383.1.a"
+  - "1.5:383.1.b"
+  - "1.5:383.2.a.1"
+  - "1.5:383.2.c"
+  - "1.5:383.2.c.1"
+  - "1.5:383.2.c.2"
+  - "1.5:383.2.c.3"
+  - "1.5:383.2.c.3.a"
+  - "1.5:383.2.c.3.b"
+  - "1.5:383.3"
+  - "1.5:383.3.a"
+  - "1.5:383.3.a.1"
+  - "1.5:383.3.a.2"
+  - "1.5:383.3.a.3"
+  - "1.5:383.3.b"
+  - "1.5:383.3.b.1"
+  - "1.5:383.3.c"
+  - "1.5:383.3.d"
+  - "1.5:383.3.d.1"
+  - "1.5:383.3.e.1"
+  - "1.5:383.3.e.2"
+  - "1.5:383.4.a"
+  - "1.5:383.4.a.2"
+  - "1.5:383.4.a.4"
+  - "1.5:383.4.b"
+  - "1.5:383.4.c.2.a"
+  - "1.5:383.4.c.2.b"
+  - "1.5:383.4.c.2.c"
+  - "1.5:383.4.d.2.a"
+  - "1.5:383.4.d.2.c"
+  - "1.5:383.4.e.2"
+  - "1.5:383.4.e.2.a"
+  - "1.5:383.4.e.2.b"
+  - "1.5:383.4.f.2"
+  - "1.5:383.4.f.2.a"
+  - "1.5:383.4.g.1"
+  - "1.5:383.4.g.2"
+  - "1.5:384.2"
+  - "1.5:385.1"
+  - "1.5:385.2"
+  - "1.5:386"
+  - "1.5:386.2.b"
+  - "1.5:387"
+  - "1.5:388.1"
+  - "1.5:388.1.a"
+  - "1.5:388.1.b"
+  - "1.5:388.2"
+  - "1.5:388.4"
+  - "1.5:389.2"
+  - "1.5:390"
+  - "1.5:391.2"
+  - "1.5:391.3"
+  - "1.5:393"
+  - "1.5:401.2"
+  - "1.5:402.1"
+  - "1.5:402.2"
+  - "1.5:403.1"
+  - "1.5:403.1.a"
+  - "1.5:403.4"
+  - "1.5:405.2"
+  - "1.5:412.4"
+  - "1.5:420.4.a.1"
+  - "1.5:426"
+  - "1.5:429.1.a.1.b"
+  - "1.5:458.1"
+  - "1.5:466.2.d"
+  - "1.5:466.2.d.1"
+  - "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026"
+scenarios:
+  # ----------------------------------------------------------------
+  # 触发条件识别与条件从句（383.1 / 383.2）
+  # ----------------------------------------------------------------
+  - id: triggers-condition-clause-true
+    rule: ["1.5:383.2.a.1"]
+    title: 紧邻触发条件的 if 从句为真时正常触发
+    kind: positive
+    given:
+      turn: { active: A, phase: end, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [fury, fury, fury] }
+          hand: []
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:2,text:\"At the end of your turn, if I'm at a battlefield, ready 2 friendly runes.\")#u1"], B: [] } }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: pass }   # 回合结束步骤到达，触发条件与紧邻 if 均满足
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:#u1:trigger" }
+          - { timing: chain.item-finalized, item: "A:#u1:trigger" }
+      state:
+        - { path: "players.A.runes.ready", equals: 2 }
+      rejected: null
+    notes: 383.2.a.1 Sona, Harmonious 例：紧邻触发条件的条件从句属于条件的一部分，在场上时满足即触发。
+
+  - id: triggers-condition-clause-false
+    rule: ["1.5:383.2.a.1"]
+    title: 紧邻触发条件的 if 从句不满足时不产生链项
+    kind: negative
+    given:
+      turn: { active: A, phase: end, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [fury, fury, fury] }
+          hand: []
+          base: ["@unit(might:2,text:\"At the end of your turn, if I'm at a battlefield, ready 2 friendly runes.\")#u1"]
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: A, units: { A: [], B: [] } }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.phase-end-begin }
+      state:
+        - { path: "players.A.runes.ready", equals: 0 }
+        - { path: "chain", equals: [] }
+      rejected: null
+    notes: 单位在基地而非战场，紧邻条件的 if 从句不成立，触发能力不产生链项。
+
+  - id: triggers-condition-clause-not-adjacent
+    rule: ["1.5:383.2.a.1"]
+    title: 不紧邻触发条件的 if 从句属于效果部分，不影响入链
+    kind: positive
+    given:
+      turn: { active: A, phase: beginning, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: ["@spell(cost:1,text:\"Nothing.\")", "@spell(cost:1,text:\"Nothing.\")", "@spell(cost:1,text:\"Nothing.\")"]
+          base: ["@gear(text:\"At the start of your Beginning Phase, draw 1 if you have one or fewer cards in your hand.\")#g1"]
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: pass }   # 进入开始阶段
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:#g1:trigger" }
+          - { timing: chain.item-finalized, item: "A:#g1:trigger" }
+      state:
+        - { path: "players.A.hand", equals: 3 }   # 手牌 3 张 > 1，结算时效果内条件不成立，不抽牌
+      rejected: null
+    notes: 383.2.a.1 Loose Cannon 例：if 未紧邻触发条件，属于效果而非条件；能力照常入链 Finalize，结算时才判定不抽。
+
+  # ----------------------------------------------------------------
+  # 触发时机与区域（383.2.c 系列）
+  # ----------------------------------------------------------------
+  - id: triggers-enters-zone-same-time-as-condition
+    rule: ["1.5:383.2.c.1"]
+    title: 触发源在其触发生效区域内、与事件同时结算完毕时触发成立
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: ["@spell(cost:3,speed:action,text:\"Kill a unit.\")"]
+          trash: ["@unit(cost:4,might:3,text:\"When you kill a unit with a spell, you may pay 1 to play me from your trash.\")#phoenix"]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: [], B: ["@unit(might:1)#victim"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", target: "B:#victim", pay: { energy: 3 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: unit.died, object: "B:#victim" }
+          - { timing: chain.item-pending, item: "A:#phoenix:trigger" }
+      state: []
+      rejected: null
+    notes: 383.2.c.1 Immortal Phoenix 例：触发源在事件结算完毕时已处于触发生效区域（trash），即使被消灭的单位与触发源同一次结算也触发。
+
+  - id: triggers-leaves-zone-same-time-as-condition
+    rule: ["1.5:383.2.c.2"]
+    title: 触发源与触发事件同时离场时触发不成立
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 4
+          runes: { ready: [], exhausted: [] }
+          hand: ["@spell(cost:4,speed:action,text:\"Deal 2 to all units.\")"]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: ["@unit(might:2,text:\"When another non-token unit you control dies, draw 1.\")#watcher", "@unit(might:2)#other"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 4 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: unit.died, object: "A:#watcher" }
+          - { timing: unit.died, object: "A:#other" }
+      state:
+        - { path: "players.A.hand", equals: 0 }   # watcher 与 other 同一动作中同时死亡，watcher 不触发
+      rejected: null
+    notes: 383.2.c.2 Viktor, Leader 例：触发源与其触发事件同时离开触发活跃区域，条件无法成功判定，不触发。
+
+  - id: triggers-leaving-board-before-zone-change
+    rule: ["1.5:383.2.c.3"]
+    title: 以离场为条件的能力在区域变更完成前处理并入链
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: showdown-closed }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: ["@spell(cost:1,speed:reaction,text:\"Return a unit to its owner's hand.\")"]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: ["@unit(might:2,text:\"When I leave the board, deal 2 to a unit where I was.\")#u1"], B: ["@unit(might:2)#enemy"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", target: "A:#u1", pay: { energy: 1 } }   # 回手自己的单位
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:#u1:trigger" }   # 区域变更完成前即入链
+          - { timing: zone.enter, object: "A:#u1", zone: hand }
+      state:
+        - { path: "players.A.hand", equals: 2 }   # 原 1 张手牌打出后 0，u1 回手变 1；此处断言回手事件已发生
+      rejected: null
+    notes: 383.2.c.3：离场触发在对象完成区域变更前处理并入链；383.2.c.3.b 在入链时记录其位置信息。
+
+  - id: triggers-deathknell-processed-before-trash
+    rule: ["1.5:429.1.a.1.b", "1.5:383.2.c.3"]
+    title: 带 Deathknell 的单位被消灭指令消灭时，能力先于入 trash 入链
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: ["@spell(cost:2,speed:action,text:\"Kill a unit.\")"]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: [], B: ["@unit(might:2,text:\"Deathknell: Draw 1.\")#u1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", target: "B:#u1", pay: { energy: 2 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "B:#u1:deathknell" }   # 先入链
+          - { timing: zone.enter, object: "B:#u1", zone: trash }        # 后入 trash
+      state:
+        - { path: "players.B.hand", equals: 1 }
+      rejected: null
+    notes: 429.1.a.1.b Draven, Audacious 例：被消灭指令消灭时，Deathknell 先入链并记录信息，单位再进 trash。
+
+  - id: triggers-recall-does-not-trigger-move
+    rule: ["1.5:458.1", "1.5:383.1"]
+    title: 召回不是移动，不触发以移动为条件的能力
+    kind: negative
+    given:
+      turn: { active: A, phase: end, state: showdown-closed }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: ["@unit(might:3)#attacker"], B: ["@unit(might:5,text:\"When a unit moves here, draw 1.\")#watcher"] } }
+      chain: []
+    commands:
+      - { player: A, do: pass }   # 战斗解决步骤：守方仍在场，攻方被召回
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: unit.recalled, object: "A:#attacker" }
+      state:
+        - { path: "players.B.hand", equals: 0 }   # 召回不触发 watcher 的移动触发
+      rejected: null
+    notes: 458.1：召回不是移动，不触发以移动为条件的触发能力。
+
+  - id: triggers-countered-play-no-trigger
+    rule: ["1.5:420.4.a.1", "1.5:426"]
+    title: 牌被反击后，以打出该牌为条件的能力不触发
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: ["@spell(cost:2,speed:action,text:\"Deal 2.\")#s1"]
+          base: ["@unit(might:2,text:\"When you play a spell, draw 1.\")#watcher"]
+          score: 0
+        B:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: ["@spell(cost:1,speed:reaction,text:\"Counter a spell.\")#counter"]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 2 } }
+      - { player: B, do: play, card: "hand[0]", target: "A:#s1", pay: { energy: 1 } }   # 反击该法术
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: spell.countered, object: "A:#s1" }
+      state:
+        - { path: "players.A.hand", equals: 0 }   # watcher 未触发抽牌
+        - { path: "chain", equals: [] }
+      rejected: null
+    notes: 420.4.a.1：牌被反击导致其结算被阻止，以打出牌为条件的触发不触发。
+
+  # ----------------------------------------------------------------
+  # may 抉择与费用（383.3.a / 383.3.b / 403 / 405）
+  # ----------------------------------------------------------------
+  - id: triggers-may-at-finalize-perform
+    rule: ["1.5:383.3.a", "1.5:403.1"]
+    title: 效果首部的 you may 在 Finalize 阶段选择执行
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: ["@unit(cost:2,might:3,text:\"When you play me, you may draw 1.\")"]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 2 } }
+      - { player: A, do: finalize-trigger, choice: perform }   # Finalize 时选择执行
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.enter, object: "A:hand[0]", zone: base }
+          - { timing: chain.item-pending, item: "A:unit:play-trigger" }
+          - { timing: chain.item-finalized, item: "A:unit:play-trigger" }
+      state:
+        - { path: "players.A.hand", equals: 1 }
+      rejected: null
+    notes: 383.3.a Tideturner 例：you may 位于效果首部，Finalize 时决定执行与否；选择执行则照常结算。
+
+  - id: triggers-may-at-finalize-decline
+    rule: ["1.5:383.3.a.2", "1.5:403.1.a", "1.5:386.2.b"]
+    title: 效果首部的 you may 在 Finalize 阶段选择不执行，链项移除
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: ["@unit(might:2,text:\"Once each turn, when an enemy unit dies, you may banish it.\")#w1"], B: ["@unit(might:1)#d1"] } }
+      chain: []
+    commands:
+      - { player: B, do: kill-own, target: "B:#d1" }   # 由游戏效果导致敌方单位死亡（如战斗清理）
+      - { player: A, do: finalize-trigger, choice: decline }   # Finalize 时选择不执行
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:#w1:trigger" }
+          - { timing: chain.item-removed, item: "A:#w1:trigger" }   # 移除，未 Finalize
+      state:
+        - { path: "players.B.trash", equals: 1 }   # d1 进 trash 而非放逐
+        - { path: "chain", equals: [] }
+      rejected: null
+    notes: 383.3.a.2 / 386.2.b：Finalize 时选择不执行即从链移除并视为未触发；该能力本回合尚未执行，之后仍可再触发。
+
+  - id: triggers-may-inside-effect-resolves-on-resolution
+    rule: ["1.5:383.3.a.3"]
+    title: 效果非首部的 you may 在结算时才决定，能力照常 Finalize
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: ["@unit(cost:2,might:2,text:\"When you play me, look at the top 2 cards of your Main Deck. You may draw one of them.\")"]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 2 } }
+      - { player: A, do: pass }   # 无 you-may 抉择，自动 Finalize
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:unit:play-trigger" }
+          - { timing: chain.item-finalized, item: "A:unit:play-trigger" }
+      state: []
+      rejected: null
+    notes: 383.3.a.3 Ornn, Blacksmith 例：you may 出现在效果中段，选择在结算时做出；能力一定 Finalize 到链上。
+
+  - id: triggers-cost-within-instructions-base-cost
+    rule: ["1.5:383.3.b", "1.5:204.1.c"]
+    title: 效果首部或紧随 you may 的指令内费用成为基础费用，Finalize 时必须支付
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [fury, fury] }
+          hand: []
+          base: []
+          trash: ["@spell(cost:0,text:\"Nothing.\")"]
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: ["@unit(might:2,text:\"Deathknell: Recycle me to ready your runes.\")#ekko"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: kill, target: "A:#ekko" }   # 触发 Deathknell
+      - { player: A, do: finalize-trigger, pay: "recycle:#ekko" }   # 支付基础费用：回收自身
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:#ekko:deathknell" }
+          - { timing: chain.item-finalized, item: "A:#ekko:deathknell" }
+      state:
+        - { path: "players.A.runes.ready", equals: 2 }
+      rejected: null
+    notes: 383.3.b / 204.1.c Ekko, Recurrent 例：Deathknell 后紧随的指令内费用“Recycle me”成为触发的基础费用，Finalize 时必须支付。
+
+  - id: triggers-cost-within-instructions-decline-pay
+    rule: ["1.5:405.2", "1.5:383.3.b.1"]
+    title: Finalize 阶段可拒绝支付触发能力的费用，链项移除
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [fury, fury] }
+          hand: []
+          base: []
+          trash: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: ["@unit(might:2,text:\"Deathknell: Recycle me to ready your runes.\")#ekko"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: kill, target: "A:#ekko" }
+      - { player: A, do: finalize-trigger, choice: decline-pay }   # 拒绝支付回收费用
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:#ekko:deathknell" }
+          - { timing: chain.item-removed, item: "A:#ekko:deathknell" }
+      state:
+        - { path: "players.A.runes.ready", equals: 0 }   # 未支付则不重置符文
+        - { path: "chain", equals: [] }
+      rejected: null
+    notes: 405.2 / 383.3.b.1：触发能力产生费用后，Finalize 阶段可拒绝支付；链项移除，且这不是能力被反击。
+
+  - id: triggers-no-legal-options-removed
+    rule: ["1.5:403.4"]
+    title: 触发能力在 Finalize 时无合法选择目标，链项移除且不算被反击
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: ["@unit(might:2,text:\"When I die in combat, choose an opponent. They gain 1 point.\")#draven"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: kill-in-combat, target: "A:#draven" }   # 战斗中死亡，触发能力
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:#draven:trigger" }
+          - { timing: chain.item-removed, item: "A:#draven:trigger" }   # 若无合法对手可选则移除
+      state:
+        - { path: "chain", equals: [] }
+      rejected: null
+    notes: 403.4：Finalize 时若无足够合法选择，触发能力从链移除，不成为 Finalized 项，且不算被反击（403.4.a）。此处假设无合法对手可选的边缘情形。
+
+  # ----------------------------------------------------------------
+  # 同时触发排序（383.3.d 系列）
+  # ----------------------------------------------------------------
+  - id: triggers-simultaneous-own-choice-order
+    rule: ["1.5:383.3.d"]
+    title: 同一玩家多个触发同时发生，由控制者选择入链顺序
+    kind: positive
+    given:
+      turn: { active: A, phase: end, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [fury] }
+          hand: []
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:1,text:\"At the end of your turn, ready a rune.\")#u1", "@unit(might:1,text:\"At the end of your turn, draw 1.\")#u2"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: pass }   # 回合结束同时触发两个能力
+      - { player: A, do: order-triggers, items: ["#u2", "#u1"] }   # A 选择 u2 先入链
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:#u2:trigger" }
+          - { timing: chain.item-pending, item: "A:#u1:trigger" }
+      state: []
+      rejected: null
+    notes: 383.3.d：同时触发的多个触发能力由控制者决定入链顺序。
+
+  - id: triggers-simultaneous-turn-order
+    rule: ["1.5:383.3.d.1", "1.5:303.2.a"]
+    title: 多名玩家同时触发，从回合玩家开始按回合顺序各排各的
+    kind: positive
+    given:
+      turn: { active: A, phase: end, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:1,text:\"At the end of your turn, draw 1.\")#a1"], B: ["@unit(might:1,text:\"At the end of any turn, draw 1.\")#b1"] } }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:#a1:trigger" }   # 回合玩家先入链
+          - { timing: chain.item-pending, item: "B:#b1:trigger" }   # 非回合玩家后入链
+      state: []
+      rejected: null
+    notes: 383.3.d.1 / 303.2.a：跨玩家同时触发按回合顺序从回合玩家开始，各自排各自的触发能力。
+  # ----------------------------------------------------------------
+  # 频率限制（383.3.e / 386 / 383.4.e.2.a / 383.4.f.2.a）
+  # ----------------------------------------------------------------
+  - id: triggers-once-per-turn-cap
+    rule: ["1.5:383.3.e.1", "1.5:386"]
+    title: 每回合一次的触发在本回合已执行后不再触发
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: ["@unit(might:2,text:\"Once each turn, when an enemy unit dies, you may banish it.\")#w1"], B: ["@unit(might:1)#d1", "@unit(might:1)#d2"] } }
+      chain: []
+    commands:
+      - { player: B, do: kill-own, target: "B:#d1" }
+      - { player: A, do: finalize-trigger, choice: perform }   # 第一次执行
+      - { player: B, do: kill-own, target: "B:#d2" }           # 第二次死亡
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:#w1:trigger" }
+          - { timing: chain.item-finalized, item: "A:#w1:trigger" }
+          - { timing: zone.enter, object: "B:#d1", zone: banishment }
+      state:
+        - { path: "players.B.banishment", equals: 1 }   # d2 未被放逐
+        - { path: "players.B.trash", equals: 1 }
+      rejected: null
+    notes: 383.3.e.1：每回合一次的能力在已执行后本回合不再触发。
+
+  - id: triggers-once-per-turn-decline-preserves
+    rule: ["1.5:383.3.e.2", "1.5:386.2.b"]
+    title: 每回合一次的能力在 Finalize 时选择不执行，不消耗本回合次数
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: ["@unit(might:2,text:\"Once each turn, when an enemy unit dies, you may banish it.\")#w1"], B: ["@unit(might:1)#d1", "@unit(might:1)#d2"] } }
+      chain: []
+    commands:
+      - { player: B, do: kill-own, target: "B:#d1" }
+      - { player: A, do: finalize-trigger, choice: decline }   # 第一次选择不执行
+      - { player: B, do: kill-own, target: "B:#d2" }
+      - { player: A, do: finalize-trigger, choice: perform }   # 第二次仍可触发并执行
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:#w1:trigger" }
+          - { timing: chain.item-removed, item: "A:#w1:trigger" }   # 第一次移除
+          - { timing: chain.item-pending, item: "A:#w1:trigger" }   # 第二次再入链
+          - { timing: chain.item-finalized, item: "A:#w1:trigger" }
+      state:
+        - { path: "players.B.banishment", equals: 1 }   # 只有 d2 被放逐
+      rejected: null
+    notes: 383.3.e.2 / 386.2.b：you may 选择不执行不算已执行，本回合仍可再次触发。
+
+  - id: triggers-attack-trigger-once-per-combat
+    rule: ["1.5:383.4.e.2.a"]
+    title: 攻击触发每场战斗只判定一次，重复获得攻击者身份不重复触发
+    kind: negative
+    given:
+      turn: { active: A, phase: combat, state: showdown-closed }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: ["@unit(might:3,text:\"When I attack, draw 1.\")#u1"], B: ["@unit(might:1)#d1"] } }
+      chain: []
+    commands:
+      - { player: A, do: attack, unit: "A:#u1", battlefield: bf1 }   # 获得攻击者身份，触发
+      - { player: A, do: pass }
+      - { player: B, do: remove-designation, target: "A:#u1" }       # 某效果使其失去攻击者身份
+      - { player: A, do: reassign-designation, target: "A:#u1" }     # 再次获得攻击者身份
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: combat.attack-declared, object: "A:#u1" }
+          - { timing: chain.item-pending, item: "A:#u1:attack-trigger" }
+      state:
+        - { path: "players.A.hand", equals: 1 }   # 只抽一次
+      rejected: null
+    notes: 383.4.e.2.a：攻击触发只在单位每场战斗首次获得攻击者身份时判定，失去再获得不重复触发。
+
+  - id: triggers-attack-trigger-condition-unmet
+    rule: ["1.5:383.4.e.2.b"]
+    title: 攻击触发带额外条件且获得攻击者身份时不满足，则该场战斗不触发
+    kind: negative
+    given:
+      turn: { active: A, phase: combat, state: showdown-closed }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: ["@unit(might:3,text:\"When I attack, if I'm empowered, draw 1.\")#u1"], B: ["@unit(might:1)#d1"] } }
+      chain: []
+    commands:
+      - { player: A, do: attack, unit: "A:#u1", battlefield: bf1 }   # u1 未 empowered
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: combat.attack-declared, object: "A:#u1" }
+      state:
+        - { path: "players.A.hand", equals: 0 }
+        - { path: "chain", equals: [] }
+      rejected: null
+    notes: 383.4.e.2.b：触发条件含攻击以外要求且获得身份时不满足，则该场战斗不触发。
+
+  - id: triggers-disarm-merged-single-trigger
+    rule: ["1.5:383.4.e.2", "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026"]
+    title: Disarm 多个来源合并为一个触发，数值相加
+    kind: positive
+    given:
+      turn: { active: A, phase: combat, state: showdown-closed }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: ["@unit(might:3,keywords:[disarm:1,disarm:2])#u1"], B: ["@unit(might:5)#e1"] } }
+      chain: []
+    commands:
+      - { player: A, do: attack, unit: "A:#u1", battlefield: bf1 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: combat.attack-declared, object: "A:#u1" }
+          - { timing: chain.item-pending, item: "A:#u1:disarm" }   # 只有一个 Disarm 触发
+      state:
+        - { path: "battlefields.bf1.units.B.e1.might", equals: 2 }   # 5 - (1+2) = 2，数值合并
+      rejected: null
+    notes: Radiance patch notes Disarm：同一单位多个 Disarm 关键词合并为一个触发，数值相加（383.4.e.2 攻击触发规则同样适用）。
+
+  # ----------------------------------------------------------------
+  # 触发时记录信息（383.2.c.3.b / 359.3.f.3 / 359.3.f.4）
+  # ----------------------------------------------------------------
+  - id: triggers-condition-info-locked-at-trigger
+    rule: ["1.5:383.2.c.3.b", "1.5:359.3.f.3"]
+    title: 触发时记录位置信息，结算时按记录位置处理
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: showdown-closed }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: ["@spell(cost:1,speed:reaction,text:\"Move a friendly unit to its base.\")"]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: ["@unit(might:3,text:\"When I move from a location, play a 3 might token there.\")#lillia"], B: ["@unit(might:1)#e1"] } }
+      chain: []
+    commands:
+      - { player: A, do: standard-move, unit: "A:#lillia", from: base, to: bf1 }   # 触发移动触发
+      - { player: A, do: play, card: "hand[0]", target: "A:#lillia", pay: { energy: 1 } }   # 响应触发把 lillia 召回基地
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:#lillia:trigger" }
+          - { timing: zone.enter, object: "A:#lillia", zone: base }
+          - { timing: chain.item-finalized, item: "A:#lillia:trigger" }
+          - { timing: zone.enter, object: "token:3might", zone: bf1 }   # 结算时按触发时记录的位置放 token
+      state: []
+      rejected: null
+    notes: 359.3.f.3 Lillia, Fae Fawn 例：触发时记录移动前位置；结算前对象再移动不影响已记录位置。
+
+  - id: triggers-control-change-no-mistarget
+    rule: ["1.5:359.3.f.4"]
+    title: 触发能力在链上时源单位改变控制者，能力仍按原控制者结算
+    kind: positive
+    given:
+      turn: { active: A, phase: combat, state: showdown-closed }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: ["@spell(cost:1,speed:reaction,text:\"Gain control of a unit.\")#takeover"]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null, units: { A: ["@unit(might:5,text:\"When I attack, deal damage equal to my Might to an enemy unit here.\")#yasuo"], B: ["@unit(might:2)#e1"] } }
+      chain: []
+    commands:
+      - { player: A, do: attack, unit: "A:#yasuo", battlefield: bf1 }   # 攻击触发入链
+      - { player: B, do: play, card: "hand[0]", target: "A:#yasuo", pay: { energy: 1 } }   # 响应获得控制权
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:#yasuo:attack-trigger" }
+          - { timing: control.changed, object: "A:#yasuo" }
+          - { timing: chain.item-finalized, item: "A:#yasuo:attack-trigger" }
+          - { timing: damage.dealt, object: "B:#e1", amount: 5 }   # 仍按原控制者 A 的“敌方”结算
+      state: []
+      rejected: null
+    notes: 359.3.f.4 Yasuo, Remorseful 例：触发能力在链上时源单位控制权改变，enemy/friendly 按触发能力本身判定，结算不受影响。
+
+  # ----------------------------------------------------------------
+  # 反射触发（387-389）
+  # ----------------------------------------------------------------
+  - id: triggers-reflexive-single
+    rule: ["1.5:387", "1.5:388.1", "1.5:388.2"]
+    title: 反射触发按条件生成链项
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: ["@spell(cost:3,speed:action,text:\"Kill a unit. Then, if it had 3 might or less, do this: You may play this from your trash for 1.\")#dfb"]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: [], B: ["@unit(might:2)#victim"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", target: "B:#victim", pay: { energy: 3 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: spell.resolved, object: "A:#dfb" }
+          - { timing: chain.item-pending, item: "A:#dfb:reflexive" }   # 条件满足（2 <= 3），反射触发入链
+      state: []
+      rejected: null
+    notes: 388 Death From Below 例：反射触发以“Do this:”标识，条件满足时生成一个链项。
+
+  - id: triggers-reflexive-n-times
+    rule: ["1.5:388.1.a", "1.5:389.2"]
+    title: Do this N times 生成 N 个链项
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: ["@spell(cost:3,speed:action,text:\"Do this twice: Deal 1 to a unit.\")"]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: [], B: ["@unit(might:2)#e1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", target: "B:#e1", pay: { energy: 3 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: spell.resolved, object: "A:hand[0]" }
+          - { timing: chain.item-pending, item: "A:spell:reflexive-1" }
+          - { timing: chain.item-pending, item: "A:spell:reflexive-2" }
+      state: []
+      rejected: null
+    notes: 388.1.a：Do this N times 在条件满足时生成 N 个反射触发链项；389.2 全部按序创建。
+
+  - id: triggers-reflexive-no-condition-always
+    rule: ["1.5:388.2"]
+    title: 无前置条件的反射触发总是生成链项
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: ["@spell(cost:2,speed:action,text:\"Deal 1 to a unit. Do this: Draw 1.\")"]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: [], B: ["@unit(might:2)#e1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", target: "B:#e1", pay: { energy: 2 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: spell.resolved, object: "A:hand[0]" }
+          - { timing: chain.item-pending, item: "A:spell:reflexive" }   # 无条件反射触发必入链
+      state:
+        - { path: "players.A.hand", equals: 1 }
+      rejected: null
+    notes: 388.2：反射触发若无前置条件，则条件视为恒真，总是生成链项。
+  # ----------------------------------------------------------------
+  # 分类触发：Play / Targeting / Conquer / Hold（383.4.a-d）
+  # ----------------------------------------------------------------
+  - id: triggers-play-effect-after-board
+    rule: ["1.5:383.4.a.2"]
+    title: Play Effect 在永久物完成 Finalize 并进入棋盘后入链
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: ["@unit(cost:2,might:3,text:\"When you play me, draw 1.\")"]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 2 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.enter, object: "A:hand[0]", zone: base }
+          - { timing: chain.item-pending, item: "A:unit:play-trigger" }
+      state:
+        - { path: "players.A.hand", equals: 1 }
+      rejected: null
+    notes: 383.4.a.2：Play Effect 在对应永久物 Finalize 并进入棋盘后作为 Pending 项入链。
+
+  - id: triggers-other-object-play-not-play-effect
+    rule: ["1.5:383.4.a.4"]
+    title: 以其他对象被打出为条件的触发不属于 Play Effect
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: ["@unit(cost:2,might:3)#u1"]
+          base: ["@unit(might:2,text:\"When another unit is played, draw 1.\")#watcher"]
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 2 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.enter, object: "A:hand[0]", zone: base }
+          - { timing: chain.item-pending, item: "A:#watcher:trigger" }   # watcher 触发，但不是 Play Effect
+      state:
+        - { path: "players.A.hand", equals: 1 }
+      rejected: null
+    notes: 383.4.a.4：以其他对象被打出为条件的触发不是 Play Effect；此处仅验证其仍触发，分类标签由契约 3.5 时点枚举区分。
+
+  - id: triggers-targeting-effect
+    rule: ["1.5:383.4.b"]
+    title: 对象被指定为目标时 Targeting Effect 触发
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: ["@spell(cost:2,speed:action,text:\"Deal 2 to a unit.\")"]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: [], B: ["@unit(might:3,text:\"When you choose me, draw 1.\")#u1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", target: "B:#u1", pay: { energy: 2 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:hand[0]" }
+          - { timing: target.chosen, object: "B:#u1" }
+          - { timing: chain.item-pending, item: "B:#u1:targeting-trigger" }
+      state:
+        - { path: "players.B.hand", equals: 1 }
+      rejected: null
+    notes: 383.4.b：Targeting Effect 以对象成为目标为条件，在法术或能力指定目标后入链。
+
+  - id: triggers-conquer-unit-present
+    rule: ["1.5:383.4.c.2.a"]
+    title: 征服时在场单位的 Conquer Effect 触发
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: ["@unit(might:3,text:\"When I conquer, draw 1.\")#u1"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: conquer, battlefield: bf1 }   # 通过移动/战斗取得控制权并得分
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: score.conquer, player: A, battlefield: bf1 }
+          - { timing: chain.item-pending, item: "A:#u1:conquer-trigger" }
+      state:
+        - { path: "players.A.score", equals: 1 }
+        - { path: "players.A.hand", equals: 1 }
+      rejected: null
+    notes: 383.4.c.2.a：征服发生时在场单位的 Conquer 能力作为 Pending 项入链。
+
+  - id: triggers-conquer-point-replaced-still-triggers
+    rule: ["1.5:383.4.c.2.c"]
+    title: 征服得分被替代或否定，Conquer Effect 仍触发
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: ["@unit(might:3,text:\"When I conquer, draw 1.\")#u1"], B: [] } }
+      replacement:
+        - { source: "B", text: "If a player would gain a point from conquering, they gain no point instead." }
+    commands:
+      - { player: A, do: conquer, battlefield: bf1 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: score.conquer, player: A, battlefield: bf1 }
+          - { timing: replacement.applied, source: "B" }   # 得分被替代
+          - { timing: chain.item-pending, item: "A:#u1:conquer-trigger" }   # Conquer Effect 仍触发
+      state:
+        - { path: "players.A.score", equals: 0 }   # 未得分
+        - { path: "players.A.hand", equals: 1 }    # 但仍触发抽牌
+      rejected: null
+    notes: 383.4.c.2.c：征服得分被替代或否定，不影响 Conquer Effect 触发。
+
+  - id: triggers-hold-unit-present
+    rule: ["1.5:383.4.d.2.a"]
+    title: 固守时在场单位的 Hold Effect 触发
+    kind: positive
+    given:
+      turn: { active: A, phase: beginning, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:2,text:\"When I hold, draw 1.\")#u1"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: pass }   # 开始阶段固守
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: score.hold, player: A, battlefield: bf1 }
+          - { timing: chain.item-pending, item: "A:#u1:hold-trigger" }
+      state:
+        - { path: "players.A.score", equals: 1 }
+        - { path: "players.A.hand", equals: 1 }
+      rejected: null
+    notes: 383.4.d.2.a：固守发生时在场单位的 Hold 能力作为 Pending 项入链。
+
+  - id: triggers-hold-point-replaced-still-triggers
+    rule: ["1.5:383.4.d.2.c"]
+    title: 固守得分被替代或否定，Hold Effect 仍触发
+    kind: positive
+    given:
+      turn: { active: A, phase: beginning, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:2,text:\"When I hold, draw 1.\")#u1"], B: [] } }
+      replacement:
+        - { source: "B", text: "If a player would gain a point from holding, they gain no point instead." }
+    commands:
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: score.hold, player: A, battlefield: bf1 }
+          - { timing: replacement.applied, source: "B" }
+          - { timing: chain.item-pending, item: "A:#u1:hold-trigger" }
+      state:
+        - { path: "players.A.score", equals: 0 }
+        - { path: "players.A.hand", equals: 1 }
+      rejected: null
+    notes: 383.4.d.2.c：固守得分被替代或否定，不影响 Hold Effect 触发。
+
+  - id: triggers-activate-named-trigger-checks-other-conditions
+    rule: ["1.5:383.4.g.1"]
+    title: 激活具名触发时检查其余条件，满足才入链
+    kind: positive
+    given:
+      turn: { active: A, phase: beginning, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:2,text:\"When I conquer, if I'm empowered, draw 1.\")#u1"], B: [] } }
+      battlefield-text: "When you hold here, activate the conquer effects of units here."
+    commands:
+      - { player: A, do: pass }   # 固守触发战场能力，激活 u1 的 conquer effect
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: score.hold, player: A, battlefield: bf1 }
+          - { timing: chain.item-pending, item: "A:#u1:conquer-trigger" }   # u1 已 empowered，其余条件满足，入链
+      state:
+        - { path: "players.A.hand", equals: 1 }
+      rejected: null
+    notes: 383.4.g.1 Reckoner's Arena 例：激活具名触发时把具名部分视为已满足，检查其余条件；u1 已 empowered 故入链。
+
+  - id: triggers-activate-named-trigger-not-real-event
+    rule: ["1.5:383.4.g.2"]
+    title: 激活具名触发不产生真实事件，不连锁额外触发
+    kind: negative
+    given:
+      turn: { active: A, phase: beginning, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:2,text:\"When I conquer, draw 1.\")#u1", "@unit(might:2,text:\"Your conquer effects trigger an additional time.\")#brambleback"], B: [] } }
+      battlefield-text: "When you hold here, activate the conquer effects of units here."
+    commands:
+      - { player: A, do: pass }   # 固守激活 conquer effect
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: score.hold, player: A, battlefield: bf1 }
+          - { timing: chain.item-pending, item: "A:#u1:conquer-trigger" }   # 只入链一次
+      state:
+        - { path: "players.A.hand", equals: 1 }   # brambleback 不追加，只抽一次
+      rejected: null
+    notes: 383.4.g.2 Red Brambleback + Reckoner's Arena 例：激活的具名触发不产生真实征服事件，不触发“额外触发一次”类能力。
+
+  # ----------------------------------------------------------------
+  # 替代效果（367-375）
+  # ----------------------------------------------------------------
+  - id: triggers-replacement-instead-basic
+    rule: ["1.5:368", "1.5:369.1", "1.5:370.1.b"]
+    title: 替代效果以 instead 标识，替换原事件
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: ["@unit(might:2)#u1"], B: [] } }
+      gear:
+        A: ["@gear(text:\"If a friendly unit would die, kill this instead. Heal that unit, exhaust it, and recall it.\")#hourglass"]
+    commands:
+      - { player: B, do: play, card: "kill-spell", target: "A:#u1" }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: replacement.applied, object: "A:#hourglass" }
+          - { timing: zone.enter, object: "A:#hourglass", zone: trash }
+          - { timing: unit.recalled, object: "A:#u1" }
+      state:
+        - { path: "players.A.trash", equals: 1 }   # hourglass 死亡
+        - { path: "battlefields.bf1.units.A", equals: 0 }   # u1 被召回基地
+      rejected: null
+    notes: 369.1 / 370.1.b Zhonya's Hourglass 例：替代效果以 instead 标识，原死亡事件被替换为治愈+横置+召回。
+
+  - id: triggers-replacement-enters-ready
+    rule: ["1.5:369.3"]
+    title: 替代进场方式的效果改变默认进场状态
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: ["@unit(cost:2,might:3,text:\"I enter ready.\")#yi"]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 2 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.enter, object: "A:#yi", zone: base, status: ready }
+      state:
+        - { path: "players.A.base.yi.exhausted", equals: false }
+      rejected: null
+    notes: 369.3 Master Yi, Honed 例：替代进场方式的效果把默认横置进场替换为就绪进场。
+
+  - id: triggers-replacement-once-per-event
+    rule: ["1.5:370.2"]
+    title: 同一替代效果对同一事件只能应用一次
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: ["@unit(might:2)#u1"], B: [] } }
+      gear:
+        A: ["@gear(text:\"If a friendly unit would die, kill this instead. Heal that unit, exhaust it, and recall it.\")#h1", "@gear(text:\"If a friendly unit would die, kill this instead. Heal that unit, exhaust it, and recall it.\")#h2"]
+    commands:
+      - { player: B, do: play, card: "kill-spell", target: "A:#u1" }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: replacement.applied, object: "A:#h1" }
+          - { timing: zone.enter, object: "A:#h1", zone: trash }
+          - { timing: replacement.applied, object: "A:#h2" }
+          - { timing: zone.enter, object: "A:#h2", zone: trash }
+      state:
+        - { path: "players.A.trash", equals: 2 }   # 两个都应用后死亡
+        - { path: "battlefields.bf1.units.A", equals: 0 }   # u1 被召回
+      rejected: null
+    notes: 370.2 双 Zhonya's Hourglass 例：每个替代效果对同一事件只应用一次；第一个应用后杀死自身产生新事件，第二个再应用，最终后应用者死亡。
+
+  - id: triggers-replacement-order-by-controller
+    rule: ["1.5:372", "1.5:372.1"]
+    title: 多个替代效果适用同一事件时由被作用对象的控制者决定顺序
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: ["@unit(might:2)#u1"], B: [] } }
+      replacement:
+        - { source: "A", text: "If a friendly unit would die, prevent it." }
+        - { source: "B", text: "If a unit would die, banish it instead." }
+    commands:
+      - { player: B, do: play, card: "kill-spell", target: "A:#u1" }
+      - { player: A, do: order-replacements, items: ["A:prevent", "B:banish"] }   # u1 控制者 A 决定顺序
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: replacement.applied, source: "A" }   # A 选择的顺序先应用
+          - { timing: replacement.applied, source: "B" }
+      state: []
+      rejected: null
+    notes: 372：多个替代效果适用同一事件，由被作用对象的控制者决定应用顺序；372.1 玩家被作用时由该玩家决定。
+
+  - id: triggers-replacement-inherits-modifications
+    rule: ["1.5:375"]
+    title: 替代效果继承生成原事件的游戏效果的修改
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: ["@unit(might:3,text:\"When I move, play a Gold gear token exhausted.\")#hunter"], B: [] } }
+      replacement:
+        - { source: "B", text: "If you would play a token gear, play that token and an additional copy instead." }
+    commands:
+      - { player: A, do: standard-move, unit: "A:#hunter", from: base, to: bf1 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:#hunter:trigger" }
+          - { timing: replacement.applied, source: "B" }
+          - { timing: zone.enter, object: "token:gold-1", zone: bf1, status: exhausted }
+          - { timing: zone.enter, object: "token:gold-2", zone: bf1, status: exhausted }
+      state: []
+      rejected: null
+    notes: 375 Treasure Hunter 例：替代效果生成的额外地物 token 继承原效果的 exhausted 修改。
+
+  - id: triggers-replacement-not-applied-preserves-turn
+    rule: ["1.5:371.2.b", "1.5:386.2.b"]
+    title: 每回合一次的替代效果选择不应用则本回合仍可应用
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: ["@spell(cost:1,text:\"Play a 1 might token.\")#s1", "@spell(cost:1,text:\"Play a 1 might token.\")#s2"]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: ["@unit(might:2,text:\"Once each turn, if you would play a token unit while I'm at a battlefield, you may play that token and an additional copy of it instead.\")#zilean"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 1 } }
+      - { player: A, do: replacement-choice, choice: decline }   # 第一次选择不应用
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 1 } }
+      - { player: A, do: replacement-choice, choice: apply }     # 第二次仍可应用
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.enter, object: "token:1might", zone: base }   # 第一次只进一个
+          - { timing: replacement.applied, object: "A:#zilean" }
+          - { timing: zone.enter, object: "token:1might", zone: base }
+          - { timing: zone.enter, object: "token:1might", zone: base }   # 第二次进两个
+      state: []
+      rejected: null
+    notes: 371.2.b / 386.2.b Zilean, Time Mage 例：每回合一次的替代效果选择不应用，本回合仍可应用于后续事件。
+
+  - id: triggers-replacement-secret-zone-simultaneous
+    rule: ["1.5:370.1.c.1"]
+    title: 秘密区域对象的替代效果与事件同时应用
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          deck: ["@unit(cost:3,might:4,text:\"As you look at or reveal me from the top of your deck, you may banish me. If you do, you may play me for 1.\")#nocturne"]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: reveal-top-deck }   # 翻开牌库顶
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: card.revealed, object: "A:#nocturne" }
+          - { timing: replacement.applied, object: "A:#nocturne" }   # 与揭示同时应用
+      state: []
+      rejected: null
+    notes: 370.1.c.1 Nocturne, Horrifying 例：替代效果适用于秘密区域中涉及自身的事件，与该事件同时应用而非提前。
+
+  - id: triggers-replacement-must-be-in-zone-before-event
+    rule: ["1.5:370.3"]
+    title: 替代效果来源在事件发生前已进入其生效区域才可应用
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          trash: ["@unit(cost:3,might:2,text:\"If a unit you control would die, you may banish me from your trash instead. If you do, heal that unit, exhaust it and recall it.\")#angel"]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: ["@unit(might:2)#victim", "@unit(might:1)#token"], B: [] } }
+      chain: []
+    commands:
+      - { player: B, do: play, card: "kill-spell", targets: ["A:#victim", "A:#token"] }   # 同时消灭两个
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: unit.died, object: "A:#victim" }
+          - { timing: unit.died, object: "A:#token" }
+          - { timing: zone.enter, object: "A:#angel", zone: trash }   # angel 先进 trash
+      state:
+        - { path: "players.A.trash", equals: 3 }   # angel 未能替代 token 的死亡
+      rejected: null
+    notes: 370.3：替代效果来源在事件发生前已进入其生效区域才可应用；angel 与 token 同时进 trash，无法替代 token 的死亡。
+  # ----------------------------------------------------------------
+  # 延迟能力与 Ekko/Unlicensed Armory（359.3.e.15/16 / 390-393 / 124.1）
+  # ----------------------------------------------------------------
+  - id: triggers-delayed-end-of-turn-this-turn
+    rule: ["1.5:317.1.a", "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026"]
+    title: 授予的 at end of turn 文本与 at the end of this turn 同义，次回合不触发
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open, number: 1 }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: ["@unit(might:2,text:granted:\"Kill me at end of turn.\")#u1"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: pass }   # 第 1 回合结束：触发并入链
+      - { player: B, do: pass }
+      - { player: A, do: pass }   # 第 2 回合结束
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:#u1:granted-trigger" }   # 第 1 回合触发
+          - { timing: turn.phase-end-begin, turn: 2 }
+      state:
+        - { path: "battlefields.bf1.units.A", equals: 1 }   # 第 2 回合未再触发，u1 仍在场
+      rejected: null
+    notes: Radiance patch notes Ekko/Unlicensed Armory 裁定：卡面文本 at end of turn 与 at the end of this turn 同义；第 2 回合条件不再满足，不触发。
+
+  - id: triggers-delayed-window-ended-not-generated
+    rule: ["1.5:359.3.e.16", "1.5:391.2"]
+    title: 延迟能力在生成前时限已结束则不生成
+    kind: negative
+    given:
+      turn: { active: A, phase: end, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, text: "When you conquer here, ready up to 2 runes at the end of this turn." }
+      chain: []
+    commands:
+      - { player: A, do: conquer, battlefield: bf1 }   # 在结束阶段开始后才征服
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: score.conquer, player: A, battlefield: bf1 }
+      state:
+        - { path: "chain", equals: [] }   # 延迟触发未生成
+      rejected: null
+    notes: 359.3.e.16 Targon's Peak 例：结束阶段开始后才征服，at the end of this turn 时限已过，延迟触发不生成。
+
+  - id: triggers-delayed-source-left-board
+    rule: ["1.5:393"]
+    title: 延迟能力在来源离场后仍按其条件结算
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: ["@unit(might:2)#u1"], B: ["@unit(might:2,text:\"When I die, at the start of your next Main Phase, deal 2 to a unit.\")#guillotine"] } }
+      chain: []
+    commands:
+      - { player: A, do: kill, target: "B:#guillotine" }   # 消灭来源
+      - { player: A, do: pass }   # 进入 A 的下一主阶段
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: unit.died, object: "B:#guillotine" }
+          - { timing: turn.phase-main-begin, player: A }
+          - { timing: chain.item-pending, item: "B:#guillotine:delayed-trigger" }   # 来源已离场仍触发
+      state: []
+      rejected: null
+    notes: 393：延迟能力不依赖来源在场，条件满足时照常触发。
+
+  - id: triggers-zone-change-removes-granted-text
+    rule: ["1.5:124.1", "1.5:383.3.e.1"]
+    title: 对象在回合结束前变更区域离开非棋盘区域，临时授予文本消失不再触发
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: ["@spell(cost:1,speed:reaction,text:\"Return a unit to its owner's hand.\")"]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: ["@unit(might:2,text:granted:\"Kill me at end of turn.\")#u1"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", target: "A:#u1", pay: { energy: 1 } }   # 回手 u1
+      - { player: A, do: pass }   # 回合结束
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.enter, object: "A:#u1", zone: hand }
+      state:
+        - { path: "players.A.hand", equals: 1 }
+        - { path: "chain", equals: [] }   # 回合结束无链项
+      rejected: null
+    notes: Radiance patch notes Ekko/Unlicensed Armory 裁定：区域进出非棋盘区域后，授予的 Kill me at end of turn. 文本按 124.1 消失，能力不再存在，回合结束不触发。
+
+  - id: triggers-ekko-deathknell-recycle-cost
+    rule: ["1.5:383.3.b", "1.5:204.1.c"]
+    title: Ekko, Recurrent 的回收自身费用在 Finalize 时支付
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [fury, fury] }
+          hand: []
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: ["Ekko, Recurrent#ekko"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: kill, target: "A:#ekko" }   # 触发 Deathknell
+      - { player: A, do: finalize-trigger, pay: "recycle:#ekko" }   # 支付基础费用回收自身
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:#ekko:deathknell" }
+          - { timing: chain.item-finalized, item: "A:#ekko:deathknell" }
+          - { timing: zone.enter, object: "A:#ekko", zone: deck-bottom }   # 回收至牌库底
+      state:
+        - { path: "players.A.runes.ready", equals: 2 }
+      rejected: null
+    notes: 真实卡 Ekko, Recurrent：Deathknell 后紧随的指令内费用“Recycle me”是基础费用，Finalize 时支付后符文重置。
+
+  # ----------------------------------------------------------------
+  # 其他触发规则（383.3.c / 384.2 / 385 / 383.1.b / 466.2.d.1 / 402）
+  # ----------------------------------------------------------------
+  - id: triggers-closed-state-can-trigger
+    rule: ["1.5:383.3.c", "1.5:402.1"]
+    title: 触发能力可在封闭状态入链
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: ["@spell(cost:2,speed:action,text:\"Deal 2 to a unit.\")"]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: ["@unit(might:2,text:\"When a unit is dealt damage, draw 1.\")#watcher"], B: ["@unit(might:3)#e1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", target: "B:#e1", pay: { energy: 2 } }   # 法术入链，封闭状态
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:hand[0]" }
+          - { timing: damage.dealt, object: "B:#e1", amount: 2 }
+          - { timing: chain.item-pending, item: "A:#watcher:trigger" }   # 封闭状态中触发入链
+      state:
+        - { path: "players.A.hand", equals: 1 }
+      rejected: null
+    notes: 383.3.c：触发能力可在封闭或开放状态入链，不限回合归属。
+
+  - id: triggers-trigger-not-priority-action
+    rule: ["1.5:383.3", "1.5:402.1"]
+    title: 触发能力入链不是玩家主动动作，无需优先权
+    kind: edge
+    given:
+      turn: { active: B, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: ["@unit(might:2,text:\"At the end of any turn, draw 1.\")#watcher"], B: [] } }
+      chain: []
+    commands:
+      - { player: B, do: pass }   # B 的回合结束，A 的触发自动入链
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:#watcher:trigger" }
+      state:
+        - { path: "players.A.hand", equals: 1 }
+      rejected: null
+    notes: 383.3：触发条件满足即入链，不是玩家主动动作，不需要优先权或 Focus。
+
+  - id: triggers-permanent-trigger-only-on-board
+    rule: ["1.5:384.2"]
+    title: 永久物的触发能力只在棋盘上判定条件
+    kind: negative
+    given:
+      turn: { active: A, phase: end, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: ["@unit(cost:2,might:2,text:\"At the end of your turn, draw 1.\")#u1"]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: pass }   # 回合结束，u1 在手牌
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.phase-end-begin }
+      state:
+        - { path: "players.A.hand", equals: 1 }   # 未触发抽牌
+        - { path: "chain", equals: [] }
+      rejected: null
+    notes: 384.2：永久物的触发能力只在棋盘上判定条件；手牌中的永久物不触发。
+
+  - id: triggers-off-board-self-describing-context
+    rule: ["1.5:385.2"]
+    title: 棋盘外卡牌自述生效区域的触发在该区域触发
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          trash: ["@unit(cost:3,might:2,text:\"When you conquer, you may discard 1 to return this from your trash to your hand.\")#c1"]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: ["@unit(might:3)#attacker"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: conquer, battlefield: bf1 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: score.conquer, player: A, battlefield: bf1 }
+          - { timing: chain.item-pending, item: "A:#c1:trigger" }
+      state: []
+      rejected: null
+    notes: 385.2：棋盘外卡牌的触发能力自述其生效区域；此卡在 trash 中触发。
+
+  - id: triggers-nth-time-simultaneous-pick-one
+    rule: ["1.5:383.1.b"]
+    title: 第 N 次触发条件同时满足多次时，控制者择一触发一次
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: ["@unit(might:2,text:\"The first time another friendly unit dies each turn, draw 1.\")#wraith", "@unit(might:2)#d1", "@unit(might:2)#d2"], B: [] } }
+      chain: []
+    commands:
+      - { player: B, do: play, card: "kill-both", targets: ["A:#d1", "A:#d2"] }   # 同时消灭两个友方单位
+      - { player: A, do: choose-trigger-instance, target: "A:#d1" }   # A 选择以 d1 的死亡为触发条件
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: unit.died, object: "A:#d1" }
+          - { timing: unit.died, object: "A:#d2" }
+          - { timing: chain.item-pending, item: "A:#wraith:trigger" }   # 只触发一次
+      state:
+        - { path: "players.A.hand", equals: 1 }
+      rejected: null
+    notes: 383.1.b Wraith of Echoes 例：第 N 次触发条件同时满足多次，控制者择一作为触发条件，只触发一次。
+
+  - id: triggers-combat-attacker-first-then-defender
+    rule: ["1.5:466.2.d.1"]
+    title: 战斗链中攻方先入链，守方后入链
+    kind: positive
+    given:
+      turn: { active: A, phase: combat, state: showdown-closed }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: ["@unit(might:3,text:\"When I attack, draw 1.\")#attacker"], B: ["@unit(might:2,text:\"When I defend, draw 1.\")#defender"] } }
+      chain: []
+    commands:
+      - { player: A, do: attack, unit: "A:#attacker", battlefield: bf1 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:#attacker:attack-trigger" }   # 攻方先入链
+          - { timing: chain.item-pending, item: "B:#defender:defend-trigger" }   # 守方后入链
+      state: []
+      rejected: null
+    notes: 466.2.d.1：战斗链建立时攻方先入链，其后按回合顺序，守方最后。
+
+  - id: triggers-pending-pauses-for-resolution
+    rule: ["1.5:402.2"]
+    title: 结算中的游戏效果产生触发时，先入链再继续当前结算
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: ["@spell(cost:3,speed:action,text:\"Kill a unit. Then draw 1.\")"]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: ["@unit(might:2,text:\"When a unit dies, draw 1.\")#watcher"], B: ["@unit(might:2)#victim"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", target: "B:#victim", pay: { energy: 3 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: unit.died, object: "B:#victim" }
+          - { timing: chain.item-pending, item: "A:#watcher:trigger" }   # watcher 触发入链
+          - { timing: spell.resolved, object: "A:hand[0]" }             # 法术继续结算完毕
+      state:
+        - { path: "players.A.hand", equals: 2 }   # 法术抽 1 + watcher 抽 1
+      rejected: null
+    notes: 402.2：结算中的效果产生触发时先入链，再继续当前结算；链项在后续统一结算。
