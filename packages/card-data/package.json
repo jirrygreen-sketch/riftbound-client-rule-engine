@@ -25,6 +25,9 @@
     "sync:images": "node scripts/sync-images.mjs",
     "build:catalog": "node scripts/build-deck-catalog.mjs",
     "build:coverage": "pnpm build && node scripts/build-effect-coverage.mjs",
+    "audit:catalog": "pnpm build && node --test test/persisted-catalog-audit.mjs",
+    "verify:rule-sources": "node scripts/verify-rule-sources.mjs",
+    "verify:rule-sources:manifest-only": "node scripts/verify-rule-sources.mjs --manifest-only",
     "test": "tsc -p tsconfig.json && node --test test/*.test.mjs"
   },
   "devDependencies": {

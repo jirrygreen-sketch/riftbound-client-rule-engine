@@ -1,0 +1,1687 @@
+/*
+ * Scoped styling for the formal Duel match surface.
+ * Every selector is prefixed with `.full-product-duel-` (never overlapping the
+ * `.full-product-duel-table-*` shell hooks owned by DuelTableLayout.css) so this
+ * file cannot leak into the rest of the desktop client. Dark-teal tabletop
+ * palette anchored on the app surfaces (`#151517`) with the `#1aa79b` accent,
+ * clear region titles and calm spacing. No inline art, no copied prototype
+ * stylesheet.
+ */
+
+.full-product-duel-match {
+  /*
+   * Card-face sizing contract.
+   *
+   * Ratios come from the real local assets: legend / champion / unit / rune /
+   * hand are portrait (744x1039), a battlefield card is landscape (1038x744).
+   * Every face is drawn with `object-fit: contain` at its own real ratio, so a
+   * card is always shown whole — never cropped into a `cover` strip and never
+   * squeezed into one fixed, too-short height. The per-role heights only bound
+   * how tall a face may grow on a short viewport; they never change the shape.
+   */
+  --duel-card-portrait-ratio: 744 / 1039;
+  --duel-card-landscape-ratio: 1038 / 744;
+  --duel-hand-face-height: min(13.5rem, 24vh);
+  --duel-unit-face-height: min(8rem, 18vh);
+  /* The battlefield card is a compact, clickable horizontal header thumbnail
+     (height-bounded; width follows the real landscape ratio) instead of a tall
+     banner that pushed one controller's unit group below the clipped center. */
+  --duel-battlefield-thumb-height: min(4.5rem, 13vh);
+  /* Base runes are the smallest face on the board; their whole chip (face +
+     domain + ready/exhaust) must fit inside the capped base band so a rune is
+     never half-clipped. */
+  --duel-baserune-face-height: min(2.8rem, 7vh);
+  /* Base Gears / units use a compact horizontal mini card whose face is bounded
+     to this height, so a base unit or Gear stays whole inside the capped band
+     without shrinking the central battlefield's taller 150px unit style. */
+  --duel-basecard-face-height: min(3.4rem, 8.5vh);
+  /* Reused region spacing so every band keeps the same calm, even gutters. */
+  --duel-region-gap: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  /* The board paints the app surface itself so it never depends on the host
+     page for its dark teal ground (the shell only adds the inner panels). */
+  background: #151517;
+  color: #f3f0ea;
+}
+
+.full-product-duel-match,
+.full-product-duel-match *,
+.full-product-duel-match *::before,
+.full-product-duel-match *::after {
+  box-sizing: border-box;
+}
+
+/* ---- Header ---- */
+.full-product-duel-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem 0.9rem;
+  min-width: 0;
+}
+
+.full-product-duel-header-matchup {
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: #37c8bb;
+}
+
+.full-product-duel-header-round,
+.full-product-duel-header-phase,
+.full-product-duel-header-turn {
+  font-size: 0.78rem;
+  color: #a6a29a;
+}
+
+/* ---- Score rail: 9 real ticks (goal … 0), server points markers ----
+   The rail column itself is 48px (owned by DuelTableLayout.css); every chip
+   below stays within that width and keeps its number legible. */
+.full-product-duel-score {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.3rem;
+  width: 100%;
+  min-width: 0;
+  padding: 0.35rem 0.2rem;
+}
+
+.full-product-duel-score-ticks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.full-product-duel-score-tick {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.full-product-duel-score-tick-value {
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  color: #87837b;
+}
+
+.full-product-duel-score-tick[data-goal="true"] .full-product-duel-score-tick-value {
+  font-size: 0.86rem;
+  font-weight: 800;
+  color: #d8a13a;
+}
+
+.full-product-duel-score-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.05rem;
+  width: 100%;
+  padding: 0.15rem 0.1rem;
+  border: 1px solid rgba(26, 167, 155, 0.4);
+  border-radius: 0.35rem;
+  background: rgba(28, 30, 30, 0.75);
+  color: #f3f0ea;
+}
+
+.full-product-duel-score-chip-name {
+  font-size: 0.58rem;
+  line-height: 1.1;
+  color: #a6a29a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.full-product-duel-score-chip-points {
+  font-size: 0.8rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #f3f0ea;
+}
+
+.full-product-duel-score-overflow {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.2rem;
+  padding-bottom: 0.2rem;
+  border-bottom: 1px dashed rgba(216, 161, 58, 0.45);
+}
+
+/* ---- Base bands (top = opposing seat, bottom = own seat) ----
+   The band's own height cap and internal scrolling live in DuelTableLayout.css
+   (`.full-product-duel-table-opponent` / `-player`), so the small base cards
+   (runes, gold, deck counts) can never squeeze the central battlefields or the
+   hand and the band stays exactly as tall as its real content.
+
+   The base is TWO rows and never more: the region title + hand count keep the
+   whole first line, then ONE body ribbon carries the identity row, the base
+   runes, the gold, the deck counts, the Gears and the base units side by side.
+   The body is `nowrap` and scrolls sideways, so a crowded base (8-12 runes, a
+   Gear and a unit) can never wrap onto a second line and be clipped by the band
+   height cap — every card stays reachable by scrolling the ribbon. */
+.full-product-duel-base {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 0.3rem;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* The title + hand count own the whole first line. */
+.full-product-duel-base-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.4rem;
+  flex: 0 0 auto;
+  width: 100%;
+}
+
+.full-product-duel-base-head .full-product-duel-base-hand {
+  margin-left: auto;
+}
+
+.full-product-duel-base-scroll {
+  display: inline-flex;
+  gap: 0.2rem;
+  flex: 0 0 auto;
+}
+
+.full-product-duel-base-scroll button {
+  width: 1.4rem;
+  height: 1.2rem;
+  padding: 0;
+  border: 1px solid #46766e;
+  border-radius: 0.25rem;
+  background: #192927;
+  color: #c3e8e2;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* One horizontally-scrolling ribbon for everything below the title. It never
+   wraps: every group keeps its own natural width and the whole strip scrolls. */
+.full-product-duel-base-body {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 0.3rem var(--duel-region-gap);
+  min-width: 0;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* Each top-level base group keeps its own width on the ribbon (a wide rune pile
+   scrolls inside its own strip) instead of being squeezed or wrapped. */
+.full-product-duel-base-body > .full-product-duel-setup-identity,
+.full-product-duel-base-body > .full-product-duel-legend-state,
+.full-product-duel-base-body > .full-product-duel-baserunes,
+.full-product-duel-base-body > .full-product-duel-gold-line,
+.full-product-duel-base-body > .full-product-duel-decks,
+.full-product-duel-base-body > .full-product-duel-gears,
+.full-product-duel-base-body > .full-product-duel-unit-groups,
+.full-product-duel-base-body > .full-product-duel-empty {
+  flex: 0 0 auto;
+}
+
+/* Identity, Legend status and each group keep a single line on the ribbon. */
+.full-product-duel-base-body .full-product-duel-setup-identity,
+.full-product-duel-base-body .full-product-duel-legend-state {
+  flex-wrap: nowrap;
+  align-items: center;
+  white-space: nowrap;
+}
+
+/* Base Gears: a compact row of mini cards that scrolls inside its own group
+   instead of wrapping into a tall column that the band cap would clip. */
+.full-product-duel-base-body .full-product-duel-gears {
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 0.25rem;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.full-product-duel-base-body .full-product-duel-gear-list {
+  flex-wrap: nowrap;
+  align-items: stretch;
+}
+
+/* Base unit groups: both controllers' compact groups on one row; a crowded
+   group scrolls sideways instead of stacking tall. */
+.full-product-duel-base-body .full-product-duel-unit-groups {
+  flex-wrap: nowrap;
+  align-items: stretch;
+}
+
+.full-product-duel-base-body .full-product-duel-unit-group {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+/*
+ * Base mini cards (Gears and units) are compact *horizontal* cards — a
+ * height-bounded face on the left, its name / controller / readied / damage
+ * text on the right — so the full card identity stays inside the capped base
+ * band. This is scoped to the base ribbon only: the central battlefield keeps
+ * the taller vertical unit/gear cards (never shrunk here).
+ */
+.full-product-duel-base-body .full-product-duel-gear,
+.full-product-duel-base-body .full-product-duel-unit {
+  flex: 0 0 auto;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.35rem;
+  min-width: 0;
+  max-width: none;
+  padding: 0.25rem 0.35rem;
+}
+
+.full-product-duel-base-body .full-product-duel-gear-thumb,
+.full-product-duel-base-body .full-product-duel-gear-thumb.is-missing,
+.full-product-duel-base-body .full-product-duel-unit-thumb,
+.full-product-duel-base-body .full-product-duel-unit-thumb.is-missing {
+  /* Whole portrait face, height-bounded to fit the base band; width follows the
+     real ratio so the art is never cropped or squashed. */
+  width: auto;
+  height: var(--duel-basecard-face-height);
+  max-height: var(--duel-basecard-face-height);
+  flex: 0 0 auto;
+}
+
+/* The body ribbon is the single horizontal scroll region: a crowded rune pile
+   grows the ribbon instead of trapping its own nested scrollbar. */
+.full-product-duel-base-body .full-product-duel-baserunes,
+.full-product-duel-base-body .full-product-duel-baserune-list {
+  max-width: none;
+}
+
+.full-product-duel-base-body .full-product-duel-baserune-list {
+  overflow-x: visible;
+}
+
+/* The inspect button wrapping a base face stays a compact item, not a block. */
+.full-product-duel-base-body .full-product-duel-gear > .full-product-duel-card-button,
+.full-product-duel-base-body .full-product-duel-unit > .full-product-duel-card-button {
+  width: auto;
+  flex: 0 0 auto;
+}
+
+/* The text column beside a base face carries every public field as its own row
+   so nothing is hidden to make the card fit. */
+.full-product-duel-gear-details,
+.full-product-duel-unit-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.full-product-duel-base-title {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #d8d4cc;
+}
+
+.full-product-duel-base-hand {
+  font-size: 0.66rem;
+  color: #a6a29a;
+  white-space: nowrap;
+}
+
+.full-product-duel-section-label {
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: #8a8780;
+}
+
+/* ---- Identity slots (legend / champion, with clickable art when resolved) ---- */
+.full-product-duel-setup-identity {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 0.9rem;
+  margin: 0;
+}
+
+.full-product-duel-setup-identity div {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.full-product-duel-setup-identity dt {
+  font-size: 0.64rem;
+  color: #8a8780;
+}
+
+.full-product-duel-setup-identity dd {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin: 0;
+  font-size: 0.74rem;
+  color: #f3f0ea;
+}
+
+.full-product-duel-identity-thumb,
+.full-product-duel-identity-thumb.is-missing {
+  width: 1.6rem;
+  height: auto;
+  /* Legend / champion are portrait cards: keep the real face ratio. */
+  aspect-ratio: var(--duel-card-portrait-ratio);
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+
+.full-product-duel-identity-title {
+  color: #f3f0ea;
+}
+
+.full-product-duel-identity-title.is-none {
+  color: #e5635a;
+}
+
+/* ---- Base runes: small read-only mini cards, one compact horizontal group ----
+   The group card is bounded and its rune strip scrolls sideways, so a wide rune
+   pile reads as one neat row of mini cards instead of wrapping into the gold /
+   deck groups beneath it. */
+.full-product-duel-baserunes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0.25rem 0.35rem;
+  border: 1px solid #3a3a40;
+  border-radius: 0.4rem;
+  background: rgba(28, 30, 30, 0.55);
+}
+
+.full-product-duel-baserune-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.25rem;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.full-product-duel-baserune {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.05rem;
+  /* The chip hugs its height-bounded rune face so a short viewport shrinks the
+     whole rune (art + state) instead of clipping it. */
+  flex: 0 0 auto;
+  width: auto;
+  padding: 0.15rem;
+  border: 1px solid #4a4a52;
+  border-radius: 0.3rem;
+  background: linear-gradient(180deg, #232326, #151517);
+  font-size: 0.55rem;
+}
+
+.full-product-duel-baserune[data-readied="false"] {
+  opacity: 0.7;
+}
+
+.full-product-duel-baserune-button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.05rem;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: zoom-in;
+}
+
+.full-product-duel-baserune-thumb,
+.full-product-duel-baserune-thumb.is-missing {
+  /* Runes are portrait cards: full face, real ratio, never a cropped strip. The
+     face height is the driver (width derives from the real ratio), so the whole
+     rune — art plus its ready/exhaust state below — fits inside the capped base
+     band instead of showing only the top half of the art. */
+  height: var(--duel-baserune-face-height);
+  width: auto;
+  aspect-ratio: var(--duel-card-portrait-ratio);
+  object-fit: contain;
+  border-radius: 0.2rem;
+  border: 1px solid #3a3a40;
+  background: rgba(6, 22, 20, 0.7);
+}
+
+.full-product-duel-baserune-caption {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.15rem;
+  white-space: nowrap;
+  line-height: 1.1;
+}
+
+.full-product-duel-baserune-domain {
+  color: #f3f0ea;
+  white-space: nowrap;
+}
+
+.full-product-duel-baserune-state {
+  color: #66d19e;
+  font-size: 0.5rem;
+}
+
+.full-product-duel-baserune[data-readied="false"] .full-product-duel-baserune-state {
+  color: #e5635a;
+}
+
+/* ---- Gold tokens: plain marks (no printing metadata) ----
+   A compact horizontal group card, visually distinct from the rune group so the
+   two small currencies never blur together. */
+.full-product-duel-gold-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.2rem 0.4rem;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0.25rem 0.35rem;
+  border: 1px solid rgba(216, 161, 58, 0.4);
+  border-radius: 0.4rem;
+  background: rgba(32, 24, 10, 0.4);
+}
+
+.full-product-duel-gold-summary {
+  font-size: 0.66rem;
+  color: #37c8bb;
+  font-variant-numeric: tabular-nums;
+}
+
+.full-product-duel-gold-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+}
+
+.full-product-duel-gold {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.05rem 0.25rem;
+  border: 1px solid rgba(216, 161, 58, 0.55);
+  border-radius: 0.25rem;
+  background: linear-gradient(180deg, #3a3117, #20180a);
+  font-size: 0.55rem;
+  color: #37c8bb;
+}
+
+.full-product-duel-gold[data-readied="false"] {
+  opacity: 0.6;
+}
+
+.full-product-duel-gold-glyph {
+  font-weight: 700;
+  color: #37c8bb;
+}
+
+.full-product-duel-gold-state {
+  color: #d8d4cc;
+}
+
+/* ---- Public deck / trash counts: a compact horizontal group card ---- */
+.full-product-duel-decks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.8rem;
+  margin: 0;
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 0.25rem 0.35rem;
+  border: 1px solid #3a3a40;
+  border-radius: 0.4rem;
+  background: rgba(28, 30, 30, 0.55);
+}
+
+.full-product-duel-decks div {
+  display: flex;
+  align-items: baseline;
+  gap: 0.25rem;
+}
+
+.full-product-duel-decks dt {
+  font-size: 0.6rem;
+  color: #8a8780;
+}
+
+.full-product-duel-decks dd {
+  margin: 0;
+  font-size: 0.74rem;
+  color: #f3f0ea;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Central battlefields (no base duplication) ----
+   The two fields sit side by side as two equal, comparable columns; a tall field
+   body grows and the central region (DuelTableLayout.css) scrolls it, so nothing
+   is clipped or forced off-screen. `align-items: start` keeps a shorter field
+   from stretching to the taller one's height, so the two columns stay
+   independently readable. */
+.full-product-duel-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: var(--duel-region-gap);
+  min-width: 0;
+  min-height: 100%;
+}
+
+.full-product-duel-chain {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+  padding: 0.45rem;
+  border: 1px solid rgba(26, 167, 155, 0.45);
+  background: rgba(20, 22, 22, 0.78);
+}
+
+.full-product-duel-chain-title {
+  margin: 0;
+  color: #37c8bb;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.full-product-duel-chain-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.full-product-duel-chain-card {
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr);
+  column-gap: 0.35rem;
+  align-items: center;
+  min-width: 10rem;
+  padding: 0.25rem;
+  border: 1px solid rgba(26, 167, 155, 0.35);
+  background: rgba(35, 35, 38, 0.7);
+}
+
+.full-product-duel-chain-thumb {
+  grid-row: span 2;
+  width: 2.25rem;
+  aspect-ratio: var(--duel-card-portrait-ratio);
+  object-fit: contain;
+}
+
+.full-product-duel-chain-name,
+.full-product-duel-chain-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.full-product-duel-chain-name {
+  color: #f3f0ea;
+  font-size: 0.68rem;
+}
+
+.full-product-duel-chain-meta {
+  color: #a6a29a;
+  font-size: 0.58rem;
+}
+
+.full-product-duel-battlefield {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+  min-height: 0;
+  padding: 0.5rem;
+  border: 1px solid #3a3a40;
+  /* A thin accent edge so the left and right fields are easy to tell apart at a
+     glance without inventing a side label. */
+  border-top: 2px solid rgba(26, 167, 155, 0.55);
+  border-radius: 0.5rem;
+  background: linear-gradient(180deg, rgba(26, 30, 30, 0.75), rgba(12, 20, 20, 0.8));
+}
+
+.full-product-duel-battlefield-head {
+  display: flex;
+  /* Compact header: the field name/owner/tags stay a readable text column and
+     the battlefield card art shrinks to a small horizontal thumbnail beside
+     them. This is what keeps the art from taking most of the vertical room and
+     pushing the second controller's unit group out of the clipped center. */
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.4rem 0.5rem;
+  min-width: 0;
+}
+
+.full-product-duel-battlefield-head-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.full-product-duel-battlefield-title {
+  margin: 0;
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: #37c8bb;
+}
+
+.full-product-duel-battlefield-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.7rem;
+  font-size: 0.64rem;
+  color: #a6a29a;
+}
+
+.full-product-duel-contested {
+  color: #e5635a;
+}
+
+/* ---- Clickable card art (a real button, view-only) ---- */
+.full-product-duel-card-button {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: zoom-in;
+}
+
+.full-product-duel-battlefield-thumb,
+.full-product-duel-unit-thumb,
+.full-product-duel-hand-thumb {
+  display: block;
+  border-radius: 0.35rem;
+  border: 1px solid #3a3a40;
+  background: rgba(6, 22, 20, 0.7);
+  /* Whole card face at its real ratio; `cover` used to slice the art. */
+  object-fit: contain;
+}
+
+/* Landscape battlefield card, now a small header thumbnail: a real 1038x744
+   face, height-bounded (not sliced) so the field column keeps room for both
+   controllers' unit groups. */
+.full-product-duel-battlefield-thumb,
+.full-product-duel-battlefield-thumb.is-missing {
+  /* A small clickable horizontal thumbnail, not a full-width banner: it stays
+     whole at the real landscape ratio (height-bounded, width derived) and never
+     dominates the field column. */
+  height: var(--duel-battlefield-thumb-height);
+  width: auto;
+  max-width: 100%;
+  flex: 0 0 auto;
+  aspect-ratio: var(--duel-card-landscape-ratio);
+}
+
+/* The inspect button wrapping the thumbnail is a compact flex item beside the
+   field text, never a full-width block that would push the name/tags out. */
+.full-product-duel-battlefield-head .full-product-duel-card-button {
+  width: auto;
+  flex: 0 0 auto;
+}
+
+.full-product-duel-battlefield-thumb.is-missing,
+.full-product-duel-unit-thumb.is-missing,
+.full-product-duel-hand-thumb.is-missing,
+.full-product-duel-baserune-thumb.is-missing,
+.full-product-duel-identity-thumb.is-missing {
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(58, 58, 64, 0.5),
+    rgba(58, 58, 64, 0.5) 6px,
+    rgba(30, 30, 34, 0.5) 6px,
+    rgba(30, 30, 34, 0.5) 12px
+  );
+}
+
+/* ---- Units ----
+   Inside one field the two controller groups sit side by side: the opposing
+   seat's group first, the viewer's own group next (the component already orders
+   them that way, matching the two base bands). Each group is its own tinted
+   sub-panel so the two sides never blur into a single pile. */
+.full-product-duel-unit-groups {
+  display: flex;
+  /* Both controllers' unit groups sit side by side (left/right) inside one
+     field so a single unit on each side is visible together at 1280x800. The
+     component still orders the groups opponent-then-self, exactly as before. */
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.full-product-duel-unit-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  flex: 1 1 7rem;
+  min-width: 0;
+  padding: 0.3rem 0.35rem;
+  border: 1px solid #33333a;
+  border-radius: 0.4rem;
+  background: rgba(21, 21, 23, 0.55);
+}
+
+/* The first (opponent) group gets a cool neutral edge; the second (own) group a
+   teal edge — a subtle, reversible cue that never asserts a side label. */
+.full-product-duel-unit-group:first-child {
+  border-left: 3px solid rgba(160, 160, 168, 0.6);
+}
+
+.full-product-duel-unit-group:last-child {
+  border-left: 3px solid rgba(26, 167, 155, 0.65);
+}
+
+.full-product-duel-unit-group-owner {
+  margin: 0;
+  font-size: 0.64rem;
+  font-weight: 700;
+  color: #d8d4cc;
+}
+
+.full-product-duel-unit-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  /* A crowded controller group scrolls sideways inside its own column instead
+     of stacking into a tall scroll region that would push the opponent's group
+     off the visible center. */
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  gap: 0.3rem;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.full-product-duel-unit {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 6rem;
+  max-width: 8rem;
+  padding: 0.3rem 0.4rem;
+  border: 1px solid #4a4a52;
+  border-radius: 0.4rem;
+  background: linear-gradient(180deg, #232326, #151517);
+  font-size: 0.68rem;
+}
+
+.full-product-duel-unit-thumb,
+.full-product-duel-unit-thumb.is-missing {
+  width: 100%;
+  height: auto;
+  /* Units are portrait cards: the whole face, never a cropped strip. */
+  aspect-ratio: var(--duel-card-portrait-ratio);
+  max-height: var(--duel-unit-face-height);
+}
+
+.full-product-duel-unit-name {
+  font-weight: 600;
+  color: #f3f0ea;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.full-product-duel-unit-token {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.full-product-duel-unit-might {
+  color: #d8a13a;
+  font-variant-numeric: tabular-nums;
+}
+
+.full-product-duel-unit-tags {
+  color: #8a8780;
+  font-size: 0.6rem;
+}
+
+.full-product-duel-unit-state {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.5rem;
+  font-size: 0.62rem;
+}
+
+.full-product-duel-unit-readied {
+  color: #66d19e;
+}
+
+.full-product-duel-unit-damage {
+  color: #e5635a;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Hand strip: one horizontal, scrollable row of full-size cards ----
+   The hand never auto-shrinks to fit: every card keeps its 160px printing width
+   and its whole portrait face (art + cost/name stay legible), and a long hand
+   scrolls sideways inside the strip. Cards may enlarge on hover/focus for a
+   closer look, but that is an enhancement only — the real inspect button is a
+   native, keyboard-reachable control, so no action depends on hover. */
+.full-product-duel-hand {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: 0.4rem;
+  min-width: 0;
+  /* A long hand scrolls inside its own strip instead of overflowing the page. */
+  overflow-x: auto;
+}
+
+/* Hand card width stays exactly 160px (unchanged contract); only the face
+   height is bounded on short viewports, and it keeps the whole portrait face. */
+.full-product-duel-hand-card {
+  flex: 0 0 160px;
+  width: 160px;
+  max-width: 160px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.3rem;
+  border: 1px solid #3a3a40;
+  border-radius: 0.4rem;
+  background: linear-gradient(180deg, #232326, #151517);
+  /* Grow toward the top of the strip so an enlarged card never spills down onto
+     a neighbour's controls; the 0.5rem band padding leaves room for the lift. */
+  transform-origin: bottom center;
+  transition: transform 120ms ease, border-color 120ms ease;
+}
+
+.full-product-duel-hand-card:hover,
+.full-product-duel-hand-card:focus-within {
+  transform: scale(1.04);
+  border-color: rgba(26, 167, 155, 0.7);
+}
+
+.full-product-duel-hand-thumb,
+.full-product-duel-hand-thumb.is-missing {
+  width: 100%;
+  height: auto;
+  aspect-ratio: var(--duel-card-portrait-ratio);
+  max-height: var(--duel-hand-face-height);
+}
+
+.full-product-duel-hand-title {
+  font-size: 0.7rem;
+  color: #f3f0ea;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- Action panel ---- */
+.full-product-duel-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+/* Direct card actions stay on the card surface; the right rail only keeps
+   compact global commands and an explicitly opened fallback panel. */
+.full-product-duel-card-surface {
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.full-product-duel-card-surface:hover,
+.full-product-duel-card-surface:focus-within {
+  border-color: rgba(55, 200, 187, 0.78);
+  box-shadow: 0 0 0 1px rgba(55, 200, 187, 0.2);
+}
+
+.full-product-duel-battlefield.is-drop-target,
+.full-product-duel-playmat-side.is-drop-target {
+  outline: 1px dashed rgba(102, 209, 158, 0.7);
+  outline-offset: 2px;
+}
+
+.full-product-duel-global-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.full-product-duel-global-action,
+.full-product-duel-pending-choice-reopen {
+  min-height: 1.8rem;
+  padding: 0.25rem 0.55rem;
+  border: 1px solid rgba(55, 200, 187, 0.55);
+  border-radius: 0.3rem;
+  background: #192927;
+  color: #d9f3ee;
+  font-size: 0.68rem;
+  cursor: pointer;
+}
+
+.full-product-duel-global-action:disabled,
+.full-product-duel-pending-choice-reopen:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.full-product-duel-pending-choice-reopen {
+  width: 100%;
+  border-color: rgba(216, 161, 58, 0.65);
+  color: #f0d59a;
+}
+
+.full-product-duel-more-actions {
+  margin-top: 0.15rem;
+  border-top: 1px solid rgba(58, 58, 64, 0.7);
+  padding-top: 0.25rem;
+}
+
+.full-product-duel-more-actions > summary {
+  color: #a6a29a;
+  font-size: 0.66rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.full-product-duel-drag-ghost {
+  position: fixed;
+  z-index: 1200;
+  width: 7rem;
+  min-height: 2rem;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid rgba(55, 200, 187, 0.82);
+  border-radius: 0.35rem;
+  background: rgba(21, 21, 23, 0.94);
+  color: #f3f0ea;
+  font-size: 0.68rem;
+  pointer-events: none;
+  transform: rotate(2deg);
+  box-shadow: 0 0.35rem 1rem rgba(0, 0, 0, 0.35);
+}
+
+.full-product-duel-readonly {
+  margin: 0;
+  padding: 0.25rem 0.45rem;
+  border-radius: 0.35rem;
+  border: 1px solid rgba(229, 99, 90, 0.45);
+  background: rgba(120, 45, 40, 0.22);
+  color: #e5635a;
+  font-size: 0.66rem;
+}
+
+.full-product-duel-hint {
+  margin: 0;
+  font-size: 0.68rem;
+  color: #a6a29a;
+}
+
+.full-product-duel-empty {
+  margin: 0;
+  font-size: 0.68rem;
+  color: #8a8780;
+}
+
+.full-product-duel-action-list,
+.full-product-duel-mulligan-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.full-product-duel-action {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #3a3a40;
+  border-radius: 0.4rem;
+  background: linear-gradient(180deg, #232326, #151517);
+  color: #f3f0ea;
+  text-align: left;
+  cursor: pointer;
+}
+
+.full-product-duel-action:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.full-product-duel-action-label {
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+.full-product-duel-action-cost {
+  font-size: 0.64rem;
+  color: #d8a13a;
+}
+
+.full-product-duel-action-reason {
+  font-size: 0.62rem;
+  color: #e5635a;
+}
+
+.full-product-duel-mulligan {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.full-product-duel-mulligan-card {
+  width: 100%;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid #3a3a40;
+  border-radius: 0.35rem;
+  background: linear-gradient(180deg, #232326, #151517);
+  color: #f3f0ea;
+  text-align: left;
+  cursor: pointer;
+}
+
+.full-product-duel-mulligan-card[aria-pressed="true"] {
+  border-color: #d8a13a;
+  box-shadow: inset 0 0 0 1px rgba(216, 161, 58, 0.45);
+}
+
+.full-product-duel-mulligan-card:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.full-product-duel-mulligan-confirm {
+  padding: 0.35rem 0.5rem;
+  border: 1px solid rgba(216, 161, 58, 0.55);
+  border-radius: 0.4rem;
+  background: linear-gradient(180deg, #3a3117, #20180a);
+  color: #37c8bb;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.full-product-duel-mulligan-confirm:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* ---- Spectator resource summary ---- */
+.full-product-duel-spectator-resource {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.full-product-duel-spectator-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.full-product-duel-spectator-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.8rem;
+  font-size: 0.68rem;
+  color: #f3f0ea;
+  font-variant-numeric: tabular-nums;
+}
+
+.full-product-duel-activity {
+  min-width: 0;
+}
+
+/* ---- V3 public permanents (Legend readiness + Gear list) ----
+   Both are read-only projections. The Legend status is a single inline row; the
+   Gear list is a wrapping strip of small mini cards. Every row uses
+   `min-width: 0` + wrapping words so a long display name can never overlap a
+   neighbour, and the strip is width-bounded so it never widens the base band,
+   the compact resource block or the shared battlefield columns. */
+.full-product-duel-legend-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.15rem 0.5rem;
+  margin: 0;
+  min-width: 0;
+  font-size: 0.64rem;
+  color: #a6a29a;
+}
+
+.full-product-duel-legend-controller {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.full-product-duel-legend-readiness {
+  flex: 0 0 auto;
+  padding: 0.02rem 0.3rem;
+  border: 1px solid rgba(26, 167, 155, 0.4);
+  border-radius: 0.25rem;
+  color: #f3f0ea;
+  white-space: nowrap;
+}
+
+.full-product-duel-legend-readiness[data-readiness="ready"] {
+  color: #66d19e;
+}
+
+.full-product-duel-legend-readiness[data-readiness="not-established"] {
+  color: #37c8bb;
+}
+
+.full-product-duel-legend-readiness[data-readiness="exhausted"] {
+  color: #e5635a;
+}
+
+.full-product-duel-gears {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.full-product-duel-gear-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+/* A Gear mini card never grows past 8rem and can shrink/wrap, so a wide or
+   numerous Gear list cannot stretch the base band or a battlefield column. */
+.full-product-duel-gear {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  flex: 0 1 6rem;
+  min-width: 4.5rem;
+  max-width: 8rem;
+  padding: 0.25rem 0.35rem;
+  border: 1px solid #4a4a52;
+  border-radius: 0.35rem;
+  background: linear-gradient(180deg, #232326, #151517);
+  font-size: 0.6rem;
+}
+
+.full-product-duel-gear[data-readied="false"] {
+  opacity: 0.7;
+}
+
+.full-product-duel-gear-thumb,
+.full-product-duel-gear-thumb.is-missing {
+  width: 100%;
+  height: auto;
+  /* Gears are portrait cards: whole face at the real ratio, bounded on short
+     viewports so the small band never loses its other rows. */
+  aspect-ratio: var(--duel-card-portrait-ratio);
+  max-height: var(--duel-unit-face-height);
+}
+
+.full-product-duel-gear-name {
+  font-weight: 600;
+  color: #f3f0ea;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.full-product-duel-gear-controller,
+.full-product-duel-gear-host {
+  min-width: 0;
+  color: #a6a29a;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.full-product-duel-gear-host.is-independent {
+  color: #8a8780;
+}
+
+.full-product-duel-gear-state {
+  color: #66d19e;
+}
+
+.full-product-duel-gear[data-readied="false"] .full-product-duel-gear-state {
+  color: #e5635a;
+}
+
+/* ---- Read-only card preview overlay ----
+   A fixed overlay on its own stacking layer: it covers the whole viewport and
+   takes no space in the table flow, so opening a card can never reflow or
+   squeeze the board underneath. */
+.full-product-duel-preview {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(5, 10, 9, 0.82);
+}
+
+.full-product-duel-preview-body {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  max-width: min(92vw, 640px);
+  max-height: min(90vh, 900px);
+  overflow: auto;
+  padding: 1rem 1rem 1.25rem;
+  border: 1px solid #3a3a40;
+  border-radius: 0.6rem;
+  background: linear-gradient(180deg, #1e2220, #12100e);
+}
+
+.full-product-duel-preview-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #37c8bb;
+  text-align: center;
+}
+
+.full-product-duel-preview-image {
+  display: block;
+  max-width: 100%;
+  max-height: 70vh;
+  /* The big preview shows the whole face at its real ratio, never cropped. */
+  object-fit: contain;
+  border-radius: 0.5rem;
+  border: 1px solid #3a3a40;
+}
+
+.full-product-duel-preview-missing {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #a6a29a;
+}
+
+.full-product-duel-preview-close {
+  align-self: center;
+  padding: 0.35rem 0.9rem;
+  border: 1px solid rgba(216, 161, 58, 0.55);
+  border-radius: 0.4rem;
+  background: linear-gradient(180deg, #3a3117, #20180a);
+  color: #37c8bb;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* ---- Fixed-timing window strip + chainable / selected states ----
+   This markup (DuelWindowStatus) is the "固定时点" surface: it sits above the
+   two fields in the central region. It is presentational only; the labels and
+   the viewer's own playable UIDs are all server-projected. */
+.full-product-duel-window-status {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.7rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid #2f5f59;
+  border-radius: 0.4rem;
+  background: #14201e;
+}
+
+.full-product-duel-window-status-label {
+  color: #d8a13a;
+  font-weight: 700;
+}
+
+.full-product-duel-window-status-detail {
+  color: #c9c5bd;
+  font-size: 0.78rem;
+}
+
+/* The playable-uid list is a data hook only; the hand card carries the visible
+   chainable mark, so the raw list never renders. */
+.full-product-duel-window-status-playable-list {
+  display: none;
+}
+
+/* A hand card the server projects as currently playable (可连锁): an amber
+   border that reads alongside, never instead of, the real inspect button. */
+.full-product-duel-hand-response {
+  border-color: #d8a13a;
+  box-shadow: 0 0 0 2px rgba(216, 161, 58, 0.5);
+}
+
+.full-product-duel-response-label {
+  color: #d8a13a;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+/* Every interactive board control shares one visible, high-contrast focus ring
+   that clears neighbouring cards instead of hiding under them. */
+.full-product-duel-card-button:focus-visible,
+.full-product-duel-baserune-button:focus-visible,
+.full-product-duel-preview-close:focus-visible,
+.full-product-duel-action:focus-visible,
+.full-product-duel-mulligan-card:focus-visible,
+.full-product-duel-mulligan-confirm:focus-visible,
+.full-product-duel-hand-card:focus-within {
+  outline: 2px solid #37c8bb;
+  outline-offset: 2px;
+}
+
+/* ============================ Responsive ============================
+   Targets: 1280x800 (default desktop) and 1024x768 (small desktop). The board
+   keeps its five zones and never grows an unbounded page height: every band
+   scrolls internally and the hand scrolls sideways. Breakpoints only bound card
+   faces / narrow the fields; they never stack every zone into one tall column
+   and never drop the fixed-timing strip. */
+
+/* Narrower desktops: keep the two central fields side by side, but tighten the
+   hand cards so two fields plus a 160px hand still fit at 1024px wide. */
+@media (max-width: 1180px) {
+  .full-product-duel-hand-card {
+    flex-basis: 140px;
+    width: 140px;
+    max-width: 140px;
+  }
+
+  .full-product-duel-battlefield-thumb,
+  .full-product-duel-battlefield-thumb.is-missing {
+    max-width: 100%;
+  }
+}
+
+/* Medium desktop heights (incl. 1280x800): bound the card faces so the five
+   zones and the fixed-timing strip share one screen. `contain` keeps every face
+   whole, so cards shrink rather than crop. */
+@media (max-height: 860px) {
+  .full-product-duel-match {
+    --duel-hand-face-height: min(10rem, 22vh);
+    --duel-unit-face-height: min(6.5rem, 16vh);
+    --duel-battlefield-thumb-height: min(3.6rem, 11vh);
+    --duel-baserune-face-height: min(2.4rem, 6vh);
+    --duel-basecard-face-height: min(3rem, 7.5vh);
+  }
+}
+
+/* Short desktop heights (incl. 1024x768): shrink the faces a little further so
+   the base / fields / hand still read without a runaway page scroll. */
+@media (max-height: 800px) {
+  .full-product-duel-match {
+    --duel-hand-face-height: min(9rem, 22vh);
+    --duel-unit-face-height: min(6rem, 15vh);
+    --duel-battlefield-thumb-height: min(3.2rem, 10vh);
+    --duel-baserune-face-height: min(2.2rem, 5.5vh);
+    --duel-basecard-face-height: min(2.8rem, 7vh);
+  }
+}
+
+/* Narrow/mobile widths: let a Gear mini card take the band width so a long
+   printed name wraps onto its own lines instead of squeezing or overlapping the
+   controller / host rows. */
+@media (max-width: 860px) {
+  .full-product-duel-gear {
+    flex-basis: 100%;
+    max-width: 100%;
+  }
+}
+
+/* Narrower than the two-field layout can hold: allow a tall field to scroll as
+   a whole rather than clipping the timing strip or the units. */
+@media (max-width: 1024px) {
+  .full-product-duel-fields {
+    min-height: 0;
+  }
+}
+
+
+/* A short native table cannot reserve a tall portrait below both complete base
+   ribbons. Keep combatants as whole-face horizontal mini cards so each side's
+   name, readiness and damage stay beside its card inside the battlefield. */
+@media (min-width: 861px) and (max-height: 860px) {
+  .full-product-duel-battlefield {
+    gap: 0.2rem;
+    padding: 0.3rem;
+  }
+
+  .full-product-duel-battlefield-head {
+    gap: 0.25rem;
+  }
+
+  .full-product-duel-battlefield-title {
+    font-size: 0.75rem;
+  }
+
+  .full-product-duel-battlefield-tags {
+    gap: 0.1rem 0.3rem;
+    font-size: 0.56rem;
+  }
+
+  .full-product-duel-battlefield-head .full-product-duel-battlefield-thumb {
+    height: 2rem;
+  }
+
+  .full-product-duel-battlefield .full-product-duel-unit-groups {
+    flex-wrap: nowrap;
+    gap: 0.2rem;
+  }
+
+  .full-product-duel-battlefield .full-product-duel-unit-group {
+    flex: 1 1 0;
+    gap: 0.1rem;
+    padding: 0.15rem;
+  }
+
+  .full-product-duel-battlefield .full-product-duel-unit-group-owner {
+    font-size: 0.56rem;
+  }
+
+  .full-product-duel-battlefield .full-product-duel-unit {
+    flex: 0 0 auto;
+    flex-direction: row;
+    align-items: center;
+    gap: 0.2rem;
+    min-width: 5.5rem;
+    max-width: 9rem;
+    padding: 0.15rem;
+  }
+
+  .full-product-duel-battlefield .full-product-duel-unit > .full-product-duel-card-button {
+    flex: 0 0 auto;
+    width: auto;
+  }
+
+  .full-product-duel-battlefield .full-product-duel-unit-thumb,
+  .full-product-duel-battlefield .full-product-duel-unit-thumb.is-missing {
+    width: auto;
+    height: 2.5rem;
+    max-height: 2.5rem;
+  }
+
+  .full-product-duel-battlefield .full-product-duel-unit-details {
+    min-width: 0;
+  }
+
+  .full-product-duel-battlefield .full-product-duel-unit-name,
+  .full-product-duel-battlefield .full-product-duel-unit-state {
+    font-size: 0.56rem;
+  }
+}
+
+/* Playmat: each seat has a base row and a separate rune row, mirrored across
+   two shared fields. Only the occupied area's own ribbon scrolls. */
+.full-product-duel-playmat-side {
+  display: grid;
+  grid-template-columns: 108px minmax(0, 1fr) 108px;
+  grid-template-rows: minmax(54px, 1fr) 48px;
+  grid-template-areas: "identity base main-deck" "rune-deck runes trash";
+  gap: 0.3rem;
+  height: 100%;
+}
+.full-product-duel-playmat-side[data-position="opponent"] {
+  grid-template-rows: 48px minmax(54px, 1fr);
+  grid-template-areas: "trash runes rune-deck" "main-deck base identity";
+}
+.full-product-duel-mat-identity,
+.full-product-duel-mat-base,
+.full-product-duel-mat-runes,
+.full-product-duel-mat-pile {
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid #42534f;
+  border-radius: 0.4rem;
+  background: linear-gradient(145deg, rgba(37, 52, 49, 0.7), rgba(19, 28, 27, 0.8));
+}
+.full-product-duel-mat-identity { grid-area: identity; padding: 0.2rem; overflow: auto; }
+.full-product-duel-mat-base { grid-area: base; display: flex; flex-direction: column; padding: 0.2rem 0.35rem; }
+.full-product-duel-mat-runes { grid-area: runes; display: flex; align-items: stretch; gap: 0.4rem; padding: 0.2rem 0.35rem; }
+.full-product-duel-mat-main-deck { grid-area: main-deck; }
+.full-product-duel-mat-rune-deck { grid-area: rune-deck; }
+.full-product-duel-mat-trash { grid-area: trash; }
+.full-product-duel-mat-pile {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 0.1rem;
+  border-style: dashed;
+}
+.full-product-duel-mat-pile dt { color: #9fb1ad; font-size: 0.64rem; }
+.full-product-duel-mat-pile dd { margin: 0; font-size: 1.1rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.full-product-duel-mat-score { margin-left: auto; color: #78d7ba; font-weight: 800; font-size: 1rem; line-height: 1; }
+.full-product-duel-mat-base .full-product-duel-base-head { flex: 0 0 17px; }
+.full-product-duel-mat-base .full-product-duel-base-body { flex: 1 1 0; }
+.full-product-duel-mat-base .full-product-duel-base-title { font-size: 0.67rem; }
+.full-product-duel-mat-base .full-product-duel-base-scroll button { width: 1.1rem; height: 1rem; }
+.full-product-duel-mat-base .full-product-duel-unit,
+.full-product-duel-mat-base .full-product-duel-gear { padding: 0.1rem; }
+.full-product-duel-mat-base .full-product-duel-unit-thumb,
+.full-product-duel-mat-base .full-product-duel-gear-thumb { height: 2rem; max-height: 2rem; }
+.full-product-duel-mat-base .full-product-duel-unit-group { padding: 0.1rem; }
+.full-product-duel-mat-base .full-product-duel-unit-group-owner { font-size: 0.55rem; }
+.full-product-duel-mat-base .full-product-duel-unit-group { flex-direction: row; align-items: center; gap: 0.25rem; padding: 0; }
+.full-product-duel-mat-base .full-product-duel-unit-group-owner { max-width: 3rem; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.full-product-duel-mat-base .full-product-duel-unit-list { align-items: center; }
+.full-product-duel-mat-base .full-product-duel-unit-thumb,
+.full-product-duel-mat-base .full-product-duel-gear-thumb { height: 1.3rem; max-height: 1.3rem; }
+.full-product-duel-mat-base .full-product-duel-unit-details,
+.full-product-duel-mat-base .full-product-duel-gear-details { flex-direction: row; align-items: center; gap: 0.3rem; white-space: nowrap; }
+.full-product-duel-mat-base .full-product-duel-unit-details > span,
+.full-product-duel-mat-base .full-product-duel-gear-details > span { font-size: 0.6rem; }
+.full-product-duel-mat-identity .full-product-duel-setup-identity { flex-wrap: nowrap; gap: 0.35rem; justify-content: center; }
+.full-product-duel-mat-identity .full-product-duel-setup-identity > div { flex-direction: column; gap: 0.1rem; min-width: 0; flex: 1 1 0; }
+.full-product-duel-mat-identity .full-product-duel-setup-identity dd { flex-direction: column; min-width: 0; }
+.full-product-duel-mat-identity .full-product-duel-identity-thumb { width: auto; height: 2.6rem; max-height: 2.6rem; }
+.full-product-duel-mat-identity .full-product-duel-identity-title { font-size: 0.5rem; max-width: 46px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.full-product-duel-mat-identity .full-product-duel-legend-state { margin: 0; padding: 0; border: 0; flex-direction: row; justify-content: center; font-size: 0.5rem; gap: 0.25rem; }
+.full-product-duel-mat-runes .full-product-duel-baserunes { flex: 1 1 0; min-width: 0; padding: 0; border: 0; gap: 0.1rem; }
+.full-product-duel-mat-runes .full-product-duel-baserune-list { flex-wrap: nowrap; overflow-x: auto; min-width: 0; max-width: 100%; gap: 0.25rem; }
+.full-product-duel-mat-runes .full-product-duel-baserune { padding: 0; }
+.full-product-duel-mat-runes .full-product-duel-baserune-button { flex-direction: row; align-items: center; gap: 0.15rem; }
+.full-product-duel-mat-runes .full-product-duel-baserune-thumb { height: 1.8rem; width: auto; }
+.full-product-duel-mat-runes .full-product-duel-baserune-caption { font-size: 0.5rem; }
+.full-product-duel-mat-runes .full-product-duel-gold-line { flex: 0 0 auto; gap: 0.15rem; padding: 0; border: 0; font-size: 0.5rem; overflow: auto; max-width: 5rem; }
+.full-product-duel-mat-runes .full-product-duel-gold-list { flex-wrap: nowrap; }
+.full-product-duel-mat-runes .full-product-duel-gold { padding: 0.1rem; }
+.full-product-duel-mat-pool {
+  flex: 0 0 170px;
+  align-self: stretch;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: center;
+  gap: 0.25rem 0.35rem;
+  margin: 0;
+  padding-left: 0.4rem;
+  border-left: 1px solid #42534f;
+  font-size: 0.64rem;
+}
+.full-product-duel-mat-pool > div { display: flex; align-items: baseline; white-space: nowrap; }
+.full-product-duel-mat-pool dt { color: #a6bab4; }
+.full-product-duel-mat-pool dd { margin: 0; color: #9ce8d1; font-weight: 700; font-variant-numeric: tabular-nums; }
+.full-product-duel-hidden-hand { display: flex; align-items: center; justify-content: center; gap: 0.75rem; height: 100%; min-width: 0; }
+.full-product-duel-hand-zone-label { font-size: 0.6rem; color: #a6bab4; white-space: nowrap; }
+.full-product-duel-hand-backs { display: flex; flex: 0 0 auto; align-items: center; gap: 0.2rem; max-width: 70%; overflow: hidden; }
+.full-product-duel-card-back { flex: 0 0 21px; width: 21px; height: 29px; border: 1px solid #687f76; border-radius: 3px; background: repeating-linear-gradient(45deg, #263a34, #263a34 3px, #192a25 3px, #192a25 6px); box-shadow: inset 0 0 0 2px #1b2723; }
+.full-product-duel-table-central .full-product-duel-fields { align-items: stretch; height: 100%; grid-template-rows: minmax(0, 1fr); }
+.full-product-duel-table-central .full-product-duel-fields:has(.full-product-duel-chain) { grid-template-rows: auto minmax(0, 1fr); }
+.full-product-duel-table-central .full-product-duel-battlefield { min-height: 100%; }
+@media (max-height: 860px) {
+  .full-product-duel-mat-identity .full-product-duel-identity-thumb { height: 1.7rem; max-height: 1.7rem; }
+  .full-product-duel-mat-identity .full-product-duel-identity-title { display: none; }
+  .full-product-duel-mat-identity .full-product-duel-setup-identity dt { font-size: 0.5rem; line-height: 1.1; }
+  .full-product-duel-mat-identity .full-product-duel-legend-state { flex-wrap: nowrap; white-space: nowrap; line-height: 1.1; }
+  .full-product-duel-mat-identity .full-product-duel-legend-controller { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .full-product-duel-mat-identity .full-product-duel-legend-readiness { flex: 0 0 auto; }
+}
+@media (max-width: 1100px) {
+  .full-product-duel-playmat-side { grid-template-columns: 88px minmax(0, 1fr) 88px; }
+  .full-product-duel-mat-pool { flex-basis: 158px; font-size: 0.6rem; }
+}
+@media (max-width: 860px) {
+  .full-product-duel-playmat-side { min-height: 132px; }
+  .full-product-duel-mat-pool { flex-basis: 142px; font-size: 0.55rem; }
+  .full-product-duel-mat-runes .full-product-duel-gold-line { max-width: 3rem; }
+}

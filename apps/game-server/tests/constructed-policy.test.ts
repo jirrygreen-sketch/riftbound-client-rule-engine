@@ -60,38 +60,55 @@ const officialBans: readonly {
   { officialName: "Reaver’s Row", snapshotName: "Reaver’s Row", canonicalCardId: "card.reavers-row" }
 ];
 
+// Domain Identity metadata is part of the checked input: the legend declares
+// the identity, and every card that declares domains must stay inside it.
+const LEGEND_IDENTITY_DOMAINS = ["Fury", "Chaos"] as const;
+const LEGEND_CHAMPION_TAG = "Fixturechamp";
+
 const legalCards: readonly ConstructedPolicyCard[] = [
   ...Array.from({ length: 14 }, (_, index): ConstructedPolicyCard => card({
     canonicalCardId: `card.filler-${index}`,
     fullName: `Neutral Filler ${index}`,
-    cardType: "Unit"
+    cardType: "Unit",
+    domains: ["Fury"],
+    tags: []
   })),
   card({
     canonicalCardId: "card.rune",
     fullName: "Fixture Rune",
-    cardType: "Rune"
+    cardType: "Rune",
+    domains: ["Fury"],
+    tags: ["Basic"]
   }),
   card({
     id: "card.rune.alternate",
     canonicalCardId: "card.rune",
     fullName: "Fixture Rune",
     cardType: "Rune",
-    setCode: "ogn"
+    setCode: "ogn",
+    domains: ["Fury"],
+    tags: ["Basic"]
   }),
   ...Array.from({ length: 3 }, (_, index): ConstructedPolicyCard => card({
     canonicalCardId: `card.battlefield-${index}`,
     fullName: `Fixture Battlefield ${index}`,
-    cardType: "Battlefield"
+    cardType: "Battlefield",
+    domains: ["Colorless"],
+    tags: []
   })),
   card({
     canonicalCardId: "card.champion",
     fullName: "Fixture Champion",
-    cardType: "Unit"
+    cardType: "Unit",
+    domains: ["Chaos"],
+    tags: [LEGEND_CHAMPION_TAG, "Champion"]
   }),
   card({
     canonicalCardId: "card.legend",
     fullName: "Fixture Legend",
-    cardType: "Legend"
+    cardType: "Legend",
+    domains: [...LEGEND_IDENTITY_DOMAINS],
+    tags: [LEGEND_CHAMPION_TAG]
   })
 ];
 
@@ -105,30 +122,40 @@ const cards: readonly ConstructedPolicyCard[] = [
   card({
     canonicalCardId: "card.radiance",
     fullName: "Radiance Preview",
-    setCode: "rad"
+    setCode: "rad",
+    domains: ["Fury"],
+    tags: []
   }),
   card({
     id: "card.reprint.ogn",
     canonicalCardId: "card.reprint",
     fullName: "Released Reprint",
-    setCode: "ogn"
+    setCode: "ogn",
+    domains: ["Fury"],
+    tags: []
   }),
   card({
     id: "card.reprint.rad",
     canonicalCardId: "card.reprint",
     fullName: "Released Reprint",
-    setCode: "rad"
+    setCode: "rad",
+    domains: ["Fury"],
+    tags: []
   }),
   card({
     id: "card.proving-ground.base",
     canonicalCardId: "card.proving-ground",
     fullName: "Proving Ground Card",
-    setCode: "ogs"
+    setCode: "ogs",
+    domains: ["Fury"],
+    tags: []
   }),
   card({
     canonicalCardId: "card.eternal",
     fullName: "Eternal Fixture",
-    setCode: "eternal"
+    setCode: "eternal",
+    domains: ["Fury"],
+    tags: []
   })
 ];
 
@@ -185,6 +212,9 @@ describe("createConstructedRules", () => {
     expect(constructed.policy.limitations.map(item => item.id)).toEqual([
       "domain-identity",
       "champion-legend-signature",
+      "identity-metadata",
+      "colorless-domain",
+      "effect-added-cards",
       "regional-product-availability"
     ]);
     expect(constructed.policy.missingBannedNames).toEqual([]);

@@ -1,0 +1,193 @@
+/* 首页独立布局：左侧身份/状态栏 + 右侧菜单卡片网格。
+   作用域全部以 .rb- 前缀限定，不污染全局 body 或旧样式。 */
+
+.rb-home {
+  display: grid;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  gap: 24px;
+  height: 100%;
+  min-height: 0;
+  padding: 24px;
+  color: #f3f0ea;
+  background:
+    radial-gradient(120% 80% at 80% -10%, rgba(26, 167, 155, 0.16) 0%, rgba(0, 0, 0, 0) 55%),
+    linear-gradient(180deg, #17171a 0%, #151517 100%);
+}
+
+.rb-home-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 22px;
+  background: #1d1d20;
+  border: 1px solid #3a3a40;
+  border-radius: 12px;
+}
+
+.rb-home-identity {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: #37c8bb;
+}
+
+.rb-home-player {
+  margin: 0;
+  font-size: 1.15rem;
+  color: #f3f0ea;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.rb-home-conn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 0.82rem;
+}
+
+.rb-home-conn.is-on {
+  color: #37c8bb;
+}
+
+.rb-home-conn.is-off {
+  color: #a6a29a;
+}
+
+.rb-home-stats {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding-top: 8px;
+  border-top: 1px solid #2b2b2f;
+}
+
+.rb-home-stats dt {
+  font-size: 0.74rem;
+  color: #a6a29a;
+}
+
+.rb-home-stats dd {
+  margin: 4px 0 0;
+  font-size: 0.95rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rb-home-continue {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  margin-top: auto;
+  padding: 0 16px;
+  font-size: 0.95rem;
+  color: #062724;
+  background: #1aa79b;
+  border: 1px solid #37c8bb;
+  border-radius: 8px;
+}
+
+.rb-home-continue:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px #63e2d5;
+}
+
+.rb-home-main {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.rb-home-hero h1 {
+  margin: 0;
+  font-size: 1.6rem;
+  letter-spacing: 0.04em;
+}
+
+.rb-home-hero p {
+  margin: 6px 0 0;
+  font-size: 0.9rem;
+  color: #a6a29a;
+}
+
+.rb-home-menu {
+  display: grid;
+  align-content: start;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.rb-home-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 18px;
+  text-align: left;
+  color: #f3f0ea;
+  background: #232326;
+  border: 1px solid #3a3a40;
+  border-radius: 12px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.rb-home-card:not(:disabled):hover {
+  background: #2b2b2f;
+  border-color: #37c8bb;
+}
+
+.rb-home-card:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px #63e2d5;
+}
+
+.rb-home-card:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.rb-home-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  flex: none;
+  color: #37c8bb;
+  background: rgba(26, 167, 155, 0.12);
+  border-radius: 10px;
+}
+
+.rb-home-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.rb-home-card-label {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.rb-home-card-desc {
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: #a6a29a;
+}
+
+@media (max-width: 900px) {
+  .rb-home {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 18px;
+  }
+}

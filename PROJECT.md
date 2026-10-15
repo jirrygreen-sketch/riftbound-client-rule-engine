@@ -11,9 +11,12 @@ rules engine, preserving hidden information, and recovering from reconnects.
 ## Repository
 
 - Upstream: `git@github.com:jirrygreen-sketch/riftbound-client-rule-engine.git`
-- Baseline: `7280dd8`
 - Working branch: `codex/full-product`
-- Local project root: `C:\Users\11216\Documents\Codex\2026-10-12\riftbound-full-product`
+- Pre-full-product baseline: `7280dd8`
+- Full-product foundation: `b488d73` (“Build multiplayer full-product foundation”)
+- Documentation checkpoint / current snapshot base: `8d3929d`
+- Current progress and open work: see `docs/full-product/progress.md`. Do not
+  hardcode a local checkout path here; resolve the repository root at runtime.
 
 ## Coordination Rules
 
@@ -23,9 +26,11 @@ rules engine, preserving hidden information, and recovering from reconnects.
 - Delegated work must include focused tests and must not commit or push.
 - Any official rule or card behavior that is not supported by authoritative
   evidence must be represented as blocked or judge-required, never guessed.
-- Prefer `deepseek-v4-flash` for delegated work. The current subtask scheduler
-  does not expose that model, so this phase uses `ZHIPU/GLM-5.3` and records
-  that fallback explicitly.
+- Delegated work uses the current user-specified `claude-team` local CLI
+  executors. Pick `gpt6sol` (xhigh) for critical reasoning work and the DeepSeek
+  flash model for routine/general work. Historical `deepseek-v4-flash` /
+  `ZHIPU/GLM-5.3` model guidance is obsolete. Do not open new sidebar chats and
+  do not spawn nested agents/CLIs.
 
 ## Product Gates
 
@@ -54,97 +59,121 @@ card resolution, and end-to-end UX.
 
 ## Current Snapshot
 
-This snapshot records the paused worktree on 2026-10-12; it must be refreshed
-on resume rather than treated as permanent repository metadata. At the time of
-this documentation update, the branch is `codex/full-product`, the committed
-HEAD is `b488d73`, and the worktree contains substantial uncommitted
-implementation and test edits across the desktop client, game server, protocol
-contracts, card DSL, replay package, and card-data tests. The next command
-should re-check HEAD and `git status`; those identifiers are not a claim that
-later integration or review did not move the repository.
+This snapshot records the worktree state on 2026-10-12 at documentation
+checkpoint `8d3929d`; it must be refreshed by re-checking HEAD and
+`git status` rather than treated as permanent repository metadata. On resume
+the user explicitly continued full-product development, so the earlier
+“paused / do not resume” guidance no longer applies.
 
-The committed base and the local implementation work must not be conflated:
+- Committed base: branch `codex/full-product`, documentation checkpoint
+  `8d3929d`, whose parent `b488d73` already committed the full-product
+  foundation (engine-core `src/full-product/*`, game-server
+  `src/full-product/*`, card-dsl `src/full-product/*`, desktop full-product UI,
+  and focused tests). `8d3929d` only changed documentation.
+- Worktree state at the checkpoint was clean (`git status` empty); the
+  assertion of “substantial uncommitted full-product work” in earlier revisions
+  of this document was incorrect. The original checkout `codex/full-product`
+  stays clean; this round develops in an **isolated git worktree** and makes no
+  commit or push.
+- Historical passing suites that predate later edits are not current evidence.
+  Server lifecycle 5/5, the server regression suite 15/15, the full server
+  package at 137/140, the old desktop 37/37, 37/42, 104/109, and a
+  typecheck/build-blocked state are all **historical**; none describe the
+  current worktree. The current round's real results are in
+  `docs/full-product/progress.md` §1.2.
 
-- Committed base `b488d73`: the repository point from which the active work
-  was branched.
-- Local uncommitted implementation work: current-worktree changes to room
-  types, full-product orchestration, runtime adapters, desktop board and
-  transport behavior, deck validation, protocol/replay contracts, and focused
-  tests. This work is paused and is not integrated, accepted, or committed.
-- Historical passing suites that predate later edits are not evidence that the
-  current worktree passes. In particular, server lifecycle 5/5, the server
-  regression suite 15/15, the full server package at 137/140, and typecheck all
-  passed before subsequent room changes; they are not current-worktree results.
+Official copyright catalog/images/PDF stay `.gitignore`-ignored by design;
+committing the full copyright dataset is **not** a delivery requirement.
+Verifiability means a reproducible local sync manifest (source, hash, counts,
+logs) rather than Git-tracked data. The historical 1,381 printings / 1,080
+canonical identities belong to another local checkout, and the
+official-card-sync run is still in progress, so those counts are not restated
+here as current.
 
-The persisted card-data boundary remains 1,381 printings grouped into 1,080
-official canonical identities. This is a data and identity result, not a
-playable-card or complete-rules result.
+## Representative Workstreams
 
-## Representative Workflows
+The committed foundation contains the following capabilities. The numbers
+below are historical reported runs, not current-worktree results:
 
-The following workstreams were active when implementation paused. Their latest
-reported verification states are deliberately conservative:
-
-- Room lifecycle (Banach): `room.ts` currently contains full-product imports
-  and type definitions, but the public room path is not wired to the new
-  runtime. `GameRoom` still accepts only the old synthetic/foundation rulesets,
-  `create-room` constructs that old room, and `FullProductRoomOrchestrator` and
-  the runtime adapter are not connected to the public WebSocket room. Older
-  lifecycle, regression, package, and typecheck passes predate these room
-  edits and must not be cited as current validation.
-- Engine/runtime (Heisenberg): focused work reached 37/42. Subsequent
-  intermediate edits have not been retested. Concede and the required
-  projection behavior are not implemented. The deleted
-  `packages/engine-core/test/full-product/runtime-contracts.test.mjs` is still
-  pending review and must not be assumed obsolete.
-- Card DSL/effects (Socrates): two candidate printings, Cloud Drake and
-  Watchful Sentry, have exact candidate compilation. The broader persisted
-  classification is 1,346 judge-required and 33 empty-text printings. The
-  candidate work is untested, covers only two cards, and is not a claim that
-  the full card pool is executable.
-- Replay/persistence (Kepler): focused replay work reached 17/21. The fixes
-  made after that run have not been retested.
-- Desktop full-product UI (Halley): focused full-product UI coverage reached
-  37/37, while the desktop package was 104/109 overall and its typecheck
-  failed. These numbers describe the last reported run, not a resumed result.
-- Deck builder/validation (Aristotle): focused deck coverage is 37/42, with
-  known shared canonical copy-limit and localization gaps.
+- Room lifecycle: `room.ts` and the server expose public rooms, but the public
+  path is not wired to the full-product runtime. `GameRoom` accepts only the
+  synthetic/foundation rulesets, and `FullProductRoomOrchestrator` plus the
+  runtime adapter are not connected to the public WebSocket room. Earlier
+  lifecycle/regression/package/typecheck passes predate later changes and must
+  not be cited as current validation.
+- Engine/runtime: foundation is a narrow CR v1.4 1v1 Duel slice; concede and
+  required projection behavior were addressed in the committed foundation. The
+  `packages/engine-core/test/full-product/runtime-contracts.test.mjs` test
+  exists and is covered by the package test glob; the earlier claim that it was
+  deleted is incorrect.
+- Card DSL/effects: candidate printings (e.g. Cloud Drake, Watchful Sentry)
+  have candidate compilation. Official card-pool sync is still running, so the
+  authoritative executable/coverage counts are **pending re-count** and are not
+  stated here. Two compiled candidates do not make the full card pool
+  executable.
+- Replay/persistence: replay envelope and event-log validation are committed;
+  the full two-client restart/privacy acceptance has not been run.
+- Desktop full-product UI: the full-product board, prompt panel, transport, and
+  commands are committed; tests are component-level static rendering, not a
+  real dual-client GUI run.
+- Deck builder/validation: bounded Constructed validation is committed, with
+  known Domain Identity/Champion/Legend/Signature gaps.
 
 No rules implementation may be called the complete official Riftbound rules.
 The experimental runtime, adapters, projections, and any partial EffectIR
 coverage are integration surfaces only. Official setup, phase progression,
 prompt ownership, scoring, and unresolved card effects remain open unless
-implemented and verified against authoritative rule and card evidence.
+implemented and verified against authoritative rule and card evidence. In
+particular, the public foundation path must not be conflated with the
+unwired experimental full-product orchestrator: wiring that orchestrator alone
+is not a complete product.
+
+## Current Round Milestone
+
+The action/target loop milestone is **reached**: the server publishes legal
+actions and target options in the projection (`GameProjection.actionOptions`,
+`contract: "riftbound.action-options.v1"`, `PROTOCOL_VERSION` `0.2.1`) and the
+desktop client consumes that metadata. This round's protocol 21 / engine 58 /
+server 139 / desktop 117 suites pass, the focused `full-product` run passes 3,
+and `typecheck`/`build` exit 0 (see `docs/full-product/progress.md` §1.2). The
+UI base classes already exist, but no real dual-client GUI run has happened
+yet. A dual-shared-battlefield kernel has only just started and is not
+complete. The official rules and the experimental life/health/attack runtime
+keep their existing boundaries and must still not be called complete
+Riftbound.
 
 ## Unfinished Work And Acceptance Boundary
 
-Resume work by preserving the uncommitted implementation and closing the
-boundaries below. A historical or isolated focused pass does not close any
-product gate:
+Closing the boundaries below is what closes a product gate. A historical or
+isolated focused pass does not close any gate:
 
-1. Connect the full-product room orchestrator and runtime adapter to the
-   public WebSocket room lifecycle behind an explicit ruleset/version boundary.
+1. Wire the full-product room orchestrator and runtime adapter to the public
+   WebSocket room lifecycle only behind an explicit ruleset/version boundary.
    Two protocol clients must create, join, submit decks, start, progress, and
-   end a match through that actual public path.
-2. Restore or explicitly supersede the deleted engine runtime-contract test,
-   implement concede and projection behavior, and rerun the focused engine
-   suite. A result after intermediate edits must replace 37/42 as the current
-   number.
-3. Add focused tests for the two exact DSL candidates and keep all unsupported
-   text classified as judge-required. Two compiled cards do not establish
-   full-card playability.
-4. Retest the replay fixes. The pre-fix 17/21 result is only a baseline.
-5. Close the shared canonical copy-limit and localization gaps in deck
-   builder/validation work, then rerun focused deck coverage; the current
-   37/42 result is not acceptable.
-6. Re-run focused full-product UI coverage and then the complete desktop
-   package and typecheck. Focused 37/37 does not override the package-level
-   104/109 or the failed typecheck.
-7. Re-run server lifecycle, regression, package, and typecheck verification
+   end a match through that actual public path. Merely registering the
+   experimental orchestrator is not a complete product and does not implement
+   official rules.
+2. Keep `packages/engine-core/test/full-product/runtime-contracts.test.mjs`
+   covered (it exists; it was not deleted), and rerun the focused engine suite
+   after room-integration edits settle.
+3. Keep all unsupported card text classified as `judge-required`. Two compiled
+   DSL candidates do not establish full-card playability.
+4. Rerun replay/persistence focused checks; historical numbers are only a
+   baseline.
+5. Close the shared canonical copy-limit, Domain Identity, Champion/Legend/
+   Signature, and localization gaps in deck builder/validation work.
+6. Rerun focused full-product UI coverage and then the complete desktop
+   package and typecheck.
+7. Rerun server lifecycle, regression, package, and typecheck verification
    only after all room-integration edits settle. Earlier 5/5, 15/15, 137/140,
-   and typecheck-passing results predate later room edits and cannot be used as
-   current acceptance evidence.
+   and typecheck-passing results are historical. The current round's server
+   139 pass and `typecheck`/`build` exit 0 (see `docs/full-product/progress.md`
+   §1.2) are the current status.
 8. Produce one real two-client GUI run through the public room path with
    private-projection, command, reconnect, replay, and result evidence. Until
    that run and the rules work above exist, the product is not complete and no
    implementation may be described as official complete rules.
+
+The current per-item status, the module table, and the reproducible
+verification commands live in `docs/full-product/progress.md`; final
+verification numbers are filled in by the coordinating task after integration.

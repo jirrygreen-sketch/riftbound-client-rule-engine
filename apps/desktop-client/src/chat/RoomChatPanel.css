@@ -1,0 +1,224 @@
+/* 房间/对局共用的真实聊天面板 —— 深色 teal 配色，作用域限定在 .room-chat-* */
+.room-chat {
+  --rc-bg: #151517;
+  --rc-surface: #1e1e21;
+  --rc-surface-raised: #26262a;
+  --rc-line: #3a3a40;
+  --rc-text: #f3f0ea;
+  --rc-text-muted: #a6a29a;
+  --rc-primary: #1aa79b;
+  --rc-primary-strong: #37c8bb;
+  --rc-danger: #e5635a;
+
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  gap: 10px;
+  box-sizing: border-box;
+  min-width: 0;
+  /* 固定面板高度 + 内部独立滚动，避免页面被聊天记录无限撑高 */
+  height: 340px;
+  max-height: 100%;
+  padding: 14px 16px;
+  color: var(--rc-text);
+  background: var(--rc-surface);
+  border: 1px solid var(--rc-line);
+  border-radius: 8px;
+}
+
+.room-chat-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+
+.room-chat-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.room-chat-status {
+  margin-left: 4px;
+  padding: 2px 9px;
+  font-size: 0.72rem;
+  color: var(--rc-primary-strong);
+  border: 1px solid rgba(26, 167, 155, 0.5);
+  border-radius: 999px;
+  background: rgba(26, 167, 155, 0.12);
+}
+
+.room-chat-status-off {
+  margin-left: auto;
+  color: var(--rc-danger);
+  border-color: rgba(229, 99, 90, 0.5);
+  background: rgba(229, 99, 90, 0.12);
+}
+
+.room-chat-log {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 12px;
+  background: var(--rc-bg);
+  border: 1px solid var(--rc-line);
+  border-radius: 6px;
+  overscroll-behavior: contain;
+}
+
+.room-chat-empty {
+  margin: 0;
+  color: var(--rc-text-muted);
+  font-size: 0.82rem;
+}
+
+.room-chat-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.room-chat-item {
+  display: grid;
+  gap: 2px;
+  padding: 6px 8px;
+  border-left: 2px solid transparent;
+  border-radius: 4px;
+  background: var(--rc-surface-raised);
+}
+
+.room-chat-item-self {
+  border-left-color: var(--rc-primary);
+  background: rgba(26, 167, 155, 0.1);
+}
+
+.room-chat-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.74rem;
+  color: var(--rc-text-muted);
+}
+
+.room-chat-name {
+  font-weight: 600;
+  color: var(--rc-text);
+  overflow-wrap: anywhere;
+}
+
+.room-chat-self-tag {
+  padding: 0 6px;
+  font-size: 0.68rem;
+  color: var(--rc-primary-strong);
+  border: 1px solid rgba(26, 167, 155, 0.5);
+  border-radius: 999px;
+}
+
+.room-chat-seq {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.65;
+}
+
+.room-chat-text {
+  font-size: 0.85rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.room-chat-error {
+  margin: 0;
+  color: var(--rc-danger);
+  font-size: 0.78rem;
+}
+
+.room-chat-compose {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.room-chat-input {
+  min-width: 0;
+  padding: 8px 10px;
+  color: var(--rc-text);
+  background: var(--rc-bg);
+  border: 1px solid var(--rc-line);
+  border-radius: 6px;
+}
+
+.room-chat-input:focus-visible {
+  outline: none;
+  border-color: var(--rc-primary-strong);
+  box-shadow: 0 0 0 2px rgba(55, 200, 187, 0.4);
+}
+
+.room-chat-compose .room-chat-send {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+@media (max-width: 1100px) {
+  .room-chat {
+    height: 300px;
+  }
+}
+
+/* The match rail reserves a smaller viewport than the room lobby. Keep its
+   heading and composer visible, and give all remaining height to messages. */
+.full-product-duel-table-chat .room-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  height: 100%;
+  min-height: 0;
+  padding: 6px;
+}
+
+.full-product-duel-table-chat .room-chat-head {
+  flex: 0 0 auto;
+  min-height: 20px;
+  gap: 4px;
+}
+
+.full-product-duel-table-chat .room-chat-title {
+  font-size: 0.85rem;
+}
+
+.full-product-duel-table-chat .room-chat-status {
+  padding: 1px 6px;
+}
+
+.full-product-duel-table-chat .room-chat-log {
+  flex: 1 1 0;
+  padding: 4px;
+}
+
+.full-product-duel-table-chat .room-chat-list {
+  gap: 4px;
+}
+
+.full-product-duel-table-chat .room-chat-item {
+  padding: 4px 6px;
+}
+
+.full-product-duel-table-chat .room-chat-error,
+.full-product-duel-table-chat .room-chat-compose {
+  flex: 0 0 auto;
+}
+
+.full-product-duel-table-chat .room-chat-compose {
+  gap: 4px;
+}
+
+.full-product-duel-table-chat .room-chat-input,
+.full-product-duel-table-chat .room-chat-send {
+  padding: 5px 6px;
+  font-size: 0.8rem;
+  line-height: 1.25;
+}

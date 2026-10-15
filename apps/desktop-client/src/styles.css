@@ -19,6 +19,54 @@
   --focus-ring: 0 0 0 2px #63e2d5;
 }
 
+.app-content {
+  min-width: 0;
+  min-height: 0;
+}
+
+.rb-shell[data-page="game-table"] {
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.rb-shell[data-page="game-table"] .rb-shell-body {
+  padding: 0;
+  overflow: hidden;
+}
+
+.rb-shell[data-page="game-table"] .app-content,
+.rb-shell[data-page="game-table"] .table-shell {
+  height: 100%;
+  min-height: 0;
+}
+
+.rb-shell[data-page="game-table"] .table-shell:has(> .full-product-duel-match) {
+  padding: 0.25rem;
+}
+
+.room-shell.room-page {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 1.25rem;
+}
+
+.match-local-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.match-local-controls > [role="alert"],
+.match-local-controls > [role="status"] {
+  font-size: 0.75rem;
+  max-width: 20rem;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -1122,5 +1170,665 @@ button:disabled {
     margin-left: 0;
     border-left: 0;
     border-top: 1px solid var(--line);
+  }
+}
+
+/* ------------------------------------------------------------------
+   Full-product foundation 对局棋盘
+   （PlayableMatchBoard / MatchStatusBar / BoardZones / PromptActionPanel）
+   仅作用于 .full-product-* 类；沿用 :root 中的暗色设计变量与按钮/卡牌约定。
+   ------------------------------------------------------------------ */
+
+/* 棋盘是 <main class="table-shell"> 的唯一子元素时，取消旧三段式行模板留下的空行 */
+.table-shell:has(> .full-product-match) {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.full-product-match {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* 对局状态条 */
+.full-product-status {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #232326;
+}
+
+.full-product-status > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #1d1d20;
+}
+
+.full-product-status span {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.full-product-status strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.92rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 双方区域 */
+.full-product-zones {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  min-width: 0;
+  align-items: start;
+}
+
+.full-product-player-zones {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #232326;
+}
+
+/* 位置区分双方（组件未暴露 viewer/opponent 类，仅按渲染顺序着色） */
+.full-product-player-zones:nth-of-type(1) {
+  border-top: 2px solid rgba(55, 200, 187, 0.75);
+}
+
+.full-product-player-zones:nth-of-type(2) {
+  border-top: 2px solid rgba(216, 161, 58, 0.75);
+}
+
+.full-product-player-zones > h3 {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 0.9rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.full-product-zone-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+.full-product-zone {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 6px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #1d1d20;
+}
+
+.full-product-zone > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.full-product-zone > header h4 {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.full-product-zone > header span {
+  flex: 0 0 auto;
+  min-width: 22px;
+  padding: 2px 5px;
+  font-size: 0.66rem;
+  color: var(--primary-strong);
+  text-align: center;
+  border-radius: 5px;
+  background: rgba(55, 200, 187, 0.12);
+  font-variant-numeric: tabular-nums;
+}
+
+.full-product-zone-items {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 6px;
+  align-content: start;
+  min-width: 0;
+  min-height: 46px;
+}
+
+/* 卡牌（手牌 / 战场等可点对象） */
+.full-product-card {
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+  min-height: 56px;
+  padding: 6px 7px;
+  font-size: 0.74rem;
+  line-height: 1.3;
+  text-align: left;
+  overflow-wrap: anywhere;
+  color: #f5f2ec;
+  background: #2b2b2f;
+  border: 1px solid #47474d;
+  border-radius: 6px;
+}
+
+.full-product-card:hover:not(:disabled) {
+  border-color: #5a5a61;
+  filter: brightness(1.08);
+}
+
+.full-product-card:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.full-product-card[aria-pressed="true"] {
+  color: #f5f2ec;
+  background: rgba(26, 167, 155, 0.2);
+  border-color: var(--primary-strong);
+  box-shadow: inset 0 0 0 1px var(--primary-strong);
+}
+
+/* 隐藏区与空区提示 */
+.full-product-hidden,
+.full-product-empty {
+  grid-column: 1 / -1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 4px 6px;
+  font-size: 0.74rem;
+  text-align: center;
+  color: var(--text-muted);
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.full-product-hidden {
+  color: #d7c7f7;
+  border-color: rgba(180, 142, 231, 0.4);
+  background: rgba(180, 142, 231, 0.08);
+}
+
+/* 当前动作 / 目标选择面板 */
+.full-product-actions {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #232326;
+}
+
+.full-product-actions h2 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.full-product-actions h3 {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.full-product-actions p {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+/* 合法动作列表 */
+.full-product-actions ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.full-product-actions li {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* 禁用理由：与按钮同格换行展示，不遮挡、不绝对定位 */
+.full-product-actions li span {
+  max-width: 100%;
+  font-size: 0.7rem;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+  color: var(--warning);
+}
+
+/* 目标选项 */
+.full-product-actions > div {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+  align-items: start;
+  min-width: 0;
+}
+
+.full-product-actions > div h3 {
+  grid-column: 1 / -1;
+}
+
+.full-product-actions button {
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 0.82rem;
+  line-height: 1.25;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  color: #f5f2ec;
+  background: #323237;
+  border: 1px solid #4b4b52;
+  border-radius: 6px;
+}
+
+.full-product-actions > div button {
+  min-height: 34px;
+}
+
+.full-product-actions > button {
+  justify-self: start;
+  min-width: 110px;
+  padding: 0 16px;
+  font-weight: 600;
+  text-align: center;
+  color: var(--primary-ink);
+  background: var(--primary);
+  border-color: var(--primary-strong);
+}
+
+.full-product-actions button:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.full-product-actions button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.full-product-actions button[aria-pressed="true"] {
+  color: var(--primary-ink);
+  background: var(--primary);
+  border-color: var(--primary-strong);
+}
+
+.full-product-actions > button:disabled {
+  color: var(--text-muted);
+  background: #323237;
+  border-color: #4b4b52;
+}
+
+@media (max-width: 1180px) {
+  .full-product-status {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .full-product-zone-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .full-product-zones {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .full-product-status {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .full-product-match {
+    gap: 10px;
+  }
+
+  .full-product-actions ul li,
+  .full-product-actions > div button,
+  .full-product-actions > button {
+    width: 100%;
+  }
+
+  .full-product-actions > div {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .full-product-actions > button {
+    min-width: 0;
+  }
+}
+
+/* ============================================================
+   房间连接页（深蓝简洁）与卡组库
+   - 顶栏不再承载连接表单，只保留标题与三个入口
+   - 房间页顺序：当前卡组 → 连接/创建/加入 → 房间状态
+   ============================================================ */
+.app-header {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 0;
+  padding: 14px 24px;
+}
+
+.app-header > div:first-child p {
+  margin: 4px 0 0;
+}
+
+.app-tabs {
+  justify-content: flex-end;
+  margin-top: 0;
+}
+
+.room-shell {
+  grid-area: table;
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  min-width: 0;
+  min-height: 0;
+  padding: 18px;
+  color: #e8eef8;
+  background:
+    radial-gradient(120% 80% at 50% 0%, rgba(40, 80, 140, 0.22) 0%, rgba(6, 10, 20, 0) 60%),
+    linear-gradient(180deg, #0b1628 0%, #091324 60%, #081120 100%);
+}
+
+.room-shell .connection-panel {
+  padding: 16px 18px;
+  background: linear-gradient(180deg, #152c48 0%, #11243c 100%);
+  border: 1px solid #28425c;
+  border-radius: 6px;
+}
+
+.room-shell .field span,
+.room-shell .connection-state {
+  color: #a9b8cd;
+}
+
+.room-shell .field input {
+  color: #e8eef8;
+  background: #0d1c31;
+  border: 1px solid #28425c;
+}
+
+.room-shell .ruleset-button {
+  color: #a9b8cd;
+  background: #0d1c31;
+  border: 1px solid #28425c;
+}
+
+.room-shell .ruleset-button.active {
+  color: #081120;
+  background: #3fe0c0;
+  border-color: #3fe0c0;
+}
+
+.room-lobby {
+  display: grid;
+  gap: 14px;
+  padding: 16px 18px;
+  background: linear-gradient(180deg, #152c48 0%, #11243c 100%);
+  border: 1px solid #28425c;
+  border-radius: 6px;
+}
+
+.room-lobby-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 18px;
+}
+
+.room-lobby-head > div {
+  display: grid;
+  gap: 2px;
+}
+
+.room-lobby-head span {
+  font-size: 0.72rem;
+  color: #7d8fa8;
+}
+
+.room-lobby-head strong {
+  font-size: 0.95rem;
+}
+
+.room-lobby-head .button {
+  margin-left: auto;
+}
+
+.room-seats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.room-seat {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid #28425c;
+  border-radius: 6px;
+  background: rgba(8, 17, 32, 0.55);
+}
+
+.room-seat header {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.room-seat h3 {
+  margin: 0;
+  font-size: 0.86rem;
+}
+
+.room-seat header span {
+  font-size: 0.8rem;
+  color: #a9b8cd;
+}
+
+.room-seat p {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #a9b8cd;
+}
+
+.room-seat-deck {
+  color: #7d8fa8;
+}
+
+.room-seat.self {
+  border-color: rgba(63, 224, 192, 0.45);
+}
+
+.room-seat.opponent {
+  border-color: rgba(242, 145, 63, 0.35);
+}
+
+.room-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.room-hint {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #7d8fa8;
+}
+
+.deck-library {
+  display: grid;
+  gap: 10px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.deck-library-head h3 {
+  margin: 0;
+  font-size: 0.92rem;
+}
+
+.deck-library-head p {
+  margin: 4px 0 0;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.deck-library-save {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.deck-library-save .field {
+  flex: 1 1 220px;
+}
+
+.deck-library-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.deck-library-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-muted);
+}
+
+.deck-library-list li.active {
+  border-color: var(--primary-strong);
+}
+
+.deck-library-name {
+  flex: 1 1 auto;
+  font-size: 0.84rem;
+}
+
+.deck-library-meta {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+}
+
+@media (max-width: 900px) {
+  .app-header {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .app-tabs {
+    justify-content: flex-start;
+  }
+}
+
+/* ============================================================
+   正式 Duel 对局页的 App 父容器布局
+   ------------------------------------------------------------
+   正式 Duel（DuelMatchBoard 的根 `.full-product-duel-match` / 其
+   `.full-product-duel-table`）自带右 sidebar，但正式 Duel 页仍是
+   `<div class="app-shell"><header/><main class="table-shell">…`。
+   旧的 legacy 规则会在这上面再套一层：
+   - `.app-shell:has(.table-shell:only-of-type)` 留下一个空的 300–360px
+     右列（“side” 区）与一个空 bottom 行；
+   - `.table-shell` 的 legacy 三行模板 (170/240/190) 把唯一的 Duel
+     子元素放进第一行，高度只剩内容高度，手牌在 720 底被截断。
+   下面的规则用精确的 `:has(... .full-product-duel-*)` scope，只作用于
+   真正承载 Duel 的 App；Foundation / Synthetic 旧界面、卡组编辑、房间页、
+   PlayableMatchBoard 页与独立 Duel fullscreen harness（`.hx-root`，不在
+   `.app-shell` 内）都不受影响。规则置于文件末尾，保证覆盖前面的 legacy
+   与 @media legacy 规则（同级 specificity 时后者胜出）。
+   ============================================================ */
+
+/* 1) 真正承载 Duel 的 App shell：header 之后整窗口单列，
+      去掉 legacy 的 side 列与 bottom 行；固定一屏高度便于内部吃剩余。 */
+.app-shell:has(.table-shell .full-product-duel-match) {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas:
+    "header"
+    "table";
+  height: 100vh;
+  height: 100dvh;
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+/* 2) 承载 Duel 的 <main class="table-shell">：取消 legacy 三行模板，
+      改为 auto 状态note（若有）+ 剩余给 Duel 的 1fr；min-height:0 让
+      1fr 行真正可收缩，Duel 用满 header 之后的空间并内部自行滚动。 */
+.table-shell:has(> .full-product-duel-match) {
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+}
+
+/* 94 新增的 metadata loading/error note（`.catalog-state`）作为 table-shell
+   内的另一个 child：占自然（auto）高度，不设 320px 下限，不被 Duel 的
+   100% 高度挤掉。 */
+.table-shell:has(> .full-product-duel-match) > .catalog-state {
+  grid-row: 1;
+  min-height: 0;
+}
+
+/* Duel 本体固定在 second row，即使没有 note 也吃满 1fr 剩余高度。 */
+.table-shell:has(> .full-product-duel-match) > .full-product-duel-match {
+  grid-row: 2;
+  min-height: 0;
+}
+
+/* 3) 短窗口（≤800px，含 1280x720）：仅缩小 Duel 的手牌脸高 cap，
+      让基地、16rem 中央战场、资源摘要块与手牌保持可达。作用域锁定在
+      App 内的 Duel，独立组件 harness 不受影响。1440x900 / 1920x1080
+      不触发，保持默认 cur。 */
+@media (max-height: 800px) {
+  .app-shell:has(.table-shell .full-product-duel-match) .full-product-duel-match {
+    --duel-hand-face-height: min(9rem, 19vh);
   }
 }

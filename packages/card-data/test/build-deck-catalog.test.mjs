@@ -14,6 +14,58 @@ const {
   resolveSnapshotPath
 } = await import("../scripts/build-deck-catalog.mjs");
 
+const {
+  REVIEWED_TAG_CORRECTIONS_VERSION,
+  findReviewedTagCorrection,
+  listReviewedTagCorrections
+} = await import("../scripts/reviewed-card-tags.mjs");
+
+const KARMA_CHANNELER_IMAGE_ASSET_URL =
+  "https://cmsassets.rgpub.io/sanity/images/dsfx7636/game_data_live/aca8664b334f2fa40cc7bae2811dd4e1b4f06388-744x1039.png";
+
+// Mirrors the real official-gallery record for the reviewed printing.
+function karmaChannelerOfficialCard(overrides = {}) {
+  return {
+    id: "ogn-235-298",
+    collectorNumber: 235,
+    name: "Karma",
+    subtitle: "Channeler",
+    set: { label: "Card Set", value: { id: "OGN", label: "Origins" } },
+    cardType: {
+      type: [{ id: "unit", label: "Unit" }],
+      superType: [{ id: "champion", label: "Champion" }]
+    },
+    publicCode: "OGN-235/298",
+    domain: { values: [{ id: "order", label: "Order" }] },
+    cardImage: { url: `${KARMA_CHANNELER_IMAGE_ASSET_URL}?accountingTag=RB` },
+    text: { richText: { body: "<p>Vision.</p>" } },
+    energy: { value: { id: 6 } },
+    power: { value: { id: 1 } },
+    might: { value: { id: 6 } },
+    tags: { tags: ["Vi", "Ionia"] },
+    ...overrides
+  };
+}
+
+const PUBLIC_CARD_FIELDS = [
+  "ability",
+  "canonicalCardId",
+  "cardNumber",
+  "cardType",
+  "domains",
+  "energy",
+  "fullName",
+  "id",
+  "imageUrl",
+  "might",
+  "name",
+  "power",
+  "setCode",
+  "subtitle",
+  "tags",
+  "variant"
+];
+
 function officialCard(overrides = {}) {
   return {
     id: "fix-001-100",
@@ -352,4 +404,227 @@ test("parses CLI options and writes the catalog atomically", async () => {
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("corrects the reviewed Karma, Channeler printing tag Vi to Karma", () => {
+  const karma = karmaChannelerOfficialCard();
+  const sibling = karmaChannelerOfficialCard({
+    id: "sfd-237-221",
+    collectorNumber: 237,
+    set: { label: "Card Set", value: { id: "SFD", label: "Starlit Destinies" } },
+    publicCode: "SFD-237/221",
+    cardImage: { url: "https://example.test/karma-sfd.png" },
+    tags: { tags: ["Karma"] }
+  });
+  const catalog = buildDeckCatalog(snapshot([karma, sibling]));
+
+  const corrected = findCard(catalog, "ogn-235-298");
+  assert.deepEqual(corrected.tags, ["Karma", "Ionia", "Champion"]);
+  assert.equal(corrected.name, "Karma");
+  assert.equal(corrected.fullName, "Karma, Channeler");
+  assert.equal(corrected.cardType, "Unit");
+  assert.deepEqual(corrected.domains, ["Order"]);
+  // public schema stays backward compatible: no new fields are introduced
+  assert.deepEqual(Object.keys(corrected).sort(), PUBLIC_CARD_FIELDS);
+
+  // the sibling printing of the same identity is left untouched
+  const other = findCard(catalog, "sfd-237-221");
+  assert.deepEqual(other.tags, ["Karma", "Champion"]);
+  assert.equal(other.canonicalCardId, corrected.canonicalCardId);
+});
+
+test("does not rewrite unrelated Vi printings to Karma", () => {
+  const vi = officialCard({
+    id: "fix-999-100",
+    name: "Vi",
+    subtitle: "Piltover Enforcer",
+    publicCode: "FIX-999/100",
+    tags: { tags: ["Vi", "Piltover"] }
+  });
+  const notChampion = officialCard({
+    id: "fix-998-100",
+    name: "Ionia Relic",
+    subtitle: undefined,
+    publicCode: "FIX-998/100",
+    tags: { tags: ["Ionia"] }
+  });
+  const catalog = buildDeckCatalog(snapshot([vi, notChampion]));
+
+  assert.deepEqual(findCard(catalog, "fix-999-100").tags, [
+    "Vi",
+    "Piltover",
+    "Champion"
+  ]);
+  assert.deepEqual(findCard(catalog, "fix-998-100").tags, ["Ionia", "Champion"]);
+  assert.equal(
+    findCard(catalog, "fix-999-100").tags.includes("Karma"),
+    false
+  );
+});
+
+test("reports a conflict instead of silently overriding a drifted reviewed printing", () => {
+  const unknownImage = karmaChannelerOfficialCard({
+    cardImage: { url: "https://example.test/unknown-karma.png" }
+  });
+  assert.throws(
+    () => buildDeckCatalog(snapshot([unknownImage])),
+    (error) =>
+      error.name === "ReviewedTagCorrectionConflictError" &&
+      /ogn-235-298/.test(error.message)
+  );
+
+  const driftedName = karmaChannelerOfficialCard({ name: "Karma?" });
+  assert.throws(
+    () => buildDeckCatalog(snapshot([driftedName])),
+    (error) =>
+      error.name === "ReviewedTagCorrectionConflictError" &&
+      /ogn-235-298/.test(error.message)
+  );
+});
+
+test("leaves the input snapshot object untouched while correcting tags", () => {
+  const input = snapshot([karmaChannelerOfficialCard()]);
+  const frozen = JSON.parse(JSON.stringify(input));
+
+  const catalog = buildDeckCatalog(input);
+
+  assert.deepEqual(input, frozen);
+  assert.deepEqual(input.cards[0].tags, { tags: ["Vi", "Ionia"] });
+  assert.notEqual(
+    findCard(catalog, "ogn-235-298").tags,
+    input.cards[0].tags.tags
+  );
+});
+
+test("is idempotent and digest-stable for the reviewed printing", () => {
+  const fromWrong = buildDeckCatalog(
+    snapshot([karmaChannelerOfficialCard()])
+  );
+
+  const alreadyCorrect = karmaChannelerOfficialCard({
+    tags: { tags: ["Karma", "Ionia"] }
+  });
+  const fromCorrect = buildDeckCatalog(snapshot([alreadyCorrect]));
+
+  const correctedTags = findCard(fromCorrect, "ogn-235-298").tags;
+  assert.deepEqual(correctedTags, ["Karma", "Ionia", "Champion"]);
+  assert.equal(correctedTags.filter((tag) => tag === "Karma").length, 1);
+
+  // both the defective and the already-correct inputs converge on one catalog
+  assert.equal(fromWrong.digest, fromCorrect.digest);
+  assert.equal(
+    fromWrong.digest,
+    buildDeckCatalog(snapshot([karmaChannelerOfficialCard()])).digest
+  );
+});
+
+async function runBuild(snapshotObject, options = {}) {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "deck-catalog-log-"));
+  try {
+    const snapshotPath = path.join(directory, "snapshot.json");
+    const outputPath = path.join(directory, "catalog.json");
+    await writeFile(snapshotPath, `${JSON.stringify(snapshotObject)}\n`);
+    const logs = [];
+    const exitCode = await main([
+      "--snapshot",
+      snapshotPath,
+      "--output",
+      outputPath,
+      "--data-version",
+      options.dataVersion ?? "2026-10-13-test",
+      ...(options.dryRun === true ? ["--dry-run"] : [])
+    ], { log: (message) => logs.push(message) });
+    const catalog = exitCode === 0
+      ? JSON.parse(await readFile(outputPath, "utf8"))
+      : undefined;
+    return { exitCode, logs, catalog };
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+test("reports a reviewed correction only when this build actually applies it", async () => {
+  const result = await runBuild(snapshot([karmaChannelerOfficialCard()]));
+
+  assert.equal(result.exitCode, 0);
+  assert.ok(
+    result.logs.some((line) =>
+      /Reviewed tag corrections applied: ogn-235-298: Vi->Karma\./.test(line)
+    ),
+    `expected an applied-correction log, got: ${result.logs.join(" | ")}`
+  );
+  assert.deepEqual(findCard(result.catalog, "ogn-235-298").tags, [
+    "Karma",
+    "Ionia",
+    "Champion"
+  ]);
+});
+
+test("does not report a correction when the input is already correct", async () => {
+  const alreadyCorrect = karmaChannelerOfficialCard({
+    tags: { tags: ["Karma", "Ionia"] }
+  });
+  const result = await runBuild(snapshot([alreadyCorrect]));
+
+  assert.equal(result.exitCode, 0);
+  assert.deepEqual(findCard(result.catalog, "ogn-235-298").tags, [
+    "Karma",
+    "Ionia",
+    "Champion"
+  ]);
+  assert.equal(
+    result.logs.some((line) => line.includes("Reviewed tag corrections")),
+    false,
+    `expected no correction log, got: ${result.logs.join(" | ")}`
+  );
+});
+
+test("does not report a correction when a skip conflict leaves tags untouched", async () => {
+  // No official gallery match => unknown-community path with onConflict "skip".
+  // The printing id matches a reviewed record but the identity guard does not,
+  // so no correction is applied and nothing must be reported as corrected.
+  const communityOnly = {
+    cardCode: "ogn-235-298",
+    name: "Community Karma",
+    fullName: "Community Karma",
+    setCode: "ogn",
+    cardNumber: "235-298",
+    cardType: "Unit",
+    domains: ["Order"],
+    tags: ["Vi", "Ionia"],
+    imageUrl: "https://example.test/community-karma.png",
+    energy: 6,
+    power: 1,
+    might: 6,
+    abilityEffective: ""
+  };
+  const result = await runBuild({
+    dataVersion: "2026-10-13-community",
+    cards: [communityOnly]
+  });
+
+  assert.equal(result.exitCode, 0);
+  assert.deepEqual(findCard(result.catalog, "ogn-235-298").tags, ["Vi", "Ionia"]);
+  assert.equal(
+    result.logs.some((line) => line.includes("Reviewed tag corrections")),
+    false,
+    `expected no correction log, got: ${result.logs.join(" | ")}`
+  );
+});
+
+test("exposes a versioned, detached tool-internal review record", () => {
+  const records = listReviewedTagCorrections();
+  const record = records.find((entry) => entry.printingId === "ogn-235-298");
+  assert.notEqual(record, undefined);
+  assert.equal(record.wrongTag, "Vi");
+  assert.equal(record.correctedTag, "Karma");
+  assert.equal(record.version, REVIEWED_TAG_CORRECTIONS_VERSION);
+  assert.match(record.imageAssetSha256, /^sha256:[a-f0-9]{64}$/);
+
+  // the listed copy is detached from the frozen source table
+  record.mutated = true;
+  assert.equal(
+    findReviewedTagCorrection("ogn-235-298").mutated,
+    undefined
+  );
 });

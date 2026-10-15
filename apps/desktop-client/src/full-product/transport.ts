@@ -6,7 +6,7 @@ import {
   type PlayerProjection,
   type ProjectionObject
 } from "@riftbound/protocol";
-import { buildSubmissionFromSelection } from "./commands";
+import { authoritativeActionOptions, buildSubmissionFromSelection } from "./commands";
 import type {
   ActionSelection,
   FullProductConnectionStatus,
@@ -108,6 +108,10 @@ export function buildPlayableCommand(
 ): PlayerCommand | null {
   const command = buildSubmissionFromSelection(selection, view);
   if (command === null || command.type !== "play-card") return command;
+
+  // The authoritative path already carries the wire targets derived from the
+  // server action policy. Never re-derive them from caller-supplied mappings.
+  if (authoritativeActionOptions(view) !== null) return command;
 
   const viewer = view.projection.players.find(
     player => player.id === view.viewerPlayerId

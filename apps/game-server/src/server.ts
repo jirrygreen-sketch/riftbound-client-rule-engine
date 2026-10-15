@@ -1,3 +1,4 @@
+import { bindConstructedRegion, catalogForConstructedRegion, validateRegionalCatalogDeck } from './constructed-regional-context.js';
 import { randomUUID } from "node:crypto";
 import {
   createServer,
@@ -7,11 +8,14 @@ import {
 } from "node:http";
 import { WebSocketServer, type WebSocket } from "ws";
 import {
+  DUEL_RULESET_ID,
   FOUNDATION_RULESET_ID,
   RULESET_ID,
   RULESET_IDS,
   PROTOCOL_VERSION,
   isClientMessage,
+  isDuelCommandMessage,
+  isDuelCommandMessageV3Actions1,
   type ClientSession,
   type ClientToServerMessage,
   type ServerToClientMessage,
@@ -25,7 +29,9 @@ import {
   type CardCatalogRuntime,
 } from "./card-catalog.js";
 import { validateConstructedDeck } from "./constructed-policy.js";
-import { createRoomId, GameRoom, RoomError } from "./room.js";
+import { createRoomId, GameRoom, RoomError, type DuelRoomProfile, type DuelOptionalRoomRuntimeProfile } from "./room.js";
+import { DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT, DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_CLOCK,
+  DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_PHYSICAL_CHAIN, DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_RESOLVED_HISTORY } from "./duel/authoritative-runtime-p4.js";
 import { FileRoomStore } from "./file-room-store.js";
 import { InMemoryRoomStore, type RoomStore } from "./room-store.js";
 
@@ -39,6 +45,12 @@ export interface GameServerOptions {
   deckRules?: CardCatalogRuntime["deckRules"];
   roomStore?: RoomStore;
   storageDirectory?: string;
+  /** New Duel rooms select one profile. Restored rooms keep their stored profile. */
+  duelRoomProfile?: DuelRoomProfile;
+  /** Trusted host opt-in for new rooms; a client packet cannot select it. */
+  duelRuntimeProfile?: DuelOptionalRoomRuntimeProfile;
+  /** Trusted server entropy adapter for deterministic integration runs. Never read from wire. */
+  duelRandomIndex?: (exclusiveUpperBound: number) => number;
 }
 
 export interface GameServer {
@@ -73,6 +85,11 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
   const host = options.host ?? "127.0.0.1";
   const port = options.port ?? 8787;
   const makeRoomId = options.roomIdFactory ?? createRoomId;
+  const duelRoomProfile = options.duelRoomProfile ?? "v1";
+  if (duelRoomProfile !== "v1" && duelRoomProfile !== "p4") throw new TypeError("Invalid duel room profile");
+  if (options.duelRuntimeProfile !== undefined &&
+      (duelRoomProfile !== "p4" || options.duelRuntimeProfile !== DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT && options.duelRuntimeProfile !== DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_CLOCK && options.duelRuntimeProfile !== DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_PHYSICAL_CHAIN && options.duelRuntimeProfile !== DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_RESOLVED_HISTORY))
+    throw new TypeError("Invalid optional Unit server execution profile");
   const rooms = new Map<string, GameRoom>();
   const contexts = new Set<SocketContext>();
   let roomMutationQueue: Promise<unknown> = Promise.resolve();
@@ -156,12 +173,16 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
     }
 
     let pathname: string;
+    let regionalQuery: ReturnType<typeof bindConstructedRegion> | undefined;
     try {
       const url = new URL(
         request.url ?? "/",
         `http://${request.headers.host ?? host}`
       );
       pathname = decodeURIComponent(url.pathname);
+      if (url.searchParams.has('regionCode') || url.searchParams.has('eventDate')) {
+        regionalQuery=bindConstructedRegion({regionCode:url.searchParams.get('regionCode')??'',eventDate:url.searchParams.get('eventDate')??''});
+      }
     } catch {
       sendJson(response, 400, { error: "invalid-url-encoding" });
       return;
@@ -184,7 +205,7 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
           "cache-control": "no-store",
           ...PUBLIC_CORS_HEADERS
         });
-        response.end(runtime.publicCatalogJson);
+        response.end(regionalQuery ? catalogForConstructedRegion(runtime,regionalQuery).publicCatalogJson : runtime.publicCatalogJson);
       }).catch(error => {
         sendJson(response, 503, {
           error: "catalog-unavailable",
@@ -256,7 +277,7 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
 
         return loadCatalog().then(() => {
           const runtime = requireCatalog();
-          const result = validateConstructedDeck(
+          const result = regionalQuery ? validateRegionalCatalogDeck(runtime,deck,regionalQuery) : validateConstructedDeck(
             deck,
             runtime.validationCards,
             runtime.constructedRules
@@ -368,7 +389,10 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
           rooms,
           makeRoomId,
           loadCatalog,
-          requireCatalog
+          requireCatalog,
+          duelRoomProfile,
+          options.duelRandomIndex,
+          options.duelRuntimeProfile
         )))
         .catch(error => {
           sendError(send, error);
@@ -495,7 +519,10 @@ async function handleInbound(
   rooms: Map<string, GameRoom>,
   makeRoomId: () => string,
   loadCatalog: () => Promise<void>,
-  requireCatalog: () => CardCatalogRuntime
+  requireCatalog: () => CardCatalogRuntime,
+  duelRoomProfile: DuelRoomProfile,
+  duelRandomIndex?: (exclusiveUpperBound: number) => number,
+  duelRuntimeProfile?: DuelOptionalRoomRuntimeProfile
 ): Promise<void> {
   let parsed: unknown;
   try {
@@ -560,13 +587,17 @@ async function handleInbound(
           );
         }
         const roomId = makeRoomId();
-        const catalog = rulesetId === FOUNDATION_RULESET_ID
+        const catalog = rulesetId === FOUNDATION_RULESET_ID || rulesetId === DUEL_RULESET_ID
           ? await loadCatalog().then(() => requireCatalog())
           : null;
         const room = new GameRoom(
           roomId,
           rulesetId,
-          catalog ?? undefined
+          catalog ?? undefined,
+          duelRandomIndex,
+          rulesetId === DUEL_RULESET_ID ? duelRoomProfile : "v1",
+          parsed.constructedRegion ? bindConstructedRegion(parsed.constructedRegion) : undefined,
+          rulesetId === DUEL_RULESET_ID ? duelRuntimeProfile : undefined
         );
         if (rooms.has(roomId)) {
           throw new RoomError(`Room ${roomId} already exists`, "command-rejected");
@@ -679,6 +710,71 @@ async function handleInbound(
         return;
       }
 
+      case "duel-command": {
+        // The room owns profile selection and never downgrades on a command.
+        if (!isDuelCommandMessage(parsed) && !isDuelCommandMessageV3Actions1(parsed)) {
+          throw new RoomError("当前房间尚未启用该对局动作协议", "command-rejected");
+        }
+        const session = context.session;
+        if (!session) {
+          throw new RoomError("No room session is attached to this socket", "command-rejected");
+        }
+        const room = await requireRoom(roomStore, rooms, session.roomId);
+        await runRoomTransaction(room, context, send, roomStore, transactionSend => {
+          room.submitDuel(session, context.connectionId, parsed, transactionSend);
+        });
+        return;
+      }
+
+      case "room-chat-send": {
+        const session = context.session;
+        if (!session) {
+          throw new RoomError("No room session is attached to this socket", "command-rejected");
+        }
+        const room = await requireRoom(roomStore, rooms, session.roomId);
+        await runRoomTransaction(
+          room,
+          context,
+          send,
+          roomStore,
+          transactionSend => {
+            room.sendChat(
+              session,
+              context.connectionId,
+              parsed.messageId,
+              parsed.text,
+              parsed.requestId,
+              transactionSend
+            );
+          }
+        );
+        return;
+      }
+
+      case "room-chat-sync": {
+        const session = context.session;
+        if (!session) {
+          throw new RoomError("No room session is attached to this socket", "command-rejected");
+        }
+        const room = await requireRoom(roomStore, rooms, session.roomId);
+        await runRoomTransaction(
+          room,
+          context,
+          send,
+          roomStore,
+          transactionSend => {
+            room.syncChat(
+              session,
+              context.connectionId,
+              parsed.afterChatSeq,
+              parsed.requestId,
+              transactionSend
+            );
+          }
+        );
+        return;
+      }
+
       case "submit-deck": {
         const session = context.session;
         if (!session) {
@@ -769,6 +865,9 @@ async function handleInbound(
             context.connectionId,
             parsed.afterRoomEventSeq
           );
+        }
+        if (room.rulesetId === DUEL_RULESET_ID && parsed.afterEventSeq === undefined) {
+          room.sendProjection(session.playerId, send);
         }
         return;
       }

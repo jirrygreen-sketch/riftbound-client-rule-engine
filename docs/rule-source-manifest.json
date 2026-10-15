@@ -1,0 +1,209 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-14",
+  "description": "Tracked, offline-verifiable manifest of Riftbound rule sources. The official PDFs themselves remain gitignored under work/ (see .gitignore /work/); this file only records URL, version, effective date and SHA-256 so the sources can be re-checked without downloading anything. Unknown hashes are recorded as null with hashStatus \"pending\" and must never be guessed.",
+  "sources": [
+    {
+      "id": "riftbound.core-rules",
+      "title": "Riftbound Core Rules",
+      "kind": "core-rules",
+      "version": "1.4",
+      "status": "active",
+      "lastUpdated": "2026-07-16",
+      "effectiveDate": null,
+      "sha256": "9c5fb8b8638f2cd19ceda237929fa2c37aac23c797cc7410294993470ba5a30b",
+      "hashStatus": "verified",
+      "urls": [
+        {
+          "role": "rules-hub",
+          "url": "https://playriftbound.com/en-us/rules-hub/"
+        }
+      ],
+      "localFiles": [
+        {
+          "path": "work/rules/CR-v1.4.pdf",
+          "sha256": "9c5fb8b8638f2cd19ceda237929fa2c37aac23c797cc7410294993470ba5a30b"
+        },
+        {
+          "path": "work/riftboundfaq/sources/CR-v1.4.pdf"
+        }
+      ],
+      "sourcesCited": [
+        "docs/sources.md",
+        "docs/full-product/delivery-goal.md",
+        "docs/full-product/rules-coverage.md"
+      ],
+      "notes": "Active baseline as of 2026-10-13. lastUpdated is the PDF's own LastUpdated stamp, not an official effective date; no official effective date is documented for 1.4, so effectiveDate stays null. The direct 1.4 PDF URL is not documented, so only the Rules Hub entry point is recorded."
+    },
+    {
+      "id": "riftbound.core-rules.radiance",
+      "title": "Riftbound Core Rules v1.5 / Radiance",
+      "kind": "core-rules",
+      "version": "1.5",
+      "status": "published-future",
+      "lastUpdated": "2026-10-09",
+      "effectiveDate": "2026-10-16",
+      "sha256": "94d41fee86f88b61c4157c0389c0595d990b98e5b42555c99d9f649ee64d1fec",
+      "hashStatus": "verified",
+      "urls": [
+        {
+          "role": "document",
+          "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/5c7946f7c3b8c6e0faff85ab6dadc6d2e721ea94.pdf"
+        },
+        {
+          "role": "patch-notes",
+          "url": "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"
+        },
+        {
+          "role": "rules-hub",
+          "url": "https://playriftbound.com/en-us/rules-hub/"
+        }
+      ],
+      "localFiles": [
+        {
+          "path": "work/riftboundfaq/sources/CR-v1.5.pdf"
+        }
+      ],
+      "sourcesCited": [
+        "docs/sources.md",
+        "docs/full-product/rules-coverage.md",
+        "docs/full-product/delivery-goal.md"
+      ],
+      "notes": "Published future target. effectiveDate 2026-10-16 is stated by the official Radiance patch notes; the release date 2026-10-23 must not be substituted. Must not be mixed into v1.4 behavior before 2026-10-16."
+    },
+    {
+      "id": "riftbound.tournament-rules",
+      "title": "Riftbound Tournament Rules",
+      "kind": "tournament-rules",
+      "version": "2026-10-09",
+      "status": "published-future",
+      "lastUpdated": "2026-10-09",
+      "effectiveDate": "2026-10-16",
+      "sha256": "ce07da4fb632526afbbce7f058287a57e7444fa6bde17b0938ff52ce3fab3d07",
+      "hashStatus": "verified",
+      "urls": [
+        {
+          "role": "document",
+          "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/861752822d217edf37d9febaeaf77a7d924c1bb6.pdf"
+        },
+        {
+          "role": "changelog",
+          "url": "https://playriftbound.com/en-us/news/announcements/october-2026-tournament-rules-changelog/"
+        }
+      ],
+      "localFiles": [
+        {
+          "path": "work/riftboundfaq/sources/Tournament-Rules-2026-10-09.pdf"
+        }
+      ],
+      "sourcesCited": [
+        "docs/sources.md",
+        "docs/full-product/rules-coverage.md"
+      ],
+      "notes": "Dated 2026-10-09; the official changelog states it takes effect with the Radiance Pre-Rift on 2026-10-16. Not the currently effective Tournament Rules."
+    },
+    {
+      "id": "riftbound.radiance-patch-notes",
+      "title": "Radiance Rules Update (patch notes)",
+      "kind": "official-announcement",
+      "version": "2026-10-09",
+      "status": "published-future",
+      "lastUpdated": "2026-10-09",
+      "effectiveDate": "2026-10-16",
+      "sha256": null,
+      "hashStatus": "pending",
+      "urls": [
+        {
+          "role": "patch-notes",
+          "url": "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"
+        }
+      ],
+      "localFiles": [],
+      "sourcesCited": [
+        "docs/sources.md",
+        "docs/full-product/rules-coverage.md",
+        "packages/judge-tools/src/index.ts"
+      ],
+      "notes": "HTML announcement page; its rendered content is not a stable downloadable artifact, so no SHA-256 is recorded (pending). Documented publish time 2026-10-09T16:00Z. It is the official statement of the 2026-10-16 effective date."
+    },
+    {
+      "id": "riftbound.tournament-rules-changelog",
+      "title": "October 2026 Tournament Rules Changelog",
+      "kind": "official-announcement",
+      "version": "undated",
+      "status": "published-future",
+      "lastUpdated": null,
+      "effectiveDate": "2026-10-16",
+      "sha256": null,
+      "hashStatus": "pending",
+      "urls": [
+        {
+          "role": "changelog",
+          "url": "https://playriftbound.com/en-us/news/announcements/october-2026-tournament-rules-changelog/"
+        }
+      ],
+      "localFiles": [],
+      "sourcesCited": [
+        "docs/sources.md",
+        "docs/full-product/rules-coverage.md"
+      ],
+      "notes": "HTML changelog; no publish date is documented in the repository, so version is \"undated\" and lastUpdated is null. States the rules go into effect with the Radiance Pre-Rift on 2026-10-16. No SHA-256 recorded (pending)."
+    },
+    {
+      "id": "riftbound.vendetta-faq",
+      "title": "Vendetta Rules FAQ and Clarifications",
+      "kind": "official-faq",
+      "version": "2026-08-14",
+      "status": "active",
+      "lastUpdated": null,
+      "effectiveDate": null,
+      "sha256": null,
+      "hashStatus": "pending",
+      "urls": [
+        {
+          "role": "faq",
+          "url": "https://playriftbound.com/en-us/news/rules-and-releases/vendetta-rules-faq-and-clarifications"
+        }
+      ],
+      "localFiles": [],
+      "sourcesCited": [
+        "docs/sources.md",
+        "docs/full-product/rules-coverage.md",
+        "docs/rule-fixtures.md",
+        "packages/judge-tools/src/index.ts"
+      ],
+      "notes": "Official FAQ entry point. Each case must be separately verified before it can change runtime behavior; otherwise it stays judge-required. HTML page, no SHA-256 recorded (pending)."
+    },
+    {
+      "id": "riftbound.tournament-rules-july-2026",
+      "title": "Riftbound Tournament Rules (July 2026)",
+      "kind": "tournament-rules",
+      "version": "2026-07-16",
+      "status": "active",
+      "lastUpdated": "2026-07-16",
+      "effectiveDate": "2026-07-24",
+      "sha256": "6a5be5501c494ecc841fb2572e715d9006f611ff2e5c97023a5be1b5c884e61f",
+      "hashStatus": "verified",
+      "urls": [
+        {
+          "role": "document",
+          "url": "https://cmsassets.rgpub.io/sanity/files/dsfx7636/news_live/503da65669ced10598d62925a6f6bc15111af726.pdf"
+        },
+        {
+          "role": "changelog",
+          "url": "https://playriftbound.com/en-us/news/announcements/july-2026-tournament-rules-update-changelog/"
+        }
+      ],
+      "localFiles": [
+        {
+          "path": "work/riftboundfaq/sources/Tournament-Rules-2026-07-16.pdf"
+        }
+      ],
+      "sourcesCited": [
+        "docs/deck-legality-sources.md",
+        "docs/full-product/resume-20261014.md"
+      ],
+      "notes": "Official July announcement explicitly effective 2026-07-24; document Last Updated 7/16/2026. Recovered 2026-10-14 from the announcement link and hashed. Supports sideboard maximum 10 independently of the future October edition; October update remains published-future until 2026-10-16. Does not by itself establish regional availability or all Constructed semantics."
+    }
+  ]
+}

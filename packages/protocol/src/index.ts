@@ -1,3 +1,21 @@
+import { isConstructedRegionSelection, isConstructedRegionContext, type ConstructedRegionSelection, type ConstructedRegionContext } from './constructed-region-context.js';
+export * from './constructed-region-context.js';
+import { isRoomChatClientMessage, isRoomChatServerMessage,
+  type RoomChatClientMessage, type RoomChatServerMessage } from './room-chat.js';
+export * from './room-chat.js';
+import {
+  DUEL_RULESET_ID
+} from './duel-contract.js';
+export * from './duel-contract.js';
+import { isDuelCommandTransport, isDuelProjectionMessageTransport,
+  type DuelCommandTransport, type DuelProjectionMessageTransport } from './duel-transport-contract.js';
+export * from './duel-transport-contract.js';
+import {
+  isOwnerDeckConfirmationMessage,
+  type OwnerDeckConfirmationMessage
+} from './owner-deck-confirmation.js';
+export * from './owner-deck-confirmation.js';
+
 export type PlayerId = string;
 export type RoomId = string;
 
@@ -228,6 +246,7 @@ export interface GameProjection {
   rulesetId?: string;
   priority?: { playerId: PlayerId };
   objects?: readonly ProjectionObject[];
+  actionOptions?: ProjectionActionOptions;
   version: number;
   eventSeq: number;
   phase: GamePhase;
@@ -238,6 +257,30 @@ export interface GameProjection {
   waitingForPlayerId: PlayerId | null;
   players: readonly PlayerProjection[];
   events: readonly GameEvent[];
+}
+
+export const ACTION_OPTIONS_CONTRACT = "riftbound.action-options.v1";
+
+export interface ProjectionActionTargetPolicy {
+  readonly minTargets: number;
+  readonly maxTargets: number;
+  readonly options: readonly CommandTarget[];
+}
+
+/** Commands and selectable targets come from the authoritative viewer projection. */
+export interface ProjectionAction {
+  readonly id: string;
+  readonly command: PlayerCommand;
+  readonly targetPolicy: ProjectionActionTargetPolicy;
+  readonly enabled: boolean;
+  readonly blockedReason?: string;
+}
+
+export interface ProjectionActionOptions {
+  readonly contract: typeof ACTION_OPTIONS_CONTRACT;
+  readonly stateVersion: number;
+  readonly viewerPlayerId: PlayerId | null;
+  readonly actions: readonly ProjectionAction[];
 }
 
 export interface RoomPlayer extends PlayerIdentity {
@@ -294,14 +337,15 @@ export const ENGINE_ERRORS = {
   gameEnded: "game_ended"
 } as const satisfies Record<string, EngineErrorCode>;
 
-export const PROTOCOL_VERSION = "0.2.0";
+export const PROTOCOL_VERSION = "0.2.1";
 export const RULESET_ID = "synthetic-demo";
 export const FOUNDATION_RULESET_ID = "riftbound-foundation";
 /** Kept as an import alias; this slice does not claim full official support. */
 export const OFFICIAL_RULESET_ID = FOUNDATION_RULESET_ID;
 export const RULESET_IDS = [
   RULESET_ID,
-  OFFICIAL_RULESET_ID
+  OFFICIAL_RULESET_ID,
+  DUEL_RULESET_ID
 ] as const satisfies readonly string[];
 
 export interface ClientSession {
@@ -311,6 +355,7 @@ export interface ClientSession {
 }
 
 export interface RoomView {
+  readonly constructedRegion?: ConstructedRegionContext;
   roomId: RoomId;
   status: "waiting" | "playing" | "ended";
   rulesetId: string;
@@ -347,6 +392,8 @@ export type RoomDeckSubmission = Readonly<
 >;
 
 export type ClientToServerMessage =
+  | DuelCommandTransport
+  | RoomChatClientMessage
   | {
       type: "hello";
       protocolVersion: string;
@@ -360,6 +407,7 @@ export type ClientToServerMessage =
       requestId: string;
       playerName: string;
       rulesetId?: string;
+      readonly constructedRegion?: ConstructedRegionSelection;
     }
   | { type: "join-room"; requestId: string; roomId: RoomId; playerName: string }
   | {
@@ -417,6 +465,9 @@ export interface CommandReceipt {
 }
 
 export type ServerToClientMessage =
+  | DuelProjectionMessageTransport
+  | RoomChatServerMessage
+  | OwnerDeckConfirmationMessage
   | {
       type: "welcome";
       protocolVersion: string;
@@ -706,7 +757,7 @@ export function isGameProjection(value: unknown): value is GameProjection {
       "waitingForPlayerId",
       "players",
       "events"
-    ], ["projectionSchema", "rulesetId", "priority", "objects"]) &&
+    ], ["projectionSchema", "rulesetId", "priority", "objects", "actionOptions"]) &&
     safeInteger(value.version) &&
     safeInteger(value.eventSeq) &&
     (value.phase === "main" || value.phase === "ended") &&
@@ -739,7 +790,7 @@ export function isGameProjection(value: unknown): value is GameProjection {
         !ids.includes(event.activePlayerId))) return false;
   if (value.projectionSchema === undefined) {
     return value.rulesetId === undefined && value.priority === undefined &&
-      value.objects === undefined && players.every(player =>
+      value.objects === undefined && value.actionOptions === undefined && players.every(player =>
         safeInteger(player.life) && safeInteger(player.mana) &&
         player.score === undefined && player.energy === undefined &&
         player.power === undefined && player.zoneCounts === undefined &&
@@ -765,7 +816,79 @@ export function isGameProjection(value: unknown): value is GameProjection {
       isCounterMap(player.power) && player.life === undefined && player.mana === undefined &&
       player.zoneCounts !== undefined &&
       player.zoneCounts.hand === player.handCount &&
-      player.playableInstanceIds !== undefined);
+      player.playableInstanceIds !== undefined) &&
+    (value.actionOptions === undefined ||
+      isProjectionActionOptions(value.actionOptions, value as unknown as GameProjection));
+}
+
+function isProjectionActionOptions(
+  value: unknown,
+  projection: GameProjection
+): value is ProjectionActionOptions {
+  if (!(record(value) &&
+    hasExactKeys(value, ["contract", "stateVersion", "viewerPlayerId", "actions"]) &&
+    value.contract === ACTION_OPTIONS_CONTRACT &&
+    value.stateVersion === projection.version &&
+    (value.viewerPlayerId === null ||
+      projection.players.some(player => player.id === value.viewerPlayerId)) &&
+    Array.isArray(value.actions))) return false;
+
+  const viewer = projection.players.find(player => player.id === value.viewerPlayerId);
+  if (projection.prompt !== null && projection.prompt.ownerPlayerId !== value.viewerPlayerId) return false;
+  if (projection.players.some(player => player.id !== value.viewerPlayerId &&
+      (player.hand.length > 0 || (player.playableInstanceIds?.length ?? 0) > 0))) return false;
+  if (projection.phase === "ended" || viewer === undefined) return value.actions.length === 0;
+  const ids = new Set<string>();
+  for (const action of value.actions) {
+    if (!(record(action) &&
+      hasExactKeys(action, ["id", "command", "targetPolicy", "enabled"], ["blockedReason"]) &&
+      text(action.id, 512) && !ids.has(action.id) &&
+      typeof action.enabled === "boolean" &&
+      (action.enabled
+        ? action.blockedReason === undefined
+        : text(action.blockedReason, 256)) &&
+      isPlayerCommand(action.command) &&
+      record(action.targetPolicy) &&
+      hasExactKeys(action.targetPolicy, ["minTargets", "maxTargets", "options"]) &&
+      safeInteger(action.targetPolicy.minTargets) &&
+      safeInteger(action.targetPolicy.maxTargets) &&
+      action.targetPolicy.minTargets <= action.targetPolicy.maxTargets &&
+      action.targetPolicy.maxTargets <= 32 &&
+      isCommandTargets(action.targetPolicy.options, 512) &&
+      action.targetPolicy.maxTargets <= action.targetPolicy.options.length)) return false;
+    ids.add(action.id);
+    const policy = action.targetPolicy as unknown as ProjectionActionTargetPolicy;
+    if (policy.maxTargets === 0 && policy.options.length > 0) return false;
+    if (!policy.options.every(target => target.kind === "player"
+      ? projection.players.some(player => player.id === target.playerId)
+      : (projection.objects ?? []).some(object => object.objectId === target.objectId &&
+          object.zone !== "hand" && object.zone !== "deck" && object.zone !== "rune-deck"))) return false;
+    const command = action.command;
+    if (command.type !== "play-card" && policy.maxTargets !== 0) return false;
+    switch (command.type) {
+      case "concede":
+        break;
+      case "pass":
+        if (projection.prompt !== null || projection.waitingForPlayerId !== null ||
+            projection.activePlayerId !== viewer.id || projection.priority?.playerId !== viewer.id) return false;
+        break;
+      case "play-card":
+        if (!viewer.hand.some(card => card.instanceId === command.instanceId) ||
+            !viewer.playableInstanceIds?.includes(command.instanceId) ||
+            projection.prompt !== null || projection.waitingForPlayerId !== null ||
+            projection.activePlayerId !== viewer.id || projection.priority?.playerId !== viewer.id ||
+            command.targets !== undefined) return false;
+        break;
+      case "respond-to-prompt":
+        if (projection.prompt === null || projection.prompt.ownerPlayerId !== viewer.id ||
+            command.promptId !== projection.prompt.id ||
+            command.stateVersion !== projection.prompt.stateVersion ||
+            !projection.prompt.options.some(option => option.id === command.optionId)) return false;
+        if (projection.prompt.reason === "judge-required" && action.enabled) return false;
+        break;
+    }
+  }
+  return true;
 }
 
 function isRoomPlayer(value: unknown): value is RoomPlayer {
@@ -829,7 +952,8 @@ export function isRoomView(value: unknown): value is RoomView {
       "roomVersion",
       "roomEventSeq",
       "players"
-    ]) &&
+    ], ["constructedRegion"]) &&
+    (value.constructedRegion === undefined || isConstructedRegionContext(value.constructedRegion)) &&
     text(value.roomId, 64) &&
     (value.status === "waiting" || value.status === "playing" || value.status === "ended") &&
     text(value.rulesetId, 64) &&
@@ -914,8 +1038,8 @@ function isCommandShape(value: Record<string, unknown>, actor: boolean): boolean
   }
 }
 
-function isCommandTargets(value: unknown): value is readonly CommandTarget[] {
-  if (!Array.isArray(value) || value.length > 32) return false;
+function isCommandTargets(value: unknown, maximumLength = 32): value is readonly CommandTarget[] {
+  if (!Array.isArray(value) || value.length > maximumLength) return false;
   const keys: string[] = [];
   for (const target of value) {
     if (!record(target)) return false;
@@ -956,6 +1080,9 @@ function isClientSession(value: unknown): value is ClientSession {
 export function isClientMessage(value: unknown): value is ClientToServerMessage {
   if (!record(value)) return false;
   switch (value.type) {
+    case "room-chat-send":
+    case "room-chat-sync":
+      return isRoomChatClientMessage(value);
     case "hello":
       return hasExactKeys(
         value,
@@ -969,7 +1096,8 @@ export function isClientMessage(value: unknown): value is ClientToServerMessage 
         (value.afterRoomEventSeq === undefined ||
           safeInteger(value.afterRoomEventSeq));
     case "create-room":
-      return hasExactKeys(value, ["type", "requestId", "playerName"], ["rulesetId"]) &&
+      return hasExactKeys(value, ["type", "requestId", "playerName"], ["rulesetId", "constructedRegion"]) &&
+        (value.constructedRegion === undefined || isConstructedRegionSelection(value.constructedRegion)) &&
         text(value.requestId) &&
         text(value.playerName, 32) &&
         (value.rulesetId === undefined || text(value.rulesetId, 64));
@@ -978,6 +1106,8 @@ export function isClientMessage(value: unknown): value is ClientToServerMessage 
         text(value.requestId) &&
         text(value.playerName, 32) &&
         text(value.roomId, 64);
+    case "duel-command":
+      return isDuelCommandTransport(value);
     case "command":
       return hasExactKeys(value, ["type", "requestId", "commandId", "expectedVersion", "command"]) &&
         text(value.requestId) &&
@@ -1010,6 +1140,11 @@ export function isClientMessage(value: unknown): value is ClientToServerMessage 
 export function isServerMessage(value: unknown): value is ServerToClientMessage {
   if (!record(value)) return false;
   switch (value.type) {
+    case "room-chat":
+    case "room-chat-accepted":
+      return isRoomChatServerMessage(value);
+    case "owner-deck-confirmation":
+      return isOwnerDeckConfirmationMessage(value);
     case "welcome":
       return hasExactKeys(value, ["type", "protocolVersion"], ["session", "resumed"]) &&
         text(value.protocolVersion, 32) &&
@@ -1031,6 +1166,8 @@ export function isServerMessage(value: unknown): value is ServerToClientMessage 
         (value.duplicate === undefined || typeof value.duplicate === "boolean");
     case "room":
       return hasExactKeys(value, ["type", "room"]) && isRoomView(value.room);
+    case "duel-projection":
+      return isDuelProjectionMessageTransport(value);
     case "projection":
       return hasExactKeys(value, ["type", "roomId", "projection"]) &&
         text(value.roomId, 64) &&
@@ -1081,3 +1218,5 @@ export function isServerMessage(value: unknown): value is ServerToClientMessage 
       return false;
   }
 }
+// Standalone P4 data contract. Public message routing remains on the existing profiles.
+export * from "./duel-actions-contract-v3.js";

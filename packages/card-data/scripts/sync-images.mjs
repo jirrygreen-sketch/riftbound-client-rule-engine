@@ -1006,7 +1006,10 @@ async function readCatalog(catalogPath) {
   } catch (error) {
     if (error?.code === "ENOENT") {
       throw new SyncImagesError(
-        `catalog file not found: ${catalogPath}`,
+        `catalog file not found: ${catalogPath}\n` +
+        "Run the card sync first to create it:\n" +
+        "  pnpm --filter @riftbound/card-data sync:cards\n" +
+        `  node scripts/sync-current-cards.mjs --catalog-output ${catalogPath}`,
         { cause: error }
       );
     }

@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./duel": {
+      "types": "./dist/duel/index.d.ts",
+      "default": "./dist/duel/index.js"
     }
   },
   "files": [
@@ -17,7 +21,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "pnpm build && node --test test/*.test.mjs test/full-product/*.test.mjs"
+    "test": "pnpm build && node --test test/*.test.mjs test/full-product/*.test.mjs test/duel/*.test.mjs",
+    "audit:official-catalog": "pnpm build && node --test test/duel/*.audit.mjs"
   },
   "devDependencies": {
     "typescript": "^5.9.3"

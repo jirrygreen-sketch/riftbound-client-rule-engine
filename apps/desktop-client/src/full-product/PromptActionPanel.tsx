@@ -28,6 +28,7 @@ export function PromptActionPanel({
     buildSubmissionFromSelection(selection, view) !== null;
   const readOnly =
     view.connectionStatus !== "connected" || view.commandPending;
+  const maxTargets = selectedAction?.targetPolicy?.maxTargets ?? Infinity;
 
   return (
     <section className="full-product-actions" aria-label="合法动作与选择">
@@ -53,6 +54,7 @@ export function PromptActionPanel({
           </li>
         ))}
       </ul>
+      {actions.length === 0 ? <p>当前无可用动作</p> : null}
 
       {selectedAction?.requiresTargets ? (
         <div>
@@ -60,24 +62,32 @@ export function PromptActionPanel({
           {targetOptions.length === 0 ? (
             <p>等待可用目标</p>
           ) : (
-            targetOptions.map(target => (
-              <button
-                key={target.id}
-                type="button"
-                disabled={readOnly || (target as { readonly disabled?: boolean }).disabled === true}
-                aria-pressed={selection.targetIds.includes(target.id)}
-                onClick={() =>
-                  onSelectionChange({
-                    ...selection,
-                    targetIds: selection.targetIds.includes(target.id)
-                      ? selection.targetIds.filter(id => id !== target.id)
-                      : [...selection.targetIds, target.id]
-                  })
-                }
-              >
-                {target.label}
-              </button>
-            ))
+            targetOptions.map(target => {
+              const selected = selection.targetIds.includes(target.id);
+              const atLimit = !selected && selection.targetIds.length >= maxTargets;
+              return (
+                <button
+                  key={target.id}
+                  type="button"
+                  disabled={
+                    readOnly ||
+                    atLimit ||
+                    (target as { readonly disabled?: boolean }).disabled === true
+                  }
+                  aria-pressed={selected}
+                  onClick={() =>
+                    onSelectionChange({
+                      ...selection,
+                      targetIds: selected
+                        ? selection.targetIds.filter(id => id !== target.id)
+                        : [...selection.targetIds, target.id]
+                    })
+                  }
+                >
+                  {target.label}
+                </button>
+              );
+            })
           )}
         </div>
       ) : null}

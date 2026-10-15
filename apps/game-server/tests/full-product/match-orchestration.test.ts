@@ -24,8 +24,8 @@ const rawCatalog = {
     rawCard("fixture.extra-unit-3", "Extra Unit 3", "Unit", 1, ""),
     rawCard("fixture.text-unit", "Text Unit", "Unit", 1, "Text ability."),
     rawCard("fixture.gear", "Basic Gear", "Gear", 1, ""),
-    rawCard("fixture.champion", "Fixture Champion", "Unit", 1, "", ["Champion"]),
-    rawCard("fixture.legend", "Fixture Legend", "Legend", 1),
+    rawCard("fixture.champion", "Fixture Champion", "Unit", 1, "", ["Champion", "Fixturechamp"], ["Fury"]),
+    rawCard("fixture.legend", "Fixture Legend", "Legend", 1, "", ["Fixturechamp"], ["Fury"]),
     rawCard("fixture.rune", "Fixture Rune", "Rune", 0),
     rawCard("fixture.battlefield", "Fixture Battlefield", "Battlefield", 1)
   ]
@@ -501,7 +501,8 @@ function rawCard(
   cardType: string,
   energy: number,
   ability = "",
-  tags: readonly string[] = []
+  tags: readonly string[] = [],
+  domains: readonly string[] = []
 ) {
   return {
     id,
@@ -509,7 +510,7 @@ function rawCard(
     name,
     fullName: name,
     cardType,
-    domains: [],
+    domains,
     tags,
     setCode: "ogs",
     cardNumber: id.slice(-3),

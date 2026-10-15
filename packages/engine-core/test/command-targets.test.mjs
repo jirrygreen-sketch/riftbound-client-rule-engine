@@ -54,11 +54,43 @@ test("hidden, forged, duplicate and player damage targets cannot mutate the stat
   }
 });
 
+function withLegacyTargetPrompt(state) {
+  // Restored states may already hold a target prompt produced before the play
+  // authorization policy; concession must stay available during that prompt.
+  const taskId = "task:legacy:strike";
+  state.outstandingTasks.push({
+    id: taskId,
+    sourceCardId: "strike",
+    sourceObjectId: "strike",
+    sourcePlayerId: "a",
+    reason: "resolve-effect",
+    optional: false,
+    effect: { kind: "damage", amount: 2, targets: [] },
+    targetChoices: [{ kind: "object", objectId: "target" }],
+    requiresTargetChoice: true
+  });
+  state.prompt = {
+    id: `prompt:${taskId}`,
+    ownerPlayerId: "a",
+    playerId: "a",
+    stateVersion: state.version,
+    status: "pending",
+    taskId,
+    reason: "resolve-effect",
+    optional: false,
+    options: [{ id: "target:object:target", label: "Object target" }]
+  };
+  return state;
+}
+
 test("either authenticated player can concede during an opposing target prompt", () => {
-  const prompted = submitCommand(fixture(), {
-    type: "play-card", playerId: "a", instanceId: "strike"
-  }).state;
+  const prompted = withLegacyTargetPrompt(fixture());
   assert.ok(prompted.prompt);
+  const ownerAnswer = projectGame(prompted, "a").actionOptions.actions.find(
+    action => action.command.type === "respond-to-prompt" &&
+      action.command.optionId === "target:object:target"
+  );
+  assert.equal(ownerAnswer?.enabled, true);
   const invalid = submitCommand(prompted, { type: "concede", playerId: "outsider" });
   assert.equal(invalid.error?.code, "invalid_command");
   const result = submitCommand(prompted, { type: "concede", playerId: "b" });

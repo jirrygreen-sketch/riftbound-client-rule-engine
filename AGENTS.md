@@ -6,24 +6,27 @@
   Always re-check the current branch, commit, and dirty worktree before acting.
 - Preserve every existing uncommitted change. Do not revert, delete, reset, or
   discard work unless the user explicitly requests that operation.
-- As of 2026-10-12, development is paused for this documentation-only turn.
-  Do not resume implementation, delegate implementation work, commit, push, or
-  run long verification unless the user explicitly changes that instruction.
+- The user resumed full-product development on 2026-10-12. Implementation and
+  verification within the assigned scope are authorized. Commit, push, and
+  release work still follow the user's actual request.
 
 ## Project Snapshot
 
 - Branch: `codex/full-product`.
-- Pause checkpoint: `b488d73` ("Build multiplayer full-product foundation").
-- Worktree state: substantial uncommitted full-product implementation work is
-  present across the desktop client, game server, and shared packages.
+- Resume baseline: `8d3929d`, after foundation commit `b488d73`.
+- That baseline contains the committed full-product experiments. It was clean
+  when resumed; always inspect the actual current worktree before acting.
 - The pnpm monorepo contains an authoritative game server, a standalone
   React/Vite + Tauri 2 desktop client, and shared protocol, rules, card-data,
   DSL, replay, judge, and integration-test packages.
-- Card data contains 1,381 printings. Persisted effect coverage is currently
-  0 executable, 1,348 `judge-required`, and 33 no-ability printings. Do not
-  claim that the official rules engine is complete.
-- The game server currently keeps rooms in memory. Restarting it can lose rooms
-  and event history; do not claim durable room persistence.
+- Official catalogs and images are gitignored and absent in a fresh checkout.
+  Historical 1,381-printing coverage is not a current local-data observation.
+  Do not claim that the official rules engine is complete.
+- Rooms default to memory. Configuring `RIFTBOUND_STORAGE_DIRECTORY` enables
+  the existing foundation/synthetic room store; durability claims require
+  relevant restart and recovery verification.
+- Current progress and remaining product gates are tracked in
+  `docs/full-product/progress.md`; historical test numbers are not current passes.
 
 ## Responsibility Boundaries
 
@@ -65,9 +68,10 @@
   `git checkout --`, force pushes, or broad deletion/reversion commands.
 
 ## Parallel Development
-- For substantial development, create visible Codex workstream chats in the
-  sidebar as early as useful; do not wait for the parent task to exhaust its
-  subagent capacity.
+- Follow the collaboration workflow explicitly requested by the user. When
+  `claude-team` is invoked, delegate through its managed local Claude CLI
+  runner. Do not replace those tasks with Codex subagents or new sidebar chats.
+- Create visible Codex chats only when the user explicitly requests new chats.
 - Reuse an existing suitable visible chat and recover its actual state before
   creating a replacement, especially after interruption or context compaction.
   Create a new chat only when no suitable chat exists or reuse is unsafe.
@@ -90,11 +94,11 @@
   verifies the integrated result, and owns commits and pushes.
 
 ## Model Selection
-- Prefer `deepseek-v4-flash` for delegated chats and subagents.
-- If that exact model is unavailable, use configured `ZHIPU/GLM-5.3`; its
-  availability is confirmed.
-- If neither configured model is available, report the unavailability instead of
-  silently selecting an unrelated model.
+- Explicitly invoked skill routing takes precedence over historical model
+  preferences. `claude-team` uses `gpt-6-sol` with `xhigh` for critical engine,
+  contract, and security work, and `deepseek-flash` for general tasks.
+- If the requested model is unavailable, preserve the failure evidence and
+  report it instead of silently selecting an unrelated model.
 - Only report a selected model or active chat after the corresponding creation
   or delegation tool call succeeds.
 

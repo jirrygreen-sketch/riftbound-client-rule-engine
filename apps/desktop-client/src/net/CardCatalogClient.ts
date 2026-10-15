@@ -1,3 +1,8 @@
+import {
+  isConstructedRegionSelection,
+  type ConstructedRegionSelection
+} from "@riftbound/protocol";
+
 export type CardVariant = "standard" | "alternate" | "unknown";
 
 export const DECK_ZONES = [
@@ -87,7 +92,11 @@ export interface CatalogLoadResult {
   readonly error: string | null;
 }
 
-export type CardCatalogClientError = "invalid-url" | "network" | "invalid-catalog";
+export type CardCatalogClientError =
+  | "invalid-url"
+  | "invalid-region"
+  | "network"
+  | "invalid-catalog";
 
 export class CardCatalogClientErrorImpl extends Error {
   constructor(
@@ -116,10 +125,14 @@ export class CardCatalogClient {
     this.retryDelaysMs = options.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS;
   }
 
-  async loadCatalog(serverUrl: string): Promise<CardCatalog> {
+  async loadCatalog(
+    serverUrl: string,
+    constructedRegion?: ConstructedRegionSelection | null
+  ): Promise<CardCatalog> {
     const base = this.requireBaseUrl(serverUrl);
+    const query = constructedRegionQuery(constructedRegion);
     const response = await this.requestJsonWithRetries(
-      `${base}/api/cards`,
+      `${base}/api/cards${query}`,
       "仓库",
       undefined
     );
@@ -139,11 +152,13 @@ export class CardCatalogClient {
 
   async validateDeck(
     serverUrl: string,
-    deck: DeckSubmission
+    deck: DeckSubmission,
+    constructedRegion?: ConstructedRegionSelection | null
   ): Promise<DeckValidationResult> {
     const base = this.requireBaseUrl(serverUrl);
+    const query = constructedRegionQuery(constructedRegion);
     const response = await this.requestJson(
-      `${base}/api/decks/validate`,
+      `${base}/api/decks/validate${query}`,
       "卡组校验",
       {
         method: "POST",
@@ -215,6 +230,30 @@ export class CardCatalogClient {
 }
 
 const DEFAULT_RETRY_DELAYS_MS = [250, 500, 1000] as const;
+
+/**
+ * Builds the constructed-region query string for the catalog and deck
+ * validation endpoints. An absent selection (undefined/null) yields an empty
+ * string so the legacy endpoints stay byte-stable. A provided-but-invalid
+ * selection fails closed as a client error; it never silently falls back to the
+ * global endpoint. The server owns release scheduling and provenance, so no
+ * timezone or language default is ever injected here.
+ */
+export function constructedRegionQuery(
+  selection?: ConstructedRegionSelection | null
+): string {
+  if (selection === undefined || selection === null) return "";
+  if (!isConstructedRegionSelection(selection)) {
+    throw new CardCatalogClientErrorImpl(
+      "invalid-region",
+      "赛事地区或本地日期无效，请重新选择。"
+    );
+  }
+  const params = new URLSearchParams();
+  params.set("regionCode", selection.regionCode);
+  params.set("eventDate", selection.eventDate);
+  return `?${params.toString()}`;
+}
 
 export function normalizeCardServerUrl(input: string): string | null {
   const trimmed = input.trim() || DEFAULT_CARD_SERVER_URL;

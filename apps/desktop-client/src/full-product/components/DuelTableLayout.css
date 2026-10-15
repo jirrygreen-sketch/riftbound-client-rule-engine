@@ -1,0 +1,440 @@
+/* Reusable Duel table shell.
+   Dark-teal tabletop (#151517 base, #1aa79b accent) with calm whitespace and
+   real card boundaries. The table owns one screen: the top strip is fixed, the
+   board column and the right sidebar scroll independently, and the page never
+   gains a runaway vertical or horizontal scroll.
+
+   Body grid: [central table minmax(0, 1fr)] [right sidebar clamp(248px,
+   21vw, 284px)]. On a 1280x800 desktop the central table keeps ~980px (well
+   over the 900px goal) and the right sidebar lands at ~270px with its action
+   list scrolling internally. At 1024x768 the sidebar narrows to 248px instead
+   of the whole layout collapsing into one tall column. The central column keeps
+   the vertical order opponent base / shared battlefields / own base / our
+   resource pool / bottom hand; every region scrolls internally. Nothing
+   overflows horizontally and the hand strip is its own row, never mixed into a
+   base band. */
+
+.full-product-duel-table {
+  --duel-teal: #1aa79b;
+  --duel-teal-strong: #37c8bb;
+  --duel-ink: #f3f0ea;
+  --duel-muted: #9fb1ad;
+  --duel-line: #343b3b;
+  --duel-card: rgba(28, 34, 34, 0.62);
+  --duel-card-solid: rgba(18, 23, 23, 0.86);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0.5rem;
+  color: var(--duel-ink);
+  font-size: 0.875rem;
+  background: radial-gradient(120% 90% at 50% 0%, #1b2021 0%, #151517 62%);
+}
+
+.full-product-duel-table,
+.full-product-duel-table *,
+.full-product-duel-table *::before,
+.full-product-duel-table *::after {
+  box-sizing: border-box;
+}
+
+.full-product-duel-table :focus-visible {
+  outline: 2px solid var(--duel-teal-strong);
+  outline-offset: 1px;
+}
+
+.full-product-duel-table input,
+.full-product-duel-table select,
+.full-product-duel-table textarea {
+  font: inherit;
+  color: var(--duel-ink);
+  background: rgba(11, 15, 15, 0.92);
+  border: 1px solid var(--duel-line);
+  border-radius: 0.4rem;
+  padding: 0.3rem 0.5rem;
+}
+
+/* Fixed top strip: toolbar + compact score + timing window + in-match config.
+   It never grows past its content and never scrolls away with the board. */
+.full-product-duel-table-top {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.full-product-duel-table-toolbar {
+  flex: 1 1 14rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 0.375rem 0.625rem;
+  border: 1px solid var(--duel-line);
+  border-radius: 0.5rem;
+  background: var(--duel-card);
+}
+
+/* The score is a compact horizontal chip row, not a tall vertical rail: the
+   slot scrolls sideways instead of stealing width or height from the board. */
+.full-product-duel-table-scoreboard {
+  flex: 0 1 auto;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid var(--duel-line);
+  border-radius: 0.5rem;
+  background: var(--duel-card-solid);
+}
+
+.full-product-duel-table-scoreboard .full-product-duel-score {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.4rem;
+  width: auto;
+  padding: 0;
+}
+
+.full-product-duel-table-scoreboard .full-product-duel-score-ticks,
+.full-product-duel-table-scoreboard .full-product-duel-score-overflow {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.3rem;
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.full-product-duel-table-scoreboard .full-product-duel-score-tick,
+.full-product-duel-table-scoreboard .full-product-duel-score-chip {
+  flex-direction: row;
+  align-items: center;
+  width: auto;
+}
+
+.full-product-duel-table-timing {
+  flex: 0 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.375rem 0.625rem;
+  border: 1px solid rgba(26, 167, 155, 0.55);
+  border-left: 3px solid var(--duel-teal);
+  border-radius: 0.5rem;
+  background: rgba(26, 167, 155, 0.12);
+}
+
+.full-product-duel-table-controls {
+  flex: 0 1 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.375rem 0.625rem;
+  border: 1px solid var(--duel-line);
+  border-radius: 0.5rem;
+  background: var(--duel-card-solid);
+}
+
+/* Board column plus right sidebar. The central table always takes the free
+   space first, so the sidebar can never swallow the whole table width. */
+.full-product-duel-table-body {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(248px, 21vw, 284px);
+  gap: 0.5rem;
+  min-width: 0;
+  min-height: 0;
+}
+
+.full-product-duel-table-main {
+  --duel-hand-row-height: clamp(112px, 17vh, 152px);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(200px, 27%, 280px);
+  grid-template-rows: 34px minmax(108px, 1fr) minmax(112px, 1.4fr) minmax(108px, 1fr) var(--duel-hand-row-height);
+  grid-template-areas:
+    "opponent-hand opponent-hand"
+    "opponent opponent"
+    "central central"
+    "player player"
+    "hand resources";
+  gap: 0.375rem;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.full-product-duel-table-opponent-hand {
+  grid-area: opponent-hand;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.full-product-duel-table-band,
+.full-product-duel-table-central,
+.full-product-duel-table-hand {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+}
+
+.full-product-duel-table-opponent {
+  grid-area: opponent;
+  border-color: rgba(58, 168, 155, 0.75);
+  overflow: hidden;
+}
+
+.full-product-duel-table-central {
+  grid-area: central;
+  min-height: 0;
+  overflow: auto;
+}
+
+.full-product-duel-table-player {
+  grid-area: player;
+  border-color: rgba(47, 143, 134, 0.9);
+  overflow: hidden;
+}
+
+.full-product-duel-table-resources {
+  grid-area: resources;
+  justify-self: stretch;
+  width: 100%;
+  max-height: 100%;
+  overflow: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+/* The hand and resources occupy separate cells in the bottom row. */
+.full-product-duel-table-hand {
+  grid-area: hand;
+  overflow: auto;
+  padding: 0.3rem;
+  border: 1px solid var(--duel-line);
+  background: var(--duel-card);
+}
+
+/* Reserve the complete portrait and its captions inside the hand row, including
+   the optional response label. Display-size preferences may widen a card but
+   cannot push its face below the native window. */
+.full-product-duel-table .full-product-duel-table-hand .full-product-duel-hand-thumb {
+  max-height: min(var(--stg-hand-face-height, var(--duel-hand-face-height)), calc(var(--duel-hand-row-height) - 3.5rem));
+}
+
+/* Right sidebar: legal actions stay pinned on top and never disappear; the
+   comms area below switches between caller-supplied chat and activity log. */
+.full-product-duel-table-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+  min-height: 0;
+}
+
+.full-product-duel-table-actions {
+  flex: 1.2 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.5rem;
+  border: 1px solid var(--duel-line);
+  border-radius: 0.5rem;
+  background: var(--duel-card-solid);
+}
+
+.full-product-duel-table-comms {
+  flex: 0.8 1 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+  min-height: 0;
+}
+
+.full-product-duel-table-comms-tabs {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 0.25rem;
+}
+
+.full-product-duel-table-comms-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--duel-line);
+  border-radius: 0.4rem;
+  background: var(--duel-card-solid);
+  color: var(--duel-muted);
+  font-size: 0.8rem;
+}
+
+.full-product-duel-table-comms-tab[aria-selected="true"] {
+  border-color: var(--duel-teal);
+  color: var(--duel-ink);
+  background: rgba(26, 167, 155, 0.18);
+}
+
+.full-product-duel-table-chat,
+.full-product-duel-table-log {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.5rem;
+  border: 1px solid var(--duel-line);
+  border-radius: 0.5rem;
+  background: var(--duel-card-solid);
+}
+
+@media (max-width: 1180px) {
+  .full-product-duel-table-body {
+    grid-template-columns: minmax(0, 1fr) 248px;
+  }
+}
+
+/* Budget the complete bottom row against a short native window. The old
+   190px hand plus a 132px minimum centre overflowed the column after both
+   complete base ribbons were added. Card-size preferences still control
+   width, while the table reserves room for the whole face and its captions. */
+@media (min-width: 861px) and (max-height: 860px) {
+  .full-product-duel-table-main {
+    --duel-hand-row-height: clamp(110px, 16vh, 136px);
+    grid-template-rows: 32px minmax(104px, 1fr) minmax(100px, 1.4fr) minmax(104px, 1fr) var(--duel-hand-row-height);
+    gap: 0.375rem;
+  }
+
+  .full-product-duel-table-top {
+    gap: 0.375rem;
+  }
+
+  .full-product-duel-table-toolbar,
+  .full-product-duel-table-scoreboard,
+  .full-product-duel-table-timing,
+  .full-product-duel-table-controls {
+    padding: 0.25rem 0.4rem;
+  }
+
+  .full-product-duel-table-controls {
+    gap: 0.35rem;
+    font-size: 0.75rem;
+  }
+
+  .full-product-duel-table-controls button,
+  .full-product-duel-table-controls summary {
+    padding: 0.3rem 0.5rem;
+    font-size: 0.75rem;
+  }
+
+  .full-product-duel-table-band,
+  .full-product-duel-table-central,
+  .full-product-duel-table-hand {
+    padding: 0;
+  }
+}
+
+@media (max-width: 860px) {
+  .full-product-duel-table {
+    height: auto;
+    min-height: 100%;
+    overflow: auto;
+  }
+
+  .full-product-duel-table-top {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .full-product-duel-table-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .full-product-duel-table-main {
+    grid-template-rows: auto auto auto auto auto;
+  }
+
+  .full-product-duel-table-opponent,
+  .full-product-duel-table-player {
+    max-height: none;
+  }
+
+  .full-product-duel-table-sidebar {
+    grid-template-rows: minmax(0, auto) minmax(0, auto);
+  }
+}
+
+/* Funding belongs next to the pending payment. Render one resource panel here,
+   leave the full hand row free, and give the shared action scroller more room. */
+.full-product-duel-table-side-pool .full-product-duel-table-main {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas: "opponent-hand" "opponent" "central" "player" "hand";
+}
+
+.full-product-duel-table-payment .full-product-duel-table-sidebar {
+  min-height: 0;
+}
+
+.full-product-duel-table-side-resources,
+.full-product-duel-table-payment-resources {
+  margin-bottom: 0.5rem;
+  min-width: 0;
+}
+
+.full-product-duel-table-side-resources .full-product-resource-pool,
+.full-product-duel-table-payment-resources .full-product-resource-pool {
+  width: 100%;
+}
+
+.full-product-duel-table .full-product-duel-table-side-resources .full-product-resource-pool-action-list,
+.full-product-duel-table .full-product-duel-table-payment-resources .full-product-resource-pool-action-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.full-product-duel-table-payment-resources .full-product-resource-pool-payment-phase,
+.full-product-duel-table-payment-resources .full-product-resource-pool-payment-note {
+  display: none;
+}
+
+@media (max-width: 860px) {
+  .full-product-duel-table-main {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "opponent-hand" "opponent" "central" "player" "hand" "resources";
+  }
+
+  .full-product-duel-table-side-pool .full-product-duel-table-main {
+    grid-template-rows: 34px auto minmax(150px, auto) auto var(--duel-hand-row-height);
+    grid-template-areas: "opponent-hand" "opponent" "central" "player" "hand";
+  }
+
+  .full-product-duel-table-payment .full-product-duel-table-sidebar {
+    grid-template-rows: minmax(0, auto) minmax(0, auto);
+  }
+}
+
+/* Timing, preferences, funding and commands share the fixed side rail. */
+.full-product-duel-table-sidebar > .full-product-duel-table-timing,
+.full-product-duel-table-sidebar > .full-product-duel-table-controls {
+  flex: 0 0 auto;
+}
+
+.full-product-duel-table-sidebar .full-product-duel-table-comms { min-height: 204px; }
+.full-product-duel-table-chat { padding: 4px; overflow: hidden; }
+.full-product-duel-table-hand .full-product-duel-hand-card {
+  flex-basis: calc((var(--duel-hand-row-height) - 2.4rem) * 0.716 + 0.6rem);
+  width: calc((var(--duel-hand-row-height) - 2.4rem) * 0.716 + 0.6rem);
+  max-width: none;
+}

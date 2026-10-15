@@ -127,6 +127,36 @@ function newRuneDeckGame() {
   });
 }
 
+function withLegacyTargetPrompt(state) {
+  // Restored states may already hold a target prompt produced before the play
+  // authorization policy existed; such a prompt must stay resolvable through
+  // the real submitCommand path for its owner.
+  const taskId = "task:legacy:p1:target";
+  state.outstandingTasks.push({
+    id: taskId,
+    sourceCardId: "card.target",
+    sourceObjectId: "p1:target",
+    sourcePlayerId: "player-1",
+    reason: "resolve-effect",
+    optional: false,
+    effect: { kind: "damage", amount: 2, targets: [] },
+    targetChoices: [{ kind: "object", objectId: "p1:unit" }],
+    requiresTargetChoice: true
+  });
+  state.prompt = {
+    id: `prompt:${taskId}`,
+    ownerPlayerId: "player-1",
+    playerId: "player-1",
+    stateVersion: state.version,
+    status: "pending",
+    taskId,
+    reason: "resolve-effect",
+    optional: false,
+    options: [{ id: "target:object:p1:unit", label: "Object p1:unit" }]
+  };
+  return state;
+}
+
 test("createInitialGame is deterministic and emits ordered events", () => {
   const first = newGame();
   const second = newGame();
@@ -227,66 +257,74 @@ test("playing a unit enters the board and playing a score spell wins", () => {
   assert.deepEqual(playedScore.state.players[0].discard, ["p1:score"]);
 });
 
-test("foundation target prompts select a specific object and resolve", () => {
+test("foundation target commands submit a specific public object and resolve", () => {
   const playedUnit = submitCommand(newFoundationGame(), {
     type: "play-card",
     playerId: "player-1",
     instanceId: "p1:unit"
   });
+  const targetAction = projectGame(playedUnit.state, "player-1")
+    .actionOptions.actions.find(candidate => candidate.id === "play:p1:target");
+  assert.deepEqual(targetAction.targetPolicy, {
+    minTargets: 1,
+    maxTargets: 1,
+    options: [{ kind: "object", objectId: "p1:unit" }]
+  });
+
   const playedTarget = submitCommand(playedUnit.state, {
     type: "play-card",
     playerId: "player-1",
-    instanceId: "p1:target"
+    instanceId: "p1:target",
+    targets: [...targetAction.targetPolicy.options]
   });
 
   assert.equal(playedTarget.error, null);
-  assert.equal(playedTarget.state.prompt.reason, "resolve-effect");
-  assert.ok(
-    playedTarget.state.prompt.options.some(
-      option => option.id === "target:object:p1:unit"
-    )
-  );
-
-  const answer = submitCommand(playedTarget.state, {
-    type: "respond-to-prompt",
-    playerId: "player-1",
-    promptId: playedTarget.state.prompt.id,
-    optionId: "target:object:p1:unit"
-  });
-
-  assert.equal(answer.error, null);
-  assert.equal(answer.state.objects["p1:unit"].damage, 2);
-  assert.equal(answer.state.players[0].score, 0);
-  assert.equal(answer.state.prompt, null);
-  assert.equal(answer.state.outstandingTasks.length, 0);
-  assert.deepEqual(answer.state.players[0].discard, ["p1:target"]);
-  assert.equal(answer.state.objects["p1:target"].zone, "discard");
+  assert.equal(playedTarget.state.prompt, null);
+  assert.equal(playedTarget.state.outstandingTasks.length, 0);
+  assert.equal(playedTarget.state.objects["p1:unit"].damage, 2);
+  assert.equal(playedTarget.state.players[0].score, 0);
+  assert.equal(playedTarget.state.players[0].energy, 1);
+  assert.deepEqual(playedTarget.state.players[0].discard, ["p1:target"]);
+  assert.equal(playedTarget.state.objects["p1:target"].zone, "discard");
 });
 
-test("unknown official effects require an explicit judge prompt", () => {
-  const played = submitCommand(newFoundationGame(), {
+test("unknown official effects are rejected before any pool or zone change", () => {
+  const state = newFoundationGame();
+  const snapshot = structuredClone(state);
+  const action = projectGame(state, "player-1").actionOptions.actions.find(
+    candidate => candidate.id === "play:p1:judge"
+  );
+  assert.equal(action.enabled, false);
+  assert.equal(action.blockedReason, "judge-required");
+
+  const played = submitCommand(state, {
     type: "play-card",
     playerId: "player-1",
     instanceId: "p1:judge"
   });
 
-  assert.equal(played.state.prompt.reason, "judge-required");
-  assert.deepEqual(played.state.prompt.options.map(option => option.id), [
-    "judge-required"
-  ]);
-  assert.equal(getHotFeprStep(played.state), "handle-outstanding-tasks");
-  assert.equal(played.state.objects["p1:judge"].zone, "chain");
+  assert.equal(played.error?.code, "judge_required");
+  assert.equal(played.state, state);
+  assert.deepEqual(played.state, snapshot);
+  assert.deepEqual(played.events, []);
+  assert.equal(getHotFeprStep(played.state), "pass");
+  assert.equal(state.prompt, null);
+  assert.deepEqual(state.outstandingTasks, []);
+  assert.equal(state.players[0].energy, 2);
+  assert.equal(state.objects["p1:judge"].zone, "hand");
+  assert.deepEqual(state.players[0].chain, []);
+  assert.deepEqual(state.players[0].discard, []);
 
-  const playerConfirmation = submitCommand(played.state, {
+  const strayAnswer = submitCommand(played.state, {
     type: "respond-to-prompt",
     playerId: "player-1",
-    promptId: played.state.prompt.id,
+    promptId: "prompt:p1:judge",
     optionId: "judge-required"
   });
-  assert.equal(playerConfirmation.error?.code, "judge_required");
-  assert.deepEqual(playerConfirmation.state, played.state);
-  assert.equal(played.state.objects["p1:judge"].zone, "chain");
-  assert.deepEqual(played.state.players[0].discard, []);
+  assert.equal(strayAnswer.error?.code, "prompt_not_found");
+  assert.equal(strayAnswer.state, state);
+  assert.deepEqual(strayAnswer.events, []);
+  assert.deepEqual(state.players[0].discard, []);
 });
 
 test("duplicate instance IDs are rejected including deck placements", () => {
@@ -396,11 +434,7 @@ test("foundation playable cards are gated to legal action points", () => {
     playerId: "player-1",
     instanceId: "p1:unit"
   }).state;
-  const playedTarget = submitCommand(playedUnit, {
-    type: "play-card",
-    playerId: "player-1",
-    instanceId: "p1:target"
-  }).state;
+  const playedTarget = withLegacyTargetPrompt(playedUnit);
   const viewerProjection = projectGame(playedTarget, "player-1");
   const opponentProjection = projectGame(playedTarget, "player-2");
 
@@ -408,6 +442,17 @@ test("foundation playable cards are gated to legal action points", () => {
   assert.deepEqual(viewerProjection.players[0].playableInstanceIds, []);
   assert.deepEqual(opponentProjection.players[1].playableInstanceIds, []);
   assert.equal(isGameProjection(viewerProjection), true);
+
+  const blocked = submitCommand(playedTarget, {
+    type: "play-card",
+    playerId: "player-1",
+    instanceId: "p1:score"
+  });
+  assert.equal(blocked.error?.code, "prompt_required");
+  assert.equal(blocked.state, playedTarget);
+  assert.deepEqual(blocked.events, []);
+  assert.equal(playedTarget.objects["p1:score"].zone, "hand");
+  assert.equal(playedTarget.players[0].energy, 1);
 });
 
 test("foundation handCount reports the real hand size to every viewer", () => {
@@ -424,11 +469,7 @@ test("foundation end waits for resolved tasks and a sole leader", () => {
     playerId: "player-1",
     instanceId: "p1:unit"
   }).state;
-  const playedTarget = submitCommand(playedUnit, {
-    type: "play-card",
-    playerId: "player-1",
-    instanceId: "p1:target"
-  }).state;
+  const playedTarget = withLegacyTargetPrompt(playedUnit);
   assert.equal(playedTarget.prompt !== null, true);
   playedTarget.players[0].score = 3;
   playedTarget.players[0].hand.push({
@@ -443,6 +484,16 @@ test("foundation end waits for resolved tasks and a sole leader", () => {
     zone: "board"
   };
 
+  // The threshold is reached, but the unresolved task still defers the finish.
+  assert.equal(getHotFeprStep(playedTarget), "handle-outstanding-tasks");
+  const deferred = submitCommand(playedTarget, {
+    type: "pass",
+    playerId: "player-1"
+  });
+  assert.equal(deferred.error?.code, "prompt_required");
+  assert.equal(deferred.state.phase, "main");
+  assert.equal(deferred.state.winnerPlayerId, null);
+
   const answered = submitCommand(playedTarget, {
     type: "respond-to-prompt",
     playerId: "player-1",
@@ -451,6 +502,7 @@ test("foundation end waits for resolved tasks and a sole leader", () => {
   });
 
   assert.equal(answered.error, null);
+  assert.equal(answered.state.objects["p1:unit"].damage, 2);
   assert.equal(answered.state.prompt, null);
   assert.equal(answered.state.outstandingTasks.length, 0);
   assert.equal(answered.state.phase, "ended");

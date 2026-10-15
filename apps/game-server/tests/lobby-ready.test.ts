@@ -235,9 +235,14 @@ const catalog = {
     card("fixture.flame-warden", "Flame Warden", "Unit", "unl"),
     {
       ...card("fixture.champion", "Fixture Champion", "Unit", "unl"),
-      tags: ["Champion"]
+      tags: ["Champion", "Fixturechamp"],
+      domains: ["Fury"]
     },
-    card("fixture.legend", "Fixture Legend", "Legend", "unl"),
+    {
+      ...card("fixture.legend", "Fixture Legend", "Legend", "unl"),
+      tags: ["Fixturechamp"],
+      domains: ["Fury"]
+    },
     card("fixture.rune", "Fixture Rune", "Rune", "unl"),
     card("fixture.battlefield-1", "Battlefield One", "Battlefield", "unl"),
     card("fixture.battlefield-2", "Battlefield Two", "Battlefield", "unl"),

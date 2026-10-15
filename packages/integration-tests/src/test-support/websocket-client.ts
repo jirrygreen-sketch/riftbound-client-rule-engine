@@ -74,12 +74,23 @@ export class ProtocolWebSocketClient {
     label: string,
     timeoutMs = DEFAULT_MESSAGE_TIMEOUT_MS
   ): Promise<MessageByType<T>> {
+    return this.waitForAny([type], predicate, label, timeoutMs);
+  }
+
+  /** One request ends with either a receipt or an error. A single waiter must
+   * return that result immediately, without waiting for the absent alternative. */
+  async waitForAny<T extends ServerToClientMessage["type"]>(
+    types: readonly T[],
+    predicate: (message: MessageByType<T>) => boolean,
+    label: string,
+    timeoutMs = DEFAULT_MESSAGE_TIMEOUT_MS
+  ): Promise<MessageByType<T>> {
     const deadline = Date.now() + timeoutMs;
 
     while (true) {
       const index = this.queued.findIndex(
         (message): message is MessageByType<T> =>
-          message.type === type && predicate(message as MessageByType<T>)
+          types.includes(message.type as T) && predicate(message as MessageByType<T>)
       );
       if (index !== -1) {
         const [message] = this.queued.splice(index, 1);

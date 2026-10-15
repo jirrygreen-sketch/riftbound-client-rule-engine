@@ -1,0 +1,215 @@
+/* 本机玩家资料页 —— 深色 teal（#151517 底 / #1aa79b 主色），作用域限定 .profile-* */
+
+.profile-page {
+  --profile-bg: #16171a;
+  --profile-bg-raised: #1e1f23;
+  --profile-line: #34353b;
+  --profile-text: #f1efea;
+  --profile-text-muted: #a6a29a;
+  --profile-primary: #1aa79b;
+  --profile-primary-strong: #37c8bb;
+  --profile-primary-ink: #062724;
+  --profile-danger: #e5635a;
+
+  display: grid;
+  gap: 18px;
+  align-content: start;
+  width: 100%;
+  max-width: 720px;
+  padding: 20px 22px 24px;
+  color: var(--profile-text);
+  background: linear-gradient(180deg, #1b1c20 0%, var(--profile-bg) 100%);
+  border: 1px solid var(--profile-line);
+  border-radius: 10px;
+}
+
+.profile-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.profile-head-icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  color: var(--profile-primary-strong);
+  background: rgba(26, 167, 155, 0.14);
+  border: 1px solid rgba(26, 167, 155, 0.4);
+  border-radius: 12px;
+}
+
+.profile-head-text h2 {
+  margin: 0 0 4px;
+  font-size: 1.15rem;
+  letter-spacing: 0.01em;
+}
+
+.profile-head-text p {
+  margin: 0;
+  max-width: 52ch;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--profile-text-muted);
+}
+
+.profile-form {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 900px) {
+  .profile-form {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .profile-form .profile-field-bio,
+  .profile-form .profile-actions {
+    grid-column: 1 / -1;
+  }
+}
+
+.profile-field {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  min-width: 0;
+}
+
+.profile-field > label,
+.profile-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--profile-text);
+}
+
+.profile-input {
+  width: 100%;
+  padding: 9px 11px;
+  font-size: 0.92rem;
+  color: var(--profile-text);
+  background: var(--profile-bg-raised);
+  border: 1px solid var(--profile-line);
+  border-radius: 7px;
+}
+
+.profile-input::placeholder {
+  color: var(--profile-text-muted);
+}
+
+.profile-input:focus-visible {
+  outline: none;
+  border-color: var(--profile-primary);
+  box-shadow: 0 0 0 2px rgba(55, 200, 187, 0.35);
+}
+
+.profile-input[aria-invalid="true"] {
+  border-color: var(--profile-danger);
+}
+
+.profile-textarea {
+  resize: vertical;
+  min-height: 76px;
+  line-height: 1.5;
+}
+
+.profile-hint {
+  font-size: 0.74rem;
+  color: var(--profile-text-muted);
+}
+
+.profile-error {
+  font-size: 0.76rem;
+  color: var(--profile-danger);
+}
+
+.profile-avatars {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.profile-avatar {
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  width: 72px;
+  padding: 10px 6px;
+  font-size: 0.72rem;
+  color: var(--profile-text-muted);
+  background: var(--profile-bg-raised);
+  border: 1px solid var(--profile-line);
+  border-radius: 9px;
+  transition: border-color 120ms ease, color 120ms ease, background 120ms ease;
+}
+
+.profile-avatar:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(55, 200, 187, 0.5);
+}
+
+.profile-avatar.active {
+  color: var(--profile-primary-ink);
+  background: var(--profile-primary-strong);
+  border-color: var(--profile-primary-strong);
+}
+
+.profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.profile-save {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 16px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--profile-primary-ink);
+  background: var(--profile-primary);
+  border: 1px solid var(--profile-primary);
+  border-radius: 7px;
+}
+
+.profile-save:hover:not(:disabled) {
+  background: var(--profile-primary-strong);
+  border-color: var(--profile-primary-strong);
+}
+
+.profile-save:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(55, 200, 187, 0.55);
+}
+
+.profile-status {
+  font-size: 0.78rem;
+}
+
+.profile-status.ok {
+  color: var(--profile-primary-strong);
+}
+
+.profile-status.error {
+  color: var(--profile-danger);
+}
+
+.profile-room-note {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 0.78rem;
+  line-height: 1.55;
+  color: #d8cfa6;
+  background: rgba(216, 161, 58, 0.1);
+  border: 1px solid rgba(216, 161, 58, 0.38);
+  border-radius: 8px;
+}
+
+.profile-room-note strong {
+  color: #f0d896;
+}

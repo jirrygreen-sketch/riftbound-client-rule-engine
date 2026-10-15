@@ -16,7 +16,7 @@ import {
   isPlainRecord,
   type JsonObject
 } from "@riftbound/replay-core/full-product";
-import { FOUNDATION_RULESET_ID, type RoomId } from "@riftbound/protocol";
+import { DUEL_RULESET_ID, FOUNDATION_RULESET_ID, type RoomId } from "@riftbound/protocol";
 import { GameRoom, type RoomArchive } from "./room.js";
 import type { CardCatalogRuntime } from "./card-catalog.js";
 import { PersistentRoomArchiveStore } from "./full-product/persistent-room-store.js";
@@ -202,7 +202,7 @@ ${messages.join("\n")}`);
   }
 
   private async restoreRoom(archive: RoomArchive): Promise<GameRoom> {
-    if (archive.rulesetId === FOUNDATION_RULESET_ID) {
+    if (archive.rulesetId === FOUNDATION_RULESET_ID || archive.rulesetId === DUEL_RULESET_ID) {
       const catalog = await this.loadCatalog();
       return GameRoom.restore(archive, catalog);
     }

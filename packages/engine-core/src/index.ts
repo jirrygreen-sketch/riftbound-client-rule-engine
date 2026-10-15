@@ -1,4 +1,5 @@
 import {
+  ACTION_OPTIONS_CONTRACT,
   ENGINE_ERRORS,
   FOUNDATION_RULESET_ID,
   PROJECTION_SCHEMA_V1,
@@ -7,11 +8,14 @@ import {
 } from "@riftbound/protocol";
 import type {
   Command,
+  CommandTarget,
   EngineError,
   GameEvent,
   GameProjection,
   PlayerProjection,
   PlayerId,
+  ProjectionAction,
+  ProjectionActionOptions,
   ProjectionObject,
   ProjectionZone,
   Prompt,
@@ -354,9 +358,23 @@ export function submitCommand(
   const startingVersion = state.version;
   const prompt = state.prompt;
   const promptEventsBefore = state.eventSeq;
-
+  // An expired answer cannot silently apply an effect and then report an error.
+  // An unselected mandatory target prompt may still be explicitly repaired to
+  // judge-required at this boundary; other failed answers remain atomic.
+  const expiredPrompt = state.rules.rulesetId === FOUNDATION_RULESET_ID &&
+    command.type === "respond-to-prompt" && state.prompt &&
+    state.prompt.id === command.promptId && state.prompt.stateVersion !== state.version;
+  let repairedExpired = false;
+  if (expiredPrompt && state.outstandingTasks.some(task =>
+    task.id === state.prompt?.taskId && !task.optional && task.requiresTargetChoice &&
+    isValuedEffect(task.effect) && task.effect.targets.length === 0)) {
+    repairedExpired = reconcileLegacyPromptInPlace(state);
+  }
   const error = executeCommand(state, command);
   if (error) {
+    if (repairedExpired && state.eventSeq === startingSeq) {
+      return { state, events: [], error };
+    }
     return failure(currentState, error);
   }
 
@@ -398,12 +416,76 @@ export interface CommandResult {
   error: EngineError | null;
 }
 
+export type LegacyPromptReconcileStatus =
+  | "unchanged"
+  | "resolved"
+  | "judge-required"
+  | "rejected";
+
+export interface LegacyPromptReconcileResult {
+  /** A cloned state; the supplied state is never mutated. */
+  state: GameState;
+  changed: boolean;
+  events: readonly GameEvent[];
+  status: LegacyPromptReconcileStatus;
+}
+
+/**
+ * Reconcile a legacy prompt/task pair at an authoritative transaction boundary.
+ *
+ * This is deliberately not used by projectGame: projections only filter what is
+ * safe to disclose. Callers restoring or executing an authoritative state may
+ * use this seam, then persist the returned state and events as one transaction.
+ */
+export function reconcileLegacyPrompt(
+  currentState: GameState
+): LegacyPromptReconcileResult {
+  const state = cloneState(currentState);
+  const startingSeq = state.eventSeq;
+  const rejected = Boolean(
+    state.prompt && !state.outstandingTasks.some(task => task.id === state.prompt!.taskId)
+  );
+  // Mark every saved foundation effect before the generic task loop can see it,
+  // including tasks behind an already-pending prompt. No task is consumed on an
+  // unverified effect/source.
+  if (state.rules.rulesetId === FOUNDATION_RULESET_ID) {
+    for (const task of state.outstandingTasks) {
+      if (task.disposition || task.effect?.kind === "judge-required" ||
+          task.reason === "resolve-card" || isTrustedFoundationEffectTask(state, task)) continue;
+      markLegacyTaskJudgeRequired(state, task,
+        state.prompt?.taskId === task.id ? state.prompt : undefined,
+        "Judge required: the saved effect or its source cannot be verified.");
+    }
+  }
+  const reconciled = reconcileLegacyPromptInPlace(state);
+  if (reconciled || state.outstandingTasks.length > 0) {
+    runHotFepr(state);
+  }
+  const changed = state.version !== currentState.version || state.eventSeq !== startingSeq;
+  const hasJudgeRequired = state.outstandingTasks.some(task =>
+    task.disposition === "judge-required" || task.effect?.kind === "judge-required"
+  ) || state.prompt?.reason === "judge-required";
+  return {
+    state,
+    changed,
+    events: state.eventLog.filter(event => event.seq > startingSeq),
+    status: rejected
+      ? "rejected"
+      : hasJudgeRequired
+        ? "judge-required"
+        : changed
+          ? "resolved"
+          : "unchanged"
+  };
+}
+
 export function getHotFeprStep(state: GameState): HotFeprStep {
   if (state.prompt) {
     return "handle-outstanding-tasks";
   }
   if (state.outstandingTasks.length > 0) {
-    return state.outstandingTasks[0]!.effect?.kind === "judge-required"
+    const task = state.outstandingTasks[0]!;
+    return task.disposition === "judge-required" || task.effect?.kind === "judge-required"
       ? "handle-outstanding-tasks"
       : "execute";
   }
@@ -421,8 +503,14 @@ export function projectGame(
   viewerPlayerId: PlayerId | null = null
 ): GameProjection {
   const prompt = state.prompt;
-  const viewerPrompt = prompt && prompt.ownerPlayerId === viewerPlayerId
-    ? projectPrompt(prompt)
+  const safeOptions = prompt && prompt.ownerPlayerId === viewerPlayerId
+    ? currentPromptOptions(state, prompt)
+    : [];
+  // Protocol 0.2.1 does not accept an empty prompt.options. Keep waitingForPlayerId
+  // and the pending authoritative task, but do not send an invalid wire prompt
+  // or a fake choice when every legacy target has become illegal.
+  const viewerPrompt = prompt && safeOptions.length > 0
+    ? projectPrompt(prompt, safeOptions)
     : null;
   const projection = {
     version: state.version,
@@ -469,6 +557,10 @@ export function projectGame(
     projection.rulesetId = state.rules.rulesetId;
     projection.priority = { playerId: state.priorityPlayerId };
     projection.objects = visibleFoundationObjects(
+      state as FoundationGameState,
+      viewerPlayerId
+    );
+    projection.actionOptions = foundationActionOptions(
       state as FoundationGameState,
       viewerPlayerId
     );
@@ -877,6 +969,14 @@ function passTurn(
 ): EngineError | null {
   const activeError = requireActivePlayer(state, command.playerId);
   if (activeError) return activeError;
+  if (state.rules.rulesetId === FOUNDATION_RULESET_ID &&
+      !foundationActionOptions(state as FoundationGameState, command.playerId)
+        .actions.some(action => action.command.type === "pass" && action.enabled)) {
+    return {
+      code: ENGINE_ERRORS.invalidCommand,
+      message: "Passing is not available at this action point."
+    };
+  }
 
   appendEvent(state, {
     type: "turn-passed",
@@ -996,15 +1096,15 @@ function playCard(
   }
 
   const card = player.hand[cardIndex]!;
-  const object = state.objects[card.instanceId];
+  const object = foundationHandObject(stateAsFoundation, player, card);
   if (!object) {
     return {
       code: ENGINE_ERRORS.cardNotFound,
-      message: `Card instance ${card.instanceId} has no game object.`
+      message: `Card instance ${card.instanceId} does not match the player's hand.`
     };
   }
 
-  const definition = getDefinition(state, object.cardId);
+  const definition = getDefinition(state, card.cardId);
   if (!definition) {
     return {
       code: ENGINE_ERRORS.cardNotFound,
@@ -1018,23 +1118,31 @@ function playCard(
     };
   }
 
+  // The projected action is also the execution policy; never trust a client-supplied target list.
+  const action = foundationActionOptions(stateAsFoundation, player.id).actions.find(
+    candidate => candidate.command.type === "play-card" &&
+      candidate.command.instanceId === command.instanceId
+  );
+  if (!action || !action.enabled) {
+    return {
+      code: action?.blockedReason === "judge-required"
+        ? ENGINE_ERRORS.judgeRequired
+        : ENGINE_ERRORS.invalidCommand,
+      message: action?.blockedReason === "judge-required"
+        ? "This card requires an authoritative ruling and cannot be played."
+        : `Card ${card.cardId} is not available at this action point.`
+    };
+  }
   const selectedTargets = command.targets ?? [];
-  const effect = definition.effect;
-  const fixedTargets = effect && effect.kind !== "judge-required"
-    ? effect.targets
-    : [];
-  if (selectedTargets.length > 0) {
-    const choices = availableTargets(state, player.id);
-    if (!effect || effect.kind === "judge-required" ||
-        effect.kind !== "damage" || fixedTargets.length > 0 ||
-        selectedTargets.length !== 1 ||
-        !selectedTargets.every(target => choices.some(choice =>
-          targetOptionId(choice) === targetOptionId(target)))) {
-      return {
-        code: ENGINE_ERRORS.invalidCommand,
-        message: "The selected targets are not legal for this effect."
-      };
-    }
+  const { minTargets, maxTargets, options } = action.targetPolicy;
+  if (selectedTargets.length < minTargets ||
+      selectedTargets.length > maxTargets ||
+      !selectedTargets.every(target => options.some(choice =>
+        targetOptionId(choice) === targetOptionId(target)))) {
+    return {
+      code: ENGINE_ERRORS.invalidCommand,
+      message: "The selected targets are not legal for this effect."
+    };
   }
 
   const [cardInstance] = player.hand.splice(cardIndex, 1) as [CardInstanceLike];
@@ -1047,9 +1155,7 @@ function playCard(
     cardId: card.cardId
   });
 
-  const primaryType = definition.types.find(
-    type => type !== "token"
-  ) as PrimaryObjectType | undefined;
+  const primaryType = foundationPrimaryType(definition);
   if (!primaryType) {
     return {
       code: ENGINE_ERRORS.invalidCommand,
@@ -1084,8 +1190,9 @@ function playCard(
   const effectTargets = selectedTargets.length > 0
     ? [...selectedTargets]
     : definition.effect ? effectDefinitionTargets(definition.effect) : [];
-  if (definition.effect &&
-      (effectTargets.length > 0 || availableTargets(state, player.id).length > 0)) {
+  // An empty target list means a choice has not been made, not that an effect
+  // can be dropped. In particular, point recipients are players, not objects.
+  if (definition.effect) {
     state.outstandingTasks.push({
       id: `task:${card.instanceId}:effect:${playSeq}`,
       sourceCardId: card.cardId,
@@ -1098,7 +1205,7 @@ function playCard(
         : definition.effect,
       targetChoices: effectTargets.length > 0
         ? effectTargets
-        : availableTargets(state, player.id),
+        : availableEffectTargets(state, definition.effect),
       requiresTargetChoice: effectTargets.length === 0
     });
   }
@@ -1204,7 +1311,7 @@ function answerPrompt(
   if (!prompt.options.some(option => option.id === command.optionId)) {
     return {
       code: ENGINE_ERRORS.invalidPromptAnswer,
-      message: `Option ${command.optionId} is not valid for this prompt.`
+      message: "The selected option is not valid for this prompt."
     };
   }
 
@@ -1216,6 +1323,36 @@ function answerPrompt(
       code: ENGINE_ERRORS.promptNotFound,
       message: "The prompted task is no longer active."
     };
+  }
+  if (state.rules.rulesetId === FOUNDATION_RULESET_ID) {
+    // Validate the current choice before prompt-answered or an effect can emit an
+    // event. A saved prompt/targetChoices pair is not proof of current legality.
+    if (!currentPromptOptions(state, prompt).some(option => option.id === command.optionId)) {
+      return {
+        code: ENGINE_ERRORS.invalidPromptAnswer,
+        message: "The selected prompt option is not available."
+      };
+    }
+    const action = foundationActionOptions(state as FoundationGameState, command.playerId)
+      .actions.find(candidate => candidate.command.type === "respond-to-prompt" &&
+        candidate.command.promptId === command.promptId &&
+        candidate.command.optionId === command.optionId);
+    if (!action?.enabled) {
+      return {
+        code: action?.blockedReason === "judge-required"
+          ? ENGINE_ERRORS.judgeRequired
+          : ENGINE_ERRORS.invalidPromptAnswer,
+        message: action?.blockedReason === "judge-required"
+          ? "Judge-required effects require an authoritative ruling and cannot be resolved by player confirmation."
+          : "The selected prompt option is not available."
+      };
+    }
+    if (!isTrustedFoundationEffectTask(state, task)) {
+      return {
+        code: ENGINE_ERRORS.judgeRequired,
+        message: "The saved task needs authoritative review."
+      };
+    }
   }
 
   appendEvent(state, {
@@ -1233,16 +1370,16 @@ function answerPrompt(
     });
   } else if (command.optionId.startsWith("target:")) {
     const target = task.targetChoices?.find(
-      candidate => targetOptionId(candidate) === command.optionId
+      candidate => isEffectTarget(candidate) && targetOptionId(candidate) === command.optionId
     );
     if (!target) {
       return {
         code: ENGINE_ERRORS.invalidPromptAnswer,
-        message: `Target option ${command.optionId} is not valid.`
+        message: "The selected target is not valid."
       };
     }
     applyEffect(state, task, [target]);
-  } else if (task.effect?.kind === "judge-required") {
+  } else if (task.disposition === "judge-required" || task.effect?.kind === "judge-required") {
     if (command.optionId !== "judge-required") {
       return {
         code: ENGINE_ERRORS.invalidPromptAnswer,
@@ -1273,9 +1410,7 @@ function applyEffect(
   if (!effect) return;
   if (effect.kind === "judge-required") return;
   if (effect.kind === "gain-points") {
-    const resolvedTargets = targets.length > 0
-      ? targets
-      : [...effect.targets];
+    const resolvedTargets = targets;
     for (const target of resolvedTargets) {
       if (target.kind !== "player") continue;
       const foundation = requireFoundationGame(state);
@@ -1295,9 +1430,7 @@ function applyEffect(
 
   const damageEffect = effect.kind === "damage" ? effect : null;
   if (!damageEffect) return;
-  const foundationTargets = targets.length > 0
-    ? targets
-    : [...damageEffect.targets];
+  const foundationTargets = targets;
   for (const target of foundationTargets) {
     if (damageEffect && target.kind === "player" &&
         state.rules.rulesetId === SYNTHETIC_RULESET_ID) {
@@ -1333,13 +1466,68 @@ function applyEffect(
 }
 
 function defaultTargets(state: GameState, task: OutstandingTask): EffectTarget[] {
-  if (task.targetChoices?.length === 1) {
+  if (!isValuedEffect(task.effect)) return [];
+  // The caller checks the source and printed effect before executing. Stale
+  // instructions must not fall back to earlier, now-invalid candidates.
+  if (task.effect.targets.length > 0) {
+    return task.effect.targets.filter(target =>
+      state.rules.rulesetId === SYNTHETIC_RULESET_ID ||
+      isCurrentlyLegalEffectTarget(state, task, target));
+  }
+  if (task.targetChoices?.length === 1 &&
+      (state.rules.rulesetId === SYNTHETIC_RULESET_ID || task.requiresTargetChoice) &&
+      (state.rules.rulesetId === SYNTHETIC_RULESET_ID ||
+        isCurrentlyLegalEffectTarget(state, task, task.targetChoices[0]!))) {
     return [task.targetChoices[0]!];
   }
-  if (task.effect?.kind === "damage" && task.effect.targets.length > 0) {
-    return [...task.effect.targets];
-  }
   return [];
+}
+
+function hasExecutableDefault(state: GameState, task: OutstandingTask): boolean {
+  return defaultTargets(state, task).length > 0;
+}
+
+/** Verify the foundation task against its actual card and producer, not its projection. */
+function isTrustedFoundationEffectTask(state: GameState, task: OutstandingTask): boolean {
+  if (state.rules.rulesetId !== FOUNDATION_RULESET_ID) return true;
+  const card = state.cards[task.sourceCardId];
+  const source = state.objects[task.sourceObjectId];
+  const printed = card?.effect;
+  const saved = task.effect;
+  if (task.reason !== "resolve-effect" ||
+      !state.players.some(player => player.id === task.sourcePlayerId) ||
+      !source || source.objectId !== task.sourceObjectId ||
+      source.instanceId !== task.sourceObjectId ||
+      source.cardId !== task.sourceCardId ||
+      source.ownerPlayerId !== task.sourcePlayerId ||
+      !isValuedEffect(printed) || !isValuedEffect(saved) ||
+      saved.kind !== printed.kind || saved.amount !== printed.amount ||
+      typeof task.optional !== "boolean" ||
+      (task.requiresTargetChoice !== undefined && typeof task.requiresTargetChoice !== "boolean") ||
+      (task.targetChoices !== undefined && !Array.isArray(task.targetChoices))) {
+    return false;
+  }
+  const targetFits = (target: EffectTarget): boolean =>
+    saved.kind === "damage" ? target.kind === "object" : target.kind === "player";
+  if (!printed.targets.every(targetFits) || !saved.targets.every(targetFits)) return false;
+  const sameTargets = (a: readonly EffectTarget[], b: readonly EffectTarget[]): boolean =>
+    a.length === b.length && a.every((target, index) =>
+      isEffectTarget(target) && isEffectTarget(b[index]) &&
+      targetOptionId(target) === targetOptionId(b[index]!));
+  if (printed.targets.length > 0) {
+    // Fixed printed targets cannot be widened by saved choices or replaced by
+    // unrelated instructions. Their current legality is checked at execution.
+    return sameTargets(saved.targets, printed.targets) &&
+      (!task.requiresTargetChoice) &&
+      (task.targetChoices === undefined || sameTargets(task.targetChoices, printed.targets));
+  }
+  // The only way a dynamic instruction differs from printed [] is a previous
+  // target selection. Its selected targets must agree with saved choices;
+  // requiresTargetChoice=true means no selection has yet occurred. An unselected
+  // task may contain stale or malicious candidates; they are never authority.
+  return task.requiresTargetChoice
+    ? saved.targets.length === 0
+    : saved.targets.length > 0 && sameTargets(saved.targets, task.targetChoices ?? []);
 }
 
 function effectDefinitionTargets(effect: CardEffect): EffectTarget[] {
@@ -1360,19 +1548,224 @@ function availableTargets(
   return targets;
 }
 
+function availableEffectTargets(
+  state: GameState,
+  effect: CardEffect
+): EffectTarget[] {
+  if (effect.kind === "judge-required") return [];
+  if (effect.kind === "gain-points") {
+    return state.players.map(player => ({ kind: "player", playerId: player.id }));
+  }
+  return availableTargets(state, state.activePlayerId);
+}
+
+/** Recheck only legacy prompts that select a target for a dynamic effect. */
+function currentPromptOptions(state: GameState, prompt: Prompt): PromptOption[] {
+  if (state.rules.rulesetId !== FOUNDATION_RULESET_ID) {
+    return [...prompt.options];
+  }
+  const task = state.outstandingTasks.find(candidate => candidate.id === prompt.taskId);
+  if (!task) return [];
+  const trusted = isTrustedFoundationEffectTask(state, task);
+  if (task.disposition === "judge-required" || task.effect?.kind === "judge-required" || !trusted) {
+    // Unverified effects cannot authorize even a skip. Verified optional tasks
+    // with no legal target stay as skip-only prompts instead (see below).
+    if (!trusted && task.disposition !== "judge-required" &&
+        task.effect?.kind !== "judge-required" &&
+        prompt.options.every(option => option.id.startsWith("target:")) &&
+        isValuedEffect(task.effect) && task.effect.targets.length === 0 &&
+        !task.requiresTargetChoice) return [];
+    return [{
+      id: "judge-required",
+      label: task.dispositionReason ??
+        (task.effect?.kind === "judge-required"
+          ? "Judge required"
+          : "Judge required: the saved task needs authoritative review.")
+    }];
+  }
+  if (!task.requiresTargetChoice) {
+    // Never promote arbitrary saved option IDs, or a raw optional flag on an
+    // unverified task, to authority. An explicit resolve is still a choice.
+    return prompt.options.filter(option => option.id === "skip"
+      ? task.optional && prompt.optional
+      : option.id === "resolve" && hasExecutableDefault(state, task) &&
+        (task.optional ? prompt.optional : true));
+  }
+  const choices = task.targetChoices ?? [];
+  const publicObjects = new Set(availableTargets(state, task.sourcePlayerId).map(targetOptionId));
+  const isLegalChoice = (choice: EffectTarget): boolean =>
+    task.effect?.kind === "damage"
+      ? choice.kind === "object" && publicObjects.has(targetOptionId(choice))
+      : task.effect?.kind === "gain-points"
+        ? choice.kind === "player" && state.players.some(player => player.id === choice.playerId)
+        : false;
+  const choiceCounts = new Map<string, number>();
+  const optionCounts = new Map<string, number>();
+  for (const choice of choices) {
+    if (!isEffectTarget(choice)) continue;
+    const id = targetOptionId(choice);
+    choiceCounts.set(id, (choiceCounts.get(id) ?? 0) + 1);
+  }
+  for (const option of prompt.options) {
+    optionCounts.set(option.id, (optionCounts.get(option.id) ?? 0) + 1);
+  }
+  return prompt.options.filter(option => {
+    // Duplicate IDs or choices are ambiguous; discard the whole option, label
+    // included. Compare full canonical IDs: object IDs can themselves contain ':'.
+    if (optionCounts.get(option.id) !== 1) return false;
+    if (choiceCounts.has(option.id)) {
+      return choiceCounts.get(option.id) === 1 &&
+        choices.some(choice => isEffectTarget(choice) &&
+          targetOptionId(choice) === option.id && isLegalChoice(choice));
+    }
+    // An unknown target-like ID must not become an executable non-target option.
+    if (option.id.startsWith("target:")) return false;
+    if (option.id === "resolve") {
+      // This non-target answer uses defaultTargets. For a dynamic effect with
+      // exactly one stored choice it can be answered only while that choice is
+      // still legal. A hidden/ambiguous default must never run applyEffect.
+      return choices.length === 1 && isEffectTarget(choices[0]) &&
+        isLegalChoice(choices[0]) && (task.optional ? prompt.optional : true);
+    }
+    // Only the known optional decline is safe in a dynamic target prompt.
+    return option.id === "skip" && task.optional && prompt.optional;
+  });
+}
+
 function targetOptionId(target: EffectTarget): string {
   return target.kind === "player"
     ? `target:player:${target.playerId}`
     : `target:object:${target.objectId}`;
 }
 
+function reconcileLegacyPromptInPlace(state: GameState): boolean {
+  if (state.rules.rulesetId !== FOUNDATION_RULESET_ID) return false;
+  const prompt = state.prompt;
+  const task = prompt
+    ? state.outstandingTasks.find(candidate => candidate.id === prompt.taskId)
+    : state.outstandingTasks[0];
+  if (!task) return false;
+  if (task.disposition === "judge-required" || task.effect?.kind === "judge-required") {
+    return false;
+  }
+
+  const effect = task.effect;
+  if (!isTrustedFoundationEffectTask(state, task)) {
+    return markLegacyTaskJudgeRequired(
+      state,
+      task,
+      prompt ?? undefined,
+      "Judge required: the saved effect or its source cannot be verified."
+    );
+  }
+
+  // A saved target is not consent to an optional effect. Even when its targets
+  // have since gone stale, the owner must retain the ability to decline.
+  // A previously selected dynamic instruction or a printed fixed target may
+  // execute once for mandatory effects. No choice means no automatic effect.
+  if (!task.optional && isValuedEffect(effect) && effect.targets.length > 0) {
+    return resolveSelectedLegacyTask(state, task, prompt ?? undefined);
+  }
+
+  if (!task.requiresTargetChoice) return false;
+  const choices = task.targetChoices ?? [];
+  const legalChoices = choices.filter(choice =>
+    isCurrentlyLegalEffectTarget(state, task, choice)
+  );
+  if (legalChoices.length > 0 || (task.optional && prompt?.optional)) return false;
+
+  // No target was selected. Filtered public options do not prove a fizzle, so
+  // preserve the task and expose an explicit judge-required disposition.
+  return markLegacyTaskJudgeRequired(
+    state,
+    task,
+    prompt ?? undefined,
+    "Judge required: no legal recipient is proven by the saved task."
+  );
+}
+
+function resolveSelectedLegacyTask(
+  state: GameState,
+  task: OutstandingTask,
+  prompt: Prompt | undefined
+): boolean {
+  const effect = task.effect;
+  if (!isValuedEffect(effect)) return false;
+  const legalTargets = effect.targets.filter(target =>
+    isCurrentlyLegalEffectTarget(state, task, target)
+  );
+  applyEffect(state, task, legalTargets);
+  if (prompt?.taskId === task.id) state.prompt = null;
+  state.outstandingTasks = state.outstandingTasks.filter(candidate => candidate.id !== task.id);
+  appendEvent(state, {
+    type: "task-resolved",
+    taskId: task.id,
+    sourceCardId: task.sourceCardId,
+    reason: task.reason,
+    autoResolved: true
+  });
+  return true;
+}
+
+function markLegacyTaskJudgeRequired(
+  state: GameState,
+  task: OutstandingTask,
+  prompt: Prompt | undefined,
+  reason: string
+): boolean {
+  task.disposition = "judge-required";
+  task.dispositionReason = reason;
+  if (prompt?.taskId === task.id) {
+    prompt.reason = "judge-required";
+    prompt.optional = false;
+    prompt.options = [{ id: "judge-required", label: reason }];
+    // Make the repaired prompt a new authority version without adding a
+    // misleading gameplay event or changing any resource/card zone.
+    state.version += 1;
+    prompt.stateVersion = state.version;
+  } else {
+    state.version += 1;
+  }
+  return true;
+}
+
+function isValuedEffect(
+  effect: CardEffect | undefined
+): effect is DamageEffect | GainPointsEffect {
+  if (!effect || (effect.kind !== "damage" && effect.kind !== "gain-points")) {
+    return false;
+  }
+  return Number.isSafeInteger(effect.amount) && effect.amount > 0 &&
+    Array.isArray(effect.targets) && effect.targets.every(isEffectTarget);
+}
+
+function isEffectTarget(value: unknown): value is EffectTarget {
+  if (!value || typeof value !== "object") return false;
+  const target = value as Record<string, unknown>;
+  return target.kind === "player"
+    ? typeof target.playerId === "string" && target.playerId.length > 0
+    : target.kind === "object" && typeof target.objectId === "string" && target.objectId.length > 0;
+}
+
+function isCurrentlyLegalEffectTarget(
+  state: GameState,
+  task: OutstandingTask,
+  target: EffectTarget
+): boolean {
+  if (!isEffectTarget(target)) return false;
+  if (task.effect?.kind === "gain-points") {
+    return target.kind === "player" && state.players.some(player => player.id === target.playerId);
+  }
+  if (task.effect?.kind === "damage") {
+    return target.kind === "object" && availableTargets(state, task.sourcePlayerId)
+      .some(candidate => targetOptionId(candidate) === targetOptionId(target));
+  }
+  return false;
+}
+
 function runHotFepr(state: GameState): void {
   handleOutstandingTasks(state);
-  while (state.prompt === null &&
-         state.outstandingTasks.some(task =>
-           task.effect?.kind !== "judge-required" && task.reason !== "resolve-card"
-         ) &&
-         resolveNextExecutableTask(state)) {
+  while (state.prompt === null && resolveNextExecutableTask(state)) {
     handleOutstandingTasks(state);
   }
   cleanupResolvedPermanents(state);
@@ -1383,14 +1776,22 @@ function handleOutstandingTasks(state: GameState): void {
   while (!state.prompt && state.outstandingTasks.length > 0) {
     const task = state.outstandingTasks[0]!;
 
-    if (task.effect?.kind === "judge-required") {
+    if (task.disposition === "judge-required" || task.effect?.kind === "judge-required") {
       createTaskPrompt(state, task, [
-        { id: "judge-required", label: "Judge required" }
+        { id: "judge-required", label: task.dispositionReason ?? "Judge required" }
       ]);
+      if (task.disposition === "judge-required") state.prompt!.reason = "judge-required";
       continue;
     }
 
-    if (task.optional) {
+    if (state.rules.rulesetId === FOUNDATION_RULESET_ID && task.reason !== "resolve-card" &&
+        !isTrustedFoundationEffectTask(state, task)) {
+      markLegacyTaskJudgeRequired(state, task, undefined,
+        "Judge required: the saved effect or its source cannot be verified.");
+      continue;
+    }
+
+    if (task.optional && state.rules.rulesetId === SYNTHETIC_RULESET_ID) {
       createTaskPrompt(state, task, [
         { id: "resolve", label: "Resolve trigger" },
         { id: "skip", label: "Skip trigger" }
@@ -1398,18 +1799,39 @@ function handleOutstandingTasks(state: GameState): void {
       continue;
     }
 
-  if (task.requiresTargetChoice &&
-      (task.targetChoices?.length ?? 0) > 0) {
-      createTaskPrompt(
-        state,
-        task,
-        (task.targetChoices ?? []).map(target => ({
+    if (task.optional) {
+      const choices = task.requiresTargetChoice
+        ? (task.targetChoices ?? []).filter(choice =>
+          isCurrentlyLegalEffectTarget(state, task, choice))
+        : [];
+      createTaskPrompt(state, task, [
+        ...choices.map(target => ({
           id: targetOptionId(target),
           label: target.kind === "player"
             ? `Player ${target.playerId}`
             : `Object ${target.objectId}`
-        }))
-      );
+        })),
+        ...(task.requiresTargetChoice || !hasExecutableDefault(state, task)
+          ? [] : [{ id: "resolve", label: "Resolve trigger" }]),
+        { id: "skip", label: "Skip trigger" }
+      ]);
+      continue;
+    }
+
+    if (task.requiresTargetChoice) {
+      const choices = (task.targetChoices ?? []).filter(choice =>
+        isCurrentlyLegalEffectTarget(state, task, choice));
+      if (choices.length === 0) {
+        markLegacyTaskJudgeRequired(state, task, undefined,
+          "Judge required: no legal recipient is proven by the saved task.");
+        continue;
+      }
+      createTaskPrompt(state, task, choices.map(target => ({
+        id: targetOptionId(target),
+        label: target.kind === "player"
+          ? `Player ${target.playerId}`
+          : `Object ${target.objectId}`
+      })));
       continue;
     }
 
@@ -1457,10 +1879,11 @@ function createTaskPrompt(
 function resolveNextExecutableTask(state: GameState): boolean {
   const index = state.outstandingTasks.findIndex(
     task =>
-      task.effect?.kind !== "judge-required" &&
-      task.reason !== "resolve-card" &&
+      !task.optional && task.disposition !== "judge-required" &&
+      task.reason === "resolve-effect" &&
       !task.requiresTargetChoice &&
-      (task.effect?.targets.length ?? 0) > 0 &&
+      isTrustedFoundationEffectTask(state, task) &&
+      isValuedEffect(task.effect) && task.effect.targets.length > 0 &&
       !state.prompt
   );
   if (index === -1) return false;
@@ -1492,7 +1915,14 @@ function moveResolvedFoundationSpells(state: GameState): void {
     const unresolved = new Set(state.outstandingTasks.map(task =>
       task.sourceObjectId
     ));
-    const resolvedSpells = player.chain.filter(instanceId =>
+    // A task with an unverifiable source cannot authorize cleanup of any
+    // unrelated paid chain object. Keep that object in place for a ruling.
+    const blockedByUnverifiedTask = state.outstandingTasks.some(task =>
+      task.disposition === "judge-required" &&
+      (!state.objects[task.sourceObjectId] ||
+        state.objects[task.sourceObjectId]?.cardId !== task.sourceCardId)
+    );
+    const resolvedSpells = blockedByUnverifiedTask ? [] : player.chain.filter(instanceId =>
       !unresolved.has(instanceId)
     );
     for (const instanceId of resolvedSpells) {
@@ -1641,6 +2071,161 @@ function playableFoundationHand(
     .map(card => card.instanceId);
 }
 
+function foundationActionOptions(
+  state: FoundationGameState,
+  viewerPlayerId: PlayerId | null
+): ProjectionActionOptions {
+  const options: ProjectionActionOptions = {
+    contract: ACTION_OPTIONS_CONTRACT,
+    stateVersion: state.version,
+    viewerPlayerId,
+    actions: []
+  };
+  const viewer = viewerPlayerId === null
+    ? undefined
+    : state.players.find(player => player.id === viewerPlayerId);
+  if (!viewer || state.phase === "ended") return options;
+
+  const actions: ProjectionAction[] = [
+    {
+      id: "concede",
+      command: { type: "concede" },
+      targetPolicy: emptyActionTargetPolicy(),
+      enabled: true
+    }
+  ];
+
+  if (state.prompt) {
+    if (state.prompt.ownerPlayerId === viewer.id) {
+      const task = state.outstandingTasks.find(candidate =>
+        candidate.id === state.prompt!.taskId
+      );
+      for (const promptOption of currentPromptOptions(state, state.prompt)) {
+        const judgeRequired = (task?.disposition === "judge-required" ||
+          task?.effect?.kind === "judge-required" ||
+          state.prompt.reason === "judge-required" ||
+          !task || !isTrustedFoundationEffectTask(state, task)) && promptOption.id !== "skip";
+        const action: ProjectionAction = {
+          id: `${state.prompt.id}:${promptOption.id}`,
+          command: {
+            type: "respond-to-prompt",
+            promptId: state.prompt.id,
+            optionId: promptOption.id,
+            stateVersion: state.prompt.stateVersion
+          },
+          targetPolicy: emptyActionTargetPolicy(),
+          enabled: !judgeRequired,
+          ...(judgeRequired ? { blockedReason: "judge-required" } : {})
+        };
+        actions.push(action);
+      }
+    }
+    return { ...options, actions };
+  }
+
+  const canAct = state.phase === "main" &&
+    state.turnPhase === "main" &&
+    state.activePlayerId === viewer.id &&
+    state.priorityPlayerId === viewer.id &&
+    state.outstandingTasks.length === 0;
+  if (!canAct) return { ...options, actions };
+
+  actions.unshift({
+    id: "pass",
+    command: { type: "pass" },
+    targetPolicy: emptyActionTargetPolicy(),
+    enabled: true
+  });
+
+  const playableIds = new Set(playableFoundationHand(state, viewer));
+  for (const card of viewer.hand) {
+    if (!playableIds.has(card.instanceId)) continue;
+    actions.splice(actions.length - 1, 0,
+      foundationPlayAction(state, viewer, card));
+  }
+
+  return { ...options, actions };
+}
+
+function foundationPrimaryType(definition: EngineCardDefinition): PrimaryObjectType | undefined {
+  return definition.types.find(type =>
+    type === "unit" || type === "spell" || type === "battlefield" ||
+    type === "champion" || type === "legend" || type === "rune"
+  ) as PrimaryObjectType | undefined;
+}
+
+function foundationHandObject(
+  state: FoundationGameState,
+  player: FoundationPlayerState,
+  card: CardInstanceLike
+): GameObject | null {
+  const object = state.objects[card.instanceId];
+  return object?.instanceId === card.instanceId &&
+    object.zone === "hand" &&
+    object.ownerPlayerId === player.id &&
+    object.controllerPlayerId === player.id &&
+    object.cardId === card.cardId
+    ? object
+    : null;
+}
+
+function foundationPlayAction(
+  state: FoundationGameState,
+  player: FoundationPlayerState,
+  card: CardInstanceLike
+): ProjectionAction {
+  const action: ProjectionAction = {
+    id: `play:${card.instanceId}`,
+    command: { type: "play-card", instanceId: card.instanceId },
+    targetPolicy: emptyActionTargetPolicy(),
+    enabled: true
+  };
+  const object = foundationHandObject(state, player, card);
+  const definition = state.cards[card.cardId];
+  if (!object || !definition) {
+    return { ...action, enabled: false, blockedReason: "unsupported-card" };
+  }
+
+  const primaryType = foundationPrimaryType(definition);
+  if (!primaryType) {
+    return {
+      ...action,
+      enabled: false,
+      blockedReason: "unsupported-card-type"
+    };
+  }
+  if (definition.effect?.kind === "judge-required") {
+    return { ...action, enabled: false, blockedReason: "judge-required" };
+  }
+
+  if (definition.effect?.kind === "damage" &&
+      definition.effect.targets.length === 0) {
+    const targetOptions = availableTargets(state, player.id).map(target =>
+      target as CommandTarget
+    );
+    if (targetOptions.length === 0) {
+      return {
+        ...action,
+        enabled: false,
+        blockedReason: "no-legal-target"
+      };
+    }
+    return {
+      ...action,
+      targetPolicy: { minTargets: 1, maxTargets: 1, options: targetOptions }
+    };
+  }
+  return action;
+}
+
+function emptyActionTargetPolicy(): {
+  minTargets: 0;
+  maxTargets: 0;
+  options: readonly CommandTarget[];
+} {
+  return { minTargets: 0, maxTargets: 0, options: [] };
+}
+
 function viewerHand(
   player: PlayerState,
   viewerPlayerId: PlayerId | null
@@ -1678,7 +2263,7 @@ function projectPlayer(
   return projection;
 }
 
-function projectPrompt(prompt: Prompt): Prompt {
+function projectPrompt(prompt: Prompt, options: readonly PromptOption[]): Prompt {
   return {
     id: prompt.id,
     ownerPlayerId: prompt.ownerPlayerId,
@@ -1688,7 +2273,7 @@ function projectPrompt(prompt: Prompt): Prompt {
     taskId: prompt.taskId,
     reason: prompt.reason,
     optional: prompt.optional,
-    options: prompt.options.map(option => ({ ...option }))
+    options: options.map(option => ({ ...option }))
   };
 }
 

@@ -400,12 +400,18 @@ function normalizeCardCatalogRuntime(
   }
   const cardsById = new Map(cards.map(card => [card.id, card]));
 
+  // `domains`/`tags` are already present on the catalog cards; forwarding them
+  // only feeds the server-private identity lookup. The public catalog schema and
+  // the HTTP endpoints are unchanged.
   const constructed: ConstructedRules = createConstructedRules(cards.map(card => ({
     id: card.id,
     canonicalCardId: card.canonicalCardId,
     fullName: card.fullName,
     cardType: card.cardType,
-    setCode: card.setCode
+    setCode: card.setCode,
+    domains: card.domains,
+    tags: card.tags,
+    name: card.name
   })));
 
   const policyCards = cards.map(card => {

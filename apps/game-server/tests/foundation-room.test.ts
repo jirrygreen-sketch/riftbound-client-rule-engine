@@ -21,8 +21,8 @@ const catalogCards: readonly PublicCatalogCard[] = [
   catalogCard("fixture.extra-unit-2", "Extra Unit 2", "Unit", 2),
   catalogCard("fixture.extra-unit-3", "Extra Unit 3", "Unit", 3),
   catalogCard("fixture.gear", "Basic Gear", "Gear", 1, ""),
-  catalogCard("fixture.champion", "Fixture Champion", "Unit", 1, "", ["Champion"]),
-  catalogCard("fixture.legend", "Fixture Legend", "Legend", 5),
+  catalogCard("fixture.champion", "Fixture Champion", "Unit", 1, "", ["Champion", "Fixturechamp"], ["Fury"]),
+  catalogCard("fixture.legend", "Fixture Legend", "Legend", 5, "", ["Fixturechamp"], ["Fury"]),
   catalogCard("fixture.rune", "Fixture Rune", "Rune", 0),
   catalogCard("fixture.battlefield", "Fixture Battlefield", "Battlefield", 1)
 ];
@@ -38,8 +38,8 @@ const rawCatalog = {
     rawCard("fixture.extra-unit-2", "Extra Unit 2", "Unit", 2),
     rawCard("fixture.extra-unit-3", "Extra Unit 3", "Unit", 3),
     rawCard("fixture.gear", "Basic Gear", "Gear", 1),
-    rawCard("fixture.champion", "Fixture Champion", "Unit", 1, "", ["Champion"]),
-    rawCard("fixture.legend", "Fixture Legend", "Legend", 5),
+    rawCard("fixture.champion", "Fixture Champion", "Unit", 1, "", ["Champion", "Fixturechamp"], ["Fury"]),
+    rawCard("fixture.legend", "Fixture Legend", "Legend", 5, "", ["Fixturechamp"], ["Fury"]),
     rawCard("fixture.rune", "Fixture Rune", "Rune", 0),
     rawCard("fixture.battlefield", "Fixture Battlefield", "Battlefield", 1)
   ]
@@ -399,7 +399,8 @@ function catalogCard(
   cardType: string,
   energy: number,
   ability = "",
-  tags: readonly string[] = []
+  tags: readonly string[] = [],
+  domains: readonly string[] = []
 ): PublicCatalogCard {
   return {
     id,
@@ -407,7 +408,7 @@ function catalogCard(
     name,
     fullName: name,
     cardType,
-    domains: [],
+    domains,
     tags,
     setCode: "ogs",
     cardNumber: id.slice(-3),
@@ -431,7 +432,8 @@ function rawCard(
   cardType: string,
   energy: number,
   ability = "",
-  tags: readonly string[] = []
+  tags: readonly string[] = [],
+  domains: readonly string[] = []
 ) {
   return {
     id,
@@ -439,7 +441,7 @@ function rawCard(
     name,
     fullName: name,
     cardType,
-    domains: [],
+    domains,
     tags,
     setCode: "ogs",
     cardNumber: id.slice(-3),

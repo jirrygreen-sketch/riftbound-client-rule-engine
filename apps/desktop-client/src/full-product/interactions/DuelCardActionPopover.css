@@ -1,0 +1,133 @@
+/*
+ * Scoped styling for the card-adjacent action popover.
+ * Every selector is prefixed with `.full-product-card-popover` so this file can
+ * never leak into the rest of the desktop client. It matches the duel table
+ * palette (base #151517, accent #1aa79b).
+ *
+ * The box is a non-modal, card-adjacent float: `position: fixed` keeps it glued
+ * to the card while the table scrolls, and it sits on its own stacking layer
+ * above the board but below the full-screen card preview overlay (z-index 50).
+ * There is deliberately no backdrop and no scroll lock.
+ */
+.full-product-card-popover {
+  --fcp-bg-0: #12100e;
+  --fcp-bg-1: #1e2220;
+  --fcp-line: rgba(26, 167, 155, 0.38);
+  --fcp-line-soft: #343b3b;
+  --fcp-txt: #eef5f3;
+  --fcp-txt-2: #9fb3b0;
+  --fcp-accent: #1aa79b;
+  --fcp-accent-strong: #37c8bb;
+
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--fcp-line);
+  border-radius: 0.6rem;
+  background: linear-gradient(180deg, var(--fcp-bg-1), var(--fcp-bg-0));
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
+  color: var(--fcp-txt);
+  font-size: 0.82rem;
+}
+
+.full-product-card-popover:focus {
+  outline: none;
+}
+
+.full-product-card-popover:focus-visible {
+  outline: 2px solid var(--fcp-accent-strong);
+  outline-offset: 2px;
+}
+
+.full-product-card-popover-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex: 0 0 auto;
+  padding: 0.5rem 0.55rem 0.5rem 0.7rem;
+  border-bottom: 1px solid var(--fcp-line-soft);
+}
+
+.full-product-card-popover-title {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--fcp-txt);
+}
+
+.full-product-card-popover-close {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.55rem;
+  height: 1.55rem;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 0.35rem;
+  background: transparent;
+  color: var(--fcp-txt-2);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.full-product-card-popover-close:hover {
+  border-color: var(--fcp-line);
+  color: var(--fcp-txt);
+}
+
+.full-product-card-popover-close:focus-visible {
+  outline: 2px solid var(--fcp-accent-strong);
+  outline-offset: 1px;
+}
+
+/* The one scrollable region. A short window shrinks the body instead of pushing
+   the menu off-screen. */
+.full-product-card-popover-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0.55rem 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.full-product-card-popover-foot {
+  flex: 0 0 auto;
+  padding: 0.5rem 0.7rem;
+  border-top: 1px solid var(--fcp-line-soft);
+}
+
+.full-product-card-popover-inspect {
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--fcp-line);
+  border-radius: 0.4rem;
+  background: rgba(26, 167, 155, 0.12);
+  color: var(--fcp-accent-strong);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.full-product-card-popover-inspect:hover {
+  background: rgba(26, 167, 155, 0.2);
+}
+
+.full-product-card-popover-inspect:focus-visible {
+  outline: 2px solid var(--fcp-accent-strong);
+  outline-offset: 1px;
+}

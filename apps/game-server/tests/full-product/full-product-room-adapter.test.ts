@@ -23,8 +23,8 @@ const catalog = {
     card("fixture.unit-4", "Unit Four"),
     card("fixture.unit-5", "Unit Five"),
     card("fixture.unit-6", "Unit Six"),
-    { ...card("fixture.champion", "Champion"), tags: ["Champion"] },
-    card("fixture.legend", "Legend"),
+    { ...card("fixture.champion", "Champion"), tags: ["Champion", "Fixturechamp"], domains: ["Fury"] },
+    { ...card("fixture.legend", "Legend"), tags: ["Fixturechamp"], domains: ["Fury"] },
     card("fixture.rune", "Rune"),
     card("fixture.battlefield", "Battlefield")
   ]

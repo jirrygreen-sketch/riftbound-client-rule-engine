@@ -68,11 +68,14 @@ jobs:
           node-version: 22.21.1
           cache: pnpm
 
-      - name: Install Rust stable MSVC
+      # Pinned to the same version as apps/desktop-client/src-tauri/rust-toolchain.toml
+      # and Cargo.toml `rust-version = "1.90"`, so CI cannot drift onto a newer stable.
+      - name: Install Rust 1.90.0 MSVC
         shell: pwsh
         run: |
-          rustup toolchain install stable-x86_64-pc-windows-msvc --profile minimal
-          rustup default stable-x86_64-pc-windows-msvc
+          rustup toolchain install 1.90.0-x86_64-pc-windows-msvc --profile minimal
+          rustup default 1.90.0-x86_64-pc-windows-msvc
+          rustup show
           rustc --version
           cargo --version
 

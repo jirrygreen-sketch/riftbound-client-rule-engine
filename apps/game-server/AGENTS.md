@@ -22,8 +22,12 @@ integration, commits, and pushes belong to the coordinating parent task.
   `src/full-product`, with focused orchestration and runtime tests.
 - `src/room.ts` currently contains partial full-product imports and type/archive
   changes, but still rejects the full-product ruleset and has no completed
-  public lifecycle wiring. A previous server lifecycle 5/5 and typecheck pass is
-  historical evidence only; it does not establish current typecheck status.
+  public lifecycle wiring.
+- This round the server produced the authoritative `actionOptions` contract
+  (`riftbound.action-options.v1`, `PROTOCOL_VERSION` 0.2.1) for projections, and
+  the server suite passes 139 in the current worktree. The previous lifecycle
+  5/5 / 137/140 / typecheck-blocked numbers are **historical** and must not be
+  cited as current.
 
 ## Real Gaps
 
@@ -64,3 +68,6 @@ integration, commits, and pushes belong to the coordinating parent task.
   public API contracts, dependencies, cross-app integration, commits, and pushes.
 - Prefer focused server tests when implementation resumes, but do not claim a
   current typecheck or test pass without running it against the current worktree.
+- Delegation uses the current user-specified `claude-team` local CLI executors
+  (`gpt6sol` xhigh for critical work, DeepSeek flash for routine work). Do not
+  open new sidebar chats or spawn nested agents/CLIs.

@@ -1,4 +1,11 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { isConstructedRegionContext, type ConstructedRegionContext } from '@riftbound/protocol';
+import { catalogForConstructedRegion, validateRegionalCatalogDeck, verifyConstructedRegion } from './constructed-regional-context.js';
+import { createHash, randomBytes, randomInt, randomUUID } from "node:crypto";
+import { type DuelCommandSession } from "@riftbound/engine-core/duel";
+import {
+  exportDuelSessionArchive,
+  restoreDuelSessionArchive
+} from "./duel/session-archive.js";
 import {
   createInitialGame,
   createRoomSnapshot,
@@ -7,15 +14,27 @@ import {
   type GameState
 } from "@riftbound/engine-core";
 import {
+  DUEL_RULESET_ID,
   FOUNDATION_RULESET_ID,
+  OWNER_DECK_CONFIRMATION_SCHEMA,
+  OWNER_DECK_ZONES,
   RULESET_ID,
+  type DuelCommandMessage,
+  type DuelCommandMessageV3Actions1,
+  isDuelCommandMessage,
+  isDuelCommandMessageV3Actions1,
+  isServerMessage,
   type ClientSession,
   type Command,
   type ErrorCode,
   type GameProjection,
+  type OwnerDeckConfirmationMessage,
+  type OwnerDeckEcho,
   type PlayerCommand,
   type PlayerId,
   type RoomDeckSubmission,
+  type RoomChatMessage,
+  type RoomChatServerMessage,
   type RoomEvent,
   type RoomPlayer,
   type RoomSnapshot,
@@ -23,11 +42,34 @@ import {
   type ServerTransport
 } from "@riftbound/protocol";
 import {
+  RoomChatError,
+  RoomChatLedger,
+  validateRoomChatMessages
+} from "./room-chat.js";
+import {
   normalizeDeckRequest,
   validateCatalogDeck,
   type CardCatalogRuntime
 } from "./card-catalog.js";
 import { createFoundationGame } from "./foundation-game.js";
+import {
+  createDuelRuntimeSession,
+  executeDuelRuntimeCommand,
+  projectDuelRuntime
+} from "./duel/runtime.js";
+import {
+  createDuelRecordedRuntimeP4, createDuelReplayGateP4, digestDuelCommandArchiveP4,
+  DUEL_RUNTIME_PROFILE_P4_LEGACY, DUEL_RUNTIME_PROFILE_P4_SPELL,
+  DUEL_RUNTIME_PROFILE_P4_PUBLIC_CHAIN, DUEL_RUNTIME_PROFILE_P4_REGIONAL,
+  DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT, DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_CLOCK,
+  DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_PHYSICAL_CHAIN,
+  DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_RESOLVED_HISTORY,
+  replayDuelCommandArchiveP4, type DuelRecordedRuntimeP4, type DuelCommandArchiveP4,
+} from "./duel/command-journal-p4.js";
+import type { DuelAuthoritativeRuntimeP4Options } from "./duel/authoritative-runtime-p4.js";
+
+export type DuelRoomProfile = "v1" | "p4";
+export type DuelOptionalRoomRuntimeProfile = typeof DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT | typeof DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_CLOCK | typeof DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_PHYSICAL_CHAIN | typeof DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_RESOLVED_HISTORY;
 
 export interface RoomConnection {
   readonly playerId: PlayerId;
@@ -73,6 +115,16 @@ export interface RoomArchive {
   readonly roomEventLog: readonly RoomEvent[];
   readonly processedCommands: readonly ProcessedCommand[];
   readonly processedRoomRequests?: readonly ProcessedRoomRequest[];
+  /** Optional private chat history. Omitted for rooms with no chat messages. */
+  readonly roomChat?: { readonly messages: readonly RoomChatMessage[] };
+  /** Private, independently validated archive; never appears on any client transport. */
+  readonly duelSession?: ReturnType<typeof exportDuelSessionArchive> | null;
+  /** P4 rooms store the private command history, never a serialized capability. */
+  readonly duelProfile?: "p4";
+  readonly duelJournal?: DuelCommandArchiveP4 | null;
+  /** Trusted server selection, retained before a match and through restart. */
+  readonly duelRuntimeProfile?: DuelOptionalRoomRuntimeProfile;
+  readonly constructedRegion?: ConstructedRegionContext;
 }
 
 type DistributiveOmit<T, Keys extends keyof T> = T extends unknown
@@ -91,20 +143,38 @@ export class GameRoom {
 
   private readonly seats = new Map<PlayerId, Seat>();
   private state: GameState | null = null;
+  private duelSession: DuelCommandSession | null = null;
+  private duelP4: DuelRecordedRuntimeP4 | null = null;
   private roomVersion = 1;
   private roomEventSeq = 0;
   private readonly roomEventLog: RoomEvent[] = [];
+  private readonly roomChat = new RoomChatLedger();
 
   constructor(
     readonly roomId: string,
     readonly rulesetId: string = RULESET_ID,
-    private readonly catalog?: CardCatalogRuntime
+    private readonly catalog?: CardCatalogRuntime,
+    private readonly duelRandomIndex: (exclusiveUpperBound: number) => number = randomInt,
+    private readonly duelProfile: DuelRoomProfile = "v1",
+    readonly constructedRegion?: ConstructedRegionContext,
+    private readonly duelRuntimeProfile?: DuelOptionalRoomRuntimeProfile
   ) {
-    if (rulesetId !== RULESET_ID && rulesetId !== FOUNDATION_RULESET_ID) {
+    if (rulesetId !== RULESET_ID && rulesetId !== FOUNDATION_RULESET_ID &&
+        rulesetId !== DUEL_RULESET_ID) {
       throw new RoomError(
         `Unsupported ruleset ${rulesetId}`,
         "command-rejected"
       );
+    }
+    if (duelProfile !== "v1" && duelProfile !== "p4") throw new TypeError("Invalid duel room profile");
+    if (rulesetId !== DUEL_RULESET_ID && duelProfile !== "v1") throw new TypeError("P4 requires a Duel room");
+    if (duelRuntimeProfile !== undefined && ((duelRuntimeProfile !== DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT && duelRuntimeProfile !== DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_CLOCK && duelRuntimeProfile !== DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_PHYSICAL_CHAIN && duelRuntimeProfile !== DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_RESOLVED_HISTORY) ||
+        rulesetId !== DUEL_RULESET_ID || duelProfile !== "p4"))
+      throw new TypeError("Invalid optional Unit room execution profile");
+    if (constructedRegion) {
+      if (rulesetId !== DUEL_RULESET_ID || duelProfile !== "p4" || !catalog)
+        throw new TypeError("地区设置需要完整 Duel 房间");
+      this.constructedRegion = verifyConstructedRegion(constructedRegion);
     }
     this.appendRoomEvent({ type: "room-created", playerId: "player-1" });
   }
@@ -113,18 +183,47 @@ export class GameRoom {
     return this.seats.size >= 2;
   }
 
+  private get hasGame(): boolean { return Boolean(this.state || this.duelSession || this.duelP4); }
+  private get duelMatch() { return this.duelP4?.runtime.project(null).match ?? this.duelSession?.match ?? null; }
+
+  private validateDeckForRoom(deck: RoomDeckSubmission) {
+    if (!this.catalog) throw new TypeError("card catalog required");
+    return this.constructedRegion ? validateRegionalCatalogDeck(this.catalog,deck,this.constructedRegion) : validateCatalogDeck(this.catalog,deck);
+  }
+
+  private p4Options(seats: readonly Seat[] = [...this.seats.values()]): DuelAuthoritativeRuntimeP4Options {
+    if (!this.catalog || seats.length !== 2 || seats.some(seat => !seat.ready || !seat.deck))
+      throw new RoomError("P4 对局缺少已确认的双方牌组", "invalid-deck");
+    const rosterSeat = (seat: Seat) => ({ playerId: seat.id, displayName: seat.name, deck: seat.deck! });
+    const catalog = this.constructedRegion ? catalogForConstructedRegion(this.catalog,this.constructedRegion) : this.catalog;
+    return { catalog, matchId: `duel:${this.roomId}`, randomIndex: this.duelRandomIndex,
+      ...(this.constructedRegion ? {constructedRegion:this.constructedRegion,runtimeProfile:DUEL_RUNTIME_PROFILE_P4_REGIONAL} : {}),
+      ...(this.duelRuntimeProfile ? { runtimeProfile: this.duelRuntimeProfile } : {}),
+      roster: [rosterSeat(seats[0]!), rosterSeat(seats[1]!)] };
+  }
+
   exportArchive(): RoomArchive {
     return structuredClone({
       schemaVersion: 1,
       roomId: this.roomId,
       rulesetId: this.rulesetId,
+      ...(this.constructedRegion ? {constructedRegion:this.constructedRegion} : {}),
+      ...(this.duelRuntimeProfile ? { duelRuntimeProfile: this.duelRuntimeProfile } : {}),
       seats: [...this.seats.values()],
       state: this.state,
+      ...(this.rulesetId === DUEL_RULESET_ID
+        ? this.duelProfile === "p4"
+          ? { duelProfile: "p4" as const, duelJournal: this.duelP4?.archive() ?? null }
+          : { duelSession: this.duelSession ? exportDuelSessionArchive(this.duelSession) : null }
+        : {}),
       roomVersion: this.roomVersion,
       roomEventSeq: this.roomEventSeq,
       roomEventLog: this.roomEventLog,
       processedCommands: [...this.processedCommands.values()],
-      processedRoomRequests: [...this.processedRoomRequests.values()]
+      processedRoomRequests: [...this.processedRoomRequests.values()],
+      ...(this.roomChat.currentSeq > 0
+        ? { roomChat: { messages: this.roomChat.messages } }
+        : {})
     });
   }
 
@@ -133,6 +232,26 @@ export class GameRoom {
       throw new Error("Invalid server room archive");
     }
     const roomArchive = archive as unknown as RoomArchive;
+    validateRoomChatArchive(roomArchive);
+    if (roomArchive.constructedRegion !== undefined && (!isConstructedRegionContext(roomArchive.constructedRegion) ||
+        roomArchive.rulesetId !== DUEL_RULESET_ID || roomArchive.duelProfile !== "p4"))
+      throw new TypeError("Invalid regional room archive");
+    if (roomArchive.constructedRegion) verifyConstructedRegion(roomArchive.constructedRegion);
+    if (roomArchive.duelRuntimeProfile !== undefined &&
+        ((roomArchive.duelRuntimeProfile !== DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT && roomArchive.duelRuntimeProfile !== DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_CLOCK && roomArchive.duelRuntimeProfile !== DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_PHYSICAL_CHAIN && roomArchive.duelRuntimeProfile !== DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_RESOLVED_HISTORY) ||
+          roomArchive.rulesetId !== DUEL_RULESET_ID || roomArchive.duelProfile !== "p4"))
+      throw new TypeError("Invalid optional Unit room archive profile");
+    if (roomArchive.duelJournal && (roomArchive.duelJournal.schemaVersion === 9
+        ? roomArchive.duelRuntimeProfile !== DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_RESOLVED_HISTORY
+        : roomArchive.duelJournal.schemaVersion === 8
+        ? roomArchive.duelRuntimeProfile !== DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_PHYSICAL_CHAIN
+        : roomArchive.duelJournal.schemaVersion === 7
+        ? roomArchive.duelRuntimeProfile !== DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_CLOCK
+        : roomArchive.duelJournal.schemaVersion === 6
+        ? roomArchive.duelRuntimeProfile !== DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT
+        : roomArchive.duelRuntimeProfile !== undefined ||
+          (roomArchive.duelJournal.schemaVersion === 5) !== (roomArchive.constructedRegion !== undefined)))
+      throw new TypeError("Regional archive execution profile mismatch");
     const expectedSeatIds: readonly PlayerId[] = roomArchive.seats?.length === 2
       ? ["player-1", "player-2"]
       : roomArchive.seats?.length === 1
@@ -147,7 +266,9 @@ export class GameRoom {
           typeof seat?.id !== "string" ||
           !expectedSeatIds.includes(seat.id) ||
           typeof seat?.resumeToken !== "string" || !seat.resumeToken ||
-          typeof seat?.name !== "string" || !seat.name) ||
+          typeof seat?.name !== "string" || !seat.name ||
+          typeof seat?.ready !== "boolean" ||
+          (seat.deck !== null && !normalizeDeckRequest({ deck: seat.deck }))) ||
         !Number.isSafeInteger(roomArchive.roomVersion) ||
         roomArchive.roomVersion < 1 ||
         !Number.isSafeInteger(roomArchive.roomEventSeq) ||
@@ -194,6 +315,34 @@ export class GameRoom {
     )).size !== processedRoomRequests.length) {
       throw new Error("Room archive contains an invalid processed room request");
     }
+    if (roomArchive.rulesetId === DUEL_RULESET_ID) {
+      const p4 = roomArchive.duelProfile === "p4";
+      const duel = p4 ? roomArchive.duelJournal : roomArchive.duelSession;
+      if (roomArchive.seats.length < 1 ||
+          roomArchive.state !== null || !catalog ||
+          roomArchive.roomEventLog[0]?.type !== "room-created" ||
+          roomArchive.roomEventLog.filter(event => event.type === "player-joined").length !==
+            roomArchive.seats.length ||
+          roomArchive.roomEventLog.some(event => event.type === "player-ready" &&
+            !expectedSeatIds.includes(event.playerId)) ||
+          (roomArchive.duelProfile !== undefined && !p4) || duel === undefined ||
+          (p4 ? roomArchive.duelSession !== undefined : roomArchive.duelJournal !== undefined) ||
+          roomArchive.processedCommands.length !== 0 ||
+          roomArchive.roomEventLog.filter(event => event.type === "game-started").length !==
+            (duel === null ? 0 : 1) ||
+          (duel === null && roomArchive.seats.length === 2 &&
+            roomArchive.seats.every(seat => seat.ready && seat.deck !== null)) ||
+          (duel !== null && (roomArchive.seats.length !== 2 ||
+            roomArchive.seats.some(seat => !seat.ready || !seat.deck))) ||
+          roomArchive.seats.some(seat => seat.ready && seat.deck === null) ||
+          roomArchive.seats.some(seat => seat.deck !== null && (
+            !normalizeDeckRequest({ deck: seat.deck }) ||
+            !(roomArchive.constructedRegion ? validateRegionalCatalogDeck(catalog,seat.deck,roomArchive.constructedRegion) : validateCatalogDeck(catalog,seat.deck)).valid))) {
+        throw new Error("Invalid duel room archive and trusted seats");
+      }
+    } else if (roomArchive.duelSession !== undefined || roomArchive.duelJournal !== undefined || roomArchive.duelProfile !== undefined) {
+      throw new Error("Non-duel archive contains duel session");
+    }
     if (roomArchive.state !== null) {
       if (typeof roomArchive.state !== "object" ||
           Array.isArray(roomArchive.state)) {
@@ -209,20 +358,77 @@ export class GameRoom {
         throw new Error("Room archive state does not match its seats or rules");
       }
     }
-    const room = new GameRoom(roomArchive.roomId, roomArchive.rulesetId, catalog);
+    const room = new GameRoom(roomArchive.roomId, roomArchive.rulesetId, catalog, undefined,
+      roomArchive.duelProfile === "p4" ? "p4" : "v1",roomArchive.constructedRegion,roomArchive.duelRuntimeProfile);
     room.restoreArchive(roomArchive);
     return room;
   }
 
   /** Roll back a failed durable transaction while retaining socket bindings. */
   restoreArchive(archive: RoomArchive): void {
-    if (archive.roomId !== this.roomId || archive.rulesetId !== this.rulesetId) {
+    if (archive.roomId !== this.roomId || archive.rulesetId !== this.rulesetId ||
+        archive.duelRuntimeProfile !== this.duelRuntimeProfile ||
+        JSON.stringify(archive.constructedRegion) !== JSON.stringify(this.constructedRegion)) {
       throw new Error("Cannot restore a different room");
     }
+    validateRoomChatArchive(archive);
     const copy = structuredClone(archive);
+    validateRoomChatArchive(copy);
+    if (copy.roomChat) {
+      const seatsById = new Map(copy.seats.map(seat => [seat.id, seat.name]));
+      for (const message of copy.roomChat.messages) {
+        if (!seatsById.has(message.playerId) || seatsById.get(message.playerId) !== message.playerName) {
+          throw new Error("Room chat archive contains an unknown seat or forged player name");
+        }
+      }
+    }
+    const p4 = this.duelProfile === "p4", duel = p4 ? copy.duelJournal : copy.duelSession;
+    if (this.rulesetId === DUEL_RULESET_ID &&
+        (!this.catalog || copy.state !== null ||
+          (p4 ? copy.duelProfile !== "p4" || copy.duelSession !== undefined
+            : copy.duelProfile !== undefined || copy.duelJournal !== undefined) || duel === undefined ||
+          copy.processedCommands.length !== 0 ||
+          copy.seats.some(seat => seat.deck !== null && (
+            !normalizeDeckRequest({ deck: seat.deck }) ||
+            !this.validateDeckForRoom(seat.deck).valid)) ||
+          (duel && (copy.seats.length !== 2 ||
+            copy.seats.some(seat => !seat.ready || !seat.deck))))) {
+      throw new Error("Invalid private duel archive");
+    }
+    if (this.rulesetId !== DUEL_RULESET_ID && (copy.duelSession !== undefined ||
+        copy.duelJournal !== undefined || copy.duelProfile !== undefined)) {
+      throw new Error("Unexpected duel session in legacy archive");
+    }
+    // Validate private session before mutating the live room or its socket bindings.
+    const restoredDuel = copy.duelSession
+      ? restoreDuelSessionArchive(copy.duelSession, {
+          expectedMatchId: `duel:${this.roomId}`,
+          expectedRoster2: copy.seats.map(seat => ({
+            playerId: seat.id, displayName: seat.name
+          })) as [{ playerId: string; displayName: string }, { playerId: string; displayName: string }],
+          expectedCatalog: {
+            dataVersion: this.catalog!.publicCatalog.dataVersion,
+            catalogDigest: this.catalog!.publicCatalog.digest
+          }
+        })
+      : null;
+    const restoredP4 = copy.duelJournal
+      ? replayDuelCommandArchiveP4(copy.duelJournal, createDuelReplayGateP4(
+          this.p4Options(copy.seats), digestDuelCommandArchiveP4(copy.duelJournal),
+          // Private storage selects the historical execution contract.
+          copy.duelJournal.schemaVersion === 9 && this.duelRuntimeProfile === DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_RESOLVED_HISTORY
+            ? DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_RESOLVED_HISTORY : copy.duelJournal.schemaVersion === 8 && this.duelRuntimeProfile === DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_PHYSICAL_CHAIN
+            ? DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_PHYSICAL_CHAIN : copy.duelJournal.schemaVersion === 7 && this.duelRuntimeProfile === DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_CLOCK
+            ? DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_CLOCK : copy.duelJournal.schemaVersion === 6 && this.duelRuntimeProfile === DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT
+            ? DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT : copy.duelJournal.schemaVersion === 1 || copy.duelJournal.schemaVersion === 2
+            ? DUEL_RUNTIME_PROFILE_P4_LEGACY : copy.duelJournal.schemaVersion === 5 ? DUEL_RUNTIME_PROFILE_P4_REGIONAL : copy.duelJournal.schemaVersion === 4
+              ? DUEL_RUNTIME_PROFILE_P4_PUBLIC_CHAIN : DUEL_RUNTIME_PROFILE_P4_SPELL))
+      : null;
     this.seats.clear();
     for (const seat of copy.seats) this.seats.set(seat.id, seat);
     this.state = copy.state;
+    this.duelSession = restoredDuel;
+    this.duelP4 = restoredP4;
     this.roomVersion = copy.roomVersion;
     this.roomEventSeq = copy.roomEventSeq;
     this.roomEventLog.splice(0, this.roomEventLog.length, ...copy.roomEventLog);
@@ -235,6 +441,7 @@ export class GameRoom {
     for (const request of processedRoomRequests) {
       this.processedRoomRequests.set(requestKey(request.playerId, request.requestId), request);
     }
+    this.roomChat.restore(copy.roomChat?.messages ?? []);
   }
 
   get playerCount(): number {
@@ -253,13 +460,23 @@ export class GameRoom {
     return this.roomEventSeq;
   }
 
+  get currentChatSeq(): number {
+    return this.roomChat.currentSeq;
+  }
+
+  chatMessages(): readonly RoomChatMessage[] {
+    return this.roomChat.messages.map(message => ({ ...message }));
+  }
+
   roomEvents(): readonly RoomEvent[] {
     return [...this.roomEventLog];
   }
 
   get status(): RoomView["status"] {
-    if (this.state?.phase === "ended") return "ended";
-    if (this.state) return "playing";
+    const duel = this.duelMatch;
+    if (this.state?.phase === "ended" ||
+        (duel?.stage === "playing" && duel.frame.phase === "ended")) return "ended";
+    if (this.hasGame) return "playing";
     return "waiting";
   }
 
@@ -297,11 +514,30 @@ export class GameRoom {
     if (this.seats.size !== 2) {
       throw new RoomError("Room needs two players", "command-rejected");
     }
-    if (this.state) {
+    if (this.hasGame) {
       throw new RoomError("Game already started", "command-rejected");
     }
 
-    if (this.rulesetId === FOUNDATION_RULESET_ID) {
+    if (this.rulesetId === DUEL_RULESET_ID) {
+      if (!this.catalog) {
+        throw new RoomError("The card catalog is unavailable", "command-rejected");
+      }
+      const trustedSeats = [...this.seats.values()];
+      if (trustedSeats.some(seat => !seat.ready || !seat.deck || !this.players.has(seat.id))) {
+        throw new RoomError("Every player must submit a deck and be ready", "invalid-deck");
+      }
+      const roster = trustedSeats.map(seat => ({
+        playerId: seat.id, displayName: seat.name, deck: seat.deck!
+      })) as [
+        { playerId: string; displayName: string; deck: RoomDeckSubmission },
+        { playerId: string; displayName: string; deck: RoomDeckSubmission }
+      ];
+      // The canonical constructor validates both trusted decks and allocates real physical UIDs.
+      if (this.duelProfile === "p4") this.duelP4 = createDuelRecordedRuntimeP4(this.p4Options());
+      else this.duelSession = createDuelRuntimeSession(
+        this.catalog, roster, `duel:${this.roomId}`, { randomIndex: this.duelRandomIndex }
+      );
+    } else if (this.rulesetId === FOUNDATION_RULESET_ID) {
       if (this.seats.size !== 2) {
         throw new RoomError("Room needs two players", "command-rejected");
       }
@@ -388,6 +624,19 @@ export class GameRoom {
   }
 
   sendProjection(playerId: PlayerId, transport: ServerTransport): void {
+    // Resume of a waiting room has no match/projection; still send a private echo.
+    // Do not prepend it to an active projection's existing message sequence.
+    if (!this.hasGame) this.sendOwnerDeckConfirmation(playerId);
+    if (this.duelP4) {
+      transport({ type: "duel-projection", roomId: this.roomId,
+        projection: this.duelP4.runtime.project(playerId) });
+      return;
+    }
+    if (this.duelSession) {
+      transport({ type: "duel-projection", roomId: this.roomId,
+        projection: projectDuelRuntime(this.duelSession, playerId) });
+      return;
+    }
     const projection = this.projectionFor(playerId);
     if (projection) {
       transport({ type: "projection", roomId: this.roomId, projection });
@@ -395,14 +644,9 @@ export class GameRoom {
   }
 
   broadcastProjections(): void {
-    if (!this.state) return;
-
+    if (!this.hasGame) return;
     for (const [playerId, connection] of this.players) {
-      connection.send({
-        type: "projection",
-        roomId: this.roomId,
-        projection: projectGame(this.state, playerId)
-      });
+      this.sendProjection(playerId, connection.send);
     }
   }
 
@@ -411,9 +655,10 @@ export class GameRoom {
       roomId: this.roomId,
       status: this.status,
       rulesetId: this.rulesetId,
-      version: this.state?.version ?? 0,
+      version: this.duelMatch?.stateVersion ?? this.state?.version ?? 0,
       roomVersion: this.roomVersion,
       roomEventSeq: this.roomEventSeq,
+      ...(this.constructedRegion ? {constructedRegion:this.constructedRegion} : {}),
       players: this.roomPlayers()
     };
   }
@@ -421,8 +666,60 @@ export class GameRoom {
   broadcastRoom(): void {
     const room = this.roomView();
     for (const connection of this.players.values()) {
+      // Preserve the last-room-packet contract for active match consumers;
+      // the lobby needs its public room clock before the owner echo.
+      if (room.status !== "waiting") this.sendOwnerDeckConfirmation(connection.playerId);
       connection.send({ type: "room", room });
+      if (room.status === "waiting") this.sendOwnerDeckConfirmation(connection.playerId);
     }
+  }
+
+  private sendOwnerDeckConfirmation(playerId: PlayerId): void {
+    if ((this.rulesetId !== FOUNDATION_RULESET_ID && this.rulesetId !== DUEL_RULESET_ID) ||
+        !this.catalog) return;
+    const connection = this.players.get(playerId);
+    const seat = this.seats.get(playerId);
+    if (!connection || !seat || connection.resumeToken !== seat.resumeToken) return;
+
+    // Validation accepts multiple entries for the same printing. Preserve all
+    // copies while converting the private inventory into unique per-zone counts;
+    // neither source order nor locale-specific sorting participates in identity.
+    const deck = seat.deck && this.validateDeckForRoom(seat.deck).valid
+      ? this.ownerDeckEcho(seat.deck)
+      : null;
+    const message: OwnerDeckConfirmationMessage = {
+      type: "owner-deck-confirmation",
+      schema: OWNER_DECK_CONFIRMATION_SCHEMA,
+      roomId: this.roomId,
+      playerId: seat.id,
+      rulesetId: this.rulesetId as typeof FOUNDATION_RULESET_ID | typeof DUEL_RULESET_ID,
+      roomVersion: this.roomVersion,
+      roomEventSeq: this.roomEventSeq,
+      catalog: {
+        dataVersion: this.catalog.publicCatalog.dataVersion,
+        digest: this.catalog.publicCatalog.digest
+      },
+      deck
+    };
+    connection.send(message);
+  }
+
+  private ownerDeckEcho(deck: RoomDeckSubmission): OwnerDeckEcho {
+    const result: Partial<Record<(typeof OWNER_DECK_ZONES)[number], {
+      cardId: string; quantity: number
+    }[]>> = {};
+    for (const zone of OWNER_DECK_ZONES) {
+      const entries = deck[zone];
+      if (!entries) continue;
+      const totals = new Map<string, number>();
+      for (const { cardId, quantity } of entries) {
+        const sum = (totals.get(cardId) ?? 0) + quantity;
+        if (!Number.isSafeInteger(sum)) throw new Error("Invalid validated deck count");
+        totals.set(cardId, sum);
+      }
+      result[zone] = [...totals].map(([cardId, quantity]) => ({ cardId, quantity }));
+    }
+    return result;
   }
 
   sendEvents(
@@ -431,6 +728,13 @@ export class GameRoom {
     afterEventSeq: number
   ): void {
     const playerId = this.requireCurrentSession(session, connectionId);
+    if (this.duelMatch) {
+      this.validateGameEventCursor(session, connectionId, afterEventSeq);
+      // The Duel event log is not public: a current projection resynchronizes
+      // state but does not pretend to replay the missing historical events.
+      this.sendProjection(playerId, this.players.get(playerId)!.send);
+      return;
+    }
     if (!this.state) {
       throw new RoomError(
         "Game events are not available before the game starts",
@@ -485,6 +789,12 @@ export class GameRoom {
     afterEventSeq: number
   ): void {
     this.requireCurrentSession(session, connectionId);
+    if (this.duelMatch) {
+      if (afterEventSeq > this.duelMatch.eventSeq) {
+        throw new RoomError("Event cursor is ahead of the authoritative clock", "command-rejected");
+      }
+      return;
+    }
     if (!this.state) {
       throw new RoomError(
         "Game events are not available before the game starts",
@@ -525,13 +835,13 @@ export class GameRoom {
           "command-rejected"
         );
       }
-      if (!this.state) {
+      if (!this.hasGame) {
         throw new RoomError(
           "Game events are not available before the game starts",
           "command-rejected"
         );
       }
-      if (afterEventSeq > this.state.eventSeq) {
+      if (afterEventSeq > (this.duelMatch?.eventSeq ?? this.state!.eventSeq)) {
         throw new RoomError(
           "Event cursor is ahead of the authoritative log",
           "command-rejected"
@@ -584,10 +894,10 @@ export class GameRoom {
       });
       return;
     }
-    if (this.state) {
+    if (this.hasGame) {
       throw new RoomError("The game has already started", "command-rejected");
     }
-    if (this.rulesetId === FOUNDATION_RULESET_ID && !this.catalog) {
+    if ((this.rulesetId === FOUNDATION_RULESET_ID || this.rulesetId === DUEL_RULESET_ID) && !this.catalog) {
       throw new RoomError(
         "The card catalog is unavailable",
         "command-rejected"
@@ -600,7 +910,7 @@ export class GameRoom {
     }
 
     if (this.catalog) {
-      const validation = validateCatalogDeck(this.catalog, normalized);
+      const validation = this.validateDeckForRoom(normalized);
       if (!validation.valid) {
         throw new RoomError(
           validation.issues[0]?.message ?? "The deck is invalid",
@@ -632,7 +942,7 @@ export class GameRoom {
       duplicate: false
     });
     this.broadcastRoom();
-    if (this.state) this.broadcastProjections();
+    if (this.hasGame) this.broadcastProjections();
   }
 
   setReady(
@@ -664,7 +974,7 @@ export class GameRoom {
       });
       return;
     }
-    if (this.state) {
+    if (this.hasGame) {
       throw new RoomError("The game has already started", "command-rejected");
     }
 
@@ -694,7 +1004,7 @@ export class GameRoom {
       duplicate: false
     });
     this.broadcastRoom();
-    if (this.state) this.broadcastProjections();
+    if (this.hasGame) this.broadcastProjections();
   }
 
   snapshot(viewerPlayerId: PlayerId | null = null): RoomSnapshot | null {
@@ -703,6 +1013,7 @@ export class GameRoom {
     const snapshot = createRoomSnapshot(this.state, this.roomId, viewerPlayerId);
     return {
       ...snapshot,
+      ...(this.constructedRegion ? {constructedRegion:this.constructedRegion} : {}),
       players: this.roomPlayers(),
       roomVersion: this.roomVersion,
       roomEventSeq: this.roomEventSeq,
@@ -720,6 +1031,9 @@ export class GameRoom {
     transport: ServerTransport
   ): void {
     const playerId = this.requireCurrentSession(session, connectionId);
+    if (this.rulesetId === DUEL_RULESET_ID) {
+      throw new RoomError("Legacy commands are not available in a duel", "command-rejected");
+    }
     if (!this.state) {
       throw new RoomError("Game has not started", "command-rejected");
     }
@@ -788,8 +1102,151 @@ export class GameRoom {
     if (this.state.phase === "ended") this.broadcastRoom();
   }
 
+  /** Append an authenticated chat message and broadcast only to current members. */
+  sendChat(
+    session: ClientSession,
+    connectionId: string,
+    messageId: string,
+    text: string,
+    requestId: string,
+    transport: ServerTransport
+  ): void {
+    const playerId = this.requireCurrentSession(session, connectionId);
+    const seat = this.requireSeat(playerId);
+    let mutation: ReturnType<RoomChatLedger["append"]>;
+    try {
+      mutation = this.roomChat.append(playerId, seat.name, messageId, text);
+    } catch (error) {
+      if (error instanceof RoomChatError) {
+        const code = error.reason === "capacity-exceeded"
+          ? "capacity-exceeded"
+          : error.reason === "idempotency-conflict"
+            ? "idempotency-conflict"
+            : "command-rejected";
+        throw new RoomError(error.message, code);
+      }
+      throw error;
+    }
+
+    transport({
+      type: "room-chat-accepted",
+      roomId: this.roomId,
+      requestId,
+      messageId,
+      seq: mutation.message.seq,
+      duplicate: mutation.duplicate
+    });
+    if (mutation.duplicate) return;
+
+    const packet: RoomChatServerMessage = {
+      type: "room-chat",
+      roomId: this.roomId,
+      afterChatSeq: mutation.message.seq - 1,
+      nextChatSeq: mutation.message.seq,
+      messages: [mutation.message]
+    };
+    this.broadcastChat(packet);
+  }
+
+  syncChat(
+    session: ClientSession,
+    connectionId: string,
+    afterChatSeq: number,
+    requestId: string,
+    transport: ServerTransport
+  ): void {
+    const playerId = this.requireCurrentSession(session, connectionId);
+    try {
+      const messages = this.roomChat.after(afterChatSeq);
+      transport({ type: "request-result", requestId, ok: true });
+      transport({
+        type: "room-chat",
+        roomId: this.roomId,
+        afterChatSeq,
+        nextChatSeq: this.roomChat.currentSeq,
+        messages
+      });
+    } catch (error) {
+      if (error instanceof RoomChatError) {
+        throw new RoomError(
+          "Chat cursor is ahead of the authoritative history",
+          "command-rejected"
+        );
+      }
+      throw error;
+    }
+    // Keep the local variable explicit: authentication above is the only
+    // authority used for this read, never a player id supplied by the wire.
+    void playerId;
+  }
+
+  private broadcastChat(packet: RoomChatServerMessage): void {
+    for (const [playerId, connection] of this.players) {
+      const seat = this.seats.get(playerId);
+      if (!seat || seat.resumeToken !== connection.resumeToken ||
+          !this.isCurrentConnection(playerId, connection.connectionId)) continue;
+      connection.send(packet);
+    }
+  }
+
+  /** Execute only a strictly parsed public command for the authenticated current socket. */
+  submitDuel(
+    session: ClientSession,
+    connectionId: string,
+    message: DuelCommandMessage | DuelCommandMessageV3Actions1,
+    transport: ServerTransport
+  ): void {
+    const playerId = this.requireCurrentSession(session, connectionId);
+    if (this.rulesetId !== DUEL_RULESET_ID) {
+      throw new RoomError("Duel commands require a duel room", "command-rejected");
+    }
+    if (this.duelProfile === "p4") {
+      if (!this.duelP4) throw new RoomError("Game has not started", "command-rejected");
+      if (!isDuelCommandMessageV3Actions1(message))
+        throw new RoomError("该房间需要 P4 对局动作协议", "command-rejected");
+      const result = this.duelP4.runtime.dispatch(playerId, message);
+      const ack = result.ack;
+      if (ack.requestId !== message.requestId || (ack.commandId !== undefined && ack.commandId !== message.commandId))
+        throw new Error("P4 receipt does not match its request");
+      // Build the exact existing public receipt. Private status/message fields
+      // are not extensions to the strict request-result wire arm.
+      const outbound: unknown = ack.type === "request-result" && ack.ok === true
+        ? { type: "request-result", requestId: ack.requestId, commandId: ack.commandId, ok: true,
+            appliedVersion: ack.appliedVersion, eventSeq: ack.eventSeq, duplicate: ack.duplicate === true,
+            roomVersion: this.roomVersion, roomEventSeq: this.roomEventSeq }
+        : { type: "error", requestId: ack.requestId, code: "command-rejected", message: ack.message };
+      if (!isServerMessage(outbound)) throw new Error("P4 runtime returned an invalid public receipt");
+      transport(outbound);
+      this.broadcastProjections();
+      if (this.status === "ended") this.broadcastRoom();
+      return;
+    }
+    if (!this.duelSession) {
+      throw new RoomError("Game has not started", "command-rejected");
+    }
+    if (!isDuelCommandMessage(message)) {
+      throw new RoomError("Invalid duel command", "protocol-error");
+    }
+    const result = executeDuelRuntimeCommand(
+      this.duelSession, playerId, message, { randomIndex: this.duelRandomIndex }
+    );
+    this.duelSession = result.session;
+    // Never forward internalResult, a private payment source, or continuation.
+    // runRoomTransaction buffers these messages until the entire session is saved.
+    if (!isServerMessage(result.outbound)) {
+      throw new Error("Duel runtime returned an invalid public receipt");
+    }
+    transport(result.outbound);
+    if (result.persistRequired) {
+      this.broadcastProjections();
+      if (this.status === "ended") this.broadcastRoom();
+    } else {
+      this.sendProjection(playerId, transport);
+    }
+  }
+
   private canStart(): boolean {
-    return this.rulesetId === FOUNDATION_RULESET_ID &&
+    return (this.rulesetId === FOUNDATION_RULESET_ID || this.rulesetId === DUEL_RULESET_ID) &&
       this.seats.size === 2 &&
       [...this.seats.values()].every(seat =>
         seat.ready &&
@@ -972,6 +1429,34 @@ function timingSafeEqual(actual: string, expected: string): boolean {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function validateRoomChatArchive(archive: RoomArchive): void {
+  if (!isRecord(archive)) return;
+  const archiveRoomChatDescriptor = Object.getOwnPropertyDescriptor(archive, "roomChat");
+  if (!archiveRoomChatDescriptor) return;
+  if (archiveRoomChatDescriptor.get !== undefined || archiveRoomChatDescriptor.set !== undefined) {
+    throw new Error("Invalid room chat archive shape");
+  }
+  const roomChat = archive.roomChat;
+  let roomChatPrototype: object | null;
+  try {
+    roomChatPrototype = isRecord(roomChat) ? Object.getPrototypeOf(roomChat) : null;
+  } catch {
+    throw new Error("Invalid room chat archive shape");
+  }
+  if (!isRecord(roomChat) || (roomChatPrototype !== Object.prototype && roomChatPrototype !== null) ||
+      Reflect.ownKeys(roomChat).length !== 1 || Reflect.ownKeys(roomChat)[0] !== "messages" ||
+      Object.getOwnPropertyDescriptor(roomChat, "messages")?.get !== undefined ||
+      Object.getOwnPropertyDescriptor(roomChat, "messages")?.set !== undefined ||
+      !Array.isArray(roomChat.messages) || roomChat.messages.length === 0) {
+    throw new Error("Invalid room chat archive shape");
+  }
+  try {
+    validateRoomChatMessages(roomChat.messages);
+  } catch (error) {
+    throw new Error(error instanceof Error ? error.message : "Invalid room chat archive");
+  }
 }
 
 export function createRoomId(): string {

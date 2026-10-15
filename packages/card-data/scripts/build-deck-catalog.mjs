@@ -6,6 +6,10 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+import {
+  applyReviewedTagCorrections
+} from "./reviewed-card-tags.mjs";
+
 export const DEFAULT_SNAPSHOT_PATH = fileURLToPath(
   new URL("../dist/cards.json", import.meta.url)
 );
@@ -440,13 +444,34 @@ function localizedNames(card, chineseCard) {
   };
 }
 
-function publicCard(id, source, official, chinese) {
+function reviewedTags(id, name, fullName, imageUrl, tags, onConflict, corrections) {
+  const result = applyReviewedTagCorrections(
+    { id, name, fullName, imageUrl, tags },
+    { onConflict }
+  );
+  if (corrections !== undefined && result.correction !== null) {
+    corrections.push(result.correction);
+  }
+  return result.tags;
+}
+
+function publicCard(id, source, official, chinese, corrections) {
   const card = official ?? source;
   const fullName = officialFullName(card);
   const name = official === undefined
     ? text(source.name ?? fullName, 256, "name")
     : officialName(card);
   const subtitle = officialSubtitle(card);
+  const imageUrl = officialImageUrl(card);
+  const tags = reviewedTags(
+    id,
+    name,
+    fullName,
+    imageUrl,
+    officialTags(card),
+    "throw",
+    corrections
+  );
 
   return {
     id,
@@ -457,11 +482,11 @@ function publicCard(id, source, official, chinese) {
     ...localizedNames(card, chinese),
     cardType: mergedCardType(source, card),
     domains: officialDomains(card),
-    tags: officialTags(card),
+    tags,
     setCode: officialSetCode(card),
     cardNumber: officialCardNumber(card),
     variant: explicitPublicCodeVariant(card).variant,
-    imageUrl: officialImageUrl(card),
+    imageUrl,
     energy: officialNumber(card, "energy"),
     power: officialNumber(card, "power"),
     might: officialNumber(card, "might"),
@@ -469,23 +494,36 @@ function publicCard(id, source, official, chinese) {
   };
 }
 
-function unknownCommunityCard(id, source) {
+function unknownCommunityCard(id, source, corrections) {
   const fullName = officialFullName(source);
+  const name = text(source.name ?? fullName, 256, "name");
+  const imageUrl = officialImageUrl(source);
+  // Community fallbacks are only ever corrected when the reviewed printing's
+  // exact guard holds; an unverified fallback is left untouched.
+  const tags = reviewedTags(
+    id,
+    name,
+    fullName,
+    imageUrl,
+    officialTags(source),
+    "skip",
+    corrections
+  );
   return {
     id,
     canonicalCardId: id,
-    name: text(source.name ?? fullName, 256, "name"),
+    name,
     ...(officialSubtitle(source) === undefined
       ? {}
       : { subtitle: officialSubtitle(source) }),
     fullName,
     cardType: officialCardType(source),
     domains: officialDomains(source),
-    tags: officialTags(source),
+    tags,
     setCode: officialSetCode(source),
     cardNumber: officialCardNumber(source),
     variant: "unknown",
-    imageUrl: officialImageUrl(source),
+    imageUrl,
     energy: officialNumber(source, "energy"),
     power: officialNumber(source, "power"),
     might: officialNumber(source, "might"),
@@ -531,6 +569,12 @@ export function buildDeckCatalog(snapshot, options = {}) {
   }
 
   const { english, chinese } = localizedGalleries(snapshot);
+  // Optional sink for reviewed-tag correction outcomes observed during this
+  // build. It never becomes part of the emitted catalog; callers use it to
+  // report only corrections that were actually applied.
+  const corrections = Array.isArray(options.corrections)
+    ? options.corrections
+    : undefined;
   const cards = [];
   const ids = new Set();
   for (const [index, source] of snapshot.cards.entries()) {
@@ -546,9 +590,9 @@ export function buildDeckCatalog(snapshot, options = {}) {
     const key = source.cardCode ?? source.id;
     const official = typeof key === "string" ? english.get(key) : undefined;
     if (official === undefined) {
-      cards.push(unknownCommunityCard(id, source));
+      cards.push(unknownCommunityCard(id, source, corrections));
     } else {
-      cards.push(publicCard(id, source, official, chinese.get(key)));
+      cards.push(publicCard(id, source, official, chinese.get(key), corrections));
     }
   }
 
@@ -618,7 +662,12 @@ async function readSnapshot(filePath) {
     );
   } catch (error) {
     if (error instanceof Error && error.code === "ENOENT") {
-      throw new BuildDeckCatalogError(`Card snapshot not found: ${filePath}`);
+      throw new BuildDeckCatalogError(
+        `Card snapshot not found: ${filePath}\n` +
+        "Run the card sync first to create it:\n" +
+        "  pnpm --filter @riftbound/card-data sync:cards\n" +
+        `  node scripts/sync-current-cards.mjs --output ${filePath}`
+      );
     }
     throw error;
   }
@@ -651,6 +700,22 @@ async function writeAtomically(filePath, contents) {
   }
 }
 
+function reportReviewedCorrections(corrections, log) {
+  // Only corrections that this build actually applied to a printing are
+  // reported. An id that merely appears in the final catalog (an already-correct
+  // input, or a skipped conflict) must not be reported as corrected.
+  const applied = corrections.filter(
+    (correction) => correction.status === "applied"
+  );
+  if (applied.length === 0) return;
+  const summary = applied
+    .map((correction) =>
+      `${correction.printingId}: ${correction.wrongTag}->${correction.correctedTag}`
+    )
+    .join(", ");
+  log(`Reviewed tag corrections applied: ${summary}.`);
+}
+
 export async function main(argv = process.argv.slice(2), io = {}) {
   const log = io.log ?? console.log;
   const error = io.error ?? console.error;
@@ -663,13 +728,15 @@ export async function main(argv = process.argv.slice(2), io = {}) {
     const snapshotPath = resolveSnapshotPath(options.snapshot);
     const outputPath = resolveOutputPath(options.output);
     const snapshot = await readSnapshot(snapshotPath);
-    const catalog = buildDeckCatalog(snapshot, options);
+    const corrections = [];
+    const catalog = buildDeckCatalog(snapshot, { ...options, corrections });
     const contents = `${JSON.stringify(catalog, null, 2)}\n`;
     if (options.dryRun) {
       log(
         `Dry run complete: ${catalog.cards.length} cards and ` +
         `${catalog.groups.length} identity groups. Output would be ${outputPath}.`
       );
+      reportReviewedCorrections(corrections, log);
       return 0;
     }
     await writeAtomically(outputPath, contents);
@@ -677,6 +744,7 @@ export async function main(argv = process.argv.slice(2), io = {}) {
       `Built ${catalog.cards.length} cards and ${catalog.groups.length} ` +
       `identity groups at ${outputPath}.`
     );
+    reportReviewedCorrections(corrections, log);
     return 0;
   } catch (caught) {
     error(

@@ -20,10 +20,81 @@ export interface PersistentRoomArchiveSnapshot {
   readonly [key: string]: JsonObject[string];
 }
 
+/**
+ * One durable archive record in the private append-only history. `archiveSeq`
+ * is the FileEventStore log sequence (1-based, contiguous), not a game or room
+ * event sequence.
+ */
+export interface PersistentRoomArchiveRecord {
+  readonly archiveSeq: number;
+  readonly archive: JsonObject;
+}
+
+/**
+ * An ordered, paginated window over the private room-archive history. The
+ * archive payloads are detached clones; callers may mutate them freely without
+ * affecting this store's cached log or the `load` tail.
+ */
+export interface PersistentRoomArchivePage {
+  readonly archives: readonly PersistentRoomArchiveRecord[];
+  readonly hasMore: boolean;
+  readonly nextCursor: number;
+}
+
+const DEFAULT_ARCHIVE_READ_LIMIT = 1000;
+
 type ArchiveEventStore = FileEventStore<
   PersistentRoomArchiveEvent,
   PersistentRoomArchiveSnapshot
 >;
+
+function requireSafeInteger(
+  value: unknown,
+  field: string,
+  minimum: number
+): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < minimum) {
+    throw new Error(
+      `${field} must be a safe integer greater than or equal to ${minimum}`
+    );
+  }
+  return value;
+}
+
+/**
+ * Revalidates one log event as a room-archive event for the requested room.
+ * The durable codec proves integrity against accidental corruption, not against
+ * a full rewrite of the private log; this shape/room check therefore rejects
+ * rather than silently skips foreign, mistyped, or archive-less records.
+ */
+function requireRoomArchiveEvent(
+  value: unknown,
+  roomId: string,
+  archiveSeq: number
+): JsonObject {
+  if (!isPlainRecord(value)) {
+    throw new Error(`archive log event ${archiveSeq} must be a JSON object`);
+  }
+  if (value.type !== "room-archive") {
+    throw new Error(
+      `archive log event ${archiveSeq} is not a room-archive event`
+    );
+  }
+  if (value.roomId !== roomId) {
+    throw new Error("The archive log belongs to another room");
+  }
+  const archive = value.archive;
+  if (!isPlainRecord(archive) || !isJsonValue(archive)) {
+    throw new Error(
+      `archive log event ${archiveSeq} does not contain a JSON archive`
+    );
+  }
+  return archive as JsonObject;
+}
+
+function detachArchive(archive: JsonObject): JsonObject {
+  return JSON.parse(JSON.stringify(archive)) as JsonObject;
+}
 
 /**
  * Opaque durable archive storage. GameRoom owns the archive schema and state
@@ -78,6 +149,46 @@ export class PersistentRoomArchiveStore {
 
     // appendEvents returns only after its fsync. The room archive log is the
     // sole durability receipt; no snapshot cache is needed.
+  }
+
+  /**
+   * Read the private append-only archive history for the bound room in log
+   * order. This is a strictly read-only seal over `FileEventStore.readEvents`:
+   * it appends nothing, mints no mutation/version/ACK, and is never exposed on
+   * the HTTP or WebSocket surface. `afterArchiveSeq` is exclusive; pass the
+   * previous page's `nextCursor` to continue. Every returned record is
+   * revalidated as a room-archive event for `roomId`, and every archive is a
+   * detached clone so caller mutation cannot pollute the cached log or tail.
+   */
+  async readArchives(
+    roomId: string,
+    afterArchiveSeq = 0,
+    limit = DEFAULT_ARCHIVE_READ_LIMIT
+  ): Promise<PersistentRoomArchivePage> {
+    const after = requireSafeInteger(afterArchiveSeq, "afterArchiveSeq", 0);
+    const eventLimit = requireSafeInteger(limit, "limit", 1);
+    const store = await this.openStore(roomId);
+
+    const window = await store.readEvents(after, eventLimit);
+    const archives: PersistentRoomArchiveRecord[] = [];
+    for (const persisted of window.events) {
+      const archive = requireRoomArchiveEvent(
+        persisted.event,
+        roomId,
+        persisted.eventSeq
+      );
+      archives.push({
+        archiveSeq: persisted.eventSeq,
+        archive: detachArchive(archive)
+      });
+    }
+
+    const lastSeq = archives.at(-1)?.archiveSeq ?? after;
+    return {
+      archives,
+      hasMore: lastSeq < window.headEventSeq,
+      nextCursor: lastSeq
+    };
   }
 
   async close(): Promise<void> {

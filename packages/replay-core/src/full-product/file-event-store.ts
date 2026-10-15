@@ -1,17 +1,18 @@
 import { createHash, randomUUID } from "node:crypto";
+import { constants as fsConstants } from "node:fs";
 import {
+  lstat,
   mkdir,
   open,
   rename,
   rm,
-  stat,
-  truncate,
-  type FileHandle
+  type FileHandle,
+  type FileStats
 } from "node:fs/promises";
 import path from "node:path";
 
 import { IdempotencyConflictError, PersistenceClosedError, PersistenceError } from "./errors.js";
-import { isPlainRecord, isJsonValue, requireJsonObject, requireJsonValue, stableStringify } from "./json.js";
+import { isPlainRecord, requireJsonObject, requireJsonValue, stableStringify } from "./json.js";
 import type { JsonObject } from "./json.js";
 import type { EventPersistenceStore } from "./types.js";
 import {
@@ -33,7 +34,22 @@ import {
 
 type JsonRecord = Record<string, unknown>;
 
+const PRIVATE_FILE_MODE = 0o600;
+
+// Numeric open(2) flags are platform-dependent (notably O_CREAT differs on
+// Linux and Darwin). Always take them from the running Node binary. Windows ACL
+// semantics are not covered by POSIX mode bits, so Windows is not supported.
+const POSIX_PLATFORMS = new Set([
+  "aix",
+  "darwin",
+  "freebsd",
+  "linux",
+  "openbsd",
+  "sunos"
+]);
+
 interface LoadedLog {
+  readonly handle: FileHandle;
   readonly events: PersistedEvent<JsonObject>[];
   readonly requests: Map<string, StoredRequest>;
   readonly headEventSeq: number;
@@ -192,9 +208,8 @@ function parseRecord(line: Buffer, byteOffset: number): JsonRecord {
   let parsed: unknown;
   try {
     parsed = JSON.parse(line.toString("utf8"));
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : "invalid JSON";
-    fail(`log record at byte ${byteOffset} is not valid JSON: ${detail}`);
+  } catch {
+    fail(`log record at byte ${byteOffset} is not valid JSON`);
   }
 
   if (!isPlainRecord(parsed)) {
@@ -252,7 +267,7 @@ function applyLogRecord(
         ...(record.response === undefined ? {} : { response: record.response as never })
       };
       if (requests.has(request.requestId)) {
-        fail(`duplicate requestId in log: ${request.requestId}`);
+        fail("duplicate requestId in log");
       }
       requests.set(request.requestId, request);
     }
@@ -275,13 +290,13 @@ function applyLogRecord(
       ...(record.response === undefined ? {} : { response: record.response as never })
     };
     if (requests.has(request.requestId)) {
-      fail(`duplicate requestId in log: ${request.requestId}`);
+      fail("duplicate requestId in log");
     }
     requests.set(request.requestId, request);
     return;
   }
 
-  fail(`unsupported log record kind: ${String(record.kind)}`);
+  fail("unsupported log record kind");
 }
 
 function normalizeInputEventEntries(
@@ -309,7 +324,7 @@ function checkRequestDuplicate(
   const existingSignature = requestSignatureKey(storedRequestSignature(existing));
   if (existingSignature !== requestSignatureKey(request)) {
     throw new IdempotencyConflictError(
-      `requestId ${request.requestId} was already used with a different command`
+      "requestId was already used with a different command"
     );
   }
 }
@@ -343,29 +358,270 @@ async function writeAll(
   }
 }
 
-async function loadLog(filePath: string): Promise<LoadedLog> {
-  await mkdir(path.dirname(filePath), { recursive: true });
-  let exists = true;
+function isPosixPermissionsSupported(): boolean {
+  const runtimePlatform = (globalThis as {
+    process?: { platform?: string };
+  }).process?.platform;
+  return runtimePlatform !== undefined && POSIX_PLATFORMS.has(runtimePlatform);
+}
+
+function assertPosixPermissionsSupported(): void {
+  if (!isPosixPermissionsSupported()) {
+    fail("private file permissions are unsupported on this platform");
+  }
+  // Reject runtimes without no-follow/regular-file checks instead of silently
+  // opening or creating files with guessed, potentially destructive flags.
+  for (const flag of [
+    fsConstants.O_WRONLY, fsConstants.O_RDWR, fsConstants.O_APPEND,
+    fsConstants.O_CREAT, fsConstants.O_EXCL, fsConstants.O_NOFOLLOW,
+    fsConstants.O_NONBLOCK, fsConstants.S_IFMT, fsConstants.S_IFREG
+  ]) {
+    if (!Number.isSafeInteger(flag) || flag <= 0) {
+      fail("private file permissions require POSIX filesystem constants");
+    }
+  }
+  if (fsConstants.O_RDONLY !== 0 ||
+      (fsConstants.S_IFREG & fsConstants.S_IFMT) !== fsConstants.S_IFREG) {
+    fail("private file permissions require POSIX filesystem constants");
+  }
+}
+
+function errorCode(error: unknown): string | undefined {
+  return error !== null && typeof error === "object" && "code" in error &&
+    typeof error.code === "string" ? error.code : undefined;
+}
+
+function isPermissionError(error: unknown): boolean {
+  return errorCode(error) === "EACCES" || errorCode(error) === "EPERM";
+}
+
+function isRegularPrivateFile(metadata: FileStats): boolean {
+  return metadata.isFile() &&
+    (metadata.mode & fsConstants.S_IFMT) === fsConstants.S_IFREG;
+}
+
+function hasPrivateMode(metadata: FileStats): boolean {
+  return (metadata.mode & 0o7777) === PRIVATE_FILE_MODE;
+}
+
+function sameFile(left: FileStats, right: FileStats): boolean {
+  return left.dev === right.dev && left.ino === right.ino;
+}
+
+async function privatePathMetadata(filePath: string): Promise<FileStats | null> {
   try {
-    await stat(filePath);
+    // lstat, not stat: a swapped-in symlink must never be treated as authority
+    // for chmod, cleanup, or a successful write acknowledgement.
+    return await lstat(filePath);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+    if (errorCode(error) === "ENOENT") return null;
+    throw error;
+  }
+}
+
+async function assertPathMatchesFile(
+  handle: FileHandle,
+  filePath: string,
+  requirePrivateMode: boolean,
+  expected?: FileStats
+): Promise<FileStats> {
+  let metadata: FileStats;
+  try {
+    metadata = await handle.stat();
+  } catch {
+    throw new PersistenceError(`could not inspect private file ${filePath}`);
+  }
+  if (!isRegularPrivateFile(metadata)) {
+    fail(`private file path must be a regular file: ${filePath}`);
+  }
+  // In the fallback reopen, compare against the original descriptor BEFORE
+  // fchmod; never repair the permissions of an unrelated replacement inode.
+  if (expected && !sameFile(metadata, expected)) {
+    fail(`private file changed while opening: ${filePath}`);
+  }
+  const named = await privatePathMetadata(filePath);
+  if (!named || !isRegularPrivateFile(named) || !sameFile(metadata, named)) {
+    fail(`private file changed while opening: ${filePath}`);
+  }
+  if (requirePrivateMode && (!hasPrivateMode(metadata) || !hasPrivateMode(named))) {
+    fail(`private file permissions could not be established for ${filePath}`);
+  }
+  return metadata;
+}
+
+async function establishPrivateFile(
+  handle: FileHandle,
+  filePath: string,
+  expected?: FileStats
+): Promise<FileStats> {
+  await assertPathMatchesFile(handle, filePath, false, expected);
+  try {
+    await handle.chmod(PRIVATE_FILE_MODE);
+  } catch {
+    throw new PersistenceError(`could not establish private file permissions for ${filePath}`);
+  }
+  // Re-check the inode/mode on the fd even if the path was exchanged during
+  // chmod. A later path check also rejects the resulting stale authority.
+  const verified = await handle.stat();
+  if (!isRegularPrivateFile(verified) || !hasPrivateMode(verified)) {
+    fail(`private file permissions could not be established for ${filePath}`);
+  }
+  return assertPathMatchesFile(handle, filePath, true, expected);
+}
+
+async function closeFile(handle: FileHandle | null): Promise<void> {
+  if (handle) {
+    await handle.close();
+  }
+}
+
+async function openPrivateReadable(filePath: string): Promise<FileHandle | null> {
+  assertPosixPermissionsSupported();
+  let handle: FileHandle;
+  try {
+    // O_NONBLOCK is essential here: O_RDONLY on a FIFO waits for a writer
+    // before we can inspect its type. The fd is still checked with fstat.
+    handle = await open(filePath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW |
+      fsConstants.O_NONBLOCK);
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+  try {
+    await establishPrivateFile(handle, filePath);
+    return handle;
+  } catch (error) {
+    await closeFile(handle).catch(() => undefined);
+    throw error;
+  }
+}
+
+async function openPrivateWritable(filePath: string): Promise<FileHandle> {
+  assertPosixPermissionsSupported();
+
+  let handle: FileHandle | null = null;
+  try {
+    handle = await open(filePath,
+      fsConstants.O_RDWR | fsConstants.O_APPEND | fsConstants.O_NOFOLLOW |
+        fsConstants.O_NONBLOCK);
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") {
+      try {
+        handle = await open(
+          filePath,
+          fsConstants.O_RDWR | fsConstants.O_APPEND | fsConstants.O_CREAT |
+            fsConstants.O_EXCL | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK,
+          PRIVATE_FILE_MODE
+        );
+      } catch (createError) {
+        if (errorCode(createError) !== "EEXIST") {
+          throw createError;
+        }
+        // Another creator won the race. Re-open it below without following a
+        // symlink and establish permissions on the inode actually opened.
+      }
+    } else if (!isPermissionError(error)) {
       throw error;
     }
-    exists = false;
-  }
-  if (!exists) {
-    const created = await open(filePath, "a");
-    await created.close();
-    return { events: [], requests: new Map(), headEventSeq: 0, tailBytes: 0 };
   }
 
-  const handle = await open(filePath, "r");
+  if (handle) {
+    try {
+      await establishPrivateFile(handle, filePath);
+      return handle;
+    } catch (error) {
+      await closeFile(handle).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  // A pre-existing file may be readable but not writable. Repair through the
+  // read-only descriptor, without reading its contents; check the writable
+  // reopen against that inode BEFORE its own fchmod. Never chmod(path).
+  const readable = await open(filePath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW |
+    fsConstants.O_NONBLOCK);
+  let readableMetadata: FileStats;
+  try {
+    readableMetadata = await establishPrivateFile(readable, filePath);
+  } catch (error) {
+    await closeFile(readable).catch(() => undefined);
+    throw error;
+  }
+  await closeFile(readable);
+
+  let writable: FileHandle;
+  try {
+    writable = await open(filePath,
+      fsConstants.O_RDWR | fsConstants.O_APPEND | fsConstants.O_NOFOLLOW |
+        fsConstants.O_NONBLOCK);
+  } catch (error) {
+    throw new PersistenceError(`private file cannot be opened for append: ${filePath}`);
+  }
+  try {
+    await establishPrivateFile(writable, filePath, readableMetadata);
+    return writable;
+  } catch (error) {
+    await closeFile(writable).catch(() => undefined);
+    throw error;
+  }
+}
+
+async function validatePrivatePathIfPresent(filePath: string): Promise<FileStats | null> {
+  const handle = await openPrivateReadable(filePath);
+  if (!handle) return null;
+  try {
+    return await assertPathMatchesFile(handle, filePath, true);
+  } finally {
+    await closeFile(handle);
+  }
+}
+
+async function assertSnapshotDestinationUnchanged(
+  filePath: string,
+  previous: FileStats | null
+): Promise<void> {
+  const current = await privatePathMetadata(filePath);
+  if (previous === null ? current !== null :
+      current === null || !isRegularPrivateFile(current) ||
+      !hasPrivateMode(current) || !sameFile(previous, current)) {
+    fail(`private snapshot path changed before replacement: ${filePath}`);
+  }
+}
+
+async function temporaryStillOwned(
+  filePath: string,
+  handle: FileHandle,
+  expected: FileStats
+): Promise<boolean> {
+  const current = await privatePathMetadata(filePath);
+  const actual = await handle.stat();
+  return !!current && isRegularPrivateFile(current) &&
+    sameFile(current, expected) && sameFile(actual, expected);
+}
+
+async function removeOwnedTemporary(
+  filePath: string,
+  handle: FileHandle,
+  expected: FileStats
+): Promise<void> {
+  // Do not unlink a name we did not create. No pathname-only rm on failure:
+  // another directory writer may have replaced our temporary with a symlink.
+  if (await temporaryStillOwned(filePath, handle, expected)) {
+    await rm(filePath, { force: true });
+  }
+}
+
+async function loadLog(filePath: string): Promise<LoadedLog> {
+  await mkdir(path.dirname(filePath), { recursive: true });
+  const handle = await openPrivateWritable(filePath);
   const events: PersistedEvent<JsonObject>[] = [];
   const requests = new Map<string, StoredRequest>();
   let buffer = Buffer.alloc(0);
   let bufferStart = 0;
   let bufferEnd = 0;
+  let keepOpen = false;
   try {
     const chunk = Buffer.alloc(64 * 1024);
     while (true) {
@@ -388,18 +644,24 @@ async function loadLog(filePath: string): Promise<LoadedLog> {
     }
 
     const tailBytes = buffer.length;
+    await assertPathMatchesFile(handle, filePath, true);
     if (tailBytes !== 0) {
-      await handle.close();
-      await truncate(filePath, bufferStart);
+      await handle.truncate(bufferStart);
+      await handle.datasync();
+      await assertPathMatchesFile(handle, filePath, true);
     }
+    keepOpen = true;
     return {
+      handle,
       events,
       requests,
       headEventSeq: headEventSeqOf(events),
       tailBytes
     };
   } finally {
-    await handle.close();
+    if (!keepOpen) {
+      await closeFile(handle);
+    }
   }
 }
 
@@ -446,6 +708,7 @@ export class FileEventStore<
   async appendEvents(input: AppendEventsInput<TEvent>): Promise<AppendEventsOutcome<TEvent>> {
     return this.enqueue(async () => {
       this.assertOpen();
+      await this.assertPrivateLog();
       if (input.request) {
         const signature = requestSignatureJson(input.request);
         const existing = this.requests.get(signature.requestId);
@@ -496,6 +759,7 @@ export class FileEventStore<
     const request = storedRequestFromInput(input.request, null, input.response);
     return this.enqueue(async () => {
       this.assertOpen();
+      await this.assertPrivateLog();
       const existing = this.requests.get(request.requestId);
       checkRequestDuplicate(input.request, existing);
       if (existing) {
@@ -542,6 +806,7 @@ export class FileEventStore<
     const snapshot = { eventSeq, payload: payload as TSnapshot };
     return this.enqueue(async () => {
       this.assertOpen();
+      await this.assertPrivateLog();
       if (snapshot.eventSeq > this.headEventSeq) {
         fail("snapshot cannot be ahead of the event log");
       }
@@ -552,19 +817,59 @@ export class FileEventStore<
         payload: snapshot.payload
       };
       const serialized = serializeRecord(record);
+      assertPosixPermissionsSupported();
+      const destinationBefore = await validatePrivatePathIfPresent(this.options.snapshotPath);
       const temporaryPath = `${this.options.snapshotPath}.${randomUUID()}.tmp`;
       let temporary: FileHandle | null = null;
+      let ownedTemporary: FileStats | null = null;
+      let renameAttempted = false;
       try {
-        temporary = await open(temporaryPath, "wx");
+        temporary = await open(
+          temporaryPath,
+          fsConstants.O_WRONLY | fsConstants.O_CREAT |
+            fsConstants.O_EXCL | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK,
+          PRIVATE_FILE_MODE
+        );
+        // Retain the fd through rename: the name alone cannot establish that
+        // the installed snapshot is the regular 0600 inode we wrote and synced.
+        ownedTemporary = await temporary.stat();
+        await establishPrivateFile(temporary, temporaryPath);
         await writeAll(temporary, serialized);
         await temporary.sync();
+        await assertPathMatchesFile(temporary, temporaryPath, true, ownedTemporary);
+        await assertSnapshotDestinationUnchanged(this.options.snapshotPath, destinationBefore);
+        renameAttempted = true;
+        await rename(temporaryPath, this.options.snapshotPath);
+        await assertPathMatchesFile(temporary, this.options.snapshotPath, true, ownedTemporary);
+        await syncDirectory(path.dirname(this.options.snapshotPath));
+        await assertPathMatchesFile(temporary, this.options.snapshotPath, true, ownedTemporary);
+        await this.assertPrivateLog();
+        // Closing the descriptor is also part of the success boundary: if it
+        // fails, keep the old in-memory snapshot and report uncertain outcome.
         await temporary.close();
         temporary = null;
-        await rename(temporaryPath, this.options.snapshotPath);
-        await syncDirectory(path.dirname(this.options.snapshotPath));
+        const finalName = await privatePathMetadata(this.options.snapshotPath);
+        if (!finalName || !isRegularPrivateFile(finalName) ||
+            !hasPrivateMode(finalName) || !sameFile(ownedTemporary, finalName)) {
+          fail(`private snapshot path changed after replacement: ${this.options.snapshotPath}`);
+        }
       } catch (error) {
-        await temporary?.close();
-        await rm(temporaryPath, { force: true });
+        if (temporary) {
+          // An unperformed rename leaves our temp name intact. A failure after
+          // installing it (or an unowned replacement name) makes the on-disk
+          // outcome uncertain and must poison this instance, not fake an ACK.
+          const stillOwned = ownedTemporary && await temporaryStillOwned(
+            temporaryPath, temporary, ownedTemporary
+          ).catch(() => false);
+          if (renameAttempted && !stillOwned) this.openState = "write-failed";
+          if (ownedTemporary && stillOwned) {
+            await removeOwnedTemporary(temporaryPath, temporary, ownedTemporary)
+              .catch(() => undefined);
+          }
+          await closeFile(temporary).catch(() => undefined);
+        } else if (renameAttempted) {
+          this.openState = "write-failed";
+        }
         throw error;
       }
 
@@ -600,15 +905,24 @@ export class FileEventStore<
       fail("event log and snapshot paths must be different");
     }
 
+    assertPosixPermissionsSupported();
+    await mkdir(path.dirname(this.options.eventLogPath), { recursive: true });
     await mkdir(path.dirname(this.options.snapshotPath), { recursive: true });
     const loaded = await loadLog(this.options.eventLogPath);
-    this.handle = await open(this.options.eventLogPath, "a+");
+    this.handle = loaded.handle;
     try {
       this.events.push(...(loaded.events as unknown as readonly PersistedEvent<TEvent>[]));
       for (const [requestId, request] of loaded.requests) {
         this.requests.set(requestId, request);
       }
       if (this.options.snapshotMode === "ignored") {
+        // Only an actual directory is an unusable optional cache: never open,
+        // read, chmod, or remove it. Keep the private-file checks for every
+        // other path (including symlinks, FIFOs, and existing regular files).
+        const cachePath = await privatePathMetadata(this.options.snapshotPath);
+        if (!cachePath || !(cachePath as FileStats & { isDirectory(): boolean }).isDirectory()) {
+          await validatePrivatePathIfPresent(this.options.snapshotPath);
+        }
         this.snapshot = null;
       } else {
         this.snapshot = await this.loadSnapshot();
@@ -630,29 +944,20 @@ export class FileEventStore<
         truncatedTailBytes: 0
       };
       this.openState = "closed";
-      await this.handle.close();
+      await this.handle?.close();
       this.handle = null;
       throw error;
     }
   }
 
   private async loadSnapshot(): Promise<StoredSnapshot<TSnapshot> | null> {
-    let snapshotStat;
-    try {
-      snapshotStat = await stat(this.options.snapshotPath);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
-        throw error;
-      }
+    const handle = await openPrivateReadable(this.options.snapshotPath);
+    if (!handle) {
       return null;
     }
-    if (!snapshotStat.isFile()) {
-      fail("snapshot path must be a file");
-    }
-
-    const handle = await open(this.options.snapshotPath, "r");
     try {
-      const size = snapshotStat.size;
+      const metadata = await handle.stat();
+      const size = metadata.size;
       const buffer = Buffer.alloc(size);
       const { bytesRead } = await handle.read(buffer, 0, size, 0);
       if (bytesRead !== size) {
@@ -669,6 +974,19 @@ export class FileEventStore<
       return { eventSeq, payload: payload as TSnapshot };
     } finally {
       await handle.close();
+    }
+  }
+
+  private async assertPrivateLog(): Promise<void> {
+    if (!this.handle) {
+      throw new PersistenceClosedError();
+    }
+    try {
+      await establishPrivateFile(this.handle, this.options.eventLogPath);
+      await assertPathMatchesFile(this.handle, this.options.eventLogPath, true);
+    } catch (error) {
+      this.openState = "write-failed";
+      throw error;
     }
   }
 
@@ -689,8 +1007,10 @@ export class FileEventStore<
     }
     const serialized = serializeRecord(record);
     try {
+      await assertPathMatchesFile(this.handle, this.options.eventLogPath, true);
       await writeAll(this.handle, serialized);
       await this.handle.datasync();
+      await assertPathMatchesFile(this.handle, this.options.eventLogPath, true);
     } catch (error) {
       this.openState = "write-failed";
       throw error;

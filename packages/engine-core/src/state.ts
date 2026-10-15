@@ -174,6 +174,8 @@ export interface SyntheticPlayerState {
 
 export type PlayerState = SyntheticPlayerState | FoundationPlayerState;
 
+export type TaskDisposition = "judge-required";
+
 export interface OutstandingTask {
   id: string;
   sourceCardId: string;
@@ -184,6 +186,12 @@ export interface OutstandingTask {
   effect?: CardEffect;
   targetChoices?: readonly EffectTarget[];
   requiresTargetChoice?: boolean;
+  /**
+   * Explicit authority disposition for restored or otherwise malformed legacy
+   * tasks. This is intentionally not inferred from a filtered projection.
+   */
+  disposition?: TaskDisposition;
+  dispositionReason?: string;
 }
 
 export type SyntheticGameState = GameStateShape<

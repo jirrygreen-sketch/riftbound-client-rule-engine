@@ -1,0 +1,199 @@
+/* Deep-blue tabletop surface hosting the three horizontal bands. */
+.full-product-shared-battlefields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid #1e3a8a;
+  border-radius: 0.75rem;
+  background: linear-gradient(180deg, #0b1736 0%, #10275a 100%);
+}
+
+.full-product-shared-battlefields-incomplete {
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  border: 1px dashed #6b7280;
+  border-radius: 0.5rem;
+  color: #d1d5db;
+  text-align: center;
+  background: #0b1736;
+}
+
+/* Each band is a single horizontal strip: the opponent's base on top, the two
+   shared fields in the middle, the viewer's base on the bottom. */
+.full-product-shared-base-row,
+.full-product-shared-battlefield-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.6rem;
+}
+
+.full-product-shared-battlefield-row {
+  justify-content: center;
+}
+
+/* One full-width base band per player, separated by a thin border. */
+.full-product-shared-base {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid #3b5b96;
+  border-radius: 0.5rem;
+  background: rgba(30, 58, 138, 0.3);
+}
+
+/* The bottom band is the viewer's own side (or the first spectator seat). */
+.full-product-shared-base-row-bottom .full-product-shared-base {
+  border-color: #38bdf8;
+  background: rgba(56, 189, 248, 0.1);
+}
+
+/* The top band is the opposing side (or the second spectator seat). */
+.full-product-shared-base-row-top .full-product-shared-base {
+  border-color: #8b5cf6;
+  background: rgba(139, 92, 246, 0.1);
+}
+
+.full-product-shared-base-title {
+  margin: 0;
+  font-size: 0.9375rem;
+}
+
+/* The two central fields sit left and right, each with its own hard boundary. */
+.full-product-shared-battlefield {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 24rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 2px solid #7c3aed;
+  border-radius: 0.5rem;
+  background: rgba(124, 58, 237, 0.1);
+}
+
+.full-product-shared-battlefield:nth-of-type(2) {
+  border-color: #0ea5e9;
+  background: rgba(14, 165, 233, 0.1);
+}
+
+.full-product-shared-battlefield-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.full-product-shared-battlefield-title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.full-product-shared-battlefield-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  font-size: 0.8125rem;
+  color: #d1d5db;
+}
+
+.full-product-shared-contested {
+  padding: 0 0.4rem;
+  border: 1px solid #f59e0b;
+  border-radius: 0.25rem;
+  color: #fbbf24;
+  font-weight: 600;
+}
+
+.full-product-shared-card-thumbnail {
+  width: 100%;
+  aspect-ratio: 5 / 7;
+  max-height: 9rem;
+  object-fit: cover;
+  border-radius: 0.375rem;
+  background: #1f2937;
+}
+
+.full-product-shared-card-thumbnail.is-missing {
+  display: block;
+}
+
+.full-product-shared-unit-groups {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.full-product-shared-unit-group {
+  flex: 1 1 8rem;
+  min-width: 0;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid #4b5563;
+  border-radius: 0.375rem;
+}
+
+.full-product-shared-unit-group-owner {
+  margin: 0 0 0.25rem;
+  font-size: 0.8125rem;
+  color: #9ca3af;
+}
+
+.full-product-shared-unit-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.full-product-shared-unit {
+  list-style: none;
+}
+
+.full-product-shared-unit-button {
+  padding: 0.25rem 0.5rem;
+  border: 1px solid #6b7280;
+  border-radius: 0.25rem;
+  background: #111827;
+  color: inherit;
+  cursor: pointer;
+}
+
+.full-product-shared-unit-button[aria-pressed="true"] {
+  border-color: #22c55e;
+  outline: 2px solid #22c55e;
+}
+
+.full-product-shared-unit-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.full-product-shared-empty,
+.full-product-shared-unit-missing {
+  font-size: 0.8125rem;
+  color: #9ca3af;
+}
+
+.full-product-shared-unit-missing {
+  color: #fca5a5;
+}
+
+/* Narrow viewports stack the fields so both stay legible; the base bands are
+   already full-width strips and keep their top/bottom order. */
+@media (max-width: 480px) {
+  .full-product-shared-battlefield-row {
+    flex-direction: column;
+  }
+
+  .full-product-shared-card-thumbnail {
+    max-height: 12rem;
+  }
+}

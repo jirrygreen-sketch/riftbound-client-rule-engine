@@ -5,8 +5,33 @@ declare module "node:crypto" {
   export function randomUUID(): string;
 }
 
+declare module "node:fs" {
+  export const constants: Readonly<{
+    O_RDONLY: number;
+    O_WRONLY: number;
+    O_RDWR: number;
+    O_APPEND: number;
+    O_CREAT: number;
+    O_EXCL: number;
+    O_NOFOLLOW: number;
+    O_NONBLOCK: number;
+    S_IFMT: number;
+    S_IFREG: number;
+  }>;
+}
+
 declare module "node:fs/promises" {
+  export interface FileStats {
+    readonly mode: number;
+    readonly size: number;
+    readonly dev: number;
+    readonly ino: number;
+    isFile(): boolean;
+  }
+
   export interface FileHandle {
+    stat(): Promise<FileStats>;
+    chmod(mode: number): Promise<void>;
     read(
       buffer: Buffer,
       offset: number,
@@ -20,11 +45,12 @@ declare module "node:fs/promises" {
     close(): Promise<void>;
   }
 
-  export function open(path: string | URL, flags: string): Promise<FileHandle>;
+  export function open(path: string | URL, flags: string | number, mode?: number): Promise<FileHandle>;
   export function mkdir(
     path: string,
     options?: { recursive?: boolean }
   ): Promise<string | undefined>;
+  export function lstat(path: string | URL): Promise<FileStats>;
   export function rename(from: string, to: string): Promise<void>;
   export function rm(path: string, options?: { force?: boolean }): Promise<void>;
   export function stat(path: string | URL): Promise<{ isFile(): boolean; size: number }>;

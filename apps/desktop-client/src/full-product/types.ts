@@ -1,6 +1,7 @@
 import type {
   GameProjection,
   PlayerCommand,
+  ProjectionActionTargetPolicy,
   ProjectionObject,
   ProjectionZone
 } from "@riftbound/protocol";
@@ -74,7 +75,24 @@ export interface LegalAction {
   readonly requiresTargets?: boolean;
   readonly selectedCardId?: string | null;
   readonly selectedTargetIds?: readonly string[];
+  /**
+   * Present only on actions derived from the authoritative
+   * {@link ProjectionActionOptions} contract. Legacy projections keep it
+   * undefined and continue to resolve targets through `PlayableMatchView.targets`.
+   */
+  readonly targetPolicy?: ProjectionActionTargetPolicy;
+  /** True when this action was mapped from the server action-options contract. */
+  readonly authoritative?: boolean;
   readonly command: PlayerCommand;
+}
+
+/**
+ * Server-side allowance for the standalone concede control. `concede` is not a
+ * panel action, so its availability is consumed through this shape.
+ */
+export interface ConcedeAllowance {
+  readonly enabled: boolean;
+  readonly reason?: string;
 }
 
 export interface ActionSelection {

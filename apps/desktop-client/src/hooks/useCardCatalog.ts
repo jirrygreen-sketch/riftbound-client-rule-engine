@@ -9,7 +9,13 @@ import {
   type DeckValidationResult,
   type DeckZone
 } from "../net/CardCatalogClient";
+import type { ConstructedRegionSelection } from "@riftbound/protocol";
+import { cloneDeckByZone, deckFingerprint } from "../decks/library";
 
+/**
+ * The single unnamed "current draft" deck slot. Named decks live in
+ * `src/decks/library.ts` under their own storage key and never overwrite this.
+ */
 const DECK_STORAGE_KEY = "riftbound.desktop-client.deck";
 
 export type ZoneEntries = Readonly<Record<string, number>>;
@@ -47,6 +53,11 @@ export interface UseCardCatalogResult {
     zone: DeckZone,
     entries: readonly { readonly cardId: string; readonly quantity: number }[]
   ) => void;
+  /**
+   * Replaces the whole working draft in one atomic update (deep clone), instead
+   * of firing six sequential zone writes.
+   */
+  readonly setDeckFromSnapshot: (deck: DeckByZone) => void;
   readonly validation: DeckValidationResult | null;
   readonly validationStatus: "idle" | "pending" | "done" | "error";
   readonly validationError: string | null;
@@ -60,6 +71,13 @@ interface UseCardCatalogOptions {
   readonly storage?: Storage;
   readonly retryToken?: number;
   readonly timeoutMs?: number;
+  /**
+   * Optional constructed-region selection for the catalog and deck validation
+   * endpoints. The selection is server-owned scheduling context: when it is
+   * present it is forwarded as `regionCode`/`eventDate`; an invalid selection
+   * fails closed as a client error and never falls back to the global endpoint.
+   */
+  readonly constructedRegion?: ConstructedRegionSelection | null;
 }
 
 export function useCardCatalog(
@@ -73,6 +91,19 @@ export function useCardCatalog(
     () => options.client ?? new CardCatalogClient(),
     [options.client]
   );
+  const constructedRegion = options.constructedRegion ?? null;
+  // The selection arrives as a fresh object each render, so effects and the
+  // validate callback depend only on these scalars (never the object identity)
+  // to avoid refetch loops. The latest object is read through a ref so the
+  // forwarded selection always matches the current scalar deps.
+  const regionCode = constructedRegion?.regionCode;
+  const eventDate = constructedRegion?.eventDate;
+  const constructedRegionRef = useRef(constructedRegion);
+  constructedRegionRef.current = constructedRegion;
+  const regionCodeRef = useRef(regionCode);
+  regionCodeRef.current = regionCode;
+  const eventDateRef = useRef(eventDate);
+  eventDateRef.current = eventDate;
   const [catalog, setCatalog] = useState<CardCatalog | null>(null);
   const [catalogStatus, setCatalogStatus] = useState<"loading" | "ready" | "error">("loading");
   const [catalogError, setCatalogError] = useState<string | null>(null);
@@ -82,6 +113,11 @@ export function useCardCatalog(
   const [validationError, setValidationError] = useState<string | null>(null);
   const requestRef = useRef(0);
   const [manualRetryToken, setManualRetryToken] = useState(0);
+  const deckRef = useRef(deck);
+  deckRef.current = deck;
+  const serverUrlRef = useRef(serverUrl);
+  serverUrlRef.current = serverUrl;
+  const validationRequestRef = useRef(0);
 
   useEffect(() => {
     const requestId = ++requestRef.current;
@@ -90,7 +126,7 @@ export function useCardCatalog(
     setCatalogError(null);
     setCatalog(null);
 
-    const request = client.loadCatalog(serverUrl);
+    const request = client.loadCatalog(serverUrl, constructedRegionRef.current);
     const timeout = new Promise<never>((_, reject) => {
       timeoutId = setTimeout(
         () => reject(new Error("仓库服务连接超时，请检查服务后重试。")),
@@ -116,11 +152,27 @@ export function useCardCatalog(
     return () => {
       if (timeoutId !== undefined) clearTimeout(timeoutId);
     };
-  }, [client, manualRetryToken, retryToken, serverUrl, timeoutMs]);
+  }, [client, manualRetryToken, regionCode, eventDate, retryToken, serverUrl, timeoutMs]);
 
   useEffect(() => {
     writeStoredDeck(storage, deck);
   }, [deck, storage]);
+
+  // Any edit invalidates the previous server verdict: the old "校验通过" must
+  // never describe a deck the user has since changed.
+  const clearValidation = useCallback(() => {
+    validationRequestRef.current += 1;
+    setValidation(null);
+    setValidationError(null);
+    setValidationStatus("idle");
+  }, []);
+
+  // A region or date change re-scopes the event: drop the previous verdict so a
+  // stale "valid: true" can never describe a different schedule. Keyed on the
+  // scalar values, not the selection object identity.
+  useEffect(() => {
+    clearValidation();
+  }, [clearValidation, regionCode, eventDate]);
 
   const setZoneFromEntries = useCallback((
     zone: DeckZone,
@@ -128,31 +180,58 @@ export function useCardCatalog(
   ) => {
     const next = entriesToRecord(entries);
     setDeck(current => ({ ...current, [zone]: next }));
-  }, []);
+    clearValidation();
+  }, [clearValidation]);
 
-  const deckSubmission = useMemo<DeckSubmission>(() => toDeckSubmission(deck), [deck]);
+  const setDeckFromSnapshot = useCallback((snapshot: DeckByZone) => {
+    setDeck(cloneDeckByZone(snapshot));
+    clearValidation();
+  }, [clearValidation]);
 
   const validateDeck = useCallback(async () => {
     if (validationStatus === "pending") return;
+
+    const requestedDeck = deckRef.current;
+    const requestedFingerprint = deckFingerprint(requestedDeck);
+    const requestedServerUrl = serverUrlRef.current;
+    // Bind the async verdict to the exact region/date it was issued for: a
+    // region or date change must invalidate an in-flight (or late-arriving)
+    // validation instead of surfacing a stale "valid: true".
+    const requestedRegionCode = regionCodeRef.current;
+    const requestedEventDate = eventDateRef.current;
+    const requestedRegion = constructedRegionRef.current;
+    const requestId = validationRequestRef.current + 1;
+    validationRequestRef.current = requestId;
     setValidationStatus("pending");
     setValidationError(null);
 
+    const isStillCurrent = () =>
+      validationRequestRef.current === requestId &&
+      serverUrlRef.current === requestedServerUrl &&
+      regionCodeRef.current === requestedRegionCode &&
+      eventDateRef.current === requestedEventDate &&
+      deckFingerprint(deckRef.current) === requestedFingerprint;
+
     try {
-      const result = await client.validateDeck(serverUrl, deckSubmission);
+      const result = await client.validateDeck(
+        requestedServerUrl,
+        toDeckSubmission(requestedDeck),
+        requestedRegion
+      );
+      if (!isStillCurrent()) return;
       setValidation(result);
       setValidationStatus("done");
     } catch (error) {
+      if (!isStillCurrent()) return;
       setValidationError(messageFrom(error, "无法校验卡组，请稍后重试。"));
       setValidationStatus("error");
     }
-  }, [client, deckSubmission, serverUrl, validationStatus]);
+  }, [client, validationStatus]);
 
   const retryCatalog = useCallback(() => {
-    setValidation(null);
-    setValidationError(null);
-    setValidationStatus("idle");
+    clearValidation();
     setManualRetryToken(token => token + 1);
-  }, []);
+  }, [clearValidation]);
 
   return {
     catalog,
@@ -160,6 +239,7 @@ export function useCardCatalog(
     catalogError,
     deck,
     setZoneFromEntries,
+    setDeckFromSnapshot,
     validation,
     validationStatus,
     validationError,

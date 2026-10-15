@@ -1,0 +1,586 @@
+/*
+ * Scoped styling for the duel resource pool panel.
+ * Every selector is prefixed with `.full-product-resource-pool` so this file
+ * never leaks into the rest of the desktop client. Dark-teal product palette
+ * (base #151517, accent #1aa79b) so the pool matches the rest of the shell.
+ */
+.full-product-resource-pool {
+  --frp-bg-0: #141416;
+  --frp-bg-1: #1b1b1e;
+  --frp-line: rgba(26, 167, 155, 0.3);
+  --frp-txt: #e8f4f2;
+  --frp-txt-2: #9fb3b0;
+  --frp-txt-3: #6f827f;
+  --frp-accent: #1aa79b;
+  --frp-accent-strong: #37c8bb;
+  --frp-energy: #37c8bb;
+  --frp-power: #7fd8cf;
+  --frp-danger: #f2a09a;
+
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid var(--frp-line);
+  border-radius: 0.6rem;
+  background: linear-gradient(160deg, var(--frp-bg-1), var(--frp-bg-0));
+  color: var(--frp-txt);
+  font-size: 0.8rem;
+  min-width: 0;
+}
+
+.full-product-resource-pool-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--frp-line);
+  padding-bottom: 0.35rem;
+}
+
+.full-product-resource-pool-title {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--frp-accent-strong);
+}
+
+.full-product-resource-pool-status {
+  font-size: 0.68rem;
+  padding: 0.08rem 0.42rem;
+  border-radius: 0.7rem;
+  border: 1px solid var(--frp-line);
+  color: var(--frp-txt-2);
+  background: rgba(20, 20, 22, 0.65);
+  white-space: nowrap;
+}
+
+.full-product-resource-pool-status.is-connected {
+  color: #8ef0e4;
+  border-color: rgba(55, 200, 187, 0.5);
+}
+
+.full-product-resource-pool-status.is-reconnecting {
+  color: var(--frp-accent-strong);
+  border-color: rgba(26, 167, 155, 0.45);
+}
+
+.full-product-resource-pool-status.is-disconnected,
+.full-product-resource-pool-status.is-waiting {
+  color: var(--frp-danger);
+  border-color: rgba(242, 160, 154, 0.4);
+}
+
+.full-product-resource-pool-note {
+  margin: 0;
+  font-size: 0.66rem;
+  line-height: 1.35;
+  color: var(--frp-txt-3);
+}
+
+.full-product-resource-pool-readonly {
+  margin: 0;
+  padding: 0.28rem 0.45rem;
+  border-radius: 0.35rem;
+  border: 1px solid rgba(242, 160, 154, 0.4);
+  background: rgba(120, 40, 40, 0.22);
+  color: var(--frp-danger);
+  font-size: 0.68rem;
+}
+
+.full-product-resource-pool-errors {
+  margin: 0;
+  padding: 0 0 0 1rem;
+  color: var(--frp-danger);
+  font-size: 0.66rem;
+  line-height: 1.4;
+}
+
+.full-product-resource-pool-totals {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.full-product-resource-pool-total {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  padding: 0.1rem 0.5rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--frp-line);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.full-product-resource-pool-total i {
+  font-style: normal;
+  font-size: 0.62rem;
+  color: var(--frp-txt-3);
+}
+
+.full-product-resource-pool-total b {
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--frp-txt);
+  font-variant-numeric: tabular-nums;
+}
+
+.full-product-resource-pool-total.is-energy {
+  border-color: rgba(55, 200, 187, 0.5);
+}
+
+.full-product-resource-pool-total.is-energy b {
+  color: var(--frp-energy);
+}
+
+.full-product-resource-pool-total.is-power {
+  border-color: rgba(127, 216, 207, 0.42);
+}
+
+.full-product-resource-pool-total.is-power b {
+  color: var(--frp-power);
+}
+
+.full-product-resource-pool-powers {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.full-product-resource-pool-line {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.72rem;
+}
+
+.full-product-resource-pool-key {
+  flex: 0 0 auto;
+  min-width: 2.6rem;
+  color: var(--frp-txt-3);
+  font-size: 0.66rem;
+}
+
+.full-product-resource-pool-value {
+  min-width: 1.6rem;
+  text-align: center;
+  font-weight: 700;
+  font-size: 0.88rem;
+  color: var(--frp-txt);
+  font-variant-numeric: tabular-nums;
+}
+
+.full-product-resource-pool-step {
+  width: 1.35rem;
+  height: 1.35rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  font-size: 0.85rem;
+  border-radius: 0.35rem;
+  border: 1px solid var(--frp-line);
+  background: linear-gradient(180deg, #22302e, #141f1e);
+  color: var(--frp-txt);
+  cursor: pointer;
+}
+
+.full-product-resource-pool-step:hover:not(:disabled) {
+  filter: brightness(1.28);
+  border-color: var(--frp-accent-strong);
+}
+
+.full-product-resource-pool-step:focus-visible {
+  outline: 2px solid var(--frp-accent-strong);
+  outline-offset: 1px;
+}
+
+.full-product-resource-pool-step:disabled {
+  opacity: 0.32;
+  cursor: not-allowed;
+  filter: none;
+}
+
+.full-product-resource-pool-actions-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+}
+
+.full-product-resource-pool-subtitle {
+  margin: 0;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--frp-txt-2);
+}
+
+.full-product-resource-pool-action-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.full-product-resource-pool-action {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  padding: 0.3rem 0.5rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--frp-line);
+  background: linear-gradient(180deg, #1e2c2a, #131e1d);
+  color: var(--frp-txt);
+  cursor: pointer;
+  text-align: left;
+}
+
+.full-product-resource-pool-action:hover:not(:disabled) {
+  border-color: var(--frp-accent-strong);
+  filter: brightness(1.12);
+}
+
+.full-product-resource-pool-action:focus-visible {
+  outline: 2px solid var(--frp-accent-strong);
+  outline-offset: 1px;
+}
+
+.full-product-resource-pool-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: none;
+}
+
+.full-product-resource-pool-action-label {
+  font-size: 0.74rem;
+  font-weight: 600;
+}
+
+.full-product-resource-pool-action-detail {
+  font-size: 0.64rem;
+  color: var(--frp-txt-2);
+}
+
+.full-product-resource-pool-action-reason {
+  font-size: 0.62rem;
+  color: var(--frp-danger);
+}
+
+.full-product-resource-pool-empty {
+  margin: 0;
+  font-size: 0.66rem;
+  color: var(--frp-txt-3);
+}
+
+.full-product-resource-pool-payment {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem;
+  padding: 0.3rem 0.45rem;
+  border-radius: 0.4rem;
+  border: 1px dashed rgba(26, 167, 155, 0.55);
+  background: rgba(26, 167, 155, 0.1);
+  font-size: 0.68rem;
+}
+
+.full-product-resource-pool-payment-title {
+  font-weight: 700;
+  color: var(--frp-accent-strong);
+}
+
+.full-product-resource-pool-payment-line {
+  color: var(--frp-txt-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.full-product-resource-pool-payment-note {
+  color: var(--frp-txt-3);
+  font-size: 0.6rem;
+}
+
+/* Dense row variant used by the Duel table. Same palette, tighter footprint:
+   an energy chip, one chip per supplied power, and a collapsible detail area,
+   so the pool never competes with the central battlefields for height. */
+.full-product-resource-pool-compact {
+  gap: 0.3rem;
+  padding: 0.45rem 0.55rem;
+  font-size: 0.72rem;
+}
+
+.full-product-resource-pool-compact .full-product-resource-pool-title {
+  font-size: 0.82rem;
+}
+
+.full-product-resource-pool-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.22rem;
+}
+
+.full-product-resource-pool-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.22rem;
+  padding: 0.08rem 0.36rem;
+  border-radius: 0.35rem;
+  border: 1px solid var(--frp-line);
+  background: rgba(255, 255, 255, 0.03);
+  white-space: nowrap;
+}
+
+.full-product-resource-pool-chip i {
+  font-style: normal;
+  font-size: 0.58rem;
+  color: var(--frp-txt-3);
+}
+
+.full-product-resource-pool-chip b {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--frp-txt);
+  font-variant-numeric: tabular-nums;
+}
+
+.full-product-resource-pool-chip.is-power b {
+  color: var(--frp-power);
+}
+
+/* Dense-view headline counters. The two main totals are the first row of
+   content after the header and sit above the category chips, so a tight table
+   row can never clip them behind the classification row. Same palette and
+   semantics as the full panel totals. */
+.full-product-resource-pool-compact-totals {
+  gap: 0.5rem;
+  padding: 0.1rem 0 0.22rem;
+  border-bottom: 1px dashed var(--frp-line);
+}
+
+.full-product-resource-pool-compact-totals .full-product-resource-pool-total i {
+  font-size: 0.64rem;
+}
+
+.full-product-resource-pool-compact-totals .full-product-resource-pool-total b {
+  font-size: 0.92rem;
+}
+
+.full-product-resource-pool-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.full-product-resource-pool-details-summary {
+  cursor: pointer;
+  font-size: 0.64rem;
+  font-weight: 600;
+  color: var(--frp-txt-2);
+  list-style: none;
+}
+
+.full-product-resource-pool-details-summary::marker {
+  color: var(--frp-accent-strong);
+}
+
+.full-product-resource-pool-details[open] > .full-product-resource-pool-details-summary {
+  color: var(--frp-accent-strong);
+}
+
+/* Supplied sources are grouped under 符文 / 金币 headings only when the upper
+   layer tagged them. Untagged sources render as one plain list (no wrapper), so
+   the flattened markup and ordering are unchanged. Presentation only: the
+   forwarded action id and the gate rules are untouched. */
+.full-product-resource-pool-source-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.full-product-resource-pool-source-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.full-product-resource-pool-source-group-title {
+  margin: 0;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--frp-accent-strong);
+  text-transform: none;
+}
+
+/* Display-only reminder that the shown balance/cost is the authoritative
+   chained/payment-step projection. Never a count, gate or command change. */
+.full-product-resource-pool-payment-phase {
+  color: var(--frp-txt-3);
+  font-size: 0.6rem;
+}
+
+/* Dense-view containment inside a height-capped host.
+   The compact pool lives in the Duel table's capped resource row
+   (see DuelTableLayout.css), which now scrolls internally. These rules keep the
+   dense row inside that scrollport instead of widening or outgrowing it: a long
+   supplied label wraps instead of pushing the row sideways (no page horizontal
+   overflow), and a button may shrink below its content width. The gate, the
+   supplied counts/categories, the command ids and the native
+   <details>/<summary> keyboard behavior are untouched. */
+.full-product-resource-pool-compact .full-product-resource-pool-action {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.full-product-resource-pool-compact .full-product-resource-pool-action-label,
+.full-product-resource-pool-compact .full-product-resource-pool-action-detail,
+.full-product-resource-pool-compact .full-product-resource-pool-action-reason {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+/* Expanded compact details keep the existing payment/source visual language.
+   Counts, gates and supplied action ids are unchanged; the collapsed summary
+   stays one short row until the player opens the native disclosure. */
+.full-product-resource-pool-compact .full-product-resource-pool-payment {
+  margin-top: 0.05rem;
+}
+
+.full-product-resource-pool-compact .full-product-resource-pool-subtitle {
+  font-size: 0.62rem;
+}
+
+/* Expanded source actions use a compact multi-column grid. Columns are
+   width-driven and labels may wrap, so opening details never adds horizontal
+   page overflow. */
+.full-product-resource-pool-compact .full-product-resource-pool-action-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
+  gap: 0.3rem;
+}
+
+.full-product-resource-pool-compact .full-product-resource-pool-action {
+  padding: 0.22rem 0.4rem;
+  gap: 0.05rem;
+}
+
+.full-product-resource-pool-compact .full-product-resource-pool-action-label {
+  font-size: 0.68rem;
+  line-height: 1.2;
+}
+
+.full-product-resource-pool-compact .full-product-resource-pool-action-detail {
+  font-size: 0.6rem;
+}
+
+.full-product-resource-pool-compact .full-product-resource-pool-source-groups {
+  gap: 0.3rem;
+}
+
+.full-product-resource-pool-compact .full-product-resource-pool-source-group-title {
+  font-size: 0.58rem;
+}
+
+/* Dense payment preview: one short horizontal line (title + 能量 cost + power
+   costs + the display-only note), so the pending-payment summary never stacks
+   into a tall block above the source buttons. */
+.full-product-resource-pool-compact .full-product-resource-pool-payment {
+  flex-flow: row wrap;
+  align-items: baseline;
+  gap: 0.3rem 0.5rem;
+  padding: 0.18rem 0.4rem;
+}
+
+/* The compact presentation is a real summary block, not a second full panel.
+   Keep the default footprint to one short row; opening the native details
+   disclosure is the explicit choice that reveals source buttons and breakdowns. */
+.full-product-resource-pool-compact {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 0.45rem;
+  min-height: 2.15rem;
+  padding: 0.25rem 0.4rem;
+}
+
+.full-product-resource-pool-compact .full-product-resource-pool-head {
+  position: static;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-height: 0;
+  padding: 0;
+  border-bottom: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.full-product-resource-pool-compact .full-product-resource-pool-title {
+  font-size: 0.74rem;
+  letter-spacing: 0.04em;
+}
+
+.full-product-resource-pool-compact .full-product-resource-pool-status {
+  padding: 0.04rem 0.25rem;
+  font-size: 0.56rem;
+  border-radius: 0.35rem;
+}
+
+.full-product-resource-pool-compact .full-product-resource-pool-compact-totals {
+  position: static;
+  gap: 0.25rem;
+  padding: 0;
+  border-bottom: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.full-product-resource-pool-compact .full-product-resource-pool-total {
+  gap: 0.2rem;
+  padding: 0.04rem 0.32rem;
+  border-radius: 0.3rem;
+}
+
+.full-product-resource-pool-compact .full-product-resource-pool-total i {
+  font-size: 0.58rem;
+}
+
+.full-product-resource-pool-compact .full-product-resource-pool-total b {
+  font-size: 0.78rem;
+}
+
+.full-product-resource-pool-compact .full-product-resource-pool-details {
+  flex: 0 0 auto;
+  min-width: 0;
+  margin-left: auto;
+}
+
+.full-product-resource-pool-compact .full-product-resource-pool-details[open] {
+  flex-basis: 100%;
+  margin-left: 0;
+}
+
+.full-product-resource-pool-compact .full-product-resource-pool-details-summary {
+  padding: 0.08rem 0.28rem;
+  border: 1px solid var(--frp-line);
+  border-radius: 0.3rem;
+  color: var(--frp-txt-2);
+  white-space: nowrap;
+}
+
+.full-product-resource-pool-compact .full-product-resource-pool-details-summary:hover {
+  border-color: var(--frp-accent-strong);
+  color: var(--frp-accent-strong);
+}
+
+.full-product-resource-pool-compact .full-product-resource-pool-details[open]
+  > .full-product-resource-pool-details-summary {
+  display: inline-block;
+  margin-bottom: 0.3rem;
+}
+

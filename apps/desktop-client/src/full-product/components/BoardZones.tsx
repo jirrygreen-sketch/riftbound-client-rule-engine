@@ -1,9 +1,8 @@
 import type { ProjectionObject, ProjectionZone } from "@riftbound/protocol";
-import { deriveLegalActions } from "../commands";
+import { deriveLegalActions, targetOptionsFor } from "../commands";
 import type {
   PlayableCard,
   PlayableMatchView,
-  TargetOption,
   ZoneSummary
 } from "../types";
 
@@ -31,19 +30,19 @@ export function BoardZones({
     view.projection.phase === "ended";
   const legalPlayIds = new Set<string>(
     deriveLegalActions(view)
-      .filter(action => action.type === "play-card")
+      .filter(action => action.type === "play-card" && !action.disabled)
       .map(action => action.selectedCardId ?? "")
   );
   const selectedAction =
     deriveLegalActions(view).find(action => action.id === selectedActionId) ?? null;
   const targetOptions =
     selectedAction?.requiresTargets === true && selectedCardId !== null
-      ? availableTargetOptions(view, selectedCardId)
+      ? targetOptionsFor(view, { cardId: selectedCardId, actionId: selectedActionId })
       : [];
   const targetIds = new Set(
     targetOptions
-      .filter(option => option.disabled !== true)
-      .map(option => option.id)
+      .filter(option => option.disabled !== true && option.objectId !== undefined)
+      .map(option => option.objectId!)
   );
   return (
     <div className="full-product-zones" aria-label="双方区域">
@@ -86,23 +85,16 @@ export function BoardZones({
   );
 }
 
-function availableTargetOptions(
-  view: PlayableMatchView,
-  instanceId: string
-): readonly TargetOption[] {
-  const card = view.projection.players
-    .find(player => player.id === view.viewerPlayerId)
-    ?.hand.find(card => card.instanceId === instanceId);
-  return card ? view.targets?.[card.cardId] ?? [] : [];
-}
-
 export const ZONE_ORDER: readonly ProjectionZone[] = [
   "hand",
   "deck",
   "rune-deck",
   "rune",
   "board",
+  "base",
   "battlefield",
+  "champion",
+  "legend",
   "discard",
   "banish",
   "chain"
@@ -204,7 +196,6 @@ function BoardZone({
   resolveCardTitle: (cardId: string) => string;
 }) {
   const isHand = zone === "hand";
-  const isSelectableTarget = targetIds.size > 0 && zone !== "hand";
   return (
     <section className="full-product-zone" aria-label={label}>
       <header>
@@ -221,11 +212,14 @@ function BoardZone({
             <button
               key={object.objectId}
               type="button"
-              disabled={readOnly || (isHand ? !legalPlayIds.has(object.objectId) : !isSelectableTarget)}
+              disabled={readOnly || (isHand
+                ? !legalPlayIds.has(object.objectId)
+                : !targetIds.has(object.objectId))}
               className="full-product-card"
               aria-pressed={
                 selectedCardId === object.objectId ||
-                selectedTargetIds.includes(object.objectId)
+                selectedTargetIds.includes(object.objectId) ||
+                selectedTargetIds.includes(`object:${object.objectId}`)
               }
               onClick={() => {
                 if (readOnly) return;
@@ -236,7 +230,7 @@ function BoardZone({
                     zone: "hand",
                     title: resolveCardTitle(object.cardId)
                   });
-                } else if (isSelectableTarget) {
+                } else if (targetIds.has(object.objectId)) {
                   onSelectTarget(object.objectId);
                 }
               }}

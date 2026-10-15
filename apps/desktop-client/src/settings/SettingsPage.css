@@ -1,0 +1,374 @@
+/*
+ * Scoped styling for the local display-settings page and the in-match
+ * controls panel.
+ *
+ * Two responsibilities:
+ * 1. `.stg-*` rules style the settings page and the gear/nav panel. Every
+ *    selector is prefixed with `.stg-` so this file never leaks into the rest
+ *    of the desktop client.
+ * 2. Ancestor-attribute rules apply the chosen display settings to the already
+ *    existing `.full-product-duel-*` card classes. The parent maps the
+ *    persisted settings onto root `data-card-scale` / `data-reduced-motion` /
+ *    `data-show-card-names` attributes; these selectors only react to those
+ *    attributes and never redefine another component's layout.
+ *
+ * Palette follows the app shell: deep teal surfaces (#151517 / #232326) with a
+ * #1aa79b accent. Layout uses a responsive, wrapping grid so it stays usable
+ * at 1280x800 and 1024x768 without collapsing into one endless column.
+ */
+
+/* ---------- Settings page ---------- */
+
+.stg-page {
+  --stg-bg: #151517;
+  --stg-surface: #232326;
+  --stg-surface-raised: #2b2b2f;
+  --stg-line: #3a3a40;
+  --stg-text: #f3f0ea;
+  --stg-text-muted: #a6a29a;
+  --stg-primary: #1aa79b;
+  --stg-primary-strong: #37c8bb;
+  --stg-danger: #e5635a;
+
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px 24px 28px;
+  color: var(--stg-text);
+  background: var(--stg-bg);
+}
+
+.stg-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.stg-title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.stg-subtitle {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--stg-text-muted);
+}
+
+.stg-save-error {
+  margin: 0;
+  padding: 8px 12px;
+  color: #ffd6d2;
+  background: rgba(229, 99, 90, 0.16);
+  border: 1px solid rgba(229, 99, 90, 0.5);
+  border-radius: 6px;
+  font-size: 0.82rem;
+}
+
+/* Wrapping multi-column grid: at 1024px this is two columns, at 1280px it can
+   reach three. Cards never stretch the page into one tall column. */
+.stg-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+  align-items: start;
+}
+
+.stg-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 14px 16px 16px;
+  background: var(--stg-surface);
+  border: 1px solid var(--stg-line);
+  border-radius: 8px;
+}
+
+.stg-card-title {
+  padding: 0 6px;
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: var(--stg-primary-strong);
+}
+
+.stg-hint {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--stg-text-muted);
+}
+
+/* Segmented radio group: native radios, visually joined as one control. */
+.stg-segment {
+  display: inline-flex;
+  gap: 0;
+  padding: 2px;
+  background: var(--stg-surface-raised);
+  border: 1px solid var(--stg-line);
+  border-radius: 7px;
+}
+
+.stg-segment-option {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  padding: 6px 14px;
+  font-size: 0.82rem;
+  color: var(--stg-text-muted);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+/* The native input stays in the DOM and focusable; only its visual box is
+   hidden, and focus is mirrored onto the label. */
+.stg-segment-option input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.stg-segment-option[data-active="true"] {
+  color: #062724;
+  background: var(--stg-primary);
+  font-weight: 600;
+}
+
+.stg-segment-option:has(input:focus-visible) {
+  outline: 2px solid #63e2d5;
+  outline-offset: 2px;
+}
+
+.stg-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--stg-surface-raised);
+  border: 1px solid var(--stg-line);
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.stg-toggle input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  accent-color: var(--stg-primary);
+  cursor: pointer;
+}
+
+.stg-toggle-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.stg-toggle-label {
+  font-size: 0.85rem;
+  color: var(--stg-text);
+}
+
+.stg-toggle-compact {
+  padding: 6px 8px;
+}
+
+/* ---------- In-match controls (gear + navigation) ---------- */
+
+.stg-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.stg-gear {
+  position: relative;
+  min-width: 0;
+}
+
+.stg-gear-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  color: var(--stg-text, #f3f0ea);
+  background: var(--stg-surface-raised, #2b2b2f);
+  border: 1px solid var(--stg-line, #3a3a40);
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 0.82rem;
+  list-style: none;
+  user-select: none;
+}
+
+.stg-gear-summary::-webkit-details-marker {
+  display: none;
+}
+
+.stg-gear[open] .stg-gear-summary {
+  color: #062724;
+  background: var(--stg-primary, #1aa79b);
+  border-color: var(--stg-primary, #1aa79b);
+}
+
+.stg-gear-icon {
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+/* Small anchored panel: absolute so expanding it never grows the table page.
+   Falls back to inline flow if the ancestor is not positioned. */
+.stg-gear-panel {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 6px);
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: max-content;
+  max-width: min(320px, 86vw);
+  padding: 12px;
+  color: var(--stg-text, #f3f0ea);
+  background: var(--stg-surface, #232326);
+  border: 1px solid var(--stg-line, #3a3a40);
+  border-radius: 8px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5);
+}
+
+.stg-gear-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.stg-gear-row-label {
+  font-size: 0.8rem;
+  color: var(--stg-text-muted, #a6a29a);
+}
+
+.stg-segment-compact .stg-segment-option {
+  min-width: 38px;
+  padding: 5px 12px;
+}
+
+.stg-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.stg-button {
+  padding: 6px 14px;
+  color: var(--stg-text, #f3f0ea);
+  background: var(--stg-surface-raised, #2b2b2f);
+  border: 1px solid var(--stg-line, #3a3a40);
+  border-radius: 7px;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.stg-button:hover:not(:disabled) {
+  border-color: var(--stg-primary, #1aa79b);
+}
+
+.stg-button:focus-visible {
+  outline: 2px solid #63e2d5;
+  outline-offset: 2px;
+}
+
+.stg-button-danger {
+  color: #ffd6d2;
+  border-color: rgba(229, 99, 90, 0.55);
+}
+
+.stg-button-danger:hover:not(:disabled) {
+  border-color: var(--stg-danger, #e5635a);
+}
+
+.stg-concede-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: rgba(229, 99, 90, 0.14);
+  border: 1px solid rgba(229, 99, 90, 0.4);
+  border-radius: 7px;
+}
+
+/* ---------- Applied display settings (ancestor attributes) ---------- */
+
+/* Card size drives the shared card-width and face-height variables consumed by
+   the existing `.full-product-duel-*` classes. Only variables are set here, so
+   the owning component's own layout rules stay authoritative. */
+[data-card-scale="small"] {
+  --stg-card-width-scale: 0.85;
+  --stg-hand-face-height: min(11rem, 20vh);
+}
+
+[data-card-scale="medium"] {
+  --stg-card-width-scale: 1;
+  --stg-hand-face-height: min(13.5rem, 24vh);
+}
+
+[data-card-scale="large"] {
+  --stg-card-width-scale: 1.2;
+  --stg-hand-face-height: min(16rem, 28vh);
+}
+
+[data-card-scale="small"] .full-product-duel-hand-card {
+  flex-basis: calc(160px * 0.85);
+  width: calc(160px * 0.85);
+  max-width: calc(160px * 0.85);
+}
+
+[data-card-scale="large"] .full-product-duel-hand-card {
+  flex-basis: calc(160px * 1.2);
+  width: calc(160px * 1.2);
+  max-width: calc(160px * 1.2);
+}
+
+[data-card-scale] .full-product-duel-hand-thumb {
+  max-height: var(--stg-hand-face-height, min(13.5rem, 24vh));
+}
+
+/* Card names: the parent toggles the root attribute; hide only the name rows
+   and keep the art and every control intact. */
+[data-show-card-names="false"] .full-product-duel-hand-title,
+[data-show-card-names="false"] .full-product-duel-unit-name,
+[data-show-card-names="false"] .full-product-duel-gear-name,
+[data-show-card-names="false"] .full-product-duel-chain-name {
+  display: none;
+}
+
+/* Reduced motion: disable the shell transitions and animations. */
+[data-reduced-motion="true"] *,
+[data-reduced-motion="true"] *::before,
+[data-reduced-motion="true"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stg-gear,
+  .stg-button,
+  .stg-toggle,
+  .stg-segment-option {
+    transition: none;
+  }
+}

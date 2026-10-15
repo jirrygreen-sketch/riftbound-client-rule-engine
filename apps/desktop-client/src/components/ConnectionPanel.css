@@ -1,0 +1,231 @@
+/*
+ * ConnectionPanel big-rules styles.
+ *
+ * Scoped to the `.connection-big-rules` variant of `.connection-panel`. The
+ * selectors are doubled (`.connection-panel.connection-big-rules`) so they win
+ * over the legacy single-class `.connection-panel` grid rules in the parent
+ * `styles.css` without editing that shared file. Every class keeps the
+ * `connection` prefix and uses the global dark-teal tokens from `:root`.
+ */
+
+.connection-panel.connection-big-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 0 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+/* Collapsible server settings keep the address out of the primary flow. */
+.connection-big-rules .connection-settings {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-muted);
+}
+
+.connection-big-rules .connection-settings-summary {
+  padding: 8px 12px;
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.connection-big-rules .connection-settings-summary::-webkit-details-marker {
+  display: none;
+}
+
+.connection-big-rules .connection-settings-summary::before {
+  content: "▸";
+  display: inline-block;
+  width: 14px;
+  color: var(--primary-strong);
+}
+
+.connection-big-rules .connection-settings[open] .connection-settings-summary::before {
+  content: "▾";
+}
+
+.connection-big-rules .connection-settings-body {
+  display: flex;
+  align-items: end;
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+
+.connection-big-rules .connection-settings-body .button {
+  flex: 0 0 auto;
+}
+
+.connection-big-rules .connection-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.connection-big-rules .connection-nickname-row {
+  display: flex;
+  max-width: 360px;
+}
+
+.connection-big-rules .connection-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.connection-big-rules .connection-column {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.connection-big-rules .connection-column-title {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #f3f0ea;
+}
+
+.connection-big-rules .connection-ruleset {
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.connection-big-rules .connection-legend {
+  padding: 0 0 6px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.connection-big-rules .connection-radio-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.connection-big-rules .connection-radio-card {
+  display: grid;
+  grid-template-rows: auto auto;
+  gap: 4px;
+  padding: 10px;
+  background: #1c1c1f;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.connection-big-rules .connection-radio-card.is-selected {
+  border-color: var(--primary-strong);
+  background: rgba(26, 167, 155, 0.14);
+  box-shadow: inset 0 0 0 1px var(--primary-strong);
+}
+
+.connection-big-rules .connection-radio-card:focus-within {
+  box-shadow: var(--focus-ring);
+}
+
+.connection-big-rules .connection-radio-card input {
+  margin: 0;
+  accent-color: var(--primary-strong);
+}
+
+.connection-big-rules .connection-radio-card-label {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: #f3f0ea;
+}
+
+.connection-big-rules .connection-radio-card-desc {
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--text-muted);
+}
+
+.connection-big-rules .connection-note {
+  margin: 0;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+.connection-big-rules .connection-room-ruleset {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #e8eef8;
+}
+
+.connection-big-rules .connection-room-ruleset strong {
+  color: var(--primary-strong);
+}
+
+.connection-big-rules .connection-action {
+  align-self: flex-start;
+}
+
+.connection-big-rules .connection-join-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.connection-big-rules .connection-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  color: var(--text-muted);
+}
+
+.connection-big-rules .connection-state .divider {
+  color: var(--line);
+}
+
+.connection-big-rules .connection-state .hint {
+  margin-left: auto;
+}
+
+/* 1024x768: keep two columns but let the rule cards wrap to two rows. */
+@media (max-width: 1180px) {
+  .connection-big-rules .connection-radio-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Narrow: stack the create/join columns instead of overflowing. */
+@media (max-width: 900px) {
+  .connection-panel.connection-big-rules {
+    display: flex;
+  }
+
+  .connection-big-rules .connection-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .connection-panel.connection-big-rules {
+    display: flex;
+    gap: 12px;
+  }
+
+  .connection-big-rules .connection-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .connection-big-rules .connection-radio-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .connection-big-rules .connection-action {
+    width: 100%;
+  }
+}

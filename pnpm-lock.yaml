@@ -51,6 +51,9 @@ importers:
 
   apps/game-server:
     dependencies:
+      '@riftbound/card-dsl':
+        specifier: workspace:*
+        version: link:../../packages/card-dsl
       '@riftbound/engine-core':
         specifier: workspace:*
         version: link:../../packages/engine-core
@@ -98,6 +101,9 @@ importers:
 
   packages/engine-core:
     dependencies:
+      '@riftbound/card-dsl':
+        specifier: workspace:*
+        version: link:../card-dsl
       '@riftbound/protocol':
         specifier: workspace:*
         version: link:../protocol

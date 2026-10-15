@@ -42,7 +42,10 @@ describe("full-product board privacy", () => {
       "rune-deck",
       "rune",
       "board",
+      "base",
       "battlefield",
+      "champion",
+      "legend",
       "discard",
       "banish",
       "chain"

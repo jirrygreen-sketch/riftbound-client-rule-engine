@@ -1,0 +1,12 @@
+# Deterministic Rust toolchain pin for the Tauri desktop shell.
+#
+# Must stay in sync with `Cargo.toml` (`rust-version = "1.90"`) and with the
+# `Install Rust ... MSVC` step in `.github/workflows/desktop-build.yml`.
+#
+# No `targets` entry is declared on purpose: the pinned 1.90.0 release is
+# resolved per host (Windows x86_64-pc-windows-msvc in CI, aarch64-apple-darwin
+# on the local macOS host), so a single hardcoded host target must not be baked
+# in here.
+[toolchain]
+channel = "1.90.0"
+profile = "minimal"

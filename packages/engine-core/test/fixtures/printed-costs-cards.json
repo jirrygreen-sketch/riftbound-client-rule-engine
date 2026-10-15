@@ -1,0 +1,377 @@
+{
+  "schemaVersion": 1,
+  "description": "Tracked minimal projection of the official deck catalog used by duel-printed-costs.test.mjs. Each record is a field-for-field subset of the official catalog; duel-printed-costs.audit.mjs re-verifies it against the full catalog.",
+  "projectedFields": [
+    "id",
+    "canonicalCardId",
+    "name",
+    "fullName",
+    "cardType",
+    "domains",
+    "energy",
+    "power",
+    "might"
+  ],
+  "groups": {
+    "numeric": [
+      "ogn-066-298",
+      "ogn-256-298",
+      "ogn-043-298",
+      "sfd-043-221",
+      "sfd-037-221",
+      "ogn-040-298",
+      "sfd-222-221",
+      "ogn-264-298",
+      "rad-006-167",
+      "rad-167-167",
+      "ogn-248-298"
+    ],
+    "nullEnergy": [
+      "ogn-271-298",
+      "ogn-272-298",
+      "ogn-273-298",
+      "ogn-274-298",
+      "sfd-t03",
+      "unl-t02",
+      "unl-t05",
+      "unl-t06",
+      "unl-t07",
+      "ven-t04"
+    ],
+    "unsupported": [
+      "rad-r01",
+      "ogn-247-298",
+      "ogn-275-298",
+      "unl-t04"
+    ]
+  },
+  "cards": [
+    {
+      "id": "ogn-066-298",
+      "canonicalCardId": "card.hash-4f9cef9a5292a16fac59206baa263b0654606faa95119ee4a76583f82b2a4dac",
+      "name": "Ahri",
+      "fullName": "Ahri, Alluring",
+      "cardType": "Unit",
+      "domains": [
+        "Calm"
+      ],
+      "energy": 5,
+      "power": 1,
+      "might": 4
+    },
+    {
+      "id": "ogn-256-298",
+      "canonicalCardId": "card.hash-a8491bd5b3202938d1600eec9d2435158dffdf3ceda1be6ceaa50336f2e25393",
+      "name": "Fox-Fire",
+      "fullName": "Fox-Fire, Ahri",
+      "cardType": "Spell",
+      "domains": [
+        "Calm",
+        "Mind"
+      ],
+      "energy": 3,
+      "power": null,
+      "might": null
+    },
+    {
+      "id": "ogn-043-298",
+      "canonicalCardId": "card.hash-cb202ce740ea23b09a039a51724a26f05a05cbd44cb1fb5692f72a7c406b4201",
+      "name": "Charm",
+      "fullName": "Charm",
+      "cardType": "Spell",
+      "domains": [
+        "Calm"
+      ],
+      "energy": 1,
+      "power": 1,
+      "might": null
+    },
+    {
+      "id": "sfd-043-221",
+      "canonicalCardId": "card.hash-ecb9b44b724f5cf8fc83e9f49da0b24bed461053303201914a0ce0ef8db8ed45",
+      "name": "Emperor's Divide",
+      "fullName": "Emperor's Divide",
+      "cardType": "Spell",
+      "domains": [
+        "Calm"
+      ],
+      "energy": 2,
+      "power": null,
+      "might": null
+    },
+    {
+      "id": "sfd-037-221",
+      "canonicalCardId": "card.hash-c75d6f4a1bbeb87090ae0f7135aac4f6a4f1062063662b9ccae6fe99f1c9bc7d",
+      "name": "Navori Scout",
+      "fullName": "Navori Scout",
+      "cardType": "Unit",
+      "domains": [
+        "Calm"
+      ],
+      "energy": 4,
+      "power": null,
+      "might": 4
+    },
+    {
+      "id": "ogn-040-298",
+      "canonicalCardId": "card.hash-8ecba382226849757c2ac004a54b1ce00f2d0d303a1d99520e1855117bd7a161",
+      "name": "Seal of Rage",
+      "fullName": "Seal of Rage",
+      "cardType": "Gear",
+      "domains": [
+        "Fury"
+      ],
+      "energy": 0,
+      "power": 1,
+      "might": null
+    },
+    {
+      "id": "sfd-222-221",
+      "canonicalCardId": "card.hash-8ecba382226849757c2ac004a54b1ce00f2d0d303a1d99520e1855117bd7a161",
+      "name": "Seal of Rage",
+      "fullName": "Seal of Rage",
+      "cardType": "Gear",
+      "domains": [
+        "Fury"
+      ],
+      "energy": 0,
+      "power": 1,
+      "might": null
+    },
+    {
+      "id": "ogn-264-298",
+      "canonicalCardId": "card.hash-1175fb7ab62c4d777b8ccd63b423982a0b70440ed2d5652d2b61dde6fb07b06f",
+      "name": "Guerilla Warfare",
+      "fullName": "Guerilla Warfare, Teemo",
+      "cardType": "Spell",
+      "domains": [
+        "Mind",
+        "Chaos"
+      ],
+      "energy": 2,
+      "power": 1,
+      "might": null
+    },
+    {
+      "id": "rad-006-167",
+      "canonicalCardId": "card.hash-0de7fdfddfced7ff6b7fcdb3da2d93eb7c6f6531565882598b1ff5fa0d827fa0",
+      "name": "Scorched Earth",
+      "fullName": "Scorched Earth",
+      "cardType": "Spell",
+      "domains": [],
+      "energy": 4,
+      "power": 1,
+      "might": null
+    },
+    {
+      "id": "rad-167-167",
+      "canonicalCardId": "card.hash-8beb5aeeb976500ce49a3d84121eaee83cbcc32357ee206dfdb2aefdcb2439f7",
+      "name": "Neeko",
+      "fullName": "Neeko, Blending In",
+      "cardType": "Unit",
+      "domains": [
+        "Colorless"
+      ],
+      "energy": 6,
+      "power": 1,
+      "might": 4
+    },
+    {
+      "id": "ogn-248-298",
+      "canonicalCardId": "card.hash-e103f9d62c928837475ed870767d97957ffd5cf5908be18d0d74fa19fef131ff",
+      "name": "Icathian Rain",
+      "fullName": "Icathian Rain, Kai'Sa",
+      "cardType": "Spell",
+      "domains": [
+        "Fury",
+        "Mind"
+      ],
+      "energy": 7,
+      "power": 3,
+      "might": null
+    },
+    {
+      "id": "ogn-271-298",
+      "canonicalCardId": "card.hash-a1488e943c6c92d892414a146fbf3fff172049ed362c2c8e77f631f50456eedc",
+      "name": "Recruit (DE)",
+      "fullName": "Recruit (DE)",
+      "cardType": "Unit",
+      "domains": [
+        "Colorless"
+      ],
+      "energy": null,
+      "power": null,
+      "might": 1
+    },
+    {
+      "id": "ogn-272-298",
+      "canonicalCardId": "card.hash-3427b0d1d2aac421ca32b1a54e92aa724dfad5104e75a9c079ba3fcd994c1275",
+      "name": "Recruit (NX)",
+      "fullName": "Recruit (NX)",
+      "cardType": "Unit",
+      "domains": [
+        "Colorless"
+      ],
+      "energy": null,
+      "power": null,
+      "might": 1
+    },
+    {
+      "id": "ogn-273-298",
+      "canonicalCardId": "card.hash-632c13dcb7b2a8f7fdf9713474eae27ad470c64055fd356750c3998847de0495",
+      "name": "Recruit (ZN)",
+      "fullName": "Recruit (ZN)",
+      "cardType": "Unit",
+      "domains": [
+        "Colorless"
+      ],
+      "energy": null,
+      "power": null,
+      "might": 1
+    },
+    {
+      "id": "ogn-274-298",
+      "canonicalCardId": "card.hash-610cc33146e5be610b1b548bd327d47a44aba21edb081e7669cba4971753ccef",
+      "name": "Sprite",
+      "fullName": "Sprite",
+      "cardType": "Unit",
+      "domains": [
+        "Colorless"
+      ],
+      "energy": null,
+      "power": null,
+      "might": 3
+    },
+    {
+      "id": "sfd-t03",
+      "canonicalCardId": "card.hash-6249df4367d0a2e088c8eb1117ef59430f0d7dad4bf0fcf8a01d7f0415f4d511",
+      "name": "Gold",
+      "fullName": "Gold",
+      "cardType": "Gear",
+      "domains": [
+        "Colorless"
+      ],
+      "energy": null,
+      "power": null,
+      "might": null
+    },
+    {
+      "id": "unl-t02",
+      "canonicalCardId": "card.hash-68b515e1903e6d629eeb25b886b6f90bb791121e70c5ea72793220dd7f70e70d",
+      "name": "Bird",
+      "fullName": "Bird",
+      "cardType": "Unit",
+      "domains": [
+        "Colorless"
+      ],
+      "energy": null,
+      "power": null,
+      "might": 1
+    },
+    {
+      "id": "unl-t05",
+      "canonicalCardId": "card.hash-6249df4367d0a2e088c8eb1117ef59430f0d7dad4bf0fcf8a01d7f0415f4d511",
+      "name": "Gold",
+      "fullName": "Gold",
+      "cardType": "Gear",
+      "domains": [
+        "Colorless"
+      ],
+      "energy": null,
+      "power": null,
+      "might": null
+    },
+    {
+      "id": "unl-t06",
+      "canonicalCardId": "card.hash-7538c2135b030e4e91c01e4952055324c62e0182b94d2d0bf0c272f7f55e2373",
+      "name": "Reflection",
+      "fullName": "Reflection",
+      "cardType": "Unit",
+      "domains": [
+        "Colorless"
+      ],
+      "energy": null,
+      "power": null,
+      "might": 0
+    },
+    {
+      "id": "unl-t07",
+      "canonicalCardId": "card.hash-610cc33146e5be610b1b548bd327d47a44aba21edb081e7669cba4971753ccef",
+      "name": "Sprite",
+      "fullName": "Sprite",
+      "cardType": "Unit",
+      "domains": [
+        "Colorless"
+      ],
+      "energy": null,
+      "power": null,
+      "might": 3
+    },
+    {
+      "id": "ven-t04",
+      "canonicalCardId": "card.hash-3803d5d84b49f4d89171869c436061efb615d7b53a0c14cab12b663b7f50542b",
+      "name": "Recruit",
+      "fullName": "Recruit",
+      "cardType": "Unit",
+      "domains": [
+        "Colorless"
+      ],
+      "energy": null,
+      "power": null,
+      "might": 1
+    },
+    {
+      "id": "rad-r01",
+      "canonicalCardId": "card.hash-30497c69657abd1d3abf17f9b3766e7d064817473a88828ca2ef4ab9b51f7902",
+      "name": "Fury Rune",
+      "fullName": "Fury Rune",
+      "cardType": "Rune",
+      "domains": [
+        "Fury"
+      ],
+      "energy": null,
+      "power": null,
+      "might": null
+    },
+    {
+      "id": "ogn-247-298",
+      "canonicalCardId": "card.hash-d1376b95989d72f123c2e7fbde3eab74d70c047906b489ce0e076e7e25c757c2",
+      "name": "Daughter of the Void",
+      "fullName": "Daughter of the Void",
+      "cardType": "Legend",
+      "domains": [
+        "Fury",
+        "Mind"
+      ],
+      "energy": null,
+      "power": null,
+      "might": null
+    },
+    {
+      "id": "ogn-275-298",
+      "canonicalCardId": "card.hash-235642b62ac009ff34cfa13db7debd2bf1e71c1a9bf411cf5ffab5dfd06e5099",
+      "name": "Altar to Unity",
+      "fullName": "Altar to Unity",
+      "cardType": "Battlefield",
+      "domains": [
+        "Colorless"
+      ],
+      "energy": null,
+      "power": null,
+      "might": null
+    },
+    {
+      "id": "unl-t04",
+      "canonicalCardId": "card.hash-66eaa3ba7dcb5f48286af9287931a07e8311549ec5b0d9c312fce567f2d723b1",
+      "name": "Buff",
+      "fullName": "Buff",
+      "cardType": "Token",
+      "domains": [
+        "Colorless"
+      ],
+      "energy": null,
+      "power": null,
+      "might": null
+    }
+  ]
+}

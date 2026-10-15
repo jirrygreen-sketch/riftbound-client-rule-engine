@@ -1,19 +1,16 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
 
 import { buildEffectCoverageReport } from "../dist/index.js";
+import { buildDeckCatalog } from "../scripts/build-deck-catalog.mjs";
 
-const catalog = JSON.parse(readFileSync(
-  fileURLToPath(new URL("../data/deck-catalog.json", import.meta.url)),
-  "utf8"
-));
-const coverage = JSON.parse(readFileSync(
-  fileURLToPath(new URL("../data/effect-coverage.json", import.meta.url)),
-  "utf8"
-));
+// Fixture-driven regression for the public deck catalog.
+//
+// Every catalog under test is produced by the real `buildDeckCatalog` builder
+// from a synthetic snapshot, so this file runs offline in a fresh checkout.
+// The audits that require the gitignored official snapshot live in
+// `test/persisted-catalog-audit.mjs` and are run explicitly.
 
 function canonicalIdFor(fullName) {
   return `card.hash-${createHash("sha256")
@@ -21,7 +18,119 @@ function canonicalIdFor(fullName) {
     .digest("hex")}`;
 }
 
-function groupCardsByCanonical() {
+function officialCard(overrides = {}) {
+  return {
+    id: "fix-001-100",
+    name: "Flame Warden",
+    subtitle: "Ember Guard",
+    set: { value: { id: "FIX", label: "Fixture" } },
+    publicCode: "FIX-001/100",
+    cardType: { type: [{ id: "unit", label: "Unit" }] },
+    domain: { values: [] },
+    tags: { tags: [] },
+    text: { richText: { body: "When this card arrives, draw 1 card." } },
+    ...overrides
+  };
+}
+
+const COMMUNITY_ONLY_CARD = {
+  cardCode: "com-001-100",
+  name: "Community Card",
+  fullName: "Community Card",
+  setCode: "com",
+  cardNumber: "001-100",
+  cardType: "Unit",
+  domains: ["Ember"],
+  tags: ["community"],
+  abilityEffective: ""
+};
+
+const FIXTURE_OFFICIAL_CARDS = [
+  officialCard({ id: "fix-001-100", publicCode: "FIX-001/100" }),
+  officialCard({ id: "fix-001a-100", publicCode: "FIX-001a/100" }),
+  officialCard({
+    id: "ogn-014-100",
+    set: { value: { id: "OGN", label: "Fixture Origins" } },
+    publicCode: "OGN-014/100"
+  }),
+  officialCard({
+    id: "sfd-227-221",
+    name: "Ahri",
+    subtitle: "Inquisitive",
+    set: { value: { id: "SFD", label: "Fixture Starlit" } },
+    publicCode: "SFD-227/221"
+  }),
+  officialCard({
+    id: "sfd-227-star-221",
+    name: "Ahri",
+    subtitle: "Inquisitive",
+    set: { value: { id: "SFD", label: "Fixture Starlit" } },
+    publicCode: "SFD-227*/221"
+  }),
+  officialCard({
+    id: "ven-001-166",
+    name: "Kai'Sa",
+    subtitle: "Survivor",
+    set: { value: { id: "VEN", label: "Fixture Venom" } },
+    publicCode: "VEN-001/166",
+    text: {
+      richText: { body: "When this card arrives, each player discards a card." }
+    }
+  }),
+  officialCard({
+    id: "ogn-112-298",
+    name: "Kai'Sa",
+    subtitle: "Evolutionary",
+    set: { value: { id: "OGN", label: "Fixture Origins" } },
+    publicCode: "OGN-112/298",
+    text: {
+      richText: { body: "When this card arrives, each player discards a card." }
+    }
+  }),
+  officialCard({
+    id: "fix-003-100",
+    name: "Simple Gear",
+    subtitle: undefined,
+    publicCode: "FIX-003/100",
+    text: { richText: { body: "" } }
+  }),
+  officialCard({
+    id: "rad-r01",
+    name: "Radiance Rune",
+    subtitle: undefined,
+    set: { value: { id: "RAD", label: "Fixture Radiance" } },
+    publicCode: "RAD-R01/100",
+    text: { richText: { body: "" } }
+  }),
+  officialCard({
+    id: "rad-r01a",
+    name: "Radiance Rune",
+    subtitle: undefined,
+    set: { value: { id: "RAD", label: "Fixture Radiance" } },
+    publicCode: "RAD-R01a/100",
+    text: { richText: { body: "[NO TEXT]" } }
+  })
+];
+
+function fixtureCatalog() {
+  return buildDeckCatalog({
+    schemaVersion: 1,
+    source: { releaseTag: "fixture-2026-10-12" },
+    cards: [
+      ...FIXTURE_OFFICIAL_CARDS.map((card) => ({
+        cardCode: card.id,
+        ...card
+      })),
+      COMMUNITY_ONLY_CARD
+    ],
+    localizedGalleries: {
+      "en-US": { cards: FIXTURE_OFFICIAL_CARDS },
+      "zh-CN": { cards: [] }
+    }
+  });
+}
+
+function groupCardsByCanonical(catalog) {
   const byCanonical = new Map();
   for (const card of catalog.cards) {
     const existing = byCanonical.get(card.canonicalCardId);
@@ -34,15 +143,30 @@ function groupCardsByCanonical() {
   return byCanonical;
 }
 
-test("persisted deck catalog groups every printing under one canonical identity", () => {
+function coverageReportFor(catalog) {
+  return buildEffectCoverageReport(
+    catalog.cards.map((card) => ({
+      id: card.id,
+      canonicalCardId: card.canonicalCardId,
+      ability: card.ability ?? ""
+    }))
+  );
+}
+
+test("fixture deck catalog groups every printing under one canonical identity", () => {
+  const catalog = fixtureCatalog();
   assert.equal(catalog.schemaVersion, 1);
-  assert.equal(catalog.cards.length, 1381);
-  assert.equal(catalog.groups.length, 1080);
+  assert.equal(catalog.cards.length, 11);
+  assert.equal(catalog.groups.length, 7);
 
   const cardsById = new Map();
   for (const card of catalog.cards) {
     assert.equal(cardsById.has(card.id), false, `duplicate printing ${card.id}`);
     cardsById.set(card.id, card);
+    if (card.id === COMMUNITY_ONLY_CARD.cardCode) {
+      assert.equal(card.canonicalCardId, card.id);
+      continue;
+    }
     assert.equal(
       card.canonicalCardId,
       canonicalIdFor(card.fullName),
@@ -50,8 +174,8 @@ test("persisted deck catalog groups every printing under one canonical identity"
     );
   }
 
-  const cardsByCanonical = groupCardsByCanonical();
-  assert.equal(cardsByCanonical.size, 1080);
+  const cardsByCanonical = groupCardsByCanonical(catalog);
+  assert.equal(cardsByCanonical.size, 7);
 
   const groupsByCanonical = new Map();
   for (const group of catalog.groups) {
@@ -61,7 +185,7 @@ test("persisted deck catalog groups every printing under one canonical identity"
       `duplicate canonical group ${group.canonicalCardId}`
     );
     groupsByCanonical.set(group.canonicalCardId, group);
-    assert.equal(group.identityProvenance, "official-name-rule");
+    assert.equal(group.printings.includes(group.primaryPrintingId), true);
 
     const expectedPrintings = cardsByCanonical
       .get(group.canonicalCardId)
@@ -69,36 +193,59 @@ test("persisted deck catalog groups every printing under one canonical identity"
       .sort();
     assert.notEqual(expectedPrintings, undefined);
     assert.deepEqual([...group.printings].sort(), expectedPrintings);
-    assert.equal(group.printings.includes(group.primaryPrintingId), true);
 
+    if (group.identityProvenance === "unknown-community") {
+      assert.equal(group.canonicalCardId, COMMUNITY_ONLY_CARD.cardCode);
+      continue;
+    }
+
+    assert.equal(group.identityProvenance, "official-name-rule");
     const primary = cardsById.get(group.primaryPrintingId);
     assert.notEqual(primary, undefined);
     assert.equal(primary.canonicalCardId, group.canonicalCardId);
     assert.equal(primary.fullName, group.fullName);
+    assert.equal(primary.variant, "standard");
   }
   assert.equal(groupsByCanonical.size, cardsByCanonical.size);
+
+  const unknownGroup = groupsByCanonical.get(COMMUNITY_ONLY_CARD.cardCode);
+  assert.notEqual(unknownGroup, undefined);
+  assert.equal(unknownGroup.identityProvenance, "unknown-community");
+  assert.deepEqual(unknownGroup.printings, [COMMUNITY_ONLY_CARD.cardCode]);
+  assert.equal(unknownGroup.primaryPrintingId, COMMUNITY_ONLY_CARD.cardCode);
+  assert.deepEqual(unknownGroup.ruleReferences, []);
+  assert.equal(
+    unknownGroup.reason,
+    "Official gallery provenance is unavailable; the printing is isolated."
+  );
 });
 
 test("alternate and reprint printings share a canonical identity for copy limits", () => {
-  const cardsByCanonical = groupCardsByCanonical();
-  const multiPrintingIdentities = [...cardsByCanonical.values()]
-    .filter((printings) => printings.length > 1);
-  assert.equal(multiPrintingIdentities.length, 207);
+  const catalog = fixtureCatalog();
+  const cardsByCanonical = groupCardsByCanonical(catalog);
+  const officialCanonicals = [...cardsByCanonical.entries()].filter(
+    ([canonicalCardId]) => canonicalCardId !== COMMUNITY_ONLY_CARD.cardCode
+  );
+
+  const multiPrintingIdentities = officialCanonicals.filter(
+    ([, printings]) => printings.length > 1
+  );
+  assert.equal(multiPrintingIdentities.length, 3);
 
   const variantCounts = { standard: 0, alternate: 0, unknown: 0 };
   for (const card of catalog.cards) {
     variantCounts[card.variant] += 1;
   }
   assert.deepEqual(variantCounts, {
-    standard: 1212,
-    alternate: 169,
-    unknown: 0
+    standard: 7,
+    alternate: 3,
+    unknown: 1
   });
 
-  const crossSetIdentities = [...cardsByCanonical.values()].filter(
-    (printings) => new Set(printings.map((card) => card.setCode)).size > 1
+  const crossSetIdentities = officialCanonicals.filter(
+    ([, printings]) => new Set(printings.map((card) => card.setCode)).size > 1
   );
-  assert.equal(crossSetIdentities.length, 46);
+  assert.equal(crossSetIdentities.length, 1);
 
   // Every alternate art or showcase printing must resolve to the same
   // canonical identity as a standard printing; otherwise a canonical copy
@@ -122,32 +269,49 @@ test("alternate and reprint printings share a canonical identity for copy limits
       printings.map((card) => card.id).sort()
     );
   }
+
+  // The showcase `*` alternate resolves under the standard primary printing.
+  const ahri = groupsByCanonical.get(canonicalIdFor("Ahri, Inquisitive"));
+  assert.notEqual(ahri, undefined);
+  assert.equal(ahri.primaryPrintingId, "sfd-227-221");
+  assert.deepEqual(
+    [...ahri.printings].sort(),
+    ["sfd-227-221", "sfd-227-star-221"]
+  );
 });
 
-test("persisted effect coverage reproduces from the catalog and matches ability text", () => {
-  assert.equal(coverage.schemaVersion, 1);
-  assert.equal(coverage.printingCount, 1381);
-  assert.equal(coverage.canonicalIdentityCount, 1080);
-  assert.equal(coverage.executableCount, 0);
-  assert.equal(coverage.judgeRequiredCount, 1348);
-  assert.equal(coverage.noAbilityCount, 33);
+test("effect coverage reproduces from the fixture catalog and matches ability text", () => {
+  const catalog = fixtureCatalog();
+  const report = coverageReportFor(catalog);
 
-  const recomputed = buildEffectCoverageReport(
-    catalog.cards.map((card) => ({
-      id: card.id,
-      canonicalCardId: card.canonicalCardId,
-      ability: card.ability ?? ""
-    }))
+  assert.equal(report.schemaVersion, 1);
+  assert.equal(report.printingCount, 11);
+  assert.equal(report.canonicalIdentityCount, 7);
+  assert.equal(report.executableCount, 5);
+  assert.equal(report.judgeRequiredCount, 3);
+  assert.equal(report.noAbilityCount, 3);
+
+  const statusByPrinting = new Map(
+    report.entries.map((entry) => [entry.printingId, entry.status])
   );
-  assert.equal(recomputed.printingCount, coverage.printingCount);
-  assert.equal(recomputed.canonicalIdentityCount, coverage.canonicalIdentityCount);
-  assert.equal(recomputed.executableCount, coverage.executableCount);
-  assert.equal(recomputed.judgeRequiredCount, coverage.judgeRequiredCount);
-  assert.equal(recomputed.noAbilityCount, coverage.noAbilityCount);
-  assert.deepEqual(recomputed.entries, coverage.entries);
+  for (const printingId of [
+    "fix-001-100",
+    "fix-001a-100",
+    "ogn-014-100",
+    "sfd-227-221",
+    "sfd-227-star-221"
+  ]) {
+    assert.equal(statusByPrinting.get(printingId), "executable", printingId);
+  }
+  for (const printingId of ["ven-001-166", "ogn-112-298", "rad-r01a"]) {
+    assert.equal(statusByPrinting.get(printingId), "judge-required", printingId);
+  }
+  for (const printingId of ["fix-003-100", "rad-r01", "com-001-100"]) {
+    assert.equal(statusByPrinting.get(printingId), "no-ability", printingId);
+  }
 
   const cardsById = new Map(catalog.cards.map((card) => [card.id, card]));
-  for (const entry of coverage.entries) {
+  for (const entry of report.entries) {
     const card = cardsById.get(entry.printingId);
     assert.notEqual(card, undefined);
     const hasNoAbilityText = (card.ability ?? "").trim() === "";
@@ -160,36 +324,22 @@ test("persisted effect coverage reproduces from the catalog and matches ability 
 });
 
 test("radiance showcase rune placeholders are judge-required, not no-ability", () => {
+  const catalog = fixtureCatalog();
   const statusByPrinting = new Map(
-    coverage.entries.map((entry) => [entry.printingId, entry.status])
+    coverageReportFor(catalog).entries.map((entry) => [
+      entry.printingId,
+      entry.status
+    ])
   );
 
-  // These Radiance showcase Basic Runes carry the upstream sentinel text
+  // The Radiance showcase Basic Rune carries the upstream sentinel text
   // "[NO TEXT]" instead of an empty ability, so the conservative compiler
-  // classifies them as judge-required rather than no-ability.
-  for (const printingId of [
-    "rad-r01a",
-    "rad-r02a",
-    "rad-r03a",
-    "rad-r04a",
-    "rad-r05a",
-    "rad-r06a"
-  ]) {
-    const card = catalog.cards.find((entry) => entry.id === printingId);
-    assert.notEqual(card, undefined);
-    assert.equal(card.ability, "[NO TEXT]");
-    assert.equal(statusByPrinting.get(printingId), "judge-required");
-  }
+  // classifies it as judge-required rather than no-ability.
+  const showcase = catalog.cards.find((card) => card.id === "rad-r01a");
+  assert.notEqual(showcase, undefined);
+  assert.equal(showcase.ability, "[NO TEXT]");
+  assert.equal(statusByPrinting.get("rad-r01a"), "judge-required");
 
-  // The blank-text standard Radiance runes remain no-ability.
-  for (const printingId of [
-    "rad-r01",
-    "rad-r02",
-    "rad-r03",
-    "rad-r04",
-    "rad-r05",
-    "rad-r06"
-  ]) {
-    assert.equal(statusByPrinting.get(printingId), "no-ability");
-  }
+  // The blank-text standard Radiance rune remains no-ability.
+  assert.equal(statusByPrinting.get("rad-r01"), "no-ability");
 });

@@ -2,7 +2,15 @@ import type { PlayerCommand, ProjectionObject, ProjectionZone } from "@riftbound
 import { BoardZones } from "./components/BoardZones";
 import { MatchStatusBar } from "./MatchStatusBar";
 import { PromptActionPanel } from "./PromptActionPanel";
-import { ZONE_LABELS, buildSubmissionFromSelection, deriveLegalActions } from "./commands";
+import {
+  ZONE_LABELS,
+  authoritativeActionOptions,
+  buildSubmissionFromSelection,
+  commandTargetKey,
+  deriveLegalActions,
+  findAuthoritativeAction,
+  targetOptionsFor
+} from "./commands";
 import type {
   ActionSelection,
   PlayableCard,
@@ -18,7 +26,10 @@ const ZONES: readonly ProjectionZone[] = [
   "rune-deck",
   "rune",
   "board",
+  "base",
   "battlefield",
+  "champion",
+  "legend",
   "discard",
   "banish",
   "chain"
@@ -79,10 +90,15 @@ export function targetOptionsForSelectedCard(
   view: PlayableMatchView,
   selection: Pick<ActionSelection, "cardId">
 ): readonly import("./types").TargetOption[] {
-  const card = view.projection.players
-    .find(player => player.id === view.viewerPlayerId)
-    ?.hand.find(card => card.instanceId === selection.cardId);
-  return card ? view.targets?.[card.cardId] ?? [] : [];
+  const action = deriveLegalActions(view).find(
+    candidate =>
+      candidate.type === "play-card" &&
+      candidate.selectedCardId === selection.cardId
+  );
+  return targetOptionsFor(view, {
+    actionId: action?.id ?? null,
+    cardId: selection.cardId
+  });
 }
 
 export function buildZones(view: PlayableMatchView): readonly ZoneSummary[] {
@@ -171,6 +187,23 @@ export function selectTarget(
   view: PlayableMatchView,
   selection: ActionSelection
 ): ActionSelection {
+  const options = authoritativeActionOptions(view);
+  if (options !== null) {
+    const action = findAuthoritativeAction(options, selection);
+    if (action === null || action.command.type !== "play-card") return selection;
+    const policy = action.targetPolicy;
+    const authorized = new Set(policy.options.map(commandTargetKey));
+    if (!authorized.has(targetId)) return selection;
+    if (selection.targetIds.includes(targetId)) {
+      return {
+        ...selection,
+        targetIds: selection.targetIds.filter(id => id !== targetId)
+      };
+    }
+    if (selection.targetIds.length >= policy.maxTargets) return selection;
+    return { ...selection, targetIds: [...selection.targetIds, targetId] };
+  }
+
   const card = view.projection.players
     .find(player => player.id === view.viewerPlayerId)
     ?.hand.find(card => card.instanceId === selection.cardId);

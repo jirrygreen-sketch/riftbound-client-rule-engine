@@ -193,25 +193,14 @@ async function submitDeck(
     expectedRoomVersion,
     deck
   });
-  const [receipt, error] = await Promise.allSettled([
-    client.waitFor(
-    "request-result",
-    message => message.type === "request-result" && message.requestId === requestId,
-      "submit-deck receipt",
-      1_000
-    ),
-    client.waitFor(
-      "error",
-      message => message.type === "error" && message.requestId === requestId,
-      "submit-deck error",
-      1_000
-    )
-  ]);
-  if (receipt.status === "fulfilled") return receipt.value;
-  if (error.status === "fulfilled") throw new SubmittedDeckRejected(error.value);
-  throw new Error(
-    "submit-deck is declared by the protocol but the game server did not answer it."
+  const response = await client.waitForAny(
+    ["request-result", "error"],
+    message => message.requestId === requestId,
+    "submit-deck response",
+    1_000
   );
+  if (response.type === "error") throw new SubmittedDeckRejected(response);
+  return response;
 }
 
 class SubmittedDeckRejected extends Error {
@@ -234,25 +223,14 @@ async function setReady(
     expectedRoomVersion,
     ready
   });
-  const [receipt, error] = await Promise.allSettled([
-    client.waitFor(
-      "request-result",
-      message => message.type === "request-result" && message.requestId === requestId,
-      "set-ready receipt",
-      1_000
-    ),
-    client.waitFor(
-      "error",
-      message => message.type === "error" && message.requestId === requestId,
-      "set-ready error",
-      1_000
-    )
-  ]);
-  if (receipt.status === "fulfilled") return receipt.value;
-  if (error.status === "fulfilled") throw new SetReadyRejected(error.value);
-  throw new Error(
-    "set-ready is declared by the protocol but the game server did not answer it."
+  const response = await client.waitForAny(
+    ["request-result", "error"],
+    message => message.requestId === requestId,
+    "set-ready response",
+    1_000
   );
+  if (response.type === "error") throw new SetReadyRejected(response);
+  return response;
 }
 
 class SetReadyRejected extends Error {

@@ -20,7 +20,7 @@ import {
 } from "../dist/full-product-contract.js";
 
 assert.equal(FULL_PRODUCT_PROTOCOL_VERSION, "0.3.0");
-assert.deepEqual(FULL_PRODUCT_COMPATIBLE_PROTOCOL_VERSIONS, ["0.3.0", "0.2.0"]);
+assert.deepEqual(FULL_PRODUCT_COMPATIBLE_PROTOCOL_VERSIONS, ["0.3.0", "0.2.1"]);
 assert.equal(FULL_PRODUCT_EVENT_CONTRACT, "riftbound.full-product.event.v1");
 assert.equal(
   FULL_PRODUCT_PROJECTION_CONTRACT,
@@ -194,7 +194,7 @@ function projection(overrides = {}) {
 
 test("version and command wire shapes are explicit", () => {
   assert.equal(isCompatibleFullProductProtocolVersion("0.3.0"), true);
-  assert.equal(isCompatibleFullProductProtocolVersion("0.2.0"), true);
+  assert.equal(isCompatibleFullProductProtocolVersion("0.2.1"), true);
   assert.equal(isCompatibleFullProductProtocolVersion("0.4.0"), false);
 
   assert.equal(isFullProductCommandEnvelope(command()), true);

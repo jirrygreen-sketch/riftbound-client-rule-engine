@@ -1,0 +1,129 @@
+/* 卡组导入 / 导出面板 —— 深蓝简洁配色，作用域限定在 .dim-* 前缀内 */
+.dim-panel {
+  --dim-bg: #11243c;
+  --dim-bg-2: #152c48;
+  --dim-line: #28425c;
+  --dim-text: #e8eef8;
+  --dim-text-2: #a9b8cd;
+  --dim-text-3: #7d8fa8;
+  --dim-primary: #3fe0c0;
+  --dim-danger: #ff6b62;
+  --dim-ok: #6ee7a8;
+  --dim-warn: #f2913f;
+
+  display: grid;
+  gap: 10px;
+  padding: 16px 18px;
+  color: var(--dim-text);
+  background: linear-gradient(180deg, var(--dim-bg-2) 0%, var(--dim-bg) 100%);
+  border: 1px solid var(--dim-line);
+  border-radius: 6px;
+}
+
+.dim-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.dim-hint {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--dim-text-2);
+}
+
+.dim-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--dim-text-2);
+}
+
+.dim-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  padding: 8px 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--dim-text);
+  background: rgba(8, 18, 32, 0.6);
+  border: 1px solid var(--dim-line);
+  border-radius: 4px;
+}
+
+.dim-textarea:focus {
+  outline: none;
+  border-color: var(--dim-primary);
+}
+
+.dim-textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.dim-textarea--export {
+  color: var(--dim-text-2);
+}
+
+.dim-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dim-button {
+  padding: 6px 14px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--dim-text);
+  background: rgba(8, 18, 32, 0.6);
+  border: 1px solid var(--dim-line);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.dim-button:hover:not(:disabled) {
+  border-color: var(--dim-primary);
+}
+
+.dim-button--primary {
+  color: #06231d;
+  background: var(--dim-primary);
+  border-color: var(--dim-primary);
+}
+
+.dim-button--primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.dim-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dim-note {
+  margin: 0;
+  font-size: 0.74rem;
+  color: var(--dim-warn);
+}
+
+.dim-status {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.dim-status--error {
+  color: var(--dim-danger);
+}
+
+.dim-status--success {
+  color: var(--dim-ok);
+}
+
+.dim-status--disabled {
+  color: var(--dim-text-3);
+}

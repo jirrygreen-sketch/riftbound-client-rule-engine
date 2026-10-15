@@ -1,0 +1,371 @@
+/*
+ * Scoped styling for the local replay page. Every selector is prefixed with
+ * `.replay-page` so this file never leaks into the rest of the desktop client.
+ * It reuses the shared dark palette from `styles.css` (background #151517,
+ * primary teal #1aa79b) and stays usable at 1280x800 and 1024x768.
+ */
+.replay-page {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-height: 0;
+  padding: 1rem;
+  color: #f3f0ea;
+  background: #151517;
+}
+
+.replay-page-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--line, #3a3a40);
+}
+
+.replay-page-head-text {
+  min-width: 0;
+}
+
+.replay-page-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: none;
+  min-width: 0;
+}
+
+.replay-focus-toggle {
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--primary-strong, #37c8bb);
+  border-radius: 0.45rem;
+  background: var(--surface-raised, #2b2b2f);
+  color: var(--primary-strong, #37c8bb);
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+.replay-focus-toggle:hover {
+  background: rgba(55, 200, 187, 0.16);
+}
+
+.replay-focus-toggle:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring, 0 0 0 2px #63e2d5);
+}
+
+.replay-page-title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--primary-strong, #37c8bb);
+}
+
+.replay-page-subtitle {
+  margin: 0.25rem 0 0;
+  max-width: 60ch;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--text-muted, #a6a29a);
+}
+
+.replay-page-count {
+  flex: none;
+  padding: 0.18rem 0.6rem;
+  border: 1px solid var(--line, #3a3a40);
+  border-radius: 0.7rem;
+  background: var(--surface, #232326);
+  font-size: 0.74rem;
+  color: var(--text-muted, #a6a29a);
+  white-space: nowrap;
+}
+
+.replay-page-body {
+  display: grid;
+  grid-template-columns: minmax(240px, 20rem) minmax(0, 1fr);
+  gap: 0.9rem;
+  align-items: start;
+  min-height: 0;
+}
+
+.replay-records,
+.replay-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  min-width: 0;
+  padding: 0.75rem;
+  border: 1px solid var(--line, #3a3a40);
+  border-radius: 0.6rem;
+  background: var(--surface, #232326);
+}
+
+.replay-records {
+  /* The list scrolls inside its card instead of growing the whole page. */
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.replay-timeline {
+  overflow: hidden;
+}
+
+.replay-section-title {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--primary-strong, #37c8bb);
+}
+
+.replay-records-empty,
+.replay-timeline-empty,
+.replay-viewer-empty {
+  margin: 0;
+  padding: 0.75rem;
+  border: 1px dashed var(--line, #3a3a40);
+  border-radius: 0.5rem;
+  font-size: 0.78rem;
+  line-height: 1.55;
+  color: var(--text-muted, #a6a29a);
+}
+
+.replay-records-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+}
+
+.replay-record {
+  display: flex;
+  align-items: stretch;
+  gap: 0.4rem;
+  padding: 0.45rem;
+  border: 1px solid var(--line, #3a3a40);
+  border-radius: 0.5rem;
+  background: var(--surface-muted, #1a1a1c);
+}
+
+.replay-record.is-selected {
+  border-color: var(--primary-strong, #37c8bb);
+  box-shadow: inset 0 0 0 1px var(--primary-strong, #37c8bb);
+}
+
+.replay-record-open {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.3rem 0.4rem;
+  border: none;
+  border-radius: 0.4rem;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.replay-record-open:focus-visible,
+.replay-record-delete:focus-visible,
+.replay-control:focus-visible,
+.replay-range:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring, 0 0 0 2px #63e2d5);
+}
+
+.replay-record-title {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: #f3f0ea;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.replay-record-meta,
+.replay-record-saved {
+  font-size: 0.7rem;
+  color: var(--text-muted, #a6a29a);
+}
+
+.replay-record-delete {
+  flex: none;
+  align-self: center;
+  padding: 0.3rem 0.55rem;
+  border: 1px solid var(--danger, #e5635a);
+  border-radius: 0.4rem;
+  background: transparent;
+  color: var(--danger, #e5635a);
+  font-size: 0.72rem;
+}
+
+.replay-record-delete:hover {
+  background: rgba(229, 99, 90, 0.14);
+}
+
+.replay-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.replay-control {
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--line, #3a3a40);
+  border-radius: 0.45rem;
+  background: var(--surface-raised, #2b2b2f);
+  color: #f3f0ea;
+  font-size: 0.78rem;
+}
+
+.replay-control:hover:not(:disabled) {
+  border-color: var(--primary-strong, #37c8bb);
+}
+
+.replay-range-label {
+  font-size: 0.74rem;
+  color: var(--text-muted, #a6a29a);
+}
+
+.replay-range-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.replay-range {
+  flex: 1 1 auto;
+  min-width: 0;
+  accent-color: var(--primary, #1aa79b);
+}
+
+.replay-range-value {
+  flex: none;
+  font-size: 0.74rem;
+  color: var(--text-muted, #a6a29a);
+  white-space: nowrap;
+}
+
+.replay-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+  gap: 0.4rem;
+  margin: 0;
+}
+
+.replay-summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  padding: 0.42rem 0.55rem;
+  border: 1px solid var(--line, #3a3a40);
+  border-radius: 0.45rem;
+  background: var(--surface-muted, #1a1a1c);
+}
+
+.replay-summary-item dt {
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  color: var(--text-muted, #a6a29a);
+}
+
+.replay-summary-item dd {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #f3f0ea;
+}
+
+.replay-readonly-note {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--text-muted, #a6a29a);
+}
+
+.replay-viewer {
+  min-height: 0;
+  overflow: auto;
+}
+
+/* ---- 本地展开牌桌（专注查看） --------------------------------------
+   A fixed layer over the whole window, so the same single viewer slot can fill
+   the available height instead of being pushed below the list, timeline and
+   summary. It takes no space in the page flow (opening it never reflows the
+   timeline) and it owns its own scrolling; the page never widens past the
+   viewport. The toolbar stays a single compact row. */
+.replay-focus {
+  position: fixed;
+  inset: 0;
+  /* Above the unpositioned shell chrome it covers; kept well below the app's
+     own dialog layer (card preview / art preview, z-index 50/100) so a dialog
+     opened from inside the expanded table always paints over this layer. */
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  min-width: 0;
+  min-height: 0;
+  padding: 0.75rem 1rem 1rem;
+  background: #151517;
+}
+
+.replay-focus-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.7rem;
+  flex: none;
+  min-width: 0;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--line, #3a3a40);
+}
+
+.replay-focus-controls {
+  flex: none;
+}
+
+.replay-focus-position,
+.replay-focus-phase {
+  font-size: 0.76rem;
+  color: var(--text-muted, #a6a29a);
+  white-space: nowrap;
+}
+
+.replay-focus-phase {
+  color: var(--primary-strong, #37c8bb);
+}
+
+.replay-focus-exit {
+  margin-left: auto;
+  border-color: var(--primary-strong, #37c8bb);
+  color: var(--primary-strong, #37c8bb);
+}
+
+.replay-focus-viewer {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  /* The board fills the layer height; it scrolls inside itself on a short
+     window instead of pushing a page scrollbar onto the body. */
+  overflow: auto;
+}
+
+@media (max-width: 1100px) {
+  .replay-page-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .replay-records {
+    max-height: 32vh;
+  }
+
+  /* Narrow windows (1024-wide and below): drop the auxiliary phase chip so the
+     focus toolbar keeps the four required controls on a single compact row. */
+  .replay-focus-phase {
+    display: none;
+  }
+}

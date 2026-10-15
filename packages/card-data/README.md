@@ -146,6 +146,31 @@ variants while retaining printing identity for deck entries. Run it with:
 pnpm --filter @riftbound/card-data exec node scripts/build-deck-catalog.mjs
 ```
 
+## Catalog Verification Offline vs Persisted
+
+The default suite is offline-safe. `test/deck-catalog-audit.test.mjs` builds
+synthetic catalogs through the real `buildDeckCatalog` builder and regresses
+canonical identity grouping, alternate/reprint copy limits, unknown-community
+isolation, and conservative effect coverage without reading any gitignored
+snapshot. `test/card-data.test.mjs` likewise drives the effect-coverage CLI
+against a synthetic catalog written to a throwaway artifact directory, checking
+argument parsing, exact counts, dry-run behavior, and a missing-path failure.
+
+The suite that reads the gitignored official snapshots is intentionally named
+`test/persisted-catalog-audit.mjs` so the default `test/*.test.mjs` glob never
+picks it up. Run it explicitly once the persisted data exists:
+
+```text
+pnpm --filter @riftbound/card-data build:catalog
+pnpm --filter @riftbound/card-data build:coverage
+pnpm --filter @riftbound/card-data exec node --test test/persisted-catalog-audit.mjs
+```
+
+It asserts the real persisted totals (1,381 printings, 1,080 canonical
+identities, 1,348 judge-required, 33 no-ability) and fails loudly with the
+missing file path when `data/deck-catalog.json` or `data/effect-coverage.json`
+has not been built. It never skips and never fabricates official data.
+
 ## Option Syntax
 
 Use:

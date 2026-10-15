@@ -1,0 +1,327 @@
+/*
+ * Scoped styling for the formal P4 duel actions / choice panel.
+ * Every selector is prefixed with `.full-product-duel-actions` so this file
+ * never leaks into the rest of the desktop client. Deep-blue / gold tabletop
+ * palette, coordinated with the duel resource pool panel.
+ */
+.full-product-duel-actions {
+  --fda-bg-0: #081733;
+  --fda-bg-1: #0d2347;
+  --fda-line: rgba(96, 148, 224, 0.35);
+  --fda-txt: #dff3ff;
+  --fda-txt-2: #9db6d6;
+  --fda-txt-3: #6f88ab;
+  --fda-gold: #e8c94a;
+  --fda-accent: #5fb4ff;
+  --fda-danger: #f2a09a;
+
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid var(--fda-line);
+  border-radius: 0.6rem;
+  background: linear-gradient(160deg, var(--fda-bg-1), var(--fda-bg-0));
+  color: var(--fda-txt);
+  font-size: 0.8rem;
+  min-width: 0;
+}
+
+.full-product-duel-actions-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--fda-line);
+  padding-bottom: 0.35rem;
+}
+
+.full-product-duel-actions-title {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--fda-gold);
+}
+
+.full-product-duel-actions-status {
+  font-size: 0.68rem;
+  padding: 0.08rem 0.42rem;
+  border-radius: 0.7rem;
+  border: 1px solid var(--fda-line);
+  color: var(--fda-txt-2);
+  background: rgba(10, 30, 60, 0.6);
+  white-space: nowrap;
+}
+
+.full-product-duel-actions-status.is-connected {
+  color: #a9f0c4;
+  border-color: rgba(96, 220, 150, 0.45);
+}
+
+.full-product-duel-actions-status.is-connecting,
+.full-product-duel-actions-status.is-reconnecting {
+  color: var(--fda-gold);
+  border-color: rgba(232, 201, 74, 0.45);
+}
+
+.full-product-duel-actions-status.is-disconnected {
+  color: var(--fda-danger);
+  border-color: rgba(242, 160, 154, 0.45);
+}
+
+.full-product-duel-actions-notice,
+.full-product-duel-actions-empty {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--fda-txt-2);
+  line-height: 1.4;
+}
+
+.full-product-duel-actions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.full-product-duel-actions-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.4rem;
+  border: 1px solid transparent;
+  border-radius: 0.45rem;
+  background: rgba(8, 23, 51, 0.5);
+}
+
+.full-product-duel-actions-item.is-selected {
+  border-color: rgba(95, 180, 255, 0.6);
+  background: rgba(13, 35, 71, 0.85);
+}
+
+.full-product-duel-actions-action {
+  align-self: flex-start;
+  min-height: 1.9rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 0.4rem;
+  border: 1px solid var(--fda-line);
+  background: rgba(13, 35, 71, 0.9);
+  color: var(--fda-txt);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.full-product-duel-actions-action[aria-pressed="true"] {
+  border-color: var(--fda-accent);
+  color: #ffffff;
+}
+
+.full-product-duel-actions-action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.full-product-duel-actions-reason {
+  font-size: 0.68rem;
+  color: var(--fda-danger);
+}
+
+.full-product-duel-actions-params {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding-left: 0.3rem;
+  border-left: 2px solid rgba(95, 180, 255, 0.35);
+}
+
+.full-product-duel-actions-prompt {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.full-product-duel-actions-param-title {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--fda-txt-2);
+}
+
+.full-product-duel-actions-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.full-product-duel-actions-chip {
+  padding: 0.2rem 0.55rem;
+  border-radius: 0.7rem;
+  border: 1px solid var(--fda-line);
+  background: rgba(8, 23, 51, 0.8);
+  color: var(--fda-txt-2);
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.full-product-duel-actions-chip[aria-pressed="true"] {
+  border-color: var(--fda-accent);
+  color: #ffffff;
+  background: rgba(95, 180, 255, 0.25);
+}
+
+.full-product-duel-actions-chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.full-product-duel-actions-targets {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.full-product-duel-actions-target {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.full-product-duel-actions-target-id {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fda-txt);
+}
+
+.full-product-duel-actions-target-lethal {
+  font-size: 0.66rem;
+  color: var(--fda-txt-3);
+  white-space: nowrap;
+}
+
+.full-product-duel-actions-target-input {
+  width: 4rem;
+  padding: 0.15rem 0.3rem;
+  border-radius: 0.3rem;
+  border: 1px solid var(--fda-line);
+  background: rgba(8, 23, 51, 0.9);
+  color: var(--fda-txt);
+  font-size: 0.72rem;
+}
+
+.full-product-duel-actions-submit-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.full-product-duel-actions-submit {
+  padding: 0.3rem 0.8rem;
+  border-radius: 0.4rem;
+  border: 1px solid rgba(232, 201, 74, 0.5);
+  background: rgba(232, 201, 74, 0.18);
+  color: var(--fda-gold);
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.full-product-duel-actions-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.full-product-duel-actions-legacy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  border-top: 1px dashed var(--fda-line);
+  padding-top: 0.4rem;
+}
+
+.full-product-duel-actions-legacy-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.full-product-duel-actions-legacy-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 0.7rem;
+  border: 1px solid var(--fda-line);
+  color: var(--fda-txt-3);
+  font-size: 0.68rem;
+}
+
+.full-product-duel-actions-legacy-kind {
+  color: var(--fda-txt-3);
+  opacity: 0.7;
+}
+
+/*
+ * Card presentation (`.is-card-mode`): a compact floating form anchored beside
+ * the clicked/dragged card by the parent popover. It drops the duplicated big
+ * title and the verbose status block; every action stays a real server action.
+ */
+.full-product-duel-actions.is-card-mode {
+  gap: 0.35rem;
+  padding: 0.4rem 0.45rem;
+  border-radius: 0.5rem;
+  font-size: 0.74rem;
+  max-width: 15rem;
+}
+
+.full-product-duel-actions.is-card-mode .full-product-duel-actions-head {
+  display: none;
+}
+
+.full-product-duel-actions.is-card-mode .full-product-duel-actions-list {
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.full-product-duel-actions.is-card-mode .full-product-duel-actions-item {
+  gap: 0.25rem;
+}
+
+.full-product-duel-actions.is-card-mode .full-product-duel-actions-action {
+  width: 100%;
+  text-align: left;
+  padding: 0.3rem 0.5rem;
+}
+
+.full-product-duel-actions.is-card-mode .full-product-duel-actions-action.is-direct {
+  border-color: rgba(232, 201, 74, 0.4);
+  background: rgba(232, 201, 74, 0.12);
+}
+
+.full-product-duel-actions.is-card-mode .full-product-duel-actions-notice {
+  margin: 0;
+  padding: 0.2rem 0.35rem;
+  font-size: 0.7rem;
+}
+
+.full-product-duel-actions.is-card-mode .full-product-duel-actions-card-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.full-product-duel-actions.is-card-mode .full-product-duel-actions-param-title {
+  margin: 0;
+  font-size: 0.7rem;
+}
+
+.full-product-duel-actions.is-card-mode .full-product-duel-actions-chip-row {
+  gap: 0.25rem;
+}

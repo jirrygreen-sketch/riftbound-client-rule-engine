@@ -76,7 +76,20 @@ export type DeckValidationIssueCode =
   | "zone_size_out_of_range"
   | "zone_uniqueness_violated"
   | "deck_size_out_of_range"
-  | "count_overflow";
+  | "count_overflow"
+  /**
+   * Constructed identity codes. They are emitted by the server-owned
+   * constructed layer (`constructed-policy.ts`) through the shared
+   * `DeckValidationIssue` contract, never by `validateDeck` itself.
+   */
+  | "identity_metadata_unavailable"
+  | "card_not_in_domain_identity"
+  | "champion_not_champion_unit"
+  | "champion_is_signature"
+  | "champion_tag_mismatch"
+  | "signature_tag_mismatch"
+  | "signature_limit_exceeded"
+  | "regional_availability_unconfirmed";
 
 export interface DeckValidationIssue {
   readonly code: DeckValidationIssueCode;

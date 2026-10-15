@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
-import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   CARD_DATA_SCHEMA_VERSION,
   SYNTHETIC_DEMO_BUNDLE,
@@ -24,6 +28,7 @@ import {
   isDeckList,
   validateDeck
 } from "../dist/index.js";
+import { buildDeckCatalog } from "../scripts/build-deck-catalog.mjs";
 
 const secondCard = {
   id: "card.synthetic-shield",
@@ -354,7 +359,63 @@ test("builds conservative effect coverage by printing and identity", () => {
   );
 });
 
-test("effect coverage script reports persisted catalog totals without guessing", async () => {
+function coverageFixtureCard(overrides = {}) {
+  return {
+    id: "fix-001-100",
+    name: "Flame Warden",
+    subtitle: "Ember Guard",
+    set: { value: { id: "FIX", label: "Fixture" } },
+    publicCode: "FIX-001/100",
+    cardType: { type: [{ id: "unit", label: "Unit" }] },
+    domain: { values: [] },
+    tags: { tags: [] },
+    text: { richText: { body: "When this card arrives, draw 1 card." } },
+    ...overrides
+  };
+}
+
+// The coverage CLI fixture is produced by the real deck-catalog builder so its
+// synthetic identity is explicit and can never be mistaken for official data.
+function buildCoverageFixtureCatalog() {
+  const english = [
+    coverageFixtureCard({ id: "fix-001-100", publicCode: "FIX-001/100" }),
+    coverageFixtureCard({ id: "fix-001a-100", publicCode: "FIX-001a/100" }),
+    coverageFixtureCard({
+      id: "ogn-014-100",
+      set: { value: { id: "OGN", label: "Fixture Origins" } },
+      publicCode: "OGN-014/100"
+    }),
+    coverageFixtureCard({
+      id: "fix-003-100",
+      name: "Simple Gear",
+      subtitle: undefined,
+      publicCode: "FIX-003/100",
+      text: { richText: { body: "" } }
+    }),
+    coverageFixtureCard({
+      id: "fix-002-100",
+      name: "Unknown Effect",
+      subtitle: undefined,
+      publicCode: "FIX-002/100",
+      text: {
+        richText: {
+          body: "When this card arrives, each player discards a card."
+        }
+      }
+    })
+  ];
+  return buildDeckCatalog({
+    schemaVersion: 1,
+    source: { releaseTag: "fixture-coverage-2026-10-12" },
+    cards: english.map((card) => ({ cardCode: card.id, ...card })),
+    localizedGalleries: {
+      "en-US": { cards: english },
+      "zh-CN": { cards: [] }
+    }
+  });
+}
+
+test("effect coverage CLI reports synthetic fixture totals without touching official data", async () => {
   const { parseArguments, main } = await import("../scripts/build-effect-coverage.mjs");
   assert.deepEqual(parseArguments([
     "--catalog",
@@ -373,14 +434,66 @@ test("effect coverage script reports persisted catalog totals without guessing",
     error => error.name === "BuildEffectCoverageError"
   );
 
-  const logs = [];
-  const exitCode = await main([
-    "--catalog",
-    fileURLToPath(new URL("../data/deck-catalog.json", import.meta.url)),
-    "--dry-run"
-  ], { log: message => logs.push(message) });
+  const catalog = buildCoverageFixtureCatalog();
+  assert.equal(catalog.schemaVersion, 1);
+  assert.equal(catalog.cards.length, 5);
+  assert.equal(catalog.groups.length, 3);
+  assert.equal(catalog.dataVersion, "fixture-coverage-2026-10-12");
 
-  assert.equal(exitCode, 0);
-  assert.match(logs[0], /^Effect coverage dry run:/);
-  assert.match(logs[0], /printings=1381 canonicalIdentities=1080/);
+  const directory = await mkdtemp(
+    path.join(tmpdir(), "riftbound-effect-coverage-")
+  );
+  const catalogPath = path.join(directory, "synthetic-deck-catalog.json");
+  const outputPath = path.join(directory, "effect-coverage.json");
+  const missingPath = path.join(directory, "missing-deck-catalog.json");
+  try {
+    await writeFile(catalogPath, `${JSON.stringify(catalog, null, 2)}\n`);
+
+    const logs = [];
+    const errors = [];
+    const exitCode = await main(
+      ["--catalog", catalogPath, "--output", outputPath, "--dry-run"],
+      { log: (message) => logs.push(message), error: (message) => errors.push(message) }
+    );
+
+    assert.equal(exitCode, 0);
+    assert.deepEqual(errors, []);
+    assert.match(logs[0], /^Effect coverage dry run:/);
+    assert.match(
+      logs[0],
+      /printings=5 canonicalIdentities=3 executable=3 judgeRequired=1 noAbility=1/
+    );
+    assert.equal(
+      existsSync(outputPath),
+      false,
+      "a dry run must not write the coverage report"
+    );
+
+    const writeLogs = [];
+    const writeExit = await main(
+      ["--catalog", catalogPath, "--output", outputPath],
+      { log: (message) => writeLogs.push(message), error: (message) => errors.push(message) }
+    );
+    assert.equal(writeExit, 0);
+    assert.deepEqual(errors, []);
+    assert.equal(existsSync(outputPath), true);
+    assert.match(writeLogs[0], /Effect coverage written to /);
+
+    const written = JSON.parse(await readFile(outputPath, "utf8"));
+    assert.equal(written.printingCount, 5);
+    assert.equal(written.canonicalIdentityCount, 3);
+    assert.equal(written.executableCount, 3);
+    assert.equal(written.judgeRequiredCount, 1);
+    assert.equal(written.noAbilityCount, 1);
+
+    const failureLogs = [];
+    const failureExit = await main(
+      ["--catalog", missingPath, "--dry-run"],
+      { log: () => {}, error: (message) => failureLogs.push(message) }
+    );
+    assert.equal(failureExit, 1);
+    assert.match(failureLogs[0], /Catalog not found/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

@@ -25,8 +25,11 @@ updates, integration, commits, and pushes are coordinated by the parent task.
   legal actions, prompt options, target selection, command construction,
   read-only connection/pending states, command errors, concede, and match
   result display.
-- `App` selects the playable board for the foundation/full-product ruleset and
-  submits commands through `useGameClient`/`submitPlayerCommand`.
+- `App` has three top-level entries (`deck-builder` / `room` / `game-table`):
+  the room page hosts `RoomDeckPicker` (current deck, named deck library,
+  submit/ready gating) and `ConnectionPanel`, while the game-table entry selects
+  the playable board for the foundation/full-product ruleset and submits
+  commands through `useGameClient`/`submitPlayerCommand`.
 - `GameClient` provides versioned commands, idempotent retries, request results,
   session resume, reconnect, event cursors, and replacement-socket safety.
 - The deck builder groups ordinary (`standard`) and alternate (`alternate`)
@@ -41,24 +44,70 @@ updates, integration, commits, and pushes are coordinated by the parent task.
 ## Real Gaps
 
 - The full-product server adapter is not connected to the common public room
-  path. The existing playable client components are ready to consume that
-  contract, but production room creation/join/start still goes through the
-  current public room flow rather than the full-product orchestrator.
-- `App` does not currently pass server target options or target requirements
-  into `buildPlayableMatchView`, so production target UI cannot yet rely on a
-  complete server-derived target contract. Do not fabricate targets to make the
-  UI appear complete.
-- `useCardCatalog` computes `localValidation`, but `App` does not destructure or
-  render it. Local pre-submission issues are therefore not visible to users.
-- Local deck validation currently derives every canonical copy limit through a
-  global main-deck limit of 3. This is wrong for zone-specific policy such as
-  runes and battlefields and must be fixed to use server-owned zone policy.
-- Recorded current status:
-  - Desktop full-product tests: 37/37 passing.
-  - Deck/catalog focused tests: 37/42 passing.
-  - Full desktop package tests: 104/109 passing.
-  - `typecheck` and `build` are blocked by existing errors in `DeckBuilder` and
-    `App`.
+  path. The playable client components already consume the server's
+  `actionOptions` contract, but production room creation/join/start still goes
+  through the current public room flow rather than the full-product
+  orchestrator.
+- The UI base classes exist and consume server `actionOptions`. The coordinator
+  has since run a **real two-independent-browser-client Foundation-room room/deck
+  GUI on one host** (client A on `:4173` + client B on `:4174` against one `:8793`
+  server; 13 room/deck checks + 5 service-address checks,
+  `outputs/coordination/full-product-20261012/gui-room-proof/`). This verifies
+  **only the same-host two-client Foundation room/deck GUI** — it is **not an
+  official Duel**, and **no full official Duel match and no dual-Tauri
+  acceptance** has been run. Do not present the component-level SSR tests (or
+  this same-host two-client GUI) as an official Duel or a dual-Tauri run.
+- The room page (three-entry `AppTab`: `deck-builder` / `room` / `game-table`)
+  plus the named deck library, the real room deck selector, `requestId` +
+  session/socket tracking, and the room submit/ready gating were added by
+  `real-room-deck-ui` and refined by the confirmation-witness fix and the
+  connection-address restoration fix (desktop tests currently **210** across 19
+  files + typecheck + build).
+- `SharedBattlefields` groups on-board units by the current
+  `object.controllerId` (owner kept only as a data attribute) and gates on an
+  explicit on-board zone whitelist (`board`/`base`/`battlefield`, still requiring
+  `faceUp`); hand/deck/rune-deck never leak even when face-up, and
+  discard/legend/champion/rune/banish/chain degrade to `MISSING_UNIT_NOTICE`
+  (isolated snapshot: 13 scoped tests). The `shared-battlefields-tabletop-layout`
+  task added the top opponent base / two central fields / bottom self base layout
+  (`resolveBasePlacement` resolves bands from `ownerPlayerId`, not `board.bases`
+  order; spectator uses a stable seat order and fails closed), +3 cases. It is
+  **not yet wired into `App`'s formal Duel component**.
+- `ConnectionPanel` received an optional, read-only `activeServerUrl` prop and
+  pure helpers (`initialConnectionServerUrl`, `backgroundServerUrlUpdate`);
+  `GameClient` exposes a read-only `activeServerUrl` getter (the current/recent
+  normalized URL, no credentials) surfaced through `useGameClient`. A late-mounted
+  panel now shows the real connected URL instead of the `8787` default, and a
+  background status change never overwrites a user-edited address. No deck
+  confirmation logic was touched.
+- `useCardCatalog` no longer exposes a `localValidation` field, and `App` never
+  rendered one. The hook instead offers `setDeckFromSnapshot` (atomic six-zone
+  load), and every edit (including a load) clears the previous validation result;
+  async validation is discarded if the deck fingerprint or server URL changed.
+  Server validation is still the only authoritative pre-submission check.
+- Local deck limits now use zone-specific policy: `limitFor` returns
+  runes `12`, battlefields `1`, legend `1`, and `3` for other zones (still capped
+  by server `maxCopies`). This is no longer a global main-deck limit of 3.
+- Current round status (real, current worktree):
+  - Desktop package tests: **210 passing** across 19 files
+    (`pnpm --filter @riftbound/desktop-client test`) + `typecheck` exit 0 +
+    `build` exit 0 (fresh dist `dist/assets/index-Bx6ry0KG.js`), from actual
+    logs (not the older 163/165/195 snapshots). The confirmation-witness fix
+    (`room-deck-confirmation-witness-fix`) contributed 23 of these: a
+    `set-ready` receipt that arrives without `roomVersion`, or on failure /
+    disconnect, can no longer complete a deck switch (`evaluateDeckSwitch`
+    requires a matching receipt + context + version catchup). The
+    connection-address restoration fix contributed 12 more (GameClient 4,
+    ConnectionPanel 8). **A GUI run and a `pnpm build` have now been performed**
+    (the earlier "no GUI run / no `pnpm build`" statement is obsolete).
+  - The former `room-deck-receipt-core` (wave-27) task was **cancelled by the
+    coordinator**; its source is retained and the `GameClientAPI` core is already
+    partial. The coordinator has now exercised the **Foundation-room room/deck
+    real GUI** (13 + 5 checks, `gui-room-proof/`) — this proves the same-host
+    two-client Foundation room/deck GUI only, **not** an official Duel, a full
+    match, or a dual-Tauri run.
+  - Historical (obsolete) numbers 37/37, 37/42, 104/109, 117, 163 and 165 and a
+    typecheck/build-blocked state are **not** current.
 
 Do not mark these gaps closed without the relevant focused tests and an
 explicit statement of typecheck/build status.
@@ -98,13 +147,13 @@ explicit statement of typecheck/build status.
 
 ## Coordination
 
-- For substantial multi-file development, create visible Codex workstream chats
-  early, with bounded, disjoint write scopes. Reuse suitable existing chats
-  rather than duplicating work.
-- Prefer `deepseek-v4-flash` for delegated chats and subagents. If unavailable,
-  use `ZHIPU/GLM-5.3` and record the fallback explicitly. Do not silently choose
-  an unrelated model.
-- Delegated chats may use the user's existing authorization for task-scoped
+- For substantial multi-file development, use the current user-specified
+  `claude-team` local CLI executors with bounded, disjoint write scopes. Do not
+  open new sidebar chats and do not spawn nested agents/CLIs.
+- Delegation model guidance: `gpt6sol` (xhigh) for critical reasoning work, the
+  DeepSeek flash model for routine/general work. The historical
+  `deepseek-v4-flash` / `ZHIPU/GLM-5.3` guidance is obsolete.
+- Delegated work uses the user's existing authorization for task-scoped
   execution. With `approval_policy: never`, do not request escalation or bypass
   platform restrictions.
 - The parent task owns shared contracts, integration, commits, pushes, and

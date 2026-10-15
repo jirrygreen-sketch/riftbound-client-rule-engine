@@ -1,20 +1,24 @@
 import {
   OFFICIAL_RULESET_ID,
+  DUEL_RULESET_ID,
   RULESET_ID,
+  OWNER_DECK_CONFIRMATION_SCHEMA,
   PROTOCOL_VERSION,
   type ClientSession,
   type GameProjection,
   type GameEvent,
   type RoomEvent,
   type RoomPlayer,
-  type RoomView
+  type RoomView,
+  type OwnerDeckConfirmationMessage
 } from "@riftbound/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   GameClient,
   normalizeServerUrl,
   type GameClientHandlers,
-  type GameClientStatus
+  type GameClientStatus,
+  type OwnerDeckConfirmation
 } from "../src/net/GameClient";
 
 const SERVER_URL = "ws://127.0.0.1:8787/ws";
@@ -125,6 +129,18 @@ interface Harness {
   gameEvents: GameEvent[][];
   roomEvents: RoomEvent[][];
   requestPending: boolean[];
+  roomReceipts: Array<{
+    requestId: string;
+    requestType: "submit-deck" | "set-ready";
+    roomId: string;
+    playerId: string;
+    socketGeneration: number;
+    ready?: boolean;
+    roomVersion?: number;
+    roomEventSeq?: number;
+  }>;
+  roomFailures: string[];
+  ownerConfirmations: Array<OwnerDeckConfirmation | null>;
 }
 
 let originalWindow: unknown;
@@ -394,6 +410,56 @@ describe("GameClient", () => {
     });
   });
 
+  it("exposes the normalized active server URL without credentials", () => {
+    const harness = createHarness();
+    expect(harness.client.activeServerUrl).toBeNull();
+
+    harness.client.connect("127.0.0.1:8793");
+
+    expect(harness.client.activeServerUrl).toBe("ws://127.0.0.1:8793/ws");
+    expect(latestSocket().url).toBe("ws://127.0.0.1:8793/ws");
+    expect(harness.client.activeServerUrl).not.toContain(SESSION.resumeToken);
+    expect(harness.client.activeServerUrl).not.toContain(SESSION.playerId);
+  });
+
+  it("reports the persisted resume target until a connection is requested", () => {
+    storage.setItem(
+      "riftbound.desktop-client.session",
+      JSON.stringify({ ...SESSION, serverUrl: "ws://127.0.0.1:8793/ws" })
+    );
+    const harness = createHarness();
+
+    expect(harness.client.activeServerUrl).toBe("ws://127.0.0.1:8793/ws");
+
+    expect(harness.client.resumeStoredSession()).toBe(true);
+    expect(harness.client.activeServerUrl).toBe("ws://127.0.0.1:8793/ws");
+    expect(latestSocket().url).toBe("ws://127.0.0.1:8793/ws");
+  });
+
+  it("tracks the current normalized target when switching servers", () => {
+    const harness = createHarness();
+    harness.client.connect(SERVER_URL);
+    expect(harness.client.activeServerUrl).toBe(SERVER_URL);
+
+    harness.client.connect("http://192.0.2.10:8793");
+    expect(harness.client.activeServerUrl).toBe("ws://192.0.2.10:8793/ws");
+  });
+
+  it("keeps the active server URL getter read-only", () => {
+    const harness = createHarness();
+    harness.client.connect(SERVER_URL);
+    const socket = latestSocket();
+    const statusCount = harness.statuses.length;
+
+    expect(harness.client.activeServerUrl).toBe(SERVER_URL);
+    expect(harness.client.activeServerUrl).toBe(SERVER_URL);
+
+    expect(harness.statuses).toHaveLength(statusCount);
+    expect(harness.sessions).toHaveLength(0);
+    expect(socket.sent).toHaveLength(0);
+    expect(storage.getItem("riftbound.desktop-client.session")).toBeNull();
+  });
+
   it("keeps one command in flight, acknowledges it, and uses the latest projection version", () => {
     const harness = createPlayableClient();
     const socket = latestSocket();
@@ -491,6 +557,8 @@ describe("GameClient", () => {
     const retry = second.sentJson().find(
       message => message.type === "command" && message.expectedVersion === 3
     );
+    // A legacy retry rebases onto the latest confirmed legacy projection while
+    // keeping the same command ID.
     expect(retry).toMatchObject({ expectedVersion: 3 });
   });
 
@@ -574,6 +642,53 @@ describe("GameClient", () => {
     expect(harness.pending).toEqual([true, false]);
   });
 
+  it("rebases a legacy retry onto the newest confirmed version on reconnect without changing identity or targets", () => {
+    const harness = createPlayableClient();
+    const first = latestSocket();
+    receiveProjection(first, 2);
+
+    const targets = [{ kind: "object", objectId: "object-1" }] as const;
+    expect(harness.client.playCard("hand-1", targets)).toBe(true);
+    const original = first.sentJson().at(-1)!;
+    expect(original).toMatchObject({
+      type: "command",
+      expectedVersion: 2,
+      command: {
+        type: "play-card",
+        instanceId: "hand-1",
+        targets: [{ kind: "object", objectId: "object-1" }]
+      }
+    });
+
+    first.serverClose();
+    vi.advanceTimersByTime(1_000);
+    const second = latestSocket();
+    second.open();
+    second.receive({
+      type: "welcome",
+      protocolVersion: PROTOCOL_VERSION,
+      session: SESSION,
+      resumed: true
+    });
+    receiveProjection(second, 3);
+
+    const retry = second.sentJson().find(
+      message => message.type === "command" && message.commandId === original.commandId
+    );
+    expect(retry).toMatchObject({
+      type: "command",
+      commandId: original.commandId,
+      expectedVersion: 3,
+      command: {
+        type: "play-card",
+        instanceId: "hand-1",
+        targets: [{ kind: "object", objectId: "object-1" }]
+      }
+    });
+    expect(retry?.requestId).not.toBe(original.requestId);
+    expect(harness.pending).toEqual([true]);
+  });
+
   it("abandons a command after exhausting idempotent retries", () => {
     const harness = createPlayableClient();
     const socket = latestSocket();
@@ -615,6 +730,38 @@ describe("GameClient", () => {
     });
   });
 
+  it("sends the exact duel ruleset packet when Duel is explicitly chosen", () => {
+    const harness = createPlayableClient();
+    const socket = latestSocket();
+
+    expect(harness.client.createRoom("Alice", DUEL_RULESET_ID)).toBe(true);
+    // Exact wire packet: no extra fields, and the Duel id is the real protocol
+    // constant rather than a foundation/synthetic alias.
+    expect(socket.sentJson().at(-1)).toEqual({
+      type: "create-room",
+      requestId: expect.any(String),
+      playerName: "Alice",
+      rulesetId: DUEL_RULESET_ID
+    });
+    expect(DUEL_RULESET_ID).not.toBe(OFFICIAL_RULESET_ID);
+    expect(DUEL_RULESET_ID).not.toBe(RULESET_ID);
+  });
+
+  it("sends explicit event-local region selections without allowing source-version fields", () => {
+    const harness = createPlayableClient();
+    const socket = latestSocket();
+    const region = {regionCode:"ROW",eventDate:"2026-10-14"};
+    expect(harness.client.createRoom("Alice",DUEL_RULESET_ID,region)).toBe(true);
+    expect(socket.sentJson().at(-1)).toEqual({type:"create-room",requestId:expect.any(String),
+      playerName:"Alice",rulesetId:DUEL_RULESET_ID,constructedRegion:region});
+    const count=socket.sentJson().length;
+    expect(harness.client.createRoom("Alice",DUEL_RULESET_ID,{...region,eventDate:"2026-02-30"})).toBe(false);
+    expect(harness.client.createRoom("Alice",OFFICIAL_RULESET_ID,region)).toBe(false);
+    expect(harness.client.createRoom("Alice",DUEL_RULESET_ID,{...region,scheduleDigest:"forged"} as never)).toBe(false);
+    expect(socket.sentJson()).toHaveLength(count);
+    expect(harness.errors.at(-1)).toContain("赛事地区");
+  });
+
   it("submits all six deck zones using the room version", () => {
     const harness = createPlayableClient();
     const socket = latestSocket();
@@ -649,6 +796,123 @@ describe("GameClient", () => {
       }
     });
     expect(harness.requestPending).toEqual([true]);
+  });
+
+  it("emits a matched room request receipt with captured request context only once", () => {
+    const harness = createPlayableClient();
+    const socket = latestSocket();
+    receiveRoom(socket, { roomVersion: 4, roomEventSeq: 4 });
+
+    expect(harness.client.setReadyTracked(true)).toMatch(/^set-ready-/);
+    const request = socket.sentJson().at(-1)!;
+    socket.receive({
+      type: "request-result",
+      requestId: request.requestId,
+      ok: true,
+      roomVersion: 5,
+      roomEventSeq: 5,
+      duplicate: false
+    });
+
+    expect(harness.roomReceipts).toHaveLength(1);
+    expect(harness.roomReceipts[0]).toMatchObject({
+      requestId: request.requestId,
+      requestType: "set-ready",
+      socketGeneration: expect.any(Number),
+      roomId: SESSION.roomId,
+      playerId: SESSION.playerId,
+      ready: true,
+      roomVersion: 5,
+      roomEventSeq: 5
+    });
+    socket.receive({
+      type: "request-result",
+      requestId: request.requestId,
+      ok: true,
+      roomVersion: 5,
+      roomEventSeq: 5
+    });
+    expect(harness.roomReceipts).toHaveLength(1);
+  });
+
+  it("ignores unrelated room receipts and reports only the matching request error", () => {
+    const harness = createPlayableClient();
+    const socket = latestSocket();
+    receiveRoom(socket, { roomVersion: 4, roomEventSeq: 4 });
+    expect(harness.client.setReadyTracked(true)).not.toBeNull();
+    const request = socket.sentJson().at(-1)!;
+
+    socket.receive({ type: "request-result", requestId: "set-ready-other", ok: true, roomVersion: 8 });
+    expect(harness.roomReceipts).toHaveLength(0);
+    expect(harness.requestPending).toEqual([true]);
+    socket.receive({
+      type: "error",
+      requestId: "set-ready-other",
+      code: "invalid-deck",
+      message: "other request"
+    });
+    expect(harness.requestPending).toEqual([true]);
+    expect(harness.roomFailures).toEqual([]);
+
+    socket.receive({
+      type: "error",
+      requestId: request.requestId,
+      code: "invalid-deck",
+      message: "matching request"
+    });
+    expect(harness.requestPending).toEqual([true, false]);
+    expect(harness.roomFailures).toEqual([request.requestId]);
+  });
+
+  it("emits a receipt without a room version (the app rejects it) but never after the socket context is replaced", () => {
+    const harness = createPlayableClient();
+    const first = latestSocket();
+    receiveRoom(first, { roomVersion: 4, roomEventSeq: 4 });
+    expect(harness.client.setReadyTracked(true)).not.toBeNull();
+    const request = first.sentJson().at(-1)!;
+
+    first.receive({ type: "request-result", requestId: request.requestId, ok: true });
+    expect(harness.roomReceipts).toHaveLength(1);
+    expect(harness.roomReceipts[0]?.roomVersion).toBeUndefined();
+    expect(harness.roomReceipts[0]?.roomEventSeq).toBeUndefined();
+
+    receiveRoom(first, { roomVersion: 5, roomEventSeq: 5 });
+    expect(harness.client.setReadyTracked(false)).not.toBeNull();
+    const oldRequest = first.sentJson().at(-1)!;
+    first.serverClose();
+    vi.advanceTimersByTime(1_000);
+    const second = latestSocket();
+    second.open();
+    second.receive({
+      type: "welcome",
+      protocolVersion: PROTOCOL_VERSION,
+      session: SESSION,
+      resumed: true
+    });
+    receiveRoom(second, { roomVersion: 6, roomEventSeq: 6 });
+    second.receive({ type: "request-result", requestId: oldRequest.requestId, ok: true, roomVersion: 7 });
+    expect(harness.roomReceipts).toHaveLength(1);
+  });
+
+  it("clears the matching request on timeout and emits no success receipt", () => {
+    const harness = createPlayableClient();
+    const socket = latestSocket();
+    receiveRoom(socket, { roomVersion: 4, roomEventSeq: 4 });
+    expect(harness.client.setReadyTracked(true)).not.toBeNull();
+    const request = socket.sentJson().at(-1)!;
+    vi.advanceTimersByTime(10_000);
+    expect(harness.requestPending).toEqual([true, false]);
+    expect(harness.roomReceipts).toEqual([]);
+    expect(harness.roomFailures).toEqual([request.requestId]);
+
+    socket.receive({
+      type: "request-result",
+      requestId: request.requestId,
+      ok: true,
+      roomVersion: 5,
+      roomEventSeq: 5
+    });
+    expect(harness.roomReceipts).toEqual([]);
   });
 
   it("tracks ready state, errors, and request receipts", () => {
@@ -796,6 +1060,221 @@ describe("GameClient", () => {
   });
 });
 
+function ownerEcho(overrides: Partial<OwnerDeckConfirmationMessage> = {}): OwnerDeckConfirmationMessage {
+  return {
+    type: "owner-deck-confirmation",
+    schema: OWNER_DECK_CONFIRMATION_SCHEMA,
+    roomId: SESSION.roomId,
+    playerId: SESSION.playerId,
+    rulesetId: OFFICIAL_RULESET_ID,
+    roomVersion: 4,
+    roomEventSeq: 4,
+    catalog: { dataVersion: "server-v1", digest: "sha256:server-catalog" },
+    deck: { mainDeck: [{ cardId: "owner-only-card", quantity: 3 }] },
+    ...overrides
+  };
+}
+
+describe("owner-only deck transport", () => {
+  it("restores a new page's private witness only after resume welcome and matching room", () => {
+    storage.setItem("riftbound.desktop-client.session",
+      JSON.stringify({ ...SESSION, serverUrl: SERVER_URL }));
+    const fresh = createHarness();
+    expect(fresh.ownerConfirmations).toEqual([]);
+    expect(fresh.client.resumeStoredSession()).toBe(true);
+    const socket = latestSocket();
+    socket.open();
+    expect(socket.sentJson().at(-1)).toMatchObject({
+      type: "hello", roomId: SESSION.roomId, resumeToken: SESSION.resumeToken
+    });
+    socket.receive(ownerEcho());
+    expect(fresh.ownerConfirmations).toEqual([]);
+    socket.receive({ type: "welcome", protocolVersion: PROTOCOL_VERSION,
+      session: SESSION, resumed: true });
+    receiveRoom(socket, { roomVersion: 4, roomEventSeq: 4,
+      self: { deckSubmitted: true } });
+    expect(fresh.ownerConfirmations).toEqual([]);
+    socket.receive(ownerEcho());
+    expect(fresh.ownerConfirmations).toMatchObject([{
+      deck: ownerEcho().deck, roomId: SESSION.roomId, playerId: SESSION.playerId,
+      serverUrl: SERVER_URL
+    }]);
+    expect(JSON.parse(storage.getItem("riftbound.desktop-client.session")!))
+      .toEqual({ ...SESSION, serverUrl: SERVER_URL });
+  });
+
+  it("accepts only the current authenticated seat and exact waiting room clock", () => {
+    const harness = createPlayableClient();
+    const socket = latestSocket();
+    receiveRoom(socket, { roomVersion: 4, roomEventSeq: 4, self: { deckSubmitted: true } });
+    for (const invalid of [
+      ownerEcho({ roomId: "other-room" }), ownerEcho({ playerId: "player-2" }),
+      ownerEcho({ rulesetId: DUEL_RULESET_ID }), ownerEcho({ roomVersion: 3 }),
+      ownerEcho({ roomEventSeq: 3 }), ownerEcho({ roomEventSeq: 5 }),
+      ownerEcho({ deck: null }),
+      { ...ownerEcho(), requestId: "fake-ack" }
+    ]) socket.receive(invalid);
+    expect(harness.ownerConfirmations).toEqual([]);
+    socket.receive(ownerEcho());
+    expect(harness.ownerConfirmations).toHaveLength(1);
+    expect(harness.ownerConfirmations[0]).toMatchObject({
+      playerId: SESSION.playerId, serverUrl: SERVER_URL,
+      socketGeneration: expect.any(Number), catalog: { dataVersion: "server-v1" }
+    });
+    socket.receive(ownerEcho());
+    expect(harness.ownerConfirmations).toHaveLength(2);
+    receiveRoom(socket, { roomVersion: 5, roomEventSeq: 5, self: { deckSubmitted: true } });
+    expect(harness.ownerConfirmations.at(-1)).toBeNull();
+    socket.receive(ownerEcho());
+    expect(harness.ownerConfirmations.at(-1)).toBeNull();
+    expect(harness.ownerConfirmations).toHaveLength(3);
+  });
+
+  it("requires a private non-null deck even when the public seat says submitted", () => {
+    const harness = createPlayableClient();
+    const socket = latestSocket();
+    receiveRoom(socket, { roomVersion: 4, roomEventSeq: 4, self: { deckSubmitted: true } });
+    socket.receive(ownerEcho({ deck: null }));
+    expect(harness.ownerConfirmations).toEqual([]);
+    socket.receive(ownerEcho());
+    receiveRoom(socket, { roomVersion: 5, roomEventSeq: 5,
+      self: { deckSubmitted: false } });
+    socket.receive(ownerEcho({ roomVersion: 5, roomEventSeq: 5 }));
+    expect(harness.ownerConfirmations).toEqual([expect.objectContaining({ deck: ownerEcho().deck }), null]);
+    socket.receive(ownerEcho({ roomVersion: 5, roomEventSeq: 5, deck: null }));
+    expect(harness.ownerConfirmations.at(-1)).toMatchObject({ deck: null });
+  });
+
+  it("accepts a join echo after its authenticated welcome and stages a match echo before its room", () => {
+    const harness = createHarness();
+    const socket = connect(harness);
+    socket.open();
+    socket.receive({ type: "welcome", protocolVersion: PROTOCOL_VERSION });
+    expect(harness.client.joinRoom("Alice", SESSION.roomId)).toBe(true);
+    socket.receive({ type: "welcome", protocolVersion: PROTOCOL_VERSION,
+      session: SESSION, resumed: false });
+    receiveRoom(socket, { roomVersion: 1, roomEventSeq: 1 });
+    socket.receive(ownerEcho({ roomVersion: 1, roomEventSeq: 1, deck: null }));
+    expect(harness.ownerConfirmations.at(-1)).toMatchObject({ deck: null });
+    socket.receive(ownerEcho({ roomVersion: 2, roomEventSeq: 2 }));
+    expect(harness.ownerConfirmations.at(-1)).toMatchObject({ deck: null });
+    receiveRoom(socket, { roomVersion: 2, roomEventSeq: 2, self: { deckSubmitted: true } });
+    expect(harness.ownerConfirmations.at(-1)).toMatchObject({ deck: ownerEcho().deck });
+  });
+
+  it("discards unsolicited pre-welcome echoes instead of promoting them after identity changes", () => {
+    const harness = createHarness();
+    const socket = connect(harness);
+    socket.open();
+    socket.receive({ type: "welcome", protocolVersion: PROTOCOL_VERSION });
+    expect(harness.client.createRoom("Alice")).toBe(true);
+    socket.receive(ownerEcho({ roomVersion: 1, roomEventSeq: 1 }));
+    socket.receive({ type: "welcome", protocolVersion: PROTOCOL_VERSION,
+      session: SESSION, resumed: false });
+    receiveRoom(socket, { roomVersion: 1, roomEventSeq: 1,
+      self: { deckSubmitted: true } });
+    expect(harness.ownerConfirmations).toEqual([]);
+    socket.receive(ownerEcho({ roomVersion: 1, roomEventSeq: 1 }));
+    expect(harness.ownerConfirmations).toHaveLength(1);
+  });
+
+  it("does not stage a forged future echo before the first authenticated room", () => {
+    const harness = createHarness();
+    const socket = connect(harness);
+    socket.open();
+    socket.receive({ type: "welcome", protocolVersion: PROTOCOL_VERSION,
+      session: SESSION, resumed: true });
+    socket.receive(ownerEcho({ roomVersion: 20, roomEventSeq: 20 }));
+    receiveRoom(socket, { roomVersion: 20, roomEventSeq: 20,
+      self: { deckSubmitted: true } });
+    expect(harness.ownerConfirmations).toEqual([]);
+    socket.receive(ownerEcho({ roomVersion: 20, roomEventSeq: 20 }));
+    expect(harness.ownerConfirmations).toHaveLength(1);
+  });
+
+  it("does not promote a staged future echo against an intervening newer room", () => {
+    const harness = createPlayableClient();
+    const socket = latestSocket();
+    receiveRoom(socket, { roomVersion: 4, roomEventSeq: 4,
+      self: { deckSubmitted: true } });
+    socket.receive(ownerEcho({ roomVersion: 5, roomEventSeq: 5 }));
+    expect(harness.ownerConfirmations).toEqual([]);
+    receiveRoom(socket, { roomVersion: 6, roomEventSeq: 6,
+      self: { deckSubmitted: true } });
+    expect(harness.ownerConfirmations).toEqual([]);
+    socket.receive(ownerEcho({ roomVersion: 5, roomEventSeq: 5 }));
+    expect(harness.ownerConfirmations).toEqual([]);
+    socket.receive(ownerEcho({ roomVersion: 6, roomEventSeq: 6 }));
+    expect(harness.ownerConfirmations).toHaveLength(1);
+  });
+
+  it("never treats a private echo as an ACK for submit, set-ready, or a command", () => {
+    const harness = createPlayableClient();
+    const socket = latestSocket();
+    receiveRoom(socket, { roomVersion: 4, roomEventSeq: 4, self: { deckSubmitted: true } });
+    expect(harness.client.setReadyTracked(true)).not.toBeNull();
+    const request = socket.sentJson().at(-1)!;
+    socket.receive(ownerEcho());
+    expect(harness.ownerConfirmations).toHaveLength(1);
+    expect(harness.requestPending).toEqual([true]);
+    expect(harness.roomReceipts).toEqual([]);
+    socket.receive({ type: "request-result", requestId: request.requestId, ok: true,
+      roomVersion: 5, roomEventSeq: 5 });
+    expect(harness.requestPending).toEqual([true, false]);
+    expect(harness.roomReceipts).toHaveLength(1);
+    expect(harness.client.pass()).toBe(true);
+    socket.receive(ownerEcho());
+    expect(harness.pending).toEqual([true]);
+    expect(harness.client.pass()).toBe(false);
+  });
+
+  it("keeps a submit pending until request-result even after matching room and private echo", () => {
+    const harness = createPlayableClient();
+    const socket = latestSocket();
+    receiveRoom(socket, { roomVersion: 3, roomEventSeq: 3 });
+    expect(harness.client.submitDeck({ mainDeck: [
+      { cardId: "owner-only-card", quantity: 3 }
+    ] })).toBe(true);
+    const request = socket.sentJson().at(-1)!;
+    receiveRoom(socket, { roomVersion: 4, roomEventSeq: 4,
+      self: { deckSubmitted: true } });
+    socket.receive(ownerEcho());
+    expect(harness.ownerConfirmations).toHaveLength(1);
+    expect(harness.requestPending).toEqual([true]);
+    expect(harness.roomReceipts).toEqual([]);
+    socket.receive({ type: "request-result", requestId: request.requestId,
+      ok: true, roomVersion: 4, roomEventSeq: 4 });
+    expect(harness.requestPending).toEqual([true, false]);
+    expect(harness.roomReceipts).toMatchObject([{
+      requestType: "submit-deck", requestId: request.requestId
+    }]);
+  });
+
+  it("discards prior socket, server, and identity proofs across reconnect", () => {
+    const harness = createPlayableClient();
+    const first = latestSocket();
+    receiveRoom(first, { roomVersion: 4, roomEventSeq: 4, self: { deckSubmitted: true } });
+    first.receive(ownerEcho());
+    expect(harness.ownerConfirmations.at(-1)?.serverUrl).toBe(SERVER_URL);
+    first.serverClose();
+    expect(harness.ownerConfirmations.at(-1)).toBeNull();
+    first.receive(ownerEcho());
+    vi.advanceTimersByTime(1_000);
+    const second = latestSocket();
+    second.open();
+    second.receive({ type: "welcome", protocolVersion: PROTOCOL_VERSION,
+      session: SESSION, resumed: true });
+    second.receive(ownerEcho());
+    expect(harness.ownerConfirmations.at(-1)).toBeNull();
+    receiveRoom(second, { roomVersion: 4, roomEventSeq: 4, self: { deckSubmitted: true } });
+    second.receive(ownerEcho());
+    expect(harness.ownerConfirmations.at(-1)).toMatchObject({ deck: ownerEcho().deck });
+    harness.client.connect("ws://127.0.0.1:9000/ws");
+    expect(harness.ownerConfirmations.at(-1)).toBeNull();
+    expect(harness.ownerConfirmations).toHaveLength(4);
+  });
+});
+
 function createHarness(): Harness {
   const statuses: GameClientStatus[] = [];
   const sessions: Array<ClientSession | null> = [];
@@ -808,6 +1287,9 @@ function createHarness(): Harness {
   const gameEvents: GameEvent[][] = [];
   const roomEvents: RoomEvent[][] = [];
   const requestPending: boolean[] = [];
+  const roomReceipts: Harness["roomReceipts"] = [];
+  const roomFailures: string[] = [];
+  const ownerConfirmations: Array<OwnerDeckConfirmation | null> = [];
   const handlers: GameClientHandlers = {
     onStatus: status => statuses.push(status),
     onSession: session => sessions.push(session),
@@ -817,9 +1299,12 @@ function createHarness(): Harness {
     onHandshake: ready => handshakes.push(ready),
     onPendingCommand: value => pending.push(value),
     onRoomView: room => roomViews.push(room),
+    onOwnerDeckConfirmation: confirmation => ownerConfirmations.push(confirmation),
     onEvents: events => gameEvents.push([...events]),
     onRoomEvents: events => roomEvents.push([...events]),
-    onPendingRequest: value => requestPending.push(value)
+    onPendingRequest: value => requestPending.push(value),
+    onRoomRequestResult: receipt => roomReceipts.push(receipt),
+    onRoomRequestFailure: failure => roomFailures.push(failure.requestId)
   };
   const client = new GameClient(handlers);
   clients.push(client);
@@ -831,12 +1316,14 @@ function createHarness(): Harness {
     errors,
     rooms,
     handshakes,
-    pending
-    ,
+    pending,
     roomViews,
     gameEvents,
     roomEvents,
-    requestPending
+    requestPending,
+    roomReceipts,
+    roomFailures,
+    ownerConfirmations
   };
 }
 

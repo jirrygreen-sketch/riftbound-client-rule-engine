@@ -90,7 +90,12 @@ async function readJson(filePath) {
     );
   } catch (error) {
     if (error instanceof Error && error.code === "ENOENT") {
-      throw new BuildEffectCoverageError(`Catalog not found: ${filePath}`);
+      throw new BuildEffectCoverageError(
+        `Catalog not found: ${filePath}\n` +
+        "Run the deck-catalog build first to create it:\n" +
+        "  pnpm --filter @riftbound/card-data build:catalog\n" +
+        `  node scripts/build-deck-catalog.mjs --output ${filePath}`
+      );
     }
     throw error;
   }

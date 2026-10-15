@@ -1,14 +1,28 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
-  Layers,
   ListChecks,
-  Radio,
   RefreshCw,
   ShieldCheck,
-  UserCheck
+  Save,
+  Trash2,
+  Upload
 } from "lucide-react";
+import { AppShell, type AppPage } from "./navigation/AppShell";
+import { HomePage } from "./navigation/HomePage";
+import { exitDesktopClient } from "./navigation/native-exit";
+import { RoomLobby } from "./components/RoomLobby";
+import { RoomChatPanel } from "./chat/RoomChatPanel";
+import { ProfilePage } from "./profile/ProfilePage";
+import { readPlayerProfile, writePlayerProfile, type PlayerProfile } from "./profile/player-profile";
+import { DeckImportPanel } from "./decks/DeckImportPanel";
+import { SettingsPage } from "./settings/SettingsPage";
+import { MatchControls } from "./settings/MatchControls";
+import { readDisplaySettings, writeDisplaySettings, type DisplaySettings } from "./settings/display-settings";
+import { ReplayPage } from "./replays/ReplayPage";
+import { readReplayLibrary, writeReplayLibrary, saveReplayRecording, removeReplayRecording,
+  type ReplayRecording } from "./replays/replay-library";
 import { ActionBar } from "./components/ActionBar";
 import { ChainPanel } from "./components/ChainPanel";
 import { ConnectionPanel } from "./components/ConnectionPanel";
@@ -16,7 +30,51 @@ import { DeckBuilder, type DeckBuilderEntry } from "./components/DeckBuilder";
 import { LogPanel } from "./components/LogPanel";
 import { PlayerBoard } from "./components/PlayerBoard";
 import { PromptPanel } from "./components/PromptPanel";
+import {
+  RoomDeckPicker,
+  emptySubmissionTracking,
+  roomDeckPickerGate,
+  type RoomDeckPickerZone,
+  type SubmissionTracking
+} from "./components/RoomDeckPicker";
+import {
+  cloneDeckByZone,
+  deckFingerprint,
+  deckTotalCount,
+  deckZoneCounts,
+  findNamedDeck,
+  readDeckLibrary,
+  removeNamedDeck,
+  saveNamedDeck,
+  updateNamedDeck,
+  writeDeckLibrary,
+  type DeckLibrary,
+  type DeckLibraryStorage
+} from "./decks/library";
+import {
+  clearAppliedDeckSelection,
+  readUiPreferences,
+  resolveCatalogServerUrl,
+  resolveSelectedDeckId,
+  writeAppliedDeckSelection,
+  writeCatalogServerUrl,
+  type UiPreferences
+} from "./decks/ui-preferences";
+import {
+  beginDeckSwitch,
+  evaluateDeckSwitch,
+  evaluateReadyReceipt,
+  evaluateSubmitDeckReceipt,
+  type DeckSwitchTracker
+} from "./decks/room-confirmation";
+import { confirmedOwnerDeckFingerprint } from "./decks/owner-deck-confirmation";
 import { PlayableMatchBoard } from "./full-product/PlayableMatchBoard";
+import { DuelMatchBoard } from "./full-product/DuelMatchBoard";
+import {
+  commandTargetKey,
+  deriveConcedeAction,
+  deriveLegalActions
+} from "./full-product/commands";
 import {
   buildPlayableCommand,
   buildPlayableMatchView,
@@ -30,7 +88,8 @@ import {
   getActionState,
   type BoardCardInfo
 } from "./game/projectionContract";
-import { useCardCatalog, type DeckByZone } from "./hooks/useCardCatalog";
+import { readStoredDeck, useCardCatalog, type DeckByZone } from "./hooks/useCardCatalog";
+import { useDuelCardCatalog, type DuelCatalogStamp } from "./hooks/useDuelCardCatalog";
 import { useGameClient } from "./hooks/useGameClient";
 import {
   cardImageServerUrl,
@@ -39,9 +98,16 @@ import {
   type CatalogCard,
   type DeckZone
 } from "./net/CardCatalogClient";
-import type { CardInstance, GameEvent } from "@riftbound/protocol";
+import {
+  OFFICIAL_RULESET_ID,
+  DUEL_RULESET_ID,
+  RULESET_ID,
+  type CardInstance,
+  type GameEvent,
+  type DuelProjectionTransport
+} from "@riftbound/protocol";
 
-type AppTab = "deck-builder" | "game-table";
+type AppTab = AppPage;
 
 const DECK_ZONE_LABELS: Readonly<Record<DeckZone, string>> = {
   mainDeck: "主卡组",
@@ -61,34 +127,117 @@ const DECK_ZONE_ORDER: readonly DeckZone[] = [
   "sideboard"
 ];
 
+const DEFAULT_DRAFT_NAME = "当前草稿";
+
+type SubmissionReceiptTracking = SubmissionTracking & {
+  readonly pendingSubmissionRequestId: string | null;
+  readonly pendingDeckSnapshot: DeckByZone | null;
+};
+
 export function App() {
   const {
     status,
     handshakeReady,
     commandPending,
     requestPending,
+    chatMessages,
+    chatPending,
+    chatError,
+    sendChat,
+    disconnect,
     projection,
+    duelProjection,
     lastError,
     errorRevision,
     roomId,
     roomView,
+    ownerDeckConfirmation,
     gameEvents,
-    roomEvents,
     session,
     storedSession,
+    activeServerUrl,
     connect,
     createRoom,
     joinRoom,
     pass,
     playCard,
     submitPlayerCommand,
+    submitDuelCommand,
+    submitDuelCommandPacket,
     concede,
     respondPrompt,
     submitDeck,
     setReady,
+    roomRequestReceipt,
+    roomRequestFailure,
     syncEvents,
     clearError
   } = useGameClient();
+  // One tolerant read of local storage at mount: the named-deck library, the
+  // persisted UI preferences, and the working draft are all restored from their
+  // own independent keys. A full reload then keeps the user-chosen catalog
+  // address and the named deck they were actually using.
+  const [bootstrap] = useState<UiBootstrap>(() => createUiBootstrap());
+  const preferenceStorage = bootstrap.storage;
+  const [profile, setProfile] = useState(() => readPlayerProfile(preferenceStorage));
+  const [displaySettings, setDisplaySettings] = useState(() => readDisplaySettings(preferenceStorage));
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [replayLibrary, setReplayLibrary] = useState(() => readReplayLibrary(preferenceStorage));
+  const [replaySelection, setReplaySelection] = useState<{ id: string; index: number } | null>(null);
+  const selectReplayFrame = useCallback((recording: ReplayRecording, index: number) => {
+    setReplaySelection({ id: recording.id, index });
+  }, []);
+  const [replayNotice, setReplayNotice] = useState<string | null>(null);
+  const [exitError, setExitError] = useState<string | null>(null);
+  const liveReplay = useRef<{ key: string; frames: DuelProjectionTransport[] } | null>(null);
+
+  const saveProfile = (next: PlayerProfile): boolean => {
+    if (!writePlayerProfile(preferenceStorage, next)) return false;
+    setProfile(next);
+    return true;
+  };
+  const changeDisplaySettings = (next: DisplaySettings): void => {
+    if (!writeDisplaySettings(preferenceStorage, next)) {
+      setSettingsError("显示设置未能保存，请检查本机存储。");
+      return;
+    }
+    setDisplaySettings(next);
+    setSettingsError(null);
+  };
+  // Save only authenticated client projections. No private server archive or
+  // opponent-only information enters the local replay library.
+  useEffect(() => {
+    if (!duelProjection || !roomId) return;
+    const key = `${roomId}:${duelProjection.match.matchId}:${duelProjection.viewerPlayerId ?? "public"}`;
+    if (liveReplay.current?.key !== key) liveReplay.current = { key, frames: [] };
+    const frames = liveReplay.current.frames;
+    const previous = frames.at(-1);
+    if (previous?.match.stateVersion === duelProjection.match.stateVersion &&
+        previous.match.eventSeq === duelProjection.match.eventSeq) return;
+    if (frames.length >= 300) {
+      setReplayNotice("本机回放已达到 300 个画面的保存上限，后续画面未记录。");
+      return;
+    }
+    frames.push(structuredClone(duelProjection));
+  }, [duelProjection, roomId]);
+  const saveCurrentReplay = (): void => {
+    const capture = liveReplay.current;
+    if (!capture || capture.frames.length === 0 || !roomId) return;
+    const recording: ReplayRecording = {
+      id: capture.key, roomId,
+      title: capture.frames[0]!.match.roster.map(seat => seat.displayName).join(" vs "),
+      savedAt: new Date().toISOString(), frames: structuredClone(capture.frames)
+    };
+    const next = saveReplayRecording(replayLibrary, recording);
+    if (!writeReplayLibrary(preferenceStorage, next)) {
+      setReplayNotice("回放未能保存，请检查本机存储或记录大小。");
+      return;
+    }
+    setReplayLibrary(next);
+    setReplayNotice("已保存本机当前视角回放。");
+  };
+
+
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [actionSelection, setActionSelection] = useState<ActionSelection>({
     actionId: null,
@@ -96,8 +245,10 @@ export function App() {
     targetIds: []
   });
   const [pendingOptionId, setPendingOptionId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<AppTab>("deck-builder");
-  const [catalogServerUrl, setCatalogServerUrl] = useState(DEFAULT_CARD_SERVER_URL);
+  const [activeTab, setActiveTab] = useState<AppTab>("home");
+  const [catalogServerUrl, setCatalogServerUrl] = useState<string>(() =>
+    resolveCatalogServerUrl(bootstrap.preferences, DEFAULT_CARD_SERVER_URL)
+  );
   const [activeDeckZone, setActiveDeckZone] = useState<DeckZone>("mainDeck");
   const [retryToken, setRetryToken] = useState(0);
 
@@ -107,12 +258,48 @@ export function App() {
     catalogError,
     deck,
     setZoneFromEntries,
+    setDeckFromSnapshot,
     validation,
     validationStatus,
     validationError,
     validateDeck,
     retryCatalog
-  } = useCardCatalog({ serverUrl: catalogServerUrl, retryToken });
+  } = useCardCatalog({ serverUrl: catalogServerUrl, retryToken,
+    constructedRegion: roomView?.constructedRegion ? {regionCode:roomView.constructedRegion.regionCode,eventDate:roomView.constructedRegion.eventDate} : null });
+
+  const libraryStorage: DeckLibraryStorage | null = bootstrap.storage;
+  const [library, setLibrary] = useState<DeckLibrary>(bootstrap.library);
+  // The restored selection is only accepted when the stored deck id still
+  // exists AND its content still equals the restored draft; otherwise the plain
+  // draft is shown as "current".
+  const restoredSelectionId = useMemo(
+    () =>
+      resolveSelectedDeckId({
+        preferences: bootstrap.preferences,
+        library: bootstrap.library,
+        restoredDeck: bootstrap.restoredDeck
+      }),
+    [bootstrap]
+  );
+  const [selectedLibraryDeckId, setSelectedLibraryDeckId] = useState<string | null>(
+    restoredSelectionId
+  );
+  const [draftName, setDraftName] = useState<string>(
+    () => findNamedDeck(bootstrap.library, restoredSelectionId)?.name ?? DEFAULT_DRAFT_NAME
+  );
+  const [libraryNotice, setLibraryNotice] = useState<string | null>(null);
+  const [submission, setSubmission] = useState<SubmissionReceiptTracking>({
+    ...emptySubmissionTracking,
+    pendingSubmissionRequestId: null,
+    pendingDeckSnapshot: null
+  });
+  const [pendingSwitch, setPendingSwitch] = useState<DeckSwitchTracker | null>(null);
+  const [pendingReadyRequestId, setPendingReadyRequestId] = useState<string | null>(null);
+  const pendingSwitchDeckId = pendingSwitch?.deckId ?? null;
+  const submissionContextRef = useRef<{ roomId: string | null; playerId: string | null } | null>(null);
+  // Only the plain ready toggle uses this ref now; switching a deck carries its
+  // own captured context inside the tracker.
+  const pendingReadyContextRef = useRef<{ roomId: string | null; playerId: string | null } | null>(null);
 
   const viewerPlayerId = session?.playerId ?? null;
   const roomSelf = useMemo(
@@ -212,6 +399,39 @@ export function App() {
     },
     [catalog, catalogServerUrl]
   );
+  // The live duel is labelled only from a catalog whose stamp equals the
+  // authority's own (`DuelProjection.match`). The editor catalog is a reuse
+  // candidate only on an exact stamp match; a different or older catalog never
+  // relabels the duel, and this hook never writes draft/validation state.
+  // A saved replay uses its own stamp even after the live session has ended.
+  const selectedReplay = replayLibrary.recordings.find(recording => recording.id === replaySelection?.id) ?? null;
+  const replayFrame = selectedReplay?.frames[replaySelection?.index ?? 0] ?? null;
+  const displayedProjection = activeTab === "replays" ? replayFrame : duelProjection;
+  const duelDataVersion = displayedProjection?.match.dataVersion ?? null;
+  const duelCatalogDigest = displayedProjection?.match.catalogDigest ?? null;
+  const duelCatalogStamp = useMemo<DuelCatalogStamp | null>(
+    () => (duelDataVersion === null || duelCatalogDigest === null
+      ? null
+      : { dataVersion: duelDataVersion, catalogDigest: duelCatalogDigest }),
+    [duelCatalogDigest, duelDataVersion]
+  );
+  const duelCatalog = useDuelCardCatalog({
+    activeServerUrl: activeServerUrl ?? (activeTab === "replays" ? catalogServerUrl : null),
+    stamp: duelCatalogStamp,
+    reusableCatalog: catalog
+  });
+  const resolveDuelCardTitle = useCallback(
+    (cardId: string) => duelCatalog.resolveCard(cardId)?.title ?? cardId,
+    [duelCatalog.resolveCard]
+  );
+  const resolveDuelCardImage = useCallback(
+    (cardId: string) => duelCatalog.resolveCard(cardId)?.imageUrl ?? null,
+    [duelCatalog.resolveCard]
+  );
+  const resolveDuelCardDomains = useCallback(
+    (cardId: string) => duelCatalog.resolveCard(cardId)?.domains ?? [],
+    [duelCatalog.resolveCard]
+  );
   const resolvePlayableCard = useCallback(
     (cardId: string) => {
       const info = resolveCardInfo(cardId);
@@ -228,7 +448,9 @@ export function App() {
         ? buildPlayableMatchView({
             projection,
             viewerPlayerId,
-            connectionStatus: toPlayableConnectionStatus(status, handshakeReady),
+            connectionStatus: projection.actionOptions === undefined
+              ? "disconnected"
+              : toPlayableConnectionStatus(status, handshakeReady),
             commandPending,
             resolveCard: resolvePlayableCard
           })
@@ -243,6 +465,17 @@ export function App() {
       viewerPlayerId
     ]
   );
+  const legalActions = useMemo(
+    () => (playableMatchView === null ? [] : deriveLegalActions(playableMatchView)),
+    [playableMatchView]
+  );
+  const concedeAllowance = useMemo(
+    () =>
+      playableMatchView === null
+        ? { enabled: false, reason: "未进入对局" }
+        : deriveConcedeAction(playableMatchView),
+    [playableMatchView]
+  );
   const selectedCardLabel = selectedCard
     ? resolveCardInfo(selectedCard.cardId)?.title ?? selectedCard.cardId
     : "未选择手牌";
@@ -254,6 +487,70 @@ export function App() {
     ),
     [deck]
   );
+
+  const currentFingerprint = useMemo(() => deckFingerprint(deck), [deck]);
+  const currentDeckTotal = useMemo(() => deckTotalCount(deck), [deck]);
+  const currentDeckZones = useMemo<readonly RoomDeckPickerZone[]>(
+    () => deckZoneCounts(deck).map(entry => ({
+      zone: entry.zone,
+      label: DECK_ZONE_LABELS[entry.zone],
+      count: entry.count
+    })),
+    [deck]
+  );
+  const selectedLibraryDeck = useMemo(
+    () => findNamedDeck(library, selectedLibraryDeckId),
+    [library, selectedLibraryDeckId]
+  );
+  const currentDeckName = selectedLibraryDeck?.name ?? DEFAULT_DRAFT_NAME;
+
+  // A fresh private echo from the current authenticated socket is the only
+  // refresh witness for a catalog-backed room. Public flags, a restored draft,
+  // and the editor's separate catalog URL cannot establish this identity.
+  const catalogBackedRoom = roomView?.rulesetId === OFFICIAL_RULESET_ID ||
+    roomView?.rulesetId === DUEL_RULESET_ID;
+  const ownerVerifiedFingerprint = confirmedOwnerDeckFingerprint(ownerDeckConfirmation, {
+    connected,
+    roomId,
+    playerId: viewerPlayerId,
+    serverUrl: activeServerUrl,
+    roomView,
+    switching: pendingSwitchDeckId !== null
+  }, deck);
+
+  const gate = useMemo(
+    () => roomDeckPickerGate({
+      connected,
+      reconnecting: status === "connecting" || status === "reconnecting",
+      roomStatus: roomView?.status ?? null,
+      requestPending: requestPending || pendingReadyRequestId !== null,
+      switching: pendingSwitchDeckId !== null,
+      selfReady: roomSelf?.ready ?? false,
+      selfDeckSubmitted: roomSelf?.deckSubmitted ?? false,
+      currentFingerprint,
+      currentDeckEmpty: currentDeckTotal === 0,
+      confirmedFingerprint: catalogBackedRoom
+        ? ownerVerifiedFingerprint : submission.confirmedFingerprint,
+      pendingFingerprint: submission.pendingFingerprint
+    }),
+    [
+      connected,
+      currentDeckTotal,
+      currentFingerprint,
+      catalogBackedRoom,
+      ownerVerifiedFingerprint,
+      pendingSwitchDeckId,
+      pendingReadyRequestId,
+      requestPending,
+      roomSelf?.deckSubmitted,
+      roomSelf?.ready,
+      roomView?.status,
+      status,
+      submission.confirmedFingerprint,
+      submission.pendingFingerprint
+    ]
+  );
+
   useEffect(() => {
     if (!projection) {
       setSelectedCardId(null);
@@ -277,15 +574,36 @@ export function App() {
       return;
     }
     if (playableMatchView === null) return;
-    const selectedCard = playableMatchView.projection.players
-      .find(player => player.id === viewerPlayerId)
-      ?.hand.find(card => card.instanceId === actionSelection.cardId);
-    if (selectedCard === undefined) {
+    const selectedAction =
+      legalActions.find(action => action.id === actionSelection.actionId) ?? null;
+    if (actionSelection.actionId !== null && selectedAction === null) {
+      // The authority no longer offers this action (version change, hand change,
+      // reader-only viewer): drop the selection instead of submitting stale ids.
       setActionSelection({ actionId: null, cardId: null, targetIds: [] });
+      return;
+    }
+    if (selectedAction === null) {
+      const selectedCard = playableMatchView.projection.players
+        .find(player => player.id === viewerPlayerId)
+        ?.hand.find(card => card.instanceId === actionSelection.cardId);
+      if (actionSelection.cardId !== null && selectedCard === undefined) {
+        setActionSelection({ actionId: null, cardId: null, targetIds: [] });
+      }
+      return;
+    }
+    if (selectedAction.targetPolicy !== undefined) {
+      const authorized = new Set(
+        selectedAction.targetPolicy.options.map(commandTargetKey)
+      );
+      const kept = actionSelection.targetIds.filter(id => authorized.has(id));
+      if (kept.length !== actionSelection.targetIds.length) {
+        setActionSelection({ ...actionSelection, targetIds: kept });
+      }
     }
   }, [
-    actionSelection.cardId,
+    actionSelection,
     fullProductEnabled,
+    legalActions,
     playableMatchView,
     viewerPlayerId
   ]);
@@ -294,17 +612,312 @@ export function App() {
     if (errorRevision > 0) setPendingOptionId(null);
   }, [errorRevision]);
 
+  // Navigate once on a room/match transition. Projection refreshes must not
+  // pull a player away from the home page, settings, replay or lobby.
+  const visibleRoomTransition = useRef<string | null>(null);
   useEffect(() => {
-    if (roomView?.status === "playing") setActiveTab("game-table");
-  }, [roomView?.status]);
+    const key = roomId === null ? null
+      : `${roomId}:${roomView?.status ?? ""}:${duelProjection?.match.matchId ?? ""}`;
+    if (key === visibleRoomTransition.current) return;
+    visibleRoomTransition.current = key;
+    if (duelProjection !== null || roomView?.status === "playing") setActiveTab("game-table");
+    else if (roomView?.status === "waiting") setActiveTab("room");
+  }, [roomId, duelProjection?.match.matchId, roomView?.status]);
+
+  // A submission is confirmed only by its own matched receipt plus a room
+  // revision at least as new as the acknowledged one. A receipt missing its
+  // room version, or one that no longer belongs to the captured room context,
+  // drops the in-flight marker without ever touching the confirmed deck.
+  useEffect(() => {
+    if (!roomRequestReceipt) return;
+    const decision = evaluateSubmitDeckReceipt({
+      receipt: roomRequestReceipt,
+      pendingRequestId: submission.pendingSubmissionRequestId,
+      context: submissionContextRef.current,
+      roomId,
+      playerId: viewerPlayerId,
+      roomVersion: roomView?.roomVersion ?? null
+    });
+    if (decision.kind === "abandoned") {
+      submissionContextRef.current = null;
+      setSubmission(previous => ({
+        ...previous,
+        pendingFingerprint: null,
+        pendingSubmissionRequestId: null,
+        pendingDeckSnapshot: null
+      }));
+      setLibraryNotice(decision.notice);
+      return;
+    }
+    if (decision.kind !== "confirmed") return;
+    const acknowledgedRequestId = roomRequestReceipt.requestId;
+    submissionContextRef.current = null;
+    setSubmission(previous => {
+      if (previous.pendingSubmissionRequestId !== acknowledgedRequestId) return previous;
+      return {
+        ...previous,
+        confirmedFingerprint:
+          previous.pendingDeckSnapshot !== null &&
+          deckFingerprint(previous.pendingDeckSnapshot) === previous.pendingFingerprint
+            ? previous.pendingFingerprint
+            : previous.confirmedFingerprint,
+        pendingFingerprint: null,
+        pendingSubmissionRequestId: null,
+        pendingDeckSnapshot: null,
+        baselineRoomVersion: decision.roomVersion
+      };
+    });
+  }, [roomId, roomRequestReceipt, roomView?.roomVersion, submission.pendingSubmissionRequestId, viewerPlayerId]);
+
+  useEffect(() => {
+    if (!roomRequestFailure) return;
+    const failure = roomRequestFailure;
+    setSubmission(previous =>
+      previous.pendingSubmissionRequestId === failure.requestId
+        ? { ...previous, pendingFingerprint: null, pendingSubmissionRequestId: null, pendingDeckSnapshot: null }
+        : previous
+    );
+    if (pendingReadyRequestId !== null && failure.requestId === pendingReadyRequestId) {
+      pendingReadyContextRef.current = null;
+      setPendingReadyRequestId(null);
+    }
+  }, [pendingReadyRequestId, roomRequestFailure]);
+
+  // The plain ready toggle (no deck switch attached) is acknowledged once both
+  // its own receipt and the projection carrying the new ready flag are visible.
+  useEffect(() => {
+    if (!roomRequestReceipt) return;
+    const decision = evaluateReadyReceipt({
+      receipt: roomRequestReceipt,
+      pendingRequestId: pendingReadyRequestId,
+      context: pendingReadyContextRef.current,
+      roomId,
+      playerId: viewerPlayerId,
+      roomVersion: roomView?.roomVersion ?? null,
+      selfReady: roomSelf?.ready ?? null
+    });
+    if (decision.kind === "ignored" || decision.kind === "waiting") return;
+    pendingReadyContextRef.current = null;
+    setPendingReadyRequestId(null);
+    if (decision.kind === "abandoned") setLibraryNotice(decision.notice);
+  }, [pendingReadyRequestId, roomId, roomRequestReceipt, roomSelf?.ready, roomView?.roomVersion, viewerPlayerId]);
+
+  // A transport error revision can only invalidate a request that was already
+  // in flight when it arrived; re-running on later requests must be a no-op, so
+  // this effect is keyed on the revision alone.
+  useEffect(() => {
+    if (errorRevision === 0) return;
+    setPendingReadyRequestId(current => (current === null ? current : null));
+  }, [errorRevision]);
+
+  // A submit can only be confirmed from a room revision observed on a live
+  // connection; dropping the socket abandons the in-flight marker instead of
+  // letting a later revision vouch for it.
+  useEffect(() => {
+    if (connected) return;
+    setSubmission(previous => ({
+      ...previous,
+      pendingFingerprint: null,
+      pendingSubmissionRequestId: null,
+      pendingDeckSnapshot: null
+    }));
+    submissionContextRef.current = null;
+    pendingReadyContextRef.current = null;
+    setPendingReadyRequestId(null);
+  }, [connected]);
+
+  const applyDeckSelection = useCallback((deckId: string) => {
+    const entry = findNamedDeck(library, deckId);
+    if (!entry) {
+      setLibraryNotice("该卡组已不存在，请重新选择。");
+      return;
+    }
+    setDeckFromSnapshot(entry.deck);
+    setSelectedLibraryDeckId(entry.id);
+    setDraftName(entry.name);
+    setLibraryNotice(null);
+    // Persist only a selection that has actually been applied to the draft.
+    writeAppliedDeckSelection(preferenceStorage, entry.id, deckFingerprint(entry.deck));
+  }, [library, preferenceStorage, setDeckFromSnapshot]);
+
+  // Switching decks while ready requires the server to accept `set-ready(false)`
+  // first. Every decision comes from the pure tracker: a matching receipt, the
+  // projection that reaches its room version, and a seat that really is not
+  // ready. Nothing about the captured snapshot depends on the mutable library.
+  const switchDecision = useMemo(
+    () =>
+      pendingSwitch === null
+        ? null
+        : evaluateDeckSwitch(pendingSwitch, {
+            connected,
+            roomId,
+            playerId: viewerPlayerId,
+            roomStatus: roomView?.status ?? null,
+            roomVersion: roomView?.roomVersion ?? null,
+            selfReady: roomSelf?.ready ?? null,
+            receipt: roomRequestReceipt,
+            failure: roomRequestFailure,
+            errorRevision
+          }),
+    [
+      connected,
+      errorRevision,
+      pendingSwitch,
+      roomId,
+      roomRequestFailure,
+      roomRequestReceipt,
+      roomSelf?.ready,
+      roomView?.roomVersion,
+      roomView?.status,
+      viewerPlayerId
+    ]
+  );
+
+  useEffect(() => {
+    if (pendingSwitch === null || switchDecision === null) return;
+    if (switchDecision.status === "pending") return;
+    const settled = pendingSwitch;
+    // Apply the captured snapshot; a library entry that changed while the
+    // request was in flight must not replace what the server will use.
+    if (switchDecision.status === "confirmed") {
+      setDeckFromSnapshot(switchDecision.tracker.deck);
+      setSelectedLibraryDeckId(settled.deckId);
+      setDraftName(settled.name);
+      setLibraryNotice("房间已确认取消准备，卡组已切换。");
+      // The captured candidate is persisted only now, after the server's
+      // matched set-ready(false) receipt and projection have confirmed it.
+      writeAppliedDeckSelection(
+        preferenceStorage,
+        settled.deckId,
+        deckFingerprint(switchDecision.tracker.deck)
+      );
+    } else {
+      setLibraryNotice(switchDecision.notice);
+    }
+    setPendingSwitch(current =>
+      current !== null && current.requestId === settled.requestId ? null : current
+    );
+  }, [pendingSwitch, preferenceStorage, setDeckFromSnapshot, switchDecision]);
+
+  const commitLibrary = useCallback((next: DeckLibrary, message: string | null) => {
+    const result = writeDeckLibrary(libraryStorage, next);
+    setLibrary(next);
+    setLibraryNotice(result.ok ? message : result.message);
+  }, [libraryStorage]);
+
+  const handleSelectDeck = useCallback((deckId: string | null) => {
+    if (deckId === null) {
+      setSelectedLibraryDeckId(null);
+      clearAppliedDeckSelection(preferenceStorage);
+      return;
+    }
+    if (!gate.canSelectDeck) return;
+    if (roomView?.status === "waiting" && (roomSelf?.ready ?? false)) {
+      const entry = findNamedDeck(library, deckId);
+      if (!entry) return;
+      const requestId = setReady(false);
+      if (requestId !== null) {
+        setPendingSwitch(beginDeckSwitch({
+          requestId,
+          context: { roomId, playerId: viewerPlayerId },
+          deckId: entry.id,
+          deck: entry.deck,
+          name: entry.name,
+          errorRevision
+        }));
+        setLibraryNotice("已请求取消准备，收到房间确认后切换卡组。");
+      }
+      return;
+    }
+    applyDeckSelection(deckId);
+  }, [applyDeckSelection, errorRevision, gate.canSelectDeck, library, preferenceStorage, roomId, roomSelf?.ready, roomView?.status, setReady, viewerPlayerId]);
+
+  const handleSaveAsNamed = useCallback(() => {
+    const result = saveNamedDeck(library, { name: draftName, deck });
+    if (!result.ok) {
+      setLibraryNotice(result.reason);
+      return;
+    }
+    commitLibrary(result.library, `已保存卡组「${result.entry.name}」。`);
+    setSelectedLibraryDeckId(result.entry.id);
+    setDraftName(result.entry.name);
+    writeAppliedDeckSelection(
+      preferenceStorage,
+      result.entry.id,
+      deckFingerprint(result.entry.deck)
+    );
+  }, [commitLibrary, deck, draftName, library, preferenceStorage]);
+
+  const importDeck = (nextDeck: DeckByZone, name: string): boolean => {
+    if (!gate.canSelectDeck || roomSelf?.ready === true || catalogStatus !== "ready") return false;
+    const result = saveNamedDeck(library, { name, deck: nextDeck });
+    if (!result.ok) { setLibraryNotice(result.reason); return false; }
+    const persisted = writeDeckLibrary(libraryStorage, result.library);
+    if (!persisted.ok) { setLibraryNotice(persisted.message); return false; }
+    setLibrary(result.library);
+    setDeckFromSnapshot(result.entry.deck);
+    setSelectedLibraryDeckId(result.entry.id);
+    setDraftName(result.entry.name);
+    writeAppliedDeckSelection(preferenceStorage, result.entry.id, deckFingerprint(result.entry.deck));
+    setLibraryNotice(`已导入「${result.entry.name}」，请校验后提交给房间。`);
+    return true;
+  };
+
+  const handleUpdateSelected = useCallback(() => {
+    if (selectedLibraryDeckId === null) return;
+    const result = updateNamedDeck(library, selectedLibraryDeckId, {
+      name: draftName,
+      deck
+    });
+    if (!result.ok) {
+      setLibraryNotice(result.reason);
+      return;
+    }
+    commitLibrary(result.library, `已更新卡组「${result.entry.name}」。`);
+    setDraftName(result.entry.name);
+  }, [commitLibrary, deck, draftName, library, selectedLibraryDeckId]);
+
+  const handleDeleteSelected = useCallback(() => {
+    if (selectedLibraryDeckId === null) return;
+    const entry = findNamedDeck(library, selectedLibraryDeckId);
+    commitLibrary(
+      removeNamedDeck(library, selectedLibraryDeckId),
+      entry ? `已删除卡组「${entry.name}」。` : null
+    );
+    setSelectedLibraryDeckId(null);
+    clearAppliedDeckSelection(preferenceStorage);
+  }, [commitLibrary, library, preferenceStorage, selectedLibraryDeckId]);
 
   const submitCurrentDeck = useCallback(() => {
-    submitDeck(deck);
-  }, [deck, submitDeck]);
+    if (!gate.canSubmitDeck) return;
+    const requestId = submitDeck(deck);
+    if (requestId === null) return;
+    submissionContextRef.current = { roomId, playerId: viewerPlayerId };
+    setSubmission(previous => ({
+      ...previous,
+      pendingFingerprint: currentFingerprint,
+      pendingSubmissionRequestId: requestId,
+      pendingDeckSnapshot: cloneDeckByZone(deck),
+      baselineRoomVersion: roomView?.roomVersion ?? 0,
+      baselineErrorRevision: errorRevision
+    }));
+  }, [
+    currentFingerprint,
+    deck,
+    errorRevision,
+    gate.canSubmitDeck,
+    roomView?.roomVersion,
+    submitDeck
+  ]);
 
   const toggleReady = useCallback(() => {
-    setReady(!(roomSelf?.ready ?? false));
-  }, [roomSelf?.ready, setReady]);
+    if (!gate.canToggleReady) return;
+    const requestId = setReady(!(roomSelf?.ready ?? false));
+    if (requestId !== null) {
+      pendingReadyContextRef.current = { roomId, playerId: viewerPlayerId };
+      setPendingReadyRequestId(requestId);
+    }
+  }, [gate.canToggleReady, roomId, roomSelf?.ready, setReady, viewerPlayerId]);
 
   const submitPlayableSelection = useCallback(() => {
     if (playableMatchView === null) return;
@@ -312,50 +925,60 @@ export function App() {
     if (command !== null) submitPlayerCommand(command);
   }, [actionSelection, playableMatchView, submitPlayerCommand]);
 
-  return (
-    <div className="app-shell">
-      <header className="app-header">
-        <div>
-          <h1>Riftbound 桌面客户端</h1>
-          <p>服务端权威结算</p>
-          <nav className="app-tabs" aria-label="主视图">
-            <button
-              type="button"
-              className={`tab-button ${activeTab === "deck-builder" ? "active" : ""}`}
-              onClick={() => setActiveTab("deck-builder")}
-            >
-              <Layers size={16} aria-hidden />
-              组卡
-            </button>
-            <button
-              type="button"
-              className={`tab-button ${activeTab === "game-table" ? "active" : ""}`}
-              onClick={() => setActiveTab("game-table")}
-            >
-              <Radio size={16} aria-hidden />
-              牌局
-            </button>
-          </nav>
-        </div>
-        <ConnectionPanel
-          status={status}
-          handshakeReady={handshakeReady}
-          roomId={roomId}
-          storedSession={storedSession}
-          lastError={lastError}
-          onConnect={connect}
-          onCreateRoom={createRoom}
-          onJoinRoom={joinRoom}
-          onClearError={clearError}
-        />
-      </header>
+  const inMatch = duelProjection !== null || roomView?.status === "playing";
+  const chat = <RoomChatPanel key={roomId ?? "no-room"} messages={chatMessages ?? []}
+    viewerPlayerId={session?.playerId ?? null} connected={status === "connected" && handshakeReady && roomId !== null}
+    pending={chatPending ?? false} onSend={sendChat} error={chatError ?? null} />;
+  const controls = <div className="match-local-controls">
+    <MatchControls settings={displaySettings} onChange={changeDisplaySettings}
+      onGoHome={() => setActiveTab("home")} onGoRoom={() => setActiveTab("room")}
+      onConcede={duelProjection === null && projection !== null ? concede : undefined}
+      canConcede={concedeAllowance.enabled} />
+    <button className="button" type="button" onClick={saveCurrentReplay} disabled={!duelProjection}>保存回放</button>
+    {settingsError ? <span role="alert">{settingsError}</span> : null}
+    {replayNotice ? <span role="status">{replayNotice}</span> : null}
+  </div>;
+  const exit = (): void => {
+    disconnect();
+    setActiveTab("home");
+    void exitDesktopClient().catch(() => setExitError("客户端未能关闭，请使用窗口关闭按钮退出。"));
+  };
 
-      {activeTab === "deck-builder" ? (
-        <main className="deck-shell" aria-label="组卡工具">
+  return (
+    <AppShell page={activeTab} onNavigate={setActiveTab} onExit={exit}
+      playerName={profile.name} connected={status === "connected" && handshakeReady} inMatch={inMatch}>
+    <div className="app-content" data-card-scale={displaySettings.cardScale}
+      data-reduced-motion={displaySettings.reducedMotion} data-show-card-names={displaySettings.showCardNames}>
+      {exitError ? <p role="alert">{exitError}</p> : null}
+      {activeTab === "home" ? (
+        <HomePage onNavigate={setActiveTab} onExit={exit} playerName={profile.name}
+          connected={status === "connected" && handshakeReady} inMatch={inMatch}
+          roomId={roomId} deckCount={library.decks.length} />
+      ) : activeTab === "profile" ? (
+        <ProfilePage profile={profile} onSave={saveProfile} inRoom={roomId !== null} />
+      ) : activeTab === "settings" ? (
+        <SettingsPage settings={displaySettings} onChange={changeDisplaySettings} saveError={settingsError} />
+      ) : activeTab === "replays" ? (
+        <ReplayPage library={replayLibrary} selectedId={replaySelection?.id ?? null}
+          selectedFrameIndex={replaySelection?.index ?? 0}
+          onSelectFrame={selectReplayFrame}
+          onDelete={id => {
+            const next = removeReplayRecording(replayLibrary, id);
+            if (writeReplayLibrary(preferenceStorage, next)) {
+              setReplayLibrary(next);
+              if (replaySelection?.id === id) setReplaySelection(null);
+            } else setReplayNotice("回放删除未能保存。");
+          }}
+          viewer={replayFrame ? <DuelMatchBoard projection={replayFrame}
+            connectionStatus="connected" commandPending={false} readOnly
+            onCommand={() => {}} resolveCardTitle={resolveDuelCardTitle} resolveCardImage={resolveDuelCardImage}
+            resolveCardDomains={resolveDuelCardDomains} /> : null} />
+      ) : activeTab === "deck-builder" ? (
+        <main className="deck-shell" aria-label="卡组编辑">
           <section className="deck-summary" aria-label="卡组状态">
             <div>
               <h2>我的卡组</h2>
-              <p>{`${deckCardCount} 张 · ${DECK_ZONE_LABELS[activeDeckZone]}`}</p>
+              <p>{`卡组总计 ${deckCardCount} 张 · 当前区域：${DECK_ZONE_LABELS[activeDeckZone]}`}</p>
             </div>
             <form
               className="catalog-controls"
@@ -364,7 +987,12 @@ export function App() {
                 const input = event.currentTarget.elements.namedItem("catalog-server");
                 if (input instanceof HTMLInputElement) {
                   const normalized = normalizeCardServerUrl(input.value);
-                  if (normalized) setCatalogServerUrl(normalized);
+                  if (normalized) {
+                    setCatalogServerUrl(normalized);
+                    // Only the user-set catalog address is stored; it is never
+                    // derived from the separate WS room address.
+                    writeCatalogServerUrl(preferenceStorage, normalized);
+                  }
                 }
                 setRetryToken(token => token + 1);
                 retryCatalog();
@@ -395,62 +1023,76 @@ export function App() {
               <ShieldCheck size={16} aria-hidden />
               校验卡组
             </button>
-            <button
-              className="button primary"
-              type="button"
-              onClick={submitCurrentDeck}
-              disabled={!canSubmitRoomDeck({
-                requestPending,
-                roomStatus: roomView?.status ?? null
-              })}
-            >
-              <ListChecks size={16} aria-hidden />
-              提交卡组
-            </button>
-            <button
-              className="button primary"
-              type="button"
-              onClick={toggleReady}
-              disabled={
-                requestPending ||
-                roomView === null ||
-                roomView.status !== "waiting" ||
-                roomSelf?.deckSubmitted !== true
-              }
-            >
-              <UserCheck size={16} aria-hidden />
-              {roomSelf?.ready ? "取消准备" : "准备开局"}
-            </button>
           </section>
 
-          {roomView ? (
-            <section className="lobby-panel" aria-label="房间状态">
-              <div>
-                <span>房间</span>
-                <strong>{`${roomView.roomId} · ${roomView.status}`}</strong>
-              </div>
-              <div>
-                <span>规则</span>
-                <strong>{roomView.rulesetId}</strong>
-              </div>
-              <div>
-                <span>我</span>
-                <strong>{`卡组 ${roomSelf?.deckSubmitted ? "已提交" : "未提交"} · 准备 ${roomSelf?.ready ? "是" : "否"}`}</strong>
-              </div>
-              <div>
-                <span>对手</span>
-                <strong>
-                  {roomOpponent
-                    ? `${roomOpponent.name} · 卡组 ${roomOpponent.deckSubmitted ? "已提交" : "未提交"} · 准备 ${roomOpponent.ready ? "是" : "否"}`
-                    : "等待加入"}
-                </strong>
-              </div>
-              <button className="button" type="button" onClick={syncEvents}>
-                <RefreshCw size={16} aria-hidden />
-                同步事件
+          <section className="deck-library" aria-label="卡组库">
+            <div className="deck-library-head">
+              <h3>卡组库</h3>
+              <p>把当前草稿保存为命名卡组，之后可在房间页选用。</p>
+            </div>
+            <div className="deck-library-save">
+              <label className="field">
+                <span>卡组名称</span>
+                <input
+                  value={draftName}
+                  maxLength={40}
+                  spellCheck={false}
+                  onChange={event => setDraftName(event.target.value)}
+                />
+              </label>
+              <button className="button primary" type="button" onClick={handleSaveAsNamed}>
+                <Save size={16} aria-hidden />
+                保存为命名卡组
               </button>
-            </section>
-          ) : null}
+              <button
+                className="button"
+                type="button"
+                onClick={handleUpdateSelected}
+                disabled={selectedLibraryDeckId === null}
+              >
+                <Upload size={16} aria-hidden />
+                更新所选卡组
+              </button>
+              <button
+                className="button"
+                type="button"
+                onClick={handleDeleteSelected}
+                disabled={selectedLibraryDeckId === null}
+              >
+                <Trash2 size={16} aria-hidden />
+                删除所选
+              </button>
+            </div>
+            {library.decks.length === 0 ? (
+              <p className="hint">还没有保存的卡组。填写名称后点“保存为命名卡组”。</p>
+            ) : (
+              <ul className="deck-library-list">
+                {library.decks.map(entry => (
+                  <li
+                    key={entry.id}
+                    className={entry.id === selectedLibraryDeckId ? "active" : ""}
+                  >
+                    <span className="deck-library-name">{entry.name}</span>
+                    <span className="deck-library-meta">{`${deckTotalCount(entry.deck)} 张`}</span>
+                    <button
+                      className="button"
+                      type="button"
+                      onClick={() => handleSelectDeck(entry.id)}
+                      disabled={!gate.canSelectDeck}
+                      title={gate.selectBlockedReason ?? "载入到当前草稿"}
+                    >
+                      载入
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {libraryNotice ? <p className="hint" role="status">{libraryNotice}</p> : null}
+          </section>
+
+          <DeckImportPanel deck={deck} cards={catalog?.cards ?? []}
+            disabled={!gate.canSelectDeck || roomSelf?.ready === true || catalogStatus !== "ready"}
+            onImport={importDeck} />
 
           {catalogStatus === "loading" ? (
             <section className="catalog-state">
@@ -513,6 +1155,84 @@ export function App() {
             </section>
           ) : null}
         </main>
+      ) : activeTab === "room" ? (
+        <main className="room-shell room-page" aria-label="房间连接">
+          {roomView ? (
+            <RoomLobby room={roomView} viewerPlayerId={viewerPlayerId} deckPicker={
+<RoomDeckPicker
+            namedDecks={library.decks}
+            selectedDeckId={selectedLibraryDeckId}
+            currentDeckName={currentDeckName}
+            currentDeckTotal={currentDeckTotal}
+            currentZones={currentDeckZones}
+            deckState={gate.deckState}
+            gate={gate}
+            draftName={draftName}
+            onDraftNameChange={setDraftName}
+            onSelectDeck={handleSelectDeck}
+            onSaveAsNamed={handleSaveAsNamed}
+            onUpdateSelected={handleUpdateSelected}
+            onDeleteSelected={handleDeleteSelected}
+            onEditDeck={() => setActiveTab("deck-builder")}
+            notice={libraryNotice}
+          />
+            } chat={chat} onSubmitDeck={submitCurrentDeck} onToggleReady={toggleReady}
+              onSync={syncEvents} canSubmitDeck={gate.canSubmitDeck} canToggleReady={gate.canToggleReady}
+              readyLabel={gate.readyLabel} submitBlockedReason={gate.submitBlockedReason}
+              readyBlockedReason={gate.readyBlockedReason} onEnterGame={() => setActiveTab("game-table")} />
+          ) : (
+          <ConnectionPanel
+            playerName={profile.name}
+            onPlayerNameChange={name => setProfile(current => ({...current,name}))}
+            status={status}
+            handshakeReady={handshakeReady}
+            roomId={roomId}
+            storedSession={storedSession}
+            activeServerUrl={activeServerUrl}
+            lastError={lastError}
+            onConnect={connect}
+            onCreateRoom={createRoom}
+            onJoinRoom={joinRoom}
+            onClearError={clearError}
+          />
+          )}
+        </main>
+      ) : duelProjection !== null ? (
+        <main className="table-shell">
+          {duelCatalog.status === "loading" ? (
+            <section className="catalog-state" role="status" aria-label="对局卡牌目录">
+              <p>正在从当前对局服务加载卡牌名称与图片…</p>
+            </section>
+          ) : duelCatalog.status === "error" ? (
+            <section className="catalog-state error" role="alert" aria-label="对局卡牌目录">
+              <p>{duelCatalog.error ?? "无法加载对局卡牌目录。"}</p>
+              <button className="button" type="button" onClick={duelCatalog.retry}>
+                <RefreshCw size={16} aria-hidden />
+                重试
+              </button>
+            </section>
+          ) : null}
+          {lastError ? (
+            <section className="catalog-state error" role="alert" aria-label="对局操作提示">
+              <p>{lastError}</p>
+              <button className="button" type="button" aria-label="关闭对局提示" onClick={clearError}>
+                关闭
+              </button>
+            </section>
+          ) : null}
+          <DuelMatchBoard
+            projection={duelProjection}
+            connectionStatus={toPlayableConnectionStatus(status, handshakeReady)}
+            commandPending={commandPending}
+            onCommand={submitDuelCommand}
+            onActionPacket={submitDuelCommandPacket}
+            resolveCardTitle={resolveDuelCardTitle}
+            resolveCardImage={resolveDuelCardImage}
+            resolveCardDomains={resolveDuelCardDomains}
+            controls={controls}
+            chat={chat}
+          />
+        </main>
       ) : fullProductEnabled && playableMatchView !== null ? (
         <main className="table-shell">
           <PlayableMatchBoard
@@ -525,7 +1245,8 @@ export function App() {
             className="button"
             type="button"
             onClick={concede}
-            disabled={!connected || commandPending || projection?.phase === "ended"}
+            disabled={!concedeAllowance.enabled}
+            title={concedeAllowance.reason}
           >
             认输
           </button>
@@ -560,7 +1281,7 @@ export function App() {
         </main>
       )}
 
-      {activeTab === "game-table" ? (
+      {activeTab === "game-table" && duelProjection === null && !fullProductEnabled ? (
         <footer className="bottom-rail">
           <ActionBar
             selectedCard={selectedCard}
@@ -574,9 +1295,11 @@ export function App() {
         </footer>
       ) : null}
 
-      {activeTab === "game-table" ? (
+      {activeTab === "game-table" && duelProjection === null ? (
         <aside className="side-rail">
-          <PromptPanel
+          {controls}
+          {roomId ? chat : null}
+          {!fullProductEnabled ? <PromptPanel
             prompt={projection?.prompt ?? null}
             viewerPlayerId={viewerPlayerId}
             pendingOptionId={pendingOptionId}
@@ -585,12 +1308,35 @@ export function App() {
               setPendingOptionId(optionId);
               respondPrompt(promptId, optionId, stateVersion);
             }}
-          />
+          /> : null}
           <LogPanel log={mergedGameEvents} />
         </aside>
       ) : null}
     </div>
+    </AppShell>
   );
+}
+
+interface UiBootstrap {
+  readonly storage: Storage | null;
+  readonly library: DeckLibrary;
+  readonly preferences: UiPreferences;
+  readonly restoredDeck: DeckByZone;
+}
+
+/**
+ * Tolerant, single-shot read of the three independent local keys this app owns
+ * at mount. Each reader degrades to empty on missing/corrupt data and never
+ * throws, so a broken storage never blocks the editor.
+ */
+function createUiBootstrap(): UiBootstrap {
+  const storage = typeof window === "undefined" ? null : window.localStorage;
+  return {
+    storage,
+    library: readDeckLibrary(storage),
+    preferences: readUiPreferences(storage),
+    restoredDeck: readStoredDeck(storage)
+  };
 }
 
 export function allowedZonesFor(card: CatalogCard): readonly DeckZone[] {

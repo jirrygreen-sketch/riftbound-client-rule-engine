@@ -24,6 +24,37 @@
 
 官方规则中心是规范来源。若官方页面后续更新，先更新 manifest、测试夹具和回放兼容策略，再修改实现。
 
+### 1.1 规则来源清单与离线核验
+
+上表的官方资料以机器可读清单 `docs/rule-source-manifest.json` 固化（tracked）。每条来源记录
+`id`、`title`、`kind`、`version`、`status`、`lastUpdated`、`effectiveDate`、`sha256`、
+`hashStatus`、`urls`、`localFiles` 与 `notes`。版本边界与本节一致：Core Rules `v1.4` 的
+`lastUpdated` 为 `2026-07-16`（无官方生效日，`effectiveDate` 为 `null`），Core Rules
+`v1.5 / Radiance` 与 Tournament Rules 的 `effectiveDate` 均为 `2026-10-16`；本清单不改写
+这些日期。
+
+离线核验命令（在仓库根目录执行，零网络、不下载任何文件）：
+
+```text
+pnpm --filter @riftbound/card-data verify:rule-sources                # 默认：校验清单 + 对存在的本地 PDF 重算 SHA-256
+pnpm --filter @riftbound/card-data verify:rule-sources:manifest-only  # 仅校验清单，跳过全部本地文件
+```
+
+- `manifest-only` 只校验 schema、`https` URL、日期与 hash 形状，跳过所有本地文件，因此
+  **在干净检出（无 `work/` 下被 gitignore 的 PDF）也能通过**。
+- 默认模式在清单列出的本地文件存在时重算 SHA-256 并比对：**不一致（mismatch）退出码为
+  1**；文件缺失只报告 `missing`，不使运行失败。
+- 没有稳定正文可核验的条目（HTML 公告页、FAQ 入口，以及仓库尚未文档化 hash 的来源）一律记
+  `sha256: null` 且 `hashStatus: "pending"`，**不猜测、不下载**；只有仓库已文档化并核验的 hash
+  才记 `hashStatus: "verified"`。
+- manifest 只记录 URL、版本、日期和 hash，不复制官方 PDF 或正文内容。其 `localFiles` 只列出
+  该清单需要逐条重算 SHA-256 的本地副本，因此与第 3 节的路径清单**用途相关但并非同一集合**：
+  两者都在根 `.gitignore` 排除的 `work/` 下、缺失均属正常，但 `localFiles` 是第 3 节的子集加
+  例外——例如 `work/rules/CR-v1.4.pdf` 只出现在 manifest（第 3 节未列），而第 3 节的
+  `work/riftbound-core-rules-text/Riftbound-Core-Rules-Latest.txt` 及
+  `work/riftboundfaq/sources/` 下的 `card-catalog.json`、`card-errata.json`、
+  `rules-manifest.json` 等更广的本地工作材料不在 manifest 核验范围内。
+
 ## 2. 参考站点和文章
 
 | 来源 | 参考范围 | 边界 |
@@ -117,10 +148,10 @@ missing/failures 均为 0；`sync:images --dry-run` 报告 1,381 resumed、
 更新流程：
 
 1. 下载或读取官方版本。
-2. 记录发布日期、来源地址和 SHA-256。
+2. 记录发布日期、来源地址和 SHA-256；同步写入 `docs/rule-source-manifest.json`，尚无稳定正文可核验的条目保持 `sha256: null` / `hashStatus: "pending"`，不猜测。
 3. 应用勘误并生成数据 diff。
 4. 运行规则回归和回放 golden fixtures。
-5. 更新 `rules-manifest` 和文档。
+5. 更新 `rules-manifest` 和文档，并运行 `pnpm --filter @riftbound/card-data verify:rule-sources`（无网络、不下载）核对清单与本地 SHA-256。
 6. 标记旧版本为可回放但不可用于新对局，除非赛事策略另有要求。
 
 ## 5. 版权和再分发

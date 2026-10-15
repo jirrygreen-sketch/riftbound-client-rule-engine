@@ -1,0 +1,152 @@
+/* 房间页「当前卡组」卡片 —— 深蓝简洁配色，作用域限定在 .rdp-* */
+.rdp-card {
+  --rdp-bg: #11243c;
+  --rdp-bg-2: #152c48;
+  --rdp-line: #28425c;
+  --rdp-text: #e8eef8;
+  --rdp-text-2: #a9b8cd;
+  --rdp-text-3: #7d8fa8;
+  --rdp-gold: #d9b46c;
+  --rdp-primary: #3fe0c0;
+  --rdp-danger: #ff6b62;
+  --rdp-warn: #f2913f;
+
+  display: grid;
+  gap: 12px;
+  padding: 16px 18px;
+  color: var(--rdp-text);
+  background: linear-gradient(180deg, var(--rdp-bg-2) 0%, var(--rdp-bg) 100%);
+  border: 1px solid var(--rdp-line);
+  border-radius: 6px;
+}
+
+.rdp-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.rdp-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.rdp-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  font-size: 0.72rem;
+  border: 1px solid var(--rdp-line);
+  border-radius: 999px;
+  color: var(--rdp-text-2);
+  background: rgba(8, 17, 32, 0.65);
+}
+
+.rdp-pill-submitted {
+  color: var(--rdp-primary);
+  border-color: rgba(63, 224, 192, 0.5);
+}
+
+.rdp-pill-pending {
+  color: var(--rdp-gold);
+  border-color: rgba(217, 180, 108, 0.5);
+}
+
+.rdp-pill-stale {
+  color: var(--rdp-warn);
+  border-color: rgba(242, 145, 63, 0.5);
+}
+
+.rdp-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.rdp-main {
+  display: grid;
+  gap: 4px;
+  min-width: 220px;
+}
+
+.rdp-name {
+  font-size: 1.05rem;
+}
+
+.rdp-meta {
+  color: var(--rdp-text-3);
+  font-size: 0.8rem;
+}
+
+.rdp-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.rdp-field {
+  display: grid;
+  gap: 4px;
+  font-size: 0.76rem;
+  color: var(--rdp-text-2);
+}
+
+.rdp-select,
+.rdp-name-input {
+  min-width: 200px;
+  padding: 7px 9px;
+  color: var(--rdp-text);
+  background: #0d1c31;
+  border: 1px solid var(--rdp-line);
+  border-radius: 5px;
+}
+
+.rdp-select:disabled {
+  opacity: 0.6;
+}
+
+.rdp-select:focus-visible,
+.rdp-name-input:focus-visible {
+  outline: none;
+  border-color: var(--rdp-gold);
+}
+
+.rdp-hint {
+  margin: 0;
+  color: var(--rdp-text-3);
+  font-size: 0.78rem;
+}
+
+.rdp-save {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--rdp-line);
+}
+
+.rdp-field-name {
+  flex: 1 1 200px;
+}
+
+.rdp-name-input {
+  width: 100%;
+}
+
+.rdp-warn {
+  margin: 0;
+  color: var(--rdp-warn);
+  font-size: 0.8rem;
+}
+
+.rdp-notice {
+  margin: 0;
+  color: var(--rdp-text-2);
+  font-size: 0.78rem;
+}

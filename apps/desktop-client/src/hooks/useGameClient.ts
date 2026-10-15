@@ -2,18 +2,27 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   GameClient,
   readStoredSession,
+  type CreateRoomRuleset,
   type GameClientStatus,
+  type OwnerDeckConfirmation,
+  type RoomRequestFailure,
+  type RoomRequestReceipt,
   type StoredSession
 } from "../net/GameClient";
 import type {
+  ConstructedRegionSelection,
   ClientSession,
   CommandTarget,
   GameEvent,
   GameProjection,
+  DuelProjectionTransport,
+  DuelCommandMessageV3Actions1,
+  DuelWireCommandV3Actions1,
   PlayerCommand,
   RoomDeckSubmission,
   RoomEvent,
   RoomView,
+  RoomChatMessage,
   DeckWireEntry,
   DeckZoneName
 } from "@riftbound/protocol";
@@ -28,24 +37,41 @@ interface UseGameClientResult {
   handshakeReady: boolean;
   commandPending: boolean;
   requestPending: boolean;
+  chatMessages: readonly RoomChatMessage[];
+  chatPending: boolean;
+  chatError: string | null;
+  sendChat: (text: string) => boolean;
+  disconnect: () => void;
   projection: GameProjection | null;
+  duelProjection: DuelProjectionTransport | null;
   lastError: string | null;
   errorRevision: number;
   roomId: string | null;
   roomView: RoomView | null;
+  ownerDeckConfirmation: OwnerDeckConfirmation | null;
   session: ClientSession | null;
   gameEvents: readonly GameEvent[];
   roomEvents: readonly RoomEvent[];
   storedSession: StoredSession | null;
+  /**
+   * Read-only mirror of the connection's current normalized server URL
+   * (`GameClient.activeServerUrl`). It is refreshed on status/session events
+   * and is never used to drive connection, resume, or request behavior.
+   */
+  activeServerUrl: string | null;
   connect: (serverUrl: string) => void;
-  createRoom: (playerName: string) => void;
+  createRoom: (playerName: string, ruleset?: CreateRoomRuleset, region?: ConstructedRegionSelection) => void;
   joinRoom: (playerName: string, roomId: string) => void;
-  submitDeck: (deck: DeckByZone) => void;
-  setReady: (ready: boolean) => void;
+  submitDeck: (deck: DeckByZone) => string | null;
+  setReady: (ready: boolean) => string | null;
+  roomRequestReceipt: RoomRequestReceipt | null;
+  roomRequestFailure: RoomRequestFailure | null;
   syncEvents: () => void;
   pass: () => void;
   playCard: (instanceId: string, targets?: readonly CommandTarget[]) => void;
   submitPlayerCommand: (command: PlayerCommand) => void;
+  submitDuelCommand: (command: DuelWireCommandV3Actions1) => void;
+  submitDuelCommandPacket: (packet: DuelCommandMessageV3Actions1) => boolean;
   concede: () => void;
   respondPrompt: (promptId: string, optionId: string, stateVersion?: number) => void;
   clearError: () => void;
@@ -77,47 +103,85 @@ export function useGameClient(): UseGameClientResult {
   const [handshakeReady, setHandshakeReady] = useState(false);
   const [commandPending, setCommandPending] = useState(false);
   const [requestPending, setRequestPending] = useState(false);
+  const [chatMessages, setChatMessages] = useState<readonly RoomChatMessage[]>([]);
+  const [chatPending, setChatPending] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
   const [projection, setProjection] = useState<GameProjection | null>(null);
+  const [duelProjection, setDuelProjection] = useState<DuelProjectionTransport | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
   const [errorRevision, setErrorRevision] = useState(0);
   const [roomId, setRoomId] = useState<string | null>(null);
   const [roomView, setRoomView] = useState<RoomView | null>(null);
+  const [ownerDeckConfirmation, setOwnerDeckConfirmation] = useState<OwnerDeckConfirmation | null>(null);
+  const [roomRequestReceipt, setRoomRequestReceipt] = useState<RoomRequestReceipt | null>(null);
+  const [roomRequestFailure, setRoomRequestFailure] = useState<RoomRequestFailure | null>(null);
   const [gameEvents, setGameEvents] = useState<readonly GameEvent[]>([]);
   const [roomEvents, setRoomEvents] = useState<readonly RoomEvent[]>([]);
   const [session, setSession] = useState<ClientSession | null>(null);
   const [storedSession, setStoredSession] = useState<StoredSession | null>(() =>
     readStoredSession()
   );
+  const [activeServerUrl, setActiveServerUrl] = useState<string | null>(null);
   const clientRef = useRef<GameClient | null>(null);
+
+  // Pure read-only mirror of `GameClient.activeServerUrl`, refreshed on the
+  // status/session events that already re-render this hook's consumers.
+  const readActiveServerUrl = () => clientRef.current?.activeServerUrl ?? null;
 
   const client = useMemo(() => {
     if (!clientRef.current) {
       clientRef.current = new GameClient({
-        onStatus: setStatus,
+        onStatus: status => {
+          setStatus(status);
+          setActiveServerUrl(readActiveServerUrl());
+        },
         onProjection: incoming =>
           setProjection(current => acceptConfirmedProjection(current, incoming)),
+        onDuelProjection: setDuelProjection,
         onError: message => {
           setLastError(message);
           setErrorRevision(revision => revision + 1);
         },
         onRoom: setRoomId,
         onRoomView: setRoomView,
-        onEvents: events => setGameEvents(current => mergeUnique(current, events)),
-        onRoomEvents: events => setRoomEvents(current => mergeUnique(current, events)),
+        onOwnerDeckConfirmation: setOwnerDeckConfirmation,
+        onRoomRequestResult: receipt => {
+          setRoomRequestReceipt(receipt);
+          setRoomRequestFailure(null);
+        },
+        onRoomRequestFailure: failure => {
+          setRoomRequestFailure(failure);
+        },
+        onEvents: events => setGameEvents(current =>
+          events.length === 0 ? [] : mergeUnique(current, events)),
+        onRoomEvents: events => setRoomEvents(current =>
+          events.length === 0 ? [] : mergeUnique(current, events)),
         onSession: session => {
           setSession(session);
           setStoredSession(null);
+          // A repeated welcome during same-session reconnect must not erase
+          // previously confirmed room/event state. A different session is
+          // cleared in GameClient's own identity-boundary callbacks.
+          setActiveServerUrl(readActiveServerUrl());
         },
         onHandshake: setHandshakeReady,
         onPendingCommand: setCommandPending,
-        onPendingRequest: setRequestPending
+        onPendingRequest: setRequestPending,
+        onChatMessages: setChatMessages,
+        onChatPending: setChatPending,
+        onChatError: setChatError
       });
     }
     return clientRef.current;
   }, []);
 
   useEffect(() => {
+    // Expose the restored resume target before any connection event fires.
+    setActiveServerUrl(readActiveServerUrl());
     client.resumeStoredSession();
+    // `readActiveServerUrl` is a stable read over `clientRef`; it is
+    // intentionally not a dependency.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client]);
 
   useEffect(() => {
@@ -132,14 +196,17 @@ export function useGameClient(): UseGameClientResult {
       setProjection(null);
       setStoredSession(null);
       client.connect(serverUrl.trim() || DEFAULT_SERVER_URL);
+      setActiveServerUrl(readActiveServerUrl());
     },
+    // `readActiveServerUrl` is a stable read over `clientRef`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [client]
   );
 
   const createRoom = useCallback(
-    (playerName: string, ruleset?: Parameters<GameClient["createRoom"]>[1]) => {
+    (playerName: string, ruleset?: CreateRoomRuleset, region?: ConstructedRegionSelection) => {
       setLastError(null);
-      client.createRoom(playerName, ruleset);
+      client.createRoom(playerName, ruleset, region);
     },
     [client]
   );
@@ -170,6 +237,17 @@ export function useGameClient(): UseGameClientResult {
     [client]
   );
 
+  const submitDuelCommand = useCallback(
+    (command: DuelWireCommandV3Actions1) => {
+      client.submitDuelCommand(command);
+    },
+    [client]
+  );
+
+  const submitDuelCommandPacket = useCallback(
+    (packet: DuelCommandMessageV3Actions1) => client.submitDuelCommandPacket(packet), [client]
+  );
+
   const concede = useCallback(() => {
     client.concede();
   }, [client]);
@@ -183,14 +261,14 @@ export function useGameClient(): UseGameClientResult {
 
   const submitDeck = useCallback(
     (deck: DeckByZone) => {
-      client.submitDeck(toRoomDeckSubmission(deck));
+      return client.submitDeckTracked(toRoomDeckSubmission(deck));
     },
     [client]
   );
 
   const setReady = useCallback(
     (ready: boolean) => {
-      client.setReady(ready);
+      return client.setReadyTracked(ready);
     },
     [client]
   );
@@ -200,21 +278,33 @@ export function useGameClient(): UseGameClientResult {
   }, [client]);
 
   const clearError = useCallback(() => setLastError(null), []);
+  const sendChat = useCallback((text: string) => client.sendChat(text), [client]);
+  const disconnect = useCallback(() => client.leaveSession(), [client]);
 
   return {
     status,
     handshakeReady,
     commandPending,
     requestPending,
+    chatMessages,
+    chatPending,
+    chatError,
+    sendChat,
+    disconnect,
+    roomRequestReceipt,
+    roomRequestFailure,
     projection,
+    duelProjection,
     lastError,
     errorRevision,
     roomId,
     roomView,
+    ownerDeckConfirmation,
     gameEvents,
     roomEvents,
     session,
     storedSession,
+    activeServerUrl,
     connect,
     createRoom,
     joinRoom,
@@ -224,6 +314,8 @@ export function useGameClient(): UseGameClientResult {
     pass,
     playCard,
     submitPlayerCommand,
+    submitDuelCommand,
+    submitDuelCommandPacket,
     concede,
     respondPrompt,
     clearError

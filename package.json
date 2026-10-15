@@ -15,7 +15,7 @@
     "start:server": "pnpm --filter @riftbound/game-server start",
     "build": "pnpm --recursive --if-present run build",
     "test": "pnpm --recursive --if-present run test",
-    "typecheck": "pnpm --recursive --if-present run typecheck",
+    "typecheck": "pnpm --filter './packages/**' run build && pnpm --recursive --if-present run typecheck",
     "preview": "pnpm --filter @riftbound/desktop-client preview",
     "cards:sync": "pnpm --filter @riftbound/card-data sync:cards",
     "cards:images": "pnpm --filter @riftbound/card-data sync:images",
