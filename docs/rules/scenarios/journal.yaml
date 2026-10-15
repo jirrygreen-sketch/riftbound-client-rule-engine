@@ -1,0 +1,1001 @@
+# journal 章节场景规格：命令幂等、乱序/重复投递、断线重连恢复、进程重启恢复、
+# 回放一致性与 engineMismatch、非法命令不入日志、journal 格式 v1 结构。
+# 规范依据：P0 契约（docs/plans/2026-10-15-p0-contract.md）第 4 节「服务端与日志」
+# 与 packages/protocol/src/journal-v1.ts（journal 格式 v1 校验器）。
+# 本章主题为服务端基础设施行为，官方规则书不直接规定；rule 字段引用契约 4 节条目，
+# 涉及回合/优先权等规则行为处另引 v1.5 规则条目号。
+#
+# 通用 given 约定（类契约 5 节的场景脚本构造器）：
+#   room: { id, seats: [{playerId, name}...], header: {...},
+#           journal: [{seq, playerId, commandId, command}...], stateVersion, eventSeq,
+#           roomEventSeq, events: [{seq, visibility, view}...],
+#           processed: [{commandId, playerId, payloadHash, appliedVersion, eventSeq}...],
+#           connections: {...}, server: {...}, crashedLog, catalogDigestNow, matchEnded }
+# 通用 expect 约定：
+#   receipts: [{index, duplicate, appliedVersion, eventSeq, error}...]   服务端回执
+#   journal: [{seq, playerId, commandId, command}...]   日志增量；空数组表示无新增条目
+#   events / state: 与规则 golden 相同的事件序列 / 状态路径断言
+#   views: {A|B|spectator: {events:[...], state:[...]}}   按视角投影断言（见各场景 notes）
+#   replay: {final, projection, journal}   回放重算断言（含 engineMismatch 等标记）
+area: journal
+rulesetVersion: core-1.5
+sources:
+  - "contract:4#journal-format"      # 唯一 journal 格式：header + 按序命令条目，事件与投影由重放得到
+  - "contract:4#journal-entry"       # 条目 { seq, playerId, commandId(幂等键), command, acceptedAt }
+  - "contract:4#replay"              # 重放 = 当前引擎从 header + 命令序列重算
+  - "contract:4#engine-mismatch"     # engineVersion 不一致允许重放但标记 engineMismatch，不逐字节比较
+  - "contract:4#idempotency"         # 幂等按 commandId
+  - "contract:4#resume"              # 断线重连基于 stateVersion + 事件游标
+  - "contract:4#single-runtime"      # 单一权威 runtime，无 profile 分叉
+  - "contract:1.3"                   # 一个概念一个实现，不允许旧 schema/profile 并存
+  - "contract:5#full-match"          # 整局回归：终局一致、重放一致、无隐私泄漏
+  - "protocol:journal-v1.ts"         # 冻结的 journal v1 校验器（本文件以它为准）
+  - "protocol:full-product-contract.ts"  # 命令回执、resume / resume-backfill 线协议
+  - "1.5:312"                        # 任意时刻至多一名玩家持有优先权（隐私事件视角断言的依据）
+scenarios:
+  # ---------- 命令幂等 ----------
+  - id: journal-idempotent-duplicate-play-card-same-result
+    rule: ["contract:4#idempotency", "contract:4#journal-entry"]
+    title: 同一 commandId 的 play-card 重复提交只结算一次，第二次返回原始回执
+    kind: positive
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        header: { format: riftbound-journal, formatVersion: 1, engineVersion: "1.0.0+aaa0000", rulesetVersion: core-1.5, catalogDigest: sha256:cat1, seed: seed-1, createdAt: "2026-10-15T00:00:00Z" }
+        journal: []
+        stateVersion: 5
+        eventSeq: 8
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 3, runes: { ready: [], exhausted: [] }, hand: [ "@unit(cost:2,might:3)#c1" ], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, commandId: cmd-1, do: play, card: "hand[0]", to: base, pay: { energy: 2 } }
+      - { player: A, commandId: cmd-1, do: play, card: "hand[0]", to: base, pay: { energy: 2 } }
+    expect:
+      receipts:
+        - { index: 0, duplicate: false, appliedVersion: 6, eventSeq: 10 }
+        - { index: 1, duplicate: true, appliedVersion: 6, eventSeq: 10 }
+      journal:
+        - { seq: 1, playerId: p1, commandId: cmd-1, command: { type: play-card } }
+      state:
+        - { path: "players.A.energy", equals: 1 }
+        - { path: "players.A.hand", equals: [] }
+      rejected: null
+    notes: "契约第 4 节把 commandId 定义为幂等键；重复提交返回首次结算的 appliedVersion/eventSeq（duplicate: true），状态只推进一次。对应实现中 processedCommands 命中即短路返回。"
+
+  - id: journal-idempotent-duplicate-concurrent-retry
+    rule: ["contract:4#idempotency"]
+    title: 客户端超时重发相同命令，日志与状态只前进一次
+    kind: positive
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        journal: []
+        stateVersion: 5
+        eventSeq: 8
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 3, hand: [ "@unit(cost:2,might:3)#c1" ], base: [], score: 0 }
+        B: { energy: 0, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, commandId: cmd-1, do: play, card: "hand[0]", to: base, pay: { energy: 2 }, note: "第一次提交后客户端未收到回执" }
+      - { player: A, commandId: cmd-1, do: play, card: "hand[0]", to: base, pay: { energy: 2 }, note: "同一 payload 的重试" }
+    expect:
+      receipts:
+        - { index: 0, duplicate: false, appliedVersion: 6 }
+        - { index: 1, duplicate: true, appliedVersion: 6 }
+      journal:
+        - { seq: 1, playerId: p1, commandId: cmd-1, command: { type: play-card } }
+      state:
+        - { path: "players.A.energy", equals: 1 }
+        - { path: "room.stateVersion", equals: 6 }
+      rejected: null
+    notes: "覆盖最常见的重试场景：网络丢包后客户端用相同 commandId+payload 重发，服务端不得重复扣费或重复入场。"
+
+  - id: journal-idempotent-conflict-same-commandid-different-payload
+    rule: ["contract:4#idempotency"]
+    title: 同一玩家用同一 commandId 提交不同 payload 被拒绝，日志不变
+    kind: negative
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        journal: []
+        stateVersion: 6
+        eventSeq: 10
+        processed:
+          - { commandId: cmd-1, playerId: p1, payloadHash: h-play-a, appliedVersion: 6, eventSeq: 10 }
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 1, hand: [ "@unit(cost:1,might:1)#c2" ], base: [ "@unit(might:3)#u1" ], score: 0 }
+        B: { energy: 0, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, commandId: cmd-1, do: play, card: "hand[0]", to: base, pay: { energy: 1 } }
+    expect:
+      rejected: { command: 0, reason: "idempotency-conflict" }
+      journal: []
+      state:
+        - { path: "room.stateVersion", equals: 6 }
+    notes: "payloadHash 不匹配说明客户端把幂等键复用到了新语义上，必须拒绝（idempotency-conflict）而不是当新命令执行或当重复忽略，防止静默写坏日志。"
+
+  - id: journal-idempotent-conflict-commandid-stolen-by-other-player
+    rule: ["contract:4#idempotency"]
+    title: 另一玩家冒用他人已用的 commandId 被拒绝
+    kind: negative
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        journal: []
+        stateVersion: 6
+        processed:
+          - { commandId: cmd-1, playerId: p1, payloadHash: h-play-a, appliedVersion: 6, eventSeq: 10 }
+      turn: { active: B, phase: main, state: neutral-open }
+      players:
+        A: { energy: 1, hand: [], base: [ "@unit(might:3)#u1" ], score: 0 }
+        B: { energy: 0, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: B, commandId: cmd-1, do: pass }
+    expect:
+      rejected: { command: 0, reason: "idempotency-conflict" }
+      journal: []
+      state:
+        - { path: "room.stateVersion", equals: 6 }
+    notes: "幂等键与 playerId 绑定；playerId 不匹配同样构成冲突，拒绝以保护日志不可伪造。"
+
+  - id: journal-idempotent-duplicate-after-restart
+    rule: ["contract:4#idempotency", "contract:4#journal-format"]
+    title: 进程重启后重放日志重建幂等记录，重复命令仍返回原结果
+    kind: edge
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        journal:
+          - { seq: 1, playerId: p1, commandId: cmd-1, command: { type: play-card, instanceId: c1, targets: [] } }
+        stateVersion: 6
+        eventSeq: 10
+        server: { restart: true }
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 1, hand: [], base: [ "@unit(might:3)#c1" ], score: 0 }
+        B: { energy: 0, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, commandId: cmd-1, do: play, card: "c1", to: base, pay: { energy: 2 } }
+    expect:
+      receipts:
+        - { index: 0, duplicate: true, appliedVersion: 6, eventSeq: 10 }
+      journal: []
+      state:
+        - { path: "room.stateVersion", equals: 6 }
+      rejected: null
+    notes: "UNCERTAIN: 契约未明示幂等记录是否仅从日志重建；最自然的实现是重放日志恢复 processedCommands，故重启后重复命中仍应返回 duplicate: true 与原 appliedVersion/eventSeq。若实现选择内存态幂等表加快照，则需另行持久化，行为应等价。"
+
+  # ---------- 乱序 / 重复投递 ----------
+  - id: journal-out-of-order-stale-version-rejected
+    rule: ["contract:4#resume", "contract:4#journal-format"]
+    title: 旧连接的乱序命令携带过期 expectedVersion，被拒绝且不写日志
+    kind: negative
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        journal:
+          - { seq: 1, playerId: p1, commandId: cmd-1, command: { type: play-card, instanceId: c1, targets: [] } }
+        stateVersion: 6
+        eventSeq: 10
+        connections: { A: { connectionId: conn-new }, B: { connectionId: conn-b } }
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 1, hand: [ "@unit(cost:1,might:1)#c2" ], base: [ "@unit(might:3)#c1" ], score: 0 }
+        B: { energy: 0, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, commandId: cmd-2, expectedVersion: 5, do: play, card: "hand[0]", to: base, pay: { energy: 1 }, note: "乱序到达的旧连接命令，版本停留在 5" }
+    expect:
+      rejected: { command: 0, reason: "stale-version" }
+      journal: []
+      state:
+        - { path: "room.stateVersion", equals: 6 }
+    notes: "expectedVersion 与权威 stateVersion 不一致即拒绝（stale-version），这是乐观并发控制，也是乱序投递的主要防线；被拒绝的命令不产生任何日志条目。"
+
+  - id: journal-out-of-order-new-connection-wins-old-rejected
+    rule: ["contract:4#resume", "contract:4#idempotency"]
+    title: 新连接命令先应用，旧连接乱序命令再到达时按 stale-version 拒绝
+    kind: positive
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        journal: []
+        stateVersion: 5
+        eventSeq: 8
+        connections: { A: { connectionId: conn-new }, B: { connectionId: conn-b } }
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 3, hand: [ "@unit(cost:2,might:3)#c1", "@unit(cost:1,might:1)#c2" ], base: [], score: 0 }
+        B: { energy: 0, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, commandId: cmd-new, expectedVersion: 5, do: play, card: "hand[0]", to: base, pay: { energy: 2 }, note: "新连接的命令先到达并应用" }
+      - { player: A, commandId: cmd-old, expectedVersion: 5, do: play, card: "hand[0]", to: base, pay: { energy: 1 }, note: "旧连接乱序命令，expectedVersion 已过期" }
+    expect:
+      receipts:
+        - { index: 0, duplicate: false, appliedVersion: 6 }
+        - { index: 1, error: "stale-version" }
+      journal:
+        - { seq: 1, playerId: p1, commandId: cmd-new, command: { type: play-card } }
+      state:
+        - { path: "players.A.energy", equals: 1 }
+      rejected: null
+    notes: "同一玩家多连接时，只有携带当前版本的命令能被接受；后到且版本过期的命令被拒绝，保证日志顺序与权威状态推进一致。"
+
+  - id: journal-duplicate-delivery-same-connection
+    rule: ["contract:4#idempotency"]
+    title: 传输层重复投递（ack 丢失）不产生第二条日志
+    kind: positive
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        journal: []
+        stateVersion: 5
+        eventSeq: 8
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 3, hand: [ "@unit(cost:2,might:3)#c1" ], base: [], score: 0 }
+        B: { energy: 0, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, commandId: cmd-1, do: play, card: "hand[0]", to: base, pay: { energy: 2 } }
+      - { player: A, commandId: cmd-1, do: play, card: "hand[0]", to: base, pay: { energy: 2 }, note: "传输层重发，payload 完全相同" }
+    expect:
+      receipts:
+        - { index: 0, duplicate: false, appliedVersion: 6 }
+        - { index: 1, duplicate: true, appliedVersion: 6 }
+      journal:
+        - { seq: 1, playerId: p1, commandId: cmd-1, command: { type: play-card } }
+      rejected: null
+    notes: "与 journal-idempotent-duplicate-concurrent-retry 的区别在于这里强调服务端视角下两次投递是同一连接、同一字节内容；幂等表命中即可，无需额外去重逻辑。"
+
+  # ---------- 断线重连与恢复 ----------
+  - id: journal-resume-backfill-from-cursor
+    rule: ["contract:4#resume"]
+    title: 断线重连按 afterEventSeq 补齐缺失事件，投影与连续在线一致
+    kind: positive
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        journal:
+          - { seq: 1, playerId: p1, commandId: cmd-1, command: { type: play-card, instanceId: c1, targets: [] } }
+          - { seq: 2, playerId: p2, commandId: cmd-2, command: { type: pass } }
+        stateVersion: 7
+        eventSeq: 12
+        events:
+          - { seq: 9, visibility: public, view: { timing: chain.item-pending, item: "A:c1" } }
+          - { seq: 10, visibility: private, owner: A, view: { timing: zone.leave, object: "A:hand[0]", zone: hand } }
+          - { seq: 11, visibility: public, view: { timing: zone.enter, object: "A:c1", zone: base } }
+          - { seq: 12, visibility: public, view: { timing: priority.passed, to: B } }
+        connections: { A: { connectionId: conn-a2, afterEventSeq: 8, afterRoomEventSeq: 0 }, B: { connectionId: conn-b } }
+    commands:
+      - { player: A, do: resume, afterEventSeq: 8, afterRoomEventSeq: 0 }
+    expect:
+      views:
+        A:
+          events:
+            - { seq: 9, timing: chain.item-pending, item: "A:c1" }
+            - { seq: 10, timing: zone.leave, object: "A:hand[0]", zone: hand }
+            - { seq: 11, timing: zone.enter, object: "A:c1", zone: base }
+            - { seq: 12, timing: priority.passed, to: B }
+      state:
+        - { path: "room.eventSeq", equals: 12 }
+      rejected: null
+    notes: "resume-backfill 返回 afterEventSeq 之后的全部事件与当前投影；A 是自己的私密视角，能看到自己手牌离开的事件。补完后投影应与从未断线一致。"
+
+  - id: journal-resume-cursor-behind-multiple-missed-commands
+    rule: ["contract:4#resume", "contract:4#idempotency"]
+    title: 游标落后多条命令时一次性补全，并按序投递
+    kind: edge
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        journal:
+          - { seq: 1, playerId: p1, commandId: cmd-1, command: { type: play-card, instanceId: c1, targets: [] } }
+          - { seq: 2, playerId: p2, commandId: cmd-2, command: { type: play-card, instanceId: c9, targets: [] } }
+          - { seq: 3, playerId: p1, commandId: cmd-3, command: { type: pass } }
+        stateVersion: 8
+        eventSeq: 15
+        events:
+          - { seq: 9, visibility: public, view: { timing: chain.item-pending, item: "A:c1" } }
+          - { seq: 10, visibility: public, view: { timing: chain.item-finalized, item: "A:c1" } }
+          - { seq: 11, visibility: public, view: { timing: zone.enter, object: "A:c1", zone: base } }
+          - { seq: 12, visibility: public, view: { timing: chain.item-pending, item: "B:c9" } }
+          - { seq: 13, visibility: public, view: { timing: zone.enter, object: "B:c9", zone: base } }
+          - { seq: 14, visibility: public, view: { timing: priority.passed, to: A } }
+          - { seq: 15, visibility: public, view: { timing: priority.passed, to: B } }
+        connections: { B: { connectionId: conn-b2, afterEventSeq: 8, afterRoomEventSeq: 0 } }
+    commands:
+      - { player: B, do: resume, afterEventSeq: 8, afterRoomEventSeq: 0 }
+    expect:
+      views:
+        B:
+          events:
+            - { seq: 9, timing: chain.item-pending }
+            - { seq: 10, timing: chain.item-finalized }
+            - { seq: 11, timing: zone.enter, object: "A:c1" }
+            - { seq: 12, timing: chain.item-pending }
+            - { seq: 13, timing: zone.enter, object: "B:c9" }
+            - { seq: 14, timing: priority.passed }
+            - { seq: 15, timing: priority.passed }
+      state:
+        - { path: "room.eventSeq", equals: 15 }
+      rejected: null
+    notes: "游标可以落后任意多步；服务端按 seq 升序补全 [9..15]，客户端重放这些事件后投影应等于当前权威投影。"
+
+  - id: journal-resume-cursor-ahead-of-authoritative
+    rule: ["contract:4#resume"]
+    title: 重连游标超出权威 eventSeq 被拒绝
+    kind: negative
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        journal:
+          - { seq: 1, playerId: p1, commandId: cmd-1, command: { type: play-card, instanceId: c1, targets: [] } }
+        stateVersion: 6
+        eventSeq: 10
+        connections: { A: { connectionId: conn-a2, afterEventSeq: 11, afterRoomEventSeq: 0 } }
+    commands:
+      - { player: A, do: resume, afterEventSeq: 11, afterRoomEventSeq: 0 }
+    expect:
+      rejected: { command: 0, reason: "invalid-cursor" }
+      journal: []
+    notes: "afterEventSeq 大于当前权威 eventSeq 说明客户端持有未来状态（可能来自别的房间或被篡改），必须拒绝而不是静默补空。对应实现中的 validateMatchEventCursor。"
+
+  - id: journal-resume-wrong-room-or-seat-token
+    rule: ["contract:4#resume"]
+    title: 用其他房间/座位的 resumeToken 重连被拒绝
+    kind: negative
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        journal: []
+        stateVersion: 5
+        eventSeq: 8
+        connections: { A: { connectionId: conn-a2, resumeToken: token-from-other-room } }
+    commands:
+      - { player: A, do: resume, resumeToken: token-from-other-room, afterEventSeq: 5, afterRoomEventSeq: 0 }
+    expect:
+      rejected: { command: 0, reason: "authentication-failed" }
+      journal: []
+    notes: "resumeToken 与座位绑定；错房间/错座位的令牌不能换取任何事件或投影，防止跨房间信息泄漏。"
+
+  - id: journal-resume-superseded-connection-cannot-act
+    rule: ["contract:4#resume"]
+    title: 被取代的旧连接提交命令被拒绝
+    kind: negative
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        journal:
+          - { seq: 1, playerId: p1, commandId: cmd-1, command: { type: play-card, instanceId: c1, targets: [] } }
+        stateVersion: 6
+        eventSeq: 10
+        connections: { A: { connectionId: conn-new }, B: { connectionId: conn-b } }
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 1, hand: [ "@unit(cost:1,might:1)#c2" ], base: [ "@unit(might:3)#c1" ], score: 0 }
+        B: { energy: 0, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, connectionId: conn-old, commandId: cmd-9, do: pass, note: "旧连接已被 conn-new 取代" }
+    expect:
+      rejected: { command: 0, reason: "not-current-connection" }
+      journal: []
+      state:
+        - { path: "room.stateVersion", equals: 6 }
+    notes: "同一玩家重连后旧连接失效；旧连接上的任何命令都不再被接受，避免双写。"
+
+  - id: journal-resume-private-events-not-leaked
+    rule: ["contract:4#resume", "contract:5#full-match", "1.5:312"]
+    title: 补发事件按视角过滤：对手隐私信息不出现在自己的回填流
+    kind: edge
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        journal:
+          - { seq: 1, playerId: p2, commandId: cmd-1, command: { type: play-card, instanceId: c9, targets: [] } }
+        stateVersion: 6
+        eventSeq: 11
+        events:
+          - { seq: 9, visibility: public, view: { timing: chain.item-pending, item: "B:c9" } }
+          - { seq: 10, visibility: private, owner: B, view: { timing: zone.leave, object: "B:hand[0]", zone: hand } }
+          - { seq: 11, visibility: public, view: { timing: chain.item-finalized, item: "B:c9" } }
+        connections: { A: { connectionId: conn-a2, afterEventSeq: 8, afterRoomEventSeq: 0 } }
+    commands:
+      - { player: A, do: resume, afterEventSeq: 8, afterRoomEventSeq: 0 }
+    expect:
+      views:
+        A:
+          events:
+            - { seq: 9, timing: chain.item-pending, item: "B:c9" }
+            - { seq: 11, timing: chain.item-finalized, item: "B:c9" }
+      rejected: null
+    notes: "契约第 5 节要求整局回归包含「无隐私泄漏」。B 从手牌打出这一私密事实对 A 不可见，回填流里 seq 10 被过滤；A 只能看到链项 pending/finalized 等公开时点。此场景同时是重连正确性与隐私投影的交叉断言。"
+
+  # ---------- 进程重启与恢复 ----------
+  - id: journal-restart-replay-restores-exact-state
+    rule: ["contract:4#journal-format", "contract:4#replay"]
+    title: 进程重启后从日志重放，stateVersion 与游戏状态完全一致
+    kind: positive
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        journal:
+          - { seq: 1, playerId: p1, commandId: cmd-1, command: { type: play-card, instanceId: c1, targets: [] } }
+          - { seq: 2, playerId: p2, commandId: cmd-2, command: { type: play-card, instanceId: c9, targets: [] } }
+          - { seq: 3, playerId: p1, commandId: cmd-3, command: { type: pass } }
+        server: { restart: true }
+      turn: { active: B, phase: main, state: neutral-open }
+      players:
+        A: { energy: 1, hand: [], base: [ "@unit(might:3)#c1" ], score: 0 }
+        B: { energy: 2, hand: [], base: [ "@unit(might:2)#c9" ], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: restart-and-reload }
+    expect:
+      state:
+        - { path: "room.stateVersion", equals: 8 }
+        - { path: "turn.active", equals: "B" }
+        - { path: "players.A.base", equals: [ "@unit(might:3)#c1" ] }
+        - { path: "players.B.base", equals: [ "@unit(might:2)#c9" ] }
+      rejected: null
+    notes: "重放 header + 命令序列应得到与崩溃前逐字段一致的状态（含 stateVersion/eventSeq 推进）；这是「durability claims require restart verification」的最小用例。"
+
+  - id: journal-restart-continue-match-after-reload
+    rule: ["contract:4#journal-format", "contract:4#replay"]
+    title: 重启重放后新命令能正常结算并追加日志
+    kind: positive
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        journal:
+          - { seq: 1, playerId: p1, commandId: cmd-1, command: { type: play-card, instanceId: c1, targets: [] } }
+        server: { restart: true }
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 3, hand: [ "@unit(cost:2,might:2)#c2" ], base: [ "@unit(might:3)#c1" ], score: 0 }
+        B: { energy: 0, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: restart-and-reload }
+      - { player: A, commandId: cmd-2, do: play, card: "hand[0]", to: base, pay: { energy: 2 } }
+    expect:
+      journal:
+        - { seq: 2, playerId: p1, commandId: cmd-2, command: { type: play-card } }
+      state:
+        - { path: "players.A.energy", equals: 1 }
+        - { path: "room.stateVersion", equals: 7 }
+      rejected: null
+    notes: "恢复不是只读快照：重放后的对局必须能继续推进，新命令从 seq=2 继续追加，幂等键空间也与重放前连续。"
+
+  - id: journal-restart-empty-journal-returns-to-initial-state
+    rule: ["contract:4#journal-format", "contract:4#replay"]
+    title: 空日志重启后回到初始局面
+    kind: edge
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        journal: []
+        server: { restart: true }
+    commands:
+      - { player: A, do: restart-and-reload }
+    expect:
+      state:
+        - { path: "room.stateVersion", equals: 0 }
+        - { path: "room.eventSeq", equals: 0 }
+      rejected: null
+    notes: "边界：一条命令都还没接受时进程重启，重放空日志应得到开局初始状态（含 seed 决定的发牌结果），stateVersion/eventSeq 归零。"
+
+  - id: journal-restart-replay-mid-chain-deterministic
+    rule: ["contract:4#replay", "1.5:303.2.a"]
+    title: 链未结算完时崩溃，重放后停在同一 pending 状态
+    kind: edge
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        journal:
+          - { seq: 1, playerId: p1, commandId: cmd-1, command: { type: play-card, instanceId: c1, targets: [] } }
+          - { seq: 2, playerId: p2, commandId: cmd-2, command: { type: play-card, instanceId: c9, targets: [] } }
+        server: { restart: true }
+      turn: { active: A, phase: main, state: showdown-open }
+      players:
+        A: { energy: 1, hand: [], base: [ "@unit(might:3)#c1" ], score: 0 }
+        B: { energy: 2, hand: [], base: [ "@unit(might:2)#c9" ], score: 0 }
+      battlefields:
+        - { id: bf1, controller: A, units: { A: [ "@unit(might:3)#c1" ], B: [] } }
+      chain:
+        - { item: "A:c1", status: finalized }
+        - { item: "B:c9", status: pending }
+    commands:
+      - { player: A, do: restart-and-reload }
+    expect:
+      state:
+        - { path: "turn.state", equals: "showdown-open" }
+        - { path: "chain.length", equals: 2 }
+        - { path: "chain[1].status", equals: "pending" }
+      rejected: null
+    notes: "引擎确定性要求：同一份 header(seed) + 命令序列重放后，链上 pending/finalized 项、priority 归属、触发排序都应逐字段一致，不依赖内存中的瞬时调度。"
+
+  # ---------- 回放一致性 ----------
+  - id: journal-replay-final-state-matches-live
+    rule: ["contract:4#replay", "contract:5#full-match"]
+    title: 完整对局日志用当前引擎重算，终局状态与实时对局一致
+    kind: positive
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        journal:
+          - { seq: 1, playerId: p1, commandId: cmd-1, command: { type: play-card, instanceId: c1, targets: [] } }
+          - { seq: 2, playerId: p2, commandId: cmd-2, command: { type: play-card, instanceId: c9, targets: [] } }
+          - { seq: 3, playerId: p1, commandId: cmd-3, command: { type: pass } }
+          - { seq: 4, playerId: p2, commandId: cmd-4, command: { type: pass } }
+          - { seq: 5, playerId: p1, commandId: cmd-5, command: { type: concede } }
+    commands:
+      - { player: A, do: replay-journal }
+    expect:
+      replay:
+        final: { winnerPlayerId: p2, reason: concede }
+      state:
+        - { path: "room.stateVersion", equals: 10 }
+      rejected: null
+    notes: "契约第 5 节整局回归要求「终局一致、重放一致」；回放不重发任何网络消息，只用 header + 命令重算，最终结果须与实时对局相同。"
+
+  - id: journal-replay-per-view-projection-matches
+    rule: ["contract:4#replay", "contract:5#full-match"]
+    title: 回放重建的 A/B/观众三种投影与实时对局各自一致
+    kind: positive
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        journal:
+          - { seq: 1, playerId: p1, commandId: cmd-1, command: { type: play-card, instanceId: c1, targets: [] } }
+          - { seq: 2, playerId: p2, commandId: cmd-2, command: { type: play-card, instanceId: c9, targets: [] } }
+          - { seq: 3, playerId: p1, commandId: cmd-3, command: { type: pass } }
+    commands:
+      - { player: A, do: replay-journal }
+    expect:
+      replay:
+        projection: per-view
+      views:
+        A:
+          state:
+            - { path: "players.A.hand", equals: [] }
+        B:
+          state:
+            - { path: "players.B.hand", equals: [] }
+        spectator:
+          state:
+            - { path: "players.A.hand", equals: hidden }
+            - { path: "players.B.hand", equals: hidden }
+      rejected: null
+    notes: "回放不只校验终局比分：三种视角的投影都要与实时对局逐字段一致，特别是 spectator 视角下手牌等隐私字段必须保持隐藏。"
+
+  - id: journal-replay-engine-mismatch-flagged-but-playable
+    rule: ["contract:4#engine-mismatch", "contract:4#replay"]
+    title: engineVersion 不一致的日志可回放，结果标记 engineMismatch
+    kind: positive
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        header: { format: riftbound-journal, formatVersion: 1, engineVersion: "1.0.0+aaa0000", rulesetVersion: core-1.5, catalogDigest: sha256:cat1, seed: seed-1, createdAt: "2026-10-15T00:00:00Z" }
+        journal:
+          - { seq: 1, playerId: p1, commandId: cmd-1, command: { type: play-card, instanceId: c1, targets: [] } }
+          - { seq: 2, playerId: p2, commandId: cmd-2, command: { type: pass } }
+        server: { engineVersion: "1.1.0+bbb1111" }
+    commands:
+      - { player: A, do: replay-journal }
+    expect:
+      replay:
+        final: { engineMismatch: true }
+      state:
+        - { path: "room.stateVersion", equals: 7 }
+      rejected: null
+    notes: "契约明确 engineVersion 不一致时允许重放但标记 engineMismatch，不做逐字节比较；标记是元数据，不影响状态推进与可观赏性。"
+
+  - id: journal-replay-engine-mismatch-mid-chain-consistent
+    rule: ["contract:4#engine-mismatch", "contract:4#replay", "1.5:303.2.a"]
+    title: 引擎升级后重放到链中段，pending/finalized 结构仍一致
+    kind: edge
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        header: { format: riftbound-journal, formatVersion: 1, engineVersion: "1.0.0+aaa0000", rulesetVersion: core-1.5, catalogDigest: sha256:cat1, seed: seed-1, createdAt: "2026-10-15T00:00:00Z" }
+        journal:
+          - { seq: 1, playerId: p1, commandId: cmd-1, command: { type: play-card, instanceId: c1, targets: [] } }
+          - { seq: 2, playerId: p2, commandId: cmd-2, command: { type: play-card, instanceId: c9, targets: [] } }
+        server: { engineVersion: "1.1.0+bbb1111" }
+    commands:
+      - { player: A, do: replay-journal }
+    expect:
+      replay:
+        final: { engineMismatch: true }
+      state:
+        - { path: "chain.length", equals: 2 }
+      rejected: null
+    notes: "标记 engineMismatch 的前提下，重放到链中段的结构也应确定；这是对「重放用当前引擎重算」在引擎演进场景的边界验证。"
+
+  - id: journal-replay-legacy-schema-refused
+    rule: ["contract:1.3", "contract:4#journal-format"]
+    title: 旧版 journal schema（formatVersion 4–9）不再由当前引擎重放
+    kind: negative
+    given:
+      room:
+        id: room-legacy
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        header: { format: riftbound-journal, formatVersion: 9, engineVersion: "0.9.0+legacy9", rulesetVersion: core-1.4, catalogDigest: sha256:old, seed: seed-old, createdAt: "2026-09-01T00:00:00Z" }
+        journal:
+          - { seq: 1, playerId: p1, commandId: cmd-1, command: { type: pass } }
+    commands:
+      - { player: A, do: replay-journal }
+    expect:
+      rejected: { command: 0, reason: "unsupported-journal-format" }
+    notes: "契约第 1 节原则 2：不再要求新代码重放 journal schema 4–9；需要回看的旧日志用 git tag legacy-replay-e2cbcdf 的代码重放。当前引擎对 formatVersion≠1 一律拒绝。"
+
+  # ---------- 非法命令不入日志 ----------
+  - id: journal-invalid-command-not-written
+    rule: ["contract:4#journal-entry", "contract:4#idempotency"]
+    title: 非当前合法动作的命令被拒绝，不写入日志
+    kind: negative
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        journal: []
+        stateVersion: 5
+        eventSeq: 8
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, hand: [ "@unit(cost:2,might:3)#c1" ], base: [], score: 0 }
+        B: { energy: 0, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, commandId: cmd-x, do: play, card: "hand[0]", to: base, pay: { energy: 2 }, note: "能量不足，不在合法动作列表" }
+    expect:
+      rejected: { command: 0, reason: "invalid_command" }
+      journal: []
+      state:
+        - { path: "room.stateVersion", equals: 5 }
+    notes: "合法性校验在写入日志之前；listLegalActions 不匹配的命令直接拒绝，保证日志只包含已被权威状态机接受的命令。"
+
+  - id: journal-stale-version-command-not-written
+    rule: ["contract:4#resume", "contract:4#journal-entry"]
+    title: expectedVersion 过期的命令被拒绝，日志无新增条目
+    kind: negative
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        journal:
+          - { seq: 1, playerId: p1, commandId: cmd-1, command: { type: pass } }
+        stateVersion: 6
+        eventSeq: 10
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 1, hand: [ "@unit(cost:1,might:1)#c2" ], base: [], score: 0 }
+        B: { energy: 0, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, commandId: cmd-2, expectedVersion: 5, do: play, card: "hand[0]", to: base, pay: { energy: 1 } }
+    expect:
+      rejected: { command: 0, reason: "stale-version" }
+      journal: []
+      state:
+        - { path: "room.stateVersion", equals: 6 }
+    notes: "与 journal-out-of-order-stale-version-rejected 互补：这里显式断言 journal 保持不变（无追加、无修改），stateVersion 不前进。"
+
+  - id: journal-out-of-turn-command-not-written
+    rule: ["contract:4#journal-entry", "1.5:312"]
+    title: 非持有优先权玩家的动作命令被拒绝，不写入日志
+    kind: negative
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        journal: []
+        stateVersion: 5
+        eventSeq: 8
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 3, hand: [ "@unit(cost:2,might:3)#c1" ], base: [], score: 0 }
+        B: { energy: 3, hand: [ "@unit(cost:2,might:2)#c9" ], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: B, commandId: cmd-b, do: play, card: "hand[0]", to: base, pay: { energy: 2 }, note: "B 不持有优先权" }
+    expect:
+      rejected: { command: 0, reason: "invalid_command" }
+      journal: []
+      state:
+        - { path: "room.stateVersion", equals: 5 }
+    notes: "优先权在 A；B 的 play-card 不在其合法动作列表中，被拒绝且不落盘。与规则 golden 的 not-your-priority 场景互补，这里断言的是服务端日志层不变。"
+
+  # ---------- journal 格式 v1 结构 ----------
+  - id: journal-format-header-validates
+    rule: ["contract:4#journal-format", "protocol:journal-v1.ts"]
+    title: 合法 header 通过 journal v1 校验
+    kind: positive
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        header: { format: riftbound-journal, formatVersion: 1, engineVersion: "1.0.0+aaa0000", rulesetVersion: core-1.5, catalogDigest: sha256:cat1, seed: seed-1, createdAt: "2026-10-15T00:00:00Z" }
+        journal: []
+    commands:
+      - { player: A, do: validate-journal }
+    expect:
+      replay:
+        journal: valid
+      rejected: null
+    notes: "isJournalHeader 要求精确字段集、format/formatVersion/rulesetVersion 字面量匹配、seats 非空且 playerId 唯一；本场景给出最小合法样本。"
+
+  - id: journal-format-entry-field-set-rejected
+    rule: ["contract:4#journal-format", "protocol:journal-v1.ts"]
+    title: 条目缺字段或多字段都被格式校验拒绝
+    kind: negative
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        header: { format: riftbound-journal, formatVersion: 1, engineVersion: "1.0.0+aaa0000", rulesetVersion: core-1.5, catalogDigest: sha256:cat1, seed: seed-1, createdAt: "2026-10-15T00:00:00Z" }
+        journal:
+          - { seq: 1, playerId: p1, commandId: cmd-1, command: { type: pass }, acceptedAt: "2026-10-15T00:00:01Z", extraField: true }
+    commands:
+      - { player: A, do: validate-journal }
+    expect:
+      rejected: { command: 0, reason: "journal-format-invalid" }
+    notes: "isJournalEntry 用 exactKeys 锁定 {seq, playerId, commandId, command, acceptedAt}；多一个字段即整个 journal 拒绝解析，防止前向兼容时静默吞掉未知语义。"
+
+  - id: journal-format-seq-must-be-contiguous-from-one
+    rule: ["contract:4#journal-format", "protocol:journal-v1.ts"]
+    title: seq 必须从 1 开始连续递增，跳号即整体拒绝
+    kind: edge
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        header: { format: riftbound-journal, formatVersion: 1, engineVersion: "1.0.0+aaa0000", rulesetVersion: core-1.5, catalogDigest: sha256:cat1, seed: seed-1, createdAt: "2026-10-15T00:00:00Z" }
+        journal:
+          - { seq: 1, playerId: p1, commandId: cmd-1, command: { type: pass }, acceptedAt: "2026-10-15T00:00:01Z" }
+          - { seq: 3, playerId: p2, commandId: cmd-2, command: { type: pass }, acceptedAt: "2026-10-15T00:00:02Z" }
+    commands:
+      - { player: A, do: validate-journal }
+    expect:
+      rejected: { command: 0, reason: "journal-format-invalid" }
+    notes: "isJournalEntries 要求 entry.seq === index + 1；跳号、乱序、重复都让整份日志不可解析，从而避免「部分重放」造成状态分叉。"
+
+  - id: journal-format-duplicate-commandid-in-log-rejected
+    rule: ["contract:4#journal-format", "protocol:journal-v1.ts"]
+    title: 日志文件内出现重复 commandId，整份日志被拒绝
+    kind: negative
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        header: { format: riftbound-journal, formatVersion: 1, engineVersion: "1.0.0+aaa0000", rulesetVersion: core-1.5, catalogDigest: sha256:cat1, seed: seed-1, createdAt: "2026-10-15T00:00:00Z" }
+        journal:
+          - { seq: 1, playerId: p1, commandId: cmd-1, command: { type: pass }, acceptedAt: "2026-10-15T00:00:01Z" }
+          - { seq: 2, playerId: p2, commandId: cmd-1, command: { type: pass }, acceptedAt: "2026-10-15T00:00:02Z" }
+    commands:
+      - { player: A, do: validate-journal }
+    expect:
+      rejected: { command: 0, reason: "journal-format-invalid" }
+    notes: "即使运行时幂等表被绕过，落盘后的格式校验仍会捕获重复幂等键并拒绝整份日志，双重防线。"
+
+  - id: journal-format-catalog-digest-mismatch
+    rule: ["contract:4#journal-format", "contract:4#replay"]
+    title: header 的 catalogDigest 与当前目录摘要不一致的行为
+    kind: edge
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        header: { format: riftbound-journal, formatVersion: 1, engineVersion: "1.0.0+aaa0000", rulesetVersion: core-1.5, catalogDigest: sha256:cat1, seed: seed-1, createdAt: "2026-10-15T00:00:00Z" }
+        journal:
+          - { seq: 1, playerId: p1, commandId: cmd-1, command: { type: play-card, instanceId: c1, targets: [] } }
+        catalogDigestNow: sha256:cat2
+    commands:
+      - { player: A, do: replay-journal }
+    expect:
+      replay:
+        final: { catalogMismatch: true }
+      rejected: null
+    notes: "UNCERTAIN: 契约第 4 节只写了 engineVersion 不一致时的 engineMismatch 标记，未规定 catalogDigest 不一致如何处理。按 journal v1 校验器 digest 只要求是非空字符串、不参与结构校验，故倾向「可回放但应标记 catalogMismatch」；最终语义需调度者确认，可能构成契约变更请求。"
+
+  - id: journal-format-truncated-tail-line-rejected
+    rule: ["contract:4#journal-format", "protocol:journal-v1.ts"]
+    title: 最后一行不完整（进程崩溃在写入中途）时解析失败
+    kind: negative
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        header: { format: riftbound-journal, formatVersion: 1, engineVersion: "1.0.0+aaa0000", rulesetVersion: core-1.5, catalogDigest: sha256:cat1, seed: seed-1, createdAt: "2026-10-15T00:00:00Z" }
+        journal:
+          - { seq: 1, playerId: p1, commandId: cmd-1, command: { type: pass }, acceptedAt: "2026-10-15T00:00:01Z" }
+          - { truncated: true, raw: '{"seq":2,"playerId":"p2","commandId":"cmd-2","command":{"type":"pass"},"acceptedAt":"2026-10-15T00:00' }
+    commands:
+      - { player: A, do: validate-journal }
+    expect:
+      rejected: { command: 0, reason: "journal-format-invalid" }
+    notes: "parseJournalJsonl 对每一行做 JSON.parse；截断的行抛 SyntaxError 并带行号。恢复侧可选择跳过末尾不完整行再重放，但格式层必须先明确失败。"
+
+  - id: journal-recovery-torn-write-crashed-before-append
+    rule: ["contract:4#journal-format", "contract:4#replay", "contract:4#idempotency"]
+    title: 命令已结算但崩溃发生在日志落盘前，重启后客户端重试同一 commandId
+    kind: edge
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        journal: []
+        crashedLog:
+          - { seq: 1, playerId: p1, commandId: cmd-1, command: { type: play-card, instanceId: c1, targets: [] } }
+        server: { restart: true, crashedAfterApplyBeforeJournalAppend: true }
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 3, hand: [ "@unit(cost:2,might:3)#c1" ], base: [], score: 0 }
+        B: { energy: 0, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, commandId: cmd-1, do: play, card: "hand[0]", to: base, pay: { energy: 2 }, note: "客户端未收到回执后的重试" }
+    expect:
+      receipts:
+        - { index: 0, duplicate: false, appliedVersion: 6 }
+      journal:
+        - { seq: 1, playerId: p1, commandId: cmd-1, command: { type: play-card } }
+      state:
+        - { path: "players.A.energy", equals: 1 }
+      rejected: null
+    notes: "UNCERTAIN: 契约未规定「先结算后写日志」与「先写日志后结算」的顺序。若实现是先应用再落盘，则崩溃窗口内客户端重试会作为新命令再次结算（本场景假设重放空日志后状态回到 version 5，重试正常应用为 version 6，最终只结算一次）；若实现先写日志，则重试应命中幂等返回 duplicate: true。两种语义下「只结算一次」都必须成立，具体回执字段以实现确认为准。"
+
+  # ---------- 补充边界 ----------
+  - id: journal-idempotent-duplicate-concede-after-game-end
+    rule: ["contract:4#idempotency"]
+    title: 对局已结束后重试此前已接受的 concede，返回原回执而非 game_ended
+    kind: edge
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        journal:
+          - { seq: 1, playerId: p1, commandId: cmd-1, command: { type: play-card, instanceId: c1, targets: [] } }
+          - { seq: 2, playerId: p2, commandId: cmd-2, command: { type: concede } }
+        stateVersion: 7
+        eventSeq: 12
+        matchEnded: true
+        processed:
+          - { commandId: cmd-2, playerId: p2, payloadHash: h-concede-b, appliedVersion: 7, eventSeq: 12 }
+    commands:
+      - { player: B, commandId: cmd-2, do: concede }
+    expect:
+      receipts:
+        - { index: 0, duplicate: true, appliedVersion: 7, eventSeq: 12 }
+      journal: []
+      state:
+        - { path: "room.stateVersion", equals: 7 }
+      rejected: null
+    notes: "幂等检查在 phase 为 ended 的检查之前；已处理命令的重复投递应命中幂等表返回原结果，而不是被「对局已结束」拒绝，保证回执语义稳定。"
+
+  - id: journal-resume-replay-consistent-after-reconnect
+    rule: ["contract:4#resume", "contract:4#replay"]
+    title: 断线重连补全后的投影与从头回放日志重建的投影一致
+    kind: positive
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        journal:
+          - { seq: 1, playerId: p1, commandId: cmd-1, command: { type: play-card, instanceId: c1, targets: [] } }
+          - { seq: 2, playerId: p2, commandId: cmd-2, command: { type: play-card, instanceId: c9, targets: [] } }
+          - { seq: 3, playerId: p1, commandId: cmd-3, command: { type: pass } }
+        stateVersion: 8
+        eventSeq: 15
+        connections: { B: { connectionId: conn-b2, afterEventSeq: 8, afterRoomEventSeq: 0 } }
+    commands:
+      - { player: B, do: resume, afterEventSeq: 8, afterRoomEventSeq: 0 }
+      - { player: B, do: replay-journal }
+    expect:
+      views:
+        B:
+          state:
+            - { path: "players.A.base", equals: [ "@unit(might:3)#c1" ] }
+            - { path: "players.B.base", equals: [ "@unit(might:2)#c9" ] }
+      replay:
+        projection: per-view
+      rejected: null
+    notes: "这是「恢复」与「回放」两条路径的交叉不变量：resume 增量补全得到的投影，必须等于用同一份日志从头回放重建的投影，否则说明事件流与状态机存在分叉。"
+
+  - id: journal-format-empty-command-name-rejected
+    rule: ["contract:4#journal-format", "protocol:journal-v1.ts"]
+    title: 未知或空 command.type 的日志条目被格式校验拒绝
+    kind: negative
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        header: { format: riftbound-journal, formatVersion: 1, engineVersion: "1.0.0+aaa0000", rulesetVersion: core-1.5, catalogDigest: sha256:cat1, seed: seed-1, createdAt: "2026-10-15T00:00:00Z" }
+        journal:
+          - { seq: 1, playerId: p1, commandId: cmd-1, command: { type: "draw-card" }, acceptedAt: "2026-10-15T00:00:01Z" }
+    commands:
+      - { player: A, do: validate-journal }
+    expect:
+      rejected: { command: 0, reason: "journal-format-invalid" }
+    notes: "isJournalCommand 只认 pass/concede/play-card/respond-to-prompt 四种封闭类型；契约第 3.5 节规定交互只通过四个一等抽象发生，日志层同样不接纳 schema 之外的命令类型。"
+
+  - id: journal-format-seat-playerid-not-in-header-rejected
+    rule: ["contract:4#journal-format", "protocol:journal-v1.ts"]
+    title: 条目 playerId 不在 header.seats 中，整份日志被拒绝
+    kind: negative
+    given:
+      room:
+        id: room-1
+        seats: [{ playerId: p1, name: A }, { playerId: p2, name: B }]
+        header: { format: riftbound-journal, formatVersion: 1, engineVersion: "1.0.0+aaa0000", rulesetVersion: core-1.5, catalogDigest: sha256:cat1, seed: seed-1, createdAt: "2026-10-15T00:00:00Z" }
+        journal:
+          - { seq: 1, playerId: p3, commandId: cmd-1, command: { type: pass }, acceptedAt: "2026-10-15T00:00:01Z" }
+    commands:
+      - { player: A, do: validate-journal }
+    expect:
+      rejected: { command: 0, reason: "journal-format-invalid" }
+    notes: "isJournalEntries 在校验 seats 时要求每条 entry.playerId 都属于 header.seats；外来玩家的命令不能混入日志，保证回放时座位映射唯一。"
