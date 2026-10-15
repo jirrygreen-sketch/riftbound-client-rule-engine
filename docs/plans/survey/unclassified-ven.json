@@ -1,0 +1,1445 @@
+[
+  {
+    "canonicalCardId": "card.hash-6b5c19257cf27d1dd9fba350525b81aaed82f21aacca46a1c0920853f044a5b4",
+    "printingId": "ven-017-166",
+    "verdict": "mappable",
+    "templates": [
+      "damage",
+      "filter",
+      "implicit-printed-cost",
+      "kw-ambush",
+      "kw-reaction",
+      "target",
+      "trigger-play",
+      "trigger-state",
+      "value"
+    ],
+    "primitives": [
+      "condition.value",
+      "continuous.timing",
+      "cost.printed",
+      "effect.damage",
+      "target.filter",
+      "target.location",
+      "target.query",
+      "trigger.play",
+      "trigger.state"
+    ],
+    "reason": "RIFT-9 只因同身份的后续印刷存在能力/标签机械差异而阻断；“已标记伤害”是现有动态数值表达式，不需要猜测数值。",
+    "ruleRefs": [
+      "CR 142.3-142.4",
+      "CR 399-406"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-4ea204b4fa413be39f3508c65d93d8ef270e1bb64d97edf9a216efa7d50394f4",
+    "printingId": "ven-019-166",
+    "verdict": "mappable",
+    "templates": [
+      "condition",
+      "damage",
+      "filter",
+      "implicit-printed-cost",
+      "kw-accelerate",
+      "location",
+      "many",
+      "mode",
+      "trigger-combat",
+      "trigger-state"
+    ],
+    "primitives": [
+      "choice.mode",
+      "choice.optional",
+      "condition.predicate",
+      "cost.additional",
+      "cost.pay",
+      "cost.printed",
+      "effect.damage",
+      "replacement.enter",
+      "target.filter",
+      "target.location",
+      "target.many",
+      "target.query",
+      "trigger.combat",
+      "trigger.state"
+    ],
+    "reason": "RIFT-9 只因不同印刷的标签/属性差异而阻断；Accelerate、攻击触发、符文数量条件和范围伤害均已有模板组合。",
+    "ruleRefs": [
+      "CR 805",
+      "CR 807",
+      "CR 418"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-7b24e8fb2cf27a115102e669fe4fd9219a98b10d2411cc5caf4bb1826db5e3c6",
+    "printingId": "ven-021-166",
+    "verdict": "mappable",
+    "templates": [
+      "activated",
+      "condition",
+      "damage",
+      "empower",
+      "filter",
+      "implicit-printed-cost",
+      "kw-empower",
+      "kw-empowered",
+      "location",
+      "might",
+      "mode",
+      "move",
+      "optional",
+      "replacement",
+      "target",
+      "trigger-move",
+      "trigger-state"
+    ],
+    "primitives": [
+      "choice.mode",
+      "choice.optional",
+      "condition.predicate",
+      "continuous.duration",
+      "continuous.might",
+      "cost.activated",
+      "cost.pay",
+      "cost.printed",
+      "effect.damage",
+      "effect.empower",
+      "effect.move",
+      "replacement.event",
+      "target.filter",
+      "target.location",
+      "target.query",
+      "trigger.move",
+      "trigger.state"
+    ],
+    "reason": "两版差异是提醒文字省略与末尾标点；功能文本一致。移动触发、Empower 条件、临时 Might 和动态伤害可组合表达。",
+    "ruleRefs": [
+      "CR 442",
+      "CR 144",
+      "CR 424",
+      "CR 142"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-d7b6ea328eac7b13a0a652c5d95b38895d7026cbb51f23007ecdce1f9a3d951c",
+    "printingId": "ven-023-166",
+    "verdict": "mappable",
+    "templates": [
+      "additional-cost",
+      "condition",
+      "cost-discard",
+      "discard",
+      "filter",
+      "implicit-printed-cost",
+      "kw-assault",
+      "optional",
+      "result",
+      "special-play",
+      "token",
+      "trigger-play",
+      "trigger-state",
+      "banish"
+    ],
+    "primitives": [
+      "choice.optional",
+      "condition.predicate",
+      "condition.result",
+      "continuous.duration",
+      "continuous.might",
+      "continuous.timing",
+      "cost.additional",
+      "cost.discard",
+      "cost.printed",
+      "effect.discard",
+      "effect.play",
+      "effect.token",
+      "effect.zone",
+      "target.filter",
+      "target.location",
+      "target.query",
+      "trigger.play",
+      "trigger.state",
+      "effect.banish",
+      "continuous.keyword"
+    ],
+    "reason": "RIFT-9 的标签差异不影响功能；额外费用凭证连接到后续 Token 打出，Token 内嵌攻击能力继续使用已有 Token、Banish 和 Assault 原语。",
+    "ruleRefs": [
+      "CR 349",
+      "CR 400-406",
+      "CR 184-187",
+      "CR 807",
+      "CR 428"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-fa3fca39f51f36c4a7eaf70e836d2271f5e26b7994a64cbafa1b79ec0ea7dad7",
+    "printingId": "ven-034-166",
+    "verdict": "mappable",
+    "templates": [
+      "duration",
+      "filter",
+      "implicit-printed-cost",
+      "kw-hidden",
+      "kw-reaction",
+      "location",
+      "might",
+      "move",
+      "target"
+    ],
+    "primitives": [
+      "continuous.duration",
+      "continuous.might",
+      "continuous.timing",
+      "cost.hidden",
+      "cost.pay",
+      "cost.printed",
+      "effect.move",
+      "effect.zone",
+      "target.filter",
+      "target.location",
+      "target.query"
+    ],
+    "reason": "RIFT-9 未匹配的是“从不同地点移动并临时加 Might”整句；Hidden、Reaction、移动和持续增益都有现有原语。",
+    "ruleRefs": [
+      "CR 811",
+      "CR 813",
+      "CR 144",
+      "CR 137"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-cc029bf96714e13a2e9bbc9f58b4d2a300a4d50e4257125afc218854ce4b3acf",
+    "printingId": "ven-035-166",
+    "verdict": "mappable",
+    "templates": [
+      "empower",
+      "filter",
+      "implicit-printed-cost",
+      "kw-empower",
+      "kw-empowered",
+      "kw-reaction",
+      "mode",
+      "target",
+      "trigger-phase"
+    ],
+    "primitives": [
+      "choice.mode",
+      "condition.predicate",
+      "continuous.timing",
+      "cost.activated",
+      "cost.pay",
+      "cost.printed",
+      "effect.empower",
+      "target.filter",
+      "target.query",
+      "trigger.phase",
+      "trigger.delayed"
+    ],
+    "reason": "RIFT-9 未匹配的是双模式的临时 Empower/Disempower；CR 442-443 已定义两种动作，回合结束触发可由 delayed/phase 原语连接。",
+    "ruleRefs": [
+      "CR 442-443",
+      "CR 317.2",
+      "Radiance patch: Conditional Clause Scope"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-cbfb311a21f9513fabec6e5988abd82142daa5583c2f6638ef10ecc4244c44bc",
+    "printingId": "ven-038-166",
+    "verdict": "mappable",
+    "templates": [
+      "condition",
+      "duration",
+      "filter",
+      "implicit-printed-cost",
+      "location",
+      "might",
+      "move",
+      "restrict",
+      "trigger-move",
+      "trigger-state"
+    ],
+    "primitives": [
+      "condition.predicate",
+      "continuous.duration",
+      "continuous.might",
+      "continuous.restrict",
+      "cost.printed",
+      "effect.move",
+      "target.filter",
+      "target.location",
+      "target.query",
+      "trigger.move",
+      "trigger.state"
+    ],
+    "reason": "RIFT-9 只因不同印刷的标签/属性差异而阻断；“不能被选择除非在战斗中”是条件限制替代效果。",
+    "ruleRefs": [
+      "CR 364-370",
+      "CR 144",
+      "CR 137"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-e5eafd33bb50e62c31da83b13c1e44904a8cd4d53760a85e48bbb1fb82d587eb",
+    "printingId": "ven-040-166",
+    "verdict": "mappable",
+    "templates": [
+      "duration",
+      "filter",
+      "implicit-printed-cost",
+      "kw-reaction",
+      "might",
+      "mode",
+      "target"
+    ],
+    "primitives": [
+      "choice.mode",
+      "continuous.duration",
+      "continuous.might",
+      "continuous.timing",
+      "cost.printed",
+      "target.filter",
+      "target.query",
+      "continuous.combat"
+    ],
+    "reason": "RIFT-9 未匹配的是“正在被选择”这一目标状态；目标查询和条件谓词可以引用当前选择过程，v1.5 的 conditional-clause scope 解决句法范围。",
+    "ruleRefs": [
+      "CR 813",
+      "CR 316",
+      "CR 354-359",
+      "CR 137"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-449ee3c99ccb6cbedf40282cf1e6bd9c5f1849ff561c01da7535c34da3628b11",
+    "printingId": "ven-041-166",
+    "verdict": "mappable",
+    "templates": [
+      "attach",
+      "damage",
+      "filter",
+      "implicit-printed-cost",
+      "kw-equip",
+      "kw-weaponmaster",
+      "location",
+      "many",
+      "target",
+      "trigger-combat",
+      "trigger-state",
+      "value"
+    ],
+    "primitives": [
+      "choice.optional",
+      "condition.value",
+      "cost.activated",
+      "cost.modify",
+      "cost.pay",
+      "cost.printed",
+      "effect.attach",
+      "effect.damage",
+      "target.filter",
+      "target.location",
+      "target.many",
+      "target.query",
+      "trigger.combat",
+      "trigger.play",
+      "trigger.state"
+    ],
+    "reason": "RIFT-9 只因不同印刷标签差异而阻断；Weaponmaster、Equip 和按附着数量计算的伤害已有原语。",
+    "ruleRefs": [
+      "CR 821",
+      "CR 818",
+      "CR 418",
+      "CR 137"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-bc2ea9de6b5b9ec4e65b44cd9a1410db1ee6b06013dbd81fb1d1b5daa675f1af",
+    "printingId": "ven-042-166",
+    "verdict": "mappable",
+    "templates": [
+      "condition",
+      "draw",
+      "filter",
+      "implicit-printed-cost",
+      "location",
+      "trigger-score",
+      "trigger-state"
+    ],
+    "primitives": [
+      "condition.predicate",
+      "cost.printed",
+      "effect.draw",
+      "effect.zone",
+      "target.filter",
+      "target.location",
+      "target.query",
+      "trigger.score",
+      "trigger.state"
+    ],
+    "reason": "RIFT-9 只因不同印刷标签差异而阻断；Hold 触发、战场同处查询、精确数量条件和抽牌可直接组合。",
+    "ruleRefs": [
+      "CR 470",
+      "CR 431",
+      "CR 359"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-2df5544ffea6f698095320fc6fa4ee6de200fc1053c9c5737ca847fc57e18b35",
+    "printingId": "ven-046-166",
+    "verdict": "mappable",
+    "templates": [
+      "empower",
+      "implicit-printed-cost",
+      "kw-deflect",
+      "kw-empower",
+      "kw-empowered",
+      "score",
+      "trigger-score",
+      "trigger-state"
+    ],
+    "primitives": [
+      "condition.predicate",
+      "cost.activated",
+      "cost.pay",
+      "cost.printed",
+      "effect.empower",
+      "effect.score",
+      "target.player",
+      "target.query",
+      "target.tax",
+      "trigger.score",
+      "trigger.state"
+    ],
+    "reason": "RIFT-9 只因不同印刷标签差异而阻断；Deflect、Empower、Conquer 得分均有正式规则条目。",
+    "ruleRefs": [
+      "CR 809",
+      "CR 442",
+      "CR 470"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-754aa7addecbea1ffa38ad32f6fbc52273f58dffb461b7a3b18b936fa4eee165",
+    "printingId": "ven-052-166",
+    "verdict": "mappable",
+    "templates": [
+      "duration",
+      "filter",
+      "implicit-printed-cost",
+      "kw-reaction",
+      "might",
+      "mode",
+      "target",
+      "zone"
+    ],
+    "primitives": [
+      "choice.mode",
+      "continuous.duration",
+      "continuous.might",
+      "continuous.timing",
+      "cost.printed",
+      "effect.zone",
+      "target.filter",
+      "target.query"
+    ],
+    "reason": "RIFT-9 未匹配的是两个不同区域/持续效果的模式分支；回手用 effect.zone，临时负 Might 用 continuous.might。",
+    "ruleRefs": [
+      "CR 813",
+      "CR 178",
+      "CR 137"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-356162b4f965ef0d8365391eaacb8f6ce7a5990f15529e553d4fd98f3e20bb89",
+    "printingId": "ven-063-166",
+    "verdict": "mappable",
+    "templates": [
+      "channel",
+      "exhaust",
+      "filter",
+      "history",
+      "implicit-printed-cost",
+      "location",
+      "many",
+      "target",
+      "trigger-leave",
+      "trigger-state"
+    ],
+    "primitives": [
+      "condition.history",
+      "cost.printed",
+      "effect.channel",
+      "effect.exhaust",
+      "effect.zone",
+      "target.filter",
+      "target.location",
+      "target.many",
+      "target.query",
+      "trigger.leave",
+      "trigger.state"
+    ],
+    "reason": "RIFT-9 只因不同印刷标签差异而阻断；“每回合一次”用历史条件，“死亡”用离场触发，“横置 Channel”用现有资源效果。",
+    "ruleRefs": [
+      "CR 429",
+      "CR 431",
+      "CR 816"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-4f54fa53d7952e0ddc5664e048b84ba9749234c943d017b1e5038773e2f42b74",
+    "printingId": "ven-065-166",
+    "verdict": "mappable",
+    "templates": [
+      "condition",
+      "duration",
+      "filter",
+      "history",
+      "implicit-printed-cost",
+      "kw-vision",
+      "score",
+      "token",
+      "trigger-play",
+      "trigger-score",
+      "trigger-state"
+    ],
+    "primitives": [
+      "choice.optional",
+      "condition.history",
+      "condition.predicate",
+      "continuous.duration",
+      "cost.printed",
+      "effect.inspect",
+      "effect.recycle",
+      "effect.score",
+      "effect.token",
+      "effect.zone",
+      "target.filter",
+      "target.location",
+      "target.player",
+      "target.query",
+      "trigger.play",
+      "trigger.score",
+      "trigger.state"
+    ],
+    "reason": "RIFT-9 只因不同印刷标签差异而阻断；Vision、历史条件、分类过滤和得分均已有模板/原语。",
+    "ruleRefs": [
+      "CR 817",
+      "CR 233",
+      "CR 470",
+      "CR 829"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-68f65f2c819cd1b15484ed93f4ae25ec20c4d71f4e4bd05d3a48672d492f5408",
+    "printingId": "ven-068-166",
+    "verdict": "mappable",
+    "templates": [
+      "exhaust",
+      "filter",
+      "history",
+      "implicit-printed-cost",
+      "many",
+      "mode",
+      "optional",
+      "ready",
+      "token",
+      "trigger-play",
+      "trigger-state"
+    ],
+    "primitives": [
+      "choice.mode",
+      "choice.optional",
+      "condition.history",
+      "cost.printed",
+      "effect.exhaust",
+      "effect.ready",
+      "effect.token",
+      "effect.zone",
+      "target.filter",
+      "target.location",
+      "target.many",
+      "target.query",
+      "trigger.play",
+      "trigger.state"
+    ],
+    "reason": "RIFT-9 只因不同印刷标签差异而阻断；“打出自身或每回合首次打出非 Token Gear”是现有 play/history 触发组合。",
+    "ruleRefs": [
+      "CR 817",
+      "CR 400-406",
+      "CR 359",
+      "CR 424"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-881035c8e14e8d3c7fa7299235e42c62bb45a5ba4a64f90a6f663abf348954cb",
+    "printingId": "ven-069-166",
+    "verdict": "mappable",
+    "templates": [
+      "condition",
+      "counter",
+      "draw",
+      "empower",
+      "filter",
+      "implicit-printed-cost",
+      "kw-empower",
+      "kw-empowered",
+      "might",
+      "mode",
+      "replacement",
+      "restrict",
+      "target",
+      "trigger-play",
+      "trigger-state"
+    ],
+    "primitives": [
+      "choice.mode",
+      "condition.predicate",
+      "continuous.duration",
+      "continuous.might",
+      "continuous.restrict",
+      "cost.activated",
+      "cost.pay",
+      "cost.printed",
+      "effect.counter",
+      "effect.draw",
+      "effect.empower",
+      "effect.zone",
+      "replacement.event",
+      "target.filter",
+      "target.query",
+      "trigger.play",
+      "trigger.state"
+    ],
+    "reason": "RIFT-9 只因不同印刷标签差异而阻断；反制限制与负 Might 替代效果已有 replacement/continuous 组合。",
+    "ruleRefs": [
+      "CR 442",
+      "CR 364-370",
+      "CR 404",
+      "CR 441"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-9c6aa95845a73edcec9a9568deba187100fbe690f0a6dfcc010810f04e6a9245",
+    "printingId": "ven-083-166",
+    "verdict": "mappable",
+    "templates": [
+      "additional-cost",
+      "condition",
+      "cost-resources",
+      "damage",
+      "duration",
+      "filter",
+      "implicit-printed-cost",
+      "many",
+      "might",
+      "optional",
+      "result",
+      "target",
+      "value"
+    ],
+    "primitives": [
+      "choice.optional",
+      "condition.predicate",
+      "condition.result",
+      "condition.value",
+      "continuous.duration",
+      "continuous.might",
+      "cost.additional",
+      "cost.pay",
+      "cost.printed",
+      "effect.damage",
+      "target.filter",
+      "target.many",
+      "target.query"
+    ],
+    "reason": "RIFT-9 未匹配的是同一指令中的额外费用、条件增益和双向伤害；cost.result、condition.value 与 effect.damage 可保留支付凭证和同时性。",
+    "ruleRefs": [
+      "CR 349",
+      "CR 142",
+      "CR 467",
+      "CR 404"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-e8452b3b9f2d2d608a43289045ddea899510d5650e10a3ffaf7066b5484d0f49",
+    "printingId": "ven-084-166",
+    "verdict": "mappable",
+    "templates": [
+      "activated",
+      "condition",
+      "empower",
+      "implicit-printed-cost",
+      "kw-empower",
+      "kw-empowered",
+      "might",
+      "restrict"
+    ],
+    "primitives": [
+      "condition.predicate",
+      "continuous.duration",
+      "continuous.might",
+      "continuous.restrict",
+      "cost.activated",
+      "cost.pay",
+      "cost.printed",
+      "effect.empower",
+      "target.query",
+      "replacement.prevent"
+    ],
+    "reason": "RIFT-9 只因不同印刷标签差异而阻断；“仅在战斗中可受伤”是带 combat 条件的 damage prevention。",
+    "ruleRefs": [
+      "CR 442",
+      "CR 364-370",
+      "CR 142"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-a8174733ce8471dd791d71e2914a7f93d9d2f6c25c8d7937bead01c30d962f4a",
+    "printingId": "ven-085-166",
+    "verdict": "mappable",
+    "templates": [
+      "implicit-printed-cost",
+      "player",
+      "recycle",
+      "reveal",
+      "target"
+    ],
+    "primitives": [
+      "cost.printed",
+      "effect.recycle",
+      "effect.reveal",
+      "effect.zone",
+      "target.player",
+      "target.query"
+    ],
+    "reason": "RIFT-9 未匹配的是公开对手手牌后选择并回收；Reveal、玩家查询、标签过滤和 Recycle 已足够，手牌私密投影由规则层处理。",
+    "ruleRefs": [
+      "CR 425",
+      "CR 108.7",
+      "CR 161",
+      "CR 403"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-b5e0e99c33e99ceb92c979c2c0f321e1350559022b999c6941a10dfd1d0d8508",
+    "printingId": "ven-086-166",
+    "verdict": "mappable",
+    "templates": [
+      "activated",
+      "condition",
+      "empower",
+      "filter",
+      "implicit-printed-cost",
+      "kw-empower",
+      "kw-empowered",
+      "kw-stun",
+      "might",
+      "mode",
+      "replacement",
+      "stun",
+      "zone"
+    ],
+    "primitives": [
+      "choice.mode",
+      "condition.predicate",
+      "continuous.combat",
+      "continuous.duration",
+      "continuous.might",
+      "cost.activated",
+      "cost.pay",
+      "cost.printed",
+      "effect.empower",
+      "effect.stun",
+      "effect.zone",
+      "replacement.event",
+      "target.filter",
+      "target.query"
+    ],
+    "reason": "RIFT-9 只因不同印刷标签/能力提醒差异而阻断；v1.5 的 replacement、条件范围和 linked-instruction 规则覆盖三种被替换事件。",
+    "ruleRefs": [
+      "CR 367-370",
+      "CR 442",
+      "CR 142",
+      "Radiance patch: Negated and Ignored Instructions"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-cb3b4ba5c7faf7ff8048c29675e218c4b9fa878972899ec9a88ecfb730c74cf2",
+    "printingId": "ven-088-166",
+    "verdict": "mappable",
+    "templates": [
+      "duration",
+      "implicit-printed-cost",
+      "kw-assault",
+      "kw-deflect",
+      "kw-ganking",
+      "mode",
+      "ready",
+      "target",
+      "trigger-state"
+    ],
+    "primitives": [
+      "choice.mode",
+      "condition.predicate",
+      "continuous.duration",
+      "continuous.might",
+      "continuous.movement",
+      "cost.pay",
+      "cost.printed",
+      "effect.ready",
+      "target.location",
+      "target.query",
+      "target.tax",
+      "trigger.state",
+      "continuous.keyword"
+    ],
+    "reason": "两版只在关键词提醒文字上不同；Ready 触发的三选一临时关键词授予使用 Assault、Deflect、Ganking 的已有语义，并补上通用 keyword grant 依赖。",
+    "ruleRefs": [
+      "CR 807",
+      "CR 809",
+      "CR 810",
+      "CR 364-370"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-52ee12e5ff701518b1a9805038c94f6a69d57289e478e7dc7d6e55ecdc1858e9",
+    "printingId": "ven-090-166",
+    "verdict": "mappable",
+    "templates": [
+      "filter",
+      "implicit-printed-cost",
+      "kill",
+      "many",
+      "player",
+      "target"
+    ],
+    "primitives": [
+      "cost.printed",
+      "effect.kill",
+      "effect.zone",
+      "target.filter",
+      "target.many",
+      "target.player",
+      "target.query"
+    ],
+    "reason": "RIFT-9 未匹配的是“每位玩家各保留一个，其余消灭”的集合选择；player/many/query/kill 已能表达，不把它简化成手工结算。",
+    "ruleRefs": [
+      "CR 403",
+      "CR 428-429",
+      "CR 055"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-84a15f0f4b24ba842c5300ae2aa02facd4e08b04b533d248b5acc6aa5e2f1983",
+    "printingId": "ven-092-166",
+    "verdict": "mappable",
+    "templates": [
+      "activated",
+      "duration",
+      "empower",
+      "implicit-printed-cost",
+      "kw-deflect",
+      "kw-empower",
+      "kw-empowered",
+      "kw-ganking",
+      "might",
+      "mode",
+      "trigger-state",
+      "value"
+    ],
+    "primitives": [
+      "choice.mode",
+      "condition.predicate",
+      "condition.value",
+      "continuous.duration",
+      "continuous.might",
+      "continuous.movement",
+      "cost.activated",
+      "cost.pay",
+      "cost.printed",
+      "effect.empower",
+      "target.location",
+      "target.query",
+      "target.tax",
+      "trigger.state",
+      "continuous.keyword"
+    ],
+    "reason": "两版只省略 Empower/Deflect/Ganking 的提醒文字，功能一致；Might 阈值触发和 v1.5 Empower 状态可直接表达。",
+    "ruleRefs": [
+      "CR 442",
+      "CR 809",
+      "CR 810",
+      "CR 137"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-0ee067030c4b375395ac5d95f7243ff4e4e3a7cbb6f6147ab14d3e2b30998d9f",
+    "printingId": "ven-106-166",
+    "verdict": "mappable",
+    "templates": [
+      "banish",
+      "condition",
+      "filter",
+      "implicit-printed-cost",
+      "kw-action",
+      "location",
+      "mode",
+      "target",
+      "value",
+      "zone"
+    ],
+    "primitives": [
+      "choice.mode",
+      "condition.predicate",
+      "condition.value",
+      "continuous.timing",
+      "cost.printed",
+      "effect.banish",
+      "effect.zone",
+      "target.filter",
+      "target.location",
+      "target.query"
+    ],
+    "reason": "RIFT-9 未匹配的是条件两路分支；低于等于 3 的查询走 Banish，否则走回手 zone effect。",
+    "ruleRefs": [
+      "CR 428",
+      "CR 178",
+      "CR 055",
+      "CR 142"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-aab496105448f9073e9ec14bc0fc63bb55d3209146671be6e19899fb696a2bd2",
+    "printingId": "ven-109-166",
+    "verdict": "mappable",
+    "templates": [
+      "activated",
+      "filter",
+      "implicit-printed-cost",
+      "many",
+      "might",
+      "mode",
+      "token",
+      "trigger-play",
+      "trigger-score",
+      "trigger-state",
+      "value"
+    ],
+    "primitives": [
+      "choice.mode",
+      "condition.value",
+      "continuous.duration",
+      "continuous.might",
+      "cost.activated",
+      "cost.printed",
+      "effect.token",
+      "effect.zone",
+      "target.filter",
+      "target.location",
+      "target.many",
+      "target.query",
+      "trigger.play",
+      "trigger.score",
+      "trigger.state"
+    ],
+    "reason": "RIFT-9 只因不同印刷标签差异而阻断；Token 创建和按 Token 单位数量的 Might 层均已有原语。",
+    "ruleRefs": [
+      "CR 184-187",
+      "CR 470",
+      "CR 137"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-ac23c451a781cab424bef57b9033b37b366730f18b5699ec3fdfd4a7cb61f807",
+    "printingId": "ven-110-166",
+    "verdict": "mappable",
+    "templates": [
+      "banish",
+      "discard",
+      "empower",
+      "filter",
+      "implicit-printed-cost",
+      "kw-empower",
+      "kw-empowered",
+      "location",
+      "mode",
+      "target",
+      "trigger-state",
+      "value"
+    ],
+    "primitives": [
+      "choice.mode",
+      "condition.predicate",
+      "condition.value",
+      "cost.activated",
+      "cost.pay",
+      "cost.printed",
+      "effect.banish",
+      "effect.discard",
+      "effect.empower",
+      "effect.zone",
+      "target.filter",
+      "target.location",
+      "target.query",
+      "trigger.state"
+    ],
+    "reason": "RIFT-9 只因不同印刷标签差异而阻断；丢弃法术作为 Empower 费用，Empowered 事件触发放逐，均有现有原语。",
+    "ruleRefs": [
+      "CR 442",
+      "CR 428",
+      "CR 055"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-5b42742bf383c1d6c7809e387ff198cfe26b37f06ef74cd7742bf390ea3cf2a7",
+    "printingId": "ven-112-166",
+    "verdict": "mappable",
+    "templates": [
+      "activated",
+      "filter",
+      "implicit-printed-cost",
+      "kw-action",
+      "kw-assault",
+      "location",
+      "many",
+      "move",
+      "token",
+      "trigger-play",
+      "trigger-score",
+      "trigger-state",
+      "value",
+      "banish"
+    ],
+    "primitives": [
+      "condition.predicate",
+      "condition.value",
+      "continuous.duration",
+      "continuous.might",
+      "continuous.timing",
+      "cost.activated",
+      "cost.printed",
+      "effect.move",
+      "effect.token",
+      "effect.zone",
+      "target.filter",
+      "target.location",
+      "target.many",
+      "target.query",
+      "trigger.play",
+      "trigger.score",
+      "trigger.state",
+      "effect.banish",
+      "continuous.keyword"
+    ],
+    "reason": "RIFT-9 只因不同印刷标签差异而阻断；Token 内嵌能力、基地位置和双向移动可以组合，不需要把交换写成客户端操作。",
+    "ruleRefs": [
+      "CR 184-187",
+      "CR 144",
+      "CR 829",
+      "CR 428"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-f8e2a3619f710bd235f910a96127e6c5f05eb8a3971f892d3d728bab7dc7d677",
+    "printingId": "ven-113-166",
+    "verdict": "mappable",
+    "templates": [
+      "duration",
+      "filter",
+      "implicit-printed-cost",
+      "kw-burn",
+      "kw-flow",
+      "trigger-play",
+      "trigger-score",
+      "trigger-state",
+      "value"
+    ],
+    "primitives": [
+      "condition.history",
+      "condition.predicate",
+      "condition.value",
+      "continuous.duration",
+      "cost.printed",
+      "effect.mill",
+      "effect.zone",
+      "target.filter",
+      "target.query",
+      "trigger.play",
+      "trigger.score",
+      "trigger.state",
+      "effect.play",
+      "cost.modify",
+      "effect.banish"
+    ],
+    "reason": "RIFT-9 只因不同印刷标签差异而阻断；Burn、Flow 和“费用等于原费用”的成本修改均有规则定义。",
+    "ruleRefs": [
+      "CR 432",
+      "CR 829",
+      "CR 233",
+      "CR 428"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-ace1c75d6848b5ce9e834068a2b6255d8f82c7ccf918d3063e5a31698ccdacb6",
+    "printingId": "ven-116-166",
+    "verdict": "mappable",
+    "templates": [
+      "duration",
+      "filter",
+      "implicit-printed-cost",
+      "kw-flow",
+      "location",
+      "might",
+      "target",
+      "value"
+    ],
+    "primitives": [
+      "condition.history",
+      "condition.predicate",
+      "condition.value",
+      "continuous.duration",
+      "continuous.might",
+      "cost.printed",
+      "target.filter",
+      "target.location",
+      "target.query"
+    ],
+    "reason": "RIFT-9 未匹配的是“设置基础 Might”效果；continuous.might 的 set/base 形式和 Flow 已足够。",
+    "ruleRefs": [
+      "CR 137",
+      "CR 829",
+      "Radiance patch: Conditional Clause Scope"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-c7314bf7e9131668bdd7205b5d3fbea9f04822a76c74bdac078317dc203fae52",
+    "printingId": "ven-126-166",
+    "verdict": "mappable",
+    "templates": [
+      "duration",
+      "filter",
+      "implicit-printed-cost",
+      "kw-reaction",
+      "prevention",
+      "replacement",
+      "target"
+    ],
+    "primitives": [
+      "condition.predicate",
+      "continuous.duration",
+      "continuous.timing",
+      "cost.printed",
+      "replacement.event",
+      "replacement.prevent",
+      "target.filter",
+      "target.query"
+    ],
+    "reason": "RIFT-9 未匹配的是有限次数的防伤替代；replacement.prevent 需持有剩余额度并在后续 damage event 中消耗。",
+    "ruleRefs": [
+      "CR 369-370",
+      "CR 467",
+      "CR 142"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-918c7c0acc1cff3bf6bc9579ca9dc1dfeec36e9b894becddb7b0eb8918a44cad",
+    "printingId": "ven-127-166",
+    "verdict": "mappable",
+    "templates": [
+      "activated",
+      "condition",
+      "cost-sacrifice",
+      "empower",
+      "filter",
+      "implicit-printed-cost",
+      "kill",
+      "kw-empowered",
+      "kw-flow",
+      "mode",
+      "target",
+      "value"
+    ],
+    "primitives": [
+      "choice.mode",
+      "condition.history",
+      "condition.predicate",
+      "condition.value",
+      "cost.activated",
+      "cost.printed",
+      "cost.sacrifice",
+      "effect.empower",
+      "effect.kill",
+      "effect.zone",
+      "target.filter",
+      "target.query",
+      "effect.banish"
+    ],
+    "reason": "RIFT-9 未匹配的是 Disempower 后再判断 Might 的顺序；CR 443.1 与 linked-instruction 规则给出顺序和不可能指令处理。",
+    "ruleRefs": [
+      "CR 442-443",
+      "CR 428-429",
+      "CR 829",
+      "CR 055"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-bc9496bbf6f7cd918c02c302dd1a30bdc473b07744028532891c56fa80672908",
+    "printingId": "ven-134-166",
+    "verdict": "mappable",
+    "templates": [
+      "condition",
+      "duration",
+      "empower",
+      "history",
+      "implicit-printed-cost",
+      "kw-deflect",
+      "kw-empower",
+      "kw-empowered",
+      "kw-ganking",
+      "many",
+      "might",
+      "value"
+    ],
+    "primitives": [
+      "condition.history",
+      "condition.predicate",
+      "condition.value",
+      "continuous.duration",
+      "continuous.might",
+      "continuous.movement",
+      "cost.activated",
+      "cost.pay",
+      "cost.printed",
+      "effect.empower",
+      "target.location",
+      "target.many",
+      "target.query",
+      "target.tax",
+      "continuous.keyword"
+    ],
+    "reason": "三次 Empower 是 v1.5 明确支持的 stacking status，不是旧版二元状态；计数、每次 +2、三次关键词条件均由现有原语组合。",
+    "ruleRefs": [
+      "CR 442.1.c.1",
+      "CR 443.1.b",
+      "CR 809",
+      "CR 810",
+      "CR 137"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-6d5c7c18a2ff9af74ab3f4a4b8ac837540733c2922614f53be32ab4e75be8f6b",
+    "printingId": "ven-135-166",
+    "verdict": "mappable",
+    "templates": [
+      "condition",
+      "cost-resources",
+      "filter",
+      "implicit-printed-cost",
+      "kw-hidden",
+      "kw-stun",
+      "location",
+      "might",
+      "mode",
+      "optional",
+      "stun",
+      "target",
+      "trigger-combat",
+      "trigger-play",
+      "trigger-state"
+    ],
+    "primitives": [
+      "choice.mode",
+      "choice.optional",
+      "condition.predicate",
+      "continuous.combat",
+      "continuous.duration",
+      "continuous.might",
+      "continuous.timing",
+      "cost.hidden",
+      "cost.pay",
+      "cost.printed",
+      "effect.stun",
+      "effect.zone",
+      "target.filter",
+      "target.location",
+      "target.query",
+      "trigger.combat",
+      "trigger.play",
+      "trigger.state"
+    ],
+    "reason": "RIFT-9 只因不同印刷标签差异而阻断；Hidden、play/attack 触发、可选费用、Stun 和位置条件均有现成表达。",
+    "ruleRefs": [
+      "CR 811",
+      "CR 424",
+      "CR 144",
+      "CR 317.2"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-e8af5c2839945839572f9122c2803fdda719845f1a7356eca006d791891545cd",
+    "printingId": "ven-136-166",
+    "verdict": "mappable",
+    "templates": [
+      "activated",
+      "empower",
+      "filter",
+      "implicit-printed-cost",
+      "kill",
+      "kw-assault",
+      "kw-empower",
+      "kw-empowered",
+      "location",
+      "target",
+      "trigger-combat",
+      "trigger-state",
+      "value"
+    ],
+    "primitives": [
+      "condition.predicate",
+      "condition.value",
+      "continuous.duration",
+      "continuous.might",
+      "cost.activated",
+      "cost.pay",
+      "cost.printed",
+      "effect.empower",
+      "effect.kill",
+      "effect.zone",
+      "target.filter",
+      "target.location",
+      "target.query",
+      "trigger.combat",
+      "trigger.state",
+      "continuous.keyword"
+    ],
+    "reason": "RIFT-9 只因不同印刷标签差异而阻断；Empower 后 Assault 和攻击时条件消灭可直接组合。",
+    "ruleRefs": [
+      "CR 442",
+      "CR 807",
+      "CR 429",
+      "CR 418"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-981bce17b37bbc9e61b2bc56b12191d12b4c0d17be51ad4a950324e1e4941c5a",
+    "printingId": "ven-142-166",
+    "verdict": "needs-new-primitive",
+    "templates": [
+      "activated",
+      "duration",
+      "filter",
+      "implicit-printed-cost",
+      "kw-action",
+      "might",
+      "ready",
+      "target"
+    ],
+    "primitives": [
+      "continuous.duration",
+      "continuous.might",
+      "continuous.timing",
+      "cost.activated",
+      "cost.printed",
+      "effect.ready",
+      "target.filter",
+      "target.query",
+      "continuous.grant-ability"
+    ],
+    "newPrimitive": {
+      "id": "continuous.grant-ability",
+      "name": "临时授予激活能力",
+      "semantic": "在指定持续期间把一个含费用、效果和自指对象引用的 activated ability 授予目标 Game Object；该能力必须按普通 activated ability 的激活、选择、费用、入链和结算流程执行。",
+      "ruleRefs": [
+        "CR 364",
+        "CR 369-370",
+        "CR 399-406",
+        "CR 137"
+      ],
+      "expectedCardCount": 1,
+      "expectedCards": [
+        "ven-142-166"
+      ],
+      "expectedUse": "未来所有出现“给它一个[费用]:[效果]”或等价临时自定义激活能力的卡都可复用；本次 ven 未归类身份中仅 Dominus 需要它。"
+    },
+    "reason": "RIFT-9 未匹配的是临时授予一个带费用、自指 Ready 效果的激活能力；现有 effect.ready 只能执行 Ready，不能承载新的 activated-ability 定义，因此需要新增原语。",
+    "ruleRefs": [
+      "CR 364",
+      "CR 369-370",
+      "CR 399-406",
+      "CR 137"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-913749be19f87a0f632bd0690ad0490bb254a346584c09e1b8c3244137f609a7",
+    "printingId": "ven-145-166",
+    "verdict": "mappable",
+    "templates": [
+      "cost-modify",
+      "exhaust",
+      "filter",
+      "many",
+      "mode",
+      "optional",
+      "ready",
+      "target",
+      "trigger-play",
+      "trigger-state",
+      "value"
+    ],
+    "primitives": [
+      "choice.mode",
+      "choice.optional",
+      "condition.value",
+      "cost.modify",
+      "cost.printed",
+      "effect.exhaust",
+      "effect.ready",
+      "target.filter",
+      "target.many",
+      "target.query",
+      "trigger.play",
+      "trigger.state"
+    ],
+    "reason": "RIFT-9 只因不同印刷标签差异而阻断；高费用分类触发、横置费用和最多两枚符文 Ready 可组合。",
+    "ruleRefs": [
+      "CR 400-406",
+      "CR 431",
+      "CR 424",
+      "CR 470"
+    ]
+  },
+  {
+    "canonicalCardId": "card.hash-c0e71d5f247d83c5854d4a20f7ece28e38086a6726e768eae11da9b47b22991b",
+    "printingId": "ven-154-166",
+    "verdict": "mappable",
+    "templates": [
+      "activated",
+      "filter",
+      "implicit-printed-cost",
+      "kill",
+      "kw-flow",
+      "target",
+      "value"
+    ],
+    "primitives": [
+      "condition.history",
+      "condition.predicate",
+      "condition.value",
+      "cost.activated",
+      "cost.printed",
+      "effect.kill",
+      "effect.zone",
+      "target.filter",
+      "target.query",
+      "effect.play",
+      "cost.modify",
+      "effect.banish"
+    ],
+    "reason": "RIFT-9 未匹配的是友方 Might 作为比较基准的条件消灭；target/query、condition.value、kill 和 Flow 已覆盖。",
+    "ruleRefs": [
+      "CR 429",
+      "CR 829",
+      "CR 137",
+      "CR 055"
+    ]
+  }
+]
