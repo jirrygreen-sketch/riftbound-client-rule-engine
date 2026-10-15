@@ -1,0 +1,1484 @@
+area: chain
+rulesetVersion: core-1.5
+sources:
+  - "1.5:303.1-303.2.a"      # 游戏动作逐一完整执行；同时触发按回合顺序
+  - "1.5:305"                # 链清空且回合玩家无行动时阶段推进
+  - "1.5:307-310.4"          # 回合状态：Neutral/Showdown × Open/Closed
+  - "1.5:312.2.a-312.2.d"    # Priority 的授予时机
+  - "1.5:313.1-313.5"        # Focus 与 Priority 的关系
+  - "1.5:318-323"            # Cleanup 的触发时机与内容
+  - "1.5:327-331.2"          # Chain 是非 Board 区域；有链即 Closed
+  - "1.5:332-336.1"          # HOT 与 FEPR 主循环
+  - "1.5:337.1-337.4"        # Finalize 步骤；单位/装备/Add 能力立即结算
+  - "1.5:338.1-338.1.b.1"    # Execute 步骤：合法时机的 Reaction 或 Pass
+  - "1.5:339.1-339.2"        # Pass 步骤：全员连续通过才结算
+  - "1.5:340.1-340.4"        # Resolve 步骤：最新 Finalized 项先结算
+  - "1.5:346-346.1"          # Showdown 中链清空后 Focus 传递及例外
+  - "1.5:354.1-354.3"        # 打出使状态 Closed；结算中的效果不被打断
+  - "1.5:355.9.a.2"          # 链上只有 Finalized 项可被指为「法术/能力」目标
+  - "1.5:358.4-358.5"        # Finalize 时检查时机许可；失败回滚
+  - "1.5:359.2-359.3"        # 永久物 Finalize 后进场上板；法术滞留链上
+  - "1.5:383.3.c-383.3.d.1"  # 触发任意时刻可入链；同时触发的排序
+  - "1.5:403.1.a-403.4"      # 「you may」触发与无合法选项的触发从链上移除
+  - "1.5:405.2-405.2.a"      # 触发含费可拒付；拒付不视为被反击
+  - "1.5:426.1.a-426.1.c"    # 反击：从链上清除、不视为已打出、不退费
+  - "1.5:430.2-430.3"        # Add 能力立即 Finalize 并结算；Reaction Add 随时可启动
+  - "1.5:805.2.b"            # Accelerate 付费生成延迟替代效应
+  - "1.5:813.4-813.4.b"      # 条件性 Reaction 在 Check Legality 时验证
+  - "patch:https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/ (Chronobreak 条目)"
+scenarios:
+  # ---------- 基本生命周期：Pending → Finalize → Resolve ----------
+  - id: chain-spell-lifecycle-pending-finalize-resolve
+    rule: ["1.5:329.1", "1.5:329.3", "1.5:359.3.a", "1.5:340.1"]
+    title: 法术依次经过 Pending、Finalized、Resolve 后进 Trash
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@spell(cost:1,text:\"deal 2 to a unit\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:2)#u1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 1 }, targets: ["#u1"] }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:hand[0]" }
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+          - { timing: chain.item-resolved, item: "A:hand[0]" }
+      state:
+        - { path: "battlefields.bf1.units.B.#u1.damage", equals: 2 }
+        - { path: "players.A.trash", contains: "A:hand[0]" }
+        - { path: "players.A.energy", equals: 1 }
+      rejected: null
+    notes: 法术 Finalize 后滞留在链上（359.3），全员通过后作为最新 Finalized 项结算，结算后进入其拥有者的 Trash。
+
+  - id: chain-play-creates-closed-state
+    rule: ["1.5:331.1", "1.5:354.1", "1.5:309.1"]
+    title: 打出第一张牌即创建链，回合进入 Closed 状态
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@spell(cost:1,speed:reaction,text:\"deal 1 to a unit\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 1
+          runes: { ready: [calm], exhausted: [] }
+          hand: [ "@spell(cost:1,speed:reaction,text:\"deal 1 to a unit\")" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:2)#u1"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 1 }, targets: ["#u1"] }
+      - { player: B, do: play, card: "hand[0]", pay: { energy: 1 }, targets: ["#u1"] }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:hand[0]" }
+          - { timing: turn.state-changed, state: neutral-closed }
+          - { timing: chain.item-pending, item: "B:hand[0]" }
+          - { timing: chain.item-resolved, item: "B:hand[0]" }
+          - { timing: chain.item-resolved, item: "A:hand[0]" }
+      state:
+        - { path: "battlefields.bf1.units.A.#u1.damage", equals: 2 }
+      rejected: null
+    notes: B 能在 Closed 状态打出，靠的是其法术自身的 Reaction；链一旦存在即 Closed（331.1）。
+
+  - id: chain-unit-gear-resolve-immediately-on-finalize
+    rule: ["1.5:337.2", "1.5:359.2.c", "1.5:359.2.d"]
+    title: 单位 Finalize 后立即进场上板，不等待 Reaction 窗口
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [fury, fury], exhausted: [] }
+          hand: [ "@unit(cost:2,might:3)", "@spell(cost:1,speed:reaction,text:\"kill a unit\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 2 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+          - { timing: zone.enter, object: "A:hand[0]", zone: base }
+      state:
+        - { path: "players.A.base", contains: "A:hand[0]" }
+        - { path: "players.A.base[0].status", equals: exhausted }
+        - { path: "players.A.energy", equals: 1 }
+      rejected: null
+    notes: 单位在 Finalize 后直接 Resolve 进场上板且横置（359.2.c）；此时链上可能还留有它自己的打出触发等待处理。装备同理，只是以就绪状态进基地（359.2.d）。
+
+  - id: chain-add-ability-resolves-immediately
+    rule: ["1.5:337.2", "1.5:401.2", "1.5:430.2"]
+    title: Add 类启动能力 Finalize 后立即结算并加费
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [fury, fury], exhausted: [] }
+          hand: [ "@spell(cost:2,text:\"deal 3 to a unit\")" ]
+          base: [ "@gear#catalyst(text:\"[E]: Add [2]. (Reaction)\")" ]
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:3)#u1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 1 }, targets: ["#u1"], note: "pay-costs 步骤内启动 #catalyst" }
+      - { player: A, do: activate, ability: "#catalyst:add-2", pay: { exhaust: "#catalyst" }, during: pay-costs }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:#catalyst:add-2" }
+          - { timing: chain.item-finalized, item: "A:#catalyst:add-2" }
+          - { timing: chain.item-resolved, item: "A:#catalyst:add-2" }
+          - { timing: resource.added, player: A, energy: 2 }
+          - { timing: chain.item-resolved, item: "A:hand[0]" }
+      state:
+        - { path: "battlefields.bf1.units.B.#u1.damage", equals: 3 }
+        - { path: "players.A.base.#catalyst.status", equals: exhausted }
+      rejected: null
+    notes: Add 启动能力在 Finalize 后立即结算（401.2、430.2），FEPR 当前步骤暂停等它，结算不产生 Priority 传递；445.2.c/430.3 允许在付费步骤启动 Reaction Add。
+
+  # ---------- FEPR 顺序与 LIFO ----------
+  - id: chain-lifo-resolution-order
+    rule: ["1.5:340.1", "1.5:340.4", "1.5:339.1"]
+    title: 全员通过后最新 Finalized 项先结算（后进先出）
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@spell(cost:2,text:\"deal 3 to a unit\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 1
+          runes: { ready: [calm], exhausted: [] }
+          hand: [ "@spell(cost:1,speed:reaction,text:\"give a unit +2 might this turn\")" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:3)#u1"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 2 }, targets: ["#u1"] }
+      - { player: B, do: play, card: "hand[0]", pay: { energy: 1 }, targets: ["#u1"] }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-resolved, item: "B:hand[0]" }
+          - { timing: chain.item-resolved, item: "A:hand[0]" }
+      state:
+        - { path: "battlefields.bf1.units.A.#u1.damage", equals: 3 }
+      rejected: null
+    notes: B 的 buff 先结算（u1 变 5 might），随后 A 的法术仍正常结算造成 3 点伤害；两项都 Finalized 后按 LIFO。
+
+  - id: chain-pass-not-resolve-if-item-added
+    rule: ["1.5:339.1", "1.5:339.2", "1.5:338.1.b.1"]
+    title: 一轮中有人加项则重置通过计数，需重新连续全过
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@spell(cost:1,text:\"draw 1\")", "@spell(cost:1,speed:reaction,text:\"draw 1\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 1 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 1 }, note: "Resolve 后 A 作为最新项控制者重获 Priority（340.4）" }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-resolved, item: "A:hand[0](draw)" }
+          - { timing: chain.item-pending, item: "A:hand[0](reaction draw)" }
+          - { timing: chain.item-resolved, item: "A:hand[0](reaction draw)" }
+      state:
+        - { path: "players.A.hand", length: 2 }
+      rejected: null
+    notes: 第一项结算后链空但 A 重获 Priority 并再次开链；339.2 要求每次加项后重新走 Execute/Pass 循环。
+
+  - id: chain-reaction-added-restarts-finalize
+    rule: ["1.5:338.1.a.7", "1.5:340.3"]
+    title: 有人打出 Reaction 后回到 Finalize 步骤处理新 Pending 项
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@spell(cost:1,text:\"deal 1 to a unit\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 1
+          runes: { ready: [calm], exhausted: [] }
+          hand: [ "@spell(cost:1,speed:reaction,text:\"give a unit shield this turn\")" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:2)#u1"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 1 }, targets: ["#u1"] }
+      - { player: B, do: play, card: "hand[0]", pay: { energy: 1 }, targets: ["#u1"] }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "B:hand[0]" }
+          - { timing: chain.item-finalized, item: "B:hand[0]" }
+          - { timing: chain.item-resolved, item: "B:hand[0]" }
+          - { timing: chain.item-resolved, item: "A:hand[0]" }
+      state:
+        - { path: "battlefields.bf1.units.A.#u1.keywords", contains: shield }
+      rejected: null
+    notes: B 的 Reaction 作为新 Pending 项入链后，FEPR 回 Step 1 先 Finalize 它（338.1.a.7）；同理结算后若仍有 Pending 项也回 Step 1（340.3）。
+
+  # ---------- 同时触发与回合顺序 ----------
+  - id: chain-simultaneous-triggers-same-player-orders
+    rule: ["1.5:383.3.d", "1.5:340.1"]
+    title: 同一玩家多个触发同时发生，由控制者选择入链顺序
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A:
+              - "@unit(might:2)#a1(text:\"When you conquer here, draw 1\")"
+              - "@unit(might:2)#a2(text:\"When you conquer here, add [1]\")"
+            B: []
+      chain: []
+    commands:
+      - { player: A, do: conquer, battlefield: bf1, note: "框架动作：征服使 #a1/#a2 的触发同时产生" }
+      - { player: A, do: order-triggers, items: ["#a1:trigger", "#a2:trigger"] }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:#a1:trigger" }
+          - { timing: chain.item-pending, item: "A:#a2:trigger" }
+          - { timing: chain.item-resolved, item: "A:#a2:trigger" }
+          - { timing: chain.item-resolved, item: "A:#a1:trigger" }
+      state:
+        - { path: "players.A.hand", length: 1 }
+        - { path: "players.A.energy", equals: 1 }
+      rejected: null
+    notes: A 选择先放 #a1 后放 #a2；LIFO 使后放的 #a2 先结算。同一玩家的同时触发由本人排序（383.3.d）。
+
+  - id: chain-simultaneous-triggers-turn-order
+    rule: ["1.5:303.2.a", "1.5:383.3.d.1"]
+    title: 多名玩家同时触发时按回合顺序入链，各自决定自己项的顺序
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A: [ "@unit(might:2)#a1(text:\"When a unit dies, draw 1\")" ]
+            B: [ "@unit(might:2)#b1(text:\"When a unit dies, add [1]\")" ]
+        - id: bf2
+          controller: A
+          units:
+            A: [ "@unit(might:1)#a2" ]
+            B: []
+      chain: []
+    commands:
+      - { player: A, do: move, unit: "#a2", to: bf1, note: "框架动作：#a2 移动进入后被效果消灭，#a1/#b1 同时触发" }
+      - { player: A, do: order-triggers, items: ["#a1:trigger"] }
+      - { player: B, do: order-triggers, items: ["#b1:trigger"] }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:#a1:trigger" }
+          - { timing: chain.item-pending, item: "B:#b1:trigger" }
+          - { timing: chain.item-resolved, item: "B:#b1:trigger" }
+          - { timing: chain.item-resolved, item: "A:#a1:trigger" }
+      state:
+        - { path: "players.B.energy", equals: 1 }
+        - { path: "players.A.hand", length: 1 }
+      rejected: null
+    notes: 回合玩家 A 的触发先入链，再到 B（303.2.a、383.3.d.1）；入链顺序与结算顺序相反，B 的先结算。
+
+  - id: chain-chronobreak-multiplayer-turn-order
+    rule: ["1.5:303.2.a", "patch:chronobreak"]
+    title: Chronobreak：拥有者各按回合顺序把自己的单位放入链
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 9
+          runes: { ready: [fury, fury], exhausted: [] }
+          hand: [ "Chronobreak" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A: [ "@unit(might:2)#a1", "@unit(might:3)#a2", "@unit(might:1)#stolen(owner:B)" ]
+            B: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "Chronobreak", pay: { energy: 9 }, targets: ["#a1", "#a2", "#stolen"] }
+      - { player: A, do: order-pending, items: ["#a2", "#a1"], note: "A 先按自己选择的顺序把自己拥有的单位放上链" }
+      - { player: B, do: order-pending, items: ["#stolen"] }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:#a2" }
+          - { timing: chain.item-pending, item: "A:#a1" }
+          - { timing: chain.item-pending, item: "B:#stolen" }
+          - { timing: chain.item-finalized, item: "A:#a2" }
+          - { timing: zone.enter, object: "A:#a2", zone: bf1 }
+          - { timing: chain.item-finalized, item: "A:#a1" }
+          - { timing: zone.enter, object: "A:#a1", zone: bf1 }
+          - { timing: chain.item-finalized, item: "B:#stolen" }
+          - { timing: zone.enter, object: "B:#stolen", zone: base }
+      state:
+        - { path: "battlefields.bf1.units.A", contains: "#a2" }
+        - { path: "battlefields.bf1.units.A", contains: "#a1" }
+        - { path: "players.B.base", contains: "#stolen" }
+      rejected: null
+    notes: 依官方 Radiance patch notes 的 Chronobreak 条目：各单位由其拥有者依次打出入链，从回合玩家开始按回合顺序，每个拥有者自定自己单位的顺序；Pending 从最老到最新 Finalize，单位 Finalize 即结算进场（默认回基地，除非效果另有指定），随后才处理它们的打出触发。
+
+  - id: chain-trigger-added-during-closed-state
+    rule: ["1.5:383.3.c", "1.5:331.1"]
+    title: 触发能力可在 Closed 状态入链，不需要 Reaction
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@spell(cost:1,text:\"deal 1 to a unit\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A: [ "@unit(might:2)#a1" ]
+            B: [ "@unit(might:2)#b1(text:\"When a unit takes damage, add [1]\")" ]
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 1 }, targets: ["#a1"] }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-resolved, item: "A:hand[0]" }
+          - { timing: chain.item-pending, item: "B:#b1:trigger" }
+          - { timing: chain.item-resolved, item: "B:#b1:trigger" }
+      state:
+        - { path: "players.B.energy", equals: 1 }
+      rejected: null
+    notes: A 的法术结算造成伤害时链处于 Closed 收尾阶段，B 的「当单位受伤」触发仍正常入链（383.3.c 允许触发在任意状态入链），无需 Priority。
+
+  # ---------- 可选触发 / 无合法选项 / 含费触发 ----------
+  - id: chain-optional-trigger-declined-removed
+    rule: ["1.5:403.1.a", "1.5:383.3.e.2.b", "1.5:386.2.b"]
+    title: 「you may」触发在 Finalize 时被拒绝则从链上移除
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 1
+          runes: { ready: [calm], exhausted: [] }
+          hand: [ "@spell(cost:1,text:\"kill a unit\")" ]
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A: [ "@unit(might:2)#a1" ]
+            B: [ "@unit(might:2)#b1(text:\"Once each turn, when an enemy unit dies, you may banish it\")" ]
+      chain: []
+    commands:
+      - { player: A, do: pass, note: "前置：B 已在先前行动用杀消灭了 #a1，#b1 的可选触发已入链" }
+      - { player: B, do: finalize-choice, item: "#b1:trigger", choose: decline }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "B:#b1:trigger" }
+          - { timing: chain.item-removed, item: "B:#b1:trigger", reason: declined }
+      state:
+        - { path: "players.A.trash", contains: "#a1" }
+        - { path: "players.A.banishment", not-contains: "#a1" }
+      rejected: null
+    notes: 拒绝执行的可选触发直接离开链（403.1.a），不视为被反击；本回合该「once each turn」触发未被执行，之后满足条件可再次触发（386.2.b）。命令序列假设触发已在链上，调度器可用等价的 kill 场景重建。
+
+  - id: chain-trigger-no-legal-options-removed
+    rule: ["1.5:403.4", "1.5:403.4.a"]
+    title: 触发 Finalize 时无合法目标可选则从链上移除，不算被反击
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@spell(cost:1,text:\"draw 1\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A: [ "@unit(might:2)#a1(text:\"When you play a spell, deal 1 to an enemy unit\")" ]
+            B: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 1 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:#a1:trigger" }
+          - { timing: chain.item-removed, item: "A:#a1:trigger", reason: no-legal-targets }
+          - { timing: chain.item-resolved, item: "A:hand[0]" }
+      state:
+        - { path: "players.A.hand", length: 1 }
+      rejected: null
+    notes: 触发条件已满足所以入链，但 Finalize 步骤发现没有任何敌方单位可作合法目标，按 403.4 移除；这既不是反击也不会回滚触发者的其它结算。
+
+  - id: chain-trigger-cost-declined-not-countered
+    rule: ["1.5:405.2", "1.5:405.2.a", "1.5:404.1.b.1"]
+    title: 含费触发在付费步骤可拒付，离链但不视为被反击
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [fury], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A:
+              - "@unit(might:2)#a1(text:\"When a unit dies here, you may pay [1] to draw 1\")"
+              - "@unit(might:1)#a2"
+            B: [ "@unit(might:3)#b1" ]
+      chain: []
+    commands:
+      - { player: A, do: pass, note: "前置：#a2 已死于战斗伤害，#a1 的含费触发已入链" }
+      - { player: A, do: finalize-choice, item: "#a1:trigger", choose: decline-pay }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:#a1:trigger" }
+          - { timing: chain.item-removed, item: "A:#a1:trigger", reason: cost-declined }
+      state:
+        - { path: "players.A.energy", equals: 2 }
+        - { path: "players.A.hand", length: 0 }
+      rejected: null
+    notes: 405.2 允许在付费步骤拒付触发的费用；该能力从链上移除且明确不算被反击（405.2.a），因此「反击能力时触发」之类的效果不会触发。命令序列假设触发已在链上。
+
+  # ---------- 时机许可（Closed / Showdown / Reaction）----------
+  - id: chain-action-spell-rejected-in-closed
+    rule: ["1.5:331.1.a", "1.5:309.1.a", "1.5:338.1.a.2"]
+    title: Closed 状态下无 Reaction 的牌不能打出
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@spell(cost:1,text:\"draw 1\")#s1", "@spell(cost:1,text:\"deal 1 to a unit\")#s2" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:2)#u1"], B: [] } }
+      chain: [ { item: "A:#s1", state: finalized } ]
+    commands:
+      - { player: A, do: play, card: "#s2", pay: { energy: 1 }, targets: ["#u1"] }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "players.A.hand", contains: "#s2" }
+      rejected: { command: 0, reason: "not-legal-timing" }
+    notes: 链已存在即 Closed；只有 Reaction 或届时将获得 Reaction 的牌/能力能打出（338.1.a.2），A 的第二个无 Reaction 法术在 Check Legality 前即应被拒绝。
+
+  - id: chain-reaction-spell-allowed-in-closed
+    rule: ["1.5:309.1.a", "1.5:338.1.a.2"]
+    title: Closed 状态下 Reaction 法术可以正常打出
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@spell(cost:1,text:\"deal 1 to a unit\")#s1" ]
+          base: []
+          score: 0
+        B:
+          energy: 1
+          runes: { ready: [calm], exhausted: [] }
+          hand: [ "@spell(cost:1,speed:reaction,text:\"counter a spell\")#s2" ]
+          base: []
+          score: 0
+      battlefields: []
+      chain: [ { item: "A:#s1", state: finalized } ]
+    commands:
+      - { player: A, do: pass }
+      - { player: B, do: play, card: "#s2", pay: { energy: 1 }, targets: ["A:#s1"] }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "B:#s2" }
+          - { timing: chain.item-finalized, item: "B:#s2" }
+          - { timing: chain.item-resolved, item: "B:#s2" }
+      state:
+        - { path: "players.A.trash", contains: "#s1" }
+        - { path: "players.B.trash", contains: "#s2" }
+      rejected: null
+    notes: B 的反击法术带 Reaction，可在 Closed 状态响应；目标只能是 Finalized 的链项（见 chain-pending-item-not-targetable）。
+
+  - id: chain-conditional-reaction-checked-at-legality
+    rule: ["1.5:813.4", "1.5:813.4.b", "1.5:358.4"]
+    title: 条件性 Reaction 在 Check Legality 时验证，条件不成立则回滚
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@spell(cost:1,text:\"deal 1 to a unit\")#s1" ]
+          base: []
+          score: 0
+        B:
+          energy: 1
+          runes: { ready: [calm], exhausted: [] }
+          hand: [ "@spell(cost:1,text:\"gain Reaction if an enemy spell is on the chain; draw 1\")#s2" ]
+          base: []
+          score: 0
+      battlefields: []
+      chain: [ { item: "A:#s1", state: finalized } ]
+    commands:
+      - { player: B, do: play, card: "#s2", pay: { energy: 1 } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "B:#s2" }
+          - { timing: chain.item-finalized, item: "B:#s2" }
+          - { timing: chain.item-resolved, item: "B:#s2" }
+      state:
+        - { path: "players.B.hand", length: 1 }
+      rejected: null
+    notes: 该牌只有在链上有敌方法术时才获得 Reaction；打出瞬间条件成立，Check Legality 通过。若结算前条件失效（813.4.b 针对的是 Finalize 时的条件检查），应在第 5 步回滚并退回原区域。场景覆盖「条件在链上成立」的正向分支。
+
+  - id: chain-non-action-rejected-in-showdown-open
+    rule: ["1.5:308.1.a", "1.5:313.1.a", "1.5:358.4"]
+    title: Showdown 状态下无 Action/Reaction 的牌不能打出
+    kind: negative
+    given:
+      turn: { active: B, phase: main, state: showdown-open, focus: A }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@spell(cost:1,text:\"draw 1\")#s1" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: A, contested: true, units: { A: ["@unit(might:2)#a1"], B: ["@unit(might:2)#b1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "#s1", pay: { energy: 1 } }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "players.A.hand", contains: "#s1" }
+      rejected: { command: 0, reason: "not-legal-timing" }
+    notes: A 持 Focus 与 Priority，但 Showdown 状态默认只允许 Action/Reaction（308.1.a）；普通法术在时机检查时被拒。
+
+  - id: chain-action-spell-allowed-in-showdown-open
+    rule: ["1.5:308.1.a", "1.5:347.1", "1.5:806.1.c.1"]
+    title: Showdown Open 时持 Focus 者可打出带 Action 的法术
+    kind: positive
+    given:
+      turn: { active: B, phase: main, state: showdown-open, focus: A }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@spell(cost:1,speed:action,text:\"deal 2 to a unit here\")#s1" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: A, contested: true, units: { A: ["@unit(might:2)#a1"], B: ["@unit(might:3)#b1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "#s1", pay: { energy: 1 }, targets: ["#b1"] }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:#s1" }
+          - { timing: turn.state-changed, state: showdown-closed }
+          - { timing: chain.item-resolved, item: "A:#s1" }
+          - { timing: turn.state-changed, state: showdown-open }
+      state:
+        - { path: "battlefields.bf1.units.B.#b1.damage", equals: 2 }
+      rejected: null
+    notes: Action 允许在 Showdown 中打出（806.1.c.1）；打出使状态从 Showdown Open 转 Showdown Closed，链清空后回到 Showdown Open。
+
+  - id: chain-non-turn-player-priority-in-closed
+    rule: ["1.5:312.2.d", "1.5:338.1.b.1"]
+    title: 回合玩家打出的链上，对手按回合顺序获得 Priority 响应
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@spell(cost:1,text:\"deal 1 to a unit\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 1
+          runes: { ready: [calm], exhausted: [] }
+          hand: [ "@spell(cost:1,speed:reaction,text:\"give a unit +1 might this turn\")" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:2)#u1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 1 }, targets: ["#u1"] }
+      - { player: A, do: pass }
+      - { player: B, do: play, card: "hand[0]", pay: { energy: 1 }, targets: ["#u1"] }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: priority.passed, from: A, to: B }
+          - { timing: chain.item-pending, item: "B:hand[0]" }
+      state:
+        - { path: "battlefields.bf1.units.B.#u1.damage", equals: 1 }
+      rejected: null
+    notes: A 打出后链的下一项控制者是 A，A 先获 Priority；A 通过后按回合顺序传给 B（312.2.d），B 用 Reaction 响应成功。
+
+  - id: chain-priority-after-resolve-newest-controller
+    rule: ["1.5:340.4", "1.5:340.2"]
+    title: 结算后链未空且无 Pending 时，最新项的控制者重获 Priority
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields: []
+      chain:
+        - { item: "A:spell#s1", state: finalized }
+        - { item: "B:spell#s2", state: finalized }
+    commands:
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+      - { player: A, do: pass, note: "#s2 结算后 A 作为剩余最新项控制者重获 Priority" }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-resolved, item: "B:spell#s2" }
+          - { timing: priority.granted, player: A }
+          - { timing: chain.item-resolved, item: "A:spell#s1" }
+      state:
+        - { path: "chain", length: 0 }
+      rejected: null
+    notes: 340.4：链未空且无 Pending 项时，最新（即当前链顶）项的控制者获 Priority 回到 Execute；两项都结算后链空进入 Open。
+
+  - id: chain-phase-advances-when-no-actions
+    rule: ["1.5:305", "1.5:335"]
+    title: 无 Outstanding Task、无 Pending 项且回合玩家不再行动时阶段推进
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: end-turn }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: phase.ended, phase: main }
+          - { timing: phase.started, phase: ending }
+      state:
+        - { path: "turn.phase", equals: ending }
+      rejected: null
+    notes: 305 与 335 描述同一推进规则：没有待处理任务、链为空、无 Showdown/Combat 时，回合玩家宣布结束后进入下一阶段/步骤。
+
+  # ---------- 反击 / 目标合法性 / 失败回滚 ----------
+  - id: chain-countered-spell-not-played-no-refund
+    rule: ["1.5:426.1.a", "1.5:426.1.b", "1.5:426.1.c"]
+    title: 被反击的牌从链上清除进 Trash，不视为打出且不退费
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 4
+          runes: { ready: [fury, fury], exhausted: [] }
+          hand: [ "@spell(cost:3,text:\"deal 3 to a unit\")#s1" ]
+          base: [ "@unit(might:1)#watcher(text:\"When you play a spell, add [1]\")" ]
+          score: 0
+        B:
+          energy: 1
+          runes: { ready: [calm], exhausted: [] }
+          hand: [ "@spell(cost:1,speed:reaction,text:\"counter a spell\")#s2" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:3)#u1"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "#s1", pay: { energy: 3 }, targets: ["#u1"] }
+      - { player: A, do: pass }
+      - { player: B, do: play, card: "#s2", pay: { energy: 1 }, targets: ["A:#s1"] }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-resolved, item: "B:#s2" }
+          - { timing: chain.item-removed, item: "A:#s1", reason: countered }
+      state:
+        - { path: "players.A.trash", contains: "#s1" }
+        - { path: "players.A.energy", equals: 1 }
+        - { path: "battlefields.bf1.units.A.#u1.damage", equals: 0 }
+      rejected: null
+    notes: 反击使 #s1 从链上清除进 Trash（426.1.a/.a.1），不执行任何指令；费用不退（426.1.c）；因为不算「已打出」（426.1.b），#watcher 的「当你打出法术」触发不会产生。标 negative 是因为 A 的打出意图被规则否定。
+
+  - id: chain-pending-item-not-targetable
+    rule: ["1.5:355.9.a.2", "1.5:355.9.a"]
+    title: Pending 状态的链项不能被指为「法术/能力」目标
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@spell(cost:1,text:\"deal 1 to a unit\")#s1" ]
+          base: []
+          score: 0
+        B:
+          energy: 1
+          runes: { ready: [calm], exhausted: [] }
+          hand: [ "@spell(cost:1,speed:reaction,text:\"counter a spell\")#s2" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:2)#u1"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "#s1", pay: { energy: 1 }, targets: ["#u1"] }
+      - { player: B, do: play, card: "#s2", pay: { energy: 1 }, targets: ["A:#s1"], note: "在 A 的法术仍 Pending 时尝试指它为目标" }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "players.B.hand", contains: "#s2" }
+      rejected: { command: 1, reason: "illegal-target" }
+    notes: 355.9.a.2：未特别说明时「法术」「能力」只指链上 Finalized 的项；Pending 项尚在 Finalize 流程中，不能作为反击类牌的目标。实际流程里 B 获 Priority 时 A 的法术通常已 Finalize，本场景用命令时序直接验证目标合法性检查。
+
+  - id: chain-cost-cannot-pay-finalize-fails
+    rule: ["1.5:358.2", "1.5:358.5", "1.5:445.2.a"]
+    title: 费用无法支付时 Finalize 失败，动作回滚牌回手
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@spell(cost:2,text:\"deal 2 to a unit\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:2)#u1"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 1 }, targets: ["#u1"], note: "尝试少付 1 点能量" }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "players.A.hand", length: 1 }
+        - { path: "players.A.energy", equals: 1 }
+        - { path: "battlefields.bf1.units.A.#u1.damage", equals: 0 }
+      rejected: { command: 0, reason: "cost-not-paid" }
+    notes: 358.2 检查所有费用已支付；358.5 失败则已做的动作全部撤销、视为从未发生。合法实现应在打出前就拒绝该命令，事件序列为空。
+
+  - id: chain-conditional-reaction-lost-before-legality
+    rule: ["1.5:813.4.b", "1.5:358.5"]
+    title: 条件性 Reaction 在 Check Legality 前条件失效则回滚退牌
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@spell(cost:1,text:\"deal 1 to a unit\")#s1" ]
+          base: []
+          score: 0
+        B:
+          energy: 2
+          runes: { ready: [calm, calm], exhausted: [] }
+          hand: [ "@spell(cost:1,text:\"gain Reaction if an enemy unit is at a battlefield; deal 1 to a unit\")#s2" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:2)#u1"], B: [] } }
+      chain: [ { item: "A:#s1", state: finalized } ]
+    commands:
+      - { player: B, do: play, card: "#s2", pay: { energy: 1 }, targets: ["#u1"], note: "B 期望「战场有敌方单位」的条件在 Check Legality 时仍成立" }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "B:#s2" }
+      state:
+        - { path: "players.B.hand", not-contains: "#s2" }
+      rejected: null
+    notes: "UNCERTAIN: 813.4.b 要求条件在第 5 步 Check Legality 时验证；但「条件在 Finalize 流程中间（例如选择/付费阶段被对手响应改变）才失效」的精确时点文中只给出「到第 5 步为止」的表述，未给出响应窗口插入 Finalize 流程的完整示例。本场景按「条件成立则正常 Finalize」断言；条件中途失效应回滚退牌的反向分支同样依据 813.4.b，但缺少官方逐步示例。"
+
+  # ---------- 清理 / 状态转换 ----------
+  - id: chain-no-cleanup-during-resolution
+    rule: ["1.5:321", "1.5:321.1", "1.5:323.4"]
+    title: 链项结算期间不发生清理，致命伤害等结算完才处理
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@spell(cost:2,text:\"deal 3 to a unit, then draw 1\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:3)#u1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 2 }, targets: ["#u1"] }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-resolved, item: "A:hand[0]" }
+          - { timing: cleanup.started }
+          - { timing: unit.killed, object: "#u1" }
+      state:
+        - { path: "players.B.trash", contains: "#u1" }
+        - { path: "players.A.hand", length: 1 }
+      rejected: null
+    notes: 法术结算中先造成致命伤害再抽牌，两条指令都在同一 Resolve 内完成；321 禁止结算中途清理，#u1 的死亡（323.4）要等到链项结算完毕后的 Cleanup 才发生。事件顺序必须是「整条法术结算完」在前、「清理消灭」在后。
+
+  - id: chain-cleanup-after-transitions-and-chain-events
+    rule: ["1.5:319.1", "1.5:319.3", "1.5:319.4", "1.5:319.5"]
+    title: 加 Pending 项、Finalize、离链、Open/Closed 转换都会引发清理
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@spell(cost:1,text:\"deal 3 to a unit\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:3)#u1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 1 }, targets: ["#u1"] }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:hand[0]" }
+          - { timing: cleanup.performed, reason: item-pending }
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+          - { timing: cleanup.performed, reason: item-finalized }
+          - { timing: chain.item-resolved, item: "A:hand[0]" }
+          - { timing: cleanup.performed, reason: item-removed }
+          - { timing: cleanup.performed, reason: state-opened }
+      state:
+        - { path: "players.B.trash", contains: "#u1" }
+      rejected: null
+    notes: 319.1/.3/.4/.5 分别要求：Pending 项加入、Pending 变 Finalized、链项离开、Open/Closed 转换之后都做一次清理。实现若合并相邻空清理，至少要保证每个时点之后游戏状态达到清理后的不动点；事件名义可由 RIFT-21 统一。
+
+  - id: chain-cleanup-fixed-point
+    rule: ["1.5:322", "1.5:322.1"]
+    title: 清理引发新状态变化时连锁清理直到不动点
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: B
+          units:
+            A: []
+            B: [ "@unit(might:3)#u1(damage:3)", "@unit(might:2)#u2(text:\"When a unit dies, deal 2 to a unit\")" ]
+      chain: []
+    commands:
+      - { player: A, do: pass, note: "框架动作：执行一次清理，消灭带致命伤害的 #u1" }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cleanup.started }
+          - { timing: unit.killed, object: "#u1" }
+          - { timing: chain.item-pending, item: "B:#u2:trigger" }
+      state:
+        - { path: "players.B.trash", contains: "#u1" }
+      rejected: null
+    notes: "清理消灭 #u1 后 #u2 的死亡触发入链；322 规定清理中发生的新变化会排入下一轮清理，而 319.3 又要求 Pending 项加入后再清理。触发入链发生在清理固定点过程中，之后由 HOT FEPR 继续处理该触发。UNCERTAIN: 清理连续轮次与「Pending 项加入后的清理」谁先生效，规则只给出两者都是 Outstanding Task 的性质，未给出同帧排序示例。"
+
+  # ---------- Showdown 与 Focus ----------
+  - id: chain-focus-passes-after-showdown-chain
+    rule: ["1.5:346", "1.5:340.2.a", "1.5:347.1.b"]
+    title: Showdown 中普通开链结算完毕后 Focus 传给下一位玩家
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: showdown-open, focus: A }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@spell(cost:1,speed:action,text:\"deal 1 to a unit\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: A, contested: true, units: { A: ["@unit(might:2)#a1"], B: ["@unit(might:2)#b1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 1 }, targets: ["#b1"] }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-resolved, item: "A:hand[0]" }
+          - { timing: turn.state-changed, state: showdown-open }
+          - { timing: focus.passed, from: A, to: B }
+          - { timing: priority.granted, player: B }
+      state:
+        - { path: "turn.focus", equals: B }
+        - { path: "battlefields.bf1.units.B.#b1.damage", equals: 1 }
+      rejected: null
+    notes: 该链由普通打出开启，结算完回 Open 时 Focus 按回合顺序传给 B（340.2.a、346、347.1.b），B 同时获得 Priority。
+
+  - id: chain-focus-not-passed-after-trigger-opened-chain
+    rule: ["1.5:346.1", "1.5:340.2.a"]
+    title: 由触发能力开启的链结算完毕后 Focus 不传递
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: showdown-open, focus: A }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          contested: true
+          units:
+            A: [ "@unit(might:2)#a1(text:\"When combat damage is dealt, add [1]\")" ]
+            B: [ "@unit(might:2)#b1" ]
+      chain: []
+    commands:
+      - { player: A, do: pass, note: "框架动作：战斗伤害结算，#a1 的触发入链开启一条链" }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:#a1:trigger" }
+          - { timing: chain.item-resolved, item: "A:#a1:trigger" }
+          - { timing: turn.state-changed, state: showdown-open }
+      state:
+        - { path: "turn.focus", equals: A }
+        - { path: "players.A.energy", equals: 1 }
+      rejected: null
+    notes: 346.1 与 340.2.a 的例外：链由触发能力（或 Add 能力）开启时，结算完回 Open 不传递 Focus，A 保留 Focus。命令序列假设战斗伤害步骤已把触发放上链。
+
+  # ---------- 打出产生的触发 / 打出窗口 ----------
+  - id: chain-play-effects-after-unit-boarded
+    rule: ["1.5:383.4.a.2", "1.5:383.4.a.4", "1.5:337.2"]
+    title: 单位进场后其打出触发才入链，且在单位本身之后结算
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [fury, fury], exhausted: [] }
+          hand: [ "@unit(cost:2,might:2,text:\"When you play me, deal 1 to a unit\")#u1" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:2)#u2"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "#u1", to: base, pay: { energy: 2 } }
+      - { player: A, do: choose-targets, item: "#u1:trigger", targets: ["#u2"] }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:#u1" }
+          - { timing: zone.enter, object: "A:#u1", zone: base }
+          - { timing: chain.item-pending, item: "A:#u1:trigger" }
+          - { timing: chain.item-resolved, item: "A:#u1:trigger" }
+      state:
+        - { path: "battlefields.bf1.units.B.#u2.damage", equals: 1 }
+        - { path: "players.A.base", contains: "#u1" }
+      rejected: null
+    notes: 打出效果在永久物 Finalize 进场后才作为 Pending 项入链（383.4.a.2）；目标在触发 Finalize 时才选（355.5.b），不是打出单位时选。383.4.a.4：其它对象的「当另一对象被打出」触发不属于 Play Effects。
+
+  - id: chain-accelerate-paid-enters-ready
+    rule: ["1.5:805.2.b", "1.5:805.6", "1.5:359.2.c"]
+    title: 支付 Accelerate 额外费的单位 Finalize 后就绪进场
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [fury, fury], exhausted: [] }
+          hand: [ "@unit(cost:2,might:2,domain:fury,keywords:[accelerate])#u1" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "#u1", to: base, pay: { energy: 2, power: ["fury"], additional: { energy: 1 } } }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:#u1" }
+          - { timing: zone.enter, object: "A:#u1", zone: base, status: ready }
+      state:
+        - { path: "players.A.base.#u1.status", equals: ready }
+        - { path: "players.A.energy", equals: 0 }
+      rejected: null
+    notes: 805.2.b：支付 Accelerate 生成延迟替代效应，即使单位在 Finalize 流程中失去 Accelerate 关键词也仍就绪进场；805.6 说明它不会先横置再重置，因此「当单位就绪时」类触发不会被引发。
+
+  - id: chain-multiple-pending-finalized-oldest-first
+    rule: ["1.5:337.1", "1.5:337.1.b"]
+    title: 多个 Pending 项按入链先后从旧到新依次 Finalize
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A:
+              - "@unit(might:2)#a1(text:\"When you conquer here, draw 1\")"
+              - "@unit(might:2)#a2(text:\"When you conquer here, add [1]\")"
+              - "@unit(might:2)#a3(text:\"When you conquer here, give a unit +1 might this turn\")"
+            B: []
+      chain: []
+    commands:
+      - { player: A, do: conquer, battlefield: bf1 }
+      - { player: A, do: order-triggers, items: ["#a1:trigger", "#a2:trigger", "#a3:trigger"] }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:#a1:trigger" }
+          - { timing: chain.item-finalized, item: "A:#a2:trigger" }
+          - { timing: chain.item-finalized, item: "A:#a3:trigger" }
+          - { timing: chain.item-resolved, item: "A:#a3:trigger" }
+          - { timing: chain.item-resolved, item: "A:#a2:trigger" }
+          - { timing: chain.item-resolved, item: "A:#a1:trigger" }
+      state:
+        - { path: "players.A.hand", length: 1 }
+        - { path: "players.A.energy", equals: 1 }
+      rejected: null
+    notes: Finalize 严格按入链顺序（337.1.b），结算严格 LIFO（340.1）；入链顺序由 A 选择（383.3.d）。
+
+  - id: chain-reflexive-trigger-added-during-resolution
+    rule: ["1.5:336.1", "1.5:388.1", "1.5:389.1"]
+    title: 结算期间产生的 Reflexive Trigger 入链并由同一 FEPR 继续处理
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@spell(cost:1,text:\"deal 1 to a unit. Then, if it had 1 might or less, do this: draw 1\")" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:1)#u1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 1 }, targets: ["#u1"] }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+      - { player: A, do: pass, note: "reflexive 项 Finalize 后再次通过" }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-resolved, item: "A:hand[0]" }
+          - { timing: chain.item-pending, item: "A:hand[0]:reflexive" }
+          - { timing: chain.item-finalized, item: "A:hand[0]:reflexive" }
+          - { timing: chain.item-resolved, item: "A:hand[0]:reflexive" }
+      state:
+        - { path: "players.A.hand", length: 1 }
+      rejected: null
+    notes: 388/389：「do this:」结构生成 Reflexive Trigger，作为新 Pending 项入链；336.1 说明它由产生它的同一 FEPR 流程继续处理，链在原法术结算后并未真正清空。
+
+  - id: chain-finalize-does-not-pass-priority
+    rule: ["1.5:337.1.a", "1.5:312.2.c"]
+    title: Finalize 本身不传递 Priority，全部 Finalize 完下一项控制者才获权
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [fury, fury], exhausted: [] }
+          hand: [ "@unit(cost:2,might:2,text:\"When you play me, add [1]\")#u1" ]
+          base: []
+          score: 0
+        B:
+          energy: 1
+          runes: { ready: [calm], exhausted: [] }
+          hand: [ "@spell(cost:1,speed:reaction,text:\"counter an ability\")#s1" ]
+          base: []
+          score: 0
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: play, card: "#u1", to: base, pay: { energy: 2 } }
+      - { player: B, do: play, card: "#s1", pay: { energy: 1 }, targets: ["A:#u1:trigger"], note: "在打出触发仍 Pending 时尝试响应，应被拒绝" }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:#u1" }
+          - { timing: chain.item-finalized, item: "A:#u1:trigger" }
+          - { timing: priority.granted, player: A }
+      state:
+        - { path: "players.A.energy", equals: 2 }
+      rejected: { command: 1, reason: "no-priority" }
+    notes: 337.1.a：Finalize 不传 Priority；312.2.c：Closed 状态下要等所有 Pending 项 Finalize 完，下一项控制者才获 Priority。B 在 #u1 的打出触发 Finalize 完成前没有行动权，不能插入响应；该触发 Finalize 后成为可被反击的 Finalized 项（355.9.a.2）。
