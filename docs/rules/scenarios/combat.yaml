@@ -1,0 +1,1143 @@
+area: combat
+rulesetVersion: core-1.5
+sources:
+  - "1.5:461-468"                 # 战斗与战斗步骤
+  - "1.5:466.2.c"                 # 攻击方/防御方指定与焦点
+  - "1.5:467.2"                   # 战斗伤害步骤（分配与结算顺序）
+  - "1.5:468"                     # 结算步骤、战斗清理、战斗结果
+  - "1.5:341-348"                 # Showdown 的开启、焦点传递与结束
+  - "1.5:316.8"                   # 主阶段中的 Showdown / 战斗
+  - "1.5:323.7-323.13"            # 清理中 stage/开启 Showdown 与战斗
+  - "1.5:190.3-190.4"             # Contested 与控制权建立
+  - "1.5:462-464"                 # 战斗的 stage、参与方恰好两人
+  - "1.5:383.4.e"                 # 攻击触发（每次战斗首次获得攻击方指定）
+  - "1.5:808"                     # Deathknell
+  - "1.5:831"                     # Disarm
+  - "1.5:830"                     # Deploy（与战斗相关的部分）
+  - "1.5:143.5"                   # 单位不能被附着
+  - "1.5:815"                     # Tank
+  - "1.5:826"                     # Backline
+  - "1.5:142.4"                   # 致命伤害
+  - "1.5:143.2.c"                 # 负 Might 在战斗求和时按 0 计
+  - "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"
+scenarios:
+  # ===== 宣告攻击 / Showdown 开启与焦点 =====
+  - id: combat-move-opens-noncombat-showdown-contested
+    rule: ["1.5:190.3.a", "1.5:323.7", "1.5:323.11", "1.5:345", "1.5:316.8.b.1"]
+    title: "移动到无人战场即施加争夺，清理后以非战斗 Showdown 开启，移动方获焦点"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: ["@unit(might:2)#u1"], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: [], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: move, unit: "#u1", to: bf1 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: unit.moved, object: "#u1", to: bf1 }
+          - { timing: battlefield.contested, battlefield: bf1, by: A }
+          - { timing: showdown.opened, battlefield: bf1, kind: non-combat }
+          - { timing: focus.gained, player: A }
+      state:
+        - { path: "battlefields.bf1.contested", equals: true }
+        - { path: "turn.state", equals: showdown-open }
+        - { path: "turn.focus", equals: A }
+      rejected: null
+    notes: "移动完成先做一次清理（1.5:455）；清理第 7 步标记 Showdown staged、第 9 步在中立开放态开启；施加争夺的一方在 Showdown 开启时获得焦点。"
+
+  - id: combat-move-to-enemy-stages-combat-opens-combat-showdown
+    rule: ["1.5:323.8", "1.5:323.12", "1.5:462", "1.5:463", "1.5:466.2.c.1.a", "1.5:466.2.c.3"]
+    title: "移动进敌方占据的战场：争夺+战斗 staged，中立开放态下清理直接开启战斗 Showdown，攻击方获得焦点"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: ["@unit(might:3)#u1"], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:2)#d1"] } }
+      chain: []
+    commands:
+      - { player: A, do: move, unit: "#u1", to: bf1 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: battlefield.contested, battlefield: bf1, by: A }
+          - { timing: combat.staged, battlefield: bf1 }
+          - { timing: combat.opened, battlefield: bf1, attacker: A, defender: B }
+          - { timing: showdown.opened, battlefield: bf1, kind: combat }
+          - { timing: focus.gained, player: A }
+      state:
+        - { path: "combat.attacker", equals: A }
+        - { path: "combat.defender", equals: B }
+        - { path: "battlefields.bf1.units.#u1.designation", equals: attacker }
+        - { path: "battlefields.bf1.units.#d1.designation", equals: defender }
+        - { path: "turn.focus", equals: A }
+      rejected: null
+    notes: "清理第 8 步标记战斗 staged、第 10 步在中立开放态开启；战斗 Showdown 开启时施加争夺的一方（攻击方）获得焦点（1.5:466.2.c.1.a）。"
+
+  - id: combat-focus-does-not-pass-after-trigger-opened-chain
+    rule: ["1.5:466.2.d", "1.5:466.2.d.1", "1.5:466.2.e", "1.5:346.1", "1.5:347.1"]
+    title: "战斗开启时攻击触发入链：攻击方先放触发；触发链清空回到开放态后焦点不传递"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 1, runes: { ready: [fury], exhausted: [] }, hand: ["@spell(cost:1,domain:fury,speed:reaction,text:'Give a unit here +1 might this turn.')"], base: ["@unit(might:2,text:'When I attack, draw 1.')#u1"], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:2)#d1"] } }
+      chain: []
+    commands:
+      - { player: A, do: move, unit: "#u1", to: bf1 }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+      - { player: A, do: play, card: "hand[0]", to: bf1, pay: { energy: 1, power: [fury] } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: combat.opened, battlefield: bf1, attacker: A, defender: B }
+          - { timing: combat.attack-declared, object: "#u1" }
+          - { timing: chain.item-pending, item: "trigger:#u1" }
+          - { timing: chain.item-finalized, item: "trigger:#u1" }
+          - { timing: chain.item-resolved, item: "trigger:#u1" }
+          - { timing: chain.item-pending, item: "A:hand[0]" }
+      state:
+        - { path: "turn.focus", equals: A }
+      rejected: null
+    notes: "攻击触发在战斗开启时作为 Pending 入链并形成战斗链（State 关闭）；该链由触发能力开启，链清空回到开放态时焦点不传递（1.5:346.1），攻击方仍持焦点可继续出牌。"
+
+  - id: combat-focus-passes-after-player-chain
+    rule: ["1.5:347.1.b", "1.5:340.2.a"]
+    title: "玩家在 Showdown 中打出的链关闭后，焦点传递给下一位玩家"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: showdown-open, battlefield: bf1, focus: A }
+      players:
+        A: { energy: 1, runes: { ready: [fury], exhausted: [] }, hand: ["@spell(cost:1,domain:fury,speed:action,text:'Draw 1.')"], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: ["@unit(might:2)#u1"], B: ["@unit(might:2)#d1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 1, power: [fury] } }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:hand[0]" }
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+          - { timing: chain.item-resolved, item: "A:hand[0]" }
+          - { timing: focus.gained, player: B }
+      state:
+        - { path: "turn.focus", equals: B }
+      rejected: null
+    notes: "玩家主动出牌形成的链关闭后焦点传给回合顺序下一位（1.5:347.1.b），与触发开启的链形成对照。"
+
+  - id: combat-showdown-ends-after-all-pass
+    rule: ["1.5:347.2.a", "1.5:348", "1.5:348.1", "1.5:467.2"]
+    title: "双方依次放弃焦点后战斗 Showdown 结束，进入战斗伤害步骤"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: showdown-open, battlefield: bf1, focus: B }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: ["@unit(might:3)#u1"], B: ["@unit(might:2)#d1"] } }
+      chain: []
+    commands:
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: showdown.closed, battlefield: bf1, kind: combat }
+          - { timing: combat.damage-started, battlefield: bf1 }
+          - { timing: combat.damage-dealt }
+      state:
+        - { path: "turn.state", equals: showdown-closed }
+      rejected: null
+    notes: "所有玩家依次放弃则 Showdown 关闭（1.5:348）；战斗 Showdown 关闭后执行剩余战斗步骤，从伤害步骤开始。focus 从 B 开始，B、A 各 pass 一次即全体依次 pass。"
+
+  - id: combat-noncombat-showdown-control-established
+    rule: ["1.5:348.2.a", "1.5:348.2.a.1", "1.5:190.4", "1.5:471.1"]
+    title: "非战斗 Showdown 全体 pass 结束：唯一在场方建立控制并触发征服"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: showdown-open, battlefield: bf1, focus: B }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: ["@unit(might:2)#u1"], B: [] } }
+      chain: []
+    commands:
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: showdown.closed, battlefield: bf1, kind: non-combat }
+          - { timing: battlefield.control-established, battlefield: bf1, player: A }
+          - { timing: score.conquered, battlefield: bf1, player: A }
+      state:
+        - { path: "battlefields.bf1.controller", equals: A }
+        - { path: "players.A.score", equals: 1 }
+      rejected: null
+    notes: "非战斗 Showdown 结束时只有一方单位在场且该方尚未控制战场则建立控制；本回合未在此得过分则构成征服（1.5:348.2.a.1）。"
+
+  - id: combat-defender-mid-showdown-move-converts-to-combat-showdown
+    rule: ["1.5:316.8.b.1.a", "1.5:323.13", "1.5:466.2.c.1.b"]
+    title: "非战斗 Showdown 期间防御方移动到同一战场：清理后转为战斗 Showdown，焦点保持不重置"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: showdown-open, battlefield: bf1, focus: A }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: ["@unit(might:2)#d1"], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: ["@unit(might:3)#u1"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+      - { player: B, do: move, unit: "#d1", to: bf1 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: unit.moved, object: "#d1", to: bf1 }
+          - { timing: combat.staged, battlefield: bf1 }
+          - { timing: combat.opened, battlefield: bf1, attacker: A, defender: B }
+      state:
+        - { path: "turn.focus", equals: A }
+        - { path: "turn.state", equals: showdown-open }
+      rejected: null
+    notes: "战斗在有 Showdown 进行中的战场 staged 时，清理（1.5:323.13）把当前 Showdown 转为战斗 Showdown；战斗在已进行的 Showdown 中开启时，持焦点方保持焦点（1.5:466.2.c.1.b），焦点不归还给攻击方。"
+
+  - id: combat-negative-nonfocus-player-cannot-play
+    rule: ["1.5:347.1"]
+    title: "非持焦点玩家在 Showdown 开放态不能打出牌"
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: showdown-open, battlefield: bf1, focus: A }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 1, runes: { ready: [fury], exhausted: [] }, hand: ["@spell(cost:1,domain:fury,speed:reaction,text:'Deal 1 to a unit.')"], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: ["@unit(might:2)#u1"], B: ["@unit(might:2)#d1"] } }
+      chain: []
+    commands:
+      - { player: B, do: play, card: "hand[0]", pay: { energy: 1, power: [fury] } }
+    expect:
+      events: { ordered: subsequence, list: [] }
+      state:
+        - { path: "players.B.hand", equals: ["@spell(cost:1,domain:fury,speed:reaction,text:'Deal 1 to a unit.')"] }
+      rejected: { command: 0, reason: "no-focus" }
+    notes: "Showdown 中只有持焦点的玩家可以打出合法时机的牌或启动能力（1.5:347.1）；Open 状态只表示窗口开放，不代表任何玩家都能行动。"
+
+  # ===== 战斗伤害分配与结算顺序 =====
+  - id: combat-assign-full-lethal-before-spreading
+    rule: ["1.5:467.2.c.3", "1.5:142.4.b"]
+    title: "必须先给一个单位分配满额致命伤害，才能把剩余伤害分给另一个单位"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: showdown-open, battlefield: bf1, focus: A }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: ["@unit(might:5)#u1"], B: ["@unit(might:3)#d1", "@unit(might:3)#d2"] } }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+      - { player: A, do: assign-damage, assignments: { "#d1": 3, "#d2": 2 } }
+      - { player: B, do: assign-damage, assignments: { "#u1": 6 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: showdown.closed, battlefield: bf1, kind: combat }
+          - { timing: combat.damage-assigned, player: A, to: "#d1", amount: 3 }
+          - { timing: combat.damage-assigned, player: A, to: "#d2", amount: 2 }
+          - { timing: combat.damage-dealt, to: "#d1", amount: 3 }
+          - { timing: combat.damage-dealt, to: "#d2", amount: 2 }
+      state:
+        - { path: "battlefields.bf1.units.B", equals: [] }
+      rejected: null
+    notes: "攻击方先分配（1.5:467.2.c）；3 点先杀满 3 力的 #d1，余 2 点才能给 #d2（1.5:467.2.c.3 的示例结构）；双方分配完毕后伤害同时结算（1.5:467.2.c.1.a）。防御方 6 点全部分给唯一目标 #u1（无其他单位可分，允许超过致命值）。"
+
+  - id: combat-negative-cannot-spread-below-lethal
+    rule: ["1.5:467.2.c.3"]
+    title: "非法分配：未满额致命就把伤害铺给多个单位，指令被拒"
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: showdown-closed, battlefield: bf1, focus: A }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: ["@unit(might:5)#u1"], B: ["@unit(might:3)#d1", "@unit(might:3)#d2", "@unit(might:3)#d3", "@unit(might:3)#d4"] } }
+      chain: []
+    commands:
+      - { player: A, do: assign-damage, assignments: { "#d1": 2, "#d2": 1, "#d3": 1, "#d4": 1 } }
+    expect:
+      events: { ordered: subsequence, list: [] }
+      state: []
+      rejected: { command: 0, reason: "invalid-damage-assignment" }
+    notes: "采用 467.2.c.3 规则示例的反面：5 点伤害面对四个 3 力单位，必须先给其中一个分满 3 点，禁止低于致命就铺开。"
+
+  - id: combat-assign-capped-at-lethal-with-existing-damage
+    rule: ["1.5:467.2.c.4"]
+    title: "有其他未分单位时，单个单位最多分到致命值；已有伤害标记计入致命计算"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: showdown-closed, battlefield: bf1, focus: A }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: ["@unit(might:5)#u1"], B: ["@unit(might:3,damage:1)#d1", "@unit(might:3,damage:1)#d2", "@unit(might:3,damage:1)#d3", "@unit(might:3,damage:1)#d4"] } }
+      chain: []
+    commands:
+      - { player: A, do: assign-damage, assignments: { "#d1": 2, "#d2": 2, "#d3": 1 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: combat.damage-assigned, player: A, to: "#d1", amount: 2 }
+          - { timing: combat.damage-assigned, player: A, to: "#d2", amount: 2 }
+          - { timing: combat.damage-assigned, player: A, to: "#d3", amount: 1 }
+      state: []
+      rejected: null
+    notes: "每个 3 力单位已带 1 点伤害，最多只能再被分 2 点（1.5:467.2.c.4 的示例结构）；分 2+2+1 合法，给任何一个分 3 是非法的。"
+
+  - id: combat-negative-assign-more-than-lethal
+    rule: ["1.5:467.2.c.4"]
+    title: "非法分配：还有其他单位可分时，给单个单位分配超过致命值的伤害"
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: showdown-closed, battlefield: bf1, focus: A }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: ["@unit(might:5)#u1"], B: ["@unit(might:3)#d1", "@unit(might:3)#d2"] } }
+      chain: []
+    commands:
+      - { player: A, do: assign-damage, assignments: { "#d1": 4, "#d2": 1 } }
+    expect:
+      events: { ordered: subsequence, list: [] }
+      state: []
+      rejected: { command: 0, reason: "invalid-damage-assignment" }
+    notes: "#d2 仍可被分配时，#d1 最多只能被分到致命值 3；分 4 点超限，整个分配方案非法。"
+
+  - id: combat-tank-forces-first-assignment
+    rule: ["1.5:467.2.c.6", "1.5:815", "1.5:826"]
+    title: "分配顺序须满足 Tank 最先、Backline 最后"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: showdown-closed, battlefield: bf1, focus: A }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: ["@unit(might:5)#u1"], B: ["@unit(might:2,keywords:[tank])#d1", "@unit(might:2)#d2", "@unit(might:2,keywords:[backline])#d3"] } }
+      chain: []
+    commands:
+      - { player: A, do: assign-damage, assignments: { "#d1": 2, "#d2": 2, "#d3": 1 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: combat.damage-assigned, player: A, to: "#d1", amount: 2 }
+          - { timing: combat.damage-assigned, player: A, to: "#d2", amount: 2 }
+          - { timing: combat.damage-assigned, player: A, to: "#d3", amount: 1 }
+      state: []
+      rejected: null
+    notes: "467.2.c.6 的示例结构：必须先给 Tank 单位分配，然后普通单位，最后才轮到 Backline 单位；分配事件顺序应体现 Tank→普通→Backline。"
+
+  - id: combat-negative-bypass-tank-assignment
+    rule: ["1.5:467.2.c.6", "1.5:815"]
+    title: "非法分配：Tank 单位未被分配前就把伤害分给无能力单位"
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: showdown-closed, battlefield: bf1, focus: A }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: ["@unit(might:3)#u1"], B: ["@unit(might:2,keywords:[tank])#d1", "@unit(might:2)#d2"] } }
+      chain: []
+    commands:
+      - { player: A, do: assign-damage, assignments: { "#d2": 2, "#d1": 1 } }
+    expect:
+      events: { ordered: subsequence, list: [] }
+      state: []
+      rejected: { command: 0, reason: "invalid-damage-assignment" }
+    notes: "能遵守就必须遵守分配限制（1.5:467.2.c.6）：先给 #d2 分伤害、Tank 单位只分到非致命的 1 点，违反 Tank 的最先分配要求。"
+
+  - id: combat-two-tanks-free-order-among-same-priority
+    rule: ["1.5:467.2.c.7", "1.5:815.1.c.2"]
+    title: "两个 Tank 单位同为最先优先级，可在它们之间任选顺序，但都先于普通单位"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: showdown-closed, battlefield: bf1, focus: A }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: ["@unit(might:5)#u1"], B: ["@unit(might:2,keywords:[tank])#d1", "@unit(might:2,keywords:[tank])#d2", "@unit(might:2)#d3"] } }
+      chain: []
+    commands:
+      - { player: A, do: assign-damage, assignments: { "#d2": 2, "#d1": 2, "#d3": 1 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: combat.damage-assigned, player: A, to: "#d2", amount: 2 }
+          - { timing: combat.damage-assigned, player: A, to: "#d1", amount: 2 }
+          - { timing: combat.damage-assigned, player: A, to: "#d3", amount: 1 }
+      state: []
+      rejected: null
+    notes: "467.2.c.7 的示例结构：同优先级的多个单位之间顺序自选，这里先给 #d2 再给 #d1 也合法，最后才轮到无能力单位。"
+
+  - id: combat-tank-plus-backline-conflict-choose-one
+    rule: ["1.5:467.2.c.8"]
+    title: "同一单位兼有 Tank 与 Backline：分配方选其中一个要求生效（最先或最后），不能取中间"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: showdown-closed, battlefield: bf1, focus: A }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: ["@unit(might:3)#u1"], B: ["@unit(might:2,keywords:[tank,backline])#d1", "@unit(might:2)#d2", "@unit(might:2)#d3"] } }
+      chain: []
+    commands:
+      - { player: A, do: assign-damage, assignments: { "#d1": 2, "#d2": 1 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: combat.damage-assigned, player: A, to: "#d1", amount: 2 }
+          - { timing: combat.damage-assigned, player: A, to: "#d2", amount: 1 }
+      state: []
+      rejected: null
+    notes: "467.2.c.8 的示例结构（规则原文以真实卡 Caitlyn, Patrolling 被同时赋予 Tank 与 Backline 为例）：互斥要求只能满足其一；选择 Tank 则 #d1 最先分配。若把 #d1 排在两个普通单位之间则非法（两个要求都没满足）。"
+
+  - id: combat-undamageable-unit-exempt-from-mandatory-assignment
+    rule: ["1.5:467.2.c.10"]
+    title: "不能承受伤害的单位无致命值可言，免于强制分配"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: showdown-closed, battlefield: bf1, focus: A }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: ["@unit(might:2)#u1"], B: ["@unit(might:2,text:'I do not take damage.')#d1", "@unit(might:2)#d2"] } }
+      chain: []
+    commands:
+      - { player: A, do: assign-damage, assignments: { "#d2": 2 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: combat.damage-assigned, player: A, to: "#d2", amount: 2 }
+          - { timing: combat.damage-dealt, to: "#d2", amount: 2 }
+      state:
+        - { path: "battlefields.bf1.units.B", equals: ["@unit(might:2,text:'I do not take damage.')#d1"] }
+      rejected: null
+    notes: "467.2.c.10 的示例结构（规则原文以真实卡 Kayn, Unleashed 为例）：不能承受伤害的单位被忽略、不参与致命分配约束；攻击方可以把全部伤害分给 #d2 而完全不碰 #d1。"
+
+  - id: combat-damage-dealt-simultaneously-shared-deathknell
+    rule: ["1.5:467.2.c.1.a", "1.5:467.2.d", "1.5:808.2", "1.5:808.2.a", "1.5:808.1.d.2"]
+    title: "分配与结算分离：双方伤害同时结算；同方多个 Deathknell 同时触发，操控者自选入链顺序"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: showdown-closed, battlefield: bf1, focus: A }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: ["@unit(might:4)#u1"], B: ["@unit(might:2,text:'[Deathknell] Draw 1.')#d1", "@unit(might:2,text:'[Deathknell] Gain 1 energy next turn.')#d2"] } }
+      chain: []
+    commands:
+      - { player: A, do: assign-damage, assignments: { "#d1": 2, "#d2": 2 } }
+      - { player: B, do: assign-damage, assignments: { "#u1": 4 } }
+      - { player: B, do: choose-order, items: ["deathknell:#d2", "deathknell:#d1"] }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: combat.damage-dealt }
+          - { timing: unit.killed, object: "#d1" }
+          - { timing: unit.killed, object: "#d2" }
+          - { timing: chain.item-pending, item: "deathknell:#d2" }
+          - { timing: chain.item-pending, item: "deathknell:#d1" }
+      state: []
+      rejected: null
+    notes: "伤害同时结算（467.2.d），双方单位同时进垃圾场；每个 Deathknell 实例各自触发（808.2），同一玩家同时入链多个触发时由操控者自选顺序（808.2.a），这里 B 把 #d2 的触发放在更靠近栈底。#u1 也被击杀（4 点致命）但无 Deathknell，不产生链项。"
+
+  - id: combat-attacker-sums-might-defender-assigns-back
+    rule: ["1.5:467.2.a", "1.5:467.2.b", "1.5:467.2.c"]
+    title: "双方分别汇总己方总 Might，攻击方先分配，防御方随后反向分配"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: showdown-closed, battlefield: bf1, focus: A }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: ["@unit(might:3)#u1", "@unit(might:2)#u2"], B: ["@unit(might:4)#d1"] } }
+      chain: []
+    commands:
+      - { player: A, do: assign-damage, assignments: { "#d1": 4 } }
+      - { player: B, do: assign-damage, assignments: { "#u1": 3, "#u2": 1 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: combat.damage-assigned, player: A, to: "#d1", amount: 4 }
+          - { timing: combat.damage-assigned, player: B, to: "#u1", amount: 3 }
+          - { timing: combat.damage-assigned, player: B, to: "#u2", amount: 1 }
+          - { timing: combat.damage-dealt }
+      state:
+        - { path: "battlefields.bf1.units.A", equals: ["@unit(might:2)#u2"] }
+        - { path: "battlefields.bf1.units.B", equals: [] }
+      rejected: null
+    notes: "攻击方总 Might 3+2=5，其中 4 点按致命值分配给唯一目标 #d1（无其他单位可分时允许达到致命值，余 1 点无法再分）；防御方总 Might 4，先杀满 3 力的 #u1 再给 #u2 分 1 点。分配完毕后同时结算。"
+
+  - id: combat-negative-might-sums-as-zero
+    rule: ["1.5:143.2.c"]
+    title: "负 Might 单位在战斗求和时按 0 计，不产生伤害分配额度"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: showdown-closed, battlefield: bf1, focus: A }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: ["@unit(might:-2)#u1"], B: ["@unit(might:2)#d1"] } }
+      chain: []
+    commands:
+      - { player: B, do: assign-damage, assignments: { "#u1": 2 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: combat.damage-assigned, player: B, to: "#u1", amount: 2 }
+          - { timing: combat.damage-dealt, to: "#u1", amount: 2 }
+      state:
+        - { path: "battlefields.bf1.units.B", equals: ["@unit(might:2)#d1"] }
+      rejected: null
+    notes: "攻击方总 Might 按 0 计（负值在求和时视为 0，1.5:143.2.c），攻击方无任何可分配伤害；防御方 2 点正常击杀 #u1。被效果引用时按 0，但真实 Might 仍为 -2（供其他效果继续加减）。"
+
+  - id: combat-prevent-and-doubling-apply-at-assignment-controller-orders
+    rule: ["1.5:467.2.c.5"]
+    title: "预防与翻倍等替代在分配阶段即生效，生效顺序由受影响单位的操控者选择"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: showdown-closed, battlefield: bf1, focus: A }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: ["@unit(might:3)#u1"], B: ["@unit(might:2)#d1"] } }
+      chain: []
+      effects:
+        - { on: "#d1", kind: prevent, amount: 2, scope: this-combat }
+        - { on: "#d1", kind: double-damage-taken, scope: this-turn }
+    commands:
+      - { player: A, do: assign-damage, assignments: { "#d1": 3 } }
+      - { player: B, do: choose-order, items: ["prevent:#d1", "double:#d1"] }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: combat.damage-assigned, player: A, to: "#d1", amount: 3 }
+          - { timing: combat.damage-dealt, to: "#d1", amount: 2 }
+      state:
+        - { path: "battlefields.bf1.units.B", equals: ["@unit(might:2)#d1"] }
+      rejected: null
+    notes: "467.2.c.5 的示例结构（规则原文提及真实卡 Counter Strike 式预防与真实卡 Lotus Trap 的翻倍）：先预防 2 再翻倍 1 到 2，分配额 3、实受 2，#d1 存活；若 B 选择先翻倍，则分配 3 翻倍为 6、再防 2，实受 4 会致命。替代只作用于分配、结算时不再重复计算。"
+
+  - id: combat-assignment-accounts-for-doubling-minimum-applied
+    rule: ["1.5:467.2.c.4.a"]
+    title: "分配额经替代放大后只需满足放大后致命的最小投入"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: showdown-closed, battlefield: bf1, focus: A }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: ["@unit(might:3)#u1"], B: ["@unit(might:3)#d1", "@unit(might:3)#d2"] } }
+      chain: []
+      effects:
+        - { on: "#d1", kind: double-damage-taken, scope: this-turn }
+    commands:
+      - { player: A, do: assign-damage, assignments: { "#d1": 2, "#d2": 1 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: combat.damage-assigned, player: A, to: "#d1", amount: 2 }
+          - { timing: combat.damage-dealt, to: "#d1", amount: 4 }
+          - { timing: unit.killed, object: "#d1" }
+      state: []
+      rejected: null
+    notes: "467.2.c.4.a 的示例结构：3 力单位带所受伤害翻倍，在其他单位仍可被分配时只能被分 1 或 2（2 翻倍为 4 即满足致命的最小投入），分配 3 属超额非法。"
+
+  - id: combat-no-result-recalls-attackers-when-defenders-remain
+    rule: ["1.5:468.1.a.2", "1.5:468.3.d", "1.5:468.3.d.1"]
+    title: "伤害后防御方仍有单位：攻击方单位被召回，战斗无结果，重新 stage 战斗与 Showdown"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: showdown-closed, battlefield: bf1, focus: A }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: ["@unit(might:2)#u1"], B: ["@unit(might:3)#d1"] } }
+      chain: []
+    commands:
+      - { player: A, do: assign-damage, assignments: { "#d1": 2 } }
+      - { player: B, do: assign-damage, assignments: { "#u1": 2 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: combat.damage-dealt }
+          - { timing: unit.killed, object: "#u1" }
+          - { timing: unit.healed, object: "#d1" }
+          - { timing: combat.result-determined, battlefield: bf1, result: none }
+          - { timing: showdown.staged, battlefield: bf1 }
+          - { timing: combat.staged, battlefield: bf1 }
+          - { timing: combat.opened, battlefield: bf1, attacker: A, defender: B }
+      state:
+        - { path: "battlefields.bf1.units.A", equals: [] }
+        - { path: "players.A.base", equals: ["@unit(might:2)#u1"] }
+      rejected: null
+    notes: "战斗清理插入治疗所有单位（468.1.a.1）与防御方仍在场时召回攻击方单位（468.1.a.2）；#u1 已被杀故 A 无单位可召回，B 独存但因召回步骤规则规定为无结果（468.3.d），双方均在场时重新 stage，清理中再次开启战斗。UNCERTAIN: 468.3.d 的字面是“只要有攻击方单位在 3d 步骤被召回则无结果”；本场景 A 的唯一单位已死、无人被实际召回，此时是否仍按无结果处理，规则未给出单独示例，按防御方独存即守方成功守住、战斗重新 stage 理解。"
+
+  - id: combat-attacker-wins-conquers-battlefield
+    rule: ["1.5:468.3.a", "1.5:468.5", "1.5:468.5.d", "1.5:468.7.a"]
+    title: "攻击方清空防御方：赢下战斗、建立控制、构成征服；战斗结束时移除攻防指定"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: showdown-closed, battlefield: bf1, focus: A }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: ["@unit(might:4)#u1"], B: ["@unit(might:2)#d1"] } }
+      chain: []
+    commands:
+      - { player: A, do: assign-damage, assignments: { "#d1": 2 } }
+      - { player: B, do: assign-damage, assignments: { "#u1": 2 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: unit.killed, object: "#d1" }
+          - { timing: combat.result-determined, battlefield: bf1, winner: A }
+          - { timing: battlefield.control-established, battlefield: bf1, player: A }
+          - { timing: score.conquered, battlefield: bf1, player: A }
+          - { timing: combat.ended, battlefield: bf1 }
+      state:
+        - { path: "battlefields.bf1.controller", equals: A }
+        - { path: "battlefields.bf1.contested", equals: false }
+        - { path: "players.A.score", equals: 1 }
+        - { path: "battlefields.bf1.units.#u1.designation", equals: null }
+      rejected: null
+    notes: "唯一在场且拥有攻防指定的玩家赢下战斗（468.3.a）；防御方全部被消灭，召回步骤无对象，攻击方独存，建立控制并征服（本回合未在此得分）。战斗结束移除所有攻击/防御指定、本次战斗效果同时到期（468.7）。"
+
+  - id: combat-both-sides-wiped-no-result-battlefield-uncontrolled
+    rule: ["1.5:468.3.d", "1.5:468.5.b"]
+    title: "双方同归于尽：无结果、无人在场，战场变为无人控制"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: showdown-closed, battlefield: bf1, focus: A }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: ["@unit(might:2)#u1"], B: ["@unit(might:2)#d1"] } }
+      chain: []
+    commands:
+      - { player: A, do: assign-damage, assignments: { "#d1": 2 } }
+      - { player: B, do: assign-damage, assignments: { "#u1": 2 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: combat.damage-dealt }
+          - { timing: combat.result-determined, battlefield: bf1, result: none }
+          - { timing: combat.ended, battlefield: bf1 }
+      state:
+        - { path: "battlefields.bf1.controller", equals: null }
+        - { path: "players.A.score", equals: 0 }
+        - { path: "players.B.score", equals: 0 }
+      rejected: null
+    notes: "双方均无单位剩余则无结果（468.3.d 尾段）；无单位在场则战场成为 Uncontrolled（468.5.b），无人得分。"
+
+  - id: combat-heal-in-combat-cleanup-before-result
+    rule: ["1.5:468.1.a.1", "1.5:143.3.b.2", "1.5:468.3"]
+    title: "战斗清理先治疗所有单位再判定结果：带伤存活的防御方保持存活并赢得战斗"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: showdown-closed, battlefield: bf1, focus: A }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: ["@unit(might:2)#u1"], B: ["@unit(might:5)#d1"] } }
+      chain: []
+    commands:
+      - { player: A, do: assign-damage, assignments: { "#d1": 2 } }
+      - { player: B, do: assign-damage, assignments: { "#u1": 2 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: combat.damage-dealt }
+          - { timing: unit.killed, object: "#u1" }
+          - { timing: unit.healed, object: "#d1" }
+          - { timing: combat.result-determined, battlefield: bf1, winner: B }
+          - { timing: combat.ended, battlefield: bf1 }
+      state:
+        - { path: "battlefields.bf1.controller", equals: B }
+        - { path: "battlefields.bf1.units.#d1.damage", equals: 0 }
+      rejected: null
+    notes: "战斗清理（特殊清理）插入治疗步骤：#d1 带着 2 点伤害存活，伤害被清掉后再判定结果；B 作为唯一在场方赢。B 已控制该战场，不发生控制权变化或征服。"
+
+  - id: combat-staged-combat-fizzles-when-side-leaves
+    rule: ["1.5:463.2", "1.5:323.9", "1.5:323.10"]
+    title: "战斗开启前一方离场：staged 战斗取消；若争夺方仍无单位在场，争夺状态一并移除"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: showdown-open, battlefield: bf2, focus: B }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 1, runes: { ready: [fury], exhausted: [] }, hand: ["@spell(cost:1,domain:fury,speed:reaction,text:'Kill a unit at a battlefield.')"], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: ["@unit(might:2)#u1"], B: ["@unit(might:2)#d1"] }, staged: [showdown, combat] }
+        - { id: bf2, controller: null, units: { A: ["@unit(might:2)#u2"], B: [] } }
+      chain: []
+    commands:
+      - { player: B, do: play, card: "hand[0]", target: "#d1", pay: { energy: 1, power: [fury] } }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "B:hand[0]" }
+          - { timing: unit.killed, object: "#d1" }
+          - { timing: combat.unstaged, battlefield: bf1 }
+      state:
+        - { path: "battlefields.bf1.units.B", equals: [] }
+        - { path: "battlefields.bf1.contested", equals: true }
+        - { path: "turn.state", equals: showdown-open }
+      rejected: null
+    notes: "bf1 的 staged 战斗在开启前不再有两方单位（#d1 被杀），战斗取消 staged（1.5:463.2/323.9）；A 在 bf1 仍有单位，争夺保留、其 staged 非战斗 Showdown 待当前 bf2 的 Showdown 结束后开启（323.9 只取消战斗）。UNCERTAIN: 323.9 只说战斗停止 staged；同一战场同时 staged 的非战斗 Showdown 是否保留，规则按 323.7.a 的字面（争夺仍在且施加方有单位则 Showdown 保持 staged）理解为保留。"
+
+  - id: combat-negative-move-into-ongoing-combat-battlefield
+    rule: ["1.5:316.7.d", "1.5:464", "1.5:464.1"]
+    title: "非法移动：非参战方不能把单位移动进战斗进行中的战场"
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: showdown-open, battlefield: bf1, focus: A }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        C: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: ["@unit(might:2)#c1"], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: ["@unit(might:3)#u1"], B: ["@unit(might:2)#d1"] } }
+      chain: []
+    commands:
+      - { player: C, do: move, unit: "#c1", to: bf1 }
+    expect:
+      events: { ordered: subsequence, list: [] }
+      state:
+        - { path: "players.C.base", equals: ["@unit(might:2)#c1"] }
+      rejected: { command: 0, reason: "invalid-destination" }
+    notes: "战斗只发生在恰好两名玩家之间（1.5:464）；有 staged 或进行中战斗的战场对未参战玩家的任何移动都是非法目的地（464.1）。二人局无第三玩家，故用三人局建模此约束。"
+
+  - id: combat-deploy-gear-becomes-unit-stages-showdown-orianna
+    rule: ["1.5:830", "1.5:143.5.b", "1.5:190.3.a", "1.5:323.11", "radiance-patch-notes"]
+    title: "Deploy 装备被 Lady of Clockwork 变为单位：施加争夺，链清空后清理 stage 并开启战斗 Showdown"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 1, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0, legend: "Lady of Clockwork" }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:2)#d1"] }, gear: { A: ["@gear(cost:2,keywords:[deploy])#g1"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: activate, source: "legend", target: "#g1", pay: { energy: 1 } }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "ability:legend" }
+          - { timing: chain.item-resolved, item: "ability:legend" }
+          - { timing: battlefield.contested, battlefield: bf1, by: A }
+          - { timing: combat.staged, battlefield: bf1 }
+          - { timing: combat.opened, battlefield: bf1, attacker: A, defender: B }
+          - { timing: showdown.opened, battlefield: bf1, kind: combat }
+          - { timing: focus.gained, player: A }
+      state:
+        - { path: "battlefields.bf1.units.A", equals: ["@gear(cost:2,keywords:[deploy])#g1"] }
+        - { path: "battlefields.bf1.contested", equals: true }
+      rejected: null
+    notes: "真实卡：Lady of Clockwork（RAD-145，传奇；启动能力把己方装备变为 Might 等于其能量费的单位-装备）。官方裁定（Radiance patch notes）：触发结算后装备成为单位，若其操控者不控制该战场则施加争夺，随后的清理 stage 战斗/Showdown，链清空后开启。此处 bf1 有 B 的单位，故 stage 战斗并以战斗 Showdown 开启，A 为攻击方获得焦点。"
+
+  - id: combat-attached-gear-becomes-unit-detaches
+    rule: ["1.5:143.5.b", "1.5:435.1.h.2", "1.5:718.6.a", "radiance-patch-notes"]
+    title: "已附着的装备被变成单位时立即脱离附着物"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 1, runes: { ready: [], exhausted: [] }, hand: [], base: ["@unit(might:3)#u1"], score: 0, legend: "Lady of Clockwork" }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: A, units: { A: [], B: [] } }
+      chain: []
+      attachments:
+        - { card: "@gear(cost:1)#g1", attachedTo: "#u1" }
+    commands:
+      - { player: A, do: activate, source: "legend", target: "#g1", pay: { energy: 1 } }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-resolved, item: "ability:legend" }
+          - { timing: attachment.detached, object: "#g1", from: "#u1" }
+      state:
+        - { path: "attachments", equals: [] }
+      rejected: null
+    notes: "真实卡：Lady of Clockwork（RAD-145）。v1.5 澄清规则：单位不能被附着；非单位对象成为单位时即刻脱离（143.5.b），官方 patch notes 同例。脱离不触发移动、不经过清理召回。"
+
+  - id: combat-negative-attach-unit-noop
+    rule: ["1.5:143.5.a", "1.5:718.6.a"]
+    title: "试图把单位附着到对象上：什么都不发生"
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: ["@unit(might:2)#u1", "@unit(might:3)#u2"], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: [], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: attach, card: "#u1", to: "#u2" }
+    expect:
+      events: { ordered: subsequence, list: [] }
+      state:
+        - { path: "attachments", equals: [] }
+        - { path: "players.A.base", equals: ["@unit(might:2)#u1", "@unit(might:3)#u2"] }
+      rejected: { command: 0, reason: "illegal-attach" }
+    notes: "v1.5 澄清：若要把一个单位附着到永久物上，什么都不发生（143.5.a）。实现层面可在指令校验时直接拒绝（本场景按 negative 建模），也可让指令结算为空效果；规则文本的语义是 nothing happens。"
+
+  - id: combat-deathknell-pending-before-trash
+    rule: ["1.5:808.1.d.2", "1.5:808.1.d.3"]
+    title: "Deathknell 触发先于死亡单位进垃圾场入链，并以入链时记录的信息结算"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 2, runes: { ready: [fury, fury], exhausted: [] }, hand: ["@spell(cost:2,domain:fury,speed:action,text:'Kill a unit.')"], base: ["@unit(might:1)#uA"], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: ["@unit(might:2,text:'[Deathknell] Deal damage equal to my Might to a unit.')#d1"], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: [], B: [] } }
+      chain: []
+      effects:
+        - { on: "#d1", kind: buff-might, amount: 2, scope: this-turn }
+    commands:
+      - { player: A, do: play, card: "hand[0]", target: "#d1", pay: { energy: 2, power: [fury, fury] } }
+      - { player: B, do: choose, target: "#uA" }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:hand[0]" }
+          - { timing: unit.killed, object: "#d1" }
+          - { timing: chain.item-pending, item: "deathknell:#d1" }
+          - { timing: zone.enter, object: "#d1", zone: trash }
+          - { timing: chain.item-resolved, item: "deathknell:#d1" }
+      state:
+        - { path: "players.B.trash", equals: ["@unit(might:2,text:'[Deathknell] Deal damage equal to my Might to a unit.')#d1"] }
+      rejected: null
+    notes: "触发以 Pending 形态在牌进垃圾场之前入链（808.1.d.2）；入链前记录其位置、属性等供结算使用（808.1.d.3），本例中 #d1 死前带 +2 增益，结算时按记录的 4 力对 #uA 造成伤害。UNCERTAIN: 808.1.d.3 只说记录细节以便结算，是否锁定全部特征值（类似 Show Off 的锁定语义）规则未逐字写明，本场景按记录即锁定理解。"
+
+  - id: combat-deathknell-removed-when-death-replaced
+    rule: ["1.5:808.1.d.1"]
+    title: "死亡被替代（改为召回/治疗）时，已入链的 Deathknell 触发被移除"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 2, runes: { ready: [fury, fury], exhausted: [] }, hand: ["@spell(cost:2,domain:fury,speed:action,text:'Kill a unit.')"], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: ["@unit(might:2,text:'[Deathknell] Draw 1.')#d1"], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: [], B: [] } }
+      chain: []
+      effects:
+        - { on: "#d1", kind: replace-kill-with-recall, scope: this-turn }
+    commands:
+      - { player: A, do: play, card: "hand[0]", target: "#d1", pay: { energy: 2, power: [fury, fury] } }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-resolved, item: "A:hand[0]" }
+          - { timing: chain.item-pending, item: "deathknell:#d1" }
+          - { timing: unit.recalled, object: "#d1" }
+          - { timing: chain.item-removed, item: "deathknell:#d1" }
+      state:
+        - { path: "players.B.trash", equals: [] }
+        - { path: "players.B.hand", equals: [] }
+      rejected: null
+    notes: "808.1.d.1 的示例结构（规则原文以真实卡 Draven, Audacious 与真实卡 Zhonya's Hourglass 为例）：死亡事件被替代后单位未进垃圾场，其当我死亡触发虽曾入链，但会被从链上移除，效果不结算（B 不抽牌）。"
+
+  - id: combat-disarm-single-trigger-on-attack
+    rule: ["1.5:831.1.b", "1.5:831.1.d", "1.5:383.4.e.2"]
+    title: "Disarm 是攻击触发：获得攻击方指定后入链，结算给敌方单位 -X 力"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: ["@unit(might:2,keywords:[disarm:2])#u1"], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:3)#d1"] } }
+      chain: []
+    commands:
+      - { player: A, do: move, unit: "#u1", to: bf1 }
+      - { player: A, do: choose, target: "#d1" }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: combat.opened, battlefield: bf1, attacker: A, defender: B }
+          - { timing: combat.attack-declared, object: "#u1" }
+          - { timing: chain.item-pending, item: "disarm:#u1" }
+          - { timing: chain.item-resolved, item: "disarm:#u1" }
+      state:
+        - { path: "battlefields.bf1.units.#d1.might", equals: 1 }
+      rejected: null
+    notes: "Disarm X 的功能文本是当我攻击时给此处一个敌方单位 -X 力本回合（831.1.d）；攻击触发在单位获得攻击方指定后作为 Pending 入链（383.4.e.2），经链结算后生效，故 3 力的 #d1 变为 1 力再进入伤害步骤。"
+
+  - id: combat-disarm-multiple-instances-merge-sum
+    rule: ["1.5:831.1.d.1", "1.5:831.2"]
+    title: "同一单位多个 Disarm 来源合并为一次触发、数值相加（v1.5）"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: ["@unit(might:2,keywords:[disarm:1])#u1", "@unit(might:2,keywords:[disarm:1])#u2"], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:4)#d1"] } }
+      chain: []
+    commands:
+      - { player: A, do: move, unit: "#u1", to: bf1 }
+      - { player: A, do: move, unit: "#u2", to: bf1 }
+      - { player: A, do: choose, target: "#d1" }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "disarm:#u1" }
+          - { timing: chain.item-resolved, item: "disarm:#u1" }
+          - { timing: chain.item-pending, item: "disarm:#u2" }
+          - { timing: chain.item-resolved, item: "disarm:#u2" }
+      state:
+        - { path: "battlefields.bf1.units.#d1.might", equals: 2 }
+      rejected: null
+    notes: "831.2 的示例用真实卡 Clanging Sentry（RAD-055，你的 Mech 具有 Disarm）：第二张 Clanging Sentry 让两张都成为 Disarm 2（印刷 Disarm 1 加对方光环 1）。无论单位身上有多少个 Disarm 关键词，只触发一次、数值为总和（831.1.d.1）。本场景用合成卡复现同一结构：#u1、#u2 各带两个 Disarm 1 来源，各触发一次、每次 -2。"
+
+  - id: combat-disarm-checked-once-per-combat
+    rule: ["1.5:383.4.e.2.a"]
+    title: "攻击触发每次战斗只检查一次：重新获得攻击方指定不再次触发 Disarm"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: showdown-open, battlefield: bf1, focus: A }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: ["@unit(might:2,keywords:[disarm:2])#u1"], B: ["@unit(might:3)#d1"] } }
+      chain: []
+      combat: { battlefield: bf1, attacker: A, defender: B, attackTriggersChecked: ["#u1"] }
+    commands:
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+      - { player: A, do: assign-damage, assignments: { "#d1": 2 } }
+      - { player: B, do: assign-damage, assignments: { "#u1": 2 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: combat.damage-dealt }
+          - { timing: combat.result-determined, battlefield: bf1, result: none }
+          - { timing: combat.opened, battlefield: bf1, attacker: A, defender: B }
+      state:
+        - { path: "battlefields.bf1.units.#d1.might", equals: 3 }
+      rejected: null
+    notes: "同一场战斗（无结果后重新 stage 并再次开启，468.3.d.1）中单位再次获得攻击方指定；攻击触发条件每次战斗只检查一次（383.4.e.2.a），#u1 的 Disarm 在第一次获得指定时已检查过，不再入链（事件中不应出现第二个 disarm:#u1），#d1 保持 3 力。"
+
+  - id: combat-disarm-first-attack-requirement-skipped
+    rule: ["1.5:831.1.b", "1.5:383.4.e.2.b"]
+    title: "被效果阻止攻击的单位不获得攻击方指定，其 Disarm 不触发"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: ["@unit(might:2,keywords:[disarm:1])#u1"], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:2)#d1"] } }
+      chain: []
+      effects:
+        - { on: "#u1", kind: cannot-attack, scope: this-turn }
+    commands:
+      - { player: A, do: move, unit: "#u1", to: bf1 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: combat.opened, battlefield: bf1, attacker: A, defender: B }
+      state:
+        - { path: "battlefields.bf1.units.#d1.might", equals: 2 }
+      rejected: null
+    notes: "攻击触发条件在单位获得攻击方指定时检查（383.4.e.2.b），不能攻击的单位不获得该指定，Disarm 不触发、#d1 保持 2 力。UNCERTAIN: 不能攻击的效果在 v1.5 中是使单位不被赋予攻击方指定、还是获得指定但抑制触发，规则未给出逐字条目；本场景按不获得指定则不触发建模。"
+
+  - id: combat-new-arrivals-gain-designation-next-cleanup
+    rule: ["1.5:466.2.c.3.a", "1.5:323.2"]
+    title: "战斗开启后到场的单位在下一次清理获得攻防指定，其攻击触发此时入链"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: showdown-open, battlefield: bf1, focus: A }
+      players:
+        A: { energy: 1, runes: { ready: [fury], exhausted: [] }, hand: ["@spell(cost:1,domain:fury,speed:reaction,text:'Move a friendly unit to a battlefield.')"], base: ["@unit(might:2,text:'When I attack, draw 1.')#u2"], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: ["@unit(might:2)#u1"], B: ["@unit(might:2)#d1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", target: "#u2", to: bf1, pay: { energy: 1, power: [fury] } }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-resolved, item: "A:hand[0]" }
+          - { timing: unit.moved, object: "#u2", to: bf1 }
+          - { timing: combat.attack-declared, object: "#u2" }
+          - { timing: chain.item-pending, item: "trigger:#u2" }
+      state:
+        - { path: "battlefields.bf1.units.#u2.designation", equals: attacker }
+      rejected: null
+    notes: "攻防指定在战斗开启时赋予在场单位；之后才到场的单位在下一次清理中获得与其操控者一致的指定（466.2.c.3.a，清理步骤 2，323.2），其攻击触发在获得指定时正常入链，每次战斗一次的计数从这次获得指定起算。"
+
+  - id: combat-turn-player-chooses-which-combat-first
+    rule: ["1.5:463.1", "1.5:323.12"]
+    title: "多个战场同时有 staged 战斗：回合玩家选择先结算哪一个"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: ["@unit(might:3)#u2"], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: ["@unit(might:2)#u1"], B: ["@unit(might:2)#d1"] }, staged: [combat] }
+        - { id: bf2, controller: B, units: { A: [], B: ["@unit(might:3)#d2"] } }
+      chain: []
+    commands:
+      - { player: A, do: move, unit: "#u2", to: bf2 }
+      - { player: A, do: choose, battlefield: bf2 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: combat.staged, battlefield: bf2 }
+          - { timing: combat.opened, battlefield: bf2, attacker: A, defender: B }
+      state:
+        - { path: "combat.battlefield", equals: bf2 }
+      rejected: null
+    notes: "bf1 的 staged 战斗先于本命令存在（同一清理中只开启一场战斗，462 要求无其他战斗进行中）。移动 #u2 后两个战场都有 staged 战斗，回合玩家选择先开 bf2（463.1/323.12）。"
+
+  - id: combat-negative-unit-cannot-be-played-to-enemy-battlefield
+    rule: ["1.5:355.2.a", "1.5:190.3.a.1"]
+    title: "默认情况下单位不能打出到敌方控制的战场（无许可效果时拒绝）"
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 2, runes: { ready: [fury, fury], exhausted: [] }, hand: ["@unit(cost:2,might:2)"], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:2)#d1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: bf1, pay: { energy: 2 } }
+    expect:
+      events: { ordered: subsequence, list: [] }
+      state:
+        - { path: "players.A.energy", equals: 2 }
+      rejected: { command: 0, reason: "invalid-destination" }
+    notes: "单位打出的默认合法位置只有自己基地或自己控制的战场（355.2.a）；进入敌方战场需要效果授予许可（355.2.b）。战斗通过移动或效果产生的到场发生（190.3.a.1 同样适用于以其他方式到场）。"
+
+  - id: combat-deploy-hold-kills-enemy-gear
+    rule: ["1.5:830.1.b", "1.5:471.2", "1.5:315.2.b.2"]
+    title: "对手固守在有其 Deploy 装备的战场时，该装备被消灭"
+    kind: positive
+    given:
+      turn: { active: B, phase: beginning, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:2)#d1"] }, gear: { A: ["@gear(cost:2,keywords:[deploy])#g1"], B: [] } }
+      chain: []
+    commands:
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: score.held, battlefield: bf1, player: B }
+          - { timing: unit.killed, object: "#g1" }
+          - { timing: zone.enter, object: "#g1", zone: trash }
+      state:
+        - { path: "battlefields.bf1.gear.A", equals: [] }
+        - { path: "players.A.trash", equals: ["@gear(cost:2,keywords:[deploy])#g1"] }
+      rejected: null
+    notes: "Deploy 的功能文本包含当对手在此固守时消灭此装备（830.1.b）。B 在回合开始阶段固守 bf1 时，A 部署在此的 Deploy 装备被消灭进其拥有者垃圾场。这是 v1.5 新增 Deploy 关键词与固守（得分）流程的交汇点。"
