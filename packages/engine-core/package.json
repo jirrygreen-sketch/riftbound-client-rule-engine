@@ -27,8 +27,11 @@
     "dist"
   ],
   "scripts": {
+    "prebuild": "node ../../scripts/gen-registries.mjs",
     "build": "tsc -p tsconfig.json",
+    "pretypecheck": "node ../../scripts/gen-registries.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "pretest": "node ../../scripts/gen-registries.mjs",
     "test": "pnpm --filter @riftbound/protocol build && pnpm --filter @riftbound/card-dsl build && pnpm build && node --test test/*.test.mjs test/full-product/*.test.mjs",
     "audit:printed-costs": "pnpm build && node --test test/duel-printed-costs.audit.mjs"
   },

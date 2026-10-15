@@ -93,6 +93,10 @@ const resolveCardTitle = (cardId: string): string => CARD_TITLES[cardId] ?? card
 
 const count = (haystack: string, needle: string): number => haystack.split(needle).length - 1;
 
+function buttonTags(html: string): readonly string[] {
+  return html.match(/<button\b[^>]*>/g) ?? [];
+}
+
 function buttonTag(html: string, ariaLabel: string): string {
   const index = html.indexOf(`aria-label="${ariaLabel}"`);
   expect(index, `button ${ariaLabel} not found`).toBeGreaterThanOrEqual(0);
@@ -558,10 +562,14 @@ describe("DuelMatchBoard setup stage", () => {
     // Setup identity slots carry the public legend/champion identities.
     expect(html).toContain("旧日守望");
     expect(html).toContain("铁壁先锋");
-    // The viewer owns the current mulligan, so the owner hint (not a fabricated
-    // action button) is shown.
+    // The viewer owns the current mulligan. Public cards keep their read-only
+    // inspect controls, while no mulligan or game action control is fabricated.
     expect(html).toContain(DUEL_MULLIGAN_OWNER_HINT);
-    expect(html).not.toContain("<button");
+    const buttons = buttonTags(html);
+    expect(buttons.length).toBeGreaterThan(0);
+    expect(buttons.every(button => button.includes('data-card-inspect-only="true"'))).toBe(true);
+    expect(html).not.toContain('class="full-product-duel-mulligan-card"');
+    expect(html).not.toContain('class="full-product-duel-mulligan-confirm"');
   });
 
   it("scopes the visible hand to the second viewer and still hides the other hand", () => {
@@ -761,8 +769,11 @@ describe("DuelMatchBoard playing stage", () => {
     // Own hand from the wire; opponent hand hidden.
     expect(count(html, 'class="full-product-duel-hand-card"')).toBe(4);
     expect(html).toContain("手牌 4（背面）");
-    // Only the four local ribbon scroll buttons are present; no game action exists.
-    expect(count(html, "<button")).toBe(4);
+    // The four local ribbon scroll buttons and public-card inspect controls are
+    // present; no game action exists.
+    expect(count(html, "<button")).toBe(count(html, 'data-card-inspect-only="true"') + 4);
+    expect(count(html, 'aria-label="向左查看')).toBe(2);
+    expect(count(html, 'aria-label="向右查看')).toBe(2);
     expect(count(html, 'class="full-product-duel-action"')).toBe(0);
   });
 
@@ -782,7 +793,9 @@ describe("DuelMatchBoard playing stage", () => {
     expect(html).toContain('data-position="player"');
     expect(html).toContain('data-position="opponent"');
     expect(html).not.toContain("我方视角");
-    expect(count(html, "<button")).toBe(4);
+    expect(count(html, "<button")).toBe(count(html, 'data-card-inspect-only="true"') + 4);
+    expect(count(html, 'aria-label="向左查看')).toBe(2);
+    expect(count(html, 'aria-label="向右查看')).toBe(2);
     expect(count(html, 'class="full-product-duel-action"')).toBe(0);
     expect(resolveDuelSides(projection).viewerSeated).toBe(false);
     // A seated viewer resolves the opposite seat on top.

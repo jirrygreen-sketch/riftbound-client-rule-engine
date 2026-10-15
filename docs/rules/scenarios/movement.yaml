@@ -1,0 +1,1417 @@
+area: movement
+rulesetVersion: core-1.5
+sources:
+  # Core Rules v1.5（2026-10-09 更新，Radiance 2026-10-16 生效）
+  - "1.5:144"        # 标准移动（固有异能，横置为费）
+  - "1.5:144.1"      # 标准移动的时机场合
+  - "1.5:144.2"      # 费用：横置单位
+  - "1.5:144.3"      # 多单位同时标准移动
+  - "1.5:144.4"      # 标准移动的目的地限制
+  - "1.5:146"        # 单位的位置
+  - "1.5:148.1.a.1"  # 装备默认只能打到基地
+  - "1.5:149.3"      # 未附着的非单位装备在清理时收回
+  - "1.5:190.3.a"    # 争夺状态的施加
+  - "1.5:190.3.a.1"  # 移动/打出到战场时施加争夺
+  - "1.5:190.3.a.2"  # 战场上单位换控制者时施加争夺
+  - "1.5:190.3.b.1"  # 争夺的移除条件
+  - "1.5:190.4.a"    # 有单位在战场即维持控制
+  - "1.5:190.4.b"    # Showdown/Combat 期间控制权不变
+  - "1.5:190.4.c"    # 开放状态下失去控制权
+  - "1.5:198"        # 位置：基地与战场
+  - "1.5:200"        # 位置可作为移动的起点与终点
+  - "1.5:323.5"      # 清理第4步：失去控制权
+  - "1.5:323.6"      # 清理第5步：收回
+  - "1.5:323.7"      # 清理第6步：挂起 Showdown
+  - "1.5:323.8"      # 清理第7步：挂起 Combat
+  - "1.5:323.9"      # 清理第7a步：战斗不再挂起
+  - "1.5:323.10"     # 清理第8步：移除争夺
+  - "1.5:323.10.a"   # 移除争夺后重新施加
+  - "1.5:323.11"     # 清理第9步：非战斗 Showdown 开始
+  - "1.5:323.12"     # 清理第10步：Combat 开始
+  - "1.5:344"        # 中立开放状态下争夺引发 Showdown
+  - "1.5:344.2"      # 空战场（非战斗）Showdown
+  - "1.5:345"        # 施加争夺者获得 Focus
+  - "1.5:348.2.a"    # 非战斗 Showdown 结束时确立控制
+  - "1.5:348.2.a.1"  # 确立控制导致征服
+  - "1.5:355.2.a"    # 单位打出默认位置
+  - "1.5:355.2.b"    # 效果授予额外打出位置
+  - "1.5:421.2"      # 移动是受限动作
+  - "1.5:421.3"      # 标准移动是自由动作
+  - "1.5:448.1"      # 移动的定义（例外：收回/附着跟随）
+  - "1.5:448.2"      # 换区域不构成移动
+  - "1.5:448.3"      # 移动是瞬时的
+  - "1.5:448.3.c"    # 移动不用链、不能被反应
+  - "1.5:449.2.a"    # 多人模式无效目的地
+  - "1.5:449.2.c"    # 无法完成移动改为收回
+  - "1.5:451.1"      # 效果移动的合法性由来源给出
+  - "1.5:451.2"      # 不得移动到已有两名其他玩家单位的战场
+  - "1.5:452"        # 目的地变为争夺
+  - "1.5:453"        # 移动可能引发非战斗 Showdown
+  - "1.5:454"        # 移动可能引发战斗
+  - "1.5:455"        # 移动完成后进行清理
+  - "1.5:457"        # 收回的定义
+  - "1.5:458"        # 收回不是移动
+  - "1.5:458.1"      # 收回不触发移动触发
+  - "1.5:458.3"      # 收回不能被移动限制阻止
+  - "1.5:459.1"      # 战场上未附着非单位装备在下次清理收回
+  - "1.5:460.1"      # 收回不影响伤害与状态
+  - "1.5:462"        # Combat 的触发条件
+  - "1.5:463.1"      # 多个挂起战斗由回合玩家决定顺序
+  - "1.5:463.2"      # 挂起战斗若不再成立则不结算
+  - "1.5:468.5.a"    # 战斗解决：清除争夺
+  - "1.5:468.5.b"    # 战斗解决：无单位则战场失控
+  - "1.5:468.5.d"    # 战斗解决：确立控制导致征服
+  - "1.5:471.1"      # 征服
+  - "1.5:471.2"      # 固守
+  - "1.5:472"        # 每个战场每回合只能计分一次
+  - "1.5:810.1.b"    # Ganking：战场到战场的标准移动
+  - "1.5:810.1.c"    # Ganking：只增加权限不增加次数
+  - "1.5:830.1.b"    # Deploy（v1.5 新增关键词）
+  - "1.5:830.1.b.1"  # Deploy：可打到任意战场
+  - "1.5:830.1.b.2"  # Deploy：可被合适效果移动
+  - "1.5:830.1.b.3"  # Deploy：不在清理中被收回
+  - "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/" # Deploy/Disarm 新增与官方裁定
+
+scenarios:
+  # ============ 标准移动：时机与费用 ============
+  - id: movement-standard-move-base-to-battlefield
+    rule: ["1.5:144", "1.5:144.2", "1.5:144.4.a", "1.5:455"]
+    title: 标准移动：横置基地里的就绪单位，移入无人战场
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          base: [ "@unit(might:2)#u1" ]
+        B:
+          base: []
+      battlefields:
+        - { id: bf1, controller: null, units: { A: [], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: move, units: ["#u1"], to: bf1 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: unit.exhausted, object: "A:#u1" }
+          - { timing: move.performed, object: "A:#u1", from: base, to: bf1 }
+          - { timing: cleanup.begin }
+      state:
+        - { path: "players.A.base", notContains: "#u1" }
+        - { path: "battlefields.bf1.units.A", contains: "#u1" }
+        - { path: "battlefields.bf1.objects.#u1.exhausted", equals: true }
+      rejected: null
+    notes: 标准移动的费用是横置单位本身（144.2），效果才是移动（421.3.b）；横置先于移动发生，移动完成后立刻安排一次清理（455）。
+
+  - id: movement-standard-move-battlefield-to-base
+    rule: ["1.5:144.4.b"]
+    title: 标准移动：从战场撤回自己的基地
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          base: []
+        B:
+          base: []
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:2)#u1"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: move, units: ["#u1"], to: base }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: unit.exhausted, object: "A:#u1" }
+          - { timing: move.performed, object: "A:#u1", from: bf1, to: base }
+      state:
+        - { path: "players.A.base", contains: "#u1" }
+        - { path: "battlefields.bf1.units.A", notContains: "#u1" }
+      rejected: null
+    notes: 144.4.b 允许战场→基地；撤回后 A 在 bf1 没有单位，控制权要到下一次清理第4步才失去（另见 movement-control-lost-after-last-unit-leaves），本场景只断言位置变化。
+
+  - id: movement-standard-move-multi-unit-same-destination
+    rule: ["1.5:144.3", "1.5:144.3.a", "1.5:144.3.b", "1.5:144.3.c"]
+    title: 一次动作同时移动多个单位：费用同时支付、目的地必须相同
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          base: [ "@unit(might:2)#u1" ]
+        B:
+          base: []
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:3)#u2"], B: [] } }
+        - { id: bf2, controller: null, units: { A: [], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: move, units: ["#u1", "#u2"], to: bf2 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: unit.exhausted, object: "A:#u1" }
+          - { timing: unit.exhausted, object: "A:#u2" }
+          - { timing: move.performed, object: "A:#u1", to: bf2 }
+          - { timing: move.performed, object: "A:#u2", to: bf2 }
+      state:
+        - { path: "battlefields.bf2.units.A", contains: "#u1" }
+        - { path: "battlefields.bf2.units.A", contains: "#u2" }
+      rejected: null
+    notes: 144.3 允许把多个单位的标准移动合成一个游戏动作；起点可以不同（基地+另一战场），但目的地必须相同，横置费用同时支付。
+
+  - id: movement-standard-move-multi-unit-different-destinations-rejected
+    rule: ["1.5:144.3.a"]
+    title: 一次移动动作里给两个单位指定不同目的地，非法
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          base: [ "@unit(might:2)#u1", "@unit(might:2)#u2" ]
+        B:
+          base: []
+      battlefields:
+        - { id: bf1, controller: null, units: { A: [], B: [] } }
+        - { id: bf2, controller: null, units: { A: [], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: move, units: ["#u1", "#u2"], to: [bf1, bf2] }
+    expect:
+      rejected: { command: 0, reason: "invalid-destination" }
+      state:
+        - { path: "players.A.base", contains: "#u1" }
+        - { path: "players.A.base", contains: "#u2" }
+        - { path: "battlefields.bf1.units.A", notContains: "#u1" }
+        - { path: "battlefields.bf2.units.A", notContains: "#u2" }
+    notes: 目的地不同时必须拆成两个独立移动动作；拒绝后一切不变。
+
+  - id: movement-standard-move-exhausted-unit-rejected
+    rule: ["1.5:144.2", "1.5:421.3.a"]
+    title: 已横置的单位付不起标准移动费用
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          base: [ "@unit(might:2,exhausted:true)#u1" ]
+        B:
+          base: []
+      battlefields:
+        - { id: bf1, controller: null, units: { A: [], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: move, units: ["#u1"], to: bf1 }
+    expect:
+      rejected: { command: 0, reason: "cannot-pay-cost" }
+      state:
+        - { path: "players.A.base", contains: "#u1" }
+    notes: 横置单位即费用（144.2）；费用无法支付，动作不能开始，单位留在基地且不产生移动。
+
+  - id: movement-standard-move-not-your-turn-rejected
+    rule: ["1.5:144.1.a", "1.5:421.3", "1.5:312.1"]
+    title: 非回合玩家不能执行标准移动
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          base: []
+        B:
+          base: [ "@unit(might:2)#v1" ]
+      battlefields:
+        - { id: bf1, controller: null, units: { A: [], B: [] } }
+      chain: []
+    commands:
+      - { player: B, do: move, units: ["#v1"], to: bf1 }
+    expect:
+      rejected: { command: 0, reason: "not-your-priority" }
+      state:
+        - { path: "players.B.base", contains: "#v1" }
+    notes: 标准移动是自由动作（421.3），只能在执行玩家的主阶段进行（144.1.a）；中立开放状态下只有回合玩家持有优先权（312.1/316.5.b）。
+
+  - id: movement-standard-move-during-closed-state-rejected
+    rule: ["1.5:144.1.b"]
+    title: 关闭状态（链未结算完）中不能标准移动
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A:
+          base: [ "@unit(might:2)#u1" ]
+          hand: [ "@spell(cost:1,text:\"Deal 1.\")" ]
+        B:
+          base: []
+      battlefields:
+        - { id: bf1, controller: null, units: { A: [], B: [] } }
+      chain:
+        - { item: "A:hand[0]", state: finalized }
+    commands:
+      - { player: A, do: move, units: ["#u1"], to: bf1 }
+    expect:
+      rejected: { command: 0, reason: "state-closed" }
+      state:
+        - { path: "players.A.base", contains: "#u1" }
+    notes: 144.1.b：即使标准移动本身不上链，也必须等当前链清空、状态重新开放后才能执行。
+
+  - id: movement-standard-move-during-showdown-rejected
+    rule: ["1.5:144.1.c"]
+    title: Showdown 进行中不能标准移动（即使持有 Focus）
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: showdown-open, showdown: bf1, focus: A }
+      players:
+        A:
+          base: [ "@unit(might:2)#u1" ]
+        B:
+          base: []
+      battlefields:
+        - { id: bf1, controller: B, contested: true, units: { A: ["@unit(might:2)#u2"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: move, units: ["#u1"], to: bf1 }
+    expect:
+      rejected: { command: 0, reason: "showdown-in-progress" }
+      state:
+        - { path: "players.A.base", contains: "#u1" }
+    notes: 144.1.c 明确禁止 Showdown/Combat 期间的标准移动；增援只能靠带 Action/Reaction 时机的牌或异能完成。
+
+  - id: movement-standard-move-battlefield-to-battlefield-rejected
+    rule: ["1.5:144.4", "1.5:144.4.c.1"]
+    title: 没有 Ganking 的单位不能从战场直接移动到另一个战场
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          base: []
+        B:
+          base: []
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:2)#u1"], B: [] } }
+        - { id: bf2, controller: null, units: { A: [], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: move, units: ["#u1"], to: bf2 }
+    expect:
+      rejected: { command: 0, reason: "invalid-destination" }
+      state:
+        - { path: "battlefields.bf1.units.A", contains: "#u1" }
+    notes: 标准移动的合法目的地只有「基地→战场」「战场→基地」两类（144.4）；战场→战场是 Ganking 独有的扩展（144.4.c.1）。
+
+  # ============ 移动的瞬时性与触发 ============
+  - id: movement-is-instantaneous-no-chain-no-reaction
+    rule: ["1.5:448.3", "1.5:448.3.a", "1.5:448.3.b", "1.5:448.3.c"]
+    title: 移动不经过链、不能被反应，目的地在移动后立即成立
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          base: [ "@unit(might:2)#u1" ]
+        B:
+          base: []
+          hand: [ "@spell(cost:1,speed:reaction,text:\"Deal 2 to a unit.\")" ]
+      battlefields:
+        - { id: bf1, controller: null, units: { A: [], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: move, units: ["#u1"], to: bf1 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: move.performed, object: "A:#u1", from: base, to: bf1 }
+      state:
+        - { path: "chain", length: 0 }
+        - { path: "battlefields.bf1.units.A", contains: "#u1" }
+      rejected: null
+    notes: 448.3.c：移动既不是链项也不给对手反应窗口；事件序列中 move.performed 前后不得插入 B 的法术链项。448.3.a/b：对象没有「在途中」的中间态。
+
+  - id: movement-zone-change-is-not-a-move
+    rule: ["1.5:448.2", "1.5:421.1"]
+    title: 手牌→弃牌堆等换区域不算移动，不触发移动触发
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          hand: [ "@unit(cost:1,might:2)#c1" ]
+          base: [ "@unit(might:2,text:\"When another friendly unit moves, draw a card.\")#u1" ]
+        B:
+          base: []
+      battlefields: []
+      chain: []
+    commands:
+      - { player: A, do: discard, card: "hand[0]" }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: card.discarded, object: "A:#c1" }
+      state:
+        - { path: "players.A.handCount", equals: 0 }
+      rejected: null
+    notes: 448.2：换区域本身不构成移动，移动只发生在棋盘上的两个位置之间（421.1）。「当有单位移动时」类触发不应因弃牌而触发；事件序列中只有 card.discarded，没有 move.performed、也没有 #u1 的触发入链。
+
+  - id: movement-trigger-fires-on-effect-move
+    rule: ["1.5:451", "1.5:448.1"]
+    title: 效果造成的移动同样算移动，触发「当此单位移动时」
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          hand: [ "@spell(cost:1,speed:action,text:\"Move a friendly unit to a battlefield.\")" ]
+          energy: 1
+        B:
+          base: []
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:2,text:\"When I move, I get +1 [M] this turn.\")#u1"], B: [] } }
+        - { id: bf2, controller: null, units: { A: [], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", targets: ["#u1"], destination: bf2, pay: { energy: 1 } }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+          - { timing: move.performed, object: "A:#u1", from: bf1, to: bf2 }
+          - { timing: chain.item-pending, item: "A:#u1(trigger:move)" }
+      state:
+        - { path: "battlefields.bf2.units.A", contains: "#u1" }
+      rejected: null
+    notes: 效果移动的合法性由来源效果给出（451.1），所以这里战场→战场合法；它仍是 448.1 意义下的移动，触发器照常触发并入链。
+
+  # ============ 控制权判定 ============
+  - id: movement-control-kept-while-units-present
+    rule: ["1.5:190.4.a", "1.5:323.5"]
+    title: 控制者在战场上留有单位时，清理后仍保有控制权
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          base: [ "@unit(might:2)#u1" ]
+        B:
+          base: []
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:2)#u2"], B: [] } }
+        - { id: bf2, controller: null, units: { A: [], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: move, units: ["#u1"], to: bf2 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cleanup.begin }
+      state:
+        - { path: "battlefields.bf1.controller", equals: "A" }
+      rejected: null
+    notes: 用一次基地→bf2 的标准移动触发清理（455）；清理第4步（323.5）只夺走「没有任何其单位占据」的战场控制权，#u2 仍在 bf1，所以 A 保权（190.4.a）。
+
+  - id: movement-control-lost-after-last-unit-leaves
+    rule: ["1.5:190.4.c", "1.5:323.5"]
+    title: 控制者最后一个单位离开战场后，清理时失去控制权
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          base: []
+        B:
+          base: []
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:2)#u1"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: move, units: ["#u1"], to: base }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: move.performed, object: "A:#u1", to: base }
+          - { timing: cleanup.begin }
+          - { timing: battlefield.control-lost, object: bf1, player: A }
+      state:
+        - { path: "battlefields.bf1.controller", equals: null }
+      rejected: null
+    notes: 190.4.c + 323.5：回合处于开放状态、该处又无 Showdown/Combat，清理第4步移除控制权，战场变为无人控制。
+
+  - id: movement-control-preserved-during-ongoing-showdown
+    rule: ["1.5:190.4.b", "1.5:190.4.c"]
+    title: Showdown 进行中控制权冻结：单位离场不立即丢权
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: showdown-open, showdown: bf1, focus: A }
+      players:
+        A:
+          base: []
+        B:
+          base: []
+          hand: [ "@spell(cost:1,speed:reaction,text:\"Move an enemy unit at this battlefield to its base.\")" ]
+          energy: 1
+          runes: { ready: [fury], exhausted: [] }
+      battlefields:
+        - { id: bf1, controller: A, contested: true, units: { A: ["@unit(might:2)#u1"], B: ["@unit(might:2)#v1"] } }
+      chain: []
+    commands:
+      - { player: B, do: play, card: "hand[0]", targets: ["#u1"], pay: { energy: 1, power: [fury] } }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "B:hand[0]" }
+          - { timing: move.performed, object: "A:#u1", to: base }
+      state:
+        - { path: "battlefields.bf1.controller", equals: "A" }
+      rejected: null
+    notes: 190.4.b：Showdown/Combat 期间控制权不变，除非其步骤明确要求；反应把 A 的单位移走后，A 名义上仍控制 bf1，直到 Showdown 的结束步骤（348.2.a）重新确立。
+
+  # ============ 争夺：进入 ============
+  - id: movement-contested-applied-on-enter-enemy-battlefield
+    rule: ["1.5:190.3.a", "1.5:190.3.a.1", "1.5:452"]
+    title: 单位移入对手控制的战场：该战场获得争夺状态
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          base: [ "@unit(might:2)#u1" ]
+        B:
+          base: []
+      battlefields:
+        - { id: bf1, controller: B, contested: false, units: { A: [], B: ["@unit(might:3)#v1"] } }
+      chain: []
+    commands:
+      - { player: A, do: move, units: ["#u1"], to: bf1 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: move.performed, object: "A:#u1", to: bf1 }
+          - { timing: battlefield.contested, object: bf1, by: A }
+      state:
+        - { path: "battlefields.bf1.contested", equals: true }
+      rejected: null
+    notes: 190.3.a.1/452：进入「自己未控制且未被争夺」的战场即施加争夺；这一步在移动完成后立即发生，随后清理把它升级为挂起战斗（323.8）。
+
+  - id: movement-no-contested-on-own-battlefield
+    rule: ["1.5:190.3.a.1", "1.5:452"]
+    title: 移入自己控制的战场不施加争夺
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          base: [ "@unit(might:2)#u1" ]
+        B:
+          base: []
+      battlefields:
+        - { id: bf1, controller: A, contested: false, units: { A: ["@unit(might:2)#u2"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: move, units: ["#u1"], to: bf1 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: move.performed, object: "A:#u1", to: bf1 }
+      state:
+        - { path: "battlefields.bf1.contested", equals: false }
+      rejected: null
+    notes: 452 的施加条件排除「移动单位的控制者已控制该战场」的情况；事件序列中不得出现 battlefield.contested。
+
+  - id: movement-no-double-contested
+    rule: ["1.5:190.3.a.1", "1.5:190.3.b"]
+    title: 已被争夺的战场不再重复施加争夺（争夺者不变）
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: showdown-open, showdown: bf1, focus: A }
+      players:
+        A:
+          base: []
+        B:
+          base: []
+          hand: [ "@spell(cost:1,speed:reaction,text:\"Move a friendly unit to this battlefield.\")" ]
+          energy: 1
+      battlefields:
+        - { id: bf1, controller: B, contested: true, contestedBy: A, units: { A: ["@unit(might:2)#u1"], B: [] } }
+        - { id: bf2, controller: B, units: { A: [], B: ["@unit(might:2)#v1"] } }
+      chain: []
+    commands:
+      - { player: B, do: play, card: "hand[0]", targets: ["#v1"], pay: { energy: 1 } }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: move.performed, object: "B:#v1", to: bf1 }
+      state:
+        - { path: "battlefields.bf1.contested", equals: true }
+        - { path: "battlefields.bf1.contestedBy", equals: "A" }
+      rejected: null
+    notes: "190.3.a.1 以「该战场尚未被争夺」为前提；B 自己增援进入已被 A 争夺的战场不会改写 contestedBy，攻守归属不受影响。UNCERTAIN: contestedBy 是否作为明确状态暴露由 harness 决定；规则只定义「施加争夺的玩家」这一事实（466.2.c.1 用它定攻击方）。"
+
+  - id: movement-contested-on-controller-change
+    rule: ["1.5:190.3.a.2"]
+    title: 战场上单位被效果换人控制，同样施加争夺
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          base: []
+          hand: [ "@spell(cost:2,speed:action,text:\"Gain control of an enemy unit.\")" ]
+          energy: 2
+        B:
+          base: []
+      battlefields:
+        - { id: bf1, controller: B, contested: false, units: { A: [], B: ["@unit(might:2)#v1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", targets: ["#v1"], pay: { energy: 2 } }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: control.changed, object: "#v1", to: A }
+          - { timing: battlefield.contested, object: bf1, by: A }
+      state:
+        - { path: "battlefields.bf1.contested", equals: true }
+        - { path: "battlefields.bf1.units.A", contains: "#v1" }
+      rejected: null
+    notes: 190.3.a.2：控制权变更也算「非控制方的单位出现在战场」，没有任何移动发生也会施加争夺；随后清理同样会挂起 Showdown/Combat。
+
+  - id: movement-move-to-empty-battlefield-opens-noncombat-showdown
+    rule: ["1.5:344.2", "1.5:323.11", "1.5:453", "1.5:345"]
+    title: 移入无人战场：清理后开启非战斗 Showdown，移动方获得 Focus
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          base: [ "@unit(might:2)#u1" ]
+        B:
+          base: []
+      battlefields:
+        - { id: bf1, controller: B, contested: false, units: { A: [], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: move, units: ["#u1"], to: bf1 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: move.performed, object: "A:#u1", to: bf1 }
+          - { timing: battlefield.contested, object: bf1, by: A }
+          - { timing: cleanup.begin }
+          - { timing: showdown.staged, battlefield: bf1 }
+          - { timing: showdown.opened, battlefield: bf1, kind: non-combat }
+          - { timing: focus.gained, player: A }
+      state:
+        - { path: "turn.state", equals: "showdown-open" }
+        - { path: "turn.focus", equals: "A" }
+      rejected: null
+    notes: 344.2 + 323.11：被争夺但双方不同时有单位时开启非战斗 Showdown；345：施加争夺的 A 获得 Focus，可先用 Action/Reaction 时机的牌。
+
+  - id: movement-move-onto-enemy-occupied-stages-combat
+    rule: ["1.5:323.8", "1.5:462", "1.5:454", "1.5:466.2.c.1"]
+    title: 移入有敌方单位的战场：清理挂起并开启战斗，移动方为攻击方
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          base: [ "@unit(might:3)#u1" ]
+        B:
+          base: []
+      battlefields:
+        - { id: bf1, controller: B, contested: false, units: { A: [], B: ["@unit(might:2)#v1"] } }
+      chain: []
+    commands:
+      - { player: A, do: move, units: ["#u1"], to: bf1 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: move.performed, object: "A:#u1", to: bf1 }
+          - { timing: battlefield.contested, object: bf1, by: A }
+          - { timing: cleanup.begin }
+          - { timing: combat.staged, battlefield: bf1 }
+          - { timing: combat.attack-declared, battlefield: bf1, attacker: A, defender: B }
+      state:
+        - { path: "turn.state", equals: "showdown-open" }
+      rejected: null
+    notes: 323.8/462/454：双方单位同场即挂起战斗并在清理第10步开启；466.2.c.1：施加争夺的一方是攻击方。战斗以战斗 Showdown 开始，故状态为 showdown-open。
+
+  # ============ 争夺：退出与顺位 ============
+  - id: movement-contested-removed-when-applier-leaves
+    rule: ["1.5:190.3.b.1", "1.5:323.10"]
+    title: 施加争夺的一方在 Showdown 开始前撤走全部单位：争夺在清理中移除
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A:
+          base: []
+        B:
+          base: []
+          hand: [ "@spell(cost:1,speed:reaction,text:\"Move an enemy unit at a battlefield to its base.\")" ]
+          energy: 1
+      battlefields:
+        - { id: bf1, controller: B, contested: true, contestedBy: A, units: { A: ["@unit(might:2)#u1"], B: [] } }
+      chain:
+        - { item: "A:@spell(cost:1,text:\"Ping.\")", state: finalized }
+    commands:
+      - { player: B, do: play, card: "hand[0]", targets: ["#u1"], pay: { energy: 1 } }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: move.performed, object: "A:#u1", to: base }
+          - { timing: cleanup.begin }
+          - { timing: battlefield.uncontested, object: bf1 }
+      state:
+        - { path: "battlefields.bf1.contested", equals: false }
+        - { path: "battlefields.bf1.controller", equals: "B" }
+      rejected: null
+    notes: 190.3.b.1 + 323.10：施加争夺者在该战场没有单位、且该处没有进行中的 Showdown/Combat，清理第8步移除争夺；B 的控制权不受影响。用 A 的一个已 finalize 链项作为 B reaction 的合法时机来源。
+
+  - id: movement-staged-combat-canceled-when-opponent-units-gone
+    rule: ["1.5:323.9", "1.5:463.2"]
+    title: 战斗挂起后、开启前一方单位离场：战斗不再发生，Showdown 仍可开启
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A:
+          base: [ "@unit(might:2)#u2" ]
+          hand: [ "@spell(cost:1,speed:action,text:\"Move an enemy unit to its base.\")" ]
+          energy: 1
+        B:
+          base: []
+      battlefields:
+        - { id: bf1, controller: B, contested: true, contestedBy: A, combatStaged: true, units: { A: ["@unit(might:3)#u1"], B: ["@unit(might:2)#v1"] } }
+      chain:
+        - { item: "A:hand[0]", state: finalized, targets: ["#v1"] }
+    commands:
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: move.performed, object: "B:#v1", to: base }
+          - { timing: combat.unstaged, battlefield: bf1 }
+          - { timing: showdown.opened, battlefield: bf1, kind: non-combat }
+      state:
+        - { path: "battlefields.bf1.units.B", notContains: "#v1" }
+        - { path: "battlefields.bf1.contested", equals: true }
+      rejected: null
+    notes: 323.9/463.2：挂起的战斗在开启前失去「双方单位同场」条件即取消；但 A 的争夺仍在且 A 仍有单位在场，按 323.11 转为非战斗 Showdown。事件名 combat.unstaged 待 RIFT-21 枚举冻结后校准。
+
+  - id: movement-turn-player-chooses-staged-combat-order
+    rule: ["1.5:463.1", "1.5:323.12"]
+    title: 同一清理挂起多个战斗时，回合玩家选择先结算哪一个
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          base: [ "@unit(might:2)#u1", "@unit(might:2)#u2" ]
+        B:
+          base: []
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:2)#v1"] } }
+        - { id: bf2, controller: B, units: { A: [], B: ["@unit(might:2)#v2"] } }
+      chain: []
+    commands:
+      - { player: A, do: move, units: ["#u1"], to: bf1 }
+      - { player: A, do: move, units: ["#u2"], to: bf2 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: combat.staged, battlefield: bf1 }
+          - { timing: combat.staged, battlefield: bf2 }
+          - { timing: combat.attack-declared, battlefield: bf2, attacker: A, defender: B }
+      state:
+        - { path: "battlefields.bf1.contested", equals: true }
+        - { path: "battlefields.bf2.contested", equals: true }
+      rejected: null
+    notes: "463.1：多处同时挂起战斗时由回合玩家定顺序；commands 里第二次移动完成后的清理中 A 选择先开 bf2 的战斗。bf1 的战斗保持挂起，等当前战斗完全结束后的清理再开。UNCERTAIN: 选择顺序应作为命令参数还是事件断言暴露，待 harness 冻结。"
+
+  # ============ 收回（Recall） ============
+  - id: movement-recall-is-not-a-move
+    rule: ["1.5:457", "1.5:458", "1.5:458.1"]
+    title: 收回不是移动：不触发移动触发器
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          base: []
+          hand: [ "@spell(cost:1,speed:action,text:\"Recall a unit.\")" ]
+          energy: 1
+        B:
+          base: []
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:2,text:\"When I move, draw a card.\")#u1"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", targets: ["#u1"], pay: { energy: 1 } }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: unit.recalled, object: "A:#u1" }
+      state:
+        - { path: "players.A.base", contains: "#u1" }
+        - { path: "players.A.handCount", equals: 0 }
+      rejected: null
+    notes: 458/458.1：收回改变位置但不是移动；事件序列中只有 unit.recalled，没有 move.performed，#u1 的移动触发器不入链（handCount 不因触发抽牌而变）。
+
+  - id: movement-recall-bypasses-move-restriction
+    rule: ["1.5:458.3"]
+    title: 「不能移动」的限制挡不住收回
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          base: []
+        B:
+          base: []
+          hand: [ "@spell(cost:1,speed:action,text:\"Recall a unit.\")" ]
+          energy: 1
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:2,text:\"This unit cannot move.\")#u1"], B: [] } }
+      chain: []
+    commands:
+      - { player: B, do: play, card: "hand[0]", targets: ["#u1"], pay: { energy: 1 } }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: unit.recalled, object: "A:#u1" }
+      state:
+        - { path: "players.A.base", contains: "#u1" }
+      rejected: null
+    notes: 458.3：限制/阻止移动的效果对收回无效；「不能移动」的持续效果不影响收回结算。
+
+  - id: movement-recall-preserves-damage-and-exhaustion
+    rule: ["1.5:460.1"]
+    title: 收回不清除伤害标记与横置状态
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          base: []
+          hand: [ "@spell(cost:1,speed:action,text:\"Recall a friendly unit.\")" ]
+          energy: 1
+        B:
+          base: []
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:3,exhausted:true,damage:2)#u1"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", targets: ["#u1"], pay: { energy: 1 } }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: unit.recalled, object: "A:#u1" }
+      state:
+        - { path: "players.A.base", contains: "#u1" }
+        - { path: "players.A.objects.#u1.exhausted", equals: true }
+        - { path: "players.A.objects.#u1.damage", equals: 2 }
+      rejected: null
+    notes: 460.1：除非收回的来源另有说明，伤害与状态全部保留；它不是「回手重拍」，对象身份延续。
+
+  - id: movement-illegal-effect-move-becomes-recall
+    rule: ["1.5:449.2.c"]
+    title: 效果要求移动到其无法进入的位置时，改为收回
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          base: []
+          hand: [ "@spell(cost:1,speed:action,text:\"Move a friendly unit to a battlefield.\")" ]
+          energy: 1
+        B:
+          base: []
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:2,text:\"This unit cannot move.\")#u1"], B: [] } }
+        - { id: bf2, controller: null, units: { A: [], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", targets: ["#u1"], destination: bf2, pay: { energy: 1 } }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: unit.recalled, object: "A:#u1" }
+      state:
+        - { path: "players.A.base", contains: "#u1" }
+        - { path: "battlefields.bf2.units.A", notContains: "#u1" }
+      rejected: null
+    notes: "449.2.c：动作若会造成单位出现在「任何原因下无法移入」的位置，该移动改为收回。注意收回仍发生，与 movement-move-restriction-blocks-standard-move 中标准移动直接被拒不同：效果移动已走到结算，用收回兜底。UNCERTAIN: 「不能移动」类持续效果是否属于 449.2.c 的「cannot move for any reason」，规则列举的例子是多人战斗限制，未逐一枚举。"
+
+  - id: movement-move-restriction-blocks-standard-move
+    rule: ["1.5:144", "1.5:451.1", "1.5:054.1"]
+    title: 「不能移动」的限制直接禁止该单位的标准移动
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          base: [ "@unit(might:2,text:\"This unit cannot move.\")#u1" ]
+        B:
+          base: []
+      battlefields:
+        - { id: bf1, controller: null, units: { A: [], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: move, units: ["#u1"], to: bf1 }
+    expect:
+      rejected: { command: 0, reason: "move-restricted" }
+      state:
+        - { path: "players.A.base", contains: "#u1" }
+        - { path: "players.A.objects.#u1.exhausted", equals: false }
+    notes: 「不能」优先于「能」（54.1）；标准移动在宣告阶段即非法，横置费用也不支付。与 449.2.c 的兜底收回是两条路径：这里是动作根本不能开始。
+
+  # ============ 装备与 Deploy（v1.5） ============
+  - id: movement-gear-played-to-base-by-default
+    rule: ["1.5:148.1.a.1", "1.5:149.2"]
+    title: 无 Deploy 的装备只能打到自己基地
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          hand: [ "@gear(cost:1,text:\"When you hold here, gain 1 energy.\")" ]
+          energy: 1
+          base: []
+        B:
+          base: []
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:2)#u1"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 1 } }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+          - { timing: zone.enter, object: "A:hand[0]", zone: base }
+      state:
+        - { path: "players.A.base", length: 1 }
+      rejected: null
+    notes: 148.1.a.1：装备默认只能打到自己基地；打到基地是常态正面场景，为后续 negative 对照。
+
+  - id: movement-gear-without-deploy-battlefield-rejected
+    rule: ["1.5:148.1.a.1", "1.5:830.1.b.1"]
+    title: 无 Deploy 的装备指定战场为打出位置，非法
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          hand: [ "@gear(cost:1,text:\"When you hold here, gain 1 energy.\")" ]
+          energy: 1
+          base: []
+        B:
+          base: []
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:2)#u1"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: bf1, pay: { energy: 1 } }
+    expect:
+      rejected: { command: 0, reason: "invalid-destination" }
+      state:
+        - { path: "players.A.handCount", equals: 1 }
+        - { path: "players.A.energy", equals: 1 }
+    notes: 830.1.b.1 的「可打到任意战场」是 Deploy 关键词授予的权限；没有 Deploy 时基地以外的目的地一律不合法，Finalize 校验阶段拒绝，费用不支付。
+
+  - id: movement-deploy-gear-played-to-enemy-battlefield
+    rule: ["1.5:830.1.b", "1.5:830.1.b.1"]
+    title: v1.5 Deploy：装备可直接打到敌方占据的战场并停留
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          hand: [ "@gear(cost:1,keywords:[deploy],text:\"When an opponent holds here, kill this.\")#g1" ]
+          energy: 1
+          base: []
+        B:
+          base: []
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:2)#v1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: bf1, pay: { energy: 1 } }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:#g1" }
+          - { timing: zone.enter, object: "A:#g1", zone: bf1 }
+          - { timing: cleanup.begin }
+      state:
+        - { path: "battlefields.bf1.gear.A", contains: "#g1" }
+        - { path: "players.A.base", notContains: "#g1" }
+      rejected: null
+    notes: v1.5 新增（Radiance patch notes「Deploy keyword added」）：Deploy = 「可打到/创建到任意战场」+「只能打到/创建到战场」+「非单位时不在清理中被收回」+「当对手在此固守时消灭此装备」。敌方占据也是合法目的地（830.1.b.1）。
+
+  - id: movement-deploy-gear-not-recalled-in-cleanup
+    rule: ["1.5:830.1.b.3", "1.5:323.6"]
+    title: Deploy 装备在战场上通过清理时留在原地
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          base: [ "@unit(might:2)#u1" ]
+        B:
+          base: []
+      battlefields:
+        - { id: bf1, controller: null, units: { A: [], B: [] }, gear: { A: ["@gear(keywords:[deploy])#g1"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: move, units: ["#u1"], to: bf1 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cleanup.begin }
+      state:
+        - { path: "battlefields.bf1.gear.A", contains: "#g1" }
+        - { path: "players.A.base", notContains: "#g1" }
+      rejected: null
+    notes: 830.1.b.3 明确把 Deploy 装备排除在清理第5步（323.6）的收回清单之外；用一次无关移动触发清理来验证它留在 bf1。
+
+  - id: movement-nondeploy-gear-recalled-in-cleanup
+    rule: ["1.5:459.1", "1.5:323.6", "1.5:149.3"]
+    title: 无 Deploy 的未附着装备出现在战场，下一次清理被收回基地
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          base: [ "@unit(might:2)#u1" ]
+        B:
+          base: []
+      battlefields:
+        - { id: bf1, controller: null, units: { A: [], B: [] }, gear: { A: ["@gear()#g1"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: move, units: ["#u1"], to: bf1 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: cleanup.begin }
+          - { timing: unit.recalled, object: "A:#g1" }
+      state:
+        - { path: "players.A.base", contains: "#g1" }
+        - { path: "battlefields.bf1.gear.A", notContains: "#g1" }
+      rejected: null
+    notes: 459.1/149.3：未附着的非单位装备只要因任何原因身处战场，下次清理第5步收回其控制者基地；这是收回而非移动（458）。
+
+  - id: movement-deploy-gear-moved-by-effect
+    rule: ["1.5:830.1.b.2"]
+    title: 指明移动装备的效果可以把 Deploy 装备移到另一战场
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          hand: [ "@spell(cost:1,speed:action,text:\"Move a gear you control to another battlefield.\")" ]
+          energy: 1
+        B:
+          base: []
+      battlefields:
+        - { id: bf1, controller: null, units: { A: [], B: [] }, gear: { A: ["@gear(keywords:[deploy])#g1"], B: [] } }
+        - { id: bf2, controller: null, units: { A: [], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", targets: ["#g1"], destination: bf2, pay: { energy: 1 } }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: move.performed, object: "A:#g1", from: bf1, to: bf2 }
+      state:
+        - { path: "battlefields.bf2.gear.A", contains: "#g1" }
+        - { path: "battlefields.bf1.gear.A", notContains: "#g1" }
+      rejected: null
+    notes: "830.1.b.2 + patch notes 裁定（Command: Attack 这类指明移动装备的效果）；这是真正的移动（有 move.performed），不是收回。"
+
+  - id: movement-deploy-gear-killed-when-opponent-holds
+    rule: ["1.5:830.1.b", "1.5:471.2"]
+    title: 对手固守其上有你的 Deploy 装备的战场：该装备被消灭
+    kind: positive
+    given:
+      turn: { active: B, phase: beginning, state: neutral-open }
+      players:
+        A:
+          base: []
+        B:
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:2)#v1"] }, gear: { A: ["@gear(keywords:[deploy])#g1"], B: [] } }
+      chain: []
+    commands:
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: scoring.hold, player: B, battlefield: bf1 }
+          - { timing: chain.item-pending, item: "A:#g1(trigger:deploy-kill)" }
+          - { timing: gear.killed, object: "A:#g1" }
+      state:
+        - { path: "players.A.trash", contains: "#g1" }
+        - { path: "battlefields.bf1.gear.A", notContains: "#g1" }
+        - { path: "players.B.score", equals: 1 }
+      rejected: null
+    notes: 830.1.b 的第四段「当对手在此固守时消灭此装备」是触发能力，进链结算；消灭不阻止 B 已经完成的固守得分（先计分后处理触发）。
+
+  # ============ 打出位置与 Showdown 后的确立控制 ============
+  - id: movement-unit-played-to-own-controlled-battlefield
+    rule: ["1.5:355.2.a"]
+    title: 单位可以直接打出到自己控制的战场
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          hand: [ "@unit(cost:2,might:3)" ]
+          energy: 2
+          base: []
+        B:
+          base: []
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:2)#u1"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: bf1, pay: { energy: 2 } }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+          - { timing: zone.enter, object: "A:hand[0]", zone: bf1 }
+      state:
+        - { path: "battlefields.bf1.units.A", length: 2 }
+      rejected: null
+    notes: 355.2.a：单位打出的默认合法位置是自己基地或自己控制的战场；直接打到控制的战场不施加争夺（自己控制）。
+
+  - id: movement-unit-played-to-enemy-battlefield-rejected
+    rule: ["1.5:355.2.a", "1.5:355.2.b"]
+    title: 没有效果授权时，单位不能打到对手控制的战场
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          hand: [ "@unit(cost:2,might:3)" ]
+          energy: 2
+          base: []
+        B:
+          base: []
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:2)#v1"] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: bf1, pay: { energy: 2 } }
+    expect:
+      rejected: { command: 0, reason: "invalid-destination" }
+      state:
+        - { path: "players.A.handCount", equals: 1 }
+        - { path: "players.A.energy", equals: 2 }
+    notes: 355.2.a/b：默认合法位置不含他人控制的战场；要打到那里需要效果额外授权（授权后按 190.3.a.1 正常施加争夺）。
+
+  - id: movement-conquer-after-noncombat-showdown
+    rule: ["1.5:348.2.a", "1.5:348.2.a.1", "1.5:471.1"]
+    title: 非战斗 Showdown 双方都放弃后，唯一在场方确立控制并征服
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: showdown-open, showdown: bf1, focus: A }
+      players:
+        A:
+          base: []
+          score: 0
+        B:
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, contested: true, contestedBy: A, units: { A: ["@unit(might:2)#u1"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: showdown.closed, battlefield: bf1 }
+          - { timing: battlefield.control-established, object: bf1, player: A }
+          - { timing: scoring.conquer, player: A, battlefield: bf1 }
+      state:
+        - { path: "battlefields.bf1.controller", equals: "A" }
+        - { path: "battlefields.bf1.contested", equals: false }
+        - { path: "players.A.score", equals: 1 }
+      rejected: null
+    notes: 348.2.a：双方连过后非战斗 Showdown 关闭，唯一还有单位在场的 A 确立控制；本回合尚未在该战场计分，故构成征服得 1 分（348.2.a.1/471.1）。
+
+  - id: movement-conquer-only-once-per-battlefield-per-turn
+    rule: ["1.5:472", "1.5:471.1"]
+    title: 同一战场同一回合已计过分，再次确立控制不重复征服
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: showdown-open, showdown: bf1, focus: A }
+      players:
+        A:
+          base: []
+          score: 1
+          scoredThisTurn: [bf1]
+        B:
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, contested: true, contestedBy: A, units: { A: ["@unit(might:2)#u1"], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: showdown.closed, battlefield: bf1 }
+          - { timing: battlefield.control-established, object: bf1, player: A }
+      state:
+        - { path: "battlefields.bf1.controller", equals: "A" }
+        - { path: "players.A.score", equals: 1 }
+      rejected: null
+    notes: 472：计分（征服/固守共用额度）每个战场每回合一次；控制权照样易主，但不再产生分数，事件序列中没有 scoring.conquer。scoredThisTurn 的状态字段名待 harness 冻结。
+
+  # ============ 多人模式目的地限制 ============
+  - id: movement-cannot-move-third-party-into-staged-combat
+    rule: ["1.5:449.2.a", "1.5:464.1"]
+    title: 多人模式：第三方单位不能移动到已有双方战斗挂起的战场
+    kind: negative
+    given:
+      turn: { active: C, phase: main, state: neutral-open }
+      mode: ffa3
+      players:
+        A:
+          base: []
+        B:
+          base: []
+        C:
+          base: [ "@unit(might:2)#w1" ]
+      battlefields:
+        - { id: bf1, controller: B, contested: true, contestedBy: A, combatStaged: true, units: { A: ["@unit(might:3)#u1"], B: ["@unit(might:2)#v1"], C: [] } }
+      chain: []
+    commands:
+      - { player: C, do: move, units: ["#w1"], to: bf1 }
+    expect:
+      rejected: { command: 0, reason: "invalid-destination" }
+      state:
+        - { path: "battlefields.bf1.units.C", notContains: "#w1" }
+    notes: 449.2.a/464.1：有挂起或进行中战斗的战场，对「未参与且在场无单位」的玩家的所有移动（标准或效果）都是无效目的地；C 既不参战也无单位在场，标准移动直接被拒。
+
+  - id: movement-cannot-move-into-battlefield-with-two-other-players
+    rule: ["1.5:451.2", "1.5:144.4.a.1"]
+    title: 多人模式：战场已有两名其他玩家的单位，任何方式都进不去
+    kind: negative
+    given:
+      turn: { active: C, phase: main, state: neutral-open }
+      mode: ffa3
+      players:
+        A:
+          base: []
+        B:
+          base: []
+        C:
+          base: [ "@unit(might:2)#w1" ]
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:3)#u1"], B: ["@unit(might:2)#v1"], C: [] } }
+      chain: []
+    commands:
+      - { player: C, do: move, units: ["#w1"], to: bf1 }
+    expect:
+      rejected: { command: 0, reason: "invalid-destination" }
+      state:
+        - { path: "battlefields.bf1.units.C", notContains: "#w1" }
+    notes: 451.2/144.4.a.1：该限制对标准移动和效果移动一视同仁（「by any means」）；战斗只能恰好在两名玩家之间发生（464）。
+
+  # ============ Ganking 与「here」重指 ============
+  - id: movement-ganking-battlefield-to-battlefield
+    rule: ["1.5:810.1.b", "1.5:810.1.c", "1.5:144.4.c.1"]
+    title: Ganking：用标准移动从战场直走另一战场，仍只花一次横置
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          base: []
+        B:
+          base: []
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:2,keywords:[ganking])#u1"], B: [] } }
+        - { id: bf2, controller: B, units: { A: [], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: move, units: ["#u1"], to: bf2 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: unit.exhausted, object: "A:#u1" }
+          - { timing: move.performed, object: "A:#u1", from: bf1, to: bf2 }
+          - { timing: battlefield.contested, object: bf2, by: A }
+      state:
+        - { path: "battlefields.bf2.units.A", contains: "#u1" }
+        - { path: "battlefields.bf1.units.A", notContains: "#u1" }
+      rejected: null
+    notes: 810.1.b/c：Ganking 只是给标准移动增加合法目的地，不额外给移动次数，横置费用照常；进入 B 控制的无人战场正常施加争夺并开启非战斗 Showdown。
+
+  - id: movement-here-reassigned-after-unit-moved
+    rule: ["1.5:448.3.b", "1.5:053.3"]
+    title: 攻击触发结算前单位被移走，「这里」随单位当前位置重指
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: showdown-open, showdown: bf1, focus: B }
+      players:
+        A:
+          base: [ "@unit(might:2)#u2" ]
+        B:
+          base: []
+          hand: [ "@spell(cost:1,speed:reaction,text:\"Move an attacking unit to its base.\")" ]
+          energy: 1
+      battlefields:
+        - { id: bf1, controller: B, contested: true, contestedBy: A, units: { A: ["@unit(might:3,text:\"When I attack, another friendly unit here gets +1 [M] this turn.\")#u1"], B: ["@unit(might:2)#v1"] } }
+      chain:
+        - { item: "A:#u1(trigger:attack)", state: pending, targets: ["#u2"] }
+    commands:
+      - { player: B, do: play, card: "hand[0]", targets: ["#u1"], pay: { energy: 1 } }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: move.performed, object: "A:#u1", to: base }
+          - { timing: chain.item-resolved, item: "A:#u1(trigger:attack)" }
+      state:
+        - { path: "players.A.base", contains: "#u1" }
+      rejected: null
+    notes: "规则书 Flash 官方示例（战斗伤害后移动单位）：触发的攻击单位被移回基地后，触发里的「here」不再指原战场，buff 落空（目标 #u2 不在基地）。事件断言只锁移动与结算顺序；目标非法导致的 ignored 行为由 target 章节场景细化。UNCERTAIN: 触发器结算时「here」重指后目标变为非法是否按 mistargeted（ignored）处理，契约 3.4「被忽略指令」在 target 章节另有覆盖，本场景不重复断言。"
+
+  # ============ 移动的边界 ============
+  - id: movement-effect-move-between-battlefields-allowed
+    rule: ["1.5:451", "1.5:451.1"]
+    title: 效果移动不受标准移动的目的地分类限制（可战场→战场）
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          hand: [ "@spell(cost:1,speed:action,text:\"Move a friendly unit to another battlefield.\")" ]
+          energy: 1
+        B:
+          base: []
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:2)#u1"], B: [] } }
+        - { id: bf2, controller: null, units: { A: [], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", targets: ["#u1"], destination: bf2, pay: { energy: 1 } }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: move.performed, object: "A:#u1", from: bf1, to: bf2 }
+      state:
+        - { path: "battlefields.bf2.units.A", contains: "#u1" }
+        - { path: "battlefields.bf1.units.A", notContains: "#u1" }
+      rejected: null
+    notes: 451.1：目的地合法性由来源效果给出；标准移动的 144.4 限制只约束标准移动本身。与 movement-standard-move-battlefield-to-battlefield-rejected 互为对照。
+
+  - id: movement-effect-move-does-not-exhaust
+    rule: ["1.5:144.2", "1.5:451"]
+    title: 效果造成的移动不横置单位（横置只是标准移动的费用）
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          hand: [ "@spell(cost:1,speed:action,text:\"Move a friendly unit to a battlefield.\")" ]
+          energy: 1
+        B:
+          base: []
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:2)#u1"], B: [] } }
+        - { id: bf2, controller: null, units: { A: [], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", targets: ["#u1"], destination: bf2, pay: { energy: 1 } }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: move.performed, object: "A:#u1", to: bf2 }
+      state:
+        - { path: "battlefields.bf1.objects.#u1.exhausted", equals: false }
+      rejected: null
+    notes: 144.2 的横置是标准移动这个动作的费用，不是「移动」这个游戏动作本身的固有部分；效果移动后单位保持就绪。事件序列中不得出现该单位的 unit.exhausted。
+
+  - id: movement-standard-move-during-enemy-showdown-unaffected
+    rule: ["1.5:144.1.c", "1.5:343.1"]
+    title: 对手回合的 Showdown 期间同样不能标准移动（时机场合不看是谁的 Showdown）
+    kind: negative
+    given:
+      turn: { active: B, phase: main, state: showdown-open, showdown: bf1, focus: A }
+      players:
+        A:
+          base: [ "@unit(might:2)#u1" ]
+        B:
+          base: []
+      battlefields:
+        - { id: bf1, controller: A, contested: true, contestedBy: B, units: { A: ["@unit(might:2)#u2"], B: ["@unit(might:2)#v1"] } }
+        - { id: bf2, controller: null, units: { A: [], B: [] } }
+      chain: []
+    commands:
+      - { player: A, do: move, units: ["#u1"], to: bf2 }
+    expect:
+      rejected: { command: 0, reason: "showdown-in-progress" }
+      state:
+        - { path: "players.A.base", contains: "#u1" }
+    notes: 144.1.c 的禁令是全局状态检查（343.1 的 Showdown State），不因 A 持有 Focus 而放行；144.1.a 还要求必须是自己主阶段，双重不满足。

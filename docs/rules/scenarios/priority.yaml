@@ -1,0 +1,1433 @@
+area: priority
+rulesetVersion: core-1.5
+sources:
+  - "1.5:305"
+  - "1.5:307-313"
+  - "1.5:316.5.b"
+  - "1.5:316.8"
+  - "1.5:316.9"
+  - "1.5:320.1"
+  - "1.5:335"
+  - "1.5:337-348"
+  - "1.5:354.1"
+  - "1.5:411.1-411.2"
+  - "1.5:806"
+  - "1.5:813"
+  - "patch: https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"
+scenarios:
+  # ---------- Turn State ----------
+  - id: priority-neutral-open-default-main
+    rule: ["1.5:305", "1.5:310.1", "1.5:312.2.a", "1.5:335"]
+    title: 主阶段无链无对决时为 Neutral Open，回合玩家获得优先权
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands: []
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: priority.granted, player: A, reason: main-phase-neutral-open }
+      state:
+        - { path: "turnState.state", equals: neutral-open }
+        - { path: "priority.holder", equals: A }
+        - { path: "focus.holder", equals: null }
+    notes: 对应 305/335：主阶段且无 Outstanding Task、无 Pending 链项、无对决/战斗时，回合玩家直接获得优先权。
+
+  - id: priority-chain-exists-closes-state
+    rule: ["1.5:309.1", "1.5:331.1", "1.5:354.1"]
+    title: 卡牌一旦移入链（Pending）即形成链，回合进入 Closed State
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1)" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: chain, pay: { energy: 1 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:hand[0]" }
+      state:
+        - { path: "turnState.state", equals: neutral-closed }
+        - { path: "chain.items[0].status", equals: pending }
+    notes: 354.1：打出流程第 1 步把卡移入链，此时状态立刻转为 Closed；Pending 也算链项（329.1）。
+
+  - id: priority-neutral-closed-no-showdown
+    rule: ["1.5:310.2"]
+    title: 无对决但有链时为 Neutral Closed
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain:
+        - { id: c1, controller: A, card: "@spell(speed:reaction)", status: finalized }
+    commands: []
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "turnState.state", equals: neutral-closed }
+        - { path: "turnState.showdown", equals: false }
+        - { path: "chain.length", equals: 1 }
+    notes: 310.2 的组合判定：只看 Showdown/Combat 与 Chain 两个维度。
+
+  - id: priority-showdown-open-on-contested
+    rule: ["1.5:310.3", "1.5:344.2", "1.5:345"]
+    title: Contested 触发对决开始，进入 Showdown Open
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: [ "@unit(might:2)#u1" ]
+          score: 0
+        B:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: [ "@unit(might:2)#v1" ]
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:2)#v1"] } }
+      chain: []
+    commands:
+      - { player: A, do: move, object: "#u1", to: bf1 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: combat.contested-applied, battlefield: bf1, by: A }
+          - { timing: showdown.staged, battlefield: bf1 }
+          - { timing: showdown.opened, battlefield: bf1 }
+          - { timing: focus.granted, player: A }
+          - { timing: priority.granted, player: A }
+      state:
+        - { path: "turnState.state", equals: showdown-open }
+    notes: 344.2/345：玩家单位移动到敌方战场形成对峙，清理阶段标记 Staged 后开启对决；施加 Contested 的玩家获得 Focus（同时获得 Priority，313.2）。
+
+  - id: priority-showdown-closed-during-chain
+    rule: ["1.5:310.4"]
+    title: 对决期间有人打出牌形成链，进入 Showdown Closed
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: showdown-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1,speed:action)" ]
+          base: []
+          score: 0
+        B:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, contested: true, units: { A: ["@unit(might:2)#u1"], B: ["@unit(might:2)#v1"] } }
+      focus: A
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: chain, pay: { energy: 1 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:hand[0]" }
+      state:
+        - { path: "turnState.state", equals: showdown-closed }
+    notes: 310.4：Showdown 与 Chain 同时存在即为 Showdown Closed。
+
+  - id: priority-no-chain-open-no-showdown-neutral
+    rule: ["1.5:308.2", "1.5:309.2", "1.5:331.2", "1.5:343.2"]
+    title: 无链且无对决时判定为 Neutral Open
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands: []
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "turnState.neutral", equals: true }
+        - { path: "turnState.open", equals: true }
+    notes: 308.2/309.2 的默认组合。
+
+  - id: priority-focus-cleared-when-neutral
+    rule: ["1.5:313.5"]
+    title: 回合回到 Neutral State 时无人持有 Focus
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: showdown-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, contested: true, units: { A: ["@unit(might:2)#u1"], B: ["@unit(might:2)#v1"] } }
+      focus: A
+      chain: []
+    commands:
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: showdown.closed, battlefield: bf1 }
+      state:
+        - { path: "turnState.showdown", equals: false }
+        - { path: "focus.holder", equals: null }
+    notes: 313.5：对决因双方连续 Pass 结束（347.2.a/348）后，回合回到 Neutral State，Focus 立即清空。
+
+  # ---------- Priority 授予与传递 ----------
+  - id: priority-no-priority-no-discretionary
+    rule: ["1.5:312.1.b"]
+    title: 无人持有优先权时双方都不能执行自由动作
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1)" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain:
+        - { id: c1, controller: A, card: "@spell(speed:reaction)", status: pending }
+      priority: null
+    commands:
+      - { player: B, do: play, card: "hand[0]", to: chain }
+    expect:
+      rejected: { command: 0, reason: "no-priority" }
+      events:
+        ordered: subsequence
+        list: []
+    notes: 312.1.b：优先权不存在时（例如 Pending 项尚未 Finalize 完），任何玩家都不能执行自由动作；312.1.b.1 的 Limited Action 不受影响。
+
+  - id: priority-non-turn-player-no-priority-neutral-open
+    rule: ["1.5:312.2.a", "1.5:316.5.b"]
+    title: Neutral Open 的主阶段只有回合玩家获得优先权
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1)" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: B, do: play, card: "hand[0]", to: chain, pay: { energy: 1 } }
+    expect:
+      rejected: { command: 0, reason: "not-your-priority" }
+    notes: 312.2.a/316.5.b：Neutral Open 下优先权只给回合玩家，非回合玩家不能行动。
+
+  - id: priority-next-chain-controller-gains-priority
+    rule: ["1.5:312.2.c", "1.5:337.4"]
+    title: 所有 Pending 项 Finalize 完后，链上下一项的控制者获得优先权
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1,speed:reaction)" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain:
+        - { id: c1, controller: A, card: "@spell(speed:reaction)", status: finalized }
+        - { id: c2, controller: B, card: "@spell(speed:reaction)", status: pending }
+    commands:
+      - { player: B, do: finalize, item: c2, pay: { energy: 1 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: c2 }
+          - { timing: priority.granted, player: A }
+      state:
+        - { path: "priority.holder", equals: A }
+    notes: 337.4：B 的 Pending 项 Finalize 后无其他 Pending，链上下一项（c1）的控制者 A 获得优先权，进入 FEPR 的 Execute 步。
+
+  - id: priority-priority-passes-in-turn-order
+    rule: ["1.5:312.2.d", "1.5:338.1.b.1"]
+    title: 有优先权的玩家 Pass，优先权交给回合顺序的下一位
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1,speed:reaction)" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain:
+        - { id: c1, controller: A, card: "@spell(speed:reaction)", status: finalized }
+      priority: A
+    commands:
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: priority.passed, player: A }
+          - { timing: priority.granted, player: B }
+      state:
+        - { path: "priority.holder", equals: B }
+    notes: 338.1.b.1：Pass 将优先权按回合顺序传给下一位；本例两人局即 A→B。
+
+  - id: priority-priority-taken-not-created
+    rule: ["1.5:312.3"]
+    title: 授予优先权时若已有人持有则从对方手中夺取
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain:
+        - { id: c1, controller: A, card: "@spell(speed:reaction)", status: finalized }
+      priority: A
+    commands:
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: priority.passed, player: A }
+          - { timing: priority.passed, player: B }
+          - { timing: chain.item-resolved, item: c1 }
+      state:
+        - { path: "priority.holder", equals: A }
+    notes: 312.3：B Pass 后全体连续 Pass，c1 结算、链清空回到 Open；主阶段优先权再次授予时是从无人持有“创建”出来给回合玩家 A，而不是 B 继续保留。
+
+  - id: priority-awaken-phase-no-priority
+    rule: ["1.5:312.2.a", "1.5:335"]
+    title: 觉醒阶段不授予优先权
+    kind: negative
+    given:
+      turn: { active: A, phase: awaken, state: neutral-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1)" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: chain, pay: { energy: 1 } }
+    expect:
+      rejected: { command: 0, reason: "not-your-priority" }
+    notes: 335：主阶段以外的阶段若无 Outstanding Task 与 Pending 链项，流程直接进入下一步，不授予优先权；312.2.a 也限定为“在其主阶段”。
+
+  - id: priority-no-priority-during-cleanup
+    rule: ["1.5:320.1"]
+    title: 清理阶段进行时不授予或传递优先权与焦点
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1,speed:reaction)" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain:
+        - { id: c1, controller: A, card: "@spell(speed:reaction)", status: pending }
+      cleanup: in-progress
+      priority: null
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: chain, pay: { energy: 1 } }
+    expect:
+      rejected: { command: 0, reason: "no-priority" }
+    notes: 320.1：清理阶段中可以新增 Pending 项，但不能 Finalize、不能结算，也不授予/传递优先权与焦点，因此此时无人能执行自由动作。
+
+  # ---------- Focus ----------
+  - id: priority-contested-player-gains-focus
+    rule: ["1.5:345"]
+    title: 对决开始时施加 Contested 的玩家获得 Focus
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: [ "@unit(might:2)#u1" ]
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, units: { A: [], B: ["@unit(might:2)#v1"] } }
+      chain: []
+    commands:
+      - { player: A, do: move, object: "#u1", to: bf1 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: focus.granted, player: A, reason: applied-contested }
+      state:
+        - { path: "focus.holder", equals: A }
+    notes: 345：对决开始时由施加 Contested 状态的玩家获得 Focus，与谁是回合玩家无关。
+
+  - id: priority-gaining-focus-grants-priority
+    rule: ["1.5:313.2", "1.5:312.2.b"]
+    title: 获得 Focus 的玩家同时获得 Priority
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: showdown-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, contested: true, units: { A: ["@unit(might:2)#u1"], B: ["@unit(might:2)#v1"] } }
+      focus: A
+      chain: []
+    commands: []
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: priority.granted, player: A, reason: gained-focus }
+      state:
+        - { path: "priority.holder", equals: A }
+        - { path: "focus.holder", equals: A }
+    notes: 313.2/312.2.b：Showdown State 中获得 Focus 的同时即获得 Priority。
+
+  - id: priority-pass-priority-retains-focus
+    rule: ["1.5:313.3"]
+    title: 玩家 Pass 优先权后仍保留 Focus
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: showdown-closed }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, contested: true, units: { A: ["@unit(might:2)#u1"], B: ["@unit(might:2)#v1"] } }
+      focus: A
+      priority: A
+      chain:
+        - { id: c1, controller: A, card: "@spell(speed:reaction)", status: finalized }
+    commands:
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: priority.passed, player: A }
+          - { timing: priority.granted, player: B }
+      state:
+        - { path: "focus.holder", equals: A }
+        - { path: "priority.holder", equals: B }
+    notes: 313.3：Showdown Closed 中 A Pass 优先权给 B，但 Focus 仍留在 A；若链清空回到 Showdown Open，按 340.2.a/346 处理 Focus 传递。
+
+  - id: priority-focus-needs-priority-to-act
+    rule: ["1.5:313.4"]
+    title: 只有 Focus 没有 Priority 时不能执行自由动作
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: showdown-closed }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1,speed:reaction)" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, contested: true, units: { A: ["@unit(might:2)#u1"], B: ["@unit(might:2)#v1"] } }
+      focus: A
+      priority: B
+      chain:
+        - { id: c1, controller: B, card: "@spell(speed:reaction)", status: finalized }
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: chain, pay: { energy: 1 } }
+    expect:
+      rejected: { command: 0, reason: "not-your-priority" }
+    notes: 313.4：Focus 本身不足以行动，必须同时持有 Priority；A 有 Focus 但优先权在 B，A 不能打出。
+
+  - id: priority-chain-resolution-passes-focus
+    rule: ["1.5:340.2.a", "1.5:346", "1.5:347.1.b"]
+    title: 对决中链结算完毕回到 Open State 时 Focus 传给下一位玩家
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: showdown-closed }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, contested: true, units: { A: ["@unit(might:2)#u1"], B: ["@unit(might:2)#v1"] } }
+      focus: A
+      priority: B
+      chain:
+        - { id: c1, controller: A, card: "@spell(speed:reaction)", status: finalized }
+    commands:
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-resolved, item: c1 }
+          - { timing: focus.passed, player: A }
+          - { timing: focus.granted, player: B }
+          - { timing: priority.granted, player: B }
+      state:
+        - { path: "turnState.state", equals: showdown-open }
+        - { path: "focus.holder", equals: B }
+    notes: 346/340.2.a：对决中由玩家打出牌开启的链结算完、状态回到 Open 时，Focus 传给回合顺序下一位（此处 A→B），B 同时获得 Priority。
+
+  - id: priority-triggered-chain-no-focus-pass
+    rule: ["1.5:340.2.a", "1.5:346.1"]
+    title: 由触发能力开启的链结算后 Focus 不传递
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: showdown-closed }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, contested: true, units: { A: ["@unit(might:2)#u1"], B: ["@unit(might:2)#v1"] } }
+      focus: A
+      chain:
+        - { id: c1, controller: B, card: "@triggered(source: combat-open)", status: finalized }
+      chainOpenedBy: triggered-ability
+    commands:
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-resolved, item: c1 }
+      state:
+        - { path: "turnState.state", equals: showdown-open }
+        - { path: "focus.holder", equals: A }
+    notes: "346.1：链由触发能力开启时，结算完回到 Open State 不触发 Focus 传递；A 仍持有 Focus。UNCERTAIN: 规则 346.1 明确“由触发能力开启的链”不传递 Focus，但多触发/Add 混合链是否按“最初开启者”判定，需 judge 确认。"
+
+  # ---------- Action / Reaction 速度 ----------
+  - id: priority-spell-action-open-own-turn
+    rule: ["1.5:155", "1.5:310.1.a"]
+    title: 无速度关键词的法术只能在自己回合的 Open State 打出
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1)" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: chain, pay: { energy: 1 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:hand[0]" }
+    notes: 155/310.1.a：默认法术时机=回合玩家在自己回合的 Neutral Open 打出。
+
+  - id: priority-spell-no-action-rejected-showdown-open
+    rule: ["1.5:155", "1.5:308.1.a", "1.5:343.1.a"]
+    title: 无 Action/Reaction 的法术在对决 Open State 不能打出
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: showdown-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1)" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, contested: true, units: { A: ["@unit(might:2)#u1"], B: ["@unit(might:2)#v1"] } }
+      focus: A
+      priority: A
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: chain, pay: { energy: 1 } }
+    expect:
+      rejected: { command: 0, reason: "not-legally-timed" }
+    notes: 155/343.1.a：默认法术时机不覆盖 Showdown，即使有 Focus+Priority 也不能打。
+
+  - id: priority-action-spell-showdown-open
+    rule: ["1.5:159.2.a.1", "1.5:806.1.b"]
+    title: Action 法术可在对决 Open State 打出
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: showdown-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1,speed:action)" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, contested: true, units: { A: ["@unit(might:2)#u1"], B: ["@unit(might:2)#v1"] } }
+      focus: A
+      priority: A
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: chain, pay: { energy: 1 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:hand[0]" }
+      state:
+        - { path: "turnState.state", equals: showdown-closed }
+    notes: 806：Action 是许可关键词，允许在任何玩家回合的 Showdown Open 打出。
+
+  - id: priority-action-spell-rejected-closed
+    rule: ["1.5:309.1.a", "1.5:331.1.a", "1.5:338.1.a.2"]
+    title: Action 法术不能在 Closed State 打出
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1,speed:action)" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain:
+        - { id: c1, controller: A, card: "@spell(speed:reaction)", status: finalized }
+      priority: A
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: chain, pay: { energy: 1 } }
+    expect:
+      rejected: { command: 0, reason: "not-legally-timed" }
+    notes: 309.1.a/338.1.a.2：Closed State 默认只能打出 Reaction。
+
+  - id: priority-reaction-spell-closed
+    rule: ["1.5:159.2.b.2", "1.5:813.1.c.1"]
+    title: Reaction 法术可在 Closed State 打出
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1,speed:reaction)" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain:
+        - { id: c1, controller: A, card: "@spell(speed:reaction)", status: finalized }
+      priority: B
+    commands:
+      - { player: B, do: play, card: "hand[0]", to: chain, pay: { energy: 1 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "B:hand[0]" }
+    notes: 813.1.c.1：Reaction 可在任何玩家回合的 Closed State 打出；此处 A 的链项在链上，B 获得优先权后可反应。
+
+  - id: priority-activated-no-action-rejected-showdown
+    rule: ["1.5:308.1.a", "1.5:343.1.b"]
+    title: 无 Action/Reaction 的启动能力不能在 Showdown State 启动
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: showdown-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, contested: true, units: { A: ["@unit(might:2)#u1"], B: ["@unit(might:2)#v1"] } }
+      focus: A
+      priority: A
+      chain: []
+    commands:
+      - { player: A, do: activate, object: "#u1", ability: 0 }
+    expect:
+      rejected: { command: 0, reason: "not-legally-timed" }
+    notes: 343.1.b：默认启动能力不能在 Showdown State 启动，除非带 Action/Reaction。
+
+  - id: priority-activated-action-showdown
+    rule: ["1.5:806.1.c.2", "1.5:313.1"]
+    title: 带 Action 的启动能力可在对决中由有 Focus+Priority 的玩家启动
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: showdown-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, contested: true, units: { A: ["@unit(might:2)#u1"], B: ["@unit(might:2)#v1"] } }
+      focus: A
+      priority: A
+      chain: []
+    commands:
+      - { player: A, do: activate, object: "#u1", ability: "action", pay: { energy: 1 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "ability:#u1" }
+    notes: 806.1.c.2：Action 启动能力可在任何玩家回合的 Showdown 中启动；313.1 要求同时持有 Focus 与 Priority。
+
+  - id: priority-activated-reaction-closed
+    rule: ["1.5:813.1.c.2"]
+    title: 带 Reaction 的启动能力可在 Closed State 启动
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null, units: { A: ["@unit(might:2)#u1"], B: ["@unit(might:2)#v1"] } }
+      chain:
+        - { id: c1, controller: A, card: "@spell(speed:reaction)", status: finalized }
+      priority: B
+    commands:
+      - { player: B, do: activate, object: "#v1", ability: "reaction", pay: { energy: 1 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "ability:#v1" }
+    notes: 813.1.c.2：Reaction 启动能力可在 Closed State 启动；B 在 A 的链项上反应。
+
+  # ---------- FEPR 与连续 Pass ----------
+  - id: priority-finalizing-does-not-pass-priority
+    rule: ["1.5:337.1.a"]
+    title: Finalize 链项不传递优先权
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain:
+        - { id: c1, controller: A, card: "@spell(speed:reaction)", status: pending }
+      priority: null
+    commands:
+      - { player: A, do: finalize, item: c1, pay: { energy: 1 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: c1 }
+          - { timing: priority.granted, player: A }
+      state:
+        - { path: "priority.holder", equals: A }
+    notes: 337.1.a：Finalize 本身不传递优先权；Finalize 完后若无其他 Pending，由链上下一项（此处即 c1 自身）的控制者 A 获得优先权（337.4）。
+
+  - id: priority-oldest-pending-finalizes-first
+    rule: ["1.5:337.1.b"]
+    title: 多个 Pending 项按入链顺序（最旧优先）Finalize
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain:
+        - { id: c1, controller: A, card: "@spell(speed:reaction)", status: pending }
+        - { id: c2, controller: B, card: "@spell(speed:reaction)", status: pending }
+    commands:
+      - { player: A, do: finalize, item: c1, pay: { energy: 1 } }
+      - { player: B, do: finalize, item: c2, pay: { energy: 1 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: c1 }
+          - { timing: chain.item-finalized, item: c2 }
+          - { timing: priority.granted, player: A }
+    notes: 337.1.b：Finalize 顺序与入链顺序一致；c1 先 Finalize，c2 后 Finalize，然后链上下一项 c1 的控制者 A 获得优先权。
+
+  - id: priority-unit-resolves-on-finalize
+    rule: ["1.5:337.2"]
+    title: 单位链项 Finalize 后立即结算，不进入 Execute/Pass
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain:
+        - { id: c1, controller: A, card: "@unit(cost:2,might:3)", status: pending }
+    commands:
+      - { player: A, do: finalize, item: c1, to: base, pay: { energy: 2 } }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: c1 }
+          - { timing: chain.item-resolved, item: c1 }
+          - { timing: zone.enter, object: c1, zone: base }
+    notes: 337.2：单位、装备、加资源类能力在 Finalize 后直接跳到 Resolve，不给对手反应窗口。
+
+  - id: priority-add-ability-resolves-on-finalize
+    rule: ["1.5:337.2"]
+    title: 加资源类能力 Finalize 后立即结算
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [fury], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain:
+        - { id: c1, controller: A, card: "@ability(adds-resources)", status: pending }
+    commands:
+      - { player: A, do: finalize, item: c1 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: c1 }
+          - { timing: chain.item-resolved, item: c1 }
+    notes: 337.2：Adds resources 的能力与单位/装备一样 Finalize 即结算。
+
+  - id: priority-newest-finalized-resolves-first
+    rule: ["1.5:340.1"]
+    title: 最新的 Finalized 链项先结算
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain:
+        - { id: c1, controller: A, card: "@spell(speed:reaction)", status: finalized }
+        - { id: c2, controller: B, card: "@spell(speed:reaction)", status: finalized }
+      priority: A
+    commands:
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-resolved, item: c2 }
+          - { timing: chain.item-resolved, item: c1 }
+    notes: 340.1：全体连续 Pass 后最新的 Finalized 项 c2 先结算，结算后链不空且无 Pending，由最新剩余项 c1 的控制者 A 再获优先权（340.4），再次连续 Pass 后 c1 结算。
+
+  - id: priority-resolve-after-all-pass
+    rule: ["1.5:339.1"]
+    title: 所有玩家连续 Pass 后进入 Resolve 步
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain:
+        - { id: c1, controller: A, card: "@spell(speed:reaction)", status: finalized }
+      priority: A
+    commands:
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: priority.passed, player: A }
+          - { timing: priority.passed, player: B }
+          - { timing: chain.item-resolved, item: c1 }
+      state:
+        - { path: "chain.length", equals: 0 }
+        - { path: "turnState.state", equals: neutral-open }
+    notes: 339.1：两人局 A、B 顺序连续 Pass 即满足“所有玩家连续 Pass”，最新 Finalized 项结算。
+
+  - id: priority-priority-returns-after-resolve
+    rule: ["1.5:340.4"]
+    title: 链项结算后链仍不空时，最新剩余项控制者获得优先权
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1,speed:reaction)" ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain:
+        - { id: c1, controller: A, card: "@spell(speed:reaction)", status: finalized }
+        - { id: c2, controller: B, card: "@spell(speed:reaction)", status: finalized }
+      priority: A
+    commands:
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-resolved, item: c2 }
+          - { timing: priority.granted, player: A }
+      state:
+        - { path: "chain.length", equals: 1 }
+        - { path: "priority.holder", equals: A }
+    notes: 340.4：c2 结算后链上剩 c1（无 Pending），由最新项 c1 的控制者 A 获得优先权，继续 FEPR Execute。
+
+  - id: priority-passes-reset-when-item-added
+    rule: ["1.5:339.1", "1.5:339.2"]
+    title: 有玩家在 Pass 序列中加入新链项后，需重新连续 Pass
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:1,speed:reaction)" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain:
+        - { id: c1, controller: B, card: "@spell(speed:reaction)", status: finalized }
+      priority: A
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: chain, pay: { energy: 1 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:hand[0]" }
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+          - { timing: priority.passed, player: B }
+          - { timing: priority.passed, player: A }
+          - { timing: chain.item-resolved, item: "A:hand[0]" }
+    notes: 339.2：A 没有 Pass 而是加新项，之前的 Pass 计数作废；新项 Finalize 后 B、A 需再次连续 Pass 才结算。
+
+  - id: priority-showdown-ends-after-all-pass-focus
+    rule: ["1.5:347.2.a", "1.5:348"]
+    title: 对决中所有玩家连续 Pass Focus 后对决结束
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: showdown-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, contested: true, units: { A: ["@unit(might:2)#u1"], B: ["@unit(might:2)#v1"] } }
+      focus: A
+      priority: A
+      chain: []
+    commands:
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: focus.passed, player: A }
+          - { timing: focus.passed, player: B }
+          - { timing: showdown.closed, battlefield: bf1 }
+      state:
+        - { path: "turnState.showdown", equals: false }
+    notes: 347.2.a/348：Showdown Open 中 A、B 连续 Pass，Showdown 结束；Combat Showdown 则进入战斗后续步骤（348.1）。
+
+  - id: priority-noncombat-showdown-conquer
+    rule: ["1.5:348.2.a"]
+    title: 非战斗对决结束时唯一有单位的玩家建立控制并可能征服
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: showdown-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null, contested: true, units: { A: ["@unit(might:2)#u1"], B: [] } }
+      focus: A
+      priority: A
+      chain: []
+    commands:
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: showdown.closed, battlefield: bf1 }
+          - { timing: battlefield.control-established, battlefield: bf1, player: A }
+      state:
+        - { path: "battlefields.bf1.controller", equals: A }
+    notes: 348.2.a：Non-Combat Showdown 结束时只有 A 有单位且尚未控制，则 A 建立控制；若本回合未在此计分则形成 Conquer（348.2.a.1）。
+
+  - id: priority-combat-showdown-proceeds-to-damage
+    rule: ["1.5:348.1"]
+    title: 战斗对决连续 Pass 后进入战斗伤害等后续步骤
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: showdown-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: B, contested: true, combat: true, units: { A: ["@unit(might:2)#u1"], B: ["@unit(might:2)#v1"] } }
+      focus: A
+      priority: A
+      chain: []
+    commands:
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: showdown.closed, battlefield: bf1 }
+          - { timing: combat.damage-step, battlefield: bf1 }
+    notes: 348.1：Combat Showdown 全体 Pass 后进入战斗剩余步骤（伤害、结算），而非直接征服。
+
+  - id: priority-turn-player-declares-end
+    rule: ["1.5:305", "1.5:316.9"]
+    title: 回合玩家在 Neutral Open 声明结束回合，主阶段结束
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: end-turn }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: phase.ended, phase: main }
+          - { timing: phase.started, phase: ending }
+    notes: 305/316.9：无链时回合玩家不再执行自由动作即可声明结束回合，进入 Ending Phase。
+
+  - id: priority-simultaneous-triggers-turn-order
+    rule: ["1.5:303.2.a", "patch:chronobreak"]
+    title: 多名玩家同时向链上加项时按回合顺序排列，各自决定自己项的顺序
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+      chain:
+        - { id: c1, controller: A, card: "@spell(speed:reaction)", status: finalized }
+      triggers:
+        - { owner: A, id: tA1 }
+        - { owner: A, id: tA2 }
+        - { owner: B, id: tB1 }
+    commands: []
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: tA1 }
+          - { timing: chain.item-pending, item: tA2 }
+          - { timing: chain.item-pending, item: tB1 }
+    notes: "303.2.a + Radiance patch notes（Chronobreak 示例）：同一时点触发、需同时入链的项按回合顺序以回合玩家开始排列，每位玩家内部顺序由其自选。UNCERTAIN: 若 A 的内部顺序选择 tA2 先于 tA1，序列应相应变化；此处按 A 自选顺序断言。"

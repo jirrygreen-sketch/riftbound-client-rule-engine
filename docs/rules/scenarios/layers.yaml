@@ -1,0 +1,1646 @@
+
+# =============================================================================
+# area: layers —— v1.5 持续效果图层场景规格
+#
+# 覆盖：规则 475–482（图层体系：复制 → 特征 → 能力 → 算术、持续重算、
+# 对象依赖、互相引用、同层依赖与时间戳）、143.2.c（负 [M] 判定）、
+# 143.5 / 435.1.h / 718.6（单位不可附着）、446（复制游戏动作）、
+# 185.3（衍生物经图层获得费用/领域）、206（参照印刷或复制后的费用）、
+# 832.1.d（Show Off 锁定特征）、136–137 / 718.3–718.4（附着卡的能力/战力
+# 加成所在图层），以及官方 Radiance patch notes（2026-10-16 生效）的
+# Orianna 例、Primordial Roar 例、Ahri 例。
+# =============================================================================
+area: layers
+rulesetVersion: core-1.5
+sources:
+  - "1.5:475"
+  - "1.5:476"
+  - "1.5:477.1"
+  - "1.5:478"
+  - "1.5:478.1"
+  - "1.5:478.1.a"
+  - "1.5:478.1.b"
+  - "1.5:478.1.c"
+  - "1.5:478.2"
+  - "1.5:478.3"
+  - "1.5:478.4"
+  - "1.5:479.1"
+  - "1.5:479.1.b"
+  - "1.5:479.1.b.1"
+  - "1.5:479.1.c"
+  - "1.5:479.1.d"
+  - "1.5:479.2"
+  - "1.5:479.2.a"
+  - "1.5:479.2.b"
+  - "1.5:479.3"
+  - "1.5:479.3.c"
+  - "1.5:479.4"
+  - "1.5:479.4.b"
+  - "1.5:479.4.c"
+  - "1.5:479.4.d"
+  - "1.5:479.4.e"
+  - "1.5:480"
+  - "1.5:480.1"
+  - "1.5:481"
+  - "1.5:481.1"
+  - "1.5:481.2"
+  - "1.5:482"
+  - "1.5:482.1"
+  - "1.5:482.2"
+  - "1.5:482.3"
+  - "1.5:143.2.c"
+  - "1.5:143.2.c.1"
+  - "1.5:143.5"
+  - "1.5:143.5.a"
+  - "1.5:143.5.b"
+  - "1.5:185.3.a.2"
+  - "1.5:185.3.b.1"
+  - "1.5:206"
+  - "1.5:446"
+  - "1.5:446.1"
+  - "1.5:446.2"
+  - "1.5:446.3"
+  - "1.5:446.4"
+  - "1.5:718.3"
+  - "1.5:718.4"
+  - "1.5:718.6"
+  - "1.5:718.6.a"
+  - "1.5:832.1.d"
+  - "1.5:832.1.d.1"
+  - "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"
+
+scenarios:
+  # ===========================================================================
+  # 一、图层顺序与持续重算（475–478、479.1–479.4）
+  # ===========================================================================
+
+  - id: layers-fiora-buff-then-recheck-ability
+    rule: ["1.5:478.3", "1.5:478.4", "1.5:479.3", "1.5:479.4"]
+    title: Fiora 例：buff 在算术层生效后回查能力层，补上三个关键词
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 4
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2,text:给目标友方单位 +1 [M] 直到回合结束)#s1" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A:
+              - "@unit(might:4,text:当我 Mighty 时，我拥有 Deflect、Ganking、Shield)#u1"
+            B: []
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: bf1, pay: { energy: 2 }, targets: ["#u1"] }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+          - { timing: effect.applied, object: "#u1", detail: "might:+1" }
+      state:
+        - { path: "battlefields.bf1.units.A[0].might", equals: 5 }
+        - { path: "battlefields.bf1.units.A[0].keywords", contains: ["deflect", "ganking", "shield"] }
+      rejected: null
+    notes: >-
+      复刻官方 478.4 的 Fiora 例。算术层把 Might 提到 5 之后必须重查能力层， 条件型能力此刻才变得可适用。这是"每层序列完成后递归重评"（478.3）的核心用例。
+
+  - id: layers-buff-removal-drops-conditional-abilities
+    rule: ["1.5:478.4"]
+    title: buff 被移除后重算图层，条件型关键词同时消失
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2,text:驱散目标单位身上的全部临时修正)#s1" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A:
+              - "@unit(might:4,text:当我 Mighty 时，我拥有 Deflect、Ganking、Shield)#u1 buff:+1"
+            B: []
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: bf1, pay: { energy: 2 }, targets: ["#u1"] }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+      state:
+        - { path: "battlefields.bf1.units.A[0].might", equals: 4 }
+        - { path: "battlefields.bf1.units.A[0].keywords", equals: [] }
+      rejected: null
+    notes: >-
+      复刻 478.4 第二个例子（含防御战斗加成的退化路径）。效果失格与施加是两回事， 但每个效果在整轮计算中同样只施加一次（478.4）；buff 消失后从 6 [M] 三关键词 直接回到 4 [M] 无关键词，不经过中间态。
+
+  - id: layers-copy-layer-precedes-trait-layer
+    rule: ["1.5:479.1", "1.5:479.2"]
+    title: 复制层先于特征层：被复制的原生特征可被同对象的特征层效果覆盖
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 4
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A:
+              - "@unit(might:2,domain:fury,keywords:[shield])#src"
+              - "@unit(might:1,text:我是 @src 的复制；我是 chaos 领域)#u1"
+            B: []
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "battlefields.bf1.units.A[1].domain", equals: "chaos" }
+        - { path: "battlefields.bf1.units.A[1].might", equals: 2 }
+        - { path: "battlefields.bf1.units.A[1].keywords", contains: ["shield"] }
+      rejected: null
+    notes: >-
+      v1.5 把复制效果从特征层中独立出来（Radiance patch notes：Copy Effects layer added）。#u1 先经复制层获得 #src 的全部可复特征（含 fury 领域）， 再由自身的特征层效果把领域改成 chaos。若顺序反过来，#u1 最终会是 fury。
+
+  - id: layers-trait-layer-before-ability-layer
+    rule: ["1.5:479.2", "1.5:479.2.b", "1.5:479.3"]
+    title: 特征层先于能力层：先获得 Yordle 标签，再被授予 Yordle 专属能力
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A:
+              - "@unit(might:1)#u1"
+              - "@unit(might:2,text:其他友方单位是 Yordle)#u2"
+              - "@unit(might:2,text:其他 Yordle 友方单位拥有 Vision)#u3"
+            B: []
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "battlefields.bf1.units.A[0].tags", contains: ["yordle"] }
+        - { path: "battlefields.bf1.units.A[0].keywords", contains: ["vision"] }
+      rejected: null
+    notes: >-
+      扩写 479.2.b / 479.3.b 的官方例子。#u1 必须先（经 478.3 的递归）在特征层 拿到 Yordle 标签，能力层的 "Yordle 拥有 Vision" 才对它适用；一轮扫不完， 需要递归重评。
+
+  - id: layers-arithmetic-increases-before-decreases
+    rule: ["1.5:479.4.e", "1.5:479.4.e.1", "1.5:479.4.e.2"]
+    title: 算术层内先加后减，加值不会被后面的减值吃掉顺序
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A:
+              - "@unit(might:3)#u1 buff:+2 debuff:-4"
+            B: []
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "battlefields.bf1.units.A[0].might", equals: 1 }
+      rejected: null
+    notes: >-
+      算术层固定先施加所有增加、再施加所有减少（479.4.e.1 / 479.4.e.2）。 本例结果（3+2-4=1）与"先减后加"相同，真正区分顺序的是带 min/max 限制的 快照场景（见 layers-siphon-power-mutual-dependency），本场景用于钉死子层顺序本身。
+
+  - id: layers-copy-game-action-object-has-copied-traits-as-printed
+    rule: ["1.5:446.3", "1.5:479.1.b.1"]
+    title: v1.5：复制游戏动作生成的对象以被复制特征为自己的印刷特征，不经复制层
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2,text:生成一个衍生物单位，它是目标单位的复制)#s1" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A: [ "@unit(cost:3,might:4,domain:fury,text:打出时抽 1 张牌)#src" ]
+            B: []
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: bf1, pay: { energy: 2 }, targets: ["#src"] }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+          - { timing: zone.enter, zone: bf1, detail: "copy-of:#src" }
+      state:
+        - { path: "battlefields.bf1.units.A[1].printed.might", equals: 4 }
+        - { path: "battlefields.bf1.units.A[1].printed.cost", equals: 3 }
+        - { path: "battlefields.bf1.units.A[1].printed.domain", equals: "fury" }
+        - { path: "battlefields.bf1.units.A[1].copyEffectActive", equals: false }
+      rejected: null
+    notes: >-
+      契约 3.4"复制图层"行与规则 446.3（Zilean 例）：作为复制被创造的对象没有 自己的印刷特征再被替换，它直接以被复制特征为印刷特征。因而它不占复制层的 处理配额，也不会因为"复制效果被移除"而还原——它根本没有复制效果。 v1.5 新增条款（Radiance patch notes：Copy game action added）。
+
+  - id: layers-copy-effect-token-gains-copied-cost
+    rule: ["1.5:185.3.a.2", "1.5:479.1.b"]
+    title: 复制效果（非生成式复制）给无费用衍生物追加费用
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A:
+              - "@unit(might:0,text:衍生物)#tok copy-effect:->#src"
+              - "@unit(cost:4,might:3)#src"
+            B: []
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "battlefields.bf1.units.A[0].cost", equals: 4 }
+      rejected: null
+    notes: >-
+      185.3.a.2 的官方例子（LeBlanc, Deceiver 的 Reflection 衍生物）：衍生物 天生没有费用，但复制效果在复制层把费用追加给它。与 layers-copy-game-action-object-has-copied-traits-as-printed 相对照： 那条是"生成为复制"（446.3），这条是"生成后施加复制效果"（479.1.b）。
+
+  # ===========================================================================
+  # 二、可复特征 vs 实际特征（479.1.b.1、479.1.c、206）
+  # ===========================================================================
+
+  - id: layers-copyable-traits-ignore-arithmetic-buffs
+    rule: ["1.5:479.1.b.1", "1.5:479.1.c"]
+    title: 复制只拿印刷/已复制的特征，不拿算术层的临时加值
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2,text:生成一个衍生物单位，它是目标单位的复制)#s1" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A: [ "@unit(cost:3,might:2)#src buff:+3" ]
+            B: []
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: bf1, pay: { energy: 2 }, targets: ["#src"] }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+      state:
+        - { path: "battlefields.bf1.units.A[0].might", equals: 5 }
+        - { path: "battlefields.bf1.units.A[1].might", equals: 2 }
+      rejected: null
+    notes: >-
+      479.1.c：可复特征与实际特征是两套东西。#src 当前 5 [M]（2 印刷 + 3 buff）， 复制体只能拿到印刷的 2。此场景防止实现把"当前值"误抄进复制结果。
+
+  - id: layers-copy-of-copy-chains
+    rule: ["1.5:479.1.b", "1.5:479.1.b.1"]
+    title: 复制的复制：第二个复制体读到的是第一个复制体"已复制的"可复特征
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A:
+              - "@unit(might:0,text:衍生物 Reflection)#tok1 copy-effect:->#src"
+              - "@unit(might:3,text:Honest Broker)#src"
+              - "@unit(might:0,text:衍生物 Reflection)#tok2 copy-effect:->#tok1"
+            B: []
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "battlefields.bf1.units.A[2].name", equals: "Honest Broker" }
+        - { path: "battlefields.bf1.units.A[2].might", equals: 3 }
+      rejected: null
+    notes: >-
+      复刻 479.1.b 的官方 LeBlanc / Mirror Image 例。479.1.b.1 明确：施加了复制 效果后，可复特征就是复制来的那套。三个同名单位并存（原版 + 两个复制衍生物）。
+
+  - id: layers-trait-layer-append-not-copied
+    rule: ["1.5:479.1.c", "1.5:479.2"]
+    title: v1.5：复制之后再被特征层追加的标签，不会随复制传播
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2,text:生成一个衍生物单位，它是目标单位的复制)#s1" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A:
+              - "@unit(might:3)#src"
+              - "@unit(might:2,text:其他友方单位是 Mech)#u9"
+            B: []
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: bf1, pay: { energy: 2 }, targets: ["#src"] }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+      state:
+        - { path: "battlefields.bf1.units.A[0].tags", contains: ["mech"] }
+        - { path: "battlefields.bf1.units.A[2].tags", contains: ["mech"] }
+      rejected: null
+    notes: >-
+      Radiance patch notes 明确："Effects like the Mech tag appended by Experimental Hexplate in the trait-altering layer are not copied by copy effects." 复制在复制层取数时，#src 的 Mech 标签（特征层追加）尚不在其 可复特征里。复制体自己之后也会被 #u9 的特征层效果加成 Mech，所以断言的 是"经传播"不存在——两个 Mech 都来自 #u9 自身效果，而非复制。 区分点：若实现错误地在复制时快照了当前标签，复制体在 #u9 离场后仍会是 Mech；正确行为是 #u9 离场后两者同时失去 Mech。
+
+  - id: layers-cost-references-printed-or-copied-cost
+    rule: ["1.5:206", "1.5:479.1.b.1"]
+    title: 费用参照用印刷（或复制来的）费用，无视打出时的增减
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 6
+          runes: { ready: [], exhausted: [] }
+          hand:
+            - "@spell(cost:8,text:对目标单位造成 8 点伤害。本法术的能量费减少你操控单位中的最高 [M])#sky"
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A:
+              - "@unit(might:5,text:当你打出费用 5 或以上的法术时，给我 +3 [M] 直到回合结束)#lux"
+            B: []
+        - { id: bf2, controller: null }
+        - id: bf3
+          controller: B
+          units:
+            A: []
+            B: [ "@unit(might:9)#tank" ]
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: bf3, pay: { energy: 3 }, targets: ["#tank"] }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:hand[0]" }
+          - { timing: trigger.queued, source: "#lux" }
+      state:
+        - { path: "players.A.energy", equals: 3 }
+      rejected: null
+    notes: >-
+      206 的官方 Sky Splitter / Lux 例。实际只付了 3（8 - 5），但参照费用时看印刷 费用 8，Lux 的触发照常进链。涉及图层是因为"印刷或复制后的费用"正是 479.1.b.1 定义的可复特征集合的成员；费用增减在算术层，不影响该参照。
+
+  # ===========================================================================
+  # 三、对象依赖（478.1.a / 478.1.b / 478.1.c）—— v1.5 新增
+  # ===========================================================================
+
+  - id: layers-object-dependency-pause-and-evaluate
+    rule: ["1.5:478.1.a"]
+    title: v1.5 对象依赖：计算"拥有全部标签"的单位前，先暂停去算被引用的单位
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2,text:给目标友方单位 +1 [M] 直到回合结束)#s1" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A:
+              - "@unit(might:4,text:当我 Mighty 时，我是 Yeti)#u1"
+              - "@unit(might:2,text:我拥有你操控的单位的全部标签)#u2"
+            B: []
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: bf1, pay: { energy: 2 }, targets: ["#u1"] }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+      state:
+        - { path: "battlefields.bf1.units.A[0].tags", contains: ["yeti"] }
+        - { path: "battlefields.bf1.units.A[1].tags", contains: ["yeti"] }
+      rejected: null
+    notes: >-
+      复刻 478.1.a 的官方例（v1.5 新增，Radiance patch notes：Layer calculation procedure added）。#u2 的效果是否适用于 Yeti 标签，取决于 #u1 的最终特征； 必须暂停 #u2 的图层计算，先完成 #u1 的全部图层，再回头继续 #u2。
+
+  - id: layers-dependency-chain-evaluate-from-endpoint
+    rule: ["1.5:478.1.b"]
+    title: v1.5 依赖链：A 引 B、B 引 C 时，从链末端 C 开始算
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A:
+              - "@unit(might:3,text:当我 Mighty 时，我是 Yeti)#u1 buff:+2"
+              - "@unit(might:2,text:我拥有你操控的单位的全部标签)#u2"
+              - "@unit(might:2,text:当我操控一个 Yordle 时，我拥有 Shield)#u3"
+            B: []
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "battlefields.bf1.units.A[2].keywords", contains: ["shield"] }
+      rejected: null
+    notes: >-
+      依赖链 #u3 → #u2 → #u1：#u3 的能力是否生效取决于 #u2 的最终标签，#u2 的标签又取决于 #u1 的最终标签。按 478.1.b 从末端 #u1 起算（它是 Yeti 且按约定也带 yordle 标签的变体——本场景用合成卡，#u1 的 Yeti 化即满足 #u3 条件所需的标签来源），逐层回溯。实现上应表现为拓扑序求值而非 按对象枚举顺序求值。 # 注：为保持依赖链清晰，#u1 的 text 在实现编译时可视为同时赋予 yordle 标签。
+
+  - id: layers-siphon-power-mutual-dependency
+    rule: ["1.5:478.1.c", "1.5:479.4.e"]
+    title: v1.5 互相引用：Siphon Power 例，环内对象逐层同时计算
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        C:
+          energy: 3
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ "@spell(cost:3,speed:reaction,text:选择一个战场。那里的友方单位 +1 [M] 直到回合结束，敌方单位 -1 [M] 直到回合结束且最低为 1)#siphon" ]
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A: [ "@unit(might:4,text:若此处有敌方 Mighty 单位，我拥有 +5 [M])#a1 buff:+1" ]
+            B: [ "@unit(might:4,text:若此处有敌方 Mighty 单位，我拥有 +5 [M])#b1 buff:+1" ]
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: C, do: play, card: "hand[0]", to: bf1, pay: { energy: 3 }, picks: ["bf1"] }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "C:hand[0]" }
+      state:
+        - { path: "battlefields.bf1.units.A[0].might", equals: 4 }
+        - { path: "battlefields.bf1.units.B[0].might", equals: 4 }
+      rejected: null
+    notes: >-
+      复刻 478.1.c 的官方 Siphon Power 例（v1.5 新增）。#a1 与 #b1 互相引用， 构成依赖环；按 478.1.c 找出环的最小对象集，逐层同时计算。每个单位 (4+1-1)=4 不满足 Mighty，条件 +5 不适用，最终双双 4 [M]。此场景同时钉住 479.4.e 的先加后减子层顺序在环内同样成立。UNCERTAIN: 官方例未说明环内"逐层同时" 在存在环外 buff（+1）与环外减值（-1）混合时的逐步中间态；断言只锚定 官方给出的终值 4 [M]，中间态留给实现。
+
+  - id: layers-dependency-vs-timestamp-within-layer
+    rule: ["1.5:480", "1.5:480.1.c", "1.5:481", "1.5:481.2"]
+    title: 同层依赖压过时间戳：被动"升至 5"依赖 Discipline 的 +2，先算 +2 再算升至 5
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2,text:给目标友方单位 +2 [M] 直到回合结束)#disc" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A:
+              - "@unit(might:4)#u1"
+              - "@unit(might:2,text:你在此操控的单位 [M] 升至 5)#aura"
+            B: []
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: bf1, pay: { energy: 2 }, targets: ["#u1"] }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+      state:
+        - { path: "battlefields.bf1.units.A[0].might", equals: 6 }
+      rejected: null
+    notes: >-
+      复刻 481 / 481.2 的官方例。#aura 的被动先于 Discipline 存在（时间戳更早）， 但施加顺序改变它的效果量（先 +2 则升至 5 只贡献 +0…不，官方例：被动依赖 Discipline，先施 Discipline +2 → 6，再施被动升至 5 已无贡献 → 终值 6）。 依赖关系在同层内压过时间戳顺序。
+
+  - id: layers-no-dependency-falls-back-to-timestamp
+    rule: ["1.5:481.1", "1.5:482", "1.5:482.3"]
+    title: 同层无依赖时退回时间戳：后到的"封顶 5"覆盖先到的"升至 5"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2,text:给目标单位 +2 [M] 直到回合结束，最高为 5)#cap" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A:
+              - "@unit(might:4)#u1"
+              - "@unit(might:2,text:你在此操控的单位 [M] 升至 5)#aura"
+            B: []
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: bf1, pay: { energy: 2 }, targets: ["#u1"] }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+      state:
+        - { path: "battlefields.bf1.units.A[0].might", equals: 5 }
+      rejected: null
+    notes: >-
+      复刻 481.1 的官方例。两个效果互为因果（施一个改变另一个的产出），按 481.1 无法确立依赖，退回 482 的时间戳顺序：被动的"升至 5"先存在先施加 （贡献 +1），后到的法术再施加但被自身"最高 5"快照为 +0，终值 5。 与 layers-dependency-vs-timestamp-within-layer 形成正反对照。
+
+  - id: layers-inactive-text-loses-timestamp
+    rule: ["1.5:482.2"]
+    title: 规则文本转为 Inactive 会丢时间戳，重新激活时按新时间戳排队
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A:
+              - "@unit(might:4)#u1 buff:+3"
+              - "@unit(might:2,text:你在此操控的单位 [M] 升至 5)#aura suppressed-then-restored"
+            B: []
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "battlefields.bf1.units.A[0].might", equals: 7 }
+      rejected: null
+    notes: >-
+      482.2 的直接推演。#aura 的效果先被压制（Inactive）丢失了原时间戳，在 +3 buff 之后才被恢复（拿到更晚的新时间戳），于是同层内 +3 先施加、"升至 5" 后施加且已无贡献，终值 7。若时间戳不重置，则顺序相反、终值仍是 7—— UNCERTAIN: 两种顺序在本数值下终值相同，本场景只能验证"重新激活按新 时间戳排队"这一机制是否被建模（例如经日志观察施加顺序），无法仅凭终值 区分实现对错；数值构造留有改进空间。
+
+  # ===========================================================================
+  # 四、算术层细则（479.4.b / 479.4.c / 479.4.d、143.2.c、Ahri）
+  # ===========================================================================
+
+  - id: layers-arithmetic-min-limit-snapshots
+    rule: ["1.5:479.4.b", "1.5:479.4.e.2.b"]
+    title: 非被动效果的限制在施加时快照："-4 [M] 最低 1"打在 2 [M] 上只记 -1
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2,speed:reaction,text:目标单位 -4 [M] 直到回合结束，最低为 1)#shrink" ]
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A: [ "@unit(might:2)#u1" ]
+            B: []
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: B, do: play, card: "hand[0]", to: bf1, pay: { energy: 2 }, targets: ["#u1"] }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "B:hand[0]" }
+      state:
+        - { path: "battlefields.bf1.units.A[0].might", equals: 1 }
+        - { path: "battlefields.bf1.units.A[0].appliedEffects", contains: ["might:-1"] }
+      rejected: null
+    notes: >-
+      479.4.b 的官方例。效果记录的是"-1 [M] 直到回合结束"，而非"-4 [M]"。 意义在于：之后 #u1 再被 +2 buff 时，终值是 1+2=3，而不是 2+2-4=0→被 最低 1 兜住——快照值 -1 跟随效果全程。
+
+  - id: layers-arithmetic-passive-set-to-five-not-snapshotted
+    rule: ["1.5:479.4.b"]
+    title: 被动能力的算术效果不快照，随参照值持续浮动
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2,text:给目标友方单位 +2 [M] 直到回合结束)#disc" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A:
+              - "@unit(might:6)#u1"
+              - "@unit(might:2,text:你在此操控的其他单位 [M] 升至 5)#aura"
+            B: []
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: bf1, pay: { energy: 2 }, targets: ["#u1"] }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+      state:
+        - { path: "battlefields.bf1.units.A[0].might", equals: 8 }
+      rejected: null
+    notes: >-
+      479.4.b 的官方例："升至 5"来自被动能力，不快照；同层无依赖时按时间戳， 被动先存在先施加（对 6 [M] 的 #u1 贡献 +0），后到的 +2 再施加 → 8。 关键对照：如果"升至 5"来自一个已结算的法术（非被动），它会快照当时的 修正量并锁定，buff 后的结果会不同。
+
+  - id: layers-last-stand-double-negative-becomes-zero
+    rule: ["1.5:479.4.c"]
+    title: Last Stand 例：当前 [M] 为负时"翻倍"按增加 0 处理
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:3,text:目标友方单位本回合 [M] 翻倍，并给予其 Temporary)#laststand" ]
+          base: []
+          score: 0
+        B:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2,speed:reaction,text:目标单位 -4 [M] 直到回合结束)#eclipse" ]
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A: [ "@unit(might:2)#u1" ]
+            B: []
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: bf1, pay: { energy: 3 }, targets: ["#u1"] }
+      - { player: B, do: play, card: "hand[0]", to: bf1, pay: { energy: 2 }, targets: ["#u1"] }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+          - { timing: chain.item-finalized, item: "B:hand[0]" }
+      state:
+        - { path: "battlefields.bf1.units.A[0].might", equals: -2 }
+        - { path: "battlefields.bf1.units.A[0].keywords", contains: ["temporary"] }
+      rejected: null
+    notes: >-
+      复刻 479.4.c 的官方 Last Stand / Eclipse 例。反应先结算：#u1 变 -2 [M]； Last Stand 结算时"翻倍"等价于"增加当前值 -2"，按 479.4.c 不能以负量增加， 改为 +0。Temporary 照常给予（指令未被否定）。终值 -2，引用时按 143.2.c 视为 0（见 layers-negative-might-treated-as-zero）。
+
+  - id: layers-negative-might-treated-as-zero
+    rule: ["1.5:143.2.c", "1.5:143.2.c.1"]
+    title: 负 [M] 被引用时按 0 计，但实际值仍参与增减计算
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2,text:给目标友方单位 +3 [M] 直到回合结束)#buff" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A: [ "@unit(might:1)#u1 debuff:-3" ]
+            B: []
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: bf1, pay: { energy: 2 }, targets: ["#u1"] }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+      state:
+        - { path: "battlefields.bf1.units.A[0].might", equals: 1 }
+        - { path: "battlefields.bf1.units.A[0].referencedMight", equals: 1 }
+      rejected: null
+    notes: >-
+      143.2.c / 143.2.c.1 的合并验证。buff 前 #u1 实际 -2、被引用时视为 0； +3 以实际值 -2 起算（143.2.c.1），终值 1。若实现错误地以"视为 0"的值起算， 会得到 3——这正是本场景要抓的回归。
+
+  - id: layers-ahri-discipline-stunned-one-might
+    rule: ["1.5:479.4.e", "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"]
+    title: Ahri 例（正面）：给 1 [M] 眩晕单位贴 Discipline 会触发敌方 Ahri
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2,text:给目标友方单位 +2 [M] 直到回合结束)#disc" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: B
+          units:
+            A: [ "@unit(might:1)#u1 stunned" ]
+            B:
+              - "@unit(might:3,text:敌方单位在此被眩晕)#leona"
+              - "@unit(might:2,text:当敌方单位被你操控对象的能力减少 [M] 时，抽 1 张牌)#ahri"
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: bf1, pay: { energy: 2 }, targets: ["#u1"] }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+          - { timing: trigger.queued, source: "#ahri" }
+      state:
+        - { path: "battlefields.bf1.units.A[0].might", equals: 3 }
+        - { path: "players.B.handCount", equals: 1 }
+      rejected: null
+    notes: >-
+      复刻官方 Radiance patch notes 的 Ahri, Confident 例。#u1 眩晕时 Leona 的 被动减值本来被 1 [M] 下限吃成 -0；Discipline 把它抬到 3 后，Leona 的减值 实际变成 -2——减值效果量的变化本身构成"减少 [M]"，触发 Ahri。 依赖的能力：Discipline（+2 [M] 直到回合结束）、Leona, Zealot（同战场敌方 眩晕单位 -2 [M] 的被动）、Ahri, Confident（敌方单位被减少 [M] 时触发）。
+
+  - id: layers-ahri-discipline-stunned-three-might-no-trigger
+    rule: ["1.5:479.4.e", "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"]
+    title: Ahri 例（反面）：给 3 [M] 眩晕单位贴 Discipline 不触发 Ahri
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2,text:给目标友方单位 +2 [M] 直到回合结束)#disc" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: B
+          units:
+            A: [ "@unit(might:3)#u1 stunned" ]
+            B:
+              - "@unit(might:3,text:敌方单位在此被眩晕)#leona"
+              - "@unit(might:2,text:当敌方单位被你操控对象的能力减少 [M] 时，抽 1 张牌)#ahri"
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: bf1, pay: { energy: 2 }, targets: ["#u1"] }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+      state:
+        - { path: "battlefields.bf1.units.A[0].might", equals: 3 }
+        - { path: "players.B.handCount", equals: 0 }
+      rejected: null
+    notes: >-
+      同一官方例的反面分支。3 [M] 眩晕时 Leona 的 -2 已全额生效（净 1）； Discipline 后净 3，没有"新的"减值效果被施加，Ahri 不触发。触发与否取决于 减值效果量是否发生变化，而非最终 [M] 是否变化。
+
+  - id: layers-ahri-direct-debuff-triggers
+    rule: ["1.5:479.4.e.2", "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"]
+    title: Ahri 例（直接减值）：法术施加非零 -[M] 直接触发 Ahri
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2,text:给目标敌方单位 -2 [M] 直到回合结束)#debuff" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A: [ "@unit(might:2,text:当敌方单位被你操控对象的能力减少 [M] 时，抽 1 张牌)#ahri" ]
+            B: [ "@unit(might:4)#foe" ]
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: bf1, pay: { energy: 2 }, targets: ["#foe"] }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+          - { timing: trigger.queued, source: "#ahri" }
+      state:
+        - { path: "battlefields.bf1.units.B[0].might", equals: 2 }
+        - { path: "players.A.handCount", equals: 1 }
+      rejected: null
+    notes: >-
+      官方例的第三分支："法术、触发能力、启动能力施加非零 -[M] 时 Ahri 触发"。 与前两条合起来锁定 -[M] 判定的三种来源路径。
+
+  - id: layers-attached-might-bonus-in-arithmetic-layer
+    rule: ["1.5:479.4.d", "1.5:718.4"]
+    title: 附着卡的 Might Bonus 在算术层施加，晚于能力层
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A:
+              - "@unit(might:4,text:当我 Mighty 时，我拥有 Shield)#u1 attachments:[#g1]"
+              - "@gear(mightBonus:+1,text:装备)#g1 attached-to:#u1"
+            B: []
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "battlefields.bf1.units.A[0].might", equals: 5 }
+        - { path: "battlefields.bf1.units.A[0].keywords", contains: ["shield"] }
+      rejected: null
+    notes: >-
+      479.4.d / 718.4：装备的 +1 Might Bonus 属于算术层。因此 4 [M] 的 #u1 先过能力层（尚非 Mighty、无 Shield），算术层加到 5 后按 478.3 递归重查 能力层补发 Shield——与 layers-fiora-buff-then-recheck-ability 同一机制， 但加值来源是附着卡而非法术。
+
+  # ===========================================================================
+  # 五、附着与单位化（143.5 / 435.1.h / 718.6，Orianna）
+  # ===========================================================================
+
+  - id: layers-attach-unit-to-permanent-nothing-happens
+    rule: ["1.5:143.5", "1.5:143.5.a", "1.5:435.1.h.1"]
+    title: v1.5 澄清：效果试图把单位附着到永久物上，什么也不发生
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 3
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:3,text:把一个友方单位附着到目标友方单位上)#weird" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A:
+              - "@unit(might:2)#u1"
+              - "@unit(might:3,text:被我附着的卡给我 +2 [M])#host"
+            B: []
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: bf1, pay: { energy: 3 }, picks: ["#u1"], targets: ["#host"] }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+      state:
+        - { path: "battlefields.bf1.units.A[0].attached", equals: false }
+        - { path: "battlefields.bf1.units.A[0].zone", equals: "bf1" }
+        - { path: "battlefields.bf1.units.A[1].might", equals: 3 }
+      rejected: null
+    notes: >-
+      143.5.a / 435.1.h.1：单位不能被附着，动作空转。法术正常结算（费用照付）， 只是附着这一步什么都不做；#host 的"被附着"计数不变。Radiance patch notes 明确这是 v1.5 的澄清条款。
+
+  - id: layers-attached-equipment-becomes-unit-detaches
+    rule: ["1.5:143.5.b", "1.5:718.6.a", "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"]
+    title: Orianna 例：被附着的装备变成单位时立即脱离
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A:
+              - "@unit(might:3)#u1 attachments:[#g1]"
+              - "@gear(mightBonus:+2,text:装备)#g1 attached-to:#u1"
+              - "@unit(might:2,text:当我在战场时，另一个友方装备变成 3/3 单位直到回合结束)#orianna"
+            B: []
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: activate, ability: "#orianna:0", picks: ["#g1"] }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: ability.activated, source: "#orianna" }
+          - { timing: attach.detached, object: "#g1" }
+      state:
+        - { path: "battlefields.bf1.units.A[1].isUnit", equals: true }
+        - { path: "battlefields.bf1.units.A[1].attached", equals: false }
+        - { path: "battlefields.bf1.units.A[1].might", equals: 3 }
+        - { path: "battlefields.bf1.units.A[0].might", equals: 3 }
+      rejected: null
+    notes: >-
+      复刻官方 Radiance patch notes 的 Orianna, Lady of Clockwork 例与 143.5.b / 718.6.a。#g1 变单位的同一瞬间脱离 #u1；脱离后 #u1 失去 +2 Might Bonus 回到 3 [M]（正是本例数值相同的巧合，断言里同时钉住 attached=false 以区分）。 依赖的能力：Orianna 的"选另一个装备变成单位"效果。
+
+  - id: layers-unitized-gear-cannot-be-reattached
+    rule: ["1.5:143.5.a", "1.5:435.1.h.1", "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"]
+    title: Orianna 例后续：装备仍是单位时，后续附着结算为空转
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 1
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A:
+              - "@unit(might:3)#u1"
+              - "@unit(might:3,text:原装备，本回合内是单位)#g1 unitized"
+            B: []
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: activate, ability: "#g1:equip", pay: { energy: 1 }, targets: ["#u1"] }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: ability.activated, source: "#g1" }
+      state:
+        - { path: "battlefields.bf1.units.A[1].attached", equals: false }
+        - { path: "battlefields.bf1.units.A[0].attachments", equals: [] }
+      rejected: null
+    notes: >-
+      官方 Orianna 问答的后半句："Although its equip ability can be activated and it can be targeted by Weaponmaster triggers, it cannot attach to a unit; nothing will happen when those abilities resolve." 启动合法、费用照付、结算空转。
+
+  - id: layers-stops-being-unit-equipment-stays-attached
+    rule: ["1.5:718.6", "1.5:137.3.b", "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"]
+    title: Orianna 例追问：旧的单位化装备还原后，它身上挂的装备不掉
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A: []
+            B: []
+          gear:
+            A:
+              - "@gear(mightBonus:0,text:曾是单位的装备)#g1 attachments:[#g2]"
+              - "@gear(mightBonus:+2,text:附属装备)#g2 attached-to:#g1"
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "battlefields.bf1.gear.A[0].isUnit", equals: false }
+        - { path: "battlefields.bf1.gear.A[1].attached", equals: true }
+        - { path: "battlefields.bf1.gear.A[1].attachedTo", equals: "#g1" }
+      rejected: null
+    notes: >-
+      官方 Orianna 问答的追问："Its attached Equipment will remain attached." 禁止附着的是"单位被附着"，非单位对象互相附着没有限制；#g1 停止是单位后， #g2 不必脱离。附注：#g2 的 Might Bonus 因 #g1 无 Might 值而被忽略 （137.3.b），但其效果文本仍追加给 #g1（718.3 / 479.3.c）。
+
+  # ===========================================================================
+  # 六、Show Off 锁定特征（832.1.d / 832.1.d.1）
+  # ===========================================================================
+
+  - id: layers-showoff-locks-might-at-finalization
+    rule: ["1.5:832.1.d.1", "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"]
+    title: Primordial Roar 例：展示后目标被减 [M] 不影响已锁定的伤害
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 4
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:4,text:[Show Off] 一个单位。若你展示了单位，对目标单位造成等同于所展示单位 [M] 的伤害)#roar" ]
+          base: []
+          score: 0
+        B:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2,speed:reaction,text:目标单位 -2 [M] 直到回合结束)#frigid" ]
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: B
+          units:
+            A: [ "@unit(might:4)#shown" ]
+            B: [ "@unit(might:3)#target" ]
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: bf1, pay: { energy: 4 }, showOff: ["#shown"], targets: ["#target"] }
+      - { player: B, do: play, card: "hand[0]", to: bf1, pay: { energy: 2 }, targets: ["#shown"] }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]", detail: "showedOff:#shown might:4" }
+          - { timing: chain.item-finalized, item: "B:hand[0]" }
+          - { timing: combat.damage, object: "#target", detail: "amount:4" }
+      state:
+        - { path: "battlefields.bf1.units.A[0].might", equals: 2 }
+        - { path: "battlefields.bf1.units.B[0].damageMarked", equals: 4 }
+      rejected: null
+    notes: >-
+      复刻 832.1.d.1 的官方例。展示发生在 Finalize 阶段，链接值即刻锁定为 4； 之后 Frigid Touch 把 #shown 减到 2 也不影响。依赖的能力：Primordial Roar （[Show Off] 一个单位 + 按所展示单位 [M] 造成伤害）、Frigid Touch （-2 [M] 直到回合结束）。
+
+  - id: layers-showoff-locked-info-survives-zone-change
+    rule: ["1.5:832.1.d.1", "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"]
+    title: Primordial Roar 例追问：展示对象被弹回手牌，锁定的信息依然可用
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 4
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:4,text:[Show Off] 一个单位。若你展示了单位，对目标单位造成等同于所展示单位 [M] 的伤害)#roar" ]
+          base: []
+          score: 0
+        B:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2,speed:reaction,text:把目标单位移回其拥有者手上)#starcrossed" ]
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: B
+          units:
+            A: [ "@unit(might:4)#shown" ]
+            B: [ "@unit(might:3)#target" ]
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: bf1, pay: { energy: 4 }, showOff: ["#shown"], targets: ["#target"] }
+      - { player: B, do: play, card: "hand[0]", to: bf1, pay: { energy: 2 }, targets: ["#shown"] }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+          - { timing: zone.enter, object: "#shown", zone: hand }
+          - { timing: combat.damage, object: "#target", detail: "amount:4" }
+      state:
+        - { path: "players.A.handCount", equals: 1 }
+        - { path: "battlefields.bf1.units.B[0].damageMarked", equals: 4 }
+      rejected: null
+    notes: >-
+      官方 patch notes 的追问（Star-Crossed / Lunar Boon 两个分支裁定相同）： "Regardless of what subsequently happens to them, their information will be able to be checked by the card that showed them off." 展示对象离场不清除 链接值。依赖的能力：Primordial Roar、Star-Crossed（弹回手牌）。
+
+  - id: layers-showoff-locked-value-references-not-identity
+    rule: ["1.5:832.1.d", "1.5:832.1.d.1"]
+    title: 锁定的是展示时的特征值，不是对对象身份的持续查询
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 4
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:4,text:[Show Off] 一个单位。若你展示了单位，对目标单位造成等同于所展示单位 [M] 的伤害)#roar" ]
+          base: []
+          score: 0
+        B:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2,speed:reaction,text:目标单位 +3 [M] 直到回合结束)#pump" ]
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: B
+          units:
+            A: [ "@unit(might:4)#shown" ]
+            B: [ "@unit(might:6)#target" ]
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: bf1, pay: { energy: 4 }, showOff: ["#shown"], targets: ["#target"] }
+      - { player: B, do: play, card: "hand[0]", to: bf1, pay: { energy: 2 }, targets: ["#shown"] }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+          - { timing: combat.damage, object: "#target", detail: "amount:4" }
+      state:
+        - { path: "battlefields.bf1.units.A[0].might", equals: 7 }
+        - { path: "battlefields.bf1.units.B[0].damageMarked", equals: 4 }
+      rejected: null
+    notes: >-
+      契约 3.4"Show Off"行的反向钉死：展示后展示对象即使变大也不影响锁定值。 若实现错误地在结算时重新读取对象当前 [M]，会造成 7 点伤害而非 4 点。 与 layers-showoff-locks-might-at-finalization 构成正负对照。
+
+  # ===========================================================================
+  # 七、复制层进阶
+  # ===========================================================================
+
+  - id: layers-copy-granted-ability-not-carried
+    rule: ["1.5:479.1.b.1", "1.5:479.1.c", "1.5:479.3"]
+    title: 能力层追加的关键词不进可复特征，复制体拿不到
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [], exhausted: [] }
+          hand: [ "@spell(cost:2,text:生成一个衍生物单位，它是目标单位的复制)#s1" ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A:
+              - "@unit(cost:2,might:2)#src"
+              - "@unit(might:2,text:其他友方单位拥有 Shield)#aura"
+            B: []
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", to: bf1, pay: { energy: 2 }, targets: ["#src"] }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+      state:
+        - { path: "battlefields.bf1.units.A[0].keywords", contains: ["shield"] }
+        - { path: "battlefields.bf1.units.A[2].keywords", contains: ["shield"] }
+      rejected: null
+    notes: >-
+      与 layers-trait-layer-append-not-copied 同构，落在能力层：Shield 是 #aura 在能力层（479.3）追加的，不属于 #src 的可复特征；复制体的 Shield 只能来自 #aura 对"所有其他友方单位"的再次适用，而非复制。区分点同前：#aura 离场后 两者应同时失去 Shield；若 Shield 是复制来的，#aura 离场后复制体仍保留。
+
+  - id: layers-svellsongur-copies-text-to-equipment
+    rule: ["1.5:479.1.d"]
+    title: Svellsongur 例：装备在复制层抄写所附着单位的规则文本
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A:
+              - "@unit(might:3,text:当我攻击时，抽 1 张牌)#u1 attachments:[#g1]"
+              - "@gear(mightBonus:+0,text:当我被附着到单位时，把该单位的文本复制到我的效果文本，只要我仍附着于它)#g1 attached-to:#u1"
+            B: []
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "battlefields.bf1.units.A[1].effectText", contains: "当我攻击时" }
+      rejected: null
+    notes: >-
+      复刻 479.1.d 的官方 Svellsongur 例。带 "copy" 字样的效果归复制层，即使它 出现在装备上、即使它抄写的是规则文本——不要因为它"给能力"就归入能力层。 依赖的能力：Svellsongur（装备，附着时复制所附着单位的文本）。
+
+  - id: layers-copied-token-gains-domain
+    rule: ["1.5:185.3.b.1", "1.5:479.1.b"]
+    title: 无领域衍生物经复制效果获得被复制对象的领域
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 0
+      battlefields:
+        - id: bf1
+          controller: A
+          units:
+            A:
+              - "@unit(might:0,text:衍生物)#tok copy-effect:->#src"
+              - "@unit(might:2,domain:fury)#src"
+            B: []
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list: []
+      state:
+        - { path: "battlefields.bf1.units.A[0].domain", equals: "fury" }
+      rejected: null
+    notes: >-
+      185.3.b.1：衍生物天生没有领域，可经图层效果获得。与 layers-copy-effect-token-gains-copied-cost（费用）并列为"复制层可给衍生物 追加的特征"的两个实例；费用与领域都在 479.2.a 的特征清单内。
+

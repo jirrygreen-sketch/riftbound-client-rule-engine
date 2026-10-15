@@ -258,11 +258,15 @@ function render(props: Partial<DuelMatchBoardProps> & { projection: DuelProjecti
 
 const count = (haystack: string, needle: string): number => haystack.split(needle).length - 1;
 
+function countClass(html: string, className: string): number {
+  return [...html.matchAll(new RegExp(`class="(?:[^"]* )?${className}(?= |")`, "g"))].length;
+}
+
 /** The rendered battlefield section for one instance id. */
 function battlefieldSection(html: string, instanceId: string): string {
   const start = html.indexOf(`data-instance-id="${instanceId}"`);
   expect(start, instanceId).toBeGreaterThanOrEqual(0);
-  const next = html.indexOf('<section class="full-product-duel-battlefield"', start);
+  const next = html.indexOf('data-instance-id="', start + 1);
   return html.slice(start, next === -1 ? html.length : next);
 }
 
@@ -272,7 +276,7 @@ describe("contested battlefield unit visibility", () => {
     const field = battlefieldSection(html, "bf-a");
 
     // Both unit chips are present in the one contested field.
-    expect(count(field, 'class="full-product-duel-unit"')).toBe(2);
+    expect(countClass(field, "full-product-duel-unit")).toBe(2);
     expect(field).toContain('data-object-id="u-alice-1"');
     expect(field).toContain('data-object-id="u-bob-1"');
 
@@ -319,7 +323,7 @@ describe("contested battlefield unit visibility", () => {
     const groupControllers = [...field.matchAll(/data-slot="unit-group"[^>]*data-controller-player-id="([^"]+)"/g)]
       .map(match => match[1]);
     expect(groupControllers).toEqual(["alice", "bob"]);
-    expect(count(field, 'class="full-product-duel-unit"')).toBe(2);
+    expect(countClass(field, "full-product-duel-unit")).toBe(2);
   });
 
   it("keeps the battlefield art a compact clickable header thumbnail, not a banner", () => {
@@ -342,7 +346,7 @@ describe("contested battlefield unit visibility", () => {
   it("still renders both central fields side by side and keeps the token might label", () => {
     const html = render({ projection: contestedProjection({ viewer: "alice" }) });
     expect(count(html, 'class="full-product-duel-fields"')).toBe(1);
-    expect(count(html, '<section class="full-product-duel-battlefield"')).toBe(2);
+    expect(countClass(html, "full-product-duel-battlefield")).toBe(2);
     // A real token's printed Might is shown as base Might (never a derived value).
     const tokenHtml = render({
       projection: contestedProjection({ viewer: "alice", withToken: true })

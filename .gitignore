@@ -31,6 +31,8 @@ packages/card-data/data/effect-coverage.json
 packages/card-data/data/images/
 packages/card-data/data/images-manifest.json
 
+**/registry.generated.ts
+
 # Editors and operating-system metadata
 .idea/
 .vscode/
