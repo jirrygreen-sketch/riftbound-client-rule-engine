@@ -1,54 +1,87 @@
-// Public duel surface: the implemented internal duel kernels (board, setup, resources, scoring)
-// are exported. No DuelGame factory exists yet, so this entry intentionally does not pretend a
-// playable ruleset is available through @riftbound/engine-core/duel.
-export * from './battlefields.js';
-export * from './setup.js';
-export * from './resources.js';
-export * from './scoring.js';
-export * from './printed-costs.js';
-export * from './movement.js';
-export * from './match-state.js';
-export * from './draw-burnout.js';
-export * from './unit-lifecycle.js';
-export * from './canonical-session.js';
-export * from './canonical-transaction.js';
-export * from './turn-start.js';
-export * from './turn-flow.js';
-export * from './base-combat-allocation.js';
-export * from './ending.js';
-// Explicit V2 core only; the existing V1 command session/public wire remains unchanged.
-export * from './core-v2.js';
-export type { DuelPhysicalZone, DuelPhysicalZoneTransition, DuelChainPhysicalCard } from './permanent-state.js';
-export * from './canonical-session-v2.js';
-// Internal trusted turn execution; no production source registry/server adapter is exported here.
-export * from './phase-source-authority-v2.js';
-export * from './turn-executor-v2.js';
-// Explicit V2 public allowlist projector (schemaVersion 2 wire match).
-export * from './projection-v2.js';
-// Exact V3 permanent projection over an admitted V2 state; no V3 command expansion.
-export * from './projection-v3.js';
-// Private closure proof APIs for server-owned composition; JSON never grants authority.
-export * from './phase-source-closure-v2.js';
-export * from './phase-closure-boundaries-v2.js';
-export * from './phase-closure-evidence-v2.js';
-// Trusted action composition. These factories still require independent services.
-export * from './cost-resolver-v2.js';
-export * from './cardplay-unit-v2.js';
-export * from './cardplay-spell-v2.js';
-export * from './chain-v2.js';
-export * from './combat-choice-v2.js';
-export * from './combat-damage-executor-v2.js';
-export * from './conquer-v2.js';
-export * from './standard-move-executor-v2.js';
-export * from './engagement-executor-v2.js';
-export * from './derived-might-v2.js';
-export * from './optional-play-choice-v1.js';
-// Opt-in process-local TokenPlay; public adapters still require whole-source closure.
-export * from './token-play-v2.js';
-export * from './token-play-v3.js';
-export * from './optional-play-choice-v2.js';
-export * from './cardplay-unit-chain-v4.js';
-
-export * from './point-damage-effect-executor-v1.js';
-
-export * from './cardplay-gear-v1.js';
+export * from '../state/index.js';
+export * from '../turn/index.js';
+export * from '../priority-focus/index.js';
+export * from '../chain/index.js';
+export * from '../cost/index.js';
+export * from '../target/index.js';
+export * from '../combat/index.js';
+export * from '../scoring/index.js';
+export * from '../zones/index.js';
+export * from '../layers/index.js';
+export * from '../effects/index.js';
+export * from '../deck/index.js';
+export * from '../projection/index.js';
+export {
+  assembleDuelPhaseClosureEvidenceV2,
+  createDuelNativeTokenPhaseSourceRegistryV2,
+  createDuelPhaseClosureAuthorityV2,
+  createDuelPhaseSourceClosureJournalV2,
+  createDuelPhaseSourceClosureRegistryV2,
+  createDuelPhaseSourceRegistryV2,
+  createDuelPhaseSourceRegistryWithNativeTokenSourceV2,
+  createDuelSourceClosureJournalV2,
+  createDuelSourceClosureRegistryV2,
+  DUEL_PHASE_CLOSURE_EVENTS_V2,
+  DUEL_PHASE_CLOSURE_NON_PHASE_EVENTS_V2,
+  DUEL_PHASE_CLOSURE_STEPS_V2,
+  duelPhaseClosureBoundariesForStepV2,
+  enumerateDuelPhaseSourceClosureCandidatesV2,
+  getDuelPhaseClosureBoundariesV2,
+  inspectDuelPhaseSourceClosureV2,
+  inspectDuelPhaseSourcesV2,
+  inspectDuelSourceClosureV2,
+  issueDuelPhaseClosureRequestV2,
+  mapDuelPhaseClosureBoundariesV2,
+  sameDuelPhaseSourceV2,
+} from '../events/index.js';
+export type {
+  DuelNativeTokenSourceServiceV2,
+  DuelPhaseClosureAuthorityV2,
+  DuelPhaseClosureBoundaryContextV2,
+  DuelPhaseClosureBoundaryOrdinalV2,
+  DuelPhaseClosureBoundaryV2,
+  DuelPhaseClosureCoreRequestV2,
+  DuelPhaseClosureEvidenceAssemblyV2,
+  DuelPhaseClosureJournalResolutionV2,
+  DuelPhaseClosureProtectedResolversV2,
+  DuelPhaseClosureReferenceKindV2,
+  DuelPhaseClosureRegistryResolutionV2,
+  DuelPhaseClosureRequestLocatorV2,
+  DuelPhaseClosureRequestV2,
+  DuelPhaseClosureRequirementV2,
+  DuelPhaseClosureSourceLocalV2,
+  DuelPhaseClosureStepV2,
+  DuelPhaseClosureTokenResolutionV2,
+  DuelPhaseEventV2,
+  DuelPhaseProgramEvidenceV2,
+  DuelPhaseProgramIndexV2,
+  DuelPhaseRegistryV2,
+  DuelPhaseSourceClosureCandidateKindV2,
+  DuelPhaseSourceClosureCandidateV2,
+  DuelPhaseSourceClosureClockV2,
+  DuelPhaseSourceClosureContextV2,
+  DuelPhaseSourceClosureCoverageV2,
+  DuelPhaseSourceClosureDrawSubjectV2,
+  DuelPhaseSourceClosureEventV2,
+  DuelPhaseSourceClosureInspectionV2,
+  DuelPhaseSourceClosureJournalInputV2,
+  DuelPhaseSourceClosureJournalV2,
+  DuelPhaseSourceClosureLedgerV2,
+  DuelPhaseSourceClosurePhaseV2,
+  DuelPhaseSourceClosurePreExitV2,
+  DuelPhaseSourceClosureProgramEvidenceV2,
+  DuelPhaseSourceClosureProgramIndexV2,
+  DuelPhaseSourceClosureProgramProducerV2,
+  DuelPhaseSourceClosureProgramResultV2,
+  DuelPhaseSourceClosureRegistryV2,
+  DuelPhaseSourceClosureRequestV2,
+  DuelPhaseSourceClosureRuntimeEntryV2,
+  DuelPhaseSourceClosureTokenReferenceKindV2,
+  DuelPhaseSourceClosureTokenReferenceV2,
+  DuelPhaseSourceClosureTransitionV2,
+  DuelPhaseSourceClosureUnknownEvidenceV2,
+  DuelPhaseSourceInspectionV2,
+  DuelPhaseSourceRequestV2,
+  DuelPhaseSourceServiceV2,
+  DuelPhaseSourceV2,
+} from '../events/index.js';
