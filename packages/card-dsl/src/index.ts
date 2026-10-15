@@ -20,3 +20,4 @@ export {
   type EffectTextCompilationResult,
   type EffectTextCompilationInput
 } from "./core/effect-text.js";
+export * from "./ir/index.js";
