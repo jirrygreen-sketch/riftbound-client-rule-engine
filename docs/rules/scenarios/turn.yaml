@@ -1,0 +1,1356 @@
+# v1.5 Core Rules「The Turn / Cleanups」章节场景规格
+# 依据：Core Rules v1.5（2026-10-09 版）301-324，另涉 115、124、142、167、316、334、414、416、430-432、487.7
+# 事件时点名采用 kebab-case 草案（如 turn.phase.begin），最终以 RIFT-21 冻结枚举为准。
+area: turn
+rulesetVersion: core-1.5
+sources:
+  - "1.5:301"     # The Turn
+  - "1.5:302"     # 回合循环直到一方获胜
+  - "1.5:303"     # 阶段刚性、阶段内动作顺序自由
+  - "1.5:303.1"   # 游戏动作逐个完整执行
+  - "1.5:303.2"   # 游戏动作不得同时执行
+  - "1.5:303.2.a" # 同时触发按回合顺序排列
+  - "1.5:304"     # Turn Player
+  - "1.5:305"     # 无链且无自由动作时阶段推进
+  - "1.5:306"     # 所有阶段结束后换人
+  - "1.5:310.1"   # Neutral Open 默认可行动状态
+  - "1.5:312.2.a" # 自己 Main Phase 的 Neutral Open 时获得优先权
+  - "1.5:315"     # Start of Turn
+  - "1.5:315.1"   # Awaken Phase：重置所有可控对象
+  - "1.5:315.2.a" # Beginning Step：阶段开始效果
+  - "1.5:315.2.b" # Scoring Step：固守计分
+  - "1.5:316"     # Main Phase
+  - "1.5:316.3"   # 每名玩家的符文池在 Main Phase 开始清空
+  - "1.5:316.4"   # at the start of Main Phase 效果
+  - "1.5:316.5"   # Main Phase 无固定结构
+  - "1.5:316.9"   # 宣告结束回合
+  - "1.5:317"     # Ending Phase
+  - "1.5:317.1"   # Ending Step：end of turn 效果
+  - "1.5:317.2"   # Expiration Step：结束特殊清理
+  - "1.5:317.2.b" # 插入步骤：治疗所有单位
+  - "1.5:317.2.c" # 插入步骤：this turn 效果同时到期
+  - "1.5:317.2.d" # 插入步骤：符文池清空
+  - "1.5:317.2.f" # 若经历 FEPR 则回到 Expiration Step 开头
+  - "1.5:317.3"   # 队列中下一名玩家成为 Turn Player
+  - "1.5:318"     # Cleanups
+  - "1.5:319"     # 清理成为 Outstanding Task 的时机清单
+  - "1.5:320"     # 清理期间不能 Finalize/Resolve 链项
+  - "1.5:320.1"   # 清理期间可加入新 Pending 项，但不传优先权
+  - "1.5:321"     # 链项结算期间不发生清理
+  - "1.5:321.1"   # 结算期间产生的清理延后为 Outstanding Task
+  - "1.5:322"     # 清理引发清理时立即重复直到不动点
+  - "1.5:323"     # 清理任务清单（胜利检查、致命伤害、staged 等）
+  - "1.5:323.1"   # 清理第 1 步：胜利检查
+  - "1.5:323.4"   # 清理步骤：致命伤害击杀
+  - "1.5:324"     # Special Cleanup
+  - "1.5:324.2"   # 特殊清理引发追加清理时追加的是普通清理
+  - "1.5:334"     # HOT FEPR 任务处理主循环
+  - "1.5:167"     # 符文池在每名玩家 Main Phase 开始与回合结束清空
+  - "1.5:414.2"   # 抽牌是 Limited Action
+  - "1.5:414.4"   # 牌库不够抽时：尽量抽→燃尽→补抽剩余
+  - "1.5:416.3.a" # Awaken 阶段重置所有可控对象
+  - "1.5:431.2.a" # 符文默认以重置状态进场
+  - "1.5:431.3"   # 符文不足时尽量引导
+  - "1.5:432.2"   # 燃尽流程：尽量执行→回收弃牌堆→对手得 1 分→完成动作
+  - "1.5:432.3"   # 弃牌堆也为空时反复燃尽
+  - "1.5:432.3.c.1" # 燃尽致胜立即生效，不等清理
+  - "1.5:432.4"   # 燃尽是 Limited Action
+  - "1.5:432.5"   # 燃尽是替代效果
+  - "1.5:359.3.e.16" # 延迟能力在生成前时限已过则不生成
+  - "1.5:124.1"   # 换非场上区域后临时修正全部消失
+  - "1.5:487.7"   # 1v1：后手玩家第一个 Channel Phase 多引导 1 枚符文
+  - "1.5:489.7"   # FFA3：先手第一个 Draw Phase 不抽牌（对照）
+  - "https://playriftbound.com/en-us/news/announcements/core-rules-radiance-patch-notes-effective-october-16-2026/"
+scenarios:
+  - id: turn-phase-sequence-full
+    rule: ["1.5:301", "1.5:315", "1.5:316", "1.5:317", "1.5:306", "1.5:317.3"]
+    title: "一个完整回合按固定顺序经过 Awaken、Beginning、Channel、Draw、Main、Ending 后换人"
+    kind: positive
+    given:
+      turn: { active: A, phase: ending, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: end-turn }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.phase.end, phase: ending, player: A }
+          - { timing: turn.begin, player: B }
+          - { timing: turn.phase.begin, phase: awaken, player: B }
+          - { timing: turn.phase.begin, phase: beginning, player: B }
+          - { timing: turn.phase.begin, phase: channel, player: B }
+          - { timing: turn.phase.begin, phase: draw, player: B }
+          - { timing: turn.phase.begin, phase: main, player: B }
+      state:
+        - { path: "turn.active", equals: "B" }
+        - { path: "turn.phase", equals: "main" }
+      rejected: null
+    notes: "阶段名以 v1.5 规则 315-317 为准：Start of Turn 含 Awaken/Beginning（含 Scoring Step）/Channel/Draw 四个阶段，随后 Main Phase 与 Ending Phase（含 Ending Step 与 Expiration Step）。A 的 Ending Phase 走完 Expiration 后 B 按回合队列成为 Turn Player（306、317.3）。"
+
+  - id: turn-awaken-readies-all-controlled
+    rule: ["1.5:315.1", "1.5:416.3.a"]
+    title: "Awaken 阶段重置回合玩家控制的所有可重置对象（含符文与装备）"
+    kind: positive
+    given:
+      turn: { active: B, phase: ending, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [fury, fury] }
+          hand: []
+          base: [ '@unit(might:2)#u1(exhausted)', '@gear()#g1(exhausted)' ]
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [ '@unit(might:4)#u9(exhausted)' ], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: B, do: end-turn }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.phase.begin, phase: awaken, player: A }
+          - { timing: object.readied, object: "A:base[0]" }
+          - { timing: object.readied, object: "A:base[1]" }
+          - { timing: object.readied, object: "A:runes.exhausted[0]" }
+          - { timing: object.readied, object: "A:runes.exhausted[1]" }
+      state:
+        - { path: "players.A.runes.ready", length: 2 }
+        - { path: "players.A.runes.exhausted", length: 0 }
+        - { path: "players.A.base[0].exhausted", equals: false }
+        - { path: "players.A.base[1].exhausted", equals: false }
+        - { path: "players.B.base[0].exhausted", equals: true }
+      rejected: null
+    notes: "只有回合玩家控制自己的对象被重置；B 的 u9 保持横置。已重置的对象再被重置不额外发生任何事（416.1.b/416.1.c），事件只对实际改变状态的对象发出。"
+
+  - id: turn-beginning-trigger-goes-on-chain
+    rule: ["1.5:315.2.a", "1.5:303.2.a", "1.5:383.3"]
+    title: "Beginning Step 的“在你的 Beginning Phase 开始时”触发式能力进链并结算"
+    kind: positive
+    given:
+      turn: { active: B, phase: ending, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: [ '@unit(might:2,text:"At the start of your Beginning Phase, draw 1.")#u1' ]
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: B, do: end-turn }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.phase.begin, phase: beginning, player: A }
+          - { timing: chain.item-pending, item: "A:base[0]:triggered(beginning)" }
+          - { timing: chain.item-finalized, item: "A:base[0]:triggered(beginning)" }
+          - { timing: chain.item-resolved, item: "A:base[0]:triggered(beginning)" }
+      state:
+        - { path: "players.A.hand", length: 1 }
+      rejected: null
+    notes: "阶段开始效果在 Beginning Step 进入链（315.2.a.1），经 HOT FEPR 结算后才轮到 Scoring Step。Loose Cannon 同款触发。因触发进链，阶段内会短暂处于 Closed State，双方依次 pass 后结算。"
+
+  - id: turn-scoring-step-hold-scores-point
+    rule: ["1.5:315.2.b", "1.5:471.2", "1.5:473.1", "1.5:473.2.b"]
+    title: "Scoring Step 固守所控战场得 1 分并触发该战场的固守能力"
+    kind: positive
+    given:
+      turn: { active: B, phase: ending, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 2
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 1 }
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ['@unit(might:2)#u1'], B: [] } }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: B, do: end-turn }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.phase.begin, phase: beginning, player: A }
+          - { timing: score.hold, player: A, battlefield: bf1 }
+          - { timing: score.point-gained, player: A, source: hold }
+      state:
+        - { path: "players.A.score", equals: 3 }
+        - { path: "battlefields.bf1.scoredBy.A", equals: true }
+      rejected: null
+    notes: "固守发生在回合玩家自己 Beginning Phase 的 Scoring Step（315.2.b）；每战场每回合每名玩家只能计分一次（472）。bf1 若有 Hold 能力此时触发进链（473.2.b）。本回合 bf1 对 A 标记为已计分，同一回合不能再对它 Conquer 得分。"
+
+  - id: turn-channel-phase-two-runes-ready
+    rule: ["1.5:315.3", "1.5:431.4.a", "1.5:431.2.a"]
+    title: "Channel Phase 从符文牌库顶引导 2 枚符文，默认以重置状态进场"
+    kind: positive
+    given:
+      turn: { active: A, phase: beginning, state: neutral-closed }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          runeDeck: 6
+          hand: []
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: advance }   # Beginning Phase 任务完成后推进到 Channel Phase
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.phase.begin, phase: channel, player: A }
+          - { timing: rune.channeled, player: A, count: 2 }
+          - { timing: zone.enter, zone: runes, object: "A:runeDeck[0]", state: ready }
+          - { timing: zone.enter, zone: runes, object: "A:runeDeck[1]", state: ready }
+      state:
+        - { path: "players.A.runes.ready", length: 2 }
+        - { path: "players.A.runeDeck", length: 4 }
+      rejected: null
+    notes: "默认引导的符文进场即为重置状态（431.2.a），当回合即可产费。Channel 是 Limited Action，只在 Channel Phase 或效果指示时执行（431.4）。"
+
+  - id: turn-channel-partial-when-rune-deck-short
+    rule: ["1.5:315.3.b.1", "1.5:431.3"]
+    title: "符文牌库不足 2 枚时 Channel 阶段尽量引导，不触发燃尽"
+    kind: edge
+    given:
+      turn: { active: A, phase: beginning, state: neutral-closed }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          runeDeck: 1
+          hand: []
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: advance }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.phase.begin, phase: channel, player: A }
+          - { timing: rune.channeled, player: A, count: 1 }
+      state:
+        - { path: "players.A.runes.ready", length: 1 }
+        - { path: "players.A.runeDeck", length: 0 }
+        - { path: "players.B.score", equals: 0 }
+      rejected: null
+    notes: "引导不足时只引导剩余的（431.3、315.3.b.1）。Burn Out 只针对主牌库（432.1），符文牌库空了不让对手得分；之后每个 Channel Phase 都引导 0 枚。"
+
+  - id: turn-draw-phase-draws-one
+    rule: ["1.5:315.4", "1.5:414.2.a"]
+    title: "Draw Phase 回合玩家抽 1 张牌"
+    kind: positive
+    given:
+      turn: { active: A, phase: channel, state: neutral-closed }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [fury], exhausted: [] }
+          mainDeck: 3
+          hand: [ '@spell(cost:1)' ]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: advance }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.phase.begin, phase: draw, player: A }
+          - { timing: zone.enter, zone: hand, object: "A:mainDeck[0]" }
+      state:
+        - { path: "players.A.hand", length: 2 }
+        - { path: "players.A.mainDeck", length: 2 }
+      rejected: null
+    notes: "Draw 是 Limited Action（414.2），玩家不能在其他时点随意抽牌；Draw Phase 的抽 1 由回合流程指示。"
+
+  - id: turn-draw-burnout-recycles-trash-and-gives-point
+    rule: ["1.5:315.4.b.1", "1.5:414.4", "1.5:432.2"]
+    title: "Draw Phase 主牌库为空时燃尽：回收弃牌堆、指定对手得 1 分、再抽 1"
+    kind: positive
+    given:
+      turn: { active: A, phase: channel, state: neutral-closed }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [fury], exhausted: [] }
+          mainDeck: 0
+          trash: [ '@unit(might:1)#t1', '@spell(cost:1)#t2' ]
+          hand: []
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 3 }
+      battlefields:
+        - { id: bf1, controller: null }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: advance }
+      - { player: A, do: choose, what: burnout-opponent, target: B }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.phase.begin, phase: draw, player: A }
+          - { timing: deck.burnout, player: A }
+          - { timing: zone.recycle, from: trash, to: mainDeck, player: A, randomized: true }
+          - { timing: score.point-gained, player: B, source: burnout }
+          - { timing: zone.enter, zone: hand, object: "A:mainDeck[0]" }
+      state:
+        - { path: "players.A.hand", length: 1 }
+        - { path: "players.A.trash", length: 0 }
+        - { path: "players.A.mainDeck", length: 1 }
+        - { path: "players.B.score", equals: 4 }
+      rejected: null
+    notes: "315.4.b.2 明确燃尽完成后仍抽 1。回收多张牌进主牌库时顺序随机（432.2.b 提醒、417.5）。对手得的那 1 分可被替换/防止——只有第一次燃尽之后的连续燃尽分才不可替换（432.3.b）。"
+
+  - id: turn-burnout-repeated-until-opponent-wins
+    rule: ["1.5:432.3", "1.5:432.3.a", "1.5:432.3.c", "1.5:432.3.c.1"]
+    title: "牌库与弃牌堆全空时反复燃尽，对手达到胜利分立即获胜，不等清理"
+    kind: edge
+    given:
+      turn: { active: A, phase: channel, state: neutral-closed }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [fury], exhausted: [] }
+          mainDeck: 0
+          trash: []
+          hand: []
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 7 }
+      battlefields:
+        - { id: bf1, controller: null }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: advance }
+      - { player: A, do: choose, what: burnout-opponent, target: B }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: deck.burnout, player: A }
+          - { timing: score.point-gained, player: B, source: burnout }
+          - { timing: game.win, player: B }
+      state:
+        - { path: "players.B.score", equals: 8 }
+        - { path: "game.winner", equals: "B" }
+      rejected: null
+    notes: "432.3.c.1：第一次燃尽流程走完后再抽仍空库，引发第二次燃尽，B 再到 1 分达胜利分立即获胜，无需等清理。432.3.b：第一次之后的燃尽分不可被替换或防止。引擎必须能终止“无限燃尽”循环——以一方获胜为出口。"
+
+  - id: turn-main-phase-priority-and-rune-pool-empty
+    rule: ["1.5:316.3", "1.5:167", "1.5:312.2.a", "1.5:310.1"]
+    title: "Main Phase 开始时双方符文池清空，回合玩家获得优先权"
+    kind: positive
+    given:
+      turn: { active: A, phase: draw, state: neutral-closed }
+      players:
+        A: { energy: 5, runes: { ready: [fury, fury], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 2, runes: { ready: [calm], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: advance }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.phase.begin, phase: main, player: A }
+          - { timing: rune-pool.emptied, player: A }
+          - { timing: rune-pool.emptied, player: B }
+          - { timing: priority.gained, player: A }
+      state:
+        - { path: "players.A.energy", equals: 0 }
+        - { path: "players.B.energy", equals: 0 }
+        - { path: "priority", equals: "A" }
+        - { path: "turn.state", equals: "neutral-open" }
+      rejected: null
+    notes: "316.2 的任务顺序：先清空符文池（316.3，167），再处理 at the start of Main Phase 效果（316.4）。清空发生在双方，包括非回合玩家；符文本身不横置，只是池里的 Energy/Power 作废。"
+
+  - id: turn-main-phase-free-order-actions
+    rule: ["1.5:303", "1.5:316.5", "1.5:316.5.a", "1.5:411.1"]
+    title: "Main Phase 无固定结构：先移动后打牌与先打牌后移动都合法"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 4
+          runes: { ready: [fury, fury], exhausted: [] }
+          hand: [ '@unit(cost:2,might:2)#c1' ]
+          base: [ '@unit(might:3)#u1' ]
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: A, units: { A: [], B: [] } }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: move, unit: "base[0]", to: bf1 }   # Standard Move，横置 u1
+      - { player: A, do: play, card: "hand[0]", to: base, pay: { energy: 2 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: unit.move-declared, object: "A:base[0]", to: bf1 }
+          - { timing: zone.enter, zone: bf1, object: "A:base[0]" }
+          - { timing: chain.item-pending, item: "A:hand[0]" }
+          - { timing: zone.enter, zone: base, object: "A:hand[0]" }
+      state:
+        - { path: "players.A.energy", equals: 2 }
+        - { path: "players.A.base", length: 1 }
+        - { path: "battlefields.bf1.units.A", length: 1 }
+      rejected: null
+    notes: "303：阶段结构刚性，但阶段内自由动作顺序任意。先移后打、先打后移得到不同局面但都属于合法流程，本例取“先移后打”验证不强制任何顺序。"
+
+  - id: turn-end-main-on-no-discretionary
+    rule: ["1.5:305", "1.5:316.9", "1.5:335"]
+    title: "回合玩家宣告不再行动即结束 Main Phase 进入 Ending Phase"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 2, runes: { ready: [fury], exhausted: [] }, hand: [ '@unit(cost:2,might:2)' ], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: end-turn }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.phase.end, phase: main, player: A }
+          - { timing: turn.phase.begin, phase: ending, player: A }
+      state:
+        - { path: "turn.phase", equals: "ending" }
+      rejected: null
+    notes: "305：无链且回合玩家不能或不再执行自由动作时，阶段推进；316.9：必须明确宣告结束。手里有牌、费用也够也不影响——“选择不做”同样是合法推进条件。"
+
+  - id: turn-ending-step-eot-triggers-on-chain
+    rule: ["1.5:317.1", "1.5:383.1"]
+    title: "Ending Step 处理“在你的回合结束时”触发，进链结算后才进 Expiration Step"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [fury, fury] }
+          hand: []
+          base: [ '@unit(might:3,text:"At the end of your turn, ready 2 runes.")#u1' ]
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: end-turn }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.phase.begin, phase: ending, player: A }
+          - { timing: chain.item-pending, item: "A:base[0]:triggered(end-of-turn)" }
+          - { timing: chain.item-resolved, item: "A:base[0]:triggered(end-of-turn)" }
+          - { timing: object.readied, object: "A:runes.exhausted[0]" }
+          - { timing: object.readied, object: "A:runes.exhausted[1]" }
+      state:
+        - { path: "players.A.runes.ready", length: 2 }
+      rejected: null
+    notes: "317.1.a：Ending Step 处理“at the end of this turn / at the end of turn”效果；触发进链（383.3），全部结算完才进 Expiration Step 的结束特殊清理（317.2）。"
+
+  - id: turn-expiration-heals-all-units
+    rule: ["1.5:317.2.b", "1.5:419.1", "1.5:323.4"]
+    title: "Expiration Step 的结束特殊清理治疗所有单位，濒死单位得以存活"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ['@unit(might:3,damage:2)#u1'], B: ['@unit(might:4,damage:1)#u2'] } }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: end-turn }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.phase.begin, phase: ending, player: A }
+          - { timing: unit.healed, object: "A:bf1.u1", amount: 2 }
+          - { timing: unit.healed, object: "B:bf1.u2", amount: 1 }
+          - { timing: turn.begin, player: B }
+      state:
+        - { path: "battlefields.bf1.units.A[0].damage", equals: 0 }
+        - { path: "battlefields.bf1.units.B[0].damage", equals: 0 }
+      rejected: null
+    notes: "317.2.b 向结束特殊清理插入“Heal all Units”。伤害是标记值（142），只有清理步骤 3a 的致命伤害检查（323.4）才杀人；带伤活到回合结束就被治满。对方的 u2 同样被治疗——是“Heal all Units”。"
+
+  - id: turn-expiration-this-turn-effects-expire
+    rule: ["1.5:317.2.c"]
+    title: "“本回合”效果在 Expiration Step 同时到期，Mighty 等状态随之变化"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: [ '@unit(might:3)#u1(buff:+2,until:end-of-turn)' ]
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: end-turn }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.phase.begin, phase: ending, player: A }
+          - { timing: effect.expired, scope: this-turn, object: "A:base[0]" }
+          - { timing: unit.mighty-changed, object: "A:base[0]", mighty: false }
+      state:
+        - { path: "players.A.base[0].might", equals: 3 }
+      rejected: null
+    notes: "317.2.c：所有“this turn”效果同一步同时到期。Mighty 判定看当前 Might（708-710）：5→3 失去 Mighty，且“失去 Mighty”不是触发，只是状态描述变化。"
+
+  - id: turn-expiration-empties-rune-pool
+    rule: ["1.5:317.2.d", "1.5:167"]
+    title: "回合结束时符文池清空，未用完的费用作废"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 6, runes: { ready: [fury], exhausted: [fury] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: end-turn }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: rune-pool.emptied, player: A }
+          - { timing: turn.begin, player: B }
+      state:
+        - { path: "players.A.energy", equals: 0 }
+        - { path: "players.A.runes.exhausted", length: 1 }
+      rejected: null
+    notes: "167：符文池在“每名玩家”的 Main Phase 开始与回合结束都清空——B 的 Main Phase 开始时 A 的池也要清（见 turn-main-phase-priority-and-rune-pool-empty）。清空的是池里的 Energy/Power，不重置符文（横置的符文要到 A 的 Awaken 才重置）。"
+
+  - id: turn-expiration-loops-when-fepr-occurs
+    rule: ["1.5:317.2.f", "1.5:334"]
+    title: "Expiration Step 中触发经 FEPR 结算后回到 Expiration Step 开头再跑一遍"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [fury] }
+          hand: []
+          base:
+            - '@unit(might:2)#u1(buff:+2,until:end-of-turn)'
+            - '@unit(might:1,text:"When a friendly buff expires, you may ready 1 rune.")#u2'
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: end-turn }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+      - { player: A, do: choose, what: optional-trigger, accept: true }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: effect.expired, scope: this-turn, object: "A:base[0]" }
+          - { timing: chain.item-pending, item: "A:base[1]:triggered(buff-expired)" }
+          - { timing: chain.item-resolved, item: "A:base[1]:triggered(buff-expired)" }
+          - { timing: object.readied, object: "A:runes.exhausted[0]" }
+          - { timing: cleanup.end, kind: ending-special, iteration: 2 }
+          - { timing: turn.begin, player: B }
+      state:
+        - { path: "players.A.runes.ready", length: 1 }
+        - { path: "players.A.base[0].might", equals: 2 }
+      rejected: null
+    notes: "317.2.f：Expiration 中任何项经历 FEPR 都要回到 Expiration Step 开头重新调用结束特殊清理（再治疗、再到期检查）。第二遍没有新变化即收敛。回合玩家换成 B 后 u1 的 buff 已消失，不会再重复到期。触发是 may，先决定是否进链；本例选择执行。"
+
+  - id: turn-eot-and-at-end-of-this-turn-synonymous
+    rule: ["1.5:317.1.a", "1.5:359.3.e.16"]
+    title: "“at end of turn”与“at the end of this turn”同义：只指当前回合的 Ending Step"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 4
+          runes: { ready: [fury, fury], exhausted: [] }
+          hand: [ '@spell(cost:4,speed:action,text:"Give a unit ''Kill me at end of turn.''")#s1' ]
+          base: []
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: [ '@unit(might:2)#u9' ]
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", target: "B:base[0]", pay: { energy: 4 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+      - { player: A, do: end-turn }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "B:base[0]:triggered(end-of-turn)" }
+          - { timing: unit.killed, object: "B:base[0]" }
+          - { timing: turn.begin, player: B }
+      state:
+        - { path: "players.B.base", length: 0 }
+        - { path: "players.B.trash", length: 1 }
+      rejected: null
+    notes: "v1.5 Radiance patch notes（Ekko/Unlicensed Armory 问答）与 359.3.e.16 的 Hostile Takeover 例都确认：“at end of turn”与“at the end of this turn”同义。被授予文本的单位在 A 的 Ending Step 触发死亡；若它存活过了这次结算，之后回合不会再触发——条件已无法满足。本例在 B 的后续回合不再有该触发（用 turn.begin 之后无链断言体现）。"
+
+  - id: turn-eot-delayed-trigger-not-generated-after-ending-step
+    rule: ["1.5:359.3.e.16"]
+    title: "Ending Step 开始后才生成的“本回合结束时”延迟触发不生成"
+    kind: edge
+    given:
+      turn: { active: A, phase: ending, state: neutral-closed }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 2 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 1 }
+      battlefields:
+        - { id: bf1, controller: null, units: { A: ['@unit(might:3)#u1'], B: [] } }
+        - { id: bf2, controller: A, units: { A: [], B: [] } }
+      chain:
+        - '@spell(speed:reaction,text:"Move a unit you control to another battlefield.")#s1(controller:A)'
+    commands:
+      - { player: B, do: pass }
+      - { player: A, do: pass }   # 反应法术结算：u1 移到 bf2
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-resolved, item: "A:s1" }
+          - { timing: zone.enter, zone: bf2, object: "A:bf1.u1" }
+          - { timing: score.conquer, player: A, battlefield: bf2 }
+      state:
+        - { path: "players.A.score", equals: 3 }
+      rejected: null
+    notes: "规则 359.3.e.16 的 Targon's Peak 例：Ending Step 开始后才征服有“When you conquer here, ready up to 2 runes at the end of this turn”的战场，延迟触发不会生成（时限已过），但征服本身照常计分。本例用合成战场表达同一结构：bf2 合成文本含“当你征服此处时，在本回合结束时重置至多 2 枚符文”——断言事件序列中没有 chain.item-pending 对应延迟触发，且 A 的两枚横置符文在回合结束时不会被它重置（本题 A 无横置符文，重点是不生成触发）。"
+
+  - id: turn-cleanup-blocks-finalize-and-priority
+    rule: ["1.5:320", "1.5:320.1", "1.5:319.3"]
+    title: "清理进行中链项不能 Finalize/Resolve，不发优先权；新 Pending 项照常入链等待"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ["@unit(might:3,damage:3)#u1", '@unit(might:2,text:"When a friendly unit dies, draw 1.")#u2'], B: [] } }
+        - { id: bf2, controller: null }
+      chain:
+        - '@spell(speed:reaction)#s1(controller:B,pending)'
+    commands:
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: unit.killed, object: "A:bf1.u1" }                    # 清理 3a 致命伤害
+          - { timing: chain.item-pending, item: "A:bf1.u2:triggered(death)" }  # 清理期间可入链
+      state:
+        - { path: "battlefields.bf1.units.A", length: 1 }
+        - { path: "chain[0].status", equals: "pending" }                 # 清理完成前不 Finalize
+        - { path: "players.A.hand", length: 0 }                        # 触发尚未结算
+      rejected: null
+    notes: "319.3：Pending 项入链后发生清理；320：清理期间不能 Finalize/Resolve，320.1 允许新 Pending 项加入但优先权与 Focus 不传递。清理完成后 HOT FEPR 才继续处理链：先 Finalize 触发，再回到 B 法术的 FEPR。"
+
+  - id: turn-cleanup-deferred-during-resolution
+    rule: ["1.5:321", "1.5:321.1"]
+    title: "链项结算期间不发生清理：致命伤害在结算中途不立即致死"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ['@unit(might:3,damage:2)#u1'], B: [] } }
+        - { id: bf2, controller: null }
+      chain:
+        - '@spell(speed:reaction,text:"Deal 1 to a unit. Then draw 1.")#s1(controller:B,finalized)'
+    commands:
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-resolving, item: "B:s1" }
+          - { timing: damage.dealt, object: "A:bf1.u1", amount: 1 }
+          - { timing: zone.enter, zone: hand, object: "B:mainDeck[0]" }   # 同一结算内继续抽牌
+          - { timing: chain.item-resolved, item: "B:s1" }
+          - { timing: unit.killed, object: "A:bf1.u1" }                  # 结算后清理才致死
+      state:
+        - { path: "battlefields.bf1.units.A", length: 0 }
+        - { path: "players.B.hand", length: 1 }
+      rejected: null
+    notes: "321：结算期间不发生清理；321.1：结算中产生的清理资格被记为 Outstanding Task，结算完成后立即执行。故 u1 在结算中途带 3 点伤仍活着，抽牌指令照常执行，结算完成后的清理才杀它。"
+
+  - id: turn-cleanup-chains-to-fixed-point
+    rule: ["1.5:322", "1.5:322.1", "1.5:323.7", "1.5:323.11", "1.5:344"]
+    title: "清理引发新状态时立即追加清理，直到没有新状态变化（不动点）"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: A, contestedBy: B, units: { A: ['@unit(might:3,damage:3)#u1'], B: ['@unit(might:2)#u2'] } }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: end-turn }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: unit.killed, object: "A:bf1.u1" }              # 清理1：3a 杀濒死单位
+          - { timing: showdown.staged, battlefield: bf1 }            # 清理2：B 单位仍占场，仍有 Contested → 标记 Showdown
+          - { timing: cleanup.end, iteration: 2 }                    # 无新变化，收敛
+      state:
+        - { path: "battlefields.bf1.units.A", length: 0 }
+        - { path: "battlefields.bf1.showdownStaged", equals: true }
+      rejected: null
+    notes: "322：清理中的事件若又满足清理条件，立即再来一次清理，直到一次清理没有任何新状态变化。本例清理1杀死 u1；清理2发现 Contested 仍在且 B 有单位在场，按 323.7 标记 Showdown staged；因当前不是 Neutral Open 的可开局时刻（Ending Phase），323.11 的“Turn Player 选一个开局”不在本次发生。UNCERTAIN: Ending Phase 期间 staged 的 Showdown 在 317 的 Ending Step 已经过之后，应推迟到何时开局（下一回合 Main Phase 前的首次 Neutral Open？）——规则只说 323.11 在 Neutral Open 时由回合玩家选择，未明确 Ending Phase 内 staged 的处理时点。"
+
+  - id: turn-special-cleanup-repeat-is-normal
+    rule: ["1.5:324.2", "1.5:317.2.b"]
+    title: "特殊清理引发追加清理时，追加的是普通清理而非再跑一遍特殊清理"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ['@unit(might:3,damage:2)#u1', '@unit(might:2,damage:2)#u2'], B: [] } }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: end-turn }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: unit.killed, object: "A:bf1.u2" }              # 特殊清理步骤3a：致死
+          - { timing: unit.healed, object: "A:bf1.u1", amount: 2 }   # 特殊清理插入步骤3c：治疗存活单位
+          - { timing: cleanup.end, kind: normal, iteration: 1 }      # 追加的是普通清理
+          - { timing: turn.begin, player: B }
+      state:
+        - { path: "battlefields.bf1.units.A", length: 1 }
+        - { path: "battlefields.bf1.units.A[0].damage", equals: 0 }
+      rejected: null
+    notes: "324.2：特殊清理中的事件若需要追加清理，调用普通清理，不重复特殊清理——因此 u1 不会在追加清理里被“再治疗一遍”（已无伤，治疗本就幂等；关键是追加清理不含 3c/3d/3e 插入步骤，符文池清空、效果到期不重复发生）。"
+
+  - id: turn-victory-check-in-cleanup-step-one
+    rule: ["1.5:323.1", "1.5:194.2", "1.5:315.2.b"]
+    title: "清理第 1 步检查胜利：Scoring Step 固守后达胜利分，在阶段转换清理中立即获胜"
+    kind: positive
+    given:
+      turn: { active: B, phase: ending, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: []
+          score: 7
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 5 }
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ['@unit(might:2)#u1'], B: [] } }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: B, do: end-turn }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.phase.begin, phase: beginning, player: A }
+          - { timing: score.hold, player: A, battlefield: bf1 }
+          - { timing: game.win, player: A }
+      state:
+        - { path: "players.A.score", equals: 8 }
+        - { path: "game.winner", equals: "A" }
+      rejected: null
+    notes: "323.1：每次清理第 1 步就是胜利检查。A 在 Scoring Step 固守得第 8 分后，Beginning→Channel 阶段转换触发的清理（319.2）判定 A 获胜，游戏不再进入 Channel/Draw Phase。"
+
+  - id: turn-negative-draw-as-discretionary
+    rule: ["1.5:414.2", "1.5:411.2"]
+    title: "非法：Main Phase 主动抽牌——Draw 是 Limited Action"
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 9, runes: { ready: [fury], exhausted: [] }, mainDeck: 10, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: draw }
+    expect:
+      rejected: { command: 0, reason: "limited-action-not-instructed" }
+    notes: "411.2.b：Limited Action 只能在效果指示或回合规定的时点执行；414.2.a 规定的时点是自己的 Draw Phase。费用充足、牌库有牌都不能作为抽牌理由。"
+
+  - id: turn-negative-ready-as-discretionary
+    rule: ["1.5:416.3", "1.5:411.2"]
+    title: "非法：Main Phase 主动重置横置单位——Ready 是 Limited Action"
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: [ '@unit(might:3)#u1(exhausted)' ]
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: ready, unit: "base[0]" }
+    expect:
+      rejected: { command: 0, reason: "limited-action-not-instructed" }
+    notes: "416.3：重置只发生在自己 Awaken Phase 或效果指示时。等待下回合 Awaken 是唯一默认出路。"
+
+  - id: turn-negative-channel-as-discretionary
+    rule: ["1.5:431.4", "1.5:411.2"]
+    title: "非法：Main Phase 主动引导符文——Channel 是 Limited Action"
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, runeDeck: 5, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: channel }
+    expect:
+      rejected: { command: 0, reason: "limited-action-not-instructed" }
+    notes: "431.4.a：引导的默认时点只有自己的 Channel Phase。想多引导必须靠卡牌效果。"
+
+  - id: turn-negative-opponent-action-in-main
+    rule: ["1.5:316.5.b", "1.5:312.1.b", "1.5:410"]
+    title: "非法：对手在你的 Neutral Open Main Phase 打无 Action/Reaction 的牌"
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B:
+          energy: 2
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ '@unit(cost:2,might:2)' ]
+          base: []
+          score: 0
+      battlefields:
+        - { id: bf1, controller: null }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: B, do: play, card: "hand[0]", to: base, pay: { energy: 2 } }
+    expect:
+      rejected: { command: 0, reason: "not-your-priority" }
+    notes: "310.1.a 默认只有回合玩家在 Neutral Open 有优先权行动；410：除非另有规定，玩家只能在自己回合行动。2v2 例外（316.5.b.1）需回合玩家用自己的优先权邀请队友，本场景为 1v1。"
+
+  - id: turn-negative-action-spell-in-closed-state
+    rule: ["1.5:309.1.a", "1.5:338.1.a"]
+    title: "非法：Closed State 中打无 Reaction 的牌"
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A:
+          energy: 4
+          runes: { ready: [fury, fury], exhausted: [] }
+          hand: [ '@spell(cost:2,speed:action)#c1' ]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+        - { id: bf2, controller: null }
+      chain:
+        - '@unit(cost:2,might:2)#pending1(controller:A,pending)'
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 2 } }
+    expect:
+      rejected: { command: 0, reason: "closed-state-requires-reaction" }
+    notes: "309.1.a：链存在时只能打/启动 Reaction；338.1.a.2：Closed State 合法时机的牌必须有 Reaction 或在打出时将具有 Reaction。"
+
+  - id: turn-negative-end-turn-while-chain-exists
+    rule: ["1.5:305"]
+    title: "非法：链上还有项时宣告结束回合"
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-closed }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+        - { id: bf2, controller: null }
+      chain:
+        - '@spell(cost:1)#s1(controller:A,finalized)'
+    commands:
+      - { player: A, do: end-turn }
+    expect:
+      rejected: { command: 0, reason: "chain-not-empty" }
+    notes: "305：阶段/回合推进的前提是链为空且回合玩家不再行动。链上有 Finalized 项时必须先走完 FEPR 让链清空。"
+
+  - id: turn-negative-burnout-never-voluntary
+    rule: ["1.5:432.4", "1.5:411.2"]
+    title: "非法：牌库有牌时主动要求燃尽"
+    kind: negative
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, mainDeck: 5, trash: [], hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: burnout }
+    expect:
+      rejected: { command: 0, reason: "limited-action-not-instructed" }
+    notes: "432.4：燃尽是 Limited Action，只在游戏效果（含抽牌规则 414.4）指示时执行。它是替代效果（432.5），不是可选策略，不能为了送分给队友之外的任何目的主动触发。"
+
+  - id: turn-simultaneous-phase-triggers-turn-order
+    rule: ["1.5:303.2.a", "1.5:383.3.d.1", "1.5:315.2.a"]
+    title: "双方在同一阶段开始同时触发：先回合玩家后对手，各自排自己的序"
+    kind: edge
+    given:
+      turn: { active: B, phase: ending, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base:
+            - '@unit(might:2,text:"At the start of your Beginning Phase, draw 1.")#a1'
+            - '@unit(might:2,text:"At the start of your Beginning Phase, add 1 energy.")#a2'
+          score: 0
+        B:
+          energy: 0
+          runes: { ready: [], exhausted: [] }
+          hand: []
+          base: [ '@unit(might:2,text:"At the start of each player''s Beginning Phase, that player draws 1.")#b1' ]
+          score: 0
+      chain: []
+      battlefields:
+        - { id: bf1, controller: null }
+        - { id: bf2, controller: null }
+    commands:
+      - { player: B, do: end-turn }
+      - { player: A, do: choose, what: trigger-order, order: ["a2", "a1"] }   # A 先排自己的两个触发
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.phase.begin, phase: beginning, player: A }
+          - { timing: chain.item-pending, item: "A:base[1]:triggered(beginning)" }
+          - { timing: chain.item-pending, item: "A:base[0]:triggered(beginning)" }
+          - { timing: chain.item-pending, item: "B:base[0]:triggered(beginning)" }
+      state:
+        - { path: "chain", length: 3 }
+      rejected: null
+    notes: "303.2.a 与 383.3.d.1：同时触发时从回合玩家开始按回合顺序，各自决定自己的触发排序。A 是回合玩家，先放 a2 再放 a1，然后 B 放 b1。b1 文本“at the start of each player''s Beginning Phase”在 A 的 Beginning Phase 也触发，B 的抽牌由该触发结算（谁的效果谁负责，412）。结算顺序（后进先结算）由链规则处理，不属于本章。"
+
+  - id: turn-awaken-already-ready-noop
+    rule: ["1.5:416.1.b", "1.5:416.1.c", "1.5:315.1"]
+    title: "Awaken 阶段对已重置对象不重复重置，也不发事件"
+    kind: edge
+    given:
+      turn: { active: B, phase: ending, state: neutral-open }
+      players:
+        A:
+          energy: 0
+          runes: { ready: [fury], exhausted: [calm] }
+          hand: []
+          base: [ '@unit(might:2)#u1', '@unit(might:2)#u2(exhausted)' ]
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: B, do: end-turn }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.phase.begin, phase: awaken, player: A }
+          - { timing: object.readied, object: "A:base[1]" }
+          - { timing: object.readied, object: "A:runes.exhausted[0]" }
+          - { timing: turn.phase.begin, phase: beginning, player: A }
+      state:
+        - { path: "players.A.runes.ready", length: 2 }
+        - { path: "players.A.base[0].exhausted", equals: false }
+        - { path: "players.A.base[1].exhausted", equals: false }
+      rejected: null
+    notes: "416.1.b/416.1.c：已重置的对象不能再被重置，指示重置它什么额外事都不发生——因此对 u1 与已就绪符文不应发出 readied 事件（若实现发事件会干扰“当你重置某物时”类触发的判定）。事件列表用子序列断言恰好包含两次 readied，且 u1 不在其中。"
+
+  - id: turn-eot-text-lost-when-object-changes-zone
+    rule: ["1.5:124.1", "1.5:317.1"]
+    title: "被授予“回合结束时杀我”的单位若先进非场上区域，文字消失不再触发"
+    kind: edge
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 4
+          runes: { ready: [fury, fury], exhausted: [] }
+          hand:
+            - '@spell(cost:2,speed:action,text:"Give a unit ''Kill me at end of turn.''")#s1'
+            - '@spell(cost:2,speed:reaction,text:"Return a friendly unit to its owner''s hand.")#s2'
+          base: [ '@unit(might:2)#u1' ]
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", target: "A:base[0]", pay: { energy: 2 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }                       # s1 结算，u1 获得文字
+      - { player: A, do: play, card: "hand[0]", target: "A:base[0]", pay: { energy: 2 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }                       # s2 结算，u1 回手
+      - { player: A, do: end-turn }
+      - { timing-note: "Ending Step 不应出现 u1 的触发" }
+      - { player: A, do: pass }
+      - { player: B, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.enter, zone: hand, object: "A:base[0]" }
+          - { timing: turn.phase.begin, phase: ending, player: A }
+          - { timing: turn.begin, player: B }
+      state:
+        - { path: "players.A.hand", length: 1 }
+        - { path: "players.A.trash", length: 2 }
+      rejected: null
+    notes: "Radiance patch notes（Ekko/Unlicensed Armory 问答）：单位在触发前进出非场上区域，按 124.1 所有临时修正（含被授予的文字）停止跟踪，能力不再存在故不再触发。Ending Step 没有该触发进链。"
+
+  - id: turn-first-turn-second-player-extra-channel
+    rule: ["1.5:487.7", "1.5:315.3"]
+    title: "1v1 后手玩家第一个 Channel Phase 引导 3 枚符文"
+    kind: positive
+    given:
+      turn: { active: B, phase: beginning, state: neutral-closed, firstTurnOfPlayer: B }
+      players:
+        A: { energy: 0, runes: { ready: [fury, fury], exhausted: [] }, runeDeck: 9, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, runeDeck: 10, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: B, do: advance }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.phase.begin, phase: channel, player: B }
+          - { timing: rune.channeled, player: B, count: 3 }
+      state:
+        - { path: "players.B.runes.ready", length: 3 }
+        - { path: "players.B.runeDeck", length: 7 }
+      rejected: null
+    notes: "487.7（1v1 Duel/Match 共用）：后手玩家第一个 Channel Phase 额外引导 1 枚，共 3 枚。只在该局第一次 Channel Phase 生效，之后恢复 2 枚。"
+
+  - id: turn-first-turn-skip-draw-not-default
+    rule: ["1.5:489.7", "1.5:315.4"]
+    title: "先手跳过首个 Draw Phase 是模式特例（FFA3/FFA4/2v2），1v1 先手照抽"
+    kind: edge
+    given:
+      turn: { active: A, phase: channel, state: neutral-closed, firstTurnOfPlayer: A, mode: duel }
+      players:
+        A: { energy: 0, runes: { ready: [fury, fury], exhausted: [] }, runeDeck: 10, mainDeck: 36, hand: [ '@unit(cost:2,might:2)' ], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, runeDeck: 12, mainDeck: 36, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: advance }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.phase.begin, phase: draw, player: A }
+          - { timing: zone.enter, zone: hand, object: "A:mainDeck[0]" }
+      state:
+        - { path: "players.A.hand", length: 2 }
+      rejected: null
+    notes: "489.7/490.7/491.7 的“先手第一个 Draw Phase 不抽牌”只写在 FFA3/FFA4/2v2 的 First Turn Process 里；1v1（487/488）没有此调整。引擎若把“先手不抽”做成全局默认就错了——115.2 要求一切首回合调整以模式规则为准。"
+
+  - id: turn-pending-item-added-cleanup-before-finalize
+    rule: ["1.5:319.3", "1.5:334.1", "1.5:334.2"]
+    title: "Pending 项入链后先清理再 Finalize：致命伤害在 Finalize 前处理"
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A:
+          energy: 2
+          runes: { ready: [fury], exhausted: [] }
+          hand: [ '@spell(cost:2,speed:action,text:"Draw 1.")#c1' ]
+          base: []
+          score: 0
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ['@unit(might:3,damage:3)#u1'], B: [] } }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: play, card: "hand[0]", pay: { energy: 2 } }
+      - { player: B, do: pass }
+      - { player: A, do: pass }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: chain.item-pending, item: "A:hand[0]" }
+          - { timing: unit.killed, object: "A:bf1.u1" }                  # 319.3 触发的清理先杀濒死单位
+          - { timing: chain.item-finalized, item: "A:hand[0]" }
+          - { timing: chain.item-resolved, item: "A:hand[0]" }
+      state:
+        - { path: "battlefields.bf1.units.A", length: 0 }
+        - { path: "players.A.hand", length: 1 }
+      rejected: null
+    notes: "HOT FEPR（334）：先 Handle Outstanding Tasks 再 Finalize。319.3 规定 Pending 项入链本身就会产生一次清理，所以 u1 的致命伤害在 A 的法术 Finalize 之前就被处理；这是“死亡先于响应”看似反直觉但符合规则流程的顺序。"
+
+  - id: turn-cleanup-between-phase-transitions
+    rule: ["1.5:319.2", "1.5:323.4"]
+    title: "阶段转换时发生清理：Beginning 进 Channel 前处理遗留致命伤害"
+    kind: positive
+    given:
+      turn: { active: A, phase: beginning, state: neutral-closed }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: A, units: { A: ['@unit(might:3,damage:3)#u1'], B: [] } }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: advance }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.phase.end, phase: beginning, player: A }
+          - { timing: unit.killed, object: "A:bf1.u1" }
+          - { timing: turn.phase.begin, phase: channel, player: A }
+      state:
+        - { path: "battlefields.bf1.units.A", length: 0 }
+      rejected: null
+    notes: "319.2：阶段转换后即产生清理（除非另有规定）。带致死伤害的单位活不过阶段边界——它撑不到 Channel Phase，更撑不到回合结束的治疗（317.2.b）。"
+
+  - id: turn-phases-cannot-skip
+    rule: ["1.5:303", "1.5:305"]
+    title: "阶段结构刚性：不能从 Channel Phase 直接宣告结束回合"
+    kind: negative
+    given:
+      turn: { active: A, phase: channel, state: neutral-closed }
+      players:
+        A: { energy: 0, runes: { ready: [fury, fury], exhausted: [] }, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: end-turn }
+    expect:
+      rejected: { command: 0, reason: "phase-not-advanceable-to-ending" }
+    notes: "303：阶段是刚性的，只能按序推进（305）：Channel → Draw → Main → Ending。结束回合的宣告（316.9）只在 Main Phase 有效。"
+
+  - id: turn-play-continues-until-win
+    rule: ["1.5:302", "1.5:317.3"]
+    title: 回合循环推进：B 的回合结束后轮到 A，游戏直到分出胜负才停止
+    kind: positive
+    given:
+      turn: { active: B, phase: ending, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 2 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 2 }
+      battlefields:
+        - { id: bf1, controller: null }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: B, do: end-turn }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.phase.end, phase: ending, player: B }
+          - { timing: turn.begin, player: A }
+      state:
+        - { path: "turn.active", equals: "A" }
+        - { path: "game.winner", equals: null }
+      rejected: null
+    notes: 302：游戏按回合循环直到有人获胜；317.3：回合队列中的下一位成为回合玩家。平局分一样时游戏继续（194.2.b 的对照面：只有清理中分数达标且严格领先才获胜）。
+
+  - id: turn-turn-player-definition-visible-in-priority
+    rule: ["1.5:304", "1.5:312.2.a", "1.5:312.3"]
+    title: 回合玩家身份在优先权上可见：Main Phase 的 Neutral Open 只有回合玩家拿优先权
+    kind: positive
+    given:
+      turn: { active: A, phase: draw, state: neutral-closed }
+      players:
+        A: { energy: 0, runes: { ready: [fury], exhausted: [] }, mainDeck: 5, hand: [], base: [], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: advance }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: turn.phase.begin, phase: main, player: A }
+          - { timing: priority.gained, player: A }
+      state:
+        - { path: "turn.active", equals: "A" }
+        - { path: "priority", equals: "A" }
+      rejected: null
+    notes: 304 定义 Turn Player 为正在进行当前回合的玩家；312.2.a 让其在自己 Main Phase 的 Neutral Open 获得优先权；312.3 说明优先权是被创建或从持有者处取走——整个游戏任意时刻至多一名玩家持有优先权（312）。
+
+  - id: turn-cleanup-invoked-on-object-entering-board
+    rule: ["1.5:318", "1.5:319.6", "1.5:323.7"]
+    title: 单位进场即产生清理：Contested 战场在 Open State 且无战斗时被标记 Showdown staged
+    kind: positive
+    given:
+      turn: { active: A, phase: main, state: neutral-open }
+      players:
+        A: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [ "@unit(might:2)#u1" ], score: 0 }
+        B: { energy: 0, runes: { ready: [], exhausted: [] }, hand: [], base: [], score: 0 }
+      battlefields:
+        - { id: bf1, controller: null }
+        - { id: bf2, controller: null }
+      chain: []
+    commands:
+      - { player: A, do: move, unit: "base[0]", to: bf1 }
+    expect:
+      events:
+        ordered: subsequence
+        list:
+          - { timing: zone.enter, zone: bf1, object: "A:base[0]" }
+          - { timing: battlefield.contested, battlefield: bf1, by: A }
+          - { timing: showdown.staged, battlefield: bf1 }
+          - { timing: showdown.begin, battlefield: bf1, kind: non-combat }
+      state:
+        - { path: "battlefields.bf1.contestedBy", equals: "A" }
+        - { path: "turn.state", equals: "showdown-open" }
+      rejected: null
+    notes: 318/319.6：对象进出场后立即清理；190.3.a.1 移动入场施加 Contested；323.7 在清理中给 Contested 且无战斗的战场标记 Showdown staged；323.11 在 Neutral Open 时由回合玩家选择开局——空战场移动触发的是 316.8.b.1 的非战斗 Showdown，不创建战斗。319 条的时机清单通过本场景与 turn-cleanup-between-phase-transitions、turn-pending-item-added-cleanup-before-finalize 共同覆盖。
