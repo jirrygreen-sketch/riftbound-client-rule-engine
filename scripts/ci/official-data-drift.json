@@ -1,0 +1,19 @@
+{
+  "$comment": [
+    "Observation recorded 2026-10-15 with the live upstream sources, via",
+    "scripts/ci/probe-official-data-drift.mjs. Kept in the repository so the drift",
+    "rationale for the CI skip policy is reproducible offline. Refresh it only when",
+    "the live sources are re-probed."
+  ],
+  "observedAt": "2026-10-15",
+  "sources": {
+    "community": "https://github.com/LouisCourrian/riftbound-cards/releases/download/v2026-10-14/cards.json",
+    "officialGallery": "https://content.publishing.riotgames.com/publishing-content/v2.0/public/channel/riftbound_website/list/riftbound_gallery_cards?locale=en_US",
+    "localizedGallery": "https://content.publishing.riotgames.com/publishing-content/v2.0/public/channel/riftbound_website/list/riftbound_gallery_cards?locale=zh_CN"
+  },
+  "observed": {
+    "cardCount": 1408,
+    "dataVersion": "2026-10-15-official-gallery",
+    "digest": "sha256:9ebc300c858de8701c8c4e4c7b7029ff76272ae35d182bb40cc190a77247e5e3"
+  }
+}
