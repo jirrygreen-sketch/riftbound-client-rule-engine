@@ -70,7 +70,8 @@ import {
   duelPublicChainCards,
   duelResourceBase,
   duelScoreMarkerLabel,
-  scoreTrackValues
+  scoreTrackValues,
+  duelVisibleCardIds
 } from "./DuelBoardComponents";
 import type { DuelWirePlayingMatch } from "./DuelBoardComponents";
 
@@ -226,6 +227,7 @@ export function DuelMatchBoardSurface({
 
   const isP4Interactive = projectionValidP4 &&
     projection.viewerPlayerId !== null && lockReason === null;
+  const inspectableCardIds = new Set(duelVisibleCardIds(projection));
   const isCardActionable = (cardUID: string): boolean =>
     isP4Interactive && duelCardActionIds(p4Projection, cardUID).length > 0;
 
@@ -284,6 +286,7 @@ export function DuelMatchBoardSurface({
     viewerPlayerId: projection.viewerPlayerId,
     sceneKey: resetKey,
     canInteract: isP4Interactive,
+    canInspectCard: cardId => inspectableCardIds.has(cardId),
     isCardActionable,
     onCardClick: (event, cardUID, cardId, sourceZone) => {
       if (suppressCardClickRef.current) {
@@ -525,6 +528,7 @@ export function DuelMatchBoardSurface({
       );
 
     return (
+      <DuelCardInteractionContext.Provider value={cardInteractionValue}>
       <div className="full-product-duel-match" aria-label={DUEL_MATCH_BOARD_LABEL}>
         <DuelTableLayout
           header={header}
@@ -577,6 +581,7 @@ export function DuelMatchBoardSurface({
         />
         {previewOverlay}
       </div>
+      </DuelCardInteractionContext.Provider>
     );
   }
 

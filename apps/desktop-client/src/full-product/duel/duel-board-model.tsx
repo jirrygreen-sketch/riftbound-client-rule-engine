@@ -134,6 +134,7 @@ export interface DuelCardInteractionContextValue {
   readonly viewerPlayerId: string | null;
   readonly sceneKey: string;
   readonly canInteract: boolean;
+  readonly canInspectCard: (cardId: string) => boolean;
   readonly isCardActionable: (cardUID: string) => boolean;
   readonly onCardClick: (
     event: SyntheticEvent<HTMLElement>,
