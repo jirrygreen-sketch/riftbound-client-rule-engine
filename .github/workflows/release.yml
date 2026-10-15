@@ -204,6 +204,35 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Verify CI receives no locally synchronized card data
+        shell: bash
+        run: |
+          ignored=(
+            "packages/card-data/data/catalog.json"
+            "packages/card-data/data/deck-catalog.json"
+            "packages/card-data/data/images-manifest.json"
+          )
+          for path in "${ignored[@]}"; do
+            if [ -e "${path}" ]; then
+              echo "::error::CI checkout contains ignored card data: ${path}"
+              exit 1
+            fi
+          done
+          if [ -e "packages/card-data/data/images" ]; then
+            echo "::error::CI checkout contains the ignored card image cache."
+            exit 1
+          fi
+          echo "No locally synchronized card data or image cache in the checkout."
+
+      # Same workspace build as desktop-build.yml. apps/desktop-client/tsconfig.json
+      # lists ../../packages/protocol as a composite project reference, so
+      # packages/protocol/dist must exist before the client is type-checked;
+      # without this the client build fails with TS6305. Running the package
+      # "build" scripts (not a bare tsc) also fires any prebuild hook that
+      # generates a gitignored index, such as the planned registry.generated.ts.
+      - name: Build the workspace
+        run: pnpm build
+
       - name: Build the desktop installer
         run: >-
           pnpm --filter @riftbound/desktop-client exec tauri build --ci --no-sign
