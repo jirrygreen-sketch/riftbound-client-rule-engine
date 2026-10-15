@@ -3,6 +3,7 @@ export * from './room-chat.js';
 export * from './duel-contract.js';
 export * from './duel-transport-contract.js';
 export * from './owner-deck-confirmation.js';
+export * from './journal-v1.js';
 export * from './core/types-commands.js';
 export * from './core/types-events.js';
 export * from './core/types-projection.js';
