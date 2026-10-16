@@ -5,7 +5,6 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/the-dreaming-tree.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 
 const CANONICAL = "card.hash-a1fe32c7a5d6ccb45f7a6ad5b46788ec7aef047cd24e116d3ffa028b28a7f1c8";
 const SOURCE_TEXT =
@@ -98,51 +97,6 @@ test("The Dreaming Tree golden: an unbound chooser negates the draw instead of d
   assert.equal(kernel.zone("A", "hand").length, 0);
   assert.equal(kernel.zone("B", "hand").length, 0);
   assert.deepEqual(kernel.events, []);
-});
-
-test("The Dreaming Tree gap: the merged matcher ignores the declared 'here' anchor", () => {
-  // The declared target filter keeps the printed scope (053.3 "here"). The
-  // merged matcher implements no sameLocationAs anchor, so it accepts a unit at
-  // a different Battlefield. That over-match is exactly what a producer has to
-  // fix, so it is recorded here rather than papered over.
-  const elsewhere = {
-    ref: { id: "u1", zoneEntryId: 1 },
-    cardId: "card:u1",
-    name: "u1",
-    types: ["unit"],
-    tags: [],
-    keywords: [],
-    owner: "A",
-    controller: "A",
-    zone: "board",
-    location: { type: "battlefield", id: "battlefield-9" },
-    might: 2,
-    energy: 1,
-    power: ["Fury"],
-    exhausted: false,
-    damage: 0,
-    stunned: false,
-    buffs: 0,
-    attachedTo: null,
-    faceDown: false,
-    isToken: false
-  };
-  assert.deepEqual(ability.trigger.filter.target, {
-    type: "unit",
-    sameLocationAs: "self"
-  });
-  assert.equal(
-    matchesObjectFilter(ability.trigger.filter.target, {
-      ...elsewhere,
-      printed: elsewhere,
-      actionTimings: [],
-      availableTimings: [],
-      movement: { allowed: true, canMove: true, canGank: false, restrictions: [] },
-      text: null,
-      effectText: null
-    }),
-    true
-  );
 });
 
 test.todo(

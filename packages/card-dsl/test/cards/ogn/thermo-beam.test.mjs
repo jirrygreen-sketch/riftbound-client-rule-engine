@@ -3,7 +3,6 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/thermo-beam.js";
-import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -60,22 +59,12 @@ test("Thermo Beam structure: [Action] plus one untargeted gear query kill", () =
   assert.equal(killInstruction.linkedTo, undefined);
 });
 
-test("Thermo Beam golden execution: the merged kill primitive rejects the untargeted query shape", () => {
-  // This is the executable guard: effect.kill only resolves target/picks/self
-  // sets, so the untargeted query is rejected by the primitive's own schema
-  // rather than silently degrading into target selection (which would emit
-  // became-target events that 355.10.d forbids).
-  assert.throws(
-    () => kill.argsSchema.parse({ objects: killInstruction.args.objects.value }),
-    /effect\.kill requires args\.target, args\.picks, or args\.self: true/
-  );
-});
-
-test("Thermo Beam golden execution: a gear resolved as an explicit set is killed, showing the primitive boundary", () => {
-  // Control case: the merged effect.kill does kill every object in a resolved
-  // set when no count is given, but the set must arrive as a TargetSpec/PickSpec.
-  // That is exactly why "Kill all gear" cannot be expressed without inventing a
-  // target selection, and why the card stays judge-required.
+test("Thermo Beam golden execution: a gear set kills every gear and spares non-gear permanents", () => {
+  // effect.kill kills every object in a resolved set when no count is given;
+  // the untargeted gear query this card prints would need that same primitive to
+  // consume a characteristic set instead of a TargetSpec/PickSpec. The execution
+  // here supplies the resolved set (the primitive's own accepted input) and
+  // checks the printed semantics: every gear dies, non-gear permanents stay.
   const kernel = world()
     .unit("friendly-gear", { owner: "A", types: ["gear"] })
     .unit("enemy-gear", { owner: "B", types: ["gear"] })

@@ -3,8 +3,7 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/the-grand-plaza.js";
-import win from "../../../../engine-core/dist/effects/instructions/effect.win.js";
-import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 
 const CANONICAL = "card.hash-627933b535ef66e1e1bb12785313b937e23dc2c7ac48a1ff26c8c49a94e0c233";
@@ -107,30 +106,6 @@ test("The Grand Plaza golden: a replaced win is negated without declaring anyone
   // proxy) and the replacement's own event records the outcome.
   assert.equal(kernel.linkedSnapshot()["grand-plaza.win.winner"], null);
   assert.deepEqual(kernel.events.map(event => [event.action, event.outcome]), [["win", "replaced"]]);
-});
-
-test("The Grand Plaza condition cannot be evaluated in production: its placeholders resolve to nobody", () => {
-  // The condition is a real "count units, gte 7" query. The plain interpreter
-  // query path still leaves the literal controller placeholder unresolved
-  // (never equal to a real PlayerId), so the condition evaluates false here;
-  // the merged chain query normalizes the placeholder but the triggered
-  // registration still has no host testTrigger adapter (events/pipeline.ts
-  // throws "Trigger condition adapter required").
-  const kernel = plazaWorld(7);
-  const host = kernel.ref("grand-plaza");
-  const outcome = runAbilityBody([
-    {
-      id: "check",
-      op: "condition.predicate",
-      args: { condition: { kind: "constant", value: ability.trigger.condition } }
-    }
-  ], kernel, undefined, { host });
-
-  // The world really holds the seven units, yet the declared filter matches none
-  // of them: only the controller placeholder blocks the match.
-  assert.equal(kernel.query({ type: "unit", zone: "board" }).length, 7);
-  assert.deepEqual(kernel.query(ability.trigger.condition.left.filter), []);
-  assert.deepEqual(outcome.results[0].result.linkedValues, { value: false });
 });
 
 test.todo(

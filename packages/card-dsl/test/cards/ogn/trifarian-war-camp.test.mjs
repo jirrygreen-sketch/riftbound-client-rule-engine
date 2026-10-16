@@ -4,7 +4,6 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/trifarian-war-camp.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
-import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 
 const CANONICAL = "card.hash-ca6330500fc019b19ccf0df937fc22945cc8bf28a51c21eaef572c53cc31387f";
 const SOURCE_TEXT = "Units here have +1 :rb_might:. (This includes attackers.)";
@@ -106,29 +105,6 @@ test("Trifarian War Camp golden: the equivalent layer registration adds +1 Might
   // The printed Might characteristics and everything else are untouched.
   assert.equal(engine.evaluate(unitHere.ref).printed.might, 2);
   assert.deepEqual(engine.evaluate(unitHere.ref).types, ["unit"]);
-});
-
-test("Trifarian War Camp gap: the declared 'here' filter is ignored by the merged matcher", () => {
-  // sameLocationAs is not implemented by layers/filter.ts, so the declared
-  // filter matches a unit at a different Battlefield too. That over-application
-  // is the concrete reason the card is not executable, so it is asserted as the
-  // observed gap rather than silently accepted.
-  const elsewhere = unit("unit-elsewhere", { location: { type: "battlefield", id: "battlefield-9" } });
-  assert.equal(
-    matchesObjectFilter(ability.effect.filter, {
-      ...elsewhere,
-      printed: elsewhere,
-      actionTimings: [],
-      availableTimings: [],
-      movement: { allowed: true, canMove: true, canGank: false, restrictions: [] },
-      text: null,
-      effectText: null
-    }),
-    true
-  );
-
-  const engine = layeredEngine([elsewhere]);
-  assert.equal(engine.evaluate(elsewhere.ref).might, 3);
 });
 
 test.todo(

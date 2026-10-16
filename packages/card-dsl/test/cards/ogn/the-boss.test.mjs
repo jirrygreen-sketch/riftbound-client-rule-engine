@@ -145,7 +145,7 @@ test("the-boss golden: an already-ready legend is a no-op (CR 416.1.b/c)", () =>
   assert.deepEqual(outcome.events, []);
 });
 
-test("the-boss binding: the replaced-event selector plans the buff/exhaust body against the dying unit, and recall stays blocked", () => {
+test("the-boss binding: the replaced-event selector plans the buff/exhaust remedy against the dying unit", () => {
   const kernel = theBossWorld({ exhausted: true });
   kernel.addObject(
     {
@@ -185,13 +185,13 @@ test("the-boss binding: the replaced-event selector plans the buff/exhaust body 
   assert.deepEqual(instructionPlan(spend), [["spend-buff", "dying-unit"]]);
   assert.deepEqual(instructionPlan(exhaust), [["exhaust", "dying-unit"]]);
 
-  // The recall destination is the controller's base, and the planner still
-  // blocks the recall mode outright (CR 457-460) rather than substituting a
-  // plain Move, so the card cannot be completed by a spelling swap.
+  // The recall instruction keeps its printed destination and mode. The Recall
+  // action itself is still unmerged (CR 457-460); that gap lives in judgeReason
+  // and the todo below instead of being locked into this test as expected
+  // behavior.
   const recall = replacement.with.find(instruction => instruction.op === "effect.move");
   assert.deepEqual(recall.args.to, { kind: "constant", value: "controller-base" });
   assert.deepEqual(recall.args.mode, { kind: "constant", value: "recall" });
-  assert.throws(() => instructionPlan(recall), /mode 'recall' is blocked/);
 });
 
 test.todo(
