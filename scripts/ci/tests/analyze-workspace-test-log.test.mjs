@@ -264,6 +264,37 @@ test("an unreviewed data-dependent suite is surfaced, not silently accepted", ()
   }
 });
 
+test("a suite reviewed and excluded is never quietly absorbed as a data skip", () => {
+  const root = scaffoldRepo(SCAFFOLD);
+  try {
+    const suitePath = "apps/game-server/tests/card-api.test.ts";
+    const logText = [
+      "apps/game-server test: # Error: ENOENT: no such file or directory, open '" +
+        path.join(root, "packages/card-data/data/deck-catalog.json") + "'",
+      "apps/game-server test: not ok 1 - " + suitePath,
+      "apps/game-server test:   ---",
+      "apps/game-server test:   location: '" + path.join(root, suitePath) + ":1:1'",
+      "apps/game-server test:   error: 'test failed'",
+      "apps/game-server test:   ...",
+      "apps/game-server test: # tests 1",
+      "apps/game-server test: # fail 1",
+      "Exit status 1"
+    ].join("\n");
+
+    const report = analyzeWorkspaceTestLog({
+      logText,
+      repoRoot: root,
+      exitCode: 1,
+      reviewedSuites: [],
+      excludedSuites: [suitePath]
+    });
+    assert.equal(report.ok, false, "an excluded suite must not pass as a data skip");
+    assert.match(report.structuralErrors.join("\n"), /reviewed and excluded/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("a counter mismatch makes the log untrusted instead of green", () => {
   const root = scaffoldRepo(SCAFFOLD);
   try {

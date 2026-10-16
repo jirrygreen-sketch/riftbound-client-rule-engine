@@ -273,7 +273,13 @@ export function parseFailedPackages(unprefixedText, packagesByDir) {
  * failing entries are attributed to verified-absent official data; one real
  * failing entry keeps the whole suite a failure.
  */
-export function analyzeWorkspaceTestLog({ logText, repoRoot, exitCode, reviewedSuites = [] }) {
+export function analyzeWorkspaceTestLog({
+  logText,
+  repoRoot,
+  exitCode,
+  reviewedSuites = [],
+  excludedSuites = []
+}) {
   const packagesByDir = discoverWorkspacePackages(repoRoot);
   const { sections, unprefixed } = splitPackageOutputs(logText, packagesByDir);
   const structuralErrors = [];
@@ -379,7 +385,23 @@ export function analyzeWorkspaceTestLog({ logText, repoRoot, exitCode, reviewedS
   }
 
   const reviewed = new Set(reviewedSuites);
-  for (const item of skipped) item.reviewed = reviewed.has(item.file);
+  const excluded = new Set(excludedSuites);
+  for (const item of skipped) {
+    item.reviewed = reviewed.has(item.file);
+    item.excluded = excluded.has(item.file);
+  }
+
+  // A suite that was explicitly reviewed and rejected must never be quietly
+  // absorbed as a data skip later: if it ever looks data-caused, the decision
+  // behind its exclusion has to be re-examined rather than trusted.
+  for (const item of skipped) {
+    if (item.excluded !== true) continue;
+    structuralErrors.push(
+      item.file + ": this suite was reviewed and excluded from the reviewed " +
+        "list because its failure is not data-caused, but it now classifies as " +
+        "a data skip; re-examine the exclusion instead of trusting this log"
+    );
+  }
 
   if (exitCode === 0 && (failures.length > 0 || skipped.length > 0)) {
     structuralErrors.push(
@@ -550,7 +572,12 @@ function main() {
     logText: readFileSync(logPath, "utf8"),
     repoRoot,
     exitCode,
-    reviewedSuites: Array.isArray(reviewed?.suites) ? reviewed.suites : []
+    reviewedSuites: Array.isArray(reviewed?.suites) ? reviewed.suites : [],
+    excludedSuites: Array.isArray(reviewed?.excludedAfterReview)
+      ? reviewed.excludedAfterReview
+          .map((entry) => (typeof entry === "string" ? entry : entry?.suite))
+          .filter((suite) => typeof suite === "string")
+      : []
   });
   const markdown = renderReport(report, readPinnedOfficialEnvelope(repoRoot));
 

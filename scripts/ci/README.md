@@ -35,7 +35,7 @@ printings). The live sources now produce a *different* snapshot (1408 printings,
 | --- | --- |
 | `verify-card-data-absence.mjs` | Fails if any gitignored official data exists in the checkout, because the skip classifier is only sound when the data is verifiably absent. |
 | `analyze-workspace-test-log.mjs` | Parses the raw recursive test log and decides the job verdict. |
-| `reviewed-official-data-suites.json` | The reviewed list of suites allowed to be reported as skips. |
+| `reviewed-official-data-suites.json` | The reviewed list of suites allowed to be reported as skips, plus `excludedAfterReview` for suites that were examined and rejected. |
 | `probe-official-data-drift.mjs` | Read-only probe that measures whether the live upstream sources still reproduce the pinned snapshot. |
 | `tests/` | Self-checks for the parser and classifier, run by CI before it is trusted. |
 
@@ -56,6 +56,31 @@ the log contradicts the process exit code. Skips are always listed in the job
 summary with counts, so they can never be silent. A data-caused failure in a
 suite that is not in the reviewed list is surfaced with a warning so the
 dependency has to be reviewed rather than quietly absorbed.
+
+### Reviewed and excluded suites
+
+`excludedAfterReview` records suites that were examined and
+deliberately *not* granted skip status, with the reason. If one of them ever
+classifies as a data skip, the job fails with an explicit "re-examine the
+exclusion" error instead of accepting the skip. That keeps a rejected review
+decision from being quietly reversed later.
+
+The first entry is `apps/game-server/tests/card-api.test.ts`,
+which is **not** a data dependency: its single failing test (Radiance
+availability) fails identically with and without
+`packages/card-data/data/deck-catalog.json`, and passes when the
+wall clock is moved before
+`RADIANCE_EFFECTIVE_AT = 2026-10-16T00:00:00.000Z` in
+`apps/game-server/src/constructed-policy.ts`. It is a
+date-boundary defect in that policy, not missing card data.
+
+### Data dependency of every reviewed suite
+
+All reviewed suites depend on exactly one absent file,
+`packages/card-data/data/deck-catalog.json` (declared in
+`officialDataFiles`). No reviewed suite reads
+`catalog.json`, `images-manifest.json`, `effect-coverage.json`,
+`dist/cards.json` or `data/images/`.
 
 ## Reproducing locally
 
