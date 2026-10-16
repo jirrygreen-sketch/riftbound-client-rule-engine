@@ -1,0 +1,158 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { fixture, trigger, settle, timings, nonCleanup, move, draw } from '../turn/helpers.mjs';
+
+function enter(f, field = 'bf1') {
+  f.flow.execute(f.draft('move-to-field', [move('move', { type: 'battlefield', id: field })]));
+  settle(f.flow);
+}
+function conquer(f) {
+  enter(f);
+  f.flow.pass('A'); f.flow.pass('B');
+}
+
+test('combat-move-opens-noncombat-showdown-contested / priority-contested-player-gains-focus: effect Move uses actual FEPR', () => {
+  const f = fixture(); f.flow.start(); enter(f);
+  assert.equal(f.kernel.getObject('source').location.id, 'bf1');
+  assert.equal(f.kernel.getObject('source').exhausted, false);
+  assert.equal(f.flow.battlefields[0].contestedBy, 'A');
+  assert.equal(f.flow.chain.turnState, 'showdown-open');
+  assert.equal(f.flow.chain.focus, 'A'); assert.equal(f.flow.chain.priority, 'A');
+  const events = timings(f.flow);
+  assert.ok(events.indexOf('object-moved') < events.indexOf('contested-applied'));
+  assert.ok(events.indexOf('contested-applied') < events.indexOf('showdown-open'));
+});
+
+test('combat-noncombat-showdown-control-established / scoring-conquer-via-noncombat-showdown: complete event sequence to Conquer', () => {
+  const f = fixture(); f.flow.start();
+  const before = nonCleanup(f.flow).length;
+  conquer(f);
+  assert.deepEqual(nonCleanup(f.flow).slice(before), [
+    'chain-item-pending', 'chain-item-finalize', 'object-moved', 'object-leaves-base', 'object-enters-battlefield', 'contested-applied', 'chain-item-resolve',
+    'showdown-open', 'showdown-close', 'control-established', 'points-gained', 'conquer', 'score',
+  ]);
+  assert.equal(f.flow.chain.turnState, 'neutral-open'); assert.equal(f.flow.chain.focus, null);
+  assert.equal(f.flow.battlefields[0].controller, 'A'); assert.equal(f.flow.battlefields[0].contestedBy, null);
+  assert.equal(f.kernel.player('A').score, 1); assert.deepEqual(f.flow.scored('A'), ['bf1']);
+  assert.deepEqual(f.flow.chain.pipeline.events.filter(event => ['conquer', 'score'].includes(event.timingPoint)).map(event => event.details.battlefieldId), ['bf1', 'bf1']);
+});
+
+test('scoring-ledger-resets-next-turn / turn-scoring-step-hold-scores-point: Conquer then next own Beginning Hold', () => {
+  const f = fixture(); f.flow.start(); conquer(f);
+  f.flow.endTurn('A'); f.flow.endTurn('B');
+  assert.equal(f.flow.turnPlayer, 'A'); assert.equal(f.kernel.player('A').score, 2);
+  assert.equal(timings(f.flow).filter(id => id === 'conquer').length, 1);
+  assert.equal(timings(f.flow).filter(id => id === 'hold').length, 1);
+  assert.deepEqual(f.flow.scored('A'), ['bf1']);
+});
+
+test('scoring-final-point-conquer-single-battlefield-draws / scoring-trigger-fires-on-final-point-draw', () => {
+  const f = fixture({ score: { A: 7 } }); trigger(f, 'score-watch', 'score');
+  f.flow.start(); conquer(f); settle(f.flow);
+  assert.equal(f.kernel.player('A').score, 7); assert.equal(f.kernel.player('A').handCount, 3);
+  assert.equal(timings(f.flow).filter(id => id === 'final-point').length, 1);
+  assert.equal(timings(f.flow).filter(id => id === 'score').length, 1);
+  assert.equal(timings(f.flow).filter(id => id === 'points-gained').length, 0);
+});
+
+test('scoring-hold-at-final-point-still-scores / turn-victory-check-in-cleanup-step-one: Score wave before victory', () => {
+  const f = fixture({ score: { A: 7 }, fields: [{ id: 'bf1', controller: 'A' }, { id: 'bf2', controller: null }],
+    setup: w => w.unit('guard', { location: { type: 'battlefield', id: 'bf1' } }) });
+  f.flow.start();
+  assert.equal(f.kernel.player('A').score, 8); assert.equal(f.flow.winner, 'A');
+  assert.equal(timings(f.flow).filter(id => id === 'hold').length, 1);
+  assert.equal(timings(f.flow).filter(id => id === 'score').length, 1);
+  assert.equal(timings(f.flow).includes('channel-start'), false);
+  assert.throws(() => f.flow.endTurn('A'), /Cannot end/);
+});
+
+test('scoring-triggers-fire-on-score-conquer-hold: optional trigger rollback preserves score and ledger atomically', () => {
+  const f = fixture({ fields: [{ id: 'bf1', controller: 'A' }, { id: 'bf2', controller: null }],
+    setup: w => w.unit('guard', { location: { type: 'battlefield', id: 'bf1' } }) });
+  trigger(f, 'optional-hold', 'hold', { optional: true });
+  let prompt;
+  assert.throws(() => f.flow.start(), error => { prompt = error.request; return prompt?.type === 'optional'; });
+  assert.equal(f.kernel.player('A').score, 0); assert.deepEqual(f.flow.scored('A'), []);
+  assert.equal(timings(f.flow).includes('hold'), false);
+  f.answers.set(prompt.id, true); f.flow.advance(); settle(f.flow);
+  assert.equal(f.kernel.player('A').score, 1); assert.deepEqual(f.flow.scored('A'), ['bf1']);
+  assert.equal(timings(f.flow).filter(id => id === 'hold').length, 1);
+  assert.equal(f.kernel.player('A').handCount, 2);
+});
+
+test('combat-negative-nonfocus-player-cannot-play / turn-negative-end-turn-while-chain-exists', () => {
+  const f = fixture(); f.flow.start(); enter(f);
+  assert.throws(() => f.flow.execute(f.draft('wrong-focus', [draw('draw')], { controller: 'B', speed: 'action' })), /timed/);
+  assert.throws(() => f.flow.endTurn('A'), /Cannot end/);
+});
+
+test('combat-focus-passes-after-player-chain: Focus comes only from batch 4', () => {
+  const f = fixture(); f.flow.start(); enter(f);
+  f.flow.execute(f.draft('action', [draw('draw')], { speed: 'action' })); settle(f.flow);
+  assert.equal(f.flow.chain.focus, 'B'); assert.equal(f.flow.chain.priority, 'B');
+});
+
+test('combat-move-to-enemy-stages-combat-opens-combat-showdown: block before a partial Combat start', () => {
+  const f = fixture({ fields: [{ id: 'bf1', controller: 'B' }, { id: 'bf2', controller: null }],
+    setup: w => w.unit('defender', { owner: 'B', location: { type: 'battlefield', id: 'bf1' } }) });
+  f.flow.start();
+  f.flow.execute(f.draft('move-to-enemy', [move('move', { type: 'battlefield', id: 'bf1' })]));
+  assert.throws(() => settle(f.flow), error => error.status === 'blocked' && error.code === 'combat-start-transaction');
+  assert.equal(f.flow.battlefields[0].staged, 'combat');
+  assert.equal(timings(f.flow).includes('combat-start'), false);
+  assert.equal(timings(f.flow).includes('showdown-open'), false);
+  assert.equal(f.kernel.getObject('defender').damage, 0); assert.equal(f.kernel.player('A').score, 0);
+  const before = f.flow.chain.pipeline.events;
+  assert.throws(() => f.flow.endTurn('A'), error => error.code === 'combat-start-transaction');
+  assert.throws(() => f.flow.execute(f.draft('bypass', [draw('draw')])), error => error.code === 'combat-start-transaction');
+  assert.deepEqual(f.flow.chain.pipeline.events, before);
+});
+
+test('combat-damage-dealt-simultaneously-shared-deathknell: block unsupported transaction without marking damage', () => {
+  const f = fixture(); f.flow.start();
+  const before = f.kernel.snapshot(), events = f.flow.chain.pipeline.events;
+  assert.throws(() => f.flow.combat.dealDamage(), error => error.status === 'blocked' && error.code === 'simultaneous-damage-transaction');
+  assert.deepEqual(f.kernel.snapshot(), before); assert.deepEqual(f.flow.chain.pipeline.events, events);
+});
+
+test('movement-standard-move-base-to-battlefield: blocked before Exhaust cost can be partially paid', () => {
+  const f = fixture(); f.flow.start(); const before = f.flow.chain.pipeline.events;
+  assert.throws(() => f.flow.move('A', f.kernel.ref('source'), 'bf1'), error => error.code === 'standard-move-transaction');
+  assert.equal(f.kernel.getObject('source').exhausted, false); assert.equal(f.kernel.getObject('source').location.type, 'base');
+  assert.deepEqual(f.flow.chain.pipeline.events, before);
+});
+
+test('scoring-control-lost-at-open-cleanup-no-score: moving out causes real cleanup to lose control', () => {
+  const f = fixture(); f.flow.start(); conquer(f);
+  f.flow.execute(f.draft('leave', [move('leave-field', { type: 'base', player: 'A' })])); settle(f.flow);
+  assert.equal(f.flow.battlefields[0].controller, null);
+  assert.equal(timings(f.flow).filter(id => id === 'control-lost').length, 1);
+  assert.equal(f.kernel.player('A').score, 1);
+});
+
+test('RIFT-124 regression: Control and Conquer commit in one wave and roll back together on a choice', () => {
+  const f = fixture(); trigger(f, 'control-watch', 'control-established', { optional: true });
+  f.flow.start(); enter(f); f.flow.pass('A');
+  let prompt;
+  assert.throws(() => f.flow.pass('B'), error => { prompt = error.request; return prompt?.type === 'optional'; });
+  assert.equal(f.flow.battlefields[0].controller, null);
+  assert.equal(f.kernel.player('A').score, 0); assert.deepEqual(f.flow.scored('A'), []);
+  assert.equal(timings(f.flow).includes('control-established'), false);
+  assert.equal(f.kernel.getObject('source').location.id, 'bf1');
+  f.answers.set(prompt.id, true); f.flow.advance();
+  assert.equal(f.flow.battlefields[0].controller, 'A'); assert.equal(f.kernel.player('A').score, 1);
+  assert.equal(f.flow.chain.items[0].status, 'finalized');
+  settle(f.flow);
+  assert.equal(timings(f.flow).filter(id => id === 'conquer').length, 1);
+  assert.equal(timings(f.flow).filter(id => id === 'control-established').length, 1);
+});
+
+test('RIFT-124 regression: unsupported Score replacement rolls back before its alternative Draw', () => {
+  const f = fixture({ fields: [{ id: 'bf1', controller: 'A' }, { id: 'bf2', controller: null }],
+    setup: w => w.unit('guard', { location: { type: 'battlefield', id: 'bf1' } }) });
+  f.flow.chain.pipeline.registerReplacement({ id: 'point-to-draw', matches: action => action.type === 'score',
+    apply: action => ({ status: 'replace', actions: [{ type: 'draw', player: action.player, amount: 1 }] }) });
+  assert.throws(() => f.flow.start(), error => error.status === 'blocked' && error.code === 'replaced-scoring');
+  assert.equal(f.kernel.player('A').score, 0); assert.equal(f.kernel.player('A').handCount, 0);
+  assert.deepEqual(f.flow.scored('A'), []); assert.equal(timings(f.flow).includes('hold'), false);
+});
