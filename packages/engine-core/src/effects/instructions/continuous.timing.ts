@@ -19,6 +19,7 @@ import type {
   ContinuousEffectSpec,
   Duration, Expr, InstructionResult, ObjectFilter, ResolveContext, Value,
 } from "../contract.js";
+import { bindTarget, continuousId, isSelector, mergeFilter } from "../../layers/rules/registration.js";
 
 type DurationValue = Duration;
 
@@ -28,6 +29,8 @@ export interface TimingArgs {
   readonly appliesTo?: Expr;
   readonly duration?: Expr;
   readonly target?: Expr;
+  readonly instanceId?: Expr;
+  readonly executionId?: Expr;
 }
 
 const DURATION_NAMES: Record<string, Value> = {
@@ -50,7 +53,7 @@ function isExpr(value: unknown, active = new Set<object>()): value is Expr {
   switch (value.kind) {
     case "constant": case "literal": valid = Object.hasOwn(value, "value"); break;
     case "object-property": case "object-attribute":
-      valid = isRecord(value.object) && isId(value.property ?? value.attribute); break;
+      valid = isSelector(value.object) && isId(value.property ?? value.attribute); break;
     case "linked": case "linked-value":
       valid = isId(value.instructionId); break;
     case "count": valid = isId(value.subject); break;
@@ -65,7 +68,7 @@ function isExpr(value: unknown, active = new Set<object>()): value is Expr {
 }
 function parseArgs(value: unknown): TimingArgs {
   if (!isRecord(value)) throw new TypeError("continuous.timing requires args");
-  const allowed = ["grants", "timings", "appliesTo", "duration", "target"];
+  const allowed = ["grants", "timings", "appliesTo", "duration", "target", "instanceId", "executionId"];
   for (const [key, expression] of Object.entries(value)) {
     if (!allowed.includes(key) || !isExpr(expression)) {
       throw new TypeError("Invalid continuous.timing argument: " + key);
@@ -102,22 +105,22 @@ export default {
   op: "continuous.timing",
   argsSchema: { parse: parseArgs },
   execute: (ctx: ResolveContext, args: TimingArgs): InstructionResult => {
-    if (args.target !== undefined) {
-      const selected = ctx.targets(ctx.evaluate(args.target) as string);
-      if (selected.length === 0) return { status: "ignored", reason: "mistargeted" };
-    }
+    const target = bindTarget(ctx, args.target);
+    if (target === null) return { status: "ignored", reason: "mistargeted" };
     const speeds = grants(ctx.evaluate(args.grants ?? args.timings!));
     if (speeds.length === 0) {
       return { status: "negated", reason: "impossible", events: [] };
     }
     const filter = args.appliesTo === undefined ? undefined : appliesTo(ctx.evaluate(args.appliesTo));
     const durationArg = args.duration === undefined ? "permanent" : ctx.evaluate(args.duration);
+    const instance = args.instanceId === undefined && args.executionId === undefined ? undefined :
+      ctx.evaluate(args.instanceId ?? args.executionId!);
     const spec: ContinuousEffectSpec = {
-      id: "continuous-timing:" + ctx.source.ref.id + ":" + ctx.source.ref.zoneEntryId,
+      id: continuousId("continuous-timing", ctx, instance, { grants: speeds, filter: mergeFilter(filter, target), duration: durationArg }),
       layer: "ability",
       source: ctx.source.ref,
-      filter: filter ?? {},
-      effect: { kind: "timing", grants: speeds },
+      filter: mergeFilter(filter, target),
+      effect: { kind: "timing", grants: speeds, ...(target.refs.length > 0 ? { targetRefs: target.refs } : {}) },
     };
     ctx.addContinuous(spec, durationOf(durationArg, ctx));
     ctx.link("registered", { id: spec.id, duration: durationArg });

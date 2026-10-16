@@ -24,6 +24,7 @@ import type {
   ContinuousEffectSpec,
   Duration, Expr, InstructionResult, ObjectFilter, ResolveContext, Value,
 } from "../contract.js";
+import { bindTarget, continuousId, isSelector, mergeFilter } from "../../layers/rules/registration.js";
 
 type DurationValue = Duration;
 
@@ -37,6 +38,8 @@ export interface RestrictArgs {
   readonly cost?: Expr;
   readonly duration?: Expr;
   readonly target?: Expr;
+  readonly instanceId?: Expr;
+  readonly executionId?: Expr;
 }
 
 const MODES = ["prohibit", "require", "permit", "limit", "applied-cost"];
@@ -54,7 +57,7 @@ function isExpr(value: unknown, active = new Set<object>()): value is Expr {
   switch (value.kind) {
     case "constant": case "literal": valid = Object.hasOwn(value, "value"); break;
     case "object-property": case "object-attribute":
-      valid = isRecord(value.object) && isId(value.property ?? value.attribute); break;
+      valid = isSelector(value.object) && isId(value.property ?? value.attribute); break;
     case "linked": case "linked-value":
       valid = isId(value.instructionId); break;
     case "count": valid = isId(value.subject); break;
@@ -69,7 +72,7 @@ function isExpr(value: unknown, active = new Set<object>()): value is Expr {
 }
 function parseArgs(value: unknown): RestrictArgs {
   if (!isRecord(value)) throw new TypeError("continuous.restrict requires args");
-  const allowed = ["mode", "action", "operation", "appliesTo", "restriction", "amount", "cost", "duration", "target"];
+  const allowed = ["mode", "action", "operation", "appliesTo", "restriction", "amount", "cost", "duration", "target", "instanceId", "executionId"];
   for (const [key, expression] of Object.entries(value)) {
     if (!allowed.includes(key) || !isExpr(expression)) {
       throw new TypeError("Invalid continuous.restrict argument: " + key);
@@ -97,10 +100,8 @@ export default {
   op: "continuous.restrict",
   argsSchema: { parse: parseArgs },
   execute: (ctx: ResolveContext, args: RestrictArgs): InstructionResult => {
-    if (args.target !== undefined) {
-      const selected = ctx.targets(ctx.evaluate(args.target) as string);
-      if (selected.length === 0) return { status: "ignored", reason: "mistargeted" };
-    }
+    const target = bindTarget(ctx, args.target);
+    if (target === null) return { status: "ignored", reason: "mistargeted" };
     const raw = args.mode === undefined ? "prohibit" : ctx.evaluate(args.mode);
     if (typeof raw !== "string" || !MODES.includes(raw)) {
       return { status: "negated", reason: "impossible", events: [] };
@@ -131,12 +132,14 @@ export default {
     if (raw === "permit") effect.cancels = true;
     if (raw === "limit") effect.cap = true;
     const durationArg = args.duration === undefined ? "permanent" : ctx.evaluate(args.duration);
+    const instance = args.instanceId === undefined && args.executionId === undefined ? undefined :
+      ctx.evaluate(args.instanceId ?? args.executionId!);
     const spec: ContinuousEffectSpec = {
-      id: "continuous-restrict:" + ctx.source.ref.id + ":" + ctx.source.ref.zoneEntryId,
+      id: continuousId("continuous-restrict", ctx, instance, { effect, filter: mergeFilter(filter, target), duration: durationArg }),
       layer: "ability",
       source: ctx.source.ref,
-      filter: filter ?? {},
-      effect: effect as ContinuousEffectSpec["effect"],
+      filter: mergeFilter(filter, target),
+      effect: { ...effect, ...(target.refs.length > 0 ? { targetRefs: target.refs } : {}) } as ContinuousEffectSpec["effect"],
     };
     ctx.addContinuous(spec, durationOf(durationArg, ctx));
     ctx.link("registered", { id: spec.id, duration: durationArg });

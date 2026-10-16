@@ -8,16 +8,16 @@ const register = (registry, effect, duration = { type: "permanent" }, source = {
 
 const baseState = { player: "A", turnPlayer: "A", priorityHolder: "A" };
 
-test("canAct allows Action speed during Showdown but not during Closed States", () => {
+test("canAct keeps Action available in neutral-open and gates it during Closed States", () => {
   assert.equal(canAct({ ...baseState, speed: "action", showdown: true, closedState: false, focusHolder: "A" }), true);
   assert.equal(canAct({ ...baseState, speed: "action", showdown: true, closedState: true }), false);
   assert.equal(canAct({ ...baseState, speed: "action", showdown: false, closedState: true }), false);
-  assert.equal(canAct({ ...baseState, speed: "action", showdown: false, closedState: false, focusHolder: "A" }), false);
+  assert.equal(canAct({ ...baseState, speed: "action", showdown: false, closedState: false, focusHolder: "A" }), true);
 });
 
 test("canAct subsumes Action permissions under Reaction (CR 813.1.b)", () => {
   assert.equal(canAct({ ...baseState, speed: "reaction", showdown: true, closedState: false, focusHolder: "A" }), true);
-  assert.equal(canAct({ ...baseState, speed: "reaction", showdown: true, closedState: true, focusHolder: "A" }), true);
+  assert.equal(canAct({ ...baseState, speed: "reaction", showdown: true, closedState: true }), true);
   assert.equal(canAct({ ...baseState, speed: "reaction", showdown: false, closedState: true, focusHolder: "A" }), true);
   assert.equal(canAct({ ...baseState, speed: "reaction", showdown: false, closedState: false, focusHolder: "A", chainDepth: 0 }), true);
 });
@@ -41,11 +41,42 @@ test("actionTimings unions speed grants and reads the timings alias", () => {
   assert.deepEqual([...actionTimings(registry)].sort(), ["action", "reaction"]);
 });
 
+test("actionTimings consumes keyword continuous.timing grants", () => {
+  const registry = new ContinuousEffectRegistry();
+  register(registry, { kind: "continuous.timing", grants: ["showdown"] });
+  register(registry, { kind: "continuous.timing", grants: ["showdown", "closed-state"] });
+  assert.deepEqual([...actionTimings(registry)].sort(), ["closed-state", "showdown"]);
+});
+
+test("canAct consumes registry grants for the selected object", () => {
+  const registry = new ContinuousEffectRegistry();
+  const hero = { id: "hero", zoneEntryId: 1 };
+  registry.register({ id: "kw:action", layer: "ability", source: { id: "src", zoneEntryId: 1 }, filter: { objectId: "hero" }, effect: { kind: "continuous.timing", grants: ["showdown"] } }, { type: "permanent" });
+  const base = { ...baseState, player: "A", speed: "action", showdown: false, closedState: false, registry, ref: hero };
+  assert.equal(canAct(base), true);
+  assert.equal(canAct({ ...base, ref: { id: "other", zoneEntryId: 1 } }), false);
+});
+
+test("canAct accepts already-evaluated timing grants", () => {
+  assert.equal(canAct({ ...baseState, speed: "action", showdown: false, closedState: false, grants: ["showdown"] }), true);
+  assert.equal(canAct({ ...baseState, speed: "reaction", showdown: false, closedState: false, grants: ["showdown"] }), false);
+});
+
 test("actionTimings respects objectId filters", () => {
   const registry = new ContinuousEffectRegistry();
   registry.register({ id: "t:hero", layer: "ability", source: { id: "src", zoneEntryId: 1 }, filter: { objectId: "hero" }, effect: { kind: "timing", grants: ["action"] } }, { type: "permanent" });
   assert.deepEqual(actionTimings(registry, { id: "hero", zoneEntryId: 1 }), ["action"]);
   assert.deepEqual(actionTimings(registry, { id: "other", zoneEntryId: 1 }), []);
+});
+
+test("actionTimings evaluates controller filters against the object snapshot", () => {
+  const registry = new ContinuousEffectRegistry();
+  registry.register({ id: "t:controller", layer: "ability", source: { id: "src", zoneEntryId: 1 }, filter: { controller: "B" }, effect: { kind: "continuous.timing", grants: ["showdown"] } }, { type: "permanent" });
+  const ref = { id: "hero", zoneEntryId: 1 };
+  const snapshot = { ref, cardId: "card:hero", name: "Hero", types: ["unit"], tags: [], keywords: [], owner: "A", controller: "A", zone: "board", location: null, might: 1, energy: 1, power: ["Fury"], exhausted: false, damage: 0, stunned: false, buffs: 0, attachedTo: null, faceDown: false, isToken: false };
+  assert.deepEqual(actionTimings(registry, ref, snapshot), []);
+  assert.deepEqual(actionTimings(registry, ref), []);
+  assert.deepEqual(actionTimings(registry, ref, { ...snapshot, controller: "B" }), ["showdown"]);
 });
 
 test("movement reports battlefield-to-battlefield permissions as canGank", () => {
@@ -71,6 +102,16 @@ test("movement collects restrictions without turning them into permissions", () 
   assert.deepEqual(view.restrictions, ["move-from-here-to-base"]);
 });
 
+test("movement prohibition does not become a Ganking permission", () => {
+  const registry = new ContinuousEffectRegistry();
+  registry.register({ id: "m:deny-gank", layer: "ability", source: { id: "lair", zoneEntryId: 1 }, filter: {}, effect: { kind: "movement", restrictions: ["battlefield-to-battlefield"] } }, { type: "permanent" });
+  registry.register({ id: "m:gank", layer: "ability", source: { id: "guster", zoneEntryId: 1 }, filter: {}, effect: { kind: "movement", permission: { routes: ["battlefield-to-battlefield"] } } }, { type: "permanent" });
+  const view = movement(registry);
+  assert.equal(view.canGank, false);
+  assert.deepEqual(view.permissions, []);
+  assert.deepEqual(view.restrictions, ["battlefield-to-battlefield"]);
+});
+
 test("restrictions and requirements stay separate (contract 3.4)", () => {
   const registry = new ContinuousEffectRegistry();
   registry.register({ id: "r:1", layer: "ability", source: { id: "src", zoneEntryId: 1 }, filter: {}, effect: { kind: "restriction", actions: ["play-spell"] } }, { type: "permanent" });
@@ -80,6 +121,12 @@ test("restrictions and requirements stay separate (contract 3.4)", () => {
   assert.equal(requirements(registry, "play-spell")[0].name, "must-have-unit");
   assert.equal(restrictions(registry, "move").length, 0);
   assert.equal(requirements(registry, "move").length, 0);
+});
+
+test("permit exceptions are not returned as prohibitions", () => {
+  const registry = new ContinuousEffectRegistry();
+  registry.register({ id: "r:permit", layer: "ability", source: { id: "src", zoneEntryId: 1 }, filter: {}, effect: { kind: "restriction", actions: ["move"], restriction: "battlefield-to-battlefield", cancels: true } }, { type: "permanent" });
+  assert.deepEqual(restrictions(registry, "move"), []);
 });
 
 test("appliedCosts collects applied-cost modifications per action", () => {

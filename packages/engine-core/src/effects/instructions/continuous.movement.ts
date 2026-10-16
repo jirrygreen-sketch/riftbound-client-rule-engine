@@ -24,6 +24,7 @@ import type {
   ContinuousEffectSpec,
   Duration, Expr, InstructionResult, ObjectFilter, ResolveContext, Value,
 } from "../contract.js";
+import { bindTarget, continuousId, isSelector, mergeFilter } from "../../layers/rules/registration.js";
 
 type DurationValue = Duration;
 
@@ -37,6 +38,8 @@ export interface MovementArgs {
   readonly appliesTo?: Expr;
   readonly duration?: Expr;
   readonly target?: Expr;
+  readonly instanceId?: Expr;
+  readonly executionId?: Expr;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -52,7 +55,7 @@ function isExpr(value: unknown, active = new Set<object>()): value is Expr {
   switch (value.kind) {
     case "constant": case "literal": valid = Object.hasOwn(value, "value"); break;
     case "object-property": case "object-attribute":
-      valid = isRecord(value.object) && isId(value.property ?? value.attribute); break;
+      valid = isSelector(value.object) && isId(value.property ?? value.attribute); break;
     case "linked": case "linked-value":
       valid = isId(value.instructionId); break;
     case "count": valid = isId(value.subject); break;
@@ -67,7 +70,7 @@ function isExpr(value: unknown, active = new Set<object>()): value is Expr {
 }
 function parseArgs(value: unknown): MovementArgs {
   if (!isRecord(value)) throw new TypeError("continuous.movement requires args");
-  const allowed = ["permission", "source", "destination", "move", "restriction", "addsPermission", "appliesTo", "duration", "target"];
+  const allowed = ["permission", "source", "destination", "move", "restriction", "addsPermission", "appliesTo", "duration", "target", "instanceId", "executionId"];
   for (const [key, expression] of Object.entries(value)) {
     if (!allowed.includes(key) || !isExpr(expression)) {
       throw new TypeError("Invalid continuous.movement argument: " + key);
@@ -101,10 +104,8 @@ export default {
   op: "continuous.movement",
   argsSchema: { parse: parseArgs },
   execute: (ctx: ResolveContext, args: MovementArgs): InstructionResult => {
-    if (args.target !== undefined) {
-      const selected = ctx.targets(ctx.evaluate(args.target) as string);
-      if (selected.length === 0) return { status: "ignored", reason: "mistargeted" };
-    }
+    const target = bindTarget(ctx, args.target);
+    if (target === null) return { status: "ignored", reason: "mistargeted" };
     const permission = args.permission === undefined ? undefined : names(ctx.evaluate(args.permission), "permission");
     const endpoints = args.source === undefined && args.destination === undefined ? undefined : {
       source: args.source === undefined ? undefined : names(ctx.evaluate(args.source), "source")[0],
@@ -126,15 +127,18 @@ export default {
     }
     const filter = args.appliesTo === undefined ? undefined : appliesTo(ctx.evaluate(args.appliesTo));
     const durationArg = args.duration === undefined ? "permanent" : ctx.evaluate(args.duration);
+    const instance = args.instanceId === undefined && args.executionId === undefined ? undefined :
+      ctx.evaluate(args.instanceId ?? args.executionId!);
     const spec: ContinuousEffectSpec = {
-      id: "continuous-movement:" + ctx.source.ref.id + ":" + ctx.source.ref.zoneEntryId,
+      id: continuousId("continuous-movement", ctx, instance, { route, restrictions, filter: mergeFilter(filter, target), duration: durationArg }),
       layer: "ability",
       source: ctx.source.ref,
-      filter: filter ?? {},
+      filter: mergeFilter(filter, target),
       effect: {
         kind: "movement",
-        ...(route === undefined ? {} : { permission: route }),
-        ...(restrictionNames.length > 0 ? { restrictions: restrictionNames } : {}),
+        ...(addsPermission && route !== undefined ? { permission: route } : {}),
+        ...(restrictions.length > 0 ? { restrictions } : {}),
+        ...(target.refs.length > 0 ? { targetRefs: target.refs } : {}),
       },
     };
     ctx.addContinuous(spec, durationOf(durationArg, ctx));

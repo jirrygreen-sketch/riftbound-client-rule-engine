@@ -21,6 +21,7 @@ import type {
   ContinuousEffectSpec,
   Duration, Expr, InstructionResult, ObjectFilter, ResolveContext, Value,
 } from "../contract.js";
+import { bindTarget, continuousId, isSelector, mergeFilter } from "../../layers/rules/registration.js";
 
 type DurationValue = Duration;
 
@@ -30,6 +31,9 @@ export interface DeckArgs {
   readonly name?: Expr;
   readonly appliesTo?: Expr;
   readonly duration?: Expr;
+  readonly target?: Expr;
+  readonly instanceId?: Expr;
+  readonly executionId?: Expr;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -45,7 +49,7 @@ function isExpr(value: unknown, active = new Set<object>()): value is Expr {
   switch (value.kind) {
     case "constant": case "literal": valid = Object.hasOwn(value, "value"); break;
     case "object-property": case "object-attribute":
-      valid = isRecord(value.object) && isId(value.property ?? value.attribute); break;
+      valid = isSelector(value.object) && isId(value.property ?? value.attribute); break;
     case "linked": case "linked-value":
       valid = isId(value.instructionId); break;
     case "count": valid = isId(value.subject); break;
@@ -60,7 +64,7 @@ function isExpr(value: unknown, active = new Set<object>()): value is Expr {
 }
 function parseArgs(value: unknown): DeckArgs {
   if (!isRecord(value)) throw new TypeError("continuous.deck requires args");
-  const allowed = ["mode", "amount", "name", "appliesTo", "duration"];
+  const allowed = ["mode", "amount", "name", "appliesTo", "duration", "target", "instanceId", "executionId"];
   for (const [key, expression] of Object.entries(value)) {
     if (!allowed.includes(key) || !isExpr(expression)) {
       throw new TypeError("Invalid continuous.deck argument: " + key);
@@ -88,6 +92,8 @@ export default {
   op: "continuous.deck",
   argsSchema: { parse: parseArgs },
   execute: (ctx: ResolveContext, args: DeckArgs): InstructionResult => {
+    const target = bindTarget(ctx, args.target);
+    if (target === null) return { status: "ignored", reason: "mistargeted" };
     const mode = args.mode === undefined ? null : ctx.evaluate(args.mode);
     if (mode !== "unlimited" && mode !== "max") {
       return { status: "negated", reason: "impossible", events: [] };
@@ -102,16 +108,20 @@ export default {
       throw new TypeError("continuous.deck name must be a nonempty string");
     }
     const durationArg = args.duration === undefined ? "permanent" : ctx.evaluate(args.duration);
+    const instance = args.instanceId === undefined && args.executionId === undefined ? undefined :
+      ctx.evaluate(args.instanceId ?? args.executionId!);
+    const combinedFilter = mergeFilter(filter, target);
     const spec: ContinuousEffectSpec = {
-      id: "continuous-deck:" + ctx.source.ref.id + ":" + ctx.source.ref.zoneEntryId,
+      id: continuousId("continuous-deck", ctx, instance, { mode, amount, name: nameValue, filter: combinedFilter, duration: durationArg }),
       layer: "ability",
       source: ctx.source.ref,
-      filter: filter ?? { characteristics: { name: nameValue } },
+      filter: filter === undefined && target.refs.length === 0 ? { characteristics: { name: nameValue } } : combinedFilter,
       effect: {
         kind: "deck-limit",
         mode,
         ...(mode === "max" ? { amount } : {}),
         ...(args.name === undefined ? {} : { name: nameValue }),
+        ...(target.refs.length > 0 ? { targetRefs: target.refs } : {}),
       },
     };
     ctx.addContinuous(spec, durationOf(durationArg, ctx));

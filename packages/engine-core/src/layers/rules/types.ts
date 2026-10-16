@@ -6,7 +6,8 @@
  * rule wiring (chain, turn, combat) a stable vocabulary.
  */
 import type { ObjectRef } from "@riftbound/card-dsl";
-import type { PlayerId } from "../../effects/contract.js";
+import type { ContinuousEffectRegistry } from "../duration.js";
+import type { ObjectSnapshot, PlayerId } from "../../effects/contract.js";
 
 export type GameActionName = string;
 
@@ -89,4 +90,13 @@ export interface CanActInput {
   readonly priorityHolder: PlayerId | null;
   readonly focusHolder?: PlayerId | null;
   readonly chainDepth?: number;
+  /** Optional ability-layer registry used to consume Action/Reaction grants. */
+  readonly registry?: ContinuousEffectRegistry;
+  /** Object whose continuous timing grants are being queried. */
+  readonly ref?: ObjectRef;
+  /** Snapshot used to evaluate controller/type/zone and other filter fields. */
+  readonly object?: ObjectSnapshot | null;
+  /** Direct grant inputs for callers that have already evaluated the layer. */
+  readonly grants?: readonly string[];
+  readonly timings?: readonly string[];
 }
