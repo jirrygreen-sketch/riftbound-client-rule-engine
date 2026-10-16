@@ -18,7 +18,7 @@ import { FOUNDATION_RULESET_ID, RULESET_ID } from "@riftbound/protocol";
 import { FileEventStore } from "@riftbound/replay-core/full-product";
 import { GameRoom } from "../src/room.js";
 import { FileRoomStore } from "../src/file-room-store.js";
-import { PersistentRoomArchiveStore } from "../src/full-product/persistent-room-store.js";
+import { PersistentRoomArchiveStore } from "../src/storage/persistent-room-store.js";
 import type { CardCatalogRuntime } from "../src/card-catalog.js";
 
 const temporaryDirectories: string[] = [];
