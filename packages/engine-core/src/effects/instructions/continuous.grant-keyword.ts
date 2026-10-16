@@ -43,9 +43,12 @@ import type {
   ZoneId
 } from "../contract.js";
 import {
+  buildKeywordArithmeticSpec,
   buildKeywordGrantSpec,
   isDurationAlias,
   resolveContinuousDuration,
+  normaliseKeywordGrants,
+  settlementIdentity,
   type DurationAlias,
   type KeywordGrant,
   type OpsTarget
@@ -72,6 +75,7 @@ export interface ContinuousGrantKeywordArgs {
   readonly duration?: Expr | Value;
   readonly appliesTo?: Expr | Value;
   readonly linkKey?: Expr | Value;
+  readonly settlementId?: Expr | Value;
 }
 
 type Selection =
@@ -94,7 +98,7 @@ type Selection =
 const ARGUMENT_KEYS: readonly string[] = [
   "keyword", "value", "keywords",
   "target", "pick", "choose", "objects", "filter",
-  "duration", "appliesTo", "linkKey"
+  "duration", "appliesTo", "linkKey", "settlementId"
 ];
 const SELECTOR_KEYS: readonly string[] = ["target", "pick", "choose", "objects", "filter"];
 const CHOICE_KEYS: readonly string[] = [
@@ -296,11 +300,12 @@ function parseArgs(value: unknown): ContinuousGrantKeywordArgs {
       }
     } else if (key === "duration") {
       if (!isDurationAlias(entry)) throw new TypeError("continuous.grant-keyword duration is not a known alias");
-      if (isRecord(entry)) parseSelection(entry as Value, "continuous.grant-keyword");
     } else if (key === "appliesTo") {
       if (entry !== "self") throw new TypeError('continuous.grant-keyword appliesTo must be "self"');
     } else if (key === "linkKey") {
       if (!isId(entry)) throw new TypeError("continuous.grant-keyword linkKey must be a non-empty string");
+    } else if (key === "settlementId") {
+      if (!isId(entry)) throw new TypeError("continuous.grant-keyword settlementId must be a non-empty string");
     }
   }
   return value as unknown as ContinuousGrantKeywordArgs;
@@ -472,6 +477,11 @@ const continuousGrantKeyword = {
       throw new TypeError("continuous.grant-keyword duration is not a known alias");
     }
     const duration: DurationAlias = rawDuration;
+    const rawSettlementId = args.settlementId === undefined ? undefined : evaluateArgument(ctx, args.settlementId);
+    if (rawSettlementId !== undefined && !isId(rawSettlementId)) {
+      throw new TypeError("continuous.grant-keyword settlementId must be a non-empty string");
+    }
+    const settlement = settlementIdentity(ctx.source.ref, "continuous.grant-keyword", key => ctx.linked(key), (key, value) => ctx.link(key, value), rawSettlementId);
     const rawAppliesTo = args.appliesTo === undefined ? undefined : evaluateArgument(ctx, args.appliesTo);
     if (rawAppliesTo !== undefined && rawAppliesTo !== "self") {
       throw new TypeError('continuous.grant-keyword appliesTo must evaluate to "self"');
@@ -509,15 +519,39 @@ const continuousGrantKeyword = {
       if (snapshot === null) continue;
       suffix += 1;
       const target: OpsTarget = { ref, snapshot };
+      const normalised = normaliseKeywordGrants(target, grants);
+      const promotedUnvaluedIds = [...new Set(grants
+        .filter(grant => grant.value !== undefined && snapshot.keywords.some(keyword =>
+          keyword.id === grant.id && keyword.value === undefined))
+        .map(grant => grant.id))];
       const registration = buildKeywordGrantSpec(
         "continuous.grant-keyword",
         sourceRef,
         target,
         "continuous.grant-keyword",
-        grants,
-        String(suffix)
+        normalised,
+        String(suffix),
+        {
+          settlement,
+          condition: promotedUnvaluedIds.length > 0
+            ? object => object.ref.id === ref.id && object.ref.zoneEntryId === ref.zoneEntryId &&
+              promotedUnvaluedIds.every(id => object.keywords.some(keyword => keyword.id === id && keyword.value === undefined))
+            : undefined
+        }
       );
       ctx.addContinuous(registration.effect, resolveContinuousDuration(duration, sourceRef));
+      for (const [index, grant] of grants.entries()) {
+        if (grant.value === undefined || snapshot.keywords.every(keyword => keyword.id !== grant.id)) continue;
+        const arithmetic = buildKeywordArithmeticSpec(
+          "continuous.grant-keyword",
+          sourceRef,
+          target,
+          grant,
+          String(suffix) + ":value:" + String(index),
+          settlement
+        );
+        ctx.addContinuous(arithmetic.effect, resolveContinuousDuration(duration, sourceRef));
+      }
       count += 1;
       granted.push(refValue(ref));
     }

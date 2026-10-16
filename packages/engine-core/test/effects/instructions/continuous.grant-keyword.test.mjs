@@ -68,6 +68,42 @@ test("keyword plus value carries the value only through keywordValue", () => {
   assert.equal(effect.value, undefined);
 });
 
+test("valued keyword grants add to an existing value and expire independently", () => {
+  const kernel = withSource(world().unit("u1", { keywords: [{ id: "Assault", value: 1 }] }).build(), "u1");
+  runInstruction(grantKeyword, {
+    keyword: literal("Assault"),
+    value: literal(3),
+    duration: literal("this-turn"),
+    appliesTo: literal("self")
+  }, { world: kernel });
+  const engine = createEngine([kernel.getObject("u1")], kernel.continuousEffects);
+  assert.deepEqual(engine.evaluate({ id: "u1", zoneEntryId: 1 }).keywords, [{ id: "Assault", value: 4 }]);
+  engine.advance({ id: "turn-end" });
+  assert.deepEqual(engine.evaluate({ id: "u1", zoneEntryId: 1 }).keywords, [{ id: "Assault", value: 1 }]);
+});
+
+test("an unvalued Assault also contributes its base value when granted a value", () => {
+  const kernel = withSource(world().unit("u1", { keywords: [{ id: "Assault" }] }).build(), "u1");
+  runInstruction(grantKeyword, { keyword: literal("Assault"), value: literal(3), appliesTo: literal("self") }, { world: kernel });
+  const engine = createEngine([kernel.getObject("u1")], kernel.continuousEffects);
+  assert.deepEqual(engine.evaluate({ id: "u1", zoneEntryId: 1 }).keywords, [{ id: "Assault", value: 4 }]);
+});
+
+test("numeric grants in a keyword list keep their base value after the ability recheck", () => {
+  const kernel = withSource(world().unit("u1", {
+    keywords: [{ id: "Assault" }, { id: "Shield", value: 1 }]
+  }).build(), "u1");
+  runInstruction(grantKeyword, {
+    keywords: literal([{ id: "Assault", value: 3 }, { id: "Shield", value: 2 }]),
+    appliesTo: literal("self")
+  }, { world: kernel });
+  const engine = createEngine([kernel.getObject("u1")], kernel.continuousEffects);
+  assert.deepEqual(engine.evaluate({ id: "u1", zoneEntryId: 1 }).keywords, [
+    { id: "Assault", value: 4 },
+    { id: "Shield", value: 3 }
+  ]);
+});
+
 test("keywords list becomes one registration per object with paired grants", () => {
   const kernel = withSource(world().unit("u1").unit("u2").build(), "u1");
   const run = runInstruction(grantKeyword, {
@@ -229,5 +265,15 @@ test("duration aliases and unknown aliases behave like the might primitive", () 
   assert.deepEqual(build(kernel, "permanent"), { type: "permanent" });
   const bad = grantKeyword.argsSchema.safeParse({ keyword: "assault", duration: "not-an-alias" });
   assert.equal(bad.success, false);
+});
+
+test("until duration objects reach the duration adapter", () => {
+  const kernel = withSource(world().unit("u1").build(), "u1");
+  const run = runInstruction(grantKeyword, {
+    keyword: literal("assault"),
+    duration: literal({ type: "until", at: "turn-end" })
+  }, { world: kernel });
+  assert.equal(run.result.status, "executed");
+  assert.deepEqual(kernel.continuousEffects[0].duration, { type: "until", at: "turn-end" });
 });
 

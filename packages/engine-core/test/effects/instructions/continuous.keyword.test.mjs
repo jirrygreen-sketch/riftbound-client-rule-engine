@@ -26,27 +26,16 @@ test("continuous.keyword opcode and args schema are stable", () => {
   assert.equal(typeof keyword.argsSchema.parse, "function");
   assert.equal(keyword.argsSchema.safeParse(7).success, false);
   assert.equal(keyword.argsSchema.safeParse({ extra: true }).success, false);
-  // keyword / keywords both absent is a legal judgeReason usage: fall back to op id.
   assert.equal(keyword.argsSchema.safeParse({}).success, true);
 });
 
-test("no keyword args fall back to the op id itself", () => {
+test("missing keyword args remain blocked", () => {
   const kernel = withSource(world().unit("hero").build(), "hero");
   const run = runInstruction(keyword, { appliesTo: literal("self") }, { world: kernel });
 
-  assert.equal(run.result.status, "executed");
-  assert.equal(kernel.continuousEffects.length, 1);
-  const registration = kernel.continuousEffects[0];
-  assert.deepEqual(registration.duration, { type: "permanent" });
-  assert.equal(registration.effect.layer, "ability");
-  assert.equal(registration.effect.source.id, "hero");
-  assert.equal(registration.effect.filter.objectId, "hero");
-  assert.equal(registration.effect.effect.kind, "continuous.keyword");
-  assert.deepEqual(registration.effect.effect.keyword, "continuous.keyword");
-  assert.equal(registration.effect.effect.keywords, undefined);
-  assert.equal(registration.effect.effect.value, undefined);
-  assert.deepEqual(run.linked.granted, { count: 1, objects: refs(kernel, ["hero"]) });
-  assert.equal(run.linked["granted.count"], 1);
+  assert.equal(run.result.status, "negated");
+  assert.equal(run.result.reason, "impossible");
+  assert.equal(kernel.continuousEffects.length, 0);
 });
 
 test("an explicit keyword is granted with keywordValue and no arithmetic value", () => {
@@ -85,7 +74,7 @@ test("a fully stale target ref makes the instruction ignored mistargeted", () =>
   const kernel = world().unit("gone").build();
   const staleRef = kernel.ref("gone");
   kernel.perform({ type: "kill", object: staleRef });
-  const run = runInstruction(keyword, { objects: [staleRef] }, { world: kernel });
+  const run = runInstruction(keyword, { keyword: literal("burn"), objects: [staleRef] }, { world: kernel });
 
   assert.equal(run.result.status, "ignored");
   assert.equal(run.result.reason, "mistargeted");
@@ -106,11 +95,11 @@ test("a must-choose with no legal options is negated impossible (CR 359.3.e.9)",
 test("an up-to-one choose asks through ctx.choose and consumes the answer", () => {
   const kernel = withSource(world().unit("a1").unit("a2").build(), "a1");
   const descriptor = { kind: "choose", id: "pick-up-to-one", filter: { type: "unit" }, min: 0, max: 1 };
-  const asked = runInstruction(keyword, { objects: literal(descriptor) }, { world: kernel });
+  const asked = runInstruction(keyword, { keyword: literal("burn"), objects: literal(descriptor) }, { world: kernel });
   assert.ok(asked.asked);
   assert.equal(asked.asked.request.id, "pick-up-to-one");
 
-  const answered = runInstruction(keyword, { objects: literal(descriptor) }, {
+  const answered = runInstruction(keyword, { keyword: literal("burn"), objects: literal(descriptor) }, {
     world: kernel,
     answers: { "pick-up-to-one": refs(kernel, ["a2"]) }
   });
@@ -134,10 +123,11 @@ test("end-of-turn registrations expire at turn-end", () => {
 test("end-of-combat registrations expire at combat-end", () => {
   const kernel = withSource(world().unit("u1").build(), "u1");
   runInstruction(keyword, {
+    keyword: literal("assault"),
     duration: literal("this-combat")
   }, { world: kernel });
   const engine = createEngine([kernel.getObject("u1")], kernel.continuousEffects);
-  assert.deepEqual(engine.evaluate({ id: "u1", zoneEntryId: 1 }).keywords.map((keyword) => keyword.id), ["continuous.keyword"]);
+  assert.deepEqual(engine.evaluate({ id: "u1", zoneEntryId: 1 }).keywords.map((keyword) => keyword.id), ["assault"]);
   engine.advance({ id: "combat-end" });
   assert.deepEqual(engine.evaluate({ id: "u1", zoneEntryId: 1 }).keywords.map((keyword) => keyword.id), []);
 });
@@ -145,14 +135,25 @@ test("end-of-combat registrations expire at combat-end", () => {
 test("while-source-in-zone ends when the source leaves its zone", () => {
   const kernel = withSource(world().unit("aura-source").unit("u1").build(), "aura-source");
   runInstruction(keyword, {
+    keyword: literal("assault"),
     duration: literal("while-source-in-zone"),
     objects: literal({ kind: "query", filter: { type: "unit", controller: "A" } })
   }, { world: kernel });
   const all = [kernel.getObject("aura-source"), kernel.getObject("u1")];
   const engine = createEngine(all, kernel.continuousEffects);
-  assert.deepEqual(engine.evaluate({ id: "u1", zoneEntryId: 1 }).keywords.map((keyword) => keyword.id), ["continuous.keyword"]);
+  assert.deepEqual(engine.evaluate({ id: "u1", zoneEntryId: 1 }).keywords.map((keyword) => keyword.id), ["assault"]);
   engine.setObjects([kernel.getObject("u1")]);
   engine.advance({ id: "object-leaves-zone" });
   assert.deepEqual(engine.evaluate({ id: "u1", zoneEntryId: 1 }).keywords.map((keyword) => keyword.id), []);
+});
+
+test("until duration objects reach the duration adapter", () => {
+  const kernel = withSource(world().unit("u1").build(), "u1");
+  const run = runInstruction(keyword, {
+    keyword: literal("assault"),
+    duration: literal({ type: "until", at: "turn-end" })
+  }, { world: kernel });
+  assert.equal(run.result.status, "executed");
+  assert.deepEqual(kernel.continuousEffects[0].duration, { type: "until", at: "turn-end" });
 });
 

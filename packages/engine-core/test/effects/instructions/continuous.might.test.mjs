@@ -55,6 +55,27 @@ test("lux-illuminated: appliesTo self resolves to the ability source", () => {
   assert.deepEqual(run.linked.affected.objects, [kernel.ref("lux")]);
 });
 
+test("independent settlements receive distinct deterministic effect ids", () => {
+  const kernel = withSource(world().unit("u1", { might: 2 }).build(), "u1");
+  runInstruction(might, { amount: literal(1), appliesTo: literal("self") }, { world: kernel });
+  runInstruction(might, { amount: literal(1), appliesTo: literal("self") }, { world: kernel });
+  assert.equal(kernel.continuousEffects.length, 2);
+  assert.notEqual(kernel.continuousEffects[0].effect.id, kernel.continuousEffects[1].effect.id);
+  assert.match(kernel.continuousEffects[0].effect.id, /settlement-1/);
+  assert.match(kernel.continuousEffects[1].effect.id, /settlement-2/);
+});
+
+test("a new zone entry does not receive an old registration", () => {
+  const kernel = withSource(world().unit("u1", { might: 2 }).build(), "u1");
+  runInstruction(might, { amount: literal(2), appliesTo: literal("self") }, { world: kernel });
+  const engine = createEngine([kernel.getObject("u1")], kernel.continuousEffects);
+  assert.equal(engine.evaluate({ id: "u1", zoneEntryId: 1 }).might, 4);
+  kernel.perform({ type: "return-to-hand", object: { id: "u1", zoneEntryId: 1 } });
+  kernel.addObject({ ...kernel.getObject("u1"), ref: { id: "u1", zoneEntryId: 2 }, zone: "board" }, "board");
+  engine.setObjects([kernel.getObject("u1")]);
+  assert.equal(engine.evaluate({ id: "u1", zoneEntryId: 2 }).might, 2);
+});
+
 test("undertitan-style query: several objects each get their own registration", () => {
   const kernel = withSource(world().unit("u1", { might: 1 }).unit("u2", { might: 2 }).unit("other", { might: 5, owner: "B" }).build(), "u1");
   const run = runInstruction(might, {
@@ -282,6 +303,15 @@ test("a per-effect floor lifts a step above the engine's final zero clamp", () =
     { effect: { id: "a", layer: "arithmetic", filter: {}, effect: { kind: "continuous.might", amount: -3, minimum: 1 } }, minimum: 1 }
   ];
   assert.equal(applyMightMinimums(snapshot, entries), 1);
+});
+
+test("minimum snapshots the limited delta before later arithmetic changes", () => {
+  const kernel = withSource(world().unit("u1", { might: 2 }).build(), "u1");
+  runInstruction(might, { amount: literal(-3), minimum: literal(1), appliesTo: literal("self") }, { world: kernel });
+  const first = kernel.continuousEffects[0];
+  const later = permanentEntry("later", { kind: "continuous.might", amount: 5 });
+  const engine = createEngine([kernel.getObject("u1")], [first, later]);
+  assert.equal(engine.evaluate({ id: "u1", zoneEntryId: 1 }).might, 6);
 });
 
 test("the engine's generic path clamps only at zero, which is why the helper exists", () => {

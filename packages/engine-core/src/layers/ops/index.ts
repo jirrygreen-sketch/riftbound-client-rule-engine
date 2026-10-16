@@ -58,12 +58,41 @@ export type DurationAlias =
 
 /** Duration strings that are not recognized aliases and must reject at parse time. */
 export function isDurationAlias(value: unknown): value is DurationAlias {
-  return value === "this-turn" || value === "end-of-turn" ||
+  if (value === "this-turn" || value === "end-of-turn" ||
     value === "this-combat" || value === "end-of-combat" ||
-    value === "permanent" || value === "while-source-in-zone" ||
-    (typeof value === "object" && value !== null && !Array.isArray(value) &&
-      ((value as Record<string, unknown>).type === "until" ||
-        (value as Record<string, unknown>).type === "while-source-in-zone"));
+    value === "permanent" || value === "while-source-in-zone") return true;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const item = value as Record<string, unknown>;
+  if (item.type === "until") {
+    return isTimingPointId(item.at) && (item.player === undefined || typeof item.player === "string");
+  }
+  if (item.type === "while-source-in-zone") {
+    if (item.source === undefined) return true;
+    return typeof item.source === "object" && item.source !== null &&
+      typeof (item.source as Record<string, unknown>).id === "string" &&
+      Number.isSafeInteger((item.source as Record<string, unknown>).zoneEntryId) &&
+      ((item.source as Record<string, unknown>).zoneEntryId as number) >= 0;
+  }
+  return false;
+}
+
+/** A stable settlement identity may be supplied by a replay/event owner. */
+export function settlementIdentity(
+  source: ObjectRef,
+  op: string,
+  read: (key: string) => unknown,
+  write: (key: string, value: number) => void,
+  requested?: string
+): string {
+  if (requested !== undefined) {
+    if (requested.length === 0) throw new TypeError("settlement identity must be non-empty");
+    return requested;
+  }
+  const key = "__continuous.settlement." + op + "." + source.id + "." + String(source.zoneEntryId);
+  const previous = read(key);
+  const next = (typeof previous === "number" && Number.isSafeInteger(previous) ? previous : 0) + 1;
+  write(key, next);
+  return "settlement-" + String(next);
 }
 
 /**
@@ -113,14 +142,24 @@ export interface OpsTarget {
 }
 
 /** Deterministic per-registration effect id; stable for replay and registry dedupe. */
-export function effectId(op: string, sourceRef: ObjectRef, target: OpsTarget, suffix: string): string {
-  return op + ":" + sourceRef.id + ":" + sourceRef.zoneEntryId + ":" +
+export function effectId(
+  op: string,
+  sourceRef: ObjectRef,
+  target: OpsTarget,
+  suffix: string,
+  settlement = "settlement-0"
+): string {
+  return op + ":" + settlement + ":" + sourceRef.id + ":" + sourceRef.zoneEntryId + ":" +
     target.ref.id + ":" + target.ref.zoneEntryId + ":" + suffix;
 }
 
 /** Per-object board filter; stale zoneEntryIds and off-board zones no longer match. */
 export function targetFilter(target: OpsTarget): ContinuousEffectSpec["filter"] {
-  return { objectId: target.ref.id, zone: "board" };
+  return { objectId: target.ref.id, zone: "board", zoneEntryId: target.ref.zoneEntryId };
+}
+
+function targetCondition(target: OpsTarget): (object: ObjectSnapshot) => boolean {
+  return object => object.ref.id === target.ref.id && object.ref.zoneEntryId === target.ref.zoneEntryId;
 }
 
 export interface MightEffect {
@@ -142,17 +181,25 @@ export function buildMightSpec(
   target: OpsTarget,
   mode: "add" | "set",
   amount: number,
-  effectIdSuffix: string
+  effectIdSuffix: string,
+  settlement = "settlement-0"
 ): { effect: ContinuousEffectSpec; duration: Duration } & { readonly minimum?: number } {
+  const snapshotMight = target.snapshot.might;
+  const snapshottedAmount = mode === "add" && target.minimum !== undefined &&
+    snapshotMight !== null && amount < 0
+    ? Math.max(amount, target.minimum - snapshotMight)
+    : mode === "set" && target.minimum !== undefined
+      ? Math.max(amount, target.minimum)
+      : amount;
   const effect: MightEffect = mode === "set"
-    ? { kind: "set-might", value: amount, ...(target.minimum === undefined ? {} : { minimum: target.minimum }) }
-    : { kind: "continuous.might", amount, ...(target.minimum === undefined ? {} : { minimum: target.minimum }) };
+    ? { kind: "set-might", value: snapshottedAmount, ...(target.minimum === undefined ? {} : { minimum: target.minimum }) }
+    : { kind: "continuous.might", amount: snapshottedAmount, ...(target.minimum === undefined ? {} : { minimum: target.minimum }) };
   const spec: ContinuousEffectSpec = {
-    id: effectId(op, sourceRef, target, effectIdSuffix),
+    id: effectId(op, sourceRef, target, effectIdSuffix, settlement),
     layer: "arithmetic",
     source: sourceRef,
     filter: targetFilter(target),
-    effect: effect as unknown as ContinuousEffect
+    effect: { ...effect, condition: targetCondition(target) } as unknown as ContinuousEffect
   };
   return { effect: spec, duration: { type: "permanent" }, ...(target.minimum === undefined ? {} : { minimum: target.minimum }) };
 }
@@ -187,20 +234,63 @@ export function buildKeywordGrantSpec(
   kind: "continuous.grant-keyword" | "continuous.keyword" | "continuous.combat",
   keywords: readonly KeywordGrant[],
   effectIdSuffix: string,
-  options?: { readonly forceList?: boolean }
+  options?: { readonly forceList?: boolean; readonly settlement?: string; readonly condition?: (object: ObjectSnapshot) => boolean }
 ): { effect: ContinuousEffectSpec; duration: Duration } {
   const single = options?.forceList === true ? undefined : keywords.length === 1 ? keywords[0]! : undefined;
   const effect: KeywordEffect = single !== undefined
     ? { kind, keyword: single.id, keywordValue: single.value }
     : { kind, keywords: [...keywords] };
   const spec: ContinuousEffectSpec = {
-    id: effectId(op, sourceRef, target, effectIdSuffix),
+    id: effectId(op, sourceRef, target, effectIdSuffix, options?.settlement),
     layer: "ability",
     source: sourceRef,
     filter: targetFilter(target),
-    effect: effect as unknown as ContinuousEffect
+    effect: { ...effect, condition: options?.condition ?? targetCondition(target) } as unknown as ContinuousEffect
   };
   return { effect: spec, duration: { type: "permanent" } };
+}
+
+/** Arithmetic companion used to sum valued keywords such as Assault. */
+export function buildKeywordArithmeticSpec(
+  op: string,
+  sourceRef: ObjectRef,
+  target: OpsTarget,
+  grant: KeywordGrant,
+  effectIdSuffix: string,
+  settlement = "settlement-0",
+): { effect: ContinuousEffectSpec; duration: Duration } {
+  if (grant.value === undefined) throw new TypeError("keyword arithmetic requires a value");
+  const effect = {
+    kind: "continuous.keyword",
+    keyword: grant.id,
+    amount: grant.value,
+    condition: targetCondition(target),
+  } as unknown as ContinuousEffect;
+  return {
+    effect: {
+      id: effectId(op, sourceRef, target, effectIdSuffix, settlement),
+      layer: "arithmetic",
+      source: sourceRef,
+      filter: targetFilter(target),
+      effect,
+    },
+    duration: { type: "permanent" },
+  };
+}
+
+/** Preserve an existing valued keyword, then add the newly granted value. */
+export function normaliseKeywordGrants(target: OpsTarget, grants: readonly KeywordGrant[]): KeywordGrant[] {
+  return grants.map(grant => {
+    if (grant.value === undefined) return grant;
+    const existing = target.snapshot.keywords.find(keyword => keyword.id === grant.id);
+    if (existing === undefined) return grant;
+    // An existing valued keyword must keep its current value in the ability
+    // layer. The arithmetic companion adds the new grant; carrying the old
+    // value here would make the post-arithmetic ability recheck overwrite the
+    // sum. An unvalued keyword is promoted to its base value of one so the
+    // arithmetic companion can then add the granted value.
+    return existing.value === undefined ? { id: grant.id, value: 1 } : { id: grant.id };
+  });
 }
 
 /** One arithmetic-layer modification with an optional per-effect printed-value floor. */

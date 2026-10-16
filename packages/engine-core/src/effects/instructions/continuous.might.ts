@@ -77,6 +77,7 @@ import {
   buildMightSpec,
   isDurationAlias,
   resolveContinuousDuration,
+  settlementIdentity,
   type DurationAlias,
   type OpsTarget
 } from "../../layers/ops/index.js";
@@ -102,6 +103,7 @@ export interface ContinuousMightArgs {
   readonly duration?: Expr | Value;
   readonly appliesTo?: Expr | Value;
   readonly linkKey?: Expr | Value;
+  readonly settlementId?: Expr | Value;
 }
 
 type Selection =
@@ -123,7 +125,7 @@ type Selection =
 
 const ARGUMENT_KEYS: readonly string[] = [
   "target", "pick", "choose", "objects", "filter",
-  "amount", "mode", "minimum", "duration", "appliesTo", "linkKey"
+  "amount", "mode", "minimum", "duration", "appliesTo", "linkKey", "settlementId"
 ];
 const SELECTOR_KEYS: readonly string[] = ["target", "pick", "choose", "objects", "filter"];
 const CHOICE_KEYS: readonly string[] = [
@@ -301,11 +303,12 @@ function parseArgs(value: unknown): ContinuousMightArgs {
       }
     } else if (key === "duration") {
       if (!isDurationAlias(entry)) throw new TypeError("continuous.might duration is not a known alias");
-      if (isRecord(entry)) parseSelection(entry as Value, "continuous.might");
     } else if (key === "appliesTo") {
       if (entry !== "self") throw new TypeError('continuous.might appliesTo must be "self"');
     } else if (key === "linkKey") {
       if (!isId(entry)) throw new TypeError("continuous.might linkKey must be a non-empty string");
+    } else if (key === "settlementId") {
+      if (!isId(entry)) throw new TypeError("continuous.might settlementId must be a non-empty string");
     }
   }
   return value as unknown as ContinuousMightArgs;
@@ -497,6 +500,11 @@ const continuousMight = {
       throw new TypeError("continuous.might duration is not a known alias");
     }
     const duration: DurationAlias = rawDuration;
+    const rawSettlementId = args.settlementId === undefined ? undefined : evaluateArgument(ctx, args.settlementId);
+    if (rawSettlementId !== undefined && !isId(rawSettlementId)) {
+      throw new TypeError("continuous.might settlementId must be a non-empty string");
+    }
+    const settlement = settlementIdentity(ctx.source.ref, "continuous.might", key => ctx.linked(key), (key, value) => ctx.link(key, value), rawSettlementId);
     const rawAppliesTo = args.appliesTo === undefined ? undefined : evaluateArgument(ctx, args.appliesTo);
     if (rawAppliesTo !== undefined && rawAppliesTo !== "self") {
       throw new TypeError('continuous.might appliesTo must evaluate to "self"');
@@ -535,7 +543,8 @@ const continuousMight = {
         target,
         mode,
         amount,
-        String(suffix)
+        String(suffix),
+        settlement
       );
       ctx.addContinuous(registration.effect, resolveContinuousDuration(duration, sourceRef));
       count += 1;

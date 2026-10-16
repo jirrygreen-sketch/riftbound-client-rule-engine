@@ -3,27 +3,23 @@
  * 指令入口，docs/plans/2026-10-15-p0-contract.md 3.4/3.8）。
  *
  * 现状与边界（如实登记，不发明语义）：judgeReason 提及 continuous.combat 的
- * 卡牌（9 处，如 Tank / Backline 依赖）目前没有 op 用例；图层引擎对
+ * 卡牌（9 处，如 Tank / Backline 依赖）目前没有 combat consumer；图层引擎对
  * kind "continuous.combat" 的 ContinuousEffect 没有任何消费分支
- * （src/layers/engine.ts 的 applyAbility / applyArithmetic 都不命中）。本原语
- * 按 CR v1.5 468.7.c（“this combat”效果在 combat-end 同时到期）注册
- * end-of-combat 时长的确定性行（ability 层），供 combat 工作流消费；Tank
- * （815.1.b 战斗伤害分配顺序）这类语义不在本原语内实现，也不通过 flags
- * 近似——最终回复里给出契约变更请求。
+ * （src/layers/engine.ts 的 applyAbility / applyArithmetic 都不命中）。因此本原语
+ * 在当前契约下保持 blocked，既不报告成功也不写入无行为的注册行。CR v1.5
+ * 468.7.c（“this combat”效果在 combat-end 到期）以及 Tank（815.1.b 战斗
+ * 伤害分配顺序）应由正式 combat consumer 消费；最终回复里给出契约变更请求。
  *
  * 参数：
  * - flags?: Expr / string[] — 本次战斗内生效的规则标记（字符串数组，如
- *   ["tank"]）。以 { id: flag } 的 KeywordGrant 形状注册为 ability 层行；没有
- *   图层引擎消费方时只如实持久化，不产生任何行为。缺省 []（空数组也合法）。
+ *   ["tank"]）。缺省 []（空数组也合法）；在 combat consumer 落地前保持 blocked。
  * - target? / pick? / choose? / objects? / filter? / appliesTo? / linkKey? —
  *   同 continuous.might 的选择约定。
  * - duration?: Expr / 字符串别名 | { type: "until", at, player? } |
  *   { type: "while-source-in-zone" } — 缺省 "end-of-combat"（468.7.c）。
  *
- * 结果（契约 3.3 / 3.6）：与 continuous.might 一致——目标全部失效 → ignored
- * mistargeted；choose 无合法选项且 min > 0 → negated impossible；每个合法对象
- * 提交一条 ability 层 addContinuous（kind "continuous.combat"）；链接值
- * <linkKey> = { count, objects }（缺省键 "affected"）。
+ * 结果（契约 3.3 / 3.6）：combat consumer 缺失时统一返回 negated/impossible，
+ * 不创建假效果；链接值 <linkKey> = { count, objects }（缺省键 "affected"）。
  *
  * 用到的 GameAction：无（addContinuous，契约 3.8）。
  */
@@ -46,6 +42,7 @@ import {
   buildKeywordGrantSpec,
   isDurationAlias,
   resolveContinuousDuration,
+  settlementIdentity,
   type DurationAlias,
   type KeywordGrant,
   type OpsTarget
@@ -70,6 +67,7 @@ export interface ContinuousCombatArgs {
   readonly duration?: Expr | Value;
   readonly appliesTo?: Expr | Value;
   readonly linkKey?: Expr | Value;
+  readonly settlementId?: Expr | Value;
 }
 
 type Selection =
@@ -92,7 +90,7 @@ type Selection =
 const ARGUMENT_KEYS: readonly string[] = [
   "flags",
   "target", "pick", "choose", "objects", "filter",
-  "duration", "appliesTo", "linkKey"
+  "duration", "appliesTo", "linkKey", "settlementId"
 ];
 const SELECTOR_KEYS: readonly string[] = ["target", "pick", "choose", "objects", "filter"];
 const CHOICE_KEYS: readonly string[] = [
@@ -274,11 +272,12 @@ function parseArgs(value: unknown): ContinuousCombatArgs {
       parseFlags(entry, "continuous.combat");
     } else if (key === "duration") {
       if (!isDurationAlias(entry)) throw new TypeError("continuous.combat duration is not a known alias");
-      if (isRecord(entry)) parseSelection(entry as Value, "continuous.combat");
     } else if (key === "appliesTo") {
       if (entry !== "self") throw new TypeError('continuous.combat appliesTo must be "self"');
     } else if (key === "linkKey") {
       if (!isId(entry)) throw new TypeError("continuous.combat linkKey must be a non-empty string");
+    } else if (key === "settlementId") {
+      if (!isId(entry)) throw new TypeError("continuous.combat settlementId must be a non-empty string");
     }
   }
   return value as unknown as ContinuousCombatArgs;
@@ -450,6 +449,11 @@ const continuousCombat = {
       throw new TypeError("continuous.combat duration is not a known alias");
     }
     const duration: DurationAlias = rawDuration;
+    const rawSettlementId = args.settlementId === undefined ? undefined : evaluateArgument(ctx, args.settlementId);
+    if (rawSettlementId !== undefined && !isId(rawSettlementId)) {
+      throw new TypeError("continuous.combat settlementId must be a non-empty string");
+    }
+    const settlement = settlementIdentity(ctx.source.ref, "continuous.combat", key => ctx.linked(key), (key, value) => ctx.link(key, value), rawSettlementId);
     const rawAppliesTo = args.appliesTo === undefined ? undefined : evaluateArgument(ctx, args.appliesTo);
     if (rawAppliesTo !== undefined && rawAppliesTo !== "self") {
       throw new TypeError('continuous.combat appliesTo must evaluate to "self"');
@@ -461,43 +465,12 @@ const continuousCombat = {
       ? []
       : parseFlags(evaluateArgument(ctx, args.flags), "continuous.combat");
 
-    const selection = resolveSelection(ctx, args);
-    const resolution = resolveCandidates(ctx, selection);
-    if (resolution.status === "ignored") {
-      // 359.3.e.6/e.7：目标（或等价的 pick / 派生引用）全部失效 → ignored。
-      return { status: "ignored", reason: "mistargeted" };
-    }
-    if (resolution.status === "impossible") {
-      return negate("impossible");
-    }
-
-    const sourceRef = ctx.source.ref;
-    let suffix = 0;
-    for (const ref of resolution.refs) {
-      const snapshot = ctx.object(ref);
-      if (snapshot === null) continue;
-      suffix += 1;
-      const target: OpsTarget = { ref, snapshot };
-      const registration = buildKeywordGrantSpec(
-        "continuous.combat",
-        sourceRef,
-        target,
-        "continuous.combat",
-        flags,
-        String(suffix),
-        { forceList: true }
-      );
-      ctx.addContinuous(registration.effect, resolveContinuousDuration(duration, sourceRef));
-      count += 1;
-      affected.push(refValue(ref));
-    }
-
-    if (count === 0) {
-      // 选择合法但没有任何对象存活到提交（罕见：resolution 之后全部失效）。
-      return negate("skipped");
-    }
-    const values = writeLinks();
-    return { status: "executed", events: [...events], linkedValues: values };
+    // No combat workflow consumer exists in the current contract. Keep this
+    // primitive blocked instead of reporting a successful no-op registration.
+    void duration;
+    void settlement;
+    void flags;
+    return negate("impossible");
   }
 } satisfies InstructionDef<ContinuousCombatArgs>;
 

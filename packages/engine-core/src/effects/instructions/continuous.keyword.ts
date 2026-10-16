@@ -1,9 +1,6 @@
 /**
- * continuous.keyword — 建立“获得能力标记”（ability 图层）的图层效果。与
- * continuous.grant-keyword 的差别：keyword / keywords 都缺省时，不判 impossible，
- * 而是回退为本 op id 本身（"continuous.keyword"）—— 这是 judgeReason 里
- * continuous.keyword 的实际用法：卡牌只声明“建立能力标记”，不带具体关键词
- * id（28 处 judgeReason 提及均无 op 用例的参数需求核对结果）。
+ * continuous.keyword — 建立“获得能力标记”（ability 图层）的图层效果。关键词
+ * 参数缺失时保持 judge-required，不能把 op id 发明成规则关键词。
  *
  * 规则依据（CR v1.5）：478 / 478.1.a（ability 图层）、317.1.a / 317.2.c /
  * 468.7.c（持续时间）。能力标记的具体语义由关键词展开 / combat 工作流负责；
@@ -11,8 +8,7 @@
  *
  * 参数：与 continuous.grant-keyword 相同（keyword? / value? / keywords? /
  * target? / pick? / choose? / objects? / filter? / duration? / appliesTo? /
- * linkKey?），唯一差异是 keyword 与 keywords 都缺省时回退为
- * [{ id: "continuous.keyword" }]（无数值）。
+ * linkKey? / settlementId?）。
  *
  * 结果（契约 3.3 / 3.6）：与 continuous.grant-keyword 一致——目标全部失效 →
  * ignored mistargeted（359.3.e.2/e.6）；choose 无合法选项且 min > 0 → negated
@@ -37,9 +33,12 @@ import type {
   ZoneId
 } from "../contract.js";
 import {
+  buildKeywordArithmeticSpec,
   buildKeywordGrantSpec,
   isDurationAlias,
+  normaliseKeywordGrants,
   resolveContinuousDuration,
+  settlementIdentity,
   type DurationAlias,
   type KeywordGrant,
   type OpsTarget
@@ -66,6 +65,7 @@ export interface ContinuousKeywordArgs {
   readonly duration?: Expr | Value;
   readonly appliesTo?: Expr | Value;
   readonly linkKey?: Expr | Value;
+  readonly settlementId?: Expr | Value;
 }
 
 type Selection =
@@ -88,7 +88,7 @@ type Selection =
 const ARGUMENT_KEYS: readonly string[] = [
   "keyword", "value", "keywords",
   "target", "pick", "choose", "objects", "filter",
-  "duration", "appliesTo", "linkKey"
+  "duration", "appliesTo", "linkKey", "settlementId"
 ];
 const SELECTOR_KEYS: readonly string[] = ["target", "pick", "choose", "objects", "filter"];
 const CHOICE_KEYS: readonly string[] = [
@@ -290,11 +290,12 @@ function parseArgs(value: unknown): ContinuousKeywordArgs {
       }
     } else if (key === "duration") {
       if (!isDurationAlias(entry)) throw new TypeError("continuous.keyword duration is not a known alias");
-      if (isRecord(entry)) parseSelection(entry as Value, "continuous.keyword");
     } else if (key === "appliesTo") {
       if (entry !== "self") throw new TypeError('continuous.keyword appliesTo must be "self"');
     } else if (key === "linkKey") {
       if (!isId(entry)) throw new TypeError("continuous.keyword linkKey must be a non-empty string");
+    } else if (key === "settlementId") {
+      if (!isId(entry)) throw new TypeError("continuous.keyword settlementId must be a non-empty string");
     }
   }
   return value as unknown as ContinuousKeywordArgs;
@@ -466,13 +467,17 @@ const continuousKeyword = {
       throw new TypeError("continuous.keyword duration is not a known alias");
     }
     const duration: DurationAlias = rawDuration;
+    const rawSettlementId = args.settlementId === undefined ? undefined : evaluateArgument(ctx, args.settlementId);
+    if (rawSettlementId !== undefined && !isId(rawSettlementId)) {
+      throw new TypeError("continuous.keyword settlementId must be a non-empty string");
+    }
+    const settlement = settlementIdentity(ctx.source.ref, "continuous.keyword", key => ctx.linked(key), (key, value) => ctx.link(key, value), rawSettlementId);
     const rawAppliesTo = args.appliesTo === undefined ? undefined : evaluateArgument(ctx, args.appliesTo);
     if (rawAppliesTo !== undefined && rawAppliesTo !== "self") {
       throw new TypeError('continuous.keyword appliesTo must evaluate to "self"');
     }
 
-    // 与 grant-keyword 的唯一差异：keyword / keywords 都缺省时回退为 op id
-    // 本身（无数值），而不是判 impossible。
+    // 缺少关键词参数时无法证明任何规则语义，保持 judge-required。
     let grants: KeywordGrant[];
     if (args.keywords !== undefined) {
       grants = parseKeywordValue(evaluateArgument(ctx, args.keywords), "continuous.keyword");
@@ -484,7 +489,7 @@ const continuousKeyword = {
       }
       grants = single.map(grant => ({ ...grant, ...(rawValue === undefined ? {} : { value: rawValue }) }));
     } else {
-      grants = [{ id: "continuous.keyword" }];
+      return negate("impossible");
     }
 
     const selection = resolveSelection(ctx, args);
@@ -504,15 +509,39 @@ const continuousKeyword = {
       if (snapshot === null) continue;
       suffix += 1;
       const target: OpsTarget = { ref, snapshot };
+      const normalised = normaliseKeywordGrants(target, grants);
+      const promotedUnvaluedIds = [...new Set(grants
+        .filter(grant => grant.value !== undefined && snapshot.keywords.some(keyword =>
+          keyword.id === grant.id && keyword.value === undefined))
+        .map(grant => grant.id))];
       const registration = buildKeywordGrantSpec(
         "continuous.keyword",
         sourceRef,
         target,
         "continuous.keyword",
-        grants,
-        String(suffix)
+        normalised,
+        String(suffix),
+        {
+          settlement,
+          condition: promotedUnvaluedIds.length > 0
+            ? object => object.ref.id === ref.id && object.ref.zoneEntryId === ref.zoneEntryId &&
+              promotedUnvaluedIds.every(id => object.keywords.some(keyword => keyword.id === id && keyword.value === undefined))
+            : undefined
+        }
       );
       ctx.addContinuous(registration.effect, resolveContinuousDuration(duration, sourceRef));
+      for (const [index, grant] of grants.entries()) {
+        if (grant.value === undefined || snapshot.keywords.every(keyword => keyword.id !== grant.id)) continue;
+        const arithmetic = buildKeywordArithmeticSpec(
+          "continuous.keyword",
+          sourceRef,
+          target,
+          grant,
+          String(suffix) + ":value:" + String(index),
+          settlement
+        );
+        ctx.addContinuous(arithmetic.effect, resolveContinuousDuration(duration, sourceRef));
+      }
       count += 1;
       granted.push(refValue(ref));
     }
