@@ -25,14 +25,17 @@ import type { CardProgram } from "../../ir/index.js";
  *   宿主）存在 Stunned 的敌方单位时，宿主获得 +2 Might 的图层算术修正。
  *
  * status = judge-required（三处缺口均不近似实现）：
- * 1. [Hidden] 的展开虽然有 KeywordDef，但其消费方缺失——Hidden.ts 自己记录
- *    cost.hidden / cost.pay / effect.zone / continuous.timing 都未合入，Hide 动作与
- *    面朝下区域的免费打出许可没有执行路径；
+ * 1. [Hidden] 的展开虽然有 KeywordDef（RIFT-264 批次），但其消费方缺失——Hidden.ts
+ *    自己记录 cost.hidden / cost.pay / effect.zone / continuous.timing 都未合入，
+ *    Hide 动作与面朝下区域的免费打出许可没有执行路径；
  * 2. “you may pay :rb_energy_2:” 需要 cost.pay 原语，effects/instructions/ 下没有该
- *    文件（费用计划与支付由未合入的 RIFT-89 批次提供）；
- * 3. “While there's a stunned enemy unit here, I have +2 [M]” 需要卡牌侧的
- *    continuous.might 注册/求值入口与 Stunned 状态谓词（RIFT-91 只合入了 layers
- *    引擎，卡程序没有注册路径）。
+ *    文件（费用种类与 cost.pay / cost.modify 属未合入的 RIFT-261 批次）；
+ * 3. “While there's a stunned enemy unit here, I have +2 [M]” 需要卡牌侧 static
+ *    效果进入 layers 的注册/求值入口：RIFT-257 的 attachProgramLifecycle 只把
+ *    static 交给调用方 binder（缺省 noopStaticBinder），engine-core 内没有把
+ *    static 数据转成 ctx.addContinuous 的实现；condition 也只有 compare/all/any/
+ *    not/expression 五类（没有 stunned 状态谓词），layers 过滤器的 sameLocationAs
+ *    锚点也未接线。
  * “Stun a unit” 半段用已合入的 effect.stun 真实执行（golden 覆盖接受/拒绝对比）。
  */
 export default {
@@ -43,10 +46,11 @@ export default {
     "三处缺口：(1) [Hidden] 的 KeywordDef 已合入但没有消费方——Hidden.ts 记录 cost.hidden / " +
     "cost.pay / effect.zone / continuous.timing 均未合入，Hide 动作与面朝下区域的免费打出许可无" +
     "执行路径；(2) “you may pay :rb_energy_2:” 需要 cost.pay 原语，effects/instructions/ 下没有" +
-    "该文件（费用计划/支付属 RIFT-89 批次）；(3) “While there's a stunned enemy unit here, I have " +
-    "+2 :rb_might:” 需要卡牌侧的 continuous.might 静态效果注册/求值入口，RIFT-91 只合入了 layers" +
-    "引擎，卡程序没有注册路径。依赖 RIFT-89（费用/支付）与 RIFT-91（layers 接线），并复核 Hidden" +
-    "展开链路。“Stun a unit” 半段用已合入的 effect.stun 真实执行。",
+    "该文件（费用种类/支付属 RIFT-261）；(3) “While there's a stunned enemy unit here, I have " +
+    "+2 :rb_might:” 的 static continuous.might 没有进入 layers 的注册方（RIFT-257 的 attachProgramLifecycle " +
+    "只调用调用方 binder，缺省 noopStaticBinder），且 Condition 无 stunned 状态谓词、图层过滤器不读 " +
+    "sameLocationAs。依赖 RIFT-261（费用/支付）、RIFT-257（static 效果→layers 接线）与 RIFT-87（条件/谓词）。" +
+    "“Stun a unit” 半段用已合入的 effect.stun 真实执行。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     {

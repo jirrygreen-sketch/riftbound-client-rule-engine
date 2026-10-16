@@ -3,11 +3,16 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/master-of-shadows.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { translateInstructionTargets } from "../../../../engine-core/dist/programs/filters.js";
+import { describeActivate } from "../../../../engine-core/dist/programs/activate.js";
 import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 
 const CANONICAL_ID =
@@ -28,7 +33,8 @@ test("ven-143-166 Master of Shadows: validateCardProgram passes and identity is 
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /card-banished/);
   assert.match(program.judgeReason, /disempower/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
 test("ven-143-166: 'When you banish a card you own' trigger shape", () => {
@@ -48,14 +54,35 @@ test("ven-143-166: 'When you banish a card you own' trigger shape", () => {
   assert.equal(triggered.optional, false);
 });
 
-test("ven-143-166: the descriptive trigger filter is rejected by the strict trigger validator", () => {
+test("ven-143-166: the card-banished trigger cannot be registered by the merged binding", () => {
   // events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 没有 card-banished，因此该触发条件
-  // 目前无法注册（契约变更请求；见 judgeReason 第 1 条）。
+  // 目前无法注册（契约变更请求；见 judgeReason 第 1 条）。RIFT-257 的注册链路会把
+  // filter 翻译成 TriggerSpec，但 pipeline.registerTrigger 再走 assertTriggerSpec，
+  // 因此该触发会在真正注册前被拒，而不是注册成一个更宽的触发。
   const result = validateTriggerSpec(triggered.trigger);
   assert.equal(result.ok, false);
   const codes = result.issues.map(issue => issue.code);
   assert.ok(codes.includes("invalid-event-type"), JSON.stringify(codes));
   assert.ok(codes.includes("unknown-field"), JSON.stringify(codes));
+
+  const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
+  const kernel = world()
+    .unit("master-of-shadows", { types: ["legend"], zone: "board", cardId: CANONICAL_ID })
+    .build();
+  const [registration] = triggerRegistrations(registry, kernel.getObject("master-of-shadows"));
+  // “you banish a card you own” 的 player / owner 两个锚点都被翻译进 filter。
+  assert.deepEqual(registration.spec.filter, {
+    event: "card-banished",
+    object: { owner: "self" },
+    player: "self"
+  });
+  // 翻译结果仍然不是合法的 TriggerSpec：card-banished 不在封闭事件集合里。
+  const bound = validateTriggerSpec(registration.spec);
+  assert.equal(bound.ok, false);
+  assert.ok(
+    bound.issues.map(issue => issue.code).includes("invalid-event-type"),
+    JSON.stringify(bound.issues)
+  );
 });
 
 test("ven-143-166: 'empower me' is the merged effect.empower against the source", () => {
@@ -72,7 +99,7 @@ test("ven-143-166: 'empower me' is the merged effect.empower against the source"
 
 test("ven-143-166 golden: 'empower me' empowers the legend source through the interpreter", () => {
   const kernel = world()
-    .unit("master-of-shadows", { types: ["legend"], zone: "board" })
+    .unit("master-of-shadows", { types: ["legend"], zone: "board", cardId: CANONICAL_ID })
     .build();
   const context = kernel.clone({ sourceSnapshot: kernel.getObject("master-of-shadows") });
 
@@ -127,6 +154,29 @@ test("ven-143-166: 'Disempower me' has no cost payment kind", () => {
   );
 });
 
+test("ven-143-166 binding: the merged activated-ability adapter translates the ability and still blocks on the cost kind", () => {
+  // RIFT-257 merged describeActivate: it resolves the program, translates the
+  // body (targets included) and builds the ChainDraft. The disempower payment has
+  // no kind in cost/plan-values.ts, so Finalize cannot pay it (judgeReason 2/3).
+  const kernel = world()
+    .unit("master-of-shadows", { types: ["legend"], zone: "board", cardId: CANONICAL_ID })
+    .build();
+  const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
+  const draft = describeActivate(registry, kernel.getObject("master-of-shadows"), "A");
+
+  assert.equal(draft.kind, "activated");
+  assert.equal(draft.speed, "action");
+  assert.deepEqual(draft.body.map(instruction => instruction.id), [
+    "master-of-shadows.discard-one",
+    "master-of-shadows.draw-one"
+  ]);
+  assert.equal(draft.cost.cost.kind, "activated");
+  assert.deepEqual(
+    translateInstructionTargets(activated.body).map(instruction => instruction.op),
+    ["effect.discard", "effect.draw"]
+  );
+});
+
 test("ven-143-166 golden: 'Discard 1, then draw 1' discards and draws", () => {
   const kernel = world()
     .unit("master-of-shadows", { types: ["legend"], zone: "board" })
@@ -178,8 +228,9 @@ test.todo(
 );
 test.todo(
   "ven-143-166: 'Disempower me' as an activation cost needs a disempower payment kind " +
-    "(CR 443.2.a) in cost/plan-values.ts (RIFT-89)"
+    "(CR 443.2.a) in cost/plan-values.ts (RIFT-261)"
 );
 test.todo(
-  "ven-143-166: ActivatedAbility -> Chain Finalize wiring is unmerged (RIFT-89)"
+  "ven-143-166: the banish event pattern needs the card-banished discriminant and who-banished / " +
+    "who-owns payload fields on EventPattern (contract change request)"
 );

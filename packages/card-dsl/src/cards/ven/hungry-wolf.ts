@@ -15,34 +15,42 @@ import type { CardProgram } from "../../ir/index.js";
  *   355.10.g、412.4）。
  * - “give me +1 :rb_might: this turn” 是带回合期限的临时 Might 修正：effect.buff 的
  *   边界注释明确 Buff 计数器（702）不是临时 Might，该修正属 layers 的
- *   continuous.might + continuous.duration（315.4 / 清理步骤到期）。effects/
- *   instructions/ 下没有 continuous.might / effect.might-modify 原语，卡牌程序
- *   也没有把持续效果注册进 layers 的入口，故该半段只保留有依据的 IR 形状，
- *   保持 judge-required（与 ogn/stupefy 同一写法）。
+ *   continuous.might + continuous.duration（315.4 / 清理步骤到期）。RIFT-258 已合入
+ *   continuous.might 指令原语（ctx.addContinuous 注册 arithmetic 层效果），本卡用它
+ *   注册 +1 与本回合期限。
  * - “Use only if you've chosen an enemy unit this turn” 是启动限制（355.7 的选择
- *   历史）：封闭 HistoryQuery 只有 scope/action/timingPoint/player/object，
- *   GameAction 集合里没有“选择敌方单位”动作，无法按选择历史计数。
+ *   历史）：封闭 HistoryQuery 只有 scope/action/timingPoint/player/object/exclude/
+ *   objectFilter，GameAction 集合里没有“选择敌方单位”动作，无法按选择历史计数。
  * - “only once each turn” 是能力次数限制（386.1）：契约 3.1 的 activated 能力没有
  *   per-turn 许可字段（TriggerOnce 只作用于触发式能力），也没有最终校验消费方。
  *
- * status = judge-required：三处缺口（临时 Might、选择历史限制、每回合一次限制）
- * 均无已合入语义，不近似实现。“Ready me” 半段用已合入的 effect.ready 真实执行。
+ * status = judge-required（两处缺口均不近似实现）：
+ * 1. “Use only if you've chosen an enemy unit this turn” 是启动限制（355.7 的选择
+ *    历史）：condition.history 的封闭 HistoryQuery 只有 scope/action/timingPoint/
+ *    player/object/exclude/objectFilter，GameAction 集合里没有“选择敌方单位”动作，
+ *    触发式能力的 condition 也无法作用到启动能力的许可；
+ * 2. “only once each turn” 是 386.1 的能力次数限制：activated 能力没有 per-turn
+ *    许可字段（TriggerOnce 只作用于触发式能力），Finalize 侧也没有消费方
+ *    （RIFT-257 的 translateRestriction 只接受 Condition 形状，描述性 printed-use-limit
+ *    会被判为 judge-required）。
+ *
+ * 已合入部分的执行证据：“Ready me”（effect.ready）与 “+1 :rb_might: this turn”
+ * （continuous.might + this-turn 期限）都用真实解释器执行，golden 断言实际事件、
+ * arithmetic 层注册与 turn-end 到期。
  */
 export default {
   canonicalCardId: "card.hash-c57951db37608d30432354f25a074c018c9b41aa44a03a6ee3b5b4be3ec93ad1",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1) “give me +1 :rb_might: this turn” 需要临时 Might 修正与回合期限——" +
-    "契约 3.6 的封闭 GameAction 集合没有 might 修改动作，effects/instructions/ 下没有 " +
-    "continuous.might / effect.might-modify 原语，卡牌程序也没有把持续效果注册进 layers 的入口" +
-    "（ctx.addContinuous 目前只有 chain/engine 内部接线），到期由 315.4 / 清理步骤处理（RIFT-91）；" +
-    "(2) “Use only if you've chosen an enemy unit this turn” 是启动限制：condition.history 的封闭 " +
-    "HistoryQuery 只有 scope/action/timingPoint/player/object，GameAction 集合内没有“选择敌方单位”" +
-    "动作，无法按选择历史计数（RIFT-87 条件/历史管线）；(3) “only once each turn” 是 386.1 的能力次数" +
+    "两处缺口：(1) “Use only if you've chosen an enemy unit this turn” 是启动限制：condition.history 的封闭 " +
+    "HistoryQuery 只有 scope/action/timingPoint/player/object/exclude/objectFilter，GameAction 集合内没有“选择敌方单位”" +
+    "动作，无法按选择历史计数（RIFT-87 条件/历史管线）；(2) “only once each turn” 是 386.1 的能力次数" +
     "限制，activated 能力没有 per-turn 许可字段（TriggerOnce 只作用于触发式能力），Finalize 侧也没有" +
-    "消费方。依赖 RIFT-91（layers 接线）与 RIFT-87（条件/历史）；三处均不近似实现。" +
-    "“Ready me” 半段用已合入的 effect.ready 真实执行。",
+    "消费方，RIFT-257 的 translateRestriction 只接受 Condition 形状（描述性 printed-use-limit 会被判为 " +
+    "judge-required）。依赖 RIFT-87（条件/历史）与 RIFT-257（启动能力许可/Finalize 接线）；两处均不近似实现。" +
+    "“Ready me” 用已合入的 effect.ready，“+1 :rb_might: this turn” 用 RIFT-258 已合入的 " +
+    "continuous.might（this-turn 期限）真实执行。",
   abilities: [
     {
       kind: "activated",
@@ -65,14 +73,15 @@ export default {
           args: {}
         },
         {
-          // “give me +1 [M] this turn”：临时 Might 修正的有效 IR 形状，尚无原语
-          // 消费（见 judgeReason）。不写成 Buff（702 的计数器语义不同）。
+          // “give me +1 [M] this turn”：RIFT-258 的 continuous.might 注册 arithmetic 层
+          // 效果（478.1.a），duration "this-turn" 由 317.1.a / 468.7.c 在 turn-end 到期。
+          // 不写成 Buff（702 的计数器语义不同）。
           id: "hungry-wolf.might-this-turn",
-          op: "effect.might-modify",
+          op: "continuous.might",
           args: {
             amount: { kind: "constant", value: 1 },
             duration: { kind: "constant", value: "this-turn" },
-            object: { kind: "constant", value: { kind: "source" } }
+            objects: { kind: "constant", value: { kind: "source" } }
           }
         }
       ]

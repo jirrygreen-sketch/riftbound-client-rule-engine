@@ -20,11 +20,13 @@ import type { CardProgram } from "../../ir/index.js";
  * status = judge-required（三处缺口均不近似实现）：
  * 1. 触发过滤缺“增加方向”与“something else”宿主排除键，且 EVENT_PATTERN_TYPES 没有
  *    empowerment 事件判别值（empowered-changed 的载荷不带 direction，EventPattern 无
- *    exclude；见 Soul's Reflection 的同型缺口）；
- * 2. cost/plan-values.ts 没有 disempower 付费种类（RIFT-89）；
+ *    exclude；见 Soul's Reflection 的同型缺口）；RIFT-257 的 translateObjectFilter 也会
+ *    以 unsupported filter field 拒绝 other/direction（契约变更请求）；
+ * 2. cost/plan-values.ts 没有 disempower 付费种类（付费种类与 cost.pay / cost.modify
+ *    属未合入的 RIFT-261）；
  * 3. [A] 任意域 Power 无法在六域封闭 Domain 集合中表达（163.2.b；effect.resources
  *    已记录“绝不用某个域近似”），本卡以 ["rainbow"] 作描述性记录。
- * 依赖：事件载荷/触发器过滤扩展（契约变更请求）、RIFT-89；Ready 半段已可用 effect.ready
+ * 依赖：事件载荷/触发器过滤扩展（契约变更请求）、RIFT-261；Ready 半段已可用 effect.ready
  * 真实执行。
  */
 export default {
@@ -35,11 +37,14 @@ export default {
     "三处缺口：(1) “When you empower something else” 的触发器过滤不可表达——封闭时点 " +
     "empowered-changed（442.2.a）的载荷/EventPattern 没有增加方向（empower 与 disempower " +
     "共用该时点，443.1），也没有排除宿主自身的 “something else” 键（EVENT_PATTERN_TYPES 无 " +
-    "empowerment 判别值，validateTriggerSpec 会拒绝该 event 拼写）；(2) “Disempower me” " +
+    "empowerment 判别值，validateTriggerSpec 会拒绝该 event 拼写；RIFT-257 的 " +
+    "translateObjectFilter 也只接受白名单字段，other/direction 会被判为 unsupported filter field）；" +
+    "(2) “Disempower me” " +
     "作为费用需要 disempower 付费种类（443.2.a），cost/plan-values.ts 的非标准费用只支持 " +
-    "exhaust/discard/recycle/kill/reveal/spend-buff（RIFT-89）；(3) :rb_rune_rainbow: 是任意域 " +
+    "exhaust/discard/recycle/kill/reveal/spend-buff，付费种类与 cost.pay / cost.modify 仍属未合入的 " +
+    "RIFT-261；(3) :rb_rune_rainbow: 是任意域 " +
     "Power [A]（135.2.e.5.a、163.2.b），六域封闭 Domain 集合无法表达，仅以描述性 " +
-    "[\"rainbow\"] 记录。依赖事件载荷/过滤器扩展（契约变更请求）与 RIFT-89；“Ready a unit” " +
+    "[\"rainbow\"] 记录。依赖事件载荷/过滤器扩展（契约变更请求）与 RIFT-261；“Ready a unit” " +
     "本体用已合入的 effect.ready 可执行。不近似实现。",
   abilities: [
     {

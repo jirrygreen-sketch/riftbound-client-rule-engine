@@ -3,12 +3,15 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/nasus-guardian-of-knowledge.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import {
   matchesTriggerEvent,
   matchesTriggerObject
 } from "../../../../engine-core/dist/events/pipeline-match.js";
 import channel from "../../../../engine-core/dist/effects/instructions/effect.channel.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
 
 const [ability] = program.abilities;
 const [channelInstruction] = ability.body;
@@ -22,6 +25,7 @@ test("nasus-guardian-of-knowledge: passes validateCardProgram and is judge-requi
   );
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
+  assert.equal(cardRegistryById.get(program.canonicalCardId), program);
   assert.equal(
     program.sourceText,
     "Once each turn, when an enemy unit here dies, channel 1 rune exhausted."
@@ -30,9 +34,10 @@ test("nasus-guardian-of-knowledge: passes validateCardProgram and is judge-requi
 
 test("nasus-guardian-of-knowledge: judgeReason names the unresolved 'here' filter and task ids", () => {
   assert.match(program.judgeReason, /sameLocationAs/);
+  assert.match(program.judgeReason, /translateObjectFilter/);
   assert.match(program.judgeReason, /matchesTriggerEvent|matchesTriggerObject/);
   assert.match(program.judgeReason, /808\.1\.d\.3/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /effect\.channel/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
@@ -103,13 +108,21 @@ test("nasus-guardian-of-knowledge: the object-killed filter is accepted by the p
     }
   };
   assert.equal(matchesTriggerEvent({ ...pattern, sameLocationAs: undefined }, killed, "A"), true);
-  // unresolved gap: the 'here' anchor is not applied by the merged matcher, so a death at a
-  // DIFFERENT location also matches — that is exactly why the card is judge-required.
-  const elsewhere = {
-    ...killed,
-    object: { ...killed.object, location: { type: "battlefield", id: "battlefield-2" } }
-  };
-  assert.equal(matchesTriggerEvent({ ...pattern, sameLocationAs: undefined }, elsewhere, "A"), true);
+});
+
+test("nasus-guardian-of-knowledge: the merged binding rejects the 'here' anchor instead of widening the trigger", () => {
+  // RIFT-257 的注册链路会在注册前逐字段翻译 filter：sameLocationAs 不在
+  // translateObjectFilter 的白名单里，因此“here”无法注册（fail closed），
+  // 不会退化成“任意位置的敌方单位死亡”。
+  const program0 = { ...program, status: "executable", judgeReason: undefined };
+  const kernel = world()
+    .unit("nasus", { zone: "board", cardId: program.canonicalCardId })
+    .build();
+  const registry = new ProgramRegistry([program0]);
+  assert.throws(
+    () => triggerRegistrations(registry, kernel.getObject("nasus")),
+    error => error.code === "judge-required" && /sameLocationAs/.test(error.message)
+  );
 });
 
 test("nasus-guardian-of-knowledge: body channels exactly 1 rune, exhausted", () => {
@@ -153,6 +166,6 @@ test.todo(
 );
 test.todo(
   "nasus-guardian-of-knowledge: subscribe once: 'per-turn' through the trigger pipeline and " +
-    "assert the 383.3.e.1 single execution per turn (CardProgram -> trigger/chain adapter, " +
-    "RIFT-120 follow-up)"
+    "assert the 383.3.e.1 single execution per turn once the 'here' anchor above registers " +
+    "(RIFT-257's frequencyKey already consumes TriggerSpec.once)"
 );

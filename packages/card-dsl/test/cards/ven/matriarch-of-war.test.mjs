@@ -3,8 +3,13 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/matriarch-of-war.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 
 const CANONICAL_ID =
@@ -26,6 +31,8 @@ test("ven-153-166 Matriarch of War: validateCardProgram passes and identity is v
   assert.match(program.judgeReason, /empowered-changed/);
   assert.match(program.judgeReason, /disempower/);
   assert.match(program.judgeReason, /rainbow/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
 test("ven-153-166: the empower-something-else trigger mirrors the Soul's Reflection shape", () => {
@@ -103,13 +110,56 @@ test.todo(
 
 test.todo(
   "ven-153-166: pay 'Disempower me' plus :rb_rune_rainbow: ([A], 163.2.b) — no disempower payment " +
-    "kind in cost/plan-values.ts and no Universal Power value in the closed Domain union (RIFT-89)"
+    "kind in cost/plan-values.ts and no Universal Power value in the closed Domain union (RIFT-261)"
 );
 
-test("ven-153-166: the descriptive empowered-changed filter is rejected by the strict trigger validator", () => {
+test("ven-153-166: the descriptive empowered-changed filter is rejected by the strict validator and the binding adapter", () => {
   const result = validateTriggerSpec(triggered.trigger);
   assert.equal(result.ok, false);
   const codes = result.issues.map(issue => issue.code);
   assert.ok(codes.includes("invalid-event-type"), JSON.stringify(codes));
   assert.ok(codes.includes("unknown-field"), JSON.stringify(codes));
+
+  // RIFT-257 的 translateObjectFilter 只接受白名单字段：“something else” 的 other
+  // 与增加方向 direction 都会在注册前被判为 unsupported filter field。
+  assert.throws(
+    () => translateObjectFilter(triggered.trigger.filter.filter),
+    error => error.code === "judge-required" && /Unsupported filter field/.test(error.message)
+  );
+});
+
+test("ven-153-166: the printed cost fails on both gaps instead of being approximated", () => {
+  // 443.2.a 的 Disempower 与 163.2.b 的任意域 Power 都没有费用管线消费方；本测试
+  // 断言费用计划如实拒绝，而不是把 [A] 近似成某个域或忽略 Disempower。
+  const kernel = world()
+    .unit("matriarch-of-war", { types: ["legend"], zone: "board" })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("matriarch-of-war") });
+
+  // 印刷的 ["rainbow"] 不属于六域封闭集合（163.2.b），费用域校验直接拒绝。
+  assert.throws(
+    () => buildCostPlan(context, { id: "cost", cost: activated.cost }),
+    error => error instanceof CostPlanError && error.reason === "invalid-cost-plan" &&
+      /Expected unique cost domains/.test(error.message)
+  );
+
+  // 去掉 [A] 只留付款动作时，Disempower 付费种类缺失同样以 judge-required 拒绝。
+  assert.throws(
+    () => buildCostPlan(context, {
+      id: "cost",
+      cost: { kind: "activated", payments: activated.cost.payments }
+    }),
+    error => error instanceof CostPlanError && error.reason === "judge-required" &&
+      /Unsupported payment kind: disempower/.test(error.message)
+  );
+});
+
+test("ven-153-166 binding: the merged program registry exposes the two printed abilities", () => {
+  // RIFT-257 的 ProgramRegistry 用 canonicalCardId 解析整张程序；两条能力的 IR
+  // 形状（triggered + activated）都能通过校验，缺口只在事件词汇与费用种类。
+  const program0 = { ...program, status: "executable", judgeReason: undefined };
+  const registry = new ProgramRegistry([program0]);
+  const resolved = registry.get(CANONICAL_ID);
+  assert.equal(resolved.canonicalCardId, CANONICAL_ID);
+  assert.deepEqual(resolved.abilities.map(ability => ability.kind), ["triggered", "activated"]);
 });

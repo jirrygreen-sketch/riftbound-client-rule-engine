@@ -3,29 +3,35 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/otterpus.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
 
 const [replacement] = program.abilities;
 
 test("otterpus: passes validateCardProgram and is judge-required", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
+  assert.deepEqual(result.issues, []);
   assert.equal(
     program.canonicalCardId,
     "card.hash-88f5798e902358ceaf4c13e100918b603ddcdb5d2e0d5bc1d6df65283fdc2f61"
   );
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
+  assert.equal(cardRegistryById.get(program.canonicalCardId), program);
   assert.equal(
     program.sourceText,
     "If a player would score 1 point from conquering or holding during their first or second turn, they draw 1 instead."
   );
 });
 
-test("otterpus: judgeReason names the replacement-consumer and per-player-turn gaps", () => {
+test("otterpus: judgeReason names the replacement-binding and per-player-turn gaps", () => {
   assert.match(program.judgeReason, /replacement/);
-  assert.match(program.judgeReason, /ReplacementRegistration/);
+  assert.match(program.judgeReason, /RIFT-260/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /first or second turn/);
   assert.match(program.judgeReason, /485\.7|487\.7|490\.7|491\.7/);
   assert.match(program.judgeReason, /HistoryQuery/);
@@ -70,11 +76,81 @@ test("otterpus: the replacing draw really draws 1 through the chain adapter", ()
   assert.equal(outcome.linkedValues["otterpus.draw-instead.drawn"], 1);
 });
 
+test("otterpus golden: the merged replacement binder turns the card's pattern into a real score replacement", () => {
+  // RIFT-260 的 bindReplacement 把 replaces 模式变成 ReplacementRegistration、把
+  // with 计划成封闭 GameAction：这是 470.1/470.3/471/473.2 的 score 替代，替身是
+  // effect.draw（"they draw 1 instead"）。缺的只剩 engine-core 内的注册方。
+  const kernel = world()
+    .player("A")
+    .player("B")
+    .unit("otterpus", { zone: "board", cardId: program.canonicalCardId })
+    .deck(["top", "next"])
+    .build();
+  const registrations = [];
+  const host = {
+    object: ref => kernel.object(ref),
+    objects: () => kernel.objects,
+    context: () => kernel
+  };
+  bindReplacement(replacement, kernel.ref("otterpus"), {
+    host,
+    pipeline: {
+      clock: { turn: 1 },
+      registerReplacement: registration => registrations.push(registration)
+    }
+  });
+
+  assert.equal(registrations.length, 1);
+  const [registration] = registrations;
+  const score = { type: "score", player: "A", amount: 1 };
+  assert.equal(registration.matches(score, score), true);
+  // 替代结果是一条真实的 draw 动作，而不是伪造的额外得分。
+  assert.deepEqual(registration.apply(score, score), {
+    status: "replace",
+    actions: [{ type: "draw", player: "A", amount: 1 }]
+  });
+});
+
+test("otterpus golden: a score for the other player matches, but the planned draw is misattributed (judgeReason 3)", () => {
+  const kernel = world()
+    .player("A")
+    .player("B")
+    .unit("otterpus", { zone: "board", cardId: program.canonicalCardId })
+    .deck(["top"], { owner: "B" })
+    .build();
+  const registrations = [];
+  bindReplacement(replacement, kernel.ref("otterpus"), {
+    host: {
+      object: ref => kernel.object(ref),
+      objects: () => kernel.objects,
+      context: () => kernel
+    },
+    pipeline: { clock: { turn: 1 }, registerReplacement: registration => registrations.push(registration) }
+  });
+
+  const score = { type: "score", player: "B", amount: 1 };
+  assert.equal(registrations[0].matches(score, score), true);
+  // 缺口凭证（judgeReason 第 3 条）：被替代的得分者是 B，但 replacement/planner.ts
+  // 的 effect.draw 只接受 args.target，缺省取 planner.controller，规划出来的是 A 抽牌。
+  // 这里断言当前如实产生的动作，用来固定“事件得分者载荷缺失”这一缺口，
+  // 不代表该归属符合 470.3 的 "they draw 1 instead"。
+  assert.deepEqual(registrations[0].apply(score, score).actions, [
+    { type: "draw", player: "A", amount: 1 }
+  ]);
+});
+
+test("otterpus binding: the merged lifecycle only binds replacements through a caller-supplied binder", () => {
+  // RIFT-257 的 attachProgramLifecycle 把 replacement 能力交给 ProgramStaticBinder；
+  // 缺省 noopStaticBinder 不注册任何东西，而 engine-core 内没有提供真正的 binder，
+  // 所以 CardProgram 的 replace 数据至今没有生产入口（judgeReason）。
+  const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
+  assert.equal(registry.get(program.canonicalCardId).abilities[0].kind, "replacement");
+});
+
 test.todo(
   "otterpus: register the replacement data as a ReplacementRegistration on the 'score' event " +
-    "(470.1/470.3/471/473.2) and replace the 1 point with a draw for the scoring player, pending " +
-    "the CardProgram -> events pipeline wiring (RIFT-120 follow-up; merged ReplacementRegistration " +
-    "requires caller-supplied matches/apply code)"
+    "(470.1/470.3/471/473.2) — RIFT-260's bindReplacement already plans the draw (verified above), " +
+    "but no engine-core path binds a CardProgram's replacement ability (RIFT-257 static binder)"
 );
 test.todo(
   "otterpus: evaluate 'during their first or second turn' per scoring player (485.7/487.7/490.7/" +

@@ -23,6 +23,15 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * 结构说明：本条按契约 3.1 写成 replacement 能力（replaces + with + condition），
  * 保留可审查的形状；缺口的原语与规则见 judgeReason，不用近似手段替代。
+ *
+ * 复核（RIFT-337）：RIFT-260 已合入 replacement 绑定层（replacement/bind.ts 的
+ * bindReplacement 会把 replaces 模式变成 ReplacementRegistration、把 with 计划成
+ * 封闭 GameAction），因此“replacement 数据没有消费方”这句已经过时；仍缺的是
+ * engine-core 内把 CardProgram 的 replacement 能力接到该绑定层的注册方
+ * （RIFT-257 只提供 bindReplacement 回调，缺省不绑定），以及 485.7/487.7/490.7/491.7
+ * 的“每个玩家各自的第一/第二回合”谓词；另外替代 body 的 “they draw 1 instead”
+ * 需要把“被替代事件的得分者”绑定给 draw，而 replacement/planner.ts 的
+ * effect.draw 只认 args.target，缺省取 planner.controller，没有该事件载荷选择器。
  */
 const abilities: Ability[] = [
   {
@@ -50,12 +59,16 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "替代效果没有生产消费方：契约 3.1 的 replacement 能力是纯数据，而 events/pipeline.ts 的 " +
-    "ReplacementRegistration 需要调用方提供 matches/apply 代码，合并代码中没有任何把 CardProgram 的 " +
-    "replacement 数据注册成 ReplacementRegistration 的接线（RIFT-120 之后的 card-program 适配器仍未合入）；" +
-    "同时 'during their first or second turn' 需要**每个玩家各自**的回合序号（485.7/487.7/490.7/491.7 的 " +
+    "三处缺口：(1) 替代绑定层已合入（RIFT-260 的 replacement/bind.ts：bindReplacement 把 replaces 模式转成 " +
+    "ReplacementRegistration、把 with 计划成封闭 GameAction），但 engine-core 内没有把 CardProgram 的 " +
+    "replacement 能力接到该绑定层的注册方——RIFT-257 的 attachProgramLifecycle 只把 replacement 交给" +
+    "调用方提供的 binder（缺省 noopStaticBinder，没有任何调用方传入实现），所以替代效果仍无生产入口；" +
+    "(2) 'during their first or second turn' 需要**每个玩家各自**的回合序号（485.7/487.7/490.7/491.7 的 " +
     "First Turn Process 会按模式与先后手调整），contract 的 HistoryQuery 只有 turn/combat/game 三种 scope， " +
-    "Condition 也没有该谓词，因此无法判定条件。替换的 with 本体 effect.draw 已合入，可单独执行验证；" +
+    "Condition 也没有该谓词，因此无法判定条件；(3) 'they draw 1 instead' 的 draw 需要绑定被替代事件的" +
+    "得分者，而 replacement/planner.ts 的 effect.draw 只接受 args.target、缺省取 planner.controller，" +
+    "没有“被替代事件的玩家”载荷选择器（现状会把 draw 记到能力控制者名下）。替换的 with 本体 effect.draw " +
+    "已合入，可单独执行验证；" +
     "不近似实现（不改写全局回合计数、不把替代降级成额外抽 1 张）。",
   abilities,
   sourceText:

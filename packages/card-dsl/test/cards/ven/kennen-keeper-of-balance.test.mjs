@@ -3,8 +3,13 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/kennen-keeper-of-balance.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 
 const CANONICAL_ID =
   "card.hash-6d5c7c18a2ff9af74ab3f4a4b8ac837540733c2922614f53be32ab4e75be8f6b";
@@ -31,6 +36,7 @@ test("ven-135-166 Kennen, Keeper of Balance: program passes validateCardProgram"
   const result = validateCardProgram(program);
   assert.deepEqual(result.issues, []);
   assert.equal(result.ok, true);
+  assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
 test("ven-135-166 Kennen: identity, status, judgeReason and verbatim sourceText", () => {
@@ -40,7 +46,24 @@ test("ven-135-166 Kennen: identity, status, judgeReason and verbatim sourceText"
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /cost\.pay/);
   assert.match(program.judgeReason, /Hidden/);
-  assert.match(program.judgeReason, /continuous\.might/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /noopStaticBinder|RIFT-257/);
+});
+
+test("ven-135-166 Kennen: the merged keyword binding expands [Hidden] through its KeywordDef", () => {
+  // RIFT-264 merged Hidden's KeywordDef; RIFT-257's expandProgram resolves the
+  // card's keyword ability through the generated registry, so the declaration
+  // really produces the expansion (whose consumer is still missing - see todo).
+  assert.ok(keywordDefinitionsById.get("Hidden"));
+  const kernel = world()
+    .unit("kennen", { zone: "board", keywords: [{ id: "hidden" }] })
+    .build();
+  const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
+  const expanded = expandProgram(registry.get(CANONICAL_ID), kernel.getObject("kennen"));
+  assert.deepEqual(
+    expanded.expanded.filter(ability => ability.kind === "static").map(ability => ability.effect.kind),
+    ["cost.hidden"]
+  );
 });
 
 test("ven-135-166 Kennen: [Hidden] declared, play and attack triggers both optional", () => {
@@ -125,7 +148,7 @@ test("ven-135-166 golden: declining the play trigger does nothing (no payment, n
   assert.deepEqual(kernel.events, []);
 });
 
-test("ven-135-166 golden: the merged Stun half stuns the unit (accept path blocked only at cost.pay)", () => {
+test("ven-135-166 golden: the merged Stun half stuns the unit", () => {
   // The program's own stun instruction, with its TargetSpec locked by the
   // reference kernel exactly like Finalize would.
   const { targets, linkedTo, ...stunInstruction } = playChoice.args.body.value[1];
@@ -139,11 +162,70 @@ test("ven-135-166 golden: the merged Stun half stuns the unit (accept path block
   assert.deepEqual(outcome.events.map(event => event.action), ["stun"]);
   assert.equal(outcome.linkedValues["kennen.play.stun.stunned"].count, 1);
 
-  // Accepting the whole optional body cannot execute today: cost.pay has no
-  // merged primitive, and that must fail loudly instead of silently skipping.
-  const accepted = kennenKernel();
-  accepted.setAnswers({ "kennen.play.opt-in/optional": true });
-  assert.throws(() => runAbilityBody(playAbility.body, accepted), /Unregistered instruction opcode: cost\.pay/);
+});
+
+test("ven-135-166 golden: the +2 Might aura's declared modification executes once registered (CR 433.1.a)", () => {
+  // The card's static ability names the merged continuous.might shape: the same
+  // declared amount (2) registers an arithmetic-layer modification through the
+  // real primitive. What is missing is the card-side registration of the static
+  // ability plus the "stunned enemy unit here" predicate (see judgeReason), so the
+  // test drives the declared data through the interpreter and the layer engine.
+  const base = world()
+    .unit("kennen", { controller: "A", zone: "board", might: 2 })
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("kennen") });
+  const instruction = {
+    id: "kennen.aura",
+    op: "continuous.might",
+    args: {
+      amount: mightAura.effect.amount,
+      // The static ability records mode/appliesTo as plain values; the
+      // instruction form wraps them as constant expressions (contract 3.2).
+      mode: { kind: "constant", value: mightAura.effect.mode },
+      appliesTo: { kind: "constant", value: mightAura.effect.appliesTo }
+    }
+  };
+  const outcome = runAbilityBody([instruction], kernel, undefined, { host: kernel.ref("kennen") });
+  assert.equal(outcome.status, "executed");
+  assert.equal(kernel.continuousEffects.length, 1);
+  assert.equal(kernel.continuousEffects[0].effect.layer, "arithmetic");
+  assert.equal(kernel.continuousEffects[0].effect.effect.kind, "continuous.might");
+  assert.equal(kernel.continuousEffects[0].effect.effect.amount, 2);
+  assert.equal(
+    createLayerEngine(kernel.objects, kernel.continuousEffects).evaluate(kernel.ref("kennen")).might,
+    4
+  );
+
+  // The evaluator never sees the condition: layers' conditionMatches only knows
+  // always/never/type/has-tag/has-keyword and defaults to true, so the printed
+  // "while there's a stunned enemy unit here" gate cannot be honoured today.
+  assert.equal(mightAura.condition.kind, "compare");
+  assert.equal(
+    createLayerEngine([base.getObject("kennen")], [{
+      effect: {
+        id: "kennen.aura.ungated",
+        layer: "arithmetic",
+        source: base.ref("kennen"),
+        filter: { objectId: "kennen" },
+        effect: { ...mightAura.effect, condition: mightAura.condition }
+      },
+      duration: { type: "permanent" }
+    }]).evaluate(base.ref("kennen")).might,
+    // A no-enemy board still gets the +2: the gate is ignored.
+    4
+  );
+});
+
+test("ven-135-166 Kennen: the Hidden expansion names cost.hidden, which has no consumer", () => {
+  // Merged Hidden KeywordDef (RIFT-264) expands to a static cost.hidden effect.
+  // Hidden.ts records that the Hide action, the face-down play permission and
+  // the continuous.timing grant are RIFT-261/257 work; this asserts the shape the
+  // merged expansion hands to a consumer that does not exist yet.
+  const hidden = keywordDefinitionsById.get("Hidden");
+  assert.equal(hidden.stacking, "single");
+  const [expansion] = hidden.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(expansion.kind, "static");
+  assert.equal(expansion.effect.kind, "cost.hidden");
 });
 
 test("ven-135-166 golden: an already stunned unit is not stunned twice (CR 424.1.a.1)", () => {
@@ -164,15 +246,15 @@ test("ven-135-166 golden: an already stunned unit is not stunned twice (CR 424.1
 
 test.todo(
   "ven-135-166 Kennen: paying :rb_energy_2: through the optional trigger needs the cost.pay " +
-    "primitive and the finalized cost plan (RIFT-89)"
+    "primitive and the finalized cost plan (RIFT-261)"
 );
 
 test.todo(
   "ven-135-166 Kennen: [Hidden]'s cost.hidden / facedown play permission has no consumer even " +
-    "though the KeywordDef is merged (811.1.d; RIFT-89 / RIFT-91)"
+    "though the KeywordDef is merged (811.1.d; RIFT-261 / RIFT-257)"
 );
 
 test.todo(
   "ven-135-166 Kennen: the +2 Might aura needs the card-side continuous.might registration " +
-    "(RIFT-91) and a Stunned-state predicate over the current battlefield"
+    "(RIFT-257 static binder) and a Stunned-state predicate over the current battlefield (RIFT-87)"
 );
