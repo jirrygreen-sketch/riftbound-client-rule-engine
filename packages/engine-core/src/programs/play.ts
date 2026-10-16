@@ -1,4 +1,4 @@
-import type { CardProgram, CostSpec, Instruction, PlayAbility } from '@riftbound/card-dsl';
+import type { CardProgram, Condition, CostSpec, Instruction, PlayAbility, Requirement, Restriction } from '@riftbound/card-dsl';
 import type { ChainDraft } from '../chain/engine.js';
 import type { CostPlanInput } from '../cost/plan-types.js';
 import type { GameAction, ObjectSnapshot } from '../effects/contract.js';
@@ -23,6 +23,27 @@ export function translateCost(cost: CostSpec | undefined, id: string, mode: 'pla
   }
   if (kind === undefined) return raw as CostPlanInput['cost'];
   return { ...raw, kind } as CostPlanInput['cost'];
+}
+
+const CONDITION_KINDS = new Set(['always', 'never', 'compare', 'all', 'any', 'not', 'expression']);
+
+export function translateLegalityCondition(rule: Requirement | Restriction, id: string, label: 'requirement' | 'restriction'): Condition {
+  if (rule.condition !== undefined) {
+    if (rule.value !== undefined) judgeRequired(`${label} ${id} combines condition and value without an adapter`);
+    return rule.condition;
+  }
+  if (CONDITION_KINDS.has(rule.kind) && rule.value === undefined) return rule as unknown as Condition;
+  judgeRequired(`${label} ${id} kind ${rule.kind} needs a rules adapter`);
+}
+
+export function translateRequirements(requirements: readonly Requirement[] | undefined, id: string): readonly Condition[] | undefined {
+  if (!requirements?.length) return undefined;
+  return requirements.map(requirement => translateLegalityCondition(requirement, id, 'requirement'));
+}
+
+export function translateRestriction(restriction: Restriction | undefined, id: string): readonly Condition[] | undefined {
+  if (!restriction) return undefined;
+  return [translateLegalityCondition(restriction, id, 'restriction')];
 }
 
 function cardKind(source: ObjectSnapshot): ChainDraft['kind'] {
@@ -54,10 +75,11 @@ export function describePlay(registry: ProgramRegistry, action: Extract<GameActi
   const kind = cardKind(source);
   const expanded = expandProgram(program, source);
   const ability = expanded.abilities.find((candidate): candidate is PlayAbility => candidate.kind === 'play');
-  if (ability?.requirements?.length || ability?.restriction) judgeRequired(`Play requirements/restriction for ${program.canonicalCardId} need a rules adapter`);
   const body = translateInstructionTargets(ability?.body ?? []) as readonly Instruction[];
   validateSurface(body);
   const id = `play:${source.ref.id}:${source.ref.zoneEntryId}:${action.player}:${++playSequence}`;
+  const requirements = translateRequirements(ability?.requirements, program.canonicalCardId);
+  const restrictions = translateRestriction(ability?.restriction, program.canonicalCardId);
   return {
     id,
     controller: action.player,
@@ -66,6 +88,8 @@ export function describePlay(registry: ProgramRegistry, action: Extract<GameActi
     speed: abilitySpeed(expanded.abilities, source),
     body,
     ...(ability?.cost ? { cost: { id: `cost:${id}`, cost: translateCost(ability.cost, id, 'play')!, ...(source.power ? { domains: source.power } : {}) } } : {}),
+    ...(requirements ? { requirements } : {}),
+    ...(restrictions ? { restrictions } : {}),
     ...(action.location ? { location: action.location } : {})
   };
 }

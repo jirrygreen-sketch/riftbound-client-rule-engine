@@ -16,7 +16,9 @@ exports. Callers must inject the generated registry (or a Map) into this adapter
 That is a contract change request for the shared package: expose a stable generated
 program-registry entry point, such as `@riftbound/card-dsl/registry`.
 
-Unsupported requirements, restrictions, additional costs, mode choices, nested target
-lifecycles, unknown keywords, and unsupported filter fields fail closed with
+Requirement/restriction records that carry a direct EffectIR `Condition` are copied
+to the ChainDraft and checked during Finalize. Descriptive kinds without a condition
+adapter, additional costs, mode choices, nested target lifecycles, unknown keywords,
+and unsupported filter fields fail closed with
 `ProgramBindingError(code: "judge-required")`. Printed `energy: null`/`power: null`
 are left to the existing cost engine and are never coerced to zero.

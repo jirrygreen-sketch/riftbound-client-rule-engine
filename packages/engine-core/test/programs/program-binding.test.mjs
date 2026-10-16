@@ -55,6 +55,18 @@ test('spell program builds and resolves a ChainDraft', () => {
   assert.deepEqual(f.engine.pipeline.events.filter(event => ['object-enters-chain', 'card-drawn', 'card-drawn', 'card-drawn', 'card-drawn', 'card-played', 'object-enters-trash'].includes(event.timingPoint)).map(event => event.timingPoint), ['object-enters-chain', 'card-drawn', 'card-drawn', 'card-drawn', 'card-drawn', 'card-played', 'object-enters-trash']);
 });
 
+test('play requirements and restrictions are forwarded to Chain Finalize', () => {
+  const program = { canonicalCardId: 'legality-card', rulesetVersion: 'core-1.5', status: 'executable', sourceText: 'legality', abilities: [
+    { kind: 'play', requirements: [{ kind: 'never' }], restriction: { kind: 'always' }, body: [] }
+  ] };
+  const b = createProgramBinding({ cardPrograms: [program] });
+  const f = fixture({ cards: [{ id: 'spell', cardId: 'legality-card', types: ['spell'], energy: 1, power: [] }], describePlay: b.describePlay });
+  const draft = b.describePlay({ type: 'play', object: f.kernel.ref('spell'), player: 'A' }, f.kernel.getObject('spell'));
+  assert.deepEqual(draft.requirements, [{ kind: 'never' }]);
+  assert.deepEqual(draft.restrictions, [{ kind: 'always' }]);
+  assert.throws(() => f.engine.execute(draft), /Finalize legality failed/);
+});
+
 test('unit program registers its card-played trigger and resolves draw', () => {
   const b = binding();
   const f = fixture({ cards: [{ id: 'unit', cardId: ETB_UNIT, types: ['unit'], energy: 1, power: [], might: 3 }], describePlay: b.describePlay });

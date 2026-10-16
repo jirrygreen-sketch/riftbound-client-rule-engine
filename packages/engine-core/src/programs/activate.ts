@@ -5,7 +5,7 @@ import { ProgramBindingError, judgeRequired } from './errors.js';
 import { translateInstructionTargets } from './filters.js';
 import { expandProgram } from './keywords.js';
 import { ProgramRegistry } from './registry.js';
-import { translateCost } from './play.js';
+import { translateCost, translateRestriction } from './play.js';
 
 function activationList(registry: ProgramRegistry, source: ObjectSnapshot): ActivatedAbility[] {
   const program = registry.get(source.cardId);
@@ -21,11 +21,11 @@ export function describeActivate(registry: ProgramRegistry, source: ObjectSnapsh
   const abilities = activationList(registry, source);
   const ability = abilities[abilityIndex];
   if (!ability) throw new ProgramBindingError('unbound-ability', `No activated ability ${abilityIndex} on ${source.cardId ?? source.ref.id}`);
-  if (ability.restriction) judgeRequired(`Activation restriction for ${source.cardId} needs a rules adapter`);
   const body = translateInstructionTargets(ability.body) as readonly Instruction[];
   const id = `activate:${source.ref.id}:${source.ref.zoneEntryId}:${controller}:${++activationSequence}`;
   const cost = translateCost(ability.cost, id, 'activate');
   if (!cost) judgeRequired(`Activated ability ${id} has no cost plan`);
-  return { id, controller, source, kind: 'activated', speed: ability.timing, body, cost: { id: `cost:${id}`, cost, ...(source.power ? { domains: source.power } : {}) } };
+  const restrictions = translateRestriction(ability.restriction, source.cardId ?? source.ref.id);
+  return { id, controller, source, kind: 'activated', speed: ability.timing, body, cost: { id: `cost:${id}`, cost, ...(source.power ? { domains: source.power } : {}) }, ...(restrictions ? { restrictions } : {}) };
 }
 let activationSequence = 0;
