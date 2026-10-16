@@ -178,6 +178,7 @@ class AbilityExecution {
       object: ref => base.object(ref),
       lastKnown: ref => base.lastKnown(ref),
       query: filter => base.query(filter),
+      zoneSlice: (player, zone, from, count) => base.zoneSlice(player, zone, from, count),
       targets: id => (targets.has(id) ? [...targets.get(id)!] : base.targets(id)).filter(ref => !ignoredTargets.has(refKey(ref))),
       picks: id => base.picks(id),
       player: id => base.player(id),
