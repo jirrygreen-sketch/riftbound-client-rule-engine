@@ -103,6 +103,13 @@ export interface CostPlan {
 export interface CostPaymentOptions {
   readonly power?: DuelPaymentPlan;
   readonly nonstandardOrder?: readonly string[];
+  /**
+   * Optional caller-owned transaction boundary for Finalize.  The cost layer
+   * cannot snapshot a ResolveContext itself, but a production Chain/Finalize
+   * owner can provide its atomic wrapper here so a late replaced/prevented
+   * payment rolls back every earlier payment action as one unit.
+   */
+  readonly transaction?: <T>(run: () => T) => T;
 }
 
 export interface PreparedCostAction {
@@ -116,6 +123,10 @@ export interface PreparedCostPayment {
   readonly power: DuelPaymentPlan;
   readonly actions: readonly PreparedCostAction[];
 }
+
+export type CostPaymentAssessment =
+  | { readonly payable: true; readonly prepared: PreparedCostPayment }
+  | { readonly payable: false; readonly error: CostPlanError };
 
 export interface CostPaymentReceipt {
   readonly planId: string;

@@ -71,6 +71,8 @@ function reference(value: unknown, ctx: ResolveContext): ObjectRef {
 }
 
 function choiceObjects(ctx: ResolveContext, choice: PickSpec, planId: string): ObjectRef[] {
+  if (!choice || typeof choice !== 'object' || Array.isArray(choice)) invalid('Cost choice must be an object');
+  if (!Array.isArray(choice.options)) invalid('Cost choice options must be an array');
   identifier(choice.id);
   const options = choice.options.map(option => reference(option, ctx));
   if (choice.selection !== undefined && !['one', 'any', 'all', 'up-to'].includes(choice.selection)) blocked('Unsupported cost selection mode');
@@ -102,6 +104,8 @@ export function readCost(ctx: ResolveContext, spec: CostSpec, input: CostPlanInp
   if (!spec || typeof spec !== 'object' || Array.isArray(spec)) invalid('Expected a CostSpec');
   const known = ['kind', 'payments', 'energy', 'power', 'discard'];
   for (const key of Object.keys(spec)) if (!known.includes(key)) blocked(`Unsupported CostSpec field: ${key}`);
+  if (spec.payments !== undefined && !Array.isArray(spec.payments)) invalid('Cost payments must be an array');
+  if (spec.discard !== undefined && (!spec.discard || typeof spec.discard !== 'object' || Array.isArray(spec.discard))) invalid('Cost discard must be a PickSpec');
   if (spec.kind === 'printed') {
     if (Object.keys(spec).some(key => key !== 'kind')) invalid('Printed costs cannot contain explicit payment components');
     if (input.printed) {
@@ -122,6 +126,7 @@ export function readCost(ctx: ResolveContext, spec: CostSpec, input: CostPlanInp
   const actions: CostAmount['actions'][number][] = [];
   const payments = [...(spec.payments ?? []), ...(spec.discard ? [{ kind: 'discard', choice: spec.discard }] : [])];
   for (const [index, payment] of payments.entries()) {
+    if (!payment || typeof payment !== 'object' || Array.isArray(payment) || typeof payment.kind !== 'string' || !payment.kind.length) invalid('Each cost payment must have a nonempty kind');
     const kind = payment.kind.startsWith('cost.') ? payment.kind.slice(5) : payment.kind;
     const supported = ['kind', 'amount', 'value', 'choice', 'object', 'objects', 'allowedDomains'];
     for (const key of Object.keys(payment)) if (!supported.includes(key)) blocked(`Unsupported payment field: ${key}`);
@@ -165,6 +170,10 @@ export function orderedById<T extends { readonly id: string }>(values: readonly 
   const ids = values.map(value => identifier(value.id));
   if (new Set(ids).size !== ids.length) invalid('Duplicate cost IDs');
   if (order === undefined) return [...values];
-  if (order.length !== ids.length || new Set(order).size !== order.length || order.some(id => !ids.includes(id))) invalid('Cost order must contain each ID exactly once');
-  return order.map(id => values.find(value => value.id === id)!);
+  if (order.length !== ids.length || new Set(order).size !== order.length || order.some(id => typeof id !== 'string' || !ids.includes(id))) invalid('Cost order must contain each ID exactly once');
+  return order.map(id => {
+    const value = values.find(item => item.id === id);
+    if (!value) invalid('Cost order refers to an unknown ID');
+    return value;
+  });
 }

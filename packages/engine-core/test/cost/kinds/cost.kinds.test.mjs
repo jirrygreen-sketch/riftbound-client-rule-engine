@@ -11,6 +11,8 @@ import {
   buildRecycleCostPlan,
   buildSacrificeCostPlan,
   buildXpCostPlan,
+  assessCostPayment,
+  canPayCostPlan,
   payAdditionalCostPlan,
   payDiscardCostPlan,
   payExhaustCostPlan,
@@ -150,4 +152,41 @@ test('declined additional costs record nothing and pay only the base', () => {
   assert.equal(receipt.total.energy, 3);
   assert.deepEqual(receipt.additional, []);
   assert.equal(ctx.player('A').energy, 17);
+});
+
+test('Finalize callers can assess a locked kind plan without performing payment', () => {
+  const ctx = fixture({ player: { energy: 4 } });
+  const plan = buildAdditionalCostPlan(ctx, base({ cost: { kind: 'printed' }, printed: printed() }), [
+    { id: 'fee', kind: 'additional', cost: { energy: literal(1) }, selected: true }
+  ]);
+  const assessment = assessCostPayment(ctx, plan);
+  assert.equal(assessment.payable, true);
+  assert.deepEqual(assessment.prepared.actions.map(action => action.action.type), ['pay']);
+  assert.equal(canPayCostPlan(ctx, plan), true);
+  assert.equal(ctx.player('A').energy, 4);
+
+  const short = fixture({ player: { energy: 0 } });
+  const shortPlan = buildAdditionalCostPlan(short, base({ cost: { kind: 'printed' }, printed: printed() }), [
+    { id: 'fee', kind: 'additional', cost: { energy: literal(1) }, selected: true }
+  ]);
+  const unavailable = assessCostPayment(short, shortPlan);
+  assert.equal(unavailable.payable, false);
+  assert.equal(unavailable.error.reason, 'cannot-pay-cost');
+  assert.equal(canPayCostPlan(short, shortPlan), false);
+  assert.equal(short.player('A').energy, 0);
+});
+
+test('kind payment delegates can run inside the caller-owned Finalize transaction', () => {
+  const ctx = fixture({ player: { energy: 3, xp: 1 } });
+  const plan = buildXpCostPlan(ctx, literal(1), base({}));
+  let entered = false;
+  const receipt = payXpCostPlan(ctx, plan, {
+    transaction: run => {
+      entered = true;
+      return run();
+    }
+  });
+  assert.equal(entered, true);
+  assert.equal(receipt.paid, true);
+  assert.equal(ctx.player('A').xp, 0);
 });
