@@ -17,18 +17,22 @@
  * one location. Only the controller's base is a legal unit base destination.
  *
  * `mode` is create (default) or play. Creating directly to the Board is 440.2;
- * playing a NEW token requires creation on the Chain (440.2.c, 185.2.a, 350.2,
- * 354). The frozen create-token action only creates on the Board, so play is
- * explicitly blocked before any action. Creating on the Board then playing or
- * moving that token would add an incorrect Board entry. effect.zone handles
+ * playing a NEW token creates it on the Chain (440.2.c, 185.2.a, 186, 350.2,
+ * 354), then hands the returned ObjectRef to perform(play). The action owns
+ * Pending/Finalize and priority; this primitive never advances them. Creating
+ * on the Board then playing would add an incorrect Board entry. effect.zone handles
  * existing objects; effect.play handles already existing playable objects.
  * Token ownership/control is the ability controller (182, 183, 440.4). Entry
- * exhaustion belongs to create-token (143.4, 185.2.d); a later exhaust action
+ * exhaustion belongs to the creation/play actions (143.4, 185.2.d); a later exhaust action
  * cannot substitute for entering exhausted. Entry overrides are not supported.
  *
- * `linkKey` defaults to token. Its receipt contains the actual successful action
- * count (`amount`), returned object references (`objects`), and `objectsComplete`
- * (ActionOutcome.result is optional). Unsupported paths add `blockedReason`.
+ * `linkKey` defaults to token. Its receipt contains the actual successful create
+ * or play count (`amount`), current object references after that action (`objects`),
+ * and `objectsComplete` (an object may no longer exist after the handoff).
+ * In play mode, `createdAmount` and `createdObjects` separately retain Chain
+ * creation receipts, even if a later play is negated. These creation references
+ * become stale when play changes zones; current refs are read, never guessed.
+ * Unsupported paths add `blockedReason`.
  * `<linkKey>.amount` and `<linkKey>.objects` also expose those values directly to
  * EffectIR linked expressions, including numeric "if you do" conditions.
  * A partial negation retains its actual earlier creations and their events.
@@ -105,6 +109,19 @@ function isExpr(value: unknown): value is Expr {
       return isString(value.instructionId) && (value.key === undefined || isString(value.key));
     case "count":
       return isString(value.subject) && (value.filter === undefined || isRecord(value.filter) && isValue(value.filter));
+    case "arithmetic": {
+      if (!isValue(value) || !Array.isArray(value.operands) || !value.operands.every(operand => isExpr(operand))) return false;
+      switch (value.operator) {
+        case "add": case "mul": case "multiply": case "min": case "max":
+          return value.operands.length >= 1;
+        case "sub": case "subtract": case "div": case "divide":
+          return value.operands.length === 2;
+        case "neg":
+          return value.operands.length === 1;
+        default:
+          return false;
+      }
+    }
     default:
       return false;
   }
@@ -143,16 +160,24 @@ export default {
 
     const events: GameEvent[] = [];
     const objects: ObjectRef[] = [];
+    const createdObjects: ObjectRef[] = [];
     let created = 0;
+    let completed = 0;
+    let playing = false;
     const linkReceipt = (blockedReason?: string): Record<string, Value> => {
       const references = objects.map(ref => ({ id: ref.id, zoneEntryId: ref.zoneEntryId }));
       const receipt: Value = {
-        amount: created,
+        amount: completed,
         objects: references,
-        objectsComplete: objects.length === created,
+        objectsComplete: objects.length === completed,
+        ...(playing ? { createdAmount: created, createdObjects: createdObjects.map(ref => ({ ...ref })) } : {}),
         ...(blockedReason === undefined ? {} : { blockedReason })
       };
-      const linkedValues = { [linkKey]: receipt, [`${linkKey}.amount`]: created, [`${linkKey}.objects`]: references };
+      const linkedValues: Record<string, Value> = { [linkKey]: receipt, [`${linkKey}.amount`]: completed, [`${linkKey}.objects`]: references };
+      if (playing) {
+        linkedValues[`${linkKey}.createdAmount`] = created;
+        linkedValues[`${linkKey}.createdObjects`] = createdObjects.map(ref => ({ ...ref }));
+      }
       for (const [key, value] of Object.entries(linkedValues)) ctx.link(key, value);
       return linkedValues;
     };
@@ -186,8 +211,8 @@ export default {
     const amount = args.amount === undefined ? 1 : ctx.evaluate(args.amount);
     if (typeof amount !== "number" || !Number.isSafeInteger(amount) || amount < 0) return negate();
     const mode = args.mode === undefined ? "create" : ctx.evaluate(args.mode);
-    if (mode === "play") return negate("impossible", "token-play-requires-chain-creation");
-    if (mode !== "create") return negate();
+    if (mode !== "create" && mode !== "play") return negate();
+    playing = mode === "play";
     const definitionId = ctx.evaluate(args.token);
     const definition = typeof definitionId === "string" ? DEFINITIONS.get(definitionId) : undefined;
     if (definition === undefined) return negate("impossible", "token-definition-or-abilities-judge-required");
@@ -209,11 +234,25 @@ export default {
       }
     }
     for (let index = 0; index < amount; index++) {
-      const outcome = ctx.perform({ type: "create-token", player: ctx.controller, token: definition, location });
+      const outcome = ctx.perform(playing
+        ? { type: "create-token", player: ctx.controller, token: definition, to: "chain" }
+        : { type: "create-token", player: ctx.controller, token: definition, to: "board", location });
       events.push(...outcome.events);
       if (outcome.status !== "done") return negate(outcome.status === "replaced" ? "replaced" : "impossible");
       created++;
-      if (isObjectRef(outcome.result)) objects.push(outcome.result);
+      if (isObjectRef(outcome.result)) createdObjects.push(outcome.result);
+      if (playing) {
+        if (!isObjectRef(outcome.result)) return negate("impossible", "token-creation-missing-object-ref");
+        const createdRef = outcome.result;
+        const played = ctx.perform({ type: "play", object: createdRef, player: ctx.controller, location });
+        events.push(...played.events);
+        if (played.status !== "done") return negate(played.status === "replaced" ? "replaced" : "impossible");
+        const current = ctx.object(createdRef) ?? ctx.query({}).find(object => object.ref.id === createdRef.id);
+        if (current !== undefined && current !== null) objects.push(current.ref);
+      } else if (isObjectRef(outcome.result)) {
+        objects.push(outcome.result);
+      }
+      completed++;
     }
     return { status: "executed", events, linkedValues: linkReceipt() };
   }
