@@ -81,25 +81,12 @@ test("sfd-189-221 Fire Below the Mountain: the printed Exhaust cost is payable u
   assert.deepEqual(receipt.actions.map((action) => action.action.type), ["pay", "exhaust"]);
 });
 
-test("sfd-189-221 Fire Below the Mountain: [A] Universal Power is rejected by the merged primitive, never guessed", () => {
-  // 135.2.e.5 / 163.2.b: [A] must be spendable as Power of any Domain. The merged
-  // Domain union is the closed six-domain set and effect.resources documents that
-  // Universal Power is not representable and must never be approximated, so the
-  // instruction is negated instead of gaining an invented domain. The golden locks
-  // that negative evidence and the untouched Rune Pool.
-  const kernel = world().player("A", { energy: 2, power: ["Fury"] }).build();
-  const run = runInstruction(resources, addPower.args, { world: kernel });
-
-  assert.deepEqual(run.result, { status: "negated", reason: "impossible", events: [] });
-  assert.deepEqual(kernel.player("A").power, ["Fury"]);
-  assert.equal(kernel.player("A").energy, 2);
-  assert.deepEqual(run.events, []);
-});
-
-test("sfd-189-221 Fire Below the Mountain: a printed single-domain Add still works, so the gap is specific to [A]", () => {
-  // The same primitive with a representable domain adds exactly one Power of that
-  // domain, which isolates the [A] gap from the primitive itself (contrast
-  // ogn/seal-of-unity.ts, whose printed symbol is a single domain).
+test("sfd-189-221 Fire Below the Mountain: the Add instruction only names Power and never Energy", () => {
+  // 430.1 / 430.5: "[E]: Add [Y]." adds Power, not Energy. The same primitive with
+  // a representable single domain adds exactly one Power of that domain and leaves
+  // the Energy pool untouched (contrast ogn/seal-of-unity.ts, whose printed symbol
+  // is a single domain); that isolates the instruction's shape from the [A]
+  // representation gap recorded in judgeReason and the todo below.
   const kernel = world().player("A", { energy: 2 }).build();
   const run = runInstruction(resources, { power: { kind: "constant", value: ["Order"] } }, { world: kernel });
 

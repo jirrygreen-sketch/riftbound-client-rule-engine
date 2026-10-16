@@ -47,10 +47,11 @@ import type { CardProgram } from "../../ir/index.js";
  *    triggered ability as a pipeline TriggerRegistration (contract 3.5), so the
  *    trigger could not be subscribed even with an emitter in place.
  * The body (effect.draw, amount 1) is merged and is executed by the golden test.
- * Dependencies: RIFT-120/combat flow (combat-result emission), a winner
- * predicate for the combat-result payload, and the contract 3.5 trigger
- * registration consumer. Nothing is approximated: the filter is not relaxed to
- * "any combat" and the trigger is not moved to a different timing point.
+ * Dependencies: RIFT-120/combat flow (combat-result emission), a winner predicate
+ * for the combat-result payload plus the `combat-result` discriminator in
+ * EVENT_PATTERN_TYPES, and the contract 3.5 trigger registration consumer.
+ * Nothing is approximated: the filter is not relaxed to "any combat" and the
+ * trigger is not moved to a different timing point.
  */
 export default {
   canonicalCardId: "card.hash-fe2db2b592e71d47e736d643538a15fe129a6cb0b7aab53bd27572177b88671b",

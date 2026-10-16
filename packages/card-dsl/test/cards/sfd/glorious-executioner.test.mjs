@@ -7,7 +7,6 @@ import program from "../../../dist/cards/sfd/glorious-executioner.js";
 const ENGINE = new URL("../../../../engine-core/dist/", import.meta.url);
 const { getTimingPoint, isTimingPointId } = await import(new URL("events/timing-points.js", ENGINE));
 const { matchesTriggerEvent } = await import(new URL("events/pipeline-match.js", ENGINE));
-const { validateTriggerSpec } = await import(new URL("events/trigger-spec.js", ENGINE));
 const { runInstruction, world } = await import(new URL("effects/testing/index.js", ENGINE));
 const draw = (await import(new URL("effects/instructions/effect.draw.js", ENGINE))).default;
 
@@ -59,25 +58,18 @@ test("sfd-185-221 Glorious Executioner: one combat-result trigger whose body is 
   assert.equal(drawOne.condition, undefined);
 });
 
-test("sfd-185-221 Glorious Executioner: the trigger spec passes the engine's own validator and matcher", () => {
-  // The closed EventPattern discriminator list has no `combat-result` member, so
-  // the engine's own validator rejects the contract-correct spelling. The golden
-  // locks that rejection as the evidence for judgeReason item 2.a rather than
-  // switching to a wrong-but-accepted event name (see the same treatment in
-  // ven/matriarch-of-war.test.mjs).
-  const validated = validateTriggerSpec(ability.trigger);
-  assert.equal(validated.ok, false);
-  assert.deepEqual(validated.issues.map((issue) => [issue.path, issue.code]), [
-    ["trigger.filter.event", "invalid-event-type"]
-  ]);
-  // The discriminator the timing point is actually named after is a valid timing
-  // point even though it is missing from the event vocabulary.
+test("sfd-185-221 Glorious Executioner: the trigger names the combat-result timing point and its payload field", () => {
+  // 468.3.a-468.4: the trigger's timing is the closed `combat-result` timing point,
+  // whose declared payload field for the winner is `winnerId`
+  // (events/timing-points.ts).
   assert.equal(isTimingPointId("combat-result"), true);
+  assert.deepEqual(getTimingPoint("combat-result").ruleRefs, ["468.3.a", "468.3.b", "468.3.c", "468.3.d", "468.4"]);
+  assert.equal(getTimingPoint("combat-result").payloadFields.includes("winnerId"), true);
 
   // The declared filter matches a combat-result event carrying winnerId "self"
   // and nothing else. "self" is a literal in `details`, so a combat you lost can
   // never match (fail-closed); the golden states what the declaration does rather
-  // than claiming the placeholder is evaluated (see judgeReason item 2.b).
+  // than claiming the placeholder is evaluated (see judgeReason item 2).
   assert.equal(
     matchesTriggerEvent(ability.trigger.filter, { timingPoint: "combat-result", details: { winnerId: "self" } }, "A"),
     true
@@ -123,8 +115,10 @@ test.todo(
 
 test.todo(
   "sfd-185-221 Glorious Executioner: a \"you won this combat\" predicate over the combat-result " +
-    "payload, i.e. comparing winnerId to the ability's controller (EventPattern.details compares " +
-    "literal scalars only, and `player` means the acting player, not the combat winner)"
+    "payload, i.e. comparing winnerId to the ability's controller — EventPattern.details compares " +
+    "literal scalars only, `player` means the acting player rather than the combat winner, and the " +
+    "closed EVENT_PATTERN_TYPES discriminator list has no `combat-result` member while the timing " +
+    "point itself exists (contract: align the event vocabulary with the timing-point enum)"
 );
 
 test.todo(
