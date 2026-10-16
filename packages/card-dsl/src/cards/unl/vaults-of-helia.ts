@@ -1,0 +1,89 @@
+import type { CardProgram } from "../../ir/index.js";
+
+/**
+ * Vaults of Helia (unl-219-219) — Battlefield, Colorless.
+ *
+ * sourceText (packages/card-data/data/deck-catalog.json, unl-219-219, 逐字)：
+ *   When you hold here, your non-token units cost :rb_energy_1: more to play
+ *   this turn.
+ *
+ * 规则依据（CR v1.5）：
+ * - 383.4.d / 383.4.d.1 / 383.4.d.2.b：“When you hold here” 是 Hold Effect；
+ *   时点用封闭表的 hold（scoring/ 发出，ruleRefs 315.2.b.2 / 471.2 / 473.2.b），
+ *   190.6.d 的 “you” 是战场控制者。
+ * - 349 / 356.3：“cost :rb_energy_1: more” 是费用增加，在构建那次打出的费用计划时
+ *   施加（费用增加在 356.3 阶段、折扣在 356.4 阶段之前），不是结算期的游戏动作。
+ * - 356.7 / 204.1：费用由打出该牌的玩家支付；增加作用于“你的非 token 单位”，即
+ *   控制者为该玩家的单位，且 185.1.a 的 token 性质被排除（185.3.a.1 另定 token
+ *   费用视为 0，与本句“非 token”限定一致）。
+ * - “this turn” 是本回合期限：由时点驱动的到期（契约 3.5），起于 hold 结算、止于
+ *   回合结束。
+ *
+ * status = judge-required（逐个记录缺口，不近似实现）：
+ * 1. 缺把加费安装到“本回合稍后打出”的原语：cost.modify 只在 RIFT-9 原语清单里，
+ *    effects/instructions/ 没有该 op 文件（同 sfd/ornns-forge、rad/hunters-circle）；
+ *    cost/buildCostPlan 虽接受 increases（356.3 阶段），但只作用于调用方提供的单次
+ *    计划，没有任何已合入路径把 CardProgram 的 static 能力放进后续打出的
+ *    CostPlanInput.increases。
+ * 2. 缺触发注册与时点发射：hold 由 scoring/ 发出但未接入 chain/events 单管线，也没有
+ *    已合入订阅方把卡牌程序的 triggered ability 注册成触发（RIFT-31/RIFT-33、RIFT-120）；
+ *    filter 里的 here: true 是同类战场卡占位（053.3）。事物“是否在本回合发生过 hold”
+ *    也没有可读的历史门控（该句本身就是本回合期限的许可，需要与时点驱动的到期绑定）。
+ * 3. 本回合期限需要与时点绑定：layers 的 Duration 只有 permanent / end-of-turn /
+ *    end-of-combat / while-source-in-zone / until，可表达 end-of-turn，但没有
+ *    “hold 之后到回合结束”这条由触发开启的费用期限的已合入接线。
+ * 依赖：RIFT-89（cost.modify 指令/静态加费注册，接在已合入的 cost-plan increases 阶段）与
+ * RIFT-31/RIFT-33/RIFT-120（hold 发射与卡牌触发注册）。
+ */
+export default {
+  canonicalCardId: "card.hash-0b929c2c78280ff14e852a6d803fa3e55251591cfc73088ec115c83af1360d7e",
+  rulesetVersion: "core-1.5",
+  status: "judge-required",
+  judgeReason:
+    "三处缺口，均不近似实现：(1) 缺少把 +1 Energy 加费安装到“本回合稍后打出”的原语：cost.modify 只在 RIFT-9 原语清单里，" +
+    "effects/instructions/ 没有该 op 文件；cost/buildCostPlan 虽然支持 356.3 阶段的 increases（CostComponentInput），但只作用于调用方提供的单次计划，" +
+    "没有任何已合入路径把 CardProgram 的 static 能力放进后续打出的 CostPlanInput.increases（同 sfd/ornns-forge、rad/hunters-circle 的缺口）。" +
+    "(2) 触发侧：hold 时点（383.4.d、315.2.b.2、471.2、473.2.b）由 scoring/ 发出但未接入 chain/events 单管线，也没有已合入订阅方把卡牌程序的 triggered ability 注册成触发" +
+    "（RIFT-31/RIFT-33、RIFT-120）；filter 里的 here: true 是同类战场卡占位（053.3）。" +
+    "(3) 「this turn」需要由触发开启、回合结束到期的费用期限：layers 的 Duration 可表达 end-of-turn，但没有 hold 触发开启该期限的已合入接线。" +
+    "程序保留 non-token 单位的过滤形状（185.1.a 的 token 性质、356.7 的付款玩家）；依赖 RIFT-89 与 RIFT-31/RIFT-33/RIFT-120。不近似实现。",
+  sourceText: "When you hold here, your non-token units cost :rb_energy_1: more to play this turn.",
+  abilities: [
+    {
+      kind: "triggered",
+      trigger: {
+        at: "hold",
+        // “here” 是本战场、“you” 是战场控制者（053.3、190.6.d）；here 占位键等待
+        // scoring 载荷（见 judgeReason 第 2 点）。
+        filter: { event: "hold", here: true, player: "controller" }
+      },
+      // 原文没有 “may”，是强制触发；加费本身由费用计划在打出时施加。
+      optional: false,
+      body: [
+        {
+          id: "vaults-of-helia.increase-unit-cost",
+          // 356.3 / 356.4：这是费用增加阶段的声明（不是结算期的资源动作）；
+          // cost.modify 没有已合入原语（见 judgeReason 第 1 点）。
+          op: "cost.modify",
+          args: {
+            resource: { kind: "constant", value: "energy" },
+            amount: { kind: "constant", value: 1 },
+            appliesTo: { kind: "constant", value: "play-cost" },
+            filter: {
+              kind: "constant",
+              value: {
+                // “your non-token units”：控制者为本能力控制者、非 token 的单位。
+                type: "unit",
+                controller: "controller",
+                // 185.1.a：token 性质由 isToken 表达（layers 过滤器支持该键）。
+                isToken: false
+              }
+            },
+            // “this turn”：期限由触发开启、回合结束到期（见 judgeReason 第 3 点）。
+            duration: { kind: "constant", value: "this-turn" }
+          }
+        }
+      ]
+    }
+  ]
+} satisfies CardProgram;
