@@ -1,5 +1,5 @@
 import type { GameEvent } from "@riftbound/protocol";
-import type { Condition, Expr, Instruction, ObjectFilter, ObjectRef, Value } from "@riftbound/card-dsl";
+import type { Condition, Expr, Instruction, ObjectFilter, ObjectRef, ObjectSelector, Value } from "@riftbound/card-dsl";
 import {
   AwaitChoice,
   type ActionOutcome,
@@ -23,6 +23,7 @@ import {
 } from "../contract.js";
 import { isTimingPointId, type TimingPointId } from "../../events/timing-points.js";
 import { arithmetic } from "../interpreter/values.js";
+import { resolveObjectSelector } from "../interpreter/selectors.js";
 
 export { AwaitChoice } from "../contract.js";
 
@@ -204,7 +205,16 @@ export class TestWorld implements ResolveContext {
   targets(specId: string): ObjectRef[] { return (this.targetSets.get(specId) ?? []).map(cloneRef); }
   picks(specId: string): readonly (ObjectRef | PlayerId | string)[] { return (this.pickSets.get(specId) ?? []).map(pick => typeof pick === "object" ? cloneRef(pick) : pick); }
   player(id: PlayerId): PlayerSnapshot { const player = this.state.players.get(id); if (!player) throw new Error(`Unknown player ${id}`); const runePool = this.objectsInZone(id, "rune-zone"); return { id, energy: player.energy, power: [...player.power], runePool, runes: runePool, xp: player.xp, score: player.score, handSize: player.zones.hand.length, handCount: player.zones.hand.length, deckSize: player.zones.deck.length, deckCount: player.zones.deck.length, runeDeckSize: player.zones["rune-deck"].length, runeDeckCount: player.zones["rune-deck"].length }; }
-  evaluate(expr: Expr): Value { if (expr.kind === "constant" || expr.kind === "literal") return asValue(expr.value); if (expr.kind === "arithmetic") return arithmetic(expr.operator, expr.operands.map(operand => this.evaluate(operand))); if (expr.kind === "linked" || expr.kind === "linked-value") return this.linkedValues.get(expr.key ?? expr.instructionId) ?? null; if (expr.kind === "count") return this.query(expr.filter ?? {}).length; if (expr.kind === "object-property") return asValue(this.object(expr.object)?.[expr.property as keyof ObjectSnapshot] ?? null); if (expr.kind === "object-attribute") return asValue(this.object(expr.object)?.[expr.attribute as keyof ObjectSnapshot] ?? null); return null; }
+  /** Direct primitive tests may supply transient refs; static IR uses selectors. */
+  private expressionObject(selector: ObjectSelector): ObjectSnapshot | null {
+    const transient: unknown = selector;
+    const ref = transient !== null && typeof transient === "object" && "id" in transient && "zoneEntryId" in transient
+      ? transient as ObjectRef
+      : resolveObjectSelector(selector, { context: this, linked: id => this.linked(id) })[0];
+    if (ref === undefined) return null;
+    return this.object(ref) ?? (selector === "source" ? this.source : null);
+  }
+  evaluate(expr: Expr): Value { if (expr.kind === "constant" || expr.kind === "literal") return asValue(expr.value); if (expr.kind === "arithmetic") return arithmetic(expr.operator, expr.operands.map(operand => this.evaluate(operand))); if (expr.kind === "linked" || expr.kind === "linked-value") return this.linkedValues.get(expr.key ?? expr.instructionId) ?? null; if (expr.kind === "count") return this.query(expr.filter ?? {}).length; if (expr.kind === "object-property") return asValue(this.expressionObject(expr.object)?.[expr.property as keyof ObjectSnapshot] ?? null); if (expr.kind === "object-attribute") return asValue(this.expressionObject(expr.object)?.[expr.attribute as keyof ObjectSnapshot] ?? null); return null; }
   test(condition: Condition): boolean { switch (condition.kind) { case "always": return true; case "never": return false; case "expression": return Boolean(this.evaluate(condition.value)); case "not": return !this.test(condition.condition); case "all": return condition.conditions.every(item => this.test(item)); case "any": return condition.conditions.some(item => this.test(item)); case "compare": { const left = this.evaluate(condition.left) as any; const right = this.evaluate(condition.right) as any; switch (condition.operator) { case "eq": return left === right; case "ne": return left !== right; case "lt": return left < right; case "lte": return left <= right; case "gt": return left > right; case "gte": return left >= right; case "in": return Array.isArray(right) && right.includes(left); } } } }
   linked(key: string): Value | undefined { return this.linkedValues.get(key); }
   link(key: string, value: Value): void { this.linkedValues.set(key, value); }
