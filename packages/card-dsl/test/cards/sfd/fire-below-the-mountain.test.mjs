@@ -1,0 +1,128 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
+import program from "../../../dist/cards/sfd/fire-below-the-mountain.js";
+
+const ENGINE = new URL("../../../../engine-core/dist/", import.meta.url);
+const { buildCostPlan } = await import(new URL("cost/cost-plan.js", ENGINE));
+const { payCostPlan } = await import(new URL("cost/payment.js", ENGINE));
+const { runInstruction, world } = await import(new URL("effects/testing/index.js", ENGINE));
+const resources = (await import(new URL("effects/instructions/effect.resources.js", ENGINE))).default;
+
+const CANONICAL_ID = "card.hash-4f7b6e74a78c84b04922aadf51f0f8ef02368e59a4158f98eec18e4f301f75fe";
+const SOURCE_TEXT =
+  ":rb_exhaust:: [Reaction] — [Add] :rb_rune_rainbow:. " +
+  "Use only to play gear or use gear abilities. (Abilities that add resources can't be reacted to.)";
+
+const [ability] = program.abilities;
+const [addPower] = ability.body;
+
+test("sfd-189-221 Fire Below the Mountain: program passes validateCardProgram", () => {
+  const result = validateCardProgram(program);
+  assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues, null, 2));
+  assert.deepEqual(result.issues, []);
+});
+
+test("sfd-189-221 Fire Below the Mountain: identity, ruleset, status, judgeReason and verbatim sourceText", () => {
+  assert.equal(program.canonicalCardId, CANONICAL_ID);
+  assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
+  assert.equal(program.status, "judge-required");
+  assert.equal(program.sourceText, SOURCE_TEXT);
+  assert.match(program.judgeReason, /Universal/);
+  assert.match(program.judgeReason, /163\.2\.b/);
+  assert.match(program.judgeReason, /restriction/);
+});
+
+test("sfd-189-221 Fire Below the Mountain: one reaction-speed activated ability with the printed Exhaust cost", () => {
+  assert.equal(program.abilities.length, 1);
+  assert.equal(ability.kind, "activated");
+  // 813.1.c.2 / 813.1.d: "[Reaction][>]" on an ability is a Closed-State
+  // activation permission, declared as reaction timing.
+  assert.equal(ability.timing, "reaction");
+  // 404.1.a / 415.5: the printed :rb_exhaust: before the dash is the base cost
+  // "Exhaust this", not a body instruction.
+  assert.deepEqual(ability.cost, {
+    kind: "activated",
+    payments: [{ kind: "exhaust", object: "self" }]
+  });
+  // 204.4.b.1: "Use only to play gear or use gear abilities." restricts the added
+  // resource; declared, with no merged consumer (judgeReason item 2).
+  assert.deepEqual(ability.restriction, { kind: "use-only-to-play-gear-or-gear-abilities" });
+
+  assert.equal(ability.body.length, 1);
+  assert.equal(addPower.id, "fire-below-the-mountain.add-universal-power");
+  assert.equal(addPower.op, "effect.resources");
+  // 135.2.e.5 / 163.2.b: [A] is Universal Power; the closed six-domain set has no
+  // executable value, so the descriptive "rainbow" spelling is kept rather than
+  // silently choosing one of the six domains.
+  assert.deepEqual(addPower.args, { power: { kind: "constant", value: ["rainbow"] } });
+  assert.equal(addPower.args.energy, undefined);
+  assert.equal(addPower.targets, undefined);
+  assert.equal(addPower.picks, undefined);
+  assert.equal(addPower.linkedTo, undefined);
+});
+
+test("sfd-189-221 Fire Below the Mountain: the printed Exhaust cost is payable under the merged cost pipeline", () => {
+  // 415.4 / 415.5: the exhaust must be able to complete; cost/payment.ts checks it
+  // against a ready, controlled object on the Board before charging it.
+  const kernel = world()
+    .player("A", { energy: 3 })
+    .unit("fire-below-the-mountain", { zone: "board", types: ["legend"], controller: "A" })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("fire-below-the-mountain") });
+  const plan = buildCostPlan(context, { id: "fire-below-the-mountain", cost: ability.cost });
+  const receipt = payCostPlan(context, plan);
+
+  assert.equal(receipt.paid, true);
+  assert.equal(receipt.total.energy, 0);
+  assert.equal(context.player("A").energy, 3, "the printed cost is Exhaust only, never Energy");
+  assert.equal(context.object(context.ref("fire-below-the-mountain")).exhausted, true);
+  assert.deepEqual(receipt.actions.map((action) => action.action.type), ["pay", "exhaust"]);
+});
+
+test("sfd-189-221 Fire Below the Mountain: [A] Universal Power is rejected by the merged primitive, never guessed", () => {
+  // 135.2.e.5 / 163.2.b: [A] must be spendable as Power of any Domain. The merged
+  // Domain union is the closed six-domain set and effect.resources documents that
+  // Universal Power is not representable and must never be approximated, so the
+  // instruction is negated instead of gaining an invented domain. The golden locks
+  // that negative evidence and the untouched Rune Pool.
+  const kernel = world().player("A", { energy: 2, power: ["Fury"] }).build();
+  const run = runInstruction(resources, addPower.args, { world: kernel });
+
+  assert.deepEqual(run.result, { status: "negated", reason: "impossible", events: [] });
+  assert.deepEqual(kernel.player("A").power, ["Fury"]);
+  assert.equal(kernel.player("A").energy, 2);
+  assert.deepEqual(run.events, []);
+});
+
+test("sfd-189-221 Fire Below the Mountain: a printed single-domain Add still works, so the gap is specific to [A]", () => {
+  // The same primitive with a representable domain adds exactly one Power of that
+  // domain, which isolates the [A] gap from the primitive itself (contrast
+  // ogn/seal-of-unity.ts, whose printed symbol is a single domain).
+  const kernel = world().player("A", { energy: 2 }).build();
+  const run = runInstruction(resources, { power: { kind: "constant", value: ["Order"] } }, { world: kernel });
+
+  assert.equal(run.result.status, "executed");
+  assert.deepEqual(kernel.player("A").power, ["Order"]);
+  assert.equal(kernel.player("A").energy, 2, "an Add of Power never changes Energy");
+  assert.deepEqual(run.events.map((event) => event.action), ["gain-power"]);
+});
+
+test.todo(
+  "sfd-189-221 Fire Below the Mountain: represent and spend Universal Power ([A], CR 135.2.e.5 / " +
+    "163.2.b) — the closed Domain union and the gain-power action have no universal value " +
+    "(contract change request, RIFT-89)"
+);
+
+test.todo(
+  "sfd-189-221 Fire Below the Mountain: enforce “Use only to play gear or use gear abilities.” " +
+    "(204.4.b.1 restriction family) — nothing consumes a card program's activated-ability " +
+    "restriction yet (RIFT-91)"
+);
+
+test.todo(
+  "sfd-189-221 Fire Below the Mountain: the Champion Legend's own zone is the Legend Zone " +
+    "(CR 107.4.c); the frozen ZoneId union has no legend-zone, so “exhaust me” cannot cite the " +
+    "legend's real zone in production (shared contract gap, not specific to this card)"
+);
