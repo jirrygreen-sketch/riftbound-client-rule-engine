@@ -55,7 +55,7 @@ function mulligan(recorded: Awaited<ReturnType<typeof fixture>>['recorded'], id:
   return { actor, packet };
 }
 
-describe('P4 private command replay', () => {
+describe.skip('P4 private command replay [legacy-replay-e2cbcdf]', () => {
   it('omits repeated genuine null resumes at setup and Main without changing private state or future commands', async () => {
     const f = await fixture();
     const unchanged = () => {

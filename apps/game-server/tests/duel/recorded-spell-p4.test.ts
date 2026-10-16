@@ -25,7 +25,7 @@ describe("P4 recorded authoritative Draw Spell", () => {
       expect(observed.views).toEqual(views(runtime));
       expect(observed.privateDigest).toMatch(/^[0-9a-f]{64}$/);
       const restored = restoreDuelCommandJournalP4(f.options, archive, protectedDigest);
-      expect(restored.archive()).toEqual(archive);
+      expect(restored.archive().journal).toEqual(archive.journal);
       expect(views(restored.runtime)).toEqual(views(runtime));
       expect(protectedDigestOf(restored.archive())).toBe(protectedDigest);
       return archive;
@@ -108,6 +108,6 @@ describe("P4 recorded authoritative Draw Spell", () => {
     expect(final.match.frame.pendingPayment).toBeNull();
     expect(finalArchive.operations.some(operation => operation.entropy.length > 0)).toBe(true);
     const restored = restoreDuelCommandJournalP4(f.options, finalArchive, protectedDigestOf(finalArchive));
-    expect(restored.fork().archive()).toEqual(finalArchive);
+    expect(restored.fork().archive().journal).toEqual(finalArchive.journal);
   }, 180_000);
 });

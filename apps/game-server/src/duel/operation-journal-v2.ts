@@ -33,6 +33,7 @@ import {
   type DuelPhaseSourceClosurePhaseV2,
 } from "@riftbound/engine-core/duel";
 import { getCardProgramRegistryForRuntime, type CardProgramAuthority } from "./card-program-authority.js";
+import { JournalWriter, digestJournalValue, type Journal } from "./runtime/journal/index.js";
 const REQUIREMENTS: readonly DuelPhaseClosureRequirementV2[] = Object.freeze([
   "all-source-candidate-closure",
   "hidden-zone-event-subjects",
@@ -195,6 +196,7 @@ export interface DuelNativeOperationJournalV2 {
   /** Private proposal fork. A caller can discard it without advancing the published journal. */
   readonly fork: (currentHead?: () => DuelMatchStateV2 | null) => DuelNativeOperationJournalV2;
   readonly revision: () => number;
+  readonly journal: () => Journal;
 }
 
 export interface DuelNativeJournalTransitionV2 {
@@ -475,6 +477,7 @@ interface PrivateJournalSeed {
   readonly candidateSetRevision: number;
   /** The authority minted for the root journal; forks inherit it by identity. */
   readonly nominalAuthority: symbol;
+  readonly unifiedJournal?: Journal;
 }
 
 /**
@@ -603,6 +606,21 @@ function createJournal(options: DuelNativeOperationJournalOptionsV2,
     : options.programReference;
   const nominalAuthority = seed?.nominalAuthority ?? Symbol("duel-native-journal-authority");
   const observed = { value: seed?.head ?? genesis as DuelMatchStateV2 };
+  const genesisPlayers = (genesis as unknown as {
+    players?: readonly { playerId?: string; displayName?: string }[];
+    setup?: { players?: readonly { playerId?: string; displayName?: string }[] };
+  }).players ?? (genesis as unknown as { setup?: { players?: readonly { playerId?: string; displayName?: string }[] } }).setup?.players ??
+    genesis.turnOrder.map(playerId => ({ playerId, displayName: playerId }));
+  const unifiedJournal = new JournalWriter(seed?.unifiedJournal ?? {
+    header: {
+      engineVersion: "riftbound-game-server:native-operation-current", matchId: genesis.matchId, roomId: genesis.matchId,
+      catalogDigest: genesis.catalogDigest, rosterDigest: digestJournalValue(genesisPlayers),
+      trustedDeckDigest: digestJournalValue(genesis.provenance.originalPhysicalCards), seed: digestJournalValue([genesis.matchId, genesis.catalogDigest]),
+      seats: genesisPlayers.map(player => ({ playerId: player.playerId ?? "unknown-player", name: player.displayName ?? player.playerId ?? "player" })),
+      creation: { deterministicSeed: digestJournalValue([genesis.matchId, genesis.catalogDigest]), creator: "game-server" },
+    }, stateVersion: genesis.stateVersion, eventSeq: genesis.eventSeq, roomVersion: 0,
+    stateDigest: digestJournalValue(genesis), privateStateDigest: digestJournalValue(genesis),
+  });
   const commits: DuelNativeJournalCommitV2[] = [...(seed?.commits ?? [])];
   const operationIds = new Set<string>(seed?.operationIds);
   const contexts = new Map<string, ContextRecordV2>(seed?.contexts);
@@ -735,7 +753,20 @@ function createJournal(options: DuelNativeOperationJournalOptionsV2,
         unresolved,
       }));
     }
-    for (const commit of prepared) commits.push(commit);
+    for (const commit of prepared) {
+      commits.push(commit);
+      unifiedJournal.recordOperation({
+        operationId: commit.label.operationId, taskId: commit.label.taskId ?? commit.label.eventId,
+        phase: commit.label.phase ?? commit.label.event, stateVersion: commit.after.stateVersion,
+        eventSeq: commit.after.eventSeq, roomVersion: 0,
+        sourceClosureEvidence: [JSON.parse(JSON.stringify(commit.label))], costCensus: null,
+        paymentPlan: null, paymentReceipt: null, effectIRDigest: null, primitiveReceipts: [],
+        tokenBirths: JSON.parse(JSON.stringify(commit.tokenBirths)), tokenRetirements: JSON.parse(JSON.stringify(commit.tokenRetirements)),
+        zoneTransitions: JSON.parse(JSON.stringify(commit.transitions)), pendingReason: commit.unresolved ? "pending" : null,
+        state: { stateVersion: commit.after.stateVersion, eventSeq: commit.after.eventSeq, roomVersion: 0,
+          stateDigest: digestJournalValue(commit.after), privateStateDigest: digestJournalValue(commit.after) },
+      });
+    }
     for (const id of preparedIds) operationIds.add(id);
     observed.value = path.descendant;
     revision += prepared.length;
@@ -1041,10 +1072,11 @@ function createJournal(options: DuelNativeOperationJournalOptionsV2,
     registerRuntimeEffect, registerEffect: registerRuntimeEffect, retireRuntimeEffect,
     listCommits: () => Object.freeze([...commits]),
     revision: () => revision,
+    journal: () => unifiedJournal.snapshot(),
     fork: ownerHead => createJournal({ genesis, programs, currentHead: ownerHead ?? currentHead,
       ...(programs ? {} : { programReference }) }, { head: observed.value, commits,
       operationIds, contexts, sourceWorks, runtime, handledEvents, revision, candidateSetRevision,
-      nominalAuthority }),
+      nominalAuthority, unifiedJournal: unifiedJournal.snapshot() }),
   };
   const published = Object.freeze(journal);
   NOMINAL_JOURNALS.set(published, Object.freeze({ authority: nominalAuthority, genesis }));

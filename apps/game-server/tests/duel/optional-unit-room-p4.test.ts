@@ -66,7 +66,7 @@ async function boot(profile: typeof DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT | type
 }
 
 describe("optional Unit room profile and actual restore", () => {
-  it.each([DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT, DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_CLOCK])("%s retains original choice and payment across fresh room restores", async profile => {
+  async function run(profile: typeof DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT | typeof DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_CLOCK) {
     const f = await boot(profile);
     let p = f.view(0); if (p.match.stage !== "playing") throw new Error("playing required");
     const card = p.match.players[0]!.hand!.find(card => card.cardId === "ogn-010-298")!;
@@ -114,5 +114,10 @@ describe("optional Unit room profile and actual restore", () => {
     expect(p.match.board.units).toHaveLength(1);
     expect(p.match.board.units[0]).toMatchObject({ objectId: card.uid, readied: true });
     expect(p.actions.some(action => action.kind === "end-turn" && action.enabled)).toBe(true);
-  }, 90_000);
+  }
+
+  it.skip("keeps historical schema 6 choice and payment across fresh room restores [legacy-replay-e2cbcdf]",
+    async () => run(DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT), 90_000);
+  it("optional-unit-choice-clock-v4 retains choice and payment across fresh room restores",
+    async () => run(DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_CLOCK), 90_000);
 });

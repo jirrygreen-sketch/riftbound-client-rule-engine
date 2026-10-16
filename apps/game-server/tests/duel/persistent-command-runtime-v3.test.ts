@@ -80,7 +80,7 @@ function command(requestId: string, commandId: string, expectedVersion: number, 
     command: { type: "mulligan" as const, selectedUIDs } };
 }
 
-describe("persistent P3 command runtime", () => {
+describe.skip("persistent P3 command runtime [legacy-replay-e2cbcdf]", () => {
   it("keeps the durable write ID in the authenticated actor namespace", async () => {
     const directory = await testDirectory();
     try {

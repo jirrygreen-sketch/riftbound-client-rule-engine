@@ -14,6 +14,15 @@ import {
   type DuelRuntimeProfileP4,
   type DuelAuthoritativeRuntimeP4, type DuelAuthoritativeRuntimeP4Options,
 } from './authoritative-runtime-p4.js';
+import {
+  JournalWriter,
+  digestJournalValue,
+  isJournalV1,
+  replayJournal,
+  type Journal,
+  type JournalCommand,
+  type JournalJsonObject,
+} from './runtime/journal/index.js';
 
 export {
   DUEL_RUNTIME_PROFILE_P4_LEGACY, DUEL_RUNTIME_PROFILE_P4_SPELL,
@@ -39,7 +48,7 @@ type Operation = { readonly kind: 'dispatch'; readonly actor: string; readonly p
   readonly entropy: readonly Entropy[]; readonly observation: Observation } |
   { readonly kind: 'resume'; readonly entropy: readonly Entropy[]; readonly observation: Observation };
 export interface DuelCommandArchiveP4 {
-  readonly kind: 'private-duel-command-journal-p4'; readonly schemaVersion: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
+  readonly kind: 'private-duel-command-journal-p4'; readonly schemaVersion?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
   /** Audit date is metadata; v2 still hashes every effective policy decision. */
   readonly policyCheckedAt?: string;
   /** Schemas 3/4 are server-owned Spell/public-chain semantics and never an archive-selected downgrade. */
@@ -47,6 +56,11 @@ export interface DuelCommandArchiveP4 {
   readonly semanticVersion?: string;
   readonly contextDigest: string; readonly creation: { readonly entropy: readonly Entropy[]; readonly observation: Observation };
   readonly operations: readonly Operation[];
+  readonly header?: Journal['header'];
+  readonly head?: Journal['head'];
+  readonly entries?: Journal['entries'];
+  readonly integrity?: Journal['integrity'];
+  readonly journal?: Journal;
 }
 export interface DuelRecordedRuntimeP4 {
   readonly runtime: DuelAuthoritativeRuntimeP4;
@@ -91,6 +105,10 @@ function freeze<T>(value: T): T {
   return value;
 }
 export function digestDuelCommandArchiveP4(archive: DuelCommandArchiveP4): string {
+  if (isUnifiedP4Archive(archive)) {
+    const { operations: _legacyOperations, ...protectedArchive } = archive;
+    return createHash('sha256').update(JSON.stringify(data(protectedArchive))).digest('hex');
+  }
   return createHash('sha256').update(JSON.stringify(data(archive))).digest('hex');
 }
 function contextData(options: DuelAuthoritativeRuntimeP4Options, profile: DuelReplayProfileP4 = DUEL_REPLAY_PROFILE_P4_LEGACY): any {
@@ -175,6 +193,110 @@ function observe(owner: DuelAuthoritativeRuntimeP4, options: DuelAuthoritativeRu
 }
 function same(a: unknown, b: unknown): boolean { return JSON.stringify(data(a)) === JSON.stringify(data(b)); }
 
+function p4Clock(observation: Observation): { stateVersion: number; eventSeq: number; roomVersion: number } {
+  const view = observation.views.at(-1) as { match?: { stateVersion?: number; eventSeq?: number } } | undefined;
+  return { stateVersion: Number.isSafeInteger(view?.match?.stateVersion) ? view!.match!.stateVersion! : 0,
+    eventSeq: Number.isSafeInteger(view?.match?.eventSeq) ? view!.match!.eventSeq! : 0, roomVersion: 0 };
+}
+
+function p4JournalCommand(packet: DuelCommandMessageV3Actions1): JournalCommand {
+  const command = packet.command as Record<string, unknown>;
+  switch (command.type) {
+    case 'pass-priority':
+    case 'pass-focus':
+    case 'end-turn':
+      return { type: 'pass' };
+    case 'concede':
+      return { type: 'concede' };
+    case 'play-card':
+      return { type: 'play-card', instanceId: String(command.cardUID), targets: [] };
+    case 'answer-pending-choice': {
+      const answers = Array.isArray(command.answers) ? command.answers as readonly Record<string, unknown>[] : [];
+      const first = answers[0];
+      const promptId = typeof first?.promptId === 'string' ? first.promptId : String(command.choiceId);
+      const optionIds = Array.isArray(first?.optionIds) ? first.optionIds as readonly unknown[] : [];
+      return { type: 'respond-to-prompt', promptId, optionId: String(optionIds[0] ?? command.choiceId), targets: [] };
+    }
+    default:
+      return { type: 'respond-to-prompt', promptId: String(command.windowId ?? command.choiceId ?? command.type),
+        optionId: String(command.type), targets: [] };
+  }
+}
+
+function p4ProjectionDigests(observation: Observation, seats: readonly { playerId: string }[]): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [index, seat] of seats.entries()) {
+    if (observation.views[index] !== undefined) result[seat.playerId] = digestJournalValue(observation.views[index]);
+  }
+  const publicView = observation.views.at(-1);
+  if (publicView !== undefined) result.public = digestJournalValue(publicView);
+  return result;
+}
+
+function unifiedP4Journal(legacy: DuelCommandArchiveP4, options: DuelAuthoritativeRuntimeP4Options): Journal {
+  const creationClock = p4Clock(legacy.creation.observation);
+  const writer = new JournalWriter({
+    header: {
+      engineVersion: 'riftbound-game-server:p4-current', matchId: options.matchId, roomId: options.matchId,
+      catalogDigest: options.catalog.publicCatalog.digest,
+      rosterDigest: digestJournalValue(options.roster.map(seat => ({ playerId: seat.playerId, name: seat.displayName }))),
+      trustedDeckDigest: digestJournalValue(options.roster.map(seat => seat.deck)), seed: digestJournalValue([options.matchId, options.catalog.publicCatalog.digest]),
+      seats: options.roster.map(seat => ({ playerId: seat.playerId, name: seat.displayName })),
+      creation: { entropy: legacy.creation.entropy, deterministicSeed: digestJournalValue([options.matchId, options.catalog.publicCatalog.digest]),
+        uidSeed: legacy.creation.entropy.find(item => item.kind === 'uid')?.value ?? null, creator: 'game-server' },
+    },
+    ...creationClock, stateDigest: digestJournalValue(legacy.creation.observation.views.at(-1)),
+    privateStateDigest: digestJournalValue(legacy.creation.observation.views),
+  });
+  let state = creationClock;
+  let operationOrdinal = 0;
+  for (const operation of legacy.operations) {
+    const clock = p4Clock(operation.observation);
+    const captured = operation.observation.ack as Record<string, unknown> | null;
+    const ack = captured && data(captured.ack) ? captured.ack as Record<string, unknown> : captured;
+    if (operation.kind === 'dispatch' && ack && ack.type !== 'error' && ack.type !== 'blocked' &&
+        Number.isSafeInteger(ack.appliedVersion) && ((ack.appliedVersion as number) > state.stateVersion || ack.duplicate === true)) {
+      const result: JournalJsonObject = { accepted: true, ack: data(ack) as JournalJsonObject,
+        legacyPacket: data(operation.packet) as JournalJsonObject };
+      writer.recordCommand({ playerId: operation.actor, actor: operation.actor, requestId: operation.packet.requestId,
+        commandId: operation.packet.commandId, command: p4JournalCommand(operation.packet), payload: p4JournalCommand(operation.packet),
+        expectedStateVersion: operation.packet.expectedVersion, appliedStateVersion: clock.stateVersion,
+        eventSeq: clock.eventSeq, roomVersion: clock.roomVersion,
+        result, publicReceipt: { accepted: true, ack: data(ack) as JournalJsonObject }, duplicate: ack.duplicate === true,
+        entropyConsumed: operation.entropy, projectionDigestByViewer: p4ProjectionDigests(operation.observation, options.roster),
+        state: { ...clock, stateDigest: digestJournalValue(operation.observation.views.at(-1)),
+          privateStateDigest: digestJournalValue(operation.observation.views) },
+        acceptedAt: new Date(0).toISOString() });
+    } else if (operation.kind === 'resume' || (operation.kind === 'dispatch' && ack?.type === 'blocked')) {
+      const operationId = `p4:operation:${++operationOrdinal}`;
+      writer.recordOperation({ operationId, taskId: operation.kind === 'resume' ? 'resume' : `command:${operation.packet.commandId}`,
+        phase: operation.kind === 'resume' ? 'resume' : 'dispatch', stateVersion: clock.stateVersion, eventSeq: clock.eventSeq,
+        sourceClosureEvidence: [], costCensus: null, paymentPlan: null, paymentReceipt: null, effectIRDigest: null,
+        primitiveReceipts: operation.kind === 'dispatch' && ack ? [{ type: 'legacy-dispatch', actor: operation.actor,
+          packet: data(operation.packet) as JournalJsonObject, ack: data(ack) as JournalJsonObject }] : [],
+        tokenBirths: [], tokenRetirements: [], zoneTransitions: [],
+        pendingReason: ack?.type === 'blocked' || ack?.pending === true ? 'pending' : null, entropyConsumed: operation.entropy,
+        state: { ...clock, stateDigest: digestJournalValue(operation.observation.views.at(-1)),
+          privateStateDigest: digestJournalValue(operation.observation.views) } });
+    }
+    state = clock;
+  }
+  return writer.snapshot();
+}
+
+function isUnifiedP4Archive(value: unknown): value is DuelCommandArchiveP4 & Journal {
+  if (!value || typeof value !== 'object' || !('header' in value) || !('head' in value) ||
+      !('entries' in value) || !('integrity' in value)) return false;
+  const candidate = value as DuelCommandArchiveP4 & Journal;
+  return isJournalV1(candidate.journal ?? { header: candidate.header!, head: candidate.head!, entries: candidate.entries!, integrity: candidate.integrity! });
+}
+
+function toUnifiedP4Archive(legacy: DuelCommandArchiveP4, options: DuelAuthoritativeRuntimeP4Options): DuelCommandArchiveP4 {
+  const journal = unifiedP4Journal(legacy, options);
+  return freeze({ ...legacy, header: journal.header, head: journal.head, entries: journal.entries, integrity: journal.integrity, journal,
+    kind: 'private-duel-command-journal-p4' }) as DuelCommandArchiveP4;
+}
+
 export type DuelReplayProfileSelectionP4 = DuelReplayProfileP4 | {
   readonly profile?: DuelReplayProfileP4;
   readonly runtimeProfile?: DuelReplayProfileP4;
@@ -239,7 +361,8 @@ function createRecorded(options: DuelAuthoritativeRuntimeP4Options, policyChecke
       return capture(() => owner.dispatch(actor, packet), { kind: 'dispatch', actor, packet }) as ReturnType<DuelAuthoritativeRuntimeP4['dispatch']>;
     }, resumePending: () => capture(() => owner.resumePending(), { kind: 'resume' }) as ReturnType<DuelAuthoritativeRuntimeP4['resumePending']>,
   });
-  const archive = () => freeze(data(profile === DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_RESOLVED_HISTORY
+  const archive = () => {
+    const legacy = freeze(data(profile === DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_RESOLVED_HISTORY
     ? { kind: 'private-duel-command-journal-p4', schemaVersion: 9,
       profile: DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_RESOLVED_HISTORY, semanticVersion: DUEL_RUNTIME_SEMANTIC_VERSION_P4_OPTIONAL_UNIT_RESOLVED_HISTORY,
       policyCheckedAt, contextDigest: initialContext, creation, operations }
@@ -271,6 +394,8 @@ function createRecorded(options: DuelAuthoritativeRuntimeP4Options, policyChecke
       policyCheckedAt, contextDigest: initialContext, creation, operations }
     : { kind: 'private-duel-command-journal-p4', schemaVersion: 2,
       policyCheckedAt, contextDigest: initialContext, creation, operations })) as DuelCommandArchiveP4;
+    return toUnifiedP4Archive(legacy, options);
+  };
   const recorded: DuelRecordedRuntimeP4 = Object.freeze({ profile, runtime, archive: () => { check(!busy && !failed, 'unavailable recorder'); return archive(); },
     fork: () => {
       check(!busy && !failed, 'unavailable recorder');
@@ -305,57 +430,73 @@ export function createDuelReplayGateP4(options: DuelAuthoritativeRuntimeP4Option
 export function replayDuelCommandArchiveP4(raw: unknown, gate: DuelReplayGateP4): DuelRecordedRuntimeP4 {
   const admitted = gates.get(gate); check(admitted, 'unadmitted replay gate');
   const archive = data(raw) as DuelCommandArchiveP4;
-  check(digestDuelCommandArchiveP4(archive) === admitted.digest && archive.kind === 'private-duel-command-journal-p4' &&
-    (archive.schemaVersion === 1 || archive.schemaVersion === 2 || archive.schemaVersion === 3 || archive.schemaVersion === 4 || archive.schemaVersion === 5 || archive.schemaVersion === 6 || archive.schemaVersion === 7 || archive.schemaVersion === 8 || archive.schemaVersion === 9), 'archive digest/schema mismatch');
-  const profile = archive.schemaVersion === 3 || archive.schemaVersion === 4 || archive.schemaVersion === 5 || archive.schemaVersion === 6 || archive.schemaVersion === 7 || archive.schemaVersion === 8 || archive.schemaVersion === 9 ? admitted.profile : admitted.profile === DUEL_REPLAY_PROFILE_P4_LEGACY
-    ? DUEL_REPLAY_PROFILE_P4_LEGACY : null;
-  check(profile !== null, 'archive requires an independent replay profile gate');
-  if (archive.schemaVersion === 3 || archive.schemaVersion === 4 || archive.schemaVersion === 5 || archive.schemaVersion === 6 || archive.schemaVersion === 7 || archive.schemaVersion === 8 || archive.schemaVersion === 9) {
-    check((archive.schemaVersion === 3 && profile === DUEL_REPLAY_PROFILE_P4_SPELL &&
-      archive.profile === DUEL_REPLAY_PROFILE_P4_SPELL && archive.semanticVersion === DUEL_RUNTIME_SEMANTIC_VERSION_P4) ||
-      (archive.schemaVersion === 4 && profile === DUEL_REPLAY_PROFILE_P4_PUBLIC_CHAIN &&
-      archive.profile === DUEL_REPLAY_PROFILE_P4_PUBLIC_CHAIN && archive.semanticVersion === DUEL_RUNTIME_SEMANTIC_VERSION_P4_PUBLIC_CHAIN) ||
-      (archive.schemaVersion === 5 && profile === DUEL_RUNTIME_PROFILE_P4_REGIONAL &&
-        archive.profile === DUEL_RUNTIME_PROFILE_P4_REGIONAL && archive.semanticVersion === DUEL_RUNTIME_SEMANTIC_VERSION_P4_REGIONAL) ||
-      (archive.schemaVersion === 6 && profile === DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT &&
-        archive.profile === DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT && archive.semanticVersion === DUEL_RUNTIME_SEMANTIC_VERSION_P4_OPTIONAL_UNIT) ||
-      (archive.schemaVersion === 7 && profile === DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_CLOCK &&
-        archive.profile === DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_CLOCK && archive.semanticVersion === DUEL_RUNTIME_SEMANTIC_VERSION_P4_OPTIONAL_UNIT_CLOCK) ||
-      (archive.schemaVersion === 8 && profile === DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_PHYSICAL_CHAIN &&
-        archive.profile === DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_PHYSICAL_CHAIN &&
-        archive.semanticVersion === DUEL_RUNTIME_SEMANTIC_VERSION_P4_OPTIONAL_UNIT_PHYSICAL_CHAIN) ||
-      (archive.schemaVersion === 9 && profile === DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_RESOLVED_HISTORY &&
-        archive.profile === DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_RESOLVED_HISTORY &&
-        archive.semanticVersion === DUEL_RUNTIME_SEMANTIC_VERSION_P4_OPTIONAL_UNIT_RESOLVED_HISTORY), 'schema 3/4/5/6/7/8/9 profile mismatch');
-  } else {
-    check(profile === DUEL_REPLAY_PROFILE_P4_LEGACY && archive.profile === undefined && archive.semanticVersion === undefined,
-      'legacy schema profile mismatch');
-  }
-  policyDay(admitted.options);
-  const policyCheckedAt = archive.schemaVersion === 1 ? legacyPolicyDay(admitted.options, archive.contextDigest)
-    : isoDay(archive.policyCheckedAt) && archive.contextDigest === contextDigest(admitted.options, profile) ? archive.policyCheckedAt : null;
-  check(policyCheckedAt !== null, 'archive/context digest mismatch');
-  check(Array.isArray(archive.operations) && archive.operations.length < 100_000 &&
-    Array.isArray(archive.creation?.entropy), 'journal shape');
-  let expected: readonly Entropy[] = archive.creation.entropy, cursor = 0, live = false;
+  if (isUnifiedP4Archive(archive)) return replayUnifiedP4Archive(archive, admitted);
+  check(false, 'legacy replay requires the legacy-replay-e2cbcdf implementation');
+}
+
+function replayUnifiedP4Archive(archive: DuelCommandArchiveP4 & Journal,
+  admitted: { options: DuelAuthoritativeRuntimeP4Options; digest: string; profile: DuelReplayProfileP4 | null }): DuelRecordedRuntimeP4 {
+  check(digestDuelCommandArchiveP4(archive) === admitted.digest, 'journal digest mismatch');
+  const journal = archive.journal ?? { header: archive.header, head: archive.head, entries: archive.entries, integrity: archive.integrity };
+  check(isJournalV1(journal), 'journal v1 integrity required');
+  const archivedProfile = archive.profile ?? (archive.schemaVersion === 3 ? DUEL_REPLAY_PROFILE_P4_SPELL
+    : archive.schemaVersion === 4 ? DUEL_REPLAY_PROFILE_P4_PUBLIC_CHAIN
+      : archive.schemaVersion === 5 ? DUEL_RUNTIME_PROFILE_P4_REGIONAL
+        : archive.schemaVersion === 6 ? DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT
+          : archive.schemaVersion === 7 ? DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_CLOCK
+            : archive.schemaVersion === 8 ? DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_PHYSICAL_CHAIN
+              : archive.schemaVersion === 9 ? DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_RESOLVED_HISTORY : null);
+  check(archivedProfile === null || admitted.profile === archivedProfile, 'profile mismatch');
+  const profile = admitted.profile ?? admitted.options.runtimeProfile ?? DUEL_REPLAY_PROFILE_P4_PUBLIC_CHAIN;
+  const creation = archive.creation;
+  let expected: readonly Entropy[] = creation.entropy, cursor = 0, live = false;
   const take = (kind: Entropy['kind'], bound?: number) => {
-    const next = expected[cursor++]; check(next?.kind === kind && (kind !== 'random' || next.kind === 'random' && next.bound === bound), 'entropy ordering mismatch');
+    const next = expected[cursor++];
+    check(next?.kind === kind && (kind !== 'random' || next.kind === 'random' && next.bound === bound), 'entropy ordering mismatch');
     return next.value;
   };
   const recorded = createRecorded({ ...admitted.options, runtimeProfile: profile,
     randomIndex: bound => live ? admitted.options.randomIndex(bound) : take('random', bound) as number,
-    uidFactory: () => live ? (admitted.options.uidFactory ?? randomUUID)() : take('uid') as string }, policyCheckedAt,
-    profile, true);
-  check(cursor === expected.length && same(recorded.archive().creation, archive.creation), 'creation/private state mismatch');
-  for (const op of archive.operations) {
-    check(op && Array.isArray(op.entropy) && ['dispatch', 'resume'].includes(op.kind), 'operation shape');
-    expected = op.entropy; cursor = 0;
-    if (op.kind === 'dispatch') recorded.runtime.dispatch(op.actor, op.packet);
-    else recorded.runtime.resumePending();
+    uidFactory: () => live ? (admitted.options.uidFactory ?? randomUUID)() : take('uid') as string },
+    policyDay(admitted.options), profile, true);
+  check(same(recorded.archive().creation, creation), 'creation/private state mismatch');
+  const replayCommand = (_state: unknown, entry: Journal['entries'][number] & { kind: 'entry' }) => {
+    const result = data(entry.result) as Record<string, unknown>;
+    const packet = result.legacyPacket;
+    check(isDuelCommandMessageV3Actions1(packet), 'command entry is missing its P4 packet');
+    expected = entry.entropyConsumed; cursor = 0;
+    const actual = recorded.runtime.dispatch(entry.actor, data(packet) as DuelCommandMessageV3Actions1);
+    const actualAck = data(actual.ack) as Record<string, unknown>;
+    const expectedAck = data(result.ack);
+    if (entry.duplicate && actualAck.duplicate === true) delete actualAck.duplicate;
+    check(same(actualAck, expectedAck), 'command receipt drift');
     check(cursor === expected.length, 'unused entropy');
-    const actual = recorded.archive().operations.at(-1)!;
-    check(same(actual, op), 'operation/private state mismatch');
-  }
+    const projected = recorded.runtime.project(null).match;
+    check(projected.stateVersion === entry.appliedStateVersion && projected.eventSeq === entry.eventSeq,
+      'command clock drift');
+    return _state;
+  };
+  replayJournal(journal, {
+    engineVersion: 'riftbound-game-server:p4-current',
+    applyCommand: replayCommand,
+    applyDuplicateCommand: replayCommand,
+    applyOperation: (_state, operation) => {
+      expected = operation.entropyConsumed; cursor = 0;
+      if (operation.phase === 'resume') {
+        recorded.runtime.resumePending();
+      } else if (operation.phase === 'dispatch') {
+        const receipt = operation.primitiveReceipts.find(item => item.type === 'legacy-dispatch');
+        check(receipt !== undefined && typeof receipt.actor === 'string' && isDuelCommandMessageV3Actions1(receipt.packet),
+          'pending dispatch packet is missing');
+        const actual = recorded.runtime.dispatch(receipt.actor, data(receipt.packet) as DuelCommandMessageV3Actions1);
+        check(same(actual.ack, receipt.ack), 'pending dispatch receipt drift');
+      }
+      check(cursor === expected.length, 'unused entropy');
+      return _state;
+    },
+  });
+  const publicProjection = recorded.runtime.project(null);
+  check(digestJournalValue(publicProjection) === journal.head.stateDigest, 'replayed public state digest drift');
   finishLegacyReplay.get(recorded)!();
   live = true;
   return recorded;

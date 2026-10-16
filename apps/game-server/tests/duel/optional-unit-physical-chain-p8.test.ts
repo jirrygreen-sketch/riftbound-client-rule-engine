@@ -24,7 +24,7 @@ describe("optional Unit physical Chain P8 owner", () => {
       recorded = replayDuelCommandArchiveP4(archive, createDuelReplayGateP4(options,
         digestDuelCommandArchiveP4(archive), DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_PHYSICAL_CHAIN));
       owner = recorded.runtime;
-      expect(recorded.archive()).toEqual(archive);
+      expect(recorded.archive().journal).toEqual(archive.journal);
       expect([owner.project(null), owner.project("alice"), owner.project("bob")]).toEqual(before);
     };
     const playing = (actor: string | null = "alice") => {

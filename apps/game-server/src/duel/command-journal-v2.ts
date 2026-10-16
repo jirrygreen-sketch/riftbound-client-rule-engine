@@ -15,6 +15,7 @@ import {
   type DuelRuntimeSeatV2,
 } from "./runtime-v2.js";
 import { projectDuelRuntimeV3 } from "./runtime-v3.js";
+import { JournalWriter, digestJournalValue, isJournalV1, replayJournal, type Journal, type JournalCommand, type JournalJsonValue } from "./runtime/journal/index.js";
 
 type Trace =
   | { readonly kind: "uid"; readonly value: string }
@@ -42,6 +43,7 @@ export interface SealedDuelCommandJournalV2 {
     readonly sessionHash: string;
   };
   readonly entries: readonly Entry[];
+  readonly journal?: Journal;
 }
 
 export interface DuelCommandJournalOptionsV2 {
@@ -148,6 +150,65 @@ function sessionHash(session: DuelCommandSessionV2): string {
 
 function clock(session: DuelCommandSessionV2) {
   return { stateVersion: session.match.stateVersion, eventSeq: session.match.eventSeq };
+}
+
+function v2JournalCommand(command: DuelCommandEnvelopeV2["command"]): JournalCommand {
+  switch (command.type) {
+    case "mulligan": return { type: "pass" };
+    case "rune-energy":
+    case "rune-power":
+    case "gold-power": return { type: "play-card", instanceId: command.uid, targets: [] };
+    case "pay-pending": return { type: "respond-to-prompt", promptId: command.paymentId, optionId: command.paymentId, targets: [] };
+  }
+}
+
+function v2JournalEntropy(trace: readonly Trace[]) {
+  return trace.filter((item): item is Exclude<Trace, { readonly kind: "card-type" }> => item.kind !== "card-type");
+}
+
+function buildV2Journal(ctx: Context, creation: SealedDuelCommandJournalV2["creation"], entries: readonly Entry[], session: DuelCommandSessionV2): Journal {
+  const creationStep = replaySources(ctx, creation.trace);
+  let replaySession = createDuelRuntimeSessionV2(ctx.catalog, ctx.roster, ctx.matchId, creationStep.options);
+  creationStep.done();
+  const writer = new JournalWriter({
+    header: {
+      engineVersion: "riftbound-game-server:v2-compat", matchId: ctx.matchId, roomId: ctx.matchId,
+      catalogDigest: ctx.catalog.publicCatalog.digest,
+      rosterDigest: digestJournalValue(ctx.roster.map(seat => ({ playerId: seat.playerId, name: seat.displayName }))),
+      trustedDeckDigest: digestJournalValue(ctx.roster.map(seat => seat.deck)), seed: digestJournalValue([ctx.matchId, ctx.catalog.publicCatalog.digest]),
+      seats: ctx.roster.map(seat => ({ playerId: seat.playerId, name: seat.displayName })),
+      creation: { entropy: creation.trace.filter(item => item.kind !== "card-type"), deterministicSeed: digestJournalValue([ctx.matchId, ctx.catalog.publicCatalog.digest]),
+        uidSeed: creation.trace.find(item => item.kind === "uid")?.value ?? null, creator: "game-server" },
+    }, stateVersion: creation.clock.stateVersion, eventSeq: creation.clock.eventSeq, roomVersion: 0,
+    stateDigest: digestJournalValue(projectDuelRuntimeV3(replaySession, null)), privateStateDigest: creation.sessionHash,
+  });
+  for (const entry of entries) {
+    if (entry.outcome.status !== "applied") continue;
+    const step = replaySources(ctx, entry.trace);
+    const replayed = applyDuelResourceCommandV2(replaySession, entry.actor, entry.envelope,
+      { randomIndex: step.options.randomIndex });
+    step.done();
+    check(replayed.persistRequired && !replayed.duplicate && replayed.outcome.status === "applied" &&
+      JSON.stringify(jsonData(replayed.outcome)) === JSON.stringify(jsonData(entry.outcome)) &&
+      JSON.stringify(clock(replayed.session)) === JSON.stringify(entry.clock) &&
+      sessionHash(replayed.session) === entry.sessionHash, "unified journal source replay drift");
+    replaySession = replayed.session;
+    const acceptedAt = new Date(0).toISOString();
+    const projection = projectDuelRuntimeV3(replaySession, null);
+    writer.recordCommand({
+      playerId: entry.actor, actor: entry.actor, requestId: entry.envelope.commandId, commandId: entry.envelope.commandId,
+      command: v2JournalCommand(entry.envelope.command), payload: v2JournalCommand(entry.envelope.command), acceptedAt,
+      expectedStateVersion: entry.envelope.expectedVersion, appliedStateVersion: entry.outcome.appliedVersion,
+      eventSeq: entry.outcome.eventSeq, roomVersion: 0,
+      result: { accepted: true, outcome: jsonData(entry.outcome) as JournalJsonValue, legacyEnvelope: jsonData(entry.envelope) as JournalJsonValue,
+        legacyTrace: jsonData(entry.trace) as JournalJsonValue, legacySessionHash: entry.sessionHash },
+      publicReceipt: { accepted: true, outcome: jsonData(entry.outcome) as JournalJsonValue }, entropyConsumed: v2JournalEntropy(entry.trace),
+      projectionDigestByViewer: { public: digestJournalValue(projection) },
+      state: { stateVersion: entry.outcome.appliedVersion, eventSeq: entry.outcome.eventSeq, roomVersion: 0,
+        stateDigest: digestJournalValue(projection), privateStateDigest: entry.sessionHash },
+    });
+  }
+  return writer.snapshot();
 }
 
 function parseTrace(raw: unknown): Trace[] {
@@ -338,6 +399,14 @@ export class DuelCommandJournalRecorderV2 {
     check(typeof gate === "object" && gate !== null && gates.has(gate), "trusted replay gate required");
     const ctx = (gate as unknown as { context: Context }).context;
     contextCurrent(ctx);
+    const candidate = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : null;
+    let unified: Journal | undefined;
+    if (candidate?.journal !== undefined) {
+      check(isJournalV1(candidate.journal), "unified journal v1 required");
+      unified = candidate.journal;
+      replayJournal(unified, { engineVersion: "riftbound-game-server:v2-compat" });
+      raw = { kind: candidate.kind, schemaVersion: candidate.schemaVersion, creation: candidate.creation, entries: [] };
+    }
     const journal = parseJournal(raw);
     check(journal.creation.matchId === ctx.matchId &&
       JSON.stringify(journal.creation.roster) === JSON.stringify(jsonData(ctx.roster)) &&
@@ -348,7 +417,25 @@ export class DuelCommandJournalRecorderV2 {
     check(JSON.stringify(clock(session)) === JSON.stringify(journal.creation.clock) &&
       sessionHash(session) === journal.creation.sessionHash, "creation outcome/clock drift");
     const recorder = new DuelCommandJournalRecorderV2(ctx, session, journal.creation, [], ctx.futureRandomIndex);
-    for (const entry of journal.entries) {
+    const entries = unified === undefined ? journal.entries : unified.entries.map(record => {
+      check(record.kind === "entry", "V2 unified journal cannot contain operations");
+      const payload = exact(record.result, ["accepted", "outcome", "legacyEnvelope", "legacyTrace", "legacySessionHash"]);
+      const envelope = parseEnvelope(payload.legacyEnvelope);
+      const trace = parseTrace(payload.legacyTrace);
+      const outcome = parseOutcome(payload.outcome);
+      check(record.actor === record.playerId && record.commandId === envelope.commandId &&
+        record.requestId === envelope.commandId && record.expectedStateVersion === envelope.expectedVersion &&
+        JSON.stringify(record.command) === JSON.stringify(v2JournalCommand(envelope.command)) &&
+        record.appliedStateVersion === (outcome.status === "applied" ? outcome.appliedVersion : 0) &&
+        record.eventSeq === (outcome.status === "applied" ? outcome.eventSeq : 0) &&
+        JSON.stringify(record.entropyConsumed) === JSON.stringify(v2JournalEntropy(trace)),
+      "unified command metadata drift");
+      check(outcome.status === "applied", "V2 unified journal contains a nonpersistent command");
+      return { actor: record.actor, envelope, trace, outcome,
+        clock: { stateVersion: record.appliedStateVersion, eventSeq: record.eventSeq },
+        sessionHash: parseHash(payload.legacySessionHash) } satisfies Entry;
+    });
+    for (const entry of entries) {
       const before = recorder.session;
       const step = replaySources(ctx, entry.trace);
       const result = applyDuelResourceCommandV2(before, entry.actor, entry.envelope,
@@ -421,8 +508,10 @@ export class DuelCommandJournalRecorderV2 {
       this.randomIndex ?? (() => { throw new DuelCommandJournalErrorV2("random source unavailable"); }));
     const verified = DuelCommandJournalRecorderV2.replay(candidate, gate);
     check(sessionHash(verified.session) === sessionHash(this.session), "external session mutation");
-    freezeDeep(candidate);
-    return candidate;
+    const unified = buildV2Journal(this.ctx, candidate.creation, candidate.entries, this.session);
+    const sealed = { ...candidate, journal: unified };
+    freezeDeep(sealed);
+    return sealed;
   }
 }
 
