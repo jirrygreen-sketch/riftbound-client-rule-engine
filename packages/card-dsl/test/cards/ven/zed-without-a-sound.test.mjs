@@ -1,0 +1,228 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
+import program from "../../../dist/cards/ven/zed-without-a-sound.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+
+const CANONICAL_ID =
+  "card.hash-5b42742bf383c1d6c7809e387ff198cfe26b37f06ef74cd7742bf390ea3cf2a7";
+const SOURCE_TEXT =
+  'When I conquer, play a 0 :rb_might: Shadow Clone unit token to your base. (It has "When I attack, ' +
+  'you may banish a unit from your trash. If you do, give me [Assault 4] this turn.")\n' +
+  "[Action][>] :rb_energy_1::rb_rune_chaos:: Move me and a Shadow Clone you control to each other's locations.";
+
+const [conquer, activated] = program.abilities;
+const [playClone] = conquer.body;
+const [origin, cloneLocation, moveMe, moveClone] = activated.body;
+
+/** 静态 IR 的 targets 由 Finalize 锁定；参考内核用 setTargets 提供同样的锁定结果。 */
+const withoutTargets = (body) => body.map(({ targets, ...rest }) => rest);
+
+test("ven-112-166 Zed, Without a Sound: program passes validateCardProgram", () => {
+  const result = validateCardProgram(program);
+  assert.deepEqual(result.issues, []);
+  assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
+});
+
+test("ven-112-166 Zed: identity, status, judgeReason and verbatim sourceText", () => {
+  assert.equal(program.canonicalCardId, CANONICAL_ID);
+  assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
+  assert.equal(program.rulesetVersion, "core-1.5");
+  assert.equal(program.status, "judge-required");
+  assert.equal(program.sourceText, SOURCE_TEXT);
+  // 缺 token 定义、conquer 发射与启动能力接线（见 judgeReason）。
+  assert.match(program.judgeReason, /token-definition-or-abilities-judge-required/);
+  assert.match(program.judgeReason, /conquer/);
+  assert.match(program.judgeReason, /RIFT-89/);
+});
+
+test("ven-112-166 Zed: the conquer trigger plays a Shadow Clone token to your base", () => {
+  // 383.4.c.1 / 473.2.a："When I conquer" 是 Conquer Effect，指向能力来源自身。
+  assert.equal(conquer.kind, "triggered");
+  assert.equal(conquer.trigger.at, "conquer");
+  assert.deepEqual(conquer.trigger.filter, { event: "conquer", filter: { source: "self" } });
+  assert.equal(conquer.optional, false);
+
+  assert.equal(program.abilities.length, 2);
+  assert.equal(playClone.id, "zed-without-a-sound.play-shadow-clone");
+  assert.equal(playClone.op, "effect.token");
+  assert.deepEqual(playClone.args.token, { kind: "constant", value: "shadow-clone" });
+  assert.deepEqual(playClone.args.amount, { kind: "constant", value: 1 });
+  // 440.2.c / 185.2.a：被“打出”的新 token 先在链上创建，再由 play 接手。
+  assert.deepEqual(playClone.args.mode, { kind: "constant", value: "play" });
+  assert.deepEqual(playClone.args.location, {
+    kind: "constant",
+    value: { type: "base", player: "controller" }
+  });
+  assert.equal(playClone.targets, undefined);
+  assert.equal(playClone.linkedTo, undefined);
+});
+
+test("ven-112-166 Zed: [Action][>] cost and the two locked swaps of the exchange body", () => {
+  assert.equal(activated.kind, "activated");
+  // 806.1.d：能力级 [Action] 许可记在 activated.timing。
+  assert.equal(activated.timing, "action");
+  // :rb_energy_1: 是 1 Energy，:rb_rune_chaos: 是 1 枚 Chaos Power（163.2）。
+  assert.deepEqual(activated.cost, {
+    kind: "activated",
+    energy: { kind: "constant", value: 1 },
+    power: { kind: "constant", value: ["Chaos"] }
+  });
+
+  assert.deepEqual(
+    activated.body.map((instruction) => [instruction.id, instruction.op]),
+    [
+      ["zed-without-a-sound.origin", "condition.value"],
+      ["zed-without-a-sound.clone-location", "condition.value"],
+      ["zed-without-a-sound.move-me", "effect.move"],
+      ["zed-without-a-sound.move-clone", "effect.move"]
+    ]
+  );
+
+  // 355.4 / 448.3：两处原始位置都必须在第一次移动前锁定。
+  assert.deepEqual(origin.args.value, {
+    kind: "object-property",
+    object: "self",
+    property: "location"
+  });
+  assert.equal(origin.targets, undefined);
+  assert.deepEqual(cloneLocation.args.value, {
+    kind: "object-property",
+    object: { target: "zed-without-a-sound.clone" },
+    property: "location"
+  });
+
+  // "a Shadow Clone you control"：玩家选定的游戏对象（355.7/355.9.a），印刷名用
+  // characteristics.name 记录（当前匹配器不读该键，故整卡保持 judge-required）。
+  assert.deepEqual(cloneLocation.targets, [
+    {
+      id: "zed-without-a-sound.clone",
+      filter: {
+        type: "unit",
+        zone: "board",
+        controller: "controller",
+        characteristics: { name: "Shadow Clone" }
+      },
+      min: 1,
+      max: 1,
+      selection: "one"
+    }
+  ]);
+  assert.deepEqual(moveClone.targets, cloneLocation.targets);
+
+  // 两次 Move 读链接值作为目的地：我的目的地是克隆的原始位置，克隆的目的地是我的。
+  assert.deepEqual(moveMe.args.objects, { kind: "constant", value: "self" });
+  assert.deepEqual(moveMe.args.to, {
+    kind: "linked-value",
+    instructionId: "zed-without-a-sound.clone-location",
+    key: "cloneLocation"
+  });
+  assert.equal(moveMe.targets, undefined);
+  assert.deepEqual(moveClone.args.objects, {
+    kind: "constant",
+    value: { target: "zed-without-a-sound.clone" }
+  });
+  assert.deepEqual(moveClone.args.to, {
+    kind: "linked-value",
+    instructionId: "zed-without-a-sound.origin",
+    key: "origin"
+  });
+});
+
+test("ven-112-166 Zed golden: the exchange swaps Zed and a Shadow Clone", () => {
+  // 355.4 / 448.3（CR 448.1 的 Move）：交换必须基于“移动前”的两处位置。
+  const base = world()
+    .player("controller")
+    .unit("zed", {
+      controller: "controller",
+      location: { type: "battlefield", id: "bf-1" }
+    })
+    .unit("clone", {
+      controller: "controller",
+      location: { type: "battlefield", id: "bf-2" },
+      isToken: true,
+      name: "Shadow Clone",
+      might: 0
+    })
+    .build();
+  const kernel = base.clone({
+    controller: "controller",
+    sourceSnapshot: base.getObject("zed")
+  });
+  kernel.setTargets("zed-without-a-sound.clone", [kernel.ref("clone")]);
+
+  const outcome = resolveChainBody(withoutTargets(activated.body), kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(
+    outcome.results.map((entry) => [entry.id, entry.result.status]),
+    [
+      ["zed-without-a-sound.origin", "executed"],
+      ["zed-without-a-sound.clone-location", "executed"],
+      ["zed-without-a-sound.move-me", "executed"],
+      ["zed-without-a-sound.move-clone", "executed"]
+    ]
+  );
+  assert.deepEqual(kernel.getObject("zed").location, { type: "battlefield", id: "bf-2" });
+  assert.deepEqual(kernel.getObject("clone").location, { type: "battlefield", id: "bf-1" });
+  assert.deepEqual(
+    kernel.events.filter((event) => event.action === "move-location").length,
+    2
+  );
+  // 两次移动各自写入链接收据，移动数各为 1。
+  assert.equal(outcome.linkedValues["zed-without-a-sound.move-me.movedMe"].count, 1);
+  assert.equal(outcome.linkedValues["zed-without-a-sound.move-clone.movedClone"].count, 1);
+});
+
+test("ven-112-166 Zed golden: a stale Shadow Clone target ignores only the clone half", () => {
+  // 359.3.e.7 / 359.3.e.11：目标在结算时全部失效 → 该指令 ignored，后续仍尽可能执行。
+  const base = world()
+    .player("controller")
+    .unit("zed", {
+      controller: "controller",
+      location: { type: "battlefield", id: "bf-1" }
+    })
+    .unit("clone", {
+      controller: "controller",
+      location: { type: "battlefield", id: "bf-2" },
+      isToken: true,
+      name: "Shadow Clone"
+    })
+    .build();
+  const stale = base.ref("clone");
+  base.perform({ type: "kill", object: stale });
+  const kernel = base.clone({
+    controller: "controller",
+    sourceSnapshot: base.getObject("zed")
+  });
+  kernel.setTargets("zed-without-a-sound.clone", [stale]);
+
+  const outcome = resolveChainBody(withoutTargets(activated.body), kernel);
+
+  assert.equal(outcome.status, "partial");
+  const cloneHalf = outcome.results.find(
+    (entry) => entry.id === "zed-without-a-sound.clone-location"
+  );
+  assert.deepEqual(cloneHalf.result, { status: "ignored", reason: "mistargeted" });
+  // 我的位置仍未变动（第一条移动的目的地不可用 → 不移动）。
+  assert.deepEqual(kernel.getObject("zed").location, { type: "battlefield", id: "bf-1" });
+});
+
+test.todo(
+  "ven-112-166 Zed: the Shadow Clone definition (a 0-Might unit token with its own attack trigger: " +
+    "banish a unit from your trash, then [Assault 4]) plus chain creation / play hand-off — the frozen " +
+    "effect.token DEFINITIONS table only holds token definitions with no extra abilities, so the " +
+    "program keeps effect.token mode \"play\" as declared-but-not-executable (CR 187/440.2.c, 185.2.a)"
+);
+
+test.todo(
+  "ven-112-166 Zed: the conquer trigger runs end to end (Conquer Effect -> chain) — needs scoring -> " +
+    "chain/events conquer emission and CardProgram TriggerRegistration (RIFT-76/RIFT-120, contract section 7.2 batch 5)"
+);
+
+test.todo(
+  "ven-112-166 Zed: the [Action][>] 1 Energy + 1 Chaos Power activation reaches Finalize and pays " +
+    "(CR 806.1.d / 404.1.a) — the activated-ability to chain Finalize wiring is not merged (RIFT-89)"
+);
