@@ -1,0 +1,131 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { validateCardProgram } from "../../../dist/ir/validation.js";
+import findYourCenter from "../../../dist/cards/ogn/find-your-center.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import channel from "../../../../engine-core/dist/effects/instructions/effect.channel.js";
+import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+
+const CANONICAL = "card.hash-e3ecc6164765d02357568348735bbb2eb8e6ed9a6a919fd16c4dde83bf5c765e";
+
+const [keyword, costAbility, play] = findYourCenter.abilities;
+const [drawInstruction, channelInstruction] = play.body;
+
+test("Find Your Center program is structurally valid EffectIR v2 data", () => {
+  const result = validateCardProgram(findYourCenter);
+  assert.deepEqual(result.issues, []);
+  assert.equal(result.ok, true);
+});
+
+test("Find Your Center identity, ruleset, status and printed text", () => {
+  assert.equal(findYourCenter.canonicalCardId, CANONICAL);
+  assert.equal(findYourCenter.rulesetVersion, "core-1.5");
+  assert.equal(findYourCenter.status, "judge-required");
+  assert.match(findYourCenter.judgeReason, /cost\.modify/);
+  assert.match(findYourCenter.judgeReason, /Victory Score/);
+  assert.equal(cardRegistryById.get(findYourCenter.canonicalCardId), findYourCenter);
+  assert.equal(
+    findYourCenter.sourceText,
+    "[Action] (Play on your turn or in showdowns.)\n" +
+      "If an opponent's score is within 3 points of the Victory Score, this costs " +
+      ":rb_energy_2: less.\n" +
+      "Draw 1 and channel 1 rune exhausted."
+  );
+});
+
+test("Find Your Center keeps the printed [Action] keyword (CR 806)", () => {
+  assert.deepEqual(keyword, { kind: "keyword", keyword: "action" });
+});
+
+test("Find Your Center cost ability records the [2] discount and its predicate", () => {
+  assert.equal(costAbility.kind, "static");
+  assert.equal(costAbility.effect.kind, "cost.modify");
+  assert.deepEqual(costAbility.effect.value, { kind: "constant", value: { energy: -2 } });
+  assert.equal(costAbility.effect.resource, "energy");
+  assert.equal(costAbility.effect.appliesTo, "play-cost");
+  // The predicate is a named expression, NOT a hard-coded comparison against
+  // the default Victory Score of 8 (CR 194.3.a allows other values).
+  assert.deepEqual(costAbility.condition, {
+    kind: "expression",
+    value: { kind: "constant", value: "opponent-score-within-3-of-victory-score" }
+  });
+});
+
+test("Find Your Center body: unlinked Draw 1 then channel 1 rune exhausted", () => {
+  assert.equal(play.body.length, 2);
+  assert.equal(drawInstruction.id, "draw-1");
+  assert.equal(drawInstruction.op, "effect.draw");
+  assert.deepEqual(drawInstruction.args, { amount: { kind: "constant", value: 1 } });
+  assert.equal(drawInstruction.linkedTo, undefined);
+  assert.equal(drawInstruction.targets, undefined);
+
+  assert.equal(channelInstruction.id, "channel-1-exhausted");
+  assert.equal(channelInstruction.op, "effect.channel");
+  assert.deepEqual(channelInstruction.args, {
+    amount: { kind: "constant", value: 1 },
+    exhausted: { kind: "constant", value: true }
+  });
+  // "Draw 1 and channel 1 rune exhausted." is one conjoined sentence but two
+  // independent actions; linking them would let a failed draw suppress the
+  // channel (359.3.e.11).
+  assert.equal(channelInstruction.linkedTo, undefined);
+  assert.equal(channelInstruction.targets, undefined);
+});
+
+test("Find Your Center golden: Draw 1 puts the top card of the Main Deck in hand", () => {
+  const kernel = world().deck(["top-card", "next-card"]).build();
+  const run = runInstruction(draw, drawInstruction.args, { world: kernel });
+
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.drawn, 1);
+  assert.equal(run.linked.drawnTo, "A");
+  assert.equal(kernel.player("A").handSize, 1);
+  assert.deepEqual(kernel.zone("A", "hand").map(ref => ref.id), ["top-card"]);
+});
+
+test("Find Your Center golden: channel 1 rune exhausted moves the top rune and keeps the stipulation", () => {
+  const kernel = world().rune(["r1", "r2"]).build();
+  // Observe the exact GameAction the primitive submits; the hook returns null
+  // so the action still executes normally (no replacement).
+  const submitted = [];
+  kernel.addReplacement(action => {
+    submitted.push(action);
+    return null;
+  });
+  const run = runInstruction(channel, channelInstruction.args, { world: kernel });
+
+  assert.equal(run.result.status, "executed");
+  // CR 431.1: one rune leaves the Rune Deck for the board (rune zone);
+  // CR 431.2 carries the printed "exhausted" entry stipulation.
+  assert.equal(run.linked.channeled, 1);
+  assert.equal(kernel.player("A").runeDeckSize, 1);
+  assert.equal(kernel.getObject("r1").zone, "rune-zone");
+  assert.equal(kernel.getObject("r2").zone, "rune-deck");
+  const action = run.events.find(event => event.action === "channel-rune");
+  assert.ok(action, "expected a channel-rune game action");
+  assert.deepEqual(submitted, [
+    { type: "channel-rune", player: "A", amount: 1, exhausted: true }
+  ]);
+});
+
+test("Find Your Center golden: a short Rune Deck channels as much as possible (CR 431.3)", () => {
+  const kernel = world().rune("only-rune").build();
+  const run = runInstruction(channel, channelInstruction.args, { world: kernel });
+
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.channeled, 1);
+  assert.equal(kernel.player("A").runeDeckSize, 0);
+});
+
+test.todo(
+  "Find Your Center discount: apply [2] less to the printed Energy cost at Finalize when an opponent's " +
+    "score is within 3 points of the Victory Score (CR 356.4 / 206; CR 194.3/194.3.a per-mode Victory Score) " +
+    "- needs the cost.modify discount component (RIFT-89) and a Victory Score read on ResolveContext"
+);
+
+test.todo(
+  "Find Your Center [Action] admission: play during a Showdown on any player's turn (CR 806.1.b) - " +
+    "needs the continuous.timing keyword expansion (RIFT-85) consumed by chain canAct"
+);
