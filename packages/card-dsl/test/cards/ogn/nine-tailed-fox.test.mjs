@@ -3,7 +3,9 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/nine-tailed-fox.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -27,8 +29,13 @@ test("ogn-255-298 Nine-Tailed Fox: identity, status, and verbatim sourceText", (
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /minimum of 1/);
-  assert.match(program.judgeReason, /RIFT-83\/84/);
+  assert.match(program.judgeReason, /478\.1\.c/);
+  // Re-sweep: the Might op is merged; the remaining gaps are the attack
+  // timing producer, the battlefield-control payload, and the event-object
+  // selector (plus the RIFT-257 trigger binding).
+  assert.match(program.judgeReason, /attack-declared/);
+  assert.match(program.judgeReason, /466\.2/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("ogn-255-298 Nine-Tailed Fox: attack-declared trigger for an enemy unit", () => {
@@ -72,39 +79,76 @@ test("ogn-255-298 Nine-Tailed Fox: -1 Might this turn with the printed minimum o
   });
 });
 
-test("ogn-255-298 Nine-Tailed Fox: the debuff cannot execute — no opcode, no Might change", async () => {
-  // Two independent pieces of locked negative evidence:
-  // 1. continuous.might is not a registered instruction opcode, so no merged
-  //    primitive can apply the -1 Might (or the minimum-of-1 clamp).
-  // 2. Driving the program's own body through the merged interpreter must not
-  //    change the attacker's Might: the target anchor is re-checked against the
-  //    kernel's filter spelling, and the instruction is ignored rather than
-  //    applying anything hand-rolled.
-  const { instructionDefinitionsById } = await import(
-    "../../../../engine-core/dist/effects/instructions/registry.generated.js"
-  );
-  assert.equal(instructionDefinitionsById.has("continuous.might"), false);
-  assert.equal(instructionDefinitionsById.has("continuous.might-modify"), false);
+test("ogn-255-298 Nine-Tailed Fox: the merged Might op registers the -1 this-turn modification", () => {
+  // The re-sweep verified that continuous.might (RIFT-258) now performs the
+  // temporary Might modification the card prints, including the end-of-turn
+  // duration and the printed minimum of 1. The card's own args are driven
+  // through the merged primitive against a scanned reference kernel.
+  assert.equal(instructionDefinitionsById.has("continuous.might"), true);
 
   const kernel = world()
-    .unit("attacker", { owner: "B", controller: "B", zone: "board", might: 4 })
+    .unit("attacker", { owner: "B", controller: "B", zone: "board", might: 4, location: { type: "battlefield", id: "bf-1" } })
     .build();
-  const ctx = kernel.clone({ sourceSnapshot: kernel.object(kernel.ref("attacker")) });
-  const outcome = runAbilityBody(ability.body, ctx);
-  assert.deepEqual(outcome.results.map(result => [result.id, result.result]), [
-    ["nine-tailed-fox.debuff-attacker", { status: "ignored", reason: "mistargeted" }]
+  kernel.setTargets("attacking-unit", [kernel.ref("attacker")]);
+  // Finalize-time target locking is supplied by the caller, so the golden
+  // drops only the TargetSpec and runs the card's authored instruction (see
+  // pit-rookie's golden for the convention).
+  const { targets, ...authored } = debuff;
+  const outcome = runAbilityBody([authored], kernel);
+
+  assert.deepEqual(outcome.results.map(result => [result.id, result.result.status]), [
+    ["nine-tailed-fox.debuff-attacker", "executed"]
   ]);
-  assert.equal(kernel.getObject("attacker").might, 4);
-  assert.equal(kernel.getObject("attacker").damage, 0);
-  assert.equal(kernel.getObject("attacker").buffs, 0);
+  assert.equal(kernel.continuousEffects.length, 1);
+  // The registered effect also carries the runtime per-object condition
+  // function, so only the authored fields are asserted.
+  const registered = kernel.continuousEffects[0].effect.effect;
+  assert.equal(registered.kind, "continuous.might");
+  assert.equal(registered.amount, -1);
+  assert.equal(registered.minimum, 1);
+  assert.deepEqual(kernel.continuousEffects[0].duration, { type: "end-of-turn" });
+
+  const engine = createLayerEngine(
+    [kernel.getObject("attacker")],
+    kernel.continuousEffects.map(entry => ({ effect: entry.effect, duration: entry.duration, timestamp: 1 }))
+  );
+  assert.equal(engine.evaluate(kernel.ref("attacker")).might, 3);
+  // CR 317.2.c: the modification expires at the turn-end timing point.
+  assert.deepEqual(engine.advance({ id: "turn-end" }), [kernel.continuousEffects[0].effect.id]);
+  assert.equal(engine.evaluate(kernel.ref("attacker")).might, 4);
+});
+
+test("ogn-255-298 Nine-Tailed Fox: the printed minimum of 1 clamps a 1-Might attacker", () => {
+  const kernel = world()
+    .unit("attacker", { owner: "B", controller: "B", zone: "board", might: 1, location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  kernel.setTargets("attacking-unit", [kernel.ref("attacker")]);
+  const { targets, ...authored } = debuff;
+  const outcome = runAbilityBody([authored], kernel);
+
+  assert.equal(outcome.results[0].result.status, "executed");
+  // CR 478.1.c: buildMightSpec snapshots the limited delta (max(-1, 1-1)=0), so
+  // the modification cannot take a 1-Might unit below its printed minimum.
+  const registered = kernel.continuousEffects[0].effect.effect;
+  assert.equal(registered.kind, "continuous.might");
+  assert.equal(registered.amount, 0);
+  assert.equal(registered.minimum, 1);
+  const engine = createLayerEngine(
+    [kernel.getObject("attacker")],
+    kernel.continuousEffects.map(entry => ({ effect: entry.effect, duration: entry.duration, timestamp: 1 }))
+  );
+  assert.equal(engine.evaluate(kernel.ref("attacker")).might, 1);
 });
 
 test.todo(
-  "ogn-255-298: apply -1 Might this turn with the minimum-of-1 clamp (CR 478.1.c example) and " +
-    "end-of-turn expiry through the layers continuous.might system (RIFT-83/84, expiry RIFT-91)"
+  "ogn-255-298: the card-level execution — attack-declared has no producer yet (combat/flow.ts " +
+    "throws TurnCombatBlockedError for the combat-start role transaction, CR 466.2), the payload " +
+    "does not carry the battlefield-control state, and 'it' needs an event-object selector; plus " +
+    "the card-program trigger registration (RIFT-257)"
 );
 
 test.todo(
   "ogn-255-298: restrict the trigger to a battlefield the controller controls and bind “it” to the " +
-    "attacking unit from the event (383.2.c.3.b / 359.3.f.3) — trigger payload and event-object binding (RIFT-87/90)"
+    "attacking unit from the event (383.2.c.3.b / 359.3.f.3) — attack-declared payload control state (RIFT-124 " +
+    "follow-up) and event-object selector (RIFT-257/contract)"
 );

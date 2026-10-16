@@ -31,6 +31,11 @@ test("nocturne-horrifying: identity, ruleset, status, judgeReason and sourceText
   // 9. 文本/规则冲突与缺原语都必须写进 judgeReason。
   assert.match(program.judgeReason, /370\.1\.c\.1/);
   assert.match(program.judgeReason, /cost\.(printed|modify)/);
+  // Re-sweep: the replacement registration surface is merged (RIFT-260); the
+  // secret-zone simultaneous replacement event and the cost ops are not.
+  assert.match(program.judgeReason, /RIFT-260/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -141,6 +146,6 @@ test.todo(
 );
 
 test.todo(
-  "nocturne-horrifying: 370.1.c.1 要求的“秘密区域内的替代效果与事件同时生效”替代管线；" +
+  "nocturne-horrifying: 370.1.c.1 要求的“秘密区域内的替代效果与事件同时生效”替代管线（RIFT-260 的 replacement/ 已合入通用事件拦截与注册面，但没有「被查看/被展示」的秘密区域事件匹配）；" +
     "同时复核 CR 370.1.c.1 示例文本与本地 sourceText 的措辞冲突（需要裁定）"
 );

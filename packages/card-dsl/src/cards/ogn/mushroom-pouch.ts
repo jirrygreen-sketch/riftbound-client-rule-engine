@@ -18,18 +18,20 @@ import type { CardProgram } from "../../ir/index.js";
  * - 414.3: "Draw 1." is resolved with effect.draw; the implicit drawer is the
  *   ability controller (190.6.d).
  *
- * Status: judge-required — the trigger timing and the draw are both real, but
- * the intervening "if" clause cannot be evaluated with merged code:
- * - the trigger filter needs to select a "facedown card at a battlefield",
- *   and the engine's ObjectFilter has no facedown-zone spelling: zones are
+ * Status: judge-required — after the RIFT-270 audit the trigger side is
+ * closer: `beginning-start` is emitted by turn/flow.ts:202-204 (enter('beginning'))
+ * for the turn player, so gap (2) from the original review is closed at the
+ * producer. The remaining gap is the intervening "if" clause:
+ * - it needs to evaluate "you control a facedown card at a battlefield", and
+ *   the engine's ObjectFilter/ZoneId have no facedown-zone spelling: zones are
  *   deck/hand/board/battlefield/base/rune-zone/… (107.3.e says a Facedown Zone
  *   is not a location, and 107.3.a makes it a sub-zone of a battlefield), and
  *   the ZoneId type has no facedown member; an object's `faceDown` flag is only
- *   readable through `states: \"face-down\"`, which no merged target/trigger
- *   query wires to a battlefield sub-zone;
- * - the real trigger path also needs the turn structure to emit
- *   `beginning-start` for the turn player (the turn/timing owner is unmerged;
- *   the chain layer only notices the point for its cleanup clock).
+ *   readable through `states: \"face-down\"`, which no merged query scopes to a
+ *   battlefield Facedown Zone (355.9.a.3); `condition.value`'s count query is
+ *   the only evaluation path and it reuses the same filter vocabulary;
+ * - binding the card's trigger to the emitted point is still the CardProgram
+ *   adapter (RIFT-257); the pipeline itself and once/condition hooks are merged.
  * The draw half is executed in isolation by the golden test; nothing is
  * approximated to make the condition pass.
  */
@@ -40,9 +42,10 @@ const mushroomPouch = {
   judgeReason:
     "缺\"战场上你自己的面朝下牌\"的可求值条件：引擎 ObjectFilter/ZoneId 没有 Facedown Zone 拼写" +
     "（107.3.a/107.3.e：Facedown Zone 是战场的子区域、不是 location；ZoneId 无 facedown 成员），" +
-    "faceDown 只能经 states 读取而没有任何已合入查询能把它限定到战场的 Facedown Zone（355.9.a.3）；" +
-    "同时该触发依赖回合结构在回合玩家 Beginning Phase 发出 beginning-start（时点拥有者未合入，链层只把该点用于清理时钟）。" +
-    "Draw 1（414.3）本身已合入并由 golden 单独执行；不近似实现。",
+    "faceDown 只能经 states 读取而没有任何已合入查询能把它限定到战场的 Facedown Zone（355.9.a.3），" +
+    "condition.value 的 count 求值复用同一套 filter 词汇，无法判定该从句。" +
+    "触发接线本身仍缺 CardProgram 程序绑定（RIFT-257）；beginning-start 已由 turn/flow.ts 在回合玩家 Beginning Phase 发出（RIFT-270），" +
+    "不再是无生产方。Draw 1（414.3）已合入并由 golden 单独执行；不近似实现。",
   abilities: [
     {
       kind: "triggered",

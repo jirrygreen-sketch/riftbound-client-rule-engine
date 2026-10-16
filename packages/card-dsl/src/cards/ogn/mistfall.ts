@@ -22,10 +22,13 @@ const mistfall = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "触发能力的前置费用「支付 1 Body Power 并横置此牌」在契约 3.1 的 TriggeredAbility 上没有 cost 字段，" +
-    "cost.pay 也不是已注册指令原语（费用计划由 chain Finalize 生成，依赖 RIFT-89/90）；" +
-    "「ready it」的 it 必须绑定 buff-added 事件中的被 Buff 单位，契约 3.6 的 ObjectSelector 没有事件对象选择器" +
-    "（依赖 RIFT-21 触发 payload 绑定或契约补充）。buff-added 时点与 effect.ready 原语虽已合入，但整卡不可执行；不近似实现。",
+    "仍有两处缺口，不近似实现：（1）触发能力的前置费用「支付 1 Body Power 并横置此牌」在契约 3.1 的 " +
+    "TriggeredAbility 上没有 cost 字段（383.3.b 的 cost within instructions 应由 Finalize 收取），" +
+    "cost.pay 仍未注册为指令原语（instructions/ 下没有 cost.* 文件，费用计划由 chain Finalize 生成；" +
+    "依赖 RIFT-261/257）；（2）「ready it」的 it 必须绑定 buff-added 事件中的被 Buff 单位，" +
+    "契约 3.6 的 ObjectSelector 仍只有 self/source/target/pick/linked，没有触发事件对象选择器" +
+    "（依赖 RIFT-257 的事件 payload 绑定或契约补充）。buff-added 时点（已在 action-adapter 发出）" +
+    "与 effect.ready 原语已合入，golden 真实执行 ready 半段；整卡仍不可执行。",
   abilities: [
     {
       kind: "triggered",

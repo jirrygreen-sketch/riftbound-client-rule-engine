@@ -22,24 +22,29 @@ import type { CardProgram } from "../../ir/index.js";
  *   second Buff on the same Unit is not placed. effect.buff (mode "buff")
  *   implements exactly that action; the +1 Might per Buff is 703 (layers).
  *
- * Status: judge-required — the trigger cannot run in production because no
- * merged module emits the `hold` timing point into the single event pipeline
- * (see judgeReason). The body only uses merged primitives and is executed by
- * the golden test against the reference kernel.
+ * Status: judge-required — after the RIFT-270 audit the `hold` point is
+ * emitted (turn/flow.ts's scoring wave emits the method point plus `score`),
+ * but the trigger still cannot run in production: the EventPattern vocabulary
+ * rejects the `here: true` placeholder (it must be bound to the scoring
+ * payload's battlefield identity by the CardProgram binding layer, RIFT-257),
+ * and Layers do not yet derive the +1 Might per Buff of 703 (the layer engine
+ * keeps the buffs counter but evaluates printed Might). The body only uses
+ * merged primitives and is executed by the golden test against the reference
+ * kernel.
  */
 const navoriFightingPit = {
   canonicalCardId: "card.hash-546a7aea49dffb7a5d50977e6011ab55e4c623b1ff68083db798c52197395627",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺时点接线：\"When you hold here\" 依赖 hold 时点（CR 383.4.d、471.2、473.2.b）进入唯一事件管线，" +
-    "但已合入代码没有任何模块 emit hold（chain/engine.ts 只 emit chain-item-*/cleanup-*/showdown-*/card-played/became-target 等自有节点），" +
-    "engine-core/src/chain/SCENARIO-COVERAGE.md 的 triggers-hold-unit-present 亦标注未覆盖，" +
-    "需 scoring/触发接线任务（RIFT-31 scenarios-scoring / RIFT-33 scenarios-triggers，及契约 §7.2 批 5）；" +
-    "触发器 filter 里 here=true 是等待 scoring 载荷的占位键，当前管线会忽略；引擎侧 assertTriggerSpec 也会以 " +
-    "\"EventPattern 不允许此字段\" 拒绝该占位键（golden 测试断言了这一点），因此本程序不可当作可运行触发器。" +
-    "能力本体只用已合入的 effect.buff 原语，位置锚点用契约 3.6 的 sameLocationAs: \"self\"；" +
-    "整卡在时点接线落地并复核前保持 judge-required，不近似实现。",
+    "复核 RIFT-270 后时点产生方已就绪：hold 由 turn/flow.ts 的计分波（471.2/473.2.b，CR 383.4.d）在唯一事件管线发出；" +
+    "但触发仍无法生产化，缺口不近似实现：" +
+    "(1) 触发 filter 里的 here=true 是等待 scoring 载荷的占位键——封闭 EventPattern 词汇不允许该字段（assertTriggerSpec 以 " +
+    "\"EventPattern 不允许此字段\" 拒绝，golden 断言了这一点），需要 CardProgram 绑定层（RIFT-257）把注册源战场绑定为 scoring " +
+    "details.battlefieldId 过滤；" +
+    "(2) 703 的 Buff → +1 Might 推导未实现：已验证 LayerEngine 对 buffs=1 的单位仍按印刷 Might 求值（buffs 计数器单独存在）；" +
+    "(3) 把本卡 triggered 能力注册到 hold 时点同样依赖 RIFT-257。" +
+    "能力本体只用已合入的 effect.buff 原语，位置锚点用契约 3.6 的 sameLocationAs: \"self\"，均由 golden 真实执行。",
   sourceText: "When you hold here, buff a unit here. (If it doesn't have a buff, it gets a +1 :rb_might: buff.)",
   abilities: [
     {
