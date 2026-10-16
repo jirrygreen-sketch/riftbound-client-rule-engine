@@ -1,0 +1,126 @@
+import type { Ability, CardProgram } from "../../ir/index.js";
+
+/**
+ * Tomb-Raider Barbara (ven-037-166) — Unit, Calm, 4 Energy, Might 4, tag Shurima.
+ *
+ * sourceText（packages/card-data/data/deck-catalog.json, ven-037-166，逐字）：
+ *   When you play me, if you control 7 or more runes, choose an enemy gear. If it's
+ *   [Empowered], disempower it. Otherwise, kill it.
+ *
+ * 规则依据（Core Rules v1.5）：
+ * - 383.4.a / 383.4.a.1："When you play me" 是 Play Effect；封闭时点 "card-played"
+ *   （events/timing-points.ts，ruleRefs 359/383.4.a/407），filter 用契约 3.6 的
+ *   source: "self" 指称本卡。
+ * - 383.2.a / 383.2.a.1：紧跟触发条件的 "if you control 7 or more runes" 属于触发条件
+ *   （规则原文的 Sona, Harmonious 例即此形状），因此写在 trigger.condition 上；
+ *   "you control" 的隐含 “you” 是能力控制者（190.6.d），133.5.a.1 / 431.1 让已 channel
+ *   的符文留在控制者的符文区，故计数为符文区中 rune 数量 >= 7。
+ * - 355.5 / 355.7 / 355.9.a.1 / 355.9.b："choose an enemy gear" 是选择具体游戏对象，
+ *   且对手的 Board 是公开信息（355.10.a.1），因此是被选目标（TargetSpec），不是 pick。
+ * - 443.1 / 443.1.a / 443.1.b / 443.2：Disempower 只影响当前 Empowered 的对象；对象有多个
+ *   Empowered 状态时移除一个。effect.empower 的 mode: "disempower" 正是该 Limited Action 的
+ *   入口（442/443 同文件）。
+ * - 429.1 / 429.2.a / 429.3：Kill 是永久物从场上进入弃牌堆的动作，只有起点在 Board 才成立，
+ *   且是 Limited Action；effect.kill 覆盖主动消灭。
+ * - "If it's [Empowered], disempower it. Otherwise, kill it."：分支读的是选定目标的当前
+ *   Empowered 状态（442.2/443.1.a），两条分支互斥，因此用两条各自带条件的指令绑定同一个
+ *   TargetSpec（Finalize 只选一次；同 ogn/solari-chief 的 stunned 分支写法）。
+ *
+ * status = judge-required（缺口均不近似实现）：
+ * 1. 没有 Empowered 状态谓词：442.1.a/442.2 的状态不在 ObjectSnapshot / Condition 里，
+ *   "If it's [Empowered]" 与 "Otherwise" 的分支判别器没有可求值形态（effect.empower 的
+ *   文件也记录同一契约缺口）；
+ * 2. card-played 时点虽在封闭枚举中，但没有已合入订阅方把 CardProgram 的 triggered
+ *   ability 注册成 TriggerRegistration（RIFT-120 的链/事件单管线接线）。
+ * 依赖：RIFT-87（条件/谓词：Empowered 状态读数）与 RIFT-120（卡牌触发注册）。
+ * 已合入的 effect.empower（mode: disempower）与 effect.kill 本体在 golden 中用锁定目标真实执行，
+ * 不伪造分支判定。
+ */
+const abilities: Ability[] = [
+  {
+    kind: "triggered",
+    trigger: {
+      at: "card-played",
+      filter: { event: "card-played", filter: { source: "self" } },
+      // 383.2.a.1：紧跟触发条件的符文数量条件属于 Trigger Condition。
+      condition: {
+        kind: "compare",
+        left: {
+          kind: "count",
+          subject: "runes",
+          filter: { type: "rune", controller: "self", zone: "rune-zone" }
+        },
+        operator: "gte",
+        right: { kind: "constant", value: 7 }
+      }
+    },
+    optional: false,
+    body: [
+      {
+        id: "tomb-raider-barbara.disempower-empowered-gear",
+        op: "effect.empower",
+        args: {
+          // 443.1：移除该对象的一个 Empowered 状态（443.1.b）。
+          mode: { kind: "constant", value: "disempower" },
+          objects: { kind: "constant", value: { kind: "target", id: "tomb-raider-barbara.enemy-gear" } }
+        },
+        targets: [
+          {
+            id: "tomb-raider-barbara.enemy-gear",
+            // 355.9.a.1："gear" 默认指 Board 上的对象；170.x 的 enemy = 对手控制。
+            filter: { type: "gear", zone: "board", controller: "opponent" },
+            min: 1,
+            max: 1,
+            selection: "one"
+          }
+        ],
+        // "If it's [Empowered], disempower it."：分支判别器缺可求值谓词（见 judgeReason 第 1 条），
+        // 用带描述的 expression 条件保留印刷分支，不把判定交给玩家。
+        condition: {
+          kind: "expression",
+          value: { kind: "constant", value: "target-is-empowered" }
+        }
+      },
+      {
+        id: "tomb-raider-barbara.kill-otherwise",
+        op: "effect.kill",
+        args: { target: { kind: "constant", value: "tomb-raider-barbara.enemy-gear" } },
+        // 同一次最终选择：两条分支绑定同一 TargetSpec（355.5/355.8/355.15）。
+        targets: [
+          {
+            id: "tomb-raider-barbara.enemy-gear",
+            filter: { type: "gear", zone: "board", controller: "opponent" },
+            min: 1,
+            max: 1,
+            selection: "one"
+          }
+        ],
+        // "Otherwise, kill it."——同一缺口的否定分支，保持互斥。
+        condition: {
+          kind: "not",
+          condition: {
+            kind: "expression",
+            value: { kind: "constant", value: "target-is-empowered" }
+          }
+        }
+      }
+    ]
+  }
+];
+
+export default {
+  canonicalCardId: "card.hash-6ccd172775e91456e983a8fb755f02c8109a6e6dca539bb690585245e7e22176",
+  rulesetVersion: "core-1.5",
+  status: "judge-required",
+  judgeReason:
+    "两处缺口，均不近似实现：(1) 没有 Empowered 状态谓词——442.1.a / 442.2 的状态不在 ObjectSnapshot / Condition 里" +
+    "（effect.empower 的文件记录同一契约缺口），因此「If it's [Empowered], disempower it. Otherwise, kill it.」的两条" +
+    "分支判别器没有可求值形态；程序用同一个 TargetSpec 上的互斥 expression 条件保留印刷分支，不把判定交给玩家；" +
+    "(2) card-played 时点虽在封闭枚举中（359 / 383.4.a），但没有已合入订阅方把 CardProgram 的 triggered ability 注册成" +
+    " TriggerRegistration（RIFT-120 的链/事件单管线接线）。依赖 RIFT-87（条件/谓词：Empowered 状态读数）与 RIFT-120" +
+    "（卡牌触发注册）。符号 7 是 383.2.a.1 的触发条件（符文区 rune 计数 >= 7，133.5.a.1 / 431.1）；" +
+    "effect.empower（mode: disempower，443.1.b）与 effect.kill（429.1/429.2.a）本体已合入，golden 用锁定目标真实执行。",
+  abilities,
+  sourceText:
+    "When you play me, if you control 7 or more runes, choose an enemy gear. If it's [Empowered], disempower it. Otherwise, kill it."
+} satisfies CardProgram;
