@@ -59,7 +59,9 @@ test("flame-chompers: the accepted body declares a finalized 1-Fury-Power play o
   assert.deepEqual(play.args.target, { kind: "constant", value: "flame-chompers.self" });
   assert.deepEqual(play.args.cost, {
     kind: "constant",
-    value: { finalized: true, energy: 0, power: ["Fury"], xp: 0 }
+    // No energy/xp component: this card has no printed Energy cost, and the
+    // alternate cost never turns "no printed cost" into "energy 0" (356.1.a).
+    value: { finalized: true, power: ["Fury"] }
   });
   assert.deepEqual(play.args.location, { kind: "constant", value: { type: "base", player: "controller" } });
   assert.equal(play.targets.length, 1);

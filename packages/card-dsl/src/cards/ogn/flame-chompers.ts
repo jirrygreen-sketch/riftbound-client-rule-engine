@@ -19,7 +19,7 @@ import type { CardProgram } from "../../ir/index.js";
  * 结构说明:
  * - triggered + choice.optional（契约 3.9：被选指令包进 body）：接受后由 effect.play
  *   打出仍在 Trash 的本卡，费用用 356.1.a 的"for [Cost]"改写写成已 Finalize 的费用
- *   计划（energy 0 + 1 Fury Power；本卡无印刷 Energy 费用参与）。
+ *   计划（只声明 1 Fury Power；不写 energy 组件，避免把"没有印刷费用"表达成 0）。
  * - effect.play 的 TargetSpec 用 { source: "self" } 锚点（IR 静态数据用契约 3.6 的
  *   符号选择器，不写运行时 ObjectRef）选择仍在 Trash 的本卡。
  *
@@ -62,7 +62,7 @@ const flameChompers = {
                   op: "effect.play",
                   args: {
                     target: { kind: "constant", value: "flame-chompers.self" },
-                    cost: { kind: "constant", value: { finalized: true, energy: 0, power: ["Fury"], xp: 0 } },
+                    cost: { kind: "constant", value: { finalized: true, power: ["Fury"] } },
                     location: { kind: "constant", value: { type: "base", player: "controller" } }
                   },
                   targets: [
