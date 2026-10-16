@@ -9,6 +9,7 @@ import program from "../../../dist/cards/ogn/the-boss.js";
 const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
 const { runAbilityBody } = await import(new URL("effects/interpreter.js", engineCore));
 const { createTestWorld } = await import(new URL("effects/testing/index.js", engineCore));
+const { planReplacementBody } = await import(new URL("replacement/index.js", engineCore));
 
 const [replacement, conquer] = program.abilities;
 const readyInstruction = conquer.body[0];
@@ -53,6 +54,9 @@ test("the-boss identity: canonicalCardId, ruleset, judge-required status and ver
   assert.match(program.judgeReason, /optional/);
   assert.match(program.judgeReason, /cost\.pay/);
   assert.match(program.judgeReason, /recall/i);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /replacement\.object/);
   assert.equal(
     program.sourceText,
     "When a buffed unit you control would die, you may pay :rb_rune_rainbow: and exhaust me to spend its buff and recall it exhausted instead. (Send it to base. This isn't a move.)\n" +
@@ -81,18 +85,30 @@ test("the-boss structure: death replacement for a buffed friendly unit with the 
   assert.deepEqual(spend.args.mode, { kind: "constant", value: "spend" });
   assert.equal(spend.linkedTo, "the-boss.pay");
   // The dying unit is the replaced event's object, not a target (CR 355.10.c),
-  // so the instruction must not declare a TargetSpec named by its selector.
+  // bound through the merged RIFT-260 selector, so the instruction must not
+  // declare a TargetSpec named by its selector.
+  assert.deepEqual(spend.args.target, {
+    kind: "constant",
+    value: { linked: "replacement.object" }
+  });
   assert.equal(spend.targets, undefined);
 
   assert.equal(recall.id, "the-boss.recall");
   assert.equal(recall.op, "effect.move");
+  assert.deepEqual(recall.args.objects, {
+    kind: "constant",
+    value: { linked: "replacement.object" }
+  });
   assert.deepEqual(recall.args.mode, { kind: "constant", value: "recall" });
   assert.deepEqual(recall.args.to, { kind: "constant", value: "controller-base" });
   assert.equal(recall.linkedTo, "the-boss.spend-buff");
 
   assert.equal(exhaust.id, "the-boss.exhaust-recalled");
   assert.equal(exhaust.op, "effect.exhaust");
-  assert.deepEqual(exhaust.args.pick, { kind: "constant", value: "the-boss.dying-unit" });
+  assert.deepEqual(exhaust.args.objects, {
+    kind: "constant",
+    value: { linked: "replacement.object" }
+  });
   assert.equal(exhaust.linkedTo, "the-boss.recall");
 });
 
@@ -129,15 +145,63 @@ test("the-boss golden: an already-ready legend is a no-op (CR 416.1.b/c)", () =>
   assert.deepEqual(outcome.events, []);
 });
 
+test("the-boss binding: the replaced-event selector plans the buff/exhaust body against the dying unit, and recall stays blocked", () => {
+  const kernel = theBossWorld({ exhausted: true });
+  kernel.addObject(
+    {
+      ref: { id: "dying-unit", zoneEntryId: 3 },
+      name: "Dying Unit",
+      owner: "A",
+      controller: "A",
+      zone: "board",
+      location: { type: "battlefield", id: "battlefield-1" },
+      types: ["unit"],
+      tags: [],
+      keywords: [],
+      might: 3,
+      energy: null,
+      power: null,
+      buffs: 1
+    },
+    "board"
+  );
+  const dying = kernel.ref("dying-unit");
+
+  const planner = {
+    host: { object: ref => kernel.getObject(ref.id), objects: () => kernel.objects, context: () => kernel },
+    controller: "A",
+    evaluate: expr => kernel.evaluate(expr)
+  };
+  const planInput = { hostRef: kernel.ref("the-boss"), replacedObject: dying, usedWindow: false };
+  const instructionPlan = instruction => planReplacementBody([instruction], planInput, planner)
+    .map(action => [action.type, action.object.id]);
+
+  // The merged RIFT-260 planner resolves { linked: "replacement.object" } to
+  // the replaced event's object, so the spend-buff and exhaust instructions
+  // address the dying unit without making it a target (CR 355.10.c). cost.pay
+  // is not a planned opcode yet (RIFT-261), so it is skipped here.
+  const spend = replacement.with.find(instruction => instruction.op === "effect.buff");
+  const exhaust = replacement.with.find(instruction => instruction.op === "effect.exhaust");
+  assert.deepEqual(instructionPlan(spend), [["spend-buff", "dying-unit"]]);
+  assert.deepEqual(instructionPlan(exhaust), [["exhaust", "dying-unit"]]);
+
+  // The recall destination is the controller's base, and the planner still
+  // blocks the recall mode outright (CR 457-460) rather than substituting a
+  // plain Move, so the card cannot be completed by a spelling swap.
+  const recall = replacement.with.find(instruction => instruction.op === "effect.move");
+  assert.deepEqual(recall.args.to, { kind: "constant", value: "controller-base" });
+  assert.deepEqual(recall.args.mode, { kind: "constant", value: "recall" });
+  assert.throws(() => instructionPlan(recall), /mode 'recall' is blocked/);
+});
+
 test.todo(
-  "the-boss replacement execution: the may decision must live on the engine-internal " +
-    "replacement registration (contract 3.8), then pay rainbow + exhaust as real costs (CR " +
-    "415.4/415.5; RIFT-89 cost.pay), spend the dying unit's buff (CR 702.2.b) and recall it " +
-    "exhausted (CR 457/458.1/460.1; effect.move recall mode is explicitly blocked today)."
+  "the-boss replacement execution: the cost.pay primitive (rainbow + a completable exhaust cost, " +
+    "CR 415.4/415.5; RIFT-261) must merge before the replacement body can be planned at all."
 );
 
 test.todo(
-  "the-boss replaced-event object selector: bind the unit whose death is being replaced so its " +
-    "buff and location can be read without making it a target (CR 355.10.c); engine batch 4 " +
-    "replacement pipeline plus a contract selector for the replaced event object."
+  "the-boss registration: bind this ReplacementAbility through the card-program replacement " +
+    "adapter (RIFT-257) and expose the printed 'you may pay ... instead' decision via RIFT-260's " +
+    "replacement.event optional wrapper (card IR cannot spell its raw instead body yet); the " +
+    "Recall action (CR 457-460) and the CR 702.2.a buffed-unit predicate are still open."
 );

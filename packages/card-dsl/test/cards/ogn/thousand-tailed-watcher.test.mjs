@@ -4,6 +4,11 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/thousand-tailed-watcher.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const [accelerate, triggered] = program.abilities;
 const c = value => ({ kind: "constant", value });
@@ -22,8 +27,9 @@ test("Thousand-Tailed Watcher identity and judge-required reason", () => {
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-91/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /478\.1\.c/);
   assert.equal(
     program.sourceText,
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_mind: as an additional cost to have me enter ready.)\n" +
@@ -60,13 +66,84 @@ test("structure: [Accelerate] keyword plus the play-effect debuff", () => {
   }));
 });
 
+test("golden: the debuff registers -3 Might this turn on the enemy units only, with the printed floor of 1", () => {
+  const base = world()
+    .unit("watcher", { owner: "A", controller: "A", might: 7 })
+    .unit("enemy-3", { owner: "B", controller: "B", might: 3 })
+    .unit("enemy-5", { owner: "B", controller: "B", might: 5 })
+    .unit("ally", { owner: "A", controller: "A", might: 4 })
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("watcher") });
+
+  // The chain's query wrapper binds the controller/opponent placeholders
+  // (chain/engine.ts) and asks the layers filter; bind that production query
+  // here rather than editing the card data.
+  const chainController = kernel.controller;
+  const query = (filter) => {
+    const normalized = { ...filter };
+    for (const key of ["controller", "owner"]) {
+      if (normalized[key] === "self") normalized[key] = chainController;
+    }
+    return kernel.objects.filter((object) => {
+      for (const key of ["controller", "owner"]) {
+        if (normalized[key] === "opponent" && object[key] === chainController) return false;
+      }
+      const resolved = { ...normalized };
+      if (resolved.controller === "opponent") resolved.controller = "any";
+      return matchesObjectFilter(resolved, object);
+    });
+  };
+
+  const outcome = runAbilityBody(triggered.body, bindResolveContext(kernel, { query }));
+
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.results[0].result.status, "executed");
+  // 355.10.d: the enemy set is selected by characteristics; no target/pick was
+  // declared, and only the two enemy units are affected.
+  assert.deepEqual(outcome.linkedValues["watcher.debuff-enemy-units.affected"].objects.map(ref => ref.id), [
+    "enemy-3",
+    "enemy-5"
+  ]);
+  assert.equal(kernel.continuousEffects.length, 2);
+  assert.ok(kernel.continuousEffects.every(entry => entry.duration.type === "end-of-turn"));
+  assert.ok(kernel.continuousEffects.every(entry => entry.effect.layer === "arithmetic"));
+  assert.ok(kernel.continuousEffects.every(entry => entry.effect.effect.minimum === 1));
+  // CR 478.1.c: the printed floor is applied per modification, so the amount
+  // snapshots as -3 where 3 damage is available and clamps to -2 for the unit
+  // whose Might is already 3 (3 - 3 would fall below the floor of 1).
+  assert.deepEqual(
+    kernel.continuousEffects.map(entry => [entry.effect.filter.objectId, entry.effect.effect.amount]),
+    [
+      ["enemy-3", -2],
+      ["enemy-5", -3]
+    ]
+  );
+
+  // The layers engine computes the merged Might: 3 - 3 clamps at the printed
+  // floor of 1 (478.1.c), 5 - 3 = 2, and neither the ally nor the watcher moves.
+  const engine = createLayerEngine(
+    kernel.objects,
+    kernel.continuousEffects.map((entry, index) => ({ ...entry, timestamp: index + 1 }))
+  );
+  assert.equal(engine.evaluate(kernel.ref("enemy-3")).might, 1);
+  assert.equal(engine.evaluate(kernel.ref("enemy-5")).might, 2);
+  assert.equal(engine.evaluate(kernel.ref("ally")).might, 4);
+  assert.equal(engine.evaluate(kernel.ref("watcher")).might, 7);
+
+  // "this turn" expires at the end of the turn, not at combat end.
+  assert.equal(engine.evaluate(kernel.ref("enemy-3")).might, 1);
+  engine.advance({ id: "turn-end" });
+  assert.equal(engine.evaluate(kernel.ref("enemy-3")).might, 3);
+  assert.equal(engine.evaluate(kernel.ref("enemy-5")).might, 5);
+});
+
 test.todo(
-  "Thousand-Tailed Watcher: give enemy units -3 Might this turn with the printed minimum of 1 clamp " +
-    "and end-of-turn expiry (continuous.might + continuous.duration, RIFT-91; effect.buff is the 702–705 " +
-    "Buff counter and cannot substitute)"
+  "Thousand-Tailed Watcher: bind the card-played CardProgram trigger through the complete program " +
+    "adapter (RIFT-257), including the filter { role: 'self' } self anchor"
 );
 
 test.todo(
-  "Thousand-Tailed Watcher: [Accelerate] expansion — optional {1 energy + 1 Mind power} additional cost " +
-    "and the enter-ready replacement (RIFT-89 + the entry replacement pipeline)"
+  "Thousand-Tailed Watcher: [Accelerate] expansion — consume effects/keywords/Accelerate.ts " +
+    "(optional {1 energy + 1 Mind power} additional cost, RIFT-261, plus the 805.6 enter-ready " +
+    "replacement) through the production program binding"
 );

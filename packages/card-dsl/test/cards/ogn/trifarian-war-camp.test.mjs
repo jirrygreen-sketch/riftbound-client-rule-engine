@@ -65,7 +65,7 @@ test("Trifarian War Camp program validates and is judge-required", () => {
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /registerContinuousEffect/);
   assert.match(program.judgeReason, /sameLocationAs/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -132,13 +132,13 @@ test("Trifarian War Camp gap: the declared 'here' filter is ignored by the merge
 });
 
 test.todo(
-  "Trifarian War Camp registration: a merged producer must turn this CardProgram's static " +
-    "ability into a ContinuousEffectSpec for layers/LayerEngine (registerContinuousEffect has " +
-    "no caller today) and resolve 190.6's controller of the Battlefield ability"
+  "Trifarian War Camp registration: the card-program lifecycle binder (RIFT-257 programs/statics.ts) " +
+    "must turn this static ability into a ContinuousEffectSpec for layers/LayerEngine, and resolve " +
+    "190.6's controller of the Battlefield ability"
 );
 
 test.todo(
   "Trifarian War Camp scope: the 053.3 'here' referent needs the sameLocationAs anchor in " +
-    "layers/filter.ts (RIFT-91 consumer follow-up) so the +1 Might applies only at this " +
+    "layers/filter.ts so the +1 Might applies only at this " +
     "Battlefield; the source leaving use must drop the effect immediately (652.2.c)"
 );

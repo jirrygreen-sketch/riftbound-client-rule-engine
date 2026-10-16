@@ -24,6 +24,8 @@ test("The Dreaming Tree program validates and is judge-required", () => {
   assert.match(program.judgeReason, /383\.4\.b/);
   assert.match(program.judgeReason, /TriggerRegistration/);
   assert.match(program.judgeReason, /sameLocationAs/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /testTrigger/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -146,13 +148,12 @@ test("The Dreaming Tree gap: the merged matcher ignores the declared 'here' anch
 test.todo(
   "The Dreaming Tree trigger payload binding: 'they draw 1' must resolve the choosing " +
     "player's controller from the became-target event, and the trigger must be registered " +
-    "as a TriggerRegistration (383.4.b.2; RIFT-90 batch3-target-plan + RIFT-120 " +
-    "chain/events pipeline + the missing card-program trigger subscriber)"
+    "as a TriggerRegistration (383.4.b.2) through the card-program trigger binding (RIFT-257)"
 );
 
 test.todo(
   "The Dreaming Tree scope: 'a friendly unit here with a spell' needs the 053.3 'here' " +
-    "referent and a spell-source discriminator that the merged pipeline does not emit " +
-    "(sameLocationAs is not implemented by the engine matchers), and 190.6's controller " +
-    "of the Battlefield ability must be resolved"
+    "referent in the event matcher (sameLocationAs is implemented only by the interpreter's " +
+    "set-query path, not events/pipeline-match.ts), the chooser-relative 'friendly' check, " +
+    "and 190.6's controller of the Battlefield ability"
 );

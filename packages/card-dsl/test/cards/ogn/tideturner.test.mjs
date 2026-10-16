@@ -47,8 +47,10 @@ test("tideturner: identity, ruleset, status, judgeReason and sourceText", () => 
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Hidden/);
-  assert.match(program.judgeReason, /RIFT-84/);
+  assert.match(program.judgeReason, /Facedown Zone/);
   assert.equal(program.sourceText, SOURCE_TEXT);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-261/);
 });
 
 test("tideturner: [Hidden] keyword + play trigger with a choice.optional body", () => {
@@ -165,5 +167,11 @@ test("tideturner golden: declining performs no move", () => {
 
 test.todo(
   "tideturner: [Hidden] 的藏牌、后续 [Reaction] 与 0 能量打出（811.1.d / 811.5）依赖 Hide 的" +
-    "面向区域契约与 cost.hidden 消费方（RIFT-84 展开已合入，运行时未接线）"
+    "面向区域契约（Facedown Zone）与 cost.hidden 消费方（展开已合入，运行时未接线；RIFT-261）"
+);
+
+test.todo(
+  "tideturner: bind the card-played CardProgram trigger through the complete program adapter " +
+    "(RIFT-257); the flat filter { self: true } is treated as an empty filter by the merged " +
+    "pipeline-match and would over-trigger on any card-played event"
 );

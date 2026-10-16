@@ -10,7 +10,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   and it to my original location.
  *
  * 规则依据（CR v1.5）：
- * - [Hidden]（811）只声明关键词；展开（静态 `cost.hidden`）已由 RIFT-84 合入，但运行时
+ * - [Hidden]（811）只声明关键词；展开（静态 `cost.hidden`）已合入（effects/keywords/Hidden.ts），但运行时
  *   消费方缺失（见 judgeReason）。
  * - “When you play me” 是 Play Effect（383.4.a.1 / 383.4.a.2），时点 card-played。
  * - “you may choose a friendly unit”：355.5（需要指名一个游戏对象时在 Finalize 前选择）、
@@ -23,10 +23,16 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   “可以……”（may）按契约 3.9 写成 `choice.optional`，被选指令包在 body 里。
  *
  * status 判定（README 第 2 节）：judge-required。交换本体只用了已合入的
- * `condition.value` 与 `effect.move`（golden 测试真实执行），但 [Hidden] 的运行时不可用：
- * `cost.hidden` 没有消费方，zones/actions 不支持 Facedown Zone（cost/README.md 第 3 条），
- * 811.1.d/811.5 的藏牌、后续 [Reaction] 与 0 能量打出都无法落地。依赖：RIFT-84 的展开 + 
- * Hide 的面向区域契约与集成（父任务）。
+ * `condition.value` 与 `effect.move`（golden 测试真实执行）。仍缺：
+ * - [Hidden] 的运行时不可用：effects/keywords/Hidden.ts 的展开（静态 cost.hidden）已合入，
+ *   但没有消费方——zones/actions 仍不支持 Facedown Zone 与 Hide（cost/README.md 第 3 条），
+ *   811.1.d 的藏牌、811.5 的后续 [Reaction] 与 0 能量打出都无法落地；
+ * - 触发侧没有 CardProgram → TriggerRegistration 的订阅方（RIFT-257 进行中）：flat 写法
+ *   filter: { self: true } 在已合入的 events/pipeline-match.ts 中被当作无过滤条件，
+ *   会匹配任意 card-played 事件（过度触发）；只有 RIFT-257 的 translateTriggerFilter
+ *   会把它归一化为 objectId 自身锚点。
+ * 依赖：Hide/Facedown Zone 的契约与集成（父任务）、RIFT-257（卡牌触发绑定）、
+ * RIFT-261（cost.hidden / cost.pay 的费用消费）。
  */
 const abilities: Ability[] = [
   {
@@ -132,11 +138,13 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "[Hidden] 的运行时不可用：effects/keywords/Hidden.ts 的展开（静态 cost.hidden）已合入，" +
-    "但没有消费方——cost/README.md 第 3 条明确 zones/actions 尚不支持 Facedown Zone 与 Hide，" +
-    "811.1.d 的藏牌、811.5 的后续 [Reaction] 与 0 能量打出都无法落地，需要父任务契约与集成。" +
-    "依赖：RIFT-84（kw-deflect-hidden 展开）+ Hide 的面向区域契约。交换本体只用已合入的 " +
-    "condition.value / effect.move，golden 测试用解释器 + 参考内核真实执行。",
+    "[Hidden]（811）的运行时不可用：effects/keywords/Hidden.ts 的展开（静态 cost.hidden）已合入，但没有任何消费方——" +
+    "zones/actions 仍不支持 Facedown Zone 与 Hide（cost/README.md 第 3 条），811.1.d 的藏牌、811.5 的后续 [Reaction] 与 0 能量打出都无法落地，" +
+    "需要父任务契约与集成（Hide 行动/面向区域），费用侧消费属 RIFT-261。" +
+    "触发侧也没有 CardProgram → TriggerRegistration 的订阅方（RIFT-257 进行中）：flat 写法 filter: { self: true } 在已合入的 " +
+    "events/pipeline-match.ts 中被当作无过滤条件而匹配任意 card-played 事件（过度触发），只有 RIFT-257 的 translateTriggerFilter 会归一化为自身锚点。" +
+    "交换本体只用已合入的 condition.value / effect.move，golden 测试用解释器 + 参考内核真实执行。" +
+    "依赖：Hide/Facedown Zone 契约（父任务）、RIFT-257（卡牌触发绑定）、RIFT-261（cost.hidden 消费）。不近似实现。",
   abilities,
   sourceText:
     "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n" +

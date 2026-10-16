@@ -23,7 +23,8 @@ test("The Harrowing identity and judge-required status match the printing", () =
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.judgeReason.includes("356.1.b.2"), true);
-  assert.equal(program.judgeReason.includes("RIFT-89"), true);
+  assert.equal(program.judgeReason.includes("RIFT-261"), true);
+  assert.equal(program.judgeReason.includes("ignore-base"), true);
   assert.equal(
     program.sourceText,
     "Play a unit from your trash, ignoring its Energy cost. (You must still pay its Power cost.)"
@@ -86,7 +87,7 @@ test("The Harrowing golden: the unfinalized cost modifier is refused, not silent
 });
 
 test("The Harrowing golden: a caller-finalized plan (Energy 0, Power still owed) plays the unit", () => {
-  // This is the shape the cost plan must hand over once RIFT-89 derives the
+  // This is the shape the cost plan must hand over once the cost pipeline derives the
   // ignore-Energy rewrite: the card data itself never writes this plan.
   const kernel = world()
     .card("trashed-unit", {
@@ -137,12 +138,13 @@ test("The Harrowing golden: a unit that left the trash before resolution is igno
 });
 
 test.todo(
-  "The Harrowing: Finalize builds the plan for \"ignoring its Energy cost\" (356.1.b.2: base " +
-    "Energy set to 0, Power still owed; 356.1.b.3 keeps later additional costs) and the " +
-    "effect.play handoff consumes it (RIFT-89)."
+  "The Harrowing: a merged consumer must read this card's cost.modify descriptor and have " +
+    "Finalize build the ignore-base plan (356.1.b.2: base Energy set to 0, Power still owed; " +
+    "356.1.b.3 keeps later additional costs) for the effect.play handoff; the cost.pay/cost.modify " +
+    "instruction primitives are RIFT-261."
 );
 
 test.todo(
   "The Harrowing: 420.3's Limited-Action Play procedure (limited-action admission, chain handoff " +
-    "and the nested card's own resolution) is owned by chain/ and the cost plan (RIFT-89/RIFT-120)."
+    "and the nested card's own resolution) is owned by chain/ and the cost plan."
 );

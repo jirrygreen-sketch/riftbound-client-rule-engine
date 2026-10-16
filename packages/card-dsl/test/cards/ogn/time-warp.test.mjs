@@ -27,6 +27,7 @@ test("Time Warp program is structurally valid and judge-required", () => {
   assert.match(program.judgeReason, /734/);
   assert.match(program.judgeReason, /Additional Turn/);
   assert.match(program.judgeReason, /effect\.banish/);
+  assert.match(program.judgeReason, /RIFT-261/);
 });
 
 test("Time Warp identity and printed text match the catalog", () => {
