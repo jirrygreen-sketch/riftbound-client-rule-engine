@@ -11,6 +11,8 @@ const tokens = kernel => kernel.query({ zone: "board", type: "unit" }).filter(ob
 
 test("effect.token creates a Mech with its printed definition and actual linked reference", () => {
   const kernel = world().build();
+  const actions = [];
+  kernel.addReplacement(action => { actions.push(action); return null; });
   const run = runInstruction(token, args(), { world: kernel });
   assert.equal(token.op, "effect.token");
   assert.equal(run.result.status, "executed");
@@ -33,6 +35,78 @@ test("effect.token creates a Mech with its printed definition and actual linked 
   assert.deepEqual(run.result.linkedValues, run.linked);
   assert.deepEqual(run.events.map(event => event.action), ["create-token"]);
   assert.deepEqual(run.result.events, run.events);
+  assert.deepEqual(actions.map(action => [action.type, action.to]), [["create-token", "board"]]);
+  assert.deepEqual(kernel.pendingItems, []);
+});
+
+test("effect.token play creates only on the Chain and hands each returned reference to play", () => {
+  const kernel = world().build();
+  const actions = [];
+  const chainRefs = [];
+  kernel.addReplacement((action, context) => {
+    actions.push(action);
+    if (action.type === "play") {
+      const pending = context.pendingItems;
+      assert.deepEqual(pending, [{ object: action.object, controller: "A", status: "pending" }]);
+      assert.equal(context.object(action.object).zone, "chain");
+      assert.equal(context.object(action.object).location, null);
+      assert.equal(context.zone("A", "board").length, chainRefs.length);
+      chainRefs.push(action.object);
+    }
+    return null;
+  });
+  const run = runInstruction(token, args({ mode: literal("play"), amount: literal(2) }), { world: kernel });
+  assert.equal(run.result.status, "executed");
+  assert.deepEqual(actions.map(action => action.type), ["create-token", "play", "create-token", "play"]);
+  assert.deepEqual(actions.filter(action => action.type === "create-token").map(action => action.to), ["chain", "chain"]);
+  assert.deepEqual(actions.filter(action => action.type === "play").map(action => action.location), [base, base]);
+  assert.deepEqual(run.events.map(event => event.timingPoint), ["chain-item-pending", "card-played", "chain-item-pending", "card-played"]);
+  assert.deepEqual(run.linked.token, {
+    amount: 2, objects: tokens(kernel).map(object => object.ref), objectsComplete: true,
+    createdAmount: 2, createdObjects: chainRefs
+  });
+  assert.deepEqual(run.linked["token.createdObjects"], chainRefs);
+  assert.equal(run.linked["token.createdAmount"], 2);
+  assert.equal(kernel.history({ action: "play", player: "A" }), 2);
+  for (const ref of chainRefs) {
+    assert.equal(kernel.object(ref), null);
+    assert.equal(kernel.lastKnown(ref).zone, "chain");
+  }
+  for (const object of tokens(kernel)) {
+    assert.ok(kernel.object(object.ref));
+    assert.equal(object.energy, null);
+    assert.equal(object.power, null);
+    assert.deepEqual(object.location, base);
+  }
+  assert.deepEqual(kernel.pendingItems, []);
+  assert.deepEqual(kernel.zone("A", "chain"), []);
+  assert.deepEqual(run.result.linkedValues, run.linked);
+  assert.deepEqual(run.result.events, run.events);
+});
+
+test("effect.token play keeps the ability controller as token owner and playing player (CR 182-183)", () => {
+  const kernel = world().build().clone({ controller: "B" });
+  const location = { type: "base", player: "B" };
+  const run = runInstruction(token, args({ mode: literal("play"), location: literal(location) }), { world: kernel });
+  assert.equal(run.result.status, "executed");
+  const [played] = tokens(kernel);
+  assert.equal(played.owner, "B");
+  assert.equal(played.controller, "B");
+  assert.deepEqual(played.location, location);
+  assert.equal(kernel.history({ action: "play", player: "B" }), 1);
+  assert.equal(kernel.zone("A", "board").length, 0);
+});
+
+test("effect.token play evaluates an arithmetic count through the current card-dsl Expr contract", () => {
+  const kernel = world().build();
+  const amount = {
+    kind: "arithmetic", operator: "add",
+    operands: [literal(1), { kind: "linked", instructionId: "earlier", key: "bonus" }]
+  };
+  const run = runInstruction(token, args({ mode: literal("play"), amount }), { world: kernel, linked: { bonus: 2 } });
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.token.amount, 3);
+  assert.equal(tokens(kernel).length, 3);
 });
 
 for (const [definition, name, might, tags] of [
@@ -54,17 +128,60 @@ for (const [definition, name, might, tags] of [
   });
 }
 
-for (const status of ["replaced", "prevented", "impossible"]) {
-  test(`effect.token returns negated when the creation hook reports ${status}`, () => {
+for (const mode of ["create", "play"]) for (const status of ["replaced", "prevented", "impossible"]) {
+  test(`effect.token ${mode} returns negated when the creation hook reports ${status}`, () => {
     const kernel = world().build();
     kernel.addReplacement(action => action.type === "create-token" ? status : null);
-    const run = runInstruction(token, args({ amount: literal(3) }), { world: kernel });
+    const run = runInstruction(token, args({ mode: literal(mode), amount: literal(3) }), { world: kernel });
     assert.equal(run.result.status, "negated");
     assert.equal(run.result.reason, status === "replaced" ? "replaced" : "impossible");
     assert.equal(tokens(kernel).length, 0);
-    assert.deepEqual(run.linked.token, { amount: 0, objects: [], objectsComplete: true });
+    assert.deepEqual(run.linked.token, {
+      amount: 0, objects: [], objectsComplete: true,
+      ...(mode === "play" ? { createdAmount: 0, createdObjects: [] } : {})
+    });
+    assert.deepEqual(kernel.pendingItems, []);
+    assert.deepEqual(kernel.zone("A", "chain"), []);
     assert.equal(run.events.length, 1);
     assert.equal(run.events[0].outcome, status);
+    assert.deepEqual(run.result.events, run.events);
+  });
+}
+
+for (const status of ["replaced", "prevented", "impossible"]) {
+  test(`effect.token negates a ${status} play and retains its actual Pending creation`, () => {
+    const kernel = world().build();
+    kernel.addReplacement(action => action.type === "play" ? status : null);
+    const run = runInstruction(token, args({ mode: literal("play"), amount: literal(3) }), { world: kernel });
+    assert.equal(run.result.status, "negated");
+    assert.equal(run.result.reason, status === "replaced" ? "replaced" : "impossible");
+    assert.equal(tokens(kernel).length, 0);
+    assert.equal(kernel.objects.length, 1);
+    const chainRef = kernel.zone("A", "chain")[0];
+    assert.deepEqual(run.linked.token, {
+      amount: 0, objects: [], objectsComplete: true, createdAmount: 1, createdObjects: [chainRef]
+    });
+    assert.equal(kernel.pendingItems.length, 1);
+    assert.equal(kernel.history({ action: "play" }), 0);
+    assert.deepEqual(run.events.map(event => event.action), ["create-token", "play"]);
+    assert.equal(run.events[1].outcome, status);
+    assert.deepEqual(run.result.events, run.events);
+  });
+}
+
+for (const failedAction of ["create-token", "play"]) {
+  test(`effect.token play retains earlier successful plays when the next ${failedAction} is prevented`, () => {
+    const kernel = world().build();
+    kernel.addReplacement((action, context) => action.type === failedAction && context.history({ action: "play" }) === 1 ? "prevented" : null);
+    const run = runInstruction(token, args({ mode: literal("play"), amount: literal(3) }), { world: kernel });
+    assert.equal(run.result.status, "negated");
+    assert.equal(run.linked.token.amount, 1);
+    assert.equal(run.linked["token.amount"], 1);
+    assert.deepEqual(run.linked.token.objects, tokens(kernel).map(object => object.ref));
+    assert.equal(run.linked.token.createdAmount, failedAction === "play" ? 2 : 1);
+    assert.equal(kernel.pendingItems.length, failedAction === "play" ? 1 : 0);
+    assert.deepEqual(run.events.map(event => event.action), ["create-token", "play", "create-token", ...(failedAction === "play" ? ["play"] : [])]);
+    assert.equal(run.events.at(-1).outcome, "prevented");
     assert.deepEqual(run.result.events, run.events);
   });
 }
@@ -83,13 +200,13 @@ test("effect.token retains actual creations and ordered events when a later acti
   assert.deepEqual(run.result.events, run.events);
 });
 
-test("effect.token ignores a target whose old zoneEntryId was invalidated by leaving the Board", () => {
+for (const mode of ["create", "play"]) test(`effect.token ${mode} ignores a target whose old zoneEntryId was invalidated by leaving the Board`, () => {
   const kernel = world().unit("anchor").build();
   const stale = kernel.ref("anchor");
   assert.equal(kernel.perform({ type: "return-to-hand", object: stale }).status, "done");
   assert.equal(kernel.object(stale), null);
   const before = kernel.stateForTest();
-  const run = runInstruction(token, { token: literal("mech"), target: literal("here") }, {
+  const run = runInstruction(token, { token: literal("mech"), mode: literal(mode), target: literal("here") }, {
     world: kernel, targets: { here: [stale] }
   });
   assert.deepEqual(run.result, { status: "ignored", reason: "mistargeted" });
@@ -137,27 +254,31 @@ test("effect.token treats a stale non-target pick as impossible rather than mist
   assert.equal(tokens(kernel).length, 0);
 });
 
-test("effect.token creates zero tokens without an action or an unnecessary location choice", () => {
+for (const mode of ["create", "play"]) test(`effect.token ${mode} handles zero tokens without an action or an unnecessary location choice`, () => {
   const kernel = world().build();
   const run = runInstruction(token, {
-    token: literal("mech"), amount: literal(0), locations: literal([base, battlefield]), choiceId: literal("where")
+    token: literal("mech"), mode: literal(mode), amount: literal(0), locations: literal([base, battlefield]), choiceId: literal("where")
   }, { world: kernel });
   assert.equal(run.result.status, "executed");
   assert.equal(run.asked, null);
   assert.equal(run.events.length, 0);
-  assert.deepEqual(run.linked.token, { amount: 0, objects: [], objectsComplete: true });
+  assert.deepEqual(run.linked.token, {
+    amount: 0, objects: [], objectsComplete: true,
+    ...(mode === "play" ? { createdAmount: 0, createdObjects: [] } : {})
+  });
+  assert.deepEqual(kernel.pendingItems, []);
 });
 
-test("effect.token creates more tokens than the available cards or printed tokens (CR 181)", () => {
+for (const mode of ["create", "play"]) test(`effect.token ${mode} exceeds the available cards or printed tokens (CR 181)`, () => {
   const kernel = world().build();
   assert.equal(kernel.player("A").deckSize, 0);
   assert.equal(tokens(kernel).length, 0);
-  const run = runInstruction(token, args({ amount: literal(12) }), { world: kernel });
+  const run = runInstruction(token, args({ mode: literal(mode), amount: literal(12) }), { world: kernel });
   assert.equal(run.result.status, "executed");
   assert.equal(tokens(kernel).length, 12);
   assert.equal(run.linked.token.amount, 12);
   assert.equal(new Set(run.linked.token.objects.map(ref => ref.id)).size, 12);
-  assert.equal(run.events.length, 12);
+  assert.equal(run.events.length, mode === "play" ? 24 : 12);
   assert.equal(kernel.player("A").deckSize, 0);
 });
 
@@ -172,9 +293,9 @@ for (const amount of [-1, 0.5, Number.MAX_SAFE_INTEGER + 1, "2", null]) {
   });
 }
 
-test("effect.token suspends for a location choice and replays deterministically with the answer", () => {
+for (const mode of ["create", "play"]) test(`effect.token ${mode} suspends for a location choice and replays deterministically with the answer`, () => {
   const kernel = world().build();
-  const input = { token: literal("mech"), amount: literal(2), locations: literal([base, battlefield]), choiceId: literal("token-location") };
+  const input = { token: literal("mech"), mode: literal(mode), amount: literal(2), locations: literal([base, battlefield]), choiceId: literal("token-location") };
   const before = kernel.stateForTest();
   const asked = runInstruction(token, input, { world: kernel });
   assert.equal(asked.result, null);
@@ -184,6 +305,7 @@ test("effect.token suspends for a location choice and replays deterministically 
   });
   assert.deepEqual(kernel.stateForTest(), before);
   assert.deepEqual(asked.linked, {});
+  assert.deepEqual(kernel.pendingItems, []);
   const answered = runInstruction(token, input, { world: kernel, answers: { "token-location": battlefield } });
   assert.equal(answered.result.status, "executed");
   assert.equal(answered.asked, null);
@@ -193,6 +315,7 @@ test("effect.token suspends for a location choice and replays deterministically 
   assert.deepEqual(answered.result, replay.result);
   assert.deepEqual(answered.linked, replay.linked);
   assert.deepEqual(answered.events, replay.events);
+  assert.deepEqual(kernel.pendingItems, []);
 });
 
 test("effect.token rejects an answer outside the offered location choices", () => {
@@ -248,28 +371,44 @@ for (const definition of ["gold", "sprite", "bird", "shadow-clone", "bomb", "unk
 for (const [card, ability, definition, amount, location] of [
   ["sfd-021-221 Ferrous Forerunner (M1 Rumble)", "Play two 3 Might Mech unit tokens to your base", "mech", 2, base],
   ["sfd-157-221 Royal Guard (M1 Fiora)", "When you play me, play a 2 Might Sand Soldier unit token here", "sand-soldier", 1, battlefield],
-  ["sfd-207-221 Emperor's Dais", "If you do, play a 2 Might Sand Soldier unit token here", "sand-soldier", 1, battlefield],
-  ["sfd-203-221 Battle Mistress", "play a Gold gear token exhausted", "gold", 1, base]
+  ["sfd-207-221 Emperor's Dais", "If you do, play a 2 Might Sand Soldier unit token here", "sand-soldier", 1, battlefield]
 ]) {
-  test(`${card}: ${ability} stays blocked pending Chain token creation (CR 440.2.c)`, () => {
+  test(`${card}: ${ability} uses Chain creation followed by play (CR 440.2.c)`, () => {
     const kernel = world().build();
     const run = runInstruction(token, args({ mode: literal("play"), token: literal(definition), amount: literal(amount), location: literal(location) }), { world: kernel });
-    assert.equal(run.result.status, "negated");
-    assert.equal(run.result.reason, "impossible");
-    assert.equal(run.linked.token.blockedReason, "token-play-requires-chain-creation");
-    assert.equal(kernel.objects.length, 0);
-    assert.equal(run.events.length, 0);
+    assert.equal(run.result.status, "executed");
+    assert.equal(run.linked.token.amount, amount);
+    assert.equal(run.linked.token.createdAmount, amount);
+    assert.equal(tokens(kernel).length, amount);
+    assert.ok(tokens(kernel).every(object => object.might === (definition === "mech" ? 3 : 2)));
+    assert.deepEqual(tokens(kernel).map(object => object.location), Array.from({ length: amount }, () => location));
+    assert.deepEqual(run.events.map(event => event.action), Array.from({ length: amount }, () => ["create-token", "play"]).flat());
+    assert.equal(kernel.history({ action: "play" }), amount);
+    assert.deepEqual(kernel.pendingItems, []);
   });
 }
 
-test("effect.token schema accepts all seven card-dsl expression forms", () => {
+test("sfd-203-221 Battle Mistress: play a Gold gear token exhausted stays blocked on Gold ability dependencies", () => {
+  const kernel = world().build();
+  const run = runInstruction(token, args({ mode: literal("play"), token: literal("gold") }), { world: kernel });
+  assert.equal(run.result.status, "negated");
+  assert.equal(run.linked.token.blockedReason, "token-definition-or-abilities-judge-required");
+  assert.equal(run.linked.token.amount, 0);
+  assert.equal(run.linked.token.createdAmount, 0);
+  assert.deepEqual(kernel.objects, []);
+  assert.deepEqual(kernel.pendingItems, []);
+  assert.deepEqual(run.events, []);
+});
+
+test("effect.token schema accepts the current card-dsl expression forms", () => {
   for (const expression of [
     literal(1), { kind: "literal", value: 1 },
     { kind: "object-property", object: { id: "unit", zoneEntryId: 1 }, property: "might" },
     { kind: "object-attribute", object: { id: "unit", zoneEntryId: 1 }, attribute: "might" },
     { kind: "linked", instructionId: "earlier" },
     { kind: "linked-value", instructionId: "earlier", key: "count" },
-    { kind: "count", subject: "units", filter: { type: "unit" } }
+    { kind: "count", subject: "units", filter: { type: "unit" } },
+    { kind: "arithmetic", operator: "multiply", operands: [literal(2), literal(3)] }
   ]) assert.deepEqual(token.argsSchema.parse(args({ amount: expression })).amount, expression);
 });
 
@@ -283,6 +422,11 @@ test("effect.token schema rejects raw values, malformed expressions, and ambiguo
     args({ amount: { kind: "object-property", object: "unit", property: "might" } }),
     args({ amount: { kind: "linked", key: "amount" } }),
     args({ amount: { kind: "count", subject: "units", filter: [] } }),
+    args({ amount: { kind: "arithmetic", operator: "unknown", operands: [literal(1)] } }),
+    args({ amount: { kind: "arithmetic", operator: "sub", operands: [literal(1)] } }),
+    args({ amount: { kind: "arithmetic", operator: "add", operands: [] } }),
+    args({ amount: { kind: "arithmetic", operator: "neg", operands: [literal(1), literal(2)] } }),
+    args({ amount: { kind: "arithmetic", operator: "neg", operands: [cyclic] } }),
     args({ target: literal("here") }), args({ pick: literal("here") }),
     { token: literal("mech"), locations: literal([base]) }, args({ choiceId: literal("where") }),
     args({ exhausted: literal(true) })
