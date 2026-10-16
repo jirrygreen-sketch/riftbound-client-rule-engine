@@ -8,6 +8,7 @@ import { CostPlanError, type CostPlan, type CostPlanInput, type CostPaymentRecei
 import { finalizeTargetPlan, resolveTargetPlan, TargetSelectionError, type TargetFinalizeOptions, type TargetPlan, type TargetRequirement, type TargetTaxRequest } from '../target/target-plan.js';
 import { LayerEngine } from '../layers/engine.js';
 import { matchesObjectFilter } from '../layers/filter.js';
+import { actionTimings, canAct as canActByRules, playLocations, restrictions as ruleRestrictions } from '../layers/rules/query.js';
 import { EventPipeline } from '../events/pipeline.js';
 import type { PipelineHost, TimingEmission, TriggerSnapshot } from '../events/pipeline-types.js';
 import type { TimingPointId } from '../events/timing-points.js';
@@ -166,11 +167,33 @@ export class ChainEngine {
     } finally { this.transactionDepth--; }
   }
   isPending(ref: ObjectRef): boolean { return this.entries.some(item => item.status === 'pending' && item.object.id === ref.id && item.object.zoneEntryId === ref.zoneEntryId); }
-  canAct(player: PlayerId, speed: ChainSpeed): boolean {
+  canAct(player: PlayerId, speed: ChainSpeed, ref?: ObjectRef, object?: ObjectSnapshot | null): boolean {
     if (this.busy !== 'idle' || this.cleanupNeeded || this.outstanding.length || this.entries.some(item => item.status === 'pending') || this.priorityHolder !== player) return false;
-    if (this.entries.length) return speed === 'reaction';
-    if (this.showdown) return this.focusHolder === player && speed !== 'normal';
-    return this.phase === 'main' && this.pipeline.turnPlayer === player;
+    if (this.entries.length && speed !== 'reaction') return false;
+    if (this.showdown && !this.entries.length && (this.focusHolder !== player || speed === 'normal')) return false;
+    if (!this.showdown && !this.entries.length && (this.phase !== 'main' || this.pipeline.turnPlayer !== player)) return false;
+
+    // The old chain state machine remains the owner of Priority/Focus and
+    // chain response shape. Rule-query timing grants are combined with the
+    // intrinsic speed declared by the draft, so a card with Reaction remains
+    // usable even before an extra continuous grant is registered.
+    const grants = new Set<string>(speed === 'normal' ? [] : [speed]);
+    if (ref !== undefined) {
+      this.layers.setObjects(this.options.host.objects());
+      const snapshot = object === undefined ? this.layers.evaluate(ref) : object;
+      for (const timing of actionTimings(this.layers.registry, ref, snapshot, player)) grants.add(timing);
+    }
+    return canActByRules({
+      player,
+      speed,
+      showdown: this.showdown,
+      closedState: this.entries.length > 0,
+      turnPlayer: this.entries.length ? player : this.pipeline.turnPlayer,
+      priorityHolder: this.priorityHolder,
+      focusHolder: this.focusHolder,
+      chainDepth: this.entries.length,
+      grants: grants.size === 0 ? undefined : [...grants],
+    });
   }
   requestCleanup(reason = 'state-change'): void { this.cleanupNeeded = true; this.record({ step: 'cleanup-requested', reason }); }
   requestTask(id: string): void { if (!this.outstanding.includes(id)) this.outstanding.push(id); }
@@ -194,7 +217,8 @@ export class ChainEngine {
     this.atomic(() => {
       const context = this.context(draft);
       const speed = draft.conditionalReaction && context.test(draft.conditionalReaction) ? 'reaction' : draft.speed ?? 'normal';
-      if (!this.canAct(draft.controller, speed)) throw new Error('Action is not legally timed');
+      if (!this.canAct(draft.controller, speed, draft.source.ref, draft.source)) throw new Error('Action is not legally timed');
+      if (this.actionIsRestricted(draft, speed)) throw new Error('Action is restricted by a continuous rule');
       this.appendCard(draft);
       this.advance();
     });
@@ -256,8 +280,15 @@ export class ChainEngine {
       if (key in overrides) return overrides[key as keyof ResolveContext];
       const value = Reflect.get(target, key); return typeof value === 'function' ? value.bind(target) : value;
     } });
-    for (const plan of targetPlans) targets.set(plan.requirement.id, [...resolveTargetPlan(context, plan, { isPending: ref => this.isPending(ref) }).selected]);
+    for (const plan of targetPlans) targets.set(plan.requirement.id, [...resolveTargetPlan(context, plan, {
+      isPending: ref => this.isPending(ref),
+      isLegal: snapshot => this.targetIsLegal(snapshot, item.controller),
+    }).selected]);
     return context;
+  }
+  private targetIsLegal(snapshot: ObjectSnapshot, chooser: PlayerId): boolean {
+    return ruleRestrictions(this.layers.registry, 'target', snapshot.ref, snapshot, chooser).length === 0 &&
+      ruleRestrictions(this.layers.registry, 'choose-as-target', snapshot.ref, snapshot, chooser).length === 0;
   }
   private handleOutstanding(): void {
     if (this.outstanding.length) throw new Error(`Outstanding task: ${this.outstanding[0]}`);
@@ -278,6 +309,7 @@ export class ChainEngine {
       this.busy = 'finalize'; this.record({ step: 'finalize-start', item: item.id });
       const context = this.context(item);
       assertFinalizationSurface(item.body);
+      if (!this.playDestinationIsLegal(item)) throw new Error('Play destination is not legally allowed');
       if (item.mayAtFinalize) {
         const accepted = context.choose<boolean>({ id: `finalize:${item.id}:optional`, chooser: item.controller, visibility: 'public', type: 'optional' });
         if (typeof accepted !== 'boolean') throw new TypeError('Finalize decision must be boolean');
@@ -290,7 +322,12 @@ export class ChainEngine {
       const targetSpecs = item.targets ?? item.body.flatMap(instruction => (instruction.targets ?? []).map(requirement => ({ requirement })));
       try {
         for (const target of targetSpecs) item.targetPlans.push(finalizeTargetPlan(context, target.requirement, {
-          ...('options' in target ? target.options : {}), isPending: ref => this.isPending(ref),
+          ...('options' in target ? target.options : {}),
+          isPending: ref => this.isPending(ref),
+          isLegal: (snapshot, phase) => {
+            const existing = 'options' in target ? target.options?.isLegal : undefined;
+            return (existing?.(snapshot, phase) ?? true) && this.targetIsLegal(snapshot, item.controller);
+          },
           taxAdapter: { appendTargetTax: tax => { taxes.push(tax); } },
           onTargetsFinalized: () => this.record({ step: 'targets-finalized', item: item.id }),
           onTargeted: event => {
@@ -318,6 +355,43 @@ export class ChainEngine {
       this.pipeline.emit({ timingPoint: 'chain-item-finalize', object: item.source, player: item.controller, details: { item: item.id } });
       this.requestCleanup('item-finalized'); this.busy = 'idle';
     });
+  }
+  private actionIsRestricted(draft: ChainDraft, speed: ChainSpeed): boolean {
+    const actionNames = new Set<string>([speed, 'play', 'play-card']);
+    if (draft.kind === 'activated') {
+      actionNames.add('activate');
+      actionNames.add('activate-ability');
+    } else if (draft.kind === 'spell' || draft.kind === 'unit' || draft.kind === 'gear') {
+      actionNames.add(`play-${draft.kind}`);
+    }
+    return [...actionNames].some(action => ruleRestrictions(
+      this.layers.registry,
+      action,
+      draft.source.ref,
+      draft.source,
+      draft.controller,
+    ).length > 0);
+  }
+  private playDestinationIsLegal(item: ChainItem): boolean {
+    if (item.kind !== 'unit' && item.kind !== 'gear') return true;
+    const destination = item.location;
+    if (destination === undefined) return true;
+    const view = playLocations(this.layers.registry, item.source.ref, item.source, item.controller);
+    const permissions = new Set(view.permissions.map(entry => entry.name.toLowerCase()));
+    const restrictions = new Set(view.restrictions.map(entry => entry.name.toLowerCase()));
+    // The host still owns baseline placement rules (controlled Battlefield,
+    // default Base, and card-specific legality). The query bridge only adds
+    // explicit continuous.location prohibitions or permissions; an absent
+    // location effect must therefore leave the existing host validation intact.
+    if (permissions.size === 0 && restrictions.size === 0) return true;
+    const blocked = (kind: 'base' | 'battlefield'): boolean =>
+      restrictions.has(`no-${kind}`) || restrictions.has(`cannot-${kind}`) || restrictions.has(`cannot-play-${kind}`);
+    if (destination.type === 'battlefield') {
+      if (blocked('battlefield')) return false;
+      return true;
+    }
+    if (blocked('base')) return false;
+    return true;
   }
   /** CR 430.3: Reaction Add can interrupt payment without transferring Priority. */
   activateAddDuringPayment(draft: ChainDraft): void {

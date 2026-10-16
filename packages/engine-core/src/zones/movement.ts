@@ -13,7 +13,10 @@
 // Boundary of this helper (do not over-claim): it validates and performs exactly ONE Standard Move
 // group action. It resolves no triggered ability, runs no cleanup, and establishes no Conquer,
 // Showdown, Combat or Recall. The caller must queue Move triggers and then run one Open cleanup.
-import { assertDuelBoard, relocateDuelUnit, restoreDuelBoard, type DuelBoard } from '../duel/battlefields.js';
+import type { ObjectRef, ObjectSnapshot } from '../effects/contract.js';
+import { movement as queryMovement, restrictions as queryRestrictions } from '../layers/rules/query.js';
+import type { ContinuousEffectRegistry } from '../layers/duration.js';
+import { assertDuelBoard, relocateDuelUnit, restoreDuelBoard, type DuelBoard, type DuelUnit } from '../duel/battlefields.js';
 
 /** Per-unit state, derived from canonical state / IR by the executor. Never a wire field. */
 export interface DuelReadinessRecord {
@@ -52,6 +55,14 @@ export interface DuelStandardMoveRequest {
   /** 144.3.a: one shared destination for the whole group. */
   readonly destinationLocationId: string;
   readonly timing: DuelStandardMoveTiming;
+}
+/** Optional rules-layer bridge. Board state remains authoritative for identity and location. */
+export interface DuelMovementRuleContext {
+  readonly registry: ContinuousEffectRegistry;
+  /** Resolve the current object identity for a board unit when its zone epoch is not 1. */
+  readonly refForUnit?: (unit: DuelUnit) => ObjectRef;
+  /** Supply the layered snapshot when a movement effect uses rich object filters. */
+  readonly objectForUnit?: (unit: DuelUnit) => ObjectSnapshot | null;
 }
 /** One Move event per moved unit; the array as a whole expresses the single group action 144.3. */
 export interface DuelMoveEvent {
@@ -125,6 +136,28 @@ function boolean(value: unknown, label: string): boolean {
   return value;
 }
 
+function routeKinds(from: string, destination: string, bases: ReadonlyMap<string, unknown>): 'base-to-battlefield' | 'battlefield-to-base' | 'battlefield-to-battlefield' | null {
+  const fromBase = bases.has(from);
+  const toBase = bases.has(destination);
+  if (fromBase && !toBase) return 'base-to-battlefield';
+  if (!fromBase && toBase) return 'battlefield-to-base';
+  if (!fromBase && !toBase) return 'battlefield-to-battlefield';
+  return null;
+}
+
+function routeBlocked(restrictions: readonly string[], route: ReturnType<typeof routeKinds>): boolean {
+  const names = new Set(restrictions.map(value => value.toLowerCase()));
+  if (names.has('cannot-move') || names.has('move') || names.has('all-movement')) return true;
+  if (route === null) return false;
+  if (route === 'battlefield-to-battlefield') {
+    return names.has('battlefield-to-battlefield') || names.has('move-battlefield-to-battlefield');
+  }
+  if (route === 'battlefield-to-base') {
+    return names.has('battlefield-to-base') || names.has('move-to-base') || names.has('move-from-here-to-base');
+  }
+  return names.has('base-to-battlefield') || names.has('move-from-base') || names.has('move-to-battlefield');
+}
+
 /** Exact correspondence with `board.units`; returns detached, validated records in input order. */
 function checkedReadiness(board: DuelBoard, input: unknown): DuelReadinessRecord[] {
   const raw = list(input, null, 'readiness').map((value, i) => {
@@ -189,6 +222,7 @@ export function restoreDuelReadiness(board: DuelBoard, snapshot: unknown): DuelR
  */
 export function moveDuelUnitsStandard(
   board: DuelBoard, readiness: unknown, request: unknown,
+  rules?: DuelMovementRuleContext,
 ): DuelStandardMoveResult {
   assertDuelBoard(board);
   const records = checkedReadiness(board, readiness);
@@ -221,12 +255,22 @@ export function moveDuelUnitsStandard(
     check(unit.controllerPlayerId === actor, `unit ${unitId} is not controlled by the actor`);
     check(readinessById.get(unitId)!.readied, `unit ${unitId} is not readied to move`);
     check(unit.locationId !== destinationLocationId, `unit ${unitId} is already at the destination`);
+    const unitRef = rules?.refForUnit?.(unit) ?? { id: unit.objectId, zoneEntryId: 1 };
+    const unitObject = rules?.objectForUnit?.(unit);
+    const ruleView = rules === undefined ? null : queryMovement(rules.registry, unitRef, unitObject, actor);
+    const actionRestrictions = rules === undefined ? [] : queryRestrictions(
+      rules.registry, 'move', unitRef, unitObject, actor,
+    ).flatMap(entry => entry.name === undefined ? [] : [entry.name]);
+    check(ruleView === null || (ruleView.canMove && !routeBlocked(
+      [...ruleView.restrictions, ...actionRestrictions],
+      routeKinds(unit.locationId, destinationLocationId, basesById))),
+    `unit ${unitId} is prohibited from moving`);
     if (basesById.has(unit.locationId)) {
       // 144.4.a: base → battlefield. The battlefield is shared, so no ownership check applies.
       check(destinationField !== undefined, `unit ${unitId} may only leave a base for a battlefield`);
     } else {
       // 144.4.b/144.4.c: battlefield → own base, or battlefield → battlefield with Ganking.
-      check(destinationBase !== undefined || readinessById.get(unitId)!.hasGanking,
+      check(destinationBase !== undefined || readinessById.get(unitId)!.hasGanking || ruleView?.canGank === true,
         `unit ${unitId} needs Ganking to move battlefield to battlefield`);
     }
   }
