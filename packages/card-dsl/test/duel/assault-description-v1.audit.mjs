@@ -4,7 +4,7 @@
 // absent in a fresh checkout, so a missing/unreadable catalog FAILS this test
 // loudly rather than skipping. It never inspects generated card-data outputs.
 //
-// It censuses the complete 1381-printing catalog, derives the catalog's Assault
+// It censuses the complete 1408-printing catalog, derives the catalog's Assault
 // printings from the ability text itself, and asserts that:
 //   - the recognised set is EXACTLY the four real pure whole-ability Assault
 //     printings (two bare [Assault] default-1, one [Assault 2] + reminder, one
@@ -31,7 +31,7 @@ test('real catalog census: pure whole-ability Assault is recognised and nothing 
   assert.ok(existsSync(catalogPath), `official catalog is required for this audit: ${catalogPath}`);
   const catalog = JSON.parse(readFileSync(catalogPath, 'utf8'));
   assert.ok(Array.isArray(catalog.cards), 'catalog.cards must be an array');
-  assert.equal(catalog.cards.length, 1381, 'expected the 1381-printing catalog');
+  assert.equal(catalog.cards.length, 1408, 'expected the 1408-printing catalog');
 
   const known = [];
   const unknown = [];

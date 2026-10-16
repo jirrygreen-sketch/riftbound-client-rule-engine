@@ -72,9 +72,9 @@ const exactKeys = (value, keys) => assert.deepEqual(Object.keys(value).sort(), [
 
 // 1
 test('binds the real catalog envelope and preserves the official source metadata', () => {
-  assert.equal(catalog.cards.length, 1381);
-  assert.equal(catalog.dataVersion, '2026-10-12-official-gallery');
-  assert.equal(catalog.digest, 'sha256:53b974c8472d82053bf61f6836842c8f0d62c2fafb4411fa502256912a504d10');
+  assert.equal(catalog.cards.length, 1408);
+  assert.equal(catalog.dataVersion, '2026-10-15-official-gallery');
+  assert.equal(catalog.digest, 'sha256:e9635b38044140375c33d9e5d8e12c1c2386994dfaa9ae8ae6832a127ff9f73d');
   assert.equal(source.dataVersion, catalog.dataVersion);
   assert.equal(source.sourceCatalogDigest, catalog.digest);
   assert.equal(source.cards.length, catalog.cards.length);
@@ -84,7 +84,7 @@ test('binds the real catalog envelope and preserves the official source metadata
 // 2
 test('registry covers every printing but only complete official templates resolve', () => {
   const registry = createDuelOfficialProgramRegistry(source);
-  assert.equal(registry.size, 1381);
+  assert.equal(registry.size, 1408);
   assert.deepEqual(registry.cardIds(), catalog.cards.map((entry) => entry.id));
   assert.equal(registry.knownProgramCount, 65);
   for (const entry of catalog.cards) {
@@ -556,8 +556,8 @@ test('33 actual Gold whole-text printings: only two Poros resolve; other 31 rema
     assert.equal(registry.get(id).status, 'unknown', id);
   }
   assert.equal(registry.knownProgramCount, 65);
-  assert.equal(registry.size, 1381);
-  assert.equal(catalog.cards.filter((entry) => registry.get(entry.id).status === 'unknown').length, 1316);
+  assert.equal(registry.size, 1408);
+  assert.equal(catalog.cards.filter((entry) => registry.get(entry.id).status === 'unknown').length, 1343);
 });
 
 // 28

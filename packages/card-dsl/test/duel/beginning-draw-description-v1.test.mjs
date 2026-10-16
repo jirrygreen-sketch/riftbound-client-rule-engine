@@ -3,7 +3,7 @@
 //
 // These cases build COMPLETE inline synthetic printing tuples carrying the REAL
 // catalog Loose Cannon whole-ability literal, so the suite runs in a clean
-// checkout and never reads the gitignored official catalog. The real 1381-printing
+// checkout and never reads the gitignored official catalog. The real 1408-printing
 // census lives in the required block at the bottom and may use an explicit
 // RIFTBOUND_BEGINNING_DRAW_CATALOG override. It is labelled
 // SOURCE DATA only.
@@ -28,8 +28,8 @@ const {
   describeDuelBeginningDrawV1,
 } = await import(moduleSpecifier);
 
-const DATA_VERSION = '2026-10-12-official-gallery';
-const DIGEST = 'sha256:53b974c8472d82053bf61f6836842c8f0d62c2fafb4411fa502256912a504d10';
+const DATA_VERSION = '2026-10-15-official-gallery';
+const DIGEST = 'sha256:e9635b38044140375c33d9e5d8e12c1c2386994dfaa9ae8ae6832a127ff9f73d';
 // The upstream catalog envelope metadata, passed separately from each printing.
 const ENVELOPE = { dataVersion: DATA_VERSION, sourceCatalogDigest: DIGEST };
 
@@ -423,7 +423,7 @@ test('real catalog SOURCE DATA census: exactly the 3 Loose Cannon printings are 
   assert.ok(existsSync(catalogPath), `official catalog is required for this audit: ${catalogPath}`);
   const catalog = JSON.parse(readFileSync(catalogPath, 'utf8'));
   assert.ok(Array.isArray(catalog.cards), 'catalog.cards must be an array');
-  assert.equal(catalog.cards.length, 1381, 'expected the 1381-printing catalog');
+  assert.equal(catalog.cards.length, 1408, 'expected the 1408-printing catalog');
 
   // The real catalog carries dataVersion/digest on the ENVELOPE, not per card.
   const envelope = { dataVersion: catalog.dataVersion, sourceCatalogDigest: catalog.digest };

@@ -4,7 +4,7 @@
 // These cases build COMPLETE synthetic envelope/printing tuples with the REAL
 // catalog `[Temporary]` whole-ability literals, so the suite runs in a clean
 // checkout and never requires the gitignored official catalog. The one real
-// The 1381-printing census requires the official catalog; missing data fails
+// The 1408-printing census requires the official catalog; missing data fails
 // it loudly rather than failing; when the catalog IS present it asserts strictly.
 //
 // The recogniser returns DATA only: it is not an authority, is never registered
@@ -22,8 +22,8 @@ const {
   describeDuelTemporaryV1,
 } = await import(moduleSpecifier);
 
-const DATA_VERSION = '2026-10-12-official-gallery';
-const DIGEST = 'sha256:53b974c8472d82053bf61f6836842c8f0d62c2fafb4411fa502256912a504d10';
+const DATA_VERSION = '2026-10-15-official-gallery';
+const DIGEST = 'sha256:e9635b38044140375c33d9e5d8e12c1c2386994dfaa9ae8ae6832a127ff9f73d';
 
 // The two real catalog whole-ability Unit [Temporary] literals.
 const SPRITE_TEXT = '[Temporary] (Kill me at the start of your Beginning Phase, before scoring.)';
@@ -351,7 +351,7 @@ test('required real catalog census (DATA only)', () => {
   const catalogPath = process.env.RIFTBOUND_TEMPORARY_CATALOG ??
     new URL('../../../card-data/data/deck-catalog.json', import.meta.url);
   const catalog = JSON.parse(readFileSync(catalogPath, 'utf8'));
-  assert.equal(catalog.cards.length, 1381, 'expected the 1381-printing catalog');
+  assert.equal(catalog.cards.length, 1408, 'expected the 1408-printing catalog');
   const known = [];
   const unknown = [];
   for (const card of catalog.cards) {

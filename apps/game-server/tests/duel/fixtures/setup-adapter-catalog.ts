@@ -2,7 +2,7 @@
  * Self-contained, tracked unit fixture for `setup-seats.test.ts`.
  *
  * This is deliberately NOT official card data and NOT a claim about the real
- * 1,381-printing pool. It is a minimal representative subset:
+ * 1,408-printing pool. It is a minimal representative subset:
  *
  * - the `cards` below are verbatim copies of the generated official deck-catalog
  *   entries for exactly the printings the two representative decks use. Keeping
@@ -13,9 +13,9 @@
  *   and the chosen champion's family still resolves through the same catalog
  *   `knownChampionTags` rule as production (`Vi` from `unl-176-219`).
  * - `catalog.groups` is omitted because the adapter never reads groups.
- * - `dataVersion`/`digest` are fixture-owned marker values; the real generated
- *   catalog is `2026-10-12-official-gallery` /
- *   `sha256:53b974c8472d82053bf61f6836842c8f0d62c2fafb4411fa502256912a504d10`
+ * - `dataVersion`/`digest` are fixture-owned marker values; the refreshed real
+ *   catalog is `2026-10-15-official-gallery` /
+ *   `sha256:e9635b38044140375c33d9e5d8e12c1c2386994dfaa9ae8ae6832a127ff9f73d`
  *   and is asserted only by the opt-in actual-catalog acceptance run, never here.
  *
  * Fresh-checkout/CI safety: nothing in this module (or in `setup-seats.test.ts`)
@@ -145,7 +145,7 @@ export const setupAdapterFixtureCatalog = {
       "energy": 4,
       "power": null,
       "might": null,
-      "ability": "[Action] (Play on your turn or in showdowns.)\nDeal 3 to a unit at a battlefield. If this kills it, draw 1."
+      "ability": "[Action] (Play on your turn or in showdowns.)\nDeal 3 to a unit at a battlefield. If this kills it, do this: draw 1."
     },
     {
       "id": "ogn-006-298",

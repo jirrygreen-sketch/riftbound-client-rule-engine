@@ -194,11 +194,11 @@ test('wrong program reference is rejected by phase scope', () => {
 });
 
 // 13: Premonition adds one whole source; no unsupported fragment becomes known.
-test('phase registry preserves the 1381-printing and 65/1316 census', () => {
-  assert.equal(registry.size, 1381);
+test('phase registry preserves the 1408-printing and 65/1343 census', () => {
+  assert.equal(registry.size, 1408);
   assert.equal(registry.knownProgramCount, 65);
   assert.equal(runeIds.length, 30);
-  assert.equal(catalog.cards.filter((entry) => registry.get(entry.id)?.status === 'unknown').length, 1316);
+  assert.equal(catalog.cards.filter((entry) => registry.get(entry.id)?.status === 'unknown').length, 1343);
 });
 
 // 14: Forged source tuples cannot become phase proofs.

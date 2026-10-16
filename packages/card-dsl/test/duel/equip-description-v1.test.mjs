@@ -24,8 +24,8 @@ const {
   duelEquipSourceFingerprintMaterial,
 } = await import(moduleSpecifier);
 
-const DATA_VERSION = '2026-10-12-official-gallery';
-const DIGEST = 'sha256:53b974c8472d82053bf61f6836842c8f0d62c2fafb4411fa502256912a504d10';
+const DATA_VERSION = '2026-10-15-official-gallery';
+const DIGEST = 'sha256:e9635b38044140375c33d9e5d8e12c1c2386994dfaa9ae8ae6832a127ff9f73d';
 const ENVELOPE = { dataVersion: DATA_VERSION, catalogDigest: DIGEST };
 
 // The 28 real pure-[Equip] printings (12 distinct whole-ability texts). Values
