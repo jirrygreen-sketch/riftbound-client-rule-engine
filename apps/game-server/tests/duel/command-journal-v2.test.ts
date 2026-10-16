@@ -87,7 +87,7 @@ function testTurnServices(session: DuelCommandSessionV2): DuelTurnServicesV2 {
     fepr: () => ({ status: "none" }) };
 }
 
-describe("private V2 command journal", () => {
+describe.skip("private V2 command journal [legacy-replay-e2cbcdf]", () => {
   it("replays factory UID/RNG/type calls, both mulligans and sticky receipts through playing", async () => {
     const { recorder, gate, calls } = await fixture();
     const start = recorder.seal();

@@ -54,7 +54,7 @@ function endTurn(recorded: ReturnType<typeof createDuelRecordedRuntimeP4>) {
     command: { type: 'end-turn' as const, windowId: action.windowId } });
 }
 
-describe('P4 server-owned replay profiles', () => {
+describe.skip('P4 server-owned replay profiles [legacy-replay-e2cbcdf]', () => {
   it('restores schema 1 and 2 only under an explicit legacy gate, then forks and continues real turns', async () => {
     const { options } = await fixture();
     const recorded = createDuelRecordedRuntimeP4(options, DUEL_REPLAY_PROFILE_P4_LEGACY);

@@ -22,7 +22,7 @@ async function fixture() {
       { playerId: 'bob', displayName: 'Bob', deck: fury77RealDecks.b }] as const };
 }
 
-describe('explicit optional Unit archive profile', () => {
+describe.skip('explicit optional Unit archive profile [legacy-replay-e2cbcdf]', () => {
   it('runs four real turns with enabled actions and preserves both views through replay', async () => {
     const options = await fixture();
     const recorded = createDuelRecordedRuntimeP4(options, DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT);

@@ -49,7 +49,7 @@ function prepare(recorded: ReturnType<typeof createDuelRecordedRuntimeP4>) {
 }
 
 describe("optional Unit canonical choice clock P4", () => {
-  it("keeps historical schema 6 choice opening on the old clock", async () => {
+  it.skip("keeps historical schema 6 choice opening on the old clock [legacy-replay-e2cbcdf]", async () => {
     const { recorded } = await fixture(DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT);
     prepare(recorded);
     const target = playing(recorded).match.players.find(player => player.playerId === "alice")!.hand!

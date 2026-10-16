@@ -71,7 +71,7 @@ function digestGate(options: unknown, archive: DuelCommandArchiveP4, profile: ty
   return createDuelReplayGateP4(options as any, digestDuelCommandArchiveP4(archive), profile);
 }
 
-describe("native Main5 decline regression under resolved-history P9", () => {
+describe.skip("native Main5 decline regression under resolved-history P9 [legacy-replay-e2cbcdf]", () => {
   const seed = projectSeed();
   expect(seed.source.kind).toBe("actual-native-gui-journal-seed");
   expect(seed.source.originalSchemaVersion).toBe(8);

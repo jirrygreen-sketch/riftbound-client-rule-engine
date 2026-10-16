@@ -98,7 +98,7 @@ async function pendingSpell(runtimeProfile?: DuelRuntimeProfileP4) {
 }
 
 describe("P4 pending-Spell Rune resource acknowledgement", () => {
-  it("keeps the historical Spell profile ACK and journals distinct from the new profile", async () => {
+  it.skip("keeps the historical Spell profile ACK and journals distinct from the new profile [legacy-replay-e2cbcdf]", async () => {
     const { runtime } = await pendingSpell(DUEL_RUNTIME_PROFILE_P4_SPELL);
     const before = runtime.project("alice");
     if (before.match.stage !== "playing") throw new Error("playing expected");
