@@ -104,12 +104,12 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "「you kill」的击杀归因无法表达：CR v1.5 429.5.c.1 把击杀归因于包含 Kill 指令的效果及其" +
-    "控制者，但 events/timing-points.ts 的 object-killed 载荷是 payloadType \"object\" 且没有列出" +
-    "任何 payloadFields，events/action-adapter.ts 对 kill 动作把事件 player 记为被消灭对象的控制者" +
+    "控制者，但 events/timing-points.ts 的 object-killed 载荷是 payloadType \"object\" 且 payloadFields 未声明，" +
+    "events/action-adapter.ts 对 kill 动作把事件 player 记为被消灭对象的控制者" +
     "（与“你消灭”相反），因此 filter 里既不能写 player: \"self\"（语义会反），也不能假定不存在的" +
     "归因字段。触发点、敌方 stunned 单位过滤（含 383.2.c.3.b 的最后已知信息）、可选分支" +
     "（choice.optional）、效果横置（effect.exhaust）与抽牌（effect.draw）本身都已合入并由 golden" +
-    "真实执行。依赖：RIFT-21（时点载荷）/ RIFT-120（链与事件单管线）补齐击杀归因。",
+    "真实执行。依赖：object-killed 载荷补齐击杀归因字段（RIFT-21 时点载荷 / RIFT-120 链与事件单管线）。",
   abilities,
   sourceText: "When you kill a stunned enemy unit, you may exhaust this to draw 1."
 } satisfies CardProgram;

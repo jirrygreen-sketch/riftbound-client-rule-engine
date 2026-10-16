@@ -29,18 +29,19 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * Status: judge-required — two expressions are missing:
  * - "in your base" cannot be restricted exactly. The merged location predicate
- *   only compares against a location TYPE string ("base" / "battlefield", see
- *   layers/filter.ts) or an exact LocationRef, which needs the controller's
- *   player id; no merged predicate resolves a controller-relative base, and the
- *   type form would also admit a friendly unit sitting in an opponent's base.
- *   The intended restriction is authored with the descriptive key so it is
- *   reviewable and fail-closed.
- * - the Move Destination ("to a battlefield") cannot be enumerated:
- *   effect.move takes a static LocationRef, the literal "controller-base", a
- *   static option list, or an Expr the primitive itself evaluates, and the
- *   static ObjectSelector vocabulary covers objects only, so the set of legal
- *   battlefield Destinations has no authorable form. Not approximated with a
- *   fixed battlefield.
+ *   only compares a location TYPE string ("base" / "battlefield", see
+ *   layers/filter.ts) or an exact LocationRef, which needs the concrete
+ *   player id; no merged predicate resolves a controller-relative base, and
+ *   the type form would also admit a friendly unit sitting in an opponent's
+ *   base. The intended restriction is authored with the descriptive key so it
+ *   is reviewable and fail-closed.
+ * - the Move Destination ("to a battlefield") cannot be enumerated: 355.4.a
+ *   makes the Destination a Finalize-time choice among the runtime-legal
+ *   Locations, but effect.move accepts a static LocationRef, the literal
+ *   "controller-base", a static option list of LocationRefs, or an Expr the
+ *   primitive itself evaluates; nothing can build that option list at
+ *   Finalize from the runtime board. Not approximated with a fixed
+ *   battlefield.
  * The Buff half uses only merged structures and is executed by the golden test;
  * the Move half is executed there with a caller-supplied Finalize Destination,
  * exactly as the production caller must supply it.

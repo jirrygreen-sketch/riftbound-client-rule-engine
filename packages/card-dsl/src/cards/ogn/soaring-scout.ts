@@ -20,21 +20,22 @@ import type { CardProgram } from "../../ir/index.js";
  *   已合入的 effect.channel 表达「Channel 1 rune exhausted」（amount 1、exhausted true，
  *   player 省略即 ctx.controller）。
  *
- * status = judge-required：Deathknell 展开体引用尚未合入的 trigger.leave 原语，且已合入的
- * channel-rune 游戏动作未落实 exhausted 进入规定。见 judgeReason。
+ * status = judge-required：
+ * - Deathknell 的 KeywordDef（RIFT-82）展开体引用尚未注册的 trigger.leave 原语；
+ * - effect.channel 把 exhausted: true 作为 channel-rune 动作的规定提交，但已合入的
+ *   效果管线内核忽略该字段（符文仍以就绪状态进入符文区）。见 judgeReason。
  */
 const soaringScout = {
   canonicalCardId: "card.hash-21546c63920e01becbf09de7c0589b5713c48f7a17e0539ecb8caad77b4e3c9e",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺两件已合入依赖：(1) [Deathknell] 的关键词展开（effects/keywords/Deathknell.ts）把触发体写成 " +
-    "trigger.leave，而 effects/instructions/ 没有该原语（其单测只能在测试里临时注册桩），" +
-    "object-killed 触发注册与 808.1.d.1（死亡被替代时移出链）属于 RIFT-82 关键词展开与 " +
-    "RIFT-120 事件管线的后续；(2)「Channel 1 rune exhausted」的进入规定（CR 431.2）没有落地：" +
-    "effect.channel 会把 exhausted: true 作为 channel-rune 动作的 stipulation 提交，" +
-    "但已合入的参考内核忽略该字段（符文仍以就绪状态进入符文区），所以本条效果不能宣称可执行。" +
-    "依赖：trigger.leave / Deathknell 展开（RIFT-82）、以及 channel-rune 动作对 431.2 进入状态的支持。" +
+    "两处缺口：(1) [Deathknell] 的关键词展开（effects/keywords/Deathknell.ts，RIFT-82）把触发体写成 " +
+    "trigger.leave，而 effects/instructions/ 没有注册该原语，object-killed 触发入链与 808.1.d.1（死亡被替代时移出链）" +
+    "仍未接线（RIFT-82 展开 + RIFT-120 事件管线）；(2)「Channel 1 rune exhausted」的进入规定（CR 431.2）没有落地——" +
+    "effect.channel 会把 exhausted: true 作为 channel-rune 动作的 stipulation 提交，但已合入的效果管线内核忽略该字段" +
+    "（符文仍以就绪状态进入符文区）。" +
+    "依赖：trigger.leave / Deathknell 展开（RIFT-82 / RIFT-120）、以及 channel-rune 动作对 431.2 进入状态的支持。" +
     "不近似实现（不用「先 Channel 再横置」代替，那会多出一次状态改变事件）。",
   abilities: [
     { kind: "keyword", keyword: "deathknell" },

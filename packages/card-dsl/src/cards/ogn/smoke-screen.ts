@@ -16,34 +16,25 @@ import type { CardProgram } from "../../ir/index.js";
  *   355.9.a.1 / 355.10).
  * - "-4 Might this turn, to a minimum of 1 Might" is an arithmetic-layer Might
  *   modification with a per-turn duration (143.2.a: "Might" means Effective
- *   Might; 475/478 layers) whose result is clamped at 1. The clamp is the
- *   printed minimum, not the general 143.2.c "less than 0 is treated as 0"
- *   rule, so it has to be carried as the modification's own floor rather than
- *   inferred from the layer arithmetic.
+ *   Might; 475/478 layers) executed by the merged continuous.might primitive
+ *   (RIFT-258). The primitive registers one arithmetic-layer effect through
+ *   ResolveContext.addContinuous with the end-of-turn duration
+ *   (317.1.a / 468.7.c).
+ * - The floor is the printed minimum, not the general 143.2.c "less than 0 is
+ *   treated as 0" rule: 479.4.b snapshots the limitation when the effect is
+ *   applied, so the primitive carries it as effect.minimum and snaps the delta
+ *   against the target's current Might (a 6-Might unit given -4 to a minimum of
+ *   1 receives exactly -4; a 2-Might unit receives -1 and stays at 1).
  *
- * Status: judge-required. The debuff is faithfully described below but has no
- * merged producer: contract 3.6's closed GameAction set has no
- * Might-modification action, no file under effects/instructions/ registers a
- * Might modification through ResolveContext.addContinuous (the layers engine
- * merged with RIFT-91 supplies only the evaluation side, and its arithmetic
- * pass floors at 0 rather than the printed 1), and the object-property /
- * condition vocabulary cannot read a "minimum" characteristic. Marking the
- * card executable would either drop the printed minimum or claim a clamped
- * amount the engine never computes. Not approximated with a Buff counter
- * (CR 702: a Buff is a counter, not a Might modification).
+ * Status: executable — the whole printed ability executes on merged paths and
+ * the golden test drives the card's own body through the production chain
+ * adapter, asserting the arithmetic-layer registration, the end-of-turn
+ * duration, the printed minimum boundary and the mistargeted edge.
  */
 const smokeScreen = {
   canonicalCardId: "card.hash-e97af51e4273d0e357336eeb9843588d53ddb174bbf2fe8c0ce001f8f5cc3674",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "缺临时 Might 修正原语与印刷下限：「Give a unit -4 :rb_might: this turn, to a minimum of 1 " +
-    ":rb_might:」需要在 arithmetic 层施加带回合期限的 Might 减量（143.2.a/475/478），并按印刷文本钳制到至少 1；" +
-    "契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，effects/instructions/ 下也没有任何原语通过 " +
-    "ResolveContext.addContinuous 注册该持续效果（RIFT-91 只合入了 layers 求值侧，且其算术 pass 的下限是 0，" +
-    "并非本卡的印刷下限 1）；object-property / condition 词汇也无法读取“minimum”这一特征。" +
-    "依赖：continuous.might 指令原语与带下限的减量支持（RIFT-9 清单 / RIFT-91 后续）。" +
-    "不近似实现：不写成 Buff 计数（702），也不省略 1 的下限。",
+  status: "executable",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {
@@ -55,9 +46,11 @@ const smokeScreen = {
           args: {
             amount: { kind: "constant", value: -4 },
             duration: { kind: "constant", value: "this-turn" },
-            // The printed clamp. The pending arithmetic-layer producer must
-            // apply it instead of the layer engine's generic 0 floor.
-            minimum: { kind: "constant", value: 1 }
+            // The printed clamp (479.4.b). The merged primitive snapshots it
+            // into effect.minimum; the layer engine's generic 0 floor is not
+            // this card's limit.
+            minimum: { kind: "constant", value: 1 },
+            objects: { kind: "constant", value: { kind: "target", id: "smoke-screen.unit" } }
           },
           targets: [
             {
@@ -78,4 +71,3 @@ const smokeScreen = {
 } satisfies CardProgram;
 
 export default smokeScreen;
-

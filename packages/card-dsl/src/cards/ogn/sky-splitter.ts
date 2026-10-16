@@ -36,8 +36,10 @@ import type { CardProgram } from "../../ir/index.js";
  *   obligations of the same missing wiring.
  *
  * Dependencies: a card-declarable cost-discount consumer in the Finalize cost
- * plan (RIFT-89 cost planning) and a maximum-aggregate expression over a
- * filtered set.
+ * plan (the merged applyDiscount only takes caller-supplied
+ * CostPlanInput.discounts; the card-level cost.pay/cost.modify instructions are
+ * still on the unmerged RIFT-261 branch) and a maximum-aggregate expression
+ * over a filtered set.
  */
 const skySplitter = {
   canonicalCardId: "card.hash-94735882304ffe96826dd127aea87fdfaac6f979e3b075524de966b982a9c89f",
@@ -46,11 +48,12 @@ const skySplitter = {
   judgeReason:
     "「This spell's Energy cost is reduced by the highest Might among units you control」是第 356.4 步的总费用折扣" +
     "（在打出过程中应用，不是链上结算的指令）；但卡牌只能声明 CostSpec，cost/plan-values.ts 的 readCost 明确阻断" +
-    "kind/payments/energy/power/discard 之外的字段，唯一能应用折扣的入口是调用方提供的 CostPlanInput.discounts" +
-    "（cost/cost-plan.ts applyDiscount，resource: \"energy\"），卡牌层没有可声明的原语或 IR 字段。" +
+    "kind/payments/energy/power/discard 之外的字段；唯一能应用折扣的入口是调用方提供的 CostPlanInput.discounts" +
+    "（cost/cost-plan.ts applyDiscount，resource: \"energy\"），而卡片级原语 cost.pay / cost.modify 尚未合入本分支" +
+    "（仍待 RIFT-261 合入），卡牌层没有可声明的原语或 IR 字段。" +
     "折扣数额还要求对动态集合取最大值（「units you control 中最高的 Might」），冻结 IR 只有 count 与显式操作数算术，" +
     "没有集合聚合表达式，故 amount 仅作描述性占位。356.4.e 的折扣下限与 206/204.1 的印刷费用语义由同一消费方承担。" +
-    "依赖：可声明的费用折扣消费方（RIFT-89 费用计划）与集合 max 聚合表达式。",
+    "依赖：RIFT-261（cost.pay / cost.modify 原语）与集合 max 聚合表达式。",
   sourceText:
     "[Action] (Play on your turn or in showdowns.)\n" +
     "This spell's Energy cost is reduced by the highest Might among units you control.\n" +
