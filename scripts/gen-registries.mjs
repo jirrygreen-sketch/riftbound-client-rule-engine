@@ -1,12 +1,18 @@
 #!/usr/bin/env node
 
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_REPOSITORY_ROOT = path.resolve(SCRIPT_DIRECTORY, "..");
+
+// TypeScript is an existing engine-core dependency, not a root dependency.
+const ts = createRequire(new URL("../packages/engine-core/package.json", import.meta.url))(
+  "typescript"
+);
 
 const REGISTRY_FILENAME = "registry.generated.ts";
 const DEFAULT_ID_PROPERTIES = ["id", "op", "keyword", "canonicalCardId"];
@@ -37,141 +43,98 @@ export class RegistryGenerationError extends Error {
   }
 }
 
-function maskSource(source, { preserveStrings }) {
-  const result = [...source];
-  let state = "code";
-  let quote = "";
-  let escaped = false;
-
-  for (let index = 0; index < source.length; index += 1) {
-    const character = source[index];
-    const nextCharacter = source[index + 1];
-
-    if (state === "line-comment") {
-      if (character === "\n") state = "code";
-      else result[index] = " ";
-      continue;
-    }
-
-    if (state === "block-comment") {
-      if (character === "*" && nextCharacter === "/") {
-        result[index] = " ";
-        result[index + 1] = " ";
-        index += 1;
-        state = "code";
-      } else if (character !== "\n") {
-        result[index] = " ";
-      }
-      continue;
-    }
-
-    if (state === "string") {
-      if (!preserveStrings) {
-        if (character !== "\n") result[index] = " ";
-      }
-      if (escaped) {
-        escaped = false;
-      } else if (character === "\\") {
-        escaped = true;
-      } else if (character === quote) {
-        state = "code";
-      }
-      continue;
-    }
-
-    if (state === "template") {
-      if (!preserveStrings && character !== "\n") result[index] = " ";
-      if (escaped) {
-        escaped = false;
-      } else if (character === "\\") {
-        escaped = true;
-      } else if (character === "`") {
-        state = "code";
-      }
-      continue;
-    }
-
-    if (character === "/" && nextCharacter === "/") {
-      result[index] = " ";
-      result[index + 1] = " ";
-      index += 1;
-      state = "line-comment";
-    } else if (character === "/" && nextCharacter === "*") {
-      result[index] = " ";
-      result[index + 1] = " ";
-      index += 1;
-      state = "block-comment";
-    } else if (character === "'" || character === '"') {
-      quote = character;
-      state = "string";
-    } else if (character === "`") {
-      state = "template";
-    }
+function unwrapExpression(expression) {
+  while (
+    ts.isParenthesizedExpression(expression) ||
+    ts.isAsExpression(expression) ||
+    ts.isSatisfiesExpression(expression) ||
+    ts.isTypeAssertionExpression(expression) ||
+    ts.isNonNullExpression(expression)
+  ) {
+    expression = expression.expression;
   }
-
-  return result.join("");
+  return expression;
 }
 
-function decodeStringLiteral(value, filePath) {
-  const quote = value[0];
-  const body = value.slice(1, -1);
+function findDefaultExport(source, filePath) {
+  const file = ts.createSourceFile(
+    filePath, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS
+  );
+  const diagnostic = file.parseDiagnostics[0];
+  if (diagnostic) {
+    const { line, character } = file.getLineAndCharacterOfPosition(diagnostic.start ?? 0);
+    throw new RegistryGenerationError(
+      `Invalid TypeScript syntax in ${filePath}:${line + 1}:${character + 1}: ` +
+        ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")
+    );
+  }
 
-  if (quote === '"') {
-    try {
-      return JSON.parse(value);
-    } catch {
+  const declarations = new Map();
+  const defaultExports = [];
+  for (const statement of file.statements) {
+    if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name) && declaration.initializer) {
+          declarations.set(declaration.name.text, declaration.initializer);
+        }
+      }
+    } else if (ts.isExportAssignment(statement) && !statement.isExportEquals) {
+      defaultExports.push(statement.expression);
+    } else if (
+      ts.isExportDeclaration(statement) &&
+      statement.exportClause && ts.isNamedExports(statement.exportClause)
+    ) {
+      for (const element of statement.exportClause.elements) {
+        if (element.name.text !== "default") continue;
+        if (statement.moduleSpecifier || statement.isTypeOnly || element.isTypeOnly) {
+          throw new RegistryGenerationError(
+            `Unsupported default export in ${filePath}; expected a local value export`
+          );
+        }
+        defaultExports.push(element.propertyName ?? element.name);
+      }
+    } else if (ts.getModifiers(statement)?.some(
+      (modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword
+    )) {
       throw new RegistryGenerationError(
-        `Invalid registry id string in ${filePath}: ${value}`
+        `Unsupported default export in ${filePath}; expected an object literal`
       );
     }
   }
 
-  return body.replace(/\\([\\'"`])/g, "$1").replace(/\\n/g, "\n");
-}
-
-function findPropertyValue(source, searchStart, propertyName, filePath) {
-  const sourceWithoutComments = maskSource(source, { preserveStrings: true });
-  const propertyPattern = new RegExp(
-    `(?:\\b${propertyName}\\b|["']${propertyName}["'])\\s*:\\s*((?:"(?:\\\\.|[^"\\\\])*"|'(?:\\\\.|[^'\\\\])*'))`,
-    "g"
-  );
-  propertyPattern.lastIndex = searchStart;
-  const match = propertyPattern.exec(sourceWithoutComments);
-  if (!match) return undefined;
-
-  const value = decodeStringLiteral(match[1], filePath);
-  if (value.length === 0) {
-    throw new RegistryGenerationError(
-      `Empty registry id in ${filePath}: ${propertyName} must be a non-empty string`
-    );
-  }
-  return { propertyName, value };
-}
-
-function findDefaultExport(source, filePath) {
-  const code = maskSource(source, { preserveStrings: false });
-  const defaultExport = /\bexport\s+default\b/.exec(code);
-  if (!defaultExport) {
+  if (defaultExports.length === 0) {
     throw new RegistryGenerationError(
       `Missing default export in ${filePath}; each registry source file must ` +
         "export its definition as default"
     );
   }
+  if (defaultExports.length > 1) {
+    throw new RegistryGenerationError(`Multiple default exports in ${filePath}`);
+  }
 
-  const expressionStart = defaultExport.index + defaultExport[0].length;
-  const expression = code.slice(expressionStart);
-  const identifier = /^\s*([A-Za-z_$][\w$]*)/.exec(expression)?.[1];
-  if (!identifier) return expressionStart;
-
-  const declarationPattern = new RegExp(
-    `\\b(?:const|let|var)\\s+${identifier}\\s*=`
-  );
-  const declaration = declarationPattern.exec(code);
-  return declaration?.index ?? expressionStart;
+  let expression = unwrapExpression(defaultExports[0]);
+  const visited = new Set();
+  while (ts.isIdentifier(expression)) {
+    const name = expression.text;
+    if (visited.has(name) || !declarations.has(name)) {
+      throw new RegistryGenerationError(
+        `Cannot resolve default export in ${filePath}: ${name}; ` +
+          "expected a local variable initialized with an object literal"
+      );
+    }
+    visited.add(name);
+    expression = unwrapExpression(declarations.get(name));
+  }
+  if (!ts.isObjectLiteralExpression(expression)) {
+    throw new RegistryGenerationError(
+      `Unsupported default export in ${filePath}; expected an object literal`
+    );
+  }
+  return expression;
 }
 
 function extractRegistryId(source, filePath, kind) {
-  const searchStart = findDefaultExport(source, filePath);
+  const definition = findDefaultExport(source, filePath);
   const preferredProperties =
     kind === "instructions"
       ? ["op", ...DEFAULT_ID_PROPERTIES.filter((name) => name !== "op")]
@@ -182,9 +145,42 @@ function extractRegistryId(source, filePath, kind) {
           ]
         : DEFAULT_ID_PROPERTIES;
 
+  const properties = new Map();
+  for (const property of definition.properties) {
+    // A spread or computed key can override an id without a visible declaration.
+    if (ts.isSpreadAssignment(property) || ts.isComputedPropertyName(property.name)) {
+      throw new RegistryGenerationError(
+        `Cannot statically read registry id in ${filePath}; ` +
+          "object spreads and computed properties are unsupported"
+      );
+    }
+    const name = property.name.text;
+    if (!preferredProperties.includes(name)) continue;
+    if (properties.has(name)) {
+      throw new RegistryGenerationError(
+        `Duplicate registry id property ${name} in ${filePath}`
+      );
+    }
+    properties.set(name, property);
+  }
+
   for (const propertyName of preferredProperties) {
-    const property = findPropertyValue(source, searchStart, propertyName, filePath);
-    if (property) return property;
+    const property = properties.get(propertyName);
+    if (!property) continue;
+    const value = ts.isPropertyAssignment(property)
+      ? unwrapExpression(property.initializer)
+      : undefined;
+    if (!value || !(ts.isStringLiteral(value) || ts.isNoSubstitutionTemplateLiteral(value))) {
+      throw new RegistryGenerationError(
+        `Invalid registry id in ${filePath}: ${propertyName} must be a static string`
+      );
+    }
+    if (value.text.length === 0) {
+      throw new RegistryGenerationError(
+        `Empty registry id in ${filePath}: ${propertyName} must be a non-empty string`
+      );
+    }
+    return { propertyName, value: value.text };
   }
 
   throw new RegistryGenerationError(
