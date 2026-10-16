@@ -25,7 +25,7 @@ import type { CardProgram } from "../../ir/index.js";
  * - “Use only to play spells” 是使用限制，但合并内核没有消费卡牌 Restriction 的路径
  *   （chain Finalize 只检查调用方传入的 Condition），无法保证该资源只用于支付法术。
  * - Add Reaction 的启动窗口（430.3：支付过程中可启动）没有接线。
- * 依赖：RIFT-89（费用/支付接线）、RIFT-91（限制消费）；Universal Power 属契约级
+ * 依赖：RIFT-257（CardProgram 启动能力绑定）、RIFT-261（费用/支付接线）、RIFT-91（限制消费）；Universal Power 属契约级
  * 缺口（见最终回复的「契约变更请求」）。
  */
 const daughterOfTheVoid = {
@@ -38,7 +38,7 @@ const daughterOfTheVoid = {
     "封闭集合，effect.resources 明确记录 163.2.b 的 [A] 不可表达、绝不用某个域近似；本卡的 " +
     "[Add] :rb_rune_rainbow: 因此只能保留描述性 power: [\"rainbow\"]（原语返回 negated(impossible)）。" +
     "另外 “Use only to play spells” 的使用限制没有消费路径，430.3 的 Add Reaction 启动窗口也未接线。" +
-    "依赖 RIFT-89（费用/支付接线）与 RIFT-91（限制/持续效果消费）。",
+    "依赖 RIFT-257（CardProgram 启动能力绑定）、RIFT-261（费用/支付接线）与 RIFT-91（限制/持续效果消费）。",
   abilities: [
     {
       kind: "activated",

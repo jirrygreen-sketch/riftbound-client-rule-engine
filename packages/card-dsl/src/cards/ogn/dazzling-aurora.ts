@@ -16,7 +16,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   API (contract 3.6 / RIFT-66) is not wired into any reveal instruction.
  * - "Play it, ignoring its cost": 420.3 play action with the 356.1.b.1 base
  *   cost rewrite to zero. The cost rewrite is cost.modify / cost-plan work
- *   (RIFT-89); effect.play requires an already-finalized cost plan and does
+ *   (RIFT-261); effect.play requires an already-finalized cost plan and does
  *   not derive or ignore printed costs by itself.
  * - "recycle the rest": 417 recycles the non-unit cards revealed before the
  *   unit; that set is defined by the reveal-until result the IR cannot
@@ -32,8 +32,8 @@ const dazzlingAurora = {
   judgeReason:
     "「reveal cards from the top of your Main Deck until you reveal a unit」需要按牌库顺序逐张展示、在首个单位处停止并把结果集写入链接值：" +
     "已合入的 effect.reveal 只支持固定张数或整区展示，且不读牌库顺序（契约 3.6 zoneSlice / RIFT-66 未接入任何展示指令）；" +
-    "「Play it, ignoring its cost」需要按 CR 356.1.b.1 把印刷费用改写为 0 并生成 finalized cost plan（cost.modify / RIFT-89），" +
-    "effect.play 只接受已定案费用计划；「recycle the rest」依赖同一 reveal-until 结果集。依赖：RIFT-66 展示/排序后续、RIFT-89；不近似实现。",
+    "「Play it, ignoring its cost」需要按 CR 356.1.b.1 把印刷费用改写为 0 并生成 finalized cost plan（cost.modify / RIFT-261），" +
+    "effect.play 只接受已定案费用计划；「recycle the rest」依赖同一 reveal-until 结果集。依赖：RIFT-66 展示/排序后续、RIFT-257（CardProgram 触发绑定）、RIFT-261；不近似实现。",
   abilities: [
     {
       kind: "triggered",
@@ -55,7 +55,7 @@ const dazzlingAurora = {
         },
         {
           id: "dazzling-aurora.play-unit",
-          // Missing support: play with the printed cost ignored (RIFT-89).
+          // Missing support: play with the printed cost ignored (RIFT-261).
           op: "effect.play",
           linkedTo: "dazzling-aurora.reveal-until-unit",
           args: {

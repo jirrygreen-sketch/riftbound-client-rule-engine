@@ -46,7 +46,7 @@ const dariusExecutioner = {
     "也不实现 sameLocationAs / exclude 锚点，且没有把卡牌 static 能力注册进 LayerEngine 的路径，因此 +1 Might 与 " +
     "'here' 范围都无法执行；打出触发的 ready me 结构完整（effect.ready 已合入），但还没有把 CardProgram 的 " +
     "triggered ability 注册成 TriggerRegistration 的订阅方（383.4.a.2 的 Play Effect 进链），整卡不得因此标记 " +
-    "executable。依赖：RIFT-82（kw-deathknell-legion）、RIFT-91（layers-continuous）、events/chain 触发订阅任务。不近似实现。",
+    "executable。依赖：RIFT-82（kw-deathknell-legion）、RIFT-91（layers-continuous）、RIFT-257（CardProgram 触发/静态能力绑定）。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "legion" },
     {

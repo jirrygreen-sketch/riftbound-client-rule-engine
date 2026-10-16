@@ -12,10 +12,6 @@ const CANONICAL = "card.hash-a1b14db94434084b789c0069291250652a46b455cbb2b5c347c
 
 const [keyword, play] = discipline.abilities;
 const [mightInstruction, drawInstruction] = play.body;
-// Instruction body without the TargetSpec: the reference kernel matches
-// filters by value and cannot resolve the pipeline's placeholder, so the
-// Finalize-time lock is supplied directly (repo convention).
-const body = play.body.map(({ targets, ...rest }) => rest);
 
 test("Discipline program is structurally valid EffectIR v2 data", () => {
   const result = validateCardProgram(discipline);
@@ -28,7 +24,9 @@ test("Discipline identity, ruleset, status and printed text", () => {
   assert.equal(discipline.rulesetVersion, "core-1.5");
   assert.equal(discipline.status, "judge-required");
   assert.match(discipline.judgeReason, /continuous\.might/);
-  assert.match(discipline.judgeReason, /addContinuous/);
+  assert.match(discipline.judgeReason, /RIFT-257/);
+  assert.match(discipline.judgeReason, /RIFT-261/);
+  assert.match(discipline.judgeReason, /effect\.draw args\.amount must be an Expr/);
   assert.equal(cardRegistryById.get(discipline.canonicalCardId), discipline);
   assert.equal(
     discipline.sourceText,
@@ -48,6 +46,7 @@ test("Discipline body: +2 Might this turn to one unit target, then an unlinked D
   assert.equal(mightInstruction.op, "continuous.might");
   assert.deepEqual(mightInstruction.args.amount, { kind: "constant", value: 2 });
   assert.deepEqual(mightInstruction.args.duration, { kind: "constant", value: "this-turn" });
+  assert.deepEqual(mightInstruction.args.target, { kind: "constant", value: "chosen-unit" });
   assert.deepEqual(mightInstruction.targets, [
     {
       id: "chosen-unit",
@@ -79,22 +78,24 @@ test("Discipline golden: the Draw 1 half really draws the top card", () => {
   assert.deepEqual(kernel.zone("A", "hand").map(ref => ref.id), ["top-card"]);
 });
 
-test("Discipline fail-closed: executing the body throws instead of approximating the Might change", () => {
+test("Discipline golden: the Might clause registers +2 on the chosen unit until end of turn", () => {
   const kernel = world().deck(["top-card"]).unit("chosen-unit", { might: 3 }).build();
-  kernel.setTargets("chosen-unit", [kernel.ref("chosen-unit")]);
-  const before = kernel.getObject("chosen-unit").might;
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("chosen-unit") });
+  scoped.setTargets("chosen-unit", [scoped.ref("chosen-unit")]);
+  const outcome = runAbilityBody([mightInstruction], scoped);
 
-  // The Might clause's opcode is unsupported, so the body cannot run today.
-  // Crucially it throws rather than silently applying a Buff counter or any
-  // other Might change, and no state is mutated.
-  assert.throws(() => runAbilityBody(body, kernel), /continuous\.might/);
-  assert.equal(kernel.getObject("chosen-unit").might, before);
-  assert.equal(kernel.getObject("chosen-unit").buffs, 0);
-  assert.equal(kernel.player("A").handSize, 0);
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.equal(scoped.continuousEffects.length, 1);
+  assert.equal(scoped.continuousEffects[0].effect.filter.objectId, "chosen-unit");
+  assert.equal(scoped.continuousEffects[0].effect.effect.kind, "continuous.might");
+  assert.equal(scoped.continuousEffects[0].effect.effect.amount, 2);
+  assert.deepEqual(scoped.continuousEffects[0].duration, { type: "end-of-turn" });
+  assert.equal(scoped.getObject("chosen-unit").buffs, 0);
 });
 
 test.todo(
-  "Discipline: +2 Might this turn on the chosen unit without placing a Buff counter (CR 703) and " +
-    "expiring at the end of the turn - needs the continuous.might instruction primitive with an " +
-    "end-of-turn duration (RIFT-9 primitive list; the layers evaluation side already landed with RIFT-91)"
+  "Discipline: execute the complete play body through the generic interpreter once its eager argument " +
+    "evaluation is compatible with effect.draw's Expr-only argsSchema; current error is " +
+    "effect.draw args.amount must be an Expr"
 );

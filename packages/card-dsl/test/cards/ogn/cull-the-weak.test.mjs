@@ -24,6 +24,8 @@ test("Cull the Weak identity and judge-required status match the printing", () =
   assert.equal(program.status, "judge-required");
   assert.equal(program.judgeReason.includes("355.10.e"), true);
   assert.equal(program.judgeReason.includes("RIFT-9"), true);
+  assert.equal(program.judgeReason.includes("RIFT-257"), true);
+  assert.equal(program.judgeReason.includes("RIFT-261"), true);
   assert.equal(program.sourceText, "Each player kills one of their units.");
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });

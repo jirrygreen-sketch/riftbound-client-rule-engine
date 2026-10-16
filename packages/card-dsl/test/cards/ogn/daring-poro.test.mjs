@@ -23,6 +23,7 @@ test("ogn-210-298 Daring Poro: identity, ruleset, status, judgeReason, sourceTex
   assert.match(daringPoro.judgeReason, /combatRole/);
   assert.match(daringPoro.judgeReason, /RIFT-81/);
   assert.match(daringPoro.judgeReason, /RIFT-91/);
+  assert.match(daringPoro.judgeReason, /RIFT-257/);
   assert.equal(daringPoro.sourceText, "[Assault] (+1 :rb_might: while I'm an attacker.)");
 });
 
