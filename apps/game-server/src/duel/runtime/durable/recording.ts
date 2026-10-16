@@ -4,9 +4,30 @@ import { createDuelRecordedRuntimeP4 as createRecordedRuntime } from '../../comm
 import { digestJournalValue, JournalWriter, replayJournal, type Journal } from '../journal/index.js';
 
 /** The journal bridge owns recording; durability never selects a runtime profile. */
-export type DurableRuntimeOptions = Omit<Parameters<typeof createRecordedRuntime>[0], 'runtimeProfile'>;
+export type RecordingOptions = Omit<Parameters<typeof createRecordedRuntime>[0], 'runtimeProfile'>;
+export type RecordingFactory = (options: RecordingOptions) => RecordedRuntime;
+export type DurableRuntimeOptions = RecordingOptions & {
+  /** Trusted owner factory; never supplied by a command or inferred from stored schema. */
+  readonly recordingFactory?: RecordingFactory;
+};
 export type RecordedRuntime = ReturnType<typeof createRecordedRuntime>;
 export type DurableRuntimeResult = ReturnType<RecordedRuntime['runtime']['dispatch']>;
+
+/** Accepted commands can also be dispatch operations before a Core clock commit. */
+export function findRecordedDuelCommand(journal: Journal, commandId: string) {
+  for (const entry of journal.entries) {
+    const receipts = entry.kind === 'entry'
+      ? [{ actor: entry.actor, packet: entry.result.legacyPacket, ack: entry.result.ack }]
+      : entry.phase === 'dispatch' ? entry.primitiveReceipts.filter(item => item.type === 'legacy-dispatch') : [];
+    for (const receipt of receipts) {
+      if (typeof receipt.actor === 'string' && isDuelCommandMessageV3Actions1(receipt.packet) && receipt.packet.commandId === commandId) {
+        return { actor: receipt.actor, packet: receipt.packet,
+          ack: receipt.ack as unknown as DurableRuntimeResult['ack'] };
+      }
+    }
+  }
+  return undefined;
+}
 
 function check(value: unknown, message: string): asserts value {
   if (!value) throw new TypeError(`Durable journal: ${message}`);
@@ -21,7 +42,7 @@ export function journalOf(recorded: RecordedRuntime): Journal {
 export function createRecording(options: DurableRuntimeOptions): RecordedRuntime {
   // Copy the trusted options explicitly: an untyped caller cannot select a
   // historical profile through an extra property on its options object.
-  return createRecordedRuntime({ catalog: options.catalog, roster: options.roster,
+  return (options.recordingFactory ?? createRecordedRuntime)({ catalog: options.catalog, roster: options.roster,
     matchId: options.matchId, randomIndex: options.randomIndex, uidFactory: options.uidFactory,
     constructedRegion: options.constructedRegion, globalJournal: options.globalJournal });
 }

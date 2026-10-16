@@ -3,12 +3,14 @@ import { createPrivateJournalCasStore, openPrivateJournalCasStore,
   type PrivateJournalCasHead, type PrivateJournalCasJsonValue, type PrivateJournalCasSnapshot,
   type PrivateJournalCasStore } from '../../private-journal-cas-store.js';
 import { digestJournalValue } from '../journal/index.js';
-import { appendRecording, createRecording, journalOf, restoreRecording,
+import { appendRecording, createRecording, findRecordedDuelCommand, journalOf, restoreRecording,
   type DurableRuntimeOptions, type DurableRuntimeResult, type RecordedRuntime } from './recording.js';
 
 export type { DurableRuntimeResult } from './recording.js';
 export class DurableRuntimeError extends TypeError {}
 export interface DurableDuelRuntimeOptions extends DurableRuntimeOptions {
+  /** A room checkpoint used only when creating a new protected head. */
+  readonly initialJournal?: Journal;
   readonly directory?: string;
   readonly key?: string;
   readonly busyTimeoutMs?: number;
@@ -48,7 +50,9 @@ export class DurableDuelRuntime {
   static async create(options: DurableDuelRuntimeOptions): Promise<DurableDuelRuntime> {
     if (options.store) return this.restore(options, options.store);
     if (!options.directory) throw new TypeError('Durable runtime requires directory or store');
-    const journal = journalOf(createRecording(options));
+    const journal = options.initialJournal ?? journalOf(createRecording(options));
+    // Validate a checkpoint against the independently supplied catalog/roster before writing.
+    restoreRecording(options, journal);
     const store = await createPrivateJournalCasStore({ directory: options.directory,
       key: options.key ?? options.matchId, busyTimeoutMs: options.busyTimeoutMs, genesisData: encoded(journal) });
     return this.restore(options, store);
@@ -72,6 +76,8 @@ export class DurableDuelRuntime {
     }
   }
 
+  exportJournal(): Journal { return structuredClone(this.journal); }
+
   get engineMismatch(): boolean { return this.mismatch; }
   get stateVersion(): number { return this.journal.head.stateVersion; }
   get stage() { return this.project(null).match.stage; }
@@ -81,6 +87,31 @@ export class DurableDuelRuntime {
   get protectedHeadReference(): PrivateJournalCasHead { return Object.freeze({ ...this.head }); }
 
   project = (viewer: string | null) => this.published.runtime.project(viewer);
+
+  /** Refresh the protected clock before a room resume without executing pending work. */
+  synchronize = (): Promise<void> => {
+    if (this.busy || this.unavailable) return Promise.reject(new DurableRuntimeError(
+      this.unavailable ? '对局存储暂不可用，请重新连接恢复' : '对局正在结算'));
+    this.busy = true;
+    const pending = this.loadHead();
+    // The caller receives the read error. Lifecycle tracking waits for its
+    // settlement so close can still release a failed store before reopening.
+    this.inFlight = pending.catch(() => undefined);
+    return pending;
+  };
+
+  private async loadHead(): Promise<void> {
+    try {
+      const loaded = await this.store.load();
+      if (!sameHead(this.head, loaded.head)) this.refresh(loaded);
+      else if (canonicalJournalJson(decoded(loaded)) !== canonicalJournalJson(this.journal)) {
+        throw new TypeError('Protected head changed without a CAS revision/nonce change');
+      }
+    } catch {
+      this.unavailable = true;
+      throw new DurableRuntimeError('对局保存或恢复失败，尚未确认操作完成');
+    } finally { this.busy = false; }
+  }
 
   dispatch = (actor: string, packet: unknown): Promise<DurableRuntimeResult> => {
     if (!isDuelCommandMessageV3Actions1(packet)) return Promise.resolve(this.error(packet, '对局命令格式无效'));
@@ -128,13 +159,19 @@ export class DurableDuelRuntime {
         throw new TypeError('Protected head changed without a CAS revision/nonce change');
       }
       if (isDuelCommandMessageV3Actions1(packet)) {
-        const prior = this.journal.entries.find(entry => entry.kind === 'entry' && entry.commandId === packet.commandId);
-        if (prior?.kind === 'entry') {
-          const recordedPacket = prior.result.legacyPacket;
+        const prior = findRecordedDuelCommand(this.journal, packet.commandId);
+        if (prior) {
+          const recordedPacket = prior.packet;
           if (prior.actor !== actor || !isDuelCommandMessageV3Actions1(recordedPacket) ||
               recordedPacket.expectedVersion !== packet.expectedVersion ||
               canonicalJournalJson(recordedPacket.command) !== canonicalJournalJson(packet.command)) {
             return this.error(packet, '命令编号已用于其他操作');
+          }
+          if (prior.ack.type === 'request-result' && prior.ack.ok === true) {
+            // The protected head already proves this result. A duplicate does
+            // not need another owner/proposal replay and never writes a head.
+            return { ack: { ...prior.ack, requestId: packet.requestId, duplicate: true },
+              projection: this.project(actor!) };
           }
         }
       }

@@ -47,9 +47,9 @@ export interface GameServerOptions {
   constructedPolicy?: CardCatalogLoadOptions["constructedPolicy"];
   roomStore?: RoomStore;
   storageDirectory?: string;
-  /** New Duel rooms select one profile. Restored rooms keep their stored profile. */
+  /** @deprecated Parsed for compatibility; all Duel rooms use the current runtime. */
   duelRoomProfile?: DuelRoomProfile;
-  /** Trusted host opt-in for new rooms; a client packet cannot select it. */
+  /** @deprecated Parsed for compatibility; does not affect execution or recovery. */
   duelRuntimeProfile?: DuelOptionalRoomRuntimeProfile;
   /** Trusted server entropy adapter for deterministic integration runs. Never read from wire. */
   duelRandomIndex?: (exclusiveUpperBound: number) => number;
@@ -90,8 +90,11 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
   const duelRoomProfile = options.duelRoomProfile ?? "v1";
   if (duelRoomProfile !== "v1" && duelRoomProfile !== "p4") throw new TypeError("Invalid duel room profile");
   if (options.duelRuntimeProfile !== undefined &&
-      (duelRoomProfile !== "p4" || options.duelRuntimeProfile !== DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT && options.duelRuntimeProfile !== DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_CLOCK && options.duelRuntimeProfile !== DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_PHYSICAL_CHAIN && options.duelRuntimeProfile !== DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_RESOLVED_HISTORY))
+      (options.duelRuntimeProfile !== DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT && options.duelRuntimeProfile !== DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_CLOCK && options.duelRuntimeProfile !== DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_PHYSICAL_CHAIN && options.duelRuntimeProfile !== DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_RESOLVED_HISTORY))
     throw new TypeError("Invalid optional Unit server execution profile");
+  if (options.duelRoomProfile !== undefined || options.duelRuntimeProfile !== undefined) {
+    console.warn("[deprecated] duelRoomProfile/duelRuntimeProfile 已忽略；房间统一使用当前 runtime");
+  }
   const rooms = new Map<string, GameRoom>();
   const contexts = new Set<SocketContext>();
   let roomMutationQueue: Promise<unknown> = Promise.resolve();
@@ -327,6 +330,7 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
         httpServer.close(cause => (cause ? reject(cause) : resolve()));
       });
     }
+    await Promise.all([...rooms.values()].map(room => room.close()));
     await roomStore.close?.();
     contexts.clear();
     for (const context of contextSnapshot) {
@@ -393,9 +397,8 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
           makeRoomId,
           loadCatalog,
           requireCatalog,
-          duelRoomProfile,
           options.duelRandomIndex,
-          options.duelRuntimeProfile
+          options.storageDirectory
         )))
         .catch(error => {
           sendError(send, error);
@@ -447,6 +450,7 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
           if (stopRequested) return;
           if (restoredRooms) {
             for (const room of restoredRooms) {
+              await room.enableDurability(options.storageDirectory);
               rooms.set(room.roomId, room);
             }
           }
@@ -463,6 +467,7 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
           lifecycle = "stopping";
           let cleanupError: unknown;
           try {
+            await Promise.all([...rooms.values()].map(room => room.close()));
             await roomStore.close?.();
           } catch (caught) {
             cleanupError = caught;
@@ -523,9 +528,8 @@ async function handleInbound(
   makeRoomId: () => string,
   loadCatalog: () => Promise<void>,
   requireCatalog: () => CardCatalogRuntime,
-  duelRoomProfile: DuelRoomProfile,
   duelRandomIndex?: (exclusiveUpperBound: number) => number,
-  duelRuntimeProfile?: DuelOptionalRoomRuntimeProfile
+  storageDirectory?: string
 ): Promise<void> {
   let parsed: unknown;
   try {
@@ -598,10 +602,10 @@ async function handleInbound(
           rulesetId,
           catalog ?? undefined,
           duelRandomIndex,
-          rulesetId === DUEL_RULESET_ID ? duelRoomProfile : "v1",
-          parsed.constructedRegion ? bindConstructedRegion(parsed.constructedRegion) : undefined,
-          rulesetId === DUEL_RULESET_ID ? duelRuntimeProfile : undefined
+          undefined,
+          parsed.constructedRegion ? bindConstructedRegion(parsed.constructedRegion) : undefined
         );
+        await room.enableDurability(storageDirectory);
         if (rooms.has(roomId)) {
           throw new RoomError(`Room ${roomId} already exists`, "command-rejected");
         }
@@ -714,7 +718,7 @@ async function handleInbound(
       }
 
       case "duel-command": {
-        // The room owns profile selection and never downgrades on a command.
+        // Wire guards do not select an executor; the room owns one current runtime.
         if (!isDuelCommandMessage(parsed) && !isDuelCommandMessageV3Actions1(parsed)) {
           throw new RoomError("当前房间尚未启用该对局动作协议", "command-rejected");
         }
@@ -724,7 +728,7 @@ async function handleInbound(
         }
         const room = await requireRoom(roomStore, rooms, session.roomId);
         await runRoomTransaction(room, context, send, roomStore, transactionSend => {
-          room.submitDuel(session, context.connectionId, parsed, transactionSend);
+          return room.submitDuel(session, context.connectionId, parsed, transactionSend);
         });
         return;
       }
@@ -944,7 +948,8 @@ function handleResumeHello(
 
 /**
  * Buffer every affected transport until the archive is durable. Failed writes
- * restore both authoritative state and the old live-session bindings.
+ * restore room metadata and live-session bindings. An already confirmed Duel
+ * CAS head remains authoritative and can be recovered after a failed metadata save.
  */
 async function runRoomTransaction(
   room: GameRoom,
@@ -953,7 +958,9 @@ async function runRoomTransaction(
   store: RoomStore,
   operation: (send: ServerTransport) => void | Promise<void>
 ): Promise<void> {
+  await room.enableDurability();
   const archive = room.exportArchive();
+  const revision = roomRevision(room);
   const connections = new Map(room.players);
   const oldSession = context.session;
   const oldHandshake = context.handshaken;
@@ -971,7 +978,7 @@ async function runRoomTransaction(
   }
   try {
     await operation(buffer(transport));
-    if (JSON.stringify(archive) !== JSON.stringify(room.exportArchive())) {
+    if (revision !== roomRevision(room)) {
       await store.save(room);
     }
   } catch (error) {
@@ -1047,4 +1054,10 @@ function sendError(
   const message = caught instanceof Error ? caught.message : "Request failed";
   const code = caught instanceof RoomError ? caught.code : "command-rejected";
   send({ type: "error", ...(requestId ? { requestId } : {}), code, message });
+}
+
+function roomRevision(room: GameRoom): string {
+  const clock = room.runtimeClock;
+  return JSON.stringify([room.currentRoomVersion, room.currentRoomEventSeq,
+    clock.stateVersion, clock.eventSeq, room.currentJournalRevision, room.currentChatSeq]);
 }
