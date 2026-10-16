@@ -8,6 +8,7 @@ import program from "../../../dist/cards/ogn/first-mate.js";
 // layout instead of the package name.
 const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
 const { default: ready } = await import(new URL("effects/instructions/effect.ready.js", engineCore));
+const { runAbilityBody } = await import(new URL("effects/interpreter.js", engineCore));
 const { runInstruction, world } = await import(new URL("effects/testing/index.js", engineCore));
 
 const CANONICAL = "card.hash-13c281a3bc1e1968da6243959de3a79839c9799f34c472de4e7356dacdbc9078";
@@ -34,7 +35,7 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, verbatim sourceTe
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /other/);
-  assert.match(program.judgeReason, /target\/target-plan\.ts/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, "When you play me, ready another unit.");
 });
 
@@ -61,7 +62,7 @@ test("structure: played trigger filtered to self with one other unit target", ()
   assert.equal(readyInstruction.targets.length, 1);
   assert.deepEqual(targetSpec, {
     id: "first-mate.other-unit",
-    filter: { type: "unit", zone: "board", other: true },
+    filter: { type: "unit", zone: "board", exclude: "self" },
     min: 1,
     max: 1,
     selection: "one"
@@ -95,12 +96,23 @@ test("golden: a stale target ref makes the instruction ignored (CR 359.3.e.7)", 
   assert.deepEqual(run.result, { status: "ignored", reason: "mistargeted" });
 });
 
+test("golden: the triggered body readies the locked other unit through the real interpreter", () => {
+  const base = world()
+    .unit("first-mate", { exhausted: true })
+    .unit("other-unit", { exhausted: true })
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("first-mate") });
+  kernel.setTargets(targetSpec.id, [kernel.ref("other-unit")]);
+
+  const outcome = runAbilityBody(playedTrigger.body, kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.equal(kernel.getObject("other-unit").exhausted, false);
+  assert.equal(kernel.getObject("first-mate").exhausted, true);
+});
+
 test.todo(
-  "First Mate: 'another unit' exclusion — the merged target/target-plan.ts and interpreter " +
-    "prepareTargets do not implement the `other` filter key, so the source cannot be excluded from " +
-    "the candidate set (CR 355.7); belongs to the target system (RIFT-90)"
-);
-test.todo(
-  "First Mate: the played trigger only becomes reachable once the card-played timing emitted by " +
-    "chain/engine.ts is wired through the server-facing runtime (engine batch 4)"
+  "First Mate: the card-played timing must be bound to this CardProgram's triggered ability " +
+    "through the complete program adapter (RIFT-257)"
 );

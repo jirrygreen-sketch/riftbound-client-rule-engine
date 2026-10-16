@@ -24,22 +24,21 @@ import type { CardProgram } from "../../ir/index.js";
  *   符号选择器，不写运行时 ObjectRef）选择仍在 Trash 的本卡。
  *
  * 未合入依赖（不近似实现）:
- * - effects/instructions/ 没有 cost.pay / cost.printed 原语，也没有卡牌程序 → 费用计划
- *   的接线（RIFT-89）：卡面只声明已 Finalize 的计划形状，真正的替代费用计算与
+ * - 费用种类、cost.pay / cost.printed 与卡牌程序 → 费用计划的接线仍在 RIFT-261：
+ *   卡面只声明已 Finalize 的计划形状，真正的替代费用计算与
  *   Power 支付（356.1.a / 357.2）没有消费方，参考内核的 pay 也只校验 energy/xp。
- * - 从 Trash 打出所需的许可/限制（366.1）没有消费方（无 continuous.location /
- *   permission 原语），Finalize 的区域合法性检查也未接入卡牌程序。
- * 依赖：RIFT-9（cost.pay / cost.printed）、RIFT-89、RIFT-120。
+ * - 从 Trash 打出所需的许可/限制（366.1）虽然已有 continuous.location 形状，
+ *   但其卡牌程序绑定和 Finalize 区域合法性消费仍未接入。
+ * 依赖：RIFT-261（费用种类、cost.pay / cost.printed）与 RIFT-257（卡牌程序绑定和区域许可消费）。
  */
 const flameChompers = {
   canonicalCardId: "card.hash-0f5f84f75dbe0744c93412016da28963e78fa05c747a4b3163be7cfef5f26cc9",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "『you may pay :rb_rune_fury: to play me』接受分支缺 cost.pay / cost.printed 指令原语：effects/instructions/ 只有 effect.* 文件，" +
-    "费用计划与支付属 RIFT-89 管线，effect.play 只接受已 Finalize 的费用计划而不推导/支付费用；从 Trash 打出还需要 366.1 的区域许可接线" +
-    "（无 continuous.location / permission 消费方）。触发时点 card-discarded（423.1.b）已定义，拒绝分支有执行测试。" +
-    "依赖：RIFT-9（cost.pay / cost.printed）、RIFT-89、RIFT-120。不近似实现。",
+    "『you may pay :rb_rune_fury: to play me』接受分支仍缺 RIFT-261 的 cost.pay / cost.printed 费用种类与卡牌费用绑定，" +
+    "effect.play 只接受已 Finalize 的费用计划而不推导/支付费用；从 Trash 打出还需要 RIFT-257 的卡牌程序绑定和 366.1 区域许可消费。" +
+    "触发时点 card-discarded（423.1.b）已定义，拒绝分支与 play 子效果已有执行测试。不近似实现。",
   abilities: [
     {
       kind: "triggered",

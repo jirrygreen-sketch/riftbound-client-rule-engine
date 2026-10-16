@@ -4,7 +4,7 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/fiora-victorious.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { LayerEngine } from "../../../../engine-core/dist/layers/engine.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-184064ceedf3bc8c1c777c425d1bc971c0b7a878cde5573d58da57509cf5d08e";
@@ -60,51 +60,22 @@ test("ogn-232-298 Fiora, Victorious: the declared condition evaluates on the ref
   }
 });
 
-test("ogn-232-298 Fiora, Victorious: the layer engine's ability layer ignores the declared Might comparison (gap)", () => {
-  // This documents the missing consumer: conditionMatches() does not evaluate
-  // object-property comparisons, so the keyword grant is currently unconditional in the
-  // layers path (keywords appear at Might 4 as well). Only the Might arithmetic layer
-  // reacts to a numeric amount, which this card's conditional grant never provides.
-  const engine = new LayerEngine([{
-    ref: { id: "fiora", zoneEntryId: 1 },
-    cardId: "card:ogn-232-298",
-    name: "Fiora, Victorious",
-    types: ["unit"],
-    tags: ["Demacia"],
-    keywords: [],
-    owner: "A",
-    controller: "A",
-    zone: "board",
-    location: { type: "battlefield", id: "battlefield-1" },
-    might: 4,
-    energy: 4,
-    power: ["Order"],
-    exhausted: false,
-    damage: 0,
-    stunned: false,
-    buffs: 0,
-    attachedTo: null,
-    faceDown: false,
-    isToken: false
-  }]);
-  engine.addContinuous({
-    id: "fiora:declared",
-    layer: "ability",
-    source: { id: "fiora", zoneEntryId: 1 },
-    filter: { type: "unit" },
-    effect: { ...ability.effect, condition: ability.condition }
-  }, { type: "permanent" });
+test("ogn-232-298 Fiora, Victorious: the three granted KeywordDefs expand to their current effect shapes", () => {
+  const host = { canonicalCardId: CANONICAL };
+  const deflect = keywordDefinitionsById.get("Deflect");
+  const ganking = keywordDefinitionsById.get("Ganking");
+  const shield = keywordDefinitionsById.get("Shield");
+  assert.ok(deflect);
+  assert.ok(ganking);
+  assert.ok(shield);
 
-  const evaluated = engine.evaluate({ id: "fiora", zoneEntryId: 1 });
-  assert.deepEqual(evaluated.keywords.map(keyword => keyword.id), ["Deflect", "Ganking", "Shield"]);
-  assert.equal(evaluated.keywords.find(keyword => keyword.id === "Deflect").value, 1);
-  // Ganking has no printed value, so the layer keeps value undefined (CR 810).
-  assert.equal(evaluated.keywords.find(keyword => keyword.id === "Ganking").value, undefined);
-  assert.equal(evaluated.might, 4);
+  assert.equal(deflect.expand({ value: 1, host })[0].effect.kind, "target.tax");
+  assert.equal(ganking.expand({ host })[0].effect.kind, "continuous.movement");
+  assert.equal(shield.expand({ value: 1, host })[0].effect.kind, "continuous.might");
 });
 
 test.todo(
-  "ogn-232-298 Fiora, Victorious: applying the Might comparison in the layers ability layer " +
-    "(CR 706-711) plus the Deflect target tax (CR 809.1.c, RIFT-90), the continuous.movement " +
-    "consumer (CR 810.1.b/144.4.c.1), and the Shield continuous.might consumer (CR 814.1.c, RIFT-91)"
+  "ogn-232-298 Fiora, Victorious: bind this CardProgram's conditional static ability into layers " +
+    "(RIFT-257), then consume the Might predicate, Deflect target tax, Ganking movement permission, " +
+    "and Shield defender-conditioned Might in the complete game pipeline"
 );

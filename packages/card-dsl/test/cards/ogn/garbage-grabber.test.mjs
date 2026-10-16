@@ -8,8 +8,6 @@ const ENGINE = new URL("../../../../engine-core/dist/", import.meta.url);
 const { world } = await import(new URL("effects/testing/index.js", ENGINE));
 const { runInstruction } = await import(new URL("effects/testing/run-instruction.js", ENGINE));
 const { default: draw } = await import(new URL("effects/instructions/effect.draw.js", ENGINE));
-const { buildCostPlan } = await import(new URL("cost/cost-plan.js", ENGINE));
-const { CostPlanError } = await import(new URL("cost/plan-types.js", ENGINE));
 
 const [ability] = program.abilities;
 const [drawInstruction] = ability.body;
@@ -79,27 +77,6 @@ test("garbage-grabber golden: Draw 1 takes the top card of the controller's deck
     ["top-card"]
   );
   assert.equal(run.linked.drawn, 1);
-});
-
-test("garbage-grabber golden: the recycle-from-trash cost cannot be planned from static data (CR 417.6)", () => {
-  const kernel = world()
-    .player("A", { energy: 20 })
-    .unit("garbage-grabber", { types: ["gear"], zone: "board", location: { type: "base", player: "A" } })
-    .card("trash-card-1", { zone: "trash" })
-    .card("trash-card-2", { zone: "trash" })
-    .card("trash-card-3", { zone: "trash" })
-    .build();
-  const context = kernel.clone({ sourceSnapshot: kernel.getObject("garbage-grabber") });
-
-  // The static options entry is a placeholder, not an exact ObjectRef, so the
-  // cost planner refuses it instead of guessing which trash cards are meant.
-  assert.throws(
-    () => buildCostPlan(context, { id: "garbage-grabber:activate", cost: ability.cost }),
-    (error) => error instanceof CostPlanError && error.reason === "invalid-cost-plan"
-  );
-  // Nothing was recycled or paid.
-  assert.equal(kernel.zone("A", "trash").length, 3);
-  assert.equal(context.getObject("garbage-grabber").exhausted, false);
 });
 
 test.todo(

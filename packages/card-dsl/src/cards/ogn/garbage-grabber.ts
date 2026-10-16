@@ -25,7 +25,7 @@ import type { CardProgram } from "../../ir/index.js";
  * references; 417.6's non-targeting "X from your trash" selection has no
  * filter-based cost form. effect.recycle's `from` form is a resolving effect,
  * not a cost, and using it would turn a payable cost (417.3) into an effect.
- * The intended shape is kept; the golden test executes only the Draw 1 half
+ * The dynamic cost selection and payment binding remain RIFT-261. The intended shape is kept; the golden test executes only the Draw 1 half
  * through the merged effect.draw primitive.
  */
 const garbageGrabber = {
@@ -37,7 +37,7 @@ const garbageGrabber = {
     "（cost/plan-values.ts choiceObjects 要求每个 option 是精确引用），静态卡程序无法写出 " +
     "417.6 的 \"Recycle 3 from your trash\"（选择在 Finalize 才存在，且不指定目标）；" +
     "effect.recycle 的 from 形式是结算效果而非费用，用它会把 417.3 的\"费用必须能完成\"变成普通效果。" +
-    "费用其余部分（1 能量、exhaust self）与 Draw 1 效果已合入；golden 仅执行 Draw 1；不近似实现。",
+    "动态费用选择与支付绑定依赖 RIFT-261；费用其余部分（1 能量、exhaust self）与 Draw 1 效果已合入；golden 仅执行 Draw 1；不近似实现。",
   abilities: [
     {
       kind: "activated",

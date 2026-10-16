@@ -22,24 +22,19 @@ import type { CardProgram } from "../../ir/index.js";
  * - 190.6.a / 190.6.d: "you" is this battlefield's Controller, which is also
  *   the player who makes the choice and controls the ability.
  *
- * Status rationale (contract §3.1, cards README §2): the defend trigger and
- * the one-unit target are expressible, and the keyword is declared the way
- * contract §3.7 requires (the expanded value lives in keywords/Shield.ts, not
- * in this file), but the grant itself is a temporary keyword grant: the target
- * gains a keyword it may not have printed, for this combat. The merged surface
- * has no primitive or instruction for granting a keyword with a duration
- * (continuous.grant-keyword / continuous.keyword in the primitive inventory,
- * no instruction file, not consumed by the layers engine), and the Shield
- * expansion the layers engine would consume is not wired either, so the card
- * stays judge-required with the grant written as an instruction with the
- * target and duration it needs.
+ * Status rationale (contract §3.1, cards README §2): the defend trigger, the
+ * one-unit target, and the bounded continuous.grant-keyword instruction are
+ * expressible and executable. The card remains judge-required because the
+ * card-program trigger binding is still pending in RIFT-257, and Shield's
+ * defender-conditioned Might consumer is not yet connected to the complete
+ * combat designation path.
  */
 export default {
   canonicalCardId: "card.hash-cba0d858c9e26ac8298f585d8f5060e6fe140167286cfa137e3afdd3aa6acdf8",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "The grant 'It gains [Shield 2] this combat' has no merged execution path: continuous.grant-keyword is in the RIFT-9 primitive inventory but has no instruction file and no layer consumer, so a keyword cannot be granted to another object for a bounded duration, and the Shield expansion produced by keywords/Shield.ts (continuous.might gated on the defender designation, CR 814.1.c/814.1.d.1) is not consumed by the merged layers engine yet. Declaring the keyword here would describe this battlefield instead of the chosen unit, which is not done. Dependencies: the keyword-grant/continuous effect workstream and the defense-declared trigger pipeline (RIFT-33 scenarios-triggers, RIFT-90 target system for the one-unit choice).",
+    "continuous.grant-keyword 已能把 [Shield 2] 注册到所选单位并保留 end-of-combat duration；当前仍缺卡牌程序触发绑定（RIFT-257）以及 Shield 展开中 defender 条件到战斗 designation / Might 图层的完整消费链（CR 814.1.c/814.1.d.1）。",
   sourceText:
     "When you defend here, choose a unit. It gains [Shield 2] this combat. (+2 :rb_might: while it's a defender.)",
   abilities: [
@@ -66,7 +61,7 @@ export default {
             // "end-of-combat" (effects/contract.ts, layers/duration.ts); it is
             // the same lifetime the reminder text describes.
             duration: { kind: "constant", value: "end-of-combat" },
-            appliesTo: { kind: "constant", value: { target: "defended-unit" } }
+            target: { kind: "constant", value: "defended-unit" }
           },
           targets: [
             {

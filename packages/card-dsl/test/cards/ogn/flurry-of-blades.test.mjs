@@ -117,7 +117,7 @@ test("Flurry of Blades golden: an empty set negates the damage as impossible", (
 
 test.todo(
   "Flurry of Blades full resolution: effect.damage must gain a non-target set form " +
-    "(355.10.d, RIFT-9 target.query) so 'Deal 1 to all units at battlefields' resolves " +
+    "(355.10.d) so 'Deal 1 to all units at battlefields' resolves " +
     "without ever targeting a unit; no TargetSpec may be used as a stand-in (355.7, 754)"
 );
 

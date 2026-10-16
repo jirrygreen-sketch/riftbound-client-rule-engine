@@ -38,7 +38,7 @@ import type { CardProgram } from "../../ir/index.js";
  * Power characteristic.
  *
  * Dependencies: contract-level support for a linked object selector that reads a
- * producer's named result binding (RIFT-1 / RIFT-102 selector plumbing), so a
+ * producer's named result binding (RIFT-102 selector plumbing), so a
  * characteristic read can consume effect.discard's discarded reference, plus the
  * printed-cost lookup (206).
  */
@@ -51,7 +51,7 @@ const getExcited = {
     "契约 3.6 的对象选择器要求把该牌解析成引用，但已合入的解释器里 { linked: id } 只按当前链路中 instructionId.binding 形式的链接记录解析，" +
     "取不到 effect.discard 写出的已被弃掉的牌的引用 —— 对象集为空，该读取按缺信息 ignored（实测该伤害指令返回 ignored/mistargeted 且不造成伤害）。" +
     "若改写为常量则等于预先硬编码一张尚未被弃的牌，属于禁止的近似实现。且 validateCardProgram 要求 linked selector id 必须是前序 instruction id" +
-    "（SYMBOL_PATTERN 不含点号），也无法表达所需的点号键。依赖：链接对象选择器读取生产者命名结果绑定的契约支持（RIFT-1 / RIFT-102 选择器管线）" +
+    "（SYMBOL_PATTERN 不含点号），也无法表达所需的点号键。依赖：链接对象选择器读取生产者命名结果绑定的契约支持（RIFT-102 选择器管线）" +
     "与印刷费用读取（206）。Discard 1 部分仅用已合入的 effect.discard，有 golden 执行测试；「Ignore its Power cost」体现为完全不读取 Power 特征。",
   sourceText:
     "[Action] (Play on your turn or in showdowns.)\n" +

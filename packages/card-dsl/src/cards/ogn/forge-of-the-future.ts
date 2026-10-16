@@ -61,8 +61,9 @@ import type { CardProgram } from "../../ir/index.js";
  *   to exactly `min(4, available)` objects and rejects any smaller answer
  *   (355.13 allows zero to the printed maximum). `effect.recycle` does not target
  *   (417.6), so that part is not the obstacle.
- * The golden test executes the play-token half and the "kill this" cost
- * payment for real; the Recycle body is a test.todo.
+ * The golden tests execute the play-token half, the "kill this" cost payment,
+ * and the currently supported controller-Trash recycle path for real; the
+ * plural-zone and player-chosen-shortfall semantics remain a test.todo.
  */
 const forgeOfTheFuture = {
   canonicalCardId: "card.hash-6f281c2d37b0aff601bde72fa6b91be879ad2c992845d19dca912d60e4808343",
