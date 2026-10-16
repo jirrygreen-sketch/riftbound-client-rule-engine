@@ -7,6 +7,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
 import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
+import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
 
 const CANONICAL = "card.hash-d434f43890dfb7e3149efa46b08c5871f835e6526d2eeb6493d14f5157f3251e";
 
@@ -21,8 +22,9 @@ test("ogn-017-298 Iron Ballista: program passes validateCardProgram", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
-  // The judgeReason must name the actual missing primitive (contract 3.1).
-  assert.match(program.judgeReason, /replacement\.enter/);
+  // The replacement primitive is merged; the remaining gap is CardProgram
+  // registration of replacement and activated abilities.
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /143\.4|359\.2\.d/);
   assert.equal(
     program.sourceText,
@@ -126,10 +128,54 @@ test("Iron Ballista golden: a unit that left the battlefield is ignored, not red
   assert.equal(run.events.length, 0);
 });
 
-test.todo(
-  "Iron Ballista: “This enters exhausted.” needs the board-entry replacement primitive " +
-    "(replacement.enter, contract 3.4/3.5) plus the card-IR registration path; " +
-    "effect.exhaust cannot express it (CR 143.4 / 359.2.d assign the entry state, and " +
-    "exhausting after entry adds a spurious becomes-exhausted event). The cost and damage " +
-    "halves are already executed above."
-);
+test("Iron Ballista golden: replacement.enter rewrites the board entry before it commits", () => {
+  const kernel = world()
+    .unit("iron-ballista", {
+      zone: "hand",
+      types: ["gear"],
+      owner: "A",
+      controller: "A"
+    })
+    .build();
+  const hostRef = kernel.ref("iron-ballista");
+  const registrations = [];
+  const host = {
+    object: (ref) => kernel.object(ref),
+    objects: () => kernel.objects,
+    context: () => kernel
+  };
+
+  bindReplacement(enterReplacement, hostRef, {
+    host,
+    pipeline: {
+      clock: { turn: 1 },
+      registerReplacement: (registration) => registrations.push(registration)
+    }
+  });
+
+  assert.equal(kernel.perform({ type: "move-zone", object: hostRef, to: "chain" }).status, "done");
+  const enteringObject = kernel.ref("iron-ballista");
+  const entering = {
+    type: "move-zone",
+    object: enteringObject,
+    to: "base",
+    location: { type: "base", player: "A" }
+  };
+  const [registration] = registrations;
+  assert.equal(registration.matches(entering, entering), true);
+
+  const replacement = registration.apply(entering, entering);
+  assert.equal(replacement.status, "replace");
+  assert.deepEqual(replacement.actions.map((action) => action.type), ["exhaust", "move-zone"]);
+  assert.deepEqual(replacement.actions[0].object, enteringObject);
+  assert.deepEqual(replacement.actions[1], entering);
+
+  for (const action of replacement.actions) {
+    assert.equal(kernel.perform(action).status, "done");
+  }
+  const entered = kernel.getObject("iron-ballista");
+  assert.equal(entered.zone, "board");
+  assert.deepEqual(entered.location, { type: "base", player: "A" });
+  assert.equal(entered.exhausted, true);
+  assert.deepEqual(kernel.events.map((event) => event.action), ["move-zone", "exhaust", "move-zone"]);
+});

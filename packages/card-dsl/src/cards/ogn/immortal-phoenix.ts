@@ -25,8 +25,8 @@ import type { CardProgram } from "../../ir/index.js";
  * （需要消灭事件载荷的 source 类型与控制者投影，429.5.c.1/.c.2）；② Trash 中
  * 触发能力的注册与在正确时机检查（385.2）；③ 从 Trash 打出时的费用支付与
  * 入场流程（cost.pay 计划由 Finalize 生成；effect.play 要求已 Finalize 的
- * 费用计划，不能自行推导）。依赖：RIFT-89（费用计划）、RIFT-115 等原语批次、
- * RIFT-33（触发与归因）。Assault 2 关键词部分已可结构校验。不近似实现。
+ * 费用计划，不能自行推导）。依赖：RIFT-257（CardProgram 场外触发注册与归因接线）、
+ * RIFT-261（费用计划/支付）。Assault 2 关键词部分已可结构校验。不近似实现。
  */
 const immortalPhoenix = {
   canonicalCardId: "card.hash-acb364f84a4f3f4cdad5e6ff9db1641d7f71a3989926dd02555f13274d3ec43d",
@@ -36,7 +36,7 @@ const immortalPhoenix = {
     "「When you kill a unit with a spell」需要消灭事件的归因与控制者载荷（CR 429.5.c/.d：消灭由法术归因、" +
     "由谁负责），并需要在 Trash 中注册/检查该场外触发能力（385.2、383.2.c.1 的官方 Immortal Phoenix 示例）；" +
     "「you may pay 1+Fury to play me from your trash」还需要费用计划（Finalize 生成）与 effect.play 的已 Finalize 费用，" +
-    "当前没有原语把可选的成本内付款接到 Trash 打出流程（383.3.b）。依赖：RIFT-89（费用计划/支付）、RIFT-33（触发与归因）。" +
+    "当前没有原语把可选的成本内付款接到 Trash 打出流程（383.3.b）。依赖：RIFT-257（场外触发注册与消灭归因）、RIFT-261（费用计划/支付）。" +
     "[Assault 2] 关键词展开（RIFT-81/91）已合入。不近似实现——不手改 Trash/Zone，也不假造费用。",
   abilities: [
     { kind: "keyword", keyword: "assault", value: 2 },

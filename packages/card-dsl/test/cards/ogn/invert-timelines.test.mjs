@@ -108,5 +108,6 @@ test("Invert Timelines golden: a short deck draws as many as possible (414.4)", 
 test.todo(
   "Invert Timelines: the whole-table sweep \"Each player discards their hand, then draws 4\" " +
     "(355.10.e / 355.18 resolution-time choices for every seat, including the opponent) needs " +
-    "the multi-player selection/repetition primitive (RIFT-9 target.player)."
+    "the multi-player selection/repetition primitive (RIFT-9 target.player) and the CardProgram " +
+    "binding path (RIFT-257)."
 );

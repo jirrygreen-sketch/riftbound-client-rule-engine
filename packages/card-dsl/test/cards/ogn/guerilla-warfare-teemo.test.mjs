@@ -38,8 +38,7 @@ test("Guerilla Warfare identity, ruleset, status, printed text and judgeReason",
   assert.match(guerillaWarfare.judgeReason, /keywords/);
   assert.match(guerillaWarfare.judgeReason, /811\.1\.b/);
   assert.match(guerillaWarfare.judgeReason, /811\.1\.c\.1/);
-  assert.match(guerillaWarfare.judgeReason, /RIFT-84/);
-  assert.match(guerillaWarfare.judgeReason, /RIFT-89/);
+  assert.match(guerillaWarfare.judgeReason, /RIFT-261/);
   assert.equal(cardRegistryById.get(guerillaWarfare.canonicalCardId), guerillaWarfare);
 });
 
@@ -206,6 +205,6 @@ test.todo(
 test.todo(
   "Guerilla Warfare Hide waiver: implement the Hide Discretionary Action, the facedown zone and the " +
     "[A] payment (811.1.b / 422.1 / 422.2), then a duration-bounded cost waiver so the spell can grant " +
-    "cost-free hiding for the turn (not a Play permission, 811.1.c.1) — RIFT-84 / RIFT-89"
+    "cost-free hiding for the turn (not a Play permission, 811.1.c.1) — Hidden consumer / RIFT-261"
 );
 

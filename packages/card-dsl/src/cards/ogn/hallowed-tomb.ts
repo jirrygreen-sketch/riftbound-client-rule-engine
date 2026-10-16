@@ -45,7 +45,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "The Champion Zone does not exist in the frozen zone vocabulary: GameAction move-zone / effect.zone accept only hand, deck-top, deck-bottom, trash, banishment, base, battlefield, rune-deck, rune-zone and chain (CR 108.3 champion-zone is missing; effect.exhaust.ts records the same contract gap for legend-zone/champion-zone). ObjectFilter also has no Chosen Champion predicate for CR 103.3.a.3, and Condition has no zone-emptiness test for the printed 'if it is empty' (CR 108.3.c.1). Dependencies: a contract change adding champion-zone to ZoneId/ZoneDestination, a chosen-champion object predicate, and a zone-emptiness condition; plus the hold trigger pipeline (RIFT-33 scenarios-triggers).",
+    "The Champion Zone does not exist in the frozen zone vocabulary: GameAction move-zone / effect.zone accept only hand, deck-top, deck-bottom, trash, banishment, base, battlefield, rune-deck, rune-zone and chain (CR 108.3 champion-zone is missing; effect.exhaust.ts records the same contract gap for legend-zone/champion-zone). ObjectFilter also has no Chosen Champion predicate for CR 103.3.a.3, and Condition has no zone-emptiness test for the printed 'if it is empty' (CR 108.3.c.1). The hold timing point exists, but CardProgram triggered-ability registration is still missing (RIFT-257). Dependencies: a contract change adding champion-zone to ZoneId/ZoneDestination, a chosen-champion object predicate, a zone-emptiness condition, and the RIFT-257 trigger binding.",
   sourceText:
     "When you hold here, you may return your Chosen Champion from your trash to your Champion Zone if it is empty.",
   abilities: [

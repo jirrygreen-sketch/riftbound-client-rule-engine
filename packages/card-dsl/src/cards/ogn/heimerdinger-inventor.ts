@@ -17,7 +17,7 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * 状态：judge-required。所需能力授予层尚未合入：
  * - 冻结 IR 的 ContinuousEffect 只有开放 kind/value 形状，没有任何消费者实现
- *   「复制/授予被引用对象的能力正文」（RIFT-91 layers-continuous；调研文件
+ *   「复制/授予被引用对象的能力正文」（RIFT-258/259 能力授予层；调研文件
  *   ability-templates.md 第 4 节把 continuous.keyword 的“授予 / 移除能力或标签”
  *   列为 0/0 已实现的容量）。
  * - 该能力是动态依赖：被授予的是运行时可变的引用集合（每个合法正面对象的
@@ -25,7 +25,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   边界，不能只看本卡出现的词（(ability-templates.md 第 4 节末段）。
  * 下面的静态声明只按契约写出形状，不近似实现（不得用关键词授予或自制跑腿逻辑替代）。
  *
- * 依赖：RIFT-91（layers-continuous / continuous.keyword 授予族）。
+ * 依赖：RIFT-258/259（能力授予层的缺失语义）与 RIFT-257（CardProgram 静态能力绑定）。
  */
 const heimerdingerInventor = {
   canonicalCardId: "card.hash-b7190a8e16c22b4109edaa4eb5b9e4966b3c5224711d5cc7760f15b5a996bef4",
@@ -33,10 +33,10 @@ const heimerdingerInventor = {
   status: "judge-required",
   judgeReason:
     "「I have all :rb_exhaust: abilities of all friendly legends, units, and gear」需要能力授予层（CR v1.5 479.3 第 3 层：" +
-    "授予 / 移除 / 替换能力），把被引用对象的启动能力复制到本卡；冻结 IR 的 ContinuousEffect 无此消费者，" +
-    "RIFT-91（layers-continuous）未合入，ability-templates.md 第 4 节把 continuous.keyword 授予族列为 0/0 容量。" +
+    "授予 / 移除 / 替换能力），把被引用对象的启动能力复制到本卡；当前合入的 continuous.keyword / continuous.grant-keyword 只处理关键词标记，" +
+    "没有能力正文复制消费者，ability-templates.md 第 4 节把能力授予族列为 0/0 容量。" +
     "该效果还是动态依赖（运行时引用集合的能力闭包），调研要求其必须有依赖闭包或显式运行时能力边界，" +
-    "不得以关键词授予或单卡逻辑近似。依赖：RIFT-91。",
+    "不得以关键词授予或单卡逻辑近似。依赖：RIFT-258/259（能力授予层）与 RIFT-257（CardProgram 静态能力绑定）。",
   abilities: [
     {
       kind: "static",

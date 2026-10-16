@@ -25,13 +25,12 @@ import type { CardProgram } from "../../ir/index.js";
  * Status: judge-required — the "with 3 :rb_might: or less" restriction has no
  * executable predicate. Targets are finalized from static `ObjectFilter` data
  * (target/target-plan.ts), and neither the filter vocabulary nor the frozen IR
- * offers a numeric comparison on a unit's current Might (the Mighty threshold
- * predicate is the closest thing and is itself unmerged: keywords/Mighty.ts
- * expands a descriptive `condition.value` static effect, layers are RIFT-91,
- * keyword expansion is RIFT-83). The `mightLte: 3` field below is descriptive
- * only and is not consumed by any merged layer or target check; no approximate
- * Might test (e.g. counting objects) is substituted. The Move half itself uses
- * only the merged effect.zone primitive and is executed in the golden test.
+ * offers a numeric comparison on a unit's current Might. The merged layers can
+ * compute current Might, but no target predicate consumes it. The `mightLte: 3`
+ * field below is descriptive only and is not consumed by any merged layer or
+ * target check; no approximate Might test (e.g. counting objects) is substituted.
+ * The Move half itself uses only the merged effect.zone primitive and is
+ * executed in the golden test.
  */
 const gust = {
   canonicalCardId: "card.hash-22baca2d2ee27d8cf7c15a3d1d1f215e8c0a3b8fbbe9b0edcd70d888b29a21d5",
@@ -39,8 +38,9 @@ const gust = {
   status: "judge-required",
   judgeReason:
     "缺「Might 3 或更少」的目标限制谓词：目标合法性只由静态 ObjectFilter / TargetRequirement 在 Finalize 求值（target/target-plan.ts），" +
-    "冻结的 IR 与过滤器词表都没有对当前 Might 的数值比较（最接近的 [Mighty] 阈值本身依赖 RIFT-83 的关键词展开与 RIFT-91 的图层求值）；" +
-    "本文件里的 mightLte: 3 只是描述、无消费方，不用计数或等价近似替代。Return 半段只用已合入的 effect.zone 表达并有执行测试。",
+    "冻结的 IR、ObjectFilter 与 TargetPlan 都没有把当前 Might 的数值比较接入 Finalize/Resolve；layers/engine 虽能计算当前 Might，" +
+    "但不会消费本文件里的 mightLte: 3，因此不能用计数或等价近似替代。Return 半段只用已合入的 effect.zone 表达并有执行测试；" +
+    "依赖 RIFT-90 的数值目标谓词与目标重验。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {
