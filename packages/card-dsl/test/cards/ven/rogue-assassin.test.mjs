@@ -32,6 +32,7 @@ test("ven-139-166 Rogue Assassin: validateCardProgram passes and identity is ver
   assert.match(program.judgeReason, /your turn/);
   assert.match(program.judgeReason, /Empowered/);
   assert.match(program.judgeReason, /showdown/);
+  assert.match(program.judgeReason, /RIFT-264~268/);
 });
 
 test("ven-139-166: the [Empower] keyword is declared only, never expanded", () => {
@@ -201,7 +202,7 @@ test("ven-139-166 golden: a stale move target makes both instructions ignored (3
 
 test.todo(
   "ven-139-166: [Empower] :rb_energy_3::rb_rune_rainbow: — no Empower KeywordDef is merged " +
-    "(RIFT-81~88 keyword batch excludes it) and [A] Universal Power is not representable in the " +
+    "(the RIFT-264~268 keyword batch excludes it) and [A] Universal Power is not representable in the " +
     "closed six-domain union (CR 163.2.b)"
 );
 
@@ -212,7 +213,7 @@ test.todo(
 
 test.todo(
   "ven-139-166: \"if I'm [Empowered]\" — ObjectSnapshot (contract 3.6) does not expose the " +
-    "Empowered status and condition.predicate is unmerged"
+    "Empowered status (effect.empower.ts records the same contract gap)"
 );
 
 test.todo(

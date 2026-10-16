@@ -32,7 +32,8 @@ test("ven-123-166 Soulspinner: identity, status, judgeReason and verbatim source
   assert.match(program.judgeReason, /play-location-permission/);
   assert.match(program.judgeReason, /continuous\.timing/);
   assert.match(program.judgeReason, /canAct/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-258\/259/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -96,11 +97,12 @@ test("ven-123-166 Soulspinner: the generated card registry exposes the program u
 test.todo(
   "ven-123-166 Soulspinner: play Soulspinner to a battlefield where its controller has units " +
     "(CR 822.1.b / 822.1.c, re-checked before Finalize per 822.3) — the play-location-permission consumer is missing; " +
-    "only effects/keywords/Ambush.ts declares it and the Finalize location check does not read it (engine batch 4)"
+    "only effects/keywords/Ambush.ts declares it and the Finalize location check does not read it"
 );
 
 test.todo(
   "ven-123-166 Soulspinner: Soulspinner has [Reaction] while being played to that battlefield (CR 822.1.b) — " +
-    "chain.canAct() (contract 3.5) does not read continuous.timing layer permissions and no merged producer " +
-    "resolves a card's keyword abilities into KeywordDef expansions (RIFT-91 / RIFT-258/259)"
+    "chain.canAct() (contract 3.5, chain/engine.ts) does not accept the layer registry, so the merged " +
+    "continuous.timing grants (RIFT-258/259) are never consulted in production, and no producer registers " +
+    "a card's expanded keyword statics into the layers (RIFT-257 only exposes expansion)"
 );

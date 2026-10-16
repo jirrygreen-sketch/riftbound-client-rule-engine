@@ -30,7 +30,7 @@ test("sky-crusier: passes validateCardProgram and is judge-required", () => {
 test("sky-crusier: judgeReason names the discard-cost selection gap and its dependencies", () => {
   assert.match(program.judgeReason, /423\.1\.a/);
   assert.match(program.judgeReason, /ObjectRef/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /RIFT-102/);
   assert.match(program.judgeReason, /effect\.discard/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
@@ -155,5 +155,6 @@ test("sky-crusier: a target that left its zone before resolution makes the damag
 test.todo(
   "sky-crusier: charge/validate the 1 Energy + discard-a-gear + exhaust cost at Finalize " +
     "(423.3 requires the discard to be completable) once cost choices accept a runtime hand " +
-    "selection instead of exact pre-listed ObjectRefs (RIFT-89 cost plan, RIFT-102 selector follow-up)"
+    "selection instead of exact pre-listed ObjectRefs (in-flight RIFT-261 cost plan; the RIFT-102 " +
+    "ObjectSelector freeze is merged but plan-values.ts still demands exact ObjectRef candidates)"
 );

@@ -19,7 +19,7 @@ import type { CardProgram } from "../../ir/index.js";
  * - “Give a unit at a battlefield -2 Might this turn” 是临时 Might 修正，归 layers 的
  *   continuous.might（effect.buff 边界注释明确临时 Might 不进入 Buff 计数器）。
  *
- * status = judge-required（三处缺口均不近似实现）：
+ * status = judge-required（复核 2026-10-16；三处缺口均不近似实现）：
  * 1. 触发的两项过滤无法表达：封闭时点 empowered-changed 存在且可触发，但
  *    events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 没有 empowerment 事件判别值
  *    （validateTriggerSpec 会拒绝 event: "empowered-changed"），事件载荷/EventPattern
@@ -27,10 +27,12 @@ import type { CardProgram } from "../../ir/index.js";
  *    自身的 “something else” 键；body（empower me，来源即宿主，827.1.b.1 不是目标）
  *    本身可用已合入的 effect.empower 执行；
  * 2. “Disempower me” 作为费用需要 disempower 付费种类，但 cost/plan-values.ts 的
- *    非标准费用只支持 exhaust/discard/recycle/kill/reveal/spend-buff（RIFT-89）；
- * 3. 临时 Might -2 需要卡牌侧的 continuous.might 指令原语与 end-of-turn 期限
- *    （RIFT-91 的 layers 引擎已合入，但 effects/instructions 没有该 op）。
- * 依赖：事件载荷/触发器过滤扩展（契约变更请求）、RIFT-89、RIFT-91。
+ *    非标准费用仍只支持 exhaust/discard/recycle/kill/reveal/spend-buff
+ *    （RIFT-261 的费用种类批次仍在进行，未合入 disempower）；
+ * 3. 临时 Might -2 所需的 continuous.might 指令原语已由 RIFT-258 合入（本次复核由
+ *    golden 用真实解释器 + 图层引擎执行：结束于 turn-end 的 arithmetic 注册、-2 生效），
+ *    但整卡仍被触发过滤与 disempower 费用阻断，故保持 judge-required。
+ * 依赖：事件载荷/触发器过滤扩展（契约变更请求）、RIFT-261（disempower 付费种类）。
  */
 export default {
   canonicalCardId: "card.hash-96a4d656fe980065c6206e2b07389b146cc4347f8396756aeeb3b2ef9c30a281",
@@ -44,11 +46,12 @@ export default {
     "characteristics，且 EVENT_PATTERN_TYPES 没有 empowerment 判别值，validateTriggerSpec " +
     "会拒绝 event: \"empowered-changed\"），事件载荷的 previousCount/currentCount 也未被 " +
     "action-adapter 填充；(2) “Disempower me” 作为费用" +
-    "需要 disempower 付费种类（443.2.a），cost/plan-values.ts 的非标准费用只支持 " +
-    "exhaust/discard/recycle/kill/reveal/spend-buff（RIFT-89）；(3) “-2 :rb_might: this turn” " +
-    "需要卡牌侧 continuous.might 指令原语与 end-of-turn 期限（layers 引擎已由 RIFT-91 合入，" +
-    "但 effects/instructions 没有该 op）。依赖事件载荷/过滤器扩展（契约变更请求）、RIFT-89、" +
-    "RIFT-91。不近似实现。",
+    "需要 disempower 付费种类（443.2.a），cost/plan-values.ts 的非标准费用仍只支持 " +
+    "exhaust/discard/recycle/kill/reveal/spend-buff（仍在进行的 RIFT-261 尚未合入 disempower）；" +
+    "(3) “-2 :rb_might: this turn” 所需的 continuous.might 指令原语已由 RIFT-258 合入，golden 用真实" +
+    "解释器 + 图层引擎执行（end-of-turn 到期的 arithmetic 注册、实际 -2）；整卡仍被触发过滤与 " +
+    "disempower 费用阻断，保持 judge-required。依赖事件载荷/过滤器扩展（契约变更请求）、" +
+    "RIFT-261（disempower 付费种类）。不近似实现。",
   abilities: [
     {
       kind: "triggered",

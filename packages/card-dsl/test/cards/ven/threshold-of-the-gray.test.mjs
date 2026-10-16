@@ -39,7 +39,8 @@ test("ven-166-166 Threshold of the Gray: identity, ruleset, status and exact sou
   // The gap is the event-participant binding (and the combat-start emission).
   assert.match(program.judgeReason, /event-combat-attacker/);
   assert.match(program.judgeReason, /466\.2\.c\.1/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /combat-start/);
+  assert.match(program.judgeReason, /190\.6/);
 });
 
 test("ven-166-166 Threshold of the Gray: combat-start-here trigger for both combat participants", () => {
@@ -154,6 +155,7 @@ test.todo(
 );
 
 test.todo(
-  "ven-166-166 Threshold of the Gray: the combat-start-here trigger runs end to end — needs combat → chain/events " +
-    "combat-start emission plus CardProgram TriggerRegistration (RIFT-120 / §7.2 batch 5, RIFT-33) and the 053.3 \"here\" anchor"
+  "ven-166-166 Threshold of the Gray: the combat-start-here trigger runs end to end — combat/flow.ts still throws " +
+    "combat-start-transaction (no combat-start emission), and the 053.3 \"here\" anchor / 190.6 battlefield-ability " +
+    "binding are missing; the RIFT-257 trigger registrar itself is merged"
 );
