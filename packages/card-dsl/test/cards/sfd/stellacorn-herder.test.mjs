@@ -5,6 +5,7 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/stellacorn-herder.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -25,8 +26,11 @@ test("sfd-048-221 Stellacorn Herder: identity, ruleset, status, judgeReason and 
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /object-moved/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /invalid-event-type/);
+  assert.match(program.judgeReason, /fromKind|fromLocationId/);
   assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -77,14 +81,13 @@ test("sfd-048-221 Stellacorn Herder golden: an empty Main Deck links the actual 
   assert.deepEqual(run.events.map((event) => event.action), ["draw"]);
 });
 
-test.todo(
-  "sfd-048-221 Stellacorn Herder: the object-moved event must carry the 449.1/449.2 start and end Locations, " +
-    "exclude a Recall (458/458.1), and let the card registration identify the moved object as this card " +
-    "(the merged adapter publishes only fromZone/toZone and the trigger matcher ignores the card's inner " +
-    "filter anchor) — RIFT-120"
-);
-
-test.todo(
-  "sfd-048-221 Stellacorn Herder: the CardProgram trigger must be registered as a TriggerRegistration so " +
-    "the play/move pipeline puts it on the chain as a Pending item (383.3) — RIFT-120"
-);
+test("sfd-048-221 Stellacorn Herder: the merged program binding resolves the self anchor to this card", () => {
+  // RIFT-257：translateTriggerFilter 把内层锚点 filter: { source: "self" } 解析成被移动
+  // 对象的 objectId 锚点，因此「是本卡在移动」的同一性已由已合入的绑定消费，
+  // 不再是 judgeReason 里的缺口。
+  const translated = translateTriggerFilter(ability.trigger.filter, "stellacorn", "object-moved");
+  assert.deepEqual(translated, {
+    event: "object-moved",
+    object: { objectId: "stellacorn" }
+  });
+});

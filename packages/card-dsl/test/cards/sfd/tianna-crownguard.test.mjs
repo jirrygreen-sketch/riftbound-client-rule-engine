@@ -5,6 +5,10 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/tianna-crownguard.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import deflect from "../../../../engine-core/dist/effects/keywords/Deflect.js";
+import restrict from "../../../../engine-core/dist/effects/instructions/continuous.restrict.js";
+import { restrictions } from "../../../../engine-core/dist/layers/rules/query.js";
+import { ContinuousEffectRegistry } from "../../../../engine-core/dist/layers/duration.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-d4d3c7fbd236daf76867733cea0af3151a9d91e178cb072e3bbb88c4391fef22";
 const SOURCE_TEXT =
@@ -26,7 +30,9 @@ test("sfd-060-221 Tianna Crownguard: identity, ruleset, status, judgeReason and 
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.restrict/);
   assert.match(program.judgeReason, /470/);
-  assert.match(program.judgeReason, /RIFT-9/);
+  assert.match(program.judgeReason, /RIFT-31/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /conditionMatches/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -61,10 +67,42 @@ test("sfd-060-221 Tianna Crownguard: the Deflect keyword definition is merged an
   assert.deepEqual(tax.effect.value, { kind: "constant", value: 1 });
 });
 
+test("sfd-060-221 Tianna Crownguard: the merged continuous.restrict primitive really registers the prohibition", () => {
+  // RIFT-259 已合入原语：它把 restriction 写进图层注册表，说明当前的缺口只剩
+  // 「score 动作没有消费方」与「static 声明没有绑定」。
+  const kernel = world().unit("tianna", { might: 4 }).build();
+  const run = runInstruction(restrict, {
+    mode: { kind: "constant", value: "prohibit" },
+    action: { kind: "constant", value: "score" },
+    appliesTo: { kind: "constant", value: { type: "unit" } }
+  }, { world: kernel });
+
+  assert.equal(run.result.status, "executed");
+  assert.equal(kernel.continuousEffects.length, 1);
+  assert.deepEqual(kernel.continuousEffects[0].effect.effect, {
+    kind: "restriction",
+    actions: ["score"]
+  });
+});
+
+test("sfd-060-221 Tianna Crownguard: the query side reads the registered prohibition, but the scoring flow never asks", () => {
+  // restrictions() 能返回 score 禁止项（查询侧已存在）；缺口是没有任何生产方调用它。
+  const registry = new ContinuousEffectRegistry();
+  registry.register({
+    id: "tianna:restrict",
+    layer: "ability",
+    source: { id: "tianna", zoneEntryId: 1 },
+    filter: { type: "unit" },
+    effect: { kind: "restriction", actions: ["score"] }
+  }, { type: "permanent" });
+  assert.deepEqual(restrictions(registry, "score").map((entry) => entry.actions), [["score"]]);
+  assert.deepEqual(restrictions(registry, "move"), []);
+});
+
 test.todo(
-  "sfd-060-221 Tianna Crownguard: 'opponents can't score points' needs a registered continuous.restrict " +
-    "primitive/consumer on the Scoring path (470/471.1/471.2) plus the 363.2.a Location predicate — the " +
-    "frozen GameAction set has no forbid-score action and scoring/ reads no continuous restrictions — RIFT-9 / RIFT-31"
+  "sfd-060-221 Tianna Crownguard: 'opponents can't score points' needs a scoring-side consumer of the registered " +
+    "restrictions plus the card static binding (RIFT-31, RIFT-257) and the 363.2.a Location predicate in the " +
+    "continuous condition vocabulary (RIFT-91)"
 );
 
 test.todo(

@@ -4,6 +4,7 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import program from "../../../dist/cards/sfd/the-zero-drive.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
@@ -60,6 +61,8 @@ test("sfd-090-221 The Zero Drive: identity, ruleset, status, judgeReason and ver
   assert.match(program.judgeReason, /394-398/);
   assert.match(program.judgeReason, /use-only-if-unattached|Use only if unattached/);
   assert.match(program.judgeReason, /Deathknell/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -149,12 +152,45 @@ test("sfd-090-221 The Zero Drive: with no eligible banished unit the play does n
   assert.equal(kernel.getObject("banished-a").zone, "banishment");
 });
 
+test("sfd-090-221 The Zero Drive: the merged program binding consumes the Gear's keyword expansion and activated ability", () => {
+  // RIFT-257 已合入：binding.inspect 能直接消费本卡的 keyword 展开并对启动能力
+  // 暴露 equipped/activated 能力；仍待费用原语（RIFT-261）的是印刷费用的支付。
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const source = {
+    ref: { id: "the-zero-drive", zoneEntryId: 1 },
+    cardId: CARD_ID,
+    name: "The Zero Drive",
+    types: ["gear"],
+    tags: [],
+    keywords: [],
+    owner: "A",
+    controller: "A",
+    zone: "board",
+    location: { type: "base", player: "A" },
+    might: 2,
+    energy: 3,
+    power: ["Mind"],
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false
+  };
+  const inspected = binding.inspect(source);
+  assert.equal(inspected.abilities.some((entry) => entry.kind === "activated"), true);
+  assert.equal(inspected.abilities.some((entry) => entry.kind === "keyword"), true);
+});
+
 test.todo(
   "sfd-090-221 The Zero Drive: paying the printed Equip cost (1 Energy + 1 Mind Power, CR 818.1.c) needs the \"equip\" cost-payment kind " +
-    "(RIFT-89) plus contract 3.8.3 params.cost and the contract 3.5 program -> keyword expansion -> chain wiring."
+    "(RIFT-261) plus contract 3.8.3 params.cost; the RIFT-257 program -> keyword expansion -> chain wiring is merged."
 );
 test.todo(
-  "sfd-090-221 The Zero Drive: the activated cost's \"Banish this\" needs a banish-as-cost payment kind in cost/plan-values.ts readCost (CR 428.1, RIFT-89)."
+  "sfd-090-221 The Zero Drive: the activated cost's \"Banish this\" needs a banish-as-cost payment kind in cost/plan-values.ts readCost (CR 428.1, RIFT-261)."
 );
 test.todo(
   "sfd-090-221 The Zero Drive: \"all units banished with this\" needs the Linked Ability tracker from CR 394-398 that supplies the pick candidates."

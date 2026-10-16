@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import detach from "../../../../engine-core/dist/effects/instructions/effect.detach.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 import strikeDown from "../../../dist/cards/sfd/strike-down.js";
@@ -10,12 +12,46 @@ import strikeDown from "../../../dist/cards/sfd/strike-down.js";
 const [play] = strikeDown.abilities;
 const [damageInstruction, detachInstruction] = play.body;
 
+/**
+ * chain/engine.ts normalizes controller/owner "self"/"opponent" before it calls
+ * the production matcher (layers/filter.ts); the reference kernel compares
+ * filter values literally, so the body goldens bind the same normalization the
+ * chain applies instead of weakening the card's own filters.
+ */
+const chainQuery = (kernel, controller) => (value) => {
+  const normalized = { ...value };
+  for (const key of ["controller", "owner"]) {
+    if (normalized[key] === "self") normalized[key] = controller;
+  }
+  return kernel.query({}).filter((object) => {
+    for (const key of ["controller", "owner"]) {
+      if (normalized[key] === "opponent" && object[key] === controller) return false;
+    }
+    return matchesObjectFilter({
+      ...normalized,
+      ...(normalized.controller === "opponent" ? { controller: "any" } : {}),
+      ...(normalized.owner === "opponent" ? { owner: "any" } : {})
+    }, object);
+  });
+};
+
+const chainContext = (kernel, controller) => new Proxy(kernel, {
+  get(target, key) {
+    if (key === "query") return chainQuery(target, controller);
+    const value = Reflect.get(target, key);
+    return typeof value === "function" ? value.bind(target) : value;
+  }
+});
+
 test("Strike Down program is structurally valid and judge-required", () => {
   const result = validateCardProgram(strikeDown);
   assert.deepEqual(result.issues, []);
   assert.equal(result.ok, true);
   assert.equal(strikeDown.status, "judge-required");
   assert.match(strikeDown.judgeReason, /pick/i);
+  assert.match(strikeDown.judgeReason, /object-attribute/);
+  assert.match(strikeDown.judgeReason, /RIFT-90/);
+  assert.match(strikeDown.judgeReason, /equipped/);
   assert.equal(
     strikeDown.canonicalCardId,
     "card.hash-f7e9f4f53ed55ffc9e6b1d38d72324ad29bb9ebf5f25c356bcd7f723aa08b177"
@@ -59,6 +95,16 @@ test("Strike Down ability structure: no speed keyword, pick + target + linked de
   assert.equal(detachInstruction.picks[0].filter.type, "equipment");
   assert.deepEqual(detachInstruction.picks[0].filter.attachedTo, { pick: "picked-unit" });
   assert.deepEqual(detachInstruction.args.pick, { kind: "literal", value: "detached-equipment" });
+  assert.deepEqual(damageInstruction.args.amount, {
+    kind: "object-attribute",
+    object: { pick: "picked-unit" },
+    attribute: "might"
+  });
+  assert.deepEqual(damageInstruction.args.source, {
+    kind: "object-attribute",
+    object: { pick: "picked-unit" },
+    attribute: "ref"
+  });
 });
 
 test("Strike Down golden: detach removes the picked Equipment from its host", () => {
@@ -88,12 +134,91 @@ test("Strike Down golden: detach removes the picked Equipment from its host", ()
   assert.equal(kernel.getObject("sword").attachedTo, null);
 });
 
-test.todo(
-  "Strike Down damage: the picked unit deals damage equal to its Might (CR 418.6.b.3) to the " +
-    "targeted enemy unit (依赖契约新增“读 pick 结果属性”的表达式形式 / RIFT-81 目标解析)"
-);
+test("Strike Down golden: the picked unit deals damage equal to its Might through the production adapter", () => {
+  // CR 418.6.b.3: "It" is the chosen unit and the amount is its current Might.
+  // The program's own amount/source expressions are executed by the merged
+  // interpreter + effect.damage (object-attribute over { pick: ... }).
+  const kernel = world()
+    .unit("attacker", { owner: "A", might: 3 })
+    .unit("enemy", { owner: "B", controller: "B", might: 5 })
+    .build();
+  kernel.setPicks("picked-unit", [kernel.ref("attacker")]);
+  kernel.setTargets("enemy-unit", [kernel.ref("enemy")]);
+
+  const outcome = resolveChainBody([damageInstruction], chainContext(kernel, "A"));
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results[0].result.linkedValues.dealtTo, [
+    { target: kernel.ref("enemy"), amount: 3 }
+  ]);
+  assert.equal(kernel.getObject("enemy").damage, 3);
+  assert.deepEqual(outcome.events.map((event) => event.action), ["damage"]);
+});
+
+test("Strike Down golden: the full printed body resolves damage and then detaches the Equipment", () => {
+  // Both instructions run through the production chain adapter in one body: the
+  // damage reads the picked unit's Might, and the linked detach removes the
+  // picked Equipment from that same unit (436.1/436.3).
+  const kernel = world()
+    .unit("attacker", { owner: "A", might: 3 })
+    .unit("enemy", { owner: "B", controller: "B", might: 5 })
+    .build();
+  const attackerRef = kernel.ref("attacker");
+  const swordRef = kernel.addObject(
+    {
+      ...kernel.getObject("attacker"),
+      ref: { id: "sword", zoneEntryId: 1 },
+      cardId: "card:sfd-103",
+      name: "Sword",
+      types: ["equipment"],
+      tags: ["Equipment"],
+      zone: "board",
+      attachedTo: attackerRef
+    },
+    "board"
+  );
+  kernel.setPicks("picked-unit", [attackerRef]);
+  kernel.setPicks("detached-equipment", [swordRef]);
+  kernel.setTargets("enemy-unit", [kernel.ref("enemy")]);
+
+  const outcome = resolveChainBody(play.body, chainContext(kernel, "A"));
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(
+    outcome.results.map((entry) => [entry.id, entry.result.status]),
+    [
+      ["damage", "executed"],
+      ["detach", "executed"]
+    ]
+  );
+  assert.equal(kernel.getObject("enemy").damage, 3);
+  assert.equal(kernel.getObject("sword").attachedTo, null);
+  assert.deepEqual(outcome.events.map((event) => event.action), ["damage", "detach"]);
+});
+
+test("Strike Down golden: a stale picked unit ignores the damage instead of guessing a source", () => {
+  const kernel = world()
+    .unit("attacker", { owner: "A", might: 3 })
+    .unit("enemy", { owner: "B", controller: "B", might: 5 })
+    .build();
+  const stale = kernel.ref("attacker");
+  kernel.perform({ type: "kill", object: stale });
+  kernel.setPicks("picked-unit", [stale]);
+  kernel.setTargets("enemy-unit", [kernel.ref("enemy")]);
+
+  const outcome = resolveChainBody([damageInstruction], chainContext(kernel, "A"));
+
+  assert.deepEqual(outcome.results[0].result, { status: "ignored", reason: "mistargeted" });
+  assert.equal(kernel.getObject("enemy").damage, 0);
+  // The damage instruction produced no event of its own: the only recorded event
+  // is the earlier kill that made the picked unit stale.
+  assert.deepEqual(outcome.events, []);
+  assert.deepEqual(kernel.events.map((event) => event.action), ["kill"]);
+});
 
 test.todo(
-  "Strike Down full play: cast pays 3 energy + 1 Body power; the equipped-friendly-unit pick " +
-    "and enemy-unit target are resolved by the engine (依赖 RIFT-81 目标解析 / RIFT-82 费用系统)"
+  "Strike Down full play: the chain Finalize needs a pick lifecycle that fills the non-target " +
+    "\"choose an equipped friendly unit\" ObjectRefs (contract 3.6 / RIFT-90); today only " +
+    "instruction.targets receive a TargetPlan, and the equipped-friendly predicate has no merged " +
+    "ObjectFilter field"
 );
