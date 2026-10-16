@@ -4,6 +4,7 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/veiled-temple.js";
 import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 
 test("veiled-temple: passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -18,23 +19,38 @@ test("veiled-temple: optional conquer structure with ready and detach", () => {
   assert.equal(ability.kind, "triggered");
   assert.equal(ability.trigger.at, "conquer");
   assert.equal(ability.optional, true);
-  const ids = ability.body.map(instruction => instruction.id);
-  assert.deepEqual(ids, [
-    "veiled-temple.ready-opt",
+  assert.deepEqual(ability.body.map(instruction => instruction.id), ["veiled-temple.ready-opt"]);
+  const [readyChoice] = ability.body;
+  assert.equal(readyChoice.op, "choice.optional");
+  assert.equal(readyChoice.args.body.kind, "constant");
+  const [readyGear, detachChoice] = readyChoice.args.body.value;
+  assert.deepEqual(readyChoice.args.body.value.map(instruction => instruction.id), [
     "veiled-temple.ready-gear",
-    "veiled-temple.detach-opt",
-    "veiled-temple.detach"
+    "veiled-temple.detach-opt"
   ]);
-  assert.equal(ability.body[0].op, "choice.optional");
-  assert.equal(ability.body[1].op, "effect.ready");
-  assert.equal(ability.body[1].linkedTo, "veiled-temple.ready-opt");
-  assert.equal(ability.body[1].targets.length, 1);
-  assert.equal(ability.body[1].targets[0].id, "veiled-temple.gear");
-  assert.deepEqual(ability.body[1].targets[0].filter, { type: "gear", controller: "controller" });
-  assert.equal(ability.body[2].op, "choice.optional");
-  assert.equal(ability.body[3].op, "effect.detach");
-  assert.equal(ability.body[3].linkedTo, "veiled-temple.detach-opt");
-  assert.equal(ability.body[3].picks[0].id, "veiled-temple.detached-gear");
+  assert.equal(readyGear.op, "effect.ready");
+  assert.equal(readyGear.linkedTo, undefined);
+  assert.equal(readyGear.targets.length, 1);
+  assert.equal(readyGear.targets[0].id, "veiled-temple.gear");
+  assert.deepEqual(readyGear.targets[0].filter, { type: "gear", controller: "controller" });
+  assert.equal(detachChoice.op, "choice.optional");
+  assert.equal(detachChoice.linkedTo, "veiled-temple.ready-gear");
+  assert.equal(detachChoice.args.body.kind, "constant");
+  assert.equal(detachChoice.args.body.value.length, 1);
+  const [detach] = detachChoice.args.body.value;
+  assert.equal(detach.op, "effect.detach");
+  assert.equal(detach.linkedTo, undefined);
+  assert.equal(detach.picks[0].id, "veiled-temple.detached-gear");
+  assert.deepEqual(detach.picks[0].options, [{ kind: "linked-value", instructionId: "veiled-temple.ready-gear", key: "readied" }]);
+});
+
+test("veiled-temple: declining ready skips ready, detach prompt and detach", () => {
+  const kernel = world().unit("gear-1", { types: ["gear"], exhausted: true }).build();
+  kernel.setAnswers({ "veiled-temple.ready-opt/optional": false });
+  const outcome = runAbilityBody(program.abilities[0].body, kernel);
+  assert.deepEqual(outcome.results.map(result => result.id), ["veiled-temple.ready-opt"]);
+  assert.equal(kernel.getObject("gear-1").exhausted, true);
+  assert.deepEqual(kernel.events, []);
 });
 
 test("veiled-temple: readies an exhausted friendly gear via the merged effect.ready primitive", () => {

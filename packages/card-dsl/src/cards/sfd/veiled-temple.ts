@@ -37,48 +37,60 @@ export default {
         {
           id: "veiled-temple.ready-opt",
           op: "choice.optional",
-          args: { prompt: { kind: "constant", value: "Ready a friendly gear?" } }
-        },
-        {
-          id: "veiled-temple.ready-gear",
-          op: "effect.ready",
-          linkedTo: "veiled-temple.ready-opt",
           args: {
-            objects: { kind: "constant", value: { kind: "target", id: "veiled-temple.gear" } },
-            amount: { kind: "constant", value: 1 }
-          },
-          targets: [
-            {
-              id: "veiled-temple.gear",
-              filter: { type: "gear", controller: "controller" },
-              min: 1,
-              max: 1,
-              selection: "one"
+            prompt: { kind: "constant", value: "Ready a friendly gear?" },
+            body: {
+              kind: "constant",
+              value: [
+                {
+                  id: "veiled-temple.ready-gear",
+                  op: "effect.ready",
+                  args: {
+                    objects: { kind: "constant", value: { kind: "target", id: "veiled-temple.gear" } },
+                    amount: { kind: "constant", value: 1 }
+                  },
+                  targets: [
+                    {
+                      id: "veiled-temple.gear",
+                      filter: { type: "gear", controller: "controller" },
+                      min: 1,
+                      max: 1,
+                      selection: "one"
+                    }
+                  ]
+                },
+                {
+                  id: "veiled-temple.detach-opt",
+                  op: "choice.optional",
+                  linkedTo: "veiled-temple.ready-gear",
+                  args: {
+                    prompt: { kind: "constant", value: "Detach that Equipment?" },
+                    body: {
+                      kind: "constant",
+                      value: [
+                        {
+                          id: "veiled-temple.detach",
+                          op: "effect.detach",
+                          args: { pick: { kind: "constant", value: "veiled-temple.detached-gear" } },
+                          picks: [
+                            {
+                              id: "veiled-temple.detached-gear",
+                              options: [
+                                { kind: "linked-value", instructionId: "veiled-temple.ready-gear", key: "readied" }
+                              ],
+                              min: 1,
+                              max: 1,
+                              selection: "one"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
             }
-          ]
-        },
-        {
-          id: "veiled-temple.detach-opt",
-          op: "choice.optional",
-          linkedTo: "veiled-temple.ready-gear",
-          args: { prompt: { kind: "constant", value: "Detach that Equipment?" } }
-        },
-        {
-          id: "veiled-temple.detach",
-          op: "effect.detach",
-          linkedTo: "veiled-temple.detach-opt",
-          args: { pick: { kind: "constant", value: "veiled-temple.detached-gear" } },
-          picks: [
-            {
-              id: "veiled-temple.detached-gear",
-              options: [
-                { kind: "linked-value", instructionId: "veiled-temple.ready-gear", key: "readied" }
-              ],
-              min: 1,
-              max: 1,
-              selection: "one"
-            }
-          ]
+          }
         }
       ]
     }
