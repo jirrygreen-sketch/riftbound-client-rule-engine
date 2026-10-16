@@ -26,6 +26,7 @@ import {
   loadCardCatalogRuntime,
   normalizeDeckRequest,
   readManifestImage,
+  type CardCatalogLoadOptions,
   type CardCatalogRuntime,
 } from "./card-catalog.js";
 import { validateConstructedDeck } from "./constructed-policy.js";
@@ -43,6 +44,7 @@ export interface GameServerOptions {
   imagesDirectory?: string;
   catalog?: unknown;
   deckRules?: CardCatalogRuntime["deckRules"];
+  constructedPolicy?: CardCatalogLoadOptions["constructedPolicy"];
   roomStore?: RoomStore;
   storageDirectory?: string;
   /** New Duel rooms select one profile. Restored rooms keep their stored profile. */
@@ -115,7 +117,8 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
       catalogPath: options.catalogPath,
       imagesDirectory: options.imagesDirectory,
       catalog: options.catalog,
-      deckRules: options.deckRules
+      deckRules: options.deckRules,
+      constructedPolicy: options.constructedPolicy
     }).then(runtime => {
       serverWithCatalog.runtime = runtime;
     }).catch(error => {

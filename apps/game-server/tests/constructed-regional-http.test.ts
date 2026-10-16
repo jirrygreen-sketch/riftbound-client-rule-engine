@@ -55,10 +55,13 @@ describe(
     let catalogHashBefore: string;
 
     beforeAll(async () => {
-      runtime = await loadCardCatalogRuntime();
+      runtime = await loadCardCatalogRuntime({ constructedPolicy: { asOf: "2026-10-14" } });
       catalogHashBefore = await sha256File(CATALOG_PATH);
 
-      server = createGameServer({ host: "127.0.0.1", port: 0 });
+      server = createGameServer({
+        host: "127.0.0.1", port: Number(process.env.SWARM_PORT_BASE ?? 31780),
+        constructedPolicy: { asOf: "2026-10-14" }
+      });
       await server.start();
       const address = server.httpServer.address();
       if (address === null || typeof address === "string") {
@@ -317,7 +320,8 @@ describe("regional Constructed keeps notStandard printings blocked by date", () 
 
     const server = createGameServer({
       host: "127.0.0.1",
-      port: 0,
+      port: Number(process.env.SWARM_PORT_BASE ?? 31780) + 1,
+      constructedPolicy: { asOf: "2026-10-14" },
       catalog: controlled,
       imagesDirectory: FIXTURE_IMAGES_DIRECTORY
     });

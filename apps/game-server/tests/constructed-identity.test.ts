@@ -1101,7 +1101,7 @@ describe("constructed identity: the HTTP catalog JSON carries no private mapping
           ability: "Fixture ability."
         }
       ]
-    });
+    }, { asOf: "2026-10-12" });
 
     const json = JSON.stringify(publicCatalog);
     expect(json).not.toContain("knownChampionTags");

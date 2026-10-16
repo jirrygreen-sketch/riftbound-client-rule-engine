@@ -351,6 +351,7 @@ describe("sideboard Domain Identity (CR 103.2.c / TR 601.1.c.2)", () => {
 describe("sideboard Domain Identity through the catalog entry", () => {
   async function runtime(): Promise<CardCatalogRuntime> {
     return loadCardCatalogRuntime({
+      constructedPolicy: { asOf: AS_OF },
       catalog: {
         schemaVersion: 1,
         dataVersion: "2026-10-12-sideboard-domain-fixture",

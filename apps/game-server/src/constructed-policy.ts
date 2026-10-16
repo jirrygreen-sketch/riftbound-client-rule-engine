@@ -142,6 +142,7 @@ export interface ConstructedPublicPolicy {
 
 export interface ConstructedRulesOptions {
   readonly asOf?: string | Date;
+  readonly now?: () => number;
 }
 
 export interface ConstructedRules {
@@ -173,9 +174,9 @@ interface OfficialBanDefinition {
 
 const STANDARD_LEGAL_SET_CODES = ["ogs", "ogn", "sfd", "unl", "ven"] as const;
 const RADIANCE_SET_CODE = "rad";
-const RADIANCE_EFFECTIVE_DATE = "2026-10-16";
-const RADIANCE_EFFECTIVE_AT = "2026-10-16T00:00:00.000Z";
+const RADIANCE_RULES_EFFECTIVE_DATE = "2026-10-16";
 const RADIANCE_RELEASE_DATE = "2026-10-23";
+const RADIANCE_CONSTRUCTED_AVAILABLE_AT = `${RADIANCE_RELEASE_DATE}T00:00:00.000Z`;
 const RUNE_MAX_COPIES = 12;
 const BATTLEFIELD_MAX_COPIES = 1;
 const DEFAULT_MAX_COPIES = 3;
@@ -423,20 +424,21 @@ function isRadianceSet(setCode: string): boolean {
   return setCode.trim().toLowerCase() === RADIANCE_SET_CODE;
 }
 
-function resolveAsOf(value: string | Date | undefined): {
+function resolveAsOf(options: ConstructedRulesOptions): {
   readonly checkedAt: string;
   readonly radianceActive: boolean;
 } {
+  const value = options.asOf;
   const instant = value instanceof Date
     ? new Date(value.getTime())
-    : new Date(value ?? Date.now());
+    : new Date(value ?? (options.now ?? Date.now)());
   if (Number.isNaN(instant.getTime())) {
     throw new Error("Constructed policy asOf must be a valid date.");
   }
 
   return {
     checkedAt: instant.toISOString().slice(0, 10),
-    radianceActive: instant.getTime() >= Date.parse(RADIANCE_EFFECTIVE_AT)
+    radianceActive: instant.getTime() >= Date.parse(RADIANCE_CONSTRUCTED_AVAILABLE_AT)
   };
 }
 
@@ -557,7 +559,7 @@ export function createConstructedRules(
     throw new Error(`Unsupported constructed format ${format}.`);
   }
 
-  const { checkedAt, radianceActive } = resolveAsOf(options.asOf);
+  const { checkedAt, radianceActive } = resolveAsOf(options);
   const fullNameToCanonical = buildCanonicalIndex(cards);
   const identityMetadata = buildIdentityMetadata(cards);
   const { bannedTargets, missingBannedTargets } = resolveBans(
@@ -698,7 +700,7 @@ export function createConstructedRules(
         : STANDARD_LEGAL_SET_CODES,
       radiance: {
         status: radianceActive ? "active" : "preview-not-released",
-        effectiveDate: RADIANCE_EFFECTIVE_DATE,
+        effectiveDate: RADIANCE_RULES_EFFECTIVE_DATE,
         releaseDate: RADIANCE_RELEASE_DATE
       }
     }
