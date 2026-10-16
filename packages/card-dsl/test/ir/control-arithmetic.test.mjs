@@ -26,9 +26,9 @@ for (const [operator, numbers] of [
   });
 }
 
-test("nested arithmetic can read preceding links and structured ObjectRefs", () => {
+test("nested arithmetic can read preceding links and symbolic object selectors", () => {
   const expression = arithmetic("max", arithmetic("neg", constant(-3)), arithmetic("add", linked("first"), {
-    kind: "object-property", object: { id: "unit", zoneEntryId: 2 }, property: "might"
+    kind: "object-property", object: "self", property: "might"
   }));
   assert.equal(check([instruction("first"), instruction("second", "effect.draw", { amount: expression })]).ok, true);
 });
@@ -116,8 +116,8 @@ test("keeps expression-shaped constant data literal", () => {
   assert.equal(check([instruction("literal", "effect.custom", { data: constant({ kind: "arithmetic", operator: "unknown", operands: [] }) })]).ok, true);
 });
 
-test("rejects malformed structured object references", () => {
-  rejected([instruction("invalid", "effect.draw", { amount: { kind: "object-attribute", object: { id: "unit", zoneEntryId: -1 }, attribute: "might" } })], ".object.zoneEntryId");
+test("rejects runtime object references in static IR", () => {
+  rejected([instruction("invalid", "effect.draw", { amount: { kind: "object-attribute", object: { id: "unit", zoneEntryId: -1 }, attribute: "might" } })], ".object");
 });
 
 test("exported control and arithmetic types compose into a CardProgram", async () => {

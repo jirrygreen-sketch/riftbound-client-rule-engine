@@ -79,7 +79,7 @@ const strikeDown = {
               id: "detached-equipment",
               options: ["dynamic:attached-equipment"],
               selection: "one",
-              filter: { type: "equipment", attachedTo: "picked-unit" }
+              filter: { type: "equipment", attachedTo: { pick: "picked-unit" } }
             }
           ],
           linkedTo: "damage"

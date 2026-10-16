@@ -57,6 +57,7 @@ test("Strike Down ability structure: no speed keyword, pick + target + linked de
   assert.equal(detachInstruction.targets, undefined);
   assert.equal(detachInstruction.picks.length, 1);
   assert.equal(detachInstruction.picks[0].filter.type, "equipment");
+  assert.deepEqual(detachInstruction.picks[0].filter.attachedTo, { pick: "picked-unit" });
   assert.deepEqual(detachInstruction.args.pick, { kind: "literal", value: "detached-equipment" });
 });
 

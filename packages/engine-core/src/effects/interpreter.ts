@@ -7,9 +7,15 @@ import { choiceMetadata, modeBodies, modeChoices, optionalChoice, orderedObjects
 import { evaluateCondition } from "./interpreter/condition.js";
 import { evaluateExpression, type ExpressionContext } from "./interpreter/expr.js";
 import { historyCount, objectRef } from "./interpreter/history.js";
+import { queryObjects } from "./interpreter/selectors.js";
 import { arithmetic, asValue, compareValues, integer, MissingInformation, record, string } from "./interpreter/values.js";
 
 export type InstructionRegistry = ReadonlyMap<string, InstructionDef<unknown>>;
+
+export interface InterpreterOptions {
+  /** Current zone-bound host identity; omitted when host and source coincide. */
+  readonly host?: ObjectRef;
+}
 
 export interface InstructionExecution {
   readonly id: string;
@@ -31,10 +37,11 @@ interface Scope {
   readonly values: Map<string, Readonly<Record<string, Value>>>;
   readonly aliases: Map<string, Value>;
   readonly ignoredTargets: Map<string, ReadonlySet<string>>;
+  readonly targets: Map<string, ObjectRef[]>;
 }
 
 function scope(parent?: Scope): Scope {
-  return { parent, results: new Map(), values: new Map(), aliases: new Map(), ignoredTargets: new Map() };
+  return { parent, results: new Map(), values: new Map(), aliases: new Map(), ignoredTargets: new Map(), targets: new Map() };
 }
 
 function findScope(current: Scope, id: string): Scope | undefined {
@@ -77,7 +84,7 @@ class AbilityExecution {
   private readonly lookBack = new Set<string>();
   private partial = false;
 
-  constructor(private readonly context: ResolveContext, private readonly registry: InstructionRegistry) {}
+  constructor(private readonly context: ResolveContext, private readonly registry: InstructionRegistry, private readonly options: InterpreterOptions) {}
 
   run(body: readonly Instruction[]): ExecutionOutcome {
     this.block(body, [], scope(), false);
@@ -106,9 +113,11 @@ class AbilityExecution {
     return results;
   }
 
-  private expressionContext(current: Scope, ignoredTargets: ReadonlySet<string>): ExpressionContext {
+  private expressionContext(current: Scope, ignoredTargets: ReadonlySet<string>, context = this.context): ExpressionContext {
     return {
-      context: this.context,
+      context,
+      ...this.options,
+      query: filter => this.context.query(filter),
       linked: (id, key) => {
         const owner = findScope(current, id);
         if (owner) {
@@ -141,10 +150,10 @@ class AbilityExecution {
       }
       if (instruction.linkedTo !== undefined && previous?.results.get(instruction.linkedTo)?.status === "ignored") {
         result = { status: "ignored", reason: "linked-ignored" };
-      } else if (instruction.condition && !context.test(instruction.condition)) {
-        result = skipped();
       } else if (!this.prepareTargets(instruction, context, targets, ignoredTargets, reselect)) {
         result = { status: "ignored", reason: "mistargeted" };
+      } else if (instruction.condition && !context.test(instruction.condition)) {
+        result = skipped();
       } else {
         const args = Object.fromEntries(Object.entries(instruction.args).map(([key, expression]) => [key, context.evaluate(expression)]));
         result = this.dispatch(instruction, args, context, path, current, reselect, ignoredTargets);
@@ -158,6 +167,7 @@ class AbilityExecution {
     } else {
       this.partial = true;
     }
+    for (const [id, refs] of targets) current.targets.set(id, refs);
     current.results.set(instruction.id, result);
     current.ignoredTargets.set(instruction.id, ignoredTargets);
     if (Object.keys(writes).length > 0) current.values.set(instruction.id, { ...writes });
@@ -170,20 +180,23 @@ class AbilityExecution {
     writes: Record<string, Value>, targets: Map<string, ObjectRef[]>, ignoredTargets: ReadonlySet<string>
   ): ResolveContext {
     const base = this.context;
-    const expressions = this.expressionContext(current, ignoredTargets);
-    return {
+    const context: ResolveContext = {
       source: base.source,
       controller: base.controller,
       timingPoint: base.timingPoint,
       object: ref => base.object(ref),
       lastKnown: ref => base.lastKnown(ref),
-      query: filter => base.query(filter),
+      query: filter => queryObjects(filter, this.expressionContext(current, ignoredTargets, context)),
       zoneSlice: (player, zone, from, count) => base.zoneSlice(player, zone, from, count),
-      targets: id => (targets.has(id) ? [...targets.get(id)!] : base.targets(id)).filter(ref => !ignoredTargets.has(refKey(ref))),
+      targets: id => {
+        let refs = targets.get(id);
+        for (let owner: Scope | undefined = current; refs === undefined && owner; owner = owner.parent) refs = owner.targets.get(id);
+        return [...(refs ?? base.targets(id))].filter(ref => !ignoredTargets.has(refKey(ref)));
+      },
       picks: id => base.picks(id),
       player: id => base.player(id),
-      evaluate: expr => evaluateExpression(expr, expressions),
-      test: condition => evaluateCondition(condition, expressions),
+      evaluate: expr => evaluateExpression(expr, this.expressionContext(current, ignoredTargets, context)),
+      test: condition => evaluateCondition(condition, this.expressionContext(current, ignoredTargets, context)),
       linked: key => {
         if (Object.hasOwn(writes, key)) return writes[key];
         for (let owner: Scope | undefined = current; owner; owner = owner.parent) {
@@ -205,6 +218,7 @@ class AbilityExecution {
       addContinuous: (effect, duration) => base.addContinuous(effect, duration),
       registerDelayedTrigger: (at, body) => base.registerDelayedTrigger(at, body)
     };
+    return context;
   }
 
   private perform(input: GameAction | LegacyBoardTokenAction) {
@@ -351,7 +365,7 @@ class AbilityExecution {
 
 export function runAbilityBody(
   body: readonly Instruction[], context: ResolveContext,
-  registry: InstructionRegistry = instructionDefinitionsById
+  registry: InstructionRegistry = instructionDefinitionsById, options: InterpreterOptions = {}
 ): ExecutionOutcome {
-  return new AbilityExecution(context, registry).run(body);
+  return new AbilityExecution(context, registry, options).run(body);
 }
