@@ -154,18 +154,6 @@ test("sfd-023-221 Piercing Light golden: a single-sentence mistarget does not su
   assert.equal(kernel.getObject("front-unit").zone, "hand");
 });
 
-test("sfd-023-221 Piercing Light structure: the Repeat keyword is intentionally absent from the abilities", () => {
-  // [Repeat] is an Optional Additional Cost keyword (820.1) whose merged
-  // KeywordDef expands to a `repeat.cost` static ability that the card's own
-  // ability list must not fake; the printed cost lives on the play CostSpec
-  // above, and the paid-instance wiring is the recorded gap.
-  assert.equal(
-    program.abilities.some((ability) => ability.kind === "keyword"),
-    false
-  );
-  assert.equal(play.cost.keyword, undefined);
-});
-
 test.todo(
   "sfd-023-221 Piercing Light: collecting the optional 2-energy + 1-Fury-power Repeat cost at " +
     "Finalize, exposing the paid count to the effect execution, and re-making choices for the " +

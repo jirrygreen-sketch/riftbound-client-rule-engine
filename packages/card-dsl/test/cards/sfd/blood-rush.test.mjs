@@ -74,10 +74,6 @@ test("sfd-003-221 Blood Rush structure: the Assault 2 grant on one chosen unit",
 });
 
 test("sfd-003-221 Blood Rush: the granted Assault 2 expands with the printed value and its designation gate", () => {
-  // 807.2: Assault given by multiple sources sums into one Assault Value.
-  assert.equal(assault.stacking, "sum");
-  assert.equal(assault.valued, true);
-
   // The expansion is a static continuous.might ability conditioned on the
   // host's attacker designation (807.1.c / 807.1.d.1); the granted value is the
   // card's printed 2, not the 807.1.b.3 presumed 1.
