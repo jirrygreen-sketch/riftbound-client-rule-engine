@@ -18,17 +18,14 @@ import type { CardProgram } from "../../ir/index.js";
  *   copy → trait → ability → arithmetic).
  *
  * Status: judge-required:
- * - the layers engine (RIFT-91) consumes registered ContinuousEffectSpec
- *   entries and can add / remove keywords, but there is no merged instruction
- *   primitive that registers a keyword grant from a card body: the frozen
- *   effects/instructions set has no `continuous.grant-keyword` (or
- *   `continuous.keyword`) opcode, so the body cannot execute at all;
- * - granting [Ganking] to an enemy unit is legal here (no controller filter),
- *   so this is not covered by friendly-only keyword granting either.
- * The declarative instruction below records the granted keyword, the duration
- * and the target; execution waits for the continuous-keyword instruction
- * primitive (RIFT-9 survey `continuous.keyword`) and the P2 batch-6 card-program
- * wiring.
+ * - the body's `continuous.grant-keyword` opcode is merged (RIFT-258) and the
+ *   golden test really executes the printed grant through the layers engine;
+ * - what is still missing is the card-program binding layer (RIFT-257):
+ *   nothing registers a card ability's activated body with the chain, so the
+ *   activated ability itself never runs in the production path, and the
+ *   granted Ganking is not derived into the movement path's hasGanking.
+ * Granting [Ganking] to an enemy unit is legal here (no controller filter), so
+ * this is not covered by friendly-only keyword granting either.
  */
 const program = {
   canonicalCardId:
@@ -36,10 +33,12 @@ const program = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「Give a unit [Ganking] this turn」需要带 end-of-turn 期限的持续关键词授予：RIFT-91 已合入 layers 消费者与 duration 机制，Ganking 的 KeywordDef（RIFT-83，stacking single）也已合入，" +
-    "但 effects/instructions 没有任何已注册的原语能由卡牌 body 注册关键词授予（无 continuous.grant-keyword / continuous.keyword 文件），因此本条指令当前无法执行。" +
-    "目标为印刷原文 “a unit”（CR 355.9.a.1：未另作说明时指 Board 上的单位），过滤器不带控制者限制；因此在 KeywordDef 落地前不能按 friendly-only 关键词授予近似实现。" +
-    "依赖：RIFT-9 清单的 continuous.keyword 原语与 P2 批 6 卡牌 IR 生产接线。",
+    "「Give a unit [Ganking] this turn」所需的持续关键词授予已可用：continuous.grant-keyword 原语（RIFT-258，含 end-of-turn 期限）与" +
+    "Ganking 的 KeywordDef（stacking single）均已合入，本卡测试真实执行该指令并验证目标获得 Ganking、回合结束到期。" +
+    "仍缺卡牌程序绑定层（RIFT-257）：没有已合入路径把卡牌的 activated 能力注册进链，也无法把授予后的 Ganking 派生给生产移动路径的 hasGanking，" +
+    "故“支付横置、给任意单位 Ganking 并能实际战场间移动”的整卡链路不可执行。" +
+    "目标为印刷原文 “a unit”（CR 355.9.a.1：未另作说明时指 Board 上的单位），过滤器不带控制者限制，不按 friendly-only 近似实现。" +
+    "依赖：RIFT-257 卡牌程序绑定与移动许可派生接线。",
   abilities: [
     {
       kind: "activated",

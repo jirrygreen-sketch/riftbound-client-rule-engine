@@ -4,6 +4,8 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/cannon-barrage.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-e73ab11687356c6a1a4425ed546ea0a9d32acf12452fea98985aa7f9ba011d35";
 const SOURCE_TEXT =
@@ -23,7 +25,6 @@ test("Cannon Barrage program is structurally valid and judge-required", () => {
   assert.match(program.judgeReason, /355\.10\.d/);
   assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /740\.2\.c/);
-  assert.match(program.judgeReason, /RIFT-90/);
 });
 
 test("Cannon Barrage identity and printed text match the catalog", () => {
@@ -69,6 +70,27 @@ test("Cannon Barrage structure: 'all enemy units in combat' is not declared as a
   assert.equal(dealTwo.condition, undefined);
 });
 
+test("Cannon Barrage golden: the printed 2 damage executes over the locked in-combat set", () => {
+  // The "in combat" characteristic is the judged part; with the set locked the
+  // merged effect.damage deals the card's printed 2 to each selected unit.
+  const kernel = world()
+    .unit("enemy-attacker", { owner: "B", controller: "B" })
+    .unit("enemy-bystander", { owner: "B", controller: "B" })
+    .unit("friendly-unit", { owner: "A", controller: "A" })
+    .build();
+  const run = runInstruction(
+    damage,
+    { amount: dealTwo.args.amount, target: "in-combat-set" },
+    { world: kernel, targets: { "in-combat-set": [kernel.ref("enemy-attacker")] } }
+  );
+
+  assert.equal(run.result.status, "executed");
+  assert.equal(kernel.getObject("enemy-attacker").damage, 2);
+  assert.equal(kernel.getObject("enemy-bystander").damage, 0);
+  assert.equal(kernel.getObject("friendly-unit").damage, 0);
+  assert.equal(run.linked.dealt, 2);
+});
+
 test.todo(
   "Cannon Barrage: dealing damage to a programmatically selected set needs either a " +
     "set/query form of effect.damage or a target-system set requirement with a location " +
@@ -83,5 +105,5 @@ test.todo(
 
 test.todo(
   "Cannon Barrage: [Reaction] admission during Closed States (813.1.c, 159.2.b.2) is " +
-    "chain plus layer work (RIFT-91), not card data."
+    "chain-side timing work with the card-program binding (RIFT-257), not card data."
 );

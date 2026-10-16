@@ -3,10 +3,16 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/bounty-hunter.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
+import grantKeyword from "../../../../engine-core/dist/effects/instructions/continuous.grant-keyword.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const ability = program.abilities[0];
 const instruction = ability.body[0];
 const targetSpec = instruction.targets[0];
+const literal = (value) => ({ kind: "constant", value });
 
 test("bounty-hunter program is valid EffectIR v2 data", () => {
   const result = validateCardProgram(program);
@@ -20,8 +26,9 @@ test("bounty-hunter identity: canonicalCardId, ruleset, judge-required status an
   );
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /continuous\.keyword/);
+  assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /Ganking/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(
     program.sourceText,
     ":rb_exhaust:: Give a unit [Ganking] this turn. (It can move from battlefield to battlefield.)"
@@ -51,14 +58,47 @@ test("bounty-hunter structure: exhaust-only activated ability granting Ganking f
   assert.equal(targetSpec.selection, "one");
 });
 
-test.todo(
-  "bounty-hunter execution: register an end-of-turn Ganking keyword grant through a merged " +
-    "continuous-keyword instruction primitive (RIFT-9 continuous.keyword); Granting the keyword " +
-    "to an enemy unit is legal and must be covered by the same scenario when it lands."
-);
+test("bounty-hunter golden: the exhaust cost pays and the grant gives any chosen unit Ganking for the turn", () => {
+  const base = world()
+    .unit("bounty-hunter", {
+      types: ["legend"],
+      might: null,
+      zone: "board",
+      location: { type: "base", player: "A" }
+    })
+    // "a unit" is unrestricted: an opponent's unit is a legal choice.
+    .unit("enemy-unit", { owner: "B", controller: "B", keywords: [] })
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("bounty-hunter") });
+
+  // 376/415.5: the printed :rb_exhaust: is the activated ability's cost.
+  const plan = buildCostPlan(kernel, { id: "bounty-hunter:activate", cost: ability.cost });
+  const receipt = payCostPlan(kernel, plan);
+  assert.equal(receipt.paid, true);
+  assert.equal(kernel.getObject("bounty-hunter").exhausted, true);
+
+  const run = runInstruction(
+    grantKeyword,
+    {
+      keyword: instruction.args.keyword,
+      duration: instruction.args.duration,
+      objects: literal({ kind: "target", id: targetSpec.id })
+    },
+    { world: kernel, targets: { [targetSpec.id]: [kernel.ref("enemy-unit")] } }
+  );
+  assert.equal(run.result.status, "executed");
+
+  const engine = createLayerEngine(
+    [kernel.getObject("enemy-unit")],
+    kernel.continuousEffects.map((entry, index) => ({ ...entry, timestamp: index + 1 }))
+  );
+  const ref = kernel.ref("enemy-unit");
+  assert.ok(engine.evaluate(ref).keywords.some((keyword) => keyword.id === "Ganking"));
+  engine.advance({ id: "turn-end" });
+  assert.deepEqual(engine.evaluate(ref).keywords, []);
+});
 
 test.todo(
-  "bounty-hunter end-to-end: the granted Ganking expands to the CR 810 movement permission and " +
-    "the battlefield-to-battlefield Standard Move is legal this turn only (keyword expansion " +
-    "RIFT-83 + layers expiry at end-of-turn; P2 batch-6 wiring)."
+  "bounty-hunter end-to-end: bind the activated CardProgram ability to the chain so paying the cost runs the " +
+    "granted Ganking and derive hasGanking for the production movement path (RIFT-257 + movement wiring)."
 );

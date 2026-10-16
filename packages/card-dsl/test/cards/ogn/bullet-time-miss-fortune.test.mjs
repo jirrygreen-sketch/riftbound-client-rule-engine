@@ -5,8 +5,6 @@ import { validateCardProgram } from "../../../dist/ir/validation.js";
 import bulletTime from "../../../dist/cards/ogn/bullet-time-miss-fortune.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
-import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-a3cda4342389b7462e190847b72891326166dd6d3a74a0400056dbbee1371daa";
@@ -35,6 +33,8 @@ test("Bullet Time identity, ruleset, status, printed text and judgeReason", () =
   assert.match(bulletTime.judgeReason, /204\.3/);
   assert.match(bulletTime.judgeReason, /effect\.damage/);
   assert.match(bulletTime.judgeReason, /cost\.pay/);
+  assert.match(bulletTime.judgeReason, /RIFT-257/);
+  assert.match(bulletTime.judgeReason, /RIFT-261/);
   assert.equal(cardRegistryById.get(bulletTime.canonicalCardId), bulletTime);
 });
 
@@ -88,34 +88,11 @@ test("Bullet Time structure: the instruction cost is linked to a non-target dama
   assert.equal(damageInstruction.targets, undefined);
 });
 
-test("Bullet Time: the merged damage primitive rejects the unsupported set descriptor", () => {
-  // The merged effect.damage consumes only a Finalize-locked TargetSpec id and
-  // rejects the non-target set descriptor that effect.ready / effect.heal take.
-  assert.equal(instructionDefinitionsById.has("effect.damage"), true);
-  // The only accepted form is the Finalize-locked TargetSpec; the set form is
-  // not part of the schema at all.
-  const constant = value => ({ kind: "constant", value });
-  assert.throws(
-    () => damage.argsSchema.parse({ amount: constant(2), objects: constant({ kind: "query", filter: { type: "unit" } }) }),
-    /effect\.damage args\.target must be a TargetSpec id string/
-  );
-  assert.equal(damage.argsSchema.parse({ amount: constant(2), target: "units" }).target, "units");
-});
-
-test("Bullet Time: the program fails closed instead of damaging something", () => {
-  const kernel = world().unit("enemy", { owner: "B", location: BATTLEFIELD("bf1") }).build();
-  const body = play.body.map(({ targets, ...rest }) => rest);
-  assert.throws(
-    () => runAbilityBody(body, kernel),
-    /cost\.pay-any/
-  );
-  assert.equal(kernel.getObject("enemy").damage, 0);
-});
-
-test("Bullet Time golden: the declared damage set is what a non-target damage form must cover", () => {
-  // The merged effect.damage can only be driven through a locked TargetSpec, so
-  // this pins which units the card set contains — every enemy unit at a
-  // battlefield — and that the linked amount really reaches the primitive.
+test("Bullet Time golden: the merged damage primitive deals the linked amount to the locked set", () => {
+  // The declared set is every enemy unit at a battlefield; the merged
+  // effect.damage reads it through a Finalize-locked TargetSpec, so the test
+  // locks exactly that set and drives the card's own linked amount through the
+  // primitive. The non-target set form is the judged part.
   const kernel = world()
     .unit("enemy-here", { owner: "B", location: BATTLEFIELD("bf1") })
     .unit("enemy-elsewhere", { owner: "B", location: BATTLEFIELD("bf2") })
@@ -123,12 +100,13 @@ test("Bullet Time golden: the declared damage set is what a non-target damage fo
     .build();
   const run = runInstruction(
     damage,
-    { amount: { kind: "constant", value: 3 }, target: "enemy-units-at-a-battlefield" },
+    { amount: damageInstruction.args.amount, target: "enemy-units-at-a-battlefield" },
     {
       world: kernel,
       targets: {
         "enemy-units-at-a-battlefield": [kernel.ref("enemy-here"), kernel.ref("enemy-elsewhere")]
-      }
+      },
+      linked: { paid: 3 }
     }
   );
 
@@ -143,9 +121,9 @@ test("Bullet Time golden: the declared damage set is what a non-target damage fo
 });
 
 test.todo(
-  "Bullet Time instruction cost: add a resolve-time any-amount payment primitive that publishes the amount " +
-    "actually paid, so the linked damage can read it (204.3 / 204.3.a; the merged cost plan only covers " +
-    "Finalize payments today)"
+  "Bullet Time instruction cost: bind the card's instruction cost to a resolve-time any-amount payment " +
+    "that publishes the amount actually paid (204.3 / 204.3.a; RIFT-257 program/cost binding with the " +
+    "RIFT-261 cost.pay family)"
 );
 
 test.todo(

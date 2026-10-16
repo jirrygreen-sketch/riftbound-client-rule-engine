@@ -4,8 +4,12 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/brazen-buccaneer.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-da18079d11afce4cad1d799fd51de5b0219e0635613cd5a5b4a5f38e1a42aafc";
+const literal = (value) => ({ kind: "constant", value });
 
 test("brazen-buccaneer: passes validateCardProgram and is indexed by canonicalCardId", () => {
   const result = validateCardProgram(program);
@@ -17,10 +21,9 @@ test("brazen-buccaneer: identity, ruleset, status and verbatim sourceText", () =
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /cost\.additional/);
-  assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /356\.2\.b\.1/);
-  assert.match(program.judgeReason, /RIFT-9/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.equal(
     program.sourceText,
     "As you play me, you may discard 1 as an additional cost. If you do, reduce my cost by :rb_energy_2:."
@@ -71,11 +74,92 @@ test("brazen-buccaneer: the granted discount is 2 Energy and is bound to the pai
   assert.equal(discount.minimum, undefined);
 });
 
+test("brazen-buccaneer golden: paying the discard reduces the 6-Energy cost to 4 (356.2.b.1/356.4)", () => {
+  const [costAbility, discountAbility] = program.abilities;
+  const base = world()
+    .player("A", { energy: 20 })
+    .hand("brazen-buccaneer", { types: ["unit"], energy: 6, power: ["Fury"] })
+    .hand("fodder", { types: ["unit"] })
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("brazen-buccaneer") });
+  kernel.setPicks("brazen-buccaneer.discard", [kernel.ref("fodder")]);
+
+  // The card's PickSpec options are the descriptive "card-in-controller-hand";
+  // resolving that string into the controller's actual hand refs is part of
+  // the missing RIFT-257 CardProgram -> CostPlan binding (README §3 keeps
+  // runtime refs out of static IR), so the golden test supplies the resolved
+  // option set the plan consumes.
+  const payments = costAbility.effect.payments.map((payment) => ({
+    ...payment,
+    choice: { ...payment.choice, options: [kernel.ref("fodder")] }
+  }));
+
+  const plan = buildCostPlan(kernel, {
+    id: "play:brazen-buccaneer",
+    cost: { kind: "explicit", energy: literal(6) },
+    domains: ["Fury"],
+    optionalAdditional: [
+      {
+        id: costAbility.effect.id,
+        kind: "additional",
+        selected: true,
+        cost: { payments }
+      }
+    ],
+    discounts: [
+      {
+        id: "brazen-buccaneer.discount",
+        // 356.4: "reduce my cost by [2]" is a total-cost reduction. The merged
+        // plan applies a component-less discount to the combined total; the
+        // 356.4.f.1 paid-proof gate that would drop it on decline is the
+        // missing piece named in judgeReason (RIFT-257/RIFT-261).
+        resource: discountAbility.effect.resource,
+        amount: discountAbility.effect.amount
+      }
+    ]
+  });
+
+  assert.deepEqual(plan.selectedAdditional.map((entry) => entry.id), [costAbility.effect.id]);
+  assert.deepEqual(plan.declinedAdditional, []);
+  assert.equal(plan.total.energy, 4);
+  const receipt = payCostPlan(kernel, plan);
+  assert.equal(receipt.paid, true);
+  assert.equal(kernel.getObject("fodder").zone, "trash");
+  assert.equal(kernel.player("A").energy, 16);
+});
+
+test("brazen-buccaneer golden: declining the discard keeps the full printed cost", () => {
+  const [costAbility] = program.abilities;
+  const base = world()
+    .player("A", { energy: 20 })
+    .hand("brazen-buccaneer", { types: ["unit"], energy: 6, power: ["Fury"] })
+    .hand("fodder", { types: ["unit"] })
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("brazen-buccaneer") });
+
+  // No discount is supplied: with the optional cost declined there is no paid
+  // proof to grant it, and the merged plan has no way to gate on that proof.
+  const plan = buildCostPlan(kernel, {
+    id: "play:brazen-buccaneer",
+    cost: { kind: "explicit", energy: literal(6) },
+    domains: ["Fury"],
+    optionalAdditional: [
+      { id: costAbility.effect.id, kind: "additional", selected: false, cost: { payments: costAbility.effect.payments } }
+    ]
+  });
+
+  assert.deepEqual(plan.selectedAdditional, []);
+  assert.deepEqual(plan.declinedAdditional, [costAbility.effect.id]);
+  assert.equal(plan.total.energy, 6);
+  const receipt = payCostPlan(kernel, plan);
+  assert.equal(receipt.paid, true);
+  assert.equal(kernel.getObject("fodder").zone, "hand");
+  assert.equal(kernel.player("A").energy, 14);
+});
+
 test.todo(
-  "brazen-buccaneer: cost.additional / cost.modify primitives and the CardProgram -> CostPlan wiring " +
-    "(optionalAdditional 356.2.b.1, discount 356.4, paid proof 356.4.f.1) are RIFT-9 / RIFT-89 work"
-);
-test.todo(
-  "brazen-buccaneer: paying the additional cost applies the 2-Energy discount to the total cost " +
-    "(requires the merged buildCostPlan to consume the card program, RIFT-89)"
+  "brazen-buccaneer: bind the static cost.additional / cost.modify declarations to the play cost plan " +
+    "(RIFT-257), including the 356.4.f.1 paid-proof gate that applies the 2-Energy discount only when the " +
+    "optional additional cost is selected; the card-facing cost.pay / cost.modify instructions (RIFT-261) " +
+    "are also not merged."
 );

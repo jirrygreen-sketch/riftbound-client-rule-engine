@@ -23,22 +23,25 @@ import type { CardProgram } from "../../ir/index.js";
  *   anybody hide a card, so it is a static ability rather than a triggered or
  *   activated one (contract §3.1).
  *
- * Status rationale (contract §3.1, cards README §2): the needed shape is a
- * continuous restriction on the facedown-zone occupancy limit
- * (cost.hidden / continuous.restrict in the primitive inventory). Neither is
- * merged: there is no instruction file for either op, no layer evaluator that
- * consumes a continuous.restrict entry, and the hidden-cost path itself
- * (cost.hidden, RIFT-89 scope) has no instruction. The ability is therefore
- * judge-required and is written with the static-effect shape the contract
- * reserves for it, so a later consumer can pick it up without re-deriving the
- * rules.
+ * Status rationale (contract §3.1, cards README §2): the raised occupancy
+ * limit is a continuous restriction, and the merged continuous.restrict
+ * primitive (RIFT-259) can register it. Two things remain missing, so the
+ * card stays judge-required:
+ * - no merged producer binds a static CardProgram ability into a
+ *   ContinuousEffectSpec (RIFT-257 CardProgram binding);
+ * - the generic Hide / facedown zone path (cost.hidden, and the facedown
+ *   zone maximum-occupancy consumer) has no merged instruction or consumer
+ *   (RIFT-261 cost workstream), so "an additional card here" cannot be
+ *   enforced even once the restriction is registered.
+ * The ability keeps the static-effect shape the contract reserves for it, so
+ * a later consumer can pick it up without re-deriving the rules.
  */
 export default {
   canonicalCardId: "card.hash-5440d378426747276f389ce3e9731d1378a3a303a7309d785ef183114d2c326c",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Raising the Facedown Zone occupancy limit (CR 107.3.b.1) needs continuous.restrict, and the generic Hide path needs cost.hidden: neither op has a merged instruction file (both are in the RIFT-9 primitive inventory) and no merged layer or cost consumer reads them, so the extra-slot permission cannot execute. The ability grants no discount and does not make cards without Hidden hideable. Dependencies: the cost.hidden/Hide workstream (RIFT-89 batch3-cost-plan scope) and the continuous-effect consumer for restrict.",
+    "Raising the Facedown Zone occupancy limit (CR 107.3.b) needs a continuous restriction: the continuous.restrict primitive (RIFT-259) is merged and can register the limit, but no merged producer binds a static CardProgram ability into a ContinuousEffectSpec (RIFT-257), and the local consumer that would read the raised maximum for the Facedown Zone does not exist. The generic Hide path also still needs cost.hidden plus facedown-zone occupancy handling (RIFT-261), so the extra-slot permission cannot execute. The ability grants no discount and does not make cards without Hidden hideable. Dependencies: RIFT-257 CardProgram binding and RIFT-261 cost.hidden.",
   sourceText: "You may hide an additional card here.",
   abilities: [
     {
