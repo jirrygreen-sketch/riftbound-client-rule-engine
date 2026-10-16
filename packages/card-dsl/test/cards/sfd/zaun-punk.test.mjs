@@ -1,29 +1,48 @@
+// Golden test for Zaun Punk (sfd-160-221).
+//
+// status = judge-required (see the program's judgeReason). The merged cost
+// layer can plan and pay the declared kill charge when the caller passes it
+// (cost/cost-plan.ts optionalAdditional + cost/plan-values.ts "kill"), and the
+// merged effect.kill primitive kills the locked gear; what is missing is the
+// CardProgram -> CostPlanInput wiring (RIFT-261/RIFT-257) plus the 356.4.f.1
+// paid receipt that must gate the second ability.
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { validateCardProgram } from "../../../dist/index.js";
+import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/zaun-punk.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
 
-const CANONICAL = "card.hash-5433b0927a4bc2a2f4e5d52590d57b1bec38882780434c5aed6ac38f5eb85c16";
+const CARD_ID = "card.hash-5433b0927a4bc2a2f4e5d52590d57b1bec38882780434c5aed6ac38f5eb85c16";
+const SOURCE_TEXT =
+  "You may kill a friendly gear as an additional cost to play me.\n" +
+  "When you play me, if you paid the additional cost, kill a gear.";
+
 const [costAbility, playTrigger] = program.abilities;
 const [killInstruction] = playTrigger.body;
 
 test("sfd-160-221 Zaun Punk: program validates and keeps its identity", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
-  assert.equal(program.canonicalCardId, CANONICAL);
-  assert.equal(program.rulesetVersion, "core-1.5");
+  assert.deepEqual(result.issues, []);
+  assert.equal(program.canonicalCardId, CARD_ID);
+  assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /cost\.additional/);
+  assert.equal(cardRegistryById.get(CARD_ID), program);
+});
+
+test("sfd-160-221 Zaun Punk: identity, status, judgeReason and verbatim sourceText", () => {
+  assert.equal(program.status, "judge-required");
+  // README §2: name the missing wiring, the rule and the dependency tasks.
+  assert.match(program.judgeReason, /optionalAdditional/);
   assert.match(program.judgeReason, /356\.4\.f\.1/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.equal(
-    program.sourceText,
-    "You may kill a friendly gear as an additional cost to play me.\n" +
-      "When you play me, if you paid the additional cost, kill a gear."
-  );
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /接受调用方传入的 optionalAdditional/);
+  assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
 test("sfd-160-221 Zaun Punk: optional additional cost kills one friendly gear", () => {
@@ -60,6 +79,8 @@ test("sfd-160-221 Zaun Punk: card-played self trigger kills one gear", () => {
     kind: "constant",
     value: "zaun-punk.gear"
   });
+  // 429.6 / 355.10.a: "kill a gear" is a target; the ceiling is not qualified
+  // as friendly, so both controllers' gears are legal candidates.
   assert.deepEqual(killInstruction.targets, [
     {
       id: "zaun-punk.gear",
@@ -91,7 +112,95 @@ test("sfd-160-221 Zaun Punk: the merged kill primitive kills a gear at its locat
   assert.equal(kernel.getObject("friendly-gear").zone, "board");
 });
 
+test("sfd-160-221 Zaun Punk: the declared payment executes through the merged cost plan (kill a friendly gear)", () => {
+  // 356.2.b/356.2.b.1 + 357.1/.2: the charge is a cost component, paid by the
+  // controller; 355.10.c keeps it out of the target set. The card's declared
+  // payment shape is what the golden charges here, so the only missing piece is
+  // the CardProgram -> CostPlanInput wiring (see judgeReason).
+  const base = world()
+    .player("A", { energy: 5 })
+    .unit("punk", { zone: "board", energy: 3, owner: "A", controller: "A" })
+    .unit("friendly-gear", { zone: "board", types: ["gear"], owner: "A", controller: "A", location: { type: "base", player: "A" } })
+    .unit("enemy-gear", { zone: "board", types: ["gear"], owner: "B", controller: "B", location: { type: "base", player: "B" } })
+    .build();
+  const kernel = base.clone({ source: base.ref("punk"), sourceSnapshot: base.getObject("punk") });
+  const friendlyGear = kernel.ref("friendly-gear");
+  kernel.setPicks("zaun-punk.friendly-gear", [friendlyGear]);
+
+  const [payment] = costAbility.effect.payments;
+  // The card declares its candidate options with a dynamic placeholder
+  // ("dynamic:friendly-gear"); the merged cost layer resolves choice options
+  // into runtime ObjectRefs, so the caller supplies the resolved option set for
+  // the locked pick. Producing that resolution from a card program is part of
+  // the missing CardProgram -> CostPlanInput wiring (see judgeReason).
+  const resolvedPayment = {
+    ...payment,
+    choice: { ...payment.choice, options: [friendlyGear] }
+  };
+  const plan = buildCostPlan(kernel, {
+    id: "cost:zaun-punk",
+    cost: { energy: { kind: "constant", value: 3 } },
+    optionalAdditional: [
+      {
+        id: costAbility.effect.id,
+        kind: "additional",
+        selected: true,
+        cost: { payments: [resolvedPayment] }
+      }
+    ]
+  });
+  assert.deepEqual(plan.selectedAdditional, [{ id: "zaun-punk.additional-cost", kind: "additional" }]);
+  assert.deepEqual(plan.total.energy, 3);
+  assert.deepEqual(plan.total.actions.map(entry => [entry.componentId, entry.action.type]), [
+    ["zaun-punk.additional-cost", "kill"]
+  ]);
+  assert.deepEqual(plan.total.actions[0].action.object, friendlyGear);
+
+  const receipt = payCostPlan(kernel, plan);
+  assert.equal(receipt.paid, true);
+  // 356.4.f.1's receipt records the paid decision per selected component.
+  assert.deepEqual(receipt.additional, [{ id: "zaun-punk.additional-cost", kind: "additional", paid: true }]);
+  assert.deepEqual(receipt.actions.map(entry => entry.action.type), ["pay", "kill"]);
+  assert.deepEqual(receipt.events.map(event => event.action), ["pay", "kill"]);
+  assert.equal(kernel.getObject("friendly-gear").zone, "trash");
+  assert.equal(kernel.getObject("enemy-gear").zone, "board");
+});
+
+test("sfd-160-221 Zaun Punk: declining the optional cost pays only the base cost", () => {
+  // 355.1.a: the controller declares the optional cost; declining skips the
+  // component (plan.declinedAdditional) and leaves every gear on the Board.
+  const base = world()
+    .player("A", { energy: 5 })
+    .unit("punk", { zone: "board", energy: 3, owner: "A", controller: "A" })
+    .unit("friendly-gear", { zone: "board", types: ["gear"], owner: "A", controller: "A", location: { type: "base", player: "A" } })
+    .build();
+  const kernel = base.clone({ source: base.ref("punk"), sourceSnapshot: base.getObject("punk") });
+  const [payment] = costAbility.effect.payments;
+  const plan = buildCostPlan(kernel, {
+    id: "cost:zaun-punk",
+    cost: { energy: { kind: "constant", value: 3 } },
+    optionalAdditional: [
+      {
+        id: costAbility.effect.id,
+        kind: "additional",
+        selected: false,
+        cost: { payments: [payment] }
+      }
+    ]
+  });
+  assert.deepEqual(plan.selectedAdditional, []);
+  assert.deepEqual(plan.declinedAdditional, ["zaun-punk.additional-cost"]);
+  assert.deepEqual(plan.total.actions, []);
+  const receipt = payCostPlan(kernel, plan);
+  assert.equal(receipt.paid, true);
+  assert.deepEqual(receipt.additional, []);
+  assert.equal(kernel.getObject("friendly-gear").zone, "board");
+});
+
 test.todo(
-  "sfd-160-221 Zaun Punk: charge the optional additional cost through the cost pipeline and gate the " +
-    "kill on the 356.4.f.1 paid receipt (cost.additional / cost.sacrifice + cost-plan wiring, RIFT-89)"
+  "sfd-160-221 Zaun Punk: charge the declared optional additional cost through the play procedure and gate the " +
+    "kill on the 356.4.f.1 paid receipt — no merged code reads a CardProgram's static cost.additional effect into " +
+    "CostPlanInput (cost/cost-plan.ts consumes a caller-supplied optionalAdditional list; the cost.pay primitives and " +
+    "wiring are RIFT-261, the CardProgram binding is RIFT-257), and the frozen Condition has no cost-result binding " +
+    "(condition.result), so the second ability cannot be gated on 'if you paid the additional cost'"
 );
