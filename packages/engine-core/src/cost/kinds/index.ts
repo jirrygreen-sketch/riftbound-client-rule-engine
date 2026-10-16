@@ -2,9 +2,9 @@
  * Registration point for cost-kind helpers.
  *
  * Each kind is a thin wrapper over the frozen CR v1.5 356-357 planner
- * (`buildCostPlan` / `buildHiddenCostPlan`) and the transactional payment
- * executor (`payCostPlan`). Export a kind here so instruction and keyword
- * layers import it from one place; see the directory README for the open
+ * (`buildCostPlan` / `buildHiddenCostPlan`) and the ordered payment
+ * executor (`payCostPlan`). The caller owns transactions. Export a kind here
+ * so instruction and keyword layers import it from one place; see the README for the open
  * contract integration requests (Finalize wiring, transaction boundary,
  * universal Power, sacrifice wording).
  */

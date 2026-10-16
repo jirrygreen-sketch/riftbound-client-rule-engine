@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DUEL_DOMAINS } from '../../../dist/cost/resources.js';
 import costModify from '../../../dist/effects/instructions/cost.modify.js';
+import weaponmaster from '../../../dist/effects/keywords/Weaponmaster.js';
+import { runAbilityBody } from '../../../dist/effects/interpreter.js';
 import { runInstruction, world } from '../../../dist/effects/testing/index.js';
 
 const constant = value => ({ kind: 'constant', value });
@@ -76,11 +78,11 @@ test('cost.modify applies increases before discounts in CR order', () => {
   assert.deepEqual(plan.stages, ['base', 'alternate', 'optional-additional', 'mandatory-additional', 'increase', 'discount', 'total']);
 });
 
-test('cost.modify reduce-equip-cost discounts universal Power while Energy stays intact', () => {
+test('cost.modify generic reduction discounts universal Power while Energy stays intact', () => {
   const run = modify({
     id: 'plan',
     printed: printed({ energy: 3, power: 2, domains: [] }),
-    modifier: { id: 'equip', kind: 'reduce-equip-cost', resource: 'power', amount: constant(1) }
+    modifier: { id: 'equip', kind: 'reduce', resource: 'power', amount: constant(1) }
   });
   const plan = run.linked['cost'];
   assert.equal(plan.total.energy, 3);
@@ -113,4 +115,61 @@ test('cost.modify keeps unsupported official modifications judge-required', () =
     /cost.modify failed: judge-required/
   );
   assert.deepEqual(ctx.snapshot(), before);
+});
+
+for (const power of [['Fury'], 2]) {
+  test(`Weaponmaster discount stays judge-required without symbol provenance (${JSON.stringify(power)})`, () => {
+    const ctx = fixture();
+    const before = ctx.snapshot();
+    assert.throws(() => modify({
+      id: 'equip', printed: printed({ energy: 0, power, domains: [] }),
+      modifier: { kind: 'reduce-equip-cost', resource: 'power', amount: constant(1) }
+    }, ctx), error => error.reason === 'judge-required' && /821.1.c.3.*original \[A\] symbols/.test(error.message));
+    assert.deepEqual(ctx.snapshot(), before);
+    assert.equal(ctx.linked('cost'), undefined);
+  });
+}
+
+test('cost.modify accepts the actual Weaponmaster selector, implicit id, numeric amount and domain alias', () => {
+  const [ability] = weaponmaster.expand({ host: { canonicalCardId: 'weaponmaster-source' } });
+  const cost = ability.body[0].args.body.value[0];
+  const args = Object.fromEntries(Object.entries(cost.args).map(([key, expr]) => [key, expr.value]));
+  const parsed = costModify.argsSchema.parse(args);
+  assert.deepEqual(parsed.source, { kind: 'target', id: 'weaponmaster-equipment' });
+  assert.deepEqual(parsed.modifier.amount, constant(1));
+  assert.equal(parsed.modifier.resource, 'power');
+  assert.equal(parsed.id, undefined);
+  assert.throws(() => costModify.argsSchema.parse({ ...args, modifier: { ...args.modifier, domain: 'Fury' } }), /domain/);
+});
+
+test('real Weaponmaster expanded cost/payment/attachment body blocks when the authoritative Equip cost is unavailable', () => {
+  const ctx = withSource(world().player('A', { energy: 10, power: ['Fury'] })
+    .unit('weaponmaster-source')
+    .object('equipment', {
+      types: ['gear'], tags: ['Equipment'], zone: 'board',
+      keywords: [{ id: 'Equip' }], energy: 0, power: [],
+      location: { type: 'base', player: 'A' }
+    }), 'weaponmaster-source');
+  // The cost integration boundary receives the targeting owner's real locked
+  // selection. Run the original keyword sub-body with no rewritten arguments.
+  ctx.setTargets('weaponmaster-equipment', [ctx.ref('equipment')]);
+  const [ability] = weaponmaster.expand({ host: { canonicalCardId: 'weaponmaster-source' } });
+  const body = ability.body[0].args.body.value;
+  const before = ctx.snapshot();
+  assert.throws(() => runAbilityBody(body, ctx), error =>
+    error.reason === 'judge-required' && /missing authoritative Equip-cost binding for equipment/.test(error.message));
+  assert.deepEqual(ctx.snapshot(), before);
+  assert.deepEqual(ctx.linkedSnapshot(), {});
+  assert.equal(ctx.getObject('equipment').attachedTo, null);
+  assert.equal(ctx.player('A').energy, 10);
+});
+
+test('Weaponmaster source adapter refuses a missing selection without using the Unit printed cost', () => {
+  const ctx = fixture();
+  const [ability] = weaponmaster.expand({ host: { canonicalCardId: 'weaponmaster-source' } });
+  const before = ctx.snapshot();
+  assert.throws(() => runAbilityBody(ability.body[0].args.body.value, ctx), error =>
+    error.reason === 'cannot-pay-cost' && /one current controlled Equipment/.test(error.message));
+  assert.deepEqual(ctx.snapshot(), before);
+  assert.deepEqual(ctx.linkedSnapshot(), {});
 });

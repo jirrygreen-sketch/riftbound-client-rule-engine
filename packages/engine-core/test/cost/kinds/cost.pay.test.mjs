@@ -3,6 +3,9 @@ import test from 'node:test';
 import { runAbilityBody } from '../../../dist/effects/interpreter.js';
 import costModify from '../../../dist/effects/instructions/cost.modify.js';
 import costPay from '../../../dist/effects/instructions/cost.pay.js';
+import effectXp from '../../../dist/effects/instructions/effect.xp.js';
+import { CostPlanError } from '../../../dist/cost/plan-types.js';
+import { DUEL_DOMAINS } from '../../../dist/cost/resources.js';
 import { runInstruction, world } from '../../../dist/effects/testing/index.js';
 
 const constant = value => ({ kind: 'constant', value });
@@ -22,6 +25,29 @@ const fixture = (values = {}) => withSource(
 
 const pay = (args, ctx) => runInstruction(costPay, args, { world: ctx });
 const resultFor = (outcome, id) => outcome.results.find(result => result.id === id).result;
+const cannotPay = error => error instanceof CostPlanError && error.reason === 'cannot-pay-cost';
+
+// Use the real primitive transaction; throwing must discard its cloned state,
+// events and linked values. No custom state writes or payment callbacks.
+function executeAbility(body, kernel, answers = {}) {
+  let outcome;
+  const definition = {
+    op: 'test.cost-ability-transaction',
+    argsSchema: { parse: value => value },
+    execute(context) {
+      outcome = runAbilityBody(body, context);
+      return { status: 'executed', events: [...outcome.events] };
+    }
+  };
+  return { ...runInstruction(definition, {}, { world: kernel, answers }), outcome };
+}
+
+// The frozen XP primitive receives an Expr at dispatch; the outer constant is
+// evaluated by the interpreter and the inner one by the real XP primitive.
+const gainXp = (linkedTo) => ({
+  ...instruction('reward', effectXp.op, { amount: constant(constant(1)) }),
+  ...(linkedTo ? { linkedTo } : {})
+});
 
 test('cost.pay rejects contradictory and malformed arguments', () => {
   const ctx = fixture();
@@ -29,8 +55,7 @@ test('cost.pay rejects contradictory and malformed arguments', () => {
   assert.throws(() => costPay.argsSchema.parse({ cost: 1 }), /Expr/);
   assert.throws(() => costPay.execute(ctx, costPay.argsSchema.parse({})), /requires cost or payments/);
   assert.throws(() => costPay.argsSchema.parse({ linkKey: '' }), /linkKey/);
-  const scalar = pay({ cost: constant(2) }, ctx);
-  assert.deepEqual(scalar.result, { status: 'negated', reason: 'impossible', events: [] });
+  assert.throws(() => pay({ cost: constant(2) }, ctx), cannotPay);
   assert.equal(ctx.player('A').energy, 20);
 });
 
@@ -47,23 +72,21 @@ test('cost.pay pays Energy and Power resources exactly', () => {
   assert.equal(run.asked, null);
 });
 
-test('cost.pay with insufficient resources is negated and rolls back', () => {
+test('cost.pay with insufficient resources aborts and rolls back', () => {
   const ctx = fixture({ player: { energy: 1 } });
   const before = ctx.snapshot();
-  const run = pay({ payments: constant({ energy: 2 }) }, ctx);
-  assert.deepEqual(run.result, { status: 'negated', reason: 'impossible', events: [] });
+  assert.throws(() => pay({ payments: constant({ energy: 2 }) }, ctx), cannotPay);
   assert.deepEqual(ctx.snapshot(), before);
-  assert.equal(run.linked['payment'], undefined);
+  assert.equal(ctx.linked('payment'), undefined);
 });
 
 test('cost.pay numeric Power is one universal [A] allocation per point', () => {
-  const ctx = fixture({ player: { energy: 1, power: ['Fury', 'Calm', 'Mind'] } });
-  const before = ctx.snapshot();
+  const ctx = fixture({ player: { energy: 1, power: ['Calm', 'Mind'] } });
   const run = pay({ payments: constant({ energy: 1, power: 2 }) }, ctx);
-  assert.equal(run.result.status, 'negated');
-  assert.deepEqual(ctx.player('A').power, ['Fury', 'Calm', 'Mind']);
-  assert.equal(ctx.player('A').energy, 1);
-  assert.deepEqual(ctx.snapshot(), before);
+  assert.equal(run.result.status, 'executed');
+  assert.equal(ctx.player('A').energy, 0);
+  assert.deepEqual(run.linked.payment.total.power, [{ amount: 2, allowedDomains: DUEL_DOMAINS }]);
+  assert.deepEqual(run.linked.payment.actions[0].action.plan.power, ['Calm', 'Mind']);
 });
 
 test('cost.pay exhausts and recycles after resources in CR 357.2 order', () => {
@@ -86,9 +109,10 @@ test('cost.pay exhausts and recycles after resources in CR 357.2 order', () => {
 
 test('cost.pay rejects stale or invalid payment objects without paying', () => {
   const ctx = fixture();
-  const run = pay({ cost: constant({ finalized: true, exhaust: [{ id: 'gone', zoneEntryId: 0 }] }) }, ctx);
-  assert.deepEqual(run.result, { status: 'negated', reason: 'impossible', events: [] });
-  assert.equal(run.linked['payment'], undefined);
+  const before = ctx.snapshot();
+  assert.throws(() => pay({ cost: constant({ finalized: true, exhaust: [{ id: 'gone', zoneEntryId: 0 }] }) }, ctx), cannotPay);
+  assert.deepEqual(ctx.snapshot(), before);
+  assert.equal(ctx.linked('payment'), undefined);
 });
 
 test('cost.pay settles a plan linked by cost.modify and rolls back without resources', () => {
@@ -123,9 +147,7 @@ test('cost.pay settles a plan linked by cost.modify and rolls back without resou
 
   const short = fixture({ player: { energy: 0 } });
   const before = short.snapshot();
-  const shortRun = transaction(short);
-  assert.equal(shortRun.outcome.status, 'partial');
-  assert.equal(resultFor(shortRun.outcome, 'settle').status, 'negated');
+  assert.throws(() => transaction(short), cannotPay);
   assert.equal(short.player('A').energy, 0);
   assert.equal(short.linked('settle.payment'), undefined);
   assert.deepEqual(short.snapshot(), before);
@@ -139,4 +161,95 @@ test('printed costs are never invented: printed 0 stays zero and printed null is
   const run = pay({ cost: constant({ finalized: true }) }, ctx);
   assert.equal(run.result.status, 'executed');
   assert.equal(ctx.player('A').energy, 20);
+});
+
+for (const linkedTo of [undefined, 'settle']) {
+  test(`failed payment stops optional body before real XP effect (linked=${Boolean(linkedTo)})`, () => {
+    const ctx = fixture({ player: { energy: 0, xp: 0 } });
+    const before = ctx.snapshot();
+    const links = ctx.linkedSnapshot();
+    const body = [instruction('offer', 'choice.optional', { body: constant([
+      instruction('settle', 'cost.pay', { payments: constant({ energy: 1 }) }),
+      gainXp(linkedTo)
+    ]) })];
+    assert.throws(() => executeAbility(body, ctx, { 'offer/optional': true }), cannotPay);
+    assert.equal(ctx.player('A').xp, 0);
+    assert.equal(ctx.player('A').energy, 0);
+    assert.deepEqual(ctx.snapshot(), before);
+    assert.deepEqual(ctx.linkedSnapshot(), links);
+  });
+}
+
+test('accepted optional body pays before its real XP effect; declining pays and gains nothing', () => {
+  const body = [instruction('offer', 'choice.optional', { body: constant([
+    instruction('settle', 'cost.pay', { payments: constant({ energy: 1 }) }),
+    gainXp('settle')
+  ]) })];
+  const ctx = fixture({ player: { energy: 2, xp: 0 } });
+  const accepted = executeAbility(body, ctx, { 'offer/optional': true });
+  assert.equal(accepted.outcome.status, 'executed');
+  assert.equal(ctx.player('A').energy, 1);
+  assert.equal(ctx.player('A').xp, 1);
+  assert.deepEqual(accepted.events.map(event => event.action), ['pay', 'gain-xp']);
+  assert.equal(ctx.linked('offer/settle.payment').paid, true);
+  const declined = fixture({ player: { energy: 0, xp: 0 } });
+  const before = declined.snapshot();
+  executeAbility(body, declined, { 'offer/optional': false });
+  assert.deepEqual(declined.snapshot(), before);
+  assert.equal(declined.linked('offer/settle.payment'), undefined);
+});
+
+for (const outcome of ['prevented', 'impossible']) {
+  test(`late ${outcome} payment aborts the real ability transaction without partial Energy/XP/effects`, () => {
+    const ctx = withSource(world().player('A', { energy: 5, xp: 3 })
+      .unit('gear').card('spent', { zone: 'trash' })
+      .hand('source', { types: ['spell'], energy: 3, power: [] }), 'source');
+    ctx.addReplacement(action => action.type === 'recycle' ? outcome : null);
+    const before = ctx.snapshot();
+    const links = ctx.linkedSnapshot();
+    const body = [instruction('offer', 'choice.optional', { body: constant([
+      instruction('settle', 'cost.pay', { cost: constant({
+        finalized: true, energy: 2, xp: 1,
+        exhaust: [ctx.ref('gear')], recycle: [ctx.ref('spent')]
+      }) }),
+      gainXp('settle')
+    ]) })];
+    assert.throws(() => executeAbility(body, ctx, { 'offer/optional': true }),
+      error => cannotPay(error) && error.outcome.status === outcome);
+    assert.equal(ctx.player('A').energy, 5);
+    assert.equal(ctx.player('A').xp, 3);
+    assert.equal(ctx.getObject('gear').exhausted, false);
+    assert.deepEqual(ctx.objectsInZone('A', 'trash'), [ctx.ref('spent')]);
+    assert.deepEqual(ctx.snapshot(), before);
+    assert.deepEqual(ctx.linkedSnapshot(), links);
+  });
+}
+
+test('a prevented exhaust after Energy payment escapes rather than committing a partial payment', () => {
+  const ctx = withSource(world().player('A', { energy: 5 }).unit('gear')
+    .hand('source', { types: ['spell'], energy: 3, power: [] }), 'source');
+  ctx.addReplacement(action => action.type === 'exhaust' ? 'prevented' : null);
+  const before = ctx.snapshot();
+  assert.throws(() => pay({ cost: constant({ finalized: true, energy: 2, exhaust: [ctx.ref('gear')] }) }, ctx),
+    error => cannotPay(error) && error.outcome.status === 'prevented');
+  assert.equal(ctx.player('A').energy, 5);
+  assert.deepEqual(ctx.snapshot(), before);
+  assert.equal(ctx.linked('payment'), undefined);
+});
+
+test('numeric Power allocation still rejects insufficient resources without any payment', () => {
+  const ctx = fixture({ player: { energy: 1, power: ['Calm'] } });
+  const before = ctx.snapshot();
+  assert.throws(() => pay({ payments: constant({ energy: 1, power: 2 }) }, ctx), cannotPay);
+  assert.deepEqual(ctx.snapshot(), before);
+});
+
+test('zero numeric Power and an empty domain list are free of Power requirements', () => {
+  for (const power of [0, []]) {
+    const ctx = fixture({ player: { power: [] } });
+    const run = pay({ payments: constant({ power }) }, ctx);
+    assert.equal(run.result.status, 'executed');
+    assert.deepEqual(run.linked.payment.total.power, []);
+    assert.deepEqual(run.linked.payment.actions[0].action.plan.power, []);
+  }
 });

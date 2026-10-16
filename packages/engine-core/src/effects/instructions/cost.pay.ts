@@ -1,47 +1,22 @@
 /**
- * cost.pay -- settle a finalized CR v1.5 356-357 cost plan (you may pay X to
- * ...). Pair it with `choice.optional` (contract 3.9): the optional body runs
- * only when the player accepts, and a failed payment negates the body so
- * later instructions of that body are not executed.
+ * Settle a finalized CR v1.5 356-357 cost plan. Numeric `payments.power`
+ * denotes that many [A] requirements; an explicit domain list keeps each
+ * domain requirement. An empty list is zero Power, not one [A].
  *
- * Payment runs through the existing transactional `payCostPlan`, so the
- * combined Energy/Power action goes first and nonstandard actions follow in
- * order (357.1/.2), replacements and prevention still apply, and the payment
- * window can add resources before planning (357.1.a). The enclosing
- * primitive transaction owns rollback; the reference test kernel
- * demonstrates late-failure rollback. An `AwaitChoice` propagates unchanged
- * so the owner can suspend, roll back, ask, and replay the whole
- * instruction.
+ * Both Expr arguments (direct primitive calls) and evaluated values (ability
+ * interpreter dispatch) are accepted. Full CostPlans are paid as locked.
  *
- * args (each value argument is an Expr; when the instruction is dispatched
- * from an ability body the interpreter has already evaluated the Expr, so
- * both the Expr shape and the evaluated value shape are accepted):
- * - cost: Expr evaluating to a finalized value this source can settle:
- *   - a plain finalized payment plan `{ finalized: true, energy?, power?:
- *     Domain[], xp?, exhaust?, recycle?, id? }` (the same shape the play
- *     pipeline accepts), or
- *   - a full `CostPlan` (for example linked by `cost.modify`), which is paid
- *     exactly as locked (CR v1.5 357.1); payment still verifies that it
- *     belongs to this source and controller.
- *   `power: []` means domainless `[A]` and is kept universal by the planner.
- * - power / nonstandardOrder: optional `CostPaymentOptions` fields (explicit
- *   allocation; 357.2 order), as Expr values.
- * - payments (optional): an Expr evaluating to
- *   `{ energy?, power?: number | Domain[], xp? }`, finalized for this source
- *   and paid. `payments` and `cost` are mutually exclusive.
- * - linkKey: link key for the payment receipt, default `payment`.
- *
- * Results: success links and returns the frozen receipt (`executed`). A
- * failed payment (insufficient resources, a no-longer-valid cost object, a
- * replaced or prevented action) returns `negated("impossible")` with its
- * events; a choice.optional body therefore skips its later instructions.
- * Wrong argument shapes throw `TypeError` at the schema stage; they never
- * silently become free payments.
+ * CR 203.3: failure MUST throw, including a failure before the first action.
+ * `negated` does not gate linked instructions in the frozen interpreter.
+ * Letting the error escape stops the body and lets the enclosing transaction
+ * discard every action, event and link. `payCostPlan` is not itself a
+ * transaction. Callers MUST supply that transaction; direct execution against
+ * a live context cannot roll back. See cost/kinds/README.md for the requested
+ * shared payment-scope/savepoint contract needed for graceful body skipping.
  */
 import type {
   Domain,
   Expr,
-  GameEvent,
   InstructionDef,
   InstructionResult,
   ObjectRef,
@@ -54,6 +29,7 @@ import {
   CostPlanError
 } from "../../cost/plan-types.js";
 import { payCostPlan } from "../../cost/payment.js";
+import { DUEL_DOMAINS } from "../../cost/resources.js";
 
 export interface CostPayArgs {
   readonly cost?: Expr;
@@ -65,18 +41,9 @@ export interface CostPayArgs {
 
 const ARGS_KEYS = new Set(["cost", "power", "nonstandardOrder", "payments", "linkKey"]);
 
-function isCostPlan(value: unknown): value is FullCostPlanShape {
+function isCostPlan(value: unknown): value is CostPlan {
   return isRecord(value) && value.finalized === true && typeof value.id === "string"
     && typeof value.player === "string" && isRecord(value.source) && isRecord(value.total);
-}
-
-interface FullCostPlanShape {
-  readonly finalized: true;
-  readonly id: string;
-  readonly player: string;
-  readonly source: { readonly id: string };
-  readonly total: { readonly energy: number; readonly power: readonly Domain[] };
-  readonly cost?: unknown;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -110,7 +77,7 @@ export function parseCostPayArgs(value: unknown): CostPayArgs {
 interface PaymentPlan {
   readonly finalized: true;
   readonly energy?: number;
-  readonly power?: readonly Domain[];
+  readonly power?: number | readonly Domain[] | null;
   readonly xp?: number;
   readonly exhaust?: readonly ObjectRef[];
   readonly recycle?: readonly ObjectRef[];
@@ -154,7 +121,7 @@ function paymentsPlan(value: Value): PaymentPlan | null {
   const requested = value.power === undefined ? [] : value.power;
   if (typeof requested === "number") {
     if (scalar(requested) === null) return null;
-    return { finalized: true, energy, xp, power: Array.from({ length: requested }, () => "Fury" as Domain) };
+    return { finalized: true, energy, xp, power: requested };
   }
   const domains = domainList(requested);
   if (!domains) return null;
@@ -192,7 +159,9 @@ function payablePlan(direct: PaymentPlan, ctx: ResolveContext): CostPlan | null 
   const exhaust = refs(direct.exhaust);
   const recycle = refs(direct.recycle);
   if (exhaust === null || recycle === null) return null;
-  const domains = direct.power === undefined || direct.power === null ? [] : direct.power;
+  const power = typeof direct.power === "number"
+    ? (direct.power === 0 ? [] : [{ amount: direct.power, allowedDomains: DUEL_DOMAINS }])
+    : (direct.power ?? []).map(domain => ({ amount: 1, allowedDomains: [domain] }));
   const id = direct.id ?? `${ctx.source.ref.id}:cost-pay`;
   const actions = [
     ...exhaust.map((object, index) => ({ id: `${id}:exhaust:${index}`, componentId: id, action: { type: "exhaust" as const, object } })),
@@ -213,57 +182,53 @@ function payablePlan(direct: PaymentPlan, ctx: ResolveContext): CostPlan | null 
     stages: ["base", "alternate", "optional-additional", "mandatory-additional", "increase", "discount", "total"],
     total: {
       energy: direct.energy ?? 0,
-      power: domains.map(domain => ({ amount: 1, allowedDomains: [domain] })),
+      power,
       xp: direct.xp ?? 0,
       actions
     }
   };
 }
 
-function negated(reason: "impossible", events: readonly GameEvent[]): InstructionResult {
-  return { status: "negated", reason, events: [...events] };
+function cannotPay(): never {
+  throw new CostPlanError("cannot-pay-cost", "cost.pay requires a valid, payable finalized cost plan");
 }
 
 const execute: InstructionDef<CostPayArgs>["execute"] = (ctx, args): InstructionResult => {
   const key = args.linkKey ?? "payment";
   const arg = (value: Expr | undefined): Value | undefined =>
     value === undefined ? undefined : isExpr(value) ? ctx.evaluate(value) : value as Value;
-  let finalized: PaymentPlan;
+  let finalized: CostPlan;
   if (args.payments !== undefined) {
     if (args.cost !== undefined) throw new TypeError("cost.pay accepts either cost or payments, not both");
     const plan = paymentsPlan(arg(args.payments) as Value);
-    if (!plan) return negated("impossible", []);
+    if (!plan) cannotPay();
     const payable = payablePlan(plan, ctx);
-    if (!payable) return negated("impossible", []);
-    finalized = payable as unknown as PaymentPlan;
+    if (!payable) cannotPay();
+    finalized = payable;
   } else if (args.cost !== undefined) {
     const evaluated = arg(args.cost) as Value;
     const direct = directPlan(evaluated);
     if (isCostPlan(evaluated)) {
-      finalized = evaluated as unknown as PaymentPlan;
+      finalized = evaluated;
     } else if (direct) {
       const payable = payablePlan(direct, ctx);
-      if (!payable) return negated("impossible", []);
-      finalized = payable as unknown as PaymentPlan;
+      if (!payable) cannotPay();
+      finalized = payable;
     } else {
-      return negated("impossible", []);
+      cannotPay();
     }
   } else {
     throw new TypeError("cost.pay requires cost or payments");
   }
-  try {
-    const options: CostPaymentOptions = {
-      ...(args.power !== undefined ? { power: arg(args.power) as unknown as CostPaymentOptions["power"] } : {}),
-      ...(args.nonstandardOrder !== undefined ? { nonstandardOrder: arg(args.nonstandardOrder) as CostPaymentOptions["nonstandardOrder"] } : {})
-    };
-    const receipt = payCostPlan(ctx, finalized as unknown as Parameters<typeof payCostPlan>[1], options);
-    ctx.link(key, receipt as unknown as Value);
-    return { status: "executed", events: [...receipt.events], linkedValues: { [key]: receipt as unknown as Value } };
-  } catch (error) {
-    if (!(error instanceof CostPlanError)) throw error;
-    if (error.reason !== "cannot-pay-cost") throw error;
-    return negated("impossible", error.outcome?.events ?? []);
-  }
+  const options: CostPaymentOptions = {
+    ...(args.power !== undefined ? { power: arg(args.power) as unknown as CostPaymentOptions["power"] } : {}),
+    ...(args.nonstandardOrder !== undefined ? { nonstandardOrder: arg(args.nonstandardOrder) as unknown as CostPaymentOptions["nonstandardOrder"] } : {})
+  };
+  // Do not catch CostPlanError: even a later prevented action must abort the
+  // enclosing transaction instead of committing earlier resource payments.
+  const receipt = payCostPlan(ctx, finalized, options);
+  ctx.link(key, receipt as unknown as Value);
+  return { status: "executed", events: [...receipt.events], linkedValues: { [key]: receipt as unknown as Value } };
 };
 
 export default {

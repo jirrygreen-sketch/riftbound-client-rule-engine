@@ -12,7 +12,9 @@
  * and links the frozen plan.
  *
  * args:
- * - id: stable plan id (required; unique per execution).
+ * - id: stable plan id (required except for the Weaponmaster source form).
+ * - source: accepts Weaponmaster's target selector; resolves its exact current
+ *   identity, then blocks until an authoritative Equip-cost binding exists.
  * - cost: `CostSpec` for the base cost; defaults to the printed cost.
  * - printed: optional trusted catalog projection.
  * - domains: optional source domains; an empty array explicitly means the
@@ -22,8 +24,9 @@
  * - modifier / modifiers: `{ kind: 'reduce' | 'increase' |
  *   'reduce-equip-cost', resource: 'energy' | 'power', amount, minimum?,
  *   domains?, powerOrder?, component?, id? }`. Increases are appended in CR
- *   356 order; `reduce-equip-cost` becomes a power discount with a universal
- *   `[A]` domain scope. Each modifier is one discount instance with its own
+ *   356 order. `reduce-equip-cost` stays judge-required: the current plan
+ *   loses [A]/[C] symbol provenance (821.1.c.3). Never treat it as a generic
+ *   Power discount. Each other modifier is one discount instance with its own
  *   minimum (356.4.e); explicit `discountOrder` stays available.
  * - ignoreAllCosts: 356.5 total rewrite.
  * - linkKey: link key for the frozen plan, default `cost` (Weaponmaster links
@@ -57,7 +60,8 @@ export interface CostModifierInput {
 }
 
 export interface CostModifyArgs {
-  readonly id: string;
+  readonly id?: string;
+  readonly source?: Expr | { readonly kind: "target"; readonly id: string };
   readonly cost?: CostPlanInput["cost"];
   readonly printed?: CostPlanInput["printed"];
   readonly domains?: readonly Domain[];
@@ -76,6 +80,7 @@ export interface CostModifyArgs {
 const MODIFIER_KEYS = new Set([
   "kind",
   "resource",
+  "domain",
   "amount",
   "minimum",
   "domains",
@@ -86,6 +91,7 @@ const MODIFIER_KEYS = new Set([
 
 const ARGS_KEYS = new Set([
   "id",
+  "source",
   "cost",
   "printed",
   "domains",
@@ -120,7 +126,16 @@ function parseModifier(value: unknown, label: string): CostModifierInput {
   if (value.resource !== "energy" && value.resource !== "power") {
     throw new TypeError("cost.modify modifier.resource must be energy or power");
   }
-  if (!isExpr(value.amount)) throw new TypeError("cost.modify modifier.amount must be an Expr");
+  const amount = value.kind === "reduce-equip-cost" && typeof value.amount === "number"
+    && Number.isSafeInteger(value.amount) && value.amount >= 0
+    ? { kind: "constant" as const, value: value.amount } : value.amount;
+  if (!isExpr(amount)) throw new TypeError("cost.modify modifier.amount must be an Expr");
+  if (value.kind === "reduce-equip-cost" && value.resource !== "power") {
+    throw new TypeError("reduce-equip-cost requires Power");
+  }
+  if (value.domain !== undefined && (value.kind !== "reduce-equip-cost" || value.domain !== "any")) {
+    throw new TypeError("Only reduce-equip-cost accepts domain: any");
+  }
   if (value.minimum !== undefined && !isExpr(value.minimum)) {
     throw new TypeError("cost.modify modifier.minimum must be an Expr");
   }
@@ -136,7 +151,8 @@ function parseModifier(value: unknown, label: string): CostModifierInput {
   if (value.id !== undefined && (typeof value.id !== "string" || !value.id.length)) {
     throw new TypeError("cost.modify modifier.id must be a non-empty string");
   }
-  return value as unknown as CostModifierInput;
+  const { domain: _legacyDomain, ...normalized } = value;
+  return { ...normalized, amount } as unknown as CostModifierInput;
 }
 
 export function parseCostModifyArgs(value: unknown): CostModifyArgs {
@@ -144,8 +160,14 @@ export function parseCostModifyArgs(value: unknown): CostModifyArgs {
   for (const key of Object.keys(value)) {
     if (!ARGS_KEYS.has(key)) throw new TypeError(`Invalid cost.modify argument: ${key}`);
   }
-  if (typeof value.id !== "string" || !value.id.length) {
-    throw new TypeError("cost.modify id must be a non-empty string");
+  if (value.id === undefined ? value.source === undefined : typeof value.id !== "string" || !value.id.length) {
+    throw new TypeError("cost.modify id must be a non-empty string (or supply source)");
+  }
+  if (value.source !== undefined) {
+    const source = value.source;
+    const valid = isRecord(source) && (source.kind === "target"
+      ? typeof source.id === "string" && source.id.length > 0 : isExpr(source));
+    if (!valid) throw new TypeError("cost.modify source must be an Expr or target selector");
   }
   if (value.cost !== undefined && !isRecord(value.cost)) {
     throw new TypeError("cost.modify cost must be a CostSpec object");
@@ -153,10 +175,9 @@ export function parseCostModifyArgs(value: unknown): CostModifyArgs {
   if (value.modifier !== undefined && value.modifiers !== undefined) {
     throw new TypeError("cost.modify accepts either modifier or modifiers, not both");
   }
-  if (value.modifier !== undefined) parseModifier(value.modifier, "modifier");
+  const modifier = value.modifier === undefined ? undefined : parseModifier(value.modifier, "modifier");
   if (value.modifiers !== undefined) {
     if (!Array.isArray(value.modifiers)) throw new TypeError("cost.modify modifiers must be an array");
-    value.modifiers.forEach((entry, index) => parseModifier(entry, `modifiers[${index}]`));
   }
   if (value.linkKey !== undefined && (typeof value.linkKey !== "string" || !value.linkKey.length)) {
     throw new TypeError("cost.modify linkKey must be a non-empty string");
@@ -167,22 +188,31 @@ export function parseCostModifyArgs(value: unknown): CostModifyArgs {
   if (value.discountOrder !== undefined && (!Array.isArray(value.discountOrder) || value.discountOrder.some(id => typeof id !== "string"))) {
     throw new TypeError("cost.modify discountOrder must be a list of discount IDs");
   }
-  return value as unknown as CostModifyArgs;
+  return {
+    ...value,
+    ...(modifier === undefined ? {} : { modifier }),
+    ...(value.modifiers === undefined ? {} : {
+      modifiers: (value.modifiers as unknown[]).map((entry, index) => parseModifier(entry, `modifiers[${index}]`))
+    })
+  } as unknown as CostModifyArgs;
 }
 
-class CostFailure extends Error {
-  constructor(readonly reason: "judge-required" | "missing-printed-cost" | "invalid-cost-plan") {
-    super(`cost.modify failed: ${reason}`);
+export class CostFailure extends CostPlanError {
+  constructor(reason: CostPlanError["reason"], detail?: string) {
+    super(reason, `cost.modify failed: ${reason}${detail ? `: ${detail}` : ""}`);
     this.name = "CostFailure";
   }
 }
 
-function modifiersToCostPlanInput(args: CostModifyArgs): CostPlanInput {
+function modifiersToCostPlanInput(args: CostModifyArgs & { readonly id: string }): CostPlanInput {
   const modifiers = [...(args.modifier === undefined ? [] : [args.modifier]), ...(args.modifiers ?? [])];
   const discounts: { id: string; component?: string; resource: "energy" | "power"; amount: Expr; minimum?: Expr; domains?: readonly Domain[]; powerOrder?: readonly number[] }[] = [];
   const increases: { id: string; cost: { energy?: Expr; power?: Expr } }[] = [];
   for (const [index, modifier] of modifiers.entries()) {
     const id = modifier.id ?? `${args.id}:modifier:${index}`;
+    if (modifier.kind === "reduce-equip-cost") {
+      throw new CostPlanError("judge-required", "821.1.c.3: Equip discounts require original [A] symbols; allowedDomains cannot distinguish [A] from [C]");
+    }
     if (modifier.kind === "increase") {
       increases.push({ id, cost: { [modifier.resource]: modifier.amount } });
       continue;
@@ -216,13 +246,29 @@ function modifiersToCostPlanInput(args: CostModifyArgs): CostPlanInput {
 
 const execute: InstructionDef<CostModifyArgs>["execute"] = (ctx, args): InstructionResult => {
   try {
-    const plan = buildCostPlan(ctx, modifiersToCostPlanInput(args));
+    if (args.source !== undefined) {
+      const selection = args.source.kind === "target" ? args.source : ctx.evaluate(args.source as Expr);
+      if (!isRecord(selection) || selection.kind !== "target" || typeof selection.id !== "string") {
+        throw new CostPlanError("invalid-cost-plan", "Weaponmaster source must select an Equipment target");
+      }
+      const refs = ctx.targets(selection.id);
+      const equipment = refs.length === 1 ? ctx.object(refs[0]!) : null;
+      if (!equipment || equipment.controller !== ctx.controller || equipment.zone !== "board"
+        || !equipment.types.includes("gear") || !equipment.tags.includes("Equipment")) {
+        throw new CostPlanError("cannot-pay-cost", "Weaponmaster requires one current controlled Equipment target");
+      }
+      // ObjectSnapshot exposes play Energy/Power and keyword names, not the
+      // Equip ability's cost. Neither those fields nor a printed play cost
+      // are a valid fallback. Keep the original trigger source/host intact.
+      throw new CostPlanError("judge-required", `821.1.c.2: missing authoritative Equip-cost binding for ${equipment.ref.id}; original [A]/[C] symbols required`);
+    }
+    const plan = buildCostPlan(ctx, modifiersToCostPlanInput({ ...args, id: args.id! }));
     const key = args.linkKey ?? "cost";
     ctx.link(key, plan as unknown as Value);
     return { status: "executed", events: [], linkedValues: { [key]: plan as unknown as Value } };
   } catch (error) {
     if (!(error instanceof CostPlanError)) throw error;
-    throw new CostFailure(error.reason === "cannot-pay-cost" ? "judge-required" : error.reason);
+    throw new CostFailure(error.reason, error.message);
   }
 };
 

@@ -1,46 +1,101 @@
 # Cost kinds
 
-Each file in this directory is a thin, documented vocabulary layer over the
-frozen CR v1.5 356-357 planner in `../cost-plan.ts` and the transactional
-payment executor in `../payment.ts`. It does not add a new cost engine: a kind
-can only express what the existing `CostSpec` vocabulary can pay (Energy,
-Power, XP, exhaust, discard, recycle, kill, reveal, spend-buff) and returns the
-frozen `CostPlan`/`CostPaymentReceipt` values that layer already produces.
+These helpers reuse `../cost-plan.ts` (CR v1.5 356-357) and
+`../payment.ts`. Plans and successful receipts are frozen. The payer executes
+an ordered list of actions; **it does not create a transaction**.
 
-- `hidden.ts` wraps the existing `buildHiddenCostPlan` (811.1.b).
-- `additional.ts` builds mandatory/optional additional costs, including the
-  Accelerate default `[1][C]` (356.2, 805).
-- `sacrifice.ts` maps the sacrifice wording to the closed-set `kill` payment
-  action for a permanent the paying player controls (356.7, 357.2).
-- `xp.ts`, `discard.ts`, `recycle.ts`, and `exhaust.ts` wrap the equivalent
-  resource/object payment kinds and the payment receipt.
-- `index.ts` is the registration point; import a kind from there.
+- `hidden.ts` wraps `buildHiddenCostPlan` (811.1.b).
+- `additional.ts` supports mandatory/optional costs and Accelerate's `[1][C]`
+  default (356.2, 805).
+- `sacrifice.ts` uses the existing `kill` payment action; no new action is added.
+- `xp.ts`, `discard.ts`, `recycle.ts`, and `exhaust.ts` reuse the corresponding
+  resource/object payments.
+- `index.ts` exports the helpers. Production Finalize registration belongs to
+  the coordinating task.
 
-Every kind locks its plan with `buildCostPlan`/`buildHiddenCostPlan` and pays
-with `payCostPlan`, so Finalize locking, zero floors (356.4), receipt freezing,
-and late-error rollback are owned by the existing cost layer. Caller duties
-that remain outside these helpers are listed in `../README.md`.
+## Instruction behavior and current limits
 
-## Registration and contract integration requests
+`cost.modify` delegates ordinary increases, discounts, ordering and zero floors
+to the planner. `cost.pay` accepts a locked CostPlan or a plain finalized
+payment descriptor. `payments.power: 2` means two `[A]` requirements, allocated
+from any of the six domain resources; a domain list retains specific domain
+requirements. `0` and `[]` both mean zero Power. Universal **resource sources**
+are a different issue from an any-domain **cost requirement** (see request 4).
+No printed null characteristic is converted into a numeric printed cost.
 
-These helpers are exported here for the instruction layer and future callers;
-the cost plan consumer in the production Finalize pipeline is still owned by
-the coordinating integration task. The requests below repeat the open items in
-`../README.md` because they are consumed by every kind:
+A failed `cost.pay` **throws `CostPlanError`**, before or after the first action.
+It must never return `negated` after a failed payment: the frozen interpreter
+continues linked instructions after `negated` (P0 contract 3.3/3.6), which would
+execute unpaid effects in violation of 203.3. The exception stops interpretation
+and lets the caller's enclosing transaction discard all actions, events and
+links. Tests use the existing `runInstruction` clone/commit boundary around the
+real interpreter; they cover insufficient resources, a prevented exhaust after
+Energy, and a later prevented/impossible recycle after Energy and exhaust.
+Replaced cost actions still count as paid (203.2/357.2.a).
 
-1. **CostPlan consumption in Finalize**: a one-line integration is needed so the
-   play pipeline consumes a finalized `CostPlan` (for example the plan linked by
-   `cost.modify`) instead of only the narrower `FinalizedCostPlan` play
-   descriptor. Until that parent-owned change lands, `cost.modify` output is a
-   linked value and `cost.pay` is the executable settlement entry point.
-2. **Finalize transaction boundary**: `payCostPlan` must run inside the
-   enclosing Finalize transaction; `ResolveContext` alone cannot roll back an
-   arbitrary live context.
-3. **Universal Power** (163.2.b) still needs a distinct representation in
-   `PlayerSnapshot.power`/`FinalizedCostPlan.power`; helpers never substitute
-   an arbitrary colored Power for `[A]`.
-4. **Sacrifice wording**: the frozen action set has no `sacrifice` action, so
-   this directory expresses it as `kill` (356.7 nonstandard cost). If a later
-   official ruling distinguishes sacrifice from kill (for example death-only
-   triggers), the closed action set needs a parent-owned extension; no such
-   ruling is implemented here.
+**This is a safe abort, not complete optional-payment control flow.** With the
+frozen interfaces an unpaid cost aborts the whole enclosing transaction; it
+cannot just roll back the payment and skip its dependent effects while
+continuing independent instructions outside that payment body. A caller must
+not catch the error inside the transaction and commit partial state. A direct
+live `ResolveContext` call has no rollback guarantee. Requests 1-2 below remain
+integration prerequisites.
+
+`reduce-equip-cost` is **judge-required**, including on apparently universal
+Power requirements. `allowedDomains` alone cannot distinguish an original
+`[A]` symbol from a `[C]` identity with the same domains. Treating this modifier
+as a generic Power discount incorrectly removes colored costs (821.1.c.3).
+Ordinary `reduce` continues to work; no substitute Weaponmaster semantics run.
+
+The actual Weaponmaster expansion's `source`, omitted `id`, numeric modifier
+`amount: 1`, and `domain: 'any'` are accepted by the local argument adapter.
+It resolves the exact selected Equipment identity through `targets` and
+`object`, then raises `judge-required` for the missing authoritative Equip-cost
+binding. ObjectSnapshot exposes the card's play costs and keyword names, not
+its Equip ability's cost. The Unit's cost, the Equipment's play cost and a
+missing cost must never become that ability's cost. Integration tests run the
+unchanged expanded cost/payment/attach sub-body with the targeting owner's
+locked selection, and prove that missing binding produces no payment or attach.
+Full Weaponmaster targeting/execution is not claimed complete.
+
+The reference kernel's `pay` action still deducts Energy/XP only, ignoring Power.
+Tests verify the real allocator's exact allocated domains and emitted pay action;
+they do not claim to fix Power pool deduction. No test manually refunds resources
+or fabricates successful payment results.
+
+## Contract change requests (parent-owned, not implemented here)
+
+1. **Payment transaction/savepoint.** Add a kernel-owned synchronous capability
+   such as `withCostTransaction<T>(run: (ctx: ResolveContext) => T): T` and
+   forward it through interpreter contexts. Exceptions (including AwaitChoice)
+   must roll back state, events, trigger queues, choices and links together.
+   Alternatively extend atomic `pay` to carry all ordered standard/nonstandard
+   actions and return a complete receipt. The current primitive can only
+   propagate exceptions to a caller-owned transaction, never undo a live ctx.
+2. **Success-gated payment body (203.3).** Define a payment scope/body in the
+   interpreter/IR. Execute the dependent body only after a committed payment;
+   catch payment failure only after the scope's transaction has rolled back,
+   skip that dependent body, then continue independent outer instructions.
+   Preserve existing general `negated`/`linkedTo` semantics; do not change all
+   links to success-only. `choice.optional`'s boolean acceptance is insufficient.
+3. **Equip binding and original symbols (821.1.c.2-.5).** Add a read-only
+   `equipCost(equipment: ObjectRef, host: ObjectRef)` capability yielding a
+   trusted Equip CostSpec plus applicable cost modifiers, or an explicit
+   missing/blocked result. Preserve Power symbol provenance alongside each
+   requirement (`A`, `C`, specific-domain or hybrid), through finalization and
+   discounts. Only original `A` requirements are eligible for Weaponmaster's
+   reduction. Also retain the equipment identity separately from the triggering
+   Unit source so payment revalidates both. Legacy data without provenance
+   stays blocked; do not rewrite old profiles/logs or infer symbols from a
+   six-domain allowed set.
+4. **Universal Power resource** (163.2.b): represent a domainless resource
+   separately in PlayerSnapshot/FinalizedCostPlan; never invent a colored source.
+5. **Finalize plan consumption:** the production pipeline must consume a full
+   CostPlan instead of just its narrower FinalizedCostPlan descriptor. Wire the
+   caller only after its transaction and source/target restrictions are verified.
+6. **Sacrifice vocabulary:** the closed action set only has `kill`. If sourced
+   rulings require a distinct sacrifice action, extend that contract; no such
+   distinction is invented here.
+
+The existing Hidden timing/facedown/zone integration gaps in `../README.md`
+also remain outside these wrappers.
