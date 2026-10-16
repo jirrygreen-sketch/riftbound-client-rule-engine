@@ -1,4 +1,4 @@
-import type { Ability, KeywordId } from "@riftbound/card-dsl";
+import type { Ability, CostSpec, KeywordId, Value } from "@riftbound/card-dsl";
 
 /**
  * Reference to the card that hosts a keyword, passed to {@link KeywordDef.expand}.
@@ -30,7 +30,12 @@ export interface KeywordDef {
   readonly valued: boolean;
   readonly stacking: KeywordStacking;
   /** Expand into abilities that must pass validateCardProgram. */
-  expand(input: { readonly value?: number; readonly host: CardContextRef }): readonly Ability[];
+  expand(input: {
+    readonly value?: number;
+    readonly host: CardContextRef;
+    /** Printed keyword parameters, e.g. Equip's cost (P0 contract 3.8). */
+    readonly params?: { readonly cost?: CostSpec; readonly [key: string]: Value | CostSpec | undefined };
+  }): readonly Ability[];
   /** Core Rules v1.5 rule numbers backing the expansion. */
   readonly ruleRefs: readonly string[];
 }

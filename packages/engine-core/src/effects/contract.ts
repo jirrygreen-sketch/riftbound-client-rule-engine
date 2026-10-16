@@ -19,6 +19,14 @@ export type LocationRef =
   | { readonly type: "base"; readonly player: PlayerId }
   | { readonly type: "battlefield"; readonly id: string };
 
+/** A symbolic object binding in a card program (P0 contract 3.6). */
+export type ObjectSelector =
+  | "self"
+  | "source"
+  | { readonly target: string }
+  | { readonly pick: string }
+  | { readonly linked: string };
+
 /** Current characteristics after layers; null means no printed value. */
 export interface ObjectSnapshot {
   readonly ref: ObjectRef;
@@ -31,6 +39,8 @@ export interface ObjectSnapshot {
   readonly controller: PlayerId;
   readonly zone: ZoneId;
   readonly location: LocationRef | null;
+  /** Designation in the current combat; omitted by older adapters, defaults to null. */
+  readonly combatRole?: "attacker" | "defender" | null;
   readonly might: number | null;
   readonly energy: number | null;
   readonly power: readonly Domain[] | null;
@@ -101,6 +111,10 @@ export interface HistoryQuery {
   readonly timingPoint?: TimingPointId;
   readonly player?: PlayerId;
   readonly object?: ObjectRef;
+  /** Exclude the selected card identities, including their earlier zone entries. */
+  readonly exclude?: ObjectSelector;
+  /** Match the action object's characteristics captured when the action began. */
+  readonly objectFilter?: ObjectFilter;
 }
 /** A layer registration, consumed by the production layers implementation. */
 export interface ContinuousEffectSpec {
