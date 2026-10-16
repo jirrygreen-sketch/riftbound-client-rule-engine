@@ -471,3 +471,10 @@ export function projectPublicDuelResources(state: DuelResources): PublicDuelReso
         ownerPlayerId: g.ownerPlayerId, controllerPlayerId: g.controllerPlayerId, locationId: g.locationId })) })),
   };
 }
+
+export function planDuelRunePayment(rawPool: DuelRunePool, rawCost: DuelRuneCost, rawPlan?: DuelPaymentPlan): DuelPaymentPlan {
+  const checkedPool = pool(rawPool);
+  const cost = validatedCost(rawCost);
+  if (cost.energy > checkedPool.energy) fail('insufficient Energy');
+  return rawPlan === undefined ? suggestedPlan(cost, checkedPool) : explicitPlan(rawPlan, cost, checkedPool);
+}
