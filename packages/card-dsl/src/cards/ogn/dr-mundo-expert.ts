@@ -18,23 +18,21 @@ import type { CardProgram } from "../../ir/index.js";
  *   选择（355.7），由 ability 控制者在该区域里选 3 张 → 已有 effect.recycle 的
  *   from 形式（zone + owner + amount，417.4 不足则尽量回收）。
  *
- * 状态：judge-required。已合入的时点、filter 与 effect.recycle 都能表达触发句，
- * 但静态 Might 加成还不能执行：契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，
- * 图层消费者（continuous.might / RIFT-91）与「按 trash 张数动态取值、随 trash 变化
- * 重算」的依赖求值都未合入；按红线不做近似实现（不得改用 Buff counter）。
+ * 状态：judge-required。已合入的 continuous.might、时点、filter 与 effect.recycle 都能表达
+ * 局部能力，但静态 Might 加成的 amount 仍是 trash 计数表达式；当前 LayerEngine 只消费已解析的
+ * 数值/对象属性，尚未把该集合计数作为 arithmetic amount 动态重算。卡牌程序静态能力到图层的
+ * 生产绑定也仍由 RIFT-257 负责；按红线不做近似实现（不得改用 Buff counter）。
  *
- * 依赖：RIFT-91（layers-continuous，continuous.might + 动态依赖求值）。
+ * 依赖：RIFT-257（CardProgram 到 layers 的绑定）与动态 count 图层求值缺口。
  */
 const drMundoExpert = {
   canonicalCardId: "card.hash-e6d907e16eabec4df39898b5e0b88759b3c4a756d746eb210b9feaa3437d822e",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「My Might is increased by the number of cards in your trash」需要 continuous.might 图层加法" +
-    "（契约 3.6 封闭 GameAction 无 Might 修改动作）与「按 trash 张数动态取值、依赖变化后重算」" +
-    "（CR v1.5 479.4 图层依赖）；layers/continuous.might 消费者（RIFT-91）未合入，不近似实现。" +
-    "触发句（beginning-start + effect.recycle from trash）本身可表达并有执行测试。" +
-    "依赖：RIFT-91（layers-continuous）。",
+    "continuous.might 与 arithmetic 图层已经合入，但本卡 amount 是「你 trash 中的牌数」count 表达式；" +
+    "当前 LayerEngine 尚未把该集合计数作为静态 Might 的动态 amount 求值并在 trash 变化后重算（CR v1.5 479.4）。" +
+    "同时 CardProgram 静态能力到 layers 的生产绑定仍依赖 RIFT-257；beginning-start/effect.recycle 局部能力已有执行证据，不近似实现。",
   abilities: [
     {
       kind: "static",

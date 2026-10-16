@@ -11,7 +11,7 @@ test("ogn-028-298 Draven, Showboat: program validates and is judge-required", ()
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /points/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("ogn-028-298 Draven, Showboat: identity, ruleset and exact source text", () => {
@@ -38,6 +38,6 @@ test("ogn-028-298 Draven, Showboat: one static arithmetic Might effect sourced f
 
 test.todo(
   "ogn-028-298 Draven, Showboat: execute 'Might += your points' as a dynamic arithmetic-layer " +
-    "Might change and assert the derived Might/combat damage (Expr lacks a player-attribute reader; " +
-    "layers consumption is RIFT-91)"
+    "Might change and assert the derived Might/combat damage (Expr lacks a player-attribute reader and " +
+    "the CardProgram-to-layers binding remains RIFT-257)"
 );

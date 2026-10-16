@@ -25,8 +25,8 @@ test("ogn-168-298 Fight or Flight: program passes validateCardProgram", () => {
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /cost\.hidden/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.equal(
     program.sourceText,
     "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n" +
@@ -110,5 +110,5 @@ test("ogn-168-298 Fight or Flight golden: a stale target is ignored (359.3.e)", 
 test.todo(
   "ogn-168-298 Fight or Flight: the [Hidden] half — Hide now for :rb_rune_rainbow: and the " +
     "facedown play for :rb_energy_0: with its later Reaction timing — depends on cost.hidden " +
-    "(RIFT-89) and the continuous.timing consumer (RIFT-91)"
+    "and its CardProgram/Finalize binding (RIFT-257/RIFT-261); continuous.timing/canAct is already merged"
 );

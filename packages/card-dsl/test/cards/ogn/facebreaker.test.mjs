@@ -59,7 +59,8 @@ test("Facebreaker identity and judge-required status match the printing", () => 
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.judgeReason.includes("cost.hidden"), true);
-  assert.equal(program.judgeReason.includes("RIFT-84"), true);
+  assert.equal(program.judgeReason.includes("RIFT-257"), true);
+  assert.equal(program.judgeReason.includes("RIFT-261"), true);
   assert.equal(program.judgeReason.includes("sameLocationAs"), true);
   assert.equal(
     program.sourceText,
@@ -211,7 +212,7 @@ test("Facebreaker anchor: the enemy spec matches only a unit at the first target
 test.todo(
   "Facebreaker: Hide for :rb_rune_rainbow: and the facedown reaction play (for " +
     ":rb_energy_0:) need a consumer for Hidden's cost.hidden expansion (the keyword " +
-    "expansion itself merged as RIFT-84) plus the facedown zone and its cost plan."
+    "definition is merged) plus the facedown zone and its cost plan (RIFT-257/RIFT-261)."
 );
 
 test.todo(

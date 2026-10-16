@@ -18,18 +18,18 @@ import type { CardProgram } from "../../ir/index.js";
  *   target with `sameLocationAs` and excludes the target itself, which the
  *   interpreter's set-query anchors support (contract 3.6 selectors).
  *
- * Status: judge-required — both Might clauses need a primitive that is not
- * merged:
+ * Status: judge-required — both Might clauses use the merged continuous.might
+ * instruction, but the complete Reaction play still needs card-program and
+ * timing integration:
  * - "+1 Might this turn" / "an additional +1 Might this turn" are temporary
  *   Might modifications. The closed GameAction set of contract 3.6 has no
  *   Might-modification action, and effect.buff's own header states that
  *   temporary Might changes belong to continuous.might, never to the Buff
  *   primitive (CR 703: a Buff contributes +1 Might because it is a counter,
  *   which is not the same object as a temporary Might modification). The
- *   merged layers engine does evaluate arithmetic-layer continuous.might
- *   registrations and expires end-of-turn durations, but no file under
- *   effects/instructions/ registers one through ResolveContext.addContinuous,
- *   so no merged opcode reaches that engine path for a resolving spell.
+ *   merged layers engine evaluates arithmetic-layer continuous.might
+ *   registrations and expires end-of-turn durations; the instruction is
+ *   registered under effects/instructions/continuous.might.ts.
  * - The two clauses are sequential and the second is conditional (CR 158.1:
  *   a spell's text executes top to bottom), so the shape is two consecutive
  *   continuous.might instructions with the second carrying the condition;
@@ -40,13 +40,9 @@ const enGarde = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺临时 Might 修正原语：“+1 Might this turn”与“若它是你在那里的唯一单位则再 +1 Might this turn”" +
-    "都是带回合期限的临时 Might 修改；契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，" +
-    "effect.buff 文件头也明确临时 Might 归 continuous.might（layers 引擎已能求值 arithmetic 层持续效果，" +
-    "但 effects/instructions 下没有任何注册该持续效果的原语通过 ResolveContext.addContinuous 落地），" +
-    "CR 703 的 Buff 计数与它是两回事。两条子句顺序执行、第二条带条件（CR 158.1），" +
-    "因此写成两条 continuous.might，第二条带“你在目标所在地只有它一个单位”的 count 条件；" +
-    "依赖 continuous.might 指令原语（RIFT-9 清单；RIFT-91 已合入 layers 求值侧）。不近似实现。",
+    "continuous.might 原语与 end-of-turn 图层消费已经合入（RIFT-258/259），两条 +1 Might 子句可由解释器真实注册；" +
+    "仍缺 Reaction 卡牌从 CardProgram 到 Chain 的速度、目标绑定与条件查询接线，尤其是“唯一友方单位”条件在正式 Finalize/Resolve 上下文的生命周期接入" +
+    "（RIFT-257；CR 158.1、355.9.b）。不近似实现。",
   sourceText:
     "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +
     "Give a friendly unit +1 :rb_might: this turn, then an additional +1 :rb_might: this turn " +
@@ -61,7 +57,8 @@ const enGarde = {
           op: "continuous.might",
           args: {
             amount: { kind: "constant", value: 1 },
-            duration: { kind: "constant", value: "this-turn" }
+            duration: { kind: "constant", value: "this-turn" },
+            target: { kind: "constant", value: "friendly-unit" }
           },
           targets: [
             {
@@ -98,7 +95,8 @@ const enGarde = {
           },
           args: {
             amount: { kind: "constant", value: 1 },
-            duration: { kind: "constant", value: "this-turn" }
+            duration: { kind: "constant", value: "this-turn" },
+            target: { kind: "constant", value: "friendly-unit" }
           },
           targets: [
             {

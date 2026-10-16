@@ -39,8 +39,8 @@ import type { CardProgram } from "../../ir/index.js";
  * - The stun instructions themselves can be declared with merged primitives.
  *   The card still stays judge-required because Hidden cannot be played by
  *   its printed route: the Hide action, the facedown zone and the free
- *   facedown play need a consumer for cost.hidden (RIFT-84 merged the
- *   keyword expansion; no merged code reads that effect yet, and
+ *   facedown play need a consumer for cost.hidden (the Hidden KeywordDef is
+ *   merged; no merged code reads that effect yet, and
  *   cost/README.md records the missing zones/actions). Both printed
  *   instructions execute against the merged kernel, and the golden test
  *   covers the normal case, an already-stunned member and a stale enemy
@@ -51,9 +51,9 @@ const facebreaker = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Hidden] 展开仍不可执行：RIFT-84 已合入 Hidden 关键词展开，但它的 cost.hidden 持续效果没有消费方——" +
+    "[Hidden] 展开仍不可执行：Hidden KeywordDef 已合入，但它的 cost.hidden 持续效果没有消费方——" +
     "没有已合入代码据它授予 Hide 动作、facedown 区域或 facedown 打出许可；cost/README.md 记录现有区域与动作尚缺" +
-    "Hide/facedown。两条正文指令（两个目标式 effect.stun，第二个用 sameLocationAs 绑定同一战场）已可用已合入" +
+    "Hide/facedown（RIFT-257、RIFT-261）。两条正文指令（两个目标式 effect.stun，第二个用 sameLocationAs 绑定同一战场）已可用已合入" +
     "解释器与目标系统真实执行，见 golden 测试；整卡不因正文可执行而宣称 executable。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },

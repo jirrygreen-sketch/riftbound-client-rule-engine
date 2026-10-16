@@ -5,7 +5,6 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/dr-mundo-expert.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
-import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const [staticAbility, triggered] = program.abilities;
@@ -58,7 +57,7 @@ test("Dr. Mundo, Expert identity and judge-required reason", () => {
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /479\.4/);
   assert.equal(
     program.sourceText,
@@ -92,13 +91,6 @@ test("structure: Beginning Phase trigger recycling 3 from your trash", () => {
   });
   assert.equal(triggered.trigger.once, undefined, "start-of-phase trigger fires every turn");
   assert.equal(triggered.optional, false);
-  // 卡 IR 的 ObjectFilter 用 "controller" 表示「能力控制者」（对照已合入的
-  // ravenbloom-conservatory / minefield 的 player: "controller"）；把它转成引擎运行时的
-  // TriggerRegistration/EventPattern 拼写属尚未合入的 card-program adapter
-  // （events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 与 PlayerSelector 是更窄的运行时
-  // 形状），因此这里不断言引擎侧 trigger 校验，见文件末尾 TODO。
-  assert.equal(validateTriggerSpec(triggered.trigger).ok, false);
-
   assert.equal(triggered.body.length, 1);
   const [recycle] = triggered.body;
   assert.equal(recycle.id, "mundo.recycle-3");
@@ -164,11 +156,11 @@ test("golden: an empty trash recycles nothing and does not fail the trigger", ()
 
 test.todo(
   "Dr. Mundo, Expert: applying 'My Might is increased by the number of cards in your trash' as a " +
-    "continuous.might arithmetic layer effect that re-evaluates as the trash changes (RIFT-91; CR 479.4)"
+    "dynamic arithmetic-layer amount needs count evaluation in LayerEngine and the CardProgram-to-layers " +
+    "binding (CR 479.4; RIFT-257)"
 );
 
 test.todo(
-  "Dr. Mundo, Expert: the card-program adapter must translate the card IR's phase-trigger filter " +
-    "({ event: 'beginning-start', player: 'controller' }) into the runtime TriggerRegistration shape " +
-    "(events/trigger-spec.ts enum/player-selector surface) — RIFT-8x/91"
+  "Dr. Mundo, Expert: the CardProgram adapter must bind the phase trigger and static continuous.might " +
+    "effect into the production runtime (beginning-start / RIFT-257)"
 );

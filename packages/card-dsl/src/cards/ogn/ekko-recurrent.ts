@@ -24,27 +24,26 @@ import type { CardProgram } from "../../ir/index.js";
  * - "ready your runes"：416.1 就绪动作；Rune 在基地的 rune-zone（107.1）。
  *   集合查询用 query（355.10.d 的 "ready all …" 型无选择集合），不是 targets。
  *
- * 状态：judge-required。两处依赖未合入：Accelerate 展开（RIFT-89 的
- * cost.additional / cost.pay 与入场替代管线）与 Deathknell 展开
- * （RIFT-82；EffectsIR 的 trigger.leave op、死亡替代移出链、last-known 记录）。
+ * 状态：judge-required。Accelerate 与 Deathknell 的 KeywordDef 已合入；仍缺
+ * Accelerate 的费用/入场替代消费与 Deathknell 的 trigger.leave/事件链消费。
  * 效果本体（recycle me → ready your runes）已用已合入的 effect.recycle /
  * effect.ready 与解释器执行（见 golden）。
  *
- * 依赖：RIFT-82（kw-deathknell-legion）、RIFT-89（batch3-cost-plan）、
- * 入场替代管线（Accelerate 805.2.b）。
+ * 依赖：RIFT-257（KeywordDef/CardProgram 绑定）、RIFT-261（附加费用支付）、
+ * trigger.leave 的事件链消费与入场替代管线（Accelerate 805.2.b）。
  */
 const ekkoRecurrent = {
   canonicalCardId: "card.hash-20b19f69eca1bec8914d6f44145077493010be44bbcce72961eaa633e8a62bd2",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Blocked on both printed keywords: [Accelerate] 展开需要 cost.additional / cost.pay（RIFT-89）与" +
-    "入场就绪替代管线（805.2.b）；[Deathknell] 展开（RIFT-82，kw-deathknell-legion）需要 trigger.leave op、" +
-    "死亡被替代时移出链（808.1.d.1）与进链前记录 last-known（808.1.d.3）。" +
+    "Accelerate 与 Deathknell 的 KeywordDef 已注册，但 [Accelerate] 仍缺 cost.additional/cost.pay 的 Finalize 消费（RIFT-261）" +
+    "与 805.2.b 入场就绪替代接线；[Deathknell] 仍缺 trigger.leave 的 object-killed 事件订阅、死亡被替代时移出链" +
+    "（808.1.d.1）与进链前记录 last-known（808.1.d.3）。" +
     "另外 383.3.b 把「Recycle me」定义为该触发能力的基础费用，冻结 IR 的 triggered ability 无 cost 字段，" +
     "只能按“首条指令 = 前导费用”写出，等待 card-program adapter 解析。" +
     "效果本体本身可执行：effect.recycle（me）+ effect.ready（your runes）。" +
-    "依赖：RIFT-82、RIFT-89、入场替代管线。",
+    "依赖：RIFT-257、RIFT-261、trigger.leave 事件链消费与入场替代管线。",
   abilities: [
     { kind: "keyword", keyword: "accelerate" },
     { kind: "keyword", keyword: "deathknell" },
