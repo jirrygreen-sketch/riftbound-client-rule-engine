@@ -26,9 +26,10 @@ import type { CardProgram } from "../../ir/index.js";
  * golden test, but the printed [Hidden] half is not executable:
  * keywords/Hidden.ts expands to `cost.hidden`, and its own header records that
  * the Hide action, the facedown-zone restrictions and the free play from the
- * facedown zone are not merged (RIFT-89), and that the "react with later"
- * timing permission needs the `continuous.timing` consumer (RIFT-91). Without
- * that path "Hide now … to react with later" cannot be performed, so the card
+ * facedown zone are not merged. The continuous.timing primitive and its
+ * canAct consumer are already present; the cost.hidden consumer still must
+ * grant the "react with later" permission. Without that path
+ * "Hide now … to react with later" cannot be performed, so the card
  * cannot be called executable (cards README §2/§5).
  */
 const fightOrFlight = {
@@ -37,7 +38,7 @@ const fightOrFlight = {
   status: "judge-required",
   judgeReason:
     "缺 [Hidden] 的可执行路径：keywords/Hidden.ts 的展开依赖 cost.hidden 的 Hide 行动、facedown 区域限制与从 " +
-    "facedown 免费打出（RIFT-89），以及 continuous.timing 的后续 Reaction 时机许可（RIFT-91）；两者未合入前，" +
+    "facedown 免费打出，以及将后续 Reaction 许可接入现有 continuous.timing/canAct；这些 cost.hidden 与卡牌绑定缺口依赖 RIFT-257、RIFT-261。" +
     "「Hide now for [A] to react with later for [0]」无法执行。Move 半段只用已合入的 effect.move 表达并有执行测试。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },

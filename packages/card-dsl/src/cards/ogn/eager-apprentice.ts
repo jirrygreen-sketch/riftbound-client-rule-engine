@@ -18,7 +18,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   total discounts are cost-plan responsibilities that only exist for
  *   caller-supplied discounts;
  * - "spells you play" additionally needs the playing-player scope, which
- *   belongs to the layers / cost batches (RIFT-91, RIFT-89).
+ *   belongs to the cost.modify and CardProgram binding batches (RIFT-261, RIFT-257).
  * Not approximated: the reduction is kept as data instead of a substituted
  * Energy cost, and `energy: null` on the source card is never treated as 0.
  */
@@ -27,10 +27,10 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺少把静态减费效果接进 Finalize 费用计划的消费者：契约 3.6 没有已注册的 cost.modify / cost 原语，" +
+    "缺少把静态减费效果接进 Finalize 费用计划的消费者：RIFT-261 的 cost.modify / cost.pay 费用原语尚未合入，" +
     "cost/cost-plan.ts 只在调用方显式提供 CostPlanInput.discounts 时应用折扣（356.4.c.1 / 356.4.d 的组件与总价顺序、" +
-    "356.4.e 每条折扣自带最低值），层系统（continuous 成本层）未合入；「spells you play」的玩家范围同理。" +
-    "依赖：RIFT-89（cost plan）、RIFT-91（layers-continuous）；不近似实现。",
+    "356.4.e 每条折扣自带最低值），CardProgram 到 Finalize 费用计划的绑定也尚未合入；「spells you play」的玩家范围同理。" +
+    "依赖：RIFT-261（费用原语）与 RIFT-257（CardProgram 绑定）；不近似实现。",
   abilities: [
     {
       kind: "static",

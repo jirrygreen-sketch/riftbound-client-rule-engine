@@ -23,17 +23,12 @@ import type { CardProgram } from "../../ir/index.js";
  *   the ability source (355.10.g / 412.4); already-ready units are left
  *   untouched (416.1.b/416.1.c).
  * - "and give me +1 :rb_might: this turn": a temporary Might modification with
- *   an end-of-turn duration, described below in the layers contract shape; no
- *   merged primitive consumes it (see judgeReason).
+ *   an end-of-turn duration, executed through continuous.might and the layers engine.
  *
  * Status: judge-required.
- * - "give me +1 [M] this turn" is a temporary Might modification: the closed
- *   GameAction set of contract 3.6 has no Might-modification action, and
- *   effect.buff documents temporary Might changes as layers
- *   `continuous.might` territory (Buff is a +1 Might counter of which a unit
- *   can hold one, 702.3/703 — a different object). The layers consumer with an
- *   end-of-turn duration (RIFT-91) is not merged, and no code registers a card
- *   program's continuous effects.
+ * - "give me +1 [M] this turn" is a temporary Might modification. The merged
+ *   continuous.might instruction and layer engine consume it; CardProgram
+ *   triggered ability registration remains an adapter concern.
  * - one half of the trigger is separately not executable in production: the
  *   `unit-stunned` timing point has its emitter only in the action pipeline
  *   adapter (events/action-adapter.ts), which today is used only by engine-core
@@ -48,12 +43,9 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「give me +1 :rb_might: this turn」是带 end-of-turn 期限的临时 Might 修正：契约 3.6 封闭 GameAction 无 Might 修改动作，" +
-    "effect.buff 文档明确临时 Might 修改归 layers 的 continuous.might（Buff 是 702.3/703 的 +1 Might 计数器、每单位限一个，语义不同），" +
-    "且没有任何合入路径把卡牌程序的持续效果注册进 layers（RIFT-91）。" +
-    "另：unit-stunned 时点（424.1/424.1.a.1）的发射方只存在于 events/action-adapter.ts 的动作管线适配器，" +
-    "而合入的 ChainEngine 尚未安装该适配器（仅 engine-core 测试使用，RIFT-120 的接线范围）。" +
-    "依赖：RIFT-91（layers-continuous）与 RIFT-120（链/事件管线接线）。不近似实现，不用 Buff 计数器冒充 +1 Might；" +
+    "continuous.might 与 end-of-turn 图层消费已经合入（RIFT-258/259），且 +1 Might 局部效果可由解释器真实执行；" +
+    "仍缺 CardProgram 触发能力到正式事件/链管线的绑定，尤其是 unit-stunned 时点在 ChainEngine 中的触发注册与控制者过滤" +
+    "（CR 424.1/424.1.a.1；RIFT-257、RIFT-270）。不近似实现，不用 Buff 计数器冒充 +1 Might；" +
     "「ready me」本体（effect.ready，416.1）已合入并在 golden 中真实执行。",
   abilities: [
     {
@@ -74,8 +66,6 @@ export default {
           args: {}
         },
         {
-          // "give me +1 [M] this turn" — described via the layers contract
-          // shape; no merged primitive consumes it yet (see judgeReason).
           id: "eclipse-herald.give-plus-1-might",
           op: "continuous.might",
           args: {

@@ -5,7 +5,10 @@ import { validateCardProgram } from "../../../dist/ir/validation.js";
 import enGarde from "../../../dist/cards/ogn/en-garde.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 
 const CANONICAL = "card.hash-9e538f0004c80732dc1212c4b54ff1803de134cd9a4b8e1bb91a6c710b43a73a";
 
@@ -29,8 +32,7 @@ test("En Garde identity, ruleset, status and printed text", () => {
   assert.equal(enGarde.status, "judge-required");
   assert.equal(enGarde.judgeReason.length > 0, true);
   assert.match(enGarde.judgeReason, /continuous\.might/);
-  assert.match(enGarde.judgeReason, /continuous\.might/);
-  assert.match(enGarde.judgeReason, /addContinuous/);
+  assert.match(enGarde.judgeReason, /RIFT-257/);
   assert.equal(cardRegistryById.get(enGarde.canonicalCardId), enGarde);
   assert.equal(
     enGarde.sourceText,
@@ -56,6 +58,7 @@ test("En Garde body: two ordered Might clauses sharing the friendly-unit target"
   for (const instruction of play.body) {
     assert.deepEqual(instruction.args.amount, { kind: "constant", value: 1 });
     assert.deepEqual(instruction.args.duration, { kind: "constant", value: "this-turn" });
+    assert.deepEqual(instruction.args.target, { kind: "constant", value: "friendly-unit" });
     assert.deepEqual(instruction.targets, [
       {
         id: "friendly-unit",
@@ -92,22 +95,46 @@ test("En Garde conditional clause: 'the only unit you control there'", () => {
   });
 });
 
-test("En Garde interpreter: neither Might clause applies anything to the target", () => {
-  const kernel = world().unit("solo", { might: 2 }).unit("elsewhere", { location: { type: "battlefield", id: "battlefield-2" } }).build();
+function runBody(kernel) {
   kernel.setTargets("friendly-unit", [kernel.ref("solo")]);
-  const before = kernel.getObject("solo").might;
+  const context = bindResolveContext(kernel, {
+    query: filter => {
+      const normalized = { ...filter };
+      for (const key of ["controller", "owner"]) {
+        if (normalized[key] === "controller") normalized[key] = kernel.controller;
+      }
+      return kernel.listObjects().filter(object => matchesObjectFilter(normalized, object));
+    }
+  });
+  return runAbilityBody(body, context, undefined, { host: kernel.ref("solo") });
+}
 
-  // The unsupported continuous.might opcode aborts the body instead of
-  // silently applying some other effect: no Buff counter is placed and Might
-  // is untouched (427.1.b.1 / 703).
-  assert.throws(() => runAbilityBody(body, kernel), /continuous\.might/);
-  assert.equal(kernel.getObject("solo").might, before);
-  assert.equal(kernel.getObject("solo").buffs, 0);
+test("En Garde interpreter: an ordinary friendly target gets +1 Might this turn", () => {
+  const kernel = world()
+    .unit("solo", { might: 2, location: { type: "battlefield", id: "battlefield-1" } })
+    .unit("ally", { location: { type: "battlefield", id: "battlefield-1" } })
+    .build();
+  const outcome = runBody(kernel);
+
+  assert.deepEqual(outcome.results.map(result => result.result.status), ["executed", "negated"]);
+  const layers = createLayerEngine([kernel.getObject("solo")], kernel.continuousEffects);
+  assert.equal(layers.evaluate(kernel.ref("solo")).might, 3);
+  layers.advance({ id: "turn-end" });
+  assert.equal(layers.evaluate(kernel.ref("solo")).might, 2);
+});
+
+test("En Garde interpreter: a unique friendly target gets the additional +1 Might", () => {
+  const kernel = world().unit("solo", { might: 2 }).build();
+  const outcome = runBody(kernel);
+
+  assert.deepEqual(outcome.results.map(result => result.result.status), ["executed", "executed"]);
+  const layers = createLayerEngine([kernel.getObject("solo")], kernel.continuousEffects);
+  assert.equal(layers.evaluate(kernel.ref("solo")).might, 4);
+  layers.advance({ id: "turn-end" });
+  assert.equal(layers.evaluate(kernel.ref("solo")).might, 2);
 });
 
 test.todo(
-  "En Garde: +1 Might this turn, then an additional +1 Might this turn when the target is the only " +
-    "unit you control there (CR 158.1 ordering + indefinite Might without a Buff counter) - needs " +
-    "the continuous.might instruction primitive with an end-of-turn duration (RIFT-9 primitive list; " +
-    "the layers evaluation side already landed with RIFT-91)"
+  "En Garde: bind the Reaction CardProgram to the production Chain target plan and timing window, " +
+    "including the location-scoped unique-unit condition (CR 158.1 / 355.9.b; RIFT-257)"
 );

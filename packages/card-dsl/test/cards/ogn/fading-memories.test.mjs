@@ -3,6 +3,9 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/fading-memories.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
 const CARD_ID = "card.hash-14d6255fe1976a488bb687562e989583b5f23cc0d020651042bf3573f790809b";
 const play = program.abilities[0];
@@ -33,7 +36,8 @@ test("ogn-180-298 Fading Memories: one Temporary grant over the printed unit-or-
   assert.equal(grantInstruction.id, "fading-memories.grant-temporary");
   assert.equal(grantInstruction.op, "continuous.grant-keyword");
   assert.deepEqual(grantInstruction.args, {
-    keyword: { kind: "constant", value: "Temporary" }
+    keyword: { kind: "constant", value: "Temporary" },
+    target: { kind: "constant", value: "fading-memories.unit-or-gear" }
   });
   assert.equal(grantInstruction.linkedTo, undefined);
   assert.equal(grantInstruction.picks, undefined);
@@ -49,9 +53,24 @@ test("ogn-180-298 Fading Memories: one Temporary grant over the printed unit-or-
   });
 });
 
+test("ogn-180-298 Fading Memories golden: the chosen unit gains Temporary", () => {
+  const base = world().unit("target", { keywords: [] }).build();
+  base.setTargets(targetSpec.id, [base.ref("target")]);
+  const kernel = base.clone({ source: base.ref("target"), sourceSnapshot: base.getObject("target") });
+  const outcome = runAbilityBody(
+    play.body.map(({ targets, ...instruction }) => instruction),
+    kernel,
+    undefined,
+    { host: kernel.ref("target") }
+  );
+
+  assert.equal(outcome.results[0].result.status, "executed");
+  const layers = createLayerEngine([kernel.getObject("target")], kernel.continuousEffects);
+  assert.deepEqual(layers.evaluate(kernel.ref("target")).keywords, [{ id: "Temporary", value: undefined }]);
+});
+
 test.todo(
-  "ogn-180-298 Fading Memories: granting [Temporary] to the chosen permanent, and its 816.1.b " +
-    "kill at the start of that permanent's controller's Beginning Phase before scoring, need a " +
-    "merged Temporary KeywordDef plus the continuous-effect layer consumer (RIFT-91) and a " +
-    "delayed-trigger registration at the beginning-start timing point"
+  "ogn-180-298 Fading Memories: CardProgram grants must expand Temporary into its " +
+    "beginning-start kill trigger, and the target adapter must support the printed unit-at-battlefield-or-gear " +
+    "disjunction (CR 816.1.b/816.1.c; RIFT-257/RIFT-270)"
 );

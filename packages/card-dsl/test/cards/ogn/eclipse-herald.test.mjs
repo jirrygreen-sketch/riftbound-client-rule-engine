@@ -5,7 +5,9 @@ import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/eclipse-herald.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
 const CANONICAL =
   "card.hash-67719b3d2e3e5ab46c7824a9f7d294656d3d356fc92ad47c06b92e52e7f62fc1";
@@ -56,8 +58,8 @@ test("ogn-059-298 Eclipse Herald: body readies the source and describes the +1 M
   assert.equal(readyInstruction.targets, undefined);
   assert.equal(readyInstruction.linkedTo, undefined);
 
-  // "give me +1 [M] this turn": a temporary Might modification, described in
-  // the layers shape; no merged primitive consumes it (see judgeReason).
+  // "give me +1 [M] this turn": a temporary Might modification consumed by
+  // the merged continuous.might instruction and layers engine.
   assert.equal(mightInstruction.id, "eclipse-herald.give-plus-1-might");
   assert.equal(mightInstruction.op, "continuous.might");
   assert.deepEqual(mightInstruction.args, {
@@ -128,20 +130,22 @@ test("ogn-059-298 Eclipse Herald golden: a stale source reference makes ready ig
   assert.equal(run.result.reason, "mistargeted");
 });
 
-// ---------------------------------------------------------------------------
-// Not executable — TODO items with real causes (see judgeReason).
-// ---------------------------------------------------------------------------
+test("ogn-059-298 Eclipse Herald golden: +1 Might applies through turn-end", () => {
+  const base = world().unit("herald", { might: 7 }).build();
+  const kernel = base.clone({ source: base.ref("herald"), sourceSnapshot: base.getObject("herald") });
+  const outcome = runAbilityBody([mightInstruction], kernel, undefined, { host: kernel.ref("herald") });
 
-test.todo(
-  "ogn-059-298 Eclipse Herald: 'give me +1 [M] this turn' needs a merged continuous.might " +
-    "consumer with an end-of-turn duration (contract 3.6 has no might-modification GameAction; " +
-    "effect.buff is the 702.3/703 single +1 Buff counter); RIFT-91 layers-continuous"
-);
+  assert.equal(outcome.results[0].result.status, "executed");
+  const layers = createLayerEngine([kernel.getObject("herald")], kernel.continuousEffects);
+  assert.equal(layers.evaluate(kernel.ref("herald")).might, 8);
+  layers.advance({ id: "turn-end" });
+  assert.equal(layers.evaluate(kernel.ref("herald")).might, 7);
+});
 
 test.todo(
   "ogn-059-298 Eclipse Herald: the unit-stunned timing point's only emitter is the action " +
-    "pipeline adapter (events/action-adapter.ts), which the merged ChainEngine does not install " +
-    "today (only engine-core's chain test helper does) — RIFT-120 chain/event wiring"
+    "pipeline adapter (events/action-adapter.ts), but the CardProgram trigger binding and production " +
+    "Chain event registration remain RIFT-257/RIFT-270 work"
 );
 
 test.todo(

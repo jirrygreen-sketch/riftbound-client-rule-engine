@@ -3,11 +3,9 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/dune-drake.js";
-// card-dsl has no dependency edge on engine-core (engine-core depends on
-// card-dsl), so dependency evidence loads the built engine through its
-// workspace layout instead of the package name.
-const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
-const { instructionDefinitionsById } = await import(new URL("effects/instructions/registry.generated.js", engineCore));
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-129e18f9d31400f8fce66c0a8cb60d4ca43ce586a107ec18cb24bee9d79e81d9";
 const [attackTrigger] = program.abilities;
@@ -72,25 +70,26 @@ test("structure: body grants +2 Might for this turn through the layers contract 
   assert.deepEqual(grantInstruction.args.duration, { kind: "constant", value: "this-turn" });
   // "me" is the host, not a chosen target (CR 355.10.d): the symbolic
   // selector "self" is used, never a fabricated TargetSpec or ObjectRef.
-  assert.deepEqual(grantInstruction.args.object, { kind: "constant", value: "self" });
+  assert.deepEqual(grantInstruction.args.appliesTo, { kind: "constant", value: "self" });
   assert.equal(grantInstruction.targets, undefined);
   assert.equal(grantInstruction.picks, undefined);
   assert.equal(grantInstruction.linkedTo, undefined);
 });
 
-test("dependency evidence: no merged instruction implements a Might modification", () => {
-  assert.equal(instructionDefinitionsById.has("continuous.might"), false);
-  assert.equal(instructionDefinitionsById.has("effect.might-modify"), false);
-  // The temporally-bounded Might change is not a Buff counter (CR 702/703).
-  assert.equal(instructionDefinitionsById.has("effect.buff"), true);
+test("golden: the +2 Might grant registers and expires at turn-end", () => {
+  const base = world().unit("drake", { might: 5 }).build();
+  const kernel = base.clone({ source: base.ref("drake"), sourceSnapshot: base.getObject("drake") });
+  const outcome = runAbilityBody([grantInstruction], kernel, undefined, { host: kernel.ref("drake") });
+
+  assert.equal(outcome.results[0].result.status, "executed");
+  const layers = createLayerEngine([kernel.getObject("drake")], kernel.continuousEffects);
+  assert.equal(layers.evaluate(kernel.ref("drake")).might, 7);
+  assert.equal(layers.advance({ id: "turn-end" }).length, 1);
+  assert.equal(layers.evaluate(kernel.ref("drake")).might, 5);
 });
 
 test.todo(
-  "Dune Drake: 'give me +2 [M] this turn' needs continuous.might with an end-of-turn duration " +
-    "(layers, CR 479 / 143.2.a) — not implemented (RIFT-83/84/91). Buff counters are not equivalent " +
-    "(CR 702/703)"
-);
-test.todo(
   "Dune Drake: the trigger only becomes reachable when the combat flow emits attack-declared " +
-    "(CR 383.4.e / 466.2.c); engine batch 5 combat emits no timing points today"
+    "and resolves its ready-enemy condition (CR 383.2.a.1 / 383.4.e / 466.2.c); the combat role " +
+    "transaction and CardProgram trigger binding remain RIFT-124/RIFT-257/RIFT-270 work"
 );

@@ -23,9 +23,8 @@ export default {
   judgeReason:
     "缺两块已合入依赖：(1)「When you play a card from [Hidden]」需要 card-played 事件携带被与否决的" +
     "facedown/Hidden 打出来源判别（CR 811.1.d），现有时点 payload 无该字段，Hidden 关键词展开目前" +
-    "只有 cost.hidden 静态占位；(2)「give me +2 :rb_might: this turn」需要带 end-of-turn 期限的" +
-    "continuous.might 持续效果，当前没有已注册实现，effect.buff 只处理 Buff 计数器（703）。" +
-    "依赖：RIFT-84（Hidden 关键词展开/facedown 语义）、RIFT-91（layers-continuous）。",
+    "只有 cost.hidden 静态占位；(2) continuous.might 与 end-of-turn 图层消费已经合入，+2 Might 局部效果可执行，" +
+    "但卡牌程序触发绑定仍需把来源字段接入正式事件链。依赖：RIFT-257（CardProgram/事件绑定）与 RIFT-261（cost.hidden 消费）。",
   abilities: [
     {
       kind: "triggered",

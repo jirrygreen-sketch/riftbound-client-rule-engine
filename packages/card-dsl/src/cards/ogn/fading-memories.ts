@@ -28,29 +28,20 @@ import type { CardProgram } from "../../ir/index.js";
  *   no end-of-turn duration — the kill happens at the controller's Beginning
  *   Phase (816.1.b), not when an effect expires.
  *
- * Status: judge-required — no merged path can perform the grant:
- * - there is no merged "grant keyword to an object" primitive: the keyword
- *   registry has no Temporary definition (it is listed as unmerged in
- *   ability-templates.md kw-temporary, blocked for 2 cards), and the
- *   continuous-effect consumers for a duration-bounded keyword grant are the
- *   RIFT-91 layers work;
- * - Temporary's own rule text (816.1.b) is a triggered kill at the start of
- *   the controller's Beginning Phase, before scoring (816.1.c). The merged
- *   timing points include "beginning-start", but there is no merged primitive
- *   or keyword expansion that registers that delayed trigger, and doing it by
- *   hand in the card would re-implement the keyword (README section 5).
- * The structure below records the choice; execution stays TODO until the
- * Temporary keyword and the continuous/trigger plumbing land.
+ * Status: judge-required — continuous.grant-keyword and the Temporary KeywordDef
+ * are merged, so the grant can be executed through the interpreter and layer
+ * engine. The remaining gaps are the adapter that expands granted keywords
+ * into live triggers, the Beginning Phase trigger subscription, and the
+ * disjunctive unit-at-battlefield-or-gear target filter.
  */
 const fadingMemories = {
   canonicalCardId: "card.hash-14d6255fe1976a488bb687562e989583b5f23cc0d020651042bf3573f790809b",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 [Temporary] 关键词的可执行展开与原语：keywords/ 无 Temporary 定义（ability-templates.md kw-temporary 未实现），" +
-    "没有已合入的「向对象授予带期限关键词」原语，也缺 RIFT-91 的图层/持续效果消费方；" +
-    "Temporary 本体（CR 816.1.b/816.1.c：控制者 Beginning Phase 开始、计分前消灭它）需要在 beginning-start 注册延迟触发，同样无已合入路径，" +
-    "卡内手写会重复关键词展开（README 第 5 节禁止）。目标选择形状已按 355.10.b 记录；不近似实现。",
+    "continuous.grant-keyword 原语、ability 图层消费与 Temporary KeywordDef 已合入，选择目标后授予 Temporary 的局部效果可执行；" +
+    "仍缺 CardProgram 适配器把授予的 KeywordDef 接入实时触发注册，以及 Temporary 在目标控制者 Beginning Phase 的 beginning-start 触发链路" +
+    "（CR 816.1.b/816.1.c；RIFT-257、RIFT-270）。此外冻结的 ObjectFilter 还不能表达“战场上的单位或任意 Gear”的析取目标，不能宣称整卡 executable。",
   abilities: [
     {
       kind: "play",
@@ -59,7 +50,8 @@ const fadingMemories = {
           id: "fading-memories.grant-temporary",
           op: "continuous.grant-keyword",
           args: {
-            keyword: { kind: "constant", value: "Temporary" }
+            keyword: { kind: "constant", value: "Temporary" },
+            target: { kind: "constant", value: "fading-memories.unit-or-gear" }
           },
           targets: [
             {

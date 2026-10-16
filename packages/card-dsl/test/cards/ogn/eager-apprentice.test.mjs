@@ -14,8 +14,8 @@ test("Eager Apprentice program validates and is judge-required", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /cost\.modify|CostPlanInput\.discounts|cost\/cost-plan/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(
     program.sourceText,
     "While I'm at a battlefield, the Energy costs for spells you play is reduced by :rb_energy_1:, to a minimum of :rb_energy_1:."
@@ -49,10 +49,10 @@ test("Eager Apprentice structure: one static cost-modification ability gated on 
 test.todo(
   "Eager Apprentice discount applies at Finalize: Energy cost of a spell the controller plays is reduced " +
     "by 1 with the printed minimum of 1 (356.4.c.1 / 356.4.d ordering, 356.4.e per-discount floor), consumed by " +
-    "the cost plan (RIFT-89) from a layers-registered continuous.cost-modification (RIFT-91)"
+    "the cost plan through cost.modify and CardProgram binding (RIFT-261/RIFT-257)"
 );
 
 test.todo(
   "Eager Apprentice scope: the discount does not apply while the unit is at Base, and the minimum is a per-discount " +
-    "floor (356.4.e worked example with Sky Splitter), verified once the cost consumer lands (RIFT-89)"
+    "floor (356.4.e worked example with Sky Splitter), verified once the cost consumer lands (RIFT-261)"
 );

@@ -47,8 +47,8 @@ test("Ekko, Recurrent identity and judge-required reason", () => {
   );
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /RIFT-82/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /383\.3\.b/);
   assert.equal(
     program.sourceText,
@@ -176,18 +176,20 @@ test("golden: with no exhausted rune the ready instruction still executes with z
 });
 
 test.todo(
-  "Ekko, Recurrent: [Deathknell] expansion (RIFT-82) — subscribing object-killed through the keyword " +
+  "Ekko, Recurrent: the registered Deathknell KeywordDef still needs its trigger.leave/object-killed " +
+    "consumer — subscribing object-killed through the keyword " +
     "registry, removing the pending item when the death is replaced (808.1.d.1), and recording " +
     "last-known information before the trash move (808.1.d.3)"
 );
 
 test.todo(
-  "Ekko, Recurrent: [Accelerate] expansion (RIFT-89 + the entry replacement pipeline) — the optional " +
+  "Ekko, Recurrent: the registered Accelerate KeywordDef still needs cost.modify/cost.pay and the entry " +
+    "replacement pipeline (RIFT-261) — the optional " +
     "{1 energy + 1 Mind power} additional cost and the enter-ready replacement (805.2.b / 805.6)"
 );
 
 test.todo(
   "Ekko, Recurrent: the card-program adapter must parse the leading 'Recycle me' instruction into the " +
     "triggered ability's base cost at Finalize (CR 383.3.b.1), so the trigger only enters the chain " +
-    "once the cost is paid"
+    "once the cost is paid (RIFT-257)"
 );
