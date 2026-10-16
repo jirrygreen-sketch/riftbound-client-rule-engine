@@ -1,0 +1,101 @@
+import type { Ability, CardProgram } from "../../ir/index.js";
+
+/**
+ * Shard of Undoing (unl-174-219) — Gear, 6 energy, Might null（无印刷 Might）, Order, tags []。
+ *
+ * sourceText（逐字取自 packages/card-data/data/deck-catalog.json, unl-174-219）：
+ *   "The first time a friendly unit dies during your Beginning Phase each turn, " +
+ *   "each opponent must kill one of their units."
+ *
+ * 规则依据（CR v1.5）：
+ * - 383.1："… each turn, …" 起头的句子是触发能力；触发事件是"一个友方单位死亡"。
+ *   死亡观察点是封闭时点 object-killed（429.1 / 429.2.a：从 Board 进入 Trash；
+ *   808.1.d 记录自身死亡触发在替代处理后、实际换区前收集）。
+ * - 429.1.a.1 / 429.6："each opponent must kill one of their units" 是 Kill Instruction
+ *   （"Kill [one or more permanents]."）；执行者是各对手自己，用已合入的 effect.kill。
+ *   被消灭的单位是各对手按自己意愿选出的（355.10.d 不适用的"必须完成"指示，
+ *   355.10.f），因此是 picks（由其它玩家选定的集合，355.10.e），不是目标。
+ * - 315.2 / 315.2.a-b："during your Beginning Phase" 把触发窗口限定在本回合的
+ *   Beginning 阶段（beginning-start → beginning-end）。
+ * - 383.3.e.1 / 383.1 的 "The first time … each turn" 是每回合一次的频度限制。
+ *
+ * status = judge-required（缺口不近似实现）：
+ * - "during your Beginning Phase" 的阶段窗口没有可执行的触发器过滤：TriggerSpec 的
+ *   ObjectFilter / EventPattern 只有对象特征与 fromZone/toZone/amount/details 等键
+ *   （events/trigger-spec.ts 的 validateTriggerSpec 还拒绝额外键），没有"事件发生在哪个
+ *   回合/阶段"的谓词；ObjectSnapshot 也不暴露阶段。已合入的 beginning-start 时点
+ *   （timing-points.ts）是阶段开始时刻，与"本阶段内任意时刻发生的死亡"不等价——
+ *   写成 beginning-start 会漏掉本阶段后续时点造成的死亡，写成无条件 once: "per-turn"
+ *   会把其它阶段的死亡也算进来，两者都是错误近似。
+ * - "each opponent" 的扇出缺原语：effect.kill 每一条指令只读取一个 picks 集合，没有
+ *   按对手逐个绑定"由该对手选择并支付"的循环（与 ogn/kings-edict、rad/suave-negotiator
+ *   的 target.player / 多玩家选择缺口同源）。
+ * - 卡牌程序 → 触发注册的接线（契约 3.5）同样未合入。
+ * 已合入部分由 golden 真实执行：effect.kill 消费 picks（429.1.a.1 / 429.6）。
+ * 依赖：阶段窗口谓词 / 事件载荷扩展（契约变更请求）、多玩家逐对手选择原语（RIFT-9
+ * target.player 家族）、契约 3.5 触发接线；不近似实现。
+ */
+const abilities: Ability[] = [
+  {
+    kind: "triggered",
+    trigger: {
+      at: "object-killed",
+      filter: {
+        event: "object-killed",
+        // "a friendly unit"：死亡者由本能力控制者控制（383.1 的触发条件）。
+        object: { type: "unit", controller: "self" },
+        // "during your Beginning Phase" 与 "the first time … each turn" 是描述性键：
+        // 前者等阶段窗口谓词，后者需要按触发玩家计的每回合一次（见 judgeReason）。
+        duringPhase: "beginning",
+        firstTimeEachTurn: true
+      }
+    },
+    optional: false,
+    body: [
+      {
+        id: "shard-of-undoing.kill-opponent-units",
+        op: "effect.kill",
+        args: {
+          // 355.10.e / 355.10.f：各对手必须消灭自己单位，由各对手选择；
+          // 由其它玩家选定的集合是 picks，不是目标。
+          picks: { kind: "constant", value: "shard-of-undoing.opponent-units" }
+        },
+        picks: [
+          {
+            id: "shard-of-undoing.opponent-units",
+            // 每个对手各选一个自己控制的单位（缺少逐对手扇出，见 judgeReason）。
+            options: ["runtime:one-unit-per-opponent"],
+            filter: { type: "unit", controller: "opponent" },
+            min: 0,
+            max: null,
+            selection: "any"
+          }
+        ]
+      }
+    ]
+  }
+];
+
+const program = {
+  canonicalCardId:
+    "card.hash-6c9353964d68cf174354c551a4cf9b2c7ca9c3322303954f03d108f7f1bca840",
+  rulesetVersion: "core-1.5" as const,
+  status: "judge-required" as const,
+  judgeReason:
+    "三处缺口：(1)「during your Beginning Phase」的阶段窗口没有可执行的触发器过滤：TriggerSpec 的 ObjectFilter / " +
+    "EventPattern 只有对象特征与 fromZone/toZone/amount/details 等键（events/trigger-spec.ts 的 " +
+    "validateTriggerSpec 还拒绝额外键），没有「事件发生在哪个回合/阶段」的谓词，ObjectSnapshot 也不暴露阶段；" +
+    "beginning-start 时点（315.2.a.1）只是阶段开始时刻，与「本阶段内任意时刻的死亡」不等价——写成它会漏掉" +
+    "本阶段后续时点造成的死亡，写成无条件 once: \"per-turn\" 又会把其它阶段的死亡算进来，两者都是错误近似。" +
+    "(2)「each opponent」缺逐对手扇出：effect.kill 每条指令只读一个 picks 集合，没有按对手逐个绑定" +
+    "「由该对手选择并消灭」的循环（与 ogn/kings-edict、rad/suave-negotiator 的玩家选择缺口同源）。" +
+    "(3) 卡牌程序→触发注册的接线（契约 3.5）未合入。已合入部分由 golden 真实执行：effect.kill 消费 picks" +
+    "（429.1.a.1 / 429.6）。依赖：阶段窗口谓词 / 事件载荷扩展（契约变更请求）、多玩家逐对手选择原语" +
+    "（RIFT-9 target.player 家族）、契约 3.5 触发接线；不近似实现。",
+  abilities,
+  sourceText:
+    "The first time a friendly unit dies during your Beginning Phase each turn, " +
+    "each opponent must kill one of their units."
+};
+
+export default program satisfies CardProgram;
