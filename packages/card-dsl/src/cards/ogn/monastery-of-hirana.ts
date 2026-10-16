@@ -24,22 +24,33 @@ import type { CardProgram } from "../../ir/index.js";
  *   top of their Main Deck.
  *
  * Status rationale (contract §3.1, cards README §2) and expected execution:
- * the card is written as judge-required because the buff payment is modelled
- * inside the resolving ability rather than as a Finalize-locked cost plan, and
- * because "you may …" applies to the whole "spend a buff to draw 1" clause:
- * the merged `effect.buff` can decline by negating when nothing was spent, but
- * it does not express "the player may decide not to spend even though a buff
- * was available". The intended shape is the §3.9 optional wrapper around
- * spend-then-draw, with the draw gated on the spend's own linked result
- * ("spentCount") so the draw is not paid for with nothing. The merged
- * instructions are exercised end to end by the golden test.
+ * the card stays judge-required because the printed "you may spend a buff to
+ * draw 1" needs a Finalize-locked payment (383.3.a/383.3.b: the "you may" is
+ * the first part of the effect, so the decision is made while finalizing and
+ * the cost within instructions is the ability's base cost) and the merged code
+ * has neither a `cost.pay` instruction nor a CardProgram cost/trigger binding
+ * (RIFT-261/RIFT-257). The merged `effect.buff` can only decline by negating
+ * after the fact, so a bare choice.optional would still spend the buff
+ * whenever the player accepts. The intended shape is the §3.9 optional
+ * wrapper around spend-then-draw, with the draw gated on the spend's own
+ * linked result ("spentCount") so the draw is not paid for with nothing. The
+ * merged instructions are exercised end to end by the golden test; the
+ * conquer/hold/score wave itself is already emitted by turn/flow's scoring
+ * step (RIFT-270).
  */
 export default {
   canonicalCardId: "card.hash-7616fe7692fc8b3e1bf7fcdbe41d93a4d08639e4c541b02a6378293a286e0550",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "The optional half is not fully expressible: the printed 'you may spend a buff to draw 1' needs the player's decline to be a real choice even when a buff is available, and a Finalize-locked cost (CR 355.10.c.1 / 357) whose payment gates the draw. Merged effect.buff only negates with reason 'skipped' after the fact, and cost.pay has no merged instruction file, so the payment cannot be locked at Finalize; a bare choice.optional would still spend the buff whenever the player accepts. Dependencies: the cost plan / cost.pay workstream (RIFT-89 batch3-cost-plan scope) and the conquer trigger pipeline (RIFT-33 scenarios-triggers). The rest of the card (conquer timing point, spend-buff restrictions of 702.2.b.1/.2, effect.draw) is merged and executed by the golden test.",
+    "仍缺两段可执行连线，不近似实现：(1) 383.3.a/383.3.b 的形状——「you may」是效果首个部分，决定发生在触发能力 finalization 时，「spend a buff」作为 " +
+    "cost within instructions 取其 base cost（355.10.c.1 / 383.3.b.1 / 357）；TriggeredAbility 没有 cost 字段，cost.pay/cost.modify 仍未注册" +
+    "（instructions/ 下没有 cost.* 文件，RIFT-261），费用无法在 Finalize 锁定；合并的 effect.buff 只能在结算后报 skipped，" +
+    "裸 choice.optional 会在玩家接受时必然花掉 buff。(2) CardProgram 触发/费用绑定（RIFT-257）：没有任何已合入路径把本卡的 triggered 能力" +
+    "注册到 conquer 时点（conquer/hold/score 一波已由 turn/flow 的计分步骤原子发出，RIFT-270），也没有把 optional 标记映射成 finalize 决定；" +
+    "触发 filter 还需要绑定面把 IR 形状翻译进封闭词汇与载荷：event 从卡面拼写转为 EventPattern 的 \"conquered\"（pipeline-match 的 EVENT_NAMES），" +
+    "here 占位绑定为 scoring 载荷的 details.battlefieldId 等于注册源战场。" +
+    "其余（702.2.b.1/.2 的 spend-buff 限制、spentCount 门控的 effect.draw 414.3）均已合入并由 golden 真实执行。",
   sourceText: "When you conquer here, you may spend a buff to draw 1.",
   abilities: [
     {

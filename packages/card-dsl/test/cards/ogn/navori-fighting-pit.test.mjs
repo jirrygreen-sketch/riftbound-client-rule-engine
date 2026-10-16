@@ -20,10 +20,13 @@ test("ogn-283-298 Navori Fighting Pit: program validates and is judge-required",
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   // The gap must name the real cause: the hold timing point has no producer in
-  // merged code (not a generic "not implemented yet").
+  // merged code before RIFT-270; after the re-sweep the point is emitted by
+  // turn/flow's scoring wave and the remaining gaps are the here placeholder
+  // binding (RIFT-257) and the 703 Buff -> Might derivation.
   assert.match(program.judgeReason, /hold/);
-  assert.match(program.judgeReason, /RIFT-31/);
-  assert.match(program.judgeReason, /RIFT-33/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /details\.battlefieldId/);
+  assert.match(program.judgeReason, /703/);
   assert.equal(
     program.sourceText,
     "When you hold here, buff a unit here. (If it doesn't have a buff, it gets a +1 :rb_might: buff.)"
@@ -108,17 +111,19 @@ test("ogn-283-298: a unit that already has a buff is not buffed again (CR 702.3.
 });
 
 test("ogn-283-298: the trigger filter still carries the unreplaced here placeholder", () => {
-  // Evidence for the judgeReason: the engine rejects the placeholder key, so
-  // the ability cannot yet run through the real trigger pipeline.
+  // Evidence for the judgeReason: the closed EventPattern vocabulary rejects
+  // the placeholder key, so the binding layer (RIFT-257) must translate it
+  // into the scoring payload's battlefield filter before the trigger can run.
   assert.throws(() => assertTriggerSpec(ability.trigger), /EventPattern 不允许此字段/);
 });
 
 test.todo(
-  "ogn-283-298: the hold timing point is emitted by scoring, enters the chain and the " +
-    "trigger resolves (依赖 RIFT-31 scenarios-scoring / RIFT-33 scenarios-triggers；" +
-    "契约 §7.2 批 5 的 scoring/触发接线)"
+  "ogn-283-298: the hold timing point (now emitted by turn/flow's scoring wave, RIFT-270) reaches " +
+    "this ability through the card-program trigger binding and the here placeholder is bound to the " +
+    "scoring payload's details.battlefieldId (RIFT-257)"
 );
 test.todo(
   "ogn-283-298: 703 layer arithmetic turns the placed Buff into +1 effective Might " +
-    "(依赖 RIFT-91 layers-continuous 的 buffs → Might 结算)"
+    "(the verified gap: LayerEngine keeps the buffs counter but evaluates printed Might; " +
+    "buffs -> Might derivation is not merged)"
 );

@@ -24,17 +24,22 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   任何情况下都不做选择，因此不是目标，用 PickSpec（非目标选择，355.10 + 契约 3.4：
  *   picks 不触发"成为目标"）。
 
- * status 判定（cards/README.md 第 2 节）：judge-required。
- * - "The first time I move each turn" 需要 object-moved 时点的发射方：事件管线的
- *   action 适配器只为 "move-location" 动作发出该时点，而 zones/movement（Standard
- *   Move / Ganking 的战场间移动）尚未接入事件管线，因此触发无法进入链。
- * - "something else that's exhausted" 的 PickSpec 尚无可执行入口：非目标选择由
- *   Finalize 的选择管线提供选项集，当前没有读取 PickSpec 并解析 filter 的已合入入口
- *   （本卡的 filter 还要求"排除来源自身"与 exhausted 状态的组合判定）。
- * 依赖：移动时点接线（zones/movement → 事件管线）、per-turn once 频率与非目标
- * pick 解析（RIFT-90/批 5）。golden 测试用参考内核真实执行 effect.ready 与
- * choice.optional 的两条路径（接受/拒绝），并用结构断言固定 pick 形状。
- * 不近似实现（不把"something else"改成来源自身，也不把非目标选择写成 TargetSpec）。
+ * status 判定（cards/README.md 第 2 节）：judge-required。RIFT-270 之后复核：
+ * - object-moved 时点已由事件管线产生（events/action-adapter.ts 为 "move-location"
+ *   动作发出；turn/flow.ts 对 move-location 补发战场进入/离开），per-turn once
+ *   频率也已由 pipeline 的 frequencyKey/consume 支持。但仍缺"是本卡在移动"的绑定：
+ *   事件物体身份只有运行时 objectId，卡牌程序需要一个 CardProgram →
+ *   TriggerRegistration 的适配层（RIFT-257，未合入）把 self 锚点翻译成注册源。
+ * - 对局实际的 Standard Move / Ganking 战场间移动（zones/movement）尚未接入唯一
+ *   事件管线：duel 侧的 standard move 执行器只把 requiresMoveTriggers 交给外层调用方，
+ *   没有已合入模块把它的移动结果提交为 move-location。
+ * - "something else that's exhausted" 的 PickSpec 仍无解析入口：chain Finalize 只处理
+ *   TargetSpec（target/target-plan.ts 的 finalizePick 没有生产调用方），ctx.picks 仍由
+ *   装配层提供；本卡的 filter 还要求"排除来源自身"与 exhausted 状态的组合判定。
+ * 依赖：RIFT-257（CardProgram 触发绑定）、Standard Move → 事件管线接线、PickSpec 解析。
+ * golden 测试用参考内核真实执行 effect.ready 与 choice.optional 的两条路径（接受/拒绝），
+ * 并用结构断言固定 pick 形状。不近似实现（不把"something else"改成来源自身，
+ * 也不把非目标选择写成 TargetSpec）。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "accelerate" },
@@ -84,15 +89,18 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "移动触发缺少发射路径与选择解析：（1）“The first time I move each turn”（383.1/383.1.b；" +
-    "421.1/449.1 的 Move）需要 object-moved 时点，事件管线只为 " +
-    "move-location 动作生成该时点，而 zones/movement 的 Standard Move / Ganking 战场间移动" +
-    "尚未接入事件管线，因此该触发无法进入链（per-turn 频率也没有真实触发可消费）。" +
-    "（2）“something else that's exhausted” 的排除与状态过滤可由 ObjectFilter 表达，" +
-    "但非目标选择（355.10.d/355.10.d.1，picks 不触发成为目标）需要 Finalize 的非目标" +
-    "选择管线提供选项集，当前没有读取 PickSpec 的已合入入口（RIFT-90/批 5 的目标与选择系统）。" +
-    "依赖：移动时点接线、非目标 pick 解析。Accelerate/Ganking 只按 805/810 声明关键词。" +
-    "golden 测试真实执行 choice.optional 与 effect.ready 的接受/拒绝两条路径。不近似实现。",
+    "移动触发仍不可绑定：（1）object-moved 时点（383.1/383.1.b；421.1/449.1 的 Move）" +
+    "已由 RIFT-270 的管线产生（events/action-adapter.ts 为 move-location 动作发出；" +
+    "turn/flow.ts 补发战场进入/离开），per-turn once 也已由 pipeline 支持；但卡牌程序" +
+    "无法静态表达「是本卡在移动」——事件物体身份只有运行时 objectId，需要一个 " +
+    "CardProgram→TriggerRegistration 的绑定层（RIFT-257）把 self 锚点翻译成注册源。" +
+    "（2）对局实际的 zones/movement（Standard Move / Ganking 战场间移动）未接入唯一" +
+    "事件管线：duel 侧 standard move 执行器只把 requiresMoveTriggers 交给外层调用方。" +
+    "（3）“something else that's exhausted” 的非目标选择（355.10.d/355.10.d.1，picks 不" +
+    "触发成为目标）没有解析入口：chain Finalize 只处理 TargetSpec（finalizePick 无生产" +
+    "调用方），PickSpec 的 filter 解析仍缺。依赖：RIFT-257、Standard Move 接线与 PickSpec 解析。" +
+    "Accelerate/Ganking 只按 805/810 声明关键词。golden 测试真实执行 choice.optional 与 " +
+    "effect.ready 的接受/拒绝两条路径。不近似实现。",
   abilities,
   sourceText:
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_body: as an additional cost to have me enter ready.)\n" +

@@ -30,7 +30,10 @@ test("ogn-170-298 Morbid Return: program passes validateCardProgram", () => {
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.timing/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  // Re-sweep: the [Action] expansion is merged; the blocking gaps are the
+  // layers/canAct consumer and the CardProgram play binding (RIFT-257).
+  assert.match(program.judgeReason, /actionTimings/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(
     program.sourceText,
     "[Action] (Play on your turn or in showdowns.)\n" +
@@ -105,6 +108,7 @@ test("ogn-170-298 Morbid Return golden: a target that left its zone is ignored (
 
 test.todo(
   "ogn-170-298 Morbid Return: the printed [Action] play permission (806.1.c / 159.2.a timing " +
-    "grant, a Showdown play) and the printed-cost payment need the continuous.timing consumer " +
-    "(RIFT-91) and a CardProgram -> ChainDraft play adapter (RIFT-84/85)"
+    "grant, a Showdown play) and the printed-cost payment need a consumer of the continuous.timing " +
+    "grant (chain canAct does not read layers/rules actionTimings) and a CardProgram -> ChainDraft " +
+    "play adapter (RIFT-257)"
 );

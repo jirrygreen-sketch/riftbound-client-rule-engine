@@ -26,16 +26,20 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * “reveal”，也没有 “banish me / If you do” 的部分，且用触发式措辞。两者不能同时成立，
  * 该文本冲突属需要裁定的问题，本程序不改写官方数据，只按本地 sourceText 逐字保留。
  *
- * status 判定（README 第 2 节）：judge-required。除上面的文本/规则冲突外，缺的原语是：
+ * status 判定（README 第 2 节）：judge-required。复核 RIFT-260 后缺的原语是：
  * 1. 从秘密区域（牌库顶被查看时）打出卡牌的许可与打出位置/合法性（420.3.b、355.2 默认
  *    只有手牌能被正常打出；`effect.play` 只接受由调用方给出的 finalized cost plan，
  *    没有任何“从牌库打出”的权限来源）；
  * 2. 替代费用 “for [A]” 的费用计划生成（356.1.a 把 Base Cost 替换为 1 点任意域 Power），
- *    即 `cost.printed` / `cost.modify` 原语与把计划写进 `effect.play` 的链接值形状；
- * 3. 370.1.c.1 要求的“秘密区域内的替代效果与事件同时生效”的替代管线。
- * 依赖：cost.printed / cost.modify（RIFT-89 费用计划）、replacement.enter/event 家族、
- * 以及 look/reveal 上的自触发接线（RIFT-64 effect.inspect 已合入，但 `cards-looked-at`
- * 上“牌库中的牌自身给出许可”的消费方未实现）。
+ *    即 `cost.printed` / `cost.modify` 原语（RIFT-261，仍未注册）与把计划写进
+ *    `effect.play` 的链接值形状；
+ * 3. 370.1.c.1 要求的“秘密区域内的替代效果与事件同时生效”的替代管线：RIFT-260 的
+ *    replacement/ 已合入事件拦截与注册面（bindReplacement/replacement.event，可匹配
+ *    card-revealed/ reveal 动作），但没有“被查看（look）”这一秘密区域事件的匹配
+ *    （ACTION_KINDS 无 look），也没有 370.1.c.1 的同刻生效语义；且本卡的文字是触发式措辞（见冲突）；
+ * 4. 卡牌程序绑定：`cards-looked-at` 上“牌库中的牌自身给出许可”需要把本卡的 triggered
+ *    能力注册为事件接收者（RIFT-257；look 事件的发射方 events/action-adapter.ts 已存在）。
+ * 依赖：RIFT-261（cost 原语）、RIFT-260 后续的秘密区域替代事件与 RIFT-257（程序绑定）。
  */
 const abilities: Ability[] = [
   {
@@ -103,13 +107,17 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处缺口：(1) 文本/规则冲突——CR v1.5 370.1.c.1 把这段文本引为替代效果 “As you look at or " +
+    "仍不可执行，缺口不近似实现：(1) 文本/规则冲突——CR v1.5 370.1.c.1 把这段文本引为替代效果 “As you look at or " +
     "reveal me from the top of your deck, you may banish me. If you do, you may play me for [A].”，" +
     "而本地 sourceText 只有触发式 “look at … and see me, you may play me for :rb_rune_rainbow:.”；" +
     "(2) 缺原语——从被查看的牌库顶（秘密区域）打出卡牌的许可与位置校验、356.1.a 的替代费用" +
-    "计划生成（cost.printed / cost.modify 未合入，effect.play 只接受调用方给的 finalized plan）、" +
-    "以及 370.1.c.1 秘密区域内同时生效的替代管线。依赖：RIFT-89（费用计划 cost.printed/cost.modify）、" +
-    "replacement 家族、look/reveal 自触发接线。不近似实现。",
+    "计划生成（cost.printed / cost.modify 仍未注册（RIFT-261），effect.play 只接受调用方给的 finalized plan）；" +
+    "(3) RIFT-260 的 replacement/ 已合入通用事件拦截与注册面（bindReplacement/replacement.event，" +
+    "可匹配 card-revealed/reveal），但没有「被查看（look）」秘密区域事件的匹配（ACTION_KINDS 无 look），" +
+    "370.1.c.1 的同刻生效语义仍缺；" +
+    "(4) 卡牌程序绑定（RIFT-257）：把本卡的 triggered 能力接到 cards-looked-at 事件接收者。" +
+    "依赖：RIFT-261（cost 原语）、RIFT-260 后续秘密区域替代事件与 RIFT-257（程序绑定）、" +
+    "以及 370.1.c.1 文本的裁定。不近似实现。",
   abilities,
   sourceText:
     "[Ganking] (I can move from battlefield to battlefield.)\n" +

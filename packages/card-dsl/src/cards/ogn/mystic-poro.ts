@@ -23,23 +23,27 @@ import type { CardProgram } from "../../ir/index.js";
  * status 判定（README 第 2 节；不因「能写出声明」标 executable）：
  * - 没有已合入的内核路径把卡牌程序的关键词能力解析到 KeywordDef 并接入
  *   时点与链（契约 3.5 的「时点 → 触发 → 进链 → 结算」；当前 src 中只有
- *   registry.generated.ts 与其测试消费关键词注册表）。
- * - 即使接线完成，已合入的 Vision 展开在当前 HEAD 仍不可执行：Predict 需要
+ *   registry.generated.ts 与其测试消费关键词注册表；触发/关键词绑定属
+ *   RIFT-257）。
+ * - 即使接线完成，已合入的 Vision 展开在生产路径仍不可执行：Predict 需要
  *   有序的牌库顶选择，effect.inspect 在 top scope 缺少上游有序 picksSpecId 时
  *   按自身文档记录的分区顺序契约缺口直接 negated（契约 3.6 的 zoneSlice 已能
- *   按区域顺序读牌库顶，但 inspect 尚未消费它）。
- * 因此保留有依据的声明、执行证据写 test.todo，不近似实现。
+ *   按区域顺序读牌库顶，但 inspect 不消费它；测试内核可用 setPicks 提供有序
+ *   集合，生产装配层尚无等价入口）。
+ * golden 真实执行 Vision 展开 body（先 negated 证据，再用内核有序 picks 执行
+ * 看牌/回收两条路径），不近似实现。
  */
 const mysticPoro = {
   canonicalCardId: "card.hash-85fa951465a6a8b081cd52e0a9b48fd7e3d80cca31309f23efcf0cdf0f302c0e",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 Vision 关键词的可执行路径（CR 817.1.c / 437.1）：(1) 没有已合入的内核路径把卡牌的 keyword 能力解析到 " +
-    "KeywordDef 并注册为 object-enters-board 触发接入链（契约 3.5；当前只有 registry.generated.ts 与其测试消费关键词注册表）；" +
-    "(2) 已合入的 keywords/Vision.ts 展开内 effect.inspect 在 top scope 缺少有序 picksSpecId 时直接 negated" +
-    "（effect.inspect 文件头记录的分区顺序契约缺口：契约 3.6 zoneSlice 尚未被 inspect 消费），Predict 无法完成看牌与可选回收。" +
-    "依赖：RIFT-83（Vision 关键词展开，声明部分已合入）、RIFT-64（effect.inspect）、契约 3.5 关键词→触发接入。不近似实现。",
+    "缺 Vision 关键词的可执行路径（CR 817.1.c / 437.1），不近似实现：" +
+    "(1) 没有已合入的绑定路径把卡牌的 keyword 能力解析到 KeywordDef 并注册为 object-enters-board 触发接入链" +
+    "（契约 3.5；keywords/Vision.ts 的 KeywordDef 已合入（RIFT-83），但只有 registry.generated.ts 与其测试消费注册表，卡牌程序绑定属 RIFT-257）；" +
+    "(2) 生产路径上 Predict 仍无法取得有序牌库顶：effect.inspect 在 top scope 需要上游有序 picksSpecId，" +
+    "缺少时按分区顺序契约缺口直接 negated（契约 3.6 的 zoneSlice 已能按区域顺序读牌库顶，但 inspect 不消费；" +
+    "有序 picks 目前只有测试内核的 setPicks 提供，装配层没有等价入口）。依赖：RIFT-257（关键词/触发绑定）与 inspect 的有序顶牌消费。",
   abilities: [{ kind: "keyword", keyword: "vision" }],
   sourceText:
     "[Vision] (When you play me, look at the top card of your Main Deck. You may recycle it.)"

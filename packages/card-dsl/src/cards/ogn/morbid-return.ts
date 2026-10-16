@@ -31,22 +31,25 @@ import type { CardProgram } from "../../ir/index.js";
  * Status: judge-required — the effect body itself uses only merged primitives
  * and is executed in the golden test, but the printed [Action] line cannot be
  * honoured yet: keywords/Action.ts expands to a `continuous.timing` static
- * ability (806.1.c / 159.2.a), and nothing consumes it. The layers/ consumer
- * that turns it into an action timing is the RIFT-91 work, and the chain does
- * not read the declared keyword either: ChainEngine.canAct() gates a Showdown
- * play on the caller-supplied draft.speed (chain/engine.ts), while no
- * CardProgram -> ChainDraft adapter exists (chain/engine.ts describePlay is
- * optional and unimplemented). Without that path the card cannot be played in
- * a Showdown, so the card is not executable end to end (cards README §2, §5).
+ * ability (806.1.c / 159.2.a), and the runtime path that turns it into an
+ * action timing is still missing. ChainEngine.canAct() gates a Showdown play on
+ * the caller-supplied draft.speed (chain/engine.ts) and never reads the
+ * layers/rules `actionTimings` query, and no CardProgram -> ChainDraft play
+ * adapter exists (chain/engine.ts describePlay is optional and unimplemented).
+ * The CardProgram binding owner for both halves is RIFT-257; without it the
+ * card cannot be played in a Showdown, so it is not executable end to end
+ * (cards README §2, §5).
  */
 const morbidReturn = {
   canonicalCardId: "card.hash-6d8e159513836dafac8b110c3107086e5b6f6971b99ba6ddfb0e749be264be76",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 [Action] 时机许可的可执行路径：keywords/Action.ts 只展开为 static continuous.timing（806.1.c / 159.2.a），" +
-    "图层消费方尚未合入（RIFT-91），链侧 ChainEngine.canAct() 取决于调用方提供的 draft.speed，且没有任何 CardProgram → ChainDraft 打出适配（chain/engine.ts describePlay 未实现），" +
-    "因此 Showdown 中的 Action 许可无从取得。effect.zone 半段（trash → 拥有者手牌）只用已合入原语并有执行测试；依赖 RIFT-91 与打出适配。",
+    "缺 [Action] 时机许可的可执行路径：keywords/Action.ts 已合入并展开为 static continuous.timing" +
+    "（806.1.c / 159.2.a），但把它接进实战的绑定仍缺——(1) 没有 CardProgram 程序绑定（RIFT-257）把该 static 声明注册进图层；" +
+    "(2) 链侧 ChainEngine.canAct() 只读 phase/showdown/priority 与调用方提供的 draft.speed，从不消费 layers/rules 的 actionTimings 查询，" +
+    "Showdown 中的 Action 许可无从取得；(3) 没有任何 CardProgram → ChainDraft 打出适配（chain/engine.ts describePlay 可选且未实现）。" +
+    "effect.zone 半段（trash → 拥有者手牌）只用已合入原语并有执行测试；依赖 RIFT-257（程序绑定与打出适配）。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

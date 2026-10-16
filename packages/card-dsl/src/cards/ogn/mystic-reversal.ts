@@ -33,7 +33,9 @@ import type { CardProgram } from "../../ir/index.js";
  * Status: judge-required. The control clause's primitive is merged (RIFT-117)
  * and golden-tested; the may wraps the remake clause in its body (contract
  * 3.9), so declining skips only that clause. The remake clause still has no
- * merged primitive (choice.remake-chain-item-choices, RIFT-90/RIFT-120).
+ * merged primitive (choice.remake-chain-item-choices) and no 753.2 result
+ * binding; re-selection belongs to the chain/target-plan work and the
+ * CardProgram play binding is still RIFT-257.
  */
 const mysticReversal = {
   canonicalCardId: "card.hash-ea7dd5402b09dfde273f51aee83776f88c4e3f1fb8f52b4863aa43d307a8ebda",
@@ -45,7 +47,8 @@ const mysticReversal = {
     "「You may make new choices for it」仍是 CR 750-755 的 Making New Choices 流程——" +
     "752.1 只允许重选 location/mode/destination/target，753/753.3 要求全部重选并沿用原限制，753.2 在没有合法新选择时 negated，" +
     "754 会重新触发成为目标，755 忽略因此产生的「to play」费用；choice.remake-chain-item-choices 仍未注册，" +
-    "当前 IR 也没有 753.2 的结果绑定。依赖：链/目标计划的重选支持（RIFT-90/RIFT-120）。" +
+    "链/目标计划没有重开已 finalize 项选择计划的重选支持，当前 IR 也没有 753.2 的结果绑定；" +
+    "本卡的 play 能力（[Reaction] 时机与 play body）到链的绑定同样依赖 RIFT-257。" +
     "不近似实现：不把「make new choices」写成普通 choice.optional + 无操作体。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },

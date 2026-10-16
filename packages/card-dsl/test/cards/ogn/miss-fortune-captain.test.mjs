@@ -39,7 +39,11 @@ test("ogn-162-298 Miss Fortune, Captain: judgeReason cites the move timing and t
   assert.match(program.judgeReason, /object-moved/);
   assert.match(program.judgeReason, /PickSpec/);
   assert.match(program.judgeReason, /355\.10\.d/);
-  assert.match(program.judgeReason, /zones\/movement/);
+  // Re-sweep after RIFT-270: the point is now emitted by the pipeline, but the
+  // card trigger binding and the Standard Move -> pipeline wiring are missing.
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /Standard Move/);
+  assert.match(program.judgeReason, /finalizePick/);
 });
 
 test("ogn-162-298 Miss Fortune, Captain: Accelerate and Ganking stay keyword declarations (805/810)", () => {
@@ -124,12 +128,13 @@ test("ogn-162-298 Miss Fortune, Captain: declining the optional readies nothing 
 });
 
 test.todo(
-  "ogn-162-298 Miss Fortune, Captain: 'The first time I move each turn' needs the movement flow to emit " +
-    "object-moved (CR v1.5 421.1/449.1) so the per-turn trigger can enter the chain; zones/movement " +
-    "(Standard Move / Ganking battlefield-to-battlefield) is not wired to the event pipeline."
+  "ogn-162-298 Miss Fortune, Captain: 'The first time I move each turn' needs the duel Standard Move " +
+    "(CR v1.5 421.1/449.1) to publish its results into the single event pipeline (zones/movement and " +
+    "duel/standard-move-executor-v2 only hand requiresMoveTriggers to the outer caller) and the card's " +
+    "trigger registration to bind the self anchor (RIFT-257)."
 );
 test.todo(
   "ogn-162-298 Miss Fortune, Captain: the non-target pick (355.10.d/355.10.d.1) needs a Finalize " +
-    "selection pipeline that resolves the PickSpec filter and binds ctx.picks; effect.ready reads picks but " +
-    "nothing populates them for a card program yet."
+    "selection pipeline that resolves the PickSpec filter and binds ctx.picks; finalizePick has no " +
+    "production caller and effect.ready reads picks that nothing populates for a card program yet."
 );

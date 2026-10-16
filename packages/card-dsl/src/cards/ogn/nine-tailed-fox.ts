@@ -22,9 +22,19 @@ import type { CardProgram } from "../../ir/index.js";
  *   linked，没有“触发事件的物体”选择器；这里用 TargetSpec attacking-unit 保留形状，
  *   真正的绑定必须由触发系统按 383.2.c.3.b / 359.3.f.3 锁定事件信息。
  *
- * status = judge-required（三个缺口都不近似实现）。
- * 依赖：RIFT-83/84（图层/continuous.might）、RIFT-87/90（触发过滤与事件信息）、
- * RIFT-91（临时效果到期）。
+ * status = judge-required（复核后仍有两个缺口，都不近似实现）：
+ * - 临时 Might 修正与下限钳制已合入：continuous.might 支持 amount/duration
+ *   （this-turn → end-of-turn 到期）与 minimum（buildMightSpec 会在注册时快照
+ *   钳制增量，layers/ops 的 applyMightMinimums 按 478.1.c 逐步钳制），golden 用
+ *   真实原语执行并断言 -1 与 minimum 1 的注册形状；
+ * - 但仍不能接线：(1) attack-declared 没有任何产生方——combat/flow.ts 的
+ *   combat-start 事务会抛 TurnCombatBlockedError（CR 466.2）；(2) “a battlefield
+ *   you control” 的控制状态不在事件载荷（只有 combatId/battlefieldId/attackerId/
+ *   defenderId，需 details 维度）中；(3) “it” 需要一个事件对象选择器（383.2.c.3.b /
+ *   359.3.f.3），ObjectSelector 只有 self/source/target/pick/linked；卡牌触发绑定
+ *   属 RIFT-257。
+ * 依赖：攻击/战斗时点产生方（RIFT-124 后续 combat 事务）、触发事件物体选择器
+ * （RIFT-257/契约）与 attack-declared 载荷的战场控制状态。
  */
 const nineTailedFox = {
   canonicalCardId:
@@ -32,11 +42,13 @@ const nineTailedFox = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺临时 Might 修正原语：契约 3.6 封闭 GameAction 集合无 might 修改动作，effect.buff 文档明确" +
-    "临时 Might 归 layers 的 continuous.might（图层系统未实现，依赖 RIFT-83/84），“to a minimum of 1”" +
-    "的下限钳制同样没有实现路径。触发侧还缺两项：attack-declared 载荷不带“该战场由你控制”的控制状态，" +
-    "且合并 ObjectSelector（self/source/target/pick/linked）没有“触发事件的物体”，无法把 “it” 绑定为" +
-    "攻击单位（383.2.c.3.b / 359.3.f.3）；依赖 RIFT-87/90 与 RIFT-91。不近似实现。",
+    "临时 Might 修正已合入（continuous.might 的 amount/duration/minimum 与 layers/ops 的 applyMightMinimums，" +
+    "按 478.1.c 逐步钳制；golden 已用真实原语执行并断言注册形状），整卡仍不可执行的原因在触发侧：" +
+    "(1) attack-declared 没有任何产生方——combat/flow.ts 的 combat-start 角色事务未实现（抛 TurnCombatBlockedError，CR 466.2），" +
+    "RIFT-270 审计把 attack-declared/defense-declared/combat-start 标为「待后续」；" +
+    "(2) attack-declared 载荷（combatId/battlefieldId/attackerId/defenderId）不带“该战场由你控制”的控制状态，触发过滤无从判定；" +
+    "(3) “it” 需要触发事件物体选择器（383.2.c.3.b / 359.3.f.3），合并 ObjectSelector 只有 self/source/target/pick/linked。" +
+    "依赖：combat 事务的时点产生方、载荷控制状态维度与事件物体选择器；卡牌触发绑定属 RIFT-257。不近似实现。",
   abilities: [
     {
       kind: "triggered",

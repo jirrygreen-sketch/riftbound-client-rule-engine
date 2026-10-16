@@ -8,6 +8,10 @@ import buff from "../../../../engine-core/dist/effects/instructions/effect.buff.
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+// The production card-body entry point (chain/engine.ts resolveChainBody) keeps
+// the card's Expr arguments inside the literal envelope each primitive schema
+// expects; the raw interpreter evaluates first, which effect.draw rejects.
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 
 const [ability] = program.abilities;
 const [choice] = ability.body;
@@ -47,7 +51,13 @@ test("ogn-282-298 Monastery of Hirana: identity, ruleset, status and printed tex
   // deck-catalog.json (ogn-282-298) carries this text verbatim; CR 383.1 uses
   // this exact printing as its example of a triggered ability.
   assert.equal(program.sourceText, "When you conquer here, you may spend a buff to draw 1.");
-  assert.match(program.judgeReason, /cost/);
+  // Re-sweep: RIFT-270 emits conquer/hold/score from turn/flow's scoring wave;
+  // the remaining gaps are the cost-within-instructions plan (RIFT-261) and the
+  // CardProgram trigger/cost binding (RIFT-257).
+  assert.match(program.judgeReason, /383\.3\.b/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /details\.battlefieldId/);
 });
 
 test("ogn-282-298 Monastery of Hirana: optional conquer trigger with the §3.9 body-wrapped shape", () => {
@@ -193,20 +203,41 @@ test("ogn-282-298 Monastery of Hirana: the draw instruction draws 1 for the abil
   assert.deepEqual(kernel.zone("A", "hand").map(ref => ref.id), ["top-card"]);
 });
 
+test("ogn-282-298 Monastery of Hirana: accepting executes spend-then-draw through the chain adapter", () => {
+  // The production card-body entry point (chain/engine.ts resolveChainBody) is
+  // what runs a finalized ability's body; it also keeps the Expr envelope that
+  // effect.draw's schema requires, so the whole printed instruction pair runs
+  // in sequence here. Finalize-time target locking is supplied by the caller
+  // (the golden drops the TargetSpec and hands the finalized set to the kernel,
+  // see the header comment); the card's own ids, links and gating condition are
+  // exercised unchanged.
+  const kernel = world().unit("buff-unit", { buffs: 1 }).deck(["top-card", "bottom-card"]).build();
+  kernel.setTargets("buff-holder", [kernel.ref("buff-unit")]);
+  kernel.setAnswers({ "monastery-of-hirana.opt-in/optional": true });
+
+  const outcome = resolveChainBody(fullBody, kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(result => [result.id, result.result.status]), [
+    ["monastery-of-hirana.spend-buff", "executed"],
+    ["monastery-of-hirana.draw", "executed"],
+    ["monastery-of-hirana.opt-in", "executed"]
+  ]);
+  assert.equal(kernel.getObject("buff-unit").buffs, 0);
+  assert.deepEqual(kernel.zone("A", "hand").map(ref => ref.id), ["top-card"]);
+});
+
 test.todo(
   "ogn-282-298 Monastery of Hirana: the buff payment as a Finalize-locked cost (CR 355.10.c.1/357) " +
-    "so the player can decline even when a buff is available; needs the cost plan / cost.pay " +
-    "workstream (RIFT-89 batch3-cost-plan scope), since merged effect.buff only reports 'skipped' " +
+    "so the player can decline even when a buff is available; TriggeredAbility has no cost field and " +
+    "cost.pay is still unregistered (RIFT-261), since merged effect.buff only reports 'skipped' " +
     "after the fact"
 );
 
 test.todo(
-  "ogn-282-298 Monastery of Hirana: the conquer timing point reaching this ability through the " +
-    "trigger -> chain pipeline (RIFT-33 scenarios-triggers / RIFT-31 scenarios-scoring)"
+  "ogn-282-298 Monastery of Hirana: the conquer timing point (emitted by turn/flow's scoring wave, " +
+    "RIFT-270) reaching this ability through the card-program trigger registration (RIFT-257): the " +
+    "binding layer must translate the event spelling and bind here to the scoring payload's " +
+    "details.battlefieldId"
 );
 
-test.todo(
-  "ogn-282-298 Monastery of Hirana: whole-body execution (spend then draw) through runAbilityBody " +
-    "once the primitive-schema convention is aligned; effect.draw still requires an Expr while the " +
-    "interpreter hands it the evaluated amount"
-);

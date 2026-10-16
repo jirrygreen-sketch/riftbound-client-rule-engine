@@ -22,6 +22,10 @@ test("miss-fortune-buccaneer: identity, ruleset, status, judgeReason and sourceT
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /play-location-permission/);
   assert.match(program.judgeReason, /continuous\.location/);
+  // RIFT-259 merged the primitive and the playLocations query; the remaining
+  // gaps are the missing consumer and the CardProgram static binding (RIFT-257).
+  assert.match(program.judgeReason, /playLocations/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -65,9 +69,10 @@ test("miss-fortune-buccaneer: 'open battlefield' means unoccupied and uncontroll
 });
 
 test.todo(
-  "miss-fortune-buccaneer: the two play-location permissions are consumed by Finalize once the " +
-    "continuous.location consumer for play-location-permission lands (RIFT-32 scenarios-layers / " +
-    "Finalize 打出位置校验)"
+  "miss-fortune-buccaneer: the two play-location permissions are consumed by Finalize once a caller " +
+    "reads layers/rules playLocations inside the legal-play-location check (chain/engine.ts only " +
+    "validates requirements/restrictions and locked targets today) and the card's static abilities " +
+    "are bound through the CardProgram registration path (RIFT-257)"
 );
 
 test.todo(

@@ -105,7 +105,9 @@ test("ogn-222-298 Noxian Drummer golden: the effect body plays a 1-Might Recruit
 });
 
 test.todo(
-  "ogn-222-298 Noxian Drummer: object-moved trigger filter — " +
-    "move-location 发出的 object-moved 事件不带 source，卡牌程序无法静态表达「是本卡在移动」；" +
-    "timing-points.ts 声明的 toKind/toZone 也未填入，toZone: \"battlefield\" 过滤不命中（依赖 RIFT-120 事件管线）"
+  "ogn-222-298 Noxian Drummer: object-moved trigger filter — the pipeline now emits the point " +
+    "(RIFT-270), but the card cannot statically express 'this card moved' (event identity is a " +
+    "runtime objectId; needs the CardProgram registration binding, RIFT-257) and the emitted event " +
+    "does not fill toZone, so the toZone: 'battlefield' filter never matches; the duel Standard Move " +
+    "result is not submitted to the pipeline yet"
 );

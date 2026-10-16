@@ -30,6 +30,10 @@ test("mushroom-pouch: identity, ruleset, status and specific judgeReason", () =>
   assert.match(program.judgeReason, /Facedown/);
   assert.match(program.judgeReason, /ZoneId/);
   assert.match(program.judgeReason, /beginning-start/);
+  // Re-sweep after RIFT-270: the point now has a producer (turn/flow.ts), so
+  // the remaining trigger-side gap is the CardProgram binding (RIFT-257).
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-270/);
 });
 
 test("mushroom-pouch: one mandatory beginning-start trigger (CR 315.2.a.1)", () => {
@@ -89,5 +93,5 @@ test.todo(
 );
 
 test.todo(
-  "mushroom-pouch: the trigger needs the turn structure to emit beginning-start for the turn player's Beginning Phase (turn/timing owner not merged; the chain layer only clocks that point for cleanups)."
+  "mushroom-pouch: the turn structure now emits beginning-start for the turn player's Beginning Phase (turn/flow.ts, RIFT-270); the trigger still needs the CardProgram registration path to bind this card's ability (RIFT-257)."
 );

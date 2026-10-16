@@ -23,8 +23,10 @@ test("ogn-152-298 Mistfall: identity, version and verbatim source text", () => {
     program.sourceText,
     "When you buff a friendly unit, you may pay :rb_rune_body: and exhaust this to ready it."
   );
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-21/);
+  assert.match(program.judgeReason, /383\.3\.b/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /buff-added/);
 });
 
 test("ogn-152-298 Mistfall: buff-added trigger with optional pay+exhaust body", () => {
@@ -81,8 +83,9 @@ test("ogn-152-298 Mistfall: the ready half executes through effect.ready once th
 
 test.todo(
   "Mistfall: pay 1 Body Power and exhaust the source as trigger finalize costs " +
-    "(TriggeredAbility has no cost field; cost-plan / Finalize hookup, RIFT-89/90)"
+    "(TriggeredAbility has no cost field; cost.pay/cost.modify are still unregistered and the " +
+    "CardProgram cost/trigger binding is RIFT-257/261)"
 );
 test.todo(
-  "Mistfall: bind 'ready it' to the buff-added event's unit (event-payload ObjectSelector, RIFT-21)"
+  "Mistfall: bind 'ready it' to the buff-added event's unit (event-payload ObjectSelector, RIFT-257)"
 );
