@@ -55,8 +55,14 @@ test("structure: Hidden keyword plus the defend / played-from-Hidden triggers", 
     ]
   );
 
-  // "reveal the top 5 cards of your Main Deck" — count 5 at the reveal.
-  assert.deepEqual(defend.body[0].args, { count: { kind: "constant", value: 5 } });
+  // Zone/count can reveal the entire deck when at most five remain. A larger
+  // deck requires the upstream ordered pick binding described in judgeReason.
+  for (const ability of [defend, playedFromHidden]) {
+    assert.deepEqual(ability.body[0].args, {
+      zone: { kind: "constant", value: "deck" },
+      count: { kind: "constant", value: 5 }
+    });
+  }
 
   // "Deal 1 to an enemy unit here for each card with [Hidden]" — the amount is
   // the descriptive count-over-revealed-set predicate (see judgeReason), and the
@@ -73,6 +79,7 @@ test("structure: Hidden keyword plus the defend / played-from-Hidden triggers", 
     key: "revealedHiddenCount"
   });
   assert.deepEqual(damage.args.target, { kind: "constant", value: "teemo.enemy-unit-here" });
+  assert.equal(damage.args.source, undefined, "the damage primitive defaults to its actual ability source");
   assert.deepEqual(damage.targets[0], {
     id: "teemo.enemy-unit-here",
     filter: { type: "unit", controller: "opponent", sameLocationAs: "source" },
@@ -111,13 +118,33 @@ test("structure: Hidden keyword plus the defend / played-from-Hidden triggers", 
 test("golden: the reveal half shows all five deck cards through effect.reveal", () => {
   const kernel = world()
     .deck(["c1", "c2", "c3", "c4", "c5"], { owner: "A", types: ["unit"] })
+    .hand("unrevealed-hand-card")
     .build();
   const run = runInstruction(reveal, defend.body[0].args, { world: kernel });
   assert.equal(run.result.status, "executed");
   assert.equal(run.linked.revealed.length, 5);
+  assert.equal(run.linked.revealedCount, 5);
+  // A full-zone reveal promises membership, not query/deck order; the ordered
+  // pick scenario below separately verifies the true top-five order.
+  assert.deepEqual(new Set(run.linked.revealed), new Set(kernel.zone("A", "deck")));
   assert.equal(run.events.filter(event => event.action === "reveal").length, 5);
   // CR 425.1.a: revealed cards stay in their zone.
   assert.equal(kernel.player("A").deckSize, 5);
+  assert.equal(kernel.player("A").handSize, 1);
+});
+
+test("golden: ordered upstream picks reveal the true top five of a larger deck without moving them", () => {
+  const kernel = world().deck(["z-top", "y", "x", "w", "v", "a-bottom"]).build();
+  const before = kernel.zone("A", "deck");
+  const topFive = kernel.zoneSlice("A", "deck", "top", 5).map(object => object.ref);
+  const run = runInstruction(reveal, { pick: "teemo-top-five" }, {
+    world: kernel, picks: { "teemo-top-five": topFive }
+  });
+  assert.equal(run.result.status, "executed");
+  assert.deepEqual(run.linked.revealed, topFive);
+  assert.equal(run.linked.revealedCount, 5);
+  assert.equal(run.events.length, 5);
+  assert.deepEqual(kernel.zone("A", "deck"), before);
 });
 
 test("golden: the linked recycle moves the revealed cards to the deck bottom", () => {
@@ -141,19 +168,25 @@ test("golden: an empty reveal is negated as impossible instead of inventing card
   const run = runInstruction(reveal, defend.body[0].args, { world: kernel });
   assert.equal(run.result.status, "negated");
   assert.equal(run.result.reason, "impossible");
-  assert.equal(run.linked.revealed, undefined);
+  assert.deepEqual(run.linked.revealed, []);
+  assert.equal(run.linked.revealedCount, 0);
+  assert.deepEqual(run.events, []);
 });
 
 test.todo(
-  "Teemo, Strategist: reveal the top 5 in true deck order — effect.reveal still reads ctx.query " +
-    "candidates; the contract 3.6 zoneSlice (RIFT-66) is not wired into the primitive yet"
+  "Teemo, Strategist: wire ordered top-five picks into the authored body and the chain argument adapter " +
+    "(RIFT-66); the reveal primitive supports pick, but zone/count must not approximate deck subsets"
 );
 test("golden: the damage half cannot deal a guessed amount while the [Hidden] count has no producer", () => {
-  const kernel = world()
+  const battlefield = { type: "battlefield", id: "teemo-battlefield" };
+  const initial = world()
     .deck(["c1", "c2", "c3", "c4", "c5"], { owner: "A", types: ["unit"] })
-    .unit("enemy", { owner: "B", might: 3 })
+    .unit("teemo", { owner: "A", location: battlefield })
+    .unit("enemy", { owner: "B", might: 3, location: battlefield })
     .build();
+  const kernel = initial.clone({ sourceSnapshot: initial.getObject("teemo") });
   kernel.setTargets("teemo.enemy-unit-here", [kernel.ref("enemy")]);
+  assert.deepEqual(kernel.getObject("enemy").location, kernel.source.location);
   // Run the played-defend body itself through the real interpreter: the reveal
   // links only the revealed refs, so the damage amount (revealedHiddenCount)
   // has no producer and the instruction is ignored (CR 359.3.e.12) instead of

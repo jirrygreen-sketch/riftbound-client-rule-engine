@@ -131,15 +131,16 @@ test("Sabotage: the authored body stops at the player target spec the IR cannot 
   assert.equal(kernel.player("B").deckSize, 0);
 });
 
-test("Sabotage golden: the reveal -> linked recycle chain executes on the real primitives", () => {
+test("Sabotage golden: reveal -> inspect choice -> linked recycle executes a legal non-unit choice", () => {
   const kernel = world()
     .hand("revealed-spell", { owner: "B", types: ["spell"] })
     .hand("revealed-unit", { owner: "B", types: ["unit"] })
     .build();
   const chosen = kernel.ref("revealed-spell");
-  kernel.setAnswers({ "sabotage.reveal-hand/effect.reveal%3Apick%3AB": [chosen] });
-  // The program body with only the unsupported player TargetSpec removed; the
-  // reveal/recycle instructions, their ids, args and the link are the card's.
+  kernel.setAnswers({ "sabotage.inspect-revealed/sabotage.recycle-choice": [chosen] });
+  // Bind the unsupported player target and use the real inspect choice instead
+  // of the removed reveal picker/pickCount arguments. This exercises a legal
+  // spell choice; enforcing the non-unit filter remains the card's TODO.
   const [{ targets, ...revealInstructionWithoutTarget }, recycleInstructionAsAuthored] = play.body;
   const body = [
     {
@@ -149,22 +150,31 @@ test("Sabotage golden: the reveal -> linked recycle chain executes on the real p
         // The unresolved "opponent" placeholder from the card is replaced by
         // the concrete opponent for this execution; binding it from a player
         // target is exactly the missing IR form (see judgeReason).
-        player: { kind: "constant", value: "B" },
-        picker: { kind: "constant", value: "B" },
-        pickCount: { kind: "constant", value: 1 }
+        player: { kind: "constant", value: "B" }
+      }
+    },
+    {
+      id: "sabotage.inspect-revealed",
+      op: "effect.inspect",
+      linkedTo: revealInstruction.id,
+      args: {
+        player: { kind: "constant", value: "A" },
+        zone: { kind: "constant", value: { owner: "B", zone: "hand" } },
+        choose: { kind: "constant", value: true },
+        chooseCount: { kind: "constant", value: { min: 1, max: 1 } },
+        choiceId: { kind: "constant", value: "sabotage.recycle-choice" }
       }
     },
     {
       ...recycleInstructionAsAuthored,
       // The authored "choose" descriptor is not implemented on effect.recycle
-      // (primitive rule: one of target / objects / from). The already-chosen
-      // card is supplied through the linked reveal instead, which is the
-      // supported "objects" form of the same instruction.
+      // (primitive rule: one of target / objects / from). Consume the real
+      // inspect result, leaving the other revealed card in the opponent's hand.
       args: {
         objects: {
           kind: "linked-value",
-          instructionId: "sabotage.reveal-hand",
-          key: "revealed"
+          instructionId: "sabotage.inspect-revealed",
+          key: "inspected-pick"
         }
       }
     }
@@ -175,13 +185,18 @@ test("Sabotage golden: the reveal -> linked recycle chain executes on the real p
     outcome.results.map((result) => [result.id, result.result.status]),
     [
       ["sabotage.reveal-hand", "executed"],
+      ["sabotage.inspect-revealed", "executed"],
       ["sabotage.recycle-chosen-card", "executed"]
     ]
   );
   assert.equal(outcome.linkedValues["sabotage.reveal-hand.revealed"][0].id, "revealed-spell");
+  assert.equal(outcome.linkedValues["sabotage.reveal-hand.revealedCount"], 2);
+  assert.deepEqual(outcome.linkedValues["sabotage.inspect-revealed.inspected-pick"], [chosen]);
   assert.equal(outcome.linkedValues["sabotage.recycle-chosen-card.recycledCount"], 1);
   assert.deepEqual(kernel.zone("B", "deck").map((ref) => ref.id), ["revealed-spell"]);
   assert.equal(kernel.player("B").handSize, 1);
+  assert.equal(kernel.getObject("revealed-unit").zone, "hand");
+  assert.deepEqual(outcome.events.map(event => event.action), ["reveal", "reveal", "look", "recycle"]);
 });
 
 test("Sabotage: the unbound 'opponent' placeholder cannot reveal a hand by itself", () => {
