@@ -109,13 +109,13 @@ test("Weaponmaster selecting no Equipment skips cost and attachment without a bo
 
 // TestWorld does not bind symbolic controller filters. Do not simulate a
 // selected Equipment or its cost; the real targeting/cost integration is pending.
-test("Weaponmaster remains judge-required pending Equip-cost primitives", () => {
+test("Weaponmaster primitives are registered and the catalog program stays judge-required", () => {
   const abilities = weaponmaster.expand({ host });
   const card = program(abilities);
   assert.equal(card.status, "judge-required");
   assert.match(card.judgeReason, /unmerged cost.modify \/ cost.pay/);
-  assert.equal(instructionDefinitionsById.has("cost.modify"), false);
-  assert.equal(instructionDefinitionsById.has("cost.pay"), false);
+  assert.equal(instructionDefinitionsById.has("cost.modify"), true);
+  assert.equal(instructionDefinitionsById.has("cost.pay"), true);
 });
 
 test("Weaponmaster ignores an accidental numeric value because it is unvalued", () => {
