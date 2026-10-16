@@ -14,7 +14,7 @@ import {
   stableStringify,
   type JsonObject
 } from "@riftbound/replay-core/full-product";
-import { PersistentRoomArchiveStore } from "../src/storage/persistent-room-store.js";
+import { PersistentRoomArchiveStore } from "../../src/storage/persistent-room-store.js";
 
 /**
  * Focused coverage for the read-only private archive history reader. All
