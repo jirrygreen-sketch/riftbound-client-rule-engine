@@ -21,10 +21,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   effect.damage（418，目标为战场上的单位，355.10.b 的“at a battlefield”
  *   是选择限制而不是额外目标）。
  *
- * status = judge-required：Damage 半段（费用 + effect.damage）全部使用已合入的
- * 费用计划与原语，golden 测试真实执行；入场即横置依赖尚未合入的
- * replacement.enter 原语（契约 3.4/3.5 替代族）与卡牌 IR 到替代管线的接线，
- * 不近似实现。
+ * status = judge-required：入场即横置的 replacement.enter 原语与替代管线已经合入，
+ * 并由 golden 直接绑定到 pipeline adapter 验证；Damage 半段（费用 + effect.damage）
+ * 也全部使用已合入的费用计划与原语。整张卡仍等待 CardProgram → replacement/activated
+ * 能力的生产接线（RIFT-257），所以不能把已支持的入场半段当成整卡 executable。
  */
 const abilities: Ability[] = [
   {
@@ -77,12 +77,10 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "缺入场状态改写原语：契约 3.4/3.5 的替代族里没有卡牌 IR 可注册的 replacement.enter" +
-    "（类似 Accelerate 805.6 的入场替代管线）；effect.exhaust 文档明确“入场即横置”不是一次" +
-    "横置动作（143.4 / 359.2.d 的 Gear 就绪进场与 149.1 相反，先入场再补 effect.exhaust 会多出" +
-    "横置事件并错过入场替代），故不近似实现。Damage 半段只需要已合入的 cost.exhaust 费用计划" +
-    "与 effect.damage 原语，已由 golden 真实执行；依赖 RIFT-120 的替代注册管线（目前只有内部" +
-    "registerReplacement，尚无面向卡牌 IR 的原语）。",
+    "replacement.enter 入场替代原语与 pipeline binding 已合入，能够把 Gear 在进入 Base/Battlefield 前设为横置；" +
+    "effect.exhaust 仍不能近似该入场状态（143.4 / 359.2.d），而 Damage 半段只需要已合入的 cost.exhaust 费用计划与 effect.damage 原语，" +
+    "均由 golden 真实执行。整张卡仍缺 CardProgram → replacement/activated 能力的生产接线，依赖 RIFT-257；" +
+    "因此保持 judge-required，不把入场替代半段冒充为整卡 executable。",
   abilities,
   sourceText: "This enters exhausted.\n:rb_exhaust:: Deal 2 to a unit at a battlefield."
 } satisfies CardProgram;

@@ -30,8 +30,7 @@ test("ogn-169-298 Gust: program passes validateCardProgram", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Might/);
   assert.match(program.judgeReason, /mightLte/);
-  assert.match(program.judgeReason, /RIFT-83/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-90/);
   assert.equal(
     program.sourceText,
     "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +
@@ -97,5 +96,5 @@ test.todo(
   "ogn-169-298 Gust: a unit still on the board but no longer at a battlefield must be Mistargeted " +
     "by the 359.3.e.9 Location re-check at resolution, and the 'Might 3 or less' cap must gate " +
     "Finalize targeting — both need the TargetPlan resolve re-check (RIFT-90) plus a Might " +
-    "predicate (RIFT-83/RIFT-91)"
+    "predicate (RIFT-90)"
 );

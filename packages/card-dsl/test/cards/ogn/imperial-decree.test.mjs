@@ -107,5 +107,5 @@ test.todo(
 test.todo(
   "Imperial Decree: the damage-dealt subscription must fire only for actual positive valid " +
     "damage (418.1.a/b, 418.1.e/e.1) and expire with the 'this turn' effects (317.2.c); both " +
-    "belong to the trigger pipeline (RIFT-120) once trigger.delayed is merged."
+    "belong to the trigger pipeline once trigger.delayed and CardProgram play binding (RIFT-257) are merged."
 );

@@ -47,7 +47,7 @@ const imperialDecree = {
     "（418.1.a/b，仅在实际造成正整数伤害时发出）。ResolveContext 侧已有 registerDelayedTrigger（契约 3.6），" +
     "但已合入的指令注册表没有卡牌可用的 trigger.delayed / trigger.state op（RIFT-9 清单中的 trigger.delayed），" +
     "因此卡程序无法注册该订阅；把能力写成卡自身的 triggered ability 会违反 391.1/393（延迟能力不依附卡本体）。" +
-    "不近似实现；依赖 RIFT-9 的 trigger.delayed 原语落地。",
+    "不近似实现；依赖 trigger.delayed 原语与 RIFT-257 的 CardProgram play 绑定。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

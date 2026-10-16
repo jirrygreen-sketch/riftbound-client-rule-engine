@@ -107,5 +107,5 @@ test.todo(
 
 test.todo(
   "ogn-281-298 Hallowed Tomb: 'if it is empty' (CR 108.3.c.1) needs a zone-emptiness condition; the " +
-    "hold trigger reaching this ability needs the trigger pipeline (RIFT-33 scenarios-triggers)"
+    "the hold timing point exists, but CardProgram triggered-ability registration is still pending (RIFT-257)"
 );

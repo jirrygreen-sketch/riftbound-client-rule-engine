@@ -37,7 +37,7 @@ const program = {
     "「Play a 1 Might Recruit unit token」没有写出地点，因此 token 按 CR 355.2/355.2.a、440.2.b.1 的默认合法地点规则在 Finalize 时由玩家选择：其控制者的 Base 或该玩家控制的 Battlefield（420.3.b.2 规定在 resulting game object 的 finalization 时检查）。" +
     "冻结的 effect.token 对 mode \"play\" 要求恰好一个目的地参数（location/target/pick/locations），而当前没有任何 Expr 能产出运行时的合法地点集合（RIFT-9 清单的 target.location 尚未合入）。" +
     "把目的地固定为 Base 或某个 Battlefield 都会删掉印刷的合法选项，因此不近似实现；Recruit 定义（CR 187.1，1 Might、Recruit 标签、无印刷费）与链上创建+打出的本体已在 effect.token 合入。" +
-    "依赖：RIFT-9（target.location / 合法地点集合）与 P2 批 6 卡牌 IR 生产接线。",
+    "依赖：RIFT-9（target.location / 合法地点集合）、RIFT-257（CardProgram 启动能力绑定）与 RIFT-261（费用支付接线）。",
   abilities: [
     {
       kind: "activated",

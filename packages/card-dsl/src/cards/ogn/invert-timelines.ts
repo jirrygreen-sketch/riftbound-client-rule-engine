@@ -38,7 +38,7 @@ const invertTimelines = {
     "缺「每个玩家各自弃掉手牌再抽 4」的多玩家指令形状：effect.discard / effect.draw 每次只作用于一个玩家，" +
     "其 player 参数是能力上下文中的 Expr；355.10.e / 355.18 要求的「由全体玩家在结算时各自选择自己的手牌」" +
     "没有可表达的选择形状，也没有可产出「每个玩家」席位列表的 Expr 或逐席位重复的控制结构。" +
-    "依赖 RIFT-9 的 target.player（多玩家选择/引用原语）与结算期多玩家选择支持；当前 IR 只记录行动玩家一侧的" +
+    "依赖多玩家选择/引用与逐席位结算支持（RIFT-9 target.player 及其 CardProgram 绑定接线 RIFT-257）；当前 IR 只记录行动玩家一侧的" +
     "弃手牌→抽 4 结构，不近似实现整桌效果。",
   abilities: [
     {

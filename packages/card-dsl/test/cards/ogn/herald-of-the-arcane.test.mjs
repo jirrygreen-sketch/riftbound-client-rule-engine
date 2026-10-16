@@ -98,5 +98,5 @@ test("herald golden: the Recruit token definition and play path work through the
 test.todo(
   "herald default destination: at Finalize choose the controller's Base or a Battlefield they " +
     "control (CR 355.2/355.2.a, 440.2.b.1, 420.3.b.2); needs the RIFT-9 target.location legal " +
-    "location set and P2 batch-6 card-program wiring."
+    "location set (RIFT-9), CardProgram activation binding (RIFT-257), and cost payment wiring (RIFT-261)."
 );

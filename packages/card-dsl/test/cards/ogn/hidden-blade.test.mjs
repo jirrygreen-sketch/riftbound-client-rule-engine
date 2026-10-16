@@ -147,7 +147,7 @@ test("Hidden Blade golden: a lost target ignores both instructions (359.3.e.14.a
 test.todo(
   "Hidden Blade: Hide for :rb_rune_rainbow: and the facedown reaction play (for " +
     ":rb_energy_0:) need a consumer for Hidden's cost.hidden expansion (the keyword " +
-    "expansion itself merged as RIFT-84) plus the facedown zone and its cost plan."
+    "expansion itself merged as RIFT-84) plus the facedown zone, Hide action, and cost plan (RIFT-261)."
 );
 
 test.todo(

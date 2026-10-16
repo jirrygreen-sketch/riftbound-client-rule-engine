@@ -49,7 +49,7 @@ const hiddenBlade = {
     "[Hidden] 展开仍不可执行：RIFT-84 已合入 Hidden 关键词展开，但它的 cost.hidden 持续效果没有消费方——" +
     "没有已合入代码据它授予 Hide 动作、facedown 区域或「facedown 免费/受限打出」；cost/README.md 记录现有区域与" +
     "动作尚缺 Hide/facedown。来自 facedown 的「目标限为藏匿所在战场」（811.1.d.2）同样依赖 Hidden 展开的消费方与" +
-    "目标系统。两条正文指令（targeted 消灭 + 链接的「Its controller draws 2」）可用已合入解释器真实执行，" +
+    "目标系统。Hide 的费用/动作接线依赖 RIFT-261，CardProgram 关键词与打出绑定依赖 RIFT-257。两条正文指令（targeted 消灭 + 链接的「Its controller draws 2」）可用已合入解释器真实执行，" +
     "见 golden 测试；整卡不因正文可执行而宣称 executable。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
