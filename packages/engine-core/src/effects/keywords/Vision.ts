@@ -19,6 +19,7 @@ import type { KeywordDef } from "../keyword-contract.js";
  *     filter 限定进场者为本来源对象（事件过滤器 payload 的 objectId / object.id）。
  *   body（Predict 两步，选择回收哪张由执行玩家在看过的牌内作 choose）：
  *     1. effect.inspect { player: constant("A"), zone: "deck", amount: 1,
+ *        picksSpecId: "vision-top",
  *        choose: true, chooseCount: { min: 0, max: 1 },
  *        pickedKey: "vision-picked", choosePicksKey: "vision-recycle" }
  *        —— 437.1 的"look at a single card from the top of the Main Deck and
@@ -29,20 +30,19 @@ import type { KeywordDef } from "../keyword-contract.js";
  *   每个实例独立触发（817.2），故 expand 只返回**一个**能力；同一对象上的多个
  *   Vision 由注册表按 stacking "separate" 展开为多个独立 Ability。
  *
- *   player 参数：EffectIR 没有"控制者"字面量；object-property 的 object 字段在
- *   card-dsl 类型里是 ObjectRef，但 validateExpr 把它按 string 校验（已知不一致），
- *   linked 又要求指向先前指令。这里用 constant("A")——玩家 id "A" 是展开期占位，
- *   代表 host 的 controller（永久物打出 / 进场时 owner === controller）；装配层 /
- *   运行内核在解析时注入实际的 controller PlayerId。这满足 effect.inspect
- *   argsSchema 对 Expr 的要求，且能用参考测试内核（默认玩家 "A"）实际执行
- *   Predict 步骤，见 test/effects/keywords/Vision.test.mjs。
+ *   player 参数 constant("A") 仍是展开期占位；装配层必须注入实际控制者，
+ *   不能假设 owner 等于 controller。inspect 的表达式 schema 尚不接受静态
+ *   ObjectSelector 特征读取，故不能在此用假 ObjectRef 获取控制者。
+ *   上游还必须在每个实例结算时按真实牌库顺序绑定非目标 picks "vision-top"；
+ *   inspect 不会从 query 集合顺序推导顶牌；空 picks 只能代表真实空牌库。
+ *   ctx.picks 当前不区分未绑定与空集合，此边界必须由装配层保证。
  *
  * 依赖尚未合入的部分（本文件只按契约写出引用，不近似实现、不改其他文件）：
  * - "object-enters-board" 时点的 payload 字段名（objectId / object.id）以
  *   timing-points.ts 的 zone-change payloadType 为准；触发器**匹配器**（把
  *   ObjectFilter 应用到事件 payload）属时点子系统，本关键词只提供 filter 形状。
- * - 无其他缺口：effect.inspect、effect.recycle 均已合入，可被解释器 + 参考测试
- *   内核实际执行（见 test/effects/keywords/Vision.test.mjs）。
+ * - effect.inspect、effect.recycle 已合入；测试通过现有 chain 参数适配器执行
+ *   原始展开 body，并在内核中绑定真实有序 picks。生产控制者和顶牌绑定仍属装配层。
  *
  * valued: false —— 817 中 Vision 从不带数值；Predict 的张数（437.3.a 默认 1）
  * 来自 Predict 关键词自身（kw-predict），不由 Vision 的 value 承载。expand 收到
@@ -74,6 +74,7 @@ function expand(input: { readonly value?: number; readonly host: { readonly cano
             player: { kind: "constant", value: "A" },
             zone: { kind: "constant", value: "deck" },
             amount: { kind: "constant", value: PREDICT_AMOUNT },
+            picksSpecId: { kind: "constant", value: "vision-top" },
             choose: { kind: "constant", value: true },
             chooseCount: { kind: "constant", value: { min: 0, max: PREDICT_AMOUNT } },
             pickedKey: { kind: "constant", value: "vision-picked" },

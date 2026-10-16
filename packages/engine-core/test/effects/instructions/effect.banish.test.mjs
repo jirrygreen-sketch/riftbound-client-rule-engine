@@ -331,7 +331,8 @@ test("ven-106-166 Wind and Ghosts: its interpreter condition banishes a battlefi
     kernel.setTargets("unit", [kernel.ref("victim")]);
     const result = runAbilityBody([{
       id: "wind-banish", op: "effect.banish", args: { objects: target("unit") },
-      condition: { kind: "compare", operator: "lte", left: { kind: "object-property", object: kernel.ref("victim"), property: "might" }, right: literal(3) }
+      targets: [{ id: "unit", filter: { type: "unit", zone: "board", location: battlefield }, min: 1, max: 1 }],
+      condition: { kind: "compare", operator: "lte", left: { kind: "object-property", object: { target: "unit" }, property: "might" }, right: literal(3) }
     }], kernel);
     assert.equal(kernel.getObject("victim").zone, might === 3 ? "banishment" : "board");
     assert.equal(result.results[0].result.status, might === 3 ? "executed" : "negated");

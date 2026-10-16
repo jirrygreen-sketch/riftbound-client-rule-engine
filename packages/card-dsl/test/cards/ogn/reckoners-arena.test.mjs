@@ -3,8 +3,6 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/reckoners-arena.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
-import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 
 const CANONICAL = "card.hash-9b2f53a5fb533d020caec1ce47a2615b15c80247a0a913af8105823ff903f909";
 const [ability] = program.abilities;
@@ -48,16 +46,8 @@ test("ogn-286-298: hold trigger with the named conquer-effect activation shape",
   assert.equal(activation.targets, undefined);
 });
 
-test("ogn-286-298: named-trigger activation has no merged primitive or typo-free registered opcode", () => {
-  // Evidence for the judgeReason: the placeholder opcode is not registered, so
-  // the instruction cannot execute; the body documents intent only.
-  assert.equal(instructionDefinitionsById.has("effect.activate-named-trigger"), false);
-  assert.equal(instructionDefinitionsById.has("effect.score"), false);
-});
-
-test("ogn-286-298: the trigger filter still carries the unreplaced here placeholder", () => {
-  assert.throws(() => assertTriggerSpec(ability.trigger), /EventPattern 不允许此字段/);
-});
+test.todo("ogn-286-298: effect.activate-named-trigger needs the CR 383.4.g.1 internal chain entry (RIFT-120); effect.score is unrelated to activating conquer effects");
+test.todo("ogn-286-298: bind the held battlefield to the trigger's here restriction through the scoring payload (RIFT-31/RIFT-33)");
 
 test.todo(
   "ogn-286-298: hold 由 scoring 发出并进链（RIFT-31/RIFT-33）；命名触发激活入口" +
