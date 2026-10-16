@@ -79,3 +79,7 @@ test('scoring-zero-loss-no-trigger (194.4.b): the truncation only fires the loss
   // 194.4.b: no zero-loss event may be fabricated just to fire a trigger.
   assert.equal(loseDuelPoints(zero, board, 'A', 1).actualLost, 0);
 });
+
+test.todo('scoring-points-never-negative (194.4 / 194.4.a): “Target player loses 5 points.” through the effect layer — blocked: no point-loss opcode exists in src/effects/instructions/ (there is effect.score for Gaining Points but no effect.lose-points), so the ability-driven path cannot be executed; the truncation semantics themselves are asserted above against the Scoring kernel’s loseDuelPoints API');
+
+test.todo('scoring-zero-loss-no-trigger (194.4.b): “When you lose points” trigger suppression at zero — blocked: the loss event has no TimingPointId in src/events/timing-points.ts (the closed enum has points-gained but no points-lost), so the “must not trigger” side needs both the point-loss opcode and a loss timing point before it can be registered through the real pipeline');
