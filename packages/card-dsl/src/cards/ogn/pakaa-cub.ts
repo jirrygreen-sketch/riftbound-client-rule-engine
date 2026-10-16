@@ -20,8 +20,8 @@ import type { CardProgram } from "../../ir/index.js";
  * 卡牌只声明关键词（契约 3.1/3.7、README 第 5 节）；展开（static cost.hidden）
  * 由 effects/keywords/Hidden.ts 负责。
  *
- * status = judge-required：Hide 动作与 cost.hidden 没有消费方，面朝下区域也不在
- * 契约 ZoneId 中。
+ * status = judge-required：Hidden 的 cost.hidden 计划已有真实构造逻辑，但 Hide 动作
+ * 没有调用方，面朝下区域也不在契约 ZoneId 中。
  */
 const pakaaCub = {
   canonicalCardId:
@@ -29,11 +29,12 @@ const pakaaCub = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Hidden 的展开文件（effects/keywords/Hidden.ts：static cost.hidden）已合入，但没有消费方：" +
-    "cost/cost-plan.ts 的 buildHiddenCostPlan 没有任何调用者，811.1.c 的 Hide Discretionary Action" +
+    "Hidden 的展开文件（effects/keywords/Hidden.ts：static cost.hidden）与 cost/cost-plan.ts 的 " +
+    "buildHiddenCostPlan 已合入并有执行证据，但没有 Hide Discretionary Action 的调用方；" +
+    "811.1.c 的 Hide Discretionary Action" +
     "（支付 [A]、按己方战场面朝下放置、811.1.b 的下一回合起 [Reaction] + 忽略基础费打出）尚未接线；" +
     "契约 ZoneId（effects/contract.ts）也没有面朝下区域，811.1.d.1–d.3 的落点与目标限制无处表达。" +
-    "缺少的是 Hide 动作/面朝下区域接线，不属于本卡的 write scope；不近似实现。",
+    "缺少的是 Hide 动作/面朝下区域接线与 RIFT-257 CardProgram 关键词绑定，不属于本卡的 write scope；不近似实现。",
   abilities: [{ kind: "keyword", keyword: "hidden" }],
   sourceText:
     "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)"

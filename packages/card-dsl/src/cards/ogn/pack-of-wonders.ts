@@ -25,9 +25,9 @@ import type { CardProgram } from "../../ir/index.js";
  *   "[Hidden] card" branch is itself ambiguous as to whether it refers to a
  *   facedown card or to a card with the Hidden keyword elsewhere; that needs a
  *   judge call before it can be encoded as executable semantics.
- * - "another" must exclude the source Gear itself; the engine's ObjectFilter
- *   has no "other" predicate binding yet (1325-style placeholder used by
- *   other card programs under the same RIFT-1 target-filter dependency).
+ * - "another" excludes the source Gear itself with the contract's `exclude:
+ *   "self"` object-filter shape; the remaining facedown branch is the judged
+ *   part of this card.
  *
  * Structure: one action-speed activated ability with the exhaust cost and a
  * single effect.zone instruction. The TargetSpec below covers the Board half
@@ -42,8 +42,9 @@ const packOfWonders = {
     "「another friendly gear, unit, or [Hidden] card」含规则未定与表达缺口：CR 811.5.a 规定 facedown card 不是带 [Hidden] 关键词的牌，" +
     "故「[Hidden] card」分支究竟指 facedown card 还是别处的 Hidden 牌需要裁定；若指 107.3/422 的 Facedown Zone 卡，" +
     "冻结的 ZoneId 集合没有 facedown-zone，ObjectSnapshot 也没有 facedown-zone 判定，无法选择或重验该目标" +
-    "（费用模块契约变更请求第 3 条记录同一缺口）；「another」排除来源自身的 predicate 也尚未接线（RIFT-1 target-filter 依赖）。" +
-    "已合入的 effect.zone 可把 gear/unit 送回其拥有者手牌（056.1）；整卡不可执行，不近似实现。",
+    "（费用模块契约变更请求第 3 条记录同一缺口）。`another` 的 `exclude: \"self\"` 已可记录，" +
+    "但 facedown 目标与 Hidden 语义仍不可执行；已合入的 effect.zone 可把 gear/unit 送回其拥有者手牌（056.1）。" +
+    "依赖：RIFT-257 CardProgram 绑定、面朝下区域契约与 Hidden/Hide 消费方；整卡不可执行，不近似实现。",
   abilities: [
     {
       kind: "activated",
@@ -70,7 +71,7 @@ const packOfWonders = {
                 type: ["gear", "unit"],
                 controller: "self",
                 zone: "board",
-                other: true
+                exclude: "self"
               },
               min: 1,
               max: 1,

@@ -23,14 +23,14 @@ import type { CardProgram } from "../../ir/index.js";
  *   per-chain/per-game only).
  * - [Legion] (812) is a dependent keyword: 812.1.b.1 makes it a condition on this
  *   card ("if you have played another card this turn"), and 812.1.c excludes the
- *   card itself. Contract 3.8 already added `HistoryQuery.exclude`/
- *   `objectFilter`, but the merged `condition.history` primitive only accepts
- *   scope/action/timingPoint/player/object, so the keyword expansion's
- *   `excluding` payload is rejected ("Unsupported history query field").
+ *   card itself. The contract 3.8 `HistoryQuery.exclude` shape is recorded below,
+ *   but the merged `condition.history` primitive still accepts only
+ *   scope/action/timingPoint/player/object, so the exclusion cannot be evaluated.
  * - "Kill it now instead" replaces the delayed instruction (CR 158.2 ruling for
- *   this exact card; 367 Replacement Effects). There is no merged primitive that
- *   negates an instruction of the same spell, so the exclusive outcome is only
- *   recorded with a condition here.
+ *   this exact card; 367 Replacement Effects). The merged replacement pipeline
+ *   handles game events, but has no instruction-level replacement for a sibling
+ *   instruction in the same spell, so the exclusive outcome is only recorded
+ *   with a condition here.
  * "Choose a unit" is a normal target (355.7) and `effect.kill` is merged; that
  * half is covered by a real primitive test.
  */
@@ -42,9 +42,10 @@ const noxianGuillotine = {
     "缺延迟触发注册：'Kill it the next time it takes damage this turn' 是延迟触发能力（CR 392/367），" +
     "没有已合入原语暴露 registerDelayedTrigger，且 TriggerSpec.once 没有「下一次」作用域与回合末到期；" +
     "[Legion] 依赖型关键词（812.1.b.1/812.1.c）需要 condition.history 支持契约 3.8 的 exclude/objectFilter，" +
-    "但已合入的 history 原语只接受 scope/action/timingPoint/player/object，密钥词展开的 excluding 会被拒绝；" +
-    "'Kill it now instead' 是同一法术内指令级替代（CR 158.2 用的正是本卡），没有已合入的替代原语，" +
-    "此处只用 condition 记录互斥结果。依赖：RIFT-82 Legion 关键词展开、RIFT-89/90 与批次 4 事件/替换管线；不近似实现。",
+    "但已合入的 history 原语只接受 scope/action/timingPoint/player/object，契约字段无法求值；" +
+    "'Kill it now instead' 是同一法术内指令级替代（CR 158.2 用的正是本卡），已合入的 replacement.event/enter " +
+    "只替换游戏事件或入场事件，不能替换同一 body 的兄弟指令。依赖：RIFT-257 CardProgram 绑定、" +
+    "延迟触发/指令级替代与 HistoryQuery 消费方；不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     { kind: "keyword", keyword: "legion" },
@@ -53,8 +54,8 @@ const noxianGuillotine = {
       body: [
         {
           // [Legion] condition, 812.1.c: another card was played this turn. The
-          // `excluding` payload is the keyword expansion's contract-3.8 shape and
-          // is not yet accepted by the merged history primitive.
+          // `exclude` is the contract-3.8 shape; the merged history primitive
+          // still does not consume it.
           id: "guillotine-legion-check",
           op: "condition.history",
           args: {
@@ -64,7 +65,7 @@ const noxianGuillotine = {
                 scope: "turn",
                 action: "play",
                 player: "controller",
-                excluding: "card.hash-c973c5f4508531db7ec8b07e87359987755e8136cf2abb7b2e92df957e1ff837"
+                exclude: "self"
               }
             },
             operator: { kind: "literal", value: "gte" },

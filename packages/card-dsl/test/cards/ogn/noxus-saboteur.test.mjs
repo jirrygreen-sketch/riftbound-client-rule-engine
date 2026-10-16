@@ -4,6 +4,8 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/noxus-saboteur.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
+import restrict from "../../../../engine-core/dist/effects/instructions/continuous.restrict.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-e5d5e81a865437ba16c7a9dd066d67dc5f437867e4ec858ae5245045cc548caf";
 const [restriction] = program.abilities;
@@ -21,6 +23,7 @@ test("noxus-saboteur: identity, ruleset, status and verbatim sourceText", () => 
   assert.match(program.judgeReason, /continuous\.restrict/);
   assert.match(program.judgeReason, /425\.2\.a/);
   assert.match(program.judgeReason, /811\.5\.a/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, "Your opponents' [Hidden] cards can't be revealed here.");
 });
 
@@ -29,12 +32,12 @@ test("noxus-saboteur: a single static continuous restriction forbids revealing o
   assert.equal(restriction.kind, "static");
   assert.equal(restriction.condition, undefined);
   assert.equal(restriction.effect.kind, "continuous.restrict");
-  assert.equal(restriction.effect.operation, "reveal");
-  assert.equal(restriction.effect.forbidden, true);
+  assert.deepEqual(restriction.effect.actions, ["reveal"]);
+  assert.equal(restriction.effect.restriction, "opponent-hidden-cards-cannot-be-revealed-here");
 });
 
 test("noxus-saboteur: the restricted set is the opponents' Hidden cards at this location (811.5, 421.1)", () => {
-  assert.deepEqual(restriction.effect.filter, {
+  assert.deepEqual(restriction.effect.appliesTo, {
     tag: "Hidden",
     controller: "opponent",
     zone: "board",
@@ -42,13 +45,33 @@ test("noxus-saboteur: the restricted set is the opponents' Hidden cards at this 
   });
   // 811.1.a: Hidden appears on Spells, Units, and Gear, so the restriction must
   // not be narrowed to one card type (811.5 lets effects check the characteristic).
-  assert.equal(restriction.effect.filter.type, undefined);
+  assert.equal(restriction.effect.appliesTo.type, undefined);
+});
+
+test("noxus-saboteur: continuous.restrict registers the printed reveal prohibition", () => {
+  const kernel = world().unit("saboteur", { owner: "A" }).build();
+  const literal = value => ({ kind: "constant", value });
+  const run = runInstruction(
+    restrict,
+    {
+      action: literal(restriction.effect.actions),
+      restriction: literal(restriction.effect.restriction),
+      appliesTo: literal(restriction.effect.appliesTo),
+      duration: literal("permanent")
+    },
+    { world: kernel }
+  );
+  assert.equal(run.result.status, "executed");
+  assert.equal(kernel.continuousEffects.length, 1);
+  assert.deepEqual(kernel.continuousEffects[0].effect.effect.actions, ["reveal"]);
+  assert.equal(
+    kernel.continuousEffects[0].effect.effect.restriction,
+    "opponent-hidden-cards-cannot-be-revealed-here"
+  );
+  assert.deepEqual(kernel.continuousEffects[0].effect.filter, restriction.effect.appliesTo);
 });
 
 test.todo(
-  "noxus-saboteur: the continuous.restrict primitive (RIFT-9, depends on condition.predicate) and a kernel consumer " +
-    "that blocks the reveal action (425.2.a) are required; neither is merged"
-);
-test.todo(
-  "noxus-saboteur: facedown cards are not Hidden (811.5.a), which the restriction's card characteristic check must respect"
+  "noxus-saboteur: bind the static CardProgram restriction and consume it from Reveal legality, " +
+    "including the 811.5.a distinction between facedown cards and Hidden cards (RIFT-257)"
 );
