@@ -50,6 +50,8 @@ const shakedown = {
     "抽牌归能力控制者 190.6.d；选择权不归施法者；选择对目标控制者强制，355.18）。该读法来自" +
     "docs/plans/survey/unclassified-ogn.json 对 ogn-033-298 的工程映射，不是官方裁定，CR v1.5 也没有通用 unless 构造，" +
     "故整卡保持 judge-required（结构已可执行并有 golden 双分支执行测试），拿到裁定后复核即可改状态。" +
+    "另：生产结算链路目前也无法执行该 body —— chain/engine.ts 的 assertFinalizationSurface 对 body 内的 choice.mode 抛 " +
+    "ChainContractBlockedError（Mode choices require a Finalize/Resolve choice-plan adapter），Finalize/Resolve 的选择计划接线是引擎侧后续。" +
     "涉及的已合入原语：choice.mode（可指定的 chooser）、effect.damage、effect.draw、continuous.timing（Reaction 展开）。",
   sourceText:
     "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +

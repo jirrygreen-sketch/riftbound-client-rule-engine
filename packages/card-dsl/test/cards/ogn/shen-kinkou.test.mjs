@@ -104,29 +104,40 @@ test("Reaction/Shield declarations match the merged engine keyword registry (CR 
   assert.equal(wrapped.ok, true, JSON.stringify(wrapped.issues, null, 2));
 });
 
-test("Tank has no merged KeywordDef: the declared gap keeps the program judge-required", () => {
+test("Tank expands to a continuous.combat requirement with no combat consumer", () => {
   // 815.1.b ("I must be assigned lethal damage before any other unit with the
   // same controller as me that does not have [Tank] during the Combat Damage
-  // step") has no effects/keywords/Tank.ts, and the combat kernels do not bind
-  // assignment priority (see combat/base-combat-allocation.ts). This assertion
-  // documents the exact gap named by judgeReason.
-  assert.equal(keywordRegistryById.has("Tank"), false);
-  assert.equal(keywordRegistryById.has("tank"), false);
+  // step") now has the merged Tank KeywordDef (RIFT-264), but its expansion is
+  // a continuous.combat declaration the combat kernels never read (see
+  // combat/base-combat-allocation.ts). This assertion documents the exact gap
+  // named by judgeReason.
+  const tank = keywordDef("tank");
+  assert.ok(tank, "effects/keywords/Tank.ts must be merged for the [Tank] declaration");
+  assert.equal(tank.valued, false);
+  assert.equal(tank.stacking, "single");
+  const expansion = tank.expand({ host: { canonicalCardId: CANONICAL } });
+  assert.equal(expansion.length, 1);
+  assert.equal(expansion[0].kind, "static");
+  assert.equal(expansion[0].effect.kind, "continuous.combat");
+  assert.equal(expansion[0].effect.mode, "damage-assignment");
+  assert.equal(expansion[0].effect.priority, "first");
 });
 
 test.todo(
   "[Tank] expansion and combat-damage assignment priority (CR 815.1.b, 815.1.c.1, 815.1.c.2): " +
-    "needs the Tank KeywordDef in effects/keywords/ (RIFT-81~91 keyword workstream) plus the " +
-    "assignment-priority binding in combat/ (RIFT-77 kernels currently bind none)"
+    "the Tank KeywordDef is merged (RIFT-264), but combat/ still needs the assignment-priority " +
+    "binding (base-combat-allocation.ts currently binds none) and the continuous.combat consumer"
 );
 
 test.todo(
   "[Shield 2] arithmetic Might in the layers pipeline (CR 814.1.c/814.1.d): the keyword expansion is " +
-    "merged, but ObjectSnapshot has no 'designation' characteristic and layers conditionMatches does " +
-    "not evaluate compare conditions, so the +2 [M] cannot be applied only while defending (RIFT-91)"
+    "merged (with the compare(designation == defender) condition), but ObjectSnapshot has no " +
+    "'designation' characteristic and layers conditionMatches does not evaluate compare conditions, " +
+    "so the +2 [M] cannot be applied only while defending (RIFT-91)"
 );
 
 test.todo(
-  "[Reaction] closed-state play permission (CR 813.1.c): chain.canAct() does not read the " +
-    "continuous.timing grant produced by the merged keyword expansion (RIFT-85 expansion + chain timing query)"
+  "[Reaction] closed-state play permission (CR 813.1.c): the layers/rules canAct query consumes " +
+    "continuous.timing (RIFT-259), but nothing registers a card/keyword expansion into the layers " +
+    "registry and chain.canAct() reads only its own state"
 );

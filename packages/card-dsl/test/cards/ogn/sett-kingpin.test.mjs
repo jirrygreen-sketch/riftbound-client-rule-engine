@@ -45,6 +45,7 @@ test("ogn-240-298 Sett, Kingpin: identity, status and verbatim sourceText", () =
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Tank/);
+  assert.match(program.judgeReason, /continuous\.combat/);
   assert.match(program.judgeReason, /count/);
   assert.match(program.judgeReason, /RIFT-91/);
   assert.equal(
@@ -54,11 +55,20 @@ test("ogn-240-298 Sett, Kingpin: identity, status and verbatim sourceText", () =
   );
 });
 
-test("ogn-240-298 Sett, Kingpin: [Tank] is declared but has no registered keyword expansion", () => {
+test("ogn-240-298 Sett, Kingpin: [Tank] expands to a continuous.combat effect with no runtime consumer", () => {
   assert.deepEqual(tank, { kind: "keyword", keyword: "tank" });
-  // CR 815.1.a-c: Tank is a passive ability keyword on units; without a KeywordDef and a
-  // combat-damage-assignment consumer the declaration cannot take effect.
-  assert.equal(keywordDefinitionsById.has("Tank"), false);
+  // CR 815.1.a-c: the Tank KeywordDef is merged (RIFT-264) and expands to one
+  // static continuous.combat damage-assignment requirement; the combat step has
+  // no consumer for it yet, so the declaration cannot take effect.
+  const definition = keywordDefinitionsById.get("Tank");
+  assert.ok(definition, "the merged Tank KeywordDef must be registered");
+  assert.equal(definition.valued, false);
+  assert.equal(definition.stacking, "single");
+  const [ability] = definition.expand({ host: { canonicalCardId: CANONICAL } });
+  assert.equal(ability.kind, "static");
+  assert.equal(ability.effect.kind, "continuous.combat");
+  assert.equal(ability.effect.mode, "damage-assignment");
+  assert.equal(ability.effect.priority, "first");
 });
 
 test("ogn-240-298 Sett, Kingpin: the Might bonus counts buffed friendly units at the same battlefield", () => {
@@ -108,7 +118,9 @@ test("ogn-240-298 Sett, Kingpin: the layers arithmetic consumer ignores the coun
 
 test.todo(
   "ogn-240-298 Sett, Kingpin: [Tank]'s combat damage assignment requirement (CR 815.1.b/815.1.c, " +
-    "815.2) needs a Tank KeywordDef plus the combat continuous consumer"
+    "815.2): the Tank KeywordDef is merged (RIFT-264) and expands to continuous.combat, " +
+    "but the combat step still needs the continuous.combat consumer that enforces lethal-first " +
+    "assignment ordering (combat/base-combat-allocation.ts binds none)"
 );
 test.todo(
   "ogn-240-298 Sett, Kingpin: the per-buffed-unit Might count needs layer arithmetic to evaluate " +

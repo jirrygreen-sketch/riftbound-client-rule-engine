@@ -1,68 +1,94 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { validateCardProgram } from "../../../dist/ir/validation.js";
+import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import siphonPower from "../../../dist/cards/ogn/siphon-power-viktor.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
-import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 
 const CANONICAL = "card.hash-d619150ac39f656ea38c332ad3a03989be755c3114becae61bb346ae3996951d";
-const BATTLEFIELD = id => ({ type: "battlefield", id });
+const BATTLEFIELD = { type: "battlefield", id: "battlefield-1" };
+const ELSEWHERE = { type: "battlefield", id: "battlefield-2" };
 
 const [keyword, play] = siphonPower.abilities;
 const [friendlyInstruction, enemyInstruction] = play.body;
 
-/** A minimal board object for direct layer-engine evaluation. */
-function unit(id, values = {}) {
-  return {
-    ref: { id, zoneEntryId: 1 },
-    cardId: `card:${id}`,
-    name: id,
-    types: ["unit"],
-    tags: [],
-    keywords: [],
-    owner: values.owner ?? "A",
-    controller: values.controller ?? "A",
-    zone: "board",
-    location: values.location ?? BATTLEFIELD("bf1"),
-    might: values.might ?? 3,
-    energy: null,
-    power: null,
-    exhausted: false,
-    damage: 0,
-    stunned: false,
-    buffs: 0,
-    attachedTo: null,
-    faceDown: false,
-    isToken: false
-  };
+/**
+ * chain/engine.ts resolves the static controller/owner spellings before it
+ * calls the production matcher: 'self' becomes the ability controller and
+ * 'opponent' excludes that player's objects. The reference kernel's own query
+ * compares filter values literally, so the goldens go through the same
+ * normalization the production chain applies (the merged switcheroo /
+ * facebreaker goldens use this exact helper).
+ */
+const chainQuery = (kernel, controller) => (value) => {
+  const normalized = { ...value };
+  for (const key of ["controller", "owner"]) {
+    if (normalized[key] === "self") normalized[key] = controller;
+  }
+  return kernel.query({}).filter((object) => {
+    for (const key of ["controller", "owner"]) {
+      if (normalized[key] === "opponent" && object[key] === controller) return false;
+    }
+    return matchesObjectFilter({
+      ...normalized,
+      ...(normalized.controller === "opponent" ? { controller: "any" } : {}),
+      ...(normalized.owner === "opponent" ? { owner: "any" } : {})
+    }, object);
+  });
+};
+
+const chainContext = (kernel, controller) => new Proxy(kernel, {
+  get(target, key) {
+    if (key === "query") return chainQuery(target, controller);
+    const value = Reflect.get(target, key);
+    return typeof value === "function" ? value.bind(target) : value;
+  }
+});
+
+/** Board including the chosen battlefield plus units on it and elsewhere. */
+function siphonWorld() {
+  const kernel = world()
+    .unit("chosen-bf", { types: ["battlefield"], owner: "A", location: BATTLEFIELD })
+    .unit("friendly-here", { owner: "A", controller: "A", might: 3, location: BATTLEFIELD })
+    .unit("friendly-elsewhere", { owner: "A", controller: "A", might: 3, location: ELSEWHERE })
+    .unit("enemy-here", { owner: "B", controller: "B", might: 3, location: BATTLEFIELD })
+    .unit("enemy-weak-here", { owner: "B", controller: "B", might: 1, location: BATTLEFIELD })
+    .unit("enemy-elsewhere", { owner: "B", controller: "B", might: 3, location: ELSEWHERE })
+    .build();
+  kernel.setTargets("chosen-battlefield", [kernel.ref("chosen-bf")]);
+  return kernel;
 }
 
-test("Siphon Power program is structurally valid EffectIR v2 data", () => {
+const registrations = (kernel) => kernel.continuousEffects.map(entry => ({
+  effect: entry.effect,
+  duration: entry.duration,
+  timestamp: 1
+}));
+
+const effectiveMight = (kernel, id) =>
+  createLayerEngine(kernel.objects, registrations(kernel)).evaluate(kernel.ref(id)).might;
+
+test("Siphon Power program is structurally valid EffectIR v2 data and executable", () => {
   const result = validateCardProgram(siphonPower);
   assert.deepEqual(result.issues, []);
   assert.equal(result.ok, true);
+  assert.equal(siphonPower.status, "executable");
+  assert.equal(siphonPower.judgeReason, undefined);
 });
 
-test("Siphon Power identity, ruleset, status, printed text and judgeReason", () => {
+test("Siphon Power identity, ruleset and printed text are verbatim", () => {
   assert.equal(siphonPower.canonicalCardId, CANONICAL);
-  assert.equal(siphonPower.rulesetVersion, "core-1.5");
-  assert.equal(siphonPower.status, "judge-required");
+  assert.equal(siphonPower.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(
     siphonPower.sourceText,
     "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +
       "Choose a battlefield. Give friendly units there +1 :rb_might: this turn and enemy units there " +
       "-1 :rb_might: this turn, to a minimum of 1 :rb_might:."
   );
-  // The judgeReason must name the missing continuous.might registration, the
-  // printed minimum and the rule it comes from.
-  assert.match(siphonPower.judgeReason, /continuous\.might/);
-  assert.match(siphonPower.judgeReason, /479\.4\.b/);
-  assert.match(siphonPower.judgeReason, /addContinuous/);
-  assert.match(siphonPower.judgeReason, /355\.10\.d/);
   assert.equal(cardRegistryById.get(siphonPower.canonicalCardId), siphonPower);
 });
 
@@ -72,12 +98,13 @@ test("Siphon Power declares the printed [Reaction] keyword (CR 813)", () => {
   assert.equal(keyword.value, undefined);
 });
 
-test("Siphon Power structure: the battlefield choice plus the two Might instructions", () => {
+test("Siphon Power structure: the battlefield choice plus the two programmatic Might sets", () => {
   assert.equal(play.kind, "play");
+  assert.equal(play.cost, undefined);
   assert.equal(play.body.length, 2);
 
-  // "Choose a battlefield" (355.5 / 355.7 / 355.9.a) — the Zone is chosen, so
-  // it is the target the unit sets anchor on with sameLocationAs.
+  // "Choose a battlefield" (355.5 / 355.7 / 355.9.a) — the battlefield is the
+  // chosen object; the unit sets anchor on it with sameLocationAs.
   assert.equal(friendlyInstruction.targets.length, 1);
   assert.deepEqual(friendlyInstruction.targets[0], {
     id: "chosen-battlefield",
@@ -95,11 +122,13 @@ test("Siphon Power structure: the battlefield choice plus the two Might instruct
   assert.deepEqual(friendlyInstruction.args.amount, { kind: "constant", value: 1 });
   assert.deepEqual(friendlyInstruction.args.duration, { kind: "constant", value: "this-turn" });
   assert.equal(friendlyInstruction.args.minimum, undefined);
-  assert.deepEqual(friendlyInstruction.args.appliesTo, {
+  assert.deepEqual(friendlyInstruction.args.objects, {
     kind: "constant",
     value: {
+      kind: "query",
       filter: {
         type: "unit",
+        zone: "board",
         controller: "self",
         sameLocationAs: { target: "chosen-battlefield" }
       }
@@ -114,102 +143,93 @@ test("Siphon Power structure: the battlefield choice plus the two Might instruct
   assert.deepEqual(enemyInstruction.args.amount, { kind: "constant", value: -1 });
   assert.deepEqual(enemyInstruction.args.duration, { kind: "constant", value: "this-turn" });
   assert.deepEqual(enemyInstruction.args.minimum, { kind: "constant", value: 1 });
-  assert.deepEqual(enemyInstruction.args.appliesTo, {
+  assert.deepEqual(enemyInstruction.args.objects, {
     kind: "constant",
     value: {
+      kind: "query",
       filter: {
         type: "unit",
+        zone: "board",
         controller: "opponent",
         sameLocationAs: { target: "chosen-battlefield" }
       }
     }
   });
   assert.equal(enemyInstruction.linkedTo, undefined);
-  assert.equal(play.cost, undefined);
 });
 
-test("Siphon Power: continuous.might is not a registered instruction opcode", () => {
-  assert.equal(instructionDefinitionsById.has("continuous.might"), false);
-  // Fail closed rather than silently resolving with no Might change at all.
-  const kernel = world().build();
-  const body = play.body.map(({ targets, ...rest }) => rest);
-  assert.throws(
-    () => runAbilityBody(body, kernel),
-    /continuous\.might/
+test("Siphon Power golden: both Might instructions execute through the production chain adapter", () => {
+  const kernel = siphonWorld();
+  const outcome = resolveChainBody(play.body, chainContext(kernel, "A"));
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(
+    outcome.results.map(result => [result.id, result.result.status]),
+    [
+      ["grant-plus-1-to-friendly-units", "executed"],
+      ["grant-minus-1-to-enemy-units", "executed"]
+    ]
   );
+
+  // One arithmetic-layer registration per affected unit: the friendly unit at
+  // the battlefield and both enemy units there; the units at the other
+  // battlefield are never grouped in (sameLocationAs anchor).
+  assert.deepEqual(
+    kernel.continuousEffects.map(entry => entry.effect.filter.objectId).sort(),
+    ["enemy-here", "enemy-weak-here", "friendly-here"]
+  );
+  assert.deepEqual(
+    kernel.continuousEffects.map(entry => [entry.effect.filter.objectId, entry.effect.effect.amount]),
+    [["friendly-here", 1], ["enemy-here", -1], ["enemy-weak-here", 0]]
+  );
+  // 479.4.b: the -1 to a minimum of 1 snapshots at application time — the
+  // 3-Might enemy really receives -1, and the 1-Might enemy receives 0 rather
+  // than being pushed below its printed minimum.
+  assert.equal(kernel.continuousEffects.find(entry => entry.effect.filter.objectId === "enemy-here").effect.effect.minimum, 1);
+  // 317.1.a / 468.7.c: "this turn" is an end-of-turn duration on every entry.
+  for (const entry of kernel.continuousEffects) assert.deepEqual(entry.duration, { type: "end-of-turn" });
 });
 
-test("Siphon Power: the layers engine can apply the arithmetic, but nothing registers it from a spell", () => {
-  // The gap is the missing instruction-level entry point, not the layer math:
-  // RIFT-91 landed the arithmetic layer and its end-of-turn expiry, and the
-  // official 478.1.c example in the CR is this card.
-  const friendly = unit("friendly", { controller: "A", might: 4 });
-  const enemy = unit("enemy", { controller: "B", might: 4 });
-  const engine = createLayerEngine([friendly, enemy], [
-    {
-      effect: {
-        id: "siphon-plus",
-        layer: "arithmetic",
-        filter: { type: "unit", controller: "A" },
-        effect: { kind: "increase", amount: 1 }
-      },
-      duration: { type: "end-of-turn" }
-    },
-    {
-      effect: {
-        id: "siphon-minus",
-        layer: "arithmetic",
-        filter: { type: "unit", controller: "B" },
-        effect: { kind: "decrease", amount: 1 }
-      },
-      duration: { type: "end-of-turn" }
-    }
-  ]);
+test("Siphon Power golden: friendly +1 and enemy -1 apply only at the chosen battlefield", () => {
+  const kernel = siphonWorld();
+  resolveChainBody(play.body, chainContext(kernel, "A"));
 
-  const evaluated = engine.evaluateAll();
-  assert.equal(evaluated.find(object => object.ref.id === "friendly").might, 5);
-  assert.equal(evaluated.find(object => object.ref.id === "enemy").might, 3);
-  // The end-of-turn lifetime is real and expirable.
-  assert.deepEqual(engine.expireAt("turn-end"), ["siphon-plus", "siphon-minus"]);
-  assert.equal(engine.evaluateAll().find(object => object.ref.id === "friendly").might, 4);
+  assert.equal(effectiveMight(kernel, "friendly-here"), 4);
+  assert.equal(effectiveMight(kernel, "friendly-elsewhere"), 3);
+  assert.equal(effectiveMight(kernel, "enemy-here"), 2);
+  // The printed minimum of 1 holds: the (1, -1) pair snapshots to a 0-Might
+  // modification instead of taking the unit below 1 (479.4.b).
+  assert.equal(effectiveMight(kernel, "enemy-weak-here"), 1);
+  assert.equal(effectiveMight(kernel, "enemy-elsewhere"), 3);
 });
 
-test("Siphon Power: the printed minimum of 1 is not implied by the merged layer math", () => {
-  // 479.4.b snapshots the printed limitation when the effect is applied. The
-  // merged arithmetic layer only clamps at 0, so a plain decrease of 4 turns a
-  // 2-Might unit into 0 — proof that the floor must come from the missing
-  // primitive and may not be assumed or written as a fixed final value.
-  const weak = unit("weak", { controller: "B", might: 2 });
-  const engine = createLayerEngine([weak], [
-    {
-      effect: {
-        id: "siphon-minus-4",
-        layer: "arithmetic",
-        filter: { type: "unit", controller: "B" },
-        effect: { kind: "decrease", amount: 4 }
-      },
-      duration: { type: "end-of-turn" }
-    }
-  ]);
+test("Siphon Power golden: the modification expires at end of turn (317.1.a / 468.7.c)", () => {
+  const kernel = siphonWorld();
+  resolveChainBody(play.body, chainContext(kernel, "A"));
+  const engine = createLayerEngine(kernel.objects, registrations(kernel));
+  assert.equal(engine.evaluate(kernel.ref("friendly-here")).might, 4);
+  assert.equal(engine.evaluate(kernel.ref("enemy-here")).might, 2);
 
-  assert.equal(engine.evaluate(weak.ref).might, 0);
-  assert.notEqual(engine.evaluate(weak.ref).might, 1);
+  const expired = engine.expireAt("turn-end");
+  assert.equal(expired.length, 3);
+  assert.equal(engine.evaluate(kernel.ref("friendly-here")).might, 3);
+  assert.equal(engine.evaluate(kernel.ref("enemy-here")).might, 3);
 });
 
-test.todo(
-  "Siphon Power: register an instruction-level continuous.might effect through ctx.addContinuous with a " +
-    "this-turn duration, the friendly/enemy programmatic sets anchored on the chosen battlefield, and the " +
-    "printed minimum-1 snapshot for the decrease (479.4.b / 479.4.e.1-e.2; the layers evaluation side " +
-    "landed with RIFT-91)"
-);
+test("Siphon Power golden: a chosen battlefield that left the Board is ignored and the sets resolve empty", () => {
+  const kernel = siphonWorld();
+  const stale = kernel.ref("chosen-bf");
+  kernel.perform({ type: "move-zone", object: stale, to: "trash" });
+  kernel.setTargets("chosen-battlefield", [stale]);
 
-test.todo(
-  "Siphon Power: choose a battlefield as a Zone target (355.5 / 355.7 / 355.9.a) and keep the unit sets " +
-    "non-targeted (355.10.d / 355.10.d.1) — needs the location-target form in the target system (RIFT-90)"
-);
-
-test.todo(
-  "Siphon Power: the official 478.1.c dependency-loop example (two 4-Might units with mutually referencing " +
-    "conditional buffs end at 4 each) stays with the layers dependency work, not with card data"
-);
-
+  const outcome = resolveChainBody(play.body, chainContext(kernel, "A"));
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(
+    outcome.results.map(result => [result.id, result.result.status, result.result.reason]),
+    [
+      ["grant-plus-1-to-friendly-units", "ignored", "mistargeted"],
+      ["grant-minus-1-to-enemy-units", "negated", "skipped"]
+    ]
+  );
+  assert.equal(kernel.continuousEffects.length, 0);
+});

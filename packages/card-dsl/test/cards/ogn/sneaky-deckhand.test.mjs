@@ -17,7 +17,8 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, sourceText", () =
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /play-location-permission/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /continuous\.location/);
+  assert.match(program.judgeReason, /playLocations/);
   assert.equal(program.sourceText, "You may play me to an open battlefield.");
 });
 
@@ -40,5 +41,6 @@ test("the single ability is a static open-battlefield play permission for self w
 
 test.todo(
   "accept the open-battlefield play location at Make Relevant Choices (CR 355.2.a/355.2.b; open = " +
-    "unoccupied and uncontrolled, 170.11.c) once a consumer of play-location-permission exists (RIFT-90/91)"
+    "unoccupied and uncontrolled, 170.11.c): wire a card-static continuous.location registration into the " +
+    "layers registry and have the Finalize placement validator query playLocations (RIFT-90 / RIFT-91 follow-up)"
 );

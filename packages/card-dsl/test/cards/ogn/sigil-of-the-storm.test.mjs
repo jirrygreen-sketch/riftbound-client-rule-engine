@@ -22,8 +22,8 @@ test("ogn-287-298 Sigil of the Storm: program validates and is judge-required", 
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /conquer/);
-  assert.match(program.judgeReason, /RIFT-31/);
-  assert.match(program.judgeReason, /RIFT-33/);
+  assert.match(program.judgeReason, /here/);
+  assert.match(program.judgeReason, /RIFT-120/);
   assert.equal(program.sourceText, "When you conquer here, recycle one of your runes.");
 });
 
@@ -113,8 +113,9 @@ test("ogn-287-298: the trigger filter still carries the unreplaced here placehol
 });
 
 test.todo(
-  "ogn-287-298: conquer 由 scoring 发出并进链（含“scoring 不因得分被替代而消失”，470.1）" +
-    "（依赖 RIFT-31 scenarios-scoring / RIFT-33 scenarios-triggers）"
+  "ogn-287-298: EventPattern 增加战场相对「here」语义并由 host 把载荷 details.battlefieldId " +
+    "与来源当前位置比较（替代占位键 here=true），以及「scoring 不因得分被替代而消失」（470.1）的覆盖" +
+    "（依赖 RIFT-120 触发工作流；conquer 时点本身已由 turn/flow.ts 发出）"
 );
 test.todo(
   "ogn-287-298: 417.5.a“同一指令回收多张符文时由拥有者决定牌库底顺序”在回收多张时由内核呈现" +
