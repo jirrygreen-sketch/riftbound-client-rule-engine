@@ -8,6 +8,8 @@ import type {
   ResolveContext,
   Value
 } from "../effects/contract.js";
+import { restrictions as ruleRestrictions } from "../layers/rules/query.js";
+import type { ContinuousEffectRegistry } from "../layers/duration.js";
 
 export type TargetSelectionMode = "one" | "any" | "all" | "up-to";
 export type TargetPlanPhase = "finalize" | "resolve";
@@ -40,6 +42,9 @@ export interface TargetBounds {
 export interface TargetCandidateOptions {
   readonly isPending?: (ref: ObjectRef, snapshot: ObjectSnapshot, phase: TargetPlanPhase) => boolean;
   readonly isLegal?: (snapshot: ObjectSnapshot, phase: TargetPlanPhase) => boolean;
+  /** Optional ability-layer restrictions for the player choosing the target. */
+  readonly ruleRegistry?: ContinuousEffectRegistry;
+  readonly rulePlayer?: PlayerId;
 }
 
 export interface TargetFinalizeOptions extends TargetCandidateOptions {
@@ -232,6 +237,10 @@ function legalCandidates(
     if (current === null || !matchesRequirement(current, requirement)) continue;
     if (pending(ref, current, phase)) continue;
     if (options.isLegal && !options.isLegal(current, phase)) continue;
+    if (options.ruleRegistry !== undefined && (
+      ruleRestrictions(options.ruleRegistry, "target", ref, current, options.rulePlayer).length > 0 ||
+      ruleRestrictions(options.ruleRegistry, "choose-as-target", ref, current, options.rulePlayer).length > 0
+    )) continue;
     seen.add(key);
     refs.push(copyRef(ref));
   }
