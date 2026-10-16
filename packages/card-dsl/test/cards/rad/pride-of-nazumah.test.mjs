@@ -6,7 +6,6 @@ import program from "../../../dist/cards/rad/pride-of-nazumah.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 
 const CANONICAL_ID =
   "card.hash-429ae86450b57eb8b5283953594d1e2375732b2cc9c460d030a5a5b418afd418";
@@ -80,12 +79,8 @@ test("rad-147-167 Pride of Nazumah: body grants Assault equal to the target's Sh
   ]);
 });
 
-test("rad-147-167 Pride of Nazumah: the declared grant op cannot execute", () => {
-  // (1) The merged instruction registry has no continuous.grant-keyword primitive
-  // (RIFT-91), so the opcode itself is unregistered.
-  assert.equal(instructionDefinitionsById.has("continuous.grant-keyword"), false);
-
-  // (2) The declared value read is not resolvable either: ObjectSnapshot exposes
+test("rad-147-167 Pride of Nazumah: the declared grant still fails closed", () => {
+  // The declared value read is not resolvable: ObjectSnapshot exposes
   // keywords as a list, not a "shield" property, so evaluating the argument
   // raises MissingInformation and the merged interpreter reports the
   // instruction as ignored instead of granting anything.

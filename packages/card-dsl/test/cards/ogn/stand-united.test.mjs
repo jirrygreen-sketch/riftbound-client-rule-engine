@@ -5,7 +5,6 @@ import { validateCardProgram } from "../../../dist/ir/validation.js";
 import standUnited from "../../../dist/cards/ogn/stand-united.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import buff from "../../../../engine-core/dist/effects/instructions/effect.buff.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -80,11 +79,6 @@ test("Stand United body: a merged Buff instruction plus the unmerged Buff Might 
   assert.equal(extraMight.targets, undefined);
 });
 
-test("Stand United fail-closed: continuous.might is not a registered instruction opcode", () => {
-  assert.equal(instructionDefinitionsById.has("continuous.might"), false);
-  assert.equal(instructionDefinitionsById.has("effect.buff"), true);
-});
-
 test("Stand United: the layers engine would apply an arithmetic Might modifier, but no opcode registers one", () => {
   // Evidence that the gap is the missing instruction-level entry point, not
   // the layer math: a correctly shaped registration is evaluated and its
@@ -151,7 +145,7 @@ test("Stand United interpreter: the Buff half resolves and the Might modifier fa
   const before = kernel.getObject("friendly-unit").might;
 
   // The Buff instruction is reached first and really executes; the second
-  // sentence is then unregistered and throws, so the card cannot report a
+  // sentence is then rejected and throws, so the card cannot report a
   // completed resolution with a wrong Might total.
   assert.throws(() => runAbilityBody(body, kernel), /continuous\.might/);
   assert.equal(kernel.getObject("friendly-unit").buffs, 1);

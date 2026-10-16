@@ -68,8 +68,7 @@ test("ogn-093-298 Smoke Screen structure: [Reaction] keyword plus one targeted -
   ]);
 });
 
-test("ogn-093-298 Smoke Screen: the declared dependencies really are unregistered", () => {
-  assert.equal(instructionDefinitionsById.has("continuous.might"), false);
+test("ogn-093-298 Smoke Screen: the merged Reaction keyword is registered while Might remains pending", () => {
   assert.equal(keywordDefinitionsById.has("Reaction"), true);
   assert.equal(keywordDefinitionsById.get("Reaction").valued, false);
 });

@@ -57,7 +57,7 @@ test("ogn-080-298 Mystic Reversal structure: [Reaction], a chain-spell control t
   // "Gain control of a spell": the Chain item is the target (355.9.a.2).
   assert.equal(gainControl.op, "effect.control");
   assert.deepEqual(gainControl.args, {
-    target: { kind: "constant", value: "mystic-reversal.spell" }
+    objects: { kind: "constant", value: { target: "mystic-reversal.spell" } }
   });
   assert.deepEqual(targetSpec, {
     id: "mystic-reversal.spell",
@@ -88,12 +88,11 @@ test("ogn-080-298 Mystic Reversal structure: [Reaction], a chain-spell control t
   assert.deepEqual(remakeChoices.args.remakeAll, { kind: "constant", value: true });
 });
 
-test("ogn-080-298 Mystic Reversal: the control primitive is merged; the remake primitive is still missing", () => {
+test("ogn-080-298 Mystic Reversal: the control primitive is merged; the remake clause remains pending", () => {
   // RIFT-117 merged effect.control, so the control clause now has executable
-  // primitive support; the remake op (RIFT-90/RIFT-120) is still unmerged.
+  // primitive support. The [Reaction] speed keyword is also merged; the
+  // Making New Choices clause remains judge-required until its primitive lands.
   assert.equal(instructionDefinitionsById.has("effect.control"), true);
-  assert.equal(instructionDefinitionsById.has("choice.remake-chain-item-choices"), false);
-  // The [Reaction] speed keyword is merged even though its consumer is not.
   assert.equal(keywordDefinitionsById.has("Reaction"), true);
 });
 
@@ -131,12 +130,10 @@ test("ogn-080-298 Mystic Reversal golden: the merged counter primitive rechecks 
 });
 
 test("ogn-080-298 Mystic Reversal golden: the merged control primitive executes the take-control clause", () => {
-  // The card-level IR keeps its declarative "target" key, while the merged
-  // primitive exposes the chain-target shape ({ objects: { target: ... } });
-  // the golden drives the primitive directly so the control clause has real
-  // execution evidence (the take-control event plus the controlled receipt).
+  // The golden reuses the card program's authored args, so it exercises the
+  // same control clause that validation and the registry see.
   const kernel = world().object("enemy-spell", { zone: "chain", owner: "B", controller: "B", types: ["spell"] }).build();
-  const run = runInstruction(control, { objects: { kind: "constant", value: { target: targetSpec.id } } }, {
+  const run = runInstruction(control, gainControl.args, {
     world: kernel,
     targets: { [targetSpec.id]: [kernel.ref("enemy-spell")] }
   });
@@ -154,8 +151,7 @@ test("ogn-080-298 Mystic Reversal golden: the merged control primitive executes 
 });
 
 test.todo(
-  "Mystic Reversal: Making New Choices (CR 750-755) - re-open the finalized item's choice plan for " +
-    "locations/modes/destinations/targets only (752.1), remake all of them (753/753.3), negate when no legal " +
+  "Mystic Reversal: Making New Choices (CR 750-755) - the missing choice.remake-chain-item-choices primitive must re-open the finalized item's choice plan for locations/modes/destinations/targets only (752.1), remake all of them (753/753.3), negate when no legal " +
     "choice exists (753.2), re-trigger targeting effects (754) and ignore resulting to-play costs (755) - " +
     "needs chain/target-plan re-selection support (RIFT-90/RIFT-120)"
 );

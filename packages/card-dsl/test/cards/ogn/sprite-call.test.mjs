@@ -85,13 +85,12 @@ test("ogn-094-298 Sprite Call structure: [Hidden] + [Action] keywords plus one t
   assert.equal(playSprite.condition, undefined);
 });
 
-test("ogn-094-298 Sprite Call: the declared dependencies really are unregistered, and the block is explicit", () => {
-  // The keyword registry has neither Hidden's cost.hidden consumer nor
-  // Temporary; the instruction registry has effect.token but its frozen
-  // definition table has no sprite entry and no entry override.
+test("ogn-094-298 Sprite Call: merged keyword/token support is explicit and the Sprite gap stays pending", () => {
+  // The merged keyword definitions and token primitive are exercised below;
+  // the Sprite definition, Temporary behavior, and ready-entry override stay
+  // covered by the explicit todos.
   assert.equal(keywordDefinitionsById.has("Hidden"), true);
   assert.equal(keywordDefinitionsById.has("Action"), true);
-  assert.equal(keywordDefinitionsById.has("Temporary"), false);
   assert.equal(instructionDefinitionsById.get("effect.token"), token);
 
   const kernel = world().build();

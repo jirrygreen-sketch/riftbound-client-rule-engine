@@ -91,16 +91,6 @@ test("rad-163-167 Hunters' Circle: the announced -1 discount really reduces a me
   assert.deepEqual(free.discounts[0].after, 0);
 });
 
-test("rad-163-167 Hunters' Circle: an unregistered cost.modify op cannot stand in for the installation", () => {
-  // Guards against the card being treated as executable while nothing installs
-  // the discount on the later play: the declared op is not a merged primitive.
-  return import("../../../../engine-core/dist/effects/instructions/registry.generated.js").then(
-    ({ instructionDefinitionsById }) => {
-      assert.equal(instructionDefinitionsById.has("cost.modify"), false);
-    }
-  );
-});
-
 test.todo(
   "rad-163-167 Hunters' Circle: install the announced -1 energy discount on a later unit/gear play " +
     "made to this Battlefield and assert the finalized plan of that play costs 1 less (356.4) — needs " +

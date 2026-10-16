@@ -58,7 +58,7 @@ const mysticReversal = {
           // effect.control primitive (RIFT-117).
           id: "mystic-reversal.gain-control",
           op: "effect.control",
-          args: { target: { kind: "constant", value: "mystic-reversal.spell" } },
+          args: { objects: { kind: "constant", value: { target: "mystic-reversal.spell" } } },
           targets: [
             {
               id: "mystic-reversal.spell",
