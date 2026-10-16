@@ -19,7 +19,7 @@ import {
 import { DUEL_RULESET_ID, FOUNDATION_RULESET_ID, type RoomId } from "@riftbound/protocol";
 import { GameRoom, type RoomArchive } from "./room.js";
 import type { CardCatalogRuntime } from "./card-catalog.js";
-import { PersistentRoomArchiveStore } from "./full-product/persistent-room-store.js";
+import { PersistentRoomArchiveStore } from "./storage/persistent-room-store.js";
 
 /**
  * File-backed RoomStore. Room archives remain server-private. Each room is

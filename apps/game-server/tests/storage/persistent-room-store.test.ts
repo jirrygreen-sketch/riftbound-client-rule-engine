@@ -10,7 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { PersistentRoomArchiveStore } from "../../src/full-product/persistent-room-store.js";
+import { PersistentRoomArchiveStore } from "../../src/storage/persistent-room-store.js";
 
 function archive(schemaVersion: number, marker: string) {
   return {
