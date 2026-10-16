@@ -236,7 +236,16 @@ export interface ResolveContext {
   readonly timingPoint: TimingPointId;
   object(ref: ObjectRef): ObjectSnapshot | null;
   lastKnown(ref: ObjectRef): ObjectSnapshot;
+  /** A non-targeting set query; the result does not guarantee zone order. */
   query(filter: ObjectFilter): ObjectSnapshot[];
+  /**
+   * Read the first or last count objects in a player's actual zone order.
+   * Decks use top-to-bottom order; other zones use entry order. Both slices
+   * preserve that relative order. Omit count to read all objects; a count
+   * larger than the zone returns all available objects. Zero returns none.
+   * @throws RangeError if count is not a nonnegative safe integer.
+   */
+  zoneSlice(player: PlayerId, zone: ZoneId, from: "top" | "bottom", count?: number): ObjectSnapshot[];
   targets(specId: string): ObjectRef[];
   picks(specId: string): readonly (ObjectRef | PlayerId | string)[];
   player(id: PlayerId): PlayerSnapshot;
