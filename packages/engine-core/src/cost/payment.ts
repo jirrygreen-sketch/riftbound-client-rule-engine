@@ -61,7 +61,29 @@ export function prepareCostPayment(ctx: ResolveContext, plan: CostPlan, options:
   return freezeCost({ planId: plan.id, player: plan.player, power, actions: [standard, ...ordered] });
 }
 
-export function payCostPlan(ctx: ResolveContext, plan: CostPlan, options: CostPaymentOptions = {}): CostPaymentReceipt {
+/**
+ * Check a locked plan against the current resource/object snapshot without
+ * performing any action.  Finalize owners can use this to answer the common
+ * "can I pay this?" branch without catching an exception after a partial
+ * payment.  Only an actual payment failure is converted to `payable: false`;
+ * malformed plans and unsupported semantics still surface as plan errors.
+ */
+export function assessCostPayment(ctx: ResolveContext, plan: CostPlan, options: CostPaymentOptions = {}) {
+  try {
+    return { payable: true as const, prepared: prepareCostPayment(ctx, plan, options) };
+  } catch (error) {
+    if (error instanceof CostPlanError && error.reason === 'cannot-pay-cost') {
+      return { payable: false as const, error };
+    }
+    throw error;
+  }
+}
+
+export function canPayCostPlan(ctx: ResolveContext, plan: CostPlan, options: CostPaymentOptions = {}): boolean {
+  return assessCostPayment(ctx, plan, options).payable;
+}
+
+function payCostPlanNow(ctx: ResolveContext, plan: CostPlan, options: CostPaymentOptions): CostPaymentReceipt {
   const prepared = prepareCostPayment(ctx, plan, options);
   const actions: CostPaymentReceipt['actions'][number][] = [];
   const events: CostPaymentReceipt['events'][number][] = [];
@@ -75,4 +97,17 @@ export function payCostPlan(ctx: ResolveContext, plan: CostPlan, options: CostPa
     actions.push({ ...payment, status: outcome.status });
   }
   return freezeCost(structuredClone({ planId: plan.id, player: plan.player, paid: true as const, total: plan.total, power: prepared.power, additional: plan.selectedAdditional.map(cost => ({ ...cost, paid: true as const })), actions, events }));
+}
+
+/**
+ * Pay a finalized plan.  The optional transaction callback is deliberately
+ * caller-owned: it must include the context, event/trigger queues and any
+ * chain state that Finalize mutates.  Without it this function keeps the
+ * historical direct-context behavior for callers that already provide their
+ * own outer transaction.
+ */
+export function payCostPlan(ctx: ResolveContext, plan: CostPlan, options: CostPaymentOptions = {}): CostPaymentReceipt {
+  const { transaction, ...paymentOptions } = options;
+  const run = () => payCostPlanNow(ctx, plan, paymentOptions);
+  return transaction ? transaction(run) : run();
 }

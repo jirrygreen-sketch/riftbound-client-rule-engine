@@ -2,10 +2,11 @@
 
 `buildCostPlan(ctx, input)` locks a cost using only `ResolveContext` reads and
 choices. `prepareCostPayment(ctx, plan, options)` allocates current resources and
-returns the ordered `GameAction` list without performing it. `payCostPlan` prepares
-and performs that list, returning an immutable receipt. Import these APIs from
-`cost/index.ts`; wiring the application entry point and Finalize belongs to the
-coordinating integration task.
+returns the ordered `GameAction` list without performing it. `assessCostPayment`
+and `canPayCostPlan` expose that same check without mutating state. `payCostPlan`
+prepares and performs the list, returning an immutable receipt; Finalize callers
+may provide `CostPaymentOptions.transaction` to wrap the complete sequence in
+their own atomic savepoint. Import these APIs from `cost/index.ts`.
 
 The stages follow architecture section 5.1 and CR v1.5 356–357: base, ordered base
 modifications (including Flow), selected optional additional costs, mandatory
@@ -68,7 +69,8 @@ requirements are checked before performing anything, and checked again in order.
 Resources are read at payment time so the enclosing payment window can activate
 legal Reaction Add abilities after planning (357.1.a).
 
-**Call `payCostPlan` inside the enclosing Finalize transaction.** A `done` or
+**Call `payCostPlan` inside the enclosing Finalize transaction, or provide its
+`transaction` callback.** A `done` or
 `replaced` outcome counts as paid (203.2 / 357.2.a). `impossible` or `prevented`
 throws `CostPlanError('cannot-pay-cost', ...)`, including the failed action and
 outcome. The enclosing transaction must abort all preceding actions and emitted

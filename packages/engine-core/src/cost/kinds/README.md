@@ -2,7 +2,10 @@
 
 These helpers reuse `../cost-plan.ts` (CR v1.5 356-357) and
 `../payment.ts`. Plans and successful receipts are frozen. The payer executes
-an ordered list of actions; **it does not create a transaction**.
+an ordered list of actions. Finalize callers can use `assessCostPayment` /
+`canPayCostPlan` for a read-only affordability check, or pass a
+caller-owned `transaction` callback to `payCostPlan` so the full ordered
+payment is committed atomically by the chain owner.
 
 - `hidden.ts` wraps `buildHiddenCostPlan` (811.1.b).
 - `additional.ts` supports mandatory/optional costs and Accelerate's `[1][C]`
@@ -10,8 +13,9 @@ an ordered list of actions; **it does not create a transaction**.
 - `sacrifice.ts` uses the existing `kill` payment action; no new action is added.
 - `xp.ts`, `discard.ts`, `recycle.ts`, and `exhaust.ts` reuse the corresponding
   resource/object payments.
-- `index.ts` exports the helpers. Production Finalize registration belongs to
-  the coordinating task.
+- `index.ts` exports the helpers, the affordability checks, and the direct
+  hidden-kind name. `cost/index.ts` re-exports the same kind entry points so a
+  Finalize adapter does not need to know the per-kind file layout.
 
 ## Instruction behavior and current limits
 
@@ -33,13 +37,14 @@ real interpreter; they cover insufficient resources, a prevented exhaust after
 Energy, and a later prevented/impossible recycle after Energy and exhaust.
 Replaced cost actions still count as paid (203.2/357.2.a).
 
-**This is a safe abort, not complete optional-payment control flow.** With the
-frozen interfaces an unpaid cost aborts the whole enclosing transaction; it
-cannot just roll back the payment and skip its dependent effects while
-continuing independent instructions outside that payment body. A caller must
-not catch the error inside the transaction and commit partial state. A direct
-live `ResolveContext` call has no rollback guarantee. Requests 1-2 below remain
-integration prerequisites.
+**This is a safe abort, not complete optional-payment control flow.** The
+cost layer now exposes the transaction hook and read-only affordability check,
+but the interpreter still owns the success-gated optional body. A caller must
+not catch `CostPlanError('cannot-pay-cost')` inside a transaction and commit
+partial state. A direct live `ResolveContext` call has no rollback guarantee.
+The interpreter/chain owner must catch the failure only after its transaction
+has rolled back, skip the dependent `choice.optional` body, and continue the
+chain item according to contract 3.9.
 
 `reduce-equip-cost` is **judge-required**, including on apparently universal
 Power requirements. `allowedDomains` alone cannot distinguish an original

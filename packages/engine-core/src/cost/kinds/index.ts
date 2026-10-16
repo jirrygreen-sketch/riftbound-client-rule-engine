@@ -9,16 +9,17 @@
  * universal Power, sacrifice wording).
  */
 export { buildCostPlan } from '../cost-plan.js';
-export { payCostPlan, prepareCostPayment } from '../payment.js';
+export { payCostPlan, prepareCostPayment, assessCostPayment, canPayCostPlan } from '../payment.js';
 export { CostPlanError } from '../plan-types.js';
-export type { CostPlan, CostPlanInput, CostPaymentReceipt } from '../plan-types.js';
+export type { CostPlan, CostPlanInput, CostPaymentReceipt, CostPaymentAssessment } from '../plan-types.js';
 export {
   buildAdditionalCostPlan,
   payAdditionalCostPlan
 } from './additional.js';
 export { buildExhaustCostPlan, payExhaustCostPlan } from './exhaust.js';
 export { buildDiscardCostPlan, payDiscardCostPlan } from './discard.js';
-export { buildHiddenCostPlan as buildHiddenKindCostPlan, payHiddenCostPlan } from './hidden.js';
+export { buildHiddenCostPlan, buildHiddenCostPlan as buildHiddenKindCostPlan, payHiddenCostPlan } from './hidden.js';
 export { buildRecycleCostPlan, payRecycleCostPlan } from './recycle.js';
 export { buildSacrificeCostPlan, paySacrificeCostPlan } from './sacrifice.js';
 export { buildXpCostPlan, payXpCostPlan } from './xp.js';
+export type { CostObjectSelection } from './discard.js';
