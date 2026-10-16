@@ -5,20 +5,20 @@
 
 ## 裁定状态
 
-**提前构筑合法性：未裁定。** 已确认规则于 2026-10-16 生效，产品于
-2026-10-23 发售，Pre-Rift 为 2026-10-16 至 2026-10-22 的 Sealed 活动。
-不能仅凭规则生效、Standard 系列清单增加 RAD 或玩家拿到 Pre-Rift 卡牌，
-推导所有 Radiance 印刷版本已经能参加 Constructed。
+**构筑合法起点：已裁定（2026-10-16，调度者核对 Tournament Rules 2026-10-09 抽取正文）。**
 
-本工作区没有 `work/rules/Tournament-Rules-2026-10-09.txt`；只读共享目录中
-也仅有 CR v1.4/v1.5 文本。官网 October changelog 指向赛事规则正文，并明确
-新增 `601.3.c.6` 至 `601.3.c.6.a`，但此次浏览未取得 PDF 正文，遵守任务约束
-未再次下载 PDF。因此不能声称已经核实这些子条是否另定 Constructed 合法日。
-后续须取得该版本的已抽取正文或官方明确裁定，核实相关子条。
+- `601.3.c.6` / `601.3.c.6.a`：Standard 当前包含 Radiance（RAD），其发售日为 2026 年 10 月 23 日。
+- `601.2.b`：在各地区发售对齐之前，卡牌合法性按赛事举办地区的官方产品发售日执行。
 
-**当前保守策略**：RAD 印刷版本在产品发售前保持 `previewNotReleased` /
-`available: false`；自 2026-10-23 起才在基础 policy 开放。这个日期是基于
-已确认发售日采用的保守边界，不是声称赛事条款已明确裁定所有赛事的合法时刻。
+因此 Constructed 中 RAD 印刷版本从**产品发售日**起合法（按地区发售日），
+不是从 Core Rules v1.5 的生效日（2026-10-16）起。规则生效、Pre-Rift
+（2026-10-16 至 2026-10-22 的 Sealed 活动）都不会让 RAD 提前进入 Constructed。
+抽取正文来源：本机 `work/riftboundfaq/sources/Tournament-Rules-2026-10-09.txt`
+（gitignore，PDF 哈希见 `docs/rule-source-manifest.json`）。
+
+**实现**：RAD 印刷版本在发售前保持 `previewNotReleased` /
+`available: false`；自 2026-10-23 起在基础 policy 开放，与上述裁定一致。
+地区发售日差异继续由已有的地区可用性逻辑处理（601.2.b）。
 `tournamentComplete` 继续为 `false`，保留原有可用性 limitations；提前合法性未核实的
 具体依据记录在本文，不改写纳入回放哈希的无关元数据文案。
 Pre-Rift 的 Sealed 许可不扩展成本服务器的 Constructed 许可；本文不实现限制赛。
