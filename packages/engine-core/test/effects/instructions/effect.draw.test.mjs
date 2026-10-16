@@ -276,6 +276,25 @@ test("ogn-083-298 Consult the Past: Draw 2 (M1 Rumble deck)", () => {
   assert.equal(kernel.player("A").deckSize, 0);
 });
 
+test("sfd-048-221 Stellacorn Herder: When I move, draw 1", () => {
+  const kernel = world().unit("stellacorn-herder", { owner: "A", zone: "board" }).deck("card").build();
+  const run = runInstruction(draw, { amount: one }, { world: kernel });
+
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.drawn, 1);
+  assert.equal(run.linked.drawnTo, "A");
+  assert.equal(kernel.player("A").handSize, 1);
+});
+
+test("ogn-099-298 Garbage Grabber: Recycle 3 from your trash, [1], [E]: Draw 1", () => {
+  const kernel = world().object("garbage-grabber", { owner: "A", types: ["gear"], zone: "board" }).deck("card").build();
+  const run = runInstruction(draw, { amount: one }, { world: kernel });
+
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.drawn, 1);
+  assert.equal(kernel.player("A").handSize, 1);
+});
+
 test("sfd-076-221 Production Surge: draw 1 after the token is played (M1 Rumble deck)", () => {
   const kernel = world().deck("card").build();
   const run = runInstruction(draw, { amount: one }, { world: kernel });
