@@ -1,5 +1,6 @@
 import {
   EFFECT_IR_V2_RULESET,
+  OBJECT_FILTER_ANCHORS,
   type Ability,
   type CardProgram,
   type Condition,
@@ -59,6 +60,8 @@ interface ValidationContext {
   readonly instructionReferences: { readonly id: string; readonly path: string }[];
   readonly activeObjects: WeakSet<object>;
   readonly priorInstructionIds: Set<string>;
+  readonly targetIds: Set<string>;
+  readonly pickIds: Set<string>;
 }
 
 function addIssue(
@@ -176,10 +179,10 @@ function validateExpr(value: unknown, path: string, context: ValidationContext):
       valid = validateValue(value.value, `${path}.value`, context) && valid;
     }
   } else if (kind === "object-property") {
-    valid = validateObjectRef(value.object, `${path}.object`, context) && valid;
+    valid = validateObjectSelector(value.object, `${path}.object`, context) && valid;
     valid = validateString(value.property, `${path}.property`, context, "Expected a property name.") && valid;
   } else if (kind === "object-attribute") {
-    valid = validateObjectRef(value.object, `${path}.object`, context) && valid;
+    valid = validateObjectSelector(value.object, `${path}.object`, context) && valid;
     valid = validateString(value.attribute, `${path}.attribute`, context, "Expected an attribute name.") && valid;
   } else if (kind === "linked" || kind === "linked-value") {
     valid = validateString(value.instructionId, `${path}.instructionId`, context, "Expected a linked instruction id.") && valid;
@@ -221,17 +224,27 @@ function validateExpr(value: unknown, path: string, context: ValidationContext):
   return valid;
 }
 
-function validateObjectRef(value: unknown, path: string, context: ValidationContext): boolean {
-  if (!isRecord(value)) {
-    addIssue(context, path, "invalid-object-reference", "Expected an object reference with id and zoneEntryId.");
+function validateObjectSelector(value: unknown, path: string, context: ValidationContext): boolean {
+  if (value === "self" || value === "source") return true;
+  if (!isRecord(value) || Object.keys(value).length !== 1 ||
+    !["target", "pick", "linked"].includes(Object.keys(value)[0]!)) {
+    addIssue(context, path, "invalid-object-selector", "Expected self, source, or exactly one target, pick, or linked id; runtime ObjectRefs are not IR selectors.");
     return false;
   }
-  let valid = validateString(value.id, `${path}.id`, context, "Expected an object id.");
-  if (typeof value.zoneEntryId !== "number" || !Number.isSafeInteger(value.zoneEntryId) || value.zoneEntryId < 0) {
-    addIssue(context, `${path}.zoneEntryId`, "invalid-zone-entry-id", "Expected a nonnegative safe integer zone entry id.");
-    valid = false;
+  const key = Object.keys(value)[0]!;
+  const id = value[key];
+  if (!validateString(id, `${path}.${key}`, context, "Expected a selector id.", SYMBOL_PATTERN)) return false;
+  if (key === "linked") {
+    context.instructionReferences.push({ id, path: `${path}.linked` });
+    if (!context.priorInstructionIds.has(id)) {
+      addIssue(context, `${path}.linked`, "linked-instruction-not-prior", "An object selector must reference a preceding instruction in its link scope.");
+      return false;
+    }
+  } else if (!(key === "target" ? context.targetIds : context.pickIds).has(id)) {
+    addIssue(context, `${path}.${key}`, `unresolved-${key}`, `No ${key} specification named "${id}" exists in this ability.`);
+    return false;
   }
-  return valid;
+  return true;
 }
 
 function validateFilter(value: unknown, path: string, context: ValidationContext): value is ObjectFilter {
@@ -239,10 +252,22 @@ function validateFilter(value: unknown, path: string, context: ValidationContext
     addIssue(context, path, "invalid-filter", "Expected an object filter.");
     return false;
   }
+  if (context.activeObjects.has(value)) {
+    addIssue(context, path, "cyclic-filter", "Cyclic filters are not valid IR.");
+    return false;
+  }
+  context.activeObjects.add(value);
   let valid = true;
   for (const [key, item] of Object.entries(value)) {
-    valid = validateValue(item, `${path}.${key}`, context) && valid;
+    if ((OBJECT_FILTER_ANCHORS as readonly string[]).includes(key)) {
+      valid = validateObjectSelector(item, `${path}.${key}`, context) && valid;
+    } else if (key === "filter") {
+      valid = validateFilter(item, `${path}.filter`, context) && valid;
+    } else {
+      valid = validateValue(item, `${path}.${key}`, context) && valid;
+    }
   }
+  context.activeObjects.delete(value);
   return valid;
 }
 
@@ -330,6 +355,7 @@ function validatePick(value: unknown, path: string, context: ValidationContext):
     });
   }
   valid = validateSelectionBounds(value, path, context) && valid;
+  if (hasOwn(value, "filter")) valid = validateFilter(value.filter, `${path}.filter`, context) && valid;
   return valid;
 }
 
@@ -384,7 +410,14 @@ function validateTaggedRuleObject(
     addIssue(context, path, `invalid-${label}`, `Expected a ${label} object.`);
     return false;
   }
-  return validateString(value.kind, `${path}.kind`, context, `Expected a ${label} kind.`, SYMBOL_PATTERN);
+  let valid = validateString(value.kind, `${path}.kind`, context, `Expected a ${label} kind.`, SYMBOL_PATTERN);
+  if (hasOwn(value, "filter")) valid = validateFilter(value.filter, `${path}.filter`, context) && valid;
+  for (const [key, item] of Object.entries(value)) {
+    if (isRecord(item) && ["constant", "literal", "object-property", "object-attribute", "linked", "linked-value", "count", "arithmetic"].includes(String(item.kind))) {
+      valid = validateExpr(item, `${path}.${key}`, context) && valid;
+    }
+  }
+  return valid;
 }
 
 function validateRequirement(value: unknown, path: string, context: ValidationContext): value is Requirement {
@@ -433,8 +466,19 @@ function validateInstruction(
     valid = false;
   } else {
     for (const [key, expression] of Object.entries(value.args)) {
-      if (key === "body" && (value.op === "sequence" || value.op === "repeat")) continue;
+      if (key === "body" && ["sequence", "repeat", "choice.optional"].includes(String(value.op))) continue;
       valid = validateExpr(expression, `${path}.args.${key}`, context) && valid;
+      if (isRecord(expression) && (expression.kind === "constant" || expression.kind === "literal")) {
+        if (key === "filter") valid = validateFilter(expression.value, `${path}.args.filter.value`, context) && valid;
+        if (key === "condition" && value.op === "condition.predicate") {
+          valid = validateCondition(expression.value, `${path}.args.condition.value`, context) && valid;
+        }
+        if (key === "operands" && value.op === "condition.value" && Array.isArray(expression.value)) {
+          expression.value.forEach((operand, index) => {
+            valid = validateExpr(operand, `${path}.args.operands.value[${index}]`, context) && valid;
+          });
+        }
+      }
     }
   }
   if (hasOwn(value, "linkedTo")) {
@@ -487,6 +531,18 @@ function validateInstruction(
   if (hasOwn(value, "condition")) valid = validateCondition(value.condition, `${path}.condition`, context) && valid;
   if ((value.op === "sequence" || value.op === "repeat") && isRecord(value.args)) {
     valid = validateControlArgs(value.op, value.args, `${path}.args`, context) && valid;
+  }
+  if (value.op === "choice.optional" && isRecord(value.args)) {
+    valid = validateControlArgs("sequence", value.args, `${path}.args`, context) && valid;
+  }
+  if (value.op === "choice.mode" && isRecord(value.args) && isRecord(value.args.modes) && Array.isArray(value.args.modes.value)) {
+    value.args.modes.value.forEach((mode, index) => {
+      if (isRecord(mode)) {
+        valid = validateBody(mode.body, `${path}.args.modes.value[${index}].body`, {
+          ...context, scopeInstructionIds: new Set(), priorInstructionIds: new Set(context.priorInstructionIds)
+        }) && valid;
+      }
+    });
   }
   if (id) context.priorInstructionIds.add(value.id as string);
   context.activeObjects.delete(value);
@@ -591,18 +647,17 @@ function validateAbility(value: unknown, path: string, context: ValidationContex
       addIssue(context, `${path}.timing`, "invalid-timing", "Expected action or reaction timing.");
       valid = false;
     }
-    valid = validateBody(value.body, `${path}.body`, context) && valid;
     if (hasOwn(value, "restriction")) valid = validateRestriction(value.restriction, `${path}.restriction`, context) && valid;
+    valid = validateBody(value.body, `${path}.body`, context) && valid;
   } else if (kind === "static") {
     valid = validateTaggedRuleObject(value.effect, `${path}.effect`, context, "continuous effect") && valid;
     if (hasOwn(value, "condition")) valid = validateCondition(value.condition, `${path}.condition`, context) && valid;
   } else if (kind === "replacement") {
     valid = validateEventPattern(value.replaces, `${path}.replaces`, context) && valid;
-    valid = validateBody(value.with, `${path}.with`, context) && valid;
     if (hasOwn(value, "condition")) valid = validateCondition(value.condition, `${path}.condition`, context) && valid;
+    valid = validateBody(value.with, `${path}.with`, context) && valid;
   } else {
     if (hasOwn(value, "cost")) valid = validateCost(value.cost, `${path}.cost`, context) && valid;
-    valid = validateBody(value.body, `${path}.body`, context) && valid;
     if (hasOwn(value, "requirements")) {
       if (!Array.isArray(value.requirements)) {
         addIssue(context, `${path}.requirements`, "invalid-requirements", "Expected a requirement list.");
@@ -614,6 +669,7 @@ function validateAbility(value: unknown, path: string, context: ValidationContex
       }
     }
     if (hasOwn(value, "restriction")) valid = validateRestriction(value.restriction, `${path}.restriction`, context) && valid;
+    valid = validateBody(value.body, `${path}.body`, context) && valid;
   }
   return valid;
 }
@@ -638,6 +694,56 @@ function validateDeckbuildingDecision(value: unknown, path: string, context: Val
   return valid;
 }
 
+/** Collect declarations before checking uses; selectors are ability-local. */
+function collectSelections(value: unknown, context: ValidationContext, seen = new WeakSet<object>()): void {
+  if (value === null || typeof value !== "object" || seen.has(value)) return;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    value.forEach(item => collectSelections(item, context, seen));
+  } else if (isRecord(value)) {
+    for (const key of typeof value.op === "string" ? ["targets", "picks"] : []) {
+      const selections = value[key];
+      if (Array.isArray(selections)) {
+        for (const spec of selections) {
+          if (isRecord(spec) && typeof spec.id === "string") {
+            (key === "targets" ? context.targetIds : context.pickIds).add(spec.id);
+          }
+        }
+      }
+    }
+    for (const key of ["discard", "choice"]) {
+      const spec = value[key];
+      if (isRecord(spec) && typeof spec.id === "string" && Array.isArray(spec.options)) context.pickIds.add(spec.id);
+    }
+    // Ordinary constants are data, not declarations; control bodies are IR.
+    if (value.kind === "constant" || value.kind === "literal") return;
+    for (const [key, item] of Object.entries(value)) {
+      if (key === "args" && isRecord(item)) {
+        for (const [arg, expression] of Object.entries(item)) {
+          if (arg === "body" && ["sequence", "repeat", "choice.optional"].includes(String(value.op)) && isRecord(expression)) {
+            collectSelections(expression.value, context, seen);
+          } else if (arg === "modes" && value.op === "choice.mode" && isRecord(expression)) {
+            collectSelections(expression.value, context, seen);
+          }
+        }
+      } else if (["body", "with", "cost", "payments", "choice", "discard"].includes(key)) collectSelections(item, context, seen);
+    }
+  }
+}
+
+/** Runtime identities are forbidden even in extension metadata or literal data. */
+function rejectRuntimeRefs(value: unknown, path: string, context: ValidationContext, seen = new WeakSet<object>()): void {
+  if (value === null || typeof value !== "object" || seen.has(value)) return;
+  seen.add(value);
+  if (Array.isArray(value)) value.forEach((item, index) => rejectRuntimeRefs(item, `${path}[${index}]`, context, seen));
+  else if (isRecord(value)) {
+    if (hasOwn(value, "id") && hasOwn(value, "zoneEntryId")) {
+      addIssue(context, path, "invalid-object-selector", "Runtime ObjectRefs cannot appear in static IR; use an ObjectSelector.");
+    }
+    for (const [key, item] of Object.entries(value)) rejectRuntimeRefs(item, `${path}.${key}`, context, seen);
+  }
+}
+
 /** Validate one EffectIR v2 card program and return every path-aware issue. */
 export function validateCardProgram(input: unknown): CardProgramValidationResult {
   if (!isRecord(input)) {
@@ -653,8 +759,11 @@ export function validateCardProgram(input: unknown): CardProgramValidationResult
     scopeInstructionIds: new Set<string>(),
     instructionReferences: [],
     activeObjects: new WeakSet<object>(),
-    priorInstructionIds: new Set<string>()
+    priorInstructionIds: new Set<string>(),
+    targetIds: new Set<string>(),
+    pickIds: new Set<string>()
   };
+  rejectRuntimeRefs(input, "$", context);
 
   const allowed = new Set(["canonicalCardId", "rulesetVersion", "status", "judgeReason", "abilities", "deckbuilding", "sourceText"]);
   for (const key of Object.keys(input)) {
@@ -687,7 +796,17 @@ export function validateCardProgram(input: unknown): CardProgramValidationResult
       addIssue(context, "$.abilities", "no-ability-has-abilities", "A no-ability program cannot contain abilities.");
     }
     input.abilities.forEach((ability, index) => {
-      validateAbility(ability, `$.abilities[${index}]`, context);
+      const abilityContext: ValidationContext = {
+        ...context, instructionIds: new Set(), scopeInstructionIds: new Set(),
+        instructionReferences: [], priorInstructionIds: new Set(), targetIds: new Set(), pickIds: new Set()
+      };
+      collectSelections(ability, abilityContext);
+      validateAbility(ability, `$.abilities[${index}]`, abilityContext);
+      for (const reference of abilityContext.instructionReferences) {
+        if (!abilityContext.instructionIds.has(reference.id)) {
+          addIssue(context, reference.path, "unresolved-instruction", `Instruction id "${reference.id}" does not exist in this ability.`);
+        }
+      }
     });
   }
   if (hasOwn(input, "deckbuilding")) {

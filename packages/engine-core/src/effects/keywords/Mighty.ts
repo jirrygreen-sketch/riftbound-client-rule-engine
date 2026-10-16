@@ -48,15 +48,13 @@ export const MIGHTY_THRESHOLD = 5;
  * programs and tests; the expansion embeds the same semantics in its static
  * ability effect.
  */
-export function mightyCondition(subject: CardContextRef): Condition {
+export function mightyCondition(_subject: CardContextRef): Condition {
   return {
     kind: "compare",
     left: {
       kind: "object-attribute",
-      // The EffectIR validator requires object references as plain strings
-      // (the ObjectRef record type in ir/types.ts is not what validation
-      // accepts); the canonical card id names the host object here.
-      object: subject.canonicalCardId as unknown as import("@riftbound/card-dsl").ObjectRef,
+      // The keyword predicate reads its host, not the static catalog id.
+      object: "self",
       attribute: "might"
     },
     operator: "gte",

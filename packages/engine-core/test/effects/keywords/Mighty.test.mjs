@@ -8,6 +8,7 @@ import Mighty, {
 } from "../../../dist/effects/keywords/Mighty.js";
 import { keywordRegistryById } from "../../../dist/effects/keywords/registry.generated.js";
 import { TestWorld, world } from "../../../dist/effects/testing/index.js";
+import { runAbilityBody } from "../../../dist/effects/interpreter.js";
 
 const HOST = { canonicalCardId: "ogn-232-298" };
 
@@ -69,6 +70,18 @@ test("the is-mighty compare condition passes validation as an ability condition"
   const result = validateCardProgram(programFor([ability]));
   assert.deepEqual(result.issues, []);
   assert.equal(result.ok, true);
+  assert.equal(ability.condition.left.object, "self");
+});
+
+test("is-mighty resolves the live keyword host rather than its catalog id", () => {
+  for (const [might, status] of [[4, "negated"], [5, "executed"]]) {
+    const kernel = world().unit("runtime-host", { might }).build();
+    const outcome = runAbilityBody([{
+      id: "check", op: "condition.value", args: { value: { kind: "constant", value: true } },
+      condition: mightyCondition(HOST)
+    }], kernel, undefined, { host: kernel.ref("runtime-host") });
+    assert.equal(outcome.results[0].result.status, status);
+  }
 });
 
 test("stacking is single: repeated copies expand identically and count once", () => {

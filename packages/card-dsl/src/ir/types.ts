@@ -25,8 +25,21 @@ export interface ObjectRef {
   readonly zoneEntryId: number;
 }
 
-/** A JSON-like filter used to describe the objects or events a rule can see. */
-export type ObjectFilter = Readonly<Record<string, Value>>;
+/** Static IR names objects symbolically; the interpreter binds zone identities. */
+export type ObjectSelector =
+  | "self"
+  | "source"
+  | { readonly target: string }
+  | { readonly pick: string }
+  | { readonly linked: string };
+
+/** Object-valued anchors, distinct from scalar filter fields such as objectId. */
+export const OBJECT_FILTER_ANCHORS = ["object", "source", "target", "host", "attachedTo", "sameLocationAs", "exclude"] as const;
+
+/** A JSON-like filter whose object-valued anchors contain static selectors. */
+export type ObjectFilter = Readonly<Record<string, Value>> & {
+  readonly [key in typeof OBJECT_FILTER_ANCHORS[number]]?: ObjectSelector;
+};
 
 /** A literal value expression, such as a printed amount or a named mode. */
 export interface ConstantExpr<T = Value> {
@@ -43,14 +56,14 @@ export interface LiteralExpr<T = Value> {
 /** An expression that reads a property from a rules object. */
 export interface ObjectPropertyExpr {
   readonly kind: "object-property";
-  readonly object: ObjectRef;
+  readonly object: ObjectSelector;
   readonly property: string;
 }
 
 /** An alternate spelling for an object-property expression used by some tools. */
 export interface ObjectAttributeExpr {
   readonly kind: "object-attribute";
-  readonly object: ObjectRef;
+  readonly object: ObjectSelector;
   readonly attribute: string;
 }
 
@@ -176,6 +189,7 @@ export interface TargetSpec {
 export interface PickSpec {
   readonly id: string;
   readonly options: readonly Value[];
+  readonly filter?: ObjectFilter;
   readonly min?: number;
   readonly max?: number | null;
   readonly selection?: "one" | "any" | "all" | "up-to";

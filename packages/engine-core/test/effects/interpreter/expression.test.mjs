@@ -16,25 +16,28 @@ test("literal alias evaluates without numeric coercion", () => assert.equal(eval
 
 test("object property reads current characteristics after an earlier game action", () => {
   const kernel = world().unit("unit", { damage: 0 }).build();
+  kernel.setPicks("unit", [kernel.ref("unit")]);
   kernel.setTargets("unit", [kernel.ref("unit")]);
   const outcome = runAbilityBody([
-    instruction("damage", "test.damage", { amount: constant(3) }), value("read", property(kernel.ref("unit"), "damage"))
+    instruction("damage", "test.damage", { amount: constant(3) }), value("read", property({ pick: "unit" }, "damage"))
   ], kernel, registry);
   assert.equal(outcome.linkedValues["read.value"], 3);
 });
 
 test("object-attribute is an alias and preserves null printed cost", () => {
   const kernel = world().unit("unit", { energy: null, power: null }).build();
-  assert.equal(evaluate({ kind: "object-attribute", object: kernel.ref("unit"), attribute: "energy" }, kernel), null);
-  assert.equal(evaluate(property(kernel.ref("unit"), "power"), kernel), null);
+  kernel.setPicks("unit", [kernel.ref("unit")]);
+  assert.equal(evaluate({ kind: "object-attribute", object: { pick: "unit" }, attribute: "energy" }, kernel), null);
+  assert.equal(evaluate(property({ pick: "unit" }, "power"), kernel), null);
 });
 
 test("an object made unavailable before the ability has no implicit look-back", () => {
   const kernel = world().unit("other", { might: 9 }).unit("source").build();
   const ref = kernel.ref("other");
   const source = kernel.clone({ source: kernel.ref("source"), sourceSnapshot: kernel.getObject("source") });
+  source.setPicks("unit", [ref]);
   source.perform({ type: "kill", object: ref });
-  const outcome = runAbilityBody([value("read", property(ref, "might"))], source, registry);
+  const outcome = runAbilityBody([value("read", property({ pick: "unit" }, "might"))], source, registry);
   assert.equal(resultFor(outcome, "read").status, "ignored");
   assert.equal(outcome.linkedValues["read.value"], undefined);
 });
@@ -44,23 +47,25 @@ test("provided source last-known information remains accessible", () => {
   const ref = initial.ref("source");
   const kernel = initial.clone({ source: ref, sourceSnapshot: initial.getObject("source") });
   kernel.perform({ type: "kill", object: ref });
-  assert.equal(evaluate(property(ref, "might"), kernel), 7);
+  assert.equal(evaluate(property("source", "might"), kernel), 7);
 });
 
 test("look-back reads characteristics immediately before the zone change", () => {
   const kernel = world().unit("unit", { damage: 0 }).build();
+  kernel.setPicks("unit", [kernel.ref("unit")]);
   const ref = kernel.ref("unit");
   kernel.setTargets("unit", [ref]);
   const outcome = runAbilityBody([
     instruction("damage", "test.damage", { amount: constant(4) }),
-    instruction("kill", "test.kill", { object: constant(ref) }), value("read", property(ref, "damage"))
+    instruction("kill", "test.kill", { object: constant(ref) }), value("read", property({ pick: "unit" }, "damage"))
   ], kernel, registry);
   assert.equal(outcome.linkedValues["read.value"], 4);
 });
 
 test("unknown characteristic is ignored without reading prototype fields", () => {
   const kernel = world().unit("unit").build();
-  const outcome = runAbilityBody([value("read", property(kernel.ref("unit"), "constructor"))], kernel, registry);
+  kernel.setPicks("unit", [kernel.ref("unit")]);
+  const outcome = runAbilityBody([value("read", property({ pick: "unit" }, "constructor"))], kernel, registry);
   assert.equal(resultFor(outcome, "read").status, "ignored");
 });
 
@@ -92,9 +97,10 @@ test("linked results do not expose inherited properties", () => {
 
 test("a later change does not mutate an already captured linked characteristic", () => {
   const kernel = world().unit("unit").build();
+  kernel.setPicks("unit", [kernel.ref("unit")]);
   kernel.setTargets("unit", [kernel.ref("unit")]);
   const outcome = runAbilityBody([
-    value("snapshot", property(kernel.ref("unit"), "damage")),
+    value("snapshot", property({ pick: "unit" }, "damage")),
     instruction("damage", "test.damage", { amount: constant(4) }), value("copy", linked("snapshot"))
   ], kernel, registry);
   assert.equal(outcome.linkedValues["copy.value"], 0);
@@ -226,6 +232,7 @@ test("history forwards turn, combat and game scopes unchanged to its authority",
 
 test("history carries exact object identities and timing point filters", () => {
   const kernel = world().unit("unit").build();
+  kernel.setPicks("unit", [kernel.ref("unit")]);
   const ref = kernel.ref("unit");
   const outcome = runAbilityBody([
     instruction("kill", "test.kill", { object: constant(ref) }),

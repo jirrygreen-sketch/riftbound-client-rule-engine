@@ -25,10 +25,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   过去式 = 进链时点判定），而不是加在 body 指令上：条件不满足时整个触发
  *   不进链，而不是进链后指令被跳过。
  * - draw 指令的 player 省略，默认 ctx.controller（CR 190.6.d 隐含 "you"）。
- * - 条件中 object-property 的 object 当前写字符串占位符 "source"（触发来源），
- *   因为本分支的 validateCardProgram 仍要求 object 为 string（RIFT-20 校验器）；
- *   RIFT-46（task/RIFT-46-primitive-interface-v1-test-kernel，未合入本基线）已把
- *   校验器改为 validateObjectRef，合入后应改为真实 ObjectRef 形态。
+ * - 条件用符号选择器 "source"；解释器在来源已离场时读取最后已知信息
+ *   （契约 3.6），静态程序不包含运行时入区序号。
  */
 const abilities: Ability[] = [
     {
@@ -44,7 +42,7 @@ const abilities: Ability[] = [
           kind: "compare",
           left: {
             kind: "object-property",
-            object: "source" as unknown as import("../../ir/index.js").ObjectRef,
+            object: "source",
             property: "might"
           },
           operator: "gte",

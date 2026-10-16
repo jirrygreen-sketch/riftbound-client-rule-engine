@@ -41,6 +41,7 @@ test("schema validation runs on evaluated arguments before effects", () => {
 
 test("mistargeted instruction ignores a later linked instruction", () => {
   const kernel = world().unit("unit").build();
+  kernel.setPicks("unit", [kernel.ref("unit")]);
   const old = kernel.ref("unit");
   kernel.setTargets("unit", [old]);
   kernel.perform({ type: "return-to-hand", object: old });
@@ -175,17 +176,19 @@ test("an ignored target does not affect an unrelated sibling in a sequence", () 
 test("linked characteristic reads of an individually ignored target remain unavailable", () => {
   const kernel = world().unit("first").unit("second").build();
   const ref = kernel.ref("second");
+  kernel.setPicks("unit", [ref]);
   kernel.setTargets("unit", [kernel.ref("first"), ref]);
   kernel.perform({ type: "take-control", object: ref, player: "B" });
   const outcome = runAbilityBody([
     damage("first", { targets: [{ ...target, filter: { ...target.filter, controller: "A" } }] }),
-    instruction("read", "condition.value", { value: property(ref, "might") }, { linkedTo: "first" })
+    instruction("read", "condition.value", { value: property({ pick: "unit" }, "might") }, { linkedTo: "first" })
   ], kernel, registry);
   assert.equal(resultFor(outcome, "read").status, "ignored");
 });
 
 test("targets that no longer match their filter are ignored", () => {
   const kernel = world().unit("unit").build();
+  kernel.setPicks("unit", [kernel.ref("unit")]);
   kernel.setTargets("unit", [kernel.ref("unit")]);
   kernel.perform({ type: "take-control", object: kernel.ref("unit"), player: "B" });
   const outcome = runAbilityBody([damage("damage", { targets: [{ ...target, filter: { ...target.filter, controller: "A" } }] })], kernel, registry);
@@ -267,8 +270,9 @@ test("instruction transactions preserve errors other than AwaitChoice", () => {
 
 test("look-back reads a unit killed by an earlier instruction", () => {
   const kernel = world().unit("unit", { might: 5 }).build();
+  kernel.setPicks("unit", [kernel.ref("unit")]);
   const ref = kernel.ref("unit");
-  const outcome = runAbilityBody([instruction("kill", "test.kill", { object: constant(ref) }), value("might", property(ref, "might"))], kernel, registry);
+  const outcome = runAbilityBody([instruction("kill", "test.kill", { object: constant(ref) }), value("might", property({ pick: "unit" }, "might"))], kernel, registry);
   assert.equal(kernel.object(ref), null);
   assert.equal(outcome.linkedValues["might.value"], 5);
 });

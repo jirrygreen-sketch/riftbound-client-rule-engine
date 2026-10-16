@@ -15,8 +15,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   的定义表 id 为 "sand-soldier"。
  * - "here" = 打出本单位的那个位置（战场或基地），即来源对象的当前位置，
  *   用 object-property 表达式在结算时取（420.3.b.2 的"结算时检查"）；
- *   object 写字符串占位符 "source" 的原因同 Unsung Hero（当前校验器要求
- *   string，RIFT-46 合入后改 ObjectRef）。
+ *   object 用契约 3.6 的符号选择器 "source"，由解释器绑定运行时引用。
  *
  * 结构说明：
  * - body[0]（effect.token, mode: "play"）把 token 创建在链上；
@@ -46,7 +45,7 @@ const abilities: Ability[] = [
             mode: { kind: "constant", value: "play" },
             location: {
               kind: "object-property",
-              object: "source" as unknown as import("../../ir/index.js").ObjectRef,
+              object: "source",
               property: "location"
             },
             linkKey: { kind: "constant", value: "sandSoldier" }
@@ -64,7 +63,7 @@ const abilities: Ability[] = [
             },
             location: {
               kind: "object-property",
-              object: "source" as unknown as import("../../ir/index.js").ObjectRef,
+              object: "source",
               property: "location"
             }
           }
