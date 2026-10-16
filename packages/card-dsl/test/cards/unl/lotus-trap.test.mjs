@@ -1,0 +1,74 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
+import program from "../../../dist/cards/unl/lotus-trap.js";
+
+const CANONICAL_ID =
+  "card.hash-4a35c75cbe6c3eeae825ce423a2f3dbbdbbbc76b117a9c54735ebc7a7c7c4290";
+const SOURCE_TEXT =
+  "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n" +
+  "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +
+  "Choose a unit. Double all damage that would be dealt to it this turn.";
+
+const [hidden, reaction, play] = program.abilities;
+const [doubleDamage] = play.body;
+
+test("unl-013-219 Lotus Trap: program passes validateCardProgram", () => {
+  const result = validateCardProgram(program);
+  assert.deepEqual(result.issues, []);
+  assert.equal(result.ok, true);
+});
+
+test("unl-013-219 Lotus Trap: identity, status, judgeReason and verbatim sourceText", () => {
+  assert.equal(program.canonicalCardId, CANONICAL_ID);
+  assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
+  assert.equal(program.status, "judge-required");
+  assert.equal(program.sourceText, SOURCE_TEXT);
+  assert.match(program.judgeReason, /replacement\.damage-multiplier/);
+  assert.match(program.judgeReason, /433\.1\.b/);
+  assert.match(program.judgeReason, /hidden/);
+  assert.match(program.judgeReason, /RIFT-120/);
+});
+
+test("unl-013-219 Lotus Trap: Hidden + Reaction keywords plus one doubling replacement on a chosen unit", () => {
+  assert.deepEqual(hidden, { kind: "keyword", keyword: "hidden" });
+  assert.deepEqual(reaction, { kind: "keyword", keyword: "reaction" });
+  // 355.9.a.3 / 107.3.e: the printed Facedown cost is not rewritten here; the base cost is
+
+  // the printed 2 Energy and the printing has no Power value (catalog power: null).
+  assert.deepEqual(play.cost, {
+    kind: "cost.printed",
+    energy: { kind: "constant", value: 2 }
+  });
+  assert.equal(Object.hasOwn(play.cost, "power"), false);
+
+  assert.equal(doubleDamage.id, "lotus-trap.double-damage");
+  assert.equal(doubleDamage.op, "replacement.damage-multiplier");
+  // 433.1.b: doubling damage is the replacement "take double that damage instead".
+
+  assert.deepEqual(doubleDamage.args.event, { kind: "constant", value: "damage" });
+  assert.deepEqual(doubleDamage.args.multiplier, { kind: "constant", value: 2 });
+  assert.deepEqual(doubleDamage.args.duration, { kind: "constant", value: "this-turn" });
+  assert.deepEqual(doubleDamage.args.object, {
+    kind: "constant",
+    value: { target: "lotus-trap.unit" }
+  });
+  assert.equal(doubleDamage.linkedTo, undefined);
+  assert.equal(doubleDamage.picks, undefined);
+  // "Choose a unit." is a target, not a replacement-effect object choice (355.10.c).
+  assert.deepEqual(doubleDamage.targets, [
+    {
+      id: "lotus-trap.unit",
+      filter: { type: "unit", zone: "board" },
+      min: 1,
+      max: 1,
+      selection: "one"
+    }
+  ]);
+});
+
+test.todo("unl-013-219 Lotus Trap: replacement.damage-multiplier — double all damage that would be dealt to the chosen unit this turn (CR 433.1.b / 369.1 / 418.1 / 418.5); the survey (docs/plans/survey/unclassified-unl.md item 9) records it as needs-new-primitive (RIFT-120 replacement registration)");
+test.todo("unl-013-219 Lotus Trap: the [Hidden] expansion must grant the Hide action, the Facedown Zone and the cost-0 facedown play (811 / 107.3 / 422) — cost.hidden has no consumer (RIFT-84 / RIFT-89)");
+test.todo("unl-013-219 Lotus Trap: the [Reaction] continuous.timing permission must admit the card during Closed States (813.1.c / 309.1.a / 159.2.b.3) — RIFT-85 / RIFT-120 follow-up");
+
