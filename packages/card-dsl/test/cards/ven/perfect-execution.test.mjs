@@ -1,0 +1,135 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
+import program from "../../../dist/cards/ven/perfect-execution.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+
+const CANONICAL = "card.hash-9b9d80a33d320406e0f8cd8f3d1302432ecb3631b32fe7d448639224c253e235";
+const SOURCE_TEXT =
+  "Ready a unit and give it [Assault 3] this turn. (+3 :rb_might: while it's an attacker.)\n" +
+  "[Flow] :rb_energy_3::rb_rune_fury: (You may play this from your trash for its Flow cost. Then banish it.)";
+
+const [flowKeyword, play] = program.abilities;
+const [readyInstruction, grantInstruction] = play.body;
+const [unitSpec] = readyInstruction.targets;
+
+test("ven-012-166 Perfect Execution: program passes validateCardProgram", () => {
+  const result = validateCardProgram(program);
+  assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues, null, 2));
+  assert.deepEqual(result.issues, []);
+});
+
+test("ven-012-166 Perfect Execution: identity, ruleset, status, judgeReason and verbatim text", () => {
+  assert.equal(program.canonicalCardId, CANONICAL);
+  assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
+  assert.equal(program.status, "judge-required");
+  assert.equal(program.sourceText, SOURCE_TEXT);
+  assert.equal(cardRegistryById.get(CANONICAL), program);
+  assert.match(program.judgeReason, /continuous\.keyword|grant-keyword/);
+  assert.match(program.judgeReason, /807\.1\.c/);
+  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /params\.cost|3\.8\.3/);
+});
+
+test("ven-012-166 Perfect Execution: [Flow] declared, printed cost, and the Assault grant is not a Might hack", () => {
+  assert.deepEqual(flowKeyword, { kind: "keyword", keyword: "flow" });
+  assert.equal(flowKeyword.value, undefined);
+  assert.deepEqual(play.cost, {
+    kind: "cost.printed",
+    energy: { kind: "constant", value: 3 },
+    power: { kind: "constant", value: 1 }
+  });
+
+  // "Ready a unit": the merged reset half (416.1-416.3).
+  assert.equal(readyInstruction.id, "perfect-execution.ready-unit");
+  assert.equal(readyInstruction.op, "effect.ready");
+  assert.deepEqual(readyInstruction.args.objects, {
+    kind: "constant",
+    value: { kind: "target", id: "perfect-execution.unit" }
+  });
+  assert.deepEqual(readyInstruction.args.amount, { kind: "constant", value: 1 });
+
+  // "give it [Assault 3] this turn": a keyword grant with an end-of-turn
+  // duration (807.1.c / 801.3.a.2), not a +3 Might modification (807.2 sums
+  // Assault instances, and Assault only applies while attacking).
+  assert.equal(grantInstruction.id, "perfect-execution.grant-assault");
+  assert.equal(grantInstruction.op, "continuous.grant-keyword");
+  assert.deepEqual(grantInstruction.args, {
+    keyword: { kind: "constant", value: "Assault" },
+    amount: { kind: "constant", value: 3 },
+    duration: { kind: "constant", value: "end-of-turn" }
+  });
+  // "it" refers to the same unit, so both instructions name the same target.
+  assert.deepEqual(grantInstruction.targets, readyInstruction.targets);
+  assert.deepEqual(unitSpec, {
+    id: "perfect-execution.unit",
+    filter: { type: "unit", zone: "board" },
+    min: 1,
+    max: 1,
+    selection: "one"
+  });
+});
+
+test("ven-012-166 Perfect Execution golden: effect.ready readies an exhausted unit", () => {
+  const kernel = world().unit("ally", { exhausted: true, might: 2 }).build();
+  const locked = kernel.ref("ally");
+
+  const run = runInstruction(
+    ready,
+    {
+      objects: readyInstruction.args.objects,
+      amount: readyInstruction.args.amount,
+      linkKey: readyInstruction.args.linkKey
+    },
+    { world: kernel, targets: { [unitSpec.id]: [locked] } }
+  );
+
+  assert.equal(run.result.status, "executed");
+  assert.equal(kernel.getObject("ally").exhausted, false);
+  assert.equal(run.linked.readied.count, 1);
+  assert.deepEqual(run.events.map(event => event.action), ["ready"]);
+});
+
+test("ven-012-166 Perfect Execution golden: an already-ready unit is not readied again (416.1.b)", () => {
+  const kernel = world().unit("ally", { exhausted: false }).build();
+  const locked = kernel.ref("ally");
+
+  const run = runInstruction(
+    ready,
+    { objects: readyInstruction.args.objects, amount: readyInstruction.args.amount },
+    { world: kernel, targets: { [unitSpec.id]: [locked] } }
+  );
+
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.readied.count, 0);
+  assert.deepEqual(run.events, []);
+});
+
+test("ven-012-166 Perfect Execution boundary: a unit that left the Board ignores the ready (359.3.e)", () => {
+  const kernel = world().unit("ally", { exhausted: true }).build();
+  const stale = kernel.ref("ally");
+  kernel.perform({ type: "kill", object: stale });
+
+  const run = runInstruction(
+    ready,
+    { objects: readyInstruction.args.objects, amount: readyInstruction.args.amount },
+    { world: kernel, targets: { [unitSpec.id]: [stale] } }
+  );
+
+  assert.deepEqual(run.result, { status: "ignored", reason: "mistargeted" });
+});
+
+test.todo(
+  "ven-012-166 Perfect Execution: grant [Assault 3] to that unit until end of turn — continuous.keyword / " +
+    "continuous.grant-keyword has no merged primitive or layer consumer (RIFT-9 inventory, RIFT-91), and " +
+    "Assault's own expansion (continuous.might gated on the attacker designation) is not consumed yet"
+);
+
+test.todo(
+  "ven-012-166 Perfect Execution: play from trash for the printed Flow cost (3 energy + 1 Fury power) then " +
+    "banish it — the printed cost cannot reach KeywordDef.expand (contract 3.8.3) and the Flow consumers " +
+    "(RIFT-261 alternate cost, RIFT-260 delayed replacement) are unmerged"
+);
