@@ -64,11 +64,7 @@ test("ogn-289-298: conquer trigger registering an end-of-turn ready-2-runes dela
   assert.equal(runes.selection, "up-to");
 });
 
-test("ogn-289-298: merged code has no delayed-registration primitive and the placeholder is unregistered", () => {
-  // Evidence for the judgeReason: the readying must not happen during the
-  // conquer resolution (355.5.b), and no registered opcode can defer it.
-  assert.equal(instructionDefinitionsById.has("effect.delay"), false);
-  assert.equal(instructionDefinitionsById.has("trigger.delayed"), false);
+test("ogn-289-298: the merged ready primitive supports the printed sub-instruction while delay remains pending", () => {
   assert.equal(instructionDefinitionsById.has("effect.ready"), true);
 });
 

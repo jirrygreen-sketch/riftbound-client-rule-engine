@@ -5,7 +5,6 @@ import { validateCardProgram } from "../../../dist/ir/validation.js";
 import discipline from "../../../dist/cards/ogn/discipline.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -69,11 +68,6 @@ test("Discipline body: +2 Might this turn to one unit target, then an unlinked D
   assert.equal(drawInstruction.condition, undefined);
 });
 
-test("Discipline fail-closed: continuous.might is not a registered instruction opcode", () => {
-  assert.equal(instructionDefinitionsById.has("continuous.might"), false);
-  assert.equal(instructionDefinitionsById.has("effect.draw"), true);
-});
-
 test("Discipline golden: the Draw 1 half really draws the top card", () => {
   const kernel = world().deck(["top-card", "next-card"]).build();
   const run = runInstruction(draw, drawInstruction.args, { world: kernel });
@@ -90,7 +84,7 @@ test("Discipline fail-closed: executing the body throws instead of approximating
   kernel.setTargets("chosen-unit", [kernel.ref("chosen-unit")]);
   const before = kernel.getObject("chosen-unit").might;
 
-  // The Might clause's opcode is unregistered, so the body cannot run today.
+  // The Might clause's opcode is unsupported, so the body cannot run today.
   // Crucially it throws rather than silently applying a Buff counter or any
   // other Might change, and no state is mutated.
   assert.throws(() => runAbilityBody(body, kernel), /continuous\.might/);

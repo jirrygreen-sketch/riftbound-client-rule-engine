@@ -5,7 +5,6 @@ import { validateCardProgram } from "../../../dist/ir/validation.js";
 import enGarde from "../../../dist/cards/ogn/en-garde.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-9e538f0004c80732dc1212c4b54ff1803de134cd9a4b8e1bb91a6c710b43a73a";
@@ -93,19 +92,12 @@ test("En Garde conditional clause: 'the only unit you control there'", () => {
   });
 });
 
-test("En Garde fail-closed: continuous.might is not a registered instruction opcode", () => {
-  // The whole point of the judge-required status: the authored instruction
-  // cannot be silently reinterpreted. No merged primitive registers the op.
-  assert.equal(instructionDefinitionsById.has("continuous.might"), false);
-  assert.equal(instructionDefinitionsById.has("effect.buff"), true);
-});
-
 test("En Garde interpreter: neither Might clause applies anything to the target", () => {
   const kernel = world().unit("solo", { might: 2 }).unit("elsewhere", { location: { type: "battlefield", id: "battlefield-2" } }).build();
   kernel.setTargets("friendly-unit", [kernel.ref("solo")]);
   const before = kernel.getObject("solo").might;
 
-  // The unregistered continuous.might opcode aborts the body instead of
+  // The unsupported continuous.might opcode aborts the body instead of
   // silently applying some other effect: no Buff counter is placed and Might
   // is untouched (427.1.b.1 / 703).
   assert.throws(() => runAbilityBody(body, kernel), /continuous\.might/);

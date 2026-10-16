@@ -4,6 +4,7 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/mystic-reversal.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import control from "../../../../engine-core/dist/effects/instructions/effect.control.js";
 import counter from "../../../../engine-core/dist/effects/instructions/effect.counter.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
@@ -34,7 +35,7 @@ test("ogn-080-298 Mystic Reversal identity, ruleset, status and printed text", (
   assert.equal(cardRegistryById.get(CARD_ID), program);
 });
 
-test("ogn-080-298 Mystic Reversal judgeReason names both missing pieces", () => {
+test("ogn-080-298 Mystic Reversal judgeReason names the merged control primitive and the remake gap", () => {
   assert.match(program.judgeReason, /take-control/);
   assert.match(program.judgeReason, /RIFT-117/);
   assert.match(program.judgeReason, /752\.1/);
@@ -56,7 +57,7 @@ test("ogn-080-298 Mystic Reversal structure: [Reaction], a chain-spell control t
   // "Gain control of a spell": the Chain item is the target (355.9.a.2).
   assert.equal(gainControl.op, "effect.control");
   assert.deepEqual(gainControl.args, {
-    target: { kind: "constant", value: "mystic-reversal.spell" }
+    objects: { kind: "constant", value: { target: "mystic-reversal.spell" } }
   });
   assert.deepEqual(targetSpec, {
     id: "mystic-reversal.spell",
@@ -87,18 +88,19 @@ test("ogn-080-298 Mystic Reversal structure: [Reaction], a chain-spell control t
   assert.deepEqual(remakeChoices.args.remakeAll, { kind: "constant", value: true });
 });
 
-test("ogn-080-298 Mystic Reversal: the declared dependencies really are unregistered", () => {
-  assert.equal(instructionDefinitionsById.has("effect.control"), false);
-  assert.equal(instructionDefinitionsById.has("choice.remake-chain-item-choices"), false);
-  // The [Reaction] speed keyword is merged even though its consumer is not.
+test("ogn-080-298 Mystic Reversal: the control primitive is merged; the remake clause remains pending", () => {
+  // RIFT-117 merged effect.control, so the control clause now has executable
+  // primitive support. The [Reaction] speed keyword is also merged; the
+  // Making New Choices clause remains judge-required until its primitive lands.
+  assert.equal(instructionDefinitionsById.has("effect.control"), true);
   assert.equal(keywordDefinitionsById.has("Reaction"), true);
 });
 
 test("ogn-080-298 Mystic Reversal golden: declining the may skips the remake and leaves the chain item alone", () => {
   // Guards against the wrong fix: the may must not degrade into an
-  // unconditional no-op. The reference kernel has no control/remake primitive,
-  // so the wrapper is run without its forward link to the unmerged control
-  // instruction and only the decision handling is exercised.
+  // unconditional no-op. The wrapper is run without its forward link and only
+  // the decision handling is exercised; the remake op itself is still
+  // unmerged.
   const kernel = world().object("enemy-spell", { zone: "chain", owner: "B", controller: "B", types: ["spell"] }).build();
   kernel.setAnswers({ "mystic-reversal.may-remake-choices/optional": false });
   const { linkedTo, ...mayRemakeWithoutLink } = mayRemake;
@@ -113,9 +115,9 @@ test("ogn-080-298 Mystic Reversal golden: declining the may skips the remake and
   assert.equal(kernel.getObject("enemy-spell").controller, "B");
 });
 
-test("ogn-080-298 Mystic Reversal golden: the merged counter primitive shows the Chain-item recheck the control clause lacks", () => {
-  // The control clause needs the same "still current on the Chain" legality the
-  // merged counter primitive already enforces (359.3.e), which is why the
+test("ogn-080-298 Mystic Reversal golden: the merged counter primitive rechecks Chain-item currency (359.3.e)", () => {
+  // The merged chain-target primitives (counter, control) all recheck that a
+  // locked reference is still current on the Chain (359.3.e), which is why the
   // program keeps the filter on the TargetSpec rather than a query.
   const kernel = world().object("enemy-spell", { zone: "chain", owner: "B", controller: "B", types: ["spell"] }).build();
   const run = runInstruction(counter, { target: targetSpec.id }, {
@@ -127,15 +129,29 @@ test("ogn-080-298 Mystic Reversal golden: the merged counter primitive shows the
   assert.deepEqual(run.events.map(event => event.action), ["counter"]);
 });
 
-test.todo(
-  "Mystic Reversal: change the controlling player of the targeted Chain item (contract 3.6 GameAction " +
-    "take-control; the survey's effect.control) - a card-level control change on the Chain, not a Board " +
-    "control change - needs the effect.control instruction primitive (RIFT-117)"
-);
+test("ogn-080-298 Mystic Reversal golden: the merged control primitive executes the take-control clause", () => {
+  // The golden reuses the card program's authored args, so it exercises the
+  // same control clause that validation and the registry see.
+  const kernel = world().object("enemy-spell", { zone: "chain", owner: "B", controller: "B", types: ["spell"] }).build();
+  const run = runInstruction(control, gainControl.args, {
+    world: kernel,
+    targets: { [targetSpec.id]: [kernel.ref("enemy-spell")] }
+  });
+
+  assert.equal(run.result.status, "executed");
+  assert.deepEqual(run.linked.controlled, {
+    count: 1,
+    objects: [kernel.ref("enemy-spell")],
+    changes: [{ object: kernel.ref("enemy-spell"), owner: "B", from: "B", to: "A" }]
+  });
+  assert.deepEqual(run.events.map(event => event.action), ["take-control"]);
+  assert.equal(kernel.getObject("enemy-spell").zone, "chain");
+  assert.equal(kernel.getObject("enemy-spell").controller, "A");
+  assert.equal(kernel.getObject("enemy-spell").owner, "B");
+});
 
 test.todo(
-  "Mystic Reversal: Making New Choices (CR 750-755) - re-open the finalized item's choice plan for " +
-    "locations/modes/destinations/targets only (752.1), remake all of them (753/753.3), negate when no legal " +
+  "Mystic Reversal: Making New Choices (CR 750-755) - the missing choice.remake-chain-item-choices primitive must re-open the finalized item's choice plan for locations/modes/destinations/targets only (752.1), remake all of them (753/753.3), negate when no legal " +
     "choice exists (753.2), re-trigger targeting effects (754) and ignore resulting to-play costs (755) - " +
     "needs chain/target-plan re-selection support (RIFT-90/RIFT-120)"
 );

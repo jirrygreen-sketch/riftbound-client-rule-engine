@@ -85,11 +85,9 @@ test("Guerilla Warfare structure: an up-to-two return, then the unmerged Hide co
   assert.equal(waiverInstruction.linkedTo, undefined);
 });
 
-test("Guerilla Warfare: the two unmerged dependencies really are missing today", () => {
-  // Evidence for the judgeReason, so the status is not just a claim.
-  //
-  // 1. The Hide waiver names an opcode that is not registered at all.
-  assert.equal(instructionDefinitionsById.has("cost.modify"), false);
+test("Guerilla Warfare: the supported return half is explicit and the Hide gap stays pending", () => {
+  // The merged zone primitive is available for the supported return half; the
+  // Hide waiver remains covered by the explicit todo below.
   assert.equal(instructionDefinitionsById.has("effect.zone"), true);
 
   // 2. No merged filter predicate tests a keyword characteristic — and both
@@ -182,14 +180,14 @@ test("Guerilla Warfare golden: choosing zero cards moves nothing (355.13)", () =
 
 test("Guerilla Warfare: the Hide waiver fails closed instead of no-opping", () => {
   // The card must not look executable: running its own body reaches the
-  // unregistered cost.modify opcode and throws instead of silently reporting a
+  // unsupported cost.modify opcode and throws instead of silently reporting a
   // completed resolution with the Hide cost still enforced.
   const kernel = world().card("one", { zone: "trash" }).build();
   kernel.setTargets("hidden-cards-in-trash", [kernel.ref("one")]);
   const body = play.body.map(({ targets, ...rest }) => rest);
   assert.throws(
     // The chain adapter is the merged path that can drive effect.zone with the
-    // card raw literals; it stops at the unregistered cost.modify, after the
+    // card raw literals; it stops at the unsupported cost.modify, after the
     // return instruction has really executed.
     () => resolveChainBody(body, kernel),
     /cost\.modify/

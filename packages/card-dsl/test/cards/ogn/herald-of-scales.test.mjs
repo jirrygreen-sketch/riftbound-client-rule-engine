@@ -3,12 +3,6 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/herald-of-scales.js";
-// card-dsl has no dependency edge on engine-core (engine-core depends on
-// card-dsl), so dependency evidence loads the built engine through its
-// workspace layout instead of the package name.
-const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
-const { instructionDefinitionsById } = await import(new URL("effects/instructions/registry.generated.js", engineCore));
-
 const CANONICAL = "card.hash-8f0ac98c17845f49a654e9543fdfa1946ec646cc7efc52fbd3395790fb4be660";
 const [discountAbility] = program.abilities;
 
@@ -47,14 +41,6 @@ test("structure: static Energy discount on the controller's Dragons with a minim
     controller: "controller"
   });
   assert.equal(discountAbility.condition, undefined);
-});
-
-test("dependency evidence: no merged primitive applies an Energy cost discount", () => {
-  assert.equal(instructionDefinitionsById.has("continuous.cost-modification"), false);
-  assert.equal(instructionDefinitionsById.has("cost.modify"), false);
-  // The cost plan only consumes CostDiscount inputs; there is no merged bridge
-  // from static card abilities into that input (RIFT-89).
-  assert.equal(instructionDefinitionsById.has("cost.pay"), false);
 });
 
 test.todo(

@@ -15,10 +15,11 @@ import type { CardProgram } from "../../ir/index.js";
  *   instruction's target (355.7/355.9.a); the pending chain-item exclusion of
  *   355.3/359.3.e.1-e.6 belongs to the target system and the chain.
  * - "Gain control of a spell" changes which player controls that chain item.
- *   The frozen GameAction set has take-control (contract 3.6), but no
- *   instruction file implements it: the survey's effect.control primitive
- *   (RIFT-117) is unmerged. For a spell the change is a control-layer change
- *   on the chain item, not a Board control change.
+ *   The frozen GameAction set has take-control (contract 3.6) and the merged
+ *   effect.control primitive (RIFT-117) executes it: it rewrites the chain
+ *   item's control layer and rechecks under 359.3.e that the locked reference
+ *   is still current on the Chain. For a spell the change is a control-layer
+ *   change on the chain item, not a Board control change.
  * - "You may make new choices for it" is the Making New Choices procedure of
  *   CR 750-755: 752.1 limits the remakes to locations, modes, destinations and
  *   targets; 753 requires the player to remake all of them (753.3 keeps the
@@ -29,21 +30,22 @@ import type { CardProgram } from "../../ir/index.js";
  *   node that re-opens a finalized chain item's choice plan nor a result
  *   binding for the 753.2 negation.
  *
- * Status: judge-required, both clauses. The may wraps the remake clause in its
- * body (contract 3.9), so declining skips only that clause; the control clause
- * itself has no merged primitive either.
+ * Status: judge-required. The control clause's primitive is merged (RIFT-117)
+ * and golden-tested; the may wraps the remake clause in its body (contract
+ * 3.9), so declining skips only that clause. The remake clause still has no
+ * merged primitive (choice.remake-chain-item-choices, RIFT-90/RIFT-120).
  */
 const mysticReversal = {
   canonicalCardId: "card.hash-ea7dd5402b09dfde273f51aee83776f88c4e3f1fb8f52b4863aa43d307a8ebda",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两句都缺已合入的原语：(1)「Gain control of a spell」需要改写链上该项的控制者；契约 3.6 的封闭 GameAction 已有 " +
-    "take-control，但 effects/instructions/ 下没有实现它的指令（依赖 RIFT-117 prim-effect-control），且对 spell 而言这是" +
-    "链上项的控制层变化；(2)「You may make new choices for it」是 CR 750-755 的 Making New Choices 流程——" +
+    "「Gain control of a spell」的原语已合入：effect.control（RIFT-117）经冻结的 take-control 动作执行链上项的" +
+    "控制层改写，并按 359.3.e 复核目标仍在链上，golden 已断言真实结算与 controlled 回执；" +
+    "「You may make new choices for it」仍是 CR 750-755 的 Making New Choices 流程——" +
     "752.1 只允许重选 location/mode/destination/target，753/753.3 要求全部重选并沿用原限制，753.2 在没有合法新选择时 negated，" +
-    "754 会重新触发成为目标，755 忽略因此产生的「to play」费用；当前 IR 没有重新打开已 Finalize 链项选择计划的节点，" +
-    "也没有 753.2 的结果绑定。effect.counter 等已合入原语不覆盖这两个语义。依赖：RIFT-117 与链/目标计划的重选支持（RIFT-90/RIFT-120）。" +
+    "754 会重新触发成为目标，755 忽略因此产生的「to play」费用；choice.remake-chain-item-choices 仍未注册，" +
+    "当前 IR 也没有 753.2 的结果绑定。依赖：链/目标计划的重选支持（RIFT-90/RIFT-120）。" +
     "不近似实现：不把「make new choices」写成普通 choice.optional + 无操作体。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
@@ -52,10 +54,11 @@ const mysticReversal = {
       body: [
         {
           // "Gain control of a spell" — the chain item is the target
-          // (355.9.a.2); the control change itself is the pending primitive.
+          // (355.9.a.2); the control change is executed by the merged
+          // effect.control primitive (RIFT-117).
           id: "mystic-reversal.gain-control",
           op: "effect.control",
-          args: { target: { kind: "constant", value: "mystic-reversal.spell" } },
+          args: { objects: { kind: "constant", value: { target: "mystic-reversal.spell" } } },
           targets: [
             {
               id: "mystic-reversal.spell",

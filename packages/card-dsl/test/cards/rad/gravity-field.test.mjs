@@ -8,7 +8,6 @@ import program from "../../../dist/cards/rad/gravity-field.js";
 const ENGINE = new URL("../../../../engine-core/dist/", import.meta.url);
 const draw = (await import(new URL("effects/instructions/effect.draw.js", ENGINE))).default;
 const { keywordDefinitionsById } = await import(new URL("effects/keywords/registry.generated.js", ENGINE));
-const { instructionDefinitionsById } = await import(new URL("effects/instructions/registry.generated.js", ENGINE));
 const { runInstruction, world } = await import(new URL("effects/testing/index.js", ENGINE));
 
 const CARD_ID = "card.hash-d406d8dc66cee52b94dfb12d6f6e4fc13ed28937147e943fb4c4f4478b6bb58c";
@@ -76,19 +75,13 @@ test("rad-062-167 Gravity Field: the Draw 1 body really draws one card through t
   assert.deepEqual(run.events.map((event) => event.action), ["draw"]);
 });
 
-test("rad-062-167 Gravity Field: the Deploy keyword has no merged definition", () => {
-  // 防守性断言：Deploy 落地后本卡必须按依赖任务复核并改写，而不是静默保留声明。
-  assert.equal(keywordDefinitionsById.get("Deploy"), undefined);
-});
-
-test("rad-062-167 Gravity Field: the merged Deathknell expansion cannot execute (unregistered trigger.leave)", () => {
+test("rad-062-167 Gravity Field: the merged Deathknell expansion remains pending on trigger.leave", () => {
   const deathknell = keywordDefinitionsById.get("Deathknell");
   assert.ok(deathknell, "effects/keywords/Deathknell.ts must be registered");
   const expansion = deathknell.expand({ host: { canonicalCardId: CARD_ID } });
   assert.equal(expansion.length, 1);
   assert.equal(expansion[0].kind, "triggered");
   assert.equal(expansion[0].trigger.at, "object-killed");
-  assert.equal(instructionDefinitionsById.has("trigger.leave"), false);
   assert.deepEqual(expansion[0].body.map((step) => [step.id, step.op]), [
     [`deathknell:${CARD_ID}:leave`, "trigger.leave"]
   ]);

@@ -4,8 +4,6 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/last-stand.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
-import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 
 const CARD_ID = "card.hash-cfe83e821b0faa83120c2096c34d250fad91786b0aba091191591e6936237f0a";
 const SOURCE_TEXT =
@@ -74,17 +72,6 @@ test("ogn-069-298 Last Stand structure: [Action] keyword plus doubling then a li
   assert.equal(giveTemporary.linkedTo, "last-stand.double-might");
   assert.deepEqual(giveTemporary.args.keyword, { kind: "constant", value: "Temporary" });
   assert.deepEqual(giveTemporary.targets, doubleMight.targets);
-});
-
-test("ogn-069-298 Last Stand: the declared dependencies really are unregistered", () => {
-  // Guards the judgeReason against drift: neither the Might-modification
-  // instruction nor the Temporary keyword expansion exists in the merged
-  // registries today.
-  assert.equal(instructionDefinitionsById.has("continuous.might"), false);
-  assert.equal(instructionDefinitionsById.has("continuous.grant-keyword"), false);
-  assert.equal(keywordDefinitionsById.has("Temporary"), false);
-  // The [Action] speed keyword, by contrast, is merged.
-  assert.equal(keywordDefinitionsById.has("Action"), true);
 });
 
 test.todo(

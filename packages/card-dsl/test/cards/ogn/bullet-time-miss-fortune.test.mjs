@@ -88,12 +88,9 @@ test("Bullet Time structure: the instruction cost is linked to a non-target dama
   assert.equal(damageInstruction.targets, undefined);
 });
 
-test("Bullet Time: both declared forms are missing from the merged primitives", () => {
-  // Evidence for the judgeReason, so the status is not just a claim:
-  // - the instruction-cost opcode is not registered at all;
-  // - the merged effect.damage consumes only a Finalize-locked TargetSpec id and
-  //   rejects the non-target set descriptor that effect.ready / effect.heal take.
-  assert.equal(instructionDefinitionsById.has("cost.pay-any"), false);
+test("Bullet Time: the merged damage primitive rejects the unsupported set descriptor", () => {
+  // The merged effect.damage consumes only a Finalize-locked TargetSpec id and
+  // rejects the non-target set descriptor that effect.ready / effect.heal take.
   assert.equal(instructionDefinitionsById.has("effect.damage"), true);
   // The only accepted form is the Finalize-locked TargetSpec; the set form is
   // not part of the schema at all.

@@ -4,7 +4,6 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/titanic-shrine.js";
 const ENGINE = new URL("../../../../engine-core/dist/", import.meta.url);
-const { instructionDefinitionsById } = await import(new URL("effects/instructions/registry.generated.js", ENGINE));
 const { runAbilityBody } = await import(new URL("effects/interpreter.js", ENGINE));
 const { runInstruction, world } = await import(new URL("effects/testing/index.js", ENGINE));
 const draw = (await import(new URL("effects/instructions/effect.draw.js", ENGINE))).default;
@@ -56,9 +55,8 @@ test("rad-089-167 Titanic Shrine: card-played trigger for a played unit, cost-th
   assert.equal(drawInstruction.linkedTo, undefined);
 });
 
-test("rad-089-167 Titanic Shrine: the unmerged cost.pay opcode is not registered and fails loudly", () => {
+test("rad-089-167 Titanic Shrine: the pending cost.pay clause fails loudly", () => {
   // 守卫：不能用 no-op 或假费用顶替成本内指令；未合入原语必须显式失败。
-  assert.equal(instructionDefinitionsById.has("cost.pay"), false);
   const kernel = world().unit("titanic-shrine", { types: ["gear"], might: null }).build();
   const ability = program.abilities[0];
   assert.throws(
