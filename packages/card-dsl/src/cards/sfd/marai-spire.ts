@@ -20,11 +20,11 @@ import type { CardProgram } from "../../ir/index.js";
  *   per 820.1.c and 820.4), so the static effect filters friendly Repeat
  *   sources rather than granting Repeat to anything.
  *
- * Status rationale (contract 3.1): no `cost.modify` primitive or cost-plan
- * consumer exists (RIFT-89 owns cost.*), the Repeat keyword's own expansion
- * documents that its additional-cost payment is not wired into Finalize
- * (keywords/Repeat.ts; cost.additional / cost.pay pending), and the current
- * ContinuousEffect model has no Repeat-cost discount kind. The static effect
+ * Status rationale (contract 3.1): the Repeat KeywordDef is merged, but its
+ * additional-cost declaration and this battlefield's discount still have no
+ * card-program consumer in Finalize. The cost.modify/cost.pay and Repeat cost
+ * plan work remains pending in RIFT-261, and the RIFT-257 CardProgram binding
+ * path does not yet bind this static card ability. The static effect
  * below records the intended scope and delta; nothing is approximated and no
  * cost is silently rewritten in card data.
  */
@@ -33,8 +33,9 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 cost.modify 原语与 Finalize 费用计划消费方（Repeat 附加费减 1 能量，356.4/356.4.b/356.4.f；RIFT-89 cost.* 未合入），" +
-    "且 Repeat 关键词自身文档说明其附加费用尚未接入 Finalize（cost.additional / cost.pay 待办），ContinuousEffect 也无 Repeat 费用减益类型；不近似减费。",
+    "Repeat 关键词展开已合入，但其附加费用和本静态减费没有卡牌侧 Finalize 消费方：" +
+    "cost.modify/cost.pay 与 Repeat 的费用计划接线仍待 RIFT-261（356.4/356.4.b/356.4.f），" +
+    "且 RIFT-257 的 CardProgram 静态能力绑定尚未把 ContinuousEffect 接入该费用计划；不近似减费。",
   sourceText: "While you control this battlefield, friendly [Repeat] costs cost :rb_energy_1: less.",
   abilities: [
     {

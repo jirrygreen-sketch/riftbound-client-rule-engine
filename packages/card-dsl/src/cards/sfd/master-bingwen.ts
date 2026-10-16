@@ -20,11 +20,10 @@ import type { CardProgram } from "../../ir/index.js";
  * 第 5 节）；展开由 engine-core 的 effects/keywords/Weaponmaster.ts 负责，
  * 卡内不重写关键词逻辑。
  *
- * status = judge-required（cards/README.md 第 2 节）：展开文件虽已合入，但其 body
- * 使用的 cost.modify / cost.pay 在 effects/instructions/registry.generated.ts 没有
- * 注册的 InstructionDef，也没有生产方把卡牌上的 keyword 能力接进打出流程，
- * 821.1.c.2 的 Equip 费计算与 821.1.c.3 的 [A] 减费无法执行。缺 RIFT-89
- * （费用计划/支付）与关键词展开接线；不近似实现。
+ * status = judge-required（cards/README.md 第 2 节）：Weaponmaster 展开文件与
+ * keyword registry 已合入，但其 body 使用的 cost.modify / cost.pay 仍未进入当前
+ * 指令注册与 Finalize 费用计划（RIFT-261），所以 821.1.c.2 的 Equip 费计算与
+ * 821.1.c.3 的 [A] 减费无法执行；卡牌能力接入仍依赖 RIFT-257；不近似实现。
  */
 const masterBingwen = {
   canonicalCardId:
@@ -32,15 +31,13 @@ const masterBingwen = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "The Weaponmaster expansion file (effects/keywords/Weaponmaster.ts) is merged, " +
-    "but the card is not executable end to end: the expansion body pays the chosen " +
-    "Equipment's Equip cost through cost.modify / cost.pay, and neither opcode has a " +
-    "registered InstructionDef in effects/instructions/registry.generated.ts, nor does " +
-    "any producer expand a card's keyword ability into the play pipeline. 821.1.c.2 " +
-    "(cost determined as though the Equip ability were activated targeting this unit) " +
-    "and 821.1.c.3 (the [A] reduction) therefore cannot be calculated or paid before " +
-    "effect.attach runs. Depends on RIFT-89 (cost planning/payment primitives) and the " +
-    "keyword-expansion wiring; not approximated.",
+    "The Weaponmaster KeywordDef and keyword expansion are merged, but the card is not " +
+    "executable end to end: its expansion pays the chosen Equipment's Equip cost through " +
+    "cost.modify / cost.pay, and those opcodes plus the Finalize payment plan are still " +
+    "pending in RIFT-261. 821.1.c.2 (cost determined as though the Equip ability were " +
+    "activated targeting this unit) and 821.1.c.3 (the [A] reduction) therefore cannot be " +
+    "calculated or paid before effect.attach runs; the card-program play binding also remains " +
+    "pending in RIFT-257; not approximated.",
   abilities: [{ kind: "keyword", keyword: "weaponmaster" }],
   sourceText:
     "[Weaponmaster] (When you play me, you may [Equip] one of your Equipment to me for :rb_rune_rainbow: less, even if it's already attached.)"

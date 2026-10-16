@@ -27,17 +27,15 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   卡「每件友方装备」），"friendly" = 你控制（190.6.d）。"+1 Might" 是连续修正，不是 Buff 计数
  *   （702/703：Buff 是每单位限一个的 +1 计数器）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required，三处依赖未合入，均不近似实现：
- * - Deflect 的 card 侧声明可用（809.1.b.2），但其展开 target.tax 的图层消费方（RIFT-90）尚未与卡牌
- *   关键词注册表接通（effects/keywords/Deflect.ts 文件头记录同一缺口）。
- * - Weaponmaster 展开缺三块（effects/keywords/Weaponmaster.ts 文件头记录）：play-effect 目标层需绑定
- *   符号 controller 过滤并提供被选 Equipment、cost.modify/cost.pay 需计算 Equip 费并按 821.1.c.2 减免
- *   一个任意域 Power 后支付（且不启动 Equip 能力，821.1.c.6）。
- * - 「I have +1 :rb_might: for each friendly gear」需要按当前友方 gear 数量求值的 continuous.might：
- *   契约 3.6 的封闭 GameAction 集合无 Might 修改动作、effects/instructions/ 下无注册 continuous.might 的
- *   指令，也没有卡牌 static 能力 → 图层注册的消费方（RIFT-91 后续）；同时图层条件的计数谓词
- *   （for each friendly gear）不在已合入的 layers/engine.ts conditionMatches 词汇内。
- * 依赖：RIFT-90（target.tax 与关键词注册）、RIFT-89（cost.modify 接线）、RIFT-91 后续（计数型图层修正与卡牌持续效果注册）。
+ * status 判定（cards/README.md 第 2 节）：judge-required，三处依赖仍未合入，均不近似实现：
+ * - Deflect 的 KeywordDef 已合入（809.1.b.2），但 target.tax 仍没有从卡牌关键词/图层接入目标
+ *   选择与费用计划（RIFT-90），且任意域 Power 的支付路径仍待 RIFT-261。
+ * - Weaponmaster 的 KeywordDef 已合入；play-effect 目标层虽已声明，但 cost.modify/cost.pay
+ *   尚不能按 821.1.c.2 计算 Equip 费并减免一个任意域 Power 后支付（RIFT-261）。
+ * - 「I have +1 :rb_might: for each friendly gear」可用 continuous.might 的 IR 形状表达，
+ *   但静态卡牌能力尚无图层注册入口，且 layers/engine.ts 的 valueOf 不求值 count 表达式；
+ *   友方 gear 的动态计数因此不能执行（RIFT-91 后续），而卡牌静态能力绑定属 RIFT-257。
+ * 依赖：RIFT-90、RIFT-257、RIFT-261、RIFT-91 后续（计数型图层求值）。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "deflect", value: 2 },
@@ -67,14 +65,11 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处依赖未合入，均不近似实现：(1) [Deflect 2]（809.1.b.2、356.2.a.2 的强制附加费用）的 card 侧声明可用，" +
-    "但其展开 target.tax 的图层消费方尚未与卡牌关键词注册表接通（RIFT-90；effects/keywords/Deflect.ts 文件头记录同一缺口）。" +
-    "(2) [Weaponmaster]（821.1.b/821.1.c）的展开缺三块：play-effect 目标层需绑定符号 controller 过滤并提供被选 Equipment、" +
-    "cost.modify/cost.pay 需按 821.1.c.2 计算 Equip 费并减免一个任意域 Power 后支付，且不得启动 Equip 能力（821.1.c.6）。" +
-    "(3)「I have +1 :rb_might: for each friendly gear」是按当前友方 gear 数量求值的连续 Might 修正（143.2.a、475–478）：" +
-    "契约 3.6 的封闭 GameAction 集合无 Might 修改动作、effects/instructions/ 下没有注册 continuous.might 的指令，" +
-    "也没有卡牌 static 能力 → 图层注册的消费方（RIFT-91 后续）；layers/engine.ts 的 conditionMatches 也不认识计数谓词。" +
-    "绝不把 +1 Might 写成 Buff 计数（702/703 语义不同）。依赖：RIFT-90、RIFT-89、RIFT-91 后续。",
+    "三处依赖仍未合入，均不近似实现：(1) [Deflect 2]（809.1.b.2）的 KeywordDef 已合入，但 target.tax 尚未由卡牌关键词/图层接入目标选择与费用计划（RIFT-90），" +
+    "任意域 Power 支付仍待 RIFT-261。" +
+    "(2) [Weaponmaster] 的 KeywordDef 已合入，但 cost.modify/cost.pay 尚不能按 821.1.c.2 计算 Equip 费并减免一个任意域 Power 后支付（RIFT-261）。" +
+    "(3)「I have +1 :rb_might: for each friendly gear」（143.2.a）需要静态卡牌能力注册到图层，且 layers/engine.ts 的 valueOf 不求值 count 表达式，" +
+    "无法执行动态友方 gear 计数（RIFT-91 后续）。绝不把 +1 Might 写成 Buff 计数（702/703 语义不同）。依赖：RIFT-90、RIFT-257、RIFT-261、RIFT-91 后续。",
   abilities,
   sourceText:
     "[Deflect 2] (Opponents must pay :rb_rune_rainbow::rb_rune_rainbow: to choose me with a spell or ability.)\n" +

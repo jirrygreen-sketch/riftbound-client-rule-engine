@@ -4,6 +4,9 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import program from "../../../dist/cards/sfd/petricite-monument.js";
+import temporary from "../../../../engine-core/dist/effects/keywords/Temporary.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-40f4f4fa670faf83d3f284bef5c9dc3ae0047668559d38ad02a7521cff81b378";
 const SOURCE_TEXT =
@@ -50,11 +53,23 @@ test("sfd-104-221 Petricite Monument: Temporary keyword plus a friendly-unit Def
   assert.equal(grant.condition, undefined);
 });
 
+test("sfd-104-221 Petricite Monument: Temporary expansion and kill body execute through merged paths", () => {
+  const [expanded] = temporary.expand({ host: { canonicalCardId: CARD_ID } });
+  assert.equal(expanded.trigger.at, "beginning-start");
+  assert.deepEqual(expanded.trigger.filter, { event: "beginning-start", player: "self" });
+
+  const base = world().unit("petricite-monument", { zone: "board" }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("petricite-monument") });
+  const outcome = resolveChainBody(expanded.body, kernel);
+  assert.equal(outcome.status, "executed");
+  assert.equal(kernel.getObject("petricite-monument").zone, "trash");
+});
+
 test.todo(
-  "sfd-104-221 Petricite Monument: [Temporary] (CR 816.1.b: at the start of the controller's Beginning Phase, before scoring, kill this) " +
-    "needs a Temporary KeywordDef plus a beginning-start delayed-trigger registration path."
+  "sfd-104-221 Petricite Monument: [Temporary] (CR 816.1.b) needs the merged KeywordDef " +
+    "registered through the card-program lifecycle at beginning-start (RIFT-257)."
 );
 test.todo(
-  "sfd-104-221 Petricite Monument: \"Friendly units have [Deflect]\" needs the continuous.grant-keyword producer/consumer (contract 3.7, RIFT-91) " +
-    "and the target.tax reader for the granted keyword (CR 809.1.c, RIFT-90)."
+  "sfd-104-221 Petricite Monument: \"Friendly units have [Deflect]\" needs a card-static " +
+    "continuous.grant-keyword binder, the target.tax reader (RIFT-90), and any-Domain Power payment (RIFT-261)."
 );

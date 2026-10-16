@@ -93,11 +93,11 @@ test("conquer trigger body on an already-ready source is a no-op (CR 416.1.c)", 
 
 test.todo(
   "Weaponmaster expansion: on play, choose one of your Equipment, pay its Equip cost reduced by " +
-    "[A], attach it to me (CR 821.1.c; keywords/weaponmaster.ts owned by RIFT-8x keyword workstream, " +
-    "needs cost.modify + effect.attach)"
+    "[A], attach it to me (CR 821.1.c; the merged Weaponmaster expansion still needs the " +
+    "RIFT-261 cost.modify/cost.pay path)"
 );
 
 test.todo(
   "Conquer trigger end-to-end: subscribe at the 'conquer' timing point with the self filter and " +
-    "once-per-turn lifetime through the trigger pipeline (RIFT-8x trigger/chain workstream)"
+  "once-per-turn lifetime through the trigger pipeline (RIFT-257 card-program binding)"
 );

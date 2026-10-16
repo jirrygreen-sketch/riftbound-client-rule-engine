@@ -23,38 +23,33 @@ import type { CardProgram } from "../../ir/index.js";
  *   the keyword to units you control; ongoing grants are layer effects (contract 3.7).
  *
  * status: judge-required, no part approximated:
- * 1. the keyword registry has no Temporary KeywordDef (CR 816; ability-templates
- *    kw-temporary is unimplemented), and nothing registers the 816.1.b delayed kill
- *    at "beginning-start" — the card must not hand-write that keyword expansion
- *    (cards/README.md section 5).
- * 2. "Friendly units have [Deflect]" needs the continuous keyword-grant consumer:
- *    there is no continuous.grant-keyword instruction/effect producer from a
- *    CardProgram, and Deflect's own target.tax expansion has no layer/target reader
- *    (RIFT-90 target tax, RIFT-91 layers) — declaring only the keyword would make the
- *    grant an empty declaration.
- * The golden test still validates the identity/structure; no executable sub-body
- * exists, so the missing semantics are recorded as test.todo entries.
+ * 1. the Temporary KeywordDef and its effect.kill expansion are merged (RIFT-265),
+ *    but the card-program lifecycle still has to register the beginning-start trigger
+ *    and enqueue it through the production chain (RIFT-257).
+ * 2. continuous.grant-keyword is merged (RIFT-258/259), but there is no RIFT-257 card-static
+ *    ability binder in the production lifecycle; the granted Deflect target.tax also
+ *    has no target-plan consumer (RIFT-90) or any-Domain Power payment path (RIFT-261).
+ * The golden tests validate the identity/structure and execute the merged Temporary
+ * sub-effect; the card remains judge-required until both integration gaps close.
  */
 export default {
   canonicalCardId: "card.hash-40f4f4fa670faf83d3f284bef5c9dc3ae0047668559d38ad02a7521cff81b378",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "(1) [Temporary] has no KeywordDef in the merged keyword registry (CR 816; ability-templates kw-temporary is unimplemented), " +
-    "and no merged path registers the 816.1.b delayed kill at the controller's Beginning Phase start (816.1.c); the card must not " +
-    "re-implement the keyword by hand (cards/README.md section 5). " +
-    "(2) \"Friendly units have [Deflect]\" needs a continuous keyword-grant producer/consumer: no instruction registers " +
-    "continuous.grant-keyword from a CardProgram, and the merged Deflect expansion (target.tax) has no layer/target-tax reader " +
-    "(RIFT-90 target plan, RIFT-91 layers). \"if they didn't already\" is not printed here (it is a different card), so summing is 809.2's job once granting exists. " +
-    "No approximate implementation is provided. The card has no locally executable instruction body; golden coverage is identity/structure plus test.todo.",
+    "(1) [Temporary]（CR 816.1.b）的 KeywordDef 与 effect.kill 展开已合入（RIFT-265），但卡牌生命周期仍未把 " +
+    "beginning-start 触发注册并送入生产结算链（RIFT-257）。" +
+    "(2) \"Friendly units have [Deflect]\" 的 continuous.grant-keyword 原语已合入，但没有 RIFT-257 卡牌 static " +
+    "能力绑定入口；被授予的 Deflect target.tax 还缺目标计划消费方（RIFT-90）与任意域 Power 支付路径（RIFT-261）。" +
+    "No approximate implementation is provided; the executable Temporary sub-effect is covered in isolation.",
   abilities: [
-    // 816.1: the printed [Temporary] declaration. Expansion/registration belongs
-    // to effects/keywords/Temporary.ts and the timing pipeline, which are unmerged.
+    // 816.1: the printed [Temporary] declaration. Expansion belongs to the
+    // merged keyword registry; production registration remains a lifecycle gap.
     { kind: "keyword", keyword: "temporary" },
     {
       // "Friendly units have [Deflect]" — an ongoing grant to your units.
-      // Descriptive static shape (contract 3.7 continuous grant); no merged
-      // consumer exists, so the grant is declared and not claimed executable.
+      // Descriptive static shape (contract 3.7 continuous grant); the card-static
+      // binder and the granted Deflect target-tax consumer remain integration gaps.
       kind: "static",
       effect: {
         kind: "continuous.grant-keyword",

@@ -48,7 +48,7 @@ test("sfd-058-221 Ornn, Blacksmith: identity, ruleset, status, judgeReason and v
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /结算期/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /hold/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -299,11 +299,11 @@ test.todo(
 test.todo(
   "sfd-058-221 Ornn, Blacksmith: the ordered deck-top pick ('ornn-blacksmith.top-four') needs a Finalize " +
     "lifecycle; chain/engine.ts locks only instruction.targets TargetSpecs, so a production play has no " +
-    "ordered source and effect.inspect sees nothing (contract 3.6 zoneSlice) — RIFT-66 follow-up"
+    "ordered source and effect.inspect sees nothing (contract 3.6 zoneSlice) — ordered-pick Finalize follow-up"
 );
 
 test.todo(
   "sfd-058-221 Ornn, Blacksmith: both subscriptions (card-played 383.4.a and hold 383.4.d) must reach the " +
-    "chain as Pending items through a CardProgram trigger registration, and no merged module emits the " +
-    "hold timing point — RIFT-120 plus the scoring/ Hold emitter"
+    "chain as Pending items through a CardProgram trigger registration; the hold timing point is " +
+    "emitted, but the CardProgram lifecycle consumer is still missing — RIFT-257"
 );

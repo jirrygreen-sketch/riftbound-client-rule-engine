@@ -30,7 +30,8 @@ test("sfd-085-221 Ornn, Forge God: judgeReason names Deflect, Weaponmaster and t
   assert.match(program.judgeReason, /821\.1\.c/);
   assert.match(program.judgeReason, /143\.2\.a/);
   assert.match(program.judgeReason, /RIFT-90/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /RIFT-91/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
@@ -73,10 +74,10 @@ test.todo(
 test.todo(
   "sfd-085-221 Ornn, Forge God: [Weaponmaster]'s play effect chooses one of the controller's Equipment and " +
     "attaches it after paying its Equip cost reduced by one any-Domain Power, without activating Equip " +
-    "(CR 821.1.b/821.1.c/821.1.c.2/821.1.c.6; RIFT-89 cost wiring plus the keyword target layer)"
+    "(CR 821.1.b/821.1.c/821.1.c.2/821.1.c.6; RIFT-261 cost wiring plus the keyword target layer)"
 );
 test.todo(
-  "sfd-085-221 Ornn, Forge God: 'I have +1 Might for each friendly gear' requires a merged continuous.might " +
-    "instruction plus card-program registration into the arithmetic layer with a counting predicate " +
-    "(CR 143.2.a/475-478; RIFT-9/RIFT-91 follow-up) — never a Buff counter"
+  "sfd-085-221 Ornn, Forge God: 'I have +1 Might for each friendly gear' requires the merged " +
+    "continuous.might instruction plus a card-static registration path and count-expression evaluation " +
+    "in the arithmetic layer (CR 143.2.a/475-478; RIFT-257 static binding plus RIFT-91 count follow-up) — never a Buff counter"
 );

@@ -7,11 +7,9 @@ import type { CardProgram } from "../../ir/index.js";
  *  played each turn costs {1 energy} less."
  *
  * Status rationale (contract §3.1): the ability is a cost modification whose
- * scope is a per-turn window keyed to the first qualifying play. That is not
- * expressible with the merged primitive set:
- * - no cost.modify primitive file exists under engine-core/effects/instructions
- *   (RIFT-9 lists cost.modify as a required primitive; only 17 effect.*
- *   instructions are merged, and none applies a cost delta);
+ * scope is a per-turn window keyed to the first qualifying play. The cost
+ * planning/payment work is still pending in RIFT-261, and the RIFT-257 card-static
+ * registration path does not feed this effect into Finalize:
  * - the "first … each turn" window needs per-turn state reset by the turn
  *   timing points plus history counting (condition.history) combined with a
  *   continuous cost layer (contract 3.4 layer arithmetic) that expires after
@@ -28,7 +26,11 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Cost modification is not expressible: no cost.modify primitive is merged (RIFT-9 lists it as required), and the 'first friendly non-token gear played each turn' window needs per-turn state plus a history-gated continuous cost layer that the current ContinuousEffect/condition model cannot express.",
+    "The cost.modify shape is recorded, but card-static cost effects are not consumed by " +
+    "Finalize (RIFT-257) and the cost.modify/cost.pay path remains pending in RIFT-261. The 'first " +
+    "friendly non-token gear played each turn' window additionally needs per-turn state and " +
+    "history-gated expiry after the first qualifying play; the current ContinuousEffect/condition " +
+    "model cannot express that window. No cost is approximated.",
   sourceText:
     "While you control this battlefield, the first friendly non-token gear played each turn costs :rb_energy_1: less.",
   abilities: [

@@ -21,9 +21,9 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * status = judge-required：展开文件已合入，但没有生产方把永久物上的 target.tax
  * 持续效果接进目标选择（target/target-plan.ts 只在调用方显式传入 tax 时追加，
- * 链的 Finalize 未从图层读取该静态效果），且已合入的 tax→费用换算按 Energy
- * 记账（chain/engine.ts），与 809.1.c.1 要求的「任意域 Power」不符。缺 RIFT-90
- * （目标税接线）与 RIFT-89（费用支付）；不近似实现。
+ * 链的 Finalize 未从图层读取该静态效果），且目标税的任意域 Power 支付仍未接入
+ * 当前费用计划。缺 RIFT-90（目标税接线）、RIFT-257（卡牌关键词/静态绑定）与
+ * RIFT-261（费用计划/支付）；不近似实现。
  */
 const navoriScout = {
   canonicalCardId:
@@ -35,10 +35,10 @@ const navoriScout = {
     "has no producer wiring a permanent's target.tax continuous effect into target " +
     "selection: target/target-plan.ts appends the tax only from an explicit " +
     "TargetFinalizeOptions.tax supplied by the caller, and the chain Finalize never " +
-    "derives it from layers. The merged tax-to-cost conversion also bills Energy " +
-    "(chain/engine.ts) whereas 809.1.c / 809.1.c.1 require the additional Power to be " +
-    "payable with any Domain. Depends on RIFT-90 (target tax into TargetPlan / cost " +
-    "plan) and RIFT-89 (payment); not approximated.",
+    "derives it from layers. The target-tax charge also still lacks the any-Domain Power " +
+    "payment path required by 809.1.c / 809.1.c.1. Depends on RIFT-90 (target tax into " +
+    "TargetPlan), RIFT-257 (CardProgram keyword/static binding), and RIFT-261 (cost " +
+    "plan/payment); not approximated.",
   abilities: [{ kind: "keyword", keyword: "deflect" }],
   sourceText:
     "[Deflect] (Opponents must pay :rb_rune_rainbow: to choose me with a spell or ability.)"

@@ -44,7 +44,7 @@ test("sfd-211-221 Marai Spire: static Repeat-cost discount scoped to friendly Re
 // The discount is not executable: no cost.modify primitive / Finalize cost-plan
 // consumer, and the Repeat keyword's own additional-cost path is not wired.
 test.todo(
-  "sfd-211-221 Marai Spire: apply the -1 energy discount to friendly Repeat additional costs at Finalize (cost.modify + cost plan, RIFT-89; 356.4/356.4.f/356.6)"
+  "sfd-211-221 Marai Spire: apply the -1 energy discount to friendly Repeat additional costs at Finalize (cost.modify + cost plan, RIFT-261; 356.4/356.4.f/356.6)"
 );
 test.todo(
   "sfd-211-221 Marai Spire: Repeat additional-cost payment wiring so the discount has a target cost to modify (keywords/Repeat.ts cost.additional/cost.pay)"

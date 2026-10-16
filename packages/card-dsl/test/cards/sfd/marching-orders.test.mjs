@@ -38,8 +38,7 @@ test("sfd-114-221 Marching Orders: program passes validateCardProgram", () => {
 test("sfd-114-221 Marching Orders: judgeReason names the [Repeat] cost gap and its tasks", () => {
   assert.match(program.judgeReason, /\[Repeat\]/);
   assert.match(program.judgeReason, /820\.1\.c/);
-  assert.match(program.judgeReason, /RIFT-86/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
   // The damage half is executable and must be reported as such, not as a gap.
   assert.match(program.judgeReason, /golden 已真实执行/);
 });
@@ -50,7 +49,8 @@ test("sfd-114-221 Marching Orders: [Action] keyword plus the [Repeat] additional
   assert.equal(play.kind, "play");
   // 820.1.c: the printed "Repeat :rb_energy_3:" cost travels on the play
   // CostSpec (356.2.b.1), the merged sfd/danger-zone shape; the Repeat
-  // KeywordDef / cost plan that would collect it is not merged (RIFT-86/89).
+  // The KeywordDef is merged, but the card-program cost plan that would collect it
+  // is not wired through Finalize (RIFT-261).
   assert.deepEqual(play.cost, {
     kind: "additional-cost",
     keyword: "repeat",
@@ -206,11 +206,11 @@ test("sfd-114-221 Marching Orders golden: a stale enemy target ignores both Deal
 test.todo(
   "sfd-114-221 Marching Orders: [Repeat] :rb_energy_3: — collecting the optional additional cost at " +
     "Finalize and executing the effect one extra time per paid instance with re-made choices " +
-    "(820.1.b/820.1.d/820.2.a) needs the Repeat keyword expansion (RIFT-86) and the cost plan (RIFT-89)"
+    "(820.1.b/820.1.d/820.2.a) needs the card-program Repeat cost plan and payment adapter (RIFT-261)"
 );
 
 test.todo(
   "sfd-114-221 Marching Orders: the printed [Action] Showdown permission must be enforced through the " +
     "continuous.timing consumer and a CardProgram -> ChainDraft play adapter " +
-    "(chain/engine.ts describePlay, contract 3.7) — RIFT-91 / RIFT-84"
+    "(chain/engine.ts describePlay, contract 3.7) — RIFT-257"
 );
