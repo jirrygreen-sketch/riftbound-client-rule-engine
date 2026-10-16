@@ -40,7 +40,7 @@ const solariChief = {
     "TargetSpec id 字符串继续按 Expr 校验，链路抛 “effect.stun target must be a spec id string”。" +
     "语义本身完整（effect.kill/effect.stun + object-property(target).stunned 条件，424.1/429），" +
     "golden 用解释器与参考内核真实执行两条分支（stunned → kill；未 stunned → stun；目标失效 → ignored）。" +
-    "依赖：engine-core 的 chain 适配器补齐 effect.stun 的 literal target 登记（RIFT-119 原语已合入），" +
+    "依赖：engine-core 的 chain 适配器补齐 effect.stun 的 literal target 登记（RIFT-119 原语已合入，" +
     "适配器登记属引擎侧后续）。不近似实现（不改用其他原语替代 Stun 语义）。",
   abilities: [
     {
