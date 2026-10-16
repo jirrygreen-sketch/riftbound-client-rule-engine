@@ -43,7 +43,7 @@ const daringPoro = {
     "ObjectSnapshot.combatRole），而 interpreter 的 ObjectSnapshot 没有该特征，layers/engine.ts 的 conditionMatches " +
     "也不识别 compare 条件（只认 always/never/type/has-tag/has-keyword，其余按 true），attacker 条件在真实图层计算中恒真，" +
     "无法只在我攻击时 +1 Might。依赖：RIFT-81（Assault 关键词展开，声明部分已合入）、RIFT-91（layers-continuous 条件支持）、" +
-    "契约 3.8 combatRole 落地。不近似实现。",
+    "RIFT-257（CardProgram 关键词/静态能力绑定）、契约 3.8 combatRole 落地。不近似实现。",
   abilities: [{ kind: "keyword", keyword: "assault" }],
   sourceText: "[Assault] (+1 :rb_might: while I'm an attacker.)"
 } satisfies CardProgram;

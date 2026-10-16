@@ -56,6 +56,7 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, sourceText", () =
   assert.match(program.judgeReason, /HistoryQuery/);
   assert.match(program.judgeReason, /479\.4/);
   assert.match(program.judgeReason, /TriggerRegistration/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });

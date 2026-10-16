@@ -45,7 +45,8 @@ const defy = {
     "type/tag/controller/zone/location 等字段，没有任何已合入的目标谓词能读取链上法术的印刷 Energy 费用" +
     "或印刷 Power 需求；ObjectSnapshot 暴露的是当前 energy 与 Power 列表，不是印刷/复制费用。" +
     "不近似实现（去掉费用限制会把“反制任意法术”写成事实）；限制以未实现的描述性键 energyMax/powerMax 保留。" +
-    "依赖：target 系统的印刷费用谓词（RIFT-90 target/链 目标锁定，或 cost-plan 提供印刷费用读取）。" +
+    "依赖：target 系统的印刷费用谓词（RIFT-90 target/链 目标锁定，RIFT-261 cost.pay/cost.modify 提供印刷费用读取）" +
+    "与 RIFT-257 的 CardProgram 反应能力绑定。" +
     "effect.counter（426.1-426.3）与 [Reaction]（813）本身已合入。",
   sourceText:
     "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +

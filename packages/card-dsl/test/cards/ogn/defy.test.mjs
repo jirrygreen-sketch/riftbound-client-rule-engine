@@ -107,7 +107,7 @@ test("Defy golden: a spell that already left the chain is ignored (359.3.e)", ()
 test.todo(
   "Defy cost restriction (CR 206): finalize the chain-spell target against its printed/copied " +
     "Energy cost (<= 4) and printed Power requirement (<= 1 rainbow), ignoring paid additional costs - " +
-    "needs a printed-cost target predicate (RIFT-90 target finalize / cost-plan printed-cost read)"
+    "needs a printed-cost target predicate (RIFT-90 target finalize / RIFT-261 printed-cost read)"
 );
 
 test.todo(

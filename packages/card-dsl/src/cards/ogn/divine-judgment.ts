@@ -50,7 +50,8 @@ const divineJudgment = {
     "且手牌按 355.10.a 非公开、按 355.10.e 整套选择不是 target）。" +
     "「Recycle the rest」需要补集选择：effect.recycle 只能从单一区域取 N 张（from.zone + amount）或按 target/objects 列表，" +
     "无法表达「除保留集合外的全部」，也不区分目的地（units/gear/手牌→主牌库底、runes→符文牌库底，417.1.a/417.1.b/417.1.c）。" +
-    "依赖：RIFT-9 target.player/多玩家选择与 effect.recycle 的补集形式、RIFT-90 目标计划；不近似实现。",
+    "依赖：RIFT-9 target.player/多玩家选择与 effect.recycle 的补集形式、RIFT-90 目标计划、" +
+    "RIFT-257 CardProgram play 绑定、RIFT-261 费用计划/支付；不近似实现。",
   abilities: [
     {
       kind: "play",

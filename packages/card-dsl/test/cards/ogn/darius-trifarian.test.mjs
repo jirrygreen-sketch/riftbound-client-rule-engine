@@ -15,7 +15,8 @@ test("ogn-027-298 Darius, Trifarian: program validates and is judge-required", (
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-261/);
 });
 
 test("ogn-027-298 Darius, Trifarian: identity, ruleset and exact source text", () => {
@@ -58,6 +59,8 @@ test("ogn-027-298 Darius, Trifarian: card-played trigger with a second-card cond
   const [might, readyInstruction] = ability.body;
   assert.equal(might.args.amount.value, 2);
   assert.equal(might.args.duration.value, "end-of-turn");
+  assert.deepEqual(might.args.appliesTo, { kind: "constant", value: "self" });
+  assert.equal(might.args.target, undefined);
   // "and ready me" is a separate instruction: it is not linked to the Might
   // half, so a negated Might change still readies Darius (359.3.e.14.b).
   assert.equal(readyInstruction.linkedTo, undefined);
@@ -95,8 +98,24 @@ test("ogn-027-298 Darius, Trifarian: 'ready me' against an exhausted source read
   assert.equal(scoped.getObject("other").exhausted, true);
 });
 
+test("ogn-027-298 Darius, Trifarian: the full body registers Might on self and readies self", () => {
+  const kernel = world().unit("darius", { exhausted: true, might: 5 }).build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("darius") });
+
+  const outcome = runAbilityBody(program.abilities[0].body, scoped);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map((entry) => entry.result.status), ["executed", "executed"]);
+  assert.equal(scoped.continuousEffects.length, 1);
+  assert.equal(scoped.continuousEffects[0].effect.filter.objectId, "darius");
+  assert.equal(scoped.continuousEffects[0].effect.effect.kind, "continuous.might");
+  assert.equal(scoped.continuousEffects[0].effect.effect.amount, 2);
+  assert.deepEqual(scoped.continuousEffects[0].duration, { type: "end-of-turn" });
+  assert.equal(scoped.getObject("darius").exhausted, false);
+});
+
 test.todo(
   "ogn-027-298 Darius, Trifarian: the 'you play your second card in a turn' history count " +
-    "(cards-finalized-this-turn with exclude self) and the end-of-turn +2 Might continuous.might " +
-    "need condition/history and layers support (RIFT-33 / RIFT-91); no execution evidence yet."
+    "(cards-finalized-this-turn with exclude self) still needs the history condition and " +
+    "RIFT-257 CardProgram trigger binding; the Might and ready body now has execution evidence."
 );

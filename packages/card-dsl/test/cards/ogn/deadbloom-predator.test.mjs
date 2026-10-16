@@ -25,7 +25,7 @@ test("ogn-161-298 Deadbloom Predator: program validates and keeps identity", () 
 test("ogn-161-298 Deadbloom Predator: judgeReason cites the target tax and the unresolved play permission", () => {
   assert.match(program.judgeReason, /target\.tax/);
   assert.match(program.judgeReason, /play-location-permission/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /RIFT-90/);
   assert.match(program.judgeReason, /170\.11\.a/);
 });
@@ -76,7 +76,7 @@ test("ogn-161-298 Deadbloom Predator: the merged Deflect KeywordDef emits only t
 test.todo(
   "ogn-161-298 Deadbloom Predator: the Deflect target tax (809.1.c/d) needs a consumer that reads the " +
     "expanded target.tax effect during target finalization and folds it into the cost plan (contract 3.8 " +
-    "item 4; RIFT-89 cost plan / RIFT-90 target tax)."
+    "item 4; RIFT-261 cost plan / RIFT-90 target tax)."
 );
 test.todo(
   "ogn-161-298 Deadbloom Predator: the static play-location permission (170.11.a occupied enemy " +

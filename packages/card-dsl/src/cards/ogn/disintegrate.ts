@@ -48,7 +48,8 @@ const disintegrate = {
     "伤害造成的消灭归因（429.5.c）与死亡时点属于清理与事件管线，冻结 IR 没有对应结果绑定或谓词" +
     "（RIFT-9 的 condition.result 未合入；survey 对本印刷号提出 trigger.reflexive）。" +
     "条件读取的结果绑定 disintegrate.deal-3.killed 目前无生产者，解释器按契约 3.4 以缺信息 ignored 处理（失败关闭，" +
-    "不会退化成无条件 Draw 1，golden 测试固定该行为）。依赖：condition.result 结果绑定、致命伤→消灭归因、RIFT-90 战场目标系统。",
+    "不会退化成无条件 Draw 1，golden 测试固定该行为）。依赖：condition.result 结果绑定、致命伤→消灭归因、" +
+    "RIFT-90 战场目标系统、RIFT-257 CardProgram play 绑定、RIFT-261 费用计划/支付。",
   sourceText:
     "[Action] (Play on your turn or in showdowns.)\n" +
     "Deal 3 to a unit at a battlefield. If this kills it, draw 1.",

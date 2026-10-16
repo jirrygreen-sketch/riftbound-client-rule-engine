@@ -1,11 +1,13 @@
 // Golden test for Dangerous Duo (ogn-016-298).
 // The Legion gate is expressed as a trigger condition over the cards-finalized
-// history; the +2 Might body needs continuous.might (RIFT-91), so execution
-// assertions stay todo.
+// history; the +2 Might body executes through continuous.might, while the
+// trigger gate remains pending on history and CardProgram binding.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { validateCardProgram } from "../../../../../packages/card-dsl/dist/ir/index.js";
 import program from "../../../../../packages/card-dsl/dist/cards/ogn/dangerous-duo.js";
+import { runAbilityBody } from "../../../../../packages/engine-core/dist/effects/interpreter.js";
+import { world } from "../../../../../packages/engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-d4e849d845765608b07bf4af4aa19877f6303dfff539b541d0d070320dd05d91";
 
@@ -16,6 +18,7 @@ test("program passes validateCardProgram and is judge-required", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason ?? "", /continuous\.might/);
   assert.match(program.judgeReason ?? "", /RIFT-82/);
+  assert.match(program.judgeReason ?? "", /RIFT-257/);
   assert.match(program.sourceText, /\[Legion\]/);
 });
 
@@ -44,6 +47,7 @@ test("body grants +2 Might to exactly one unit until end of turn", () => {
   assert.equal(instruction.op, "continuous.might");
   assert.deepEqual(instruction.args.amount, { kind: "constant", value: 2 });
   assert.deepEqual(instruction.args.duration, { kind: "constant", value: "end-of-turn" });
+  assert.deepEqual(instruction.args.target, { kind: "constant", value: "dangerous-duo.unit" });
   assert.equal(instruction.targets?.length, 1);
   assert.deepEqual(instruction.targets?.[0], {
     id: "dangerous-duo.unit",
@@ -54,9 +58,26 @@ test("body grants +2 Might to exactly one unit until end of turn", () => {
   });
 });
 
+test("golden execution: the selected unit receives a registered end-of-turn Might effect", () => {
+  const kernel = world()
+    .unit("duo", { owner: "A", controller: "A" })
+    .unit("chosen", { owner: "A", controller: "A", might: 4 })
+    .build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("duo") });
+  scoped.setTargets("dangerous-duo.unit", [scoped.ref("chosen")]);
+
+  const outcome = runAbilityBody(program.abilities[0].body, scoped);
+
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.equal(scoped.continuousEffects.length, 1);
+  assert.equal(scoped.continuousEffects[0].effect.filter.objectId, "chosen");
+  assert.equal(scoped.continuousEffects[0].effect.effect.kind, "continuous.might");
+  assert.equal(scoped.continuousEffects[0].effect.effect.amount, 2);
+  assert.deepEqual(scoped.continuousEffects[0].duration, { type: "end-of-turn" });
+});
+
 test.todo(
-  "expand the Legion dependent-keyword gate (RIFT-82) against the history query once condition.history lands"
-);
-test.todo(
-  "execute the +2 Might grant once continuous.might is registered through the layers work (RIFT-91)"
+  "bind the Legion history gate and this triggered CardProgram ability once the history/excluding " +
+    "condition semantics and RIFT-257 program trigger binding are available"
 );
