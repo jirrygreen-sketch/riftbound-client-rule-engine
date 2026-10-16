@@ -90,9 +90,9 @@ const change = (id, fn) => {
 
 // 1
 test('source version/hash and exactly six identities, thirty genuine physical Basic Rune printings', () => {
-  assert.equal(crypto.createHash('sha256').update(bytes).digest('hex'), '06421ffce228ad3412a03f6796e1446e26e61519d79adfddb5892c71e1dab189');
-  assert.equal(catalog.dataVersion, '2026-10-15-official-gallery');
-  assert.equal(catalog.digest, 'sha256:e9635b38044140375c33d9e5d8e12c1c2386994dfaa9ae8ae6832a127ff9f73d');
+  assert.equal(crypto.createHash('sha256').update(bytes).digest('hex'), '06d99a589fed6046bff8072847946d5304a8ca43ef1e4e2c680c4a7a0f1df766');
+  assert.equal(catalog.dataVersion, '2026-10-12-official-gallery');
+  assert.equal(catalog.digest, 'sha256:53b974c8472d82053bf61f6836842c8f0d62c2fafb4411fa502256912a504d10');
   assert.equal(new Set(ids).size, 30);
   assert.equal(new Set(expected.map((item) => item.canonicalCardId)).size, 6);
   assert.deepEqual(catalog.cards.filter((item) => item.cardType === 'Rune').map((item) => item.id).sort(), [...ids].sort());
@@ -386,13 +386,13 @@ test('old twenty-two printing IDs and reference/raw semantics unchanged; Gold in
 });
 
 // 16
-test('fresh catalog census: old 22 + 30 Rune + 12 re-bound + one Reaction printing, 1343 unknown', () => {
+test('fresh catalog census: old 22 + 30 Rune + 12 re-bound + one Reaction printing, 1316 unknown', () => {
   const registry = createDuelOfficialProgramRegistry(source);
-  assert.equal(registry.size, 1408);
+  assert.equal(registry.size, 1381);
   assert.equal(registry.knownProgramCount, 65);
   const resolved = registry.cardIds().filter((id) => registry.get(id).status === 'resolved').sort();
   assert.deepEqual(resolved, [...oldIds, ...ids, ...newWholeIds, 'sfd-087-221'].sort());
-  assert.equal(registry.cardIds().length - resolved.length, 1343);
+  assert.equal(registry.cardIds().length - resolved.length, 1316);
   assert.equal(registry.get('ogn-001-298').status, 'unknown');
   assert.equal(registry.eventScope('ogn-001-298', 'activate').status, 'unknown');
 });

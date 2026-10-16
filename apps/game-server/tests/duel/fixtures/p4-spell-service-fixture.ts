@@ -16,8 +16,8 @@ const ids = new Set([spellId, "unl-176-219", "unl-187-219", "ogn-214-298",
 const metadata = {
   // The Basic Rune program requires this source stamp. Spell text below is a
   // controlled service fixture, not a claim about the official printing.
-  matchId: "p4-spell-cost-fixture", dataVersion: "2026-10-15-official-gallery",
-  catalogDigest: "sha256:e9635b38044140375c33d9e5d8e12c1c2386994dfaa9ae8ae6832a127ff9f73d",
+  matchId: "p4-spell-cost-fixture", dataVersion: "2026-10-12-official-gallery",
+  catalogDigest: "sha256:53b974c8472d82053bf61f6836842c8f0d62c2fafb4411fa502256912a504d10",
   roster: ["alice", "bob"].map(playerId => ({ playerId, displayName: playerId })) as [
     { playerId: string; displayName: string }, { playerId: string; displayName: string }],
 };

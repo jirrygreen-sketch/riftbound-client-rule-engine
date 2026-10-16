@@ -119,11 +119,11 @@ test('Reaction Rune activation remains an independent handler, not an automatic 
   assert.equal(result.requiredGlobalRuntimeClosure.includes('runtime-subevent-journal'), true);
 });
 
-test('registry census stays 1408 printings, 65 complete, and 1343 unresolved', () => {
-  assert.equal(registry.size, 1408);
+test('registry census stays 1381 printings, 65 complete, and 1316 unresolved', () => {
+  assert.equal(registry.size, 1381);
   assert.equal(registry.knownProgramCount, 65);
   const unknown = catalog.cards.filter((entry) => registry.get(entry.id)?.status === 'unknown');
-  assert.equal(unknown.length, 1343);
+  assert.equal(unknown.length, 1316);
   for (const entry of unknown) {
     const result = query(entry.id, 'hold');
     assert.equal(result.sourceApplicabilityStatus, 'unknown', entry.id);

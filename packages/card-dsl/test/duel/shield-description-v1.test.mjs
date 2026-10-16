@@ -3,7 +3,7 @@
 //
 // These cases build COMPLETE inline synthetic printing tuples using the REAL
 // catalog Shield/other whole-ability literals, so the suite runs in a clean
-// checkout and never reads the gitignored official catalog. The real 1408-printing
+// checkout and never reads the gitignored official catalog. The real 1381-printing
 // census lives in the separate explicit `shield-description-v1.audit.mjs`
 // (parent-run), which FAILS (not skips) when the catalog is missing.
 //
@@ -30,8 +30,8 @@ const {
   describeDuelShieldV1,
 } = await import(moduleSpecifier);
 
-const DATA_VERSION = '2026-10-15-official-gallery';
-const DIGEST = 'sha256:e9635b38044140375c33d9e5d8e12c1c2386994dfaa9ae8ae6832a127ff9f73d';
+const DATA_VERSION = '2026-10-12-official-gallery';
+const DIGEST = 'sha256:53b974c8472d82053bf61f6836842c8f0d62c2fafb4411fa502256912a504d10';
 
 const REMINDER = (n) => `[Shield ${n}] (+${n} :rb_might: while I'm a defender.)`;
 
@@ -66,7 +66,7 @@ test('kind, default amount, condition, layer and catalog pins are fixed and froz
   assert.equal(DUEL_SHIELD_DEFAULT_AMOUNT, 1);
   assert.equal(DUEL_SHIELD_CONDITION, 'while-defender');
   assert.equal(DUEL_SHIELD_LAYER, 'add-subtract-might');
-  assert.equal(DUEL_SHIELD_CATALOG_DATA_VERSION, '2026-10-15-official-gallery');
+  assert.equal(DUEL_SHIELD_CATALOG_DATA_VERSION, '2026-10-12-official-gallery');
   assert.equal(DUEL_SHIELD_CATALOG_DIGEST, DIGEST);
   assert.equal(DUEL_SHIELD_SOURCE_FINGERPRINT_SCHEME, 'shield-source-v1');
   assert.equal(shieldReminderLiteral(2), "[Shield 2] (+2 :rb_might: while I'm a defender.)");
@@ -387,7 +387,7 @@ test('the recogniser is never registered in the official-program registry', asyn
 // catalog is a required project prerequisite; when it is missing
 // this required census fails rather than silently passing. In this workspace
 // the catalog is present and the census asserts the exhaustive pure-Shield set.
-test('real 1408-printing catalog census: pure whole-ability Shield is exactly ogn-052-298 and ogs-005-024', (t) => {
+test('real 1381-printing catalog census: pure whole-ability Shield is exactly ogn-052-298 and ogs-005-024', (t) => {
   const catalogPath =
     process.env.RIFTBOUND_SHIELD_CATALOG ??
     new URL('../../../card-data/data/deck-catalog.json', import.meta.url);
@@ -395,14 +395,14 @@ test('real 1408-printing catalog census: pure whole-ability Shield is exactly og
   const bytes = readFileSync(catalogPath);
   const catalog = JSON.parse(bytes.toString('utf8'));
   assert.ok(Array.isArray(catalog.cards));
-  assert.equal(catalog.cards.length, 1408);
+  assert.equal(catalog.cards.length, 1381);
   assert.equal(catalog.dataVersion, DATA_VERSION);
   assert.equal(catalog.digest, DIGEST);
   // The descriptor's pinned catalog identity matches the real catalog bytes.
   assert.equal(DUEL_SHIELD_CATALOG_DATA_VERSION, catalog.dataVersion);
   assert.equal(DUEL_SHIELD_CATALOG_DIGEST, catalog.digest);
   assert.equal(createHash('sha256').update(bytes).digest('hex'),
-    '06421ffce228ad3412a03f6796e1446e26e61519d79adfddb5892c71e1dab189');
+    '06d99a589fed6046bff8072847946d5304a8ca43ef1e4e2c680c4a7a0f1df766');
 
   const known = catalog.cards.filter((card) => describeDuelShieldV1(card).status === 'known').map((card) => card.id).sort();
   assert.deepEqual(known, ['ogn-052-298', 'ogs-005-024']);

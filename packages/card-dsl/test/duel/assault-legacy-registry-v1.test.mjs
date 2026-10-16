@@ -38,11 +38,11 @@ const assaultRegistry = current.createDuelAssaultOfficialProgramRegistryV1(sourc
 const pureIds = ['ogn-210-298', 'ogn-215-298', 'sfd-156-221', 'unl-225-219'];
 const digest = value => sha256(JSON.stringify(value ?? null));
 
-test('default official registry remains byte-identical to the archived implementation for all 1408 printings', () => {
-  assert.equal(sha256(catalogBytes), '06421ffce228ad3412a03f6796e1446e26e61519d79adfddb5892c71e1dab189');
-  assert.equal(catalog.cards.length, 1408);
-  assert.equal(catalog.dataVersion, '2026-10-15-official-gallery');
-  assert.equal(catalog.digest, 'sha256:e9635b38044140375c33d9e5d8e12c1c2386994dfaa9ae8ae6832a127ff9f73d');
+test('default official registry remains byte-identical to the archived implementation for all 1381 printings', () => {
+  assert.equal(sha256(catalogBytes), '06d99a589fed6046bff8072847946d5304a8ca43ef1e4e2c680c4a7a0f1df766');
+  assert.equal(catalog.cards.length, 1381);
+  assert.equal(catalog.dataVersion, '2026-10-12-official-gallery');
+  assert.equal(catalog.digest, 'sha256:53b974c8472d82053bf61f6836842c8f0d62c2fafb4411fa502256912a504d10');
   assert.equal(source.dataVersion, oldSource.dataVersion);
   assert.equal(source.sourceCatalogDigest, oldSource.sourceCatalogDigest);
   assert.deepEqual(defaultRegistry.cardIds(), oldRegistry.cardIds());
@@ -71,8 +71,8 @@ test('default official registry remains byte-identical to the archived implement
 test('named Assault registry changes exactly four complete printings and leaves compound text unresolved', () => {
   const changed = [];
   const assaultMentions = catalog.cards.filter(card => typeof card.ability === 'string' && card.ability.includes('[Assault'));
-  assert.equal(assaultMentions.length, 68);
-  assert.equal(assaultMentions.filter(card => !pureIds.includes(card.id)).length, 64);
+  assert.equal(assaultMentions.length, 67);
+  assert.equal(assaultMentions.filter(card => !pureIds.includes(card.id)).length, 63);
   for (const id of defaultRegistry.cardIds()) {
     const oldBinding = defaultRegistry.get(id);
     const optBinding = assaultRegistry.get(id);

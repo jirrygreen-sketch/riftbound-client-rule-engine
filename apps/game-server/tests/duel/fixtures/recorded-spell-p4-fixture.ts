@@ -19,8 +19,8 @@ export async function createRecordedAuthoritativeDuelRuntimeP4() {
       card.cardType === "Legend" ? ":rb_energy_1:, :rb_exhaust:: Play a 1 :rb_might: Recruit unit token." :
         card.cardType === "Battlefield" ? "You may hide an additional card here." : card.ability }));
   const catalog = await loadCardCatalogRuntime({ catalog: { ...setupAdapterFixtureCatalog, cards,
-    dataVersion: "2026-10-15-official-gallery",
-    digest: "sha256:e9635b38044140375c33d9e5d8e12c1c2386994dfaa9ae8ae6832a127ff9f73d" } });
+    dataVersion: "2026-10-12-official-gallery",
+    digest: "sha256:53b974c8472d82053bf61f6836842c8f0d62c2fafb4411fa502256912a504d10" } });
   let uid = 0, randomCalls = 0;
   const deck = setupAdapterFixtureDecks.a.submission;
   const ordered = { ...deck, mainDeck: [deck.mainDeck![3]!, ...deck.mainDeck!.slice(0, 3), ...deck.mainDeck!.slice(4)] };

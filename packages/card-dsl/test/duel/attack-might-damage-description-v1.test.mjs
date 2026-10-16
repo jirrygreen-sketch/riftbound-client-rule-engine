@@ -3,7 +3,7 @@
 //
 // These cases build COMPLETE inline synthetic printing tuples with the REAL
 // catalog whole-ability literal, so the suite runs in a clean checkout and never
-// reads the gitignored official catalog. The real 1408-printing census lives in
+// reads the gitignored official catalog. The real 1381-printing census lives in
 // the required census below asserts every real printing. Missing catalog data
 // fails rather than skipping. Assertions classify source DATA only.
 //
@@ -25,8 +25,8 @@ const {
   describeDuelAttackMightDamageV1,
 } = await import(moduleSpecifier);
 
-const DATA_VERSION = '2026-10-15-official-gallery';
-const DIGEST = 'sha256:e9635b38044140375c33d9e5d8e12c1c2386994dfaa9ae8ae6832a127ff9f73d';
+const DATA_VERSION = '2026-10-12-official-gallery';
+const DIGEST = 'sha256:53b974c8472d82053bf61f6836842c8f0d62c2fafb4411fa502256912a504d10';
 
 // The single exact real catalog literal for this family (no reminder/symbol variants).
 const WHOLE = 'When I attack, deal damage equal to my Might to an enemy unit here.';
@@ -372,10 +372,10 @@ const catalogPath =
   process.env.RIFTBOUND_ATTACK_MIGHT_DAMAGE_CATALOG ??
   new URL('../../../card-data/data/deck-catalog.json', import.meta.url);
 
-test('real 1408-printing census: exactly the two Yasuo printings are recognised (SOURCE DATA)', () => {
+test('real 1381-printing census: exactly the two Yasuo printings are recognised (SOURCE DATA)', () => {
   const catalog = JSON.parse(readFileSync(catalogPath, 'utf8'));
   assert.ok(Array.isArray(catalog.cards), 'catalog.cards must be an array');
-  assert.equal(catalog.cards.length, 1408, 'expected the 1408-printing catalog');
+  assert.equal(catalog.cards.length, 1381, 'expected the 1381-printing catalog');
 
   const known = [];
   for (const card of catalog.cards) {

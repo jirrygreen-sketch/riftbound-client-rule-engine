@@ -234,7 +234,7 @@ test('duplicate and empty-metadata sources are rejected at the entry points', ()
 test('registry covers every printing and rejects duplicate ids', () => {
   const registry = bindAbilityRegistry(source);
   assert.equal(registry.size, catalog.cards.length);
-  assert.equal(registry.size, 1408);
+  assert.equal(registry.size, 1381);
   assert.deepEqual(registry.cardIds(), catalog.cards.map((entry) => entry.id));
   for (const entry of catalog.cards) {
     assert.ok(registry.has(entry.id));

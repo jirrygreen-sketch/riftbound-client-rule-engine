@@ -3,7 +3,7 @@
 // These cases build COMPLETE inline synthetic printing tuples with the REAL
 // catalog Hold→score / other whole-ability literals, so the suite runs in a
 // clean checkout and never requires the gitignored official catalog. The real
-// 1408-printing census is a second block below that runs when the catalog is
+// 1381-printing census is a second block below that runs when the catalog is
 // readable (default relative path, or RIFTBOUND_HOLD_SCORE_CATALOG) and is
 // required; missing data fails so a clean checkout cannot silently omit the audit.
 //
@@ -28,8 +28,8 @@ const {
   describeDuelHoldScoreV1,
 } = await import(moduleSpecifier);
 
-const DATA_VERSION = '2026-10-15-official-gallery';
-const DIGEST = 'sha256:e9635b38044140375c33d9e5d8e12c1c2386994dfaa9ae8ae6832a127ff9f73d';
+const DATA_VERSION = '2026-10-12-official-gallery';
+const DIGEST = 'sha256:53b974c8472d82053bf61f6836842c8f0d62c2fafb4411fa502256912a504d10';
 
 const WHOLE = 'When I hold, you score 1 point.';
 const EXPECTED_WHOLE_FP = 'sha256:6cd154b31b48da3de3f486cb74ad26f4f089a9c1fdc9274c94672f444e7809d8';

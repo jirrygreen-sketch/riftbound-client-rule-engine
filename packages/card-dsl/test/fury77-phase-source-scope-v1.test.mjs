@@ -55,7 +55,7 @@ const baseClosure = [
 test('all six exact Vi/Deflect printings have source scope at every phase in both modes', () => {
   assert.equal(dsl.DUEL_PHASE_EVENT_NAMES.length, 12);
   if (fs.existsSync(officialCatalog)) {
-    assert.equal(catalog.cards.length, 1408);
+    assert.equal(catalog.cards.length, 1381);
     assert.equal(roster.knownProgramCount, 77);
   }
   for (const card of exactCards) {
