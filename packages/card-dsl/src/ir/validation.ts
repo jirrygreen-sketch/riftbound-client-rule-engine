@@ -50,10 +50,12 @@ const CONDITION_KINDS = new Set([
 ]);
 const SELECTIONS = new Set(["one", "any", "all", "up-to"]);
 const TRIGGER_LIFETIMES = new Set(["per-turn", "per-combat", "per-chain", "per-game"]);
+const ARITHMETIC_OPERATORS = new Set(["add", "sub", "subtract", "mul", "multiply", "div", "divide", "min", "max", "neg"]);
 
 interface ValidationContext {
   readonly issues: CardProgramValidationIssue[];
   readonly instructionIds: Set<string>;
+  readonly scopeInstructionIds: Set<string>;
   readonly instructionReferences: { readonly id: string; readonly path: string }[];
   readonly activeObjects: WeakSet<object>;
   readonly priorInstructionIds: Set<string>;
@@ -167,12 +169,17 @@ function validateExpr(value: unknown, path: string, context: ValidationContext):
   const kind = value.kind;
   let valid = true;
   if (kind === "constant" || kind === "literal") {
-    valid = hasOwn(value, "value") && validateValue(value.value, `${path}.value`, context) && valid;
+    if (!hasOwn(value, "value")) {
+      addIssue(context, `${path}.value`, "missing-literal-value", "Expected a literal value.");
+      valid = false;
+    } else {
+      valid = validateValue(value.value, `${path}.value`, context) && valid;
+    }
   } else if (kind === "object-property") {
-    valid = validateString(value.object, `${path}.object`, context, "Expected an object reference.") && valid;
+    valid = validateObjectRef(value.object, `${path}.object`, context) && valid;
     valid = validateString(value.property, `${path}.property`, context, "Expected a property name.") && valid;
   } else if (kind === "object-attribute") {
-    valid = validateString(value.object, `${path}.object`, context, "Expected an object reference.") && valid;
+    valid = validateObjectRef(value.object, `${path}.object`, context) && valid;
     valid = validateString(value.attribute, `${path}.attribute`, context, "Expected an attribute name.") && valid;
   } else if (kind === "linked" || kind === "linked-value") {
     valid = validateString(value.instructionId, `${path}.instructionId`, context, "Expected a linked instruction id.") && valid;
@@ -191,11 +198,39 @@ function validateExpr(value: unknown, path: string, context: ValidationContext):
     if (hasOwn(value, "filter")) {
       valid = validateFilter(value.filter, `${path}.filter`, context) && valid;
     }
+  } else if (kind === "arithmetic") {
+    if (typeof value.operator !== "string" || !ARITHMETIC_OPERATORS.has(value.operator)) {
+      addIssue(context, `${path}.operator`, "invalid-arithmetic-operator", "Expected a supported arithmetic operator.");
+      valid = false;
+    }
+    const arity = value.operator === "neg" ? 1 : ["sub", "subtract", "div", "divide"].includes(String(value.operator)) ? 2 : undefined;
+    if (!Array.isArray(value.operands) || value.operands.length === 0 || (arity !== undefined && value.operands.length !== arity)) {
+      addIssue(context, `${path}.operands`, "invalid-arithmetic-operands", arity === undefined ? "Expected at least one operand expression." : `Expected ${arity} operand expressions.`);
+      valid = false;
+    }
+    if (Array.isArray(value.operands)) {
+      value.operands.forEach((operand, index) => {
+        valid = validateExpr(operand, `${path}.operands[${index}]`, context) && valid;
+      });
+    }
   } else {
-    addIssue(context, `${path}.kind`, "invalid-expression-kind", "Expected constant, object property, linked value, or count.");
+    addIssue(context, `${path}.kind`, "invalid-expression-kind", "Expected constant, object property, linked value, count, or arithmetic.");
     valid = false;
   }
   context.activeObjects.delete(value);
+  return valid;
+}
+
+function validateObjectRef(value: unknown, path: string, context: ValidationContext): boolean {
+  if (!isRecord(value)) {
+    addIssue(context, path, "invalid-object-reference", "Expected an object reference with id and zoneEntryId.");
+    return false;
+  }
+  let valid = validateString(value.id, `${path}.id`, context, "Expected an object id.");
+  if (typeof value.zoneEntryId !== "number" || !Number.isSafeInteger(value.zoneEntryId) || value.zoneEntryId < 0) {
+    addIssue(context, `${path}.zoneEntryId`, "invalid-zone-entry-id", "Expected a nonnegative safe integer zone entry id.");
+    valid = false;
+  }
   return valid;
 }
 
@@ -377,19 +412,28 @@ function validateInstruction(
     addIssue(context, path, "invalid-instruction", "Expected an instruction object.");
     return false;
   }
+  if (context.activeObjects.has(value)) {
+    addIssue(context, path, "cyclic-instruction", "Cyclic instruction bodies are not valid.");
+    return false;
+  }
+  context.activeObjects.add(value);
   let valid = true;
   const id = validateString(value.id, `${path}.id`, context, "Expected a unique instruction id.", SYMBOL_PATTERN);
-  if (id && context.instructionIds.has(value.id as string)) {
+  if (id && context.scopeInstructionIds.has(value.id as string)) {
     addIssue(context, `${path}.id`, "duplicate-instruction-id", `Instruction id "${value.id as string}" is already defined.`);
     valid = false;
   }
-  if (id) context.instructionIds.add(value.id as string);
+  if (id) {
+    context.instructionIds.add(value.id as string);
+    context.scopeInstructionIds.add(value.id as string);
+  }
   validateString(value.op, `${path}.op`, context, "Expected a lowercase opcode id.", SYMBOL_PATTERN);
   if (!isRecord(value.args)) {
     addIssue(context, `${path}.args`, "invalid-arguments", "Expected an argument expression object.");
     valid = false;
   } else {
     for (const [key, expression] of Object.entries(value.args)) {
+      if (key === "body" && (value.op === "sequence" || value.op === "repeat")) continue;
       valid = validateExpr(expression, `${path}.args.${key}`, context) && valid;
     }
   }
@@ -441,8 +485,38 @@ function validateInstruction(
     }
   }
   if (hasOwn(value, "condition")) valid = validateCondition(value.condition, `${path}.condition`, context) && valid;
+  if ((value.op === "sequence" || value.op === "repeat") && isRecord(value.args)) {
+    valid = validateControlArgs(value.op, value.args, `${path}.args`, context) && valid;
+  }
   if (id) context.priorInstructionIds.add(value.id as string);
+  context.activeObjects.delete(value);
   return valid;
+}
+
+function validateControlArgs(op: "sequence" | "repeat", args: Record<string, unknown>, path: string, context: ValidationContext): boolean {
+  let valid = true;
+  if (op === "repeat") {
+    if (!hasOwn(args, "count")) {
+      addIssue(context, `${path}.count`, "missing-repeat-count", "Expected a repetition count expression.");
+      valid = false;
+    } else if (isRecord(args.count) && (args.count.kind === "constant" || args.count.kind === "literal") &&
+      (typeof args.count.value !== "number" || !Number.isSafeInteger(args.count.value) || args.count.value < 0)) {
+      addIssue(context, `${path}.count.value`, "invalid-repeat-count", "Expected a nonnegative safe integer repetition count.");
+      valid = false;
+    }
+    if (isRecord(args.reselectTargets) && (args.reselectTargets.kind === "constant" || args.reselectTargets.kind === "literal") && typeof args.reselectTargets.value !== "boolean") {
+      addIssue(context, `${path}.reselectTargets.value`, "invalid-repeat-reselection", "Expected a boolean target reselection flag.");
+      valid = false;
+    }
+  }
+  if (!isRecord(args.body) || (args.body.kind !== "constant" && args.body.kind !== "literal")) {
+    addIssue(context, `${path}.body`, "invalid-control-body", "Expected a constant or literal instruction body.");
+    return false;
+  }
+  const bodyContext = op === "repeat" ? {
+    ...context, scopeInstructionIds: new Set<string>(), priorInstructionIds: new Set(context.priorInstructionIds)
+  } : context;
+  return validateBody(args.body.value, `${path}.body.value`, bodyContext) && valid;
 }
 
 function validateBody(value: unknown, path: string, context: ValidationContext): boolean {
@@ -576,6 +650,7 @@ export function validateCardProgram(input: unknown): CardProgramValidationResult
   const context: ValidationContext = {
     issues: [],
     instructionIds: new Set<string>(),
+    scopeInstructionIds: new Set<string>(),
     instructionReferences: [],
     activeObjects: new WeakSet<object>(),
     priorInstructionIds: new Set<string>()

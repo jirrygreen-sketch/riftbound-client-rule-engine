@@ -1,6 +1,6 @@
 import type {
   Condition, Expr, GameAction, GameEvent, Instruction, InstructionDef, InstructionResult,
-  ObjectRef, ResolveContext, Value
+  LegacyBoardTokenAction, ObjectRef, ResolveContext, Value
 } from "./contract.js";
 import { instructionDefinitionsById } from "./instructions/registry.generated.js";
 import { choiceMetadata, modeBodies, modeChoices, optionalChoice, orderedObjects } from "./interpreter/choice.js";
@@ -178,6 +178,7 @@ class AbilityExecution {
       object: ref => base.object(ref),
       lastKnown: ref => base.lastKnown(ref),
       query: filter => base.query(filter),
+      zoneSlice: (player, zone, from, count) => base.zoneSlice(player, zone, from, count),
       targets: id => (targets.has(id) ? [...targets.get(id)!] : base.targets(id)).filter(ref => !ignoredTargets.has(refKey(ref))),
       picks: id => base.picks(id),
       player: id => base.player(id),
@@ -206,7 +207,8 @@ class AbilityExecution {
     };
   }
 
-  private perform(action: GameAction) {
+  private perform(input: GameAction | LegacyBoardTokenAction) {
+    const action: GameAction = input.type === "create-token" && input.to === undefined ? { ...input, to: "board" } : input;
     const candidates: ObjectRef[] = [];
     if ("object" in action) candidates.push(action.object);
     if ("objects" in action) candidates.push(...action.objects);
@@ -278,12 +280,14 @@ class AbilityExecution {
       }
       case "repeat": {
         const count = integer(args.count, "Repeat count");
+        const reselectTargets = args.reselectTargets === undefined ? true : args.reselectTargets;
+        if (typeof reselectTargets !== "boolean") throw new Error("Repeat reselectTargets must be a boolean");
         const body = readBody(args.body);
         const children: InstructionResult[] = [];
         const inherited = new Set(ignoredTargets);
         for (let index = 0; index < count; index++) {
           const iterationIgnored = new Set(inherited);
-          children.push(...this.block(body, [...path, String(index)], scope(current), true, iterationIgnored));
+          children.push(...this.block(body, [...path, String(index)], scope(current), reselectTargets, iterationIgnored));
           for (const key of iterationIgnored) ignoredTargets.add(key);
         }
         return aggregate(children, this.events.slice(start), { count });

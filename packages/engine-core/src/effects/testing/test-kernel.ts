@@ -10,6 +10,7 @@ import {
   type GameAction,
   type HistoryQuery,
   type InstructionResult,
+  type LegacyBoardTokenAction,
   type LocationRef,
   type ObjectSnapshot,
   type PlayerId,
@@ -21,11 +22,19 @@ import {
   type ZoneId
 } from "../contract.js";
 import { isTimingPointId, type TimingPointId } from "../../events/timing-points.js";
+import { arithmetic } from "../interpreter/values.js";
 
 export { AwaitChoice } from "../contract.js";
 
 export type TestEvent = GameEvent & { readonly timingPoint: TimingPointId; readonly action: GameAction["type"] };
 export type ReplacementHook = (action: GameAction, world: TestWorld) => "replaced" | "prevented" | "impossible" | null;
+
+/** A Chain-created token waiting for play in the reference kernel. */
+export interface TestPendingItem {
+  readonly object: ObjectRef;
+  readonly controller: PlayerId;
+  readonly status: "pending";
+}
 
 type MutableObject = { -readonly [Key in keyof ObjectSnapshot]: ObjectSnapshot[Key] } & {
   counters: Map<string, number>;
@@ -45,6 +54,7 @@ interface WorldState {
   objects: Map<string, MutableObject>;
   players: Map<PlayerId, MutablePlayer>;
   lastKnown: Map<string, ObjectSnapshot>;
+  pending: Map<string, TestPendingItem>;
   events: TestEvent[];
   history: Array<{ action: GameAction; timingPoint: TimingPointId; turn: number; combat: number }>;
   continuous: Array<{ effect: ContinuousEffectSpec; duration: Duration }>;
@@ -113,6 +123,7 @@ function freshState(seed: number): WorldState {
     objects: new Map(),
     players: new Map(),
     lastKnown: new Map(),
+    pending: new Map(),
     events: [],
     history: [],
     continuous: [],
@@ -152,6 +163,7 @@ export class TestWorld implements ResolveContext {
   static create(seed?: number): TestWorld { return new TestWorld({ seed }); }
   get events(): readonly TestEvent[] { return this.state.events; }
   get objects(): readonly ObjectSnapshot[] { return this.listObjects(); }
+  get pendingItems(): readonly TestPendingItem[] { return [...this.state.pending.values()].map(item => ({ ...item, object: cloneRef(item.object) })); }
   get continuousEffects(): readonly { effect: ContinuousEffectSpec; duration: Duration }[] { return this.state.continuous; }
   get delayedTriggers(): readonly { at: TriggerSpec; body: readonly Instruction[] }[] { return this.state.delayed; }
   get randomState(): number { return this.state.randomState; }
@@ -192,7 +204,7 @@ export class TestWorld implements ResolveContext {
   targets(specId: string): ObjectRef[] { return (this.targetSets.get(specId) ?? []).map(cloneRef); }
   picks(specId: string): readonly (ObjectRef | PlayerId | string)[] { return (this.pickSets.get(specId) ?? []).map(pick => typeof pick === "object" ? cloneRef(pick) : pick); }
   player(id: PlayerId): PlayerSnapshot { const player = this.state.players.get(id); if (!player) throw new Error(`Unknown player ${id}`); const runePool = this.objectsInZone(id, "rune-zone"); return { id, energy: player.energy, power: [...player.power], runePool, runes: runePool, xp: player.xp, score: player.score, handSize: player.zones.hand.length, handCount: player.zones.hand.length, deckSize: player.zones.deck.length, deckCount: player.zones.deck.length, runeDeckSize: player.zones["rune-deck"].length, runeDeckCount: player.zones["rune-deck"].length }; }
-  evaluate(expr: Expr): Value { if (expr.kind === "constant" || expr.kind === "literal") return expr.value; if (expr.kind === "linked" || expr.kind === "linked-value") return this.linkedValues.get(expr.key ?? expr.instructionId) ?? null; if (expr.kind === "count") return this.query(expr.filter ?? {}).length; if (expr.kind === "object-property") return asValue(this.object(expr.object)?.[expr.property as keyof ObjectSnapshot] ?? null); if (expr.kind === "object-attribute") return asValue(this.object(expr.object)?.[expr.attribute as keyof ObjectSnapshot] ?? null); return null; }
+  evaluate(expr: Expr): Value { if (expr.kind === "constant" || expr.kind === "literal") return asValue(expr.value); if (expr.kind === "arithmetic") return arithmetic(expr.operator, expr.operands.map(operand => this.evaluate(operand))); if (expr.kind === "linked" || expr.kind === "linked-value") return this.linkedValues.get(expr.key ?? expr.instructionId) ?? null; if (expr.kind === "count") return this.query(expr.filter ?? {}).length; if (expr.kind === "object-property") return asValue(this.object(expr.object)?.[expr.property as keyof ObjectSnapshot] ?? null); if (expr.kind === "object-attribute") return asValue(this.object(expr.object)?.[expr.attribute as keyof ObjectSnapshot] ?? null); return null; }
   test(condition: Condition): boolean { switch (condition.kind) { case "always": return true; case "never": return false; case "expression": return Boolean(this.evaluate(condition.value)); case "not": return !this.test(condition.condition); case "all": return condition.conditions.every(item => this.test(item)); case "any": return condition.conditions.some(item => this.test(item)); case "compare": { const left = this.evaluate(condition.left) as any; const right = this.evaluate(condition.right) as any; switch (condition.operator) { case "eq": return left === right; case "ne": return left !== right; case "lt": return left < right; case "lte": return left <= right; case "gt": return left > right; case "gte": return left >= right; case "in": return Array.isArray(right) && right.includes(left); } } } }
   linked(key: string): Value | undefined { return this.linkedValues.get(key); }
   link(key: string, value: Value): void { this.linkedValues.set(key, value); }
@@ -201,11 +213,15 @@ export class TestWorld implements ResolveContext {
   addContinuous(effect: ContinuousEffectSpec, duration: Duration): void { this.state.continuous.push({ effect, duration }); }
   registerDelayedTrigger(at: TriggerSpec, body: readonly Instruction[]): void { this.state.delayed.push({ at, body }); }
 
-  perform(action: GameAction): ActionOutcome {
+  perform(input: GameAction | LegacyBoardTokenAction): ActionOutcome {
+    const action: GameAction = input.type === "create-token" && input.to === undefined ? { ...input, to: "board" } : input;
     const replacement = this.state.replacements.map(hook => hook(action, this)).find(result => result !== null);
     if (replacement) return { status: replacement, events: [makeEvent(this.state, action.type, this.timingPoint, { outcome: replacement })] };
     const outcome = this.apply(action);
-    if (outcome.status === "done") this.state.history.push({ action, timingPoint: this.timingPoint, turn: 1, combat: 0 });
+    if (outcome.status === "done") {
+      const timingPoint = (outcome.events.at(-1) as TestEvent | undefined)?.timingPoint ?? this.timingPoint;
+      this.state.history.push({ action, timingPoint, turn: 1, combat: 0 });
+    }
     return outcome;
   }
 
@@ -254,10 +270,38 @@ export class TestWorld implements ResolveContext {
       case "empower": { const object = this.current(action.object); if (!object) return fail(); const amount = action.amount ?? 1; object.empowered += amount; return done(object.empowered as Value); }
       case "disempower": { const object = this.current(action.object); if (!object) return fail(); object.empowered = 0; return done(); }
       case "add-counter": case "remove-counter": { const object = this.current(action.object); if (!object || action.amount < 0) return fail(); const prior = object.counters.get(action.counter) ?? 0; const next = action.type === "add-counter" ? prior + action.amount : Math.max(0, prior - action.amount); object.counters.set(action.counter, next); return done(next as Value); }
-      case "create-token": { const player = this.state.players.get(action.player); if (!player) return fail(); const id = `token-${this.state.nextToken++}`; const ref = this.addObject(defaultObject(id, action.player, { ...action.token, ref: { id, zoneEntryId: 1 }, zone: "board", location: action.location, isToken: true }), "board"); return done(ref as unknown as Value, { objectId: id }); }
+      case "create-token": {
+        if (!this.state.players.has(action.player)) return fail();
+        let id: string;
+        do { id = `token-${this.state.nextToken++}`; } while (this.state.objects.has(id));
+        const zone = action.to;
+        const ref = this.addObject(defaultObject(id, action.player, {
+          ...action.token, ref: { id, zoneEntryId: 1 }, zone,
+          location: zone === "chain" ? null : action.location, isToken: true
+        }), zone);
+        if (zone === "chain") this.state.pending.set(id, { object: cloneRef(ref), controller: action.player, status: "pending" });
+        return done(asValue(ref), { objectId: id, ...(zone === "chain" ? { timingPoint: "chain-item-pending" } : {}) });
+      }
       case "copy": { const source = this.current(action.source); if (!source) return fail(); const id = `copy-${this.state.nextToken++}`; const ref = this.addObject({ ...source, ref: { id, zoneEntryId: 1 }, owner: action.player, controller: action.player, location: action.location, zone: "board", isToken: true }, "board"); return done(ref as unknown as Value, { objectId: id }); }
-      case "play": { const object = this.current(action.object); if (!object) return fail(); if (action.cost) { const payment = this.apply({ type: "pay", player: action.player, plan: action.cost }); if (payment.status !== "done") return payment; } if (action.location) object.location = action.location; return this.moveAction(action.object, "board", done, fail, action.location); }
-      case "reveal": case "look": case "show-off": { const ref = action.type === "look" ? action.objects[0] : action.object; return ref && this.current(ref) ? done() : fail(); }
+      case "play": {
+        const object = this.current(action.object);
+        if (!object || !this.state.players.has(action.player)) return fail();
+        if (action.cost) {
+          const payment = this.apply({ type: "pay", player: action.player, plan: action.cost });
+          if (payment.status !== "done") return payment;
+        }
+        const location = action.location ?? (this.state.pending.has(object.ref.id) ? { type: "base" as const, player: action.player } : undefined);
+        this.moveCurrent(object, "board", location);
+        return done(undefined, { objectId: object.ref.id, timingPoint: "card-played" });
+      }
+      case "reveal": case "look": case "show-off": {
+        if (action.type === "look" && !this.state.players.has(action.player)) return fail();
+        const requested = new Set((action.type === "look" ? action.objects : [action.object]).filter(ref => this.valid(ref)).map(refKey));
+        const actual = [...this.state.players.values()].flatMap(player => ZONES.flatMap(zone =>
+          player.zones[zone].map(id => this.state.objects.get(id)!.ref).filter(ref => requested.has(refKey(ref))).map(cloneRef)
+        ));
+        return actual.length > 0 ? done(asValue(actual)) : fail();
+      }
       case "counter": return this.current(action.object) ? this.moveAction(action.object, "trash", done, fail) : fail("prevented");
       case "score": { const player = this.state.players.get(action.player); if (!player || action.amount < 0) return fail(); player.score += action.amount; return done(action.amount as Value); }
       case "win": return this.state.players.has(action.player) ? done(action.player) : fail();
@@ -286,7 +330,7 @@ export class TestWorld implements ResolveContext {
     if ((zone === "deck" || zone === "rune-deck") && !bottom) list.unshift(object.ref.id);
     else list.push(object.ref.id);
   }
-  private removeFromZones(id: string): void { for (const player of this.state.players.values()) for (const zone of ZONES) player.zones[zone] = player.zones[zone].filter(item => item !== id); }
+  private removeFromZones(id: string): void { this.state.pending.delete(id); for (const player of this.state.players.values()) for (const zone of ZONES) player.zones[zone] = player.zones[zone].filter(item => item !== id); }
   private valid(ref: ObjectRef): boolean { return this.current(ref) !== null; }
   private current(ref: ObjectRef): MutableObject | null { const object = this.state.objects.get(ref.id); return object && object.ref.zoneEntryId === ref.zoneEntryId ? object : null; }
   private listObjects(): ObjectSnapshot[] { return [...this.state.objects.values()].map(copySnapshot); }
@@ -297,6 +341,7 @@ export class TestWorld implements ResolveContext {
       objects: new Map([...this.state.objects].map(([id, object]) => [id, { ...object, ref: cloneRef(object.ref), counters: new Map(object.counters) }])),
       players: new Map([...this.state.players].map(([id, player]) => [id, { ...player, power: [...player.power], runes: [...player.runes], zones: Object.fromEntries(ZONES.map(zone => [zone, [...player.zones[zone]]])) as Record<ZoneId, string[]> }])),
       lastKnown: new Map([...this.state.lastKnown].map(([key, value]) => [key, copySnapshot(value)])),
+      pending: new Map([...this.state.pending].map(([id, item]) => [id, { ...item, object: cloneRef(item.object) }])),
       events: [...this.state.events],
       history: [...this.state.history],
       continuous: [...this.state.continuous],

@@ -29,15 +29,15 @@ export interface ObjectRef {
 export type ObjectFilter = Readonly<Record<string, Value>>;
 
 /** A literal value expression, such as a printed amount or a named mode. */
-export interface ConstantExpr {
+export interface ConstantExpr<T = Value> {
   readonly kind: "constant";
-  readonly value: Value;
+  readonly value: T;
 }
 
 /** A literal spelling accepted for data authored with AST terminology. */
-export interface LiteralExpr {
+export interface LiteralExpr<T = Value> {
   readonly kind: "literal";
-  readonly value: Value;
+  readonly value: T;
 }
 
 /** An expression that reads a property from a rules object. */
@@ -75,6 +75,19 @@ export interface CountExpr {
   readonly filter?: ObjectFilter;
 }
 
+/** A literal instruction body; its contents are executed only by a control node. */
+export type InstructionBodyExpr = ConstantExpr<readonly Instruction[]> | LiteralExpr<readonly Instruction[]>;
+
+/** Native arithmetic spellings, including the interpreter's existing long forms. */
+export type ArithmeticOperator = "add" | "sub" | "subtract" | "mul" | "multiply" | "div" | "divide" | "min" | "max" | "neg";
+
+/** Recursive arithmetic with explicit arity and no coercion of null characteristics. */
+export type ArithmeticExpr = { readonly kind: "arithmetic" } & (
+  | { readonly operator: "add" | "mul" | "multiply" | "min" | "max"; readonly operands: readonly [Expr, ...Expr[]] }
+  | { readonly operator: "sub" | "subtract" | "div" | "divide"; readonly operands: readonly [Expr, Expr] }
+  | { readonly operator: "neg"; readonly operands: readonly [Expr] }
+);
+
 /** A value expression used by instruction arguments and rule metadata. */
 export type Expr =
   | ConstantExpr
@@ -83,7 +96,9 @@ export type Expr =
   | ObjectAttributeExpr
   | LinkedValueExpr
   | LinkedExpr
-  | CountExpr;
+  | CountExpr
+  | ArithmeticExpr
+  | InstructionBodyExpr;
 
 /** A comparison operator for a v1.5 condition clause. */
 export type ConditionOperator =
@@ -248,6 +263,30 @@ export interface Instruction {
   readonly linkedTo?: string;
   readonly condition?: Condition;
 }
+
+/** Sequence bodies use the existing literal args.body encoding and share link scope. */
+export type SequenceArgs = { readonly body: InstructionBodyExpr };
+
+/** Repeat count is evaluated once; targets are reselected each iteration by default. */
+export type RepeatArgs = SequenceArgs & {
+  readonly count: Expr;
+  readonly reselectTargets?: Expr;
+};
+
+/** A condition on this node guards its whole body. */
+export interface SequenceInstruction extends Instruction {
+  readonly op: "sequence";
+  readonly args: SequenceArgs;
+}
+
+/** Each iteration has its own link scope and optionally reselects all targets. */
+export interface RepeatInstruction extends Instruction {
+  readonly op: "repeat";
+  readonly args: RepeatArgs;
+}
+
+/** Shared typed structural nodes understood by the ability interpreter. */
+export type ControlInstruction = SequenceInstruction | RepeatInstruction;
 
 /** A keyword ability expanded by the engine's keyword registry. */
 export interface KeywordAbility {

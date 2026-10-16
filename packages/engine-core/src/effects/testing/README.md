@@ -50,3 +50,18 @@ For an explicit deck order, use
 adds that ordered block above existing cards. The existing single-card
 `.deck("id")` form still stacks each new card on top. `.rune(["top", "bottom"])`
 uses the same convention for a Rune Deck.
+
+打出 token = `create-token(to: chain)` + `play`. The creation result is the new
+`ObjectRef`. Chain creation leaves a Pending item available through
+`world.pendingItems`; `play` consumes it, applies any supplied finalized cost,
+and places the token at the requested location (default: the playing player's
+Base). Board creation uses `to: "board"` and a location; omitting `to` preserves
+the existing Board creation form. This test kernel models the handoff without
+advancing production priority or Finalize steps. Pending items and generated
+identities participate in choice rollback.
+
+Successful `reveal`, `look`, and `show-off` actions return the actual displayed
+or viewed `ObjectRef[]` in zone order. `look` drops stale references and
+duplicates; if none remain, the action is impossible. For requests spanning
+zones, each zone preserves its order; groups follow player creation order and
+the kernel's zone order. These actions leave objects in their existing zones.
