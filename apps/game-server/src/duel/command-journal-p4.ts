@@ -448,6 +448,10 @@ function replayUnifiedP4Archive(archive: DuelCommandArchiveP4 & Journal,
               : archive.schemaVersion === 9 ? DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_RESOLVED_HISTORY : null);
   check(archivedProfile === null || admitted.profile === archivedProfile, 'profile mismatch');
   const profile = admitted.profile ?? admitted.options.runtimeProfile ?? DUEL_REPLAY_PROFILE_P4_PUBLIC_CHAIN;
+  // Journal integrity and identical projections do not bind the event region,
+  // date or source policy. Recompute their context from the trusted gate before
+  // replay; only the catalog's audit checkedAt metadata is excluded by design.
+  check(archive.contextDigest === contextDigest(admitted.options, profile), 'archive/context digest mismatch');
   const creation = archive.creation;
   let expected: readonly Entropy[] = creation.entropy, cursor = 0, live = false;
   const take = (kind: Entropy['kind'], bound?: number) => {
