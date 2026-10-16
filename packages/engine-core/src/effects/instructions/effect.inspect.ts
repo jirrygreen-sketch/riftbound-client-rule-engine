@@ -1,242 +1,113 @@
 import type { Expr, ObjectRef, Value } from "@riftbound/card-dsl";
 import type {
-  ActionOutcome,
-  InstructionDef,
-  InstructionResult,
-  ObjectSnapshot,
-  PlayerId,
-  ResolveContext,
-  Schema,
-  ZoneId
+  GameEvent, InstructionDef, InstructionResult, ObjectSnapshot, ResolveContext, Schema, ZoneId
 } from "../contract.js";
 
 /**
- * effect.inspect —— 查看 / 搜索卡库（Look at / Search，RIFT-9 原语清单第 57 项）。
+ * effect.inspect：私下查看限定范围，可从中进行非目标选择。
  *
- * 语义（对应核心规则 v1.5 条目）：
- * - 128.3 / 128.4：牌库与对手手牌中的牌对查看者是 Secret / Private，因此本原语产生的
- *   "look" 动作与所有 choose 请求都只对该玩家可见（chooser-only），对手与观战者不得看到
- *   牌面；这正是"私有选项"边界的来源。
- * - 432.1.c：指示查看的张数超过牌库剩余张数时，尽可能多地查看，不触发 Burn Out；
- *   查看期间牌仍视为处于原区域（Reminder，牌不被移出牌库，旧 ObjectRef 全程有效）。
- * - 423.4：范围（top N / 整个区域 / pick 指定集合）确定后，由执行该动作的玩家在范围内
- *   选择具体牌；范围之外的牌本原语看不到，也不会被 choose 的选项暴露。
- * - 选择与重放：结算中需要玩家决定时通过 ctx.choose() 挂起（AwaitChoice），引擎回滚
- *   本指令事务并提问；带着答案重跑时必须得到相同结果（契约 3.6 原语规则 1：确定性）。
+ * 所有参数均为 card-dsl Expr，在结算时求值。player 是查看者；zone 为 hand / deck /
+ * rune-deck / trash / banishment 或 { owner, zone }，默认查看者的主牌库。
+ * scope 为 "zone"（整个区域）、"picks"
+ * （picksSpecId 指定集合）、"top"（上游 picksSpecId 按牌库顶优先提供，取前 amount 张）。
+ * TargetSpec id 经 ctx.targets() 读取，PickSpec id 经 ctx.picks() 读取；两者互斥，
+ * pick 不是目标。不传 scope 时，有 amount 则为 top，否则有 picksSpecId 则为 picks，
+ * 否则为 zone；amount 仅用于 top，须为非负安全整数。
  *
- * 与相近原语的边界：
- * - 本原语只负责"看"（信息获取）与"在范围内选择"，任何区域移动都由后续指令完成：
- *   抽走用 effect.draw，回收用 effect.recycle，放回并排序用 effect.order / choice.order，
- *   展示给其他玩家用 effect.reveal。本原语自身不移动任何牌。
- * - picks（v1.5 pick）与 targets 不同：通过 args.picksSpecId 读取的牌不是"目标"，
- *   不触发"成为目标"相关触发（契约 3.4）；args.targetSpecId 读取的才是目标。
- * - "失败查询"边界：牌库为空 / 范围内无牌不是错误——按 432.1.c 看 0 张并返回 executed
- *   （linkedCount 为 0）；只有 GameAction 被替代 / 阻止 / 不可能（如目标玩家不存在）
- *   才 negated；目标引用全部失效（对象已离区）才 ignored。
+ * 核心规则 v1.5 128.3–128.4：look 仅向 player 披露，所有选择均为 chooser-only。
+ * 128.6–128.6.a：按特征查询私有牌可以失败；chooseCount 默认 { min: 0, max: 范围大小 }。
+ * 上游选择须保留该许可，不能要求玩家证明没有匹配牌。432.1.c：尽可能查看，不 Burn Out，
+ * 不离开原区域。432.1.c.1：不足以完成后续强制选择时 negated，不降低最小选择数。
+ * 437.1–437.4 / 817.1.b：提供 Predict / Vision 的查看与选择步骤；回收、排序、抽牌、
+ * 公开展示分别由 effect.recycle / effect.order / effect.draw / effect.reveal 执行。
  *
- * 结果链接值（供 "if you do" 等后续指令经 ctx.linked() 读取）：
- * - linkedKey（默认 "inspected"）：实际查看的牌数（number）。
- * - pickedKey（默认 "inspected-picked"）：实际查看的牌的 ObjectRef 列表；若本指令包含
- *   选择步骤，则被选中牌的引用另写入 linkedPickKey（默认 "inspected-pick"）。查看期间牌
- *   不离区（432.1.c Reminder），引用在后续指令移动它们之后才失效。
+ * choose 为 boolean，启用 select-objects；chooseCount 为 { min, max }。
+ * 同一区域的多个查看指令应传各自唯一、稳定的 choiceId，默认值为
+ * effect.inspect:select:<viewer>:<owner>:<zone>。链接参数指定写入 ctx.link 的键：
+ * linkedKey（默认 inspected）记录实际查看张数，pickedKey（默认 inspected-picked）
+ * 记录已查看引用，choosePicksKey（默认 inspected-pick）在 choose=true 时记录选中引用。
+ * 空范围执行并链接 0 / 空列表，除非强制选择不可能。动作 replaced / prevented /
+ * impossible 则 negated；目标全部失效则 ignored。
  *
- * 失败查询的已知缺口（契约变更请求，见任务回复）：封闭 GameAction 集合中没有"枚举牌库
- * 前 N 张"的动作；将 ObjectRef[] 作为 look 的 result 返回需要契约团队裁决，目前 result
- * 仅携带实际张数，集合经 QueryablePool 解析（真实内核的缺口见该接口注释）。
+ * 契约缺口：query() 不保证顺序，ObjectSnapshot 无牌库位置。非零 top 查看须由上游
+ * 提供有序 picksSpecId；缺少时明确阻断（negated/impossible），不截取 query() 近似，
+ * 也不读取 TestWorld 专属能力。自动发现牌库顶 N 张前，须由协调者补充有序查询/选择契约。
  */
-
-/** 查看范围：top（牌库顶 N 张）/ zone（整个区域）/ picks（v1.5 pick 指定的集合）。 */
 export type InspectScope = "top" | "zone" | "picks";
 
 export interface InspectArgs {
-  /** 执行查看的玩家；Expr 求值结果必须是 PlayerId（字符串）。 */
   readonly player: Expr;
-  /**
-   * 被查看的区域。Expr 求值结果为 ZoneId（默认 "deck"）或
-   * { owner: PlayerId, zone: ZoneId } —— 搜索对手区域（如 "search their hand"）时使用后者；
-   * 隐私边界（128.3/128.4）由内核的 look 动作负责落实。
-   */
   readonly zone?: Expr;
-  /** 范围，Expr 求值结果为 InspectScope；缺省：给出 amount 为 "top"，否则为 "zone"。 */
   readonly scope?: Expr;
-  /** 查看张数（scope "top" 时使用）；Expr 求值为非负整数，超出牌库按 432.1.c 尽可能查看。 */
   readonly amount?: Expr;
-  /** TargetSpec id：把目标当作查看集合（"look at target's hand"一类）；经 ctx.targets() 取。 */
   readonly targetSpecId?: Expr;
-  /** PickSpec id：把 v1.5 pick 的结果当作查看集合；非目标，不触发目标相关触发。 */
   readonly picksSpecId?: Expr;
-  /** 查看后是否要求玩家从中选择；Expr 求值为 boolean（默认 false：纯查看不提问）。 */
   readonly choose?: Expr;
-  /** 选择范围；Expr 求值为 { min, max }（默认 { min: 0, max: 全部 }）。 */
   readonly chooseCount?: Expr;
-  /** 写回 ctx.link 的张数链接键（默认 "inspected"）。 */
+  readonly choiceId?: Expr;
   readonly linkedKey?: Expr;
-  /** 写回 ctx.link 的已查看牌链接键（默认 "inspected-picked"）。 */
   readonly pickedKey?: Expr;
-  /** 有选择步骤时写回 ctx.link 的选中牌链接键（默认 "inspected-pick"）。 */
   readonly choosePicksKey?: Expr;
 }
 
-export interface ResolvedInspectArgs {
-  readonly player: PlayerId;
-  readonly pool: { readonly owner: PlayerId; readonly zone: ZoneId };
-  readonly scope: InspectScope;
-  readonly amount: number | null;
-  readonly targetSpecId: string | null;
-  readonly picksSpecId: string | null;
-  readonly choose: boolean;
-  readonly chooseMin: number;
-  readonly chooseMax: number | null;
-  readonly linkedKey: string;
-  readonly pickedKey: string;
-  readonly choosePicksKey: string;
-}
-
-const DEFAULT_LINKED_KEY = "inspected";
-const DEFAULT_PICKED_KEY = "inspected-picked";
-const DEFAULT_CHOOSE_PICKS_KEY = "inspected-pick";
-const INSPECT_ZONES: readonly ZoneId[] = ["hand", "deck", "rune-deck", "trash", "banishment"];
-const INSPECT_SCOPES: readonly InspectScope[] = ["top", "zone", "picks"];
+const ARG_NAMES = [
+  "player", "zone", "scope", "amount", "targetSpecId", "picksSpecId", "choose",
+  "chooseCount", "choiceId", "linkedKey", "pickedKey", "choosePicksKey"
+] as const;
+const ZONES: readonly ZoneId[] = ["hand", "deck", "rune-deck", "trash", "banishment"];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function asNumber(value: Value | undefined): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
+function isRef(value: unknown): value is ObjectRef {
+  return isRecord(value) && typeof value.id === "string" && value.id.length > 0 &&
+    Number.isSafeInteger(value.zoneEntryId) && (value.zoneEntryId as number) >= 0;
 }
 
-function asCount(value: Value | undefined): number | null {
-  const num = asNumber(value);
-  return num === null ? null : Math.max(0, Math.trunc(num));
+function isValue(value: unknown, active = new Set<unknown>()): value is Value {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (typeof value !== "object" || active.has(value)) return false;
+  if (!Array.isArray(value) && (!isRecord(value) || Object.getPrototypeOf(value) !== Object.prototype)) return false;
+  active.add(value);
+  const valid = Object.values(value).every(item => isValue(item, active));
+  active.delete(value);
+  return valid;
 }
 
-function isObjectRef(value: unknown): value is ObjectRef {
-  return isRecord(value) && typeof value.id === "string" && typeof value.zoneEntryId === "number";
+function isString(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
 }
 
-/**
- * 契约 3.6 的 ctx.query() 不保证返回顺序，也没有"牌库顶 N 张"的读取面；区域内顺序
- * 敏感的查询（top N / 牌库顶）依赖内核额外实现本接口：objects 按区域顺序（牌库顶在
- * 前）枚举全部对象，或 queryZoneTop(owner, zone, n) 直接返回前 N 张。参考测试内核
- * （RIFT-46）两者都未实现；缺失时 scope "top" 退化为整个区域——张数语义（432.1.c 的
- * as-many-as-possible）与隐私边界不受影响，仅"只看到前 N 张"的范围收窄不可表达。
- * 属契约变更请求事项（见任务回复）。
- */
-export interface QueryablePool {
-  readonly objects?: readonly ObjectSnapshot[];
-  queryZoneTop?(owner: PlayerId, zone: ZoneId, amount: number): ObjectSnapshot[];
-}
-function resolvePoolCandidates(ctx: ResolveContext, args: ResolvedInspectArgs): ObjectRef[] {
-  if (args.scope === "picks" && args.picksSpecId !== null) {
-    return ctx.picks(args.picksSpecId).filter(isObjectRef);
+function isExpr(value: unknown): value is Expr {
+  if (!isRecord(value)) return false;
+  switch (value.kind) {
+    case "constant": case "literal": return "value" in value && isValue(value.value);
+    case "object-property": return isRef(value.object) && isString(value.property);
+    case "object-attribute": return isRef(value.object) && isString(value.attribute);
+    case "linked": case "linked-value":
+      return isString(value.instructionId) && (value.key === undefined || isString(value.key));
+    case "count":
+      return isString(value.subject) &&
+        (value.filter === undefined || (isRecord(value.filter) && isValue(value.filter)));
+    default: return false;
   }
-  if (args.targetSpecId !== null) {
-    return ctx.targets(args.targetSpecId);
-  }
-  const pool = ctx.query({ owner: args.pool.owner, zone: args.pool.zone });
-  if (args.scope !== "top") {
-    return pool.map(object => object.ref);
-  }
-  const queryable = ctx as ResolveContext & QueryablePool;
-  const topAmount = args.amount ?? 0;
-  if (typeof queryable.queryZoneTop === "function") {
-    return queryable.queryZoneTop(args.pool.owner, args.pool.zone, topAmount).map(object => object.ref);
-  }
-  if (Array.isArray(queryable.objects)) {
-    const ordered = queryable.objects.filter(
-      object => object.owner === args.pool.owner && object.zone === args.pool.zone
-    );
-    return ordered.slice(0, args.amount ?? ordered.length).map(object => object.ref);
-  }
-  // 读取面缺失时的退化：整池（见 QueryablePool 注释）。
-  return pool.map(object => object.ref);
 }
 
-function resolveZone(
-  value: Value | undefined,
-  viewer: PlayerId
-): { readonly owner: PlayerId; readonly zone: ZoneId } {
-  if (typeof value === "string" && (INSPECT_ZONES as readonly string[]).includes(value)) {
-    return { owner: viewer, zone: value as ZoneId };
-  }
-  if (isRecord(value)) {
-    const owner = value.owner;
-    const zone = value.zone;
-    if (
-      typeof owner === "string" &&
-      typeof zone === "string" &&
-      (INSPECT_ZONES as readonly string[]).includes(zone)
-    ) {
-      return { owner, zone: zone as ZoneId };
-    }
-  }
-  return { owner: viewer, zone: "deck" };
-}
-
-function resolveArgs(ctx: ResolveContext, args: InspectArgs): ResolvedInspectArgs {
-  const playerValue = ctx.evaluate(args.player);
-  if (typeof playerValue !== "string" || playerValue.length === 0) {
-    throw new TypeError("effect.inspect: args.player must evaluate to a PlayerId string");
-  }
-  const player = playerValue;
-  const scopeValue = args.scope === undefined ? undefined : ctx.evaluate(args.scope);
-  const amount = args.amount === undefined ? null : asCount(ctx.evaluate(args.amount));
-  const scope: InspectScope =
-    typeof scopeValue === "string" && (INSPECT_SCOPES as readonly string[]).includes(scopeValue)
-      ? (scopeValue as InspectScope)
-      : amount !== null
-        ? "top"
-        : "zone";
-  const chooseValue = args.choose === undefined ? undefined : ctx.evaluate(args.choose);
-  const chooseCountValue = args.chooseCount === undefined ? undefined : ctx.evaluate(args.chooseCount);
-  const chooseMin =
-    isRecord(chooseCountValue) && typeof chooseCountValue.min === "number"
-      ? Math.max(0, Math.trunc(chooseCountValue.min))
-      : 0;
-  const chooseMaxRaw =
-    isRecord(chooseCountValue) && typeof chooseCountValue.max === "number"
-      ? Math.max(0, Math.trunc(chooseCountValue.max))
-      : null;
-  const linkedKeyValue = args.linkedKey === undefined ? undefined : ctx.evaluate(args.linkedKey);
-  const pickedKeyValue = args.pickedKey === undefined ? undefined : ctx.evaluate(args.pickedKey);
-  const choosePicksKeyValue = args.choosePicksKey === undefined ? undefined : ctx.evaluate(args.choosePicksKey);
-  const targetSpecValue = args.targetSpecId === undefined ? undefined : ctx.evaluate(args.targetSpecId);
-  const picksSpecValue = args.picksSpecId === undefined ? undefined : ctx.evaluate(args.picksSpecId);
-  return {
-    player,
-    pool: resolveZone(args.zone === undefined ? undefined : ctx.evaluate(args.zone), player),
-    scope,
-    amount,
-    targetSpecId: typeof targetSpecValue === "string" ? targetSpecValue : null,
-    picksSpecId: typeof picksSpecValue === "string" ? picksSpecValue : null,
-    choose: chooseValue === undefined ? false : Boolean(chooseValue),
-    chooseMin,
-    chooseMax: chooseMaxRaw !== null && chooseMaxRaw >= chooseMin ? chooseMaxRaw : null,
-    linkedKey: typeof linkedKeyValue === "string" && linkedKeyValue.length > 0 ? linkedKeyValue : DEFAULT_LINKED_KEY,
-    pickedKey: typeof pickedKeyValue === "string" && pickedKeyValue.length > 0 ? pickedKeyValue : DEFAULT_PICKED_KEY,
-    choosePicksKey:
-      typeof choosePicksKeyValue === "string" && choosePicksKeyValue.length > 0
-        ? choosePicksKeyValue
-        : DEFAULT_CHOOSE_PICKS_KEY
-  };
-}
-
-function negated(outcome: ActionOutcome & { readonly status: "replaced" | "prevented" | "impossible" }): InstructionResult {
-  return {
-    status: "negated",
-    reason: outcome.status === "replaced" ? "replaced" : outcome.status === "prevented" ? "skipped" : "impossible",
-    events: [...outcome.events]
-  };
+function invalid(message: string): never {
+  throw new TypeError(`effect.inspect: ${message}`);
 }
 
 const argsSchema: Schema<InspectArgs> = {
   parse(value: unknown): InspectArgs {
-    if (!isRecord(value)) {
-      throw new TypeError("effect.inspect: args must be an object");
+    if (!isRecord(value) || !isExpr(value.player)) invalid("player must be an Expr");
+    for (const [key, expr] of Object.entries(value)) {
+      if (!(ARG_NAMES as readonly string[]).includes(key)) invalid(`unknown argument ${key}`);
+      if (expr !== undefined && !isExpr(expr)) invalid(`${key} must be an Expr`);
     }
-    if (!isRecord(value.player)) {
-      throw new TypeError("effect.inspect: args.player must be an Expr");
+    if (value.targetSpecId !== undefined && value.picksSpecId !== undefined) {
+      invalid("targets and picks cannot both supply the inspect range");
     }
     return value as unknown as InspectArgs;
   },
@@ -249,82 +120,133 @@ const argsSchema: Schema<InspectArgs> = {
   }
 };
 
+function count(value: unknown, name: string): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    invalid(`${name} must evaluate to a nonnegative safe integer`);
+  }
+  return value;
+}
+
+function string(value: unknown, name: string): string {
+  if (!isString(value)) invalid(`${name} must evaluate to a nonempty string`);
+  return value;
+}
+
+function resolveArgs(ctx: ResolveContext, args: InspectArgs, targetSpecId: string | null) {
+  const evalOr = (expr: Expr | undefined, fallback: Value): Value =>
+    expr === undefined ? fallback : ctx.evaluate(expr);
+  const player = string(ctx.evaluate(args.player), "player");
+  const zoneValue = evalOr(args.zone, "deck");
+  const pool = typeof zoneValue === "string" ? { owner: player, zone: zoneValue } :
+    isRecord(zoneValue) ? zoneValue : invalid("invalid zone");
+  const owner = string(pool.owner, "zone.owner");
+  const zone = pool.zone;
+  if (typeof zone !== "string" || !(ZONES as readonly string[]).includes(zone)) invalid("invalid zone");
+  const scope = evalOr(args.scope, args.amount !== undefined ? "top" : args.picksSpecId !== undefined ? "picks" : "zone");
+  if (scope !== "top" && scope !== "zone" && scope !== "picks") invalid("invalid scope");
+  const amount = args.amount === undefined ? null : count(ctx.evaluate(args.amount), "amount");
+  if (scope === "top" && amount === null) invalid("top scope requires amount");
+  if (scope !== "top" && amount !== null) invalid("amount is only valid for top scope");
+  const picksSpecId = args.picksSpecId === undefined ? null : string(ctx.evaluate(args.picksSpecId), "picksSpecId");
+  if (targetSpecId !== null && picksSpecId !== null) invalid("targets and picks are mutually exclusive");
+  if (scope === "top" && targetSpecId !== null) invalid("top scope requires ordered picks, not targets");
+  if (scope === "picks" && picksSpecId === null) invalid("picks scope requires picksSpecId");
+  if (scope === "zone" && picksSpecId !== null) invalid("picksSpecId requires picks or top scope");
+  const choose = evalOr(args.choose, false);
+  if (typeof choose !== "boolean") invalid("choose must evaluate to a boolean");
+  const boundsValue = args.chooseCount === undefined ? null : ctx.evaluate(args.chooseCount);
+  const bounds = args.chooseCount === undefined ? null :
+    isRecord(boundsValue) ? boundsValue : invalid("chooseCount must be { min, max }");
+  const min = bounds === null ? 0 : count(bounds.min, "chooseCount.min");
+  const max = bounds === null ? null : count(bounds.max, "chooseCount.max");
+  if (max !== null && min > max) invalid("chooseCount.min exceeds max");
+  const linkedKey = string(evalOr(args.linkedKey, "inspected"), "linkedKey");
+  const pickedKey = string(evalOr(args.pickedKey, "inspected-picked"), "pickedKey");
+  const choosePicksKey = string(evalOr(args.choosePicksKey, "inspected-pick"), "choosePicksKey");
+  if (new Set([linkedKey, pickedKey, ...(choose ? [choosePicksKey] : [])]).size !== (choose ? 3 : 2)) {
+    invalid("result link keys must be distinct");
+  }
+  return {
+    player, owner, zone: zone as ZoneId, scope, amount, targetSpecId, picksSpecId,
+    choose, min, max, linkedKey, pickedKey, choosePicksKey,
+    choiceId: string(evalOr(args.choiceId, `effect.inspect:select:${player}:${owner}:${zone}`), "choiceId")
+  };
+}
+
+const refsValue = (refs: readonly ObjectRef[]): Value =>
+  refs.map(ref => ({ id: ref.id, zoneEntryId: ref.zoneEntryId }));
+const refKey = (ref: ObjectRef): string => JSON.stringify([ref.id, ref.zoneEntryId]);
+
 export default {
   op: "effect.inspect",
   argsSchema,
   execute(ctx: ResolveContext, rawArgs: InspectArgs): InstructionResult {
-    const args = resolveArgs(ctx, rawArgs);
-
-    // 目标全部失效（对象已离区，旧 zoneEntryId）→ ignored；后续链接指令同样 ignored。
-    if (args.targetSpecId !== null) {
-      const targets = ctx.targets(args.targetSpecId);
-      if (targets.every(ref => ctx.object(ref) === null)) {
-        return { status: "ignored", reason: "mistargeted" };
-      }
+    const targetSpecId = rawArgs.targetSpecId === undefined ? null :
+      string(ctx.evaluate(rawArgs.targetSpecId), "targetSpecId");
+    const targets = targetSpecId === null ? null : ctx.targets(targetSpecId);
+    // 目标全部失效时先忽略，避免对失效目标求值而把 ignored 错误变成参数错误。
+    if (targets !== null && !targets.some(ref => ctx.object(ref) !== null)) {
+      return { status: "ignored", reason: "mistargeted" };
+    }
+    const args = resolveArgs(ctx, rawArgs, targetSpecId);
+    const inRange = (object: ObjectSnapshot | null): object is ObjectSnapshot =>
+      object !== null && object.owner === args.owner && object.zone === args.zone;
+    if (targets !== null && !targets.some(ref => inRange(ctx.object(ref)))) {
+      return { status: "ignored", reason: "mistargeted" };
+    }
+    if (args.scope === "top" && args.amount !== 0 && args.picksSpecId === null) {
+      return { status: "negated", reason: "impossible", events: [] };
     }
 
-    // 查看集合：目标 / pick / 区域查询（scope "top" 的张数经候选数与 432.1.c 共同收敛）。
-    const candidates = resolvePoolCandidates(ctx, args)
-      .map(ref => ctx.object(ref))
-      .filter((object): object is ObjectSnapshot => object !== null);
-    const lookAmount =
-      args.scope === "top" && args.amount !== null
-        ? Math.min(args.amount, candidates.length)
-        : candidates.length;
-    const looked = candidates.slice(0, lookAmount);
-
-    const events = [];
-    let linkedCount = 0;
-    if (looked.length > 0) {
-      // 私有查看：128.3/128.4，牌不离区，内核仅向 viewer 披露牌面。
-      const outcome = ctx.perform({ type: "look", objects: looked.map(object => object.ref), player: args.player });
-      if (outcome.status !== "done") {
-        return negated(outcome);
-      }
+    // 区域查询是集合，不能推导牌库顺序。只有上游 picks 提供顺序；完整区域按引用稳定排序。
+    const refs = args.amount === 0 ? [] : targets ?? (args.picksSpecId !== null
+      ? ctx.picks(args.picksSpecId).filter(isRef)
+      : ctx.query({ owner: args.owner, zone: args.zone }).map(object => object.ref)
+        .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : a.zoneEntryId - b.zoneEntryId));
+    const seen = new Set<string>();
+    const candidates = refs.filter(ref => {
+      if (seen.has(refKey(ref)) || !inRange(ctx.object(ref))) return false;
+      seen.add(refKey(ref));
+      return true;
+    });
+    const inspected = args.scope === "top" ? candidates.slice(0, args.amount ?? 0) : candidates;
+    const events: GameEvent[] = [];
+    if (inspected.length > 0) {
+      const outcome = ctx.perform({ type: "look", objects: inspected, player: args.player });
       events.push(...outcome.events);
-      linkedCount = asNumber(outcome.result) ?? looked.length;
-    }
-
-    // 423.4：范围内的具体选择由执行查看的玩家作出，且选项只有查看者可见。被查看集合
-    // 保持原区域顺序；被选中的牌（玩家随后要回收 / 放回 / 移动的那些）单独链接到
-    // choosePicksKey，供 effect.recycle / effect.order 等后续指令消费。
-    let chosen = looked;
-    if (args.choose) {
-      const options = looked.map(object => object.ref);
-      const min = Math.min(args.chooseMin, options.length);
-      const max = Math.min(args.chooseMax ?? options.length, options.length);
-      if (options.length > 0 && max > 0) {
-        const selected = ctx.choose<ObjectRef[]>({
-          id: `effect.inspect:select:${args.player}:${args.pool.owner}:${args.pool.zone}`,
-          type: "select-objects",
-          chooser: args.player,
-          visibility: "chooser-only",
-          options,
-          min,
-          max
-        });
-        chosen = (Array.isArray(selected) ? selected : []).filter(isObjectRef)
-          .map(ref => ctx.object(ref))
-          .filter((object): object is ObjectSnapshot => object !== null);
-      } else {
-        chosen = [];
+      if (outcome.status !== "done") {
+        return {
+          status: "negated",
+          reason: outcome.status === "replaced" ? "replaced" : outcome.status === "prevented" ? "skipped" : "impossible",
+          events
+        };
       }
     }
 
-    const asRefs = (objects: readonly ObjectSnapshot[]): Value =>
-      objects.map(object => ({ id: object.ref.id, zoneEntryId: object.ref.zoneEntryId }));
-    const linkedValues: Record<string, Value> = {
-      [args.linkedKey]: linkedCount,
-      [args.pickedKey]: asRefs(looked)
-    };
+    let chosen: ObjectRef[] = [];
     if (args.choose) {
-      linkedValues[args.choosePicksKey] = asRefs(chosen);
+      const max = Math.min(args.max ?? inspected.length, inspected.length);
+      if (args.min > max) return { status: "negated", reason: "impossible", events };
+      if (max > 0) {
+        const answer = ctx.choose<unknown>({
+          id: args.choiceId, type: "select-objects", chooser: args.player,
+          visibility: "chooser-only", options: inspected, min: args.min, max
+        });
+        const options = new Set(inspected.map(refKey));
+        if (!Array.isArray(answer) || !answer.every(isRef) || answer.length < args.min ||
+          answer.length > max || new Set(answer.map(refKey)).size !== answer.length ||
+          !answer.every(ref => options.has(refKey(ref)))) invalid("invalid choice answer");
+        chosen = answer;
+      }
     }
-    for (const [key, value] of Object.entries(linkedValues)) {
-      ctx.link(key, value);
-    }
+    // look 完成表示查看了提交的全部引用；参考内核不像 draw 那样返回数字结果。
+    // 查看不会改变区域或对象身份。
+    const linkedValues: Record<string, Value> = {
+      [args.linkedKey]: inspected.length,
+      [args.pickedKey]: refsValue(inspected)
+    };
+    if (args.choose) linkedValues[args.choosePicksKey] = refsValue(chosen);
+    for (const [key, value] of Object.entries(linkedValues)) ctx.link(key, value);
     return { status: "executed", events, linkedValues };
   }
-};
-
-
+} satisfies InstructionDef<InspectArgs>;
