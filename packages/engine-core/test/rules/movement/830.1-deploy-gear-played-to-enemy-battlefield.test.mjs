@@ -10,7 +10,8 @@ test('movement-deploy-gear-played-to-enemy-battlefield: Deploy lets Gear enter a
       .unit('v1', { owner: 'B', might: 2, location: { type: 'battlefield', id: 'bf1' } }),
   });
   f.flow.start();
-  f.flow.execute(f.add([{ id: 'gain', op: 'effect.resources', args: { energy: { kind: 'constant', value: 3 } } }]));
+  f.flow.execute(f.activated('gain-resources', [{ id: 'gain', op: 'effect.resources', args: { energy: { kind: 'constant', value: 3 } } }]));
+  settle(f.flow);
   f.flow.execute(f.play('g1', 'gear', { type: 'battlefield', id: 'bf1' }));
   settle(f.flow);
 

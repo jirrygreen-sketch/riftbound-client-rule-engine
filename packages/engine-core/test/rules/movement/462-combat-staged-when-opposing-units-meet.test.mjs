@@ -24,3 +24,9 @@ test('movement-move-onto-enemy-occupied-stages-combat: opposing Units present st
   assert.equal(f.flow.battlefields[0].staged, 'combat');
   assert.equal(f.flow.chain.turnState, 'neutral-open', 'Combat opens in the next Open state, not inside Cleanup');
 });
+
+test.todo(
+  'movement-move-onto-enemy-occupied-stages-combat: the complete scene needs CombatFlow.advance() ' +
+  'to open the Combat Showdown and designate Attacker A / Defender B (CR 462/466.2); ' +
+  'combat-start-transaction is blocked pending an atomic simultaneous timing wave and role assignment',
+);

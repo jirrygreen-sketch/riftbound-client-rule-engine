@@ -9,10 +9,21 @@ test('movement-staged-combat-canceled-when-opponent-units-gone: losing one side 
     setup: w => w.base('u1', { might: 3 }).unit('v1', { owner: 'B', might: 2, location: { type: 'battlefield', id: 'bf1' } }),
   });
   f.flow.start();
-  f.flow.execute(f.activated('in-and-out', [
-    moveInstruction('in', 'u1', { type: 'battlefield', id: 'bf1' }),
+  // Put removal below a Reaction Move. Cleanup after the Reaction can stage
+  // Combat, but the remaining chain item prevents it from opening (CR 462).
+  f.flow.execute(f.activated('remove-defender', [
     moveInstruction('out', 'v1', { type: 'base', player: 'B' }),
   ]));
+  f.flow.execute(f.activated('enter', [
+    moveInstruction('in', 'u1', { type: 'battlefield', id: 'bf1' }),
+  ], { speed: 'reaction' }));
+  f.flow.pass('A');
+  f.flow.pass('B');
+
+  assert.equal(f.flow.battlefields[0].staged, 'combat', '323.8: Combat is actually Staged before cancellation');
+  assert.equal(f.flow.battlefields[0].contestedBy, 'A');
+  assert.deepEqual(f.flow.chain.items.map(item => item.id), ['remove-defender']);
+  assert.deepEqual(f.kernel.getObject('v1').location, { type: 'battlefield', id: 'bf1' });
   settle(f.flow);
 
   assert.equal(eventsOf(f.flow, 'object-moved').length, 2);
@@ -26,5 +37,6 @@ test('movement-staged-combat-canceled-when-opponent-units-gone: losing one side 
     '323.9: no Combat opens once the opposing side is gone',
   );
   assert.equal(eventsOf(f.flow, 'showdown-open').length, 1, '323.11 opens a Non-Combat Showdown instead');
+  assert.equal(f.flow.battlefields[0].staged, 'showdown', '323.9: Combat no longer remains Staged');
   assert.equal(f.flow.chain.focus, 'A');
 });

@@ -57,11 +57,6 @@ export function fixture({
     testTrigger: registration => kernel.test(registration.spec.condition),
   });
   const flow = new TurnFlow({ host, player: id => kernel.player(id), turnOrder: ['A', 'B'], battlefields: fields });
-  /** Rules-generated `add` ability: resolves immediately on Finalize (430.2). */
-  const add = body => ({
-    id: `add-${kernel.events.length}`, controller: 'A', source: kernel.getObject('source'),
-    kind: 'add', speed: 'normal', body,
-  });
   /** Activated ability of the turn player's own Main Phase (CR 316.5.b). */
   const activated = (id, body, options = {}) => ({
     id, controller: 'A', source: kernel.getObject('source'), kind: 'activated', speed: 'normal', body, ...options,
@@ -76,7 +71,7 @@ export function fixture({
     id: `reaction-${id}`, controller: 'B', source: kernel.getObject(id), kind: 'spell', speed: 'reaction', body,
     cost: { id: `cost:${id}`, cost: { energy: c(0), power: c([]) } },
   });
-  return { kernel, host, flow, answers, add, activated, play, reaction };
+  return { kernel, host, flow, answers, activated, play, reaction };
 }
 
 /** Run HOT FEPR to quiescence through the real driver. */

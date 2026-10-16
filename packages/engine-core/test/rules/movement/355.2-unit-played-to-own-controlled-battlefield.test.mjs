@@ -10,7 +10,8 @@ test('movement-unit-played-to-own-controlled-battlefield: a Unit may enter a Bat
       .hand('c1', { types: ['unit'], might: 3, energy: 2, power: [] }),
   });
   f.flow.start();
-  f.flow.execute(f.add([{ id: 'gain', op: 'effect.resources', args: { energy: { kind: 'constant', value: 3 } } }]));
+  f.flow.execute(f.activated('gain-resources', [{ id: 'gain', op: 'effect.resources', args: { energy: { kind: 'constant', value: 3 } } }]));
+  settle(f.flow);
   f.flow.execute(f.play('c1', 'unit', { type: 'battlefield', id: 'bf1' }));
   settle(f.flow);
 

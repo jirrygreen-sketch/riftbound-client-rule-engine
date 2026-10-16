@@ -6,7 +6,8 @@ import { eventsOf, fixture, settle } from './support.mjs';
 test('movement-gear-played-to-base-by-default: Gear without a permission effect enters at its controller Base', () => {
   const f = fixture({ setup: w => w.hand('g1', { types: ['gear'], energy: 1, power: [] }) });
   f.flow.start();
-  f.flow.execute(f.add([{ id: 'gain', op: 'effect.resources', args: { energy: { kind: 'constant', value: 3 } } }]));
+  f.flow.execute(f.activated('gain-resources', [{ id: 'gain', op: 'effect.resources', args: { energy: { kind: 'constant', value: 3 } } }]));
+  settle(f.flow);
   f.flow.execute(f.play('g1', 'gear'));
   settle(f.flow);
 
