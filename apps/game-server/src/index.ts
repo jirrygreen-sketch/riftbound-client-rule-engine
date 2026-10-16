@@ -14,16 +14,13 @@ if (requestedRuntimeProfile !== undefined && requestedRuntimeProfile !== "public
     requestedRuntimeProfile !== DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_PHYSICAL_CHAIN &&
     requestedRuntimeProfile !== DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_RESOLVED_HISTORY)
   throw new TypeError("RIFTBOUND_DUEL_RUNTIME_PROFILE 必须是 public-chain-v1、optional-unit-choice-clock-v4、optional-unit-physical-chain-v4 或 optional-unit-resolved-history-v5");
-if (duelRoomProfile !== "p4" && requestedRuntimeProfile !== undefined)
-  throw new TypeError("RIFTBOUND_DUEL_RUNTIME_PROFILE 仅适用于 p4 房间");
-const duelRuntimeProfile = duelRoomProfile === "p4" && requestedRuntimeProfile === DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_RESOLVED_HISTORY
-  ? DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_RESOLVED_HISTORY
-  : duelRoomProfile === "p4" && requestedRuntimeProfile === DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_PHYSICAL_CHAIN
-  ? DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_PHYSICAL_CHAIN
-  : duelRoomProfile === "p4" && requestedRuntimeProfile !== "public-chain-v1"
-    ? DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_CLOCK : undefined;
-const server = createGameServer({ host, port, storageDirectory, duelRoomProfile,
-  ...(duelRuntimeProfile ? { duelRuntimeProfile } : {}) });
+// Historical environment settings remain parseable for deployment compatibility.
+// They no longer choose a runtime, capability set, journal schema or replay path.
+for (const [name, value] of [["RIFTBOUND_DUEL_PROFILE", process.env.RIFTBOUND_DUEL_PROFILE],
+  ["RIFTBOUND_DUEL_RUNTIME_PROFILE", requestedRuntimeProfile]] as const) {
+  if (value !== undefined) console.warn(`[deprecated] ${name}=${value} 已忽略；统一使用当前 runtime`);
+}
+const server = createGameServer({ host, port, storageDirectory });
 
 server.httpServer.on("listening", () => {
   const address = server.httpServer.address();
