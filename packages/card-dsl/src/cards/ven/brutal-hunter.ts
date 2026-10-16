@@ -88,4 +88,3 @@ export default {
     "[Empower] :rb_energy_3: (:rb_energy_3:: Empower me. Use only if not Empowered.)\n" +
     "[Empowered][>] I have +2 :rb_might: and [Ganking]. (I can move from battlefield to battlefield.)"
 } satisfies CardProgram;
-

@@ -68,4 +68,3 @@ export default {
     "I have [Assault] equal to the number of gear you control. (+1 :rb_might: while I'm an " +
     "attacker for each instance of Assault.)"
 } satisfies CardProgram;
-

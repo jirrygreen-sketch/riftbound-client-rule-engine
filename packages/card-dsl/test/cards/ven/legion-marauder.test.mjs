@@ -74,4 +74,3 @@ test.todo(
   "ven-074-166 Legion Marauder: the +1 Might half needs an Empowered status predicate (442.1.a; RIFT-87) and a " +
     "card-side continuous.might registration into layers (RIFT-91)"
 );
-

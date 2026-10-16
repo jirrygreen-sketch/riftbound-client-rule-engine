@@ -114,4 +114,3 @@ export default {
     "[Empowered][>][>>][Deathknell][>] Channel 2 runes exhausted. (When I die while " +
     "Empowered, get the effect.)"
 } satisfies CardProgram;
-

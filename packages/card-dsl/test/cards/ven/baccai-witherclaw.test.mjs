@@ -142,4 +142,3 @@ test.todo(
   "ven-078-166 Baccai Witherclaw: the channelled runes must enter exhausted (431.2) — the merged channel-rune action " +
     "carries the stipulation but the reference kernel enters runes readied"
 );
-

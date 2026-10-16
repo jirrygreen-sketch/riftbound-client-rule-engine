@@ -81,4 +81,3 @@ export default {
     "not Empowered.)\n" +
     "[Empowered][>] I have +1 :rb_might:."
 } satisfies CardProgram;
-

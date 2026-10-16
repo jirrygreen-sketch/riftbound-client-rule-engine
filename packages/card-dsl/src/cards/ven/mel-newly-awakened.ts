@@ -118,4 +118,3 @@ export default {
     "[Empowered][>] Your spells and abilities can't be countered. If a spell or ability you " +
     "control would give -:rb_might: to a unit it chooses, it gives an additional -1 :rb_might:."
 } satisfies CardProgram;
-

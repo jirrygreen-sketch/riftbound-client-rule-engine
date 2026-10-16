@@ -83,4 +83,3 @@ test.todo(
   "ven-070-166 Brutal Hunter: granting [Ganking] through continuous.grant-keyword needs a card-side registration " +
     "path into layers/engine.ts applyKeyword — no CardProgram → ContinuousEffectSpec producer is merged (RIFT-91)"
 );
-

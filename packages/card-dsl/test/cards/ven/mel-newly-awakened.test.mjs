@@ -122,4 +122,3 @@ test.todo(
   "ven-069-166 Mel: 'an additional -1 :rb_might:' (479.4.b) needs a continuous.might-modification consumer; the closed " +
     "GameAction set has no Might change and no continuous.might primitive is merged (RIFT-91)"
 );
-

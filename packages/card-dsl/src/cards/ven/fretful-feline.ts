@@ -67,4 +67,3 @@ export default {
   ],
   sourceText: "When I become ready, give me +2 :rb_might: this turn."
 } satisfies CardProgram;
-

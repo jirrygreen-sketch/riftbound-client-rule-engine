@@ -99,4 +99,3 @@ test.todo(
   "ven-076-166 Repair Specialist: Assault's attacker gate reads ObjectSnapshot.combatRole (contract 3.8) which is not " +
     "merged, and layers/engine.ts conditionMatches does not evaluate compare conditions (RIFT-81 follow-up)"
 );
-
