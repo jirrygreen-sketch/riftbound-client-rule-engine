@@ -1,0 +1,107 @@
+import type { Ability, CardProgram } from "../../ir/index.js";
+
+/**
+ * Iron Revenant (rad-143-167) — Legend, Fury/Order, tag Mordekaiser.
+ *
+ * sourceText（packages/card-data/data/deck-catalog.json, rad-143-167，逐字）：
+ *   [Reaction][>] Banish a unit or gear from your trash, :rb_exhaust:: [Add]
+ *   :rb_rune_rainbow:. Spend this Power only to play units or gear. (Abilities
+ *   that add resources can't be reacted to.)
+ *
+ * 规则依据（CR v1.5）：
+ * - 813.1.a / 813.1.d：能力上的 “[Reaction][>]” 是许可类关键词的速度声明，
+ *   IR 用 activated.timing = "reaction" 表达（813.1.c 的功能等价）。
+ * - 377.1 / 404.1.a / 415.5：冒号之前是费用——“Banish a unit or gear from your
+ *   trash” 与横置来源。355.9.a / 355.10.a.1 规定 Trash 是公开区域，从 Trash 选择
+ *   是目标（“Recycle a unit from your trash” targets a unit card in your trash），
+ *   且这是能力费用的一部分，所以在 Finalize 选择（355.10.c）。
+ * - 430.1 / 430.5 / 135.2.e.5：“[Add] :rb_rune_rainbow:” 是 Add 动作，把 1 点 [A]
+ *   （任意域）Power 放进符文池；430.2.a 规定 Add 能力 Finalize 后立即结算、不传递
+ *   Priority / Focus，430.3 允许带 Reaction 的 Add 在需要支付资源时启动。
+ * - 括号里的提醒文本（430.2.a / 204.4.b.1）不是另一条能力。
+ *
+ * status = judge-required（逐个保留证据，不近似实现）：
+ * - “Banish a unit or gear from your trash” 作为费用的表达不完整：
+ *   cost/plan-values.ts 的 nonstandard 支付种类是 exhaust / discard / recycle / kill /
+ *   reveal / spend-buff，没有 banish；虽然 417.6 证明“从 Trash 回收”可以建模为带区域的
+ *   选择，但 banish 种类缺失，用 effect.banish 放在结算正文里会把它变成效果而不是费用
+ *   （355.10.c.1 的 “[do X] to [do Y]” 中 X 是费用，付不出就不能激活，415.4 同理）。
+ *   本程序以 cost.banish 保留费用形状；golden 锁定费用管线对它的 judge-required 拒绝。
+ * - “[A] 任意域 Power” 不可表达：契约与内核的 Domain 是 Fury/Calm/Mind/Body/Chaos/
+ *   Order 六域封闭集合，effect.resources 明确记录 163.2.b 的 Universal Power 不可
+ *   表达、绝不用某个域近似；本卡把 [A] 记为描述性的 power: ["rainbow"]，原语对其返回
+ *   negated(impossible)，golden 锁定该失败证据。
+ * - “Spend this Power only to play units or gear” 是该资源的用途限制（Legion Add 的
+ *   同类结构在 ogn-253-298 Hand of Noxus 也记为 restriction）：带约束的资源池与
+ *   restriction 的消费方（chain/cost 在支付时校验）尚未合入（RIFT-89 / RIFT-91）。
+ * - 430.3 的 Add Reaction 支付窗口同样未接线（RIFT-89）。
+ * - 印刷差异：同身份的 rad-170-167 删去了 “only”（“Spend this Power to play units or
+ *   gear.”）。两者语义不同（区域/用途限制），目录未说明应按印刷号分别执行还是按官方
+ *   勘误统一；本程序按任务指定的 rad-143-167 原文书写，差异本身不是本卡可裁定的（见
+ *   docs/plans/survey/unclassified-rad-sfd.md 第 4 条）。
+ * 依赖 RIFT-89（费用/支付接线）与 RIFT-91（持续效果/限制消费）；[A] 属契约级缺口。
+ */
+const abilities: Ability[] = [
+  {
+    kind: "activated",
+    // 813.1.d：“[Reaction][>]” 是能力上的速度许可，IR 直接声明 reaction。
+    timing: "reaction",
+    cost: {
+      kind: "activated",
+      // 355.10.c.1：费用里的 “Banish a unit or gear from your trash” 在 Finalize
+      // 从公开的 Trash 中选择（355.10.a.1），不是能力目标。cost.banish 是待合入的
+      // 费用种类（见 judgeReason）；choice 的 zone/type/owner 描述候选集合。
+      payments: [
+        {
+          kind: "banish",
+          choice: {
+            id: "iron-revenant.banished-card",
+            options: ["unit-or-gear-in-controller-trash"],
+            min: 1,
+            max: 1,
+            selection: "one",
+            zone: "trash",
+            type: ["unit", "gear"],
+            owner: "controller"
+          }
+        },
+        { kind: "exhaust", object: "self" }
+      ]
+    },
+    // “Spend this Power only to play units or gear.”：保留为限制声明；合并内核尚无
+    // 带约束资源池的消费路径（见 judgeReason）。
+    restriction: { kind: "use-only-to-play-units-or-gear" },
+    body: [
+      {
+        id: "iron-revenant.add-universal-power",
+        op: "effect.resources",
+        args: {
+          // [A]：任意域 Power。六域封闭集合下没有可执行值，保留描述性记号。
+          power: { kind: "constant", value: ["rainbow"] }
+        }
+      }
+    ]
+  }
+];
+
+const program = {
+  canonicalCardId:
+    "card.hash-265aafa041fadfb8711bb9cb71cfbe3b22843b0d19b59642dd156252990e13e0",
+  rulesetVersion: "core-1.5" as const,
+  status: "judge-required" as const,
+  judgeReason:
+    "缺费用种类的 banish：“Banish a unit or gear from your trash” 是 377.1 / 355.10.c.1 的费用（付不出就不能激活，415.4），" +
+    "但 cost/plan-values.ts 的 nonstandard 支付种类只有 exhaust / discard / recycle / kill / reveal / spend-buff，没有 banish，" +
+    "本程序以 cost.banish 保留费用形状并由 golden 锁定费用管线的 judge-required 拒绝；把 banish 放进结算正文会把它变成效果。" +
+    "[Add] :rb_rune_rainbow: 的 [A] 任意域 Power（135.2.e.5 / 163.2.b）同样不可表达：契约与内核的 Domain 是六域封闭集合，" +
+    "effect.resources 明确记录 Universal Power 不可表达、绝不用某个域近似，本卡以 power: [\"rainbow\"] 保留记号（原语返回 negated(impossible)）。" +
+    "“Spend this Power only to play units or gear.” 是资源的用途限制，带约束资源池与 restriction 的消费方未合入；430.3 的 Add Reaction 支付窗口也未接线。" +
+    "另外同身份的 rad-170-167 删去了 “only”，两种印刷语义不同且目录未给出按印刷号执行还是勘误统一的依据，本卡按任务指定的 rad-143-167 原文书写。" +
+    "依赖 RIFT-89（费用/支付接线）与 RIFT-91（限制/持续效果消费）；[A] 属契约级缺口。不近似实现。",
+  abilities,
+  sourceText:
+    "[Reaction][>] Banish a unit or gear from your trash, :rb_exhaust:: [Add] :rb_rune_rainbow:. " +
+    "Spend this Power only to play units or gear. (Abilities that add resources can't be reacted to.)"
+} satisfies CardProgram;
+
+export default program;
