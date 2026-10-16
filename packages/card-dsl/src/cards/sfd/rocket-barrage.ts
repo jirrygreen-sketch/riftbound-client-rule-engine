@@ -1,0 +1,144 @@
+import type { CardProgram } from "../../ir/index.js";
+
+/**
+ * Rocket Barrage — sfd-077-221 (Spell, 4 energy + 1 Mind power, Mind, tags []).
+ *
+ * Printed text (packages/card-data/data/deck-catalog.json, sfd-077-221, verbatim;
+ * the local catalog glues the two mode sentences together, see the data note
+ * below):
+ *   [Repeat] :rb_energy_4::rb_rune_mind: (You may pay the additional cost to
+ *   repeat this spell's effect, and may make different choices.)
+ *   Choose one —
+ *   Deal 4 to a unit in a base.Kill a gear.
+ *
+ * Catalog evidence: energy 4, power 1 (Mind), might null, domains ["Mind"], tags [].
+ * Data note (not changed here): the catalog text has no separator between
+ * "in a base." and "Kill a gear."; sourceText keeps the catalog text verbatim.
+ *
+ * Modeling notes (Core Rules v1.5):
+ * - [Repeat] (820) is an Optional Additional Cost keyword on Spells (820.1.a);
+ *   the printed cost is 4 Energy plus one Mind power (820.1.c, 820.1.c.1), may
+ *   be paid once (820.1.c.3), and 820.2/820.2.a require the choices to be made
+ *   again for the additional execution. The additional cost is declared on the
+ *   play ability in the merged CostSpec vocabulary (cost/plan-values.ts reads
+ *   energy plus a Power payment with allowedDomains); the keyword expansion is
+ *   owned by effects/keywords/Repeat.ts.
+ * - "Choose one —": a bulleted list of two modes is chosen while finalizing the
+ *   spell (355.3), expressed as choice.mode with count 1 and distinct modes
+ *   (contract 3.9).
+ * - "Deal 4 to a unit in a base." chooses one unit, so the unit is a target
+ *   (355.7, 355.9.a.1) and "in a base" is a location restriction
+ *   (355.10.b) spelled as the merged location filter ("base"). The Deal is the
+ *   merged effect.damage (418) and its source defaults to this spell (418.6.a).
+ * - "Kill a gear." names a gear in a public zone, so it is a target (355.7,
+ *   429.6) killed by the merged effect.kill (429).
+ *
+ * Status: judge-required. Both mode instructions and the mode choice use merged
+ * primitives and are executed by the golden test (one scenario per mode), but
+ * the Finalize collection of the optional [Repeat] additional cost and the
+ * paid-instance to interpreter-repeat wiring (with re-made mode choices) are
+ * unmerged, so the whole card is not executable (820.1.c.1, 820.1.d.1, 820.2;
+ * RIFT-89 and the wiring noted in effects/keywords/Repeat.ts).
+ */
+const rocketBarrage = {
+  canonicalCardId: "card.hash-b104ab4f2d5ede379d04e1002cd97a70d95148d73cddde15852f5dce8b204e9e",
+  rulesetVersion: "core-1.5",
+  status: "judge-required",
+  judgeReason:
+    "[Repeat] :rb_energy_4::rb_rune_mind:（820.1.c.1/820.1.d.1）的附加费用已按 CostSpec 声明" +
+    "（kind additional、4 energy + 1 Mind power、可选支付 choice），但 Finalize 从卡牌程序收集可选附加费用、" +
+    "把已支付实例数接到解释器 repeat 节点（并重做模式选择，820.2/820.2.a）的接线未合入（RIFT-89；effects/keywords/Repeat.ts 头部同款说明），" +
+    "因此整卡不能宣称可执行。正文的 choice.mode 二选一（355.3，契约 3.9）与 effect.damage / effect.kill 均用已合入原语，" +
+    "golden 分别真实执行两个模式；另：本地卡牌数据把两个模式句连成 \"…in a base.Kill a gear.\"（缺分隔），sourceText 按逐字要求保留。",
+  abilities: [
+    {
+      kind: "play",
+      // 印刷基础费用（4 energy + 1 Mind power）由 catalog 在 Finalize 绑定；此处 cost
+      // 只声明 [Repeat] 的可选附加费用（820.1.c.1）。
+      cost: {
+        kind: "additional",
+        keyword: "repeat",
+        optional: true,
+        payments: [
+          {
+            kind: "energy",
+            amount: { kind: "constant", value: 4 },
+            choice: {
+              id: "rocket-barrage.repeat-payment",
+              options: ["pay", "decline"],
+              selection: "one"
+            }
+          },
+          {
+            kind: "power",
+            amount: { kind: "constant", value: 1 },
+            // 印刷为 Mind 域符文；cost/plan-values.ts 的 Power 支付形状。
+            allowedDomains: ["Mind"]
+          }
+        ]
+      },
+      body: [
+        {
+          id: "rocket-barrage.choose-one",
+          op: "choice.mode",
+          args: {
+            count: { kind: "constant", value: 1 },
+            different: { kind: "constant", value: true },
+            modes: {
+              kind: "constant",
+              value: [
+                {
+                  id: "rocket-barrage.damage-mode",
+                  body: [
+                    {
+                      id: "rocket-barrage.deal-4",
+                      op: "effect.damage",
+                      args: {
+                        amount: { kind: "constant", value: 4 },
+                        target: { kind: "constant", value: "rocket-barrage.unit-in-base" }
+                      },
+                      targets: [
+                        {
+                          id: "rocket-barrage.unit-in-base",
+                          filter: { type: "unit", zone: "board", location: "base" },
+                          min: 1,
+                          max: 1,
+                          selection: "one"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  id: "rocket-barrage.kill-mode",
+                  body: [
+                    {
+                      id: "rocket-barrage.kill-gear",
+                      op: "effect.kill",
+                      args: { target: { kind: "constant", value: "rocket-barrage.gear" } },
+                      targets: [
+                        {
+                          id: "rocket-barrage.gear",
+                          filter: { type: "gear", zone: "board" },
+                          min: 1,
+                          max: 1,
+                          selection: "one"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  sourceText:
+    "[Repeat] :rb_energy_4::rb_rune_mind: (You may pay the additional cost to repeat this spell's effect, and may make different choices.)\n" +
+    "Choose one —\n" +
+    "Deal 4 to a unit in a base.Kill a gear."
+} satisfies CardProgram;
+
+export default rocketBarrage;
