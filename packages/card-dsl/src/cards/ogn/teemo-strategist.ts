@@ -32,8 +32,9 @@ import type { CardProgram } from "../../ir/index.js";
  * 1. [Hidden] 展开与 played-from-Hidden 状态判定缺失（811.1.b、811.1.d.3）：
  *    cost.hidden（Hide 费用）、continuous.timing（次回合 [Reaction]）与
  *    「面向下打出的牌」的状态信息都没有已合入实现（依赖 RIFT-84/RIFT-89/RIFT-91）。
- * 2. “top 5 cards” 需要严格牌库顶顺序；effect.reveal 仍以 ctx.query 取候选，
- *    契约 3.6 的 zoneSlice（RIFT-66）尚未接入该原语，无法保证“顶 5 张”。
+ * 2. “top 5 cards” 需要上游按真实牌库顺序提供 effect.reveal 的 pick。
+ *    当前 zone/count 只能在全区域不超过 5 张时执行；真子集会明确阻断，
+ *    不能把 ctx.query 的集合顺序当作牌库顺序。
  * 3. “for each card with [Hidden]” 需要「在被展示的子集合内按特征计数」的表达式；
  *    现有 count 只在整个查询集合上计数，尚无作用于链接子集合的计数形式。
  */
@@ -45,8 +46,9 @@ const teemoStrategist = {
     "1) [Hidden] 展开与“从 Hidden 打出”的状态判定缺失：cost.hidden（811.1.b Hide 费用）" +
     "与 continuous.timing（次回合 [Reaction]、811.1.d.3 面向下打出限制）都无已合入实现，" +
     "依赖 RIFT-84（kw-hidden）/RIFT-89（cost.hidden、费用与区域）/RIFT-91（continuous.timing）。" +
-    "2) “reveal the top 5 cards of your Main Deck” 需要严格牌库顶顺序：effect.reveal 仍用 " +
-    "ctx.query 取候选并按切片取前 N 张，契约 3.6 的 zoneSlice（RIFT-66 变更）未接入该原语。" +
+    "2) “reveal the top 5 cards of your Main Deck” 需要上游有序 pick 绑定：effect.reveal（RIFT-66）" +
+    "已支持 pick 并拒绝按 ctx.query 顺序截取牌库真子集；当前 zone/count 仅在全区域不超过 5 张时可执行，" +
+    "超过时明确阻断。需上游从 zoneSlice 提供真实顶 5 张并接入卡牌 IR，不用集合顺序近似。" +
     "3) “Deal 1 … for each card with [Hidden]” 需要“在被展示子集合内按特征计数”的表达式；" +
     "现有 count 只能在整个查询集合上计数，无作用于链接子集合的计数形式，effect.reveal 也只链接引用" +
     "（不产出该计数）。amount 因此读链接值 revealedHiddenCount（无生产者），结算时会按 MissingInformation " +
@@ -66,7 +68,10 @@ const teemoStrategist = {
         {
           id: "teemo.reveal",
           op: "effect.reveal",
-          args: { count: { kind: "constant", value: 5 } }
+          args: {
+            zone: { kind: "constant", value: "deck" },
+            count: { kind: "constant", value: 5 }
+          }
         },
         {
           // “Deal 1 to an enemy unit here for each card with [Hidden]” — the amount
@@ -84,8 +89,7 @@ const teemoStrategist = {
               instructionId: "teemo.reveal",
               key: "revealedHiddenCount"
             },
-            target: { kind: "constant", value: "teemo.enemy-unit-here" },
-            source: { kind: "constant", value: "self" }
+            target: { kind: "constant", value: "teemo.enemy-unit-here" }
           },
           targets: [
             {
@@ -123,7 +127,10 @@ const teemoStrategist = {
         {
           id: "teemo.hidden.reveal",
           op: "effect.reveal",
-          args: { count: { kind: "constant", value: 5 } }
+          args: {
+            zone: { kind: "constant", value: "deck" },
+            count: { kind: "constant", value: 5 }
+          }
         },
         {
           // Same as the defend trigger: the count of revealed [Hidden] cards is
@@ -137,8 +144,7 @@ const teemoStrategist = {
               instructionId: "teemo.hidden.reveal",
               key: "revealedHiddenCount"
             },
-            target: { kind: "constant", value: "teemo.hidden.enemy-unit-here" },
-            source: { kind: "constant", value: "self" }
+            target: { kind: "constant", value: "teemo.hidden.enemy-unit-here" }
           },
           targets: [
             {

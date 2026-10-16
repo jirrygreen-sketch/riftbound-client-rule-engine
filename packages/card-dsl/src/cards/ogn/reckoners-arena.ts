@@ -37,7 +37,7 @@ const reckonersArena = {
     "trigger 无法进链（需 scoring/触发接线，RIFT-31/RIFT-33 及契约 §7.2 批 5）；" +
     "(2) 缺“激活命名触发”原语：383.4.g.1 要求按条件检查并像刚触发一样把符合条件的 conquer effects 放进链，" +
     "而 RIFT-9 原语清单与 effects/instructions/ 都没有对应 opcode，body 里的 effect.activate-named-trigger " +
-    "是未注册的占位描述（golden 测试断言该 op 未注册），engine 批 4 也在 chain/README.md 契约变更请求 3 " +
+    "是未注册的占位描述（golden 以 TODO 记录待补执行场景），engine 批 4 也在 chain/README.md 契约变更请求 3 " +
     "记录“命名触发激活缺内部入口”、SCENARIO-COVERAGE.md 标注 triggers-activate-named-trigger-* 未覆盖" +
     "（RIFT-120，后续批 5 任务）。另外触发器 filter 里的 here=true 是等待 scoring 载荷的占位键，" +
     "引擎侧 assertTriggerSpec 同样拒绝它。在命名触发放进链的内部入口落地前保持 judge-required，不近似实现。",

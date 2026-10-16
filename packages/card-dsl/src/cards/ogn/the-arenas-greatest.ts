@@ -16,14 +16,12 @@ import type { CardProgram } from "../../ir/index.js";
  * - "each player's first Beginning Phase" is a per-player once-per-game window,
  *   and "that player" is an event participant, not the ability controller.
  *
- * Status: judge-required — three merged gaps, none approximated:
- * 1. no merged instruction submits the `score` action: the closed GameAction
- *    set has `score` and the survey lists `effect.score` as a required
- *    primitive, but effects/instructions/ has no file for it (the survey also
- *    records it as one of the blocking primitives);
- * 2. no merged module emits `beginning-start` into the single event pipeline,
+ * Status: judge-required — effect.score now executes Gaining Points
+ * (470.1/470.2), with golden coverage for a concretely bound recipient.
+ * Remaining gaps, none approximated:
+ * 1. no merged turn module emits `beginning-start` into the single event pipeline,
  *    so the trigger cannot enter the chain;
- * 3. the frequency scopes cannot express "each player's FIRST Beginning Phase",
+ * 2. the frequency scopes cannot express "each player's FIRST Beginning Phase",
  *    and the IR has no event-player selector for "that player".
  */
 const theArenasGreatest = {
@@ -31,13 +29,11 @@ const theArenasGreatest = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1) 缺得分原语：CR 470.1/470.2 的 Gaining Points 对应封闭 GameAction score，" +
-    "但 effects/instructions/ 没有 effect.score 文件（RIFT-9 原语清单将其列为必需原语，" +
-    "docs/plans/survey/ability-templates.md 记为阻断项），卡程序无法提交得分动作；" +
-    "(2) beginning-start 时点（CR 315.2.a.1）没有被任何已合入模块 emit 进唯一事件管线，触发器无法进链" +
-    "（需回合/触发接线，RIFT-33 及契约 §7.2 批 5）；(3) “each player's first Beginning Phase” 是每名玩家" +
+    "effect.score 已合入，可执行 CR 470.1/470.2 的 Gaining Points；整卡仍有两处缺口：" +
+    "(1) beginning-start 时点（CR 315.2.a.1）尚需回合模块接入唯一事件管线，触发器无法自动进链" +
+    "（需回合/触发接线，RIFT-33 及契约 §7.2 批 5）；(2) “each player's first Beginning Phase” 是每名玩家" +
     "对局内一次的频度，TriggerSpec.once 的七个范围无法表达；接收者 “that player” 也没有事件玩家选择器。" +
-    "程序中的 effect.score 与 \"event-player\" 均为缺失原语/选择器的占位，不可执行；不近似实现。",
+    "程序中的 \"event-player\" 仍为未绑定选择器的占位，不能用控制者代替；不近似实现。",
   sourceText: "At the start of each player's first Beginning Phase, that player gains 1 point.",
   abilities: [
     {
@@ -52,8 +48,7 @@ const theArenasGreatest = {
       body: [
         {
           id: "arenas-greatest.gain-1-point",
-          // Unregistered placeholder for the missing effect.score primitive
-          // (see judgeReason); not executable data.
+          // The primitive is merged; its recipient still needs event binding.
           op: "effect.score",
           args: {
             // Placeholder for "that player": the IR event-player selector does

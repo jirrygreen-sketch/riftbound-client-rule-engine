@@ -3,8 +3,8 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/the-arenas-greatest.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
-import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 
 const CANONICAL = "card.hash-23d43dc5325dcaca58f58415a7f9046b3d280f3c40d261f5aa7ddbfa1bf72770";
 const [ability] = program.abilities;
@@ -17,8 +17,7 @@ test("ogn-290-298 The Arena's Greatest: program validates and is judge-required"
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  // The three gaps: missing effect.score primitive, missing beginning-start
-  // producer, and the per-player-once frequency / event-player recipient.
+  // Gaining Points executes; first-phase timing and recipient binding still block the card.
   assert.match(program.judgeReason, /effect\.score/);
   assert.match(program.judgeReason, /470\.1/);
   assert.match(program.judgeReason, /beginning-start/);
@@ -45,8 +44,7 @@ test("ogn-290-298: beginning-start trigger that gains 1 point for the event play
   assert.equal(ability.body.length, 1);
   assert.equal(score.id, "arenas-greatest.gain-1-point");
   // "gain 1 point" is the Gaining Points process (470.1/470.2), which the
-  // closed GameAction set models with the score action; the primitive that
-  // submits it is not merged (see judgeReason).
+  // closed GameAction set models with the merged score primitive.
   assert.deepEqual(score.args.amount, { kind: "constant", value: 1 });
   assert.deepEqual(score.args.player, { kind: "constant", value: "event-player" });
   assert.equal(score.linkedTo, undefined);
@@ -54,25 +52,33 @@ test("ogn-290-298: beginning-start trigger that gains 1 point for the event play
   assert.equal(score.picks, undefined);
 });
 
-test("ogn-290-298: the score primitive and the timing producer are absent from merged code", () => {
-  // Evidence for the judgeReason: neither the instruction primitive nor a
-  // timing producer for beginning-start exists in merged code.
-  assert.equal(instructionDefinitionsById.has("effect.score"), false);
-  assert.equal(instructionDefinitionsById.has("effect.ready"), true);
-  assert.equal(instructionDefinitionsById.has("trigger.score"), false);
+function boundBody(player) {
+  // Only the unsupported event-player binding is supplied by the test caller.
+  return [{ ...score, args: { ...score.args, player: { kind: "constant", value: player } } }];
+}
+
+test("ogn-290-298: the bound event player gains one point through the authored score instruction", () => {
+  const kernel = world().build();
+  const outcome = resolveChainBody(boundBody("B"), kernel);
+  assert.equal(outcome.status, "executed");
+  assert.equal(kernel.player("B").score, 1);
+  assert.equal(kernel.player("A").score, 0);
+  assert.deepEqual(outcome.events.map(event => event.action), ["score"]);
+  assert.deepEqual(outcome.linkedValues[`${score.id}.scored`], [{ player: "B", amount: 1 }]);
 });
 
-test("ogn-290-298: the per-player-once frequency and event-player recipient are placeholders", () => {
-  // Evidence for the judgeReason: the engine rejects the oncePerPlayer key and
-  // the body names a recipient the IR cannot resolve.
-  assert.throws(() => assertTriggerSpec(ability.trigger), /EventPattern 不允许此字段/);
-  assert.deepEqual(ability.body[0].args.player, { kind: "constant", value: "event-player" });
+test("ogn-290-298: prevented Gaining Points negates the instruction without awarding a point", () => {
+  const kernel = world().build();
+  kernel.addReplacement(action => action.type === "score" ? "prevented" : null);
+  const outcome = resolveChainBody(boundBody("B"), kernel);
+  assert.equal(outcome.status, "partial");
+  assert.equal(outcome.results[0].result.status, "negated");
+  assert.equal(outcome.results[0].result.reason, "skipped");
+  assert.equal(kernel.player("B").score, 0);
+  assert.equal(kernel.player("A").score, 0);
+  assert.equal(kernel.history({ action: "score" }), 0);
+  assert.deepEqual(outcome.linkedValues[`${score.id}.scored`], []);
 });
-
-test.todo(
-  "ogn-290-298: effect.score 原语（470.1 Gaining Points：单独动作、可被替代、与 scoring 区分）落地，" +
-    "以事件玩家为收件人得 1 分（依赖 RIFT-9 原语清单中的 effect.score 与 RIFT-33）"
-);
 test.todo(
   "ogn-290-298: beginning-start 由 turn/ 发出并进链；每位玩家的第一个 Beginning Phase 只触发一次" +
     "（each-player-once 频度 + 事件玩家选择器，契约变更请求）"
