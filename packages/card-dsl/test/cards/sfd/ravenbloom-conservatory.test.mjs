@@ -20,20 +20,35 @@ test("ravenbloom: triggered defend structure with reveal and two branches", () =
   const ids = ability.body.map(instruction => instruction.id);
   assert.deepEqual(ids, [
     "ravenbloom.reveal",
-    "ravenbloom.mode",
-    "ravenbloom.to-hand",
-    "ravenbloom.recycle"
+    "ravenbloom.mode"
   ]);
   // Reveal reads the deck top.
   assert.equal(ability.body[0].op, "effect.reveal");
   assert.deepEqual(ability.body[0].args.count, { kind: "constant", value: 1 });
-  // The two branches link back to the mode pick and the revealed card.
-  assert.equal(ability.body[2].linkedTo, "ravenbloom.mode");
-  assert.equal(ability.body[2].op, "effect.zone");
-  assert.deepEqual(ability.body[2].args.to, { kind: "constant", value: "hand" });
-  assert.equal(ability.body[3].linkedTo, "ravenbloom.mode");
-  assert.equal(ability.body[3].op, "effect.recycle");
-  assert.deepEqual(ability.body[3].args.objects, {
+  // Each branch owns its instructions; links read the enclosing reveal.
+  const mode = ability.body[1];
+  assert.equal(mode.op, "choice.mode");
+  assert.equal(mode.linkedTo, "ravenbloom.reveal");
+  assert.deepEqual(mode.args.count, { kind: "constant", value: 1 });
+  assert.deepEqual(mode.args.different, { kind: "constant", value: true });
+  assert.equal(mode.args.modes.kind, "constant");
+  const [spell, other] = mode.args.modes.value;
+  assert.equal(spell.id, "ravenbloom.spell-mode");
+  assert.equal(other.id, "ravenbloom.other-mode");
+  assert.equal(spell.body.length, 1);
+  assert.equal(other.body.length, 1);
+  const [toHand] = spell.body;
+  const [recycle] = other.body;
+  assert.equal(toHand.id, "ravenbloom.to-hand");
+  assert.equal(toHand.linkedTo, "ravenbloom.reveal");
+  assert.equal(toHand.condition, undefined);
+  assert.equal(toHand.op, "effect.zone");
+  assert.deepEqual(toHand.args.to, { kind: "constant", value: "hand" });
+  assert.equal(recycle.id, "ravenbloom.recycle");
+  assert.equal(recycle.linkedTo, "ravenbloom.reveal");
+  assert.equal(recycle.condition, undefined);
+  assert.equal(recycle.op, "effect.recycle");
+  assert.deepEqual(recycle.args.objects, {
     kind: "linked-value",
     instructionId: "ravenbloom.reveal",
     key: "revealed"

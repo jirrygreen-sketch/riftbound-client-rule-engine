@@ -28,13 +28,15 @@ test("builder exposes attacker, defender and default null combat roles", () => {
   for (const [id, role] of [["attacker", "attacker"], ["defender", "defender"], ["idle", null], ["unprinted", null]]) {
     assert.equal(kernel.object(kernel.ref(id)).combatRole, role);
     assert.equal(kernel.evaluate({ kind: "object-property", object: kernel.ref(id), property: "combatRole" }), role);
+    kernel.setTargets(id, [kernel.ref(id)]);
+    assert.equal(kernel.evaluate({ kind: "object-property", object: { target: id }, property: "combatRole" }), role);
   }
   assert.equal(kernel.getObject("unprinted").energy, null);
   assert.equal(kernel.getObject("unprinted").power, null);
   const outcome = runAbilityBody([{
     id: "role", op: "condition.value", args: {
-      value: { kind: "object-property", object: kernel.ref("attacker"), property: "combatRole" }
-    }
+      value: { kind: "object-property", object: { target: "attacker" }, property: "combatRole" }
+    }, targets: [{ id: "attacker", filter: { type: "unit", zone: "board" } }]
   }], kernel, new Map());
   assert.equal(outcome.linkedValues["role.value"], "attacker");
 });

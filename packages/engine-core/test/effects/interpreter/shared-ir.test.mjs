@@ -27,7 +27,8 @@ for (const [operator, operands, expected] of [
 
 test("native arithmetic composes dynamic links, properties, and counts in primitive arguments", () => {
   const kernel = world().unit("unit", { might: 4 }).deck(["first", "second"]).build();
-  const expression = arithmetic("add", linked("first"), arithmetic("mul", property(kernel.ref("unit"), "might"), {
+  kernel.setPicks("unit", [kernel.ref("unit")]);
+  const expression = arithmetic("add", linked("first"), arithmetic("mul", property({ pick: "unit" }, "might"), {
     kind: "count", subject: "objects", filter: { zone: "deck" }
   }));
   const outcome = runAbilityBody([gain("first", 2), instruction("second", "test.gain", { amount: expression })], kernel, registry);
@@ -52,7 +53,8 @@ test("a validated structural program runs with arithmetic repeat count and condi
 
 test("native arithmetic on null printed costs ignores without converting null to zero", () => {
   const kernel = world().unit("unit", { energy: null }).build();
-  const expression = arithmetic("add", property(kernel.ref("unit"), "energy"), constant(1));
+  kernel.setPicks("unit", [kernel.ref("unit")]);
+  const expression = arithmetic("add", property({ pick: "unit" }, "energy"), constant(1));
   const outcome = runAbilityBody([instruction("gain", "test.gain", { amount: expression })], kernel, registry);
   assert.equal(outcome.results[0].result.status, "ignored");
   assert.equal(kernel.player("A").energy, 0);

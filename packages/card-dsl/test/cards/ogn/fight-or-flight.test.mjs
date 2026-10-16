@@ -1,0 +1,114 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { validateCardProgram } from "../../../dist/ir/validation.js";
+import program from "../../../dist/cards/ogn/fight-or-flight.js";
+import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+
+const CARD_ID = "card.hash-ae89acfc3272efb2e11f1ffd438022efc8a49ff3d3e37cfa6ede1a1b15bffca7";
+const play = program.abilities.find((ability) => ability.kind === "play");
+const [moveInstruction] = play.body;
+const targetSpec = moveInstruction.targets[0];
+
+const moveWithLockedTarget = (kernel, ref) =>
+  runInstruction(
+    move,
+    { objects: moveInstruction.args.objects, to: moveInstruction.args.to },
+    { world: kernel, targets: { [targetSpec.id]: [ref] } }
+  );
+
+test("ogn-168-298 Fight or Flight: program passes validateCardProgram", () => {
+  const result = validateCardProgram(program);
+  assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues, null, 2));
+  assert.equal(program.canonicalCardId, CARD_ID);
+  assert.equal(program.rulesetVersion, "core-1.5");
+  assert.equal(program.status, "judge-required");
+  assert.match(program.judgeReason, /cost\.hidden/);
+  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-91/);
+  assert.equal(
+    program.sourceText,
+    "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n" +
+      "[Action] (Play on your turn or in showdowns.)\n" +
+      "Move a unit from a battlefield to its base."
+  );
+});
+
+test("ogn-168-298 Fight or Flight: [Hidden] + [Action] keywords and one battlefield-scoped Move", () => {
+  assert.deepEqual(program.abilities.slice(0, 2), [
+    { kind: "keyword", keyword: "hidden" },
+    { kind: "keyword", keyword: "action" }
+  ]);
+
+  assert.equal(play.kind, "play");
+  assert.equal(play.body.length, 1);
+  assert.equal(moveInstruction.id, "fight-or-flight.move-to-base");
+  assert.equal(moveInstruction.op, "effect.move");
+  assert.equal(moveInstruction.linkedTo, undefined);
+  assert.equal(moveInstruction.condition, undefined);
+  assert.deepEqual(moveInstruction.args.to, { kind: "constant", value: "controller-base" });
+
+  // "a unit from a battlefield": one target, restricted to a battlefield
+  // Location (355.9.b / 355.10.b — the battlefield is not itself a target).
+  assert.equal(moveInstruction.targets.length, 1);
+  assert.deepEqual(targetSpec, {
+    id: "fight-or-flight.unit",
+    filter: { type: "unit", zone: "board", location: "battlefield" },
+    min: 1,
+    max: 1,
+    selection: "one"
+  });
+});
+
+test("ogn-168-298 Fight or Flight golden: a unit at a battlefield moves to its base", () => {
+  const kernel = world()
+    .unit("attacking-unit", { owner: "A", controller: "A", might: 3, location: { type: "battlefield", id: "battlefield-1" } })
+    .build();
+  const run = moveWithLockedTarget(kernel, kernel.ref("attacking-unit"));
+
+  assert.equal(run.result.status, "executed");
+  assert.deepEqual(kernel.getObject("attacking-unit").location, { type: "base", player: "A" });
+  assert.deepEqual(run.events.map((event) => event.action), ["move-location"]);
+  assert.deepEqual(run.linked.moved, {
+    count: 1,
+    objects: [{ id: "attacking-unit", zoneEntryId: 1 }],
+    movements: [
+      {
+        object: { id: "attacking-unit", zoneEntryId: 1 },
+        from: { type: "battlefield", id: "battlefield-1" },
+        to: { type: "base", player: "A" }
+      }
+    ]
+  });
+});
+
+test("ogn-168-298 Fight or Flight golden: a move the controller's base cannot take is a no-op", () => {
+  // Already at its own base: nothing to move, so the instruction moves nothing.
+  const kernel = world()
+    .unit("based-unit", { owner: "A", location: { type: "base", player: "A" } })
+    .build();
+  const run = moveWithLockedTarget(kernel, kernel.ref("based-unit"));
+
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.events.length, 0);
+  assert.deepEqual(run.linked.moved, { count: 0, objects: [], movements: [] });
+});
+
+test("ogn-168-298 Fight or Flight golden: a stale target is ignored (359.3.e)", () => {
+  const kernel = world()
+    .unit("leaving-unit", { owner: "A", location: { type: "battlefield", id: "battlefield-1" } })
+    .build();
+  const stale = kernel.ref("leaving-unit");
+  kernel.perform({ type: "return-to-hand", object: stale });
+  const run = moveWithLockedTarget(kernel, stale);
+
+  assert.deepEqual(run.result, { status: "ignored", reason: "mistargeted" });
+  assert.equal(run.events.length, 0);
+});
+
+test.todo(
+  "ogn-168-298 Fight or Flight: the [Hidden] half — Hide now for :rb_rune_rainbow: and the " +
+    "facedown play for :rb_energy_0: with its later Reaction timing — depends on cost.hidden " +
+    "(RIFT-89) and the continuous.timing consumer (RIFT-91)"
+);

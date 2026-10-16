@@ -2,12 +2,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "@riftbound/card-dsl";
 import weaponmaster from "../../../src/effects/keywords/Weaponmaster.ts";
+import { runAbilityBody } from "../../../dist/effects/interpreter.js";
+import { instructionDefinitionsById } from "../../../dist/effects/instructions/registry.generated.js";
+import { world } from "../../../dist/effects/testing/index.js";
 
 const host = { canonicalCardId: "sfd-092-221" };
 const program = abilities => ({
   canonicalCardId: host.canonicalCardId,
   rulesetVersion: EFFECT_IR_V2_RULESET,
-  status: "executable",
+  status: "judge-required",
+  judgeReason: "Weaponmaster Equip-cost calculation/payment requires unmerged cost.modify / cost.pay primitives.",
   abilities,
   sourceText: "Weaponmaster"
 });
@@ -33,33 +37,39 @@ test("Weaponmaster expands to a mandatory play trigger", () => {
 test("Weaponmaster exposes an optional controlled Equipment choice", () => {
   const [ability] = weaponmaster.expand({ host });
   const [choice] = ability.body;
-  assert.equal(choice.op, "choice.optional");
-  assert.deepEqual(choice.args.choice, {
-    kind: "constant",
-    value: {
-      id: "weaponmaster-equipment",
-      filter: { type: "gear", controller: "self", tags: ["Equipment"] },
-      min: 0,
-      max: 1,
-      selection: "up-to"
-    }
+  assert.equal(ability.body.length, 1);
+  assert.equal(choice.op, "sequence");
+  assert.deepEqual(choice.targets, [{
+    id: "weaponmaster-equipment",
+    filter: { type: "gear", controller: "self", tags: ["Equipment"] },
+    min: 0,
+    max: 1,
+    selection: "up-to"
+  }]);
+  assert.deepEqual(choice.condition, {
+    kind: "compare",
+    left: { kind: "count", subject: "objects", filter: { object: { target: "weaponmaster-equipment" } } },
+    operator: "gt",
+    right: { kind: "constant", value: 0 }
   });
+  assert.equal(choice.args.choice, undefined);
+  assert.equal(choice.args.body.kind, "constant");
 });
 
 test("Weaponmaster reduces and pays Equip cost before attachment", () => {
   const [ability] = weaponmaster.expand({ host });
-  assert.deepEqual(ability.body.map(instruction => instruction.op), [
-    "choice.optional",
+  const body = ability.body[0].args.body.value;
+  assert.deepEqual(body.map(instruction => instruction.op), [
     "cost.modify",
     "cost.pay",
     "effect.attach"
   ]);
-  assert.deepEqual(ability.body[2].args.cost, {
+  assert.deepEqual(body[1].args.cost, {
     kind: "linked-value",
     instructionId: "weaponmaster-cost",
     key: "cost"
   });
-  assert.deepEqual(ability.body[1].args.modifier, {
+  assert.deepEqual(body[0].args.modifier, {
     kind: "constant",
     value: { kind: "reduce-equip-cost", resource: "power", amount: 1, domain: "any" }
   });
@@ -72,18 +82,40 @@ test("Weaponmaster expansion validates as an EffectIR CardProgram", () => {
 
 test("Weaponmaster links choice, cost, payment, and attachment in order", () => {
   const [ability] = weaponmaster.expand({ host });
-  assert.equal(ability.body[1].linkedTo, "weaponmaster-choice");
-  assert.equal(ability.body[2].linkedTo, "weaponmaster-cost");
-  assert.equal(ability.body[3].linkedTo, "weaponmaster-pay");
-  assert.deepEqual(ability.body[3].args.host, {
+  const [cost, pay, attach] = ability.body[0].args.body.value;
+  assert.equal(cost.linkedTo, undefined);
+  assert.equal(pay.linkedTo, "weaponmaster-cost");
+  assert.equal(attach.linkedTo, "weaponmaster-pay");
+  assert.deepEqual(attach.args.host, {
     kind: "constant",
     value: { kind: "source" }
   });
-  assert.deepEqual(ability.body[3].args.objects, {
-    kind: "linked-value",
-    instructionId: "weaponmaster-choice",
-    key: "choice"
+  assert.deepEqual(attach.args.objects, {
+    kind: "constant",
+    value: { kind: "target", id: "weaponmaster-equipment" }
   });
+  assert.deepEqual(cost.args.source, attach.args.objects);
+});
+
+test("Weaponmaster selecting no Equipment skips cost and attachment without a boolean prompt", () => {
+  const kernel = world().object("gear", { types: ["gear"], tags: ["Equipment"], zone: "board" }).build();
+  kernel.setTargets("weaponmaster-equipment", []);
+  const [ability] = weaponmaster.expand({ host });
+  const outcome = runAbilityBody(ability.body, kernel);
+  assert.deepEqual(outcome.results.map(result => result.id), ["weaponmaster-choice"]);
+  assert.equal(outcome.results[0].result.reason, "skipped");
+  assert.deepEqual(kernel.events, []);
+});
+
+// TestWorld does not bind symbolic controller filters. Do not simulate a
+// selected Equipment or its cost; the real targeting/cost integration is pending.
+test("Weaponmaster remains judge-required pending Equip-cost primitives", () => {
+  const abilities = weaponmaster.expand({ host });
+  const card = program(abilities);
+  assert.equal(card.status, "judge-required");
+  assert.match(card.judgeReason, /unmerged cost.modify \/ cost.pay/);
+  assert.equal(instructionDefinitionsById.has("cost.modify"), false);
+  assert.equal(instructionDefinitionsById.has("cost.pay"), false);
 });
 
 test("Weaponmaster ignores an accidental numeric value because it is unvalued", () => {

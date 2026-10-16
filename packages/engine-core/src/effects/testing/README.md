@@ -80,8 +80,9 @@ of the same printing is still counted. The existing `object` query remains an
 exact `ObjectRef` match, including its zone entry id.
 
 `objectFilter` reads the action object's snapshot **before** the action, so
-later moves or control changes cannot change past counts. It shares `query`'s
-type/tag membership and exact snapshot-property filters. Actions without an
+later moves or control changes cannot change past counts. It supports `query`'s
+type/tag membership plus exact historical snapshot-property filters, without
+changing the set query's existing supported predicates. Actions without an
 `object` ref do not match an object filter. Prevented actions and suspended
 transactions do not enter committed history. The interpreter's instruction
 context already delegates `history` unchanged; its query parser now accepts

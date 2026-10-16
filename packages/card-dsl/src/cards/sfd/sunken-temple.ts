@@ -50,19 +50,25 @@ export default {
         {
           id: "sunken-temple.opt-in",
           op: "choice.optional",
-          args: { prompt: { kind: "constant", value: "Pay 1 energy to draw 1?" } }
-        },
-        {
-          id: "sunken-temple.pay",
-          op: "cost.pay",
-          linkedTo: "sunken-temple.opt-in",
-          args: { energy: { kind: "constant", value: 1 } }
-        },
-        {
-          id: "sunken-temple.draw",
-          op: "effect.draw",
-          linkedTo: "sunken-temple.pay",
-          args: { amount: { kind: "constant", value: 1 } }
+          args: {
+            prompt: { kind: "constant", value: "Pay 1 energy to draw 1?" },
+            body: {
+              kind: "constant",
+              value: [
+                {
+                  id: "sunken-temple.pay",
+                  op: "cost.pay",
+                  args: { energy: { kind: "constant", value: 1 } }
+                },
+                {
+                  id: "sunken-temple.draw",
+                  op: "effect.draw",
+                  linkedTo: "sunken-temple.pay",
+                  args: { amount: { kind: "constant", value: 1 } }
+                }
+              ]
+            }
+          }
         }
       ]
     }

@@ -1,4 +1,4 @@
-import type { Ability, ObjectRef } from "@riftbound/card-dsl";
+import type { Ability, ObjectSelector } from "@riftbound/card-dsl";
 
 import type { CardContextRef, KeywordDef } from "../keyword-contract.js";
 
@@ -43,27 +43,15 @@ import type { CardContextRef, KeywordDef } from "../keyword-contract.js";
  *   interpreter's ObjectSnapshot and no "condition.predicate" primitive is
  *   merged yet, so the compare condition cannot be evaluated by the current
  *   reference interpreter.
- * - Host reference: expand receives only a CardContextRef (canonicalCardId),
- *   while ObjectPropertyExpr.object is typed as a zone-bound ObjectRef yet
- *   validateCardProgram requires that same field to be a plain string. The
- *   expansion therefore addresses the host through the conventional "self"
- *   string reference (accepted by validateCardProgram); binding that name to
- *   the live host object, and reconciling the ObjectRef-vs-string
- *   contradiction in the IR contract, is a contract gap (contract change
- *   request filed with this task).
+ * - Host binding uses the contract 3.6 symbolic "self" selector; the
+ *   interpreter binds the live host reference at resolution.
  */
 
 /** Value presumed when the printed keyword omits the Assault Value (807.1.b.3). */
 export const ASSAULT_DEFAULT_VALUE = 1 as const;
 
-/**
- * Conventional "self" reference used by keyword expansions to address the
- * object that hosts the keyword, in the string form validateCardProgram
- * accepts. The cast papers over the ObjectRef-vs-string contradiction in the
- * IR contract; the resolver for this name is part of the pending KeywordDef/IR
- * contract extension (see the file header).
- */
-export const SELF_OBJECT_REF: ObjectRef = "self" as unknown as ObjectRef;
+/** Symbolic host selector; the exported name is kept for existing callers. */
+export const SELF_OBJECT_REF: ObjectSelector = "self";
 
 const assault = {
   keyword: "Assault",

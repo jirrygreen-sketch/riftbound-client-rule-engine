@@ -1,5 +1,5 @@
 import type { GameEvent } from "@riftbound/protocol";
-import type { Condition, Expr, Instruction, ObjectFilter, ObjectRef, Value } from "@riftbound/card-dsl";
+import type { Condition, Expr, Instruction, ObjectFilter, ObjectRef, ObjectSelector, Value } from "@riftbound/card-dsl";
 import {
   AwaitChoice,
   type ActionOutcome,
@@ -12,7 +12,6 @@ import {
   type InstructionResult,
   type LegacyBoardTokenAction,
   type LocationRef,
-  type ObjectSelector,
   type ObjectSnapshot,
   type PlayerId,
   type PlayerSnapshot,
@@ -24,6 +23,7 @@ import {
 } from "../contract.js";
 import { isTimingPointId, type TimingPointId } from "../../events/timing-points.js";
 import { arithmetic, equalValues } from "../interpreter/values.js";
+import { resolveObjectSelector } from "../interpreter/selectors.js";
 
 export { AwaitChoice } from "../contract.js";
 
@@ -191,7 +191,7 @@ export class TestWorld implements ResolveContext {
 
   object(ref: ObjectRef): ObjectSnapshot | null { const object = this.state.objects.get(ref.id); return object && object.ref.zoneEntryId === ref.zoneEntryId ? copySnapshot(object) : null; }
   lastKnown(ref: ObjectRef): ObjectSnapshot { const found = this.state.lastKnown.get(refKey(ref)); if (found) return copySnapshot(found); const current = this.state.objects.get(ref.id); if (current) return copySnapshot(current); return defaultObject(ref.id, this.controller, { ref }); }
-  query(filter: ObjectFilter): ObjectSnapshot[] { return this.listObjects().filter(object => matchesFilter(object, filter)); }
+  query(filter: ObjectFilter): ObjectSnapshot[] { return this.listObjects().filter(object => matchesQueryFilter(object, filter)); }
   zoneSlice(player: PlayerId, zone: ZoneId, from: "top" | "bottom", count?: number): ObjectSnapshot[] {
     if (count !== undefined && (!Number.isSafeInteger(count) || count < 0)) {
       throw new RangeError("zoneSlice count must be a nonnegative safe integer");
@@ -206,7 +206,16 @@ export class TestWorld implements ResolveContext {
   targets(specId: string): ObjectRef[] { return (this.targetSets.get(specId) ?? []).map(cloneRef); }
   picks(specId: string): readonly (ObjectRef | PlayerId | string)[] { return (this.pickSets.get(specId) ?? []).map(pick => typeof pick === "object" ? cloneRef(pick) : pick); }
   player(id: PlayerId): PlayerSnapshot { const player = this.state.players.get(id); if (!player) throw new Error(`Unknown player ${id}`); const runePool = this.objectsInZone(id, "rune-zone"); return { id, energy: player.energy, power: [...player.power], runePool, runes: runePool, xp: player.xp, score: player.score, handSize: player.zones.hand.length, handCount: player.zones.hand.length, deckSize: player.zones.deck.length, deckCount: player.zones.deck.length, runeDeckSize: player.zones["rune-deck"].length, runeDeckCount: player.zones["rune-deck"].length }; }
-  evaluate(expr: Expr): Value { if (expr.kind === "constant" || expr.kind === "literal") return asValue(expr.value); if (expr.kind === "arithmetic") return arithmetic(expr.operator, expr.operands.map(operand => this.evaluate(operand))); if (expr.kind === "linked" || expr.kind === "linked-value") return this.linkedValues.get(expr.key ?? expr.instructionId) ?? null; if (expr.kind === "count") return this.query(expr.filter ?? {}).length; if (expr.kind === "object-property") return asValue(this.object(expr.object)?.[expr.property as keyof ObjectSnapshot] ?? null); if (expr.kind === "object-attribute") return asValue(this.object(expr.object)?.[expr.attribute as keyof ObjectSnapshot] ?? null); return null; }
+  /** Direct primitive tests may supply transient refs; static IR uses selectors. */
+  private expressionObject(selector: ObjectSelector): ObjectSnapshot | null {
+    const transient: unknown = selector;
+    const ref = transient !== null && typeof transient === "object" && "id" in transient && "zoneEntryId" in transient
+      ? transient as ObjectRef
+      : resolveObjectSelector(selector, { context: this, linked: id => this.linked(id) })[0];
+    if (ref === undefined) return null;
+    return this.object(ref) ?? (selector === "source" ? this.source : null);
+  }
+  evaluate(expr: Expr): Value { if (expr.kind === "constant" || expr.kind === "literal") return asValue(expr.value); if (expr.kind === "arithmetic") return arithmetic(expr.operator, expr.operands.map(operand => this.evaluate(operand))); if (expr.kind === "linked" || expr.kind === "linked-value") return this.linkedValues.get(expr.key ?? expr.instructionId) ?? null; if (expr.kind === "count") return this.query(expr.filter ?? {}).length; if (expr.kind === "object-property") return asValue(this.expressionObject(expr.object)?.[expr.property as keyof ObjectSnapshot] ?? null); if (expr.kind === "object-attribute") return asValue(this.expressionObject(expr.object)?.[expr.attribute as keyof ObjectSnapshot] ?? null); return null; }
   test(condition: Condition): boolean { switch (condition.kind) { case "always": return true; case "never": return false; case "expression": return Boolean(this.evaluate(condition.value)); case "not": return !this.test(condition.condition); case "all": return condition.conditions.every(item => this.test(item)); case "any": return condition.conditions.some(item => this.test(item)); case "compare": { const left = this.evaluate(condition.left) as any; const right = this.evaluate(condition.right) as any; switch (condition.operator) { case "eq": return left === right; case "ne": return left !== right; case "lt": return left < right; case "lte": return left <= right; case "gt": return left > right; case "gte": return left >= right; case "in": return Array.isArray(right) && right.includes(left); } } } }
   linked(key: string): Value | undefined { return this.linkedValues.get(key); }
   link(key: string, value: Value): void { this.linkedValues.set(key, value); }
@@ -383,6 +392,18 @@ export class TestWorld implements ResolveContext {
 
 function actionPlayer(action: GameAction): PlayerId | undefined { return "player" in action ? action.player : undefined; }
 function actionObject(action: GameAction): ObjectRef | undefined { return "object" in action ? action.object : undefined; }
+/** Keep the set query's existing supported predicates separate from history snapshots. */
+function matchesQueryFilter(object: ObjectSnapshot, filter: ObjectFilter): boolean {
+  return Object.entries(filter).every(([key, expected]) => {
+    if (key === "type" || key === "tag") return (key === "type" ? object.types : object.tags).includes(String(expected));
+    if ((key === "types" || key === "tags") && Array.isArray(expected)) return expected.every(value => object[key].includes(String(value)));
+    if (key === "controller" || key === "owner" || key === "zone" || key === "location" || key === "combatRole") {
+      return equalValues(asValue(object[key]), expected);
+    }
+    return true;
+  });
+}
+
 function matchesFilter(object: ObjectSnapshot, filter: ObjectFilter): boolean {
   return Object.entries(filter).every(([key, expected]) => {
     if (key === "type" || key === "tag") return (key === "type" ? object.types : object.tags).includes(String(expected));

@@ -4,3 +4,7 @@ export * from '../duel/phase-source-authority-v2.js';
 export * from '../duel/phase-source-closure-v2.js';
 export * from '../duel/phase-closure-boundaries-v2.js';
 export * from '../duel/phase-closure-evidence-v2.js';
+export * from './pipeline-types.js';
+export * from './pipeline-match.js';
+export * from './pipeline.js';
+export * from './action-adapter.js';

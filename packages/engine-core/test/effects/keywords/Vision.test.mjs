@@ -40,13 +40,19 @@ function visionBody() {
  * outside this task's scope. We therefore execute the inspect step directly with
  * its Expr args (the form validateCardProgram certifies) and the recycle step
  * through the interpreter on the chosen linked value.
+ * The upstream ordered picks required by inspect come from the kernel's actual
+ * zoneSlice order; viewing and recycling still run through their primitives.
  */
 function runVision(kernel, answers) {
   const hostRef = kernel.ref(HOST.canonicalCardId);
   const targetWorld = kernel.clone({ source: hostRef });
   targetWorld.setAnswers(answers);
   const inspectInstruction = visionBody()[0];
-  const run = runInstruction(inspect, inspectInstruction.args, { world: kernel, answers });
+  const picksSpecId = "vision-top";
+  const top = kernel.zoneSlice("A", "deck", "top", inspectInstruction.args.amount.value).map(object => object.ref);
+  const run = runInstruction(inspect, {
+    ...inspectInstruction.args, picksSpecId: constant(picksSpecId)
+  }, { world: kernel, answers, picks: { [picksSpecId]: top } });
   return { run, targetWorld: kernel };
 }
 
@@ -100,9 +106,8 @@ test("valued boundary: a spurious value is ignored, expansion stays value-free",
 });
 
 test("executed: recycling the seen top card moves it to the deck bottom (437.1)", () => {
-  // The reference test kernel's query() has no zone order (see effect.inspect's
-  // QueryablePool note), so "the top card" is resolved by insertion order here;
-  // the picked card is the one effect.inspect offers and the player chooses.
+  // The ordered inspect pool comes from zoneSlice, so the player can only
+  // choose the actual top card that effect.inspect has viewed.
   const kernel = world().deck("rest").deck("top-seen").hand(HOST.canonicalCardId).build();
   const top = kernel.zone("A", "deck")[0];
   const answers = { [SELECT_REQUEST_ID]: [top] };

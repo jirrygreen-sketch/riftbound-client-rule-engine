@@ -46,52 +46,50 @@ export default {
           op: "choice.mode",
           linkedTo: "ravenbloom.reveal",
           args: {
+            count: { kind: "constant", value: 1 },
+            different: { kind: "constant", value: true },
             modes: {
               kind: "constant",
               value: [
-                { id: "ravenbloom.spell-mode", body: [] },
-                { id: "ravenbloom.other-mode", body: [] }
+                {
+                  id: "ravenbloom.spell-mode",
+                  body: [
+                    {
+                      id: "ravenbloom.to-hand",
+                      op: "effect.zone",
+                      linkedTo: "ravenbloom.reveal",
+                      args: {
+                        pick: { kind: "constant", value: "ravenbloom.revealed-card" },
+                        to: { kind: "constant", value: "hand" },
+                        amount: { kind: "constant", value: 1 }
+                      },
+                      picks: [
+                        {
+                          id: "ravenbloom.revealed-card",
+                          options: [{ kind: "linked-value", instructionId: "ravenbloom.reveal", key: "revealed" }],
+                          min: 1,
+                          max: 1,
+                          selection: "one"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  id: "ravenbloom.other-mode",
+                  body: [
+                    {
+                      id: "ravenbloom.recycle",
+                      op: "effect.recycle",
+                      linkedTo: "ravenbloom.reveal",
+                      args: {
+                        objects: { kind: "linked-value", instructionId: "ravenbloom.reveal", key: "revealed" }
+                      }
+                    }
+                  ]
+                }
               ]
             }
-          }
-        },
-        {
-          id: "ravenbloom.to-hand",
-          op: "effect.zone",
-          linkedTo: "ravenbloom.mode",
-          args: {
-            pick: { kind: "constant", value: "ravenbloom.revealed-card" },
-            to: { kind: "constant", value: "hand" },
-            amount: { kind: "constant", value: 1 }
-          },
-          picks: [
-            {
-              id: "ravenbloom.revealed-card",
-              options: [{ kind: "linked-value", instructionId: "ravenbloom.reveal", key: "revealed" }],
-              min: 1,
-              max: 1,
-              selection: "one"
-            }
-          ],
-          condition: {
-            kind: "compare",
-            left: { kind: "linked-value", instructionId: "ravenbloom.mode", key: "value" },
-            operator: "eq",
-            right: { kind: "constant", value: ["ravenbloom.spell-mode"] }
-          }
-        },
-        {
-          id: "ravenbloom.recycle",
-          op: "effect.recycle",
-          linkedTo: "ravenbloom.mode",
-          args: {
-            objects: { kind: "linked-value", instructionId: "ravenbloom.reveal", key: "revealed" }
-          },
-          condition: {
-            kind: "compare",
-            left: { kind: "linked-value", instructionId: "ravenbloom.mode", key: "value" },
-            operator: "eq",
-            right: { kind: "constant", value: ["ravenbloom.other-mode"] }
           }
         }
       ]

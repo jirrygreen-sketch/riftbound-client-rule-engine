@@ -1,0 +1,106 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { validateCardProgram } from "../../../dist/index.js";
+import program from "../../../dist/cards/ogn/jinx-rebel.js";
+const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
+const { world } = await import(new URL("effects/testing/index.js", engineCore));
+// card-dsl has no dependency edge on engine-core, so golden execution loads the
+// built engine through its workspace layout instead of the package name.
+const { runAbilityBody } = await import(new URL("effects/interpreter.js", engineCore));
+
+const READY_ID = "jinx-rebel.ready-me";
+const MIGHT_ID = "jinx-rebel.might-this-turn";
+
+test("ogn-202-298 Jinx, Rebel: program validates and has expected identity", () => {
+  const result = validateCardProgram(program);
+  assert.deepEqual(result.issues, []);
+  assert.equal(result.ok, true);
+  assert.equal(
+    program.canonicalCardId,
+    "card.hash-059595a3565959bb085347df8707eaf005ac8c9d516ca7e8cb0802a873d37ab6"
+  );
+  assert.equal(program.rulesetVersion, "core-1.5");
+  assert.equal(program.status, "judge-required");
+  assert.match(program.judgeReason, /continuous\.might/);
+  assert.match(program.judgeReason, /per-batch|批次/);
+  assert.equal(
+    program.sourceText,
+    "When you discard one or more cards, ready me and give me +1 :rb_might: this turn."
+  );
+});
+
+test("ogn-202-298 Jinx, Rebel: discard trigger with ready-me then an end-of-turn Might descriptor", () => {
+  assert.equal(program.abilities.length, 1);
+  const [ability] = program.abilities;
+  assert.equal(ability.kind, "triggered");
+  assert.equal(ability.trigger.at, "card-discarded");
+  assert.deepEqual(ability.trigger.filter, {
+    event: "card-discarded",
+    player: "controller"
+  });
+  assert.equal(ability.optional, false);
+  assert.equal(ability.trigger.once, undefined);
+  assert.equal(ability.trigger.condition, undefined);
+
+  const [ready, might] = ability.body;
+  assert.equal(ready.id, READY_ID);
+  assert.equal(ready.op, "effect.ready");
+  // "ready me" — effect.ready defaults to the ability source when objects is omitted.
+  assert.deepEqual(ready.args, {});
+  assert.equal(ready.targets, undefined);
+  assert.equal(ready.linkedTo, undefined);
+
+  assert.equal(might.id, MIGHT_ID);
+  assert.equal(might.op, "continuous.might");
+  assert.deepEqual(might.args.amount, { kind: "constant", value: 1 });
+  assert.deepEqual(might.args.duration, { kind: "constant", value: "end-of-turn" });
+  assert.equal(might.targets.length, 1);
+  assert.equal(might.targets[0].id, "self-unit");
+  assert.deepEqual(might.targets[0].filter, {
+    object: "self",
+    type: "unit",
+    zone: "board"
+  });
+});
+
+test("ogn-202-298 Jinx, Rebel golden: 'ready me' readies the exhausted source through the interpreter", () => {
+  const kernel = world()
+    .unit("jinx", { might: 5, exhausted: true, location: { type: "base", player: "A" } })
+    .build();
+  Object.defineProperty(kernel, "source", { value: kernel.getObject("jinx") });
+
+  const [ready] = program.abilities[0].body;
+  const outcome = runAbilityBody([ready], kernel);
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.deepEqual(outcome.results[0].result.linkedValues, {
+    readied: { count: 1, objects: [{ id: "jinx", zoneEntryId: 1 }] }
+  });
+  assert.equal(kernel.getObject("jinx").exhausted, false);
+});
+
+test("ogn-202-298 Jinx, Rebel: readying an already-ready source is a no-op, not a failure (CR 416.1.b)", () => {
+  const kernel = world()
+    .unit("jinx", { might: 5, exhausted: false, location: { type: "base", player: "A" } })
+    .build();
+  Object.defineProperty(kernel, "source", { value: kernel.getObject("jinx") });
+
+  const [ready] = program.abilities[0].body;
+  const outcome = runAbilityBody([ready], kernel);
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.deepEqual(outcome.results[0].result.linkedValues, {
+    readied: { count: 0, objects: [] }
+  });
+  assert.equal(kernel.getObject("jinx").exhausted, false);
+});
+
+test.todo(
+  "ogn-202-298 Jinx, Rebel: '+1 :rb_might: this turn' as an end-of-turn Might modification " +
+    "(expression 修正层 432/433，回合结束由 317.2.c 同时到期；缺 continuous.might 指令原语，依赖 RIFT-91 后的原语落地)"
+);
+
+test.todo(
+  "ogn-202-298 Jinx, Rebel: 'one or more cards' fires the trigger once per discard batch " +
+    "(CR 423.1.b；card-discarded 按牌逐张发出，触发生命期枚举没有 per-batch 去重，依赖 RIFT-120 事件管线)"
+);

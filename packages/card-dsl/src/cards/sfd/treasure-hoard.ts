@@ -41,38 +41,44 @@ export default {
         {
           id: "treasure-hoard.opt-in",
           op: "choice.optional",
-          args: { prompt: { kind: "constant", value: "Pay 1 energy to play a Gold gear token exhausted?" } }
-        },
-        {
-          id: "treasure-hoard.pay",
-          op: "cost.pay",
-          linkedTo: "treasure-hoard.opt-in",
-          args: { energy: { kind: "constant", value: 1 } }
-        },
-        {
-          id: "treasure-hoard.create",
-          op: "effect.token",
-          linkedTo: "treasure-hoard.pay",
           args: {
-            token: { kind: "constant", value: "gold" },
-            mode: { kind: "constant", value: "chain" },
-            amount: { kind: "constant", value: 1 },
-            linkKey: { kind: "constant", value: "goldToken" }
-          }
-        },
-        {
-          id: "treasure-hoard.play",
-          op: "effect.play",
-          linkedTo: "treasure-hoard.create",
-          args: {
-            object: { kind: "linked-value", instructionId: "treasure-hoard.create", key: "goldToken.objects" },
-            cost: { kind: "constant", value: { finalized: true, energy: 0, power: [], xp: 0 } },
-            // Location is nominal: the real location is decided by the chain
-            // play flow (440.2.c / 185.2.a); object-property cannot express
-            // "the source battlefield's location" without a static ref, and
-            // the IR validator currently requires a string id (not ObjectRef)
-            // for object-property, which is a known IR-layer mismatch.
-            location: { kind: "constant", value: { type: "battlefield", id: "battlefield-1" } }
+            prompt: { kind: "constant", value: "Pay 1 energy to play a Gold gear token exhausted?" },
+            body: {
+              kind: "constant",
+              value: [
+                {
+                  id: "treasure-hoard.pay",
+                  op: "cost.pay",
+                  args: { energy: { kind: "constant", value: 1 } }
+                },
+                {
+                  id: "treasure-hoard.create",
+                  op: "effect.token",
+                  linkedTo: "treasure-hoard.pay",
+                  args: {
+                    token: { kind: "constant", value: "gold" },
+                    mode: { kind: "constant", value: "chain" },
+                    amount: { kind: "constant", value: 1 },
+                    linkKey: { kind: "constant", value: "goldToken" }
+                  }
+                },
+                {
+                  id: "treasure-hoard.play",
+                  op: "effect.play",
+                  linkedTo: "treasure-hoard.create",
+                  args: {
+                    object: { kind: "linked-value", instructionId: "treasure-hoard.create", key: "goldToken.objects" },
+                    cost: { kind: "constant", value: { finalized: true, energy: 0, power: [], xp: 0 } },
+                    // Location is nominal: the real location is decided by the chain
+                    // play flow (440.2.c / 185.2.a); object-property cannot express
+                    // "the source battlefield's location" without a static ref, and
+                    // the IR validator currently requires a string id (not ObjectRef)
+                    // for object-property, which is a known IR-layer mismatch.
+                    location: { kind: "constant", value: { type: "battlefield", id: "battlefield-1" } }
+                  }
+                }
+              ]
+            }
           }
         }
       ]

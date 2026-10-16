@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/sunken-temple.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 test("sunken-temple: passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -24,14 +26,29 @@ test("sunken-temple: conquer-with-Mighty structure with pay and draw", () => {
   assert.deepEqual(condition.right, { kind: "constant", value: 1 });
   assert.equal(condition.left.kind, "count");
   assert.equal(condition.left.filter.mightGte, 5);
-  const ids = ability.body.map(instruction => instruction.id);
-  assert.deepEqual(ids, ["sunken-temple.opt-in", "sunken-temple.pay", "sunken-temple.draw"]);
-  assert.equal(ability.body[0].op, "choice.optional");
-  assert.equal(ability.body[1].op, "cost.pay");
-  assert.deepEqual(ability.body[1].args.energy, { kind: "constant", value: 1 });
-  assert.equal(ability.body[2].op, "effect.draw");
-  assert.deepEqual(ability.body[2].args.amount, { kind: "constant", value: 1 });
-  assert.equal(ability.body[2].linkedTo, "sunken-temple.pay");
+  assert.deepEqual(ability.body.map(instruction => instruction.id), ["sunken-temple.opt-in"]);
+  const [choice] = ability.body;
+  assert.equal(choice.op, "choice.optional");
+  assert.equal(choice.args.body.kind, "constant");
+  const [pay, draw] = choice.args.body.value;
+  assert.deepEqual(choice.args.body.value.map(instruction => instruction.id), ["sunken-temple.pay", "sunken-temple.draw"]);
+  assert.equal(pay.op, "cost.pay");
+  assert.equal(pay.linkedTo, undefined);
+  assert.deepEqual(pay.args.energy, { kind: "constant", value: 1 });
+  assert.equal(draw.op, "effect.draw");
+  assert.deepEqual(draw.args.amount, { kind: "constant", value: 1 });
+  assert.equal(draw.linkedTo, "sunken-temple.pay");
+});
+
+test("sunken-temple: declining skips both payment and draw", () => {
+  const kernel = world().deck("top-card").build();
+  kernel.setAnswers({ "sunken-temple.opt-in/optional": false });
+  const outcome = runAbilityBody(program.abilities[0].body, kernel);
+  assert.deepEqual(outcome.results.map(result => result.id), ["sunken-temple.opt-in"]);
+  assert.equal(outcome.results[0].result.reason, "skipped");
+  assert.deepEqual(kernel.events, []);
+  assert.equal(kernel.zone("A", "deck").length, 1);
+  assert.equal(kernel.zone("A", "hand").length, 0);
 });
 
 // The draw primitive (effect.draw) is merged, but the ability cannot be

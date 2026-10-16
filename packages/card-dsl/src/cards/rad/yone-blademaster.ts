@@ -25,8 +25,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   对应 170.11.b 的定义（无人控制）。
  * - "deal damage equal to my Might"：动态数额用 object-property 表达式
  *   取来源单位的当前 Might（结算时求值，契约 3.6 evaluate 时机）；
- *   object 写字符串占位符 "source" 的原因同 Unsung Hero（当前校验器要求
- *   string，RIFT-46 合入后改 ObjectRef）。
+ *   object 用契约 3.6 的符号选择器 "source"，由解释器绑定运行时引用。
  * - "an enemy unit in a base"：目标 TargetSpec（type: unit,
  *   controller: opponent, location: base）。
  */
@@ -52,7 +51,7 @@ const abilities: Ability[] = [
           args: {
             amount: {
               kind: "object-property",
-              object: "source" as unknown as import("../../ir/index.js").ObjectRef,
+              object: "source",
               property: "might"
             },
             target: { kind: "constant", value: "enemy-unit-in-base" },

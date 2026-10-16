@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/treasure-hoard.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 test("treasure-hoard: passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -17,21 +19,34 @@ test("treasure-hoard: optional conquer structure with pay, token and play", () =
   assert.equal(ability.trigger.at, "conquer");
   assert.equal(ability.trigger.filter.here, true);
   assert.equal(ability.optional, true);
-  const ids = ability.body.map(instruction => instruction.id);
+  assert.deepEqual(ability.body.map(instruction => instruction.id), ["treasure-hoard.opt-in"]);
+  const [choice] = ability.body;
+  assert.equal(choice.op, "choice.optional");
+  assert.equal(choice.args.body.kind, "constant");
+  const body = choice.args.body.value;
+  const ids = body.map(instruction => instruction.id);
   assert.deepEqual(ids, [
-    "treasure-hoard.opt-in",
     "treasure-hoard.pay",
     "treasure-hoard.create",
     "treasure-hoard.play"
   ]);
-  assert.equal(ability.body[0].op, "choice.optional");
-  assert.equal(ability.body[1].op, "cost.pay");
-  assert.deepEqual(ability.body[1].args.energy, { kind: "constant", value: 1 });
-  assert.equal(ability.body[1].linkedTo, "treasure-hoard.opt-in");
-  assert.equal(ability.body[2].op, "effect.token");
-  assert.deepEqual(ability.body[2].args.token, { kind: "constant", value: "gold" });
-  assert.equal(ability.body[3].op, "effect.play");
-  assert.equal(ability.body[3].linkedTo, "treasure-hoard.create");
+  assert.equal(body[0].op, "cost.pay");
+  assert.deepEqual(body[0].args.energy, { kind: "constant", value: 1 });
+  assert.equal(body[0].linkedTo, undefined);
+  assert.equal(body[1].op, "effect.token");
+  assert.equal(body[1].linkedTo, "treasure-hoard.pay");
+  assert.deepEqual(body[1].args.token, { kind: "constant", value: "gold" });
+  assert.equal(body[2].op, "effect.play");
+  assert.equal(body[2].linkedTo, "treasure-hoard.create");
+});
+
+test("treasure-hoard: declining skips payment, creation and token play", () => {
+  const kernel = world().build();
+  kernel.setAnswers({ "treasure-hoard.opt-in/optional": false });
+  const outcome = runAbilityBody(program.abilities[0].body, kernel);
+  assert.deepEqual(outcome.results.map(result => result.id), ["treasure-hoard.opt-in"]);
+  assert.equal(outcome.results[0].result.reason, "skipped");
+  assert.deepEqual(kernel.events, []);
 });
 
 // Gold token definition, chain-create + cost-waived play flow and the
