@@ -12,7 +12,7 @@ export function triggerRegistrations(registry: ProgramRegistry, source: ObjectSn
   const program = registry.get(source.cardId);
   const abilities = expandProgram(program, source).abilities;
   const permanent = source.types.every(type => !['spell'].includes(type.toLowerCase()));
-  const activeZones = permanent ? ['board'] : ['chain'];
+  const defaultZones = permanent ? ['board'] : ['chain'];
   return abilities.flatMap((ability, index) => {
     if (ability.kind !== 'triggered') return [];
     try {
@@ -25,7 +25,13 @@ export function triggerRegistrations(registry: ProgramRegistry, source: ObjectSn
         spec: { at: ability.trigger.at as TimingPointId, filter: filter as any, ...(ability.trigger.condition ? { condition: ability.trigger.condition as any } : {}), ...(ability.trigger.once ? { once: ability.trigger.once } : {}) },
         body,
         optional: ability.optional,
-        activeZones,
+        activeZones: (() => {
+          const at = ability.trigger.at;
+          if (at === 'object-enters-chain' || at === 'object-leaves-chain') return ['chain'];
+          if (at === 'object-enters-board' || at === 'object-leaves-board' || at === 'object-killed') return ['board'];
+          if (at === 'card-played') return permanent ? ['board'] : ['chain'];
+          return defaultZones;
+        })(),
         boundToIncarnation: true
       } satisfies TriggerRegistration];
     } catch (error) {

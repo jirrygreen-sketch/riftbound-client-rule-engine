@@ -14,11 +14,12 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
   const pipeline = engine.pipeline;
   const original = pipeline.emit.bind(pipeline);
   const key = (source: ObjectSnapshot) => `${source.ref.id}:${source.ref.zoneEntryId}`;
-  const attach = (source: ObjectSnapshot) => {
+  const attach = (source: ObjectSnapshot, bindContinuous = false) => {
     const k = key(source);
     try {
       if (!triggerIds.has(k)) triggerIds.set(k, registerProgramTriggers(registry, engine, source));
     } catch (error) { onError?.(error, source); }
+    if (!bindContinuous) return;
     try {
       if (!staticHandles.has(k)) {
         const handles: StaticBindingHandle[] = [];
@@ -42,13 +43,20 @@ export function attachProgramLifecycle(engine: ChainEngine, registry: ProgramReg
     const enters = emission.timingPoint === 'object-enters-board' || emission.timingPoint === 'object-enters-chain';
     const leaves = emission.timingPoint === 'object-leaves-board' || emission.timingPoint === 'object-leaves-chain' || emission.timingPoint === 'object-killed';
     if (enters && emission.object) {
-      const isSpell = emission.object.types.some(type => type.toLowerCase() === 'spell');
-      const shouldAttach = emission.timingPoint === 'object-enters-chain' ? isSpell : !isSpell;
-      if (shouldAttach) attach(emission.object);
+      const isBoardEntry = emission.timingPoint === 'object-enters-board';
+      attach(emission.object, isBoardEntry);
     }
     const event = original(emission, action);
     if (leaves && emission.object) detachSource(emission.object);
     return event;
   }) as typeof pipeline.emit;
-  return { detach() { pipeline.emit = original; for (const source of [...triggerIds.keys()]) { const [id, zoneEntryId] = source.split(':'); void id; void zoneEntryId; } triggerIds.clear(); for (const handles of staticHandles.values()) for (const handle of handles) handle.unbind(); staticHandles.clear(); } };
+  return {
+    detach() {
+      pipeline.emit = original;
+      for (const ids of triggerIds.values()) unregisterProgramTriggers(engine, ids);
+      triggerIds.clear();
+      for (const handles of staticHandles.values()) for (const handle of handles) handle.unbind();
+      staticHandles.clear();
+    }
+  };
 }

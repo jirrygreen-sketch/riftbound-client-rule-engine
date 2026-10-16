@@ -21,6 +21,9 @@ test('program registry rejects judge-required and unknown programs', () => {
   const blocked = [...cardProgramsById.values()].find(program => program.status === 'judge-required');
   assert.ok(blocked);
   assert.throws(() => b.registry.get(blocked.canonicalCardId), error => error.code === 'judge-required');
+  const noAbility = [...cardProgramsById.values()].find(program => program.status === 'no-ability');
+  assert.ok(noAbility);
+  assert.throws(() => b.registry.get(noAbility.canonicalCardId), error => error.code === 'judge-required');
 });
 
 test('program keyword expansion preserves stacking and derives speed', () => {
@@ -104,4 +107,27 @@ test('static and replacement callbacks bind on entry and unbind on exit', () => 
   resolveAll(f.engine);
   f.engine.commit({ type: 'kill', object: f.kernel.ref('permanent') });
   assert.deepEqual(calls.slice(-2), ['static-permanent', 'replacement-permanent']);
+});
+
+test('detaching the lifecycle unregisters program triggers and continuous bindings', () => {
+  const calls = [];
+  const program = { canonicalCardId: 'detach-card', rulesetVersion: 'core-1.5', status: 'executable', sourceText: 'detach', abilities: [
+    { kind: 'static', effect: { kind: 'continuous.test' } },
+    { kind: 'triggered', trigger: { at: 'card-played', filter: { self: true } }, optional: false, body: [{ id: 'draw', op: 'effect.draw', args: { amount: { kind: 'constant', value: 1 } } }] }
+  ] };
+  const b = createProgramBinding({ cardPrograms: [program], staticBinder: {
+    bindStatic: (_ability, source) => { calls.push(`static+${source.ref.id}`); return { unbind: () => calls.push(`static-${source.ref.id}`) }; }
+  } });
+  const f = fixture({ cards: [{ id: 'permanent', cardId: 'detach-card', types: ['unit'], energy: 1, power: [] }], describePlay: b.describePlay });
+  const lifecycle = b.attachLifecycle(f.engine);
+  f.engine.commit({ type: 'play', object: f.kernel.ref('permanent'), player: 'A' });
+  f.engine.advance();
+  assert.equal(calls.includes('static+permanent'), true);
+  resolveAll(f.engine);
+  const handAfterPlay = f.kernel.player('A').handSize;
+  lifecycle.detach();
+  assert.equal(calls.includes('static-permanent'), true);
+  f.engine.emit({ timingPoint: 'card-played', object: f.kernel.getObject('permanent'), player: 'A' });
+  f.engine.advance();
+  assert.equal(f.kernel.player('A').handSize, handAfterPlay);
 });

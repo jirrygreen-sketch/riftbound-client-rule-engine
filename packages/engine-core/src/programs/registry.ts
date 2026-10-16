@@ -11,6 +11,7 @@ export class ProgramRegistry {
     for (const [id, program] of entries) {
       const result = validateCardProgram(program);
       if (!result.ok) throw new ProgramBindingError('invalid-program', `Invalid card program ${id}`, result.issues);
+      if (id !== result.value.canonicalCardId) throw new ProgramBindingError('invalid-program', `Registry key ${id} does not match canonicalCardId ${result.value.canonicalCardId}`);
       if (map.has(id)) throw new ProgramBindingError('invalid-program', `Duplicate card program ${id}`);
       map.set(id, result.value);
     }
@@ -19,8 +20,12 @@ export class ProgramRegistry {
   get(cardId: string | null | undefined): CardProgram {
     if (!cardId || !this.programs.has(cardId)) throw new ProgramBindingError('unknown-program', `No CardProgram is registered for ${cardId ?? '<null>'}`);
     const program = this.programs.get(cardId)!;
-    if (program.status === 'judge-required') throw new ProgramBindingError('judge-required', program.judgeReason ?? `Card program ${cardId} requires a judge`, program);
-    if (program.status !== 'executable' && program.status !== 'no-ability') throw new ProgramBindingError('invalid-program', `Unsupported CardProgram status ${program.status}`, program);
+    if (program.status !== 'executable') {
+      const reason = program.status === 'judge-required'
+        ? (program.judgeReason ?? `Card program ${cardId} requires a judge`)
+        : `Card program ${cardId} has no executable ability`;
+      throw new ProgramBindingError('judge-required', reason, program);
+    }
     return program;
   }
   inspect(cardId: string | null | undefined): CardProgram | undefined { return cardId ? this.programs.get(cardId) : undefined; }
