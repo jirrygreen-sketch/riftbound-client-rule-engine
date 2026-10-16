@@ -50,7 +50,8 @@ import type { CardProgram } from "../../ir/index.js";
  * set query for order) and the follow-up instructions act on an empty list, so
  * a production play cannot even look at the top three cards. The golden test
  * supplies the ordered set through the reference kernel, which by itself does
- * not prove the production path.
+ * not prove the production path. A play ability also needs the card-program
+ * binding (RIFT-257) before it can be played from a hand at all.
  */
 const stackedDeck = {
   canonicalCardId: "card.hash-de0d686bb2019a7d9b9b5212d1e6b414c0f1c1a69c9903fedc7471b860b86045",
@@ -60,7 +61,8 @@ const stackedDeck = {
     "缺「按牌库顶顺序取前 3 张」的生产选择生命周期：effect.inspect 的 top scope 必须由上游提供有序 picksSpecId（其自身文档明确：query 不保证顺序，缺有序来源时 negated/impossible，不用 query 截取近似）；" +
     "已合入的链 Finalize 只锁定 instruction.targets 的 TargetSpec（chain/engine.ts assertFinalizationSurface），没有有序区域 pick 的锁定路径，" +
     "生产打出会因缺有序来源而查看不到任何牌（范围为空、后续取 1 无从选择），无法完成「看牌库顶 3 张」。" +
-    "look → 取 1 入手 → recycle 其余三段只用已合入原语，golden 测试借参考内核提供该有序集合执行；依赖有序区域 picks / Finalize 生命周期落地。",
+    "look → 取 1 入手 → recycle 其余三段只用已合入原语，golden 测试借参考内核提供该有序集合执行；" +
+    "play 能力的打出还需要卡牌程序绑定（RIFT-257）。依赖：有序区域 picks / Finalize 生命周期落地、RIFT-257。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

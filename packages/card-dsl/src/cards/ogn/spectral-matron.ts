@@ -29,11 +29,12 @@ import type { CardProgram } from "../../ir/index.js";
  *    等值/特征筛选，没有 "印刷 Energy <= 3" "印刷 Power <= 1（任意域）" 的谓词；把该上限写成
  *    普通 filter 键会被选择管线忽略（等于放开限制，属近似实现），因此本卡保持 judge-required。
  * 2. "ignoring its cost" 的 finalized 费用计划必须由费用计划系统产出（cost.printed /
- *    ignore-cost 改写），卡牌数据只能声明形状；Play 的落点选择（355.4）同样由 Play/Finalize
- *    流程负责。
+ *    ignore-cost 改写）：该路径属尚在进行的 RIFT-261（费用种类与 cost.pay / cost.modify），
+ *    卡牌数据只能声明形状；Play 的落点选择（355.4）同样由
+ *    Play/Finalize 流程负责，卡牌程序绑定依赖 RIFT-257。
  *
- * 依赖：RIFT-89（batch3-cost-plan：cost.printed / cost.pay / ignore-cost 计划）、
- *       RIFT-90（TargetPlan 谓词：印刷费用上限选择）。
+ * 依赖：RIFT-261（cost.printed / ignore-cost 计划）、RIFT-257（卡牌程序绑定）、
+ *       TargetPlan 的印刷费用谓词（ObjectFilter 尚无对应键）。
  */
 const spectralMatron = {
   canonicalCardId: "card.hash-3424a772092b9d250c6d4500599a350ba292ea19b57c3ce08f4fccf1289e6478",
@@ -43,9 +44,10 @@ const spectralMatron = {
     "「costing no more than [3] and no more than [A]」需要按印刷费用比较的目标谓词（356.1.c）：" +
     "现有 TargetSpec/ObjectFilter 只能做等值特征筛选，没有印刷 Energy <= 3 / 印刷 Power <= 1（任意域）的键，" +
     "写成普通键会被选择管线忽略而变成放开限制，不得近似实现；" +
-    "「ignoring its cost」（356.1.b.1 把 base Energy/Power 设为 0）的 finalized 费用计划必须由费用计划系统产出，" +
-    "卡牌数据只能声明该计划形状；被 Play 单位的合法落点选择属 355.4/Finalize 流程。" +
-    "依赖：RIFT-89（cost plan / cost.printed + ignore-cost）、RIFT-90（TargetPlan 谓词）。",
+    "「ignoring its cost」（356.1.b.1 把 base Energy/Power 设为 0）的 finalized 费用计划必须由费用计划系统产出：" +
+    "cost.printed 与费用绑定仍属尚在进行的 RIFT-261，卡牌数据只能声明该计划形状；" +
+    "被 Play 单位的合法落点选择属 355.4/Finalize 流程，卡牌程序绑定依赖 RIFT-257。" +
+    "依赖：RIFT-261（cost.printed / ignore-cost 计划）、RIFT-257（卡牌程序绑定）、RIFT-90（TargetPlan 印刷费用谓词）。",
   sourceText:
     "When you play me, you may play a unit costing no more than :rb_energy_3: and no more than :rb_rune_rainbow: from your trash, ignoring its cost.",
   abilities: [

@@ -16,18 +16,21 @@ import type { CardProgram } from "../../ir/index.js";
  *   356.4.d), with 356.4.e (a discount's minimum only limits that discount) and
  *   356.6 (Energy cannot be reduced below 0). It is declared as a static
  *   continuous.cost-modification ability, the shape the merged cost planner
- *   (RIFT-89 buildCostPlan) takes as an input discount. Two dependencies are
+ *   (buildCostPlan) takes as an input discount. Three dependencies are
  *   missing, so the card is judge-required:
  *   - nothing reads CardProgram abilities into a cost plan: buildCostPlan's
  *     discounts/baseModifications are caller input, and effects/instructions
- *     has no cost.modify / cost.printed primitive;
+ *     has no cost.modify / cost.printed primitive (RIFT-261 is still in
+ *     progress);
  *   - the discount's condition ("an enemy unit has died this turn") needs a
- *     history predicate over death events of enemy units. The frozen
+ *     history predicate over death events of enemy units. The frozen merged
  *     HistoryQuery is { scope, action, timingPoint, player, object } (contract
- *     3.6); the contract 3.8 addendum (objectFilter / exclude) is not in the
- *     merged ResolveContext, and neither Condition nor CostSpec has a
+ *     3.6): `player` is an explicit PlayerId with no relative "opponent"
+ *     form, and the contract 3.8 objectFilter/exclude addendum is not in the
+ *     merged ResolveContext; neither Condition nor CostSpec has a
  *     history-condition form (only the resolve-time condition.history
- *     instruction does). The intended query is recorded below for review.
+ *     instruction does). The intended query is recorded below for review;
+ *   - there is no CardProgram static-cost binding path (RIFT-257).
  * - "Draw 2." is a plain effect.draw (414.3) and is independent of the
  *   discount: it resolves whenever the spell resolves.
  */
@@ -37,13 +40,15 @@ const spoilsOfWar = {
   status: "judge-required",
   judgeReason:
     "「If an enemy unit has died this turn, this costs 2 less.」是 Finalize 阶段的基础费用折扣" +
-    "（355.1/355.1.a、356.4.b/d、356.4.e、356.6），两条依赖未合入：(1) 已合入的 cost/ 只提供 buildCostPlan 输入" +
+    "（355.1/355.1.a、356.4.b/d、356.4.e、356.6），三处依赖未合入：(1) 已合入的 cost/ 只提供 buildCostPlan 输入" +
     "（discounts / baseModifications），没有任何消费者读取卡牌程序的静态费用改写，effects/instructions 也没有 " +
-    "cost.modify / cost.printed 原语；(2) 条件“本回合有敌方单位死亡”需要按对象过滤的死亡事件历史谓词，" +
-    "冻结的 HistoryQuery 只有 {scope, action, timingPoint, player, object}（契约 3.6），契约 3.8 增补的 " +
-    "objectFilter / exclude 尚未在合并代码实现，Condition 与 CostSpec 也没有历史条件形态（只有结算期 " +
-    "condition.history 指令）。Draw 2 部分只用已合入的 effect.draw，可独立执行。" +
-    "依赖：RIFT-89 费用计划消费方 + 契约 3.8 历史查询落地。",
+    "cost.modify / cost.printed 原语（RIFT-261 尚在进行）；" +
+    "(2) 条件“本回合有敌方单位死亡”需要按对象过滤、按相对玩家限定的死亡事件历史谓词，合并的 HistoryQuery 只有 " +
+    "{scope, action, timingPoint, player, object}（契约 3.6；player 是显式 id，没有“对手”相对形式），" +
+    "契约 3.8 增补的 objectFilter / exclude 尚未在合并代码实现，Condition 与 CostSpec 也没有历史条件形态" +
+    "（只有结算期 condition.history 指令）；(3) 卡牌 static 费用改写的绑定属 RIFT-257。" +
+    "Draw 2 部分只用已合入的 effect.draw，可独立执行。依赖：RIFT-261（cost.printed / 费用计划消费方）、" +
+    "RIFT-257（卡牌 static 绑定）与历史查询扩展。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {

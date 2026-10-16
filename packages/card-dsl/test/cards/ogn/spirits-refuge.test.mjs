@@ -4,6 +4,9 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/spirits-refuge.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -128,14 +131,101 @@ test("Spirit's Refuge golden: a target that left the board is ignored, not rebuf
   assert.equal(kernel.getObject("ally").buffs, 0);
 });
 
-test.todo(
-  "Spirit's Refuge: “Friendly buffed units have [Deflect] if they didn't already.” needs a keyword " +
-    "grant consumed by the layers (continuous.grant-keyword, contract 3.7) plus a Buff-count filter " +
-    "(702 / ObjectSnapshot.buffs) that ObjectFilter does not currently expose; RIFT-91 and RIFT-84 own " +
-    "those pieces."
-);
+test("Spirit's Refuge golden: the grant registers Deflect for the friendly unit with a Buff", () => {
+  const base = world()
+    .unit("host", { types: ["gear"], zone: "board", owner: "A", controller: "A", might: null })
+    .unit("buffed-ally", { might: 2, buffs: 1, owner: "A", controller: "A" })
+    .unit("plain-ally", { might: 2, buffs: 0, owner: "A", controller: "A" })
+    .unit("enemy-buffed", { might: 2, buffs: 1, owner: "B", controller: "B" })
+    .build();
+  // The static effect's filter uses the contract-level "controller"
+  // placeholder; the production query wrapper resolves controller/owner
+  // (chain/engine.ts). Bind the production matcher so the declared filter runs
+  // unchanged.
+  const productionQuery = (filter) => base.objects.filter((object) => matchesObjectFilter(
+    Object.fromEntries(Object.entries(filter).map(([key, value]) =>
+      [key, (key === "controller" || key === "owner") && value === "controller" ? "A" : value])),
+    object
+  ));
+  const kernel = bindResolveContext(base, {
+    source: base.getObject("host"),
+    sourceSnapshot: base.getObject("host"),
+    query: productionQuery
+  });
+  const declared = deflectGrant.effect;
+  const body = [{
+    id: "spirits-refuge.grant-deflect",
+    op: "continuous.grant-keyword",
+    args: {
+      keyword: { kind: "constant", value: declared.keyword },
+      value: declared.value,
+      objects: {
+        kind: "constant",
+        value: { kind: "query", filter: declared.filter }
+      }
+    }
+  }];
+  const outcome = runAbilityBody(body, kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.linkedValues["spirits-refuge.grant-deflect.granted.count"], 1);
+  assert.deepEqual(
+    outcome.linkedValues["spirits-refuge.grant-deflect.granted.objects"],
+    [base.ref("buffed-ally")]
+  );
+  assert.equal(base.continuousEffects.length, 1);
+  assert.equal(base.continuousEffects[0].effect.layer, "ability");
+  assert.equal(base.continuousEffects[0].effect.effect.keyword, "Deflect");
+  assert.equal(base.continuousEffects[0].effect.effect.keywordValue, 1);
+  assert.deepEqual(base.continuousEffects[0].duration, { type: "permanent" });
+
+  // The layer engine really grants the keyword to the buffed friendly unit
+  // only (809.1: Deflect is an ability-layer keyword grant; 702.3 keeps one
+  // Buff per unit so characteristics { buffs: 1 } is "buffed").
+  const layers = createLayerEngine(base.objects, base.continuousEffects);
+  assert.deepEqual(layers.evaluate(base.ref("buffed-ally")).keywords, [{ id: "Deflect", value: 1 }]);
+  assert.deepEqual(layers.evaluate(base.ref("plain-ally")).keywords, []);
+  assert.deepEqual(layers.evaluate(base.ref("enemy-buffed")).keywords, []);
+  assert.deepEqual(layers.evaluate(base.ref("host")).keywords, []);
+});
+
+test("Spirit's Refuge golden: no friendly unit with a Buff makes the grant a skipped negation", () => {
+  const base = world()
+    .unit("host", { types: ["gear"], zone: "board", owner: "A", controller: "A", might: null })
+    .unit("plain-ally", { might: 2, buffs: 0, owner: "A", controller: "A" })
+    .build();
+  const productionQuery = (filter) => base.objects.filter((object) => matchesObjectFilter(
+    Object.fromEntries(Object.entries(filter).map(([key, value]) =>
+      [key, (key === "controller" || key === "owner") && value === "controller" ? "A" : value])),
+    object
+  ));
+  const kernel = bindResolveContext(base, {
+    source: base.getObject("host"),
+    sourceSnapshot: base.getObject("host"),
+    query: productionQuery
+  });
+  const body = [{
+    id: "spirits-refuge.grant-deflect",
+    op: "continuous.grant-keyword",
+    args: {
+      keyword: { kind: "constant", value: "Deflect" },
+      value: { kind: "constant", value: 1 },
+      objects: {
+        kind: "constant",
+        value: { kind: "query", filter: deflectGrant.effect.filter }
+      }
+    }
+  }];
+  const outcome = runAbilityBody(body, kernel);
+  assert.equal(outcome.status, "partial");
+  assert.equal(outcome.results[0].result.status, "negated");
+  assert.equal(outcome.results[0].result.reason, "skipped");
+  assert.equal(base.continuousEffects.length, 0);
+});
 
 test.todo(
-  "Spirit's Refuge: applying Deflect still needs the target.tax path (CR v1.5 809.1.c) that turns the " +
-    "granted keyword into a payable additional target cost; RIFT-90 owns the target-tax adapter."
+  "Spirit's Refuge: binding the card's static continuous.grant-keyword ability into the layer registry " +
+    "for a real play, expressing the printed 'if they didn't already' (809.2) as an evaluable layer " +
+    "condition, and turning the granted Deflect into the payable target tax (809.1.c / RIFT-90) all " +
+    "remain pending on the CardProgram static binding (RIFT-257) and the target-tax adapter."
 );

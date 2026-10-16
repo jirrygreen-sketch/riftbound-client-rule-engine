@@ -35,6 +35,7 @@ test("ogn-183-298 Stacked Deck: program passes validateCardProgram", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /effect\.inspect/);
   assert.match(program.judgeReason, /zoneSlice|有序/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(
     program.sourceText,
     "[Action] (Play on your turn or in showdowns.)\n" +

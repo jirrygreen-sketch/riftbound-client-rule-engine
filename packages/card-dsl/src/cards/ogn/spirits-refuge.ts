@@ -26,11 +26,15 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   图层在 ability 层把关键词加到目标快照上。
  *
  * status = judge-required：
- * - 给「有 buff 的友方单位」授予 Deflect 需要 keyword-grant 持续效果，并且过滤条件要能读
- *   Buff 计数（ObjectSnapshot.buffs > 0）；引擎内部 registerReplacement 之外的持续效果注册
- *   路径与 buffs 过滤器均未接通到卡牌 IR（continuous.grant-keyword 没有已合入实现）；
- * - Deflect 自身的展开（target.tax，809.1.c）已由 keywords/Deflect.ts 声明，但仍依赖
- *   RIFT-90 的目标税适配。
+ * - continuous.grant-keyword 原语（RIFT-258）、ability 图层消费与 Deflect KeywordDef
+ *   （RIFT-84）均已合入，Buff 计数经 ObjectFilter.characteristics 可读（layers/filter.ts
+ *   的 characteristicsMatch），授予指令本身可用解释器真实执行（见 golden）；
+ * - 但没有任何已合入消费方把卡牌的 static 能力注册成图层效果（卡牌程序绑定 RIFT-257），
+ *   且「if they didn't already」需要图层条件词表能表达“尚无 Deflect”（现有
+ *   always/never/type/has-tag/has-keyword 无法取反，未知条件按 true），直接绑定会忽略
+ *   该限制并牵动已有 Deflect 的单位（809.2 的求和）；
+ * - Deflect 自身的展开（target.tax，809.1.c）已由 keywords/Deflect.ts 声明，但没有从
+ *   图层读取关键词并生成目标税的消费方（target tax adapter）。
  * 已合入部分：Play Effect 触发 + effect.buff（含 702.3 的“已有 buff 不重复”），
  * golden 测试真实执行。
  */
@@ -98,13 +102,16 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "「Friendly buffed units have [Deflect] if they didn't already.」需要给“有 buff 的友方单位”" +
-    "授予 Deflect（809.1/809.2，关键词授予 = continuous.grant-keyword 持续效果）：目前没有已合入的" +
-    "关键词授予消费路径，且图层过滤器还不能读 Buff 计数（ObjectSnapshot.buffs / 702 的 counter 判定" +
-    "在 ObjectFilter 里没有对应字段）；Deflect 的 target.tax 展开依赖 RIFT-90 的目标税适配。" +
-    "Play Effect 触发与「buff a friendly unit」（702.2.a、702.3.a 的已有 buff 不重复）已用已合入的" +
-    "effect.buff 原语真实执行。依赖：RIFT-91（layers-continuous）、RIFT-84（kw-deflect-hidden 的" +
-    "授予接线）、RIFT-90（batch3-target-plan）。不近似实现。",
+    "「Friendly buffed units have [Deflect] if they didn't already.」：continuous.grant-keyword 原语" +
+    "（RIFT-258）、ability 图层消费与 Deflect KeywordDef（RIFT-84）已合入，Buff 计数可由 " +
+    "ObjectFilter.characteristics 读取（layers/filter.ts 的 characteristicsMatch），授予指令已在 golden 中" +
+    "经解释器 + 图层引擎真实执行；整卡仍缺：(1) 把卡牌 static 能力注册进图层的消费方（卡牌程序绑定 RIFT-257），" +
+    "(2)「if they didn't already」在图层条件词表中无法表达“尚无 Deflect”——809.2 要求把新增授予与已有 Deflect 求和、不重复，而" +
+    "always/never/type/has-tag/has-keyword 不可取反且未知条件按 true，直接绑定会忽略该限制并牵动已有 Deflect 的单位；" +
+    "(3) Deflect 展开（809.1.c 的 target.tax）没有从图层关键词" +
+    "生成目标税的适配消费方。Play Effect 触发与「buff a friendly unit」（702.2.a、702.3.a）已用已合入的 " +
+    "effect.buff 原语真实执行。依赖：RIFT-257（卡牌 static/triggered 绑定）、RIFT-90（目标系统/目标税）与图层条件取反。" +
+    "不近似实现。",
   abilities,
   sourceText:
     "When you play this, buff a friendly unit. (If it doesn't have a buff, it gets a " +
