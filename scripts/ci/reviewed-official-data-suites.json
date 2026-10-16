@@ -17,15 +17,26 @@
     "Reviewed 2026-10-15 against the pinned snapshot",
     "2026-10-12-official-gallery / sha256:53b974c8472d82053bf61f6836842c8f0d62c2fafb4411fa502256912a504d10,",
     "which the live upstream sources no longer reproduce (see",
-    "probe-official-data-drift.mjs)."
+    "probe-official-data-drift.mjs).",
+    "",
+    "Re-reviewed 2026-10-16 for integration 1a7d7f8 (CI run 38834766320). Two",
+    "suites added there were verified the same way: they fail with 'Card catalog",
+    "file not found: .../deck-catalog.json' and pass once that file is present.",
+    "apps/game-server/tests/card-api.test.ts was NOT added: its single failing",
+    "test is a real assertion mismatch over Radiance availability and fails",
+    "identically with and without the official data (see below)."
   ],
   "schemaVersion": 1,
+  "officialDataFiles": [
+    "packages/card-data/data/deck-catalog.json"
+  ],
   "suites": [
     "apps/game-server/tests/constructed-regional-http.test.ts",
     "apps/game-server/tests/duel/accelerate-card-program-authority-v1.test.ts",
     "apps/game-server/tests/duel/equip-beginning-card-authority-v1.test.ts",
     "apps/game-server/tests/duel/fury77-real-rosters-source-cost-entry.test.ts",
     "apps/game-server/tests/duel/fury77-source-cost-entry-composition.test.ts",
+    "apps/game-server/tests/duel/gear-normal-production-chain.test.ts",
     "apps/game-server/tests/duel/hold-recruit-executor-v1.test.ts",
     "apps/game-server/tests/duel/optional-unit-choice-clock-p4.test.ts",
     "apps/game-server/tests/duel/optional-unit-payment-entry-v3.test.ts",
@@ -53,6 +64,13 @@
     "packages/card-dsl/test/duel/temporary-description-v1.test.mjs",
     "packages/engine-core/test/duel-point-damage-cardplay-coordinator-v1.test.mjs",
     "packages/engine-core/test/duel-point-damage-effect-v1.test.mjs",
-    "packages/engine-core/test/duel-point-production-target-proof-v1.test.mjs"
+    "packages/engine-core/test/duel-point-production-target-proof-v1.test.mjs",
+    "packages/integration-tests/test/default-path/snapshots.test.ts"
+  ],
+  "excludedAfterReview": [
+    {
+      "suite": "apps/game-server/tests/card-api.test.ts",
+      "reason": "Not data-caused. The only failing test, 'rejects unreleased printings without banning released same-identity printing', is an assertion mismatch about Radiance availability. Verified 2026-10-16 at 1a7d7f8: it fails identically with and without packages/card-data/data/deck-catalog.json (16 tests, 1 failed, 15 passed both ways). Root cause is a wall-clock date boundary in apps/game-server/src/constructed-policy.ts: RADIANCE_EFFECTIVE_AT = 2026-10-16T00:00:00.000Z flips printingPolicies/status from previewNotReleased to available at that instant, while the test fixture expects the pre-activation branch. The CI run started 2026-10-16T01:22:30Z, i.e. after the boundary. Adding it here would hide a real failure."
+    }
   ]
 }
