@@ -1,0 +1,147 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
+import program from "../../../dist/cards/unl/disposal-order.js";
+import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
+import recycle from "../../../../engine-core/dist/effects/instructions/effect.recycle.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+
+const CANONICAL_ID =
+  "card.hash-ae826439bb4605b7d72d3b0b431548f77c4cde681a949dd0e613036488b554c0";
+const SOURCE_TEXT =
+  "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +
+  "Choose one —\n" +
+  "Choose up to 3 cards from opponents' trashes. Their owners recycle them.Draw 1.";
+
+const [reaction, play] = program.abilities;
+const [mode] = play.body;
+const [recycleMode, drawMode] = mode.args.modes.value;
+const [recycleInstruction] = recycleMode.body;
+const [drawInstruction] = drawMode.body;
+
+test("unl-103-219 Disposal Order: program passes validateCardProgram", () => {
+  const result = validateCardProgram(program);
+  assert.deepEqual(result.issues, []);
+  assert.equal(result.ok, true);
+});
+
+test("unl-103-219 Disposal Order: identity, status, judgeReason and verbatim sourceText (catalog tail kept)", () => {
+  assert.equal(program.canonicalCardId, CANONICAL_ID);
+  assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
+  assert.equal(program.status, "judge-required");
+  // The catalog's missing space/newline between "them." and "Draw 1" is kept
+  // verbatim; the data issue is reported in the task reply, not edited.
+  assert.equal(program.sourceText, SOURCE_TEXT);
+  assert.equal(program.sourceText.includes("them.Draw 1"), true);
+  assert.match(program.judgeReason, /108\.2\.a/);
+  assert.match(program.judgeReason, /355\.13/);
+  assert.match(program.judgeReason, /effect\.recycle/);
+});
+
+test("unl-103-219 Disposal Order: [Reaction] plus a two-mode choice (recycle | draw)", () => {
+  assert.deepEqual(reaction, { kind: "keyword", keyword: "reaction" });
+  assert.equal(play.kind, "play");
+  assert.equal(mode.op, "choice.mode");
+  // 355.3 / contract 3.9: exactly one exclusive mode, written as a choice.mode
+  // node rather than a choice plus linkedTo.
+  assert.deepEqual(mode.args.count, { kind: "constant", value: 1 });
+  assert.deepEqual(mode.args.different, { kind: "constant", value: true });
+  assert.equal(mode.linkedTo, undefined);
+  assert.deepEqual(
+    mode.args.modes.value.map((entry) => entry.id),
+    ["disposal-order.recycle-mode", "disposal-order.draw-mode"]
+  );
+  assert.equal(recycleMode.body.length, 1);
+  assert.equal(drawMode.body.length, 1);
+
+  // Mode one: "Choose up to 3 cards from opponents' trashes" is the 417.6
+  // non-targeting recycle form; 108.2.a makes "trashes" a per-player zone set
+  // that the merged from shape cannot express (see judgeReason).
+  assert.equal(recycleInstruction.op, "effect.recycle");
+  assert.deepEqual(recycleInstruction.args.from, {
+    kind: "constant",
+    value: {
+      zone: "trash",
+      owner: "opponents",
+      amount: { kind: "constant", value: 3 }
+    }
+  });
+  assert.equal(recycleInstruction.targets, undefined);
+  assert.equal(recycleInstruction.picks, undefined);
+
+  // Mode two: an independent Draw 1 (414.1).
+  assert.equal(drawInstruction.op, "effect.draw");
+  assert.deepEqual(drawInstruction.args.amount, { kind: "constant", value: 1 });
+});
+
+const executableBody = [
+  {
+    ...mode,
+    args: {
+      ...mode.args,
+      modes: {
+        ...mode.args.modes,
+        value: [recycleMode, drawMode].map((entry) => ({
+          ...entry,
+          body: entry.body.map(({ targets, ...instruction }) => instruction)
+        }))
+      }
+    }
+  }
+];
+
+test("unl-103-219 Disposal Order golden: choosing the draw mode draws exactly one card", () => {
+  const kernel = world().player("A").deck(["top-card", "next-card"]).build();
+  kernel.setAnswers({ "disposal-order.choose-mode/mode%3A0": "disposal-order.draw-mode" });
+
+  const outcome = resolveChainBody(executableBody, kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.linkedValues["disposal-order.choose-mode.value"], [
+    "disposal-order.draw-mode"
+  ]);
+  const result = outcome.results.find((entry) => entry.id === "disposal-order.draw-1");
+  assert.equal(result.result.status, "executed");
+  assert.equal(result.result.linkedValues.drawn, 1);
+  assert.equal(kernel.player("A").handSize, 1);
+  assert.equal(kernel.player("A").deckSize, 1);
+});
+
+test("unl-103-219 Disposal Order golden: the merged recycle-from-trash form recycles the chooser's own cards", () => {
+  // The shape that IS merged (single owner) is exercised so the TODO below is
+  // the only thing standing between this card and execution.
+  const kernel = world().player("A").card("t1", { zone: "trash" }).card("t2", { zone: "trash" }).build();
+  const run = runInstruction(
+    recycle,
+    {
+      from: {
+        zone: "trash",
+        owner: "controller",
+        amount: { kind: "constant", value: 1 }
+      }
+    },
+    {
+      world: kernel,
+      // effect.recycle asks the zone's owner to choose; the reference kernel
+      // receives the answer for the stable request id it builds.
+      answers: { "effect.recycle:trash:controller:1": [kernel.ref("t1")] }
+    }
+  );
+
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.recycledCount, 1);
+  assert.deepEqual(kernel.objectsInZone("A", "trash").map((ref) => ref.id), ["t2"]);
+  assert.deepEqual(kernel.objectsInZone("A", "deck").map((ref) => ref.id), ["t1"]);
+});
+
+test.todo(
+  "unl-103-219 Disposal Order: 'up to 3 cards from opponents' trashes' needs a multi-owner zone selection with a " +
+    "player-chosen 0..3 count (CR 108.2.a / 355.13 / 417.6) — effect.recycle from takes one owner and locks the count"
+);
+
+test.todo(
+  "unl-103-219 Disposal Order: the 'Choose one —' mode question needs the chain Finalize/Resolve choice-plan adapter " +
+    "(chain/engine.ts assertFinalizationSurface blocks choice.mode inside card bodies)"
+);
