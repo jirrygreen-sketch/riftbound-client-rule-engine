@@ -115,7 +115,7 @@ test('compound, multi-ability, wrong-type, domain mismatch and nonnumeric stats 
   }
 });
 
-test('the default entry points stay byte-identical to the frozen legacy 65 implementation on 1381 printings',
+test('the default entry points stay byte-identical to the frozen legacy 65 implementation on 1408 printings',
   { skip: !fs.existsSync(new URL('../../../packages/card-data/data/deck-catalog.json', import.meta.url)) },
   async () => {
     const legacyUrl = new URL('./fixtures/duel-official-programs-legacy-65.ts', import.meta.url);
@@ -133,7 +133,7 @@ test('the default entry points stay byte-identical to the frozen legacy 65 imple
     const catalogUrl = new URL('../../../packages/card-data/data/deck-catalog.json', import.meta.url);
     const bytes = readFileSync(catalogUrl);
     const catalog = JSON.parse(bytes.toString('utf8'));
-    assert.equal(catalog.cards.length, 1381);
+    assert.equal(catalog.cards.length, 1408);
     const source = current.duelAbilitySourceFromCatalog(catalog);
     const oldSource = legacy.duelAbilitySourceFromCatalog(catalog);
     const oldRegistry = legacy.createDuelOfficialProgramRegistry(oldSource);

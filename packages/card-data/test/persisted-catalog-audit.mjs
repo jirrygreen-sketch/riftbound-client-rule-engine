@@ -77,8 +77,8 @@ function groupCardsByCanonical(catalog) {
 test("persisted deck catalog groups every printing under one canonical identity", () => {
   const catalog = loadCatalog();
   assert.equal(catalog.schemaVersion, 1);
-  assert.equal(catalog.cards.length, 1381);
-  assert.equal(catalog.groups.length, 1080);
+  assert.equal(catalog.cards.length, 1408);
+  assert.equal(catalog.groups.length, 1103);
 
   const cardsById = new Map();
   for (const card of catalog.cards) {
@@ -92,7 +92,7 @@ test("persisted deck catalog groups every printing under one canonical identity"
   }
 
   const cardsByCanonical = groupCardsByCanonical(catalog);
-  assert.equal(cardsByCanonical.size, 1080);
+  assert.equal(cardsByCanonical.size, 1103);
 
   const groupsByCanonical = new Map();
   for (const group of catalog.groups) {
@@ -125,15 +125,15 @@ test("alternate and reprint printings share a canonical identity for copy limits
   const cardsByCanonical = groupCardsByCanonical(catalog);
   const multiPrintingIdentities = [...cardsByCanonical.values()]
     .filter((printings) => printings.length > 1);
-  assert.equal(multiPrintingIdentities.length, 207);
+  assert.equal(multiPrintingIdentities.length, 210);
 
   const variantCounts = { standard: 0, alternate: 0, unknown: 0 };
   for (const card of catalog.cards) {
     variantCounts[card.variant] += 1;
   }
   assert.deepEqual(variantCounts, {
-    standard: 1212,
-    alternate: 169,
+    standard: 1237,
+    alternate: 171,
     unknown: 0
   });
 
@@ -170,10 +170,10 @@ test("persisted effect coverage reproduces from the catalog and matches ability 
   const catalog = loadCatalog();
   const coverage = loadCoverage();
   assert.equal(coverage.schemaVersion, 1);
-  assert.equal(coverage.printingCount, 1381);
-  assert.equal(coverage.canonicalIdentityCount, 1080);
+  assert.equal(coverage.printingCount, 1408);
+  assert.equal(coverage.canonicalIdentityCount, 1103);
   assert.equal(coverage.executableCount, 0);
-  assert.equal(coverage.judgeRequiredCount, 1348);
+  assert.equal(coverage.judgeRequiredCount, 1375);
   assert.equal(coverage.noAbilityCount, 33);
 
   const recomputed = buildEffectCoverageReport(
