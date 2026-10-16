@@ -18,10 +18,11 @@ import type {
  *   PlayerId；缺省为 ctx.controller。若 cards/cardsPick 提供了显式选择，选中
  *   对象必须属于该玩家，否则本条 ignored。
  * - destination（必填）："top" 或 "bottom"。
- * - count（可选，默认 1，须 ≥ 0）：从玩家牌库顶部取出多少张进行放回。仅在未
- *   提供 cards / cardsPick 时使用；少于 count 张则取走全部（compare 437.4
- *   "as many as possible"）。count 为 0 时不产生任何动作，返回 executed 且
- *   链接 ordered 为 0。
+ * - count（可选，默认 1，须 ≥ 0）：从玩家牌库顶部取出多少张进行放回（经
+ *   ctx.zoneSlice(player, "deck", "top", count) 按真实区域内顺序取顶）。
+ *   仅在未提供 cards / cardsPick 时使用；少于 count 张则取走全部
+ *   （compare 437.4 "as many as possible"）。count 为 0 时不产生任何动作，
+ *   返回 executed 且链接 ordered 为 0。
  * - cards（可选）：TargetSpec id，经 ctx.targets(cards) 取回要放回的对象
  *   （选目标）；与 cardsPick 互斥。
  * - cardsPick（可选）：PickSpec id，经 ctx.picks(cardsPick) 取回要放回的对象
@@ -161,11 +162,8 @@ function resolveCandidates(ctx: ResolveContext, args: NormalizedArgs): Candidate
     return { refs, fromSelection: true };
   }
   if (args.count === 0) return { refs: [], fromSelection: false };
-  // 确定性顺序：牌库数组索引无法从快照读取，参考内核的 zone 顺序按 id 稳定排序。
-  const candidates = ctx.query({ owner: args.player, zone: "deck" })
-    .slice()
-    .sort((left, right) => (left.ref.id < right.ref.id ? -1 : left.ref.id > right.ref.id ? 1 : 0))
-    .slice(0, args.count)
+  // 按牌库真实顶部顺序取 count 张（zoneSlice；query 不保证顺序）。
+  const candidates = ctx.zoneSlice(args.player, "deck", "top", args.count)
     .map(snapshot => cloneRef(snapshot.ref));
   return { refs: candidates, fromSelection: false };
 }
