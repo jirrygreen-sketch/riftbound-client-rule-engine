@@ -35,7 +35,7 @@ test("ogn-071-298 Party Favors judgeReason names the multi-player chooser gap", 
   assert.match(program.judgeReason, /355\.10\.e/);
   assert.match(program.judgeReason, /choose/);
   assert.match(program.judgeReason, /chooser/);
-  assert.match(program.judgeReason, /RIFT-9/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("ogn-071-298 Party Favors structure: one each-other-player choice node then two gated clauses", () => {
@@ -161,7 +161,7 @@ test("ogn-071-298 Party Favors golden: a short Rune Deck still channels as many 
 test.todo(
   "Party Favors: enumerate the other seats and repeat a Cards-or-Runes mode choice once per seat at " +
     "resolution (355.10.e non-target set chosen by other players; 355.18 resolution-time choices) - needs " +
-    "the multi-player selection/iteration support (RIFT-9 target.player), since ResolveContext.choose takes " +
+    "the multi-player selection/iteration support (RIFT-257), since ResolveContext.choose takes " +
     "one chooser and choice.mode's chooser is a single static id"
 );
 

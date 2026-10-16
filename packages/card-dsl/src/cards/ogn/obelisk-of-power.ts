@@ -17,13 +17,11 @@ import type { CardProgram } from "../../ir/index.js";
  *   (not once per turn), and "that player" is the player whose Beginning Phase
  *   started — an event participant, not necessarily the ability controller.
  *
- * Status: judge-required — three independent gaps, none approximated:
- * 1. no merged module emits `beginning-start` into the single event pipeline
- *    (see judgeReason), so the trigger cannot be placed on the chain;
- * 2. the frozen TriggerSpec frequency scopes (per-turn / per-phase /
+ * Status: judge-required — two independent gaps, none approximated:
+ * 1. the frozen TriggerSpec frequency scopes (per-turn / per-phase /
  *    per-combat / per-showdown / per-chain / per-object / per-game) cannot
  *    express "each player's FIRST Beginning Phase";
- * 3. effect.channel channels for the ability controller or a PlayerId value
+ * 2. effect.channel channels for the ability controller or a PlayerId value
  *    expression; the IR has no event-player selector, so "that player" cannot
  *    be named. The `"event-player"` value below is a documented placeholder
  *    for the missing selector, not executable data.
@@ -33,22 +31,19 @@ const obeliskOfPower = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1) beginning-start 时点（CR 315.2.a.1）没有被任何已合入模块 emit 进唯一事件管线" +
-    "（chain/engine.ts 的 emit 点不含阶段开始），需回合/触发接线任务（RIFT-33 及契约 §7.2 批 5）；" +
-    "(2) “each player's first Beginning Phase” 是每名玩家对局内一次的频度，契约与 TriggerSpec.once 只有 " +
+    "两处缺口：(1) “each player's first Beginning Phase” 是每名玩家对局内一次的频度，契约与 TriggerSpec.once 只有 " +
     "per-turn/per-phase/per-combat/per-showdown/per-chain/per-object/per-game，无法表达；" +
-    "(3) 接收者是事件玩家 “that player”，而 effect.channel 只能取能力控制者或求值为 PlayerId 的表达式，" +
+    "(2) 接收者是事件玩家 “that player”，而 effect.channel 只能取能力控制者或求值为 PlayerId 的表达式，" +
     "IR 没有事件玩家选择器；程序中的 \"event-player\" 是缺选择器的占位值，不可执行。" +
-    "原语 effect.channel 本身已合入。需要事件玩家选择器与 each-player-once 频度的契约变更请求，不近似实现。",
+    "beginning-start 时点及 effect.channel 原语本身已合入；仍依赖 RIFT-257 CardProgram 触发绑定、" +
+    "事件玩家选择器与 each-player-once 频度的契约变更请求，不近似实现。",
   sourceText: "At the start of each player's first Beginning Phase, that player channels 1 rune.",
   abilities: [
     {
       kind: "triggered",
       trigger: {
         at: "beginning-start",
-        // oncePerPlayer records the printed frequency; no merged code resolves
-        // it (see judgeReason) and the pipeline ignores the key.
-        filter: { event: "beginning-start", player: "any", oncePerPlayer: true }
+        filter: { event: "beginning-start", player: "any" }
       },
       optional: false,
       body: [

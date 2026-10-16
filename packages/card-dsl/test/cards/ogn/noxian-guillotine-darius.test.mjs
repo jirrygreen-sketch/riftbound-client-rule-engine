@@ -56,14 +56,14 @@ test("ogn-254-298 Noxian Guillotine structure: [Action] + [Legion] with the two 
   ]);
 
   // The Legion condition (812.1.b.1/812.1.c) is a same-turn play-history check
-  // that must exclude this card; the merged condition.history primitive does not
-  // yet accept the contract 3.8 `excluding` payload.
+  // that must exclude this card; the contract shape is `exclude: "self"`, but
+  // the merged condition.history primitive does not consume it yet.
   assert.equal(legionCheck.op, "condition.history");
   assert.deepEqual(legionCheck.args.query.value, {
     scope: "turn",
     action: "play",
     player: "controller",
-    excluding: CARD_ID
+    exclude: "self"
   });
   assert.deepEqual(legionCheck.args.operator, { kind: "literal", value: "gte" });
   assert.deepEqual(legionCheck.args.right, { kind: "literal", value: 1 });
@@ -144,7 +144,7 @@ test.todo(
 test.todo(
   "Noxian Guillotine: the [Legion] predicate needs condition.history to accept contract 3.8's " +
     "exclude/objectFilter fields so 812.1.c's \"a card different than the one with the Legion " +
-    "ability\" can be enforced (RIFT-82 / RIFT-89)."
+    "ability\" can be enforced (HistoryQuery consumer / RIFT-257)."
 );
 
 test.todo(

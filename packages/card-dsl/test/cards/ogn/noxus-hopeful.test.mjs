@@ -22,8 +22,8 @@ test("noxus-hopeful: identity, ruleset, status and verbatim sourceText", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /HistoryQuery/);
   assert.match(program.judgeReason, /812\.1\.c/);
-  assert.match(program.judgeReason, /RIFT-82/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.equal(
     program.sourceText,
     "[Legion] — I cost :rb_energy_2: less. (Get the effect if you've played another card this turn.)"
@@ -59,29 +59,11 @@ test("noxus-hopeful: the Legion gate counts another card finalized this turn, ex
   });
 });
 
-test("noxus-hopeful: the Legion gate cannot be evaluated against the merged history query", () => {
-  // The merged interpreter history query has no per-card exclusion dimension, so
-  // even a real finalized card leaves the card's own "another card" clause
-  // unprovable: the query counts actions only (interpreter/history.ts
-  // HistoryQuery = scope/action/timingPoint/player/object).
+test("noxus-hopeful: the merged history query counts a finalized play", () => {
+  // The ordinary history dimensions are executable. The host-card exclusion
+  // remains a judge-required consumer gap and is covered by the TODO below.
   const kernel = world().unit("other-card", { owner: "A" }).build();
   kernel.perform({ type: "play", object: kernel.ref("other-card"), player: "A" });
-  // The authored 812.1.c filter (exclude the host) has no merged representation:
-  // the merged HistoryQuery validator rejects an unknown exclusion field instead
-  // of silently approximating it.
-  assert.throws(
-    () => runAbilityBody([{
-      id: "legion-gate",
-      op: "condition.history",
-      args: {
-        query: { kind: "constant", value: { scope: "turn", action: "play", excluding: "self" } },
-        operator: { kind: "constant", value: "gte" },
-        right: { kind: "constant", value: 1 }
-      }
-    }], kernel),
-    /Unsupported history query field/
-  );
-  // A plain count without exclusion does observe the finalized play.
   const counted = runAbilityBody([{
     id: "legion-count",
     op: "condition.history",
@@ -96,9 +78,9 @@ test("noxus-hopeful: the Legion gate cannot be evaluated against the merged hist
 
 test.todo(
   "noxus-hopeful: Legion expansion (812.1.b.1) and the history query's card-exclusion dimension " +
-    "(contract 3.8 exclude/objectFilter) are RIFT-82 / RIFT-90 work"
+    "(contract 3.8 exclude/objectFilter) need the HistoryQuery consumer and RIFT-257 CardProgram binding"
 );
 test.todo(
   "noxus-hopeful: applying the 2-Energy discount through the cost system needs the cost.modify consumer " +
-    "over card programs (RIFT-9 / RIFT-89)"
+    "over card programs (RIFT-261 / RIFT-89)"
 );

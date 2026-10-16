@@ -24,7 +24,7 @@ test("ogn-181-298 Pack of Wonders: identity, version and verbatim source text", 
     ":rb_exhaust:: Return another friendly gear, unit, or [Hidden] card to its owner's hand."
   );
   assert.match(program.judgeReason, /Facedown Zone/);
-  assert.match(program.judgeReason, /RIFT-1/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /811\.5\.a/);
 });
 
@@ -54,7 +54,7 @@ test("ogn-181-298 Pack of Wonders: exhaust-cost activated ability returning a fr
     type: ["gear", "unit"],
     controller: "self",
     zone: "board",
-    other: true
+    exclude: "self"
   });
   assert.equal(target.min, 1);
   assert.equal(target.max, 1);
@@ -86,6 +86,8 @@ test.todo(
   "Pack of Wonders: choose and return a facedown [Hidden] card from a Facedown Zone " +
     "(ZoneId has no facedown-zone member, cost README contract request 3 / RIFT-89)"
 );
-test.todo(
-  "Pack of Wonders: 'another' must exclude the source gear via the target filter (RIFT-1 target-filter predicate)"
-);
+test("ogn-181-298 Pack of Wonders: the target filter excludes the source gear", () => {
+  const [ability] = program.abilities;
+  const [instruction] = ability.body;
+  assert.equal(instruction.targets[0].filter.exclude, "self");
+});

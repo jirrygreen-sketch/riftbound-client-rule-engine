@@ -37,6 +37,11 @@ test("Overt Operation structure: [Action] keyword + per-unit optional clause + b
   // [Action] (806) is a speed keyword ability expanded by the keyword registry.
   assert.deepEqual(speed, { kind: "keyword", keyword: "action" });
   assert.equal(play.kind, "play");
+  assert.deepEqual(play.cost, {
+    kind: "cost.printed",
+    energy: { kind: "constant", value: 5 },
+    power: { kind: "constant", value: 2 }
+  });
   assert.deepEqual(
     play.body.map((instruction) => [instruction.id, instruction.op]),
     [
@@ -207,6 +212,6 @@ test.todo(
 
 test.todo(
   "Overt Operation cast: pays 5 Energy + 2 Body power and [Action] showdown timing " +
-    "(依赖 RIFT-89 费用管线 / RIFT-91 continuous.timing 生产接线)"
+    "(依赖 RIFT-257 CardProgram 绑定 / RIFT-261 费用与 Action 时机消费)"
 );
 

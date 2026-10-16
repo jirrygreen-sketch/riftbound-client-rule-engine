@@ -21,8 +21,8 @@ import type { CardProgram } from "../../ir/index.js";
  * 注册表负责（RIFT-81 已合入 keywords/Assault.ts），卡牌程序不重复展开。
  *
  * status 判定（README 第 2 节）：
- * - 没有已合入的内核路径把卡牌的 keyword 能力解析到 KeywordDef 并接入图层
- *   （契约 3.5 / 3.7）；当前只有 registry.generated.ts 与其测试消费关键词注册表。
+ * - KeywordDef 与 continuous.might 展开已经合入，但没有已合入的 CardProgram
+ *   keyword → KeywordDef → layers 绑定（RIFT-257）。
  * - 即使接线完成，已合入的 keywords/Assault.ts 展开仍不可执行：展开读
  *   "designation" 对象属性（契约 3.8 的 ObjectSnapshot.combatRole），而当前
  *   interpreter 的 ObjectSnapshot 没有该特征，且 layers/engine.ts 的
@@ -36,12 +36,13 @@ const pettyOfficer = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 Assault 关键词的可执行路径（CR 807.1.c / 807.1.d.1）：(1) 没有已合入的内核路径把卡牌的 keyword 能力解析到 " +
-    "KeywordDef 并交给 layers 计算（契约 3.5 / 3.7；当前只有 registry.generated.ts 与其测试消费关键词注册表）；" +
+    "缺 Assault 关键词的可执行路径（CR 807.1.c / 807.1.d.1）：(1) KeywordDef 与 continuous.might 展开虽已合入，" +
+    "但没有 CardProgram keyword → KeywordDef → layers 的绑定（RIFT-257）；" +
     "(2) 已合入的 keywords/Assault.ts 展开依赖攻击者指定（展开读 designation 对象属性，即契约 3.8 的 ObjectSnapshot.combatRole），" +
     "而 interpreter 的 ObjectSnapshot 没有该特征，layers/engine.ts 的 conditionMatches 也不识别 compare 条件" +
     "（只认 always/never/type/has-tag/has-keyword，其它按 true），attacker 条件在真实图层计算中恒真，" +
-    "无法只在我攻击时 +1 Might。依赖：RIFT-81（Assault 关键词展开，声明部分已合入）、RIFT-91（layers-continuous 条件支持）、" +
+    "无法只在我攻击时 +1 Might。依赖：RIFT-257（CardProgram 绑定）、RIFT-264（Assault 关键词展开）、" +
+    "RIFT-258（layers-continuous 条件支持）、" +
     "契约 3.8 combatRole 落地。不近似实现。",
   abilities: [{ kind: "keyword", keyword: "assault" }],
   sourceText: "[Assault] (+1 :rb_might: while I'm an attacker.)"

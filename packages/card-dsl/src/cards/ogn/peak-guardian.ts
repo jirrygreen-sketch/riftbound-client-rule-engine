@@ -41,7 +41,8 @@ const peakGuardian = {
     "因此程序里不写语义不等价的 condition 占位：body[1] 只精确表达它可以表达的那半句" +
     "「buff all other friendly units there」（sameLocationAs/exclude/controller 的集合查询），" +
     "而“只在我是战场时生效”的门控缺失——若本卡在基地被结算，这条指令会多作用于基地上的其它友方单位，" +
-    "这是本卡判为 judge-required 的原因之一。依赖：位置类型谓词（或可判定的 target.location 形式）落地。" +
+    "这是本卡判为 judge-required 的原因之一；触发能力的 CardProgram 绑定也尚依赖 RIFT-257。依赖：" +
+    "位置类型谓词（或可判定的 target.location 形式）落地。" +
     "「buff me」与 702.3.a 的「已有 Buff 不再获得」边界，以及同位置其它友方单位的 Buff 集合行为，" +
     "均已有 golden 执行证据。",
   abilities: [

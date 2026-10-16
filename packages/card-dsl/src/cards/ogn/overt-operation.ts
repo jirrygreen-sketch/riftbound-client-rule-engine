@@ -32,6 +32,9 @@ import type { CardProgram } from "../../ir/index.js";
  *   The reminder text's +1 Might per buff is 703 (Buff), i.e. counter
  *   bookkeeping owned by the layers/object model; nothing here is approximated
  *   with direct Might math.
+ * - The printed cost is 5 Energy + 2 Body Power and is represented as a printed
+ *   cost; complete cast/payment binding remains in the cost and CardProgram
+ *   pipelines.
  */
 const overtOperation = {
   canonicalCardId: "card.hash-2a0e259ebeb4ceb04dc1f72b99b0174e76881f50e0d426f34c74b36057fffb88",
@@ -43,12 +46,18 @@ const overtOperation = {
     "没有 per-object 绑定），链层还会对嵌套目标抛 ChainContractBlockedError，等待解释器目标生命周期适配器" +
     "（chain/README.md 契约变更请求 2）。(2)「Then buff all friendly units.」是按特征程序化的非目标集合" +
     "（355.10.d/355.10.d.1），effect.buff 只读 Finalize 锁定的 TargetSpec，没有 effect.ready / effect.heal 的 " +
-    "{kind:'query'} 形态；写成 TargetSpec 会错误触发成为目标（355.7、754）。提醒文字的 +1 Might 是 703 的 Buff 计数，" +
-    "不写成临时 Might 修正。依赖：解释器目标生命周期、effect.buff 的非目标集合形态。",
+    "{kind:'query'} 形态；写成 TargetSpec 会错误触发成为目标（355.7、754）。费用的 printed cost 形状已可记录，" +
+    "但 Action/费用与 CardProgram 的完整接线仍依赖 RIFT-257/RIFT-261。提醒文字的 +1 Might 是 703 的 Buff 计数，" +
+    "不写成临时 Might 修正。依赖：RIFT-257/RIFT-261、解释器目标生命周期、effect.buff 的非目标集合形态。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {
       kind: "play",
+      cost: {
+        kind: "cost.printed",
+        energy: { kind: "constant", value: 5 },
+        power: { kind: "constant", value: 2 }
+      },
       body: [
         {
           id: "overt-operation.per-unit-choice",
