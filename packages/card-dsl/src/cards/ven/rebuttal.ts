@@ -1,0 +1,177 @@
+import type { CardProgram } from "../../ir/index.js";
+
+/**
+ * Rebuttal (ven-152-166) — Spell, 1 Energy + 1 Mind/Chaos Power, tags Mel/Signature.
+ * Might null（法术没有印刷 Might）。
+ *
+ * sourceText（packages/card-data/data/deck-catalog.json, ven-152-166，逐字）:
+ *   "[Reaction] (Play any time, even before spells and abilities resolve.)
+ *    Choose a spell with Energy cost no more than :rb_energy_4:.  You may pay
+ *    :rb_rune_rainbow:. If you do, gain control of it and you may make new
+ *    choices for it. Otherwise, counter it."
+ *
+ * 规则依据（CR v1.5）:
+ * - [Reaction]（813.1.c.1）是许可类关键词：可在任意玩家回合的 Closed State 打出；卡只声明关键词，
+ *   展开与准入由关键词注册表与 chain 负责（契约 3.7 / 3.5）。
+ * - 「Choose a spell」：355.9.a.2 规定 "spell" 指链上已 Finalize 的对象，因此这是链上目标的
+ *   TargetSpec；待结算的 Pending 链项不是合法目标（契约 3.4 / 355.3），法术也不能以自身为目标
+ *   （355.9.c）——两者的校验义务在目标计划与链（RIFT-90），不在卡数据。
+ * - 「with Energy cost no more than :rb_energy_4:」：206 / 206.1 规定判断费用时只看印刷（或用复制
+ *   效果后的复制）费用，忽略已支付的追加费用——Defy 正是该条自带的示例。冻结的 TargetSpec 过滤器
+ *   无法读取链上法术的印刷 Energy 费用，因此限制以描述性键保留（见 judgeReason），绝不去掉限制。
+ * - 「You may pay :rb_rune_rainbow:」：:rb_rune_rainbow: 是任意域 Power [A]（135.2.e.5.a、
+ *   163.2.b）；结算期的“支付任意域 Power”没有已合入原语，且六域封闭 Domain 集合表达不了 [A]，
+ *   故以描述性 ["rainbow"] 记录（同 Matriarch of War / Hextech Anomaly 的口径）。
+ * - 「If you do, gain control of it」：控制权变更由已合入的 effect.control 经冻结的 take-control
+ *   动作执行（RIFT-117）；链上法术的控制层改写与 359.3.e 的引用复核由该原语负责。
+ * - 「and you may make new choices for it」：CR 750-755 的 Making New Choices 流程（752.1 只允许
+ *   重选 location/mode/destination/target，753/753.3 要求全部重选并沿用原限制，753.2 没有合法新选择时
+ *   negated，754 重新触发成为目标，755 忽略因此产生的 to-play 费用）；IR 既没有重开已 Finalize 链项
+ *   选择计划的节点，也没有 753.2 的结果绑定。按契约 3.9 用 choice.optional 把该从句包进 body。
+ * - 「Otherwise, counter it」：未支付时反制该法术（426.1-426.3：被反制的牌不产生效果、离开链、费用
+ *   不退还），由已合入的 effect.counter 执行；"Otherwise" 是对“是否支付”的结果分支（359 型结果绑定），
+ *   当前没有可求值的费用回执（condition.result 未合入），因此该分支以描述性条件表达并 fail-closed，
+ *   绝不在未支付时执行控制、也绝不在已支付时反制。
+ *
+ * status = judge-required：链上目标的锁定与 effect.counter / effect.control 都已合入并有执行测试，
+ * 但费用限制谓词、结算期 [A] 支付与费用回执分支、Making New Choices 三处缺口见 judgeReason。
+ */
+
+/** 355.12：may 动作的目标选择与是否执行该动作无关，因此在 Finalize 一并锁定同一个法术目标。 */
+const CHOSEN_SPELL = "rebuttal.chosen-spell";
+
+const rebuttal = {
+  canonicalCardId: "card.hash-a4302d5534972d519025714467e05c69796d7a87f0fa2b4fc17978846a4f1df9",
+  rulesetVersion: "core-1.5",
+  status: "judge-required",
+  judgeReason:
+    "三处缺口，均不近似实现：(1)「Choose a spell with Energy cost no more than :rb_energy_4:」的目标限制" +
+    "读不到链上法术的印刷 Energy 费用：CR 206 明确只看印刷（或复制）费用、忽略已支付的追加费用（该条自带 Defy 示例），" +
+    "而冻结的 TargetSpec filter 只能逐键比较 type/zone/location 等字段，没有任何已合入谓词读取链上项的印刷费用；" +
+    "限制以描述性键 energyMax 保留（去掉它会变成“反制任意法术”）。依赖：target 系统的印刷费用谓词（RIFT-90 目标/链，或 cost-plan 的印刷费用读取）。" +
+    "(2)「You may pay :rb_rune_rainbow:. If you do … Otherwise, counter it」缺结算期的支付原语与费用回执：" +
+    ":rb_rune_rainbow: 是任意域 Power [A]（135.2.e.5.a、163.2.b），六域封闭 Domain 集合无法表达（effect.resources 记录不可近似），" +
+    "已合入原语里也没有“结算期支付并由后续指令读取实付结果”的形态（cost.pay 未注册，condition.result 未合入），" +
+    "因此“已支付 → 取得控制权 + 重选”和“未支付 → 反制”这一对互斥分支没有可求值的判别器；程序用描述性条件表达，" +
+    "在判别器缺失时两条分支都 fail-closed（既不控制也不反制），不会把未支付当已支付。依赖：RIFT-89（结算期费用/费用回执）与结果绑定。" +
+    "(3)「you may make new choices for it」是 CR 750-755 的 Making New Choices：752.1 只允许重选 location/mode/destination/target，" +
+    "753/753.3 要求全部重选并沿用原限制，753.2 在无合法新选择时 negated，754 重新触发成为目标，755 忽略因此产生的 to-play 费用；" +
+    "IR 没有重开已 Finalize 链项选择计划的节点，也没有 753.2 的结果绑定。依赖：链/目标计划的重选支持（RIFT-90/RIFT-120）。" +
+    "已合入部分：链上法术目标（355.9.a.2）、effect.counter（426.1-426.3）与 effect.control（RIFT-117）——golden 用真实原语执行。",
+  abilities: [
+    // 813.1.c.1：印刷的 [Reaction] 只声明，展开与 Closed State 准入归关键词注册表与 chain。
+    { kind: "keyword", keyword: "reaction" },
+    {
+      kind: "play",
+      body: [
+        {
+          // 「Choose a spell with Energy cost no more than :rb_energy_4:.」——355.12：may 动作的目标选择
+          // 与是否执行该动作无关，因此 TargetSpec 挂在这一层并在 Finalize 锁定一次；两条分支都用同一个 id。
+          id: "rebuttal.may-pay-rainbow",
+          op: "choice.optional",
+          args: {
+            prompt: {
+              kind: "constant",
+              value: "Pay :rb_rune_rainbow: to gain control of that spell?"
+            },
+            body: {
+              kind: "constant",
+              value: [
+                {
+                  // 结算期支付 [A]：135.2.e.5.a / 163.2.b 的任意域 Power 无法落在六域封闭集合里，
+                  // 以描述性 ["rainbow"] 记录（见 judgeReason 第 2 点；原语未注册，不近似成某个域）。
+                  id: "rebuttal.pay-rainbow",
+                  op: "cost.pay",
+                  args: {
+                    power: { kind: "constant", value: ["rainbow"] }
+                  }
+                },
+                {
+                  // 「gain control of it」：链上法术（355.9.a.2）的控制层改写经冻结的 take-control
+                  // 动作执行（RIFT-117），引用复核仍在链上由原语按 359.3.e 完成。
+                  id: "rebuttal.gain-control",
+                  op: "effect.control",
+                  linkedTo: "rebuttal.pay-rainbow",
+                  args: {
+                    objects: { kind: "constant", value: { target: CHOSEN_SPELL } },
+                    amount: { kind: "constant", value: 1 },
+                    linkKey: { kind: "constant", value: "rebuttal-controlled" }
+                  }
+                },
+                {
+                  // 「you may make new choices for it」：CR 750-755 的重选从句，按契约 3.9 包进
+                  // choice.optional 的 body；重选节点本身仍未注册（见 judgeReason 第 3 点）。
+                  id: "rebuttal.may-remake-choices",
+                  op: "choice.optional",
+                  linkedTo: "rebuttal.gain-control",
+                  args: {
+                    prompt: {
+                      kind: "constant",
+                      value: "Make new choices for that spell?"
+                    },
+                    body: {
+                      kind: "constant",
+                      value: [
+                        {
+                          id: "rebuttal.remake-choices",
+                          op: "choice.remake-chain-item-choices",
+                          args: {
+                            // 752.1：可重选的是 location / mode / destination / target；753 要求全部重选。
+                            item: { kind: "constant", value: { linked: "rebuttal.gain-control" } },
+                            choices: {
+                              kind: "constant",
+                              value: ["location", "mode", "destination", "target"]
+                            },
+                            remakeAll: { kind: "constant", value: true }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          targets: [
+            {
+              id: CHOSEN_SPELL,
+              // 355.9.a.2："spell" 指链上已 Finalize 的对象；206 的印刷费用限制以描述性键
+              // energyMax 保留——没有任何已合入谓词求值它（见 judgeReason 第 1 点），
+              // 因此该目标当前不会被合法 Finalize，绝不当成已实现。
+              filter: { type: "spell", zone: "chain", energyMax: 4 },
+              min: 1,
+              max: 1,
+              selection: "one"
+            }
+          ]
+        },
+        {
+          // 「Otherwise, counter it」：426.1-426.3 由已合入的 effect.counter 执行（被反制的牌不产生
+          // 效果、离开链、费用不退还）。条件读的是“是否支付”的费用回执，当前没有可求值路径
+          // （见 judgeReason 第 2 点），因此该指令 fail-closed：判别器缺失就不反制，
+          // 也不会与上面的控制分支同时发生。
+          id: "rebuttal.counter-otherwise",
+          op: "effect.counter",
+          args: { target: { kind: "constant", value: CHOSEN_SPELL } },
+          condition: {
+            kind: "not",
+            condition: {
+              kind: "expression",
+              value: {
+                kind: "object-property",
+                object: "source",
+                property: "rebuttal.rainbow-power-paid"
+              }
+            }
+          }
+        }
+      ]
+    }
+  ],
+  sourceText:
+    "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +
+    "Choose a spell with Energy cost no more than :rb_energy_4:.  You may pay :rb_rune_rainbow:. " +
+    "If you do, gain control of it and you may make new choices for it. Otherwise, counter it."
+} satisfies CardProgram;
+
+export default rebuttal;

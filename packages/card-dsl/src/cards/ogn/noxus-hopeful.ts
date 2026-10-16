@@ -24,14 +24,12 @@ import type { CardProgram } from "../../ir/index.js";
  *   "另一张牌"（本回合、排除宿主自身），amount 为减少量 2 Energy。
  *
  * 未合入依赖（不近似实现）:
- * - Legion 的 KeywordDef（RIFT-82）展开为 condition.predicate + condition.history 形状，
- *   但已合入解释器的 history 查询结构（HistoryQuery：scope/action/timingPoint/player/
- *   object）没有"按卡身份排除本卡"字段（812.1.c 的 excluding 维度），condition.history
- *   只得到动作计数；契约 3.8 增补的 HistoryQuery.exclude/objectFilter 尚未在
- *   effects/contract.ts 与 interpreter/history.ts 落地。
- * - cost.modify 没有指令原语，也没有消费卡牌程序 static 费用改写的费用管线（RIFT-89
- *   的 buildCostPlan 接受 discounts，但没有 CardProgram → CostPlan 接线）。
- * 依赖：RIFT-82、RIFT-89、RIFT-9（cost.modify）。
+ * - Legion 的 KeywordDef 已合入，但已合入解释器的 history 查询结构
+ *   （HistoryQuery：scope/action/timingPoint/player/object）没有消费契约 3.8 的
+ *   HistoryQuery.exclude/objectFilter 字段，因此 812.1.c 仍只能得到未排除宿主的动作计数。
+ * - cost.modify 没有卡牌程序 static 费用改写的消费管线（buildCostPlan 接受 discounts，
+ *   但没有 CardProgram → CostPlan 接线）。
+ * 依赖：RIFT-257 CardProgram 绑定、RIFT-261/RIFT-89 费用改写消费方与 HistoryQuery 消费方。
  */
 const noxusHopeful = {
   canonicalCardId: "card.hash-d8fc7a6f007a594060f40601cd5a28becae060a1537ac98db24d17e8039fc452",
@@ -39,9 +37,9 @@ const noxusHopeful = {
   status: "judge-required",
   judgeReason:
     "『[Legion] — I cost :rb_energy_2: less』的依赖条件是 812.1.c 的『与本卡不同的一张牌本回合被你 Finalized』：" +
-    "已合入的 HistoryQuery（scope/action/timingPoint/player/object）没有按卡身份排除本卡的字段，契约 3.8 增补的 exclude/objectFilter 未落地，" +
-    "condition.history 只能计数；减费本身也缺 cost.modify 原语与卡牌程序 → CostPlan 的接线（RIFT-89 的 buildCostPlan 有 discounts 但没有消费方）。" +
-    "依赖：RIFT-82（kw-deathknell-legion 展开）、RIFT-89（费用管线）、RIFT-9（cost.modify）。不近似实现。",
+    "Legion 展开已合入，但 HistoryQuery（scope/action/timingPoint/player/object）没有消费契约 3.8 的 exclude/objectFilter，" +
+    "condition.history 仍无法排除宿主；减费本身也缺 CardProgram → CostPlan 的 static cost.modify 消费方（buildCostPlan 虽接受 discounts）。" +
+    "依赖：RIFT-257 CardProgram 绑定、RIFT-261/RIFT-89（费用管线与 HistoryQuery 消费方）。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "legion" },
     {

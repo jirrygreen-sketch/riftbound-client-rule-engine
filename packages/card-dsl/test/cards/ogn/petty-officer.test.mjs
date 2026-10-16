@@ -22,8 +22,9 @@ test("ogn-215-298 Petty Officer: identity, ruleset, status, judgeReason, sourceT
   assert.equal(pettyOfficer.status, "judge-required");
   assert.match(pettyOfficer.judgeReason, /Assault/);
   assert.match(pettyOfficer.judgeReason, /combatRole/);
-  assert.match(pettyOfficer.judgeReason, /RIFT-81/);
-  assert.match(pettyOfficer.judgeReason, /RIFT-91/);
+  assert.match(pettyOfficer.judgeReason, /RIFT-257/);
+  assert.match(pettyOfficer.judgeReason, /RIFT-264/);
+  assert.match(pettyOfficer.judgeReason, /RIFT-258/);
   assert.equal(pettyOfficer.sourceText, "[Assault] (+1 :rb_might: while I'm an attacker.)");
 });
 
@@ -56,10 +57,10 @@ test("ogn-215-298 Petty Officer: the Assault expansion validates as EffectIR for
 
 test.todo(
   "Petty Officer: +1 Might exactly while the 5 Might unit holds the Attacker designation (CR 807.1.c/807.1.d.1) — " +
-    "blocked on ObjectSnapshot.combatRole (契约 3.8) and a layer condition that evaluates compare (RIFT-91)"
+    "blocked on ObjectSnapshot.combatRole (契约 3.8) and a layer condition that evaluates compare (RIFT-258)"
 );
 
 test.todo(
   "Petty Officer: CR 807.2 — Assault granted by another source sums with this printed Assault into one merged value " +
-    "(RIFT-81 stacking \"sum\" 已声明；执行依赖关键词→图层接线)"
+    "(RIFT-264 stacking \"sum\" 已声明；执行依赖 RIFT-257 CardProgram → 关键词→图层接线)"
 );
