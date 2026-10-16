@@ -386,6 +386,8 @@ zero failures. Its counts are 1,381 selected cards, one downloaded image, and
 
 ### Radiance Effective Date
 
+> 2026-10-16 更正（RIFT-79）：Radiance 印刷版本在 Constructed 中的可用起点是**产品发售日 2026-10-23**（Tournament Rules 601.3.c.6.a、601.2.b），不是规则生效日。下段描述的“10-16 起开放”是旧行为，已在 RIFT-79 中改正；规则生效日与卡牌可用日现已分开，且 policy 支持注入时钟。依据见 `docs/rules/radiance-availability.md`。
+
 `createConstructedRules` now accepts an optional `asOf` string or `Date`.
 Before `2026-10-16T00:00:00.000Z`, Radiance printings remain
 `previewNotReleased`, `available: false`, `banned: false`, and `maxCopies: 0`;
