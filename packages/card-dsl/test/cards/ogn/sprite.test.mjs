@@ -3,7 +3,10 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import sprite from "../../../dist/cards/ogn/sprite.js";
+import temporary from "../../../../engine-core/dist/effects/keywords/Temporary.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL =
@@ -23,6 +26,7 @@ test("ogn-274-298 Sprite: identity, ruleset, status, judgeReason, sourceText", (
   assert.match(sprite.judgeReason, /816\.1\.b/);
   assert.match(sprite.judgeReason, /beginning-start/);
   assert.match(sprite.judgeReason, /keywords\/Temporary\.ts/);
+  assert.match(sprite.judgeReason, /RIFT-257/);
   assert.equal(
     sprite.sourceText,
     "[Temporary] (Kill me at the start of your Beginning Phase, before scoring.)"
@@ -51,13 +55,37 @@ test("ogn-274-298 Sprite: the merged kill primitive already performs CR 816.1.b 
   assert.equal(source.getObject("sprite").zone, "trash");
 });
 
-test.todo(
-  "Sprite: the Temporary keyword expansion exists (keywords/Temporary.ts) and registers an " +
-    "beginning-start subscription that kills the host at its controller's Beginning Phase start, " +
-    "before scoring (CR 816.1.b/816.1.c) — no Temporary KeywordDef is registered today"
-);
+test("ogn-274-298 Sprite: the merged Temporary KeywordDef expands to the 816.1.b kill trigger", () => {
+  assert.equal(keywordDefinitionsById.get("Temporary"), temporary);
+  assert.equal(temporary.keyword, "Temporary");
+  assert.equal(temporary.stacking, "single");
+  const [expansion] = temporary.expand({ host: { canonicalCardId: sprite.canonicalCardId } });
+  assert.equal(expansion.kind, "triggered");
+  assert.equal(expansion.optional, false);
+  assert.equal(expansion.trigger.at, "beginning-start");
+  assert.deepEqual(expansion.body, [{
+    id: "temporary:" + CANONICAL + ":kill",
+    op: "effect.kill",
+    args: { self: { kind: "constant", value: true } }
+  }]);
+});
+
+test("ogn-274-298 Sprite: the expansion's kill really executes through the chain interpreter", () => {
+  const [expansion] = temporary.expand({ host: { canonicalCardId: sprite.canonicalCardId } });
+  const base = world()
+    .unit("sprite", { might: 3, tags: ["Fae"], isToken: true, zone: "board" })
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("sprite") });
+  const outcome = resolveChainBody(expansion.body, kernel);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results[0].result.linkedValues.killed, [
+    { id: "sprite", zoneEntryId: 1 }
+  ]);
+  assert.equal(kernel.getObject("sprite").zone, "trash");
+});
 
 test.todo(
-  "Sprite: CR 816.2 — multiple Temporary instances stay redundant and still kill only once " +
-    "(stacking 需由 keywords/Temporary.ts 声明为 single)"
+  "Sprite: the Temporary expansion must be registered as a live trigger when the host exists " +
+    "— blocked on the EventPattern event vocabulary admitting beginning-start and on the " +
+    "CardProgram keyword/trigger binding (RIFT-257)"
 );

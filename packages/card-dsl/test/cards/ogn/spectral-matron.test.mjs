@@ -26,7 +26,8 @@ test("ogn-226-298 Spectral Matron: identity, status and verbatim sourceText", ()
   assert.equal(program.status, "judge-required");
   // The printed-cost cap has no target predicate yet (356.1.c), so the status stays judged.
   assert.match(program.judgeReason, /356\.1\.c/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /RIFT-90/);
   assert.equal(
     program.sourceText,
@@ -155,6 +156,6 @@ test("ogn-226-298 Spectral Matron: declining the may-clause leaves the Trash uni
 test.todo(
   "ogn-226-298 Spectral Matron: the printed-cost cap (Energy <= 3 and Power <= 1 of any domain, " +
     "CR 356.1.c) needs a TargetPlan printed-cost predicate (RIFT-90); the ignore-cost plan must be " +
-    "produced by the cost-plan system (RIFT-89) and the played unit's destination chosen by the " +
-    "Play/Finalize flow (CR 355.4/420.3.b.1)"
+    "produced by the cost-plan system (RIFT-261, cost.printed) and the played unit's destination chosen " +
+    "by the Play/Finalize flow (CR 355.4/420.3.b.1); the play binding is RIFT-257"
 );

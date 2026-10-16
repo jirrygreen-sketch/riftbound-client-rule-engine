@@ -8,11 +8,36 @@ import program from "../../../dist/cards/ogn/startipped-peak.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+const enginePipeline = await import("../../../../engine-core/dist/events/pipeline.js");
 
 const CANONICAL = "card.hash-3baf147c819e802d3468d8c30b6fb475909fc861e0dda2bdaa7adba32bfc23e9";
 const [ability] = program.abilities;
 const [optional] = ability.body;
 const [channel] = optional.args.body.value;
+
+/** A minimal board host snapshot for the direct pipeline registration test. */
+const abilitySource = {
+  ref: { id: "startipped-peak", zoneEntryId: 1 },
+  cardId: CANONICAL,
+  name: "Startipped Peak",
+  types: ["battlefield"],
+  tags: [],
+  keywords: [],
+  owner: "A",
+  controller: "A",
+  zone: "board",
+  location: { type: "battlefield", id: "battlefield-1" },
+  might: null,
+  energy: null,
+  power: null,
+  exhausted: false,
+  damage: 0,
+  stunned: false,
+  buffs: 0,
+  attachedTo: null,
+  faceDown: false,
+  isToken: false
+};
 
 test("ogn-288-298 Startipped Peak: program validates and is judge-required", () => {
   const result = validateCardProgram(program);
@@ -22,8 +47,8 @@ test("ogn-288-298 Startipped Peak: program validates and is judge-required", () 
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /hold/);
-  assert.match(program.judgeReason, /RIFT-31/);
-  assert.match(program.judgeReason, /RIFT-33/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /battlefieldId/);
   assert.equal(program.sourceText, "When you hold here, you may channel 1 rune exhausted.");
 });
 
@@ -87,8 +112,40 @@ test("ogn-288-298: the trigger filter still carries the unreplaced here placehol
   assert.throws(() => assertTriggerSpec(ability.trigger), /EventPattern 不允许此字段/);
 });
 
+test("ogn-288-298: the hold timing point is emitted by the merged scoring flow with a battlefieldId detail", () => {
+  // turn/flow.ts emits "hold" inside the Beginning Scoring Step and carries the
+  // held battlefield as details.battlefieldId; the merged pipeline delivers it
+  // to registrations whose spec matches. The card-side gap is the "here"
+  // anchor and the CardProgram trigger binding, not the emission itself.
+  const { EventPipeline } = enginePipeline;
+  const host = {
+    checkpoint: () => null,
+    restore: () => {},
+    execute: () => ({ outcome: { status: "done", events: [] }, emissions: [] }),
+    context: () => ({}),
+    objects: () => [abilitySource],
+    choose: () => { throw new Error("unexpected choose"); }
+  };
+  const pipeline = new EventPipeline(host, ["A", "B"], "A");
+  const seen = [];
+  pipeline.onTrigger = (snapshot) => seen.push(snapshot);
+  // The closed EventPattern vocabulary names this event "held"; the matcher
+  // maps it to the "hold" timing point (events/pipeline-match.ts EVENT_NAMES).
+  pipeline.registerTrigger({
+    id: "test.hold.plain",
+    source: abilitySource,
+    controller: "A",
+    spec: { at: "hold", filter: { event: "held", player: "self" } },
+    body: []
+  });
+  pipeline.emit({ timingPoint: "hold", player: "A", details: { battlefieldId: "battlefield-1" } });
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].event.details.battlefieldId, "battlefield-1");
+});
+
 test.todo(
-  "ogn-288-298: hold 由 scoring 发出并进链（RIFT-31/RIFT-33）"
+  "ogn-288-298: binding the here-anchored hold filter and the card program's triggered ability into " +
+    "the pipeline (RIFT-257) remains pending"
 );
 test.todo(
   "ogn-288-298: 431.2 的“exhausted 入场”状态由内核实现——参考测试内核的 channel-rune 不记录符文入场状态" +

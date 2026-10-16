@@ -50,7 +50,8 @@ test("ogn-094-298 Sprite Call judgeReason names the definition, the entry state 
   assert.match(program.judgeReason, /185\.3\.a/);
   assert.match(program.judgeReason, /143\.4/);
   assert.match(program.judgeReason, /185\.2\.d/);
-  assert.match(program.judgeReason, /RIFT-82/);
+  assert.match(program.judgeReason, /RIFT-265/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("ogn-094-298 Sprite Call structure: [Hidden] + [Action] keywords plus one token-play instruction", () => {
@@ -130,10 +131,23 @@ test("ogn-094-298 Sprite Call golden: the same shape with a merged definition re
   assert.equal(created[0].power, null);
 });
 
+test("ogn-094-298 Sprite Call: the merged Temporary KeywordDef supplies the 816.1.b expansion", () => {
+  // The keyword definition that renders 816.1.b is merged (RIFT-265). Its
+  // expansion shape is the kill trigger; the Sprite token definition and the
+  // ready entry state remain separate gaps (see the todos and judgeReason).
+  assert.equal(keywordDefinitionsById.has("Temporary"), true);
+  const [expansion] = keywordDefinitionsById.get("Temporary").expand({
+    host: { canonicalCardId: CARD_ID }
+  });
+  assert.equal(expansion.trigger.at, "beginning-start");
+  assert.equal(expansion.body[0].op, "effect.kill");
+});
+
 test.todo(
   "Sprite Call: the 3 Might domainless Fae Sprite with Temporary (CR 187.2 / 185.3.a null cost) as a " +
     "resolvable token definition, including its Temporary trigger (816.1.b) - the frozen effect.token table " +
-    "holds only definitions with no additional abilities"
+    "holds only definitions with no additional abilities, and registered keyword triggers need the " +
+    "CardProgram binding (RIFT-257)"
 );
 
 test.todo(
@@ -143,6 +157,6 @@ test.todo(
 
 test.todo(
   "Sprite Call: [Hidden]'s Hide action and facedown play permission (811.1.b/811.1.c/811.1.d, cost.hidden) " +
-    "belong to the keyword expansion consumers (RIFT-84), and [Action] admission (806.1.b) to the chain's " +
-    "canAct check plus the continuous.timing consumer (RIFT-91)"
+    "still need a consumer and card binding for the merged RIFT-84 expansion, and [Action] admission (806.1.b) " +
+    "needs the chain's canAct check to read the merged continuous.timing grant (RIFT-257)"
 );

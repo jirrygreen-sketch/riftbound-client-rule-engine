@@ -25,8 +25,11 @@ import type { CardProgram } from "../../ir/index.js";
  * - "ready" is an entry-state override (143.4 / 185.2.d) that the frozen
  *   create-token action explicitly does not support ("Entry overrides are not
  *   supported"), and "here" would come from the event/source location.
- * - [Temporary] (816.1.b) itself is an unmerged KeywordDef (no
- *   effects/keywords/Temporary.ts), so even the token's own trigger is absent.
+ * - [Temporary] (816.1.b) now has a merged KeywordDef
+ *   (effects/keywords/Temporary.ts, RIFT-265), but it only expands the trigger
+ *   printed on a permanent; it does not supply the token definition, and no
+ *   merged consumer binds a card program's keyword into a live trigger
+ *   (RIFT-257).
  * Nothing is approximated; the intended shape stays visible for review.
  */
 export default {
@@ -38,7 +41,8 @@ export default {
     "而 effect.token 的定义表只有 recruit/sand-soldier/mech/reflection/tentacle，带能力的 token 定义被显式阻断" +
     "（blockedReason: token-definition-or-abilities-judge-required）；打出新 token 需要 create-token 的 " +
     "to \"chain\" + play 交接（440.2.c / 185.2.a / 350.2 / 354），且「ready」是入场状态改写（143.4 / 185.2.d），冻结的 create-token 动作明确不支持入场改写；" +
-    "[Temporary]（816）也没有已合入的 KeywordDef。依赖：RIFT-62 之后的链上 token / 入场改写与关键词批次。不近似实现。",
+    "[Temporary] 的 KeywordDef 已合入（effects/keywords/Temporary.ts，RIFT-265），但只展开已印在宿主上的 816.1.b 触发，" +
+    "不提供 token 定义与入场状态，触发的实时注册也依赖卡牌程序绑定（RIFT-257）。依赖：token 定义表扩充与入场改写（RIFT-9 清单）、RIFT-257。不近似实现。",
   abilities: [
     {
       kind: "triggered",

@@ -30,6 +30,7 @@ test("ogn-052-298 Stalwart Poro: judgeReason names the missing wiring and its ta
   assert.match(program.judgeReason, /designation/);
   assert.match(program.judgeReason, /conditionMatches/);
   assert.match(program.judgeReason, /RIFT-105/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("ogn-052-298 Stalwart Poro: exactly one unvalued Shield keyword ability", () => {

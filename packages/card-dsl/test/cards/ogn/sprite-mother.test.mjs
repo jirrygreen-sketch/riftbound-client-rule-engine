@@ -18,6 +18,8 @@ test("Sprite Mother program validates and is judge-required", () => {
   assert.match(program.judgeReason, /effect\.token/);
   assert.match(program.judgeReason, /Sprite/);
   assert.match(program.judgeReason, /Temporary/);
+  assert.match(program.judgeReason, /RIFT-265/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(
     program.sourceText,
     "When you play me, play a ready 3 :rb_might: Sprite unit token with [Temporary] here. " +

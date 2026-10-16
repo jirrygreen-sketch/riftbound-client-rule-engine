@@ -22,22 +22,27 @@ import type { CardProgram } from "../../ir/index.js";
  * 展开（订阅自身控制者的 Beginning Phase 开始、在该时点 kill this）由
  * engine-core 的关键词注册表负责（契约 3.7），卡牌程序不重复展开。
  *
- * status 判定（README 第 2 节）：keywords/ 目录当前没有 Temporary 定义
- * （已合入的 16 个关键词不含 Temporary；ability-templates 的 kw-temporary
- * 行同样把 trigger.phase + effect.kill 列为待实现），且没有内核路径把
- * 关键词能力接入时点与链，因此整张卡保持 judge-required，不近似实现。
+ * status 判定（README 第 2 节）：Temporary 的 KeywordDef 已合入
+ * （effects/keywords/Temporary.ts，RIFT-265：816.1.b 展开为 beginning-start 的
+ * 「kill this」触发，effect.kill 已合入），但整张卡仍不可执行：
+ * 1. 展开出的触发无法进入管线：TriggerSpec/EventPattern 的封闭事件词表
+ *    （events/trigger-spec.ts 的 EVENT_PATTERN_TYPES）不含 beginning-start，
+ *    pipeline.registerTrigger 的 assertTriggerSpec 会拒绝该事件名；
+ * 2. 没有消费方把卡牌的 keyword 能力展开并注册成实时触发（卡牌程序绑定
+ *    RIFT-257）。
  */
 const sprite = {
   canonicalCardId: "card.hash-610cc33146e5be610b1b548bd327d47a44aba21edb081e7669cba4971753ccef",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 Temporary 关键词展开（CR 816.1.b / 816.1.c）：engine-core 的 " +
-    "effects/keywords/ 当前没有 Temporary 定义（RIFT-83/84 的 16 个已合入关键词不含它），" +
-    "需要把 816.1.b 展开为「在控制者 Beginning Phase 开始时（beginning-start，早于计分）kill this」的" +
-    "触发能力（effect.kill 原语已合入）；同时没有内核路径把卡牌的 keyword 能力解析到 KeywordDef 并接入时点与链" +
-    "（契约 3.5）。依赖：新增 keywords/Temporary.ts（关键词工作流 RIFT-81~88 的同类任务）、" +
-    "ability-templates.md 的 kw-temporary 行（trigger.phase + effect.kill）。不近似实现。",
+    "Temporary 的 KeywordDef 已合入（effects/keywords/Temporary.ts，RIFT-265：816.1.b 展开为" +
+    "「在控制者 Beginning Phase 开始时（beginning-start，计分前）kill this」的触发，effect.kill 已合入），" +
+    "但整卡仍不可执行：(1) beginning-start 时点本身已由回合流程发出（turn/flow.ts 的 enter/emit），" +
+    "但 TriggerSpec 的事件词表（events/trigger-spec.ts 的 EVENT_PATTERN_TYPES）不含该阶段时点，" +
+    "registerTrigger 的 assertTriggerSpec 会以 invalid-event-type 拒绝该展开的 filter；(2) 没有消费方" +
+    "把卡牌的 keyword 能力展开并注册成实时触发（卡牌程序绑定 RIFT-257）。" +
+    "依赖：EventPattern 事件词表扩展（阶段时点进入封闭词表）+ RIFT-257。不近似实现。",
   abilities: [{ kind: "keyword", keyword: "temporary" }],
   sourceText:
     "[Temporary] (Kill me at the start of your Beginning Phase, before scoring.)"
