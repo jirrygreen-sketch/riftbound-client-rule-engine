@@ -45,7 +45,8 @@ test("unl-017-219 Square Up: [Repeat] declared plus a duration-bounded Assault 4
     ["square-up.grant-assault-4", "continuous.grant-keyword"]
   ]);
 
-  // 807.1.c / 317.2.c: Assault 4 for the turn; the grant op is unregistered (see judgeReason).
+  // 807.1.c / 317.2.c: Assault 4 for the turn; the grant op and its consumer are pending
+  // (see judgeReason and the dependency todos).
   assert.deepEqual(grantAssault.args.keyword, { kind: "constant", value: "Assault" });
   assert.deepEqual(grantAssault.args.value, { kind: "constant", value: 4 });
   assert.deepEqual(grantAssault.args.duration, { kind: "constant", value: "end-of-turn" });
