@@ -1,0 +1,77 @@
+import type { CardProgram } from "../../ir/index.js";
+
+/**
+ * Pirate's Haven (ogn-143-298) — Gear, 3 Energy, Body.
+ *
+ * "When you ready a friendly unit, give it +1 :rb_might: this turn."
+ *
+ * CR v1.5 anchors:
+ * - 383 / 383.2: "When …" is a triggered ability whose Condition names the
+ *   event; readied objects correspond to the "object-readied" timing point
+ *   (416.1, 412.4). "You" is the ability controller (190.6.d).
+ * - 416.1.c: a Ready object that is instructed to become Ready again produces
+ *   nothing, so the trigger only sees real Exhausted→Ready transitions.
+ * - "give it +1 [M] this turn": the referent of "it" is the unit readied by
+ *   the triggering event. Contract 3.6's ObjectSelector only offers self /
+ *   source / target / pick / linked; there is no event-payload object
+ *   selector (RIFT-21 binding is not merged), so the body cannot name the
+ *   triggering unit without inventing semantics.
+ * - "+1 [M] this turn" is a temporary continuous Might modification (703
+ *   covers Buff counters instead). The layers consumer for continuous.might
+ *   is not merged (RIFT-91), and the closed GameAction set of contract 3.6
+ *   has no Might-modification action.
+ *
+ * The structure below keeps the trigger and the intended Might modification
+ * shape; effect.might-modify is not a registered instruction primitive and
+ * the TargetSpec is only a structural stand-in for the triggering unit.
+ */
+const piratesHaven = {
+  canonicalCardId: "card.hash-0dd1405dd6c76acb2f2f4eaf062ac11f4c35f9cf7548386d976200c9b22d2547",
+  rulesetVersion: "core-1.5",
+  status: "judge-required",
+  judgeReason:
+    "「give it +1 [M] this turn」缺临时 Might 修改路径：契约 3.6 封闭 GameAction 集合没有 Might 修改动作，" +
+    "effect.buff 只管 Buff 标记（702/703），临时 Might 归 layers 的 continuous.might（依赖 RIFT-91 layers-continuous）；" +
+    "「it」必须绑定 object-readied 触发事件中的被重置单位，契约 3.6 的 ObjectSelector 没有事件对象选择器" +
+    "（依赖 RIFT-21 触发 payload 绑定/契约补充）。ready 时点与结构可审查，但整卡不可执行；不近似实现。",
+  abilities: [
+    {
+      kind: "triggered",
+      trigger: {
+        at: "object-readied",
+        filter: {
+          event: "object-readied",
+          object: { type: "unit" },
+          player: "self"
+        }
+      },
+      optional: false,
+      body: [
+        {
+          id: "pirates-haven.grant-might",
+          // Missing primitive: temporary Might modification (layers/RIFT-91).
+          op: "effect.might-modify",
+          args: {
+            amount: { kind: "constant", value: 1 },
+            duration: { kind: "constant", value: "this-turn" },
+            target: { kind: "constant", value: "pirates-haven.readied-unit" }
+          },
+          targets: [
+            {
+              // Stand-in for the triggering readied unit: the static IR has no
+              // event-object selector (contract 3.6 / RIFT-21).
+              id: "pirates-haven.readied-unit",
+              filter: { type: "unit", controller: "self" },
+              min: 1,
+              max: 1,
+              selection: "one"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  sourceText: "When you ready a friendly unit, give it +1 :rb_might: this turn."
+} satisfies CardProgram;
+
+export default piratesHaven;
