@@ -161,7 +161,13 @@ export class TestWorld implements ResolveContext {
   setPicks(id: string, picks: readonly (ObjectRef | PlayerId | string)[]): void { this.pickSets.set(id, picks.map(pick => typeof pick === "object" ? cloneRef(pick) : pick)); }
   addReplacement(hook: ReplacementHook): void { this.state.replacements.push(hook); }
   registerReplacement(hook: ReplacementHook): void { this.addReplacement(hook); }
-  addObject(object: ObjectSnapshot, zone?: ZoneId): ObjectRef { const mutable = defaultObject(object.ref.id, object.owner, object); this.state.objects.set(mutable.ref.id, mutable); this.putInZone(mutable, zone ?? mutable.zone); return cloneRef(mutable.ref); }
+  addObject(object: ObjectSnapshot, zone?: ZoneId): ObjectRef {
+    const mutable = defaultObject(object.ref.id, object.owner, { ...object, zone: zone ?? object.zone });
+    this.removeFromZones(mutable.ref.id);
+    this.state.objects.set(mutable.ref.id, mutable);
+    this.putInZone(mutable, mutable.zone);
+    return cloneRef(mutable.ref);
+  }
   addPlayer(id: PlayerId, values: Partial<Pick<MutablePlayer, "energy" | "power" | "xp" | "score">> = {}): void { if (!this.state.players.has(id)) this.state.players.set(id, { id, energy: 0, power: [], runes: [], xp: 0, score: 0, zones: emptyZones() }); const player = this.state.players.get(id)!; Object.assign(player, values); }
   playerIds(): readonly PlayerId[] { return [...this.state.players.keys()]; }
   objectsInZone(player: PlayerId, zone: ZoneId): ObjectRef[] { return (this.state.players.get(player)?.zones[zone] ?? []).map(id => cloneRef(this.state.objects.get(id)!.ref)); }
@@ -172,6 +178,17 @@ export class TestWorld implements ResolveContext {
   object(ref: ObjectRef): ObjectSnapshot | null { const object = this.state.objects.get(ref.id); return object && object.ref.zoneEntryId === ref.zoneEntryId ? copySnapshot(object) : null; }
   lastKnown(ref: ObjectRef): ObjectSnapshot { const found = this.state.lastKnown.get(refKey(ref)); if (found) return copySnapshot(found); const current = this.state.objects.get(ref.id); if (current) return copySnapshot(current); return defaultObject(ref.id, this.controller, { ref }); }
   query(filter: ObjectFilter): ObjectSnapshot[] { return this.listObjects().filter(object => matchesFilter(object, filter)); }
+  zoneSlice(player: PlayerId, zone: ZoneId, from: "top" | "bottom", count?: number): ObjectSnapshot[] {
+    if (count !== undefined && (!Number.isSafeInteger(count) || count < 0)) {
+      throw new RangeError("zoneSlice count must be a nonnegative safe integer");
+    }
+    const owner = this.state.players.get(player);
+    if (!owner) throw new Error(`Unknown player ${player}`);
+    const ordered = owner.zones[zone];
+    const length = Math.min(count ?? ordered.length, ordered.length);
+    const start = from === "top" ? 0 : ordered.length - length;
+    return ordered.slice(start, start + length).map(id => copySnapshot(this.state.objects.get(id)!));
+  }
   targets(specId: string): ObjectRef[] { return (this.targetSets.get(specId) ?? []).map(cloneRef); }
   picks(specId: string): readonly (ObjectRef | PlayerId | string)[] { return (this.pickSets.get(specId) ?? []).map(pick => typeof pick === "object" ? cloneRef(pick) : pick); }
   player(id: PlayerId): PlayerSnapshot { const player = this.state.players.get(id); if (!player) throw new Error(`Unknown player ${id}`); const runePool = this.objectsInZone(id, "rune-zone"); return { id, energy: player.energy, power: [...player.power], runePool, runes: runePool, xp: player.xp, score: player.score, handSize: player.zones.hand.length, handCount: player.zones.hand.length, deckSize: player.zones.deck.length, deckCount: player.zones.deck.length, runeDeckSize: player.zones["rune-deck"].length, runeDeckCount: player.zones["rune-deck"].length }; }
@@ -199,9 +216,22 @@ export class TestWorld implements ResolveContext {
       case "draw": { const player = this.state.players.get(action.player); if (!player || action.amount < 0) return fail(); const count = Math.min(action.amount, player.zones.deck.length); for (let index = 0; index < count; index++) { const topId = player.zones.deck[0]; if (!topId) break; this.moveCurrent(this.state.objects.get(topId)!, "hand"); } return done(count as Value); }
       case "mill": { const player = this.state.players.get(action.player); if (!player || action.amount < 0) return fail(); const count = Math.min(action.amount, player.zones.deck.length); for (let index = 0; index < count; index++) { const topId = player.zones.deck[0]; if (!topId) break; this.moveCurrent(this.state.objects.get(topId)!, "trash"); } return done(count as Value); }
       case "shuffle": { const player = this.state.players.get(action.player); const zone: "deck" | "rune-deck" = action.zone ?? "deck"; if (!player) return fail(); const cards = player.zones[zone]; for (let index = cards.length - 1; index > 0; index--) { const random = this.nextRandom(); const swap = random % (index + 1); [cards[index], cards[swap]] = [cards[swap]!, cards[index]!]; } return done(); }
-      case "order-top": { const player = this.state.players.get(action.player); const zone = action.zone ?? "deck"; if (!player || action.objects.some(ref => !this.valid(ref) || this.state.objects.get(ref.id)!.zone !== zone)) return fail(); player.zones[zone] = [...action.objects.map(ref => ref.id), ...player.zones[zone].filter(id => !action.objects.some(ref => ref.id === id))]; return done(); }
+      case "order-top": {
+        const player = this.state.players.get(action.player);
+        const zone = action.zone ?? "deck";
+        const selected = new Set(action.objects.map(ref => ref.id));
+        if (!player || selected.size !== action.objects.length || action.objects.some(ref =>
+          !this.valid(ref) || this.state.objects.get(ref.id)!.zone !== zone || !player.zones[zone].includes(ref.id)
+        )) return fail();
+        player.zones[zone] = [...action.objects.map(ref => ref.id), ...player.zones[zone].filter(id => !selected.has(id))];
+        return done();
+      }
       case "discard": return this.moveAction(action.object, "trash", done, fail);
-      case "recycle": return this.moveAction(action.object, "deck-bottom", done, fail);
+      case "recycle": {
+        const object = this.current(action.object);
+        if (!object) return fail();
+        return this.moveAction(action.object, object.types.includes("rune") ? "rune-deck" : "deck-bottom", done, fail, undefined, true);
+      }
       case "banish": return this.moveAction(action.object, "banishment", done, fail);
       case "return-to-hand": return this.moveAction(action.object, "hand", done, fail);
       case "move-zone": return this.moveAction(action.object, action.to, done, fail, action.location);
@@ -234,9 +264,28 @@ export class TestWorld implements ResolveContext {
     }
   }
 
-  private moveAction(ref: ObjectRef, destination: ZoneDestination | "board", done: (result?: Value, details?: Record<string, unknown>) => ActionOutcome, fail: (status?: "impossible" | "prevented") => ActionOutcome, location?: LocationRef): ActionOutcome { const object = this.current(ref); if (!object) return fail(); this.moveCurrent(object, destination, location); return done(); }
-  private moveCurrent(object: MutableObject, destination: ZoneDestination | "board", location?: LocationRef): void { const oldRef = cloneRef(object.ref); this.state.lastKnown.set(refKey(oldRef), copySnapshot(object)); this.removeFromZones(object.ref.id); object.ref = { id: object.ref.id, zoneEntryId: object.ref.zoneEntryId + 1 }; object.location = location ?? (destination === "base" ? { type: "base", player: object.controller } : destination === "battlefield" ? { type: "battlefield", id: "battlefield-1" } : null); object.zone = destination === "deck-top" || destination === "deck-bottom" ? "deck" : destination === "rune-deck" ? "rune-deck" : destination === "rune-zone" ? "rune-zone" : destination === "banishment" ? "banishment" : destination === "hand" ? "hand" : destination === "trash" ? "trash" : destination === "chain" ? "chain" : "board"; this.putInZone(object, object.zone, destination === "deck-bottom"); }
-  private putInZone(object: MutableObject, zone: ZoneId, bottom = false): void { const player = this.state.players.get(object.owner); if (!player) return; const list = player.zones[zone]; if (bottom) list.push(object.ref.id); else list.unshift(object.ref.id); }
+  private moveAction(ref: ObjectRef, destination: ZoneDestination | "board", done: (result?: Value, details?: Record<string, unknown>) => ActionOutcome, fail: (status?: "impossible" | "prevented") => ActionOutcome, location?: LocationRef, bottom = destination === "deck-bottom"): ActionOutcome {
+    const object = this.current(ref);
+    if (!object) return fail();
+    this.moveCurrent(object, destination, location, bottom);
+    return done();
+  }
+  private moveCurrent(object: MutableObject, destination: ZoneDestination | "board", location?: LocationRef, bottom = destination === "deck-bottom"): void {
+    const oldRef = cloneRef(object.ref);
+    this.state.lastKnown.set(refKey(oldRef), copySnapshot(object));
+    this.removeFromZones(object.ref.id);
+    object.ref = { id: object.ref.id, zoneEntryId: object.ref.zoneEntryId + 1 };
+    object.location = location ?? (destination === "base" ? { type: "base", player: object.controller } : destination === "battlefield" ? { type: "battlefield", id: "battlefield-1" } : null);
+    object.zone = destination === "deck-top" || destination === "deck-bottom" ? "deck" : destination === "rune-deck" ? "rune-deck" : destination === "rune-zone" ? "rune-zone" : destination === "banishment" ? "banishment" : destination === "hand" ? "hand" : destination === "trash" ? "trash" : destination === "chain" ? "chain" : "board";
+    this.putInZone(object, object.zone, bottom);
+  }
+  private putInZone(object: MutableObject, zone: ZoneId, bottom = false): void {
+    const player = this.state.players.get(object.owner);
+    if (!player) return;
+    const list = player.zones[zone];
+    if ((zone === "deck" || zone === "rune-deck") && !bottom) list.unshift(object.ref.id);
+    else list.push(object.ref.id);
+  }
   private removeFromZones(id: string): void { for (const player of this.state.players.values()) for (const zone of ZONES) player.zones[zone] = player.zones[zone].filter(item => item !== id); }
   private valid(ref: ObjectRef): boolean { return this.current(ref) !== null; }
   private current(ref: ObjectRef): MutableObject | null { const object = this.state.objects.get(ref.id); return object && object.ref.zoneEntryId === ref.zoneEntryId ? object : null; }
@@ -279,8 +328,18 @@ export class WorldBuilder {
   card(id: string, values: Partial<ObjectSnapshot> & { owner?: PlayerId } = {}): this { const owner = values.owner ?? "A"; this.kernel.addObject(defaultObject(id, owner, values), values.zone ?? "deck"); return this; }
   object(id: string, values: Partial<ObjectSnapshot> & { owner?: PlayerId } = {}): this { return this.card(id, values); }
   hand(id: string, values: Partial<ObjectSnapshot> & { owner?: PlayerId } = {}): this { return this.card(id, { ...values, zone: "hand" }); }
-  deck(id: string, values: Partial<ObjectSnapshot> & { owner?: PlayerId } = {}): this { return this.card(id, { ...values, zone: "deck" }); }
-  rune(id: string, values: Partial<ObjectSnapshot> & { owner?: PlayerId } = {}): this { return this.card(id, { ...values, zone: "rune-deck" }); }
+  /** An array adds a top-to-bottom block; a single id stacks one card on top. */
+  deck(idOrIds: string | readonly string[], values: Partial<ObjectSnapshot> & { owner?: PlayerId } = {}): this {
+    const ordered = typeof idOrIds === "string" ? [idOrIds] : idOrIds;
+    for (let index = ordered.length - 1; index >= 0; index--) this.card(ordered[index]!, { ...values, zone: "deck" });
+    return this;
+  }
+  /** Build a Rune Deck with the same top-to-bottom array form as deck(). */
+  rune(idOrIds: string | readonly string[], values: Partial<ObjectSnapshot> & { owner?: PlayerId } = {}): this {
+    const ordered = typeof idOrIds === "string" ? [idOrIds] : idOrIds;
+    for (let index = ordered.length - 1; index >= 0; index--) this.card(ordered[index]!, { ...values, types: values.types ?? ["rune"], zone: "rune-deck" });
+    return this;
+  }
   build(): TestWorld { return this.kernel; }
 }
 

@@ -197,12 +197,9 @@ test("partially stale targets: live ones recycle, the instruction still executes
 });
 
 test("recycling a rune performs the recycle action (Rune Deck routing is kernel-owned, 417.1.b/161.2.b)", () => {
-  // The reference kernel routes every recycle to the owner's Main Deck bottom and
-  // does not yet special-case runes to the Rune Deck; that destination decision
-  // belongs to the kernel (see the final report). This test pins the primitive's
-  // part: a rune object is accepted and one recycle action is performed for it.
   const kernel = world()
     .card("spent-rune", { zone: "rune-zone", types: ["rune"], owner: "A" })
+    .rune("remaining-rune", { types: ["rune"] })
     .deck("deck-card")
     .build();
   const runeRef = kernel.ref("spent-rune");
@@ -215,6 +212,9 @@ test("recycling a rune performs the recycle action (Rune Deck routing is kernel-
   assert.deepEqual(run.linked.recycled, [refValue(runeRef)]);
   assert.equal(run.events.length, 1);
   assert.equal(run.events[0].action, "recycle");
-  assert.equal(kernel.getObject("spent-rune").zone, "deck", "kernel's current recycle routing");
-  assert.equal(kernel.player("A").runeDeckSize, 0);
+  assert.equal(kernel.getObject("spent-rune").zone, "rune-deck");
+  assert.equal(kernel.player("A").runeDeckSize, 2);
+  assert.deepEqual(kernel.zoneSlice("A", "rune-deck", "top").map(object => object.ref.id), ["remaining-rune", "spent-rune"]);
+  assert.deepEqual(kernel.zoneSlice("A", "deck", "top").map(object => object.ref.id), ["deck-card"]);
+  assert.deepEqual(kernel.zoneSlice("A", "rune-zone", "top"), []);
 });

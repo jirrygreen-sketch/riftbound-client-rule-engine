@@ -37,3 +37,16 @@ test("draw resolves through the reference kernel", () => {
 Use an answer map for `choose`. Without an answer, `runInstruction` returns
 `asked` and leaves the supplied world untouched; passing that answer replays the
 whole primitive transaction.
+
+Read the top N cards with `ctx.zoneSlice(player, "deck", "top", N)`, never
+`query`: **读牌库顶 N 张必须用 zoneSlice，不要用 query**. `query` is a set query
+and does not guarantee zone order. Use `"bottom"` for the last N cards; the
+selected cards retain their relative top-to-bottom order (not reversed). Omit N
+to read the whole zone; zero returns none, and an oversized count returns all
+available cards. Counts must be nonnegative safe integers. Other zones such as
+Hand and Trash retain entry order. Returned snapshots do not mutate the world.
+For an explicit deck order, use
+`world().deck(["top", "middle", "bottom"], { owner: "A" }).build()`; an array
+adds that ordered block above existing cards. The existing single-card
+`.deck("id")` form still stacks each new card on top. `.rune(["top", "bottom"])`
+uses the same convention for a Rune Deck.
