@@ -55,6 +55,41 @@ test('scoring-conquer-via-noncombat-showdown (348.2 / 471.1): a non-combat Showd
   assert.equal(f.flow.chain.turnState, 'neutral-open');
 });
 
+test('scoring-conquer-basic-on-control (348.2 / 471.1 / 468.5.d): the side remaining at the Battlefield establishes control and Conquers', () => {
+  // The YAML given places this after combat damage and before the Combat resolution step.
+  // The merged kernel has no atomic Combat-damage transaction yet, so the same 471.1/468.5.d
+  // control-establishment path is exercised through the non-combat Showdown close, which
+  // shares the control-established → points → conquer → score event wave. The Combat-specific
+  // start/damage/resolution frame remains a todo below.
+  const f = turnFixture({
+    fields: [{ id: 'bf1', controller: 'B' }, { id: 'bf2', controller: null }],
+    score: { A: 2, B: 3 },
+    setup: w => {
+      // B controls bf1 with a lone Unit; A's Unit arrives, B's Unit is effect-killed, then the
+      // Showdown close sees exactly one player's Unit remaining.
+      w.unit('ub', { owner: 'B', location: { type: 'battlefield', id: 'bf1' }, might: 2 });
+      w.unit('ua', { location: { type: 'base', player: 'A' }, might: 4 });
+    },
+  });
+  f.flow.start();
+  // B is not the turn player, so A's Beginning Phase does not Hold bf1 for B.
+  assert.equal(f.kernel.player('B').score, 3);
+
+  // The ability source is A's own Unit, so the default `objects: source` moves exactly it.
+  f.flow.execute(f.activated('convert', [
+    { id: 'in', op: 'effect.move', args: { to: c({ type: 'battlefield', id: 'bf1' }) } },
+    { id: 'kill-ub', op: 'effect.kill', args: { target: 'victim' },
+      targets: [{ id: 'victim', filter: { type: 'unit', zone: 'board', controller: 'B' }, max: 1 }] },
+  ], 'A', 'ua'));
+  settle(f);
+
+  // Only A's Unit remains at bf1: 348.2/468.5.d hands A control and 471.1 scores the Conquer.
+  assert.equal(f.flow.battlefields[0].controller, 'A');
+  assert.deepEqual(eventsAt(f, 'conquer').map(event => [event.player, event.details.battlefieldId]), [['A', 'bf1']]);
+  assert.equal(f.kernel.player('A').score, 3);
+  assert.deepEqual(f.flow.scored('A'), ['bf1']);
+});
+
 test('scoring-no-conquer-without-control-event (471.1): entering an empty Battlefield does not Conquer until control is established', () => {
   const f = turnFixture({ score: { A: 2, B: 1 }, setup: w => w.unit('u1', { location: { type: 'base', player: 'A' }, might: 2 }) });
   f.flow.start();
