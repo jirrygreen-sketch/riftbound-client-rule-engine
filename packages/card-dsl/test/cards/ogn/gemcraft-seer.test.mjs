@@ -14,7 +14,7 @@ test("Gemcraft Seer program validates and is judge-required", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /grant-keyword/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(
     program.sourceText,
     "[Vision] (When you play me, look at the top card of your Main Deck. You may recycle it.)\n" +
@@ -28,8 +28,8 @@ test("Gemcraft Seer structure: Vision keyword plus an other-friendly-units Visio
   assert.deepEqual(keyword, { kind: "keyword", keyword: "vision" });
 
   assert.equal(staticAbility.kind, "static");
-  assert.equal(staticAbility.effect.kind, "grant-keyword");
-  assert.equal(staticAbility.effect.keyword, "vision");
+  assert.equal(staticAbility.effect.kind, "continuous.grant-keyword");
+  assert.equal(staticAbility.effect.keyword, "Vision");
   assert.equal(staticAbility.condition, undefined);
   // "Other friendly units": units the controller controls, on the board, with
   // the source itself excluded ("other").
@@ -43,7 +43,7 @@ test("Gemcraft Seer structure: Vision keyword plus an other-friendly-units Visio
 
 test.todo(
   "Gemcraft Seer grant: other friendly units gain [Vision], so each of them triggers its own Predict when it enters " +
-    "the Board (817.1.c / 817.2); needs card-program static abilities registered as layer continuous effects (RIFT-91) " +
+  "the Board (817.1.c / 817.2); needs card-program static abilities registered as layer continuous effects (RIFT-257) " +
     "plus the self-exclusion in the grant filter"
 );
 

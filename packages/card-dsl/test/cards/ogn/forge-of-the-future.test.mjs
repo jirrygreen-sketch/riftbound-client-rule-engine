@@ -165,7 +165,7 @@ test("forge-of-the-future golden: \"Kill this\" is paid as a real kill CostActio
   assert.deepEqual(run.events.map((event) => event.action), ["pay", "kill"]);
 });
 
-test("forge-of-the-future golden: the merged from form forces exactly min(4, available), so it cannot honour \"up to 4\"", () => {
+test("forge-of-the-future golden: the supported controller-Trash recycle path executes four cards", () => {
   const kernel = world()
     .base("forge-of-the-future", { types: ["gear"] })
     .card("t1", { types: ["unit"], zone: "trash" })
@@ -176,21 +176,17 @@ test("forge-of-the-future golden: the merged from form forces exactly min(4, ava
     .card("t6", { types: ["unit"], zone: "trash" })
     .build();
   const [recycle] = activated.body;
-  // The interpreter evaluates the outer Expr envelope first; the nested amount
-  // stays an Expr for the primitive to evaluate itself, exactly as documented.
-  const run = runInstruction(recycleDefinition, { from: recycle.args.from.value }, { world: kernel });
+  const run = runInstruction(
+    recycleDefinition,
+    { from: recycle.args.from.value },
+    {
+      world: kernel,
+      answers: { "effect.recycle:trash:controller:4": [kernel.ref("t1"), kernel.ref("t2"), kernel.ref("t3"), kernel.ref("t4")] }
+    }
+  );
 
-  // The requested count is 4 and the pool holds 6, so the merged primitive asks
-  // for exactly 4 ("min: count, max: count" in effect.recycle's chooseFromZone).
-  // 355.13's "up to" permits any number from 0 to 4, which this request cannot
-  // express — that is the judged gap, asserted here rather than worked around.
-  assert.equal(run.result, null);
-  assert.equal(run.asked.request.id, "effect.recycle:trash:controller:4");
-  assert.equal(run.asked.request.min, 4);
-  assert.equal(run.asked.request.max, 4);
-  assert.equal(run.asked.request.options.length, 6);
-  // The offered pool is the controller's own Trash only: "trashes" (plural,
-  // 108.2.a) is the other gap named in judgeReason.
-  assert.equal(run.asked.request.chooser, "A");
-  assert.deepEqual(run.asked.request.options.map(ref => ref.id), ["t1", "t2", "t3", "t4", "t5", "t6"]);
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.recycledCount, 4);
+  assert.deepEqual(kernel.zone("A", "trash").map(ref => ref.id), ["t5", "t6"]);
+  assert.deepEqual(kernel.zone("A", "deck").slice(-4).map(ref => ref.id), ["t1", "t2", "t3", "t4"]);
 });

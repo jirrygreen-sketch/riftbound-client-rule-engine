@@ -21,9 +21,8 @@ import type { CardProgram } from "../../ir/index.js";
  * - "If an opponent's score is within 3 points of the Victory Score, this
  *   costs [2] less." is a printed-cost discount evaluated during Finalize
  *   (CR 356.4 discounts; 356.1.c: effects that refer to the Base Cost use the
- *   printed cost). No cost.modify primitive exists under
- *   effects/instructions/, and the frozen CostSpec has no discount field, so
- *   the reduction cannot be declared on the play ability.
+ *   printed cost). The card-facing cost.modify / discount consumer and cost
+ *   binding are still pending in RIFT-261, so the reduction cannot be executed.
  * - The condition itself needs the current Victory Score, which is per-mode
  *   state (CR 194.3 / 194.3.a: 8 by default and alterable by game mode or
  *   card effects). ResolveContext exposes each player's score but no victory
@@ -38,11 +37,11 @@ const findYourCenter = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "减费无法表达：CR 356.4 的印刷费用折扣在 Finalize 结算，但 effects/instructions 下没有 cost.modify 原语，" +
+    "减费仍无法执行：CR 356.4 的印刷费用折扣在 Finalize 结算，RIFT-261 的 cost.modify 折扣消费与费用绑定尚未完成，" +
     "冻结的 CostSpec 也没有折扣字段，无法在 play 上声明 [2] 减费；同时条件“对手分数在胜利分数 3 分以内”" +
     "需要当前 Victory Score（CR 194.3/194.3.a：默认 8，可被游戏模式或卡牌效果改变），" +
     "ResolveContext 只暴露各自分数、没有 victoryScore，硬编码 8 就是臆造。" +
-    "依赖：RIFT-89（batch3 cost-plan 的 cost.modify 折扣入口）与暴露 Victory Score 的读数接口。" +
+    "依赖：RIFT-261（cost.modify / 费用绑定）与暴露 Victory Score 的读数接口。" +
     "Draw 1（414.3）与 channel 1 rune exhausted（431.1/431.2）已合入并由 golden 执行。",
   sourceText:
     "[Action] (Play on your turn or in showdowns.)\n" +

@@ -34,7 +34,7 @@ const flurryOfBlades = {
     "（Kill all units at battlefields 不选目标），355.10.d.1 把该例外限定为从不做选择的集合。" +
     "已合入的 effect.damage 只读取 Finalize 锁定的 TargetSpec（ctx.targets(id)），没有 effect.ready / " +
     "effect.heal 那样的 {kind:'query', filter} 非目标集合分支；把“所有战场单位”写成 TargetSpec 会错误触发" +
-    "成为目标（355.7、754），因此不近似实现。依赖：effect.damage 增加非目标集合形态（RIFT-9 target.query）。",
+    "成为目标（355.7、754），因此不近似实现。依赖：effect.damage 增加非目标集合形态。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {

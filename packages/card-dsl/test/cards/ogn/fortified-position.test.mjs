@@ -5,6 +5,9 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/fortified-position.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import shield from "../../../../engine-core/dist/effects/keywords/Shield.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const [ability] = program.abilities;
 const [instruction] = ability.body;
@@ -56,6 +59,7 @@ test("ogn-279-298 Fortified Position: one chosen unit gains Shield 2 for this co
   // The combat-bounded lifetime is the engine's "end-of-combat" duration
   // spelling; the printed reminder text is "(+2 [M] while it's a defender)".
   assert.equal(instruction.args.duration.value, "end-of-combat");
+  assert.deepEqual(instruction.args.target, { kind: "constant", value: "defended-unit" });
 
   // CR 355.5 / 355.7: "choose a unit" is a choice of a specific Game Object,
   // so it is a target (not a pick) and is revalidated at resolution.
@@ -91,11 +95,28 @@ test("ogn-279-298 Fortified Position: the granted keyword expands through the me
   });
 });
 
-test.todo(
-  "ogn-279-298 Fortified Position: granting a keyword to another object for a bounded duration " +
-    "needs the continuous.grant-keyword / continuous.keyword primitive (contract 3.6/3.7), which has " +
-    "no merged instruction file"
-);
+test("ogn-279-298 Fortified Position golden: the real interpreter grants Shield 2 to the chosen unit", () => {
+  const base = world()
+    .base("fortified-position", { types: ["battlefield"] })
+    .unit("chosen-unit", { keywords: [] })
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("fortified-position") });
+  kernel.setTargets("defended-unit", [kernel.ref("chosen-unit")]);
+
+  const outcome = runAbilityBody(ability.body, kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.equal(outcome.results[0].result.linkedValues.granted.count, 1);
+  assert.equal(kernel.continuousEffects.length, 1);
+  const [registration] = kernel.continuousEffects;
+  assert.equal(registration.duration.type, "end-of-combat");
+  const engine = createLayerEngine(
+    kernel.objects,
+    kernel.continuousEffects.map((entry, index) => ({ ...entry, timestamp: index + 1 }))
+  );
+  assert.deepEqual(engine.evaluate(kernel.ref("chosen-unit")).keywords, [{ id: "Shield", value: 2 }]);
+});
 
 test.todo(
   "ogn-279-298 Fortified Position: the Shield expansion must be consumed by the layers engine " +
@@ -103,6 +124,6 @@ test.todo(
 );
 
 test.todo(
-  "ogn-279-298 Fortified Position: the defense-declared timing point reaching this ability through " +
-    "the trigger -> chain pipeline (RIFT-33 scenarios-triggers)"
+  "ogn-279-298 Fortified Position: bind the defense-declared CardProgram trigger through the complete " +
+    "card-program adapter (RIFT-257)"
 );

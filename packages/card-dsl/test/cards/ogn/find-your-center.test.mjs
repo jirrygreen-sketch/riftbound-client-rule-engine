@@ -4,6 +4,7 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import findYourCenter from "../../../dist/cards/ogn/find-your-center.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import channel from "../../../../engine-core/dist/effects/instructions/effect.channel.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -37,6 +38,21 @@ test("Find Your Center identity, ruleset, status and printed text", () => {
 
 test("Find Your Center keeps the printed [Action] keyword (CR 806)", () => {
   assert.deepEqual(keyword, { kind: "keyword", keyword: "action" });
+});
+
+test("Find Your Center [Action] expands to the merged showdown timing declaration", () => {
+  const definition = keywordDefinitionsById.get("Action");
+  assert.ok(definition);
+  assert.deepEqual(definition.expand({ host: { canonicalCardId: CANONICAL } }), [
+    {
+      kind: "static",
+      effect: {
+        kind: "continuous.timing",
+        grants: ["showdown"],
+        appliesTo: ["card", "activated-ability"]
+      }
+    }
+  ]);
 });
 
 test("Find Your Center cost ability records the [2] discount and its predicate", () => {
@@ -122,10 +138,5 @@ test("Find Your Center golden: a short Rune Deck channels as much as possible (C
 test.todo(
   "Find Your Center discount: apply [2] less to the printed Energy cost at Finalize when an opponent's " +
     "score is within 3 points of the Victory Score (CR 356.4 / 206; CR 194.3/194.3.a per-mode Victory Score) " +
-    "- needs the cost.modify discount component (RIFT-89) and a Victory Score read on ResolveContext"
-);
-
-test.todo(
-  "Find Your Center [Action] admission: play during a Showdown on any player's turn (CR 806.1.b) - " +
-    "needs the continuous.timing keyword expansion (RIFT-85) consumed by chain canAct"
+    "- needs the cost.modify discount component and a Victory Score read on ResolveContext (RIFT-261)"
 );

@@ -101,5 +101,5 @@ test.todo(
 
 test.todo(
   "Fox-Fire: [Hidden] Hide for a rainbow rune, the facedown zone and the free facedown play " +
-    "need the cost.hidden primitive and facedown support (RIFT-84 / RIFT-89)."
+    "need the cost.hidden primitive and facedown support."
 );

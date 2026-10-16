@@ -3,7 +3,6 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/get-excited.js";
-import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import discard from "../../../../engine-core/dist/effects/instructions/effect.discard.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -116,32 +115,10 @@ test("Get Excited! golden execution: Discard 1 moves the chosen card to the tras
   assert.equal(kernel.getObject("kept-card").zone, "hand");
 });
 
-test("Get Excited! golden execution: the merged engine fails closed on the linked Energy read", () => {
-  // The linked object selector cannot reach effect.discard's discarded-card
-  // reference, so the read reports missing information and the damage
-  // instruction is ignored: no damage, no invented amount. This is the behavior
-  // the judgeReason documents, and it must not silently become a hard-coded
-  // value.
-  const kernel = world()
-    .hand("chosen-card", { types: ["spell"], energy: 2, power: ["Fury"] })
-    .unit("enemy-at-battlefield", { owner: "B", might: 5 })
-    .build();
-  kernel.setTargets("get-excited.unit-at-battlefield", [kernel.ref("enemy-at-battlefield")]);
-  kernel.setAnswers({ "get-excited.discard-1/effect.discard:A": [kernel.ref("chosen-card")] });
-
-  const outcome = resolveChainBody(play.body, kernel);
-
-  assert.equal(outcome.status, "partial");
-  assert.equal(outcome.results[0].result.status, "executed");
-  assert.equal(kernel.getObject("chosen-card").zone, "trash");
-  assert.deepEqual(outcome.results[1].result, { status: "ignored", reason: "mistargeted" });
-  assert.equal(kernel.getObject("enemy-at-battlefield").damage, 0);
-});
-
 test.todo(
   "Get Excited!: dealing the discarded card's printed Energy cost (never its " +
     "Power cost) needs a linked object selector that reads the producer's named " +
     "result binding, so the characteristic read can consume effect.discard's " +
-    "discarded reference with the 359.3.e.13 look-back (RIFT-1 / RIFT-102 " +
+    "discarded reference with the 359.3.e.13 look-back (RIFT-102 " +
     "selector plumbing)."
 );

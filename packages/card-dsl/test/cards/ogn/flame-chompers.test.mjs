@@ -23,7 +23,7 @@ test("flame-chompers: identity, ruleset, status and verbatim sourceText", () => 
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /cost\.pay/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /366\.1/);
   assert.equal(program.sourceText, "When you discard me, you may pay :rb_rune_fury: to play me.");
 });
@@ -112,12 +112,12 @@ test("flame-chompers: the 'play me' half runs as a real play of the trash card (
 });
 
 test.todo(
-  "flame-chompers: cost.pay / cost.printed primitives and the card-program -> cost-plan wiring are RIFT-9 / RIFT-89 work"
+  "flame-chompers: cost.pay / cost.printed primitives and the card-program -> cost-plan wiring remain RIFT-261 work"
 );
 test.todo(
   "flame-chompers: paying :rb_rune_fury: and the resulting FinalizedCostPlan must be produced by the cost system " +
     "(356.1.a 'for [Cost]' / 357.2 payment) before the accepted branch may claim to play the card for its alternate cost"
 );
 test.todo(
-  "flame-chompers: playing itself from trash needs the 366.1 zone permission and a Finalize play-location check (RIFT-89 / RIFT-120)"
+  "flame-chompers: playing itself from trash needs the 366.1 zone permission and a Finalize play-location check (RIFT-257)"
 );
