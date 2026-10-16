@@ -86,23 +86,19 @@ test("rad-164-167 Packed Amphitheater: one static arithmetic +1 Might for Champi
 });
 
 test("rad-164-167 Packed Amphitheater: the merged arithmetic layer performs the declared +1 Might", () => {
-  // The merged LayerEngine evaluates the declared continuous.might effect on the
-  // object it is registered against (479.4 arithmetic sublayer).
+  // The merged LayerEngine evaluates the declared continuous.might effect in the
+  // arithmetic sublayer (479.4): a Champion unit on the board really goes from
+  // 3 to 4 Might with the card's own spec.
   const champion = unit("champion", { types: ["champion", "unit"] });
-  // The declared filter names type "champion", which the merged layer filter
-  // matches through object.types (layers/filter.ts typeMatches) when the
-  // snapshot carries the supertype; the arithmetic itself is the merged part:
-  // registering the same effect without the type gate applies +1 to the unit.
-  const typeFree = { ...spec(), id: "packed-amphitheater-type-free", filter: { zone: "board", sameLocationAs: "self" } };
   const applied = createLayerEngine([champion], [
-    { effect: typeFree, duration: { type: "permanent" } }
+    { effect: spec(), duration: { type: "permanent" } }
   ]);
   assert.equal(applied.evaluate(champion.ref).might, 4);
 
   // Positive increases are applied first, then decreases (479.4.e.1); a second
   // -2 Might effect on the same object still leaves 2, not -1.
   const engine = createLayerEngine([champion], [
-    { effect: typeFree, duration: { type: "permanent" } },
+    { effect: spec(), duration: { type: "permanent" } },
     {
       effect: {
         id: "shrink",
