@@ -167,9 +167,19 @@ test("Stand United golden: with no friendly buffed unit the Might instruction is
     .unit("spell-source", { types: ["spell"], zone: "chain", owner: "A", controller: "A" })
     .unit("plain-ally", { might: 2, buffs: 0, owner: "A", controller: "A" })
     .build();
+  // Resolve the declared "controller" placeholder the way the chain's
+  // Finalize/query wrapper does, so the empty candidate set is caused by the
+  // absent friendly Buff (characteristics: { buffs: 1 }), not by a literal
+  // placeholder mismatch.
+  const productionQuery = (filter) => base.objects.filter((object) => matchesObjectFilter(
+    Object.fromEntries(Object.entries(filter).map(([key, value]) =>
+      [key, (key === "controller" || key === "owner") && value === "controller" ? "A" : value])),
+    object
+  ));
   const kernel = bindResolveContext(base, {
     source: base.getObject("spell-source"),
-    sourceSnapshot: base.getObject("spell-source")
+    sourceSnapshot: base.getObject("spell-source"),
+    query: productionQuery
   });
   const run = runInstruction(might, {
     amount: extraMight.args.amount,
