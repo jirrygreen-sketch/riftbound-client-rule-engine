@@ -14,6 +14,7 @@ import {
   getConstructedPrintingPolicy,
   validateConstructedDeck,
   type ConstructedRules,
+  type ConstructedRulesOptions,
   type ConstructedValidationResult
 } from "./constructed-policy.js";
 
@@ -93,6 +94,7 @@ export interface CardCatalogLoadOptions {
   readonly imagesDirectory?: string;
   readonly catalog?: unknown;
   readonly deckRules?: DeckValidationRules;
+  readonly constructedPolicy?: ConstructedRulesOptions;
 }
 
 const DEFAULT_CATALOG_PATH = fileURLToPath(
@@ -375,7 +377,8 @@ function allowedZonesFor(
 
 function normalizeCardCatalogRuntime(
   value: unknown,
-  configuredRules?: DeckValidationRules
+  configuredRules?: DeckValidationRules,
+  policyOptions: ConstructedRulesOptions = {}
 ): CardCatalogRuntimeData {
   if (!isRecord(value) ||
       value.schemaVersion !== 1 ||
@@ -412,7 +415,7 @@ function normalizeCardCatalogRuntime(
     domains: card.domains,
     tags: card.tags,
     name: card.name
-  })));
+  })), "standard", policyOptions);
 
   const policyCards = cards.map(card => {
     const policy = getConstructedCardPolicy(
@@ -498,8 +501,11 @@ export function validateCatalogDeck(
   );
 }
 
-export function normalizeCardCatalog(value: unknown): PublicCardCatalog {
-  return normalizeCardCatalogRuntime(value).publicCatalog;
+export function normalizeCardCatalog(
+  value: unknown,
+  policyOptions: ConstructedRulesOptions = {}
+): PublicCardCatalog {
+  return normalizeCardCatalogRuntime(value, undefined, policyOptions).publicCatalog;
 }
 
 function normalizeImageManifestEntry(value: unknown): ImageManifestEntry | null {
@@ -613,7 +619,7 @@ export async function loadCardCatalogRuntime(
     publicCatalog,
     validationCards,
     constructedRules
-  } = normalizeCardCatalogRuntime(rawCatalog, options.deckRules);
+  } = normalizeCardCatalogRuntime(rawCatalog, options.deckRules, options.constructedPolicy);
   const deckRules = constructedRules.rules;
 
   return {

@@ -21,7 +21,7 @@ describe('trusted per-room regional policy and launch source pin', () => {
     expect(()=>bindConstructedRegion({regionCode:'FR',eventDate:'2026-10-14'})).toThrow();
   });
   it('isolates effective policy from the original catalog and preserves structural/ban/domain checks', async () => {
-    const catalog=await loadCardCatalogRuntime({catalog:setupAdapterFixtureCatalog});
+    const catalog=await loadCardCatalogRuntime({catalog:setupAdapterFixtureCatalog,constructedPolicy:{asOf:'2026-10-14'}});
     const original=structuredClone(catalog.constructedRules.policy);
     const row=bindConstructedRegion({regionCode:'ROW',eventDate:'2026-10-14'});
     const cn=bindConstructedRegion({regionCode:'CN',eventDate:'2026-10-14'});
@@ -34,7 +34,7 @@ describe('trusted per-room regional policy and launch source pin', () => {
     expect(catalog.constructedRules.policy).toEqual(original);
   });
   it('preserves region/date/source versions in a waiting room and refuses forged source versions', async () => {
-    const catalog=await loadCardCatalogRuntime({catalog:setupAdapterFixtureCatalog});
+    const catalog=await loadCardCatalogRuntime({catalog:setupAdapterFixtureCatalog,constructedPolicy:{asOf:'2026-10-14'}});
     const context=bindConstructedRegion({regionCode:'ROW',eventDate:'2026-10-14'});
     const room=new GameRoom('region-pending-room',DUEL_RULESET_ID,catalog,()=>0,'p4',context);
     room.join('Alice',()=>{},'region-A');

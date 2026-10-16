@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   createConstructedRules,
   getConstructedCardPolicy,
@@ -465,7 +465,7 @@ describe("createConstructedRules", () => {
           fullName: ban.snapshotName,
           cardType: banCardTypes[ban.canonicalCardId] ?? "Unit"
         }))
-    ]);
+    ], "standard", { asOf: "2026-10-11" });
 
     expect(missing.policy.banResolutionComplete).toBe(false);
     expect(missing.policy.missingBannedNames).toEqual(["Dreaming Tree"]);
@@ -494,7 +494,9 @@ describe("createConstructedRules", () => {
       })
     ];
 
-    expect(() => createConstructedRules(ambiguousCards)).toThrow(
+    expect(() => createConstructedRules(ambiguousCards, "standard", {
+      asOf: "2026-10-11"
+    })).toThrow(
       /Dreaming Tree.*canonical cards/
     );
   });
@@ -510,41 +512,70 @@ describe("createConstructedRules", () => {
     });
   });
 
-  it("activates Radiance on the rules-effective instant without changing official bans", () => {
+  it.each([
+    { asOf: "2026-10-15T23:59:59.999Z", available: false },
+    { asOf: "2026-10-16T00:00:00.000Z", available: false },
+    { asOf: "2026-10-22T23:59:59.999Z", available: false },
+    { asOf: "2026-10-23T00:00:00.000Z", available: true },
+    { asOf: "2026-10-24T00:00:00.000Z", available: true }
+  ])("uses the release boundary at $asOf without changing bans or released identities", ({ asOf, available }) => {
     const active = createConstructedRules(cards, "standard", {
-      asOf: "2026-10-16T00:00:00.000Z"
+      asOf
     });
 
-    expect(active.policy.checkedAt).toBe("2026-10-16");
+    expect(active.policy.checkedAt).toBe(asOf.slice(0, 10));
     expect(active.policy.standard).toEqual({
-      legalSetCodes: ["ogs", "ogn", "sfd", "unl", "ven", "rad"],
+      legalSetCodes: available
+        ? ["ogs", "ogn", "sfd", "unl", "ven", "rad"]
+        : ["ogs", "ogn", "sfd", "unl", "ven"],
       radiance: {
-        status: "active",
+        status: available ? "active" : "preview-not-released",
         effectiveDate: "2026-10-16",
         releaseDate: "2026-10-23"
       }
     });
     expect(getConstructedCardPolicy(active.policy, "card.radiance")).toEqual({
-      status: "legal",
-      maxCopies: 3,
+      status: available ? "legal" : "unreleased",
+      maxCopies: available ? 3 : 0,
       policyType: "limited"
     });
     expect(getConstructedPrintingPolicy(
       active.policy,
       "card.radiance.base"
     )).toEqual({
-      status: "available",
-      available: true,
+      status: available ? "available" : "previewNotReleased",
+      available,
       setCode: "rad"
     });
     expect(getConstructedPrintingPolicy(
       active.policy,
       "card.reprint.rad"
     )).toEqual({
-      status: "available",
-      available: true,
+      status: available ? "available" : "previewNotReleased",
+      available,
       setCode: "rad"
     });
+    expect(getConstructedCardPolicy(active.policy, "card.reprint")).toEqual({
+      status: "legal", maxCopies: 3, policyType: "limited"
+    });
+    expect(getConstructedPrintingPolicy(active.policy, "card.reprint.ogn")).toEqual({
+      status: "available", available: true, setCode: "ogn"
+    });
+    const deck = legalDeck();
+    const released = validateConstructedDeck({
+      ...deck,
+      mainDeck: [{ cardId: "card.reprint.ogn", quantity: 3 }, ...deck.mainDeck.slice(1)]
+    }, validationCards, active);
+    const radiance = validateConstructedDeck({
+      ...deck,
+      mainDeck: [{ cardId: "card.reprint.rad", quantity: 3 }, ...deck.mainDeck.slice(1)]
+    }, validationCards, active);
+    expect(released.valid).toBe(true);
+    expect(released.printingIssues).toEqual([]);
+    expect(radiance.valid).toBe(available);
+    expect(radiance.printingIssues).toEqual(available ? [] : [
+      expect.objectContaining({ cardId: "card.reprint.rad", status: "previewNotReleased" })
+    ]);
     expect(getConstructedCardPolicy(active.policy, "card.called-shot")).toEqual({
       status: "banned",
       maxCopies: 0,
@@ -552,9 +583,43 @@ describe("createConstructedRules", () => {
     });
   });
 
+  it.each(["2000-01-01", "2030-01-01"])("uses the injected clock independently of wall time %s", systemDate => {
+    const wallClock = vi.spyOn(Date, "now").mockReturnValue(Date.parse(systemDate));
+    try {
+      const now = vi.fn(() => Date.parse("2026-10-22T23:59:59.999Z"));
+      const preview = createConstructedRules(cards, "standard", { now });
+      expect(now).toHaveBeenCalledTimes(1);
+      expect(preview.policy.checkedAt).toBe("2026-10-22");
+      expect(getConstructedPrintingPolicy(preview.policy, "card.reprint.rad"))
+        .toEqual({ status: "previewNotReleased", available: false, setCode: "rad" });
+      const released = createConstructedRules(cards, "standard", {
+        now: () => Date.parse("2026-10-23T00:00:00.000Z")
+      });
+      expect(getConstructedPrintingPolicy(released.policy, "card.reprint.rad"))
+        .toEqual({ status: "available", available: true, setCode: "rad" });
+      expect(wallClock).not.toHaveBeenCalled();
+    } finally {
+      wallClock.mockRestore();
+    }
+  });
+
+  it.each(["2026-10-16", new Date("2026-10-16")])("gives explicit asOf %s priority over the injected clock", asOf => {
+    const now = vi.fn(() => { throw new Error("Clock must not be read"); });
+    const result = createConstructedRules(cards, "standard", { asOf, now });
+    expect(result.policy.checkedAt).toBe("2026-10-16");
+    expect(result.policy.standard.radiance.status).toBe("preview-not-released");
+    expect(now).not.toHaveBeenCalled();
+  });
+
   it("rejects an invalid asOf instant", () => {
     expect(() => createConstructedRules(cards, "standard", {
       asOf: "not-a-date"
+    })).toThrow(/asOf must be a valid date/);
+  });
+
+  it("rejects an invalid injected clock instant", () => {
+    expect(() => createConstructedRules(cards, "standard", {
+      now: () => Number.NaN
     })).toThrow(/asOf must be a valid date/);
   });
 

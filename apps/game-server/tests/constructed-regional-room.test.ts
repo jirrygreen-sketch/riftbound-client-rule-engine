@@ -44,7 +44,9 @@ const DECK = setupAdapterFixtureDecks.a.submission;
 
 let runtimePromise: Promise<CardCatalogRuntime> | null = null;
 function runtime(): Promise<CardCatalogRuntime> {
-  runtimePromise ??= loadCardCatalogRuntime({ catalog: p4RuntimeFixtureCatalog });
+  runtimePromise ??= loadCardCatalogRuntime({
+    catalog: p4RuntimeFixtureCatalog, constructedPolicy: { asOf: EVENT_DATE }
+  });
   return runtimePromise;
 }
 
@@ -263,7 +265,9 @@ describe("regional constructed room over the real WebSocket selector", () => {
     const { PROTOCOL_VERSION } = await import("@riftbound/protocol");
 
     const server = createGameServer({
-      port: 0, catalog: p4RuntimeFixtureCatalog, duelRoomProfile: "p4",
+      port: Number(process.env.SWARM_PORT_BASE ?? 31780),
+      constructedPolicy: { asOf: EVENT_DATE },
+      catalog: p4RuntimeFixtureCatalog, duelRoomProfile: "p4",
       roomIdFactory: () => `regional-ws-room-${roomSeq++}`, roomStore: new InMemoryRoomStore()
     });
     let roomSeq = 0;

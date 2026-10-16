@@ -2,8 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import { createConstructedRules } from "../src/constructed-policy.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createGameServer, type GameServer } from "../src/server.js";
 
 interface StartedServer {
@@ -15,6 +14,7 @@ const servers: GameServer[] = [];
 
 afterEach(async () => {
   for (const server of servers.splice(0)) await server.stop();
+  vi.restoreAllMocks();
 });
 
 const catalog = {
@@ -822,53 +822,59 @@ describe("card HTTP API", () => {
     );
   });
 
-  it("activates Radiance printings from the rules-effective instant", async () => {
-    const activePolicy = createConstructedRules(
-      printingPolicyCatalog.cards.map(card => ({
-        id: card.id,
-        canonicalCardId: card.canonicalCardId,
-        fullName: card.fullName,
-        cardType: card.cardType,
-        setCode: card.setCode
-      })),
-      "standard",
-      { asOf: "2026-10-16T00:00:00.000Z" }
-    );
-    const cardsById = new Map(
-      printingPolicyCatalog.cards.map(card => [
-        card.id,
-        activePolicy.policy.printingPolicies[card.id]
-      ])
-    );
+  it.each([
+    { asOf: "2026-10-15T23:59:59.999Z", available: false },
+    { asOf: "2026-10-16T00:00:00.000Z", available: false },
+    { asOf: "2026-10-22T23:59:59.999Z", available: false },
+    { asOf: "2026-10-23T00:00:00.000Z", available: true },
+    { asOf: "2026-10-24T00:00:00.000Z", available: true }
+  ].flatMap(boundary => ["2000-01-01", "2030-01-01"].flatMap(systemDate =>
+    ["asOf", "now"].map(source => ({ ...boundary, systemDate, source }))
+  )))("serves Radiance at $asOf via $source under wall clock $systemDate", async ({ asOf, available, systemDate, source }) => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse(systemDate));
+    const { baseUrl } = await startServer({
+      catalog: printingPolicyCatalog,
+      imagesDirectory: (await emptyImagesDirectory()).imagesDirectory,
+      constructedPolicy: source === "asOf" ? { asOf } : { now: () => Date.parse(asOf) }
+    });
+    const response = await fetch(`${baseUrl}/api/cards`);
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.policy.checkedAt).toBe(asOf.slice(0, 10));
+    expect(body.policy.standard.radiance).toEqual({
+      status: available ? "active" : "preview-not-released",
+      effectiveDate: "2026-10-16",
+      releaseDate: "2026-10-23"
+    });
+    expect(body.policy.standard.legalSetCodes.includes("rad")).toBe(available);
+    for (const cardId of ["fixture.released-printing.rad", "fixture.radiance-only.rad"]) {
+      expect(body.cards.find((card: { id: string }) => card.id === cardId)).toMatchObject({
+        available,
+        availabilityReason: available ? "available" : "previewNotReleased",
+        banned: false,
+        maxCopies: cardId === "fixture.radiance-only.rad" && !available ? 0 : 3
+      });
+    }
+    expect(body.cards.find((card: { id: string }) => card.id === "fixture.released-printing.ogn"))
+      .toMatchObject({ available: true, availabilityReason: "available", banned: false, maxCopies: 3 });
+    expect(body.cards.find((card: { id: string }) => card.id === "fixture.nonstandard-only.arc"))
+      .toMatchObject({ available: false, availabilityReason: "notStandard", banned: false, maxCopies: 0 });
 
-    expect(activePolicy.policy.standard).toEqual({
-      legalSetCodes: ["ogs", "ogn", "sfd", "unl", "ven", "rad"],
-      radiance: {
-        status: "active",
-        effectiveDate: "2026-10-16",
-        releaseDate: "2026-10-23"
-      }
-    });
-    expect(cardsById.get("fixture.released-printing.ogn")).toEqual({
-      status: "available",
-      available: true,
-      setCode: "ogn"
-    });
-    expect(cardsById.get("fixture.released-printing.rad")).toEqual({
-      status: "available",
-      available: true,
-      setCode: "rad"
-    });
-    expect(cardsById.get("fixture.radiance-only.rad")).toEqual({
-      status: "available",
-      available: true,
-      setCode: "rad"
-    });
-    expect(cardsById.get("fixture.nonstandard-only.arc")).toEqual({
-      status: "notStandard",
-      available: false,
-      setCode: "arc"
-    });
+    for (const cardId of ["fixture.released-printing.ogn", "fixture.released-printing.rad", "fixture.radiance-only.rad"]) {
+      const validation = await fetch(`${baseUrl}/api/decks/validate`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ deck: { mainDeck: [{ cardId, quantity: 1 }] } })
+      });
+      expect(validation.status).toBe(200);
+      const result = await validation.json();
+      expect(result.printingIssues).toEqual(available || cardId.endsWith(".ogn") ? [] : [
+        expect.objectContaining({ cardId, status: "previewNotReleased" })
+      ]);
+      expect(result.issues).not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ code: "banned_card" })
+      ]));
+    }
   });
 
   it("uses one zone mapping for public cards and deck validation", async () => {
@@ -984,7 +990,10 @@ describe("card HTTP API", () => {
 });
 
 async function startServer(options: Parameters<typeof createGameServer>[0]): Promise<StartedServer> {
-  const server = createGameServer({ ...options, host: "127.0.0.1", port: 0 });
+  const server = createGameServer({
+    constructedPolicy: { asOf: "2026-10-11T00:00:00.000Z" },
+    ...options, host: "127.0.0.1", port: Number(process.env.SWARM_PORT_BASE ?? 31780)
+  });
   servers.push(server);
   await server.start();
 
@@ -1001,6 +1010,7 @@ async function emptyImagesDirectory(): Promise<{
 }> {
   const directory = path.join(
     tmpdir(),
+    process.env.SWARM_TASK ?? "RIFT-79-gatefix-radiance-availability-clock",
     `riftbound-card-api-${Date.now()}-${Math.random().toString(36).slice(2)}`
   );
   await mkdir(directory, { recursive: true });
