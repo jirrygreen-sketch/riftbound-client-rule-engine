@@ -22,7 +22,7 @@ import {
   type ZoneId
 } from "../contract.js";
 import { isTimingPointId, type TimingPointId } from "../../events/timing-points.js";
-import { arithmetic } from "../interpreter/values.js";
+import { arithmetic, equalValues } from "../interpreter/values.js";
 import { resolveObjectSelector } from "../interpreter/selectors.js";
 
 export { AwaitChoice } from "../contract.js";
@@ -57,7 +57,7 @@ interface WorldState {
   lastKnown: Map<string, ObjectSnapshot>;
   pending: Map<string, TestPendingItem>;
   events: TestEvent[];
-  history: Array<{ action: GameAction; timingPoint: TimingPointId; turn: number; combat: number }>;
+  history: Array<{ action: GameAction; object?: ObjectSnapshot; timingPoint: TimingPointId; turn: number; combat: number }>;
   continuous: Array<{ effect: ContinuousEffectSpec; duration: Duration }>;
   delayed: Array<{ at: TriggerSpec; body: readonly Instruction[] }>;
   replacements: ReplacementHook[];
@@ -104,6 +104,7 @@ function defaultObject(id: string, owner: PlayerId, values: Partial<ObjectSnapsh
     controller: values.controller ?? owner,
     zone: values.zone ?? "deck",
     location: values.location === undefined ? null : values.location,
+    combatRole: values.combatRole ?? null,
     might: values.might ?? 1,
     energy: values.energy === undefined ? 1 : values.energy,
     power: values.power === undefined ? ["Fury"] : values.power,
@@ -190,7 +191,7 @@ export class TestWorld implements ResolveContext {
 
   object(ref: ObjectRef): ObjectSnapshot | null { const object = this.state.objects.get(ref.id); return object && object.ref.zoneEntryId === ref.zoneEntryId ? copySnapshot(object) : null; }
   lastKnown(ref: ObjectRef): ObjectSnapshot { const found = this.state.lastKnown.get(refKey(ref)); if (found) return copySnapshot(found); const current = this.state.objects.get(ref.id); if (current) return copySnapshot(current); return defaultObject(ref.id, this.controller, { ref }); }
-  query(filter: ObjectFilter): ObjectSnapshot[] { return this.listObjects().filter(object => matchesFilter(object, filter)); }
+  query(filter: ObjectFilter): ObjectSnapshot[] { return this.listObjects().filter(object => matchesQueryFilter(object, filter)); }
   zoneSlice(player: PlayerId, zone: ZoneId, from: "top" | "bottom", count?: number): ObjectSnapshot[] {
     if (count !== undefined && (!Number.isSafeInteger(count) || count < 0)) {
       throw new RangeError("zoneSlice count must be a nonnegative safe integer");
@@ -218,7 +219,28 @@ export class TestWorld implements ResolveContext {
   test(condition: Condition): boolean { switch (condition.kind) { case "always": return true; case "never": return false; case "expression": return Boolean(this.evaluate(condition.value)); case "not": return !this.test(condition.condition); case "all": return condition.conditions.every(item => this.test(item)); case "any": return condition.conditions.some(item => this.test(item)); case "compare": { const left = this.evaluate(condition.left) as any; const right = this.evaluate(condition.right) as any; switch (condition.operator) { case "eq": return left === right; case "ne": return left !== right; case "lt": return left < right; case "lte": return left <= right; case "gt": return left > right; case "gte": return left >= right; case "in": return Array.isArray(right) && right.includes(left); } } } }
   linked(key: string): Value | undefined { return this.linkedValues.get(key); }
   link(key: string, value: Value): void { this.linkedValues.set(key, value); }
-  history(query: HistoryQuery): number { return this.state.history.filter(item => (!query.action || item.action.type === query.action) && (!query.timingPoint || item.timingPoint === query.timingPoint) && (!query.player || actionPlayer(item.action) === query.player) && (!query.object || actionObject(item.action) && refKey(actionObject(item.action)!) === refKey(query.object!))).length; }
+  history(query: HistoryQuery): number {
+    const excluded = new Set(query.exclude === undefined ? [] : this.selectedObjects(query.exclude).map(ref => ref.id));
+    return this.state.history.filter(item => {
+      const ref = actionObject(item.action);
+      return (!query.action || item.action.type === query.action)
+        && (!query.timingPoint || item.timingPoint === query.timingPoint)
+        && (!query.player || actionPlayer(item.action) === query.player)
+        && (!query.object || ref !== undefined && refKey(ref) === refKey(query.object))
+        && (ref === undefined || !excluded.has(ref.id))
+        && (query.objectFilter === undefined || item.object !== undefined && matchesFilter(item.object, query.objectFilter));
+    }).length;
+  }
+  private selectedObjects(selector: ObjectSelector): readonly ObjectRef[] {
+    if (selector === "self" || selector === "source") return [this.source.ref];
+    if ("target" in selector) return this.targets(selector.target);
+    if ("pick" in selector) return this.picks(selector.pick).filter((pick): pick is ObjectRef => typeof pick === "object");
+    const value = this.linked(selector.linked);
+    return (Array.isArray(value) ? value : [value]).filter((item): item is Value & ObjectRef =>
+      item !== null && typeof item === "object" && !Array.isArray(item)
+      && "id" in item && typeof item.id === "string" && "zoneEntryId" in item && Number.isSafeInteger(item.zoneEntryId)
+    );
+  }
   choose<T>(request: ChoiceRequest<T>): T { if (!this.answers.has(request.id)) throw new AwaitChoice(request); return this.answers.get(request.id) as T; }
   addContinuous(effect: ContinuousEffectSpec, duration: Duration): void { this.state.continuous.push({ effect, duration }); }
   registerDelayedTrigger(at: TriggerSpec, body: readonly Instruction[]): void { this.state.delayed.push({ at, body }); }
@@ -227,10 +249,12 @@ export class TestWorld implements ResolveContext {
     const action: GameAction = input.type === "create-token" && input.to === undefined ? { ...input, to: "board" } : input;
     const replacement = this.state.replacements.map(hook => hook(action, this)).find(result => result !== null);
     if (replacement) return { status: replacement, events: [makeEvent(this.state, action.type, this.timingPoint, { outcome: replacement })] };
+    const ref = actionObject(action);
+    const object = ref === undefined ? undefined : this.object(ref) ?? undefined;
     const outcome = this.apply(action);
     if (outcome.status === "done") {
       const timingPoint = (outcome.events.at(-1) as TestEvent | undefined)?.timingPoint ?? this.timingPoint;
-      this.state.history.push({ action, timingPoint, turn: 1, combat: 0 });
+      this.state.history.push({ action: structuredClone(action), ...(object === undefined ? {} : { object }), timingPoint, turn: 1, combat: 0 });
     }
     return outcome;
   }
@@ -329,6 +353,7 @@ export class TestWorld implements ResolveContext {
     this.state.lastKnown.set(refKey(oldRef), copySnapshot(object));
     this.removeFromZones(object.ref.id);
     object.ref = { id: object.ref.id, zoneEntryId: object.ref.zoneEntryId + 1 };
+    object.combatRole = null;
     object.location = location ?? (destination === "base" ? { type: "base", player: object.controller } : destination === "battlefield" ? { type: "battlefield", id: "battlefield-1" } : null);
     object.zone = destination === "deck-top" || destination === "deck-bottom" ? "deck" : destination === "rune-deck" ? "rune-deck" : destination === "rune-zone" ? "rune-zone" : destination === "banishment" ? "banishment" : destination === "hand" ? "hand" : destination === "trash" ? "trash" : destination === "chain" ? "chain" : "board";
     this.putInZone(object, object.zone, bottom);
@@ -367,7 +392,25 @@ export class TestWorld implements ResolveContext {
 
 function actionPlayer(action: GameAction): PlayerId | undefined { return "player" in action ? action.player : undefined; }
 function actionObject(action: GameAction): ObjectRef | undefined { return "object" in action ? action.object : undefined; }
-function matchesFilter(object: ObjectSnapshot, filter: ObjectFilter): boolean { const candidate = filter as Record<string, unknown>; for (const [key, expected] of Object.entries(candidate)) { if (key === "type" && !object.types.includes(String(expected))) return false; if (key === "types" && Array.isArray(expected) && !expected.every(type => object.types.includes(String(type)))) return false; if (key === "tag" && !object.tags.includes(String(expected))) return false; if (key === "tags" && Array.isArray(expected) && !expected.every(tag => object.tags.includes(String(tag)))) return false; if (key === "controller" && object.controller !== expected) return false; if (key === "owner" && object.owner !== expected) return false; if (key === "zone" && object.zone !== expected) return false; if (key === "location" && JSON.stringify(object.location) !== JSON.stringify(expected)) return false; } return true; }
+/** Keep the set query's existing supported predicates separate from history snapshots. */
+function matchesQueryFilter(object: ObjectSnapshot, filter: ObjectFilter): boolean {
+  return Object.entries(filter).every(([key, expected]) => {
+    if (key === "type" || key === "tag") return (key === "type" ? object.types : object.tags).includes(String(expected));
+    if ((key === "types" || key === "tags") && Array.isArray(expected)) return expected.every(value => object[key].includes(String(value)));
+    if (key === "controller" || key === "owner" || key === "zone" || key === "location" || key === "combatRole") {
+      return equalValues(asValue(object[key]), expected);
+    }
+    return true;
+  });
+}
+
+function matchesFilter(object: ObjectSnapshot, filter: ObjectFilter): boolean {
+  return Object.entries(filter).every(([key, expected]) => {
+    if (key === "type" || key === "tag") return (key === "type" ? object.types : object.tags).includes(String(expected));
+    if (key === "types" || key === "tags") return Array.isArray(expected) && expected.every(value => object[key].includes(String(value)));
+    return Object.hasOwn(object, key) && equalValues(asValue(object[key as keyof ObjectSnapshot]), expected);
+  });
+}
 
 /** Start a deterministic two-player test world. */
 export function createTestWorld(seed?: number): TestWorld { return TestWorld.create(seed); }

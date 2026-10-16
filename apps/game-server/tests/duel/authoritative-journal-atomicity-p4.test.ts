@@ -18,6 +18,7 @@ import { createPrivateJournalCasStore } from "../../src/duel/private-journal-cas
 import { setupAdapterFixtureCatalog, setupAdapterFixtureDecks } from "./fixtures/setup-adapter-catalog.js";
 import {
   DUEL_COMMAND_PACKET_PROFILE_V3_ACTIONS_1,
+  isJournal,
   type DuelCommandMessageV3Actions1,
 } from "@riftbound/protocol";
 
@@ -161,8 +162,9 @@ describe("P4 journal failure atomicity", () => {
     try {
       const opts = await options("p4-atomicity-cas", directory);
       const genesis = createDuelRecordedRuntimeP4(opts);
+      expect(isJournal(genesis.archive().journal)).toBe(true);
       const baseStore = await createPrivateJournalCasStore({ directory, key: opts.matchId,
-        genesisData: JSON.parse(JSON.stringify({ profile: "P4", journal: genesis.archive() })) });
+        genesisData: JSON.parse(JSON.stringify({ journal: genesis.archive().journal })) });
       const compareAndSwap = vi.fn((...args: Parameters<typeof baseStore.compareAndSwap>) => baseStore.compareAndSwap(...args));
       const store = { key: baseStore.key, keyHash: baseStore.keyHash, load: () => baseStore.load(), compareAndSwap,
         close: () => baseStore.close() };

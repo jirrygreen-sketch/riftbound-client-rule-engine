@@ -6,7 +6,7 @@ import { loadCardCatalogRuntime } from '../../src/card-catalog.js';
 import { createPersistentDuelRuntimeP4, openPersistentDuelRuntimeP4 } from '../../src/duel/persistent-command-runtime-p4.js';
 import { createPrivateJournalCasStore, openPrivateJournalCasStore } from '../../src/duel/private-journal-cas-store.js';
 import { createDuelRecordedRuntimeP4 } from '../../src/duel/command-journal-p4.js';
-import { DUEL_COMMAND_PACKET_PROFILE_V3_ACTIONS_1 } from '@riftbound/protocol';
+import { DUEL_COMMAND_PACKET_PROFILE_V3_ACTIONS_1, isJournal } from '@riftbound/protocol';
 import { setupAdapterFixtureCatalog, setupAdapterFixtureDecks } from './fixtures/setup-adapter-catalog.js';
 
 async function options(directory: string) {
@@ -42,8 +42,10 @@ describe('P4 protected persistence', () => {
       const before = await store.load(), resumed = await runtime.resumePending(), after = await store.load();
       expect(resumed?.ack.pending).toBe(true);
       expect(after.head.revision).toBe(before.head.revision + 1);
-      const journal = (after.data as { journal: { operations: unknown[] } }).journal;
-      expect(journal.operations.at(-1)).toMatchObject({ kind: 'resume', observation: { ack: { ack: { pending: true } } } });
+      const journal = (after.data as { journal: unknown }).journal;
+      expect(isJournal(journal)).toBe(true);
+      if (!isJournal(journal)) throw Error('journal v1 required');
+      expect(journal.entries.at(-1)).toMatchObject({ kind: 'operation', phase: 'resume', pendingReason: 'pending' });
       await runtime.close(); await store.close();
       const restored = await openPersistentDuelRuntimeP4(opts);
       expect(restored.project(null)).toEqual(resumed?.projection);
@@ -125,8 +127,9 @@ describe('P4 protected persistence', () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'riftbound-p4-cas-fail-'));
     try {
       const opts = await options(directory), recorded = createDuelRecordedRuntimeP4(opts);
+      expect(isJournal(recorded.archive().journal)).toBe(true);
       const store = await createPrivateJournalCasStore({ directory, key: opts.matchId,
-        genesisData: JSON.parse(JSON.stringify({ profile: 'P4', journal: recorded.archive() })) });
+        genesisData: JSON.parse(JSON.stringify({ journal: recorded.archive().journal })) });
       const failing = { key: store.key, keyHash: store.keyHash, load: () => store.load(), close: () => store.close(),
         compareAndSwap: async () => { throw Error('write failed'); } };
       const runtime = await createPersistentDuelRuntimeP4({ ...opts, store: failing });
@@ -143,8 +146,9 @@ describe('P4 protected persistence', () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'riftbound-p4-lost-ack-'));
     try {
       const opts = await options(directory), recorded = createDuelRecordedRuntimeP4(opts);
+      expect(isJournal(recorded.archive().journal)).toBe(true);
       const store = await createPrivateJournalCasStore({ directory, key: opts.matchId,
-        genesisData: JSON.parse(JSON.stringify({ profile: 'P4', journal: recorded.archive() })) });
+        genesisData: JSON.parse(JSON.stringify({ journal: recorded.archive().journal })) });
       const lostAck = { key: store.key, keyHash: store.keyHash, load: () => store.load(), close: () => store.close(),
         compareAndSwap: async (...args: Parameters<typeof store.compareAndSwap>) => {
           await store.compareAndSwap(...args); throw Error('acknowledgement lost after durable write');
@@ -198,7 +202,7 @@ describe('P4 protected persistence', () => {
     } finally { await rm(directory, { recursive: true, force: true }); }
   }, 60_000);
 
-  it('closes an acquired store when restoration rejects the stored profile', async () => {
+  it('closes an acquired store when restoration rejects legacy profile data', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'riftbound-p4-invalid-restore-'));
     try {
       const opts = await options(directory), store = await createPrivateJournalCasStore({
@@ -207,7 +211,7 @@ describe('P4 protected persistence', () => {
       const tracked = { key: store.key, keyHash: store.keyHash, load: () => store.load(),
         compareAndSwap: (...args: Parameters<typeof store.compareAndSwap>) => store.compareAndSwap(...args),
         close: async () => { closed++; await store.close(); } };
-      await expect(openPersistentDuelRuntimeP4({ ...opts, store: tracked })).rejects.toThrow('invalid protected P4 data');
+      await expect(openPersistentDuelRuntimeP4({ ...opts, store: tracked })).rejects.toThrow('Durable runtime requires protected journal v1 data');
       expect(closed).toBe(1);
     } finally { await rm(directory, { recursive: true, force: true }); }
   }, 30_000);

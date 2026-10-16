@@ -32,14 +32,17 @@ function visionBody() {
 /**
  * Run the Vision body's Predict step against the reference test kernel.
  * Use the production chain argument adapter and the original expanded body.
- * The caller supplies the actual ordered top-card pick for each resolution;
- * neither the test nor inspect treats query insertion order as deck order.
+ * Ordered picks come from zoneSlice using the expanded instruction's amount;
+ * viewing and recycling still run through their primitives on each resolution.
+ * Neither the test nor inspect treats query insertion order as deck order.
  */
 function runVision(kernel, chosen = []) {
-  const { value: picksId } = visionBody()[0].args.picksSpecId;
-  kernel.setPicks(picksId, kernel.zoneSlice("A", "deck", "top", 1).map(object => object.ref));
+  const body = visionBody();
+  const { value: picksId } = body[0].args.picksSpecId;
+  const { value: amount } = body[0].args.amount;
+  kernel.setPicks(picksId, kernel.zoneSlice("A", "deck", "top", amount).map(object => object.ref));
   kernel.setAnswers({ [SELECT_REQUEST_ID]: chosen });
-  return resolveChainBody(visionBody(), kernel);
+  return resolveChainBody(body, kernel);
 }
 
 test("definition: non-valued keyword with v1.5 rule refs and separate stacking (817.2)", () => {
@@ -93,6 +96,8 @@ test("valued boundary: a spurious value is ignored, expansion stays value-free",
 });
 
 test("executed: recycling the seen top card moves it to the deck bottom (437.1)", () => {
+  // The ordered inspect pool comes from zoneSlice, so the player can only
+  // choose the actual top card that effect.inspect has viewed.
   // Query's stable id order and the actual deck order deliberately disagree.
   const kernel = world().deck(["z-top-seen", "a-rest"]).hand(HOST.canonicalCardId).build();
   const top = kernel.zone("A", "deck")[0];
