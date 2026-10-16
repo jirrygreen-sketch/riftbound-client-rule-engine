@@ -5,7 +5,6 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/shepherds-heirloom.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
-import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -35,7 +34,8 @@ test("unl-158-219 Shepherd's Heirloom: identity, status, judgeReason and verbati
   assert.match(program.judgeReason, /equip/);
   assert.match(program.judgeReason, /818\.1\.c\.[34]/);
   assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /CostPlanError/);
+  assert.match(program.judgeReason, /818\.1\.c\.3/);
+  assert.match(program.judgeReason, /契约 3\.5/);
 });
 
 test("unl-158-219 Shepherd's Heirloom: 'When you play this' subscribes to card-played for this card", () => {
@@ -89,7 +89,10 @@ test("unl-158-219 Shepherd's Heirloom: a replaced XP gain reports the actual add
   assert.equal(kernel.player("A").xp, 0);
 });
 
-test("unl-158-219 Shepherd's Heirloom: the merged Equip expansion is valid EffectIR but its cost is rejected", () => {
+test("unl-158-219 Shepherd's Heirloom: the Equip expansion for this declaration is valid EffectIR and targets a unit you control", () => {
+  // 818.1.b.1 / 818.1.c.2：展开功能上等于「[费用]: Attach this to a unit you control.」。
+  // 本测试只固定展开本身的有效性与目标形状，不断言费用管线当前是否已支持该费用种类
+  // （那类断言会在依赖合入后失败；缺口用 test.todo 记录）。
   const definition = keywordDefinitionsById.get("Equip");
   assert.ok(definition, "effects/keywords/Equip.ts must be registered");
   const expansion = definition.expand({ value: equip.value, host: { canonicalCardId: CANONICAL_ID } });
@@ -101,32 +104,25 @@ test("unl-158-219 Shepherd's Heirloom: the merged Equip expansion is valid Effec
     sourceText: SOURCE_TEXT
   });
   assert.deepEqual(expanded.issues, []);
+  assert.equal(expanded.ok, true);
 
-  const kernel = world()
-    .player("A", { xp: 3 })
-    .unit("shepherds-heirloom", {
-      types: ["gear"],
-      might: 2,
-      energy: 2,
-      power: null,
-      zone: "board",
-      location: { type: "base", player: "A" }
-    })
-    .build();
-  const context = kernel.clone({ sourceSnapshot: kernel.getObject("shepherds-heirloom") });
-  // 费用管线对未知支付种类直接 blocked：这条真实失败就是 judgeReason 的证据。
-  assert.throws(
-    () => buildCostPlan(context, { id: "shepherds-heirloom:equip", cost: expansion[0].cost }),
-    error =>
-      error instanceof CostPlanError &&
-      error.reason === "judge-required" &&
-      /Unsupported payment kind: equip/.test(error.message)
-  );
+  const [ability] = expansion;
+  assert.equal(ability.kind, "activated");
+  assert.equal(ability.timing, "action");
+  assert.deepEqual(ability.body.map(step => [step.id, step.op]), [["equip-attach", "effect.attach"]]);
+  assert.deepEqual(ability.body[0].targets, [
+    {
+      id: "equip-target",
+      filter: { type: "unit", controller: "self" },
+      min: 1,
+      max: 1,
+      selection: "one"
+    }
+  ]);
 });
 
-test("unl-158-219 Shepherd's Heirloom: XP itself is payable by the merged cost plan when a spec asks for it", () => {
-  // 730.2 / 357.2：XP 是 "Spend 1 XP" 这类费用可支付的非标准费用；这条探针固定住管线
-  // 已有的能力，说明缺口只在 Equip 参数与展开的对接（见 judgeReason）。
+test("unl-158-219 Shepherd's Heirloom: an XP cost is payable by the merged cost plan (730.2 / 357.2)", () => {
+  // 730.2 / 357.2：XP 是可支付的非标准费用；这条探针固定住管线已有的能力。
   const kernel = world()
     .player("A", { xp: 1 })
     .unit("shepherds-heirloom", {
@@ -150,9 +146,8 @@ test("unl-158-219 Shepherd's Heirloom: XP itself is payable by the merged cost p
 });
 
 test.todo(
-  "Shepherd's Heirloom: pay the printed 'Spend 1 XP' Equip cost — the merged keywords/Equip.ts expansion still " +
-    "declares payments: [{ kind: 'equip' }] and never reads the printed Equip cost (CR 818.1.c.3/c.4), so " +
-    "buildCostPlan blocks with CostPlanError 'Unsupported payment kind: equip' (RIFT-89)"
+  "Shepherd's Heirloom: pay the printed 'Spend 1 XP' Equip cost (CR 818.1.c.3) — needs the Equip activation cost " +
+    "to be carried from the printed text into the Finalize cost plan and payable as XP (RIFT-89 cost pipeline)"
 );
 test.todo(
   "Shepherd's Heirloom: carry the printed Equip cost kind/amount in the card program — KeywordAbility (contract 3.1) " +

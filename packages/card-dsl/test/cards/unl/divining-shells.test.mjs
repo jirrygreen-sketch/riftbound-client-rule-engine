@@ -7,7 +7,6 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
-import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -153,20 +152,18 @@ test("unl-161-219 Divining Shells: the printed costs are payable through the mer
   );
 });
 
-test("unl-161-219 Divining Shells: the Might instruction never mutates state when its op is unavailable", () => {
-  // 契约 3.6 的封闭 GameAction 集合没有 Might 修改动作。这里只验证「没有替代结算」：
-  // 无论该 op 是否注册（缺依赖时抛未注册，注册后由图层裁决），本卡都不允许用手改
-  // state、effect.buff 或假 callback 去凑一个 +2 Might。
-  const kernel = world().unit("target-unit", { might: 2 }).build();
-  kernel.setTargets("divining-shells.unit", [kernel.ref("target-unit")]);
-  try {
-    runAbilityBody([giveMight], kernel);
-  } catch (error) {
-    assert.match(String(error && error.message), /Unregistered instruction opcode: continuous\.might/);
-  }
-  assert.equal(kernel.getObject("target-unit").might, 2, "Might must stay unchanged without a real primitive");
-  assert.equal(kernel.getObject("target-unit").buffs, 0, "no Buff counter may stand in for Might");
-  assert.deepEqual(kernel.events, [], "no substitute event may be produced");
+test("unl-161-219 Divining Shells: the card never approximates the Might grant with Buff counters", () => {
+  // 数据层面的红线守卫（与引擎当前支持到哪一步无关）：+2 Might 是算术图层的临时修正，
+  // effect.buff 的文件头明确它不承接临时 Might，因此本卡的程序里不得出现 effect.buff
+  // 或任何手改 Might/Buff 的替代写法。
+  const ops = program.abilities.flatMap(ability =>
+    (ability.body ?? []).map(instruction => instruction.op)
+  );
+  assert.deepEqual(ops, ["continuous.might"]);
+  assert.equal(ops.includes("effect.buff"), false);
+  assert.equal(giveMight.args.mode, undefined);
+  assert.deepEqual(giveMight.args.amount, { kind: "constant", value: 2 });
+  assert.deepEqual(giveMight.args.duration, { kind: "constant", value: "end-of-turn" });
 });
 
 test("unl-161-219 Divining Shells: [Vision] recycles the seen top card through the merged expansion (817.1.b / 437.1)", () => {

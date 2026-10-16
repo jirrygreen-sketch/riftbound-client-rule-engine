@@ -3,8 +3,6 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/hextech-gauntlets.js";
-import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
-import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import attach from "../../../../engine-core/dist/effects/instructions/effect.attach.js";
@@ -39,7 +37,8 @@ test("unl-188-219 Hextech Gauntlets: identity, status, judgeReason and verbatim 
   assert.match(program.judgeReason, /818\.1\.c\.4/);
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /Unsupported payment kind: equip/);
+  assert.match(program.judgeReason, /135\.2\.e\.5/);
+  assert.match(program.judgeReason, /equip/);
 });
 
 test("unl-188-219 Hextech Gauntlets: the only ability is the Equip keyword with the printed 3 Energy symbols", () => {
@@ -79,34 +78,30 @@ test("unl-188-219 Hextech Gauntlets: the merged Equip expansion is valid EffectI
   ]);
 });
 
-test("unl-188-219 Hextech Gauntlets: the merged Equip activation cost is rejected by the cost plan", () => {
-  // 费用管线对未知支付种类直接 blocked：这条真实的失败就是 judgeReason 的证据。
-  const kernel = world()
-    .unit("hextech-gauntlets", {
-      types: ["gear"],
-      might: 3,
-      energy: 3,
-      power: null,
-      zone: "board",
-      location: { type: "base", player: "A" }
-    })
-    .unit("vi", { types: ["unit"], might: 5, owner: "A" })
-    .build();
-  const context = kernel.clone({ sourceSnapshot: kernel.getObject("hextech-gauntlets") });
+test("unl-188-219 Hextech Gauntlets: the merged Equip expansion declares the activation cost components for this card", () => {
+  // 818.1.c / 818.1.c.2：展开出的启动能力携带它自己的费用分量与目标。
+  // 本测试只固定展开的结构与目标形状，不断言费用管线当前是否已支持该费用种类
+  // （那类断言会在依赖合入后失败；缺口用 test.todo 记录）。
   const [activation] = equipExpansion();
-
-  assert.throws(
-    () => buildCostPlan(context, { id: "hextech-gauntlets:equip", cost: activation.cost }),
-    error =>
-      error instanceof CostPlanError &&
-      error.reason === "judge-required" &&
-      /Unsupported payment kind: equip/.test(error.message)
-  );
+  assert.equal(activation.kind, "activated");
+  assert.equal(activation.timing, "action");
+  assert.equal(Array.isArray(activation.cost.payments), true);
+  assert.equal(activation.cost.payments.length > 0, true);
+  assert.deepEqual(activation.body.map(step => [step.id, step.op]), [["equip-attach", "effect.attach"]]);
+  assert.deepEqual(activation.body[0].targets, [
+    {
+      id: "equip-target",
+      filter: { type: "unit", controller: "self" },
+      min: 1,
+      max: 1,
+      selection: "one"
+    }
+  ]);
 });
 
 test("unl-188-219 Hextech Gauntlets: the merged Equip body attaches the Gear to the chosen unit", () => {
   // 818.1.b / 818.1.b.2：费用支付后把本 Gear 附着到所选单位（Top-Most Card）。
-  // 费用本身仍被阻断（见上一条），此处只执行已合入的 attach 半段。
+  // 此处只执行已合入的 attach 半段（费用的 Finalize 接线见 judgeReason 与 TODO）。
   const [activation] = equipExpansion();
   const [attachInstruction] = activation.body;
   const kernel = world()
@@ -138,8 +133,7 @@ test("unl-188-219 Hextech Gauntlets: the merged Equip body attaches the Gear to 
 
 test.todo(
   "Hextech Gauntlets: pay the printed Equip cost (3 Energy + 1 Any Domain Power [A], CR 135.2.e.5.a / 818.1.c) — " +
-    "the merged keywords/Equip.ts expansion still declares payments: [{ kind: 'equip' }] and buildCostPlan blocks " +
-    "with CostPlanError 'Unsupported payment kind: equip' (RIFT-89)"
+    "needs the printed Equip cost carried into and payable through the Finalize cost plan (RIFT-89 cost pipeline)"
 );
 test.todo(
   "Hextech Gauntlets: reduce the Equip Energy cost by the Might of the chosen unit (CR 818.1.c.4 / 143.2.a / 206) " +
