@@ -1,5 +1,5 @@
 import type { Expr, ObjectRef, ResolveContext, Value } from "../contract.js";
-import { asValue, MissingInformation } from "./values.js";
+import { arithmetic, asValue, MissingInformation } from "./values.js";
 
 export interface ExpressionContext {
   readonly context: ResolveContext;
@@ -19,6 +19,7 @@ export function evaluateExpression(expr: Expr, environment: ExpressionContext): 
       return asValue(value);
     }
     case "count": return environment.context.query(expr.filter ?? {}).length;
+    case "arithmetic": return arithmetic(expr.operator, expr.operands.map(operand => evaluateExpression(operand, environment)));
     case "object-property":
     case "object-attribute": {
       if (environment.isIgnored(expr.object)) throw new MissingInformation(`Ignored object: ${expr.object.id}`);

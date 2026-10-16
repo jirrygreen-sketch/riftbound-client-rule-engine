@@ -205,17 +205,24 @@ export type GameAction =
   | { readonly type: "add-counter"; readonly object: ObjectRef; readonly counter: string; readonly amount: number }
   /** Remove a named counter. */
   | { readonly type: "remove-counter"; readonly object: ObjectRef; readonly counter: string; readonly amount: number }
-  /** Create a token at a Board location. */
-  | { readonly type: "create-token"; readonly player: PlayerId; readonly token: TokenSpec; readonly location: LocationRef }
+  /**
+   * Create a token on the Board or as a Pending Chain item's object
+   * (Core Rules v1.5 440.2.c / 185.2.a). The result is its new ObjectRef.
+   * The destination is explicit; legacy Board callers use the perform overload.
+   */
+  | ({ readonly type: "create-token"; readonly player: PlayerId; readonly token: TokenSpec } & (
+    | { readonly to: "board"; readonly location: LocationRef }
+    | { readonly to: "chain"; readonly location?: LocationRef }
+  ))
   /** Create an object with copied printed characteristics. */
   | { readonly type: "copy"; readonly source: ObjectRef; readonly player: PlayerId; readonly location: LocationRef }
-  /** Play an object from its current zone. */
+  /** Play an object from its current zone, including a token created Pending on the Chain. */
   | { readonly type: "play"; readonly object: ObjectRef; readonly player: PlayerId; readonly location?: LocationRef; readonly cost?: FinalizedCostPlan }
-  /** Reveal an object to an audience. */
+  /** Reveal an object to an audience; result lists the actual revealed ObjectRefs in zone order. */
   | { readonly type: "reveal"; readonly object: ObjectRef; readonly viewers?: readonly PlayerId[] }
-  /** Look at objects privately. */
+  /** Look at objects privately; result lists the actual viewed ObjectRefs in zone order. */
   | { readonly type: "look"; readonly objects: readonly ObjectRef[]; readonly player: PlayerId }
-  /** Show Off selected characteristics. */
+  /** Show Off selected characteristics; result lists the actual shown ObjectRefs in zone order. */
   | { readonly type: "show-off"; readonly object: ObjectRef; readonly properties: readonly (keyof ObjectSnapshot)[]; readonly viewers?: readonly PlayerId[] }
   /** Counter a Chain item. */
   | { readonly type: "counter"; readonly object: ObjectRef }
@@ -224,7 +231,14 @@ export type GameAction =
   /** Declare a winner. */
   | { readonly type: "win"; readonly player: PlayerId };
 
-/** Result after replacement and prevention have been applied. */
+/** @deprecated Existing Board token calls are normalized to an explicit to: "board". */
+export type LegacyBoardTokenAction = Omit<Extract<GameAction, { readonly type: "create-token"; readonly to: "board" }>, "to"> & { readonly to?: undefined };
+
+/**
+ * Result after replacement and prevention have been applied. Successful
+ * create-token returns its ObjectRef; reveal, look, and show-off return an
+ * ObjectRef list in zone order. Other results depend on the action.
+ */
 export type ActionOutcome =
   | { readonly status: "done"; readonly events: readonly GameEvent[]; readonly result?: Value }
   | { readonly status: "replaced" | "prevented" | "impossible"; readonly events: readonly GameEvent[] };
@@ -255,6 +269,8 @@ export interface ResolveContext {
   history(query: HistoryQuery): number;
   choose<T>(request: ChoiceRequest<T>): T;
   perform(action: GameAction): ActionOutcome;
+  /** @deprecated Include to: "board" when creating a Board token. */
+  perform(action: LegacyBoardTokenAction): ActionOutcome;
   link(key: string, value: Value): void;
   addContinuous(effect: ContinuousEffectSpec, duration: Duration): void;
   registerDelayedTrigger(at: TriggerSpec, body: readonly Instruction[]): void;

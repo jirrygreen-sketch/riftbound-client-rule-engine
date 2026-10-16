@@ -4,7 +4,7 @@
 The registry is a `ReadonlyMap<string, InstructionDef<unknown>>`, defaulting to
 `instructions/registry.generated.ts`. An empty generated registry is supported;
 unregistered primitive opcodes throw. Primitive schemas parse **evaluated** arguments.
-No package exports or shared contracts are changed by this module.
+The shared structural node and expression types live in `@riftbound/card-dsl`.
 
 An outcome contains `status: "executed" | "partial"`, `results` (instruction
 completion order, including containers), `events` (each primitive event once), and
@@ -21,11 +21,10 @@ including target groups and characteristic reads across sequence boundaries.
 Sequence children share the surrounding link scope. Repeat iterations and mode
 executions have independent scopes, with access to their enclosing links.
 
-## Structural instructions within the existing IR
+## Structural instructions and native expressions
 
-The frozen IR has an open string opcode and JSON-valued constants, but no typed
-control-node or arithmetic-expression variants. The following interpreter opcodes
-use those existing fields. Bodies, modes, conditions, history queries, and operand
+`SequenceInstruction`, `RepeatInstruction`, and their argument types preserve
+the existing `op` / `args` encoding. Bodies, modes, conditions, history queries, and operand
 expression lists are encoded as `constant` expressions; scalar arguments can be
 any existing `Expr`. Constants are always literal data: a constant containing an
 expression-shaped object is not implicitly executed.
@@ -33,7 +32,7 @@ expression-shaped object is not implicitly executed.
 | Opcode | Evaluated arguments | Result bindings |
 | --- | --- | --- |
 | `sequence` | `body: Instruction[]` | Child results remain visible |
-| `repeat` | `count: nonnegative integer`, `body: Instruction[]` | `count` |
+| `repeat` | `count: nonnegative integer`, `body: Instruction[]`, `reselectTargets: boolean = true` | `count` |
 | `choice.optional` | `body: Instruction[]` | `value: true` when accepted; refusal is negated/skipped |
 | `choice.mode` | `modes: {id, body}[]`, `count = 1`, `different = true` | `value: selected mode ids` |
 | `choice.order` | `objects: ObjectRef[]` | `value: chosen permutation` |
@@ -42,13 +41,15 @@ expression-shaped object is not implicitly executed.
 | `condition.value` | `value`, optional comparison `operator`, `right`, `key` | `value` and the named key, e.g. `X` |
 | `condition.value` | arithmetic `operator`, `operands: Expr[]`, optional `key` | Calculated `value` and named key |
 
-Arithmetic operators are `add`, `subtract`, `multiply`, `divide`, `min`, `max`.
-Subtraction and division require two operands. Missing information and arithmetic
+Native `ArithmeticExpr` uses `{ kind: "arithmetic", operator, operands: Expr[] }`
+and can be nested directly in arguments, conditions, and repeat counts. Operators
+are `add`, `sub` / `subtract`, `mul` / `multiply`, `div` / `divide`, `min`, `max`,
+and unary `neg`. Subtraction and division require two operands; `neg` requires
+one, and all other operators require at least one. Missing information and arithmetic
 on null characteristics ignore the instruction; unsupported operations, invalid
 answers, non-finite numbers, and malformed inputs throw. No null is converted to
 zero. Arithmetic can be composed by reading a prior `condition.value` through a
-`linked-value` expression. A native arithmetic `Expr` variant requires a future
-card-dsl contract change.
+`linked-value` expression. Both forms use the same arithmetic evaluator.
 
 Mode selection uses one `mode` request per selected slot; distinct selection
 removes prior answers from subsequent options. Selected modes execute in their
@@ -74,10 +75,11 @@ Ordinary instructions consume Finalize-locked targets from `context.targets`,
 recheck reference identity and the declared filter, and keep legal members of a
 partially mistargeted group. Picks use `context.picks` and are never treated as
 targets. A repeated body issues independently scoped `select-objects` requests
-for each declared target specification on each iteration, allowing the same or
+for each declared target specification on each iteration by default, allowing the same or
 different legal objects. Previously finalized answers are revalidated: lost
 members are ignored and the remaining legal members still execute. Choices nested in the body are also independently
-scoped. `effect.repeat` remains an ordinary registered primitive: it declares
+scoped. An explicit `reselectTargets: constant(false)` keeps the locked targets
+and revalidates them on every iteration. `effect.repeat` remains an ordinary registered primitive: it declares
 the finalized repetition count in a linked result. A following `repeat` control
 instruction reads that count and performs the loop. Neither operation replays
 the card or pays an additional cost by itself.
@@ -100,8 +102,7 @@ copies and remain fixed when objects subsequently change.
 
 ## Contract follow-up for the coordinator
 
-Add shared typed schemas for the structural argument payloads and arithmetic
-expressions, and agree on the exported `ExecutionOutcome`/package entry point.
-Add an authority boundary for finalized per-iteration targets and target-trigger
+Agree on the exported `ExecutionOutcome`/package entry point and add an authority
+boundary for finalized per-iteration targets and target-trigger
 notifications before integrating the repeat selector into production. The
 implementation and its tests only modify the interpreter's assigned files.

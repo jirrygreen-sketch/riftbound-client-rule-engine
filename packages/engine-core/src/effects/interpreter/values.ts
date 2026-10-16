@@ -74,12 +74,21 @@ export function arithmetic(operator: unknown, operands: readonly Value[]): numbe
   let result: number;
   switch (operator) {
     case "add": result = numbers.reduce((sum, value) => sum + value, 0); break;
+    case "mul":
     case "multiply": result = numbers.reduce((product, value) => product * value, 1); break;
+    case "neg": {
+      if (numbers.length !== 1) throw new Error("neg requires one operand");
+      result = -numbers[0]!;
+      break;
+    }
+    case "sub":
     case "subtract":
+    case "div":
     case "divide": {
       if (numbers.length !== 2) throw new Error(`${operator} requires two operands`);
-      if (operator === "divide" && numbers[1] === 0) throw new Error("Division by zero");
-      result = operator === "subtract" ? numbers[0]! - numbers[1]! : numbers[0]! / numbers[1]!;
+      const subtract = operator === "sub" || operator === "subtract";
+      if (!subtract && numbers[1] === 0) throw new Error("Division by zero");
+      result = subtract ? numbers[0]! - numbers[1]! : numbers[0]! / numbers[1]!;
       break;
     }
     case "min": result = Math.min(...numbers); break;
