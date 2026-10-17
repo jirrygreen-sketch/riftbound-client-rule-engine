@@ -2,8 +2,15 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { MatchCard, MatchDeck } from "../../../engine-core/dist/game/lifecycle.js";
 
-export type M1PreconId = "rumble-sfd" | "fiora-sfd";
+export type M1PreconId = "rumble-sfd" | "fiora-sfd" | "vex-unl" | "vi-unl";
 export type HeadlessSeat = "A" | "B";
+
+export const M1_DECK_IDS: readonly M1PreconId[] = Object.freeze([
+  "rumble-sfd",
+  "fiora-sfd",
+  "vex-unl",
+  "vi-unl",
+]);
 
 export interface HeadlessCard extends MatchCard {
   readonly canonicalCardId: string;
@@ -129,13 +136,27 @@ export function buildM1Deck(id: M1PreconId, seat: HeadlessSeat): MatchDeck & {
   };
 }
 
-export function m1Decks(): readonly [ReturnType<typeof buildM1Deck>, ReturnType<typeof buildM1Deck>] {
-  return [buildM1Deck("rumble-sfd", "A"), buildM1Deck("fiora-sfd", "B")];
+export function m1Decks(): readonly [
+  ReturnType<typeof buildM1Deck>,
+  ReturnType<typeof buildM1Deck>,
+  ReturnType<typeof buildM1Deck>,
+  ReturnType<typeof buildM1Deck>,
+] {
+  return [
+    buildM1Deck("rumble-sfd", "A"),
+    buildM1Deck("fiora-sfd", "B"),
+    buildM1Deck("vex-unl", "A"),
+    buildM1Deck("vi-unl", "B"),
+  ];
+}
+
+export function m1DeckIds(): readonly M1PreconId[] {
+  return M1_DECK_IDS;
 }
 
 export function m1CardCatalog(): ReadonlyMap<string, HeadlessCard> {
   const result = new Map<string, HeadlessCard>();
-  for (const id of ["rumble-sfd", "fiora-sfd"] as const) {
+  for (const id of M1_DECK_IDS) {
     const deck = buildM1Deck(id, "A");
     for (const card of [deck.championLegend, deck.chosenChampion, ...deck.mainDeck, ...deck.runeDeck, ...deck.battlefields]) {
       result.set(card.cardId ?? card.id, card);

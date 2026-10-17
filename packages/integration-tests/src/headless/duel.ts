@@ -9,20 +9,61 @@ import type { CardProgram } from "../../../card-dsl/dist/ir/types.js";
 import type { ChainDraft } from "../../../engine-core/dist/chain/engine.js";
 import type { ObjectSnapshot, PlayerId } from "../../../engine-core/dist/effects/contract.js";
 import type { PipelineHost } from "../../../engine-core/dist/events/pipeline-types.js";
-import { buildM1Deck, type HeadlessCard } from "./decks.js";
+import type { HeadlessCard, M1PreconId } from "./decks.js";
+
+const { buildM1Deck, M1_DECK_IDS } = await import(new URL("./decks.ts", import.meta.url).href);
 
 export const HEADLESS_SEEDS = Object.freeze(Array.from({ length: 20 }, (_, index) => `RIFT-345-seed-${index + 1}`));
+export const HEADLESS_MATRIX_SEEDS = Object.freeze(HEADLESS_SEEDS.slice(0, 5));
 export const DEFAULT_GAME_LIMIT = 100;
 export const DEFAULT_TURN_LIMIT = 8;
 
+export type HeadlessCommandType = "play" | "idle" | "pass" | "advance" | "concede";
+export type HeadlessChoiceType = "optional" | "mode" | "number" | "select-objects" | "order";
+
+export interface HeadlessActionCoverage {
+  readonly commands: Readonly<Record<HeadlessCommandType, number>>;
+  readonly choices: Readonly<Record<HeadlessChoiceType, number>>;
+}
+
+export interface HeadlessJudgeRequiredCardStat {
+  readonly cardId: string;
+  readonly name: string | null;
+  readonly count: number;
+}
+
+export interface HeadlessDeckPair {
+  readonly A: M1PreconId;
+  readonly B: M1PreconId;
+}
+
+export interface HeadlessGameOptions {
+  readonly maxTurns?: number;
+  readonly decks?: readonly [M1PreconId, M1PreconId];
+  readonly deckPair?: HeadlessDeckPair;
+}
+
+export interface HeadlessGamesOptions extends HeadlessGameOptions {}
+
+export interface HeadlessMatrixOptions {
+  readonly games?: number;
+  readonly seeds?: readonly string[];
+  readonly decks?: readonly M1PreconId[];
+  readonly maxTurns?: number;
+}
+
 export interface HeadlessStats {
   readonly seed: string;
+  readonly decks: HeadlessDeckPair;
   readonly winner: PlayerId | null;
   readonly turnNumber: number;
   readonly termination: "winner" | "concede" | "blocked" | "exception" | "guard";
   readonly exceptions: readonly string[];
   readonly judgeRequiredRejections: number;
   readonly judgeRequiredCards: readonly string[];
+  readonly judgeRequiredCardCounts: readonly HeadlessJudgeRequiredCardStat[];
+  readonly judgeRequiredTop: readonly HeadlessJudgeRequiredCardStat[];
+  readonly actionCoverage: HeadlessActionCoverage;
   readonly eventCount: number;
   readonly journalDigest: string;
   readonly projectionDigests: Readonly<Record<PlayerId, string>>;
@@ -32,10 +73,38 @@ export interface HeadlessStats {
 
 export interface HeadlessRunSummary {
   readonly games: number;
+  readonly decks: HeadlessDeckPair;
   readonly completed: number;
   readonly blocked: number;
   readonly exceptions: number;
   readonly judgeRequiredRejections: number;
+  readonly judgeRequiredCards: readonly string[];
+  readonly judgeRequiredCardCounts: readonly HeadlessJudgeRequiredCardStat[];
+  readonly judgeRequiredTop: readonly HeadlessJudgeRequiredCardStat[];
+  readonly actionCoverage: HeadlessActionCoverage;
+  readonly terminationReasons: Readonly<Record<HeadlessStats["termination"], number>>;
+  readonly totalTurns: number;
+  readonly gamesWithReplayMismatch: number;
+  readonly gamesWithPrivacyLeak: number;
+  readonly results: readonly HeadlessStats[];
+}
+
+export interface HeadlessMatrixPairSummary extends HeadlessRunSummary {
+  readonly decks: HeadlessDeckPair;
+}
+
+export interface HeadlessMatrixSummary {
+  readonly games: number;
+  readonly decks: readonly M1PreconId[];
+  readonly pairings: readonly HeadlessMatrixPairSummary[];
+  readonly completed: number;
+  readonly blocked: number;
+  readonly exceptions: number;
+  readonly judgeRequiredRejections: number;
+  readonly judgeRequiredCards: readonly string[];
+  readonly judgeRequiredCardCounts: readonly HeadlessJudgeRequiredCardStat[];
+  readonly judgeRequiredTop: readonly HeadlessJudgeRequiredCardStat[];
+  readonly actionCoverage: HeadlessActionCoverage;
   readonly terminationReasons: Readonly<Record<HeadlessStats["termination"], number>>;
   readonly totalTurns: number;
   readonly gamesWithReplayMismatch: number;
@@ -45,7 +114,11 @@ export interface HeadlessRunSummary {
 
 interface MutableCounters {
   judgeRequiredRejections: number;
-  readonly judgeRequiredCards: Set<string>;
+  readonly judgeRequiredCards: Map<string, { readonly name: string | null; count: number }>;
+  readonly actionCoverage: {
+    readonly commands: Record<HeadlessCommandType, number>;
+    readonly choices: Record<HeadlessChoiceType, number>;
+  };
 }
 
 interface HeadlessWorld {
@@ -56,6 +129,7 @@ interface HeadlessWorld {
 
 interface Journal {
   readonly seed: string;
+  readonly decks: HeadlessDeckPair;
   readonly mulligans: readonly [readonly string[], readonly string[]];
   readonly commands: readonly Readonly<Record<string, unknown>>[];
   readonly events: readonly unknown[];
@@ -68,6 +142,7 @@ interface DraftableCard extends ObjectSnapshot {
 
 interface HeadlessContext {
   readonly state: HeadlessWorld;
+  readonly decks: HeadlessDeckPair;
   readonly mulligans: readonly [readonly string[], readonly string[]];
   readonly programs: ReturnType<typeof createProgramBinding>;
   readonly match: Match;
@@ -84,6 +159,56 @@ function stableSeed(seed: string): number {
     value = Math.imul(value, 0x01000193) >>> 0;
   }
   return value >>> 0;
+}
+
+function emptyActionCoverage(): MutableCounters["actionCoverage"] {
+  return {
+    commands: { play: 0, idle: 0, pass: 0, advance: 0, concede: 0 },
+    choices: { optional: 0, mode: 0, number: 0, "select-objects": 0, order: 0 },
+  };
+}
+
+function recordCommand(counters: MutableCounters, command: HeadlessCommandType): void {
+  counters.actionCoverage.commands[command] += 1;
+}
+
+function recordJudgeRequired(counters: MutableCounters, cardId: string, name?: string | null): void {
+  counters.judgeRequiredRejections += 1;
+  const existing = counters.judgeRequiredCards.get(cardId);
+  if (existing) {
+    existing.count += 1;
+  } else {
+    counters.judgeRequiredCards.set(cardId, { name: name ?? null, count: 1 });
+  }
+}
+
+function judgeRequiredCardCounts(counters: MutableCounters): readonly HeadlessJudgeRequiredCardStat[] {
+  return [...counters.judgeRequiredCards.entries()]
+    .map(([cardId, value]) => ({ cardId, name: value.name, count: value.count }))
+    .sort((left, right) => right.count - left.count || left.cardId.localeCompare(right.cardId));
+}
+
+function judgeRequiredCardIds(cards: readonly HeadlessJudgeRequiredCardStat[]): readonly string[] {
+  return cards.map(card => card.cardId).sort();
+}
+
+function mergeActionCoverage(
+  target: MutableCounters["actionCoverage"],
+  source: HeadlessActionCoverage,
+): void {
+  for (const type of Object.keys(target.commands) as HeadlessCommandType[]) target.commands[type] += source.commands[type];
+  for (const type of Object.keys(target.choices) as HeadlessChoiceType[]) target.choices[type] += source.choices[type];
+}
+
+function mergeJudgeRequiredCards(
+  target: Map<string, { readonly name: string | null; count: number }>,
+  source: readonly HeadlessJudgeRequiredCardStat[],
+): void {
+  for (const card of source) {
+    const existing = target.get(card.cardId);
+    if (existing) existing.count += card.count;
+    else target.set(card.cardId, { name: card.name, count: card.count });
+  }
 }
 
 class SetupRandom {
@@ -113,7 +238,11 @@ class BotRandom {
 function makeWorld(seed: string): HeadlessWorld {
   const builder = world(stableSeed(`${seed}:kernel`)).player("A").player("B");
   const kernel = builder.build();
-  const counters: MutableCounters = { judgeRequiredRejections: 0, judgeRequiredCards: new Set() };
+  const counters: MutableCounters = {
+    judgeRequiredRejections: 0,
+    judgeRequiredCards: new Map(),
+    actionCoverage: emptyActionCoverage(),
+  };
   const choiceRandom = new BotRandom(`${seed}:choices`);
   const hostBase = createActionPipelineHost({
     checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
@@ -124,7 +253,7 @@ function makeWorld(seed: string): HeadlessWorld {
     },
     objects: () => kernel.objects,
     perform: action => kernel.perform(action),
-    choose: <T>(request: Parameters<NonNullable<PipelineHost["choose"]>>[0]) => botChoice(choiceRandom, request) as T,
+    choose: <T>(request: Parameters<NonNullable<PipelineHost["choose"]>>[0]) => botChoice(choiceRandom, request, counters) as T,
     context: (source, controller, timingPoint) => bindResolveContext(kernel, {
       source,
       controller,
@@ -156,8 +285,7 @@ function createBotDraft(
   const status = cardProgramStatus(source.cardId);
   if (status !== "executable") {
     if (status === "judge-required") {
-      counters.judgeRequiredRejections += 1;
-      counters.judgeRequiredCards.add(source.cardId);
+      recordJudgeRequired(counters, source.cardId, source.name);
     }
     return null;
   }
@@ -166,8 +294,7 @@ function createBotDraft(
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
     if (/judge|required|program|battlefield location filters|no playable|unbound|unknown-program|invalid-program/i.test(message)) {
-      counters.judgeRequiredRejections += 1;
-      counters.judgeRequiredCards.add(source.cardId);
+      recordJudgeRequired(counters, source.cardId, source.name);
       return null;
     }
     throw error;
@@ -246,7 +373,12 @@ function projectionForKernel(kernel: TestWorld, viewer: PlayerId | "spectator"):
   return projectFor(input, viewer);
 }
 
-function botChoice(random: BotRandom, request: Parameters<NonNullable<PipelineHost["choose"]>>[0]): unknown {
+function botChoice(
+  random: BotRandom,
+  request: Parameters<NonNullable<PipelineHost["choose"]>>[0],
+  counters: MutableCounters,
+): unknown {
+  counters.actionCoverage.choices[request.type] += 1;
   if (request.type === "optional") return random.next(2) === 0;
   if (request.type === "mode") return request.options[random.next(request.options.length)];
   if (request.type === "number") return request.min + random.next(request.max - request.min + 1);
@@ -316,18 +448,29 @@ function chooseMulligans(seed: string, openingHands: readonly [readonly string[]
   return [choose(openingHands[0]), choose(openingHands[1])];
 }
 
-function createHeadlessContext(seed: string, requestedMulligans?: readonly [readonly string[], readonly string[]]): HeadlessContext {
-  const decks = [cloneDeck(buildM1Deck("rumble-sfd", "A"), "A"), cloneDeck(buildM1Deck("fiora-sfd", "B"), "B")] as const;
+const DEFAULT_DECK_PAIR: HeadlessDeckPair = Object.freeze({ A: "rumble-sfd", B: "fiora-sfd" });
+
+function deckPairFromIds(ids: readonly [M1PreconId, M1PreconId]): HeadlessDeckPair {
+  if (ids[0] === ids[1]) throw new RangeError("Headless deck pair must contain two different decks");
+  return { A: ids[0], B: ids[1] };
+}
+
+function createHeadlessContext(
+  seed: string,
+  requestedMulligans?: readonly [readonly string[], readonly string[]],
+  pair: HeadlessDeckPair = DEFAULT_DECK_PAIR,
+): HeadlessContext {
+  const decks = [cloneDeck(buildM1Deck(pair.A, "A"), "A"), cloneDeck(buildM1Deck(pair.B, "B"), "B")] as const;
   const programs = createProgramBinding({ cardPrograms: cardPrograms as unknown as readonly CardProgram[] });
   const mulligans = requestedMulligans ?? chooseMulligans(seed, openingHandsFor(seed, decks));
   const state = makeWorld(seed);
   const match = setupMatch(seed, state, programs, decks, mulligans);
-  return { state, mulligans, programs, match };
+  return { state, decks: pair, mulligans, programs, match };
 }
 
 function replayHeadlessJournal(seed: string, journal: Journal): boolean {
   try {
-    const context = createHeadlessContext(seed, journal.mulligans);
+    const context = createHeadlessContext(seed, journal.mulligans, journal.decks);
     for (const command of journal.commands) {
       const type = command.type;
       if (type === "idle") {
@@ -375,8 +518,9 @@ function replayHeadlessJournal(seed: string, journal: Journal): boolean {
   }
 }
 
-export function runHeadlessGame(seed: string, options: { readonly maxTurns?: number } = {}): HeadlessStats {
+export function runHeadlessGame(seed: string, options: HeadlessGameOptions = {}): HeadlessStats {
   const maxTurns = options.maxTurns ?? DEFAULT_TURN_LIMIT;
+  const deckPair = options.deckPair ?? deckPairFromIds(options.decks ?? [DEFAULT_DECK_PAIR.A, DEFAULT_DECK_PAIR.B]);
   let context: HeadlessContext | null = null;
   const random = new BotRandom(`${seed}:bot`);
   const journalCommands: Readonly<Record<string, unknown>>[] = [];
@@ -386,7 +530,7 @@ export function runHeadlessGame(seed: string, options: { readonly maxTurns?: num
   let termination: HeadlessStats["termination"] = "guard";
   const exceptions: string[] = [];
   try {
-    context = createHeadlessContext(seed);
+    context = createHeadlessContext(seed, undefined, deckPair);
     ({ state, programs, match } = context);
     let actions = 0;
     while (!match.result().winner && match.flow.turn <= maxTurns && actions < 2) {
@@ -404,27 +548,30 @@ export function runHeadlessGame(seed: string, options: { readonly maxTurns?: num
           catch (error: unknown) {
             const message = error instanceof Error ? error.message : String(error);
             if (/judge|required|program|battlefield location filters|no playable|unbound|unknown-program|invalid-program/i.test(message)) {
-              state.counters.judgeRequiredRejections += 1;
-              state.counters.judgeRequiredCards.add(draft.source.cardId ?? draft.source.ref.id);
+              recordJudgeRequired(state.counters, draft.source.cardId ?? draft.source.ref.id, draft.source.name);
               accepted = false;
             } else if (/blocked|combat-start|standard-move|cannot|cost|timed|target/i.test(message)) {
               accepted = false;
             } else throw error;
           }
+          recordCommand(state.counters, "play");
           journalCommands.push({ type: "play", player: active, object: draft.source.ref, id: draft.id, accepted });
           if (!accepted) match.flow.endTurn(active);
           actions += 1;
         } else {
+          recordCommand(state.counters, "idle");
           journalCommands.push({ type: "idle", player: active });
           match.flow.endTurn(active);
           actions += 1;
         }
       } else if (match.flow.chain.priority) {
         const player = match.flow.chain.priority;
+        recordCommand(state.counters, "pass");
         journalCommands.push({ type: "pass", player });
         match.flow.pass(player);
         actions += 1;
       } else {
+        recordCommand(state.counters, "advance");
         journalCommands.push({ type: "advance" });
         match.flow.advance();
         actions += 1;
@@ -433,6 +580,7 @@ export function runHeadlessGame(seed: string, options: { readonly maxTurns?: num
     if (match.result().winner) termination = "winner";
     else {
       termination = "concede";
+      recordCommand(state.counters, "concede");
       journalCommands.push({ type: "concede", player: match.flow.turnPlayer });
       concede(match, match.flow.turnPlayer);
     }
@@ -446,6 +594,7 @@ export function runHeadlessGame(seed: string, options: { readonly maxTurns?: num
   const result = match.result();
   const journal: Journal = {
     seed,
+    decks: deckPair,
     mulligans: context?.mulligans ?? [[], []],
     commands: journalCommands,
     events: match.events(),
@@ -459,12 +608,19 @@ export function runHeadlessGame(seed: string, options: { readonly maxTurns?: num
   const privacySafe = hiddenCardIds(projections.A).length === 0 && hiddenCardIds(projections.B).length === 0;
   return {
     seed,
+    decks: deckPair,
     winner: result.winner,
     turnNumber: result.turnNumber,
     termination,
     exceptions,
     judgeRequiredRejections: state.counters.judgeRequiredRejections,
-    judgeRequiredCards: [...state.counters.judgeRequiredCards].sort(),
+    judgeRequiredCards: judgeRequiredCardIds(judgeRequiredCardCounts(state.counters)),
+    judgeRequiredCardCounts: judgeRequiredCardCounts(state.counters),
+    judgeRequiredTop: judgeRequiredCardCounts(state.counters).slice(0, 10),
+    actionCoverage: {
+      commands: { ...state.counters.actionCoverage.commands },
+      choices: { ...state.counters.actionCoverage.choices },
+    },
     eventCount: match.events().length,
     journalDigest: digest(journal),
     projectionDigests: { A: digest(projections.A), B: digest(projections.B) },
@@ -473,24 +629,103 @@ export function runHeadlessGame(seed: string, options: { readonly maxTurns?: num
   };
 }
 
-export function runHeadlessGames(games = DEFAULT_GAME_LIMIT, seeds: readonly string[] = HEADLESS_SEEDS): HeadlessRunSummary {
-  if (!Number.isSafeInteger(games) || games < 1) throw new RangeError("games must be a positive integer");
-  const results = Array.from({ length: games }, (_, index) => {
-    const seed = seeds[index % seeds.length]!;
-    return runHeadlessGame(seed, { maxTurns: DEFAULT_TURN_LIMIT });
-  });
+function aggregateHeadlessResults(
+  games: number,
+  decks: HeadlessDeckPair,
+  results: readonly HeadlessStats[],
+): HeadlessRunSummary {
   const terminationReasons = { winner: 0, concede: 0, blocked: 0, exception: 0, guard: 0 } satisfies Record<HeadlessStats["termination"], number>;
-  for (const result of results) terminationReasons[result.termination] += 1;
+  const actionCoverage = emptyActionCoverage();
+  const judgeCards = new Map<string, { readonly name: string | null; count: number }>();
+  for (const result of results) {
+    terminationReasons[result.termination] += 1;
+    mergeActionCoverage(actionCoverage, result.actionCoverage);
+    mergeJudgeRequiredCards(judgeCards, result.judgeRequiredCardCounts);
+  }
+  const judgeRequiredCardCounts = [...judgeCards.entries()]
+    .map(([cardId, value]) => ({ cardId, name: value.name, count: value.count }))
+    .sort((left, right) => right.count - left.count || left.cardId.localeCompare(right.cardId));
   return {
     games,
+    decks,
     completed: results.filter(result => result.winner !== null).length,
     blocked: results.filter(result => result.termination === "blocked").length,
     exceptions: results.filter(result => result.exceptions.length > 0).length,
     judgeRequiredRejections: results.reduce((total, result) => total + result.judgeRequiredRejections, 0),
+    judgeRequiredCards: judgeRequiredCardIds(judgeRequiredCardCounts),
+    judgeRequiredCardCounts,
+    judgeRequiredTop: judgeRequiredCardCounts.slice(0, 10),
+    actionCoverage: {
+      commands: { ...actionCoverage.commands },
+      choices: { ...actionCoverage.choices },
+    },
     terminationReasons,
     totalTurns: results.reduce((total, result) => total + result.turnNumber, 0),
     gamesWithReplayMismatch: results.filter(result => !result.replayMatches).length,
     gamesWithPrivacyLeak: results.filter(result => !result.privacySafe).length,
+    results,
+  };
+}
+
+export function runHeadlessGames(
+  games = DEFAULT_GAME_LIMIT,
+  seedsOrOptions: readonly string[] | HeadlessGamesOptions = HEADLESS_SEEDS,
+  options: HeadlessGamesOptions = {},
+): HeadlessRunSummary {
+  if (!Number.isSafeInteger(games) || games < 1) throw new RangeError("games must be a positive integer");
+  const seeds = Array.isArray(seedsOrOptions) ? seedsOrOptions : HEADLESS_SEEDS;
+  const resolvedOptions: HeadlessGamesOptions = Array.isArray(seedsOrOptions)
+    ? options
+    : seedsOrOptions as HeadlessGamesOptions;
+  if (seeds.length === 0) throw new RangeError("seeds must contain at least one seed");
+  const decks = resolvedOptions.deckPair ?? deckPairFromIds(resolvedOptions.decks ?? [DEFAULT_DECK_PAIR.A, DEFAULT_DECK_PAIR.B]);
+  const results = Array.from({ length: games }, (_, index) => {
+    const seed = seeds[index % seeds.length]!;
+    return runHeadlessGame(seed, { maxTurns: resolvedOptions.maxTurns ?? DEFAULT_TURN_LIMIT, deckPair: decks });
+  });
+  return aggregateHeadlessResults(games, decks, results);
+}
+
+function pairingsFor(decks: readonly M1PreconId[]): readonly HeadlessDeckPair[] {
+  const unique = [...new Set(decks)];
+  if (unique.length < 2) throw new RangeError("At least two distinct decks are required");
+  const pairs: HeadlessDeckPair[] = [];
+  for (let left = 0; left < unique.length; left += 1) {
+    for (let right = left + 1; right < unique.length; right += 1) {
+      pairs.push({ A: unique[left]!, B: unique[right]! });
+    }
+  }
+  return pairs;
+}
+
+export function runHeadlessMatrix(options: HeadlessMatrixOptions = {}): HeadlessMatrixSummary {
+  const games = options.games ?? 5;
+  if (!Number.isSafeInteger(games) || games < 1) throw new RangeError("games must be a positive integer");
+  const seeds = options.seeds ?? HEADLESS_MATRIX_SEEDS;
+  if (seeds.length === 0) throw new RangeError("seeds must contain at least one seed");
+  const deckIds: readonly M1PreconId[] = options.decks ?? (M1_DECK_IDS as readonly M1PreconId[]);
+  const pairings = pairingsFor(deckIds).map(pair => runHeadlessGames(games, seeds, {
+    deckPair: pair,
+    maxTurns: options.maxTurns ?? DEFAULT_TURN_LIMIT,
+  }));
+  const results = pairings.flatMap(pair => pair.results);
+  const aggregate = aggregateHeadlessResults(results.length, { A: deckIds[0]!, B: deckIds[1]! }, results);
+  return {
+    games: results.length,
+    decks: [...new Set(deckIds)],
+    pairings,
+    completed: aggregate.completed,
+    blocked: aggregate.blocked,
+    exceptions: aggregate.exceptions,
+    judgeRequiredRejections: aggregate.judgeRequiredRejections,
+    judgeRequiredCards: aggregate.judgeRequiredCards,
+    judgeRequiredCardCounts: aggregate.judgeRequiredCardCounts,
+    judgeRequiredTop: aggregate.judgeRequiredTop,
+    actionCoverage: aggregate.actionCoverage,
+    terminationReasons: aggregate.terminationReasons,
+    totalTurns: aggregate.totalTurns,
+    gamesWithReplayMismatch: aggregate.gamesWithReplayMismatch,
+    gamesWithPrivacyLeak: aggregate.gamesWithPrivacyLeak,
     results,
   };
 }

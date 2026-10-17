@@ -1,9 +1,28 @@
 export {
   DEFAULT_GAME_LIMIT,
   HEADLESS_SEEDS,
+  HEADLESS_MATRIX_SEEDS,
   runHeadlessGame,
   runHeadlessGames,
+  runHeadlessMatrix,
+  type HeadlessActionCoverage,
+  type HeadlessChoiceType,
+  type HeadlessCommandType,
+  type HeadlessDeckPair,
+  type HeadlessGameOptions,
+  type HeadlessGamesOptions,
+  type HeadlessJudgeRequiredCardStat,
+  type HeadlessMatrixPairSummary,
+  type HeadlessMatrixOptions,
+  type HeadlessMatrixSummary,
   type HeadlessRunSummary,
   type HeadlessStats,
 } from "./duel.js";
-export { buildM1Deck, m1CardCatalog, m1Decks, type M1PreconId } from "./decks.js";
+export {
+  M1_DECK_IDS,
+  buildM1Deck,
+  m1CardCatalog,
+  m1DeckIds,
+  m1Decks,
+  type M1PreconId,
+} from "./decks.js";
