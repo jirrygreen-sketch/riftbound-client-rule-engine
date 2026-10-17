@@ -31,6 +31,8 @@ test("ogn-063-298 Spirit's Refuge: program passes validateCardProgram", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /809/);
+  assert.match(program.judgeReason, /target\.tax/);
+  assert.match(program.judgeReason, /已有 Deflect|否定关键词/);
   assert.equal(
     program.sourceText,
     "When you play this, buff a friendly unit. (If it doesn't have a buff, it gets a " +
@@ -224,8 +226,7 @@ test("Spirit's Refuge golden: no friendly unit with a Buff makes the grant a ski
 });
 
 test.todo(
-  "Spirit's Refuge: binding the card's static continuous.grant-keyword ability into the layer registry " +
-    "for a real play, expressing the printed 'if they didn't already' (809.2) as an evaluable layer " +
-    "condition, and turning the granted Deflect into the payable target tax (809.1.c / RIFT-90) all " +
-    "remain pending on the CardProgram static binding (RIFT-257) and the target-tax adapter."
+  "Spirit's Refuge: the remaining work after static continuous.grant-keyword binding is an evaluable " +
+    "'if they didn't already' keyword predicate (809.2) and a target-tax adapter that makes " +
+    "Deflect's Power payment affect opponent target choices (809.1.c)."
 );

@@ -23,18 +23,13 @@ import type { CardProgram } from "../../ir/index.js";
  *   除效果另有规定（ignored costs 正属此列）。
  * - 355.4 / 420.3.b.1：被 Play 的单位需要一个合法落点，落点选择属于 Play/Finalize 流程。
  *
- * status: judge-required —— 两处依赖未合入，均不近似实现：
+ * status: judge-required —— 两处当前实现缺口均不近似实现：
  * 1. "costing no more than [3] and no more than [A]" 是对印刷费用的比较
- *    （356.1.c：引用 base cost 时看印刷/复制费用）。当前 TargetSpec/ObjectFilter 只有
- *    等值/特征筛选，没有 "印刷 Energy <= 3" "印刷 Power <= 1（任意域）" 的谓词；把该上限写成
- *    普通 filter 键会被选择管线忽略（等于放开限制，属近似实现），因此本卡保持 judge-required。
+ *    （356.1.c）。TargetSpec/ObjectFilter 不支持 printedEnergyMax、printedPowerMax 或
+ *    printedPowerAnyDomain；生产绑定会拒绝这些字段，不能把上限当成普通特征筛选。
  * 2. "ignoring its cost" 的 finalized 费用计划必须由费用计划系统产出（cost.printed /
- *    ignore-cost 改写）：该路径属尚在进行的 RIFT-261（费用种类与 cost.pay / cost.modify），
- *    卡牌数据只能声明形状；Play 的落点选择（355.4）同样由
- *    Play/Finalize 流程负责，卡牌程序绑定依赖 RIFT-257。
- *
- * 依赖：RIFT-261（cost.printed / ignore-cost 计划）、RIFT-257（卡牌程序绑定）、
- *       TargetPlan 的印刷费用谓词（ObjectFilter 尚无对应键）。
+ *    ignore-cost 改写）：当前 instruction registry 没有 cost.printed 指令，effect.play
+ *    也只接受调用方已经生成的计划，因此本卡的动态计划无法产生。
  */
 const spectralMatron = {
   canonicalCardId: "card.hash-3424a772092b9d250c6d4500599a350ba292ea19b57c3ce08f4fccf1289e6478",
@@ -42,12 +37,11 @@ const spectralMatron = {
   status: "judge-required",
   judgeReason:
     "「costing no more than [3] and no more than [A]」需要按印刷费用比较的目标谓词（356.1.c）：" +
-    "现有 TargetSpec/ObjectFilter 只能做等值特征筛选，没有印刷 Energy <= 3 / 印刷 Power <= 1（任意域）的键，" +
-    "写成普通键会被选择管线忽略而变成放开限制，不得近似实现；" +
+    "TargetSpec/ObjectFilter 不支持 printedEnergyMax / printedPowerMax / printedPowerAnyDomain，" +
+    "生产绑定会以不支持的 filter 字段拒绝，不能把上限当成普通特征筛选；" +
     "「ignoring its cost」（356.1.b.1 把 base Energy/Power 设为 0）的 finalized 费用计划必须由费用计划系统产出：" +
-    "cost.printed 与费用绑定仍属尚在进行的 RIFT-261，卡牌数据只能声明该计划形状；" +
-    "被 Play 单位的合法落点选择属 355.4/Finalize 流程，卡牌程序绑定依赖 RIFT-257。" +
-    "依赖：RIFT-261（cost.printed / ignore-cost 计划）、RIFT-257（卡牌程序绑定）、RIFT-90（TargetPlan 印刷费用谓词）。",
+    "当前 instruction registry 没有 cost.printed 指令，effect.play 只接受调用方已经生成的计划，" +
+    "无法从锁定 Trash 单位生成只忽略 Energy、保留 Power 的计划。",
   sourceText:
     "When you play me, you may play a unit costing no more than :rb_energy_3: and no more than :rb_rune_rainbow: from your trash, ignoring its cost.",
   abilities: [

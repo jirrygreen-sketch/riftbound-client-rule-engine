@@ -26,7 +26,7 @@ test("ogn-274-298 Sprite: identity, ruleset, status, judgeReason, sourceText", (
   assert.match(sprite.judgeReason, /816\.1\.b/);
   assert.match(sprite.judgeReason, /beginning-start/);
   assert.match(sprite.judgeReason, /keywords\/Temporary\.ts/);
-  assert.match(sprite.judgeReason, /RIFT-257/);
+  assert.match(sprite.judgeReason, /invalid-event-type|事件词表/);
   assert.equal(
     sprite.sourceText,
     "[Temporary] (Kill me at the start of your Beginning Phase, before scoring.)"
@@ -86,6 +86,5 @@ test("ogn-274-298 Sprite: the expansion's kill really executes through the chain
 
 test.todo(
   "Sprite: the Temporary expansion must be registered as a live trigger when the host exists " +
-    "— blocked on the EventPattern event vocabulary admitting beginning-start and on the " +
-    "CardProgram keyword/trigger binding (RIFT-257)"
+    "— blocked on the EventPattern event vocabulary admitting beginning-start"
 );
