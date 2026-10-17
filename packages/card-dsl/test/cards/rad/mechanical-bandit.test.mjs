@@ -21,15 +21,12 @@ test("rad-111-167 Mechanical Bandit: program validates and is judge-required", (
   assert.equal(program.status, "judge-required");
 });
 
-test("rad-111-167 Mechanical Bandit: judgeReason records the current gaps only", () => {
-  // The beginning-start emitter is merged, so it must no longer be listed as a
-  // missing producer; the player fan-out, ordered top pick and comparison gaps remain.
-  assert.match(program.judgeReason, /beginning-start 已有发出者/);
-  assert.match(program.judgeReason, /each player/);
-  assert.match(program.judgeReason, /ordered picks/);
-  assert.match(program.judgeReason, /lowest Energy cost/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.equal(/没有发出者|链层只把它用于清理时钟/.test(program.judgeReason), false);
+test("rad-111-167 Mechanical Bandit: judgeReason records ordered picks and per-player collection bindings", () => {
+  assert.match(program.judgeReason, /RIFT-358/);
+  assert.match(program.judgeReason, /effect\.reveal/);
+  assert.match(program.judgeReason, /arithmetic\.min/);
+  assert.match(program.judgeReason, /null 不是 0/);
+  assert.match(program.judgeReason, /Recycle the rest/);
 });
 
 test("rad-111-167 Mechanical Bandit: identity, ruleset, status and verbatim source text", () => {
@@ -48,7 +45,7 @@ test("rad-111-167 Mechanical Bandit: beginning-start is a real timing point with
   const [ability] = program.abilities;
   assert.equal(ability.kind, "triggered");
   assert.equal(ability.trigger.at, "beginning-start");
-  assert.deepEqual(ability.trigger.filter, {});
+  assert.deepEqual(ability.trigger.filter, { event: "beginning-start", player: "controller" });
   assert.equal(ability.optional, false);
 });
 
@@ -105,6 +102,13 @@ test("rad-111-167 Mechanical Bandit: \"Recycle the rest\" would go through effec
   assert.deepEqual(kernel.zone("A", "deck").map((ref) => ref.id), ["d2", "d1"]);
 });
 
-test.todo("rad-111-167 Mechanical Bandit: \"each player reveals the top card\" needs player fan-out (effect.reveal accepts a single PlayerId) and zone ordering for the reveal subset (consume zoneSlice, RIFT-64 gap).");
-test.todo("rad-111-167 Mechanical Bandit: \"If you revealed a card with the lowest Energy cost, draw it. Recycle the rest.\" needs a cross-object minimum of Energy costs (CR 206, null is not 0), binding that revealed card to the draw, and a set difference for the remainder.");
-test.todo("rad-111-167 Mechanical Bandit: the card-played/beginning-start trigger must be registered into the event pipeline — no merged path consumes a CardProgram triggered ability (RIFT-257).");
+test.todo('Mechanical Bandit: each player supplies an ordered top-of-Main-Deck pick, with short/empty decks handled (CR 425.3, RIFT-358).');
+test.todo('Mechanical Bandit: compare the revealed cards base Energy including ties and absent printed costs, draw only your matching card and recycle the actual remainder (CR 206.1/414.1/417.1).');
+
+test("Mechanical Bandit: the translated Beginning trigger matches only its controller's phase", async () => {
+  const { translateTriggerFilter } = await import(new URL("programs/filters.js", ENGINE));
+  const { matchesTriggerEvent } = await import(new URL("events/pipeline-match.js", ENGINE));
+  const filter = translateTriggerFilter(program.abilities[0].trigger.filter, "bandit", "beginning-start");
+  assert.equal(matchesTriggerEvent(filter, { timingPoint: "beginning-start", player: "A" }, "A"), true);
+  assert.equal(matchesTriggerEvent(filter, { timingPoint: "beginning-start", player: "B" }, "A"), false);
+});

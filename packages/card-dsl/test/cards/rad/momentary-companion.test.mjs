@@ -22,16 +22,11 @@ test("rad-095-167 Momentary Companion: validates, identity and source text", () 
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
-test("rad-095-167 Momentary Companion: judgeReason names the current gaps, not the merged dependencies", () => {
-  // The merged dependencies must no longer be listed as gaps.
-  assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /Temporary KeywordDef/);
-  // The real remaining gaps: the turn predicate, the trigger registration and Hidden wiring.
-  assert.match(program.judgeReason, /it's not your turn/);
-  assert.match(program.judgeReason, /testTrigger/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.equal(/RIFT-91/.test(program.judgeReason), false);
+test("rad-095-167 Momentary Companion: judgeReason names turn, Hidden permissions and dynamic keyword triggers", () => {
+  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /cost\.hidden/);
+  assert.match(program.judgeReason, /连续授予关键词/);
+  assert.match(program.judgeReason, /beginning-start/);
 });
 
 test("rad-095-167 Momentary Companion: [Hidden] keyword plus the card-played trigger", () => {
@@ -48,18 +43,10 @@ test("rad-095-167 Momentary Companion: [Hidden] keyword plus the card-played tri
   ]);
 });
 
-test("rad-095-167 Momentary Companion: \"if it's not your turn\" is a trigger condition, not a body instruction", () => {
-  const triggered = program.abilities[1];
-  assert.deepEqual(triggered.trigger.condition, {
-    kind: "not",
-    condition: {
-      kind: "expression",
-      value: { kind: "constant", value: "current-turn-player-is-controller" }
-    }
-  });
-  // The condition gates the whole trigger (the ability does not go on the chain
-  // when it is your turn), so it must not be an instruction-level condition.
-  assert.equal(triggered.body[0].condition, undefined);
+test("rad-095-167 Momentary Companion: the unbound turn condition stays an explicit judged dependency", () => {
+  assert.match(program.judgeReason, /回合玩家\/控制者条件/);
+  assert.match(program.judgeReason, /RIFT-359/);
+  assert.equal(program.status, "judge-required");
 });
 
 test("rad-095-167 Momentary Companion: give me [Temporary] with a permanent grant", () => {
@@ -67,16 +54,10 @@ test("rad-095-167 Momentary Companion: give me [Temporary] with a permanent gran
   assert.equal(grant.op, "continuous.grant-keyword");
   assert.deepEqual(grant.args.keyword, { kind: "constant", value: "Temporary" });
   assert.deepEqual(grant.args.duration, { kind: "constant", value: "permanent" });
-  // 816.1.a: Temporary is present on Permanents; "me" is the ability host.
-  assert.deepEqual(grant.targets, [
-    {
-      id: "momentary-companion.self",
-      filter: { type: "unit", object: "self" },
-      min: 1,
-      max: 1,
-      selection: "one"
-    }
-  ]);
+  // "me" binds the source without becoming a target (CR 355.10.c).
+  assert.deepEqual(grant.args.appliesTo, { kind: "constant", value: "self" });
+  assert.equal(grant.targets, undefined);
+  assert.equal(grant.picks, undefined);
 });
 
 test("rad-095-167 Momentary Companion: the merged Temporary KeywordDef matches the printed rules text", () => {
@@ -104,12 +85,9 @@ test("rad-095-167 Momentary Companion: the merged Temporary KeywordDef matches t
 test("rad-095-167 Momentary Companion: the printed grant really registers an ability-layer Temporary grant", () => {
   // Real execution through the merged interpreter + reference kernel: the
   // declared body registers one continuous ability-layer spec for the host.
-  const grant = program.abilities[1].body[0];
   const kernel = world().unit("companion", { might: 4 }).build();
   const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("companion") });
-  scoped.setTargets("momentary-companion.self", [kernel.ref("companion")]);
-
-  const outcome = runAbilityBody([{ ...grant, targets: undefined }], scoped);
+  const outcome = runAbilityBody(program.abilities[1].body, scoped);
   assert.equal(outcome.status, "executed");
   assert.deepEqual(
     outcome.results.map(result => [result.id, result.result.status]),
@@ -161,17 +139,6 @@ test("rad-095-167 Momentary Companion: the grant is not approximated with a buff
   assert.equal(instructionDefinitionsById.has("continuous.grant-keyword"), true);
 });
 
-test.todo(
-  "rad-095-167 Momentary Companion: the 'if it's not your turn' trigger condition needs a " +
-    "current-turn-player-vs-ability-controller predicate plus a host testTrigger adapter for " +
-    "condition-bearing registrations (pipeline.ts throws Trigger condition adapter required)"
-);
-test.todo(
-  "rad-095-167 Momentary Companion: subscribe the card-played trigger to the event pipeline — no merged " +
-    "path registers a CardProgram triggered ability (RIFT-257 card-program binding)"
-);
-test.todo(
-  "rad-095-167 Momentary Companion: [Hidden] (CR 811) Hide / facedown play permissions — " +
-    "keywords/Hidden.ts only declares cost.hidden, buildHiddenCostPlan has no caller, and the " +
-    "contract ZoneId has no facedown zone (RIFT-89)"
-);
+test.todo('Momentary Companion: compare turn player with controller when card-played triggers (RIFT-359), before granting Temporary.');
+test.todo('Momentary Companion: consume cost.hidden in actual Hide/facedown play permissions and zero base cost (CR 811).');
+test.todo('Momentary Companion: after the continuous Temporary grant, install its self-kill trigger at the controller Beginning Phase before scoring (CR 816.1.b).');

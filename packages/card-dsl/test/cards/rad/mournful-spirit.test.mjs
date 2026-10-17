@@ -4,11 +4,23 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/mournful-spirit.js";
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
-import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { LayerEngine } from "../../../../engine-core/dist/layers/engine.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-32901e49217e3463bf29df57238a9370865527412373a7daa3ca361f82eb7a09";
 const TARGET_ID = "mournful-spirit.unit-or-gear-here";
+
+function layerContext(kernel, source = kernel.source) {
+  return bindResolveContext(kernel, {
+    source,
+    query: filter => new LayerEngine(kernel.objects).evaluateAll().filter(object => matchesObjectFilter(filter, object))
+  });
+}
 
 test("rad-126-167 Mournful Spirit: program validates and has expected identity", () => {
   const result = validateCardProgram(program);
@@ -16,7 +28,9 @@ test("rad-126-167 Mournful Spirit: program validates and has expected identity",
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.equal(program.judgeReason.includes("808.1.d.3"), true);
+  assert.match(program.judgeReason, /808\.1\.d\.3/);
+  assert.match(program.judgeReason, /sameLocationAs: source/);
+  assert.match(program.judgeReason, /trigger\.leave/);
   assert.equal(program.sourceText, "[Deathknell][>] You may kill a unit or gear here. (When I die, get the effect.)");
 });
 
@@ -40,7 +54,7 @@ test("rad-126-167 Mournful Spirit: Deathknell keyword + 383.3.a optional object-
   assert.equal(instruction.targets.length, 1);
   const [spec] = instruction.targets;
   assert.equal(spec.id, TARGET_ID);
-  assert.deepEqual(spec.filter, { type: ["unit", "gear"], zone: "board", sameLocationAs: "self" });
+  assert.deepEqual(spec.filter, { type: ["unit", "gear"], zone: "board", sameLocationAs: "source" });
   assert.equal(spec.min, 1);
   assert.equal(spec.max, 1);
   assert.equal(spec.selection, "one");
@@ -123,15 +137,55 @@ test("rad-126-167 Mournful Spirit: 429.2.a —— 只有 Board 上的对象能�
   assert.equal(kernel.getObject("here-gear").zone, "hand");
 });
 
-test.todo(
-  "rad-126-167 Mournful Spirit: 用解释器按声明的 TargetSpec（type: [\"unit\", \"gear\"]）重选目标尚无" +
-    "执行证据：参考测试内核的 matchesFilter 只用 String(expected) 做精确比较，不匹配数组类型" +
-    "（生产侧的 layers/filter.matchesObjectFilter 支持数组），因此这里只用 runInstruction 锁定" +
-    "目标验证 kill 本体；整卡的 Finalize 目标选择仍待生产目标系统"
-);
+test.todo('Mournful Spirit: attach the kill body to its Deathknell instance and translate sameLocationAs source through production target Finalize/Resolve (CR 808.1.c/d, 808.2).');
 
-test.todo(
-  "rad-126-167 Mournful Spirit: 808.1.d.1（死亡被替代时触发移出链）/808.1.d.2（换区前作为 Pending Item" +
-    "入链）/808.1.d.3（记录最后已知位置以解析 \"here\"）需要 events/chain 侧消费卡牌程序的触发能力" +
-    "（依赖 RIFT-82 关键词批次与批 4 的触发管线接线）"
-);
+test("Mournful Spirit: the original unit-or-gear body uses the dead source's last-known location", () => {
+  for (const type of ["unit", "gear"]) {
+    const kernel = world().unit("spirit", { location: { type: "battlefield", id: "here" } })
+      .unit("victim", { types: [type], location: { type: "battlefield", id: "here" } })
+      .unit("elsewhere", { types: [type], location: { type: "battlefield", id: "away" } }).build();
+    const source = kernel.getObject("spirit");
+    kernel.perform({ type: "kill", object: source.ref });
+    assert.equal(kernel.object(source.ref), null);
+    kernel.setTargets(TARGET_ID, [kernel.ref("victim")]);
+    const outcome = resolveChainBody(program.abilities[1].body, layerContext(kernel, source));
+    assert.equal(outcome.status, "executed");
+    assert.equal(kernel.getObject("victim").zone, "trash");
+    assert.equal(kernel.getObject("elsewhere").zone, "board");
+    assert.deepEqual(outcome.events.map(event => event.action), ["kill"]);
+  }
+});
+
+test("Mournful Spirit: original here filter rechecks a target that moved to another location", () => {
+  const kernel = world().unit("spirit", { location: { type: "battlefield", id: "here" } })
+    .unit("victim", { location: { type: "battlefield", id: "here" } }).build();
+  const source = kernel.getObject("spirit");
+  const target = kernel.ref("victim");
+  kernel.perform({ type: "kill", object: source.ref });
+  kernel.perform({ type: "move-location", object: target, to: { type: "battlefield", id: "away" } });
+  kernel.setTargets(TARGET_ID, [target]);
+  const outcome = resolveChainBody(program.abilities[1].body, layerContext(kernel, source));
+  assert.equal(outcome.status, "partial");
+  assert.equal(outcome.results[0].result.status, "ignored");
+  assert.equal(outcome.results[0].result.reason, "mistargeted");
+  assert.equal(kernel.getObject("victim").zone, "board");
+  assert.deepEqual(outcome.events, []);
+});
+
+test("Mournful Spirit: the real death pipeline already captures the Board snapshot for a Pending trigger", () => {
+  const f = fixture({ choose: request => request.type === "optional" ? true : undefined });
+  const source = f.kernel.getObject("source");
+  const ability = program.abilities[1];
+  f.engine.pipeline.registerTrigger({
+    id: "spirit:death", source, controller: source.controller,
+    spec: { at: ability.trigger.at, filter: translateTriggerFilter(ability.trigger.filter, source.ref.id, ability.trigger.at) },
+    body: ability.body, optional: ability.optional, boundToIncarnation: true
+  });
+  f.engine.commit({ type: "kill", object: source.ref });
+  assert.equal(f.kernel.getObject("source").zone, "trash");
+  assert.equal(f.engine.items.length, 1);
+  assert.equal(f.engine.items[0].status, "pending");
+  assert.deepEqual(f.engine.items[0].source.ref, source.ref);
+  assert.equal(f.engine.items[0].source.zone, "board");
+  assert.deepEqual(f.engine.items[0].source.location, source.location);
+});

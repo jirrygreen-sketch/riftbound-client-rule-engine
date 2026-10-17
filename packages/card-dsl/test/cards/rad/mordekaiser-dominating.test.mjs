@@ -3,15 +3,25 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/mordekaiser-dominating.js";
-import discard from "../../../../engine-core/dist/effects/instructions/effect.discard.js";
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
-import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { LayerEngine } from "../../../../engine-core/dist/layers/engine.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { buildDiscardCostPlan, payDiscardCostPlan } from "../../../../engine-core/dist/cost/kinds/discard.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-e9fc2b80d00083fe6d3d05f817392c9995133d2b989fa879251804de73b2df15";
 const TARGET_ID = "mordekaiser-dominating.unit-or-gear";
 
 const abilities = () => program.abilities;
+
+function layerContext(kernel, source = kernel.source) {
+  return bindResolveContext(kernel, {
+    source,
+    query: filter => new LayerEngine(kernel.objects).evaluateAll().filter(object => matchesObjectFilter(filter, object))
+  });
+}
 
 test("rad-137-167 Mordekaiser, Dominating: program validates and has expected identity", () => {
   const result = validateCardProgram(program);
@@ -20,7 +30,9 @@ test("rad-137-167 Mordekaiser, Dominating: program validates and has expected id
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.judgeReason.includes("383.3.b"), true);
-  assert.equal(program.judgeReason.includes("triggered 能力没有 cost 字段"), true);
+  assert.match(program.judgeReason, /TriggeredAbility 没有 cost 字段/);
+  assert.match(program.judgeReason, /TriggerRegistration.cost/);
+  assert.match(program.judgeReason, /RIFT-358/);
   assert.equal(program.sourceText, "When you play me or when I attack, you may discard 1 to kill a unit or gear.");
 });
 
@@ -99,78 +111,45 @@ test("rad-137-167 Mordekaiser, Dominating: effect.kill 对锁定的单位目标�
   assert.equal(kernel.getObject("mordekaiser").zone, "board");
 });
 
-test("rad-137-167 Mordekaiser, Dominating: 可选节点拒绝时跳过 kill（383.3.a 的 Finalize 决定）", () => {
-  const body = (id) => [
-    {
-      id,
-      op: "choice.optional",
-      args: {
-        prompt: { kind: "constant", value: "Discard 1 to kill a unit or gear?" },
-        body: { kind: "constant", value: abilities()[0].body }
-      }
-    }
-  ];
-  const kernel = world().unit("mordekaiser", {}).unit("enemy-unit", {}).build();
-  kernel.setAnswers({ "mordekaiser.may-kill/optional": false });
-  const outcome = runAbilityBody(body("mordekaiser.may-kill"), kernel);
-  assert.equal(outcome.results[0].result.status, "negated");
-  assert.equal(outcome.results[0].result.reason, "skipped");
-  assert.deepEqual(kernel.events, []);
-  assert.equal(kernel.getObject("enemy-unit").zone, "board");
+test("rad-137-167 Mordekaiser, Dominating: the original kill body ignores a stale finalized target", () => {
+  const kernel = world().unit("mordekaiser").unit("enemy-unit").build();
+  const target = kernel.ref("enemy-unit");
+  kernel.perform({ type: "kill", object: target });
+  kernel.setTargets(TARGET_ID, [target]);
+  const outcome = resolveChainBody(abilities()[0].body, layerContext(kernel));
+  assert.equal(outcome.status, "partial");
+  assert.equal(outcome.results[0].result.status, "ignored");
+  assert.equal(outcome.results[0].result.reason, "mistargeted");
+  assert.equal(kernel.events.filter(event => event.action === "kill").length, 1);
 });
 
-test("rad-137-167 Mordekaiser, Dominating: 可选节点接受时按声明执行 kill 效果", () => {
-  const kernel = world().unit("mordekaiser", {}).unit("enemy-gear", { types: ["gear"] }).build();
-  const gearRef = kernel.ref("enemy-gear");
-  kernel.setTargets(TARGET_ID, [gearRef]);
-  kernel.setAnswers({ "mordekaiser.may-kill/optional": true });
-  // 参考测试内核的 query 不匹配数组 type（`type: ["unit","gear"]`），也不解析生产链的
-  // 占位符；按已合入先例去掉指令上的 TargetSpec，把 Finalize 锁定的目标直接交给内核，
-  // 指令 args 里的 { target: <spec> } 选择器保持程序里的声明。
-  const prelocked = abilities()[0].body.map(({ targets, ...rest }) => rest);
-  const outcome = runAbilityBody(
-    [
-      {
-        id: "mordekaiser.may-kill",
-        op: "choice.optional",
-        args: {
-          prompt: { kind: "constant", value: "Discard 1 to kill a unit or gear?" },
-          body: { kind: "constant", value: prelocked }
-        }
-      }
-    ],
-    kernel
-  );
-  assert.equal(outcome.results[0].result.status, "executed");
-  assert.equal(kernel.getObject("enemy-gear").zone, "trash");
-  assert.deepEqual(kernel.events.map(event => event.action), ["kill"]);
+test("rad-137-167 Mordekaiser, Dominating: both original trigger bodies execute their unit-or-gear targets", () => {
+  for (const [index, type] of ["unit", "gear"].entries()) {
+    const kernel = world().unit("mordekaiser").unit("victim", { owner: "B", types: [type] }).build();
+    kernel.setTargets(TARGET_ID, [kernel.ref("victim")]);
+    const outcome = resolveChainBody(abilities()[index].body, layerContext(kernel));
+    assert.equal(outcome.status, "executed");
+    assert.equal(outcome.results[0].id, abilities()[index].body[0].id);
+    assert.equal(kernel.getObject("victim").zone, "trash");
+    assert.equal(kernel.getObject("mordekaiser").zone, "board");
+    assert.deepEqual(outcome.events.map(event => event.action), ["kill"]);
+  }
 });
 
-test("rad-137-167 Mordekaiser, Dominating: \"discard 1\" 的弃牌本体在参考内核下真实可用（未来作为 Finalize 费用）", () => {
-  // 该执行证据只覆盖 effect.discard 动作本身（423.1/423.3 的弃牌），用于说明"discard 1"
-  // 所需的原语已存在；它不证明 383.3.b 的 Finalize 基础费用已接线（见 test.todo）。
-  const kernel = world().unit("mordekaiser", {}).hand("hand-card").build();
-  const run = runInstruction(
-    discard,
-    {
-      amount: { kind: "constant", value: 1 },
-      player: { kind: "object-property", object: kernel.ref("mordekaiser"), property: "controller" }
-    },
-    { world: kernel, answers: { "effect.discard:A": [kernel.ref("hand-card")] } }
-  );
-  assert.equal(run.result.status, "executed");
-  assert.equal(kernel.zone("A", "hand").length, 0);
-  assert.deepEqual(kernel.zone("A", "trash").map(ref => ref.id), ["hand-card"]);
-  assert.equal(run.linked.discarded.count, 1);
+test("rad-137-167 Mordekaiser, Dominating: the merged discard cost pays before the kill body", () => {
+  const kernel = world().unit("mordekaiser").unit("enemy", { owner: "B" }).hand("payment").build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("mordekaiser") });
+  // The cost engine already accepts runtime choices. The missing CardProgram
+  // trigger-cost field is not supplied or bypassed by this isolated cost test.
+  const plan = buildDiscardCostPlan(scoped, { object: scoped.ref("payment") }, { id: "morde:discard" });
+  const receipt = payDiscardCostPlan(scoped, plan);
+  assert.equal(receipt.paid, true);
+  assert.equal(scoped.getObject("payment").zone, "trash");
+  scoped.setTargets(TARGET_ID, [scoped.ref("enemy")]);
+  const outcome = resolveChainBody(abilities()[0].body, layerContext(scoped));
+  assert.equal(outcome.status, "executed");
+  assert.equal(scoped.getObject("enemy").zone, "trash");
+  assert.deepEqual(scoped.events.map(event => event.action), ["pay", "discard", "kill"]);
 });
 
-test.todo(
-  "rad-137-167 Mordekaiser, Dominating: 383.3.b/204.1.c 的\"指令内费用作为触发能力基础费用\"——契约 3.1 的" +
-    "triggered 能力没有 cost 字段，cost.discard 也未合入（RIFT-89 的 cost.* 一族），卡牌程序无法声明该" +
-    "Finalize 费用；写入 body 会把费用降级为结算效果（355.10.c.1），属语义偏离"
-);
-
-test.todo(
-  "rad-137-167 Mordekaiser, Dominating: 打出/攻击触发的注册（card-played / attack-declared → CardProgram 的" +
-    "triggered 能力）需要事件管线接线（批 4）"
-);
+test.todo('Mordekaiser, Dominating: declare and bind the leading discard as TriggerRegistration.cost, including its non-target hand selection, before Finalize of both optional triggers (CR 383.3.b, RIFT-358).');

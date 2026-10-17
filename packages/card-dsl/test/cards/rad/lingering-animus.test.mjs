@@ -4,7 +4,8 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/lingering-animus.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
-import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const ENTER_READY = "lingering-animus.enter-ready";
@@ -20,8 +21,7 @@ test("rad-005-167 Lingering Animus: program validates and has expected identity"
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.sourceText, "I enter ready if a friendly unit or gear died this turn.");
   // README §2: the reason names the still-missing bindings and their owners.
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-260/);
+  assert.match(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /HistoryQuery/);
 });
 
@@ -33,8 +33,7 @@ test("rad-005-167: board-entry replacement readies the entering unit (CR 369.3)"
     event: "object-enters-board",
     filter: { source: "self" }
   });
-  // The condition needs a “friendly unit or gear died this turn” predicate that
-  // the merged Condition / HistoryQuery vocabulary does not provide, so it is
+  // The replacement Condition still cannot read the supported filtered history; it is
   // deliberately absent instead of a placeholder that would silently be false.
   assert.equal(ability.condition, undefined);
   assert.equal(ability.with.length, 1);
@@ -69,42 +68,29 @@ test("rad-005-167: a ready source makes the body a no-op executed result (416.1.
   assert.deepEqual(scoped.events, []);
 });
 
-test("rad-005-167: the replacement also binds and rewrites the real entry move", () => {
-  // RIFT-260 binding: the same body is accepted by bindReplacement and applies
-  // to an object-enters-board rewrite. The condition-less card keeps this
-  // executable half covered; the “died this turn” gate stays missing (see
-  // judgeReason) so the card is not executable end to end.
-  const kernel = world()
-    .player("A", { energy: 0 })
-    .unit("lingering-animus", { might: 2, zone: "chain", exhausted: true })
-    .build();
-  const zoneEntries = [];
-  const pipeline = {
-    clock: { turn: 1 },
-    registerReplacement(registration) { zoneEntries.push(registration); }
-  };
-  const bound = bindReplacement(
-    program.abilities[0],
-    kernel.ref("lingering-animus"),
-    {
-      host: {
-        object: ref => kernel.object(ref),
-        objects: () => kernel.objects,
-        context: () => kernel
-      },
-      pipeline
-    }
-  );
-  assert.equal(zoneEntries.length, 1);
-  assert.equal(typeof bound.cancel, "function");
-  assert.equal(zoneEntries[0].source.ref.id, "lingering-animus");
+test("rad-005-167: the supported entry replacement binds through programs and readies before Board entry", () => {
+  const f = fixture({ cards: [{ id: "animus", types: ["unit"], might: 2, exhausted: true }] });
+  // Only the supported entry half is bound: the historical Condition remains
+  // blocked on the card and this does not make the whole program executable.
+  const handle = createEngineStaticBinder(f.engine).bindReplacement(program.abilities[0], f.kernel.getObject("animus"));
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("animus"), to: "chain" });
+  const outcome = f.engine.commit({ type: "move-zone", object: f.kernel.ref("animus"), to: "base", location: { type: "base", player: "A" } });
+  assert.equal(outcome.status, "replaced");
+  assert.equal(f.kernel.getObject("animus").zone, "board");
+  assert.equal(f.kernel.getObject("animus").exhausted, false);
+  const entry = f.engine.pipeline.events.find(event => event.timingPoint === "object-enters-board" && event.object.ref.id === "animus");
+  assert.equal(entry.object.exhausted, false);
+  assert.equal(f.engine.pipeline.events.some(event => event.timingPoint === "object-readied"), false);
+  handle.unbind();
 });
 
-test.todo(
-  "rad-005-167 Lingering Animus: 入场替代（replacement.enter，369.3 把“横置进场”改为“就绪进场”）" +
-    "依赖 RIFT-257/260 的卡牌程序绑定；effect.ready 不能替代入场动作本身"
-);
-test.todo(
-  "rad-005-167 Lingering Animus: “a friendly unit or gear died this turn” 的历史条件依赖" +
-    "按对象类型/控制者过滤的历史谓词（Condition 无 history 节点，HistoryQuery 无类型/控制者维度）"
-);
+test.todo('Lingering Animus: gate the entry replacement by a friendly unit/gear death this turn, through replacement Condition evaluation (CR 364.3.a/369.3, RIFT-359).');
+
+test("Lingering Animus: real kill history already supports historical type and controller", () => {
+  const kernel = world().unit("animus").unit("ally").unit("gear", { types: ["gear"] })
+    .unit("enemy", { owner: "B" }).unit("spell", { types: ["spell"] }).build();
+  for (const id of ["ally", "gear", "enemy", "spell"]) kernel.perform({ type: "kill", object: kernel.ref(id) });
+  assert.equal(kernel.history({ scope: "turn", action: "kill", objectFilter: { type: "unit", controller: "A" } }), 1);
+  assert.equal(kernel.history({ scope: "turn", action: "kill", objectFilter: { type: "gear", controller: "A" } }), 1);
+  assert.equal(kernel.history({ scope: "turn", action: "kill", objectFilter: { type: "unit", controller: "B" } }), 1);
+});

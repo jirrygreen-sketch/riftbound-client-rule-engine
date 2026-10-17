@@ -3,6 +3,9 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/lost-to-the-sands.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { LayerEngine } from "../../../../engine-core/dist/layers/engine.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
 const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js", engineCore));
 const { world } = await import(new URL("effects/testing/index.js", engineCore));
@@ -12,17 +15,12 @@ const [keyword, play] = program.abilities;
 const mode = play.body[0];
 const [damageMode, killMode] = mode.args.modes.value;
 
-// The reference kernel's matchesFilter (effects/testing/test-kernel.ts) only
-// compares a filter's `location` by exact JSON equality, so the production
-// spelling `location: "battlefield"` (understood by layers/filter.ts and
-// events/trigger-spec.ts) matches nothing there. Golden execution substitutes
-// that one key with the kernel's location object, exactly as the merged
-// sfd-106-221 Show of Strength golden documents for its own uncaptured filter
-// key. The program itself is unchanged.
-const kernelBody = (body) => JSON.parse(JSON.stringify(body), (key, value) =>
-  key === "location" && value === "battlefield"
-    ? { type: "battlefield", id: "bf-1" }
-    : value);
+function layerContext(kernel, source = kernel.source) {
+  return bindResolveContext(kernel, {
+    source,
+    query: filter => new LayerEngine(kernel.objects).evaluateAll().filter(object => matchesObjectFilter(filter, object))
+  });
+}
 
 test("rad-013-167 Lost to the Sands: program passes validateCardProgram and keeps the catalog text verbatim", () => {
   const result = validateCardProgram(program);
@@ -42,8 +40,7 @@ test("rad-013-167 Lost to the Sands: judge-required naming the blocked Finalize 
   assert.match(program.judgeReason, /choice\.mode/);
   assert.match(program.judgeReason, /assertFinalizationSurface/);
   assert.match(program.judgeReason, /355\.3/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /目标生命周期/);
 });
 
 test("rad-013-167 Lost to the Sands: [Action] plus one mode choice with damage and kill branches", () => {
@@ -94,7 +91,7 @@ test("rad-013-167 Lost to the Sands golden: the damage mode deals exactly 4 to t
   kernel.setAnswers({ "lost-to-the-sands.choose-one/mode%3A0": "lost-to-the-sands.damage-mode" });
   kernel.setTargets("lost-to-the-sands.unit", [kernel.ref("enemy-unit")]);
 
-  const outcome = resolveChainBody(kernelBody(play.body), kernel);
+  const outcome = resolveChainBody(play.body, layerContext(kernel));
   assert.equal(outcome.status, "executed");
   assert.deepEqual(
     outcome.results.map((result) => [result.id, result.result.status]),
@@ -114,7 +111,7 @@ test("rad-013-167 Lost to the Sands golden: the kill mode kills the chosen gear"
   kernel.setAnswers({ "lost-to-the-sands.choose-one/mode%3A0": "lost-to-the-sands.kill-mode" });
   kernel.setTargets("lost-to-the-sands.gear", [kernel.ref("enemy-gear")]);
 
-  const outcome = resolveChainBody(play.body, kernel);
+  const outcome = resolveChainBody(play.body, layerContext(kernel));
   assert.equal(outcome.status, "executed");
   assert.deepEqual(
     outcome.results.map((result) => [result.id, result.result.status]),
@@ -136,7 +133,7 @@ test("rad-013-167 Lost to the Sands boundary: a gear that left the Board ignores
   kernel.setAnswers({ "lost-to-the-sands.choose-one/mode%3A0": "lost-to-the-sands.kill-mode" });
   kernel.setTargets("lost-to-the-sands.gear", [stale]);
 
-  const outcome = resolveChainBody(play.body, kernel);
+  const outcome = resolveChainBody(play.body, layerContext(kernel));
   assert.equal(outcome.status, "partial");
   assert.deepEqual(
     outcome.results.map((result) => [result.id, result.result.status, result.result.reason]),
@@ -147,13 +144,15 @@ test("rad-013-167 Lost to the Sands boundary: a gear that left the Board ignores
   );
 });
 
-test.todo(
-  "rad-013-167 Lost to the Sands: CR 355.3 requires the 'Choose one' mode decision at " +
-    "Finalize; ChainEngine.finalize throws ChainContractBlockedError for choice.mode until the " +
-    "Finalize/Resolve choice-plan adapter lands"
-);
-test.todo(
-  "rad-013-167 Lost to the Sands: full chain play (3 Energy + 1 Fury Power payment, [Action] " +
-    "timing) needs the Finalize cost plan adapter (cost kinds and cost.pay / cost.modify: " +
-    "RIFT-261; card-program binding: RIFT-257) and chain admission"
-);
+test.todo('Lost to the Sands: choose the mode at Finalize and bind/revalidate only the selected mode targets (CR 355.3); programs/play.ts and chain/engine.ts still require the choice-plan adapter.');
+
+test("Lost to the Sands: a unit in base is outside the original battlefield target filter", () => {
+  const kernel = world().base("base-unit", { might: 6 }).build();
+  kernel.setAnswers({ "lost-to-the-sands.choose-one/mode%3A0": "lost-to-the-sands.damage-mode" });
+  kernel.setTargets("lost-to-the-sands.unit", [kernel.ref("base-unit")]);
+  const outcome = resolveChainBody(play.body, layerContext(kernel));
+  assert.equal(outcome.status, "partial");
+  assert.equal(outcome.results[0].result.status, "ignored");
+  assert.equal(kernel.getObject("base-unit").damage, 0);
+  assert.deepEqual(outcome.events, []);
+});
