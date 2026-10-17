@@ -1,3 +1,5 @@
+// Template execution evidence: ../templates/keyword-replacement-effect-ready-678.test.mjs.
+// The 2/3 XP boundary remains blocked; standalone ready is only a subeffect.
 import assert from "node:assert/strict";
 import test from "node:test";
 
