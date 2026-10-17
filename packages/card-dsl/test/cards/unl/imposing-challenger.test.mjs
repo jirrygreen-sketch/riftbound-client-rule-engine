@@ -6,6 +6,9 @@ import program from "../../../dist/cards/unl/imposing-challenger.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { translateObjectFilter, translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { EVENT_PATTERN_TYPES, validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { isTimingPointId } from "../../../../engine-core/dist/events/timing-points.js";
 
 const CANONICAL_ID =
   "card.hash-fda3e6799f2fd63235520803dbabc0e2093d7da103c78cd4af3d14b11d20c2f8";
@@ -37,6 +40,11 @@ test("unl-105-219 Imposing Challenger: identity, status, judgeReason and verbati
   assert.match(program.judgeReason, /mightLessThan/);
   assert.match(program.judgeReason, /movement.*载荷|toLocationId/);
   assert.doesNotMatch(program.judgeReason, /RIFT-90|RIFT-120|RIFT-257|RIFT-270/);
+  // The reason must name the live translator/schema rejections, not a placeholder.
+  assert.match(program.judgeReason, /translateObjectFilter|ProgramBindingError/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /invalid-event-type/);
+  assert.equal(/待实现|需要裁定/.test(program.judgeReason), false);
 });
 
 test("unl-105-219 Imposing Challenger: 'When I move' subscribes to the object-moved timing point", () => {
@@ -147,6 +155,52 @@ test("unl-105-219 Imposing Challenger golden: accepting the option tries the rec
   });
 });
 
+test("unl-105-219 Imposing Challenger: the production target translator rejects both target anchors", () => {
+  // 053.3 / 143.2.a.1: "here" is the sameLocationAs anchor and "less Might than me"
+  // needs a candidate-relative comparison. programs/filters.ts accepts neither, so
+  // the target specification cannot reach Finalize.
+  const [spec] = moveEnemy.targets;
+  // The card's own filter carries both anchors; the translator rejects the first
+  // unsupported key it walks, so each is checked with its own filter below.
+  assert.throws(
+    () => translateObjectFilter(spec.filter),
+    error => {
+      assert.equal(error.name, "ProgramBindingError");
+      assert.match(error.message, /Unsupported filter field (mightLessThan|sameLocationAs)/);
+      return true;
+    }
+  );
+  assert.throws(
+    () => translateObjectFilter({ type: "unit", zone: "board", controller: "opponent", sameLocationAs: "self" }),
+    error => {
+      assert.equal(error.name, "ProgramBindingError");
+      assert.match(error.message, /Unsupported filter field sameLocationAs/);
+      return true;
+    }
+  );
+  assert.throws(
+    () => translateObjectFilter({ type: "unit", zone: "board", controller: "opponent", mightLessThan: "self" }),
+    error => {
+      assert.equal(error.name, "ProgramBindingError");
+      assert.match(error.message, /Unsupported filter field mightLessThan/);
+      return true;
+    }
+  );
+});
+
+test("unl-105-219 Imposing Challenger: object-moved exists as a timing point but is not in the EventPattern vocabulary", () => {
+  // 421.1 / 449.2: the closed timing point table defines object-moved, but the
+  // closed EventPattern vocabulary (events/trigger-spec.ts) has no such spelling,
+  // so validateTriggerSpec rejects this card's subscription with invalid-event-type.
+  assert.equal(isTimingPointId("object-moved"), true);
+  assert.equal(EVENT_PATTERN_TYPES.includes("object-moved"), false);
+  const translated = translateTriggerFilter(ability.trigger.filter, "imposing-challenger", "object-moved");
+  assert.deepEqual(translated, { event: "object-moved" });
+  const result = validateTriggerSpec({ at: "object-moved", filter: translated });
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.issues.map(issue => issue.code), ["invalid-event-type"]);
+});
+
 test.todo(
   "unl-105-219 Imposing Challenger: evaluate 'less Might than me' by comparing the candidate's Effective Might (143.2.a.1) with the host's — the production target filter cannot bind a candidate-relative Might comparison"
 );
@@ -155,5 +209,5 @@ test.todo(
 );
 test.todo(
   "unl-105-219 Imposing Challenger: trigger on the Move Destination ('here' = the event's toLocationId) — " +
-    "the movement event still lacks the from/to payload and the production matcher has no location anchor"
+    "the movement emission carries only the post-move object, and the EventPattern vocabulary has no object-moved spelling"
 );

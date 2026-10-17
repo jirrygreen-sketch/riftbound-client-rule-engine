@@ -21,19 +21,28 @@ import type { CardProgram } from "../../ir/index.js";
  *   battlefield" uses the merged source-location expression over the captured
  *   trigger source, rather than the source object's later live location.
  *
- * Status: judge-required. The remaining gap is the object-moved event vocabulary
- * and Destination-kind gate. The merged location expression resolves the captured
- * source snapshot, so later moves or zone exits do not redirect this instruction
- * (359.3.f.3). The original optional body has real execution coverage. It does not
- * prove the missing event registration or Destination gate.
+ * Status: judge-required (re-verified against the merged sources). The remaining gap
+ * is the object-moved event vocabulary and the Destination payload: the closed
+ * EVENT_PATTERN_TYPES (events/trigger-spec.ts) has no "object-moved" spelling even
+ * though the timing point exists, and programs/filters.ts rejects the Destination
+ * gate outright (translateTriggerFilter throws ProgramBindingError "Unsupported
+ * filter field movedToBattlefield"). action-adapter.ts also emits object-moved
+ * without fromKind/toKind/fromLocationId/toLocationId, so no matcher could test the
+ * Destination even after the vocabulary is extended (449.2, 359.3.f.3). The merged
+ * location expression resolves the captured source snapshot, so later moves or zone
+ * exits do not redirect this instruction (359.3.f.3). The original optional body has
+ * real execution coverage; it does not prove the missing event registration.
  */
 export default {
   canonicalCardId: "card.hash-bd638db89dd40b1e7a4af53d4b6502145b269d568f69478b4f5e9f979e6a89c3",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺 object-moved 触发的生产绑定（CR 449.2、359.3.f.3）：EVENT_PATTERN_TYPES 未收录 object-moved，" +
-    "action-adapter.ts 未填充 fromKind/toKind/fromLocationId/toLocationId，movedToBattlefield 也没有过滤器适配，无法限制“目的地为战场”的 Move。",
+    "仍缺 object-moved 触发的生产绑定（CR 449.2、359.3.f.3）：封闭 EVENT_PATTERN_TYPES 未收录 object-moved" +
+    "（validateTriggerSpec 以 invalid-event-type 拒绝该订阅）；programs/filters.ts 的 translateTriggerFilter 对目的地限制抛 " +
+    "ProgramBindingError（Unsupported filter field movedToBattlefield）；同时 action-adapter.ts 的 object-moved 发射不带 " +
+    "fromKind/toKind/fromLocationId/toLocationId，即使补上词汇也没有可匹配的目的地载荷。" +
+    "选中的敌方单位、源快照捕获（359.3.f.3）与 effect.move 本体已有真实执行证据。",
   abilities: [
     {
       kind: "triggered",
