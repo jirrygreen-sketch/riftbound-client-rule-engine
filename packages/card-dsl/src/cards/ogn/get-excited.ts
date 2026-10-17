@@ -18,29 +18,23 @@ import type { CardProgram } from "../../ir/index.js";
  *   whose result links the discarded cards (423.1). Since the card changed zones,
  *   the read also relies on 359.3.e.13 (a spell that moves something as an effect
  *   can look back at its characteristics before the zone change).
- * - A characteristic read resolves through a contract 3.6 object selector.
- *   The current interpreter records effect.discard's object link, but the
- *   linked ObjectSelector still cannot carry the discarded card's last-known
- *   snapshot into this characteristic read after the zone change. The
- *   object-valued selection is therefore missing and the read is ignored as
- *   missing information (verified by probe; the damage instruction reports
- *   ignored/mistargeted and no damage is dealt). Hard-coding the value instead
- *   would invent a card the player has not discarded yet, which the task's
- *   red lines forbid.
- * - The IR can spell the prior instruction's linked result, but the current
- *   interpreter still cannot carry the discarded card's last-known snapshot
- *   through this linked ObjectSelector for the characteristic read. The
- *   resulting amount is missing and the damage instruction is ignored, so the
- *   card remains judge-required rather than hard-coding a value.
+ * - effect.discard writes a named result as
+ *   `get-excited.discard-1.discarded`, whose value is
+ *   `{ count, player, objects }`. The `{ linked: "get-excited.discard-1" }`
+ *   ObjectSelector names only the producer instruction, and the current
+ *   interpreter does not expose that nested `discarded.objects` binding through
+ *   the selector. The characteristic read therefore has no object and the
+ *   damage instruction is ignored as missing information (verified by the
+ *   full-body probe below). Hard-coding the value would invent a card the
+ *   player has not discarded yet, which the task's red lines forbid.
  * The program keeps the full intended shape (discard → linked characteristic
  * read → targeted damage) so the card can be completed once the selector
  * plumbing exists. "(Ignore its Power cost.)" is honored by never reading the
  * Power characteristic.
  *
- * Dependency: contract-level support for a linked object selector that reads a
- * producer's named result binding, so a
- * characteristic read can consume effect.discard's discarded reference, plus the
- * printed-cost lookup (206).
+ * Direct references already carry last-known characteristics after a zone
+ * change; the remaining dependency is contract/interpreter support for a
+ * linked ObjectSelector to consume a producer's named nested result binding.
  */
 const getExcited = {
   canonicalCardId: "card.hash-79956e42a3d826b547522f15e3706e341605f6f98ef9d9aad5caf3d03248a826",
@@ -48,12 +42,12 @@ const getExcited = {
   status: "judge-required",
   judgeReason:
     "「Deal its Energy cost as damage」需要在结算时读取被弃牌张的印刷 Energy 费（206；359.3.e.13 的 look-back）。" +
-    "契约 3.6 的 linked ObjectSelector 虽然能读取 effect.discard 的对象链接，但当前解释器不能把已离区对象的 last-known snapshot" +
-    "带入该 characteristic read —— 对象值缺失，该读取按缺信息 ignored（实测该伤害指令返回 ignored/mistargeted 且不造成伤害）。" +
+    "effect.discard 实际写入的是 instructionId.discarded 这种命名结果（值为 {count, player, objects}），" +
+    "而 amount 的 {linked: instructionId} 只按指令 ID 查找；当前解释器不会把嵌套的 discarded.objects 提取为 ObjectRef，" +
+    "所以 characteristic read 没有对象，该读取按缺信息 ignored（实测该伤害指令返回 ignored/mistargeted 且不造成伤害）。" +
     "若改写为常量则等于预先硬编码一张尚未被弃的牌，属于禁止的近似实现。当前解释器的" +
-    "链接 ObjectSelector 不能把 effect.discard 的已离区对象与可回溯的 characteristic read 联合消费，" +
-    "因此该读取缺信息并使伤害被忽略。依赖：effect.discard 的对象链接与离区后 last-known characteristic read 的执行接线，" +
-    "以及印刷费用读取（206）。Discard 1 部分仅用已合入的 effect.discard，有 golden 执行测试；「Ignore its Power cost」体现为完全不读取 Power 特征。",
+    "仍缺 linked ObjectSelector 对生产者命名嵌套结果的消费接线；直接 ObjectRef 的离区后 last-known read 已支持。" +
+    "Discard 1 部分仅用已合入的 effect.discard，有 golden 执行测试；「Ignore its Power cost」体现为完全不读取 Power 特征。",
   sourceText:
     "[Action] (Play on your turn or in showdowns.)\n" +
     "Discard 1. Deal its Energy cost as damage to a unit at a battlefield. (Ignore its Power cost.)",

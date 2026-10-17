@@ -4,6 +4,7 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/fox-fire-ahri.js";
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 
@@ -56,7 +57,8 @@ test("ogn-256-298 Fox-Fire structure: [Hidden] + [Action] and an any-number grou
   // total-Might <= 4 constraint that is still missing (see judgeReason).
   assert.equal(killInstruction.targets.length, 1);
   assert.equal(targetSpec.id, "fox-fire-units");
-  assert.deepEqual(targetSpec.filter, { type: "unit", locationType: "battlefield" });
+  assert.deepEqual(targetSpec.filter, { type: "unit", zone: "board" });
+  assert.deepEqual(targetSpec.location, { type: "battlefield" });
   assert.equal(targetSpec.selection, "any");
   assert.equal(targetSpec.min, 0);
   assert.equal(targetSpec.max, null);
@@ -79,6 +81,24 @@ test("ogn-256-298 Fox-Fire golden: the kill half kills exactly the group members
   assert.equal(kernel.getObject("second-unit").zone, "trash");
   assert.equal(kernel.getObject("unlocked-unit").zone, "board");
   assert.equal(run.events.filter(event => event.action === "kill").length, 2);
+});
+
+test("ogn-256-298 Fox-Fire golden: TargetSpec.location revalidates battlefield membership", () => {
+  const kernel = world()
+    .unit("battlefield-unit", { location: { type: "battlefield", id: "battlefield-1" } })
+    .unit("base-unit", { location: { type: "base", player: "A" } })
+    .build();
+  kernel.setTargets(targetSpec.id, [kernel.ref("battlefield-unit"), kernel.ref("base-unit")]);
+
+  const outcome = resolveChainBody([killInstruction], kernel);
+
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results.map(result => [result.id, result.result.status]), [
+    ["fox-fire-kill", "executed"]
+  ]);
+  assert.equal(kernel.getObject("battlefield-unit").zone, "trash");
+  assert.equal(kernel.getObject("base-unit").zone, "board");
+  assert.deepEqual(outcome.events.map(event => event.action), ["kill"]);
 });
 
 test("ogn-256-298 Fox-Fire golden: choosing zero units is legal for any-number targeting (355.13)", () => {

@@ -4,6 +4,7 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/get-excited.js";
 import discard from "../../../../engine-core/dist/effects/instructions/effect.discard.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const [speed, play] = program.abilities;
@@ -17,9 +18,11 @@ test("Get Excited! program is valid EffectIR v2 data and judge-required", () => 
   assert.equal(result.ok, true);
   assert.equal(program.status, "judge-required");
   // The reason must name the real gap: the linked characteristic read cannot
-  // resolve to the discarded card's reference.
+  // resolve the discarded card from the producer's nested result binding.
   assert.match(program.judgeReason, /linked/);
   assert.match(program.judgeReason, /discard/);
+  assert.match(program.judgeReason, /discarded/);
+  assert.match(program.judgeReason, /ObjectRef/);
 });
 
 test("Get Excited! identity and sourceText match the printing", () => {
@@ -113,4 +116,33 @@ test("Get Excited! golden execution: Discard 1 moves the chosen card to the tras
   assert.deepEqual(run.linked.discarded.objects, [chosen]);
   assert.equal(kernel.getObject("chosen-card").zone, "trash");
   assert.equal(kernel.getObject("kept-card").zone, "hand");
+});
+
+test("Get Excited! golden execution: the linked Energy read fails closed at the nested discard binding", () => {
+  const kernel = world()
+    .hand("chosen-card", { types: ["spell"], energy: 2, power: ["Fury"] })
+    .hand("kept-card", { types: ["spell"], energy: 4 })
+    .unit("victim", { owner: "B", location: { type: "battlefield" }, damage: 0 })
+    .build();
+  const chosen = kernel.ref("chosen-card");
+  kernel.setAnswers({ "get-excited.discard-1/effect.discard%3AA": [chosen] });
+  kernel.setTargets(targetSpec.id, [kernel.ref("victim")]);
+
+  const outcome = resolveChainBody(play.body, kernel);
+
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(
+    outcome.results.map(result => [result.id, result.result.status, result.result.reason]),
+    [
+      ["get-excited.discard-1", "executed", undefined],
+      ["get-excited.deal-energy-cost", "ignored", "mistargeted"]
+    ]
+  );
+  assert.deepEqual(outcome.linkedValues["get-excited.discard-1.discarded"], {
+    count: 1,
+    player: "A",
+    objects: [chosen]
+  });
+  assert.equal(kernel.getObject("victim").damage, 0);
+  assert.deepEqual(outcome.events.map(event => event.action), ["discard"]);
 });
