@@ -31,7 +31,7 @@ test("ven-038-166 Akali, Silent: identity, status, judgeReason and verbatim sour
   assert.match(program.judgeReason, /355\.9\.b/);
   assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /host\.testTrigger/);
+  assert.match(program.judgeReason, /invalid-event-type/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -147,6 +147,6 @@ test.todo(
 
 test.todo(
   "ven-038-166 Akali, Silent: resolve 'When I move to a battlefield' end to end (143.2.a / 317.2.c) — the merged " +
-    "continuous.might primitive executes +2 (see the golden); static trigger registration landed via RIFT-257,\n" +
-    "but the object-moved payload lacks toZone and the condition path needs host.testTrigger (fail-closed)"
+    "continuous.might primitive executes +2 (see the golden), but registerProgramTriggers fails with " +
+    "TriggerSpecValidationError / invalid-event-type because EVENT_PATTERN_TYPES does not accept object-moved"
 );

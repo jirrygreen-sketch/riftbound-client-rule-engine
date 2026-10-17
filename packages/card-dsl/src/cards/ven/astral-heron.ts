@@ -27,20 +27,16 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * status = judge-required（缺口均不近似实现）：
  * 1. 「your next card」是一次性（one-shot）费用改写窗口：Duration 只有 permanent /
  *    end-of-turn / end-of-combat / while-source-in-zone / until，没有 next-card 期限；
- *    cost.modify 指令已合入注册表，但「把折扣注册进本回合下一次 Finalize 的费用计划」的消费方
- *    仍缺：cost/cost-plan.ts 的 discounts 只在单次计划内生效，没有 CardProgram → CostPlan 接线
+ *    cost.modify 指令与通用 Power 折扣均已合入，但「把折扣注册进本回合下一次 Finalize 的费用计划」
+ *    的消费方仍缺：cost/cost-plan.ts 的 discounts 只在单次计划内生效，没有 CardProgram → CostPlan 接线
  *    （RIFT-89；同 ogn/raging-firebrand、rad/boy-who-shattered-time 的记录）。
- * 2. 印刷的 :rb_rune_rainbow::rb_rune_rainbow: 是任意域 Power [A]：契约 3.6 的 Domain 是
- *    六域封闭枚举，effect.resources / 费用计划都明确记载 Universal Power 不可表示、不得用
- *    任一域近似，程序里以描述性 ["rainbow", "rainbow"] 记录。
- * 3. 「if I'm at a battlefield」需要在触发时求值的 Location 谓词：object-property 能读
- *    location，但持续/触发条件没有落地路径（同 sfd/tianna-crownguard 的缺口）。
- * 4. card-played 触发的静态注册已随 RIFT-257 合入（programs/triggers.ts →
+ * 2. 「if I'm at a battlefield」需要在触发时求值的 Location 谓词：object-property 能读 location，
+ *    但持续/触发条件没有落地路径（同 sfd/tianna-crownguard 的缺口）。
+ * 3. card-played 触发的静态注册已随 RIFT-257 合入（programs/triggers.ts →
  *    registerProgramTriggers → engine.pipeline.registerTrigger，attachProgramLifecycle 自动附着）；
- *    383.2.c.1 关于
- *    「本卡在同一时点进入该区域时触发条件是否成立」的判定同样没有卡牌可用路径。
- * 依赖：RIFT-89（cost.modify 与一次性费用窗口）、RIFT-91（条件/图层接线）、RIFT-120
- * （卡牌触发注册）。不近似实现：不把折扣写成固定整数减免，也不用某个域近似 [A]。
+ *    383.2.c.1 关于「本卡在同一时点进入该区域时触发条件是否成立」的条件适配仍没有卡牌可用路径。
+ * 依赖：RIFT-89（next-card 费用窗口）、RIFT-91（条件/图层接线）。不近似实现：
+ * 不把下一张牌窗口改写成永久或回合末折扣，也不把触发时 Location 条件当成无条件成立。
  */
 const abilities: Ability[] = [
   {
@@ -74,8 +70,8 @@ const abilities: Ability[] = [
           amount: { kind: "constant", value: -2 },
           appliesTo: { kind: "constant", value: "next-card-played-this-turn" },
           duration: { kind: "constant", value: "this-turn" },
-          // 135.2.e.5.a / 163.2.b：两枚 :rb_rune_rainbow: = 2 点任意域 Power；六域封闭集合
-          // 无法表达 [A]，保留描述性记号（不近似成某个域）。
+          // 135.2.e.5.a / 163.2.b：两枚 :rb_rune_rainbow: = 2 点任意域 Power；
+          // 卡牌侧保留 rainbow 记号，费用计划以通用 Power 折扣消费它。
           power: { kind: "constant", value: ["rainbow", "rainbow"] }
         }
       }
@@ -88,18 +84,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处依赖未合入，均不近似实现：(1)「your next card」是一次性费用改写窗口：Duration 只有 permanent/end-of-turn/" +
-    "end-of-combat/while-source-in-zone/until，没有 next-card 期限，cost.modify 指令已合入注册表，但「把折扣注册进本回合下一次" +
-    " Finalize 的费用计划」的消费方（cost/cost-plan.ts 的 discounts 只在单次计划内生效，无 CardProgram → CostPlan 接线；" +
-    "同 ogn/raging-firebrand、rad/boy-who-shattered-time），依赖 RIFT-89；" +
-    "(2) 印刷的 :rb_rune_rainbow::rb_rune_rainbow: 是 2 点任意域 Power [A]（135.2.e.5.a / 163.2.b）：契约 3.6 的 Domain 是" +
-    "六域封闭枚举，Universal Power 不可表示、不得用任一域近似，程序以描述性 [\"rainbow\",\"rainbow\"] 记录；" +
-    "(3)「if I'm at a battlefield」是 383.2.a.1 的触发条件（规则原文的 Sona 例同形），需要触发时求值的 Location 谓词，" +
-    "object-property 能读 location 但没有持续/触发条件落地路径（同 sfd/tianna-crownguard），依赖 RIFT-91；" +
-    "(4) card-played 触发的静态注册已随 RIFT-257 合入（programs/triggers.ts → registerProgramTriggers → " +
-    "engine.pipeline.registerTrigger，attachProgramLifecycle 自动附着），383.2.c.1 的「本卡同一时点进入该区域时条件是否成立」" +
-    "判定也没有卡牌可用路径；card-played 的 activeZones 对永久物是 board（本卡在场时才会注册）。" +
-    "「your first card each turn」按 383.1.b / 383.3.e.1 用 TriggerSpec.once: \"per-turn\" 表达（同 rad/akali-brash）。",
+    "三处依赖未合入，均不近似实现：(1)「your next card」是一次性费用改写窗口：Duration 只有 permanent/end-of-turn/" +
+    "end-of-combat/while-source-in-zone/until，没有 next-card 期限；cost.modify 指令和通用 Power 折扣均已合入，" +
+    "但把折扣注册进本回合下一次 Finalize 费用计划的 CardProgram → CostPlan 消费方仍缺（cost/cost-plan.ts 的 discounts " +
+    "只在单次计划内生效，依赖 RIFT-89）；(2)「if I'm at a battlefield」是 383.2.a.1 的触发条件，" +
+    "需要触发时求值的 Location 谓词，object-property 能读 location 但没有持续/触发条件落地路径（依赖 RIFT-91）；" +
+    "(3) card-played 触发的静态注册已随 RIFT-257 合入（programs/triggers.ts → registerProgramTriggers → " +
+    "engine.pipeline.registerTrigger，attachProgramLifecycle 自动附着），但 383.2.c.1 的同一时点条件判定仍没有卡牌可用路径。" +
+    "「your first card each turn」按 383.1.b / 383.3.e.1 用 TriggerSpec.once: \"per-turn\" 表达。",
   abilities,
   sourceText:
     "When you play your first card each turn, if I'm at a battlefield, your next card costs :rb_energy_2::rb_rune_rainbow::rb_rune_rainbow: less."

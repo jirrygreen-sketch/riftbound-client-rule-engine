@@ -33,12 +33,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *    还没有填充者，例外仍不可求值。
  * 3. 临时 Might +2 的 continuous.might 原语已随 RIFT-258 合入（golden 真实执行），触发注册的
  *    静态路径（programs/triggers.ts → registerProgramTriggers）也已随 RIFT-257 合入。
- * 4. 仍缺触发链路：events/action-adapter.ts 的 object-moved 事件不带 toZone/toKind，
- *    「to a battlefield」在管线匹配层不可判定；trigger 条件在 events/pipeline.ts 要
- *    host.testTrigger，生产 host（game-server runtime）没有提供该适配器，fail-closed 抛
- *    'Trigger condition adapter required'。
+ * 4. 触发注册在更早阶段失败：events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 没有
+ *    object-moved，registerProgramTriggers 对该 filter 抛 TriggerSpecValidationError /
+ *    invalid-event-type；在补齐该事件类型及其 object-moved 载荷适配前，能力无法进入生产管线。
  * 依赖：新的 target-restriction 读侧消费方任务（forbids/by/unless 形状）、宣告事务与
- * combatRole 填充任务（466.2）、触发条件适配器（host.testTrigger）与 object-moved 载荷任务。
+ * combatRole 填充任务（466.2）、object-moved 事件枚举与载荷适配任务。
  * 不近似实现：不把禁止改写成“选择后无效”，也不把临时 Might 写成 Buff 计数器。
  */
 const abilities: Ability[] = [
@@ -95,11 +94,11 @@ export default {
     "effects/contract.ts\uff0c\u4f46 466.2 \u7684\u5ba3\u544a\u4e8b\u52a1\u88ab combat/flow.ts \u4ee5 TurnCombatBlockedError('combat-start-transaction') " +
     "\u963b\u585e\uff0c\u8be5\u5b57\u6bb5\u8fd8\u6ca1\u6709\u586b\u5145\u8005\uff0c\u4f8b\u5916\u4ecd\u4e0d\u53ef\u6c42\u503c\uff1b" +
     "(3)\u300cgive me +2 :rb_might: this turn\u300d\u7684 continuous.might \u539f\u8bed\u5df2\u968f RIFT-258 \u5408\u5165\uff08golden \u771f\u5b9e\u6267\u884c +2 \u5e76\u7ecf layers \u5f15\u64ce" +
-    "\u6295\u5f71\u51fa\u6709\u6548 Might 4\u21926\uff09\uff0c\u89e6\u53d1\u6ce8\u518c\u7684\u9759\u6001\u8def\u5f84\u4e5f\u5df2\u968f RIFT-257 \u5408\u5165\uff0c\u4ecd\u7f3a\u89e6\u53d1\u94fe\u8def\uff1a" +
-    "events/action-adapter.ts \u7684 object-moved \u4e8b\u4ef6\u4e0d\u5e26 toZone/toKind\uff0c\u300cto a battlefield\u300d\u5728\u7ba1\u7ebf\u5339\u914d\u5c42\u4e0d\u53ef\u5224\u5b9a\uff1b" +
-    "trigger \u6761\u4ef6\u5728 events/pipeline.ts \u8981 host.testTrigger\uff0c\u751f\u4ea7 host \u6ca1\u6709\u63d0\u4f9b\uff0cfail-closed \u629b " +
-    "'Trigger condition adapter required'\u3002\u4f9d\u8d56\u65b0\u7684 target-restriction \u8bfb\u4fa7\u6d88\u8d39\u65b9\u4efb\u52a1\u3001\u5ba3\u544a\u4e8b\u52a1/\u89d2\u8272\u586b\u5145\u4efb\u52a1\u4e0e" +
-    "\u89e6\u53d1\u6761\u4ef6\u9002\u914d\u5668\u4efb\u52a1\u3002\u4e0d\u8fd1\u4f3c\u5b9e\u73b0\uff1a\u4e0d\u628a\u7981\u6b62\u6539\u5199\u6210\u201c\u9009\u62e9\u540e\u65e0\u6548\u201d\uff0c\u4e5f\u4e0d\u628a\u4e34\u65f6 Might \u5199\u6210 Buff \u8ba1\u6570\u5668\u3002",
+    "\u6295\u5f71\u51fa\u6709\u6548 Might 4\u21926\uff09\uff0c\u89e6\u53d1\u6ce8\u518c\u7684\u9759\u6001\u8def\u5f84\u4e5f\u5df2\u968f RIFT-257 \u5408\u5165\uff0c\u4f46\u8be5\u89e6\u53d1\u7684\u4e8b\u4ef6\u8fc7\u6ee4\u5728\u6ce8\u518c\u65f6\u88ab\u62d2\u7edd\uff1a" +
+    "events/trigger-spec.ts \u7684 EVENT_PATTERN_TYPES \u4e0d\u5305\u542b object-moved\uff0cregisterProgramTriggers \u629b TriggerSpecValidationError / invalid-event-type\uff1b" +
+    "\u8865\u9f50\u4e8b\u4ef6\u679a\u4e3e\u3001object-moved \u8f7d\u8377\u548c\u7ba1\u7ebf\u9002\u914d\u524d\u65e0\u6cd5\u8fdb\u5165\u751f\u4ea7\u8ba2\u9605\u3002" +
+    "\u4f9d\u8d56\u65b0\u7684 target-restriction \u8bfb\u4fa7\u6d88\u8d39\u65b9\u4efb\u52a1\u3001\u5ba3\u544a\u4e8b\u52a1/combatRole \u586b\u5145\u4efb\u52a1\u4e0e object-moved \u4e8b\u4ef6\u9002\u914d\u4efb\u52a1\u3002" +
+    "\u4e0d\u8fd1\u4f3c\u5b9e\u73b0\uff1a\u4e0d\u628a\u7981\u6b62\u6539\u5199\u6210\u201c\u9009\u62e9\u540e\u65e0\u6548\u201d\uff0c\u4e5f\u4e0d\u628a\u4e34\u65f6 Might \u5199\u6210 Buff \u8ba1\u6570\u5668\u3002",
   abilities,
   sourceText:
     "I can't be chosen by enemy spells and abilities unless I'm in combat.\n" +

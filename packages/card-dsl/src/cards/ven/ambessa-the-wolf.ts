@@ -22,7 +22,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - “can't be dealt damage unless I'm in combat”是防止伤害的替代效果（369.1 的 would/instead、
  *   369.2/438.7：Prevent 是 Delayed Replacement Effect）：战斗外的伤害事件被替换为“什么也不发生”。
  *   替代注册已随 RIFT-258 合入（bindReplacement → replacement/bind.ts，attachProgramLifecycle
- *   在进链/进板时绑定），但 pattern.filter 的 combat 键还没有读侧消费方（见 judgeReason 第 4 条）。
+ *   在进链/进板时绑定）；本卡用 ObjectFilter.characteristics.combatRole 表达宿主是否有战斗身份，
+ *   但 combat/flow.ts 的战斗指定事务仍未向生产对象写入 attacker/defender combatRole（见 judgeReason 第 4 条）。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required，缺口见 judgeReason，
  * 不近似实现（不把 +3 Might 写成 Buff，不把伤害防止写成伤害减免数值，也不用别的时点代替 Empowered）。
@@ -57,18 +58,18 @@ const abilities: Ability[] = [
     }
   },
   {
-    // “can't be dealt damage unless I'm in combat”：战斗外伤害的防止替代
-    // （369.1/369.2/438.7）。空 with 表示事件被替换为不发生的动作（同 ogn-189-298
-    // Kayn, Unleashed 的写法）；filter 的 combat: false 读伤害动作的 combat 分类
-    //（契约 3.6 的 damage 动作带 combat 标记）。
+    // “can't be dealt damage unless I'm in combat”：按宿主的 combatRole
+    // 匹配战斗外状态（369.1/369.2/438.7）。空 with 表示事件被替换为不发生的动作
+    //（同 ogn-189-298 Kayn, Unleashed 的写法）；不能把伤害动作的 combat 标记
+    // 当作“我正在战斗中”的宿主身份。
     kind: "replacement",
     replaces: {
       event: "damage",
       filter: {
         // “dealt damage to me”：受伤害者是本卡自身（359.3.f 的来源指代）。
         target: "self",
-        // “…unless I'm in combat”：只有非战斗伤害被防止（combat: false）。
-        combat: false
+        // “…unless I'm in combat”：只有宿主没有战斗身份时才防止伤害。
+        characteristics: { combatRole: null }
       }
     },
     condition: {
@@ -98,9 +99,10 @@ export default {
     "并经 layers 引擎投影出有效 Might 4→7），但两条依赖能力的 Empowered 门控仍不可求值（同第 2 条）；" +
     "(4) replacement 的静态注册路径已随 RIFT-258 合入（bindReplacement → replacement/bind.ts，" +
     "attachProgramLifecycle 在进链/进板时绑定，探针验证 bind 成功；438.7 的 Prevent 仍是 Delayed Replacement Effect），" +
-    "但注册面的 pattern.filter 只把对象过滤键交给 matchesObjectFilter，本卡的 combat: false 键被忽略，" +
-    "非战斗伤害与战斗伤害都会命中该 Prevent（438.7 的防止语义因此不可判定）；" +
-    "replacement 的 empoweredCount condition 会被 evaluateCondition 求值，Empowered 状态谓词仍缺（同第 2 条）。" +
+    "本卡已用 ObjectFilter.characteristics.combatRole 读取宿主战斗身份，只有 combatRole 为 null 时匹配战斗外防止；" +
+    "但 combat/flow.ts 的 466.2 战斗指定事务仍以 TurnCombatBlockedError('combat-start-transaction') 阻塞，生产链路没有写入" +
+    "attacker/defender combatRole，例外窗口仍不可判定；replacement 的 empoweredCount condition 会被 evaluateCondition 求值，" +
+    "Empowered 状态谓词仍缺（同第 2 条）。" +
 "不近似实现（不把 +3 Might 写成 Buff 计数器，也不把防止伤害改成数值减免）。",
   abilities,
   sourceText:

@@ -36,6 +36,7 @@ test("ven-084-166 Ambessa: identity, ruleset, status, judgeReason and verbatim s
   assert.match(program.judgeReason, /RIFT-87/);
   assert.match(program.judgeReason, /RIFT-258/);
   assert.match(program.judgeReason, /bindReplacement/);
+  assert.match(program.judgeReason, /combatRole/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -70,7 +71,7 @@ test("ven-084-166 Ambessa: 'can't be dealt damage unless I'm in combat' is a dam
   assert.equal(damagePrevention.kind, "replacement");
   assert.deepEqual(damagePrevention.replaces, {
     event: "damage",
-    filter: { target: "self", combat: false }
+    filter: { target: "self", characteristics: { combatRole: null } }
   });
   // 空 with = 伤害事件被替换为“什么也不发生”（同 ogn/kayn-unleashed 的写法）。
   assert.deepEqual(damagePrevention.with, []);
@@ -122,7 +123,7 @@ test.todo(
 );
 
 test.todo(
-  "ven-084-166 Ambessa: the combat-only damage prevention (438.7) needs a CardProgram → ReplacementRegistration " +
-    "subscriber plus the damage action's combat classification — no merged consumer applies card replacements " +
-    "(RIFT-120 follow-up)"
+  "ven-084-166 Ambessa: the combat-only damage prevention (438.7) needs the combat-start designation producer " +
+    "(466.2 / contract 3.8) to write the host's attacker/defender combatRole; the replacement filter already " +
+    "matches the host characteristic and must not use damage action.combat"
 );

@@ -6,7 +6,6 @@ import program from "../../../dist/cards/ven/apprentice-mage.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import inspect from "../../../../engine-core/dist/effects/instructions/effect.inspect.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -34,10 +33,8 @@ const deckWorld = () => {
 };
 
 /**
- * 程序里的 player 用契约 3.6 的符号选择器取来源控制者；合入的 effect.inspect
- * argsSchema 仍要求 object-property 的 object 是运行时 ObjectRef，无法直接吃
- * 该选择器（见本文件最后的 test.todo）。因此执行用例按 Assembly Rig / Pit Rookie
- * 的既有做法，把契约层的占位换成参考内核里真实的玩家值，只替换这一处，
+ * 程序里的 player 用契约 3.6 的符号选择器取来源控制者；参考内核的执行用例按
+ * Assembly Rig / Pit Rookie 的既有做法，把契约层的占位换成真实玩家值，
  * 其余 args 与指令顺序沿用程序原文；程序本身保持符号选择器不变。
  */
 const predictBody = () =>
@@ -89,23 +86,15 @@ test("apprentice-mage: the declared Empower activation keeps the printed 2-Energ
   assert.deepEqual(empower, { kind: "keyword", keyword: "empower", value: 2 });
 });
 
-test("apprentice-mage: the merged effect.inspect argsSchema still rejects the symbolic player selector", () => {
-  // 契约 3.6 允许符号选择器，但合并原语的 object-property 分支要求运行时 ObjectRef；
-  // 这不是“功能不存在”的断言，而是当前真实缺口的可复现证据（judgeReason 第 4 条）。
+test("apprentice-mage: the Predict instruction keeps the contract-level symbolic player selector", () => {
+  // 契约 3.6 允许 object-property(source, controller)。这里只锁定卡牌声明的
+  // 结构；参考内核的真实执行仍通过 predictBody() 注入具体玩家值。
   const [look] = triggered.body;
   assert.deepEqual(look.args.player, {
     kind: "object-property",
     object: "source",
     property: "controller"
   });
-  assert.throws(
-    () => instructionDefinitionsById.get("effect.inspect").argsSchema.parse(look.args),
-    /effect\.inspect: player must be an Expr/
-  );
-  assert.throws(
-    () => resolveChainBody([look], world().deck(["top"]).build()),
-    /effect\.inspect: player must be an Expr/
-  );
 });
 
 test("apprentice-mage: Empower 2 is declared, and the might bonus is an Empowered-gated static effect", () => {
@@ -254,9 +243,9 @@ test.todo(
     "predicate is not: layers/engine.ts conditionMatches falls back to true for unknown kinds"
 );
 test.todo(
-  "apprentice-mage: effect.inspect accepting the contract 3.6 symbolic selector for " +
-    "object-property (player: { object: 'source', property: 'controller' }); the merged " +
-    "argsSchema still requires a zone-bound ObjectRef"
+  "apprentice-mage: execute effect.inspect with the contract 3.6 symbolic player selector " +
+    "(player: { object: 'source', property: 'controller' }) through the production resolver; " +
+    "the reference golden currently substitutes a concrete player value while this binding path is pending"
 );
 
 test.todo(

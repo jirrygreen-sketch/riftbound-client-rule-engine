@@ -52,8 +52,9 @@ test("ven-130-166 Aurok General: the Empowered dependent aura shape", () => {
   assert.equal(aura.effect.layer, "arithmetic");
   assert.deepEqual(aura.effect.amount, { kind: "constant", value: 2 });
   // “Your units that are [Empowered] (including me)”: a controller-scoped unit
-  // filter with the 442.1.a Empowered status gate; both are descriptive because
-  // no Empowered predicate and no card-side continuous.might consumer exist.
+  // filter with the 442.1.a Empowered status gate. The continuous.might primitive
+  // and its card-side registration path are merged; only the Empowered predicate
+  // remains descriptive here.
   assert.deepEqual(aura.effect.filter, {
     type: "unit",
     zone: "board",
