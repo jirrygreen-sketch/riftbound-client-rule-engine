@@ -31,17 +31,25 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 740.1.a："other friendly" 限本卡控制者控制的永久物，并排除本卡自身；"units and/or gear"
  *   是两种永久物的并集（133.4.a.2 的类型集合写法）。
  *
+ * 复核（2026-10-17，M2 覆盖率复核）：逐项对照当前源码实测，两处缺口仍成立。
+ *
  * status = judge-required（缺口逐个列出，均不近似实现）：
  * 1. 383.3.b 把"kill 3 other friendly units and/or gear"定义为该触发能力的基础费用，
- *    冻结的 TriggeredAbility 形状没有 cost 字段（契约 3.1 只有 activated 有 cost），
- *    虽然 chain/engine.ts 的 TriggerRegistration 提供 cost 通道，当前卡牌触发形状没有
- *    生产这项费用的路径，因此费用既不能在 Finalize 支付也不能被校验。
- * 2. effect.kill 用 picks 只接受"最终锁定的非目标选择"，而本条要求的"恰好 3 个、不足时不能
- *    完成"的边界由 Finalize 的 PickSpec（min 3 / max 3）表达，PickSpec 的锁定与重验仍未
- *    接入该卡的结算管线；golden 只能以调用方提供已锁定 picks 的方式执行，这不构成整卡证据。
- * 依赖：383.3.b 的触发费用生产/支付与 Finalize 的 PickSpec 锁定/重验。CardProgram →
- * TriggerRegistration 注册通道已合入；choice.optional 包裹、effect.kill 的 picks 形态与
- * effect.score 的得点由 golden 用解释器 + 参考内核真实执行。
+ *    而冻结的 TriggeredAbility 形状（card-dsl/src/ir/types.ts）只有 trigger / optional / body，
+ *    没有 cost 字段（契约 3.1 只有 activated 有 cost）。chain/engine.ts 的 ChainDraft /
+ *    TriggerRegistration 确实带 cost 通道，但 programs/triggers.ts 的 triggerRegistrations
+ *    构造注册时不会解析前导费用，也不设置 mayAtFinalize：实测该触发的注册结果为
+ *    { cost: null, mayAtFinalize: null }，因此这笔费用既不能在 Finalize 支付也不能被校验
+ *    （383.3.b.1）。
+ * 2. 计划的"恰好 3 个、不足时不能完成"边界表达不到结算：已注册 op 表里没有 choice.optional
+ *    （实测 instructionDefinitionsById.has('choice.optional') === false），该节点由解释器的
+ *    内建分支处理；更关键的是 effect.kill 只按 ctx.picks 取已锁定引用并逐个提交 kill，
+ *    不重验 PickSpec 的 min/max——实测只提供 1 个 pick（规格为 min 3 / max 3）时指令仍返回
+ *    executed 并只消灭那 1 个，故缺 2 个也不会失败。chain/picks/plan.ts 的 Finalize 锁定只覆盖
+ *    显式 zoneSlice / linked 来源，普通 filter+min/max 的 picks 没有该重验路径。
+ * 依赖：383.3.b 的触发前导费用生产/支付，以及带边界重验的结算期 PickSpec 锁定。
+ * 已合入并经 golden 用解释器 + 参考内核真实执行的部分：choice.optional 包裹、
+ * effect.kill 的 picks 形态（429.1/429.6）与 effect.score 的得点（194.1.c / 470.1-470.3）。
  */
 const abilities: Ability[] = [
   {
@@ -116,15 +124,17 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1) 383.3.b 把『kill 3 other friendly units and/or gear』定义为" +
-    "该触发能力的基础费用，冻结的 TriggeredAbility 形状没有 cost 字段（契约 3.1 只有 activated 有 cost）；" +
-    "chain/engine.ts 的 TriggerRegistration 虽提供 cost 通道，当前卡牌触发形状没有生产这项费用的路径，" +
-    "因此费用既不能在 Finalize 支付也无法被校验；" +
-    "(2) 恰好 3 个的边界由 PickSpec（min 3/max 3）表达，但 PickSpec 的 Finalize 锁定与 Resolve 重验" +
-    "尚未接入该卡的结算管线，golden 只能以调用方提供已锁定 picks 的方式执行，不构成整卡证据。" +
-    "依赖 383.3.b 的触发费用生产/支付与 Finalize 的 PickSpec 锁定/重验；" +
-    "CardProgram → TriggerRegistration 注册通道已合入，355.10.c.1 的非目标 pick、effect.kill、effect.score " +
-    "已由 golden 真实执行。",
+    "两处当前缺口，均不近似实现：(1) 383.3.b 把『kill 3 other friendly units and/or gear』定义为该触发能力的" +
+    "基础费用，冻结的 TriggeredAbility 形状只有 trigger / optional / body、没有 cost 字段（契约 3.1 只有 activated 有 cost）；" +
+    "chain/engine.ts 的 ChainDraft / TriggerRegistration 虽提供 cost 通道，programs/triggers.ts 的" +
+    "triggerRegistrations 不解析前导费用也不设置 mayAtFinalize——实测该触发的注册结果为 { cost: null, " +
+    "mayAtFinalize: null }，因此费用既不能在 Finalize 支付也无法被校验（383.3.b.1）。" +
+    "(2)『恰好 3 个、不足时不能完成』的边界表达不到结算：实测效果里没有 choice.optional 的注册 op" +
+    "（该节点由解释器内建分支处理），而 effect.kill 只按 ctx.picks 逐个提交 kill、不重验 PickSpec 的 min/max：" +
+    "只提供 1 个 pick（规格 min 3 / max 3）时仍返回 executed 并只消灭那 1 个。chain/picks/plan.ts 的" +
+    "Finalize 锁定只覆盖显式 zoneSlice / linked 来源，普通 filter+min/max 的 picks 没有该重验路径。" +
+    "依赖 383.3.b 的触发前导费用生产/支付与带边界重验的结算期 PickSpec 锁定；choice.optional 包裹、" +
+    "355.10.c.1 的非目标 pick、effect.kill 与 effect.score 已由 golden 真实执行。",
   abilities,
   sourceText:
     "At the start of your Main Phase, you may kill 3 other friendly units and/or gear to score 1 point."

@@ -8,6 +8,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 // card-dsl), so golden execution loads the built engine through its workspace
 // layout instead of the package name.
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL =
@@ -75,8 +76,9 @@ test("ven-067-166 Bottled Constellation: identity, ruleset, status, judgeReason 
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /383\.3\.b/);
-  assert.match(program.judgeReason, /Finalize/);
-  assert.match(program.judgeReason, /PickSpec/);
+  assert.match(program.judgeReason, /383\.3\.b\.1/);
+  assert.match(program.judgeReason, /mayAtFinalize/);
+  assert.match(program.judgeReason, /min 3 \/ max 3/);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
@@ -214,11 +216,46 @@ test("ven-067-166 Bottled Constellation golden: a non-target pick leaves the ene
   assert.equal(kernel.getObject("enemy-unit").zone, "board");
 });
 
+test("ven-067-166 Bottled Constellation boundary: the resolver does not enforce the exactly-3 pick bounds", () => {
+  // 383.3.b requires exactly three permanents. The card declares min 3 / max 3 on
+  // its PickSpec, but effect.kill resolves whatever refs ctx.picks supplies and
+  // never re-checks those bounds: one supplied pick still executes. That is the
+  // measured reason the card cannot be executable yet (judgeReason item 2).
+  const kernel = world()
+    .player("A")
+    .unit("source", { types: ["gear"], might: null })
+    .unit("friendly-1", { owner: "A", controller: "A" })
+    .unit("friendly-2", { owner: "A", controller: "A" })
+    .unit("friendly-3", { owner: "A", controller: "A" })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("source") });
+  context.setPicks("bottled-constellation.sacrificed", [context.ref("friendly-1")]);
+
+  const outcome = resolveChainBody(bodyForKernel().flatMap(node => node.args.body.value), context);
+
+  // Only the single supplied permanent was killed; the other two survive, so the
+  // short payment is silently accepted instead of failing the ability.
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
+    ["bottled-constellation.kill-cost", "executed"],
+    ["bottled-constellation.score", "executed"]
+  ]);
+  assert.equal(context.getObject("friendly-1").zone, "trash");
+  assert.equal(context.getObject("friendly-2").zone, "board");
+  assert.equal(context.getObject("friendly-3").zone, "board");
+});
+
+test("ven-067-166 Bottled Constellation: choice.optional has no registered op and the trigger carries no leading cost", () => {
+  // judgeReason item 1: the cost-within-instructions of 383.3.b would be paid at
+  // Finalize, but the card's triggered shape has no cost field and the program
+  // trigger adapter produces no cost / mayAtFinalize. The optional wrapper is an
+  // interpreter built-in rather than a registry entry, so nothing here supplies
+  // the leading payment.
+  assert.equal(instructionDefinitionsById.has("choice.optional"), false);
+  assert.equal(Object.hasOwn(triggered, "cost"), false);
+});
+
 test.todo(
   "ven-067-166 Bottled Constellation: the leading \"kill 3 …\" must be paid as the triggered ability's base cost at " +
-    "Finalize (383.3.b) - the frozen TriggeredAbility shape has no cost field/producer"
-);
-test.todo(
-  "ven-067-166 Bottled Constellation: the exactly-3 PickSpec must lock at Finalize and revalidate at Resolve " +
-    "(383.3.b; min 3/max 3), rather than relying on caller-provided picks"
+    "Finalize (383.3.b/383.3.b.1) - TriggeredAbility has no cost field and programs/triggers.ts produces no " +
+    "cost / mayAtFinalize for it"
 );

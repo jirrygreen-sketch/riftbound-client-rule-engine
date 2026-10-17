@@ -27,14 +27,20 @@ import type { CardProgram } from "../../ir/index.js";
  * 需求（印刷的两个符号 = 两条 1 点需求，不是一个 2 点需求），golden 用真实费用计划 + 支付管线
  * 断言「任意域 Power 均能支付」与 Exhaust 横置。
  *
+ * 复核（2026-10-17，M2 覆盖率复核）：逐项对照当前源码，唯一缺口仍然成立。
+ *
  * status = judge-required（唯一剩余缺口）：
  * 「Spend this Energy only to play units or activated abilities of units」是受限资源的花费限制。
- * 契约 3.6 的 GameAction 集合只有无用途标签的 `gain-energy`，ResolveContext / PlayerSnapshot
- * 都不暴露「带用途标签的 Energy」，EffectIR 也没有受限资源形状；effect.resources 等原语清单里
- * 也没有对应原语，因此不能用 restriction 或某个 continuous.effect 近似；把 2 Energy 视为无限制
- * 资源会让本卡比印刷更强，所以不能标记 executable。
+ * 契约 3.6 的 GameAction 集合只有无用途标签的 `gain-energy`（contract.ts：
+ * `{ type: "gain-energy"; player; amount }`，无 purpose / restriction 字段），ResolveContext /
+ * PlayerSnapshot 都不暴露「带用途标签的 Energy」，EffectIR 也没有受限资源形状；
+ * effect.resources 等 42 个已注册 op 里没有对应原语，continuous.restrict 的 restriction 标签
+ * 也只覆盖 target / movement / action 等动作级许可，不表达“这批 Energy 只能用于某些用途”。
+ * 因此不能用 restriction 或某个 continuous.effect 近似：把 2 Energy 视为无限制资源会让本卡
+ * 比印刷更强，所以不能标记 executable。
  * 依赖：受限资源 / 花费限制原语（含 204.4 的 applied-cost 之外的用途标签形状）。
- * effect.resources 的 Add 2 Energy 本体已合入，golden 用真实解释器执行（不含用途标签）。
+ * 印刷费用与 Add 本体都已用真实 cost plan + payment + 解释器执行（exhaust 横置、六域 Power、
+ * effect.resources 的 2 Energy），只是不含用途标签。
  */
 const butcherOfTheSands = {
   canonicalCardId: "card.hash-fd135b06be83d09c3f8ab5d01c8c2625b0ae9ea0392ea903d7ac2fae20d61237",
@@ -42,9 +48,12 @@ const butcherOfTheSands = {
   status: "judge-required",
   judgeReason:
     "唯一剩余缺口：「Spend this Energy only to play units or activated abilities of units」是受限资源的花费限制。" +
-    "契约 3.6 的 GameAction 集合只有无用途标签的 gain-energy，PlayerSnapshot / ResolveContext 不暴露" +
-    "按用途受限的 Energy，EffectIR 也没有受限资源形状；effect.resources 等原语清单里也没有对应原语，" +
-    "无法用 restriction / continuous.effect 近似；把 Add 出的 2 Energy 当成无限制资源会让本卡比印刷更强。" +
+    "契约 3.6 的 GameAction 集合只有无用途标签的 gain-energy（contract.ts 的 " +
+    "{ type: \"gain-energy\"; player; amount }，无 purpose / restriction 字段），PlayerSnapshot / ResolveContext " +
+    "不暴露按用途受限的 Energy，EffectIR 也没有受限资源形状；已注册的 42 个 op（含 effect.resources）里" +
+    "没有对应原语，continuous.restrict 的 restriction 标签只覆盖 target / movement / action 等动作级许可，" +
+    "没有承载“这批 Energy 只能用于某些用途”的形状，因此不能用 restriction / continuous.effect 近似；" +
+    "把 Add 出的 2 Energy 当成无限制资源会让本卡比印刷更强。" +
     "印刷费用本身已可执行：两个 :rb_rune_rainbow:（135.2.e.5.a 的 [A]）用两条 amount 1、allowedDomains 覆盖" +
     "全六域的 Power 需求表达（cost/plan-values.ts 的 domains()，与 dragon-roost / power-nexus 同形状），" +
     "golden 用真实 cost plan + payment 断言任意域 Power 均可支付、单域不足时拒绝，以及 Exhaust 横置；" +

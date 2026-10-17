@@ -5,6 +5,7 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ven/covert-informant.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -25,7 +26,15 @@ test("covert-informant: passes validateCardProgram and is judge-required", () =>
   );
 });
 
-test("covert-informant: judgeReason names the missing Empower/Empowered expansions", () => {
+test("covert-informant: judgeReason names the current Empower cost and gate gaps", () => {
+  // The stale "no Empower/Empowered expansion" claim is gone: RIFT-593 merged the
+  // KeywordDef and the empowered status predicate.
+  assert.equal(keywordDefinitionsById.has("Empower"), true);
+  assert.match(program.judgeReason, /827\.1\.c/);
+  assert.match(program.judgeReason, /3\.8\.3/);
+  assert.match(program.judgeReason, /Unsupported cost kind empower/);
+  assert.match(program.judgeReason, /828\.1\.b\.1/);
+  assert.ok(!/缺 Empower\/Empowered 的关键词展开/.test(program.judgeReason));
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -47,8 +56,11 @@ test("covert-informant: the declared self-scoped trigger filter translates to th
   );
 });
 
-test("covert-informant: Empower 3 is declared unexpanded", () => {
+test("covert-informant: Empower 3 is declared with the printed cost recorded, not executed", () => {
   assert.deepEqual(program.abilities[0], { kind: "keyword", keyword: "empower", value: 3 });
+  // The printed :rb_energy_3: cannot reach the expansion (judgeReason 1); the
+  // numeric value keeps the printed symbol count reviewable without pretending
+  // to be the CostSpec that 827.1.c demands.
 });
 
 test("covert-informant: the move trigger is a mandatory object-moved trigger scoped to self", () => {
@@ -87,9 +99,13 @@ test("covert-informant: the body really draws 1 through the chain adapter", () =
 
 
 test("covert-informant: the review records the current blockers", () => {
-  assert.match(program.judgeReason, /827\.1\.c\.1/);
-  assert.match(program.judgeReason, /828\.1\.c/);
+  assert.match(program.judgeReason, /827\.1\.c/);
+  assert.match(program.judgeReason, /828\.1\.b\.1/);
   assert.match(program.judgeReason, /442\.1\.a/);
 });
 
-test.todo("covert-informant: 827/828: expand Empower 3 and gate the move trigger on the real Empowered state (RIFT-359)");
+test.todo(
+  "covert-informant: 827.1.c/828.1.b.1: the printed Empower cost has no channel from KeywordAbility into " +
+    "expand (contract 3.8.3) and no empower payment kind in the cost pipeline; the dependent ability's " +
+    "Empowered gate also has no trigger/static binding path"
+);

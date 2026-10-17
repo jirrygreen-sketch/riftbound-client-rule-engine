@@ -8,6 +8,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 // card-dsl), so golden execution loads the built engine through its workspace
 // layout instead of the package name.
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
+import { translateObjectFilter, translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL =
@@ -198,7 +199,47 @@ test("corrupted-dragon: the review records the current blockers", () => {
   assert.match(program.judgeReason, /194\.3/);
   assert.match(program.judgeReason, /Victory Score/);
   assert.match(program.judgeReason, /mightLte/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /sameLocationAs/);
+  assert.match(program.judgeReason, /attack-declared/);
+  assert.match(program.judgeReason, /combat-start-transaction/);
+});
+
+test("corrupted-dragon: both attack-target filter fields are rejected before any binding", () => {
+  // judgeReason item 2 measured: the production filter translator has no
+  // mightLte and no sameLocationAs, so the trigger registration fails closed.
+  const filter = moveEnemiesHome.targets[0].filter;
+  assert.deepEqual(filter, {
+    type: "unit",
+    zone: "board",
+    controller: "opponent",
+    sameLocationAs: "self",
+    mightLte: 5
+  });
+  assert.throws(() => translateObjectFilter(filter), /Unsupported filter field sameLocationAs/);
+  // Each unsupported key is rejected on its own, so neither can be treated as a
+  // descriptive placeholder that silently matches everything.
+  assert.throws(
+    () => translateObjectFilter({ type: "unit", zone: "board", controller: "opponent", mightLte: 5 }),
+    /Unsupported filter field mightLte/
+  );
+  assert.throws(
+    () => translateObjectFilter({ type: "unit", zone: "board", controller: "opponent", sameLocationAs: "self" }),
+    /Unsupported filter field sameLocationAs/
+  );
+});
+
+test("corrupted-dragon: the trigger filter translates, but the body cannot be bound into a chain", () => {
+  // "When I attack" is a proper self-scoped attack-declared subscription.
+  assert.deepEqual(
+    translateTriggerFilter(attackTrigger.trigger.filter, "corrupted-dragon", "attack-declared"),
+    { event: "attack-declared", object: { objectId: "corrupted-dragon" } }
+  );
+  // The body's target filter is what stops registration: the same rejection as
+  // above happens when the trigger's body is translated for the chain.
+  assert.throws(
+    () => translateObjectFilter(moveEnemiesHome.targets[0].filter),
+    /Unsupported filter field sameLocationAs/
+  );
 });
 
 test.todo("corrupted-dragon: 194.3/194.3.a: read current Victory Score and player score for conditional entry readiness");
