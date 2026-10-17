@@ -23,7 +23,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * status = judge-required（2026-10-17 复核）：
  * 替代绑定已经消费 condition，并支持 { linked: "replacement.object" } 事件对象绑定；
  * EventPipeline 已能用 actions 数组替代一个动作，也已支持 optional / oncePerTurn 注册。
- * 真正缺口是卡牌替代声明到每回合重置限次的桥接、来源位置类型谓词（RIFT-359），以及
+ * 真正缺口是卡牌替代声明到每回合重置限次的桥接、来源 LocationRef.type 的可执行谓词，以及
  * 原 token + Chain 上的额外副本两次 play 的 planner / copy 支持，并继承 375 的原事件修正。
  * replacement.event 的 optional 已可声明，但其 window 只有 permanent / next-time-this-turn，
  * 不等于每回合一次；不把已合入的替代管线、费用、事件对象绑定再次列作缺失依赖。
@@ -37,7 +37,7 @@ const abilities: Ability[] = [
       event: "card-played",
       filter: { type: "unit", characteristics: { isToken: true }, controller: "self" }
     },
-    // 描述来源位置的意图；尚需可执行的位置类型 Condition（RIFT-359）。
+    // 描述来源位置的意图；尚需可执行的 LocationRef.type Condition。
     condition: {
       kind: "expression",
       value: { kind: "constant", value: "source-at-a-battlefield" }
@@ -74,8 +74,9 @@ const program = {
     "replacement.event 的 next-time-this-turn 只是一回合的一次性窗口，不能替代每回合重置。" +
     "(2) replacement planner 尚需把「原 token + 额外副本」规划为两次 play，" +
     "包括 Chain 上创建副本和继承原事件修正（375）；effect.copy 的 play 模式仍 blocked。" +
-    "(3)「while I'm at a battlefield」需来源 LocationRef.type 的可执行 Condition（RIFT-359）；" +
-    "现有描述性常量只是意图记录。事件对象 replacement.object、可选应用与多动作替代本身均已合入。",
+    "(3)「while I'm at a battlefield」仍只有 source-at-a-battlefield 描述性常量，" +
+    "Condition/evaluator/binder 没有可执行的 LocationRef.type 谓词；事件对象 replacement.object、" +
+    "可选应用与多动作替代本身均已合入。",
   abilities,
   sourceText:
     "Once each turn, if you would play a token unit while I'm at a battlefield, you may play that token " +
