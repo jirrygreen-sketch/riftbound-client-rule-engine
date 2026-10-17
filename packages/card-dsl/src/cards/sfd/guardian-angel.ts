@@ -14,13 +14,14 @@
  * - 150.1–150.3：Equipment 是带 Equipment 标签的 Gear，可以有 Equip；本地 catalog 的
  *   tags 为 ["Equipment"]，与 818.1.a 一致。
  *
- * status = judge-required（缺可支付的费用路径与关键词接线，不近似实现）：
- * - 已合入的 Equip 展开声明 payments: [{ kind: "equip", value: source }]，费用管线
- *   cost/plan-values.ts 对未知支付种类直接 blocked：golden 实测 buildCostPlan 抛
- *   CostPlanError（reason "judge-required"，message "Unsupported payment kind: equip"）。
- * - 契约 3.8 第 3 条要求 expand 用 params.cost 承载印刷装备费，已合入的 KeywordDef 接口还没有
- *   该参数；卡牌程序 → 关键词展开 → 时点/链的接线（契约 3.5）未合入。
- * - 依赖：RIFT-89 之后的 Equip 费用支付支持与 RIFT-120 的关键词/链接线。不近似实现。
+ * status = judge-required（缺可支付的费用路径，不近似实现）：
+ * - 已合入的 Equip 展开声明 payments: [{ kind: "equip", value: { kind: "source" } }]，
+ *   费用管线 cost/plan-values.ts 仍把未知支付种类视为 blocked：golden 实测 buildCostPlan
+ *   抛 CostPlanError（reason "judge-required"，message "Unsupported payment kind: equip"）。
+ * - 印刷的装备费（1 点 Calm Power）只以描述性 costDomain 记录：KeywordDef.expand 的
+ *   params.cost 承载通道虽在契约 3.8 第 3 条冻结、接口也有 params 字段，但没有装配方把
+ *   KeywordAbility 的印刷参数传进展开，卡牌程序 → 关键词展开 → 时点/链的接线仍未接通。
+ * - 依赖：RIFT-261（Equip 费用支付种类）与关键词装配接线。不近似实现。
  */
 export default {
   canonicalCardId: "card.hash-af3547abb5e6d69c2372b62331d6039acaf16cca337eefb27e5734bbee3fb307",
@@ -28,12 +29,12 @@ export default {
   status: "judge-required",
   judgeReason:
     "印刷的 [Equip] 费用（1 点 Calm Power，818.1.c.2）目前无法支付：已合入的 Equip 展开" +
-    "（RIFT-87，effects/keywords/Equip.ts）声明 payments: [{ kind: \"equip\", value: source }]，" +
+    "（RIFT-87，effects/keywords/Equip.ts）声明 payments: [{ kind: \"equip\", value: { kind: \"source\" } }]，" +
     "费用管线 cost/plan-values.ts 的 readCost 对未知支付种类直接 blocked —— golden 实测 buildCostPlan " +
     "抛 CostPlanError（reason \"judge-required\"，message \"Unsupported payment kind: equip\"）；" +
-    "契约 3.8 第 3 条要求 expand 用 params.cost 承载印刷装备费，已合入的 KeywordDef 接口仍无该参数，" +
-    "也缺卡牌程序→关键词展开→时点/链的接线（契约 3.5）。依赖：RIFT-89 之后的 Equip 费用支付支持" +
-    "与 RIFT-120 的关键词接线。不近似实现（不把 Equip 降级成裸 effect.attach）。",
+    "该支付种类的补齐属 RIFT-261（未合入 HEAD）。印刷装备费同样没有装配通道：KeywordDef.expand 的" +
+    "params.cost 虽在契约 3.8 第 3 条冻结、接口也有 params 字段，但没有装配方把 KeywordAbility 的" +
+    "印刷参数传进展开，卡牌程序 → 关键词展开 → 时点/链的接线未接通。不近似实现（不把 Equip 降级成裸 effect.attach）。",
   abilities: [
     { kind: "keyword", keyword: "equip", value: 1, costDomain: "Calm" }
   ],

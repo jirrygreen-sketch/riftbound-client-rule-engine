@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { validateCardProgram } from "../../../dist/index.js";
+import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/glasc-mixologist.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import play from "../../../../engine-core/dist/effects/instructions/effect.play.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -15,11 +20,16 @@ test("sfd-165-221 Glasc Mixologist: program validates and keeps its identity", (
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
   assert.equal(program.canonicalCardId, CANONICAL);
-  assert.equal(program.rulesetVersion, "core-1.5");
+  assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /163\.2\.b/);
   assert.match(program.judgeReason, /356\.1\.b/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-90/);
+  // The old reason blamed the unmerged cost plan (RIFT-89); the remaining
+  // wiring is the cost.printed / cost.pay batch.
+  assert.doesNotMatch(program.judgeReason, /RIFT-89/);
+  assert.equal(cardRegistryById.get(CANONICAL), program);
   assert.equal(
     program.sourceText,
     "[Deathknell] — You may play a unit with cost no more than :rb_energy_3: and no more than " +
@@ -117,5 +127,78 @@ test("sfd-165-221 Glasc Mixologist: the merged play primitive plays the locked t
 test.todo(
   "sfd-165-221 Glasc Mixologist: enforce the printed-cost ceiling (Energy <= 3, Power <= 1 including [A] " +
     "Universal Power, 163.2.b) and generate the ignore-cost plan from the chosen trash unit (356.1.b.1, " +
-    "RIFT-89 cost plan wiring)"
+    "RIFT-90 printed-cost predicate and RIFT-261 cost.printed / cost.pay wiring)"
 );
+
+test("sfd-165-221 Glasc Mixologist: the merged Deathknell keyword is registered", () => {
+  assert.equal(keywordDefinitionsById.has("Deathknell"), true);
+  assert.equal(keywordDefinitionsById.get("Deathknell").stacking, "separate");
+  assert.deepEqual(keyword, { kind: "keyword", keyword: "deathknell" });
+});
+
+test("sfd-165-221 Glasc Mixologist golden: the card's own optional body plays the locked trash unit on accept", () => {
+  // The card's original may-play wrapper executes through the production chain
+  // adapter with the caller-supplied zero-cost plan the unmerged cost.printed
+  // step would otherwise build (356.1.b.1). The descriptive costEnergyLte /
+  // costPowerLte keys are ignored by the reference matcher, matching the
+  // judged gap (they must never be treated as a working ceiling).
+  const base = world()
+    .player("A")
+    .card("mixologist", { types: ["unit"], owner: "A", zone: "trash", energy: 5, power: ["Order"] })
+    .build();
+  const query = (filter) =>
+    base.objects.filter((object) =>
+      matchesObjectFilter(
+        Object.fromEntries(
+          Object.entries(filter).map(([key, value]) => [
+            key,
+            (key === "controller" || key === "owner") && value === "controller" ? "A" : value
+          ])
+        ),
+        object
+      )
+    );
+  const kernel = bindResolveContext(base, { source: base.getObject("mixologist"), query });
+  kernel.setAnswers({ "glasc-mixologist.may-play/optional": true });
+  kernel.setTargets("glasc-mixologist.unit-in-trash", [base.ref("mixologist")]);
+
+  const outcome = resolveChainBody([mayPlay], kernel);
+  assert.equal(outcome.status, "executed");
+  // Nested results are reported in execution order: the play step, then the
+  // wrapping choice.optional.
+  assert.deepEqual(outcome.results.map((entry) => [entry.id, entry.result.status]), [
+    ["glasc-mixologist.play-unit", "executed"],
+    ["glasc-mixologist.may-play", "executed"]
+  ]);
+  assert.equal(base.getObject("mixologist").zone, "board");
+});
+
+test("sfd-165-221 Glasc Mixologist golden: declining the option leaves the trash untouched", () => {
+  const kernel = world()
+    .card("mixologist", { types: ["unit"], owner: "A", zone: "trash" })
+    .build();
+  kernel.setAnswers({ "glasc-mixologist.may-play/optional": false });
+  kernel.setTargets("glasc-mixologist.unit-in-trash", [kernel.ref("mixologist")]);
+
+  const outcome = resolveChainBody([mayPlay], kernel);
+  assert.equal(outcome.status, "partial");
+  assert.equal(outcome.results[0].result.status, "negated");
+  assert.equal(outcome.results[0].result.reason, "skipped");
+  assert.equal(kernel.getObject("mixologist").zone, "trash");
+});
+
+test("sfd-165-221 Glasc Mixologist golden: a stale trash target is ignored (359.3.e.6)", () => {
+  const kernel = world()
+    .card("mixologist", { types: ["unit"], owner: "A", zone: "trash" })
+    .build();
+  const stale = kernel.ref("mixologist");
+  kernel.perform({ type: "banish", object: stale });
+  kernel.setAnswers({ "glasc-mixologist.may-play/optional": true });
+  kernel.setTargets("glasc-mixologist.unit-in-trash", [stale]);
+
+  const outcome = resolveChainBody([mayPlay], kernel);
+  assert.equal(outcome.status, "partial");
+  assert.equal(outcome.results.at(-1).result.status, "ignored");
+  assert.equal(outcome.results.at(-1).result.reason, "mistargeted");
+  assert.equal(kernel.getObject("mixologist").zone, "banishment");
+});

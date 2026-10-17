@@ -45,7 +45,12 @@ test("sfd-140-221 Fizz, Trickster: identity, ruleset, status, judgeReason and ve
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /costEnergyLte/);
   assert.match(program.judgeReason, /356\.1\.b\.2/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-90/);
+  // The old reason blamed RIFT-89 for the cost plan, which is merged; the
+  // remaining gaps are the printed-cost predicate and the cost.printed /
+  // cost.pay wiring (RIFT-261).
+  assert.doesNotMatch(program.judgeReason, /RIFT-89/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 

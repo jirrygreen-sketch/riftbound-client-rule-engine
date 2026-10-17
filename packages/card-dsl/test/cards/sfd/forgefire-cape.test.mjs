@@ -86,9 +86,13 @@ test("sfd-190-221 Forgefire Cape: identity, ruleset, status, judgeReason and ver
 
   assert.match(program.judgeReason, /Unique/);
   assert.match(program.judgeReason, /825\./);
-  assert.match(program.judgeReason, /continuous\.deck/);
   assert.match(program.judgeReason, /163\.2\.b/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  // The keyword registry now holds 25 keywords; Unique is still absent, so
+  // the reason must not cite the stale count and the stale RIFT-89 attribution.
+  assert.match(program.judgeReason, /25 个关键词不含 Unique/);
+  assert.doesNotMatch(program.judgeReason, /16 个关键词/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-89/);
 });
 
 test("sfd-190-221 Forgefire Cape: Unique declaration plus a valued rainbow-cost Equip", () => {
@@ -148,12 +152,13 @@ test("sfd-190-221 Forgefire Cape golden: no locked target leaves the cape unatta
 
 test.todo(
   "sfd-190-221 Forgefire Cape: [Unique] (CR 825.1/825.3 — a deck may contain only one card of a given name) needs " +
-    "a Unique KeywordDef and a continuous.deck consumer; keywords/ registers 16 keywords and none of them is Unique, " +
+    "a Unique KeywordDef and a deck-constraint consumer; keywords/ registers 25 keywords and none of them is Unique, " +
     "and contract 3.1/3.3 has no deck-constraint semantics (only the undefined deckbuilding?: DeckbuildingDecision[] shape)"
 );
 
 test.todo(
   "sfd-190-221 Forgefire Cape: paying the printed Equip cost (one [A] Power, CR 135.2.e.5 / 818.1.c.2) is blocked on " +
     "the `equip` payment kind in cost/plan-values.ts and on a contract representation for Universal Power " +
-    "(CR 163.2.b; RIFT-89); the merged cost plan rejects { kind: 'equip' } with reason judge-required"
+    "(CR 163.2.b); the Equip payment kind is RIFT-261, and the merged cost plan rejects the equip kind " +
+    "with reason judge-required"
 );

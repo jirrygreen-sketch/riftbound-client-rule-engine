@@ -16,7 +16,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   要玩家选出的牌是目标（355.7/355.9.a/355.10.a）——与已合入 sfd/glasc-mixologist 的
  *   "play a unit … from your trash" 同一形状（更换 type 为 spell）。
  * - "ignoring its Energy cost"：356.1.b.2 只把基础 Energy 费置零、保留 Power 费；
- *   effect.play 只接受已 finalize 的费用计划、从不推导印刷费用（RIFT-89 的费用计划接线缺失）。
+ *   effect.play 只接受已 finalize 的费用计划、从不推导印刷费用（cost.printed / cost.pay
+ *   属 RIFT-261 的费用种类批次，未合入 HEAD）。
  * - "with Energy cost no more than [3]"：356.1.c / 206 说明这是对印刷 Base Cost 的上限比较；
  *   冻结的 ObjectFilter 没有费用谓词，也没有消费者读取（见 judgeReason）。
  * - "Recycle that spell after you play it"：417.1 / 417.1.c 的回收，目标是刚被打出的那张牌；
@@ -24,15 +25,20 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * status 判定（cards/README.md 第 2 节）：judge-required。
  * - 印刷费用上限（"no more than [3]"）没有可求值形态：冻结 ObjectFilter 无费用谓词，
- *   layers/filter.ts 与测试内核的 matchesFilter 都会静默忽略未知键（见 glasc-mixologist 同款缺口），
- *   写成过滤器会让任意垃圾场法术合法。
- * - "ignoring its Energy cost" 需要费用管线按 356.1.b.2 生成 finalized plan（Base Energy 置 0、
- *   保留 Power）；effect.play 只消费已 finalize 的计划，卡程序无法生成（RIFT-89）。
+ *   layers/filter.ts 与测试内核的 matchesFilter 对未知键静默放行，而生产绑定
+ *   programs/filters.ts 的 translateObjectFilter 对 costEnergyLte 这类描述性键直接 fail closed
+ *   （judge-required）——两种行为都不是费用上限本身（见 glasc-mixologist 同款缺口）。
+ * - "ignoring its Energy cost" 需要费用管线从被选中的垃圾场法术读印刷费用，并按 356.1.b.2
+ *   生成 finalized plan（Base Energy 置 0、保留 Power）；effect.play 只消费已 finalize 的计划、
+ *   从不推导印刷费用，cost.printed / cost.pay（RIFT-261 的费用种类批次）未合入 HEAD。
  * - "Recycle that spell after you play it" 的 it 指刚打出的法术：契约 3.6 的 ObjectSelector 只有
  *   self/source/target/pick/linked，没有"刚打出的对象"选择符；已合入的 effect.play 只链接"成功打出
  *   张数"（linkKey → number），不落对象引用，因此后一条 effect.recycle 无法命名它。
- * - card-played 触发的卡牌注册与内层锚点消费方属 RIFT-120。
- * 依赖：RIFT-89（费用计划与 ignore-Energy 接线、印刷费用上限比较）、RIFT-120（触发注册）、
+ * 已合入并真实执行：choice.optional 的接受/拒绝、effect.play 对锁定目标 + 调用方零费计划的执行、
+ * effect.recycle 的回收与 stale 目标 ignored（见 golden）。card-played → 触发注册路径
+ * （RIFT-257 的 createProgramBinding / attachProgramLifecycle 与 source: "self" 映射）已合入，
+ * 但整卡在 ProgramRegistry 中因 judge-required 被拒绝，不能据此声称可执行。
+ * 依赖：RIFT-90（目标过滤的印刷费用谓词或契约变更）、RIFT-261（cost.printed / 费用计划）与
  * "本次打出的对象"选择符（见回复里的契约变更请求）。
  * 不近似实现：不省略费用上限，也不用"回收垃圾场任意法术"代替"回收刚打出的那张"。
  */
@@ -110,15 +116,14 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "(1)「with Energy cost no more than :rb_energy_3:」需要印刷 Base Cost 上限比较（356.1.c / 206）：冻结的 ObjectFilter 没有费用谓词、" +
-    "也没有消费者读取，写成过滤器（程序里的 costEnergyLte）会让任意垃圾场法术合法（与 sfd/glasc-mixologist 同一缺口）。" +
-    "(2)「ignoring its Energy cost」要按 356.1.b.2 生成 finalized 费用计划（Base Energy 置 0、仍付 Power），" +
-    "effect.play 只接受已 finalize 的计划、从不推导印刷费用（RIFT-89）。" +
-    "(3)「Recycle that spell after you play it」的 it 指刚被打出的法术：契约 3.6 的 ObjectSelector 只有 self/source/target/pick/linked，" +
-    "没有「本次打出的对象」，而 effect.play 只链接成功张数（played → number）、不落对象引用，后一条 effect.recycle 无法命名该牌。" +
-    "(4) card-played 触发的 CardProgram → TriggerRegistration 注册与 filter 内层锚点 source: \"self\" 的消费方属 RIFT-120。" +
-    "effect.play / effect.recycle / choice.optional 均已合入，golden 对已锁定目标真实执行（另见 test.todo）。" +
-    "依赖：RIFT-89、RIFT-120、「本次打出的对象」选择符（见回复里的契约变更请求）。不近似实现。",
+    "三处缺口：(1)「with Energy cost no more than :rb_energy_3:」（206 / 356.1.c）需要印刷费用上限谓词：" +
+    "冻结 ObjectFilter 没有费用键，已合入过滤器对未知键静默放行，而生产绑定 translateObjectFilter 对 costEnergyLte 描述性键直接 fail closed，" +
+    "两者都不表达上限（RIFT-90 或契约变更）。(2)「ignoring its Energy cost」需要从被选中法术读印刷费用并按 356.1.b.2 生成 finalized 计划" +
+    "（Base Energy 置 0、仍付 Power）：cost.printed / cost.pay（RIFT-261）未合入 HEAD，effect.play 只接受调用方已 finalize 的计划。" +
+    "(3)「Recycle that spell after you play it」的 it 指刚打出的法术：effect.play 只链接成功张数（played → number），" +
+    "契约 3.6 的 ObjectSelector 无法命名「刚打出的对象」（契约变更请求）。" +
+    "已合入并真实执行：choice.optional 接受/拒绝、effect.play（锁定目标 + 调用方零费计划）、effect.recycle 回收与 stale 目标 ignored；" +
+    "触发注册路径（RIFT-257）与 source: \"self\" 映射已合入。依赖：RIFT-90、RIFT-261 与选择符契约变更。不近似实现。",
   abilities,
   sourceText:
     "When you play me, you may play a spell from your trash with Energy cost no more than :rb_energy_3:, " +

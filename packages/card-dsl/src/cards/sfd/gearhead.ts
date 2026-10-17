@@ -19,15 +19,18 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   式的倍化——按该 Equipment 的**基础** Might Bonus 再增加等量一份（"base" 明确取印刷值，
  *   而不是当前图层计算结果）。这是附着物侧的持续修正，不是本卡的 Buff 计数（702/703）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required，两处依赖均未合入，不近似实现：
- * - Accelerate 的 card 侧声明可用，但其展开的两半都不可执行：cost.additional 没有卡牌程序 → 
- *   费用计划的接线（RIFT-89），入场的就绪替代依赖 replacement.enter 与 805.6 的替代执行
- *   （卡程序无法把「横置入场」替换成「就绪入场」，绝不用事后 effect.ready 近似，见 effect.ready 文件头）。
- * - 「Equipment attached to me 的基础 Might Bonus 翻倍」需要附着物 Might Bonus 特征与
- *   Arithmetic 图层的双倍调制：ObjectSnapshot 只有 might/energy/power 等当前特征，没有
- *   Might Bonus（137.1）字段，layers 也没有「按附着物基础 Might Bonus 附加额外等量修正」的
- *   规则，且没有任何卡牌 static 能力 → 图层注册的接线（RIFT-91）。
- * 依赖：RIFT-89（费用计划接线）、RIFT-91 后续（Might Bonus 特征与附着调制图层）、replacement.enter（入场替代批次）。
+ * status 判定（cards/README.md 第 2 节）：judge-required，两处当前缺口：
+ * - Accelerate 的展开已合入（accelerate.cost + 805.6 的入场就绪替代，RIFT-257 的词条展开
+ *   与 RIFT-260 的替代管线都在 HEAD），但可选附加费用 [1][Mind] 没有自动接线：merged
+ *   cost 计划只在调用方显式传入 optionalAdditional 时支付 accelerate 组件（golden 以调用方
+ *   计划作孤立证据），打出流程不会读取卡牌/关键词声明的 accelerate.cost，且
+ *   replaceAbility 的绑定仍要由 RIFT-257 的 binder 钩子注入（默认 noopStaticBinder），
+ *   属 RIFT-261 的费用种类批次。
+ * - 「Each Equipment attached to me gives double its base Might bonus」需要附着物正确读取其
+ *   Might Bonus（137.1–137.3）特征并按 433.1 式倍化：ObjectSnapshot 只有 might/energy/power
+ *   等当前特征，没有 Might Bonus 字段，layers 的 continuous.might 也没有「按附着物基础
+ *   Might Bonus 附加等量修正」规则（算术层只处理 add/set/multiply），且卡牌 static 能力
+ *   → 图层的注册仍无端到端消费方。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "accelerate" },
@@ -57,14 +60,12 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处依赖未合入，均不近似实现：(1) [Accelerate]（805）的 card 侧关键词声明可用，但其展开的两半都不可执行：" +
-    "可选附加费用 [1][Mind]（805.1.b/805.1.b.1）没有卡牌程序 → Finalize 费用计划的接线（RIFT-89），" +
-    "入场就绪替代（805.6）依赖 replacement.enter 的执行——绝不用事后 effect.ready 近似（effect.ready 文件头明确入场状态归 create-token/replacement.enter）。" +
-    "(2)「Each Equipment attached to me gives double its base Might bonus」需要附着物的 Might Bonus 特征（137.1–137.3、435.1.d：" +
-    "Top-Most Card 的 Might 由所有 Attached 卡的 Might Bonus 调制；137.3.a 仅在 Attached 期间生效）与算术图层的双倍调制：" +
-    "ObjectSnapshot 没有 Might Bonus 字段，已合入的 layers/ 也没有「按附着物基础 Might Bonus 附加等量修正」的规则，" +
-    "同时没有任何卡牌 static 能力 → 图层注册的消费方（RIFT-91）。" +
-    "依赖：RIFT-89（费用计划接线）、RIFT-91 后续（Might Bonus 特征与附着调制）、replacement.enter（入场替代批次）。",
+    "两处当前缺口：(1) [Accelerate] 的展开已合入（accelerate.cost + 805.6 的入场就绪替代，词条展开 RIFT-257、替代管线 RIFT-260），" +
+    "但可选附加费用 [1][Mind]（805.1.b/805.1.b.1）没有自动接线：merged cost 计划只在调用方显式传入 optionalAdditional 时支付 accelerate 组件" +
+    "（golden 以调用方计划作孤立证据），打出流程不读取关键词声明的 accelerate.cost，replacement 绑定也仍需 binder 钩子注入（属 RIFT-261 批次）。" +
+    "(2)「Each Equipment attached to me gives double its base Might bonus」需要附着物 Might Bonus 特征（137.1–137.3、435.1.d，" +
+    "137.3.a 仅在 Attached 期间生效）与算术层倍化：ObjectSnapshot 无 Might Bonus 字段，layers 的 continuous.might 也没有" +
+    "「按附着物基础 Might Bonus 附加等量修正」规则，卡牌 static 能力 → 图层注册仍无端到端消费方。不近似实现。",
   abilities,
   sourceText:
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_mind: as an additional cost to have me enter ready.)\n" +
