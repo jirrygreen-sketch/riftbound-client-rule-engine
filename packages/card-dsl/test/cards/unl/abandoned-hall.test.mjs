@@ -154,7 +154,7 @@ test("unl-205-219 Abandoned Hall: the choice's 053.3 'here' anchor excludes unit
 });
 
 test("unl-205-219 Abandoned Hall golden: the chosen unit at this battlefield really gets +1 Might this turn", () => {
-  // 143.2.a / 475 / 478: RIFT-258's continuous.might writes one arithmetic-layer
+  // 143.2.a / 475 / 478: the merged continuous.might writes one arithmetic-layer
   // registration with the end-of-turn duration; the layer engine then reports
   // the modified Might and expires it at turn end.
   const kernel = world()

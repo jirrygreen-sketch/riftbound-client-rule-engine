@@ -32,12 +32,12 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * Status: judge-required (re-reviewed 2026-10-17) — the body is now executable
  * on merged paths, and the remaining gap is the 190.6.c trigger binding:
- * 1. the Might grant runs for real: RIFT-258's `continuous.might` takes
+ * 1. the Might grant runs for real: the merged `continuous.might` takes
  *    `objects` (not the old `pick`) and writes one arithmetic-layer registration
  *    per resolved object with the end-of-turn duration (478 / 143.2.a); the
  *    golden drives the card's own body through `runAbilityBody`, asserts the
  *    registration and the +1 effective Might through the layer engine.
- * 2. the trigger is still not honorable: RIFT-257's `registerProgramTriggers`
+ * 2. the trigger is still not honorable: `registerProgramTriggers`
  *    does bind the declared pattern (golden asserts the registration), but the
  *    pipeline resolves `player: "self"` against the *ability controller*, and
  *    190.6.c makes the player who played the spell the ability's controller.

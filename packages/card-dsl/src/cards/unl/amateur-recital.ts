@@ -49,7 +49,7 @@ import type { CardProgram } from "../../ir/index.js";
  * primitives and runs through the golden test's real interpreter plus chain
  * adapter.
  *
- * Dependencies: an EventPattern "here" anchor (RIFT-357) and Battlefield setup
+ * Dependencies: an EventPattern "here" anchor and Battlefield setup
  * lifecycle registration, including 190.6's battlefield/event player binding.
  */
 export default {
@@ -66,7 +66,7 @@ export default {
     "190.6.a/190.6.d 的战场能力控制者与未受控战场处理同样没有接线。" +
     "能力本体只用已合入原语（choice.optional + effect.move，to: \"controller-base\"），目标形状（355.9/355.10：单位是目标、" +
     "“at a battlefield”是目标限制）与 421/451 的效果移动写在程序里，golden 用真实解释器执行。" +
-    "依赖：EventPattern 的 Battlefield here 锚点（位置选择 RIFT-357）与 setup 程序注册/190.6 控制者绑定。",
+    "依赖：EventPattern 的 Battlefield here 锚点与 setup 程序注册/190.6 控制者绑定。",
   sourceText: "When you hold here, you may move a unit at a battlefield to its base.",
   abilities: [
     {

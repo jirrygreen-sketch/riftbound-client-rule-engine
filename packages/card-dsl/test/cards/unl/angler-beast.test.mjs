@@ -107,6 +107,6 @@ test("unl-132-219 Angler Beast golden: an empty locked set returns nothing and d
 
 test.todo(
   "unl-132-219 Angler Beast: enforce the '2 :rb_might: or less' ceiling at Finalize/Resolve (355.9.b / 143.2.a " +
-    "effective-Might predicate) once the RIFT-359 Might threshold relation is merged — the merged " +
+    "effective-Might predicate) once the Might threshold relation is merged — the merged " +
     "filters ignore the descriptive mightLte key"
 );

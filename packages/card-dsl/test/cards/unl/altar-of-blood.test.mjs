@@ -32,8 +32,8 @@ test("unl-206-219 Altar of Blood: identity, status, judgeReason and verbatim sou
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /Recall/);
   assert.match(program.judgeReason, /457-460/);
-  assert.match(program.judgeReason, /rainbow/);
-  // RIFT-260's replacement layer is merged, so the reason must name what it
+  assert.match(program.judgeReason, /Universal Power/);
+  // The replacement layer is merged, so the reason must name what it
   // actually refuses rather than the old "no registration path" claim.
   assert.match(program.judgeReason, /bindReplacement/);
   assert.doesNotMatch(program.judgeReason, /没有任何已合入路径读取/);
@@ -67,13 +67,12 @@ test("unl-206-219 Altar of Blood: the optional three-Rune payment wraps heal, ex
     "altar-of-blood.recall"
   ]);
 
-  // 163.2.b/135.2.e.5: three Universal Power runes; the frozen cost model has
-  // no executable arbitrary-domain value, so "rainbow" stays the merged
-  // descriptive spelling (same as ven/matriarch-of-war).
+  // 163.2.b/135.2.e.5: three Universal Power runes; the merged cost model
+  // represents them as three Power with all six duel domains allowed.
   assert.equal(pay.op, "cost.pay");
   assert.deepEqual(pay.args.power, {
     kind: "constant",
-    value: ["rainbow", "rainbow", "rainbow"]
+    value: 3
   });
 
   // Each follow-up is linked to the previous step so a failed payment stops
@@ -130,7 +129,7 @@ test("unl-206-219 Altar of Blood: the merged exhaust primitive sets the state th
 });
 
 test("unl-206-219 Altar of Blood: the real pipeline accepts the isolated heal/exhaust replacement plan and binds 'it'", () => {
-  // CR 370.1.a.1 / 355.10.c: RIFT-260 turns the card's replaces pattern into a
+  // CR 370.1.a.1 / 355.10.c: the replacement layer turns the card's replaces pattern into a
   // pipeline registration and binds the replaced event's object through
   // { linked: "replacement.object" }. The golden asserts that registration is
   // real; it deliberately does not re-implement the printed payment.
@@ -174,7 +173,7 @@ test.todo(
 
 test.todo(
   "unl-206-219 Altar of Blood: execute the three-rune Universal Power payment (163.2.b / 135.2.e.5) " +
-    "and the Recall action (457-460), so the doomed unit really reaches its Base without being a Move"
+    "inside the replacement planner and execute the Recall action (457-460), so the doomed unit really reaches its Base without being a Move"
 );
 
 test.todo(
