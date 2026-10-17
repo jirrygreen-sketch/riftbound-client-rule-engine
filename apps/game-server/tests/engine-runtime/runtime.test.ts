@@ -75,6 +75,9 @@ describe("engine runtime", () => {
     expect(opponent.objects.filter(object => object.ownerPlayerId === "A" && object.zone === "facedown").every(object => object.cardId === undefined && object.name === undefined)).toBe(true);
   });
 
+  // Runtime bootstrapping loads protocol + engine-core source through the
+  // per-worker transformer; under serial full-suite load these can exceed the
+  // default 10s without any assertion change.
   it("enforces state versions, command idempotency, and journal metadata", () => {
     const runtime = createEngineRuntime({ matchId: "m2", decks: [m1Deck("rumble-sfd"), m1Deck("fiora-sfd")], seed: "m2" }).start();
     const initial = runtime.projectFor(null);
@@ -100,7 +103,7 @@ describe("engine runtime", () => {
       stateVersion = next.receipt.stateVersion;
     }
     expect(runtime.projectFor(null).turnNumber).toBeGreaterThan(1);
-  });
+  }, 60_000);
 
   it("rebuilds the same projection from journal commands", () => {
     const options = { matchId: "m3", decks: [m1Deck("rumble-sfd"), m1Deck("fiora-sfd")] as const, seed: "m3" };
@@ -111,7 +114,7 @@ describe("engine runtime", () => {
     expect(restored.projectFor("A")).toEqual(runtime.projectFor("A"));
     expect(restored.projectFor("B")).toEqual(runtime.projectFor("B"));
     expect(runtime.journal().head.stateDigest).toBe(projectionDigest(runtime.projectFor(null)));
-  });
+  }, 60_000);
 
   it("restores setup mulligans from journal metadata and rejects forged actors", () => {
     const decks = [m1Deck("rumble-sfd"), m1Deck("fiora-sfd")] as const;

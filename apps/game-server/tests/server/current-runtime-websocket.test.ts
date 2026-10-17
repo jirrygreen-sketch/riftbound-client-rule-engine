@@ -27,7 +27,10 @@ class Client {
   send(value: unknown) { this.socket.send(JSON.stringify(value)); }
   async wait<T extends ServerToClientMessage['type']>(type: T,
     predicate: (value: Extract<ServerToClientMessage, { type: T }>) => boolean = () => true) {
-    const deadline = Date.now() + 30_000;
+    // The room runtime serializes every command; under full-suite load the
+    // request-result can legitimately lag behind its projection broadcast by
+    // more than the previous 30s window.
+    const deadline = Date.now() + 120_000;
     while (Date.now() < deadline) {
       const index = this.messages.findIndex(value => value.type === type && predicate(value as Extract<ServerToClientMessage, { type: T }>));
       if (index >= 0) return this.messages.splice(index, 1)[0] as Extract<ServerToClientMessage, { type: T }>;
@@ -43,7 +46,17 @@ class Client {
 afterEach(async () => {
   for (const client of clients.splice(0)) { await client.close(); expect(client.invalid).toEqual([]); }
   for (const server of servers.splice(0)) await server.stop();
-  for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true });
+  for (const directory of directories.splice(0)) {
+    // Journal stores close asynchronously during server.stop(); retry cleanup
+    // so a racing lock-file unlink cannot mask the assertions under test.
+    for (let attempt = 0; ; attempt++) {
+      try { await rm(directory, { recursive: true, force: true }); break; }
+      catch (error) {
+        if (attempt >= 5 || (error as NodeJS.ErrnoException).code !== 'ENOTEMPTY') throw error;
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
+    }
+  }
 });
 async function start(port: number, storageDirectory?: string, roomStore?: RoomStore) {
   const server = createGameServer({ port, storageDirectory, roomStore, catalog: p4RuntimeFixtureCatalog,

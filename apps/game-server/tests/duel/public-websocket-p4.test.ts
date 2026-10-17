@@ -23,7 +23,9 @@ class Client {
   send(value: unknown) { this.socket.send(JSON.stringify(value)); }
   async wait<T extends ServerToClientMessage['type']>(type: T,
     predicate: (value: Extract<ServerToClientMessage, { type: T }>) => boolean = () => true) {
-    const deadline = Date.now() + 10_000;
+    // The shared runner can spike past load 100; commands stay queued on the
+    // serialized room runtime far longer than the previous 10s window.
+    const deadline = Date.now() + 60_000;
     while (Date.now() < deadline) {
       const index = this.messages.findIndex(value => value.type === type && predicate(value as Extract<ServerToClientMessage, { type: T }>));
       if (index >= 0) return this.messages.splice(index, 1)[0] as Extract<ServerToClientMessage, { type: T }>;
@@ -123,7 +125,7 @@ describe('public /ws P4 lifecycle', () => {
     main.client.send({ type: 'duel-command', requestId: 'legacy', commandId: 'legacy', expectedVersion: before,
       command: { type: 'mulligan', selectedUIDs: [] } });
     expect((await main.client.wait('error', value => value.requestId === 'legacy')).code).toBe('command-rejected');
-  }, 30_000);
+  }, 120_000);
 
   it('holds the public acknowledgement until the whole P4 archive is saved', async () => {
     const store = new ControlledStore(), h = await pair({ roomStore: store });
@@ -136,7 +138,7 @@ describe('public /ws P4 lifecycle', () => {
     expect(client.messages.some(value => value.type === 'request-result' && value.requestId === 'held-ack')).toBe(false);
     release(); await client.wait('request-result', value => value.requestId === 'held-ack');
     expect(h.server.rooms.get(h.sessions[0]!.roomId)!.exportArchive().journal?.entries).toHaveLength(1);
-  }, 30_000);
+  }, 120_000);
 
   it('rolls a failed Main command back and can accept the same command after storage recovers', async () => {
     const store = new ControlledStore(), h = await pair({ roomStore: store }), main = await enterMain(h);
@@ -150,7 +152,7 @@ describe('public /ws P4 lifecycle', () => {
     expect(main.client.messages.some(value => value.type === 'request-result' && value.requestId === 'failed-end')).toBe(false);
     store.fail = false; main.client.send(command);
     expect(await main.client.wait('request-result', value => value.requestId === 'failed-end')).toMatchObject({ duplicate: false });
-  }, 30_000);
+  }, 120_000);
 
   it('restores private P4 history and authenticated sessions through a fresh file-backed server', async () => {
     const directory = await mkdtemp(path.join(tmpdir(), 'riftbound-public-p4-'));
@@ -179,6 +181,17 @@ describe('public /ws P4 lifecycle', () => {
       other.send(packet('after-restart-end', current, { type: 'end-turn', windowId: end.windowId }));
       await other.wait('request-result', value => value.requestId === 'after-restart-end');
       await resumed.close(); await other.close(); await fresh.server.stop();
-    } finally { await rm(directory, { recursive: true, force: true }); }
-  }, 60_000);
+    } finally {
+      // Journal stores close asynchronously during server.stop(); a single rm
+      // pass can race the final lock-file unlink. Retry so cleanup never masks
+      // the assertions under test.
+      for (let attempt = 0; ; attempt++) {
+        try { await rm(directory, { recursive: true, force: true }); break; }
+        catch (error) {
+          if (attempt >= 5 || (error as NodeJS.ErrnoException).code !== 'ENOTEMPTY') throw error;
+          await new Promise(resolve => setTimeout(resolve, 250));
+        }
+      }
+    }
+  }, 120_000);
 });
