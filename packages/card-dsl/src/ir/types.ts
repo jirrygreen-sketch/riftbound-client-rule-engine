@@ -361,6 +361,17 @@ export interface ContinuousEffect {
   readonly [key: string]: unknown;
 }
 
+/** A per-choice target cost. The existing value-only shape is Deflect (CR 809). */
+export interface TargetTaxEffect extends ContinuousEffect {
+  readonly kind: "target.tax";
+  /** Explicit card-text cost instead of Deflect's value in any-domain Power. */
+  readonly cost?: CostSpec;
+  /** Omitted means both spells and abilities, as in the Deflect expansion. */
+  readonly appliesTo?: "spells" | "spells-and-abilities";
+  /** Explicit cost increases use CR 356.3; Deflect is mandatory-additional. */
+  readonly stage?: "mandatory-additional" | "increase";
+}
+
 /** A v1.5 deckbuilding decision, such as an additional legendary choice. */
 export interface DeckbuildingDecision {
   readonly kind: string;

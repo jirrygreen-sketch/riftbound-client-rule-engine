@@ -944,6 +944,24 @@ function validateAbility(value: unknown, path: string, context: ValidationContex
     valid = validateBody(value.body, `${path}.body`, context) && valid;
   } else if (kind === "static") {
     valid = validateTaggedRuleObject(value.effect, `${path}.effect`, context, "continuous effect") && valid;
+    if (isRecord(value.effect) && value.effect.kind === "target.tax") {
+      const effect = value.effect;
+      if (hasOwn(effect, "cost")) {
+        valid = validateCost(effect.cost, `${path}.effect.cost`, context) && valid;
+        if (hasOwn(effect, "value")) {
+          addIssue(context, `${path}.effect.cost`, "ambiguous-target-tax", "An explicit target tax cost replaces the Deflect value; declare only one.");
+          valid = false;
+        }
+      }
+      if (hasOwn(effect, "appliesTo") && (typeof effect.appliesTo !== "string" || !["spells", "spells-and-abilities"].includes(effect.appliesTo))) {
+        addIssue(context, `${path}.effect.appliesTo`, "invalid-target-tax-scope", "Expected spells or spells-and-abilities.");
+        valid = false;
+      }
+      if (hasOwn(effect, "stage") && (typeof effect.stage !== "string" || !["mandatory-additional", "increase"].includes(effect.stage))) {
+        addIssue(context, `${path}.effect.stage`, "invalid-target-tax-stage", "Expected mandatory-additional or increase.");
+        valid = false;
+      }
+    }
     if (hasOwn(value, "condition")) valid = validateCondition(value.condition, `${path}.condition`, context) && valid;
   } else if (kind === "replacement") {
     valid = validateEventPattern(value.replaces, `${path}.replaces`, context) && valid;
