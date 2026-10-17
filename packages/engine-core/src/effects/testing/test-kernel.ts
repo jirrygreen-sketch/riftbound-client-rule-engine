@@ -22,6 +22,7 @@ import {
   type ZoneId
 } from "../contract.js";
 import { isTimingPointId, type TimingPointId } from "../../events/timing-points.js";
+import { evaluateCondition } from "../interpreter/condition.js";
 import { arithmetic, equalValues } from "../interpreter/values.js";
 import { resolveObjectSelector } from "../interpreter/selectors.js";
 
@@ -216,7 +217,36 @@ export class TestWorld implements ResolveContext {
     return this.object(ref) ?? (selector === "source" ? this.source : null);
   }
   evaluate(expr: Expr): Value { if (expr.kind === "constant" || expr.kind === "literal") return asValue(expr.value); if (expr.kind === "arithmetic") return arithmetic(expr.operator, expr.operands.map(operand => this.evaluate(operand))); if (expr.kind === "linked" || expr.kind === "linked-value") return this.linkedValues.get(expr.key ?? expr.instructionId) ?? null; if (expr.kind === "count") return this.query(expr.filter ?? {}).length; if (expr.kind === "object-property") return asValue(this.expressionObject(expr.object)?.[expr.property as keyof ObjectSnapshot] ?? null); if (expr.kind === "object-attribute") return asValue(this.expressionObject(expr.object)?.[expr.attribute as keyof ObjectSnapshot] ?? null); return null; }
-  test(condition: Condition): boolean { switch (condition.kind) { case "always": return true; case "never": return false; case "expression": return Boolean(this.evaluate(condition.value)); case "not": return !this.test(condition.condition); case "all": return condition.conditions.every(item => this.test(item)); case "any": return condition.conditions.some(item => this.test(item)); case "compare": { const left = this.evaluate(condition.left) as any; const right = this.evaluate(condition.right) as any; switch (condition.operator) { case "eq": return left === right; case "ne": return left !== right; case "lt": return left < right; case "lte": return left <= right; case "gt": return left > right; case "gte": return left >= right; case "in": return Array.isArray(right) && right.includes(left); } } } }
+  test(condition: Condition): boolean {
+    switch (condition.kind) {
+      case "always": return true;
+      case "never": return false;
+      case "expression": return Boolean(this.evaluate(condition.value));
+      case "not": return !this.test(condition.condition);
+      case "all": return condition.conditions.every(item => this.test(item));
+      case "any": return condition.conditions.some(item => this.test(item));
+      case "compare": {
+        const left = this.evaluate(condition.left) as any;
+        const right = this.evaluate(condition.right) as any;
+        switch (condition.operator) {
+          case "eq": return left === right;
+          case "ne": return left !== right;
+          case "lt": return left < right;
+          case "lte": return left <= right;
+          case "gt": return left > right;
+          case "gte": return left >= right;
+          case "in": return Array.isArray(right) && right.includes(left);
+        }
+      }
+      default:
+        return evaluateCondition(condition, {
+          context: this,
+          linked: key => this.linked(key),
+          canLookBack: () => true,
+          isIgnored: () => false
+        });
+    }
+  }
   linked(key: string): Value | undefined { return this.linkedValues.get(key); }
   link(key: string, value: Value): void { this.linkedValues.set(key, value); }
   history(query: HistoryQuery): number {

@@ -7,6 +7,11 @@ import type { LocationRef } from "../contract.js";
 export interface ExpressionContext {
   readonly context: ResolveContext;
   readonly host?: ObjectRef;
+  /** Trigger payload and finalized result data are read-only predicate inputs. */
+  readonly event?: unknown;
+  readonly cost?: unknown;
+  readonly results?: unknown;
+  readonly result?: unknown;
   readonly query?: (filter: ObjectFilter) => ObjectSnapshot[];
   linked(instructionId: string, key?: string): Value | undefined;
   canLookBack(ref: ObjectRef): boolean;

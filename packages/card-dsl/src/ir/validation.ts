@@ -49,8 +49,18 @@ const CONDITION_KINDS = new Set([
   "all",
   "any",
   "not",
-  "expression"
+  "expression",
+  "played-from-hand",
+  "playedFromHand",
+  "played-from-zone",
+  "playedFromZone",
+  "event-printed",
+  "printed-characteristic",
+  "event-printed-characteristic",
+  "result"
 ]);
+const EVENT_OBJECT_SELECTORS = new Set(["object", "source", "target"]);
+const PRINTED_CHARACTERISTICS = new Set(["energy", "power", "might"]);
 const SELECTIONS = new Set(["one", "any", "all", "up-to"]);
 const TRIGGER_LIFETIMES = new Set(["per-turn", "per-combat", "per-chain", "per-game"]);
 const ARITHMETIC_OPERATORS = new Set(["add", "sub", "subtract", "mul", "multiply", "div", "divide", "min", "max", "neg"]);
@@ -424,6 +434,57 @@ function validateCondition(value: unknown, path: string, context: ValidationCont
   }
   if (kind === "expression") {
     return validateExpr(value.value, `${path}.value`, context);
+  }
+  if (kind === "played-from-hand") {
+    if (value.object !== undefined && (typeof value.object !== "string" || !EVENT_OBJECT_SELECTORS.has(value.object))) {
+      addIssue(context, `${path}.object`, "invalid-event-object-selector", "Expected object, source, or target.");
+      return false;
+    }
+    return true;
+  }
+  if (kind === "playedFromHand") {
+    if (value.object !== undefined && (typeof value.object !== "string" || !EVENT_OBJECT_SELECTORS.has(value.object))) {
+      addIssue(context, `${path}.object`, "invalid-event-object-selector", "Expected object, source, or target.");
+      return false;
+    }
+    return true;
+  }
+  if (kind === "played-from-zone" || kind === "playedFromZone") {
+    let valid = validateString(value.zone, `${path}.zone`, context, "Expected a play-origin zone.");
+    if (value.object !== undefined && (typeof value.object !== "string" || !EVENT_OBJECT_SELECTORS.has(value.object))) {
+      addIssue(context, `${path}.object`, "invalid-event-object-selector", "Expected object, source, or target.");
+      valid = false;
+    }
+    return valid;
+  }
+  if (kind === "event-printed" || kind === "printed-characteristic" || kind === "event-printed-characteristic") {
+    let valid = true;
+    if (typeof value.object !== "string" || !EVENT_OBJECT_SELECTORS.has(value.object)) {
+      addIssue(context, `${path}.object`, "invalid-event-object-selector", "Expected object, source, or target.");
+      valid = false;
+    }
+    if (typeof value.characteristic !== "string" || !PRINTED_CHARACTERISTICS.has(value.characteristic)) {
+      addIssue(context, `${path}.characteristic`, "invalid-printed-characteristic", "Expected energy, power, or might.");
+      valid = false;
+    }
+    if (typeof value.operator !== "string" || !CONDITION_OPERATORS.has(value.operator)) {
+      addIssue(context, `${path}.operator`, "invalid-condition-operator", "Expected a supported comparison operator.");
+      valid = false;
+    }
+    valid = validateExpr(value.right, `${path}.right`, context) && valid;
+    return valid;
+  }
+  if (kind === "result") {
+    let valid = validateString(value.result, `${path}.result`, context, "Expected a result key.", SYMBOL_PATTERN);
+    if (value.id !== undefined) valid = validateString(value.id, `${path}.id`, context, "Expected a result component id.", SYMBOL_PATTERN) && valid;
+    if (value.key !== undefined) valid = validateString(value.key, `${path}.key`, context, "Expected a result field key.", SYMBOL_PATTERN) && valid;
+    if (value.operator !== undefined && (typeof value.operator !== "string" || !CONDITION_OPERATORS.has(value.operator))) {
+      addIssue(context, `${path}.operator`, "invalid-condition-operator", "Expected a supported comparison operator.");
+      valid = false;
+    }
+    const rhs = value.right ?? value.value;
+    if (rhs !== undefined) valid = validateExpr(rhs, `${path}.${value.right !== undefined ? "right" : "value"}`, context) && valid;
+    return valid;
   }
   if (kind === "not") {
     return validateCondition(value.condition, `${path}.condition`, context);

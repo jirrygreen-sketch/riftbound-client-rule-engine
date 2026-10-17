@@ -1,5 +1,5 @@
 import type { Expr, Instruction, InstructionDef, ResolveContext, Value } from '../effects/contract.js';
-import { runAbilityBody } from '../effects/interpreter.js';
+import { runAbilityBody, type InterpreterOptions } from '../effects/interpreter.js';
 import { instructionDefinitionsById } from '../effects/instructions/registry.generated.js';
 import { bindOrderedPickInstructions, orderedPickResolver } from './picks/linked.js';
 
@@ -57,6 +57,20 @@ const registry = new Map<string, InstructionDef<unknown>>([...instructionDefinit
   execute: (ctx: ResolveContext, args: unknown) => (definition as InstructionDef<unknown>).execute(ctx, args)
 }]));
 
-export function resolveChainBody(body: readonly Instruction[], context: ResolveContext) {
-  return runAbilityBody(prepare(body), context, bindOrderedPickInstructions(registry, body), { picks: orderedPickResolver(body) });
+export function resolveChainBody(
+  body: readonly Instruction[],
+  context: ResolveContext,
+  options: InterpreterOptions = {}
+) {
+  const orderedPicks = orderedPickResolver(body);
+  return runAbilityBody(
+    prepare(body),
+    context,
+    bindOrderedPickInstructions(registry, body),
+    {
+      ...options,
+      picks: (id, pickContext, hasResult) =>
+        orderedPicks?.(id, pickContext, hasResult) ?? options.picks?.(id, pickContext, hasResult)
+    }
+  );
 }

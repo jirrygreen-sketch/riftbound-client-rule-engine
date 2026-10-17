@@ -225,6 +225,44 @@ export interface ExpressionCondition {
   readonly value: Expr;
 }
 
+/** A role in the event payload supplied while a trigger is tested. */
+export type EventObjectSelector = "object" | "source" | "target";
+
+/** A card-play provenance predicate.  The event payload, not the current zone, is authoritative. */
+export interface PlayedFromHandCondition {
+  readonly kind: "played-from-hand" | "playedFromHand";
+  readonly object?: EventObjectSelector;
+}
+
+/** A card-play provenance predicate for an explicitly named origin zone. */
+export interface PlayedFromZoneCondition {
+  readonly kind: "played-from-zone" | "playedFromZone";
+  readonly zone: string;
+  readonly object?: EventObjectSelector;
+}
+
+/** A comparison against a printed/copied characteristic carried by an event object. */
+export interface PrintedCharacteristicCondition {
+  readonly kind: "event-printed" | "printed-characteristic" | "event-printed-characteristic";
+  readonly object: EventObjectSelector;
+  readonly characteristic: "energy" | "power" | "might";
+  readonly operator: ConditionOperator;
+  readonly right: Expr;
+}
+
+/** A read-only result predicate, including finalized optional-cost decisions. */
+export interface ResultCondition {
+  readonly kind: "result";
+  /** A result key such as `cost.additional` or a linked instruction id. */
+  readonly result: string;
+  readonly id?: string;
+  readonly key?: string;
+  readonly operator?: ConditionOperator;
+  readonly right?: Expr;
+  /** `value` is accepted as the authored spelling for the comparison RHS. */
+  readonly value?: Expr;
+}
+
 /** A v1.5 condition clause; its scope is the instruction or ability field owning it. */
 export type Condition =
   | AlwaysCondition
@@ -233,7 +271,11 @@ export type Condition =
   | AllCondition
   | AnyCondition
   | NotCondition
-  | ExpressionCondition;
+  | ExpressionCondition
+  | PlayedFromHandCondition
+  | PlayedFromZoneCondition
+  | PrintedCharacteristicCondition
+  | ResultCondition;
 
 /** A target selection specification that participates in target-trigger rules. */
 export interface TargetSpec {

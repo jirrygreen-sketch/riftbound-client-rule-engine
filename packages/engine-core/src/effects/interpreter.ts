@@ -19,6 +19,11 @@ export type InstructionRegistry = ReadonlyMap<string, InstructionDef<unknown>>;
 export interface InterpreterOptions {
   /** Current zone-bound host identity; omitted when host and source coincide. */
   readonly host?: ObjectRef;
+  /** Event data and finalized cost/result receipts for condition predicates. */
+  readonly event?: unknown;
+  readonly cost?: unknown;
+  readonly results?: unknown;
+  readonly result?: unknown;
   /** Optional chain binding; receives the current instruction's linked-value scope. */
   readonly picks?: (id: string, context: ResolveContext, hasResult: (instructionId: string) => boolean) => readonly (ObjectRef | string)[] | undefined;
 }
@@ -161,6 +166,10 @@ class AbilityExecution {
     return {
       context,
       ...this.options,
+      event: this.options.event ?? (this.context as ResolveContext & { readonly event?: unknown }).event,
+      cost: this.options.cost ?? (this.context as ResolveContext & { readonly cost?: unknown }).cost,
+      results: this.options.results ?? (this.context as ResolveContext & { readonly results?: unknown }).results,
+      result: this.options.result ?? (this.context as ResolveContext & { readonly result?: unknown }).result,
       query: filter => this.context.query(filter),
       linked: (id, key) => {
         const owner = findScope(current, id);

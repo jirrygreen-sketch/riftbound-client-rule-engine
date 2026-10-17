@@ -440,8 +440,26 @@ export class ChainEngine {
         if (outcome.status !== 'done' && outcome.status !== 'replaced') throw new Error('Permanent could not enter Board');
         if (this.options.host.objects().find(object => object.ref.id === item.object.id)?.zone === 'chain') throw new Error('Replacement left a resolving permanent on the Chain');
       }
-      const result = resolveChainBody(item.body, context);
-      if (item.kind === 'spell' || item.kind === 'unit' || item.kind === 'gear') this.pipeline.emit({ timingPoint: 'card-played', object: this.options.host.objects().find(object => object.ref.id === item.source.ref.id) ?? item.source, player: item.controller });
+      const conditionInputs = item.trigger?.event === undefined && item.costPlan === undefined && item.payment === undefined
+        ? {}
+        : {
+          event: item.trigger?.event,
+          ...(item.costPlan !== undefined || item.payment !== undefined
+            ? { cost: { plan: item.costPlan, receipt: item.payment } }
+            : {})
+        };
+      const result = resolveChainBody(item.body, context, conditionInputs);
+      if (item.kind === 'spell' || item.kind === 'unit' || item.kind === 'gear') {
+        const playedObject = this.options.host.objects().find(object => object.ref.id === item.source.ref.id) ?? item.source;
+        const playedFromZone = item.source.zone;
+        const printed = { energy: item.source.energy, power: item.source.power, might: item.source.might };
+        const provenance = { fromZone: playedFromZone, playedFromZone, playedFromHand: playedFromZone === 'hand', printed };
+        this.pipeline.emit({
+          timingPoint: 'card-played', object: playedObject, source: item.source,
+          player: item.controller, fromZone: playedFromZone,
+          details: { ...provenance, object: provenance, source: provenance }
+        });
+      }
       if (item.kind === 'spell') {
         const outcome = this.pipeline.commit({ type: 'move-zone', object: item.object, to: 'trash' });
         if (outcome.status !== 'done') throw new Error('Resolved spell could not leave Chain');
