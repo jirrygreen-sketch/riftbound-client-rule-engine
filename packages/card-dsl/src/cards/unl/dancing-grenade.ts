@@ -18,16 +18,18 @@ import type { CardProgram } from "../../ir/index.js";
  *   this turn”：Bonus Damage（418.4/418.5、712–715.2）由 effect.damage 的 bonus 形参承载
  *   （714 多个实例相加、714.1 只能为正）；数量是“本回合本卡已造成伤害的次数”。
  *
- * status = judge-required（缺口不近似实现）：
+ * status = judge-required（2026-10-17 逐条对源码复核；缺口不近似实现）：
  * - 重新打出当前结算中的法术没有已合入路径：effect.play 只对某个区域里的对象提交 play
- *   动作（“already-resolved/finalized cost plan”），不能重放正在结算的链项；来源、嵌套重放顺序
- *   与次数归属都需要官方裁定——本地调研（docs/plans/survey/unclassified-unl.md 第 7 条）明确把本卡
- *   判为 judge-required：158.3 / 418.4 / 418.5 / 420.3 不足以安全落地。
+ *   动作（要求 finalized 费用计划；effect.play 的文件头明确它不会递归结算，也不授予额外
+ *   许可），不能重放正在结算的链项；来源、嵌套重放顺序与次数归属都需要官方裁定——本地调研
+ *   （docs/plans/survey/unclassified-unl.md 第 7 条）明确把本卡判为 judge-required：
+ *   158.3 / 418.4 / 418.5 / 420.3 不足以安全落地。
  * - “本回合本卡造成伤害的次数”没有生产者：effect.damage 只链接单次动作的 dealt / dealtTo /
- *   dealtCount，condition.result 与按卡身份的历史计数未合入（ogn/disintegrate 记录同一缺口）。
- * - 重打费用虽然可由费用计划用 domains: [] 表达为允许六域的 1 Power，
- *   但尚未接入“重放正在结算的法术”的嵌套 play 生命周期；“its controller” 作为
- *   重打的选择者也没有已合入选择符。
+ *   dealtCount，HistoryQuery 只按动作/时点/对象/objectFilter 计数，没有按“本卡已经造成伤害的
+ *   次数”绑定的结果键，Expr 也没有历史读取（ogn/disintegrate 记录同一缺口）。
+ * - 重打费用虽然可由费用计划用 domains: [] 表达为允许六域的 1 Power（实测 plan.total.power =
+ *   [{ amount: 1, allowedDomains: <六域> }]），但尚未接入“重放正在结算的法术”的嵌套 play
+ *   生命周期；“its controller” 作为重打的选择者也没有已合入选择符。
  * 因上述缺口，本卡只声明第一条真实正文指令 “Deal 2 to a unit”（effect.damage 已合入，golden 真实执行），
  * 重打与 Bonus Damage 的完整形状记录在 judgeReason，不写成可执行近似（不写固定次数的二次伤害）。
  */
@@ -38,13 +40,14 @@ const dancingGrenade = {
   judgeReason:
     "三处依赖未合入，均不近似实现：(1)「Its controller may play this spell again for :rb_rune_rainbow:」" +
     "没有已合入路径——effect.play 只对区域中的对象提交 play 动作（并要求已 Finalize 的费用计划），" +
-    "不能重放正在结算的链项；来源、嵌套重放顺序与次数归属需要官方裁定，本地调研 " +
+    "其文件头明确它不递归结算链项、也不授予额外许可，因此不能重放正在结算的链项；来源、嵌套重放顺序与次数归属需要官方裁定，本地调研 " +
     "（docs/plans/survey/unclassified-unl.md 第 7 条）据此把本卡判为 judge-required（158.3 / 418.4 / 418.5 / 420.3 " +
     "不足以安全落地），故不写固定次数的 repeat 或二次 damage；(2)「this deals 1 additional Bonus Damage for each time this spell " +
     "has dealt damage this turn」的 Bonus Damage 次数没有生产者——effect.damage 只链接单次动作的 dealt / dealtTo / dealtCount，" +
-    "condition.result 与按卡身份的历史计数未合入" +
+    "HistoryQuery（condition.history）只按动作/时点/对象/objectFilter 计数，并且 Expr 没有历史读取（history 仅是 body 指令），" +
+    "没有按卡身份绑定「本卡已造成伤害次数」的结果键" +
     "（ogn/disintegrate 同一缺口）；(3) 重打费用尚未接入重放正在结算的法术的嵌套 play 生命周期，" +
-    "且 “its controller” 作为重打选择者没有已合入选择符。" +
+    "且 “its controller” 作为重打选择者没有已合入选择符。费用表达本身已具备（实测 domains: [] 的 1 Power 计划展开为六域），" +
     "「Deal 2 to a unit」（418.1 / 355.9.a.1）本身只用已合入的 effect.damage，golden 真实执行；不构成整卡证据。",
   abilities: [
     {

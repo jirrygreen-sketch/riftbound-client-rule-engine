@@ -20,23 +20,29 @@ import type { CardProgram } from "../../ir/index.js";
  *   加入链（389 / 389.1），"you may" 由该反身触发的控制者在 Finalize 决定是否为它
  *   付费用（388.4）；"for [A]"（356.1.a）用给定费用替换该牌的基础费用。
  *
- * status = judge-required（不近似实现）：
+ * status = judge-required（2026-10-17 逐条对源码复核；不近似实现）：
  * 1. 反身触发没有卡牌侧构造/接线：IR 的六种 Ability 都不能表达"结算时把新能力作为
- *    链项加入链"（388 / 389 / 389.1），choice.optional 只把正文就地执行，不产生链项；
- *    下面对 "Then, …" 的 sequence + choice.optional 只是形状保留（与 ogn/twisted-fate-gambler
+ *    链项加入链"（388 / 389 / 389.1），已注册的 42 个 op 里也没有 trigger.reflexive
+ *    （实测 has() 为 false），choice.optional 只把正文就地执行、不产生链项；下面对
+ *    "Then, …" 的 sequence + choice.optional 只是形状保留（与 ogn/twisted-fate-gambler
  *    对 388 的处理一致）。
- * 2. "you may play this from your trash" 的"this"需要该牌在 Trash 的当前引用：
- *    ObjectSelector 只有 self/source/target/pick/linked，self/source 绑定的是结算时的来源，
- *    跨区（124）后不再是指向 Trash 里那张牌的引用，合并原语没有为"自己在某区域的当前引用"
- *    提供选择器（依赖引擎批 4 的链接与来源引用）。
- * 3. "for :rb_rune_rainbow:" 的替换费用（356.1.a）需要 finalized 费用计划：effect.play
- *    要求已 Finalize 的 FinalizedCostPlan，当前费用管线仍不能为 Universal Power 生成该替换计划。
+ * 2. "play this from your trash" 无法表达：本卡的 targets.filter 写作
+ *    { source: "self", zone: "trash" }，而 programs/filters.ts 的 translateObjectFilter
+ *    以 "Unsupported filter field source" 拒绝该锚点（实测 describePlay / 
+ *    translateInstructionTargets 都在此抛 ProgramBindingError）。ObjectSelector 的
+ *    self/source 在跨区（124）后也不再指向 Trash 里那张牌，没有“自己在某区域的当前引用”
+ *    选择器。
+ * 3. "for :rb_rune_rainbow:" 的替换费用（356.1.a）：费用数值本身已能生成——实测
+ *    buildCostPlan({ cost: { power: 1 }, domains: [] }) 产出 allowedDomains 六域的 1 Power；
+ *    缺的是把该计划接到 effect.play：约定值 PLAY_FOR_RAINBOW 是普通对象而不是 Expr，
+ *    effect.play 的 argsSchema 实测以 "effect.play cost must be an Expr" 拒绝，也没有生成
+ *    并冻结该替换计划的调用方。
  * 4. 388.4 的"you may"是反身触发 Finalize 时的决定，而契约 3.9 的 choice.optional 是
  *    指令级形状；两者读法不同（与 unl-181-219 Virtuoso 记录的 may-scope 问题同类），
  *    需要裁定。
  *
  * 可执行部分：effect.kill 与 "if it had 3 Might or less" 的条件在 golden 里用参考内核
- * 真实执行（含回看取值）；play 半段只保留结构并标 test.todo。
+ * 真实执行（含回看取值）；play 半段只保留结构并记 fail-closed 证据。
  */
 
 /**
@@ -56,10 +62,13 @@ export default {
   status: "judge-required",
   judgeReason:
     "四处缺口，均不近似实现：(1) 反身触发（CR 388 / 388.4 以本卡为官方示例、389 / 389.1）没有卡牌侧构造：结算时要把新能力作为链项加入链，" +
-    "IR 的六种 Ability 与 choice.optional 都做不到；下面对 “Then, …” 的 sequence + choice.optional 只是形状保留（与 ogn/twisted-fate-gambler 对 388 的处理一致）。" +
+    "IR 的六种 Ability 与 choice.optional 都做不到，已注册的 42 个 op 里也没有 trigger.reflexive（实测 has() 为 false）；" +
+    "下面对 “Then, …” 的 sequence + choice.optional 只是形状保留（与 ogn/twisted-fate-gambler 对 388 的处理一致）。" +
     "(2) “play this from your trash” 的 “this” 需要该牌在 Trash 的当前引用：ObjectSelector 只有 self/source/target/pick/linked，跨区（124）后 self/source 不再指向 Trash 里那张牌，" +
-    "没有“自己在某区域的当前引用”选择器（依赖引擎批 4 的来源/链接引用）。" +
-    "(3) “for :rb_rune_rainbow:” 的费用替换（356.1.a）需要 finalized 费用计划：effect.play 要求已 Finalize 的 FinalizedCostPlan，当前费用管线不能为 Universal Power 生成该替换计划。" +
+    "没有“自己在某区域的当前引用”选择器；且本卡 targets.filter 的 { source: \"self\", zone: \"trash\" } 被 programs/filters.ts 的 translateObjectFilter " +
+    "以 \"Unsupported filter field source\" 拒绝（实测 describePlay 与 translateInstructionTargets 都在此抛 ProgramBindingError）。" +
+    "(3) “for :rb_rune_rainbow:” 的费用替换（356.1.a）：费用数值本身已能生成（实测 buildCostPlan 的 cost { power: 1 } + domains: [] 产出六域 allowedDomains 的 1 Power），" +
+    "缺的是把它接进 effect.play——PLAY_FOR_RAINBOW 是普通对象而非 Expr，argsSchema 实测以 \"effect.play cost must be an Expr\" 拒绝，也没有生成并冻结该计划的调用方。" +
     "(4) 388.4 的 “you may” 是反身触发在 Finalize 时的决定，与契约 3.9 的指令级 choice.optional 读法不同（与 unl-181-219 记录的 may-scope 问题同类），需要裁定。" +
     "effect.kill（429）与 “if it had 3 :rb_might: or less” 的最后已知读取（359.3.e.12–e.13）已合入，golden 真实执行。",
   abilities: [

@@ -30,18 +30,24 @@ import type { Ability, CardProgram, Condition } from "../../ir/index.js";
  *   位置与来源相同）；424.1 / 424.1.a：Stun 是效果型受限动作，effect.stun 已合入。
  *   括注 “(It doesn't deal combat damage this turn.)” 是 424.1.b 的提醒文本。
  *
- * status 判定（README 第 2 节）：judge-required —— 两处当前依赖仍未闭合，均不近似实现：
- * 1. 减费没有可执行入口：cost/ 的费用计划只在调用方显式传入 discounts 时应用减费
- *    （cost/cost-plan.ts 读 CostPlanInput.discounts），没有把 CardProgram 的 cost.modify 接进
- *    Finalize 的路径；且“按你的单位中 Bird/Cat/Dog/Poro 的去重标签数”需要跨对象并集计数谓词
- *    （同 Ivern 的判定），已合入的 ObjectFilter.tags 是同一对象上的 every 匹配。
- * 2. attack-declared 的 TriggerRegistration 与 effect.stun 本体已经有生产绑定路径，但目标
- *    过滤中的 sameLocationAs 动态锚点仍不能由当前程序绑定器锁定；触发条件也依赖同一并集谓词。
- * 程序保留减费声明（cost.modify 与并集占位形状）、触发与 Stun 的目标过滤；golden 用解释器与
- * 参考内核真实执行 effect.stun 部分与条件探针。
- *
- * 依赖：静态 cost.modify 到 Finalize 费用计划的消费、跨对象标签并集谓词、以及动态
- * sameLocationAs 目标锚点（契约变更请求）。
+ * status 判定（README 第 2 节，2026-10-17 逐条对源码复核）：judge-required ——
+ * 三处当前缺口，均以实测证据记录，不近似实现：
+ * 1. 减费不是可执行路径：programs/statics.ts 的 layerFor 对 static effect kind
+ *    "cost.modify" 抛 ProgramBindingError（"Static ability kind cost.modify has no layer
+ *    mapping"，实测），cost/cost-plan.ts 只在调用方显式传入 CostPlanInput.discounts 时应用
+ *    减费，Finalize 也不读卡牌静态费用效果。
+ * 2. “按你的单位中 Bird/Cat/Dog/Poro 的去重标签数”没有跨对象并集谓词：已合入的
+ *    ObjectFilter.tags 是同一对象上的 every 匹配（layers/filter.ts），CountExpr 的 subject 只
+ *    是标签、不参与求值，evaluateExpression 直接返回 queryObjects(filter).length。实测本卡
+ *    形状只带 filter { player: "controller" }，在“A 有 Bird 单位与 Cat 单位、B 有同时带两
+ *    个标签的单位”的局面下求值为 3（正确并集语义是 2，且不应包含对手单位）——即该声明会
+ *    静默给出错误数量，而不是 fail closed。
+ * 3. 「an enemy unit here」的动态位置锚点仍不可绑定：目标过滤里的 sameLocationAs 会被
+ *    programs/filters.ts 的 translateObjectFilter 以 "Unsupported filter field
+ *    sameLocationAs" 拒绝（实测），因此 attack-declared 触发无法经 registerProgramTriggers
+ *    注册；effect.stun 本体与解释器侧 queryObjects 的 sameLocationAs 解析已合入（golden 覆盖）。
+ * 依赖：静态 cost.modify 的图层/费用计划消费、跨对象标签并集计数谓词（契约变更请求）、
+ * 以及程序绑定器的动态位置锚点支持。
  */
 
 /**
@@ -134,10 +140,17 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处当前缺口，均不近似实现：(1)「Reduce my cost by [1] for each of the following tags among your units」虽已有 cost.modify 原语，" +
-    "静态 cost.modify 尚未接入 Finalize 费用计划，" +
-    "且「你的单位中 Bird/Cat/Dog/Poro 的去重标签数」需要跨对象并集计数——ObjectFilter.tags 仍是同一对象上的 every 匹配。(2) attack-declared 的触发注册与 effect.stun 本体已经合入，" +
-    "但 sameLocationAs 动态目标锚点仍不能由当前程序绑定器锁定，触发条件也依赖同一并集谓词。不近似实现。",
+    "三处当前缺口，均以实测证据记录，不近似实现：(1)「Reduce my cost by [1] …」不是可执行路径：" +
+    "programs/statics.ts 的 layerFor 对 static effect kind \"cost.modify\" 抛 ProgramBindingError（\"no layer mapping\"，实测），" +
+    "cost/cost-plan.ts 只在调用方显式传入 CostPlanInput.discounts 时应用减费，Finalize 不读卡牌静态费用效果。" +
+    "(2)「your units have all 4 tags」的去重标签并集计数没有谓词支持：ObjectFilter.tags 是同一对象上的 every 匹配，" +
+    "CountExpr 的 subject 不参与求值（evaluateExpression 直接返回 queryObjects(filter).length）；实测本卡形状" +
+    "（filter 只有 { player: \"controller\" }）在「A 有 Bird 单位与 Cat 单位、B 有同时带两标签的单位」时求值为 3，" +
+    "正确并集语义是 2——该声明会静默给出错误数量而不是 fail closed，故不能据此标 executable。" +
+    "(3)「an enemy unit here」的动态位置锚点仍不可绑定：目标过滤的 sameLocationAs 被 programs/filters.ts 的 " +
+    "translateObjectFilter 以 \"Unsupported filter field sameLocationAs\" 拒绝（实测），attack-declared 触发因此无法经 " +
+    "registerProgramTriggers 注册；effect.stun 本体与解释器侧 sameLocationAs 解析已合入并由 golden 覆盖。" +
+    "依赖：静态 cost.modify 的图层/费用计划消费、跨对象标签并集计数谓词（契约变更请求）、程序绑定器的动态位置锚点支持。",
   abilities,
   sourceText:
     "I enter ready.\n" +

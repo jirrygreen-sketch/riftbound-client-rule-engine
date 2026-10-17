@@ -17,14 +17,19 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   effect.buff 的文件头明确临时 Might 修改归 layers 的 continuous.might，绝不等同 702 的 Buff 计数器。
  *   “me” 指能力宿主，不是选目标（355.7/355.10.g）。
  *
- * status = judge-required（缺口不近似实现）：
- * - Ambush KeywordDef 已合入并展开为有位置范围的 play-location-permission 与 conditional
- *   Reaction timing，但 chain.canAct / Finalize 仍未消费这两个声明。
- * - continuous.might 原语与 end-of-turn duration 已合入；“When you play a spell” 的生产触发
- *   绑定也已合入（programs/triggers.ts 按单位 activeZones=['board'] 注册、chain play 流程在
- *   结算完成时 emit card-played）：Diana 入场后该触发即可接线，不能把 +2 改写成 Buff。
- * - 剩余阻塞仍是 Ambush：没有位置/时机消费方，Diana 无法以 Ambush 时机进入战场，触发也无从发生。
- * 依赖：Ambush 的位置/时机消费方。卡内按契约 3.6 使用符号选择器。
+ * status = judge-required（2026-10-17 逐条对源码复核；缺口不近似实现）：
+ * - 「When you play a spell, give me +2 :rb_might: this turn」已可执行并已实测：
+ *   continuous.might + end-of-turn duration 合入；programs/triggers.ts 按单位 activeZones=['board']
+ *   注册 card-played 触发，chain 在结算完成时 emit card-played（chain/engine.ts），
+ *   过滤用 object: { type: "spell", controller: "self" }；golden 在真实 ChainEngine 上验证了
+ *   友方咒语 +2、敌方咒语不触发、以及回合末到期。不能把 +2 改写成 Buff 计数器。
+ * - 剩余阻塞仍是 [Ambush]（822）：Ambush KeywordDef 展开出的两条静态声明都无法被程序绑定器
+ *   消费——play-location-permission 在 programs/statics.ts 的 layerFor 抛 ProgramBindingError
+ *   （"Static ability kind play-location-permission has no layer mapping"），continuous.timing
+ *   声明 appliesTo: ["card"] 被静态绑定器以 "Unsupported static appliesTo" 拒绝（两者均实测）；
+ *   且 chain.canAct / playDestinationIsLegal 没有消费 play-location-permission 的位置范围。
+ *   因此 Diana 无法以 Ambush 时机进入战场，触发也无从发生。
+ * 依赖：Ambush 的位置/时机消费方与静态绑定映射。卡内按契约 3.6 使用符号选择器。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "ambush" },
@@ -60,11 +65,16 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "当前缺口，不近似实现：CR 822 Ambush KeywordDef 已展开为有位置范围的 play-location-permission 与 conditional Reaction timing，" +
-    "但 chain.canAct / Finalize 仍无消费方，Diana 无法以 Ambush 时机进入战场。" +
-    "continuous.might 与 end-of-turn duration 已合入，card-played 触发的生产绑定也已合入（programs/triggers.ts 按 activeZones=['board'] 注册、" +
-    "chain play 结算完成时 emit card-played）：入场后触发即可接线，剩余阻塞仍是 Ambush 消费。" +
-    "保留 +2 的 arithmetic-layer 形状，不用 Buff 计数器近似。",
+    "唯一剩余缺口是 CR 822 [Ambush]：KeywordDef 展开出的两条静态声明都无法被程序绑定器消费——" +
+    "play-location-permission 在 programs/statics.ts 的 layerFor 抛 ProgramBindingError（\"Static ability kind " +
+    "play-location-permission has no layer mapping\"），continuous.timing 的 appliesTo: [\"card\"] 被静态绑定器以 " +
+    "\"Unsupported static appliesTo\" 拒绝（两者均实测）；chain.canAct 与 playDestinationIsLegal 也没有消费 " +
+    "play-location-permission 的位置范围与 conditional Reaction。因此 Diana 无法以 Ambush 时机进入战场。" +
+    "另一半已可执行并已实测：\"When you play a spell, give me +2 :rb_might: this turn\" 由 continuous.might + " +
+    "end-of-turn duration 承载，programs/triggers.ts 按单位 activeZones=['board'] 注册 card-played 触发，" +
+    "chain 在结算完成时 emit card-played（chain/engine.ts），golden 在真实 ChainEngine 上验证友方咒语 +2、" +
+    "敌方咒语不触发与回合末到期；保留 +2 的 arithmetic-layer 形状，不用 Buff 计数器近似。" +
+    "依赖：Ambush 的位置/时机消费方与静态绑定映射。",
   abilities,
   sourceText:
     "[Ambush] (You may play me as a [Reaction] to a battlefield where you have units.)\n" +
