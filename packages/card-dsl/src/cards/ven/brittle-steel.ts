@@ -62,7 +62,7 @@ export default {
     "leavingInstruction 标记，bindReplacement 实测对 Flow 替代抛 “Unsupported replacement opcode: effect.banish”；" +
     "continuous.timing 的“从弃牌堆打出”位置许可未合并。" +
     "已合入并真实执行：「Kill a gear」的 effect.kill（429.1/429.6，355.9.a.1 的 Board Gear 目标）由 RIFT-682 模板经原始程序入链、" +
-    "Finalize、事件管线执行，并覆盖真实 Reaction 使目标失效；测试台 pay 仍未扣 Power，不作为完整费用证据。" +
+    "Finalize、事件管线执行，并覆盖真实 Reaction 使目标失效；RIFT-701 模板进一步经原始程序入链、Finalize 锁定敌方 Gear 并发布 killed 链接，且覆盖无合法目标边界；测试台 pay 仍未扣 Power，不作为完整费用证据。" +
     "依赖：flow.cost 到费用计划的接线与 object-leaves-chain / leavingInstruction 的替代匹配。",
   abilities: [
     {

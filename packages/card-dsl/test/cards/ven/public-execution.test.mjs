@@ -1,4 +1,9 @@
 // Full-card scenario: ../templates/keyword-play-effect-kill-682.test.mjs (TODO).
+// RIFT-701 group evidence: ../templates/keyword-play-effect-kill-701.test.mjs
+// (real Finalize locks the chosen friendly unit and the chosen weaker enemy, the
+// enemy dies through effect.kill with its killed link, and equal/stronger Might
+// boundaries produce no kill). The relative-Might Finalize predicate
+// (355.9.b / 143.2.a) and the Flow wiring remain blocked in judgeReason.
 // The interpreter cases here prove only kill/compare, not Finalize or Flow.
 import flowDefinition from "../../../../engine-core/dist/effects/keywords/Flow.js";
 import { buildCostPlan, payCostPlan, DUEL_DOMAINS } from "../../../../engine-core/dist/cost/index.js";

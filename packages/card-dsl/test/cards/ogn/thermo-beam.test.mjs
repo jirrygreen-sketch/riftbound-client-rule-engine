@@ -1,5 +1,8 @@
 // Scenario evidence: ../templates/keyword-play-effect-kill-682.test.mjs.
 // Main-phase admission only; the untargeted set kill remains blocked below.
+// RIFT-701 group evidence: ../templates/keyword-play-effect-kill-701.test.mjs
+// (Action admission, 5 Energy + 2 Fury Power payment and the fail-closed
+// resource boundary); the untargeted set kill (355.5 / 355.10.d) stays blocked.
 import assert from "node:assert/strict";
 import test from "node:test";
 
