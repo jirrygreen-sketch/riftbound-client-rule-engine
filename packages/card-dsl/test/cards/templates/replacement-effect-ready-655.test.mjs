@@ -60,7 +60,10 @@ const rows = [
           },
           { timingPoint: "card-played", object: { ref: { id: "lingering-animus" } } }
         ]
-      }
+      },
+      // effect.ready's receipt is consumed inside the replacement chain item;
+      // the scenario-level link snapshot is intentionally empty.
+      links: {}
     }
   },
   {
@@ -106,7 +109,8 @@ const rows = [
           },
           { timingPoint: "card-played", object: { ref: { id: "direwing" } } }
         ]
-      }
+      },
+      links: {}
     }
   },
   {
@@ -140,7 +144,8 @@ const rows = [
           },
           { timingPoint: "card-played", object: { ref: { id: "shadow-watcher" } } }
         ]
-      }
+      },
+      links: {}
     }
   },
   {
@@ -185,7 +190,8 @@ const rows = [
           },
           { timingPoint: "card-played", object: { ref: { id: "shadow-assassin" } } }
         ]
-      }
+      },
+      links: {}
     }
   }
 ];

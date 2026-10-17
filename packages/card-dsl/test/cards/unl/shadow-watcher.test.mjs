@@ -6,21 +6,25 @@ import program from "../../../dist/cards/unl/shadow-watcher.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
-// Execution evidence for the supported replacement body lives in
-// ../templates/replacement-effect-ready-655.test.mjs.
-const CARD_ID =
+// Execution evidence for the supported replacement body is also covered by
+// ../templates/replacement-effect-ready-655.test.mjs; the assertions below
+// retain the card-specific identity, condition, structure, and edge cases.
+const CANONICAL_ID =
   "card.hash-914ae0a53b785c0cddd76d977413c9c36d1bc8a2bd78e0f3a1d68a71ae5f718e";
 const SOURCE_TEXT =
   "If a friendly unit died during your Beginning Phase this turn, I enter ready.";
 
-const [replacement] = program.abilities;
-const [enterReady] = replacement.with;
+const [enterReady] = program.abilities;
+const [readySource] = enterReady.with;
 
-test("unl-037-219 Shadow Watcher: validates identity and preserves the unresolved status", () => {
+test("unl-037-219 Shadow Watcher: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
   assert.deepEqual(result.issues, []);
   assert.equal(result.ok, true);
-  assert.equal(program.canonicalCardId, CARD_ID);
+});
+
+test("unl-037-219 Shadow Watcher: identity, status, judgeReason and verbatim sourceText", () => {
+  assert.equal(program.canonicalCardId, CANONICAL_ID);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
@@ -31,31 +35,38 @@ test("unl-037-219 Shadow Watcher: validates identity and preserves the unresolve
   assert.match(program.judgeReason, /HistoryQuery/);
   assert.match(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /bindReplacement/);
-  assert.match(program.judgeReason, /matchesEnterAction/);
 });
 
-test("unl-037-219 Shadow Watcher: records the Beginning-Phase death condition", () => {
+test("unl-037-219 Shadow Watcher: 'I enter ready' is a board-entry replacement, never a later ready", () => {
   assert.equal(program.abilities.length, 1);
-  assert.equal(replacement.kind, "replacement");
-  assert.deepEqual(replacement.replaces, {
+  assert.equal(enterReady.kind, "replacement");
+  // 143.4 / 359.2.c：单位默认横置入场；369.3 的 Master Yi, Honed 示例把 “I enter ready.” 明确列为
+  // 入场替代（替换“横置入场”这件事本身）。
+  assert.deepEqual(enterReady.replaces, {
     event: "object-enters-board",
     filter: { source: "self", exhausted: true }
   });
-  assert.deepEqual(replacement.condition, {
-    kind: "compare",
-    left: {
-      kind: "count",
-      subject: "friendly-units-died-during-your-beginning-phase-this-turn",
-      filter: { type: "unit", controller: "self" }
-    },
-    operator: "gte",
-    right: { kind: "constant", value: 1 }
+  assert.deepEqual(enterReady.with.map((instruction) => [instruction.id, instruction.op]), [
+    ["shadow-watcher.enter-ready", "effect.ready"]
+  ]);
+  assert.deepEqual(enterReady.with[0].args, {
+    objects: { kind: "constant", value: { kind: "source" } }
   });
-  assert.deepEqual(enterReady, {
-    id: "shadow-watcher.enter-ready",
-    op: "effect.ready",
-    args: { objects: { kind: "constant", value: { kind: "source" } } }
-  });
+  assert.equal(enterReady.with[0].targets, undefined);
+  assert.equal(enterReady.linkedTo, undefined);
+});
+
+test("unl-037-219 Shadow Watcher: the 'died in your Beginning Phase this turn' clause is the replacement condition", () => {
+  const condition = enterReady.condition;
+  assert.equal(condition.kind, "compare");
+  assert.equal(condition.operator, "gte");
+  assert.deepEqual(condition.right, { kind: "constant", value: 1 });
+  assert.equal(condition.left.kind, "count");
+  // 保留形状：被查询的 subject 名称记录了真实的窗口语义（本回合 + 你的 Beginning Phase），
+  // 因为它无法用冻结的 HistoryQuery 表达（见 judgeReason）。
+  assert.equal(condition.left.subject, "friendly-units-died-during-your-beginning-phase-this-turn");
+  // “friendly unit” = 由你控制的单位（740.1.a）。
+  assert.deepEqual(condition.left.filter, { type: "unit", controller: "self" });
 });
 
 // This is the supported ready body only; it does not establish the printed history condition.
@@ -67,20 +78,20 @@ test("unl-037-219 Shadow Watcher golden: the replacement body readies the enteri
   });
   assert.equal(ctx.getObject("shadow-watcher").exhausted, true);
 
-  const outcome = resolveChainBody([enterReady], ctx);
+  const outcome = resolveChainBody([readySource], ctx);
   assert.equal(outcome.status, "executed");
-  assert.deepEqual(outcome.results.map(result => [result.id, result.result.status]), [
+  assert.deepEqual(outcome.results.map((result) => [result.id, result.result.status]), [
     ["shadow-watcher.enter-ready", "executed"]
   ]);
-  assert.deepEqual(outcome.events.map(event => event.action), ["ready"]);
+  assert.deepEqual(outcome.events.map((event) => event.action), ["ready"]);
   assert.equal(ctx.getObject("shadow-watcher").exhausted, false);
-
+  // 416.1.b/416.1.c：已经就绪的单位不会再被重置，也不补发事件。
   const alreadyReady = world().unit("shadow-watcher", { zone: "board", exhausted: false }).build();
   const readyCtx = alreadyReady.clone({
     source: alreadyReady.ref("shadow-watcher"),
     sourceSnapshot: alreadyReady.getObject("shadow-watcher")
   });
-  const noop = resolveChainBody([enterReady], readyCtx);
+  const noop = resolveChainBody([readySource], readyCtx);
   assert.equal(noop.results[0].result.status, "executed");
   assert.deepEqual(noop.results[0].result.linkedValues.readied, { count: 0, objects: [] });
   assert.deepEqual(readyCtx.events, []);
@@ -90,10 +101,17 @@ test("unl-037-219 Shadow Watcher golden: a prevented ready body leaves the sourc
   const base = world().unit("shadow-watcher", { exhausted: true }).build();
   const kernel = base.clone({ sourceSnapshot: base.getObject("shadow-watcher") });
   kernel.addReplacement(action => action.type === "ready" ? "prevented" : null);
-  const outcome = resolveChainBody(replacement.with, kernel);
+  const outcome = resolveChainBody(enterReady.with, kernel);
   assert.equal(outcome.results[0].result.status, "negated");
   assert.equal(kernel.getObject("shadow-watcher").exhausted, true);
   assert.deepEqual(outcome.events.map(event => ({ action: event.action, outcome: event.outcome })), [
     { action: "ready", outcome: "prevented" }
   ]);
 });
+
+test.todo(
+  "unl-037-219 Shadow Watcher: query friendly deaths during your Beginning Phase this turn, distinguishing earlier turns and other phases (CR 315.2/429.1; RIFT-359)"
+);
+test.todo(
+  "unl-037-219 Shadow Watcher: evaluate ability.condition before matchesEnterAction applies the entry-orientation rewrite (CR 143.4/359.2.c/369.3; RIFT-359)"
+);

@@ -7,56 +7,12 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
-// Execution evidence for the supported replacement body lives in
-// ../templates/replacement-effect-ready-655.test.mjs.
+// Execution evidence for the supported replacement body is also covered by
+// ../templates/replacement-effect-ready-655.test.mjs; the assertions below
+// retain the card-specific identity, condition, structure, and edge cases.
 const CARD_ID = "card.hash-733ee080aef6259973bf03c5ede49e36dd44b081fa4f1040aa0ec8525bcf71b9";
-const SOURCE_TEXT = "I enter ready if you control another Dragon.";
-
 const [replacement] = program.abilities;
 const [enterReady] = replacement.with;
-
-test("sfd-094-221 Direwing: validates and is registered by canonical identity", () => {
-  const result = validateCardProgram(program);
-  assert.deepEqual(result.issues, []);
-  assert.equal(result.ok, true);
-  assert.equal(cardRegistryById.get(CARD_ID), program);
-  assert.equal(program.canonicalCardId, CARD_ID);
-  assert.equal(program.rulesetVersion, "core-1.5");
-  assert.equal(program.status, "judge-required");
-  assert.equal(program.sourceText, SOURCE_TEXT);
-  assert.match(program.judgeReason, /matchesEnterAction/);
-  assert.match(program.judgeReason, /RIFT-359/);
-});
-
-test("sfd-094-221 Direwing: records the another-Dragon conditional ready-entry replacement", () => {
-  assert.equal(program.abilities.length, 1);
-  assert.equal(replacement.kind, "replacement");
-  assert.deepEqual(replacement.replaces, {
-    event: "object-enters-board",
-    filter: { source: "self", exhausted: true }
-  });
-  assert.deepEqual(replacement.condition, {
-    kind: "compare",
-    left: {
-      kind: "count",
-      subject: "dragons",
-      filter: {
-        type: "unit",
-        tags: ["Dragon"],
-        controller: "self",
-        zone: "board",
-        exclude: "self"
-      }
-    },
-    operator: "gte",
-    right: { kind: "constant", value: 1 }
-  });
-  assert.deepEqual(enterReady, {
-    id: "direwing.enter-ready",
-    op: "effect.ready",
-    args: { objects: { kind: "constant", value: { kind: "source" } } }
-  });
-});
 
 /** The kernel binds "self" to the context source, so Direwing is the source. */
 function direwingWorld({ exhausted = true } = {}) {
@@ -64,7 +20,69 @@ function direwingWorld({ exhausted = true } = {}) {
   return kernel.clone({ source: kernel.ref("direwing"), sourceSnapshot: kernel.getObject("direwing") });
 }
 
-test("sfd-094-221 Direwing golden: the supported replacement body readies the entering exhausted unit", () => {
+test("sfd-094-221 Direwing: program validates and is registered", () => {
+  const result = validateCardProgram(program);
+  assert.deepEqual(result.issues, []);
+  assert.equal(result.ok, true);
+  assert.equal(cardRegistryById.get(CARD_ID), program);
+});
+
+test("sfd-094-221 Direwing: identity, ruleset, status and verbatim text", () => {
+  assert.equal(program.canonicalCardId, CARD_ID);
+  assert.equal(program.rulesetVersion, "core-1.5");
+  assert.equal(program.status, "judge-required");
+  assert.equal(program.sourceText, "I enter ready if you control another Dragon.");
+});
+
+test("sfd-094-221 Direwing: judgeReason names the replacement-enter and Dragon-filter gaps", () => {
+  assert.match(program.judgeReason, /replacement\/bind\.ts/);
+  assert.match(program.judgeReason, /Dragon/);
+  assert.match(program.judgeReason, /ability\.condition/);
+  assert.match(program.judgeReason, /RIFT-359/);
+});
+
+test("sfd-094-221 Direwing: 'I enter ready' is an entry replacement, not a post-entry effect.ready", () => {
+  // 359.2.c / 369.3 with 364.3.a's "If an opponent controls a battlefield, I
+  // enter ready." example: the stipulation describes how the unit enters.
+  assert.equal(program.abilities.length, 1);
+  assert.equal(replacement.kind, "replacement");
+  assert.deepEqual(replacement.replaces, {
+    event: "object-enters-board",
+    filter: { source: "self", exhausted: true }
+  });
+  assert.equal(enterReady.id, "direwing.enter-ready");
+  assert.equal(enterReady.op, "effect.ready");
+  assert.deepEqual(enterReady.args, {
+    objects: { kind: "constant", value: { kind: "source" } }
+  });
+  assert.equal(enterReady.targets, undefined);
+  assert.equal(enterReady.picks, undefined);
+  assert.equal(enterReady.linkedTo, undefined);
+});
+
+test("sfd-094-221 Direwing: the condition counts another Dragon you control (133.8, 740.1.a)", () => {
+  // 364.3 / 364.3.a: the "if" clause is part of the replacement's
+  // applicability, not a body instruction's condition.
+  const condition = replacement.condition;
+  assert.equal(condition.kind, "compare");
+  assert.equal(condition.operator, "gte");
+  assert.deepEqual(condition.right, { kind: "constant", value: 1 });
+  assert.equal(condition.left.kind, "count");
+  assert.equal(condition.left.subject, "dragons");
+  // 133.8/133.8.a: "Dragon" is a tag; "another" excludes the source itself.
+  assert.deepEqual(condition.left.filter, {
+    type: "unit",
+    tags: ["Dragon"],
+    controller: "self",
+    zone: "board",
+    exclude: "self"
+  });
+});
+
+test("sfd-094-221 Direwing golden: the replacement body readies the entering exhausted unit", () => {
+  // This checks the authored with-body against a real board unit. Entry
+  // replacement binding already exists, but its condition evaluation still
+  // needs the separate entry scenarios below.
   const kernel = direwingWorld({ exhausted: true });
   assert.equal(kernel.getObject("direwing").exhausted, true);
 
@@ -80,7 +98,7 @@ test("sfd-094-221 Direwing golden: the supported replacement body readies the en
   assert.deepEqual(outcome.events.map(event => event.action), ["ready"]);
 });
 
-test("sfd-094-221 Direwing golden: an already-ready unit is not readied again", () => {
+test("sfd-094-221 Direwing golden: an already-ready unit is not readied again (416.1.b/c)", () => {
   const kernel = direwingWorld({ exhausted: false });
   const outcome = resolveChainBody([enterReady], kernel);
   assert.equal(outcome.results[0].result.status, "executed");
@@ -89,3 +107,16 @@ test("sfd-094-221 Direwing golden: an already-ready unit is not readied again", 
   });
   assert.deepEqual(outcome.events, []);
 });
+
+test.todo(
+  "sfd-094-221 Direwing: evaluate the 'another Dragon' condition (133.8/133.8.a, 740.1.a) through " +
+    "the existing default lifecycle replacement binding, keeping exhausted entry without another Dragon " +
+    "and ready entry with one (143.4 / 359.2.c / 369.3, 364.3.a) — matchesEnterAction must gate the " +
+    "entry rewrite on the ability condition"
+);
+
+test.todo(
+  "sfd-094-221 Direwing: resolve the tags + controller + exclude-source filter for 'another Dragon' — " +
+    "bind controller: \"controller\" to the ability controller and exclude: \"self\" to the host; " +
+    "tag containment matching is already supported"
+);
