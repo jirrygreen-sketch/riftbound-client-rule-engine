@@ -36,8 +36,9 @@ test("rad-167-167 Neeko, Blending In: judgeReason names the three current gaps w
   assert.match(program.judgeReason, /103\.1/);
   assert.match(program.judgeReason, /440\.2\.b\.4/);
   assert.match(program.judgeReason, /107\.4\.d\.2/);
-  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /create-legend/);
+  assert.match(program.judgeReason, /deckbuilding/);
+  assert.equal(program.judgeReason.includes("RIFT-257"), false);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -91,7 +92,6 @@ test.todo(
 );
 
 test.todo(
-  "rad-167-167 Neeko, Blending In: remove the added legend when the source leaves the board (CR 107.4.d.2) and " +
-    "register the card-played trigger — the while-source-in-zone duration has no card-facing consumer and no " +
-    "merged path registers a CardProgram triggered ability (RIFT-257)"
+  "rad-167-167 Neeko, Blending In: remove the added legend when the source leaves the board (CR 107.4.d.2) — " +
+    "while-source-in-zone has no create-legend consumer"
 );
