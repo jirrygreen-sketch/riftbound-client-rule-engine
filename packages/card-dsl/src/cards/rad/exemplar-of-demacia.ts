@@ -47,6 +47,8 @@ export default {
     "（当前过滤器没有关键词特征读取），因此不能作为条件。" +
     "（2）效果开头 “you may exhaust me and pay :rb_rune_rainbow:” 按 CR 383.3.b.1 是触发能力的基础费用、" +
     "必须在 Finalize 支付（415.4 / 415.5），但触发能力注册没有把正文里的 cost.pay 转成基础费用计划；" +
+    "TriggerRegistration.cost 字段存在但 programs/triggers.ts:32-40 不填（TriggeredAbility IR 也没有 cost 字段，" +
+    "ir/types.ts:393-398）；" +
     "[A]（任意域 Power，CR 163.2.b / 135.2.e.5）在六域封闭的 Domain 集合里不可表达；契约 ZoneId 也没有 Legend Zone" +
     "（CR 107.4），传奇自身无法作为横置费用的对象。" +
     "（3）“that battlefield” 没有可执行目的地：effect.move 的 to 只接受字面 LocationRef / controller-base / 字面地点选项，" +

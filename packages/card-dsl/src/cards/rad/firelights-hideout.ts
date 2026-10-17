@@ -60,7 +60,10 @@ export default {
     "ObjectFilter 没有 greatest/last-created 量词，TargetSpec 按 CR 355.5 必须在 finalize 时锁定已经存在的对象（该单位本回合稍后才打出），" +
     "Duration 只有 permanent/end-of-turn/end-of-combat/while-source-in-zone/until，没有 one-shot「next unit」期限（同 ogn/raging-firebrand 的缺口）。" +
     "触发侧：conquer 时点与 CardProgram TriggerRegistration 已合入，但 190.6 的战场能力控制者解析" +
-    "以及 details.battlefieldId 与本战场宿主的绑定仍缺；one-shot「next unit」窗口也未合入。不近似实现。",
+    "以及 details.battlefieldId 与本战场宿主的绑定仍缺——注册路径实测拒绝 details 声明" +
+    "（programs/filters.ts 的 translateTriggerFilter 抛 ProgramBindingError「Unsupported filter field details」），" +
+    "且即便透传，details 也是与 turn/flow.ts:102 发射的真实 battlefieldId 做字面比较，" +
+    "「self」占位永远不会匹配；one-shot「next unit」窗口也未合入。不近似实现。",
   sourceText:
     "When you conquer here, the next unit you play this turn has [Accelerate]. " +
     "(You may pay :rb_energy_1: and a Power of its Domain as an additional cost to have it enter ready.)",

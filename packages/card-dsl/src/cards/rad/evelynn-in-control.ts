@@ -92,8 +92,11 @@ export default {
     "combat/flow.ts 的角色事务未实现（CombatFlow 抛 combat-start-transaction），该触发永远不会命中；" +
     "(2) 「if you control a facedown card here」读不到 Facedown Zone：契约 ZoneId 没有 facedown-zone 成员" +
     "（同 effect.stun.ts 记录的缺口），也没有「该战场上我控制的 facedown 牌」集合，把条件放宽成任意 faceDown 标记会改变卡牌语义；" +
+    "注册路径同样拒绝 details 声明：programs/filters.ts 的 translateTriggerFilter 会抛 " +
+    "ProgramBindingError「Unsupported filter field details」（实测），触发器无法注册；" +
     "(3) hold 时点的发射方与 CardProgram TriggerRegistration 已合入，但 scoring 事件只有字面 battlefieldId，" +
-    "当前没有把该 id 与本战场宿主绑定的查询路径；这里的 details.battlefieldId: self 仍是待绑定标记。" +
+    "当前没有把该 id 与本战场宿主绑定的查询路径；details.battlefieldId: self 是字面量比较（turn/flow.ts:102 发射真实 id），" +
+    "永不等于真实 id，不放宽语义，但也无法绑定宿主战场。" +
     "已写出的可执行部分：hold 触发 + TriggerSpec.condition 门控（383.2.a.1）+ effect.score 体（194.1.c/470.1，golden 真实执行）。" +
     "依赖：combat 角色事务（attack-declared 发射）、hold 事件的来源战场绑定、Facedown Zone 区域模型。",
   abilities,

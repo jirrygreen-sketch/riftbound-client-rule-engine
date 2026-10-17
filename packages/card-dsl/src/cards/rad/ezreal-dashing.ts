@@ -122,12 +122,13 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处缺口：(1) 「I don't deal combat damage.」是持续的战斗伤害限制（467.2.a/b 的 Might 汇总与" +
+    "两处缺口：(1) 「I don't deal combat damage.」是持续的战斗伤害限制（467.2.a/b 的 Might 汇总与" +
     "467.2.c 的伤害指派）：continuous.combat 原语已合入（RIFT-258），但图层/战斗端没有消费分支，" +
     "该原语对任何 flags 都返回 negated(impossible)（文件头自述），所以限制无法生效；" +
     "(2) attack-declared / defense-declared 没有产出方：timing-points.ts 已定义，但 combat/flow.ts 的" +
-    "角色事务未实现（抛 combat-start-transaction），docs/rules/timing-point-producers.md 记为「待后续」；" +
-    "(3) ActivatedAbility 的 Mind Power 费用与启动链路已能由费用计划表达；" +
+    "角色事务未实现（抛 combat-start-transaction），docs/rules/timing-point-producers.md 记为「待后续」。" +
+    "已可执行的部分：启动能力的 Mind Power 费用已接线——programs/activate.ts:26-29 把 ActivatedAbility.cost " +
+    "转成费用计划（Mind Power 是六域内合法 Power），可由生产 Finalize 支付；" +
     "已合入的 effect.damage（动态 Might 数额、359.3.f.2 here 指代用 sameLocationAs 锚点）" +
     "与 effect.move（controller-base）在 golden 测试中真实执行；不近似实现（不把战斗伤害限制写成触发器或结算时动作）。",
   abilities,

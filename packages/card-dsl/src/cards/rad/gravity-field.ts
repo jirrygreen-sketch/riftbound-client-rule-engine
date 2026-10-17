@@ -43,8 +43,10 @@ export default {
   judgeReason:
     "三处缺口（均不近似实现）：(1) Deploy 的 KeywordDef 已合入（RIFT-267 的 effects/keywords/Deploy.ts：" +
     "static continuous.location 的入场许可 + hold 触发的 effect.kill 自身），但没有消费方——" +
-    "但 CardProgram 的 keyword 展开当前不能绑定 continuous.location，Finalize 也没有完整读取 playLocations() 的位置许可，" +
-    "cleanup 的「非单位 Gear 不被召回」没有接线，hold 触发虽已有时点产生方但没有 Deploy 的宿主战场绑定。" +
+    "CardProgram 的 keyword 展开当前不能绑定 continuous.location；Finalize 已消费 playLocations()（chain/engine.ts:383），" +
+    "但 Deploy 展开的开放元数据形状（play.anyBattlefield 等）没有 permission/restriction 字符串字段，playLocations() 读不到；" +
+    "cleanup 的「非单位 Gear 不被召回」没有接线；hold 触发的注册会被绑定层拒绝" +
+    "（translateTriggerFilter 抛 Unsupported filter field here，实测），宿主战场绑定仍缺。" +
     "(2)「Opponents must pay :rb_energy_1::rb_rune_rainbow: to move …」是 Applied Cost（CR 204.4/204.4.b），" +
     "现已按已合入的 continuous.restrict（mode applied-cost）真实登记、layers/rules/query.ts 的 appliedCosts() 能读回（golden 已断言），" +
     "但没有消费方把该 applied cost 接进标准移动的费用计划，且 Rainbow Power 仍无可用的支付路径。" +

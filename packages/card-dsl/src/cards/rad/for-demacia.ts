@@ -41,7 +41,8 @@ const forDemacia = {
     "按 args.objects 的集合查询解析所选战场的 sameLocationAs 锚点，golden 用真实解释器执行并断言只有该战场的友方单位" +
     "拿到 Shield 2（814.1.c 的 this turn 用 end-of-turn 期限，317.2.c）。" +
     "(2) 仍未合入的是授予之后的行为：Shield 展开为 continuous.might 静态效果 + designation === \"defender\" 条件，" +
-    "而战斗系统不给 ObjectSnapshot 写 defender 指定，因此该 +2 Might 在任何战斗里都不会生效（814.1.d）；" +
+    "而战斗系统不给 ObjectSnapshot 写 defender 指定（interpreter 的 object-property 对未知属性抛 MissingInformation，" +
+    "Shield 展开的 compare 条件因此无法求值成功），该 +2 Might 在任何战斗里都不会生效（814.1.d）；" +
     "依赖：814.1.d 的 designation 特征与战斗指定，以及 Shield 展开条件的图层求值。" +
     "战场按 170 / 170.7 / 355.10.a.1 是目标；受影响单位按 355.10.d 不是目标。[Reaction] 声明本身可校验。",
   abilities: [
