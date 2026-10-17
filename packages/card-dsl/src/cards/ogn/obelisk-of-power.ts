@@ -35,8 +35,8 @@ const obeliskOfPower = {
     "per-turn/per-phase/per-combat/per-showdown/per-chain/per-object/per-game，无法表达；" +
     "(2) 接收者是事件玩家 “that player”，而 effect.channel 只能取能力控制者或求值为 PlayerId 的表达式，" +
     "IR 没有事件玩家选择器；程序中的 \"event-player\" 是缺选择器的占位值，不可执行。" +
-    "beginning-start 时点及 effect.channel 原语本身已合入；仍依赖 RIFT-257 CardProgram 触发绑定、" +
-    "事件玩家选择器与 each-player-once 频度的契约变更请求，不近似实现。",
+    "beginning-start 时点、trigger 注册与 effect.channel 原语本身已合入；仍缺「每名玩家首次」的 " +
+    "逐玩家 once 频度，以及把触发事件玩家作为 effect.channel 收件人的选择器契约。不近似实现。",
   sourceText: "At the start of each player's first Beginning Phase, that player channels 1 rune.",
   abilities: [
     {

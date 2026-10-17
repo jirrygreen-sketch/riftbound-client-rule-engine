@@ -23,7 +23,8 @@ test("noxus-saboteur: identity, ruleset, status and verbatim sourceText", () => 
   assert.match(program.judgeReason, /continuous\.restrict/);
   assert.match(program.judgeReason, /425\.2\.a/);
   assert.match(program.judgeReason, /811\.5\.a/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /controller: opponent/);
+  assert.match(program.judgeReason, /effect\.reveal/);
   assert.equal(program.sourceText, "Your opponents' [Hidden] cards can't be revealed here.");
 });
 
@@ -72,6 +73,6 @@ test("noxus-saboteur: continuous.restrict registers the printed reveal prohibiti
 });
 
 test.todo(
-  "noxus-saboteur: bind the static CardProgram restriction and consume it from Reveal legality, " +
-    "including the 811.5.a distinction between facedown cards and Hidden cards (RIFT-257)"
+  "noxus-saboteur: resolve the relative opponent filter in the static binder and consume " +
+    "continuous.restrict from Reveal legality, including the 811.5.a facedown/Hidden distinction"
 );

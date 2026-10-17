@@ -21,13 +21,11 @@ import type { CardProgram } from "../../ir/index.js";
  * Spell / Unit / Gear 上，所以不按卡型收窄（面朝下时不再是 Hidden，811.5.a）。
  *
  * 未合入依赖（不近似实现）:
- * - continuous.restrict 原语已经合入并能注册 ability-layer restriction；但静态 CardProgram
- *   还没有绑定到该注册入口，且"禁止优先级"（禁止压过许可）没有实现。
- * - 反向接线缺失：effect.reveal 只经 ctx.perform 提交 reveal 动作，内核没有读取持续
- *   禁止集合判断 reveal 合法性的消费方（layers/rules/query 目前只提供查询）。
- * - 机制上还需要"facedown ≠ Hidden"的判定（811.5.a）与 Reveal 的受限动作合法性检查
- *   （425.2.a），两者都不属于本卡任务。
- * 依赖：RIFT-257 CardProgram 绑定、RIFT-264 Hidden 关键词消费、Reveal 合法性/限制消费方。
+ * - continuous.restrict 与 static CardProgram 生命周期已经合入，但 static filter binder 仍不能
+ *   将相对能力控制者的 `controller: "opponent"` 解析成生产层过滤器。
+ * - rules/query.ts 能查询持续禁止，effect.reveal 的动作合法性路径仍没有消费该查询，因此限制
+ *   不会阻止实际 Reveal。
+ * - 仍需按 811.5.a 区分 facedown card 与带 Hidden 特征的牌，并接入 425.2.a 的 Reveal 合法性。
  */
 const noxusSaboteur = {
   canonicalCardId: "card.hash-e5d5e81a865437ba16c7a9dd066d67dc5f437867e4ec858ae5245045cc548caf",
@@ -35,9 +33,9 @@ const noxusSaboteur = {
   status: "judge-required",
   judgeReason:
     "『Your opponents' [Hidden] cards can't be revealed here』是持续禁止（CR 425.2.a 的 Reveal 受限动作 + 811.5/811.5.a 的 Hidden 特征）：" +
-    "continuous.restrict 原语已能注册限制，但静态 CardProgram → restriction 的绑定尚未合入，也缺读取持续禁止、" +
-    "判断 reveal 合法性的内核消费方；还需 facedown ≠ Hidden 的判定（811.5.a）。依赖：RIFT-257 CardProgram 绑定、" +
-    "Reveal 合法性/限制消费方与 Hidden 特征消费。不近似实现。",
+    "continuous.restrict 与 static CardProgram 生命周期已合入，但 static filter binder 不能解析相对控制者的 " +
+    "controller: opponent 过滤；rules/query.ts 的限制查询也尚未接到 effect.reveal 的合法性路径，" +
+    "因此实际 Reveal 仍不会被禁止。还需按 811.5.a 区分 facedown 与 Hidden，并落实 425.2.a 的限制消费。不近似实现。",
   abilities: [
     {
       kind: "static",

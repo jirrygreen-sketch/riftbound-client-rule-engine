@@ -46,9 +46,9 @@ const overtOperation = {
     "没有 per-object 绑定），链层还会对嵌套目标抛 ChainContractBlockedError，等待解释器目标生命周期适配器" +
     "（chain/README.md 契约变更请求 2）。(2)「Then buff all friendly units.」是按特征程序化的非目标集合" +
     "（355.10.d/355.10.d.1），effect.buff 只读 Finalize 锁定的 TargetSpec，没有 effect.ready / effect.heal 的 " +
-    "{kind:'query'} 形态；写成 TargetSpec 会错误触发成为目标（355.7、754）。费用的 printed cost 形状已可记录，" +
-    "但 Action/费用与 CardProgram 的完整接线仍依赖 RIFT-257/RIFT-261。提醒文字的 +1 Might 是 703 的 Buff 计数，" +
-    "不写成临时 Might 修正。依赖：RIFT-257/RIFT-261、解释器目标生命周期、effect.buff 的非目标集合形态。",
+    "{kind:'query'} 形态；写成 TargetSpec 会错误触发成为目标（355.7、754）。printed cost 与 Action 关键词的 " +
+    "程序绑定已可记录；提醒文字的 +1 Might 是 703 的 Buff 计数，不写成临时 Might 修正。依赖：解释器目标生命周期、" +
+    "effect.buff 的非目标集合形态。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

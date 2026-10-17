@@ -210,8 +210,12 @@ test.todo(
     "all friendly units' resolves without targeting any unit (355.7, 754)"
 );
 
-test.todo(
-  "Overt Operation cast: pays 5 Energy + 2 Body power and [Action] showdown timing " +
-    "(依赖 RIFT-257 CardProgram 绑定 / RIFT-261 费用与 Action 时机消费)"
-);
+test("Overt Operation cast surface keeps the printed cost and Action keyword declarative", () => {
+  assert.deepEqual(play.cost, {
+    kind: "cost.printed",
+    energy: { kind: "constant", value: 5 },
+    power: { kind: "constant", value: 2 }
+  });
+  assert.deepEqual(speed, { kind: "keyword", keyword: "action" });
+});
 

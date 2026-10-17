@@ -32,7 +32,8 @@ test("ogn-135-298 Pakaa Cub: judgeReason names the missing wiring and its tasks"
   assert.match(program.judgeReason, /buildHiddenCostPlan/);
   assert.match(program.judgeReason, /811\.1\.c/);
   assert.match(program.judgeReason, /811\.1\.d\.1/);
-  assert.match(program.judgeReason, /不属于本卡的 write scope/);
+  assert.match(program.judgeReason, /Hide/);
+  assert.match(program.judgeReason, /面朝下区域/);
 });
 
 test("ogn-135-298 Pakaa Cub: exactly one unvalued Hidden keyword ability", () => {
@@ -96,5 +97,5 @@ test.todo(
   "Pakaa Cub: take the Hide Discretionary Action (pay [A], hide facedown at a battlefield I control "
     + "without a facedown card), then play me from facedown with [Reaction] ignoring my base cost, "
     + "to the battlefield I was hidden at (CR 811.1.b/811.1.c.3/811.1.d.1) — blocked because "
-    + "buildHiddenCostPlan has no callers and because the ZoneId contract has no facedown zone"
+    + "the Hide action has no caller and the ZoneId contract has no facedown zone"
 );

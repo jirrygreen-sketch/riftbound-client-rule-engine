@@ -23,8 +23,7 @@ test("ogn-143-298 Pirate's Haven: identity, version and verbatim source text", (
     program.sourceText,
     "When you ready a friendly unit, give it +1 :rb_might: this turn."
   );
-  assert.match(program.judgeReason, /RIFT-21/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /事件对象选择器/);
 });
 
 test("ogn-143-298 Pirate's Haven: object-readied trigger structure", () => {
@@ -75,5 +74,5 @@ test("ogn-143-298 Pirate's Haven: continuous.might registers +1 for the locked u
 
 test.todo(
   "Pirate's Haven: bind the continuous.might target to the object-readied event's unit " +
-    "through the event-object selector (RIFT-21 / RIFT-257)"
+    "through an event-object selector in the ObjectSelector contract"
 );

@@ -22,8 +22,8 @@ test("noxus-hopeful: identity, ruleset, status and verbatim sourceText", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /HistoryQuery/);
   assert.match(program.judgeReason, /812\.1\.c/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /生产 ResolveContext/);
+  assert.match(program.judgeReason, /cost\.modify/);
   assert.equal(
     program.sourceText,
     "[Legion] — I cost :rb_energy_2: less. (Get the effect if you've played another card this turn.)"
@@ -42,7 +42,7 @@ test("noxus-hopeful: the dependent ability is a 2-Energy cost reduction applied 
   assert.equal(costModification.effect.resource, "energy");
   assert.equal(costModification.effect.appliesTo, "self");
   assert.equal(costModification.effect.stage, "discount");
-  // amount is the reduction ("I cost [2] less"), matching RIFT-89 CostDiscount.amount.
+  // amount is the reduction ("I cost [2] less"), not a signed delta.
   assert.deepEqual(costModification.effect.amount, { kind: "constant", value: 2 });
 });
 
@@ -60,8 +60,8 @@ test("noxus-hopeful: the Legion gate counts another card finalized this turn, ex
 });
 
 test("noxus-hopeful: the merged history query counts a finalized play", () => {
-  // The ordinary history dimensions are executable. The host-card exclusion
-  // remains a judge-required consumer gap and is covered by the TODO below.
+  // The ordinary history dimensions and the reference kernel's exclusion path
+  // are executable. Production static-condition consumption remains the gap.
   const kernel = world().unit("other-card", { owner: "A" }).build();
   kernel.perform({ type: "play", object: kernel.ref("other-card"), player: "A" });
   const counted = runAbilityBody([{
@@ -77,10 +77,10 @@ test("noxus-hopeful: the merged history query counts a finalized play", () => {
 });
 
 test.todo(
-  "noxus-hopeful: Legion expansion (812.1.b.1) and the history query's card-exclusion dimension " +
-    "(contract 3.8 exclude/objectFilter) need the HistoryQuery consumer and RIFT-257 CardProgram binding"
+  "noxus-hopeful: consume HistoryQuery.exclude/objectFilter from a production ResolveContext " +
+    "when evaluating the Legion static condition (CR 812.1.c)"
 );
 test.todo(
-  "noxus-hopeful: applying the 2-Energy discount through the cost system needs the cost.modify consumer " +
-    "over card programs (RIFT-261 / RIFT-89)"
+  "noxus-hopeful: collect static cost.modify into the CostPlan discount stage " +
+    "while preserving the printed 2-Energy reduction (CR 356.4)"
 );

@@ -34,7 +34,8 @@ const pakaaCub = {
     "811.1.c 的 Hide Discretionary Action" +
     "（支付 [A]、按己方战场面朝下放置、811.1.b 的下一回合起 [Reaction] + 忽略基础费打出）尚未接线；" +
     "契约 ZoneId（effects/contract.ts）也没有面朝下区域，811.1.d.1–d.3 的落点与目标限制无处表达。" +
-    "缺少的是 Hide 动作/面朝下区域接线与 RIFT-257 CardProgram 关键词绑定，不属于本卡的 write scope；不近似实现。",
+    "缺少的是 Hide 动作与面朝下区域的接线；Hidden 关键词程序绑定已经合入，但 811.1.c 的 Hide " +
+    "流程与 811.1.d.1–d.3 的来源战场限制仍没有可执行消费方。不近似实现。",
   abilities: [{ kind: "keyword", keyword: "hidden" }],
   sourceText:
     "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)"
