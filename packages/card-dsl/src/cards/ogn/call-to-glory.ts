@@ -94,7 +94,8 @@ const callToGlory = {
           targets: [
             {
               id: "call-to-glory.unit",
-              filter: { types: "unit" },
+              // 355.9.a.1: "a unit" means a unit on the Board.
+              filter: { types: "unit", zone: "board" },
               min: 1,
               max: 1,
               selection: "one"

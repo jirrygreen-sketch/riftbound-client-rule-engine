@@ -1,3 +1,5 @@
+// Template evidence: ../templates/keyword-play-continuous-might-653.test.mjs.
+// Whole-card scenarios remain blocked by Repeat; existing body goldens remain valid.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -16,7 +18,8 @@ const SOURCE_TEXT =
   "[Repeat] :rb_energy_2: (You may pay the additional cost to repeat this spell's effect.)\n" +
   "Give a unit +2 :rb_might: this turn.";
 
-const [reaction, play] = program.abilities;
+const reaction = program.abilities.find(ability => ability.keyword === "reaction");
+const play = program.abilities.find(ability => ability.kind === "play");
 const [might] = play.body;
 const targetSpec = might.targets[0];
 
@@ -44,9 +47,10 @@ test("sfd-034-221 Feral Strength: judgeReason names the Might primitive and the 
 });
 
 test("sfd-034-221 Feral Strength: [Reaction] keyword plus the printed [Repeat] additional cost", () => {
-  assert.equal(program.abilities.length, 2);
+  assert.equal(program.abilities.length, 3);
   // 813: speed keyword (pure permission; the registry owns the expansion).
   assert.deepEqual(reaction, { kind: "keyword", keyword: "reaction" });
+  assert.deepEqual(program.abilities[1], { kind: "keyword", keyword: "repeat" });
   assert.equal(reaction.value, undefined);
 
   assert.equal(play.kind, "play");
