@@ -42,10 +42,11 @@ test("sfd-122-221 Called Shot: program passes validateCardProgram", () => {
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("sfd-122-221 Called Shot: judgeReason names both gaps and their tasks", () => {
+test("sfd-122-221 Called Shot: judgeReason names both current engine gaps", () => {
   assert.match(program.judgeReason, /effect\.inspect/);
   assert.match(program.judgeReason, /zoneSlice/);
-  assert.match(program.judgeReason, /assertFinalizationSurface|additional-cost|Additional costs/);
+  assert.match(program.judgeReason, /assertFinalizationSurface/);
+  assert.match(program.judgeReason, /additional-cost/);
   assert.match(program.judgeReason, /820\.1\.c|Repeat/);
   assert.ok(!/RIFT-\d+/.test(program.judgeReason));
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));

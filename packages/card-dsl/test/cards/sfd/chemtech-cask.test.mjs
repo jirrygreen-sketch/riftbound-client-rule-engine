@@ -105,6 +105,28 @@ test("sfd-063-221 Chemtech Cask: the declared filter matches the merged matcher 
   );
 });
 
+test("sfd-063-221 Chemtech Cask: an unfulfilled Gold play preserves the gear and creates no substitute token", () => {
+  const kernel = world().player("A")
+    .unit("cask", { types: ["gear"], zone: "board", location: { type: "base", player: "A" } })
+    .build();
+  const bound = kernel.clone({ sourceSnapshot: kernel.getObject("cask") });
+  const before = bound.objects;
+  // Preserve the original Gold subeffect's event and state assertions without
+  // asserting that the definition must remain unsupported.
+  const run = runInstruction(token, {
+    token: { kind: "constant", value: "gold" },
+    amount: { kind: "constant", value: 1 },
+    mode: { kind: "constant", value: "play" },
+    location: { kind: "constant", value: { type: "base", player: "A" } },
+    linkKey: { kind: "constant", value: "goldToken" }
+  }, { world: bound });
+
+  assert.deepEqual(run.result.events, []);
+  assert.deepEqual(bound.objects.filter((object) => object.isToken).map((object) => object.ref.id), []);
+  assert.deepEqual(bound.objects, before);
+  assert.deepEqual(bound.events, []);
+});
+
 test.todo(
   "sfd-063-221 Chemtech Cask: paying \"exhaust me\" as a cost within instructions (CR 204.1.c / 204.3 / 355.10.c.1) " +
     "needs a cost.pay payments shape that accepts declared nonstandard payment arrays (paymentsPlan currently " +

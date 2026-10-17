@@ -119,6 +119,39 @@ test("sfd-201-221 Chem-Baroness: the printed exhaust cost is charged as a real e
   assert.equal(kernel.getObject("chem-baroness").exhausted, true);
 });
 
+test("sfd-201-221 Chem-Baroness: the exhaust cost is charged as a real payment through the merged cost plan", () => {
+  // 415.4/415.5: "exhaust me" is a cost, so it is charged by the cost plan and
+  // not by effect.exhaust. The declared payment really exhausts the legend.
+  const kernel = legendWorld();
+  const plan = buildCostPlan(kernel, {
+    id: "cost:chem-baroness:exhaust",
+    cost: { kind: "activated", payments: [{ kind: "exhaust", object: "self" }] }
+  });
+  assert.deepEqual(plan.total.actions.map((entry) => entry.action.type), ["exhaust"]);
+  const receipt = payCostPlan(kernel, plan);
+  assert.equal(receipt.paid, true);
+  assert.equal(kernel.getObject("chem-baroness").exhausted, true);
+});
+
+test("sfd-201-221 Chem-Baroness: an unfulfilled Gold play preserves the legend and creates no substitute token", () => {
+  const kernel = legendWorld();
+  const before = kernel.objects;
+  // This is the Gold subeffect alone; it cannot stand in for a successful
+  // optional trigger or claim that the complete card is executable.
+  const run = runInstruction(token, {
+    token: { kind: "constant", value: "gold" },
+    amount: { kind: "constant", value: 1 },
+    mode: { kind: "constant", value: "play" },
+    location: { kind: "constant", value: { type: "base", player: "A" } },
+    linkKey: { kind: "constant", value: "goldToken" }
+  }, { world: kernel });
+
+  assert.deepEqual(run.result.events, []);
+  assert.deepEqual(kernel.objects.filter((object) => object.isToken).map((object) => object.ref.id), []);
+  assert.deepEqual(kernel.objects, before);
+  assert.deepEqual(kernel.events, []);
+});
+
 test("sfd-201-221 Chem-Baroness: 'your Gold [Add] an additional :rb_energy_1:' is a conditional static effect", () => {
   assert.equal(goldBonus.kind, "static");
   // "While your score is within 3 points of the Victory Score": a named

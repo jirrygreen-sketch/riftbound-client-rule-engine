@@ -71,6 +71,9 @@ test("breakneck-mech judgeReason names the current Deflect, Ganking and entry-co
   assert.match(program.judgeReason, /permission\.routes/);
   assert.match(program.judgeReason, /matchesEnterAction/);
   assert.match(program.judgeReason, /tag\/other|tag \/ other/);
+  assert.match(program.judgeReason, /attachProgramLifecycle/);
+  assert.match(program.judgeReason, /createEngineStaticBinder/);
+  assert.ok(!/unmerged KeywordDef|keywords registry is empty/.test(program.judgeReason));
   assert.ok(!/RIFT-257|CardProgram binding|未合入/.test(program.judgeReason));
 });
 

@@ -45,6 +45,8 @@ test("sfd-091-221 Buhru Captain: judgeReason names the choice.mode chain block a
   assert.match(program.judgeReason, /choice\.mode/);
   assert.match(program.judgeReason, /assertFinalizationSurface/);
   assert.match(program.judgeReason, /355\.3/);
+  assert.match(program.judgeReason, /Finalize\/Resolve/);
+  assert.match(program.judgeReason, /validateSurface/);
   assert.ok(!/RIFT-\d+/.test(program.judgeReason));
 });
 

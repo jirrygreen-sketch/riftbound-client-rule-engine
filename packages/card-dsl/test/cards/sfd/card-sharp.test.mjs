@@ -34,6 +34,8 @@ test("sfd-081-221 Card Sharp: judgeReason names the multi-player choice, result 
   assert.match(program.judgeReason, /355\.18/);
   assert.match(program.judgeReason, /party-favors/);
   assert.match(program.judgeReason, /187\.5/);
+  assert.match(program.judgeReason, /多玩家选择协调/);
+  assert.match(program.judgeReason, /逐席位选择结果绑定/);
   assert.ok(!/RIFT-\d+/.test(program.judgeReason));
   assert.match(program.judgeReason, /token/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
@@ -99,6 +101,29 @@ test("sfd-081-221 Card Sharp: 'For each opponent who did' reads the first clause
     kind: "constant",
     value: { type: "base", player: "controller" }
   });
+});
+
+test("sfd-081-221 Card Sharp: an unfulfilled Gold play creates no substitute token or events", () => {
+  const kernel = world().player("A")
+    .unit("sharp", { types: ["unit"], might: 3, location: { type: "base", player: "A" } })
+    .build();
+  const bound = kernel.clone({ sourceSnapshot: kernel.getObject("sharp") });
+  const before = bound.objects;
+  // Exercise the same declared Gold definition without substituting a supported
+  // token. Preserve the receipt and state checks without requiring rejection.
+  const run = runInstruction(token, {
+    token: { kind: "constant", value: "gold" },
+    amount: { kind: "constant", value: 1 },
+    mode: { kind: "constant", value: "play" },
+    location: { kind: "constant", value: { type: "base", player: "A" } },
+    linkKey: { kind: "constant", value: "bonusGoldTokens" }
+  }, { world: bound });
+
+  assert.deepEqual(run.result.events, []);
+  assert.equal(run.linked.bonusGoldTokens.amount, 0);
+  assert.deepEqual(bound.objects.filter((object) => object.isToken).map((object) => object.ref.id), []);
+  assert.deepEqual(bound.objects, before);
+  assert.deepEqual(bound.events, []);
 });
 
 test.todo(
