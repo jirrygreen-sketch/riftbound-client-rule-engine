@@ -29,12 +29,11 @@ import type { CardProgram } from "../../ir/index.js";
  *   { object: "self" } in the target filter (sett-brawler spelling), never a
  *   runtime ObjectRef.
  *
- * Status: judge-required (re-reviewed for RIFT-329). The Hunt half still cannot
- * execute end to end, but the missing piece is no longer the KeywordDef:
+ * Status: judge-required. The Hunt half still cannot execute end to end:
  * effects/keywords/Hunt.ts is merged (823.1.c.1 expansion into a conquer and a
  * hold trigger with effect.xp, 823.1.c.2 default 1, 823.2 summing) and
  * programs/keywords.ts expands it. Registration still fails: the expansion
- * spells its trigger event "conquer"/"hold", while the closed EventPattern
+ * the expansion spells its trigger event "conquer"/"hold", while the closed EventPattern
  * vocabulary (events/trigger-spec.ts EVENT_PATTERN_TYPES, enforced by
  * assertTriggerSpec in EventPipeline.registerTrigger) only accepts
  * "conquered"/"held"/"scored"; registerProgramTriggers therefore throws before
@@ -50,13 +49,13 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Hunt] 的展开已合入（effects/keywords/Hunt.ts：823.1.c.1 的 conquer/hold 两个 effect.xp 触发，823.1.c.2 省略值按 1、823.2 相加，RIFT-265），" +
+    "[Hunt] 的展开已合入（effects/keywords/Hunt.ts：823.1.c.1 的 conquer/hold 两个 effect.xp 触发，823.1.c.2 省略值按 1、823.2 相加），" +
     "programs/keywords.ts 也会展开声明；但注册这步就走不通：展开体写的事件名是 \"conquer\"/\"hold\"，" +
     "而封闭 EventPattern 词汇（events/trigger-spec.ts 的 EVENT_PATTERN_TYPES，EventPipeline.registerTrigger 经 assertTriggerSpec 强制）只接受 \"conquered\"/\"held\"/\"scored\"，" +
     "registerProgramTriggers 会在订阅建立前抛错。即便换成合法拼写，计分波（turn/flow.ts:102）也只带计分玩家与 details.battlefieldId，" +
     "展开体的 { source: \"self\" } 对象过滤器没有可绑定的对象，190.6 的「我征服」归属仍然缺失。" +
     "启动能力一半（Spend 2 XP → [Buff] me）只用已合入的费用管线（xp 付费种类，728/730.2）与 effect.buff（427.1/702.2.a/702.3），" +
-    "golden 用真实费用计划与解释器执行。依赖：Hunt 展开的事件拼写与 EventPattern/计分载荷的来源单位绑定（RIFT-265 后续 + RIFT-257 后续，823.1.c.1）。",
+    "golden 用真实费用计划与解释器执行。依赖：Hunt 展开的事件拼写与 EventPattern/计分载荷的来源单位绑定（823.1.c.1）。",
   abilities: [
     { kind: "keyword", keyword: "hunt" },
     {

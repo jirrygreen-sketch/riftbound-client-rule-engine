@@ -49,11 +49,10 @@ test("unl-140-219 Conscription: program validates and keeps its identity", () =>
   assert.match(program.judgeReason, /356\.4\.f\.1/);
   assert.match(program.judgeReason, /mightLte/);
   assert.match(program.judgeReason, /recall/);
-  // RIFT-329 re-review: the cost-plan wiring is still unmerged and now named
-  // RIFT-261; the Might ceiling keeps failing closed in programs/filters.ts.
-  assert.match(program.judgeReason, /RIFT-261/);
+  // Cost primitives and XP payment are merged; the remaining gap is the
+  // CardProgram-to-Finalize wiring, while the Might ceiling still fails closed.
+  assert.match(program.judgeReason, /RIFT-349/);
   assert.match(program.judgeReason, /translateObjectFilter/);
-  assert.ok(!/RIFT-89/.test(program.judgeReason));
 });
 
 test("unl-140-219 Conscription: the optional 5 XP additional cost is recorded as a cost component", () => {
@@ -185,11 +184,10 @@ test("unl-140-219 Conscription golden: a target that left the Board ignores the 
 });
 
 test("unl-140-219 Conscription golden: the merged cost plan really charges the caller-supplied 5 XP component (356.2.b)", () => {
-  // RIFT-329 re-review: the Finalize-side optional-additional machinery is
-  // merged — a selected optional component with an xp payment builds and pays
-  // through the real plan. What the card still lacks is the wiring that feeds
-  // its declared cost.additional into this input, which is why the reason names
-  // RIFT-261 rather than a missing consumer.
+  // The Finalize-side optional-additional machinery is merged — a selected
+  // optional component with an XP payment builds and pays through the real plan.
+  // The card still lacks the wiring that feeds its declared cost.additional into
+  // this input.
   const kernel = world().player("A", { xp: 7, energy: 5 }).build();
   kernel.addObject({
     ref: { id: "conscription", zoneEntryId: 1 },
@@ -238,13 +236,13 @@ test("unl-140-219 Conscription golden: the merged cost plan really charges the c
 
 test.todo(
   "unl-140-219 Conscription: charge the optional 5 XP additional cost at Finalize and switch the target range " +
-    "when it was paid (CR 356.2.b/356.2.b.1 payment, 356.4.f.1 paid receipt) — needs the card-program cost plan " +
-    "wiring (RIFT-261) and a cost-result binding, which the frozen IR has no expression for (condition.result)"
+    "when it was paid (CR 356.2.b/356.2.b.1 payment, 356.4.f.1 paid receipt) — needs the CardProgram-to-Finalize " +
+    "wiring (RIFT-349 follow-up) and a cost-result binding, which the frozen IR has no expression for (condition.result)"
 );
 
 test.todo(
   "unl-140-219 Conscription: enforce the 'at a battlefield with 3 :rb_might: or less' targeting restriction at " +
-    "Finalize/Resolve (CR 355.9.b, 143.2.a effective Might) once a Might-threshold target predicate is merged (RIFT-81~91/RIFT-90)"
+    "Finalize/Resolve (CR 355.9.b, 143.2.a effective Might) once a Might-threshold target predicate is merged (condition predicate task)"
 );
 
 test.todo(

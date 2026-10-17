@@ -29,11 +29,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   "recall" 为 BLOCKED：封闭 move-location 动作无法区分 Recall 与 Move，原语
  *   返回 negated/impossible 与 blockedReason，且不得用普通移动近似（458）。
  *
- * status: judge-required（RIFT-329 复核；缺口不近似实现）:
- * - 可选追加费用与「已付/未付」分支仍没有已合入路径：cost 计划只消费调用方传入的
- *   optionalAdditional（RIFT-261 未合入 buildCostPlan 的卡牌接线），
- *   instructions/ 下没有 cost.additional / cost.pay 文件；356.4.f.1 的费用回执
- *   在冻结 IR 中没有绑定，两个目标范围的分支无法开闸。
+ * status: judge-required（按当前 HEAD 复核；缺口不近似实现）:
+ * - 可选追加费用与「已付/未付」分支仍没有 CardProgram→Finalize 接线：cost.additional / cost.pay
+ *   原语和 XP 费用计划已经合入，但 programs/play.ts 仍拒绝 additional-cost，静态 cost.additional
+ *   也没有映射到调用方的 optionalAdditional 与支付回执，两个目标范围的分支无法开闸。
  * - 「3 :rb_might: or less」仍没有 Might 阈值谓词（143.2.a 的有效 Might）：
  *   programs/filters.ts 的 translateObjectFilter 对 mightLte 这样的未知键直接抛
  *   judge-required（不是静默忽略），layers/filter.ts 与测试内核也不支持该键；
@@ -42,13 +41,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   negated/impossible 并带 blockedReason，不得用普通移动近似。
  * 已合入的 control + exhaust 半段在 golden 中用真实解释器与测试内核执行。
  *
- * 依赖：RIFT-261（费用计划/追加费用与回执）、Might 阈值谓词、Recall 独立动作（RIFT-109 后续）。
+ * 依赖：RIFT-349 后续（卡牌追加费用与回执绑定）、Might 阈值条件谓词与 Recall 独立动作。
  * 无契约变更请求。
  */
 const abilities: Ability[] = [
   {
     // 356.2.b / 356.2.b.1：由被动能力规定的可选追加费用「支付 5 XP」。
-    // 可选性与舞台按费用计划的 optional-additional 形状声明（RIFT-89 接管）。
+    // 可选性与舞台按费用计划的 optional-additional 形状声明；卡牌接线缺口见 judgeReason。
     kind: "static",
     effect: {
       kind: "cost.additional",
@@ -127,15 +126,15 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "三处缺口：(1)「You may spend 5 XP as an additional cost to play this.」是可选的追加费用（356.2.b/356.2.b.1），" +
-    "但成本计划仍只消费调用方传入的 optionalAdditional，没有把卡牌程序声明的 CostSpec 接进 cost/ 计划的入口，" +
-    "instructions/ 下也没有 cost.additional / cost.pay 文件（RIFT-261）；「If you paid the additional cost … instead」按 356.4.f.1 以" +
+    "但 programs/play.ts 尚未把卡牌程序的 cost.additional 声明接入 optionalAdditional 与支付回执；cost.additional / cost.pay 原语和 XP 费用计划已经合入，" +
+    "而「If you paid the additional cost … instead」按 356.4.f.1 以" +
     "「玩家决定支付」为凭证切换目标范围，冻结 IR 没有费用结果绑定（调研记为 condition.result），两个范围的分支无法开闸。" +
     "(2)「with 3 :rb_might: or less」是当前 Might 的数值上限（143.2.a 有效 Might）：冻结 ObjectFilter 与已合入过滤器都没有 Might 谓词，" +
     "programs/filters.ts 的 translateObjectFilter 对 mightLte 直接抛 judge-required（fail-closed，不会静默忽略），本卡因此无法完成最终绑定。" +
     "(3)「recall it」不可执行：effect.move 的 mode \"recall\" 被原语显式阻断（CR 457–460：Recall 不是 Move，不发 Move 触发、" +
     "不受移动限制、保留状态），调用会返回 negated/impossible 并给出 blockedReason，不得用 move-location 近似（458）。" +
     "已合入的 effect.control（take-control）与 effect.exhaust 半段按 355.10.c 的同一指代链接书写，并在 golden 中真实执行。" +
-    "依赖：RIFT-261（费用计划/追加费用与回执）、Might 阈值谓词、Recall 独立动作（RIFT-109 后续）。",
+    "依赖：RIFT-349 后续（追加费用与回执绑定）、Might 阈值条件谓词与 Recall 独立动作。",
   abilities,
   sourceText:
     "You may spend 5 XP as an additional cost to play this.\n" +

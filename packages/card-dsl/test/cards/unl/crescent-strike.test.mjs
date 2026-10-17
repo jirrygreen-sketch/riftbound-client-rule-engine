@@ -224,10 +224,10 @@ test("unl-072-219 Crescent Strike golden: the printed 'other enemy unit there' s
 
 test.todo(
   "unl-072-219 Crescent Strike: '1 to each other enemy unit there' needs the non-target set form of effect.damage " +
-    "(CR 355.10.d, RIFT-9 target.query) — writing the set as a TargetSpec would fire became-target"
+  "(CR 355.10.d) — writing the set as a TargetSpec would fire became-target"
 );
 
 test.todo(
   "unl-072-219 Crescent Strike: the battlefield/unit group choice and the 'there' relation re-check at Finalize/Resolve " +
-    "(CR 355.11, RIFT-90 TargetPlan)"
+  "(CR 355.11; relative location/condition selector work tracked by RIFT-357/RIFT-359)"
 );

@@ -19,16 +19,14 @@ import type { CardProgram } from "../../ir/index.js";
  *   它替换第一句的数额而不是叠加，两条分支共用同一个被选单位（“it”，355.10.c.1）。
  * - XP 门槛条件按已合入 ogn/kadregrin-the-infernal、unl/wuju-master 的写法声明（count + XP 主体）。
  *
- * status = judge-required（缺口不近似实现）：
- * - 临时 Might 修改没有卡牌侧入口：契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，
- *   effects/instructions/ 也没有任何注册 continuous.might 的原语（layers 引擎能求值 arithmetic 层
- *   与 end-of-turn 期限，但没有把结算中的持续效果经 ResolveContext.addContinuous 落地的指令；
- *   同 ogn/back-to-back / ogn/punch-first / sfd/frigid-touch 的缺口，依赖 RIFT-83/84 一族的图层原语）。
+ * status = judge-required（按当前 HEAD 复核；缺口不近似实现）：
+ * - 临时 Might 修改已经由 continuous.might（RIFT-258）通过 ResolveContext.addContinuous
+ *   注册 arithmetic 层并在 this-turn 到期；本卡的两条分支都使用该合入原语。
  * - Level 的 XP 门槛没有可求值谓词：824.1.c/824.1.d 需要读取控制者 XP 的动态评估，
  *   合并 Condition 只能按 count 表达式保留形状，XP 读数未进入 Expr/谓词（unl/wuju-master 同一缺口，
- *   依赖 kw-level 的展开与 RIFT-87/90 的条件管线）。
+ *   依赖 Level 谓词与条件求值接线（当前属于条件谓词缺口）。
  * - 两处都不近似实现：不把 +1/+3 Might 写成 Buff 计数，也不把 Level 分支写成无条件叠加。
- * 本卡没有可独立执行的正文指令，golden 只做校验、结构断言与缺口 todo。
+ * +1 分支本身可通过解释器真实执行；整卡仍因 Level 的动态 XP 门控与“instead”互斥语义保持 judge-required。
  */
 const levelSixCondition = {
   kind: "compare",
@@ -42,14 +40,12 @@ const combatExperience = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处依赖未合入，均不近似实现：(1)「Give a unit +1 :rb_might: this turn」（143.2.a 的有效 Might、" +
-    "317.2.c 的 this-turn 到期）是临时 Might 修改，属算术图层而不是 Buff 计数（CR 702；effect.buff 文件头明确），" +
-    "但 effects/instructions/ 没有任何已注册原语（如 continuous.might）能通过 ResolveContext.addContinuous 注册它，" +
-    "契约 3.6 的封闭 GameAction 集合也没有 Might 修改动作（同 back-to-back / punch-first / frigid-touch 的缺口）。" +
-    "(2)「[Level 6][>] … instead」（824.1.a/824.1.b.1）需要按控制者 XP 动态 Active/Inactive 的依赖能力门控" +
-    "（824.1.c/824.1.d），合并 Condition 只能保留 count 形状，XP 读数未进入 Expr/谓词（unl/wuju-master 同一缺口，" +
-    "依赖 kw-level 展开与 RIFT-87/90）。(3) “instead” 的第二支与第一支共用同一被选单位（355.10.c.1 的 it），" +
-    "两支的替换关系需要 Level 门控落地后才能求值。不把 +1/+3 Might 写成 Buff 计数，也不把 Level 分支写成无条件叠加。",
+    "两处依赖未合入，均不近似实现：(1) [Level 6][>]（824.1.a/824.1.b.1）需要按控制者 XP 动态 " +
+    "Active/Inactive 的依赖能力门控（824.1.c/824.1.d）；合并的 Level KeywordDef 只发布 " +
+    "condition.predicate/query=controller-xp，当前条件管线仍没有 XP 读取消费者（条件谓词任务）。" +
+    "(2) “instead” 的第二支与第一支共用同一被选单位（355.10.c.1 的 it），两支替换关系必须在上述门控" +
+    "可求值后才能执行。+1/+3 本体已使用 continuous.might（RIFT-258）真实注册 arithmetic 层并按 this-turn 到期；" +
+    "不把 Might 写成 Buff 计数，也不把 Level 分支写成无条件叠加。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {
@@ -67,7 +63,8 @@ const combatExperience = {
           condition: { kind: "not", condition: levelSixCondition },
           args: {
             amount: { kind: "constant", value: 1 },
-            duration: { kind: "constant", value: "this-turn" }
+            duration: { kind: "constant", value: "this-turn" },
+            objects: { kind: "constant", value: { kind: "target", id: "combat-experience.unit" } }
           },
           targets: [
             {
@@ -87,7 +84,8 @@ const combatExperience = {
           condition: levelSixCondition,
           args: {
             amount: { kind: "constant", value: 3 },
-            duration: { kind: "constant", value: "this-turn" }
+            duration: { kind: "constant", value: "this-turn" },
+            objects: { kind: "constant", value: { kind: "target", id: "combat-experience.unit" } }
           },
           targets: [
             {

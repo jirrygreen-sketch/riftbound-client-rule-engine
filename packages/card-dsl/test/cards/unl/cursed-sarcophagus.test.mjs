@@ -34,7 +34,7 @@ test("unl-148-219 Cursed Sarcophagus: identity, status, judgeReason and verbatim
   // README 第 2 节：judgeReason 必须点名缺哪个语义与依赖任务。
   assert.match(program.judgeReason, /394/);
   assert.match(program.judgeReason, /428\.3\.a/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-349/);
   assert.match(program.judgeReason, /effect\.play/);
 });
 
@@ -173,9 +173,6 @@ test.todo(
 );
 test.todo(
   "Cursed Sarcophagus: 'Play ... (You must pay its costs.)' needs a finalized printed-cost plan from the " +
-    "cost pipeline (CR 420.3) — effect.play never derives printed costs (RIFT-89)"
-);
-test.todo(
-  "Cursed Sarcophagus: register the card-played trigger from the CardProgram into the event pipeline " +
-    "(contract 3.5) — no card-program to TriggerRegistration adapter is merged"
+  "cost pipeline (CR 420.3) — effect.play accepts a finalized plan, while the CardProgram-to-Finalize " +
+  "printed-cost wiring remains a follow-up (RIFT-349)"
 );

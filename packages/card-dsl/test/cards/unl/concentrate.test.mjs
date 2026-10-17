@@ -32,10 +32,9 @@ test("unl-091-219 Concentrate: identity, status, judgeReason and verbatim source
   // RIFT-329 re-review: the cost-discount consumer and the XP predicate are
   // still missing, and the dependency now names RIFT-261 (the cost.pay /
   // cost.modify workstream) instead of the historical RIFT-89 label.
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-349/);
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /824\.1/);
-  assert.ok(!/RIFT-89/.test(program.judgeReason));
 });
 
 test("unl-091-219 Concentrate: the two [Level] cost reductions are recorded as static cost.modify shapes", () => {
@@ -55,10 +54,10 @@ test("unl-091-219 Concentrate: the two [Level] cost reductions are recorded as s
       amount: { kind: "constant", value: amount }
     });
     // 824.1.b.1 / 824.1.c: the Level gate is the controller's XP threshold.
-    assert.equal(ability.condition.kind, "compare");
-    assert.equal(ability.condition.operator, "gte");
-    assert.equal(ability.condition.left.subject, "controller-xp");
-    assert.deepEqual(ability.condition.right, { kind: "constant", value: threshold });
+    assert.deepEqual(ability.condition, {
+      kind: "expression",
+      value: { kind: "constant", value: `level-active:${threshold}` }
+    });
   }
 });
 
@@ -130,12 +129,11 @@ test("unl-091-219 Concentrate golden: the merged cost plan really applies a call
 });
 
 test.todo(
-  "unl-091-219 Concentrate: apply the printed Energy cost discount in the Finalize cost plan (CR 356.4) — " +
-    "cost/plan-values.ts readCost blocks card-declared discounts and instructions/ has no cost.modify / " +
-    "cost.pay file; only a caller-supplied CostPlanInput.discounts applies them (RIFT-261)"
+  "unl-091-219 Concentrate: bind the static cost.modify declarations into the Finalize cost plan (CR 356.4) — " +
+    "programs/statics.ts has no cost-plan mapping for card static effects (RIFT-349 follow-up)"
 );
 
 test.todo(
   "unl-091-219 Concentrate: evaluate the [Level 6]/[Level 11] XP thresholds and pick exactly one 'instead' discount " +
-    "(CR 824.1.b.1 / 824.1.c) — the Level predicate has no consumer and PlayerSnapshot.xp has no Expr path"
+    "(CR 824.1.b.1 / 824.1.c) — the level-active/controller-xp predicate still has no condition consumer"
 );

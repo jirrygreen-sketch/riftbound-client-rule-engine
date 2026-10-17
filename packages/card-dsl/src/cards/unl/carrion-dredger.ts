@@ -18,17 +18,17 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 809.1.b.3：token 上的 [Deflect] 省略数值 → 视为 1；Deflect 是 token 的印刷特征（187.7），
  *   不是由本效果另行授予的关键词。
  *
- * status = judge-required（缺口不近似实现）：
+ * status = judge-required（缺口不近似实现；按当前 HEAD 复核）：
  * - effect.token 的冻结 DEFINITIONS 表只有 recruit/sand-soldier/mech/reflection/tentacle；187.7 的
  *   Bird 定义（带 Deflect 关键词）缺席，mode \"play\" 会以 blockedReason
  *   \"token-definition-or-abilities-judge-required\" 直接 negated。
  * - “to your base” 的目的地需要把 base 的 player 占位解析成当前控制者：effect.token 只接受
  *   具体 LocationRef { type: \"base\", player: <PlayerId> }，占位 \"controller\" 会被 negated/impossible
  *   （与 machine-evangel、altar-to-unity 记录的同一缺口）。
- * - [Deathknell] 的展开体只引用 trigger.leave 原语，而该 op 没有已合入的 InstructionDef，
- *   卡牌触发也没有注册进事件管线的入口（RIFT-82 / RIFT-257）。
- * 依赖：RIFT-82（deathknell 展开）、effect.token 的定义表扩展（187.7 Bird）与 controller-base 占位解析、
- * RIFT-62 后续（链上创建 + 打出）。不近似实现（不改成 Recruit 等既有定义冒充 Bird + Deflect）。
+ * - Deathknell 的 KeywordDef 已合入并展开为 object-killed + trigger.leave，但 trigger.leave
+ *   仍没有 InstructionDef/生产事件接线，因此死亡效果不能进入真实结算链。
+ * 依赖：effect.token 的定义表扩展（187.7 Bird）、controller-relative base 解析，以及
+ * trigger.leave 的事件/指令接线。不近似实现（不改成 Recruit 等既有定义冒充 Bird + Deflect）。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "deathknell" },
@@ -69,9 +69,9 @@ export default {
     "blocked/judge-required，mode \\\"play\\\" 会以 token-definition-or-abilities-judge-required 直接 negated。" +
     "(2) “to your base” 的 player 占位需要解析成当前控制者（440.4），已合入的 effect.token 只接受具体 LocationRef，" +
     "player: \\\"controller\\\" 占位会 negated/impossible（machine-evangel / altar-to-unity 记录同一缺口）。" +
-    "(3) [Deathknell]（808.1）的展开体只引用 trigger.leave，该 op 没有已合入的 InstructionDef，" +
-    "卡牌触发注册进事件管线的入口也不存在。依赖：RIFT-82、effect.token 的定义表扩展（187.7 Bird）与 controller-base 占位解析、" +
-    "RIFT-62 后续（链上创建 + 打出交接）。不近似实现（不用 Recruit 等既有定义冒充 Bird + Deflect）。",
+    "(3) [Deathknell] 的 KeywordDef 已合入并展开为 object-killed + trigger.leave，但 trigger.leave " +
+    "仍没有 InstructionDef/生产事件接线，死亡效果不能进入真实结算链。依赖：effect.token 的定义表扩展（187.7 Bird）、" +
+    "controller-relative base 解析与 trigger.leave 接线。不近似实现（不用 Recruit 等既有定义冒充 Bird + Deflect）。",
   abilities,
   sourceText:
     "[Deathknell][>] Play a 1 :rb_might: Bird unit token with [Deflect] to your base. " +
