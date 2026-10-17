@@ -36,8 +36,10 @@ import {
   type RoomPlayer,
   type RoomSnapshot,
   type RoomView,
+  type ServerToClientMessage,
   type ServerTransport
 } from "@riftbound/protocol";
+import type { V2Command, V2CommandReceipt, V2Projection } from "../../../packages/protocol/dist/v2/index.js";
 import {
   RoomChatError,
   RoomChatLedger,
@@ -56,8 +58,12 @@ import type { DuelCommandArchiveP4 } from "./duel/command-journal-p4.js";
 import { DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT, DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_CLOCK,
   DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_PHYSICAL_CHAIN,
   DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_RESOLVED_HISTORY } from "./duel/authoritative-runtime-p4.js";
+import { createEngineRuntime, type EngineRuntime, type EngineRuntimeDeck } from "./engine-runtime/index.js";
+import type { RuntimeJournal } from "./engine-runtime/journal.js";
+import type { Domain } from "../../../packages/engine-core/dist/effects/contract.js";
 
 export type DuelRoomProfile = "v1" | "p4";
+export type DuelRuntimeMode = "legacy-p4" | "engine-v2";
 export type DuelOptionalRoomRuntimeProfile = typeof DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT | typeof DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_CLOCK | typeof DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_PHYSICAL_CHAIN | typeof DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_RESOLVED_HISTORY;
 
 export interface RoomConnection {
@@ -108,6 +114,10 @@ export interface RoomArchive {
   readonly roomChat?: { readonly messages: readonly RoomChatMessage[] };
   /** Current private journal. No legacy profile or serialized capability is persisted. */
   readonly journal?: Journal | null;
+  /** Protocol v2 engine-runtime journal. It is mutually exclusive with journal. */
+  readonly engineRuntimeJournal?: RuntimeJournal | null;
+  /** Runtime owner selected at room creation. Missing means the legacy API default. */
+  readonly runtimeMode?: DuelRuntimeMode;
   /** @deprecated Historical replay only; current rooms reject this shape. */
   readonly duelSession?: ReturnType<typeof exportDuelSessionArchive> | null;
   /** @deprecated Historical archive fields; current execution never reads them. */
@@ -135,6 +145,7 @@ export class GameRoom {
   private readonly seats = new Map<PlayerId, Seat>();
   private state: GameState | null = null;
   private duelRuntime: CurrentDuelRuntime | null = null;
+  private engineRuntime: EngineRuntime | null = null;
   private storageDirectory?: string;
   private roomVersion = 1;
   private roomEventSeq = 0;
@@ -150,7 +161,8 @@ export class GameRoom {
     duelProfile: DuelRoomProfile = "v1",
     readonly constructedRegion?: ConstructedRegionContext,
     /** @deprecated Accepted for source compatibility; never selects an executor. */
-    duelRuntimeProfile?: DuelOptionalRoomRuntimeProfile
+    duelRuntimeProfile?: DuelOptionalRoomRuntimeProfile,
+    readonly runtimeMode: DuelRuntimeMode = "legacy-p4"
   ) {
     if (rulesetId !== RULESET_ID && rulesetId !== FOUNDATION_RULESET_ID &&
         rulesetId !== DUEL_RULESET_ID) {
@@ -160,6 +172,7 @@ export class GameRoom {
       );
     }
     if (duelProfile !== "v1" && duelProfile !== "p4") throw new TypeError("Invalid duel room profile");
+    if (runtimeMode !== "legacy-p4" && runtimeMode !== "engine-v2") throw new TypeError("Invalid duel runtime mode");
     if (duelRuntimeProfile !== undefined && ![
       DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT, DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_CLOCK,
       DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_PHYSICAL_CHAIN, DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_RESOLVED_HISTORY
@@ -176,8 +189,9 @@ export class GameRoom {
     return this.seats.size >= 2;
   }
 
-  private get hasGame(): boolean { return Boolean(this.state || this.duelRuntime); }
+  private get hasGame(): boolean { return Boolean(this.state || this.duelRuntime || this.engineRuntime); }
   private get duelMatch() { return this.duelRuntime?.project(null).match ?? null; }
+  private get engineProjection() { return this.engineRuntime?.projectFor(null) ?? null; }
 
   private validateDeckForRoom(deck: RoomDeckSubmission) {
     if (!this.catalog) throw new TypeError("card catalog required");
@@ -194,6 +208,93 @@ export class GameRoom {
       roster: [rosterSeat(seats[0]!), rosterSeat(seats[1]!)] };
   }
 
+  private engineRuntimeOptions(seats: readonly Seat[] = [...this.seats.values()]) {
+    if (!this.catalog || seats.length !== 2 || seats.some(seat => !seat.ready || !seat.deck)) {
+      throw new RoomError("对局缺少已确认的双方牌组", "invalid-deck");
+    }
+    const catalog = this.constructedRegion ? catalogForConstructedRegion(this.catalog, this.constructedRegion) : this.catalog;
+    const runtimeSeats = seats.map((seat, index) => ({ playerId: index === 0 ? "A" : "B", name: seat.name }));
+    const decks = seats.map(seat => this.engineDeck(seat, catalog)) as [EngineRuntimeDeck, EngineRuntimeDeck];
+    return {
+      matchId: `duel:${this.roomId}`,
+      roomId: this.roomId,
+      seats: runtimeSeats as [{ playerId: string; name: string }, { playerId: string; name: string }],
+      decks,
+      seed: this.roomId,
+      catalogDigest: catalog.publicCatalog.digest,
+    } as const;
+  }
+
+  private engineDeck(seat: Seat, catalog: CardCatalogRuntime): EngineRuntimeDeck {
+    const deck = seat.deck!;
+    const cards = new Map(catalog.publicCatalog.cards.map(card => [card.id, card]));
+    const domains = new Set(["Fury", "Calm", "Mind", "Body", "Chaos", "Order"]);
+    const toCard = (cardId: string, id: string) => {
+      const card = cards.get(cardId);
+      if (!card) throw new RoomError(`Unknown card ${cardId}`, "invalid-deck");
+      return {
+        id,
+        cardId: card.canonicalCardId,
+        name: card.name,
+        types: [card.cardType.toLowerCase()],
+        energy: card.energy,
+        might: card.might,
+        power: card.domains.filter(domain => domains.has(domain)) as Domain[],
+      };
+    };
+    const expand = (zone: keyof RoomDeckSubmission, required = false) => {
+      const entries = deck[zone] ?? [];
+      const result = entries.flatMap(entry => Array.from({ length: entry.quantity }, (_, index) =>
+        toCard(entry.cardId, `${seat.id}:${zone}:${index}:${entry.cardId}`)));
+      if (required && result.length === 0) throw new RoomError(`Deck zone ${zone} is empty`, "invalid-deck");
+      return result;
+    };
+    const legend = expand("legend", true);
+    const champion = expand("champion", true);
+    const battlefields = expand("battlefields", true);
+    if (legend.length !== 1 || champion.length !== 1 || battlefields.length !== 3) {
+      throw new RoomError("Engine v2 requires one legend, one champion and three battlefields", "invalid-deck");
+    }
+    return {
+      mainDeck: expand("mainDeck", true),
+      runeDeck: expand("runes", true),
+      championLegend: legend[0]!,
+      chosenChampion: champion[0]!,
+      battlefields: battlefields as [typeof battlefields[0], typeof battlefields[0], typeof battlefields[0]],
+    };
+  }
+
+  private enginePlayerId(playerId: PlayerId): "A" | "B" {
+    if (playerId === "player-1") return "A";
+    if (playerId === "player-2") return "B";
+    throw new RoomError("Invalid player session", "invalid-token");
+  }
+
+  private publicEngineProjection(projection: V2Projection): V2Projection {
+    const mapPlayer = (id: string | null): string | null => id === null ? null : id === "A" ? "player-1" : id === "B" ? "player-2" : id;
+    const mapEventValue = (value: unknown): unknown => {
+      if (value === "A") return "player-1";
+      if (value === "B") return "player-2";
+      if (Array.isArray(value)) return value.map(mapEventValue);
+      if (value !== null && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, nested]) => [key, mapEventValue(nested)]));
+      return value;
+    };
+    return {
+      ...projection,
+      viewerPlayerId: mapPlayer(projection.viewerPlayerId),
+      activePlayerId: mapPlayer(projection.activePlayerId)!,
+      winnerPlayerId: mapPlayer(projection.winnerPlayerId),
+      players: projection.players.map(player => ({ ...player, playerId: mapPlayer(player.playerId)! })),
+      zones: projection.zones.map(zone => ({ ...zone, ownerPlayerId: mapPlayer(zone.ownerPlayerId)!, ...(zone.objects ? { objects: zone.objects.map(object => ({ ...object, ownerPlayerId: mapPlayer(object.ownerPlayerId)!, ...(object.controllerPlayerId ? { controllerPlayerId: mapPlayer(object.controllerPlayerId)! } : {}), ...(object.location?.kind === "base" ? { location: { ...object.location, playerId: mapPlayer(object.location.playerId)! } } : {}) })) } : {}) })),
+      objects: projection.objects.map(object => ({ ...object, ownerPlayerId: mapPlayer(object.ownerPlayerId)!, ...(object.controllerPlayerId ? { controllerPlayerId: mapPlayer(object.controllerPlayerId)! } : {}), ...(object.location?.kind === "base" ? { location: { ...object.location, playerId: mapPlayer(object.location.playerId)! } } : {}) })),
+      chain: { ...projection.chain, priorityPlayerId: mapPlayer(projection.chain.priorityPlayerId), focusPlayerId: mapPlayer(projection.chain.focusPlayerId), items: projection.chain.items.map(item => ({ ...item, controllerPlayerId: mapPlayer(item.controllerPlayerId)! })) },
+      priority: { ...projection.priority, playerId: mapPlayer(projection.priority.playerId), focusPlayerId: mapPlayer(projection.priority.focusPlayerId) },
+      scoring: { ...projection.scoring, players: projection.scoring.players.map(player => ({ ...player, playerId: mapPlayer(player.playerId)! })) },
+      pendingChoice: projection.pendingChoice.status === "pending" ? { ...projection.pendingChoice, ownerPlayerId: mapPlayer(projection.pendingChoice.ownerPlayerId)! } : projection.pendingChoice,
+      events: projection.events.map(event => mapEventValue(event) as typeof event),
+    };
+  }
+
   exportArchive(): RoomArchive {
     return structuredClone({
       schemaVersion: 1,
@@ -202,7 +303,12 @@ export class GameRoom {
       ...(this.constructedRegion ? {constructedRegion:this.constructedRegion} : {}),
       seats: [...this.seats.values()],
       state: this.state,
-      ...(this.rulesetId === DUEL_RULESET_ID ? { journal: this.duelRuntime?.exportJournal() ?? null } : {}),
+      ...(this.rulesetId === DUEL_RULESET_ID && this.runtimeMode === "legacy-p4"
+        ? { journal: this.duelRuntime?.exportJournal() ?? null }
+        : {}),
+      ...(this.rulesetId === DUEL_RULESET_ID && this.runtimeMode === "engine-v2"
+        ? { runtimeMode: this.runtimeMode, engineRuntimeJournal: this.engineRuntime?.journal() ?? null }
+        : {}),
       roomVersion: this.roomVersion,
       roomEventSeq: this.roomEventSeq,
       roomEventLog: this.roomEventLog,
@@ -292,21 +398,27 @@ export class GameRoom {
       throw new Error("Room archive contains an invalid processed room request");
     }
     if (roomArchive.rulesetId === DUEL_RULESET_ID) {
+      const runtimeMode = roomArchive.runtimeMode ?? "legacy-p4";
+      if (runtimeMode !== "legacy-p4" && runtimeMode !== "engine-v2") throw new TypeError("Invalid duel runtime mode");
       const duel = roomArchive.journal;
-      if (roomArchive.seats.length < 1 ||
+      const engineJournal = roomArchive.engineRuntimeJournal;
+      if (runtimeMode === "legacy-p4" && engineJournal !== undefined ||
+          runtimeMode === "engine-v2" && roomArchive.journal !== undefined ||
+          roomArchive.seats.length < 1 ||
           roomArchive.state !== null || !catalog ||
           roomArchive.roomEventLog[0]?.type !== "room-created" ||
           roomArchive.roomEventLog.filter(event => event.type === "player-joined").length !==
             roomArchive.seats.length ||
           roomArchive.roomEventLog.some(event => event.type === "player-ready" &&
             !expectedSeatIds.includes(event.playerId)) ||
-          duel === undefined || (duel !== null && !isJournal(duel)) ||
+          (runtimeMode === "legacy-p4" && (duel === undefined || (duel !== null && !isJournal(duel)))) ||
+          (runtimeMode === "engine-v2" && engineJournal === undefined) ||
           roomArchive.processedCommands.length !== 0 ||
           roomArchive.roomEventLog.filter(event => event.type === "game-started").length !==
-            (duel === null ? 0 : 1) ||
-          (duel === null && roomArchive.seats.length === 2 &&
+            ((runtimeMode === "legacy-p4" ? duel : engineJournal) === null ? 0 : 1) ||
+          ((runtimeMode === "legacy-p4" ? duel : engineJournal) === null && roomArchive.seats.length === 2 &&
             roomArchive.seats.every(seat => seat.ready && seat.deck !== null)) ||
-          (duel !== null && (roomArchive.seats.length !== 2 ||
+          ((runtimeMode === "legacy-p4" ? duel : engineJournal) !== null && (roomArchive.seats.length !== 2 ||
             roomArchive.seats.some(seat => !seat.ready || !seat.deck))) ||
           roomArchive.seats.some(seat => seat.ready && seat.deck === null) ||
           roomArchive.seats.some(seat => seat.deck !== null && (
@@ -314,7 +426,7 @@ export class GameRoom {
             !(roomArchive.constructedRegion ? validateRegionalCatalogDeck(catalog,seat.deck,roomArchive.constructedRegion) : validateCatalogDeck(catalog,seat.deck)).valid))) {
         throw new Error("Invalid duel room archive and trusted seats");
       }
-    } else if (roomArchive.journal !== undefined) {
+    } else if (roomArchive.journal !== undefined || roomArchive.engineRuntimeJournal !== undefined || roomArchive.runtimeMode !== undefined) {
       throw new Error("Non-duel archive contains duel session");
     }
     if (roomArchive.state !== null) {
@@ -333,7 +445,7 @@ export class GameRoom {
       }
     }
     const room = new GameRoom(roomArchive.roomId, roomArchive.rulesetId, catalog, undefined,
-      undefined, roomArchive.constructedRegion);
+      undefined, roomArchive.constructedRegion, undefined, roomArchive.runtimeMode ?? "legacy-p4");
     room.restoreArchive(roomArchive);
     return room;
   }
@@ -360,7 +472,8 @@ export class GameRoom {
       throw new TypeError("Invalid private duel archive: historical metadata cannot select the current executor");
     }
     const duel = copy.journal;
-    if (this.rulesetId === DUEL_RULESET_ID &&
+    const engineJournal = copy.engineRuntimeJournal;
+    if (this.rulesetId === DUEL_RULESET_ID && this.runtimeMode === "legacy-p4" &&
         (!this.catalog || copy.state !== null ||
           duel === undefined || (duel !== null && !isJournal(duel)) ||
           copy.processedCommands.length !== 0 ||
@@ -371,17 +484,25 @@ export class GameRoom {
             copy.seats.some(seat => !seat.ready || !seat.deck))))) {
       throw new Error("Invalid private duel archive");
     }
-    if (this.rulesetId !== DUEL_RULESET_ID && copy.journal !== undefined) {
+    if (this.rulesetId === DUEL_RULESET_ID && this.runtimeMode === "engine-v2" &&
+        (copy.journal !== undefined || engineJournal === undefined)) {
+      throw new Error("Invalid engine runtime archive");
+    }
+    if (this.rulesetId !== DUEL_RULESET_ID && (copy.journal !== undefined || copy.engineRuntimeJournal !== undefined)) {
       throw new Error("Unexpected duel session in legacy archive");
     }
     // An acknowledged CAS head is authoritative even if the room metadata save failed.
     // Reopening the server loads that protected head; it must never be rolled back here.
-    const validatedRuntime = duel ? CurrentDuelRuntime.restore(this.runtimeOptions(copy.seats), duel) : null;
+    const validatedRuntime = this.runtimeMode === "legacy-p4" && duel
+      ? CurrentDuelRuntime.restore(this.runtimeOptions(copy.seats), duel) : null;
+    const validatedEngineRuntime = this.runtimeMode === "engine-v2" && engineJournal
+      ? createEngineRuntime(this.engineRuntimeOptions(copy.seats)).restore(engineJournal) : null;
     const restoredRuntime = this.duelRuntime?.isDurable ? this.duelRuntime : validatedRuntime;
     this.seats.clear();
     for (const seat of copy.seats) this.seats.set(seat.id, seat);
     this.state = copy.state;
     this.duelRuntime = restoredRuntime;
+    this.engineRuntime = validatedEngineRuntime;
     this.roomVersion = copy.roomVersion;
     this.roomEventSeq = copy.roomEventSeq;
     this.roomEventLog.splice(0, this.roomEventLog.length, ...copy.roomEventLog);
@@ -427,8 +548,10 @@ export class GameRoom {
 
   get status(): RoomView["status"] {
     const duel = this.duelMatch;
+    const engine = this.engineProjection;
     if (this.state?.phase === "ended" ||
-        (duel?.stage === "playing" && duel.frame.phase === "ended")) return "ended";
+        (duel?.stage === "playing" && duel.frame.phase === "ended") ||
+        engine?.phase === "ended") return "ended";
     if (this.hasGame) return "playing";
     return "waiting";
   }
@@ -471,7 +594,14 @@ export class GameRoom {
       throw new RoomError("Game already started", "command-rejected");
     }
 
-    if (this.rulesetId === DUEL_RULESET_ID) {
+    if (this.rulesetId === DUEL_RULESET_ID && this.runtimeMode === "engine-v2") {
+      if (!this.catalog) throw new RoomError("The card catalog is unavailable", "command-rejected");
+      const trustedSeats = [...this.seats.values()];
+      if (trustedSeats.some(seat => !seat.ready || !seat.deck || !this.players.has(seat.id))) {
+        throw new RoomError("Every player must submit a deck and be ready", "invalid-deck");
+      }
+      this.engineRuntime = createEngineRuntime(this.engineRuntimeOptions()).start();
+    } else if (this.rulesetId === DUEL_RULESET_ID) {
       if (!this.catalog) {
         throw new RoomError("The card catalog is unavailable", "command-rejected");
       }
@@ -575,6 +705,15 @@ export class GameRoom {
         projection: this.duelRuntime.project(playerId) });
       return;
     }
+    if (this.engineRuntime) {
+      const message = {
+        type: "projection",
+        protocolVersion: "2.0.0",
+        projection: this.publicEngineProjection(this.engineRuntime.projectFor(this.enginePlayerId(playerId))),
+      } as unknown as ServerToClientMessage;
+      transport(message);
+      return;
+    }
     const projection = this.projectionFor(playerId);
     if (projection) {
       transport({ type: "projection", roomId: this.roomId, projection });
@@ -593,7 +732,7 @@ export class GameRoom {
       roomId: this.roomId,
       status: this.status,
       rulesetId: this.rulesetId,
-      version: this.duelMatch?.stateVersion ?? this.state?.version ?? 0,
+      version: this.duelMatch?.stateVersion ?? this.engineProjection?.stateVersion ?? this.state?.version ?? 0,
       roomVersion: this.roomVersion,
       roomEventSeq: this.roomEventSeq,
       ...(this.constructedRegion ? {constructedRegion:this.constructedRegion} : {}),
@@ -666,7 +805,7 @@ export class GameRoom {
     afterEventSeq: number
   ): void {
     const playerId = this.requireCurrentSession(session, connectionId);
-    if (this.duelMatch) {
+    if (this.duelMatch || this.engineProjection) {
       this.validateGameEventCursor(session, connectionId, afterEventSeq);
       // The Duel event log is not public: a current projection resynchronizes
       // state but does not pretend to replay the missing historical events.
@@ -727,8 +866,8 @@ export class GameRoom {
     afterEventSeq: number
   ): void {
     this.requireCurrentSession(session, connectionId);
-    if (this.duelMatch) {
-      if (afterEventSeq > this.duelMatch.eventSeq) {
+    if (this.duelMatch || this.engineProjection) {
+      if (afterEventSeq > (this.duelMatch?.eventSeq ?? this.engineProjection?.eventSeq ?? 0)) {
         throw new RoomError("Event cursor is ahead of the authoritative clock", "command-rejected");
       }
       return;
@@ -779,7 +918,7 @@ export class GameRoom {
           "command-rejected"
         );
       }
-      if (afterEventSeq > (this.duelMatch?.eventSeq ?? this.state!.eventSeq)) {
+      if (afterEventSeq > (this.duelMatch?.eventSeq ?? this.engineProjection?.eventSeq ?? this.state!.eventSeq)) {
         throw new RoomError(
           "Event cursor is ahead of the authoritative log",
           "command-rejected"
@@ -1135,7 +1274,7 @@ export class GameRoom {
     transport: ServerTransport
   ): void | Promise<void> {
     const playerId = this.requireCurrentSession(session, connectionId);
-    if (this.rulesetId !== DUEL_RULESET_ID) {
+    if (this.rulesetId !== DUEL_RULESET_ID || this.runtimeMode !== "legacy-p4") {
       throw new RoomError("Duel commands require a duel room", "command-rejected");
     }
     if (!this.duelRuntime) throw new RoomError("Game has not started", "command-rejected");
@@ -1160,6 +1299,33 @@ export class GameRoom {
     publish(result);
   }
 
+  /** Submit a protocol-v2 command to the new engine runtime owner. */
+  submitEngineV2(
+    session: ClientSession,
+    connectionId: string,
+    command: V2Command,
+    transport: (message: unknown) => void
+  ): void {
+    const playerId = this.requireCurrentSession(session, connectionId);
+    if (this.rulesetId !== DUEL_RULESET_ID || this.runtimeMode !== "engine-v2" || !this.engineRuntime) {
+      throw new RoomError("Protocol v2 commands require an engine-v2 Duel room", "command-rejected");
+    }
+    const result = this.engineRuntime.submit(this.enginePlayerId(playerId), command);
+    const receipt: V2CommandReceipt = {
+      type: "command-receipt",
+      protocolVersion: "2.0.0",
+      commandId: result.receipt.commandId,
+      stateVersion: result.receipt.stateVersion,
+      eventSeq: result.receipt.eventSeq,
+      accepted: result.receipt.status === "accepted" || result.receipt.status === "duplicate" || result.receipt.status === "pending",
+      duplicate: result.receipt.status === "duplicate",
+      rejection: result.receipt.status === "rejected" ? result.receipt.error ?? "Command rejected" : null,
+    };
+    transport(receipt);
+    this.broadcastProjections();
+    if (this.status === "ended") this.broadcastRoom();
+  }
+
   /** Attach the batch C adapter before accepting commands or resuming a stored room. */
   async enableDurability(directory?: string): Promise<void> {
     if (directory !== undefined) this.storageDirectory = directory;
@@ -1169,11 +1335,13 @@ export class GameRoom {
   async close(): Promise<void> { await this.duelRuntime?.close(); }
 
   get runtimeClock(): { stateVersion: number; eventSeq: number } {
-    return { stateVersion: this.duelRuntime?.stateVersion ?? this.state?.version ?? 0,
-      eventSeq: this.duelRuntime?.eventSeq ?? this.state?.eventSeq ?? 0 };
+    return { stateVersion: this.duelRuntime?.stateVersion ?? this.engineProjection?.stateVersion ?? this.state?.version ?? 0,
+      eventSeq: this.duelRuntime?.eventSeq ?? this.engineProjection?.eventSeq ?? this.state?.eventSeq ?? 0 };
   }
 
-  get currentJournalRevision(): number { return this.duelRuntime?.exportJournal().integrity.revision ?? 0; }
+  get currentJournalRevision(): number {
+    return this.duelRuntime?.exportJournal().integrity.revision ?? this.engineRuntime?.journal().integrity.revision ?? 0;
+  }
 
   private canStart(): boolean {
     return (this.rulesetId === FOUNDATION_RULESET_ID || this.rulesetId === DUEL_RULESET_ID) &&

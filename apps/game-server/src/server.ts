@@ -13,6 +13,7 @@ import {
   RULESET_ID,
   RULESET_IDS,
   PROTOCOL_VERSION,
+  DUEL_COMMAND_PACKET_PROFILE_V3_ACTIONS_1,
   isClientMessage,
   isDuelCommandMessage,
   isDuelCommandMessageV3Actions1,
@@ -22,6 +23,10 @@ import {
   type ServerTransport
 } from "@riftbound/protocol";
 import {
+  PROTOCOL_V2_VERSION,
+  isV2CommandMessage
+} from "../../../packages/protocol/dist/v2/index.js";
+import {
   isManifestImageAvailable,
   loadCardCatalogRuntime,
   normalizeDeckRequest,
@@ -30,7 +35,7 @@ import {
   type CardCatalogRuntime,
 } from "./card-catalog.js";
 import { validateConstructedDeck } from "./constructed-policy.js";
-import { createRoomId, GameRoom, RoomError, type DuelRoomProfile, type DuelOptionalRoomRuntimeProfile } from "./room.js";
+import { createRoomId, GameRoom, RoomError, type DuelRoomProfile, type DuelOptionalRoomRuntimeProfile, type DuelRuntimeMode } from "./room.js";
 import { DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT, DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_CLOCK,
   DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_PHYSICAL_CHAIN, DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_RESOLVED_HISTORY } from "./duel/authoritative-runtime-p4.js";
 import { FileRoomStore } from "./file-room-store.js";
@@ -51,6 +56,8 @@ export interface GameServerOptions {
   duelRoomProfile?: DuelRoomProfile;
   /** @deprecated Parsed for compatibility; does not affect execution or recovery. */
   duelRuntimeProfile?: DuelOptionalRoomRuntimeProfile;
+  /** Explicit rollback switch for protocol-v1 rooms; v2 rooms always use engine-v2. */
+  duelRuntimeMode?: DuelRuntimeMode;
   /** Trusted server entropy adapter for deterministic integration runs. Never read from wire. */
   duelRandomIndex?: (exclusiveUpperBound: number) => number;
 }
@@ -64,6 +71,7 @@ export interface GameServer {
 
 interface SocketContext {
   handshaken: boolean;
+  protocolMode: "v1" | "v2";
   session?: ClientSession;
   connectionId: string;
   queue: Promise<void>;
@@ -94,6 +102,9 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
     throw new TypeError("Invalid optional Unit server execution profile");
   if (options.duelRoomProfile !== undefined || options.duelRuntimeProfile !== undefined) {
     console.warn("[deprecated] duelRoomProfile/duelRuntimeProfile 已忽略；房间统一使用当前 runtime");
+  }
+  if (options.duelRuntimeMode !== undefined && options.duelRuntimeMode !== "legacy-p4" && options.duelRuntimeMode !== "engine-v2") {
+    throw new TypeError("Invalid duel runtime mode");
   }
   const rooms = new Map<string, GameRoom>();
   const contexts = new Set<SocketContext>();
@@ -374,6 +385,7 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
   webSocketServer.on("connection", websocket => {
     const context: SocketContext = {
       handshaken: false,
+      protocolMode: "v1",
       connectionId: randomUUID(),
       queue: Promise.resolve()
     };
@@ -398,7 +410,8 @@ export function createGameServer(options: GameServerOptions = {}): GameServer {
           loadCatalog,
           requireCatalog,
           options.duelRandomIndex,
-          options.storageDirectory
+          options.storageDirectory,
+          options.duelRuntimeMode
         )))
         .catch(error => {
           sendError(send, error);
@@ -529,13 +542,40 @@ async function handleInbound(
   loadCatalog: () => Promise<void>,
   requireCatalog: () => CardCatalogRuntime,
   duelRandomIndex?: (exclusiveUpperBound: number) => number,
-  storageDirectory?: string
+  storageDirectory?: string,
+  duelRuntimeMode?: DuelRuntimeMode
 ): Promise<void> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(String(raw));
   } catch {
     send({ type: "error", code: "protocol-error", message: "Message must be valid JSON" });
+    return;
+  }
+
+  if (isV2CommandMessage(parsed)) {
+    if (!context.handshaken || context.protocolMode !== "v2") {
+      send({ type: "error", code: "protocol-error", message: "Protocol v2 requires a v2 hello handshake" });
+      return;
+    }
+    const session = context.session;
+    if (!session) {
+      send({ type: "error", code: "command-rejected", message: "No room session is attached to this socket" });
+      return;
+    }
+    const room = await requireRoom(roomStore, rooms, session.roomId);
+    await runRoomTransaction(
+      room,
+      context,
+      send,
+      roomStore,
+      transactionSend => room.submitEngineV2(
+        session,
+        context.connectionId,
+        parsed.command,
+        transactionSend as unknown as (message: unknown) => void
+      )
+    );
     return;
   }
 
@@ -566,6 +606,10 @@ async function handleInbound(
         }
 
         const room = await requireRoom(roomStore, rooms, parsed.roomId!);
+        if (room.runtimeMode !== (parsed.protocolVersion === PROTOCOL_V2_VERSION ? "engine-v2" : "legacy-p4") &&
+            room.rulesetId === DUEL_RULESET_ID) {
+          throw new RoomError("The room requires a different protocol/runtime version", "protocol-error");
+        }
         await runRoomTransaction(
           room,
           context,
@@ -597,13 +641,19 @@ async function handleInbound(
         const catalog = rulesetId === FOUNDATION_RULESET_ID || rulesetId === DUEL_RULESET_ID
           ? await loadCatalog().then(() => requireCatalog())
           : null;
+        // Protocol v2 creates an engine-v2 Duel room. A protocol-v1 client
+        // keeps the legacy P4 owner so old clients and journals remain
+        // readable; a v1 client cannot resume an engine-v2 room (the version
+        // check above rejects that mixed session).
         const room = new GameRoom(
           roomId,
           rulesetId,
           catalog ?? undefined,
           duelRandomIndex,
           undefined,
-          parsed.constructedRegion ? bindConstructedRegion(parsed.constructedRegion) : undefined
+          parsed.constructedRegion ? bindConstructedRegion(parsed.constructedRegion) : undefined,
+          undefined,
+          context.protocolMode === "v2" ? "engine-v2" : duelRuntimeMode ?? "legacy-p4"
         );
         await room.enableDurability(storageDirectory);
         if (rooms.has(roomId)) {
@@ -628,7 +678,8 @@ async function handleInbound(
               const session = sessionFor(room, connection);
               context.session = session;
 
-              sendWelcome(transactionSend, session, false);
+              sendWelcome(transactionSend, session, false,
+                context.protocolMode === "v2" ? PROTOCOL_V2_VERSION : PROTOCOL_VERSION);
               transactionSend({ type: "room", room: room.roomView() });
               transactionSend({
                 type: "request-result",
@@ -653,6 +704,10 @@ async function handleInbound(
         }
 
         const room = await requireRoom(roomStore, rooms, parsed.roomId);
+        if (room.runtimeMode !== (context.protocolMode === "v2" ? "engine-v2" : duelRuntimeMode ?? "legacy-p4") &&
+            room.rulesetId === DUEL_RULESET_ID) {
+          throw new RoomError("The room requires a different protocol/runtime version", "protocol-error");
+        }
         await runRoomTransaction(
           room,
           context,
@@ -667,7 +722,8 @@ async function handleInbound(
             const session = sessionFor(room, connection);
             context.session = session;
 
-            sendWelcome(transactionSend, session, false);
+            sendWelcome(transactionSend, session, false,
+              context.protocolMode === "v2" ? PROTOCOL_V2_VERSION : PROTOCOL_VERSION);
             transactionSend({ type: "room", room: room.roomView() });
             transactionSend({
               type: "request-result",
@@ -728,7 +784,10 @@ async function handleInbound(
         }
         const room = await requireRoom(roomStore, rooms, session.roomId);
         await runRoomTransaction(room, context, send, roomStore, transactionSend => {
-          return room.submitDuel(session, context.connectionId, parsed, transactionSend);
+          const packet = context.protocolMode === "v1" && isDuelCommandMessage(parsed)
+            ? { ...parsed, commandProfile: DUEL_COMMAND_PACKET_PROFILE_V3_ACTIONS_1 }
+            : parsed;
+          return room.submitDuel(session, context.connectionId, packet, transactionSend);
         });
         return;
       }
@@ -894,12 +953,13 @@ async function handleHello(
   context: SocketContext,
   send: ServerTransport
 ): Promise<void> {
-  if (inbound.protocolVersion !== PROTOCOL_VERSION) {
+  if (inbound.protocolVersion !== PROTOCOL_VERSION && inbound.protocolVersion !== PROTOCOL_V2_VERSION) {
     throw new RoomError("Unsupported protocol version", "protocol-error");
   }
 
   context.handshaken = true;
-  send({ type: "welcome", protocolVersion: PROTOCOL_VERSION });
+  context.protocolMode = inbound.protocolVersion === PROTOCOL_V2_VERSION ? "v2" : "v1";
+  send({ type: "welcome", protocolVersion: inbound.protocolVersion });
 }
 
 function handleResumeHello(
@@ -908,7 +968,7 @@ function handleResumeHello(
   send: ServerTransport,
   room: GameRoom
 ): void {
-  if (inbound.protocolVersion !== PROTOCOL_VERSION) {
+  if (inbound.protocolVersion !== PROTOCOL_VERSION && inbound.protocolVersion !== PROTOCOL_V2_VERSION) {
     throw new RoomError("Unsupported protocol version", "protocol-error");
   }
 
@@ -928,9 +988,10 @@ function handleResumeHello(
 
   const session = sessionFor(room, connection);
   context.handshaken = true;
+  context.protocolMode = inbound.protocolVersion === PROTOCOL_V2_VERSION ? "v2" : "v1";
   context.session = session;
 
-  sendWelcome(send, session, true);
+  sendWelcome(send, session, true, inbound.protocolVersion);
   send({ type: "room", room: room.roomView() });
   room.sendProjection(session.playerId, send);
   if (inbound.afterRoomEventSeq !== undefined) {
@@ -964,6 +1025,7 @@ async function runRoomTransaction(
   const connections = new Map(room.players);
   const oldSession = context.session;
   const oldHandshake = context.handshaken;
+  const oldProtocolMode = context.protocolMode;
   const outbox: { transport: ServerTransport; message: ServerToClientMessage }[] = [];
   let buffering = true;
   const buffer = (destination: ServerTransport): ServerTransport => message => {
@@ -988,6 +1050,7 @@ async function runRoomTransaction(
       room.players.set(playerId, connection);
     }
     context.handshaken = oldHandshake;
+    context.protocolMode = oldProtocolMode;
     if (oldSession) context.session = oldSession;
     else delete context.session;
     throw error;
@@ -1025,11 +1088,12 @@ function sessionFor(room: GameRoom, connection: {
 function sendWelcome(
   send: (message: ServerToClientMessage) => void,
   session: ClientSession,
-  resumed: boolean
+  resumed: boolean,
+  protocolVersion: string = PROTOCOL_VERSION
 ): void {
   send({
     type: "welcome",
-    protocolVersion: PROTOCOL_VERSION,
+    protocolVersion,
     session,
     resumed
   });

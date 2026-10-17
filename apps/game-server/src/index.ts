@@ -1,4 +1,5 @@
 import { createGameServer } from "./server.js";
+import type { DuelRuntimeMode } from "./room.js";
 import { DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_CLOCK,
   DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_PHYSICAL_CHAIN, DUEL_RUNTIME_PROFILE_P4_OPTIONAL_UNIT_RESOLVED_HISTORY } from "./duel/authoritative-runtime-p4.js";
 
@@ -20,7 +21,12 @@ for (const [name, value] of [["RIFTBOUND_DUEL_PROFILE", process.env.RIFTBOUND_DU
   ["RIFTBOUND_DUEL_RUNTIME_PROFILE", requestedRuntimeProfile]] as const) {
   if (value !== undefined) console.warn(`[deprecated] ${name}=${value} 已忽略；统一使用当前 runtime`);
 }
-const server = createGameServer({ host, port, storageDirectory });
+const requestedRuntimeMode = process.env.RIFTBOUND_DUEL_RUNTIME_MODE;
+if (requestedRuntimeMode !== undefined && requestedRuntimeMode !== "legacy-p4" && requestedRuntimeMode !== "engine-v2") {
+  throw new TypeError("RIFTBOUND_DUEL_RUNTIME_MODE 必须是 legacy-p4 或 engine-v2");
+}
+const server = createGameServer({ host, port, storageDirectory,
+  ...(requestedRuntimeMode === undefined ? {} : { duelRuntimeMode: requestedRuntimeMode as DuelRuntimeMode }) });
 
 server.httpServer.on("listening", () => {
   const address = server.httpServer.address();
