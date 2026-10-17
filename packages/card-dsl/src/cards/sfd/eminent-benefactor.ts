@@ -64,6 +64,8 @@ const program = {
     "mode \"play\" 的链上创建 + 打出路径已合入（440.2.c/185.2.a），但 Gold 定义（CR 187.5，自带「Kill this, " +
     "[E]: [Add] [A]」能力）不在 effect.token 的 DEFINITIONS 表里，对「gold」执行会得到 negated/blockedReason: " +
     "token-definition-or-abilities-judge-required（同 sfd/trove-golem、sfd/honest-broker）。" +
+    "另外「exhausted」之外，程序里的 { type: \"base\", player: \"controller\" } 也只是占位：effect.token 要求字面 " +
+    "PlayerId 等于 ctx.controller，静态 IR 没有相对控制者的 LocationRef 记法（只能经 condition.value + linked-value 读取）。" +
     "「exhausted」是入场规定（184.1/185.2.d），目前的 create-token/play 不提交横置入场，事后 effect.exhaust 不等价（143.4）。" +
     "hold 触发的卡牌注册属 RIFT-257。依赖：Gold 定义与入场状态（token 原语任务后续）、RIFT-257。不近似实现。",
   abilities,

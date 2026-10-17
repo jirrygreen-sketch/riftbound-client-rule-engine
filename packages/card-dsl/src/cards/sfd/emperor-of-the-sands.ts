@@ -9,6 +9,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   ":rb_energy_1:, :rb_exhaust:: Play a 2 :rb_might: Sand Soldier unit token to your base. "
  *   "Use only if you've played an Equipment this turn."
  *
+ * golden 测试真实执行 effect.token 的 sand-soldier play 形状（把不可解析的 base 占位换成
+ * 控制者自己的席位）与费用计划的 energy+exhaust 收费（把宿主放在 Board 上）；两者都不是整卡证据。
+ *
  * 规则依据（CR v1.5）：
  * - "Your Sand Soldiers have [Weaponmaster]." 是 364.x/365.1 的 Passive Ability：把 [Weaponmaster]
  *   授予由你控制的 Sand Soldier。按契约 3.1/3.7 写成 static 的 grant-keyword（keyword 只声明、
@@ -32,22 +35,21 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * status 判定（cards/README.md 第 2 节）：judge-required。
  * - "played an Equipment this turn" 无法判定：HistoryQuery（effects/contract.ts）只有
  *   scope/action/timingPoint/player/object 五个维度，没有按被打出卡牌的类型/标签过滤的能力，
- *   也没有"本回合打出的装备"这一谓词；卡牌 Restriction 也没有已合入的消费方（chain Finalize
- *   只检查调用方传入的 conditions），054.2 的门因此不可执行。
+ *   也没有"本回合打出的装备"这一谓词；chain Finalize 虽会 test 调用方传入的 conditions，
+ *   但契约 3.1 的 Restriction 形状没有被卡牌程序供给该条件，054.2 的门因此不可执行。
  * - "to your base" 的目的地无法命名：effect.token 的 location 只接受字面
  *   { type: "base", player: <PlayerId> } 且要求等于 ctx.controller，静态 IR 没有相对控制者的
- *   LocationRef 记法（effect.move 有 "controller-base"，effect.token 没有）；硬编码席位会把
- *   token 放进错误玩家的基地（同 ogn/altar-to-unity 记录的契约缺口）。
+ *   LocationRef 记法（effect.move 有 "controller-base"，effect.token 没有；已知 LocationRef
+ *   只能经 condition.value + linked-value 读取）；硬编码席位会把 token 放进错误玩家的基地。
  * - 契约 3.6 的 ZoneId 没有 Legend Zone（CR 108.3）：传奇不能表示为 Board 对象，415.5/415.4 的
  *   "横置我" 费用缺少可执行宿主（费用计划只接受 board/rune-zone 上的对象，cost/payment.ts 的
  *   checkAction；同 ogn/the-boss）。
- * - 没有把 CardProgram 的 static 能力注册进 LayerEngine 的路径（同 ogn/darius-executioner），
- *   且 layers/filter.ts 的 selectorMatches 不解析 controller: "controller" 占位（按字面量比较，
- *   永不等于控制者，同 darius-executioner 记录），而 [Weaponmaster] 自身的展开
- *   （effects/keywords/Weaponmaster.ts）也标注为 judge-required
- *   （821.1.c 的 Equip 减费需要 cost.modify / cost.pay）。
- * 依赖：RIFT-89（费用计划消费方 / cost.modify）、RIFT-91（layers-continuous 静态能力注册）、
- * RIFT-120（卡程序触发/能力接线），以及 legend-zone 与相对控制者 LocationRef 的契约表达。
+ * - CardProgram 的 static 能力注册进 LayerEngine 的路径仍属 RIFT-257（src/programs/ 进行中）；
+ *   同时 layers/filter.ts 的 selectorMatches 不解析 controller: "controller" 占位（按字面量比较，
+ *   永不等于控制者），而 [Weaponmaster] 自身的展开（effects/keywords/Weaponmaster.ts）也标注为
+ *   judge-required（821.1.c 的 Equip 减费需要 cost.modify / cost.pay，RIFT-261）。
+ * 依赖：RIFT-257（静态/触发能力注册）、RIFT-261（cost.modify / Equip 费用），以及 legend-zone
+ * 与相对控制者 LocationRef 的契约表达。
  * golden 测试真实执行 effect.token 的 sand-soldier play 形状（把不可解析的 base 占位换成
  * 控制者自己的席位）与费用计划的 energy+exhaust 收费（把宿主放在 Board 上）；两者都不是整卡证据。
  * 不近似实现（不按 tag Shurima 过滤，不用 effect.exhaust 冒充费用，不硬编码席位）。
@@ -112,15 +114,15 @@ const program = {
   judgeReason:
     "（1）「Use only if you've played an Equipment this turn」不可判定：HistoryQuery（effects/contract.ts）只有 " +
     "scope/action/timingPoint/player/object 五个维度，没有按被打出卡的类型/标签过滤「本回合打出的装备」的谓词，" +
-    "卡牌 Restriction 也没有已合入的消费方（chain Finalize 只检查调用方传入的 condition），054.2 的 only 门无法执行；" +
+    "卡牌 Restriction 也没有把该条件供给 Finalize 的路径（chain 只 test 调用方传入的 conditions），054.2 的 only 门无法执行；" +
     "（2）「to your base」的目的地无法命名：effect.token 的 location 只接受字面 { type: \"base\", player: <PlayerId> } 且要求等于 " +
     "ctx.controller，静态 IR 没有相对控制者的 LocationRef 记法（effect.move 有 \"controller-base\"，effect.token 没有），硬编码席位会把 token 放进错误玩家的基地；" +
     "（3）契约 3.6 的 ZoneId 没有 Legend Zone（CR 108.3），传奇不能表示为 Board 对象，415.5/415.4 的费用式「横置我」缺少可执行宿主" +
     "（费用计划只接受 board/rune-zone 上的对象，cost/payment.ts 的 checkAction；同 ogn/the-boss）；" +
-    "（4）没有把 CardProgram 的 static 能力注册进 LayerEngine 的路径（同 ogn/darius-executioner），" +
+    "（4）把 CardProgram 的 static 能力注册进 LayerEngine 的路径仍属 RIFT-257（src/programs/ 进行中），" +
     "layers/filter.ts 的 selectorMatches 也不解析 controller: \"controller\" 占位（按字面量比较，永不等于控制者），" +
-    "[Weaponmaster] 自身的展开（effects/keywords/Weaponmaster.ts）也标注 judge-required（821.1.c 的 Equip 减费需要 cost.modify / cost.pay）。" +
-    "依赖：RIFT-89、RIFT-91（layers-continuous 静态能力注册）、RIFT-120（卡程序能力接线），以及 legend-zone 与相对控制者 LocationRef 的契约表达。" +
+    "[Weaponmaster] 自身的展开（effects/keywords/Weaponmaster.ts）也标注 judge-required（821.1.c 的 Equip 减费需要 cost.modify / cost.pay，RIFT-261）。" +
+    "依赖：RIFT-257、RIFT-261，以及 legend-zone 与相对控制者 LocationRef 的契约表达。" +
     "不近似实现（不按 tag Shurima 过滤 Sand Soldier，不用 effect.exhaust 冒充费用，不硬编码席位）。",
   abilities,
   sourceText:

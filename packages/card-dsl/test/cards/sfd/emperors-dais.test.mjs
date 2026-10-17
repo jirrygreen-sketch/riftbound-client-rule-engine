@@ -154,10 +154,10 @@ test("sfd-207-221 Emperor's Dais golden: the card's own token instruction plays 
   assert.deepEqual(run.events.map(event => event.action), ["create-token", "play"]);
 });
 
-// The 1-energy payment has no merged primitive (RIFT-89 cost.*), so the
-// "If you do" receipt cannot be produced and the full chain is not executable.
+// The 1-energy payment still has no merged instruction primitive (RIFT-261
+// cost.pay/cost.modify), so the "If you do" receipt cannot be produced yet.
 test.todo(
-  "sfd-207-221 Emperor's Dais: pay 1 energy and gate the Sand Soldier on the payment receipt (cost.pay, RIFT-89)"
+  "sfd-207-221 Emperor's Dais: pay 1 energy and gate the Sand Soldier on the payment receipt (cost.pay, RIFT-261)"
 );
 test.todo(
   "sfd-207-221 Emperor's Dais: 383.3.b base-cost handling for the cost within instructions right after 'you may' (cost/trigger Finalize)"

@@ -157,5 +157,5 @@ test.todo(
 
 test.todo(
   "sfd-027-221 Dunebreaker: the hold timing point reaches this ability through the trigger -> chain " +
-    "pipeline and fires for the unit that held (CR 383.4.d, 383.4.d.2.a) — RIFT-33 / RIFT-120"
+    "pipeline and fires for the unit that held (CR 383.4.d, 383.4.d.2.a) — RIFT-257"
 );

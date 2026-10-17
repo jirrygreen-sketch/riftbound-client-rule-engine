@@ -27,6 +27,7 @@ test("sfd-152-221 Eminent Benefactor: identity, ruleset, status, judgeReason and
   assert.match(program.judgeReason, /187\.5/);
   assert.match(program.judgeReason, /440\.2\.c/);
   assert.match(program.judgeReason, /184\.1/);
+  assert.match(program.judgeReason, /LocationRef/);
   assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -83,7 +84,7 @@ test("sfd-152-221 Eminent Benefactor golden: the merged play path really creates
   assert.equal(run.linked["goldTokens.amount"], 2);
   // The chain-creation receipts survive the hand-off.
   assert.equal(run.linked["goldTokens.createdAmount"], 2);
-  assert.equal(run.linked["goldTokens.objectsComplete"], true);
+  assert.equal(run.linked.goldTokens.objectsComplete, true);
   assert.equal(kernel.objects.filter((object) => object.isToken).length, 2);
   assert.deepEqual(run.events.map((event) => event.action).filter((action) => action === "play").length, 2);
 });
