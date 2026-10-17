@@ -22,28 +22,41 @@ import type { CardProgram } from "../../ir/index.js";
  *   已合入并可用（见 golden）。
  *
  * 状态：judge-required。token 打出链路本身已能真实执行（下方 golden 用真实原语
- * 跑通「链上生成 → play 到基地」），受阻的是触发条件本身：
- * - “on an opponent's turn” 需要在触发时比较事件发生的回合玩家与能力控制者；
- *   冻结的 TriggerSpec 只有 at / filter / condition / once，filter 里的
+ * 跑通「链上生成 → play 到基地」），受阻的是触发条件与触发绑定：
+ * - “on an opponent's turn” 需要在触发时比较事件发生的回合玩家与能力控制者。
+ *   复核合并代码后，continuous.timing（RIFT-259）只注册「速度许可」（grants/
+ *   timings 是 Action/Reaction 一类速度名），没有回合归属谓词；冻结的
+ *   TriggerSpec 也只有 at / filter / condition / once，filter 里的
  *   ObjectFilter/EventPattern 只暴露 object/source/target 的 controller/owner
- *   选择符，没有“当前回合玩家”谓词，condition 的 Expr 也没有回合玩家读数
+ *   选择符与事件 player，没有“当前回合玩家”读数，condition 的 Expr 也没有
  *   （history 计数按 action/timingPoint/player 过滤，不区分为谁的回合）。
- *   调研 ability-templates.md 把这条能力单列为 continuous.timing 的
- *   "opponent's turn"（0/2 命中，阻断 1）——属 RIFT-91 的时机许可族。
+ *   程序里 condition 的常数字符串是占位描述值：真实解释器把它当普通常量求值为真，
+ *   因此绝不能作为可执行语义。
+ * - 触发能力没有 CardProgram → TriggerRegistration 的注册路径（RIFT-257）；
+ *   events/pipeline.registerTrigger 目前只被可信内核适配器调用。
+ * - 另外触发 filter 里的 `player: "controller"` 不是 engine ObjectFilter/
+ *   EventPattern 的合法选择符（validateTriggerSpec 只接受 self/opponent/any/
+ *   playerId 对象）；引擎侧应以事件 player 与条件的组合表达，属上面缺口的同一处。
  * - 因此本卡不得声称整卡可执行；token 部分的执行证据只证明局部原语正确。
  *
- * 依赖：RIFT-91（continuous.timing / 回合归属谓词）。
+ * 依赖：RIFT-257（CardProgram 触发绑定）、回合归属谓词（continuous.timing 族的
+ * 后续任务）。
  */
 const viktorInnovator = {
   canonicalCardId: "card.hash-27a69aef36a430f79f170618dfa72e36b2605b39fa8a3a67366ac01669844aa0",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「on an opponent's turn」这个触发条件无法判定：冻结的 TriggerSpec 只有 at / filter / condition / once，" +
-    "ObjectFilter/EventPattern 只支持 object/source/target 的 controller/owner 选择符，没有「事件发生时的回合玩家不是" +
-    "能力控制者」谓词；history 计数也只按 action / timingPoint / player 过滤，不区分回合归属。" +
-    "调研 ability-templates.md 把该能力归入 continuous.timing 的 opponent's turn（阻断 1）。" +
-    "token 部分（440.2.c / 185.2.a / 187.1 Recruit）已能真实执行，但不构成整卡可执行。依赖：RIFT-91。",
+    "「on an opponent's turn」这个触发条件无法判定：已合入的 continuous.timing（RIFT-259）只注册速度许可" +
+    "（grants/timings 为 Action/Reaction 等速度名），没有回合归属谓词；冻结的 TriggerSpec 只有 at / filter / " +
+    "condition / once，ObjectFilter/EventPattern 只支持 object/source/target 的 controller/owner 选择符与事件 " +
+    "player，没有「事件发生时的回合玩家不是能力控制者」读数；history 计数也只按 action / timingPoint / player " +
+    "过滤，不区分回合归属。程序 condition 里的常数字符串只是占位描述值，解释器按普通常量求值为真，不构成语义。" +
+    "触发能力也没有 CardProgram → TriggerRegistration 的注册路径（RIFT-257；events/pipeline.registerTrigger " +
+    "只被可信内核适配器调用），且 filter 的 player: \"controller\" 不是 validateTriggerSpec 的合法选择符" +
+    "（只接受 self/opponent/any/playerId 对象）。" +
+    "token 部分（440.2.c / 185.2.a / 187.1 Recruit）已能真实执行，但不构成整卡可执行。" +
+    "依赖：RIFT-257 与回合归属谓词（continuous.timing 后续），不近似实现。",
   abilities: [
     {
       kind: "triggered",

@@ -22,6 +22,7 @@ test("ogn-187-298 Whirlwind: program passes validateCardProgram", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /target\.player/);
   assert.match(program.judgeReason, /picks/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(
     program.sourceText,
     "Starting with the next player, each player may return a unit to its " +
@@ -110,5 +111,6 @@ test("ogn-187-298 Whirlwind golden: declining skips the return and changes nothi
 test.todo(
   "ogn-187-298 Whirlwind: 'Starting with the next player, each player' must ask each player in " +
     "turn order whether to return a unit of theirs — needs a player iteration / per-chooser pick " +
-    "binding (target.player and pick chooser scoping are unmerged)"
+    "binding (target.player and pick chooser scoping are unmerged), and the card-program -> " +
+    "ChainDraft describePlay adapter (RIFT-257) must route the authored body"
 );

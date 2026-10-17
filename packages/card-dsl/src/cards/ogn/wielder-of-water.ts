@@ -21,20 +21,19 @@ import type { CardProgram } from "../../ir/index.js";
 
  * Status: judge-required. The conditional Might modification cannot be
  * executed by the merged code:
- * - the closed GameAction set of contract 3.6 has no Might-modification
- *   action, and effect.buff documents that temporary Might changes belong to a
- *   layers `continuous.might` consumer, never to the Buff counter primitive
- *   (Buff is a +1 Might counter with one per unit, 702.3/703 — a different
- *   object);
- * - no merged code turns a card program's static ability into a registered
- *   continuous effect, and the ability's condition needs two characteristics
- *   the merged IR cannot read: the attacker/defender designation (contract 3.8
- *   `combatRole`, not present in engine-core's effects/contract.ts) and the
- *   "alone" predicate (740.2.a), which needs a location-relative count of
- *   other friendly units (contract 3.8 adds HistoryQuery.objectFilter but the
- *   layers filter has no such predicate).
- * Dependencies: RIFT-91 (layers-continuous), plus the combat designation
- * field of contract 3.8 and the lone-unit predicate. Not approximated.
+ * - the continuous.might instruction primitive (RIFT-258) is merged, but no
+ *   merged code turns a card program's static ability into a registered
+ *   continuous effect (RIFT-257 card-program binding); and
+ * - the ability's condition needs two characteristics the merged layer path
+ *   cannot read: contract 3.8 `combatRole` is now in effects/contract.ts, but
+ *   layers/engine.ts `conditionMatches` still only recognizes
+ *   always/never/type/has-tag/has-keyword and evaluates anything else as true
+ *   (so a naive registration would apply +2 Might unconditionally), and the
+ *   "alone" predicate (740.2.a) needs a location-relative count of other
+ *   friendly units — layers/filter.ts implements no sameLocationAs anchor
+ *   (verified: it matches objects at any location).
+ * Dependencies: RIFT-257, the layers condition evaluator's combatRole/alone
+ * support. Not approximated.
  */
 export default {
   canonicalCardId: "card.hash-2cbbc0b067da2370a522b50188aead6aa06a594259be55b5951e6f51601e59ef",
@@ -42,10 +41,12 @@ export default {
   status: "judge-required",
   judgeReason:
     "「While I'm attacking or defending alone, I have +2 [M]」（364.3.a 的条件被动、740.2.a 的 alone）不可执行：" +
-    "契约 3.6 封闭 GameAction 无 Might 修改动作，effect.buff 明确临时 Might 修改归 layers 的 continuous.might（Buff 是 702.3/703 的 +1 Might 计数器，每单位限一个，不是同一语义）；" +
-    "且没有任何合入路径把卡牌程序的 static ability 注册进 layers（RIFT-91），条件还要读两个合并 IR 没有的特征：" +
-    "攻防身份（契约 3.8 的 ObjectSnapshot.combatRole，engine-core effects/contract.ts 尚无该字段）与「同位置无敌方/友方单位」的 alone 谓词（740.2.a）。" +
-    "依赖：RIFT-91（layers-continuous）与 combatRole / lone 谓词落地。不近似实现。",
+    "continuous.might 指令（RIFT-258）已合入，但没有任何合入路径把卡牌程序的 static ability 注册进 layers（RIFT-257；" +
+    "ResolveContext.addContinuous 目前只被原语调用）；条件还要读两个合并图层路径没有的能力：" +
+    "攻防身份（契约 3.8 的 ObjectSnapshot.combatRole 已在 effects/contract.ts，但 layers/engine.ts 的 conditionMatches " +
+    "仍只识别 always/never/type/has-tag/has-keyword，其它条件一律按 true 处理，草率注册会把 +2 Might 无条件套用）" +
+    "与「同位置无敌方/友方单位」的 alone 谓词（740.2.a；layers/filter.ts 不实现 sameLocationAs 锚点，实测会匹配任意位置）。" +
+    "依赖：RIFT-257 与图层条件求值器的 combatRole / alone 支持。不近似实现。",
   abilities: [
     {
       kind: "static",

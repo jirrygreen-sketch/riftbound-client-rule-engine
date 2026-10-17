@@ -24,7 +24,8 @@ test("Viktor, Innovator identity and judge-required reason", () => {
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /opponent's turn/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /continuous\.timing/);
   assert.equal(
     program.sourceText,
     "When you play a card on an opponent's turn, play a 1 :rb_might: Recruit unit token in your base."
@@ -114,6 +115,13 @@ test("golden: the Recruit token really enters the controller's base as a token",
 
 test.todo(
   "Viktor, Innovator: evaluating the opponent's-turn clause at trigger time (CR 383.2.a.1) needs a " +
-    "turn-ownership predicate in TriggerSpec or an equivalent continuous.timing clause (RIFT-91) — the " +
-    "frozen ObjectFilter/EventPattern expose only controller/owner selectors"
+    "turn-ownership predicate in TriggerSpec (continuous.timing only registers speed permissions today) — " +
+    "the frozen ObjectFilter/EventPattern expose only controller/owner selectors and the event player"
+);
+test.todo(
+  "Viktor, Innovator: the card-played trigger needs the CardProgram -> TriggerRegistration binding " +
+    "(RIFT-257); events/pipeline.registerTrigger is only called by trusted kernel adapters. The authored " +
+    "filter.player: \"controller\" is also not a legal engine selector (validateTriggerSpec accepts " +
+    "self/opponent/any/playerId), so the card-program adapter must map it to the event player plus the " +
+    "turn-ownership predicate."
 );

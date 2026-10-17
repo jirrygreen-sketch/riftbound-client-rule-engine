@@ -28,10 +28,13 @@ import type { CardProgram } from "../../ir/index.js";
  *   the decision it depends on named in its "when" field. Two dependencies are
  *   missing, so the card is judge-required:
  *   - nothing consumes a CardProgram ability's cost: buildCostPlan receives its
- *     discounts/modifications from the caller, nothing turns the static
- *     continuous.cost-modification ability into a baseModifications entry, and
- *     effects/instructions has no cost.additional / cost.modify primitive, so
- *     the "if you do" rewrite is not wired from card data;
+ *     discounts/modifications from the caller (baseModifications is a caller
+ *     input; the planner's ignore-base modification kind is reachable only that
+ *     way), nothing turns the static continuous.cost-modification ability into a
+ *     baseModifications entry (no continuous.cost-modification consumer exists in
+ *     engine-core), and effects/instructions has no cost.additional / cost.modify
+ *     primitive at all (the merged registry has no cost.* entry), so the
+ *     "if you do" rewrite is not wired from card data;
  *   - the decision happens at Finalize while the effect resolves later, and
  *     the frozen Condition/Expr vocabulary (contract 3.2/3.6) has no form that
  *     reads "was this optional additional cost paid" from the cost receipt.
@@ -45,11 +48,13 @@ const wallop = {
   judgeReason:
     "「As you play this, you may spend a buff as an additional cost. If you do, ignore this spell's cost.」" +
     "是 Finalize 阶段的可选追加费用 + 基础费用改写（355.1.a、356.2.b、356.1.b.1、356.1.b.3、356.4.f.1、702.2.b），" +
-    "两条依赖未合入：(1) 已合入的 cost/ 只提供 buildCostPlan 输入（optionalAdditional 与 spend-buff 支付种类），" +
-    "没有任何消费者读取卡牌程序 play.cost，也没有把静态 continuous.cost-modification 转成 baseModifications，" +
-    "effects/instructions 也没有 cost.additional / cost.modify 原语；(2) 费用决定发生在 Finalize、效果在 Resolve，" +
+    "两条依赖未合入：(1) 已合入的 cost/ 只提供 buildCostPlan 输入（optionalAdditional 与 spend-buff 支付种类；" +
+    "ignore-base 修改只能由调用方以 baseModifications 传入），没有任何消费者读取卡牌程序 play.cost，" +
+    "也没有把静态 continuous.cost-modification 转成 baseModifications（engine-core 没有该 effect kind 的消费方），" +
+    "effects/instructions 的注册表里没有任何 cost.* 原语（没有 cost.additional / cost.modify）；(2) 费用决定发生在 Finalize、效果在 Resolve，" +
     "“if you do” 的联动没有可表达的 Condition/Expr 形态（契约 3.2/3.6 没有读取费用回执的表达式）。" +
-    "费用声明与 Ready a unit 已按契约数据写出；Ready a unit 半段用已合入的 effect.ready 可执行。",
+    "费用声明与 Ready a unit 已按契约数据写出；Ready a unit 半段用已合入的 effect.ready 可执行。" +
+    "依赖：RIFT-257（CardProgram 费用绑定）与 RIFT-261（cost.pay / cost.modify）。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

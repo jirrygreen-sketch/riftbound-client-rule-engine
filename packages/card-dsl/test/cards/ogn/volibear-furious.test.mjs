@@ -45,6 +45,8 @@ test("ogn-041-298 Volibear, Furious: identity, ruleset, status, judgeReason and 
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /attack-declared/);
   assert.match(program.judgeReason, /Deflect/);
+  assert.match(program.judgeReason, /combat-start-transaction/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });
@@ -190,12 +192,13 @@ test("ogn-041-298 Volibear, Furious golden: a target that left its zone is dropp
 
 test.todo(
   "ogn-041-298 Volibear, Furious: the attack trigger firing needs an emitter for the " +
-    "attack-declared timing point (383.4.e/347.2.a); merged combat/ does not emit it " +
-    "(P0 contract 7.2 batch 5 Turn/Combat)"
+    "attack-declared timing point (383.4.e/347.2.a); combat/flow.ts still throws " +
+    "combat-start-transaction for combat start (P0 contract 7.2 batch 5 Turn/Combat)"
 );
 
 test.todo(
   "ogn-041-298 Volibear, Furious: the [Deflect 2] target tax (809.1.b.1/.b.2: opponents pay " +
     "two rainbow runes) needs the keyword expansion wired into the target plan and cost plan; " +
-    "the merged target.tax consumer appends an energy-shaped tax only (RIFT-84/RIFT-89/RIFT-90)"
+    "the merged target.tax consumer appends an energy-shaped tax only, and no code expands a " +
+    "CardProgram keyword into effects/keywords/Deflect.ts (RIFT-257/RIFT-89/RIFT-90)"
 );

@@ -67,11 +67,19 @@ test("ogn-158-298 Volibear, Imposing: the draw body executes through the merged 
   assert.equal(kernel.player("A").deckSize, 1);
 });
 
-test("ogn-158-298 Volibear, Imposing: the registry has no Tank KeywordDef yet (815)", () => {
-  // The keyword is declared on the card (815.1: Tank is a Passive Ability
-  // keyword) but has no expansion file, which is why the card stays
-  // judge-required; the assertion documents the actual registry state.
-  assert.equal(keywordDefinitionsById.has("Tank"), false);
+test("ogn-158-298 Volibear, Imposing: the merged Tank KeywordDef expands, but its static effect has no consumer (815)", () => {
+  // RIFT-264 merged the Tank KeywordDef; the card still stays judge-required
+  // because its expansion (static continuous.combat) is blocked: the layer
+  // engine has no branch for that kind and the combat damage assignment binds
+  // no priority requirement (combat/base-combat-allocation.ts).
+  assert.equal(keywordDefinitionsById.has("Tank"), true);
+  const tankDef = keywordDefinitionsById.get("Tank");
+  assert.equal(tankDef.valued, false);
+  assert.equal(tankDef.stacking, "single");
+  const [tankExpansion] = tankDef.expand({ host: { canonicalCardId: CANONICAL } });
+  assert.equal(tankExpansion.kind, "static");
+  assert.equal(tankExpansion.effect.kind, "continuous.combat");
+
   assert.equal(keywordDefinitionsById.has("Shield"), true);
   const shieldDef = keywordDefinitionsById.get("Shield");
   assert.equal(shieldDef.valued, true);
@@ -83,12 +91,19 @@ test("ogn-158-298 Volibear, Imposing: the registry has no Tank KeywordDef yet (8
 });
 
 test.todo(
-  "ogn-158-298 Volibear, Imposing: [Tank] (CR v1.5 815) needs a KeywordDef file and combat damage " +
-    "assignment that enforces its priority; combat/base-combat-allocation.ts currently binds no " +
-    "assignment-priority requirement."
+  "ogn-158-298 Volibear, Imposing: [Tank] (CR v1.5 815) has its KeywordDef (RIFT-264), but the " +
+    "static continuous.combat expansion needs a layer/combat consumer and the damage assignment must " +
+    "enforce its priority; combat/base-combat-allocation.ts currently binds no assignment-priority " +
+    "requirement and continuous.combat is blocked in effects/instructions."
 );
 test.todo(
   "ogn-158-298 Volibear, Imposing: 'When an opponent moves to a battlefield other than mine, draw 1.' " +
-    "needs the movement flow to emit object-moved (CR v1.5 421.1/449.1) and a trigger-condition form that " +
-    "compares the event's destination against the source's current location."
+    "needs the movement flow to emit object-moved (CR v1.5 421.1/449.1; events/action-adapter.ts already " +
+    "derives it from move-location, but zones/movement does not wire into the pipeline) and a " +
+    "trigger-condition form that compares the event's destination against the source's current location."
+);
+test.todo(
+  "ogn-158-298 Volibear, Imposing: the card's triggered abilities need the CardProgram -> " +
+    "TriggerRegistration binding (RIFT-257); events/pipeline.registerTrigger is only called by trusted " +
+    "kernel adapters today."
 );

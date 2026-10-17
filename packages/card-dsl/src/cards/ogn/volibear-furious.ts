@@ -26,30 +26,35 @@ import type { CardProgram } from "../../ir/index.js";
  *   with the contract 3.6 `sameLocationAs` anchor; the interpreter resolves it
  *   against the current source location at resolution time.
  *
- * Status: judge-required. Two dependencies are unmerged, so the whole card
+ * Status: judge-required. Three dependencies are unmerged, so the whole card
  * cannot honestly be called executable:
- * - the `attack-declared` timing point has no merged emitter: combat/ does not
- *   emit it (P0 contract 7.2 batch 5 Turn/Combat/priority-focus), so the
- *   trigger cannot enter the chain;
+ * - the `attack-declared` timing point still has no emitter: combat/flow.ts
+ *   throws TurnCombatBlockedError('combat-start-transaction') for combat start,
+ *   so the trigger cannot enter the chain (P0 contract 7.2 batch 5
+ *   Turn/Combat/priority-focus);
  * - the Deflect expansion needs the target tax applied as two rainbow runes
  *   (809.1.b.1/.b.2) through the target + cost plan path; the merged
- *   `target.tax` consumer only appends an energy-shaped tax (target-plan.ts /
- *   chain/engine.ts) and no code expands card-program keywords
- *   (RIFT-84 Deflect / RIFT-90 target-plan / RIFT-89 cost-plan).
- * The split-damage instruction itself is merged and is executed by the golden
- * test against the reference kernel; the adapter gap for the `divide` flag is
- * reported as a contract change request.
+ *   `target.tax` consumer only appends an energy-shaped tax (target-plan.ts
+ *   TargetTaxRequest -> chain/engine.ts mandatoryAdditional energy) and nothing
+ *   turns card-program keywords into that tax (RIFT-84 Deflect / RIFT-90
+ *   target-plan / RIFT-89 cost-plan);
+ * - no merged code expands a CardProgram keyword into its KeywordDef
+ *   (RIFT-257 card-program binding), so even the Deflect declaration has no
+ *   execution path.
+ * The split-damage instruction itself is merged (effect.damage divide) and is
+ * executed by the golden test against the reference kernel.
  */
 export default {
   canonicalCardId: "card.hash-3945b807e4fed55c0e3bd1ea8f5f24a46e04bea3379a8e559da6db0f73a173cc",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "(1) attack-declared 时点没有已合入的发射方：combat/ 战斗流程未合入（P0 契约 7.2 批 5 Turn/Combat/priority-focus），" +
+    "(1) attack-declared 时点没有已合入的发射方：combat/flow.ts 的战斗开始仍抛 " +
+    "TurnCombatBlockedError('combat-start-transaction')（P0 契约 7.2 批 5 Turn/Combat/priority-focus），" +
     "攻击触发无法进入链；（2）[Deflect 2]（809.1.b/c）的展开不可执行：目标税需要按 809.1.b.1/.b.2 由对手以两个 rainbow rune 支付，" +
     "而已合入的 target.tax 消费方只把税额追加成 energy 形态的 mandatory additional cost（target-plan.ts / chain/engine.ts），" +
-    "且没有代码把卡牌程序的 keyword 交给 effects/keywords/Deflect.ts 展开。依赖：RIFT-84（kw-deflect-hidden）、RIFT-89（batch3-cost-plan）、" +
-    "RIFT-90（batch3-target-plan）与 combat 时点发射。不近似实现；" +
+    "且没有代码把卡牌程序的 keyword 交给 effects/keywords/Deflect.ts 展开（卡牌程序绑定 RIFT-257）。" +
+    "依赖：RIFT-257（CardProgram 绑定）、RIFT-89（batch3-cost-plan）、RIFT-90（batch3-target-plan）与 combat 时点发射。不近似实现；" +
     "「deal 5 damage split」本体用已合入的 effect.damage divide 在 golden 中真实执行。",
   abilities: [
     { kind: "keyword", keyword: "deflect", value: 2 },

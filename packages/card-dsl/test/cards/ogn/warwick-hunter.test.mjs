@@ -4,8 +4,13 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/warwick-hunter.js";
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
-import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+// The replacement binder is the published RIFT-260 interface (engine-core
+// depends on card-dsl, so it is loaded through the workspace layout).
+const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
+const { bindReplacement } = await import(new URL("replacement/index.js", engineCore));
+const { ChainEngine } = await import(new URL("chain/engine.js", engineCore));
+const { createActionPipelineHost, bindResolveContext } = await import(new URL("events/action-adapter.js", engineCore));
 
 const CANONICAL = "card.hash-58c01b587562a4a6f91a4fbef216e0f343dcb9427be468ce7553f4ad7d72ade7";
 
@@ -21,10 +26,12 @@ test("ogn-159-298 Warwick, Hunter: program validates and keeps identity", () => 
 });
 
 test("ogn-159-298 Warwick, Hunter: judgeReason cites the entry replacement, the set kill and the damaged predicate", () => {
-  assert.match(program.judgeReason, /replacement\.enter/);
+  assert.match(program.judgeReason, /bindReplacement/);
   assert.match(program.judgeReason, /effect\.kill/);
   assert.match(program.judgeReason, /damaged/);
   assert.match(program.judgeReason, /355\.10\.d/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /combat-start-transaction/);
 });
 
 test("ogn-159-298 Warwick, Hunter: 'I enter ready.' is an entry replacement that readies the source (369.3 / 359.2.c)", () => {
@@ -67,18 +74,68 @@ test("ogn-159-298 Warwick, Hunter: attack trigger kills the damaged enemy set â€
   assert.equal(instruction.linkedTo, undefined);
 });
 
-test("ogn-159-298 Warwick, Hunter: 'I enter ready.' readies an exhausted source through the merged primitive", () => {
-  const kernel = world().unit("warwick", { exhausted: true }).build();
-  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("warwick") });
-  const run = runInstruction(
-    ready,
-    entryReplacement.with[0].args,
-    { world: scoped }
+test("ogn-159-298 Warwick, Hunter golden: 'I enter ready.' rewrites the entry through the merged replacement binder (369.3 / 805.6.a)", () => {
+  // Real execution through the published bindReplacement interface and a real
+  // ChainEngine: the authored `replaces`/`with` pair is bound as-is, then the
+  // unit is played. The unit lands ready and no object-readied timing is
+  // emitted (805.6.a: it is not "becoming ready").
+  const kernel = world()
+    .player("A", { energy: 20 })
+    .player("B", { energy: 20 })
+    .hand("warwick", { energy: 3, power: [], types: ["unit"], might: 5 })
+    .deck(["A:deck:1", "A:deck:2", "A:deck:3", "A:deck:4"])
+    .build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => {
+      kernel.restore(checkpoint.state);
+      kernel.copyLinkedFrom(checkpoint.links);
+    },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: () => { throw new Error("unexpected choice"); },
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint }),
+    testTrigger: registration => kernel.test(registration.spec.condition)
+  });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"],
+    turnPlayer: "A",
+    phase: "main",
+    host,
+    cleanup: () => false
+  });
+
+  bindReplacement(
+    { replaces: entryReplacement.replaces, with: entryReplacement.with },
+    kernel.ref("warwick"),
+    {
+      host: { object: ref => kernel.object(ref), objects: () => kernel.objects, context: () => kernel },
+      pipeline: engine.pipeline
+    }
   );
 
-  assert.equal(run.result.status, "executed");
-  assert.equal(scoped.getObject("warwick").exhausted, false);
-  assert.deepEqual(run.events.map(event => event.action), ["ready"]);
+  engine.execute({
+    id: "warwick-play",
+    controller: "A",
+    source: kernel.getObject("warwick"),
+    kind: "unit",
+    speed: "normal",
+    body: []
+  });
+  let guard = 0;
+  while (engine.items.length) {
+    if (++guard > 50) throw new Error("Nonterminating test chain");
+    engine.pass(engine.priority);
+  }
+
+  const entered = kernel.getObject("warwick");
+  assert.equal(entered.zone, "board");
+  assert.equal(entered.exhausted, false);
+  assert.equal(
+    engine.pipeline.events.some(event => event.timingPoint === "object-readied"),
+    false
+  );
 });
 
 test("ogn-159-298 Warwick, Hunter: only the damaged unit among the locked set is killed (429.1.a.1)", () => {
@@ -115,12 +172,14 @@ test("ogn-159-298 Warwick, Hunter: an empty damaged set makes the kill mistarget
 });
 
 test.todo(
-  "ogn-159-298 Warwick, Hunter: the board-entry replacement (369.3, contrast 359.2.c) needs the " +
-    "replacement.enter pipeline that consumes a card's replacement ability, sharing the 805.6.a " +
-    "no-becomes-ready semantics with the Accelerate expansion."
+  "ogn-159-298 Warwick, Hunter: the board-entry replacement executes through the published " +
+    "bindReplacement interface, but nothing yet registers a CardProgram's replacement ability " +
+    "(RIFT-257); the Accelerate-style static entry body and the replacement.enter wrapper both " +
+    "need that card-program layer."
 );
 test.todo(
   "ogn-159-298 Warwick, Hunter: 'kill all damaged enemy units here' needs an untargeted set-kill form " +
     "(CR v1.5 355.10.d/355.10.d.1), a damage-marked ('damaged') filter predicate, a same-location " +
-    "('here') anchor, and the 'attack-declared' emitter from the combat flow."
+    "('here') anchor, and the 'attack-declared' emitter from the combat flow (combat/flow.ts still " +
+    "throws combat-start-transaction)."
 );

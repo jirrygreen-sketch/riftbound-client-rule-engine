@@ -25,7 +25,8 @@ test("Void Gate program validates and is judge-required", () => {
   assert.match(program.judgeReason, /713/);
   assert.match(program.judgeReason, /715\.4\.a/);
   assert.match(program.judgeReason, /sameLocationAs/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /continuous\.bonus-damage|Bonus Damage 授予/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -96,13 +97,11 @@ test("Void Gate golden: a prevented Deal action deals no damage, so the Bonus Da
   assert.deepEqual(run.events.map(event => [event.action, event.outcome]), [["damage", "prevented"]]);
 });
 
-test("Void Gate gap: the declared static grant has no consumer and its 'here' scope is unenforceable", () => {
-  // The declaration is complete, but:
-  //  - no merged producer computes this Battlefield's contribution and feeds it
-  //    into a Deal action's bonus argument; and
-  //  - the merged matchers implement no sameLocationAs anchor, so the "units
-  //    here" scope would over-apply.
-  // Both gaps are asserted structurally rather than by faking the grant.
+test("Void Gate: the declared static grant keeps its printed scope and amount (no consumer yet)", () => {
+  // The declaration is complete (053.3 "here" + 418.4 amount). The two blocking
+  // gaps — no continuous.bonus-damage consumer and no sameLocationAs anchor in
+  // the layer matcher — live in judgeReason and the todos below; this test only
+  // locks the declared shape so a later consumer cannot silently drop the scope.
   assert.equal(ability.effect.filter.sameLocationAs, "self");
   assert.equal(ability.effect.appliesTo, "deal-actions");
   assert.equal(ability.effect.amount.value, 1);
@@ -111,11 +110,12 @@ test("Void Gate gap: the declared static grant has no consumer and its 'here' sc
 test.todo(
   "Void Gate grant: a continuous effect must add 1 Bonus Damage to each Deal action whose " +
     "targets are units at this Battlefield (418.4/713, 714 sum-once, 715.2 per target), " +
-    "including the prevention example of 715.4.a — the layers/continuous consumer does not " +
-    "model Deal-action grants and no producer registers card-program statics (RIFT-91)"
+    "including the prevention example of 715.4.a — the merged instruction registry has no " +
+    "continuous.bonus-damage primitive and no producer registers card-program statics (RIFT-257)"
 );
 
 test.todo(
   "Void Gate scope: the 053.3 'here' referent needs the sameLocationAs anchor in the engine " +
-    "matchers, plus 190.6's controller resolution for the Battlefield ability"
+    "matchers (layers/filter.ts ignores it and over-matches, verified), plus 190.6's controller " +
+    "resolution for the Battlefield ability"
 );
