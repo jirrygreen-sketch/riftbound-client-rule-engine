@@ -2,14 +2,24 @@ import type { CardProgram } from "../../ir/index.js";
 
 /**
  * Back Off — CR v1.5 811 (Hidden), 806 (Action), 424.1 (Stun),
- * 356.1/356.2 (play origin). Stun 本体可执行；来源条件、Hidden 与链适配仍需接线。
+ * 356.1/356.2 (play origin). Stun 本体可在解释器内执行；来源条件、Hidden 与
+ * 生产链适配仍缺。
  */
 const backOff = {
   canonicalCardId: "card.hash-8976907cb3568b5c00ce51faf4a35f8342adffe884444d535f12324bb4ae3778",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "当前缺口（CR v1.5）：(1)「If you played this from your hand」需要 356.1/356.2 的打出来源事实；ObjectSnapshot 与 card-played 载荷未提供 playedFromHand，不能用当前位置或无条件抽牌代替。(2) Hidden 的 KeywordDef 已存在，但展开仅声明 cost.hidden；仍缺 811 的 Hide 动作、按起始回合启用面朝下打出许可及免基础费用的消费路径。cost.pay/cost.modify 和 Action 的链时机判断已合入，不再列为缺失原语。(3) chain/interpreter-adapter.ts 的 LITERAL_FIELDS 未解码 effect.stun.target，原始 body 经生产适配器时会被原语 schema 拒绝；解释器直接执行 Stun 本体的证据不能代替该接线。",
+    "当前缺口（CR v1.5）：(1)「If you played this from your hand」需要 356.1/356.2 的打出来源事实：" +
+    "ObjectSnapshot 没有 playedFromHand 字段，card-played 发射也不带来源区域载荷，条件里的 " +
+    "object-property(source, playedFromHand) 读取会抛 MissingInformation 并按 fail-closed 记 ignored，" +
+    "不能用当前位置或无条件抽牌代替。(2) Hidden 的 KeywordDef 已存在，展开仅声明 cost.hidden；" +
+    "cost/kinds/hidden.ts 与 layers/rules 的位置许可查询虽已合入，但没有消费方把 811 的 Hide 动作、" +
+    "按起始回合启用的面朝下打出许可与免基础费用路径接到 card program，faceDown 也只在 turn/flow.ts 的 " +
+    "cleanup 里被当作未实现状态抛出。cost.pay/cost.modify 与 Action 的链时机判断已合入，不再列为缺失原语；" +
+    "(3) chain/interpreter-adapter.ts 的 LITERAL_FIELDS 仍不含 effect.stun：卡牌 IR 的 target 保持 Expr 包装，" +
+    "原始 body 经生产适配器时被冻结 schema 拒绝（实测 TypeError: effect.stun target must be a spec id string），" +
+    "解释器直接执行 Stun 本体的证据不能代替该接线。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     { kind: "keyword", keyword: "action" },

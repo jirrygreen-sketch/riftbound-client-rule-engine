@@ -4,7 +4,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * Baron Nashor — CR v1.5 355.1/369.3 (as you play/entry replacement),
  * 187.9 (Baron Pit), 757.1/758.1 (enemy targeting prohibition),
  * 479.4/355.10.d (other friendly units +2 Might).
- * static/replacement 绑定与规则查询已合入，卡牌特有的剩余边界见 judgeReason。
+ * static/replacement 绑定、规则查询与位置选择器已合入，卡牌特有的剩余边界见
+ * judgeReason。
  */
 const abilities: Ability[] = [
   {
@@ -26,7 +27,9 @@ const abilities: Ability[] = [
         },
         // “if it's not there already”：已存在 Baron Pit 战场 token 时不再创建。
         // tokenName 是描述性占位键（与 reksai-breacher 的 playedFromZoneNot 同一处理）：
-        // 已合入的过滤器词汇没有“按 token 名称查战场”的维度，该判定随 187.9 的定义与放置一起落地。
+        // 已合入的过滤器词汇没有“按 token 名称查战场”的维度，matchesObjectFilter 会静默
+        // 忽略该键，于是这个 count 实际统计的是棋盘上的全部战场（实测 1 个无关战场也命中），
+        // 不能当成“Baron Pit 是否已存在”的判定；该判定随 187.9 的定义与放置一起落地。
         condition: {
           kind: "compare",
           left: {
@@ -101,7 +104,15 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "当前缺口（CR v1.5）：(1) effect.token 仍缺 187.9 的 Baron Pit 战场定义及创建新 Location 的动作；tokenName 存在性谓词也没有查询消费方。(2) 355.1/355.1.a 的 As you play 决策不能等同于链结算时的 play.body；369.3 的入场地点替代还需本次创建回执跨阶段关联。替代注册已合入，但 replacement.enter 仅支持 state，不消费 location/ifCreated（位置选择 RIFT-357）。(3) continuous.restrict 与 Finalize/Resolve 目标规则查询已合入；当前 static 形状的 operation/forbidden/chooser 不能转换为仅禁止敌方法术与能力的 actions/作用者条件（757.1/758.1），不可改成所有玩家均不能选择。(4) continuous.might 与 static 图层绑定已合入，但 programs/statics.ts 拒绝 exclude:source，仍不能对「其他友方单位」动态排除本源（479.4/355.10.d）。",
+    "当前缺口（CR v1.5）：(1) effect.token 的冻结定义表没有 187.9 的 Baron Pit 战场定义（对 \"baron-pit\" 执行 negated(impossible)，已由 golden 实证），" +
+    "也没有创建新 Location 的动作：GameAction 的 create-token 只接受既有 LocationRef，无法新增一个战场。" +
+    "配套的 tokenName 存在性谓词没有查询消费方：matchesObjectFilter 会静默忽略该未知键（实测无关战场也会命中），" +
+    "该 count 目前统计的是全部棋盘战场。(2) 355.1/355.1.a 的 As you play 决策不能等同于链结算时的 play.body；" +
+    "369.3 的入场地点替代还需本次创建回执跨阶段关联——replacement.enter 只消费 state（缺 state 直接抛 BlockedReplacementError，已由 golden 实证），" +
+    "不消费 location/ifCreated。位置选择器本身已合入（RIFT-357），不再是缺口。" +
+    "(3) continuous.restrict 与 Finalize/Resolve 目标规则查询已合入，但当前 static 形状的 operation/forbidden/chooser 不能转换为仅禁止敌方法术与能力的 actions/作用者条件" +
+    "（757.1/758.1）：实测按 chooser 查询同一对象的 restriction 对 A/B 两名玩家结果相同，无法区分敌我，不可改成所有玩家均不能选择。" +
+    "(4) continuous.might 与 static 图层绑定已合入，但 programs/statics.ts 拒绝 exclude:source（实测抛 judge-required），仍不能对「其他友方单位」动态排除本源（479.4/355.10.d）。",
   abilities,
   sourceText:
     "As you play me, add the Baron Pit battlefield token to the board if it's not there already. If you do, I enter there. " +

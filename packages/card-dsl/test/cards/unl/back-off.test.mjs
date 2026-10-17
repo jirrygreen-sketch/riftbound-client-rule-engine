@@ -8,6 +8,7 @@ import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import stun from "../../../../engine-core/dist/effects/instructions/effect.stun.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -152,7 +153,16 @@ test("Back Off: the original conditional draw fails closed when the play-origin 
   assert.deepEqual(outcome.events, []);
 });
 
-test.todo("back-off: decode effect.stun.target in the production chain primitive adapter (CR 424.1)");
+test("Back Off: the production chain adapter still rejects the declared effect.stun argument envelope (CR 424.1)", () => {
+  // Evidence for judgeReason (3): LITERAL_FIELDS in chain/interpreter-adapter.ts
+  // has no effect.stun entry, so the Expr-wrapped target reaches the frozen
+  // primitive schema unchanged and the resolution fails before Stun executes.
+  const kernel = world().unit("enemy", { owner: "B", might: 3 }).build();
+  kernel.setTargets("back-off.stunned-unit", [kernel.ref("enemy")]);
+  assert.throws(() => resolveChainBody([stunInstruction], kernel),
+    /effect\.stun target must be a spec id string/);
+  assert.equal(kernel.getObject("enemy").stunned, false);
+});
 
 test.todo("back-off: expose and evaluate the actual play-origin fact for the conditional draw (CR 356.1/356.2)");
 

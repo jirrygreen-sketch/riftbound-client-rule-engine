@@ -13,7 +13,15 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "当前缺口（CR v1.5）：(1) effect.token 定义表仍缺 187.2 的 3 Might、无域、Fae、Temporary 的 sprite；Temporary KeywordDef 本身已存在。(2) effect.token/create-token 不接收 143.4/184.1/185.2.d 的 ready 入场状态改写；不能先横置进场再 ready。(3) 404.2/404.3 的「每个带 Temporary 的友方单位少 1 Energy」仍缺关键词特征过滤计数，以及 programs/activate.ts 把该变量折扣接入 Finalize discounts 的路径；cost.modify/cost.pay 本体已合入，不能在结算时再收费替代启动费用。(4) location 中 player:controller 是未解析的描述值，effect.token 只接受实际 PlayerId/LocationRef，缺能力控制者 Base 的相对位置求值（RIFT-357）。",
+    "当前缺口（CR v1.5）：(1) effect.token 的冻结定义表仍缺 187.2 的 sprite（3 Might、无域、Fae、Temporary）：" +
+    "golden 对 \"sprite\" 执行真实原语得到 negated(impossible)，Temporary KeywordDef 本身已合入。(2) effect.token 的 " +
+    "argsSchema 只接受 Expr 形状的 location（实测抛 Invalid effect.token argument: location），" +
+    "解释器分发不会把 LocationExpr/相对选择器求值后交给它，create-token 的 GameAction 也没有 143.4/184.1/185.2.d 的 ready 入场状态字段；" +
+    "先横置进场再 ready 会产生额外的“成为就绪”事件，不算等价实现。" +
+    "(3) 404.2/404.3 的「每个带 Temporary 的友方单位少 1 Energy」仍缺关键词特征过滤计数（ObjectFilter 没有关键词维度）" +
+    "与 programs/activate.ts 把变量折扣接入 Finalize discounts 的路径；cost.modify/cost.pay 本体已合入，不能在结算时再收费替代启动费用。" +
+    "(4) location 中 player:controller 是未解析的描述值：effect.token 只接受实际 LocationRef/PlayerId，" +
+    "RIFT-357 的相对选择器虽已合入，但尚未接到该原语的参数边界，缺能力控制者 Base 的求值。",
   abilities: [
     {
       kind: "activated",

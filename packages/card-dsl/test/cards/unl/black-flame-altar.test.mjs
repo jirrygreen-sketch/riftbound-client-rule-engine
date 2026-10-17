@@ -7,6 +7,8 @@ import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import grant from "../../../../engine-core/dist/effects/instructions/continuous.grant-keyword.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-c4cfa13109f9e65730089b31964d83518df125baae9a5cb10592187c82a44c56";
@@ -28,9 +30,14 @@ test("unl-208-219 Black Flame Altar: identity, status, judgeReason and verbatim 
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /sameLocationAs/);
   assert.match(program.judgeReason, /Temporary/);
-  assert.match(program.judgeReason, /createEngineStaticBinder/);
+  assert.match(program.judgeReason, /staticFilter/);
+  assert.match(program.judgeReason, /Unsupported static filter field keywords/);
   assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /RIFT-359/);
+  // The earlier reason claimed a LocationRef value mismatch; the merged binder
+  // converts sameLocationAs to source.location and the matcher compares it by
+  // value, so that claim is gone.
+  assert.doesNotMatch(program.judgeReason, /按引用比较/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -91,6 +98,49 @@ test("unl-208-219 Black Flame Altar: the Temporary KeywordDef is merged and keep
   assert.equal(expanded.trigger.at, "beginning-start");
 });
 
-test.todo("black-flame-altar: bind the Temporary filter and match source-relative LocationRef by value (CR 053.3/816.3; RIFT-359)");
+test("unl-208-219 Black Flame Altar: the production static binder still rejects the Temporary keyword gate (CR 053.3/816.3)", () => {
+  // Evidence for gap (1): the authored filter needs a keyword predicate. The
+  // merged binder rejects the whole declaration instead of narrowing the set,
+  // and dropping the gate would grant Shield to every unit here.
+  const f = fixture({ cards: [
+    { id: "altar", cardId: CANONICAL, types: ["battlefield"], energy: null, power: null, zone: "board", location: { type: "battlefield", id: "bf-1" } }
+  ] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("altar"), to: "board", location: { type: "battlefield", id: "bf-1" } });
+  assert.throws(() => createEngineStaticBinder(f.engine).bindStatic(ability, f.kernel.getObject("altar")),
+    /Unsupported static filter field keywords/);
+  assert.deepEqual(f.engine.layers.registry.list(), []);
+});
+
+test("unl-208-219 Black Flame Altar: the granted Shield's defender clause is still fail-closed (CR 814.1.c/814.1.d)", () => {
+  // Evidence for gap (2): Shield expands to a static continuous.might gated on
+  // the "designation" characteristic. The merged ObjectSnapshot exposes
+  // combatRole instead, so the condition can never match and the +1 Might stays
+  // inactive even for an actual defender.
+  const f = fixture({ cards: [
+    { id: "altar", cardId: CANONICAL, types: ["battlefield"], energy: null, power: null, zone: "board", location: { type: "battlefield", id: "bf-1" } },
+    { id: "shielded", types: ["unit"], might: 3, keywords: [{ id: "Shield", value: 1 }], zone: "board", location: { type: "battlefield", id: "bf-1" } }
+  ] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("altar"), to: "board", location: { type: "battlefield", id: "bf-1" } });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("shielded"), to: "board", location: { type: "battlefield", id: "bf-1" } });
+
+  const shield = keywordDefinitionsById.get("Shield");
+  assert.ok(shield, "effects/keywords/Shield.ts must be registered");
+  const [expansion] = shield.expand({ host: { canonicalCardId: CANONICAL }, value: 1 });
+  // The expansion reads a designation the contract never exposes.
+  assert.deepEqual(expansion.condition.left, {
+    kind: "object-property", object: "self", property: "designation"
+  });
+  const binder = createEngineStaticBinder(f.engine);
+  binder.bindStatic(expansion, f.kernel.getObject("shielded"));
+
+  const shielded = f.kernel.getObject("shielded");
+  // 3.8: the actual combat identity is combatRole; there is no designation field.
+  assert.equal(shielded.combatRole, null);
+  assert.equal(Object.hasOwn(shielded, "designation"), false);
+  assert.equal(f.engine.layers.evaluate(shielded.ref).might, 3,
+    "the defender bonus must not be claimed while designation is unreadable");
+});
+
+test.todo("black-flame-altar: bind the Temporary keyword gate to the here-scoped unit set (CR 053.3/816.3; RIFT-359)");
 
 test.todo("black-flame-altar: expand dynamically granted Shield and bind its defender designation to combatRole (CR 814.1.c/814.1.d; RIFT-359)");

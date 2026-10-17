@@ -7,6 +7,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/index.js";
 import discard from "../../../../engine-core/dist/effects/instructions/effect.discard.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -29,8 +30,29 @@ test("unl-121-219 Bewitching Spirit: identity, status, judgeReason and verbatim 
   assert.match(program.judgeReason, /target\.player/);
   assert.match(program.judgeReason, /355\.7/);
   assert.match(program.judgeReason, /355\.9\.a/);
+  // Current-gap refresh: the request vocabulary is the blocker, and the
+  // unregistered opcode is asserted by a real execution probe below.
+  assert.match(program.judgeReason, /ChoiceRequest/);
+  assert.match(program.judgeReason, /Unregistered instruction opcode/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
+});
+
+test("unl-121-219 Bewitching Spirit: the declared player choice is not a registered instruction opcode (355.7/355.9.a)", () => {
+  // Evidence for the remaining gap: the interpreter fails on the opcode before
+  // any player could be locked, and the contract has no player-target request.
+  assert.equal(instructionDefinitionsById.has("target.player"), false);
+  const kernel = world().hand("b1", { owner: "B" }).build();
+  assert.throws(() => runAbilityBody([choosePlayer], kernel), /Unregistered instruction opcode: target\.player/);
+});
+
+test("unl-121-219 Bewitching Spirit: the declared body fails as a whole while the discard primitive alone succeeds", () => {
+  // Evidence for the remaining gap: card-played binding and effect.discard are
+  // merged (the discard half executes), but running the authored body through
+  // the merged interpreter stops at the unregistered player choice.
+  const kernel = world().hand("b1", { owner: "B" }).hand("b2", { owner: "B" }).build();
+  assert.throws(() => runAbilityBody(playTrigger.body, kernel), /target\.player/);
+  assert.equal(instructionDefinitionsById.get(chosenDiscards.op), discard);
 });
 
 test("unl-121-219 Bewitching Spirit: 'When you play me' is a mandatory card-played trigger on the source", () => {
