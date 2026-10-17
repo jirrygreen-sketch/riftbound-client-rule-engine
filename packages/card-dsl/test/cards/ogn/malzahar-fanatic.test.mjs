@@ -23,11 +23,10 @@ test("Malzahar, Fanatic identity, ruleset and judge-required reason", () => {
   );
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  // 缺的是 Universal Power 的契约表示与 cost.sacrifice 型非标准费用。
+  // 缺的是 Universal Power 的契约表示与动态费用对象绑定。
   assert.match(program.judgeReason, /163\.2\.b/);
   assert.match(program.judgeReason, /Universal/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-257\/261/);
+  assert.match(program.judgeReason, /ObjectRef/);
   assert.equal(
     program.sourceText,
     "Kill a friendly unit or gear, :rb_exhaust:: [Action] — [Add] :rb_rune_rainbow::rb_rune_rainbow:. " +
@@ -79,7 +78,7 @@ test("structure: [Add] two Universal Power, kept as Universal and never a named 
 test("golden: the 'Kill a friendly unit or gear' cost is charged by the merged cost plan (415.4)", () => {
   // The cost planner's kill payment plus object chooser is the merged path for
   // the printed cost-within-instructions (355.10.c.1); the card's declared
-  // string placeholder is what still needs the RIFT-257/261 binding.
+  // string placeholder still needs a dynamic Finalize-time object binding.
   const kernel = world()
     .player("A", { energy: 20 })
     .unit("malzahar", { owner: "A" })
@@ -143,7 +142,7 @@ test("golden: a kill cost with no legal candidate cannot be planned, so the acti
 test.todo(
   "Malzahar, Fanatic: charging the 'Kill a friendly unit or gear' cost at Finalize (415.4 / 357.2) needs " +
     "the CardProgram/fee binding that resolves the declared 'friendly-unit-or-gear' placeholder into " +
-    "runtime object options and the cost.pay primitive (RIFT-257/RIFT-261); the kill payment and its " +
+    "runtime ObjectRef options; the kill payment and its " +
     "object chooser already execute through the merged cost plan"
 );
 

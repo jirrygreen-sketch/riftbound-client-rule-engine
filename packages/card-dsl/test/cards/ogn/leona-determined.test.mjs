@@ -27,8 +27,8 @@ test("ogn-238-298 Leona, Determined: identity, status and verbatim sourceText", 
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /designation/);
+  assert.match(program.judgeReason, /combatRole/);
+  assert.match(program.judgeReason, /sameLocationAs/);
   assert.equal(
     program.sourceText,
     "[Shield] (+1 :rb_might: while I'm a defender.)\n" +
@@ -165,7 +165,7 @@ test("ogn-238-298 Leona, Determined: a stun target that already left the board i
 
 test.todo(
   "ogn-238-298 Leona, Determined: [Shield]'s continuous.might consumer and its Defender " +
-    "designation condition (CR 814.1.c/814.1.d.1) need the CardProgram-to-layers registration " +
-    "(RIFT-257) and the ObjectSnapshot designation/combatRole characteristic with a layers " +
-    "condition evaluator that reads it"
+    "designation condition (CR 814.1.c/814.1.d.1) need a production mapping from the current " +
+    "ObjectSnapshot combatRole characteristic, and the attack target's sameLocationAs: source " +
+    "filter still needs a programs/filters.ts translation path"
 );

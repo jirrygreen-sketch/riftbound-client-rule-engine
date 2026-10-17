@@ -34,7 +34,7 @@ test("maddened-marauder: identity, ruleset, status, judgeReason and sourceText",
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /tank/i);
   assert.match(program.judgeReason, /continuous\.combat/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /assignment-priority/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -136,6 +136,6 @@ test("maddened-marauder golden: a target that left the battlefield is ignored (C
 
 test.todo(
   "maddened-marauder: [Tank] 的战斗伤害分配约束（815.1.b/.c）依赖 Tank 关键词展开与 combat 的 " +
-    "continuous.combat 消费方（KeywordDef 已合入 RIFT-264，combat/base-combat-allocation.ts 仍不绑定 assignment-priority），" +
-    "以及把卡牌关键词注册进该管线的程序绑定（RIFT-257）"
+    "continuous.combat 消费方（KeywordDef 与 static 注册已合入，combat/base-combat-allocation.ts " +
+    "仍不绑定 assignment-priority）"
 );

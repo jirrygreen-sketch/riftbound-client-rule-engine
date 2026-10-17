@@ -16,13 +16,10 @@ import type { CardProgram } from "../../ir/index.js";
  *   effect.token 的 mode "play" 已支持该链上创建 + 打出（RIFT-62 合入后不再是阻断项）。
  * - 440.4：新创建对象的控制者是效果控制者，即 "your base" 里的 your = 本卡控制者。
  *
- * status: judge-required —— 三处依赖未合入：
- * 1. [Deathknell] 的关键词展开不可执行：keywords/Deathknell.ts 的展开体引用未合入的
- *    trigger.leave 原语（该文件自身注明；effects/instructions/ 没有该 op 的注册文件），
- *    触发收集到入链的关键词接线尚未完成（RIFT-82）；
- * 2. 触发注册：没有生产方读取 CardProgram 的 triggered 能力并注册到事件管线
- *    （RIFT-257）；本卡声明的 object-killed 自引用过滤也需随该批归一化。
- * 3. "into your base" 的目标地点需要把 "controller" 占位解析成当前控制者的 Base：
+ * status: judge-required —— 两处真实缺口仍在：
+ * 1. [Deathknell] 的关键词展开引用尚未实现的 trigger.leave 原语；其展开过滤器还带有
+ *    当前 trigger adapter 不接受的 cause / destination 字段，因此展开程序不能绑定。
+ * 2. "into your base" 的目标地点需要把 "controller" 占位解析成当前控制者的 Base：
  *    合并的 effect.token 只接受具体 LocationRef，遇到 player: "controller" 占位会
  *    negated/impossible（契约 3.6 与 effect.token 文档）。
  * 本卡的 [Deathknell] 效果本体（三个 Recruit token）用已合入的 effect.token 表达，并在 golden
@@ -33,13 +30,13 @@ const machineEvangel = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Deathknell] 的关键词展开不可执行：keywords/Deathknell.ts 的展开体引用未合入的 trigger.leave 原语" +
-    "（808.1.d 的触发收集到入链接线，依赖 RIFT-82）；" +
-    "触发的能力注册也缺生产方（RIFT-257，没有读取 CardProgram triggered 能力并注册到事件管线的路径）；" +
+    "[Deathknell] 的关键词展开仍引用未实现的 trigger.leave 原语，且生成的 object-killed 过滤器含有 " +
+    "当前 trigger adapter 不接受的 cause / destination 字段；" +
+    "本卡显式 object-killed 触发已有 CardProgram 注册路径，但会被该关键词展开失败阻断；" +
     "「Play three 1 [M] Recruit unit tokens into your base」的目标地点需要把 base 的 " +
     "player controller 占位解析成当前控制者（440.4），合并的 effect.token 只接受具体 LocationRef，" +
     "占位会 negated/impossible。效果本体（187.1 Recruit x3）可用已合入的 effect.token mode play 执行，" +
-    "故仅上述三点保持 judge-required。依赖：RIFT-82、RIFT-257、effect.token 的 controller-base 占位解析。",
+    "故仅上述缺口保持 judge-required。依赖：trigger.leave 与 Deathknell 过滤器适配，以及 effect.token 的 controller-base 占位解析。",
   sourceText:
     "[Deathknell] — Play three 1 :rb_might: Recruit unit tokens into your base. (When I die, get the effect.)",
   abilities: [

@@ -37,21 +37,23 @@ import type { CardProgram } from "../../ir/index.js";
  *   就绪进场，不再依赖未写入契约的 source 绑定。
  *
  * 仍未合入的消费方（不近似实现）：
- * - 卡牌程序绑定（RIFT-257，src/programs/ 未合入）：没有任何生产方读取 CardProgram 的
- *   replacement 能力并调用 bindReplacement，所以本卡的替代在真实对局里不会被注册。
- *   golden 测试用 bindReplacement + 事件管线真实执行替代本身（入场就绪、友方/敌方边界、
- *   重复触发）。
- * 依赖：RIFT-257（CardProgram → replacement 注册）。
+ * - CardProgram replacement 生命周期已经接入生产绑定，但 replacement/bind.ts 要求
+ *   replacement.event.args.instead 是裸 Instruction[]；DSL 校验后的 CardProgram 提供的是
+ *   Expr-wrapped constant，生产 binder 尚未解包，因此本卡仍不能从程序直接注册。
+ *   golden 测试用最小 adapter 解包后，再由 bindReplacement + 事件管线真实执行替代本身
+ *   （入场就绪、友方/敌方边界、重复触发）。
+ * 依赖：replacement.event 的 Expr → Instruction[] 生产解包。
  */
 const magmaWurm = {
   canonicalCardId: "card.hash-d92b1df4324a20717aaeab68c916883889ea337f917bdf10104e9df82f9a3c19",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "『Other friendly units enter ready』是入场替代效果（CR 369.3；单位默认横置进场 359.2.c）：RIFT-260 的替代管线已合入" +
+    "『Other friendly units enter ready』是入场替代效果（CR 369.3；单位默认横置进场 359.2.c）：替代管线已合入" +
     "（replacement/bind.ts 的 bindReplacement 匹配 object-enters-board 的入场 move-zone，替代体用 { linked: \"replacement.object\" } 读取被替代事件对象），" +
-    "golden 已用该管线真实执行入场就绪。仍缺的消费方是 CardProgram → replacement 注册（RIFT-257，src/programs/ 未合入）：" +
-    "没有生产方读取本卡的 replacement 能力并调用 bindReplacement，真实对局不会注册这条替代。依赖：RIFT-257。不近似实现。",
+    "golden 已用该管线真实执行入场就绪。生产生命周期已经调用 replacement binder，但 replacement/bind.ts " +
+    "要求 args.instead 为裸 Instruction[]，而 DSL CardProgram 提供 Expr-wrapped constant，尚未完成生产解包，" +
+    "因此按程序直接绑定仍失败。依赖：replacement.event 的 Expr → Instruction[] 生产解包。不近似实现。",
   abilities: [
     {
       kind: "replacement",
