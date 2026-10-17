@@ -4,15 +4,30 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/eye-of-the-herald.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import attach from "../../../../engine-core/dist/effects/instructions/effect.attach.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
-import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-67da502bedfc109e81093202c4a30a43cf37ca8aada9f1460b33bee5c979fdae";
 const SOURCE_TEXT =
   "[Equip] :rb_rune_order: (:rb_rune_order:: Attach this to a unit you control.)";
 
 const [equip] = program.abilities;
+
+function controllerContext(kernel) {
+  return new Proxy(kernel, {
+    get(target, key) {
+      if (key === "query") return filter => {
+        const normalized = translateObjectFilter(filter);
+        if (normalized.controller === "self") normalized.controller = target.controller;
+        return target.query(normalized);
+      };
+      const value = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    }
+  });
+}
 
 /** Eye of the Herald as it sits on the Board; printed Might 0 stays 0. */
 function eyeWorld() {
@@ -50,8 +65,8 @@ test("sfd-153-221 Eye of the Herald: identity, ruleset, status, judgeReason and 
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Equip/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /Unsupported payment kind/);
+  assert.match(program.judgeReason, /params\.cost/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -61,7 +76,7 @@ test("sfd-153-221 Eye of the Herald: one valued Order Equip keyword (CR 818.1.c)
   assert.equal(equip.kind, "keyword");
   assert.equal(equip.keyword, "equip");
   assert.equal(equip.value, 1);
-  assert.equal(equip.costDomain, "Order");
+  assert.deepEqual(equip, { kind: "keyword", keyword: "equip", value: 1 });
 });
 
 test("sfd-153-221 Eye of the Herald: the merged Equip expansion is valid EffectIR for this card", () => {
@@ -92,18 +107,15 @@ test("sfd-153-221 Eye of the Herald: the merged Equip expansion is valid EffectI
 test("sfd-153-221 Eye of the Herald golden: the merged attach body attaches the Gear and keeps Might 0", () => {
   const kernel = eyeWorld();
   const [expansion] = expansionFor();
-  const run = runInstruction(
-    attach,
-    { host: expansion.body[0].args.host },
-    { world: kernel, targets: { "equip-target": [kernel.ref("ally")] } }
-  );
+  kernel.setTargets("equip-target", [kernel.ref("ally")]);
+  const outcome = resolveChainBody(expansion.body, controllerContext(kernel));
 
-  assert.equal(run.result.status, "executed");
+  assert.equal(outcome.status, "executed");
   assert.deepEqual(kernel.getObject("eye-of-the-herald").attachedTo, kernel.ref("ally"));
   // 150.1/150.2: the printed Might 0 is a real value, not "no value".
   assert.equal(kernel.getObject("eye-of-the-herald").might, 0);
   assert.equal(kernel.getObject("eye-of-the-herald").power, null);
-  assert.deepEqual(run.events.map((event) => event.action), ["attach"]);
+  assert.deepEqual(outcome.events.map((event) => event.action), ["attach"]);
 });
 
 test("sfd-153-221 Eye of the Herald golden: a chosen Unit that left the Board is not re-attached (CR 359.3.e.6)", () => {
@@ -112,26 +124,15 @@ test("sfd-153-221 Eye of the Herald golden: a chosen Unit that left the Board is
   const stale = kernel.ref("ally");
   assert.equal(kernel.perform({ type: "return-to-hand", object: stale }).status, "done");
 
-  const run = runInstruction(
-    attach,
-    { host: expansion.body[0].args.host },
-    // The Finalize-locked host is revalidated at resolution: the stored
-    // zoneEntryId is stale once the unit changed zones, so the primitive
-    // ignores the instruction instead of rebinding by id.
-    { world: kernel, targets: { "equip-target": [stale] } }
-  );
-  assert.deepEqual(run.result, { status: "ignored", reason: "mistargeted" });
-  assert.equal(run.events.length, 0);
+  kernel.setTargets("equip-target", [stale]);
+  const outcome = resolveChainBody(expansion.body, controllerContext(kernel));
+  assert.deepEqual(outcome.results[0].result, { status: "ignored", reason: "mistargeted" });
+  assert.equal(outcome.events.length, 0);
   assert.equal(kernel.getObject("eye-of-the-herald").attachedTo, null);
   assert.deepEqual(kernel.zone("A", "hand").map((ref) => ref.id), ["ally"]);
 });
 
 test.todo(
-  "sfd-153-221 Eye of the Herald: paying the printed Order Equip cost (818.1.b / 818.1.c.2) needs " +
-    "the \"equip\" cost-payment kind in cost/plan-values.ts plus ExpandInput params.cost " +
-    "(contract 3.8 item 3) - RIFT-261."
-);
-test.todo(
-  "sfd-153-221 Eye of the Herald: the card-program -> keyword expansion -> chain activation wiring " +
-    "(contract 3.5) is not merged - RIFT-257."
+  "sfd-153-221 Eye of the Herald: transmit the printed Order CostSpec through the keyword declaration " +
+    "to the existing params.cost field and consume it in Equip.expand/activation (818.1.c.2/.3)"
 );

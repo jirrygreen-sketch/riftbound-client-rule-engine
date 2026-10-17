@@ -19,17 +19,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   在该组件加入费用时应用（356.4.c 的示例正是本卡）；356.4.f.1 规定"可选附加费用是否已付"
  *   看的是玩家做出的支付决定。"[A]" 是 163.2.b 的 Universal Power（任意域力量）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。
- * - "discard 1" 与 "draw 2" 都用已合入的 effect.discard / effect.draw，golden 对这两条真实执行。
- * - 改费半段没有消费方：effects/instructions/ 仍未注册 cost.modify 原语（RIFT-261 进行中），
- *   cost/cost-plan.ts 只在调用方显式提供 CostPlanInput.discounts 时应用折扣（356.4.c 的组件折扣、
- *   356.4.f.1 的"已付决定"凭证都是该管线的职责），且 CostDiscount 的 component 维度目前只在 base/output
- *   阶段生效——没有"仅作用于可选附加费用"与"以支付决定为条件"的接线；本卡的 static 能力也还没有
- *   CardProgram → 费用计划的注册路径（RIFT-257）。
- * - "or [A]" 的 Universal Power（163.2.b）无法用封闭 Domain 类型与 CostDiscount.resource 表达；
- *   effect.resources 明确该资源保持 unsupported、绝不用具名域近似。
- * 依赖：RIFT-261（费用计划的附加费用折扣接线）、RIFT-257（卡牌 static 注册）、Universal Power 的契约变更请求。
- * 不近似实现：不把 [A] 写成某个具名域，也不把改费写成副作用式的额外动作。
+ * Status: judge-required. The discard/draw body executes with merged primitives.
+ * cost.modify and buildCostPlan already support discounts on selected optional
+ * components and retain the decision to pay even for a zero total (356.4.f.1).
+ * The missing adapter is the static scope: programs/statics.ts cannot bind
+ * continuous.cost-modification or optional-additional-costs-you-pay, so no
+ * rule discovers each payable component and offers its Energy/Power discount.
+ * Reducing a Power requirement does not create a Universal Power resource.
  */
 const abilities: Ability[] = [
   {
@@ -79,14 +75,7 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "改费半段没有消费方：「Optional additional costs you pay cost [1] or [A] less」按 356.2.b / 356.4 / 356.4.c / 356.4.f " +
-    "是只作用于可选附加费用组件的折扣（356.4.f.1 的已付凭证是玩家的支付决定），但 effects/instructions/ 没有注册 cost.modify 原语，" +
-    "cost/cost-plan.ts 只在调用方显式提供 CostPlanInput.discounts 时应用，且 CostDiscount 没有「仅作用于可选附加费用」与「以支付决定为条件」的维度（RIFT-261 进行中）。" +
-    "同时「or :rb_rune_rainbow:」的 [A] 是 163.2.b 的 Universal Power：封闭 Domain 类型与 CostDiscount.resource 不表达，" +
-    "effect.resources 明确保持 unsupported、不用具名域近似。" +
-    "「When you play me, discard 1, then draw 2」两条指令已合入（423.1 / 414.3），golden 对锁定手牌与牌库真实执行，触发接线记 test.todo。" +
-    "依赖：RIFT-261（cost.modify 原语与附加费用折扣接线）、RIFT-257（卡牌 static 注册）、Universal Power 的契约变更请求。" +
-    "不近似实现。",
+    "弃 1 抽 2 已由 effect.discard/effect.draw 真实执行。静态减费仍缺入口：programs/statics.ts 的 layerFor 不识别 continuous.cost-modification，staticTarget 也不接受 optional-additional-costs-you-pay；所以卡面不能向 Finalize 注册该折扣。cost.modify 和 buildCostPlan 已支持按组件 ID 折扣，optionalAdditional 也保留支付决定（356.4.c/356.4.f.1），但没有把本卡的可选附加费用范围和每次 energy 或 power 的选择编译为相应 CostPlanInput.discounts 的适配器。163.2.b 的 [A] 作为此处 Power 减费不需要伪造具名域：CostDiscount.resource=power 已可减少 Power 需求；这不等于产生 Universal Power 资源。剩余依赖是 static → 可选附加费用组件折扣的绑定，整卡 judge-required。",
   abilities,
   sourceText:
     "When you play me, discard 1, then draw 2.\n" +

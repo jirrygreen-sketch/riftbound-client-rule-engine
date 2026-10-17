@@ -4,6 +4,7 @@ import { validateCardProgram } from "../../../dist/index.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const cardId = "card.hash-6bde2e2c542ff8fc1a7a2f9204df7e6c58a05a53ad98c0a31d69927be053b77f";
@@ -17,7 +18,7 @@ test("fiora-peerless program is registered and validates", () => {
 
 test("fiora-peerless structure: attack/defend triggers with one-on-one predicate and a real doubling body", () => {
   assert.equal(program.status, "judge-required");
-  assert.ok(program.judgeReason.includes("one-on-one"), "judgeReason must cite the one-on-one predicate");
+  assert.ok(program.judgeReason.includes("one-on-one"), "judgeReason must explain the supported one-on-one gate");
   assert.equal(program.abilities.length, 2);
 
   const [attack, defend] = program.abilities;
@@ -26,6 +27,11 @@ test("fiora-peerless structure: attack/defend triggers with one-on-one predicate
   assert.equal(attack.trigger.filter.event, "attack-declared");
   assert.equal(attack.trigger.filter.filter.source, "self");
   assert.equal(attack.trigger.once, "per-combat");
+  assert.equal(attack.trigger.condition.kind, "all");
+  assert.deepEqual(attack.trigger.condition.conditions.map(condition => condition.left.filter), [
+    { type: "unit", zone: "board", controller: "self", sameLocationAs: "source" },
+    { type: "unit", zone: "board", controller: "opponent", sameLocationAs: "source" }
+  ]);
   assert.equal(attack.optional, false);
   // 433.1 / 433.1.a: Doubling reads the attribute's current value at resolution
   // and registers an arithmetic-layer Might modification for this combat.
@@ -54,6 +60,7 @@ test("fiora-peerless structure: attack/defend triggers with one-on-one predicate
   assert.equal(defend.trigger.filter.event, "defense-declared");
   assert.equal(defend.trigger.filter.filter.source, "self");
   assert.equal(defend.trigger.once, "per-combat");
+  assert.deepEqual(defend.trigger.condition, attack.trigger.condition);
   assert.deepEqual(defend.body.map((entry) => [entry.id, entry.op]), [
     ["fiora-peerless.defend.read-might", "condition.value"],
     ["fiora-peerless.defend.double-might", "continuous.might"]
@@ -112,8 +119,57 @@ test("fiora-peerless golden: doubling reads the current Might, not a fixed amoun
   assert.equal(layers.evaluate(kernel.ref("fiora")).might, 4);
 });
 
+// Run the authored trigger condition through the real condition interpreter.
+// This is predicate evidence, not a fabricated combat declaration event.
+function controllerContext(kernel) {
+  return new Proxy(kernel, {
+    get(target, key) {
+      if (key === "query") return filter => {
+        const normalized = translateObjectFilter(filter);
+        if (normalized.controller === "self") normalized.controller = target.controller;
+        const opponent = normalized.controller === "opponent";
+        if (opponent) delete normalized.controller;
+        return target.query(normalized).filter(object => !opponent || object.controller !== target.controller);
+      };
+      const value = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    }
+  });
+}
+
+const field = { type: "battlefield", id: "duel" };
+for (const controller of ["A", "B"]) {
+  const opponent = controller === "A" ? "B" : "A";
+  for (const scenario of [
+    { name: "two opposing units alone", units: [[opponent, field]], expected: true },
+    { name: "no enemy", units: [], expected: false },
+    { name: "another friendly unit", units: [[opponent, field], [controller, field]], expected: false },
+    { name: "another enemy unit", units: [[opponent, field], [opponent, field]], expected: false },
+    { name: "enemy at another battlefield", units: [[opponent, { type: "battlefield", id: "other" }]], expected: false },
+    { name: "other locations do not break alone", units: [[opponent, field], [controller, { type: "base", player: controller }], [opponent, { type: "battlefield", id: "other" }]], expected: true }
+  ]) {
+    test(`fiora-peerless condition golden (${controller}): ${scenario.name}`, () => {
+      const builder = world().unit("fiora", { controller, location: field });
+      scenario.units.forEach(([unitController, location], index) => builder.unit(`unit-${index}`, { controller: unitController, location }));
+      // Gear and off-board units at the same location are not combat units.
+      builder.unit("gear", { types: ["gear"], controller, location: field });
+      builder.card("discarded", { controller, types: ["unit"], zone: "trash", location: field });
+      const base = builder.build();
+      const kernel = base.clone({ sourceSnapshot: base.getObject("fiora"), controller });
+      for (const ability of program.abilities) {
+        const outcome = resolveChainBody([{
+          id: "fiora-gate", op: "condition.predicate",
+          args: { condition: { kind: "constant", value: ability.trigger.condition } }
+        }], controllerContext(kernel));
+        assert.equal(outcome.status, "executed");
+        assert.equal(outcome.linkedValues["fiora-gate.value"], scenario.expected);
+        assert.deepEqual(outcome.events, []);
+      }
+    });
+  }
+}
+
 test.todo(
-  "fiora-peerless: the printed one-on-one gate (CR 740.2.b — this unit and the enemy unit at the same " +
-    "location are both alone) has no merged predicate, and attack-declared/defense-declared still have no " +
-    "producer (combat/ raises combat-start-transaction; timing-point-producers.md lists both as 待后续) — RIFT-124"
+  "fiora-peerless: produce attack-declared/defense-declared from CR 466.2's atomic combat-start role " +
+    "transaction and evaluate the authored condition at trigger collection via testTrigger (RIFT-359)"
 );

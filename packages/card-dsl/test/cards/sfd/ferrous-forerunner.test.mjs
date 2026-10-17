@@ -1,7 +1,7 @@
 // Golden test for Ferrous Forerunner (sfd-021-221).
 // Deathknell body is expressed as an explicit object-killed trigger; the
 // merged effect.token play path really creates and plays the Mech tokens, while
-// the Deathknell trigger registration is still owned by RIFT-257.
+// the relative base destination and keyword-body hookup remain blocked.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { validateCardProgram } from "../../../../../packages/card-dsl/dist/ir/index.js";
@@ -18,8 +18,8 @@ test("program passes validateCardProgram and is judge-required", () => {
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason ?? "", /LocationRef/);
-  assert.match(program.judgeReason ?? "", /RIFT-82/);
-  assert.match(program.judgeReason ?? "", /RIFT-257/);
+  assert.match(program.judgeReason ?? "", /trigger\.leave/);
+  assert.match(program.judgeReason ?? "", /TriggerRegistration/);
   assert.match(program.sourceText, /\[Deathknell\]/);
 });
 
@@ -74,12 +74,11 @@ test("golden: the printed play mode really creates and plays both 3-Might Mech t
 });
 
 test.todo(
-  "sfd-021-221 Ferrous Forerunner: resolve the Deathknell body through the real chain once the card-program " +
-    "trigger registration lands and trigger.leave is merged (808.1.c; RIFT-82 keyword expansion + RIFT-257 binding)"
+  "sfd-021-221 Ferrous Forerunner: hook the printed Deathknell body into the keyword skeleton's " +
+    "trigger.leave entry point (808.1.c); generic TriggerRegistration binding already exists"
 );
 
 test.todo(
-  "sfd-021-221 Ferrous Forerunner: 'to your base' needs a controller-relative LocationRef for effect.token " +
-    "(its literal PlayerId must equal ctx.controller; only a linked/known LocationRef can name that seat) — " +
-    "contract change request"
+  "sfd-021-221 Ferrous Forerunner: execute the unmodified card destination once effect.token accepts " +
+    "controller-base independent of the source's location (LocationRef contract change request)"
 );
