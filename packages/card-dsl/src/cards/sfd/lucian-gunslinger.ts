@@ -19,19 +19,20 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "an enemy unit here"：「enemy」= 对手控制（740.1.b），「here」= 本卡所在地点
  *   （449/421.1），写成 TargetSpec 的 controller/sameLocationAs 过滤（355.9.b）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-16）。
- * - [Assault] 的展开（effects/keywords/Assault.ts）已合入，RIFT-257 的 expandProgram
- *   会把它解析为 continuous.might + Attacker designation 条件（golden 验证展开形状）；
- *   但战斗角色事务尚未实现（combat/flow.ts 明确抛 combat-start-transaction，无人写
- *   ObjectSnapshot.combatRole/designation），+1 Might 无法在攻击期间生效；
- * - ``damage equal to my [Assault]`` 缺「读取关键词数值」的表达式形态（807.1.b.2/
- *   807.3 的 Assault Value 可引用；Expr 只有 constant/literal/object-property/
- *   linked/count/arithmetic），不能写成常量 1 或 object-property 的伪属性来近似；
- * - attack-declared 时点尚无发射方（combat/ 未把 Attacker 身份接入事件管线，
- *   timing-points.ts 记为待后续）；「here」的 sameLocationAs 锚点由解释器支持，
- *   但触发 filter 的内层锚点尚无生产消费方（programs/filters.ts 会拒绝该锚点）。
- * 依赖：战斗角色 designation（RIFT-33/combat 事务）、关键词数值表达式、attack-declared
- * 发射路径。不近似实现。
+ * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-17）。
+ * - [Assault] 的 KeywordDef 与 expandProgram 展开已合入，生产 static binder 也能登记
+ *   continuous.might；但展开条件读取 designation，而 ObjectSnapshot 只提供 combatRole，
+ *   条件会因缺少该特征而 fail-closed，攻击期间的 +1 Might 仍不会生效；
+ * - ``damage equal to my [Assault]`` 需要在结算时读取关键词的 Assault Value
+ *   （807.1.b.2/807.3）。Expr 只能读取 ObjectSnapshot 的直接属性，keywords 是数组且没有
+ *   keyword-value 选择器；``keywords.assault.value`` 只是保留缺口的描述性路径，不能改成
+ *   常量 1 来近似；
+ * - attack-declared 已进入时点词表，触发注册器也存在，但 combat/flow.ts 在战斗开启的
+ *   原子事务处抛 combat-start-transaction，尚无 Attacker designation 或该时点的生产发射；
+ *   正文目标的 sameLocationAs 锚点虽由解释器查询支持，programs/filters.ts 仍拒绝它，
+ *   因而生产 TargetSpec 无法绑定“enemy unit here”。
+ * 依赖：combatRole/designation 条件映射与 attack-declared 生产路径、关键词数值 Expr、
+ * TargetSpec sameLocationAs 的生产翻译。不近似实现。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "assault" },
@@ -47,8 +48,8 @@ const abilities: Ability[] = [
         id: "lucian-gunslinger.damage",
         op: "effect.damage",
         args: {
-          // 描述性占位：结算时应等于本卡的 Assault Value。
-          // 现有 Expr 形态读不到关键词数值，故不能写成常量 1 冒充。
+          // 描述性占位：结算时应等于本卡当前的 Assault Value。
+          // Expr 尚无关键词值选择器，故不能写成常量 1 冒充。
           amount: {
             kind: "object-property",
             object: "source",
@@ -75,15 +76,17 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "「deal damage equal to my [Assault]」缺可执行路径：没有表达式能读取某对象的关键词数值" +
-    "（807.1.b.2 的 Assault Value 可被引用，但 Expr 只有 constant/literal/object-property/linked/count/arithmetic，" +
-    "ObjectSnapshot 的 keywords 数组没有取值形态），不能写成常量 1 近似；" +
-    "[Assault]（807）的展开文件 effects/keywords/Assault.ts 已合入且经 RIFT-257 的 expandProgram 解析为 " +
-    "continuous.might + Attacker designation 条件（golden 验证展开形状），但战斗角色事务未实现：" +
-    "combat/flow.ts 明确抛 combat-start-transaction，ObjectSnapshot.combatRole/designation 无人写入，+1 Might 不生效；" +
-    "attack-declared 时点（383.4.e）尚无发射方（timing-points.ts 记为待后续，combat/ 未接入事件管线）；" +
-    "「here」的 sameLocationAs 锚点在生产绑定（programs/filters.ts）会被拒绝。" +
-    "依赖：战斗 designation 赋值（战斗事务）、关键词数值表达式、attack-declared 发射路径。不近似实现。",
+    "[Assault] 的 KeywordDef/expandProgram 展开和 continuous.might static binder 已合入，" +
+    "但展开条件读取 designation；当前 ObjectSnapshot 只提供 combatRole，生产条件求值会 fail-closed，" +
+    "故 807.1.c/.d.1 的攻击期间 +1 Might 尚未生效。" +
+    "attack-declared 已在时点词表和触发注册器中，但 combat/flow.ts 在战斗开启的原子事务处抛 " +
+    "combat-start-transaction，尚无 Attacker designation 或该时点的生产发射（383.4.e/466.2.c）。" +
+    "正文的 sameLocationAs 查询由解释器支持，programs/filters.ts 的生产翻译器却拒绝该字段，" +
+    "所以 TargetSpec 不能绑定“enemy unit here”（355.9.b/359.3.f）。" +
+    "“damage equal to my [Assault]”还缺关键词数值 Expr：Expr 只能读取 ObjectSnapshot 直接属性，" +
+    "keywords 数组没有 Assault Value 选择器（807.1.b.2/807.3），不能写成常量 1 近似。" +
+    "依赖：combatRole/designation 条件映射与 attack-declared 生产路径、关键词数值 Expr、" +
+    "TargetSpec sameLocationAs 的生产翻译。不近似实现。",
   abilities,
   sourceText:
     "[Assault] (+1 :rb_might: while I'm an attacker.)\n" +
