@@ -1,3 +1,6 @@
+// Template execution evidence: ../templates/static-645.test.mjs.
+// This card remains judge-required; the template covers the registered Assault
+// grant while the dynamic value and attacker consumer remain pending.
 import assert from "node:assert/strict";
 import test from "node:test";
 

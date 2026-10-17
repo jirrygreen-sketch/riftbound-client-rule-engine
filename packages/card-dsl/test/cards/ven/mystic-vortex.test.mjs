@@ -1,3 +1,6 @@
+// Template execution evidence: ../templates/static-645.test.mjs.
+// This card remains judge-required; the template covers only the traversable
+// lifecycle and the closed-showdown boundary.
 import assert from "node:assert/strict";
 import test from "node:test";
 
