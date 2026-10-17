@@ -14,8 +14,9 @@ export default {
   status: "judge-required",
   judgeReason:
     "[Shield] 按 CR 814.1.b.3 默认为 1，但展开条件读取 designation，ObjectSnapshot 提供的是 combatRole；" +
-    "需要防守者条件适配（RIFT-359，814.1.c / 814.1.d.1）。[Vision] 展开的 object.id=self 入场过滤还需 programs/filters 适配；effect.inspect 仍固定 player=A，" +
-    "programs/ 未注入真实控制者与每次结算的有序 vision-top picks（RIFT-358；817.1.c、437.1）。",
+    "当前条件求值与战斗 designation 之间仍没有可执行的 defender 消费链（814.1.c / 814.1.d.1）。" +
+    "[Vision] 展开的 object.id=self 入场过滤仍会被 programs/filters.ts 拒绝；effect.inspect 仍固定 player=A，" +
+    "programs/ 也未在每次结算时注入真实控制者与有序 vision-top picks（817.1.c、437.1）。",
   abilities: [
     { kind: "keyword", keyword: "vision" },
     { kind: "keyword", keyword: "shield" }

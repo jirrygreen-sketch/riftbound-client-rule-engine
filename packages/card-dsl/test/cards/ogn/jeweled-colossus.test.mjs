@@ -19,8 +19,8 @@ test("Jeweled Colossus program validates and is judge-required", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Shield/);
   assert.match(program.judgeReason, /814\.1\.b\.3/);
-  assert.match(program.judgeReason, /RIFT-358/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /programs\/filters/);
+  assert.match(program.judgeReason, /vision-top/);
   assert.match(program.judgeReason, /designation/);
   assert.equal(
     program.sourceText,
@@ -40,10 +40,10 @@ test("Jeweled Colossus declares exactly the two printed keywords, in printed ord
 
 test.todo(
   "Jeweled Colossus Shield: read combatRole for the defender condition, then verify +1 only while defending " +
-    "through the production static binder (CR 814.1.c-d.1; RIFT-359)"
+    "through the production static binder (CR 814.1.c-d.1)"
 );
 test.todo(
-  "Jeweled Colossus Vision: bind the actual controller and ordered vision-top at each trigger resolution (RIFT-358)"
+  "Jeweled Colossus Vision: bind the actual controller and ordered vision-top at each trigger resolution"
 );
 
 for (const recycle of [false, true]) {
