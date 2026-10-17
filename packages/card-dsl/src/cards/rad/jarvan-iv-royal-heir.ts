@@ -58,11 +58,9 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两个关键词的展开都不可执行：[Assault]（807.1.c）需要 continuous.might 的图层消费方与" +
-    "\"designation = attacker\" 判定，effects/keywords/Assault.ts 自述这两项依赖 RIFT-91；" +
-    "[Tank]（815.1.b/c）没有 effects/keywords/Tank.ts，combat/base-combat-allocation.ts 也" +
-    "显式不绑定 Tank 的伤害分配优先级。攻击触发与 effect.move 的移动本体已可表达并有执行" +
-    "证据，但整卡不得标为 executable。依赖：关键词工作流（Assault 807/Tank 815）、RIFT-91。",
+    "[Tank]（815.1.b/c）的 KeywordDef 仍只是声明，combat/base-combat-allocation.ts 没有消费" +
+    "其 lethal-first 伤害分配优先级。Assault（807.1.c）的 combatRole 图层判定、攻击触发注册与" +
+    "effect.move 移动本体已有引擎路径；在 Tank 消费方合入前整卡仍保持 judge-required。",
   abilities,
   sourceText:
     "[Assault] (+1 :rb_might: while I'm attacking.)\n" +

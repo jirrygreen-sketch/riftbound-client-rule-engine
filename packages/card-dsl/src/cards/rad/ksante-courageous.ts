@@ -22,17 +22,16 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * status = judge-required（逐个缺口写出证据，不近似实现）：
  * 1. [Accelerate] 的展开（805.1.b 附加费 [1][Body]、805.6 入场就绪替代）已写成
  *    accelerate.cost 静态效果 + replacement，但没有消费方：没有卡牌 keyword 能力接入
- *    Finalize 费用计划（optionalAdditional）的路径（RIFT-261 + RIFT-257）。
- * 2. [Shield 2] 的 KeywordDef 展开已合入，但同样没有卡牌 static → 图层的注册方
- *    （RIFT-257 + RIFT-91）。
+ *    Finalize 费用计划（optionalAdditional）的卡牌侧生产路径。
+ * 2. [Shield 2] 的 KeywordDef 展开、静态绑定和 combatRole 判定路径已经合入。
  * 3. hold 触发缺少「本卡在固守的战场上」的时点载荷：383.4.d.2/.2.a 要求 Hold Effect 绑定
  *    固守时在场的那个单位（时点 hold 由 scoring 发出，载荷只带战场/玩家，不含在场单位快照，
  *    events/pipeline-match.ts 也只读 object/source/target/player/fromZone/toZone/amount/details，
  *    不读卡程序 filter 里的内层 source: "self"），当前触发管线无法判定是本卡参与固守。
  * 已合入并已有执行证据的部分：effect.channel（431）——golden 用解释器 + 参考内核真实执行
  * 该 channel（含 431.3 的空符文牌库边界）。
- * 依赖：RIFT-261/RIFT-257（Accelerate 费用与卡程序绑定）、RIFT-91（Shield 图层）、
- * hold 时点载荷的接线。
+ * 当前缺口是 Accelerate 静态费用到打出 Finalize 的 optionalAdditional 适配，以及 hold
+ * 事件缺少用于绑定“固守时在场单位”的 object/source 载荷。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "accelerate" },
@@ -63,9 +62,8 @@ const program = {
   judgeReason:
     "三处未合入依赖：(1) [Accelerate] 展开（805.1.b 的附加费 [1][Body] 与 805.6 入场就绪替代）虽已写在 " +
     "effects/keywords/Accelerate.ts，但没有消费方把卡牌 keyword 能力接入 Finalize 费用计划（optionalAdditional）与入场替代，" +
-    "属 RIFT-261（费用种类 / cost.pay）与 RIFT-257（卡程序绑定）。(2) [Shield 2]（814）的 KeywordDef 展开已合入，" +
-    "但没有卡牌 static → 图层的注册方（RIFT-257 + RIFT-91），且 layers/engine.ts 的 conditionMatches 对未知条件默认返回 true、" +
-    "Shield 展开依赖的 designation 特征不在 ObjectSnapshot 里（contract 3.8 的 combatRole 未落地）。(3) hold 触发缺少" +
+    "但当前没有适配器把该静态费用声明接入打出 Finalize 的 optionalAdditional。(2) [Shield 2]（814）的 KeywordDef 展开、" +
+    "静态绑定和 combatRole 判定路径已经合入。(3) hold 触发缺少" +
     "「本卡在固守的战场上」的载荷：383.4.d.2/.2.a 要求 Hold Effect 绑定固守时在场的单位，而 hold 时点（turn/flow.ts 的 scoring）" +
     "只带战场/玩家，events/pipeline-match.ts 也不读卡程序 filter 里的内层 source: self，无法判定本卡参与固守。" +
     "已合入并有执行证据：effect.channel（431.1/431.2，含 431.3 空符文牌库边界），见 golden。不近似实现。",

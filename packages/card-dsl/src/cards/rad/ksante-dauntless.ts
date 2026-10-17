@@ -25,11 +25,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *    的 value 是“新增一则带值关键词”，也不是倍增。LayerEngine 的 applyArithmetic 有
  *    multiply/double 分支，但只识别 kind 里含 "multiply"/"double" 的连续效果，且没有
  *    卡牌可写的入口（乘的是 snapshot.might，不是 Shield 关键词值）。
- * 2. Shield 的展开本身也没有消费者：effects/keywords/Shield.ts 已合入，但卡牌 static →
- *    图层的注册方不存在（RIFT-257 + RIFT-91）；其 condition 依赖的 designation 特征不在
- *    ObjectSnapshot 里（contract 3.8 的 combatRole 未落地），且 layers/engine.ts 的
- *    conditionMatches 对未知条件默认返回 true，直接把 +X Might 常驻化是错误语义。
- * 依赖：RIFT-261/257（费用与卡程序/图层绑定）与“关键词取值倍增”的 continuous 原语批次。
+ * 2. Shield 的展开、静态绑定和 combatRole 条件判定已经合入；当前仍缺“倍增关键词值”这一
+ *    卡牌侧 continuous 原语，不能把它近似成 Might 的加值或设值。
  * golden 只锁定已合入的 Shield 声明、双时点触发结构与真实执行不了的部分（见 test）。
  */
 const SHIELD_UNIT_HERE = "ksante-dauntless.unit-here";
@@ -97,10 +94,8 @@ const program = {
     "arithmetic 层倍增。合并的 continuous.might 只做 Might 的 add/set（argsSchema 直接拒绝 multiply/layer 字段：" +
     "Invalid continuous.might argument），continuous.grant-keyword 的 value 是新增一则带值关键词而非倍增；LayerEngine 的 " +
     "multiply/double 分支只认 kind 含 multiply/double 的连续效果、且乘的是 Might 而非 Shield 关键词值，没有卡牌可写入口。" +
-    "另外 effects/keywords/Shield.ts 的展开虽已合入，但卡牌 static → 图层的注册方不存在（RIFT-257 + RIFT-91），其 condition 依赖的 " +
-    "designation 特征不在 ObjectSnapshot 里（contract 3.8 的 combatRole 未落地），layers/engine.ts 的 conditionMatches 对未知条件" +
-    "默认返回 true——直接接线会把 +X Might 常驻化，属错误语义。依赖：RIFT-261/257（费用与卡程序/图层绑定）与「关键词取值倍增」的" +
-    "continuous 原语批次。不近似实现（不写成 +N 或 set Might）。",
+    "Shield 的展开、静态绑定和 combatRole 条件判定已经合入；但合并的 continuous.might 只接受" +
+    "Might 的 add/set，不能把目标单位的 Shield Value 在 arithmetic 层倍增。没有该原语前不近似实现（不写成 +N 或 set Might）。",
   abilities,
   sourceText:
     "[Shield] (+1 :rb_might: while I'm a defender.)\n" +

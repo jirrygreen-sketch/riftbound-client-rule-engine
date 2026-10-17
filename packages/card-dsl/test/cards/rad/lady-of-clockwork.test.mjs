@@ -27,11 +27,11 @@ test("rad-145-167 Lady of Clockwork: identity, status and verbatim sourceText", 
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  // cards README §2: judgeReason names cost.pay, the trait/Might layer gap and
-  // the "until you choose another gear" duration model, with task numbers.
+  // cards README §2: judgeReason names the current cost binding, trait/Might, and
+  // choice-driven duration gaps.
   assert.match(program.judgeReason, /cost\.pay/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /顶层 CostSpec/);
+  assert.match(program.judgeReason, /trait/);
   assert.match(program.judgeReason, /206/);
   assert.match(program.judgeReason, /Duration/);
 });
@@ -152,15 +152,15 @@ test("rad-145-167 Lady of Clockwork: choosing a gear is a target, so the printed
 });
 
 test.todo(
-  "rad-145-167: pay the 1 Energy at Finalize — needs the triggered-ability base cost wiring " +
-    "(CR 204.3 / 383.3.b / 404.1.b.1) and a cost.pay implementation in the cost pipeline " +
-    "(cost kinds + cost.pay / cost.modify: RIFT-261; card-program cost binding: RIFT-257)"
+  "rad-145-167: pay the 1 Energy at Finalize — needs a triggered-ability top-level CostSpec " +
+    "binding (CR 204.3 / 383.3.b / 404.1.b.1); cost.pay exists as an instruction but cannot " +
+    "replace the Finalize base-cost step"
 );
 
 test.todo(
   "rad-145-167: turn the chosen Gear into a unit Gear whose Might is its printed Energy cost — " +
-    "needs a trait-layer type rewrite, a continuous Might set mode that reads another object's " +
-    "printed cost (CR 206) and the card static → layer registration path (RIFT-257)"
+    "needs a trait-layer type rewrite and a card-facing layer binding that reads the target's " +
+    "printed Energy cost (CR 206)"
 );
 
 test.todo(

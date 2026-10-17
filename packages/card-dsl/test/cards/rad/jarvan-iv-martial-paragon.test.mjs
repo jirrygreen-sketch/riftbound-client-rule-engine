@@ -18,9 +18,9 @@ test("rad-091-167 Jarvan IV, Martial Paragon: validates, identity and source tex
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  // README §2: the reason names the still-missing bindings and their owners.
+  // README §2: the reason names the current binding and predicate gaps.
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /keyword/);
   assert.match(program.judgeReason, /canAct/);
   assert.match(program.judgeReason, /830\.3/);
   assert.equal(program.sourceText, SOURCE_TEXT);
@@ -104,17 +104,11 @@ test("rad-091-167 Jarvan IV, Martial Paragon: the exhausted stipulation reaches 
 });
 
 test.todo(
-  "jarvan-iv-martial-paragon: bind the static continuous.grant-keyword into the layers so " +
-    "“your gear with [Deploy] have [Action]” actually grants the permission (RIFT-257 programs " +
-    "binding + RIFT-91 layers)"
-);
-test.todo(
   "jarvan-iv-martial-paragon: wire keyword-form Action grants into the timing-permission query — " +
     "layers/rules canAct reads continuous.timing grants/timings only, so object.keywords.Action " +
     "currently grants no timing (CR 806.1.b)"
 );
 test.todo(
   "jarvan-iv-martial-paragon: evaluate the “has [Deploy]” predicate (CR 830.3) in filters — " +
-    "layers/filter.ts ignores unknown keys, so both the static filter and the conquer condition's " +
-    "count + keyword would match every gear; keyword/sameLocationAs evaluation is the RIFT-90 gap"
+    "the static binder and trigger condition still cannot evaluate keyword and sameLocationAs filters"
 );

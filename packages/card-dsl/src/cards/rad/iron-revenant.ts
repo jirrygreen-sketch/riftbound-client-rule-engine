@@ -24,7 +24,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - “Banish a unit or gear from your trash” 作为费用的表达不完整：
  *   cost/plan-values.ts 的 nonstandard 支付种类只有 exhaust / discard / recycle / kill /
  *   reveal / spend-buff，没有 banish；417.6 证明“从 Trash 回收”可以建模为带区域的
- *   选择，但 banish 种类缺失（费用种类与 cost.pay / cost.modify 属 RIFT-261）。把 banish
+ *   选择，但 banish 种类当前仍缺失。把 banish
  *   放进结算正文会把它变成效果而不是费用（355.10.c.1 的 “[do X] to [do Y]” 中 X 是费用，
  *   付不出就不能激活，415.4 同理）。
  * - “[A] 任意域 Power” 不可表达：契约与内核的 Domain 是 Fury/Calm/Mind/Body/Chaos/Order
@@ -91,7 +91,7 @@ const program = {
   judgeReason:
     "三处未合入依赖：(1) 缺费用种类的 banish：「Banish a unit or gear from your trash」是 377.1 / 355.10.c.1 的费用" +
     "（付不出就不能激活，415.4），但 cost/plan-values.ts 的 nonstandard 支付种类只有 exhaust / discard / recycle / kill / " +
-    "reveal / spend-buff，没有 banish（费用种类与 cost.pay / cost.modify 属 RIFT-261）；把 banish 放进结算正文会把它变成效果。" +
+    "reveal / spend-buff，没有 banish；把 banish 放进结算正文会把它变成效果。" +
     "(2)「[Add] :rb_rune_rainbow:」的 [A] 任意域 Power（135.2.e.5 / 163.2.b）不可表达：契约与内核的 Domain 是六域封闭集合，" +
     "effect.resources 明确记录 Universal Power 不可表达、绝不用某个域近似，本卡以 power: [\"rainbow\"] 保留记号（原语返回 negated impossible）。" +
     "(3)「Spend this Power only to play units or gear.」是资源的用途限制：带约束资源池与 restriction 的消费方未合入，" +

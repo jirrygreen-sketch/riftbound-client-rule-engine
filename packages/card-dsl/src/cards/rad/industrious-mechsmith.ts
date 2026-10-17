@@ -19,14 +19,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   condition.value（其 argsSchema 接受契约 3.6 的 ObjectSelector）而不是
  *   effect.token 的 location 字段里。
  *
- * status 判定（README 第 2 节）：judge-required。缺口：
- * - 触发侧没有已合入订阅方把 CardProgram 的 triggered ability 注册成
- *   TriggerRegistration（卡牌程序绑定 RIFT-257 进行中），"When you play me" 目前无法从
- *   card-played 时点自动进链。
- * 正文两段（读 here + 链上创建并打出 3 [M] Mech）都已用真实执行测试覆盖：golden 用链
+ * status 判定（README 第 2 节）：executable。触发注册、正文两段（读 here + 链上创建并打出
+ * 3 [M] Mech）都已用真实执行测试覆盖：golden 用链
  * 解释器适配器 + 参考内核执行卡内原始 body，断言 Mech 的数值/标签/控制者/落点与
  * create-token → play 事件序列，并覆盖替代导致 play 被 negated 的边界。
- * 依赖：RIFT-257。
  */
 
 const abilities: Ability[] = [
@@ -77,12 +73,7 @@ const program = {
   canonicalCardId:
     "card.hash-fd4d12013cc7cd7178ca0dc066919c845a2ca4cf3a00d76ebd6d1532e7fff561",
   rulesetVersion: "core-1.5" as const,
-  status: "judge-required" as const,
-  judgeReason:
-    "正文已可执行并有真实执行证据：「play a 3 [M] Mech unit token here」用已合入的 condition.value 读出「here」（来源当前位置，" +
-    "object-property source.location 写入链接值）再交给 effect.token 的 location（linked-value），Mech 定义（187.4）与链上创建 + 打出" +
-    "（440.2.c / 185.2.a）都在参考内核里真实发生。整卡仍不可执行：没有已合入订阅方把 CardProgram 的 triggered ability 注册成 " +
-    "TriggerRegistration，「When you play me」无法从 card-played 时点自动进链（卡牌程序绑定 RIFT-257 进行中）。依赖：RIFT-257。不近似实现。",
+  status: "executable" as const,
   abilities,
   sourceText: "When you play me, play a 3 :rb_might: Mech unit token here."
 } satisfies CardProgram;
