@@ -5,14 +5,16 @@
 // and the blocked printed [Empower] activation) lives in the RIFT-673
 // parameterized template golden:
 // test/cards/templates/keyword-static-static-673.test.mjs.
-// This file keeps validation, identity, verbatim text, declared status and the
-// key structure of the printed abilities.
+// Original behavior and structure assertions remain in this file; the
+// template adds execution evidence without replacing these checks.
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/frostcoat-mother.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { createEngineStaticBinder, expandProgram, translateCost } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-af86d71346754f5a19f63ebf193cb978f3d3dffe541f342d86bd89ab951eefb8";
@@ -22,18 +24,18 @@ const SOURCE_TEXT =
 
 const [empower, costReduction, might] = program.abilities;
 
-test("ven-032-166 Frostcoat Mother: program validates and is registered by canonicalCardId", () => {
+test("ven-032-166 Frostcoat Mother: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
   assert.deepEqual(result.issues, []);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
+  assert.equal(cardRegistryById.get(CANONICAL_ID), program);
+});
+
+test("ven-032-166 Frostcoat Mother: identity, status, judgeReason and verbatim sourceText", () => {
   assert.equal(program.canonicalCardId, CANONICAL_ID);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
-  assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.equal(program.sourceText, SOURCE_TEXT);
-});
-
-test("ven-032-166 Frostcoat Mother: judgeReason names the cost, condition and consumer gaps", () => {
   assert.match(program.judgeReason, /827\.1\.c\.1/);
   assert.match(program.judgeReason, /827\.1\.c\.3/);
   assert.match(program.judgeReason, /Empowered/);
@@ -91,8 +93,54 @@ test("ven-032-166 Frostcoat Mother: the [Empowered][>] dependent ability is +3 M
   });
 });
 
+test("ven-032-166 Frostcoat Mother: merged Empower expands, but the printed cost cannot cross the card-program boundary", () => {
+  const { source } = hostFor(program, "frostcoat");
+  const expanded = expandProgram(program, source);
+  const [expandedEmpower] = expanded.expanded;
+  assert.equal(expandedEmpower.kind, "activated");
+  assert.deepEqual(expandedEmpower.cost, { kind: "empower" });
+  assert.deepEqual(expandedEmpower.restriction.condition, {
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "eq",
+    right: { kind: "constant", value: 0 }
+  });
+  assert.throws(
+    () => translateCost(expandedEmpower.cost, "frostcoat.empower", "activate"),
+    /Unsupported cost kind empower/
+  );
+});
+
 test.todo(
-  "ven-032-166 Frostcoat Mother: the printed 12 Energy needs KeywordAbility/params.cost wiring into Empower.expand " +
-    "and the per-rune rewrite needs a binding plus an Empower-cost consumer (827.1.c.1 / 827.1.c.3); " +
-    "the merged ObjectSnapshot still lacks the Empowered state contract (442.1.a)"
+  "ven-032-166 Frostcoat Mother: integrate printed Empower cost and production state (827.1.c.1, 442.1); static subset is covered in the template"
 );
+
+/** 复核（2026-10-17）负向证据：关键词展开与减费静态绑定两处缺口。 */
+function hostFor(programUnderTest, id) {
+  const f = fixture({ cards: [{ id, cardId: programUnderTest.canonicalCardId, types: ["unit"], might: 3 }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref(id), to: "base" });
+  return { f, source: f.kernel.getObject(id) };
+}
+
+test("ven-032-166 Frostcoat Mother evidence: the cost modification stays blocked while the corrected Empowered gate follows live state", () => {
+  const { f, source } = hostFor(program, "frostcoat");
+  const binder = createEngineStaticBinder(f.engine);
+  // 827.1.c.3：减费声明要作为 Empower 启动费用的改写被消费；当前 staticTarget 直接失败关闭。
+  assert.throws(
+    () => binder.bindStatic(costReduction, source),
+    /Unsupported static appliesTo "empower-activation-cost"/
+  );
+  // 828.1.b.1：直接绑定原始 static；状态由真实动作改变，不以常量字符串开启。
+  const handle = binder.bindStatic(might, source);
+  f.engine.layers.setObjects(f.kernel.objects);
+  assert.equal(f.engine.layers.evaluate(f.kernel.ref("frostcoat")).might, 3);
+  assert.equal(f.engine.commit({ type: "empower", object: source.ref }).status, "done");
+  f.engine.layers.setObjects(f.kernel.objects);
+  assert.equal(f.engine.layers.evaluate(source.ref).might, 6);
+  assert.equal(f.engine.commit({ type: "disempower", object: source.ref }).status, "done");
+  f.engine.layers.setObjects(f.kernel.objects);
+  assert.equal(f.engine.layers.evaluate(source.ref).might, 3);
+  handle.unbind();
+  f.engine.layers.setObjects(f.kernel.objects);
+  assert.equal(f.engine.layers.evaluate(f.kernel.ref("frostcoat")).might, 3);
+});
