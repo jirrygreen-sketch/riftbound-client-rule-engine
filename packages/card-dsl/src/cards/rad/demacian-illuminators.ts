@@ -30,12 +30,15 @@ import type { CardProgram } from "../../ir/index.js";
  * difference under 370.1.a.2). The [Buff] body itself is fully executable and
  * is covered by the golden test. No semantics are approximated.
  *
- * Re-check (2026-10-17 second coverage re-sweep): the event pipeline now
- * publishes `simultaneousGroup` on its emissions (events/pipeline.ts groups
- * by it), but TriggerSpec.once still only offers per-turn / per-phase /
- * per-combat / per-showdown / per-chain / per-object / per-game keyed on a
- * single registration + source, so a batch lifetime is still missing. The
- * CardProgram trigger adapter is already merged; it is not a remaining gap.
+ * Re-check (2026-10-17 third coverage re-sweep): the event pipeline publishes
+ * `simultaneousGroup` on its emissions (events/pipeline.ts groups by it), but
+ * TriggerSpec.once still only offers per-turn / per-phase / per-combat /
+ * per-showdown / per-chain / per-object / per-game and the frequency key is
+ * built from the registration id plus its source incarnation, never from the
+ * event's group. Verified by running the merged pipeline over one kill batch
+ * of two friendly units: the single registration fires twice (once per killed
+ * object), which is the semantic difference 370.1.a.2 forbids. The CardProgram
+ * trigger adapter is already merged; it is not a remaining gap.
  *
  * Contract change request: TriggerSpec needs a batch/coalescing lifetime (for
  * example once: "per-batch", or an event-payload simultaneous-group key) for
@@ -51,7 +54,8 @@ export default {
     "「When one or more friendly units die」应每个批次只触发一次；已合入的事件管线虽在各 emission 上带 " +
     "simultaneousGroup（events/pipeline.ts 按组发布），但 TriggerSpec.once 仍只有 per-turn / per-phase / " +
     "per-combat / per-showdown / per-chain / per-object / per-game（频度键 = 单个注册 + 来源），" +
-    "没有批次频度、也没有读取事件同时组键的口子，按现结构会每个死亡单位各触发一次（语义差异，非近似实现）。" +
+    "没有批次频度、也没有读取事件同时组键的口子；golden 用事件管线实测：同一 simultaneousGroup 的两次死亡让单个注册触发 2 次，" +
+    "而印刷文本要求 1 次（语义差异，非近似实现）。" +
     "CardProgram 的 triggered ability 注册路径已合入；当前仅缺事件管线按 simultaneousGroup 对同一死亡批次去重。" +
     "「[Buff] a friendly unit」本体已由已合入的 effect.buff 覆盖并有真实执行测试。" +
     "依赖：TriggerSpec 的批次频度契约变更；不近似实现。",

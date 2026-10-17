@@ -5,6 +5,8 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/demacian-illuminators.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { EventPipeline } from "../../../../engine-core/dist/events/pipeline.js";
+import { TRIGGER_ONCE_SCOPES } from "../../../../engine-core/dist/events/trigger-spec.js";
 
 const [triggered] = program.abilities;
 const [buffInstruction] = triggered.body;
@@ -110,9 +112,50 @@ test("rad-131-167 Demacian Illuminators: a unit that left the board makes the in
   assert.equal(outcome.results[0].result.reason, "mistargeted");
 });
 
-test.todo(
-  "rad-131-167 Demacian Illuminators: 'one or more friendly units die' must trigger once per " +
-    "simultaneous death batch (CR 370.1.a.2 / 383.1) — the merged trigger pipeline scans once per " +
-    "object-killed event even though emissions carry simultaneousGroup, and TriggerSpec.once still has no " +
-    "per-batch lifetime (events/trigger contract change)"
-);
+test("rad-131-167 Demacian Illuminators: one death batch still fires the trigger once per unit", () => {
+  // 370.1.a.2 / 383.1: "When one or more friendly units die" is one ability per
+  // batch of simultaneous deaths. The merged pipeline scans per object-killed
+  // event and TriggerSpec.once has no per-batch lifetime, so a single batch of
+  // two deaths schedules the ability twice — the semantic difference the card
+  // must not paper over.
+  const kernel = world()
+    .player("A")
+    .player("B")
+    .unit("illuminators", { types: ["gear"], location: { type: "base", player: "A" } })
+    .unit("ally-1", { might: 2 })
+    .unit("ally-2", { might: 2 })
+    .build();
+  const host = {
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (checkpoint) => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    execute: (action) => ({ outcome: kernel.perform(action), emissions: [] }),
+    context: () => { throw new Error("No context needed"); },
+    choose: (request) => { throw new Error(`Unexpected choice: ${request.id}`); }
+  };
+  const pipeline = new EventPipeline(host, ["A", "B"], "A");
+  const fired = [];
+  pipeline.onTrigger = (snapshot) => fired.push(snapshot.event.object.ref.id);
+  pipeline.registerTrigger({
+    id: "demacian-illuminators",
+    source: kernel.getObject("illuminators"),
+    controller: "A",
+    spec: {
+      at: "object-killed",
+      filter: { event: "object-killed", object: { type: "unit", controller: "self" } }
+    },
+    body: bodyWithoutTargets
+  });
+
+  // One game action killing two friendly units: both emissions share one
+  // simultaneousGroup (370.1.a.2).
+  for (const id of ["ally-1", "ally-2"]) {
+    const object = kernel.getObject(id);
+    kernel.perform({ type: "kill", object: object.ref });
+    pipeline.emit({ timingPoint: "object-killed", object, player: "A", simultaneousGroup: "kill-batch" });
+  }
+
+  assert.deepEqual(fired, ["ally-1", "ally-2"]);
+  assert.equal(fired.length, 2, "the merged pipeline has no per-batch trigger lifetime");
+  assert.deepEqual(TRIGGER_ONCE_SCOPES.includes("per-batch"), false);
+});
