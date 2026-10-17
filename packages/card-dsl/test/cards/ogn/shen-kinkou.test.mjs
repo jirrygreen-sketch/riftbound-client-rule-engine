@@ -34,6 +34,7 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, sourceText", () =
   assert.match(program.judgeReason, /Tank/);
   assert.match(program.judgeReason, /815\.1\.b/);
   assert.match(program.judgeReason, /designation/);
+  assert.match(program.judgeReason, /compare/);
   assert.match(program.judgeReason, /continuous\.timing/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
@@ -104,7 +105,7 @@ test("Reaction/Shield declarations match the merged engine keyword registry (CR 
   assert.equal(wrapped.ok, true, JSON.stringify(wrapped.issues, null, 2));
 });
 
-test("Tank expands to a continuous.combat requirement with no combat consumer", () => {
+test("Tank expands to a continuous.combat requirement", () => {
   // 815.1.b ("I must be assigned lethal damage before any other unit with the
   // same controller as me that does not have [Tank] during the Combat Damage
   // step") now has the merged Tank KeywordDef (RIFT-264), but its expansion is
@@ -131,13 +132,13 @@ test.todo(
 
 test.todo(
   "[Shield 2] arithmetic Might in the layers pipeline (CR 814.1.c/814.1.d): the keyword expansion is " +
-    "merged (with the compare(designation == defender) condition), but ObjectSnapshot has no " +
-    "'designation' characteristic and layers conditionMatches does not evaluate compare conditions, " +
-    "so the +2 [M] cannot be applied only while defending (RIFT-91)"
+    "merged (with the compare(designation == defender) condition), but the layer consumer still needs " +
+    "to map the combatRole/Defender characteristic and evaluate compare conditions, so the +2 [M] " +
+    "cannot be applied only while defending"
 );
 
 test.todo(
   "[Reaction] closed-state play permission (CR 813.1.c): the layers/rules canAct query consumes " +
-    "continuous.timing (RIFT-259), but nothing registers a card/keyword expansion into the layers " +
-    "registry and chain.canAct() reads only its own state"
+    "continuous.timing, but nothing registers a card/keyword expansion into the layers registry and " +
+    "chain.canAct() reads only its own state"
 );

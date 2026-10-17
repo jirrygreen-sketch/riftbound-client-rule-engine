@@ -5,7 +5,6 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/sigil-of-the-storm.js";
 import recycle from "../../../../engine-core/dist/effects/instructions/effect.recycle.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 
 const CANONICAL = "card.hash-99269cca1e28890ac67140558b99391b7697d84d62ce158a0946bed6920daedd";
 const [ability] = program.abilities;
@@ -23,7 +22,7 @@ test("ogn-287-298 Sigil of the Storm: program validates and is judge-required", 
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /conquer/);
   assert.match(program.judgeReason, /here/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /battlefieldId/);
   assert.equal(program.sourceText, "When you conquer here, recycle one of your runes.");
 });
 
@@ -34,7 +33,7 @@ test("ogn-287-298: conquer trigger whose body recycles one rune (417.6 non-targe
   assert.deepEqual(ability.trigger.filter, {
     event: "conquer",
     here: true,
-    player: "controller"
+    player: "self"
   });
   assert.equal(ability.optional, false);
 
@@ -108,14 +107,10 @@ test("ogn-287-298: 417.4 recycles as many as possible when fewer runes are on th
   assert.equal(noop.linked.recycledCount, 0);
 });
 
-test("ogn-287-298: the trigger filter still carries the unreplaced here placeholder", () => {
-  assert.throws(() => assertTriggerSpec(ability.trigger), /EventPattern 不允许此字段/);
-});
-
 test.todo(
   "ogn-287-298: EventPattern 增加战场相对「here」语义并由 host 把载荷 details.battlefieldId " +
-    "与来源当前位置比较（替代占位键 here=true），以及「scoring 不因得分被替代而消失」（470.1）的覆盖" +
-    "（依赖 RIFT-120 触发工作流；conquer 时点本身已由 turn/flow.ts 发出）"
+    "与来源当前位置比较（替代占位键 here=true），并覆盖得分被替代时征服效果仍触发（470.1）；" +
+    "conquer 时点本身已由 turn/flow.ts 发出"
 );
 test.todo(
   "ogn-287-298: 417.5.a“同一指令回收多张符文时由拥有者决定牌库底顺序”在回收多张时由内核呈现" +

@@ -176,6 +176,6 @@ test.todo(
     "controller is responsible for the kill) is missing from the object-killed payload. " +
     "events/timing-points.ts declares payloadType 'object' with no payloadFields, and " +
     "events/action-adapter.ts records the killed object's controller as the event player, " +
-    "so player: 'self' would invert the meaning. RIFT-21 / RIFT-120 must add the attribution " +
+    "so player: 'self' would invert the meaning. The event contract must add the attribution " +
     "before the trigger can be honestly wired."
 );

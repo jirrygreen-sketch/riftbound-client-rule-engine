@@ -15,9 +15,9 @@ test("Sky Splitter program is valid EffectIR v2 data and judge-required", () => 
   assert.deepEqual(result.issues, []);
   assert.equal(result.ok, true);
   assert.equal(program.status, "judge-required");
-  // The reason must name the real gaps: no card-declarable discount consumer and
-  // no max-aggregate expression.
-  assert.match(program.judgeReason, /CostPlanInput\.discounts|readCost/);
+  // The reason must name the real gaps: no Finalize consumer for a card-declared
+  // cost.modify and no max-aggregate expression.
+  assert.match(program.judgeReason, /CostPlanInput\.discounts|Finalize|cost\.modify/);
   assert.match(program.judgeReason, /356\.4/);
   assert.match(program.judgeReason, /聚合|aggregate/);
 });
@@ -115,8 +115,8 @@ test("Sky Splitter golden execution: a stale target is ignored and the cost clau
 
 test.todo(
   "Sky Splitter: applying the printed-cost discount at Finalize needs a " +
-    "card-declarable discounts entry in the cost plan (RIFT-89; the merged " +
-    "applyDiscount only accepts caller-supplied CostPlanInput.discounts) and a " +
+    "card-declarable discounts entry in the cost plan (the merged applyDiscount " +
+    "only accepts caller-supplied CostPlanInput.discounts) and a " +
     "max-aggregate expression over a filtered set, so the 8 Energy cost can drop " +
     "by the highest Might among the controller's units."
 );

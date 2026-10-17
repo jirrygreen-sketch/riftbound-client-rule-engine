@@ -42,5 +42,6 @@ test("the single ability is a static open-battlefield play permission for self w
 test.todo(
   "accept the open-battlefield play location at Make Relevant Choices (CR 355.2.a/355.2.b; open = " +
     "unoccupied and uncontrolled, 170.11.c): wire a card-static continuous.location registration into the " +
-    "layers registry and have the Finalize placement validator query playLocations (RIFT-90 / RIFT-91 follow-up)"
+    "layers registry and have the Finalize placement validator query playLocations (location selection is " +
+    "covered by the in-progress RIFT-357 work)"
 );

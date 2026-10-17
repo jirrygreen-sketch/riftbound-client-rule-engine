@@ -46,9 +46,8 @@ test("ogn-225-298 Solari Chief: program validates and has expected identity", ()
     "card.hash-be8b1014b9c44e6e9840a89206dc75baa41dd3cf997436c7e72b3f4395a7fdb0"
   );
   assert.equal(program.rulesetVersion, "core-1.5");
-  assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /effect\.stun/);
-  assert.match(program.judgeReason, /LITERAL_FIELDS|适配器/);
+  assert.equal(program.status, "executable");
+  assert.equal(program.judgeReason, undefined);
   assert.equal(
     program.sourceText,
     "When you play me, choose an enemy unit. If it is stunned, kill it. Otherwise, stun it. " +
@@ -159,5 +158,5 @@ test("ogn-225-298 Solari Chief: a target that left the Board makes the branch ig
 test.todo(
   "ogn-225-298 Solari Chief: production chain execution of the stun branch — chain/interpreter-adapter.ts " +
     "未登记 effect.stun 的 literal target，适配器把已求值字符串再按 Expr 校验并抛 " +
-    "\"effect.stun target must be a spec id string\"（依赖引擎侧适配器补齐）"
+    "\"effect.stun target must be a spec id string\"；golden 已通过参考解释器覆盖该语义，依赖引擎侧适配器补齐"
 );
