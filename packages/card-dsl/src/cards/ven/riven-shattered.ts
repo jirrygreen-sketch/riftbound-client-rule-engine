@@ -41,7 +41,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * 3. attack-declared 时点没有发射方：combat/ 不把 Attacker 指定接入事件管线（全仓库没有
  *    attack-declared 的 emit 调用，同 sfd/azir-sovereign、sfd/lucian-gunslinger 的记录）。
  * 依赖：权威 Equip 费用绑定与 reduce-equip-cost 消费方、sameLocationAs 目标过滤适配、战斗触发发射。
- * 已合入的 effect.damage 与 count + attachedTo 锚点在 golden 中用真实目标与真实附着关系执行，
+ * 已合入的 effect.damage 与 count + attachedTo 锚点在模板 golden 中用真实目标与真实附着关系执行，
  * 不手改 frame / attachedTo。
  */
 const abilities: Ability[] = [
@@ -53,7 +53,9 @@ const abilities: Ability[] = [
     kind: "triggered",
     trigger: {
       at: "attack-declared",
-      filter: { event: "attack-declared", filter: { source: "self" } }
+      filter: { event: "attack-declared", filter: { source: "self" } },
+      // 383.4.e.2.a：攻击触发的条件每场战斗只检查一次。
+      once: "per-combat"
     },
     optional: false,
     body: [
@@ -122,7 +124,8 @@ export default {
     "的 emit 调用）。依赖权威 Equip 费用绑定（reduce-equip-cost 消费方）、sameLocationAs 目标过滤适配与战斗触发发射。" +
     "「choose an enemy unit here」按 355.9.b 声明为被选目标（sameLocationAs: \"self\" 的 053.3 here 锚点），" +
     "「Deal 2 to it for each Equipment attached to me」用 count + attachedTo 锚点在结算时读取附着数量（418.1）；" +
-    "effect.damage 本体已合入，golden 用真实目标与真实附着关系执行。",
+    "effect.damage 本体已合入，模板 golden（test/cards/templates/keyword-triggered-attack-declared-effect-664.test.mjs）" +
+    "用真实目标与真实附着关系执行并断言 2 x 附着数。",
   abilities,
   sourceText:
     "[Weaponmaster] (When you play me, you may [Equip] one of your Equipment to me for :rb_rune_rainbow: less, even if it's already attached.)\n" +

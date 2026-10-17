@@ -1,3 +1,7 @@
+// RIFT-664 template execution evidence (trigger -> Finalize target locking,
+// split-damage divide-literal gap, sameLocationAs binding rejection) is in
+// ../templates/keyword-triggered-attack-declared-effect-664.test.mjs. This
+// card stays judge-required for the printed gaps asserted below.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -47,6 +51,11 @@ test("ogn-041-298 Volibear, Furious: identity, ruleset, status, judgeReason and 
   assert.match(program.judgeReason, /Deflect/);
   assert.match(program.judgeReason, /combat-start-transaction/);
   assert.match(program.judgeReason, /rainbow/);
+  // 2026-10-17 re-check: the printed here anchor and the divide literal are
+  // both still rejected on the merged production path.
+  assert.match(program.judgeReason, /sameLocationAs/);
+  assert.match(program.judgeReason, /LITERAL_FIELDS/);
+  assert.match(program.judgeReason, /355\.14/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });

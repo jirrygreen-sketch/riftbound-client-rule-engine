@@ -1,3 +1,7 @@
+// RIFT-664 template execution evidence (trigger condition true/false on the
+// real chain, non-target set damage gap) is in
+// ../templates/keyword-triggered-attack-declared-effect-664.test.mjs. This
+// card stays judge-required for the printed gaps asserted below.
 import assert from "node:assert/strict";
 import test from "node:test";
 

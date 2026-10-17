@@ -37,8 +37,8 @@ import type { CardProgram } from "../../ir/index.js";
  *    keyword 能力接进打出流程：cost/cost-plan.ts 只消费调用方传入的 optionalAdditional，
  *    没有从 accelerate.cost 静态效果生成费用组件的路径（同上批 sfd/blazing-scorcher 的
  *    判定）。
- * “if you control 4 or fewer runes” 这一 Trigger Condition 是真实可求值的（golden 用
- * condition.predicate + 参考内核执行真实计数）。
+ * “if you control 4 or fewer runes” 这一 Trigger Condition 是真实可求值的：模板 golden 用
+ * 测试台真实计数（4 runes 触发 / 5 runes 不触发，383.4.e.2.b）。
  */
 export default {
   canonicalCardId: "card.hash-4ea204b4fa413be39f3508c65d93d8ef270e1bb64d97edf9a216efa7d50394f4",
@@ -55,8 +55,9 @@ export default {
     "生产方把卡牌上的 keyword 能力接进打出流程——cost/cost-plan.ts 只消费调用方传入的 optionalAdditional，" +
     "没有从 accelerate.cost 静态效果生成 1 Energy + 1 Fury Power 费用组件与 805.6 入场就绪替代的路径" +
     "（费用规划器的 additional/optional 词汇已合入，缺的是卡牌侧生产路径）。" +
-    "Trigger Condition「4 or fewer runes」本身可真实求值，" +
-    "golden 用已合入的解释器执行真实计数。不近似实现。",
+    "Trigger Condition「4 or fewer runes」本身可真实求值：" +
+    "模板 golden 在真实链路上验证了 4 runes 触发、5 runes 不触发（383.4.e.2.b）。" +
+    "不近似实现。",
   abilities: [
     // 805.1.b：费用固定为 [1] + 一个与单位域匹配的 Power，keyword 不带数值（805.4 多个实例冗余）。
     { kind: "keyword", keyword: "accelerate" },
