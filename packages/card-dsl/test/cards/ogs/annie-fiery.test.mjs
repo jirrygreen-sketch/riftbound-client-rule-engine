@@ -23,8 +23,6 @@ test("ogs-001-024 Annie, Fiery: program validates and is judge-required", () => 
 
 test("ogs-001-024 Annie, Fiery: judgeReason names the missing Bonus Damage grant primitive", () => {
   assert.match(program.judgeReason, /continuous\.bonus-damage|Bonus Damage/);
-  assert.match(program.judgeReason, /RIFT-258/);
-  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /Bonus Damage/);
 });
 
@@ -79,7 +77,6 @@ test("ogs-001-024 Annie, Fiery: a negative Bonus Damage is not applied (CR 714.2
 test.todo(
   "ogs-001-024 Annie, Fiery: the continuous +1 Bonus Damage grant reaches Deal actions " +
     "created by this controller's spells and abilities (CR 712-715, 418.4/418.5) — " +
-    "no continuous.bonus-damage instruction primitive or damage-pipeline consumer is merged " +
-    "(RIFT-258 covers might/keyword/combat grants only), and the static-ability registration path " +
-    "itself still awaits RIFT-257"
+    "the static layer has no continuous.bonus-damage mapping and the damage pipeline has no " +
+    "consumer that derives a Bonus Damage grant from this static ability"
 );

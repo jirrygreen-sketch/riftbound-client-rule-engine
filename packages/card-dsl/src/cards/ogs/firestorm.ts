@@ -21,7 +21,7 @@ import type { CardProgram } from "../../ir/index.js";
  * - The source of the damage is the spell itself (418.6.a).
  *
  * Status: judge-required — the non-target set form of effect.damage is still
- * missing: the merged effect.damage (unchanged by RIFT-258/259/260) only
+ * missing: the merged effect.damage only
  * consumes a Finalize-locked TargetSpec (`ctx.targets(specId)`) and rejects an
  * `objects` argument, while effect.ready / effect.heal already accept
  * `{ kind: "query", filter }`. Writing the enemy units as a TargetSpec would
@@ -42,7 +42,7 @@ const firestorm = {
     "（“Kill all units at a battlefield” 不把任何单位选为目标；355.10.d.1 把该例外限定于从不做选择的集合），" +
     "被选中的战场本身才是目标。已合入的 effect.damage 仍然只读取 Finalize 锁定的 TargetSpec（ctx.targets(id)），" +
     "传入 objects 集合会直接抛 “args.target must be a TargetSpec id string”；effect.ready / effect.heal 的" +
-    "{kind:'query', filter} 非目标分支没有扩展到伤害原语（RIFT-258/259/260 未触及 effect.damage）。" +
+    "{kind:'query', filter} 非目标分支没有扩展到伤害原语。" +
     "把“该战场的所有敌方单位”写成 TargetSpec 会错误触发成为目标（355.7、754），因此不近似实现。" +
     "依赖：effect.damage 增加非目标集合形态（RIFT-9 target.query；与 ogn-133-298 Flurry of Blades 同一缺口）。",
   abilities: [

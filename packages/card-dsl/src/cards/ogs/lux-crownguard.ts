@@ -22,14 +22,13 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * 状态：judge-required。
  * 1. 缺受限资源记账：effect.resources 将能量并入符文池同一余额，没有"受限份额"
- *    表示；continuous.restrict 原语虽已合入（RIFT-259），但其 modes 只有
+ *    表示；continuous.restrict 原语虽已合入，但其 modes 只有
  *    prohibit/require/permit/limit/applied-cost，不提供"加入的资源份额只能用于
  *    支付法术费用"的记账通道，也没有读取该受限份额的费用消费方；survey
  *    （docs/plans/survey/unclassified-ogn.md 第 42 条）结论指出"池中受限
  *    份额必须独立记账，不能给所有能量套全局限制或忽略限制"。
- * 2. 启动费用的 Finalize 收费仍未接线：cost-plan 的 payment 只识别
- *    kind: "activated"/"explicit"，不含 "cost.activated" 拼写，activated 能力
- *    的 Finalize 也仍由 RIFT-257 的程序绑定负责（RIFT-261 的 cost.pay 原语未合入）。
+ * 2. 启动费用的 cost.activated 已可由程序绑定规范化为 activated payment；本卡仍不能执行的原因
+ *    是受限资源份额没有记账和消费路径。
  * 3. 数据问题（不改数据，见回复）：ogs-014-024 仍有 Demacia 标签，且写 "Use only to
  *    play spells"，同 canonicalCardId 的 ven-sp6-006 写 "Spend this Energy only to play
  *    spells"（docs/plans/survey/data-issues-recheck.md 第 31 行）。
@@ -41,12 +40,11 @@ export default {
   judgeReason:
     "缺受限资源记账：Use only to play spells（054.2）要求池中这 2 点能量可追踪为只能用于" +
     "支付法术费用（survey unclassified-ogn.md 第 42 条结论）。continuous.restrict 原语已合入" +
-    "（RIFT-259），但其模式（prohibit/require/permit/limit/applied-cost）没有" +
+    "但其模式（prohibit/require/permit/limit/applied-cost）没有" +
     "「新增资源的受限份额」通道，费用侧也不读取受限份额；effect.resources 只并入同一余额。" +
-    "另缺启动费用的 Finalize 收费：cost-plan 的 payment 不识别 " +
-    "cost.activated 拼写（只接受 activated/explicit），activated 能力的 Finalize 绑定属 RIFT-257，" +
-    "RIFT-261 的 cost.pay 原语未合入。" +
-    "依赖：受限资源记账形态（RIFT-259 后续）、RIFT-261（cost.pay）、RIFT-257（程序绑定）。" +
+    "cost.activated 与 exhaust payment 已有程序绑定和规范化路径；仍缺的是受限资源份额的记账与" +
+    "费用消费方，不能把这 2 点能量错误地并入可支付任意费用的余额。" +
+    "依赖：受限资源记账形态与费用侧对受限份额的消费。" +
     "数据问题：OGS 写 Use only to play spells，同 canonical 的 VEN 写 Spend this Energy only " +
     "to play spells（docs/plans/survey/data-issues-recheck.md）。不近似实现。",
   abilities: [

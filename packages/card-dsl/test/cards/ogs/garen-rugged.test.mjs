@@ -41,7 +41,6 @@ test("ogs-007-024 Garen, Rugged: identity, status, judgeReason and verbatim sour
   assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /designation/);
   assert.match(program.judgeReason, /conditionMatches/);
-  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -62,9 +61,8 @@ test("ogs-007-024 Garen, Rugged: both declared keywords resolve to the merged Ke
   assert.ok(registeredShield, "effects/keywords/Shield.ts must be in the generated registry");
   assert.equal(registeredAssault, assault);
   assert.equal(registeredShield, shield);
-  // RIFT-258 merged the continuous.might instruction that the expansions
-  // register through; the card-side keyword expansion binding (RIFT-257) and
-  // the designation/compare evaluation remain the gaps (see judgeReason).
+  // The continuous.might instruction, keyword expansion, and card static
+  // binding are available; designation/compare evaluation remains the gap.
   assert.equal(instructionDefinitionsById.has("continuous.might"), true);
   // Card IR uses the lowercase keyword ids; the registry is keyed by printed names.
   assert.equal(program.abilities[0].keyword, registeredAssault.keyword.toLowerCase());
@@ -148,15 +146,13 @@ test("ogs-007-024 Garen, Rugged: the generated card registry exposes the program
 
 test.todo(
   "Garen, Rugged: +2 Might exactly while the 5 Might unit holds the Attacker designation and +2 while it " +
-    "holds the Defender designation (CR 807.1.c / 814.1.c) — blocked because no merged producer resolves " +
-    "a card's keyword abilities into their KeywordDef expansions and registers them through " +
-    "layers/engine.ts (contract 3.5/3.7), because the Attacker/Defender designations are not " +
-    "ObjectSnapshot characteristics (contract 3.8 combatRole; RIFT-105 branch), and because " +
-    "layers/engine.ts conditionMatches does not evaluate the compare predicate (RIFT-91)"
+    "holds the Defender designation (CR 807.1.c / 814.1.c) — blocked because the KeywordDef " +
+    "expansions read a designation property while ObjectSnapshot exposes combatRole, and " +
+    "layers/engine.ts conditionMatches does not evaluate the compare predicate"
 );
 
 test.todo(
   "Garen, Rugged: CR 807.2 / 814.2 (with CR 466.2.c.3) — a second Assault or Shield source sums per keyword, " +
     "and role exclusivity keeps the two +2s from stacking in one Combat; keywords already declare " +
-    "stacking \"sum\", execution depends on the same card-static-to-layers registration path"
+    "stacking \"sum\", execution depends on the designation and compare path"
 );

@@ -28,7 +28,6 @@ test("ogs-020-024 Highlander, Yi: program passes validateCardProgram and is judg
   assert.match(program.judgeReason, /replacement\.event/);
   assert.match(program.judgeReason, /Recall/);
   assert.match(program.judgeReason, /457-460/);
-  assert.match(program.judgeReason, /RIFT-109/);
   assert.match(program.judgeReason, /replacement\.object/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
@@ -60,9 +59,9 @@ test("ogs-020-024 Highlander, Yi: the chosen friendly unit is a target, not a re
 });
 
 test("ogs-020-024 Highlander, Yi: the replacement is a one-shot death replacement for this turn", () => {
-  assert.deepEqual(replacement.args.event, { kind: "constant", value: "object-killed" });
-  // The printed "the next time ... this turn" window has no merged
-  // representation (TriggerSpec.once lacks a next-time scope): recorded only.
+  assert.deepEqual(replacement.args.event, { kind: "constant", value: { event: "object-killed" } });
+  // The printed "the next time ... this turn" window is represented by the
+  // replacement.event wrapper's one-shot window.
   assert.deepEqual(replacement.args.window, { kind: "constant", value: "next-time-this-turn" });
   // "it" names the intercepted object (355.10.c): the chosen unit, referred to
   // by the declared TargetSpec selector because no replaced-event selector exists.
@@ -95,20 +94,21 @@ test("ogs-020-024 Highlander, Yi: the instead-body recalls the unit and applies 
   assert.equal(exhaust.linkedTo, "highlander-yi.recall");
 });
 
-test("ogs-020-024 Highlander, Yi golden: the recall half is blocked, never approximated as a Move", () => {
+test("ogs-020-024 Highlander, Yi golden: Recall remains blocked rather than approximated as a Move", () => {
   const kernel = world().unit("friendly", { owner: "A", location: { type: "battlefield", id: "bf-1" } }).build();
   const run = runInstruction(
     move,
     { objects: recall.args.objects, to: recall.args.to, mode: recall.args.mode },
     {
       world: kernel,
-      // The recall names the chosen unit through the replacement's own target
-      // selector (355.10.c: "it" is not a new target choice).
+      // The replacement names the previously chosen unit through its declared
+      // TargetSpec (355.10.c), so this direct primitive check uses the same
+      // selector binding while preserving the unsupported Recall behavior.
       targets: { "highlander-yi.chosen-unit": [kernel.ref("friendly")] }
     }
   );
-  // 457-460: a Recall is its own action and effect.move explicitly refuses to
-  // submit a substitute move-location for it.
+  // 457-460: Recall is a distinct action and effect.move fails closed rather
+  // than silently submitting an ordinary move-location action.
   assert.equal(run.result.status, "negated");
   assert.equal(run.result.reason, "impossible");
   assert.match(run.linked.moved.blockedReason, /Recall/);
@@ -119,15 +119,15 @@ test("ogs-020-024 Highlander, Yi golden: the recall half is blocked, never appro
 
 test.todo(
   "Highlander, Yi: card-level replacement registration (binding the chosen unit into the replaced death, honouring " +
-    "the printed 'the next time' one-shot window and the end-of-turn expiry) — RIFT-260 merged the replacement.event " +
-    "binding and its next-time-this-turn window, but the body's 'it' is the previously chosen unit, which the " +
+    "the printed 'the next time' one-shot window) — replacement.event binding and its one-shot window are " +
+    "available, but the body's 'it' is the previously chosen unit, which the " +
     "static IR cannot bind (the merged binding exposes only the replaced event's object), and the installed " +
-    "replacement has no end-of-turn expiry wiring for card programs"
+    "replacement body has no selector for that earlier TargetSpec"
 );
 
 test.todo(
   "Highlander, Yi: a real Recall (457-460) plus the printed exhausted exception (460.1) needs a recall GameAction " +
-    "distinct from move-location (RIFT-109); effect.move deliberately blocks the approximation"
+    "distinct from move-location; effect.move deliberately blocks the approximation"
 );
 
 test.todo(

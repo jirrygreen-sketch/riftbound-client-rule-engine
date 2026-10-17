@@ -41,7 +41,6 @@ test("ogs-021-024 Lady of Luminosity, Starter: identity, status, judgeReason and
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /206/);
   assert.match(program.judgeReason, /cost/);
-  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /Legend Zone/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
@@ -109,16 +108,15 @@ test("ogs-021-024 Lady of Luminosity, Starter: the printed Energy cost is never 
 test.todo(
   "Lady of Luminosity, Starter: trigger only for a spell whose PRINTED (or copied) Energy cost is 5+ " +
     "(CR 206) — blocked because PipelineEvent/TimingEmission carry no printed cost or cost plan and the " +
-    "frozen ObjectFilter/EventPattern have no cost-gte predicate (RIFT-9 cost-gte / condition.value; the " +
-    "RIFT-258/259 continuous-effect instructions do not read costs, " +
+    "frozen ObjectFilter/EventPattern have no cost-gte predicate (cost-gte / condition.value; the " +
+    "existing continuous-effect instructions do not read costs, " +
     "same gap as sfd/sunken-temple and sfd/show-of-strength); the card-played event's details never " +
     "contain printedEnergyCostAtLeast today, so the trigger cannot fire truthfully"
 );
 
 test.todo(
   "Lady of Luminosity, Starter: the trigger registers at card-played for this spell's controller and " +
-    "enters the chain (contract 3.5) — blocked because no producer turns a CardProgram's triggered " +
-    "ability into a pipeline TriggerRegistration (RIFT-257), and the Legend source zone " +
+    "enters the chain (contract 3.5) — the trigger registration path exists, but the Legend source zone " +
     "(CR 107.4.c / 174.2.b) is not a frozen ZoneId (default activeZones is ['board'])"
 );
 
