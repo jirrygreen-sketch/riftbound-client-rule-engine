@@ -148,8 +148,6 @@ test("sfd-t03 golden: after the kill cost the token leaves the Board, so the abi
   );
 });
 
-const CARD_ID_ALIAS = CARD_ID;
-
 function goldActivation() {
   const binding = createProgramBinding({
     cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
@@ -159,7 +157,7 @@ function goldActivation() {
     .player("B", { energy: 20 })
     .object("gold", {
       name: "Gold",
-      cardId: CARD_ID_ALIAS,
+      cardId: CARD_ID,
       isToken: true,
       types: ["gear"],
       tags: ["Token"],
