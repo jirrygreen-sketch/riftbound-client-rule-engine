@@ -41,7 +41,8 @@ test("sfd-203-221 Battle Mistress: identity, ruleset, status, judgeReason and ve
   assert.match(program.judgeReason, /card-recycled/);
   assert.match(program.judgeReason, /187\.5/);
   assert.match(program.judgeReason, /one or more/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-261/);
 });
 
 test("sfd-203-221 Battle Mistress: 'when you recycle a rune' subscribes to the recycle event", () => {
@@ -172,8 +173,8 @@ test.todo(
 );
 test.todo(
   "sfd-203-221 Battle Mistress: the cost's 'exhaust me' needs a Legend Zone in contract 3.6's ZoneId " +
-    "(CR 108.3) and the RIFT-89 cost-plan consumer; the triggers need the RIFT-120 card-program " +
-    "-> TriggerRegistration subscriber"
+    "(CR 108.3) and the card-side cost.pay entry point (RIFT-261); the triggers need the RIFT-257 " +
+    "card-program -> TriggerRegistration subscriber"
 );
 test.todo(
   "sfd-203-221 Battle Mistress: 'one or more enemy units die' needs simultaneous-event batching and " +

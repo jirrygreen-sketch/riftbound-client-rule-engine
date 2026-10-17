@@ -49,7 +49,8 @@ test("sfd-079-221 Bard, Mercurial: judgeReason names the cost, legend-zone, rece
   assert.match(program.judgeReason, /legend-zone/);
   assert.match(program.judgeReason, /356\.4\.f\.1/);
   assert.match(program.judgeReason, /170\.11\.c/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -200,8 +201,8 @@ test("sfd-079-221 Bard, Mercurial golden: choosing no units leaves everyone in p
 
 test.todo(
   "sfd-079-221 Bard, Mercurial: charge the optional additional cost 'exhaust your legend' through the " +
-    "Finalize cost plan and gate the Move on the 356.4.f.1 paid receipt (cost.additional wiring + " +
-    "condition.result, RIFT-89)"
+    "Finalize cost plan and gate the Move on the 356.4.f.1 paid receipt (cost.additional / cost.pay wiring " +
+    "plus condition.result) — the card-side cost ops are the unmerged RIFT-261"
 );
 test.todo(
   "sfd-079-221 Bard, Mercurial: the Legend Zone source space (CR 107.4/355.9.a.4) is not in the frozen " +
@@ -209,9 +210,10 @@ test.todo(
 );
 test.todo(
   "sfd-079-221 Bard, Mercurial: derive 'an open battlefield' (CR 170.11.c: unoccupied and uncontrolled) " +
-    "into the Move's destination choice (355.4) — the Finalize/location-choice lifecycle (RIFT-84/RIFT-90)"
+    "into the Move's destination choice (355.4) — no merged reading turns the board state into move.to options"
 );
 test.todo(
   "sfd-079-221 Bard, Mercurial: the card-played trigger enters the chain as a Pending item after the unit " +
-    "is played (CR 383.4.a.2/420.4.a) via the CardProgram -> trigger/chain adapter (RIFT-120)"
+    "is played (CR 383.4.a.2/420.4.a) via the CardProgram -> trigger/chain adapter (RIFT-257) on top of the " +
+    "merged chain/event pipeline"
 );

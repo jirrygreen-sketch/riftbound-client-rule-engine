@@ -16,10 +16,7 @@ import { runInstruction, world } from "../../../../engine-core/dist/effects/test
 const CARD_ID = "card.hash-3d95fd18b92dc4a0dc9393e066e851d61c9f5d05119ba24e56141fb10179c79f";
 
 const [ability] = program.abilities;
-const [revealInstruction, modeInstruction] = ability.body;
-const [gearMode, otherMode] = modeInstruction.args.modes.value;
-const [toHandInstruction] = gearMode.body;
-const [recycleInstruction] = otherMode.body;
+const [revealInstruction, toHandInstruction, recycleInstruction] = ability.body;
 
 const resultFor = (outcome, id) => outcome.results.find(result => result.id === id);
 
@@ -40,12 +37,14 @@ test("sfd-041-221 Apprentice Smith: identity, ruleset, status and verbatim text"
   );
 });
 
-test("sfd-041-221 Apprentice Smith: judgeReason names the gear-discriminator and zone-order gaps", () => {
-  assert.match(program.judgeReason, /gear/);
+test("sfd-041-221 Apprentice Smith: judgeReason names the current zone-order and trigger gaps", () => {
+  // The re-review after the continuous/replacement/keyword/producer batches: the
+  // gear discriminator is executable, the zone-order and trigger gaps remain.
   assert.match(program.judgeReason, /zoneSlice/);
   assert.match(program.judgeReason, /RIFT-66/);
   assert.match(program.judgeReason, /object-moved/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.doesNotMatch(program.judgeReason, /array-contains|choice\.mode/);
 });
 
 test("sfd-041-221 Apprentice Smith: 'When I move' subscribes to object-moved scoped to this card", () => {
@@ -66,7 +65,8 @@ test("sfd-041-221 Apprentice Smith: 'When I move' subscribes to object-moved sco
 test("sfd-041-221 Apprentice Smith: reveal reads one card of the Main Deck (425.1, 425.3.a)", () => {
   assert.deepEqual(ability.body.map(instruction => instruction.id), [
     "apprentice-smith.reveal-top",
-    "apprentice-smith.mode"
+    "apprentice-smith.draw-it",
+    "apprentice-smith.recycle-it"
   ]);
   assert.equal(revealInstruction.id, "apprentice-smith.reveal-top");
   assert.equal(revealInstruction.op, "effect.reveal");
@@ -79,19 +79,27 @@ test("sfd-041-221 Apprentice Smith: reveal reads one card of the Main Deck (425.
 });
 
 test("sfd-041-221 Apprentice Smith: the result branches are gear -> hand and otherwise -> recycle", () => {
-  assert.equal(modeInstruction.op, "choice.mode");
-  assert.equal(modeInstruction.linkedTo, "apprentice-smith.reveal-top");
-  assert.deepEqual(modeInstruction.args.count, { kind: "constant", value: 1 });
-  assert.deepEqual(modeInstruction.args.different, { kind: "constant", value: true });
-  assert.deepEqual(modeInstruction.args.modes.value.map(entry => entry.id), [
-    "apprentice-smith.gear-mode",
-    "apprentice-smith.other-mode"
+  assert.deepEqual(ability.body.map(instruction => instruction.id), [
+    "apprentice-smith.reveal-top",
+    "apprentice-smith.draw-it",
+    "apprentice-smith.recycle-it"
   ]);
 
   // "draw it" = add that card to the hand (414.1 takes a card from a zone and
   // adds it to a player's Hand); the revealed ref travels as a linked value and
-  // the pick consumes it, so no TargetSpec is involved (never a target).
+  // the pick consumes it, so no TargetSpec is involved (never a target). The
+  // instruction's own condition is the printed "If it's a gear".
   assert.equal(toHandInstruction.op, "effect.zone");
+  assert.deepEqual(toHandInstruction.condition, {
+    kind: "compare",
+    left: { kind: "constant", value: "gear" },
+    operator: "in",
+    right: {
+      kind: "object-property",
+      object: { linked: "apprentice-smith.reveal-top" },
+      property: "types"
+    }
+  });
   assert.deepEqual(toHandInstruction.args.to, { kind: "constant", value: "hand" });
   assert.deepEqual(toHandInstruction.args.amount, { kind: "constant", value: 1 });
   assert.deepEqual(toHandInstruction.args.pick, {
@@ -124,6 +132,12 @@ test("sfd-041-221 Apprentice Smith: the result branches are gear -> hand and oth
   });
   assert.equal(recycleInstruction.targets, undefined);
   assert.equal(recycleInstruction.linkedTo, "apprentice-smith.reveal-top");
+  // "Otherwise" is the negation of the same discriminator (contract 3.4 scope:
+  // each instruction carries its own condition clause).
+  assert.deepEqual(recycleInstruction.condition, {
+    kind: "not",
+    condition: toHandInstruction.condition
+  });
 });
 
 test("sfd-041-221 Apprentice Smith golden: the gear branch returns the revealed card to its owner's hand", () => {
@@ -131,17 +145,16 @@ test("sfd-041-221 Apprentice Smith golden: the gear branch returns the revealed 
   // reference kernel (the zoneSlice ordering gap is recorded separately).
   const kernel = world().card("top-gear", { types: ["gear"], owner: "A", zone: "deck" }).build();
   kernel.setPicks("apprentice-smith.revealed-card", [kernel.ref("top-gear")]);
-  kernel.setAnswers({ "apprentice-smith.mode/mode%3A0": "apprentice-smith.gear-mode" });
 
   const outcome = resolveChainBody(ability.body, kernel);
 
-  assert.equal(outcome.status, "executed");
-  assert.deepEqual(outcome.results.map(entry => entry.id).sort(), [
-    "apprentice-smith.draw-it",
-    "apprentice-smith.mode",
-    "apprentice-smith.reveal-top"
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status, entry.result.reason]), [
+    ["apprentice-smith.reveal-top", "executed", undefined],
+    ["apprentice-smith.draw-it", "executed", undefined],
+    // "Otherwise" does not fire for a gear.
+    ["apprentice-smith.recycle-it", "negated", "skipped"]
   ]);
-  assert.equal(resultFor(outcome, "apprentice-smith.draw-it").result.status, "executed");
   assert.equal(kernel.getObject("top-gear").zone, "hand");
   assert.deepEqual(kernel.zone("A", "hand").map(ref => ref.id), ["top-gear"]);
   assert.deepEqual(outcome.events.map(event => event.action), ["reveal", "return-to-hand"]);
@@ -152,12 +165,15 @@ test("sfd-041-221 Apprentice Smith golden: the otherwise branch recycles the rev
   // kernel: effect.reveal rejects a proper subset of a non-hand zone because
   // ordered refs must come from zoneSlice (recorded as a todo below).
   const kernel = world().card("top-spell", { types: ["spell"], owner: "A", zone: "deck" }).build();
-  kernel.setAnswers({ "apprentice-smith.mode/mode%3A0": "apprentice-smith.other-mode" });
 
   const outcome = resolveChainBody(ability.body, kernel);
 
-  assert.equal(outcome.status, "executed");
-  assert.equal(resultFor(outcome, "apprentice-smith.recycle-it").result.status, "executed");
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status, entry.result.reason]), [
+    ["apprentice-smith.reveal-top", "executed", undefined],
+    ["apprentice-smith.draw-it", "negated", "skipped"],
+    ["apprentice-smith.recycle-it", "executed", undefined]
+  ]);
   // Recycle keeps the card in its owner's Main Deck, at the bottom (417.1.a).
   assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["top-spell"]);
   assert.equal(kernel.getObject("top-spell").zone, "deck");
@@ -195,13 +211,35 @@ test("sfd-041-221 Apprentice Smith golden: the recycle instruction places the li
   assert.deepEqual(run.events.map(event => event.action), ["recycle"]);
 });
 
-test.todo(
-  "sfd-041-221 Apprentice Smith: 'If it's a gear' needs a condition that reads the type snapshot locked " +
-    "at reveal time (contract 3.4 Show Off; Condition has no array-contains operator and effect.reveal " +
-    "links refs only), so the printed result cannot be discriminated; the mode node above preserves the " +
-    "two branches' shape and the goldens drive them explicitly as documented, merged " +
-    "sfd/ravenbloom-conservatory does for the same printed pattern"
-);
+test("sfd-041-221 Apprentice Smith golden: the gear discriminator really drives the branch (425.2)", () => {
+  // The two goldens above execute the same authored body and reach opposite
+  // branches from the revealed card's own type; this test pins that the branch
+  // is decided by the printed condition rather than by a test-supplied answer.
+  assert.deepEqual(toHandInstruction.condition, {
+    kind: "compare",
+    left: { kind: "constant", value: "gear" },
+    operator: "in",
+    right: {
+      kind: "object-property",
+      object: { linked: "apprentice-smith.reveal-top" },
+      property: "types"
+    }
+  });
+  assert.deepEqual(recycleInstruction.condition, {
+    kind: "not",
+    condition: toHandInstruction.condition
+  });
+  // A unit is neither a gear nor a spell: it recycles like the spell case.
+  const kernel = world().card("top-unit", { types: ["unit"], owner: "A", zone: "deck" }).build();
+  const outcome = resolveChainBody(ability.body, kernel);
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
+    ["apprentice-smith.reveal-top", "executed"],
+    ["apprentice-smith.draw-it", "negated"],
+    ["apprentice-smith.recycle-it", "executed"]
+  ]);
+  assert.equal(kernel.getObject("top-unit").zone, "deck");
+});
 
 test.todo(
   "sfd-041-221 Apprentice Smith: 'the top card of your Main Deck' must be read through zoneSlice " +
@@ -212,5 +250,6 @@ test.todo(
 test.todo(
   "sfd-041-221 Apprentice Smith: the object-moved event must carry to/toKind payload and expose the moved " +
     "object's identity to the card registration so a Recall (458/458.1) does not trigger the ability " +
-    "(CR 421.1, 449.1, 449.2) — RIFT-120"
+    "(CR 421.1, 449.1, 449.2) — it needs the card-program trigger registration (RIFT-257) on top of the " +
+    "merged event pipeline"
 );

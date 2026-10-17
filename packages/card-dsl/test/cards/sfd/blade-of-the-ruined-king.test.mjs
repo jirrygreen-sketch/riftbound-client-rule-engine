@@ -56,8 +56,8 @@ test("sfd-178-221 Blade of the Ruined King: identity, ruleset, status, judgeReas
   // blocked equip payment kind and what is already executable.
   assert.match(program.judgeReason, /params\.cost/);
   assert.match(program.judgeReason, /costAdditions/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /355\.10\.c\.1/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
@@ -185,12 +185,12 @@ test("sfd-178-221 Blade of the Ruined King: the merged Equip expansion is valid 
 
 test.todo(
   "sfd-178-221 Blade of the Ruined King: the printed mixed Equip cost (1 Order Power + Kill a " +
-    "friendly unit, CR 818.1.c.2/818.1.c.3) needs a KeywordAbility cost carrier - contract 3.8 " +
-    "item 3's ExpandInput params.cost - so the keyword expansion can declare both halves " +
-    "(RIFT-89 follow-up)."
+    "friendly unit, CR 818.1.c.2/818.1.c.3) needs a caller that passes contract 3.8 item 3's " +
+    "ExpandInput params.cost from the card, and an Equip expansion that reads it so both halves " +
+    "are declared (RIFT-261 batch)."
 );
 test.todo(
   "sfd-178-221 Blade of the Ruined King: paying the printed Equip cost needs the \"equip\" " +
-    "payment kind in cost/plan-values.ts (RIFT-89 follow-up) plus the card-program -> keyword " +
-    "expansion -> chain wiring (contract 3.5, RIFT-120 follow-up)."
+    "payment kind in cost/plan-values.ts (RIFT-261 batch) plus the card-program -> keyword " +
+    "expansion -> chain wiring (contract 3.5, RIFT-257)."
 );
