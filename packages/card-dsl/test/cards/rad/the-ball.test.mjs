@@ -6,6 +6,13 @@ import program from "../../../dist/cards/rad/the-ball.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { finalizeTargetPlan } from "../../../../engine-core/dist/target/target-plan.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { bindStaticAbility, createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
+import { createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 
 const CARD_ID = "card.hash-a086d5c18c686d7dd38aba3317931635118d024917313da10f92dd9561df0e57";
 const SOURCE_TEXT =
@@ -41,6 +48,8 @@ test("rad-146-167 The Ball: program validates and has expected identity", () => 
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /Deploy/);
   assert.match(program.judgeReason, /sameLocationAs/);
+  assert.match(program.judgeReason, /source-location/);
+  assert.match(program.judgeReason, /invalid-location-kind/);
   assert.match(program.judgeReason, /programs\/triggers\.ts/);
 });
 
@@ -86,7 +95,7 @@ test("rad-146-167 The Ball: Deploy + Ganking keywords and play/move mode bodies"
     assert.equal(damage.targets.length, 1);
     const [spec] = damage.targets;
     assert.equal(spec.id, "the-ball.enemy-units-here");
-    // “enemy units here”：敌方 + 来源所在地点锚点 + 程序化全选（355.10.d 不构成目标选择）。
+    // “enemy units here”：敌方 + 来源所在地点锚点（解释器集合查询）+ 程序化全选（355.10.d）。
     assert.deepEqual(spec.filter, { type: "unit", controller: "opponent", sameLocationAs: "source" });
     assert.equal(spec.selection, "all");
   }
@@ -108,7 +117,8 @@ test("rad-146-167 The Ball: draw mode executes and the damage mode is never eval
 test("rad-146-167 The Ball: damage mode hits only the enemy units at the source's location", () => {
   const kernel = battlefieldWorld();
   const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("the-ball") });
-  // Finalize 锁定后的目标集合同时包含“此处”与别处的候选，由 sameLocationAs 锚点重验。
+  // Finalize 锁定后的目标集合同时包含“此处”与别处的候选，由 source-location
+  // 目标锚点在解释器内重验（RIFT-357）。
   scoped.setTargets("the-ball.enemy-units-here", [scoped.ref("enemy-here"), scoped.ref("enemy-elsewhere")]);
   scoped.setAnswers({ "the-ball.play-mode/mode%3A0": "the-ball.damage-mode" });
   const outcome = resolveChainBody(concretizeOpponent(program.abilities[2].body, "B"), scoped);
@@ -140,9 +150,94 @@ test.todo(
     "（卡牌 static 绑定抛 judge-required），也没有 Finalize 位置校验调用方；hold 触发的 { here: true } 过滤器" +
     "会被 translateTriggerFilter/translateObjectFilter 拒绝（turn/flow.ts 的清理召回已有 Deploy 豁免）"
 );
+
+test("rad-146-167 The Ball: the equipment keyword expansions really gate Deploy/here, and Ganking alone binds", () => {
+  // 830.1.b / 830.2: the merged production binder registers Ganking's
+  // continuous.movement but refuses Deploy's continuous.location, and the
+  // hold-trigger filter still carries the unsupported { here: true } field.
+  const kernel = world().player("A").player("B")
+    .unit("the-ball", { controller: "A", owner: "A", types: ["gear"], zone: "board", location: BATTLEFIELD })
+    .build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => { throw new Error("Unexpected choice: " + request.id); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  const binder = createEngineStaticBinder(engine);
+  const snapshot = { ...kernel.getObject("the-ball"), cardId: CARD_ID };
+  const boundKinds = [];
+  const failures = [];
+  for (const ability of expandProgram(program, snapshot).abilities) {
+    if (ability.kind !== "static") continue;
+    try {
+      bindStaticAbility(binder, ability, snapshot);
+      boundKinds.push(ability.effect.kind);
+    } catch (error) {
+      failures.push(error.message);
+    }
+  }
+  assert.deepEqual(boundKinds, ["continuous.movement"], "Ganking's movement permission binds");
+  assert.deepEqual(failures, ["Static ability kind continuous.location has no layer mapping"]);
+  assert.throws(
+    () => triggerRegistrations(new Map([[CARD_ID, program]]), snapshot),
+    /Unsupported filter field here/
+  );
+});
+test("rad-146-167 The Ball: the source-location target selector really filters by the source's battlefield", () => {
+  // 355.10.d / 421.1: the engine's TargetSpec.location { kind: "source-location" }
+  // selector really compares a candidate's location with the ability source's.
+  // It cannot yet be authored in a CardProgram (the shared IR validator rejects
+  // symbolic target locations), so this proves the engine half only.
+  const kernel = battlefieldWorld();
+  const source = kernel.getObject("the-ball");
+  const context = bindResolveContext(kernel, { source, controller: "A", timingPoint: "chain-item-resolve" });
+  const plan = finalizeTargetPlan(context, {
+    id: "the-ball.enemy-units-here",
+    filter: { type: "unit", controller: "B" },
+    location: { kind: "source-location" },
+    selection: "all"
+  }, {});
+  assert.deepEqual(plan.selected.map(ref => ref.id), ["enemy-here"]);
+});
+
+test("rad-146-167 The Ball: the shared CardProgram validator rejects the merged source-location selector", () => {
+  // Contract gap: the engine accepts TargetSpec.location selectors, but
+  // ir/validation.ts validateTargetSpec routes every non-concrete location to
+  // validateLocationFilter, so { kind: "source-location" } fails as a bad kind.
+  const result = validateCardProgram({
+    ...program,
+    abilities: [
+      { kind: "keyword", keyword: "deploy" },
+      {
+        kind: "triggered",
+        trigger: { at: "card-played", filter: { event: "card-played", self: true } },
+        optional: false,
+        body: [{
+          id: "probe.damage",
+          op: "effect.damage",
+          args: { amount: { kind: "constant", value: 2 }, target: { kind: "constant", value: "probe.target" } },
+          targets: [{
+            id: "probe.target",
+            filter: { type: "unit", controller: "opponent" },
+            location: { kind: "source-location" },
+            selection: "all"
+          }]
+        }]
+      }
+    ]
+  });
+  assert.equal(result.ok, false);
+  assert.ok(result.issues.some(issue => issue.code === "invalid-location-kind"));
+});
+
 test.todo(
-  "rad-146-167 The Ball: “enemy units here” 的生产链路——translateObjectFilter 拒绝 sameLocationAs 锚点" +
-    "（绑定即失败），需要目标系统把来源所在地点纳入候选过滤（355.10.d / 421.1）"
+  "rad-146-167 The Ball: “enemy units here” 的生产链路——引擎的 source-location 目标选择器可求值，但共享 IR 校验器" +
+    "拒绝在 CardProgram 里写符号 location（invalid-location-kind，见契约变更请求）；choice.mode 又被 " +
+    "chain/engine.ts 的 assertFinalizationSurface 拒绝，模式体到不了 Finalize"
 );
 test.todo(
   "rad-146-167 The Ball: object-moved 触发端到端（421.1/449.1 移动成功时点 + 来源身份锚定 + Ganking 许可）——" +

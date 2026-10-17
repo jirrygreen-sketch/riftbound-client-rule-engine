@@ -7,6 +7,11 @@ import { buildCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import deflect from "../../../../engine-core/dist/effects/keywords/Deflect.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { translateCost } from "../../../../engine-core/dist/programs/play.js";
+import { bindStaticAbility, createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { deflectAmount, deflectCost } from "../../../../engine-core/dist/target/tax/collect.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 
 const CARD_ID =
   "card.hash-0637f5fadf7db883948eb6366a512392aa80676b5a0ff45433e37f75c35961c3";
@@ -14,6 +19,21 @@ const CARD_ID =
 const [play, deflectKeyword] = program.abilities;
 const [returnedGear] = play.cost.payments;
 const [discount] = play.cost.discounts;
+
+/** Minimal engine so the production static binder can be exercised directly. */
+function binderFor() {
+  const kernel = world().player("A").player("B").unit("caster", { owner: "A", types: ["unit"] }).build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => { throw new Error(`Unexpected choice: ${request.id}`); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  return createEngineStaticBinder(engine);
+}
 
 test("rad-075-167 Skystrike Squadron: program validates and is judge-required", () => {
   const result = validateCardProgram(program);
@@ -94,6 +114,55 @@ test("rad-075-167 Skystrike Squadron: the merged pipeline can apply a caller-sup
   assert.equal(plan.total.energy, 3, "a 5 Energy cost reduced by 2");
 });
 
+test("rad-075-167 Skystrike Squadron: translateCost really refuses the declared additional cost", () => {
+  // 356.2 / 356.4.f.1: the optional additional cost and its conditional discount
+  // are authored on the play ability, but the card-program → cost-plan binding
+  // rejects both fields before any plan exists (measured, not assumed).
+  assert.throws(
+    () => translateCost(play.cost, "play:skystrike-squadron-test", "play"),
+    /Unsupported play cost field optional/
+  );
+});
+
+test("rad-075-167 Skystrike Squadron: the cost pipeline really has no return-to-hand payment kind", () => {
+  // 356.2.a/.b: "return a friendly gear to its owner's hand" is an additional
+  // cost. The merged planner accepts only energy/xp/power and
+  // exhaust/discard/recycle/kill/reveal/spend-buff, so the declared payment must
+  // fail closed rather than be approximated.
+  const kernel = world().player("A").unit("skystrike-squadron", { might: 4 }).build();
+  assert.throws(
+    () => buildCostPlan(kernel, {
+      id: "skystrike-return-to-hand",
+      cost: {
+        payments: [
+          { kind: "return-to-hand", choice: { id: returnedGear.choice.id, options: [], min: 1, max: 1 } }
+        ]
+      }
+    }),
+    error => error?.reason === "judge-required" && /Unsupported payment kind: return-to-hand/.test(error.message)
+  );
+});
+
+test("rad-075-167 Skystrike Squadron: the merged target-tax planner charges 1 any-Domain Power, but the static binder cannot register it", () => {
+  // RIFT-360 merged deflectCost: 809.1.c.1's tax is a Power requirement payable
+  // by any of the six domains, and the real planner builds it without Energy.
+  const taxed = world()
+    .player("A", { power: ["Body"] })
+    .unit("taxed", { owner: "B", controller: "B", zone: "board", keywords: [{ id: "Deflect", value: 1 }] })
+    .build();
+  const target = taxed.getObject("taxed");
+  assert.equal(deflectAmount(target), 1);
+  const plan = buildCostPlan(taxed, { id: "skystrike-tax", cost: deflectCost(1) });
+  assert.equal(plan.total.energy, 0);
+  assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"] }]);
+  // ...but the KeywordDef expansion still has no production entry:
+  // layerFor has no target.tax mapping, so the static binder throws.
+  assert.throws(
+    () => bindStaticAbility(binderFor(), { kind: "static", effect: { kind: "target.tax", value: { kind: "constant", value: 1 } } }, target),
+    /Static ability kind target\.tax has no layer mapping/
+  );
+});
+
 test.todo(
   "rad-075-167 Skystrike Squadron: charge the optional return-a-friendly-gear cost at Finalize and " +
     "apply the resulting 2-Energy discount only when it was paid (356.2 / 356.4.c / 356.4.f.1) — " +
@@ -102,7 +171,8 @@ test.todo(
 );
 
 test.todo(
-  "rad-075-167 Skystrike Squadron: [Deflect 1] target tax as any-Domain Power — the KeywordDef produces " +
-    "target.tax, but production statics binding fails because layerFor has no target.tax mapping; after that " +
-    "mapping exists, finalize must preserve Power instead of writing mandatoryAdditional { energy: amount } (809.1.c.1)"
+  "rad-075-167 Skystrike Squadron: [Deflect 1] target tax as any-Domain Power — RIFT-360's deflectCost planner " +
+    "builds the exact Power requirement, but production statics binding fails because layerFor has no target.tax " +
+    "mapping; after that mapping exists, chain/engine.ts finalize must consume TargetTaxCostAdapter's CostPlan " +
+    "instead of writing mandatoryAdditional { energy: amount } (809.1.c.1)"
 );

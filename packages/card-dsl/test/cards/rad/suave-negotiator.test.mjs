@@ -6,6 +6,8 @@ import program from "../../../dist/cards/rad/suave-negotiator.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { orderedPickSpecs } from "../../../../engine-core/dist/chain/picks/plan.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 
 const CARD_ID = "card.hash-e7d215ccfa0f015b2ba252effc317eb2e2c19280d7d01a4eb41aba1ea8340507";
 const SOURCE_TEXT = "When you play me, choose an opponent. You and that player each draw 1.";
@@ -20,6 +22,7 @@ test("rad-099-167 Suave Negotiator: validates, identity and source text", () => 
   assert.match(program.judgeReason, /355\.9\.a/);
   assert.match(program.judgeReason, /ChoiceRequest/);
   assert.match(program.judgeReason, /dynamic:opponent-players/);
+  assert.match(program.judgeReason, /zoneSlice/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -110,10 +113,36 @@ test("rad-099-167 Suave Negotiator: an empty opponent pick makes the second draw
   assert.equal(kernel.player("B").handSize, 0);
 });
 
+test("rad-099-167 Suave Negotiator: the production pick filler does not resolve the descriptive opponent token", () => {
+  // CR v1.5 355.7/355.9.a: choosing an opponent is a player choice. The merged
+  // chain filler (chain/picks/plan.ts) only locks explicit zoneSlice/linked
+  // sources; chain/picks/README.md states that descriptive strings such as
+  // "dynamic:opponent-players" are never parsed as executable behavior, so this
+  // card's pick has no production resolution at all.
+  const descriptive = program.abilities[0].body[1].picks[0];
+  assert.deepEqual(descriptive.options, ["dynamic:opponent-players"]);
+  assert.deepEqual(
+    orderedPickSpecs([{ id: "probe", op: "effect.draw", args: { amount: { kind: "constant", value: 1 } }, picks: [descriptive] }]),
+    [],
+    "a pick with only descriptive options is not a bindable source"
+  );
+  const zoneSlicePick = {
+    id: "probe.zone-slice",
+    options: [],
+    ordered: true,
+    selection: "all",
+    zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 1 } }
+  };
+  assert.deepEqual(
+    orderedPickSpecs([{ id: "probe", op: "effect.draw", args: { amount: { kind: "constant", value: 1 } }, picks: [zoneSlicePick] }]).map(spec => spec.id),
+    ["probe.zone-slice"]
+  );
+});
+
 test.todo(
   "suave-negotiator: choosing an opponent (CR v1.5 355.7 / 355.9.a player choice) needs a player pick/target" +
     " shape: ChoiceRequest has only optional/mode/select-objects/order/number, and targets() returns ObjectRefs only" +
-    " (contract change request: add a player pick/target form)"
+    " (contract change request: add a player pick/target form); the production pick filler only binds zoneSlice/linked sources"
 );
 test.todo(
   "suave-negotiator: card-played trigger end-to-end through the production chain, resolving the" +

@@ -20,6 +20,10 @@ import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/key
 import might from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
+import { bindStaticAbility, createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 
 const CANONICAL_ID =
   "card.hash-ef096ceda83997abf3d3e76dcd5774b08b5953e2f94e648a0d5942172d6eac39";
@@ -176,11 +180,79 @@ test("rad-088-167 Staunch Survivor: the generated card registry exposes the prog
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
+test("rad-088-167 Staunch Survivor: the production binder really keeps both keywords at printed Might", () => {
+  // 807.1.c / 814.1.c: the expansions bind as continuous.might registrations,
+  // but their conditions read object-property "designation" while the merged
+  // ObjectSnapshot exposes only combatRole. Measured through the real engine
+  // static binder: both registrations exist and evaluate to the printed 2.
+  const kernel = world().player("A").player("B")
+    .unit("survivor", {
+      controller: "A", owner: "A", might: 2, combatRole: "defender", zone: "board",
+      location: { type: "battlefield", id: "bf-1" }, keywords: [{ id: "Assault", value: 2 }, { id: "Shield", value: 2 }]
+    })
+    .build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => { throw new Error("Unexpected choice: " + request.id); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  const binder = createEngineStaticBinder(engine);
+  const snapshot = { ...kernel.getObject("survivor"), cardId: CANONICAL_ID };
+  const handles = [
+    bindStaticAbility(binder, assault.expand({ value: 2, host: HOST })[0], snapshot),
+    bindStaticAbility(binder, shield.expand({ value: 2, host: HOST })[0], snapshot)
+  ];
+  engine.layers.setObjects(kernel.objects);
+  assert.deepEqual(
+    engine.layers.registry.list().map(entry => entry.effect.effect.kind),
+    ["continuous.might", "continuous.might"]
+  );
+  assert.equal(engine.layers.evaluate(snapshot.ref).might, 2, "both designation gates are permanently false");
+  for (const handle of handles) handle.unbind();
+});
+
+test("rad-088-167 Staunch Survivor: the designation predicate really throws while the combatRole equivalent evaluates", () => {
+  // Isolates the gap to the property name: evaluating the merged expansion's
+  // condition throws for the missing "designation" characteristic, while the
+  // same comparison over ObjectSnapshot.combatRole returns true.
+  const kernel = world().player("A").player("B")
+    .unit("survivor", { controller: "A", owner: "A", might: 2, combatRole: "attacker", zone: "board" })
+    .build();
+  const snapshot = kernel.getObject("survivor");
+  const context = bindResolveContext(kernel, { source: snapshot, controller: "A", timingPoint: "chain-item-resolve" });
+  const environment = {
+    context,
+    host: snapshot.ref,
+    linked: key => context.linked(key),
+    canLookBack: () => true,
+    isIgnored: () => false
+  };
+  const [assaultExpansion] = assault.expand({ value: 2, host: HOST });
+  assert.throws(
+    () => evaluateCondition(assaultExpansion.condition, environment),
+    /Unavailable characteristic: designation/
+  );
+  assert.equal(
+    evaluateCondition({
+      kind: "compare",
+      left: { kind: "object-property", object: "self", property: "combatRole" },
+      operator: "eq",
+      right: { kind: "constant", value: "attacker" }
+    }, environment),
+    true
+  );
+});
+
 test.todo(
   "Staunch Survivor: +2 Might exactly while the 2 Might unit holds the Attacker designation and +2 while it " +
     "holds the Defender designation (CR 807.1.c / 814.1.c) - the production binders are merged, but the " +
     "keyword expansion predicates read object-property 'designation' while ObjectSnapshot exposes only " +
-    "combatRole; interpreter evaluation returns MissingInformation and bindStaticToLayers' catch makes " +
+    "combatRole (the combatRole comparison itself evaluates true); interpreter evaluation throws " +
+    "MissingInformation and bindStaticToLayers' catch makes " +
     "the condition permanently false (keywords/Assault.ts + keywords/Shield.ts)"
 );
 

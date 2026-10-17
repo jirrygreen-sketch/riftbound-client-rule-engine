@@ -6,6 +6,9 @@ import program from "../../../dist/cards/rad/supernova.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 
 const CARD_ID =
   "card.hash-0e5a4bfb603171bb0504c082d28e606b5fb0050252aed40f969d0c88f58839b4";
@@ -24,6 +27,7 @@ test("rad-059-167 Supernova: program validates and is judge-required on the cata
   assert.match(program.judgeReason, /Spell/);
   assert.match(program.judgeReason, /effect\.damage/);
   assert.match(program.judgeReason, /effect\.draw/);
+  assert.match(program.judgeReason, /describePlay/);
 });
 
 test("rad-059-167 Supernova: sourceText is the verbatim deck-catalog ability text", () => {
@@ -117,9 +121,61 @@ test("rad-059-167 Supernova: effect.draw draws exactly 2 for the controller (414
   assert.equal(kernel.player("A").deckSize, 1);
 });
 
+test("rad-059-167 Supernova: the production play binding and chain really resolve the spell", () => {
+  // programs/play.ts's describePlay turns this program into a real chain draft
+  // (printed 9 Energy / 1 Order), and chain/engine.ts's Finalize/Resolve pays it,
+  // deals 10 to the locked target, draws 2, and moves the spell to Trash. The
+  // only remaining blocker is the catalog cardType (Unit vs printed Spell).
+  const { judgeReason, ...rest } = program;
+  const binding = createProgramBinding({ cardPrograms: [{ ...rest, status: "executable" }] });
+  const kernel = world().player("A", { energy: 20, power: ["Order"] }).player("B")
+    .unit("supernova", {
+      owner: "A", types: ["spell"], zone: "hand", cardId: CARD_ID,
+      energy: 9, power: ["Order"], might: null
+    })
+    .unit("enemy", { owner: "B", controller: "B", might: 3 })
+    .deck(["a", "b", "c"], { owner: "A" })
+    .build();
+  const decide = request => request.type === "select-objects"
+    ? request.options.filter(ref => ref.id === "enemy")
+    : request.type === "optional" ? true : (() => { throw new Error("Unexpected choice: " + request.id); })();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: decide,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose: decide })
+  });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host,
+    cleanup: () => false, describePlay: binding.describePlay
+  });
+  const errors = [];
+  binding.attachLifecycle(engine, error => errors.push(error?.message ?? String(error)));
+  const source = kernel.getObject("supernova");
+  const draft = binding.describePlay({ type: "play", object: source.ref, player: "A" }, source);
+  assert.equal(draft.kind, "spell");
+  assert.deepEqual(draft.cost.cost, {
+    kind: "explicit",
+    energy: { kind: "constant", value: 9 },
+    power: { kind: "constant", value: 1 }
+  });
+  engine.execute({ id: "play:supernova", controller: "A", source, kind: "spell", speed: "normal", body: draft.body });
+  engine.advance();
+  let guard = 0;
+  while (engine.items.length && guard++ < 20) engine.pass(engine.priority);
+  assert.deepEqual(errors, []);
+  assert.equal(kernel.getObject("supernova").zone, "trash", "the resolved spell leaves the chain");
+  assert.equal(kernel.getObject("enemy").damage, 10, "Deal 10 went to the locked unit");
+  assert.equal(kernel.player("A").energy, 11, "the printed 9 Energy was paid");
+  assert.deepEqual(kernel.player("A").power, ["Order"], "the printed 1 Order Power stayed (reference kernel pays no Power)");
+  assert.equal(kernel.player("A").handSize, 2, "Draw 2 resolved");
+});
+
 test.todo(
-  "rad-059-167 Supernova: full chain play (printed cost payment, Action timing, resolution order) " +
-    "— depends on the coordinator's chain/cost integration; " +
-    "also blocked on the catalog cardType fix (Spell vs Unit) so this text is either a play " +
+  "rad-059-167 Supernova: full chain play now really resolves through describePlay + ChainEngine " +
+    "(printed cost, damage, draw, spell to Trash); the remaining blocker is the catalog cardType fix " +
+    "(Spell vs Unit) so this text is either a play " +
     "ability (420.1) or a play effect (383.4.a) — card-data task, not this workstream"
 );
