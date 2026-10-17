@@ -28,7 +28,7 @@ test("unl-013-219 Lotus Trap: identity, status, judgeReason and verbatim sourceT
   assert.match(program.judgeReason, /replacement\.damage-multiplier/);
   assert.match(program.judgeReason, /433\.1\.b/);
   assert.match(program.judgeReason, /hidden/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /continuous\.timing|Closed State/);
 });
 
 test("unl-013-219 Lotus Trap: Hidden + Reaction keywords plus one doubling replacement on a chosen unit", () => {
@@ -68,7 +68,7 @@ test("unl-013-219 Lotus Trap: Hidden + Reaction keywords plus one doubling repla
   ]);
 });
 
-test.todo("unl-013-219 Lotus Trap: replacement.damage-multiplier — double all damage that would be dealt to the chosen unit this turn (CR 433.1.b / 369.1 / 418.1 / 418.5); the survey (docs/plans/survey/unclassified-unl.md item 9) records it as needs-new-primitive (RIFT-120 replacement registration)");
-test.todo("unl-013-219 Lotus Trap: the [Hidden] expansion must grant the Hide action, the Facedown Zone and the cost-0 facedown play (811 / 107.3 / 422) — cost.hidden has no consumer (RIFT-84 / RIFT-89)");
-test.todo("unl-013-219 Lotus Trap: the [Reaction] continuous.timing permission must admit the card during Closed States (813.1.c / 309.1.a / 159.2.b.3) — RIFT-85 / RIFT-120 follow-up");
+test.todo("unl-013-219 Lotus Trap: replacement.damage-multiplier — double all damage that would be dealt to the chosen unit this turn (CR 433.1.b / 369.1 / 418.1 / 418.5); the survey (docs/plans/survey/unclassified-unl.md item 9) records it as needs-new-primitive");
+test.todo("unl-013-219 Lotus Trap: the [Hidden] expansion must grant the Hide action, the Facedown Zone and the cost-0 facedown play (811 / 107.3 / 422) — cost.hidden has no execution consumer");
+test.todo("unl-013-219 Lotus Trap: the [Reaction] continuous.timing permission must admit the card during Closed States (813.1.c / 309.1.a / 159.2.b.3) — the chain timing consumer is missing");
 

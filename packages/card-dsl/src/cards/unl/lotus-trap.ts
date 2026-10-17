@@ -20,10 +20,10 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * status = judge-required（缺口不近似实现）：
  * - replacement.damage-multiplier 原语不存在；卡牌程序也没有替代注册入口（ResolveContext 只有
- *   addContinuous / registerDelayedTrigger，替代注册属 RIFT-120），damage GameAction 没有倍率钩子。
- * - [Hidden] 的 cost.hidden 展开没有消费方（RIFT-84 的 Hide 行动/facedown 区域与 RIFT-89 的
- *   从 facedown 免费/受限打出都没合入，见 ogn/fight-or-flight、ogn/hidden-blade 的同一缺口）。
- * - [Reaction] 的 continuous.timing 没有图层/链侧消费方（RIFT-85 / RIFT-120 后续）。
+ *   addContinuous / registerDelayedTrigger），damage GameAction 没有倍率钩子。
+ * - [Hidden] 的 cost.hidden 展开没有消费方：Hide 行动、facedown 区域以及从 facedown 免费/受限打出
+ *   的流程都没有接入。
+ * - [Reaction] 的 continuous.timing 没有图层/链侧消费方，Closed State 的时机许可无法生效。
  * 本卡没有可独立执行的正文指令，golden 只做校验、结构断言与缺口 todo。
  */
 const lotusTrap = {
@@ -33,10 +33,10 @@ const lotusTrap = {
   judgeReason:
     "「Double all damage that would be dealt to it this turn」是伤害翻倍替代（CR 433.1.b：等价于" +
     "“将受到的伤害改为双倍” 的替代效果；369.1 / 418.1 / 418.5），但 replacement.damage-multiplier 原语不存在，" +
-    "卡牌程序也没有替代注册入口（ResolveContext 只有 addContinuous / registerDelayedTrigger，替代注册属 RIFT-120），" +
+    "卡牌程序也没有替代注册入口（ResolveContext 只有 addContinuous / registerDelayedTrigger），" +
     "damage GameAction 没有倍率维度；本地调研（docs/plans/survey/unclassified-unl.md 第 9 条）把它判为 needs-new-primitive。" +
-    "[Hidden] 的 cost.hidden 展开也没有消费方（RIFT-84 的 Hide 行动与 facedown 区域、RIFT-89 的 facedown 打出未合入），" +
-    "[Reaction] 的 continuous.timing 消费方同样未合入（RIFT-85 / RIFT-120 后续）；不近似实现（不写成永久标记或固定伤害）。",
+    "[Hidden] 的 cost.hidden 展开也没有消费方（Hide 行动、facedown 区域与从 facedown 打出的流程均未接入），" +
+    "[Reaction] 的 continuous.timing 消费方同样未合入，Closed State 的时机许可无法生效；不近似实现（不写成永久标记或固定伤害）。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     { kind: "keyword", keyword: "reaction" },

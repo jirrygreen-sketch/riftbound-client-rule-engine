@@ -25,19 +25,20 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * status = judge-required（缺口均不近似实现）：
  * - Sprite token 定义（187.2）不在 effect.token 的冻结定义表（recruit / sand-soldier / mech /
- *   reflection / tentacle）内；带自身关键词的 token 定义按原语文档保持 blocked。（依赖 RIFT-62
- *   后续的 token 定义表扩展。）
+ *   reflection / tentacle）内；带自身关键词的 token 定义按原语文档保持 blocked，仍需扩展
+ *   token 定义表。
  * - “there” 需要绑定「触发条件记录的来源起点 location」，冻结的 ObjectSelector（self / source /
  *   target / pick / linked）没有“触发事件载荷”形态，程序里以描述性常量保留该字段；属于契约变更请求。
  * - object-moved 事件的 payloadFields（fromKind / fromLocationId / toKind / toLocationId）当前没有被
  *   events/action-adapter.ts 填值，且卡牌程序的 trigger filter 锚点（source: "self"）没有消费方
  *   （events/pipeline-match.ts 只读 EventPattern 顶层 object/source/target/player/fromZone/toZone/
- *   amount/details），因此 Move 自发触发与“是我在移动”的判定都没有接线（RIFT-120）。
- * - [Temporary]（816）的关键词展开（RIFT-265）与 keyword→时点/链注册（RIFT-120）未接线，token 不会在
- *   其控制者 Beginning Phase 开始时被消灭。
- * - [Accelerate] 的展开（accelerate.cost）已合入，但费用计划消费方（Finalize 的 optionalAdditional
- *   接线）属 RIFT-89。
- * 依赖：RIFT-120（移动事件载荷与触发注册）、RIFT-62（token 定义表）、RIFT-265（Temporary）、RIFT-89。
+ *   amount/details），因此 Move 自发触发与“是我在移动”的判定都没有接线。
+ * - [Temporary]（816）的 KeywordDef、`effect.kill` 展开和 CardProgram 触发注册已经合入；
+ *   token 的真实清理仍被 Sprite 定义与“there”事件载荷阻塞。
+ * - [Accelerate] 的 KeywordDef、附加费用形状和入场就绪替代已经合入，但
+ *   `programs/play.ts` 尚未把卡牌关键词展开接入 Finalize 的 optionalAdditional 选择与收费。
+ * 依赖：移动事件载荷与触发绑定、Sprite token 定义、“there”的触发载荷选择器，以及
+ * Accelerate 的 CardProgram → Finalize 接线。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "accelerate" },
@@ -77,13 +78,16 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "四处缺口，均不近似实现：(1) Sprite token 定义（187.2：3 Might、无领域、Fae 标签、带 [Temporary]）不在 effect.token 的冻结定义表" +
-    "（recruit/sand-soldier/mech/reflection/tentacle），带自身关键词的定义按原语文档保持 blocked（依赖 RIFT-62 的 token 定义表扩展）。" +
+    "（recruit/sand-soldier/mech/reflection/tentacle），带自身关键词的定义按原语文档保持 blocked，仍需扩展 token 定义表。" +
     "(2)「there」＝触发条件成立时记录的移动前 location（359.3.f.3 以本卡为原文例子）：冻结的 ObjectSelector 只有 self/source/target/pick/linked，" +
     "没有触发事件载荷形态，程序以描述性常量保留该字段并提交契约变更请求。" +
-    "(3) object-moved 触发没有接线：events/action-adapter.ts 未为 move-location 填 fromKind/fromLocationId/toKind/toLocationId，" +
-    "events/pipeline-match.ts 也不读卡程序的 trigger filter 锚点（source: \"self\" 无消费方），Move 自发触发无法判定（RIFT-120）。" +
-    "(4) [Temporary]（816）的关键词展开与 keyword→时点/链注册未接线（RIFT-265 定义 + RIFT-120 注册），token 不会在控制者 Beginning Phase 开始时消灭。" +
-    "[Accelerate]（805）已声明，其展开（accelerate.cost）+ Finalize 的 optionalAdditional 消费属 RIFT-89。依赖：RIFT-120、RIFT-62、RIFT-265、RIFT-89。",
+    "(3) object-moved 触发仍缺事件载荷：events/action-adapter.ts 未为 move-location 填 fromKind/fromLocationId/toKind/toLocationId，" +
+    "因此“there”与来源 self 不能在真实 Move 中绑定。" +
+    "(4) [Temporary]（816）的 KeywordDef、effect.kill 展开和 CardProgram 触发注册已经合入，" +
+    "但 token 仍需先由 Sprite/there 链路真实生成，才能参与 Beginning Phase 的清理。" +
+    "[Accelerate]（805）的 KeywordDef、附加费用形状和入场就绪替代已经合入；" +
+    "programs/play.ts 仍未把该展开接入 Finalize 的 optionalAdditional 选择与收费。依赖：移动事件载荷、Sprite 定义、" +
+    "there 选择器与 Accelerate 的 CardProgram → Finalize 接线。",
   abilities,
   sourceText:
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_mind: as an additional cost to have me enter ready.)\n" +

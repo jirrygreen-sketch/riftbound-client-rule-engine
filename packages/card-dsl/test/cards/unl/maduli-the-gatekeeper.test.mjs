@@ -7,6 +7,10 @@ import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { runInstruction } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createContinuousEffectRegistry } from "../../../../engine-core/dist/layers/duration.js";
+import { restrictions } from "../../../../engine-core/dist/layers/rules/query.js";
+import restrict from "../../../../engine-core/dist/effects/instructions/continuous.restrict.js";
 
 const CARD_ID =
   "card.hash-9f4e7daa818aadec972e97c3f25f231c123fa7f6c5d2b58750be9027cbca870c";
@@ -124,12 +128,28 @@ test("unl-144-219 Maduli the Gatekeeper golden: a concrete locked destination do
   assert.deepEqual(outcome.events.map(event => event.action), ["move-location"]);
 });
 
+test("unl-144-219 Maduli the Gatekeeper golden: the merged restriction primitive records the ready prohibition", () => {
+  const kernel = world().unit("maduli", { might: 6 }).build();
+  const run = runInstruction(
+    restrict,
+    {
+      mode: { kind: "constant", value: "prohibit" },
+      action: { kind: "constant", value: "ready" },
+      appliesTo: { kind: "constant", value: { objectId: "maduli" } }
+    },
+    { world: kernel }
+  );
+  assert.equal(run.result.status, "executed");
+  const registry = createContinuousEffectRegistry();
+  for (const entry of kernel.continuousEffects) registry.register(entry.effect, entry.duration);
+  assert.deepEqual(restrictions(registry, "ready").map(entry => entry.actions), [["ready"]]);
+});
+
 test.todo(
-  "unl-144-219 Maduli the Gatekeeper: 'I can't be readied.' (CR 364.2 / 416) — there is no continuous.restrict " +
-    "primitive and layers/chain/awaken read no prohibition declaration (rad/cataclysm records the same gap)"
+  "unl-144-219 Maduli the Gatekeeper: make Ready and Awaken consult the registered ready restriction (CR 364.2 / 416)"
 );
 test.todo(
   "unl-144-219 Maduli the Gatekeeper: choose an occupied enemy battlefield at resolution and require my Might to " +
     "exceed the total Might of enemy units there (CR 170.11.a / 355.4.a / 451.1 / 143.2.a) — the frozen IR has no " +
-    "runtime Location selector and effect.move accepts only static destinations (RIFT-90/91)"
+    "runtime Location selector and effect.move accepts only static destinations"
 );

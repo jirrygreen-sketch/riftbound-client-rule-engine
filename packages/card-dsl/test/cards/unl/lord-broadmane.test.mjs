@@ -10,6 +10,9 @@ import { translateInstructionTargets } from "../../../../engine-core/dist/progra
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { createProgramBinding, createEngineStaticBinder } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-7fca30537894dafdae14a16780cb746b71b61799934fb26663599e56c55fe2bd";
@@ -57,8 +60,7 @@ test("unl-012-219 Lord Broadmane: identity, status, judgeReason and verbatim sou
   assert.match(program.judgeReason, /822\.1\.b/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
   // Ambush's KeywordDef is merged now, so the reason must name the missing
-  // consumers (static -> layers, playLocations/canAct) instead of RIFT-84.
-  assert.match(program.judgeReason, /RIFT-266/);
+  // consumers (static -> layers, playLocations/canAct).
   assert.match(program.judgeReason, /noopStaticBinder|playLocations/);
   assert.match(program.judgeReason, /designation/);
 });
@@ -80,8 +82,8 @@ test("unl-012-219 Lord Broadmane: Ambush keyword plus a self play trigger", () =
 
 test("unl-012-219 Lord Broadmane: the registered trigger host binding resolves the self anchor", () => {
   // programs/filters.ts normalises {source: "self"} to the host object filter
-  // and programs/triggers.ts registers the subscription; both are merged
-  // (RIFT-257), so the Play Effect half has a production path.
+  // and programs/triggers.ts registers the subscription, so the Play Effect
+  // half has a production path.
   const translated = translateInstructionTargets(triggered.body);
   assert.equal(translated.length, 1);
   assert.deepEqual(translated[0].args.objects, {
@@ -218,14 +220,24 @@ test("unl-012-219 Lord Broadmane: the granted Assault's expansion is the attacke
   assert.deepEqual(expansion.condition.right, { kind: "constant", value: "attacker" });
 });
 
+test("unl-012-219 Lord Broadmane: Ambush expansion preserves both static permission declarations", () => {
+  const ambush = keywordDefinitionsById.get("Ambush");
+  assert.ok(ambush, "keywords/Ambush.ts must be registered");
+  const expansion = ambush.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.deepEqual(expansion.map(ability => ability.effect.kind), ["play-location-permission", "continuous.timing"]);
+  assert.equal(expansion[0].effect.kind, "play-location-permission");
+  assert.equal(expansion[1].effect.kind, "continuous.timing");
+  assert.deepEqual(expansion[1].effect.grants, ["showdown", "closed-state"]);
+});
+
 test.todo(
   "unl-012-219 Lord Broadmane: play [Ambush] from the real play flow (CR 822.1.b/.c) — the KeywordDef is merged " +
-    "(RIFT-266) but its play-location-permission has no consumer (layers/rules/query.ts playLocations has no caller) " +
+    "and static binding now registers its declarations, but Finalize has no playLocations() consumer " +
     "and chain.canAct() does not read the layer timing permission"
 );
 
 test.todo(
   "unl-012-219 Lord Broadmane: apply the granted Assault as +1 Might while the unit is an attacker (CR 807.1.c/807.1.d) — " +
     "Assault's compare against the \"designation\" characteristic cannot be evaluated (ObjectSnapshot exposes combatRole, " +
-    "layers/engine.ts treats an unknown compare condition as true), and no producer registers a card's static abilities into layers"
+    "layers/engine.ts treats an unknown compare condition as true)"
 );

@@ -24,21 +24,15 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   不影响规则，不另写指令。
  *
  * status = judge-required（缺口不近似实现）：
- * - "give me +1 :rb_might: this turn" 没有可执行路径：契约 3.6 的封闭 GameAction 集合没有
- *   Might 修改动作，effects/instructions/ 下没有 continuous.might / effect.might-modify 原语，
- *   卡程序也没有把持续效果注册进 layers 的指令入口（LayerEngine 只消费经
- *   ResolveContext.addContinuous 注册的持续效果），"this turn" 的到期同样未接线（RIFT-91）。
- *   程序按契约形状保留 continuous.might 记录意图，不近似用 effect.buff 表达。
- * - "Your token units have [Tank]" 需要关键词授予的持续效果：effects/instructions/ 没有
- *   continuous.grant-keyword 原语，静态 grant-keyword 也没有图层消费方（sfd/forecaster、
- *   sfd/mechanized-menace 记录同一缺口）；[Tank] 自身的展开文件（815.1）已合入，
- *   但战斗伤害分配的消费方（815.1.c 的分配优先级）也尚未合入。
- * - card-played 触发仍未接线：没有订阅方把卡程序的 triggered ability 注册成
- *   TriggerRegistration，事件载荷也不含"该牌是 token"之外的打出者信息（RIFT-120）。
- * 程序保留触发结构、目标/作用域形状与两处缺口声明；golden 只做校验与结构断言。
+ * - `continuous.might` 的解释器、arithmetic 图层和 end-of-turn 到期已经合入；本卡的触发体
+ *   可以通过解释器真实登记该修正。
+ * - `continuous.grant-keyword`、Tank KeywordDef 和 CardProgram static binder 已经合入；本卡的
+ *   static 能力可以真实把 Tank 授予己方 token units。
+ * - Tank 的实际战斗伤害分配消费者仍缺失（815.1.c 的 lethal-first 顺序），所以整卡不能标记
+ *   executable。card-played 触发注册也已经合入。
+ * 程序保留触发结构与作用域形状；golden 执行 Might 体、Tank 静态绑定和触发注册，缺口以 test.todo 记录。
  *
- * 依赖：RIFT-91（layers-continuous：continuous.might + 期限 + 关键词授予）、
- * RIFT-120（触发注册）、战斗伤害分配批次。
+ * 依赖：Tank 战斗伤害分配消费者（815.1.c）。
  */
 
 const abilities: Ability[] = [
@@ -57,30 +51,21 @@ const abilities: Ability[] = [
     body: [
       {
         // 143.2.a / 475："give me +1 [M] this turn" 是算术图层的临时 Might 修正；
-        // 保留形状（见 judgeReason）——合并内核没有可执行路径，不近似用 Buff 表达。
+        // continuous.might 经解释器登记 arithmetic 层修正，不用 Buff 表达。
         id: "lillia-protector-of-dreams.grant-might",
         op: "continuous.might",
         args: {
           amount: { kind: "constant", value: 1 },
-          duration: { kind: "constant", value: "end-of-turn" }
-        },
-        targets: [
-          {
-            id: "lillia-protector-of-dreams.self",
-            // 355.9.c / 053.1："me" 是能力宿主本身，用 object: "self" 锚点声明。
-            filter: { type: "unit", zone: "board", object: "self" },
-            min: 1,
-            max: 1,
-            selection: "one"
-          }
-        ]
+          duration: { kind: "constant", value: "end-of-turn" },
+          // 355.9.c / 053.1："me" 是能力宿主本身；appliesTo self 由解释器直接绑定来源。
+          appliesTo: { kind: "constant", value: "self" }
+        }
       }
     ]
   },
   {
     // 801.3.a / 364.1："Your token units have [Tank]" 是关键词授予的静态效果；
-    // 保留形状（见 judgeReason）：没有 continuous.grant-keyword 原语，
-    // 静态 grant-keyword 也没有图层消费方。
+    // continuous.grant-keyword 与 static binder 已合入；Tank 的战斗分配消费者仍缺失。
     kind: "static",
     effect: {
       kind: "continuous.grant-keyword",
@@ -100,15 +85,9 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：（1）『give me +1 :rb_might: this turn』没有可执行路径：契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，" +
-    "effects/instructions/ 下没有 continuous.might / effect.might-modify 原语，卡程序也没有把持续效果注册进 layers 的指令入口" +
-    "（LayerEngine 只消费经 ResolveContext.addContinuous 注册的持续效果），『this turn』的到期（315.4）同样未接线；" +
-    "程序按契约形状保留 continuous.might 记录意图，不近似用 effect.buff 表达。" +
-    "（2）『Your token units have [Tank]』需要关键词授予的持续效果：没有 continuous.grant-keyword 原语，" +
-    "静态 grant-keyword 也没有图层消费方；[Tank] 自身的展开文件（815.1）已合入，但战斗伤害分配的消费方（815.1.c）尚未合入。" +
-    "（3）card-played 触发缺少注册方：没有订阅方把卡程序的 triggered ability 注册成 TriggerRegistration（RIFT-120）。" +
-    "依赖：RIFT-91（layers-continuous：continuous.might + 期限 + 关键词授予）、RIFT-120（触发注册）、战斗伤害分配批次。" +
-    "本卡所有效果都依赖上述缺口，golden 只做校验、结构断言与缺口 todo。",
+    "当前唯一的规则缺口是 Tank 的战斗伤害分配消费者（815.1.c）：continuous.might 的算术登记与本回合到期、" +
+    "continuous.grant-keyword 的 static binder、Tank KeywordDef 以及 card-played CardProgram 触发注册都已合入。" +
+    "因此本卡的两个效果半段均有执行证据，但在战斗分配消费者合入前仍保持 judge-required。",
   abilities,
   sourceText:
     "When you play a token unit, give me +1 :rb_might: this turn.\n" +

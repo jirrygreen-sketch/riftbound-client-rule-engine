@@ -4,7 +4,10 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/leblanc-fragmented.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-b8d443a7b94f10a4f56f95ffc2b338f17de7a1fbc3a76e380bf2cd67a5436a7e";
@@ -29,7 +32,7 @@ test("unl-172-219 LeBlanc, Fragmented: identity, status, judgeReason and verbati
   assert.match(program.judgeReason, /Assault/);
   assert.match(program.judgeReason, /807\.1/);
   assert.match(program.judgeReason, /trigger\.leave/);
-  assert.match(program.judgeReason, /RIFT-82/);
+  assert.match(program.judgeReason, /trigger\.leave/);
   assert.match(program.judgeReason, /Beginning Phase/);
 });
 
@@ -41,6 +44,21 @@ test("unl-172-219 LeBlanc, Fragmented: [Assault] and [Deathknell] are declared, 
   // 808.1: Deathknell is only declared here; the [Effect] is attached below as an
   // object-killed trigger (the ruined-rex / kogmaw-caustic shape).
   assert.deepEqual(deathknell, { kind: "keyword", keyword: "deathknell" });
+});
+
+test("unl-172-219 LeBlanc, Fragmented: Deathknell is registered and exposes the merged object-killed skeleton", () => {
+  const definition = keywordDefinitionsById.get("Deathknell");
+  assert.ok(definition, "effects/keywords/Deathknell.ts must be registered");
+  const [expanded] = definition.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(expanded.trigger.at, "object-killed");
+  assert.deepEqual(expanded.trigger.filter, {
+    self: true,
+    cause: "kill",
+    destination: "trash"
+  });
+  assert.deepEqual(expanded.body.map(instruction => [instruction.id, instruction.op]), [
+    [`deathknell:${CANONICAL_ID}:leave`, "trigger.leave"]
+  ]);
 });
 
 test("unl-172-219 LeBlanc, Fragmented: the Deathknell effect is an object-killed trigger of the host", () => {
@@ -110,16 +128,29 @@ test("unl-172-219 LeBlanc, Fragmented golden: the phase placeholder fails closed
   assert.equal(kernel.test(drawOne.condition), true);
 });
 
+test("unl-172-219 LeBlanc, Fragmented golden: CardProgram triggers register through the merged binding", () => {
+  const lifted = { ...program, status: "executable" };
+  delete lifted.judgeReason;
+  const binding = createProgramBinding({ cardPrograms: [lifted] });
+  const board = fixture({
+    cards: [{ id: "leblanc", cardId: CANONICAL_ID, types: ["unit"], energy: 3, power: ["Order"], might: 3 }]
+  });
+  const source = { ...board.kernel.getObject("leblanc"), cardId: CANONICAL_ID, zone: "board" };
+  const ids = binding.registerProgramTriggers(board.engine, source);
+  assert.equal(ids.length, 2);
+  assert.ok(ids.every(id => id.startsWith("program:leblanc:1:")));
+});
+
 test.todo(
   "unl-172-219 LeBlanc, Fragmented: read the controller's Beginning Phase at resolution (383.2.a.1/367) " +
     "so the 'draw 2 instead' branch can be evaluated instead of the fail-closed placeholder"
 );
 test.todo(
   "unl-172-219 LeBlanc, Fragmented: [Deathknell] keyword expansion (808.1.d.1 replaced death leaves the chain, " +
-    "808.1.d.2/.d.3 last-known info before the zone change) and CardProgram trigger registration — " +
-    "effects/keywords/Deathknell.ts only references the unmerged trigger.leave primitive (RIFT-82, RIFT-120)"
+    "808.1.d.2/.d.3 last-known info before the zone change) — the registered KeywordDef still references " +
+    "the unregistered trigger.leave primitive"
 );
 test.todo(
   "unl-172-219 LeBlanc, Fragmented: [Assault] expansion consumer (807.1.c attacker designation, contract 3.8 " +
-    "combatRole) so the keyword actually grants +1 Might while attacking (RIFT-81/RIFT-91)"
+    "combatRole) so the keyword actually grants +1 Might while attacking"
 );

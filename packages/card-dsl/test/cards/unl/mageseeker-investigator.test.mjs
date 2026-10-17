@@ -4,6 +4,10 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/mageseeker-investigator.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import restrict from "../../../../engine-core/dist/effects/instructions/continuous.restrict.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createContinuousEffectRegistry } from "../../../../engine-core/dist/layers/duration.js";
+import { appliedCosts } from "../../../../engine-core/dist/layers/rules/query.js";
 
 const CANONICAL_ID =
   "card.hash-b160c71d3dd5254b9c98867feb0f67b7805cefc8624fcf4d00f8f427ab3be532";
@@ -25,7 +29,7 @@ test("unl-163-219 Mageseeker Investigator: identity, status, judgeReason and ver
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /204\.4/);
-  assert.match(program.judgeReason, /cost\.applied/);
+  assert.match(program.judgeReason, /applied-cost|Applied Cost/);
   assert.match(program.judgeReason, /163\.2\.b/);
   assert.match(program.judgeReason, /355\.10\.b/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
@@ -34,8 +38,9 @@ test("unl-163-219 Mageseeker Investigator: identity, status, judgeReason and ver
 test("unl-163-219 Mageseeker Investigator: the card text is one Applied Cost static ability (204.4)", () => {
   assert.equal(program.abilities.length, 1);
   assert.equal(applied.kind, "static");
-  assert.equal(applied.effect.kind, "cost.applied");
-  assert.equal(applied.effect.appliesTo, "self");
+  assert.equal(applied.effect.kind, "continuous.restrict");
+  assert.equal(applied.effect.mode, "applied-cost");
+  assert.equal(applied.effect.action, "move");
   // 204.4.a: the associated Game Action is the linked effect of the Cost; CR
   // narrows it to a simultaneous batch of Moves.
   assert.equal(applied.effect.action, "move");
@@ -53,9 +58,39 @@ test("unl-163-219 Mageseeker Investigator: the card text is one Applied Cost sta
   assert.deepEqual(applied.effect.amount, { perBatch: "units-moved", minus: 1 });
 });
 
+test("unl-163-219 Mageseeker Investigator golden: Applied Cost registers through the merged restriction primitive", () => {
+  const kernel = world().unit("investigator", { owner: "A", controller: "A", might: 4 }).build();
+  const run = runInstruction(
+    restrict,
+    {
+      mode: { kind: "constant", value: applied.effect.mode },
+      action: { kind: "constant", value: applied.effect.action },
+      cost: { kind: "constant", value: {
+        resource: applied.effect.resource,
+        domain: applied.effect.domain,
+        payer: applied.effect.payer,
+        amount: applied.effect.amount
+      } }
+    },
+    { world: kernel }
+  );
+  assert.equal(run.result.status, "executed");
+  const registry = createContinuousEffectRegistry();
+  for (const entry of kernel.continuousEffects) registry.register(entry.effect, entry.duration);
+  const entries = appliedCosts(registry, "move");
+  assert.equal(entries.length, 1);
+  assert.deepEqual(entries[0].cost, {
+    resource: "power",
+    domain: "any",
+    payer: "moving-player",
+    amount: { perBatch: "units-moved", minus: 1 }
+  });
+});
+
 test.todo(
   "unl-163-219 Mageseeker Investigator: an Applied Cost primitive plus movement wiring that charges [A] per unit " +
-    "beyond the first at the same time the batch Move is performed (204.4.a-c) — RIFT-9 / RIFT-89"
+    "beyond the first at the same time the batch Move is performed (204.4.a-c) — the declaration now registers " +
+    "through continuous.restrict, but movement has no applied-cost consumer"
 );
 test.todo(
   "unl-163-219 Mageseeker Investigator: universal Power ([A], 135.2.e.5 / 163.2.b) must stay representable; the six-domain " +
@@ -63,5 +98,5 @@ test.todo(
 );
 test.todo(
   "unl-163-219 Mageseeker Investigator: the simultaneous-batch unit count feeding the cost amount, and the " +
-    "\"my battlefield\" destination anchor (355.10.b) — movement workstream (RIFT-21/31) and RIFT-90"
+    "\"my battlefield\" destination anchor (355.10.b) — movement batch accounting and runtime location anchoring are missing"
 );
