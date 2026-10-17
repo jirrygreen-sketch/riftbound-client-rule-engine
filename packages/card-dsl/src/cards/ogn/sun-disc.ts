@@ -62,12 +62,11 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "缺「本回合你打出的下一个单位就绪进场」的延迟被动登记路径（392、143.4/359.2.c、805.6）：replacement.enter 仅由替代绑定器解析 with " +
-    "体，不是启动能力 body 可调用的注册指令；缺一次性 next-unit-you-play 匹配、消费与回合到期窗口，registerDelayedTrigger " +
-    "也不能替代此被动入场替代。Legion（812.1.b.1/812.1.c）仍缺声明式条件消费打出历史的路径：" +
-    "HistoryQuery.exclude/objectFilter 与 condition.history 指令已合入，但当前 count 表达式只查询现存对象，不消费 " +
-    "cards-finalized-this-turn subject；也不能将未绑定的 controller 当作历史玩家。cost.exhaust、程序绑定与关键词展开已合入，" +
-    "横置费用有真实执行证据。不近似实现。",
+    "缺启动能力登记一次性 next-unit-you-play 入场替代的指令及本回合匹配、消费、到期窗口（391.4/392、143.4/359.2.c、805.6）；" +
+    "replacement.enter 仅用于 replacement.with，registerDelayedTrigger 只登记触发能力，不能在单位进场后才将其就绪。" +
+    "Legion（812.1.b.1/812.1.c）仍缺声明式历史条件与当前控制者绑定：当前 count 只查询现存对象，忽略 " +
+    "cards-finalized-this-turn subject；condition.history 的 query.player 是实际 PlayerId，不解析 controller。" +
+    "关键词 condition.predicate 的 history/excluding 载荷也未被静态图层求值。不近似实现。",
   abilities,
   sourceText:
     ":rb_exhaust:: [Legion] — The next unit you play this turn enters ready. " +

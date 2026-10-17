@@ -18,19 +18,20 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * Status: judge-required.
  * TurnFlow produces Beginning events and effect.score executes Gaining Points.
- * Program binding is merged, but EventPattern has no beginning-start event
- * discriminant/phase adapter. oncePerPlayer is not consumed as a per-player
- * once-per-game scope; event-player is not a bound ResolveContext selector.
+ * Beginning timing can be subscribed with an empty object filter; the blocked
+ * EventPattern below still records the unsupported oncePerPlayer frequency.
+ * It is not consumed as a per-player once-per-game scope, and event-player is
+ * not a bound ResolveContext selector.
  */
 const theArenasGreatest = {
   canonicalCardId: "card.hash-23d43dc5325dcaca58f58415a7f9046b3d280f3c40d261f5aa7ddbfa1bf72770",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "effect.score 已合入，可执行 CR 470.1/470.2 的 Gaining Points，beginning-start 也已由 TurnFlow " +
-    "产生（315.2.a.1）。CardProgram 触发绑定已合入，但 EventPattern 不接受 beginning-start 事件名，尚缺阶段事件适配；“each " +
-    "player's first Beginning Phase” 还缺每名玩家对局内一次的频度，当前 oncePerPlayer 字段无消费方。接收者 “that " +
-    "player” 需要事件玩家选择器：ResolveContext 未暴露触发事件玩家，event-player 仍为未绑定占位，不能用控制者代替。不近似实现。",
+    "缺每名事件玩家首个 beginning-start 的对局频度绑定（315.2.a.1）；占位 EventPattern 的 " +
+    "oncePerPlayer 未被消费，现有 per-game 频度只按登记/来源计次，不能替代每名事件玩家各一次。" +
+    "还缺 ResolveContext 的触发事件玩家选择器：effect.score 的 event-player 是未绑定字面量，不能执行对 that player 的 " +
+    "Gaining Points（470.1/470.2），也不能改给控制者。不近似实现。",
   sourceText: "At the start of each player's first Beginning Phase, that player gains 1 point.",
   abilities: [
     {

@@ -3,6 +3,8 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/teemo-strategist.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
+import { finalizeOrderedPickPlans } from "../../../../engine-core/dist/chain/picks/plan.js";
 // card-dsl has no dependency edge on engine-core (engine-core depends on
 // card-dsl), so golden execution loads the built engine through its workspace
 // layout instead of the package name.
@@ -20,6 +22,55 @@ const printedSourceText =
   "When I defend or I'm played from [Hidden], reveal the top 5 cards of your Main Deck. " +
   "Deal 1 to an enemy unit here for each card with [Hidden], then recycle them.";
 
+function bindTopFive(kernel, ability = defend) {
+  const plans = finalizeOrderedPickPlans(kernel, ability.body);
+  for (const plan of plans) kernel.setPicks(plan.id, plan.refs);
+  return plans;
+}
+
+function runAuthoredReveal(kernel, ability = defend) {
+  const [instruction] = ability.body;
+  const [plan] = bindTopFive(kernel, ability);
+  return runInstruction(reveal, { pick: instruction.args.pick.value }, {
+    world: kernel, picks: { [plan.id]: plan.refs }
+  });
+}
+
+for (const ability of [defend, playedFromHidden]) {
+  test(`Teemo, Strategist: ${ability.trigger.at} locks and reveals only the actual top five before recycling`, () => {
+    const f = fixture({ cards: [{ id: "fifth" }, { id: "tail" }] });
+    for (const id of ["fifth", "tail"]) {
+      assert.equal(f.engine.commit({ type: "move-zone", object: f.kernel.ref(id), to: "deck-bottom" }).status, "done");
+    }
+    // Query insertion order differs from the authoritative deck order.
+    assert.equal(f.engine.commit({ type: "order-top", player: "A", objects: [
+      "A:deck:3", "A:deck:1", "A:deck:4", "A:deck:2"
+    ].map(id => f.kernel.ref(id)) }).status, "done");
+    f.engine.advance();
+    const top = f.kernel.zoneSlice("A", "deck", "top", 5).map(object => object.ref);
+    // Only the supported reveal/recycle instructions are under test. Hidden,
+    // trigger binding and the Hidden-count damage remain blocked.
+    f.engine.enqueue({
+      id: "teemo-supported-body", kind: "triggered", controller: "A", source: f.kernel.getObject("source"),
+      body: [ability.body[0], ability.body[2]]
+    });
+    f.engine.advance();
+    assert.equal(f.engine.items[0].status, "finalized");
+    assert.equal(f.engine.items[0].pickPlans.length, 1, "Finalize must capture the ordered top-five source");
+    assert.deepEqual(f.engine.items[0].pickPlans[0].refs, top);
+    assert.equal(f.engine.pipeline.events.some(event => ["card-revealed", "became-target"].includes(event.timingPoint)), false);
+    resolveAll(f.engine);
+    assert.deepEqual(f.kernel.linked(`${ability.body[0].id}.revealed`), top);
+    assert.equal(f.kernel.linked(`${ability.body[0].id}.revealedCount`), 5);
+    assert.equal(f.kernel.linked(`${ability.body[2].id}.recycledCount`), 5);
+    assert.deepEqual(f.kernel.zone("A", "deck").map(ref => ref.id), ["tail", ...top.map(ref => ref.id)]);
+    assert.equal(f.kernel.player("A").handSize, 0);
+    assert.equal(f.kernel.player("B").deckSize, 4);
+    assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "card-revealed").length, 5);
+    assert.equal(f.engine.pipeline.events.some(event => event.timingPoint === "became-target"), false);
+  });
+}
+
 test("Teemo, Strategist program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
@@ -31,9 +82,11 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, verbatim sourceTe
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Hidden/);
-  assert.match(program.judgeReason, /zoneSlice/);
+  assert.match(program.judgeReason, /revealedHiddenCount/);
   assert.match(program.judgeReason, /关键词成员/);
   assert.match(program.judgeReason, /Facedown/);
+  assert.match(program.judgeReason, /validateTarget/);
+  assert.match(program.judgeReason, /defense-declared/);
   assert.equal(program.sourceText, printedSourceText);
 });
 
@@ -57,13 +110,17 @@ test("structure: Hidden keyword plus the defend / played-from-Hidden triggers", 
     ]
   );
 
-  // Zone/count can reveal the entire deck when at most five remain. A larger
-  // deck requires the upstream ordered pick binding described in judgeReason.
+  // The source always means the controller's real top five, including when
+  // fewer cards remain; neither query order nor the opponent's deck is used.
   for (const ability of [defend, playedFromHidden]) {
+    const pickId = ability === defend ? "teemo.top-five" : "teemo.hidden.top-five";
     assert.deepEqual(ability.body[0].args, {
-      zone: { kind: "constant", value: "deck" },
-      count: { kind: "constant", value: 5 }
+      pick: { kind: "constant", value: pickId }
     });
+    assert.deepEqual(ability.body[0].picks, [{
+      id: pickId, options: [], ordered: true, selection: "all",
+      zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 5 } }
+    }]);
   }
 
   // "Deal 1 to an enemy unit here for each card with [Hidden]" — the amount is
@@ -115,6 +172,9 @@ test("structure: Hidden keyword plus the defend / played-from-Hidden triggers", 
       ["teemo.hidden.recycle", "effect.recycle"]
     ]
   );
+  assert.deepEqual(playedFromHidden.body[1].targets[0], {
+    ...damage.targets[0], id: "teemo.hidden.enemy-unit-here"
+  });
 });
 
 test("golden: the reveal half shows all five deck cards through effect.reveal", () => {
@@ -122,13 +182,11 @@ test("golden: the reveal half shows all five deck cards through effect.reveal", 
     .deck(["c1", "c2", "c3", "c4", "c5"], { owner: "A", types: ["unit"] })
     .hand("unrevealed-hand-card")
     .build();
-  const run = runInstruction(reveal, defend.body[0].args, { world: kernel });
+  const run = runAuthoredReveal(kernel);
   assert.equal(run.result.status, "executed");
   assert.equal(run.linked.revealed.length, 5);
   assert.equal(run.linked.revealedCount, 5);
-  // A full-zone reveal promises membership, not query/deck order; the ordered
-  // pick scenario below separately verifies the true top-five order.
-  assert.deepEqual(new Set(run.linked.revealed), new Set(kernel.zone("A", "deck")));
+  assert.deepEqual(run.linked.revealed, kernel.zone("A", "deck"));
   assert.equal(run.events.filter(event => event.action === "reveal").length, 5);
   // CR 425.1.a: revealed cards stay in their zone.
   assert.equal(kernel.player("A").deckSize, 5);
@@ -167,7 +225,7 @@ test("golden: the linked recycle moves the revealed cards to the deck bottom", (
 
 test("golden: an empty reveal is negated as impossible instead of inventing cards (CR 425.2)", () => {
   const kernel = world().build();
-  const run = runInstruction(reveal, defend.body[0].args, { world: kernel });
+  const run = runAuthoredReveal(kernel);
   assert.equal(run.result.status, "negated");
   assert.equal(run.result.reason, "impossible");
   assert.deepEqual(run.linked.revealed, []);
@@ -175,10 +233,6 @@ test("golden: an empty reveal is negated as impossible instead of inventing card
   assert.deepEqual(run.events, []);
 });
 
-test.todo(
-  "Teemo, Strategist: wire ordered top-five picks into the authored body and the chain argument adapter " +
-    "(RIFT-66); the reveal primitive supports pick, but zone/count must not approximate deck subsets"
-);
 test("golden: the damage half cannot deal a guessed amount while the [Hidden] count has no producer", () => {
   const battlefield = { type: "battlefield", id: "teemo-battlefield" };
   const initial = world()
@@ -187,6 +241,7 @@ test("golden: the damage half cannot deal a guessed amount while the [Hidden] co
     .unit("enemy", { owner: "B", might: 3, location: battlefield })
     .build();
   const kernel = initial.clone({ sourceSnapshot: initial.getObject("teemo") });
+  bindTopFive(kernel);
   kernel.setTargets("teemo.enemy-unit-here", [kernel.ref("enemy")]);
   assert.deepEqual(kernel.getObject("enemy").location, kernel.source.location);
   // Run the played-defend body itself through the real interpreter: the reveal
@@ -220,6 +275,11 @@ test.todo(
     "but the Hide/facedown lifecycle and trusted playedFrom event binding remain missing"
 );
 test.todo(
+  "Teemo, Strategist: here target binding needs validateTarget to accept the existing symbolic " +
+    "TargetSpec.location selectors; translateObjectFilter rejects sameLocationAs, and the " +
+    "defense-declared timing still needs an authoritative combat producer (383.4.f/421.1)"
+);
+test.todo(
   "Teemo, Strategist: printed text is the pre-errata version; the official correction (S-ORIGINS " +
     "Teemo, Strategist) drops the played-from-Hidden branch and chooses the enemy unit before " +
     "revealing. The data fix belongs to card-data, not to this program " +
@@ -229,6 +289,7 @@ test.todo(
 test("Teemo, Strategist: merged count scopes to the real reveal link without counting other zones", () => {
   const kernel = world().deck(["revealed-a", "revealed-b", "revealed-c"], { owner: "A" })
     .hand("hand-card").deck("opponent-card", { owner: "B" }).build();
+  bindTopFive(kernel);
   const outcome = resolveChainBody([
     defend.body[0],
     { id: "probe.count", op: "condition.value", args: {

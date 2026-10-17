@@ -14,7 +14,8 @@ import type { CardProgram } from "../../ir/index.js";
  * Status: judge-required.
  * Shield/Tank expansion, static registration and compare-condition evaluation
  * are merged. Shield still reads the unsupported designation property instead
- * of ObjectSnapshot.combatRole; combat does not publish the defender role.
+ * of ObjectSnapshot.combatRole. The canonical derived-might service can derive
+ * defenders, but does not bind that role into the EffectIR keyword condition.
  * Tank still lacks the combat assignment-priority consumer. Keep both printed
  * keyword declarations and fail closed until their full semantics are wired.
  */
@@ -23,11 +24,10 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Shield] 与 [Tank] 的 KeywordDef、CardProgram 关键词展开和静态注册均已合入，programs/statics.ts 会实际求值 " +
-    "compare 条件。仍缺：(1) Shield（814.1.b.3/814.1.c/814.1.d.1）的展开读取 object-property designation，" +
-    "而已合入的 ObjectSnapshot 字段是 combatRole；战斗流程尚未发布防守者角色，故无法实现仅作为 defender 时 +1 Might。(2) " +
-    "Tank（815）展开并登记 continuous.combat 的 damage-assignment/priority first，但 " +
-    "combat/base-combat-allocation.ts 未消费分配优先级，815.1.b/815.1.c.2 不可执行。不近似实现。",
+    "Shield（814.1.b.3/814.1.c/814.1.d.1）的 KeywordDef 条件仍读取 designation，需与 ObjectSnapshot.combatRole 及真实战斗生命周期对接；" +
+    "combat/derived-might.ts 已能从 canonical 战斗推导 defender，但没有向本卡 EffectIR 静态条件提供该特征。" +
+    "Tank（815.1.b/815.1.c.2）的 continuous.combat damage-assignment/priority first 尚缺战斗分配消费方；" +
+    "combat/base-combat-allocation.ts 只接受已证明无关键词优先级的基本分配。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "shield" },
     { kind: "keyword", keyword: "tank" }

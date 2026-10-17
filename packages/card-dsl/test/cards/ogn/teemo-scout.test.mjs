@@ -31,6 +31,8 @@ test("teemo-scout: identity, ruleset, status, judgeReason and sourceText", () =>
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /Hidden/);
   assert.match(program.judgeReason, /cost\.hidden/);
+  assert.match(program.judgeReason, /card-hidden/);
+  assert.match(program.judgeReason, /811\.6/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });

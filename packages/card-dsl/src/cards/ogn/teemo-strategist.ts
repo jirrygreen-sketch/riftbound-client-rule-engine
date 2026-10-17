@@ -10,18 +10,18 @@ import type { CardProgram } from "../../ir/index.js";
  *   Main Deck. Deal 1 to an enemy unit here for each card with [Hidden], then
  *   recycle them.
  *
- * ⚠ 数据问题（不改数据，仅报告）：本印刷文本是旧版。官方勘误（S-ORIGINS
+ * ⚠ 数据问题（不改数据，仅报告）：本程序保留的 sourceText 是旧版。官方勘误（S-ORIGINS
  *   Teemo, Strategist）删除“played from [Hidden]”分支，并要求目标选择早于公开
- *   五张牌；`docs/plans/survey/data-issues-recheck.md`（ogn-121-298）与
- *   `docs/plans/survey/unclassified-ogn.md` 第 17 条记录了同一结论。程序按任务
+ *   五张牌；`docs/plans/survey/data-issues-recheck.md`（ogn-121-298）
+ *   已记录 OGN 刷新目录使用新版结构。程序按任务
  *   给定的 sourceText 逐字编写，不擅自采用勘误文本。
  *
  * 规则依据（CR v1.5）：
  * - [Hidden]（811）：卡牌声明 keyword；Hide 的费用与「从 Hidden 打出」许可由
  *   Hidden 生命周期承担（keywords/Hidden.ts 已展开为 cost.hidden，
  *   但该静态效果尚无完整 Hide/facedown 消费方）。
- * - “When I defend …”：防守触发（时点 defense-declared，383.4.f），filter 指自身
- *   且“here”限定在当前位置（421.1）。
+ * - “When I defend …”：防守触发（时点 defense-declared，383.4.f），filter 指自身。
+ *   “here”限制伤害目标所在位置（421.1），不是额外的防守触发条件。
  * - “reveal the top 5 cards of your Main Deck”：effect.reveal（425.1/425.3）。
  * - “Deal 1 to an enemy unit here for each card with [Hidden]”：effect.damage；
  *   数额为“被展示牌中带 [Hidden] 的张数”，伤害目标是一名此处敌方单位（355.7、
@@ -32,8 +32,10 @@ import type { CardProgram } from "../../ir/index.js";
  * Preserve the supplied pre-errata sourceText; catalog correction is outside
  * this card's scope (docs/plans/survey/data-issues-recheck.md, ogn-121-298).
  * Hidden expansion and count over a linked revealed set are already merged.
- * Remaining gaps: Hide/facedown and playedFrom/here bindings, ordered top-five
- * pick finalization/adapter wiring, and a Hidden keyword-membership predicate.
+ * Ordered top-five picks now use the merged Finalize/chain adapter, for both
+ * printed trigger branches. Remaining gaps: Hide/facedown, playedFrom binding,
+ * the defend-event producer, the target-location validator/adapter alignment,
+ * and a Hidden keyword-membership predicate.
  * revealedHiddenCount remains an unproduced placeholder, never guessed damage.
  */
 const teemoStrategist = {
@@ -41,14 +43,14 @@ const teemoStrategist = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "1) Hidden 展开与程序绑定已合入，但静态 cost.hidden 尚无完整 Hide 行动、Facedown Zone、card-hidden 产生方及 " +
-    "811.1.b/811.6 次回合 Reaction/忽略基础费用的打出许可；playedFrom:hidden 也无受信事件状态消费。defense-declared 的 " +
-    "here 与目标 sameLocationAs:source 缺战场相对绑定。2) effect.reveal 已支持有序 pick，zoneSlice 可读真实牌库顶；" +
-    "仍缺将 top 5 的有序选择接入本卡 Finalize/原始 IR 与 chain 参数适配，zone/count 只能在整区不超过 5 张时执行，不能截取无序集合近似。" +
-    "3) count 已能经 object.linked 查询被展示子集合，但缺按 Hidden 关键词成员筛选的消费方（811.5）；effect.reveal 不生成 " +
-    "revealedHiddenCount，当前 amount 占位仍不能结算成真实伤害。另：数据审计记录此印刷文本为勘误前版本，勘误删除 played-from-Hidden " +
-    "分支并要求先选目标再翻牌（docs/plans/survey/data-issues-recheck.md ogn-121-298）；本任务保持 sourceText 不变，" +
-    "不近似实现。",
+    "Hidden 的 cost.hidden 仍缺 Hide/Facedown 生命周期、card-hidden 产生方和次回合 Reaction/忽略基础费用许可（811.1.b/811.6）；" +
+    "playedFrom:hidden 也无受信事件绑定，defense-declared 时点仍缺 combat/turn 的真实事件产生方。" +
+    "目标 here 仍缺校验/程序绑定对齐：translateObjectFilter 拒绝 sameLocationAs，已合入的 TargetSpec.location " +
+    "source-location 虽有引擎消费方，却被 card-dsl validateTarget 当成 LocationFilter 拒绝；防守 filter 的 here 字段也被 self 匹配分支忽略。" +
+    "count 虽能限定 revealed 链接集合，仍缺 Hidden 关键词成员筛选（811.5/811.5.a），" +
+    "effect.reveal 不生成 revealedHiddenCount，不能猜测伤害。" +
+    "本程序 sourceText 仍为勘误前文本；刷新目录审计记录新版删除 played-from-Hidden 分支并先选敌方目标（docs/plans/survey/data-issues-recheck.md " +
+    "ogn-121-298），需父任务协调文本/身份与执行时序，本任务保持原文不变。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     {
@@ -63,9 +65,12 @@ const teemoStrategist = {
           id: "teemo.reveal",
           op: "effect.reveal",
           args: {
-            zone: { kind: "constant", value: "deck" },
-            count: { kind: "constant", value: 5 }
-          }
+            pick: { kind: "constant", value: "teemo.top-five" }
+          },
+          picks: [{
+            id: "teemo.top-five", options: [], ordered: true, selection: "all",
+            zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 5 } }
+          }]
         },
         {
           // “Deal 1 to an enemy unit here for each card with [Hidden]” — the amount
@@ -122,9 +127,12 @@ const teemoStrategist = {
           id: "teemo.hidden.reveal",
           op: "effect.reveal",
           args: {
-            zone: { kind: "constant", value: "deck" },
-            count: { kind: "constant", value: 5 }
-          }
+            pick: { kind: "constant", value: "teemo.hidden.top-five" }
+          },
+          picks: [{
+            id: "teemo.hidden.top-five", options: [], ordered: true, selection: "all",
+            zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 5 } }
+          }]
         },
         {
           // Same as the defend trigger: the count of revealed [Hidden] cards is
