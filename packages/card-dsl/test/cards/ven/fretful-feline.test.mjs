@@ -29,6 +29,8 @@ test("ven-071-166 Fretful Feline: identity, status, judgeReason and verbatim sou
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /settlement-1/);
   assert.match(program.judgeReason, /continuous\.might/);
+  assert.match(program.judgeReason, /object-readied/);
+  assert.match(program.judgeReason, /416\.1\.c/);
 });
 
 test("ven-071-166 Fretful Feline: 'When I become ready' subscribes object-readied on self (416.2)", () => {
@@ -162,4 +164,39 @@ test("ven-071-166 Fretful Feline regression: readying an already ready unit must
   f.engine.advance();
   resolveAll(f.engine);
   assert.equal(f.engine.layers.evaluate(f.kernel.ref("feline")).might, 7);
+});
+
+/**
+ * 复核（2026-10-17）负向证据：两条缺口在真实链路里复现。这些断言锁定“当前失败”，
+ * 不是期望行为；依赖修复后必须改成上面 todo 中描述的行为断言。
+ */
+test("ven-071-166 Fretful Feline evidence: a second ready trigger collides on settlement-1 (blocker: shared settlement identity)", () => {
+  const f = readyScenario();
+  f.engine.commit({ type: "ready", object: f.kernel.ref("feline") });
+  f.engine.advance();
+  resolveAll(f.engine);
+  assert.equal(f.engine.layers.evaluate(f.kernel.ref("feline")).might, 7);
+
+  f.engine.commit({ type: "exhaust", object: f.kernel.ref("feline") });
+  f.engine.commit({ type: "ready", object: f.kernel.ref("feline") });
+  // 负向证据：continuous.might 的 settlement 计数写读键不一致，第二次触发注册同一 id。
+  assert.throws(
+    () => { f.engine.advance(); resolveAll(f.engine); },
+    /Continuous effect already registered: continuous\.might:settlement-1/
+  );
+});
+
+test("ven-071-166 Fretful Feline evidence: a no-op ready still emits object-readied (blocker: 416.1.c gate)", () => {
+  const f = readyScenario();
+  f.engine.commit({ type: "ready", object: f.kernel.ref("feline") });
+  f.engine.advance();
+  resolveAll(f.engine);
+  const readyEvents = () => f.engine.pipeline.events.filter(event => event.timingPoint === "object-readied").length;
+  const before = readyEvents();
+
+  // 负向证据：events/action-adapter.ts 的 ACTION_TIMINGS 按 action.type 映射时点，
+  // 对 ready/exhaust 不做 before/after 状态比较，所以无效 ready 仍产生事件。
+  f.engine.commit({ type: "ready", object: f.kernel.ref("feline") });
+  assert.equal(readyEvents(), before + 1);
+  assert.equal(f.kernel.getObject("feline").exhausted, false);
 });

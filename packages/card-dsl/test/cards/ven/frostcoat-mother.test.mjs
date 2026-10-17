@@ -3,6 +3,8 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/frostcoat-mother.js";
+import { createEngineStaticBinder, expandProgram } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-af86d71346754f5a19f63ebf193cb978f3d3dffe541f342d86bd89ab951eefb8";
@@ -26,7 +28,8 @@ test("ven-032-166 Frostcoat Mother: identity, status, judgeReason and verbatim s
   assert.match(program.judgeReason, /827\.1\.c\.1/);
   assert.match(program.judgeReason, /827\.1\.c\.3/);
   assert.match(program.judgeReason, /Empowered/);
-  assert.match(program.judgeReason, /消费方/);
+  assert.match(program.judgeReason, /expandProgram/);
+  assert.match(program.judgeReason, /appliesTo/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -81,3 +84,35 @@ test.todo(
   "ven-032-166 Frostcoat Mother: register the Empowered-gated +3 Might (828.1.b.1, 143.2.a) — no card-side " +
     "Empowered status predicate"
 );
+
+/** 复核（2026-10-17）负向证据：关键词展开与减费静态绑定两处缺口。 */
+function hostFor(programUnderTest, id) {
+  const f = fixture({ cards: [{ id, cardId: programUnderTest.canonicalCardId, types: ["unit"], might: 3 }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref(id), to: "base" });
+  return { f, source: f.kernel.getObject(id) };
+}
+
+test("ven-032-166 Frostcoat Mother evidence: expandProgram rejects the missing Empower KeywordDef", () => {
+  const { source } = hostFor(program, "frostcoat");
+  assert.throws(
+    () => expandProgram(program, source),
+    /Keyword empower has no executable KeywordDef/
+  );
+});
+
+test("ven-032-166 Frostcoat Mother evidence: the cost modification cannot bind and the Empowered gate is unenforced", () => {
+  const { f, source } = hostFor(program, "frostcoat");
+  const binder = createEngineStaticBinder(f.engine);
+  // 827.1.c.3：减费声明要作为 Empower 启动费用的改写被消费；当前 staticTarget 直接失败关闭。
+  assert.throws(
+    () => binder.bindStatic(costReduction, source),
+    /Unsupported static appliesTo "empower-activation-cost"/
+  );
+  // 828.1.b.1：+3 Might 的 Empowered 门控没有求值形态；该声明本身可进图层，但不受状态约束。
+  const handle = binder.bindStatic(might, source);
+  f.engine.layers.setObjects(f.kernel.objects);
+  assert.equal(f.engine.layers.evaluate(f.kernel.ref("frostcoat")).might, 6);
+  handle.unbind();
+  f.engine.layers.setObjects(f.kernel.objects);
+  assert.equal(f.engine.layers.evaluate(f.kernel.ref("frostcoat")).might, 3);
+});

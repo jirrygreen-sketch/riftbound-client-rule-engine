@@ -21,9 +21,16 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （143.2.a、475–477）；effect.buff 文件头明确临时 Might 修改归 continuous.might，
  *   不是 Buff 计数器（702/703）。"me" 是能力宿主（053.1/355.10.g 的自身指代，不是目标）。
  *
- * status = judge-required：beginning-start 已有真实生产者，continuous.might 已可执行。
- * 尚缺生产触发条件适配器对相对玩家 count 的求值接线（RIFT-359）；测试中将 self/opponent
- * 绑定到 A/B 仅证明数量比较原语。在多人对局中，还缺“存在一个符文更多的对手”的 exists 量化。
+ * status = judge-required（复核 2026-10-17）：
+ * 1. 触发注册仍被封闭词汇挡住：卡牌声明 { event: \"beginning-start\", player: \"self\" }，但
+ *    events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 只列事件类名，beginning-start 是时点 id；
+ *    实测把该 spec 交给 EventPipeline.registerTrigger 抛 TriggerSpecValidationError
+ *    （trigger.filter.event 非法），programs/triggers.ts 的注册因此在生命周期挂载时失败关闭。
+ * 2. 触发条件没有相对玩家归一化：chain/engine.ts 只包装 ResolveContext.query 的 controller/owner，
+ *    而触发条件经 PipelineHost.testTrigger → 内核 test() 求值；实测符号 self/opponent
+ *    被当作字面值比较（条件为 false），绑定成绝对玩家 id 后才为 true。
+ * 3. 多人对局还缺“存在一个符文更多的对手”的 exists 量化。测试中将 self/opponent 绑定到 A/B
+ *    只证明数量比较原语。continuous.might 与单次触发本体已有执行证据。
  */
 const abilities: Ability[] = [
   {
@@ -69,8 +76,12 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "beginning-start 的触发条件仍需生产 testTrigger 适配器及 self/opponent 符文 count 绑定（RIFT-359，" +
-    "383.2.a.1/133.5.a.1/431.1）；多人对局还需 exists 对手量化，不能把所有对手的符文总数当作某一对手的数量。",
+    "卡牌声明的 { event: \"beginning-start\", player: \"self\" } 不在 events/trigger-spec.ts 的 EVENT_PATTERN_TYPES " +
+    "封闭词汇里（beginning-start 是时点 id，不是事件类名）：实测 EventPipeline.registerTrigger 抛 " +
+    "TriggerSpecValidationError，programs/triggers.ts 的触发注册因此失败关闭，能力无法订阅此时点。" +
+    "触发条件也没有相对玩家归一化：chain/engine.ts 只包装 query 的 controller/owner，而条件经 " +
+    "PipelineHost.testTrigger → 内核 test() 求值；实测符号 self/opponent 被当字面值比较（383.2.a.1/133.5.a.1/431.1），" +
+    "绑定成绝对玩家 id 后才成立。多人对局还需 exists 对手量化，不能把所有对手的符文总数当作某一对手的数量。",
   abilities,
   sourceText:
     "If you control fewer runes than an opponent at the start of your Beginning Phase, give me " +

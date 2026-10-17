@@ -18,13 +18,18 @@ import type { CardProgram } from "../../ir/index.js";
  * - 418.6.b.2/418.6.b.3：来源是“敌方法术与能力”的伤害——需要区分伤害动作的施加者来源类型，
  *   这属于事件/动作层面的分类信息。
  *
- * status = judge-required（缺口均不近似实现）：
- * 1. replacement.prevent 尚未被替代 body planner 消费，当前程序无法把“prevent all”转成伤害事件的
- *    0 值改写；替代生命周期注册本身已经合入。
+ * status = judge-required（复核 2026-10-17，缺口均不近似实现）：
+ * 1. replacement.prevent 不在 replacement/planner.ts 的掷骰分支里：planner 的 switch 只认
+ *    effect.ready/exhaust/move/zone/damage/draw/heal/resources/buff/counter/kill，实测
+ *    bindReplacement 直接抛 BlockedReplacementError（Unsupported replacement opcode），
+ *    因此“prevent all”无法转成伤害事件的 0 值改写；替代生命周期注册本身已经合入。
  * 2. 伤害来源分类不可判定：冻结的 damage GameAction 只有 { source, target, amount, combat }，
- *    “spell and ability damage” 与战斗伤害、与其它来源的伤害无从区分（438.1.b 的 source 定义），
+ *    "spell and ability damage" 与战斗伤害、与其它来源的伤害无从区分（438.1.b 的 source 定义），
  *    层 / 动作层面没有该判别式。
- * 3. 替代条件的 controller:self count 尚缺相对玩家归一化（RIFT-359）。
+ * 3. 替代条件的 controller:self count 没有相对玩家归一化：chain/engine.ts 的 query 包装只把
+ *    filter 里的 controller/owner 归一化成能力控制者，而本卡条件里的 rune count 走的是替代绑定的
+ *    abilityEnvironment → evaluateExpression 路径（不带该归一化）；实测把 filter 绑成绝对玩家 id
+ *    后条件为 true、保持 "self" 时为 false。
  * 条件形状（“7 or more runes”）本身绑定具体玩家后，用 condition.predicate 在 golden 中真实求值
  * （同已合入的 ven/sacred-protector 的做法）。
  */
@@ -34,10 +39,14 @@ export default {
   status: "judge-required",
   judgeReason:
     "缺口：(1)「prevent all damage …」（438.1/438.1.b/438.2/438.3.c/438.7 的 Delayed Replacement Effect）" +
-    "的 replacement.prevent body planner 尚未合入；" +
+    "的 replacement.prevent 不在 replacement/planner.ts 的支持 opcode 里：实测 bindReplacement 抛 " +
+    "BlockedReplacementError（Unsupported replacement opcode: replacement.prevent），无法把该伤害改写为 0；" +
     "(2)「enemy spells and abilities」的来源分类不可判定——冻结的 damage GameAction 只有 " +
     "{ source, target, amount, combat }，缺少法术/能力伤害来源的分类与敌我过滤消费。" +
-    "(3) 替代条件中 controller:self 的符文 count 尚缺相对玩家求值绑定（RIFT-359，133.5.a.1/431.1）。不近似实现。",
+    "(3) 替代条件里 controller:self 的符文 count 在替代绑定路径上没有相对玩家归一化：实测同一 " +
+    "filter 绑成绝对玩家 id 时条件为 true、保持符号 self 时为 false（133.5.a.1/431.1）。不近似实现。" +
+    "另外本卡图案里的 sourceKind / controller:opponent 描述键会被 filterMatchesSnapshot 当作" +
+    "被伤害对象的特征比较（对象是宿主自身），该图案当前对任何 damage 动作都不匹配。",
   abilities: [
     {
       // 438.7 / 契约 3.1 的 replacement 能力形状：拦截“敌方法术与能力对我造成的伤害”并全部预防。

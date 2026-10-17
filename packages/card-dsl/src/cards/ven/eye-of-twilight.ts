@@ -27,11 +27,12 @@ import type { CardProgram } from "../../ir/index.js";
  * （chain/interpreter-adapter）执行真实 body，并用图层引擎断言真实授予与到期、
  * 以及目标离场时的 ignored/mistargeted 边界。
  *
- * status = judge-required（唯一剩余缺口）：
+ * status = judge-required（复核 2026-10-17，唯一剩余缺口）：
  * 815.1.b / 815.1.c.2 的战斗伤害分配语义没有消费方。[Tank] 展开出的
  * `continuous.combat`（Tank.ts 的 TANK_EFFECT）在 layers/engine.ts 里没有分支——
  * applyAbility 与 applyArithmetic 都不命中该 kind；effects/instructions/continuous.combat.ts
- * 因为没有消费方而统一返回 negated/impossible；combat/ 的窄路径明确只证明
+ * 因为没有消费方而在指令 execute 末尾直接返回 negated/impossible（实测调用该原语得到
+ * {status:"negated",reason:"impossible"}）；combat/ 的窄路径明确只证明
  * 「无 assignment modifier / 无 [Tank] 指派优先级」（base-combat-allocation.ts 的
  * DuelBaseCombatSourceEffectProof.keywordPriority: "proven-none"）。因此本卡即使授予成功，
  * 也不会改变 Combat Damage step 的指派顺序，不能宣称整卡可执行。
@@ -44,8 +45,9 @@ const eyeOfTwilight = {
   status: "judge-required",
   judgeReason:
     "缺少战斗伤害分配对 Tank 展开的 continuous.combat 的消费：被授予的 Tank 尚不能按 " +
-    "815.1.b / 815.1.c.2 改变致命伤害分配顺序；combat/base-combat-allocation.ts 仍要求 " +
-    "keywordPriority 为 proven-none。不近似实现该指派优先级。",
+    "815.1.b / 815.1.c.2 改变致命伤害分配顺序（continuous.combat 指令在没有 combat consumer 时" +
+    "直接返回 negated/impossible，实测同结果）；combat/base-combat-allocation.ts " +
+    "的 DuelBaseCombatSourceEffectProof 仍要求 keywordPriority 为 proven-none。不近似实现该指派优先级。",
   abilities: [
     {
       kind: "activated",

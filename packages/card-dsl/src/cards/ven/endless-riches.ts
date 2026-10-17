@@ -23,10 +23,12 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   已合入原语 effect.mill（RIFT-112）即该动作。
  * - 444.1 / 444.1.a / 444.1.b / 444.2："Skip your Draw Phase" 是把 Draw 阶段的流程
  *   替换为无事发生——它是替代效果（replacement），不是一条结算指令。当前替代匹配器只
- *   消费闭合 GameAction 事件，turn/ 尚未提供可匹配的 Draw Phase 流程事件。
+ *   消费闭合 GameAction 事件（replacement/pattern.ts 的 ACTION_KINDS），turn/ 尚未提供可匹配的
+ *   Draw Phase 流程事件。
  * - 420.1.a：默认只能从手牌或 Chosen Champion Zone 打出；"You may play cards from your trash"
- *   是一条许可（permission），把 trash 加入合法打出区域。它需要一条可注册的“带来源与期限的
- *   打出许可”，契约 3.6/3.1 没有该形状（同 rad/runeblade-anvil、rad/akali-brash 的缺口）。
+ *   是一条持续许可（permission），把 trash 加入合法打出区域。当前 static binder 的
+ *   layerFor() 把未知 kind 直接抛 ProgramBindingError，continuous.play-permission 没有图层映射和
+ *   打出流程消费方（golden 实测 bindStatic 抛错，见 reply/测试）。
  * - 369.1（"would … instead" 标识替代效果）："If a card would go to your trash from anywhere
  *   other than your Main Deck, banish it instead" 是替代效果；"other than your Main Deck"
  *   的否定条件需要事件载荷里的来源区域；replacement/pattern.ts 尚未编译通用入区事件与
@@ -38,8 +40,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * 2. "You may play cards from your trash" 缺带期限的打出许可形状（本卡没有印期限，是持续许可，
  *    现有 static binder 没有 continuous.play-permission 的图层映射；cost/cost-plan.ts 的 Flow 改写只在来源已在 trash 且是法术时生效，
  *    与本卡的通用许可不同）；
- * 3. 替代匹配器缺 object-enters-zone、入 trash 过滤和非 deck 来源过滤；body planner
- *    尚不支持 effect.banish，不能以普通 move-zone 近似放逐动作及其事件。事件对象链接已支持。
+ * 3. replacement/pattern.ts 的 ACTION_KINDS 没有 object-enters-zone 键，入 trash 过滤与非 deck
+ *    来源过滤（notFromZone）都没有求值形状；replacement/planner.ts 对 effect.banish 直接抛
+ *    BlockedReplacementError，不能以普通 move-zone 近似放逐动作及其事件。事件对象链接已支持。
  * 触发注册、hand/trash 放逐和 Burn 7 已有执行路径，剩余三处保持 judge-required。
  * 已合入的部分（effect.banish 的 hand / trash 区域选择、effect.mill 的 Burn 7）由 golden
  * 用真实解释器 + 参考内核执行；这不构成整卡证据，故本卡保持 judge-required。
@@ -133,10 +136,15 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 Draw Phase 流程替代入口（444.1/444.1.a/444.1.b）：turn/ 的流程不是 replacement matcher 的闭合 GameAction；" +
-    "缺 continuous.play-permission 静态绑定及通用 trash 打出许可消费（420.1.a）；" +
-    "replacement/pattern.ts 还未编译 EventPattern 的 object-enters-zone、toZone:trash 与 notFromZone:deck，" +
-    "无法正确拦截“从主牌库之外进入你的弃牌区”的事件（369.1）；replacement/planner.ts 也尚不支持 effect.banish 放逐动作。",
+    "缺 Draw Phase 流程替代入口（444.1/444.1.a/444.1.b）：本卡的 phase-procedure 替代声明虽能注册，但 " +
+    "replacement/pattern.ts 的 ACTION_KINDS 只映射闭合 GameAction，实测 matches(draw)/matches(exhaust) 均为 false，" +
+    "turn/ 也没有可匹配的 Draw Phase 流程事件；" +
+    "缺 continuous.play-permission 的静态图层映射及通用 trash 打出许可消费（420.1.a）：实测 " +
+    "createEngineStaticBinder().bindStatic 抛 ProgramBindingError（Static ability kind continuous.play-permission " +
+    "has no layer mapping），cost/cost-plan.ts 的 Flow 改写只覆盖已在 trash 的法术；" +
+    "replacement/pattern.ts 的 ACTION_KINDS 无 object-enters-zone 键（该事件永不匹配），也不读 notFromZone 否定来源条件，" +
+    "replacement/planner.ts 对 body 里的 effect.banish 直接抛 BlockedReplacementError（Unsupported replacement opcode），" +
+    "无法正确拦截“从主牌库之外进入你的弃牌区”的事件（369.1）。",
   abilities,
   sourceText:
     "When you play this, banish your hand and trash, then [Burn 7].\n" +

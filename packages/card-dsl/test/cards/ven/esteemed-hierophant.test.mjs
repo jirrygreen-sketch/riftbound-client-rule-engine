@@ -4,6 +4,8 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/esteemed-hierophant.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
+import { actionMatchesEventPattern } from "../../../../engine-core/dist/replacement/pattern.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -65,7 +67,8 @@ test("ven-025-166 Esteemed Hierophant: identity, status, judgeReason and verbati
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /replacement\.prevent/);
   assert.match(program.judgeReason, /438\.7/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /BlockedReplacementError/);
+  assert.match(program.judgeReason, /bindReplacement/);
   assert.match(program.judgeReason, /spell and ability damage|spells and abilities/);
 });
 
@@ -134,6 +137,71 @@ test.todo(
 
 
 test.todo(
-  "ven-025-166 Esteemed Hierophant: replacement rune-count condition needs source-relative " +
-    "controller:self binding (RIFT-359; 133.5.a.1/431.1)"
+  "ven-025-166 Esteemed Hierophant: replacement rune-count condition needs a source-relative " +
+    "relative-player binding on the replacement path — chain/engine.ts only normalizes query " +
+    "controller/owner, not condition count filters (133.5.a.1/431.1)"
 );
+
+/**
+ * 复核（2026-10-17）执行证据：三条缺口用真实绑定/求值路径复现。
+ */
+
+/** 生产替换绑定所需的 host/context 适配（与 engine-core 的 bindDeps 同形）。 */
+function bindDeps(kernel) {
+  return {
+    host: {
+      object: (ref) => kernel.objects.find((object) => object.ref.id === ref.id && object.ref.zoneEntryId === ref.zoneEntryId) ?? null,
+      objects: () => kernel.objects,
+      context: (source, controller) => kernel.clone({ sourceSnapshot: source, controller })
+    },
+    pipeline: { clock: { turn: 1 }, registerReplacement: () => {}, unregisterReplacement: () => {} }
+  };
+}
+
+test("ven-025-166 evidence: replacement.prevent is not a supported planner opcode (438.2/438.3.c)", () => {
+  // 438.2 的 prevented 事件改写目前没有 planner 支持；绑定期失败关闭而不是近似执行。
+  assert.throws(
+    () => bindReplacement(
+      { replaces: ability.replaces, with: ability.with, condition: ability.condition },
+      runeZoneWorld(7).ref("hierophant"),
+      bindDeps(runeZoneWorld(7))
+    ),
+    /Unsupported replacement opcode: replacement\.prevent/
+  );
+});
+
+test("ven-025-166 evidence: the rune-count condition needs an absolute player binding on the replacement path", () => {
+  const probe = (condition) => {
+    const kernel = runeZoneWorld(7);
+    const registered = [];
+    // 用只含 target:self 的图案，让匹配结果只取决于条件求值（本卡原图案另受来源分类键影响，见下一条）。
+    const bound = bindReplacement(
+      { replaces: { event: "damage", filter: { target: "self" } }, with: [{ id: "probe-ready", op: "effect.ready", args: { objects: { kind: "constant", value: { kind: "source" } } } }], condition },
+      kernel.ref("hierophant"),
+      {
+        host: bindDeps(kernel).host,
+        pipeline: { clock: { turn: 1 }, registerReplacement: (registration) => registered.push(registration), unregisterReplacement: () => {} }
+      }
+    );
+    const damage = { type: "damage", source: kernel.ref("hierophant"), target: kernel.ref("hierophant"), amount: 2, combat: false };
+    return registered[0].matches(damage, damage);
+  };
+
+  const absolute = JSON.parse(JSON.stringify(ability.condition));
+  absolute.left.filter.controller = "A";
+  assert.equal(probe(absolute), true, "an absolute player id evaluates the 7-rune gate");
+  assert.equal(probe(ability.condition), false, "the symbolic controller:self has no relative-player normalization here");
+});
+
+test("ven-025-166 evidence: the authored source-classification declaration never matches a damage action", () => {
+  const kernel = runeZoneWorld(7);
+  const hostRef = kernel.ref("hierophant");
+  const damage = { type: "damage", source: hostRef, target: hostRef, amount: 2, combat: false };
+  const snapshotFor = (ref) => kernel.objects.find((object) => object.ref.id === ref.id && object.ref.zoneEntryId === ref.zoneEntryId) ?? null;
+  const authored = actionMatchesEventPattern({ pattern: ability.replaces, action: damage, target: { object: hostRef }, hostRef, controller: "A", snapshotFor });
+  // 去掉来源分类键后同一动作能匹配：唯一失败点是 controller:opponent 被当成“被伤害对象”的
+  // 控制器比较（对象是宿主自身，控制器是 A），而不是伤害来源的属性（438.1.b）。
+  const stripped = actionMatchesEventPattern({ pattern: { event: "damage", filter: { target: "self" } }, action: damage, target: { object: hostRef }, hostRef, controller: "A", snapshotFor });
+  assert.equal(authored, false);
+  assert.equal(stripped, true);
+});

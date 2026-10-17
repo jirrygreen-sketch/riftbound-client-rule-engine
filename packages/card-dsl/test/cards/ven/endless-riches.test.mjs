@@ -9,6 +9,9 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 // layout instead of the package name.
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/index.js";
+import { fixture as chainFixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL =
   "card.hash-6cb9652e425a872a57f461b0814a91ddbb540c9369a2fd1e18215aabfdfef16e";
@@ -57,8 +60,11 @@ test("ven-022-166 Endless Riches: identity, ruleset, status, judgeReason and ver
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /444\.1/);
   assert.match(program.judgeReason, /420\.1\.a/);
-  assert.match(program.judgeReason, /EventPattern/);
+  assert.match(program.judgeReason, /ACTION_KINDS/);
+  assert.match(program.judgeReason, /continuous\.play-permission/);
+  assert.match(program.judgeReason, /BlockedReplacementError/);
   assert.doesNotMatch(program.judgeReason, /RIFT-120/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-112/);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
@@ -222,3 +228,66 @@ test.todo(
     "event; replacement/pattern.ts needs generic object-enters-zone/toZone/notFromZone matching, " +
     "and the replacement planner needs effect.banish support (contract change request)"
 );
+
+/**
+ * 复核（2026-10-17）执行证据：三条缺口都在当前内核里真实复现，
+ * 用生产绑定路径而非手工结算。
+ */
+function replacementHost(kernel) {
+  return {
+    object: (ref) => kernel.objects.find((object) => object.ref.id === ref.id && object.ref.zoneEntryId === ref.zoneEntryId) ?? null,
+    objects: () => kernel.objects,
+    context: (source, controller) => kernel.clone({ sourceSnapshot: source, controller })
+  };
+}
+
+function registerReplacement(ability, kernel, hostRef) {
+  const registered = [];
+  return {
+    registered,
+    bound: bindReplacement(
+      { replaces: ability.replaces, with: ability.with, ...(ability.condition === undefined ? {} : { condition: ability.condition }) },
+      hostRef,
+      {
+        host: replacementHost(kernel),
+        pipeline: { clock: { turn: 1 }, registerReplacement: (registration) => registered.push(registration), unregisterReplacement: () => {} }
+      }
+    )
+  };
+}
+
+test("ven-022-166 Endless Riches evidence: the phase-procedure replacement never matches a closed GameAction", () => {
+  const kernel = fixture();
+  const { registered } = registerReplacement(skipDraw, kernel, kernel.ref("endless-riches"));
+  assert.equal(registered.length, 1);
+  // 444.1.a.2/444.2：跳过一个“回合流程”不是 GameAction；照常支付/抽牌都不应被拦截。
+  const draw = { type: "draw", player: "A", amount: 1 };
+  const score = { type: "score", player: "A", amount: 1 };
+  assert.equal(registered[0].matches(draw, draw), false);
+  assert.equal(registered[0].matches(score, score), false);
+});
+
+test("ven-022-166 Endless Riches evidence: no static binder mapping exists for the trash play permission", () => {
+  const f = chainFixture({ cards: [{ id: "endless-riches", types: ["gear"] }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("endless-riches"), to: "base" });
+  const binder = createEngineStaticBinder(f.engine);
+  // 420.1.a：许可必须进 static 图层并影响打出流程；当前 layerFor() 直接失败关闭。
+  assert.throws(
+    () => binder.bindStatic(playFromTrash, f.kernel.getObject("endless-riches")),
+    /continuous\.play-permission has no layer mapping/
+  );
+  assert.equal(playFromTrash.effect.kind, "continuous.play-permission");
+});
+
+test("ven-022-166 Endless Riches evidence: the would-go-to-trash replacement cannot bind its banish body", () => {
+  const kernel = fixture();
+  // 369.1/428.1：改写动作是 effect.banish；planner 未支持，绑定期就失败关闭。
+  assert.throws(
+    () => registerReplacement(trashReplacement, kernel, kernel.ref("endless-riches")),
+    /Unsupported replacement opcode: effect\.banish/
+  );
+  // 入区事件也不在 ACTION_KINDS 里，即使 body 换成受支持的操作也不会匹配。
+  const entry = { type: "move-zone", object: kernel.ref("hand-1"), to: "trash" };
+  const probe = registerReplacement({ replaces: trashReplacement.replaces, with: [{ id: "probe", op: "effect.ready", args: { objects: { kind: "constant", value: { kind: "source" } } } }] }, kernel, kernel.ref("endless-riches"));
+  assert.equal(probe.registered[0].matches(entry, entry), false);
+});
