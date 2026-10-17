@@ -20,36 +20,56 @@ import type { CardProgram } from "../../ir/index.js";
  *   Battlefield→Battlefield permission to the host's Standard Move; the
  *   reminder text is the printed explanation of that keyword.
  *
- * Status: judge-required. Three merged gaps (none approximated):
- * - The "you've gained XP this turn" gate has no merged evaluation path for a
- *   static ability: the frozen Condition algebra (always / never / expression /
- *   compare / all / any / not) contains no history node, and although the
- *   interpreter registers a `condition.history` instruction (HistoryQuery
- *   scope/action/timingPoint/player/object), a static layer effect's condition is
- *   evaluated by the layers engine's own conditionMatches, which does not know
- *   it. The retained `count` subject is a descriptive shape, not an evaluation.
- * - "I have +1 :rb_might:" needs a continuous.might arithmetic-layer effect; no
- *   merged producer turns a CardProgram static ability into a
- *   ContinuousEffectSpec, and the layer engine's conditionMatches does not
- *   evaluate `compare`, so the gate could not be honoured (RIFT-91 delivered the
- *   layer engine, not the card wiring).
- * - "and [Ganking]" needs a continuous.grant-keyword effect plus a consumer in
- *   the movement system (contract 3.7); the Ganking KeywordDef is merged, but
- *   zones/movement.ts and effect.move never read that permission.
+ * Status: judge-required (re-checked 2026-10-16). What is merged and executable:
+ * - RIFT-258's `continuous.might` and `continuous.grant-keyword` primitives resolve
+ *   the declared `filter: { object: "self" }` selector (the interpreter's
+ *   `resolveObjectSelector` reads `object` anchors through `queryObjects`) and the
+ *   mathematical layer really applies +1 Might and the Ganking keyword to the host
+ *   only — asserted in the golden through `runAbilityBody` plus `createLayerEngine`.
+ * Three merged gaps (none approximated):
+ * - The "you've gained XP this turn" gate (364.3) still has no evaluation path:
+ *   the frozen Condition algebra (always / never / expression / compare / all /
+ *   any / not) has no history node, and the `xp-gained` timing point is only a
+ *   payload definition — nothing reads it as a static-ability predicate. The
+ *   interpreter's `condition.history` instruction exists, but a static layer
+ *   effect's condition is consumed by `layers/engine.ts` `conditionMatches`,
+ *   which only knows always/never/type/has-tag/has-keyword and returns true for
+ *   everything else, so binding the declared gate blindly would grant the bonus
+ *   with 0 XP. The retained `count` subject is a descriptive shape, not an
+ *   evaluation.
+ * - No merged producer turns a CardProgram static ability into a
+ *   ContinuousEffectSpec: `ResolveContext.addContinuous` (contract 3.6) is the only
+ *   registration channel and it is reached from instructions, not from card data;
+ *   `programs/statics.ts` exposes only the opaque `bindStatic` callback and no
+ *   merged module implements it. The card needs that wiring (RIFT-257 follow-up)
+ *   before the declared effect can register.
+ * - "and [Ganking]" still has no consumer in the movement system: the merged
+ *   `continuous.grant-keyword` writes the keyword into the ability layer
+ *   (verified), but `zones/movement.ts` and `effect.move` never read a movement
+ *   permission, and the `continuous.movement` producer only fills
+ *   `layers/rules/query.ts#movement`'s `routes` form (`permission.routes`), not the
+ *   Ganking KeywordDef's `permission: "battlefield-to-battlefield"` spelling —
+ *   `rules.query` returns canGank false for the keyword grant (verified with a
+ *   probe). 810.1.c / 144.4.c therefore cannot be proven.
  */
 export default {
   canonicalCardId: "card.hash-55487ff54a21b4f984b21e9ef2babc80760bd74a2128eac7bd6665ff81432f9e",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1)「If you've gained XP this turn」是静态条件式被动能力（364.3）的门槛，" +
-    "但冻结的 Condition 只有 always/never/expression/compare/all/any/not，没有历史节点；解释器虽有 condition.history 指令" +
-    "（HistoryQuery 的 scope/action/timingPoint/player/object），层引擎的 conditionMatches 不消费它——程序里的 count subject" +
-    "\"controller-xp-gained-this-turn\" 只是描述形状，不构成求值。" +
-    "(2)「I have +1 :rb_might:」是 arithmetic 图层的 continuous.might 修正（143.2.a），没有已合入路径把 CardProgram 的 static 能力" +
-    "注册成 ContinuousEffectSpec，且层引擎不求值 compare 门槛（RIFT-91 只交付图层引擎）。" +
-    "(3)「and [Ganking]」需要 continuous.grant-keyword 持续效果（契约 3.7）；Ganking 的 KeywordDef 已合入，但 zones/movement.ts 与" +
-    "effect.move 都不读取该许可（810.1.c/144.4.c），无法证明实际获得 Ganking。依赖：XP 历史谓词路径、RIFT-91 卡牌接线、移动许可消费方。",
+    "已合入并可执行的部分：RIFT-258 的 continuous.might 与 continuous.grant-keyword 原语按本卡声明的 { object: \"self\" } 选择符解析" +
+    "（解释器 resolveObjectSelector/queryObjects 已支持 object 锚点），数学图层真实给宿主 +1 Might 并授予 Ganking，golden 用 " +
+    "runAbilityBody + createLayerEngine 断言只作用于宿主自身。整卡仍缺三处，均不近似实现：" +
+    "(1)「If you've gained XP this turn」（364.3）仍无求值路径——冻结的 Condition 只有 always/never/expression/compare/all/any/not，" +
+    "没有历史节点，events/timing-points.ts 的 xp-gained 只是载荷定义、没有静态谓词读取方；解释器的 condition.history 指令存在，" +
+    "但静态图层效果的 condition 由 layers/engine.ts 的 conditionMatches 消费，它只识别 always/never/type/has-tag/has-keyword，" +
+    "其余一律返回 true，直接绑定门槛会在 0 XP 时也发放加成。程序里的 count subject 只是描述形状，不构成求值。" +
+    "(2) 没有已合入路径把 CardProgram 的 static 能力注册成 ContinuousEffectSpec：契约 3.6 的 ResolveContext.addContinuous 是唯一注册通道，" +
+    "只能从指令到达；programs/statics.ts 只暴露不透明的 bindStatic 回调，没有任何已合入实现（RIFT-257 后续）。" +
+    "(3)「and [Ganking]」在移动系统里仍无消费方：continuous.grant-keyword 已把关键词写入 ability 图层（已验证），但 zones/movement.ts 与 " +
+    "effect.move 都不读取移动许可，而 continuous.movement 只填 layers/rules/query.ts#movement 的 permission.routes 形态、" +
+    "不识别 Ganking KeywordDef 的 permission: \"battlefield-to-battlefield\" 拼写（探针显示该授权下 rules.query 的 canGank 仍为 false），" +
+    "810.1.c/144.4.c 无法证明。依赖：XP 历史谓词路径与 RIFT-257 后续的卡牌静态注册、移动许可消费方。",
   abilities: [
     {
       kind: "static",
