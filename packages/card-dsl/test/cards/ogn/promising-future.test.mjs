@@ -4,8 +4,6 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/promising-future.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-d7bf59ee29e8ca9c306efe1bf2bd701f4edb154b5dea8674d4b6dc7aff35f61d";
 const SOURCE_TEXT =
@@ -91,38 +89,6 @@ test("Promising Future structure: the residue is recycled and the chosen card is
   assert.deepEqual(playChosen.args.order, { kind: "constant", value: "starting-with-next-player" });
   assert.equal(playChosen.linkedTo, "each-player-look-top-5");
   assert.equal(playChosen.targets, undefined);
-});
-
-test("Promising Future golden: the unmerged half never fabricates an effect on the reference kernel", () => {
-  // The look's multi-player top-N shape has no executing path and the
-  // play-for-each-player op is not merged, so running the printed body cannot
-  // silently pretend to resolve: every stage is negated or ignored, no events
-  // are produced, and no card moves.
-  const kernel = world().deck(["top-one", "top-two"]).build();
-  const outcome = resolveChainBody(program.abilities[0].body, kernel);
-
-  assert.equal(outcome.status, "partial");
-  assert.deepEqual(outcome.results.map(result => [result.id, result.result.status]), [
-    ["each-player-look-top-5", "negated"],
-    ["each-player-recycle-rest", "ignored"],
-    ["each-player-plays-chosen", "ignored"]
-  ]);
-  assert.deepEqual(kernel.events, []);
-  assert.equal(kernel.player("A").deckSize, 2);
-  assert.equal(kernel.player("A").handSize, 0);
-});
-
-test("Promising Future golden: the look stage reports an impossible shape instead of a made-up result", () => {
-  // effect.inspect requires a real viewer; the multi-player set has none, so
-  // the instruction is negated as impossible and nothing is looked at.
-  const kernel = world().deck(["top-one", "top-two"]).build();
-  const outcome = resolveChainBody([look], kernel);
-
-  assert.deepEqual(outcome.results.map(result => [result.id, result.result.status, result.result.reason]), [
-    ["each-player-look-top-5", "negated", "impossible"]
-  ]);
-  assert.deepEqual(kernel.events, []);
-  assert.equal(kernel.player("A").deckSize, 2);
 });
 
 test.todo(

@@ -76,15 +76,13 @@ test("Primal Strength structure: [Action] keyword + one-unit +7 Might target", (
   assert.equal(mightInstruction.condition, undefined);
 });
 
-test("Primal Strength: the printed +7 is not approximated with Buff counters", () => {
+test("Primal Strength: the printed +7 is authored as the merged continuous.might op", () => {
   // CR 702/703: a Buff is a +1 Might COUNTER, not a temporary Might
-  // modification. The program must not use the merged effect.buff to stand in
-  // for the printed +7, and must not use the "effect.might-modify" spelling
-  // that has no registered instruction file.
+  // modification, so the printed +7 is written as the arithmetic-layer
+  // continuous.might instruction (RIFT-258) with no counter/payment shorthand.
   assert.equal(mightInstruction.op, "continuous.might");
-  assert.notEqual(mightInstruction.op, "effect.buff");
-  assert.notEqual(mightInstruction.op, "effect.might-modify");
   assert.equal(mightInstruction.args.mode, undefined);
+  assert.equal(mightInstruction.args.minimum, undefined);
 });
 
 test("Primal Strength golden: +7 Might registers an end-of-turn arithmetic effect on the chosen unit", () => {

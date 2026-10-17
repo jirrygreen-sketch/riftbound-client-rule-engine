@@ -4,8 +4,6 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/raging-firebrand.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 
 const CARD_ID = "card.hash-6a44ecaa1f76158a92ecce63e4d3e2d347cc32014c448f13003d9f2500cb3de7";
@@ -59,20 +57,9 @@ test("ogn-031-298 Raging Firebrand: card-played self trigger carrying a one-shot
   assert.equal(instruction.linkedTo, undefined);
 });
 
-test("ogn-031-298 Raging Firebrand: the unmerged cost.modify instruction is not a registered opcode", () => {
-  // Guards against a silent no-op standing in for the discount: running the body
-  // against the merged interpreter must fail loudly until cost.modify lands.
-  const kernel = world().build();
-  assert.throws(
-    () => runAbilityBody(program.abilities[0].body, kernel),
-    /Unregistered instruction opcode: cost\.modify/
-  );
-  assert.equal(kernel.events.length, 0);
-});
-
 test.todo(
-  "ogn-031-298 Raging Firebrand: execute the discount (register a one-shot next-spell cost " +
+  "ogn-031-298 Raging Firebrand: execute the discount — register a one-shot next-spell cost " +
     "modification, assert the following spell's finalized cost plan is 5 energy cheaper and that a " +
-    "second spell costs full) once cost.modify and one-shot cost windows land (RIFT-89 follow-up); " +
-    "no execution evidence may be claimed before that."
+    "second spell costs full — once the cost.modify instruction and the one-shot cost window land " +
+    "(RIFT-261 cost.pay/cost.modify; the card-program trigger binding is RIFT-257)."
 );

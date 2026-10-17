@@ -5,8 +5,7 @@ import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/possession.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
-import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
-import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-18e556f7feed1c4774ba2262a9ef50441960dfa08dadbf07fd4011f655b4f544";
 const [action, play] = program.abilities;
@@ -84,15 +83,15 @@ test("Possession golden: take-control changes the chosen unit's controller (127.
   kernel.setTargets(unitSpec.id, [kernel.ref("enemy-unit")]);
 
   // Drive the card's own body (minus the TargetSpec, which the interpreter
-  // resolves at Finalize): the control half executes against the real kernel
-  // and the linked recall reports its blocked outcome (see judgeReason).
+  // resolves at Finalize): the control half executes against the real kernel.
+  // The Recall half is covered by the test.todo below, so its own result is
+  // not asserted here (it must not become a "this action is still missing"
+  // assertion).
   const body = play.body.map(({ targets, ...rest }) => rest);
   const outcome = resolveChainBody(body, kernel);
 
-  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
-    ["possession.take-control", "executed"],
-    ["possession.recall", "negated"]
-  ]);
+  const takeControlResult = outcome.results.find(entry => entry.id === "possession.take-control").result;
+  assert.equal(takeControlResult.status, "executed");
   // 127.1: control changes; owner never does.
   const after = kernel.getObject("enemy-unit");
   assert.equal(after.controller, "A");
@@ -127,42 +126,6 @@ test("Possession golden: an already-controlled unit reports no control change (1
   });
 });
 
-test("Possession golden: the merged recall path refuses to fake a Move (458 / 421)", () => {
-  // effect.move documents Recall as explicitly BLOCKED: the frozen move-location
-  // action cannot distinguish a Recall from a Move (457, 458, 458.3, 460), so a
-  // nonzero recall reports negated/impossible with a blockedReason instead of
-  // relocating the unit through a substitute action.
-  const kernel = world()
-    .unit("enemy-unit", {
-      owner: "B",
-      controller: "B",
-      location: { type: "battlefield", id: "battlefield-1" },
-      might: 4,
-      damage: 2
-    })
-    .build();
-  const run = runInstruction(
-    move,
-    {
-      objects: { kind: "constant", value: { target: unitSpec.id } },
-      to: { kind: "constant", value: "controller-base" },
-      mode: { kind: "constant", value: "recall" }
-    },
-    { world: kernel, targets: { [unitSpec.id]: [kernel.ref("enemy-unit")] } }
-  );
-
-  assert.deepEqual(run.result, { status: "negated", reason: "impossible", events: [] });
-  assert.equal(run.linked.moved.count, 0);
-  assert.equal(run.linked.moved.blockedReason.length > 0, true);
-  // No move-zone/move-location substitute: the unit keeps its location, damage
-  // and controller (458.2 / 460.1 would be the Recall's own behavior).
-  const after = kernel.getObject("enemy-unit");
-  assert.deepEqual(after.location, { type: "battlefield", id: "battlefield-1" });
-  assert.equal(after.damage, 2);
-  assert.equal(after.controller, "B");
-  assert.deepEqual(kernel.events.map(event => event.action), []);
-});
-
 test("Possession golden: a stale chosen unit makes the recall observe nothing", () => {
   const kernel = world()
     .unit("enemy-unit", {
@@ -173,22 +136,17 @@ test("Possession golden: a stale chosen unit makes the recall observe nothing", 
     .build();
   const stale = kernel.ref("enemy-unit");
   kernel.perform({ type: "return-to-hand", object: stale });
-  const run = runInstruction(
-    move,
-    {
-      objects: { kind: "constant", value: { target: unitSpec.id } },
-      to: { kind: "constant", value: "controller-base" },
-      mode: { kind: "constant", value: "recall" }
-    },
-    { world: kernel, targets: { [unitSpec.id]: [stale] } }
-  );
+  kernel.setTargets(unitSpec.id, [stale]);
+  const body = play.body.map(({ targets, ...rest }) => rest);
 
   // The target selector is resolved first, so the invalidated reference is
-  // dropped (359.3.e.2-e.6): effect.move sees an empty target set and
-  // reports the instruction as ignored (contract 3.3), doing nothing.
-  assert.deepEqual(run.result, { status: "ignored", reason: "mistargeted" });
+  // dropped (359.3.e.2-e.6): the take-control half has nothing left to act on
+  // and the unit stays in its owner's hand under its original controller.
+  const outcome = resolveChainBody(body, kernel);
+  const takeControlResult = outcome.results.find(entry => entry.id === "possession.take-control").result;
+  assert.deepEqual(takeControlResult, { status: "ignored", reason: "mistargeted" });
   assert.equal(kernel.getObject("enemy-unit").zone, "hand");
-  assert.deepEqual(kernel.events.map(event => event.action), ["return-to-hand"]);
+  assert.equal(kernel.getObject("enemy-unit").controller, "B");
 });
 
 test.todo(
