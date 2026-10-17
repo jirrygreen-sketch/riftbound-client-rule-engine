@@ -9,6 +9,9 @@ import play from "../../../../engine-core/dist/effects/instructions/effect.play.
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 
 import { buildCostPlan } from "../../../../engine-core/dist/cost/index.js";
+import { createProgramBinding, createEngineStaticBinder } from "../../../../engine-core/dist/programs/index.js";
+import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
+import { LayerEngine } from "../../../../engine-core/dist/layers/engine.js";
 
 const [ganking, triggered] = program.abilities;
 const c = value => ({ kind: "constant", value });
@@ -51,8 +54,12 @@ test("Kai'Sa, Evolutionary identity and judge-required reason", () => {
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /356\.1\.b\.2/);
-  assert.match(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /points/);
+  assert.match(program.judgeReason, /energyLessThan/);
+  assert.match(program.judgeReason, /played 次数/);
+  assert.match(program.judgeReason, /permission\.routes/);
+  // The RIFT-359 dependency is still the live owner of the predicate work described above.
+  assert.match(program.judgeReason, /RIFT-359/);
   assert.equal(
     program.sourceText,
     "[Ganking] (I can move from battlefield to battlefield.)\n" +
@@ -157,13 +164,16 @@ test("golden: declining the optional play skips the body entirely", () => {
 });
 
 test.todo(
-  "Kai'Sa: target filtering compares candidate spell Energy with current controller points (CR 471-473; RIFT-359)"
+  "Kai'Sa: target filtering must compare a candidate spell's printed Energy with the current controller " +
+    "points (355.10.a); the authored energyLessThan placeholder is not a known filter field"
 );
 test.todo(
-  "Kai'Sa: bind the actually selected spell to an ignore-base-energy cost plan and nested Finalize, preserving its Power (356.1.b.2)"
+  "Kai'Sa: bind the actually selected spell to an ignore-base-energy cost plan and nested Finalize, preserving " +
+    "its printed Power (356.1.b.2); the authored placeholder plan carries no Power"
 );
 test.todo(
-  "Kai'Sa: link the played spell's current reference after its resolution so Then recycle it runs at the correct time"
+  "Kai'Sa: link the played spell's current reference after its resolution so Then recycle it runs at the correct " +
+    "time; effect.play links only the played COUNT"
 );
 test.todo(
   "Kai'Sa Ganking: adapt Ganking string permission to movement rule-query permission.routes and perform a Standard Move (810.1.b)"
@@ -183,4 +193,115 @@ test("Kai'Sa supported cost planning: ignore only Energy and retain the selected
   assert.equal(plan.total.energy, 0);
   assert.deepEqual(plan.total.power, [{ allowedDomains: ["Mind"], amount: 1 }]);
   assert.deepEqual(plan.source, kernel.ref("spell"));
+});
+
+test("Kai'Sa: the authored energyLessThan target filter is not a known field, so the card cannot register", () => {
+  // 355.10.a: the comparison needs the candidate spell's printed Energy against the controller's
+  // current points. The placeholder key is not in the merged filter vocabulary, and the merged
+  // translator rejects the whole program rather than silently letting every trash spell pass.
+  const source = {
+    ref: { id: "kaisa", zoneEntryId: 1 },
+    cardId: program.canonicalCardId,
+    name: "Kai'Sa, Evolutionary",
+    types: ["unit"],
+    tags: [],
+    keywords: [],
+    owner: "A",
+    controller: "A",
+    zone: "board",
+    location: { type: "battlefield", id: "battlefield-1" },
+    might: 4,
+    energy: 5,
+    power: ["Fury"],
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false
+  };
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  assert.throws(
+    () => binding.registerProgramTriggers({ pipeline: { registerTrigger: () => {} } }, source),
+    /Unsupported filter field energyLessThan/
+  );
+});
+
+test("Kai'Sa: the authored cost placeholder declares no Power, so it cannot stand in for the Finalize plan", () => {
+  // 356.1.b.2 keeps the Power cost. The authored constant only pins energy to zero and carries no
+  // printed Power, so it is a shape, not the per-selection finalized plan the primitive demands;
+  // this test pins that absence for reviewers instead of treating the shape as executable.
+  const playInstruction = triggered.body[0].args.body.value[0];
+  assert.deepEqual(playInstruction.args.cost, c({ finalized: true, energy: 0 }));
+  assert.equal("power" in playInstruction.args.cost.value, false);
+});
+
+test("Kai'Sa TODO: the card's instruction must carry the plan derived from the selected spell", {
+  todo: "356.1.b.2: produce the ignore-base-energy plan from the actually selected spell and feed it to the nested Finalize"
+}, () => {
+  // The correct rule result: the plan the card plays with keeps the selected spell's printed Power
+  // and zeroes only its Energy. The merged planner can build that plan when a caller supplies the
+  // selection, so what is missing is the producer that binds it into the card's own instruction;
+  // the authored constant (energy 0, no Power) is never asserted as a payable plan.
+  const kernel = world().build();
+  kernel.addObject(trashSpell("trash-spell"), "trash");
+  const plan = buildCostPlan(kernel.clone({ sourceSnapshot: kernel.getObject("trash-spell") }), {
+    id: "kaisa-selected-spell",
+    cost: { kind: "printed" },
+    baseModifications: [{ kind: "ignore-base", ignore: "energy" }]
+  });
+  assert.equal(plan.total.energy, 0);
+  assert.deepEqual(plan.total.power, [{ allowedDomains: ["Mind"], amount: 1 }]);
+  // The card's own instruction must resolve to that same plan; today it is the static placeholder.
+  const authored = triggered.body[0].args.body.value[0].args.cost.value;
+  assert.deepEqual(authored, { energy: plan.total.energy, power: plan.total.power });
+});
+
+test("Kai'Sa: effect.play links only the played count, never the played object for Then recycle it", () => {
+  // "Then recycle it" needs the played card's current reference. effect.play publishes the number
+  // of successful plays (ctx.link("played", n)); the authored playedObjects key has no producer.
+  const kernel = world().build();
+  kernel.addObject(trashSpell("trash-spell"), "trash");
+  const instruction = triggered.body[0].args.body.value[0];
+  const run = runInstruction(
+    play,
+    { target: "kaisa.trash-spell", cost: c({ finalized: true, energy: 0, power: ["Mind"] }) },
+    { world: kernel, targets: { "kaisa.trash-spell": [kernel.ref("trash-spell")] } }
+  );
+  assert.equal(run.linked.played, 1);
+  assert.equal(Object.hasOwn(run.linked, "playedObjects"), false);
+  assert.equal(run.result.linkedValues.played, 1);
+  assert.equal(Object.hasOwn(run.result.linkedValues, "playedObjects"), false);
+});
+
+test("Kai'Sa: the Ganking static rule registers but never reaches the movement rule query", () => {
+  // 810.1.b: same string-permission/permission.routes mismatch as ogn/kayn-unleashed. The card's
+  // own static ability binds through the merged program binding, yet the merged rule query
+  // reports no Ganking permission at all.
+  const kernel = world()
+    .unit("kaisa", { cardId: program.canonicalCardId, types: ["unit"], might: 4 })
+    .build();
+  const source = kernel.getObject("kaisa");
+  const layers = new LayerEngine(kernel.objects);
+  layers.setObjects(kernel.objects);
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const binder = createEngineStaticBinder({
+    layers,
+    pipeline: {
+      host: { objects: () => kernel.objects, context: () => kernel.clone({ sourceSnapshot: source }) },
+      registerReplacement: () => {}
+    }
+  });
+  const [ganking] = binding.inspect(source).abilities.filter((ability) => ability.kind === "static");
+  assert.equal(ganking.effect.permission, "battlefield-to-battlefield");
+  binder.bindStatic(ganking, source);
+  assert.equal(layers.registry.list().length, 1);
+  const view = movement(layers.registry, source.ref, source, "A");
+  assert.equal(view.canGank, false);
+  assert.deepEqual(view.permissions, []);
 });

@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/kadregrin-the-infernal.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -16,6 +17,7 @@ test("ogn-038-298 Kadregrin the Infernal: program validates and is judge-require
   assert.match(program.judgeReason, /Mighty/);
   assert.match(program.judgeReason, /mightGte/);
   assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /静默忽略/);
 });
 
 test("ogn-038-298 Kadregrin the Infernal: identity, ruleset and exact source text", () => {
@@ -93,3 +95,87 @@ test.todo(
   "Kadregrin: apply the Mighty >=5 predicate to every friendly Board candidate using current layered Might; " +
     "exclude non-Mighty, enemy and off-Board units before the declared count-driven draw (CR 706-711; RIFT-359)"
 );
+
+test("ogn-038-298 Kadregrin the Infernal: the play trigger registers from the CardProgram through the merged binding", () => {
+  // RIFT-257's binding turns { self: true } into the event pattern for this incarnation and
+  // registers it on the Board zone, where permanents evaluate their triggers (384.1). The
+  // registry refuses judge-required programs, so the same IR is bound under an executable
+  // status (sfd/honest-broker precedent); the shipped status is asserted above.
+  const source = {
+    ref: { id: "kadregrin", zoneEntryId: 1 },
+    cardId: program.canonicalCardId,
+    name: "Kadregrin the Infernal",
+    types: ["unit"],
+    tags: [],
+    keywords: [],
+    owner: "A",
+    controller: "A",
+    zone: "board",
+    location: { type: "base", player: "A" },
+    might: 5,
+    energy: 8,
+    power: null,
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false
+  };
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const registered = [];
+  const ids = binding.registerProgramTriggers(
+    { pipeline: { registerTrigger: (registration) => registered.push(registration) } },
+    source
+  );
+  assert.deepEqual(ids, ["program:kadregrin:1:0"]);
+  assert.equal(registered[0].spec.at, "card-played");
+  assert.deepEqual(registered[0].spec.filter, {
+    event: "card-played",
+    object: { objectId: "kadregrin" }
+  });
+  assert.deepEqual(registered[0].activeZones, ["board"]);
+});
+
+test("ogn-038-298 Kadregrin the Infernal: the count expression really reads the board through the merged kernel", () => {
+  // Only the board predicate dimensions that ARE consumed are asserted here (type/controller/zone
+  // via ctx.query). The Mighty threshold itself is the judged part, asserted by the TODO below.
+  const kernel = world()
+    .deck(["a", "b", "c"])
+    .unit("mighty", { owner: "A", might: 6 })
+    .unit("enemy", { owner: "B", might: 6 })
+    .unit("benched", { owner: "A", might: 6, zone: "deck" })
+    .build();
+  const declared = program.abilities[0].body[0].args.amount;
+  assert.deepEqual(declared.filter, {
+    type: "unit",
+    controller: "self",
+    zone: "board",
+    mightGte: 5
+  });
+  // The placeholder controller resolves to the resolving player, and only Board objects qualify.
+  assert.deepEqual(
+    kernel.query({ ...declared.filter, controller: "A" }).map((object) => object.ref.id),
+    ["mighty"]
+  );
+  assert.equal(kernel.evaluate({ ...declared, filter: { ...declared.filter, controller: "A" } }), 1);
+});
+
+test("ogn-038-298 Kadregrin the Infernal TODO: the declared Mighty threshold decides the draw count", {
+  todo: "CR 707/708/710: apply the Mighty >= 5 predicate to every friendly Board candidate (RIFT-359)"
+}, () => {
+  // The correct expectation: 2 friendly units, only 1 of them Mighty -> draw 1. The merged set
+  // query ignores the unknown mightGte key, so this fails today; it must pass once the predicate
+  // has a consumer, and the current looser count is never asserted as the expected result.
+  const kernel = world()
+    .deck(["a", "b", "c"])
+    .unit("mighty", { owner: "A", might: 6 })
+    .unit("not-mighty", { owner: "A", might: 4 })
+    .build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("mighty") });
+  const amount = program.abilities[0].body[0].args.amount;
+  assert.equal(scoped.evaluate(amount), 1);
+});

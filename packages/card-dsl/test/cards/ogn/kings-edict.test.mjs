@@ -6,6 +6,8 @@ import program from "../../../dist/cards/ogn/kings-edict.js";
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 
 const CARD_ID = "card.hash-b27ddd6f340335a3b0cd6b5ad2ba3cd49695bb3a7430d3cfe541271f528f0baf";
 
@@ -31,11 +33,16 @@ test("ogn-237-298 King's Edict: program passes validateCardProgram", () => {
 
 test("ogn-237-298 King's Edict judgeReason names the chooser order and per-spell exclusion gaps", () => {
   assert.match(program.judgeReason, /each other player/);
-  assert.match(program.judgeReason, /回合顺序/);
+  assert.match(program.judgeReason, /逐位/);
   assert.match(program.judgeReason, /hasn't been chosen for this spell/);
-  assert.match(program.judgeReason, /355\.10\.e/);
   assert.match(program.judgeReason, /累计/);
-  assert.match(program.judgeReason, /pick/);
+  assert.match(program.judgeReason, /355\.10\.e/);
+  assert.match(program.judgeReason, /355\.18/);
+  assert.match(program.judgeReason, /choice\.each-other-player/);
+  // The non-target pick channel is the mechanism that stays supported; keep asserting it.
+  assert.match(program.judgeReason, /非目标选择/);
+  assert.match(program.judgeReason, /未注册/);
+  assert.match(program.judgeReason, /Unregistered instruction opcode/);
 });
 
 test("ogn-237-298 King's Edict structure: other-player choice node then a linked non-target kill", () => {
@@ -113,3 +120,18 @@ test.todo(
   "King's Edict: starting with the next player, each opponent makes a non-target pick excluding all earlier picks " +
     "for this spell; kill the accumulated set only after the choices finish (CR 355.10.e, 355.18)"
 );
+
+test("ogn-237-298 King's Edict: the chooser primitive is not registered, so the body cannot execute", () => {
+  // 355.10.e / 355.18 still need a turn-ordered, per-chooser, accumulation-aware choice primitive.
+  // The merged instruction registry has no such opcode, so evaluating the authored body stops on
+  // the first instruction instead of performing any choice or kill.
+  assert.equal(instructionDefinitionsById.has("choice.each-other-player"), false);
+  const kernel = world()
+    .unit("victim", { owner: "B", types: ["unit"], might: 2 })
+    .build();
+  assert.throws(
+    () => runAbilityBody(play.body, kernel.clone({ sourceSnapshot: kernel.getObject("victim") })),
+    /Unregistered instruction opcode: choice\.each-other-player/
+  );
+  assert.equal(kernel.getObject("victim").zone, "board");
+});

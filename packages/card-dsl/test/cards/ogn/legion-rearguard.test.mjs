@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/legion-rearguard.js";
+import { createEngineStaticBinder, createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import accelerate from "../../../../engine-core/dist/effects/keywords/Accelerate.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/index.js";
@@ -33,8 +34,9 @@ test("ogn-010-298 Legion Rearguard: judgeReason names the missing wiring and its
   assert.match(program.judgeReason, /Accelerate/);
   assert.match(program.judgeReason, /optionalAdditional/);
   assert.match(program.judgeReason, /805\.1\.b\.1/);
-  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /describePlay/);
+  assert.match(program.judgeReason, /accelerate\.cost/);
 });
 
 test("ogn-010-298 Legion Rearguard: exactly one unvalued Accelerate keyword ability", () => {
@@ -189,5 +191,68 @@ test.todo(
     + "through the delayed replacement (CR 805.1.b/805.2.b/805.6) — the merged cost plan and chain "
     + "ready entry execute a finalized accelerate component, but no producer turns the card's keyword "
     + "ability into that optionalAdditional component or registers the accelerate.cost / enter-ready "
-    + "replacement for it (CardProgram binding RIFT-257, cost primitives RIFT-261)"
+    + "replacement for it"
 );
+
+test("ogn-010-298 Legion Rearguard: the merged play binding produces no accelerate cost component", () => {
+  // 805.1.b: the printed accelerate cost must appear in the play's cost plan. programs/play.ts
+  // builds the draft from the card program, but the keyword declaration has no producer: the
+  // draft carries no cost at all, so the chain never sees an optionalAdditional component and
+  // the ready entry path (chain/engine.ts reads selectedAdditional) can never trigger.
+  const kernel = world()
+    .player("A", { energy: 20 })
+    .player("B", { energy: 20 })
+    .hand("legion-rearguard", {
+      cardId: program.canonicalCardId,
+      types: ["unit"],
+      energy: 2,
+      power: ["Fury"],
+      owner: "A"
+    })
+    .build();
+  const source = kernel.getObject("legion-rearguard");
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const draft = binding.describePlay({ type: "play", object: source.ref, player: "A" }, source);
+  assert.equal(draft.cost, undefined);
+  assert.deepEqual(draft.body, []);
+  // The keyword expansion does declare the cost and the enter-ready replacement, so the missing
+  // piece really is the producer wiring rather than the keyword definition.
+  const expanded = binding.inspect(source).abilities;
+  assert.deepEqual(
+    expanded.map((ability) => [ability.kind, ability.effect?.kind ?? ability.keyword]),
+    [["keyword", "accelerate"], ["static", "accelerate.cost"], ["replacement", undefined]]
+  );
+});
+
+test("ogn-010-298 Legion Rearguard: the accelerate.cost static ability has no layer mapping", () => {
+  // programs/statics.ts maps copy/trait/ability/arithmetic kinds (and the might/keyword/movement/
+  // combat families); the accelerate cost declaration has no consumer, so Finalize cannot read it.
+  const kernel = world()
+    .player("A", { energy: 20 })
+    .hand("legion-rearguard", {
+      cardId: program.canonicalCardId,
+      types: ["unit"],
+      energy: 2,
+      power: ["Fury"],
+      owner: "A"
+    })
+    .build();
+  const source = kernel.getObject("legion-rearguard");
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const [accelerateCost] = binding.inspect(source).abilities.filter(
+    (ability) => ability.kind === "static" && ability.effect.kind === "accelerate.cost"
+  );
+  assert.ok(accelerateCost, "the Accelerate keyword must declare accelerate.cost");
+  const binder = createEngineStaticBinder({
+    layers: { addContinuous: () => {}, removeContinuous: () => {} },
+    pipeline: {
+      host: { objects: () => kernel.objects, context: () => kernel.clone({ sourceSnapshot: source }) },
+      registerReplacement: () => {}
+    }
+  });
+  assert.throws(() => binder.bindStatic(accelerateCost, source), /has no layer mapping/);
+});
