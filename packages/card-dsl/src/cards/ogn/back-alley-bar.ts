@@ -33,11 +33,13 @@ import type { CardProgram } from "../../ir/index.js";
  *   subject today (recorded as a contract change request in the task reply);
  *   the TargetSpec below is a structural stand-in, not a choice the printed
  *   text ever makes;
- * - the trigger subscription: the nested `{ event, details }` spelling is
- *   rejected by the engine validator (events/trigger-spec.ts rejects the
- *   object-moved event name and the inner filter shape), and no merged consumer
- *   binds a CardProgram's triggered ability into a TriggerRegistration
- *   (RIFT-257).
+ * - the trigger subscription: the object-moved emission exists (the merged
+ *   move-location action emits it, and timing-points.ts carries the
+ *   fromKind/fromLocationId payload), but object-moved is not a member of
+ *   events/trigger-spec.ts EVENT_PATTERN_TYPES, so validateTriggerSpec rejects
+ *   the spelling before any binding layer could register it; the "from here"
+ *   origin anchor also has no merged field (fromLocationId would need this
+ *   battlefield's identity, which the frozen IR cannot reference).
  *
  * The trigger and the intended layers-contract body shape are kept so the
  * missing pieces stay auditable.
@@ -49,11 +51,12 @@ export default {
   judgeReason:
     "两处缺口：(1)「it」指触发载荷中的被移动单位，而冻结的 ObjectSelector 集合（self/source/target/pick/linked）没有事件对象选择器，" +
     "body 里的 TargetSpec 只是结构性占位、不是印刷文本会做的选择（契约变更请求）；" +
-    "(2) 触发无法注册：嵌套 { event, details } 拼写被引擎侧 assertTriggerSpec 拒绝" +
-    "（events/trigger-spec.ts 不认 object-moved 这一事件名与内层 details），且没有已合入消费方把 CardProgram 的 triggered 能力绑定成 TriggerRegistration（RIFT-257）。" +
+    "(2) 触发无法注册：object-moved 发射本身已存在（合并的 move-location 动作会发射，timing-points.ts 载荷含 fromKind/fromLocationId），" +
+    "但 object-moved 不在 events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 词表内，validateTriggerSpec 直接拒绝；" +
+    "且「from here」起点锚点没有合并字段（fromLocationId 需要本战场的身份，冻结 IR 无法引用）。" +
     "这片段仍必须按 458.1 排除 Recall、按载荷起点「from here」过滤（RIFT-120 触发工作流）。" +
     "Might 半段（continuous.might，143.2.a/478/317.1.a）已合入并由 golden 真实执行并断言登记、+1 生效值与回合末到期。" +
-    "依赖：事件对象选择器（契约变更请求）、RIFT-257、RIFT-120。不近似实现。",
+    "依赖：事件对象选择器与 object-moved 词表（契约变更请求）、RIFT-120。不近似实现。",
   sourceText: "When a unit moves from here, give it +1 :rb_might: this turn.",
   abilities: [
     {

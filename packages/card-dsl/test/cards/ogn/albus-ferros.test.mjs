@@ -4,6 +4,8 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/albus-ferros.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -25,7 +27,6 @@ test("ogn-230-298 Albus Ferros: identity, status and verbatim sourceText", () =>
   // CR 704.1 / 742.1: Buff counters are counters, not game objects that can be targeted.
   assert.match(program.judgeReason, /704\.1/);
   assert.match(program.judgeReason, /pick/);
-  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(
     program.sourceText,
     "When you play me, spend any number of buffs. For each buff spent, channel 1 rune exhausted."
@@ -36,8 +37,8 @@ test("ogn-230-298 Albus Ferros: mandatory card-played trigger with the counter s
   assert.equal(program.abilities.length, 1);
   assert.equal(ability.kind, "triggered");
   assert.equal(ability.trigger.at, "card-played");
-  // 旧 { role: "self" } 拼写会被引擎侧 ObjectFilter 校验拒绝；改用 canonicalCardId
-  // 的自身拼写（与 sfd/poro-herder 等已合入卡一致），由 RIFT-257 负责注册。
+  // 合入的绑定层（RIFT-257）翻译该 canonicalCardId 自身拼写
+  // （与 sfd/poro-herder 等已合入卡一致）并注册触发。
   assert.deepEqual(ability.trigger.filter, {
     event: "card-played",
     object: {
@@ -71,6 +72,22 @@ test("ogn-230-298 Albus Ferros: the buff spend is declared as a non-target pick 
   assert.equal(buffPick.min, 0);
   assert.equal(buffPick.selection, "any");
   assert.equal(spendInstruction.linkedTo, undefined);
+});
+
+test("ogn-230-298 Albus Ferros: the merged binding validates the canonical self filter (RIFT-257 proof)", () => {
+  // The merged binding layer (RIFT-257) translates the canonicalCardId self
+  // anchor into the pattern that the engine's own trigger-spec validator
+  // accepts, so the spelling no longer blocks registration and "When you
+  // play me" can hit the emitted card-played event.
+  const translated = translateTriggerFilter(ability.trigger.filter, "albus-host", "card-played");
+  assert.deepEqual(translated, {
+    event: "card-played",
+    object: {
+      canonicalCardId: "card.hash-ef48253b8c94c8b28932090e3ba51b03bd2a1b1ea8a5465de707daabf2bb92c5"
+    }
+  });
+  const result = validateTriggerSpec({ at: "card-played", filter: translated });
+  assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues, null, 2));
 });
 
 test("ogn-230-298 Albus Ferros: the channel instruction repeats once per buff actually spent", () => {
@@ -154,5 +171,6 @@ test.todo(
 );
 test.todo(
   "ogn-230-298 Albus Ferros: the card-played trigger registration into the real chain " +
-    "needs the RIFT-257 CardProgram binding; the filter now uses the canonicalCardId self spelling."
+    "is merged (RIFT-257 translateTriggerFilter + validateTriggerSpec, proven above); " +
+    "the remaining dependency is effect.buff's non-target pick form."
 );

@@ -25,17 +25,17 @@ import type { CardProgram } from "../../ir/index.js";
  * 355.7 / 704.1），body[1] 用 repeat 读 body[0] 链接的实际 spend 数量，每次 channel 1 个横置符文
  * （"for each buff spent"）。
  *
- * status: judge-required —— 两处缺口：
+ * status: judge-required —— 唯一缺口：
  * - "spend any number of buffs" 的非目标 counter 选择：已合入的 effect.buff（RIFT-68）
  *   只接受 args.target（TargetSpec id，经 ctx.targets 读取），没有 pick 形式；把 buff
  *   选择写成 TargetSpec 会让 counter 变成目标选择（违反 704.1/742.1，并会错误触发
  *   "成为目标"类触发），属近似实现。
- * - card-played 触发进链：没有已合入消费方把 CardProgram 的 triggered 能力绑定成
- *   TriggerRegistration（RIFT-257）；触发 filter 采用惯例的 canonicalCardId 拼写
- *   （旧 { role: "self" } 拼写会被引擎侧 ObjectFilter 校验拒绝）。
+ * 触发进链已不构成缺口：RIFT-257（programs/triggers.ts + filters.ts）已合入，
+ * 本卡 filter 的 { event: 'card-played', object: { canonicalCardId } } 拼写可被
+ * 绑定层翻译、注册，且 chain/engine.ts 在 resolve 内先 commit move-zone 再 emit
+ * card-played，「When you play me」类触发能真实命中。
  * 本卡因此声明所需的 pick 形状并保持 judge-required；详见最终回复的契约变更请求。
- * 依赖：effect.buff 的非目标 pick 形式（RIFT-9 原语清单的 counter/spend-buff 语义扩展）
- * 与 RIFT-257。
+ * 依赖：effect.buff 的非目标 pick 形式（RIFT-9 原语清单的 counter/spend-buff 语义扩展）。
  */
 const albusFerros = {
   canonicalCardId: "card.hash-ef48253b8c94c8b28932090e3ba51b03bd2a1b1ea8a5465de707daabf2bb92c5",
@@ -46,9 +46,11 @@ const albusFerros = {
     "在指令结算时选择），但已合入的 effect.buff（RIFT-68）只接受 args.target（TargetSpec，经 ctx.targets 读取），" +
     "没有 pick 形式；把 buff 选择建成 TargetSpec 会让 counter 变成目标并错误触发「成为目标」类触发，属近似实现。" +
     "本卡声明所需形状（effect.buff 的 pick 参数 + picks + repeat 读实际 spend 数）。" +
-    "(2) card-played 触发进链还缺 RIFT-257 的 CardProgram 触发绑定；触发 filter 已改用 canonicalCardId 的自身拼写。" +
+    "card-played 触发进链已不构成缺口：RIFT-257（programs/triggers.ts + filters.ts）已合入，" +
+    "本卡 filter 的 { event: 'card-played', object: { canonicalCardId } } 拼写可被绑定层翻译并注册，" +
+    "且 chain/engine.ts 在 resolve 内先 commit move-zone 再 emit card-played，「When you play me」类触发能真实命中。" +
     "channel 半段（effect.channel，431.1/431.2）已合入并由 golden 真实执行。" +
-    "依赖：effect.buff / counter 原语的非目标 pick 形式（RIFT-9 原语清单的 counter 语义扩展）与 RIFT-257。",
+    "依赖：effect.buff / counter 原语的非目标 pick 形式（RIFT-9 原语清单的 counter 语义扩展）。",
   sourceText:
     "When you play me, spend any number of buffs. For each buff spent, channel 1 rune exhausted.",
   abilities: [
@@ -57,9 +59,9 @@ const albusFerros = {
       trigger: {
         at: "card-played",
         // "When you play me": the played card identifies itself by canonical id
-        // (the older { role: "self" } spelling is rejected by the engine-side
-        // ObjectFilter validator); RIFT-257 owns turning this into a
-        // TriggerRegistration.
+        // self spelling (the older { role: 'self' } spelling is rejected by the
+        // engine-side ObjectFilter validator); the RIFT-257 binding registers
+        // it.
         filter: {
           event: "card-played",
           object: {

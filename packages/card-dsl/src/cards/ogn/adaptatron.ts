@@ -27,35 +27,53 @@ import type { CardProgram } from "../../ir/index.js";
  *   "self" selector through the merged `object` filter anchor (the merged
  *   sfd/rumble-hotheaded and sett-brawler shape).
 
- * Status: judge-required. The conquer timing point is now emitted by the Score
- * wave, and both instruction primitives are merged and executed by the golden
- * test, but the trigger still cannot enter the chain: the nested
- * `{ event, filter }` trigger spelling is rejected by the engine validator
- * (events/trigger-spec.ts EventPattern has no inner `filter` field), and no
- * merged consumer turns a CardProgram's triggered ability into a
- * TriggerRegistration (RIFT-257). Not approximated — the "if you do" gate is
- * written as a real kill-receipt condition rather than an unconditional buff.
+ * Status: judge-required. The conquer timing point is emitted by the Score
+ * wave (turn/flow.ts Score trigger wave), both instruction primitives are
+ * merged and executed by the golden test, and the merged CardProgram trigger
+ * binding is available (RIFT-257, programs/triggers.ts, whose
+ * translateTriggerFilter resolves this filter's nested
+ * `{ filter: { source: 'self' } }` spelling to `{ object: { objectId: host } }`
+ * and whose output passes assertTriggerSpec). The remaining gap is the 383.4.c.1 rule
+ * itself: the conquered emission carries only
+ * `{ player, details: { battlefieldId } }` with no participant object, so no
+ * merged EventPattern field can express "this unit was present at the
+ * conquering battlefield". A `player: 'self'` pattern would award the trigger
+ * to every Adaptatron the controller owns, not the one that conquered, and is
+ * rejected as an approximation of 383.4.c.1. A proof test registers the
+ * translated filter through validateTriggerSpec and shows that a real
+ * conquered emission does not match it. Not approximated — the "if you do"
+ * gate is written as a real kill-receipt condition rather than an
+ * unconditional buff.
  */
 export default {
   canonicalCardId: "card.hash-efa44994f07966ad8095ddd1f56f9c20b1246888b3f037a54a196793f2cb0f4b",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "触发无法进入链：conquer 时点已由 turn/flow.ts 的 Score 波发射并进管线（RIFT-124/262），" +
-    "但本卡的嵌套 { event, filter } 拼写被引擎侧 assertTriggerSpec 拒绝（events/trigger-spec.ts 的 EventPattern 没有内层 filter 字段），" +
-    "且没有已合入消费方把 CardProgram 的 triggered 能力绑定成 TriggerRegistration（RIFT-257）。" +
+    "触发绑定已合入（RIFT-257，programs/triggers.ts 经 translateTriggerFilter 把本卡的" +
+    "{ filter: { source: 'self' } } 拼写翻译成 object:{objectId:宿主}，并通过 assertTriggerSpec），" +
+    "效果本体（choice.optional + effect.kill 写 killed 回执 + effect.buff self 锚点）也已合入并有 golden 执行测试。" +
+    "仍缺 383.4.c.1 的自身范围条件：conquered 发射（turn/flow.ts Score 波）载荷只有 { player, details:{ battlefieldId } }、" +
+    "没有参战单位 object，EventPattern 的封闭字段集（event/object/source/target/player/details…）" +
+    "没有任何字段能表达「本单位在征服战场在场」；player:'self' 只能近似成『控制者的每个征服』，" +
+    "会把不相干单位的 Adaptatron 也挂上触发，属近似实现，不采用。" +
+    "证明测试：translateTriggerFilter 产出的 pattern 通过 validateTriggerSpec，" +
+    "但对真实 conquered 发射 matchesTriggerEvent 返回 false。不近似实现。" +
     "「you may kill a gear. If you do, buff me.」本体用已合入的 choice.optional + effect.kill（写 killed 回执）+ effect.buff（self 锚点）表达，" +
     "其中「If you do」按 359.3.e.14.b 直接引用该消灭动作、以 killed 回执判定，golden 已覆盖接受/拒绝/死亡被替代三条路径；" +
-    "缺的只是触发注册与可注册的自我范围拼写。依赖：RIFT-257（CardProgram 触发绑定）。不近似实现。",
+    "缺的只是可注册的自我范围拼写（触发注册路径已合入）。不近似实现。",
   abilities: [
     {
       kind: "triggered",
       trigger: {
         at: "conquer",
-        // 383.4.c.2.a: the unit must have been present at the conquering
-        // battlefield; the merged event matcher binds "self" to this ability's
-        // source (events/pipeline-match.ts).
-        filter: { event: "conquer", filter: { source: "self" } }
+        // 383.4.c.1: the unit must have been present at the conquering
+        // battlefield. "conquered" is the validator's event name; the merged
+        // binding (RIFT-257) translates the nested self anchor into
+        // object:{objectId: host}. The conquered emission still carries no
+        // participant object, so this scoping cannot match today — the gap is
+        // recorded in judgeReason and proven by the test below.
+        filter: { event: "conquered", filter: { source: "self" } }
       },
       optional: false,
       body: [

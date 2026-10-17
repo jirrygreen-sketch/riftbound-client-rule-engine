@@ -24,7 +24,8 @@ test("ogn-276-298 Aspirant's Climb: identity, ruleset, status and printed text",
   // The unresolved part is the missing Victory Score operation.
   assert.match(program.judgeReason, /Victory Score/);
   assert.match(program.judgeReason, /194\.3/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  // The static binding half is merged; the remaining dependency is the primitive.
+  assert.match(program.judgeReason, /static binding is merged/);
 });
 
 test("ogn-276-298 Aspirant's Climb: no ability is encoded because no primitive changes the Victory Score", () => {
@@ -40,5 +41,6 @@ test("ogn-276-298 Aspirant's Climb: no ability is encoded because no primitive c
 test.todo(
   "ogn-276-298 Aspirant's Climb: raising the Victory Score by 1 (CR 194.3.a) needs a " +
     "victory-score primitive / contract change request; the engine already models the value " +
-    "internally (scoring/setDuelVictoryScoreForEffect) without a card-facing opcode"
+    "internally (scoring/setDuelVictoryScoreForEffect) without a card-facing opcode; the " +
+    "RIFT-257 static binding is already merged."
 );

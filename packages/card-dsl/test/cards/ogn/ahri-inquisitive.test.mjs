@@ -44,7 +44,8 @@ test("Ahri, Inquisitive identity and judge-required reason", () => {
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /translateTriggerFilter/);
+  assert.doesNotMatch(program.judgeReason, /sameLocationAs.*锚点也由绑定层解析/);
   assert.match(program.judgeReason, /attack-declared/);
   assert.equal(
     program.sourceText,
@@ -180,6 +181,7 @@ test("golden: the printed minimum of 1 clamps the reduction (479.4.b)", () => {
 test.todo(
   "Ahri, Inquisitive: the attack-declared / defense-declared timing points and the ability's " +
     "self-scoped trigger registration (383.4.e.1 / 383.4.f.1) still have no merged path: " +
-    "combat/flow.ts blocks the declaration transaction (CR 466.2) and the nested " +
-    "{ event, filter } spelling is rejected by events/trigger-spec.ts; RIFT-257 owns the binding."
+    "combat/flow.ts blocks the declaration transaction (CR 466.2); the binding spelling itself " +
+    "is merged (RIFT-257 translateTriggerFilter) and instruction-target sameLocationAs anchors " +
+    "still lack a translate-path binding."
 );
