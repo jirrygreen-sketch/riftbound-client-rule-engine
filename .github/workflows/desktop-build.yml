@@ -66,7 +66,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22.21.1
+          # Cache the pnpm store, keyed by the workspace lockfile (never node_modules).
           cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       # Pinned to the same version as apps/desktop-client/src-tauri/rust-toolchain.toml
       # and Cargo.toml `rust-version = "1.90"`, so CI cannot drift onto a newer stable.

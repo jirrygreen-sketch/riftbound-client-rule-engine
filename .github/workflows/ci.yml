@@ -16,9 +16,9 @@ concurrency:
 
 jobs:
   verify:
-    name: install, typecheck, test
+    name: install, typecheck, test, build, headless
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
       - name: Check out repository
@@ -34,7 +34,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22.21.1
+          # Cache the pnpm store, keyed by the workspace lockfile (never node_modules).
           cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       # The official catalog, deck catalog, image manifest and image cache are
       # gitignored generated data and must not exist here. A failure is only
@@ -78,7 +80,7 @@ jobs:
           exit "$status"
 
       - name: Classify workspace test result
-        # Runs whenever the test step ran; its exit code is this job's verdict.
+        # Always classify the recorded test result, including a nonzero exit.
         if: always() && steps.workspace-tests.outcome != 'skipped'
         env:
           WORKSPACE_TEST_LOG: ${{ runner.temp }}/workspace-test.log
@@ -86,6 +88,28 @@ jobs:
         run: |
           export WORKSPACE_TEST_EXIT_CODE="$(cat "$WORKSPACE_TEST_EXIT_CODE_PATH" 2>/dev/null || printf '1')"
           node scripts/ci/analyze-workspace-test-log.mjs --log "$WORKSPACE_TEST_LOG"
+
+      - name: Build workspace
+        # Collect build/headless evidence even when classification found a real
+        # test failure. That failure still keeps the job red.
+        if: ${{ !cancelled() && steps.workspace-tests.outcome != 'skipped' }}
+        run: pnpm build
+
+      # The integration test's fixed seed list is the executable 20-seed
+      # headless regression. Keep this separate from the recursive package test
+      # so its result is visible as its own CI gate and timing sample.
+      - name: Run 20-seed headless regression
+        if: ${{ !cancelled() && steps.workspace-tests.outcome != 'skipped' }}
+        shell: bash
+        run: |
+          if [ ! -f packages/card-data/data/deck-catalog.json ]; then
+            message="SKIP: 20-seed headless regression requires packages/card-data/data/deck-catalog.json, which is absent from a clean checkout."
+            echo "::notice::$message"
+            printf '%s\n' "$message" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          pnpm --filter @riftbound/integration-tests exec vitest run \
+            --config vitest.config.ts test/headless/dual-bot.test.ts
 
       - name: Upload raw workspace test log
         if: always()
