@@ -1,3 +1,6 @@
+// RIFT-697 execution evidence: ../templates/keyword-static-697.test.mjs runs the card's
+// exported abilities through the generic scenario harness and keeps the documented
+// clauses judge-required.
 // RIFT-672 execution evidence: ../templates/keyword-static-672.test.mjs (supported paths only).
 // Partial execution evidence is consolidated in ../templates/keyword-static-647.test.mjs; this card remains judge-required for the gaps asserted below.
 import assert from "node:assert/strict";

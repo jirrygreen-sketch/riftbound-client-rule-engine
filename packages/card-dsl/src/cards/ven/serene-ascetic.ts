@@ -64,6 +64,7 @@ export default {
     "但授予后的关键词没有随图层变化重新展开绑定，Shield 展开读取的 designation 与公开 combatRole 仍不一致；" +
     "target.tax 也不是 programs/statics.ts layerFor() 支持的图层，且没有把该 Deflect 税自动接入目标 Finalize。" +
     "RIFT-672 模板已验证原始门控的持续授予关键词与撤销，不能证明 Shield 战斗加值或 Deflect 税已执行。" +
+    "RIFT-697 模板在同一场景链路下复核 Empowered 门控的授予与撤销，仍不能证明 Shield 战斗加值或 Deflect 税已执行。" +
     "不近似实现：不伪造启动能力，不把依赖能力写成无条件能力。",
   abilities,
   sourceText:

@@ -53,7 +53,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺 Empower 印刷费用的绑定：827.1.c.1/827.1.c.2 的 discard 1 属非资源费用；Empower KeywordDef 已注册并支持 params.cost、未 Empowered 限制与结算重验，但 KeywordAbility 只有 keyword/value，programs/keywords.ts 不转发 params.cost，也未把「从当前手牌选择一张」转换成费用计划的精确引用。828.1.c 的门控现改用 object-property self.empowered >= 1，参考内核可读取并通过 static → continuous.might 图层执行；ObjectSnapshot 尚未声明 empowered，生产快照及 442.1 的状态动作约束仍需统一。RIFT-672 模板验证真实效果链赋予状态后的 +1 与撤销，并确认缺失费用的启动失败闭合；不宣称 discard 费用已接通。保留 judge-required，不近似实现。",
+    "仍缺 Empower 印刷费用的绑定：827.1.c.1/827.1.c.2 的 discard 1 属非资源费用；Empower KeywordDef 已注册并支持 params.cost、未 Empowered 限制与结算重验，但 KeywordAbility 只有 keyword/value，programs/keywords.ts 不转发 params.cost，也未把「从当前手牌选择一张」转换成费用计划的精确引用。828.1.c 的门控现改用 object-property self.empowered >= 1，参考内核可读取并通过 static → continuous.might 图层执行；ObjectSnapshot 尚未声明 empowered，生产快照及 442.1 的状态动作约束仍需统一。RIFT-672 模板验证真实效果链赋予状态后的 +1 与撤销，并确认缺失费用的启动失败闭合；RIFT-697 模板用通用场景链路复核门控前后与失效边界，仍不宣称 discard 费用已接通。保留 judge-required，不近似实现。",
   abilities,
   sourceText:
     "[Empower] — Discard 1 (Pay the cost: Empower me. Use only if not Empowered.)\n" +

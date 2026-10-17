@@ -56,7 +56,7 @@ export default {
     "参考内核可求值，但生产 ObjectSnapshot 尚未声明 live empowered 计数；(3) continuous.grant-keyword 与 " +
     "programs/statics.ts 的 ability 图层绑定（bindStatic）已合入；RIFT-672 模板通过真实效果链验证原始门控的 Assault 3 授予与撤销，" +
     "但授予后的关键词没有随图层变化重新展开绑定，Assault 展开读取的 designation 与公开 combatRole 仍不一致，" +
-    "807.1.c 的攻击者 +3 尚无完整执行路径。仍需生产门控状态接线，不近似实现。",
+    "807.1.c 的攻击者 +3 尚无完整执行路径。RIFT-697 模板用通用场景链路复核该授予与撤销，仍需生产门控状态接线，不近似实现。",
   abilities,
   sourceText:
     "[Empower] :rb_energy_2::rb_rune_fury: (:rb_energy_2::rb_rune_fury:: Empower me. Use only if not Empowered.)\n" +

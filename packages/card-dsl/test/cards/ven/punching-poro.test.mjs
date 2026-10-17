@@ -1,3 +1,6 @@
+// RIFT-697 execution evidence: ../templates/keyword-static-697.test.mjs runs the card's
+// exported abilities through the generic scenario harness and keeps the documented
+// clauses judge-required.
 // RIFT-672 execution evidence: ../templates/keyword-static-672.test.mjs (supported paths only).
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createActionPipelineHost, bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";

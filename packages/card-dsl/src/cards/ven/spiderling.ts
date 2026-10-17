@@ -83,7 +83,8 @@ export default {
     "但 engine-core/src/deck/index.ts 只是占位 export，deckbuilding 的 kind 词汇与消费方未定义，" +
     "因此只保留描述性记录，不在卡内自造构筑限制（deckLimit 图层查询已存在，但未接 deckbuilding 字段）。" +
     "已支持部分：count + sameLocationAs + exclude 的子集合在 golden 中真实求值；模板 keyword-static-672 " +
-    "通过实际付费打出验证无其他同名单位时的边界，不能证明 Hidden 或动态 +N 已执行。" +
+    "通过实际付费打出验证无其他同名单位时的边界，RIFT-697 模板再以通用场景链路复核「其他同名单位都在别处」的 +0 边界，" +
+    "仍不能证明 Hidden 或动态 +N 已执行。" +
     "依赖：Hidden 打出许可接线、名称谓词、N 倍 amount 求值、deckbuilding 消费者。",
   abilities,
   // 103.3.b / 103.3.b.1：本印刷覆盖「同名牌最多 3 张」的默认限制；只作为数据记录，
