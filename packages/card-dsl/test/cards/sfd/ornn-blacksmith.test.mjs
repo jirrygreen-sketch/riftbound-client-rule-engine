@@ -56,20 +56,20 @@ test("sfd-058-221 Ornn, Blacksmith: identity, ruleset, status, judgeReason and v
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
-test("sfd-058-221 Ornn, Blacksmith: the chain adapter executes the declared reveal pick", () => {
-  // 425.1/425.1.a.2: the card declares the picked gear through contract 3.6's
-  // pick selector. RIFT-358 makes chain/interpreter-adapter.ts's LITERAL_FIELDS
-  // unpack `pick` for effect.reveal, so resolveChainBody delivers the unwrapped
-  // literal to the primitive and the declared pick executes. This is executed
-  // evidence that the adapter half of old gap (2) has landed.
+test("sfd-058-221 Ornn, Blacksmith: the reveal pick is rejected before the primitive sees it", () => {
+  // 425.1/425.1.a.2: the card declares the picked gear through account 3.6's
+  // pick selector. chain/interpreter-adapter.ts's LITERAL_FIELDS unpacks only
+  // `target` for effect.reveal, so the Expr envelope reaches the primitive and its
+  // argument validator rejects it. This is the executed evidence for the adapter
+  // half of gap (2).
   const kernel = world().deck(["gear-a"], { owner: "A" }).build();
   kernel.setPicks("ornn-blacksmith.revealed-gear", kernel.zone("A", "deck"));
-  const chainRun = resolveChainBody([revealGear], kernel);
-  assert.equal(chainRun.status, "executed");
-  const chainResult = chainRun.results.find((entry) => entry.id === revealGear.id);
-  assert.equal(chainResult.result.status, "executed");
+  assert.throws(
+    () => resolveChainBody([revealGear], kernel),
+    /effect\.reveal: pick must be a non-empty id/
+  );
   // The same declaration is executable when the primitive is called with the
-  // unwrapped literal directly (what the golden below uses).
+  // unwrapped literal (what the golden below uses), so only the adapter is missing.
   const direct = runInstruction(
     reveal,
     { pick: revealGear.args.pick.value },
