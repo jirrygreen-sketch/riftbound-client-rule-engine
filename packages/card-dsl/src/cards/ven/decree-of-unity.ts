@@ -41,6 +41,11 @@ const decreeOfUnity = {
   abilities: [
     {
       kind: "play",
+      cost: {
+        kind: "cost.printed",
+        energy: { kind: "constant", value: 2 },
+        power: { kind: "constant", value: 1 }
+      },
       body: [
         {
           // "Kill an enemy Chaos unit or gear"：一个被选目标（355.7/355.9.a.1/355.10）。
