@@ -6,7 +6,9 @@ import program from "../../../dist/cards/unl/bird.js";
 // card-dsl 不依赖 engine-core（方向相反），golden 执行按 workspace 布局直接加载已构建的 engine-core。
 import deflect from "../../../../engine-core/dist/effects/keywords/Deflect.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
-import { finalizeTargetPlan } from "../../../../engine-core/dist/target/target-plan.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { payCostPlan, prepareCostPayment } from "../../../../engine-core/dist/cost/payment.js";
+import { DUEL_DOMAINS } from "../../../../engine-core/dist/cost/resources.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -26,12 +28,13 @@ test("unl-t02 Bird: identity, status, judgeReason and verbatim sourceText", () =
   assert.equal(program.canonicalCardId, CANONICAL_ID);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
-  assert.equal(program.sourceText, SOURCE_TEXT);
-  // judge-required 必须写清缺什么接线、依据哪条规则、依赖哪个任务（README 第 2 节）。
   assert.match(program.judgeReason, /target\.tax/);
   assert.match(program.judgeReason, /809\.1\.c\.1/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /RIFT-360/);
   assert.match(program.judgeReason, /Energy/);
+  assert.match(program.judgeReason, /plan\.power/);
+  assert.equal(program.sourceText, SOURCE_TEXT);
+  // judge-required 必须写清缺什么接线、依据哪条规则、依赖哪个任务（README 第 2 节）。
 });
 
 test("unl-t02 Bird: exactly one unvalued Deflect keyword ability", () => {
@@ -65,59 +68,38 @@ test("unl-t02 Bird: the expansion is static target.tax 1 (809.1.b.3's presumed X
   assert.deepEqual(valued.effect.value, { kind: "constant", value: 2 });
 });
 
-test("unl-t02 Bird: the merged TargetPlan tax path appends the Deflect tax for the choosing opponent", () => {
-  // 809.1.d：Deflect 是强制附加费用，选择该永久物的玩家在 Finalize 支付；
-  // 这里执行已合入的 TargetPlan 追加路径：选 Bird 会追加一笔 tax 请求。
-  const kernel = world()
-    .unit("bird", { might: 1, tags: ["Bird"], isToken: true, keywords: [{ id: "deflect", value: 1 }] })
-    .build();
-  const requests = [];
-  const plan = finalizeTargetPlan(
-    kernel,
-    { id: "spell-target", filter: { type: "unit" }, min: 1, max: 1, selection: "one" },
-    {
-      selected: [kernel.ref("bird")],
-      tax: { kind: "deflect", amount: 1 },
-      taxAdapter: {
-        appendTargetTax: (request) => {
-          requests.push(request);
-          return { status: "appended" };
-        }
-      }
-    }
-  );
+test.todo("bird: derive Deflect on each enemy target choice and append unrestricted-domain Power to Finalize costs (CR 809.1.c.1/809.1.d; RIFT-360)");
 
-  assert.deepEqual(plan.selected, [kernel.ref("bird")]);
-  assert.equal(requests.length, 1);
-  assert.equal(requests[0].kind, "deflect");
-  assert.equal(requests[0].amount, 1);
-  assert.equal(requests[0].payer, "A");
-  assert.deepEqual(requests[0].target, kernel.ref("bird"));
+for (const domain of ["Fury", "Order"]) {
+  test(`Bird: the cost allocator prepares the Deflect Power component using ${domain} (809.1.c.1)`, () => {
+    const kernel = world().player("A", { energy: 2, power: [domain] }).build();
+    const [expansion] = deflect.expand({ host: { canonicalCardId: CANONICAL_ID } });
+    // This checks actual allocation and the kernel action, not resource
+    // consumption. Automatic target-tax derivation is RIFT-360.
+    const plan = buildCostPlan(kernel, {
+      id: "bird:deflect", domains: [], cost: { energy: { kind: "constant", value: 2 } },
+      mandatoryAdditional: [{ id: "bird:tax", cost: { power: expansion.effect.value } }]
+    });
+    assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: DUEL_DOMAINS }]);
+    const before = kernel.snapshot();
+    const prepared = prepareCostPayment(kernel, plan);
+    assert.deepEqual(prepared.power.power, [{ requirementIndex: 0, from: domain, amount: 1 }]);
+    assert.deepEqual(prepared.actions, [{
+      id: "bird:deflect:resources",
+      action: { type: "pay", player: "A", plan: { finalized: true, energy: 2, power: [domain] } }
+    }]);
+    assert.deepEqual(kernel.snapshot(), before, "preparing a payment does not spend resources");
+  });
+}
+
+test.todo("bird: execute Deflect Power payment against a kernel that consumes the prepared Power action, then verify the resource delta (CR 809.1.c.1; RIFT-360 integration)");
+
+test("Bird: Energy cannot substitute for the required Deflect Power (809.1.c.1)", () => {
+  const kernel = world().player("A", { energy: 10, power: [] }).build();
+  const plan = buildCostPlan(kernel, {
+    id: "bird:unpayable", domains: [], cost: {},
+    mandatoryAdditional: [{ id: "bird:tax", cost: { power: { kind: "constant", value: 1 } } }]
+  });
+  assert.throws(() => payCostPlan(kernel, plan), error => error.reason === "cannot-pay-cost");
+  assert.equal(kernel.player("A").energy, 10);
 });
-
-test("unl-t02 Bird: an unpayable Deflect tax makes the choice illegal (809.1.d)", () => {
-  const kernel = world().unit("bird", { might: 1, tags: ["Bird"], isToken: true }).build();
-  assert.throws(
-    () =>
-      finalizeTargetPlan(
-        kernel,
-        { id: "spell-target", filter: { type: "unit" }, min: 1, max: 1, selection: "one" },
-        {
-          selected: [kernel.ref("bird")],
-          tax: { kind: "deflect", amount: 1 },
-          taxAdapter: { appendTargetTax: () => ({ status: "unpayable", reason: "no power available" }) }
-        }
-      ),
-    (error) => error.code === "target-tax-unpayable"
-  );
-});
-
-test.todo(
-  "bird: 生产侧的「持续效果 → TargetPlan 税」派生——没有生产方从永久物的 target.tax 持续效果生成税请求，" +
-    "TargetPlan 只在调用方显式传入 tax 时才追加（契约 3.8 第 4 条把目标锁定通知归引擎批 4；RIFT-90）"
-);
-
-test.todo(
-  "bird: 809.1.c.1 要求追加费用用任意域 Power（rainbow）支付——已合入的税→费用换算按 Energy 记账" +
-    "（chain/engine.ts 的 mandatoryAdditional 用 energy 常量），需要费用计划的任意域 Power 支付路径（RIFT-89）"
-);

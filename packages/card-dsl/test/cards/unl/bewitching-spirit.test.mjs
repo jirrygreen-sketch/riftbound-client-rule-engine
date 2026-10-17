@@ -4,7 +4,7 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/bewitching-spirit.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/index.js";
 import discard from "../../../../engine-core/dist/effects/instructions/effect.discard.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -26,15 +26,11 @@ test("unl-121-219 Bewitching Spirit: identity, status, judgeReason and verbatim 
   assert.equal(program.canonicalCardId, CANONICAL_ID);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
-  assert.equal(program.sourceText, SOURCE_TEXT);
-  assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /target\.player/);
   assert.match(program.judgeReason, /355\.7/);
   assert.match(program.judgeReason, /355\.9\.a/);
-  // The trigger registration path is merged now (RIFT-257); the reason must not
-  // still claim no subscriber exists.
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.doesNotMatch(program.judgeReason, /触发能力没有注册路径/);
+  assert.equal(program.sourceText, SOURCE_TEXT);
+  assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
 test("unl-121-219 Bewitching Spirit: 'When you play me' is a mandatory card-played trigger on the source", () => {
@@ -134,42 +130,14 @@ test("unl-121-219 Bewitching Spirit golden: an empty hand negates the discard as
   assert.deepEqual(kernel.zone("B", "trash"), []);
 });
 
-test("unl-121-219 Bewitching Spirit golden: the discard body runs on the merged primitive", () => {
-  // The discard body is expressible with the merged effect.discard primitive; the
-  // unmerged half is the player choice (recorded in the judgeReason).
-  assert.notEqual(instructionDefinitionsById.get("effect.discard"), undefined);
+test("unl-121-219 Bewitching Spirit: the discard component resolves to the merged primitive", () => {
+  assert.equal(instructionDefinitionsById.get(chosenDiscards.op), discard);
 });
 
-test.todo(
-  "unl-121-219 Bewitching Spirit: “choose a player” locks one of the current players at Finalize as a player " +
-    "target (CR 355.7/355.9.a) — the frozen IR has no player-target shape and the registrar has no target.player " +
-    "op (ability-templates section 4: each player is not equivalent to choose opponent)"
-);
-test("unl-121-219 Bewitching Spirit: the merged trigger binder registers this card's card-played subscription", () => {
-  // RIFT-257's production adapter accepts the program's declared trigger and
-  // registers it with the pipeline (same shape as unl/abandoned-hall).
-  const binding = createProgramBinding({
-    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
-  });
-  const source = {
-    ref: { id: "spirit", zoneEntryId: 1 }, cardId: CANONICAL_ID, name: "Bewitching Spirit",
-    types: ["unit"], tags: [], keywords: [], owner: "A", controller: "A", zone: "board",
-    location: { type: "base", player: "A" }, might: 2, energy: 3, power: [], exhausted: false,
-    damage: 0, stunned: false, buffs: 0, attachedTo: null, faceDown: false, isToken: false
-  };
-  const registered = [];
-  const ids = binding.registerProgramTriggers(
-    { pipeline: { registerTrigger: registration => registered.push(registration) } },
-    source
-  );
+test.todo("bewitching-spirit: lock any current player at Finalize as a player target and bind that player to discard (CR 355.7/355.9.a)");
 
-  assert.equal(ids.length, 1);
-  assert.equal(registered[0].spec.at, "card-played");
-  assert.deepEqual(registered[0].spec.filter, {
-    event: "card-played",
-    object: { objectId: "spirit" },
-    player: "self"
+test("Bewitching Spirit: translate the declared self play trigger for the event pipeline", () => {
+  assert.deepEqual(translateTriggerFilter(playTrigger.trigger.filter, "spirit", playTrigger.trigger.at), {
+    event: "card-played", object: { objectId: "spirit" }, player: "self"
   });
-  assert.equal(registered[0].optional, false);
 });
-

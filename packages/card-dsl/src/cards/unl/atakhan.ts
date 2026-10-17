@@ -1,48 +1,9 @@
 import type { Ability, CardProgram } from "../../ir/index.js";
 
 /**
- * Atakhan (unl-170-219) — Unit, Order, energy 10, power 3, Might 7,
- * tags Noxus/Demon.
- *
- * sourceText（packages/card-data/data/deck-catalog.json, unl-170-219，逐字）:
- *   "You may kill a friendly unit as an additional cost to play me. If you do, I
- *    cost :rb_energy_1: less for each Energy it costs and :rb_rune_order: less
- *    for each Power it costs.\n[Ganking] (I can move from battlefield to
- *    battlefield.)\nWhen I attack, the defender must kill one of their units
- *    here."
- *
- * 规则依据（CR v1.5）:
- * - 356.2.b / 356.2.b.1：“You may kill a friendly unit as an additional cost to
- *   play me”是由被打出卡牌自身的 Passive Ability 指定的可选附加费用；355.10.c
- *   明确作为费用包含的对象不是目标。
- * - 356.4.b / 356.4.c / 356.4.c.1 / 206：减费读的是**该牌印刷/复制**的费用（206：
- *   需要判定费用时一律用印刷或复制费用；CR 用本卡作为 206 的示例：“每 1 点 Energy
- *   少 1，每 1 点 Order Power 少 1”），属于分量折扣，在 356.4 阶段应用。
- * - 356.4.f.1：可选附加费用一旦做了支付决定即算“已付”，其授予的折扣随之生效。
- * - [Ganking]（810）：Passive Ability 关键词，810.1.c 给单位的标准移动增加许可；
- *   卡程序按契约 3.7 只声明 keyword，展开归已合入的 effects/keywords/Ganking.ts。
- * - “When I attack, the defender must kill one of their units here”：383.4.e 的
- *   Attack Trigger（attack-declared 时点）；“the defender must kill”是强制指令，
- *   “here”按 359.3.f 指攻击发生时本卡所在战场，“one of their units”＝防御者控制的、
- *   同在该战场的单位。
- *
- * status = judge-required（缺口不近似实现）:
- * 1. 可选附加费用与“If you do”的凭证：没有 cost.additional 的卡牌 op，也没有
- *    CardProgram → CostPlan 的接线（已合入的 cost 计划能收 kill 组件与折扣，但
- *    不接受卡牌程序声明，cost/README.md 记录该缺口）。
- * 2. 折扣量必须读**印刷费用**（206），且要按被消灭单位的实际费用逐点换算：
- *    CostDiscount.amount 是静态 Expr，读不到“刚被作为费用消灭的对象的印刷费用”，
- *    也没有组件化折扣绑定“该可选费用已付”的闸门（356.4.f.1）。
- * 3. “the defender must kill one of their units here”需要移动/战斗流程暴露
- *    “谁是本次攻击的防御者”，并按防御者扇出强制选择 + 在“here”位置内选择；
- *    effect.kill 只接受一个 target / picks / self 来源，IR 没有按玩家枚举的重复
- *    结构；且 attack-declared 时点载荷是否带防御者身份属战斗批次（383.4.e.1
- *    的“取得 Attacker 身份”已定义，防御者身份在战斗流程里产生）。
- * golden 里真实执行的是已合入部分：effect.kill 本体（对被锁定的“here”单位）与
- * Ganking 关键词的已合入 KeywordDef 展开；其余写 test.todo。
- *
- * 依赖：RIFT-9（cost.additional / cost.sacrifice）、RIFT-89（费用计划接线、
- * 组件折扣与已付回执）、战斗批次（attack/defend 身份和 here 位置选择）。
+ * Atakhan — CR v1.5 356.2.b.1/356.4.f.1 (optional additional cost),
+ * 206 (printed/copied cost), 810 (Ganking), 383.4.e/359.3.f (attack/here).
+ * cost.pay/cost.modify、费用种类与卡牌触发绑定均已合入；剩余边界见 judgeReason。
  */
 const ENEMY_UNIT_HERE = "atakhan.defender-unit-here";
 
@@ -102,11 +63,11 @@ const abilities: Ability[] = [
       kind: "continuous.cost-modification",
       appliesTo: "self",
       resource: "power",
-      // 206 / 135.2.e.4：印刷的 Order Power 费用，每点少 1 枚 Order Power；同样用
+      // 206 / 135.2.e.4：被消灭单位每一点印刷/复制 Power（不限领域），少 1 枚 Order Power；同样用
       // cost-receipt 占位（依赖落地前 fail-closed，不写静态常量近似）。
       amount: {
         kind: "count",
-        subject: "order-power-cost-of-the-killed-unit",
+        subject: "power-cost-of-the-killed-unit",
         filter: { zone: "cost-receipt" }
       },
       domains: ["Order"],
@@ -156,14 +117,7 @@ const program = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1) 可选附加费用与其凭证：没有已注册的 cost.additional 卡牌原语，也没有 CardProgram → CostPlan 的接线" +
-    "（已合入的 cost 计划能收 kill 组件，但不消费卡牌程序声明的 static 费用；RIFT-89）。" +
-    "(2) 折扣量必须读被作为费用消灭单位的印刷费用（206 用本卡作示例：每 1 点 Energy 少 1、每 1 点 Order Power 少 1），" +
-    "而 CostDiscount.amount 是静态 Expr，读不到该费用对象的印刷费用，也没有「仅在该可选费用已付时授予」的组件折扣闸门（356.4.f.1）。" +
-    "(3)「the defender must kill one of their units here」需要战斗流程暴露本次攻击的防御者并按防御者扇出强制选择：" +
-    "effect.kill 只接受一个 target / picks / self 来源，IR 没有按玩家枚举的重复结构，也没有「防御者」的过滤器取值；" +
-    "「here」用 sameLocationAs 锚点已声明。已可执行部分：effect.kill 本体与已合入的 Ganking 关键词展开（810）。" +
-    "依赖：RIFT-9（cost.additional / cost.sacrifice）、RIFT-89（费用计划接线、组件折扣与已付回执）、战斗批次。不近似实现。",
+    "当前缺口（CR v1.5）：(1) cost.pay/cost.modify、kill 费用种类、可选费用凭证均已合入，但 programs/play.ts 不把 static cost.additional/grantedBy 声明转换为 Finalize 的 optionalAdditional 与 discounts；356.2.b.1/356.4.f.1 所需的选择与减费闸门仍未接通。(2) 206 要求读取被选择作费用单位的印刷或复制 Energy/Power 费用；现有 count 仅统计对象，不能读取支付对象的费用快照并据其 Power 数量计算 Order 分量折扣。(3) attack-declared 仅有时点定义，生产流程未发出该时点；还需把本次防御者、攻击地点及选择者绑定到 effect.kill 的非目标选择（383.4.e/359.3.f，位置选择 RIFT-357）。(4) Ganking 已有展开与移动规则查询，但其 static permission 字符串尚未转换为规则查询要求的 permission.routes，不能据此宣称整卡可执行。",
   abilities,
   sourceText:
     "You may kill a friendly unit as an additional cost to play me. If you do, I cost :rb_energy_1: less " +

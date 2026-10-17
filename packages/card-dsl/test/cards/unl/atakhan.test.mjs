@@ -4,6 +4,8 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/atakhan.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
+import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
@@ -31,11 +33,12 @@ test("unl-170-219 Atakhan: identity, status, judgeReason and verbatim sourceText
   assert.equal(program.canonicalCardId, CANONICAL_ID);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
-  assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /cost\.additional/);
   assert.match(program.judgeReason, /206/);
   assert.match(program.judgeReason, /356\.4\.f\.1/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /optionalAdditional/);
+  assert.match(program.judgeReason, /permission\.routes/);
+  assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -79,8 +82,9 @@ test("unl-170-219 Atakhan: the two component discounts read the killed unit's pr
   assert.equal(energyDiscount.effect.amount.subject, "energy-cost-of-the-killed-unit");
   assert.equal(powerDiscount.effect.resource, "power");
   assert.deepEqual(powerDiscount.effect.domains, ["Order"]);
-  // :rb_rune_order: is a specific-domain Power symbol, not the universal one.
-  assert.equal(powerDiscount.effect.amount.subject, "order-power-cost-of-the-killed-unit");
+  // The reduction is Order Power; its amount counts every printed/copied
+  // Power symbol of the killed unit, regardless of that unit's domains.
+  assert.equal(powerDiscount.effect.amount.subject, "power-cost-of-the-killed-unit");
 });
 
 test("unl-170-219 Atakhan: [Ganking] is declared as a bare keyword and expands through the merged KeywordDef (810)", () => {
@@ -172,15 +176,42 @@ test("unl-170-219 Atakhan golden: a defender unit that already left makes the ki
   assert.deepEqual(run.events, []);
 });
 
-test.todo(
-  "unl-170-219 Atakhan: an optional additional cost op plus the CardProgram -> CostPlan wiring that charges the kill " +
-    "during Finalize and exposes a paid receipt (356.2.b.1 / 356.4.f.1) — RIFT-9 / RIFT-89"
-);
-test.todo(
-  "unl-170-219 Atakhan: component discounts whose amount reads the killed unit's PRINTED energy/power cost (206 / " +
-    "356.4.b-c) and that are granted only by the selected optional cost — the receipt has no such expression"
-);
-test.todo(
-  "unl-170-219 Atakhan: the attack trigger needs the defender's identity from the combat flow plus per-player fan-out " +
-    "for \"the defender must kill one of their units here\" (383.4.e / 355.10.d) — no IR form yet"
-);
+test.todo("atakhan: bind static optional kill costs and grantedBy discounts to Finalize, including the chosen printed/copied cost (CR 206/356.4.f.1)");
+
+test.todo("atakhan: produce attack-declared and bind defender, chooser and attack location to the forced kill (CR 383.4.e; RIFT-357)");
+
+test.todo("atakhan: normalize the Ganking static expansion into permission.routes before Standard Move consumes it (CR 810.1.c)");
+
+for (const selected of [true, false]) {
+  test(`Atakhan: the isolated optional kill component selected=${selected} produces the actual payment receipt`, () => {
+    // Isolate the supported optional kill component. Reading the chosen unit's
+    // printed costs for the card's reductions remains a separate blocker.
+    const kernel = world().player("A")
+      .hand("atakhan", { cardId: CANONICAL_ID, energy: 10, power: ["Order", "Order", "Order"] })
+      .unit("cost-unit", { might: 2, energy: 2, power: null }).build();
+    const ctx = kernel.clone({ sourceSnapshot: kernel.getObject("atakhan") });
+    const modify = runInstruction(costModify, {
+      // No printed-cost payment is claimed here: this executes only the
+      // additional component declared by the card, with an empty base cost.
+      id: "atakhan:optional", cost: { payments: [] },
+      optionalAdditional: [{ id: additionalCost.effect.id, kind: "additional", selected,
+        cost: { payments: [{ kind: "kill", object: ctx.ref("cost-unit") }] } }]
+    }, { world: ctx });
+    assert.equal(modify.result.status, "executed");
+    assert.deepEqual(modify.linked.cost.total.power, []);
+    assert.equal(ctx.getObject("cost-unit").zone, "board", "Finalize planning does not pay the kill");
+    const payment = runInstruction(costPay, {
+      cost: { kind: "constant", value: modify.linked.cost }
+    }, { world: ctx });
+    assert.equal(payment.result.status, "executed");
+    assert.equal(ctx.player("A").energy, 0);
+    assert.deepEqual(ctx.player("A").power, []);
+    assert.equal(ctx.getObject("cost-unit").zone, selected ? "trash" : "board");
+    assert.equal(payment.linked.payment.paid, true);
+    assert.deepEqual(modify.linked.cost.declinedAdditional, selected ? [] : [additionalCost.effect.id]);
+    assert.deepEqual(payment.linked.payment.additional, selected ? [
+      { id: additionalCost.effect.id, kind: "additional", paid: true }
+    ] : []);
+    assert.deepEqual(payment.events.map(event => event.action), selected ? ["pay", "kill"] : ["pay"]);
+  });
+}

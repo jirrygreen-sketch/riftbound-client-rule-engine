@@ -59,12 +59,12 @@ test("unl-169-219 Ashe, Focused: identity, status, judgeReason and verbatim sour
   assert.equal(program.canonicalCardId, CANONICAL_ID);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
-  assert.equal(program.sourceText, SOURCE_TEXT);
-  // The judgeReason must name the concrete missing pieces (contract 3.1).
   assert.match(program.judgeReason, /355\.7/);
   assert.match(program.judgeReason, /391\.5/);
-  assert.match(program.judgeReason, /trigger\.delayed/);
-  assert.match(program.judgeReason, /RIFT-9/);
+  assert.match(program.judgeReason, /registerDelayedTrigger/);
+  assert.match(program.judgeReason, /关联窗口/);
+  assert.equal(program.sourceText, SOURCE_TEXT);
+  // The judgeReason must name the concrete missing pieces (contract 3.1).
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -211,15 +211,6 @@ test("unl-169-219 Ashe, Focused golden: the returned card comes back from Banish
   assert.deepEqual(kernel.zone("B", "hand").map(ref => ref.id), ["banished-card"]);
 });
 
-test.todo(
-  "unl-169-219 Ashe, Focused: choosing a player (\"choose an opponent\") needs a player-target form plus a binding that feeds " +
-    "effect.reveal's player argument (355.7 / 355.9.a; no target.player exists) — the goldens above pass a concrete opponent"
-);
-test.todo(
-  "unl-169-219 Ashe, Focused: the \"When they hold, return it\" Delayed Linked Ability (391.5 / 391.5.a) needs a card-facing " +
-    "delayed-trigger op and the linked scope for the card banished this way (RIFT-9 trigger.delayed / RIFT-120)"
-);
-test.todo(
-  "unl-169-219 Ashe, Focused: a hold-trigger condition that identifies the chosen opponent, so the return does not fire on any " +
-    "player's hold (383.4.d; the hold timing payload carries only the holding player)"
-);
+test.todo("ashe-focused: lock a chosen opponent as a player target and bind reveal/banish/hold to that player (CR 355.7/355.9.a)");
+
+test.todo("ashe-focused: declare a delayed linked hold return with the exact banished incarnation, surviving source exit (CR 391.5/391.5.a)");

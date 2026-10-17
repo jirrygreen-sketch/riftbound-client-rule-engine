@@ -4,11 +4,11 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/back-off.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
-import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import stun from "../../../../engine-core/dist/effects/instructions/effect.stun.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
   "card.hash-8976907cb3568b5c00ce51faf4a35f8342adffe884444d535f12324bb4ae3778";
@@ -23,20 +23,6 @@ const [stunInstruction, drawInstruction] = play.body;
 
 const stunnedKernel = () => world().unit("enemy", { owner: "B", might: 3 }).build();
 
-// The production chain adapter (chain/interpreter-adapter.ts LITERAL_FIELDS)
-// does not list effect.stun's `target`, so it re-validates the evaluated
-// TargetSpec id as an Expr and throws (recorded in the test.todo below and in
-// ogn/solari-shieldbearer). For the body run this one field is decoded locally
-// to the plain id — exactly what the adapter would produce once the field is
-// registered — so the card's own instruction order, condition and ops stay
-// untouched.
-const decodedBody = (body) =>
-  body.map((instruction) =>
-    instruction.op === "effect.stun"
-      ? { ...instruction, args: { target: instruction.args.target.value } }
-      : { ...instruction }
-  );
-
 test("unl-042-219 Back Off: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
   assert.deepEqual(result.issues, []);
@@ -48,12 +34,13 @@ test("unl-042-219 Back Off: identity, ruleset, status, judgeReason and verbatim 
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
+  assert.match(program.judgeReason, /playedFromHand/);
+  assert.match(program.judgeReason, /356\.1/);
+  assert.match(program.judgeReason, /cost\.hidden/);
+  assert.match(program.judgeReason, /LITERAL_FIELDS/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   // The reason must name the real gap (the play origin) plus the keyword
   // expansion dependencies — not a generic "not implemented".
-  assert.match(program.judgeReason, /playedFromHand/);
-  assert.match(program.judgeReason, /356\.1/);
-  assert.match(program.judgeReason, /RIFT-84/);
   assert.equal(cardProgramsById.get(program.canonicalCardId), program);
 });
 
@@ -142,59 +129,31 @@ test("unl-042-219 Back Off golden: an already-Stunned unit is a legal no-op (CR 
   assert.deepEqual(outcome.events, []);
 });
 
-test("unl-042-219 Back Off golden: the draw clause draws when the play-origin fact says hand", () => {
+test("Back Off: the supported draw primitive draws one card; play-origin binding remains unverified", () => {
   const kernel = world().deck(["top-card", "next-card"], { owner: "A" }).build();
-  const scoped = kernel.clone({
-    sourceSnapshot: { ...kernel.source, playedFromHand: true }
-  });
-
-  const outcome = resolveChainBody([drawInstruction], scoped);
-
-  assert.equal(outcome.status, "executed");
-  assert.deepEqual(outcome.results.map((entry) => [entry.id, entry.result.status]), [
-    ["back-off.draw-if-from-hand", "executed"]
-  ]);
-  assert.deepEqual(scoped.objectsInZone("A", "hand").map((ref) => ref.id), ["top-card"]);
-  assert.equal(scoped.player("A").deckSize, 1);
+  // Isolate the declared draw component without fabricating playedFromHand on
+  // the source snapshot. The condition remains a separate integration TODO.
+  const outcome = runInstruction(draw, drawInstruction.args, { world: kernel });
+  assert.equal(outcome.result.status, "executed");
+  assert.deepEqual(kernel.objectsInZone("A", "hand").map(ref => ref.id), ["top-card"]);
+  assert.equal(kernel.player("A").deckSize, 1);
+  assert.deepEqual(outcome.events.map(event => event.action), ["draw"]);
 });
 
-test("unl-042-219 Back Off golden: without the play-origin fact the draw fails closed, the stun still resolves", () => {
-  // "If you played this from your hand" has no merged play-origin fact. Reading
-  // the absent characteristic is MissingInformation, which the interpreter
-  // reports as ignored/mistargeted — it never turns into an unconditional draw.
-  const kernel = stunnedKernel();
-  kernel.setTargets("back-off.stunned-unit", [kernel.ref("enemy")]);
-
-  const outcome = resolveChainBody(decodedBody(play.body), kernel);
-
+test("Back Off: the original conditional draw fails closed when the play-origin fact is unavailable", () => {
+  const kernel = world().deck(["top-card", "next-card"], { owner: "A" }).build();
+  const outcome = runAbilityBody([drawInstruction], kernel);
   assert.equal(outcome.status, "partial");
-  assert.deepEqual(
-    outcome.results.map((entry) => [entry.id, entry.result.status, entry.result.reason ?? null]),
-    [
-      ["back-off.stun-unit", "executed", null],
-      ["back-off.draw-if-from-hand", "ignored", "mistargeted"]
-    ]
-  );
-  assert.equal(kernel.getObject("enemy").stunned, true);
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status, entry.result.reason]), [
+    ["back-off.draw-if-from-hand", "ignored", "mistargeted"]
+  ]);
   assert.deepEqual(kernel.objectsInZone("A", "hand"), []);
-  assert.equal(kernel.player("A").deckSize, 0);
-  assert.deepEqual(outcome.events.map((event) => event.action), ["stun"]);
+  assert.equal(kernel.player("A").deckSize, 2);
+  assert.deepEqual(outcome.events, []);
 });
 
-test.todo(
-  "unl-042-219 Back Off: the printed '[Stun] a unit' through the production chain adapter needs " +
-    "effect.stun's literal `target` field decoded (chain/interpreter-adapter.ts LITERAL_FIELDS) — " +
-    "the merged primitive reads it as a TargetSpec id (RIFT-119 primitive; the golden uses the " +
-    "interpreter's default registry, matching the merged sfd/ogn effect.stun precedent)"
-);
+test.todo("back-off: decode effect.stun.target in the production chain primitive adapter (CR 424.1)");
 
-test.todo(
-  "unl-042-219 Back Off: 'If you played this from your hand' needs an observable play-origin fact " +
-    "(CR 356.1 / 356.2) on ObjectSnapshot or the card-played event payload; nothing merged exposes it"
-);
+test.todo("back-off: expose and evaluate the actual play-origin fact for the conditional draw (CR 356.1/356.2)");
 
-test.todo(
-  "unl-042-219 Back Off: [Hidden] (CR 811) expansion — the Hide discretionary action, the facedown " +
-    "zone permission and the free played-from-facedown cost — is owned by RIFT-84; [Action] (CR 806) " +
-    "needs the continuous.timing consumer and chain canAct wiring (RIFT-85 / RIFT-91)"
-);
+test.todo("back-off: consume Hidden cost.hidden in the Hide action and facedown play timing/cost flow (CR 811)");

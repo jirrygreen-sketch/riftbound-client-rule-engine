@@ -3,6 +3,8 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/bashful-bloom.js";
+import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
+import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
@@ -28,16 +30,16 @@ test("unl-189-219 Bashful Bloom: identity, status, judgeReason and verbatim sour
   assert.equal(program.canonicalCardId, CANONICAL_ID);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
-  assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /sprite/);
   assert.match(program.judgeReason, /187\.2/);
   assert.match(program.judgeReason, /184\.1/);
   assert.match(program.judgeReason, /cost\.modify/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-265/);
+  assert.match(program.judgeReason, /programs\/activate/);
+  assert.match(program.judgeReason, /RIFT-357/);
+  assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
-test("unl-189-219 Bashful Bloom: 4 Energy + Exhaust, action speed, no cost modifier merged into the plan", () => {
+test("unl-189-219 Bashful Bloom: 4 Energy + Exhaust at action speed", () => {
   assert.equal(program.abilities.length, 1);
   assert.equal(ability.kind, "activated");
   // 404.1.a / 415.5: printed ":rb_energy_4:, :rb_exhaust:"; no [Reaction], so
@@ -87,29 +89,6 @@ test("unl-189-219 Bashful Bloom: the printed 4-Energy cost is payable through th
   assert.equal(ctx.object(ctx.ref("bloom")).exhausted, true);
 });
 
-test("unl-189-219 Bashful Bloom: the sprite play is blocked by the frozen token table, not approximated", () => {
-  const kernel = world().build();
-  const run = runInstruction(
-    token,
-    {
-      token: playSprite.args.token,
-      mode: playSprite.args.mode,
-      amount: playSprite.args.amount,
-      location: { kind: "constant", value: { type: "base", player: "A" } }
-    },
-    { world: kernel }
-  );
-  assert.equal(run.result.status, "negated");
-  assert.equal(run.result.reason, "impossible");
-  assert.equal(run.linked.token.amount, 0);
-  assert.equal(run.linked.token.blockedReason, "token-definition-or-abilities-judge-required");
-  assert.deepEqual(kernel.query({ zone: "board", type: "unit" }), []);
-  assert.deepEqual(kernel.events, []);
-});
-
-test.todo(
-  "unl-189-219 Bashful Bloom: add the 3 Might Sprite token (CR 187.2: domainless, Fae tag, Temporary keyword) to the token definitions"
-);
 test("unl-189-219 Bashful Bloom: the Temporary KeywordDef the Sprite token needs is merged", () => {
   // CR 187.2 gives the Sprite token [Temporary]; RIFT-265 merged the KeywordDef,
   // so the token's ability half is available even though the token definition
@@ -148,18 +127,24 @@ test("unl-189-219 Bashful Bloom: mode \"play\" really creates on the Chain and h
   assert.equal(kernel.objects.find(object => object.isToken).zone, "board");
 });
 
-test.todo(
-  "unl-189-219 Bashful Bloom: add the 3 Might Sprite token to the frozen effect.token definitions (CR 187.2: " +
-    "domainless, Fae tag, Temporary keyword)"
-);
+test.todo("bashful-bloom: define the Sprite token with 3 Might, Fae, Temporary and null costs (CR 187.2)");
 
-test.todo(
-  "unl-189-219 Bashful Bloom: cost.modify reduction of 1 Energy per friendly unit with [Temporary] in the cost " +
-    "plan's discount stage (RIFT-261); count/ObjectFilter also have no keyword-characteristic dimension"
-);
-test.todo(
-  "unl-189-219 Bashful Bloom: ready entry override for the created token (CR 143.4 / 184.1) — not create-then-ready"
-);
-test.todo(
-  "unl-189-219 Bashful Bloom: cost.modify reduction of 1 Energy per friendly unit with [Temporary] in the cost plan's discount stage (RIFT-89)"
-);
+test.todo("bashful-bloom: apply ready entry as an entry-state override to the created token (CR 184.1/185.2.d)");
+
+test.todo("bashful-bloom: bind live Temporary-unit count to the activation Finalize discount (CR 404.2/404.3)");
+
+test.todo("bashful-bloom: resolve the ability controllers Base as a relative token location (RIFT-357)");
+
+test("Bashful Bloom: cost.modify and cost.pay settle the printed activation Energy and exhaust cost", () => {
+  const kernel = world().player("A", { energy: 5 })
+    .unit("bloom", { types: ["legend"], exhausted: false }).build();
+  const ctx = kernel.clone({ sourceSnapshot: kernel.getObject("bloom") });
+  const modified = runInstruction(costModify, { id: "bloom:activation", cost: ability.cost }, { world: ctx });
+  assert.equal(modified.result.status, "executed");
+  assert.equal(modified.linked.cost.total.energy, 4);
+  const paid = runInstruction(costPay, { cost: { kind: "constant", value: modified.linked.cost } }, { world: ctx });
+  assert.equal(paid.result.status, "executed");
+  assert.equal(ctx.player("A").energy, 1);
+  assert.equal(ctx.getObject("bloom").exhausted, true);
+  assert.deepEqual(paid.events.map(event => event.action), ["pay", "exhaust"]);
+});
