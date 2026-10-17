@@ -43,7 +43,11 @@ test("sfd-199-221 Prodigal Explorer: identity, ruleset, status, judgeReason and 
   assert.match(program.judgeReason, /HistoryQuery/);
   assert.match(program.judgeReason, /054\.2/);
   assert.match(program.judgeReason, /Legend Zone/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /use-only-if/);
+  // became-target itself is merged now, so the reason must point at the
+  // missing count/attribution dimensions instead of the timing point.
+  assert.match(program.judgeReason, /became-target 时点已合入/);
+  assert.match(program.judgeReason, /RIFT-259/);
 });
 
 test("sfd-199-221 Prodigal Explorer: a Reaction-speed activated ability exhausting the source", () => {
@@ -119,8 +123,9 @@ test("sfd-199-221 Prodigal Explorer: the printed exhaust cost is charged for rea
 
 test.todo(
   "sfd-199-221 Prodigal Explorer: 'chosen enemy units and/or gear twice this turn with spells or unit " +
-    "abilities' needs the count of 355.6/355.7 targeting events this turn plus their spell/unit-ability " +
-    "attribution (412.4/412.6, 754); HistoryQuery exposes only scope/action/timingPoint/player/object"
+    "abilities' needs a turn-scoped count of 355.6/355.7 targeting events plus their spell/unit-ability " +
+    "attribution (412.4/412.6, 754); became-target itself is merged, but HistoryQuery exposes only " +
+    "scope/action/timingPoint/player/object/exclude/objectFilter and no attribution dimension"
 );
 test.todo(
   "sfd-199-221 Prodigal Explorer: the restriction needs a Finalize consumer for card Restrictions " +
@@ -131,6 +136,7 @@ test.todo(
     "cost's 'exhaust me' host cannot be bound in production"
 );
 test.todo(
-  "sfd-199-221 Prodigal Explorer: the Reaction activated ability needs the card-program -> chain activation " +
-    "path (RIFT-120) before it can be activated for real"
+  "sfd-199-221 Prodigal Explorer: chain.canAct (the contract 3.5 timing query) must read the merged " +
+    "continuous.timing grants from the layers/rules registry (RIFT-259 query without a chain consumer) " +
+    "before the printed [Reaction] permission is enforced"
 );

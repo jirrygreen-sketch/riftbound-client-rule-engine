@@ -17,11 +17,14 @@
  *
  * status = judge-required（缺可支付的费用路径与关键词接线，不近似实现）：
  * - 已合入的 Equip 展开声明 payments: [{ kind: "equip", value: source }]，费用管线
- *   cost/plan-values.ts 对未知支付种类直接 blocked：golden 实测 buildCostPlan 抛
+ *   cost/plan-values.ts 对未知支付种类仍直接 blocked：实测 buildCostPlan 抛
  *   CostPlanError（reason "judge-required"，message "Unsupported payment kind: equip"）。
- * - 契约 3.8 第 3 条要求 expand 用 params.cost 承载印刷装备费，已合入的 KeywordDef 接口还没有
- *   该参数；卡牌程序 → 关键词展开 → 时点/链的接线（契约 3.5）未合入。
- * - 依赖：RIFT-89 之后的 Equip 费用支付支持与 RIFT-120 的关键词/链接线。不近似实现。
+ * - 契约 3.8 第 3 条要求 expand 用 params.cost 承载印刷装备费：KeywordDef.expand 的签名已带
+ *   params?.cost（RIFT-105 之后），但 effects/keywords/Equip.ts 的 expand 仍未读取它，印刷的
+ *   1 点 Fury Power 没有绑定进展开结果，因此本卡的 costDomain 仍只是描述性记录。
+ * - 关键词展开已由 programs/keywords.ts 接入卡牌程序（RIFT-257），但展开结果的启动费用在
+ *   Finalize 无法支付（上一项），故整卡保持 judge-required。
+ * - 依赖：equip 支付种类与 Equip.ts 的 params.cost 绑定（RIFT-261 后续）。不近似实现。
  */
 export default {
   canonicalCardId: "card.hash-553d60be98d221dc71d4e71eb6ae5938143fa0c4b71e6e96d27d8570521d36eb",
@@ -30,11 +33,12 @@ export default {
   judgeReason:
     "印刷的 [Equip] 费用（1 点 Fury Power，818.1.c.2）目前无法支付：已合入的 Equip 展开" +
     "（RIFT-87，effects/keywords/Equip.ts）声明 payments: [{ kind: \"equip\", value: source }]，" +
-    "费用管线 cost/plan-values.ts 的 readCost 对未知支付种类直接 blocked —— golden 实测 buildCostPlan " +
+    "费用管线 cost/plan-values.ts 的 readCost 对未知支付种类仍直接 blocked —— 实测 buildCostPlan " +
     "抛 CostPlanError（reason \"judge-required\"，message \"Unsupported payment kind: equip\"）；" +
-    "契约 3.8 第 3 条要求 expand 用 params.cost 承载印刷装备费，已合入的 KeywordDef 接口仍无该参数，" +
-    "也缺卡牌程序→关键词展开→时点/链的接线（契约 3.5）。依赖：RIFT-89 之后的 Equip 费用支付支持" +
-    "与 RIFT-120 的关键词接线。不近似实现（不把 Equip 降级成裸 effect.attach）。",
+    "契约 3.8 第 3 条要求 expand 用 params.cost 承载印刷装备费，KeywordDef.expand 的签名虽已带 params?.cost，" +
+    "但 Equip.ts 的 expand 仍未读取它（印刷费用未绑定进展开结果，本卡的 costDomain 仍是描述性记录）。" +
+    "卡牌程序 → 关键词展开的接线已合入（RIFT-257 的 programs/keywords.ts），缺口在费用支付与费用绑定。" +
+    "依赖：equip 支付种类与 Equip.ts 的 params.cost 绑定（RIFT-261 后续）。不近似实现（不把 Equip 降级成裸 effect.attach）。",
   abilities: [
     { kind: "keyword", keyword: "equip", value: 1, costDomain: "Fury" }
   ],

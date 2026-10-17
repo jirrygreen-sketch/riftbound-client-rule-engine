@@ -24,7 +24,8 @@ test("Rally the Troops program is valid EffectIR v2 data and judge-required", ()
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /trigger\.delayed/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /registerDelayedTrigger/);
+  assert.match(program.judgeReason, /expiresAt/);
   assert.equal(
     program.sourceText,
     "[Action] (Play on your turn or in showdowns.)\n" +
@@ -126,5 +127,6 @@ test("Rally the Troops golden: the independent Draw 1 draws one card", () => {
 test.todo(
   "Rally the Troops delayed trigger: the spell registers a \"this turn\" trigger at the " +
     "card-played timing point, a friendly unit played later buffers through it, and the trigger " +
-    "expires at end of turn (CR 382 / 392 / 355.5.b) (依赖 trigger.delayed 原语与 continuous.duration，RIFT-91)"
+    "expires at end of turn (CR 382 / 392 / 355.5.b) — needs a registered trigger.delayed opcode plus a " +
+    "lifetime parameter on registerDelayedTrigger/TriggerRegistration.expiresAt"
 );

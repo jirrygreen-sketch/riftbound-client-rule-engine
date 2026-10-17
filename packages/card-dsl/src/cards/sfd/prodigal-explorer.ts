@@ -27,11 +27,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   单位能力（412.4/412.5/412.6 的责任与归因、754）。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required。
- * - 条件不可判定：HistoryQuery（effects/contract.ts）只有 scope/action/timingPoint/player/object
- *   五个维度，既不记录 became-target（"chosen"）事件的次数，也没有按选择来源（法术/单位能力）过滤的
- *   归因维度（412.4/412.6、754 的 targeting 通知仍在引擎批 4）；"and/or" 还要把"敌方单位"与"装备"
- *   两类被选对象合起来计数。卡牌 Restriction 也没有已合入的消费方（chain Finalize 只检查调用方传入的
- *   condition），054.2 的门因此不可执行。
+ * - 条件不可判定：became-target 时点本身已合入（chain/engine.ts 在 Finalize 锁定时发射，target-plan.ts
+ *   也有派生），但 HistoryQuery（effects/contract.ts）只有 scope/action/timingPoint/player/object/
+ *   exclude/objectFilter，既不按 timingPoint 统计「本回合被选次数」的来源归因（412.4/412.6、754），
+ *   也没有「该次选择来自法术还是单位能力」的维度；"and/or" 还要把"敌方单位"与"装备"两类被选对象
+ *   合并计数。卡牌 Restriction 仍没有已合入适配：programs/play.ts 的 translateLegalityCondition 只接受
+ *   condition 或约定 kind（always/never/compare/all/any/not/expression），本卡的 use-only-if 会以
+ *   judge-required 抛错，chain Finalize 只检查调用方传入的 condition。054.2 的门因此不可执行。
  * - 契约 3.6 的 ZoneId 没有 Legend Zone（CR 108.3）：传奇不能表示为 Board 对象，415.5/415.4 的
  *   "横置我" 费用缺少可执行宿主（费用计划只接受 board/rune-zone 上的对象，cost/payment.ts 的
  *   checkAction；同 ogn/the-boss）。
@@ -77,15 +79,20 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "（1）限制条件不可判定：「you've chosen enemy units and/or gear twice this turn with spells or unit abilities」需要" +
-    "本回合 355.6/355.7 的「被选」事件计数与选择来源归因（412.4/412.6、754），但 HistoryQuery（effects/contract.ts）只有 " +
-    "scope/action/timingPoint/player/object 五个维度，既不记录 became-target/被选次数，也没有法术/单位能力的归因维度，" +
-    "「and/or」还要合并敌方单位与装备两类被选对象；卡牌 Restriction 也没有已合入的消费方（chain Finalize 只检查调用方传入的 condition），054.2 的 only 门无法执行；" +
-    "（2）契约 3.6 的 ZoneId 没有 Legend Zone（CR 108.3），传奇不能表示为 Board 对象，415.5/415.4 的费用式「横置我」缺少可执行宿主" +
-    "（费用计划只接受 board/rune-zone 上的对象，cost/payment.ts 的 checkAction；同 ogn/the-boss）；" +
-    "（3）没有已合入的接线把 CardProgram 的 activated ability（含 [Reaction] 启动许可，813.1.c.2）推进链，" +
-    "也没有把卡牌 Restriction 接进 Finalize 的路径（同 ogn/hand-of-noxus、ogs/lux-crownguard）。" +
-    "依赖：RIFT-89（费用计划消费方）、RIFT-90（目标/选择与 targeting 通知）、RIFT-120（链与事件单管线），以及 legend-zone 的契约表达。" +
-    "effect.draw 已合入；不近似实现（不用 effect.exhaust 冒充费用，不把条件近似成某个可读计数）。",
+    "本回合 355.6/355.7 的「被选」事件计数与选择来源归因（412.4/412.6、754）。became-target 时点已合入" +
+    "（chain/engine.ts Finalize 锁定与 target-plan.ts 派生），但 HistoryQuery（effects/contract.ts）只有 " +
+    "scope/action/timingPoint/player/object/exclude/objectFilter，没有按 timingPoint 计数的「被选次数」读法，" +
+    "也没有「法术 / 单位能力」的来源归因维度；「and/or」还要合并敌方单位与装备两类被选对象。" +
+    "（2）卡牌 Restriction 没有适配：programs/play.ts 的 translateLegalityCondition 只接受 condition 或约定 kind" +
+    "（always/never/compare/all/any/not/expression），本卡的 kind \"use-only-if\" + value 会被 fail-closed 以 " +
+    "judge-required 拒绝，chain Finalize 也只检查调用方传入的 condition，054.2 的 only 门无法执行。" +
+    "（3）契约 3.6 的 ZoneId（hand/deck/rune-deck/trash/banishment/board/rune-zone/chain）没有 Legend Zone（CR 108.3），" +
+    "415.5/415.4 的费用式「横置我」缺少可执行宿主：费用计划只接受 board/rune-zone 上的对象（cost/payment.ts 的 checkAction；同 ogn/the-boss）。" +
+    "（4）[Reaction] 启动许可（813.1.c.2）本身可由 programs/activate.ts 声明为 ChainDraft.speed，但 chain.canAct 只读自身状态、" +
+    "不读 continuous.timing 图层许可（RIFT-259 的 layers/rules 查询尚无 chain 消费方），传奇的费用宿主也使实际启动不成立。" +
+    "依赖：RIFT-90/后续（被选次数与选择来源归因的 history 维度）、RIFT-259/257 后续（canAct 读取图层许可），" +
+    "以及 legend-zone 的契约表达。effect.draw 与「横置我」的 CostSpec 形状已合入，golden 真实执行；" +
+    "不近似实现（不用 effect.exhaust 冒充费用，不把条件近似成某个可读计数）。",
   abilities,
   sourceText:
     ":rb_exhaust:: [Reaction] — Draw 1. Use only if you've chosen enemy units and/or gear twice this turn " +

@@ -81,7 +81,10 @@ test("sfd-191-221 Rabadon's Deathcrown: identity, ruleset, status, judgeReason a
   assert.match(program.judgeReason, /715\.4/);
   assert.match(program.judgeReason, /Bonus Damage/);
   assert.match(program.judgeReason, /Unique/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  // The Equip payment kind and the ExpandInput params.cost binding are the
+  // still-current dependencies; the keyword registry count was refreshed to 26.
+  assert.match(program.judgeReason, /Unsupported payment kind: equip/);
+  assert.match(program.judgeReason, /params\.cost/);
 });
 
 test("sfd-191-221 Rabadon's Deathcrown: the program keeps the catalog text and invents no Bonus Damage ability", () => {
@@ -93,8 +96,9 @@ test("sfd-191-221 Rabadon's Deathcrown: the program keeps the catalog text and i
   assert.equal(equip.keyword, "equip");
   assert.equal(equip.value, 1);
   assert.equal(equip.costDomain, "rainbow");
-  assert.equal(JSON.stringify(program.abilities).includes("bonus"), false);
-  assert.equal(JSON.stringify(program.abilities).includes("continuous"), false);
+  // The declared ability list is exactly the two catalog lines: each entry is a
+  // keyword declaration, so no Bonus Damage instruction was authored.
+  assert.deepEqual(program.abilities.map((ability) => ability.kind), ["keyword", "keyword"]);
 });
 
 test("sfd-191-221 Rabadon's Deathcrown: the merged Equip expansion is valid EffectIR for this identity", () => {
@@ -133,12 +137,12 @@ test.todo(
 
 test.todo(
   "sfd-191-221 Rabadon's Deathcrown: [Unique] (CR 825.1/825.3) needs a Unique KeywordDef and a continuous.deck " +
-    "consumer; keywords/ registers 16 keywords and none of them is Unique, and contract 3.1/3.3 has no " +
+    "consumer; keywords/ registers 26 keywords and none of them is Unique, and contract 3.1/3.3 has no " +
     "deck-constraint semantics"
 );
 
 test.todo(
   "sfd-191-221 Rabadon's Deathcrown: paying the printed Equip cost (one [A] Power, CR 135.2.e.5 / 818.1.c.2) is " +
     "blocked on the `equip` payment kind in cost/plan-values.ts and on a contract representation for Universal Power " +
-    "(CR 163.2.b; RIFT-89)"
+    "(CR 163.2.b), and on Equip.ts reading the printed cost from ExpandInput params.cost (contract 3.8 item 3)"
 );

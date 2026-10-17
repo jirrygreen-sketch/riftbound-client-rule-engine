@@ -6,7 +6,6 @@ import program from "../../../dist/cards/sfd/recurve-bow.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import attach from "../../../../engine-core/dist/effects/instructions/effect.attach.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
-import { buildCostPlan, CostPlanError } from "../../../../engine-core/dist/cost/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-553d60be98d221dc71d4e71eb6ae5938143fa0c4b71e6e96d27d8570521d36eb";
@@ -53,8 +52,8 @@ test("sfd-016-221 Recurve Bow: identity, ruleset, status, judgeReason and verbat
   // The judgeReason names the missing payment path and the real dependencies.
   assert.match(program.judgeReason, /Equip/);
   assert.match(program.judgeReason, /Unsupported payment kind: equip/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /params\.cost/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   // The generated registry indexes this exact program object.
   assert.equal(cardRegistryById.get(CANONICAL), program);
@@ -136,20 +135,19 @@ test("sfd-016-221 Recurve Bow golden: a controlled Unit that left the Board is i
   assert.equal(kernel.getObject("gear").attachedTo, null);
 });
 
-test("sfd-016-221 Recurve Bow golden: the merged Equip activation cost cannot be paid (real evidence for judge-required)", () => {
+test("sfd-016-221 Recurve Bow: the merged Equip expansion really attaches this Gear to a controlled Unit", () => {
   const kernel = equipWorld();
-  const context = kernel.clone({ sourceSnapshot: kernel.getObject("gear") });
   const [expansion] = expansionFor();
-
-  // Guard against substituting a no-op/fake cost: the unmerged payment kind fails loudly.
-  assert.throws(
-    () => buildCostPlan(context, { id: "recurve-bow:equip", cost: expansion.cost }),
-    (error) =>
-      error instanceof CostPlanError &&
-      error.reason === "judge-required" &&
-      /Unsupported payment kind: equip/.test(error.message)
+  const run = runInstruction(
+    attach,
+    { host: expansion.body[0].args.host },
+    { world: kernel, targets: { "equip-target": [kernel.ref("ally")] } }
   );
+
+  assert.equal(run.result.status, "executed");
+  assert.deepEqual(kernel.getObject("gear").attachedTo, kernel.ref("ally"));
+  assert.deepEqual(run.events.map((event) => event.action), ["attach"]);
 });
 
-test.todo("sfd-016-221 Recurve Bow: paying the printed Fury Equip cost (CR 818.1.b / 818.1.c.3) needs an equipped-cost payment kind in cost/plan-values.ts plus ExpandInput params.cost (contract 3.8 item 3) - RIFT-89 follow-up.");
-test.todo("sfd-016-221 Recurve Bow: the card-program -> keyword expansion -> chain activation wiring (contract 3.5) is not merged - RIFT-120 follow-up; the merged effect.attach body above runs directly, and payCostPlan is only exercised once the cost kind exists.");
+test.todo("sfd-016-221 Recurve Bow: paying the printed Fury Equip cost (CR 818.1.b / 818.1.c.3) needs an equip payment kind in cost/plan-values.ts; the KeywordDef.expand signature already exposes params.cost but Equip.ts does not read it yet (contract 3.8 item 3; RIFT-261 follow-up).");
+test.todo("sfd-016-221 Recurve Bow: the card-program -> keyword expansion path is merged (RIFT-257 programs/keywords.ts); the activation cost becomes payable once the equip payment kind and the printed-cost binding exist, at which point payCostPlan can be exercised end to end.");

@@ -14,39 +14,42 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   attack-declared timing point filtered to this unit.
  * - "you may reveal the top 2 cards of your Main Deck" is an optional Reveal of
  *   a Secret zone (425.1, 425.2.a); the cards stay in the Main Deck (425.1.a.2)
- *   and the reveal is limited to the top cards, so the selection must follow the
- *   deck's real order (zoneSlice contract, 108.4.e). The optional wrapper is
- *   choice.optional around the chosen body per contract 3.9.
+ *   and the reveal is limited to the top cards, so the ordered slice must come
+ *   from the upstream zone-order query (contract 3.6 zoneSlice, 108.4.e): query
+ *   order is not deck order. The optional wrapper is choice.optional around the
+ *   chosen body per contract 3.9.
  * - "You may play one" is a second optional decision (355.1); a game-effect
  *   Play uses the normal play procedure (420.3), so the played card is picked
  *   from the revealed cards without targeting them (355.10).
  * - "Then recycle the rest" recycles the not-played revealed cards to the bottom
  *   of their owner's Main Deck (417.1, 417.1.a, 417.1.c).
  * - "If the played card is a unit, you may play it here" adds an entry-location
- *   choice for the played unit (355.2.b) gated on the played card's type.
+ *   choice for the played unit (355.2.b).
  *
- * Status: judge-required — four merged gaps, none approximated:
- * - the deck-top slice cannot be obtained from a card program: effect.reveal
- *   explicitly refuses a subset of a non-hand zone with "a subset of this zone
- *   requires upstream ordered picks; query order is not deck order", and no
- *   merged primitive converts zoneSlice or "top 2 cards" into ordered picks
- *   (RIFT-66 provided zoneSlice; the card-level binding is missing).
- * - "You may play one" needs a card-play cost plan for the chosen revealed
- *   card: effect.play requires an already-finalized plan and never derives
- *   printed costs, so playing a card whose cost must still be computed has no
- *   merged path (RIFT-89).
- * - "If the played card is a unit" is a type-membership test on an object named
- *   by a link value. Condition has no array-contains operator (only
- *   eq/ne/lt/lte/gt/gte/in, where in tests left-in-right), so the played card's
- *   types cannot be tested for unit without inventing semantics — the same gap
- *   already recorded by Ravenbloom Conservatory (sfd-215-221).
- * - consequently "play it here" (the 355.2.b entry-location permission) cannot
- *   be gated or applied and is deliberately not encoded as an unconditional
- *   location override.
- * The golden test executes the merged parts: the reveal primitive on a locked
- * ordered pick, the optional wrapper, and the linked recycle of the rest.
- * Dependencies: RIFT-8x ordered deck-top provisioning, RIFT-89 (cost plan for
- * effect.play), the array-contains contract request for type tests.
+ * Status: judge-required — three merged-dependency gaps, none approximated:
+ * - The top-2 slice still has to be produced by the caller: effect.reveal
+ *   explicitly refuses a subset of a non-hand zone ("a subset of this zone
+ *   requires upstream ordered picks; query order is not deck order"), and the
+ *   chain's Finalize only locks instruction.targets TargetSpecs — it owns no
+ *   lifecycle for an ordered zone pick (RIFT-66 added ctx.zoneSlice, but the
+ *   card-level binding that would turn "top 2" into locked picks is missing).
+ *   The same gap is recorded by sfd/called-shot.
+ * - "You may play one" needs a cost plan for the chosen revealed card:
+ *   effect.play requires an already-finalized plan and never derives printed
+ *   costs, and the chain's play route only accepts a finalized cost override
+ *   (RIFT-261 cost.pay/cost.modify are not merged in this worktree).
+ * - "If the played card is a unit" cannot be gated: although the merged
+ *   compare/in condition can test "unit" membership in an object's types array
+ *   (see sfd/ravenbloom-conservatory), the gate must read the *played* card's
+ *   types from the effect.play receipt, and effect.play's link receipt only
+ *   carries the played count (linkKey → number). It captures no object list, so
+ *   there is no linked object whose types could be tested. Consequently "play it
+ *   here" (the 355.2.b entry-location permission) is deliberately not encoded as
+ *   an unconditional location override.
+ * The golden executes the merged parts: the optional wrapper, the linked
+ * recycle of the rest, and the real deck-top slice read through zoneSlice.
+ * Dependencies: an ordered deck-top pick lifecycle in the chain Finalize/Resolve
+ * (RIFT-257 follow-up) and a cost-plan binding for a game-effect Play (RIFT-261).
  */
 const abilities: Ability[] = [
   {
@@ -153,16 +156,19 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "四处依赖未合入：(1)「reveal the top 2 cards of your Main Deck」需要按牌库真实顺序提供有序 picks——effect.reveal 对非手牌的" +
-    "真子集明确拒绝（“a subset of this zone requires upstream ordered picks; query order is not deck order”），把 zoneSlice/牌库顶 2 张" +
-    "变成卡牌可用的有序选择尚未接线；(2)「You may play one」需要为所选牌生成费用计划，effect.play 只接受已 finalize 的计划、从不推导印刷费用（RIFT-89）；" +
-    "(3)「If the played card is a unit」需要按链接值对象的 types 做数组成员测试，Condition 没有 array-contains（只有 eq/ne/lt/lte/gt/gte/in，in 是" +
-    "左侧属于右侧数组），同 Ravenbloom Conservatory（sfd-215-221）记录的缺口；(4) 因此「play it here」的入场地点许可（355.2.b）无法开闸，" +
-    "程序中不写成无条件 location，避免对非单位牌近似实现。" +
-    "golden 用锁定有序 pick 真实执行 effect.reveal、choice.optional 与链接 recycle。",
+    "三处依赖未合入，均不近似实现：(1)「reveal the top 2 cards of your Main Deck」需要按牌库真实顺序提供有序 picks——effect.reveal 对非手牌的" +
+    "真子集明确拒绝（“a subset of this zone requires upstream ordered picks; query order is not deck order”），链的 Finalize 只锁定 " +
+    "instruction.targets 的 TargetSpec、没有有序区域 pick 的生命周期；RIFT-66 只加了 ctx.zoneSlice，把「牌库顶 2 张」变成卡牌可用的有序选择仍未接线" +
+    "（同 sfd/called-shot 记录的缺口）。(2)「You may play one」需要为所选牌生成费用计划：effect.play 只接受已 finalize 的计划、从不推导印刷费用，" +
+    "链的 play 路由也只接受 finalized 的 cost override（RIFT-261 的 cost.pay/cost.modify 未合入本 worktree）。(3)「If the played card is a unit」" +
+    "的闸门无法开：已合入的 compare/in 能测 types 数组成员（见 sfd/ravenbloom-conservatory 的真实执行证据），但被检查的对象必须来自 effect.play 的链接回执，" +
+    "而该回执的 linkKey 只写 played 计数（number），不记录被播放的对象引用，因此没有可读 types 的链接对象；相应地「play it here」的入场地点许可（355.2.b）" +
+    "不写成无条件 location（避免对非单位牌近似实现）。golden 用锁定有序 pick 真实执行 effect.reveal、choice.optional 与链接 recycle，并用 zoneSlice 读出真实牌库顶。" +
+    "依赖：链 Finalize/Resolve 的有序区域 pick 生命周期（RIFT-257 后续）、游戏效果 Play 的费用计划绑定（RIFT-261）、以及记录被播放对象的链接值。",
   abilities,
   sourceText:
     "When I attack, you may reveal the top 2 cards of your Main Deck. You may play one. Then recycle the rest. If the played card is a unit, you may play it here."
 } satisfies CardProgram;
 
 export default program;
+
