@@ -1,3 +1,13 @@
+// Golden test for Thousand-Tailed Watcher (ogn-116-298).
+//
+// Execution evidence (the real play -> card-played -> enemy-set
+// continuous.might -3 with floor 1, plus the no-enemy negated set) lives in
+// the RIFT-660 parameterized template golden:
+// test/cards/templates/keyword-triggered-card-played-continuous-660.test.mjs.
+// This file keeps validation, identity, verbatim text, declared
+// judge-required status and the key structure of the printed abilities; the
+// interpreter/layer goldens below still execute the card's own body and the
+// Accelerate boundary probes record the remaining keyword gap.
 import assert from "node:assert/strict";
 import test from "node:test";
 

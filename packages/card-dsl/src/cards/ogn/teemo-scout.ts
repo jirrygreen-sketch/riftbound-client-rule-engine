@@ -58,7 +58,9 @@ const program = {
   judgeReason:
     "Hidden 的静态 cost.hidden 仍缺 Hide 行动与 Facedown Zone 生命周期消费方（811.1.b/811.1.d）、" +
     "次回合 Reaction/忽略基础费用的打出许可（811.1.b/811.6）及受信 card-hidden 产生方。" +
-    "continuous.might 的本回合 self +3 已有真实执行证据，但不能代替 Hidden 的藏牌、失控回收与隐藏打出流程。" +
+    "continuous.might 的本回合 self +3 已有真实执行证据，并经 RIFT-660 模板场景走生产链验证" +
+    "（play → card-played → continuous.might；见 test/cards/templates/keyword-triggered-card-played-continuous-660.test.mjs），" +
+    "但不能代替 Hidden 的藏牌、失控回收与隐藏打出流程。" +
     "不近似实现。",
   abilities,
   sourceText:

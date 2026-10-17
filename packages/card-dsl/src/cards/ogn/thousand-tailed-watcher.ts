@@ -19,7 +19,9 @@ const thousandTailedWatcher = {
     "(2) 805.2.b 的「付费后才安装」无从判定：把展开的 replacement 直接绑到管线，实测未支付任何费用就由横置入场改成就绪入场" +
     "（同一路径下的普通单位仍是横置入场），不能这样放行。" +
     "已合入并有执行证据的是正文：continuous.might 取敌方单位集合、-3、minimum 1（478.1.c）与 this-turn 到期，" +
-    "经生产触发注册结算后敌方 3→1、5→2，己方单位与本卡不变；cost.pay、附加费用规划本身、关键词展开与 CardProgram 触发注册均已合入。",
+    "经生产触发注册结算后敌方 3→1、5→2，己方单位与本卡不变；RIFT-660 模板场景再走完整生产链" +
+    "（play → card-played → production trigger → layers，见 test/cards/templates/keyword-triggered-card-played-continuous-660.test.mjs），" +
+    "cost.pay、附加费用规划本身、关键词展开与 CardProgram 触发注册均已合入。",
   abilities: [
     { kind: "keyword", keyword: "accelerate" },
     {
