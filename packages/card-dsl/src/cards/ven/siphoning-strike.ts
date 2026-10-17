@@ -22,33 +22,36 @@ import type { CardProgram } from "../../ir/index.js";
  *   Channel 1 rune exhausted（431.2.a：未另行规定则就绪进入，此处明写 exhausted）。
  *   838.x 的死亡时点在 events/timing-points.ts 为 object-killed（429.1/429.2）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。阻塞集中在延迟触发，不近似实现：
- * (1) 缺延迟触发注册："When it dies this turn" 是本法术创建的延迟触发能力（391.2/393），
- *     ResolveContext.registerDelayedTrigger 虽在契约 3.6 中，但 effects/instructions/ 没有
- *     卡牌可用的 trigger.delayed op，且 TriggerSpec.once 没有「该对象的这一次死亡」窗口；
- *     写成卡自身的触发能力会违反 393（同型记录见 rad/last-caress、rad/hexplosive-minefield）。
- * (2) 结算时对目标未来状态的订阅需要目标引用留存：object-killed 事件的对象与
- *     「that unit」的同一性需要在结算后仍能把锁定的目标引用与死亡事件对齐（程序触发
- *     注册 RIFT-257 已合入，缺的是上述 op 与一次性窗口）。
- * 已合入且可真实执行的部分：两条互斥 condition + count 已在 6/7 符文边界分别执行
- * 4/7 点伤害；不再把条件/链接管线视为缺口。effect.channel（431.1/431.2 的 exhausted
- * 进入）也有真实执行证据。待实现的是结算后保存同一个锁定目标的延迟死亡订阅。
+ * status 判定（cards/README.md 第 2 节，RIFT-618 第三轮复核 2026-10-17）：judge-required。
+ * 阻塞集中在延迟触发，不近似实现：
+ * 1. 缺卡牌可用的延迟触发 op："When it dies this turn" 是本法术创建的延迟触发能力
+ *    （390/391.2/392/393，窗口为本回合 317.2.c）。ResolveContext.registerDelayedTrigger
+ *    在契约 3.6 与 chain/engine.ts 都已存在，但 effects/instructions/ 没有注册的
+ *    trigger.delayed opcode——本任务实测 resolveChainBody 对该指令抛
+ *    "Unregistered instruction opcode: trigger.delayed"。
+ * 2. 一次性窗口没有「该对象这一次死亡」的形状：TriggerSpec.once 只有
+ *    per-turn/per-phase/per-combat/per-showdown/per-chain/per-object/per-game，
+ *    没有把锁定的目标引用与 object-killed（429.1/429.2）事件的同一性对齐的窗口。
+ * 已合入且可真实执行的部分：4/7 两条互斥 condition + count 已在 6/7 符文边界分别执行；
+ * effect.damage（418.1.c/418.6.a）与 effect.channel 1 rune exhausted
+ * （431.1/431.2/431.2.a）都有真实解释器 + 参考内核执行证据。
  */
 const siphoningStrike = {
   canonicalCardId: "card.hash-d47f05f65e0e87416c8e2c6dc0abce05f5a4a0bcb6855df1f6bf66a66acbaac6",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "延迟触发仍有缺口，不近似实现：(1)「When it dies this turn, channel 1 rune exhausted」是本法术" +
-    "创建的延迟触发能力（390/391.2/392/393，窗口为本回合 317.2.c）：ResolveContext.registerDelayedTrigger " +
-    "虽在契约 3.6 中，但 effects/instructions/ 没有卡牌可用的 trigger.delayed op，" +
-    "TriggerSpec.once 也没有「该锁定的这一次死亡」窗口；写成卡自身的触发能力会违反 393" +
-    "（同型记录见 rad/last-caress、rad/hexplosive-minefield）。(2) 结算后把锁定的目标引用与" +
-    "object-killed（429.1/429.2）事件的同一性对齐需要上述 op 与一次性窗口（程序触发注册 RIFT-257 已合入）。" +
+    "延迟触发仍有缺口（复核 2026-10-17，RIFT-618；均不近似实现）：" +
+    "(1) effects/instructions/ 没有卡牌可用的 trigger.delayed opcode：契约 3.6 与 chain/engine.ts 的 " +
+    "ResolveContext.registerDelayedTrigger 已存在，但本任务实测 resolveChainBody 对本卡声明的 " +
+    "\"trigger.delayed\" 抛 Error \"Unregistered instruction opcode: trigger.delayed\"，" +
+    "卡牌数据无法自行创建 390/391.2/392/393 的延迟能力。" +
+    "(2) TriggerSpec.once 没有「该锁定的这一次死亡」窗口（只有 per-turn/per-phase/per-combat/per-showdown/per-chain/per-object/per-game），" +
+    "结算后把锁定的目标引用与 object-killed（429.1/429.2）事件的同一性对齐仍缺一次性窗口。" +
     "已支持部分：「instead」用两条互斥 condition + count 表达 4 / 7（431.1/133.5.a.1），" +
-    "golden 已在 6 与 7 符文边界执行并验证只有对应伤害分支生效；条件/链接管线不是剩余依赖。" +
-    "effect.damage（418.1.c/418.6.a）与 effect.channel 1 rune exhausted（431.1/431.2/431.2.a）" +
-    "均有真实解释器 + 参考内核执行证据。",
+    "golden 已在 6 与 7 符文边界执行并验证只有对应伤害分支生效；effect.damage（418.1.c/418.6.a）" +
+    "与 effect.channel 1 rune exhausted（431.1/431.2/431.2.a）均有真实解释器 + 参考内核执行证据。" +
+    "依赖：卡牌可用的延迟触发原语与一次性死亡窗口。",
   abilities: [
     {
       kind: "play",

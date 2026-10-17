@@ -138,14 +138,8 @@ test.todo(
     "Empowered status gate (CR 828.1.b.1 / 442.1.a) — no Empowered predicate exists"
 );
 
-/** 复核（2026-10-17）负向证据：关键词展开缺失与 Empowered 门控不生效。 */
-test("ven-124-166 Escaped Grayback evidence: expandProgram rejects the missing Empower KeywordDef", () => {
-  const kernel = world().unit("grayback", { types: ["unit"], zone: "board", controller: "A" }).build();
-  assert.throws(
-    () => expandProgram(program, kernel.getObject("grayback")),
-    /Keyword empower has no executable KeywordDef/
-  );
-});
+// 2026-10-17 RIFT-618: deleted the stale "expandProgram rejects the missing Empower KeywordDef"
+// assertion — effects/keywords/Empower.ts is merged, so that absence claim is no longer true.
 
 test("ven-124-166 Escaped Grayback evidence: the Kill cost really pays through the merged cost pipeline", () => {
   // 827.1.c.2：Kill 是非资源费用分量；费用种类本身已合入，缺口只在关键词展开未携带它。

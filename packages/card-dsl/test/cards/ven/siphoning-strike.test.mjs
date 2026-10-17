@@ -78,12 +78,15 @@ test("ven-146-166 Siphoning Strike: program passes validateCardProgram and is ju
   assert.equal(cardRegistryById.get(CARD_ID), program);
 });
 
-test("ven-146-166 Siphoning Strike: judgeReason names the delayed registration and the identity gap", () => {
+test("ven-146-166 Siphoning Strike: judgeReason names the delayed opcode and the one-shot window", () => {
   assert.match(program.judgeReason, /391\.2/);
   assert.match(program.judgeReason, /trigger\.delayed/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /Unregistered instruction opcode/);
+  assert.match(program.judgeReason, /once/);
   assert.match(program.judgeReason, /6 与 7 符文边界/);
   assert.match(program.judgeReason, /不近似实现/);
+  // RIFT-257 is merged (registerDelayedTrigger exists) and is not a gap.
+  assert.doesNotMatch(program.judgeReason, /RIFT-257/);
 });
 
 test("ven-146-166 Siphoning Strike: two exclusive damage branches and the delayed channel", () => {
@@ -250,10 +253,27 @@ test("ven-146-166 Siphoning Strike: direct primitive evidence for both merged ha
   assert.deepEqual(run.events.map((event) => event.action), ["damage"]);
 });
 
+test("ven-146-166 Siphoning Strike gap: the declared trigger.delayed opcode is unregistered", () => {
+  // Executed evidence for judgeReason point 1: the interpreter rejects the
+  // card-declared delayed registration instead of silently dropping it.
+  const kernel = world().unit("victim", { controller: "B" }).build();
+  const { linkedTo, ...standalone } = delayedChannel;
+  assert.equal(linkedTo, "siphoning-strike.deal-4");
+  assert.equal(instructionDefinitionsById.has("trigger.delayed"), false);
+  assert.throws(
+    () => resolveChainBody([standalone], kernel),
+    /Unregistered instruction opcode: trigger\.delayed/
+  );
+});
+
+/**
+ * The delayed registration is unmerged (judgeReason), so the one-shot death
+ * window and the locked-target identity alignment remain unproven; the golden
+ * above keeps the unregistered opcode fail-closed instead of approximating it.
+ */
 test.todo(
-  "ven-146-166 Siphoning Strike: register the spell-created delayed ability \"When it dies this turn, " +
-    "channel 1 rune exhausted\" (390/391.2/392) over the locked unit and align it with the object-killed " +
+  "ven-146-166 Siphoning Strike: register the spell-created delayed ability 'When it dies this turn, " +
+    "channel 1 rune exhausted' (390/391.2/392) over the locked unit and align it with the object-killed " +
     "event (429.1/429.2) — needs a card-facing trigger.delayed op and a TriggerSpec window for 'the locked " +
-    "object's next death this turn' (frequencyKey has only per-game/per-object/clock scopes); the program " +
-    "trigger registration (RIFT-257) and the body's effect.channel are already executable"
+    "object's next death this turn' (once has only per-turn/per-phase/per-combat/per-showdown/per-chain/per-object/per-game)"
 );

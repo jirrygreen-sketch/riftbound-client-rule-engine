@@ -6,6 +6,9 @@ import program from "../../../dist/cards/ven/solari-sunhawk.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { finalizeTargetPlan } from "../../../../engine-core/dist/target/target-plan.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -30,10 +33,12 @@ test("ven-122-166 Solari Sunhawk: identity, ruleset, status, judgeReason and ver
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /Empower/);
-  assert.match(program.judgeReason, /828\.1\.b\.1/);
   assert.match(program.judgeReason, /continuous\.might/);
+  assert.match(program.judgeReason, /828\.1\.b\.1/);
   assert.match(program.judgeReason, /442\.1\.a/);
-  assert.ok(!/RIFT-91|RIFT-90/.test(program.judgeReason));
+  assert.match(program.judgeReason, /Unsupported cost kind: empower/);
+  assert.match(program.judgeReason, /target\.tax/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-91|RIFT-90|RIFT-593/);
 });
 
 test("ven-122-166 Solari Sunhawk: [Empower] is declared, never re-implemented (contract 3.7)", () => {
@@ -135,15 +140,57 @@ test("ven-122-166 Solari Sunhawk golden: the declared Deflect 2 is added to the 
   assert.deepEqual(engine.evaluate(snapshot.ref).keywords, [{ id: "deflect", value: 2 }]);
 });
 
-test.todo(
-  "ven-122-166 Solari Sunhawk: [Empower] expansion (827.1.c.1: 2 Energy, 'use only if not Empowered') and " +
-    "the [Empowered] dependent ability activation (828.1.b.1 / 828.1.c) need an Empower/Empowered " +
-    "KeywordDef plus an Empowered status predicate — none is merged"
-);
+test("ven-122-166 Solari Sunhawk gap: the printed 2 Energy never reaches the Empower expansion", () => {
+  // Contract 3.1's KeywordAbility carries only keyword/value and
+  // programs/keywords.ts calls def.expand({ value, host }) without params.cost
+  // (contract 3.8.3), so the merged KeywordDef falls back to { kind: "empower" }.
+  const kernel = world().unit("sunhawk", { cardId: CANONICAL_ID }).build();
+  const expanded = expandProgram(program, kernel.getObject("sunhawk"));
+  const [empowerAbility] = expanded.expanded.filter(ability => ability.kind === "activated");
+  assert.deepEqual(empowerAbility.cost, { kind: "empower" });
+  assert.throws(
+    () => buildCostPlan(kernel, { id: "solari-sunhawk", cost: empowerAbility.cost }),
+    /Unsupported cost kind: empower/
+  );
+});
 
-test.todo(
-  "ven-122-166 Solari Sunhawk: the +1 Might and [Deflect 2] reach the layers behind the Empowered gate, " +
-    "and the Deflect target tax applies when an opponent chooses the host (CR 809.1.c / 809.1.d) — card-side " +
-    "continuous registration is merged; the remaining blockers are the Empower/Empowered KeywordDef, " +
-    "the Empowered status predicate (442.1.a) and the keyword-to-target-plan tax wiring"
-);
+test("ven-122-166 Solari Sunhawk gap: the Empowered gate is not enforced by the layer engine", () => {
+  // 442.1.a: the frozen ObjectSnapshot carries no empowered characteristic, so
+  // the authored expression condition cannot read the status. The merged
+  // conditionMatches falls through to true and the +1 Might applies anyway.
+  const kernel = world().unit("sunhawk", {
+    controller: "controller", might: 3, location: { type: "base", player: "controller" }
+  }).build();
+  const source = kernel.getObject("sunhawk");
+  const engine = createLayerEngine([source], [{
+    effect: {
+      id: "solari-sunhawk.gate",
+      layer: "arithmetic",
+      source: source.ref,
+      filter: { objectId: "sunhawk" },
+      effect: { kind: "continuous.might", mode: mightGrant.effect.mode, amount: mightGrant.effect.amount, condition: mightGrant.condition }
+    },
+    duration: { type: "permanent" },
+    timestamp: 1,
+    sequence: 1
+  }]);
+  assert.equal(engine.evaluate(source.ref).might, 4);
+});
+
+test("ven-122-166 Solari Sunhawk gap: layered Deflect 2 produces no target tax", () => {
+  // 809.1.c/809.1.c.1: the keyword reaches the layered keyword list, but no
+  // merged producer turns it into a TargetTaxRequest, and the chain's
+  // finalizeTargetPlan call passes no tax option, so the choice is free.
+  const kernel = world()
+    .unit("sunhawk", { owner: "B", controller: "B", might: 3, keywords: [{ id: "deflect", value: 2 }] })
+    .build();
+  const requests = [];
+  const plan = finalizeTargetPlan(
+    kernel,
+    { id: "spell-target", filter: { type: "unit" }, min: 1, max: 1, selection: "one" },
+    { selected: [kernel.ref("sunhawk")], taxAdapter: { appendTargetTax: request => { requests.push(request); return { status: "appended" }; } } }
+  );
+  assert.deepEqual(plan.selected, [kernel.ref("sunhawk")]);
+  assert.deepEqual(requests, []);
+});
+

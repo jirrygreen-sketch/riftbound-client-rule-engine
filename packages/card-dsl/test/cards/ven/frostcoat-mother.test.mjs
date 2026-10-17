@@ -93,13 +93,8 @@ function hostFor(programUnderTest, id) {
   return { f, source: f.kernel.getObject(id) };
 }
 
-test("ven-032-166 Frostcoat Mother evidence: expandProgram rejects the missing Empower KeywordDef", () => {
-  const { source } = hostFor(program, "frostcoat");
-  assert.throws(
-    () => expandProgram(program, source),
-    /Keyword empower has no executable KeywordDef/
-  );
-});
+// 2026-10-17 RIFT-618: deleted the stale "expandProgram rejects the missing Empower KeywordDef"
+// assertion — effects/keywords/Empower.ts is merged, so that absence claim is no longer true.
 
 test("ven-032-166 Frostcoat Mother evidence: the cost modification cannot bind and the Empowered gate is unenforced", () => {
   const { f, source } = hostFor(program, "frostcoat");
