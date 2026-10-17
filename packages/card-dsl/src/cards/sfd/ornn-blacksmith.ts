@@ -33,10 +33,10 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  *   已被移入手牌的那张引用失效而自动落选，正好是 "the rest"。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required。
- * - effect.inspect 的非零 top 查看需要上游有序 picksSpecId 的生产生命周期：链的 Finalize
- *   只锁定 instruction.targets 的 TargetSpec（chain/engine.ts 的 assertFinalizationSurface），
- *   没有有序区域 pick 的锁定路径（与已合入的 ogn/stacked-deck、ogn/reinforce、
- *   ogn/karma-channeler 记录同一缺口），因此生产打出会因缺有序来源而看不到任何牌。
+ * - effect.inspect 的非零 top 查看虽然已有 zoneSlice/ordered-pick 原语支持，但链的
+ *   Finalize 仍只锁定 instruction.targets 的 TargetSpec（chain/engine.ts 的
+ *   assertFinalizationSurface），没有把本卡 picksSpecId 接入生产打出生命周期，因此
+ *   生产打出会因缺有序来源而看不到任何牌。
  * - "reveal a gear from among them" 需要「从查看结果里按 gear 类型选一张」的判定：
  *   已合入的 effect.inspect 的 choose 只能对全部被查看对象做 0..1 选择、不带类型过滤，
  *   而写进 PickSpec 的 filter 只是描述性数据（本条 pick 的候选来自链接值），没有已合入的
@@ -44,12 +44,12 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  *   会让玩家选到非装备牌——按红线不近似实现。此外链适配器
  *   （chain/interpreter-adapter.ts 的 LITERAL_FIELDS）只为 effect.reveal 解包 target、
  *   未解包 pick，卡声明的 pick 在到原语前就被参数校验拒绝。
- * - 触发侧：没有已合入消费方把 CardProgram 的 triggered 能力注册成事件订阅
- *   （RIFT-120）；并且全仓库没有任何模块 emit hold 时点（scoring/ 尚未把固守结果接入
- *   事件管线），Hold Effect 无法进链。
- * 依赖：RIFT-66 后续（有序区域 pick 的 Finalize 生命周期）、RIFT-120（卡牌触发注册与
- * 移动/固守时点载荷）、hold 时点的发射方（scoring/）。look / reveal / draw-it / recycle
- * 四段只用已合入原语，golden 用解释器与参考内核真实执行。
+ * - 触发侧：hold 时点已由回合/计分流程发出，RIFT-257 的 program 绑定也在生产侧可用，
+ *   filter.event 已按 TriggerSpec 词汇写作 "held" 并能完成注册；但计分流程的 hold
+ *   载荷只带 player/details、不含对象，filter 的 self 归属因此永远命中不了。
+ * 依赖：有序区域 pick 的 Finalize 生命周期、hold 载荷的对象/归属接线、
+ * 以及链适配器对 nested pick 的解包。look / reveal / draw-it / recycle 四段只用已合入
+ * 原语，golden 用解释器与参考内核真实执行。
  */
 const BIND_CONTROLLER: Instruction = {
   id: "ornn-blacksmith.bind-controller",
@@ -167,7 +167,7 @@ const abilities: Ability[] = [
   },
   {
     kind: "triggered",
-    trigger: { at: "hold", filter: { event: "hold", filter: { source: "self" } } },
+    trigger: { at: "hold", filter: { event: "held", filter: { source: "self" } } },
     optional: false,
     body
   }
@@ -178,17 +178,18 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处依赖未合入：(1)「look at the top 4 cards of your Main Deck」需要按牌库真实顺序的有序 picks 生命周期：" +
-    "effect.inspect 的非零 top 作用域要求上游提供有序 picksSpecId，而链的 Finalize 只锁定 instruction.targets 的 TargetSpec" +
-    "（chain/engine.ts 的 assertFinalizationSurface），没有有序区域 pick 的锁定路径（同 ogn/stacked-deck、ogn/reinforce、ogn/karma-channeler）。" +
+    "三处依赖未合入：(1)「look at the top 4 cards of your Main Deck」需要把已有 zoneSlice/ordered-pick 支持接入 Finalize：" +
+    "effect.inspect 的非零 top 作用域要求上游提供有序 picksSpecId，而链的 Finalize 仍只锁定 instruction.targets 的 TargetSpec" +
+    "（chain/engine.ts 的 assertFinalizationSurface），没有本卡 picksSpecId 的生产生命周期。" +
     "(2)「You may reveal a gear from among them」需要从查看结果里按 gear 类型选一张：effect.inspect 的 choose 只能对全部被查看对象做 0..1 选择、不带类型过滤，" +
     "写进 PickSpec 的 filter 只是描述性数据（候选来自链接值），没有消费方把「链接列表 + gear 过滤」变成可重放的结算期选择；" +
     "用无过滤的 choose 近似会让玩家选到非装备牌，按红线不近似实现；并且链适配器（chain/interpreter-adapter.ts 的 LITERAL_FIELDS）" +
     "只为 effect.reveal 解包 target、未解包 pick，卡声明的 pick 在到原语前就被参数校验拒绝。" +
-    "(3) 触发侧：没有已合入消费方把 CardProgram 的 triggered 能力注册成事件订阅（RIFT-120），且全仓库没有任何模块 emit hold 时点" +
-    "（scoring/ 尚未把固守结果接入事件管线），Hold Effect（383.4.d）无法进链。" +
+    "(3) 触发侧：hold 时点已由回合/计分流程发出，RIFT-257 的 program 绑定也已在生产侧可用，" +
+    "filter.event 已按 TriggerSpec 词汇写作 \"held\" 并能完成注册；但计分流程的 hold 载荷只带 player/details、不含对象，" +
+    "filter 的 self 归属永远命中不了。" +
     "look/reveal/draw-it/recycle 四段只用已合入原语，golden 用解释器与参考内核真实执行。" +
-    "依赖：RIFT-66 后续（有序区域 pick 的 Finalize 生命周期）、RIFT-120、hold 时点发射方（scoring/）。不近似实现。",
+    "依赖：有序区域 pick 的 Finalize 生命周期、hold 载荷的对象/归属接线、链适配器 nested pick 解包。不近似实现。",
   abilities,
   sourceText:
     "When you play me or when I hold, look at the top 4 cards of your Main Deck. " +

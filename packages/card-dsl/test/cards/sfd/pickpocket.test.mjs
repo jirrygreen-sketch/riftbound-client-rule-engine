@@ -112,7 +112,7 @@ test("sfd-074-221 Pickpocket golden: accepting the may kills the locked gear (CR
     .unit("pickpocket", { might: 3 })
     .unit("cheap-gear", { types: ["gear"], owner: "A", controller: "A", energy: 1 })
     .build();
-  // Isolate the merged kill body: the Gold token definition is unmerged, so the
+  // Isolate the merged kill body: effect.token still has no Gold definition, so the
   // composite body cannot execute as a whole yet (see the todo below).
   kernel.setTargets(TARGET_ID, [kernel.ref("cheap-gear")]);
   kernel.setAnswers({ [MAY_ID + "/optional"]: true });
@@ -168,9 +168,9 @@ test.todo(
 );
 test.todo(
   "sfd-074-221 Pickpocket: gate the Gold token play on the kill receipt ('If you do', CR 359.3.e.14.b) once " +
-    "the frozen IR has an action-result binding (condition.result; RIFT-89)"
+    "the frozen IR has an action-result binding (condition.result) and the CardProgram play binding is available (RIFT-257)"
 );
 test.todo(
-  "sfd-074-221 Pickpocket: play a Gold gear token exhausted — CR 187.5 definition plus 440.2.c/185.2.a chain " +
-    "creation and the 184.1/185.2.d exhausted entry stipulation (token primitive task)"
+  "sfd-074-221 Pickpocket: play a Gold gear token exhausted — CR 187.5 Gold definition and " +
+    "the 184.1/185.2.d exhausted entry stipulation remain unsupported by effect.token"
 );

@@ -58,7 +58,7 @@ test("abilities: Weaponmaster keyword plus a per-turn conquer trigger that readi
   const triggered = program.abilities[1];
   assert.equal(triggered.kind, "triggered");
   assert.equal(triggered.trigger.at, "conquer");
-  assert.deepEqual(triggered.trigger.filter, { role: "self" });
+  assert.deepEqual(triggered.trigger.filter, { event: "conquered", role: "self" });
   assert.equal(triggered.trigger.once, "per-turn");
   assert.equal(triggered.optional, false);
 
@@ -93,11 +93,12 @@ test("conquer trigger body on an already-ready source is a no-op (CR 416.1.c)", 
 
 test.todo(
   "Weaponmaster expansion: on play, choose one of your Equipment, pay its Equip cost reduced by " +
-    "[A], attach it to me (CR 821.1.c; keywords/weaponmaster.ts owned by RIFT-8x keyword workstream, " +
-    "needs cost.modify + effect.attach)"
+    "[A], attach it to me (CR 821.1.c; cost.modify rejects reduce-equip-cost until the cost " +
+    "plan carries the original [A]/[C] symbol binding for 821.1.c.2)"
 );
 
 test.todo(
   "Conquer trigger end-to-end: subscribe at the 'conquer' timing point with the self filter and " +
-    "once-per-turn lifetime through the trigger pipeline (RIFT-8x trigger/chain workstream)"
+    "once-per-turn lifetime through the trigger pipeline — the scoring conquer emission carries " +
+    "only player/details and no object, so the self filter can never match"
 );

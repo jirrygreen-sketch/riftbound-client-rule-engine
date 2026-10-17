@@ -12,15 +12,15 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * Rules evidence (Core Rules v1.5):
  * - "[Action]" (806.1.b/806.1.c, 159.2.a) is a permissive keyword: the card
- *   only declares it (contract 3.7); the Showdown permission is expanded by
- *   effects/keywords/Action.ts and consumed by the chain's canAct.
+ *   only declares it (contract 3.7). The RIFT-257 program adapter's
+ *   abilitySpeed already derives "action", but a full play draft is still
+ *   blocked by the unsupported [Repeat] additional-cost field below, so the
+ *   chain's canAct/Showdown path cannot be exercised end to end yet.
  * - "[Repeat] :rb_energy_3:" (820.1.c) is an Optional Additional Cost. The
- *   printed component is declared on the play ability's CostSpec in the shape
- *   the merged sfd/frigid-touch uses (356.2.b.1): the merged Repeat KeywordDef
- *   (RIFT-86) takes that cost through its `expand` input, which the frozen
- *   KeywordAbility IR cannot carry (contract 3.8 item 3 covers only the
- *   KeywordDef side), and nothing merged reads a card program's additional-cost
- *   declaration (RIFT-89).
+ *   Repeat KeywordDef is merged and the printed component remains declared on
+ *   the play CostSpec, but programs/play.ts still rejects the additional-cost
+ *   field outright (Additional costs are not bound), so Finalize never collects
+ *   it and no paid-instance count reaches resolution.
  * - "Choose a friendly unit anywhere and an enemy unit at a battlefield": the
  *   spell's controller chooses both units, so both are Targets (355.7 /
  *   355.9.a.1 / 355.9.b) locked at Finalize (355.5). "Anywhere" adds no
@@ -38,22 +38,22 @@ import type { CardProgram } from "../../ir/index.js";
  *   read amount is not a positive number, and no fixed amount is authored here.
  *
  * Status (cards/README.md §2): judge-required — the damage clause needs only
- * merged primitives and is executed by the golden test, but the printed
- * [Repeat] additional cost has no merged collection/count-to-extra-execution
- * path (RIFT-86/RIFT-89), so the card cannot be played as printed yet.
+ * merged primitives and is executed by the golden test, and the merged
+ * program adapter resolves the [Action] speed, but the printed [Repeat]
+ * additional cost has no card-program collection/count-to-extra-execution path,
+ * so the card cannot be played as printed yet.
  */
 const marchingOrders = {
   canonicalCardId: "card.hash-7665f836ecbe39043d8dd42f110ad82560fe857373dbf87d7348d347e764617c",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「[Repeat] :rb_energy_3:」的可选追加费用（820.1.c / 820.1.b / 356.2.b.1）没有已合入的收取/计数路径：Repeat 关键词展开（RIFT-86，" +
-    "effects/keywords/Repeat.ts）把印刷费用作为 expand 入参读取，但冻结的 KeywordAbility IR（契约 3.1）没有承载该费用的字段" +
-    "（契约 3.8 第 3 条只改 KeywordDef 侧），费用计划侧的 OptionalCostInput（kind \"repeat\"，cost/plan-types.ts）由 RIFT-89 接管、" +
-    "尚无卡程序适配器，结算端把「已付费实例数」按 820.1.d / 820.2.a 接到额外执行也尚未合入。本文件按已合入 sfd/frigid-touch 的形状把该费用声明在 play 的 " +
-    "CostSpec 上，属待接线声明；不写死第二次结算近似。" +
-    "伤害半段（两个目标 + 418.6.b.3 的单位来源 + 结算时读 Might）只用已合入的 effect.damage 与 TargetSpec，golden 已真实执行。" +
-    "依赖：RIFT-86 / RIFT-89。",
+    "「[Repeat] :rb_energy_3:」的可选追加费用（820.1.c / 820.1.b / 356.2.b.1）仍没有卡牌侧收取/计数路径：" +
+    "Repeat KeywordDef 已合入并读取该印刷费用，但 programs/play.ts 直接拒绝 additional-cost 字段（Additional costs are not bound），" +
+    "Finalize 因此收不到该费用，结算端按 820.1.d / 820.2.a 把已付费实例数接到额外执行也就无从谈起。" +
+    "本文件按既有 CostSpec 形状声明该费用，属待接线声明；不写死第二次结算近似。" +
+    "伤害半段（两个目标 + 418.6.b.3 的单位来源 + 结算时读 Might）只用已合入的 effect.damage 与 TargetSpec，golden 已真实执行；" +
+    "[Action] 的 abilitySpeed 已能推出 action，但 play 草稿仍被上面的 additional-cost 字段挡住，Showdown 许可无法端到端执行。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

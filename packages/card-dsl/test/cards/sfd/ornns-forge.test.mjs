@@ -22,7 +22,6 @@ test("ornns-forge: static cost-modify structure", () => {
   assert.deepEqual(ability.condition, { kind: "always" });
 });
 
-// Cost modification is not executable: no cost.modify primitive is merged,
-// and the per-turn "first played" window needs history-gated continuous
-// layering that the current model cannot express.
-test.todo("ornns-forge: cost.modify primitive and per-turn first-play window (RIFT-81~91)");
+// Cost modification is not executable: the card-static effect has no Finalize
+// consumer, and the per-turn "first played" window needs history-gated expiry.
+test.todo("ornns-forge: card-static cost binding into Finalize plus the per-turn first-play window");

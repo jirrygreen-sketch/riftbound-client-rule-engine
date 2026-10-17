@@ -27,18 +27,18 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - [Shield] 的展开已合入（effects/keywords/Shield.ts），但其 static continuous.might 的
  *   条件依赖 Defender designation，而 designation 不在合并后的 ObjectSnapshot 特征里、
  *   层引擎也不求值该 compare 条件（与已合入 ogn/jeweled-colossus 记录同一缺口，RIFT-91）。
- * - [Tank] 没有已合入的 KeywordDef（effects/keywords/ 下无 Tank 文件），战斗伤害分配也不
- *   读取分配优先级要求——combat/base-combat-allocation.ts 明确未绑定 Tank/Backline 要求，
- *   815.1.c.1/.c.2 因此无法执行（与已合入 sfd/xin-zhao-vigilant 同一记录）。
+ * - [Tank] 的 KeywordDef 已合入（RIFT-264），但展开出的 continuous.combat 仍没有战斗
+ *   伤害分配消费方——combat/base-combat-allocation.ts 未绑定 Tank/Backline 要求，
+ *   815.1.c.1/.c.2 因此无法执行。
  * - 减费需要两件未合入的支撑：(1) 把卡牌 static 减费效果接进 Finalize 费用计划的消费者
- *   （cost/cost-plan.ts 只在调用方显式提供 CostPlanInput.discounts 时应用折扣，356.4.c.1/
- *   356.4.d 的组件与总价顺序、356.4.e 的每条折扣自带最低值都属该批次，RIFT-89）；
+ *   （cost/cost-plan.ts 只在调用方显式提供 CostPlanInput.discounts 时应用折扣；RIFT-349
+ *   的 static 绑定对 continuous.cost-modification 没有图层映射，接不进该步骤）；
  *   (2) 「本回合 Hold 得分的点数」这一历史计数：冻结的 Expr 词汇（constant/object-property/
  *   linked-value/count/arithmetic）只能按对象集合计数（count → ctx.query），读不到本回合的
  *   score/hold 事件次数——HistoryQuery 只经 condition.history 指令使用，静态费用效果无法
  *   引用它。
- * 依赖：RIFT-91（layers-continuous：designation 谓词与 static 效果注册）、Tank 关键词与战斗
- * 分配（continuous.combat / 战斗工作流）、RIFT-89（费用计划减费接线）、Hold 得分历史计数。
+ * 依赖：RIFT-91（layers-continuous：designation 谓词与 count 求值）、RIFT-264 后续的
+ * Tank 战斗分配消费方、卡牌 static cost 绑定、Hold 得分历史计数。
  * 不近似实现（不把 Tank 写成数值修正，不把减费写成固定 2 点，也不把「每点」近似为常数）。
  */
 const abilities: Ability[] = [
@@ -67,14 +67,14 @@ const program = {
     "三处依赖未合入：(1)[Shield 5] 的展开（effects/keywords/Shield.ts 的 static continuous.might，814.1.c）已合入，" +
     "但条件依赖 Defender designation（814.1.d/814.1.d.1），而 designation 不在合并后的 ObjectSnapshot 特征里、" +
     "层引擎也不求值该 compare 条件（同 ogn/jeweled-colossus，RIFT-91）。" +
-    "(2)[Tank]（815）没有已合入的 KeywordDef（effects/keywords/ 下无 Tank 文件），战斗伤害分配也不读取分配优先级要求" +
-    "（combat/base-combat-allocation.ts 明确未绑定 Tank/Backline，815.1.c.1/.c.2 无法执行；同 sfd/xin-zhao-vigilant）。" +
+    "(2)[Tank] 的 KeywordDef 已合入（RIFT-264），但展开出的 continuous.combat 没有战斗分配消费方" +
+    "（combat/base-combat-allocation.ts 明确未绑定 Tank/Backline，815.1.c.1/.c.2 无法执行）。" +
     "(3)「I cost :rb_energy_2::rb_rune_calm: less for each point you scored from holding this turn」需要：" +
     "把卡牌 static 减费效果接进 Finalize 费用计划的消费者（cost/cost-plan.ts 只在调用方显式传入 CostPlanInput.discounts 时应用折扣；" +
-    "356.4.c.1/356.4.d 的组件与总价顺序、356.4.e 的每条折扣自带最低值属该批次，RIFT-89）；" +
+    "RIFT-349 的 static 绑定对 continuous.cost-modification 没有图层映射）；" +
     "以及「本回合 Hold 得分的点数」这一历史计数——冻结的 Expr 词汇只能按对象集合计数（count → ctx.query），" +
     "读不到本回合 score/hold 的事件次数（HistoryQuery 只经 condition.history 指令使用，静态费用效果引用不到）。" +
-    "依赖：RIFT-91（designation 谓词与 static 效果注册）、Tank 关键词与战斗分配、RIFT-89（费用减费接线）、Hold 得分历史计数。不近似实现。",
+    "依赖：RIFT-91（designation 谓词与 count 求值）、RIFT-264 后续 Tank 战斗分配消费方、卡牌 static cost 绑定、Hold 得分历史计数。不近似实现。",
   abilities,
   sourceText:
     "[Shield 5] (+5 :rb_might: while I'm a defender.)\n" +
