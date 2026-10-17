@@ -3,6 +3,8 @@ import type { ChainEngine } from '../chain/engine.js';
 import type { ContinuousEffectSpec, ObjectRef, ObjectSnapshot } from '../effects/contract.js';
 import { evaluateCondition } from '../effects/interpreter/condition.js';
 import { matchesObjectFilter } from '../layers/filter.js';
+import { isRelativeLocation } from '../layers/relative/location.js';
+import { isSupportedRelativeFilterValue } from '../layers/relative/filter.js';
 import { bindReplacement as bindReplacementRegistration } from '../replacement/bind.js';
 import { ProgramBindingError } from './errors.js';
 
@@ -51,14 +53,72 @@ function literal(value: unknown): unknown {
   return value;
 }
 
-function layerFor(effect: AnyRecord): LayerName {
+const LAYER_BY_KIND: Readonly<Record<string, LayerName>> = {
+  // Contract 3.4 order: copy → trait → ability → arithmetic. Every known
+  // ContinuousEffect family is assigned explicitly; unknown effects still
+  // fail closed instead of being guessed from a substring.
+  'copy': 'copy',
+  'copy-object': 'copy',
+  'copy-text': 'copy',
+  'continuous.copy': 'copy',
+  'continuous.base-might': 'trait',
+  'continuous.set-type': 'trait',
+  'continuous.set-types': 'trait',
+  'continuous.add-type': 'trait',
+  'continuous.add-tag': 'trait',
+  'continuous.remove-tag': 'trait',
+  'continuous.might': 'arithmetic',
+  'continuous.bonus-damage': 'arithmetic',
+  'continuous.modify-might-reduction': 'arithmetic',
+  'continuous.lethal-threshold': 'arithmetic',
+  'set-might': 'arithmetic',
+  'might': 'arithmetic',
+  'buff': 'arithmetic',
+  'continuous.combat': 'ability',
+  'continuous.cost-modification': 'ability',
+  'continuous.deck': 'ability',
+  'continuous.facedown-capacity': 'ability',
+  'continuous.grant-abilities': 'ability',
+  'continuous.grant-ability': 'ability',
+  'continuous.grant-keyword': 'ability',
+  'continuous.ignore-abilities': 'ability',
+  'continuous.ignore-ability': 'ability',
+  'continuous.ignore-target-tax': 'ability',
+  'continuous.keyword': 'ability',
+  'continuous.location': 'ability',
+  'continuous.movement': 'ability',
+  'continuous.play-permission': 'ability',
+  'continuous.restrict': 'ability',
+  'continuous.target-restriction': 'ability',
+  'continuous.timing': 'ability',
+  'continuous.trigger-multiplicity': 'ability',
+  'continuous.trigger-suppression': 'ability',
+  'continuous.test': 'ability',
+  'condition.predicate': 'ability',
+  'condition.value': 'ability',
+  'requirement': 'ability',
+  'restriction': 'ability',
+  'applied-cost': 'ability',
+  'target.tax': 'ability',
+  'play-location-permission': 'ability',
+  'accelerate.cost': 'ability',
+  'repeat.cost': 'ability',
+  'cost.additional': 'ability',
+  'cost.hidden': 'ability',
+  'cost.modify': 'ability',
+  'cost.reveal': 'ability',
+  'cost.activated': 'ability',
+  'cost.printed': 'ability',
+  'cost.exhaust': 'ability',
+  'cost-modification': 'ability',
+};
+
+export function layerFor(effect: AnyRecord): LayerName {
   const declared = effect.layer;
   if (declared === 'copy' || declared === 'trait' || declared === 'ability' || declared === 'arithmetic') return declared;
   const kind = String(effect.kind ?? '').toLowerCase();
-  if (kind.includes('might') || kind.includes('buff')) return 'arithmetic';
-  if (kind.includes('copy')) return 'copy';
-  if (kind.includes('type') || kind.includes('tag') || kind.includes('trait')) return 'trait';
-  if (kind.includes('timing') || kind.includes('keyword') || kind.includes('movement') || kind.includes('restrict') || kind.includes('combat')) return 'ability';
+  const mapped = LAYER_BY_KIND[kind];
+  if (mapped !== undefined) return mapped;
   throw new ProgramBindingError('judge-required', `Static ability kind ${String(effect.kind ?? '<missing>')} has no layer mapping`);
 }
 
@@ -79,44 +139,61 @@ function sourceSelector(value: unknown): boolean {
   return false;
 }
 
+function relativeSelector(value: unknown): boolean {
+  if (sourceSelector(value)) return true;
+  if (value === 'controller' || value === 'you' || value === 'caster' || value === 'opponent' || value === 'their' || value === 'caster-opponent' || value === 'here') return true;
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const item = value as AnyRecord;
+    if (item.kind === 'constant' || item.kind === 'literal') return relativeSelector(item.value);
+    if (item.kind === 'relative' || item.kind === 'location') return item.value === undefined || relativeSelector(item.value);
+    if (item.source !== undefined) return relativeSelector(item.source);
+    if ('playerId' in item) return typeof item.playerId === 'string';
+  }
+  return false;
+}
+
 /**
  * Static card filters are authored relative to the ability source. The layer
  * engine consumes absolute ObjectFilter values, so resolve the source-relative
  * player and location anchors once while preserving the layer's per-query
  * matching of zone, state, and characteristics.
  */
-function staticFilter(effect: AnyRecord, source: ObjectSnapshot): ObjectFilter {
-  const raw = record(effect.filter);
+export function staticFilter(effect: AnyRecord, source: ObjectSnapshot, rawFilter: AnyRecord = record(effect.filter)): ObjectFilter {
+  const raw = rawFilter;
   const output: AnyRecord = {};
   for (const [key, rawValue] of Object.entries(raw)) {
     const value = literal(rawValue);
     if (key === 'controller' || key === 'owner') {
-      if (value === 'controller' || value === 'you' || value === 'self') output[key] = source.controller;
-      else if (value === 'opponent' || value === 'their') {
-        throw new ProgramBindingError('judge-required', `Static ${key}:opponent filter needs a relative-player query`);
-      } else output[key] = value;
+      if (!isSupportedRelativeFilterValue(value)) throw new ProgramBindingError('judge-required', `Unsupported static ${key} selector ${String(value)}`);
+      output[key] = value;
     } else if (key === 'tag') output.tags = [...(Array.isArray(output.tags) ? output.tags : []), value];
     else if (key === 'types') output.type = value;
     else if (key === 'sameLocationAs') {
-      if (!sourceSelector(value)) throw new ProgramBindingError('judge-required', 'Static sameLocationAs requires a self/source anchor');
-      if (source.location === null) throw new ProgramBindingError('judge-required', 'Static sameLocationAs source has no location');
-      output.location = source.location;
+      if (!relativeSelector(value)) throw new ProgramBindingError('judge-required', 'Static sameLocationAs requires a supported relative anchor');
+      output.sameLocationAs = value;
     } else if (key === 'object' || key === 'source') {
       if (sourceSelector(value)) {
         output.objectId = source.ref.id;
         output.zoneEntryId = source.ref.zoneEntryId;
       } else throw new ProgramBindingError('judge-required', `Unsupported static object anchor ${String(value)}`);
     } else if (key === 'exclude' || key === 'other') {
-      throw new ProgramBindingError('judge-required', `Static ${key} anchor needs a dynamic relative filter`);
+      if (key === 'other' && value !== true) throw new ProgramBindingError('judge-required', 'Static other filter must be true');
+      if (key === 'exclude' && !relativeSelector(value)) throw new ProgramBindingError('judge-required', 'Static exclude requires a supported relative anchor');
+      output[key] = value;
     } else if (key === 'self') {
       if (!sourceSelector(value)) throw new ProgramBindingError('judge-required', 'Static self anchor is unsupported');
       output.objectId = source.ref.id;
       output.zoneEntryId = source.ref.zoneEntryId;
-    } else if (key === 'location' && typeof value === 'object' && value !== null && 'source' in value) {
-      if (!sourceSelector((value as AnyRecord).source)) throw new ProgramBindingError('judge-required', 'Static location source anchor is unsupported');
-      if (source.location === null) throw new ProgramBindingError('judge-required', 'Static location source has no location');
-      output.location = source.location;
-    } else if (['objectId', 'cardId', 'canonicalCardId', 'type', 'zone', 'states', 'state', 'tags', 'characteristics'].includes(key)) {
+    } else if (key === 'here') {
+      if (value !== true) throw new ProgramBindingError('judge-required', 'Static here filter must be true');
+      output.here = true;
+    } else if (key === 'location' || key === 'position') {
+      if (isRelativeLocation(value) && !relativeSelector(value)) throw new ProgramBindingError('judge-required', `Unsupported static ${key} anchor`);
+      output[key] = value;
+    } else if (key === 'region') {
+      if (typeof value !== 'string' && !(typeof value === 'object' && value !== null)) throw new ProgramBindingError('judge-required', 'Static region must be a location or region name');
+      output.region = value;
+    } else if (['objectId', 'zoneEntryId', 'cardId', 'canonicalCardId', 'type', 'types', 'zone', 'states', 'state', 'tags', 'keywords', 'keyword', 'hasKeyword', 'characteristics'].includes(key)) {
       output[key] = value;
     } else {
       throw new ProgramBindingError('judge-required', `Unsupported static filter field ${key}`);
@@ -130,6 +207,13 @@ function staticTarget(effect: AnyRecord, source: ObjectSnapshot): ObjectFilter {
   if (sourceSelector(appliesTo)) {
     return { objectId: source.ref.id, zone: 'board', zoneEntryId: source.ref.zoneEntryId } as ObjectFilter;
   }
+  if (typeof appliesTo === 'object' && appliesTo !== null && !Array.isArray(appliesTo)) {
+    return staticFilter(effect, source, appliesTo as AnyRecord);
+  }
+  if (appliesTo === 'opponent') return { controller: 'opponent' } as ObjectFilter;
+  if (appliesTo === 'friendly-units') return { type: 'unit', controller: 'self' } as ObjectFilter;
+  if (appliesTo === 'units-here') return { type: 'unit', controller: 'self', here: true } as ObjectFilter;
+  if (appliesTo === 'all-players' || appliesTo === 'all') return {} as ObjectFilter;
   if (appliesTo !== undefined && appliesTo !== null) {
     throw new ProgramBindingError('judge-required', `Unsupported static appliesTo ${JSON.stringify(appliesTo)}`);
   }
@@ -144,7 +228,7 @@ function abilityEnvironment(engine: ChainEngine, source: ObjectSnapshot) {
   const base = host.context(current, current.controller, engine.layers.currentTimingPoint ?? 'cleanup-start');
   const context = new Proxy(base, { get(target, key) {
     if (key === 'object') return (ref: ObjectRef) => engine.layers.snapshot(ref) ?? target.object(ref);
-    if (key === 'query') return (filter: ObjectFilter) => engine.layers.evaluateAll().filter(object => matchesObjectFilter(filter, object));
+    if (key === 'query') return (filter: ObjectFilter) => engine.layers.evaluateAll().filter(object => matchesObjectFilter(filter, object, current));
     const value = Reflect.get(target, key);
     return typeof value === 'function' ? value.bind(target) : value;
   } });
