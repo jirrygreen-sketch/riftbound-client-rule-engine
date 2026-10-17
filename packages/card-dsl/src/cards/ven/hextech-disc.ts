@@ -22,15 +22,18 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   先在链上生成再由 play 动作接手，目的地是控制者的 Base。
  *
  * status = judge-required（缺口均不近似实现）：
+ * 复核（2026-10-17，第二轮 M2 覆盖率复核）：旧 judgeReason 的 RIFT-89/RIFT-120/RIFT-81~88
+ * 引用已过时，缺口按当前源码重述：
  * 1. 缺 Empower/Empowered KeywordDef：keywords/registry.generated.ts 没有
- *    "empower"/"empowered" 展开（RIFT-81~88 批次不含）。
+ *    "empower"/"empowered" 展开的 KeywordDef。
  * 2. 启动费用里的 Disempower 没有付费种类：cost/plan-values.ts 的 readCost 非标准
  *    费用只支持 exhaust/discard/recycle/kill/reveal/spend-buff，kind "disempower"
- *    会被 blocked（同 rad/boy-who-shattered-time、ven/matriarch-of-war 的记录，RIFT-89）。
+ *    会被 blocked（同 rad/boy-who-shattered-time、ven/matriarch-of-war 的记录）。
  * 3. "Play a 3 :rb_might: Mech unit token to your base" 的链上生成 + 打出路径：
  *    effect.token 的 mode "play" 在参考内核可执行（链上创建 + play 接手），但生产链的
- *    token 链项接收方（440.2.c/185.2.a）仍未接线（同 sfd/assembly-rig 的判定），
- *    且卡牌程序 → 关键词展开 → 链的接线（契约 3.5）缺失。
+ *    token 链项接收方（440.2.c/185.2.a）仍未接线（同 sfd/assembly-rig 的判定）：
+ *    生产链 routeAction 对 play 动作要求 describePlay 卡牌程序适配器，token 没有
+ *    cardId 也就没有绑定。
  * golden 用真实解释器执行 effect.token 的 Mech 定义与打出路径，并断言 Disempower 费用
  * 种类被费用计划拒绝；不近似实现（不用 kill/reveal 等别的费用种类替换 Disempower）。
  * 依赖：新的 Empower/Empowered 关键词任务、RIFT-89（Disempower 费用种类）、
@@ -80,16 +83,17 @@ export default {
   status: "judge-required",
   judgeReason:
     "三处缺口，均不近似实现：(1) 缺 Empower/Empowered KeywordDef：keywords/registry.generated.ts 没有 " +
-    "\"empower\"/\"empowered\" 展开（RIFT-81~88 关键词批次不含），827.1.c.1 的横置启动费用与" +
+    "\"empower\"/\"empowered\" 展开的 KeywordDef，827.1.c.1 的横置启动费用与" +
     "「Use only if not Empowered」限制无执行路径（827.1.b.1：来源不是目标）。" +
     "(2) 启动费用里的「Disempower this」没有付费种类：cost/plan-values.ts 的 readCost 非标准费用只支持 " +
     "exhaust/discard/recycle/kill/reveal/spend-buff，kind \"disempower\" 会被 blocked（443.2/443.2.a 的 " +
-    "Disempower 是受限动作；同 rad/boy-who-shattered-time 的记录，RIFT-89）。" +
-    "(3)「Play a 3 :rb_might: Mech unit token to your base」需要 440.2.c/185.2.a 的链上生成再打出，生产链的 " +
-    "token 链项接收方与卡牌程序 → 关键词展开 → 链的接线（契约 3.5）尚未合入（同 sfd/assembly-rig 的判定）。" +
-    "golden 用真实解释器执行 effect.token 的 187.4 Mech 定义与打出路径，并实测 Disempower 费用种类被费用计划拒绝；" +
-    "不近似实现（不用 kill/reveal 等别的费用种类替换 Disempower）。依赖：新的 Empower/Empowered 关键词任务、" +
-    "RIFT-89（费用种类）、RIFT-120 的 token 链项接收方。",
+    "Disempower 是受限动作；同 rad/boy-who-shattered-time 的记录）。" +
+    "(3)「Play a 3 :rb_might: Mech unit token to your base」需要 440.2.c/185.2.a 的链上生成再打出：" +
+    "effect.token 的 mode \"play\" 在参考内核可执行（golden 断言链上创建与 play 事件接手），但生产链的 " +
+    "token 链项接收方仍未接线——routeAction 对 play 动作要求 describePlay 卡牌程序适配器，" +
+    "token 没有 cardId 也就没有绑定（同 sfd/assembly-rig 的判定）。" +
+    "golden 另实测 Disempower 费用种类被费用计划拒绝；不近似实现（不用 kill/reveal 等别的费用种类替换 Disempower）。" +
+    "依赖：新的 Empower/Empowered 关键词任务、disempower 付费种类、生产链 token-play 接收方。",
   abilities,
   sourceText:
     "[Empower] — :rb_exhaust: (Pay the cost: Empower this. Use only if not Empowered.)\n" +

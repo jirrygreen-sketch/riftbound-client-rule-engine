@@ -4,6 +4,9 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/guttural-roar.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-1ced4268c533ffec88b27ec278a78271dee36cc714cbc77853dc64a26a1cda7b";
 const SOURCE_TEXT =
@@ -25,11 +28,11 @@ test("ven-072-166 Guttural Roar: program passes validateCardProgram with the cat
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("ven-072-166 Guttural Roar: judgeReason names the temporary-Might gap and the Empowered-predicate gap", () => {
+test("ven-072-166 Guttural Roar: judgeReason names the merged continuous.might execution and the Empowered-predicate gap", () => {
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-91/);
   assert.match(program.judgeReason, /Empowered/);
-  assert.match(program.judgeReason, /conditionMatches/);
+  assert.match(program.judgeReason, /MissingInformation/);
+  assert.match(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /135\.2\.b\.5\.b/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
@@ -99,13 +102,42 @@ test("ven-072-166 Guttural Roar: the Empowered predicate stays descriptive and i
   assert.notEqual(plusTwo.condition.kind, "always");
 });
 
+test("ven-072-166 Guttural Roar: the merged continuous.might instruction really executes (+4 branch, arithmetic layer, end-of-turn expiry)", () => {
+  const kernel = world()
+    .player("A", { energy: 2 })
+    .unit("roar-target", { types: ["unit"], zone: "board", might: 3 })
+    .build();
+  const bound = kernel.clone({ sourceSnapshot: kernel.getObject("roar-target") });
+  bound.setTargets("guttural-roar.unit", [bound.ref("roar-target")]);
+
+  const outcome = runAbilityBody(play.body, bound);
+  // The production interpreter cannot evaluate the named is-empowered predicate
+  // (828.2 has no merged state field): the +2 branch is skipped (611.2.a/b) and
+  // the +4 branch executes. This partial outcome is the executable evidence —
+  // not a silent pass of both amounts.
+  assert.equal(outcome.status, "partial");
+  const [plusTwoRun, plusFourRun] = outcome.results;
+  assert.equal(plusTwoRun.result.status, "negated");
+  assert.equal(plusTwoRun.result.reason, "skipped");
+  assert.equal(plusFourRun.result.status, "executed");
+  assert.equal(bound.continuousEffects.length, 1);
+
+  const layers = createLayerEngine(bound.objects, bound.continuousEffects);
+  const after = layers.evaluate(bound.ref("roar-target"));
+  assert.equal(after.might, 7);
+  const expiring = layers.expireAt("turn-end");
+  assert.deepEqual(expiring, [bound.continuousEffects[0].effect.id]);
+});
+
 test.todo(
   "ven-072-166 Guttural Roar: 'Give a unit +2/+4 :rb_might: this turn' needs the continuous.might layers " +
-    "consumer with an end-of-turn duration (317.2.c) — RIFT-91"
+    "instruction is merged and executes; only the mutual-exclusion branch remains blocked by the missing " +
+    "Empowered predicate (828.2, in-progress RIFT-359)"
 );
 
 test.todo(
   "ven-072-166 Guttural Roar: \"If it's [Empowered]\" needs an Empowered state predicate (CR 828.2) in " +
-    "Condition / layers/engine.ts conditionMatches; unknown conditions currently evaluate to true, so the " +
-    "two branches cannot be told apart yet — RIFT-91"
+    "the production ObjectSnapshot / Condition set; the named expression predicate evaluates to " +
+    "MissingInformation in the production interpreter, so the +2/+4 branches cannot be told apart yet — " +
+    "in-progress RIFT-359"
 );

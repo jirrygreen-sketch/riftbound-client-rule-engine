@@ -41,7 +41,8 @@ test("ven-045-166 Helm of Suppression: identity, ruleset, status, judgeReason an
   assert.match(program.judgeReason, /356\.3/);
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /135\.2\.e\.5\.a/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /Unsupported static appliesTo/);
+  assert.match(program.judgeReason, /RIFT-359/);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
@@ -146,14 +147,17 @@ test("ven-045-166 Helm of Suppression: the Empowered branch's Power component is
 test.todo(
   "ven-045-166 Helm of Suppression: [Empower] 4 Energy + 1 Calm Power must expand to its activation cost with the " +
     "\"use only if not Empowered\" restriction (827.1.c.1 / 442.1.b) - no Empower/Empowered KeywordDef exists in " +
-    "effects/keywords/registry.generated.ts (RIFT-81~88 batch excludes them)"
+    "effects/keywords/registry.generated.ts (full program binding: 'Keyword empower has no executable KeywordDef')"
 );
 test.todo(
   "ven-045-166 Helm of Suppression: the static cost increase must be installed on an opposing spell's cost plan - " +
-    "buildCostPlan only reads caller-supplied CostPlanInput.increases and effects/instructions has no cost.modify " +
-    "primitive (RIFT-9 list, RIFT-89)"
+    "buildCostPlan only reads caller-supplied CostPlanInput.increases and ProgramStaticBinder.staticTarget rejects " +
+    "appliesTo 'spell-play-cost' (Unsupported static appliesTo); the merged cost.modify instruction primitive is a " +
+    "card instruction, not this static-to-cost-plan path"
 );
 test.todo(
   "ven-045-166 Helm of Suppression: the [A] Power increase must be payable by Power of any Domain - the closed six-Domain " +
-    "union has no Universal Power value, and the Empowered predicate (828.1.c) has no evaluable form (contract change request)"
+    "union has no Universal Power value, and the Empowered predicate (828.1.c) has no evaluable form - the named " +
+    "expression predicate is constantly true in the test kernel and throws MissingInformation in the production " +
+    "interpreter (in-progress RIFT-359)"
 );

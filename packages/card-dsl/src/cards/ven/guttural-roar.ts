@@ -21,17 +21,19 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   那个单位，不再重新选择）。"[Empowered]" 是 828.2 的可检查特征。
  *
  * status = judge-required（缺口均不近似实现）：
- * 1. 临时 Might 修改没有已合入的执行原语：契约 3.6 的封闭 GameAction 集合没有 Might 修改
- *    动作，effects/instructions/ 也没有注册通过 ResolveContext.addContinuous 创建
- *    continuous.might 的 op（layers 能求值，卡牌侧无入口；RIFT-91）。
- * 2. "If it's [Empowered]" 的谓词没有已合入实现：Condition 只有 always/never/compare/all/
- *    any/not/expression，没有 empowered 状态谓词；layers/engine.ts 的 conditionMatches 只
- *    识别 always/never/type/has-tag/has-keyword，且未识别条件按 true 处理，所以不能把该
- *    从句写成就近似的真条件。程序里保留具名谓词 is-empowered 与互斥条件形状，绝不近似成
- *    恒真、也不把两条数量合并成一条固定的 +2。
- * 3. 已支持部分：互斥条件形状与共用目标的声明由 golden 结构断言覆盖；真实 Might 落地写
- *    test.todo（依赖 RIFT-91）。
- * 依赖：RIFT-91（continuous.might 卡牌侧入口与到期、Empowered 谓词）。
+ * 复核（2026-10-17，第二轮 M2 覆盖率复核）：
+ * - 旧 judgeReason 的「continuous.might 无卡牌侧入口（RIFT-91）」已不成立：
+ *   continuous.might 指令已注册并经 runAbilityBody 真实执行（arithmetic 图层注册、
+ *   317.2.c 的 end-of-turn 到期经 layers.expireAt("turn-end") 断言）。
+ * - 真实缺口只剩 "[Empowered]" 状态谓词：生产 ObjectSnapshot（effects/contract.ts）
+ *   没有 empowered 字段；具名 expression 谓词 "is-empowered" 在生产解释器求值抛
+ *   MissingInformation（实测生产执行结果为 +2 分支 skipped / +4 分支 executed，
+ *   partial outcome），不能作为可执行证据；条件谓词属进行中任务 RIFT-359。
+ *
+ * status 判定（cards/README.md 第 2 节）：judge-required，缺口不近似实现。
+ * 程序里保留具名谓词 is-empowered 与互斥条件形状，绝不近似成恒真、也不把两条
+ * 数量合并成一条固定的 +2。golden 覆盖身份/结构与 +4 分支的真实执行。
+ * 依赖：Empowered 状态谓词（进行中任务 RIFT-359）。
  */
 const EMPOWERED_CONDITION = {
   kind: "expression",
@@ -93,13 +95,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入，均不近似实现：(1) 临时 Might 修改没有已合入执行原语：契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，" +
-    "effects/instructions/ 也没有注册通过 ResolveContext.addContinuous 创建 continuous.might 的 op（layers 能求值，卡牌侧无入口），" +
-    "effect.buff 只处理 CR 702 的 Buff 计数，不能近似；本卡没有印刷下限（143.2.c 是一般规则）。(2)「If it's [Empowered]」的谓词没有已合入实现：" +
-    "Condition 只有 always/never/compare/all/any/not/expression，没有 empowered 谓词，layers/engine.ts 的 conditionMatches 只识别 " +
-    "always/never/type/has-tag/has-keyword 且未识别条件按 true 处理；本卡按 135.2.b.5.b 只保留互斥条件形状" +
-    "（+2 挂该谓词的否定、+4 挂该谓词本身）与共用目标的声明，绝不写成恒真条件、也不把两条数量合并成固定 +2。" +
-    "依赖：RIFT-91（continuous.might 卡牌侧入口与到期、Empowered 谓词）。",
+    "一处已合入、一处仍缺，均不近似实现：「Give a unit +2/+4 :rb_might: this turn」的 continuous.might 指令已注册并经 " +
+    "runAbilityBody 真实执行（+4 分支 executed，arithmetic 图层注册 + 317.2.c end-of-turn 到期经 layers.expireAt 断言，" +
+    "331.4 的所有 this-turn 效果同到；生产解释器只对不可求值的谓词分支按 611.2.a/b 忽略）。唯一缺口：「If it's [Empowered]」的 " +
+    "828.2 状态谓词没有已合入实现——生产 ObjectSnapshot（effects/contract.ts）没有 empowered 字段，具名 expression 谓词 " +
+    "is-empowered 在生产解释器求值抛 MissingInformation（实测 +2 分支 skipped / +4 分支 executed 的 partial outcome），" +
+    "不能作为可执行证据；条件谓词属进行中任务 RIFT-359。本卡按 135.2.b.5.b 保留互斥条件形状（+2 挂该谓词的否定、" +
+    "+4 挂该谓词本身）与共用目标的声明，绝不写成恒真条件、也不把两条数量合并成固定 +2。" +
+    "依赖：Empowered 状态谓词（进行中任务 RIFT-359）。",
   abilities,
   sourceText:
     "[Action] (Play on your turn or in showdowns.)\n" +

@@ -26,20 +26,26 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   不是两者同时叠加。
  *
  * status = judge-required（缺口逐个列出，均不近似实现）：
+ * 复核（2026-10-17，第二轮 M2 覆盖率复核）：旧 judgeReason 的「effects/instructions
+ * 也没有 cost.modify 原语（RIFT-9 清单要求，属 RIFT-89）」已不成立：
+ * effects/instructions/cost.modify.ts 已注册（它是卡牌指令，不是 static → 费用计划
+ * 的消费方；本卡第 2 条缺口与它无关，保持不变）。
  * 1. effects/keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef：
  *    827.1.c.1 的起动费用、442.1.b / 827.1.c.5 的"仅当未 Empowered"限制、以及 828.1.c
- *    的 Dependent Ability 状态门控都没有展开实现（RIFT-81~88 关键词批次不含它们）。
+ *    的 Dependent Ability 状态门控都没有展开实现；完整程序绑定实测
+ *    「Keyword empower has no executable KeywordDef」。
  * 2. 费用增加没有消费方：cost/cost-plan.ts 的 buildCostPlan 只在调用方显式传入
  *    CostPlanInput.increases 时应用「3. Apply cost increases」（356.3）；没有任何已合入
- *    路径把 CardProgram 的 static 费用改写送进被施放法术的费用计划，effects/instructions
- *    也没有 cost.modify 原语（RIFT-9 清单要求，属 RIFT-89）。
+ *    路径把 CardProgram 的 static 费用改写送进被施放法术的费用计划
+ *    （ProgramStaticBinder.staticTarget 对 appliesTo "spell-play-cost" 抛
+ *    「Unsupported static appliesTo」，实测 activeEffects = 0）。
  * 3. [A]（任意域 Power）在封闭的六域 Domain 集合（Fury/Calm/Mind/Body/Chaos/Order）里
  *    没有对应值：163.2.b / 135.2.e.5.a 要求"任意域均可支付"，用某个具体域书写就是近似
  *    （effect.resources 已记录同一缺口）。本程序以彩虹域列表描述该分支，不写成单域。
  * 4. "If this is [Empowered]" 需要可求值的 Empowered 谓词；冻结的 Condition 只有
  *    always/never/expression/compare/all/any/not，ObjectSnapshot 也不暴露 Empowered 状态。
- * 依赖：新增 Empower/Empowered 关键词任务、RIFT-89（cost.modify 与费用计划接线，含
- * 增加分量）、[A] 的可支付表示、RIFT-91（状态谓词）。
+ * 依赖：新增 Empower/Empowered 关键词任务、static 费用改写进费用计划的消费方
+ * （appliesTo 绑定）、[A] 的可支付表示、Empowered 状态谓词（进行中任务 RIFT-359）。
  */
 /**
  * 827.1.c：印刷 "Empower 4 Energy + 1 Calm Power"。value 记印刷 Energy 数量 4，costDomain
@@ -111,18 +117,20 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处缺口，均不近似实现：(1) 没有 Empower/Empowered KeywordDef（RIFT-81~88 批次不含）：" +
-    "827.1.c.1 的起动费用（4 Energy + 1 Calm Power，来源非目标）、442.1.b/827.1.c.5 的" +
-    "『仅当未 Empowered』限制、828.1.c 的 Dependent Ability 门控都无展开；" +
-    "(2) 费用增加（356.3『Apply cost increases』）没有消费方：cost/cost-plan.ts 只在调用方显式传入 " +
-    "CostPlanInput.increases 时应用，没有已合入路径把 CardProgram 的 static 费用改写送进被施放法术的费用计划，" +
-    "effects/instructions 也没有 cost.modify 原语（RIFT-9 清单要求，属 RIFT-89）；" +
-    "(3) Empowered 分支的 :rb_rune_rainbow: 是任意域 Power [A]（135.2.e.5.a/163.2.b），" +
-    "封闭六域 Domain 集合没有可支付的通用值，用单一域书写即为近似；" +
+    "四处缺口，均不近似实现：(1) 没有 Empower/Empowered KeywordDef：827.1.c.1 的起动费用" +
+    "（4 Energy + 1 Calm Power，来源非目标）、442.1.b/827.1.c.5 的『仅当未 Empowered』限制、" +
+    "828.1.c 的 Dependent Ability 门控都无展开（完整程序绑定实测 Keyword empower has no " +
+    "executable KeywordDef）；(2) 费用增加（356.3『Apply cost increases』）没有 static→费用计划的消费方：" +
+    "cost/cost-plan.ts 只在调用方显式传入 CostPlanInput.increases 时应用，" +
+    "ProgramStaticBinder.staticTarget 对 appliesTo \"spell-play-cost\" 抛 Unsupported static appliesTo" +
+    "（实测 activeEffects = 0）；effects/instructions/cost.modify.ts 指令原语已注册，" +
+    "但那是卡牌指令，不是本卡的 static 费用改写路径；(3) Empowered 分支的 :rb_rune_rainbow: 是任意域 Power [A]" +
+    "（135.2.e.5.a/163.2.b），封闭六域 Domain 集合没有可支付的通用值，用单一域书写即为近似；" +
     "(4) 『If this is [Empowered]』缺可求值谓词：冻结的 Condition 只有 always/never/expression/" +
-    "compare/all/any/not，ObjectSnapshot 也不暴露 Empowered 状态。" +
-    "依赖新增 Empower/Empowered 关键词任务、RIFT-89（cost.modify 与费用计划接线）、[A] 的可支付表示、" +
-    "RIFT-91（状态谓词）。",
+    "compare/all/any/not，生产 ObjectSnapshot 也不暴露 Empowered 状态，具名 expression 谓词在测试内核恒真、" +
+    "在生产解释器抛 MissingInformation，不能作为可执行证据。依赖新增 Empower/Empowered 关键词任务、" +
+    "static 费用改写进费用计划的消费方（appliesTo 绑定）、[A] 的可支付表示、" +
+    "Empowered 状态谓词（进行中任务 RIFT-359）。",
   abilities,
   sourceText:
     "[Empower] :rb_energy_4::rb_rune_calm: (:rb_energy_4::rb_rune_calm:: Empower this. Use only if not Empowered.)\n" +
