@@ -30,7 +30,8 @@ test("unl-086-219 Zilean, Time Mage: identity, status, judgeReason and verbatim 
   assert.match(program.judgeReason, /once each turn|Once each turn|386\.1/);
   assert.match(program.judgeReason, /oncePerTurn/);
   assert.match(program.judgeReason, /planner/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /source-at-a-battlefield/);
+  assert.match(program.judgeReason, /LocationRef\.type/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -46,8 +47,8 @@ test("unl-086-219 Zilean, Time Mage: one replacement ability on the play of a to
     controller: "self"
   });
   // "while I'm at a battlefield": the source's location is the applicability
-  // condition (464.2.b); this descriptive constant still needs the RIFT-359
-  // location-type predicate before the full program can be executable.
+  // condition (464.2.b); this descriptive constant still needs a
+  // LocationRef.type predicate before the full program can be executable.
   assert.deepEqual(replacement.condition, {
     kind: "expression",
     value: { kind: "constant", value: "source-at-a-battlefield" }
@@ -105,5 +106,5 @@ test.todo(
 );
 test.todo(
   "unl-086-219 Zilean, Time Mage: evaluate the source-at-battlefield Condition at replacement application, " +
-    "including the source at Base (CR 464.2.b; RIFT-359 location-type predicate)"
+    "including the source at Base (CR 464.2.b; LocationRef.type predicate)"
 );
