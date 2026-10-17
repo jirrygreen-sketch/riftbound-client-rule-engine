@@ -13,6 +13,7 @@ import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.
 import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 
 const CANONICAL =
   "card.hash-abc384da043315415efa41d8d39f0cf4edbb77f2cbf021c4b7871cdf8732d768";
@@ -261,11 +262,31 @@ test("ven-062-166 Hextech Formula golden: the merged replacement rewrites a real
   assert.deepEqual(kernel.events.map((event) => event.action), ["move-zone", "exhaust", "move-zone"]);
 });
 
-test.todo(
-  "ven-062-166 Hextech Formula: contract change request - the other/exclude self-exclusion anchors for object " +
-    "filters (CR 740.1.a) need consumers in programs/filters.ts translateObjectFilter and in the interpreter's " +
-    "matchesObjectFilter target queries before 'Empower another gear' can bind"
-);
+test("ven-062-166 Hextech Formula probe: the production binding rejects 'other' before any target is chosen", () => {
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const base = world()
+    .unit("hextech-formula", {
+      cardId: CANONICAL,
+      types: ["gear"],
+      energy: 2,
+      power: null,
+      might: null,
+      zone: "board",
+      location: { type: "base", player: "A" }
+    })
+    .unit("other-gear", { types: ["gear"], zone: "board", location: { type: "base", player: "A" } })
+    .build();
+  const kernel = base.clone({ source: base.ref("hextech-formula"), sourceSnapshot: base.getObject("hextech-formula") });
+  assert.throws(
+    () => binding.describeActivate(kernel.getObject("hextech-formula"), "A", 0),
+    error => error.code === "judge-required" && /Unsupported filter field other/.test(error.message)
+  );
+  // The reference kernel's own filter matcher ignores the anchor rather than
+  // excluding the source, so "another" cannot be honoured there either.
+  assert.equal(matchesObjectFilter(gearTarget.filter, kernel.getObject("hextech-formula")), true);
+});
 test.todo(
   "ven-062-166 Hextech Formula: once the other:true anchor is consumed, the production binding must select exactly " +
     "one friendly gear other than the source (CR 355.7/355.9.a.1/740.1.a); the empower body and exhaust cost are " +

@@ -8,6 +8,9 @@ import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 // card-dsl), so golden execution loads the built engine through its workspace
 // layout instead of the package name.
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { createEngineStaticBinder, createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { finalizeTargetPlan } from "../../../../engine-core/dist/target/target-plan.js";
 
@@ -32,8 +35,9 @@ test("ven-158-166 Heisho: identity, ruleset, status and exact source text", () =
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /76[4-7]/);
-  assert.match(program.judgeReason, /TargetTaxAdapter|target\.tax/);
+  assert.match(program.judgeReason, /TargetTaxCostAdapter|target\.tax/);
   assert.match(program.judgeReason, /sameLocationAs/);
+  assert.match(program.judgeReason, /no layer mapping/);
   // The golden must prove the new program reaches the shared generated index,
   // not just the file system (scripts/gen-registries.mjs builds it from src/cards/**).
   assert.equal(cardProgramsById.get(program.canonicalCardId), program);
@@ -151,6 +155,74 @@ test.todo(
 );
 
 test.todo(
-  "ven-158-166 Heisho: register the card program's static ability as a ContinuousEffectSpec and resolve 190.6 battlefield " +
-    "controller for its abilities — the static binder rejects continuous.ignore-abilities before any layer read"
+  "ven-158-166 Heisho: once 764-767 lands, resolve 190.6 battlefield controller for the static ability and verify the " +
+    "waiver only suppresses Deflect for the paying spell/ability's own cost procedure"
 );
+
+/** Production ChainEngine over a reference kernel, for the fail-closed probes below. */
+function productionEngine(program) {
+  const base = world().player("A", { energy: 20 }).player("B", { energy: 20 })
+    .unit("heisho", {
+      cardId: program.canonicalCardId,
+      types: ["battlefield"],
+      zone: "board",
+      location: { type: "battlefield", id: "bf-1" }
+    })
+    .unit("spell", { types: ["spell"], zone: "hand", energy: 1, power: null, location: null })
+    .unit("deflector", {
+      owner: "B",
+      controller: "B",
+      types: ["unit"],
+      zone: "board",
+      location: { type: "battlefield", id: "bf-1" },
+      keywords: [{ id: "Deflect", value: 2 }],
+      might: 5
+    })
+    .deck(["A:d"], { owner: "A" }).deck(["B:d"], { owner: "B" })
+    .rune(["A:r"], { owner: "A" }).rune(["B:r"], { owner: "B" })
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("heisho") });
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => kernel.choose(request),
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"],
+    turnPlayer: "A",
+    phase: "main",
+    host,
+    cleanup: () => false
+  });
+  return { kernel, engine };
+}
+
+test("ven-158-166 Heisho probe: the production binder rejects continuous.ignore-abilities (no layer mapping)", () => {
+  const { kernel, engine } = productionEngine(program);
+  const binder = createEngineStaticBinder(engine);
+  assert.throws(
+    () => binder.bindStatic(ability, kernel.getObject("heisho")),
+    error => error.code === "judge-required" &&
+      /Static ability kind continuous\.ignore-abilities has no layer mapping/.test(error.message)
+  );
+});
+
+test("ven-158-166 Heisho probe: the merged Deflect static has no production binding either, so the chain never charges the tax this card would ignore", () => {
+  const { kernel, engine } = productionEngine(program);
+  const deflect = keywordDefinitionsById.get("Deflect");
+  const [deflectStatic] = deflect.expand({ value: 2, host: { canonicalCardId: CANONICAL } });
+  const binder = createEngineStaticBinder(engine);
+  assert.throws(
+    () => binder.bindStatic(deflectStatic, kernel.getObject("deflector")),
+    error => error.code === "judge-required" &&
+      /Static ability kind target\.tax has no layer mapping/.test(error.message)
+  );
+  // The merged tax collector can charge the keyword when a caller supplies the
+  // effect set; the missing production piece is exactly that binding/wiring.
+  const deflection = deflectStatic.effect;
+  assert.equal(deflection.kind, "target.tax");
+  assert.deepEqual(deflection.value, { kind: "constant", value: 2 });
+});

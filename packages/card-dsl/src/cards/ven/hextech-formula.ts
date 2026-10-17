@@ -26,18 +26,19 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   第二条能力。
  *
  * status = judge-required（缺口只剩目标过滤的排除锚点，不近似实现）：
+ * 复核（2026-10-17，RIFT-613 第三轮 M2 覆盖率复核，实测见 test.mjs 的 probe 用例）：
  * 1. "This enters exhausted" 的入场替代已可执行：replacement.enter 原语与生产绑定链
  *    （programs/index.ts 的 createProgramBinding、programs/statics.ts 的
  *    createEngineStaticBinder → replacement/bind.ts）已合入，golden 用真实绑定复刻
  *    ogn/iron-ballista 的入场替代链路（链上 → Board 入场即横置）。
- * 2. 启动能力的生产绑定也已合入（describeActivate 经 programs/activate.ts 产出
- *    ChainDraft，Finalize 才会锁定目标并支付 exhaust 费用），effect.empower 原语与
- *    442.1.c 的"已 Empowered 时什么也不发生"由动作层真实执行。
+ * 2. 启动能力的生产绑定路径已可产出 ChainDraft（programs/activate.ts），effect.empower
+ *    原语与 442.1.c 的"已 Empowered 时什么也不发生"由动作层真实执行；golden 用真实
+ *    解释器执行"横置自身并 Empower 另一个 gear"。
  * 3. 剩余缺口："another gear" 的排除锚点 other: true（740.1.a 的 friendly + other 写法）
- *    没有任何消费方：programs/filters.ts 的 translateObjectFilter 对 other/exclude 直接抛
- *    ProgramBindingError("judge-required", "Unsupported filter field other")，生产绑定因此
- *    fail-closed；该过滤语义保留在测试 TODO，参考内核的 layers/filter.ts matchesObjectFilter
- *    同样不消费该字段（恒真）。"a gear" 是 355.7/355.9.a.1 的 Target，缺排除锚点即缺
+ *    没有任何消费方：实测 programs/filters.ts 的 translateObjectFilter 对 other 抛
+ *    ProgramBindingError（code "judge-required"，message "Unsupported filter field other"），
+ *    生产绑定因此 fail-closed；参考内核的 layers/filter.ts matchesObjectFilter 同样不消费
+ *    该字段（恒真），无法排除来源自身。"a gear" 是 355.7/355.9.a.1 的 Target，缺排除锚点即缺
  *    整个启动能力，故整卡不标 executable（契约变更请求：目标过滤 other/exclude 锚点）。
  */
 const abilities: Ability[] = [
@@ -105,16 +106,15 @@ export default {
   judgeReason:
     "入场替代与启动绑定的可执行路径已合入：replacement.enter 原语与生产绑定链" +
     "（createProgramBinding / createEngineStaticBinder → replacement/bind.ts）用真实绑定执行" +
-    "『This enters exhausted』（369.1/369.3 的入场状态替代，359.2.d 默认就绪被改写为横置入场，" +
-    "不是一次横置动作）；describeActivate（programs/activate.ts）+ Finalize（chain/engine.ts）" +
-    "真实锁定目标、支付 exhaust 费用并执行 effect.empower（355.7/355.9.a.1/442.1）。" +
-    "剩余缺口：『another gear』的排除锚点 other: true（740.1.a）没有消费方——" +
-    "programs/filters.ts translateObjectFilter 对 other/exclude 抛 ProgramBindingError" +
-    "（judge-required，Unsupported filter field other），生产绑定 fail-closed；该过滤语义保留在测试 TODO；" +
+    "『This enters exhausted』（369.1/369.3，359.2.d 默认就绪被改写为横置入场，不是一次横置动作）；" +
+    "effect.empower 原语与 442.1.c 的『已 Empowered 时什么也不发生』由动作层真实执行。" +
+    "剩余缺口（2026-10-17 RIFT-613 复核实测）：『another gear』的排除锚点 other: true（740.1.a）" +
+    "没有消费方——programs/filters.ts translateObjectFilter 对 other 抛 ProgramBindingError" +
+    "（judge-required，\"Unsupported filter field other\"），生产绑定 fail-closed；" +
     "layers/filter.ts matchesObjectFilter 也不消费该字段（恒真），参考内核同样无法排除来源自身。" +
-    "『a gear』是 Target，缺排除锚点即缺整个启动能力，故整卡保持 judge-required；" +
-    "契约变更请求：ObjectFilter 的 other/exclude 排除锚点（生产 translateObjectFilter 与解释器目标过滤）。" +
-    "不近似实现（不把『another』近似成『a gear』，也不在卡内伪造来源排除）。",
+    "『a gear』是 Target（355.7/355.9.a.1），缺排除锚点即缺整个启动能力，故整卡保持 " +
+    "judge-required；契约变更请求：ObjectFilter 的 other/exclude 排除锚点（生产 translateObjectFilter" +
+    "与解释器目标过滤）。不近似实现（不把『another』近似成『a gear』，也不在卡内伪造来源排除）。",
   abilities,
   sourceText:
     "This enters exhausted.\n" +

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
@@ -8,7 +9,9 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 // card-dsl), so golden execution loads the built engine through its workspace
 // layout instead of the package name.
 import { buildCostPlan, prepareCostPayment } from "../../../../engine-core/dist/cost/index.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 
 const CANONICAL =
   "card.hash-c78464f75c9c394d39ba60be62b2e010158f2a4a17cebed21a59e9bf42bd8207";
@@ -43,6 +46,11 @@ test("ven-045-166 Helm of Suppression: identity, ruleset, status, judgeReason an
   assert.match(program.judgeReason, /135\.2\.e\.5\.a/);
   assert.match(program.judgeReason, /Unsupported static appliesTo/);
   assert.match(program.judgeReason, /RIFT-359/);
+  // Merged since the last sweep: Empower has a KeywordDef; the remaining cost
+  // gap is the missing card-side printed-cost carrier, not the keyword itself.
+  assert.match(program.judgeReason, /effects\/keywords\/Empower\.ts/);
+  assert.match(program.judgeReason, /Unsupported cost kind empower/);
+  assert.doesNotMatch(program.judgeReason, /没有 Empower\/Empowered KeywordDef/);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
@@ -178,11 +186,59 @@ test("ven-045-166 Helm of Suppression: the cost plan accepts every Domain for th
   }
 });
 
-test.todo(
-  "ven-045-166 Helm of Suppression: [Empower] 4 Energy + 1 Calm Power must expand to its activation cost with the " +
-    "\"use only if not Empowered\" restriction (827.1.c.1 / 442.1.b) - no Empower/Empowered KeywordDef exists in " +
-    "effects/keywords/registry.generated.ts (full program binding: 'Keyword empower has no executable KeywordDef')"
-);
+test("ven-045-166 Helm of Suppression probe: the merged Empower expansion loses the printed 4 Energy + 1 Calm Power cost", () => {
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const source = { ...world().unit("helm", { cardId: program.canonicalCardId, types: ["gear"], zone: "board", energy: 4, power: ["Calm"], location: { type: "base", player: "A" } }).build().getObject("helm"), };
+  const expanded = binding.inspect(source).abilities.filter(candidate => candidate.kind === "activated");
+  assert.equal(expanded.length, 1, "the merged Empower KeywordDef expands to one activated ability");
+  // The keyword expansion is real, but the printed cost never reaches it:
+  // KeywordAbility has no params field and expandProgram passes only value/host.
+  assert.deepEqual(expanded[0].cost, { kind: "empower" });
+  assert.equal(empower.value, 4);
+  assert.equal(empower.costDomain, "Calm");
+});
+
+test("ven-045-166 Helm of Suppression probe: the printed Empower activation is rejected by the chain cost translator", () => {
+  const kernel = world().player("A").player("B")
+    .unit("helm", { cardId: program.canonicalCardId, types: ["gear"], zone: "board", energy: 4, power: ["Calm"], location: { type: "base", player: "A" } })
+    .deck(["A:d"], { owner: "A" }).deck(["B:d"], { owner: "B" })
+    .rune(["A:r"], { owner: "A" }).rune(["B:r"], { owner: "B" })
+    .build();
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  assert.throws(
+    () => binding.describeActivate(kernel.getObject("helm"), "A", 0),
+    error => error.code === "judge-required" && /Unsupported cost kind empower/.test(error.message)
+  );
+});
+
+test("ven-045-166 Helm of Suppression probe: the static cost increase is rejected before any cost plan sees it", () => {
+  const kernel = world().unit("helm", { cardId: program.canonicalCardId, types: ["gear"], zone: "board", location: { type: "base", player: "A" } }).build();
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const statics = binding.inspect(kernel.getObject("helm")).abilities.filter(candidate => candidate.kind === "static");
+  assert.equal(statics.length, 2);
+  for (const stat of statics) {
+    assert.equal(stat.effect.appliesTo, "spell-play-cost");
+  }
+});
+
+test("ven-045-166 Helm of Suppression probe: neither Empowered branch can be evaluated from the frozen snapshot", () => {
+  const kernel = spellContext();
+  const [empower, baseIncrease, empoweredIncrease] = program.abilities;
+  const base = { context: kernel, host: kernel.ref("spell"), linked: () => undefined, canLookBack: () => true, isIgnored: () => false, query: () => kernel.objects };
+  // The nonempty expression string is truthy without reading any state.
+  assert.equal(evaluateCondition(baseIncrease.condition, base), false, "not(expression) evaluates as not(true)");
+  assert.equal(evaluateCondition(empoweredIncrease.condition, base), true, "the expression string itself evaluates truthy");
+  assert.throws(
+    () => evaluateCondition({ kind: "compare", left: { kind: "object-property", object: "self", property: "empoweredCount" }, operator: "gte", right: { kind: "constant", value: 3 } }, base),
+    error => /Unavailable characteristic: empoweredCount/.test(error.message)
+  );
+  // The frozen ObjectSnapshot contract (effects/contract.ts) declares neither
+  // `empowered` nor `empoweredCount`, so no card-side cost gate can read the
+  // status the printed "instead" branch depends on.
+  const contract = readFileSync(new URL("../../../../engine-core/src/effects/contract.ts", import.meta.url), "utf8");
+  const snapshotInterface = contract.slice(contract.indexOf("export interface ObjectSnapshot"), contract.indexOf("export interface PlayerSnapshot"));
+  assert.doesNotMatch(snapshotInterface, /empowered/);
+});
 test.todo(
   "ven-045-166 Helm of Suppression: the static cost increase must be installed on an opposing spell's cost plan - " +
     "buildCostPlan only reads caller-supplied CostPlanInput.increases and ProgramStaticBinder.staticTarget rejects " +

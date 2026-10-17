@@ -30,13 +30,23 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   是玩家选定的公开区域对象 → TargetSpec（非 pick）。
  *
  * status = judge-required（缺口均不近似实现）：
+ * 复核（2026-10-17，RIFT-613 第三轮 M2 覆盖率复核，实测见 test.mjs 的 probe 用例）：
  * 1. [Burn 2] 半段可执行（effect.mill），golden 用真实解释器 + 参考内核执行；
- * 2. 「give a spell in your trash [Flow]」需要 Flow 消费方（RIFT-261 的备选费用选择、
- *    RIFT-260 的离链放逐替代）以及能把被选法术印刷费用带入动态关键词实例的契约字段。
- *    continuous.grant-keyword 已合入，但其参数没有 params.cost，故本卡的
- *    "equal to its cost" 仍只能以 { kind: "cost.printed" } 描述，不能形成可消费的 Flow 实例；
- * 3. conquer 时点虽已由 scoring/turn-flow 发出，但 TriggerSpec 的事件枚举与 timing point
- *    拼写不一致，计分波也没有携带被征服对象来匹配 source:self。
+ * 2. 「give a spell in your trash [Flow]」缺三处消费方/承载：
+ *    (a) continuous.grant-keyword 的 argsSchema 拒绝 cost 参数（实测
+ *        "Invalid continuous.grant-keyword argument: cost"），"equal to its cost"
+ *        没有可承载的动态费用字段；
+ *    (b) Flow.ts 展开出的 flow.cost 静态在 programs/statics.ts 被拒
+ *        （"Static ability kind flow.cost has no layer mapping"）；
+ *    (c) Flow.ts 展开出的 object-leaves-chain replacement 的 body 在
+ *        replacement/planner.ts 被拒（BlockedReplacementError
+ *        "Unsupported replacement opcode: effect.banish"），829.1.b.1 的离链放逐替代未接通；
+ *    cost/cost-plan.ts 虽有 kind "flow" 的 base modification，但没有调用方把 flow.cost 送进去。
+ * 3. conquer 触发仍缺事件契约对齐与载荷：本卡 IR 的 filter.event 是 "conquer"，而生产
+ *    EventPattern 的封闭取值是 "conquered"（实测 translateTriggerFilter 后
+ *    assertTriggerSpec 以 invalid-event-type 拒绝 "conquer"，改成 "conquered" 才能注册）；
+ *    并且 turn/flow.ts 的 conquer 发射只携带 player/details，不带被征服战场上的本卡对象，
+ *    匹配器无法用 source:self 命中本单位。
  */
 const abilities: Ability[] = [
   {
@@ -95,14 +105,19 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1) 「give a spell in your trash [Flow] equal to its cost this turn」需要 " +
-    "已合入 KeywordDef（effects/keywords/Flow.ts，829.1）与 continuous.grant-keyword（RIFT-258），但动态 Flow " +
-    "实例没有可承载 params.cost 的卡牌字段；flow.cost 的备选费用选择属 RIFT-261、离链放逐的替代注册属 RIFT-260，" +
-    "故 \"equal to its cost\"（829.1.c.1）只能以 { kind: \"cost.printed\" } 描述，不能形成可消费实例。(2) 「When I conquer」的 " +
-    "conquer 时点虽已由 scoring/turn-flow 发出，但 TriggerSpec 的事件枚举仍使用 \"conquered\" 而不是 timing point 的 \"conquer\"，" +
-    "且计分波只携带 player/details，不携带被征服战场上的本卡对象，无法匹配 source:self；需要事件契约/载荷对齐，" +
-    "不是重新添加通用 CardProgram TriggerRegistration。[Burn 2] 半段（441.1/441.2/441.4）用已合入的 effect.mill 真实执行，" +
-    "golden 断言主牌库顶 2 张按序进入弃牌区与牌库不足时的部分烧牌；Flow 与 conquer 两半保持 test.todo。",
+    "两处缺口，均不近似实现（2026-10-17 RIFT-613 复核实测）：(1)「give a spell in your trash [Flow] " +
+    "equal to its cost this turn」缺三处：continuous.grant-keyword 的 argsSchema 拒绝 cost 参数" +
+    "（实测 \"Invalid continuous.grant-keyword argument: cost\"），没有承载动态费用的字段；Flow.ts 展开的 " +
+    "flow.cost 静态在 programs/statics.ts 被拒（\"Static ability kind flow.cost has no layer mapping\"）；" +
+    "Flow.ts 展开的 object-leaves-chain replacement body 在 replacement/planner.ts 被拒" +
+    "（BlockedReplacementError \"Unsupported replacement opcode: effect.banish\"），829.1.b.1 的离链放逐未接通；" +
+    "cost/cost-plan.ts 虽有 kind \"flow\" 的 base modification，但没有调用方把 flow.cost 送进去，故 " +
+    "\"equal to its cost\"（829.1.c.1）不能形成可消费实例。(2)「When I conquer」的触发仍缺事件契约对齐与载荷：" +
+    "本卡 IR 的 filter.event 是 \"conquer\"，生产 EventPattern 的封闭取值是 \"conquered\"，实测 " +
+    "translateTriggerFilter 后 assertTriggerSpec 以 invalid-event-type 拒绝 \"conquer\"（改成 \"conquered\" 才能注册）；" +
+    "turn/flow.ts 的 conquer 发射只携带 player/details，不带被征服战场上的本卡对象，匹配器无法用 source:self 命中。" +
+    "[Burn 2] 半段（441.1/441.2/441.4）用 effect.mill 真实执行，golden 断言主牌库顶 2 张按序进入弃牌区与" +
+    "牌库不足时的部分烧牌；Flow 与 conquer 两半保持 test.todo。",
   abilities,
   sourceText:
     "When you play me, [Burn 2]. (Put the top 2 cards of your Main Deck into your trash.)\n" +

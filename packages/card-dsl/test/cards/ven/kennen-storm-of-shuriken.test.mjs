@@ -6,7 +6,11 @@ import program from "../../../dist/cards/ven/kennen-storm-of-shuriken.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createEngineStaticBinder, createProgramBinding, translateTriggerFilter } from "../../../../engine-core/dist/programs/index.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 
 const CANONICAL_ID =
   "card.hash-f8e2a3619f710bd235f910a96127e6c5f05eb8a3971f892d3d728bab7dc7d677";
@@ -37,7 +41,7 @@ test("ven-113-166 Kennen: identity, ruleset, status, judgeReason and exact sourc
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   // Flow 半段与 conquer 发射都缺消费方；Burn 半段已可执行。
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /Invalid continuous\.grant-keyword argument: cost/);
   assert.match(program.judgeReason, /continuous\.grant-keyword|RIFT-258/);
   assert.match(program.judgeReason, /conquer/);
   assert.doesNotMatch(program.judgeReason, /没有 continuous\.grant-keyword 原语|RIFT-120/);
@@ -164,15 +168,66 @@ test("ven-113-166 Kennen golden: a replaced Burn negates the instruction and lea
   assert.deepEqual(deckIds(kernel, "controller"), ["top", "second", "third"]);
 });
 
-test.todo(
-  "ven-113-166 Kennen: grant [Flow] to a spell in trash and let it be played from trash for that Flow " +
-    "cost, then banished (CR 829.1 / 829.1.c.1 / 829.1.c.3) — the merged Flow KeywordDef needs its " +
-    "cost consumer (RIFT-261), replacement registration (RIFT-260), and a dynamic params.cost " +
-    "carrier for continuous.grant-keyword"
-);
+test("ven-113-166 Kennen probe: continuous.grant-keyword rejects the cost argument the card needs", () => {
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const kernel = world().player("A").player("B")
+    .unit("kennen", { cardId: program.canonicalCardId, types: ["unit"], zone: "board", location: { type: "base", player: "A" } })
+    .unit("spell", { owner: "A", controller: "A", types: ["spell"], zone: "trash", energy: 3, power: null, location: null })
+    .build();
+  // The optional parameter carrier does not exist, so this card body fails the
+  // primitive's own argument schema before any resolution can happen.
+  assert.throws(
+    () => instructionDefinitionsById.get("continuous.grant-keyword").argsSchema.parse(grantFlow.args),
+    /Invalid continuous\.grant-keyword argument: cost/
+  );
+  assert.ok(kernel.getObject("spell"));
+  assert.equal(grantFlow.targets[0].filter.zone, "trash");
+});
 
-test.todo(
-  "ven-113-166 Kennen: the conquer trigger runs end to end — the scoring emission and TriggerSpec " +
-    "event vocabulary must agree on 'conquer' and include the conquered object/source for self matching " +
-    "(CR 383.4.c.2.b / 473.2.a)"
-);
+test("ven-113-166 Kennen probe: Flow's merged expansion cannot bind its cost static or its banish replacement", () => {
+  const kernel = world().player("A").player("B")
+    .unit("spell", { types: ["spell"], zone: "trash", energy: 3, power: null, location: null })
+    .deck(["A:d"], { owner: "A" }).deck(["B:d"], { owner: "B" })
+    .rune(["A:r"], { owner: "A" }).rune(["B:r"], { owner: "B" })
+    .build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => kernel.choose(request),
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  const binder = createEngineStaticBinder(engine);
+  const flow = keywordDefinitionsById.get("Flow");
+  const [costStatic, replacement] = flow.expand({
+    host: { canonicalCardId: CANONICAL_ID },
+    params: { cost: { kind: "explicit", energy: { kind: "constant", value: 3 } } }
+  });
+  assert.equal(costStatic.effect.kind, "flow.cost");
+  assert.throws(
+    () => binder.bindStatic(costStatic, kernel.getObject("spell")),
+    error => error.code === "judge-required" && /Static ability kind flow\.cost has no layer mapping/.test(error.message)
+  );
+  assert.equal(replacement.replaces.event, "object-leaves-chain");
+  assert.throws(
+    () => binder.bindReplacement(replacement, kernel.getObject("spell")),
+    /Unsupported replacement opcode: effect\.banish/
+  );
+});
+
+test("ven-113-166 Kennen probe: the card's 'conquer' filter is rejected by the production event vocabulary", () => {
+  const translated = translateTriggerFilter(onConquer.trigger.filter, "kennen-1", "conquer");
+  assert.deepEqual(translated, { event: "conquer", object: { objectId: "kennen-1" } });
+  assert.throws(
+    () => assertTriggerSpec({ at: "conquer", filter: translated }),
+    error => error.issues?.some(issue => issue.path === "trigger.filter.event") || /值必须属于/.test(error.message)
+  );
+  // The closed EVENT_PATTERN_TYPES value is "conquered"; only that spelling passes.
+  const fixed = translateTriggerFilter({ event: "conquered", filter: { source: "self" } }, "kennen-1", "conquer");
+  assert.deepEqual(fixed, { event: "conquered", object: { objectId: "kennen-1" } });
+  assert.doesNotThrow(() => assertTriggerSpec({ at: "conquer", filter: fixed }));
+});

@@ -17,14 +17,16 @@ import type { CardProgram } from "../../ir/index.js";
  *   1 个 Body 符文，没有能量符号（卡面 3 Energy 是打出费用，不是 Equip 费用）。
  *
  * status = judge-required（与 sfd/boneshiver、rad/nazuman-ntofo 同源缺口）：
+ * 复核（2026-10-17，RIFT-613 第三轮 M2 覆盖率复核，实测见 test.mjs 的 probe 用例）：
  * 1. KeywordDef.expand 的接口已经声明可选 params.cost，但冻结的 CardProgram
  *    KeywordAbility 只有 keyword/value；本卡的 costDomain 是既有描述性扩展字段，
  *    不是 CostSpec，且 programs/keywords.ts 的 expandProgram 仍只传 value/host，
  *    没有把卡牌费用转发到 params.cost；
  * 2. effects/keywords/Equip.ts 当前 expand 不读取 params.cost，只生成
- *    cost.payments [{ kind: \"equip\" }]；cost/plan-values.ts 的 readCost 对该支付种类
- *    仍直接 blocked——buildCostPlan 抛 CostPlanError（reason "judge-required"，
- *    message "Unsupported payment kind: equip"），因此启动费用目前不可支付。
+ *    cost.payments [{ kind: "equip", value: { kind: "constant", value: { kind: "source" } } }]；
+ *    cost/plan-values.ts 的 readCost 对该支付种类仍直接 blocked——实测 buildCostPlan 抛
+ *    CostPlanError（reason "judge-required"，message "Unsupported payment kind: equip"），
+ *    因此启动费用目前不可支付。
  * 已合入的卡牌程序 → 关键词展开 → 链接线（programs/）与 effect.attach 本体
  * （818.1.c.2 的附着）由 golden 用真实绑定/解释器执行；这不使整卡可执行。
  * 依赖：KeywordAbility 的印刷费用参数承载、programs/keywords.ts 的 params.cost 转发、
@@ -44,10 +46,11 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Equip] 目前无法执行：(1) KeywordDef.expand 的接口已经声明可选 params.cost，但冻结的 " +
+    "[Equip] 目前无法执行（2026-10-17 RIFT-613 复核实测）：(1) KeywordDef.expand 已声明可选 params.cost，但冻结的 " +
     "CardProgram KeywordAbility 只有 keyword/value；本卡的 costDomain 是描述性扩展字段，不是 CostSpec，" +
     "且 programs/keywords.ts 的 expandProgram 仍只传 value/host，没有把卡牌费用转发到 params.cost；" +
-    "(2) effects/keywords/Equip.ts 当前 expand 不读取 params.cost，只生成 cost.payments [{ kind: \"equip\" }]，" +
+    "(2) effects/keywords/Equip.ts 的 expand 不读取 params.cost，只生成 cost.payments " +
+    "[{ kind: \"equip\", value: { kind: \"constant\", value: { kind: \"source\" } } }]；" +
     "cost/plan-values.ts 的 readCost 对该支付种类调用 blocked，实测 buildCostPlan 抛 CostPlanError" +
     "（reason \"judge-required\"，message \"Unsupported payment kind: equip\"），因此启动费用目前不可支付。" +
     "已合入的 programs/ 卡牌程序绑定与 effect.attach 附着本体由 golden 真实执行，但印刷费用承载、展开转发与 Equip 支付消费仍缺失。" +
