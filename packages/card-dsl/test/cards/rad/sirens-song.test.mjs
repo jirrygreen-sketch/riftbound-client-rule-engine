@@ -7,6 +7,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import reaction from "../../../../engine-core/dist/effects/keywords/Reaction.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
+import { resolveLocationSelector } from "../../../../engine-core/dist/target/location/ref.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-4192b981ea612f380ed34cb8529363e9618f8f512b964c7c2d22a1323d4ef7e9";
@@ -51,9 +52,14 @@ test("Siren's Song structure: [Reaction], printed cost, one targeted Move", () =
     value: { target: "sirens-song.moved-enemy-unit" }
   });
   assert.deepEqual(moveInstruction.args.amount, { kind: "constant", value: 1 });
-  // The printed destination is a runtime location choice, so the structure
-  // records the descriptive marker named in judgeReason.
-  assert.equal(moveInstruction.args.to.value.kind, "destination-selector");
+  assert.deepEqual(moveInstruction.args.to, {
+    kind: "location",
+    value: {
+      kind: "choose",
+      id: "sirens-song.location-destination",
+      filter: { type: "any" }
+    }
+  });
   assert.equal(moveInstruction.targets.length, 1);
   assert.equal(moveInstruction.targets[0].id, "sirens-song.moved-enemy-unit");
   assert.deepEqual(moveInstruction.targets[0].filter, {
@@ -71,7 +77,7 @@ test("Siren's Song execution: the [Reaction] keyword resolves to the merged defi
   assert.equal(keywordDefinitionsById.get("Reaction"), reaction);
 
   // The Move half runs through the merged effect.move primitive with a concrete
-  // destination (the printed destination is the part named in judgeReason).
+  // destination; the moved-this-turn target predicate remains judged.
   const targetLocation = { type: "battlefield", id: "bf-2" };
   const kernel = world().unit("enemy", { owner: "B", controller: "B", might: 3 }).build();
   const run = runInstruction(
@@ -92,6 +98,22 @@ test("Siren's Song execution: the [Reaction] keyword resolves to the merged defi
   assert.equal(kernel.history({ action: "move-location", object: kernel.ref("enemy") }), 1);
 });
 
+test("Siren's Song execution: the merged LocationExpr resolves a battlefield candidate", () => {
+  const first = { type: "battlefield", id: "bf-1" };
+  const second = { type: "battlefield", id: "bf-2" };
+  const kernel = world()
+    .unit("enemy", { owner: "B", controller: "B", location: first })
+    .unit("other", { owner: "A", controller: "A", location: second })
+    .build();
+  kernel.setAnswers({ "sirens-song.location-destination": second });
+  const selected = resolveLocationSelector(moveInstruction.args.to.value, {
+    context: kernel,
+    players: ["A", "B"],
+    opponent: "B"
+  });
+  assert.deepEqual(selected, second);
+});
+
 test.todo(
   "Siren's Song: 'an enemy unit that moved this turn' needs a moved-this-turn target predicate " +
     "(CR 449 / 355.9.b) — HistoryQuery cannot restrict target legality; the object-moved timing point " +
@@ -99,7 +121,6 @@ test.todo(
 );
 
 test.todo(
-  "Siren's Song: the destination of 'Move an enemy unit' is a runtime location choice " +
-    "(CR 355.4 / 355.4.a / 451.1) and needs an IR channel evaluating the legal destinations " +
-    "(effect.move 'to' only accepts static LocationRefs or static candidate lists)"
+  "Siren's Song: the LocationExpr is merged, but the runtime candidate producer still " +
+    "omits empty battlefields (CR 355.4 / 355.4.a / 451.1)"
 );
