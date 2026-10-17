@@ -31,6 +31,7 @@ test("Stand United identity, ruleset, status and printed text", () => {
   assert.equal(standUnited.status, "judge-required");
   assert.match(standUnited.judgeReason, /continuous\.might/);
   assert.match(standUnited.judgeReason, /RIFT-258/);
+  assert.match(standUnited.judgeReason, /cost\.hidden/);
   assert.match(standUnited.judgeReason, /811\.2/);
   assert.equal(cardRegistryById.get(standUnited.canonicalCardId), standUnited);
   assert.equal(

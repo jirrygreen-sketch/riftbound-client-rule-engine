@@ -54,7 +54,8 @@ test("the-boss identity: canonicalCardId, ruleset, judge-required status and ver
   assert.match(program.judgeReason, /optional/);
   assert.match(program.judgeReason, /cost\.pay/);
   assert.match(program.judgeReason, /recall/i);
-  assert.match(program.judgeReason, /planner/);
+  assert.match(program.judgeReason, /replacement\/planner\.ts/);
+  assert.match(program.judgeReason, /replacement\.event.*instead/);
   assert.match(program.judgeReason, /replacement\.object/);
   assert.equal(
     program.sourceText,

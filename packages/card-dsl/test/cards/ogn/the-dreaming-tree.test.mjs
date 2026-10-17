@@ -21,6 +21,7 @@ test("The Dreaming Tree program validates and is judge-required", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /383\.4\.b/);
+  assert.match(program.judgeReason, /触发注册路径已存在/);
   assert.match(program.judgeReason, /sameLocationAs/);
   assert.match(program.judgeReason, /RIFT-357/);
   assert.match(program.judgeReason, /testTrigger/);

@@ -30,12 +30,13 @@ test("The Candlelit Sanctum program validates and is judge-required", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.status, "judge-required");
   // The reason must name the real gaps: the inspect/ObjectRef mismatch upstream,
-  // the missing ordered top-of-deck provider, and the missing trigger binding.
+  // the missing ordered top-of-deck provider, and the unresolved here anchor.
   assert.match(program.judgeReason, /effect\.inspect/);
   assert.match(program.judgeReason, /ObjectRef/);
   assert.match(program.judgeReason, /picksSpecId/);
   assert.match(program.judgeReason, /RIFT-64/);
   assert.match(program.judgeReason, /RIFT-358/);
+  assert.match(program.judgeReason, /RIFT-357/);
   assert.match(program.judgeReason, /here/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
