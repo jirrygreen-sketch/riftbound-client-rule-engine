@@ -7,6 +7,28 @@ import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js"
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+
+/** Minimal engine so the production static binder can be exercised directly. */
+function binderFor(kernel) {
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (checkpoint) => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose: (request) => { throw new Error(`Unexpected choice: ${request.id}`); },
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false
+  });
+  return { binder: createEngineStaticBinder(engine), engine };
+}
 
 const CANONICAL_ID =
   "card.hash-8624ca0fcb3cd60db66cadac14c3f88e0dc422d1061843d35d39845b60616015";
@@ -195,6 +217,44 @@ test("unl-t03 Brush: declining the may-clause performs no replacement", () => {
     [["brush.swap-back-opt", "negated", "skipped"]]
   );
   assert.deepEqual(kernel.events, []);
+});
+
+test("unl-t03 Brush: the production static binder rejects the declared OR-tag filter (133.8)", () => {
+  // The merged filter vocabulary has only `tags`, which requires every listed tag;
+  // the printed set is an OR over five tags. The production static binder rejects
+  // the descriptive tagsAnyOf key before any layer can be registered. Dropping the
+  // key would silently widen the effect to every unit at this Battlefield.
+  const kernel = world()
+    .object("brush", {
+      cardId: CANONICAL_ID, owner: "A", controller: "A", types: ["battlefield"],
+      zone: "board", location: { type: "battlefield", id: "bf-1" }
+    })
+    .build();
+  const source = kernel.getObject("brush");
+  const { binder, engine } = binderFor(kernel);
+  assert.throws(
+    () => binder.bindStatic(might, source),
+    /Unsupported static filter field tagsAnyOf/
+  );
+  // With the unsupported key removed the same declaration does bind, which shows
+  // the refusal is the tag-set semantics and not the arithmetic layer.
+  const { tagsAnyOf, ...filter } = might.effect.filter;
+  binder.bindStatic({ ...might, effect: { ...might.effect, filter: { ...filter, tags: ["Poro"] } } }, source);
+  assert.equal(engine.layers.registry.list().length, 1);
+});
+
+test("unl-t03 Brush: the score filter with here: true is refused by the trigger translator (383.4 / 053.3)", () => {
+  assert.throws(
+    () => translateTriggerFilter(scoreAbility.trigger.filter, "brush", "score"),
+    /Unsupported filter field here/
+  );
+  // The score production event carries no source battlefield object, so even a
+  // translated subscription could not bind to this Battlefield.
+  assert.equal(matchesTriggerEvent(
+    { event: "score", object: { objectId: "brush" } },
+    { timingPoint: "score", kind: "score", player: "A", details: { battlefieldId: "bf-1" } },
+    "A"
+  ), false);
 });
 
 test.todo(

@@ -32,10 +32,10 @@ import type { CardProgram } from "../../ir/index.js";
  *    tagsAnyOf 仍不是静态过滤器词汇，因此该绑定会 fail closed，不能把五个标签的 or
  *    语义误写成 tags 的 and 语义。
  * 3. score/conquer/hold 时点已由 turn/flow.ts 的计分波原子发出，程序触发能力也能注册为
- *    TriggerRegistration；但卡面 filter 里的
- *    here: true 仍不在封闭 EventPattern 词汇内（programs/filters.ts 的 translateTriggerFilter
- *    对 here 抛 judge-required）；“you” 已可归一为来源控制者，但 here 的来源战场锚点仍未实现，
- *    触发无法正确挂到本来源（053.3）。
+ *    TriggerRegistration；但卡面 filter 里的 here: true 仍不在封闭 EventPattern 词汇内
+ *    （programs/filters.ts 的 translateTriggerFilter 对 here 抛 judge-required，实测
+ *    ProgramBindingError "Unsupported filter field here"）；"you" 已可归一为来源控制者，
+ *    score 事件生产也不带来源战场，触发无法正确挂到本来源（053.3）。
  * 4. “replace this with the battlefield it replaced” 的动作不存在于封闭 GameAction 集合：
  *    439.5 要求被替代对象进入 Banishment、439.7.b 要求换回的原卡回到 token 的位置并继承
  *    状态（token 则停止存在），已合入的 create-token / move-zone / effect.token 都无法表达
@@ -52,10 +52,11 @@ export default {
     "四处缺口，均不近似实现：(1)「Bird, Cat, Dog, Poro, and Ivern units here have +1 [M]」的标签集合是 or 语义（133.8），" +
     "而已合入的 ObjectFilter 与匹配器只按「每个 tags 条目都命中」求值（layers/filter.ts、解释器 selectors、参考内核 matchesFilter），" +
     "写 tags: [五个标签] 会要求单位同时具备全部五个标签；程序用 tagsAnyOf 记录集合语义（描述性 fail-closed 键，不当作可执行谓词）。" +
-    "(2) +1 Might 属算术图层（479.4/479.4.e.1），CardProgram static 能力的生产绑定与 053.3 的 here 锚点（sameLocationAs）已经由 programs/statics.ts 接通；" +
-    "但 tagsAnyOf 仍不是静态过滤器词汇，绑定会 fail closed，不能把五个标签的 or 语义误写成 tags 的 and 语义。" +
+    "(2) +1 Might 属算术图层（479.4/479.4.e.1）；CardProgram static 能力的生产绑定已接通，053.3 的 here 锚点（sameLocationAs: \"self\"）在来源位处战场时解析为具体 Location，" +
+    "但 tagsAnyOf 不是静态过滤器词汇，绑定实测抛 \"Unsupported static filter field tagsAnyOf\"（先于 sameLocationAs 求值），不能把五个标签的 or 语义误写成 tags 的 and 语义。" +
     "(3) score/conquer/hold 时点已由 turn/flow.ts 的计分波原子发出（470.1/470.3/471/473.2、383.4），程序触发能力也能注册为 TriggerRegistration；" +
-    "但 filter 里的 here: true 不在封闭 EventPattern 词汇内（programs/filters.ts 对 here 抛 judge-required）；“you” 已归一为来源控制者，here 的来源战场锚点仍未实现，触发无法挂到本来源。" +
+    "但 filter 里的 here: true 不在封闭 EventPattern 词汇内（实测 translateTriggerFilter 抛 \"Unsupported filter field here\"）；" +
+    "“you” 已归一为来源控制者，score 事件生产也不携带来源战场（turn/flow.ts 只给 player 与 details.battlefieldId），触发无法挂到本来源。" +
     "(4) 「you may replace this with the battlefield it replaced」(439.3/439.5/439.7/439.7.b/439.7.c) 的动作不在封闭 GameAction 集合：" +
     "被替代对象要进 Banishment、换回的原卡要回到 token 的位置并继承状态、token 停止存在，已合入的 create-token/move-zone/effect.token 都表达不了（战场 token 定义表也没有 brush）；" +
     "“the battlefield it replaced” 是 Replace 时记录在 token 上的被替代卡引用，契约 3.6 的 ObjectSelector 没有读取该记录的形态。" +

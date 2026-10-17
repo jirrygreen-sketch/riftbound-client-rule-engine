@@ -28,8 +28,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 416.1 / 416.1.b / 416.1.c：Ready 是 416.1 的动作；已就绪的对象再次 Ready 不再发生任何事
  *   （golden 覆盖该边界）。
  *
- * status = judge-required（README 第 2 节）：第一条触发能力仍缺 383.3.b 的触发式能力基础费用
- * 槽位；契约 3.1 的 TriggeredAbility 没有 cost 字段，Finalize 无法在把能力放上链前收取 1 Energy。
+ * status = judge-required（README 第 2 节，2026-10-17 复核）：第一条触发能力仍缺 383.3.b 的触发式能力
+ * 基础费用接线：TriggerRegistration.cost/mayAtFinalize 已存在且 chain/engine 在 Finalize 消费它们，
+ * 但 programs/triggers.ts 只搬运 body/optional/spec，不把 choice.optional 里的 cost.pay 提取成
+ * TriggerRegistration.cost（实测该触发的 registration.cost === null、mayAtFinalize === null），
+ * 契约 3.1 的 TriggeredAbility 也没有 cost 字段；Finalize 无法在把能力放上链前收取 1 Energy。
  * cost.pay 本体已合入，但不能用结算期指令替代该基础费用语义，整卡不能标记 executable。
  * 第二条启动能力的费用（3 XP + 横置）与 effect.ready 本体都已合入，golden 真实执行该半段
  * （费用计划可支付 + 真实 Ready 动作），并按 README 4.4 把缺依赖写成 TODO。
@@ -124,8 +127,10 @@ export default {
   judgeReason:
     "第一条触发能力仍有一个当前缺口，且不近似实现：383.3.b / 383.3.b.1 规定" +
     "「When you play a unit, you may pay :rb_energy_1: to gain 1 XP.」里紧跟 you may 的费用是该触发能力的基础费用" +
-    "（只有支付后才会 Finalize 到链上），而契约 3.1 的 TriggeredAbility 没有 cost 槽位、Finalize 的收费管线也未接通" +
-    "。cost.pay 指令本体与 CardProgram 的 triggered 注册已经合入，但它们不能替代 TriggeredAbility 的基础费用槽位。" +
+    "（只有支付后才会 Finalize 到链上）；TriggerRegistration.cost/mayAtFinalize 已合入且 chain/engine 在 Finalize 消费它们，" +
+    "但 programs/triggers.ts 只搬运 body/optional/spec，不把 body 内嵌的 cost.pay 提取成 TriggerRegistration.cost" +
+    "（实测该触发的 registration.cost === null、mayAtFinalize === null），契约 3.1 的 TriggeredAbility 也没有 cost 槽位。" +
+    "cost.pay 指令本体与 CardProgram 的 triggered 注册已经合入，但不能替代触发能力的基础费用接线。" +
     "第二条启动能力已可用：3 XP 加横置的费用由合并费用管线支付，effect.ready 提交 416.1 的 Ready 动作；" +
     "golden 真实执行该半段。",
   abilities,

@@ -18,10 +18,17 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 809.1.b.3：token 上的 [Deflect] 省略数值 → 视为 1；Deflect 是 token 的印刷特征（187.7），
  *   不是由本效果另行授予的关键词。
  *
- * Status: judge-required. Current source audit:
- * Resolve the ability controller base with a location expression and pass its
- * captured value to effect.token. Bird/Deflect token construction and binding
- * the Deathknell skeleton to the printed effect remain unavailable.
+ * Status: judge-required (rechecked 2026-10-17 with executed evidence).
+ * The controller-base location expression and its capture into effect.token are
+ * merged and executed by the golden. Two gaps remain observable:
+ * - effect.token's frozen DEFINITIONS table has no `bird` entry (187.7), so the
+ *   card's own token id is negated with
+ *   blockedReason "token-definition-or-abilities-judge-required" and no
+ *   substitute token is created.
+ * - programs/keywords.ts expands the declared [Deathknell] into its own trigger
+ *   (body op `trigger.leave`, which is not a registered instruction) in
+ *   addition to the card's printed effect, and nothing proves one death resolves
+ *   the printed effect exactly once.
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "deathknell" },
@@ -65,7 +72,11 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 effect.token 的 CR 187.7 Bird 定义（无域、1 Might、Bird 标签、Deflect），以及 Deathknell 展开体 trigger.leave 的 InstructionDef 与印刷效果正文绑定（808.1.c/808.1.d）。programs/keywords.ts 仍把关键词骨架和本卡正文展开成两个触发，尚不能证明一次死亡只结算一次正文；不以其他 token 冒充 Bird。",
+    "缺 effect.token 的 CR 187.7 Bird 定义（无域、1 Might、Bird 标签、Deflect）：实测本卡 token 值 \"bird\" 返回 negated/impossible、" +
+    "blockedReason \"token-definition-or-abilities-judge-required\"，且不创建任何替代 token；" +
+    "另缺 Deathknell 展开体 trigger.leave 的 InstructionDef 与印刷效果正文绑定（808.1.c/808.1.d）：" +
+    "registry.generated 无 trigger.leave，programs/keywords.ts 把它与本卡正文展开成两个 object-killed 触发（一个 body 为 trigger.leave、一个为本卡正文），" +
+    "尚不能证明一次死亡只结算一次正文；不以其他 token 冒充 Bird。",
   abilities,
   sourceText:
     "[Deathknell][>] Play a 1 :rb_might: Bird unit token with [Deflect] to your base. " +

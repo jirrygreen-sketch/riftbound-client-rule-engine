@@ -9,6 +9,8 @@ const { buildCostPlan } = await import(new URL("cost/cost-plan.js", ENGINE));
 const { payCostPlan } = await import(new URL("cost/payment.js", ENGINE));
 const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js", ENGINE));
 const { world } = await import(new URL("effects/testing/index.js", ENGINE));
+const { ProgramRegistry } = await import(new URL("programs/registry.js", ENGINE));
+const { triggerRegistrations } = await import(new URL("programs/triggers.js", ENGINE));
 
 const CANONICAL_ID =
   "card.hash-ba305afc626a1b8699b28237b162d74c5c553675696baec7c3488296aa55cdf6";
@@ -207,8 +209,28 @@ test("unl-109-219 Blood Rose golden: a unit that left the Board makes the ready 
   ]);
 });
 
+test("unl-109-219 Blood Rose: the production trigger registration still drops the printed base cost (383.3.b)", () => {
+  // TriggerRegistration.cost/mayAtFinalize exist and chain/engine consumes them
+  // at Finalize, but programs/triggers.ts copies only body/optional/spec, so the
+  // card's leading "you may pay 1 energy" stays a resolution-time cost.pay step
+  // instead of the ability's base cost. The contract 3.1 TriggeredAbility has no
+  // cost field either.
+  const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
+  const source = {
+    ref: { id: "blood-rose", zoneEntryId: 1 }, cardId: CANONICAL_ID, name: "Blood Rose",
+    types: ["gear"], tags: [], keywords: [], owner: "A", controller: "A", zone: "board",
+    location: { type: "base", player: "A" }, might: null, energy: 1, power: null, exhausted: false,
+    damage: 0, stunned: false, buffs: 0, attachedTo: null, faceDown: false, isToken: false
+  };
+  const registrations = triggerRegistrations(registry, source);
+  assert.deepEqual(registrations.map(entry => entry.spec.at), ["card-played"]);
+  assert.equal(registrations[0].cost, undefined);
+  assert.equal(registrations[0].mayAtFinalize, undefined);
+  assert.deepEqual(registrations[0].body.map(instruction => instruction.op), ["choice.optional"]);
+});
+
 test.todo(
-  "unl-109-219 Blood Rose: the 'you may pay 1 energy' base cost of the triggered ability (CR 383.3.a / 383.3.b / " +
-    "383.3.b.1) needs a cost slot on TriggeredAbility (contract 3.1) plus Finalize payment wiring; the merged " +
-    "contract has no such slot"
+  "unl-109-219 Blood Rose: the 'you may pay 1 energy' base cost (CR 383.3.a / 383.3.b / 383.3.b.1) needs " +
+    "programs/triggers.ts to extract it into TriggerRegistration.cost plus a cost slot on TriggeredAbility " +
+    "(contract 3.1); both are still missing"
 );

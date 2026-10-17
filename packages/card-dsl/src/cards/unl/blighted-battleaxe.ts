@@ -46,9 +46,11 @@ export default {
   status: "judge-required",
   judgeReason:
     "Equip 的启动费用尚不能在 EffectIR 费用管线里支付：已合入的 Equip 展开（effects/keywords/Equip.ts）声明 " +
-    "payments: [{ kind: \"equip\" }]，而 cost/plan-values.ts 的 readCost 对未知支付种类直接 blocked，" +
+    "payments: [{ kind: \"equip\" }]，describeActivate 会把该 payments 原样带进 draft.cost，而 cost/plan-values.ts 的 readCost 对未知支付种类直接 blocked，" +
     "实测 buildCostPlan 抛 CostPlanError（reason \"judge-required\"，message \"Unsupported payment kind: equip\"）；" +
-    "印刷费用里也没有承载能量符号数的冻结字段（本印刷为 1 能量 + 1 Fury Power）；cost.modify 对 Equip 的 [A]/[C] 费用改写也明确保持 judge-required。" +
+    "印刷费用里也没有承载能量符号数的冻结字段（本印刷为 1 能量 + 1 Fury Power）；cost.modify 的 [A]/[C] 费用改写同样实测被拒" +
+    "（modifiersToCostPlanInput 对 kind \"reduce-equip-cost\" 抛 reason \"judge-required\" 的错，消息含 " +
+    "\"821.1.c.3: Equip discounts require original [A] symbols; allowedDomains cannot distinguish [A] from [C]\"）。" +
     "卡牌程序→关键词展开→链绑定已经接通，golden 断言该展开，但不存在可支付 Equip 费用的生产路径。" +
     "依赖：Equip 专用支付种类、印刷 Energy 参数的契约承载，以及 Equip 费用计划的支付/改写语义；不近似实现，" +
     "不用裸 effect.attach 绕开 818.1.c.3/c.4 的费用语义。",
