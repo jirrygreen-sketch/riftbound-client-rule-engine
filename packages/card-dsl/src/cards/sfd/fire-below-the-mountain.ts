@@ -49,8 +49,10 @@ import type { CardProgram } from "../../ir/index.js";
  * puts a Champion Legend in the Legend Zone; the frozen ZoneId union has no
  * legend-zone), which the sibling Legends record and which this program does not
  * try to work around.
- * Dependencies: Universal Power support (contract change) and restriction
- * consumption (RIFT-91). Nothing is approximated: no domain is chosen for [A],
+ * Dependencies: Universal Power support (contract change) and a rules adapter
+ * for the custom restriction kind (the merged translateRestriction path only
+ * passes through Condition kinds and fails closed otherwise). Nothing is
+ * approximated: no domain is chosen for [A],
  * and the restriction is declared rather than dropped.
  */
 export default {
@@ -63,7 +65,8 @@ export default {
     "effect.resources 明确记录 Universal Power 不可表达、绝不用某个域近似，故正文只保留描述性 power: [\"rainbow\"]，" +
     "原语按 negated(impossible) 拒绝（属契约级缺口，golden 锁定该负证据）；" +
     "(2) 印刷的「Use only to play gear or use gear abilities.」是所加资源的用途限制（204.4.b.1 的限制家族），" +
-    "但没有任何已合入消费者读取 CardProgram 的 ActivatedAbility.restriction，无法保证该 Power 只用于打出装备或使用装备能力（RIFT-91）。" +
+    "但激活限制的翻译路径（programs/play.ts 的 translateRestriction→ChainDraft.restrictions）只透传 Condition 种类的 kind，" +
+    "本卡的自定义 kind 需要规则适配器，无法保证该 Power 只用于打出装备或使用装备能力。" +
     "已被支持并可真实执行的部分：印刷 :rb_exhaust: 费用（404.1.a / 415.5）在 cost/plan-values.ts 与 cost/payment.ts " +
     "里是真实可支付的启动费用，golden 会实际支付它；[Reaction] 按 813.1.c.2 / 813.1.d 用 activated.timing = \"reaction\" 声明。" +
     "另注（非本卡可解）：Champion Legend 的来源区域是 Legend Zone（107.4.c），契约 ZoneId 与参考内核都没有该区域，" +

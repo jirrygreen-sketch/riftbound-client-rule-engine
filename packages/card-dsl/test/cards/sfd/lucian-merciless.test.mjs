@@ -100,5 +100,7 @@ test.todo(
 test.todo(
   "Conquer trigger end-to-end: subscribe at the 'conquer' timing point with the self filter and " +
     "once-per-turn lifetime through the trigger pipeline — the scoring conquer emission carries " +
-    "only player/details and no object, so the self filter can never match"
+  "only player/details and no object, so the self filter can never match; the merged registration " +
+  "machinery (programs/triggers.ts) itself accepts the program's filter shape, but it is gated on " +
+  "the program status"
 );

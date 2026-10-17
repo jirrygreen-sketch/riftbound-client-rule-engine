@@ -12,7 +12,7 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * Rules evidence (Core Rules v1.5):
  * - "[Action]" (806.1.b/806.1.c, 159.2.a) is a permissive keyword: the card
- *   only declares it (contract 3.7). The RIFT-257 program adapter's
+ *   only declares it (contract 3.7). The merged program adapter's
  *   abilitySpeed already derives "action", but a full play draft is still
  *   blocked by the unsupported [Repeat] additional-cost field below, so the
  *   chain's canAct/Showdown path cannot be exercised end to end yet.

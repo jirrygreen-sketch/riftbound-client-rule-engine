@@ -99,13 +99,13 @@ test("sfd-189-221 Fire Below the Mountain: the Add instruction only names Power 
 test.todo(
   "sfd-189-221 Fire Below the Mountain: represent and spend Universal Power ([A], CR 135.2.e.5 / " +
     "163.2.b) — the closed Domain union and the gain-power action have no universal value " +
-    "(contract change request, RIFT-89)"
+    "(contract change request)"
 );
 
 test.todo(
   "sfd-189-221 Fire Below the Mountain: enforce “Use only to play gear or use gear abilities.” " +
     "(204.4.b.1 restriction family) — nothing consumes a card program's activated-ability " +
-    "restriction yet (RIFT-91)"
+  "restriction yet (the merged translateRestriction path only passes through Condition kinds)"
 );
 
 test.todo(

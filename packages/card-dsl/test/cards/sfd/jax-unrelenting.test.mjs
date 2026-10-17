@@ -35,8 +35,8 @@ test("sfd-119-221 Jax, Unrelenting: judgeReason names the Weaponmaster and attac
   assert.match(program.judgeReason, /435\.1/);
   assert.match(program.judgeReason, /435\.4\.a/);
   assert.match(program.judgeReason, /object-attached/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /topMostCardId/);
 });
 
 test("sfd-119-221 Jax, Unrelenting: [Weaponmaster] is declared, not expanded (821 / contract 3.7)", () => {
@@ -87,7 +87,7 @@ test("sfd-119-221 Jax, Unrelenting: the may-shape wraps pay 1 energy then draw 1
   ]);
 
   assert.equal(payInstruction.op, "cost.pay");
-  assert.deepEqual(payInstruction.args, { energy: { kind: "constant", value: 1 } });
+  assert.deepEqual(payInstruction.args, { payments: { kind: "constant", value: { energy: 1 } } });
   assert.equal(payInstruction.linkedTo, undefined);
 
   // 414.1 / 414.3: the drawer defaults to the ability's controller (190.6.d);
@@ -117,20 +117,42 @@ test("sfd-119-221 Jax, Unrelenting golden: declining the may leaves the board an
   assert.equal(kernel.player("A").deckSize, 1);
 });
 
-test.todo(
-  "sfd-119-221 Jax, Unrelenting: accepting the may pays 1 energy and then draws 1 through the cost " +
-    "pipeline (cost.pay has no registered primitive; the reference kernel does not execute it) — RIFT-89"
-);
+test("sfd-119-221 Jax, Unrelenting golden: accepting the may pays 1 Energy through cost.pay and draws 1", () => {
+  // cost.pay's args.payments accepts a plain finalized plan and pays it through
+  // the real cost pipeline (cost/payment.ts); the linked draw only runs because
+  // the payment executed (contract 3.9 / 414.1).
+  const kernel = world().player("A", { energy: 2 }).deck(["top"]).build();
+  kernel.setAnswers({ "jax-unrelenting.may-pay/optional": true });
+
+  const outcome = resolveChainBody(attachTrigger.body, kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map((entry) => entry.id), [
+    "jax-unrelenting.pay-1",
+    "jax-unrelenting.draw-1",
+    "jax-unrelenting.may-pay"
+  ]);
+  assert.deepEqual(outcome.results.map((entry) => entry.result.status), [
+    "executed",
+    "executed",
+    "executed"
+  ]);
+  assert.deepEqual(outcome.events.map((event) => event.action), ["pay", "draw"]);
+  assert.equal(kernel.player("A").energy, 1);
+  assert.equal(kernel.player("A").handSize, 1);
+  assert.equal(kernel.player("A").deckSize, 0);
+});
 
 test.todo(
   "sfd-119-221 Jax, Unrelenting: [Weaponmaster] expands through effects/keywords/Weaponmaster.ts — the " +
     "play trigger binding the chosen controlled Equipment and the Equip cost rewrite/payment " +
     "(821.1.b, 821.1.c.2/.c.2.a, 821.1.c.6 \"the Equip ability is not actually activated\") are not " +
-    "executable yet — RIFT-81~91 / RIFT-89"
+  "executable yet (the Weaponmaster expansion's own judge-required gap)"
 );
 
 test.todo(
   "sfd-119-221 Jax, Unrelenting: the object-attached timing point exposes the top-most card (host) and " +
     "the attached object so source: \"self\" binds Jax and the Equipment tag filters the attached Gear " +
-    "(435.1/435.3/435.4.a) — RIFT-120 attachment binding"
+  "(435.1/435.3/435.4.a): the closed EVENT_PATTERN_TYPES has no object-attached member and no " +
+  "topMostCardId payload predicate exists yet"
 );

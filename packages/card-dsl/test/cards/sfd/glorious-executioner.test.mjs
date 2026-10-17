@@ -122,6 +122,7 @@ test.todo(
 );
 
 test.todo(
-  "sfd-185-221 Glorious Executioner: the program → TriggerRegistration wiring (contract 3.5) " +
-    "needed before the trigger can be subscribed at all"
+  "sfd-185-221 Glorious Executioner: the merged program → TriggerRegistration machinery " +
+  "(programs/triggers.ts) is gated on the program status, so the trigger stays unsubscribed " +
+  "while this program is judge-required"
 );

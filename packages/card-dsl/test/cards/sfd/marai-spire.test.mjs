@@ -42,7 +42,8 @@ test("sfd-211-221 Marai Spire: static Repeat-cost discount scoped to friendly Re
 });
 
 // The discount is not executable: no production consumer binds a static
-// cost.modify into Finalize, and Repeat's repeat.cost has no collector.
+// cost.modify into Finalize (programs/statics.ts rejects appliesTo and has no
+// cost.modify layer), and Repeat's repeat.cost has no collector.
 test.todo(
   "sfd-211-221 Marai Spire: apply the -1 energy discount to friendly Repeat additional costs at Finalize (static cost.modify -> cost plan consumer; 356.4/356.4.f/356.6)"
 );

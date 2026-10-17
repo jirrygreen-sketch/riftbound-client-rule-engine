@@ -74,8 +74,7 @@ test("sfd-111-221 Here to Help: judgeReason names cost.hidden, the discount prod
   assert.match(program.judgeReason, /cost\.hidden/);
   assert.match(program.judgeReason, /FinalizedCostPlan/);
   assert.match(program.judgeReason, /Location/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /RIFT-357/);
 });
 
 test("sfd-111-221 Here to Help: [Hidden] + [Action] keywords and the printed cost", () => {
@@ -182,16 +181,17 @@ test("sfd-111-221 Here to Help golden: accepting reaches effect.play, which nega
 
 test.todo(
   "sfd-111-221 Here to Help: [Hidden] needs the cost.hidden consumer — the Hide Discretionary Action, the facedown " +
-    "zone and the free facedown play (CR 811.1.b / 811.1.c; RIFT-89 / RIFT-91, the keyword expansion in " +
-    "effects/keywords/Hidden.ts is merged)."
+  "zone and the free facedown play (CR 811.1.b / 811.1.c; the keyword expansion in " +
+  "effects/keywords/Hidden.ts and the built Hidden cost plan are merged, but no runtime consumer exists)."
 );
 
 test.todo(
   "sfd-111-221 Here to Help: the -3 energy reduction must be applied by a finalized cost plan for the played unit " +
-    "(CR 356.1.c / 356.4 / 356.6; RIFT-89) — the card program cannot derive printed costs itself."
+  "(CR 356.1.c / 356.4 / 356.6) — no merged producer turns the card program's cost descriptor into " +
+  "the FinalizedCostPlan effect.play requires."
 );
 
 test.todo(
   "sfd-111-221 Here to Help: 'to a battlefield you control' needs the runtime Location choice (CR 355.4 / 355.4.a, " +
-    "451.1; RIFT-90 target/location plan) because effect.play's location argument only accepts a LocationRef."
+  "451.1; the in-progress RIFT-357 location-choice work) because effect.play's location argument only accepts a LocationRef."
 );
