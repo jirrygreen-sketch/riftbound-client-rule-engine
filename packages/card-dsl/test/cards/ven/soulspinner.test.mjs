@@ -31,9 +31,9 @@ test("ven-123-166 Soulspinner: identity, status, judgeReason and verbatim source
   assert.match(program.judgeReason, /822\.1\.b/);
   assert.match(program.judgeReason, /play-location-permission/);
   assert.match(program.judgeReason, /continuous\.timing/);
-  assert.match(program.judgeReason, /canAct/);
-  assert.match(program.judgeReason, /RIFT-258\/259/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /822\.3/);
+  assert.ok(!/canAct 只读|只读 phase/.test(program.judgeReason));
+  assert.ok(!/RIFT-258\/259|RIFT-257/.test(program.judgeReason));
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -102,7 +102,7 @@ test.todo(
 
 test.todo(
   "ven-123-166 Soulspinner: Soulspinner has [Reaction] while being played to that battlefield (CR 822.1.b) — " +
-    "chain.canAct() (contract 3.5, chain/engine.ts) does not accept the layer registry, so the merged " +
-    "continuous.timing grants (RIFT-258/259) are never consulted in production, and no producer registers " +
-    "a card's expanded keyword statics into the layers (RIFT-257 only exposes expansion)"
+    "chain.canAct now consumes continuous.timing grants from the layer registry (merged); the remaining " +
+    "blocker is the occupied-battlefield condition of the play-location-permission, which no Finalize " +
+    "consumer evaluates (CR 822.3)"
 );

@@ -29,6 +29,7 @@ test("ven-151-166 Soul's Reflection: validateCardProgram passes and identity is 
   assert.match(program.judgeReason, /disempower/);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
 });
 
 test("ven-151-166: 'When you empower something else' trigger shape and empower-me body", () => {

@@ -29,8 +29,8 @@ test("ven-043-166 Steel Paws: identity, status, judgeReason and verbatim sourceT
   assert.deepEqual(deflectKeyword, { kind: "keyword", keyword: "deflect" });
   assert.match(program.judgeReason, /809\.1\.c\.1/);
   assert.match(program.judgeReason, /827\.1\.c\.1/);
-  assert.match(program.judgeReason, /RIFT-90/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /442\.1\.a/);
+  assert.match(program.judgeReason, /target\.tax/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -65,11 +65,11 @@ test.todo(
 
 test.todo(
   "ven-043-166 Steel Paws: bill the Deflect tax as any-domain Power when an opponent chooses this unit " +
-    "(809.1.c / 809.1.c.1) — no permanent tax -> target/cost consumer (RIFT-90) and the closed six-domain union " +
-    "cannot express [A]"
+    "(809.1.c / 809.1.c.1) — the tax machinery is merged (target/target-plan.ts) but no keyword-to-target-plan " +
+    "wiring exists; [A] itself is expressible through the merged six-domain allowedDomains cost system"
 );
 
 test.todo(
   "ven-043-166 Steel Paws: register the Empowered-gated +7 Might (828.1.b.1, 143.2.a) — no card-side " +
-    "continuous.might registration and no Empowered status predicate (RIFT-87/RIFT-91)"
+    "Empowered status predicate (442.1.a); the continuous.might arithmetic output itself is merged"
 );

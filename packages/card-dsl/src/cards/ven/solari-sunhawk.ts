@@ -22,17 +22,23 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   Value 与 809.1.c/809.1.c.1 的对手附加 Power 费用由关键词展开负责。
  * - 143.2 / 143.2.a："+1 :rb_might:" 是算术图层的 Might 修正，不是 702 的 Buff 计数器。
  *
- * status = judge-required（三处缺口，均不近似实现）：
+ * 复核（2026-10-17，第二轮 M2 覆盖率复核）：+1 Might 与 Deflect 2 的图层产出已有
+ * golden 执行证据（arithmetic 注册 + grant-keyword 图层）；早前作为缺口的
+ * RIFT-91（图层注册入口）与 RIFT-90（target.tax 机制）已合入，不再列为缺口——
+ * target.tax 现由 Deflect 展开声明，仍缺的是从关键词自动接线到目标计划。
+ *
+ * status = judge-required（当前真实缺口，均不近似实现）：
  * 1. keywords/registry.generated.ts 没有任何 Empower / Empowered 的 KeywordDef
  *    （RIFT-81~88 关键词批次不含它们），827.1.c.1 的启动费用与「仅当未 Empowered 时」
  *    限制、828.1.b.1 的依赖能力都无法展开；
  * 2. 没有 Empowered 状态谓词（442.1.a）：状态不在 ObjectSnapshot / Condition 里，
  *    静态效果的 condition 只能以显式谓词字符串占位（由关键词系统消费）；
- * 3. 卡牌侧没有注册 continuous.might / continuous.grant-keyword 静态效果的入口
+ * 3. 卡牌侧没有把 continuous.might / continuous.grant-keyword 静态效果注册进图层的入口
  *    （ctx.addContinuous 只有 chain/engine 内部接线；RIFT-91 的 layers 引擎已合入求值
  *    骨架），因此依赖能力无法激活。
- * 依赖：新增 Empower/Empowered 关键词任务、RIFT-91（图层与卡牌持续效果注册）、
- * RIFT-90（Deflect 的 target.tax 消费方）。
+ * 依赖：新增 Empower/Empowered 关键词任务与 442.1.a 状态谓词；并把卡内声明的
+ * continuous.might 与 [Deflect 2] 的 continuous.grant-keyword 接到图层/target.tax
+ * 执行入口（图层求值骨架已合入）。
  */
 const abilities: Ability[] = [
   {
@@ -76,14 +82,13 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1) keywords/registry.generated.ts 没有任何 Empower / Empowered 的 KeywordDef" +
-    "（RIFT-81~88 关键词批次不含它们），827.1.c.1 的「2 Energy：Empower me，仅当未 Empowered 时启动」与 " +
-    "828.1.b.1 的依赖能力都无展开实现；(2) 没有 Empowered 状态谓词（442.1.a）——状态不在 " +
-    "ObjectSnapshot / Condition 里，静态效果里的 condition 只能以显式谓词字符串占位（由关键词系统消费）；" +
-    "(3) 卡牌侧没有注册 continuous.might / continuous.grant-keyword 静态效果的入口（ctx.addContinuous " +
-    "只有 chain/engine 内部接线；RIFT-91 的 layers 引擎已合入求值骨架），因此 828.1.b.1 的依赖能力无法激活，" +
-    "[Deflect 2] 的 target.tax 展开（809.1.c）也缺 RIFT-90 的消费方。依赖：新增 Empower/Empowered 关键词任务、" +
-    "RIFT-91（图层与卡牌持续效果注册）、RIFT-90（目标税）。不近似实现（不把 +1 :rb_might: 写成 Buff）。",
+    "两条缺口（复核 2026-10-17；+1 Might 与 Deflect 2 的图层产出已有 golden 执行证据，" +
+    "图层注册入口与 target.tax 机制均已合入，不再列为缺口）：(1) keywords/registry.generated.ts " +
+    "没有任何 Empower / Empowered 的 KeywordDef，827.1.c.1 的「2 Energy：Empower me，仅当未 " +
+    "Empowered 时启动」与 828.1.b.1 的依赖能力都无展开实现；(2) 没有 Empowered 状态谓词（442.1.a）" +
+    "——状态不在 ObjectSnapshot / Condition 里，静态效果里的 condition 只能以显式谓词字符串占位，" +
+    "828.1.b.1 的依赖能力无法激活，[Deflect 2] 的 target.tax 也缺从关键词到目标计划的自动接线。" +
+    "依赖：新增 Empower/Empowered 关键词任务与 442.1.a 状态谓词；并把卡内声明的 continuous.might 与 [Deflect 2] 的 continuous.grant-keyword 接到图层/target.tax 执行入口（图层求值骨架已合入）。不近似实现（不把 +1 :rb_might: 写成 Buff）。",
   abilities,
   sourceText:
     "[Empower] :rb_energy_2: (:rb_energy_2:: Empower me. Use only if not Empowered.)\n" +
