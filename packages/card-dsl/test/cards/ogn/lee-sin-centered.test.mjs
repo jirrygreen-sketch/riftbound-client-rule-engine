@@ -7,6 +7,8 @@ import accelerate from "../../../../engine-core/dist/effects/keywords/Accelerate
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import mightPrimitive from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { LayerEngine } from "../../../../engine-core/dist/layers/engine.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 
 const CANONICAL = "card.hash-98fc18fcf30d6dd0b192f1c6ea251dd6a2e6d4a439098c533f77e58a2161074f";
 const c = value => ({ kind: "constant", value });
@@ -36,9 +38,11 @@ test("ogn-151-298 Lee Sin, Centered: printed power is null (no printed value) an
 
 test("ogn-151-298 Lee Sin, Centered: judgeReason cites the card-program binding, the buffed predicate and the location anchor", () => {
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /buffed/);
+  assert.match(program.judgeReason, /characteristics/);
   assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /sameLocationAs/);
+  assert.match(program.judgeReason, /sameLocationAs|锚点/);
+  assert.match(program.judgeReason, /exclude/);
+  assert.match(program.judgeReason, /accelerate\.cost/);
 });
 
 test("ogn-151-298 Lee Sin, Centered: the declared Accelerate keyword matches the merged KeywordDef", () => {
@@ -60,15 +64,15 @@ test("ogn-151-298 Lee Sin, Centered: Accelerate is declared, the +2 Might aura i
   assert.equal(aura.effect.mode, "add");
   assert.equal(aura.effect.layer, "arithmetic");
   assert.deepEqual(aura.effect.amount, { kind: "constant", value: 2 });
-  // The aura reads the host's current location and the buffed state; neither is
-  // an executable filter today (judgeReason). The selectors are the contract 3.6
-  // symbolic forms.
+  // 702.2.a/702.3: the "buffed" predicate is the Buff counter, which the merged
+  // characteristics filter compares exactly; the location/other anchors stay the
+  // contract 3.6 symbolic forms and remain the judged part (judgeReason).
   assert.deepEqual(aura.effect.filter, {
     type: "unit",
     controller: "controller",
     exclude: "self",
     sameLocationAs: "source",
-    buffed: true
+    characteristics: { buffs: 1 }
   });
   assert.equal(aura.condition, undefined);
 });
@@ -81,11 +85,11 @@ test("ogn-151-298 Lee Sin, Centered: the aura records the printed filter shape f
     "controller",
     "exclude",
     "sameLocationAs",
-    "buffed"
+    "characteristics"
   ]);
   assert.equal(program.abilities[1].effect.filter.exclude, "self");
   assert.equal(program.abilities[1].effect.filter.sameLocationAs, "source");
-  assert.equal(program.abilities[1].effect.filter.buffed, true);
+  assert.deepEqual(program.abilities[1].effect.filter.characteristics, { buffs: 1 });
 });
 
 test("ogn-151-298 Lee Sin, Centered: the merged continuous.might primitive registers the +2 aura it declares", () => {
@@ -113,8 +117,56 @@ test("ogn-151-298 Lee Sin, Centered: the merged continuous.might primitive regis
 });
 
 test.todo(
-  "ogn-151-298 Lee Sin, Centered: 'Other buffed friendly units at my battlefield have +2 Might.' needs the " +
-    "card-program binding that registers the static continuous.might effect (RIFT-257), plus a buffed " +
-    "predicate in the filter vocabulary (CR 702/703) and a host-location ('my battlefield') anchor in " +
-    "the layer filter."
+  "ogn-151-298 Lee Sin, Centered: 'Other buffed friendly units at my battlefield have +2 Might.' needs a " +
+    "host-location ('my battlefield', 359.3.f.2) anchor the layer filter can match — statics.ts resolves " +
+    "sameLocationAs to a structured location that layers/filter.ts never matches — and a dynamic 'other' " +
+    "exclusion (364.3), which staticFilter rejects outright."
 );
+
+test("ogn-151-298 Lee Sin, Centered: the characteristics predicate really identifies a Buffed unit (702.2.a/702.3)", () => {
+  // The "buffed" state is the unit's Buff counter, which the merged layer filter compares exactly;
+  // this is the part of the aura's filter vocabulary that the 2026-10-17 recheck could promote.
+  const kernel = world()
+    .unit("buffed-ally", { owner: "A", types: ["unit"], might: 2, buffs: 1 })
+    .unit("plain-ally", { owner: "A", types: ["unit"], might: 2, buffs: 0 })
+    .unit("enemy", { owner: "B", types: ["unit"], might: 2, buffs: 1 })
+    .build();
+  const layers = new LayerEngine(kernel.objects);
+  layers.setObjects(kernel.objects);
+  const byId = new Map(layers.evaluateAll().map((object) => [object.ref.id, object]));
+  assert.equal(matchesObjectFilter({ type: "unit", characteristics: { buffs: 1 } }, byId.get("buffed-ally")), true);
+  assert.equal(matchesObjectFilter({ type: "unit", characteristics: { buffs: 1 } }, byId.get("plain-ally")), false);
+  assert.equal(matchesObjectFilter({ type: "unit", characteristics: { buffs: 1 } }, byId.get("enemy")), true);
+});
+
+test("ogn-151-298 Lee Sin, Centered TODO: the aura must apply +2 Might to other buffed friendlies at my battlefield", {
+  todo: "359.3.f.2 / 364.3: the layer filter must follow the host's location and exclude the host itself"
+}, () => {
+  // The correct expectation follows the printed text: the host is excluded ("other", 364.3) and the
+  // aura only reaches buffed friendlies (702.2.a) at the host's battlefield (359.3.f.2). Today the
+  // binder folds sameLocationAs into a STRUCTURED location that layers/filter.ts never matches and
+  // rejects exclude: "self" outright, so the aura applies nowhere; the current result is not
+  // written as the expected behaviour.
+  const kernel = world()
+    .unit("lee", { types: ["unit"], might: 6, location: { type: "battlefield", id: "bf-1" } })
+    .unit("buffed-here", { owner: "A", types: ["unit"], might: 2, buffs: 1, location: { type: "battlefield", id: "bf-1" } })
+    .unit("buffed-elsewhere", { owner: "A", types: ["unit"], might: 2, buffs: 1, location: { type: "battlefield", id: "bf-2" } })
+    .unit("plain-here", { owner: "A", types: ["unit"], might: 2, buffs: 0, location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const layers = new LayerEngine(kernel.objects);
+  layers.setObjects(kernel.objects);
+  layers.addContinuous({
+    id: "lee-sin-aura",
+    layer: "arithmetic",
+    source: kernel.ref("lee"),
+    filter: { type: "unit", controller: "A", exclude: "self", sameLocationAs: "source", characteristics: { buffs: 1 } },
+    effect: { kind: "continuous.might", mode: "add", amount: 2 }
+  }, { type: "permanent" });
+  layers.setObjects(kernel.objects);
+  const might = new Map(layers.evaluateAll().map((object) => [object.ref.id, object.might]));
+  // 364.3: the host itself is excluded; 359.3.f.2: only the host's battlefield; 702.2.a: only buffed units.
+  assert.equal(might.get("lee"), 6);
+  assert.equal(might.get("buffed-here"), 4);
+  assert.equal(might.get("buffed-elsewhere"), 2);
+  assert.equal(might.get("plain-here"), 2);
+});

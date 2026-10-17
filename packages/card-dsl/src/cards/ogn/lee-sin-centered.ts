@@ -19,18 +19,25 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   有 Buff 的、其他友方单位 +2 Might（703：每个 Buff 贡献 +1 Might，这里读的是"是否
  *   被 Buff"这一状态）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。
- * - continuous.might 的指令入口已合入（RIFT-258，图层算术层会消费通过
- *   ResolveContext.addContinuous 注册的效果），但卡牌 static 能力没有把它注册成
- *   ContinuousEffectSpec 的已合入路径：登记面仍由解释器/原语在结算时调用，
- *   卡程序绑定（RIFT-257）未合入，本卡的常驻光环在真实对局中不会生效。
- * - "buffed" 需要可过滤状态：ObjectFilter/states 只列 ready/exhausted/stunned/
- *   attached/face-down（trigger-spec.ts），buffs 计数不在可过滤特征里。
- * - "at my battlefield" 是随来源位置变化的过滤器锚点：解释器（queryObjects）已解析
- *   sameLocationAs/exclude，但图层引擎的 filter 只按对象特征匹配（layers/filter.ts），
- *   还没有把宿主位置作为常驻效果锚点的求值路径。
- * 依赖：RIFT-257（CardProgram → 图层注册）与 buffed 谓词/图层位置锚点。不近似实现
- * （不用 continuous.grant-keyword 或 Buff 计数替代 Might 修正）。
+ * 复核（2026-10-17，第三轮 M2 覆盖率复核）：
+ * - 已合入：RIFT-257 的 static 注册路径（programs/statics.ts 的 createEngineStaticBinder →
+ *   layers engine）与 RIFT-258 的 continuous.might 算术层。
+ * - 已合入且等价：「buffed」可用 ObjectFilter 的 characteristics 谓词表达——
+ *   ObjectSnapshot 带 buffs 计数（702.2.a / 702.3：一个单位同时只有一个 Buff），
+ *   layers/filter.ts 的 characteristicsMatch 逐键比较，实测 `characteristics: { buffs: 1 }`
+ *   精确命中「有 Buff」的单位，只加成它。不需要新增 states 枚举值。
+ * - 仍缺（缺口一，过滤器锚点）："at my battlefield" 需要以宿主**当前位置**为锚点。
+ *   programs/statics.ts 的 staticFilter 会把 sameLocationAs "source" 折叠成
+ *   `{ location: { type: "battlefield", id: … } }` 结构化值，而 layers/filter.ts 的 location
+ *   比较只认字符串形式（`value.location !== object.location`，对象形式一律不等），实测该注册
+ *   对任何对象都不匹配、光环完全不生效；只有写成 `location: "battlefield"` 才匹配（但那会连带
+ *   命中其他战场）。
+ * - 仍缺（缺口二，排除宿主）：程序声明的 exclude: "self"（364.3 的 other）被 staticFilter 以
+ *   "Static exclude anchor needs a dynamic relative filter" 拒绝。
+ * - 仍缺（缺口三，Accelerate 接线）：Accelerate 展开的 accelerate.cost 静态效果没有图层映射
+ *   （layerFor 抛 "Static ability kind accelerate.cost has no layer mapping"），且卡程序没有把
+ *   keyword 声明的可选附加费用接进打出流程的 optionalAdditional（programs/play.ts 对
+ *   additional/keyword/optional 费用字段直接 judgeRequired）。与 ogn/legion-rearguard 同缺口。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "accelerate" },
@@ -46,7 +53,9 @@ const abilities: Ability[] = [
         controller: "controller",
         exclude: "self",
         sameLocationAs: "source",
-        buffed: true
+        // 702.2.a / 702.3: "buffed" is the unit's Buff counter (an ObjectSnapshot field), so the
+        // merged characteristics predicate expresses it exactly; no new states value is needed.
+        characteristics: { buffs: 1 }
       }
     }
   }
@@ -57,13 +66,16 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "持续 Might 修正仍不可执行：（1）continuous.might 指令原语已合入（RIFT-258，arithmetic 层按契约 3.4 求值），" +
-    "但卡程序 static 能力没有已合入的注册路径（RIFT-257；登记只能由解释器/原语在结算时通过 ResolveContext.addContinuous 触发），" +
-    "本卡的常驻光环在真实对局中不会注册。（2）“buffed” 不是可过滤状态：ObjectFilter/states 只支持 " +
-    "ready/exhausted/stunned/attached/face-down，buffs 计数不在可过滤特征里（702/703 的 Buff 状态无法作为 filter 条件）。" +
-    "（3）“at my battlefield” 需要以宿主当前位置为锚点的 filter（sameLocationAs），解释器已解析该锚点，" +
-    "但图层引擎的 filter 尚未解析（layers/filter.ts 只匹配对象特征）。依赖：RIFT-257 与 buffed 谓词、图层位置锚点。" +
-    "Accelerate 只按 805 声明。不近似实现。",
+    "持续 Might 修正仍不可执行，三处缺口：（1）“at my battlefield”（359.3.f.2）需要以宿主当前位置为锚点；" +
+    "programs/statics.ts 的 staticFilter 把 sameLocationAs source 折叠成结构化 location 值，而 " +
+    "layers/filter.ts 的 location 比较只认字符串形式，实测该注册不匹配任何对象、光环完全不生效。" +
+    "(2) 程序声明的 exclude self（364.3 的 other）被 staticFilter 以 “Static exclude anchor needs a dynamic " +
+    "relative filter” 拒绝。(3) Accelerate（805）展开的 accelerate.cost 静态效果无图层映射" +
+    "（layerFor 抛 “Static ability kind accelerate.cost has no layer mapping”），且卡程序 keyword 的" +
+    "可选附加费用未接进打出流程 optionalAdditional（programs/play.ts 对 additional/keyword/optional 费用字段直接拒绝）。" +
+    "已合入并实测：RIFT-257 的 static 注册路径、RIFT-258 的 continuous.might；「buffed」（702.2.a/702.3）" +
+    "可用 ObjectFilter 的 characteristics: { buffs: 1 } 精确表达（layers/filter.ts 的 characteristicsMatch），" +
+    "不需要新增 states 枚举值。不近似实现。",
   abilities,
   sourceText:
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_body: as an additional cost to have me enter ready.)\n" +

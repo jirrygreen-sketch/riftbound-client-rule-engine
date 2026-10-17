@@ -28,6 +28,7 @@ test("ogn-235-298 Karma, Channeler: identity, status and verbatim sourceText", (
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /effect\.inspect/);
   assert.match(program.judgeReason, /card-recycled/);
+  assert.match(program.judgeReason, /batchId/);
   assert.match(program.judgeReason, /批次/);
   assert.match(program.judgeReason, /RIFT-358/);
   assert.equal(
@@ -46,7 +47,10 @@ test("ogn-235-298 Karma, Channeler: [Vision] is declared as a keyword ability", 
 test("ogn-235-298 Karma, Channeler: the recycle clause is a mandatory buff of one friendly unit", () => {
   assert.equal(recycleTrigger.kind, "triggered");
   assert.equal(recycleTrigger.trigger.at, "card-recycled");
-  assert.deepEqual(recycleTrigger.trigger.filter, { event: "card-recycled", player: "self" });
+  // 417.1.a/c: recycle routes a card to its OWNER's deck, and the merged pipeline derives the
+  // recycle event's player from the recycled card's controller, so the ObjectFilter spelling is
+  // the equivalent of "when you recycle". card-recycled is not an EVENT_PATTERN_TYPES member.
+  assert.deepEqual(recycleTrigger.trigger.filter, { controller: "self" });
   assert.equal(recycleTrigger.optional, false);
 
   assert.equal(buffInstruction.id, "karma-channeler.buff-friendly-unit");
@@ -69,9 +73,9 @@ test("ogn-235-298 Karma, Channeler: the recycle clause is a mandatory buff of on
 });
 
 test("ogn-235-298 Karma, Channeler: the recycle trigger is declared on the existing card-recycled timing point", () => {
-  // Resolution still needs one trigger for the complete non-rune recycle batch.
+  // Resolution still needs one trigger for the complete recycle batch.
   assert.equal(recycleTrigger.trigger.at, "card-recycled");
-  assert.deepEqual(recycleTrigger.trigger.filter, { event: "card-recycled", player: "self" });
+  assert.deepEqual(recycleTrigger.trigger.filter, { controller: "self" });
 });
 
 test("ogn-235-298 Karma, Channeler: the buff clause executes against a friendly unit (CR 702.2.a)", () => {
@@ -139,11 +143,59 @@ test("ogn-235-298 Karma, Channeler: the original buff body resolves with its fri
 });
 
 test.todo(
-  "Karma Vision: bind the actual controller and ordered vision-top for each resolution (817.1.c, 437.1; RIFT-358)"
+  "Karma Vision: the keyword expansion (effects/keywords/Vision.ts) still emits object.id=self, which " +
+    "programs/filters.ts rejects, and binds the inspect viewer as the constant A plus an ordered " +
+    "resolution-time vision-top picks list (817.1.c, 437.1; RIFT-358)"
 );
 test.todo(
-  "Karma recycle trigger: one hit per non-rune recycle batch, with a supported card-recycled filter (417.1, 052, 161.1)"
+  "Karma recycle trigger: one hit for the whole recycle batch (417.1); the merged pipeline emits one " +
+    "card-recycled per recycle GameAction with no batchId producer and no per-batch once scope"
 );
+
+test("ogn-235-298 Karma, Channeler: the recycle trigger registers through the merged binding, the Vision expansion does not", () => {
+  // The authored card-recycled subscription now uses the timing point's equivalent ObjectFilter
+  // spelling, so THIS ability binds. The whole program still fails because the Vision keyword
+  // expansion (engine-core/src/effects/keywords/Vision.ts) emits 'object.id', which the merged
+  // filter translator rejects; that file is outside this task's write scope.
+  const source = {
+    ref: { id: "karma", zoneEntryId: 1 },
+    cardId: CANONICAL,
+    name: "Karma, Channeler",
+    types: ["unit"],
+    tags: [],
+    keywords: [],
+    owner: "A",
+    controller: "A",
+    zone: "board",
+    location: { type: "base", player: "A" },
+    might: 3,
+    energy: 5,
+    power: ["Chaos"],
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false
+  };
+  const executable = { ...program, status: "executable", judgeReason: undefined };
+  assert.throws(
+    () => createProgramBinding({ cardPrograms: [executable] }).registerProgramTriggers({ pipeline: { registerTrigger: () => {} } }, source),
+    /Unsupported filter field object\.id/
+  );
+  const recycleOnly = {
+    ...executable,
+    abilities: program.abilities.filter((ability) => ability.kind === "triggered")
+  };
+  const registered = [];
+  const ids = createProgramBinding({ cardPrograms: [recycleOnly] })
+    .registerProgramTriggers({ pipeline: { registerTrigger: (registration) => registered.push(registration) } }, source);
+  assert.deepEqual(ids, ["program:karma:1:0"]);
+  assert.equal(registered[0].spec.at, "card-recycled");
+  assert.deepEqual(registered[0].spec.filter, { controller: "self" });
+  assert.deepEqual(registered[0].activeZones, ["board"]);
+});
 
 for (const recycle of [false, true]) {
   test(`Karma supported Vision body: ${recycle ? "recycle" : "keep"} the seen top card`, () => {
