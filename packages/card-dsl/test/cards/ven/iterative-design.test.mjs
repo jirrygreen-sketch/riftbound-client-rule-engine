@@ -48,8 +48,9 @@ test("ven-051-166 Iterative Design: printed energy 4, absent power, and a parame
   assert.equal(Object.hasOwn(play.cost, "power"), false);
 
   // 829.1.c is "Flow [Cost]"; the printed 2 Energy + 1 Mind Power are keyword
-  // parameters, and contract 3.1's KeywordAbility has no field for them (3.8.3
-  // is not merged). They are recorded in judgeReason, never as value / cost.
+  // parameters. KeywordDef.expand/Flow.ts can read params.cost, but the frozen
+  // KeywordAbility has no standard params field and expandProgram does not forward
+  // a card-side cost, so this declaration remains parameterless.
   assert.deepEqual(flow, { kind: "keyword", keyword: "flow" });
 });
 
@@ -120,9 +121,10 @@ test("ven-051-166 Iterative Design golden: a replaced play negates the instructi
 
 test.todo(
   "ven-051-166 Iterative Design: play from Trash for the 2 Energy + 1 Mind Power Flow cost " +
-    "(829.1.c.1 / 829.1.c.2 alternate cost) and the delayed banish (829.1.b.1) — the merged Flow expand " +
-    "emits flow.cost plus an object-leaves-chain replacement, but cost/plan-values.ts and chain/engine.ts " +
-    "read neither, and replacement/bind.ts does not consume leavingInstruction"
+    "(829.1.c.1 / 829.1.c.2 alternate cost) and the delayed banish (829.1.b.1) — Flow.ts reads " +
+    "params.cost, but KeywordAbility has no standard cost field and expandProgram passes only value/host; " +
+    "the Flow cost/replacement consumers in cost/plan-values.ts, chain/engine.ts, and replacement/bind.ts " +
+    "also remain incomplete"
 );
 
 test.todo(

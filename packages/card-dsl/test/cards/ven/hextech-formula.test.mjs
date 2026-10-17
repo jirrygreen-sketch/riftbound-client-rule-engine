@@ -12,8 +12,7 @@ import { bindResolveContext } from "../../../../engine-core/dist/events/action-a
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
-import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
+import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
 
 const CANONICAL =
   "card.hash-abc384da043315415efa41d8d39f0cf4edbb77f2cbf021c4b7871cdf8732d768";
@@ -207,33 +206,59 @@ test("ven-062-166 Hextech Formula golden: without a finalized legal gear the abi
   assert.deepEqual(kernel.events, []);
 });
 
-function hextechFixture() {
-  const binding = createProgramBinding({ cardPrograms: [program] });
-  const f = fixture({
-    describePlay: binding.describePlay,
-    cards: [
-      { id: "hextech-formula", cardId: CANONICAL, types: ["gear"], energy: 2 },
-      { id: "other-gear", cardId: CANONICAL, types: ["gear"], energy: 3 }
-    ]
-  });
-  return { ...f, binding };
-}
-
-test("ven-062-166 Hextech Formula bound program: the other:true target anchor fails the production binding closed", () => {
-  // programs/filters.ts translateObjectFilter throws on the other/exclude
-  // self-exclusion anchors, so describing the activated ability fails closed
-  // before any chain draft is produced.
-  const f = hextechFixture();
-  assert.throws(
-    () => f.binding.describeActivate(f.kernel.getObject("hextech-formula"), "A"),
-    (error) => {
-      assert.equal(error.name, "ProgramBindingError");
-      assert.equal(error.code, "judge-required");
-      assert.match(error.message, /Unsupported filter field other/);
-      return true;
+test("ven-062-166 Hextech Formula golden: the merged replacement rewrites a real board entry", () => {
+  // Bind the replacement directly to the pre-entry source, as the production
+  // replacement registration contract requires. This exercises replacement.enter
+  // itself; the unsupported other:true target filter remains a separate TODO.
+  const kernel = world()
+    .unit("hextech-formula", {
+      types: ["gear"],
+      cardId: CANONICAL,
+      zone: "hand",
+      location: null,
+      energy: 2,
+      power: null,
+      might: null
+    })
+    .build();
+  const hostRef = kernel.ref("hextech-formula");
+  const registrations = [];
+  bindReplacement(
+    enterExhausted,
+    hostRef,
+    {
+      host: {
+        object: (ref) => kernel.object(ref),
+        objects: () => kernel.objects,
+        context: () => kernel
+      },
+      pipeline: {
+        clock: { turn: 1 },
+        registerReplacement: (registration) => registrations.push(registration)
+      }
     }
   );
-  assert.equal(f.engine.items.length, 0);
+
+  assert.equal(kernel.perform({ type: "move-zone", object: hostRef, to: "chain" }).status, "done");
+  const entering = {
+    type: "move-zone",
+    object: kernel.ref("hextech-formula"),
+    to: "base",
+    location: { type: "base", player: "A" }
+  };
+  assert.equal(registrations.length, 1);
+  const [registration] = registrations;
+  assert.equal(registration.matches(entering, entering), true);
+  const replacement = registration.apply(entering, entering);
+  assert.equal(replacement.status, "replace");
+  assert.deepEqual(replacement.actions.map((action) => action.type), ["exhaust", "move-zone"]);
+  for (const action of replacement.actions) assert.equal(kernel.perform(action).status, "done");
+
+  const entered = kernel.getObject("hextech-formula");
+  assert.equal(entered.zone, "board");
+  assert.deepEqual(entered.location, { type: "base", player: "A" });
+  assert.equal(entered.exhausted, true);
+  assert.deepEqual(kernel.events.map((event) => event.action), ["move-zone", "exhaust", "move-zone"]);
 });
 
 test.todo(

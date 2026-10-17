@@ -22,9 +22,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   829.1.c.1 明确它是替换基础费用的 alternate cost，829.1.c.2 允许费用同时包含资源与
  *   非资源部分（此处 2 Energy + 1 Mind Power）。卡侧只声明 keyword（契约 3.7、
  *   README 第 5 节），展开由 effects/keywords/Flow.ts 负责。
- *   契约 3.1 的 KeywordAbility 只有 keyword / value 两个字段，契约 3.8 第 3 条的
- *   expand params.cost 尚未落到已合入接口，故印刷的 Flow 费用只记录在注释与
- *   judgeReason，不写 value、也不伪造第二条普通费用。
+ *   KeywordDef.expand 的接口已经支持可选 params.cost，Flow.ts 也会读取 input.params.cost；
+ *   但 CardProgram 的 KeywordAbility 仍只有 keyword/value，且 programs/keywords.ts 的
+ *   expandProgram 只传 value/host，不把卡牌侧的印刷费用转发到 params.cost，因此费用仍只
+ *   记录在注释与 judgeReason，不写 value、也不伪造第二条普通费用。
  *
  * status = judge-required（缺口均不近似实现）：
  * 1. token 的“打出”路径（440.2.c / 185.2.a 的链上生成 + play 接手）只在参考内核可执行：
@@ -37,12 +38,12 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *    replacement/bind.ts 的 object-leaves-chain 匹配也不消费 leavingInstruction 标记。
  * 3. 已支持部分：effect.token 的 187.4 Mech 定义与链上创建 + 打出路径由 golden 用
  *    解释器 + 参考内核真实执行；其余写 test.todo。
- * 契约变更请求：effect.token 的“落点由常规打出流程决定”形态 + KeywordAbility 的
- * params.cost（829.1.c.2 的 2 Energy + 1 Mind Power）。
+ * 契约变更请求：effect.token 的“落点由常规打出流程决定”形态 + CardProgram
+ * KeywordAbility 的印刷费用参数承载（829.1.c.2 的 2 Energy + 1 Mind Power）。
  */
 const abilities = [
   // 829.1.c：格式为 "Flow [Cost]"；印刷费用 2 Energy + 1 Mind Power 记录在注释与
-  // judgeReason（KeywordAbility 无参数承载字段，见文件头）。
+  // judgeReason（KeywordAbility 没有标准化的印刷费用参数字段，见文件头）。
   { kind: "keyword", keyword: "flow" },
   {
     kind: "play",
@@ -83,8 +84,9 @@ export default {
     "effects/keywords/Flow.ts 的 expand 已合入（输出 flow.cost 静态 + object-leaves-chain replacement），但 " +
     "cost/plan-values.ts 与 chain/engine.ts 都不读 flow.cost（grep 无结果），replacement/bind.ts 的 " +
     "object-leaves-chain 匹配也不消费 leavingInstruction 标记；印刷的 Flow 费用是 2 Energy + 1 Mind Power（829.1.c.2 允许资源与非资源混合），" +
-    "但契约 3.1 的 KeywordAbility 只有 keyword / value 字段、契约 3.8 第 3 条的 expand params.cost 未落到已合入接口，" +
-    "故只记录在注释与 judgeReason，不写 value、也不伪造第二条普通费用。" +
+    "KeywordDef.expand 的接口已经支持可选 params.cost，Flow.ts 也会读取 input.params.cost；但 CardProgram 的 " +
+    "KeywordAbility 仍只有 keyword/value，且 programs/keywords.ts 的 expandProgram 只传 value/host，" +
+    "不把卡牌侧印刷费用转发到 params.cost，故只记录在注释与 judgeReason，不写 value、也不伪造第二条普通费用。" +
     "已支持部分：effect.token 的 Mech 定义（might 3 / tags [\"Mech\"]）与链上创建 + 打出路径由 golden 真实执行。",
   abilities,
   sourceText:

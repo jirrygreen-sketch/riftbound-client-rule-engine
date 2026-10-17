@@ -227,7 +227,8 @@ test("ven-073-166 golden: the merged Equip activation fails closed on the unpaya
 });
 
 test.todo(
-  "ven-073-166 Jagged Cutlass: paying the printed Equip cost (1 Body rune, CR 818.1.c/135.2.e.4) needs the " +
-    "\"equip\" cost-payment kind registered in cost/plan-values.ts and contract 3.8.3 params.cost so the " +
-    "printed rune reaches KeywordDef.expand"
+  "ven-073-166 Jagged Cutlass: paying the printed Equip cost (1 Body rune, CR 818.1.c/135.2.e.4) " +
+    "needs the CardProgram KeywordAbility to carry a CostSpec and expandProgram to forward it through " +
+    "KeywordDef.expand params.cost; Equip.ts must read that cost and cost/plan-values.ts must consume " +
+    "the resulting equip payment"
 );

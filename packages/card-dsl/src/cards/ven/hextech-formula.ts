@@ -36,14 +36,14 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * 3. 剩余缺口："another gear" 的排除锚点 other: true（740.1.a 的 friendly + other 写法）
  *    没有任何消费方：programs/filters.ts 的 translateObjectFilter 对 other/exclude 直接抛
  *    ProgramBindingError("judge-required", "Unsupported filter field other")，生产绑定因此
- *    fail-closed（golden 断言该拒绝）；参考内核的 layers/filter.ts matchesObjectFilter
+ *    fail-closed；该过滤语义保留在测试 TODO，参考内核的 layers/filter.ts matchesObjectFilter
  *    同样不消费该字段（恒真）。"a gear" 是 355.7/355.9.a.1 的 Target，缺排除锚点即缺
  *    整个启动能力，故整卡不标 executable（契约变更请求：目标过滤 other/exclude 锚点）。
  */
 const abilities: Ability[] = [
   {
     // 359.2.d 的"就绪入场"被替换为"横置入场"。replaces 指向本卡自己的入场事件
-    // （369.3 的入场替代族）；with 里的 op 是契约 3.4/3.5 的替代族命名，当前无注册方。
+    // （369.3 的入场替代族）；with 里的 op 由 replacement/bind.ts 消费。
     kind: "replacement",
     replaces: {
       event: "object-enters-board",
@@ -110,7 +110,7 @@ export default {
     "真实锁定目标、支付 exhaust 费用并执行 effect.empower（355.7/355.9.a.1/442.1）。" +
     "剩余缺口：『another gear』的排除锚点 other: true（740.1.a）没有消费方——" +
     "programs/filters.ts translateObjectFilter 对 other/exclude 抛 ProgramBindingError" +
-    "（judge-required，Unsupported filter field other），生产绑定 fail-closed（golden 断言该拒绝）；" +
+    "（judge-required，Unsupported filter field other），生产绑定 fail-closed；该过滤语义保留在测试 TODO；" +
     "layers/filter.ts matchesObjectFilter 也不消费该字段（恒真），参考内核同样无法排除来源自身。" +
     "『a gear』是 Target，缺排除锚点即缺整个启动能力，故整卡保持 judge-required；" +
     "契约变更请求：ObjectFilter 的 other/exclude 排除锚点（生产 translateObjectFilter 与解释器目标过滤）。" +

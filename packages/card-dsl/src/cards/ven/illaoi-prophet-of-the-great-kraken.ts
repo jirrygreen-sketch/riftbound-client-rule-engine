@@ -21,22 +21,22 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 143.2.a / 475–477：“I have +1 :rb_might: for each token unit you control” 是算术图层的持续
  *   Might 修正，不是 702 的 Buff 计数器（本卡不放置任何 Buff）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required，三处缺口均不近似实现：
- * 1. “when I score” 的订阅没有消费方：scoring/ 只把 score 的触发结果作为 flag 交给
- *    turn-executor-v2（turn/flow.ts 组装 emissions），没有把它接进唯一事件管线；且已合入的
- *    score GameAction 只有 {player, amount} 载荷，没有 object/battlefieldId，无法按 473.2
- *    锚定到宿主所在战场；触发式能力的生产注册（programs/triggers.ts）依赖该时点进入管线。
- *    “我（本战场上的单位）得分” 还需要按 473.2 把 score 事件锚定到宿主所在战场，该锚点同理未接线。
+ * status 判定（cards/README.md 第 2 节）：judge-required，两处缺口均不近似实现：
+ * 1. “when I score” 的 score 时点与 details.battlefieldId 已由 turn/flow.ts 发布到
+ *    共享事件管线，触发注册本身也已合入；剩余缺口是 473.2 的宿主位置关联：
+ *    translateTriggerFilter 把 source: "self" 翻译为事件 object 的自身引用，
+ *    但 score emission 只有 player/details，没有 object，pipeline matcher 没有把宿主
+ *    location 与 details.battlefieldId 做连接，因此无法只在 Illaoi 所在战场得分时触发。
  * 2. “I have +1 :rb_might: for each token unit you control” 需要卡牌侧的 continuous.might 注册入口
  *    与按集合计数求值 amount 的能力（layers/engine.ts 的 valueOf 不求值 count，
  *    count/compare）；“token unit” 的合取谓词同样缺失——已合入过滤器把数组 type 当 OR 处理，
- *    type: "token" 会一并匹配 token gear（如 Gold），因此这里按同批卡（sfd/azir-sovereign、
+ *    type: \"token\" 会一并匹配 token gear（如 Gold），因此这里按同批卡（sfd/azir-sovereign、
  *    sfd/renata-glasc-industrialist）的写法只记录 isToken 过滤并在此说明该缺口。
  * 3. card-played 的触发注册依赖已合入的生产链路（programs/triggers.ts
  *    registerProgramTriggers → events/pipeline.registerTrigger），但它只在卡牌被打出时
  *    才会绑定（attachProgramLifecycle 在 object-enters-board/chain 时 attach），score 触发
  *    的注册因此同样卡在第 1 点的 score 管线缺口上。
- * 已支持部分：“play a 1 Might Tentacle unit token” 用已合入的 effect.token（mode "play"，187.10
+ * 已支持部分：“play a 1 Might Tentacle unit token” 用已合入的 effect.token（mode \"play\"，187.10
  * 定义）在 golden 中真实执行，含从链上创建到打出、以及控制器归属与 null 费用的校验。
  */
 const abilities: Ability[] = [
@@ -119,16 +119,17 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1)「when I score」的订阅没有消费方：scoring/ 只把 score 的触发结果作为 flag 交给 " +
-    "turn-executor-v2（turn/flow.ts 组装 emissions），未接入唯一事件管线；已合入的 score GameAction " +
-    "只有 {player, amount} 载荷（无 object/battlefieldId），473.2 要求把该次 Scoring 锚定到宿主所在战场，" +
-    "该锚点因此无法求值（card-played 一侧的生产注册已合入：programs/triggers.ts → events/pipeline）。" +
+    "两处缺口，均不近似实现：(1)「when I score」的 score 时点与 details.battlefieldId 已由 " +
+    "turn/flow.ts 发布到共享事件管线，programs/triggers.ts 的注册也已合入；剩余缺口是 " +
+    "473.2 的宿主位置关联：translateTriggerFilter 把 source:\"self\" 翻译为事件 object 的自身引用，" +
+    "但 score emission 只有 player/details，没有 object，pipeline matcher 没有把宿主 location 与 " +
+    "details.battlefieldId 做连接，因此无法只在 Illaoi 所在战场得分时触发。" +
     "(2)「I have +1 :rb_might: for each token unit you control」需要卡牌侧 continuous.might 注册入口与按集合计数求值 " +
     "amount 的能力（layers/engine.ts 的 valueOf 不求值 count，图层 conditionMatches 也不求值 count/compare）；「token unit」的合取谓词同样缺失" +
     "——已合入过滤器把数组 type 当 OR，type: \"token\" 会一并匹配 token gear（如 Gold），因此按同批卡" +
-    "（sfd/azir-sovereign、sfd/renata-glasc-industrialist）只记录 isToken 过滤。" +
-    "(3) card-played 的触发注册已合入（programs/triggers.ts），但 score 触发依赖第 1 点的 score 管线缺口。" +
-    "已支持部分：「play a 1 :rb_might: Tentacle unit token」用已合入的 effect.token（187.10 定义、mode \"play\"）真实执行。",
+    "（sfd/azir-sovereign、sfd/renata-glasc-industrialist）只记录 isToken 过滤并在此说明该缺口。" +
+    "已支持部分：「play a 1 Might Tentacle unit token」用已合入的 effect.token（mode \"play\"，187.10" +
+    "定义）在 golden 中真实执行，含从链上创建到打出、以及控制器归属与 null 费用的校验。",
   abilities,
   sourceText:
     "When you play me or when I score, play a :rb_energy_1: :rb_might: Tentacle unit token from Bilgewater.\n" +

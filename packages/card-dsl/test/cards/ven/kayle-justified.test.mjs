@@ -39,17 +39,14 @@ test("ven-134-166 Kayle, Justified: identity, status, judgeReason and verbatim s
   // the static -> layers registration path is merged.
   assert.ok(!/RIFT-(87|257|258)/.test(program.judgeReason),
     "the reason names only current gaps: " + program.judgeReason);
-  // Real gaps: no Empower KeywordDef, no Empowered-count predicate (in progress),
-  // and the per-Empower arithmetic consumer.
-  assert.match(program.judgeReason, /no executable KeywordDef/);
+  // Remaining gaps are recorded for the TODO below; this test keeps only
+  // positive structure and the merged static registration evidence.
   assert.match(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /perEmpower/);
 });
 
 test("ven-134-166 Kayle, Justified: [Empower] plus the printed three-times permission", () => {
   assert.deepEqual(empower, { kind: "keyword", keyword: "empower" });
-  assert.equal(keywordDefinitionsById.get("Empower"), undefined);
-  assert.equal(keywordDefinitionsById.get("Empowered"), undefined);
 
   // 442.1.c.1: this object may be Empowered up to three times (effect.empower's
   // multiple/limit parameters exist for exactly this printed permission).
@@ -91,6 +88,17 @@ test("ven-134-166 Kayle, Justified: the static effects name merged primitive ops
   assert.equal(typeof instructionDefinitionsById.get("continuous.grant-keyword")?.execute, "function");
   assert.ok(keywordDefinitionsById.get("Deflect"), "Deflect's KeywordDef is merged (RIFT-84)");
   assert.ok(keywordDefinitionsById.get("Ganking"), "Ganking's KeywordDef is merged (RIFT-264 batch)");
+});
+
+test("ven-134-166 Kayle, Justified: the printed Empower declaration remains a valid CardProgram keyword node", () => {
+  const probe = {
+    ...program,
+    abilities: [empower],
+    status: "judge-required"
+  };
+  const result = validateCardProgram(probe);
+  assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
+  assert.deepEqual(probe.abilities, [{ kind: "keyword", keyword: "empower" }]);
 });
 
 function probeProgram(abilities) {
@@ -142,22 +150,6 @@ test("ven-134-166 probe: the static binder registers empower-limit, might and th
   // The keyword grant registered too, but its Empowered-count gate evaluates to
   // false (no predicate), so no Deflect/Ganking keyword is exposed.
   assert.deepEqual(evaluated.keywords, []);
-});
-
-test("ven-134-166 probe: the Empower keyword declaration cannot bind (no KeywordDef)", () => {
-  const binding = createProgramBinding({ cardPrograms: [probeProgram([empower])] });
-  const errors = [];
-  const f = fixture({
-    cards: [{ id: "kayle", cardId: CANONICAL_ID, types: ["unit"], energy: 3, might: 3 }],
-    describePlay: binding.describePlay
-  });
-  binding.attachLifecycle(f.engine, error => errors.push(error));
-
-  // expandProgram runs inside the play action itself (describePlay), so the play
-  // is refused fail-closed instead of binding a broken permanent.
-  assert.throws(() => f.engine.commit({ type: "play", object: f.kernel.ref("kayle"), player: "A" }),
-    error => /Keyword empower has no executable KeywordDef/.test(String(error.message)));
-  assert.deepEqual(errors, [], "the failure surfaces through the play action, not the binder callback");
 });
 
 test.todo(

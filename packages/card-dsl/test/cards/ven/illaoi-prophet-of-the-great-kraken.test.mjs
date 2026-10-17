@@ -33,6 +33,7 @@ test("ven-109-166 Illaoi: identity, status, judgeReason and verbatim sourceText"
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /score/);
   assert.match(program.judgeReason, /473\.2/);
+  assert.match(program.judgeReason, /battlefieldId/);
 });
 
 test("ven-109-166 Illaoi: the two printed triggers are separate, both playing the Tentacle token", () => {
@@ -152,9 +153,10 @@ test("ven-109-166 golden: an opponent's base is not a legal unit Base destinatio
 });
 
 test.todo(
-  "ven-109-166 Illaoi: subscribe 'when I score' (470.3 / 473.2) — scoring/ only hands the score trigger flags to " +
-    "turn-executor-v2; nothing emits it into the single event pipeline, and the merged score GameAction carries " +
-    "no object/battlefieldId payload for the 473.2 battlefield anchor"
+  "ven-109-166 Illaoi: correlate 'when I score' with the host battlefield (470.3 / 473.2) — " +
+    "turn/flow.ts now emits score with details.battlefieldId and the trigger registration is merged, " +
+    "but translateTriggerFilter maps source:self to event.object while score emissions have no object; " +
+    "the pipeline needs a host-location/details.battlefieldId join"
 );
 
 test.todo(
@@ -165,6 +167,7 @@ test.todo(
 );
 
 test.todo(
-  "ven-109-166 Illaoi: the card-played trigger registration path is merged (programs/triggers.ts -> " +
-    "events/pipeline.registerTrigger); the score trigger waits on the same score-pipeline gap as the first todo"
+  "ven-109-166 Illaoi: after the score battlefield join is added, preserve the authoritative " +
+    "details.battlefieldId through trigger matching so only the Illaoi instance on that Battlefield " +
+    "receives the score-triggered token (473.2)"
 );

@@ -176,7 +176,13 @@ test("ven-119-166 golden: the production static binder rejects continuous.cost-m
   // static 能力进不了任何图层（layerFor 直接抛 judge-required）。这正是折扣数据
   // 到不了 Finalize 费用计划的第一道断点。
   const kernel = world()
-    .unit("keeper-of-law", { might: 5, owner: "A", controller: "A", zone: "board" })
+    .unit("keeper-of-law", {
+      cardId: CANONICAL_ID,
+      might: 5,
+      owner: "A",
+      controller: "A",
+      zone: "board"
+    })
     .build();
   const host = createActionPipelineHost({
     checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
@@ -194,10 +200,15 @@ test("ven-119-166 golden: the production static binder rejects continuous.cost-m
   });
   const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
   const registry = new ProgramRegistry([program]);
-  const lifecycle = attachProgramLifecycle(engine, registry);
+  const errors = [];
+  const lifecycle = attachProgramLifecycle(engine, registry, undefined, error => errors.push(error));
   try {
     // Board 进入：static 绑定在此时运行并按 layerFor 抛 judge-required。
     engine.pipeline.emit({ timingPoint: "object-enters-board", object: kernel.getObject("keeper-of-law") });
+    assert.ok(errors.length > 0, "the canonical program reaches the static binder");
+    for (const error of errors) {
+      assert.match(String(error.message), /Static ability kind continuous\.cost-modification has no layer mapping/);
+    }
     assert.equal(engine.layers.registry.snapshot().length, 0, "no layer entry is registered for the cost modification");
   } finally {
     lifecycle.detach();
