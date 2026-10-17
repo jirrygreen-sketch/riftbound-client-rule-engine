@@ -30,7 +30,8 @@ test("sfd-031-221 Desert's Call: judge-required for the open destination and the
   assert.match(program.judgeReason, /355\.2/);
   assert.match(program.judgeReason, /target\.location/);
   assert.match(program.judgeReason, /820\.1\.c\.1/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /Additional costs are not bound/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-86|RIFT-89/);
 });
 
 test("sfd-031-221 Desert's Call structure: no speed keyword, the Repeat payment and the Sand Soldier play", () => {
@@ -115,5 +116,5 @@ test.todo(
 test.todo(
   "sfd-031-221 Desert's Call: collecting the optional 2-energy Repeat cost at Finalize, exposing the " +
     "paid count to the effect execution, and re-making choices for the additional execution " +
-    "(820.1.c.1 / 820.1.d.1 / 820.2) need the Repeat cost wiring and the cost plan — RIFT-86 / RIFT-89."
+    "(820.1.c.1 / 820.1.d.1 / 820.2) need the play additional-cost translateCost/plan wiring."
 );

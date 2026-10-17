@@ -54,11 +54,12 @@ test("sfd-092-221 Combat Chef: identity, ruleset, status and verbatim sourceText
 
 test("sfd-092-221 Combat Chef: judgeReason names the missing cost opcodes and dependency", () => {
   assert.match(program.judgeReason, /Weaponmaster/);
-  assert.match(program.judgeReason, /cost\.modify/);
-  assert.match(program.judgeReason, /cost\.pay/);
   assert.match(program.judgeReason, /821\.1\.c\.2/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /821\.1\.c\.3/);
+  assert.match(program.judgeReason, /judgeRequired/);
+  assert.match(program.judgeReason, /Unsupported payment kind/);
+  assert.match(program.judgeReason, /params\.cost/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-261|RIFT-257/);
   assert.match(program.judgeReason, /Equip payment kind/);
 });
 
@@ -110,7 +111,7 @@ test("sfd-092-221 Combat Chef golden: declining to choose an Equipment leaves th
 test.todo(
   "sfd-092-221 Combat Chef: on play, choose one of your Equipment, pay its Equip cost " +
     "reduced by [A], then attach it to me even if it is already attached (821.1.c / " +
-    "821.1.c.2 / 821.1.c.3) — blocked because cost.modify / cost.pay have no registered " +
-    "InstructionDef (RIFT-261) and no producer expands a card's keyword ability into the " +
-    "play pipeline (RIFT-257)"
+    "821.1.c.2 / 821.1.c.3) — blocked because cost.modify rejects both the Weaponmaster " +
+    "source shape and the as-if Equip cost, readCost has no \"equip\" payment kind, and " +
+    "expandProgram has no params.cost path"
 );

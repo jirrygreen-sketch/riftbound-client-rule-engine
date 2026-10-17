@@ -6,6 +6,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import program from "../../../dist/cards/sfd/corinna-veraza.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 const CARD_ID = "card.hash-501f79047db4a7b99900a5e5d9ccc837a75c7d22b74a2584683a55e48a288d95";
 const BATTLEFIELD = { type: "battlefield", id: "battlefield-1" };
@@ -32,9 +33,11 @@ test("sfd-179-221 Corinna Veraza: identity, ruleset, status, judgeReason and ver
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /object-moved/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /TriggerSpecValidationError/);
   assert.match(program.judgeReason, /toZone/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /Accelerate/);
+  assert.match(program.judgeReason, /Additional costs are not bound/);
   assert.equal(
     program.sourceText,
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_order: as an additional cost to have me enter ready.)\n" +
@@ -59,6 +62,21 @@ test("sfd-179-221 Corinna Veraza: Accelerate keyword plus a move-triggered token
   assert.equal(triggered.trigger.condition, undefined);
   assert.equal(triggered.trigger.once, undefined);
   assert.equal(triggered.optional, false);
+});
+
+test("sfd-179-221 Corinna Veraza: program binding anchors the original move filter to its host", () => {
+  const kernel = world().unit("corinna", { might: 6, location: BATTLEFIELD }).build();
+  const { trigger } = program.abilities[1];
+  assert.deepEqual(translateTriggerFilter(trigger.filter, kernel.ref("corinna").id, trigger.at), {
+    event: "object-moved",
+    object: { objectId: "corinna" },
+    toZone: "battlefield"
+  });
+  assert.deepEqual(trigger.filter, {
+    event: "object-moved",
+    toZone: "battlefield",
+    filter: { source: "self" }
+  });
 });
 
 test("sfd-179-221 Corinna Veraza: the body reads \"here\" then plays three Recruit tokens there", () => {
@@ -132,13 +150,14 @@ test("sfd-179-221 Corinna Veraza: \"here\" is read at resolution, so a source ba
 });
 
 test.todo(
-  "sfd-179-221 Corinna Veraza: the object-moved emission must carry the Move's origin/destination payload " +
-    "(fromKind/fromLocationId/toKind/toLocationId, timing-points.ts) and expose the moved object so the " +
-    "toZone: \"battlefield\" + source-self trigger can be evaluated; events/action-adapter.ts leaves the " +
-    "payload empty for move-location today, and the card-program trigger binding (RIFT-257) that would " +
-    "supply the host identity has not merged."
+  "sfd-179-221 Corinna Veraza: object-moved must become a registrable EVENT_PATTERN_TYPE and the " +
+    "move-location emission must carry the Move's origin/destination payload " +
+    "(fromKind/fromLocationId/toKind/toLocationId, timing-points.ts), so the destination filter " +
+    "can be evaluated with the already-bound host objectId."
 );
 test.todo(
   "sfd-179-221 Corinna Veraza: paying the optional Accelerate cost [1][Order] and the enter-ready replacement " +
-    "run through the Finalize cost plan and the replacement pipeline (805 / RIFT-261 cost ops + RIFT-257 binding)."
+    "run through the play translateCost and the cost plan's optionalAdditional consumer; play.ts currently " +
+    "throws judgeRequired (\"Additional costs are not bound\") and static accelerate.cost has no Finalize " +
+    "consumer (805)."
 );

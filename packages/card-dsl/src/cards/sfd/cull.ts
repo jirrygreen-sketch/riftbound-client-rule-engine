@@ -14,16 +14,15 @@
  *   沿用同目录已合入 sfd 装备程序的约定：value 记印刷的 Power 数量 1，costDomain 记领域
  *   "Chaos"；印刷的 1 energy 是 Gear 自身的打出费用（150.4），不是 Equip 费用。
  *
- * status = judge-required（缺可支付的费用路径与关键词接线，不近似实现）：
- * - 已合入的 Equip 展开（RIFT-87，effects/keywords/Equip.ts）声明
+ * status = judge-required（缺可支付的费用路径，不近似实现）：
+ * - 已合入的 Equip 展开（effects/keywords/Equip.ts）声明
  *   payments: [{ kind: "equip", value: { kind: "source" } }]，而费用管线
- *   cost/plan-values.ts 的 readCost 没有 "equip" 这一支付种类（Equip 费用属未合入的
- *   RIFT-261 费用指令批次），Equip 的启动费用因此无法计算/支付；契约 3.8 第 3 条要求
- *   expand 用 params.cost 承载印刷装备费，已合入的 KeywordDef 接口虽声明了 params
- *   （keyword-contract.ts），但展开方仍只从 value/host 读取，印刷的 Chaos 符文
- *   没有传到 expand。
- * - 卡牌程序 → 关键词展开 → 时点/链的接线（契约 3.5）未合入（卡牌程序绑定 RIFT-257，
- *   未合入 HEAD）。
+ *   cost/plan-values.ts 的 readCost 没有 "equip" 这一支付种类，buildCostPlan 抛
+ *   CostPlanError（reason "judge-required"，message "Unsupported payment kind: equip"），
+ *   Equip 的启动费用因此无法计算/支付。
+ * - 契约 3.8 第 3 条要求 expand 用 params.cost 承载印刷装备费，已合入的 KeywordDef
+ *   接口虽声明了 params（keyword-contract.ts），但 programs/keywords.ts 的 expandProgram
+ *   只传 { value, host }，印刷的 Chaos 符文没有传到 expand。
  * - 不把 Equip 降级成裸 effect.attach：那会绕开 818.1.c 的费用与费用改写语义。
  */
 export default {
@@ -32,12 +31,12 @@ export default {
   status: "judge-required",
   judgeReason:
     "印刷的 [Equip] 费用（1 点 Chaos Power，818.1.c.2）目前无法支付：已合入的 Equip 展开" +
-    "（RIFT-87，effects/keywords/Equip.ts）声明 payments: [{ kind: \"equip\", value: source }]，" +
-    "费用管线 cost/plan-values.ts 的 readCost 没有 \"equip\" 支付种类，启动费用无法计算/支付；" +
+    "（effects/keywords/Equip.ts）声明 payments: [{ kind: \"equip\", value: source }]，" +
+    "费用管线 cost/plan-values.ts 的 readCost 没有 \"equip\" 支付种类，buildCostPlan 抛 " +
+    "CostPlanError（\"Unsupported payment kind: equip\"），启动费用无法计算/支付。" +
     "契约 3.8 第 3 条要求 expand 用 params.cost 承载印刷装备费，已合入的 KeywordDef 虽声明了 params，" +
-    "但 Equip 展开只用 value/host，印刷的 Chaos 符文没有落到 expand 参数上；" +
-    "也缺卡牌程序→关键词展开→时点/链的接线（契约 3.5）。" +
-    "依赖：RIFT-261（Equip 费用支付与 cost.* 指令）、RIFT-257（卡牌程序关键词展开绑定）。" +
+    "但 programs/keywords.ts 的 expandProgram 只传 { value, host }，印刷的 Chaos 符文没有落到 " +
+    "expand 参数上。" +
     "不近似实现（不把 Equip 降级成裸 effect.attach）。",
   abilities: [
     { kind: "keyword", keyword: "equip", value: 1, costDomain: "Chaos" }

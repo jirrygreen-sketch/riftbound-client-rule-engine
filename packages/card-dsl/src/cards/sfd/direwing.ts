@@ -20,16 +20,15 @@ import type { CardProgram } from "../../ir/index.js";
  *   effect.ready），条件用 count + filter 的 compare；不写事后 effect.ready。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required。
- * - 替代绑定库（RIFT-260）已合入，但没有生产方把 CardProgram 的 replacement 能力注册成
- *   ReplacementRegistration（卡牌程序绑定 RIFT-257 未合入 HEAD）；heroic 的 golden 只能
- *   手动调 bindReplacement，证明的是库本体，不是卡牌接线。
- * - 更关键：已合入的 entry-declaration 匹配路径（replacement/bind.ts matchesEnterAction）
- *   不评估能力 condition —— 实测「没有另一条 Dragon 时」入场单位仍被替换成就绪进场。
- *   把这条静态入场改写绑进管线会产生错误结果，因此本卡不能标 executable。
+ * - programs/lifecycle.ts 已通过默认 createEngineStaticBinder 提供 CardProgram 的
+ *   replacement 注册路径；该生产路径不是缺口。
+ * - 已合入的 entry-declaration 匹配路径（replacement/bind.ts matchesEnterAction）
+ *   不评估能力 condition，无法按「另一条 Dragon」门控入场替代；条件不满足时应保持
+ *   默认横置入场，因此本卡不能标 executable。
  * - 条件的「another Dragon」占位符同样没有消费方：filter 里的 controller: "controller"
  *   与 exclude: "self" 由 chain/engine.ts 的 query 归一化只认 self/opponent，替代匹配侧的
  *   filterMatchesSnapshot 也不解析 exclude 锚点。
- * 依赖：RIFT-257（替代绑定 + entry 替代的 condition 求值）、占位符与 exclude 锚点消费。
+ * 依赖：entry 替代的 condition 求值、占位符与 exclude 锚点消费。
  * 不近似实现（不把入场替代写成事后 effect.ready，也不把条件写成恒真）。
  */
 export default {
@@ -38,12 +37,12 @@ export default {
   status: "judge-required",
   judgeReason:
     "「I enter ready if you control another Dragon」是入场替代（143.4 / 359.2.c / 369.3，364.3.a 的官方同型示例）：" +
-    "替代绑定库已合入（RIFT-260），但没有生产方把 CardProgram 的 replacement 能力注册进事件管线（卡牌程序绑定 RIFT-257 未合入 HEAD）。" +
-    "且已合入的 entry-declaration 路径不评估能力 condition：replacement/bind.ts 的 matchesEnterAction 只比对 filter，" +
-    "实测没有另一条 Dragon 时单位仍被替换成就绪进场——把它接进管线会得到错误结果，不能算可执行。" +
+    "replacement 注册路径已由 programs/lifecycle.ts 与默认 createEngineStaticBinder 提供；" +
+    "剩余缺口是 entry-declaration 路径不评估能力 condition：replacement/bind.ts 的 matchesEnterAction 只比对 filter，" +
+    "无法按另一条 Dragon 的条件门控入场替代（条件不满足时应保持默认横置），不能算可执行。" +
     "条件的「another Dragon」也没有求值方：filter 的 controller: \"controller\" 与 exclude: \"self\" 占位符不被 chain/engine.ts 的 query 归一化识别" +
     "（只认 self/opponent），替代匹配侧也不消费 exclude 锚点。" +
-    "依赖：RIFT-257（卡牌替代绑定与 entry 替代的 condition 求值）、占位符与 exclude 锚点消费。" +
+    "依赖：entry 替代的 condition 求值、占位符与 exclude 锚点消费。" +
     "不近似实现（不把入场替代写成事后 effect.ready，也不把条件写成恒真）。",
   abilities: [
     {

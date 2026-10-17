@@ -21,18 +21,17 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （468.3.a-d 定义玩家与单位的胜/负/No Result；468.4），胜方为能力控制者。
  * - "draw 1"（414.1/414.3）：effect.draw，抽牌者缺省为能力控制者。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。两处已合入缺口：
- * - object-moved 触发缺少「是本卡在移动」与「终点是战场」的可判定载荷：
- *   events/action-adapter.ts 为 move-location 生成的 object-moved 事件带 object（被移动对象），
- *   但不填 toZone/toKind（timing-points.ts 声明的 payloadFields），因此 toZone: "battlefield"
- *   永不命中；events/pipeline-match.ts 只读 EventPattern 的 object/source/target/player/
- *   fromZone/toZone/amount/details，不读取卡程序里的内层 filter 锚点，source: "self" 也没有
- *   消费方（需把被移动对象与宿主的同一性暴露给卡牌注册层，449.1/449.2 的起终点、458 的 Recall
- *   排除据此无法执行）。
+ * status 判定（cards/README.md 第 2 节）：judge-required。两处真实缺口：
+ * - object-moved 触发无法注册：events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 不含
+ *   object-moved，registerTrigger 抛 TriggerSpecValidationError；即便注册成功，
+ *   events/action-adapter.ts 的 move-location 映射也不填 toZone/toKind（zone-enter/leave
+ *   分支才有这些字段），因此 toZone: "battlefield" 无法命中（449.1/449.2 的起终点、
+ *   458 的 Recall 排除据此无法执行）。内层 filter 的 source: "self" 已由
+ *   programs/filters.ts 的 translateTriggerFilter 转成宿主 objectId，golden 验证该转换。
  * - combat-result 时点没有发射方：events/action-adapter.ts 只按已提交游戏动作派生时点，
  *   combat/ 的胜负判定（468.3）尚未接入事件管线，全仓库没有 combat-result 的 emit；
  *   // 「I win」的胜者绑定同样需要该发射路径。
- * 依赖：RIFT-120（move-location 事件载荷与移动注册）、RIFT-33/RIFT-124（战斗结果发射与胜负绑定）。
+ * 依赖：move-location 的触发注册与终点载荷、combat-result 发射（RIFT-33/RIFT-124）。
  * 两条正文指令（effect.discard / effect.draw）已合入并有 golden 执行证据；不近似实现触发判定
  * （不把任何移动都当作「移动到战场」，不把 combat-result 改成别的时点）。
  */
@@ -83,18 +82,18 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "object-moved 触发没有可判定的「本卡移动」与「终点是战场」载荷：events/action-adapter.ts 的 " +
-    "move-location 映射生成的 object-moved 事件带 object（被移动对象）但不填 toZone/toKind" +
-    "（timing-points.ts 声明的 payloadFields），因此 toZone: \"battlefield\" 无法命中；" +
-    "events/pipeline-match.ts 只读取 EventPattern 的 object/source/target/player/fromZone/toZone/amount/details，" +
-    "不读取卡程序里的内层 filter 锚点，source: \"self\" 也没有消费方（需把被移动对象与宿主的同一性" +
-    "暴露给卡牌注册层；449.1/449.2 的起点终点、458 的 Recall 排除据此无法执行）。" +
+    "object-moved 触发无法注册：events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 不含 object-moved，" +
+    "registerTrigger 抛 TriggerSpecValidationError；即便注册成功，events/action-adapter.ts 的 " +
+    "move-location 映射也不填 toZone/toKind（zone-enter/leave 分支才有这些字段），因此 " +
+    "toZone: \"battlefield\" 无法命中；" +
+    "449.1/449.2 的起点终点、458 的 Recall 排除据此无法执行。" +
+    "内层 source: \"self\" 已由 translateTriggerFilter 转成宿主 objectId。" +
     "第二条「When I win a combat」同样不可执行：combat-result 时点没有发射方（events/action-adapter.ts " +
     "只为已提交游戏动作派生时点，combat/ 的 468.3 胜负判定尚未接入事件管线，全仓库无 combat-result 的 emit），" +
     "「I win」的胜者绑定也需要该发射路径。" +
     "两条正文指令已合入：effect.discard（423.1/423.1.a 弃 1，弃牌者为控制者）与 effect.draw（414.1/414.3 抽 1），" +
     "golden 用参考内核真实执行，但触发判定不近似实现。" +
-    "依赖：RIFT-120（move-location 事件载荷与移动注册）、RIFT-33/RIFT-124（战斗结果发射与胜负绑定）。",
+    "依赖：move-location 的触发注册与终点载荷、combat-result 发射与胜负绑定（RIFT-33/RIFT-124）。",
   abilities,
   sourceText:
     "When I move to a battlefield, discard 1.\n" +

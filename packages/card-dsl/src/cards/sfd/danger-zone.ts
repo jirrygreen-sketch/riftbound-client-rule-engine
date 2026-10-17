@@ -12,14 +12,13 @@ import type { CardProgram } from "../../ir/index.js";
  *   Give your Mechs +1 :rb_might: this turn.
  *
  * Status: judge-required — one gap, not approximated:
- * - the [Repeat] KeywordDef landed with RIFT-86, but its additional-cost
- *   collection still has no consumer: the Finalize cost plan never reads the
- *   declared Repeat cost (no accelerate.cost / repeat.cost consumer, no
- *   cost.pay / cost.additional primitive is registered — RIFT-261 cost
- *   ops are not merged) and the paid-repeat count is not wired to the
- *   interpreter's repeat node in the play pipeline (RIFT-257 binding). The
- *   additional cost (1 energy + 1 rainbow rune) stays declared on the play
- *   ability as an additionalCost CostSpec so the intent is reviewable.
+ * - the [Repeat] KeywordDef landed, but its additional cost cannot enter the
+ *   play flow: programs/play.ts translateCost throws judgeRequired for
+ *   kind "additional"/"additional-cost", the static repeat.cost has no
+ *   layer/Finalize consumer, and the paid-repeat count is not wired to the
+ *   interpreter's repeat node. The additional cost (1 energy + 1 rainbow
+ *   rune) stays declared on the play ability as an additionalCost CostSpec
+ *   so the intent is reviewable.
  * - The team buff itself is now executable: the merged continuous.might
  *   primitive (RIFT-258) registers the arithmetic-layer modification over the
  *   programmatic "your Mechs" set through ctx.addContinuous with the
@@ -34,11 +33,11 @@ const dangerZone = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Repeat] 追加费用仍无可执行收取路径：Repeat KeywordDef 已随 RIFT-86 合入（effects/keywords/Repeat.ts 输出 repeat.cost 静态能力），" +
-    "但没有消费方把打出的 Repeat 费用接进 Finalize 费用计划（repeat.cost/accelerate.cost 无消费者，effects/instructions/ 也没有已注册的 " +
-    "cost.pay / cost.additional 原语——RIFT-261 的费用指令批次未合入），已付费 Repeat 实例数与解释器 repeat 节点的接线同样缺失" +
-    "（卡牌程序绑定 RIFT-257）。追加费用（1 能量 + 1 彩虹符文，820.1.c.1）已按契约 3.1 声明为 play 的 additionalCost，属待接线声明，不写死第二次结算、不近似实现。" +
-    "「Give your Mechs +1 :rb_might: this turn」半段已可执行：continuous.might 原语（RIFT-258）对 355.10.d 的程序化集合注册 arithmetic 层修正并在回合末到期，golden 已用生产链适配器真实执行。",
+    "[Repeat] 追加费用仍无可执行收取路径：打卡的 play.cost kind additional-cost 在 programs/play.ts 的 translateCost " +
+    "处直接 judgeRequired（\"Additional costs are not bound\"）；effects/keywords/Repeat.ts 输出的 repeat.cost 静态能力没有图层映射与 Finalize 消费方，" +
+    "已付费 Repeat 实例数与解释器 repeat 节点也无接线。追加费用（1 能量 + 1 彩虹符文，820.1.c.1）已按契约 3.1 声明为 play 的 additionalCost，" +
+    "属待接线声明，不写死第二次结算、不近似实现。" +
+    "「Give your Mechs +1 :rb_might: this turn」半段已可执行：continuous.might 原语对 355.10.d 的程序化集合注册 arithmetic 层修正并在回合末到期，golden 已用生产链适配器真实执行。",
   sourceText:
     "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +
     "[Repeat] :rb_energy_1::rb_rune_rainbow: (You may pay the additional cost to repeat this spell's effect.)\n" +
@@ -47,9 +46,9 @@ const dangerZone = {
     { kind: "keyword", keyword: "reaction" },
     {
       kind: "play",
-      // [Repeat] 1 energy + 1 rainbow rune: declared as an additional cost
-      // (contract 3.1 CostSpec); the Repeat KeywordDef that lets the player
-      // actually pay it to repeat the effect is not merged yet.
+    // [Repeat] 1 energy + 1 rainbow rune: declared as an additional cost
+    // (contract 3.1 CostSpec); the play flow's translateCost and the cost
+    // plan do not consume this additional-cost kind yet.
       cost: {
         kind: "additional-cost",
         keyword: "repeat",
