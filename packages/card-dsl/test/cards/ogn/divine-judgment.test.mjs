@@ -4,8 +4,12 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/divine-judgment.js";
 import recycle from "../../../../engine-core/dist/effects/instructions/effect.recycle.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID = "card.hash-adf97d6260131adb3a3b5b54d1904b16d8330ea2476fe31e8652a57b081a380a";
 
@@ -13,6 +17,31 @@ const play = program.abilities[0];
 const chooseInstruction = play.body[0];
 const recycleInstruction = play.body[1];
 const pickIds = chooseInstruction.picks.map(pick => pick.id);
+const forged = { ...program, status: "executable", judgeReason: undefined };
+
+const trashCard = (id, extra = {}) => ({
+  ref: { id, zoneEntryId: 1 },
+  cardId: `card:${id}`,
+  name: id,
+  types: ["unit"],
+  tags: [],
+  keywords: [],
+  owner: "A",
+  controller: "A",
+  zone: "deck",
+  location: null,
+  might: 1,
+  energy: null,
+  power: null,
+  exhausted: false,
+  damage: 0,
+  stunned: false,
+  buffs: 0,
+  attachedTo: null,
+  faceDown: false,
+  isToken: false,
+  ...extra
+});
 
 test("ogn-244-298 Divine Judgment: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -31,11 +60,11 @@ test("ogn-244-298 Divine Judgment: program passes validateCardProgram", () => {
 test("ogn-244-298 Divine Judgment judgeReason names the per-player picks and complement gap", () => {
   // The scope of "the rest" is recorded as an open ruling that needs a judge.
   assert.match(program.judgeReason, /裁定/);
-  assert.match(program.judgeReason, /choose/);
+  assert.match(program.judgeReason, /choice\.each-player/);
   assert.match(program.judgeReason, /355\.10\.a/);
   assert.match(program.judgeReason, /417\.1\.a/);
   assert.match(program.judgeReason, /effect\.recycle/);
-  assert.match(program.judgeReason, /运行时 picks/);
+  assert.match(program.judgeReason, /运行时对象集合/);
 });
 
 test("ogn-244-298 Divine Judgment structure: four per-player picks then the recycle-the-rest node", () => {
@@ -98,36 +127,41 @@ test("ogn-244-298 Divine Judgment structure: four per-player picks then the recy
   ]);
 });
 
-test("ogn-244-298 Divine Judgment golden: the merged recycle primitive recycles N from one zone", () => {
-  // effect.recycle is the piece the card's "recycle the rest" clause needs; the
-  // merged form recycles a chosen count from a single zone (417.6) and shows why
-  // the complement selection is the missing part.
-  const kernel = world().deck("main-card").build();
-  kernel.addObject(
-    {
-      ref: { id: "trashed-card", zoneEntryId: 1 },
-      cardId: "card:trashed-card",
-      name: "trashed-card",
-      types: ["card"],
-      tags: [],
-      keywords: [],
-      owner: "A",
-      controller: "A",
-      zone: "trash",
-      location: null,
-      might: null,
-      energy: null,
-      power: null,
-      exhausted: false,
-      damage: 0,
-      stunned: false,
-      buffs: 0,
-      attachedTo: null,
-      faceDown: false,
-      isToken: false
-    },
-    "trash"
+test("ogn-244-298 Divine Judgment current gap: neither declared op is registered, so the card's body cannot run", () => {
+  assert.equal(instructionDefinitionsById.has("choice.each-player"), false);
+  assert.equal(instructionDefinitionsById.has("effect.recycle-rest"), false);
+  const kernel = world().unit("unit", {}).build();
+  assert.throws(
+    () => runAbilityBody(play.body, kernel),
+    /Unregistered instruction opcode: choice\.each-player/
   );
+});
+
+test("ogn-244-298 Divine Judgment current gap: the pick options are descriptive strings no code parses", () => {
+  // Each category declares a `dynamic:…` option string. Nothing resolves them:
+  // they are static Value entries, and the merged kernels take their option
+  // lists from the caller. The recycle query below keys off real objects, not
+  // these strings.
+  assert.deepEqual(
+    chooseInstruction.picks.map(pick => pick.options),
+    [
+      ["dynamic:units-on-board"],
+      ["dynamic:gear-on-board"],
+      ["dynamic:runes-in-rune-zone"],
+      ["dynamic:cards-in-hand"]
+    ]
+  );
+  // The reference kernel exposes no resolver for such a spelling.
+  const kernel = world().unit("unit", {}).build();
+  assert.deepEqual(kernel.picks("divine-judgment-units"), []);
+});
+
+test("ogn-244-298 Divine Judgment golden: the merged recycle primitive recycles N from one zone", () => {
+  // effect.recycle is the piece "recycle the rest" needs; the merged form
+  // recycles a chosen count from a single zone (417.6) and shows why the
+  // complement selection is the missing part.
+  const kernel = world().deck("main-card").build();
+  kernel.addObject(trashCard("trashed-card", { types: ["card"] }), "trash");
   const trashed = kernel.ref("trashed-card");
 
   const run = runInstruction(
@@ -143,14 +177,49 @@ test("ogn-244-298 Divine Judgment golden: the merged recycle primitive recycles 
   assert.equal(kernel.zone("A", "deck").at(-1).id, "trashed-card");
 });
 
-test.todo(
-  "Divine Judgment: iterating every player for each of the four categories (2 units, 2 gear, " +
-    "2 runes, 2 hand cards) needs the multi-player choice primitive and runtime pick options " +
-    "including the non-public hand choice (355.10.a)."
-);
+test("ogn-244-298 Divine Judgment golden: effect.recycle cannot express a complement and never splits destinations", () => {
+  // Two kept units and one spare: "recycle the rest" must pick the spare by
+  // subtraction, but the primitive only takes an amount from a zone (or an
+  // explicit object list). Recycling the amount recycles whichever cards the
+  // caller answers with, not the complement.
+  const kernel = world().deck(["deck:1", "deck:2", "deck:3", "deck:4"]).build();
+  for (const id of ["kept-a", "kept-b", "spare"]) {
+    kernel.addObject(trashCard(id, { zone: "board", location: { type: "base", player: "A" } }), "board");
+  }
+  const run = runInstruction(
+    recycle,
+    { from: { zone: "board", owner: "controller", amount: { kind: "literal", value: 1 } } },
+    { world: kernel, answers: { "effect.recycle:board:controller:1": [kernel.ref("kept-a")] } }
+  );
+  // The instruction recycles exactly the answered card: it has no way to know
+  // that "the rest" means "the board units outside the kept set".
+  assert.equal(run.result.status, "executed");
+  assert.equal(kernel.getObject("kept-a").zone, "deck");
+  assert.equal(kernel.getObject("spare").zone, "board");
+  // A rune would have to go to the Rune Deck (417.1.b); the primitive branches
+  // by the object's own types, so a mixed board/rune complement cannot be
+  // expressed by one call.
+  assert.deepEqual(Object.keys(run.result.linkedValues).sort(), ["recycled", "recycledCount"]);
+});
+
+test("ogn-244-298 Divine Judgment current gap: the program cannot be described for play by the production binder", () => {
+  const state = fixture({ cards: [{ id: "judgment", cardId: CARD_ID, types: ["spell"], energy: 7, power: ["Order"] }] });
+  const binding = createProgramBinding({ cardPrograms: [forged] });
+  const draft = binding.describePlay({ type: "play", object: state.kernel.ref("judgment"), player: "A" }, state.kernel.getObject("judgment"));
+  // describePlay itself only translates surfaces; the missing ops surface when
+  // the draft is executed, so the card can be put on the chain but never resolve.
+  assert.deepEqual(draft.body.map(instruction => instruction.op), ["choice.each-player", "effect.recycle-rest"]);
+  assert.equal(instructionDefinitionsById.has(draft.body[0].op), false);
+});
 
 test.todo(
-  "Divine Judgment: 'Recycle the rest' needs a complement selection plus per-type destinations " +
-    "(units/gear/hand -> Main Deck bottom, runes -> Rune Deck bottom; 417.1.a/417.1.b/417.1.c) " +
-    "and the 417.5 random-order presentation for 2+ simultaneous Main Deck recycles."
+  "Divine Judgment: iterate every player for each of the four categories (2 units, 2 gear, " +
+    "2 runes, 2 hand cards) with runtime pick options including the non-public hand choice " +
+    "(355.10.a), then recycle the complement with per-type destinations " +
+    "(units/gear/hand -> Main Deck bottom, runes -> Rune Deck bottom; 417.1.a/417.1.b/417.1.c)"
 );
+test.todo(
+  "Divine Judgment: recycle the complement of the kept sets (417.6) and present the 417.5 random order " +
+    "for 2+ simultaneous Main Deck recycles without hiding which cards were kept"
+);
+
