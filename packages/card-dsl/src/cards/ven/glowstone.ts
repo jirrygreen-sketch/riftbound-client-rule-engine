@@ -14,8 +14,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * 规则依据（Core Rules v1.5）：
  * - 827.1.c / 827.1.c.1：Empower 是启动式能力关键词，本卡印刷费用是 2 个
  *   :rb_rune_rainbow:，"Use only if not Empowered" 是启动限制；827.1.b.1：来源不是目标。
- * - 135.2.e.5 / 135.2.e.5.a / 163.2.b：:rb_rune_rainbow: 是任意域 Power [A]；六域封闭
- *   Domain 集合没有 Universal Power 值（effect.resources 已记录"绝不用某个域近似"）。
+ * - 135.2.e.5 / 135.2.e.5.a / 163.2.b：:rb_rune_rainbow: 是任意域 Power [A]；
+ *   费用计划以 kind:"power"、amount:2 与六域 allowedDomains 表达两个 [A]，
+ *   不需要新增 Domain 值；golden 验证各域 Power 的支付分配。
  * - 443.1 / 443.2 / 443.2.a：Disempower 是移除 Empowered 状态的受限动作，出现在冒号前
  *   时是启动费用；415.3.a / 415.5：:rb_exhaust: 是横置来源的费用。
  * - 355.5 / 355.9.a / 355.10.e："Choose a player." 选择一个玩家（355.9.a 允许玩家作为
@@ -42,8 +43,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * status = judge-required（缺口均不近似实现）：
  * 1. 缺 Empower/Empowered KeywordDef：keywords/registry.generated.ts 没有
- *    "empower"/"empowered" 展开；印刷费用里的 [A] 也无法在
- *    六域封闭集合里表达（同 ven/matriarch-of-war、ven/butcher-of-the-sands 的记录）。
+ *    "empower"/"empowered" 展开，尚不能把本卡的两个 [A] 费用绑定为 Empower 启动能力；
+ *    [A] 的费用表示与支付分配本身已支持。
  * 2. 启动费用里的 Disempower 没有付费种类：cost/plan-values.ts 的 readCost 非标准费用
  *    只支持 exhaust/discard/recycle/kill/reveal/spend-buff。
  * 3. "Choose a player. They gain control of this and recall it"：Recall 被 effect.move 的
@@ -147,8 +148,9 @@ export default {
   judgeReason:
     "四处缺口，均不近似实现：(1) 缺 Empower/Empowered KeywordDef：keywords/registry.generated.ts 没有 " +
     "\"empower\"/\"empowered\" 展开，827.1.c.1 的启动费用与「Use only if not Empowered」限制无执行路径；" +
-    "印刷费用是两个 :rb_rune_rainbow:（任意域 Power [A]，135.2.e.5.a/163.2.b），六域封闭 Domain 集合无法表达" +
-    "（effect.resources 记录不可近似）。(2) 启动费用里的「Disempower this」没有付费种类：cost/plan-values.ts 的 " +
+    "印刷的两个 :rb_rune_rainbow:（任意域 Power [A]，135.2.e.5.a/163.2.b）已可用 kind:power 与六域 " +
+    "allowedDomains 表达并进行支付分配（golden 覆盖），缺口是关键词展开与费用绑定。" +
+    "(2) 启动费用里的「Disempower this」没有付费种类：cost/plan-values.ts 的 " +
     "readCost 非标准费用只支持 exhaust/discard/recycle/kill/reveal/spend-buff（443.2.a 的 Disempower 是受限动作）。" +
     "(3)「Choose a player. They gain control of this and recall it」里，Recall 被已合入的 effect.move 的 mode " +
     "\"recall\" 显式阻断（457–460：Recall 不是 Move，不发 Move 事件、不受移动限制），不得用 move-location 近似；" +

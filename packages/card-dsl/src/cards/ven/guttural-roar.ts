@@ -23,16 +23,16 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * status = judge-required（缺口均不近似实现）：
  * 复核（2026-10-17，第二轮 M2 覆盖率复核）：
  * - 旧 judgeReason 的「continuous.might 无卡牌侧入口（RIFT-91）」已不成立：
- *   continuous.might 指令已注册并经 runAbilityBody 真实执行（arithmetic 图层注册、
- *   317.2.c 的 end-of-turn 到期经 layers.expireAt("turn-end") 断言）。
+ *   continuous.might 指令已注册，golden 独立执行本卡 +2 指令的参数，断言
+ *   arithmetic 图层注册、3→5 Might 及 317.2.c 的 turn-end 到期后回到 3。
  * - 真实缺口只剩 "[Empowered]" 状态谓词：生产 ObjectSnapshot（effects/contract.ts）
- *   没有 empowered 字段；具名 expression 谓词 "is-empowered" 在生产解释器求值抛
- *   MissingInformation（实测生产执行结果为 +2 分支 skipped / +4 分支 executed，
- *   partial outcome），不能作为可执行证据；条件谓词属进行中任务 RIFT-359。
+ *   没有 empowered 字段；expression 的非空字符串 "is-empowered" 会转成 true，
+ *   不会读取目标状态，也不会因此抛 MissingInformation，不能作为条件执行证据；
+ *   条件谓词属进行中任务 RIFT-359，两个状态分支继续保留 TODO。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required，缺口不近似实现。
- * 程序里保留具名谓词 is-empowered 与互斥条件形状，绝不近似成恒真、也不把两条
- * 数量合并成一条固定的 +2。golden 覆盖身份/结构与 +4 分支的真实执行。
+ * 程序里仅以 is-empowered 记录尚不能求值的状态条件及互斥形状，不把它视作已实现
+ * 的状态查询。golden 覆盖身份/结构和独立 Might 原语，不执行整段条件分支。
  * 依赖：Empowered 状态谓词（进行中任务 RIFT-359）。
  */
 const EMPOWERED_CONDITION = {
@@ -95,13 +95,12 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "一处已合入、一处仍缺，均不近似实现：「Give a unit +2/+4 :rb_might: this turn」的 continuous.might 指令已注册并经 " +
-    "runAbilityBody 真实执行（+4 分支 executed，arithmetic 图层注册 + 317.2.c end-of-turn 到期经 layers.expireAt 断言，" +
-    "331.4 的所有 this-turn 效果同到；生产解释器只对不可求值的谓词分支按 611.2.a/b 忽略）。唯一缺口：「If it's [Empowered]」的 " +
-    "828.2 状态谓词没有已合入实现——生产 ObjectSnapshot（effects/contract.ts）没有 empowered 字段，具名 expression 谓词 " +
-    "is-empowered 在生产解释器求值抛 MissingInformation（实测 +2 分支 skipped / +4 分支 executed 的 partial outcome），" +
-    "不能作为可执行证据；条件谓词属进行中任务 RIFT-359。本卡按 135.2.b.5.b 保留互斥条件形状（+2 挂该谓词的否定、" +
-    "+4 挂该谓词本身）与共用目标的声明，绝不写成恒真条件、也不把两条数量合并成固定 +2。" +
+    "continuous.might 已注册，golden 独立执行本卡 +2 指令的参数并断言 arithmetic 图层、3→5 Might 与 " +
+    "317.2.c 的 turn-end 到期后恢复 3；该证据不覆盖条件分支。唯一缺口：「If it's [Empowered]」的 " +
+    "828.2 状态谓词没有已合入实现——生产 ObjectSnapshot（effects/contract.ts）没有 empowered 字段，" +
+    "expression 的非空字符串 is-empowered 会转成 true，不会查询目标状态，不能作为可执行的状态谓词。" +
+    "本卡按 135.2.b.5.b 仅保留互斥条件形状（+2 挂该描述条件的否定、+4 挂描述条件本身）与共用目标的声明，" +
+    "两个状态分支继续 TODO；不把整张卡标为 executable，也不把两条数量合并成固定 +2。" +
     "依赖：Empowered 状态谓词（进行中任务 RIFT-359）。",
   abilities,
   sourceText:

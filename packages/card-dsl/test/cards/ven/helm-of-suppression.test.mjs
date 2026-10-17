@@ -7,7 +7,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 // card-dsl has no dependency edge on engine-core (engine-core depends on
 // card-dsl), so golden execution loads the built engine through its workspace
 // layout instead of the package name.
-import { buildCostPlan } from "../../../../engine-core/dist/cost/index.js";
+import { buildCostPlan, prepareCostPayment } from "../../../../engine-core/dist/cost/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL =
@@ -79,9 +79,8 @@ test("ven-045-166 Helm of Suppression: +1 Energy for opponents' spells, and the 
     kind: "constant",
     value: "helm-of-suppression-base-increase"
   });
-  // 135.2.e.5.a / 163.2.b: [A] is paid by Power of any Domain. The closed
-  // Domain union has no Universal Power value, so the card records the payment
-  // eligibility set instead of collapsing it into one concrete Domain.
+  // 135.2.e.5.a / 163.2.b: the six-domain eligibility set maps to
+  // kind:power with allowedDomains in the existing cost plan.
   assert.deepEqual(empoweredIncrease.effect.additionalPower, {
     kind: "constant",
     value: { amount: 1, eligibleDomains: SIX_DOMAINS }
@@ -144,6 +143,41 @@ test("ven-045-166 Helm of Suppression: the Empowered branch's Power component is
   assert.equal(empoweredIncrease.effect.domain, undefined);
 });
 
+test("ven-045-166 Helm of Suppression: the cost plan accepts every Domain for the [1][A] increase", () => {
+  const power = empoweredIncrease.effect.additionalPower.value;
+  for (const domain of SIX_DOMAINS) {
+    const base = world()
+      .player("A", { energy: 3, power: [domain] })
+      .hand("spell", { types: ["spell"], energy: 2, power: null })
+      .build();
+    const kernel = base.clone({ sourceSnapshot: base.getObject("spell") });
+    // Supply only the printed increase component to the cost plan. Static
+    // binding and the Empowered gate remain TODO; neither is simulated here.
+    const plan = buildCostPlan(kernel, {
+      id: "helm-empowered-increase-resource-component",
+      cost: { kind: "explicit", energy: { kind: "constant", value: 2 } },
+      increases: [{
+        id: "helm-empowered-increase",
+        cost: {
+          kind: "explicit",
+          energy: empoweredIncrease.effect.amount,
+          payments: [{
+            kind: "power",
+            amount: { kind: "constant", value: power.amount },
+            allowedDomains: power.eligibleDomains
+          }]
+        }
+      }]
+    });
+    assert.equal(plan.total.energy, 3);
+    assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: SIX_DOMAINS }]);
+    assert.deepEqual(plan.components.map(component => component.stage), ["base", "increase"]);
+    const payment = prepareCostPayment(kernel, plan);
+    assert.equal(payment.actions[0].action.plan.energy, 3);
+    assert.deepEqual(payment.actions[0].action.plan.power, [domain]);
+  }
+});
+
 test.todo(
   "ven-045-166 Helm of Suppression: [Empower] 4 Energy + 1 Calm Power must expand to its activation cost with the " +
     "\"use only if not Empowered\" restriction (827.1.c.1 / 442.1.b) - no Empower/Empowered KeywordDef exists in " +
@@ -156,8 +190,6 @@ test.todo(
     "card instruction, not this static-to-cost-plan path"
 );
 test.todo(
-  "ven-045-166 Helm of Suppression: the [A] Power increase must be payable by Power of any Domain - the closed six-Domain " +
-    "union has no Universal Power value, and the Empowered predicate (828.1.c) has no evaluable form - the named " +
-    "expression predicate is constantly true in the test kernel and throws MissingInformation in the production " +
-    "interpreter (in-progress RIFT-359)"
+  "ven-045-166 Helm of Suppression: apply [1] or [1][A] according to the source's Empowered state (828.1.c) — " +
+    "the nonempty expression string does not query that state; needs a real predicate (in-progress RIFT-359)"
 );

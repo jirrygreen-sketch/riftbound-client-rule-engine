@@ -7,6 +7,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import damageDefinition from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
+import { buildCostPlan, prepareCostPayment } from "../../../../engine-core/dist/cost/index.js";
 
 const CARD_ID = "card.hash-f4f95f0992a519e07673e9e9d3ea66ae5196b1e0be2c8a2847aa8697cfdccf53";
 const SOURCE_TEXT =
@@ -49,8 +50,8 @@ test("ven-133-166 Glowstone: identity, ruleset, status, judgeReason and verbatim
 
 test("ven-133-166 Glowstone: Empower 2, and the Disempower/exhaust activation that hands control away", () => {
   assert.equal(program.abilities.length, 3);
-  // 827.1.c: the printed Empower cost is two [A]; declared only (the closed Domain
-  // set has no Universal Power value, so no domain is invented).
+  // 827.1.c: the printed Empower cost is two [A]. The cost plan supports it via
+  // six allowedDomains; keyword expansion and cost binding remain blocked.
   assert.deepEqual(empower, { kind: "keyword", keyword: "empower", value: 2 });
 
   // 443.2.a Disempower + 415.3.a/415.5 exhaust are the printed costs.
@@ -157,10 +158,33 @@ test("ven-133-166 Glowstone golden: the printed 5 damage really lands on every s
   assert.equal(run.result.linkedValues.dealtCount, 1);
 });
 
+test("ven-133-166 Glowstone: the cost plan allocates the printed two [A] from same or mixed Domains", () => {
+  const allowedDomains = ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"];
+  for (const power of [...allowedDomains.map(domain => [domain, domain]), ["Fury", "Order"]]) {
+    const base = world()
+      .player("A", { energy: 0, power })
+      .unit("glowstone", { types: ["gear"], might: null })
+      .build();
+    const kernel = base.clone({ sourceSnapshot: base.getObject("glowstone") });
+    // Verify only the printed resource component, without inventing an
+    // Empower expansion or pretending its activation restriction is supported.
+    const plan = buildCostPlan(kernel, {
+      id: "glowstone-empower-resource-component",
+      cost: {
+        kind: "activated",
+        payments: [{ kind: "power", amount: { kind: "constant", value: empower.value }, allowedDomains }]
+      }
+    });
+    assert.deepEqual(plan.total.power, [{ amount: 2, allowedDomains }]);
+    const payment = prepareCostPayment(kernel, plan);
+    assert.deepEqual(payment.actions[0].action.plan.power, power);
+  }
+});
+
 test.todo(
   "ven-133-166 Glowstone: the printed Empower cost of two :rb_rune_rainbow: (Universal Power [A], CR 135.2.e.5.a/163.2.b) " +
-    "and its 827.1.c.1 activation need an Empower/Empowered KeywordDef plus a Universal-Power representation — the closed " +
-    "six-Domain set has no [A] value and effect.resources records that it must never be approximated by one domain"
+    "needs an Empower/Empowered KeywordDef and activation-cost binding (827.1.c.1); [A] resource allocation itself " +
+    "is supported by kind:power with six allowedDomains"
 );
 test.todo(
   "ven-133-166 Glowstone: paying \"Disempower this\" (CR 443.2/443.2.a) needs the disempower payment kind in " +
