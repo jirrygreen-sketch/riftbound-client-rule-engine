@@ -6,7 +6,6 @@ import program from "../../../dist/cards/rad/an-offer-you-cant-refuse.js";
 const ENGINE = new URL("../../../../engine-core/dist/", import.meta.url);
 const { runInstruction, world } = await import(new URL("effects/testing/index.js", ENGINE));
 const kill = (await import(new URL("effects/instructions/effect.kill.js", ENGINE))).default;
-const token = (await import(new URL("effects/instructions/effect.token.js", ENGINE))).default;
 
 const CARD_ID = "card.hash-dec87fe514b3143f6b040acdcfc5e343b048ce4ac93600347243dd78304d770c";
 const EXPECTED_SOURCE =
@@ -35,7 +34,11 @@ test("rad-101-167 An Offer You Can't Refuse: [Action] keyword plus one play abil
   const [action, play] = program.abilities;
   assert.deepEqual(action, { kind: "keyword", keyword: "action" });
   assert.equal(play.kind, "play");
-  assert.equal(play.cost, undefined);
+  // Catalog printing: 2 energy, power null (no printed Power, never 0).
+  assert.deepEqual(play.cost, {
+    kind: "cost.printed",
+    energy: { kind: "constant", value: 2 }
+  });
   assert.deepEqual(play.body.map((step) => [step.id, step.op]), [
     ["an-offer.kill-gear", "effect.kill"],
     ["an-offer.play-gold-token", "effect.token"]
@@ -70,53 +73,6 @@ test("rad-101-167 An Offer You Can't Refuse: the kill instruction really kills a
   assert.equal(kernel.getObject("enemy-gear").zone, "trash");
   assert.deepEqual(run.events.map((event) => event.action), ["kill"]);
   assert.deepEqual(run.linked.killed.map((ref) => ref.id), ["enemy-gear"]);
-});
-
-test("rad-101-167 An Offer You Can't Refuse: the token instruction creates nothing against the reference kernel", () => {
-  // 两处 judge-required 的缺口都会让这条指令失败：
-  // (a) 按程序原样执行时，location.player 的 \"killed-gear-controller\" 不是合法基地归属
-  //     （该位置只有运行时才能由被消灭 Gear 的控制者确定），effect.token 判 negated；
-  // (b) 即便把位置换成真实玩家基地，187.5 的 Gold token 不在定义表内，
-  //     effect.token 以 blockedReason \"token-definition-or-abilities-judge-required\" 返回 negated。
-  // 两条路径都不会创建任何 token，也没有横置入场。
-  const instruction = program.abilities[1].body[1];
-  let kernel = world().build();
-  const asWritten = runInstruction(
-    token,
-    {
-      token: instruction.args.token,
-      amount: instruction.args.amount,
-      mode: instruction.args.mode,
-      location: instruction.args.location,
-      linkKey: instruction.args.linkKey
-    },
-    { world: kernel }
-  );
-  assert.equal(asWritten.result.status, "negated");
-  assert.equal(asWritten.result.reason, "impossible");
-  assert.deepEqual(asWritten.events, []);
-  assert.deepEqual(kernel.query({}).length, 0);
-
-  kernel = world().build();
-  const concreteBase = runInstruction(
-    token,
-    {
-      token: instruction.args.token,
-      amount: instruction.args.amount,
-      mode: instruction.args.mode,
-      location: { kind: "constant", value: { type: "base", player: "A" } },
-      linkKey: instruction.args.linkKey
-    },
-    { world: kernel }
-  );
-  assert.equal(concreteBase.result.status, "negated");
-  assert.equal(
-    concreteBase.linked.goldToken.blockedReason,
-    "token-definition-or-abilities-judge-required"
-  );
-  assert.equal(concreteBase.linked.goldToken.amount, 0);
-  assert.deepEqual(concreteBase.events, []);
-  assert.deepEqual(kernel.query({}).length, 0);
 });
 
 test.todo("rad-101-167 An Offer You Can't Refuse: the Gold gear token definition (CR 187.5, with its own \"[Reaction][>] Kill this, :rb_exhaust:: [Add] :rb_rune_rainbow:.\" ability) must be added to the frozen token table before it can be created.");

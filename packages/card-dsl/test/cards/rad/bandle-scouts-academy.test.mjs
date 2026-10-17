@@ -25,8 +25,10 @@ test("bandle-scouts-academy: passes validateCardProgram and carries the catalog 
 
 test("bandle-scouts-academy: judgeReason names the Gold definition, the play flow and the entry override", () => {
   assert.match(program.judgeReason, /Gold gear token/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /185\.2\.d/);
+  assert.match(program.judgeReason, /card-hidden/);
 });
 
 test("bandle-scouts-academy: hidden-card trigger at this battlefield", () => {
@@ -104,10 +106,12 @@ test("bandle-scouts-academy: the exhausted entry override has no frozen argument
 });
 
 test.todo(
-  "bandle-scouts-academy: create the Gold token on the Chain and play it exhausted " +
-    "(440.2.c / 185.2.a / 350.2 / 354; needs the finalized cost plan, RIFT-89)"
+  "bandle-scouts-academy: create the Gold token on the Chain and play it exhausted in the " +
+    "production chain (440.2.c / 185.2.a / 350.2 / 354; needs the card-program play binding and " +
+    "its finalized cost plan, RIFT-257 / RIFT-261)"
 );
 test.todo(
   "bandle-scouts-academy: card-hidden timing wiring for the Hide discretionary action " +
-    "and the here-scoped battlefield filter (422.1 / 422.2; 依赖触发管线与 Battlefield 位置绑定)"
+    "and the here-scoped battlefield filter (422.1 / 422.2; the Hide action and the card-hidden " +
+    "producer are not merged, and the trigger matcher does not consume the here anchor)"
 );

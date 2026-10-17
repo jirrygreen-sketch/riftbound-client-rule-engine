@@ -20,15 +20,15 @@ import type { CardProgram } from "../../ir/index.js";
  *   no pick is declared, so no "becomes a target" trigger is emitted
  *   (355.6/355.7). Every unit takes 3 (418.1.c) simultaneously (418.1.d).
  *
- * Status: judge-required. The merged `effect.damage` primitive reads its
- * affected set from `ctx.targets(TargetSpec id)` only, so a characteristic-
- * selected set that is explicitly not a target cannot be expressed with a
- * registered op:
- * - the reference kernel's own filter matcher (effects/testing/test-kernel.ts
- *   matchesFilter) understands type/types/tag/tags/controller/owner/zone/
- *   location only, and the production layer filter (layers/filter.ts) reads
- *   `location` as a zone-name string comparison, so a nested
- *   `{ location: { type: "base" } }` filter is evaluated by neither;
+ * Status: judge-required. The printed set is selected by characteristics and
+ * is explicitly not a target (355.10.d), but the merged `effect.damage`
+ * primitive reads its affected set from `ctx.targets(TargetSpec id)` only, so
+ * there is still no "damage each current member of a characteristic set"
+ * path:
+ * - the "in bases" restriction itself is now expressible: the production
+ *   filter (layers/filter.ts and layers/rules/query.ts) evaluates the string
+ *   spelling `location: "base"` against `object.location.type`, and the filter
+ *   below uses that evaluated spelling;
  * - `count` / `condition.value` produce numbers and booleans only, and
  *   repeat/choice structures cannot produce "each current member of a
  *   characteristic set" without inventing a per-member targeting loop, which
@@ -41,11 +41,11 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺“按特征选中整组对象、且不作为目标”的伤害路径：已合入的 effect.damage 只经 ctx.targets(TargetSpec id) 读受击集合，" +
+    "缺“按特征选中整组对象、且不作为目标”的批量伤害路径：已合入的 effect.damage 只经 ctx.targets(TargetSpec id) 读受击集合，" +
     "而“all units in bases”按 355.10.d 不由玩家选择、不是目标，声明 TargetSpec 会错误触发“成为目标”相关触发。" +
-    "参考内核 matchesFilter 与 layers/filter.ts 都不求值嵌套的 location 过滤（前者只认 zone/字符串 location，" +
-    "后者把 location 当区域名字符串比较），“in bases”无法表达；repeat/choice 组合也无法逐成员结算而不引入假目标。" +
-    "依赖目标系统与批量集合原语（target.many / RIFT-90）。不近似实现。",
+    "「in bases」的限制本身已可表达（layers/filter.ts 与 layers/rules/query.ts 按 object.location.type 求值字符串 " +
+    "location:\"base\"，程序已改用该求值拼写）；仍缺批量集合原语（target.many / RIFT-90）与逐个成员结算的路径，" +
+    "repeat/choice 组合也无法逐成员结算而不引入假目标。不近似实现。",
   abilities: [
     {
       kind: "play",
@@ -66,7 +66,8 @@ export default {
             objects: {
               kind: "constant",
               value: {
-                filter: { type: "unit", location: { type: "base" } },
+                // "in bases": the evaluated string spelling (object.location.type).
+                filter: { type: "unit", location: "base" },
                 selection: "all"
               }
             }

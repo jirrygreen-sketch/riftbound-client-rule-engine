@@ -29,10 +29,11 @@ test("rad-153-167 Agony's Embrace: identity, status, judgeReason, and verbatim s
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  // The gap must stay concrete: the missing vocabulary and the owning tasks.
-  assert.match(program.judgeReason, /facedown-zone/);
+  // The gap must stay concrete: the missing action/zone/selector and the owning tasks.
+  assert.match(program.judgeReason, /Hide 动作/);
+  assert.match(program.judgeReason, /Facedown Zone/);
   assert.match(program.judgeReason, /RIFT-84/);
-  assert.match(program.judgeReason, /RIFT-87\/90/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -135,9 +136,10 @@ test("rad-153-167 Agony's Embrace: the merged Discard 1 half really discards the
 
 test.todo(
   "rad-153-167 Agony's Embrace: recognize 'a card played from face down' in the card-played " +
-    "trigger (CR 355.9.a.3 / 107.3.e; facedown-zone filter and Hidden support, RIFT-84 + RIFT-91)"
+    "trigger (CR 355.9.a.3 / 107.3.e; needs the Hide action, the Facedown Zone and a card-played " +
+    "from-zone payload plus the RIFT-257 card-program trigger binding)"
 );
 test.todo(
   "rad-153-167 Agony's Embrace: evaluate 'if it's not your turn' against the current turn player " +
-    "(CR 304 / 383.2.b; needs a turn-player predicate in Condition/Expr, RIFT-87/90)"
+    "(CR 304 / 383.2.b; needs a turn-player predicate in Condition/Expr)"
 );

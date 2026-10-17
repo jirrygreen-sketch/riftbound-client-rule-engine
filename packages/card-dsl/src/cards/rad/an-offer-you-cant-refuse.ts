@@ -27,7 +27,9 @@ import type { CardProgram } from "../../ir/index.js";
  * 3. \"Its controller\"（被消灭 Gear 的控制者）无法表达：需要从 kill 结果读取被消灭对象的
  *    控制者作为 token 的演奏者与位置（契约 3.6 的 ObjectSelector 没有事件对象形式，
  *    也没有“链接对象的控制者”表达式）。
- * effect.kill 与 [Action] 声明各自可结构校验；不近似实现 token 部分。
+ * 此外费用侧：印刷 2 energy 已于 2026-10-16 的记录中缺省，现在按 cost.printed 记录
+ * （契约 §3.1），完整收费仍依赖 RIFT-261。effect.kill 与 [Action] 声明各自可结构校验
+ * 并有真实执行测试；不近似实现 token 部分。
  */
 export default {
   canonicalCardId: "card.hash-dec87fe514b3143f6b040acdcfc5e343b048ce4ac93600347243dd78304d770c",
@@ -35,8 +37,7 @@ export default {
   status: "judge-required",
   judgeReason:
     "(1) Gold gear token 定义（CR 187.5，自带「[Reaction][>] Kill this, :rb_exhaust:: [Add] " +
-    ":rb_rune_rainbow:.」）不在冻结的 effect.token 定义表内，实测 effect.token 以 " +
-    "blockedReason \"token-definition-or-abilities-judge-required\" 返回 negated；" +
+    ":rb_rune_rainbow:.」）不在冻结的 effect.token 定义表内，卡牌侧不能创建该定义；" +
     "(2)「plays a Gold gear token exhausted」的横置入场是 create-token 的入场改写（143.4/185.2.d），" +
     "闭集动作不支持（effect.token 明确 Entry overrides are not supported），事后补 effect.exhaust " +
     "会多产生一次“成为横置”事件并错过入场替代，故不近似；" +
@@ -46,9 +47,13 @@ export default {
   abilities: [
     { kind: "keyword", keyword: "action" },
     {
-      // 349/560：Gear 的打出能力（印刷打出费用 2 energy、无 Power，由打出管线的
-      // cost.printed 读取，本文件不重述）。
+      // 349/560：Gear 的打出能力。印刷打出费用 2 energy、power: null（无印刷力量，
+      // 不是 0）：按契约 §3.1 记 cost.printed，完整收费仍依赖 RIFT-261。
       kind: "play",
+      cost: {
+        kind: "cost.printed",
+        energy: { kind: "constant", value: 2 }
+      },
       body: [
         {
           // 429.6："Kill a gear."——目标由打出者选择一个 Board 上的 Gear。

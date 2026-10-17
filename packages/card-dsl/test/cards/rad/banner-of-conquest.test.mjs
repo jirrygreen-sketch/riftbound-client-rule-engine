@@ -31,9 +31,9 @@ test("rad-002-167 Banner of Conquest: the judgeReason names the actual merged ga
   // cards/README.md section 2: a judge-required program must name the missing
   // op/keyword/rule and the dependency, not just say "unimplemented".
   assert.match(program.judgeReason, /Deploy/);
-  assert.match(program.judgeReason, /830\.1\.b/);
-  assert.match(program.judgeReason, /addContinuous/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-267/);
+  assert.match(program.judgeReason, /continuous\.grant-keyword/);
+  assert.match(program.judgeReason, /RIFT-257/);
   // The grant must not be approximated as an arithmetic Might bonus.
   assert.match(program.judgeReason, /807\.1\.c/);
 });
@@ -76,15 +76,14 @@ test("rad-002-167 Banner of Conquest: the grant names the unmerged Assault expan
 });
 
 test.todo(
-  "rad-002-167 Banner of Conquest: expanding [Deploy] into its four 830.1.b rewrites needs a " +
-    "Deploy KeywordDef (effects/keywords/<keyword>.ts; kw-deploy, RIFT-91 continuous.location / " +
-    "continuous.restrict consumers)."
+  "rad-002-167 Banner of Conquest: the merged Deploy expansion (830.1.b) still needs the " +
+    "continuous.location consumer in Finalize placement and the cleanup recall exemption."
 );
 
 test.todo(
   "rad-002-167 Banner of Conquest: registering the continuous Assault grant for friendly units " +
-    "at the source battlefield needs a CardProgram -> layers registration path that calls " +
-    "ctx.addContinuous (no merged instruction does; RIFT-91 + RIFT-120 follow-up)."
+    "at the source battlefield needs a CardProgram -> layers registration path (static abilities " +
+    "are not bound; RIFT-257)."
 );
 
 /**
@@ -92,10 +91,16 @@ test.todo(
  * program so a future Deploy KeywordDef cannot silently change this card's
  * declared shape.
  */
-test("rad-002-167 Banner of Conquest: no merged Deploy KeywordDef exists yet (the declared gap)", async () => {
+test("rad-002-167 Banner of Conquest: the merged Deploy KeywordDef expands the 830.1.b rewrites", async () => {
   const { keywordDefinitionsById } = await import(
     "../../../../engine-core/dist/effects/keywords/registry.generated.js"
   );
-  assert.equal(keywordDefinitionsById.get("Deploy"), undefined);
-  assert.equal(keywordDefinitionsById.get("deploy"), undefined);
+  const deploy = keywordDefinitionsById.get("Deploy");
+  assert.notEqual(deploy, undefined);
+  assert.equal(deploy.keyword, "Deploy");
+  const expansions = deploy.expand({ host: { canonicalCardId: CANONICAL } });
+  assert.equal(expansions[0].effect.kind, "continuous.location");
+  assert.equal(expansions[1].trigger.at, "hold");
+  assert.equal(expansions[1].trigger.filter.player, "opponent");
+  assert.equal(expansions[1].body[0].op, "effect.kill");
 });

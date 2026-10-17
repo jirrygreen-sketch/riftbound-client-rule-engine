@@ -20,17 +20,19 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * Status: judge-required — the effect cannot be honestly executed:
  * - "play a ... token" is chain creation plus a cost-waived play
- *   (440.2.c / 185.2.a / 350.2 / 354). The merged effect.token primitive's
- *   create mode only creates directly on the Board (440.2), and playing a new
- *   token requires the cost.printed / finalized cost plan that the cost
- *   system still owes (RIFT-89); the reference kernel does model the chain
- *   handoff, but the production flow is not merged.
+ *   (440.2.c / 185.2.a / 350.2 / 354). The merged effect.token primitive
+ *   models the chain handoff and the reference kernel executes it, but the
+ *   production path still needs the card-program play binding and its
+ *   finalized cost plan (RIFT-257 / RIFT-261).
  * - The Gold definition (187.5) carries its own activated ability, which
  *   effect.token.ts deliberately keeps out of its frozen definition table
  *   ("definitions requiring other abilities, including Gold, remain
  *   blocked/judge-required").
  * - "exhausted" is an entry override (143.4 / 185.2.d) and the create-token
  *   action explicitly does not support entry overrides.
+ * - The trigger needs the `card-hidden` producer: the Hide action is not in
+ *   the GameAction set and no module emits `card-hidden`
+ *   (docs/rules/timing-point-producers.md).
  *
  * The trigger and the intended body are recorded (token id, destination and
  * entry exhaustion) so downstream tooling can see the full shape; execution
@@ -41,11 +43,12 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「play a Gold gear token exhausted」缺链上生成 + 免费用打出的费用管线：effect.token 的 play 模式需要 " +
-    "create-token(to:chain) 与已 Finalize 的费用计划（440.2.c / 185.2.a / 350.2 / 354），费用系统尚未合入（RIFT-89）；" +
+    "「play a Gold gear token exhausted」缺链上生成 + 打出的生产接线：effect.token 的 play 模式在参照内核可用" +
+    "（create-token to chain + play），但生产链需要 CardProgram 绑定与已 Finalize 的费用计划（RIFT-257 / RIFT-261）；" +
     "Gold gear token（187.5）自带启动能力，effect.token 的定义表按设计不收录（blocked）；" +
-    "「exhausted」是入场替代修正（143.4 / 185.2.d），create-token 动作明确不支持入场修正。" +
-    "依赖：RIFT-89（费用计划）、RIFT-62/63 后续的链上 token 打出流程。不近似实现。",
+    "「exhausted」是入场替代修正（143.4 / 185.2.d），create-token 动作明确不支持入场修正；" +
+    "「When you hide a card here」还缺 card-hidden 生产者：Hide 动作不在 GameAction 集内，也没有模块发出该时点" +
+    "（docs/rules/timing-point-producers.md），且触发器不消费 here 锚点。不近似实现。",
   sourceText:
     "When you hide a card here, play a Gold gear token exhausted. (It has \"[Reaction][>] Kill this, :rb_exhaust:: [Add] :rb_rune_rainbow:.\")",
   abilities: [

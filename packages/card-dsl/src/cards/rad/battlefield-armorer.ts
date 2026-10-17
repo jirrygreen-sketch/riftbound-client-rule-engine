@@ -24,27 +24,31 @@ import type { CardProgram } from "../../ir/index.js";
  *   gear is no longer on the Board at resolution, so the instruction refers to
  *   it through the trigger's event object (355.10.c).
  *
- * Status: judge-required. The trigger and the return are expressible, but the
- * "at a battlefield" restriction cannot be evaluated on the death event. The
- * merged pipeline does keep the dying object's location for `object-killed`
- * (action-adapter.ts snapshots the pre-move object), but the trigger matcher's
- * only location field compares against one concrete location (pipeline-match.ts:
- * battlefield objects compare against `location.id`, and a base against the
- * literal "base"), so "died at *a* battlefield" has no card-facing predicate.
- * effect.zone also cannot select an object that has already left the Board
- * through a pick. No semantics are approximated: the ability is written out so
- * the missing filter form is reviewable.
+ * Status: judge-required. The "at a battlefield" restriction is now
+ * expressible: the trigger matcher matches the `zone: "battlefield"` filter
+ * against the pre-move snapshot (`location?.type`), so the filter below is
+ * evaluated by the merged matcher and has a golden execution test. The
+ * remaining gaps:
+ * - "you may pay :rb_energy_1:" needs the cost.pay instruction primitive and
+ *   its Finalize/payment wiring (RIFT-261);
+ * - "return it to its owner's hand" needs an event-object selector: the gear
+ *   has already left the Board when the trigger resolves, and the merged
+ *   pick/target system cannot name it (CR 355.10.c / 359.3.e.13);
+ * - the trigger subscription needs the CardProgram → TriggerRegistration
+ *   binding (RIFT-257).
+ * No semantics are approximated: the ability keeps its declared shape.
  */
 export default {
   canonicalCardId: "card.hash-5ded292f5616ea4fbb22076ef9ee2421ef6458f0ce8eda2335e14bb61716771c",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺「死亡时位于战场」的触发过滤条件：object-killed 虽保留换区前的对象快照（action-adapter.ts），" +
-    "但触发匹配器唯一的 location 字段按具体地点比较（战场为 location.id、基地为字面量 \"base\"，pipeline-match.ts），" +
-    "卡牌侧无法表达「a gear at *a* battlefield dies」这一 CR 355.10.b 的受限条件，因此整卡保持 judge-required。" +
-    "同时「return it … to its owner's hand」需要在对象已离场后按事件对象回收（355.10.c / 359.3.e.13），" +
-    "当前 pick/target 只能引用仍在原区的对象。依赖：RIFT-90（目标/过滤系统）与 object-killed 载荷过滤扩展；不近似实现。",
+    "三处缺口：(1)「you may pay :rb_energy_1:」需要 cost.pay 指令原语与 Finalize 收费接线（RIFT-261）；" +
+    "(2)「return it … to its owner's hand」需要在对象已离场后按事件对象回收（355.10.c / 359.3.e.13），" +
+    "当前 pick/target 只能引用仍在原区的对象，ObjectSelector 没有事件对象形式；" +
+    "(3) 触发订阅需要 CardProgram → TriggerRegistration 绑定（RIFT-257）。" +
+    "「died at a battlefield」的 355.10.b 限制已可由合并匹配器的 zone:\"battlefield\" 过滤表达" +
+    "（pipeline-match.ts 用换区前快照的 location.type 求值）并有真实匹配执行测试；不近似实现。",
   abilities: [
     {
       kind: "triggered",
@@ -52,7 +56,9 @@ export default {
         at: "object-killed",
         filter: {
           event: "object-killed",
-          object: { type: "gear", controller: "self" }
+          // 355.10.b：死亡时位于「某个」战场。合并匹配器按换区前快照的
+          // location.type 求值 zone: "battlefield"，基地死亡不会命中。
+          object: { type: "gear", controller: "self", zone: "battlefield" }
         }
       },
       optional: false,

@@ -27,33 +27,33 @@ import type { CardProgram } from "../../ir/index.js";
  * - 135.2.d.3: both parenthesised reminders summarise rules already stated by
  *   the keywords; they author no extra instructions.
  *
- * Status: judge-required. Two merged gaps, neither approximated:
- * - The keyword registry has no Deploy KeywordDef (effects/keywords/ has no
- *   Deploy file), so 830.1.b's four rewrites — including “When an opponent
- *   holds here, kill this.” — cannot be expanded.
- * - A keyword grant in the ability layer has no registration path: no merged
- *   instruction calls ResolveContext.addContinuous (the closest merged writes
- *   are effect.buff's counters and the keyword declarations themselves), and
- *   the CardProgram -> layer registration adapter does not exist. The static
- *   ability below is the contract 3.1 shape the layers system consumes
- *   (layers/engine.ts applyAbility recognises `keyword`), retained for review.
- * Dependencies: kw-deploy (830) and the continuous grant/registration path
- * (RIFT-91 layers-continuous consumer + the card-program adapter). Not
- * approximated: the grant is not collapsed into a +1 Might arithmetic effect
- * (807.1.c applies only while the unit is an attacker) and the Deploy half is
- * not dropped.
+ * Status: judge-required. The Deploy KeywordDef merged (RIFT-267,
+ * effects/keywords/Deploy.ts) and expands 830.1.b into a
+ * continuous.location permission plus the opponent-Hold kill trigger, but
+ * two consumers are still missing:
+ * - the location permission is only recorded: the layers rules query exposes
+ *   it (layers/rules/query.ts playLocations) while the Finalize placement
+ *   validator and cleanup's non-Unit recall exemption do not read it;
+ * - "Friendly units here have [Assault]" is a static ability-layer grant, but
+ *   no card-program adapter binds static abilities to the layer registry
+ *   (RIFT-257); the merged continuous.grant-keyword primitive has no caller
+ *   for a card static ability. The static ability below is the contract 3.1
+ *   shape the layers system consumes, retained for review.
+ * Not approximated: the grant is not collapsed into a +1 Might arithmetic
+ * effect (807.1.c applies only while the unit is an attacker) and the Deploy
+ * half is not dropped.
  */
 const bannerOfConquest = {
   canonicalCardId: "card.hash-d0b3281a9fa74bb53091f97ba42c80b0e2e28e4604f24e8ea9af80e1316c03d9",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "(1) 关键词注册表没有 Deploy 的 KeywordDef（effects/keywords/ 无 Deploy 文件），" +
-    "CR 830.1.b 的四项改写（可/只可打到战场、非单位 Gear 不被清理召回、对手在此固守时消灭此牌）都没有展开。" +
-    "(2) 「Friendly units here have [Assault]」是 ability 图层的关键词授予（契约 3.4 图层顺序），" +
-    "但没有任何已合入指令调用 ResolveContext.addContinuous（effects/instructions/ 下无该调用），" +
-    "也没有 CardProgram → 图层注册的适配器（契约 3.5 / RIFT-120 后续）。" +
-    "依赖：kw-deploy（830）与持续授予注册路径（RIFT-91 layers-continuous 消费者 + 卡牌程序接线）。" +
+    "(1) Deploy KeywordDef 已合入（RIFT-267，effects/keywords/Deploy.ts），把 830.1.b 展开为 " +
+    "continuous.location 许可 + opponent-Hold 消灭触发；但许可只被记录：layers/rules/query.ts 的 " +
+    "playLocations 暴露它，Finalize 的合法位置校验与清理的非单位 Gear 免召回都还不读取。" +
+    "(2)「Friendly units here have [Assault]」是 ability 图层的关键词授予（契约 3.4 图层顺序），" +
+    "已合入的 continuous.grant-keyword 原语没有卡牌静态能力的调用方，也没有 CardProgram → 图层注册的" +
+    "适配器（RIFT-257）。依赖：位置许可消费者、静态授予注册路径（RIFT-257）。" +
     "不近似实现：不把授予折算成 +1 Might 的 arithmetic 效果（807.1.c 只在作为攻击者时生效），也不丢掉 Deploy 半段。",
   abilities: [
     // 830.1：印刷的 [Deploy] 声明；展开由关键词注册表负责（当前没有 Deploy 定义）。
