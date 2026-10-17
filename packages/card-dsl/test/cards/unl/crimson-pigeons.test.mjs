@@ -25,7 +25,7 @@ test("unl-154-219 Crimson Pigeons: identity, status, judgeReason and verbatim so
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /807\.1\.d|466\.2\.c\.3/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /combat\/|designation|combatRole/);
   assert.match(program.judgeReason, /sameLocationAs/);
 });
 
@@ -69,17 +69,16 @@ test("unl-154-219 Crimson Pigeons: the attack set is queried by location, not by
   assert.equal(ability.condition.left.filter.exclude, "self");
   assert.equal(ability.condition.left.filter.sameLocationAs, "self");
   // judgeReason 记录该条件不可诚实求值的原因（combatRole 缺席 + 图层条件未接线）。
-  assert.match(program.judgeReason, /conditionMatches|图层/);
+  assert.match(program.judgeReason, /layers\/filter\.ts/);
 });
 
 test.todo(
   "unl-154-219 Crimson Pigeons: apply +2 Might in the arithmetic layer only while I am an attacker " +
     "with another unit at my location (CR 143.2.a / 479.4, 807.1.d / 466.2.c.3, 740.2.c, 355.9.c) — " +
-    "Attacker designation is not an ObjectSnapshot characteristic (contract 3.8 combatRole) and no " +
-    "card static-to-layers registration path exists (RIFT-91)"
+  "the combat designation producer and the combatRole filter consumer still need to be wired"
 );
 test.todo(
   "unl-154-219 Crimson Pigeons: evaluate the sameLocationAs/exclude/other anchors and the controller " +
-    "placeholder inside the layer filter (CR 355.9.c / 359.3.f) — layers/filter.ts implements no such " +
-    "anchors, so the count would be wrong once the condition is wired (RIFT-91)"
+  "placeholder inside the layer filter (CR 355.9.c / 359.3.f) — sameLocationAs/exclude query anchors " +
+  "are present, but combatRole and controller-relative static filtering still need complete consumption"
 );

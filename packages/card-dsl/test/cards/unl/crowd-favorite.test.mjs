@@ -7,8 +7,8 @@ import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
-// RIFT-257's program binding is the production path the [Hunt] expansion has to
-// take; the golden below records exactly where it still stops.
+// The program binding is the production path the [Hunt] expansion has to take;
+// the golden below records exactly where event registration still stops.
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
@@ -163,9 +163,7 @@ test("unl-102-219 Crowd Favorite golden: a unit that already has a Buff is not b
   assert.deepEqual(context.events, []);
 });
 
-test("unl-102-219 Crowd Favorite: RIFT-257 expands [Hunt] into conquer/hold XP triggers (823.1.c.1)", () => {
-  // RIFT-329 re-review: the KeywordDef now exists, so the old "no Hunt
-  // KeywordDef" TODO is retired and the expansion is asserted for real.
+test("unl-102-219 Crowd Favorite: [Hunt] expands into conquer/hold XP triggers (823.1.c.1)", () => {
   const hunt = keywordDefinitionsById.get("Hunt");
   assert.ok(hunt, "effects/keywords/Hunt.ts must be in the generated registry");
   assert.equal(hunt.valued, true);
@@ -190,8 +188,8 @@ test("unl-102-219 Crowd Favorite golden: the [Hunt] expansion's real xp body gra
   assert.equal(outcome.results[0].result.linkedValues.gained, 1);
 });
 
-test("unl-102-219 Crowd Favorite golden: RIFT-257's binding derives the production ChainDraft for the activated ability", () => {
-  // RIFT-329 re-review: the CardProgram -> ChainDraft adapter now exists, so the
+test("unl-102-219 Crowd Favorite golden: the binding derives the production ChainDraft for the activated ability", () => {
+  // The CardProgram -> ChainDraft adapter exists, so the
   // activated half's declared cost really does become the ChainDraft cost the
   // engine would finalize and pay (145.2 Main-Phase admission stays chain-owned).
   const executable = {

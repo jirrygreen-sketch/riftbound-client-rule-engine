@@ -29,7 +29,7 @@ test("unl-153-219 Carrion Dredger: identity, status, judgeReason and verbatim so
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /187\.7/);
   assert.match(program.judgeReason, /Bird/);
-  assert.match(program.judgeReason, /RIFT-82/);
+  assert.match(program.judgeReason, /trigger\.leave/);
 });
 
 test("unl-153-219 Carrion Dredger: [Deathknell] is declared (contract 3.7)", () => {
@@ -85,6 +85,6 @@ test.todo(
 );
 test.todo(
   "unl-153-219 Carrion Dredger: expand [Deathknell] and register the death trigger into the event " +
-    "pipeline (CR 808.1.c / 808.1.d / 429.1.a.1.b) — the KeywordDef references the unmerged trigger.leave " +
-    "op (RIFT-82 / RIFT-257)"
+    "pipeline (CR 808.1.c / 808.1.d / 429.1.a.1.b) — the KeywordDef's trigger.leave expansion still " +
+    "needs an InstructionDef and producer wiring"
 );

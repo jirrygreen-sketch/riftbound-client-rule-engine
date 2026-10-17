@@ -26,37 +26,44 @@ import type { CardProgram } from "../../ir/index.js";
  * - "Give a unit at a battlefield -4 :rb_might: this turn" 是本回合的临时 Might 修正，
  *   按 479.4（Arithmetic 图层）由 layers/ 消费。
  *
- * status = judge-required（不近似实现）：
+ * status = judge-required（按当前 HEAD 复核；不近似实现）：
  * 1. Repeat 的附加费用没有接线：keywords/Repeat.ts 自述 cost.additional / cost.pay 与
- *    "结算端把已付费 Repeat 实例数接到解释器 repeat 指令" 的打出管线均未合入（依赖
- *    RIFT-86 / RIFT-89），因此三档印刷费用与"额外执行一次"都无法执行。
+ *    "结算端把已付费 Repeat 实例数接到解释器 repeat 指令" 的打出管线仍未合入；
+ *    cost.additional / cost.pay 原语和费用计划已合入，但 Repeat 的卡牌接线与付费次数仍缺（RIFT-349 后续）。
  * 2. "you haven't already chosen" 需要跨次结算的"本法术已选模式"记忆；合并的
  *    choice.mode `different: true` 只在同一次选择请求内去重（interpreter/choice.ts），
  *    没有每次结算/每次重复可见的排除集合，也没有 820.2 的"重新做选择"接线。
- * 3. 第 4 个模式的临时 Might 修正没有已合入原语：契约 3.6 的封闭 GameAction 集合没有
- *    might 修改动作，effect.buff 的既有文档明确把临时 Might 归 layers 的
- *    continuous.might（RIFT-83/84）。
+ * 3. 第 4 个模式现在使用已合入的 continuous.might；其目标锁定仍受模式嵌套的 Finalize
+ *    选择面限制，因此整张牌不能标记 executable。
  * 4. 结构上的额外阻断：模式的 body 里带 TargetSpec / choice.mode，链的 Finalize 面
  *    （chain/engine.ts assertFinalizationSurface）禁止嵌套目标与模式选择，需要
- *    Finalize/Resolve 的 choice-plan 适配器（RIFT-90 / 引擎批 4）。
- * 依赖：RIFT-86（Repeat 展开与附加费用）、RIFT-89（费用计划）、RIFT-83/84（图层）、
- * RIFT-90（目标/选择计划）。已合入部分：effect.draw 与 effect.damage 的四个模式中
- * 前三个，golden 用真实解释器 + 参考内核执行。
+ *    Finalize/Resolve 的 choice-plan 适配器（RIFT-357/RIFT-358）。
+ * 依赖：Repeat 的附加费用与重复执行接线（RIFT-349 后续）、跨次模式记忆，以及
+ * RIFT-357/RIFT-358 的嵌套目标/选择计划。effect.draw、effect.damage 与 continuous.might
+ * 均有真实解释器/图层执行证据。
  */
 
 /**
- * 描述性的临时 Might 修正（见 judgeReason 第 3 点）：契约 3.6 的封闭 GameAction
- * 集合没有 might 修改动作，layers/ 的 Arithmetic 图层（479.4）尚未实现消费方，
- * 因此这个 op 不是已注册原语；参数形状沿用 sfd/danger-zone、ogn/stupefy 的写法。
+ * 第 4 个模式的临时 Might 修正使用已合入的 continuous.might 原语，
+ * 由 Arithmetic 图层消费并在 this-turn 到期。
  */
 const mightModify = {
   id: "curtain-call.might-modify",
-  op: "effect.might-modify",
+  op: "continuous.might",
   args: {
+    objects: { kind: "constant", value: { kind: "target", id: "curtain-call.battlefield-might-unit" } },
     amount: { kind: "constant", value: -4 },
-    duration: { kind: "constant", value: "this-turn" },
-    appliesTo: { kind: "constant", value: { type: "unit", location: "battlefield" } }
-  }
+    duration: { kind: "constant", value: "this-turn" }
+  },
+  targets: [
+    {
+      id: "curtain-call.battlefield-might-unit",
+      filter: { type: "unit", location: "battlefield" },
+      min: 1,
+      max: 1,
+      selection: "one"
+    }
+  ]
 } as const;
 
 export default {
@@ -65,15 +72,15 @@ export default {
   status: "judge-required",
   judgeReason:
     "三处依赖未合入，均不近似实现：(1) [Repeat] 的附加费用与结算端额外执行没有接线：keywords/Repeat.ts 自述 " +
-    "cost.additional / cost.pay 与“把已付费 Repeat 实例数接到解释器 repeat 指令”的打出管线未合入（820.1.c.2 / 820.1.d.1，依赖 RIFT-86/RIFT-89），" +
+    "cost.additional / cost.pay 原语和费用计划已合入，但 Repeat 的卡牌接线与“把已付费 Repeat 实例数接到解释器 repeat 指令”的打出管线仍缺（820.1.c.2 / 820.1.d.1，RIFT-349 后续），" +
     "印刷的三档费用（1 / rainbow / 1+rainbow）无法支付、效果无法额外执行。" +
     "(2) “Choose one you haven't already chosen” 需要跨次结算的“本法术已选模式”记忆：合并 choice.mode 的 different 只在单次选择请求内去重，" +
     "没有重复执行（820.2 / 820.2.a）可见的排除集合，也没有 750 的重新选择接线。" +
-    "(3) “Give a unit at a battlefield -4 :rb_might: this turn” 是临时 Might 修正：契约 3.6 的封闭 GameAction 集合无 might 修改动作，" +
-    "effect.buff 既有文档把临时 Might 归 layers 的 continuous.might / 479.4 Arithmetic 图层（RIFT-83/84）。" +
+    "(3) “Give a unit at a battlefield -4 :rb_might: this turn” 已用 continuous.might / 479.4 Arithmetic 图层表达并可执行；" +
+    "该模式的目标锁定仍受嵌套选择面限制。" +
     "另外模式的 body 含 TargetSpec 与 choice.mode，链 Finalize 面（chain/engine.ts assertFinalizationSurface）阻断嵌套目标与模式选择，" +
-    "需要 Finalize/Resolve 的 choice-plan 适配器（RIFT-90 / 引擎批 4）。" +
-    "Draw 1、Deal 2、Deal 3 三个模式只用已合入的 effect.draw 与 effect.damage，golden 真实执行。",
+    "需要 Finalize/Resolve 的 choice-plan 适配器（RIFT-357/RIFT-358）。" +
+    "Draw 1、Deal 2、Deal 3 与 Might 模式分别只用已合入的 effect.draw、effect.damage、continuous.might，均有执行证据。",
   abilities: [
     { kind: "keyword", keyword: "repeat" },
     {

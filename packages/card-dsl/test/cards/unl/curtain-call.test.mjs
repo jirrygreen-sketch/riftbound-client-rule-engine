@@ -8,6 +8,7 @@ import damage from "../../../../engine-core/dist/effects/instructions/effect.dam
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
 const CANONICAL_ID =
   "card.hash-461012a9889f3812c0033854e007b78f0f8ad1f1d1ef943bf505bfd5defabca6";
@@ -63,13 +64,11 @@ test("unl-182-219 Curtain Call: identity, status, judgeReason and verbatim sourc
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
-  // The reason names the merged gaps, not just "not implemented": the Repeat
-  // wiring, the cross-execution mode memory, the temporary Might layer and the
-  // Finalize/Resolve choice-plan block.
+  // The reason names the remaining Repeat/mode-choice wiring gaps; the Might
+  // primitive itself is merged and executable.
   assert.match(program.judgeReason, /820\.1\.c\.2/);
   assert.match(program.judgeReason, /820\.1\.d\.1/);
-  assert.match(program.judgeReason, /RIFT-86/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-349/);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /assertFinalizationSurface/);
 });
@@ -131,16 +130,23 @@ test("unl-182-219 Curtain Call: the three Damage/Draw modes carry the printed va
   assert.deepEqual(dealThree.args.amount, { kind: "constant", value: 3 });
   assert.deepEqual(dealThree.targets[0].filter, { type: "unit", location: "base" });
 
-  // The fourth mode is the temporary Might modification: described with the
-  // layer contract shape, and NOT executable (judgeReason).
-  assert.equal(mightMinusFour.op, "effect.might-modify");
+  // The fourth mode is the temporary Might modification through the merged
+  // continuous.might primitive.
+  assert.equal(mightMinusFour.op, "continuous.might");
+  assert.deepEqual(mightMinusFour.args.objects, {
+    kind: "constant",
+    value: { kind: "target", id: "curtain-call.battlefield-might-unit" }
+  });
   assert.deepEqual(mightMinusFour.args.amount, { kind: "constant", value: -4 });
   assert.deepEqual(mightMinusFour.args.duration, { kind: "constant", value: "this-turn" });
-  assert.deepEqual(mightMinusFour.args.appliesTo, {
-    kind: "constant",
-    value: { type: "unit", location: "battlefield" }
-  });
-  assert.equal(mightMinusFour.targets, undefined);
+  assert.equal(mightMinusFour.args.appliesTo, undefined);
+  assert.deepEqual(mightMinusFour.targets, [{
+    id: "curtain-call.battlefield-might-unit",
+    filter: { type: "unit", location: "battlefield" },
+    min: 1,
+    max: 1,
+    selection: "one"
+  }]);
 });
 
 test("unl-182-219 Curtain Call golden: the Deal 2 mode really deals 2 to the chosen battlefield unit", () => {
@@ -181,6 +187,30 @@ test("unl-182-219 Curtain Call golden: the Draw 1 mode really draws 1 for the ca
   assert.equal(kernel.player("A").handSize, 1);
   assert.deepEqual(kernel.zone("A", "hand").map((ref) => ref.id), ["top-card"]);
   assert.equal(kernel.getObject("bf-unit").damage, 0);
+});
+
+test("unl-182-219 Curtain Call golden: the Might mode registers -4 until turn end", () => {
+  const kernel = world()
+    .unit("bf-unit", { owner: "B", might: 5, location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  kernel.setTargets("curtain-call.battlefield-might-unit", [kernel.ref("bf-unit")]);
+  kernel.setAnswers({ "curtain-call.choose-one/mode%3A0": "curtain-call-might-minus-4" });
+
+  const outcome = resolveChainBody(executableBody(play.body), kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map((result) => [result.id, result.result.status]), [
+    ["curtain-call.might-modify", "executed"],
+    ["curtain-call.choose-one", "executed"]
+  ]);
+  const layers = createLayerEngine(kernel.objects, kernel.continuousEffects.map(entry => ({
+    effect: entry.effect,
+    duration: entry.duration,
+    timestamp: 1
+  })));
+  assert.equal(layers.evaluate(kernel.ref("bf-unit")).might, 1);
+  assert.equal(layers.expireAt("turn-end").length, 1);
+  assert.equal(layers.evaluate(kernel.ref("bf-unit")).might, 5);
 });
 
 test("unl-182-219 Curtain Call golden: the mode choice excludes the modes already chosen in that request", () => {
@@ -229,14 +259,11 @@ test("unl-182-219 Curtain Call golden: effect.draw and effect.damage are the mer
 
 test.todo(
   "unl-182-219 Curtain Call: pay each printed [Repeat] additional cost (1 / rainbow rune / 1 + rainbow rune) and execute the spell's instructions an additional time per paid instance " +
-    "(CR 820.1.c.1–820.1.d.1; keywords/Repeat.ts records cost.additional / cost.pay as unmerged - RIFT-86 / RIFT-89)"
+    "(CR 820.1.c.1–820.1.d.1; Repeat still needs CardProgram-to-Finalize payment/count wiring - RIFT-349 follow-up)"
 );
 test.todo(
-  "unl-182-219 Curtain Call: remember the modes already chosen for this spell across executions so \"Choose one you haven't already chosen\" can exclude them (CR 355.3 / 820.2.a; the merged choice.mode only de-duplicates within one selection request - RIFT-90 choice-plan)"
+  "unl-182-219 Curtain Call: remember the modes already chosen for this spell across executions so \"Choose one you haven't already chosen\" can exclude them (CR 355.3 / 820.2.a; choice.mode currently de-duplicates only within one selection request)"
 );
 test.todo(
-  "unl-182-219 Curtain Call: apply \"Give a unit at a battlefield -4 :rb_might: this turn\" as a temporary Might modification at resolution (CR 479.4 Arithmetic layer; the closed GameAction set has no might-modification action - RIFT-83/84 / RIFT-91)"
-);
-test.todo(
-  "unl-182-219 Curtain Call: drive the card body through the production chain, whose Finalize surface currently blocks nested targets and resolution-time choice.mode (chain/engine.ts assertFinalizationSurface - RIFT-90 / engine batch 4)"
+  "unl-182-219 Curtain Call: drive the card body through the production chain, whose Finalize surface currently blocks nested targets and resolution-time choice.mode (chain/engine.ts assertFinalizationSurface; RIFT-357/RIFT-358 choice-plan work)"
 );

@@ -3,6 +3,9 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/combat-experience.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
   "card.hash-9e75e74352d500dfa1b7c1192957a26c7b4c5e2cc9471eb6057e9d0147ebf803";
@@ -48,6 +51,11 @@ test("unl-031-219 Combat Experience: [Reaction] plus the +1/+3 instead branches 
   assert.deepEqual(plusOne.args.amount, { kind: "constant", value: 1 });
   assert.deepEqual(plusThreeInstead.args.amount, { kind: "constant", value: 3 });
   assert.deepEqual(plusOne.args.duration, { kind: "constant", value: "this-turn" });
+  assert.deepEqual(plusOne.args.objects, {
+    kind: "constant",
+    value: { kind: "target", id: "combat-experience.unit" }
+  });
+  assert.deepEqual(plusThreeInstead.args.objects, plusOne.args.objects);
   assert.deepEqual(plusThreeInstead.args.duration, { kind: "constant", value: "this-turn" });
   assert.equal(Object.hasOwn(plusOne.args, "buff"), false);
 
@@ -73,7 +81,25 @@ test("unl-031-219 Combat Experience: [Reaction] plus the +1/+3 instead branches 
   assert.equal(plusThreeInstead.linkedTo, undefined);
 });
 
-test.todo("unl-031-219 Combat Experience: apply the temporary Might modification through the arithmetic layer (CR 143.2.a, 317.2.c) — needs the card-side continuous.might entry that calls ResolveContext.addContinuous (RIFT-83/84-family primitive)");
-test.todo("unl-031-219 Combat Experience: the [Level 6][>] gate needs an evaluable XP predicate with dynamic Active/Inactive behaviour (CR 824.1.b.1 / 824.1.c / 824.1.d) and the kw-level expansion (RIFT-87/90 family)");
-test.todo("unl-031-219 Combat Experience: the [Reaction] continuous.timing permission must admit the card during Closed States (813.1.c / 309.1.a / 159.2.b.3) — RIFT-85 / RIFT-120 follow-up");
+test("unl-031-219 Combat Experience golden: the non-Level branch registers +1 Might until turn end", () => {
+  const kernel = world().unit("unit", { owner: "A", controller: "A", might: 4 }).build();
+  kernel.setTargets("combat-experience.unit", [kernel.ref("unit")]);
+  const outcome = resolveChainBody([plusOne], kernel);
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.equal(kernel.continuousEffects.length, 1);
+  assert.equal(kernel.continuousEffects[0].effect.effect.kind, "continuous.might");
+  assert.equal(kernel.continuousEffects[0].effect.effect.amount, 1);
+  assert.deepEqual(kernel.continuousEffects[0].duration, { type: "end-of-turn" });
+  const engine = createLayerEngine(kernel.objects, kernel.continuousEffects.map(entry => ({
+    effect: entry.effect,
+    duration: entry.duration,
+    timestamp: 1
+  })));
+  assert.equal(engine.evaluate(kernel.ref("unit")).might, 5);
+  assert.equal(engine.expireAt("turn-end").length, 1);
+  assert.equal(engine.evaluate(kernel.ref("unit")).might, 4);
+});
+
+test.todo("unl-031-219 Combat Experience: evaluate the Level 6 XP predicate and its dynamic instead branch (CR 824.1.b.1 / 824.1.c / 824.1.d) — the merged Level declaration still lacks a controller-XP condition consumer");
 

@@ -37,11 +37,9 @@ test("unl-122-219 Crescent Guardian: identity, status, judgeReason and verbatim 
   assert.match(program.judgeReason, /replacement\.enter/);
   assert.match(program.judgeReason, /359\.2\.c/);
   assert.match(program.judgeReason, /805\.6\.a/);
-  // RIFT-329 re-review: replacement.enter itself is merged (RIFT-260); what is
-  // missing is the paid-cost receipt that would suppress the ready entry, and
-  // the cost-plan wiring is still named RIFT-261.
-  assert.match(program.judgeReason, /RIFT-260/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  // replacement.enter/effect.ready is executable; the remaining wiring is the
+  // CardProgram-to-Finalize optional-cost receipt and the history predicate.
+  assert.match(program.judgeReason, /RIFT-349/);
   assert.ok(!/RIFT-89/.test(program.judgeReason));
 });
 
@@ -111,8 +109,7 @@ test("unl-122-219 Crescent Guardian: effect.ready is not a substitute for the en
 });
 
 test("unl-122-219 Crescent Guardian golden: the declared replacement commit readies an exhausted unit (416.1)", () => {
-  // The replacement pipeline itself is unmerged (see the judgeReason), so this
-  // executes the declared replacement instruction against a real board unit to
+  // This executes the declared replacement instruction against a real board unit to
   // prove the instruction body is a live, valid primitive call — the merged
   // magma-wurm / accelerate precedent. A replacement handler binds "source" to
   // the entering unit, so the test supplies that unit as the source.
@@ -143,11 +140,10 @@ test("unl-122-219 Crescent Guardian golden: an already-ready unit is not readied
 test.todo(
   "unl-122-219 Crescent Guardian: the optional [C] additional cost is declared at Finalize, charged, and the paid " +
     "decision is returned as a receipt (CR 356.2.b/356.2.b.1, 356.4.f.1) — cost/cost-plan.ts only consumes " +
-    "caller-supplied optionalAdditional and no cost.additional / cost.pay instruction file is merged (RIFT-261)"
+  "caller-supplied optionalAdditional; CardProgram cost.additional is not yet wired into Finalize (RIFT-349 follow-up)"
 );
 test("unl-122-219 Crescent Guardian golden: RIFT-260 binds this declaration and rewrites the entry to ready (369.3)", () => {
-  // RIFT-329 re-review: the old "no card-program -> event-pipeline replacement
-  // registration path" claim is no longer true. bindReplacement accepts the
+  // bindReplacement accepts the
   // declared shape (a single self-targeted effect.ready on object-enters-board)
   // as an entry declaration, and a real play of the card lands it ready instead
   // of the 359.2.c exhausted entry.
@@ -202,10 +198,9 @@ test("unl-122-219 Crescent Guardian golden: RIFT-260 binds this declaration and 
 });
 
 test("unl-122-219 Crescent Guardian: RIFT-260 evaluates the declared gate before applying the entry rewrite", () => {
-  // RIFT-260's binding evaluates ability.condition with evaluateCondition at
-  // match time. That is the real, merged gate this card's "If you do" has to
-  // ride on once the paid-cost receipt exists (cost.pay/cost.modify remain on
-  // RIFT-261); the declaration itself is asserted here.
+  // The merged binding evaluates ability.condition with evaluateCondition at
+  // match time. That is the real gate this card's "If you do" has to ride on
+  // once the paid-cost receipt exists; the declaration itself is asserted here.
   assert.deepEqual(enterReady.condition, {
     kind: "expression",
     value: { kind: "constant", value: "crescent-guardian.additional-cost-was-paid" }
