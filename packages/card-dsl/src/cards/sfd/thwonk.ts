@@ -23,35 +23,29 @@ import type { CardProgram } from "../../ir/index.js";
  *   example of a Choice made while finalizing the spell, so the unit is a
  *   target (355.7). The printed restriction is the Attacker designation:
  *   740.2.c defines a unit in combat through its designation, 461/466.2.c.3
- *   grant the Attacker designation during Combat, and contract 3.8 item 1
- *   plans ObjectSnapshot.combatRole for exactly this test. That field has not
- *   reached effects/contract.ts, so the filter's combatRole key is descriptive
- *   and is not evaluated by the merged target matcher.
+ *   grant the Attacker designation during Combat, and ObjectSnapshot.combatRole
+ *   plus ObjectFilter.characteristics now carry that designation through the
+ *   merged target matcher.
  * - "It doesn't deal combat damage this turn" is reminder text for the Stunned
  *   status (424.1: the unit does not contribute its Might to combat damage;
  *   424.1.a.1: already-Stunned units cannot be Stunned again); both are engine
  *   behaviour, not separate card instructions.
  *
- * Status: judge-required. The Stun clause itself is merged (effect.stun,
- * RIFT-119) and is executed by the golden test with a Finalize-locked target,
- * but two dependencies are unmerged and not approximated:
- * - Attacker designation / combatRole on ObjectSnapshot and its filter
- *   vocabulary (740.2.c; contract 3.8 item 1, RIFT-91 / RIFT-105 follow-up);
- * - the Finalize collection of the optional [Repeat] additional cost and the
- *   paid-count to interpreter-repeat wiring (820.1.c.1, 820.1.d.1; RIFT-89,
- *   effects/keywords/Repeat.ts).
+ * Status: judge-required. The Stun clause and Attacker target predicate are
+ * merged and exercised by the golden tests. The remaining blocker is the
+ * Finalize collection of the optional [Repeat] additional cost and the
+ * paid-count to interpreter-repeat wiring (820.1.c.1, 820.1.d.1):
+ * programs/play.ts still rejects an `additional` play cost, and no resolver
+ * feeds the paid instance count into the repeat instruction.
  */
 const thwonk = {
   canonicalCardId: "card.hash-e524222421455ebe13a4bfa061de0e5c349605918aaa2b3745828fe2443798e1",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入，均不近似实现：(1)「Stun an attacking unit」的 Attacker 限制无法求值——740.2.c/461/466.2.c.3 " +
-    "要求单位处于 Combat 且持有 Attacker designation，契约 3.8 第 1 条规划的 ObjectSnapshot.combatRole 尚未进入 " +
-    "effects/contract.ts，target filter 只能比较现有字段，因此 combatRole: \"attacker\" 是描述性键、不参与匹配" +
-    "（依赖 RIFT-91 图层/战斗指定与 RIFT-90 目标系统）。effect.stun（424.1/424.1.a.1）本体已合入并有 golden 执行测试。" +
-    "(2)「[Repeat] :rb_energy_2:」的附加费用已按 CostSpec 声明（820.1.c.1），但 Finalize 收取与解释器 repeat 节点的接线未合入" +
-    "（RIFT-89；effects/keywords/Repeat.ts 头部同款说明）。",
+    "Stun（424.1/424.1.a.1）与 Attacker 过滤（740.2.c/461/466.2.c.3，" +
+    "ObjectSnapshot.combatRole + ObjectFilter.characteristics）已合入并有执行测试；当前唯一阻断是「[Repeat] :rb_energy_2:」" +
+    "的附加费用未被 programs/play.ts 的 Finalize 接受，且已付实例数尚未接入解释器 repeat 结算（820.1.c.1、820.1.d.1）。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {
@@ -76,15 +70,15 @@ const thwonk = {
       },
       body: [
         {
-          // "Stun an attacking unit" — effect.stun 已合入；combatRole 过滤键是
-          // 描述性的（见 judgeReason），golden 用 Finalize 锁定的真实引用执行。
+          // "Stun an attacking unit" — effect.stun and the combatRole target
+          // predicate are both part of the merged target vocabulary.
           id: "thwonk.stun-attacking-unit",
           op: "effect.stun",
           args: { target: { kind: "constant", value: "thwonk.attacking-unit" } },
           targets: [
             {
               id: "thwonk.attacking-unit",
-              filter: { type: "unit", zone: "board", combatRole: "attacker" },
+              filter: { type: "unit", zone: "board", characteristics: { combatRole: "attacker" } },
               min: 1,
               max: 1,
               selection: "one"

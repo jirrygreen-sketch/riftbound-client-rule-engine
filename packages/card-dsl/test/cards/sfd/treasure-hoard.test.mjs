@@ -3,6 +3,7 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/treasure-hoard.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -19,7 +20,8 @@ test("treasure-hoard: optional conquer structure with pay, token and play", () =
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Gold gear token/);
   assert.match(program.judgeReason, /187\.5/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-357/);
+  assert.match(program.judgeReason, /RIFT-359/);
   assert.equal(program.abilities.length, 1);
   assert.equal(ability.kind, "triggered");
   assert.equal(ability.trigger.at, "conquer");
@@ -35,7 +37,7 @@ test("treasure-hoard: optional conquer structure with pay, token and play", () =
     "treasure-hoard.create"
   ]);
   assert.equal(body[0].op, "cost.pay");
-  assert.deepEqual(body[0].args.energy, { kind: "constant", value: 1 });
+  assert.deepEqual(body[0].args.payments, { kind: "constant", value: { energy: 1 } });
   assert.equal(body[0].linkedTo, undefined);
   assert.equal(body[1].op, "effect.token");
   assert.equal(body[1].linkedTo, "treasure-hoard.pay");
@@ -82,7 +84,17 @@ test("treasure-hoard: the merged token primitive really creates and plays a toke
   assert.equal(kernel.getObject(run.linked.goldToken.objects[0].id).zone, "board");
 });
 
+test("treasure-hoard: the printed one-Energy payment uses the merged cost.pay primitive", () => {
+  const kernel = world().player("A", { energy: 1 }).build();
+  const run = runInstruction(costPay, body[0].args, { world: kernel });
+  assert.equal(run.result.status, "executed");
+  assert.equal(kernel.player("A").energy, 0);
+  assert.deepEqual(run.events.map((event) => event.action), ["pay"]);
+});
+
 test.todo("treasure-hoard: Gold gear token definition with its own activated ability (CR 187.5) needs the token table extension");
-test.todo("treasure-hoard: the mode-play token handoff (440.2.c/185.2.a/350.2/354) is executed by the golden with an available definition; Gold itself is still missing");
 test.todo("treasure-hoard: exhausted entry override on the created token (143.4/185.2.d)");
-test.todo("treasure-hoard: the trigger's here anchor and the printed cost.pay instruction (RIFT-120/RIFT-261)");
+test.todo(
+  "treasure-hoard: resolve the conquer event's battlefield identity into the printed 'here' anchor " +
+    "(RIFT-357/RIFT-359); the Energy payment is already executable through cost.pay."
+);

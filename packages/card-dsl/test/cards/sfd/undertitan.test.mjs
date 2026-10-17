@@ -39,7 +39,7 @@ test("sfd-175-221 Undertitan: program validates, is registered and keeps its ide
   assert.equal(cardRegistryById.get(CANONICAL), program);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /135\.2\.b\.6/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /deck/);
   assert.equal(
     program.sourceText,
     "When you play me, give your other units +2 :rb_might: this turn.\n" +
@@ -143,9 +143,7 @@ test("sfd-175-221 Undertitan golden: with no other friendly unit the Might grant
 });
 
 test("sfd-175-221 Undertitan golden: the merged replacement binding adds the 2 Energy for the card's own clause", () => {
-  // The card's replaces/with data drives the merged replacement/ binding from
-  // RIFT-260; the missing piece is only the CardProgram -> binder consumer
-  // (programs/statics.ts defaults to noopStaticBinder).
+  // The card's replaces/with data drives the merged replacement binding.
   const kernel = world()
     .player("A")
     .object("undertitan", { cardId: CANONICAL, types: ["unit"], zone: "deck", owner: "A", controller: "A" })
@@ -210,6 +208,6 @@ test("sfd-175-221 Undertitan: the Add body executes through the interpreter with
 });
 
 test.todo(
-  "sfd-175-221 Undertitan: bind the reveal replacement from the card program (the merged replacement/ API and the " +
-    "body both work; programs/statics.ts still defaults bindReplacement to noopStaticBinder - RIFT-257 follow-up)."
+  "sfd-175-221 Undertitan: discover a deck-hosted CardProgram replacement before its reveal action; " +
+    "the replacement matcher, body and default binder already execute once bound."
 );

@@ -22,16 +22,13 @@ test("sfd-130-221 Treasure Hunter: program validates and keeps its identity", ()
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("sfd-130-221 Treasure Hunter: judgeReason names the move-anchor and Gold-token gaps", () => {
+test("sfd-130-221 Treasure Hunter: judgeReason names the current token gaps", () => {
   assert.match(program.judgeReason, /object-moved/);
-  assert.match(program.judgeReason, /pipeline-match/);
-  assert.match(program.judgeReason, /449\.1\/449\.2/);
-  assert.match(program.judgeReason, /458/);
   assert.match(program.judgeReason, /187\.5/);
   assert.match(program.judgeReason, /440\.2\.c/);
   assert.match(program.judgeReason, /184\.1/);
   assert.match(program.judgeReason, /143\.4/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /RIFT-357/);
 });
 
 test("sfd-130-221 Treasure Hunter: 'when I move' subscribes to object-moved scoped to this unit", () => {
@@ -63,12 +60,7 @@ test("sfd-130-221 Treasure Hunter: the body declares one Gold token played exhau
 });
 
 test.todo(
-  "sfd-130-221 Treasure Hunter: the object-moved timing point exposes the moved object's identity to " +
-    "the card registration so source: \"self\" binds this unit, and a Recall stays excluded per 458 — RIFT-120"
-);
-
-test.todo(
   "sfd-130-221 Treasure Hunter: play the Gold gear token through chain creation plus the hand-off play " +
     "(440.2.c / 185.2.a / 350.2 / 354) with the CR 187.5 Gold definition and its exhausted entry " +
-    "(184.1 / 185.2.d) — RIFT-62 token work / RIFT-82 definition batch"
+    "(184.1 / 185.2.d), plus a controller-relative Base location resolver (RIFT-357)."
 );

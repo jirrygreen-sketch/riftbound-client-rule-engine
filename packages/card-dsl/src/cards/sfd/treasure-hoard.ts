@@ -26,10 +26,8 @@ import type { CardProgram } from "../../ir/index.js";
  * 3. "exhausted" is an entry override (143.4 / 185.2.d) the create-token action
  *    explicitly does not support ("Entry overrides are not supported"), so the
  *    token cannot be authored as entering exhausted;
- * 4. the energy payment "[1 energy]" is the card's own cost and still has no
- *    registered cost.pay primitive (effects/instructions has effect.* only).
- * Additionally the trigger's `here` placeholder has no merged anchor
- * (RIFT-120).
+ * 4. the trigger's `here` placeholder still needs the conquer battlefield
+ *    anchor to resolve to a concrete location (RIFT-357/RIFT-359).
  *
  * The abilities below still encode the full intended shape so downstream
  * tooling can see the trigger, cost and play structure; execution is judged.
@@ -43,7 +41,8 @@ export default {
     "the merged primitive returns blockedReason \"token-definition-or-abilities-judge-required\". Playing the new token needs the chain-create + cost-waived play flow " +
     "(440.2.c/185.2.a/350.2/354): effect.token mode \"play\" already creates on the Chain and hands the object to the play flow; tokens carry null costs (185.3), so no separate cost-waived " +
     "effect.play is authored. The create-token action does not support the 'exhausted' entry override " +
-    "(143.4/185.2.d). The trigger's here placeholder and cost.pay remain unmerged (RIFT-120/RIFT-261).",
+    "(143.4/185.2.d). The conquer trigger's `here` anchor still needs the event battlefield identity " +
+    "to become a location filter (RIFT-357/RIFT-359); the printed Energy payment is represented by the merged cost.pay primitive.",
   sourceText: "When you conquer here, you may pay :rb_energy_1: to play a Gold gear token exhausted.",
   abilities: [
     {
@@ -62,7 +61,7 @@ export default {
                 {
                   id: "treasure-hoard.pay",
                   op: "cost.pay",
-                  args: { energy: { kind: "constant", value: 1 } }
+                  args: { payments: { kind: "constant", value: { energy: 1 } } }
                 },
                 {
                   id: "treasure-hoard.create",
