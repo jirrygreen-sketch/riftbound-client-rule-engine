@@ -41,6 +41,7 @@ test("rad-036-167 Storm Raptor: identity, status, judgeReason and verbatim sourc
   assert.match(program.judgeReason, /sameLocationAs/);
   assert.match(program.judgeReason, /053\.3/);
   assert.match(program.judgeReason, /translateObjectFilter/);
+  assert.match(program.judgeReason, /layerFor/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -141,7 +142,7 @@ test.todo(
 );
 
 test.todo(
-  "Storm Raptor: [Deflect] expansion - the KeywordDef and production statics binding are merged, but finalize " +
-    "converts the collected TargetTaxRequest into a mandatoryAdditional { energy: amount } constant, so the " +
-    "any-Domain Power tax (809.1.c.1) cannot be collected truthfully"
+  "Storm Raptor: [Deflect] expansion - the KeywordDef produces target.tax, but production statics binding " +
+    "fails because layerFor has no target.tax mapping; after that mapping exists, finalize must also preserve " +
+    "the any-Domain Power tax instead of writing mandatoryAdditional { energy: amount } (809.1.c.1)"
 );

@@ -24,10 +24,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   continuous.might（mode add、layer arithmetic、appliesTo self）。
  *
  * 无法执行的依赖（保持 judge-required）：
- * - 生产绑定链已合入（programs/statics.ts 的 bindStaticToLayers + lifecycle），但
- *   staticFilter 只支持 sameLocationAs 的 self/source 锚与 controller/owner 占位符
- *   具体化，遇到条件过滤器里的 exclude: "self" 直接抛 judge-required
- *   （"Static exclude anchor needs a dynamic relative filter"），静态能力无法注册。
+ * - 生产绑定链已合入（programs/statics.ts 的 bindStaticToLayers + lifecycle），且本能力
+ *   的 appliesTo: "self" 直接绑定自身目标，不经过 staticFilter；原 IR 的 static 能力可以
+ *   成功注册。剩余缺口在绑定后的条件求值：layers 条件查询没有把 controller: "controller"
+ *   解析为来源控制者，且查询适配器不消费 sameLocationAs / exclude 这类相对锚点，导致
+ *   “other friendly ... at my battlefield”不能按印刷语义筛选。
  * - continuous.might 的图层算术消费方（layers/engine.ts 的 applyArithmetic）已合入
  *   （RIFT-91 结论过时）。
  */
@@ -75,13 +76,13 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "「I have +2 Might」的 continuous.might 图层算术消费方与生产绑定链（programs/statics.ts + lifecycle）" +
-    "均已合入（RIFT-91 结论过时）；剩余缺口是条件过滤器：sameLocationAs:self 锚与 controller 占位符" +
-    "已由 staticFilter 支持，但 exclude:self（740.1 的 other 语义）会被 staticFilter 拒绝" +
-    "（实测抛 Static exclude anchor needs a dynamic relative filter），静态能力无法注册，" +
-    "条件里的 other 排除无法如实表达。" +
+    "均已合入（RIFT-91 结论过时），且 appliesTo: \"self\" 使原 IR 的 static 能力可以成功注册；" +
+    "剩余缺口在绑定后的条件查询：layers 条件环境没有把 controller: \"controller\" 解析为来源控制者，" +
+    "查询适配器也不消费 sameLocationAs / exclude 这类相对锚点，因而 740.1 的 \"other friendly ... at my battlefield\"" +
+    "不能按印刷语义筛选。" +
     "[Tank] 的 KeywordDef 已合入并展开 continuous.combat，但 815.1.c 的伤害分配优先级缺消费方：" +
     "combat/base-combat-allocation.ts 的分配仍是 keywordPriority: proven-none。" +
-    "依赖：staticFilter 的相对排除锚点与 Tank 分配消费方；不近似实现。",
+    "依赖：条件查询适配器对 controller 占位符与相对 location/exclude 锚点的求值，以及 Tank 分配消费方；不近似实现。",
   abilities,
   sourceText:
     "[Tank] (I must be assigned combat damage first.)\n" +

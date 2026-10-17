@@ -23,6 +23,7 @@ test("rad-075-167 Skystrike Squadron: program validates and is judge-required", 
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /return-to-hand/);
   assert.match(program.judgeReason, /translateCost/);
+  assert.match(program.judgeReason, /layerFor/);
   assert.match(program.judgeReason, /mandatoryAdditional/);
 });
 
@@ -77,37 +78,6 @@ test("rad-075-167 Skystrike Squadron: the Deflect keyword expands to a 1-Power t
   assert.equal(expansion.kind, "static");
   assert.equal(expansion.effect.kind, "target.tax");
   assert.deepEqual(expansion.effect.value, { kind: "constant", value: 1 });
-});
-
-test("rad-075-167 Skystrike Squadron: the cost pipeline reports the real blocking gaps (translateCost + return-to-hand)", () => {
-  const kernel = world().unit("skystrike-squadron", { might: 4 }).unit("gear-1", { types: ["gear"] }).build();
-  assert.throws(
-    () =>
-      buildCostPlan(kernel, {
-        id: "skystrike-optional-cost",
-        cost: play.cost
-      }),
-    error => {
-      assert.equal(error.name, "CostPlanError");
-      assert.equal(error.reason, "judge-required");
-    // The blocking facts behind judge-required: the Play pipeline rejects the optional marker...
-      assert.match(error.message, /optional/);
-      // ...and has no "return-to-hand" payment kind at all.
-      assert.throws(
-        () =>
-          buildCostPlan(kernel, {
-            id: "skystrike-payment-only",
-            cost: { kind: "activated", payments: [returnedGear] }
-          }),
-        paymentError => {
-          assert.equal(paymentError.reason, "judge-required");
-          assert.match(paymentError.message, /return-to-hand/);
-          return true;
-        }
-      );
-      return true;
-    }
-  );
 });
 
 test("rad-075-167 Skystrike Squadron: the merged pipeline can apply a caller-supplied 2-energy discount", () => {

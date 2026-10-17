@@ -5,6 +5,8 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/steadfast-outrider.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL = "card.hash-af14696b17098be6286c750ebb3baaf3aeb4e4f188d7857651be5d9e4e97e053";
 
@@ -16,6 +18,9 @@ test("rad-128-167 Steadfast Outrider: program validates and has expected identit
   assert.equal(program.status, "judge-required");
   assert.equal(program.judgeReason.includes("continuous.might"), true);
   assert.equal(program.judgeReason.includes("Tank"), true);
+  assert.match(program.judgeReason, /controller/);
+  assert.match(program.judgeReason, /sameLocationAs/);
+  assert.match(program.judgeReason, /exclude/);
   assert.equal(
     program.sourceText,
     "[Tank] (I must be assigned combat damage first.)\n" +
@@ -123,9 +128,40 @@ test("rad-128-167 Steadfast Outrider: 条件谓词在参考内核下由真实集
   assert.equal(splitRun.results[0].result.linkedValues.value, false);
 });
 
+test("rad-128-167 Steadfast Outrider: 原 IR 的 self static 能力能通过生产绑定注册", () => {
+  const executable = {
+    canonicalCardId: program.canonicalCardId,
+    rulesetVersion: program.rulesetVersion,
+    status: "executable",
+    abilities: program.abilities,
+    sourceText: program.sourceText
+  };
+  const binding = createProgramBinding({ cardPrograms: [executable] });
+  const board = fixture({
+    cards: [{ id: "outrider", cardId: program.canonicalCardId, types: ["unit"], energy: 4, power: [], might: 3 }],
+    describePlay: binding.describePlay
+  });
+  const errors = [];
+  binding.attachLifecycle(board.engine, error => errors.push(error));
+  board.engine.commit({
+    type: "play",
+    object: board.kernel.ref("outrider"),
+    player: "A",
+    location: { type: "battlefield", id: "battlefield-1" }
+  });
+  board.engine.advance();
+  resolveAll(board.engine);
+  assert.deepEqual(errors, []);
+  board.engine.layers.setObjects(board.kernel.objects);
+  const registration = board.engine.layers.registry.list().find(entry => entry.effect.effect.kind === "continuous.might");
+  assert.ok(registration, "the appliesTo:self static ability is registered");
+  assert.equal(registration.effect.filter.objectId, "outrider");
+  assert.equal(registration.effect.effect.amount, 2);
+});
+
 test.todo(
-  "rad-128-167 Steadfast Outrider: \"I have +2 Might\" 的 continuous.might 图层消费方已合入（RIFT-91 结论过时）；" +
-    "剩余缺口是 staticFilter 拒绝条件过滤器里的 exclude:self 锚点，静态能力无法注册"
+  "rad-128-167 Steadfast Outrider: \"I have +2 Might\" 的原 IR static 能力可由生产绑定注册；" +
+    "剩余缺口是绑定后的条件查询未解析 controller:controller，且查询适配器未消费 sameLocationAs/exclude 相对锚点"
 );
 
 test.todo(

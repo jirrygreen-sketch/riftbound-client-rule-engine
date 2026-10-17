@@ -30,8 +30,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * 2. "If you do, I cost [2] less" 需要条件式费用改写（356.4.c 的 component discount）
  *    与"已支付该附加费"的检测消费方；cost/cost-plan.ts 只从调用方显式传入的
  *    input.discounts 应用折扣，没有读取卡牌声明或费用支付历史的入口。
- * 3. [Deflect] 的展开（target.tax）已存在并经 programs/statics.ts → layers 注册，
- *    但 chain/engine.ts finalize 把收集到的 TargetTaxRequest（只有 amount: number）
+ * 3. [Deflect] 的 KeywordDef 展开为 target.tax，但 programs/statics.ts 的 layerFor
+ *    没有 target.tax 映射；原 IR 在生产绑定时直接抛
+ *    "Static ability kind target.tax has no layer mapping"，所以税效果尚未注册。
+ *    即使补上该映射，chain/engine.ts finalize 还会把收集到的 TargetTaxRequest（只有 amount: number）
  *    写成 mandatoryAdditional 的 { energy: amount } 常量（plan-values 不接受 Power
  *    域约束以外的强制加项形状），809.1.c.1 的"任意领域 Power"税无法如实收取。
  * 不近似实现：不把附加费用写成结算期 effect.zone，也不把"少 2 Energy"近似成无条件减费，
@@ -93,8 +95,9 @@ const program = {
     "exhaust/discard/recycle/kill/reveal/spend-buff）；" +
     "「If you do, I cost :rb_energy_2: less」还需要 356.4.c 的条件式 component discount 与「该附加费已支付」" +
     "的检测消费方，cost/cost-plan.ts 只从调用方显式传入的 discounts 应用折扣。" +
-    "[Deflect 1]（809.1）的展开（target.tax）已存在并经 programs/statics.ts 注册，但 chain/engine.ts finalize " +
-    "把收集到的 TargetTaxRequest（只有 amount: number）写成 mandatoryAdditional 的 { energy: amount } 常量，" +
+    "[Deflect 1]（809.1）的 KeywordDef 展开为 target.tax，但 programs/statics.ts 的 layerFor 没有该 kind 的映射，" +
+    "原 IR 生产绑定实测直接抛 Static ability kind target.tax has no layer mapping；即使补上映射，chain/engine.ts finalize " +
+    "还会把收集到的 TargetTaxRequest（只有 amount: number）写成 mandatoryAdditional 的 { energy: amount } 常量，" +
     "809.1.c.1 的「任意领域 1 Power」税无法如实收取。" +
     "不近似实现：不把附加费用写成结算期 effect.zone、不把它当成无条件减费、也不在本卡手写 target tax。",
   abilities,
