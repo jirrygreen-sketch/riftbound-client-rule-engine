@@ -21,12 +21,15 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * Status: judge-required — two gaps, none approximated:
  * 1. no merged module emits `defense-declared` into the single event pipeline:
- *    combat/flow.ts still throws combat-start-transaction and the RIFT-270
- *    producer audit lists attack/defense-declared as 待后续;
- * 2. "here" has no evaluable anchor: the closed EventPattern/ObjectFilter
- *    vocabulary has no battlefield-relative spelling, so the static filter
- *    cannot read its host's runtime location id (the `here: true` key is the
- *    documented placeholder);
+ *    the RIFT-281 resweep reconfirmed (commit d8e60ac) that the
+ *    attack/defense-declared emitters are still not merged and
+ *    combat/flow.ts still throws combat-start-transaction;
+ * 2. "here" has no evaluable anchor on the trigger side: the
+ *    TargetSpec-side `sameLocationAs: "self"` anchor is merged and really
+ *    evaluated (statics.ts / selectors.ts), but the closed EventPattern/
+ *    ObjectFilter vocabulary has no battlefield-relative spelling for the
+ *    event filter, so it cannot read the host's runtime location id (the
+ *    `here: true` key is the documented placeholder);
  * The CardProgram trigger registration is merged; the remaining filter and
  * producer gaps still prevent an honest live trigger. The body only uses merged primitives (choice.optional + effect.move) and is
  * executed by the golden test.
@@ -36,10 +39,12 @@ const reaversRow = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口：(1) defense-declared 时点（CR 383.4.f.2.a、323.2）仍没有发射方——combat/flow.ts 的攻防宣告事务未实现" +
-    "（显式抛 combat-start-transaction），RIFT-270 审计也把 attack/defense-declared 标为待后续，触发无法进入唯一事件管线；" +
-    "(2)「here」没有可求值的锚点：EventPattern/ObjectFilter 没有战场相对词汇，静态 filter 读不到宿主的运行时地点身份，" +
-    "程序里的 here=true 是等待战斗载荷绑定的占位键；卡牌程序触发注册本身已合入，但这两个事件/相对锚点缺口仍阻止实时命中。" +
+    "两处缺口：(1) defense-declared 时点（CR 383.4.f.2.a、323.2）仍没有发射方——" +
+    "RIFT-281 复核（commit d8e60ac）确认 attack/defense-declared 发射未合入，" +
+    "combat/flow.ts 的攻防宣告事务仍显式抛 combat-start-transaction，触发无法进入唯一事件管线；" +
+    "(2) 触发侧「here」没有可求值的锚点：TargetSpec 侧 sameLocationAs:\"self\" 已合入并真实求值（statics.ts / selectors.ts），" +
+    "但 EventPattern/ObjectFilter 仍没有战场相对词汇读宿主的运行时地点身份，程序里的 here=true 是等待战斗载荷绑定的占位键；" +
+    "卡牌程序触发注册本身已合入，但这两个事件/相对锚点缺口仍阻止实时命中。" +
     "能力本体（choice.optional 包裹 effect.move，to: \"controller-base\"）只用已合入原语并有执行测试；整卡保持 judge-required，不近似实现。",
   sourceText: "When you defend here, you may move a friendly unit here to base.",
   abilities: [

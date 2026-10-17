@@ -16,10 +16,12 @@ import type { CardProgram } from "../../ir/index.js";
  * Modeling notes (Core Rules v1.5):
  * - "Look at the top 5 cards of your Main Deck" is effect.inspect in top
  *   scope (CR 128.3-128.4: look is private to the looking player; 432.1.c: as
- *   much as possible, no Burn Out). The primitive documents that a non-zero
- *   top look needs an upstream ordered pick provider, because `query()` does
- *   not guarantee zone order; the ordered set arrives through the declared
- *   PickSpec (RIFT-66 contract change) and the golden test supplies it.
+ *   much as possible, no Burn Out). A set query does not guarantee zone order,
+ *   so the look declares a merged ordered zoneSlice pick source (RIFT-66
+ *   contract change, landed with the RIFT-358 Finalize lifecycle): the chain
+ *   locks the actual top five refs during Finalize
+ *   (chain/picks/plan.ts finalizeOrderedPickPlans; a short deck locks only the
+ *   cards that exist) and effect.inspect reads them at Resolve.
  * - "You may banish a unit from among them": the looked-at card is in the
  *   Main Deck, which is not a public zone, so it is not Targeted (355.10.a,
  *   which uses the trash/hand contrast explicitly) — the selection is the
@@ -47,15 +49,12 @@ import type { CardProgram } from "../../ir/index.js";
  *   reply.
  *
  * Status: judge-required. The look / banish / recycle halves are merged and
- * are executed by the golden test, but three gaps remain:
+ * are executed by the golden test, but two gaps remain:
  * - `cost.modify` is merged, but no card-program/Finalize producer reads the
  *   selected card's catalog printed cost, applies the Energy -5 discount, and
  *   supplies the resulting FinalizedCostPlan required by effect.play. The play
  *   instruction therefore keeps the intended unfinalized descriptor as
  *   reviewable data;
- * - the ordered deck-top pick lifecycle is not merged: effect.inspect's "top"
- *   scope requires an upstream ordered picksSpecId (its own contract states a
- *   set query is never used to approximate deck order).
  * - effect.inspect has no executable filter for the selected card, so the
  *   required "unit from among them" restriction is not enforced by this IR.
  */
@@ -64,11 +63,11 @@ const reinforce = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1) 减费仍不可表达或执行——「play it, reducing its cost by :rb_energy_5:」需要按 CR 356.1.c/356.6 " +
+    "两处缺口：(1) 减费仍不可表达或执行——「play it, reducing its cost by :rb_energy_5:」需要按 CR 356.1.c/356.6 " +
     "在打出该牌时改写其印刷基础费用（能源费 -5，不得低于 0）；cost.modify 原语与费用计划已合入，但没有卡牌程序/Finalize 生产者读取被选牌的目录印刷费用并" +
-    "把折扣后的 FinalizedCostPlan 提供给要求已 Finalize 费用的 effect.play；(2) 缺「按牌库顶顺序取前 5 张」的生产选择生命周期——effect.inspect 的 top scope " +
-    "必须由上游提供有序 picksSpecId（其自身文档明确 query 不保证顺序，缺有序来源时 negated/impossible），链的 Finalize 面只锁定 " +
-    "instruction.targets 的 TargetSpec（chain/engine.ts assertFinalizationSurface），没有有序区域 pick 的生命周期；(3) effect.inspect 的 PickSpec 没有过滤所选牌必须是 unit 的可执行形态。" +
+    "把折扣后的 FinalizedCostPlan 提供给要求已 Finalize 费用的 effect.play；(2) effect.inspect 的 PickSpec 没有过滤所选牌必须是 unit 的可执行形态——" +
+    "有序 zoneSlice pick 来源（RIFT-66 契约变更随 RIFT-358 落地，Finalize 经 chain/picks/plan.ts 真实锁定牌库顶序、短牌库按实际数量锁定）" +
+    "已合入并被本卡声明，但有序来源本身禁止 filter，inspect 的 choose 形态也没有候选过滤字段，「从 5 张中选 unit」仍无法表达。" +
     "look/banish/recycle 三段只用已合入原语并已由 golden 真实执行；不近似实现。",
   abilities: [
     {
@@ -114,16 +113,20 @@ const reinforce = {
           picks: [
             {
               id: "reinforce.top-five",
-              // Ordered option set supplied by the engine (deck top to bottom,
-              // contract 3.6 zoneSlice); the placeholder marks the runtime
-              // provider instead of a static list.
-              options: ["runtime:main-deck-top-five"],
-              // 432.1.c: a short deck is still looked at as far as possible.
-              min: 0,
-              max: 5,
-              selection: "up-to",
-              zone: "deck",
-              owner: "controller"
+              // Merged ordered source (RIFT-66 / RIFT-358): the chain locks
+              // the actual deck-top incarnation refs in its Finalize step
+              // (chain/picks/plan.ts) and effect.inspect consumes them at
+              // Resolve. options stays empty; the ordered source itself
+              // carries no filter or bounds.
+              options: [],
+              ordered: true,
+              selection: "all",
+              zoneSlice: {
+                zone: "deck",
+                from: "top",
+                // 432.1.c: a short deck is still looked at as far as possible.
+                count: { kind: "constant", value: 5 }
+              }
             }
           ]
         },

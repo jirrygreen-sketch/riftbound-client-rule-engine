@@ -35,15 +35,10 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * Status: judge-required — both instructions are expressible with merged
  * primitives and are executed in the golden test. The card as a whole is
- * still not executable: choosing the
- * Move destination is a Finalize-time choice for the spell's controller
- * (355.4 / 355.4.a). The chain's current Finalize surface only finalizes
- * "instruction.targets" TargetSpecs and blocks nested/repeated targets
- * (chain/engine.ts assertFinalizationSurface), and the interpreter's
- * "effect.move" destination argument is a fixed Expr (controller-base, a
- * LocationRef, or a { kind: "choose", options } location list) with no merged
- * provider turning "any legal Location other than the current one" into that
- * list. That lifecycle is the pending chain/target Finalize work;
+ * still not executable: the Move destination is a Finalize-time choice for
+ * the spell's controller (355.4 / 355.4.a). Three precise gaps remain —
+ * a LocationTargetSpec with an exclude-current-location predicate, its
+ * Finalize lifecycle, and a legal-destination provider (see judgeReason) —
  * until it lands the card stays judge-required and the golden test supplies
  * the destination the acting player chose, the same way it supplies
  * Finalize-locked targets.
@@ -53,9 +48,11 @@ const rideTheWind = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺「Move 目标地点」的 Finalize 选择生命周期：CR 355.4/355.4.a 要求由法术控制者选择该单位当前地点以外的合法 Location，" +
-    "而链的 Finalize 目前只处理 instruction.targets 的 TargetSpec，且禁止嵌套/重复目标（chain/engine.ts assertFinalizationSurface），" +
-    "解释器侧 effect.move 的 to 只是固定 Expr（controller-base / LocationRef / { kind: choose } 列表）：没有已合入机制把「除当前地点外的任意合法地点」变成该 Expr，" +
+    "缺「Move 目标地点」的三个精确依赖：CR 355.4/355.4.a 要求由法术控制者选择该单位当前地点以外的合法 Location，" +
+    "(a) TargetSpec 词汇没有 exclude-current-location/排除当前地点谓词，LocationTargetSpec 也尚未合入；" +
+    "(b) 链的 Finalize 面只锁定 instruction.targets（chain/engine.ts assertFinalizationSurface 且禁止嵌套/重复目标），" +
+    "LocationTargetSpec 的 Finalize 生命周期未接入；" +
+    "(c) effect.move 的 to 只是固定 Expr（controller-base / LocationRef / { kind: choose } 列表）：没有已合入生产者把「除当前地点外的合法地点集」变成该 Expr，" +
     "写死一个地点就是替玩家发明选择。Move 与 ready 两条指令本身只用已合入原语表达并有执行测试（含 359.3.e.14.b 的 Move 被 negate 后 ready 仍执行）；仍依赖 LocationTargetSpec 与排除当前地点的合法目的地选择在 Finalize 生命周期中落地。",
   abilities: [
     { kind: "keyword", keyword: "action" },

@@ -13,6 +13,11 @@ import costModify from "../../../../engine-core/dist/effects/instructions/cost.m
 // literal envelope so the merged primitives validate and evaluate them
 // themselves. The golden runs use that same path.
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { translateInstructionTargets } from "../../../../engine-core/dist/programs/filters.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { finalizeOrderedPickPlans } from "../../../../engine-core/dist/chain/picks/plan.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-c2c17a54e193d86678b7e7bb36f02bf0db8c677c91f7ac73a0fa57cb2acc8be5";
@@ -60,8 +65,12 @@ test("ogn-062-298 Reinforce judgeReason names the current cost-plan and selectio
   assert.match(program.judgeReason, /356\.1\.c/);
   assert.match(program.judgeReason, /356\.6/);
   assert.match(program.judgeReason, /FinalizedCostPlan/);
-  assert.match(program.judgeReason, /picksSpecId/);
   assert.match(program.judgeReason, /unit/);
+  // RIFT-66's ordered zoneSlice source merged with the RIFT-358 Finalize
+  // lifecycle, so the reason must name the landed mechanism, not the old
+  // picksSpecId delivery note.
+  assert.match(program.judgeReason, /zoneSlice/);
+  assert.match(program.judgeReason, /RIFT-358/);
 });
 
 test("ogn-062-298 Reinforce structure: no speed keyword, look -> may(banish -> play) -> recycle", () => {
@@ -331,8 +340,147 @@ test.todo(
     "cost.modify is merged, but the card-program/Finalize producer for the selected card's printed cost and effect.play plan is missing"
 );
 
-test.todo(
-  "Reinforce: the ordered deck-top provider for effect.inspect's non-zero top scope in the production " +
-    "lifecycle (contract 3.6 zoneSlice; the chain Finalize surface only locks instruction.targets), plus an " +
-    "executable unit-only filter for the inspect choice"
-);
+/**
+ * Production-chain fixture: the spell starts in Hand, the chain Finalizes the
+ * declared zoneSlice against the real deck order, and the two choices arrive
+ * as AwaitChoice requests whose ids include the instruction path.
+ */
+function chainFixture(deck = ["unit-a", "spell-a", "spell-b", "spell-c", "spell-d", "deeper"]) {
+  const kernel = world()
+    .player("A", { energy: 20 })
+    .player("B", { energy: 20 })
+    .hand("reinforce", { cardId: program.canonicalCardId, types: ["spell"], energy: 0, power: [], might: null })
+    .deck(deck, { owner: "A" })
+    .build();
+  const answers = new Map();
+  const requests = [];
+  const decide = (request) => {
+    requests.push(request);
+    if (answers.has(request.id)) return answers.get(request.id);
+    throw new AwaitChoice(request);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (checkpoint) => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose: decide,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose: decide })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  return {
+    kernel,
+    engine,
+    answers,
+    requests,
+    draft: () => ({
+      id: "play-reinforce",
+      controller: "A",
+      source: kernel.getObject("reinforce"),
+      kind: "spell",
+      speed: "normal",
+      body: translateInstructionTargets(playAbility.body)
+    })
+  };
+}
+
+test("ogn-062-298 Reinforce golden: the chain locks the deck top at Finalize and resolves the look choice", () => {
+  // The production path: Finalize locks the declared zoneSlice refs from the
+  // real deck order before any look happens, Resolve asks the private
+  // 0-or-1 selection out of the locked five, and the may is a separate
+  // optional decision.
+  const f = chainFixture();
+  f.engine.execute(f.draft());
+  f.engine.advance();
+
+  const locked = f.engine.items[0].pickPlans;
+  assert.deepEqual(locked.map((plan) => [plan.id, plan.refs.map((ref) => ref.id)]), [
+    ["reinforce.top-five", ["unit-a", "spell-a", "spell-b", "spell-c", "spell-d"]]
+  ]);
+  // CR 128.3: a look is an effect, so nothing was looked at before Resolve.
+  assert.equal(
+    f.engine.pipeline.events.filter((event) => event.timingPoint === "cards-looked-at").length,
+    0
+  );
+
+  const request = (() => {
+    try {
+      f.engine.pass("A");
+      f.engine.pass("B");
+    } catch (error) {
+      assert.ok(error instanceof AwaitChoice, String(error));
+      return error.request;
+    }
+    throw new Error("the look's 0-or-1 selection must be requested during Resolve");
+  })();
+
+  assert.equal(request.id, "reinforce.look-top-five/reinforce.pick-unit");
+  assert.equal(request.type, "select-objects");
+  assert.deepEqual(request.options.map((ref) => ref.id), ["unit-a", "spell-a", "spell-b", "spell-c", "spell-d"]);
+  // "You may banish a unit from among them": zero or one of the looked cards.
+  assert.equal(request.min, 0);
+  assert.equal(request.max, 1);
+
+  f.answers.set(request.id, [request.options[0]]);
+  let banishChoice = null;
+  try {
+    f.engine.pass("B");
+  } catch (error) {
+    assert.ok(error instanceof AwaitChoice, String(error));
+    banishChoice = error.request;
+  }
+  assert.equal(banishChoice?.id, "reinforce.may-banish-and-play/optional");
+  assert.equal(banishChoice?.type, "optional");
+  f.answers.set("reinforce.may-banish-and-play/optional", true);
+
+  let guard = 0;
+  while (f.engine.items.length && guard++ < 20) f.engine.pass(f.engine.priority);
+
+  assert.deepEqual(f.kernel.zone("A", "banishment").map((ref) => ref.id), ["unit-a"]);
+  // The play half negates on the missing finalized cost plan (judgeReason):
+  // the banished card stays in Banishment and never enters Board.
+  assert.deepEqual(f.kernel.zone("A", "board").map((ref) => ref.id), []);
+  // The played card's old reference is stale, so exactly the four remaining
+  // looked-at cards recycle to the deck bottom (417.1.a / 417.4).
+  assert.deepEqual(f.kernel.zone("A", "deck").map((ref) => ref.id), [
+    "deeper", "spell-a", "spell-b", "spell-c", "spell-d"
+  ]);
+});
+
+test("ogn-062-298 Reinforce golden: finalizeOrderedPickPlans locks the ordered deck slice itself", () => {
+  // Direct Finalize unit coverage for the merged RIFT-66/RIFT-358 lifecycle:
+  // the chain locks refs from the real zone order, a short deck locks only the
+  // cards that exist, and the spec keeps the contract-3.6 ordered source shape.
+  const longDeck = world()
+    .player("A")
+    .deck(["d1", "d2", "d3", "d4", "d5", "d6"], { owner: "A" })
+    .build();
+  const longContext = longDeck.clone({ sourceSnapshot: longDeck.getObject("d1"), controller: "A" });
+  const [topFive] = finalizeOrderedPickPlans(longContext, playAbility.body);
+  assert.equal(topFive.id, "reinforce.top-five");
+  assert.deepEqual(topFive.refs.map((ref) => ref.id), ["d1", "d2", "d3", "d4", "d5"]);
+
+  // The spec itself keeps the contract-3.6 ordered source shape: options stays
+  // empty, the whole slice is selected, and the only source is the zoneSlice.
+  const [declared] = lookTopFive.picks;
+  assert.deepEqual(declared, {
+    id: "reinforce.top-five",
+    options: [],
+    ordered: true,
+    selection: "all",
+    zoneSlice: {
+      zone: "deck",
+      from: "top",
+      count: { kind: "constant", value: 5 }
+    }
+  });
+
+  const shortDeck = world()
+    .player("A")
+    .deck(["only-card"], { owner: "A" })
+    .build();
+  const shortContext = shortDeck.clone({ sourceSnapshot: shortDeck.getObject("only-card"), controller: "A" });
+  const [shortPlan] = finalizeOrderedPickPlans(shortContext, playAbility.body);
+  // 432.1.c: a short deck is looked at as far as possible.
+  assert.deepEqual(shortPlan.refs.map((ref) => ref.id), ["only-card"]);
+});
