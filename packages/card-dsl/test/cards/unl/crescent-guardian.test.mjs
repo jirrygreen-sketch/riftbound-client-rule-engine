@@ -9,7 +9,6 @@ import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 // RIFT-260's replacement binding is the merged path this card's entry
 // replacement now reaches; the golden below proves the merge and its limit.
 import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
-import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
@@ -39,7 +38,7 @@ test("unl-122-219 Crescent Guardian: identity, status, judgeReason and verbatim 
   assert.match(program.judgeReason, /805\.6\.a/);
   // replacement.enter/effect.ready is executable; the remaining wiring is the
   // CardProgram-to-Finalize optional-cost receipt and the history predicate.
-  assert.match(program.judgeReason, /RIFT-349/);
+  assert.match(program.judgeReason, /programs\/play\.ts/);
   assert.ok(!/RIFT-89/.test(program.judgeReason));
 });
 
@@ -61,8 +60,8 @@ test("unl-122-219 Crescent Guardian: the printed power is null, and the extra co
 test("unl-122-219 Crescent Guardian: the cost's applicability is the printed spell condition, recorded as a predicate", () => {
   // 356.2.b.1: the Optional Additional Cost is specified by a Passive Ability of
   // the card being played, gated on “you've played a spell this turn”. The
-  // per-card-type history count has no merged evaluation path, so the condition
-  // stays a named predicate (see the judgeReason).
+  // history count is available through condition.history, but not in a static
+  // Condition expression; this remains a named placeholder (see judgeReason).
   assert.deepEqual(additionalCost.condition, {
     kind: "expression",
     value: { kind: "constant", value: "you-played-a-spell-this-turn" }
@@ -140,28 +139,20 @@ test("unl-122-219 Crescent Guardian golden: an already-ready unit is not readied
 test.todo(
   "unl-122-219 Crescent Guardian: the optional [C] additional cost is declared at Finalize, charged, and the paid " +
     "decision is returned as a receipt (CR 356.2.b/356.2.b.1, 356.4.f.1) — cost/cost-plan.ts only consumes " +
-  "caller-supplied optionalAdditional; CardProgram cost.additional is not yet wired into Finalize (RIFT-349 follow-up)"
+  "caller-supplied optionalAdditional; CardProgram cost.additional is not yet wired into Finalize"
 );
-test("unl-122-219 Crescent Guardian golden: RIFT-260 binds this declaration and rewrites the entry to ready (369.3)", () => {
+test("unl-122-219 Crescent Guardian golden: the supported entry-replacement fragment enters ready (369.3)", () => {
   // bindReplacement accepts the
   // declared shape (a single self-targeted effect.ready on object-enters-board)
   // as an entry declaration, and a real play of the card lands it ready instead
   // of the 359.2.c exhausted entry.
-  const executable = {
-    canonicalCardId: program.canonicalCardId,
-    rulesetVersion: program.rulesetVersion,
-    status: "executable",
-    abilities: program.abilities,
-    sourceText: program.sourceText
-  };
-  const binding = createProgramBinding({ cardPrograms: [executable] });
+  // Bind only the supported entry declaration, without the unresolved payment gate.
   const board = fixture({
-    cards: [{ id: "guardian", cardId: program.canonicalCardId, types: ["unit"], energy: 4, power: [], might: 4 }],
-    describePlay: binding.describePlay
+    cards: [{ id: "guardian", cardId: program.canonicalCardId, types: ["unit"], energy: 4, power: [], might: 4 }]
   });
   const host = board.kernel.getObject("guardian");
   const bound = bindReplacement(
-    { replaces: enterReady.replaces, with: enterReady.with, condition: enterReady.condition },
+    { replaces: enterReady.replaces, with: enterReady.with },
     host.ref,
     {
       host: {
@@ -177,17 +168,16 @@ test("unl-122-219 Crescent Guardian golden: RIFT-260 binds this declaration and 
   // The production play resolution puts the permanent on the Chain, lands its
   // default orientation (359.2.c exhausted) and then moves it to the Board; the
   // bound entry declaration intercepts that move.
-  board.engine.commit({
-    type: "play",
-    object: board.kernel.ref("guardian"),
-    player: "A",
+  board.engine.execute(board.card("guardian", {
+    kind: "unit",
+    body: [],
     location: { type: "battlefield", id: "bf-1" }
-  });
-  board.engine.advance();
+  }));
   resolveAll(board.engine);
 
   const snapshot = board.kernel.getObject("guardian");
   assert.equal(snapshot.zone, "board");
+  assert.equal(board.kernel.player("A").energy, 16);
   // 359.2.c would enter exhausted; the entry declaration replaces that with a
   // ready entry without a separate becomes-ready timing (805.6.a).
   assert.equal(snapshot.exhausted, false);
@@ -227,6 +217,29 @@ test("unl-122-219 Crescent Guardian: RIFT-260 evaluates the declared gate before
 });
 test.todo(
   "unl-122-219 Crescent Guardian: “If you've played a spell this turn” is evaluated from the turn's played " +
-    "spells — the merged history evaluation covers prior GameActions, not card-played Finalization by card type"
+    "spells — condition.history supports play/objectFilter.type=spell; static cost applicability still needs a history-expression consumer"
 );
 
+
+test("unl-122-219 Crescent Guardian golden: condition.history distinguishes committed spells by their player and type", () => {
+  const kernel = world()
+    .hand("own-spell", { types: ["spell"], owner: "A" })
+    .hand("own-unit", { types: ["unit"], owner: "A" })
+    .hand("enemy-spell", { types: ["spell"], owner: "B" })
+    .build();
+  const countSpells = () => resolveChainBody([{
+    id: "played-spells",
+    op: "condition.history",
+    args: {
+      query: { kind: "constant", value: { scope: "turn", action: "play", player: "A", objectFilter: { type: "spell" } } }
+    }
+  }], kernel).linkedValues["played-spells.count"];
+  assert.equal(countSpells(), 0);
+  for (const [id, player] of [["own-unit", "A"], ["enemy-spell", "B"]]) {
+    assert.equal(kernel.perform({ type: "play", object: kernel.ref(id), player }).status, "done");
+  }
+  assert.equal(countSpells(), 0);
+  assert.equal(kernel.perform({ type: "play", object: kernel.ref("own-spell"), player: "A" }).status, "done");
+  assert.equal(countSpells(), 1);
+  assert.deepEqual(kernel.events.map(event => event.action), ["play", "play", "play"]);
+});

@@ -21,28 +21,17 @@ import type { CardProgram } from "../../ir/index.js";
  *   （除主目标外的该战场所有敌方单位，玩家对这些单位没有选择），不是目标；
  *   "other" 排除主目标，用 exclude 锚点表达。
  *
- * status = judge-required（按当前 HEAD 复核；不近似实现）：
- * - effect.damage 只有 target 形态（argsSchema 要求 target: TargetSpec id；没有
- *   effect.ready / effect.heal 那样可消费 {kind:"query", filter} 的非目标集合分支），
- *   本卡第二条指令的 objects 仍无法由 effect.damage 消费；把「该处其他敌方单位」
- *   写成 TargetSpec 会错误触发「成为目标」（355.7、754）。
- * - 战场与单位之间的 "there" 关系重验（355.10.b/355.11）仍未接线：
- *   当前 Finalize/Resolve 选择面仍不能消费 sameLocationAs 这种相对位置锚点（RIFT-357/RIFT-359）；
- *   本程序只保留可审查的描述形状。
- * 「Deal 4 to that unit」一半只用已合入的 effect.damage，golden 用解释器 +
- * 参考内核真实执行（目标由测试内核 provision，与 firestorm / graves 同一约定）。
- * 依赖：effect.damage 的非目标集合形态，以及 sameLocationAs/exclude 的位置与条件选择消费（RIFT-357/RIFT-359）。
+ * Status: judge-required. Current source audit:
+ * effect.damage supports the chosen unit. The other-enemy set must remain
+ * non-targeted. Interpreter query anchors and target.location are available,
+ * but the authored relative object filter still lacks a program adapter.
  */
 const crescentStrike = {
   canonicalCardId: "card.hash-f7adf9f6506b55f668b24e077add9d1252841ee4cbb74fb432903d6cfc842c88",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺非目标集合的伤害形态：CR 355.10.d 规定按特征程序化选出、玩家无从选择的单位不是目标，" +
-    "但 effect.damage 只有 target 形态（argsSchema 要求 target: TargetSpec id），没有可消费 {kind: \"query\", filter} 非目标集合的分支；" +
-    "把「该处其他敌方单位」写成 TargetSpec 会错误触发「成为目标」（355.7、754），故不近似实现。" +
-    "另外战场与单位之间的 \"there\" 关系（355.10.b/355.11）仍未接线：Finalize/Resolve 选择面不能消费 sameLocationAs/exclude 的相对锚点（RIFT-357/RIFT-359）；本程序只保留战场 + 单位的 TargetSpec 与 exclude 集合描述。" +
-    "「Deal 4 to that unit」一半只用已合入的 effect.damage，golden 真实执行。",
+    "缺 effect.damage 的非目标集合消费：CR 355.10.d 的 each other enemy unit there 不能改成 TargetSpec；该原语仍只接受 target。解释器已能消费 sameLocationAs/exclude 查询锚点，target/location 也已有地点选择与重验，但 programs/filters.ts 的 translateObjectFilter 仍不接受本卡 sameLocationAs 目标过滤器，尚缺战场与单位联合选择的 Finalize 绑定及 CR 355.11 的 there 关系重验。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

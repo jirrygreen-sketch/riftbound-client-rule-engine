@@ -26,21 +26,10 @@ import type { CardProgram } from "../../ir/index.js";
  * - "Give a unit at a battlefield -4 :rb_might: this turn" 是本回合的临时 Might 修正，
  *   按 479.4（Arithmetic 图层）由 layers/ 消费。
  *
- * status = judge-required（按当前 HEAD 复核；不近似实现）：
- * 1. Repeat 的附加费用没有接线：keywords/Repeat.ts 自述 cost.additional / cost.pay 与
- *    "结算端把已付费 Repeat 实例数接到解释器 repeat 指令" 的打出管线仍未合入；
- *    cost.additional / cost.pay 原语和费用计划已合入，但 Repeat 的卡牌接线与付费次数仍缺（RIFT-349 后续）。
- * 2. "you haven't already chosen" 需要跨次结算的"本法术已选模式"记忆；合并的
- *    choice.mode `different: true` 只在同一次选择请求内去重（interpreter/choice.ts），
- *    没有每次结算/每次重复可见的排除集合，也没有 820.2 的"重新做选择"接线。
- * 3. 第 4 个模式现在使用已合入的 continuous.might；其目标锁定仍受模式嵌套的 Finalize
- *    选择面限制，因此整张牌不能标记 executable。
- * 4. 结构上的额外阻断：模式的 body 里带 TargetSpec / choice.mode，链的 Finalize 面
- *    （chain/engine.ts assertFinalizationSurface）禁止嵌套目标与模式选择，需要
- *    Finalize/Resolve 的 choice-plan 适配器（RIFT-357/RIFT-358）。
- * 依赖：Repeat 的附加费用与重复执行接线（RIFT-349 后续）、跨次模式记忆，以及
- * RIFT-357/RIFT-358 的嵌套目标/选择计划。effect.draw、effect.damage 与 continuous.might
- * 均有真实解释器/图层执行证据。
+ * Status: judge-required. Current source audit:
+ * Draw, damage and temporary Might modes execute independently. Repeat
+ * instances need Finalize payment/count binding and shared chosen-mode
+ * memory; the production chain still rejects choice.mode/nested targets.
  */
 
 /**
@@ -71,16 +60,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处依赖未合入，均不近似实现：(1) [Repeat] 的附加费用与结算端额外执行没有接线：keywords/Repeat.ts 自述 " +
-    "cost.additional / cost.pay 原语和费用计划已合入，但 Repeat 的卡牌接线与“把已付费 Repeat 实例数接到解释器 repeat 指令”的打出管线仍缺（820.1.c.2 / 820.1.d.1，RIFT-349 后续），" +
-    "印刷的三档费用（1 / rainbow / 1+rainbow）无法支付、效果无法额外执行。" +
-    "(2) “Choose one you haven't already chosen” 需要跨次结算的“本法术已选模式”记忆：合并 choice.mode 的 different 只在单次选择请求内去重，" +
-    "没有重复执行（820.2 / 820.2.a）可见的排除集合，也没有 750 的重新选择接线。" +
-    "(3) “Give a unit at a battlefield -4 :rb_might: this turn” 已用 continuous.might / 479.4 Arithmetic 图层表达并可执行；" +
-    "该模式的目标锁定仍受嵌套选择面限制。" +
-    "另外模式的 body 含 TargetSpec 与 choice.mode，链 Finalize 面（chain/engine.ts assertFinalizationSurface）阻断嵌套目标与模式选择，" +
-    "需要 Finalize/Resolve 的 choice-plan 适配器（RIFT-357/RIFT-358）。" +
-    "Draw 1、Deal 2、Deal 3 与 Might 模式分别只用已合入的 effect.draw、effect.damage、continuous.might，均有执行证据。",
+    "缺 Repeat 三档独立附加费用到 Finalize optionalAdditional、支付次数到额外执行次数的绑定（CR 820.1.c.2/820.1.d.1）；keywords/Repeat.ts 的 repeat.cost 尚无消费者。缺本法术跨次执行的已选模式集合：choice.mode different 只在单次请求去重（820.2.a）。programs/play.ts 的 validateSurface 与 chain/engine.ts 的 assertFinalizationSurface 仍阻断 choice.mode/嵌套目标，需 Finalize/Resolve choice-plan 适配；continuous.might 的第 4 模式也受这一目标选择缺口限制。",
   abilities: [
     { kind: "keyword", keyword: "repeat" },
     {

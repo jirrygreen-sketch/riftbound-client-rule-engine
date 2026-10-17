@@ -18,17 +18,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 809.1.b.3：token 上的 [Deflect] 省略数值 → 视为 1；Deflect 是 token 的印刷特征（187.7），
  *   不是由本效果另行授予的关键词。
  *
- * status = judge-required（缺口不近似实现；按当前 HEAD 复核）：
- * - effect.token 的冻结 DEFINITIONS 表只有 recruit/sand-soldier/mech/reflection/tentacle；187.7 的
- *   Bird 定义（带 Deflect 关键词）缺席，mode \"play\" 会以 blockedReason
- *   \"token-definition-or-abilities-judge-required\" 直接 negated。
- * - “to your base” 的目的地需要把 base 的 player 占位解析成当前控制者：effect.token 只接受
- *   具体 LocationRef { type: \"base\", player: <PlayerId> }，占位 \"controller\" 会被 negated/impossible
- *   （与 machine-evangel、altar-to-unity 记录的同一缺口）。
- * - Deathknell 的 KeywordDef 已合入并展开为 object-killed + trigger.leave，但 trigger.leave
- *   仍没有 InstructionDef/生产事件接线，因此死亡效果不能进入真实结算链。
- * 依赖：effect.token 的定义表扩展（187.7 Bird）、controller-relative base 解析，以及
- * trigger.leave 的事件/指令接线。不近似实现（不改成 Recruit 等既有定义冒充 Bird + Deflect）。
+ * Status: judge-required. Current source audit:
+ * Resolve the ability controller base with a location expression and pass its
+ * captured value to effect.token. Bird/Deflect token construction and binding
+ * the Deathknell skeleton to the printed effect remain unavailable.
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "deathknell" },
@@ -41,6 +34,14 @@ const abilities: Ability[] = [
     optional: false,
     body: [
       {
+        id: "carrion-dredger.controller-base",
+        op: "condition.value",
+        args: {
+          value: { kind: "location", value: "ability-controller-base" },
+          key: { kind: "constant", value: "location" }
+        }
+      },
+      {
         id: "carrion-dredger.play-bird-token",
         op: "effect.token",
         args: {
@@ -49,8 +50,8 @@ const abilities: Ability[] = [
           amount: { kind: "constant", value: 1 },
           // 185.2.a / 440.2.c：被“打出”的 token 先在链上创建，再交给 play 动作。
           mode: { kind: "constant", value: "play" },
-          // “to your base”：控制者的 Base；player 占位需由内核解析成当前控制者（见 judgeReason）。
-          location: { kind: "constant", value: { type: "base", player: "controller" } },
+          // 440.4：先解析能力控制者的 Base，再交给原语消费具体 LocationRef。
+          location: { kind: "linked-value", instructionId: "carrion-dredger.controller-base", key: "location" },
           linkKey: { kind: "constant", value: "birdToken" }
         }
       }
@@ -64,14 +65,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口（均不近似实现）：(1) effect.token 的冻结 DEFINITIONS 表只有 recruit/sand-soldier/mech/reflection/tentacle，" +
-    "187.7 的 1 [M] Bird（无域、Bird 标签、带 [Deflect]）定义缺席——按该文件说明，自带能力/关键词的定义保持 " +
-    "blocked/judge-required，mode \\\"play\\\" 会以 token-definition-or-abilities-judge-required 直接 negated。" +
-    "(2) “to your base” 的 player 占位需要解析成当前控制者（440.4），已合入的 effect.token 只接受具体 LocationRef，" +
-    "player: \\\"controller\\\" 占位会 negated/impossible（machine-evangel / altar-to-unity 记录同一缺口）。" +
-    "(3) [Deathknell] 的 KeywordDef 已合入并展开为 object-killed + trigger.leave，但 trigger.leave " +
-    "仍没有 InstructionDef/生产事件接线，死亡效果不能进入真实结算链。依赖：effect.token 的定义表扩展（187.7 Bird）、" +
-    "controller-relative base 解析与 trigger.leave 接线。不近似实现（不用 Recruit 等既有定义冒充 Bird + Deflect）。",
+    "缺 effect.token 的 CR 187.7 Bird 定义（无域、1 Might、Bird 标签、Deflect），以及 Deathknell 展开体 trigger.leave 的 InstructionDef 与印刷效果正文绑定（808.1.c/808.1.d）。programs/keywords.ts 仍把关键词骨架和本卡正文展开成两个触发，尚不能证明一次死亡只结算一次正文；不以其他 token 冒充 Bird。",
   abilities,
   sourceText:
     "[Deathknell][>] Play a 1 :rb_might: Bird unit token with [Deflect] to your base. " +
