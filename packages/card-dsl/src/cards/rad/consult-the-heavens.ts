@@ -19,15 +19,15 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   注册表展开。
  * - “Give a unit [Shield 2] this turn”：815 的 Shield 是被动关键词（814 的规则条目为
  *   “Shield”）：814.1.c 的“while I am a defender, I have +2 [M]”。把关键词授予一个单位需要
- *   持续效果/图层授予（调研表把授予归 continuous.keyword，`docs/plans/survey/ability-templates.md`
- *   第 3 节记录该族 0/0 已实现），且授予带“this turn”期限（317.2.c 的到期时点）。
+ *   持续效果/图层授予：已合入的 `continuous.grant-keyword` 指令原语（RIFT-258）负责建立
+ *   ability 层注册，授予带“this turn”期限（317.2.c 的到期时点，别名 end-of-turn）。
  * - [Predict]（437.1 / 437.3.a / 437.4）：看牌库顶一张并选择是否回收它；数值省略时按 1 张。
  *   Predict 的查看 + 选择由 effect.inspect，回收由 effect.recycle，二者均已合入。
  *
- * status = judge-required（见 judgeReason）：[Shield 2] 的授予没有消费方（没有任何已合入
- * 原语/图层能授予关键词并带本回合期限；814 的展开把 +2 绑定在 defender designation 上，
- * 该 designation 也还不是 ObjectSnapshot 特征）；[Predict] 半段可用 effect.inspect +
- * effect.recycle 真实执行，见 golden。
+ * status = judge-required（见 judgeReason）：授予与 Predict 两半的指令都已可用（grant 经
+ * 解释器 + 图层求值，Predict 经 inspect + recycle），但整卡仍缺生产接线：没有任何已合入
+ * 路径把 CardProgram 的关键词/效果能力注册成 TriggerRegistration 或送进 chain（RIFT-257
+ * 卡牌程序绑定仍在进行）；牌库顶的有序 pick 也必须由上游在结算期提供（契约 3.6 zoneSlice）。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "reaction" },
@@ -36,7 +36,8 @@ const abilities: Ability[] = [
     body: [
       {
         // “Give a unit [Shield 2] this turn.” — 814.1.c 的关键词授予（+2 while defender，
-        // 814.1.d.1 的 designation 时效），消费方是图层/持续效果授予（见 judgeReason）。
+        // 814.1.d.1 的 designation 时效），执行方是已合入的 continuous.grant-keyword
+        // ability 层注册（RIFT-258）；形态同 keywords/Shield.ts 的 static 展开。
         // 选择单位按 355.7/355.10.b 是目标。
         id: "consult-the-heavens.grant-shield",
         op: "continuous.grant-keyword",
@@ -44,7 +45,12 @@ const abilities: Ability[] = [
           keyword: { kind: "constant", value: "shield" },
           value: { kind: "constant", value: 2 },
           duration: { kind: "constant", value: "end-of-turn" },
-          target: { kind: "constant", value: "consult-the-heavens.unit" }
+          // 选择器用已合入原语接受的符号形态（objects.target），由解释器在结算期解析为
+          // 运行时 ObjectRef（契约 3.6）。
+          objects: {
+            kind: "constant",
+            value: { kind: "target", id: "consult-the-heavens.unit" }
+          }
         },
         targets: [
           {
@@ -110,13 +116,14 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "「Give a unit [Shield 2] this turn」没有消费方：Shield 的 KeywordDef 展开已合入（814.1.c 的 “while I am a defender, +2 [M]”），" +
-    "但把关键词授予另一个单位并带“this turn”期限需要 continuous.keyword / 图层授予原语（effects/instructions 无该 op，layers/ 无授予消费方；" +
-    "调研表 ability-templates.md 第 3 节记录 continuous.keyword 为 0/0 已实现），且 814.1.d.1 的 Defender designation 仍不是 ObjectSnapshot 特征；" +
-    "同 gem-jammer / forecaster 的判定。可执行部分：[Predict]（437.1/437.3.a/437.4）的查看 + 选择与回收由已合入的 effect.inspect + effect.recycle 真实执行，" +
-    "但牌库顶的精确引用必须在结算期由上游提供（contract 3.6 zoneSlice / picks），静态 IR 只能给出描述性选项。" +
-    "另见数据问题：本印刷在本地目录被记为 cardType Unit，而能力文本是法术式措辞（[Reaction] / [Predict]），与同批 rad-034-167 Hunker Down（Spell）不一致。" +
-    "依赖：RIFT-91（layers-continuous 关键词授予与到期）、契约 3.8 combatRole。不近似实现。",
+    "两半指令都已合入并各有真实执行证据（[Shield 2] 授予经 continuous.grant-keyword 建 ability 层注册、" +
+    "end-of-turn 到期；[Predict] 经 effect.inspect + effect.recycle，437.1/437.3.a/437.4），但整卡仍缺生产接线：" +
+    "没有任何已合入路径把 CardProgram 的能力（play body 与 keyword 能力）注册为 TriggerRegistration 或送进 chain" +
+    "（RIFT-257 卡牌程序绑定仍在进行），且 [Predict] 的牌库顶引用必须由上游在结算期按 437.1/契约 3.6 zoneSlice " +
+    "提供有序 picks，静态 IR 只能给出描述性选项。另：814.1.d.1 的 Defender designation 仍未成为 ObjectSnapshot 特征" +
+    "（契约 3.8 combatRole），Shield 的 +2 只能作为层注册被读出，暂不能按防守身份求值。" +
+    "另见数据问题：本印刷在本地目录被记为 cardType Unit，而能力文本是法术式措辞（[Reaction] / [Predict]），" +
+    "与同批 rad-034-167 Hunker Down（Spell）不一致。不近似实现。",
   abilities,
   sourceText:
     "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +

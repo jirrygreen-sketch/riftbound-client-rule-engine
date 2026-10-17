@@ -34,7 +34,7 @@ test("rad-156-167 Demacian Standard: program validates and has expected identity
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /Deploy/);
 });
 
@@ -57,6 +57,11 @@ test("rad-156-167 Demacian Standard: Deploy + attack-here might body + hold retu
   assert.equal(might.op, "continuous.might");
   assert.deepEqual(might.args.amount, { kind: "constant", value: 2 });
   assert.deepEqual(might.args.duration, { kind: "constant", value: "this-turn" });
+  // The merged primitive's symbolic selector form (contract 3.6).
+  assert.deepEqual(might.args.objects, {
+    kind: "constant",
+    value: { kind: "target", id: "demacian-standard.attacking-unit" }
+  });
   // “one of them” 从该处攻击者中选一个（候选来自触发条件里的攻击者集合）。
   assert.equal(might.targets.length, 1);
   const [spec] = might.targets;
@@ -141,18 +146,67 @@ test("rad-156-167 Demacian Standard: a stale self reference ignores the return i
 });
 
 test.todo(
-  "rad-156-167 Demacian Standard: “give one of them +2 :rb_might: this turn” 缺临时 Might 修改原语" +
-    "（契约 3.6 的 GameAction 集合无 Might 修改动作；effect.buff 明确把临时 Might 归 continuous.might）——" +
-    "依赖 RIFT-91（layers-continuous）与 RIFT-9 continuous 组"
+  "rad-156-167 Demacian Standard: registering the attack-declared / hold triggers from the card program — " +
+    "shared wiring owned by the RIFT-257 card-program binding workstream"
 );
 test.todo(
   "rad-156-167 Demacian Standard: 攻击触发里“one of them”的选择（触发条件收集该处攻击者后由控制者选一）" +
     "依赖触发选择落地（RIFT-33 scenarios-triggers）"
 );
 test.todo(
-  "rad-156-167 Demacian Standard: [Deploy] 关键词展开（830.1.b）未合入（关键词批次 RIFT-81~88 / RIFT-91 不含 Deploy）"
+  "rad-156-167 Demacian Standard: [Deploy] 的 KeywordDef 已合入（keywords/Deploy.ts，RIFT-267，830.1.b），" +
+    "缺卡牌 → 关键词展开 → 图层/触发器 的生产方与 Finalize 位置校验消费方（RIFT-257）"
 );
 test.todo(
-  "rad-156-167 Demacian Standard: hold 触发端到端订阅（315.2.b.2 / 471.2 / 473.2.b）依赖计分与触发管线" +
-    "（RIFT-31 scenarios-scoring / RIFT-33 scenarios-triggers）"
+  "rad-156-167 Demacian Standard: hold / attack-declared 触发端到端订阅（315.2.b.2 / 471.2 / 473.2.b / 466.2.c）：" +
+    "hold 已由 turn/flow.ts 随 Score 波发出，但 here 锚点不在 EventPattern 词表、触发注册路径缺（RIFT-33 / RIFT-257）"
 );
+
+test("rad-156-167 Demacian Standard: +2 Might this turn registers an arithmetic-layer modifier through the real interpreter", () => {
+  // 478 / 807-style temporary Might: the merged continuous.might primitive
+  // (RIFT-258) registers an arithmetic-layer modification with an end-of-turn
+  // duration, and the layers engine applies it to the chosen unit only. The
+  // Finalize-locked target is supplied by the kernel (the reference kernel
+  // compares filter values literally, so the card's TargetSpec stays asserted
+  // structurally above) — the same approach as demacian-illuminators.
+  const bodyWithoutTargets = program.abilities[1].body.map(({ targets, ...rest }) => rest);
+  const kernel = world()
+    .unit("attacker", { might: 3, location: BATTLEFIELD })
+    .unit("enemy", { owner: "B", might: 5, location: BATTLEFIELD })
+    .build();
+  kernel.setTargets("demacian-standard.attacking-unit", [kernel.ref("attacker")]);
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("attacker") });
+
+  const outcome = runAbilityBody(bodyWithoutTargets, scoped);
+
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.equal(scoped.continuousEffects.length, 1);
+  const registration = scoped.continuousEffects[0];
+  assert.deepEqual(registration.duration, { type: "end-of-turn" });
+  assert.equal(registration.effect.layer, "arithmetic");
+  assert.equal(registration.effect.effect.kind, "continuous.might");
+  assert.equal(registration.effect.effect.amount, 2);
+
+  const engine = createLayerEngine(kernel.objects, scoped.continuousEffects.map(entry => ({
+    effect: entry.effect, duration: entry.duration, timestamp: 1
+  })));
+  assert.equal(engine.evaluate(kernel.ref("attacker")).might, 5);
+  assert.equal(engine.evaluate(kernel.ref("enemy")).might, 5);
+  // 317.2.c: the this-turn modifier expires at the end-of-turn timing.
+  engine.expireAt("turn-end", "A");
+  assert.equal(engine.evaluate(kernel.ref("attacker")).might, 3);
+});
+
+test("rad-156-167 Demacian Standard: a stale attacking-unit target ignores the Might grant", () => {
+  const bodyWithoutTargets = program.abilities[1].body.map(({ targets, ...rest }) => rest);
+  const kernel = world().unit("attacker", { might: 3, location: BATTLEFIELD }).build();
+  const stale = kernel.ref("attacker");
+  kernel.perform({ type: "kill", object: stale });
+  kernel.setTargets("demacian-standard.attacking-unit", [stale]);
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("attacker") });
+
+  const outcome = runAbilityBody(bodyWithoutTargets, scoped);
+
+  assert.deepEqual(outcome.results[0].result, { status: "ignored", reason: "mistargeted" });
+  assert.equal(scoped.continuousEffects.length, 0);
+});

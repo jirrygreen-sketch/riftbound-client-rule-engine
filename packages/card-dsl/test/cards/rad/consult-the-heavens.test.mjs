@@ -10,10 +10,11 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/consult-the-heavens.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import shield from "../../../../engine-core/dist/effects/keywords/Shield.js";
-import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import inspect from "../../../../engine-core/dist/effects/instructions/effect.inspect.js";
 import recycle from "../../../../engine-core/dist/effects/instructions/effect.recycle.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL =
@@ -36,10 +37,12 @@ test("rad-025-167 Consult the Heavens: identity, status, judgeReason and verbati
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
-  // README §2: the reason names the missing grant consumer and the owner task.
-  assert.match(program.judgeReason, /continuous\.keyword/);
+  // README §2: the reason names the current gaps — the missing card-program
+  // binding (RIFT-257), the ordered deck-top picks the Predict step needs, and
+  // the Defender designation that is still not a snapshot characteristic.
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /zoneSlice/);
   assert.match(program.judgeReason, /814\.1\.d\.1/);
-  assert.match(program.judgeReason, /RIFT-91/);
   // The reported catalog data issue is recorded in the program header, not by
   // rewriting the text: this printing is catalogued as a Unit with no Might.
   assert.match(program.judgeReason, /cardType Unit/);
@@ -56,7 +59,7 @@ test("rad-025-167 Consult the Heavens: [Reaction] plus a play body of grant + Pr
     ["continuous.grant-keyword", "effect.inspect", "effect.recycle"]
   );
   // CR 813.1.c: Reaction is the closed-state permission keyword.
-  assert.ok(shield.ruleRefs.includes("814.1.c"));
+  assert.equal(reaction.keyword, "reaction");
 });
 
 test("rad-025-167 Consult the Heavens: the [Shield 2] grant names a unit, a value and a turn duration", () => {
@@ -73,9 +76,12 @@ test("rad-025-167 Consult the Heavens: the [Shield 2] grant names a unit, a valu
   assert.equal(target.min, 1);
   assert.equal(target.max, 1);
   assert.equal(target.selection, "one");
-  // The keyword registry has the Shield definition; the missing piece is the
-  // grant/registration consumer, not the keyword itself.
-  assert.equal(keywordDefinitionsById.get("Shield"), shield);
+  // The selector is the merged primitive's symbolic form (contract 3.6); the
+  // interpreter resolves it into the runtime ObjectRef at resolution time.
+  assert.deepEqual(grantShield.args.objects, {
+    kind: "constant",
+    value: { kind: "target", id: "consult-the-heavens.unit" }
+  });
 });
 
 test("rad-025-167 Consult the Heavens: the [Predict] steps use the merged inspect + recycle primitives", () => {
@@ -160,9 +166,115 @@ test("rad-025-167 Consult the Heavens: declining to recycle leaves the deck unto
 });
 
 test.todo(
-  "Consult the Heavens: 'Give a unit [Shield 2] this turn' — blocked because no merged primitive or layer consumer grants a " +
-    "keyword to another object with an end-of-turn duration (continuous.keyword is unimplemented; RIFT-91), and CR 814.1.d.1's " +
-    "Defender designation is not an ObjectSnapshot characteristic (contract 3.8)"
+  "Consult the Heavens: registering the card's own play ability (and its chain cost/target lifecycle) from the card program — " +
+    "shared wiring owned by the RIFT-257 card-program binding workstream"
+);
+
+test("rad-025-167 Consult the Heavens: the [Shield 2] grant registers an ability-layer keyword through the real interpreter", () => {
+  // CR 814.1.b.1/.c: the printed Shield Value is 2 and it is granted until the
+  // end of the turn (317.2.c). The merged continuous.grant-keyword primitive
+  // (RIFT-258) is the producer; the layers engine reads the granted keyword
+  // back with its value.
+  const kernel = world().unit("hero", { might: 2 }).unit("ally", { might: 3 }).build();
+  kernel.setTargets("consult-the-heavens.unit", [kernel.ref("ally")]);
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("hero") });
+
+  const outcome = runAbilityBody([grantShield], scoped);
+
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.equal(scoped.continuousEffects.length, 1);
+  const registration = scoped.continuousEffects[0];
+  assert.deepEqual(registration.duration, { type: "end-of-turn" });
+  assert.equal(registration.effect.layer, "ability");
+  assert.equal(registration.effect.effect.kind, "continuous.grant-keyword");
+  assert.equal(registration.effect.effect.keyword, "shield");
+  assert.equal(registration.effect.effect.keywordValue, 2);
+  // The grant is applied to the chosen unit, not to the ability's own source.
+  assert.equal(registration.effect.filter.objectId, "ally");
+
+  const engine = createLayerEngine(kernel.objects, scoped.continuousEffects.map(entry => ({
+    effect: entry.effect, duration: entry.duration, timestamp: 1
+  })));
+  assert.deepEqual(engine.evaluate(kernel.ref("ally")).keywords, [{ id: "shield", value: 2 }]);
+  assert.deepEqual(engine.evaluate(kernel.ref("hero")).keywords, []);
+  // 317.2.c / 468.7.c: the end-of-turn duration expires at the turn-end timing.
+  engine.expireAt("turn-end", "A");
+  assert.deepEqual(engine.evaluate(kernel.ref("ally")).keywords, []);
+});
+
+test("rad-025-167 Consult the Heavens: a stale unit target ignores the grant instead of granting something else", () => {
+  const kernel = world().unit("hero", { might: 2 }).unit("ally", { might: 3 }).build();
+  const stale = kernel.ref("ally");
+  kernel.perform({ type: "kill", object: stale });
+  kernel.setTargets("consult-the-heavens.unit", [stale]);
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("hero") });
+
+  const outcome = runAbilityBody([grantShield], scoped);
+
+  assert.deepEqual(outcome.results[0].result, { status: "ignored", reason: "mistargeted" });
+  assert.equal(scoped.continuousEffects.length, 0);
+  assert.deepEqual(kernel.getObject("ally").keywords, []);
+});
+
+test("rad-025-167 Consult the Heavens: the whole printed body runs in order through the production chain adapter", () => {
+  // The card's own body (grant, then Predict, then the linked recycle) executed
+  // through the merged production adapter. The deck-top reference is supplied by
+  // the resolving upstream the way contract 3.6 requires (picks + chooser
+  // answer); the card data itself never guesses the top card. The symbolic
+  // "controller" player placeholder is substituted with the concrete player the
+  // way the production Finalize does (ResolveContext carries real PlayerIds), and
+  // the value stays asserted structurally above.
+  const concreteBody = JSON.parse(JSON.stringify(play.body, (_key, value) =>
+    value && typeof value === "object" && value.kind === "constant" && value.value === "controller"
+      ? { kind: "constant", value: "A" }
+      : value));
+  const kernel = world().unit("hero", { might: 2 }).unit("ally", { might: 3 }).deck(["rest"]).deck(["top-seen"]).build();
+  kernel.setTargets("consult-the-heavens.unit", [kernel.ref("ally")]);
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("hero") });
+  const top = kernel.zone("A", "deck")[0];
+  scoped.setPicks("consult-the-heavens.predicted", [top]);
+  scoped.setAnswers({ "consult-the-heavens.predict-look/consult-the-heavens.predict": [top] });
+
+  const outcome = resolveChainBody(concreteBody, scoped);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(result => [result.id, result.result.status]), [
+    ["consult-the-heavens.grant-shield", "executed"],
+    ["consult-the-heavens.predict-look", "executed"],
+    ["consult-the-heavens.predict-recycle", "executed"]
+  ]);
+  assert.equal(scoped.continuousEffects.length, 1);
+  // 437.1: exactly one card was looked at, and 417.1.c put the chosen card at
+  // the bottom of its owner's Main Deck.
+  assert.equal(outcome.linkedValues["consult-the-heavens.predict-look.inspected"], 1);
+  // The replay kernel clones state per resolution, so the recycled order is
+  // read from the scoped context that actually ran the body.
+  assert.deepEqual(scoped.zone("A", "deck").map(ref => ref.id), ["rest", "top-seen"]);
+});
+
+test("rad-025-167 Consult the Heavens: declining to recycle performs an empty recycle and keeps the deck order", () => {
+  const concreteBody = JSON.parse(JSON.stringify(play.body, (_key, value) =>
+    value && typeof value === "object" && value.kind === "constant" && value.value === "controller"
+      ? { kind: "constant", value: "A" }
+      : value));
+  const kernel = world().unit("hero", { might: 2 }).unit("ally", { might: 3 }).deck(["rest"]).deck(["top-seen"]).build();
+  kernel.setTargets("consult-the-heavens.unit", [kernel.ref("ally")]);
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("hero") });
+  const top = kernel.zone("A", "deck")[0];
+  scoped.setPicks("consult-the-heavens.predicted", [top]);
+  scoped.setAnswers({ "consult-the-heavens.predict-look/consult-the-heavens.predict": [] });
+
+  const outcome = resolveChainBody(concreteBody, scoped);
+
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.linkedValues["consult-the-heavens.predict-recycle.recycledCount"], 0);
+  assert.deepEqual(scoped.zone("A", "deck").map(ref => ref.id), ["top-seen", "rest"]);
+});
+
+test.todo(
+  "Consult the Heavens: the [Shield 2] modifier applies +2 only while the unit holds the Defender designation " +
+    "(814.1.d.1); CR 814.1.d.1's designation is not an ObjectSnapshot characteristic (contract 3.8 combatRole)"
 );
 
 test.todo(

@@ -40,7 +40,8 @@ test("rad-131-167 Demacian Illuminators: program validates and has expected iden
 test("rad-131-167 Demacian Illuminators: judgeReason names the batch-death gap", () => {
   assert.match(program.judgeReason, /one or more/);
   assert.match(program.judgeReason, /370\.1\.a\.2/);
-  assert.match(program.judgeReason, /per-batch/);
+  assert.match(program.judgeReason, /simultaneousGroup/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /effect\.buff/);
 });
 
@@ -112,5 +113,11 @@ test("rad-131-167 Demacian Illuminators: a unit that left the board makes the in
 test.todo(
   "rad-131-167 Demacian Illuminators: 'one or more friendly units die' must trigger once per " +
     "simultaneous death batch (CR 370.1.a.2 / 383.1) — the merged trigger pipeline scans once per " +
-    "object-killed event and TriggerSpec.once has no per-batch lifetime (events/trigger workstream after RIFT-120)"
+    "object-killed event even though emissions carry simultaneousGroup, and TriggerSpec.once still has no " +
+    "per-batch lifetime (events/trigger workstream after RIFT-120)"
+);
+
+test.todo(
+  "rad-131-167 Demacian Illuminators: registering the object-killed trigger from the card program — " +
+    "shared wiring owned by the RIFT-257 card-program binding workstream"
 );

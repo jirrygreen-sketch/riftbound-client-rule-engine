@@ -23,12 +23,14 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   在动作层映射为 `return-to-hand`，归属按对象的 owner 路由（本卡的返回目标是本卡自身，静态 IR 用契约 3.6
  *   的 `"source"` 选择器，由解释器绑定运行时引用；picks 条目是对象引用的声明位）。
  *
- * 缺口（不近似实现，故 judge-required）：
- * - `deploy` 关键词展开未合入（关键词批次 RIFT-81~88 / RIFT-91 不含 Deploy）；
- * - 临时 Might 修改（+2 Might this turn）没有已注册原语：契约 3.6 的冻结 GameAction 集合没有 Might 修改动作，
- *   effect.buff 明确把临时 Might 归 `continuous.might`（703 的 Buff 只是 +1 Might 的独立机制，不替代）；
- * - 攻击触发里“one of them”需要在触发条件收集攻击者后由控制者选择其中之一，属于触发式选择的落地
- *   （RIFT-33 scenarios-triggers / RIFT-9 condition 组）。
+ * 复核（2026-10-16 第一轮复核）：
+ * - `continuous.might` 指令原语已合入（RIFT-258）：+2 Might this turn 走 arithmetic 层注册，
+ *   选择器改为原语接受的 `objects.target` 形态；
+ * - `[Deploy]` 的 KeywordDef 已合入（effects/keywords/Deploy.ts，RIFT-267），但 Deploy.ts 自身
+ *   注明缺卡牌 → 关键词展开 → 图层/触发器 的生产方与 Finalize 位置校验消费方（RIFT-257）；
+ * - 缺口：`attack-declared` / `hold` 的 here 锚点不在封闭 EventPattern 词表里（assertTriggerSpec
+ *   拒绝该字段），“one of them” 也仍缺“从触发条件收集到的攻击者集合里选一个”的触发式选择落地；
+ *   另无路径把 CardProgram 的 triggered ability 注册成 TriggerRegistration（RIFT-257）。
  *
  * 可执行部分：hold 分支（`choice.optional` + `effect.zone` 返回手牌）、以及攻击分支的“无合格攻击者时不生效”
  * 只保留结构；golden 用参考内核真实执行 hold 分支的接受/拒绝两条路径。
@@ -46,7 +48,12 @@ const attackAbility: Ability = {
       op: "continuous.might",
       args: {
         amount: { kind: "constant", value: 2 },
-        duration: { kind: "constant", value: "this-turn" }
+          duration: { kind: "constant", value: "this-turn" },
+          // 已合入原语接受的符号选择器形态（契约 3.6；解释器在结算期解析目标）。
+          objects: {
+            kind: "constant",
+            value: { kind: "target", id: "demacian-standard.attacking-unit" }
+          }
       },
       targets: [
         {
@@ -101,12 +108,14 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "缺临时 Might 修改原语：契约 3.6 的冻结 GameAction 集合没有 Might 修改动作，effect.buff 明确把" +
-    "“+2 :rb_might: this turn”归 layers 的 continuous.might（RIFT-9 清单 continuous 组 / RIFT-91" +
-    "layers-continuous 未合入），当前 effects/instructions/ 下没有可注册的 continuous.might 指令；" +
-    "攻击触发里“one of them”还需要在触发条件下对攻击者做选择（RIFT-33 scenarios-triggers）。" +
-    "另 [Deploy]（830.1.b）的关键词展开未合入（关键词批次 RIFT-81~88 / RIFT-91 不含 Deploy）。" +
-    "hold 分支（choice.optional + effect.zone 返回手牌）已可执行并有测试；不近似实现。",
+    "三处当前缺口，均不近似实现：(1)「when one or more friendly units attack here」/「when you hold here」" +
+    "的 here 锚点不在封闭 EventPattern 词表里，assertTriggerSpec 直接拒绝该字段（实测），无法把触发注册到" +
+    "本卡所在战场；(2) 攻击触发里“one of them”需要在触发条件收集该处攻击者后由控制者选择其中之一，" +
+    "属触发式选择的落地（RIFT-33 / RIFT-9 condition 组），尚无路径；(3) 没有已合入路径把 CardProgram 的" +
+    "triggered ability 注册成 TriggerRegistration（RIFT-257 卡牌程序绑定）。" +
+    "已合入部分：+2 Might this turn 用 continuous.might（RIFT-258）表达并有真实执行测试；" +
+    "hold 分支（choice.optional + effect.zone 返回手牌）已可执行且有接受/拒绝两条真实执行测试；" +
+    "[Deploy] 的 KeywordDef 已合入（effects/keywords/Deploy.ts，RIFT-267），缺的是卡牌侧展开/接线。",
   abilities: [
     { kind: "keyword", keyword: "deploy" },
     attackAbility,
