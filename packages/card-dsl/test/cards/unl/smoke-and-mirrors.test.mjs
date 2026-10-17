@@ -4,6 +4,8 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/smoke-and-mirrors.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -100,6 +102,22 @@ test("unl-083-219 Smoke and Mirrors golden: the independent Draw 1 draws one car
   assert.equal(run.linked.drawnTo, "A");
   assert.equal(kernel.player("A").handSize, 1);
   assert.equal(kernel.player("A").deckSize, 1);
+});
+
+test("unl-083-219 Smoke and Mirrors: the merged Temporary keyword definition kills its host", () => {
+  const temporary = keywordDefinitionsById.get("Temporary");
+  assert.ok(temporary, "effects/keywords/Temporary.ts must be registered");
+  const [trigger] = temporary.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(trigger.trigger.at, "beginning-start");
+  assert.deepEqual(trigger.trigger.filter, { event: "beginning-start", player: "self" });
+
+  const kernel = world()
+    .unit("temporary-unit", { owner: "A", might: 2, keywords: [{ id: "Temporary" }] })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("temporary-unit") });
+  const outcome = resolveChainBody(trigger.body, context);
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.equal(context.getObject("temporary-unit").zone, "trash");
 });
 
 test("unl-083-219 Smoke and Mirrors: the pair-relation target filter is accepted by the merged matchers", () => {

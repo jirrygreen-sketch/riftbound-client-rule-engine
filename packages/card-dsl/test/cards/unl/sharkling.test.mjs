@@ -201,6 +201,34 @@ test("unl-006-219 Sharkling golden: the Assault 4 Might modification itself regi
   assert.equal(layered.might, 5);
 });
 
+test("unl-006-219 Sharkling: the Assault designation gate is still observable in the merged layer result", () => {
+  // 807.1.d.1: Assault applies only while the unit holds the Attacker
+  // designation. The IR keeps that gate as a compare condition, while the
+  // current layer vocabulary cannot evaluate designation; preserving the
+  // non-attacker result records the supported arithmetic half and the live
+  // reason this card remains judge-required.
+  const [ability] = assault.expand({ value: program.abilities[1].value, host: HOST });
+  assert.equal(ability.condition.kind, "compare");
+  assert.equal(ability.condition.left.property, "designation");
+  assert.deepEqual(ability.condition.right, { kind: "constant", value: "attacker" });
+
+  const kernel = world().unit("sharkling", { owner: "A", might: 3, combatRole: null }).build();
+  const snapshot = kernel.getObject("sharkling");
+  const layered = createLayerEngine([snapshot], [{
+    effect: {
+      id: "assault-4",
+      layer: "arithmetic",
+      source: snapshot.ref,
+      filter: { objectId: "sharkling" },
+      effect: ability.effect,
+      condition: ability.condition
+    },
+    duration: { type: "permanent" }
+  }]).evaluate(snapshot.ref);
+  assert.equal(snapshot.combatRole, null);
+  assert.equal(layered.might, 7);
+});
+
 test("unl-006-219 Sharkling: the generated card registry exposes the program under its canonical id", () => {
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
