@@ -4,7 +4,9 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/piercing-light.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/index.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-c6895a694724e94fb577d7753bb9ddc8cb6e91662ff6c79fdcad9ae7755438ff";
@@ -119,13 +121,90 @@ test("sfd-023-221 Piercing Light golden: choosing zero units for 'up to one othe
     damage,
     { amount: secondDeal.args.amount, target: secondSpec.id },
     // The merged interpreter accepts an empty locked set for an up-to spec; the
-    // chain-side zero-target Finalize write path is the recorded gap.
+    // card-program → Finalize target-plan mapping is the recorded gap.
     { world: kernel, targets: { [secondSpec.id]: [] } }
   );
 
   assert.deepEqual(run.result, { status: "ignored", reason: "mistargeted" });
   assert.deepEqual(run.events, []);
   assert.equal(kernel.getObject("front-unit").damage, 0);
+});
+
+test("sfd-023-221 Piercing Light golden: the chain Finalize accepts an explicit zero-choice for the up-to target (355.13)", () => {
+  // ChainEngine.execute finalizes the spell with an explicit empty selection
+  // and the resolved body damages only the first locked unit: the unchosen
+  // up-to target emits no became-target event. The test-only draft stands in
+  // for the card-program → Finalize target-plan mapping that remains
+  // judge-required, so both authored TargetSpecs reach the real Finalize path.
+  const kernel = world()
+    .player("A", { energy: 2 })
+    .player("B", { energy: 2 })
+    .hand("piercing-light", { types: ["spell"], energy: 2, power: ["Fury"] })
+    .unit("front-unit", { owner: "B", might: 4 })
+    .build();
+  const spellBefore = kernel.getObject("piercing-light").ref;
+  const decide = (request) => {
+    if (request.type === "select-objects" && request.min === request.max && request.options.length === request.min) {
+      return [...request.options];
+    }
+    throw new Error(`Unexpected choice ${JSON.stringify(request)}`);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (checkpoint) => {
+      kernel.restore(checkpoint.state);
+      kernel.copyLinkedFrom(checkpoint.links);
+    },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose: decide,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose: decide }),
+    testTrigger: (registration) => kernel.test(registration.spec.condition)
+  });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"],
+    turnPlayer: "A",
+    phase: "main",
+    host,
+    cleanup: () => false
+  });
+  engine.execute({
+    id: "chain:piercing-light",
+    controller: "A",
+    source: kernel.getObject("piercing-light"),
+    kind: "spell",
+    speed: "normal",
+    body: [firstDeal, secondDeal],
+    cost: { id: "cost:chain:piercing-light", cost: { energy: { kind: "constant", value: 0 } } },
+    targets: [
+      {
+        requirement: firstSpec,
+        options: { selected: [kernel.ref("front-unit")] }
+      },
+      {
+        requirement: secondSpec,
+        options: { selected: [] }
+      }
+    ]
+  });
+  assert.equal(engine.items[0].status, "finalized");
+
+  // A spell waits for Priority (365.2), so two passes resolve the finalized
+  // chain item and move the spell to Trash.
+  let guard = 0;
+  while (engine.items.length) {
+    if (++guard > 20) throw new Error("Nonterminating test chain");
+    engine.pass(engine.priority);
+  }
+
+  assert.equal(kernel.getObject("front-unit").damage, 2);
+  assert.equal(kernel.getObject("piercing-light").zone, "trash");
+  assert.notDeepEqual(kernel.getObject("piercing-light").ref, spellBefore);
+  assert.equal(
+    engine.pipeline.events.filter((event) => event.timingPoint === "became-target").length,
+    1
+  );
+  assert.match(engine.trace.map((entry) => entry.step).join(","), /resolved/);
 });
 
 test("sfd-023-221 Piercing Light golden: a single-sentence mistarget does not suppress the other Deal (359.3.e.11)", () => {
@@ -162,8 +241,8 @@ test.todo(
 
 test.todo(
   "sfd-023-221 Piercing Light: locking a zero-choice 'up to one' target through the production " +
-    "Finalize flow (355.13) and the became-target trigger for the chosen units belong to the " +
-    "target system's Finalize consumer."
+    "card-program → Finalize target-plan mapping (355.13); the explicit zero-selection Finalize " +
+    "write path itself is merged and covered by the ChainEngine golden."
 );
 
 test.todo(

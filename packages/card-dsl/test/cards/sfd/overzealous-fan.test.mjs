@@ -34,16 +34,17 @@ test("sfd-128-221 Overzealous Fan: program validates and keeps its identity", ()
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("sfd-128-221 Overzealous Fan: judgeReason names all three merged gaps", () => {
+test("sfd-128-221 Overzealous Fan: judgeReason names the merged and remaining gaps", () => {
   assert.match(program.judgeReason, /defense-declared/);
   assert.match(program.judgeReason, /466\.2\.c/);
   assert.match(program.judgeReason, /combat-start-transaction/);
-  assert.match(program.judgeReason, /combatRole\/designation/);
-  assert.match(program.judgeReason, /198\.2/);
-  assert.match(program.judgeReason, /controller-base/);
+  assert.match(program.judgeReason, /programs\/filters\.ts/);
+  assert.match(program.judgeReason, /107\.1\.c/);
+  // CR 204.1.c names this card: the kill is the ability's Base Cost and must be
+  // paid to Finalize, so the wiring gap must stay recorded.
+  assert.match(program.judgeReason, /204\.1\.c/);
+  assert.match(program.judgeReason, /mayAtFinalize/);
   assert.match(program.judgeReason, /combat 身份指派与事件发射/);
-  assert.match(program.judgeReason, /target\.location 未合入/);
-  assert.match(program.judgeReason, /Attacker designation/);
 });
 
 test("sfd-128-221 Overzealous Fan: 'when I defend' subscribes to defense-declared once per combat", () => {
@@ -86,17 +87,18 @@ test("sfd-128-221 Overzealous Fan: the may-shape kills the source, then moves an
   assert.deepEqual(moveAttacker.targets, [
     {
       id: "overzealous-fan.attacking-unit",
-      filter: { type: "unit", zone: "board", attacking: true },
+      filter: { type: "unit", zone: "board", combatRole: "attacker" },
       min: 1,
       max: 1,
       selection: "one"
     }
   ]);
-  // "to its base" is the owner's Base (198.2), derived from the chosen unit;
-  // controller-base would follow the post-move controller and is not used.
+  // "to its base" is the controller's Base (107.1.c: permanents controlled by a
+  // player reside in that player's Base), derived from the chosen unit at
+  // execution time by the merged target-controller-base selector.
   assert.deepEqual(moveAttacker.args.to, {
     kind: "constant",
-    value: { ownerBaseOf: { target: "overzealous-fan.attacking-unit" } }
+    value: { kind: "target-controller-base", target: "overzealous-fan.attacking-unit" }
   });
   assert.equal(moveAttacker.args.mode, undefined);
   assert.deepEqual(moveAttacker.args.linkKey, { kind: "constant", value: "moved" });
@@ -141,16 +143,50 @@ test.todo(
 
 test.todo(
   "sfd-128-221 Overzealous Fan: finalize can reject non-attacking units for \"an attacking unit\" using " +
-    "the 466.2.c Attacker designation (contract 3.8 combatRole; ObjectSnapshot has no such field yet)"
+    "the 466.2.c Attacker designation (the snapshot has combatRole, but production combat flow " +
+    "does not assign it and programs/filters.ts still rejects the filter key)"
 );
 
-test.todo(
-  "sfd-128-221 Overzealous Fan: \"to its base\" resolves the chosen attacker's OWNER's Base (198.1/198.2) " +
-    "as a derived LocationRef instead of controller-base — target.location destination plan"
-);
+test("sfd-128-221 Overzealous Fan golden: accepting the may kills the Fan and moves the chosen attacker to its controller's Base", () => {
+  // 383.4.f / 355.10.c.1 / 107.1.c: with the defense trigger and Attacker
+  // designation supplied by the combat layer, accepting the optional kill
+  // destroys the Fan and then executes the linked real move through the
+  // interpreter: the chosen attacker goes to the chosen unit's CONTROLLER's
+  // Base — even when controller and owner differ (owner A, controller B).
+  const kernel = world()
+    .unit("fan", { owner: "A", might: 2 })
+    .base("a-base", { owner: "A" })
+    .base("b-base", { owner: "B" })
+    .unit("attacker", { owner: "A", controller: "B", combatRole: "attacker" })
+    .build();
+  const context = withFanAsSource(kernel);
+  context.setTargets("overzealous-fan.attacking-unit", [context.ref("attacker")]);
+  context.setAnswers({ "overzealous-fan.may-kill/optional": true });
 
-test.todo(
-  "sfd-128-221 Overzealous Fan golden: accepting the may kills the Fan and then moves the chosen " +
-    "attacker to its owner's Base; the authored destination is a declared owner-base marker (198.2), " +
-    "so no authentic execution is possible until that LocationRef is resolvable"
-);
+  const outcome = resolveChainBody(ability.body, context);
+
+  assert.equal(outcome.status, "executed");
+  // The optional choice flattens its accepted child instructions into the
+  // outcome, so the executed ids end with the choice instruction itself.
+  assert.deepEqual(outcome.results.map((entry) => entry.id), [
+    "overzealous-fan.kill-self",
+    "overzealous-fan.move-attacker",
+    "overzealous-fan.may-kill"
+  ]);
+  assert.equal(context.getObject("fan").zone, "trash");
+  assert.deepEqual(context.getObject("attacker").location, { type: "base", player: "B" });
+  assert.deepEqual(context.events.map((event) => event.action), ["kill", "move-location"]);
+});
+
+test("sfd-128-221 Overzealous Fan: the kill-first-cost wiring stays recorded as judge-required evidence (204.1.c)", () => {
+  // CR 204.1.c's printed example is this card: the kill is the triggered
+  // ability's Base Cost, paid to finalize the ability — not a resolution-time
+  // instruction. The production binder offers no cost/mayAtFinalize extraction,
+  // so the golden above only proves the linked body executes; it is not
+  // evidence that the Finalize cost flow is merged. This structural check keeps
+  // the current-shape declaration honest and the gap recorded.
+  assert.equal(mayKill.op, "choice.optional");
+  assert.equal(ability.optional, false);
+  assert.match(program.judgeReason, /204\.1\.c/);
+  assert.match(program.judgeReason, /cost\/mayAtFinalize/);
+});

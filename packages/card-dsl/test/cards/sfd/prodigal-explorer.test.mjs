@@ -47,7 +47,7 @@ test("sfd-199-221 Prodigal Explorer: identity, ruleset, status, judgeReason and 
   // became-target itself is merged now, so the reason must point at the
   // missing count/attribution dimensions instead of the timing point.
   assert.match(program.judgeReason, /became-target 时点已合入/);
-  assert.match(program.judgeReason, /canAct 读取图层许可/);
+  assert.match(program.judgeReason, /chain\.canAct 也已读取/);
 });
 
 test("sfd-199-221 Prodigal Explorer: a Reaction-speed activated ability exhausting the source", () => {
@@ -136,7 +136,7 @@ test.todo(
     "cost's 'exhaust me' host cannot be bound in production"
 );
 test.todo(
-  "sfd-199-221 Prodigal Explorer: chain.canAct (the contract 3.5 timing query) must read the merged " +
-    "continuous.timing grants from the layers/rules registry (query without a chain consumer) " +
-    "before the printed [Reaction] permission is enforced"
+  "sfd-199-221 Prodigal Explorer: the printed [Reaction] permission can reach chain.canAct through " +
+    "continuous.timing grants (merged), but a Legend still has no production activation host " +
+    "(CR 108.3 Legend Zone; contract 3.6 ZoneId), so enforcement remains unbound"
 );

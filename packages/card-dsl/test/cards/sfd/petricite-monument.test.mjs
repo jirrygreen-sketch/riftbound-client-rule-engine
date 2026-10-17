@@ -106,5 +106,6 @@ test.todo(
 );
 test.todo(
   "sfd-104-221 Petricite Monument: the granted [Deflect] layer value is live, but the target.tax " +
-    "reader and any-Domain Power tax booking (809.1.c.1) are still missing."
+    "plan mapping from the static binder is still missing, and the merged Finalize tax consumer " +
+    "books the tax as Energy instead of any-Domain Power (809.1.c.1)."
 );

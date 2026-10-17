@@ -47,9 +47,11 @@ import type { CardProgram } from "../../ir/index.js";
  * - the second sentence needs a dynamic battlefield location for the second
  *   target: "another unit" is not restricted to a battlefield, but "up to one
  *   other unit" must exclude the first chosen unit, which the merged `exclude`
- *   anchor can express; the remaining gap is 355.13's zero-choice write path for
- *   a `min: 0` target in the production Finalize flow (the merged interpreter
- *   handles it, the chain-side zero-target Finalize does not).
+ *   anchor can express. The zero-choice path itself is merged end to end
+ *   (explicit Finalize selection and the interpreter both accept an empty
+ *   `up-to` set); the remaining gap is the card-program → Finalize target-plan
+ *   mapping that would submit the authored TargetSpec, including the `exclude`
+ *   anchor's consumption of the first locked TargetSpec.
  * Both Deal instructions use merged primitives with Finalize-locked targets, and
  * the golden test executes them (including the zero-choice and stale-target
  * cases) through the real interpreter and reference kernel; the Repeat and
@@ -64,10 +66,11 @@ export default {
     "两处依赖未合入，均不近似实现：(1) [Repeat] :rb_energy_2::rb_rune_fury: 的可选附加费用无法收取或回读：没有把卡牌程序声明的" +
     "可选附加费用接进已合入 cost 计划的 optionalAdditional 入口，已付实例数也没有供结算读取的绑定（820.1.c.1 / 820.1.d.1，" +
     "缺 optionalAdditional 接线与 paid-instance 回执）。" +
-    "(2) 第二个目标按 355.13 允许『up to one』选 0 个（selection: up-to、min: 0），已合入解释器能处理，但链侧 Finalize 的" +
-    "零目标写入路径尚未合入（目标系统的 Finalize 消费方）。两条 effect.damage 数额、目标限制（355.10.b 的 location、355.9.c/740.1.a 的" +
+    "(2) 第二个目标按 355.13 允许『up to one』选 0 个（selection: up-to、min: 0），该零选择路径已端到端合入" +
+    "（Finalize 显式 selected 集与解释器都接受空 up-to 集，golden 已覆盖）；仍缺的是把卡牌程序声明的 TargetSpec " +
+    "映射进 Finalize target-plan 的生产消费方，含 exclude 锚点对首个已锁定 TargetSpec 的消费。两条 effect.damage 数额、目标限制（355.10.b 的 location、355.9.c/740.1.a 的" +
     "『another』经 exclude 锚点排除首个目标）与 355.8 的锁定形状已如实编码，golden 用真实原语执行（含零选择与 stale 目标边界）。" +
-    "依赖：Repeat 可选附加费用接线与实例数回执、零目标 Finalize 写入路径。",
+    "依赖：Repeat 可选附加费用接线与实例数回执、卡牌程序目标计划的生产消费方（含 exclude 锚点）。",
   abilities: [
     {
       kind: "play",

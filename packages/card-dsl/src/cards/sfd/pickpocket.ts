@@ -19,25 +19,23 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "with Energy cost no more than :rb_energy_1:"（206：费用判定用印刷/复制费用）是目标合法性
  *   限制（355.9.b 型的阈值限制），写在 TargetSpec.filter 上。
  * - "If you do, play a Gold gear token exhausted"：359.3.e.14.b 规定「If you do」直接引用前一条
- *   指令执行的游戏动作；"play ... exhausted" 是 440.2.c/185.2.a 的链上创建 + 打出流程，
+ *   指令执行的游戏动作；以 linked-value 读取 effect.kill 的 killed 回执，与空列表比较，
+ *   仅实际消灭后放行。"play ... exhausted" 是 440.2.c/185.2.a 的链上创建 + 打出流程，
  *   "exhausted" 是入场状态规定（184.1/185.2.d）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required，三处依赖仍未合入，均不近似实现：
+ * status 判定（cards/README.md 第 2 节）：judge-required，三处当前缺口，均不近似实现：
  * - 缺印刷费用上限谓词：冻结 ObjectFilter 没有费用键，已合入的过滤器（layers/filter.ts 的
  *   matchesObjectFilter 与测试内核 matchesFilter）只按 type/zone/controller/owner/tags 等匹配，
  *   未知键被静默忽略——把它当已实现会让 Pickpocket 能消灭任意费用的 gear（sfd/sandshifter 的
- *   mightLte 记录同一缺口）；206 的印刷费用读取与 355.9.b 的阈值限制属目标/图层批次（RIFT-90）。
- * - 「If you do」需要前一条消除动作的回执（359.3.e.14.b 的直接引用游戏动作条件，调研记为
- *   condition.result）：冻结 IR 没有该绑定，token 指令无法按 kill 实际发生开闸；不加恒真条件、
- *   也不把费用/动作改写成效果（linkedTo 的 ignored/negated 传播不区分「直接引用动作」，见
- *   interpreter README 的链接语义）。
+ *   mightLte 记录同一缺口）；206 的印刷费用读取与 355.9.b 的阈值限制仍缺费用过滤消费方。
  * - Gold gear token（CR 187.5：domainless gear token，自带 "[Reaction][>] Kill this, [E]: [Add] [A]"）
  *   仍不在 effect.token 的已实现定义表；虽然 mode: "play" 已支持链上创建 + 打出，
- *   Gold 的能力定义与 exhausted 入场规定尚未实现。
- * effect.kill 与 choice.optional 已合入并被 golden 真实执行（接受/拒绝/目标失效三分支）。
- * 依赖：目标过滤的印刷费用谓词（RIFT-90 目标系统）、frozen IR 的 condition.result 动作回执
- * 契约缺口、Gold 定义与入场状态（token 原语任务）；programs/filters.ts 在注册时直接拒绝
- * 未知的 costEnergyLte 字段，因此该过滤不是可执行路径。
+ *   Gold 的能力定义尚未实现。
+ * - effect.token 不支持 exhausted 入场规定（184.1/185.2.d），不能用入场后的横置代替。
+ * effect.kill、choice.optional 与「If you do」回执条件已合入；golden 对原始 body 真实执行
+ * 成功、被替代、被阻止、不可能执行、目标失效五分支，仅成功消灭会进入 Gold 指令。
+ * 依赖：目标过滤的印刷费用谓词、Gold 定义与入场状态（token 原语）；programs/filters.ts
+ * 在注册时直接拒绝未知的 costEnergyLte 字段，因此该过滤不是可执行路径。
  */
 const abilities: Ability[] = [
   {
@@ -61,9 +59,16 @@ const abilities: Ability[] = [
               {
                 // 440.2.c / 185.2.a：被表述为 "play" 的 token 先在链上创建再由打出流程接手；
                 // 184.1/185.2.d："exhausted" 是入场状态规定，不是事后的 effect.exhaust。
-                // 359.3.e.14.b 的「If you do」闸门缺失（见 judgeReason），故不加恒真条件。
+                // 359.3.e.14.b：直接引用前一条 kill 的非空成功回执；linkedTo 本身
+                // 不阻断 negated，不能单独作为「If you do」条件。
                 id: "pickpocket.play-gold-token",
                 op: "effect.token",
+                condition: {
+                  kind: "compare",
+                  left: { kind: "linked-value", instructionId: "pickpocket.kill-gear", key: "killed" },
+                  operator: "ne",
+                  right: { kind: "constant", value: [] }
+                },
                 args: {
                   token: { kind: "constant", value: "gold" },
                   amount: { kind: "constant", value: 1 },
@@ -96,16 +101,15 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处依赖仍未合入，均不近似实现：(1)「a gear with Energy cost no more than :rb_energy_1:」需要 206 的印刷费用上限比较作为目标合法性限制" +
+    "三处当前缺口，均不近似实现：(1)「a gear with Energy cost no more than :rb_energy_1:」需要 206 的印刷费用上限比较作为目标合法性限制" +
     "（355.9.b 型阈值）：冻结 ObjectFilter 没有费用谓词，programs/filters.ts 注册时会直接拒绝未知的 " +
     "costEnergyLte 字段（Unsupported filter field），TargetSpec 也没有可执行的费用上限——" +
     "把它当已实现会让 Pickpocket 消灭任意费用的 gear（同 sfd/sandshifter 的 mightLte 缺口）。" +
-    "(2)「If you do」是 359.3.e.14.b 的直接引用游戏动作条件（调研记为 condition.result）：冻结 IR 没有动作/费用回执绑定，" +
-    "Gold token 指令无法按 kill 实际发生开闸；linkedTo 的传播不区分「直接引用动作」（negated 时仍会放行），故不伪造该闸门。" +
-    "(3) Gold gear token（CR 187.5，自带 Reaction/Kill/[E]: [Add] [A] 能力）仍不在 effect.token 的已实现定义表；" +
-    "mode: play 的链上创建 + 打出路径已合入，但 Gold 定义与 exhausted 入场状态仍不支持。effect.kill 与 choice.optional 已合入，" +
-    "golden 用锁定目标真实执行 kill 半段。依赖：目标过滤的印刷费用谓词（RIFT-90 目标系统）、" +
-    "frozen IR 的 condition.result 动作回执契约缺口、Gold 定义与入场状态（token 原语任务）。",
+    "(2) Gold gear token（CR 187.5，自带 Reaction/Kill/[E]: [Add] [A] 能力）仍不在 effect.token 的已实现定义表。" +
+    "(3) mode: play 的链上创建 + 打出路径已合入，但 effect.token 仍不支持 exhausted 入场状态（184.1/185.2.d）。" +
+    "「If you do」（359.3.e.14.b）已用 linked-value + compare 读取 effect.kill 的非空 killed 回执；" +
+    "golden 用原始 body 覆盖成功、被替代、被阻止、不可能执行与目标失效，仅成功消灭放行 Gold 指令，" +
+    "不宣称 Gold 已打出。依赖：目标过滤的印刷费用谓词、Gold 定义与入场状态（token 原语）。",
   abilities,
   sourceText:
     "When you play me, you may kill a gear with Energy cost no more than :rb_energy_1:. " +
