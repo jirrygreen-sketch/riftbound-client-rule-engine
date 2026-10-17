@@ -11,6 +11,9 @@ import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { isTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { registerProgramTriggers, triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const ENGINE = new URL("../../../../engine-core/dist/", import.meta.url);
 // resolveChainBody is the production card-body entry point
@@ -186,6 +189,41 @@ test.todo(
 test.todo(
   "Altar of Memories: carry CardProgram trigger cost into the existing TriggerRegistration.cost and Finalize transaction (383.3.b.1/415.4/415.5)"
 );
+
+test("Altar of Memories: the trigger registration carries no base cost and cost.pay rejects the card's payments array", () => {
+  // 383.3.b.1 / 405.2: the leading "exhaust me" cost must be paid to finalize
+  // the triggered ability. The merged TriggeredAbility contract has no cost
+  // field, programs/triggers.ts emits no cost, and the merged payer refuses the
+  // authored payments list (it is not a finalized plan), so no production path
+  // can charge it.
+  assert.equal(Object.hasOwn(ability, "cost"), false);
+  const { judgeReason, ...executableProgram } = program;
+  const registration = triggerRegistrations(
+    new ProgramRegistry([{ ...executableProgram, status: "executable" }]),
+    world().unit("altar", { cardId: CANONICAL, types: ["gear"] }).build().getObject("altar")
+  )[0];
+  assert.equal(registration.cost, undefined);
+
+  const kernel = world().unit("altar", { types: ["gear"] }).build();
+  assert.throws(() => runInstruction(costPay, { payments: payExhaust.args.payments }, { world: kernel }),
+    error => error.reason === "cannot-pay-cost");
+  assert.equal(kernel.getObject("altar").exhausted, false);
+});
+
+test("Altar of Memories: the merged registration really attaches to the event pipeline", () => {
+  // The friendly-death trigger itself is registrable (429.1/740.1.a); only the
+  // missing base cost blocks the card.
+  const f = fixture({ cards: [{ id: "altar", cardId: CANONICAL, types: ["unit"] }] });
+  const { judgeReason, ...executableProgram } = program;
+  const registry = new ProgramRegistry([{ ...executableProgram, status: "executable" }]);
+  const source = f.kernel.getObject("altar");
+  const ids = registerProgramTriggers(registry, f.engine, source);
+  assert.equal(ids.length, 1);
+  const registered = triggerRegistrations(registry, source)[0];
+  assert.deepEqual(registered.body.map(instruction => instruction.id), [
+    "altar-of-memories.may-exhaust-and-draw"
+  ]);
+});
 
 
 test("Altar of Memories: the merged trigger translator preserves friendly-death filtering", () => {

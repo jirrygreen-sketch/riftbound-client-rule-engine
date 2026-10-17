@@ -10,8 +10,12 @@ import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
 import { runInstruction } from "../../../../engine-core/dist/effects/testing/index.js";
+import tokenInstruction from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
-import { isTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { isTriggerSpec, validateTriggerSpec, OBJECT_FILTER_ZONES } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { registerProgramTriggers, triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID = "card.hash-01131fb927733e60c9009e61900d2495713b314af34ab00ef3cddc7512efe6be";
 const SOURCE_TEXT =
@@ -179,6 +183,58 @@ test.todo(
 test.todo(
   "Battle Mistress: group simultaneous enemy deaths by the same game action so one or more triggers once (370.1.a.2)"
 );
+
+test("Battle Mistress: the recycle trigger really cannot register through the closed event vocabulary", () => {
+  // 417.1/185.1: the actions adapter emits card-recycled for real recycle
+  // actions, but the event pattern vocabulary has no such name, so trigger
+  // registration is rejected before any filtering happens.
+  const translated = translateTriggerFilter(recycleTrigger.trigger.filter, "battle-mistress", recycleTrigger.trigger.at);
+  const validation = validateTriggerSpec({ at: recycleTrigger.trigger.at, filter: translated });
+  assert.equal(validation.ok, false);
+  assert.deepEqual(validation.issues.map(issue => issue.code), ["invalid-event-type"]);
+
+  const f = fixture({ cards: [{ id: "battle-mistress", cardId: CARD_ID, types: ["legend"] }] });
+  const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
+  const source = f.kernel.getObject("battle-mistress");
+  // Both abilities translate into registrations; only the death trigger's event
+  // name is in the closed vocabulary, so registering the set fails on the
+  // recycle trigger and leaves the pipeline without the card's triggers.
+  const registrations = triggerRegistrations(registry, source);
+  assert.deepEqual(registrations.map(registration => registration.spec.at), ["card-recycled", "object-killed"]);
+  assert.throws(() => registerProgramTriggers(registry, f.engine, source),
+    error => error.name === "TriggerSpecValidationError" &&
+      error.issues.some(issue => issue.code === "invalid-event-type" && issue.path === "trigger.filter.event"));
+  assert.equal(f.engine.pipeline.triggers.size, 0);
+});
+
+test("Battle Mistress: the Gold gear token has no playable definition or exhausted entry", () => {
+  // 187.5/143.4/185.2.d: Gold carries its own printed ability and enters
+  // exhausted. The merged token table has no "gold" entry and create-token has
+  // no entry-state override, so the half cannot be approximated by playing a
+  // different token or by exhausting afterwards.
+  const kernel = legendWorld();
+  const run = runInstruction(tokenInstruction, { ...playGold.args, location: { kind: "constant", value: { type: "base", player: "A" } } }, { world: kernel });
+  assert.deepEqual(run.result, { status: "negated", reason: "impossible", events: [] });
+  assert.equal(run.linked.goldToken.blockedReason, "token-definition-or-abilities-judge-required");
+  assert.equal(run.linked.goldToken.amount, 0);
+  assert.equal(kernel.query({ zone: "board", type: "gear" }).length, 0);
+
+  assert.throws(() => runInstruction(tokenInstruction, {
+    ...playGold.args, location: { kind: "constant", value: { type: "base", player: "A" } }, exhausted: { kind: "constant", value: true }
+  }, { world: legendWorld() }), error => /Invalid effect\.token argument: exhausted/.test(error.message));
+});
+
+test("Battle Mistress: the trigger base cost has no declaration point or Finalize consumer", () => {
+  // 383.3.b.1/415.4/415.5: "you may exhaust me to" must be paid to finalize the
+  // ability. TriggeredAbility has no cost field, programs/triggers.ts never
+  // fills TriggerRegistration.cost, and the legend-zone payer is missing.
+  assert.equal(Object.hasOwn(recycleTrigger, "cost"), false);
+  const f = fixture({ cards: [{ id: "battle-mistress", cardId: CARD_ID, types: ["legend"] }] });
+  const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
+  const registration = triggerRegistrations(registry, f.kernel.getObject("battle-mistress"))[0];
+  assert.equal(registration.cost, undefined);
+  assert.equal(OBJECT_FILTER_ZONES.includes("legend-zone"), false);
+});
 
 
 test("Battle Mistress: the merged trigger translator preserves enemy-unit death filtering", () => {

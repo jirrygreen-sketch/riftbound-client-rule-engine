@@ -160,9 +160,10 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "可选附加费用（356.2.b/356.2.b.1）的 static cost.additional 尚未被 programs/play.ts 收集进 Finalize 的 optionalAdditional，且 356.4.f.1 的支付决定收据没有 CardProgram Condition 绑定，不能无条件移动敌方装备。" +
-    "effect.control 对 while-source-in-zone 仍返回 negated/impossible，缺 479.2.a/482.3 的持续控制到期与原控制者恢复（359.3.e.16 的 Akshan 例子）。" +
-    "Weaponmaster 仍缺所选 Equipment 的权威 Equip 费用绑定与原始 [A] 符号来源；cost.modify 的 reduce-equip-cost 因 821.1.c.2-.5 主动阻断，不能用装备打出费或普通 Power 折扣代替。",
+    "可选附加费用（356.2.b/356.2.b.1）未接通：static cost.additional 在 programs/statics.ts 的 layerFor 没有图层映射（\"Static ability kind cost.additional has no layer mapping\"），" +
+    "programs/play.ts 的 translateCost 也拒绝 additional 字段，故费用进不了 Finalize 的 optionalAdditional；356.4.f.1 的支付决定回执同样没有 CardProgram Condition 可读，不能无条件移动敌方装备。" +
+    "effect.control 对 duration { type: \"while-source-in-zone\" } 仍以 negated/impossible + blockedReason 返回（缺 479.2.a/482.3 的持续控制到期与最后控制者恢复；359.3.e.16 的官方例子正是本卡）。" +
+    "Weaponmaster 仍缺权威 Equip 费用绑定与原始 [A] 符号来源：cost.modify 的 reduce-equip-cost 与 source-目标形态都主动抛 CostFailure judge-required（821.1.c.2-.3 的 [A] 不可由 allowedDomains 还原），不能用装备的打出费或普通 Power 折扣代替。",
   abilities,
   sourceText:
     "[Weaponmaster]\n" +

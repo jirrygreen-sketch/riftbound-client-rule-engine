@@ -13,6 +13,11 @@ import move from "../../../../engine-core/dist/effects/instructions/effect.move.
 import { runInstruction } from "../../../../engine-core/dist/effects/testing/index.js";
 import { buildAdditionalCostPlan } from "../../../../engine-core/dist/cost/kinds/additional.js";
 import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
+import { CombatFlow } from "../../../../engine-core/dist/combat/flow.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { bindStaticAbility, createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID = "card.hash-f83c5d61c7ea4a0d2c54ba2c2a17020893a7a3b5a90d16003fe815b2b61c5c12";
 const BATTLEFIELD = { type: "battlefield", id: "battlefield-1" };
@@ -186,6 +191,35 @@ test.todo(
 test.todo(
   "Azir, Sovereign: connect accelerate.cost collection and its paid decision to the entry replacement without a becomes-ready trigger (805.2.b/805.6.a)"
 );
+
+test("Azir, Sovereign: the real combat start transaction is still blocked (383.4.e.2/466.2.c)", () => {
+  // Attacker designation is produced by the combat start task. That task keeps
+  // throwing before any attack-declared emission exists, so the trigger cannot
+  // fire from real play.
+  const f = fixture({});
+  const flow = new CombatFlow(f.engine, f.engine.pipeline.host, [{ id: "bf", controller: null }], () => {});
+  assert.equal(f.engine.commit({ type: "move-zone", object: f.kernel.ref("source"), to: "board", location: { type: "battlefield", id: "bf" } }).status, "done");
+  assert.equal(f.engine.commit({ type: "move-zone", object: f.kernel.ref("enemy"), to: "board", location: { type: "battlefield", id: "bf" } }).status, "done");
+  assert.equal(flow.entered(f.host.objects().find(object => object.ref.id === "source")).length, 1);
+  assert.equal(flow.cleanup(), true);
+  assert.deepEqual(flow.battlefields.map(field => field.staged), ["combat"]);
+  assert.throws(() => flow.advance(), error => error.code === "combat-start-transaction" && /466\.2/.test(error.message));
+  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "attack-declared").length, 0);
+});
+
+test("Azir, Sovereign: the declared accelerate.cost static has no binding, so it never reaches Finalize", () => {
+  // 805.2.b/805.6.a: Accelerate's paid decision must gate the entry replacement.
+  // The keyword's static accelerate.cost has no layer mapping and play.ts
+  // rejects additional costs, so nothing collects or charges it.
+  const f = fixture({ cards: [{ id: "azir-sovereign", cardId: CARD_ID, types: ["unit"], might: 4 }] });
+  const source = f.kernel.getObject("azir-sovereign");
+  const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
+  const expanded = expandProgram(registry.get(CARD_ID), source);
+  const declared = expanded.abilities.find(candidate => candidate.kind === "static" && candidate.effect.kind === "accelerate.cost");
+  assert.equal(declared !== undefined, true);
+  assert.throws(() => bindStaticAbility(createEngineStaticBinder(f.engine), declared, source),
+    error => error.code === "judge-required" && /accelerate\.cost has no layer mapping/.test(error.message));
+});
 
 
 test("Azir, Sovereign: the source referent follows a real move before the trigger body resolves", () => {

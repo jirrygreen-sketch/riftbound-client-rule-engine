@@ -9,6 +9,10 @@ import attach from "../../../../engine-core/dist/effects/instructions/effect.att
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
+import control from "../../../../engine-core/dist/effects/instructions/effect.control.js";
+import { createEngineStaticBinder, bindStaticAbility } from "../../../../engine-core/dist/programs/statics.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID = "card.hash-237227d339dd27a4f456f9ba38485d4f136673d8abcc77adbca944e2fa427ef8";
 const SOURCE_TEXT =
@@ -274,6 +278,52 @@ test("sfd-109-221 Akshan, Mischievous golden: the declared trigger body runs thr
 test.todo(
   "Akshan: collect static cost.additional at Finalize and bind the 356.4.f.1 payment decision before the play effect"
 );
+
+test("sfd-109-221 Akshan, Mischievous: the declared static additional cost has no layer mapping or Finalize collector", () => {
+  // 356.2.b.1: an Optional Additional Cost must be collected at Finalize. The
+  // merged static binder has no layer for cost.additional, so the declaration
+  // never reaches the play pipeline.
+  const f = fixture({});
+  const binder = createEngineStaticBinder(f.engine);
+  const source = world().unit("akshan", { might: 4 }).build().getObject("akshan");
+  assert.throws(() => bindStaticAbility(binder, additionalCost, source),
+    error => error.code === "judge-required" && /cost\.additional has no layer mapping/.test(error.message));
+});
+
+test("sfd-109-221 Akshan, Mischievous: while-source-in-zone control is still blocked with a duration reason", () => {
+  // 479.2.a / 482.3 / 359.3.e.16: temporary control needs layered expiry and
+  // last-controller restoration. The merged primitive reports the block instead
+  // of taking control for the printed duration.
+  const built = world().unit("akshan", { zone: "board" }).unit("gear", { types: ["gear"] }).build();
+  const kernel = built.clone({ sourceSnapshot: built.getObject("akshan") });
+  const run = runInstruction(control, {
+    objects: controlInstruction.args.objects,
+    duration: controlInstruction.args.duration,
+    amount: controlInstruction.args.amount,
+    linkKey: controlInstruction.args.linkKey
+  }, { world: kernel, picks: { "akshan-mischievous.referenced-gear": [kernel.ref("gear")] } });
+
+  assert.deepEqual(run.result, { status: "negated", reason: "impossible", events: [] });
+  // The receipt records the blocked duration under the card's own link key.
+  assert.deepEqual(run.linked["controlled-gear"], {
+    count: 0,
+    objects: [],
+    changes: [],
+    blockedReason: "Temporary control requires duration-aware take-control and layered expiry/restoration (CR v1.5 479.2.a, 482.3)"
+  });
+  assert.equal(kernel.getObject("gear").controller, "A");
+});
+
+test("sfd-109-221 Akshan, Mischievous: the Weaponmaster Equip discount stays judge-required", () => {
+  // 821.1.c.2-.5: the Weaponmaster cost is the chosen Equipment's Equip cost
+  // reduced by [A]. Without an authoritative Equip-cost binding the primitive
+  // refuses rather than substituting the play cost or a plain Power discount.
+  const kernel = world().unit("gear", { types: ["gear"], tags: ["Equipment"] }).build();
+  assert.throws(() => runInstruction(costModify, {
+    id: "akshan-mischievous.equip-cost",
+    modifier: { kind: "reduce-equip-cost", resource: "power", amount: { kind: "constant", value: 1 }, domain: "any" }
+  }, { world: kernel }), error => error.reason === "judge-required" && /821\.1\.c\.3/.test(error.message));
+});
 
 test("sfd-109-221 Akshan, Mischievous: relative base follows the ability controller rather than the gear owner", () => {
   const built = world().player("A").player("B")

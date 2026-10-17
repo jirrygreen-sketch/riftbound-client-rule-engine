@@ -106,9 +106,10 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "attack-declared 缺真实 combat 角色事务生产者（383.4.e.2/466.2.c）：combat/flow.ts 的 combat-start 仍阻断。" +
-    "Accelerate 的 accelerate.cost 尚未接入 programs/play.ts 的 optionalAdditional，且入场替代未以支付决定门控（805.2.b/805.6.a），不能免费就绪或入场后再 ready。" +
-    "可选 body 内的 token TargetSpec 被 chain/engine.ts 的 assertFinalizationSurface 主动阻断；Finalize 只收集顶层目标，不能在 Resolve 重新选目标。",
+    "attack-declared 缺真实 combat 角色事务生产者（383.4.e.2/466.2.c）：启动一场已 Staged 的战斗仍由 combat/flow.ts 的 combat-start-transaction 阻断（\"Combat start needs an atomic simultaneous timing wave + roles\"），没有已合入模块为“取得 Attacker 身份”发该时点；只有注入式 emit 才能在测试里验证触发体。" +
+    "Accelerate 的费用绑定未接通：accelerate.cost 是 static ContinuousEffect，programs/statics.ts 的 layerFor 对未知 kind 直接 judgeRequired（\"Static ability kind accelerate.cost has no layer mapping\"），" +
+    "programs/play.ts 的 translateCost 也拒绝 additional-cost/additional 字段，因此该声明进不了 Finalize 的 optionalAdditional，805.2.b/805.6.a 的入场替代也没有支付决定门控，不能免费就绪或入场后再 ready。" +
+    "可选 body 内的 token TargetSpec 仍被 chain/engine.ts 的 assertFinalizationSurface 主动阻断（\"Nested/repeated targets require an interpreter target-selection lifecycle adapter\"）；Finalize 只收集顶层目标，不能在 Resolve 重新选目标。",
   abilities,
   sourceText:
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_order: as an additional cost to have me enter ready.)\n" +

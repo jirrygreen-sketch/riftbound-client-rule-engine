@@ -10,6 +10,10 @@ import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.
 import { normalizeMoveArguments } from "../../../../engine-core/dist/effects/interpreter/locations.js";
 import { queryLocationCandidates } from "../../../../engine-core/dist/target/location/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createEngineStaticBinder, bindStaticAbility } from "../../../../engine-core/dist/programs/statics.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { translateCost } from "../../../../engine-core/dist/programs/play.js";
+import { OBJECT_FILTER_ZONES } from "../../../../engine-core/dist/events/trigger-spec.js";
 
 const CARD_ID = "card.hash-d0bb5c231d56b1471ca1416b33625cc0bae9efda10d8be949cbeec564cbf0a70";
 const MOVE_ID = "bard-mercurial.move-units";
@@ -209,6 +213,29 @@ test.todo(
 test.todo(
   "Bard: put the paid play trigger on the chain after additional-cost and receipt binding, retaining the moved-unit target plan (383.4.a.2/420.4.a)"
 );
+
+test("Bard, Mercurial: the declared static additional cost has no layer mapping or play collector", () => {
+  // 356.2.b.1: the printed optional additional cost must be collected at
+  // Finalize. The merged static binder has no layer for cost.additional and the
+  // play binding rejects additional costs outright, so it never reaches the
+  // cost pipeline and no 356.4.f.1 receipt can exist.
+  const f = fixture({ cards: [{ id: "bard", cardId: CARD_ID, types: ["unit"], might: 4 }] });
+  const source = f.kernel.getObject("bard");
+  assert.throws(() => bindStaticAbility(createEngineStaticBinder(f.engine), additionalCost, source),
+    error => error.code === "judge-required" && /cost\.additional has no layer mapping/.test(error.message));
+  assert.throws(() => translateCost({ kind: "additional-cost", keyword: "weaponmaster" }, CARD_ID, "play"),
+    error => error.code === "judge-required");
+});
+
+test("Bard, Mercurial: the legend zone is outside the closed ZoneId vocabulary", () => {
+  // 107.4/355.9.a.4: "your legend" lives in the Legend Zone. The merged
+  // zone vocabulary (effects/contract.ts ZoneId, events/trigger-spec.ts
+  // OBJECT_FILTER_ZONES) has no such zone, and the reference kernel cannot slice
+  // it, so the printed exhaust can never be paid.
+  assert.equal(OBJECT_FILTER_ZONES.includes("legend-zone"), false);
+  assert.equal(OBJECT_FILTER_ZONES.includes("legend"), false);
+  assert.throws(() => world().player("A").build().zoneSlice("A", "legend-zone", "top", 1), TypeError);
+});
 
 
 test("Bard, Mercurial: the authored destination offers only unoccupied, uncontrolled battlefields", () => {
