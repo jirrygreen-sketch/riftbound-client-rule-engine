@@ -21,10 +21,9 @@ import type { CardProgram } from "../../ir/index.js";
  * - The "hold" timing point is now emitted: turn/flow.ts's scheduleScore
  *   publishes a structural Score wave (hold / score / points-gained) with
  *   details.battlefieldId (RIFT-124 turn workstream); the golden asserts it.
- * - The trigger condition still cannot be evaluated: the event pipeline
- *   requires host.testTrigger for any registration that carries a condition
- *   (pipeline.ts throws "Trigger condition adapter required") and no merged
- *   production host provides one (only engine-core's test helpers do).
+ * - The trigger condition still requires a host.testTrigger adapter: the event
+ *   pipeline throws "Trigger condition adapter required" for registrations
+ *   carrying a condition when that adapter is absent.
  * - "here" is not in the closed EventPattern vocabulary: assertTriggerSpec
  *   rejects the field, so the source-battlefield anchor cannot be registered
  *   even though the emitted hold payload carries battlefieldId.
@@ -38,8 +37,7 @@ export default {
   judgeReason:
     "两处当前缺口，均不近似实现：" +
     "（1）触发条件「if your Rune Deck is empty」属 TriggerSpec.condition（383.2.a.1），" +
-    "但事件管线对带 condition 的注册要求 host.testTrigger，否则抛 \"Trigger condition adapter required\"；" +
-    "已合入的生产 host（turn/flow.ts、game/lifecycle.ts）都不提供该适配器，只有 engine-core 的测试 helper 安装它。" +
+    "但事件管线对带 condition 的注册要求 host.testTrigger，否则抛 \"Trigger condition adapter required\"。" +
     "（2）「when you hold here」的 here 锚点不在封闭 EventPattern 词表里，assertTriggerSpec 直接拒绝该字段" +
     "（已用 executor 实测），因此无法把触发注册到本卡的战场；payload 侧 details.battlefieldId 已随 hold/score 波发出。" +
     "已合入部分：hold 时点由 turn/flow.ts 的 scheduleScore 随结构化 Score 波（hold / score / points-gained）发出（RIFT-124），" +
@@ -53,7 +51,7 @@ export default {
         // "When you hold here": "self" is the merged PlayerSelector spelling
         // for the ability's controller; "here" is a descriptive placeholder
         // for the source-battlefield anchor the merged EventPattern lacks.
-        filter: { event: "hold", here: true, player: "self" },
+        filter: { event: "held", here: true, player: "self" },
         condition: {
           kind: "compare",
           // "if your Rune Deck is empty": zero objects in the controller's

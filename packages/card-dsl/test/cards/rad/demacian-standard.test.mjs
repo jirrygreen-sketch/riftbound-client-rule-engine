@@ -35,7 +35,9 @@ test("rad-156-167 Demacian Standard: program validates and has expected identity
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-357/);
+  assert.match(program.judgeReason, /RIFT-358/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /Deploy/);
 });
 
@@ -78,7 +80,7 @@ test("rad-156-167 Demacian Standard: Deploy + attack-here might body + hold retu
   assert.equal(hold.kind, "triggered");
   assert.deepEqual(hold.trigger, {
     at: "hold",
-    filter: { event: "hold", here: true, player: "controller" }
+    filter: { event: "held", here: true, player: "controller" }
   });
   assert.equal(hold.optional, true);
   assert.equal(hold.body.length, 1);
@@ -147,20 +149,16 @@ test("rad-156-167 Demacian Standard: a stale self reference ignores the return i
 });
 
 test.todo(
-  "rad-156-167 Demacian Standard: registering the attack-declared / hold triggers from the card program — " +
-    "shared wiring owned by the RIFT-257 card-program binding workstream"
-);
-test.todo(
   "rad-156-167 Demacian Standard: 攻击触发里“one of them”的选择（触发条件收集该处攻击者后由控制者选一）" +
-    "依赖触发选择落地（RIFT-33 scenarios-triggers）"
+    "依赖触发选择与模式/目标 Finalize 落地（RIFT-358）"
 );
 test.todo(
   "rad-156-167 Demacian Standard: [Deploy] 的 KeywordDef 已合入（keywords/Deploy.ts，RIFT-267，830.1.b），" +
-    "缺卡牌 → 关键词展开 → 图层/触发器 的生产方与 Finalize 位置校验消费方（RIFT-257）"
+    "缺地点限制、清理豁免与 Hold 的 here 消费方（RIFT-357）"
 );
 test.todo(
   "rad-156-167 Demacian Standard: hold / attack-declared 触发端到端订阅（315.2.b.2 / 471.2 / 473.2.b / 466.2.c）：" +
-    "hold 已由 turn/flow.ts 随 Score 波发出，但 here 锚点不在 EventPattern 词表、触发注册路径缺（RIFT-33 / RIFT-257）"
+    "hold 已由 turn/flow.ts 随 Score 波发出，但 here 锚点不在 EventPattern 词表（RIFT-357）"
 );
 
 test("rad-156-167 Demacian Standard: +2 Might this turn registers an arithmetic-layer modifier through the real interpreter", () => {

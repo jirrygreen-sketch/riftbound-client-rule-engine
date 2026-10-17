@@ -73,9 +73,10 @@ test("rad-017-167 Detonation Amplifier: the judgeReason names the actual merged 
   assert.match(program.judgeReason, /830\.1\.b/);
   assert.match(program.judgeReason, /Deathknell/);
   assert.match(program.judgeReason, /383\.4\.g\.1/);
-  // The Deploy KeywordDef itself is merged (RIFT-267); the gap is the card
-  // binding (RIFT-257) plus the trigger-multiplicity interface.
-  assert.match(program.judgeReason, /RIFT-257/);
+  // The Deploy KeywordDef and card-program adapter are merged; the gaps are
+  // its location/here consumers and trigger multiplicity.
+  assert.match(program.judgeReason, /RIFT-357/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-257/);
 });
 
 test("rad-017-167 Detonation Amplifier: [Deploy] declared, play effect at card-played, multiplicity declaration", () => {
@@ -167,13 +168,6 @@ test("rad-017-167 Detonation Amplifier golden: declining skips both the kill and
 });
 
 test.todo(
-  "rad-017-167 Detonation Amplifier: the [Deploy] KeywordDef is merged (effects/keywords/Deploy.ts, RIFT-267); " +
-    "expanding it still needs the card -> keyword -> layers/trigger binding that RIFT-257 owns. The " +
-    "'trigger an additional time' rewrite needs a trigger-collection multiplicity hook in events/ (383.4.g.1)."
-);
-
-test.todo(
-  "rad-017-167 Detonation Amplifier: registering the card-played trigger needs the RIFT-120 " +
-    "CardProgram -> TriggerRegistration adapter, and Finalize must lock the non-target kill " +
-    "pick (355.10.c.1) through the merged target/pick pipeline (RIFT-90)."
+  "rad-017-167 Detonation Amplifier: Deploy's location, cleanup and Hold/here consumers remain " +
+    "unavailable (RIFT-357), and 'trigger an additional time' still needs an events multiplicity hook (383.4.g.1)."
 );

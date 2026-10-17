@@ -63,7 +63,9 @@ test("rad-033-167 Command: Attack: the judgeReason names the actual remaining ga
   assert.match(program.judgeReason, /ObjectFilter/);
   assert.match(program.judgeReason, /top 5/);
   assert.match(program.judgeReason, /picksSpecId/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-357/);
+  assert.match(program.judgeReason, /RIFT-358/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(90|64|66|257)/);
 });
 
 test("rad-033-167 Command: Attack: 'Choose one —' is one choice.mode with two declared modes", () => {
@@ -356,12 +358,11 @@ test("rad-033-167 Command: Attack golden: mode 1's descriptive destination is re
 
 test.todo(
   "rad-033-167 Command: Attack: the runtime Battlefield destination (355.4 / 355.4.a) needs a " +
-    "Location selector in the target/location plan (RIFT-90); the ordered top-5 range's production " +
-    "lifecycle (the chain's Finalize locks instruction.targets only) is the RIFT-64/RIFT-66 follow-up."
+    "Location selector in the target/location plan (RIFT-357); the ordered top-5 range and mode/target " +
+    "Finalize lifecycle are the RIFT-358 follow-up."
 );
 
 test.todo(
   "rad-033-167 Command: Attack: 'with [Deploy]' needs a keyword predicate in the filter " +
-    "vocabulary (830.3); Finalize must also lock the mode before its target (355.3 before 355.5), " +
-    "and the [Deploy] expansion needs the CardProgram binding (RIFT-257)."
+    "vocabulary (830.3); the Deploy location and hold expansion still need their runtime consumers."
 );

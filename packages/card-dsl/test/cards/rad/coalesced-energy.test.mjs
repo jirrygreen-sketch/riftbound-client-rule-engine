@@ -22,14 +22,14 @@ test("rad-016-167 Coalesced Energy: program passes validateCardProgram and keeps
   );
 });
 
-test("rad-016-167 Coalesced Energy: judge-required naming the missing trigger registration", () => {
+test("rad-016-167 Coalesced Energy: judge-required naming the phase-event filter gap", () => {
   assert.equal(program.status, "judge-required");
-  // turn-end now has a merged emitter, so the remaining gap is the CardProgram
-  // triggered-ability registration consumer (contract 3.5 / RIFT-257).
+  // turn-end now has a merged emitter and the program adapter exists. The
+  // remaining gap is the closed EventPattern vocabulary for phase timings.
   assert.match(program.judgeReason, /turn-end/);
   assert.match(program.judgeReason, /317\.1\.a/);
-  assert.match(program.judgeReason, /TriggerRegistration/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /EventPattern/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-257/);
 });
 
 test("rad-016-167 Coalesced Energy: end-of-turn trigger recycling all runes then channeling 4 exhausted", () => {
@@ -187,10 +187,6 @@ test("rad-016-167 Coalesced Energy golden: a short Rune Deck channels as many as
   assert.equal(kernel.player("A").runePool.length, 2);
 });
 
-test.todo(
-  "rad-016-167 Coalesced Energy: subscribing 'At the end of your turn' needs the CardProgram -> " +
-    "TriggerRegistration consumer (contract 3.5; RIFT-257 src/programs/)"
-);
 test.todo(
   "rad-016-167 Coalesced Energy: the printing is a Unit (4 Might / 4 Energy / 2 Mind Power, " +
     "Shurima) per the official RAD-016/167 image, while packages/card-data/data/deck-catalog.json " +

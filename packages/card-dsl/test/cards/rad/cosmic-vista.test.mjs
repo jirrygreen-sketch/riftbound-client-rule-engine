@@ -34,7 +34,7 @@ test("cosmic-vista: hold trigger with the empty-Rune-Deck condition on the Trigg
   assert.equal(program.abilities.length, 1);
   assert.equal(trigger.kind, "triggered");
   assert.equal(trigger.trigger.at, "hold");
-  assert.equal(trigger.trigger.filter.event, "hold");
+  assert.equal(trigger.trigger.filter.event, "held");
   assert.equal(trigger.trigger.filter.here, true);
   // "you hold" — the merged PlayerSelector spelling for the ability
   // controller is "self".
@@ -104,8 +104,8 @@ test("cosmic-vista: hold and score are closed, registered timing points the rule
 });
 
 test.todo(
-  "cosmic-vista: registering the hold trigger needs a host.testTrigger adapter for the TriggerSpec.condition " +
-    "(pipeline.ts throws \"Trigger condition adapter required\" without one; no merged production host installs it)"
+  "cosmic-vista: the hold trigger needs the production host.testTrigger adapter for its Rune Deck condition " +
+    "(pipeline.ts throws \"Trigger condition adapter required\" when the adapter is absent)"
 );
 
 test.todo(
