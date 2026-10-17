@@ -5,6 +5,8 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ven/zed-without-a-sound.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { translateInstructionTargets, translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 
 const CANONICAL_ID =
   "card.hash-5b42742bf383c1d6c7809e387ff198cfe26b37f06ef74cd7742bf390ea3cf2a7";
@@ -32,17 +34,18 @@ test("ven-112-166 Zed: identity, status, judgeReason and verbatim sourceText", (
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  // 缺 token 定义、conquer 发射与启动能力接线（见 judgeReason）。
+  // 仅缺 token 定义与 conquer 来源对象载荷（见 judgeReason）。
   assert.match(program.judgeReason, /token-definition-or-abilities-judge-required/);
   assert.match(program.judgeReason, /conquer/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /player\/details/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(89|90|91|120|257)/);
 });
 
 test("ven-112-166 Zed: the conquer trigger plays a Shadow Clone token to your base", () => {
   // 383.4.c.1 / 473.2.a："When I conquer" 是 Conquer Effect，指向能力来源自身。
   assert.equal(conquer.kind, "triggered");
   assert.equal(conquer.trigger.at, "conquer");
-  assert.deepEqual(conquer.trigger.filter, { event: "conquer", filter: { source: "self" } });
+  assert.deepEqual(conquer.trigger.filter, { event: "conquered", filter: { source: "self" } });
   assert.equal(conquer.optional, false);
 
   assert.equal(program.abilities.length, 2);
@@ -58,6 +61,12 @@ test("ven-112-166 Zed: the conquer trigger plays a Shadow Clone token to your ba
   });
   assert.equal(playClone.targets, undefined);
   assert.equal(playClone.linkedTo, undefined);
+});
+
+test("ven-112-166 Zed: the conquered EventPattern spelling binds through the production trigger adapter", () => {
+  const translated = translateTriggerFilter(conquer.trigger.filter, "zed", conquer.trigger.at);
+  assert.deepEqual(translated, { event: "conquered", object: { objectId: "zed" } });
+  assert.doesNotThrow(() => assertTriggerSpec({ at: conquer.trigger.at, filter: translated }));
 });
 
 test("ven-112-166 Zed: [Action][>] cost and the two locked swaps of the exchange body", () => {
@@ -95,7 +104,7 @@ test("ven-112-166 Zed: [Action][>] cost and the two locked swaps of the exchange
   });
 
   // "a Shadow Clone you control"：玩家选定的游戏对象（355.7/355.9.a），印刷名用
-  // characteristics.name 记录（当前匹配器不读该键，故整卡保持 judge-required）。
+  // characteristics.name 记录；程序绑定会把 controller: "controller" 归一化为 self。
   assert.deepEqual(cloneLocation.targets, [
     {
       id: "zed-without-a-sound.clone",
@@ -129,6 +138,8 @@ test("ven-112-166 Zed: [Action][>] cost and the two locked swaps of the exchange
     instructionId: "zed-without-a-sound.origin",
     key: "origin"
   });
+  const translatedBody = translateInstructionTargets(activated.body);
+  assert.equal(translatedBody[1].targets[0].filter.controller, "self");
 });
 
 test("ven-112-166 Zed golden: the exchange swaps Zed and a Shadow Clone", () => {
@@ -218,11 +229,6 @@ test.todo(
 );
 
 test.todo(
-  "ven-112-166 Zed: the conquer trigger runs end to end (Conquer Effect -> chain) — needs scoring -> " +
-    "chain/events conquer emission and CardProgram TriggerRegistration (RIFT-76/RIFT-120, contract section 7.2 batch 5)"
-);
-
-test.todo(
-  "ven-112-166 Zed: the [Action][>] 1 Energy + 1 Chaos Power activation reaches Finalize and pays " +
-    "(CR 806.1.d / 404.1.a) — the activated-ability to chain Finalize wiring is not merged (RIFT-89)"
+  "ven-112-166 Zed: the conquer trigger needs the scoring emission to carry the conquering unit object " +
+    "so the source:self filter can match the actual unit (383.4.c.2.a / 473.2.a)"
 );

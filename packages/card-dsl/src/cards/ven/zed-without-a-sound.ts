@@ -25,21 +25,19 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   会读到已被移动后的位置（与已合入 ogn/tideturner 的交换写法一致）。
  * - 355.7 / 355.9.a：「a Shadow Clone you control」是玩家在结算前选定的游戏对象，写成
  *   TargetSpec；「Shadow Clone」是 token 的印刷名，静态 IR 用 characteristics.name 记录
- *   （当前匹配器不读该键，见 judgeReason 与契约变更请求）。
+ *   （程序绑定会把 controller: "controller" 归一化为能力控制者，并由匹配器读取 name 特征）。
  *
- * status = judge-required（三处缺口，均不近似实现）：
+ * status = judge-required（两处缺口，均不近似实现）：
  * 1. Shadow Clone token 定义缺失：该 token 自带攻击触发能力（banish + [Assault 4]），
  *    effects/instructions/effect.token.ts 的冻结定义表按设计只含无额外能力的
  *    recruit / sand-soldier / mech / reflection / tentacle；以该定义调用会得到
  *    negated + blockedReason "token-definition-or-abilities-judge-required"。本卡保留
  *    有依据的 effect.token IR（与 sfd/trove-golem 的 Gold 写法一致），但不宣称可执行，
  *    golden 也不断言「当前被拒绝」（依赖落地后会失效）。
- * 2. conquer 触发没有生产者与注册路径：scoring/（RIFT-76）未接入 chain/events 单管线
- *    （RIFT-120），没有 emit "conquer"；也没有把 CardProgram 的 triggered ability 注册成
- *    TriggerRegistration 的适配器。
- * 3. 启动能力 → 链的 Finalize 接线未合入（RIFT-89）：[Action][>] 的 1 Energy + 1 Chaos
- *    Power 费用没有收取路径。
- * 交换本体（两条 condition.value 锁位 + 两条 effect.move）只用已合入原语，golden 用真实
+ * 2. conquer 触发的闭合事件已有 `conquered` 判别词和程序绑定，但 scoring 的 conquer
+ *    发射只携带 player/details，不携带征服单位对象；因此 `source: self` 无法在真实计分
+ *    流程匹配到本单位，不能把触发改成仅按玩家匹配来近似。
+ * 交换本体（两条 condition.value 锁位 + 两条 effect.move）以及 [Action][>] 的费用均只用已合入原语，golden 用真实
  * 解释器 + 参考内核执行。
  */
 const abilities: Ability[] = [
@@ -47,7 +45,8 @@ const abilities: Ability[] = [
     kind: "triggered",
     trigger: {
       at: "conquer",
-      filter: { event: "conquer", filter: { source: "self" } }
+      // EventPattern 的闭合判别词是 "conquered"；TimingPoint 仍是 "conquer"。
+      filter: { event: "conquered", filter: { source: "self" } }
     },
     optional: false,
     body: [
@@ -109,7 +108,7 @@ const abilities: Ability[] = [
           {
             id: "zed-without-a-sound.clone",
             // “a Shadow Clone you control”：token 的印刷名用 characteristics.name 记录
-            // （当前匹配器不读该键，故本卡保持 judge-required，见 judgeReason）。
+            // 程序绑定会把 controller: "controller" 归一化为能力控制者。
             filter: {
               type: "unit",
               zone: "board",
@@ -175,15 +174,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1) 「play a 0 :rb_might: Shadow Clone unit token to your base」的 token 定义缺失——" +
+    "两处缺口，均不近似实现：(1) 「play a 0 :rb_might: Shadow Clone unit token to your base」的 token 定义缺失——" +
     "Shadow Clone 自带攻击触发能力（banish + [Assault 4]），而 effects/instructions/effect.token.ts 的冻结定义表按设计只含" +
     "无额外能力的 recruit / sand-soldier / mech / reflection / tentacle，对 shadow-clone 执行会 negated + " +
-    "blockedReason \"token-definition-or-abilities-judge-required\"（依赖 token 定义与链上创建 / play 接手的原语批次）；" +
-    "(2) 「When I conquer」的 conquer 时点（383.4.c.2.b / 473.2.a）虽在 events/timing-points.ts 的封闭枚举中，" +
-    "但 scoring/（RIFT-76）未接入 chain/events 单管线（RIFT-120），没有生产者 emit conquer，也没有把 CardProgram 的 " +
-    "triggered ability 注册成 TriggerRegistration 的适配器；(3) 启动能力 → 链的 Finalize 接线未合入（RIFT-89），" +
-    "[Action][>] 的 1 Energy + 1 Chaos Power 费用没有收取路径。交换本体（两条 condition.value 锁位 + 两条 effect.move，" +
-    "355.4 / 448.3）只用已合入原语，golden 用真实解释器执行；token 与触发两半保持 test.todo。",
+    "blockedReason \"token-definition-or-abilities-judge-required\"；(2) conquer 触发的闭合事件判别词已改为 " +
+    "\"conquered\"，但 scoring 的 conquer 发射只携带 player/details，不携带征服单位对象，" +
+    "因此 source: self 无法在真实计分流程匹配到本单位，不能把触发改成仅按玩家匹配来近似。" +
+    "[Action][>] 的 1 Energy + 1 Chaos Power 费用以及交换本体（两条 condition.value 锁位 + 两条 effect.move，" +
+    "355.4 / 448.3）均已有 Finalize/Chain 接线，golden 用真实解释器执行；token 与真实 conquer 来源对象保持 test.todo。",
   abilities,
   sourceText:
     'When I conquer, play a 0 :rb_might: Shadow Clone unit token to your base. (It has "When I attack, ' +
