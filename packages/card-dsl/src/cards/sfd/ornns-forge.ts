@@ -34,8 +34,10 @@ export default {
   judgeReason:
     "Re-checked 2026-10-17. The cost.modify shape is recorded and the cost.modify/cost.pay " +
     "primitives plus the card-static binding are merged, but the production static binder " +
-    "rejects this shape with ProgramBindingError (first on the authored appliesTo anchor: " +
-    "\"Unsupported static appliesTo \\\"play-cost\\\"\"; and then on the kind itself, " +
+    "rejects this shape with ProgramBindingError in three measured steps (RIFT-667 re-check " +
+    "2026-10-17): first on the authored appliesTo anchor " +
+    "(\"Unsupported static appliesTo \\\"play-cost\\\"\"), then on the printed token filter " +
+    "(\"Unsupported static filter field isToken\"), and finally on the kind itself, " +
     "programs/statics.ts layerFor: \"Static ability kind cost.modify has no layer mapping\" — " +
     "the layer union is only copy/trait/ability/arithmetic), so no production " +
     "path binds it into the Finalize cost plan (chain/engine.ts builds that plan from the " +
