@@ -35,6 +35,7 @@ test("unl-153-219 Carrion Dredger: identity, status, judgeReason and verbatim so
   assert.match(program.judgeReason, /187\.7/);
   assert.match(program.judgeReason, /Bird/);
   assert.match(program.judgeReason, /trigger\.leave/);
+  assert.match(program.judgeReason, /target\.tax/);
   assert.match(program.judgeReason, /token-definition-or-abilities-judge-required/);
 });
 

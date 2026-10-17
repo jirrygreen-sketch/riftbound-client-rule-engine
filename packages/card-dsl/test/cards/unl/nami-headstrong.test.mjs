@@ -8,6 +8,9 @@ import buff from "../../../../engine-core/dist/effects/instructions/effect.buff.
 import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
 import stun from "../../../../engine-core/dist/effects/instructions/effect.stun.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
 
 const CANONICAL_ID =
   "card.hash-a9a744726a85225a5f09812cc8545795d64c7f24f2a06e46af7895230c6deeb2";
@@ -37,6 +40,7 @@ test("unl-052-219 Nami, Headstrong: identity, status, judgeReason and verbatim s
   assert.match(program.judgeReason, /356\.2\.b/);
   assert.match(program.judgeReason, /356\.4\.f\.1/);
   assert.match(program.judgeReason, /trigger\.delayed/);
+  assert.match(program.judgeReason, /condition\.result/);
   assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
@@ -63,15 +67,14 @@ test("unl-052-219 Nami, Headstrong: 'if you paid the additional cost' is retaine
     event: "card-played",
     filter: { source: "self" }
   });
-  // The receipt of an optional additional cost (356.4.f.1) has no merged
-  // Condition form; the retained count shape cannot evaluate it, so the merged
-  // kernel never runs the Stun unconditionally.
-  assert.equal(playTrigger.trigger.condition.kind, "compare");
-  assert.equal(playTrigger.trigger.condition.operator, "gte");
-  assert.equal(playTrigger.trigger.condition.left.kind, "count");
-  assert.equal(playTrigger.trigger.condition.left.subject, "paid-additional-cost");
-  assert.deepEqual(playTrigger.trigger.condition.left.filter, { player: "controller" });
-  assert.deepEqual(playTrigger.trigger.condition.right, { kind: "constant", value: 1 });
+  // 356.4.f.1: bind the condition to this optional component, independent of
+  // the number of objects or resources actually paid after discounts.
+  assert.deepEqual(playTrigger.trigger.condition, {
+    kind: "result",
+    result: "cost.additional",
+    id: additionalCost.effect.id
+  });
+  assert.equal(additionalCost.effect.id, "nami-headstrong.additional-cost");
   assert.equal(playTrigger.optional, false);
   assert.equal(playTrigger.trigger.once, undefined);
 });
@@ -94,6 +97,37 @@ test("unl-052-219 Nami, Headstrong: '[Stun] an enemy unit' targets one enemy uni
   assert.equal(stunEnemy.picks, undefined);
   assert.equal(stunEnemy.linkedTo, undefined);
   assert.equal(stunEnemy.condition, undefined);
+});
+
+test("unl-052-219 Nami, Headstrong golden: the printed predicate reads real optional-cost decisions, including a zero payment (356.4.f.1)", () => {
+  // Exercise the supported planner/predicate boundary. The production transfer
+  // of this play's receipt to its trigger remains a separate TODO below.
+  for (const [selected, discounted, componentId, expected] of [
+    [true, false, additionalCost.effect.id, true],
+    [false, false, additionalCost.effect.id, false],
+    [true, true, additionalCost.effect.id, true],
+    [true, false, "another-card.additional-cost", false]
+  ]) {
+    const initial = world().player("A", { energy: 3, power: ["Calm"] })
+      .hand("nami", { cardId: CANONICAL_ID, energy: 3, power: null }).build();
+    const kernel = initial.clone({ sourceSnapshot: initial.getObject("nami") });
+    const plan = buildCostPlan(kernel, {
+      id: "nami-play", cost: { kind: "printed" },
+      optionalAdditional: [{ id: componentId, kind: "additional", selected,
+        cost: { payments: additionalCost.effect.payments } }],
+      discounts: discounted ? [{ id: "power-discount", resource: "power", amount: { kind: "constant", value: 1 } }] : []
+    });
+    const receipt = payCostPlan(kernel, plan);
+    assert.equal(evaluateCondition(playTrigger.trigger.condition, {
+      context: kernel, cost: { plan, receipt }, linked: kernel.linked.bind(kernel)
+    }), expected);
+    assert.equal(plan.printed.power, null);
+    assert.equal(plan.total.energy, 3);
+    assert.equal(plan.total.power.reduce((sum, requirement) => sum + requirement.amount, 0), selected && !discounted ? 1 : 0);
+    assert.deepEqual(receipt.additional.map(item => item.id), selected ? [componentId] : []);
+    assert.equal(kernel.player("A").energy, 0);
+    assert.deepEqual(receipt.actions[0].action.plan.power, selected && !discounted ? ["Calm"] : []);
+  }
 });
 
 test("unl-052-219 Nami, Headstrong: 'When I hold' registers the next-unit delayed ready-and-Buff (383.4.d)", () => {

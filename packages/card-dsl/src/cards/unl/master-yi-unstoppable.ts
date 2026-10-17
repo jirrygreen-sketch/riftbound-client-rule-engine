@@ -21,16 +21,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 756 / 757 / 757.1 / 758：最后一条 Level 能力授予 Untargetable（"can't be chosen by
  *   enemy spells and abilities"）。
  *
- * status = judge-required（缺口不近似实现）：
- * - Level 的关键词展开已经合入，但 824.1.c 的 XP 谓词仍不能从
- *   PlayerSnapshot.xp 求值，因而依赖能力不会随 XP 动态启停。
- * - cost.modify 指令已经合入；本卡的静态 cost.modify 仍没有接入打出费用
- *   Finalize 的 discounts 阶段，所以三条减费仍只是声明。
- * - 最后一条的 Untargetable（756/757/758）仍没有目标合法性消费方。
- * golden 只做校验、结构断言与缺口 todo，不为任一缺口写执行用例。
- *
- * 依赖：Level 的 XP 谓词求值、静态 cost.modify 到 Finalize 费用计划的接线、
- * Untargetable 的目标合法性消费方。
+ * 2026-10-17 复核：仍为 judge-required，当前缺口见 judgeReason。
+ * 已有原语、关键词定义或通用适配器不代表本卡完整生产路径可执行。
  */
 
 /** 356.4.b / 356.4.c：每一条 Level 能力的印刷减费（Energy + Calm Power）。 */
@@ -109,15 +101,9 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：（1）[Level N][>] 的关键词展开已合入，但 " +
-    "824.1.c 的『控制者有 N 点或更多 XP 时依赖能力 Active』需要可求值的 XP 谓词，" +
-    "合并 IR 的 Condition 虽能表达 compare，但读取 PlayerSnapshot.xp 尚未进入 Expr/谓词路径" +
-    "（824.1.c.1/.d 的动态失活同样缺失）。" +
-    "（2）三条减费（356.4/356.4.b/356.4.c，下限 356.6）的 cost.modify 指令已经存在，" +
-    "但静态 cost.modify 尚未接入 cost/cost-plan.ts 的 Finalize discounts 阶段，因此程序中的数值还不能实际改写打出费用。" +
-    "（3）最后一条的『I can't be chosen by enemy spells and abilities』是 756/757/757.1/758 的 Untargetable，" +
-    "目标合法性消费方仍未合入。依赖：XP 谓词求值、静态 cost.modify 到 Finalize 的接线、" +
-    "Untargetable 的目标合法性消费方。本卡所有效果都依赖上述缺口，golden 只做校验、结构断言与缺口 todo。",
+    "缺 Level 的 controller-xp 表达式读取 PlayerSnapshot.xp 与随控制者/XP 变化重判的路径（824.1.c/824.1.c.1/824.1.d）；count 只查询对象，不读取 subject。" +
+    "缺静态 cost.modify 到 Finalize discounts 的翻译，以及三级减费的 instead 覆盖（356.4/356.6）；programs/statics.ts 不映射 cost.modify。" +
+    "Untargetable 已有 chain/engine.ts 的 choose-as-target 限制消费方，但本卡 continuous.restrict 的 appliesTo: spells-and-abilities 不被 staticTarget 接受，chooser: opponent 与条件也未完整映射到规则查询（756/757.1/758）。",
   abilities,
   sourceText:
     "[Level 3][>] I cost :rb_energy_2::rb_rune_calm: less. (While you have 3+ XP, get the effect.)\n" +
