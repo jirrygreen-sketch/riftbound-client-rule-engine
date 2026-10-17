@@ -1,3 +1,5 @@
+// Template evidence: ../templates/keyword-play-continuous-might-653.test.mjs.
+// Whole-card scenarios remain blocked by Flow; existing body goldens remain valid.
 import assert from "node:assert/strict";
 import test from "node:test";
 
