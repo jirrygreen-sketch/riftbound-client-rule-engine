@@ -9,6 +9,8 @@ import ready from "../../../../engine-core/dist/effects/instructions/effect.read
 import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
 const CARD_ID = "card.hash-b23b662b4d812531660baae2b9e4fc78660d2955cd85f9595e0a61e14f5ea7a0";
 const SOURCE_TEXT =
@@ -22,11 +24,14 @@ test("rad-093-167 Disposal Expert: validates, identity and source text", () => {
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   // README §2: the reason names the current condition and location gaps.
-  assert.match(program.judgeReason, /RIFT-357/);
   assert.match(program.judgeReason, /RIFT-359/);
   assert.doesNotMatch(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /attack-declared/);
   assert.match(program.judgeReason, /Disarm/);
+  // RIFT-357 (runtime locations) is merged: the interpreter-side sameLocationAs
+  // filter works, and the remaining gap is the program-binding filter key.
+  assert.match(program.judgeReason, /Unsupported filter field sameLocationAs/);
+  assert.doesNotMatch(program.judgeReason, /依赖 RIFT-357/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -160,13 +165,75 @@ test("rad-093-167 Disposal Expert: entering ready is not a post-hoc ready of an 
   assert.deepEqual(run.events, []);
 });
 
+test("disposal-expert: the Disarm expansion's sameLocationAs filter really narrows the enemy unit here", () => {
+  // CR 831.1.b: "give an enemy unit here -X [M] this turn". The interpreter's
+  // own set query already honours the source-location anchor (RIFT-357 merged),
+  // and the temporary modifier lands on exactly that unit.
+  const filter = { type: "unit", controller: "B", sameLocationAs: "source" };
+  const kernel = world()
+    .player("A").player("B")
+    .unit("attacker", { owner: "A", controller: "A", might: 3, location: { type: "battlefield", id: "bf-1" } })
+    .unit("here-enemy", { owner: "B", controller: "B", might: 4, location: { type: "battlefield", id: "bf-1" } })
+    .unit("far-enemy", { owner: "B", controller: "B", might: 4, location: { type: "base", player: "B" } })
+    .build();
+
+  const count = kernel.clone({ sourceSnapshot: kernel.getObject("attacker") });
+  const counted = runAbilityBody([{
+    id: "count-here",
+    op: "condition.value",
+    args: { value: { kind: "count", subject: "units", filter }, key: { kind: "constant", value: "here" } }
+  }], count);
+  assert.equal(counted.results[0].result.linkedValues.here, 1);
+
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("attacker") });
+  scoped.setTargets("disarm.enemy-unit", [kernel.ref("here-enemy")]);
+  const outcome = runAbilityBody([{
+    id: "minus-might",
+    op: "continuous.might",
+    args: {
+      amount: { kind: "constant", value: -2 },
+      duration: { kind: "constant", value: "this-turn" },
+      // The expansion's own selection arg (keywords/Disarm.ts).
+      target: { kind: "constant", value: "disarm.enemy-unit" }
+    },
+    targets: [{ id: "disarm.enemy-unit", filter, min: 1, max: 1, selection: "one" }]
+  }], scoped);
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.equal(scoped.continuousEffects.length, 1);
+  assert.deepEqual(scoped.continuousEffects[0].effect.filter, {
+    objectId: "here-enemy",
+    zone: "board",
+    zoneEntryId: 1
+  });
+
+  // 831.1.b: the -2 Might lands on the here unit only, and expires at turn end.
+  const engine = createLayerEngine(kernel.objects, scoped.continuousEffects.map(entry => ({
+    effect: entry.effect, duration: entry.duration, timestamp: 1
+  })));
+  assert.equal(engine.evaluate(kernel.ref("here-enemy")).might, 2);
+  assert.equal(engine.evaluate(kernel.ref("far-enemy")).might, 4);
+  engine.expireAt("turn-end", "A");
+  assert.equal(engine.evaluate(kernel.ref("here-enemy")).might, 4);
+});
+
+test("disposal-expert: the program-binding translator still refuses sameLocationAs in a card filter", () => {
+  // The card program must declare the restriction for the ability to be
+  // complete; the merged program translator has no vocabulary for it, so the
+  // CardProgram registration path fails loudly instead of dropping the anchor.
+  assert.throws(
+    () => translateObjectFilter({ type: "unit", zone: "board", controller: "opponent", sameLocationAs: "source" }),
+    /Unsupported filter field sameLocationAs/
+  );
+});
+
 test.todo(
   "disposal-expert: the 'if you control no other units' gate on the entry replacement — the merged form-2 entry" +
     " declaration (bind.ts matchesEnterAction) does not evaluate the ability condition, and the form-3" +
     " replacement.event alternative reads args.instead as a raw array while the card IR validator requires an Expr;" +
     " the condition consumer remains an engine-side gap (RIFT-359 / RIFT-260 follow-up)"
 );
+
 test.todo(
-  "disposal-expert: [Disarm 2]'s attack trigger needs an emitted attack-declared timing point (CR 831.1.d /" +
-    " 466.2.c), a sameLocationAs runtime filter (RIFT-357), and the combatRole transaction"
+  "disposal-expert: [Disarm 2] also needs an emitted attack-declared timing point (CR 831.1.d / 466.2.c) and" +
+    " the combatRole transaction (815/831, contract 3.8)"
 );
