@@ -10,12 +10,28 @@ const { matchesTriggerEvent } = await import(new URL("events/pipeline-match.js",
 const { runInstruction, world } = await import(new URL("effects/testing/index.js", ENGINE));
 const draw = (await import(new URL("effects/instructions/effect.draw.js", ENGINE))).default;
 const { validateTriggerSpec } = await import(new URL("events/trigger-spec.js", ENGINE));
+const { ProgramRegistry } = await import(new URL("programs/registry.js", ENGINE));
+const { triggerRegistrations } = await import(new URL("programs/triggers.js", ENGINE));
+const { fixture, settle, timings } = await import(new URL("../../../../engine-core/test/turn/helpers.mjs", import.meta.url));
 
 const CANONICAL_ID = "card.hash-fe2db2b592e71d47e736d643538a15fe129a6cb0b7aab53bd27572177b88671b";
 const SOURCE_TEXT = "When you win a combat, draw 1. (You win if only your units remain after combat.)";
 
 const [ability] = program.abilities;
 const [drawOne] = ability.body;
+
+/** Register the ability's own trigger through the merged program adapter. */
+function registrationError() {
+  const { judgeReason, ...binding } = program;
+  const registry = new ProgramRegistry([{ ...binding, status: "executable" }]);
+  const kernel = world().unit("legend", { cardId: CANONICAL_ID, types: ["legend"] }).build();
+  try {
+    triggerRegistrations(registry, kernel.getObject("legend"));
+    return null;
+  } catch (error) {
+    return error;
+  }
+}
 
 test("sfd-185-221 Glorious Executioner: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -93,6 +109,33 @@ test("sfd-185-221 Glorious Executioner: the declared winner filter is still reje
   assert.equal(matchesTriggerEvent(ability.trigger.filter, {
     timingPoint: "combat-result", details: { winnerId: "A" }
   }, "A"), false);
+});
+
+test("sfd-185-221 Glorious Executioner: the merged program adapter cannot register the combat-result trigger", () => {
+  // programs/triggers.ts funnels the EventPattern through
+  // programs/filters.ts, which has no `details` field; the CardProgram can
+  // therefore never subscribe the Draw 1 body to a real combat-result event.
+  const error = registrationError();
+  assert.ok(error, "the merged adapter must refuse this trigger instead of dropping the winner predicate");
+  assert.equal(error.code, "judge-required");
+  assert.match(error.message, /Unsupported filter field details/);
+});
+
+test("sfd-185-221 Glorious Executioner: no production path emits combat-result yet", () => {
+  // 468.3.a-468.4: the step that determines the winner is exactly the step
+  // CombatFlow still blocks on. Driving the real TurnFlow through a staged
+  // combat shows the timing point is never emitted; the declared
+  // payloadFields are not a producer.
+  const f = fixture({ fields: [{ id: "bf1", controller: "B" }, { id: "bf2", controller: null }],
+    setup: w => w.unit("defender", { owner: "B", location: { type: "battlefield", id: "bf1" } }) });
+  f.flow.start();
+  f.flow.execute(f.draft("move-to-enemy", [
+    { id: "move", op: "effect.move", args: { to: { kind: "constant", value: { type: "battlefield", id: "bf1" } } } }
+  ]));
+  assert.throws(() => settle(f.flow), error => error.code === "combat-start-transaction");
+  assert.equal(timings(f.flow).includes("combat-start"), false);
+  assert.equal(timings(f.flow).includes("combat-result"), false);
+  assert.deepEqual(f.flow.chain.pipeline.events.filter(event => event.timingPoint === "combat-result"), []);
 });
 
 test("sfd-185-221 Glorious Executioner: the Draw 1 body executes through the reference kernel", () => {

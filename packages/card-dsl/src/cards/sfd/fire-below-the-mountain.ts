@@ -35,9 +35,11 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * Current status: judge-required. Universal Power and spending provenance are
  * unrepresented; the custom resource restriction needs a rules adapter.
- * programs/activate.ts also emits activated rather than add drafts, so this
- * card cannot use the chain's Add timing paths. Legend Zone remains unbound.
- * Exhaust-cost execution on a Board fixture is only partial evidence.
+ * programs/activate.ts also emits kind "activated" rather than an Add draft, so
+ * this card cannot use the chain's Add timing paths (430.2 / 430.3;
+ * chain/engine.ts only admits kind "add" for the payment-time Reaction path).
+ * Legend Zone remains unbound, and exhaust-cost execution on a Board fixture
+ * is only partial evidence.
  */
 export default {
   canonicalCardId: "card.hash-4f7b6e74a78c84b04922aadf51f0f8ef02368e59a4158f98eec18e4f301f75fe",
@@ -46,9 +48,11 @@ export default {
   judgeReason:
     "Universal Power [A]（135.2.e.5 / 163.2.b）仍无法由 Domain/gain-power 表示或支付；effect.resources 仅接受六域 Power。" +
     "所加 Power 的用途 restriction（只用于打出 gear 或 gear abilities，204.4.b.1）缺少资源来源/支付用途绑定，" +
-    "programs/play.ts 的 translateRestriction 也拒绝自定义 kind。programs/activate.ts 固定生成 kind=activated，" +
-    "尚未把本能力分到 ChainDraft.kind=add，因此 430.2/430.3 的立即结算与支付期间 Add 路径不能从本卡进入。" +
-    "Legend Zone（107.4.a–d）也不在 ZoneId 中，无法绑定传奇真实来源区域与横置费用。保持 judge-required。",
+    "programs/play.ts 的 translateRestriction 对自定义 kind 返回 judge-required（实测 code=judge-required）。" +
+    "programs/activate.ts 固定生成 kind=activated，尚未把本能力分到 ChainDraft.kind=add；" +
+    "chain/engine.ts 的支付期 Add 路径要求 kind=add 且 speed=reaction，因此 430.2/430.3 的立即结算与支付期间 Add 路径不能从本卡进入。" +
+    "Legend Zone（107.4.a–d）不在 ZoneId 中，费用支付只接受 board/rune-zone 的横置对象（415.4/415.5），" +
+    "传奇自身无法在真实区域支付 :rb_exhaust:。保持 judge-required。",
   abilities: [
     {
       kind: "activated",

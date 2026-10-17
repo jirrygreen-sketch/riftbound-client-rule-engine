@@ -12,6 +12,8 @@ const { matchesObjectFilter } = await import(new URL("layers/filter.js", ENGINE)
 const { world } = await import(new URL("effects/testing/index.js", ENGINE));
 const { buildCostPlan } = await import(new URL("cost/cost-plan.js", ENGINE));
 const { payCostPlan } = await import(new URL("cost/payment.js", ENGINE));
+const { ProgramRegistry } = await import(new URL("programs/registry.js", ENGINE));
+const { describeActivate } = await import(new URL("programs/activate.js", ENGINE));
 
 const CANONICAL_ID = "card.hash-9ce83a420f4ca5ab0a7f43d95f5f4a698cd4c4b8ca2b7453cfdad2c9ae9f38ef";
 const SOURCE_TEXT =
@@ -285,6 +287,53 @@ test("sfd-193-221 Grandmaster at Arms: an exhausted source cannot pay either pri
     assert.equal(kernel.events.length, before);
     assert.equal(kernel.getObject("jax").energy, null);
     assert.equal(kernel.getObject("jax").power, null);
+  }
+});
+
+test("sfd-193-221 Grandmaster at Arms: both activations bind through the merged program adapter", () => {
+  // The status stays judge-required for the Legend Zone gap, but the binding
+  // itself is not the gap: the merged adapter produces both drafts with the
+  // printed cost and the card's own locked targets.
+  const { judgeReason, ...binding } = program;
+  const registry = new ProgramRegistry([{ ...binding, status: "executable" }]);
+  const kernel = world()
+    .unit("jax", { cardId: CANONICAL_ID, types: ["legend"], energy: null, power: null, might: null })
+    .build();
+  const source = kernel.getObject("jax");
+  for (const [index, ability] of program.abilities.entries()) {
+    const draft = describeActivate(registry, source, "A", index);
+    assert.equal(draft.kind, "activated");
+    assert.equal(draft.speed, "action");
+    assert.deepEqual(draft.cost.cost, ability.cost);
+    assert.deepEqual(draft.body.map((instruction) => [instruction.id, instruction.op]), [
+      ability.body.map((instruction) => [instruction.id, instruction.op])[0]
+    ]);
+    assert.deepEqual(
+      draft.body[0].targets.map((target) => target.id),
+      ability.body[0].targets.map((target) => target.id)
+    );
+  }
+});
+
+test("sfd-193-221 Grandmaster at Arms: the printed exhaust cost cannot be paid from a Legend's real zone", () => {
+  // 107.4.c places the Champion Legend in the Legend Zone, which has no ZoneId
+  // in the frozen primitive contract. cost/payment.ts checks the exhaust host
+  // against board/rune-zone only (415.4/415.5), so a Legend cannot pay it until
+  // that shared binding exists. The card file keeps the printed cost declared
+  // and does not approximate the payment.
+  for (const zone of ["hand", "deck", "trash", "banishment"]) {
+    const base = world().player("A", { energy: 2 }).object("legend", {
+      types: ["legend"], energy: null, power: null, might: null
+    }).build();
+    base.perform({ type: "move-zone", object: base.ref("legend"), to: zone === "deck" ? "deck-top" : zone });
+    const kernel = base.clone({ sourceSnapshot: base.getObject("legend") });
+    const plan = buildCostPlan(kernel, { id: `gma:${zone}`, cost: detachedAbility.cost });
+    assert.throws(() => payCostPlan(kernel, plan), error => {
+      assert.equal(error.reason, "cannot-pay-cost");
+      assert.match(error.message, /Board|rune-zone/);
+      return true;
+    });
+    assert.equal(kernel.player("A").energy, 2);
   }
 });
 

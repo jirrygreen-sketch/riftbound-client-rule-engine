@@ -20,9 +20,11 @@ import type { CardProgram } from "../../ir/index.js";
  *   ability.
  *
  * Current status: judge-required. CombatFlow still blocks before combat-result;
- * EventPattern lacks that discriminator and a controller-relative winnerId
- * predicate. Legend Zone and its trigger active-zone binding are also absent.
- * Program trigger registration and the Draw 1 body are already merged.
+ * the trigger-event vocabulary has no `combat-result` discriminator and
+ * programs/filters.ts refuses the `details` payload field, so the printed
+ * controller-relative winnerId cannot be evaluated. Legend Zone and its trigger
+ * active-zone binding are also absent. Program trigger registration and the
+ * Draw 1 body are already merged.
  */
 export default {
   canonicalCardId: "card.hash-fe2db2b592e71d47e736d643538a15fe129a6cb0b7aab53bd27572177b88671b",
@@ -31,7 +33,8 @@ export default {
   judgeReason:
     "combat-result 仍无生产发射路径：combat/flow.ts 在 combat-start-transaction / simultaneous-damage-transaction " +
     "处阻断，尚未到达 468.3.a–d / 468.4 的胜负步骤。events/trigger-spec.ts 的 EVENT_PATTERN_TYPES " +
-    "没有 combat-result；EventPattern.details 只比较字面值，不能把 winnerId 与能力控制者比较。" +
+    "没有 combat-result（实测 validateTriggerSpec 报 invalid-event-type），programs/filters.ts 也拒绝 details 字段" +
+    "（实测 ProgramBindingError judge-required: Unsupported filter field details），不能把 winnerId 与能力控制者比较。" +
     "Legend Zone（107.4.a–d）不在 ZoneId 中，programs/triggers.ts 对永久物只默认订阅 board；" +
     "需补传奇区域及活动区域绑定。effect.draw 1 已可独立执行，触发注册机制本身已合入。",
   abilities: [

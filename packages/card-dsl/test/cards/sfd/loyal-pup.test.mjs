@@ -6,6 +6,8 @@ import program from "../../../dist/cards/sfd/loyal-pup.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { getTimingPoint } from "../../../../engine-core/dist/events/timing-points.js";
+import { fixture, settle, timings } from "../../../../engine-core/test/turn/helpers.mjs";
 
 const CANONICAL = "card.hash-f4e865137dd3c74c2b7b55f74508a0cb2f04b8d181e7103a6fb0316f8b6b4f63";
 const SOURCE_TEXT = "When you defend at a battlefield, you may move me there.";
@@ -98,6 +100,22 @@ test("sfd-126-221 Loyal Pup golden: the unresolved defense referent cannot move 
   assert.throws(() => resolveChainBody(ability.body, kernel), /effect\.move to must be a location/);
   assert.deepEqual(kernel.getObject("pup").location, { type: "base", player: "A" });
   assert.deepEqual(kernel.events, []);
+});
+
+test("sfd-126-221 Loyal Pup: defense-declared carries no payload field for the defended battlefield", () => {
+  // 359.3.f.1 needs the trigger event's battlefield as the "there" referent. The
+  // merged timing table declares no payloadFields for defense-declared, and the
+  // only producer would be the combat start CombatFlow still blocks on.
+  assert.deepEqual(getTimingPoint("defense-declared").payloadFields, undefined);
+
+  const f = fixture({ fields: [{ id: "bf1", controller: "B" }, { id: "bf2", controller: null }],
+    setup: w => w.unit("defender", { owner: "B", location: { type: "battlefield", id: "bf1" } }) });
+  f.flow.start();
+  f.flow.execute(f.draft("move-to-enemy", [
+    { id: "move", op: "effect.move", args: { to: { kind: "constant", value: { type: "battlefield", id: "bf1" } } } }
+  ]));
+  assert.throws(() => settle(f.flow), error => error.code === "combat-start-transaction");
+  assert.equal(timings(f.flow).includes("defense-declared"), false);
 });
 
 test.todo(

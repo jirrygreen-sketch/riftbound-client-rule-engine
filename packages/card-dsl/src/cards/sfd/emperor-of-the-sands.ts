@@ -29,15 +29,18 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "Play a 2 :rb_might: Sand Soldier unit token to your base."：440.2.c / 185.2.a 规定
  *   "play a … token" 先按 187.3 的 Sand Soldier 定义在链上生成，再交给 play 流程；合并的
  *   effect.token 支持 mode "play" 与 "sand-soldier" 定义（187.3：2 Might、Shurima、无费用）。
+ *   "to your base" 的目的地是能力控制者自己的 Base（440.4：token 的拥有者与控制者是能力
+ *   控制者）：effect.token 的原语 schema 只接受具体 LocationRef，因此按已合入的
+ *   LocationExpr 桥（RIFT-357 的 "ability-controller-base"）先用 condition.value 求值，
+ *   再把链接值交给原语（sfd/hunting-dog.ts、unl/carrion-dredger.ts 的同一形状）。
  * - "Use only if you've played an Equipment this turn." 是 054.2 的 "only" 使用限制：只能在满足该
  *   条件时启动。契约 3.1 把 Requirement/Restriction 与费用分开，本卡用 Restriction 声明。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required。
  * - HistoryQuery 已支持 objectFilter 并可计数本回合打出的 Equipment；但 condition.history
  *   目前是 body 指令，不是 Condition/Expr，不能供给启动前的 Restriction（054.2，RIFT-359）。
- * - effect.token 不解析相对控制者的 Base LocationRef，不能在静态 IR 硬编码玩家席位。
  * - ZoneId 没有 Legend Zone（107.4），而费用支付只接受 board/rune-zone 的横置对象；
- *   静态绑定和横置费用测试使用 Board 宿主，只证明各自支持的部分。
+ *   静态绑定、token 目的地与横置费用测试使用 Board 宿主，只证明各自支持的部分。
  * - programs/statics.ts 已能把原始 grant-keyword 注册进 ability 图层，并绑定相对控制者。
  *   Weaponmaster 仍缺权威 Equip 费用与原始 [A] 符号来源，cost.modify 不会近似折扣（821.1.c.2/c.3）。
  * 不把部分能力的执行证据当作整卡已可执行。
@@ -75,6 +78,13 @@ const abilities: Ability[] = [
     },
     body: [
       {
+        // 440.4 / 355.2.a："your base" 是能力控制者的 Base；
+        // LocationExpr 由解释器在运行时绑定为具体 LocationRef（RIFT-357）。
+        id: "emperor-of-the-sands.controller-base",
+        op: "condition.value",
+        args: { value: { kind: "location", value: "ability-controller-base" } }
+      },
+      {
         // "Play a 2 :rb_might: Sand Soldier unit token"（187.3/440.2.c/185.2.a）。
         id: "emperor-of-the-sands.play-sand-soldier",
         op: "effect.token",
@@ -82,11 +92,12 @@ const abilities: Ability[] = [
           token: { kind: "constant", value: "sand-soldier" },
           amount: { kind: "constant", value: 1 },
           mode: { kind: "constant", value: "play" },
-          // "to your base"：静态 IR 没有相对控制者的 LocationRef 记法，保留占位；
-          // 合并原语会拒绝该占位而不是把 token 放进任意席位（见 judgeReason）。
+          // "to your base"：读取上一条指令绑定的控制者 Base 链接值；
+          // effect.token 的原语 schema 接受 linked-value Expr 并自行求值。
           location: {
-            kind: "constant",
-            value: { type: "base", player: "controller" }
+            kind: "linked-value",
+            instructionId: "emperor-of-the-sands.controller-base",
+            key: "value"
           },
           linkKey: { kind: "constant", value: "sandSoldierToken" }
         }
@@ -102,9 +113,12 @@ const program = {
   judgeReason:
     "（1）HistoryQuery 已支持 objectFilter 查询 Equipment 打出记录，但 condition.history 仅为 body 指令，" +
     "不能作为启动前 Restriction 的 Condition/Expr（054.2，条件谓词 RIFT-359）；" +
-    "（2）effect.token 需要相对控制者的 Base LocationRef 绑定，当前只接受实际 PlayerId；" +
-    "（3）ZoneId 尚无 Legend Zone（CR 107.4），横置费用只接受 board/rune-zone 宿主（415.4/415.5）；" +
-    "（4）Weaponmaster 仍缺权威 Equip 费用绑定与原始 [A] 符号来源，cost.modify 无法计算 821.1.c.2/c.3 的准确减费。",
+    "（2）ZoneId 尚无 Legend Zone（CR 107.4），而费用支付只接受 board/rune-zone 的横置对象（415.4/415.5），" +
+    "传奇自身无法在真实区域支付 :rb_exhaust:；" +
+    "（3）Weaponmaster 仍缺权威 Equip 费用绑定与原始 [A] 符号来源，cost.modify 的 Equipment source 分支" +
+    "按 judge-required 阻断（cost.modify.ts 实测 CostPlanError: 821.1.c.2 missing authoritative Equip-cost binding），" +
+    "无法计算 821.1.c.2/c.3 的准确减费。" +
+    "相对控制者 Base 的 token 目的地已由 condition.value→linked-value 绑定并由 golden 真实执行，不再列为缺口。",
   abilities,
   sourceText:
     "Your Sand Soldiers have [Weaponmaster].\n" +

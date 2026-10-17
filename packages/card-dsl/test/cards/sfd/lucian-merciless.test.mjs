@@ -9,6 +9,9 @@ import program from "../../../dist/cards/sfd/lucian-merciless.js";
 const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
 const { runAbilityBody } = await import(new URL("effects/interpreter.js", engineCore));
 const { world } = await import(new URL("effects/testing/index.js", engineCore));
+const { ProgramRegistry } = await import(new URL("programs/registry.js", engineCore));
+const { triggerRegistrations } = await import(new URL("programs/triggers.js", engineCore));
+const { matchesTriggerEvent } = await import(new URL("events/pipeline-match.js", engineCore));
 
 const lucianWorld = ({ exhausted } = {}) => {
   const base = world().unit("lucian", { exhausted, might: 3 }).build();
@@ -83,6 +86,30 @@ test.todo(
     "[A], attach it to me (CR 821.1.c.2/.c.3; cost.modify's Equipment source branch needs " +
     "the authoritative Equip-cost binding and original [A]/[C] symbol provenance)"
 );
+
+test("conquer trigger registers but can never match the real conquer wave", () => {
+  // The registration itself is merged; the gap is the emitted payload. The
+  // scoring wave in turn/flow.ts publishes { player, details: { battlefieldId } }
+  // with no Unit object, while the registered pattern looks for Lucian's
+  // objectId — so a real conquer event can never match it.
+  const { judgeReason, ...binding } = program;
+  const registry = new ProgramRegistry([{ ...binding, status: "executable" }]);
+  const base = world().unit("lucian", { cardId: program.canonicalCardId }).build();
+  const registrations = triggerRegistrations(registry, base.getObject("lucian"));
+  const conquer = registrations.find((entry) => entry.spec.at === "conquer");
+  assert.ok(conquer, "the merged adapter must register the conquer trigger");
+  assert.deepEqual(conquer.spec.filter.object, { objectId: "lucian" });
+  assert.equal(conquer.spec.once, "per-turn");
+  assert.deepEqual(conquer.activeZones, ["board"]);
+
+  // The producer's real emission shape has no object at all.
+  assert.equal(
+    matchesTriggerEvent(conquer.spec.filter, {
+      kind: "conquer", timingPoint: "conquer", player: "A", details: { battlefieldId: "bf1" }
+    }, "A"),
+    false
+  );
+});
 
 test.todo(
   "Conquer trigger end-to-end: subscribe at the 'conquer' timing point with the self filter and " +

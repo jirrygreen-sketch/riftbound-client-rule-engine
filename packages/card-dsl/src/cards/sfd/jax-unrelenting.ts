@@ -26,11 +26,15 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   414.1/414.3 的 effect.draw 本体仍可独立执行。
  *
  * Current status: judge-required. Weaponmaster's cost.modify Equipment source
- * branch lacks authoritative Equip costs and original [A]/[C] provenance.
- * The object-attached adapter emits Equipment as object, but no host target or
- * topMostCardId details; the timing table alone does not produce that payload.
- * EventPattern lacks object-attached, and TriggeredAbility cannot carry its
- * leading 1 Energy Finalize cost. Resolve-time payment is not a substitute.
+ * branch lacks authoritative Equip costs and original [A]/[C] provenance
+ * (cost.modify.ts throws CostPlanError judge-required: 821.1.c.2), and its
+ * constant modifier Expr is not unwrapped by chain/interpreter-adapter.ts
+ * (TypeError: Invalid cost.modify modifier argument: value). The object-attached
+ * adapter emits the Equipment as `object` with no host target or topMostCardId
+ * details, while the registered pattern binds this card's identity onto
+ * `object`; EventPattern additionally lacks an object-attached member, and
+ * TriggeredAbility cannot carry its leading 1 Energy Finalize cost. Resolve-time
+ * payment is not a substitute.
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "weaponmaster" },
@@ -84,10 +88,13 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "Weaponmaster 展开及 cost.modify/cost.pay 已合入；当前缺 821.1.b / 821.1.c.2/.c.3 的权威 Equip 费用绑定与" +
-    "原始 [A]/[C] 符号来源，cost.modify 的 Equipment source 分支按 judge-required 阻断。" +
-    "原始 Weaponmaster 正文还受 chain/interpreter-adapter.ts 的参数适配阻断：cost.modify 的 constant modifier Expr 未解包为元数据。" +
+    "原始 [A]/[C] 符号来源，cost.modify 的 Equipment source 分支按 judge-required 阻断" +
+    "（实测 CostPlanError: 821.1.c.2 missing authoritative Equip-cost binding）。" +
+    "原始 Weaponmaster 正文还受 chain/interpreter-adapter.ts 的参数适配阻断：cost.modify 的 constant modifier Expr 未解包为元数据" +
+    "（实测 TypeError: Invalid cost.modify modifier argument: value）。" +
     "object-attached 已由 events/action-adapter.ts 从真实 attach 动作派生（435.1 / 435.3），但 EVENT_PATTERN_TYPES " +
-    "仍没有该成员。该发射只携带 Equipment object，没有宿主 target 或 topMostCardId details；" +
+    "仍没有该成员（实测 validateTriggerSpec 报 invalid-event-type）。该发射只携带 Equipment object，没有宿主 target 或 topMostCardId details；" +
+    "programs/filters.ts 把「to me」声明映射到 object（本卡身份），无法把吸附对象与宿主区分开。" +
     "timing-points.ts 的 payloadFields 声明不是生产载荷，尚不能把「to me」绑定到 Jax（435.4.a）。" +
     "1 Energy 触发费用须在 Finalize 选择并支付（204.1.c / 403.1 / 404.1.b.1）；TriggeredAbility 无 cost 字段，" +
     "programs/triggers.ts 未填 TriggerRegistration.cost/mayAtFinalize。正文 cost.pay 仅为待接线描述。",

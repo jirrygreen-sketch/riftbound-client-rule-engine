@@ -18,9 +18,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   "source"）；"there" 指该次防守发生的战场（运行期 Location，359.3.f.1 的 referent）。
  *
  * Current status: judge-required. CombatFlow blocks defense designation at
- * combat-start-transaction. The defense emission and its battlefield payload
- * binding to the resolving body are absent. Generic Location selectors and
- * effect.move are merged; choosing any battlefield would change "there".
+ * combat-start-transaction (TurnCombatBlockedError), so no defense-declared
+ * emission exists and timing-points.ts declares no payload fields for the
+ * defended Battlefield. Generic Location selectors and effect.move are merged;
+ * choosing any battlefield would change "there".
  */
 const abilities: Ability[] = [
   {
@@ -71,7 +72,7 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "defense-declared 仍无战斗身份指派发射路径（383.4.f.2 / 466.2.c）：combat/flow.ts 在 " +
-    "combat-start-transaction 处阻断，时点表的 defense payloadFields 也未声明防守战场。" +
+    "combat-start-transaction 处阻断（TurnCombatBlockedError），时点表 defense-declared 也没有 payloadFields 声明防守战场。" +
     "LocationSelector、运行期 Location 选择和 effect.move 已合入；当前缺口是把该次防守事件的 battlefieldId " +
     "绑定到能力正文的「there」引用（359.3.f.1）。ResolveContext/Expr 尚无触发事件载荷读取，" +
     "programs/triggers.ts 也未提供该引用。不能用任选战场或来源当前 location 代替防守战场。",

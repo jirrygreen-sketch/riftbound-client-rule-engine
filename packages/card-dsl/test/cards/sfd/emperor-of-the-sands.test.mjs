@@ -7,6 +7,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { translateRestriction } from "../../../../engine-core/dist/programs/play.js";
 import { fixture } from "../../../../engine-core/test/programs/helpers.mjs";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -17,7 +18,7 @@ const SOURCE_TEXT =
   "Use only if you've played an Equipment this turn.";
 
 const [grantWeaponmaster, activatedAbility] = program.abilities;
-const [playSandSoldierInstruction] = activatedAbility.body;
+const [controllerBaseInstruction, playSandSoldierInstruction] = activatedAbility.body;
 
 const legendWorld = () => {
   const base = world()
@@ -41,10 +42,12 @@ test("sfd-197-221 Emperor of the Sands: identity, ruleset, status, judgeReason a
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /HistoryQuery/);
   assert.match(program.judgeReason, /054\.2/);
-  assert.match(program.judgeReason, /LocationRef/);
   assert.match(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /821\.1\.c/);
   assert.match(program.judgeReason, /107\.4/);
+  // The controller-relative Base binding is no longer a gap; the reason must
+  // not keep claiming effect.token cannot resolve it.
+  assert.doesNotMatch(program.judgeReason, /effect\.token 需要相对控制者的 Base LocationRef/);
 });
 
 test("sfd-197-221 Emperor of the Sands: 'Your Sand Soldiers have [Weaponmaster]' is a static keyword grant", () => {
@@ -106,7 +109,15 @@ test("sfd-197-221 Emperor of the Sands: :rb_energy_1:, :rb_exhaust: is an activa
 });
 
 test("sfd-197-221 Emperor of the Sands: the body plays the CR 187.3 Sand Soldier token", () => {
-  assert.equal(activatedAbility.body.length, 1);
+  assert.equal(activatedAbility.body.length, 2);
+  // 440.4 / 355.2.a: "your base" resolves against the ability controller, so
+  // the destination is a runtime LocationRef evaluated by the merged
+  // LocationExpr bridge (RIFT-357) rather than a hard-coded seat.
+  assert.equal(controllerBaseInstruction.id, "emperor-of-the-sands.controller-base");
+  assert.equal(controllerBaseInstruction.op, "condition.value");
+  assert.deepEqual(controllerBaseInstruction.args, {
+    value: { kind: "location", value: "ability-controller-base" }
+  });
   assert.equal(playSandSoldierInstruction.id, "emperor-of-the-sands.play-sand-soldier");
   assert.equal(playSandSoldierInstruction.op, "effect.token");
   assert.deepEqual(playSandSoldierInstruction.args.token, { kind: "constant", value: "sand-soldier" });
@@ -115,8 +126,9 @@ test("sfd-197-221 Emperor of the Sands: the body plays the CR 187.3 Sand Soldier
   // the play flow.
   assert.deepEqual(playSandSoldierInstruction.args.mode, { kind: "constant", value: "play" });
   assert.deepEqual(playSandSoldierInstruction.args.location, {
-    kind: "constant",
-    value: { type: "base", player: "controller" }
+    kind: "linked-value",
+    instructionId: "emperor-of-the-sands.controller-base",
+    key: "value"
   });
   assert.deepEqual(playSandSoldierInstruction.args.linkKey, { kind: "constant", value: "sandSoldierToken" });
   assert.equal(playSandSoldierInstruction.targets, undefined);
@@ -136,22 +148,29 @@ test("sfd-197-221 Emperor of the Sands: the printed cost is charged for real (1 
 });
 
 test("sfd-197-221 Emperor of the Sands: the printed token is really created and played (CR 187.3)", () => {
-  // The printed destination "to your base" has no controller-relative spelling
-  // in the frozen IR (see judgeReason), so the concrete seat its controller
-  // occupies is substituted here; the token definition, amount and play mode
-  // are the card's own arguments.
-  const kernel = legendWorld();
-  const base = { type: "base", player: "A" };
-  const body = [
-    {
-      ...playSandSoldierInstruction,
-      args: { ...playSandSoldierInstruction.args, location: { kind: "constant", value: base } }
-    }
-  ];
+  // "to your base" now runs through the card's own two-instruction body: the
+  // merged LocationExpr resolves "ability-controller-base" and the linked value
+  // is what effect.token consumes. Nothing about the seat is hard-coded.
+  const base = world()
+    .player("A", { energy: 1 })
+    .player("B", { energy: 1 })
+    .unit("emperor", {
+      owner: "A",
+      controller: "B",
+      cardId: CARD_ID,
+      types: ["legend"],
+      energy: null,
+      power: null,
+      might: null,
+      location: { type: "base", player: "A" }
+    })
+    .build();
+  const kernel = base.clone({ controller: "B", sourceSnapshot: base.getObject("emperor") });
 
-  const outcome = resolveChainBody(body, kernel);
+  const outcome = resolveChainBody(activatedAbility.body, kernel);
 
   assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(entry => entry.result.status), ["executed", "executed"]);
   assert.deepEqual(kernel.events.map(event => event.action), ["create-token", "play"]);
   const created = kernel.query({ zone: "board", type: "unit" });
   assert.equal(created.length, 1);
@@ -160,12 +179,27 @@ test("sfd-197-221 Emperor of the Sands: the printed token is really created and 
   assert.equal(soldier.name, "Sand Soldier");
   assert.equal(soldier.might, 2);
   assert.deepEqual(soldier.tags, ["Shurima"]);
-  assert.deepEqual(soldier.location, base);
-  assert.equal(soldier.controller, "A");
+  // 440.4 / 182-183: the token belongs to and is controlled by the ability's
+  // controller, and "your base" is that controller's Base.
+  assert.deepEqual(soldier.location, { type: "base", player: "B" });
+  assert.equal(soldier.controller, "B");
   // 185.3: tokens have no costs and no domains — null printed characteristics,
   // never 0.
   assert.equal(soldier.energy, null);
   assert.equal(soldier.power, null);
+});
+
+test("sfd-197-221 Emperor of the Sands: the pre-activation only-if restriction is still refused by the production adapter", () => {
+  // 054.2's "Use only if…" must be checked before the ability can be
+  // activated. The merged translateRestriction only forwards a Condition/Expr
+  // (chain/engine.ts Finalize tests it), and the closed Condition/Expr unions
+  // have no played-Equipment history member, so the authored declaration stays
+  // judge-required instead of being approximated.
+  assert.throws(() => translateRestriction(activatedAbility.restriction, CARD_ID), error => {
+    assert.equal(error.code, "judge-required");
+    assert.match(error.message, /use-only-if/);
+    return true;
+  });
 });
 
 test("sfd-197-221 Emperor of the Sands: merged history queries identify the controller's played Equipment", () => {
@@ -204,11 +238,6 @@ test.todo(
     "Condition/Expr (054.2; RIFT-359); objectFilter history counting itself is covered above"
 );
 
-test.todo(
-  "sfd-197-221 Emperor of the Sands: 'Play a … token to your base' needs a controller-relative LocationRef for " +
-    "effect.token (it only accepts a literal PlayerId that must equal ctx.controller; effect.move already resolves " +
-    "'controller-base')"
-);
 test.todo(
   "sfd-197-221 Emperor of the Sands: Weaponmaster needs authoritative Equip-cost binding and original [A] " +
     "symbol provenance for the printed discount (821.1.c.2/c.3); static keyword granting itself is covered above"
