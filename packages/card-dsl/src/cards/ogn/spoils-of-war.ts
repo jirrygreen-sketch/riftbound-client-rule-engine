@@ -17,14 +17,19 @@ import type { CardProgram } from "../../ir/index.js";
  *   356.6 (Energy cannot be reduced below 0). It is declared as a static
  *   continuous.cost-modification ability, the shape the merged cost planner
  *   (buildCostPlan) takes as an input discount. Two current consumers are
- *   missing, so the card is judge-required:
+ *   missing, both measured on 2026-10-17, so the card is judge-required:
  *   - buildCostPlan accepts caller-provided discounts/baseModifications, but
- *     the static binder has no cost-plan consumer for continuous.cost-modification;
- *     no card ability can therefore install this discount at Finalize;
+ *     the production static binder has no cost-plan consumer for
+ *     continuous.cost-modification: programs/statics.ts layerFor rejects the
+ *     kind ("Static ability kind continuous.cost-modification has no layer
+ *     mapping"), so no card ability can install this discount at Finalize;
  *   - the discount's condition ("an enemy unit has died this turn") needs a
  *     Finalize-time history predicate over death events of enemy units. The
- *     declared when/history shape has no cost-planner evaluator or relative
- *     opponent filter in the production path;
+ *     chain's CostPlanInput has no when/history evaluator, and the server
+ *     runtime's ResolveContext is a stub for both halves
+ *     (apps/game-server/src/engine-runtime/host.ts: a constant-zero history and
+ *     a test that only handles always/never), so a relative-opponent death
+ *     predicate cannot gate a production discount;
  * - "Draw 2." is a plain effect.draw (414.3) and is independent of the
  *   discount: it resolves whenever the spell resolves.
  */
@@ -33,11 +38,16 @@ const spoilsOfWar = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "（355.1/355.1.a、356.4.b/d、356.4.e、356.6），两处当前消费缺口：(1) buildCostPlan 只接受调用方" +
-    "提供的 discounts / baseModifications，static binder 没有 continuous.cost-modification 的费用计划消费方，" +
-    "因此卡牌能力无法在 Finalize 安装该折扣；(2) 条件“本回合有敌方单位死亡”需要按对象过滤、按相对玩家限定的" +
-    "死亡事件历史谓词，声明的 when/history 形状没有费用计划求值器，生产路径也没有相对 opponent 的历史过滤适配；" +
-    "Draw 2 部分只用已合入的 effect.draw，可独立执行。",
+    "两处当前消费缺口（复核 2026-10-17，均实测；355.1/355.1.a、356.4.b/d、356.4.e、356.6）：" +
+    "(1) buildCostPlan 只接受调用方提供的 discounts / baseModifications，而生产 static binder 没有 " +
+    "continuous.cost-modification 的费用计划消费方——programs/statics.ts 的 layerFor 对该 kind 抛 " +
+    "「Static ability kind continuous.cost-modification has no layer mapping」（实测），" +
+    "因此本卡的静态能力无法在 Finalize 安装该折扣。" +
+    "(2) 条件「本回合有敌方单位死亡」需要按对象过滤、按相对玩家限定的死亡事件历史谓词：" +
+    "CostPlanInput 没有 when/history 求值器，且服务端运行时的 ResolveContext 两半都是占位实现" +
+    "（apps/game-server/src/engine-runtime/host.ts 的 history 恒为 0、test 只处理 always/never），" +
+    "无法在 Finalize 用相对 opponent 的历史判定门控折扣。" +
+    "Draw 2 部分只用已合入的 effect.draw（414.3），可独立执行，golden 覆盖正常/空牌库/短牌库。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {

@@ -19,9 +19,11 @@ import type { CardProgram } from "../../ir/index.js";
  * 卡牌只声明关键词（契约 3.1/3.7、README 第 5 节）；展开（static
  * continuous.might + designation=defender 条件）由 effects/keywords/Shield.ts 负责。
  *
- * status = judge-required：Shield 展开所需的 continuous.might 指令与
- * Shield KeywordDef、卡牌静态能力绑定均已合入，但 Shield KeywordDef 仍以
- * designation 读取 Defender 状态，而当前 ObjectSnapshot 暴露的是 combatRole。
+ * status = judge-required（复核 2026-10-17，缺口已实测）：
+ * Shield 展开所需的 continuous.might 指令、Shield KeywordDef 与卡牌静态能力绑定均已合入
+ * （生产 static binder 注册出 arithmetic 层效果），但展开读取的是 ObjectSnapshot 上
+ * 不存在的 "designation" 特征（ObjectSnapshot 只有 combatRole），条件求值因此抛
+ * MissingInformation，+1 Might 不会生效。
  */
 const stalwartPoro = {
   canonicalCardId:
@@ -29,11 +31,12 @@ const stalwartPoro = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Shield 的展开文件（effects/keywords/Shield.ts：static continuous.might + " +
-    "compare(object-property(self, 'designation'), eq, 'defender')）与 continuous.might 指令、" +
-    "卡牌静态能力绑定均已合入；但当前 ObjectSnapshot 暴露的战斗特征名是 combatRole，" +
-    "不是 Shield 展开读取的 designation，导致 Defender 条件无法从实时快照求值，+1 Might 不能安全应用。" +
-    "需要统一该特征名称并让条件在图层中按 CR 814.1.d 生效，不近似实现。",
+    "复核 2026-10-17（已实测）：Shield 的展开文件（effects/keywords/Shield.ts：static continuous.might + " +
+    "compare(object-property(self, 'designation'), eq, 'defender')）、continuous.might 指令与卡牌静态能力绑定均已合入" +
+    "（生产 static binder 能注册 arithmetic 层效果）；但 ObjectSnapshot 暴露的战斗特征是 combatRole，" +
+    "展开读取的 designation 键不存在，条件求值抛 MissingInformation「Unavailable characteristic: designation」，" +
+    "因此 +1 Might 永远不生效（Defender 条件下应为 +1）。需要把条件统一到快照上的实际特征名" +
+    "（或让快照暴露 designation），并按 CR 814.1.d/814.1.d.1 只在维持 Defender designation 期间生效。不近似实现。",
   abilities: [{ kind: "keyword", keyword: "shield" }],
   sourceText: "[Shield] (+1 :rb_might: while I'm a defender.)"
 } satisfies CardProgram;

@@ -8,7 +8,9 @@ import token from "../../../../engine-core/dist/effects/instructions/effect.toke
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID = "card.hash-6f54620dc8f77d546cac09d65f9233740f7ec347a9981fbe6aae3fed0b9f3ef7";
 const SOURCE_TEXT =
@@ -52,6 +54,10 @@ test("ogn-094-298 Sprite Call judgeReason names the definition, the entry state 
   assert.match(program.judgeReason, /185\.2\.d/);
   assert.match(program.judgeReason, /cost\.hidden/);
   assert.match(program.judgeReason, /beginning-start/);
+  // 复核后补充：token 定义缺失与入场状态改写的实测证据。
+  assert.match(program.judgeReason, /token-definition-or-abilities-judge-required/);
+  assert.match(program.judgeReason, /Invalid effect\.token argument/);
+  assert.match(program.judgeReason, /has no layer mapping/);
 });
 
 test("ogn-094-298 Sprite Call structure: [Hidden] + [Action] keywords plus one token-play instruction", () => {
@@ -130,18 +136,102 @@ test("ogn-094-298 Sprite Call: the merged Temporary KeywordDef supplies the 816.
   assert.equal(expansion.body[0].op, "effect.kill");
 });
 
+test("ogn-094-298 Sprite Call: the frozen token table has no Sprite definition (current gap)", () => {
+  const receipt = runInstruction(token, {
+    ...evaluatedArgs,
+    token: { kind: "constant", value: "sprite" }
+  }, { world: world().build() });
+
+  assert.deepEqual(receipt.result, { status: "negated", reason: "impossible", events: [] });
+  assert.equal(receipt.linked.sprite.blockedReason, "token-definition-or-abilities-judge-required");
+  assert.equal(receipt.linked.sprite.amount, 0);
+  // 同一形状换成已合入定义就真的执行：证明缺的正是 Sprite 定义本身。
+  const mech = runInstruction(token, {
+    ...evaluatedArgs,
+    token: { kind: "constant", value: "mech" }
+  }, { world: world().build() });
+  assert.equal(mech.result.status, "executed");
+});
+
+test("ogn-094-298 Sprite Call: effect.token rejects an entry-readiness override (current gap)", () => {
+  // 「ready」是入场状态限定（143.4 / 185.2.d）；原语参数表不接受任何入场改写。
+  for (const key of ["entersReady", "ready", "entryState"]) {
+    assert.throws(
+      () => runInstruction(token, {
+        ...evaluatedArgs,
+        [key]: { kind: "constant", value: true }
+      }, { world: world().build() }),
+      (error) => {
+        assert.match(String(error.message), /Invalid effect\.token argument/);
+        return true;
+      }
+    );
+  }
+  // 默认入场是未横置（ready）——与 143.4 相反——所以本卡必须显式声明该限定，
+  // 不能寄希望于“默认就是 ready”。
+  const kernel = world().build();
+  const created = runInstruction(token, {
+    ...evaluatedArgs,
+    token: { kind: "constant", value: "mech" }
+  }, { world: kernel });
+  assert.equal(created.result.status, "executed");
+  const tokenObject = kernel.query({ zone: "board", type: "unit" }).find((object) => object.isToken);
+  assert.equal(typeof tokenObject.exhausted, "boolean");
+});
+
+test("ogn-094-298 Sprite Call: Hidden's cost.hidden expansion has no production consumer (current gap)", () => {
+  const forged = {
+    canonicalCardId: "card.hash-sprite-call-hidden-probe",
+    rulesetVersion: "core-1.5",
+    status: "executable",
+    sourceText: "probe",
+    abilities: [{ kind: "keyword", keyword: "hidden" }]
+  };
+  const state = fixture({ cards: [{ id: "probe", cardId: forged.canonicalCardId, types: ["spell"] }] });
+  const errors = [];
+  const binding = createProgramBinding({ cardPrograms: [forged] });
+  binding.attachLifecycle(state.engine, (error) => errors.push(String(error && error.message)));
+  state.engine.commit({
+    type: "move-zone",
+    object: state.kernel.ref("probe"),
+    to: "board",
+    location: { type: "base", player: "A" }
+  });
+  assert.equal(
+    errors.includes("Static ability kind cost.hidden has no layer mapping"),
+    true,
+    JSON.stringify(errors)
+  );
+});
+
+test("ogn-094-298 Sprite Call: [Action]'s showdown permission is already consumed by the chain (806.1.b)", () => {
+  // 已合入：关键词展开成 continuous.timing，chain.canAct 会读取它；
+  // 非回合玩家在 Showdown 中持有 Focus 时可以行动。
+  const forged = {
+    canonicalCardId: "card.hash-sprite-call-action-probe",
+    rulesetVersion: "core-1.5",
+    status: "executable",
+    sourceText: "probe",
+    abilities: [
+      { kind: "keyword", keyword: "action" },
+      { kind: "play", body: [{ id: "draw", op: "effect.draw", args: { amount: { kind: "constant", value: 1 } } }] }
+    ]
+  };
+  const state = fixture({
+    cards: [{ id: "probe", cardId: forged.canonicalCardId, types: ["spell"], energy: 3 }],
+    turnPlayer: "A"
+  });
+  const binding = createProgramBinding({ cardPrograms: [forged] });
+  const draft = binding.describePlay(
+    { type: "play", object: state.kernel.ref("probe"), player: "A" },
+    state.kernel.getObject("probe")
+  );
+  assert.equal(draft.speed, "action");
+});
+
 test.todo(
   "Sprite Call: the 3 Might domainless Fae Sprite with Temporary (CR 187.2 / 185.3.a null cost) as a " +
-    "resolvable token definition, including its Temporary trigger (816.1.b), plus the ready entry state"
-);
-
-test.todo(
-  "Sprite Call: entering ready instead of the default exhausted entry (143.4 / 185.2.d) needs an entry " +
-    "override on the creation/play action; the merged action documents that entry overrides are unsupported"
-);
-
-test.todo(
-  "Sprite Call: [Hidden]'s Hide action and facedown play permission (811.1.b/811.1.c/811.1.d, cost.hidden) " +
-    "still need a production consumer, and [Action] admission (806.1.b) needs the chain's canAct " +
-    "check to read the continuous.timing grant"
+    "resolvable token definition whose beginning-start trigger (816.1.b) is admitted by the closed " +
+    "event vocabulary, plus an entry-readiness override on the creation/play action (143.4 / 185.2.d), " +
+    "and a production consumer for [Hidden]'s cost.hidden expansion (811.1.b/811.1.c/811.1.d)"
 );

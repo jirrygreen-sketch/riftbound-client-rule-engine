@@ -31,28 +31,42 @@ import type { CardProgram } from "../../ir/index.js";
  *   this"), so it belongs to the token definition rather than to a grant
  *   instruction from this card.
  *
- * Status: judge-required. effect.token has no executable Sprite definition
- * carrying the printed Temporary keyword, and its creation/play boundary has
- * no entry-readiness override ("Entry overrides are not supported"). The
- * Temporary keyword expansion is present, but the beginning-start event is not
- * admitted by the trigger event vocabulary. Hidden's cost.hidden expansion and
- * Action's timing permission also still need their production consumers.
+ * Status: judge-required (re-checked 2026-10-17; every gap below is measured).
+ * - effect.token's frozen definition table has no Sprite: the primitive negates
+ *   with blockedReason "token-definition-or-abilities-judge-required" (there is
+ *   no 187.2 3 Might Fae Sprite definition carrying Temporary).
+ * - "ready" is an entry-state stipulation (143.4 default exhausted entry,
+ *   185.2.d tokens follow their type). The primitive's argument list rejects an
+ *   entry-readiness override ("Invalid effect.token argument"), so readiness
+ *   cannot be expressed on the creation/play boundary. Modelling it as a
+ *   follow-up effect.ready would invent a second action the card never prints.
+ * - Temporary's KeywordDef expansion is merged, but its beginning-start trigger
+ *   is still rejected by the closed trigger event vocabulary, so the printed
+ *   keyword cannot enter the live pipeline.
+ * - [Hidden]'s cost.hidden expansion still has no producer (the production
+ *   static binder has no layer mapping for cost.hidden), so no Hide action or
+ *   facedown play permission exists. [Action]'s showdown permission is consumed
+ *   already through the keyword expansion (continuous.timing) and chain.canAct.
  * Not approximated: no generic token is substituted for the Sprite, and
- * readiness is not modeled as a follow-up effect.ready.
+ * readiness is not modelled as a follow-up effect.ready.
  */
 const spriteCall = {
   canonicalCardId: "card.hash-6f54620dc8f77d546cac09d65f9233740f7ec347a9981fbe6aae3fed0b9f3ef7",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 Sprite token 定义与 ready 入场支持：CR 187.2 规定 3 Might Sprite 是域外单位 token，带 Fae 标签与 Temporary 关键词，" +
-    "费用为 null（185.3.a：token 没有费用，不是 0）；已合入的 effect.token 只在冻结定义表（recruit/sand-soldier/mech/reflection/tentacle）" +
-    "中解析定义 id，表中刻意不含带能力的 token，Sprite 因此以 blockedReason \"token-definition-or-abilities-judge-required\" negated；" +
-    "同时「ready」是入场状态改写（143.4 默认横置进场、185.2.d token 沿用其类型规则），该动作明确不支持 entry override。" +
-    "Temporary 关键词展开已合入（effects/keywords/Temporary.ts：816.1.b 的 beginning-start kill this），但只展开印在永久物上的关键词触发，" +
-    "不提供 token 定义与入场状态；beginning-start 也不在触发事件词表中。" +
-    "[Hidden] 的 Hide 行动与背面打出许可同样缺 cost.hidden 的消费路径（811.1.b/811.1.c.2），" +
-    "Action 的 showdown 许可也需要链时机查询消费 continuous.timing。" +
+    "复核 2026-10-17（缺口均实测，均不近似实现）：(1) CR 187.2 的 3 Might Sprite 是域外单位 token，" +
+    "带 Fae 标签与 Temporary 关键词、费用为 null（185.3.a：token 没有费用，不是 0）；" +
+    "已合入的 effect.token 只在冻结定义表（recruit/sand-soldier/mech/reflection/tentacle）中解析定义 id，" +
+    "表中不含带能力的 token，Sprite 因此以 blockedReason「token-definition-or-abilities-judge-required」negated。" +
+    "(2)「ready」是入场状态限定（143.4 默认横置进场、185.2.d token 沿用其类型规则），" +
+    "而 effect.token 的参数表直接拒绝入场状态改写（实测 Invalid effect.token argument），" +
+    "事后 effect.ready 会凭空多出原文没有的动作。(3) Temporary 的 KeywordDef 展开已合入" +
+    "（816.1.b 的 beginning-start kill this），但其触发仍被封闭事件词表拒绝（beginning-start 不在 " +
+    "EVENT_PATTERN_TYPES），attachProgramLifecycle 下无法登记，进不了实时管线。" +
+    "(4) [Hidden] 的 cost.hidden 没有生产消费路径（静态绑定实测「Static ability kind cost.hidden has no " +
+    "layer mapping」），811.1.b/811.1.c.2 的 Hide 行动与背面打出许可都不可执行；" +
+    "[Action] 的 showdown 时机许可已由关键词展开（continuous.timing）与 chain.canAct 消费。" +
     "不近似实现：不用其他 token 替代 Sprite，也不用事后 effect.ready 冒充入场就绪。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
