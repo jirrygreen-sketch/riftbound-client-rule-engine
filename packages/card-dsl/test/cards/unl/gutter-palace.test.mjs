@@ -5,6 +5,7 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/gutter-palace.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { resolveLocationSelector } from "../../../../engine-core/dist/target/location/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -33,6 +34,9 @@ test("unl-088-219 Gutter Palace: identity, ruleset, status, judgeReason and verb
   assert.match(program.judgeReason, /187\.7/);
   assert.match(program.judgeReason, /effect\.token/);
   assert.match(program.judgeReason, /355\.2/);
+  assert.match(program.judgeReason, /RIFT-357/);
+  assert.match(program.judgeReason, /LocationSelector|LocationExpr/);
+  assert.match(program.judgeReason, /argsSchema|适配/);
   assert.match(program.judgeReason, /PickSpec/);
   assert.match(program.judgeReason, /exact-count/);
   assert.doesNotMatch(program.judgeReason, /RIFT-(89|102|120)/);
@@ -121,19 +125,43 @@ test("unl-088-219 Gutter Palace: the token instruction is the printed Bird play 
   // 440.2.c / 185.2.a: "Play ... token" goes through chain creation.
   assert.deepEqual(playBird.args.mode, { kind: "constant", value: "play" });
   assert.deepEqual(playBird.args.amount, { kind: "constant", value: 1 });
-  // 355.2: the entry location is chosen in the play process; the static IR can
-  // only mark it, so no seat or battlefield id is invented.
-  assert.deepEqual(playBird.args.locations, {
-    kind: "constant",
-    value: ["runtime:valid-play-location"]
+  // 355.2 / RIFT-357: the destination is a real LocationExpr selector.
+  assert.deepEqual(playBird.args.location, {
+    kind: "location",
+    value: {
+      kind: "choose",
+      id: "gutter-palace.bird-location",
+      filter: { type: "any", controller: "controller" }
+    }
   });
-  assert.deepEqual(playBird.args.choiceId, {
-    kind: "constant",
-    value: "gutter-palace.bird-location"
-  });
-  assert.deepEqual(Object.keys(playBird.args).sort(), ["amount", "choiceId", "locations", "mode", "token"]);
+  assert.deepEqual(Object.keys(playBird.args).sort(), ["amount", "location", "mode", "token"]);
   assert.equal(playBird.linkedTo, undefined);
   assert.equal(playBird.targets, undefined);
+});
+
+test("unl-088-219 Gutter Palace: the merged LocationSelector offers the controller Base and controlled battlefield", () => {
+  const base = { type: "base", player: "A" };
+  const ownBattlefield = { type: "battlefield", id: "bf-a" };
+  const opponentBattlefield = { type: "battlefield", id: "bf-b" };
+  const kernel = world()
+    .unit("base-unit", { owner: "A", controller: "A", location: base })
+    .unit("own-unit", { owner: "A", controller: "A", location: ownBattlefield })
+    .object("bf-a", { types: ["battlefield"], zone: "board", location: null, owner: "A", controller: "A" })
+    .unit("opponent-unit", { owner: "B", controller: "B", location: opponentBattlefield })
+    .object("bf-b", { types: ["battlefield"], zone: "board", location: null, owner: "B", controller: "B" })
+    .build();
+  assert.throws(
+    () => resolveLocationSelector(playBird.args.location.value, { context: kernel, players: ["A", "B"], opponent: "B" }),
+    error => {
+      assert.deepEqual(error.request.options, [base, ownBattlefield]);
+      return true;
+    }
+  );
+  kernel.setAnswers({ "gutter-palace.bird-location": ownBattlefield });
+  assert.deepEqual(
+    resolveLocationSelector(playBird.args.location.value, { context: kernel, players: ["A", "B"], opponent: "B" }),
+    ownBattlefield
+  );
 });
 
 test("unl-088-219 Gutter Palace golden: the merged effect.win declares the controller the winner through the interpreter", () => {
@@ -152,7 +180,8 @@ test.todo(
 );
 test.todo(
   "unl-088-219 Gutter Palace: resolve the token's unprinted entry location (CR 355.2: the controller's Base or a " +
-    "battlefield they control) through a runtime Location choice (target.location is not merged)"
+    "battlefield they control) through the merged LocationSelector; the remaining gap is the effect.token " +
+    "interpreter/argsSchema adapter for the evaluated LocationExpr destination"
 );
 test.todo(
   "unl-088-219 Gutter Palace: pay 'Discard 1' from a Finalize-supplied exact hand reference (CR 423.1.a / 423.3; " +
