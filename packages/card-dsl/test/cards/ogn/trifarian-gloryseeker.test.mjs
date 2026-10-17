@@ -6,6 +6,14 @@ import program from "../../../dist/cards/ogn/trifarian-gloryseeker.js";
 const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
 const { world } = await import(new URL("effects/testing/index.js", engineCore));
 const { runAbilityBody } = await import(new URL("effects/interpreter.js", engineCore));
+const { evaluateExpression } = await import(new URL("effects/interpreter/expr.js", engineCore));
+const { historyCount } = await import(new URL("effects/interpreter/history.js", engineCore));
+const { bindResolveContext } = await import(new URL("events/action-adapter.js", engineCore));
+const { fixture } = await import("../../../../engine-core/test/chain/helpers.mjs");
+const { registerProgramTriggers } = await import(new URL("programs/triggers.js", engineCore));
+const { createEngineStaticBinder } = await import(new URL("programs/statics.js", engineCore));
+const { ProgramRegistry } = await import(new URL("programs/registry.js", engineCore));
+const { expandProgram } = await import(new URL("programs/keywords.js", engineCore));
 
 const BUFF_ID = "trifarian-gloryseeker.buff-me";
 
@@ -24,7 +32,12 @@ test("ogn-217-298 Trifarian Gloryseeker: program validates and has expected iden
   assert.match(program.judgeReason, /Legion/);
   assert.match(program.judgeReason, /effect\.buff/);
   assert.match(program.judgeReason, /condition\.history/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  // Re-probed 2026-10-17: the gap is named by the concrete consumers that
+  // refuse the shape, not by a historical task number.
+  assert.match(program.judgeReason, /cards-finalized-this-turn/);
+  assert.match(program.judgeReason, /translateObjectFilter/);
+  assert.match(program.judgeReason, /no layer mapping/);
+  assert.equal(/RIFT-359/.test(program.judgeReason), false);
   assert.equal(
     program.sourceText,
     "[Legion] — When you play me, buff me. (If I don't have a buff, I get a +1 :rb_might: buff. " +
@@ -152,5 +165,83 @@ test("Trifarian Gloryseeker: contract history excludes this object but counts an
   assert.equal(runAbilityBody(history, kernel).linkedValues["legion-history.count"], 1);
 });
 
-test.todo("Trifarian Gloryseeker: evaluate Legion's another-card-Finalized-this-turn history at trigger time and consume condition.predicate (CR 812.1.b.1 / 812.1.c; RIFT-359)");
-test.todo("Trifarian Gloryseeker: bind non-target Buff-self without a TargetSpec or became-target event (CR 355.10.d.1 / 702.2.a; effect.buff selector contract)");
+test("Trifarian Gloryseeker boundary: the authored Legion condition counts live objects, not this turn's plays (CR 812.1.b.1 / 812.1.c)", () => {
+  // Re-probed 2026-10-17: the count expression ignores its subject and only
+  // counts objects passing the (partly unknown) filter, so the gate is satisfied
+  // by an empty board and grows with any object, play history or not.
+  const condition = program.abilities[1].trigger.condition;
+  assert.equal(condition.left.subject, "cards-finalized-this-turn");
+
+  const empty = fixture({ cards: [] });
+  const emptyContext = bindResolveContext(empty.kernel, { host: empty.kernel.ref("source") });
+  const emptyCount = evaluateExpression(condition.left, {
+    context: emptyContext, host: empty.kernel.ref("source"), linked: () => undefined,
+    canLookBack: () => true, isIgnored: () => false, query: filter => empty.kernel.query(filter)
+  });
+
+  const busy = fixture({ cards: Array.from({ length: 7 }, (_, index) => ({ id: `u${index}`, owner: "A", controller: "A", types: ["unit"], might: 1 })) });
+  for (let index = 0; index < 7; index += 1) {
+    busy.engine.commit({ type: "move-zone", object: busy.kernel.ref(`u${index}`), to: "board", location: { type: "base", player: "A" } });
+  }
+  const busyContext = bindResolveContext(busy.kernel, { host: busy.kernel.ref("source") });
+  const busyCount = evaluateExpression(condition.left, {
+    context: busyContext, host: busy.kernel.ref("source"), linked: () => undefined,
+    canLookBack: () => true, isIgnored: () => false, query: filter => busy.kernel.query(filter)
+  });
+
+  // Zero plays happened in either world, yet the counts differ and both clear the
+  // gte 1 threshold: the subject field participates in nothing.
+  assert.notEqual(emptyCount, busyCount);
+  assert.ok(emptyCount >= 1 && busyCount >= 1);
+});
+
+test("Trifarian Gloryseeker boundary: the trigger body's object:'self' target is refused by the production filter translator (CR 355.10.d.1)", () => {
+  // Re-probed 2026-10-17: the authored target's object:'self' anchor survives
+  // validation but the production translator that registerProgramTriggers uses
+  // rejects it, so the dependent ability cannot be registered at all.
+  const f = fixture({ cards: [{ id: "gloryseeker", cardId: program.canonicalCardId, types: ["unit"], energy: 1, power: ["Fury"], might: 2 }] });
+  const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
+  assert.throws(
+    () => registerProgramTriggers(registry, f.engine, f.kernel.getObject("gloryseeker")),
+    (error) => error.code === "judge-required" && /Unsupported filter field object/.test(error.message)
+  );
+  assert.equal(f.engine.pipeline.checkpoint().triggers.size, 0);
+});
+
+test("Trifarian Gloryseeker boundary: the Legion predicate is unbound and its history payload is rejected (CR 812.1.c)", () => {
+  // Re-probed 2026-10-17: the expansion declares condition.predicate, which the
+  // production static binder has no layer for, and the payload's
+  // history.excluding spelling is refused by the interpreter's own history
+  // field whitelist. No path therefore derives "another card finalized this
+  // turn" for the dependent ability.
+  const kernel = world().unit("gloryseeker", { cardId: program.canonicalCardId }).build();
+  const expanded = expandProgram(program, kernel.getObject("gloryseeker"));
+  assert.deepEqual(expanded.expanded.map(ability => ability.effect.kind), ["condition.predicate"]);
+  assert.equal(expanded.expanded[0].effect.history.excluding, program.canonicalCardId);
+
+  const f = fixture({ cards: [{ id: "gloryseeker", cardId: program.canonicalCardId, types: ["unit"], energy: 1, power: ["Fury"], might: 2 }] });
+  assert.throws(
+    () => createEngineStaticBinder(f.engine).bindStatic(expanded.expanded[0], f.kernel.getObject("gloryseeker")),
+    (error) => error.code === "judge-required" && /condition\.predicate/.test(error.message) && /no layer mapping/.test(error.message)
+  );
+  assert.deepEqual(f.engine.layers.registry.list(), []);
+
+  const context = bindResolveContext(world().player("A").player("B").build(), {});
+  assert.throws(
+    () => historyCount({ scope: "turn", action: "play", player: "controller", excluding: program.canonicalCardId }, context),
+    /Unsupported history query field/
+  );
+});
+
+test("Trifarian Gloryseeker boundary: effect.buff still requires a TargetSpec id, so 'buff me' has no non-target form (CR 355.10.d.1 / 702.2.a)", async () => {
+  // Re-probed 2026-10-17: the primitive's argument schema insists on a non-empty
+  // TargetSpec id string; there is no self/selector spelling, which is exactly
+  // why the retained self-unit TargetSpec is blocked authoring data rather than
+  // an executable path.
+  const [buff] = program.abilities[1].body;
+  assert.deepEqual(buff.args.target, { kind: "constant", value: "self-unit" });
+  assert.deepEqual(buff.targets[0].filter, { object: "self", type: "unit", zone: "board" });
+  const { default: effectBuff } = await import(new URL("effects/instructions/effect.buff.js", engineCore));
+  assert.throws(() => effectBuff.argsSchema.parse({ mode: "buff" }), /target must be a non-empty TargetSpec id/);
+  assert.throws(() => effectBuff.argsSchema.parse({ mode: "buff", target: { kind: "constant", value: "self-unit" } }), /target must be a non-empty TargetSpec id/);
+});

@@ -2,17 +2,24 @@ import type { CardProgram } from "../../ir/index.js";
 
 /**
  * Viktor, Leader — CR v1.5 133.8, 187.1, 383.2.c.2, 429.1, 440.2.c.
- * Trigger registration and token Expr dispatch are merged. The filter still
- * needs other/non-Recruit exclusion and simultaneous-death lifetime validation.
- * condition.value resolves the ability controller's base for the token body.
+ * 复核 2026-10-17：token 半段与 condition.value 取基地已有真实执行证据；
+ * 触发过滤的 other/excludeTags 仍被翻译器拒绝，同波死亡生命周期也未验证。
  */
 const viktorLeader = {
   canonicalCardId: "card.hash-7e53dfef149527260e304de53fa08d40d73dd789893fd093fd83cf275d95b2ac",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「another non-Recruit unit you control」（CR 133.8、187.1、383.2.c.2）仍缺触发过滤的 other 自身排除和 excludeTags 负向标签维度：programs/filters.translateObjectFilter 不接受这两个键；需条件/过滤谓词 RIFT-359，不能包含 Recruit 或本卡。" +
-    "此外 383.2.c.2 要求同一死亡动作中本卡已离场时不触发，需随真正的死亡波扫描验证。",
+    "两处缺口（2026-10-17 复核）：" +
+    "(1)「another non-Recruit unit you control」（CR 133.8、187.1）的过滤维度缺失：" +
+    "programs/filters.ts::translateObjectFilter 对 other 与 excludeTags 都抛 ProgramBindingError" +
+    "（实测 \"Unsupported filter field other\" / \"Unsupported filter field excludeTags\"），" +
+    "所以 registerProgramTriggers 直接拒绝本卡，触发连注册都做不到；引擎的过滤器（layers/filter.ts、" +
+    "events/pipeline-match.ts）也没有读取 excludeTags 的负向标签路径，Recruit 与本卡自身都无法排除。" +
+    "(2) 383.2.c.2 要求本卡与另一个非 Recruit 单位在同一死亡动作中一起离场时不触发，" +
+    "这条生命周期语义尚无真实死亡波扫描的执行证据（当前死亡清理路径没有同波判定）。" +
+    "已合入并有执行证据：token 半段（condition.value 解析能力控制者基地 + effect.token 的 play 模式，" +
+    "在控制者基地真实创建并打出 1 Might Recruit）与 CardProgram 触发注册接线本身。",
   abilities: [
     {
       kind: "triggered",

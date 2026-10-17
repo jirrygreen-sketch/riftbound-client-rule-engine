@@ -2,16 +2,22 @@ import type { CardProgram } from "../../ir/index.js";
 
 /**
  * Time Warp — CR v1.5 734–738 (Additional Turns), 428.1–428.5 (Banish).
- * Play binding and the independent Banish clause are merged. Inserting and
- * consuming a temporary turn in the turn queue remains blocked.
+ * 复核 2026-10-17：effect.banish 半段有生产执行证据；effect.additional-turn
+ * 至今没有登记在指令注册表，整卡仍被额外回合的队列语义阻塞。
  */
 const timeWarp = {
   canonicalCardId: "card.hash-037ac90c7e1ee070f9dea523811caa91e2b1f5c8018e4cc7753149ebb5eba7d7",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "CR 734–738 的 Additional Turn 仍缺回合队列插入动作与 turn/ 消费接口：effect.additional-turn 仅为描述 IR，不能在当前回合之后插入临时回合并在完成后恢复原队列。" +
-    "CardProgram play 绑定与费用管线已合入；effect.banish 及 source 选择器已有生产链适配器执行证据。整卡仅受额外回合队列语义阻塞，不以跳过阶段或重复 turn-start 近似。",
+    "CR 734–738 的 Additional Turn 仍缺实现（2026-10-17 复核）：" +
+    "(1) effect.additional-turn 不是已登记指令——instructions/registry.generated.ts 里没有该 op，" +
+    "实测 resolveChainBody 直接抛 \"Unregistered instruction opcode: effect.additional-turn\"，所以这条指令连解释器入口都没有；" +
+    "(2) 即便登记，735–738 要求的临时回合插入与消费接口仍不存在：turn/flow.ts 只有 phase/phaseValue 推进，" +
+    "没有回合队列（无 turnQueue/额外回合结构），也没有「插入到当前回合之后、完成后恢复原队列」的原语；" +
+    "不以跳过阶段或重复 turn-start 近似。" +
+    "已合入并有执行证据：CardProgram play 绑定与费用管线，以及独立句的 effect.banish + source 选择器" +
+    "（428.1–428.5，实测把本法术移入其拥有者的 Banishment 并留下链接回执）。",
   abilities: [
     {
       kind: "play",

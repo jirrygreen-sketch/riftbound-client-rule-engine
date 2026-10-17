@@ -6,6 +6,7 @@ import program from "../../../dist/cards/ogn/time-warp.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import banish from "../../../../engine-core/dist/effects/instructions/effect.banish.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-037ac90c7e1ee070f9dea523811caa91e2b1f5c8018e4cc7753149ebb5eba7d7";
@@ -26,7 +27,11 @@ test("Time Warp program is structurally valid and judge-required", () => {
   assert.match(program.judgeReason, /734/);
   assert.match(program.judgeReason, /Additional Turn/);
   assert.match(program.judgeReason, /effect\.banish/);
-  assert.match(program.judgeReason, /回合队列/);
+  // Re-probed 2026-10-17: the op is not even registered, which the reason now
+  // names together with the missing turn-queue consumer.
+  assert.match(program.judgeReason, /registry\.generated/);
+  assert.match(program.judgeReason, /Unregistered instruction opcode/);
+  assert.match(program.judgeReason, /turnQueue|回合队列/);
   // The judgeReason must name the actual gap (contract 3.1 / README §2).
 });
 
@@ -91,11 +96,36 @@ test("Time Warp golden: the banish half runs through the production chain body u
   assert.equal(kernel.getObject("time-warp").zone, "banishment");
 });
 
-test.todo(
-  "Time Warp: 'Take a turn after this one' needs an Additional Turn inserted into the " +
-    "turn queue (734/735-738): a turn-queue GameAction or turn/ API plus the appropriate " +
-    "timing boundary. Not approximated by skipping a phase or reusing turn-start."
-);
+test("Time Warp boundary: effect.additional-turn is not a registered instruction (CR 734/735)", () => {
+  // Re-probed 2026-10-17: the authored opcode has no entry in the merged
+  // instruction registry, so even a direct resolve of the card's own body fails
+  // before any turn-queue question is reached.
+  assert.equal(instructionDefinitionsById.has("effect.additional-turn"), false);
+  const kernel = world().card("time-warp", { types: ["spell"], zone: "chain" }).build();
+  assert.throws(
+    () => resolveChainBody([additionalTurn], kernel.clone({ sourceSnapshot: kernel.getObject("time-warp") })),
+    /Unregistered instruction opcode: effect\.additional-turn/
+  );
+  // The independent banish sentence is unaffected by that gap, which is what
+  // makes this a per-clause block rather than a whole-body failure.
+  const banishHalf = resolveChainBody([banishThis], kernel.clone({ sourceSnapshot: kernel.getObject("time-warp") }));
+  assert.equal(banishHalf.status, "executed");
+});
+
+test("Time Warp boundary: turn/ exposes phase progression but no temporary-turn queue (CR 735–738)", async () => {
+  // Re-probed 2026-10-17: the merged turn module drives awaken/beginning/…/main
+  // phases, and its public surface has no Additional Turn insertion or restore
+  // entry. 735 requires the effect to create a temporary turn inserted after the
+  // current one, and 736–738 require the repeating turn order to stay intact, so
+  // neither the insertion nor the completion-restore half exists yet.
+  const flow = await import("../../../../engine-core/dist/turn/flow.js");
+  assert.equal(typeof flow.TurnFlow, "function");
+  const surface = Object.getOwnPropertyNames(flow.TurnFlow.prototype).join(" ");
+  assert.doesNotMatch(surface, /additionalTurn|queueAdditionalTurn|extraTurn/i);
+  // The authored shape still describes the rules contract it cannot execute.
+  assert.deepEqual(additionalTurn.args.after, { kind: "constant", value: "this-turn" });
+  assert.deepEqual(additionalTurn.args.owner, { kind: "constant", value: "controller" });
+});
 
 test("Time Warp: the merged play binder preserves both independent instructions", async () => {
   const { describePlay } = await import("../../../../engine-core/dist/programs/play.js");

@@ -6,8 +6,12 @@ import program from "../../../dist/cards/ogn/vilemaws-lair.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { ContinuousEffectRegistry } from "../../../../engine-core/dist/layers/duration.js";
 import { movement as movementQuery } from "../../../../engine-core/dist/layers/rules/query.js";
+import { restrictions as ruleRestrictions } from "../../../../engine-core/dist/layers/rules/query.js";
 import continuousMovement from "../../../../engine-core/dist/effects/instructions/continuous.movement.js";
+import moveInstruction from "../../../../engine-core/dist/effects/instructions/effect.move.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL = "card.hash-3e2d969f2528a782a98c698fc45d9937d376dd06244c444271adf9cbd4100e77";
 const SOURCE_TEXT = "Units can't move from here to base.";
@@ -51,6 +55,10 @@ test("Vilemaw's Lair program validates and is judge-required", () => {
   assert.match(program.judgeReason, /358\.3\.a/);
   assert.match(program.judgeReason, /move-location/);
   assert.match(program.judgeReason, /Standard Move/);
+  // Re-probed 2026-10-17: the prohibition really does hold on Standard Move and
+  // really is absent from the effect-move path, which is the named gap.
+  assert.match(program.judgeReason, /effect\.move/);
+  assert.match(program.judgeReason, /routeBlocked/);
   // 054.1 ("Can't beats Can") is the operative rule; the reason must also name
   // the missing consumer, not just "not implemented".
   assert.equal(program.sourceText, SOURCE_TEXT);
@@ -175,4 +183,53 @@ test("Vilemaw's Lair: production static binding prohibits both players' Standard
   assert.equal(released.board.units.find(unit => unit.objectId === "here-a").locationId, bases.A);
 });
 
-test.todo("Vilemaw's Lair: effect Move must read the same route restriction, negate Battlefield-to-Base movement and continue later independent instructions (CR 054.1 / 358.3.a / 359.3.e.14.b; ChainEngine move-location consumer)");
+test("Vilemaw's Lair boundary: effect.move still moves a unit from here to base with the restriction registered in the same world (CR 054.1 / 358.3.a / 359.3.e.14.b)", () => {
+  // Re-probed 2026-10-17: Standard Move consults the route table, but effect.move
+  // submits a move-location GameAction and neither that primitive nor the
+  // ChainEngine move path reads layers/rules movement restrictions. The
+  // restriction below is registered in the very world the effect Move runs in
+  // (the primitive's own contract: move-location owns path restrictions).
+  const f = fixture({ cards: [
+    { id: "lair", cardId: CANONICAL, types: ["battlefield"], energy: null, power: null },
+    { id: "unit-here", owner: "A", controller: "A", types: ["unit"], might: 2 }
+  ] });
+  const here = { type: "battlefield", id: "battlefield-1" };
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("lair"), to: "board", location: here });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("unit-here"), to: "board", location: { ...here } });
+  createEngineStaticBinder(f.engine).bindStatic(ability, f.kernel.getObject("lair"));
+  f.engine.layers.setObjects(f.kernel.objects);
+  const view = movementQuery(f.engine.layers.registry, f.kernel.ref("unit-here"), f.engine.layers.snapshot(f.kernel.ref("unit-here")), "A");
+  assert.deepEqual(view.restrictions, ["move-from-here-to-base"]);
+  // The rule query only serves continuous.restrict/requirement effects, so the
+  // declared movement kind records nothing for the move action name.
+  assert.deepEqual(ruleRestrictions(f.engine.layers.registry, "move", f.kernel.ref("unit-here"), f.engine.layers.snapshot(f.kernel.ref("unit-here")), "A"), []);
+  assert.deepEqual(ruleRestrictions(f.engine.layers.registry, "move-location", f.kernel.ref("unit-here"), f.engine.layers.snapshot(f.kernel.ref("unit-here")), "A"), []);
+
+  // Register the same declaration in the world itself, then run the effect Move
+  // against it: the restriction is live and the Move still happens.
+  const c = value => ({ kind: "constant", value });
+  runInstruction(continuousMovement, {
+    restriction: c("move-from-here-to-base"), addsPermission: c(false), appliesTo: c({ type: "unit", zone: "board" })
+  }, { world: f.kernel });
+  assert.deepEqual(
+    f.kernel.continuousEffects.map(entry => entry.effect.effect.restrictions),
+    [["move-from-here-to-base"]]
+  );
+  // The live registry really reports the restriction for this unit, so the Move
+  // below happens with the prohibition active rather than with an inert piece of
+  // data.
+  const liveRegistry = new ContinuousEffectRegistry();
+  for (const entry of f.kernel.continuousEffects) liveRegistry.register(entry.effect, entry.duration);
+  const liveUnit = f.kernel.getObject("unit-here");
+  assert.deepEqual(movementQuery(liveRegistry, liveUnit.ref, liveUnit, "A").restrictions, ["move-from-here-to-base"]);
+
+  const scoped = f.kernel.clone({ sourceSnapshot: f.kernel.getObject("unit-here") });
+  const run = runInstruction(
+    moveInstruction,
+    { objects: { kind: "constant", value: "self" }, to: { kind: "constant", value: { type: "base", player: "A" } } },
+    { world: scoped }
+  );
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.moved.count, 1);
+  assert.deepEqual(scoped.getObject("unit-here").location, { type: "base", player: "A" });
+});

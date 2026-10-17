@@ -10,6 +10,12 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
 const { world } = await import(new URL("effects/testing/index.js", engineCore));
 const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js", engineCore));
+const { translateTriggerFilter } = await import(new URL("programs/filters.js", engineCore));
+const { registerProgramTriggers } = await import(new URL("programs/triggers.js", engineCore));
+const { ProgramRegistry } = await import(new URL("programs/registry.js", engineCore));
+const { fixture } = await import("../../../../engine-core/test/chain/helpers.mjs");
+const { matchesTriggerObject } = await import(new URL("events/pipeline-match.js", engineCore));
+const { matchesObjectFilter } = await import(new URL("layers/filter.js", engineCore));
 
 const CANONICAL = "card.hash-7e53dfef149527260e304de53fa08d40d73dd789893fd093fd83cf275d95b2ac";
 const SOURCE_TEXT =
@@ -30,9 +36,12 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, sourceText", () =
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /non-Recruit/);
   assert.match(program.judgeReason, /excludeTags/);
-  assert.match(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /383\.2\.c\.2/);
   assert.match(program.judgeReason, /translateObjectFilter/);
+  // Re-probed 2026-10-17: the reason names the refusing translator plus the
+  // still-unverified simultaneous-death lifetime rather than a task number.
+  assert.match(program.judgeReason, /other/);
+  assert.equal(/RIFT-359/.test(program.judgeReason), false);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });
@@ -143,7 +152,35 @@ test("Viktor, Leader: the authored body executes through the merged token Expr a
   assert.deepEqual(outcome.linkedValues["viktor.play-recruit.recruitToken.objects"], [recruit.ref]);
 });
 
-test.todo("Viktor, Leader: bind other/non-Recruit death filters and exclude the same simultaneous death wave as Viktor (CR 133.8 / 383.2.c.2; RIFT-359)");
+test("Viktor, Leader boundary: the production filter translator refuses other/excludeTags, so the death trigger cannot register (CR 133.8)", () => {
+  // Re-probed 2026-10-17: both authored filter dimensions are outside the
+  // translator's whitelist. The refusal happens at registration time, so the
+  // dependent ability never even reaches the pipeline.
+  for (const [field, message] of [["other", /Unsupported filter field other/], ["excludeTags", /Unsupported filter field excludeTags/]]) {
+    assert.throws(
+      () => translateTriggerFilter({ event: "object-killed", filter: { type: "unit", controller: "controller", [field]: field === "other" ? true : ["Recruit"] } }, "viktor", "object-killed"),
+      (error) => error.code === "judge-required" && message.test(error.message)
+    );
+  }
+
+  const f = fixture({ cards: [{ id: "viktor", cardId: program.canonicalCardId, types: ["unit"], energy: 5, power: ["Mind"], might: 5 }] });
+  assert.throws(
+    () => registerProgramTriggers(new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]), f.engine, f.kernel.getObject("viktor")),
+    (error) => error.code === "judge-required" && /Unsupported filter field other/.test(error.message)
+  );
+  assert.equal(f.engine.pipeline.checkpoint().triggers.size, 0);
+});
+
+test("Viktor, Leader boundary: no merged filter path consumes excludeTags, so Recruit and the source cannot be excluded (CR 133.8)", () => {
+  // Re-probed 2026-10-17: even outside the program translator, the layer filter
+  // and the trigger matcher only accumulate positive tags. Without a negative
+  // dimension a death watcher could not distinguish Recruit tokens or itself.
+  const recruit = { ref: { id: "recruit", zoneEntryId: 3 }, cardId: null, name: "Recruit", types: ["unit"], tags: ["Recruit"], keywords: [], owner: "A", controller: "A", zone: "board", location: { type: "base", player: "A" }, might: 1, energy: null, power: null, exhausted: false, damage: 0, stunned: false, buffs: 0, attachedTo: null, faceDown: false, isToken: true };
+  assert.equal(matchesTriggerObject({ type: "unit", tags: [] }, recruit, "A"), true);
+  assert.equal(matchesTriggerObject({ type: "unit", excludeTags: ["Recruit"] }, recruit, "A"), true, "excludeTags is silently ignored by the trigger matcher");
+  assert.equal(matchesObjectFilter({ type: "unit", excludeTags: ["Recruit"] }, recruit), true, "excludeTags is silently ignored by the layer filter");
+  assert.deepEqual(program.abilities[0].trigger.filter.filter.excludeTags, ["Recruit"]);
+});
 for (const controller of ["A", "B"]) {
   for (const sourceLocation of [{ type: "base", player: controller }, { type: "battlefield", id: "bf-1" }]) {
     test(`Viktor, Leader: authored body plays one Recruit into ${controller}'s base from ${sourceLocation.type}`, () => {
