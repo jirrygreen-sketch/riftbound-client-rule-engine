@@ -124,11 +124,11 @@ test("rad-128-167 Steadfast Outrider: 条件谓词在参考内核下由真实集
 });
 
 test.todo(
-  "rad-128-167 Steadfast Outrider: \"I have +2 Might\" 需要 continuous.might 的图层消费方（契约 3.4 的" +
-    "arithmetic 层，RIFT-91）；当前静态能力只作为 IR 存在（Assault/Shield 展开自述同一缺口）"
+  "rad-128-167 Steadfast Outrider: \"I have +2 Might\" 的 continuous.might 图层消费方已合入（RIFT-91 结论过时）；" +
+    "剩余缺口是 staticFilter 拒绝条件过滤器里的 exclude:self 锚点，静态能力无法注册"
 );
 
 test.todo(
-  "rad-128-167 Steadfast Outrider: [Tank] 展开（815.1.b/c）依赖 effects/keywords/Tank.ts 与 combat 的" +
-    "伤害分配优先级绑定；生产链还需解析 sameLocationAs/exclude/controller 锚点的 host 绑定"
+  "rad-128-167 Steadfast Outrider: [Tank] 的 KeywordDef 已合入并展开 continuous.combat，但" +
+    "combat/base-combat-allocation.ts 的分配消费方仍是 keywordPriority: proven-none（815.1.c）"
 );

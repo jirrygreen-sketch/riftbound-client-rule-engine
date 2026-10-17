@@ -22,8 +22,8 @@ test("rad-075-167 Skystrike Squadron: program validates and is judge-required", 
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /return-to-hand/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /translateCost/);
+  assert.match(program.judgeReason, /mandatoryAdditional/);
 });
 
 test("rad-075-167 Skystrike Squadron: sourceText is the verbatim deck-catalog ability text", () => {
@@ -79,7 +79,7 @@ test("rad-075-167 Skystrike Squadron: the Deflect keyword expands to a 1-Power t
   assert.deepEqual(expansion.effect.value, { kind: "constant", value: 1 });
 });
 
-test("rad-075-167 Skystrike Squadron: the cost pipeline rejects the declared non-scaling payment kind", () => {
+test("rad-075-167 Skystrike Squadron: the cost pipeline reports the real blocking gaps (translateCost + return-to-hand)", () => {
   const kernel = world().unit("skystrike-squadron", { might: 4 }).unit("gear-1", { types: ["gear"] }).build();
   assert.throws(
     () =>
@@ -90,7 +90,7 @@ test("rad-075-167 Skystrike Squadron: the cost pipeline rejects the declared non
     error => {
       assert.equal(error.name, "CostPlanError");
       assert.equal(error.reason, "judge-required");
-      // The blocking facts behind judge-required: the pipeline rejects the optional marker...
+    // The blocking facts behind judge-required: the Play pipeline rejects the optional marker...
       assert.match(error.message, /optional/);
       // ...and has no "return-to-hand" payment kind at all.
       assert.throws(
@@ -127,11 +127,12 @@ test("rad-075-167 Skystrike Squadron: the merged pipeline can apply a caller-sup
 test.todo(
   "rad-075-167 Skystrike Squadron: charge the optional return-a-friendly-gear cost at Finalize and " +
     "apply the resulting 2-Energy discount only when it was paid (356.2 / 356.4.c / 356.4.f.1) — " +
-    "cost/plan-values.ts has no return-to-hand payment kind (RIFT-89)"
+    "translateCost rejects additional-cost/optional/discounts and plan-values has no return-to-hand kind; " +
+    "cost-plan discounts come only from explicit caller input"
 );
 
 test.todo(
-  "rad-075-167 Skystrike Squadron: [Deflect 1] target tax collection — the expansion produces a " +
-    "target.tax effect but no caller passes tax options into finalizeTargetPlan " +
-    "(chain/engine.ts only installs a tax adapter without a tax source) (RIFT-90)"
+  "rad-075-167 Skystrike Squadron: [Deflect 1] target tax as any-Domain Power — the expansion is registered " +
+    "through programs/statics.ts, but finalize converts the collected TargetTaxRequest into a mandatoryAdditional " +
+    "{ energy: amount } constant (809.1.c.1)"
 );

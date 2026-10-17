@@ -56,10 +56,10 @@ test("rad-076-167 Sneaky Zeebles: the body adds one rainbow power through effect
   assert.equal(addRainbow.targets, undefined);
 });
 
-test("rad-076-167 Sneaky Zeebles: the rainbow symbol has no representation in the closed Domain set", () => {
+test("rad-076-167 Sneaky Zeebles: the rainbow symbol has no representation in the closed Domain set (contract gap evidence)", () => {
   // 135.2.e.5 / 163.2.b: [A] is Power of any domain, not one of the six Domains. The merged
   // primitive accepts only the six, so the printed instruction is negated rather than silently
-  // restricted to one domain.
+  // restricted to one domain — this is the honest evidence for the contract change request.
   const kernel = world().build();
   const run = runInstruction(
     resources,

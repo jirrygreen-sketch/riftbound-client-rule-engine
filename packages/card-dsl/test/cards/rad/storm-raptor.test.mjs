@@ -1,10 +1,11 @@
 // Golden test for Storm Raptor (rad-036-167).
 //
 // judge-required (see the program's judgeReason): the death trigger's "here"
-// condition cannot be matched truthfully - the trigger matcher does not
-// implement the sameLocationAs anchor, while the interpreter's set query does.
-// The runnable evidence is the Deflect keyword declaration with its merged
-// KeywordDef expansion, and the Draw 1 the trigger body performs.
+// condition cannot be matched truthfully - trigger binding rejects the
+// sameLocationAs anchor and the pipeline matcher does not implement it, while
+// the interpreter's set query does. The runnable evidence is the Deflect keyword
+// declaration with its merged KeywordDef expansion, and the Draw 1 the trigger
+// body performs.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -39,7 +40,7 @@ test("rad-036-167 Storm Raptor: identity, status, judgeReason and verbatim sourc
   // README section 2: name the unmatched condition, the rule and the task.
   assert.match(program.judgeReason, /sameLocationAs/);
   assert.match(program.judgeReason, /053\.3/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /translateObjectFilter/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -133,14 +134,14 @@ test.todo(
 );
 
 test.todo(
-  "Storm Raptor: 'dies here' - blocked because the sameLocationAs anchor is implemented only for the interpreter's " +
-    "set queries (interpreter/selectors.ts), while events/pipeline-match.ts matchesTriggerObject has no location " +
-    "anchor and silently passes unknown filter keys, so wiring the declared filter would count enemy deaths anywhere " +
-    "on the board (053.3 / 421.1)"
+  "Storm Raptor: 'dies here' - the production trigger binding rejects the sameLocationAs anchor " +
+    "(translateTriggerFilter/translateObjectFilter: unsupported filter field), and events/pipeline-match.ts " +
+    "matchesTriggerObject has no location anchor while silently passing unknown filter keys, so any wiring " +
+    "would count enemy deaths anywhere on the board (053.3 / 421.1)"
 );
 
 test.todo(
-  "Storm Raptor: [Deflect] expansion - the KeywordDef is merged, but no producer turns a card's keyword declaration " +
-    "into a registered target tax on the host (RIFT-257) and the any-Domain Power payment path is still missing " +
-    "(RIFT-261)"
+  "Storm Raptor: [Deflect] expansion - the KeywordDef and production statics binding are merged, but finalize " +
+    "converts the collected TargetTaxRequest into a mandatoryAdditional { energy: amount } constant, so the " +
+    "any-Domain Power tax (809.1.c.1) cannot be collected truthfully"
 );
