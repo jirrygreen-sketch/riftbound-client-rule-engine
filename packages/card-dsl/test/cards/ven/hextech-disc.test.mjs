@@ -132,15 +132,15 @@ test("ven-087-166 Hextech Disc: the merge-able half of the cost (energy + exhaus
 
 test.todo(
   "ven-087-166 Hextech Disc: [Empower] (exhaust the source, CR 827.1.c.1/415.5) needs an Empower/Empowered " +
-    "KeywordDef — keywords/registry.generated.ts has no \"empower\"/\"empowered\" entry (RIFT-81~88 batch)"
+    "KeywordDef — keywords/registry.generated.ts has no \"empower\"/\"empowered\" entry"
 );
 test.todo(
   "ven-087-166 Hextech Disc: paying \"Disempower this\" (CR 443.2/443.2.a) needs the disempower payment kind in " +
     "cost/plan-values.ts readCost, whose nonstandard kinds are only " +
-    "exhaust/discard/recycle/kill/reveal/spend-buff (RIFT-89 cost-payment batch)"
+    "exhaust/discard/recycle/kill/reveal/spend-buff"
 );
 test.todo(
   "ven-087-166 Hextech Disc: the production Chain-side receiver for a played token (440.2.c / 185.2.a) and the " +
-    "card-program -> keyword expansion -> chain wiring (contract 3.5) are unmerged; the reference kernel run above " +
-    "proves the token definition and play handoff only"
+    "card-program describePlay adapter are unmerged: routeAction requires a bound card program for play actions, " +
+    "and a token has no cardId to bind; the reference kernel run above proves the token definition and play handoff only"
 );

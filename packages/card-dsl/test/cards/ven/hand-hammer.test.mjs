@@ -78,8 +78,8 @@ test("ven-027-166 Hand Hammer: identity, ruleset, status, judgeReason and verbat
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /818\.1\.c/);
   assert.match(program.judgeReason, /params\.cost/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /expandProgram/);
+  assert.match(program.judgeReason, /ChainContractBlockedError/);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
@@ -179,9 +179,12 @@ test("ven-027-166 Hand Hammer golden: with no controlled unit the Equip target r
 
 test.todo(
   "ven-027-166 Hand Hammer: paying the printed Equip cost (1 Calm Power, CR 818.1.c) needs the \"equip\" " +
-    "payment kind in cost/plan-values.ts and the contract 3.8.3 params.cost input on KeywordDef.expand (RIFT-89)"
+    "payment kind in cost/plan-values.ts and the contract 3.8.3 params.cost passthrough from the card program " +
+    "through expandProgram (the interface declares it, the expander does not forward it)"
 );
 test.todo(
   "ven-027-166 Hand Hammer: the card-program -> keyword expansion -> chain activation wiring (contract 3.5) " +
-    "must register the Equip activated ability before the whole card is executable (RIFT-120 follow-up)"
+    "is merged: ProgramBinding + ChainEngine.describeActivate registers the Equip activated ability and returns " +
+    "the cost draft; the whole card stays judge-required only because chain.execute blocks on the \"equip\" " +
+    "payment kind (ChainContractBlockedError)"
 );
