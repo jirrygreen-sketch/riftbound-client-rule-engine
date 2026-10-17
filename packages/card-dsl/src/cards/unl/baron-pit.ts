@@ -15,6 +15,10 @@ import type { CardProgram } from "../../ir/index.js";
  * destinationLocationId 表达目的地，没有把许可的 source:"anywhere" 起点放宽
  * 接入该判定。不能把该许可换成无限定目的地的 Ganking，也不能用 sameLocationAs
  * 限定为已在本战场的单位。括号句按 135.2.d.1/d.3 是提醒文本。
+ *
+ * 第三轮复核确认该口径仍然成立：RIFT-360 只增加目标税成本计划、RIFT-359 只增加
+ * 事件/结果谓词，两者都不消费 movement 许可；moveDuelUnitsStandard 的
+ * battlefield→battlefield 分支依旧只看 readiness.hasGanking / ruleView.canGank。
  */
 export default {
   canonicalCardId: "card.hash-9a277d1f603718992521dc7464de01bdb5cc00d5d35d10081db5b0c9cfc4c3db",

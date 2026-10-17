@@ -10,6 +10,8 @@ const ENEMY_UNIT_HERE = "atakhan.defender-unit-here";
 const abilities: Ability[] = [
   {
     // 356.2.b / 356.2.b.1：可选附加费用（由被打出卡牌自身的 Passive Ability 指定）。
+    // 描述性声明：cost.additional 在生产链里仍没有消费方（programs/play.ts 的
+    // translateCost 与 programs/statics.ts 的 layerFor 都不接受它），见 judgeReason 第 1 点。
     kind: "static",
     effect: {
       kind: "cost.additional",
@@ -75,7 +77,9 @@ const abilities: Ability[] = [
       grantedBy: "atakhan.additional-cost"
     }
   },
-  // 810：Ganking 只声明，展开归 effects/keywords/Ganking.ts。
+  // 810：Ganking 只声明，展开归 effects/keywords/Ganking.ts。展开能注册为
+  // continuous.movement，但其 permission 字符串不是 movement() 消费的 routes
+  // （见 judgeReason 第 4 点）。
   { kind: "keyword", keyword: "ganking" },
   {
     kind: "triggered",
@@ -125,8 +129,10 @@ const program = {
     "IR 没有读取“支付该费用时那个对象”的印刷费用快照的形状，也没有按 Power 符号数计算 Order 分量折扣的表达式；cost-receipt 不是真实区域。" +
     "(3) attack-declared 仅有时点定义，生产发射方仍缺（combat/flow.ts 在 combat 开启路径抛 TurnCombatBlockedError('combat-start-transaction')），" +
     "且 TriggerSpec 还不能把本次防御者、攻击地点与选择者绑定到 effect.kill 的非目标选择（383.4.e/359.3.f）。" +
-    "(4) Ganking 已展开 continuous.movement permission: \"battlefield-to-battlefield\"，但 layers/rules/query.ts 的 movement() 只从 permission.routes 生成许可，" +
-    "故 canGank 仍为 false（实测），该 static permission 字符串尚未转换为规则查询消费的 routes，不能据此宣称整卡可执行。",
+    "(4) Ganking 已展开为 continuous.movement 且该 static 能经 createEngineStaticBinder.bindStatic 注册（实测成功，" +
+    "不再抛 layer mapping 错误），但展开的 permission 是字符串 \"battlefield-to-battlefield\"：" +
+    "layers/rules/query.ts 的 movement() 只从 permission.routes 生成许可，故查询到的 routes 为空、canGank 仍为 false（实测），" +
+    "该 static permission 字符串尚未转换为规则查询消费的 routes，不能据此宣称整卡可执行。",
   abilities,
   sourceText:
     "You may kill a friendly unit as an additional cost to play me. If you do, I cost :rb_energy_1: less " +

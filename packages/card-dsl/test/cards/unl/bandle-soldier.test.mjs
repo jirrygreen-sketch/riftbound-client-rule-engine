@@ -31,13 +31,15 @@ test("unl-151-219 Bandle Soldier: identity, status, judgeReason and verbatim sou
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /824\.1/);
   assert.match(program.judgeReason, /369\.3/);
-  assert.match(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /controller-xp/);
-  // Current-gap refresh: the Level predicate exists, but neither the static
-  // binder nor the expression/condition vocabulary evaluates it from live XP.
+  // Third-sweep refresh: the Level predicate exists and its consumers are still
+  // missing; RIFT-359's merged predicates cover event/result facts, not player XP,
+  // so the reason no longer claims that task will supply the evaluation.
   assert.match(program.judgeReason, /condition\.predicate/);
+  assert.match(program.judgeReason, /condition\.predicate has no layer mapping/);
   assert.match(program.judgeReason, /PlayerSnapshot\.xp/);
   assert.match(program.judgeReason, /golden 用生产 binder 实证/);
+  assert.doesNotMatch(program.judgeReason, /依赖：RIFT-359/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
@@ -113,7 +115,7 @@ test("unl-151-219 Bandle Soldier golden: an already-ready source stays untouched
   assert.deepEqual(run.events, []);
 });
 
-test.todo("bandle-soldier: bind the Level dependent replacement to live controller XP at 2/3 and deactivate below 3 (CR 824.1; RIFT-359)");
+test.todo("bandle-soldier: bind the Level dependent replacement to live controller XP at 2/3 and deactivate below 3 (CR 824.1; needs condition.predicate layer mapping and a controller-xp evaluator)");
 
 test("unl-151-219 Bandle Soldier: the production static binder has no mapping for the Level predicate ability (CR 824.1)", () => {
   // Evidence for the remaining gap: the merged Level expansion publishes

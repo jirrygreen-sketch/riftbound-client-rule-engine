@@ -121,6 +121,10 @@ test("Baron Pit: the merged movement query reads the route but still gates Battl
   // not Ganking and the endpoint-aware consumer is the missing half.
   assert.equal(view.canGank, false);
   assert.equal(view.battlefieldToBattlefield, false);
+  // The rule-query half is already correct: the declaration is registered with
+  // both endpoints and is not mistaken for the Ganking route.
+  assert.deepEqual(view.permissions.map(permission => permission.routes),
+    [["standard-move-to-here-from-anywhere"]]);
 });
 
 test.todo("baron-pit: consume the destination:self endpoint (source anywhere) in the Standard Move legality check, without granting routes to other battlefields (CR 187.9/449.1/449.2)");

@@ -74,11 +74,11 @@ test("unl-170-219 Atakhan: the production static binder has no layer mapping for
   assert.deepEqual(f.engine.layers.registry.list(), []);
 });
 
-test("unl-170-219 Atakhan: the merged Ganking permission string is not yet consumed as a movement route (810.1.c)", () => {
-  // Evidence for gap (4): Ganking expands to continuous.movement with a
-  // permission *string*, while layers/rules/query.ts builds permission routes
-  // only from permission.routes. The Standard Move query therefore still
-  // reports no Battlefield-to-Battlefield permission for the holder.
+test("unl-170-219 Atakhan: the merged Ganking expansion registers, but its permission string is not consumed as a movement route (810.1.c)", () => {
+  // Evidence for gap (4): the expansion now binds through the production static
+  // binder, yet it still carries a permission *string* while layers/rules/query.ts
+  // builds permission routes only from permission.routes. The Standard Move query
+  // therefore reports no Battlefield-to-Battlefield permission for the holder.
   const f = fixture({ cards: [
     { id: "atakhan", cardId: CANONICAL_ID, types: ["unit"], energy: 1, power: [], zone: "board", location: { type: "battlefield", id: "bf-1" } }
   ] });
@@ -90,6 +90,9 @@ test("unl-170-219 Atakhan: the merged Ganking permission string is not yet consu
   createEngineStaticBinder(f.engine).bindStatic(expansion, f.kernel.getObject("atakhan"));
   const object = f.kernel.getObject("atakhan");
   const view = movement(f.engine.layers.registry, object.ref, object, "A");
+  // The declaration really is registered (the layer entry exists) ...
+  assert.deepEqual(f.engine.layers.registry.list().map(entry => entry.effect.effect.kind), ["continuous.movement"]);
+  // ... but it contributes no route, so no move permission is derivable.
   assert.equal(view.permissions.length, 0);
   assert.equal(view.canGank, false);
 });
@@ -230,9 +233,9 @@ test("unl-170-219 Atakhan golden: a defender unit that already left makes the ki
 
 test.todo("atakhan: bind static optional kill costs and grantedBy discounts to Finalize, including the chosen printed/copied cost (CR 206/356.4.f.1)");
 
-test.todo("atakhan: produce attack-declared and bind defender, chooser and attack location to the forced kill (CR 383.4.e; RIFT-357)");
+test.todo("atakhan: produce attack-declared and bind defender, chooser and attack location to the forced kill (CR 383.4.e; needs the combat timing emitter and a defender/chooser scope)");
 
-test.todo("atakhan: normalize the Ganking static expansion into permission.routes before Standard Move consumes it (CR 810.1.c)");
+test.todo("atakhan: normalize the Ganking static expansion into permission.routes before Standard Move consumes it (CR 810.1.c; the declaration binds but exposes only a permission string)");
 
 for (const selected of [true, false]) {
   test(`Atakhan: the isolated optional kill component selected=${selected} produces the actual payment receipt`, () => {

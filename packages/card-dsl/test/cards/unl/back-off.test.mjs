@@ -35,9 +35,14 @@ test("unl-042-219 Back Off: identity, ruleset, status, judgeReason and verbatim 
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /playedFromHand/);
+  // Current-gap refresh: the merged play-origin predicate replaced the
+  // unreadable ObjectSnapshot characteristic; the remaining gap is the Chain
+  // not supplying the event payload to a card's own play.body resolution.
+  assert.match(program.judgeReason, /played-from-hand/);
+  assert.match(program.judgeReason, /conditionInputs/);
   assert.match(program.judgeReason, /356\.1/);
   assert.match(program.judgeReason, /cost\.hidden/);
+  assert.match(program.judgeReason, /hidden-cleanup-state/);
   assert.match(program.judgeReason, /LITERAL_FIELDS/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   // The reason must name the real gap (the play origin) plus the keyword
@@ -92,15 +97,13 @@ test("unl-042-219 Back Off: the draw clause is guarded by the play-origin fact a
   // stun (055 / 359.3.e.11), so a failed stun does not suppress the draw.
   assert.equal(drawInstruction.linkedTo, undefined);
   assert.equal(drawInstruction.targets, undefined);
-  // "If you played this from your hand": the play-origin fact has no merged
-  // consumer, so the condition reads it from the source characteristics; a
-  // missing characteristic fails closed (ignored), never an unconditional draw.
-  assert.deepEqual(drawInstruction.condition, {
-    kind: "compare",
-    left: { kind: "object-property", object: "source", property: "playedFromHand" },
-    operator: "eq",
-    right: { kind: "constant", value: true }
-  });
+  // "If you played this from your hand" (356.1/356.2): RIFT-359 merged the
+  // play-origin predicate, which reads the resolving event's from-zone fact for
+  // the selected event role. The card uses it instead of an ObjectSnapshot
+  // characteristic that the contract never exposes. The card's own play.body
+  // resolution still receives no event payload (see judgeReason), so the whole
+  // card stays judge-required while the branch itself stays fail-closed.
+  assert.deepEqual(drawInstruction.condition, { kind: "played-from-hand", object: "source" });
 });
 
 test("unl-042-219 Back Off golden: the printed [Stun] clause stuns the chosen unit (CR 424.1)", () => {
@@ -132,8 +135,9 @@ test("unl-042-219 Back Off golden: an already-Stunned unit is a legal no-op (CR 
 
 test("Back Off: the supported draw primitive draws one card; play-origin binding remains unverified", () => {
   const kernel = world().deck(["top-card", "next-card"], { owner: "A" }).build();
-  // Isolate the declared draw component without fabricating playedFromHand on
-  // the source snapshot. The condition remains a separate integration TODO.
+  // Isolate the declared draw component without fabricating a play-origin fact
+  // on the source snapshot. The production chain path that must supply the
+  // event payload is exercised by its own scenario below.
   const outcome = runInstruction(draw, drawInstruction.args, { world: kernel });
   assert.equal(outcome.result.status, "executed");
   assert.deepEqual(kernel.objectsInZone("A", "hand").map(ref => ref.id), ["top-card"]);
@@ -153,6 +157,59 @@ test("Back Off: the original conditional draw fails closed when the play-origin 
   assert.deepEqual(outcome.events, []);
 });
 
+test("Back Off golden: the merged play-origin predicate draws from hand and refuses a play from Trash (356.1/356.2)", () => {
+  // README section 4: run the real body through the production argument adapter
+  // with the read-only event payload RIFT-359 introduced. The predicate itself is
+  // merged; what is still missing is the Chain supplying it for a card's own
+  // play.body resolution (see judgeReason).
+  const fromHand = world()
+    // The source sits on the Chain while its Play Effect resolves (353.2/383.4.a);
+    // only the resolving event's from-zone fact decides the branch.
+    .card("back-off", { cardId: "back-off", types: ["spell"], zone: "chain" })
+    .deck(["top-card", "next-card"], { owner: "A" })
+    .build();
+  const handScoped = fromHand.clone({ sourceSnapshot: fromHand.getObject("back-off") });
+  const played = resolveChainBody([drawInstruction], handScoped, {
+    event: {
+      timingPoint: "card-played",
+      fromZone: "hand",
+      playedFromZone: "hand",
+      playedFromHand: true,
+      object: { ref: handScoped.ref("back-off"), zone: "chain", fromZone: "hand" },
+      source: { ref: handScoped.ref("back-off"), zone: "chain", fromZone: "hand" }
+    }
+  });
+  assert.equal(played.status, "executed");
+  assert.deepEqual(played.results.map(entry => [entry.id, entry.result.status]), [
+    ["back-off.draw-if-from-hand", "executed"]
+  ]);
+  assert.deepEqual(handScoped.objectsInZone("A", "hand").map(ref => ref.id), ["top-card"]);
+  assert.equal(handScoped.player("A").deckSize, 1);
+
+  const fromTrash = world()
+    .card("back-off", { cardId: "back-off", types: ["spell"], zone: "chain" })
+    .deck(["top-card", "next-card"], { owner: "A" })
+    .build();
+  const trashScoped = fromTrash.clone({ sourceSnapshot: fromTrash.getObject("back-off") });
+  const notFromHand = resolveChainBody([drawInstruction], trashScoped, {
+    event: {
+      timingPoint: "card-played",
+      fromZone: "trash",
+      playedFromZone: "trash",
+      object: { ref: trashScoped.ref("back-off"), zone: "chain", fromZone: "trash" },
+      source: { ref: trashScoped.ref("back-off"), zone: "chain", fromZone: "trash" }
+    }
+  });
+  // 359.3.e.11 / condition semantics: a false play-origin test skips the branch
+  // instead of drawing unconditionally.
+  assert.equal(notFromHand.status, "partial");
+  assert.deepEqual(notFromHand.results.map(entry => [entry.id, entry.result.status, entry.result.reason]), [
+    ["back-off.draw-if-from-hand", "negated", "skipped"]
+  ]);
+  assert.deepEqual(trashScoped.objectsInZone("A", "hand"), []);
+  assert.equal(trashScoped.player("A").deckSize, 2);
+});
+
 test("Back Off: the production chain adapter still rejects the declared effect.stun argument envelope (CR 424.1)", () => {
   // Evidence for judgeReason (3): LITERAL_FIELDS in chain/interpreter-adapter.ts
   // has no effect.stun entry, so the Expr-wrapped target reaches the frozen
@@ -164,6 +221,6 @@ test("Back Off: the production chain adapter still rejects the declared effect.s
   assert.equal(kernel.getObject("enemy").stunned, false);
 });
 
-test.todo("back-off: expose and evaluate the actual play-origin fact for the conditional draw (CR 356.1/356.2)");
+test.todo("back-off: supply the resolving event's play-origin payload to a card's own play.body so the merged played-from-hand predicate can evaluate it (CR 356.1/356.2)");
 
 test.todo("back-off: consume Hidden cost.hidden in the Hide action and facedown play timing/cost flow (CR 811)");

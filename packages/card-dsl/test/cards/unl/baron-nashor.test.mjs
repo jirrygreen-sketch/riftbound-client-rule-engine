@@ -198,7 +198,7 @@ test("unl-147-219 Baron Nashor: the team bonus is an arithmetic-layer +2 Might f
   assert.equal(otherUnits.condition, undefined);
 });
 
-test.todo("baron-nashor: create one Baron Pit battlefield Location during As you play and bind its receipt to the entry destination (CR 187.9/355.1/369.3; RIFT-357)");
+test.todo("baron-nashor: create one Baron Pit battlefield Location during As you play and bind its receipt to the entry destination (CR 187.9/355.1/369.3; needs a Battlefield-token definition, a create-Location action and a cross-phase creation receipt)");
 
 test.todo("baron-nashor: enforce target prohibition for enemy spells/abilities while preserving friendly targeting (CR 757.1/758.1)");
 
