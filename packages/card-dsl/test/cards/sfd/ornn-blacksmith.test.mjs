@@ -13,6 +13,9 @@ import recycle from "../../../../engine-core/dist/effects/instructions/effect.re
 import reveal from "../../../../engine-core/dist/effects/instructions/effect.reveal.js";
 import zone from "../../../../engine-core/dist/effects/instructions/effect.zone.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 
 const CARD_ID = "card.hash-9dc6aa1c0b143c97fcb8a2380ebb6b0c2130148d5d9974ba8568d615c7d1d2e9";
 const SOURCE_TEXT =
@@ -51,6 +54,90 @@ test("sfd-058-221 Ornn, Blacksmith: identity, ruleset, status, judgeReason and v
   assert.match(program.judgeReason, /生产侧可用/);
   assert.match(program.judgeReason, /hold/);
   assert.equal(program.sourceText, SOURCE_TEXT);
+});
+
+test("sfd-058-221 Ornn, Blacksmith: the reveal pick is rejected before the primitive sees it", () => {
+  // 425.1/425.1.a.2: the card declares the picked gear through account 3.6's
+  // pick selector. chain/interpreter-adapter.ts's LITERAL_FIELDS unpacks only
+  // `target` for effect.reveal, so the Expr envelope reaches the primitive and its
+  // argument validator rejects it. This is the executed evidence for the adapter
+  // half of gap (2).
+  const kernel = world().deck(["gear-a"], { owner: "A" }).build();
+  kernel.setPicks("ornn-blacksmith.revealed-gear", kernel.zone("A", "deck"));
+  assert.throws(
+    () => resolveChainBody([revealGear], kernel),
+    /effect\.reveal: pick must be a non-empty id/
+  );
+  // The same declaration is executable when the primitive is called with the
+  // unwrapped literal (what the golden below uses), so only the adapter is missing.
+  const direct = runInstruction(
+    reveal,
+    { pick: revealGear.args.pick.value },
+    { world: kernel, picks: { "ornn-blacksmith.revealed-gear": kernel.zone("A", "deck") } }
+  );
+  assert.equal(direct.result.status, "executed");
+});
+
+test("sfd-058-221 Ornn, Blacksmith: a production play has no ordered deck-top source at Finalize", () => {
+  // 128.3-128.4 + contract 3.6: the top-4 look needs ordered picks supplied by the
+  // chain Finalize. chain/engine.ts `assertFinalizationSurface` locks only
+  // instruction.targets TargetSpecs, so the engine never captures this card's
+  // picksSpecId and effect.inspect sees an empty range. This is the executed
+  // evidence for gap (1).
+  const kernel = world().deck(["a", "b", "c", "d"], { owner: "A" }).build();
+  // Run the card's own look sequence (controller binding + top-4 inspect) with no
+  // Finalize-captured ordered source, exactly as a production play reaches it.
+  const run = resolveChainBody([bindController, { ...lookTopFour, linkedTo: undefined }], kernel);
+
+  assert.equal(run.status, "executed");
+  assert.equal(
+    run.linkedValues["ornn-blacksmith.look-top-four.lookedCount"],
+    0,
+    "without a Finalize-captured ordered source the look sees nothing"
+  );
+  assert.deepEqual(run.linkedValues["ornn-blacksmith.look-top-four.lookedCards"], []);
+  assert.equal(kernel.player("A").deckSize, 4);
+  assert.equal(kernel.zone("A", "deck")[0].id, "a");
+});
+
+test("sfd-058-221 Ornn, Blacksmith: the real hold payload cannot match the self-scoped trigger", () => {
+  // 383.4.d / 315.2.b.2 / 471.2 / 473.2.b: "when I hold" subscribes with a self
+  // anchor. turn/flow.ts publishes the Score wave as { timingPoint, player,
+  // details: { battlefieldId } } with no object, so the registration never
+  // matches a real hold — while the same emission with a bound object does. This
+  // is the executed evidence for gap (3).
+  const kernel = world()
+    .unit("ornn", { cardId: CARD_ID, might: 5, location: { type: "battlefield", id: "bf-1" } })
+    .deck(["gear-a", "b", "c", "d", "deeper"], { owner: "A" })
+    .build();
+  const decide = () => { throw new Error("AwaitChoice"); };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (checkpoint) => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose: decide,
+    context: (sourceSnapshot, controller, timingPoint) => bindResolveContext(kernel, {
+      source: sourceSnapshot, controller, timingPoint, choose: decide
+    }),
+    testTrigger: (registration) => kernel.test(registration.spec.condition)
+  });
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const source = kernel.getObject("ornn");
+
+  const held = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  assert.deepEqual(binding.registerProgramTriggers(held, source).length, 2);
+  held.pipeline.emit({ timingPoint: "hold", player: "A", details: { battlefieldId: "bf-1" } });
+  held.advance();
+  assert.equal(held.items.length, 0, "the real hold payload carries no object for the self anchor");
+
+  const withObject = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  binding.registerProgramTriggers(withObject, source);
+  withObject.pipeline.emit({ timingPoint: "hold", object: source, player: "A", details: { battlefieldId: "bf-1" } });
+  withObject.advance();
+  assert.equal(withObject.items.length, 1, "a bound object is what the declared filter needs");
 });
 
 test("sfd-058-221 Ornn, Blacksmith: the printed \"or\" is two trigger subscriptions with the same body", () => {
@@ -299,7 +386,7 @@ test.todo(
 test.todo(
   "sfd-058-221 Ornn, Blacksmith: the ordered deck-top pick ('ornn-blacksmith.top-four') needs a Finalize " +
     "lifecycle; chain/engine.ts locks only instruction.targets TargetSpecs, so a production play has no " +
-    "ordered source and effect.inspect sees nothing (contract 3.6 zoneSlice) — ordered-pick Finalize follow-up"
+    "ordered source and effect.inspect sees nothing (contract 3.6 zoneSlice)"
 );
 
 test.todo(

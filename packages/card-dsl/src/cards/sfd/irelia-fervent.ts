@@ -28,22 +28,25 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  *   "choose" 是 Targeting Effect（触发于成为目标），"ready" 是 Ready 动作，两者的
  *   实际发生由时点发出方判定，卡不重复实现。
  * - 触发过滤器的锚点写"指称本卡"的可翻译拼写：objectId: "self" 由卡牌程序绑定
- *   （RIFT-257）翻译成 object: { objectId: <host ref> }，player: "self" 由事件匹配器
+ *   （programs/filters.ts）翻译成 object: { objectId: <host ref> }，player: "self" 由事件匹配器
  *   解析为「该能力控制者」（events/pipeline-match.ts 的 playerMatches）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。
- * - 临时 Might 修改与两条触发都已可执行：continuous.might（RIFT-258）经
+ * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-17）。
+ * - 临时 Might 修改与两条触发都已可执行：continuous.might 经
  *   ResolveContext.addContinuous 注册 arithmetic 图层效果并按 this-turn 到期，
- *   卡牌程序绑定（RIFT-257）把两条 triggered 能力注册成真实订阅；golden 用真实
+ *   卡牌程序绑定（programs/）把两条 triggered 能力注册成真实订阅；golden 用真实
  *   ChainEngine 执行 became-target（TargetPlan finalize 的实际发射形状）与
  *   object-readied（真实 ready 动作），断言 +1 有效 Might、非 Buff、回合结束到期与
  *   敌方指定不触发。
- * - 整卡仍不可执行：[Deflect] 的展开（static target.tax）已合入，但没有生产方把
- *   永久物上的 target.tax 接进目标选择与追加费用（chain/engine.ts 只把调用方显式
- *   传入的 tax 变成 mandatoryAdditional），且已合入换算按 Energy 记账而 809.1.c.1
- *   要求任意域 Power（与 ogn/pouty-poro 同一记录，RIFT-90/RIFT-89）。
- * 依赖：RIFT-90（target.tax 的目标选择/追加费用接线）、RIFT-89/261（任意域 Power 支付）。
- * 不近似实现（不用 Buff 计数代替临时 Might，也不把触发条件改成其它时点）。
+ * - 整卡仍不可执行：[Deflect]（809.1.a）的 KeywordDef 展开（static target.tax）与
+ *   target/target-plan.ts 的 tax 追加（taxAdapter）都已合入，但没有生产方把永久物上的
+ *   target.tax 接进目标选择：programs/statics.ts 的 layerFor 对 target.tax 抛
+ *   ProgramBindingError（Static ability kind target.tax has no layer mapping），
+ *   chain/engine.ts 只把调用方显式传入的 tax 变成 mandatoryAdditional，
+ *   且已合入换算按 Energy 记账而 809.1.c.1 要求任意域 Power
+ *   （与 ogn/pouty-poro 同一记录）。
+ * 不近似实现（不用 Buff 计数代替临时 Might，也不把触发条件改成其它时点，
+ * 更不省略 Deflect 的追加费用）。
  */
 /** 两条触发（choose / ready）的同一印文效果："give me +1 :rb_might: this turn"。 */
 const grantMight = (id: string): Instruction => ({
@@ -80,17 +83,19 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "仅剩一处缺口：[Deflect]（809）的展开（static target.tax）已合入，但没有生产方把永久物上的 " +
-    "target.tax 接进目标选择与追加费用（chain/engine.ts 只把调用方显式传入的 tax 变成 " +
-    "mandatoryAdditional），且已合入换算按 Energy 记账而 809.1.c.1 要求任意域 Power" +
-    "（同 ogn/pouty-poro，RIFT-90/RIFT-89）。" +
+    "仅剩一处缺口：[Deflect]（809.1.a）的 KeywordDef 展开（effects/keywords/Deflect.ts 的 static " +
+    "target.tax）与 target/target-plan.ts 的 tax 追加（taxAdapter → mandatoryAdditional）都已合入，" +
+    "但没有生产方把永久物上的 target.tax 接进目标选择：programs/statics.ts 的 layerFor 对 " +
+    "target.tax 抛 ProgramBindingError（Static ability kind target.tax has no layer mapping），" +
+    "chain/engine.ts 只把调用方显式传入的 tax 变成 mandatoryAdditional，" +
+    "且已合入换算按 Energy 记账而 809.1.c.1 要求任意域 Power（同 ogn/pouty-poro）。" +
     "其余已可执行并有真实执行测试：" +
-    "(1)「give me +1 :rb_might: this turn」用已合入的 continuous.might（RIFT-258）经 " +
+    "(1)「give me +1 :rb_might: this turn」用已合入的 continuous.might 经 " +
     "ResolveContext.addContinuous 注册 arithmetic 图层效果、appliesTo: \"self\" 指称宿主并按 " +
     "this-turn 到期（317.1.a/468.7.c），绝不用 Buff 计数近似（702/703）；" +
-    "(2) 两条触发（became-target，383.4.b；object-readied，416/412.4）经卡牌程序绑定" +
-    "（RIFT-257）注册为真实订阅，golden 用真实 ChainEngine 执行 became-target 发射与真实 " +
-    "ready 动作。依赖：RIFT-90、RIFT-89/261。不近似实现。",
+    "(2) 两条触发（became-target，383.4.b；object-readied，416/412.4）经卡牌程序绑定 " +
+    "（programs/）注册为真实订阅，golden 用真实 ChainEngine 执行 became-target 发射与真实 " +
+    "ready 动作。不近似实现（不省略 Deflect 的追加费用）。",
   abilities,
   sourceText:
     "[Deflect] (Opponents must pay :rb_rune_rainbow: to choose me with a spell or ability.)\n" +

@@ -26,47 +26,50 @@ import type { CardProgram } from "../../ir/index.js";
  *   后一句仍然执行（照常尽可能执行），链接会把两句绑成同一结果，反而偏离规则。
  * - "Lose control of that unit and recall it at end of turn." 按 391.2 是该咒语结算时创建的
  *   Delayed Ability（392/393：由效果创建、不依附于战场上的卡；359.3.e.16 的示例正是本卡），
- *   因此在 body 里记为待落地的 trigger.delayed 指令（RIFT-9 清单中的 trigger.delayed），
+ *   因此在 body 里记为待落地的 trigger.delayed 指令（effects/instructions/ 尚无该 op），
  *   不写成卡自身的被动触发。其 body 的两条指令：把控制权交回原控制者（此处读 take-control
  *   收据的 owner）与 Recall（457：把永久物移到其 Base，458 明确不是 Move、458.1 不触发 Move
  *   能力、458.3 不受移动限制、460/460.1 保留伤害与状态）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required，三处缺口，均不近似实现：
- * (1) [Hidden] 的可执行路径缺失：keywords/Hidden.ts 的展开依赖 cost.hidden 的 Hide 行动、
- *     facedown 区域限制与从 facedown 免费打出（RIFT-261 cost 批次），以及后续 Reaction 的
- *     continuous.timing 时机许可（RIFT-91）——与已合入的 ogn-168-298 Fight or Flight / sfd-070-221 Wages of Pain
- *     同一口径。
+ * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-17），三处当前真实缺口，
+ * 均不近似实现：
+ * (1) [Hidden]（811）的展开是 static cost.hidden（effects/keywords/Hidden.ts），但
+ *     programs/statics.ts 的 layerFor 没有该 kind 的图层映射，生产 bindStatic 抛
+ *     ProgramBindingError（Static ability kind cost.hidden has no layer mapping）；Hide 行动、
+ *     facedown 区域限制与从 facedown 免费打出同样仍无消费方：契约 ZoneId 没有 facedown 成员，
+ *     turn/flow.ts 的隐藏牌清理抛 hidden-cleanup-state，cost/kinds/hidden.ts 只锁定与支付
+ *     计划（811.1.b），没有接入链或回合流程。
  * (2) "at end of turn" 的延迟注册缺卡牌可用 op：ResolveContext.registerDelayedTrigger 存在
- *     （契约 3.6），但指令注册表没有 trigger.delayed（同 ogn-221-298 Imperial Decree、
- *     ogn-289-298 Targon's Peak）；把延迟能力写成卡自身触发的被动能力会违反 391.1/393。
+ *     （契约 3.6），但 effects/instructions/ 没有已注册的 trigger.delayed
+ *     （instructionRegistryById 无该条目）；把延迟能力写成卡自身触发的被动能力会违反 391.1/393。
  * (3) Recall 不可执行：已合入的 effect.move 明确把 Recall 标为 BLOCKED（CR 457-460），
  *     调用 mode: "recall" 返回 negated/impossible 且给出 blockedReason，不得用 move-location
  *     近似（458）。
  *   另记：交回控制权的语义依赖控制效果的到期/还原身份（479.2.a、482.3 的 timestamp 还原），
- *   已合入的 effect.control 明确说明 take-control 没有 duration/控制效果身份、非永久期限均 blocked；
- *   本文件把该半段写成对收据 owner 的第二次 take-control，仅为可审查的描述，不作为执行主张。
+ *   已合入的 effect.control 只接受 permanent 期限、其余期限一律 blocked；本文件把该半段写成对
+ *   收据 owner 的第二次 take-control，仅为可审查的描述，不作为执行主张。
  *   "Take control ... / Ready it." 两段本身只用已合入原语，golden 用真实原语执行（含控制权实际
  *   变更、横置单位被重置、以及延迟半段被明确阻断的守卫）。
- * 依赖：cost.hidden + continuous.timing（RIFT-261/RIFT-91）、trigger.delayed 原语（RIFT-9）、
- * Recall 独立动作（RIFT-109 后续）。
  */
 const hostileTakeover = {
   canonicalCardId: "card.hash-62970334aded475305f68e3c9c4e769ce6ebe07ff91a0030017c68594309466e",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1) [Hidden]（811）无可执行路径——keywords/Hidden.ts 的展开依赖 cost.hidden 的 Hide 行动、" +
-    "facedown 区域限制与从 facedown 免费打出（RIFT-261 cost 批次），以及 continuous.timing 的后续 Reaction 时机许可（RIFT-91）；" +
+    "三处当前缺口：(1) [Hidden]（811）的展开是 static cost.hidden（effects/keywords/Hidden.ts），" +
+    "但 programs/statics.ts 的 layerFor 没有该 kind 的图层映射，生产 bindStatic 抛 ProgramBindingError" +
+    "（Static ability kind cost.hidden has no layer mapping）；Hide 行动与从 facedown 免费打出同样缺消费方：" +
+    "契约 ZoneId 没有 facedown 成员，turn/flow.ts 的隐藏牌清理抛 hidden-cleanup-state，" +
+    "cost/kinds/hidden.ts 只锁定与支付计划（811.1.b），没有接进链或回合流程。" +
     "(2) 「Lose control of that unit and recall it at end of turn」按 391.2/392/393 是该咒语创建的 Delayed Ability" +
-    "（359.3.e.16 的示例正是本卡），ResolveContext.registerDelayedTrigger 虽在契约 3.6 中，但指令注册表没有" +
-    "卡牌可用的 trigger.delayed op（同 ogn-221-298 Imperial Decree / ogn-289-298 Targon's Peak），" +
-    "写成卡自身触发会违反 391.1/393；(3) Recall（457-460：不是 Move、不触发 Move 能力、不受移动限制、保留伤害与状态）" +
-    "被已合入的 effect.move 明确标注 BLOCKED，mode: \"recall\" 返回 negated/impossible 并给出 blockedReason，" +
-    "不得用 move-location 近似（458）。另：交回控制权需要控制效果的到期/还原身份（479.2.a、482.3），" +
-    "已合入的 effect.control 明确说明 take-control 没有 duration/控制效果身份、非永久期限一律 blocked，" +
-    "本文件里对该半段写的第二次 take-control 仅为可审查描述。" +
-    "「Take control ... / Ready it.」两段只用已合入原语并有执行测试，卡牌程序绑定（RIFT-257）也已能生成播放草稿。" +
-    "依赖：cost.hidden + continuous.timing（RIFT-261/RIFT-91）、trigger.delayed 原语（RIFT-9）、Recall 独立动作（RIFT-109 后续）。不近似实现。",
+    "（359.3.e.16 的示例正是本卡）：ResolveContext.registerDelayedTrigger 在契约 3.6 中，" +
+    "但 effects/instructions/ 没有已注册的 trigger.delayed op（registry.generated.ts 无该条目），" +
+    "写成卡自身触发会违反 391.1/393；" +
+    "(3) Recall（457-460：不是 Move、不触发 Move 能力、不受移动限制、保留伤害与状态）被已合入的 effect.move " +
+    "明确标注 BLOCKED，mode: \"recall\" 返回 negated/impossible 并给出 blockedReason，不得用 move-location 近似（458）。" +
+    "另：交回控制权需要控制效果的到期/还原身份（479.2.a、482.3），已合入的 effect.control 只接受 permanent 期限、" +
+    "其余期限一律 blocked；本文件里对该半段写的第二次 take-control 仅为可审查描述。" +
+    "「Take control ... / Ready it.」两段只用已合入原语并有真实执行测试（含控制权实际变更与 ready 动作）。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     {
@@ -109,7 +112,7 @@ const hostileTakeover = {
         },
         {
           // "Lose control of that unit and recall it at end of turn."：待落地的延迟
-          // 触发注册（RIFT-9 trigger.delayed；见 judgeReason）。body 里的两条指令是
+          // 触发注册（trigger.delayed 未在指令注册表；见 judgeReason）。body 里的两条指令是
           // 交回控制权（读 take-control 收据的 owner）与 Recall（457-460）。
           id: "hostile-takeover.delayed-revert",
           op: "trigger.delayed",

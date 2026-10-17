@@ -8,6 +8,7 @@ import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter
 import counter from "../../../../engine-core/dist/effects/instructions/effect.counter.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { translateObjectFilter, translateInstructionTargets } from "../../../../engine-core/dist/programs/filters.js";
 
 const CANONICAL_ID = "card.hash-33c64673bc887d04d061bcae6dce39ed0eb58011d8102f4f2426e9d43b6a8bdc";
 const SOURCE_TEXT =
@@ -53,6 +54,29 @@ test("sfd-045-221 Not So Fast: judgeReason names the chosen-target restriction g
   // The counter body itself is merged; the reason must stay about the real gap:
   // reading the chain item's finalized target plan (355.9.a.2 / CR 754).
   assert.match(program.judgeReason, /Finalize 目标计划/);
+  assert.match(program.judgeReason, /choosesFriendly/);
+  assert.match(program.judgeReason, /Unsupported filter field/);
+});
+
+test("sfd-045-221 Not So Fast: the printed restriction cannot bind, and no merged matcher evaluates it", () => {
+  // 754/355.9.a.2: "that chooses a friendly unit or gear" needs the chain item's
+  // chosen targets. The authored key is descriptive: layers/filter.ts ignores it
+  // silently (so an unfiltered body would counter anything), while the production
+  // translator refuses it outright — both are why the restriction is kept, not
+  // dropped. This is the executed evidence for the current gap in the judgeReason.
+  const filter = { ...targetSpec.filter };
+  assert.deepEqual(filter.choosesFriendly, ["unit", "gear"]);
+  assert.throws(
+    () => translateObjectFilter(filter),
+    /Unsupported filter field choosesFriendly/
+  );
+  // The whole body therefore cannot be translated for production binding.
+  assert.throws(
+    () => translateInstructionTargets(play.body),
+    /Unsupported filter field choosesFriendly/
+  );
+  // （counter 原语本体仍有真实执行测试，见下方 golden。）
+  assert.equal(instructionDefinitionsById.get("effect.counter"), counter);
 });
 
 test("sfd-045-221 Not So Fast: [Reaction] keyword plus the printed 2 energy + 1 Calm power cost", () => {

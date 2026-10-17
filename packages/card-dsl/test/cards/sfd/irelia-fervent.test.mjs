@@ -10,6 +10,7 @@ import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import deflect from "../../../../engine-core/dist/effects/keywords/Deflect.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 
 const CARD_ID = "card.hash-cdc4606d9f9f7a0a63ed596fdbdee4a120ac153f9b1a74dd38db8c4c34616644";
 const SOURCE_TEXT =
@@ -79,9 +80,13 @@ test("sfd-057-221 Irelia, Fervent: identity, ruleset, status, judgeReason and ve
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /target\.tax/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /no layer mapping/);
+  assert.match(program.judgeReason, /809\.1\.c\.1/);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
+  // No merged task is still named as an outstanding dependency: RIFT-90/
+  // RIFT-89/261 landed, only their remaining wiring gaps are named.
+  assert.doesNotMatch(program.judgeReason, /RIFT-(89|90|257|258|261)\b/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -190,8 +195,24 @@ test("sfd-057-221 Irelia, Fervent: the Deflect keyword definition stays a target
   assert.equal(tax.effect.kind, "target.tax");
 });
 
+test("sfd-057-221 Irelia, Fervent: the merged static binder refuses the Deflect target tax", () => {
+  // 809.1.a/809.1.d: [Deflect] expands to a static target.tax. The merged
+  // production binder (programs/statics.ts layerFor) has no layer for that kind,
+  // so it fails closed rather than silently dropping the additional cost. This is
+  // the executed evidence for the single remaining gap in the judgeReason.
+  const fixture = ireliaFixture();
+  const source = fixture.kernel.getObject("irelia");
+  const [tax] = deflect.expand({ value: undefined, host: { canonicalCardId: CARD_ID } });
+  assert.equal(tax.effect.kind, "target.tax");
+  assert.throws(
+    () => createEngineStaticBinder({ layers: fixture.engine.layers }).bindStatic(tax, source),
+    /Static ability kind target\.tax has no layer mapping/
+  );
+});
+
 test.todo(
   "sfd-057-221 Irelia, Fervent: collect [Deflect]'s tax as any-domain Power when an opponent chooses this " +
-    "unit (809.1.c.1) — needs a target.tax consumer in the target selection/additional-cost path and " +
-    "Universal-Power payment (RIFT-90 / RIFT-89/261)"
+    "unit (809.1.c.1) — needs a target.tax consumer that derives the tax from the permanent's static " +
+    "effect (programs/statics.ts layerFor refuses target.tax) and an any-Domain Power booking instead of " +
+    "the chain's Energy constant"
 );

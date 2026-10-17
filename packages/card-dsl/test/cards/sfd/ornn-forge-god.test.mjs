@@ -4,6 +4,10 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/ornn-forge-god.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import deflect from "../../../../engine-core/dist/effects/keywords/Deflect.js";
 
 const CARD_ID = "card.hash-d608aa993147100b60121de9bd89000a5f21f0b389c96138c079609d8ffa4004";
 
@@ -29,10 +33,50 @@ test("sfd-085-221 Ornn, Forge God: judgeReason names Deflect, Weaponmaster and t
   assert.match(program.judgeReason, /809\.1\.b\.2/);
   assert.match(program.judgeReason, /821\.1\.c/);
   assert.match(program.judgeReason, /143\.2\.a/);
-  assert.match(program.judgeReason, /target-tax 生产接线/);
+  assert.match(program.judgeReason, /no layer mapping/);
   assert.match(program.judgeReason, /reduce-equip-cost/);
-  assert.match(program.judgeReason, /count evaluation|计数型图层求值/);
+  assert.match(program.judgeReason, /count 表达式/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
+});
+
+test("sfd-085-221 Ornn, Forge God: the merged static binder refuses the Deflect target tax", () => {
+  // 809.1.b.2/809.1.d: Deflect 2 expands to a static target.tax. The merged
+  // production binder has no layer for that kind, so the printed additional cost
+  // still has no producer. This is executed evidence for gap (1).
+  const kernel = world()
+    .unit("ornn", { cardId: CARD_ID, might: 4, location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const source = kernel.getObject("ornn");
+  const [tax] = deflect.expand({ value: 2, host: { canonicalCardId: CARD_ID } });
+  assert.equal(tax.effect.kind, "target.tax");
+  assert.deepEqual(tax.effect.value, { kind: "constant", value: 2 });
+  assert.throws(
+    () => createEngineStaticBinder({ layers: createLayerEngine([source]) }).bindStatic(tax, source),
+    /Static ability kind target\.tax has no layer mapping/
+  );
+});
+
+test("sfd-085-221 Ornn, Forge God: the friendly-gear count is registered but never evaluated", () => {
+  // 143.2.a / 475-478: the +1 Might is a dynamic count over friendly gear. The
+  // merged static binder accepts the ability, but layers/engine.ts valueOf has no
+  // count branch, so the counted amount resolves to no arithmetic increase. This
+  // is executed evidence for gap (3), and it is why the card is never claimed
+  // executable on the strength of registration alone.
+  const kernel = world()
+    .unit("ornn", { cardId: CARD_ID, might: 4, location: { type: "battlefield", id: "bf-1" } })
+    .card("gear-a", { owner: "A", controller: "A", zone: "board", types: ["gear"], location: { type: "battlefield", id: "bf-1" } })
+    .card("gear-b", { owner: "A", controller: "A", zone: "board", types: ["gear"], location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const source = kernel.getObject("ornn");
+  const layers = createLayerEngine([source, kernel.getObject("gear-a"), kernel.getObject("gear-b")]);
+  const handle = createEngineStaticBinder({ layers }).bindStatic(gearBonus, source);
+  const registered = layers.registry.list();
+  assert.equal(registered.length, 1);
+  assert.deepEqual(registered[0].effect.effect.amount, gearBonus.effect.amount);
+  // Two friendly gears are on the board, yet the counted bonus contributes nothing.
+  assert.equal(layers.evaluate(source.ref).might, 4);
+  assert.equal(layers.evaluate(source.ref).buffs, 0);
+  handle.unbind();
 });
 
 test("sfd-085-221 Ornn, Forge God: Deflect 2 and Weaponmaster are declared as keywords, not expanded", () => {
