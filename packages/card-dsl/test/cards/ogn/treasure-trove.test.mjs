@@ -167,35 +167,13 @@ test("Treasure Trove: the original leave body draws and submits the exhausted-ch
   ]);
 });
 
-test.todo("Treasure Trove: preserve the own-leave registration until deferred event scanning captures LKI, then detach it (CR 383.2.c.3/a/b; programs/lifecycle + events/pipeline.publish)", async () => {
-  const { fixture, resolveAll } = await import("../../../../engine-core/test/chain/helpers.mjs");
-  const { createProgramBinding } = await import("../../../../engine-core/dist/programs/index.js");
-  // Test the desired lifecycle with the authored IR; this TODO is not evidence
-  // that the judge-required registry entry can be enabled in production.
-  const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
-  const f = fixture({ cards: [{ id: "trove", cardId: program.canonicalCardId, types: ["gear"] }] });
-  const lifecycle = binding.attachLifecycle(f.engine);
-  try {
-    f.engine.commit({ type: "move-zone", object: f.kernel.ref("trove"), to: "board", location: { type: "base", player: "A" } });
-    f.engine.advance();
-    f.engine.commit({ type: "kill", object: f.kernel.ref("trove") });
-    assert.equal(f.kernel.getObject("trove").zone, "trash");
-    assert.equal(f.engine.items.length, 1);
-    assert.equal(f.engine.items[0].source.zone, "board");
-    assert.deepEqual(f.engine.items[0].body, program.abilities[0].body);
-    const handBefore = f.kernel.player("A").handSize;
-    resolveAll(f.engine);
-    assert.equal(f.kernel.player("A").handSize, handBefore + 1);
-  } finally {
-    lifecycle.detach();
-  }
-});
+test.todo(
+  "Treasure Trove: preserve the own-leave registration until deferred event scanning captures LKI, then detach it " +
+    "(CR 383.2.c.3/a/b; BLOCKED: events/pipeline.publish drains the leave event after programs/lifecycle.detachSource " +
+    "has already unregistered the source, so the deferred trigger never captures the source's last-known information)."
+);
 
-test.todo("Treasure Trove: channel-rune must consume exhausted:true as the rune entry state, without a later exhaust action (CR 431.2; effects/testing/test-kernel action consumer)", () => {
-  const kernel = world().rune(["rune"]).build();
-  const run = runInstruction(channel, program.abilities[0].body[1].args, { world: kernel });
-  assert.equal(run.result.status, "executed");
-  assert.equal(kernel.getObject("rune").zone, "rune-zone");
-  assert.equal(kernel.getObject("rune").exhausted, true);
-  assert.deepEqual(run.events.map(event => event.action), ["channel-rune"]);
-});
+test.todo(
+  "Treasure Trove: channel-rune must consume exhausted:true as the rune entry state, without a later exhaust action " +
+    "(CR 431.2; BLOCKED: the effects/testing/test-kernel channel-rune consumer currently ignores the exhausted flag)."
+);
