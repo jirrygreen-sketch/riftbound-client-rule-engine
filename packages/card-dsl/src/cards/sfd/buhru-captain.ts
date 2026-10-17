@@ -25,14 +25,17 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 链侧对 choice.mode 有明确阻断：chain/engine.ts 的 assertFinalizationSurface 对 body 内任何
  *   choice.mode 抛 ChainContractBlockedError（"Mode choices require a Finalize/Resolve
  *   choice-plan adapter"），因此整卡经过链的真实结算目前不可执行。
+ * - 两条分支本体（effect.draw / effect.buff）与 choice.mode 的解释器语义均已合入，golden 用
+ *   生产链适配器 + 测试内核真实执行两条分支与「已有 buff 不再放置」边界；choice.mode 的二选一
+ *   仍缺 Finalize/Resolve 选择计划接线。
  * - "you may draw 1 or buff me" 里前置的 "may" 与 "or" 如何组合尚无可依条目：CR v1.5 的
  *   355.3 只把「带项目符号的模式列表」定义为模式选择，"may … or …" 这种写法没有专门条文
  *   说明玩家是否还可以整体拒绝（即 choice.optional 包住 choice.mode 与否）。调研清单
  *   （docs/plans/survey/ability-templates.json 对 sfd-091-221）同时给出 optional 与 mode 两个
  *   模板，正是这一未定点的记录。本卡按印刷的 "or" 写成 choice.mode，不擅自增加第三选项，
  *   也不把 "or" 压成单一分支；裁定与链接线到位后再复核状态。
- * - filter 的 "self" 锚点与 Finalize/Resolve 选择生命周期属事件/目标管线（RIFT-120/RIFT-90）。
- * 依赖：choice.mode 的 Finalize/Resolve 选择计划接线（RIFT-120 后续）、对 "may … or …" 的裁定。
+ * - filter 的 "self" 锚点与 Finalize/Resolve 选择生命周期属事件/目标管线。
+ * 依赖：choice.mode 的 Finalize/Resolve 选择计划接线（RIFT-120 后续）、卡牌程序 → 链绑定（RIFT-257）。
  */
 const abilities: Ability[] = [
   {
@@ -110,7 +113,7 @@ const program = {
     "模式选择，没有条文说明前置的 \"may\" 是否允许玩家整体拒绝（choice.optional 包住 choice.mode）。" +
     "调研清单（docs/plans/survey/ability-templates.json 对 sfd-091-221）同时记下 optional 与 mode 两个模板。" +
     "本卡按印刷的 \"or\" 只写两个互斥模式，不增加第三选项、也不把二选一压成单分支；拿到裁定与链接线后复核。" +
-    "触发的 { source: \"self\" } 锚点绑定与 Finalize/Resolve 目标重验依赖 RIFT-120 / RIFT-90。",
+    "触发的 { source: \"self\" } 锚点绑定与 Finalize/Resolve 目标重验依赖 RIFT-120 与卡牌程序 → 链绑定（RIFT-257）。",
   abilities,
   sourceText:
     "When you play me, you may draw 1 or buff me. (To buff a unit, give it a +1 :rb_might: buff if it doesn't already have one.)"
