@@ -77,13 +77,10 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "缺 Disarm 关键词展开：effects/keywords/ 没有 Disarm KeywordDef（实测 keywordDefinitionsById 无 disarm），" +
-    "831.1.d 的展开需要 attack-declared 攻击触发加「给此战场一个敌方单位 -1 Might 本回合」的临时 Might 修改；" +
-    "契约 3.6 封闭 GameAction 集合没有 might 修改动作，effect.buff 文档明确临时 Might 属 layers 的 continuous.might（未实现），" +
-    "且 831.1.d.1 要求同一单位的多个 Disarm 合并为一次触发（stacking sum）。" +
-    "条件式授予「While I'm in a showdown, your spells have [Reaction]」（364.3 / 813.4）需要 continuous.grant-keyword 持续效果与 showdown 可读状态，" +
-    "两者都还没有消费方（ObjectSnapshot 无 in-showdown/战斗身份字段，见契约 3.8 combatRole）。" +
-    "依赖：Disarm KeywordDef、RIFT-91（layers-continuous）、契约 3.8。不近似实现：不用 effect.buff 代替 Might 修改，" +
+    "Disarm KeywordDef（RIFT-267）与 continuous.might、continuous.grant-keyword（RIFT-258）已合入，" +
+    "但整卡仍有两处缺口，均不近似实现：(1) Disarm 的 attack-declared 触发、来源位置绑定与 831.1.d.1 的 stacking sum 尚未接入生产触发注册；" +
+    "(2) 条件式授予「While I'm in a showdown, your spells have [Reaction]」（364.3 / 813.4）需要卡牌 static → layers 注册路径与 showdown 可读状态，" +
+    "ObjectSnapshot 目前没有 in-showdown 字段。依赖：RIFT-91、RIFT-120。不把 Disarm 写成 effect.buff，" +
     "也不把「授予你的法术 Reaction」写成本卡自身的 keyword reaction。另见数据问题：同身份的 rad-sp4-005 印刷文本与 Might 不同。",
   abilities,
   sourceText:

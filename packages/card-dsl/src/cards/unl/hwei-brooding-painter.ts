@@ -41,8 +41,8 @@ import type { CardProgram } from "../../ir/index.js";
  *    使类型可读——但该 pick 的成员在生产上必须由 Finalize 锁定并由调用方补齐
  *    （链的 Finalize 只锁定 instruction.targets 的 TargetSpec，RIFT-90），并非
  *    结算期弃牌选择的现成产物。
- * 3. Unit 分支需要 continuous.might（RIFT-91）；effects/instructions 无该原语，
- *    封闭 GameAction 集合也没有 might 修改动作。
+ * 3. Unit 分支需要 continuous.might（RIFT-91）；原语已经合入，但卡牌 static/trigger
+ *    接线与图层消费路径仍未完成，封闭 GameAction 集合也没有直接的 might 修改动作。
  * 4. 没有模块把 CardProgram 的 triggered ability 注册成 TriggerRegistration
  *    （引擎批 4 / RIFT-120），object-moved 订在生产链路上不可达。
  * 依赖：RIFT-90（pick/目标管线与事件载荷）、RIFT-91（layers-continuous）、RIFT-120。
@@ -59,7 +59,7 @@ const hweiBroodingPainter = {
     "(2)「based on the discarded card's type」的判据缺读取路径：effect.discard 的链接回执是 { count, player, objects }，" +
     "解释器的 { linked: id } 对象选择器只解析「本身是对象引用或引用数组」的链接值（interpreter/selectors.ts 的 references），嵌套 objects 读不到；" +
     "本卡改用非目标 pick 提供被弃牌，使类型可读，但该 pick 成员在生产上必须由 Finalize 锁定并由调用方补齐（链 Finalize 只锁定 TargetSpec，RIFT-90）；" +
-    "(3) Unit 分支「Give me +3 :rb_might: this turn」需要 continuous.might（RIFT-91），封闭 GameAction 集合无 might 修改动作；" +
+    "(3) Unit 分支「Give me +3 :rb_might: this turn」依赖已合入的 continuous.might 原语，但卡牌接线与图层消费路径仍缺（RIFT-91）；" +
     "(4) 没有模块把 CardProgram 的 triggered ability 注册成 TriggerRegistration（引擎批 4 / RIFT-120），object-moved 订不可达。" +
     "依赖：RIFT-90、RIFT-91、RIFT-120。draw 1、按 pick 弃牌、Spell 分支、Gear 分支已在 golden 中真实执行。",
   abilities: [

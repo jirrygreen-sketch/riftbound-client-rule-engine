@@ -6,8 +6,9 @@ import type { CardProgram, Instruction } from "../../ir/index.js";
  * KeywordAbility has no payload slot. Keep the card-specific instructions as
  * pure data until RIFT-1/82 defines that association; do NOT register a second
  * object-killed trigger beside the Deathknell keyword. No keyword is expanded here.
- * Channel and draw are independent instructions, with no linkedTo.
- * The reference kernel currently ignores channel-rune.exhausted (RIFT-46).
+ * Channel and draw are independent instructions, with no linkedTo. The merged
+ * effect.channel primitive carries the printed exhausted stipulation to the
+ * channel-rune action; the reference kernel records that action for the golden.
  */
 export const deathknellBody = [
   {
@@ -40,7 +41,7 @@ const program = {
   canonicalCardId: "card.hash-bcc76f0b1b3b8dafd184b4a3307e12e03a80d4c9902254de9e30a4f6b0f1aba2",
   rulesetVersion: "core-1.5",
   status: "judge-required",
-  judgeReason: "Accelerate/Deathknell 已有展开文件，但 lowercase KeywordId 与注册表大小写尚未统一；Deathknell 的卡牌专属 payload 与 trigger.leave 展开没有唯一绑定契约（CR 808；RIFT-1/82）。Accelerate 的附加费用与就绪入场替代仍需 RIFT-89/120 接线（CR 805，不能先入场再 ready）。effect.draw 子效果可执行；effect.channel 虽提交 exhausted:true，但 RIFT-46 参考内核的 channel-rune 忽略该字段，不能先就绪入场再横置补偿。原始 body 的解释器求值与 Expr schema 接口仍需 RIFT-1/120 统一；不宣称整卡执行。契约 3.1 的 KeywordAbility 无 body/payload 字段，故死亡效果单独导出为纯数据 deathknellBody，未在 CardProgram 中重复注册死亡触发。",
+  judgeReason: "Accelerate 与 Deathknell 的 KeywordDef 已合入（RIFT-265），effect.channel 与 effect.draw 也已合入并由 golden 驱动；仍有三处生产缺口，均不近似实现：(1) Deathknell 的卡牌专属 payload 与 trigger.leave 展开没有唯一绑定契约，契约 3.1 的 KeywordAbility 无 body/payload 字段，死亡效果只能暂存为纯数据 deathknellBody（CR 808；RIFT-1/82）；(2) Accelerate 的附加费用与就绪入场替代仍需 Finalize/Replacement 接线（CR 805；RIFT-89/120）；(3) Deathknell 触发注册与原始 body 的解释器接线仍需 RIFT-1/120。effect.channel 会把 exhausted:true 传入 channel-rune 动作，effect.draw 子效果可执行；整卡保持 judge-required。",
   abilities: [
     {
       kind: "keyword",

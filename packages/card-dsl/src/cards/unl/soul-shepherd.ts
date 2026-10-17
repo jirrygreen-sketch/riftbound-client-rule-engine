@@ -13,8 +13,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   token 特征（ObjectSnapshot.isToken）。
  *
  * status = judge-required（缺口不近似实现）：
- * 1. 没有已注册的 continuous.might 原语，也没有把卡牌 static 能力注册进图层引擎的
- *    适配路径（effects/instructions 无该文件；RIFT-91 卡牌接线缺口），本条修正当前不生效。
+ * 1. continuous.might 原语已经合入，但还没有把卡牌 static 能力注册进图层引擎的适配
+ *    路径（RIFT-91 卡牌接线缺口），本条修正当前不生效。
  * 2. 过滤器无法判定 token：已合入的 layers/filter.ts 的 matchesObjectFilter 不含
  *    isToken 成员判定（实测 { type: "unit", controller: "A", zone: "board", isToken: true }
  *    对非 token 单位仍返回 true）；事件侧 ObjectFilter 白名单同样没有该位。写成普通友方
@@ -26,8 +26,8 @@ const soulShepherd = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1) 没有已注册的 continuous.might 原语，也没有把卡牌 static 能力注册进图层引擎的适配路径" +
-    "（effects/instructions 无该文件；RIFT-91 卡牌接线缺口），本条 +1 :rb_might: 当前不生效；" +
+    "两处缺口，均不近似实现：(1) continuous.might 原语已合入，但还没有把卡牌 static 能力注册进图层引擎的适配路径" +
+    "（RIFT-91 卡牌接线缺口），本条 +1 :rb_might: 当前不生效；" +
     "(2) 过滤器无法判定 token：layers/filter.ts 的 matchesObjectFilter 不含 isToken 成员判定" +
     '（实测 { type: "unit", controller: "A", zone: "board", isToken: true } 对非 token 单位仍返回 true），' +
     "事件侧 ObjectFilter 白名单也没有该位；写成普通友方单位会连非 token 单位一起加成。依赖：RIFT-91。",

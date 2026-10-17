@@ -26,10 +26,10 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * status = judge-required（三处缺口均不近似实现）：
  * 1. [Hidden] 的展开虽然有 KeywordDef（RIFT-264 批次），但其消费方缺失——Hidden.ts
- *    自己记录 cost.hidden / cost.pay / effect.zone / continuous.timing 都未合入，
+ *    自己记录 cost.hidden、Hidden 专用的 [A] cost.pay、effect.zone / continuous.timing 都未接入，
  *    Hide 动作与面朝下区域的免费打出许可没有执行路径；
- * 2. “you may pay :rb_energy_2:” 需要 cost.pay 原语，effects/instructions/ 下没有该
- *    文件（费用种类与 cost.pay / cost.modify 属未合入的 RIFT-261 批次）；
+ * 2. “you may pay :rb_energy_2:” 已有 cost.pay 原语，但费用计划仍没有接到冻结
+ *    triggered ability 的 Finalize/消费路径（RIFT-261）；
  * 3. “While there's a stunned enemy unit here, I have +2 [M]” 需要卡牌侧 static
  *    效果进入 layers 的注册/求值入口：RIFT-257 的 attachProgramLifecycle 只把
  *    static 交给调用方 binder（缺省 noopStaticBinder），engine-core 内没有把
@@ -43,10 +43,10 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1) [Hidden] 的 KeywordDef 已合入但没有消费方——Hidden.ts 记录 cost.hidden / " +
-    "cost.pay / effect.zone / continuous.timing 均未合入，Hide 动作与面朝下区域的免费打出许可无" +
-    "执行路径；(2) “you may pay :rb_energy_2:” 需要 cost.pay 原语，effects/instructions/ 下没有" +
-    "该文件（费用种类/支付属 RIFT-261）；(3) “While there's a stunned enemy unit here, I have " +
+    "三处缺口：(1) [Hidden] 的 KeywordDef 已合入但没有消费方——Hidden.ts 记录 cost.hidden、Hidden 专用的 [A] cost.pay / " +
+    "effect.zone / continuous.timing 均未接入，Hide 动作与面朝下区域的免费打出许可无" +
+    "执行路径；(2) “you may pay :rb_energy_2:” 已有 cost.pay 原语，但费用计划仍没有接到冻结" +
+    "triggered ability 的 Finalize/消费路径（RIFT-261）；(3) “While there's a stunned enemy unit here, I have " +
     "+2 :rb_might:” 的 static continuous.might 没有进入 layers 的注册方（RIFT-257 的 attachProgramLifecycle " +
     "只调用调用方 binder，缺省 noopStaticBinder），且 Condition 无 stunned 状态谓词、图层过滤器不读 " +
     "sameLocationAs。依赖 RIFT-261（费用/支付）、RIFT-257（static 效果→layers 接线）与 RIFT-87（条件/谓词）。" +
@@ -70,7 +70,7 @@ export default {
                 {
                   id: "kennen.play.pay",
                   op: "cost.pay",
-                  args: { energy: { kind: "constant", value: 2 } }
+                  args: { payments: { kind: "constant", value: { energy: 2 } } }
                 },
                 {
                   id: "kennen.play.stun",
@@ -110,7 +110,7 @@ export default {
                 {
                   id: "kennen.attack.pay",
                   op: "cost.pay",
-                  args: { energy: { kind: "constant", value: 2 } }
+                  args: { payments: { kind: "constant", value: { energy: 2 } } }
                 },
                 {
                   id: "kennen.attack.stun",

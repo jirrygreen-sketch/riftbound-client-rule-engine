@@ -25,7 +25,7 @@ const attackChoice = attackAbility.body[0];
 
 const kennenKernel = () => {
   const base = world()
-    .player("controller")
+    .player("controller", { energy: 2 })
     .unit("kennen", { controller: "controller", location: { type: "battlefield", id: "bf-1" } })
     .unit("enemy", { owner: "B", controller: "B", location: { type: "battlefield", id: "bf-1" } })
     .build();
@@ -99,7 +99,7 @@ test("ven-135-166 Kennen: both triggers wrap pay-then-Stun in an optional body (
     const [pay, stun] = choice.args.body.value;
     // “you may pay :rb_energy_2:” — the 2 Energy payment (355.10.c.1 cost).
     assert.equal(pay.op, "cost.pay", label);
-    assert.deepEqual(pay.args.energy, { kind: "constant", value: 2 }, label);
+    assert.deepEqual(pay.args.payments, { kind: "constant", value: { energy: 2 } }, label);
     assert.equal(pay.linkedTo, undefined, label);
     // “to [Stun] a unit” — one unit, stun through the merged primitive.
     assert.equal(stun.op, "effect.stun", label);
@@ -162,11 +162,14 @@ test("ven-135-166 golden: the merged Stun half stuns the unit", () => {
   assert.deepEqual(outcome.events.map(event => event.action), ["stun"]);
   assert.equal(outcome.linkedValues["kennen.play.stun.stunned"].count, 1);
 
-  // 接受整条可选 body 时必须在费用步如实失败：cost.pay 原语尚未合入（RIFT-261），
-  // 不能静默跳过付款只结算 Stun。
+  // 接受整条可选 body 时，已合入的 cost.pay 真实支付 2 Energy 后再结算 Stun。
   const accepted = kennenKernel();
   accepted.setAnswers({ "kennen.play.opt-in/optional": true });
-  assert.throws(() => runAbilityBody(playAbility.body, accepted), /Unregistered instruction opcode: cost\.pay/);
+  accepted.setTargets("kennen.play.unit", [accepted.ref("enemy")]);
+  const acceptedOutcome = runAbilityBody(playAbility.body, accepted);
+  assert.equal(acceptedOutcome.status, "executed");
+  assert.equal(accepted.getObject("enemy").stunned, true);
+  assert.equal(accepted.player("controller").energy, 0);
 });
 
 test("ven-135-166 golden: the +2 Might aura's declared modification executes once registered (CR 433.1.a)", () => {
@@ -232,7 +235,7 @@ test("ven-135-166 golden: an already stunned unit is not stunned twice (CR 424.1
 
 test.todo(
   "ven-135-166 Kennen: paying :rb_energy_2: through the optional trigger needs the cost.pay " +
-    "primitive and the finalized cost plan (RIFT-261)"
+    "finalized cost plan on the frozen triggered ability (cost.pay is merged; RIFT-261)"
 );
 
 test.todo(

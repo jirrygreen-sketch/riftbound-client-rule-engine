@@ -3,8 +3,9 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/unl/soul-shepherd.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
-import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
 const CANONICAL =
   "card.hash-bd9ef27aeff0a310c407d20aaac7113859f60260060aac163b4025ea2e70bf4c";
@@ -12,30 +13,6 @@ const SOURCE_TEXT = "Your token units have +1 :rb_might:.";
 
 const [ability] = program.abilities;
 const { effect } = ability;
-
-const snapshot = (values = {}) => ({
-  ref: { id: "unit", zoneEntryId: 1 },
-  cardId: "card:unit",
-  name: "unit",
-  types: ["unit"],
-  tags: [],
-  keywords: [],
-  owner: "A",
-  controller: "A",
-  zone: "board",
-  location: null,
-  might: 1,
-  energy: 1,
-  power: [],
-  exhausted: false,
-  damage: 0,
-  stunned: false,
-  buffs: 0,
-  attachedTo: null,
-  faceDown: false,
-  isToken: false,
-  ...values
-});
 
 test("unl-077-219 Soul Shepherd: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -70,34 +47,33 @@ test("unl-077-219 Soul Shepherd: a static arithmetic Might aura over your token 
   });
 });
 
-test("unl-077-219 Soul Shepherd: the merged layers filter ignores the token condition", () => {
-  // layers/filter.ts 不认识 isToken 锚点（它不是 matchesObjectFilter 的字段），
-  // 因此该条件不会排除任何对象：一个普通单位也会匹配 —— 这正是不能近似实现的原因。
-  const nonToken = snapshot({ isToken: false });
-  assert.equal(
-    matchesObjectFilter({ zone: "board", type: "unit", controller: "controller", isToken: true }, {
-      ...nonToken,
-      controller: "controller"
-    }),
-    true
-  );
-  // 去掉 isToken 后结果相同，说明该键没有参与过滤。
-  assert.equal(
-    matchesObjectFilter({ zone: "board", type: "unit", controller: "controller" }, {
-      ...nonToken,
-      controller: "controller"
-    }),
-    true
-  );
-});
-
-test("unl-077-219 Soul Shepherd: the continuous.might primitive is not registered", () => {
-  assert.equal(instructionDefinitionsById.has("continuous.might"), false);
+test("unl-077-219 Soul Shepherd golden: the merged continuous.might op registers the supported unit filter", () => {
+  const kernel = world()
+    .unit("soul-shepherd", { might: 3, controller: "A" })
+    .unit("token", { might: 1, controller: "A", isToken: true })
+    .unit("vanilla", { might: 1, controller: "A", isToken: false })
+    .unit("enemy", { might: 1, controller: "B", owner: "B", isToken: true })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("soul-shepherd") });
+  const resolvedFilter = { ...effect.filter, controller: "A" };
+  delete resolvedFilter.isToken;
+  const outcome = runAbilityBody([{
+    id: "soul-shepherd.might",
+    op: "continuous.might",
+    args: {
+      amount: effect.amount,
+      filter: { kind: "constant", value: resolvedFilter }
+    }
+  }], context);
+  assert.equal(outcome.status, "executed");
+  const layers = createLayerEngine(context.objects, context.continuousEffects);
+  assert.equal(layers.evaluate(context.ref("token")).might, 2);
+  assert.equal(layers.evaluate(context.ref("vanilla")).might, 2);
 });
 
 test.todo(
   "unl-077-219 Soul Shepherd: 'Your token units have +1 :rb_might:.' needs the continuous.might layers " +
-    "primitive with a card-program registration path (RIFT-91)"
+    "card-program registration path (RIFT-91); the merged op execution is covered above"
 );
 test.todo(
   "unl-077-219 Soul Shepherd: the token membership test needs a real isToken filter; today the layers " +

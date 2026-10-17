@@ -262,10 +262,10 @@ test("unl-079-219 Diana, Lunari golden: a revealed non-spell is not drawn", () =
   );
 });
 
-test("unl-079-219 Diana, Lunari: the declared pieces include unmerged dependencies", () => {
+test("unl-079-219 Diana, Lunari: merged dependencies are available; trigger cost wiring remains open", () => {
   // 前导 1 能量费用需要 Finalize 费用计划（RIFT-89）；Predict 展开属关键词工作流；
   // showdown-open 由 chain/engine.ts 的 openShowdown 发射，但卡牌触发的注册路径未合入。
-  assert.equal(instructionDefinitionsById.has("cost.pay"), false);
+  assert.equal(instructionDefinitionsById.has("cost.pay"), true);
   assert.equal(optional.args.prompt.value.includes("Pay 1 energy"), true);
 });
 

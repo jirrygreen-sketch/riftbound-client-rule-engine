@@ -24,11 +24,10 @@ import type { CardProgram } from "../../ir/index.js";
  * 1. attack-declared 没有已合入的发出方：该 id 只出现在 events/timing-points.ts 与
  *    events/trigger-spec.ts 的封闭枚举里，combat/（base-combat-allocation、
  *    derived-might）不发射任何时点，战斗流程属引擎批 5（RIFT-31/33/77）。
- * 2. 效果本体 "give a unit -1 :rb_might: this turn" 没有已注册原语：
- *    effects/instructions 无 continuous.might（RIFT-91 layers-continuous），
- *    契约 3.6 的封闭 GameAction 集合也没有 might 修改动作。
+ * 2. 效果本体 "give a unit -1 :rb_might: this turn" 使用已合入的 continuous.might 原语，
+ *    但 attack-declared 触发注册、目标锁定和图层消费路径仍未接线（RIFT-91）。
  * 3. 前导可选 Energy 费用（383.3.b）在冻结 IR 里没有承载字段（triggered ability
- *    无 cost），cost.pay / 费用计划入口未合入（RIFT-89）。
+ *    无 cost）；cost.pay 原语已合入，但 Finalize 费用计划入口仍未接线（RIFT-89）。
  * 依赖：RIFT-31/33/77（战斗时点）、RIFT-89（费用计划）、RIFT-91（continuous.might）。
  */
 const icevaleArcher = {
@@ -38,10 +37,10 @@ const icevaleArcher = {
   judgeReason:
     "三处缺口，均不近似实现：(1) 攻击时点 attack-declared 只存在于封闭枚举（events/timing-points.ts、trigger-spec.ts），" +
     "combat/ 不发射该时点（战斗流程属引擎批 5，RIFT-31/33/77），触发在真实内核中不可达；" +
-    "(2) 效果本体「give a unit -1 :rb_might: this turn」需要 continuous.might 图层修正与结算时求值，" +
-    "effects/instructions 无该原语（RIFT-91），封闭 GameAction 集合也没有 might 修改动作；" +
+    "(2) 效果本体「give a unit -1 :rb_might: this turn」使用已合入的 continuous.might 图层修正，" +
+    "但目标锁定与图层消费路径仍未接线（RIFT-91）；" +
     "(3) 前导可选 Energy 费用（383.3.b）在冻结 IR 的 triggered ability 里没有 cost 字段，" +
-    "cost.pay / Finalize 费用计划入口未合入（RIFT-89）——本能力只用 optional: true 表达 Finalize 决定，" +
+    "cost.pay 原语已合入但 Finalize 费用计划入口未接线（RIFT-89）——本能力只用 optional: true 表达 Finalize 决定，" +
     "不把费用写成事后指令。依赖：RIFT-31/33/77、RIFT-89、RIFT-91。",
   abilities: [
     {
@@ -60,7 +59,8 @@ const icevaleArcher = {
           op: "continuous.might",
           args: {
             amount: { kind: "constant", value: -1 },
-            duration: { kind: "constant", value: "this-turn" }
+            duration: { kind: "constant", value: "this-turn" },
+            target: { kind: "constant", value: "icevale-archer.unit-here" }
           },
           targets: [
             {

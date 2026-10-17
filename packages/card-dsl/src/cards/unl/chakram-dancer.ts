@@ -20,26 +20,20 @@ import type { CardProgram } from "../../ir/index.js";
  *   sameLocationAs + exclude 锚点表达；解释器的集合查询会解析这两个锚点。
  *
  * status = judge-required（缺口不近似实现）：
- * 1. [Ambush]（822）没有关键词展开：effects/keywords 下没有 Ambush.ts，822.1.c 的
- *    打出位置许可 + 822.1.b 的 [Reaction] 时机需要 continuous.timing + 位置许可消费方
- *    （RIFT-9 的 continuous.timing / target.location 缺口）。
- * 2. 「give your other units here [Shield] this turn」需要带 end-of-turn 期限的
- *    continuous.grant-keyword 持续效果：effects/instructions 无该原语，图层也还没有
- *    消费卡牌 static/持续效果注册的路径（RIFT-91）；Shield 关键词展开文件虽已合入
- *    （keywords/Shield.ts），但其 consumer 同属 RIFT-91。
- * 依赖：RIFT-91（layers-continuous）、关键词工作流的 Ambush 展开、RIFT-9 的
- * continuous.timing / target.location 清单项。
+ * 1. [Ambush] 的 KeywordDef（RIFT-266）与 continuous.timing、play-location-permission
+ *    声明已合入，但 Finalize 尚未消费战场位置许可，也没有把该许可限定到 Ambush 打出的那一次。
+ * 2. 「give your other units here [Shield] this turn」使用已合入的
+ *    continuous.grant-keyword（RIFT-258），golden 真实注册 Shield；仍缺卡牌持续效果进入
+ *    layers 的生产绑定，以及 Shield 的 defender 条件消费。
+ * 依赖：RIFT-91（卡牌静态效果与 Shield 消费）、RIFT-9/RIFT-120（Ambush 位置/时机与接线）。
  */
 const chakramDancer = {
   canonicalCardId: "card.hash-932827b7cff5b4083f49ad39fa73a27896d400178b231d5a1952c9016f9dbaf3",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1) [Ambush]（822.1.b/822.1.c）没有关键词展开文件（effects/keywords 无 Ambush.ts），" +
-    "其「可向有己方单位的战场打出」位置许可与「按此方式打出时获得 [Reaction]」需要 continuous.timing + 位置许可消费方；" +
-    "(2)「give your other units here [Shield] this turn」需要带 end-of-turn 期限的 continuous.grant-keyword 持续效果，" +
-    "effects/instructions 无该原语，且没有把卡牌持续效果注册进图层引擎的路径（RIFT-91）；Shield 的展开文件（keywords/Shield.ts）" +
-    "已合入但其 consumer 同属 RIFT-91。依赖：RIFT-91、Ambush 关键词展开、RIFT-9 的 continuous.timing/target.location。" +
+    "Ambush 的 KeywordDef（RIFT-266）与 continuous.timing、play-location-permission 声明已合入，但整卡仍有两处缺口，均不近似实现：(1) Finalize 尚未消费 Ambush 的战场位置许可，也没有把 Reaction 限定到该次打出；" +
+    "(2)「give your other units here [Shield] this turn」使用已合入的 continuous.grant-keyword（RIFT-258），golden 可真实注册 Shield，但卡牌持续效果进入 layers 的生产绑定与 Shield 的 defender 条件消费仍缺失。依赖：RIFT-91、RIFT-9、RIFT-120。" +
     "目标过滤（controller + other + here）用解释器已支持的 sameLocationAs/exclude 锚点书写，已在 golden 中按真实集合验证。",
   abilities: [
     { kind: "keyword", keyword: "ambush" },
@@ -53,7 +47,8 @@ const chakramDancer = {
           op: "continuous.grant-keyword",
           args: {
             keyword: { kind: "constant", value: "Shield" },
-            duration: { kind: "constant", value: "end-of-turn" }
+            duration: { kind: "constant", value: "end-of-turn" },
+            target: { kind: "constant", value: "chakram-dancer.other-units-here" }
           },
           targets: [
             {

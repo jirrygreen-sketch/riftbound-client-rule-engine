@@ -22,29 +22,29 @@ import type { CardProgram } from "../../ir/index.js";
  *     战场到战场的许可，810.1.c.1 不移除原有选项）。
  *
  * status = judge-required（缺口不近似实现）：
- * 1. 没有 Hunt 关键词展开：keyword: "hunt" 只是声明（契约 3.1 / 3.7），
- *    effects/keywords 下没有 Hunt.ts，823.1.c.1 的触发包装（订阅 conquer / hold）
- *    与 823.2 的数值相加未实现。
- * 2. Level 依赖式关键词没有展开：824.1.c 需要可求值的「控制者 XP ≥ N」谓词，
+ * 1. Hunt、Level、Ganking 的 KeywordDef 已合入（RIFT-265/268），但 Hunt 的
+ *    conquer/hold 事件拼写与封闭 EventPattern 的 conquered/held 不一致，且触发注册
+ *    与 823.2 的数值相加未接线。
+ * 2. Level 依赖式关键词的展开仍不能读取玩家 XP：824.1.c 需要可求值的「控制者 XP ≥ N」谓词，
  *    合并 IR 的 Condition 只有 always/never/expression/compare/all/any/not，
  *    PlayerSnapshot.xp 没有进入 Expr / 谓词求值的路径；824.1.c.1 / .d 的动态失活同样缺失。
  * 3. 依赖能力两半都缺消费方："+1 :rb_might:" 是 continuous.might 图层修正（RIFT-91），
  *    "[Ganking]" 需要 continuous.grant-keyword 持续效果及图层消费路径
  *    （Ganking 的 KeywordDef 已合入，但没有卡牌持续效果的注册路径）。
- * 依赖：Hunt / Level 关键词展开、RIFT-91（layers-continuous）、RIFT-89/90（条件谓词）。
+ * 依赖：Hunt/Level 事件与 XP 消费接线、RIFT-91（layers-continuous）、RIFT-89/90（条件谓词）。
  */
 const gustwalker = {
   canonicalCardId: "card.hash-a232dcd643d13b743c5bad3125bacbefc6b2ef53b24aa91708ec80fc13447153",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1) [Hunt 2] 只是关键词声明，effects/keywords 下没有 Hunt.ts，823.1.c.1 的「订阅 conquer/hold、控制者获得 X XP」触发包装" +
-    "与 823.2 的数值相加未实现；" +
-    "(2) [Level 3][>] 依赖式关键词（824.1.b.1）没有展开：824.1.c / .d 需要可求值的「控制者 XP ≥ 3」谓词与动态失活，" +
+    "三处缺口，均不近似实现：(1) Hunt/Level/Ganking 的 KeywordDef 已合入（RIFT-265/268），但 [Hunt 2] 的 conquer/hold 事件拼写与封闭 EventPattern 的 conquered/held 不一致，" +
+    "触发注册与 823.2 的数值相加仍未接线；" +
+    "(2) [Level 3][>] 依赖式关键词（824.1.b.1）仍不能读取玩家 XP：824.1.c / .d 需要可求值的「控制者 XP ≥ 3」谓词与动态失活，" +
     "合并 IR 的 Condition 读不到 PlayerSnapshot.xp；" +
     "(3) 依赖能力两半都缺消费方：「I have +1 :rb_might:」是 continuous.might 图层修正（RIFT-91），" +
-    "「and [Ganking]」需要 continuous.grant-keyword 持续效果及图层消费路径（Ganking KeywordDef 已合入，但无卡牌持续效果注册路径）。" +
-    "依赖：Hunt / Level 关键词展开、RIFT-91、RIFT-89/90。",
+    "「and [Ganking]」需要 continuous.grant-keyword 持续效果及图层消费路径（原语已合入，但无卡牌持续效果注册路径）。" +
+    "依赖：Hunt/Level 事件与 XP 接线、RIFT-91、RIFT-89/90。",
   abilities: [
     { kind: "keyword", keyword: "hunt", value: 2 },
     {

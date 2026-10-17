@@ -4,7 +4,9 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/unl/icevale-archer.js";
 import { isTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
 const CANONICAL =
   "card.hash-cfa683e56408938bf27747d5d9dcb341900100c1cc87f15bd487c270cd7b2dee";
@@ -25,7 +27,7 @@ test("unl-065-219 Icevale Archer: identity, ruleset, status, judgeReason, source
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  // 缺口必须具体：攻击时点没有发出方、效果原语、前导可选费用。
+  // 缺口必须具体：攻击时点没有发出方、效果的卡牌接线、前导可选费用。
   assert.match(program.judgeReason, /attack-declared/);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /RIFT-89/);
@@ -47,6 +49,7 @@ test("unl-065-219 Icevale Archer: attack trigger is filtered to this unit and th
   assert.equal(instruction.op, "continuous.might");
   assert.deepEqual(instruction.args.amount, { kind: "constant", value: -1 });
   assert.deepEqual(instruction.args.duration, { kind: "constant", value: "this-turn" });
+  assert.deepEqual(instruction.args.target, { kind: "constant", value: "icevale-archer.unit-here" });
   assert.equal(instruction.linkedTo, undefined);
   assert.equal(instruction.picks, undefined);
 });
@@ -77,8 +80,19 @@ test("unl-065-219 Icevale Archer: the declared attack timing point exists but it
   );
 });
 
-test("unl-065-219 Icevale Archer: the temporary Might modifier is not a registered primitive", () => {
-  assert.equal(instructionDefinitionsById.has("continuous.might"), false);
+test("unl-065-219 Icevale Archer golden: the merged continuous.might op applies -1 this turn", () => {
+  const base = world()
+    .unit("icevale-archer", { might: 2, location: { type: "battlefield", id: "bf-1" } })
+    .unit("target", { might: 4, location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("icevale-archer") });
+  kernel.setTargets(unitHere.id, [kernel.ref("target")]);
+  const outcome = runAbilityBody([instruction], kernel);
+  assert.equal(outcome.status, "executed");
+  assert.equal(createLayerEngine(kernel.objects, kernel.continuousEffects).evaluate(kernel.ref("target")).might, 3);
+  const layers = createLayerEngine(kernel.objects, kernel.continuousEffects);
+  assert.equal(layers.expireAt("turn-end").length, 1);
+  assert.equal(layers.evaluate(kernel.ref("target")).might, 4);
 });
 
 test.todo(
@@ -88,12 +102,12 @@ test.todo(
 );
 test.todo(
   "unl-065-219 Icevale Archer: 'give a unit here -1 :rb_might: this turn' needs the continuous.might " +
-    "layers primitive with an end-of-turn duration (RIFT-91); effect.buff explicitly leaves " +
-    "temporary Might changes to the layers system"
+    "attack-trigger registration and the optional Energy payment wiring; the merged continuous.might " +
+    "execution is covered above (RIFT-89/RIFT-91)"
 );
 test.todo(
   "unl-065-219 Icevale Archer: the leading optional 1-energy cost (CR 383.3.b) has no field on the " +
-    "frozen triggered ability and no merged cost.pay / cost-plan entry (RIFT-89); 'optional: true' " +
+    "frozen triggered ability and no Finalize cost-plan entry (cost.pay is merged; RIFT-89); 'optional: true' " +
     "only encodes the finalize decision"
 );
 test.todo(

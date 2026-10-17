@@ -4,9 +4,9 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/unl/petal-pixie.js";
 import { evaluateExpression } from "../../../../engine-core/dist/effects/interpreter/expr.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
-import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
 const CANONICAL =
   "card.hash-8338862de653402acc57a72f7e3d56c3cc2489ec52c8f53f9b778f26d23c59bd";
@@ -17,30 +17,6 @@ const [ability] = program.abilities;
 const { amount } = ability.effect;
 // count 表达式的成员过滤挂在 amount 自身（契约 3.6 的 count.filter）。
 const filter = amount.filter;
-
-const layeredSnapshot = (values = {}) => ({
-  ref: { id: "vanilla", zoneEntryId: 1 },
-  cardId: "card:vanilla",
-  name: "vanilla",
-  types: ["unit"],
-  tags: [],
-  keywords: [],
-  owner: "A",
-  controller: "A",
-  zone: "board",
-  location: null,
-  might: 1,
-  energy: 1,
-  power: [],
-  exhausted: false,
-  damage: 0,
-  stunned: false,
-  buffs: 0,
-  attachedTo: null,
-  faceDown: false,
-  isToken: false,
-  ...values
-});
 
 test("unl-076-219 Petal Pixie: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -131,24 +107,34 @@ test("unl-076-219 Petal Pixie golden: the supported part of the count only talli
   );
 });
 
-test("unl-076-219 Petal Pixie: the layers filter has no keyword-member anchor", () => {
-  // layers/filter.ts 的 matchesObjectFilter 不认 hasKeyword：未知键被忽略，
-  // 因此带 hasKeyword 的过滤条件不会排除任何对象（与不带该键的结果一致）。
-  const object = layeredSnapshot();
-  assert.equal(
-    matchesObjectFilter({ type: "unit", zone: "board", hasKeyword: "temporary" }, object),
-    true
-  );
-  assert.equal(matchesObjectFilter({ type: "unit", zone: "board" }, object), true);
-});
-
-test("unl-076-219 Petal Pixie: the continuous.might primitive is not registered", () => {
-  assert.equal(instructionDefinitionsById.has("continuous.might"), false);
+test("unl-076-219 Petal Pixie golden: the merged continuous.might op registers the supported count", () => {
+  const kernel = world()
+    .unit("petal-pixie", { might: 2, location: { type: "battlefield", id: "bf-1" } })
+    .unit("fae-here", { location: { type: "battlefield", id: "bf-1" } })
+    .unit("fae-here-2", { location: { type: "battlefield", id: "bf-1" } })
+    .unit("vanilla-here", { location: { type: "battlefield", id: "bf-1" } })
+    .unit("fae-elsewhere", { location: { type: "battlefield", id: "bf-2" } })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("petal-pixie") });
+  const supportedAmount = structuredClone(amount);
+  supportedAmount.filter.controller = "A";
+  delete supportedAmount.filter.hasKeyword;
+  const outcome = runAbilityBody([{
+    id: "petal-pixie.might",
+    op: "continuous.might",
+    args: {
+      amount: supportedAmount,
+      mode: { kind: "constant", value: "add" },
+      appliesTo: { kind: "constant", value: "self" }
+    }
+  }], context);
+  assert.equal(outcome.status, "executed");
+  assert.equal(createLayerEngine(context.objects, context.continuousEffects).evaluate(context.ref("petal-pixie")).might, 6);
 });
 
 test.todo(
   "unl-076-219 Petal Pixie: '+1 :rb_might: for each' needs the continuous.might layers primitive with a " +
-    "card-program registration path (RIFT-91)"
+    "card-program registration path (RIFT-91); the merged op execution is covered above"
 );
 test.todo(
   "unl-076-219 Petal Pixie: 'units with [Temporary]' needs a keyword/characteristic member filter; the " +
