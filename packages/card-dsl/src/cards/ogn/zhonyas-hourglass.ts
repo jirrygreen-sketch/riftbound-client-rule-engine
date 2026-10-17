@@ -22,36 +22,44 @@ import type { CardProgram } from "../../ir/index.js";
  *   replacement. 355.10.c: "that unit" refers to the unit intercepted by the
  *   replacement effect, so it is not a new target choice.
  *
- * Status: judge-required — the printed shape is encoded, but neither the
- * activation path nor the recall half is executable with merged code:
+ * Status: judge-required — the printed shape is encoded, and the merged RIFT-260
+ * replacement binding now resolves the intercepted unit, but the recall half is
+ * still not executable:
  * - "Recall that unit exhausted" needs the recall GameAction (457–460).
- *   effect.move accepts mode "recall" but explicitly BLOCKS it: the frozen
- *   move-location action cannot distinguish a Recall from a Move, and the
- *   primitive refuses to approximate one with the other. Its `objects`
- *   argument also only accepts source/target/pick/choose selectors, and a
- *   target would re-choose the affected unit instead of naming the unit the
- *   replaced event would have killed (355.10.c). The recall step below is
- *   therefore kept as a descriptive, non-executable entry that names the
- *   referent; nothing is approximated.
- * - A Replacement Effect declared on a card has no merged registration path:
- *   the event/chain layer (RIFT-120) registers replacements as action
- *   matchers with a `with`-body, but nothing binds the intercepted unit
- *   ("that unit") into the replacement body, and the printed "the next time"
- *   one-shot lifetime is not wired to a card program.
- * The kill-this half is fully described and executed in isolation by the
- * golden test; the recall half is judged, not approximated.
+ *   effect.move accepts mode "recall" but explicitly BLOCKS it, and the merged
+ *   replacement planner surfaces that same block at bind time
+ *   (BlockedReplacementError, "no Recall action exists"): the frozen
+ *   move-location action cannot distinguish a Recall from a Move (458.1 would
+ *   wrongly fire Move triggers, 460.1 keeps statuses). Nothing is approximated.
+ * - the printed "the next time" one-shot lifetime has no representation in the
+ *   static replacement form bound here; RIFT-260's one-shot window lives on the
+ *   replacement.event wrapper, and a card program cannot spell that wrapper's
+ *   raw instead instruction body in the frozen IR (validateInstruction accepts
+ *   only Expr args while the binding layer requires an instruction array) —
+ *   same contract change request as ogn/the-boss.
+ * - no merged consumer turns a CardProgram's replacement ability into a
+ *   ReplacementRegistration (card-program binding, RIFT-257, in progress).
+ * - [Hidden]'s Hide action / facedown play still lack the cost.hidden
+ *   consumption path (811.1.b/811.1.c.2; the keyword expansion itself is
+ *   merged, RIFT-84).
+ * What is merged and executed by the golden test: the RIFT-260 planner resolves
+ * "that unit" through the published { linked: "replacement.object" } selector
+ * (REPLACED_EVENT_LINK) and plans the kill-this step against the gear and the
+ * exhausted-status step against the intercepted unit; the golden runs those
+ * planned actions for real.
  */
 const zhonyasHourglass = {
   canonicalCardId: "card.hash-876fbb11303be19701acffe6831c8d2c74d73130b38f29962ed2cef06bc76387",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 Recall 动作：effect.move 的 mode \"recall\" 被原语显式阻断（封闭 move-location 动作" +
-    "无法区分 Recall 与 Move，CR v1.5 457–460），不能近似为普通移动；" +
-    "卡牌级替代效果（369.1/370.1.a.1）没有已合入的注册路径：事件/链层（RIFT-120）" +
-    "尚未把卡牌程序的 replaces/with 转成动作匹配器，也没有把被替代死亡的单位绑定进" +
-    "替代体（\"that unit\"）；印刷的 \"the next time\" 一次性期限同样未接线。" +
-    "kill this 部分仅用已合入的 effect.kill(self) 并由 golden 执行；不近似实现。",
+    "缺 Recall 动作：effect.move 的 mode \"recall\" 被原语显式阻断，已合入的替代 planner（RIFT-260）在 bind 时对同一形状抛 " +
+    "BlockedReplacementError（\"no Recall action exists\"；封闭 move-location 动作无法区分 Recall 与 Move，CR 457–460：458.1 会错误触发移动触发、460.1 保持状态），不能近似为普通移动。" +
+    "「that unit」的绑定已解决：golden 经 RIFT-260 planner 用 { linked: \"replacement.object\" }（REPLACED_EVENT_LINK，355.10.c）把 kill-this 规划到本装备、把 exhausted 状态步骤规划到被拦截单位并真实执行规划出的动作。" +
+    "整卡仍不可执行：① 印刷的 \"the next time\" 一次性期限在静态替代形状里没有表示——RIFT-260 的 one-shot 窗口只在 replacement.event wrapper 上，" +
+    "而冻结 IR 拼不出该 wrapper 的原始 instead 指令体（validateInstruction 只接受 Expr 参数、绑定层要求原始指令数组），同 ogn/the-boss 的契约变更请求；" +
+    "② 没有已合入的消费方把 CardProgram 的替代能力注册成 ReplacementRegistration（卡牌程序绑定 RIFT-257 进行中）；" +
+    "③ [Hidden] 的 Hide 行动/背面打出仍缺 cost.hidden 消费路径（811.1.b/811.1.c.2；关键词展开本身已合入，RIFT-84）。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     {
@@ -64,41 +72,33 @@ const zhonyasHourglass = {
       },
       with: [
         {
-          // "kill this instead" — the replacement kills the source gear.
+          // "kill this instead" — the merged RIFT-260 planner resolves the
+          // source-object selector to the gear host and plans the kill action.
           id: "kill-this",
           op: "effect.kill",
-          args: { self: { kind: "constant", value: true } }
+          args: { target: { kind: "constant", value: { kind: "source" } } }
         },
         {
-          // "Recall that unit exhausted." The intercepted unit is referenced
-          // only symbolically; binding it from the replaced event is the
-          // judged part (see judgeReason).
+          // "Recall that unit exhausted." (457-460) The intercepted unit is
+          // the replaced event's object, bound through the merged RIFT-260
+          // selector (355.10.c: not a new target). The recall mode itself is
+          // blocked at bind time (see judgeReason).
           id: "recall-dying-unit",
           op: "effect.move",
           args: {
-            objects: { kind: "constant", value: { target: "dying-unit" } },
+            objects: { kind: "constant", value: { linked: "replacement.object" } },
             to: { kind: "constant", value: "controller-base" },
             mode: { kind: "constant", value: "recall" }
-          },
-          targets: [
-            {
-              id: "dying-unit",
-              filter: { type: "unit", controller: "self" },
-              min: 1,
-              max: 1,
-              selection: "one"
-            }
-          ]
+          }
         },
         {
           // 460.1 exception stated by this card: the recalled unit is
           // exhausted (the status change belongs to the recall, not to a Move).
-          // "that unit" is the same referent the recall names (355.10.c), so it
-          // reads the target group declared by the recall instruction instead
-          // of choosing a second unit.
+          // "that unit" is the same replaced-event referent (355.10.c), so the
+          // selector names it instead of choosing a second unit.
           id: "exhaust-dying-unit",
           op: "effect.exhaust",
-          args: { target: { kind: "constant", value: "dying-unit" } },
+          args: { objects: { kind: "constant", value: { linked: "replacement.object" } } }
         }
       ]
     }

@@ -4,16 +4,64 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/wizened-elder.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import might from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
+import buff from "../../../../engine-core/dist/effects/instructions/effect.buff.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL =
   "card.hash-16335e499c8dc3283d678e27bfe613e02ef16a6babfe209f953b1959c52fd375";
 const SOURCE_TEXT = "While I'm buffed, I have an additional +1 :rb_might:.";
+const literal = value => ({ kind: "constant", value });
 
 const [staticAbility] = program.abilities;
+
+/**
+ * The equivalent instruction the (still unmerged, RIFT-257) static-ability
+ * binding will run: the merged continuous.might op with the card's own amount
+ * and the 702.2.a buffed predicate as the merged filter spelling. The kernel is
+ * bound to the elder so "I" resolves to the ability host, and the production
+ * layer matcher (layers/filter.ts) evaluates the characteristics predicate.
+ */
+function elderKernel({ buffs }) {
+  const base = world()
+    .unit("wizened-elder", { might: 4, buffs, owner: "A", controller: "A" })
+    .unit("plain-ally", { might: 4, buffs: 0, owner: "A", controller: "A" })
+    .build();
+  return bindResolveContext(base, {
+    source: base.getObject("wizened-elder"),
+    sourceSnapshot: base.getObject("wizened-elder"),
+    query: filter => base.objects.filter(object => matchesObjectFilter(filter, object))
+  });
+}
+
+const grantInstruction = {
+  id: "wizened-elder.additional-might",
+  op: "continuous.might",
+  args: {
+    amount: staticAbility.effect.amount,
+    duration: literal("permanent"),
+    // "I": the ability host; the production matcher re-checks the buffed
+    // predicate on every layer evaluation.
+    objects: literal({
+      kind: "query",
+      filter: {
+        type: "unit",
+        zone: "board",
+        objectId: "wizened-elder",
+        characteristics: { buffs: 1 }
+      }
+    })
+  }
+};
 
 test("ogn-065-298 Wizened Elder: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues, null, 2));
+  assert.deepEqual(result.issues, []);
 });
 
 test("ogn-065-298 Wizened Elder: identity, ruleset, status, judgeReason and source text", () => {
@@ -21,12 +69,14 @@ test("ogn-065-298 Wizened Elder: identity, ruleset, status, judgeReason and sour
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /702\.2\.a/);
-  assert.match(program.judgeReason, /continuous\.might|continuous Might/);
+  assert.match(program.judgeReason, /continuous\.might/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /characteristics/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });
 
-test("ogn-065-298 Wizened Elder: the additional +1 is a static arithmetic effect on self", () => {
+test("ogn-065-298 Wizened Elder: the additional +1 is a static arithmetic effect", () => {
   // 364.3/364.3.a: Conditional Passive Ability; 365.1: active while on Board.
   assert.equal(program.abilities.length, 1);
   assert.equal(staticAbility.kind, "static");
@@ -34,56 +84,100 @@ test("ogn-065-298 Wizened Elder: the additional +1 is a static arithmetic effect
   assert.equal(staticAbility.effect.mode, "add");
   assert.equal(staticAbility.effect.layer, "arithmetic");
   assert.equal(staticAbility.effect.appliesTo, "self");
-  assert.deepEqual(staticAbility.effect.amount, { kind: "constant", value: 1 });
+  assert.deepEqual(staticAbility.effect.amount, literal(1));
 });
 
-test("ogn-065-298 Wizened Elder: the condition is the buffed predicate, not a Buff counter", () => {
-  // 702.2.a: a unit is Buffed for as long as the buff remains on it. The
-  // printed +1 is a separate Might increase on top of the Buff's own +1 (703).
-  const condition = staticAbility.condition;
-  assert.deepEqual(condition, {
-    kind: "expression",
-    value: { kind: "constant", value: "self-is-buffed" }
+test("ogn-065-298 Wizened Elder: the condition is the 702.2.a buffed predicate", () => {
+  // 702.2.a: a unit is Buffed for as long as the buff remains on it. 702.3
+  // caps a unit at one Buff, so characteristics { buffs: 1 } is exact.
+  assert.deepEqual(staticAbility.effect.filter, {
+    type: "unit",
+    zone: "board",
+    characteristics: { buffs: 1 }
   });
+  // The printed +1 is a separate Might increase on top of the Buff's own +1
+  // (703), never a second Buff counter (702.3).
+  assert.equal("buffs" in staticAbility.effect, false);
 });
 
-test("ogn-065-298 Wizened Elder: the program does not model the +1 as a second Buff counter", () => {
-  // 702.3: there can only be one Buff on a Unit at a time; 703: each Buff
-  // contributes +1 Might. Adding a Buff would be both illegal and a different
-  // effect, so the program must not declare an effect.buff instruction.
-  // A static ability carries data for the layers consumer and never carries
-  // instructions, so assert that no instruction-shaped fields exist.
-  assert.equal(program.abilities.length, 1);
-  for (const ability of program.abilities) {
-    assert.equal(ability.kind, "static");
-    assert.equal(ability.effect.kind, "continuous.might");
-    assert.equal("op" in ability.effect, false);
-    assert.equal("args" in ability.effect, false);
-    assert.equal("body" in ability, false);
-    assert.equal("trigger" in ability, false);
-  }
-  // The condition is the named buffed predicate; it never asks the engine to
-  // place or spend a Buff counter.
-  assert.deepEqual(staticAbility.condition, {
-    kind: "expression",
-    value: { kind: "constant", value: "self-is-buffed" }
-  });
+test("ogn-065-298 Wizened Elder golden: a buffed unit really gets the additional +1 Might", () => {
+  const kernel = elderKernel({ buffs: 1 });
+  const outcome = runAbilityBody([grantInstruction], kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.deepEqual(outcome.results[0].result.linkedValues.affected.objects, [
+    { id: "wizened-elder", zoneEntryId: 1 }
+  ]);
+  assert.equal(kernel.continuousEffects.length, 1);
+  assert.equal(kernel.continuousEffects[0].effect.effect.kind, "continuous.might");
+  assert.equal(kernel.continuousEffects[0].effect.effect.amount, 1);
+
+  // 703/702.2.a: the Buff's own +1 is derived by the merged effect.buff
+  // counter rules in the wider engine; the layers arithmetic here shows the
+  // printed additional +1 on top of the printed Might 4.
+  const layers = createLayerEngine(kernel.objects, kernel.continuousEffects);
+  assert.equal(layers.evaluate(kernel.ref("wizened-elder")).might, 5);
+  assert.equal(layers.evaluate(kernel.ref("plain-ally")).might, 4);
+});
+
+test("ogn-065-298 Wizened Elder golden: without a Buff the +1 registers nothing (702.2.a)", () => {
+  const kernel = elderKernel({ buffs: 0 });
+  const outcome = runAbilityBody([grantInstruction], kernel);
+
+  assert.equal(outcome.results[0].result.status, "negated");
+  assert.equal(outcome.results[0].result.reason, "skipped");
+  assert.equal(kernel.continuousEffects.length, 0);
+  const layers = createLayerEngine(kernel.objects, kernel.continuousEffects);
+  assert.equal(layers.evaluate(kernel.ref("wizened-elder")).might, 4);
+});
+
+test("ogn-065-298 Wizened Elder golden: the predicate tracks Buff gain and spend (while, 364.3)", () => {
+  // The binder-shaped registration (per-object identity filter plus the merged
+  // characteristics predicate) re-evaluates on every layer pass, so the +1
+  // appears and disappears with the Buff.
+  const kernel = world().unit("wizened-elder", { might: 4, buffs: 1 }).build();
+  const registration = {
+    effect: {
+      id: "wizened-elder.live",
+      layer: "arithmetic",
+      source: kernel.ref("wizened-elder"),
+      filter: {
+        objectId: "wizened-elder",
+        zone: "board",
+        zoneEntryId: 1,
+        characteristics: { buffs: 1 }
+      },
+      effect: { kind: "continuous.might", amount: 1 }
+    },
+    duration: { type: "permanent" }
+  };
+  const layers = createLayerEngine(kernel.objects, [registration]);
+  assert.equal(layers.evaluate(kernel.ref("wizened-elder")).might, 5);
+
+  // Spending the Buff through the real primitive closes the gate (702.2.b).
+  const spend = runInstruction(
+    buff,
+    { mode: "spend", target: "wizened-elder" },
+    { world: kernel, targets: { "wizened-elder": [kernel.ref("wizened-elder")] } }
+  );
+  assert.equal(spend.result.status, "executed");
+  layers.setObjects(kernel.objects);
+  assert.equal(layers.evaluate(kernel.ref("wizened-elder")).might, 4);
+
+  // Buffing again re-opens it (702.2.a).
+  const grant = runInstruction(
+    buff,
+    { mode: "buff", target: "wizened-elder" },
+    { world: kernel, targets: { "wizened-elder": [kernel.ref("wizened-elder")] } }
+  );
+  assert.equal(grant.result.status, "executed");
+  layers.setObjects(kernel.objects);
+  assert.equal(layers.evaluate(kernel.ref("wizened-elder")).might, 5);
 });
 
 test.todo(
-  "ogn-065-298 Wizened Elder: the conditional +1 Might needs a merged layers consumer for " +
-    "continuous.might plus a card-program registration path (contract 3.6 has no " +
-    "might-modification GameAction; effect.buff only places/removes the Buff counter) — " +
-    "RIFT-91 layers-continuous"
-);
-
-test.todo(
-  "ogn-065-298 Wizened Elder: the 'while I'm buffed' predicate (702.2.a) has no merged " +
-    "evaluator: layers engine conditionMatches resolves only always/never/type/has-tag/" +
-    "has-keyword, and the object filter matcher has no buffed key"
-);
-
-test.todo(
-  "ogn-065-298 Wizened Elder: no merged code turns a card program's static ability into a " +
-    "registered continuous layer effect, so this aura is never evaluated in production"
+  "ogn-065-298 Wizened Elder: register this static aura through the card-program binding (RIFT-257) so " +
+    "the merged continuous.might instruction runs in production, merging the host identity filter with the " +
+    "702.2.a buffed predicate"
 );

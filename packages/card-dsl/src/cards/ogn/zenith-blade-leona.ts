@@ -29,20 +29,26 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * Status: judge-required — the optional Move half cannot be finalized:
  * - the nested instruction inside choice.optional carries the Move's target
- *   selection. The chain Finalize surface explicitly blocks nested targets
+ *   selection. The merged chain Finalize surface still blocks nested targets
  *   ("Nested/repeated targets require an interpreter target-selection lifecycle
- *   adapter", chain/README contract change request 2, merged with the RIFT-120
- *   batch-4 chain/event work). Hoisting the target out of the optional wrapper
- *   would contradict the frozen 3.9 shape for "may".
+ *   adapter", chain/README contract change request 2); the golden drives the
+ *   real ChainEngine with this card's own play body and asserts that block.
+ *   Hoisting the target out of the optional wrapper would contradict the frozen
+ *   3.9 shape for "may".
  * - the Move Destination is the stunned unit's battlefield, a runtime Location.
  *   The merged effect.move accepts it only through an Expr the primitive itself
  *   evaluates, so this program publishes it with condition.value and the
  *   interpreter adapter path resolves it (the golden test runs that Move).
- *   Finalize-time legality of that Location (355.4.a / 449.2 / 451.1) and the
- *   Move consequences (Contested 452, Move-triggered Showdown/Combat 453-454,
- *   Cleanup 455) remain with the Turn/Combat workstream.
+ *   Destination legality (355.4.a / 449.2 / 451.1) belongs to the Turn flow;
+ *   for committed effect Moves the merged TurnFlow/CombatFlow now produce the
+ *   Contested consequence (452 contested-applied) and stage the Showdown, but
+ *   combat start (466.2) and simultaneous combat damage (467.2.c.1.a / 467.3)
+ *   are still explicitly blocked in the Turn/Combat workstream.
  * - the Move is an effect Move, not the Standard Move ability (144, 451.1), so
  *   it neither exhausts nor pays for the friendly unit.
+ * - playing the card from hand also needs the card-program Play binding
+ *   (RIFT-257): chain/engine.ts requires a describePlay adapter for Play
+ *   actions.
  * The Stun half is merged and is executed by the golden test with a
  * Finalize-locked target, the same way the merged Rune Prison program does.
  */
@@ -55,11 +61,13 @@ const zenithBlade = {
     "按契约 3.9 的冻结形状，may 必须写成 choice.optional 并把被选指令包进 body，而该 Move 指令自带目标选择" +
     "（355.12：对若干对象执行游戏动作的许可，全部选择都视为目标并独立于“是否执行”决定）；" +
     "已合入的链 Finalize 面明确阻断嵌套目标——assertFinalizationSurface 抛 ChainContractBlockedError" +
-    "（chain/README 契约变更请求 2：缺解释器目标选择生命周期适配器，RIFT-120 批 4 合入）。" +
+    "（chain/README 契约变更请求 2：缺解释器目标选择生命周期适配器），golden 用真实 ChainEngine 执行本卡 play body 并断言该阻断。" +
     "把目标提升到可选包装之外会违反 3.9 的 may 形状，故不近似实现。" +
     "另：目的地是“被 Stun 单位的战场”，属运行时 Location（355.4.a / 449.2 / 451.1），" +
-    "IR 用 condition.value 发布该 Location 供 effect.move 求值，但 Finalize 期合法性与 Move 后果" +
-    "（452 Contested、453-454 Showdown/Combat、455 Cleanup）仍属 Turn/Combat 工作流。" +
+    "IR 用 condition.value 发布该 Location 供 effect.move 求值（golden 真实执行该 Move）；" +
+    "Move 后果中，已合入的 TurnFlow/CombatFlow 会为已提交的 effect Move 产生 Contested（452 contested-applied）并搭起 Showdown 阶段，" +
+    "但战斗开始（466.2）与同时战斗伤害（467.2.c.1.a / 467.3）在 Turn/Combat 工作流仍被显式阻断。" +
+    "从手牌打出还需要卡牌程序 Play 绑定（RIFT-257：chain/engine.ts 的 Play 动作要求 describePlay 适配器）。" +
     "Stun 半段只用已合入的 effect.stun（424.1/424.1.a.1），由 golden 真实执行。",
   sourceText:
     "[Action] (Play on your turn or in showdowns.)\n" +
@@ -146,4 +154,3 @@ const zenithBlade = {
 } satisfies CardProgram;
 
 export default zenithBlade;
-

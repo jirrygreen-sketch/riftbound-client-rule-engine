@@ -1,7 +1,7 @@
 import type { CardProgram } from "../../ir/index.js";
 
 /**
- * Yasuo, Windrider (ogn-205-298) — Unit, 5 energy + 1 Chaos power, Might 4。
+ * Yasuo, Windrider (ogn-205-298) — Unit, 5 energy + 1 Chaos power, Might 4.
  *
  * sourceText（packages/card-data/data/deck-catalog.json, ogn-205-298）：
  *   [Ganking] (I can move from battlefield to battlefield.)
@@ -20,8 +20,12 @@ import type { CardProgram } from "../../ir/index.js";
  *   读「本回合本单位被移动的次数」并要求等于 3（第三次）；
  * - body 用 effect.score 获得 1 点（470.2）。
  *
- * status = judge-required：Ganking 展开（continuous.movement）与 effect.score 原语都未接通，
- * 且第 N 次事件触发缺少可用的历史/批次语义。见 judgeReason。
+ * status = judge-required：effect.score 原语与 object-moved 历史都可执行（golden 真实执行），
+ * 阻断在：(1) 「第 N 次恰好触发一次」的触发形状——封闭 TriggerSpec 只在每次事件命中时求值
+ * condition，condition.history 计数到 3 的那一刻命中第三次移动与其后每一次移动，
+ * 没有「第 N 次事件恰好一次」的判定；(2) CardProgram 触发注册（RIFT-257）与
+ * object-moved 事件源「是本卡移动」的载荷都未接通；(3) Ganking 展开的 continuous.movement
+ * 许可只有 layers/rules/query.ts 读取，生产 Standard Move（zones/movement.ts）不消费。
  *
  * 数据备注（不在本任务改数据）：同一 canonicalCardId 的 SFD 印刷在本地 catalog 中不存在
  * （docs/plans/survey/unclassified-ogn.json 把 ogn-205-298 记为 data-issue：OGN 带 Ionia、
@@ -32,14 +36,15 @@ const yasuoWindrider = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺三件已合入依赖：(1)「you score 1 point」按 CR 470.2 是 Gaining Points，需要 effect.score 指令原语" +
-    "（effects/instructions/ 没有该文件；RIFT-9 原语清单列出的 score 尚无实现），不能拿战场 Scoring 流程代替；" +
-    "(2) [Ganking] 的展开虽已存在（effects/keywords/Ganking.ts 展开成 continuous.movement 静态效果），" +
-    "但移动系统还没有读取该许可的接口（810.1.c/144.4.c），因此关键词不可执行，依赖 RIFT-83 后续；" +
-    "(3)「The third time I move in a turn」是 CR 383.1.b 的第 N 次触发，需要按对象、按回合的移动历史" +
-    "（每次 Move 不同 event，458 Recall 不计入）；现有 Expr/Condition 只有集合 count 与 condition.history 计数，" +
-    "没有「第 N 次事件恰好触发一次」的触发形状。依赖：effect.score 原语、RIFT-83/EIFT-144.4.c 移动许可接通、" +
-    "以及第 N 次事件触发任务。不近似实现（不用每三次循环代替第三次）。",
+    "已合入并已用真实执行核验：「you score 1 point」按 CR 470.2 用 effect.score 原语执行（golden 里真实获得 1 点）；" +
+    "「本回合本单位被移动的次数」用 object-moved 的历史查询（action: move-location）计数，golden 里真实走完三次 effect.move 并读到 count = 3（458 Recall 不计入）。" +
+    "整卡仍不可执行：(1)「The third time I move in a turn」（383.1.b）需要「第 N 次事件恰好触发一次」的触发形状——" +
+    "封闭 TriggerSpec 在每次事件命中时求值 condition，condition.history 到 3 之后每次移动仍会满足，会重复计分；现有 Expr/Condition 没有该形状；" +
+    "(2) 没有已合入的消费方把 CardProgram 的 triggered ability 注册成 TriggerRegistration（卡牌程序绑定 RIFT-257 进行中），" +
+    "object-moved 事件源也缺「是本卡移动」的可判定载荷（events/action-adapter.ts 的 move-location 映射带 object，无来源区分）；" +
+    "(3) [Ganking] 的展开虽已存在（effects/keywords/Ganking.ts 展开成 continuous.movement 静态效果），但该许可只有 layers/rules/query.ts 的 movement() 查询读取，" +
+    "生产移动路径 zones/movement.ts 仍只读调用方传入的 readiness/hasGanking 记录（810.1.c/144.4.c）。" +
+    "依赖：第 N 次事件触发任务、RIFT-257（触发绑定）与移动许可的生产消费方。不近似实现（不用每三次循环代替第三次，也不用战场 Scoring 流程代替 Gaining Points）。",
   abilities: [
     { kind: "keyword", keyword: "ganking" },
     {
@@ -61,7 +66,7 @@ const yasuoWindrider = {
       optional: false,
       body: [
         {
-          // 「score 1 point」= 获得 1 点（470.2），待 effect.score 原语。
+          // 「score 1 point」= 获得 1 点（470.2）；effect.score 已合入并由 golden 真实执行。
           id: "yasuo-windrider.score-1",
           op: "effect.score",
           args: { amount: { kind: "constant", value: 1 } }
