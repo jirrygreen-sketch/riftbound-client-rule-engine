@@ -29,18 +29,23 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   → arithmetic）；“until you choose another gear with me” 是与该传奇的选择绑定的
  *   持续期，不是现有 Duration 里的 end-of-turn / end-of-combat / while-source-in-zone。
  *
- * status = judge-required（逐个缺口写出证据，不近似实现）：
- * 1. 触发能力没有可绑定的顶层 CostSpec；choice.optional 内的 cost.pay 不能替代
- *    Finalize 费用步骤。把 1 Energy 写成 effect.resources 会把费用变成结算效果。
- * 2. “It becomes a unit gear” 需要 trait 层的即时特征改写（拿到 unit 类型）与
- *    Might “设值”，并且要在图层内按 206 读取该装备印刷的 Energy 值。已合入的
- *    continuous.might 只做 Might 的 add/set，不携带 addTypes 这类 trait 改写
- *    （argsSchema 拒绝 addTypes: “Invalid continuous.might argument”）；Snapshot 类型
- *    改动需要单独的 trait 图层入口。
+ * status = judge-required（2026-10-17 复核，逐个缺口写出证据，不近似实现）：
+ * 1. 触发能力没有可绑定的顶层 CostSpec（383.3.b.1）：card-dsl 的 TriggeredAbility 只有 trigger/optional/body
+ *    三字段（src/ir/types.ts），没有费用槽位；383.3.b.1 要求该费用在 Finalize 支付，
+ *    而 choice.optional 内的 cost.pay 是结算期指令——实测它能支付 { payments: { energy: 1 } }
+ *    形状的描述符，但那发生在能力已经在链上之后，等于把 204.3 的费用降级成结算效果；
+ *    本卡声明的 { energy: 1 } 连描述符键都不合法（cost.pay 只接受 cost/power/payments/
+ *    nonstandardOrder/linkKey）。把 1 Energy 写成 effect.resources 同样会把费用变成结算效果。
+ * 2. “It becomes a unit gear” 需要 trait 层的即时特征改写（拿到 unit 类型）与 Might “设值”，
+ *    并要在图层内按 206 读取该装备印刷的 Energy 值。已合入的 continuous.might 只做 Might 的
+ *    add/set，argsSchema 拒绝 addTypes（实测 “Invalid continuous.might argument: addTypes”）；
+ *    layers/engine.ts 的 applyTrait 能处理 add-type，但没有把 continuous.might 的声明接到
+ *    trait 层的卡牌侧入口，Snapshot 类型改写需要单独的 trait 图层指令。
  * 3. 持续期 “until you choose another gear with me” 需要与来源绑定的“直到下一次选择”
  *    状态与到期清理：layers 的 Duration 只有 permanent / end-of-turn / end-of-combat /
- *    while-source-in-zone / until（某个时点），没有“再选一次”这种由后续选择触发的
- *    到期；同时要保留“用我选择”的来源关联（135.4.b / 801.3.a 的同类边界）。
+ *    while-source-in-zone / until（某个时点），isDurationAlias 直接拒绝该字符串
+ *    （实测 “continuous.might duration is not a known alias”），没有由后续选择触发的
+ *    到期模型；同时要保留“用我选择”的来源关联（135.4.b / 801.3.a 的同类边界）。
  * 当前缺口是触发能力费用的绑定、trait 层类型改写，以及由后续选择驱动的持续时间模型。
  * golden 真实执行已合入的部分：choice.optional 的拒绝分支（不支付、不改写）。
  */
@@ -118,14 +123,19 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "三处未合入依赖：(1) 「you may pay :rb_energy_1:」在 204.3 / 383.3.b 下是触发能力的基础费用，" +
-    "但触发能力没有可绑定的顶层 CostSpec，choice.optional 内的 cost.pay 不能替代 Finalize 费用步骤；" +
+    "但 card-dsl 的 TriggeredAbility 只有 trigger/optional/body 三个字段（src/ir/types.ts），没有费用槽位；" +
+    "383.3.b.1 要求在 Finalize 支付，而 choice.optional 内的 cost.pay 是结算期指令——它能支付 " +
+    "{ payments: { energy: 1 } } 形状的描述符，但那发生在能力已上链之后（等于把 204.3 的费用降级为结算效果），" +
+    "且本卡声明的 { energy: 1 } 连描述符键都不合法（cost.pay 只接受 cost/power/payments/nonstandardOrder/linkKey）；" +
     "把它写成结算时的 effect.resources 会把费用变成效果。" +
     "(2)「It becomes a unit gear with Might equal to its Energy cost」需要 trait 层的类型改写（拿到 unit 类型）与 Might 设值，" +
-    "并在图层内按 206 读取该装备印刷的 Energy 值；已合入的 continuous.might 只做 Might 的 add/set、不携带 addTypes（argsSchema 拒绝），" +
-    "卡牌静态效果到 trait/arithmetic 图层的完整绑定仍不成立。" +
+    "并在图层内按 206 读取该装备印刷的 Energy 值；已合入的 continuous.might 只做 Might 的 add/set、" +
+    "argsSchema 拒绝 addTypes（实测 “Invalid continuous.might argument: addTypes”），" +
+    "layers/engine.ts 的 applyTrait 虽有 add-type 分支但没有卡牌侧入口把它与 Might 设值绑成一次特征改写。" +
     "(3) 持续期「until you choose another gear with me」需要与来源绑定的“直到下一次选择”到期状态：layers 的 Duration 只有 " +
-    "permanent / end-of-turn / end-of-combat / while-source-in-zone / until（某个时点），没有由后续选择触发的到期模型" +
-    "（135.4.b / 801.3.a 的同类边界）。golden 真实执行的是 choice.optional 的拒绝分支（不支付、不改写）。不近似实现。",
+    "permanent / end-of-turn / end-of-combat / while-source-in-zone / until（某个时点），isDurationAlias 直接拒绝该字符串" +
+    "（实测 “continuous.might duration is not a known alias”），没有由后续选择触发的到期模型（135.4.b / 801.3.a 的同类边界）。" +
+    "golden 真实执行的是 choice.optional 的拒绝分支（不支付、不改写）。不近似实现。",
   abilities,
   sourceText:
     "At the start of your Main Phase, you may pay :rb_energy_1: to choose a friendly gear. " +

@@ -1,10 +1,10 @@
 // Golden test for Invigorating Bloom (rad-035-167).
 //
 // judge-required (see the program's judgeReason): the printed "Exhaust a
-// friendly [Mighty] unit" cost cannot be built from static IR (CostSpec choices
-// require exact ObjectRefs) and the filter vocabulary has no current-Might>=5
-// predicate for CR 710. The play trigger's +3 Might, the source-exhaust cost
-// and Draw 1 are merged and executed for real below.
+// friendly [Mighty] unit" cost cannot be built from static IR — cost/plan-values
+// choiceObjects still demands exact ObjectRefs, and the filter vocabulary has no
+// current-Might>=5 predicate for CR 710. The play trigger's +3 Might, the
+// source-exhaust cost and Draw 1 are merged and executed for real below.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -46,9 +46,14 @@ test("rad-035-167 Invigorating Bloom: identity, status, judgeReason and verbatim
   assert.equal(program.status, "judge-required");
   // README §2: name the remaining missing pieces precisely.
   assert.match(program.judgeReason, /355\.10\.c\.1/);
-  assert.match(program.judgeReason, /精确 ObjectRef|filter/);
+  assert.match(program.judgeReason, /精确 ObjectRef/);
+  assert.match(program.judgeReason, /RIFT-358/);
   assert.match(program.judgeReason, /710/);
   assert.match(program.judgeReason, /cardType Unit/);
+  // The old reason cited cost/plan-values.ts as a *filter* gap and claimed the
+  // keyword declaration alone was the missing piece; the merged binder rejects
+  // the exact-reference requirement instead.
+  assert.doesNotMatch(program.judgeReason, /RIFT-89|RIFT-91|RIFT-120|RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -88,6 +93,10 @@ test("rad-035-167 Invigorating Bloom: the activation cost is a Mighty unit plus 
   assert.equal(costUnitPayment.choice.zone, "board");
   assert.equal(costUnitPayment.choice.owner, "controller");
   assert.equal(costUnitPayment.choice.selection, "one");
+  // The merged cost planner still requires exact ObjectRefs in options, so the
+  // declared candidate list cannot become a payable plan (see the boundary test).
+  assert.deepEqual(costUnitPayment.choice.options, ["friendly-mighty-unit-on-board"]);
+  assert.equal(costUnitPayment.choice.filter, undefined);
   // CR 415.3.a / 415.5: :rb_exhaust: pays by exhausting the source.
   assert.deepEqual(costSelfPayment, { kind: "exhaust", object: "self" });
   assert.equal(activated.timing, "action");
@@ -166,10 +175,30 @@ test("rad-035-167 Invigorating Bloom: the self-exhaust half of the cost is reall
   assert.equal(context.getObject("bloom").exhausted, true);
 });
 
+test("rad-035-167 Invigorating Bloom boundary: the Mighty-unit cost half is not payable from static IR", () => {
+  // Preserve the real planner behaviour without asserting a source file name:
+  // the planner must reject the static placeholder option because it needs an
+  // exact ObjectRef whose identity is chosen at Finalize (355.10.c.1).
+  const kernel = world().unit("bloom", { might: 3 }).unit("mighty-unit", { might: 5 }).build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("bloom") });
+  assert.throws(
+    () => buildCostPlan(context, {
+      id: "bloom.activate",
+      cost: {
+        kind: "activated",
+        payments: [{ ...costUnitPayment, choice: { ...costUnitPayment.choice, options: ["friendly-mighty-unit-on-board"] } }]
+      }
+    }),
+    /exact object reference/i
+  );
+  assert.equal(context.getObject("mighty-unit").exhausted, false);
+});
+
 test.todo(
   "Invigorating Bloom: 'Exhaust a friendly [Mighty] unit' as a cost — blocked because CostSpec choices require exact " +
-    "ObjectRefs (cost/plan-values.ts choiceObjects) and the filter vocabulary has no current-Might>=5 predicate for " +
-    "CR 710; needs a filter-shaped object cost and a current-Might predicate in the cost selector"
+    "ObjectRefs (cost/plan-values.ts choiceObjects; RIFT-358 covers body picks only) and the filter vocabulary has no " +
+    "current-Might>=5 predicate for CR 710; needs a filter-shaped object cost and a current-Might predicate in the " +
+    "cost selector"
 );
 
 test.todo(

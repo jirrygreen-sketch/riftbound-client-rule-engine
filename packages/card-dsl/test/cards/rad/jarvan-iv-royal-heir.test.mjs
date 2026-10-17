@@ -5,6 +5,14 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/jarvan-iv-royal-heir.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
 import Assault from "../../../../engine-core/dist/effects/keywords/Assault.js";
+import Tank from "../../../../engine-core/dist/effects/keywords/Tank.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -21,6 +29,10 @@ test("rad-133-167 Jarvan IV, Royal Heir: program validates and has expected iden
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Tank/);
+  assert.match(program.judgeReason, /designation/);
+  assert.match(program.judgeReason, /combatRole/);
+  assert.match(program.judgeReason, /continuous\.combat/);
+  assert.doesNotMatch(program.judgeReason, /KeywordDef 仍只是声明/);
   assert.equal(
     program.sourceText,
     "[Assault] (+1 :rb_might: while I'm attacking.)\n" +
@@ -155,7 +167,97 @@ test("rad-133-167 Jarvan IV, Royal Heir: [Assault] 展开本体属于关键词�
   );
 });
 
-test.todo(
-  "rad-133-167 Jarvan IV, Royal Heir: [Tank] requires the combat damage assignment consumer " +
-    "for CR 815.1.b/c; the KeywordDef and card declaration alone do not enforce lethal-first ordering"
-);
+test("rad-133-167 Jarvan IV, Royal Heir boundary: [Assault]'s designation condition cannot evaluate", () => {
+  // 807.1.c: Assault is "While I am an attacker, I have +X [M]". The merged
+  // expansion asks for a `designation` object property, while the merged
+  // ObjectSnapshot exposes `combatRole`; the missing characteristic fails
+  // closed, so the +1 is inert even for a real attacker. This preserves the
+  // runtime evidence for the judgeReason's Assault half.
+  const expansion = Assault.expand({ host: { canonicalCardId: CANONICAL } });
+  assert.deepEqual(expansion[0].condition.left, {
+    kind: "object-property",
+    object: "self",
+    property: "designation"
+  });
+  const kernel = world().unit("jarvan", { might: 7, combatRole: "attacker" }).build();
+  const environment = {
+    context: bindResolveContext(kernel, { source: kernel.getObject("jarvan") }),
+    host: kernel.ref("jarvan"),
+    linked: () => undefined,
+    canLookBack: () => true,
+    isIgnored: () => false
+  };
+  assert.throws(() => evaluateCondition(expansion[0].condition, environment), /Unavailable characteristic: designation/);
+  // The characteristic the contract does provide evaluates true for the same unit.
+  assert.equal(
+    evaluateCondition(
+      { ...expansion[0].condition, left: { kind: "object-property", object: "self", property: "combatRole" } },
+      environment
+    ),
+    true
+  );
+});
+
+test("rad-133-167 Jarvan IV, Royal Heir boundary: [Assault] binding leaves the printed Might unchanged", () => {
+  // The production static binder catches the missing characteristic and binds
+  // the effect as inert, so an attacker keeps its printed Might (no invented +1).
+  const kernel = world().unit("jarvan", { might: 7, combatRole: "attacker" }).build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => { throw new Error(`unexpected choice ${request.id}`); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  createEngineStaticBinder(engine).bindStatic(Assault.expand({ host: { canonicalCardId: CANONICAL } })[0], kernel.getObject("jarvan"));
+  engine.layers.setObjects(kernel.objects);
+  assert.equal(engine.layers.evaluate(kernel.ref("jarvan")).might, 7);
+});
+
+test("rad-133-167 Jarvan IV, Royal Heir boundary: [Tank] binds but has no damage-assignment consumer", () => {
+  // 815.1.b/c: Tank must force lethal damage first. The merged KeywordDef
+  // expands to a continuous.combat declaration, but binding it changes nothing
+  // observable on the layered snapshot, and no combat allocation path reads it.
+  const expansion = Tank.expand({ host: { canonicalCardId: CANONICAL } });
+  assert.equal(expansion.length, 1);
+  assert.equal(expansion[0].effect.kind, "continuous.combat");
+  assert.equal(expansion[0].effect.mode, "damage-assignment");
+
+  const kernel = world().unit("jarvan", { might: 7 }).unit("other", { might: 1 }).build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => { throw new Error(`unexpected choice ${request.id}`); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  createEngineStaticBinder(engine).bindStatic(expansion[0], kernel.getObject("jarvan"));
+  engine.layers.setObjects(kernel.objects);
+  const layered = engine.layers.evaluate(kernel.ref("jarvan"));
+  assert.equal(layered.might, 7);
+  assert.deepEqual(layered.keywords, []);
+  assert.equal(kernel.getObject("other").might, 1);
+});
+
+test("rad-133-167 Jarvan IV, Royal Heir boundary: the attack trigger registers and matches only its own attacker", () => {
+  // 383.4.e / 323.2: the attack trigger compiles through the merged adapter and
+  // matches the source object's attack-declared event, not another unit's.
+  const kernel = world()
+    .object("jarvan", { cardId: CANONICAL, types: ["unit"], might: 7 })
+    .unit("other", { might: 2 })
+    .build();
+  const registration = triggerRegistrations(
+    new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]),
+    kernel.getObject("jarvan")
+  )[0];
+  assert.equal(registration.spec.at, "attack-declared");
+  assert.deepEqual(registration.spec.filter, { object: { objectId: "jarvan" }, event: "attack-declared" });
+  const ownAttack = { timingPoint: "attack-declared", kind: "attack-declared", player: "A", object: kernel.getObject("jarvan") };
+  assert.equal(matchesTriggerEvent(registration.spec.filter, ownAttack, "A"), true);
+  const otherAttack = { ...ownAttack, object: kernel.getObject("other") };
+  assert.equal(matchesTriggerEvent(registration.spec.filter, otherAttack, "A"), false);
+});

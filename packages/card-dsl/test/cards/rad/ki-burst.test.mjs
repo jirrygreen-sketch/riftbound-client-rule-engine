@@ -6,6 +6,8 @@ import program from "../../../dist/cards/rad/ki-burst.js";
 const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
 const { default: stun } = await import(new URL("effects/instructions/effect.stun.js", engineCore));
 const { runInstruction, world } = await import(new URL("effects/testing/index.js", engineCore));
+const { translateCost } = await import(new URL("programs/play.js", engineCore));
+const { buildCostPlan } = await import(new URL("cost/cost-plan.js", engineCore));
 
 const CANONICAL = "card.hash-9b0c4b851a4af3d330a6b22579433d60ad39e8bb85ccc33f1b28ab2189ce2062";
 const [keyword, play] = program.abilities;
@@ -28,7 +30,11 @@ test("rad-028-167 Ki Burst: judge-required naming the missing additional-cost pa
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /356\.2/);
   assert.match(program.judgeReason, /mandatoryAdditional/);
-  assert.match(program.judgeReason, /mandatoryAdditional/);
+  // The current gap is the card-facing producer, not the plan type. programs/
+  // play.ts rejects additional kinds and folds this clause into the base cost.
+  assert.match(program.judgeReason, /translateCost/);
+  assert.match(program.judgeReason, /RIFT-358/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-89|RIFT-91|RIFT-257|RIFT-261/);
 });
 
 test("rad-028-167 Ki Burst: [Action] plus a mandatory exhaust cost and a one-unit stun", () => {
@@ -118,9 +124,39 @@ test("rad-028-167 Ki Burst boundary: a target that left the Board ignores the in
   assert.equal(run.result.reason, "mistargeted");
 });
 
+test("rad-028-167 Ki Burst boundary: the additional exhaust is folded into the base cost today", () => {
+  // CR 356.2.a.1 makes this a Mandatory Additional Cost, but the merged card
+  // adapter has no additional-cost entry point: it accepts printed/activated/
+  // explicit only and rejects an `additional` marker outright, so the clause
+  // becomes part of the base cost input instead of mandatoryAdditional.
+  assert.throws(
+    () => translateCost({ ...play.cost, kind: "cost.additional" }, "ki-burst.cost", "play"),
+    /Additional costs are not bound/
+  );
+  assert.throws(
+    () => translateCost({ ...play.cost, additional: { kind: "constant", value: 1 } }, "ki-burst.cost", "play"),
+    /Unsupported play cost field additional/
+  );
+  const translated = translateCost(play.cost, "ki-burst.cost", "play");
+  assert.equal(translated.kind, "explicit");
+  assert.equal(translated.energy.value, 1);
+  assert.equal(translated.payments[0].kind, "exhaust");
+
+  // The exhaust pick is still selection-shaped: cost/plan-values.ts only accepts
+  // exact ObjectRefs, so the declared option name cannot build a plan (RIFT-358
+  // owns the filter/ordered pick shape and is still unmerged).
+  const kernel = world().player("A", { energy: 3 }).unit("caster", { types: ["spell"], energy: 1 }).unit("ready-friendly", { might: 2 }).build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("caster") });
+  assert.throws(
+    () => buildCostPlan(context, { id: "ki-burst.plan", cost: translated, domains: ["Calm"] }),
+    /exact object reference/i
+  );
+  assert.equal(context.getObject("ready-friendly").exhausted, false);
+});
+
 test.todo(
   "rad-028-167 Ki Burst: CR 356.2 charges 'As an additional cost to play this, exhaust a " +
-    "friendly unit' during the Finalize cost plan; no merged adapter turns a card program's " +
-    "additional-cost clause into CostPlanInput.mandatoryAdditional (chain Finalize only supplies " +
-    "{ kind: 'printed' })"
+    "friendly unit' as a Mandatory Additional Cost during the Finalize cost plan; programs/play.ts " +
+    "still folds the clause into the base cost and rejects additional markers, so no card-facing " +
+    "producer fills CostPlanInput.mandatoryAdditional"
 );
