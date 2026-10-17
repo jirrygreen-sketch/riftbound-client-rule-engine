@@ -30,21 +30,19 @@ import type { CardProgram } from "../../ir/index.js";
  * optional, discards the chosen card, and channels one rune). The conquer
  * timing point is now really emitted: TurnFlow's Score wave publishes
  * { timingPoint: "conquer", player, details: { battlefieldId } }
- * (src/turn/flow.ts, RIFT-124/RIFT-76; producers audit marks conquer as 已有).
- * The remaining blockers are trigger-side only:
- * 1. no merged subscriber turns a CardProgram's triggered ability into a
- *    TriggerRegistration (src/programs/ is RIFT-257, unmerged), so the emitted
- *    event never reaches this ability; 190.6's controller resolution for a
- *    Battlefield ability is missing with it;
- * 2. the printed 053.3 "here" restriction has no evaluable spelling: the
+ * (src/turn/flow.ts, Score trigger wave; the conquered event spelling maps onto
+ * it). The CardProgram → TriggerRegistration path is merged: src/programs/
+ * triggers.ts binds it (see the binding test). The remaining blockers are
+ * trigger-side only:
+ * 1. the printed 053.3 "here" restriction has no evaluable spelling: the
  *    engine's EventPattern/ObjectFilter vocabulary has no host-relative
  *    anchor, and the emission only carries details.battlefieldId, which cannot
  *    be compared against this Battlefield's own identity from static IR.
+ * 2. the Battlefield ability's Controller still needs the 190.6 resolution.
  * Nothing about the effect is approximated: the discard is not rewritten as a
  * cost, and "exhausted" is passed through to the channel-rune action (the
  * reference kernel records the action; its rune entry state is not modelled,
  * which the golden test states explicitly).
- * Dependency: RIFT-257 (CardProgram → TriggerRegistration binding).
  */
 export default {
   canonicalCardId: "card.hash-71ba0d1fe11d64b565b797f33a69b572a821f2e6f56b0643eae299ca2c9a9d5d",
@@ -53,13 +51,12 @@ export default {
   judgeReason:
     "指令体完全用已合入原语表达并由 golden 真实执行（choice.optional 通过后 effect.discard 数量 1 → effect.channel 数量 1、exhausted=true；拒绝时两者都不发生），" +
     "conquer 时点也已由 TurnFlow 的 Score 波真实发出（src/turn/flow.ts，player + details.battlefieldId），" +
-    "阻断只在触发侧：① 没有已合入订阅方把 CardProgram 的 triggered ability 注册成 TriggerRegistration" +
-    "（src/programs/ 属 RIFT-257，未合入），190.6 的战场能力控制者解析缺失；" +
-    "② 印刷的 053.3 「here」没有可求值拼写——引擎的 EventPattern/ObjectFilter 词表没有宿主相对锚点，" +
+    "阻断只在触发侧：① 印刷的 053.3 「here」没有可求值拼写——引擎的 EventPattern/ObjectFilter 词表没有宿主相对锚点，" +
     "而事件只带 details.battlefieldId，静态 IR 无法把它与本战场自身身份比较（filter 因此只声明事件与征服者）。" +
+    "② 190.6 的战场能力控制者解析仍缺失；CardProgram → TriggerRegistration 的绑定已合入并由绑定测试验证。" +
     "另注：契约 3.9 要求「you may A and B」写成一个 choice.optional 包住两条指令（本文件如此实现），不使用 choice + linkedTo；" +
     "参考测试内核不模拟符文入场状态（exhausted 仅作为动作参数传递），该部分在执行测试中标为 todo。" +
-    "依赖：RIFT-257。不近似实现。",
+    "不近似实现。",
   sourceText: "When you conquer here, you may discard 1 and channel 1 rune exhausted.",
   abilities: [
     {
@@ -71,7 +68,7 @@ export default {
         // EVENT_PATTERN_TYPES), which pipeline-match maps to the conquer timing point.
         // The printed 053.3 "here" restriction has no host-relative anchor in that
         // vocabulary, so it is not written as an unevaluable placeholder; see
-        // judgeReason point 2.
+        // judgeReason point 1.
         filter: { event: "conquered", player: "self" }
       },
       // The printed "you may …" is recorded on the ability and realised by the

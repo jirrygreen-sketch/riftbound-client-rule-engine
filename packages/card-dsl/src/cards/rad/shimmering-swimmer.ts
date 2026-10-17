@@ -17,10 +17,12 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （356.2.b.1 的费用承诺；Contract 3.9 用条件包住指令而不是改写成 choice）；
  * - "deal 2 to a unit"：TargetSpec 单个单位、effect.damage 固定 2（418.1.c）。
 
- * status: judge-required（不近似实现），按 RIFT-258/259/260/261 批次复核：
- * - 可选附加费用的收取路径仍在进行：buildCostPlan 支持 optionalAdditional
- *   （cost/cost-plan.ts）且 cost.kinds 有 additional/sacrifice 包装，但 cost.kinds/README.md
- *   记明「Finalize 消费 CostPlan 的接线仍归协调者」，本 HEAD 未合入；
+ * status: judge-required（不近似实现），按合入后的费用计划与 src/programs/play.ts 复核：
+ * - 可选附加费用的收取路径缺打出侧翻译桥：buildCostPlan 支持 optionalAdditional
+ *   （cost/cost-plan.ts）、cost.kinds 有 additional 包装且 chain/engine.ts 的 finalize
+ *   已调用 buildCostPlan/payCostPlan，但 programs/play.ts 的 translateCost 对
+ *   kind:"additional" fail-closed（"Additional costs are not bound"），CardProgram 的
+ *   附加费用仍无法进入打出费用计划；
  * - “if you paid the additional cost” 的结果条件在调研里记为 condition.result（模板表 46 行），
  *   但合并 Condition 只有 always/never/compare/all/any/not/expression，既没有 paid/费用结果
  *   谓词，也没有把费用收据写进链接值的原语；程序用一个 fail-closed 的占位 subject 记录该
@@ -28,7 +30,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * 已合入部分的执行证据：effect.kill（kill 费用）与 effect.damage 在 golden 测试里用真实
  * 解释器执行；条件与费用计划写成 test.todo。
- * 依赖：RIFT-261（费用种类与 cost.pay/cost.modify 的 Finalize 接线）、RIFT-257（打出流程绑定）。
+ * 依赖：programs/play.ts 的附加费用翻译桥（把 CostSpec 的 kind:"additional" 翻译成
+ * CostPlanInput.optionalAdditional）。
  */
 const abilities: Ability[] = [
   {
@@ -68,9 +71,9 @@ const abilities: Ability[] = [
         ],
         condition: {
           kind: "compare",
-          // “if you paid the additional cost”：356.2.b 的费用承诺。当前 Condition 无
+          // "if you paid the additional cost"：356.2.b 的费用承诺。当前 Condition 无
           // paid/费用结果谓词，只能用审查用占位 subject；过滤器带不存在的 zone，
-          // 使条件在凭证管线（RIFT-89/90）落地前 fail-closed（默认“未支付 → 不结算伤害”）。
+          // 使条件在凭证管线落地前 fail-closed（默认“未支付 → 不结算伤害”）。
           left: {
             kind: "count",
             subject: "additional-cost-paid",
@@ -89,13 +92,14 @@ const program = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两个缺口，均不近似实现：(1) 费用计划与 Finalize 的接线仍在进行——buildCostPlan 支持 optionalAdditional、" +
-    "cost/payment.ts 支持 kill 付款，但 cost/kinds/README.md 记明 Finalize 消费 CostPlan 的接线属协调者，" +
-    "本 HEAD 未合入（RIFT-261）。(2) “if you paid the additional cost” 无可用条件谓词：合并 Condition 只有" +
+    "两个缺口，均不近似实现：(1) 可选附加费用的打出翻译桥缺失——buildCostPlan 支持 optionalAdditional、" +
+    "cost/payment.ts 支持 kill 付款、chain/engine.ts finalize 已调用 buildCostPlan/payCostPlan，" +
+    "但 programs/play.ts 的 translateCost 对 kind:\"additional\" fail-closed（\"Additional costs are not bound\"）。" +
+    "(2) “if you paid the additional cost” 无可用条件谓词：合并 Condition 只有" +
     "always/never/compare/all/any/not/expression，没有 paid/费用结果谓词，也没有把费用收据写进链接值的原语，" +
     "程序用一个 fail-closed 的占位 subject（不存在的 zone）记录该判别式，绝不把未支付默认成支付。" +
     "已在 play.cost 声明 kill 附加费用、用非目标 pick（355.10.c）与 effect.damage（418.1.c）写出可审查形状；" +
-    "effect.kill 与 effect.damage 两段由 golden 真实执行。依赖：RIFT-261、RIFT-257。",
+    "effect.kill 与 effect.damage 两段由 golden 真实执行。不近似实现。",
   abilities,
   sourceText:
     "You may kill a friendly unit or gear as an additional cost to play me.\n" +

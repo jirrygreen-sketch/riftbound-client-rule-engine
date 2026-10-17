@@ -12,6 +12,8 @@ import program from "../../../dist/cards/rad/sanctum-conservator.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
 
 const CANONICAL =
   "card.hash-6028fb37be26fd7565a2496f62a0ae6299311f364579011da70ce8cdbb0ddd08";
@@ -35,7 +37,7 @@ test("rad-030-167 Sanctum Conservator: identity, status, judgeReason and verbati
   assert.match(program.judgeReason, /206\/206\.1/);
   assert.match(program.judgeReason, /ObjectSelector/);
   assert.match(program.judgeReason, /触发过滤词汇/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /fail-closed/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -101,7 +103,24 @@ test.todo(
     "intended field name (playedCardEnergyCostAtLeast) instead of approximating the check on the source"
 );
 
-test.todo(
-  "Sanctum Conservator: registering the card-played trigger from the card program — shared wiring owned by the coordinator " +
-    "(card program → TriggerRegistration adapter, RIFT-257)"
-);
+test("rad-030-167 Sanctum Conservator: the trigger translator fail-closes on the unknown printed-cost key", () => {
+  // The shipped program stays judge-required. The merged src/programs binding
+  // accepts the trigger at the registry level but cannot translate its filter:
+  // playedCardEnergyCostAtLeast (CR 206/206.1) is not in the trigger-spec
+  // ObjectFilter vocabulary, so registering it throws instead of silently
+  // registering a trigger that would fire on every play.
+  const executable = { ...program, status: "executable" };
+  delete executable.judgeReason;
+  const binding = createProgramBinding({ cardPrograms: [executable] });
+  const kernel = world()
+    .card("conservator", { cardId: CANONICAL, types: ["unit"], energy: 2, power: [], zone: "hand" })
+    .build();
+
+  // Control evidence: the binding inspects the program without throwing, so
+  // the failure below comes from the printed-cost filter key alone.
+  binding.inspect({ cardId: CANONICAL, keywords: [] });
+  assert.throws(
+    () => triggerRegistrations(binding.registry, kernel.getObject("conservator")),
+    (error) => error.code === "judge-required"
+  );
+});
