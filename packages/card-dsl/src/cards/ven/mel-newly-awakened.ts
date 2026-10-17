@@ -33,12 +33,12 @@ import type { Ability, CardProgram, Condition } from "../../ir/index.js";
  *    展开（已合入的关键词批次不含它们）；
  * 2. “Your spells and abilities can't be countered” 是静态禁止（continuous.restrict
  *    族）：封闭 GameAction 集合没有“禁止 Counter”动作，卡牌程序也没有注册进
- *    layers / chain 的入口（chain 的 canAct / Counter 校验只读取已合入的语义注册表）；
+ *    chain 的 Counter 校验尚未消费该 restriction；
  * 3. “would give -:rb_might: … an additional -1 :rb_might:” 需要“修正正在发生的
  *    Might 减量”的持续效果消费方：契约 3.6 的封闭 GameAction 集合没有 Might 修改
- *    动作，effects/instructions/ 下也没有 continuous.might / 数值修正原语。
- * 依赖新的 Empower/Empowered 关键词任务、RIFT-87（条件/谓词）、RIFT-89（chain 校验
- * 接线）与 RIFT-91（layers 接线）。“When you play me, draw 1” 半段用已合入的
+ *    动作，也没有卡侧消费正在发生的 Might 减量的数值修正原语。
+ * 依赖新的 Empower/Empowered 关键词任务、Counter restriction 消费方、以及 Might 减量修正
+ * 消费方。“When you play me, draw 1” 半段用已合入的
  * effect.draw 真实执行（golden）。
  */
 
@@ -104,11 +104,11 @@ export default {
     "三处缺口：(1) keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef：827.1.c.1 的" +
     "「3 Energy：Empower me，仅当未 Empowered 时启动」与 828.1.b.1 的依赖能力都无展开实现（已合入的关键词" +
     "批次不含它们，需要新的关键词任务）；(2) 「Your spells and abilities can't be countered」是 426.1/426.2" +
-    " 的静态禁止（continuous.restrict 族）：封闭 GameAction 集合没有“禁止 Counter”动作，卡牌程序也没有" +
-    "注册进 layers / chain 的入口（chain 的 Counter 校验只读取已合入的语义注册表），依赖 RIFT-89 的校验接线；" +
+    " 的静态禁止（continuous.restrict 族）：虽然原语已合入，但 Counter 校验尚未消费该 restriction，" +
+    "卡牌程序也没有可执行的 Counter 禁止接线；" +
     "(3) 「would give -:rb_might: … gives an additional -1 :rb_might:」需要对正在发生的 Might 减量做叠加修正，" +
-    "契约 3.6 的封闭 GameAction 集合没有 Might 修改动作、effects/instructions/ 下也没有 continuous.might 原语，" +
-    "依赖 RIFT-91（layers 接线）与 442.1.a/828.1.c 的 Empowered 谓词。" +
+    "契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，也没有卡侧消费正在发生的 Might 减量的原语，" +
+    "并依赖 442.1.a/828.1.c 的 Empowered 谓词。" +
     "“When you play me, draw 1” 半段用已合入的 effect.draw 真实执行；不近似实现（不把禁止写成假校验、" +
     "不把 -1 :rb_might: 叠加写成 effect.buff）。",
   abilities,

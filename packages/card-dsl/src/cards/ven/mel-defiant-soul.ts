@@ -22,18 +22,19 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 428.1 / 428.2 / 428.5：“banish” 把该单位从其区域放入其拥有者的 Banishment，不是 Kill
  *   （428.2.a）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required，四处缺口均不近似实现：
+ * status 判定（cards/README.md 第 2 节）：judge-required，三处缺口均不近似实现：
  * 1. keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef（RIFT-81~88 批次不含
  *    它们），827.1.c.1 的启动费用与 827.1.c.2 的 “Discard a spell” 非资源费用无法展开；
  *    cost/plan-values.ts 的非标准费用也只支持 exhaust/discard/recycle/kill/reveal/spend-buff，
- *    费用种类与卡牌 → 费用计划的接线都属 RIFT-89（见回复里的契约变更请求：KeywordAbility
- *    没有承载印刷费用的 params 字段）。
+ *    费用种类与 Empower 关键词到费用计划的接线仍缺；KeywordAbility 只声明关键词身份，
+ *    不在本卡重复伪造另一条启动能力。
  * 2. 442.1.a 的 Empowered 二元状态不在 ObjectSnapshot / Condition 里，empowered-changed 的载荷
- *    也没有增加方向过滤的消费方（同 souls-reflection/covert-informant，RIFT-87）。
+ *    也没有增加方向过滤的消费方（同 souls-reflection/covert-informant，RIFT-87）；这同时阻断
+ *    “when I become Empowered”的依赖能力门控。
  * 3. “with 3 :rb_might: or less” 是单位当前 Might 的数值上限（143.2.a 的有效 Might）：冻结的
  *    ObjectFilter 没有 Might 谓词，已合入过滤器（layers/filter.ts、参考内核）也不读这类键——
  *    把它当已实现会让本卡放逐任意敌方单位（同 sfd/sandshifter、unl/conscription）。
- * 4. 触发注册与 “when I become Empowered” 的依赖能力门控都还没有生产接线（契约 3.5，RIFT-120）。
+ *    触发翻译和注册适配器本身已合入。
  * 已支持部分：effect.banish 本体（把锁定的敌方单位放入其拥有者的 Banishment）在 golden 中
  * 真实执行，含 Might 上限未被求值时的 fail-open 证据与目标失效边界。
  */
@@ -95,14 +96,13 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处缺口，均不近似实现：(1) keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef，" +
-    "827.1.c.1 的启动费用与 827.1.c.2 的「Discard a spell」非资源费用无法展开，cost/plan-values.ts 的支付种类与" +
-    "卡牌 → 费用计划接线都属 RIFT-89（附带契约变更请求：契约 3.1 的 KeywordAbility 没有承载印刷费用的 params 字段）；" +
+    "三处缺口，均不近似实现：(1) keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef，" +
+    "827.1.c.1 的启动费用与 827.1.c.2 的「Discard a spell」非资源费用无法展开，当前仍缺 Empower " +
+    "关键词到费用计划的接线与可支付的 spell 弃牌费用（契约 3.1 的 KeywordAbility 只承载关键词身份）；" +
     "(2) 442.1.a 的 Empowered 二元状态不在 ObjectSnapshot / Condition 里，empowered-changed 载荷也没有增加方向过滤的" +
-    "消费方（RIFT-87）；(3)「with 3 :rb_might: or less」是 143.2.a 的当前 Might 上限，冻结 ObjectFilter 没有 Might 谓词、" +
+    "消费方（这同时阻断依赖能力门控）；(3)「with 3 :rb_might: or less」是 143.2.a 的当前 Might 上限，冻结 ObjectFilter 没有 Might 谓词、" +
     "已合入过滤器也不读该键（写成过滤器会让本卡放逐任意敌方单位）；" +
-    "(4) 触发注册与「when I become [Empowered]」的依赖能力门控没有生产接线（契约 3.5，RIFT-120）。" +
-    "已支持部分：effect.banish 本体在 golden 中按锁定目标真实执行。",
+    "触发注册适配器已合入。已支持部分：effect.banish 本体在 golden 中按锁定目标真实执行。",
   abilities,
   sourceText:
     "[Empower] — Discard a spell (Pay the cost: Empower me. Use only if not Empowered.)\n" +

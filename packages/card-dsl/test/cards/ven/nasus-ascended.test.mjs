@@ -35,9 +35,8 @@ test("nasus-ascended: judgeReason names the missing keyword expansions and layer
   assert.match(program.judgeReason, /827\.1\.c\.1/);
   assert.match(program.judgeReason, /828\.1\.c/);
   assert.match(program.judgeReason, /Deflect/);
-  assert.match(program.judgeReason, /RIFT-84/);
   assert.match(program.judgeReason, /target\.tax/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-360/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -48,9 +47,9 @@ test("nasus-ascended: Deflect 2 and Empower 8 are declared as keywords, not expa
 });
 
 test("nasus-ascended: the merged keyword binding expands the declared [Deflect 2]", () => {
-  // RIFT-84's Deflect KeywordDef is merged and sums its printed value into one
-  // static target.tax ability (809.1.b.2/809.2); RIFT-257's expandProgram resolves
-  // the card's declaration through the generated keyword registry.
+  // The merged Deflect KeywordDef sums its printed value into one static
+  // target.tax ability (809.1.b.2/809.2); expandProgram resolves the card's
+  // declaration through the generated keyword registry.
   assert.equal(keywordDefinitionsById.get("Deflect"), deflect);
   // 快照不带印刷关键词：只让 CardProgram 的声明参与展开，避免同一 [Deflect 2]
   // 被 declared + printed 各算一次（807.2/809.2 的求和针对真实实例）。
@@ -72,9 +71,9 @@ test("nasus-ascended: the Empowered dependent ability is a self-scoped conquer t
   const ability = program.abilities[2];
   assert.equal(ability.kind, "triggered");
   assert.equal(ability.optional, false);
-  assert.equal(ability.trigger.at, "conquer");
+  assert.equal(ability.trigger.at, "conquered");
   assert.deepEqual(ability.trigger.filter, {
-    event: "conquer",
+    event: "conquered",
     filter: { source: "self" }
   });
   assert.equal(ability.trigger.condition, undefined);
@@ -121,11 +120,11 @@ test("nasus-ascended: the same body does not score for a non-controller", () => 
 test.todo(
   "nasus-ascended: [Deflect 2]'s merged target.tax expansion needs the card-side static binding " +
     "into the TargetPlan tax adapter so an opposing spell that chooses this unit appends 2 Power of " +
-    "any Domain (809.1.c/809.1.c.1/809.1.d; RIFT-257 static binder + RIFT-90 tax adapter)"
+    "any Domain (809.1.c/809.1.c.1/809.1.d; RIFT-360)"
 );
 test.todo(
   "nasus-ascended: [Empower] 8 activation (827.1.c.1 cost.activated + effect.empower, " +
     "'play only if not Empowered' 827.1.c.5) and the Empowered-state gate on the dependent " +
-    "ability (828.1.c) need the Empower/Empowered KeywordDefs (RIFT-264 batch has none) plus the " +
-    "Empowered predicate in Condition/ObjectSnapshot (RIFT-87)"
+    "ability (828.1.c) need the Empower/Empowered KeywordDefs plus the " +
+    "Empowered predicate in Condition/ObjectSnapshot"
 );

@@ -51,7 +51,7 @@ export default {
     "引用”也依赖同一接线。Play Effect 半段（383.4.a 的 card-played 触发）与“deal damage equal to the damage " +
     "marked on it”（418.1.b/418.1.e + object-property 读取目标 damage）只用已合入原语，golden 用真实解释器" +
     "执行并覆盖 0 伤害边界。依赖：Finalize 位置选择的持续效果消费方与 chain canAct 的时机许可消费方" +
-    "（RIFT-89/RIFT-90/RIFT-91 批次）。不近似实现。",
+    "（位置选择与时机许可的当前引擎消费缺口）。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "ambush" },
     {

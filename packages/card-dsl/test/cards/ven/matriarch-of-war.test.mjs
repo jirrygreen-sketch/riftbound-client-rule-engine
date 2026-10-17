@@ -5,11 +5,9 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ven/matriarch-of-war.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
-import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
-import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 
 const CANONICAL_ID =
   "card.hash-bf30c710a85c78a9c386b4d6c5d52a3aa4ff1d9d0eba7b82b1ba9ef0917f2b94";
@@ -30,7 +28,6 @@ test("ven-153-166 Matriarch of War: validateCardProgram passes and identity is v
   assert.match(program.judgeReason, /empowered-changed/);
   assert.match(program.judgeReason, /disempower/);
   assert.match(program.judgeReason, /rainbow/);
-  assert.match(program.judgeReason, /RIFT-261/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -53,9 +50,9 @@ test("ven-153-166: the empower-something-else trigger mirrors the Soul's Reflect
 test("ven-153-166: Disempower + [A] + Exhaust cost and 'Ready a unit'", () => {
   assert.equal(activated.kind, "activated");
   assert.equal(activated.timing, "action");
-  // 135.2.e.5.a / 163.2.b: :rb_rune_rainbow: is Power of any Domain ([A]); the
-  // closed six-domain union has no value for it, so "rainbow" stays descriptive.
-  assert.deepEqual(activated.cost.power, { kind: "constant", value: ["rainbow"] });
+  // 135.2.e.5.a / 163.2.b: :rb_rune_rainbow: is Power of any Domain ([A]);
+  // the six closed domains express the payable union.
+  assert.deepEqual(activated.cost.power, { kind: "constant", value: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"] });
   assert.deepEqual(activated.cost.payments, [
     { kind: "disempower", object: "self" },
     { kind: "exhaust", object: "self" }
@@ -101,42 +98,34 @@ test("ven-153-166 golden: 'Ready a unit' readies an exhausted unit through the i
   assert.deepEqual(kernel.events.map(event => event.action), ["ready"]);
 });
 
-test.todo(
-  "ven-153-166: trigger only on the increase direction and only for " +
-    "\"something else\" — empowered-changed fires for empower and disempower alike (443.1) and the " +
-    "payload has no direction/host-exclusion support (contract change request, RIFT-120)"
-);
-
-test.todo(
-  "ven-153-166: pay 'Disempower me' plus :rb_rune_rainbow: ([A], 163.2.b) — no disempower payment " +
-    "kind in cost/plan-values.ts and no Universal Power value in the closed Domain union (RIFT-261)"
-);
-
-test("ven-153-166: the descriptive empowered-changed filter is rejected by the strict trigger validator", () => {
-  const result = validateTriggerSpec(triggered.trigger);
-  assert.equal(result.ok, false);
-  const codes = result.issues.map(issue => issue.code);
-  assert.ok(codes.includes("invalid-event-type"), JSON.stringify(codes));
-  assert.ok(codes.includes("unknown-field"), JSON.stringify(codes));
-});
-
-test("ven-153-166: the printed [A] cost is rejected by the closed six-domain set", () => {
-  // 443.2.a 的 Disempower 与 163.2.b 的任意域 Power 都没有费用管线消费方；印刷的
-  // ["rainbow"] 不属于六域封闭集合，费用域校验拒绝，而不是近似成某个域。
-  const kernel = world()
-    .unit("matriarch-of-war", { types: ["legend"], zone: "board" })
-    .build();
+test("ven-153-166 golden: the printed [A] Power uses all six payable domains", () => {
+  const kernel = world().unit("matriarch-of-war", { types: ["legend"], zone: "board" }).build();
   const context = kernel.clone({ sourceSnapshot: kernel.getObject("matriarch-of-war") });
-
-  assert.throws(
-    () => buildCostPlan(context, { id: "cost", cost: activated.cost }),
-    error => error instanceof CostPlanError && error.reason === "invalid-cost-plan" &&
-      /Expected unique cost domains/.test(error.message)
-  );
+  const sixDomains = activated.cost.power.value;
+  const plan = buildCostPlan(context, {
+    id: "matriarch-of-war.power",
+    cost: {
+      payments: [{
+        kind: "power",
+        amount: { kind: "constant", value: 1 },
+        allowedDomains: sixDomains
+      }]
+    }
+  });
+  assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: sixDomains }]);
 });
+
+test.todo(
+  "ven-153-166: the empowered-changed trigger still needs increase-direction and " +
+    "something-else host exclusion fields in the event contract"
+);
+test.todo(
+  "ven-153-166: the activated cost still needs a Disempower payment kind in the finalized cost plan " +
+    "(CR 443.2.a)"
+);
 
 test("ven-153-166 binding: the merged program registry exposes the two printed abilities", () => {
-  // RIFT-257 的 ProgramRegistry 用 canonicalCardId 解析整张程序；两条能力的 IR
+  // ProgramRegistry 用 canonicalCardId 解析整张程序；两条能力的 IR
   // 形状（triggered + activated）都能通过校验，缺口只在事件词汇与费用种类。
   const program0 = { ...program, status: "executable", judgeReason: undefined };
   const registry = new ProgramRegistry([program0]);

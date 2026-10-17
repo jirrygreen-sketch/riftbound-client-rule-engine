@@ -34,7 +34,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * 2. “When I move to a battlefield” 的载荷不可判定：events/action-adapter.ts 为 move-location
  *    生成的 object-moved 事件不填 toZone/toKind（timing-points.ts 声明的 payloadFields），
  *    已合入 events/pipeline-match.ts 也不读取卡程序 filter 里的内层 source 锚点（同
- *    sfd/corinna-veraza 记录，RIFT-120）。触发注册本身亦无生产接线（契约 3.5，RIFT-120）。
+ *    sfd/corinna-veraza 记录）。
  * 3. choice.mode 的数据形状已按契约 3.9 写出，但 Finalize 侧的消费方（选择与重放请求路径）
  *    属引擎批 4；未合入时不得把模式选择近似成固定分支。
  * 已支持部分：两个模式体各自使用的 effect.discard / effect.draw 都是已合入原语；golden 用
@@ -114,8 +114,7 @@ export default {
     "表没有玩家集合枚举或按席位重复（同 the-papertree/whirlwind，ability-templates 的 target.player 未合入），" +
     "程序保留 \"each-player\" 描述性占位而不只为自己结算；(2)「When I move to a battlefield」的载荷不可判定：" +
     "events/action-adapter.ts 为 move-location 生成的 object-moved 事件不填 toZone/toKind（timing-points.ts 声明的 " +
-    "payloadFields），已合入 events/pipeline-match.ts 也不读卡程序 filter 的内层 source 锚点，且没有把 CardProgram 的 " +
-    "triggered 能力注册成 TriggerRegistration 的生产接线（RIFT-120）；(3) choice.mode 的 Finalize 消费方（模式选择与重放" +
+    "payloadFields），已合入 events/pipeline-match.ts 也不读卡程序 filter 的内层 source 锚点，(3) choice.mode 的 Finalize 消费方（模式选择与重放" +
     "请求路径）属引擎批 4，未合入前不得固定分支。已支持部分：两条模式体分别使用已合入的 effect.discard / effect.draw，" +
     "golden 用参考内核单席位真实执行；逐玩家扇出与模式选择写 test.todo。",
   abilities,
