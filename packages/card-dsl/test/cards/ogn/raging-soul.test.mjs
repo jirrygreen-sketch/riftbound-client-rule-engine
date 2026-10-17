@@ -7,6 +7,7 @@ import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
 const CARD_ID = "card.hash-55958c501a029c3b3b6cc885be9c3637445d707ccf6347d1f0338abd97718571";
 const [assaultGrant, gankingGrant] = program.abilities;
@@ -24,6 +25,8 @@ test("raging-soul: identity, ruleset, status and verbatim sourceText", () => {
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /RIFT-81/);
   assert.match(program.judgeReason, /RIFT-83/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /conditionMatches/);
   assert.equal(
     program.sourceText,
     "If you've discarded a card this turn, I have [Assault] and [Ganking]. " +
@@ -97,16 +100,56 @@ test("raging-soul: a real discard is observable as turn history through the merg
   assert.equal(noDiscard.linkedValues["raging-soul.gate.value"], false);
 });
 
+test("raging-soul golden: the merged grant-keyword instruction grants both keywords to the source through the layers engine", () => {
+  // The authored static abilities carry a continuous.grant-keyword effect; the
+  // merged instruction primitive (RIFT-258) registers the same effect through
+  // ctx.addContinuous and the ability layer grants the keyword to the host.
+  for (const grant of [assaultGrant, gankingGrant]) {
+    const base = world().unit("raging-soul", { owner: "A", controller: "A", might: 4 }).build();
+    const kernel = base.clone({
+      source: base.ref("raging-soul"),
+      sourceSnapshot: base.getObject("raging-soul")
+    });
+    const declared = grant.effect;
+    const outcome = resolveChainBody([{
+      id: `raging-soul.grant-${declared.keyword}`,
+      op: "continuous.grant-keyword",
+      args: {
+        keyword: { kind: "constant", value: declared.keyword },
+        appliesTo: { kind: "constant", value: declared.appliesTo }
+      }
+    }], kernel);
+
+    assert.equal(outcome.status, "executed");
+    assert.equal(outcome.results[0].result.status, "executed");
+    assert.equal(kernel.continuousEffects.length, 1);
+    const [registration] = kernel.continuousEffects;
+    assert.equal(registration.effect.layer, "ability");
+    assert.equal(registration.effect.effect.keyword, declared.keyword);
+    assert.deepEqual(registration.duration, { type: "permanent" });
+
+    const layers = createLayerEngine(kernel.objects, kernel.continuousEffects.map(entry => ({
+      effect: entry.effect,
+      duration: entry.duration,
+      timestamp: 1
+    })));
+    // 807.1.b.3: the unvalued grant carries no numeric value.
+    assert.deepEqual(
+      layers.evaluate(kernel.ref("raging-soul")).keywords.map(entry => [entry.id, entry.value ?? null]),
+      [[declared.keyword, null]]
+    );
+  }
+});
+
 test.todo(
-  "raging-soul: continuous.grant-keyword for both Assault and Ganking (RIFT-9 continuous.keyword) plus a layers " +
-    "consumer over card programs (RIFT-91) are required to execute the grants"
+  "raging-soul: binding the card's static continuous.grant-keyword abilities into the layer registry " +
+    "(RIFT-257) and evaluating the authored count/history condition against ctx.history — the layer " +
+    "conditionMatches only recognizes always/never/type/has-tag/has-keyword and treats unknown compare " +
+    "conditions as true, so binding today would grant the keywords on an undiscarded turn too"
 );
 test.todo(
   "raging-soul: the granted Assault still needs the Attacker designation (807.1.c/807.1.d.1, ObjectSnapshot.combatRole is only frozen in contract 3.8)"
 );
 test.todo(
   "raging-soul: the granted Ganking permission must reach the Standard Move legality checks (810.1.c, 144.4.c)"
-);
-test.todo(
-  "raging-soul: wiring the authored count/history condition to ctx.history is the condition-history consumer work (RIFT-89/90)"
 );

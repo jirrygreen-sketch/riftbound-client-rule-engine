@@ -45,7 +45,10 @@ test("ogn-102-298 Portal Rescue judgeReason names the ignore-cost rule and the m
   assert.match(program.judgeReason, /356\.1\.b/);
   assert.match(program.judgeReason, /356\.6/);
   assert.match(program.judgeReason, /FinalizedCostPlan/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  // The merged cost pipeline already models ignore-base; what is missing is
+  // the descriptor consumer plus the unmerged cost.pay/cost.modify primitives.
+  assert.match(program.judgeReason, /ignore-base/);
+  assert.match(program.judgeReason, /RIFT-261/);
 });
 
 test("ogn-102-298 Portal Rescue structure: [Action] keyword plus a linked banish-then-play pair", () => {
@@ -185,8 +188,9 @@ test("ogn-102-298 Portal Rescue golden: an unfinalized ignore-cost plan never pl
 test.todo(
   "Portal Rescue: materialize the ignore-cost plan (base Energy cost and base Power cost set to zero per " +
     "CR 356.1.b/356.1.b.1, floor 0 per 356.6, without rewriting 356.1.b.3 additional costs) and play the " +
-    "banished card to base as a Limited Action (420.3/420.3.a) - needs the cost.modify ignore component and " +
-    "the finalized plan producer (RIFT-89)"
+    "banished card to base as a Limited Action (420.3/420.3.a) - the merged cost pipeline already implements " +
+    "BaseCostModification ignore-base, but no consumer reads this card's cost descriptor and the " +
+    "cost.pay/cost.modify primitives are unmerged (RIFT-261)"
 );
 
 test.todo(

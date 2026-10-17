@@ -5,26 +5,27 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * Printed text: "When you play a spell, give me +1 :rb_might: this turn."
  *
- * Status: judge-required.
- * - "give me +1 [M] this turn" is a temporary Might modification. The closed
- *   GameAction set (contract 3.6) contains no might-modification action, and
- *   effect.buff documents that temporary Might changes "belong to
- *   continuous.might, never to this primitive"; the layers batch (RIFT-91)
- *   owns the end-of-turn expiry under 317.1.a / 478. Not approximated with a
- *   Buff counter (703), which is an object, not a Might change.
- * - The trigger itself is expressible: the card-played timing point (383.4.a)
- *   filtered to a spell played by this ability's controller ("you play a
- *   spell"), with no target — "me" is the ability source. It is kept as data so
- *   downstream tooling can see the shape; the Might grant is judged.
+ * Modeling notes:
+ * - The trigger is the card-played timing point (383.4.a / 383.4.a.1, emitted
+ *   by chain/engine.ts after a spell resolves) filtered to a spell played by
+ *   this ability's controller ("you play a spell"); there is no target — "me"
+ *   is the ability source, read through the symbolic source selector.
+ * - "give me +1 :rb_might: this turn" is executed by the merged
+ *   continuous.might primitive (RIFT-258): it registers one arithmetic-layer
+ *   effect for the source through ResolveContext.addContinuous with the
+ *   end-of-turn duration (143.2.a / 478; 317.1.a / 468.7.c expiry). Not a Buff
+ *   counter (702/703): a Buff is a counter, not a Might change.
+ *
+ * Status: executable — the trigger subscription fires on the merged chain,
+ * the ability body registers the arithmetic-layer effect through the
+ * production chain context, and the golden test drives a real spell cast
+ * through ChainEngine, asserting the +1 Might, the enemy/controller scoping
+ * and the end-of-turn expiry.
  */
 export default {
   canonicalCardId: "card.hash-1e9496baf34c0f775ffe94233c00bca385044ae51ac57ce745999144f3493a9d",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "缺临时 Might 修正原语：契约 3.6 的封闭 GameAction 集合没有 might 修改动作，effect.buff 文档明确临时 Might 改变属于 " +
-    "continuous.might（图层系统未合入，依赖 RIFT-91）并需按 317.1.a 在回合结束时到期；" +
-    "不得用 Buff 标记或改写印刷数值近似。触发本身（card-played 过滤 spell、player 为控制者、无目标）可用字段表达。不近似实现。",
+  status: "executable",
   abilities: [
     {
       kind: "triggered",
@@ -40,6 +41,8 @@ export default {
       body: [
         {
           id: "ravenbloom-student.give-plus-1",
+          // "give me +1 Might this turn": the ability source, bounded by the
+          // end-of-turn duration (317.1.a / 468.7.c).
           op: "continuous.might",
           args: {
             amount: { kind: "constant", value: 1 },

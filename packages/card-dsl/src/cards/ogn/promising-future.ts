@@ -31,7 +31,9 @@ import type { CardProgram } from "../../ir/index.js";
  *   turn-order/next-player walk. `effect.play` consumes only an
  *   already-finalized cost plan and a known object; \"ignoring Energy costs\"
  *   would also have to preserve the printed Power requirement (the reminder is
- *   explicit), and no merged opcode walks players in turn order.
+ *   explicit), and no merged opcode walks players in turn order. The merged
+ *   cost system can build the ignore-base plan, but cost.pay/cost.modify
+ *   (RIFT-261) and a cost-descriptor consumer are unmerged.
  *
  * The instructions below keep the printed stage order and the players' names
  * for review; nothing is approximated. Off-Line readings: \"those cards\" is
@@ -50,7 +52,7 @@ const promisingFuture = {
     "没有指令原语提交该回收/洗牌；3）“Starting with the next player, each player plays those cards, ignoring Energy costs” 需 420.3/420.4 的 " +
     "play 效果（仅忽略 Energy、保留印刷 Power 要求）加按回合顺序遍历玩家，effect.play 只消费已 finalize 的费用计划与已知对象，" +
     "无遍历玩家或部分忽略费用的路径（该半段以 effect.play-for-each-player 命名待合入原语，不套用 effect.play 的单一对象契约）。" +
-    "依赖 RIFT-89（费用计划/忽略费用）、RIFT-90（目标与选择管线）、effect.inspect 的有序契约。不近似实现。",
+    "依赖 RIFT-261（cost.pay/cost.modify 与忽略费用消费）、RIFT-257（卡牌程序绑定）、RIFT-90（目标与选择管线）、effect.inspect 的有序契约。不近似实现。",
   abilities: [
     {
       kind: "play",

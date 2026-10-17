@@ -24,7 +24,8 @@ test("Promising Future program is structurally valid and judge-required", () => 
   assert.match(program.judgeReason, /effect\.inspect/);
   assert.match(program.judgeReason, /417\.5/);
   assert.match(program.judgeReason, /420\.3\/420\.4/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("Promising Future identity and printed text match the catalog", () => {
@@ -139,5 +140,6 @@ test.todo(
 test.todo(
   "Promising Future: each player playing the card they chose, in turn order, ignoring " +
     "Energy costs while still paying Power (420.3/420.3.b.1, 356.1/356.2), needs the " +
-    "cost-plan override (RIFT-89) and a turn-order walk that no merged opcode provides."
+    "cost-plan override consumer (RIFT-261 cost.pay/cost.modify) and a turn-order walk that no " +
+    "merged opcode provides; the card-program play binding is RIFT-257."
 );

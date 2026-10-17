@@ -3,17 +3,34 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import primalStrength from "../../../dist/cards/ogn/primal-strength.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
 const [speed, play] = primalStrength.abilities;
 const [mightInstruction] = play.body;
 
-test("Primal Strength program is structurally valid and judge-required", () => {
+// The interpreter resolves TargetSpecs at Finalize; golden execution locks the
+// already chosen unit through setTargets and runs the real body (the
+// smoke-screen / siphon-power convention).
+const executionBody = play.body.map(({ targets, ...rest }) => rest);
+
+const registrations = (kernel) => kernel.continuousEffects.map(entry => ({
+  effect: entry.effect,
+  duration: entry.duration,
+  timestamp: 1
+}));
+
+const effectiveMight = (kernel, id) =>
+  createLayerEngine(kernel.objects, registrations(kernel)).evaluate(kernel.ref(id)).might;
+
+test("Primal Strength program is structurally valid and executable", () => {
   const result = validateCardProgram(primalStrength);
   assert.deepEqual(result.issues, []);
   assert.equal(result.ok, true);
-  assert.equal(primalStrength.status, "judge-required");
-  assert.match(primalStrength.judgeReason, /continuous\.might/);
-  assert.match(primalStrength.judgeReason, /effect\.buff/);
+  assert.equal(primalStrength.status, "executable");
+  assert.equal(primalStrength.judgeReason, undefined);
   assert.equal(primalStrength.rulesetVersion, "core-1.5");
   assert.equal(
     primalStrength.canonicalCardId,
@@ -24,6 +41,7 @@ test("Primal Strength program is structurally valid and judge-required", () => {
     "[Action] (Play on your turn or in showdowns.)\n" +
       "Give a unit +7 :rb_might: this turn."
   );
+  assert.equal(cardRegistryById.get(primalStrength.canonicalCardId), primalStrength);
 });
 
 test("Primal Strength structure: [Action] keyword + one-unit +7 Might target", () => {
@@ -37,6 +55,11 @@ test("Primal Strength structure: [Action] keyword + one-unit +7 Might target", (
   assert.equal(mightInstruction.id, "primal-strength.give-plus-7");
   assert.deepEqual(mightInstruction.args.amount, { kind: "constant", value: 7 });
   assert.deepEqual(mightInstruction.args.duration, { kind: "constant", value: "this-turn" });
+  // The chosen unit is read through the contract 3.6 target selector.
+  assert.deepEqual(mightInstruction.args.objects, {
+    kind: "constant",
+    value: { kind: "target", id: "primal-strength.unit" }
+  });
 
   // "a unit" is a target on the board (355.9.a.1), so the instruction carries
   // exactly one one-unit TargetSpec.
@@ -64,15 +87,56 @@ test("Primal Strength: the printed +7 is not approximated with Buff counters", (
   assert.equal(mightInstruction.args.mode, undefined);
 });
 
-test.todo(
-  "Primal Strength execution: a continuous.might instruction primitive must register " +
-    "the +7 Might through ctx.addContinuous for the layers arithmetic pass, expiring at " +
-    "cleanup for 'this turn' (CR 703/706-708, RIFT-91 layers are merged; the " +
-    "instruction primitive is missing)"
-);
+test("Primal Strength golden: +7 Might registers an end-of-turn arithmetic effect on the chosen unit", () => {
+  const kernel = world().unit("target", { owner: "A", controller: "A", might: 3 }).build();
+  kernel.setTargets("primal-strength.unit", [kernel.ref("target")]);
 
-test.todo(
-  "Primal Strength cast: pays 4 Energy + 1 Body power and [Action] showdown timing " +
-    "(依赖 RIFT-89 费用管线与 continuous.timing 生产接线)"
-);
+  const outcome = resolveChainBody(executionBody, kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(
+    outcome.results.map(result => [result.id, result.result.status]),
+    [["primal-strength.give-plus-7", "executed"]]
+  );
+  assert.equal(kernel.continuousEffects.length, 1);
+  const [registration] = kernel.continuousEffects;
+  // 478 / 478.1.a: Might modifications live in the arithmetic layer, applied
+  // through ctx.addContinuous with the end-of-turn duration (317.1.a).
+  assert.equal(registration.effect.layer, "arithmetic");
+  assert.equal(registration.effect.effect.kind, "continuous.might");
+  assert.equal(registration.effect.effect.amount, 7);
+  assert.equal(registration.effect.filter.objectId, "target");
+  assert.deepEqual(registration.duration, { type: "end-of-turn" });
+  assert.deepEqual(outcome.results[0].result.linkedValues.affected, {
+    count: 1,
+    objects: [kernel.ref("target")]
+  });
+
+  // 143.2.a: Effective Might is the printed 3 plus the +7.
+  assert.equal(effectiveMight(kernel, "target"), 10);
+});
+
+test("Primal Strength golden: the modification expires at end of turn (317.1.a / 468.7.c)", () => {
+  const kernel = world().unit("target", { owner: "A", controller: "A", might: 3 }).build();
+  kernel.setTargets("primal-strength.unit", [kernel.ref("target")]);
+  resolveChainBody(executionBody, kernel);
+
+  const engine = createLayerEngine(kernel.objects, registrations(kernel));
+  assert.equal(engine.evaluate(kernel.ref("target")).might, 10);
+  assert.equal(engine.expireAt("turn-end").length, 1);
+  assert.equal(engine.evaluate(kernel.ref("target")).might, 3);
+});
+
+test("Primal Strength golden: a chosen unit that left the Board is ignored (359.3.e.6)", () => {
+  const kernel = world().unit("target", { owner: "A", controller: "A", might: 3 }).build();
+  const stale = kernel.ref("target");
+  kernel.perform({ type: "kill", object: stale });
+  kernel.setTargets("primal-strength.unit", [stale]);
+
+  const outcome = resolveChainBody(executionBody, kernel);
+
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results[0].result, { status: "ignored", reason: "mistargeted" });
+  assert.equal(kernel.continuousEffects.length, 0);
+});
 

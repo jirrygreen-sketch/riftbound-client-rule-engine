@@ -4,6 +4,7 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/possession.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -22,7 +23,9 @@ test("Possession identity and judge-required status match the printing", () => {
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.equal(program.judgeReason.includes("take-control"), true);
+  // The control half is now executable (effect.control, RIFT-117); the recall
+  // half keeps the card judge-required.
+  assert.equal(program.judgeReason.includes("effect.control"), true);
   assert.equal(program.judgeReason.includes("RIFT-117"), true);
   assert.equal(program.judgeReason.includes("Recall"), true);
   assert.equal(
@@ -47,7 +50,9 @@ test("Possession structure: Action keyword, printed cost, control then a linked 
   // enemy unit is an ordinary target (355.7, 355.9.b).
   assert.equal(takeControl.op, "effect.control");
   assert.equal(takeControl.linkedTo, undefined);
-  assert.deepEqual(takeControl.args, { target: { kind: "constant", value: "possession.unit" } });
+  assert.deepEqual(takeControl.args, {
+    objects: { kind: "constant", value: { target: "possession.unit" } }
+  });
   assert.deepEqual(unitSpec, {
     id: "possession.unit",
     filter: { types: "unit", controller: "opponent", location: { type: "battlefield" } },
@@ -64,6 +69,62 @@ test("Possession structure: Action keyword, printed cost, control then a linked 
   assert.deepEqual(recall.args.to, { kind: "constant", value: "controller-base" });
   assert.deepEqual(recall.args.mode, { kind: "constant", value: "recall" });
   assert.equal(recall.targets, undefined);
+});
+
+test("Possession golden: take-control changes the chosen unit's controller (127.1 / 188-192)", () => {
+  const kernel = world()
+    .unit("enemy-unit", {
+      owner: "B",
+      controller: "B",
+      location: { type: "battlefield", id: "battlefield-1" },
+      might: 4,
+      damage: 2
+    })
+    .build();
+  kernel.setTargets(unitSpec.id, [kernel.ref("enemy-unit")]);
+
+  // Drive the card's own body (minus the TargetSpec, which the interpreter
+  // resolves at Finalize): the control half executes against the real kernel
+  // and the linked recall reports its blocked outcome (see judgeReason).
+  const body = play.body.map(({ targets, ...rest }) => rest);
+  const outcome = resolveChainBody(body, kernel);
+
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
+    ["possession.take-control", "executed"],
+    ["possession.recall", "negated"]
+  ]);
+  // 127.1: control changes; owner never does.
+  const after = kernel.getObject("enemy-unit");
+  assert.equal(after.controller, "A");
+  assert.equal(after.owner, "B");
+  assert.deepEqual(after.location, { type: "battlefield", id: "battlefield-1" });
+  assert.equal(after.damage, 2);
+  assert.deepEqual(outcome.linkedValues["possession.take-control.controlled"].changes, [
+    { object: { id: "enemy-unit", zoneEntryId: 1 }, owner: "B", from: "B", to: "A" }
+  ]);
+  assert.equal(outcome.events.some(event => event.action === "take-control"), true);
+});
+
+test("Possession golden: an already-controlled unit reports no control change (190.6.d)", () => {
+  const kernel = world()
+    .unit("own-unit", {
+      owner: "A",
+      controller: "A",
+      location: { type: "battlefield", id: "battlefield-1" }
+    })
+    .build();
+  kernel.setTargets(unitSpec.id, [kernel.ref("own-unit")]);
+  const body = play.body.map(({ targets, ...rest }) => rest);
+
+  const outcome = resolveChainBody(body, kernel);
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.equal(kernel.getObject("own-unit").controller, "A");
+  // No change to report for an object the ability controller already controls.
+  assert.deepEqual(outcome.linkedValues["possession.take-control.controlled"], {
+    count: 0,
+    objects: [],
+    changes: []
+  });
 });
 
 test("Possession golden: the merged recall path refuses to fake a Move (458 / 421)", () => {
@@ -131,17 +192,8 @@ test("Possession golden: a stale chosen unit makes the recall observe nothing", 
 });
 
 test.todo(
-  "Possession: \"Take control of it\" needs the effect.control instruction primitive over the " +
-    "frozen take-control GameAction (RIFT-117 prim-effect-control)."
-);
-
-test.todo(
   "Possession: a real Recall (457/458: relocate to the new controller's Base, not a Move, no " +
     "Move triggers, ignore movement restrictions, keep damage and statuses) needs a Recall " +
-    "action distinct from move-location (RIFT-109 follow-up)."
-);
-
-test.todo(
-  "Possession: Finalize-time target selection for { controller: opponent, location: battlefield } " +
-    "(355.3, pending-chain exclusion, became-target triggers) belongs to the target system (RIFT-90)."
+    "action distinct from move-location (RIFT-109 follow-up); the merged effect.move recall " +
+    "path deliberately reports negated/impossible (see judgeReason)."
 );

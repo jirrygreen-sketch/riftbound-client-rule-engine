@@ -3,8 +3,10 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/raging-firebrand.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 
 const CARD_ID = "card.hash-6a44ecaa1f76158a92ecce63e4d3e2d347cc32014c448f13003d9f2500cb3de7";
 
@@ -14,6 +16,9 @@ test("ogn-031-298 Raging Firebrand: program validates and is judge-required", ()
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /one-shot/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });
 
 test("ogn-031-298 Raging Firebrand: identity, ruleset and exact source text", () => {
@@ -30,7 +35,14 @@ test("ogn-031-298 Raging Firebrand: card-played self trigger carrying a one-shot
   const [ability] = program.abilities;
   assert.equal(ability.kind, "triggered");
   assert.equal(ability.trigger.at, "card-played");
-  assert.deepEqual(ability.trigger.filter, { self: true });
+  // The engine validator rejects the older { self: true } spelling; the played
+  // card identifies itself through its canonical id.
+  assert.deepEqual(ability.trigger.filter, {
+    event: "card-played",
+    object: { canonicalCardId: CARD_ID }
+  });
+  const validated = validateTriggerSpec(ability.trigger);
+  assert.equal(validated.ok, true, JSON.stringify(validated.ok ? [] : validated.issues));
   assert.equal(ability.optional, false);
 
   assert.equal(ability.body.length, 1);

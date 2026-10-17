@@ -19,9 +19,12 @@ import type { CardProgram } from "../../ir/index.js";
  * 卡牌只声明关键词（契约 3.1/3.7、README 第 5 节）；展开（static target.tax）
  * 由 effects/keywords/Deflect.ts 负责。
  *
- * status = judge-required：合并的 TargetPlan 只在调用方显式传入 tax 时才追加
- * Deflect 追加费，没有把永久物上的 target.tax 持续效果接进目标选择的消费方；
- * 且已合入的 tax→费用换算按 Energy 记账，与 809.1.c.1 要求的「任意域 Power」不符。
+ * status = judge-required：TargetPlan 只在调用方显式传入 tax 时才追加 Deflect
+ * 追加费（target/target-plan.ts 的 taxSpecs/appendTaxes），没有任何已合入消费方从
+ * 永久物的 target.tax 持续效果派生该税；chain/engine.ts 的 Finalize 已能接收
+ * taxAdapter 回调，但把回调接进实际付费仍依赖未合入的 cost.pay/cost.modify
+ * （RIFT-261），且已合入的 tax→费用换算按 Energy 记账（chain/engine.ts:307），与
+ * 809.1.c.1 要求的「任意域 Power」不符。
  */
 const poutyPoro = {
   canonicalCardId:
@@ -29,11 +32,13 @@ const poutyPoro = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Deflect 的展开文件（effects/keywords/Deflect.ts：static target.tax）已合入，但没有任何生产方把永久物上的 " +
-    "target.tax 持续效果接进目标选择：target/target-plan.ts 的 taxSpecs/appendTaxes 只在调用方显式传入 " +
-    "tax 时才追加，chain 侧也没有从永久物特征派生 Deflect 税；另外已合入的 tax→费用换算按 Energy 记账" +
-    "（chain/engine.ts:307），而 809.1.c/809.1.c.1 要求追加费用用任意域 Power 支付。缺少的是" +
-    "「持续效果 → TargetPlan 税 → 任意域 Power 支付」接线，不属于本卡的 write scope；不近似实现。",
+    "Deflect 的展开文件（effects/keywords/Deflect.ts：static target.tax）已合入，但没有任何已合入消费方把永久物上的 " +
+    "target.tax 持续效果接进目标选择：target/target-plan.ts 的 taxSpecs/appendTaxes 只在调用方显式传入 tax 时才追加，" +
+    "chain/engine.ts 的 Finalize 虽然提供 taxAdapter 回调，但从「目标税请求」到实际收费仍依赖未合入的 " +
+    "cost.pay / cost.modify（RIFT-261）；并且已合入的 tax→费用换算按 Energy 记账（chain/engine.ts:307），" +
+    "而 809.1.c/809.1.c.1 要求追加费用用任意域 Power 支付。缺少的是" +
+    "「持续效果 → TargetPlan 税 → 任意域 Power 支付」接线，不属于本卡的 write scope；不近似实现。" +
+    "依赖：RIFT-261（cost.pay/cost.modify）与目标税消费接线。",
   abilities: [{ kind: "keyword", keyword: "deflect" }],
   sourceText:
     "[Deflect] (Opponents must pay :rb_rune_rainbow: to choose me with a spell or ability.)"
