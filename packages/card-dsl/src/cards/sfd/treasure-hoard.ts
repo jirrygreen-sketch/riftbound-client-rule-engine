@@ -26,8 +26,9 @@ import type { CardProgram } from "../../ir/index.js";
  * 3. "exhausted" is an entry override (143.4 / 185.2.d) the create-token action
  *    explicitly does not support ("Entry overrides are not supported"), so the
  *    token cannot be authored as entering exhausted;
- * 4. the trigger's `here` placeholder still needs the conquer battlefield
- *    anchor to resolve to a concrete location (RIFT-357/RIFT-359).
+ * 4. the trigger's `here` placeholder still needs the conquer event's
+ *    `details.battlefieldId` to be consumed as a location filter; the trigger
+ *    binder currently rejects this field rather than resolving it.
  *
  * The abilities below still encode the full intended shape so downstream
  * tooling can see the trigger, cost and play structure; execution is judged.
@@ -42,7 +43,8 @@ export default {
     "(440.2.c/185.2.a/350.2/354): effect.token mode \"play\" already creates on the Chain and hands the object to the play flow; tokens carry null costs (185.3), so no separate cost-waived " +
     "effect.play is authored. The create-token action does not support the 'exhausted' entry override " +
     "(143.4/185.2.d). The conquer trigger's `here` anchor still needs the event battlefield identity " +
-    "to become a location filter (RIFT-357/RIFT-359); the printed Energy payment is represented by the merged cost.pay primitive.",
+    "to become a location filter from details.battlefieldId; programs/filters.ts currently rejects the unresolved field. " +
+    "The printed Energy payment is represented by the merged cost.pay primitive.",
   sourceText: "When you conquer here, you may pay :rb_energy_1: to play a Gold gear token exhausted.",
   abilities: [
     {
@@ -75,12 +77,12 @@ export default {
                     mode: { kind: "constant", value: "play" },
                     amount: { kind: "constant", value: 1 },
                     linkKey: { kind: "constant", value: "goldToken" },
-                    // 目的地标记：印刷文本没有给出战场身份，可执行的 LocationRef 由链的
-                    // 打出流程决定；这里是描述性形状，原语会拒绝它（fail-closed），
-                    // 不会把 token 放到猜测的地点。
+                    // 目的地：能力控制者的 Base 是契约支持的相对位置表达式；
+                    // effect.token 当前仍只消费 concrete LocationRef，因此会在
+                    // 原语边界 fail-closed，而不会把 token 放到猜测的地点。
                     location: {
-                      kind: "constant",
-                      value: { kind: "destination-selector", filter: { controllerBase: true } }
+                      kind: "location",
+                      value: "ability-controller-base"
                     }
                   }
                 },

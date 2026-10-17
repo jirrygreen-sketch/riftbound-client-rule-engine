@@ -32,8 +32,8 @@ test("sfd-060-221 Tianna Crownguard: identity, ruleset, status, judgeReason and 
   assert.match(program.judgeReason, /470/);
   assert.match(program.judgeReason, /restrictions\(\)/);
   assert.match(program.judgeReason, /at a battlefield/);
-  assert.match(program.judgeReason, /RIFT-359/);
-  assert.match(program.judgeReason, /RIFT-360/);
+  assert.match(program.judgeReason, /ObjectSnapshot/);
+  assert.match(program.judgeReason, /任意域 Power/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -102,11 +102,10 @@ test("sfd-060-221 Tianna Crownguard: the query side reads the registered prohibi
 
 test.todo(
   "sfd-060-221 Tianna Crownguard: 'opponents can't score points' needs a scoring-side consumer of the registered " +
-    "restrictions and the 363.2.a 'at-battlefield' condition predicate (RIFT-359)."
+    "restrictions and the 363.2.a 'at-battlefield' condition predicate from ObjectSnapshot."
 );
 
 test.todo(
   "sfd-060-221 Tianna Crownguard: [Deflect]'s target tax must be collected when an opponent chooses this unit " +
-    "and paid as any-domain Power (809.1.c.1) instead of the Energy-shaped tax the chain builds today — " +
-    "RIFT-360"
+    "and paid as any-domain Power (809.1.c.1) instead of the Energy-shaped tax the chain builds today."
 );

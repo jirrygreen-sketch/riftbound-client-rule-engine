@@ -140,7 +140,8 @@ const program = {
     "「If it's an Equipment」用已合入的 Condition 与契约 3.6 对象锚点求值（compare/in + object-property(target).tags），" +
     "「you may detach it」是非目标 pick（436.3）并经 effect.detach（436.1）提交；golden 用解释器 + 参考内核真实执行 Equipment 与 " +
     "非 Equipment 两条分支（非 Equipment 时 detach 分支被 negated/skipped，不会脱离）。" +
-    "依赖：conquer 事件载荷 → 位置过滤的「here」锚点接线（RIFT-357/RIFT-359）。不近似实现。",
+    "依赖：conquer 事件载荷 details.battlefieldId → 位置过滤的「here」锚点接线；" +
+    "programs/filters.ts 当前对未解析字段 fail-closed。不近似实现。",
   abilities,
   sourceText: "When you conquer here, you may ready a friendly gear. If it's an Equipment, you may detach it."
 } satisfies CardProgram;

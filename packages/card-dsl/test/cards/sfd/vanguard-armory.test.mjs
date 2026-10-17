@@ -156,6 +156,5 @@ test.todo(
   "sfd-168-221 Vanguard Armory: letting the controller choose each token's location (CR 355.2/" +
     "355.2.a: its Base or a Battlefield it controls) needs a merged reader that turns the legal " +
     "location set into concrete LocationRefs plus the finalize-time play-location choice " +
-    "(RIFT-357/RIFT-358 location selection); effect.token only accepts one fixed location or one choice for the " +
-    "whole instruction."
+    "for each token; effect.token only accepts one fixed location or one choice for the whole instruction."
 );
