@@ -42,9 +42,9 @@ import type { CardProgram } from "../../ir/index.js";
  * be played as printed. Neither is approximated: a filter without it would
  * claim the card can counter arbitrary enemy spells and abilities.
  *
- * Dependencies: a target predicate over a finalized chain item's locked target
- * set (RIFT-90 target plan / chain target locking, contract 3.8's target-info
- * work), the `target.player`-class chain-item target info work in engine batch 4.
+ * Dependencies: a merged ObjectFilter/Expr predicate that reads a finalized
+ * chain item's locked target set (the RIFT-90 target plan and chain target
+ * locking are merged, but their vocabulary still has no such predicate).
  */
 export default {
   canonicalCardId:
@@ -54,11 +54,11 @@ export default {
   judgeReason:
     "缺「该法术或能力只选择了这一个友方单位、没有选择其他友方单位」的目标谓词（355.9.b 的 targeting " +
     "restriction；359.3.e.9.a 只按区域讨论被误选的目标）：这个限制读取的是链上项 Finalize 锁定的目标集合，" +
-    "而合并的 ObjectFilter 词表没有任何读取链上项目标集合的字段，冻结的 IR 也没有读取链上项目标列表的表达式" +
-    "（TargetSpec.filter 只能逐键比较特征；目标计划 RIFT-90 未提供该谓词）。本文件用未被任何合并代码求值的描述性键" +
+    "RIFT-90 的目标计划与链目标锁定已合入，但合并的 ObjectFilter 词表没有读取该目标集合的谓词，" +
+    "冻结的 IR 也没有读取链上项目标列表的表达式（TargetSpec.filter 只能逐键比较特征）。本文件用未被任何合并代码求值的描述性键" +
     "（chosenFriendlyUnit / noOtherFriendlyUnitChosen，与 ogn/defy 的 energyMax/powerMax 同一做法）保留该限制，" +
     "不删掉限制冒充「反制任意敌方法术」（那是被禁止的近似实现）。" +
-    "依赖：链上项锁定目标集合的谓词（RIFT-90 target plan / chain 目标锁定；引擎批 4 的目标信息）。" +
+    "依赖：链上项锁定目标集合的谓词（ObjectFilter/Expr 层，RIFT-90 的目标计划已合入但缺该谓词）。" +
     "已合入并由 golden 真实执行的部分：effect.counter（426.1–426.3）反制链上法术，[Reaction] 关键词声明（813）。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },

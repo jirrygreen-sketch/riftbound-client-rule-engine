@@ -33,8 +33,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - Assault 2 需要 807.1.d 的 Attacker designation 与求值后的图层修正：ObjectSnapshot.combatRole
  *   已进入 HEAD（契约 3.8），但战斗角色 designation 没有产生方（combat/flow.ts 仍抛
  *   combat-start-transaction），layers/engine.ts 的 conditionMatches 也不求值该 compare 条件（按 true 处理）；
- * - Deflect 的 target.tax 需要目标税/目标锁定接线（layers/rules/query.ts 没有 target.tax 查询，
- *   chain 的 Finalize 税适配只消费调用方传入的 TargetFinalizeOptions.tax）；
+ * - Deflect 的 target.tax 接线：target/target-plan.ts 已有 Deflect 税的部分支持（TargetFinalizeOptions.tax
+ *   与 taxAdapter），但 layers/rules/query.ts 没有 target.tax 查询、关键词展开也没有接线进 Finalize；
  * - Ganking 的 continuous.movement 许可需要移动系统读取（movement() 查询已合入但没有调用方）。
  * 任一未接线即不能宣称整卡可执行；golden 只做身份、结构与已合入展开文件的形状校验，缺依赖写 test.todo。
  */
@@ -58,8 +58,8 @@ const program = {
     "（chain/engine.ts 只读调用方传入的费用计划；programs/play.ts 对 additional-cost 类字段直接判 judge-required 失败）。" +
     "(2) Assault 2（807.1.c）需要 807.1.d 的 Attacker designation 与求值后的 continuous.might 图层：ObjectSnapshot.combatRole 已进入 HEAD（契约 3.8），" +
     "但战斗角色 designation 没有产生方（combat/flow.ts 仍抛 combat-start-transaction），layers/engine.ts 的 conditionMatches 也不求值该 compare 条件（按 true 处理）。" +
-    "(3) [Deflect]（809.1.b.3 省略数值时按 1）的 target.tax 需要目标税/目标锁定接线：layers/rules/query.ts 没有 target.tax 查询，" +
-    "chain 的 Finalize 税适配只消费调用方传入的 TargetFinalizeOptions.tax。" +
+    "(3) [Deflect]（809.1.b.3 省略数值时按 1）的 target.tax 接线：target/target-plan.ts 已有 Deflect 税的部分支持" +
+    "（TargetFinalizeOptions.tax 与 taxAdapter），但 layers/rules/query.ts 没有 target.tax 查询，关键词展开也没有接线进 Finalize。" +
     "(4) Ganking 的 continuous.movement 许可需要移动系统读取（movement() 查询已合入但没有调用方）。",
   abilities,
   sourceText:

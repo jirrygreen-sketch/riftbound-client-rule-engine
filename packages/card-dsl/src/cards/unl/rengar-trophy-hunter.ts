@@ -29,9 +29,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * 仍缺三处（不近似实现）：
  * 1. [Ambush] 的两条展开都没有消费方：play-location-permission / continuous.timing 的
- *    图层注册不改变 Finalize 的合法位置校验，chain.canAct() 也不读图层的时机授予。
- * 2. 本卡的 static play-location-permission 没有消费方：该 effect kind 在 engine-core 内
- *    只出现在卡数据与连续效果注册里，Finalize 的合法位置校验不读它。
+ *    图层注册不改变 Finalize 的合法位置校验（355.2.b），chain.canAct() 也不读图层的时机授予。
+ * 2. 本卡的 static play-location-permission 没有消费方：该 effect kind 只在卡程序与
+ *    Ambush KeywordDef（effects/keywords/Ambush.ts）里发布，layers/rules 查询与 
+ *    Finalize 的合法位置校验都不读它。
  * 3. "where there are enemy units" 需要“该战场存在敌方单位”的谓词：已合入的 ObjectFilter
  *    锚点没有位置占用/敌我计数维度，本程序用 battlefield: { enemyUnits: true } 的占位键
  *    保留印刷作用域，不把它当成已可求值。
@@ -75,8 +76,8 @@ export default {
     "合法位置许可（822.1.b/822.1.c、355.2.b）不改变 Finalize 的合法位置校验，“被 Ambush 打出期间具有 [Reaction]”的 " +
     "continuous.timing 授予也不被 chain.canAct() 读取。" +
     "(2)「I can [Ambush] to a battlefield where there are enemy units」（822.1.d 的动词形态，规则原文的例子就是本卡）" +
-    "是 static play-location-permission（349、355.2.b），但该 effect kind 在 engine-core 内只出现在卡数据里，" +
-    "layers 引擎不处理打出位置许可，Finalize 的合法位置校验也不读它。" +
+    "是 static play-location-permission（349、355.2.b），但该 effect kind 只在卡程序与 Ambush KeywordDef 里发布，" +
+    "layers/rules 查询与 Finalize 的合法位置校验都不读它。" +
     "(3)「where there are enemy units」需要“该战场存在敌方单位”的谓词：已合入的 ObjectFilter 锚点没有位置占用/敌我计数维度，" +
     "本程序用占位键记录该条件，不求值。依赖：打出位置许可的 Finalize 接线与 continuous.timing 的时机消费方。",
   abilities,

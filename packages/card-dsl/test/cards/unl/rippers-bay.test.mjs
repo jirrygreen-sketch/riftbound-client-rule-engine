@@ -37,7 +37,7 @@ test("unl-214-219 Ripper's Bay: judgeReason names the event-player, location and
   assert.match(program.judgeReason, /190\.6\.c/);
   assert.match(program.judgeReason, /object-enters-hand/);
   assert.match(program.judgeReason, /cost\.pay/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /CostPlan/);
 });
 
 test("unl-214-219 Ripper's Bay: a unit entering a hand from this Battlefield is the trigger event", () => {
@@ -161,7 +161,8 @@ test.todo(
 
 test.todo(
   "unl-214-219 Ripper's Bay: submit the 1-Energy cost within instructions at resolution " +
-    "(CR 204.3.a/383.3.a) — cost.pay is not a merged instruction primitive (RIFT-89)"
+    "(CR 204.3.a/383.3.a) — cost.pay is merged and settles an already finalized CostPlan, " +
+    "but no producer builds or submits the payer-scoped plan at resolution"
 );
 
 test.todo(

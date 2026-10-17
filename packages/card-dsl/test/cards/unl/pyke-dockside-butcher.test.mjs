@@ -49,6 +49,11 @@ test("unl-028-219 Pyke, Dockside Butcher: identity, status, judgeReason and verb
   assert.match(program.judgeReason, /356\.4\.f\.1/);
   assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /RIFT-258/);
+  // The stale "cost.pay is unmerged" wording is gone: the primitive settles a
+  // finalized CostPlan (verified by probe), so the reason names the real gaps.
+  assert.match(program.judgeReason, /CostPlan/);
+  assert.match(program.judgeReason, /translateCost/);
+  assert.doesNotMatch(program.judgeReason, /cost\.pay 不是已合入|未进 HEAD/);
 });
 
 test("unl-028-219 Pyke, Dockside Butcher: [Hidden] and [Ganking] keyword declarations", () => {
@@ -134,8 +139,9 @@ test("unl-028-219 Pyke, Dockside Butcher golden: an already-ready source is a no
 });
 
 test.todo(
-  "unl-028-219 Pyke, Dockside Butcher: charge the optional additional cost (CR 356.2.b.1: [Fury]) in Finalize and" +
-    " bind the 356.4.f.1 paid receipt so 'if you paid the additional cost' is a real trigger condition"
+  "unl-028-219 Pyke, Dockside Butcher: generate the Finalize cost plan with the optional additional cost" +
+    " (CR 356.2.b.1: [Fury]) and bind the 356.4.f.1 paid receipt so 'if you paid the additional cost' is a real trigger condition" +
+    " (cost.pay settles an already finalized plan; programs/play.ts still rejects additional-cost fields)"
 );
 test.todo(
   "unl-028-219 Pyke, Dockside Butcher: [Hidden] expansion (CR 811.1: Hide for [A], facedown zone restrictions and" +

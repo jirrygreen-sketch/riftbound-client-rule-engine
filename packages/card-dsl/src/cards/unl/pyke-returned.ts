@@ -29,9 +29,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   没有 gold（该文件明确“自带其他能力的定义，包括 Gold，保持 blocked/judge-required”，187.5）；
  *   create-token 也不支持入场状态改写（184.1/185.2.d，143.4 的默认横置入场例外）——
  *   先创建再补一次 effect.exhaust 会多出一次“成为横置”事件，故不近似。
- * - “while I'm at a battlefield” 的进链前条件求值没有合并路径：事件管线对带 condition 的注册要求
- *   host.testTrigger 适配器（没有已合入 host 提供），也没有把来源的 last-known 位置交给卡牌条件。
- * 依赖：RIFT-62 后续（Gold 定义、链上创建与入场状态改写）、RIFT-120（触发注册与进链前条件求值）。
+ * - “while I'm at a battlefield” 的进链前条件求值没有合并路径：事件管线（events/pipeline.ts）对带
+ *   condition 的注册要求 host.testTrigger 适配器（TestWorld 等测试宿主已有，但没有生产方把 
+ *   CardProgram 的触发注册进管线），也没有把来源的 last-known 位置交给卡牌条件。
+ * 依赖：RIFT-62 后续（Gold 定义、链上创建与入场状态改写）、触发注册生产方（RIFT-120 的
+ *   CardProgram → TriggerRegistration 适配）。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "hidden" },
@@ -98,11 +100,13 @@ export default {
     "以及 184.1/185.2.d 的入场状态改写（143.4 是单位默认横置入场的例外来源）；" +
     "create-token 不支持入场状态规定，先创建再补一次 effect.exhaust 会产生错误的「成为横置」事件，故不近似。" +
     "另一处缺口是触发条件：「while I'm at a battlefield」（383.2.a.1 的附加条件属触发条件）没有进链前的求值路径——" +
-    "事件管线对带 condition 的注册要求 host.testTrigger 适配器，已合入 host 都不提供，" +
-    "也没有把来源的 last-known 位置交给卡牌条件（RIFT-120）。" +
-    "[Hidden]（811）与 [Backline]（826）只按契约 3.7 声明关键词，其展开消费方" +
-    "（静态 cost.hidden、continuous.combat 的伤害分配顺序）同样未合入（RIFT-89 / RIFT-264 后续）。" +
-    "依赖：RIFT-62 后续（Gold 定义、链上创建与入场状态改写）、RIFT-120（触发注册与进链前条件求值）。",
+    "事件管线（events/pipeline.ts）对带 condition 的注册要求 host.testTrigger 适配器，测试宿主有该适配器，" +
+    "但没有生产方把 CardProgram 的触发注册进管线，也没有把来源的 last-known 位置交给卡牌条件" +
+    "（RIFT-120 的 CardProgram → TriggerRegistration 适配）。" +
+    "[Hidden]（811）与 [Backline]（826）只按契约 3.7 声明关键词；两者的 KeywordDef 已合入，" +
+    "其展开消费方（静态 cost.hidden 的 Hide 动作、continuous.combat 的伤害分配顺序）没有运行时消费方" +
+    "（RIFT-89/RIFT-91 后续与战斗工作流）。" +
+    "依赖：RIFT-62 后续（Gold 定义、链上创建与入场状态改写）、触发注册生产方（RIFT-120）。",
   abilities,
   sourceText:
     "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n" +

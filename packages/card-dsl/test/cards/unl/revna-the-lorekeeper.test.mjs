@@ -41,6 +41,9 @@ test("unl-005-219 Revna the Lorekeeper: identity, status, judgeReason and verbat
   assert.match(program.judgeReason, /continuous\.movement/);
   assert.match(program.judgeReason, /routes/);
   assert.match(program.judgeReason, /RIFT-257/);
+  // Second-sweep refresh proof: the HistoryQuery field whitelist is named as the
+  // real expression gap instead of a generic unmerged-history claim.
+  assert.match(program.judgeReason, /HistoryQuery/);
 });
 
 test("unl-005-219 Revna the Lorekeeper: Ganking keyword plus a card-played spell trigger", () => {

@@ -25,9 +25,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * status = judge-required（缺口不近似实现）：
  * - 触发条件 "if you spent :rb_energy_4: or more" 无以可求值路径：合并 IR 的
- *   Expr/Condition 只能读对象特征、链接值与对象计数，没有读取"为这张刚打出的法术实际支付
- *   的 Energy 总量"的表达式；契约 3.6 的 HistoryQuery 只有对象/动作/时点/玩家维度
- *   （金额维度缺失），ResolveContext 也没有 spent 入口（依赖 RIFT-89 的费用计划回执）。
+ *   Expr/Condition 只能读对象特征、链接值与对象计数，没有读取“为这张刚打出的法术实际支付
+ *   的 Energy 总量”的表达式；effects/interpreter/history.ts 的 HistoryQuery 只允许
+ *   scope/action/timingPoint/player/object/exclude/objectFilter（没有金额维度），
+ *   cost.pay 的支付回执也没有进入 ResolveContext（依赖 RIFT-89 的费用计划回执）。
  *   与 ogn/loose-cannon、unl/virtuoso 的同一缺口口径一致：不把金额条件近似成对象计数或恒真。
  * - [Ganking]（810）的 KeywordDef（effects/keywords/Ganking.ts）与消费侧（RIFT-259 的
  *   continuous.movement 原语、layers/rules/query.ts 的 movement() 查询）都已合入，但两边
@@ -93,9 +94,9 @@ export default {
   status: "judge-required",
   judgeReason:
     "两处依赖未合入：(1) 触发条件「if you spent :rb_energy_4: or more」没有可求值路径——合并 IR 的 Expr/Condition " +
-    "只能读对象特征、链接值与对象计数（count 只数对象、不读金额），契约 3.6 的 HistoryQuery 只有 " +
-    "{ scope, action, timingPoint, player, object }，ResolveContext 也没有 spent / finalized 费用回执入口，" +
-    "因此 383.2.a.1 的触发条件无法求值（依赖 RIFT-89 的费用计划回执）。" +
+    "只能读对象特征、链接值与对象计数（count 只数对象、不读金额），effects/interpreter/history.ts 的 HistoryQuery " +
+    "只允许 { scope, action, timingPoint, player, object, exclude, objectFilter }，没有金额维度，" +
+    "cost.pay 的支付回执也没有进入 ResolveContext，因此 383.2.a.1 的触发条件无法求值（依赖 RIFT-89 的费用计划回执）。" +
     "(2) [Ganking]（810）的 KeywordDef（effects/keywords/Ganking.ts）与消费侧（RIFT-259 的 continuous.movement " +
     "原语、layers/rules/query.ts 的 movement()）都已合入，但两边形状不通：Ganking 展开输出 " +
     "permission: \"battlefield-to-battlefield\"（标量字段），movement() 只读 continuous.movement 归一化后的 " +

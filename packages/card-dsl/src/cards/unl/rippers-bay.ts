@@ -29,7 +29,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   controller (see judgeReason; the same event-player gap rad/rakelstake and
  *   ogn/obelisk-of-power record).
  * - 204.3.a / 383.3.a: "that player may pay [1 energy] to channel 1 rune" is a
- *   cost within instructions decided on resolution, so it is an optional
+ *   cost within instructions decided on resolution (204.3.a), so it is an optional
  *   wrapper (contract §3.9 `choice.optional`) holding the payment and the
  *   channel, never a `choice` plus a `linkedTo` consumer.
  * - 431.1 / 431.2 / 431.2.a: "channel 1 rune exhausted" takes one rune from
@@ -38,7 +38,7 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * Status (packages/card-dsl/src/cards/README.md §2): judge-required — the
  * channel half is a merged primitive and the golden test executes the printed
- * cost/channel shape through the real interpreter with the payer bound, but the
+ * merged cost.pay/channel shape through the real interpreter with the payer bound, but the
  * card cannot run as printed:
  * 1. "that player" is an event participant (190.6.c). No frozen
  *    ObjectSelector/Expr reads the triggering event's player, and the merged
@@ -52,12 +52,13 @@ import type { CardProgram } from "../../ir/index.js";
  *    "here" filter cannot be evaluated (the filter key is a documented
  *    placeholder);
  * 3. no merged producer submits the printed 1-Energy payment as a
- *    resolution-time cost (cost.pay is not a merged instruction) and no
- *    subscriber registers a CardProgram's triggered ability as a
+ *    resolution-time cost (the merged cost.pay primitive settles an already
+ *    finalized CostPlan, but no producer builds the payer-scoped plan here)
+ *    and no subscriber registers a CardProgram's triggered ability as a
  *    TriggerRegistration (190.6.c choice ownership included).
  * Dependencies: an event-player selector and a play/return-location payload
- * (contract change requests) plus RIFT-89 (cost.pay) and RIFT-33 / contract
- * §7.2 batch 5 trigger registration. Nothing is approximated.
+ * (contract change requests) plus a cost-plan producer / payer binding and
+ * RIFT-33 / contract §7.2 batch 5 trigger registration. Nothing is approximated.
  */
 export default {
   canonicalCardId:
@@ -71,9 +72,11 @@ export default {
     "（同 rad/rakelstake、ogn/obelisk-of-power 的事件玩家缺口）。" +
     "(2)「a unit here」需要被回手单位的原战场：已合入的 object-enters-hand 发射（events/action-adapter.ts）带进入对象与 fromZone=board，" +
     "但没有 battlefield id 载荷，053.3 的 here 无法求值（触发 filter 里的 here/nonBattlefield 键是记录占位）。" +
-    "(3) 没有已合入生产者把「另一名玩家的可选费用」作为结算期费用提交（cost.pay 不是已合入原语型指令），" +
+    "(3) 没有已合入生产者把「另一名玩家的可选费用」作为结算期费用提交——cost.pay 原语已合入" +
+    "（只 settle 调用方已 finalize 的 CostPlan），但没有生产方按“该玩家”构造并提交这一支付计划，" +
     "也没有订阅方把 CardProgram 的 triggered ability 注册成 TriggerRegistration（含 190.6.c 的选择归属）。" +
-    "依赖：事件玩家选择器与回手地点载荷（契约变更请求）、RIFT-89（cost.pay）、RIFT-33/契约 §7.2 批 5 触发注册。" +
+    "依赖：事件玩家选择器与回手地点载荷（契约变更请求）、结算期费用计划的生产方/付款者绑定、" +
+    "RIFT-33/契约 §7.2 批 5 触发注册。" +
     "golden 只把 cost.pay 与 effect.channel 的印刷形状（先付费、后横置入场地 channel 1）在绑定付款者后用参考内核执行。",
   sourceText:
     "When a unit here is returned to a player's hand, that player may pay :rb_energy_1: to channel 1 rune exhausted.",
@@ -108,11 +111,12 @@ export default {
               value: [
                 {
                   // 204.3.a / 383.3.a: "that player may pay [1]" is a cost
-                  // within instructions paid as this ability resolves. The
-                  // payer is the ability's controller (190.6.c/190.6.d), which
-                  // is why no player argument is fabricated here. cost.pay is
-                  // not a merged instruction primitive (RIFT-89); the
-                  // declaration keeps the printed amount reviewable.
+                  // within instructions paid as this ability resolves. cost.pay
+                  // is a merged primitive that settles an already finalized
+                  // CostPlan, so the declaration keeps the printed amount
+                  // reviewable. The payer is the ability's controller
+                  // (190.6.c/190.6.d), which is why no player argument is
+                  // fabricated here.
                   id: "rippers-bay.pay",
                   op: "cost.pay",
                   args: { energy: { kind: "constant", value: 1 } }

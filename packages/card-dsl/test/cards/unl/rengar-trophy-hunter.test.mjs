@@ -31,6 +31,9 @@ test("unl-120-219 Rengar, Trophy Hunter: identity, status, judgeReason and verba
   assert.match(program.judgeReason, /play-location-permission/);
   assert.match(program.judgeReason, /355\.2\.b/);
   assert.match(program.judgeReason, /RIFT-266/);
+  // Second-sweep refresh proof: the merged Ambush KeywordDef is named; only its
+  // play-location-permission consumers are missing.
+  assert.match(program.judgeReason, /Ambush KeywordDef/);
   // The stale "no Ambush KeywordDef is merged" wording must be gone.
   assert.doesNotMatch(program.judgeReason, /没有已合入的 KeywordDef|无 Ambush 文件/);
 });

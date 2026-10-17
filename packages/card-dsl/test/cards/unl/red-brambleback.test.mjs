@@ -60,6 +60,10 @@ test("unl-029-219 Red Brambleback: identity, status, judgeReason and verbatim so
   // The newly verified gap: the scoring wave carries no conquering-unit attribution.
   assert.match(program.judgeReason, /payloadFields/);
   assert.match(program.judgeReason, /sigil-of-the-storm/);
+  // Second-sweep refresh proof: the merged conquered-to-conquer alias is named,
+  // and the old validateTriggerSpec-rejection wording is gone.
+  assert.match(program.judgeReason, /pipeline-match/);
+  assert.doesNotMatch(program.judgeReason, /validateTriggerSpec/);
   assert.doesNotMatch(program.judgeReason, /RIFT-120/);
 });
 
