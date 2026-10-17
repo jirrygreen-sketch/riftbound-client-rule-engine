@@ -9,6 +9,8 @@ const { buildCostPlan } = await import(new URL("cost/cost-plan.js", ENGINE));
 const { payCostPlan } = await import(new URL("cost/payment.js", ENGINE));
 const { runInstruction, world } = await import(new URL("effects/testing/index.js", ENGINE));
 const resources = (await import(new URL("effects/instructions/effect.resources.js", ENGINE))).default;
+const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js", ENGINE));
+const { translateRestriction } = await import(new URL("programs/play.js", ENGINE));
 
 const CANONICAL_ID = "card.hash-4f7b6e74a78c84b04922aadf51f0f8ef02368e59a4158f98eec18e4f301f75fe";
 const SOURCE_TEXT =
@@ -96,6 +98,24 @@ test("sfd-189-221 Fire Below the Mountain: the Add instruction only names Power 
   assert.deepEqual(run.events.map((event) => event.action), ["gain-power"]);
 });
 
+test("sfd-189-221 Fire Below the Mountain: the original Universal Add body fails closed without changing resources", () => {
+  const kernel = world().player("A", { energy: 2, power: ["Order"] }).build();
+  const outcome = resolveChainBody(ability.body, kernel);
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results[0].result, { status: "negated", reason: "impossible", events: [] });
+  assert.deepEqual(kernel.player("A").power, ["Order"]);
+  assert.equal(kernel.player("A").energy, 2);
+  assert.deepEqual(kernel.events, []);
+});
+
+test("sfd-189-221 Fire Below the Mountain: the printed resource-use restriction requires a rules adapter", () => {
+  assert.throws(() => translateRestriction(ability.restriction, CANONICAL_ID), error => {
+    assert.equal(error.code, "judge-required");
+    assert.match(error.message, /use-only-to-play-gear-or-gear-abilities/);
+    return true;
+  });
+});
+
 test.todo(
   "sfd-189-221 Fire Below the Mountain: represent and spend Universal Power ([A], CR 135.2.e.5 / " +
     "163.2.b) — the closed Domain union and the gain-power action have no universal value " +
@@ -104,8 +124,13 @@ test.todo(
 
 test.todo(
   "sfd-189-221 Fire Below the Mountain: enforce “Use only to play gear or use gear abilities.” " +
-    "(204.4.b.1 restriction family) — nothing consumes a card program's activated-ability " +
-  "restriction yet (the merged translateRestriction path only passes through Condition kinds)"
+    "(204.4.b.1 restriction family) — bind added-resource provenance and spending purposes; " +
+    "translateRestriction still rejects this custom restriction kind"
+);
+
+test.todo(
+  "sfd-189-221 Fire Below the Mountain: programs/activate.ts must classify this ability as Add " +
+    "so ChainDraft.kind=add can enter immediate resolution and Reaction Add during payment (430.2/430.3)"
 );
 
 test.todo(

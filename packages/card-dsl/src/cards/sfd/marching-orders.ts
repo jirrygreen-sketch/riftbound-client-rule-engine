@@ -17,10 +17,9 @@ import type { CardProgram } from "../../ir/index.js";
  *   blocked by the unsupported [Repeat] additional-cost field below, so the
  *   chain's canAct/Showdown path cannot be exercised end to end yet.
  * - "[Repeat] :rb_energy_3:" (820.1.c) is an Optional Additional Cost. The
- *   Repeat KeywordDef is merged and the printed component remains declared on
- *   the play CostSpec, but programs/play.ts still rejects the additional-cost
- *   field outright (Additional costs are not bound), so Finalize never collects
- *   it and no paid-instance count reaches resolution.
+ *   Repeat KeywordDef is merged, but expandProgram passes only keyword/value/
+ *   host, not its printed cost. programs/play.ts rejects this additional-cost
+ *   CostSpec, so no paid-instance count reaches resolution.
  * - "Choose a friendly unit anywhere and an enemy unit at a battlefield": the
  *   spell's controller chooses both units, so both are Targets (355.7 /
  *   355.9.a.1 / 355.9.b) locked at Finalize (355.5). "Anywhere" adds no
@@ -37,31 +36,29 @@ import type { CardProgram } from "../../ir/index.js";
  * - Null Might is never coerced: 418.1.e/418.1.e.1 deals no damage when the
  *   read amount is not a positive number, and no fixed amount is authored here.
  *
- * Status (cards/README.md §2): judge-required — the damage clause needs only
- * merged primitives and is executed by the golden test, and the merged
- * program adapter resolves the [Action] speed, but the printed [Repeat]
- * additional cost has no card-program collection/count-to-extra-execution path,
- * so the card cannot be played as printed yet.
+ * Current status: judge-required. Damage, TargetSpec.location and Action speed
+ * are supported; the original damage body is executed without removing targets.
+ * Repeat's printed-cost/Finalize/paid-instance binding is still missing.
  */
 const marchingOrders = {
   canonicalCardId: "card.hash-7665f836ecbe39043d8dd42f110ad82560fe857373dbf87d7348d347e764617c",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「[Repeat] :rb_energy_3:」的可选追加费用（820.1.c / 820.1.b / 356.2.b.1）仍没有卡牌侧收取/计数路径：" +
-    "Repeat KeywordDef 已合入并读取该印刷费用，但 programs/play.ts 直接拒绝 additional-cost 字段（Additional costs are not bound），" +
-    "Finalize 因此收不到该费用，结算端按 820.1.d / 820.2.a 把已付费实例数接到额外执行也就无从谈起。" +
-    "本文件按既有 CostSpec 形状声明该费用，属待接线声明；不写死第二次结算近似。" +
-    "伤害半段（两个目标 + 418.6.b.3 的单位来源 + 结算时读 Might）只用已合入的 effect.damage 与 TargetSpec，golden 已真实执行；" +
-    "[Action] 的 abilitySpeed 已能推出 action，但 play 草稿仍被上面的 additional-cost 字段挡住，Showdown 许可无法端到端执行。",
+    "[Repeat] :rb_energy_3:（820.1.c）仍缺卡牌侧 Finalize 接线：Repeat KeywordDef 已合入，" +
+    "但 programs/keywords.ts 的 expandProgram 只传 keyword/value/host，未传印刷 Repeat cost；" +
+    "本卡 CostSpec 的 additional-cost 也被 programs/play.ts 的 translateCost 拒绝。" +
+    "尚不能收取可选追加费用、记录已付实例并按 820.1.d / 820.2.a 额外执行与重选。" +
+    "伤害正文的两个 TargetSpec、418.6.b.3 的单位来源与结算时 Might 均已合入，golden 已真实执行。" +
+    "[Action] 速度已可推导，但上述费用缺口仍阻断整卡打出。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {
       kind: "play",
       cost: {
         // 印刷基础费用 3 Energy、无 Power（356.1.c：由卡牌身份在 Finalize 绑定）。
-        // [Repeat] :rb_energy_3: 的可选追加费用（820.1.c / 356.2.b.1）按已合入
-        // sfd/danger-zone 的同类形状声明为 additional-cost（无消费方，见 judgeReason）。
+        // [Repeat] :rb_energy_3: 的可选追加费用（820.1.c / 356.2.b.1）仍是
+        // additional-cost 描述；programs/play.ts 尚未收取该费用。
         kind: "additional-cost",
         keyword: "repeat",
         energy: { kind: "literal", value: 3 }
@@ -87,13 +84,13 @@ const marchingOrders = {
             {
               id: "marching-orders.enemy-unit",
               // 「an enemy unit at a battlefield」：355.9.b 的目标限制（355.10.b 说明
-              // 限制本身不是第二个目标），用已合入的 location 过滤器键表达。
+              // 限制本身不是第二个目标），由 TargetSpec.location 在解释器重验。
               filter: {
                 type: "unit",
                 zone: "board",
-                controller: "opponent",
-                location: "battlefield"
+                controller: "opponent"
               },
+              location: { type: "battlefield" },
               min: 1,
               max: 1,
               selection: "one"

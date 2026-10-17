@@ -23,9 +23,9 @@ import type { CardProgram } from "../../ir/index.js";
  * - "to a battlefield you control" is the runtime play destination
  *   (355.2/355.2.a: units are played to the controller's Base or a battlefield
  *   the controller controls). effect.play's location argument is an Expr that
- *   must evaluate to a LocationRef; a runtime Location choice has no merged
- *   selector, so the descriptor below is descriptive and fail-closed (the
- *   primitive negates rather than playing to a wrong location).
+ *   must evaluate to a LocationRef. The merged LocationExpr/choose selector is
+ *   evaluated by condition.value and linked into effect.play, whose primitive
+ *   schema accepts linked-value but not a direct location expression.
  * - "reducing its cost by :rb_energy_3:" is a cost reduction on the played
  *   unit's cost (356.1.c "for [Cost]" rewrites, 356.4 discounts, 356.6 floors
  *   at zero). The merged cost planner consumes discounts from its caller
@@ -33,31 +33,21 @@ import type { CardProgram } from "../../ir/index.js";
  *   already-finalized FinalizedCostPlan; no merged producer turns a card
  *   program's cost descriptor into that plan.
  *
- * Status: judge-required. All three dependencies are still missing today and
- * nothing is approximated (no printed-cost play, no invented battlefield id, no
- * unconditional body):
- * - a runtime consumer for the Hide action: cost/kinds/hidden.ts only builds and
- *   pays a Hidden cost plan; the Hide Discretionary Action, the facedown zone and
- *   the free facedown play (811.1.b/811.1.c) stay with their zone/timing owners;
- * - a producer that turns the printed -3 energy reduction into an already
- *   finalized FinalizedCostPlan for effect.play (356.4/356.6);
- * - a runtime Location selector for "a battlefield you control"
- *   (355.4/355.4.a, 451.1) — the in-progress location-choice work RIFT-357.
+ * Current status: judge-required. Hidden's runtime Hide/facedown/free-play
+ * consumer and a finalized -3 Energy cost plan for the picked Unit are absent.
+ * Location choice is now executable: condition.value captures a LocationExpr
+ * and effect.play reads its linked value through the existing primitive schema.
  */
 const hereToHelp = {
   canonicalCardId: "card.hash-783f18a4ad28b8126f59f285304bee0b93c1e76fb7a557f8e9fee60bebf1f609",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处依赖缺口，均不近似实现：(1)[Hidden]（811）的展开已合入（keywords/Hidden.ts），cost.hidden 费用种类的构建与支付也已合入" +
-    "（cost/kinds/hidden.ts）；Hide 行动、facedown 区域与从 facedown 免费打出（811.1.b/811.1.c）" +
-    "仍没有运行期消费者（见 cost/kinds/README.md 的集成请求）。" +
-    "(2)「play a unit from hand」是 effect.play 的非目标 pick（355.10.a：手牌不是公开区域），" +
-    "「reducing its cost by :rb_energy_3:」需要按 356.1.c/356.4/356.6 生成已 Finalize 的减费计划，" +
-    "而把卡牌程序的费用描述变成已 Finalize 的 FinalizedCostPlan 的生产者不存在，effect.play 明确要求 cost 是费用系统产出的 FinalizedCostPlan。" +
-    "(3)「a battlefield you control」是运行期 Location 选择（355.4/355.4.a、451.1；进行中的 RIFT-357），" +
-    "合并 IR 没有运行期 Location 选择器，effect.play 的 location 只接受 { type:\"base\",player } 或 { type:\"battlefield\",id }；" +
-    "本卡保留描述性目的地标记，解释器会拒绝（negated）而不是落到错误地点。",
+    "[Hidden] 的展开与 cost.hidden 费用构建/支付已合入，但 Hide 行动、facedown 区域和从 facedown 免费打出" +
+    "尚未接入运行期（811.1.b/811.1.c）。effect.play 需要所选手牌单位的 FinalizedCostPlan；" +
+    "cost.modify 按当前能力来源构建计划，source 分支仅处理 Weaponmaster Equipment，尚无按本卡 pick " +
+    "读取单位权威费用、应用 -3 Energy 并接入该单位打出/Finalize 的绑定（356.4/356.6），不能用本法术的费用替代。" +
+    "LocationSelector 与运行期 Location 选择已合入，本卡通过 condition.value→linked-value 绑定受控战场；不再将其列为依赖。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     { kind: "keyword", keyword: "action" },
@@ -83,21 +73,33 @@ const hereToHelp = {
               kind: "constant",
               value: [
                 {
+                  id: "here-to-help.choose-battlefield",
+                  op: "condition.value",
+                  args: {
+                    value: {
+                      kind: "location",
+                      value: {
+                        kind: "choose",
+                        id: "here-to-help.battlefield",
+                        filter: { type: "battlefield", controller: "controller" }
+                      }
+                    }
+                  }
+                },
+                {
                   id: "here-to-help.play-unit",
                   op: "effect.play",
                   args: {
                     pick: { kind: "constant", value: "here-to-help.unit" },
-                    // 描述性目的地标记：运行期 "a battlefield you control"
-                    // Location 选择未合入（见 judgeReason 第 3 点）。
+                    // effect.play accepts linked-value Exprs; keep the runtime
+                    // Location choice on the interpreter's condition.value node.
                     location: {
-                      kind: "constant",
-                      value: {
-                        kind: "destination-selector",
-                        filter: { type: "battlefield", controller: "self" }
-                      }
+                      kind: "linked-value",
+                      instructionId: "here-to-help.choose-battlefield",
+                      key: "value"
                     },
                     // 描述性减费计划：effect.play 需要已 Finalize 的
-                    // FinalizedCostPlan，减费生产者未合入（见 judgeReason 第 2 点）。
+                    // FinalizedCostPlan，所选单位的费用绑定未合入（见 judgeReason）。
                     cost: {
                       kind: "constant",
                       value: {

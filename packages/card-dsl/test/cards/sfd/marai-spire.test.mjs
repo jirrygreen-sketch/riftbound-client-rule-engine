@@ -19,6 +19,9 @@ test("sfd-211-221 Marai Spire: validates, is registered and keeps identity/sourc
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /Repeat/);
+  assert.match(program.judgeReason, /repeat-additional-cost/);
+  assert.match(program.judgeReason, /repeat\.cost/);
+  assert.match(program.judgeReason, /programs\/statics\.ts/);
   assert.equal(
     program.sourceText,
     "While you control this battlefield, friendly [Repeat] costs cost :rb_energy_1: less."

@@ -19,69 +19,28 @@ import type { CardProgram } from "../../ir/index.js";
  * - The reminder text in parentheses only restates 468.3.a and is not a second
  *   ability.
  *
- * status (cards/README.md section 2): judge-required. The printed "you win"
- * predicate cannot be evaluated and the trigger cannot fire:
- * 1. No merged module emits the `combat-result` timing point. combat/flow.ts
- *    stops before it: combat start needs the atomic simultaneous wave that is
- *    not implemented (`combat-start-transaction`), and damage needs the
- *    simultaneous commit it refuses (`simultaneous-damage-transaction`). The
- *    only other occurrence of the name is a boundary label inside
- *    duel/engagement-executor-v2.ts, which is not a chain-pipeline emission.
- * 2. The "you win" comparison has no merged spelling. Two gaps meet here:
- *    a. The closed EventPattern discriminator list (events/trigger-spec.ts
- *       EVENT_PATTERN_TYPES) has no `combat-result` member even though the timing
- *       point exists, so the engine's own validateTriggerSpec rejects the
- *       contract-correct spelling below. The golden test locks that rejection as
- *       evidence instead of retreating to a wrong-but-accepted event name — the
- *       same treatment ven/matriarch-of-war.test.mjs gives its own unvocabularied
- *       event spelling.
- *    b. The payload field for 468.3.a is `winnerId`, but EventPattern.details
- *       compares against literal scalars, so it cannot compare that field to the
- *       ability's controller; the one player selector EventPattern does offer
- *       (`player`) matches the emission's acting player, which is not the same
- *       thing as the combat winner. The filter therefore records
- *       `details.winnerId` descriptively: it fails closed ("self" is a literal, so
- *       a combat you lost never matches) and is never treated as an evaluated
- *       predicate.
- * 3. The registration machinery itself is merged (engine-core programs/triggers.ts
- *    and its registerProgramTriggers consumer), but it is gated on the program
- *    status and the trigger vocabulary above, so this trigger still cannot be
- *    subscribed today.
- * The body (effect.draw, amount 1) is merged and is executed by the golden test.
- * Dependencies: combat flow (combat-result emission), a winner predicate for
- * the combat-result payload plus the combat-result discriminator in
- * EVENT_PATTERN_TYPES; the status gate then still keeps the binding judge-required.
- * Nothing is approximated: the filter is not relaxed to "any combat" and the
- * trigger is not moved to a different timing point.
+ * Current status: judge-required. CombatFlow still blocks before combat-result;
+ * EventPattern lacks that discriminator and a controller-relative winnerId
+ * predicate. Legend Zone and its trigger active-zone binding are also absent.
+ * Program trigger registration and the Draw 1 body are already merged.
  */
 export default {
   canonicalCardId: "card.hash-fe2db2b592e71d47e736d643538a15fe129a6cb0b7aab53bd27572177b88671b",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1) 没有已合入模块发出 combat-result 时点——combat/flow.ts 在它之前就阻断" +
-    "（战斗开始需要原子同步波，抛 combat-start-transaction；伤害需要同时提交，抛 simultaneous-damage-transaction），" +
-    "duel/engagement-executor-v2.ts 里的同名串只是边界标签、不是链管线发射；" +
-    "(2) 「you win」的判定没有已合入拼写，这是两处缺口的叠加：(a) 封闭的 EventPattern 判别值表" +
-    "（events/trigger-spec.ts 的 EVENT_PATTERN_TYPES）没有 combat-result 成员——尽管该时点存在，" +
-    "所以引擎自带的 validateTriggerSpec 会拒绝下方契约正确的拼写；golden 把该拒绝作为证据锁定，" +
-    "而不是退回一个「能被接受但错误」的事件名（与 ven/matriarch-of-war.test.mjs 对其未入词表事件的同一处理一致）；" +
-    "(b) 468.3.a 的胜负载荷字段是 winnerId，而 EventPattern.details 只与字面标量比较、无法与能力控制者对比；" +
-    "EventPattern 唯一的玩家选择符 player 匹配的是事件的行动玩家，与战斗胜者不是同义；" +
-    "下方的 filter 以 details.winnerId 作描述性记录（fail-closed：\"self\" 是字面量，输掉的战斗永远不会命中，" +
-    "绝不被当作已求值谓词）；(3) 触发注册机制本身已合入（engine-core programs/triggers.ts 与其 " +
-    "registerProgramTriggers 消费方），但按程序 status 门禁 + 上述词表缺口，该触发今天仍无法被订阅。" +
-    "效果本体 effect.draw（数量 1，抽取者为能力控制者 190.6.d）已合入并由 golden 执行。" +
-    "依赖：combat 流程的 combat-result 发射、胜负载荷谓词、以及 combat-result 的词表成员；" +
-    "在这些落地后 status 门禁仍会保持本卡 judge-required。" +
-    "不把过滤放宽成「任意战斗」，也不把触发挪到别的时点。",
+    "combat-result 仍无生产发射路径：combat/flow.ts 在 combat-start-transaction / simultaneous-damage-transaction " +
+    "处阻断，尚未到达 468.3.a–d / 468.4 的胜负步骤。events/trigger-spec.ts 的 EVENT_PATTERN_TYPES " +
+    "没有 combat-result；EventPattern.details 只比较字面值，不能把 winnerId 与能力控制者比较。" +
+    "Legend Zone（107.4.a–d）不在 ZoneId 中，programs/triggers.ts 对永久物只默认订阅 board；" +
+    "需补传奇区域及活动区域绑定。effect.draw 1 已可独立执行，触发注册机制本身已合入。",
   abilities: [
     {
       kind: "triggered",
       trigger: {
         at: "combat-result",
         // The closed payload field for 468.3.a is winnerId; comparing it to the
-        // ability's controller has no merged form (see judgeReason item 2), so
+        // ability's controller has no merged form (see judgeReason), so
         // this is a descriptive, fail-closed record rather than an evaluated
         // predicate.
         filter: { event: "combat-result", details: { winnerId: "self" } }
