@@ -4,13 +4,19 @@
 // opponent-XP boundaries and the host-only Might/keyword grants) lives in the
 // RIFT-675 parameterized template golden:
 // test/cards/templates/static-static-675.test.mjs.
-// This file keeps validation, identity, verbatim text, declared status and the
-// key structure of both conditional grants.
+// Existing per-card behavior and structure assertions are retained here;
+// the template suite supplies additional execution evidence.
+// RIFT-651 template execution evidence (pending XP-history gating and Ganking
+// movement consumption): packages/card-dsl/test/cards/templates/static-static-651.test.mjs
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/wily-newtfish.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
   "card.hash-55487ff54a21b4f984b21e9ef2babc80760bd74a2128eac7bd6665ff81432f9e";
@@ -74,6 +80,52 @@ test("unl-108-219 Wily Newtfish: the merged keyword registry knows Ganking", asy
     "../../../../engine-core/dist/effects/keywords/registry.generated.js"
   );
   assert.equal(keywordDefinitionsById.has("Ganking"), true);
+});
+
+test("unl-108-219 Wily Newtfish golden: the declared +1 Might really applies to the host alone", () => {
+  // RIFT-258's continuous.might resolves the declared { object: "self" } selector
+  // (interpreter selectors: queryObjects consumes object anchors) and the
+  // arithmetic layer applies +1 Might to the host only.
+  const base = world()
+    .unit("newtfish", { owner: "A", controller: "A", might: 4 })
+    .unit("ally", { owner: "A", controller: "A", might: 2 })
+    .unit("enemy", { owner: "B", controller: "B", might: 2 })
+    .build();
+  const kernel = bindResolveContext(base, { source: base.getObject("newtfish"), controller: "A" });
+  const outcome = runAbilityBody([
+    {
+      id: "newtfish.plus-1",
+      op: "continuous.might",
+      args: {
+        amount: mightAbility.effect.amount,
+        mode: { kind: "constant", value: mightAbility.effect.mode },
+        // The declared filter is static IR metadata, so it travels in a constant
+        // expression envelope; the primitive validates it after evaluation.
+        filter: { kind: "constant", value: mightAbility.effect.filter }
+      }
+    },
+    {
+      id: "newtfish.grant-ganking",
+      op: "continuous.grant-keyword",
+      args: {
+        keyword: { kind: "constant", value: gankingAbility.effect.keyword },
+        filter: { kind: "constant", value: gankingAbility.effect.filter }
+      }
+    }
+  ], kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.linkedValues["newtfish.plus-1.affected.objects"], [base.ref("newtfish")]);
+  assert.deepEqual(outcome.linkedValues["newtfish.grant-ganking.granted.objects"], [base.ref("newtfish")]);
+  assert.equal(base.continuousEffects.length, 2);
+
+  const layers = createLayerEngine(base.objects, base.continuousEffects);
+  assert.equal(layers.evaluate(base.ref("newtfish")).might, 5);
+  assert.equal(layers.evaluate(base.ref("ally")).might, 2);
+  assert.equal(layers.evaluate(base.ref("enemy")).might, 2);
+  assert.deepEqual(layers.evaluate(base.ref("newtfish")).keywords.map(keyword => keyword.id), ["Ganking"]);
+  assert.deepEqual(layers.evaluate(base.ref("ally")).keywords, []);
+  assert.deepEqual(layers.evaluate(base.ref("enemy")).keywords, []);
 });
 
 test.todo(
