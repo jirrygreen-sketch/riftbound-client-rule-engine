@@ -21,11 +21,12 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   由 layers/engine.ts 写进 keywords（golden 有真实执行证据）。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required，三条依赖未合入，均不近似实现：
- * - 授予句的关键词行使权：continuous.grant-keyword 原语已合入，但没有已合入路径把卡牌的
- *   static 能力注册进图层——programs/lifecycle.ts 的 attachProgramLifecycle 只在调用方提供
- *   staticBinder 时回调 bindStatic，而仓库内没有任何生产调用方提供 staticBinder
- *   （apps/ 与 packages/ 都没有 createProgramBinding 的 staticBinder 使用），因此该 static
- *   能力在生产中不会登记。
+ * - 授予句的关键词行使权：continuous.grant-keyword 原语已合入，生产绑定也已默认接入 engine
+ *   静态图层（createProgramBinding 未传 staticBinder 时 attachProgramLifecycle 会使用
+ *   createEngineStaticBinder，game-server 的 engine-runtime 正是按这种默认方式
+ *   attachLifecycle），但该 binder 经 programs/statics.ts 的 staticFilter 翻译 static 效果，
+ *   其白名单不接受 playedFromZoneNot，会抛 ProgramBindingError('judge-required')，
+ *   授予句因此在生产绑定下进不了图层。
  * - 「played from anywhere other than a player's hand」需要打出来源区域的谓词：ObjectFilter 只做
  *   类型/控制者/所有者/区域/状态/tags/characteristics 匹配（layers/filter.ts 的 matchesObjectFilter），
  *   不表达「从哪个区域打出」；golden 里 filter 的 playedFromZoneNot 只是描述性占位、无正式语义。
@@ -63,13 +64,14 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "三条依赖未合入，均不近似实现。" +
-    "(1) 授予句的关键词行使权：continuous.grant-keyword 原语已合入（RIFT-258，经 addContinuous 在 ability 层登记，golden 用解释器 + 图层引擎真实执行并断言目标单位获得 accelerate），" +
-    "但没有已合入路径把卡牌的 static 能力注册进图层：programs/lifecycle.ts 的 attachProgramLifecycle 只在调用方传入 staticBinder 时回调 bindStatic，仓库内没有生产调用方提供它。" +
+    "(1) 授予句的关键词行使权：continuous.grant-keyword 原语已合入（RIFT-258，经 addContinuous 在 ability 层登记，golden 用解释器 + 图层引擎真实执行并断言目标单位获得 accelerate）；" +
+    "生产绑定已默认接入 engine 静态图层——createProgramBinding 未传 staticBinder 时 attachProgramLifecycle 会使用 createEngineStaticBinder（game-server 的 engine-runtime 正是按这种默认方式 attachLifecycle），" +
+    "但该 binder 经 staticFilter 翻译 static 效果，其白名单不接受 playedFromZoneNot，会抛 ProgramBindingError('judge-required', \"Unsupported static filter field playedFromZoneNot\")，本卡的授予句在生产绑定下进不了图层。" +
     "(2)「played from anywhere other than a player's hand」需要打出来源区域的谓词：ObjectFilter 只做类型/控制者/所有者/区域/状态/tags/characteristics 匹配" +
     "（layers/filter.ts 的 matchesObjectFilter 明确不读 playedFromZoneNot），golden 里的该键只是描述性占位、无正式语义。" +
     "(3) [Accelerate] 的费用接线：805.6/805.6.a 的「付费后以就绪进场替代横置进场」需要打出流程在 Finalize 选择并收取可选附加费用（cost.additional/cost.pay 的卡牌侧接线未合入）；" +
     "[Assault] 展开的 arithmetic 效果带 designation 条件，layers/engine.ts 的 conditionMatches 不处理 compare(designation)，未知条件会落到 true，因此无可执行的 attacker 判定。" +
-    "依赖：卡牌 static 能力的图层注册方（RIFT-257 后续）、打出来源区域谓词、可选附加费用接线（RIFT-261）与 designation 条件求值（RIFT-91 后续）。",
+    "依赖：staticFilter 对 playedFromZoneNot 的谓词支持与 static 绑定防错路径（RIFT-257 后续）、打出来源区域谓词、可选附加费用接线（RIFT-261）与 designation 条件求值（RIFT-91 后续）。",
   abilities,
   sourceText:
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_fury: as an additional cost to have me enter ready.)\n" +

@@ -15,6 +15,7 @@ test("sfd-024-221 Rell, Magnetic: validates identity and ability structure", () 
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Tank/);
+  assert.match(program.judgeReason, /effects\/keywords\/Tank\.ts/);
   assert.match(program.judgeReason, /energyLte/);
   assert.equal(program.sourceText, "[Tank] (I must be assigned combat damage first.)\nWhen I attack, you may play an Equipment with Energy cost no more than :rb_energy_2:, ignoring its cost, and attach it to me.");
 });

@@ -1,8 +1,9 @@
 // Golden test for Rek'Sai, Breacher (sfd-029-221).
 //
-// The card keeps judge-required: the card's static Accelerate grant has no
-// production layer-registration path, the printed "played from anywhere other
-// than a player's hand" has no play-origin predicate, and the Accelerate entry
+// The card keeps judge-required: the production static binder translates the
+// grant through staticFilter, whose whitelist rejects the card's descriptive
+// playedFromZoneNot key, the printed "played from anywhere other than a
+// player's hand" has no play-origin predicate, and the Accelerate entry
 // replacement/Assault attacker condition have no consumers. The grant itself is
 // exercised for real through the merged continuous.grant-keyword primitive and
 // the merged layer engine.
@@ -79,8 +80,9 @@ test("sfd-029-221 Rek'Sai, Breacher: identity, ruleset, status and verbatim text
 
 test("sfd-029-221 Rek'Sai, Breacher: judgeReason names the current registration, predicate and condition gaps", () => {
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /staticBinder/);
+  assert.match(program.judgeReason, /staticFilter/);
   assert.match(program.judgeReason, /playedFromZoneNot/);
+  assert.match(program.judgeReason, /createEngineStaticBinder/);
   assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /designation/);
 });
@@ -191,14 +193,14 @@ test("sfd-029-221 Rek'Sai, Breacher: [Assault]'s expansion carries an unevaluata
 });
 
 test.todo(
-  "sfd-029-221 Rek'Sai, Breacher: the card's static continuous.grant-keyword ability needs a production layer " +
-    "registration path (programs/lifecycle.ts only calls bindStatic when the caller supplies a staticBinder, and " +
-    "no production caller does) - RIFT-257 follow-up"
+  "sfd-029-221 Rek'Sai, Breacher: the card's static continuous.grant-keyword ability cannot pass the production " +
+    "static binder - programs/statics.ts staticFilter rejects playedFromZoneNot with ProgramBindingError(" +
+    "'judge-required', 'Unsupported static filter field playedFromZoneNot') - RIFT-257 follow-up"
 );
 test.todo(
   "sfd-029-221 Rek'Sai, Breacher: 'played from anywhere other than a player's hand' needs a play-origin zone " +
-    "predicate; the frozen ObjectFilter/matcher vocabulary (layers/filter.ts) has type/controller/owner/zone/" +
-    "states/tags/characteristics but no origin-zone-of-play match"
+    "predicate; neither layers/filter.ts matchesObjectFilter nor the programs/statics.ts staticFilter whitelist " +
+    "(type/controller/owner/zone/states/tags/characteristics) has an origin-zone-of-play match"
 );
 test.todo(
   "sfd-029-221 Rek'Sai, Breacher: [Accelerate] payment and enter-ready replacement end to end through the cost " +
