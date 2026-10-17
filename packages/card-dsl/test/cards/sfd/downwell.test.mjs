@@ -5,6 +5,7 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/downwell.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import zone from "../../../../engine-core/dist/effects/instructions/effect.zone.js";
+import { planReplacementBody } from "../../../../engine-core/dist/replacement/planner.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-2d4fa47f98b9d923f7ff215e0893e6d748e4c5b8f906b289eacc50e0f83769db";
@@ -26,7 +27,11 @@ test("sfd-147-221 Downwell: program passes validateCardProgram", () => {
 test("sfd-147-221 Downwell: judgeReason names the missing non-target set form", () => {
   assert.match(program.judgeReason, /355\.10\.d/);
   assert.match(program.judgeReason, /effect\.zone/);
-  assert.match(program.judgeReason, /RIFT-260/);
+  // RIFT-260 landed the replacement binding, but its planner still maps
+  // effect.zone through the target spelling only, so the reason names that
+  // concrete consumer instead of the landed task number.
+  assert.doesNotMatch(program.judgeReason, /RIFT-260/);
+  assert.match(program.judgeReason, /requires exactly one of target or pick/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -98,5 +103,29 @@ test.todo(
   "sfd-147-221 Downwell: 'Return all units and gear to their owners' hands' needs a non-target set form of " +
     "effect.zone (355.10.d/355.10.d.1) — the merged primitive consumes only ctx.targets / ctx.picks. The " +
     "effect.ready / effect.heal { kind: 'query', filter } descriptor is the intended shape; the replacement " +
-    "planner (RIFT-260) likewise maps effect.zone only through its target spelling."
+    "planner likewise maps effect.zone only through its target spelling."
 );
+
+test("sfd-147-221 Downwell: the printed non-target set descriptor is still refused by the merged consumers", () => {
+  // The refreshed judgeReason must be reproducible: the card's declared
+  // objects descriptor is not a valid effect.zone argument, and the merged
+  // replacement planner also accepts only the target spelling.
+  const kernel = world()
+    .unit("ally-unit", { owner: "A", controller: "A", location: { type: "battlefield", id: "battlefield-1" } })
+    .build();
+  assert.throws(
+    () => runInstruction(zone, returnInstruction.args, { world: kernel }),
+    (error) => error instanceof TypeError &&
+      /effect\.zone requires exactly one of target or pick/.test(error.message)
+  );
+  assert.equal(kernel.getObject("ally-unit").zone, "board");
+
+  assert.throws(
+    () => planReplacementBody(play.body, { hostRef: kernel.ref("ally-unit"), replacedObject: null, usedWindow: false }, {
+      evaluate: expression => expression.value,
+      controller: "A",
+      object: () => kernel.ref("ally-unit")
+    }),
+    (error) => /effect\.zone target must be an object selector spelling/.test(error.message)
+  );
+});

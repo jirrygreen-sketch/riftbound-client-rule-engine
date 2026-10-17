@@ -8,6 +8,9 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
+import { CostPlanError } from "../../../../engine-core/dist/cost/index.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-d511bb90ed51ac962aec938d769d68fb16ec0ef21f47c232f727712726e31cf1";
@@ -303,3 +306,65 @@ test.todo(
   "sfd-195-221 Blade Dancer: bind the ready it instruction to the became-target event object; the current " +
     "ObjectSelector vocabulary has no event-object selector and the TargetSpec is only a fresh target"
 );
+
+test("sfd-195-221 Blade Dancer: the merged trigger registration still carries no ability cost", () => {
+  // The card models both printed costs with cost.modify/cost.pay, and the
+  // golden above really pays them. What is still missing is the contract side:
+  // TriggeredAbility has no top-level CostSpec and the merged registration does
+  // not forward one, so Finalize cannot lock/pay the ability cost from the
+  // program alone. The registry also refuses the shipped judge-required card.
+  assert.equal(program.abilities[0].cost, undefined);
+  assert.equal(program.abilities[1].cost, undefined);
+
+  const registry = new ProgramRegistry([program]);
+  assert.throws(
+    () => registry.get(CARD_ID),
+    (error) => error.name === "ProgramBindingError" && error.code === "judge-required"
+  );
+
+  // registration shape: only the trigger spec/body/optional/activeZones are
+  // produced, so there is no field through which an ability cost could travel.
+  const executionProgram = {
+    ...program,
+    status: "executable",
+    judgeReason: undefined
+  };
+  // The registration path keys off the printed card identity.
+  const base = world()
+    .unit("blade-dancer", { cardId: CARD_ID, types: ["legend"], location: { type: "base", player: "A" } })
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("blade-dancer") });
+  const source = kernel.getObject("blade-dancer");
+  const registrations = triggerRegistrations(new ProgramRegistry([executionProgram]), source);
+  assert.equal(registrations.length, 2);
+  for (const registration of registrations) {
+    assert.equal(registration.cost, undefined);
+    assert.equal(registration.mayAtFinalize, undefined);
+  }
+});
+
+test("sfd-195-221 Blade Dancer: the merged exhaust payment still requires a Board or Rune-Zone object", () => {
+  // CR 107.4 keeps a legend in the Legend Zone, which is outside the merged
+  // ZoneId union; cost/payment.ts only accepts board/rune-zone exhaust costs.
+  const boardKernel = legendWorld();
+  const boardPlan = buildCostPlan(boardKernel, {
+    id: "cost:legend-exhaust",
+    cost: { kind: "activated", payments: [{ kind: "exhaust", object: "self" }] }
+  });
+  assert.deepEqual(boardPlan.total.actions.map(entry => entry.action.type), ["exhaust"]);
+
+  const handBase = world().hand("legend", { types: ["legend"] }).build();
+  const handContext = handBase.clone({ sourceSnapshot: handBase.getObject("legend") });
+  assert.equal(handContext.getObject("legend").zone, "hand");
+  const handPlan = buildCostPlan(handContext, {
+    id: "cost:legend-hand",
+    cost: { kind: "activated", payments: [{ kind: "exhaust", object: "self" }] }
+  });
+  // The plan builds, but the payment layer refuses any exhaust cost whose
+  // object is not a ready controlled Board/Rune-Zone object — so a legend in
+  // the (unmerged, CR 107.4) Legend Zone cannot pay it.
+  assert.throws(
+    () => payCostPlan(handContext, handPlan),
+    (error) => error instanceof CostPlanError && error.reason === "cannot-pay-cost"
+  );
+});

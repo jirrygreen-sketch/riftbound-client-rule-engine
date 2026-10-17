@@ -5,6 +5,11 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/draven-audacious.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import score from "../../../../engine-core/dist/effects/instructions/effect.score.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-517bab9d87b5b339d5d8886b24a11340875d925af78a9616dcb0a621e6ea4818";
@@ -154,3 +159,45 @@ test.todo(
     "tax adapter only appends caller-supplied taxes and the merged tax -> cost mapping bills Energy instead of the " +
     "any-domain Power of 809.1.c.1 (RIFT-360)"
 );
+
+test("sfd-148-221 Draven, Audacious: the merged registries still lack the native player target", () => {
+  // 355.9.a: choosing an opponent is a Player selection. The refreshed reason
+  // names the missing primitive concretely, and the merged instruction
+  // registry has no target.player opcode for the card to declare.
+  assert.equal(instructionDefinitionsById.has("target.player"), false);
+  // The declared choose-opponent instruction is therefore unregistered.
+  assert.equal(instructionDefinitionsById.has(chooseOpponent.op), false);
+});
+
+test("sfd-148-221 Draven, Audacious: an in-combat death payload cannot match the declared filter", () => {
+  // 740.2.c / 808.1.d: the trigger needs the death event to say it happened in
+  // combat. No merged producer puts a combat designation into object-killed,
+  // so a real kill payload does not satisfy the declared details filter.
+  assert.equal(
+    matchesTriggerEvent(
+      dieInCombat.trigger.filter,
+      { timingPoint: "object-killed", kind: "object", player: "A", details: {} },
+      "A"
+    ),
+    false
+  );
+});
+
+test("sfd-148-221 Draven, Audacious: the merged static binder still refuses the Deflect expansion", () => {
+  // 809.1: [Deflect] expands to a static target.tax effect. The production
+  // static binder has no layer mapping for that kind, so the tax never reaches
+  // the target plan (and the merged tax booking uses Energy, not the
+  // any-domain Power of 809.1.c.1).
+  const definition = keywordDefinitionsById.get("Deflect");
+  assert.ok(definition, "effects/keywords/Deflect.ts must be registered");
+  const [expansion] = definition.expand({ value: undefined, host: { canonicalCardId: CARD_ID } });
+  assert.equal(expansion.effect.kind, "target.tax");
+
+  const kernel = world().unit("draven", { cardId: CARD_ID, location: { type: "base", player: "A" } }).build();
+  const binder = createEngineStaticBinder({ layers: createLayerEngine(kernel.objects) });
+  assert.throws(
+    () => binder.bindStatic(expansion, kernel.getObject("draven")),
+    (error) => error.name === "ProgramBindingError" &&
+      /Static ability kind target\.tax has no layer mapping/.test(error.message)
+  );
+});

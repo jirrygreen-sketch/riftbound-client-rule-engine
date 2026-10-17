@@ -15,9 +15,10 @@
  * - 150.1–150.3：Equipment 是带 Equipment 标签的 Gear，可以有 Equip；本地 catalog 的
  *   tags 为 ["Equipment"]，与 818.1.a 一致。
  *
- * status = judge-required：Equip 的印刷费用尚未接进费用计划（818.1.c.2）。
+ * status = judge-required（复核 2026-10-17）：Equip 的印刷费用尚未接进费用计划（818.1.c.2）。
  * KeywordDef.params.cost 已有契约入口，但 Equip.expand 不读取它，programs/keywords.ts
- * 也没有把本卡的 Calm 费用传给展开；cost/plan-values.ts 不支持 equip 支付种类。
+ * 也没有把本卡的 Calm 费用传给展开；cost/plan-values.ts 的 readCost 对 equip 支付种类
+ * 直接 blocked("Unsupported payment kind: equip")。
  * 卡牌程序、关键词展开与启动链路已合入，effect.attach 的执行测试覆盖附着部分。
  */
 export default {
@@ -26,9 +27,12 @@ export default {
   status: "judge-required",
   judgeReason:
     "印刷的 [Equip] 费用（1 点 Calm Power，CR 818.1.c.2）尚无可支付绑定：" +
-    "Equip.expand 仍声明 payments: [{ kind: \"equip\", value: source }]，cost/plan-values.ts 的 readCost 不支持 equip 支付种类；" +
-    "KeywordDef.params.cost 虽已声明，programs/keywords.ts 未传入印刷费用，Equip.expand 也不读取它。" +
-    "需补齐印刷 Equip 费用到费用计划的绑定（契约 3.8 第 3 条）。",
+    "Equip.expand 仍声明 payments: [{ kind: \"equip\", value: { kind: \"source\" } }]，" +
+    "cost/plan-values.ts 的 readCost 实测抛出 CostPlanError（reason \"judge-required\"，" +
+    "message \"Unsupported payment kind: equip\"），因此本卡的 Calm Power 不能组成可支付的 Equip 计划；" +
+    "KeywordDef.params.cost 虽已声明（契约 3.8 第 3 条），programs/keywords.ts 只向 expand 传 value/host，" +
+    "Equip.expand 也不读取它，印刷费用无法到达展开体。" +
+    "已合入并由 golden 真实执行的部分是 effect.attach 的附着与失效目标处理，不等于 Equip 启动可用。",
   abilities: [
     { kind: "keyword", keyword: "equip", value: 1, costDomain: "Calm" }
   ],

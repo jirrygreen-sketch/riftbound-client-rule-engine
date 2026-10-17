@@ -21,26 +21,32 @@ import type { CardProgram } from "../../ir/index.js";
  * - The merged effect.zone consumes a TargetSpec id or a PickSpec id only
  *   (ctx.targets / ctx.picks); it has no non-target set form, and the DSL has no
  *   non-target set spelling for it (effect.ready / effect.heal accept the
- *   { kind: "query", filter } descriptor; effect.zone does not). The intended
- *   set is therefore described with that descriptor shape and the instruction
- *   fails closed rather than approximating by targeting every unit and gear.
+ *   { kind: "query", filter } descriptor; effect.zone does not). The primitive
+ *   rejects the descriptor outright (effect.zone requires exactly one of
+ *   target or pick), and the replacement planner likewise accepts only the
+ *   target spelling. The intended set is therefore described with that
+ *   descriptor shape and the instruction fails closed rather than
+ *   approximating by targeting every unit and gear.
  *
  * Status (cards/README.md §2): judge-required — the missing non-target set form
- * of effect.zone is named (the remaining gap is the effect.zone primitive's
- * set/objects branch; RIFT-260's replacement planner also maps effect.zone only
- * through its target spelling), and nothing is approximated. Recorded cost:
- * 8 energy + 2 Chaos power (356.1.c).
+ * of effect.zone is named (the effect.zone primitive's set/objects branch and
+ * the replacement planner's matching target-only mapping), and nothing is
+ * approximated. Recorded cost: 8 energy + 2 Chaos power (356.1.c).
  */
 const downwell = {
   canonicalCardId: "card.hash-2d4fa47f98b9d923f7ff215e0893e6d748e4c5b8f906b289eacc50e0f83769db",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺非目标集合的「回手」形态：CR 355.10.d（其自举例为 “Kill all units at battlefields”）规定按特征程序化选出、玩家无从选择的集合不是 Target（355.10.d.1 把例外限定为从不做选择的集合），" +
-    "因此不能把 “all units and gear” 改成玩家选择的 TargetSpec（355.7、754），也不能用非目标 PickSpec 冒充自动选出的全集。" +
-    "已合入的 effect.zone 只读取 Finalize 锁定的 TargetSpec（ctx.targets）或非目标 PickSpec（ctx.picks），没有 effect.ready / effect.heal 那样的 {kind:'query', filter} 集合分支；" +
-    "本文件按该描述形状记录预期集合，指令会明确失败而不是近似。回手本身按 056.1/056.2 由动作层路由到**拥有者**手牌（effect.zone 的 to: \"hand\"），该半段可执行。" +
-    "依赖：effect.zone 增加非目标集合形态（跨包共享契约/原语扩展；替代规划器 RIFT-260 同样只规划 target 拼写）。",
+    "缺非目标集合的「回手」形态（CR 355.10.d）：按特征程序化选出、玩家无从选择的集合不是 Target" +
+    "（355.10.d.1 把例外限定为从不做选择的集合），因此不能把 “all units and gear” 改成玩家选择的 TargetSpec（355.7、754），" +
+    "也不能用非目标 PickSpec 冒充自动选出的全集。" +
+    "已合入的 effect.zone 只读取 Finalize 锁定的 TargetSpec（ctx.targets）或非目标 PickSpec（ctx.picks）：" +
+    "对仅有 objects 描述符的指令实测抛 TypeError \"effect.zone requires exactly one of target or pick\"；" +
+    "replacement/planner.ts 的 effect.zone 分支同样只接受 target 选择符（否则抛 BlockedReplacementError \"effect.zone target must be an object selector spelling\"）。" +
+    "本文件按 effect.ready / effect.heal 的 {kind:'query', filter} 形状记录预期集合，指令明确失败而不是近似。" +
+    "回手本身按 056.1/056.2 由动作层路由到**拥有者**手牌（effect.zone 的 to: \"hand\"），该半段已由 golden 真实执行。" +
+    "依赖：effect.zone（含替代规划器）增加非目标集合分支。",
   abilities: [
     {
       kind: "play",

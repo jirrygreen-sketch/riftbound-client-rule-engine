@@ -23,10 +23,15 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   仍不在 DEFINITIONS 表里：对 "gold" 执行得到 negated / blockedReason:
  *   token-definition-or-abilities-judge-required（与已合入 sfd/trove-golem、sfd/honest-broker、
  *   sfd/treasure-horde 同款缺口）。
- * - "exhausted" 的入场状态改写不被 create-token/play 支持：效果没在任何 place 提交横置入场
- *   （184.1 / 185.2.d；143.4 明确事后 effect.exhaust 不等价）。
- * - 通用触发注册已合入，但 hold 只发出 player/battlefieldId，source: "self" 被翻译为
- *   event.object，仍缺 383.4.d.2.a 所需的驻守单位/战场过滤绑定。
+ * - "exhausted" 的入场状态改写不被 create-token/play 支持：effect.token 的 ARGUMENTS 集合不含
+ *   entersExhausted，实测 schema 抛 "Invalid effect.token argument: entersExhausted"；也没有任何
+ *   place 提交横置入场（184.1 / 185.2.d；143.4 明确事后 effect.exhaust 不等价）。
+ * - 相对控制者的目的地也不可求值：effect.token 的 location 只接受常量 LocationRef，不接受
+ *   location 表达式（实测抛 "Invalid effect.token argument: location"），因此
+ *   { type: "base", player: "controller" } 无法解析为相对控制者的 Base。
+ * - 通用触发注册已合入，但 hold 只发出 player/details.battlefieldId（payload 无对象），
+ *   source: "self" 被翻译为 event.object，实测匹配返回 false，仍缺 383.4.d.2.a 所需的
+ *   驻守单位/战场过滤绑定。
  * 仍缺 Gold 定义、横置入场规定、相对控制者目的地与单位 Hold 绑定。
  */
 const abilities: Ability[] = [
@@ -64,9 +69,12 @@ const program = {
   judgeReason:
     "effect.token 的 mode \"play\" 已有链上创建和打出路径（CR 440.2.c/185.2.a），" +
     "但仍缺 Gold 的完整定义与能力（187.5）、entersExhausted 入场规定（184.1/185.2.d），" +
-    "以及 { type: \"base\", player: \"controller\" } 的相对控制者 LocationRef 绑定。" +
-    "另缺单位 Hold 的事件/位置过滤绑定（383.4.d.2.a）：turn/flow.ts 的 hold 只含 player/battlefieldId，" +
-    "programs/filters.ts 的 source: \"self\" 却要求 event.object，不能判定本单位驻守了该战场。" +
+    "以及 { type: \"base\", player: \"controller\" } 的相对控制者 LocationRef 绑定：" +
+    "effect.token 的 location 只接受常量 LocationRef，写 location 表达式实测抛 " +
+    "\"Invalid effect.token argument: location\"。" +
+    "另缺单位 Hold 的事件/位置过滤绑定（383.4.d.2.a）：turn/flow.ts 的 hold 只含 player 与 details.battlefieldId，" +
+    "payload 没有对象，programs/filters.ts 的 source: \"self\" 却要求 event.object，实测匹配为 false，" +
+    "不能判定本单位驻守了该战场。" +
     "不能用其他 token 定义替代 Gold，也不能以事后横置代替横置入场（143.4）。",
   abilities,
   sourceText: "When I hold, play two Gold gear tokens exhausted."

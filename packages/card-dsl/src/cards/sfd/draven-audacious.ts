@@ -31,12 +31,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * status 判定（cards/README.md 第 2 节）：judge-required——依赖未合入，均不近似实现：
  * - 仍缺战斗结果发射与战斗死亡载荷：
  *   combat/ 的胜利判定（468.3）没有把 combat-result 交给事件管线（全仓库只有 timing-points.ts 的声明
- *   与 duel/ 的其它流程引用），object-killed 的 in-combat 判别也没有落地（740.2.c 的战斗身份：
+ *   与 duel/ 的其它流程引用；实测在本包 ChainEngine 上提交战斗相关动作不会发出 combat-result），
+ *   object-killed 的 in-combat 判别也没有落地（740.2.c 的战斗身份：
  *   ObjectSnapshot.combatRole 已在契约 3.8 落地，但没有任何时点/载荷把它带到 object-killed，
  *   过滤器的 details.inCombat 也没有消费方）。
  * - "choose an opponent" 缺玩家选择原语（target.player）与该选择结果作为 effect.score 的 player 实参的
  *   已合入链接值形状：effect.score 的 player 接受 PlayerId / PlayerId[] / choose(PlayerId 列表)，
- *   但没有「在所有对手里由控制者重放式选一个玩家」的已注册指令（注册表无 target.player），
+ *   但没有「在所有对手里由控制者重放式选一个玩家」的已注册指令（instructionDefinitionsById.has("target.player") 实测为 false），
  *   因此被选对手无法写进静态 IR；需要原生玩家目标契约。
  * - [Deflect] 的展开（static target.tax）没有消费方：TargetPlan 的 TargetTaxAdapter 只接受调用方显式传入的税，
  *   没有从图层读取 target.tax 的接线，且已合入的税→费用换算按 Energy 记账，与 809.1.c.1 的
@@ -117,8 +118,10 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "（1）combat-result 的战斗结果发射方，以及 object-killed 的 inCombat 载荷/过滤绑定尚缺（CR 468.3、740.2.c）；" +
-    "（2）choose an opponent 缺原生玩家目标及其链接值（target.player），effect.score 的 choose 形态只接收静态 PlayerId 选项，" +
+    "（1）combat-result 的战斗结果发射方，以及 object-killed 的 inCombat 载荷/过滤绑定尚缺（CR 468.3、740.2.c）：" +
+    "本包 ChainEngine 上没有把该时点交给事件管线的生产者，combatRole 也未被任何时点/载荷带到 object-killed；" +
+    "（2）choose an opponent 缺原生玩家目标及其链接值（target.player）：instructionDefinitionsById.has(\"target.player\") 实测为 false，" +
+    "effect.score 的 choose 形态只接收静态 PlayerId 选项，" +
     "不能在静态卡牌 IR 中列出运行时所有对手；" +
     "（3）Deflect 的静态 target.tax 尚未接入目标税与费用计划，现有税适配也未实现 809.1.c.1 的任意域 Power 支付（RIFT-360）。",
   abilities,

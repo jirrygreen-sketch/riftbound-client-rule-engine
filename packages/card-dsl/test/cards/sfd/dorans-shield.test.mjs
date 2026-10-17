@@ -7,6 +7,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import attach from "../../../../engine-core/dist/effects/instructions/effect.attach.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { buildCostPlan, CostPlanError } from "../../../../engine-core/dist/cost/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-6ef5f0dfecb89d68422cd4fa23ea64d155ef384d03c974ea67ff920203e89a46";
@@ -55,6 +56,7 @@ test("sfd-033-221 Doran's Shield: identity, ruleset, status, judgeReason and ver
   assert.match(program.judgeReason, /Equip/);
   assert.match(program.judgeReason, /readCost/);
   assert.match(program.judgeReason, /params\.cost/);
+  assert.match(program.judgeReason, /Unsupported payment kind: equip/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   // The generated registry indexes this exact program object.
   assert.equal(cardRegistryById.get(CANONICAL), program);
@@ -145,6 +147,20 @@ test("sfd-033-221 Doran's Shield golden: the merged Equip activation declares it
   assert.equal(expansion.cost.kind, "activated");
   assert.deepEqual(expansion.cost.payments.map((payment) => payment.kind), ["equip"]);
   assert.deepEqual(expansion.cost.payments[0].value, { kind: "constant", value: { kind: "source" } });
+});
+
+test("sfd-033-221 Doran's Shield: the merged cost pipeline still refuses the Equip payment kind", () => {
+  // CR 818.1.c.2: the printed Calm Power must become a payable activation cost.
+  // cost/plan-values.ts readCost has no equip payment kind, so the merged plan
+  // builder fails closed instead of inventing a cost.
+  const kernel = equipWorld();
+  const [expansion] = expansionFor();
+  assert.throws(
+    () => buildCostPlan(kernel, { id: "cost:dorans-shield", cost: expansion.cost }),
+    (error) => error instanceof CostPlanError && error.reason === "judge-required" &&
+      /Unsupported payment kind: equip/.test(error.message)
+  );
+  assert.equal(kernel.getObject("gear").attachedTo, null);
 });
 
 test.todo("sfd-033-221 Doran's Shield: paying the printed Calm Equip cost (CR 818.1.b / 818.1.c.3) needs an Equip payment kind in cost/plan-values.ts plus the ExpandInput params.cost plumbing (contract 3.8 item 3).");

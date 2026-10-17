@@ -185,16 +185,18 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "当前仍有四处生产缺口，均不近似实现：(1) TriggerRegistration 的绑定器已经存在，但 " +
-    "ProgramRegistry 会拒绝 judge-required 程序；两段印刷费用虽已用 cost.modify/cost.pay 在局部正文中建模，" +
-    "TriggeredAbility 契约没有顶层 CostSpec，无法在 Finalize 的能力费用步骤锁定并原子支付该计划。" +
-    "(2) CR 107.4.c/108.3 的 Legend Zone 不在 effects/contract.ts 的 ZoneId 联合里，" +
-    "cost/payment.ts 只允许 Board 或 rune-zone 的 exhaust 费用，生产环境无法绑定传奇来源。" +
+    "当前仍有四处生产缺口，均不近似实现：(1) 两段印刷费用虽已用 cost.modify/cost.pay 在局部正文中建模并由 golden 真实支付，" +
+    "但 card-dsl 的 TriggeredAbility 契约没有顶层 CostSpec（只有 ActivatedAbility 与 TriggerRegistration.cost），" +
+    "程序无法声明让 Finalize 锁定并原子支付的能力费用；" +
+    "triggerRegistrations 也只保留 spec/body/optional/activeZones，不传递费用。" +
+    "(2) CR 107.4 的 Legend Zone 不在 effects/contract.ts 的 ZoneId 联合里（该联合只有 hand/deck/rune-deck/trash/banishment/board/rune-zone/chain），" +
+    "而 cost/payment.ts 的 exhaust 费用只允许 board 或 rune-zone，传奇来源在生产环境无法作为费用对象绑定。" +
     "(3) ready it 必须引用 became-target 事件中实际选中的对象；现有 ObjectSelector 只有 self/source/target/pick/linked，" +
     "没有事件对象选择符，TargetSpec 只能重新选择一个目标。" +
-    "(4) chain/engine.ts 发出的 became-target 事件把 player 设为链项控制者，不保留 355.18 所需的实际选择者字段；" +
-    "跨控制效果无法可靠匹配 player: self。已合入的 cost.modify/cost.pay、Universal Power 数值支付、effect.ready 与 conquer 时点" +
-    "均由 golden 覆盖局部真实执行；不把任何已合入原语再列为缺失。",
+    "(4) chain/engine.ts 发出的 became-target 事件把 player 设为链项控制者（`player: item.controller`），" +
+    "不保留 355.18 所需的实际选择者字段；跨控制效果无法可靠匹配 player: self。" +
+    "已合入的 cost.modify/cost.pay、Universal Power 数值支付、effect.ready 与 conquer 时点均由 golden 覆盖局部真实执行；" +
+    "不把任何已合入原语再列为缺失。",
   abilities,
   sourceText:
     "When you choose a friendly unit, you may exhaust me and pay :rb_rune_rainbow: to ready it.\n" +

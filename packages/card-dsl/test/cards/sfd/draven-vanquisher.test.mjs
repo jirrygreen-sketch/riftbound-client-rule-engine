@@ -5,6 +5,7 @@ import program from "../../../dist/cards/sfd/draven-vanquisher.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import pay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
 import might from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
+import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
 import { LayerEngine } from "../../../../engine-core/dist/layers/engine.js";
@@ -12,6 +13,7 @@ import { runInstruction, world } from "../../../../engine-core/dist/effects/test
 
 const ID = "card.hash-7aaef8697b1c10cad90fa125e7e906fb3e4902535478b033c827f7fcf6f94aa8";
 const [, attack, defense] = program.abilities;
+const [playGold] = program.abilities[0].body;
 
 test("sfd-020-221 Draven, Vanquisher: validates identity and three abilities", () => {
   const result = validateCardProgram(program);
@@ -135,3 +137,54 @@ test.todo(
   "sfd-020-221 Draven, Vanquisher: play the original Gold token exhausted with a controller-relative Base destination " +
     "once effect.token supports the Gold ability, entry stipulation and relative LocationRef (187.5/184.1)"
 );
+
+test("sfd-020-221 Draven, Vanquisher: the merged token primitive still refuses the printed Gold body", () => {
+  // The refreshed judgeReason must be reproducible against merged source.
+  const kernel = world().player("A").build();
+  // 184.1 / 185.2.d: the exhausted entry stipulation is not an accepted
+  // argument, so the printed body cannot even be parsed.
+  assert.throws(
+    () => runInstruction(token, playGold.args, { world: kernel }),
+    (error) => error instanceof TypeError && /Invalid effect\.token argument: entersExhausted/.test(error.message)
+  );
+  // 187.5: with that argument removed, Gold is still absent from the merged
+  // token definitions, so the body negates instead of playing the token. The
+  // printed relative location is not resolved either, so an absolute Base is
+  // supplied to reach the definition lookup itself.
+  const { entersExhausted: _dropped, ...acceptedArgs } = playGold.args;
+  const gold = runInstruction(
+    token,
+    { ...acceptedArgs, location: { kind: "constant", value: { type: "base", player: "A" } } },
+    { world: kernel }
+  );
+  assert.equal(gold.result.status, "negated");
+  assert.equal(gold.result.reason, "impossible");
+  assert.equal(gold.linked.token.blockedReason, "token-definition-or-abilities-judge-required");
+
+  // The printed relative destination is refused by the same primitive because
+  // it performs no controller-relative resolution: it negates before any
+  // definition lookup, with no event and no token created.
+  const relative = runInstruction(
+    token,
+    { ...acceptedArgs, token: { kind: "constant", value: "recruit" } },
+    { world: world().player("A").build() }
+  );
+  assert.equal(relative.result.status, "negated");
+  assert.equal(relative.result.reason, "impossible");
+  assert.equal(relative.linked.token.blockedReason, undefined);
+  // A relative-controller Base needs runtime resolution; the primitive only
+  // accepts a constant LocationRef, so the selector expression is refused.
+  assert.throws(
+    () => runInstruction(
+      token,
+      {
+        token: { kind: "constant", value: "recruit" },
+        amount: { kind: "constant", value: 1 },
+        mode: { kind: "constant", value: "play" },
+        location: { kind: "location", value: { kind: "relative", relation: "ability-controller-base" } }
+      },
+      { world: kernel }
+    ),
+    (error) => error instanceof TypeError && /Invalid effect\.token argument: location/.test(error.message)
+  );
+});
