@@ -68,11 +68,41 @@ const rows = [
       ],
       expect: {
         objects: {
-          demolitionist: { zone: "board" },
-          battlefield: { zone: "board", location: { type: "battlefield", id: "bf-1" } }
+          demolitionist: {
+            zone: "board",
+            location: { type: "base", player: "A" },
+            owner: "A",
+            controller: "A",
+            might: 1,
+            exhausted: false,
+            damage: 0,
+            isToken: false
+          },
+          battlefield: {
+            zone: "board",
+            location: { type: "battlefield", id: "bf-1" },
+            owner: "A",
+            controller: "A",
+            exhausted: false,
+            damage: 0,
+            isToken: false
+          }
         },
-        events: { sequence: [{ timingPoint: "card-played" }, { timingPoint: "chain-item-resolve" }] },
+        players: { A: { energy: 0 }, B: { energy: 0 } },
+        events: {
+          sequence: [
+            { timingPoint: "card-played", reason: "card-played", player: "A" },
+            { timingPoint: "chain-item-pending", reason: "chain-item-pending", player: "A", details: { item: "trigger:1" } },
+            { timingPoint: "chain-item-finalize", reason: "chain-item-finalize", player: "A", details: { item: "trigger:1" } },
+            { timingPoint: "chain-item-resolve", reason: "chain-item-resolve", player: "A", details: { item: "trigger:1" } }
+          ]
+        },
         links: {
+          "amateur-demolitionist.play-bomb.token": {
+            amount: 0,
+            objects: [],
+            objectsComplete: true
+          },
           "amateur-demolitionist.play-bomb.token.amount": 0,
           "amateur-demolitionist.play-bomb.token.objects": []
         }
@@ -106,14 +136,45 @@ const rows = [
         { type: "pass", player: "B" }
       ],
       expect: {
-        objects: { broker: { zone: "board" } },
-        events: { sequence: [{ timingPoint: "card-played" }, { timingPoint: "chain-item-resolve" }] },
+        objects: {
+          broker: {
+            zone: "board",
+            location: { type: "base", player: "A" },
+            owner: "A",
+            controller: "A",
+            might: 3,
+            exhausted: false,
+            damage: 0,
+            isToken: false
+          }
+        },
+        players: { A: { energy: 0 }, B: { energy: 0 } },
+        events: {
+          sequence: [
+            {
+              timingPoint: "card-played",
+              reason: "card-played",
+              player: "A",
+              details: { fromZone: "facedown", playedFromZone: "facedown" }
+            },
+            { timingPoint: "chain-item-pending", reason: "chain-item-pending", player: "A", details: { item: "trigger:1" } },
+            { timingPoint: "chain-item-finalize", reason: "chain-item-finalize", player: "A", details: { item: "trigger:1" } },
+            { timingPoint: "chain-item-resolve", reason: "chain-item-resolve", player: "A", details: { item: "trigger:1" } }
+          ]
+        },
         links: {
           "black-market-broker.play-gold-token.goldToken": {
             amount: 0,
+            objects: [],
+            objectsComplete: true,
             createdAmount: 0,
+            createdObjects: [],
             blockedReason: "token-definition-or-abilities-judge-required"
-          }
+          },
+          "black-market-broker.play-gold-token.goldToken.amount": 0,
+          "black-market-broker.play-gold-token.goldToken.objects": [],
+          "black-market-broker.play-gold-token.goldToken.createdAmount": 0,
+          "black-market-broker.play-gold-token.goldToken.createdObjects": []
         }
       }
     }
@@ -139,14 +200,40 @@ const rows = [
         { type: "pass", player: "B" }
       ],
       expect: {
-        objects: { golem: { zone: "board" } },
-        events: { sequence: [{ timingPoint: "card-played" }, { timingPoint: "chain-item-resolve" }] },
+        objects: {
+          golem: {
+            zone: "board",
+            location: { type: "base", player: "A" },
+            owner: "A",
+            controller: "A",
+            might: 9,
+            exhausted: false,
+            damage: 0,
+            isToken: false
+          }
+        },
+        players: { A: { energy: 0 }, B: { energy: 0 } },
+        events: {
+          sequence: [
+            { timingPoint: "card-played", reason: "card-played", player: "A" },
+            { timingPoint: "chain-item-pending", reason: "chain-item-pending", player: "A", details: { item: "trigger:1" } },
+            { timingPoint: "chain-item-finalize", reason: "chain-item-finalize", player: "A", details: { item: "trigger:1" } },
+            { timingPoint: "chain-item-resolve", reason: "chain-item-resolve", player: "A", details: { item: "trigger:1" } }
+          ]
+        },
         links: {
           "trove-golem.play-gold-tokens.goldTokens": {
             amount: 0,
+            objects: [],
+            objectsComplete: true,
             createdAmount: 0,
+            createdObjects: [],
             blockedReason: "token-definition-or-abilities-judge-required"
-          }
+          },
+          "trove-golem.play-gold-tokens.goldTokens.amount": 0,
+          "trove-golem.play-gold-tokens.goldTokens.objects": [],
+          "trove-golem.play-gold-tokens.goldTokens.createdAmount": 0,
+          "trove-golem.play-gold-tokens.goldTokens.createdObjects": []
         }
       }
     }
@@ -176,8 +263,30 @@ const rows = [
         }
       ],
       expect: {
-        objects: { broker: { zone: "board" } },
-        events: { includes: [{ timingPoint: "card-played" }] },
+        objects: {
+          broker: {
+            zone: "board",
+            location: { type: "base", player: "A" },
+            owner: "A",
+            controller: "A",
+            might: 3,
+            exhausted: false,
+            damage: 0,
+            isToken: false
+          }
+        },
+        events: {
+          exact: [
+            {
+              timingPoint: "card-played",
+              reason: "card-played",
+              player: "A",
+              details: { fromZone: "hand", playedFromZone: "hand", playedFromHand: true }
+            },
+            { timingPoint: "cleanup-start" },
+            { timingPoint: "cleanup-end" }
+          ]
+        },
         links: {}
       }
     }
@@ -203,9 +312,33 @@ const rows = [
         { type: "pass", player: "B" }
       ],
       expect: {
-        objects: { demolitionist: { zone: "board" } },
-        events: { sequence: [{ timingPoint: "card-played" }, { timingPoint: "chain-item-resolve" }] },
+        objects: {
+          demolitionist: {
+            zone: "board",
+            location: { type: "base", player: "A" },
+            owner: "A",
+            controller: "A",
+            might: 1,
+            exhausted: false,
+            damage: 0,
+            isToken: false
+          }
+        },
+        players: { A: { energy: 0 }, B: { energy: 0 } },
+        events: {
+          sequence: [
+            { timingPoint: "card-played", reason: "card-played", player: "A" },
+            { timingPoint: "chain-item-pending", reason: "chain-item-pending", player: "A", details: { item: "trigger:1" } },
+            { timingPoint: "chain-item-finalize", reason: "chain-item-finalize", player: "A", details: { item: "trigger:1" } },
+            { timingPoint: "chain-item-resolve", reason: "chain-item-resolve", player: "A", details: { item: "trigger:1" } }
+          ]
+        },
         links: {
+          "amateur-demolitionist.play-bomb.token": {
+            amount: 0,
+            objects: [],
+            objectsComplete: true
+          },
           "amateur-demolitionist.play-bomb.token.amount": 0,
           "amateur-demolitionist.play-bomb.token.objects": []
         }
