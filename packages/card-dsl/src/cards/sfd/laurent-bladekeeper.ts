@@ -17,16 +17,18 @@ import type { CardProgram } from "../../ir/index.js";
  *   { kind: "keyword", keyword: "ganking" }，展开归 effects/keywords/Ganking.ts（810 已并入
  *   该文件：static continuous.movement）。卡程序不重写移动规则。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-16）。
+ * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-17）。
  * - 关键词声明本身可校验，KeywordDef 已注册（RIFT-83），RIFT-257 的 expandProgram
  *   会把它解析为 static continuous.movement 展开；RIFT-258 的 continuous.movement
  *   指令与 layers/rules/query.ts 的 movement() 查询也已合入（golden 证明该展开
  *   注册后 query.movement(...).canGank === true）。
- * - 仍缺端到端消费方：zones/movement.ts 的 Standard Move 只从调用方传入的
- *   hasGanking 求值器读取战场→战场许可（Ganking.ts 文件头自述「移动系统尚无读取
- *   continuous.movement 许可的接口」），没有「卡牌程序 → 关键词展开 → 移动系统」
- *   的接线（契约 3.5/3.7）；layers/engine.ts 的 ability 分支也只认 effect.movement
- *   记录形状，与展开的 permission/addsPermission 形状不一致。
+ * - 移动系统消费已合入：zones/movement.ts 的 Standard Move 读 layers/rules/query.ts
+ *   的 movement()（ruleView.canGank），continuous.movement 指令也把 permission 展开
+ *   为记录形状（旧理由的「移动系统尚无读取接口」已过时）。仍缺形状适配与接线：
+ *   Ganking KeywordDef 展开的 static effect 是 permission 字符串，而 movement() 查询
+ *   读 record(permission).routes——字符串形状的记录为空，canGank 读不出 true；
+ *   需要「卡牌程序 → 关键词展开 → 移动系统」的接线（契约 3.5/3.7）把展开形状
+ *   适配成 layers 记录形状（含 routes）。
  * - 因此整卡不宣称 executable；不把关键词近似成数值修正，也不在卡里手写移动许可。
  */
 export default {
@@ -35,12 +37,13 @@ export default {
   status: "judge-required",
   judgeReason:
     "[Ganking]（810.1.b/810.1.c）的 KeywordDef（effects/keywords/Ganking.ts，RIFT-83）已注册，" +
-    "RIFT-257 的 expandProgram 会把它解析为 static continuous.movement 展开，RIFT-258 的指令与 " +
-    "layers/rules/query.ts 的 movement() 查询也已合入（golden 证明注册后 query 的 canGank 为 true）；" +
-    "仍缺端到端消费方：zones/movement.ts 的 Standard Move 只从调用方传入的 hasGanking 求值器读取战场→战场许可，" +
-    "没有「卡牌程序 → 关键词展开 → 移动系统」的接线（契约 3.5/3.7），且 layers/engine.ts 的 ability 分支只认 " +
-    "effect.movement 记录形状，与展开的 permission/addsPermission 形状不一致。" +
-    "依赖：移动系统读取 continuous.movement 许可。不近似实现。",
+    "RIFT-257 的 expandProgram 会把它解析为 static continuous.movement 展开，RIFT-258 的指令、" +
+    "layers/rules/query.ts 的 movement() 查询与 zones/movement.ts 的 ruleView.canGank 消费均已合入" +
+    "（golden 证明注册后 query 的 canGank 为 true）；仍缺形状适配与端到端接线：Ganking 展开的" +
+    "static effect 是 permission 字符串，而 movement() 读 record(permission).routes——字符串形状的" +
+    "记录为空、canGank 读不出 true，需要「卡牌程序 → 关键词展开 → 移动系统」的接线（契约 3.5/3.7）" +
+    "把展开形状适配成 layers 记录形状（含 routes）。" +
+    "依赖：移动系统读取 continuous.movement 许可的形状适配与接线。不近似实现。",
   abilities: [{ kind: "keyword", keyword: "ganking" }],
   sourceText: "Ganking (I can move from battlefield to battlefield.)"
 } satisfies CardProgram;

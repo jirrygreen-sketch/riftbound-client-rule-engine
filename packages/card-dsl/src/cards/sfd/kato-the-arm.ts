@@ -26,7 +26,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （continuous.might；effect.buff 文件头明确临时 Might 修改不属 Buff 计数），数值在结算时读
  *   来源的有效 Might（143.2.a）。既不是 Buff 计数，也不是「设值」。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-16）——两处缺口：
+ * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-17）——两处缺口：
  * 1. 触发无法注册：object-moved 虽在 timing-points.ts 的封闭时点表里（refs 421.1/449.1/
  *    449.2），但 trigger-spec.ts 的 EVENT_PATTERN_TYPES 没有 "object-moved"（只有
  *    "conquered"/"held"/…），RIFT-257 的 pipeline.registerTrigger → assertTriggerSpec 会在

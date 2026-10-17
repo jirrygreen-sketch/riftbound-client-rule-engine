@@ -21,7 +21,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "a friendly gear"：150/141 的类型与 355.9.a.1 的默认区域——Board 上的 gear，
  *   且由本卡控制者控制（"friendly"）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-16）。
+ * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-17）。
  * - 缺「卡牌程序 → 费用计划」的接线：已合入的 cost/ 计划只消费调用方传入的
  *   mandatoryAdditional（cost/cost-plan.ts）；RIFT-257 的 programs/play.ts 对
  *   CostSpec 的非 printed 字段（additional/additional-cost 等）直接转 judge-required，

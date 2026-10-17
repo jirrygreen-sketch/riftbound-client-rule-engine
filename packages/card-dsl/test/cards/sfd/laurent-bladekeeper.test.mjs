@@ -116,12 +116,14 @@ test("sfd-096-221 Laurent Bladekeeper golden: the merged permission registers an
 test.todo(
   "sfd-096-221 Laurent Bladekeeper: the registered continuous.movement permission must reach the Standard " +
     "Move so a battlefield-to-battlefield move is legal (810.1.b/810.1.c, 144.4.c.1) — zones/movement.ts " +
-    "still reads only its caller-supplied hasGanking evaluator and layers/engine.ts's ability branch reads " +
-    "the effect.movement record shape, not the expansion's permission/addsPermission shape"
+    "now reads ruleView.canGank from the movement query, but the Ganking expansion emits a permission " +
+    "string while the movement query reads record(permission).routes, so the string shape still yields " +
+    "an empty route record and canGank stays false; a shape adapter plus card-program wiring is needed"
 );
 
 test.todo(
   "sfd-096-221 Laurent Bladekeeper: register the card's keyword declaration with the trigger/chain pipeline " +
     "(contract 3.5/3.7) so the permission is installed when the unit enters the Board — attachProgramLifecycle " +
-    "calls bindStatic into the static binder, whose default is a no-op and which has no layer registration path"
+    "now binds statics into the layers by default (createEngineStaticBinder); the remaining work is the " +
+    "permission-string to route-record adapter described above"
 );

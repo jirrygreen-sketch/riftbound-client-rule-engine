@@ -84,6 +84,7 @@ test("golden: the expanded enter-ready replacement really readies the entering u
 
 test.todo(
   "'I cost 2 less per Mighty unit' static cost reduction via cost.modify counting controller's " +
-    "Mighty units (356.4/356.4.b; no cost.modify primitive and cost/cost-plan.ts reads only caller-supplied " +
-    "discounts — RIFT-261 in flight; the Mighty count itself has no cost-side entry point)"
+    "Mighty units (356.4/356.4.b; the cost.modify primitive is merged, but programs/statics.ts layerFor " +
+    "rejects static cost.modify with no layer mapping, cost/cost-plan.ts still reads only caller-supplied " +
+    "discounts — RIFT-261 in flight, and the Mighty count has no cost-side entry point)"
 );
