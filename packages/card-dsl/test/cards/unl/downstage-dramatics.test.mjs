@@ -1,3 +1,5 @@
+// Template execution evidence: ../templates/keyword-play-effect-draw-688.test.mjs.
+// The source program remains judge-required because Repeat cost/paid-count wiring is pending.
 import assert from "node:assert/strict";
 import test from "node:test";
 
