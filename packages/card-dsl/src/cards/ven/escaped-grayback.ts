@@ -43,7 +43,9 @@ export default {
     "仍缺 KeywordAbility → programs/keywords.expandProgram 的 params.cost 传递，827.1.c.2 的印刷 Kill a friendly unit " +
     "无法随关键词绑定，且费用中的非目标友方单位选择尚无卡声明入口。Kill 费用规划与支付本体已支持。" +
     "442.1.a/828.1.b.1 的 continuous.might +2 已改用 empowered > 0，并经 programs/statics 的条件绑定读取参考内核状态；" +
-    "公开 ObjectSnapshot 契约仍未声明 empowered，正式适配器的状态读取尚无契约保证。",
+    "公开 ObjectSnapshot 契约仍未声明 empowered，正式适配器的状态读取尚无契约保证。" +
+    "RIFT-672 模板已通过付费测试法术的真实链路验证原始静态能力在 Empower/Disempower 前后的 +2/0，" +
+    "并确认本卡缺失费用的启动失败闭合；这不证明印刷 Kill 费用已接通。",
   abilities,
   sourceText:
     "[Empower] — Kill a friendly unit (Pay the cost: Empower me. Use only if not Empowered.)\n" +

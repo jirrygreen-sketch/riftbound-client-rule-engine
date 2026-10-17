@@ -1,3 +1,4 @@
+// RIFT-672 execution evidence: ../templates/keyword-static-672.test.mjs (supported paths only).
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createActionPipelineHost, bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";

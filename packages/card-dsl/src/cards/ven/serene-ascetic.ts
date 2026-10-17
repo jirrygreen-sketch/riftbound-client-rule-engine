@@ -27,8 +27,7 @@ const abilities: Ability[] = [
     // 827.1.c.1：印刷费 3 Energy 见 judgeReason；KeywordAbility 没有 params 字段
     // （契约 3.8.3 的 params 只加在 KeywordDef.expand 的输入上），不伪造第二条启动能力。
     kind: "keyword",
-    keyword: "empower",
-    value: 3
+    keyword: "empower"
   },
   {
     // 828.1.b.1 的依赖能力：只在宿主拥有 Empowered 状态时授予 [Deflect] 与 [Shield 3]。
@@ -62,7 +61,9 @@ export default {
     "(2) “[Empowered][>]” 门控已改为 self.empowered >= 1，参考内核可求值，但生产 ObjectSnapshot 尚未声明 " +
     "live empowered 计数；" +
     "(3) Deflect/Shield 的 continuous.grant-keyword 持续授予关键词静态绑定（bindStatic）与两项 KeywordDef 展开已合入，" +
-    "但 target.tax 不是 programs/statics.ts layerFor() 支持的图层，且没有把该 Deflect 税自动接入目标 Finalize。" +
+    "但授予后的关键词没有随图层变化重新展开绑定，Shield 展开读取的 designation 与公开 combatRole 仍不一致；" +
+    "target.tax 也不是 programs/statics.ts layerFor() 支持的图层，且没有把该 Deflect 税自动接入目标 Finalize。" +
+    "RIFT-672 模板已验证原始门控的持续授予关键词与撤销，不能证明 Shield 战斗加值或 Deflect 税已执行。" +
     "不近似实现：不伪造启动能力，不把依赖能力写成无条件能力。",
   abilities,
   sourceText:

@@ -1,3 +1,4 @@
+// RIFT-672 execution evidence: ../templates/keyword-static-672.test.mjs (supported paths only).
 // Partial execution evidence is consolidated in ../templates/keyword-static-647.test.mjs; this card remains judge-required for the gaps asserted below.
 import assert from "node:assert/strict";
 import test from "node:test";
