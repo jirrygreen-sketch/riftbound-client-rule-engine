@@ -33,8 +33,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   TriggerSpecValidationError，因此卡牌触发体进不了事件管线。
  * - 即便注册成功，move-location 也没有可判定终点：events/action-adapter.ts 生成的
  *   object-moved 事件只带 object = 被移动对象，不填 fromZone/toZone
- *   （zone-enter/leave 分支才有这些字段），因此 toZone: "battlefield" 不会命中；
- *   内层 filter 的 source: "self" 归属锚点在事件匹配侧也没有消费方。
+ *   （zone-enter/leave 分支才有这些字段），因此 toZone: "battlefield" 不会命中。
+ *   内层 filter 的 source: "self" 已由 programs/filters.ts 的 translateTriggerFilter
+ *   转成宿主 objectId，golden 验证原始过滤器的绑定转换。
  * - token 体已由 golden 真实执行：condition.value 在结算时读出来源当前位置（359.3.f.1），
  *   effect.token 的 location 经 linked-value 读取并打出三个 Recruit（440.2.c / 185.2.a）。
  * - [Accelerate]（805）的可选附加费用仍缺打出流程消费方：programs/play.ts 的 translateCost
@@ -43,7 +44,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   accelerate.cost（effects/keywords/Accelerate.ts）也无 Finalize 消费方。
  *   这些缺口不近似实现，见 judgeReason 与测试 TODO。
  * 不把任何移动都当作"移动到战场"，也不手改 token 状态或位置。token 体本身
- * （effect.token mode "play" + 来源位置 referent）与触发绑定由 golden 真实执行。
+ * （effect.token mode "play" + 来源位置 referent）与触发过滤器的宿主转换由 golden 验证。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "accelerate" },
@@ -98,7 +99,7 @@ const program = {
     "触发无法注册：events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 不含 object-moved，" +
     "registerTrigger 抛 TriggerSpecValidationError；即便注册成功，move-location 生成的" +
     " object-moved 事件也只带 object，不填 fromZone/toZone（zone-enter/leave 分支才有），" +
-    "因此 toZone: \"battlefield\" 永不命中，内层 source: \"self\" 归属锚点在事件匹配侧无消费方。" +
+    "因此 toZone: \"battlefield\" 无法命中；内层 source: \"self\" 已由 translateTriggerFilter 转成宿主 objectId。" +
     "[Accelerate]（805）的可选附加费用同样缺打出流程消费方：programs/play.ts 的 translateCost" +
     " 对 kind \"additional\"/\"additional-cost\" 抛 judgeRequired（\"Additional costs are not bound\"），" +
     "CostSpec 到费用计划 optionalAdditional 的接线未合入，静态 accelerate.cost" +

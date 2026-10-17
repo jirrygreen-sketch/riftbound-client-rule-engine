@@ -7,6 +7,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 const CANONICAL = "card.hash-6666f6b3e8f7bb7ccdcff09e4d51d69c2067503b913dd14022cb3d88f30b9476";
 const SOURCE_TEXT = "When I move to a battlefield, discard 1.\nWhen I win a combat, draw 1.";
@@ -64,6 +65,21 @@ test("sfd-123-221 Corrupt Enforcer: 'when I move to a battlefield' subscribes to
   assert.equal(discardInstruction.args.player, undefined);
   assert.equal(discardInstruction.targets, undefined);
   assert.equal(discardInstruction.linkedTo, undefined);
+});
+
+test("sfd-123-221 Corrupt Enforcer: program binding anchors the original move filter to its host", () => {
+  const kernel = world().unit("enforcer", { might: 4 }).build();
+  const { trigger } = moveTrigger;
+  assert.deepEqual(translateTriggerFilter(trigger.filter, kernel.ref("enforcer").id, trigger.at), {
+    event: "object-moved",
+    object: { objectId: "enforcer" },
+    toZone: "battlefield"
+  });
+  assert.deepEqual(trigger.filter, {
+    event: "object-moved",
+    toZone: "battlefield",
+    filter: { source: "self" }
+  });
 });
 
 test("sfd-123-221 Corrupt Enforcer: 'when I win a combat' subscribes to combat-result", () => {
@@ -146,8 +162,8 @@ test("sfd-123-221 Corrupt Enforcer golden: an empty deck links 0 drawn and inven
 
 test.todo(
   "sfd-123-221 Corrupt Enforcer: object-moved must become a registrable EVENT_PATTERN_TYPE and its " +
-    "move-location emission must carry the destination (toZone/toKind) plus the moved object's identity so " +
-    "the toZone: \"battlefield\" + source: \"self\" filter can match " +
+    "move-location emission must carry the destination (toZone/toKind) so the toZone: \"battlefield\" " +
+    "filter can match with the already-bound host objectId " +
     "(449.1/449.2; a Recall must stay excluded per 458)"
 );
 

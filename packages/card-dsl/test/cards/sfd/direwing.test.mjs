@@ -33,8 +33,8 @@ test("sfd-094-221 Direwing: identity, ruleset, status and verbatim text", () => 
 
 test("sfd-094-221 Direwing: judgeReason names the replacement-enter and Dragon-filter gaps", () => {
   assert.match(program.judgeReason, /replacement\/bind\.ts/);
-  assert.match(program.judgeReason, /RIFT-260/);
-  assert.match(program.judgeReason, /programs\/registry/);
+  assert.match(program.judgeReason, /controller/);
+  assert.match(program.judgeReason, /exclude/);
   assert.match(program.judgeReason, /Dragon/);
   assert.match(program.judgeReason, /condition/);
 });
@@ -76,9 +76,9 @@ test("sfd-094-221 Direwing: the condition counts another Dragon you control (133
 });
 
 test("sfd-094-221 Direwing golden: the replacement body readies the entering exhausted unit", () => {
-  // The replacement consumer is unmerged (see judgeReason), so the golden runs
-  // the authored with-body against the real board unit — the entering unit is
-  // the replaced event's object, i.e. the bound source/host.
+  // This checks the authored with-body against a real board unit. Entry
+  // replacement binding already exists, but its condition evaluation still
+  // needs the separate entry scenarios below.
   const kernel = direwingWorld({ exhausted: true });
   assert.equal(kernel.getObject("direwing").exhausted, true);
 
@@ -105,14 +105,14 @@ test("sfd-094-221 Direwing golden: an already-ready unit is not readied again (4
 });
 
 test.todo(
-  "sfd-094-221 Direwing: register this CardProgram replacement with the event pipeline, evaluate the " +
-    "'another Dragon' condition (133.8/133.8.a, 740.1.a) and swap exhausted entry for ready entry before " +
-    "the zone change (143.4 / 359.2.c / 369.3, 364.3.a) — the merged RIFT-260 binder exists, but " +
-    "matchesEnterAction does not evaluate the ability condition and no producer registers CardProgram " +
-    "replacements; effect.ready must not be used as a post-entry approximation"
+  "sfd-094-221 Direwing: evaluate the 'another Dragon' condition (133.8/133.8.a, 740.1.a) through " +
+    "the existing default lifecycle replacement binding, keeping exhausted entry without another Dragon " +
+    "and ready entry with one (143.4 / 359.2.c / 369.3, 364.3.a) — matchesEnterAction must gate the " +
+    "entry rewrite on the ability condition"
 );
 
 test.todo(
   "sfd-094-221 Direwing: resolve the tags + controller + exclude-source filter for 'another Dragon' — " +
-    "layers/filter.ts matches tags as a whole-array equality and ignores the exclude anchor (RIFT-90)"
+    "bind controller: \"controller\" to the ability controller and exclude: \"self\" to the host; " +
+    "tag containment matching is already supported"
 );

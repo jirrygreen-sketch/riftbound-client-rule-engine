@@ -6,6 +6,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import program from "../../../dist/cards/sfd/corinna-veraza.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 const CARD_ID = "card.hash-501f79047db4a7b99900a5e5d9ccc837a75c7d22b74a2584683a55e48a288d95";
 const BATTLEFIELD = { type: "battlefield", id: "battlefield-1" };
@@ -61,6 +62,21 @@ test("sfd-179-221 Corinna Veraza: Accelerate keyword plus a move-triggered token
   assert.equal(triggered.trigger.condition, undefined);
   assert.equal(triggered.trigger.once, undefined);
   assert.equal(triggered.optional, false);
+});
+
+test("sfd-179-221 Corinna Veraza: program binding anchors the original move filter to its host", () => {
+  const kernel = world().unit("corinna", { might: 6, location: BATTLEFIELD }).build();
+  const { trigger } = program.abilities[1];
+  assert.deepEqual(translateTriggerFilter(trigger.filter, kernel.ref("corinna").id, trigger.at), {
+    event: "object-moved",
+    object: { objectId: "corinna" },
+    toZone: "battlefield"
+  });
+  assert.deepEqual(trigger.filter, {
+    event: "object-moved",
+    toZone: "battlefield",
+    filter: { source: "self" }
+  });
 });
 
 test("sfd-179-221 Corinna Veraza: the body reads \"here\" then plays three Recruit tokens there", () => {
@@ -136,8 +152,8 @@ test("sfd-179-221 Corinna Veraza: \"here\" is read at resolution, so a source ba
 test.todo(
   "sfd-179-221 Corinna Veraza: object-moved must become a registrable EVENT_PATTERN_TYPE and the " +
     "move-location emission must carry the Move's origin/destination payload " +
-    "(fromKind/fromLocationId/toKind/toLocationId, timing-points.ts) plus the moved object, so the " +
-    "toZone: \"battlefield\" + source-self trigger can be evaluated."
+    "(fromKind/fromLocationId/toKind/toLocationId, timing-points.ts), so the destination filter " +
+    "can be evaluated with the already-bound host objectId."
 );
 test.todo(
   "sfd-179-221 Corinna Veraza: paying the optional Accelerate cost [1][Order] and the enter-ready replacement " +
