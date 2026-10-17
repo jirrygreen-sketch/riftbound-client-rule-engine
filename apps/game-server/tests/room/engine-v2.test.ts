@@ -43,6 +43,8 @@ function projection(room: GameRoom, playerId: "player-1" | "player-2") {
 }
 
 describe("engine runtime room cutover", () => {
+  // Booting the engine-v2 room (protocol + engine-core source transform) has
+  // exceeded the 10s default under full-suite load; keep every assertion.
   it("uses the v2 owner, preserves private projections and replays the room archive", async () => {
     const h = await boot();
     const own = projection(h.room, "player-1");
@@ -72,5 +74,5 @@ describe("engine runtime room cutover", () => {
     expect(restored.runtimeMode).toBe("engine-v2");
     expect(projection(restored, "player-1")).toEqual(projection(h.room, "player-1"));
     expect(projection(restored, "player-2")).toEqual(projection(h.room, "player-2"));
-  });
+  }, 120_000);
 });

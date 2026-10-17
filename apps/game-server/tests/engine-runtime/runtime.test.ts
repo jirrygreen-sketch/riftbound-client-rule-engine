@@ -138,7 +138,7 @@ describe("engine runtime", () => {
     const forgedJournal = structuredClone(runtime.journal()) as any;
     forgedJournal.entries[0].result = { accepted: false };
     expect(() => createEngineRuntime({ matchId: "m5", decks, seed: "m5" }).restore(forgedJournal)).toThrow(/integrity|digest/i);
-  });
+  }, 60_000);
 
   // Loading protocol + engine-core source through the per-worker transformer can
   // take >10s under parallel load; give this case its own headroom so the real

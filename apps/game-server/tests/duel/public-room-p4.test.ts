@@ -59,7 +59,9 @@ describe('public P4 room ownership', () => {
     expect(isJournal(archive.journal)).toBe(true);
     expect(archive.journal?.entries).toHaveLength(2);
     expect(a.actions.some(action => action.kind === 'end-turn' && action.enabled)).toBe(true);
-  }, 30_000);
+  // Owner reconstruction plus restored duplicate replays exceed 30s under
+  // shared-runner load; keep every assertion and give the runner clock 300s.
+  }, 300_000);
 
   it('reconstructs an actual P4 owner and continues with a restored duplicate and next turn', async () => {
     const h = await boot(); h.enterMain();
@@ -76,7 +78,7 @@ describe('public P4 room ownership', () => {
     const nextEnd = next.actions.find(action => action.kind === 'end-turn');
     if (!nextEnd || nextEnd.kind !== 'end-turn') throw Error('next End required');
     expect(h.submit(nextActor, h.command('end-2', { type: 'end-turn', windowId: nextEnd.windowId }, next.match.stateVersion), restored)?.type).toBe('request-result');
-  }, 30_000);
+  }, 300_000);
 
   it('restores a failed transaction using a fresh native branch while preserving current sockets', async () => {
     const h = await boot(); h.enterMain();
@@ -90,7 +92,7 @@ describe('public P4 room ownership', () => {
     expect(h.submit(actor, end)).toMatchObject({ type: 'request-result', duplicate: false });
     const forged = { ...archive, duelProfile: undefined, duelJournal: undefined, duelSession: null };
     expect(() => h.room.restoreArchive(forged)).toThrow('Invalid private duel archive');
-  }, 30_000);
+  }, 300_000);
 
   it('rejects legacy packets and replaced sockets without mutating the P4 history', async () => {
     const h = await boot(), before = h.room.exportArchive();

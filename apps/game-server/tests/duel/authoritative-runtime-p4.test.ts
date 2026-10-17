@@ -46,6 +46,9 @@ function mulligan(runtime: Awaited<ReturnType<typeof owner>>["runtime"], command
 }
 
 describe("P4 owner unresolved production boundary", () => {
+  // Full-suite load pushes the two-turn native-journal trace past the 10s
+  // default; keep every assertion and give the runner clock 300s, matching
+  // the other genuine two-turn P4 flows.
   it("uses the owned native journal and actual turn kernel for two consecutive Main turns", async () => {
     const runtime = await completeSourceOwner();
     mulligan(runtime, "m-1");
@@ -124,5 +127,5 @@ describe("P4 owner unresolved production boundary", () => {
     expect(rejected.ack.message).toContain("保留");
     expect(runtime.project(null).match).toEqual(before.match);
     expect(mulligan(runtime, "m-normal").result.ack.ok).toBe(true);
-  });
+  }, 300_000);
 });

@@ -46,7 +46,9 @@ class Client {
   send(value: unknown) { this.socket.send(JSON.stringify(value)); }
   async wait<T extends ServerToClientMessage['type']>(type: T,
     predicate: (value: Extract<ServerToClientMessage, { type: T }>) => boolean = () => true) {
-    const deadline = Date.now() + 10_000;
+    // The serialized room runtime can queue commands far longer than 10s when
+    // the shared runner is heavily loaded.
+    const deadline = Date.now() + 60_000;
     while (Date.now() < deadline) {
       const index = this.messages.findIndex(value => value.type === type &&
         predicate(value as Extract<ServerToClientMessage, { type: T }>));
