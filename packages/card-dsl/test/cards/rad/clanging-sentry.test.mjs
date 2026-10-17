@@ -84,6 +84,10 @@ test("rad-055-167 Clanging Sentry: identity, ruleset, status, judgeReason and so
   // consumption — not the already-merged static binder or grant instruction.
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /动态/);
+  // The current gap is both the dynamic keyword re-expansion consumer and the
+  // missing attack-declared emitter; the reason must not claim a producer exists.
+  assert.match(program.judgeReason, /attack-declared/);
+  assert.match(program.judgeReason, /combat-start-transaction/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
