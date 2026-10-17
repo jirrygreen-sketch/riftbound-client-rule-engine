@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/renata-glasc-industrialist.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -27,6 +28,7 @@ test("sfd-171-221 Renata Glasc, Industrialist: program validates and keeps its i
   assert.match(program.judgeReason, /replacement\.object/);
   assert.doesNotMatch(program.judgeReason, /replacement\.enter 族（调研 71 个身份）没有已合入实现/);
   assert.equal(program.sourceText, "Your tokens enter ready.");
+  assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
 test("sfd-171-221 Renata Glasc, Industrialist: entry replacement over this controller's tokens", () => {
@@ -58,36 +60,39 @@ test("sfd-171-221 Renata Glasc, Industrialist: entry replacement over this contr
   ]);
 });
 
-test("sfd-171-221 Renata Glasc, Industrialist: the merged token action supports no entry override", () => {
-  // 143.4 / 184.1 / 185.2.d: the entry state is owned by creation. The merged
-  // primitive documents "Entry overrides are not supported"; an unknown
-  // argument is rejected rather than silently ignored.
+test("sfd-171-221 Renata Glasc, Industrialist: the printed Mech definition is the 3-Might Mech token", () => {
+  // 187.4: the Mech unit token is a 3-Might Unit tagged Mech, with no printed
+  // Energy or Power cost (185.3). The merged effect.token definition table and
+  // the real creation action agree, which is the half the card's stipulation
+  // would rewrite.
   const kernel = world().player("A").build();
-  // The frozen schema rejects an entry-state argument outright instead of
-  // silently accepting and ignoring it.
-  assert.throws(
-    () =>
-      runInstruction(
-        token,
-        {
-          token: { kind: "constant", value: "mech" },
-          amount: { kind: "constant", value: 1 },
-          mode: { kind: "constant", value: "create" },
-          location: { kind: "constant", value: { type: "base", player: "A" } },
-          entersExhausted: { kind: "constant", value: false }
-        },
-        { world: kernel }
-      ),
-    /Invalid effect\.token argument: entersExhausted/
+  const run = runInstruction(
+    token,
+    {
+      token: { kind: "constant", value: "mech" },
+      amount: { kind: "constant", value: 1 },
+      mode: { kind: "constant", value: "create" },
+      location: { kind: "constant", value: { type: "base", player: "A" } }
+    },
+    { world: kernel }
   );
-  assert.equal(kernel.objects.filter((object) => object.isToken).length, 0);
+  assert.equal(run.result.status, "executed");
+  const [created] = kernel.objects.filter((object) => object.isToken);
+  assert.equal(created.name, "Mech");
+  assert.deepEqual(created.types, ["unit"]);
+  assert.deepEqual(created.tags, ["Mech"]);
+  assert.equal(created.might, 3);
+  assert.equal(created.energy, null);
+  assert.equal(created.power, null);
+  assert.equal(created.zone, "board");
+  assert.deepEqual(run.linked["token.objects"], [{ id: created.ref.id, zoneEntryId: created.ref.zoneEntryId }]);
 });
 
 test.todo(
-  "sfd-171-221 Renata Glasc, Industrialist: register the card replacement and read the entering token " +
-    "of the replaced event so tokens enter ready instead of entering exhausted then readying " +
-    "(the creation action is not a replaceable event, and no production caller registers the " +
-    "CardProgram replacement)"
+  "sfd-171-221 Renata Glasc, Industrialist: a create-token action must become a matchable event " +
+    "(or the creation action must accept an entry-orientation override), and a production caller must " +
+    "register the CardProgram replacement with the replaced event's object, so tokens enter ready " +
+    "instead of entering exhausted then readying (143.4 / 805.6) — RIFT-260 follow-up"
 );
 
 test("sfd-171-221 Renata Glasc, Industrialist: a bound replacement intercepts a board entry", () => {
@@ -170,8 +175,3 @@ test("sfd-171-221 Renata Glasc, Industrialist: a bound replacement intercepts a 
   assert.deepEqual(bound.registration.activeZones.includes("hand"), true);
 });
 
-test.todo(
-  "sfd-171-221 Renata Glasc, Industrialist: a create-token action must become a matchable event " +
-    "(or the creation action must accept an entry-orientation override) so 'Your tokens enter ready' " +
-    "can replace the default exhausted entry instead of readying afterwards — RIFT-260 follow-up"
-);

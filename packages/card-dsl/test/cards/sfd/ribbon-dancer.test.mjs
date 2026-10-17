@@ -170,10 +170,6 @@ test.todo(
 
 test.todo(
   "sfd-038-221 Ribbon Dancer: programs/filters.ts must translate the relative object anchors " +
-    "(exclude: \"source\" for 'another', sameLocationAs) before the card's target can bind — RIFT-257 follow-up"
-);
-
-test.todo(
-  "sfd-038-221 Ribbon Dancer: Finalize legalizes 'another friendly unit' (controller + exclude source) " +
-    "and re-checks it at resolution (355.8, 355.9, 359.3.e) — RIFT-90"
+    "(exclude: \"source\" for 'another', sameLocationAs), after which Finalize must legalize and " +
+    "re-check 'another friendly unit' at resolution (355.8, 355.9, 359.3.e) — RIFT-257 follow-up / RIFT-90"
 );

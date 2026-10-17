@@ -175,17 +175,18 @@ test("Relentless Pursuit golden: the attach body attaches an Equipment to the lo
 test.todo(
   "Relentless Pursuit Move: the spell must choose a legal destination other than the unit's " +
     "current location at Finalize (355.4 / 355.4.a) and the Move path must be validated " +
-    "(451.1 / 449.2); 依赖 target.location 与目标位置提供方"
+    "(451.1 / 449.2); 依赖 target.location 与目标位置提供方（RIFT-32 / RIFT-90 后续）"
 );
 
 test.todo(
   "Relentless Pursuit optional attach: the Equipment must share the moved unit's controller " +
-    "(\"with the same controller\") and attach after the Move; 依赖对象相对锚点的过滤器"
+    "(\"with the same controller\") and attach after the Move; 依赖对象相对锚点的过滤器" +
+    "（RIFT-257 后续 / RIFT-90）"
 );
 
 test.todo(
   "Relentless Pursuit granted ability: the unit gains 'When I conquer, you may move me to my " +
     "base' until end of turn through a continuous ability grant, and the conquer trigger then " +
     "offers the move to base (830 ability grant / 468.5 conquer trigger / 457 Recall 与 Move 的区分) " +
-    "(依赖 continuous 能力层，RIFT-91)"
+    "(依赖 continuous 能力层与触发能力授予原语，RIFT-91 后续)"
 );

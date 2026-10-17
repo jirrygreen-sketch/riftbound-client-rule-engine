@@ -6,6 +6,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { validateCardProgram } from "../../../../../packages/card-dsl/dist/ir/index.js";
 import program from "../../../../../packages/card-dsl/dist/cards/sfd/rumble-hotheaded.js";
+import { cardRegistryById } from "../../../../../packages/card-dsl/dist/cards/registry.generated.js";
 import recycleDef from "../../../../../packages/engine-core/dist/effects/instructions/effect.recycle.js";
 import playDef from "../../../../../packages/engine-core/dist/effects/instructions/effect.play.js";
 import keyword from "../../../../../packages/engine-core/dist/effects/instructions/continuous.grant-keyword.js";
@@ -19,6 +20,7 @@ test("program passes validateCardProgram and is judge-required", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
   assert.equal(program.canonicalCardId, CANONICAL);
+  assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason ?? "", /continuous\.grant-keyword/);
   assert.match(program.judgeReason ?? "", /RIFT-258/);
@@ -27,6 +29,10 @@ test("program passes validateCardProgram and is judge-required", () => {
   assert.match(program.judgeReason ?? "", /ProgramStaticBinder/);
   assert.match(program.judgeReason ?? "", /designation/);
   assert.match(program.sourceText, /Your Mechs each have \[Assault\]/);
+});
+
+test("program is the registered identity for its canonical card id", () => {
+  assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
 test("static ability grants Assault to friendly Mech units", () => {
@@ -120,7 +126,9 @@ test("reference kernel: the linked play moves the chosen Mech from trash to the 
 });
 
 test.todo(
-  "materialize the reduced Energy cost plan from the recycled unit's Might (cost.modify, RIFT-89) and assert the payment events"
+  "Rumble, Hotheaded: the cost plan must derive the discount from the recycled unit's Might " +
+    "(the merged effect.recycle links references, not a Might value) and apply it at Finalize — " +
+    "RIFT-261 cost.modify / cost-plan work"
 );
 test("the merged continuous.grant-keyword primitive registers the Assault grant itself", () => {
   // RIFT-258 merged continuous.grant-keyword, so the static ability's data is
@@ -194,11 +202,6 @@ test("the merged cost and recycle paths do not carry the card's Might discount",
   assert.equal(kernel.getObject("fodder").zone, "deck");
 });
 
-test.todo(
-  "Rumble, Hotheaded: the cost plan must derive the discount from the recycled unit's Might " +
-    "(the merged effect.recycle links references, not a Might value) and apply it at Finalize — " +
-    "RIFT-261 cost.modify / cost-plan work"
-);
 
 test.todo(
   "grant Assault through continuous.grant-keyword with a real attacker designation and a production " +

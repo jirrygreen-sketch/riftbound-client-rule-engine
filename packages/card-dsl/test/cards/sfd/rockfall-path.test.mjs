@@ -160,9 +160,6 @@ test("sfd-216-221: the merged restriction primitive registers its spec and no pl
 test.todo(
   "sfd-216-221: the merged continuous.restrict registration must be consulted when computing a " +
     "unit's Valid Locations (355.2.b) during Finalize, so playing a unit here is prohibited " +
-    "(054/054.1) — the rules query has no caller yet (RIFT-89 / RIFT-91)"
-);
-
-test.todo(
-  "sfd-216-221: 需要已合入的 CardProgram static 注册路径把战场禁止规则接进打出流程（engine 批 5/6）"
+    "(054/054.1); the rules query has no caller yet, and a production CardProgram static registration " +
+    "path is still needed (RIFT-89 / RIFT-91)"
 );

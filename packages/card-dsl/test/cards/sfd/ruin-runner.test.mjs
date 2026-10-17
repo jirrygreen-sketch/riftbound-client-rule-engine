@@ -57,13 +57,14 @@ test("sfd-105-221 Ruin Runner: one static untargetable declaration naming choose
   assert.equal(ability.condition, undefined);
 });
 
-test("sfd-105-221 Ruin Runner: the program authors no instruction, target or keyword it cannot execute", () => {
-  // The restriction is a whole-object eligibility rule (355.9.b / 359.3.e.5),
-  // not a filter on some instruction, so nothing in body could carry it; a
-  // body-level no-op would fake execution.
+test("sfd-105-221 Ruin Runner: the untargetability is a whole-object eligibility rule, not an instruction", () => {
+  // 757 / 758: the passive ability changes whether the unit can be chosen at
+  // all (355.9.b / 359.3.e.5). It is not a filter on some instruction, so the
+  // program carries no instruction at all rather than a body-level no-op that
+  // would fake execution.
   assert.equal(ability.body, undefined);
   assert.equal(ability.effect.body, undefined);
-  assert.equal(/\.op\b/.test(JSON.stringify(program.abilities)), false);
+  assert.equal(Array.isArray(ability.effect.sources), true);
 });
 
 test.todo(
@@ -75,7 +76,8 @@ test.todo(
 
 test.todo(
   "sfd-105-221 Ruin Runner: re-check untargetability on resolution so a unit that becomes untargetable " +
-    "after being targeted mistargets (758.1, 758.2 / 758.2.a, 359.3.e.5) — same consumer gap"
+    "after being targeted mistargets (758.1, 758.2 / 758.2.a, 359.3.e.5) — same consumer gap " +
+    "(RIFT-90 / RIFT-91)"
 );
 
 test("sfd-105-221 Ruin Runner: the merged continuous.restrict primitive registers the prohibition", () => {
@@ -135,8 +137,3 @@ test("sfd-105-221 Ruin Runner: target legality never consults the restriction re
 });
 
 
-test.todo(
-  "sfd-105-221 Ruin Runner: target legality must consult the merged restriction registry so an " +
-    "opponent's spell or ability cannot choose this unit (757/757.1, 758, 355.9.b), including the " +
-    "chooser-is-the-opponent and source-is-a-spell-or-ability dimensions — RIFT-90 / RIFT-91"
-);

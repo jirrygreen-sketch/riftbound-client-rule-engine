@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/sandshifter.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/index.js";
@@ -18,6 +19,7 @@ test("sfd-158-221 Sandshifter: program validates and keeps its identity", () => 
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
+  assert.equal(cardRegistryById.get(CANONICAL), program);
   assert.match(program.judgeReason, /mightLte/);
   assert.match(program.judgeReason, /355\.9\.b/);
   assert.match(program.judgeReason, /143\.2\.a/);

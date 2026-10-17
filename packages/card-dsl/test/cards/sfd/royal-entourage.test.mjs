@@ -154,12 +154,8 @@ test("sfd-039-221 Royal Entourage golden: an already-ready legend is left untouc
 test.todo(
   "sfd-039-221 Royal Entourage: the Legend Zone must exist in the frozen zone vocabulary (CR 107.4, " +
     "174.2.b) so the resolving choose can anchor a legend in its own zone and the golden can build a " +
-    "legal board — the contract change request records ZoneId/ZoneDestination missing legend-zone"
-);
-
-test.todo(
-  "sfd-039-221 Royal Entourage: the card-played trigger must reach the chain and both mode branches must " +
-    "resolve with the Legend Zone vocabulary (CR 383.4.a.2, 420.4.a) — RIFT-89 / RIFT-120"
+    "legal board — the contract change request records ZoneId/ZoneDestination missing legend-zone; the " +
+    "card-played trigger must also reach the chain (CR 383.4.a.2, 420.4.a) — RIFT-89 / RIFT-120"
 );
 
 test("sfd-039-221 Royal Entourage golden: the ready branch executes through the production adapter", () => {
@@ -212,5 +208,5 @@ test("sfd-039-221 Royal Entourage golden: the exhaust branch executes when the s
 test.todo(
   "sfd-039-221 Royal Entourage: the exhaust branch's Expr-wrapped choose must reach the primitive " +
     "(effect.exhaust parses `choose` as literal shape data, unlike every other argument) so the " +
-    "a card's own IR runs unmodified — RIFT-89 follow-up"
+    "card's own IR runs unmodified — RIFT-89 follow-up"
 );

@@ -15,6 +15,17 @@ test("rumble-scrapper program is registered and validates", () => {
   assert.equal(result.ok, true, JSON.stringify(result.issues));
 });
 
+test("rumble-scrapper identity, ruleset, status and verbatim text", () => {
+  assert.equal(program.canonicalCardId, cardId);
+  assert.equal(program.rulesetVersion, "core-1.5");
+  assert.equal(program.status, "judge-required");
+  assert.equal(
+    program.sourceText,
+    "Your Mechs have +1 :rb_might: (including me).\n" +
+      "When I hold, play a 3 :rb_might: Mech unit token to your base."
+  );
+});
+
 test("rumble-scrapper structure: static might aura + hold trigger token body", () => {
   assert.equal(program.status, "judge-required");
   assert.ok(program.judgeReason.includes("continuous.might"), "judgeReason must cite the Might layer path");
