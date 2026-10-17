@@ -29,6 +29,8 @@ test("rad-018-167 Drakehound Packmaster: program validates and has expected iden
   );
   assert.match(program.judgeReason, /effect\.reveal/);
   assert.match(program.judgeReason, /ignoring/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("rad-018-167: reveal, choose-banish, ignore-cost play, recycle-the-rest structure", () => {
@@ -160,38 +162,6 @@ test("rad-018-167: recycling the rest returns the other deck cards to the bottom
   assert.equal(kernel.zone("B", "deck").length, 1);
 });
 
-test("rad-018-167: the production chain adapter does not decode pick for effect.reveal", () => {
-  // 生产链适配器（chain/interpreter-adapter.ts 的 LITERAL_FIELDS）只为 effect.reveal 解码 target，
-  // 不解码 pick，因此卡牌声明的 pick 形式在当前生产路径上会抛参数错误。记录真实行为，
-  // 修复属链任务（见 test.todo），卡牌侧不改成 target 近似（牌库顶是私有区域，355.10.a）。
-  const kernel = world().deck(["b-top", "b-second"], { owner: "B" }).player("B").build();
-  kernel.setPicks("drakehound-packmaster.revealed", [kernel.ref("b-top")]);
-  assert.throws(
-    () => resolveChainBody([program.abilities[0].body[0]], kernel),
-    /effect\.reveal: pick must be a non-empty id/
-  );
-});
-
-test("rad-018-167: the reveal instruction cannot itself select an opponent's deck top", () => {
-  // effect.reveal 的牌库子集必须由上游按顺序提供 pick；没有 pick 时不能取牌库顶（不近似）。
-  const kernel = world().deck(["b-top", "b-second"], { owner: "B" }).player("B").build();
-  const revealInstruction = program.abilities[0].body[0];
-  assert.throws(
-    () =>
-      resolveChainBody(
-        [
-          {
-            ...revealInstruction,
-            args: { player: { kind: "constant", value: "B" }, zone: { kind: "constant", value: "deck" }, count: { kind: "constant", value: 1 } },
-            picks: undefined
-          }
-        ],
-        kernel
-      ),
-    /effect\.reveal: a subset of this zone requires upstream ordered picks/
-  );
-});
-
 test.todo(
   "rad-018-167 Drakehound Packmaster: “reveal the top card of each opponent's Main Deck” 需要" +
     "上游按牌库真实顺序提供 pick（target.query 有序 pick 融合，RIFT-90），且 “each opponent” 的" +
@@ -199,13 +169,16 @@ test.todo(
 );
 test.todo(
   "rad-018-167 Drakehound Packmaster: “play it, ignoring its cost” 需要公开打出流程产出" +
-    "ignore-all-cost 的 Finalize 费用计划（356.1.b.1；cost.ignoreAllCosts 未接到卡牌可声明路径，RIFT-89~91）"
+    "ignore-all-cost 的 Finalize 费用计划（356.1.b.1；cost.ignoreAllCosts 已在 cost/ 实现但未接到卡牌可声明路径，" +
+    "属仍在进行的 RIFT-261 费用批次）"
 );
 test.todo(
-  "rad-018-167 Drakehound Packmaster: “Recycle the rest” 的补集需要上游锁定完整展示集合" +
-    "（exclude 锚点已按契约 3.6 声明）"
+  "rad-018-167 Drakehound Packmaster: registering the card-played trigger from the card program — shared wiring" +
+    " owned by the RIFT-257 card-program binding workstream"
 );
 test.todo(
-  "rad-018-167 Drakehound Packmaster: chain/interpreter-adapter.ts 的 LITERAL_FIELDS 需要为" +
-    "effect.reveal 解码 pick（当前只解码 target），否则卡牌声明的 pick 形式无法走生产链路"
+  "rad-018-167 Drakehound Packmaster: ordered region picks — the chain Finalize must lock the opponent's deck-top" +
+    " references (contract 3.6 zoneSlice) and effect.reveal must accept them through its pick argument on the" +
+    " production path (RIFT-90 ordered pick fusion; chain/interpreter-adapter.ts LITERAL_FIELDS currently decodes" +
+    " only target for effect.reveal)"
 );

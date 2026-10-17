@@ -5,6 +5,7 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/elnuk-herd.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import recycle from "../../../../engine-core/dist/effects/instructions/effect.recycle.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 
@@ -21,6 +22,7 @@ test("rad-081-167 Elnuk Herd: validates, identity and registry entry", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /811\.1\.d/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardProgramsById.get(CARD_ID), program);
 });
@@ -45,6 +47,11 @@ test("rad-081-167 Elnuk Herd: +3 Might this turn targets one other friendly unit
   assert.equal(grant.op, "continuous.might");
   assert.deepEqual(grant.args.amount, { kind: "constant", value: 3 });
   assert.deepEqual(grant.args.duration, { kind: "constant", value: "end-of-turn" });
+  // The merged primitive's symbolic selector form (contract 3.6).
+  assert.deepEqual(grant.args.objects, {
+    kind: "constant",
+    value: { kind: "target", id: "elnuk-herd.another-unit" }
+  });
   assert.equal(grant.targets.length, 1);
   assert.deepEqual(grant.targets[0], {
     id: "elnuk-herd.another-unit",
@@ -108,10 +115,58 @@ test("rad-081-167 Elnuk Herd: recycle-me resolves through the merged effect.recy
 });
 
 test.todo(
-  "elnuk-herd: give another friendly unit +3 :rb_might: this turn through the layers continuous.might" +
-    " consumer (RIFT-91 layers-continuous) with the end-of-turn duration"
+  "elnuk-herd: registering the card-played trigger (and its continuous.might / effect.recycle body) from the" +
+    " card program — shared wiring owned by the RIFT-257 card-program binding workstream"
 );
 test.todo(
   "elnuk-herd: 'if I was played from face down' provenance (CR v1.5 811.1.d / 355.10.a.1 Facedown Zone)" +
     " once [Hidden]'s cost.hidden expansion and the card-played payload record it (RIFT-84)"
 );
+
+test("rad-081-167 Elnuk Herd: +3 Might this turn registers an arithmetic modifier through the real interpreter", () => {
+  // The merged continuous.might primitive (RIFT-258) registers the arithmetic
+  // modification with an end-of-turn duration; the layers engine applies it to
+  // the chosen unit only. The Finalize-locked target comes from the kernel (its
+  // filter comparison is literal), so the card's TargetSpec stays asserted
+  // structurally above — the same approach as demacian-illuminators.
+  const [grant] = program.abilities[1].body;
+  const bodyWithoutTargets = [{ ...grant, targets: undefined }];
+  const kernel = world().unit("elnuk", { might: 5 }).unit("ally", { might: 2 }).build();
+  kernel.setTargets("elnuk-herd.another-unit", [kernel.ref("ally")]);
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("elnuk") });
+
+  const outcome = runAbilityBody(bodyWithoutTargets, scoped);
+
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.equal(scoped.continuousEffects.length, 1);
+  const registration = scoped.continuousEffects[0];
+  assert.deepEqual(registration.duration, { type: "end-of-turn" });
+  assert.equal(registration.effect.layer, "arithmetic");
+  assert.equal(registration.effect.effect.kind, "continuous.might");
+  assert.equal(registration.effect.effect.amount, 3);
+  assert.equal(registration.effect.filter.objectId, "ally");
+
+  const engine = createLayerEngine(kernel.objects, scoped.continuousEffects.map(entry => ({
+    effect: entry.effect, duration: entry.duration, timestamp: 1
+  })));
+  assert.equal(engine.evaluate(kernel.ref("ally")).might, 5);
+  assert.equal(engine.evaluate(kernel.ref("elnuk")).might, 5);
+  // 317.2.c: the this-turn modifier expires at the turn-end timing.
+  engine.expireAt("turn-end", "A");
+  assert.equal(engine.evaluate(kernel.ref("ally")).might, 2);
+});
+
+test("rad-081-167 Elnuk Herd: no other friendly unit leaves the Might grant ignored", () => {
+  const [grant] = program.abilities[1].body;
+  const bodyWithoutTargets = [{ ...grant, targets: undefined }];
+  const kernel = world().unit("elnuk", { might: 5 }).build();
+  kernel.setTargets("elnuk-herd.another-unit", []);
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("elnuk") });
+
+  const outcome = runAbilityBody(bodyWithoutTargets, scoped);
+
+  // 359.2.c: the instruction is mandatory but has no legal choice, so it
+  // ignores rather than approximating a target.
+  assert.deepEqual(outcome.results[0].result, { status: "ignored", reason: "mistargeted" });
+  assert.equal(scoped.continuousEffects.length, 0);
+});

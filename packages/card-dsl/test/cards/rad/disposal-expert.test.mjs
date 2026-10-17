@@ -3,7 +3,10 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/disposal-expert.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
+import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 
@@ -18,8 +21,11 @@ test("rad-093-167 Disposal Expert: validates, identity and source text", () => {
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /359\.2\.c/);
-  assert.match(program.judgeReason, /\[Disarm 2\]|831/);
+  // README §2: the reason names the current gaps — the card-program binding
+  // (RIFT-257) and the still-unproduced attack-declared timing point.
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /attack-declared/);
+  assert.match(program.judgeReason, /Disarm/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -48,12 +54,79 @@ test("rad-093-167 Disposal Expert: the entering gate is 'you control no other un
     left: {
       kind: "count",
       subject: "unit",
-      filter: { type: "unit", controller: "controller", zone: "board", other: true }
+      // Contract 3.6's exclude anchor is the merged vocabulary for "other".
+      filter: { type: "unit", controller: "self", zone: "board", exclude: "self" }
     },
     operator: "eq",
     right: { kind: "constant", value: 0 }
   });
 });
+
+/** Real EventPipeline + ChainEngine harness (engine-core/test/chain/helpers.mjs shape). */
+function playDisposalExpert() {
+  const builder = world()
+    .player("A", { energy: 20 })
+    .player("B", { energy: 20 })
+    .deck(["A:deck:1", "A:deck:2", "A:deck:3", "A:deck:4"])
+    .hand("disposal-expert", { types: ["unit"], energy: 4, power: null, might: 3 });
+  const kernel = builder.build();
+  const base = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => {
+      kernel.restore(checkpoint.state);
+      kernel.copyLinkedFrom(checkpoint.links);
+    },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => {
+      throw new Error(`Unexpected choice: ${request.id}`);
+    },
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint }),
+    testTrigger: registration => kernel.test(registration.spec.condition)
+  });
+  // bindReplacement needs object(ref) on the host adapter; the concrete
+  // controller is substituted for the card's symbolic "controller" spelling the
+  // same way the production Finalize binds the acting player.
+  const host = { ...base, object: ref => kernel.object(ref) };
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false
+  });
+  const [replacement] = program.abilities;
+  const ability = JSON.parse(JSON.stringify(replacement, (_key, value) =>
+    value && typeof value === "object" && value.controller === "controller"
+      ? { ...value, controller: "A" }
+      : value));
+  bindReplacement(ability, kernel.ref("disposal-expert"), { host, pipeline: engine.pipeline });
+  engine.execute({
+    id: "play-disposal-expert",
+    controller: "A",
+    source: kernel.getObject("disposal-expert"),
+    kind: "unit",
+    speed: "normal",
+    body: []
+  });
+  let guard = 0;
+  while (engine.items.length) {
+    if (++guard > 30) throw new Error("Nonterminating test chain");
+    engine.pass(engine.priority);
+  }
+  return { kernel, engine };
+}
+
+test("rad-093-167 Disposal Expert: with no other unit the entry replacement really readies it (359.2.c / 369.3)", () => {
+  // CR 369.3 entry replacement: the unit's default exhausted entry is replaced
+  // by a ready entry, so no separate "becomes ready" timing is produced.
+  const { kernel, engine } = playDisposalExpert();
+  const played = kernel.getObject("disposal-expert");
+  assert.equal(played.zone, "board");
+  assert.equal(played.exhausted, false);
+  assert.equal(
+    engine.pipeline.events.some(event => event.timingPoint === "object-readied"),
+    false
+  );
+});
+
 
 test("rad-093-167 Disposal Expert: the replacement body readies the entering unit through effect.ready", () => {
   const [replacement] = program.abilities;
@@ -87,11 +160,16 @@ test("rad-093-167 Disposal Expert: entering ready is not a post-hoc ready of an 
 });
 
 test.todo(
-  "disposal-expert: board-entry replacement execution (replacement.enter family) that replaces the exhausted" +
-    " entry with a ready entry when 'you control no other units' (CR v1.5 359.2.c)"
+  "disposal-expert: registering the card's replacement and keyword abilities from the card program — shared" +
+    " wiring owned by the RIFT-257 card-program binding workstream"
 );
 test.todo(
-  "disposal-expert: [Disarm 2] expansion (CR 831.1.d attack trigger + -2 Might this turn to an enemy unit here," +
-    " with the minimum clamp of 122.5.b) needs a Disarm KeywordDef and the layers continuous.might consumer" +
-    " (RIFT-81 / RIFT-91)"
+  "disposal-expert: the 'if you control no other units' gate on the entry replacement — the merged form-2 entry" +
+    " declaration (bind.ts matchesEnterAction) does not evaluate the ability condition, and the form-3" +
+    " replacement.event alternative reads args.instead as a raw array while the card IR validator requires an Expr;" +
+    " both need the engine-side wiring before the gate can be enforced (RIFT-257 / RIFT-260 follow-up)"
+);
+test.todo(
+  "disposal-expert: [Disarm 2]'s attack trigger needs an emitted attack-declared timing point (CR 831.1.d /" +
+    " 466.2.c); combat/flow.ts still throws combat-start-transaction for the role designation transaction"
 );

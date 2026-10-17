@@ -24,14 +24,15 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （356.1.b.1：ignoring its cost 把基础能量与基础力量费用置 0）。
  *
  * status = judge-required（见 judgeReason）：
- * 1. “I enter ready” 需要入场替代管线（replacement.enter 家族）；effect.ready 只能重置
- *    已在场对象，不能模拟（359.2.c / 369.3）。
+ * 1. "I enter ready" 用的入场替代已合入（RIFT-260 的 src/replacement/ + bindReplacement，
+ *    含 forms 1/2 的 static replaces 与 replacement.enter），但缺卡牌侧注册路径（RIFT-257）；
+ *    effect.ready 本身只能重置已在场对象，不能模拟（359.2.c / 369.3）。
  * 2. 费用的 “Discard 1” 需要不选目标的 filter 式费用选择；CostSpec 的 choice 目前只接受
  *    逐项列出的精确 ObjectRef（cost/plan-values.ts 的 choiceObjects，实测静态占位
- *    `card-in-controller-hand` 会抛 “Cost requires an exact object reference”），
- *    未合入 cost.pay / cost.discard（RIFT-89）。
+ *    `card-in-controller-hand` 会抛 “Cost requires an exact object reference”）；
+ *    cost.pay / cost.modify 属仍在进行的 RIFT-261。
  * 3. [Assault] 展开已合入（RIFT-81），但卡牌 keyword 能力 → 展开 → 图层注册的生产方仍缺
- *    （RIFT-91），Attacker designation 也还不是 ObjectSnapshot 特征。
+ *    （RIFT-257/RIFT-91），Attacker designation 也还不是 ObjectSnapshot 特征。
  * “Banish me, then play me to your base, ignoring my cost” 两段本身可用已合入的
  * effect.banish + effect.play（ignoring-cost 以 finalized 零费用计划表达，356.1.b.1）
  * 真实执行，见 golden；chain 的 Finalize 接线仍属共享工作。
@@ -120,13 +121,14 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处依赖未合入：(1)「I enter ready」是入场状态改写（CR 369.3 的官方示例即本句；单位默认横置进场见 359.2.c/143.4），" +
-    "需要卡牌 IR 可注册的入场替代管线（replacement.enter 家族，RIFT-9/RIFT-120）；effect.ready 文档明确它只重置已在场对象、" +
-    "不能模拟 enter ready，故不近似实现。" +
+    "三处当前缺口：(1)「I enter ready」的入场替代管线已合入（RIFT-260：src/replacement/ 的 bindReplacement 支持 static replaces 与 " +
+    "replacement.enter 两种入场改写，含 CR 369.3 / 359.2.c 的默认横置→就绪；golden 已用真实绑定 + ChainEngine 验证），" +
+    "缺的是把 CardProgram 的 replacement 能力接进生产注册（RIFT-257）；effect.ready 本身只重置已在场对象、不能模拟 enter ready。" +
     "(2) 费用的「Discard 1」需要不选目标的 filter 式费用选择：CostSpec 的 choice 只接受逐项列出的精确 ObjectRef" +
-    "（cost/plan-values.ts choiceObjects，实测静态占位会抛 “Cost requires an exact object reference”），cost.pay / cost.discard 未合入（RIFT-89）。" +
-    "(3) [Assault] 的 KeywordDef 展开已合入（RIFT-81），但缺卡牌 keyword 能力 → 展开 → 图层注册的生产方（RIFT-91），" +
-    "807.1.d 的 Attacker designation 也还不是 ObjectSnapshot 特征（契约 3.8 combatRole）。" +
+    "（cost/plan-values.ts choiceObjects，实测静态占位会抛 “Cost requires an exact object reference”）；" +
+    "cost.pay / cost.modify 属仍在进行的 RIFT-261 费用批次。(3)[Assault] 的 KeywordDef 展开已合入（RIFT-81），" +
+    "但缺卡牌 keyword 能力 → 展开 → 图层注册的生产方（RIFT-257/RIFT-91），807.1.d 的 Attacker designation " +
+    "也还不是 ObjectSnapshot 特征（契约 3.8 combatRole）。" +
     "可执行部分：「Banish me, then play me to your base, ignoring my cost」用已合入的 effect.banish + effect.play" +
     "（356.1.b.1 的 ignoring-cost 以 finalized 零费用计划表达）真实执行；整卡仍因上述三项保持 judge-required。",
   abilities,

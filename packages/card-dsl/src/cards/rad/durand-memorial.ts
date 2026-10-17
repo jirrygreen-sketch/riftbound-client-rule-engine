@@ -23,13 +23,13 @@ import type { CardProgram } from "../../ir/index.js";
  * - "this combat" is a duration that ends with the current Combat, i.e. the
  *   end-of-combat duration of the layers/continuous system.
  *
- * Status: judge-required. Two merged gaps, neither approximated:
- * - No merged primitive registers a continuous keyword grant: no instruction
- *   in effects/instructions/ calls ResolveContext.addContinuous (the closest
- *   merged writes are the effect.buff counters and the keyword registry
- *   declarations), so "give it [Tank] this combat" cannot be expressed by any
- *   executable opcode. The body instruction is authored as the
- *   continuous.grant-keyword shape the keyword/layers tasks describe.
+ * Status: judge-required (re-checked 2026-10-16). Current gaps, none approximated:
+ * - "give it [Tank] this combat" is expressible: the merged
+ *   continuous.grant-keyword primitive (RIFT-258) registers the ability-layer
+ *   keyword with an end-of-combat duration. The golden test executes it and
+ *   reads the granted Tank back through the layers engine. What is missing is
+ *   the card-program binding that registers the card's own ability
+ *   (RIFT-257) plus an emitted defense-declared timing point.
  * - Even with the grant available, combat damage assignment does not implement
  *   the Tank requirement: base-combat-allocation.ts states "No
  *   Tank/Backline/other assignment-priority requirement is bound here".
@@ -40,11 +40,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「Give it [Tank] this combat」两处已合入缺口：" +
-    "（1）没有任何已合入原语注册持续效果（effects/instructions/ 下无 addContinuous 调用），" +
-    "「本战斗内赋予 [Tank]」缺 continuous.grant-keyword 形状的原语/图层消费者（815.1.b、815.2、815.3；依赖 RIFT-91 layers-continuous 与关键词展开任务）；" +
-    "（2）即便授予落地，战斗伤害指派也未实现 Tank 要求——base-combat-allocation.ts 明确无 Tank/Backline 指派优先要求绑定（815.1.c.1 / 815.1.c.2）。" +
-    "目标选择（355.5 / 355.7 / 355.10：choose a unit you control here 属 Finalize 的目标选择）与 defense-declared 触发形状已保留供审查；不近似实现。",
+    "三处当前缺口：(1) 没有已合入路径把 CardProgram 的 triggered ability 注册成 TriggerRegistration（RIFT-257 卡牌程序绑定），" +
+    "本卡的 defense-declared 触发无法从卡牌数据侧进链；(2) defense-declared 时点尚无生产者——combat/flow.ts 的角色事务" +
+    "明确抛 combat-start-transaction（docs/rules/timing-point-producers.md 标为待后续，466.2.c）；" +
+    "(3) 即便关键词授予落地，战斗伤害指派也未实现 Tank 要求——base-combat-allocation.ts 明确无 Tank/Backline 指派优先要求绑定" +
+    "（815.1.c.1 / 815.1.c.2）。" +
+    "已合入部分：「Give it [Tank] this combat」用 continuous.grant-keyword（RIFT-258）建立 ability 层注册、" +
+    "duration end-of-combat（815.1.b、815.2、815.3），golden 经真实解释器执行并回读图层关键词；" +
+    "目标选择（355.5 / 355.7 / 355.10：choose a unit you control here 属 Finalize 的目标选择）已按 TargetSpec 保留；不近似实现。",
   sourceText:
     "When you defend here, choose a unit you control here. Give it [Tank] this combat. (It must be assigned combat damage first.)",
   abilities: [

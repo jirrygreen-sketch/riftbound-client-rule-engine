@@ -37,9 +37,11 @@ import type { CardProgram } from "../../ir/index.js";
  *   collection, and an effect that merely "activates" the trigger does not get
  *   the extra one.
  *
- * Status: judge-required. Three merged gaps, none approximated:
- * - Deploy has no KeywordDef (effects/keywords/ has no Deploy file), so
- *   830.1.b's rewrites are unexpanded (shared with the RAD Device cohort).
+ * Status: judge-required (re-checked 2026-10-16). Current gaps, none approximated:
+ * - The Deploy KeywordDef is merged (effects/keywords/Deploy.ts, RIFT-267) and
+ *   expands 830.1.b, but nothing binds a card's keyword ability to that
+ *   expansion and registers the generated trigger/static abilities
+ *   (RIFT-257 card-program binding).
  * - "trigger an additional time" has no engine model: the six Ability shapes
  *   have no trigger multiplier; ContinuousEffect.kind is an open string with no
  *   consumer for multiplicity; the Deathknell expansion still references the
@@ -51,25 +53,26 @@ import type { CardProgram } from "../../ir/index.js";
  *   TriggerRegistration adapter, RIFT-120 follow-up), so even the expressible
  *   kill-then-draw half cannot enter the chain from card data. Its body is still
  *   executed by the golden test through the merged interpreter.
- * Dependencies: kw-deploy (830), the trigger-multiplicity interface (events/,
- * RIFT-82 cohort), and RIFT-120 trigger registration.
+ * Dependencies: RIFT-257 card-program binding, the trigger-multiplicity
+ * interface (events/, RIFT-82 cohort), and RIFT-120 trigger registration.
  */
 const detonationAmplifier = {
   canonicalCardId: "card.hash-5781b7f1661449d933821ba1a1c0653a6180580f9335eaee79a838078eb62552",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1) Deploy 没有 KeywordDef（CR 830.1.b 的四项改写未展开，与 RAD Device 同批卡同缺口）。" +
+    "三处缺口，均不近似实现：(1) Deploy 的 KeywordDef 已合入（effects/keywords/Deploy.ts，RIFT-267，展开 830.1.b 的四项改写），" +
+    "但没有任何已合入路径把卡牌的 keyword 能力绑定到该展开并注册生成的触发/静态能力（RIFT-257 卡牌程序绑定）。" +
     "(2)「Friendly [Deathknell] effects here trigger an additional time」没有引擎模型：Ability 六种形状没有触发倍率，" +
-    "ContinuousEffect.kind 无倍率消费者，keywords/Deathknell.ts 的展开体仍引用未合入的 trigger.leave，" +
+    "ContinuousEffect.kind 无倍率消费者，keywords/Deathknell.ts 的展开体仍引用未注册的 trigger.leave 原语，" +
     "触发收集阶段（events/）也没有倍率接口；程序只保留待接线的 static 声明（同 Karthus, Eternal 先例），" +
     "不用结算期的 repeat 近似（383.4.g.1/383.4.g.2）。" +
-    "(3) Play Effect 触发没有注册路径（缺 CardProgram → TriggerRegistration 适配器，RIFT-120 后续），" +
+    "(3) Play Effect 触发没有注册路径（缺 CardProgram → TriggerRegistration 适配器，RIFT-257 / RIFT-120 后续），" +
     "kill-then-draw 半段本身已合入（cost within instructions 用 PickSpec 表达，见 355.10.c.1 的原文示例），" +
     "golden 通过解释器真实执行该半段。" +
-    "依赖：kw-deploy（830）、触发倍率接口（events/，RIFT-82 cohort）、RIFT-120 触发注册。",
+    "依赖：RIFT-257、触发倍率接口（events/，RIFT-82 cohort）、RIFT-120 触发注册。",
   abilities: [
-    // 830.1：印刷的 [Deploy] 声明（展开依赖 kw-deploy）。
+    // 830.1：印刷的 [Deploy] 声明（展开由已合入的 keywords/Deploy.ts 负责）。
     { kind: "keyword", keyword: "deploy" },
     {
       // 383.4.a.1："When you play this" → card-played（自身打出）。

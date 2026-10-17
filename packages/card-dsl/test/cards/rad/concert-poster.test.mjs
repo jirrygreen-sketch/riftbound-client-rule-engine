@@ -27,6 +27,11 @@ test("rad-116-167 Concert Poster: program validates and has expected identity", 
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /cost\.pay/);
+  // The reason names the two current gaps: the missing cost.pay primitive
+  // (RIFT-261) and the Deploy keyword's missing card -> layers/trigger binding
+  // (RIFT-257) — the Deploy KeywordDef itself is merged (RIFT-267).
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /Deploy/);
 });
 
@@ -93,7 +98,7 @@ test("rad-116-167 Concert Poster: declining both triggers skips payment and toke
 test("rad-116-167 Concert Poster: the Recruit token leaf runs through chain create + play (CR 187.1 / 440.2.c)", () => {
   const kernel = world().player("A", { energy: 2 }).build();
   const playInstruction = program.abilities[1].body[0].args.body.value[1];
-  // cost.pay 未合入（judgeReason），此处只执行已合并的 token 叶子；位置占位按具体玩家求值。
+  // cost.pay 仍缺（judgeReason，RIFT-261），此处只执行已合入的 token 叶子；位置占位按具体玩家求值。
   const leaf = { ...playInstruction, linkedTo: undefined };
   const outcome = resolveChainBody(concretize([leaf], "A"), kernel);
   assert.equal(outcome.status, "executed", JSON.stringify(outcome.results));
@@ -114,14 +119,15 @@ test("rad-116-167 Concert Poster: the Recruit token leaf runs through chain crea
 });
 
 test.todo(
-  "rad-116-167 Concert Poster: cost.pay 原语（支付 1 能量，RIFT-9 清单 cost.pay / RIFT-89 费用计划）" +
-    "未合入，接受分支的支付与“if you paid”证据无法执行"
+  "rad-116-167 Concert Poster: cost.pay 原语（支付 1 能量）属仍在进行的 RIFT-261 费用种类与 " +
+    "cost.pay/cost.modify 批次，接受分支的支付与“if you paid”证据尚无法执行"
 );
 test.todo(
-  "rad-116-167 Concert Poster: [Deploy] 关键词展开（830.1.b 可打到任意战场、只能打到战场、" +
-    "非单位 Gear 清理不召回、对手在此固守时消灭）未合入（关键词批次 RIFT-81~88 / RIFT-91 不含 Deploy）"
+  "rad-116-167 Concert Poster: [Deploy]（830.1.b 可打到任意战场、只能打到战场、非单位 Gear 清理" +
+    "不召回、对手在此固守时消灭）的 KeywordDef 已合入（keywords/Deploy.ts，RIFT-267），缺的是" +
+    "卡牌 → 关键词展开 → 图层/触发器 的生产方与 Finalize 位置校验消费方（RIFT-257）"
 );
 test.todo(
   "rad-116-167 Concert Poster: play/conquer 触发器端到端订阅（card-played / conquer 时点 + here 绑定）" +
-    "依赖触发管线与征服流程（RIFT-33 scenarios-triggers / RIFT-31 scenarios-scoring）"
+    "依赖触发注册（RIFT-257 / RIFT-33 scenarios-triggers）；here 锚点仍不在封闭 EventPattern 词表里"
 );

@@ -4,6 +4,9 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/demon-shade.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-c4b9b8b1ea96f69164e5303d652fe97e69e6f81ce7b8f455b1a108203dd67a45";
 const SOURCE_TEXT =
@@ -31,7 +34,7 @@ test("Demon Shade identity, ruleset, status and printed text (byte-for-byte)", (
   assert.match(program.judgeReason, /170\.11\.c/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /RIFT-90/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-257/);
   // The catalog text glues "battlefield.Give" together; sourceText keeps it.
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(program.sourceText.includes("battlefield.Give"), true);
@@ -80,6 +83,11 @@ test("Demon Shade structure: [Hidden], printed cost, and the two exclusive modes
   assert.equal(grantInstruction.op, "continuous.grant-keyword");
   assert.deepEqual(grantInstruction.args.keyword, { kind: "constant", value: "Ganking" });
   assert.deepEqual(grantInstruction.args.duration, { kind: "constant", value: "end-of-turn" });
+  // The merged primitive's symbolic selector form (contract 3.6).
+  assert.deepEqual(grantInstruction.args.objects, {
+    kind: "constant",
+    value: { kind: "target", id: "demon-shade.granted-unit" }
+  });
   assert.deepEqual(grantInstruction.targets, [
     {
       id: "demon-shade.granted-unit",
@@ -98,7 +106,8 @@ test.todo(
 
 test.todo(
   "Demon Shade: 'Give it [Ganking] this turn' needs the end-of-turn continuous.grant-keyword effect (CR 810, " +
-    "contract 3.4) — RIFT-91"
+    "contract 3.4) — the primitive is merged (RIFT-258); what is missing is the 810.1.c movement-permission" +
+    " consumer and the card-program registration path (RIFT-257)"
 );
 
 test.todo(
@@ -110,3 +119,37 @@ test.todo(
   "Demon Shade: the printed 'Choose a friendly unit, then choose one' Finalize order (355.5 before 355.3) belongs " +
     "to the target plan and chain — RIFT-90 / RIFT-120 follow-up"
 );
+
+test("Demon Shade: the [Ganking] grant really registers an ability-layer keyword for the turn", () => {
+  // CR 810.1.b: Ganking is the "can move from battlefield to battlefield"
+  // permission. The merged continuous.grant-keyword primitive (RIFT-258) is the
+  // producer of the ability-layer registration; its end-of-turn duration is the
+  // "this turn" lifetime. The movement consumer is tracked in judgeReason.
+  const kernel = world()
+    .unit("hero", { might: 2 })
+    .unit("friendly", { might: 3 })
+    .unit("other", { mayMove: true, might: 3 })
+    .build();
+  kernel.setTargets("demon-shade.granted-unit", [kernel.ref("friendly")]);
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("hero") });
+
+  const outcome = runAbilityBody([{ ...grantInstruction, targets: undefined }], scoped);
+
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.equal(scoped.continuousEffects.length, 1);
+  const registration = scoped.continuousEffects[0];
+  assert.deepEqual(registration.duration, { type: "end-of-turn" });
+  assert.equal(registration.effect.layer, "ability");
+  assert.equal(registration.effect.effect.kind, "continuous.grant-keyword");
+  assert.equal(registration.effect.effect.keyword, "Ganking");
+  assert.equal(registration.effect.filter.objectId, "friendly");
+
+  const engine = createLayerEngine(kernel.objects, scoped.continuousEffects.map(entry => ({
+    effect: entry.effect, duration: entry.duration, timestamp: 1
+  })));
+  assert.deepEqual(engine.evaluate(kernel.ref("friendly")).keywords.map(keyword => keyword.id), ["Ganking"]);
+  assert.deepEqual(engine.evaluate(kernel.ref("other")).keywords, []);
+  // 317.2.c: the this-turn grant expires at the turn-end timing.
+  engine.expireAt("turn-end", "A");
+  assert.deepEqual(engine.evaluate(kernel.ref("friendly")).keywords, []);
+});

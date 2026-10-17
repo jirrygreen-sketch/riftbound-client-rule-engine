@@ -30,6 +30,12 @@ import type { CardProgram } from "../../ir/index.js";
  * difference under 370.1.a.2). The [Buff] body itself is fully executable and
  * is covered by the golden test. No semantics are approximated.
  *
+ * Re-check (2026-10-16 first coverage re-sweep): the event pipeline now
+ * publishes `simultaneousGroup` on its emissions (events/pipeline.ts groups
+ * by it), but TriggerSpec.once still only offers per-turn / per-phase /
+ * per-combat / per-showdown / per-chain / per-object / per-game keyed on a
+ * single registration + source, so a batch lifetime is still missing.
+ *
  * Contract change request: TriggerSpec needs a batch/coalescing lifetime (for
  * example once: "per-batch", or an event-payload simultaneous-group key) for
  * "when one or more ..." conditions; owner: the events/trigger workstream that
@@ -41,10 +47,12 @@ export default {
   status: "judge-required",
   judgeReason:
     "缺「one or more … die」的批次触发语义：370.1.a.2 把同一次游戏动作造成的多个死亡视为同时事件，" +
-    "「When one or more friendly units die」应每个批次只触发一次；已合入的事件管线按每个 object-killed 事件逐条扫描触发，" +
-    "TriggerSpec.once 只有 per-turn / per-combat / per-chain / per-game，没有批次（per-batch）或同时组键，" +
-    "按现结构会每个死亡单位各触发一次（语义差异，非近似实现）。" +
-    "「[Buff] a friendly unit」本体已由已合入的 effect.buff 覆盖，见 golden 测试。" +
+    "「When one or more friendly units die」应每个批次只触发一次；已合入的事件管线虽在各 emission 上带 " +
+    "simultaneousGroup（events/pipeline.ts 按组发布），但 TriggerSpec.once 仍只有 per-turn / per-phase / " +
+    "per-combat / per-showdown / per-chain / per-object / per-game（频度键 = 单个注册 + 来源），" +
+    "没有批次频度、也没有读取事件同时组键的口子，按现结构会每个死亡单位各触发一次（语义差异，非近似实现）。" +
+    "另：仍没有已合入路径把 CardProgram 的 triggered ability 注册成 TriggerRegistration（RIFT-257 卡牌程序绑定）。" +
+    "「[Buff] a friendly unit」本体已由已合入的 effect.buff 覆盖并有真实执行测试。" +
     "依赖：events/trigger 批次语义扩展（RIFT-120 单管线之后的契约变更请求）；不近似实现。",
   abilities: [
     {

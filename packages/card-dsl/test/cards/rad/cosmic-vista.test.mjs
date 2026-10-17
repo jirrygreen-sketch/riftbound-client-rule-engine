@@ -4,6 +4,7 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/cosmic-vista.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { isTimingPointId } from "../../../../engine-core/dist/events/timing-points.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL =
@@ -23,9 +24,10 @@ test("cosmic-vista: passes validateCardProgram and carries the catalog identity"
   );
 });
 
-test("cosmic-vista: judgeReason names the trigger-condition adapter and the unemitted hold timing", () => {
+test("cosmic-vista: judgeReason names the trigger-condition adapter and the missing here anchor", () => {
   assert.match(program.judgeReason, /testTrigger/);
   assert.match(program.judgeReason, /hold/);
+  assert.match(program.judgeReason, /here/);
 });
 
 test("cosmic-vista: hold trigger with the empty-Rune-Deck condition on the TriggerSpec", () => {
@@ -88,13 +90,25 @@ test("cosmic-vista: scoring is not a Battlefield Score and stays separate from h
 });
 
 test.todo(
-  "cosmic-vista: the hold timing point must be emitted by a rules module before the trigger can fire " +
-    "(scoring.ts only returns triggerScore/triggerMethod flags)"
-);
-test.todo(
-  "cosmic-vista: the TriggerSpec condition needs a merged host.testTrigger adapter " +
-    "(pipeline.ts throws without one)"
-);
-test.todo(
   "cosmic-vista: end-to-end hold + empty Rune Deck + opponent non-empty Rune Deck resolves exactly one point"
+);
+
+test("cosmic-vista: hold and score are closed, registered timing points the rules module emits", () => {
+  // 315.2.b.2 / 471.2 / 473.2.b: the Beginning Phase's scoring step is the hold
+  // timing point. turn/flow.ts's scheduleScore publishes a structural Score
+  // wave (hold / score / points-gained) carrying details.battlefieldId, so the
+  // subscription point exists; the merged pipeline consumes it like any other.
+  assert.equal(isTimingPointId("hold"), true);
+  assert.equal(isTimingPointId("score"), true);
+  assert.equal(isTimingPointId("points-gained"), true);
+});
+
+test.todo(
+  "cosmic-vista: registering the hold trigger needs a host.testTrigger adapter for the TriggerSpec.condition " +
+    "(pipeline.ts throws \"Trigger condition adapter required\" without one; no merged production host installs it)"
+);
+
+test.todo(
+  "cosmic-vista: the EventPattern vocabulary must accept the source-battlefield here anchor before the trigger " +
+    "can be bound to the emitted hold event's battlefieldId"
 );

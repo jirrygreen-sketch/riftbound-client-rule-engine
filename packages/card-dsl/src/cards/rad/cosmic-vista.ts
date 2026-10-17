@@ -17,16 +17,17 @@ import type { CardProgram } from "../../ir/index.js";
  *   effect ("Score X points" is how card text refers to Gaining Points), which
  *   is the merged effect.score instruction. It is not Scoring a Battlefield.
  *
- * Status: judge-required. Two merged gaps, neither approximated:
- * - The trigger condition needs the TriggerSpec condition evaluator: the event
- *   pipeline requires host.testTrigger for any registration that carries a
- *   condition ("Trigger condition adapter required") and no merged host
- *   provides one.
- * - The "hold" timing point is declared in the closed enum but nothing emits
- *   it: the merged scoring primitive returns triggerScore/triggerMethod
- *   (scoring.ts) and the turn executor consumes that result as flags, while
- *   the event pipeline only emits card-played / chain / showdown / cleanup
- *   timings. Until a rules module emits hold, the trigger cannot fire.
+ * Status: judge-required. Three facts, none approximated:
+ * - The "hold" timing point is now emitted: turn/flow.ts's scheduleScore
+ *   publishes a structural Score wave (hold / score / points-gained) with
+ *   details.battlefieldId (RIFT-124 turn workstream); the golden asserts it.
+ * - The trigger condition still cannot be evaluated: the event pipeline
+ *   requires host.testTrigger for any registration that carries a condition
+ *   (pipeline.ts throws "Trigger condition adapter required") and no merged
+ *   production host provides one (only engine-core's test helpers do).
+ * - "here" is not in the closed EventPattern vocabulary: assertTriggerSpec
+ *   rejects the field, so the source-battlefield anchor cannot be registered
+ *   even though the emitted hold payload carries battlefieldId.
  * The body (effect.score, amount 1) is a merged instruction and is executed by
  * the golden test; the trigger half stays judged.
  */
@@ -35,12 +36,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处已合入缺口：" +
+    "两处当前缺口，均不近似实现：" +
     "（1）触发条件「if your Rune Deck is empty」属 TriggerSpec.condition（383.2.a.1），" +
-    "但事件管线对带 condition 的注册要求 host.testTrigger（pipeline.ts 抛 \"Trigger condition adapter required\"），没有任何已合入 host 提供该适配器；" +
-    "（2）「hold」时点虽在封闭枚举中，但生产流程没有发出：scoring.ts 的 scoreDuelBattlefield 只返回 triggerScore/triggerMethod 标志，" +
-    "turn-executor-v2 按标志消费，事件管线只发 card-played / chain / showdown / cleanup 等时点。" +
-    "效果本体「score 1 point」= 获得 1 点（470.1 / 470.2 / 194.1.c）已用已合入的 effect.score 表达并有真实执行用例；触发半段保持 judge-required。不近似实现。",
+    "但事件管线对带 condition 的注册要求 host.testTrigger，否则抛 \"Trigger condition adapter required\"；" +
+    "已合入的生产 host（turn/flow.ts、game/lifecycle.ts）都不提供该适配器，只有 engine-core 的测试 helper 安装它。" +
+    "（2）「when you hold here」的 here 锚点不在封闭 EventPattern 词表里，assertTriggerSpec 直接拒绝该字段" +
+    "（已用 executor 实测），因此无法把触发注册到本卡的战场；payload 侧 details.battlefieldId 已随 hold/score 波发出。" +
+    "已合入部分：hold 时点由 turn/flow.ts 的 scheduleScore 随结构化 Score 波（hold / score / points-gained）发出（RIFT-124），" +
+    "效果本体「score 1 point」= 获得 1 点（470.1 / 470.2 / 194.1.c）用已合入的 effect.score 表达并有真实执行用例；触发半段保持 judge-required。",
   sourceText: "When you hold here, if your Rune Deck is empty, you score 1 point.",
   abilities: [
     {

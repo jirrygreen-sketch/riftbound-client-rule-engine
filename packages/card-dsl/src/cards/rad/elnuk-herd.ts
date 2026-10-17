@@ -13,10 +13,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   展开（cost.hidden + Hide 动作 + 从面朝下区域打出）属于 RIFT-84 的关键词文件。
  * - "When you play me"：打出触发（时点 card-played，383.4.a），filter 指向自身。
  * - "give another friendly unit +3 :rb_might: this turn"：带 end-of-turn 期限的临时
- *   Might 修正，属于 layers 的 continuous.might（契约 3.4/3.7；effect.buff 文档明确
- *   临时 Might 不进 Buff 计数），尚无已注册原语消费。"another friendly unit" 是
- *   355.5/355.9 的选择 → TargetSpec（min=max=1），本卡不禁用该目标的空选择：正文是
- *   强制效果（没有 "may"），目标不存在时该指令不可执行（359.2.c）。
+ *   Might 修正，属于 layers 的 continuous.might；该指令原语已合入（RIFT-258），
+ *   arithmetic 层注册交给图层引擎（effect.buff 文档明确临时 Might 不进 Buff 计数）。
+ *   "another friendly unit" 是 355.5/355.9 的选择 → TargetSpec（min=max=1），本卡不禁用
+ *   该目标的空选择：正文是强制效果（没有 "may"），目标不存在时该指令不可执行（359.2.c）。
  * - "then recycle me if I was played from face down"：recycle 是 417 的回收动作，
  *   已合入 effect.recycle 原语；"me" 指能力来源（355.10.d 的程序化选择，不是目标），
  *   因此用契约 3.6 的 object-property 读来源引用来给对象，而不是造 TargetSpec。
@@ -35,11 +35,15 @@ const abilities: Ability[] = [
     body: [
       {
         id: "elnuk-herd.grant-might",
-        // 临时 Might 修正：layers 的 continuous.might（见文件头说明）。
+        // 临时 Might 修正：已合入的 continuous.might（objects.target 形态，见文件头说明）。
         op: "continuous.might",
         args: {
           amount: { kind: "constant", value: 3 },
-          duration: { kind: "constant", value: "end-of-turn" }
+          duration: { kind: "constant", value: "end-of-turn" },
+          objects: {
+            kind: "constant",
+            value: { kind: "target", id: "elnuk-herd.another-unit" }
+          }
         },
         targets: [
           {
@@ -77,12 +81,12 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两条依赖未合入：(1) 「give another friendly unit +3 :rb_might: this turn」是带 end-of-turn 期限的" +
-    "临时 Might 修正，需要 layers 的 continuous.might（无已注册原语消费，effect.buff 只管 buff 计数器；" +
-    "RIFT-91 layers-continuous + RIFT-89 费用/期限管线）。(2) 「if I was played from face down」需要" +
-    "「从面朝下区域打出」的事实（CR v1.5 811.1.d、355.10.a.1 的 Facedown Zone），当前 ObjectSnapshot／" +
-    "事件管线都不暴露该特征，[Hidden] 的展开（cost.hidden）也只在 RIFT-84 的 KeywordDef 里声明为数据。" +
-    "recycle 半段本身用已合入的 effect.recycle 表达并单独真实执行。",
+    "两条缺口：(1) 没有已合入路径把 CardProgram 的能力注册成 TriggerRegistration 或送进 chain" +
+    "（RIFT-257 卡牌程序绑定仍在进行），因此 card-played 触发、continuous.might 的结算与 [Hidden] " +
+    "的关键词展开都无法从卡牌数据侧生效；(2) 「if I was played from face down」需要「从面朝下区域打出」" +
+    "的事实（CR v1.5 811.1.d、355.10.a.1 的 Facedown Zone），当前 ObjectSnapshot／事件管线都不暴露" +
+    "该特征。指令本体无缺口：+3 Might 用已合入的 continuous.might（end-of-turn 到期，RIFT-258），" +
+    "recycle 用已合入的 effect.recycle，二者均有真实执行证据。不近似实现。",
   abilities,
   sourceText:
     "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n" +

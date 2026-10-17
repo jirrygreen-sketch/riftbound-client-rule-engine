@@ -29,14 +29,17 @@ import type { CardProgram } from "../../ir/index.js";
  *    只接受静态 LocationRef / controller-base / 静态候选列表；"open battlefield" 需要按
  *    170.11.c 在合法战场中筛选并选择。本卡把目的地写成描述性标记，解释器会拒绝该形状而不是
  *    落到错误地点（依赖 RIFT-90 / RIFT-91）。
- * 2. [Ganking] 的本回合授予需要 continuous.grant-keyword（end-of-turn）；该持续效果原语未注册
- *    （与 gem-jammer / forecaster / rumble-hotheaded 同缺口），依赖 RIFT-91。
+ * 2. [Ganking] 的本回合授予用的 continuous.grant-keyword 已合入（RIFT-258，ability 层注册 +
+ *    end-of-turn 到期）；缺的是 810.1.c 移动许可的消费方与卡牌 → 触发/图层注册路径（RIFT-257）。
  * 3. 「if there are no open battlefields」是没有对象的集合谓词：现有 compare（eq/ne/lt/lte/gt/
  *    gte/in）无法对集合表达空判定，也没有 condition.predicate 的集合空判定；本卡不发明语义
  *    （依赖 RIFT-90 的 condition.predicate）。
  * 4. 原文 "Choose a friendly unit, then choose one" 要求先选单位再选模式（355.5 在 355.3 之前），
  *    该 Finalize 顺序属于目标计划与链（RIFT-90 / RIFT-120 后续）；两个分支各自声明一个友方
  *    单位目标，只有被执行的模式会结算。
+ *
+ * 复核（2026-10-16 第一轮复核）：第 2 条的“原语未注册”已过期（RIFT-258 合入）；其余四条缺口
+ * （运行期地点、集合空判定、Finalize 顺序、CardProgram 注册路径 RIFT-257）仍成立。
  *
  * 数据问题（不改数据）："battlefield.Give" 缺空格/换行，两个功能子句被粘在一起；sourceText
  * 按逐字要求保留原样。
@@ -53,11 +56,12 @@ const demonShade = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处依赖未合入，均不近似实现：(1)「an open battlefield」（CR 170.11.c）是运行期 Location 选择" +
+    "四处缺口，均不近似实现：(1)「an open battlefield」（CR 170.11.c）是运行期 Location 选择" +
     "（355.4 / 355.4.a / 451.1），合并 IR 没有运行期 Location 选择器，effect.move 的 to 只接受静态 " +
     "LocationRef / controller-base / 静态候选列表，本卡只保留描述性目的地标记（依赖 RIFT-90 / RIFT-91）。" +
-    "(2)「Give it [Ganking] this turn」需要带 end-of-turn 期限的 continuous.grant-keyword 持续效果，" +
-    "该原语未注册（与 gem-jammer / forecaster 同缺口，依赖 RIFT-91）。(3)「if there are no open battlefields」" +
+    "(2)「Give it [Ganking] this turn」的 continuous.grant-keyword 已合入（RIFT-258，ability 层注册 + " +
+    "end-of-turn 到期）并有真实执行测试；缺的是 810.1.c 的移动许可消费方与卡牌 → 触发/图层注册路径" +
+    "（RIFT-257）。(3)「if there are no open battlefields」" +
     "是没有对象的集合谓词，现有 compare（eq/ne/lt/lte/gt/gte/in）无法对集合表达空判定（依赖 RIFT-90 的 " +
     "condition.predicate）。(4) 原文 \"Choose a friendly unit, then choose one\" 要求先选单位再选模式" +
     "（355.5 在 355.3 之前），该 Finalize 顺序属于目标计划与链（RIFT-90 / RIFT-120 后续）；两个分支各自" +
@@ -117,7 +121,12 @@ const demonShade = {
                       op: "continuous.grant-keyword",
                       args: {
                         keyword: { kind: "constant", value: "Ganking" },
-                        duration: { kind: "constant", value: "end-of-turn" }
+                        duration: { kind: "constant", value: "end-of-turn" },
+                        // 已合入原语（RIFT-258）接受的符号选择器形态（契约 3.6）。
+                        objects: {
+                          kind: "constant",
+                          value: { kind: "target", id: "demon-shade.granted-unit" }
+                        }
                       },
                       targets: [
                         {

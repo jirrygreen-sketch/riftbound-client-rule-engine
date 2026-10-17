@@ -20,11 +20,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * status: judge-required（不近似实现）：
  * - effect.reveal 不能自己取对手牌库顶：非手牌区域的子集必须由上游“按牌库顺序”的
- *   pick 提供（target.query 有序 pick 融合属 RIFT-90，未合入）；
+ *   pick 提供（有序区域 pick 的锁定/生命周期属 RIFT-90，尚未合入）；
  * - “ignoring its cost” 需要公开打出流程产出 ignore-all-cost 的 Finalize 费用计划
- *   （cost.ignoreAllCosts 在 cost/ 已实现但没有接线到卡牌可声明的原语路径），RIFT-89~91；
+ *   （cost.ignoreAllCosts 在 cost/ 已实现但没有接线到卡牌可声明的原语路径），属 RIFT-261；
  * - “each opponent” 的玩家集合（多人局）没有原语表达（effect.reveal 只接受单个 player）；
- * - “Recycle the rest” 的补集由 exclude 锚点声明，但补集解析需要上游提供完整已展示集合。
+ * - 没有已合入路径把 CardProgram 的 triggered ability 注册成 TriggerRegistration（RIFT-257）。
  *
  * golden 测试真实执行 effect.banish（被选牌入 Banishment）与 effect.recycle（余牌回收），
  * reveal/play 依赖写 test.todo。
@@ -115,12 +115,13 @@ const program = {
   status: "judge-required",
   judgeReason:
     "三个缺口：(1) “reveal the top card of each opponent's Main Deck” 无法由 effect.reveal 自行取到：" +
-    "非手牌区域的子集必须由上游按牌库真实顺序提供 pick（effect.reveal 文件边界；target.query 有序" +
-    "pick 融合依赖 RIFT-90），且 “each opponent” 的玩家集合在原语里没有表达（effect.reveal 只接" +
-    "单个 player）。(2) “play it, ignoring its cost” 需要公开打出流程产出 ignore-all-cost 的" +
-    "Finalize 费用计划（356.1.b.1；cost.ignoreAllCosts 已在 cost/ 实现但未接到卡牌可声明路径，" +
-    "依赖 RIFT-89~91）。(3) “Recycle the rest” 的补集需要上游锁定完整展示集合（exclude 锚点已按" +
-    "契约 3.6 声明）。已合入部分（effect.banish 选牌、effect.recycle 回收）在 golden 测试真实执行。不近似实现。",
+    "非手牌区域的子集必须由上游按牌库真实顺序提供 pick，否则 effect.reveal 按自身契约抛错" +
+    "（文件边界：query 顺序不是牌库顺序；有序区域 pick 的锁定/生命周期属 RIFT-90），且 “each opponent” " +
+    "的玩家集合在原语里没有表达（effect.reveal 只接单个 player）。(2) “play it, ignoring its cost” 需要" +
+    "公开打出流程产出 ignore-all-cost 的 Finalize 费用计划（356.1.b.1；cost.ignoreAllCosts 已在 cost/ 实现" +
+    "但没有接到卡牌可声明的路径，属仍在进行的 RIFT-261 费用批次）。(3) 没有已合入路径把 CardProgram 的" +
+    "triggered ability 注册成 TriggerRegistration 或送进 chain（RIFT-257 卡牌程序绑定）。" +
+    "已合入部分（effect.banish 选牌、effect.recycle 回收）在 golden 测试真实执行。不近似实现。",
   abilities,
   sourceText:
     "When you play me, reveal the top card of each opponent's Main Deck. Choose one and banish it, then play it, ignoring its cost. Recycle the rest."
