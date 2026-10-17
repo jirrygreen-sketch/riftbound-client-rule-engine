@@ -3,7 +3,10 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/trifarian-war-camp.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 
 const CANONICAL = "card.hash-ca6330500fc019b19ccf0df937fc22945cc8bf28a51c21eaef572c53cc31387f";
 const SOURCE_TEXT = "Units here have +1 :rb_might:. (This includes attackers.)";
@@ -62,8 +65,11 @@ test("Trifarian War Camp program validates and is judge-required", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /LocationRef/);
+  // Re-probed 2026-10-17: the gap is the by-reference comparison inside
+  // layers/filter.matchesObjectFilter against cloned layer snapshots.
+  assert.match(program.judgeReason, /matchesObjectFilter/);
   assert.match(program.judgeReason, /对象引用比较/);
-  assert.match(program.judgeReason, /layers\/filter/);
+  assert.match(program.judgeReason, /battlefield/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -124,8 +130,37 @@ test("Trifarian War Camp: the production static binder registers the source-rela
   assert.deepEqual(f.engine.layers.registry.list(), []);
 });
 
-test.todo(
-  "Trifarian War Camp: bound here grants +1 only to both players' units at this Battlefield (CR 053.3 / 479.4; " +
-    "BLOCKED: layers/filter.matchesObjectFilter compares cloned LocationRef objects by reference instead of by " +
-    "battlefield id/base-player value, so units at the same Battlefield currently miss the aura)."
-);
+test("Trifarian War Camp boundary: the layer filter compares locations by reference, so the bound aura reaches no unit (CR 053.3 / 479.4)", () => {
+  // Re-probed 2026-10-17: the registered filter carries the source's LocationRef,
+  // but layers/filter.ts compares structured locations with !==. Layer snapshots
+  // are cloned, so even a unit sharing the identical location value misses; this
+  // is the production failure, not a hand-built filter.
+  const sharedLocation = { type: "battlefield", id: "bf-1" };
+  const snapshot = unit("unit-here");
+  snapshot.location = sharedLocation;
+  const filter = { type: "unit", zone: "board", location: sharedLocation };
+  assert.equal(matchesObjectFilter(filter, snapshot), true);
+  assert.equal(matchesObjectFilter({ ...filter, location: { ...sharedLocation } }, snapshot), false);
+
+  // Drive the real static binder so the registered filter is the production one.
+  const f = fixture({ cards: [
+    { id: "camp", cardId: CANONICAL, types: ["battlefield"], energy: null, power: null },
+    { id: "own-unit", owner: "A", controller: "A", types: ["unit"], might: 2 },
+    { id: "enemy-unit", owner: "B", controller: "B", types: ["unit"], might: 5 }
+  ] });
+  const here = { type: "battlefield", id: "battlefield-1" };
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("camp"), to: "board", location: here });
+  for (const id of ["own-unit", "enemy-unit"]) {
+    f.engine.commit({ type: "move-zone", object: f.kernel.ref(id), to: "board", location: { ...here } });
+  }
+  createEngineStaticBinder(f.engine).bindStatic(ability, f.kernel.getObject("camp"));
+  const [registered] = f.engine.layers.registry.list();
+  assert.deepEqual(registered.effect.filter, { type: "unit", zone: "board", location: here });
+  f.engine.layers.setObjects(f.kernel.objects);
+  // The aura is registered but lands on nobody: both players' units here keep
+  // their printed Might because the cloned snapshots' locations never equal the
+  // captured reference.
+  assert.equal(f.engine.layers.evaluate(f.kernel.ref("own-unit")).might, 2);
+  assert.equal(f.engine.layers.evaluate(f.kernel.ref("enemy-unit")).might, 5);
+  assert.equal(matchesObjectFilter(registered.effect.filter, f.engine.layers.snapshot(f.kernel.ref("own-unit"))), false);
+});

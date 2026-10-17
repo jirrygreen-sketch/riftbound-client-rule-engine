@@ -2,18 +2,21 @@ import type { CardProgram } from "../../ir/index.js";
 
 /**
  * Trifarian War Camp — CR v1.5 053.3, 190.6, 479.4, 652.2.c.
- * The static lifecycle now registers this arithmetic aura and binds here to
- * the battlefield LocationRef. The layer matcher still compares that object
- * by reference; it must compare location values before the aura is executable.
+ * 复核 2026-10-17：静态绑定把 here 解析成来源的 LocationRef 并注册算术光环，
+ * 但图层匹配仍按对象引用比较 location，光环打不到同一战场的单位。
  */
 export default {
   canonicalCardId: "card.hash-ca6330500fc019b19ccf0df937fc22945cc8bf28a51c21eaef572c53cc31387f",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「Units here have +1 Might」（CR 053.3、479.4）仍缺静态 here 作用域的值比较：programs/statics.staticFilter 已把 sameLocationAs:self 绑定成来源的 LocationRef，并已注册/解绑 ContinuousEffectSpec；" +
-    "但 layers/filter.matchesObjectFilter 对结构化 location 使用对象引用比较，而层快照复制位置对象，不能匹配同一战场的单位。需按 battlefield id / base player 比较 LocationRef 的位置值。" +
-    "静态绑定已将 sameLocationAs:self 解析为来源位置；整卡等待 here 范围内真实加成的值匹配修复与执行验证。",
+    "「Units here have +1 Might」（CR 053.3、479.4）在图层取不到作用对象（2026-10-17 复核）：" +
+    "programs/statics.ts::staticFilter 已把 sameLocationAs:self 解析成来源的 LocationRef 并注册 ContinuousEffectSpec，" +
+    "但 layers/filter.ts::matchesObjectFilter 对结构化 location 用对象引用比较（实测同一位置对象为 true、" +
+    "值相等的两个 {type:'battlefield',id} 对象为 false），而图层快照复制位置对象，" +
+    "因此注册后的 +1 打不到本战场任何单位（实测同战场单位 Might 仍为 2、5）。" +
+    "需按 battlefield id / base player 比较 LocationRef 的位置值。" +
+    "整卡等待 here 范围内的值匹配修复与真实加成的执行验证。",
   sourceText: "Units here have +1 :rb_might:. (This includes attackers.)",
   abilities: [
     {

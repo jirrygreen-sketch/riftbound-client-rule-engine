@@ -7,6 +7,10 @@ const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
 const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js", engineCore));
 const { world } = await import(new URL("effects/testing/index.js", engineCore));
 const { bindResolveContext } = await import(new URL("events/action-adapter.js", engineCore));
+const { fixture } = await import("../../../../engine-core/test/chain/helpers.mjs");
+const { createProgramBinding } = await import(new URL("programs/index.js", engineCore));
+const { createEngineStaticBinder } = await import(new URL("programs/statics.js", engineCore));
+const { expandProgram } = await import(new URL("programs/keywords.js", engineCore));
 
 const CANONICAL = "card.hash-2e073bafe3ab30d9d490463b071263df4273ed757b8f819b07328932fa2b04a5";
 const SOURCE_TEXT =
@@ -31,7 +35,11 @@ test("tideturner: identity, ruleset, status, judgeReason and sourceText", () => 
   assert.match(program.judgeReason, /Hidden/);
   assert.match(program.judgeReason, /Facedown Zone/);
   assert.match(program.judgeReason, /assertFinalizationSurface/);
-  assert.ok(!/RIFT-357/.test(program.judgeReason));
+  // Re-probed 2026-10-17: the cost.hidden expansion also has no production
+  // consumer, which the previous reason did not name.
+  assert.match(program.judgeReason, /cost\.hidden/);
+  assert.match(program.judgeReason, /no layer mapping/);
+  assert.ok(!/RIFT-357|RIFT-359/.test(program.judgeReason));
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -156,5 +164,44 @@ test("tideturner: the merged trigger adapter binds only this card's play event",
   });
 });
 
-test.todo("Tideturner: Hidden Hide/Facedown Zone and next-turn Reaction/0 Energy play (CR 811.1.b–d / 811.5; cost.hidden / continuous.timing lifecycle)");
-test.todo("Tideturner: Finalize the optional nested friendly-unit targets through the real chain before the original swap body resolves (CR 355.5 / 355.12; assertFinalizationSurface)");
+test("Tideturner boundary: the Hidden expansion's cost.hidden has no production layer (CR 811.1.b–d / 811.5)", () => {
+  // Re-probed 2026-10-17: the keyword really expands, but the production static
+  // binder refuses the declaration, and cost/kinds/hidden.ts only locks and pays
+  // a plan while explicitly leaving Hide/play permission and the facedown zone
+  // to the zone/timing owners. ZoneId has no facedown member either.
+  const kernel = world().unit("tideturner", { cardId: program.canonicalCardId }).build();
+  const expanded = expandProgram(program, kernel.getObject("tideturner"));
+  assert.deepEqual(expanded.expanded.map(ability => [ability.kind, ability.effect.kind]), [
+    ["static", "cost.hidden"]
+  ]);
+
+  const f = fixture({ cards: [{ id: "tideturner", cardId: program.canonicalCardId, types: ["unit"], energy: 2, power: ["Mind"], might: 2 }] });
+  assert.throws(
+    () => createEngineStaticBinder(f.engine).bindStatic(expanded.expanded[0], f.kernel.getObject("tideturner")),
+    (error) => error.code === "judge-required" && /cost\.hidden/.test(error.message) && /no layer mapping/.test(error.message)
+  );
+  assert.deepEqual(f.engine.layers.registry.list(), []);
+});
+
+test("Tideturner boundary: the real chain refuses the nested friendly-unit target lifecycle (CR 355.5 / 355.12)", async () => {
+  // Re-probed 2026-10-17: the trigger itself registers, but Finalize rejects the
+  // TargetSpec nested inside choice.optional's body, so the swap can never be
+  // reached through the card's real play path. The test drives the production
+  // lifecycle and reads the actual blocked error rather than restating prose.
+  const { ChainContractBlockedError } = await import(new URL("chain/engine.js", engineCore));
+  const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
+  const f = fixture({ cards: [{ id: "tideturner", cardId: program.canonicalCardId, types: ["unit"], energy: 2, power: ["Mind"], might: 2 }] });
+  binding.attachLifecycle(f.engine, () => {});
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("tideturner"), to: "board", location: { type: "battlefield", id: "bf-1" } });
+  f.engine.advance();
+  assert.throws(
+    () => {
+      f.engine.pipeline.emit({ timingPoint: "card-played", object: f.kernel.getObject("tideturner"), source: f.kernel.getObject("tideturner"), player: "A", fromZone: "hand" });
+      f.engine.advance();
+    },
+    (error) => error instanceof ChainContractBlockedError && /Nested\/repeated targets/.test(error.message)
+  );
+  // The declared target really is nested inside the optional body, which is why
+  // the surface check fires; both moves keep reading locked original locations.
+  assert.equal(swap.args.body.value.find(instruction => instruction.id === "tideturner.chosen-location").targets.length, 1);
+});

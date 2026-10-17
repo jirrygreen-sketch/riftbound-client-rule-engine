@@ -7,6 +7,8 @@ import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.
 import channel from "../../../../engine-core/dist/effects/instructions/effect.channel.js";
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 
 test("ogn-186-298 Treasure Trove: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -24,6 +26,11 @@ test("ogn-186-298 Treasure Trove: identity, version and verbatim multiline sourc
   assert.match(program.judgeReason, /383\.2\.c\.3/);
   assert.match(program.judgeReason, /detachSource/);
   assert.match(program.judgeReason, /object-left-zone/);
+  // Re-probed 2026-10-17: the scanning-order gap is unchanged, and the
+  // reference kernel's channel consumer is named as a second, independent gap.
+  assert.match(program.judgeReason, /test-kernel/);
+  assert.match(program.judgeReason, /431\.2/);
+  assert.match(program.judgeReason, /engine-runtime\/host\.ts/);
   assert.equal(
     program.sourceText,
     "When this leaves the board, draw 1 and channel 1 rune exhausted.\n" +
@@ -167,13 +174,44 @@ test("Treasure Trove: the original leave body draws and submits the exhausted-ch
   ]);
 });
 
-test.todo(
-  "Treasure Trove: preserve the own-leave registration until deferred event scanning captures LKI, then detach it " +
-    "(CR 383.2.c.3/a/b; BLOCKED: events/pipeline.publish drains the leave event after programs/lifecycle.detachSource " +
-    "has already unregistered the source, so the deferred trigger never captures the source's last-known information)."
-);
+test("Treasure Trove boundary: the production lifecycle unregisters the leave trigger before the leave scan captures LKI (CR 383.2.c.3/383.2.c.3.a–b)", () => {
+  // Re-probed 2026-10-17: programs/lifecycle.ts detaches the source from the
+  // pipeline as soon as emit returns for object-leaves-board, while
+  // pipeline.publish only drains the suspended wave after the whole group was
+  // emitted. The subscription therefore disappears before the scan, and the
+  // card's own leave body never runs through the real kill path.
+  const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
+  const f = fixture({ cards: [{ id: "trove", cardId: program.canonicalCardId, types: ["gear"], power: ["Chaos"] }] });
+  binding.attachLifecycle(f.engine, () => {});
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("trove"), to: "board", location: { type: "base", player: "A" } });
+  assert.equal(f.engine.pipeline.checkpoint().triggers.size, 1);
+  assert.equal(f.kernel.player("A").handSize, 0);
+  assert.equal(f.kernel.objectsInZone("A", "rune-zone").length, 0);
 
-test.todo(
-  "Treasure Trove: channel-rune must consume exhausted:true as the rune entry state, without a later exhaust action " +
-    "(CR 431.2; BLOCKED: the effects/testing/test-kernel channel-rune consumer currently ignores the exhausted flag)."
-);
+  assert.equal(f.engine.commit({ type: "kill", object: f.kernel.ref("trove") }).status, "done");
+  assert.equal(f.engine.pipeline.checkpoint().triggers.size, 0);
+  assert.equal(f.kernel.getObject("trove").zone, "trash");
+  // "When this leaves the board, draw 1 and channel 1 rune exhausted." did not
+  // resolve: neither half happened.
+  assert.equal(f.kernel.player("A").handSize, 0);
+  assert.equal(f.kernel.objectsInZone("A", "rune-zone").length, 0);
+  assert.equal(f.engine.items.length, 0);
+});
+
+test("Treasure Trove boundary: the reference kernel's channel-rune ignores exhausted:true (CR 431.2)", () => {
+  // Re-probed 2026-10-17: effects/testing/test-kernel.ts moves the rune and
+  // returns the count, but never writes the entry orientation, so the authored
+  // exhausted:true argument is provably not consumed on this path. The merged
+  // apps/game-server engine-runtime/host.ts does consume it, so this is a
+  // reference-kernel coverage gap and not a licence to claim the state landed.
+  const [leaveTrigger] = program.abilities;
+  const [, channelInstruction] = leaveTrigger.body;
+  const kernel = world().rune(["r1", "r2"]).build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("r1") });
+  const run = runInstruction(channel, channelInstruction.args, { world: scoped });
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.channeled, 1);
+  assert.equal(scoped.getObject("r1").zone, "rune-zone");
+  assert.equal(scoped.getObject("r1").exhausted, false, "the reference kernel drops the exhausted entry state");
+  assert.deepEqual(channelInstruction.args.exhausted, { kind: "constant", value: true });
+});
