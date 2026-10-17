@@ -13,49 +13,36 @@ import type { CardProgram } from "../../ir/index.js";
  *   "after an attack" 指该征服由一次攻击造成）。
  * - 383.2.a.1：紧随触发条件之后的 "if ..." 从句是**触发条件的一部分**，必须
  *   在进链前为真；"assigned 5 or more excess damage to enemy units" 是战斗伤害
- *   分配的结果统计（CR 467.2.c.4：excess = 超过致命所需的分配量），因此条件
+ *   分配的结果统计（467.2.c.1 区分分配和造成；467.2.c.4 限制分配上限），因此条件
  *   写在 TriggerSpec.condition 上而不是 body 指令上。
  * - 194.1.c / 470.1："you score 1 point" 是获得点数（Gaining Points），与
  *   战场 Scoring 是两件事；官方文本用 "Score X points" 指获得点数（470.2）。
  *
- * status：judge-required。复核 2026-10-17：
- * - 已合入：「score 1 point」由 effect.score 真实执行（golden 断言
- *   score 动作、玩家点数 +1 与链接凭证）；conquer 时点由 turn/flow.ts 的 Score
- *   波发出。触发拼写改用封闭判别值 "conquered"。
- * - 仍缺：「assigned 5 or more excess damage to enemy units」的条件统计。excess
- *   damage 分配结果既不在 conquer 发射的载荷里（turn/flow.ts scheduleScore 的
- *   details 只有 battlefieldId），也不在 HistoryQuery 的维度里
- *   （interpreter/history.ts 只接受 scope/action/timingPoint/player/object/
- *   exclude/objectFilter）；count 表达式的 subject 不参与求值（expr.ts 只按
- *   filter 查询对象，未知 filter 键被忽略会过度满足）。
- * - 同时，conquer 的 score 动作只带 player，触发 filter 的
- *   object:{objectId:"self"}（383.4.c.2.a 的单位身份）没有可绑定的事件对象；
- *   本卡按可接受拼写声明意图并保留该缺口。
- * 依赖：战斗伤害分配统计接入 conquer 事件或 HistoryQuery，以及 conquer 事件携带征服单位身份。
- * 不把条件近似成固定常量，也不手改玩家点数。
+ * status：judge-required。source:self 由生产过滤器绑定到真实宿主。
+ * 仍缺本次攻击的伤害分配统计、征服参与单位身份与得分替代后的征服事件；
+ * count.subject 不会读取分配数据，不能用当前对象数量近似 excess damage。
+ * effect.score 的执行证据只证明获得点数子效果。
  */
 const tryndamereBarbarian = {
   canonicalCardId: "card.hash-6ba12b26451c240435ee3952db1009ed8f8cb3d1db061aef3df6e51c359883aa",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处触发条件/载荷缺口：(1)「本次攻击向敌方单位分配 5+ excess damage」没有条件统计——conquer 发射载荷（details）" +
-    "只有 battlefieldId，HistoryQuery（interpreter/history.ts）只支持 scope/action/timingPoint/player/object/exclude/objectFilter，" +
-    "而 count 表达式的 subject 在 expr.ts 里不参与求值、未知 filter 键被忽略会过度满足（CR 467.2.c.4 的 excess 定义）；" +
-    "(2)「When I conquer」的 383.4.c.2.a 单位身份没有事件对象可绑定：conquer 的 score 动作只带 player，" +
-    "filter 的 object:{objectId:self} 只能声明意图、没有可绑定载荷。" +
-    "已合入部分：「score 1 point」由 effect.score 真实执行，conquer 时点由 turn/flow.ts 的 Score 波发出。" +
-    "依赖：战斗伤害分配统计接入 conquer 事件或 HistoryQuery，以及 conquer 事件携带征服单位身份。不近似为固定条件或直接改点数。",
+    "缺本次攻击向敌方单位分配 5+ excess damage 的战斗伤害分配统计（CR 467.2.c.1、467.2.c.4；" +
+    "383.2.a.1 要求在触发入链前判断），不能用已造成伤害或当前对象数量代替。" +
+    "conquer 事件 details 只有 battlefieldId，没有本次攻击/分配关联或参战单位 object；" +
+    "HistoryQuery 也没有伤害分配数值维度，count.subject 不参与求值。" +
+    "source:self 过滤还需征服事件提供真实参与单位身份（383.4.c.2.a）；" +
+    "替代或阻止征服得分时仍须产生征服触发（383.4.c.2.c）。",
   abilities: [
     {
       kind: "triggered",
       trigger: {
         at: "conquer",
         // "conquered" is the closed discriminant (EVENT_NAMES maps it to the
-        // conquer timing point). The object self-filter declares the "this
-        // unit" intent; the current score/conquer emission carries only the
-        // player, so no event object can bind it yet (see judgeReason).
-        filter: { event: "conquered", object: { objectId: "self" } },
+        // conquer timing point). source:self binds the actual host; the
+        // production emission still needs participant identity (383.4.c.2.a).
+        filter: { event: "conquered", source: "self" },
         condition: {
           kind: "compare",
           left: {

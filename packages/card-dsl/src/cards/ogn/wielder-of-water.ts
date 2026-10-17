@@ -43,17 +43,11 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "2026-10-17 复核（逐条实测）：" +
-    "(1) 攻防半段的生产路径已通：契约 3.8 的 ObjectSnapshot.combatRole 已合入，static binder 的 " +
-    "abilityEnvironment（programs/statics.ts）经 effects/interpreter 真实求值 Condition；参考内核里 " +
-    "combatRole:\"attacker\" 的单独单位实测得 Might 4。" +
-    "(2) 通用卡牌测试台（packages/engine-core/src/effects/testing/scenario/）的 objectConfig 不搬运 " +
-    "ObjectSnapshot.combatRole，场景里的宿主永远不在战斗中，因此本卡的攻防半段无法经测试台真实路径覆盖。" +
-    "(3) 740.2.a 的 alone 仍无正确 static 路径：static binder 的 count 查询把非锚点字段交给 " +
-    "layers/filter.ts 的 matchesObjectFilter，其 selectorMatches 以候选单位自己的 controller 作为 " +
-    "owner 比较值（filter.ts:62），controller:\"self\" 对同位置所有候选恒真、controller:\"opponent\" " +
-    "恒假（实测同位置的敌方单位会被当成友方）。依赖：static 条件查询的相对 controller（能力来源）解析，" +
-    "或 740.2.a 的专用 static 求值支持；以及测试台对 combatRole 的搬运。不近似实现。",
+    "缺 740.2.a alone 的友方范围求值：programs/statics.ts 的 count 查询交给 " +
+    "layers/filter.ts 的 matchesObjectFilter；filter.ts:62 的相对 controller 以候选自己的 controller 比较，" +
+    "controller:self 会把同位置敌方也计入，controller:opponent 恒假。" +
+    "需要以能力来源当前控制者为锚点的 static 条件查询，不能删除 controller 过滤近似 alone；" +
+    "combat/flow.ts 的 combat-start-transaction 还缺生产 combatRole 的原子战斗开始事务（461、466.2）。",
   abilities: [
     {
       kind: "static",

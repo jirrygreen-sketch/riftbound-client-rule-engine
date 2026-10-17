@@ -5,6 +5,9 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/tryndamere-barbarian.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 
 const CARD_ID = "card.hash-6ba12b26451c240435ee3952db1009ed8f8cb3d1db061aef3df6e51c359883aa";
 
@@ -34,8 +37,8 @@ test("ogn-034-298 Tryndamere, Barbarian: self conquer trigger whose condition co
   assert.equal(ability.kind, "triggered");
   assert.equal(ability.trigger.at, "conquer");
   // The closed discriminant is "conquered" (EVENT_NAMES maps it to conquer);
-  // object:{objectId:"self"} declares the conquering-unit intent.
-  assert.deepEqual(ability.trigger.filter, { event: "conquered", object: { objectId: "self" } });
+  // source:self binds the conquering unit's actual object id.
+  assert.deepEqual(ability.trigger.filter, { event: "conquered", source: "self" });
   assert.equal(ability.optional, false);
 
   // "if you assigned 5 or more excess damage to enemy units" immediately
@@ -74,6 +77,21 @@ test("ogn-034-298 Tryndamere, Barbarian golden: the score clause gains 1 point t
   assert.deepEqual(outcome.linkedValues["tryndamere-barbarian.score-1.scored"], [
     { player: "A", amount: 1 }
   ]);
+});
+
+test("ogn-034-298 Tryndamere, Barbarian: the conquer filter binds the actual host for either controller", () => {
+  for (const controller of ["A", "B"]) {
+    const kernel = world()
+      .unit("tryndamere", { owner: controller, cardId: CARD_ID, might: 8 })
+      .unit("other-unit", { owner: controller, might: 3 })
+      .build();
+    const source = kernel.getObject("tryndamere");
+    const filter = translateTriggerFilter(program.abilities[0].trigger.filter, source.ref.id, "conquer");
+    assert.deepEqual(filter, { event: "conquered", object: { objectId: source.ref.id } });
+    assert.equal(validateTriggerSpec({ ...program.abilities[0].trigger, filter }).ok, true);
+    assert.equal(matchesTriggerEvent(filter, { timingPoint: "conquer", object: source, player: controller }, controller), true);
+    assert.equal(matchesTriggerEvent(filter, { timingPoint: "conquer", object: kernel.getObject("other-unit"), player: controller }, controller), false);
+  }
 });
 
 test.todo(

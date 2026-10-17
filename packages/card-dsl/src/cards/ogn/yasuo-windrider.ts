@@ -25,7 +25,8 @@ import type { CardProgram } from "../../ir/index.js";
  * 实测 programs/triggers.ts 经 assertTriggerSpec 抛 TriggerSpecValidationError(invalid-event-type)；
  * 且「第 N 次恰好触发一次」（383.1.b）需要按对象的本回合 Move 历史边沿：TriggerSpec.condition
  * 的 count 表达式只做当前区域对象查询（参考内核实测对在板单位返回 1），condition.history 是
- * body 指令、不能作为 TriggerSpec 条件，生产宿主也没有事件级 testTrigger 适配器；
+ * body 指令、不能作为 TriggerSpec 条件；EventPipeline 已有事件感知条件求值，
+ * 但没有每对象/每回合 Move 序号、同时满足去重与 Recall 排除的历史谓词；
  * (2) [Ganking] 展开的 continuous.movement 许可已有 zones/movement.ts 的
  * moveDuelUnitsStandard 可选 rules 桥（layers/rules/query.ts 消费 canGank），但生产装配缺失：
  * duel/standard-move-executor-v2.ts 调 moveDuelUnitsWithMetadata 时不传 rules，
@@ -42,22 +43,15 @@ const yasuoWindrider = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "复核 2026-10-17，两处缺口使整卡仍不可执行，均不近似实现：" +
-    "(1) 触发无法注册：「The third time I move in a turn」（383.1.b）订阅的 object-moved 不在 " +
-    "events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 词表内，实测 programs/triggers.ts 经 assertTriggerSpec " +
-    "抛 TriggerSpecValidationError（invalid-event-type，事件词表只到 final-point）；" +
-    "即使可注册，条件形状也不对：TriggerSpec.condition 的 count 表达式只查询当前区域对象（参考内核实测对在板单位返回 1），" +
-    "本回合自身 Move 历史只能由 condition.history 指令读取，它不能作为 TriggerSpec 条件，生产 EventPipeline 宿主也缺事件级 " +
-    "testTrigger 适配器，且 383.1.b 要求同时多次满足时只触发一次。" +
-    "(2) [Ganking]（810.1.b/810.1.c/144.4.c）的连续移动许可未接通生产：" +
-    "zones/movement.ts 的 moveDuelUnitsStandard 已接收可选 rules 并查询 canGank（layers/rules/query.ts 读 permission.routes），" +
-    "但 duel/standard-move-executor-v2.ts 调 moveDuelUnitsWithMetadata 时不传 rules（没有生产方装配 DuelMovementRuleContext），" +
-    "apps/game-server 的 authoritative-runtime-p4.ts 的 ganking 只接受 no-ability/pure-accelerate 单位、对本卡抛 " +
-    "\"unresolved movement keyword\"；关键词静态展开经 programs/statics.ts 原样注册字符串 permission，查询器读取的 " +
-    "permission.routes 仍未规范化。" +
-    "已用真实执行核验并保留：「you score 1 point」按 CR 470.2 用 effect.score 执行（golden 真实获得 1 点）；" +
-    "本回合自身 Move 计数用 object-moved 历史查询（action: move-location、scope: turn）计数，golden 真实走完三次 effect.move " +
-    "并读到 count = 3（458 Recall 不计入）。这些不构成整卡、关键词展开或生产触发链路的执行证据。",
+    "缺 The third time I move in a turn 的事件历史条件（CR 383.1.b）：object-moved 不在 EVENT_PATTERN_TYPES，" +
+    "触发注册报 invalid-event-type；count 表达式查询当前对象，condition.history 是 body 指令，" +
+    "不能充当 TriggerSpec 的逐事件历史条件。EventPipeline 已有事件感知条件求值；" +
+    "缺的是兼容 testTrigger 的本回合、本对象 Move 序号和同时满足时只触发一次的历史谓词，" +
+    "以及生产移动原因/Recall 排除（458.1），不能仅按 action:move-location 推断。" +
+    "Ganking（810.1.b/810.1.c）的静态 permission 字符串未规范化为 permission.routes，" +
+    "canGank 查询不能消费；duel/standard-move-executor-v2.ts 未装配 DuelMovementRuleContext，" +
+    "apps/game-server 的 authoritative-runtime-p4.ts 仍对本卡拒绝 unresolved movement keyword。" +
+    "effect.score 获得点数（470.2）仍缺上述第三次移动触发前置，不能无条件发放。",
   abilities: [
     { kind: "keyword", keyword: "ganking" },
     {

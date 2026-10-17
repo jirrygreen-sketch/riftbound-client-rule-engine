@@ -21,56 +21,26 @@ import type { CardProgram } from "../../ir/index.js";
  *   body 内先支付 1 能量（cost.pay 的 payments 形状），再用 effect.zone 的
  *   return-to-hand 把我移回拥有者手牌（目的地按拥有者路由，CR 417/124）。
  *
- * status：judge-required（第三轮复核 2026-10-17）。逐项实测结论：
- * - [Assault 3]：KeywordDef 与静态绑定（programs/statics.ts 的
- *   createEngineStaticBinder）都能注册 continuous.might，但展开条件读
- *   object-property "designation"（Assault.ts），而 ObjectSnapshot 暴露的是契约
- *   3.8 的 combatRole；实测 combatRole:"attacker" 时有效 Might 仍是印刷值
- *   （designation 求值抛 MissingInformation 后被当作 false）。攻击者身份的生产
- *   写入方也仍缺（combat/flow.ts 对战斗开始抛 combat-start-transaction）。
- * - 入场改写：replacement/bind.ts 能绑定"横置进场 → 就绪进场"，但
- *   matchesEnterAction 在 testCondition 之前直接返回，ability.condition 不在入场
- *   匹配路径求值（实测无对手战场时同样命中改写）；且条件本身无法表达——ObjectSnapshot
- *   没有"战场由谁控制"的对象形状（battlefield token 的 owner/controller 由放置者
- *   决定，实际控制记录在 turn/flow.ts 与 combat/flow.ts 的 BattlefieldState），
- *   count 的 subject 也不参与求值（expr.ts 只读 expr.filter），所以
- *   { count, subject:"battlefields", filter:{ controller:"opponent" } } 恒为 0。
- * - 征服触发仍有两层缺口。事件过滤已改用已合入的 source:self 绑定形状，能翻译成
- *   object:{objectId:宿主} 并匹配携带本单位 object 的 conquer 事件，但生产 conquer 发射载荷只有
- *   { player, details:{ battlefieldId } }、没有参战单位 object（383.4.c.2.a 的
- *   单位身份），所以生产路径上仍恒假。body：choice.optional 内的 TargetSpec
- *   filter { source: "self" } 被 programs/filters.ts 的 translateObjectFilter 抛
- *   "Unsupported filter field source"——实测 triggerRegistrations 在 body 翻译
- *   阶段即失败，整卡触发注册不成立；即便换成可翻译的 filter，chain/engine.ts 的
- *   assertFinalizationSurface 仍以 "Nested/repeated targets require an
- *   interpreter target-selection lifecycle adapter" 拒绝嵌套目标（实测
- *   ChainContractBlockedError）。此外 cost.pay 在资源不足时抛 cannot-pay-cost
- *   （cost/README.md 的 payment scope/savepoint 契约变更请求），当前没有只跳过该
- *   可选体、不中止外层触发的支付作用域。
- * 依赖：Attacker designation 特征与生产写入方、入场替代条件求值 + 战场控制谓词、
- * conquer 载荷的单位身份、嵌套目标生命周期与可选支付回滚。
- * sourceText 与 canonicalCardId 不改。
+ * status：judge-required。Assault 的 designation 别名已有扩展求值器，但
+ * 静态条件与战斗身份生产尚未接通；条件入场路径绕过 ability.condition，
+ * 且没有真实战场控制谓词。征服还缺参与单位身份、得分替代后的触发保证、
+ * 可选体的自身目标绑定/嵌套生命周期与无法支付时的局部回滚。
+ * 已支持子效果的执行不证明这些路径正确，详见 judgeReason 与 golden。
  */
 const vayneHunter = {
   canonicalCardId: "card.hash-af6a9ff16e9f4f9849e489bb4ab37b18a1f12ed88da4b151ac85c770eb68d8c6",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处当前真实缺口（复核 2026-10-17，均以合入源码实测）：" +
-    "(1) [Assault 3]（807.1.b/.c）：KeywordDef 展开出 continuous.might 且静态绑定可注册，" +
-    "但展开条件读 object-property \"designation\"（effects/keywords/Assault.ts），ObjectSnapshot 只暴露契约 3.8 的 combatRole，" +
-    "实测 combatRole:\"attacker\" 时有效 Might 仍为印刷值 2（designation 求值 MissingInformation 被当作 false）；" +
-    "攻击者身份的生产写入方也仍缺（combat/flow.ts 抛 combat-start-transaction）。" +
-    "(2) 「If an opponent controls a battlefield, I enter ready」（364.3.a、369.3）：入场改写已由替代注册管线绑定（golden 断言链区横置进场被改写为就绪，不是先横置再 effect.ready），" +
-    "但 replacement/bind.ts 的 matchesEnterAction 在 testCondition 之前返回，ability.condition 不在入场匹配路径求值（实测无对手战场时同样命中）；" +
-    "条件本身也没有可求值形态：战场不是带控制者的 ObjectSnapshot（battlefield token 的 owner/controller 由放置者决定，实际控制记录在 turn/flow.ts、combat/flow.ts 的 BattlefieldState），" +
-    "且 count 的 subject 不参与求值（interpreter/expr.ts 只读 expr.filter），{ count, subject:\"battlefields\", filter:{ controller:\"opponent\" } } 恒为 0。" +
-    "(3) 「When I conquer, you may pay :rb_energy_1: to return me」（383.4.c.1、383.4.c.2.a）：" +
-    "事件过滤已改用 { filter:{ source:\"self\" } } 的已合入绑定形状，能翻译成 object:{objectId:宿主}；但生产 conquer 发射载荷只有 { player, details:{ battlefieldId } }、没有参战单位 object，生产路径仍无法确认是本单位征服；" +
-    "body 侧 choice.optional 内的 TargetSpec filter { source:\"self\" } 被 programs/filters.ts 的 translateObjectFilter 抛 \"Unsupported filter field source\"，实测 triggerRegistrations 在 body 翻译阶段即失败；" +
-    "即便换成可翻译的 filter，chain/engine.ts assertFinalizationSurface 仍以 \"Nested/repeated targets require an interpreter target-selection lifecycle adapter\" 拒绝嵌套目标（实测 ChainContractBlockedError）；" +
-    "且 cost.pay 资源不足时抛 cannot-pay-cost，当前缺只跳过该可选体的 payment scope/savepoint（cost/README.md 契约变更请求 1/2）。" +
-    "依赖：Attacker designation 特征与生产方、入场替代条件求值 + 战场控制谓词、conquer 载荷单位身份、嵌套目标生命周期与可选支付回滚。不近似实现。",
+    "缺以下生产接线：(1) Assault 3（807.1.b/.c）的 designation→combatRole 读取虽有扩展求值器，" +
+    "programs/statics.ts 的条件仍调用基础 evaluateCondition，未接该扩展；" +
+    "combat/flow.ts 的 combat-start-transaction 仍阻断攻击身份生产。" +
+    "(2) 条件入场（364.3.a、369.3）：replacement/bind.ts 的 matchesEnterAction 在 testCondition 前返回，" +
+    "绕过 ability.condition；战场控制仍在 BattlefieldState，count.subject 不读取 battlefield，缺真实控制谓词。" +
+    "(3) conquer 缺参与单位 object（383.4.c.2.a）及得分替代/阻止后的触发保证（383.4.c.2.c）。" +
+    "choice.optional 内 TargetSpec 的 source:self 被 programs/filters.ts 拒绝，" +
+    "assertFinalizationSurface 也缺嵌套目标生命周期；cost.pay 缺可选 payment scope/savepoint，" +
+    "不能在无法支付时只跳过可选体（203.3、383.3.b）。",
   abilities: [
     { kind: "keyword", keyword: "assault", value: 3 },
     {
