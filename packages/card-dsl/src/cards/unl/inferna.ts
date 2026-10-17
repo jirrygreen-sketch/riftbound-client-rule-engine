@@ -21,14 +21,20 @@ import type { CardProgram } from "../../ir/index.js";
  *   条件）由 effects/keywords/Assault.ts 提供，卡文件不重复实现。
  *
  * status = judge-required（按当前 HEAD 复核；缺口不近似实现）：
- * - [Ambush] 的 KeywordDef 已展开为 play-location-permission 与 continuous.timing 两个静态声明，
- *   但 programs/statics.ts 没有把 play-location-permission 映射到图层，且 Finalize 的地点选择面
- *   不能消费其“有你控制单位的战场”符号权限。不能把它改写成全局 [Reaction]（822.1.b 的
- *   Reaction 只在用 Ambush 打出那一次成立，813.1.c 的 [Reaction] 是整张牌的常驻许可）。
- * - [Assault 2] 的 KeywordDef 会由 programs/keywords.ts 展开，CardProgram static 也已接入图层；
- *   但 Assault 条件读取宿主的 "designation"（807.1.d），ObjectSnapshot 只有 combatRole，
- *   Expr 求值无法取得攻击者身份并会失败关闭，所以不能诚实地只在攻击时提供 +2。
- * 依赖：Ambush 的地点权限/Finalize 消费方，以及 designation 与 combatRole 的条件谓词接线。
+ * - [Ambush]（822.1.b）：KeywordDef 展开的两个 static 都仍不能进入生产图层。实测
+ *   createEngineStaticBinder().bindStatic 对 play-location-permission 抛 ProgramBindingError
+ *   "Static ability kind play-location-permission has no layer mapping"（programs/statics.ts
+ *   的 layerFor 不认识该 kind），对 continuous.timing 抛 "Unsupported static appliesTo [\"card\"]"
+ *   （appliesTo 的 self/source 之外没有卡片许可形状）。Finalize 的地点选择面也没有消费
+ *   “有你控制单位的战场”符号权限。不能把它改写成全局 [Reaction]（822.1.b 的 Reaction 只在用
+ *   Ambush 打出那一次成立，813.1.c 的 [Reaction] 是整张牌的常驻许可）。
+ * - [Assault 2]（807.1.c / 807.1.d.1）：KeywordDef 展开与 CardProgram static 绑定都已合入，
+ *   programs/statics.ts 也会用 evaluateCondition 执行 compare/object-property 条件；但该条件读取
+ *   宿主的 "designation"，ObjectSnapshot 的实际字段是 combatRole，求值抛 MissingInformation 后
+ *   被捕获为 false。实测：combatRole = "attacker" 的单位经生产绑定后 Effective Might 仍是印刷值
+ *   （1），即攻击者拿不到 +2。
+ * 依赖：play-location-permission 的图层/Finalize 消费方、continuous.timing 的卡片许可形状，
+ * 以及 Assault 的 designation 条件到 combatRole 的映射。
  */
 export default {
   canonicalCardId:
@@ -36,8 +42,13 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺：(1) Ambush（CR 822.1.b/822.3）的 play-location-permission 没有 programs/statics.ts 图层映射及 Finalize 消费方；其有友方单位的战场限定与条件 Reaction 仍不能接入打出流程。" +
-    "(2) Assault 2（807.1.c/807.1.d.1）的展开条件读取 designation，而 ObjectSnapshot 提供 combatRole；Expr 与静态绑定尚未桥接二者，因此攻击时的 +2 Might 仍未生效。",
+    "仍缺：(1) Ambush（CR 822.1.b/822.3）的两个 static 都不能绑定：programs/statics.ts 的 layerFor 对 " +
+    "play-location-permission 抛 ProgramBindingError（no layer mapping），continuous.timing 的 appliesTo [\"card\"] " +
+    "也被 staticTarget 以 unsupported appliesTo 拒绝；Finalize 的打出地点选择面同样没有消费该符号权限。" +
+    "(2) Assault 2（807.1.c/807.1.d.1）的展开条件读取 designation，而 ObjectSnapshot 提供的是 combatRole：" +
+    "conditions 求值抛 MissingInformation 后被 programs/statics.ts 捕获为 false，实测 combatRole=attacker 的单位仍保持印刷 Might（1），" +
+    "攻击时的 +2 未生效，非攻击者也没有加成。依赖：play-location-permission/continuous.timing 的图层与 Finalize 消费方，" +
+    "以及 designation → combatRole 的条件映射。",
   abilities: [
     { kind: "keyword", keyword: "ambush" },
     // 807.1.b.1-2 / 807.1.b.3：印刷为 "Assault 2"，Assault Value = 2（缺省才是 1）。

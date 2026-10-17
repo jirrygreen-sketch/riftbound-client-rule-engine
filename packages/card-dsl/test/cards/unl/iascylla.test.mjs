@@ -9,6 +9,10 @@ import { translateTriggerFilter } from "../../../../engine-core/dist/programs/fi
 import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { isTimingPointId } from "../../../../engine-core/dist/events/timing-points.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+
+const keywordlessOps = [...instructionDefinitionsById.keys()];
 
 const CANONICAL_ID =
   "card.hash-0167db5ef0a7cb8ad9866e8d7785e98b8be61001fe1303b0a80af41c6bdfffcc";
@@ -181,11 +185,47 @@ test("unl-050-219 Iascylla golden: the descriptive destination marker is rejecte
   });
 });
 
-test.todo(
-  "unl-050-219 Iascylla: register the delayed trigger 'at the start of your next Main Phase' " +
-    "(CR 391.2/391.4, 393) through a card-facing trigger.delayed instruction with a one-shot " +
-    "next-main-phase window"
-);
+test("unl-050-219 Iascylla: the production interpreter has no trigger.delayed opcode for the card body", () => {
+  // CR 391.2 / 392 / 393: the printed text defers the move to the start of the next
+  // Main Phase, so the card declares trigger.delayed. effects/instructions has no
+  // implementation for that opcode: the merged body throws instead of silently
+  // running the move at the wrong time.
+  const kernel = world()
+    .unit("iascylla", { controller: "A", location: { type: "battlefield", id: "battlefield-1" } })
+    .unit("enemy-unit", { owner: "B", controller: "B", location: { type: "battlefield", id: "battlefield-2" } })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("iascylla") });
+  context.setTargets("iascylla.enemy-unit", [kernel.ref("enemy-unit")]);
+
+  assert.throws(
+    () => resolveChainBody(ability.body, context),
+    /Unregistered instruction opcode: trigger\.delayed/
+  );
+  // The declared delay never advanced, and the enemy unit never moved.
+  assert.deepEqual(kernel.getObject("enemy-unit").location, { type: "battlefield", id: "battlefield-2" });
+  assert.deepEqual(context.delayedTriggers, []);
+});
+
+test("unl-050-219 Iascylla: the internal delayed-trigger seam is not reachable from card instructions", () => {
+  // chain/engine.ts wires ResolveContext.registerDelayedTrigger, and the pipeline
+  // honours registration.delayed (delayed abilities outlive their source). No
+  // registered instruction consumes that seam, so a card cannot create the delayed
+  // ability; this pins the seam the missing opcode would need to use (CR 393).
+  const kernel = world().unit("iascylla", { controller: "A" }).build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("iascylla") });
+  context.registerDelayedTrigger(
+    { at: "main-start", filter: { source: { objectId: "iascylla" } } },
+    [{ id: "iascylla.probe-move", op: "effect.move" }]
+  );
+  assert.equal(context.delayedTriggers.length, 1);
+  assert.equal(context.delayedTriggers[0].at.at, "main-start");
+  assert.equal(context.delayedTriggers[0].body[0].op, "effect.move");
+  assert.equal(
+    keywordlessOps.includes("trigger.delayed"),
+    false,
+    "effects/instructions must still lack the card-facing trigger.delayed op"
+  );
+});
 
 test.todo(
   "unl-050-219 Iascylla: bind 'this battlefield' to the battlefield she held, locked when the " +

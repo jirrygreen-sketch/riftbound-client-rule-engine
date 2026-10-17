@@ -10,6 +10,13 @@ import recycle from "../../../../engine-core/dist/effects/instructions/effect.re
 import reveal from "../../../../engine-core/dist/effects/instructions/effect.reveal.js";
 import zone from "../../../../engine-core/dist/effects/instructions/effect.zone.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { translateInstructionTargets } from "../../../../engine-core/dist/programs/filters.js";
+import { orderedPickSpecs } from "../../../../engine-core/dist/chain/picks/plan.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 
 const CANONICAL_ID =
   "card.hash-d16fb2648e7e67bb98e89d79ce7ab8da7d8444eb3e9111b6847cabe2620a2187";
@@ -71,8 +78,12 @@ test("unl-051-219 Ivern, Nurturer: identity, status, judgeReason and verbatim so
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /Bird, Cat, Dog, or Poro/);
   assert.match(program.judgeReason, /Recycle the rest/);
-  assert.match(program.judgeReason, /链接集合过滤谓词/);
-  assert.match(program.judgeReason, /zoneSlice 顺序注入 effect\.inspect/);
+  assert.match(program.judgeReason, /非目标 pick 消费方/);
+  assert.match(program.judgeReason, /zoneSlice/);
+  assert.match(program.judgeReason, /effect\.reveal/);
+  // The only task number left is the merged ordered-pick dependency that the
+  // reason cites as executed evidence; no unfinished task is pinned.
+  assert.ok(!/RIFT-\d+/.test(program.judgeReason.replace(/RIFT-358/g, "")));
 });
 
 test("unl-051-219 Ivern, Nurturer: the printed text hangs off both the play and the hold condition (383.4.a.1/383.4.d.1)", () => {
@@ -80,7 +91,9 @@ test("unl-051-219 Ivern, Nurturer: the printed text hangs off both the play and 
   assert.deepEqual(onPlay.trigger.filter, { event: "card-played", filter: { source: "self" } });
   assert.equal(onPlay.trigger.at, "card-played");
   assert.equal(onHold.trigger.at, "hold");
-  assert.deepEqual(onHold.trigger.filter, { event: "hold", filter: { source: "self" } });
+  // The closed EventPattern vocabulary spells the hold event "held"
+  // (events/trigger-spec.ts); "hold" would be rejected at registration.
+  assert.deepEqual(onHold.trigger.filter, { event: "held", filter: { source: "self" } });
   assert.equal(onPlay.optional, false);
   assert.equal(onHold.optional, false);
   // Both conditions carry the same printed instructions.
@@ -155,14 +168,14 @@ test("unl-051-219 Ivern, Nurturer: the resolution-time may wraps reveal-and-draw
 });
 
 test("unl-051-219 Ivern, Nurturer: 'Recycle the rest' and the trait Buff keep their documented shapes", () => {
-  // 417.1 / 417.1.a: the rest goes to the bottom of the owner's Main Deck; the
-  // set difference has no merged expression, so the rest key is a documented
-  // placeholder that no merged instruction writes (see judgeReason).
+  // 417.1 / 417.1.a: the rest goes to the bottom of the owner's Main Deck. The
+  // drawn card left the deck, so its old reference is stale (CR 124) and
+  // effect.recycle skips it while recycling the looked-at list itself.
   assert.equal(recycleRest.op, "effect.recycle");
   assert.deepEqual(recycleRest.args.objects, {
     kind: "linked-value",
     instructionId: "ivern-nurturer.look-top-three",
-    key: "rest"
+    key: LOOKED_KEY
   });
   assert.equal(recycleRest.linkedTo, undefined);
 
@@ -288,27 +301,22 @@ test("unl-051-219 Ivern, Nurturer golden: declining the may skips reveal and dra
 });
 
 test("unl-051-219 Ivern, Nurturer golden: 'Recycle the rest' recycles the looked-at remainder to the deck bottom", () => {
-  // 417.1 / 417.4: recycling the remainder moves those cards to the bottom of
-  // their owner's Main Deck. The card's own objects expression is used with the
-  // remainder supplied as the reviewed placeholder for the set difference.
+  // 417.1 / 417.4 / 124: the card's own objects expression names the looked-at
+  // list; the card moved to hand is a stale reference and drops out, so the
+  // remainder recycles to the bottom of its owner's Main Deck.
   const kernel = worldWithDeck();
-  // The recycled cards land at the bottom in the order effect.recycle is given
-  // (CR 417.1.a / 417.5.a), so the supplied remainder order is observable.
-  const rest = [kernel.ref("third-gear"), kernel.ref("second-spell")];
-  const restRun = runInstruction(
-    recycle,
-    { objects: recycleRest.args.objects },
-    { world: kernel, linked: { rest } }
-  );
+  const looked = kernel.zoneSlice("A", "deck", "top", 3).map(object => object.ref);
+  kernel.link(LOOKED_KEY, looked);
+  // One of the three left the deck before this instruction resolved.
+  kernel.perform({ type: "move-zone", object: looked[0], to: "hand" });
+
+  const restRun = runInstruction(recycle, { objects: recycleRest.args.objects }, { world: kernel });
   assert.equal(restRun.result.status, "executed");
   assert.equal(restRun.linked.recycledCount, 2);
-  assert.deepEqual(restRun.linked.recycled, rest);
-  // 417.1.a: the recycled cards land at the bottom in recycle order.
-  assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), [
-    "top-unit",
-    "third-gear",
-    "second-spell"
-  ]);
+  assert.deepEqual(restRun.linked.recycled, [looked[1], looked[2]]);
+  // 417.1.a: only the two still-in-deck cards recycle; the drawn one stays in hand.
+  assert.deepEqual(kernel.zone("A", "hand").map(ref => ref.id), ["top-unit"]);
+  assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["second-spell", "third-gear"]);
   assert.deepEqual(restRun.events.map(event => event.action), ["recycle", "recycle"]);
 });
 
@@ -331,22 +339,129 @@ test("unl-051-219 Ivern, Nurturer golden: the trait Buff really places one Buff 
 
 test.todo(
   "unl-051-219 Ivern, Nurturer: evaluate the revealed Bird, Cat, Dog, or Poro trait from the reveal-time " +
-    "snapshot before granting the Buff (CR 425 / 702; reveal snapshot predicate, RIFT-359)"
+    "snapshot before granting the Buff (CR 425 / 702): the merged Condition compare/in tests one scalar " +
+    "against the tag list, so the retained predicate is always false and the Buff is skipped"
 );
-test.todo(
-  "unl-051-219 Ivern, Nurturer: compute the looked-at set minus the revealed card and recycle exactly that " +
-    "remainder (CR 417.1/417.1.a; set-difference expression)"
-);
-test.todo(
-  "unl-051-219 Ivern, Nurturer: Finalize restricts the linked looked-at pick options to units " +
-    "(CR 355.9.b/355.10.a; linked-set filter predicate)"
-);
-test.todo(
-  "unl-051-219 Ivern, Nurturer: produce the ordered Main-Deck-top picks for effect.inspect in production " +
-    "(contract 3.6 zoneSlice ordering must reach the look)"
-);
+/** The card's own look declaration now carries the ordered zoneSlice source. */
+
+test("unl-051-219 Ivern, Nurturer: the look declares its own ordered Main-Deck-top slice (contract 3.6 + RIFT-358)", () => {
+  // 128.4 / contract 3.6: query() never guarantees deck order, so the card names
+  // the real ordering authority itself instead of relying on the caller to
+  // inject picks. chain/picks/plan.ts reads exactly this shape at Finalize.
+  assert.deepEqual(lookTopThree.picks, [
+    {
+      id: "ivern-nurturer.top-three",
+      options: [],
+      ordered: true,
+      selection: "all",
+      zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 3 } }
+    }
+  ]);
+  assert.deepEqual(orderedPickSpecs(onPlay.body).map(spec => spec.id), ["ivern-nurturer.top-three"]);
+
+  // 417.1 / 417.4: "Recycle the rest" consumes the looked list itself. The card
+  // that was drawn left the deck, so its old reference is stale (CR 124) and drops
+  // out of the recycle candidate set; no set-difference expression is needed.
+  assert.deepEqual(recycleRest.args.objects, {
+    kind: "linked-value",
+    instructionId: "ivern-nurturer.look-top-three",
+    key: LOOKED_KEY
+  });
+  assert.equal(recycleRest.picks, undefined);
+});
+
+test("unl-051-219 Ivern, Nurturer: the hold trigger subscribes with the closed held spelling", () => {
+  // events/trigger-spec.ts only accepts the closed EventPattern vocabulary, whose
+  // hold event is spelled "held" (pipeline-match.ts EVENT_NAMES). "hold" is
+  // rejected with invalid-event-type, which would fail production registration.
+  assert.deepEqual(onHold.trigger.filter, { event: "held", filter: { source: "self" } });
+  const translated = translateTriggerFilter(onHold.trigger.filter, "nurturer", "hold");
+  const result = validateTriggerSpec({ at: "hold", filter: translated });
+  assert.equal(result.ok, true, JSON.stringify(result.issues));
+  assert.deepEqual(translated, { event: "held", object: { objectId: "nurturer" } });
+});
+
+/** Drive the card's own body through the real ChainEngine (Finalize + Resolve). */
+function productionRun({ accept = true, pickRevealed = true } = {}) {
+  const kernel = world()
+    .player("A")
+    .player("B")
+    .unit("nurturer", { might: 4 })
+    .card("third-gear", { types: ["gear"], owner: "A", zone: "deck" })
+    .card("second-spell", { types: ["spell"], owner: "A", zone: "deck" })
+    .card("top-unit", { types: ["unit"], owner: "A", zone: "deck" })
+    .unit("ally", { might: 2 })
+    .build();
+  // The reveal's non-target pick has no production consumer yet (see
+  // judgeReason), so the golden supplies the choice through the pick binding the
+  // merged interpreter reads.
+  if (pickRevealed) kernel.setPicks(revealedPick.id, [kernel.ref("top-unit")]);
+  const requests = [];
+  const decide = request => {
+    requests.push(request);
+    if (request.type === "optional") return accept;
+    if (request.type === "select-objects") return request.options.slice(0, request.min);
+    throw new AwaitChoice(request);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: decide,
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint, choose: decide })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  engine.enqueue({
+    id: "ivern-nurturer-body",
+    controller: "A",
+    source: kernel.getObject("nurturer"),
+    kind: "triggered",
+    speed: "normal",
+    body: translateInstructionTargets(onPlay.body)
+  });
+  engine.advance();
+  let guard = 0;
+  while (engine.items.length && guard++ < 10) engine.pass(engine.priority);
+  return { kernel, engine, requests };
+}
+
+test("unl-051-219 Ivern, Nurturer golden: Finalize locks the real deck-top three and draws the revealed unit", () => {
+  // 128.4 / 414.1 / 432.1.c: the look reads exactly the ordered top three without
+  // moving them; the chosen unit is then drawn and the remaining two are recycled.
+  const { kernel, engine } = productionRun();
+  assert.deepEqual(engine.trace.filter(entry => entry.step === "resolved").map(entry => entry.item), ["ivern-nurturer-body"]);
+  assert.deepEqual(kernel.zone("A", "hand").map(ref => ref.id), ["top-unit"]);
+  assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["second-spell", "third-gear"]);
+  assert.deepEqual(kernel.events.map(event => event.action), [
+    "look", "reveal", "return-to-hand", "recycle", "recycle"
+  ]);
+  // 702.2.a / 702.3.a: the trait clause has no evaluable form yet, so the Buff is
+  // skipped instead of running unconditionally (see judgeReason).
+  assert.equal(kernel.getObject("ally").buffs, 0);
+});
+
+test("unl-051-219 Ivern, Nurturer golden: declining the may still recycles the looked-at cards only", () => {
+  // 359.3.e.14.b: refusing the optional reveal+draw leaves the looked cards in the
+  // deck, so all three (not two) recycle to the bottom.
+  const { kernel } = productionRun({ accept: false });
+  assert.deepEqual(kernel.zone("A", "hand"), []);
+  assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["top-unit", "second-spell", "third-gear"]);
+  assert.deepEqual(kernel.events.map(event => event.action), ["look", "recycle", "recycle", "recycle"]);
+});
+
+test("unl-051-219 Ivern, Nurturer: the unbound reveal pick closes the reveal instead of guessing a card", () => {
+  // The non-target pick over the looked-at set has no production consumer yet, so
+  // effect.reveal sees no bound pick and reports negated/impossible. Both cards stay
+  // in the deck: no card is drawn and the look is never approximated.
+  const { kernel } = productionRun({ pickRevealed: false });
+  assert.deepEqual(kernel.zone("A", "hand"), []);
+  assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["top-unit", "second-spell", "third-gear"]);
+  assert.deepEqual(kernel.events.map(event => event.action), ["look", "recycle", "recycle", "recycle"]);
+});
 
 test.todo(
-  "unl-051-219 Ivern, Nurturer: register the card-played and hold triggers end to end " +
-    "(CR 383.4.a.1/383.4.d.2.a; the hold event must carry the held unit so the self filter can match)"
+  "unl-051-219 Ivern, Nurturer: bind the non-target pick over the linked looked-at set (CR 425.1.a.2 / 355.10.a) " +
+    "so effect.reveal can offer the printed 'a unit from among them' choice"
 );

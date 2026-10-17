@@ -18,8 +18,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   475/478 的算术层与期限），属 layers 的 continuous.might；effect.buff 的文件头明确 Buff 计数器
  *   （702/703）不是 Might 修正，两者不可互换。
  *
- * status = judge-required：continuous.might 的 +8、期限及目标重查已有执行证据；
- * conquered 事件别名可注册。剩余缺口是 Score 波没有参与征服单位的对象匹配。
+ * status = judge-required（按当前 HEAD 复核；缺口不近似实现）：continuous.might 的 +8、
+ * end-of-turn 期限与失效目标重查都有执行证据；conquered 别名本身合法（validateTriggerSpec
+ * 通过，translateTriggerFilter 得 { event: "conquered", object: { objectId: "vox" } }）。
+ * 剩余缺口是 Score 波没有参与征服单位的对象：turn/flow.ts 的 scheduleScore 只发
+ * player/details.battlefieldId，{ source: "self" } 翻译出的 objectId 过滤器没有事件对象可匹配。
+ * 实测注册成功（1 个订阅）后，发出流程形状的 conquer 波（只有 player/details）命中 0 次；
+ * 同一订阅在事件携带对象时才命中，证明缺的就是事件参与单位载荷（383.4.c.2.a）。
  */
 const abilities: Ability[] = [
   {
@@ -69,8 +74,9 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "仍缺 Conquer Effect 的参与单位匹配（CR 383.4.c.2.a）：turn/flow.ts 的 conquer Score 波只有 player/details.battlefieldId，没有征服单位对象，" +
-    "故 source:self 翻译出的 objectId 过滤器没有事件对象可匹配。",
+    "仍缺 Conquer Effect 的参与单位匹配（CR 383.4.c.2.a）：turn/flow.ts 的 conquer Score 波只有 player/details.battlefieldId，" +
+    "没有征服单位对象，故 source:self 翻译出的 objectId 过滤器没有事件对象可匹配——实测订阅注册成功后在流程形状的波上命中 0 次，" +
+    "带对象的事件才命中。continuous.might 的 +8、本回合到期与失效目标重查均有 golden 执行证据；不得用 battlefieldId 冒充征服单位。",
   abilities,
   sourceText: "When I conquer, give a friendly unit +8 :rb_might: this turn."
 } satisfies CardProgram;

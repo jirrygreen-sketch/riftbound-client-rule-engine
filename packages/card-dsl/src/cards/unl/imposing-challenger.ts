@@ -26,21 +26,31 @@ import type { CardProgram } from "../../ir/index.js";
  *   Standard Move, so there is no exhaust cost; effect.move submits the frozen
  *   move-location action.
  *
- * Status: judge-required. Candidate-relative Might filtering and the program's
- * sameLocationAs target anchor still lack a production filter adapter. The merged
- * target.location machinery enumerates locations, but the card-side selector does
- * not forward an exclusion for the current battlefield. The object-moved event
- * vocabulary and Move Destination binding remain blocked (359.3.f.3).
- * Placeholder destinations/filters stay descriptive and cannot enable the card.
+ * Status: judge-required (re-verified against the merged sources). Four gaps remain:
+ * (1) programs/filters.ts rejects the target filter's sameLocationAs anchor
+ * ("Unsupported filter field sameLocationAs"), and the candidate-relative Might
+ * comparison (143.2.a.1) has no filter adapter at all — the same translator throws
+ * "Unsupported filter field mightLessThan". (2) The closed EVENT_PATTERN_TYPES
+ * vocabulary has no "object-moved" spelling even though the timing point itself
+ * exists (events/timing-points.ts) and validateTriggerSpec rejects it with
+ * invalid-event-type. (3) action-adapter.ts emits the object-moved event without any
+ * fromKind/toKind/fromLocationId/toLocationId payload, so "here" cannot be bound to
+ * the triggering Move's Destination (449.2, 359.3.f.3). (4) target.location can
+ * enumerate battlefields, but no card-side consumer forwards an exclusion of the
+ * current battlefield (355.4/355.4.a); descriptive placeholders cannot enable the card.
  */
 export default {
   canonicalCardId: "card.hash-fda3e6799f2fd63235520803dbabc0e2093d7da103c78cd4af3d14b11d20c2f8",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺三处：(1) 目标候选的 Effective Might 与宿主比较（CR 143.2.a.1）：programs/filters.ts 尚不能绑定 mightLessThan 或 sameLocationAs 目标锚点。" +
-    "(2) target.location 已能枚举地点且底层支持 exclude，但 LocationSelector/LocationTargetSpec 的卡牌消费路径没有将“排除当前战场”传给候选查询（355.4/355.4.a）；不能用 different-battlefield 字符串代替。" +
-    "(3) object-moved 的 EventPattern 注册词汇与事件地点捕获缺接线；action-adapter.ts 未填充 fromKind/toKind/fromLocationId/toLocationId，无法按触发那次 Move 的目的地绑定 here（449.2、359.3.f.3）。",
+    "仍缺四处：(1) 目标候选的 Effective Might 与宿主比较（CR 143.2.a.1）：programs/filters.ts 的 translateObjectFilter 对 mightLessThan 抛 " +
+    "ProgramBindingError（Unsupported filter field），sameLocationAs 锚点同样被拒，目标因此无法进入生产 Finalize。" +
+    "(2) 封闭 EVENT_PATTERN_TYPES（events/trigger-spec.ts）没有 object-moved 拼写，validateTriggerSpec 以 invalid-event-type 拒绝本卡订阅；" +
+    "时点本身存在于 timing-points.ts，缺的是注册词汇。" +
+    "(3) action-adapter.ts 的 object-moved 发射不带 fromKind/toKind/fromLocationId/toLocationId，无法按触发那次 Move 的目的地绑定 here（449.2、359.3.f.3）。" +
+    "(4) target.location 已能枚举地点且底层支持 exclude，但 LocationSelector/LocationTargetSpec 的卡牌消费路径没有把「排除当前战场」传给候选查询（355.4/355.4.a）；" +
+    "不能用 different-battlefield 字符串代替。choice.optional 的拒绝分支与 effect.move 本体已有执行证据。",
   abilities: [
     {
       kind: "triggered",
