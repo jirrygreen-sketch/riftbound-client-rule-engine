@@ -7,8 +7,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * 规则依据（CR v1.5）：
  * - 369.3 例 Master Yi, Honed："I enter ready." 是入场替代效果（359.2.c 规定单位
- *   横置入场，本句把"横置入场"替换为"就绪入场"）。类比特邀关键词 Accelerate 的
- *   effects/keywords/Accelerate.ts 展开形状：replacement + effect.ready。
+ *   横置入场，本句把"横置入场"替换为"就绪入场"）。已合入的 replacement.enter
+ *   原语直接声明该入口状态改写。
  * - 383.4.e："When I attack…" 是 Attack Trigger，时点 "attack-declared"。
  * - 429 / 418：kill 与伤害标记分离（429.2.a 只有 Board 上的对象可被消灭）。
  * - "damaged enemy units here" 需要三样缺失的东西："here" 的位置锚点、"damaged"
@@ -38,8 +38,11 @@ const abilities: Ability[] = [
     with: [
       {
         id: "warwick.enter-ready",
-        op: "effect.ready",
-        args: { objects: { kind: "constant", value: { kind: "source" } } }
+        op: "replacement.enter",
+        args: {
+          state: { kind: "constant", value: "ready" },
+          zone: { kind: "constant", value: "board" }
+        }
       }
     ]
   },

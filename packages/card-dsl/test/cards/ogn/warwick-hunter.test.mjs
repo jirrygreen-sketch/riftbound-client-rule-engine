@@ -38,7 +38,7 @@ test("ogn-159-298 Warwick, Hunter: judgeReason cites the set kill and the damage
   assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
-test("ogn-159-298 Warwick, Hunter: 'I enter ready.' is an entry replacement that readies the source (369.3 / 359.2.c)", () => {
+test("ogn-159-298 Warwick, Hunter: 'I enter ready.' is an entry replacement declared by replacement.enter (369.3 / 359.2.c)", () => {
   assert.equal(program.abilities.length, 2);
   assert.equal(entryReplacement.kind, "replacement");
   assert.deepEqual(entryReplacement.replaces, {
@@ -49,8 +49,11 @@ test("ogn-159-298 Warwick, Hunter: 'I enter ready.' is an entry replacement that
   assert.equal(entryReplacement.with.length, 1);
   const [body] = entryReplacement.with;
   assert.equal(body.id, "warwick.enter-ready");
-  assert.equal(body.op, "effect.ready");
-  assert.deepEqual(body.args, { objects: { kind: "constant", value: { kind: "source" } } });
+  assert.equal(body.op, "replacement.enter");
+  assert.deepEqual(body.args, {
+    state: { kind: "constant", value: "ready" },
+    zone: { kind: "constant", value: "board" }
+  });
 });
 
 test("ogn-159-298 Warwick, Hunter: attack trigger kills the damaged enemy set — not a TargetSpec", () => {
