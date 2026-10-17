@@ -13,10 +13,9 @@ const program = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 Backline 展开后的 continuous.combat 末位战斗伤害分配消费方（CR 826）；当前原语只记录持续战斗效果，" +
-    "战斗流程没有读取它来约束分配。activated restriction 的 at-battlefield 形态也没有绑定适配器，" +
-    "程序绑定只接受 Condition 代数。effect.damage 的动态 Might、exhaust 费用和 battlefield 目标本身已有执行证据，" +
-    "但上述两个整卡缺口仍不能把卡标为 executable。",
+    "缺 Backline 展开后的 continuous.combat 末位致命伤害分配消费方（CR 826.3/826.4.b）。" +
+    "at-battlefield 的 condition 包装已有 translateRestriction 适配，但本卡的限制和目标过滤仍把 battlefield 写成 zone；" +
+    "需接通 Board 上的 location 筛选与自身位置条件（355.10.b），不能用直接绑定伤害目标证明整段启动合法。",
   abilities: [
     {
       kind: "keyword",

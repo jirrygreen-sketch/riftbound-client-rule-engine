@@ -15,6 +15,8 @@ test("ogn-027-298 Darius, Trifarian: program validates and is judge-required", (
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.might/);
+  assert.match(program.judgeReason, /Finalize/);
+  assert.match(program.judgeReason, /TriggerSpec.condition/);
 });
 
 test("ogn-027-298 Darius, Trifarian: identity, ruleset and exact source text", () => {
@@ -38,7 +40,7 @@ test("ogn-027-298 Darius, Trifarian: card-played trigger with a second-card cond
   assert.equal(ability.optional, false);
 
   // "your second card in a turn" is a condition on the trigger (383.2.a.1):
-  // exactly one card already finalized by this controller this turn.
+  // pending description of one earlier Finalize; ordinary count does not query history.
   const condition = ability.trigger.condition;
   assert.equal(condition.kind, "compare");
   assert.equal(condition.operator, "eq");
@@ -114,6 +116,23 @@ test("ogn-027-298 Darius, Trifarian: the full body registers Might on self and r
 
 test.todo(
   "ogn-027-298 Darius, Trifarian: the 'you play your second card in a turn' history count " +
-    "(cards-finalized-this-turn with exclude self) still needs a TriggerSpec history-condition " +
+    "(including Darius played as the first card) still needs a Finalize-aware TriggerSpec history-condition " +
     "adapter; the Might and ready body now has execution evidence."
 );
+
+
+test("Darius, Trifarian supported history: an earlier play of Darius counts toward the second card", () => {
+  const initial = world().hand("darius", { cardId: CARD_ID }).hand("second").hand("third").build();
+  const kernel = initial.clone({ sourceSnapshot: initial.getObject("darius") });
+  const read = () => runAbilityBody([{
+    id: "played-count", op: "condition.history",
+    args: { query: { kind: "constant", value: { scope: "turn", action: "play", player: "A" } } }
+  }], kernel);
+  let expected = 0;
+  for (const id of ["darius", "second", "third"]) {
+    assert.equal(kernel.perform({ type: "play", object: kernel.ref(id), player: "A" }).status, "done");
+    const result = read();
+    assert.equal(result.status, "executed");
+    assert.equal(result.linkedValues["played-count.count"], ++expected);
+  }
+});

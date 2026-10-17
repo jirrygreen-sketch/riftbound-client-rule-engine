@@ -33,8 +33,10 @@ import type { CardProgram } from "../../ir/index.js";
  *   here would wrongly fire "becomes a target" effects (355.7, 754).
  * - "Pay any amount of [A]" needs a resolve-time, player-chosen payment
  *   primitive bound to the amount that the effect reads. The merged cost
- *   pipeline only consumes a Finalize-time plan, cost.pay-any is not a
- *   registered instruction, and no linked paid amount is exposed.
+ *   pipeline can settle a supplied payment with cost.pay, but does not ask
+ *   for an arbitrary amount; cost.pay-any is still a pending descriptor.
+ * - A single battlefield must be chosen (355.10.d); the pending set below
+ *   does not bind a LocationSelector to that battlefield yet.
  * The damage set and the payment binding are therefore recorded in the pending
  * descriptor shape (identical to the merged Flurry of Blades program, which
  * blocks for the same missing non-target damage form) rather than approximated
@@ -45,15 +47,10 @@ const bulletTime = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两段依赖未合入：(1) 缺非目标集合的伤害形态：CR 355.10.d 规定按特征程序化选出、玩家无从选择的单位不是目标" +
-    "（“Kill all units at a battlefield”只选战场、不选单位，355.10.d.1 把该例外限定为从不做选择的集合），" +
-    "已合入的 effect.damage 只读取 Finalize 锁定的 TargetSpec（ctx.targets(id)），没有 effect.ready / effect.heal 那种 " +
-    "{kind:'query', filter} 非目标集合分支；写 TargetSpec 会错误触发成为目标（355.7、754）。" +
-    "(2)「Pay any amount of [A]」是 204.3/204.3.a 的指令内费用（该条规则以本卡为例）：金额在结算时由玩家选择且伤害量由实付额决定，" +
-    "已合入原语没有任何结算期“任意数量支付并发布实付额”的形态——合并的费用管线只处理 Finalize 费用计划，" +
-    "cost.pay-any 也没有注册为指令，实付额不作为链接值暴露；" +
-    "把金额写死或拆成无条件伤害都属近似实现。" +
-    "印刷 power:null 表示无印刷费，未改写为 0。仍缺 effect.damage 的非目标集合形态与结算期任意数量支付/链接值原语。",
+    "缺 effect.damage 的非目标集合入口及所选单个战场的 LocationSelector 绑定（CR 355.10.d/355.10.d.1）：" +
+    "当前伤害原语只读取 ctx.targets(id)，待定 query 也未限定到玩家选定的一个战场。" +
+    "另缺结算时任意数量 [A] 的选择、支付及实付额链接值（204.3/204.3.a）：cost.pay 可支付给定计划，" +
+    "但没有任意金额询问与伤害数额绑定；cost.pay-any 仍是待定描述符。",
   sourceText:
     "[Action] (Play on your turn or in showdowns.)\n" +
     "Pay any amount of :rb_rune_rainbow: to deal that much damage to all enemy units at a battlefield.",

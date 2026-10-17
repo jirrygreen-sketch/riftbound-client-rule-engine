@@ -6,6 +6,7 @@ import program from "../../../dist/cards/ogn/cull-the-weak.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 
 const CARD_ID = "card.hash-3f533cd1f26b1998b23e4537e0fd7e5c386685bf6abffe0e6e211b3f43845744";
 const [play] = program.abilities;
@@ -23,6 +24,8 @@ test("Cull the Weak identity and judge-required status match the printing", () =
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.judgeReason.includes("355.10.e"), true);
+  assert.match(program.judgeReason, /chooser/);
+  assert.match(program.judgeReason, /自己控制/);
   assert.equal(program.sourceText, "Each player kills one of their units.");
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });
@@ -106,8 +109,21 @@ test("Cull the Weak golden: an empty pick list leaves the board untouched", () =
 test.todo(
   "Cull the Weak: the per-seat choice — every player (including the caster) chooses one of " +
     "their own units on resolution and each choice is killed — needs the roster-wide player " +
-    "roster-wide player iteration, one resolution-time pick per player, and repeated kill execution."
+    "iteration, one resolution-time pick per player, and repeated kill execution."
 );
+
+test("Cull the Weak: the original kill body ignores a stale non-target pick through the production adapter", () => {
+  const kernel = world().unit("chosen").unit("untouched", { owner: "B" }).build();
+  const stale = kernel.ref("chosen");
+  assert.equal(kernel.perform({ type: "return-to-hand", object: stale }).status, "done");
+  kernel.setPicks(pickSpec.id, [stale]);
+  const result = resolveChainBody(play.body, kernel);
+  assert.equal(result.status, "partial");
+  assert.deepEqual(result.results[0].result, { status: "ignored", reason: "mistargeted" });
+  assert.equal(kernel.getObject("chosen").zone, "hand");
+  assert.equal(kernel.getObject("untouched").zone, "board");
+  assert.deepEqual(result.events, []);
+});
 
 test.todo(
   "Cull the Weak: bind the table-wide resolution-time pick so every player chooses one " +

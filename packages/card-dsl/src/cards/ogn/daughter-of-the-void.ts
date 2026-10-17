@@ -22,9 +22,9 @@ import type { CardProgram } from "../../ir/index.js";
  *   by a chosen domain”。本卡把 [A] 记为描述性的 power: ["rainbow"]（与 danger-zone
  *   对 [A] 费用的记法一致）；真实原语对 ["rainbow"] 返回 negated(impossible)，
  *   golden 里锁定这条失败证据，而不是选一个域冒充。
- * - “Use only to play spells” 是使用限制，但合并内核没有消费卡牌 Restriction 的路径
- *   （chain Finalize 只检查调用方传入的 Condition），无法保证该资源只用于支付法术。
- * - Add Reaction 的启动窗口（430.3：支付过程中可启动）没有接线。
+ * - 条件型 Restriction 已有适配，但本卡 use-only-to-play-spells 没有资源来源/
+ *   用途追踪及支付消费路径，无法保证该资源只用于打出法术。
+ * - 程序绑定将其作为普通 activated 项，未接 Add 的立即结算及支付中启动路径。
  * Universal Power 属契约级缺口；限制消费和 Add Reaction 窗口仍缺运行时消费方。
  */
 const daughterOfTheVoid = {
@@ -33,10 +33,9 @@ const daughterOfTheVoid = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺任意域（Universal）Power 的表达与支付：契约/内核的 Domain 是 Fury/Calm/Mind/Body/Chaos/Order 六域" +
-    "封闭集合，effect.resources 明确记录 163.2.b 的 [A] 不可表达、绝不用某个域近似；本卡的 " +
-    "[Add] :rb_rune_rainbow: 因此只能保留描述性 power: [\"rainbow\"]（原语返回 negated(impossible)）。" +
-    "另外 “Use only to play spells” 的使用限制没有消费路径，430.3 的 Add Reaction 启动窗口也未接线。",
+    "缺任意域 Universal Power 的 gain-power 表达与支付（CR 163.2.b）：Domain 仍为六域联合，effect.resources 不支持待定 rainbow 值。" +
+    "另缺 use-only-to-play-spells 的资源来源/用途追踪及支付限制消费方；普通 Condition 限制适配不能保证该点 Power 只用于打出法术。" +
+    "describeActivate 也未将本能力路由至 Add 的立即结算（430.2/430.2.a）与支付中启动窗口（430.3）。",
   abilities: [
     {
       kind: "activated",

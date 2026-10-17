@@ -8,6 +8,8 @@ import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import resources from "../../../../engine-core/dist/effects/instructions/effect.resources.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+
 const CANONICAL_ID =
   "card.hash-d1376b95989d72f123c2e7fbde3eab74d70c047906b489ce0e076e7e25c757c2";
 const SOURCE_TEXT =
@@ -33,6 +35,8 @@ test("ogn-247-298 Daughter of the Void: identity, status, and verbatim sourceTex
   assert.match(program.judgeReason, /Universal/);
   assert.match(program.judgeReason, /rainbow/);
   assert.match(program.judgeReason, /163\.2\.b/);
+  assert.match(program.judgeReason, /use-only-to-play-spells/);
+  assert.match(program.judgeReason, /430\.2/);
 });
 
 test("ogn-247-298 Daughter of the Void: [Reaction] activation with the printed Exhaust cost", () => {
@@ -47,7 +51,7 @@ test("ogn-247-298 Daughter of the Void: [Reaction] activation with the printed E
     payments: [{ kind: "exhaust", object: "self" }]
   });
   // “Use only to play spells”: preserved as a restriction for review; the
-  // merged chain has no consumer for card restrictions (see judgeReason).
+  // merged chain has no resource-use consumer for this restriction.
   assert.deepEqual(ability.restriction, { kind: "use-only-to-play-spells" });
   assert.equal(ability.body.length, 1);
   assert.equal(add.id, "daughter-of-the-void.add-universal-power");
@@ -99,3 +103,15 @@ test.todo(
   "ogn-247-298: enforce “Use only to play spells” and reserve the resource for spell payment " +
     "(restriction consumption) plus the 430.3 Reaction-Add window during payment"
 );
+
+
+test("Daughter of the Void: the original Add body preserves resources when Universal Power is impossible", () => {
+  const initial = world().unit("daughter", { types: ["legend"] }).player("A", { energy: 2, power: ["Mind"] }).build();
+  const kernel = initial.clone({ sourceSnapshot: initial.getObject("daughter") });
+  const result = resolveChainBody(ability.body, kernel);
+  assert.equal(result.status, "partial");
+  assert.deepEqual(result.results[0].result, { status: "negated", reason: "impossible", events: [] });
+  assert.equal(kernel.player("A").energy, 2);
+  assert.deepEqual(kernel.player("A").power, ["Mind"]);
+  assert.deepEqual(result.events, []);
+});
