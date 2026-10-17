@@ -1,19 +1,17 @@
-// Golden test for Entrenched Boar (rad-026-167).
-//
-// judge-required (see the program's judgeReason): "enter ready" needs the
-// unmerged entry replacement, the printed "you may" is replacement-level
-// optionality that the IR cannot express, and "I can't move this turn" needs a
-// continuous movement restriction with a consumer. The runnable evidence is the
-// declared structure plus the real eligibility of the declared statuses/steps.
+
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/entrenched-boar.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { EventPipeline } from "../../../../engine-core/dist/events/pipeline.js";
+import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
+import { ContinuousEffectRegistry } from "../../../../engine-core/dist/layers/duration.js";
+import { restrictions } from "../../../../engine-core/dist/layers/rules/query.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
-import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
-import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
+import restrict from "../../../../engine-core/dist/effects/instructions/continuous.restrict.js";
 
 const CANONICAL =
   "card.hash-83b3503583d3b1c2a4c954330e33aa17c188c4a97ab757da916900476485a9f4";
@@ -22,6 +20,70 @@ const SOURCE_TEXT = "You may have me enter ready. If you do, I can't move this t
 const [replacement] = program.abilities;
 const [optional] = replacement.with;
 const [enterReady, cannotMove] = optional.args.body.value;
+
+/**
+ * The card's own declared replacement.enter form, expressed with the entry
+ * rewrite spelled out (the raw card body wraps it in choice.optional, which the
+ * planner deliberately rejects: see the TODO test at the end).
+ */
+const entryRewrite = (state) => ({
+  replaces: replacement.replaces,
+  with: [
+    {
+      id: "entrenched-boar.enter-ready",
+      op: "replacement.enter",
+      args: { state: { kind: "constant", value: state } }
+    }
+  ]
+});
+
+/** Reference kernel + the merged event pipeline; every execution is real. */
+function scene() {
+  const kernel = world()
+    .player("A")
+    .player("B")
+    .hand("boar", { types: ["unit"], might: 2 })
+    .build();
+  const decide = () => {
+    throw new Error("unexpected choice");
+  };
+  const pipelineHost = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => {
+      kernel.restore(checkpoint.state);
+      kernel.copyLinkedFrom(checkpoint.links);
+    },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: decide,
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint, choose: decide }),
+    testTrigger: registration => kernel.test(registration.spec.condition)
+  });
+  const host = {
+    object: ref => kernel.object(ref),
+    objects: () => kernel.objects,
+    context: (source, controller) =>
+      bindResolveContext(kernel, {
+        source,
+        controller,
+        timingPoint: "object-enters-board",
+        choose: decide
+      })
+  };
+  return { kernel, host, pipeline: new EventPipeline(pipelineHost, ["A", "B"], "A") };
+}
+
+/**
+ * The permanent play sequence the production ChainEngine performs when a Unit
+ * resolves (src/chain/engine.ts: resolve -> entry state action -> entry move).
+ * The test drives exactly those pipeline commits; it never edits zones by hand.
+ */
+function enterBoard(kernel, pipeline, id, location) {
+  kernel.perform({ type: "move-zone", object: kernel.ref(id), to: "chain" });
+  kernel.perform({ type: "exhaust", object: kernel.ref(id) });
+  return pipeline.commit({ type: "move-zone", object: kernel.ref(id), to: location.type, location });
+}
 
 test("rad-026-167 Entrenched Boar: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -33,11 +95,14 @@ test("rad-026-167 Entrenched Boar: identity, status, judgeReason and verbatim so
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
-  // README §2: the reason names each missing semantic and the owner tasks.
-  assert.match(program.judgeReason, /replacement\.enter/);
+  // README §2: the reason names each remaining semantic and its owner task.
   assert.match(program.judgeReason, /optional/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /continuous\.restrict/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-259/);
+  // The merged entry replacement must no longer be reported as unmerged.
+  assert.doesNotMatch(program.judgeReason, /replacement\.enter 家族/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-91/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -45,20 +110,21 @@ test("rad-026-167 Entrenched Boar: identity, status, judgeReason and verbatim so
 test("rad-026-167 Entrenched Boar: one self-entry replacement wrapping the optional ready entry", () => {
   assert.equal(program.abilities.length, 1);
   assert.equal(replacement.kind, "replacement");
-  // CR 369.3 / 359.2.c: the replaced event is this unit entering exhausted.
+  // CR 369.3 / 359.2.c: the replaced event is this unit entering (exhausted by
+  // default, 143.4).
   assert.deepEqual(replacement.replaces, {
     event: "object-enters-board",
     filter: { source: "self" }
   });
-  // CR 3.9 (contract): "may" is a choice.optional wrapping the chosen instruction.
+  // Contract 3.9: "may" is a choice.optional wrapping the chosen instructions.
   assert.equal(replacement.with.length, 1);
-  assert.equal(replacement.with[0].op, "choice.optional");
   assert.equal(optional.op, "choice.optional");
-  // The entry rewrite itself is the planned replacement.enter primitive, not a
+  assert.equal(optional.args.body.kind, "constant");
+  // The entry rewrite is the RIFT-260 replacement.enter declaration form, not a
   // post-entry effect.ready (which would fire a "becomes ready" event).
   assert.equal(enterReady.op, "replacement.enter");
   assert.deepEqual(enterReady.args.state, { kind: "constant", value: "ready" });
-  assert.deepEqual(replacement.with[0].args.body.kind, "constant");
+  assert.deepEqual(enterReady.args.zone, { kind: "constant", value: "board" });
 });
 
 test("rad-026-167 Entrenched Boar: 'I can't move this turn' is linked to the accepted entry rewrite", () => {
@@ -68,55 +134,111 @@ test("rad-026-167 Entrenched Boar: 'I can't move this turn' is linked to the acc
     kind: "constant",
     value: "cannot-move"
   });
-  assert.deepEqual(cannotMove.args.duration, { kind: "constant", value: "end-of-turn" });
-  assert.deepEqual(cannotMove.args.appliesTo, { kind: "constant", value: "self" });
+  // "this turn" is the alias the merged op resolves to the end-of-turn duration.
+  assert.deepEqual(cannotMove.args.duration, { kind: "constant", value: "this-turn" });
+  assert.deepEqual(cannotMove.args.appliesTo, {
+    kind: "constant",
+    value: { type: "unit", object: "self" }
+  });
   // The restriction is conditioned on the accepted choice: it is inside the
   // optional body and linked to the entry rewrite it depends on.
   assert.equal(cannotMove.linkedTo, "entrenched-boar.enter-ready");
 });
 
-test("rad-026-167 Entrenched Boar: the declared body ops are not executable today (fail closed)", () => {
-  // Both the entry rewrite and the restriction are declarations for unmerged
-  // consumers; they must not silently resolve into some other merged action.
-  const kernel = world().unit("boar", { might: 2, exhausted: true }).build();
-  const source = kernel.clone({ sourceSnapshot: kernel.getObject("boar") });
-  // effect.ready exists but is deliberately NOT the declared op for the entry step.
-  assert.notEqual(enterReady.op, "effect.ready");
-  assert.equal(ready.op, "effect.ready");
-  const noop = runInstruction(ready, {}, { world: source });
-  // A post-entry ready would ready an already-on-board unit — which is exactly
-  // why it cannot stand in for "enter ready" (359.2.c / 369.3 / 805.6).
-  assert.equal(noop.result.status, "executed");
-  assert.equal(source.getObject("boar").exhausted, false);
-});
+test("rad-026-167 Entrenched Boar: the declared entry rewrite really lands a ready permanent (CR 369.3 / 805.6)", () => {
+  const { kernel, host, pipeline } = scene();
+  bindReplacement(entryRewrite("ready"), kernel.ref("boar"), { host, pipeline });
 
-test("rad-026-167 Entrenched Boar: the movement restriction is declared but has no merged consumer", () => {
-  // The Move system has no reader for a card-declared movement restriction, so
-  // a standard move is still legal on the reference kernel; recording this keeps
-  // the judged gap visible instead of implying the card works.
-  const kernel = world()
-    .unit("boar", { might: 2, location: { type: "battlefield", id: "bf-1" } })
-    .build();
-  const run = runInstruction(
-    move,
-    {
-      objects: { kind: "constant", value: "source" },
-      to: { kind: "constant", value: { type: "battlefield", id: "bf-2" } }
-    },
-    { world: kernel.clone({ sourceSnapshot: kernel.getObject("boar") }) }
+  const outcome = enterBoard(kernel, pipeline, "boar", { type: "base", player: "A" });
+
+  // The rewrite is carried into the entry move, so the permanent lands ready
+  // and the pipeline reports the substitution.
+  assert.equal(outcome.status, "replaced");
+  assert.equal(kernel.getObject("boar").zone, "board");
+  assert.equal(kernel.getObject("boar").exhausted, false);
+  // 805.6.a: the orientation was rewritten at entry, so no separate
+  // "becomes ready" timing was produced.
+  assert.equal(
+    pipeline.events.some(event => event.timingPoint === "object-readied"),
+    false
   );
+});
+
+test("rad-026-167 Entrenched Boar: the declared exhausted form would keep the default entry", () => {
+  // Same declared opcode with state "exhausted": proves the category really is
+  // the entry rewrite (and that the golden above is not passing by accident).
+  const { kernel, host, pipeline } = scene();
+  bindReplacement(entryRewrite("exhausted"), kernel.ref("boar"), { host, pipeline });
+
+  const outcome = enterBoard(kernel, pipeline, "boar", { type: "base", player: "A" });
+
+  assert.equal(outcome.status, "replaced");
+  assert.equal(kernel.getObject("boar").zone, "board");
+  assert.equal(kernel.getObject("boar").exhausted, true);
+});
+
+test("rad-026-167 Entrenched Boar: the rewrite is self-scoped and leaves other permanents alone", () => {
+  const { kernel, host, pipeline } = scene();
+  bindReplacement(entryRewrite("ready"), kernel.ref("boar"), { host, pipeline });
+  kernel.perform({
+    type: "create-token",
+    player: "B",
+    to: "chain",
+    token: { cardId: null, name: "Bystander", types: ["unit"], might: 3, energy: null, power: null, exhausted: true }
+  });
+  const bystander = kernel.objects.find(object => object.name === "Bystander");
+  const outcome = pipeline.commit({
+    type: "move-zone",
+    object: bystander.ref,
+    to: "base",
+    location: { type: "base", player: "B" }
+  });
+
+  // CR 370.1.b: the replaced event is this unit's entry only, so the other
+  // permanent enters exhausted (143.4).
+  assert.equal(outcome.status, "done");
+  assert.equal(kernel.getObject(bystander.ref.id).exhausted, true);
+  assert.equal(kernel.getObject("boar").zone, "hand");
+});
+
+test("rad-026-167 Entrenched Boar: the movement prohibition registers a real ability-layer restriction", () => {
+  const kernel = world().unit("boar", { might: 2 }).build();
+  const scoped = kernel.clone({
+    source: kernel.ref("boar"),
+    sourceSnapshot: kernel.getObject("boar")
+  });
+
+  const run = runInstruction(restrict, cannotMove.args, { world: scoped });
+
   assert.equal(run.result.status, "executed");
-  assert.equal(run.linked.moved.count, 1);
-  assert.equal(cannotMove.args.duration.value, "end-of-turn");
+  const [registered] = scoped.snapshot().continuous;
+  assert.equal(registered.effect.layer, "ability");
+  assert.equal(registered.effect.effect.kind, "restriction");
+  assert.equal(registered.effect.effect.restriction, "cannot-move");
+  assert.deepEqual(registered.effect.filter, { type: "unit", object: "self" });
+  // CR 317.2.c: "this turn" becomes the end-of-turn duration the layers cleanup
+  // expires in one batch.
+  assert.deepEqual(registered.duration, { type: "end-of-turn" });
+
+  // The merged rule query really reads the prohibition back (layers/rules).
+  const registry = new ContinuousEffectRegistry();
+  for (const entry of scoped.snapshot().continuous) registry.register(entry.effect, entry.duration);
+  const readable = restrictions(registry, "move", kernel.ref("boar"), kernel.getObject("boar"), "A");
+  assert.equal(readable.length, 1);
+  assert.equal(readable[0].name, "cannot-move");
+  assert.deepEqual(readable[0].filter, { type: "unit", object: "self" });
 });
 
 test.todo(
-  "Entrenched Boar: 'You may have me enter ready' as an entry replacement (369.3) with the may-decision at the replacement " +
-    "level — blocked because IR's ReplacementAbility has no optional field and no merged path registers a card's replacement, " +
-    "while effect.ready cannot simulate entering ready (RIFT-9 / RIFT-120)"
+  "Entrenched Boar: the printed 'you may' decision belongs to the replacement registration itself (368.1) — " +
+    "IR's ReplacementAbility has no optional field, and wrapping the body in choice.optional is rejected at bind " +
+    "time (src/replacement/planner.ts supports no choice.optional opcode), so a declined choice cannot be modelled " +
+    "(RIFT-257 card-program binding)"
 );
 
 test.todo(
-  "Entrenched Boar: 'I can't move this turn' — blocked because no merged instruction or layer consumer implements a " +
-    "continuous movement restriction with an end-of-turn duration (continuous.restrict; RIFT-91)"
+  "Entrenched Boar: the Move/Recall legality path must consume the registered continuous.restrict prohibition " +
+    "for the source unit (CR 144.1/144.2/054); layers/rules allows it to be listed but no movement check reads it " +
+    "(RIFT-257 / turn-combat wiring)"
 );
+

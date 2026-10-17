@@ -14,11 +14,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   因此打出本卡自身也满足条件，不做额外排除。
  *
  * status 判定（README 第 2 节）：judge-required。缺口：
- * - "Your units have +2 [M]" 的持续效果没有已合入的卡牌侧消费路径：LayerEngine 只消费
- *   经 ResolveContext.addContinuous 注册的 ContinuousEffectSpec，而 CardProgram 的
- *   static 能力目前没有注册进图层引擎的接线（RIFT-91 落地了图层本身，尚未落地
- *   "CardProgram static → 注册持续效果" 这一步），故静态 +2 [M] 不可执行。
- *   依赖：RIFT-91（layers-continuous）与后续把卡牌 static 能力接入图层的接线任务。
+ * - "Your units have +2 [M]" 的算术层求值已合入（RIFT-258 的 continuous.might 能注册该形态，
+ *   本卡也按图层契约声明了 ContinuousEffect），但没有任何已合入路径把 CardProgram 的 static
+ *   能力注册成 ContinuousEffectSpec：registerContinuousEffect 没有调用方，engine-core 从不读取
+ *   卡牌程序能力，卡牌文件无法在运行时自行注册（同一缺口见 rad/packed-amphitheater 与
+ *   sfd/rumble-scrapper）。接线属 RIFT-257（卡牌程序绑定）。
  * kill 部分只用已合入的 effect.kill，见 golden 测试（参考内核真实执行）。
  */
 
@@ -61,12 +61,12 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "「Your units have +2 [M]」是 arithmetic 层静态持续效果，但 CardProgram 的 static 能力没有注册进 " +
-    "图层引擎的已合入路径（LayerEngine 只消费经 ResolveContext.addContinuous 注册的 " +
-    "ContinuousEffectSpec；RIFT-91 落地了图层本身，卡牌 static → 持续效果的接线仍未合入），" +
-    "缺少 continuous.might 的卡牌侧消费方。依赖：RIFT-91（layers-continuous）及其后续接线。" +
-    "「When you play a unit, kill this」只用已合入的 effect.kill（self:true，429.1），" +
-    "golden 测试用链式解释器 + 参考内核真实执行。",
+    "「Your units have +2 [M]」的算术层（475-479 的 arithmetic 层）已能执行：continuous.might（RIFT-258）" +
+    "可注册该形态，golden 用真实 LayerEngine 断言 Might 2→4。仍未合入的是「CardProgram 的 static 能力 → ContinuousEffectSpec 注册」" +
+    "这条接线：registerContinuousEffect 没有调用方，engine-core 的源码从不读取卡牌程序能力，卡牌文件无法在运行时自行注册" +
+    "（同 rad/packed-amphitheater、sfd/rumble-scrapper、ogn/trifarian-war-camp 的缺口），依赖 RIFT-257（卡牌程序绑定）。" +
+    "「When you play a unit, kill this」只用已合入的 effect.kill（self:true，429.1），golden 测试用链式解释器 + 参考内核真实执行。" +
+    "不近似实现。",
   abilities,
   sourceText: "Your units have +2 :rb_might:.\nWhen you play a unit, kill this."
 } satisfies CardProgram;
