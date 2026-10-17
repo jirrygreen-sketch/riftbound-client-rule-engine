@@ -3,6 +3,9 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/vicious-snapjaws.js";
+import { translateObjectFilter, translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { matchesTriggerObject } from "../../../../engine-core/dist/events/pipeline-match.js";
+import { queryObjects } from "../../../../engine-core/dist/effects/interpreter/selectors.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -26,6 +29,11 @@ test("unl-129-219 Vicious Snapjaws: identity, status, judgeReason and verbatim s
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /429\.1/);
   assert.match(program.judgeReason, /exclude/);
+  // The refreshed reason names the three observed consumers instead of the
+  // (already merged) adapter and the batch number of a finished task.
+  assert.match(program.judgeReason, /programs\/filters\.ts/);
+  assert.match(program.judgeReason, /matchesTriggerObject/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-/);
 });
 
 test("unl-129-219 Vicious Snapjaws: object-killed trigger with the other-friendly-unit death filter", () => {
@@ -72,4 +80,56 @@ test("unl-129-219 Vicious Snapjaws golden: the effect really gains 1 XP for the 
   assert.equal(kernel.player("B").xp, 0);
   assert.deepEqual(outcome.events.map(event => event.action), ["gain-xp"]);
   assert.equal(kernel.history({ action: "gain-xp", player: "A" }), 1);
+});
+
+test("unl-129-219 Vicious Snapjaws gap: the card-side filter translation rejects the exclude anchor", () => {
+  // 740.1.a / 383.4.a.4: "another" must exclude the source itself. The merged
+  // translators refuse the anchor, so the object-killed subscription cannot be
+  // registered at all (the program adapter throws before any event runs).
+  assert.throws(
+    () => translateObjectFilter({ type: "unit", controller: "self", exclude: "self" }),
+    /Unsupported filter field exclude/
+  );
+  assert.throws(
+    () => translateTriggerFilter(ability.trigger.filter, "vicious-snapjaws", "object-killed"),
+    /Unsupported filter field exclude/
+  );
+});
+
+test("unl-129-219 Vicious Snapjaws gap: the trigger matcher has no exclude branch, so the host own death matches", () => {
+  // events/pipeline-match.ts reads objectId/cardId/type/controller/owner/zone/
+  // location/states/tags/characteristics only. Dropping the anchor and using the
+  // remaining filter is NOT an approximation this card may make: the source own
+  // death would then satisfy "another friendly unit". Pinned so the reason cannot
+  // silently degrade into that over-trigger behaviour.
+  const kernel = world().unit("snapjaws").unit("other").build();
+  const source = kernel.getObject("snapjaws");
+  const friendlyOnly = { type: "unit", controller: "self" };
+  assert.equal(matchesTriggerObject(friendlyOnly, source, "A"), true);
+  assert.equal(matchesTriggerObject(friendlyOnly, kernel.getObject("other"), "A"), true);
+  assert.equal(matchesTriggerObject(friendlyOnly, kernel.getObject("other"), "B"), false);
+});
+
+test("unl-129-219 Vicious Snapjaws gap: the interpreter-level exclude anchor is unreachable from triggers", () => {
+  // effects/interpreter/selectors.ts does implement exclude for set queries, but
+  // only for instruction-level queries. It is not wired into trigger matching,
+  // which is why the card keeps judge-required instead of claiming the filter
+  // already works end to end.
+  const kernel = world().unit("snapjaws").unit("other").build();
+  const context = kernel.clone({
+    sourceSnapshot: kernel.getObject("snapjaws"),
+    source: kernel.ref("snapjaws"),
+    controller: "A"
+  });
+  const environment = {
+    context,
+    query: filter => context.query(filter),
+    linked: () => undefined,
+    canLookBack: () => true,
+    isIgnored: () => false
+  };
+  assert.deepEqual(
+    queryObjects({ type: "unit", exclude: "self" }, environment).map(object => object.ref.id),
+    ["other"]
+  );
 });

@@ -23,18 +23,22 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   475/478 的算术层与期限）。“my Might” 是自我指称（355.10.g），不是目标，因此不写 TargetSpec，
  *   也不使用 target 参数。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required，一处缺口不近似实现：
- * - Doubling 本体已可执行：RIFT-258 合入的 continuous.might 原语按 478 在 arithmetic 图层注册
- *   Might 修正，duration "this-turn" 映射 end-of-turn 到期（317.1.a / 468.7.c）。433.1 / 433.1.a
- *   要求增量等于“结算时该属性的当前值”（含图层结果），因此先由已合入的 condition.value 绑定原语
+ * status 判定（cards/README.md 第 2 节，2026-10-17 复核）：judge-required，缺口不近似实现。
+ * - Doubling 本体已可执行：continuous.might 原语按 478 在 arithmetic 图层注册 Might 修正，
+ *   duration "this-turn" 映射 end-of-turn 到期（317.1.a / 468.7.c）。433.1 / 433.1.a
+ *   要求增量等于“结算时该属性的当前值”（含图层结果），因此先由 condition.value 绑定原语
  *   读出 source.might（解释器经 ObjectSelector "self" 绑定运行时引用；链上解析走 layers.evaluate，
  *   读到的就是当前 Might），再以 linked-value 作为 continuous.might 的 amount。golden 用真实
  *   解释器 + 图层引擎执行并断言“当前值 4 → +4 → 有效 Might 8”。
- * - [Deflect]（809.1.b.3 省略数值时按 1；809.1.c 对手用法术/能力选择我时额外支付 [A]）仍不可执行：
- *   已合入的 effects/keywords/Deflect.ts 只展开成 target.tax 图层声明，没有任何已合入消费方——链的
- *   Finalize（chain/engine.ts）只接受调用方经 TargetFinalizeOptions.tax / taxAdapter 传入的税，
- *   TargetPlan 不读取图层里的 target.tax，且没有卡牌关键词展开→layers 的生产注册路径（programs/
- *   statics.ts 只有默认 noop 的 binder 钩子）。依赖：target.tax 接线（RIFT-360）与 CardProgram static → layers 注册路径。
+ * - [Deflect]（809.1.b.3 省略数值时按 1；809.1.c.1 对手用法术/能力选择我时额外支付任意域 [A]）
+ *   仍不可执行，两处实测缺口：
+ *   （1）关键词展开出的 static target.tax 没有图层映射：createEngineStaticBinder（programs/
+ *   statics.ts）对 target.tax 抛 "Static ability kind target.tax has no layer mapping"，
+ *   声明进不了已绑定的税集合，collectTargetTaxes 的 effects 分支因此收不到本卡的 Deflect；
+ *   （2）chain/engine.ts 的 Finalize 把收集到的税写成 Energy 分量
+ *   （mandatoryAdditional: { energy: { constant, value: tax.amount } }），实测一笔 2 点
+ *   Deflect 税得到 total.energy=2、total.power=[]，而 809.1.c.1 要求任意域 Power。
+ *   另外 356.2.a.2 的目标税只在调用方提供 tax/taxAdapter 时生效，卡牌侧没有生产路径。
  * 已合入并可真实执行的部分（golden 覆盖）：2 Energy + 1 Fury Power 的印刷费用与上面的 Doubling。
  */
 const abilities: Ability[] = [
@@ -85,14 +89,16 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "「Double my Might this turn.」已可执行：433.1/433.1.a 的增量取结算时该属性的当前值，程序用已合入的 " +
-    "condition.value 绑定 source.might，再由 continuous.might（RIFT-258）以 linked-value 作为 amount 在 " +
+    "condition.value 绑定 source.might，再由 continuous.might 以 linked-value 作为 amount 在 " +
     "arithmetic 图层注册本回合（duration \"this-turn\" → end-of-turn 到期，317.1.a/468.7.c）的 Might 修正；" +
     "golden 用真实解释器 + 图层引擎断言当前值 4 → 有效 Might 8。" +
-    "整卡仍不可执行：[Deflect]（809.1.b.3 省略数值按 1；809.1.c 对手用法术/能力选择我时额外支付 [A]）" +
-    "只有 effects/keywords/Deflect.ts 展开的 target.tax 图层声明，没有消费方——链的 Finalize 只接受调用方经 " +
-    "TargetFinalizeOptions.tax / taxAdapter 传入的税（chain/engine.ts），TargetPlan 不读取图层 target.tax，" +
-    "也没有卡牌关键词展开 → layers 的生产注册路径（programs/statics.ts 只有默认 noop 的 binder 钩子）。" +
-    "依赖：target.tax 接线（RIFT-360）与 CardProgram static → layers 注册路径。不近似实现。",
+    "整卡仍不可执行：[Deflect]（809.1.b.3 省略数值按 1；809.1.c.1 对手用法术/能力选择我时额外支付任意域 [A]）" +
+    "有两处实测缺口：(1) effects/keywords/Deflect.ts 展开出的 static target.tax 没有图层映射——" +
+    "createEngineStaticBinder（programs/statics.ts）对该 kind 抛 \"Static ability kind target.tax has no layer mapping\"，" +
+    "声明进不了已绑定的税集合，collectTargetTaxes 的 effects 分支收不到本卡的 Deflect；" +
+    "(2) chain/engine.ts 的 Finalize 仍把收集到的税写成 Energy 分量（mandatoryAdditional: { energy: { kind: \"constant\", value: tax.amount } }），" +
+    "实测 2 点税得到 total.energy=2 / total.power=[]，而 809.1.c.1 要求任意域 Power；税额也没有卡牌侧生产路径（356.2.a.2 的税只来自调用方 tax/taxAdapter）。" +
+    "不近似实现：不改写为 Energy 税或固定数额。",
   abilities,
   sourceText:
     "[Deflect] (Opponents must pay :rb_rune_rainbow: to choose me with a spell or ability.)\n" +
