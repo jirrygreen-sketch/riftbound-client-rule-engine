@@ -18,7 +18,7 @@ test("ogn-068-298: identity, exact source text, pure data and explicit blocked s
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Backline|continuous\.combat/);
-  assert.match(program.judgeReason, /at-battlefield/);
+  assert.match(program.judgeReason, /activation legality/);
   assert.match(program.judgeReason, /location/);
   assert.equal(program.sourceText, "I must be assigned combat damage last.\n:rb_exhaust:: Deal damage equal to my Might to a unit at a battlefield. Use this ability only while I'm at a battlefield.");
   assert.deepEqual(JSON.parse(JSON.stringify(program)), program);
@@ -34,7 +34,7 @@ test("Caitlyn: Backline and an exhaust-cost action restricted to battlefields", 
   assert.equal(activated.timing, "action");
   assert.deepEqual(activated.cost, { payments: [{ kind: "exhaust", object: "self" }] });
   assert.equal(activated.restriction.kind, "at-battlefield");
-  assert.deepEqual(activated.restriction.condition, { kind: "compare", left: { kind: "count", subject: "objects", filter: { object: "self", zone: "battlefield" } }, operator: "gte", right: { kind: "constant", value: 1 } });
+  assert.deepEqual(activated.restriction.condition, { kind: "compare", left: { kind: "count", subject: "objects", filter: { object: "self", location: "battlefield" } }, operator: "gte", right: { kind: "constant", value: 1 } });
 });
 
 test("Caitlyn: one unit at any battlefield, with resolution-time source Might", () => {
@@ -42,7 +42,7 @@ test("Caitlyn: one unit at any battlefield, with resolution-time source Might", 
   assert.equal(hit.op, "effect.damage");
   assert.deepEqual(hit.args.amount, { kind: "object-property", object: "source", property: "might" });
   assert.equal(hit.args.target.value, "battlefield-unit");
-  assert.deepEqual(hit.targets, [{ id: "battlefield-unit", filter: { type: "unit", zone: "battlefield" }, min: 1, max: 1, selection: "one" }]);
+  assert.deepEqual(hit.targets, [{ id: "battlefield-unit", filter: { type: "unit", location: "battlefield" }, min: 1, max: 1, selection: "one" }]);
   assert.equal(hit.linkedTo, undefined);
   assert.equal(hit.condition, undefined);
 });
@@ -71,7 +71,7 @@ test("Caitlyn golden subeffect: loss of the finalized target is ignored without 
 });
 
 test.todo("Caitlyn: Backline lethal-last damage allocation through the continuous.combat consumer (CR 826)");
-test.todo("Caitlyn: use Board.location for the battlefield restriction and target candidates, then execute the full ability through activation legality");
+test.todo("Caitlyn: execute the full ability through activation legality, including self at a battlefield and Board.location target revalidation");
 
 test("Caitlyn: the production adapter already accepts the at-battlefield condition wrapper", () => {
   assert.deepEqual(translateRestriction(activated.restriction, program.canonicalCardId), [activated.restriction.condition]);

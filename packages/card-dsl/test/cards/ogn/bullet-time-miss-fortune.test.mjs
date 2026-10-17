@@ -36,7 +36,7 @@ test("Bullet Time identity, ruleset, status, printed text and judgeReason", () =
   assert.match(bulletTime.judgeReason, /cost\.pay-any/);
   assert.match(bulletTime.judgeReason, /链接值/);
   assert.match(bulletTime.judgeReason, /单个战场/);
-  assert.match(bulletTime.judgeReason, /LocationSelector/);
+  assert.match(bulletTime.judgeReason, /sameLocationAs/);
   assert.equal(cardRegistryById.get(bulletTime.canonicalCardId), bulletTime);
 });
 
@@ -82,9 +82,23 @@ test("Bullet Time structure: the instruction cost is linked to a non-target dama
     kind: "constant",
     value: {
       kind: "query",
-      filter: { type: "unit", controller: "opponent", location: "battlefield" }
+      filter: {
+        type: "unit",
+        controller: "opponent",
+        location: "battlefield",
+        sameLocationAs: { target: "bullet-time.battlefield" }
+      }
     }
   });
+  assert.deepEqual(damageInstruction.locations, [
+    {
+      id: "bullet-time.battlefield",
+      type: "battlefield",
+      min: 1,
+      max: 1,
+      selection: "one"
+    }
+  ]);
   // A TargetSpec here would wrongly make every unit at the battlefield a target
   // (355.7 / 754), so the instruction declares none.
   assert.equal(damageInstruction.targets, undefined);
@@ -139,7 +153,20 @@ test("Bullet Time: the declared Action permission expands through the production
   assert.deepEqual(kernel.events, []);
 });
 
-test.todo("Bullet Time: bind one chosen battlefield before querying its enemy units (CR 355.10.d); units at other battlefields must remain untouched");
+test("Bullet Time: records one chosen battlefield for the non-target enemy-unit set", () => {
+  assert.deepEqual(damageInstruction.locations, [
+    {
+      id: "bullet-time.battlefield",
+      type: "battlefield",
+      min: 1,
+      max: 1,
+      selection: "one"
+    }
+  ]);
+  assert.deepEqual(damageInstruction.args.objects.value.filter.sameLocationAs, {
+    target: "bullet-time.battlefield"
+  });
+});
 
 test.todo(
   "Bullet Time non-target damage: let effect.damage consume the same query-set descriptor that effect.ready " +

@@ -35,8 +35,9 @@ import type { CardProgram } from "../../ir/index.js";
  *   primitive bound to the amount that the effect reads. The merged cost
  *   pipeline can settle a supplied payment with cost.pay, but does not ask
  *   for an arbitrary amount; cost.pay-any is still a pending descriptor.
- * - A single battlefield must be chosen (355.10.d); the pending set below
- *   does not bind a LocationSelector to that battlefield yet.
+ * - A single battlefield must be chosen (355.10.d); the merged instruction
+ *   location selector records that choice, and the pending damage query keeps
+ *   its enemy-unit set anchored to the selected battlefield.
  * The damage set and the payment binding are therefore recorded in the pending
  * descriptor shape (identical to the merged Flurry of Blades program, which
  * blocks for the same missing non-target damage form) rather than approximated
@@ -47,8 +48,8 @@ const bulletTime = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 effect.damage 的非目标集合入口及所选单个战场的 LocationSelector 绑定（CR 355.10.d/355.10.d.1）：" +
-    "当前伤害原语只读取 ctx.targets(id)，待定 query 也未限定到玩家选定的一个战场。" +
+    "缺 effect.damage 的非目标 query/集合入口（CR 355.10.d/355.10.d.1）：" +
+    "当前伤害原语只读取 ctx.targets(id)，尚不能消费带 sameLocationAs 的 query 集合及 instruction.locations 绑定的单个战场。" +
     "另缺结算时任意数量 [A] 的选择、支付及实付额链接值（204.3/204.3.a）：cost.pay 可支付给定计划，" +
     "但没有任意金额询问与伤害数额绑定；cost.pay-any 仍是待定描述符。",
   sourceText:
@@ -92,12 +93,26 @@ const bulletTime = {
               kind: "constant",
               value: {
                 kind: "query",
-                // The layer engine's filter matcher reads a location-type
-                // string here (layers/filter.ts: "location: battlefield").
-                filter: { type: "unit", controller: "opponent", location: "battlefield" }
+                // The selected battlefield is a location binding, so the
+                // query keeps the non-target set anchored to that choice.
+                filter: {
+                  type: "unit",
+                  controller: "opponent",
+                  location: "battlefield",
+                  sameLocationAs: { target: "bullet-time.battlefield" }
+                }
               }
             }
-          }
+          },
+          locations: [
+            {
+              id: "bullet-time.battlefield",
+              type: "battlefield",
+              min: 1,
+              max: 1,
+              selection: "one"
+            }
+          ]
         }
       ]
     }
