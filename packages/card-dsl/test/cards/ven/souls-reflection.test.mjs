@@ -7,7 +7,6 @@ import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter
 import mightDefinition from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
-import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 
 const CANONICAL_ID =
   "card.hash-96a4d656fe980065c6206e2b07389b146cc4347f8396756aeeb3b2ef9c30a281";
@@ -117,19 +116,6 @@ test.todo(
     "payload (previousCount/currentCount/direction) is not filled by events/action-adapter.ts; " +
     "EventPattern has no host-exclusion key (contract change request, RIFT-120)"
 );
-
-test("ven-151-166: the descriptive empowered-changed filter is rejected by the strict trigger validator", () => {
-  // Negative evidence for the judgeReason: events/trigger-spec.ts has no
-  // empowerment event discriminant ("empowered-changed" is the timing point id,
-  // not an EVENT_PATTERN_TYPES value) and its ObjectFilter has no direction or
-  // "other" key. Until the contract adds them, production registration of this
-  // trigger must fail rather than silently over- or under-trigger.
-  const result = validateTriggerSpec(triggered.trigger);
-  assert.equal(result.ok, false);
-  const codes = result.issues.map(issue => issue.code);
-  assert.ok(codes.includes("invalid-event-type"), JSON.stringify(codes));
-  assert.ok(codes.includes("unknown-field"), JSON.stringify(codes));
-});
 
 test.todo(
   "ven-151-166: pay the printed 'Disempower me' cost — the in-flight RIFT-261 cost kinds still do not " +

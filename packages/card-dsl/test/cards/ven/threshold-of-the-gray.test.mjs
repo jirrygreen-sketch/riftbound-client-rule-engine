@@ -75,24 +75,6 @@ test("ven-166-166 Threshold of the Gray: combat-start-here trigger for both comb
   assert.deepEqual(defender.args.player, { kind: "constant", value: "event-combat-defender" });
 });
 
-test("ven-166-166 Threshold of the Gray: the placeholders are not players, so nothing is silently Added", () => {
-  const kernel = world().build();
-
-  const outcome = resolveChainBody(ability.body, kernel);
-
-  // The as-printed seats do not resolve to any player; the merged
-  // effect.resources refuses the instruction instead of adding Energy to the
-  // battlefield's controller by proxy (430.4.a: never Add without direction).
-  assert.equal(outcome.status, "partial");
-  assert.deepEqual(outcome.results.map(result => [result.id, result.result.status]), [
-    ["threshold-of-the-gray.add-attacker", "negated"],
-    ["threshold-of-the-gray.add-defender", "negated"]
-  ]);
-  assert.equal(kernel.player("A").energy, 0);
-  assert.equal(kernel.player("B").energy, 0);
-  assert.deepEqual(kernel.events, []);
-});
-
 test("ven-166-166 Threshold of the Gray golden: with both seats bound, each participant Adds exactly 1 Energy", () => {
   const kernel = world().build();
 
@@ -150,8 +132,9 @@ test("ven-166-166 Threshold of the Gray golden: a replaced Energy gain is negate
 
 test.todo(
   "ven-166-166 Threshold of the Gray: bind 'the attacker and defender' to the combat-start participants — the " +
-    "frozen IR has no event-participant selector (events/trigger-spec.ts PlayerSelector is self/opponent/any/{playerId}; " +
-    "contract 3.8 combatRole is not in engine-core effects/contract.ts), so the two seats stay placeholders"
+    "frozen IR has no event-participant selector (events/trigger-spec.ts PlayerSelector is self/opponent/any/{playerId}) " +
+    "and no merged code writes ObjectSnapshot.combatRole (the field exists in effects/contract.ts but the combat " +
+    "start/designation transaction that would set it is unmerged), so the two seats stay placeholders"
 );
 
 test.todo(

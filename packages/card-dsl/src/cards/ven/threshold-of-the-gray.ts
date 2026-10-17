@@ -42,7 +42,8 @@ import type { CardProgram } from "../../ir/index.js";
  *    053.3 的战场指代占位（静态 filter 读不到事件出的战场，且会被 programs/filters.ts
  *    以 judge-required 拒绝，fail closed）。
  * 3. 已支持部分由 golden 真实执行：effect.resources 的"各加 1 Energy、不加 Power"语义
- *    （在补齐攻守席位绑定后）与占位状态下的"不静默加资源"。
+ *    （golden 把攻守两个席位作为参数补齐后执行卡片自身的 body）；席位如何从 combat-start
+ *    绑定见第 1 点，保持 test.todo，不近似绑定。
  * 依赖：战斗开始/designation 事务（combat-start 发射）、事件参与者选择器（契约变更请求）、
  * 053.3 here 锚点 / 190.6 战场能力绑定。
  */
@@ -64,7 +65,8 @@ export default {
     "filter 的 here: true 是 053.3 的占位（静态 filter 读不到事件出的战场），会被 programs/filters.ts " +
     "以 judge-required 拒绝（fail closed）。" +
     "(3) 效果本体已合入：effect.resources 的「各加 1 Energy、不加 Power」（430.1/430.2/430.5）在 golden 中于补齐两个席位后真实执行；" +
-    "占位状态下不静默加任何资源。依赖：战斗开始/designation 事务（combat-start 发射）、事件参与者选择器（契约变更请求）、" +
+    "席位如何自 combat-start 载荷绑定见第 1 点（保持 test.todo，不近似实现）。" +
+    "依赖：战斗开始/designation 事务（combat-start 发射）、事件参与者选择器（契约变更请求）、" +
     "053.3 here 锚点 / 190.6 战场能力绑定。",
   abilities: [
     {
