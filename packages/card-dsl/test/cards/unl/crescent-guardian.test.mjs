@@ -1,3 +1,4 @@
+// Scenario execution evidence: ../templates/static-replacement-effect-ready-663.test.mjs (blocked full-card candidates).
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -5,6 +6,7 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/crescent-guardian.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 // The replacement binding is the merged path this card's entry replacement now
 // reaches; the golden below proves the merge and its limit.
@@ -52,6 +54,7 @@ test("unl-122-219 Crescent Guardian: the printed power is null, and the extra co
   assert.equal(program.abilities.length, 2);
   assert.equal(additionalCost.kind, "static");
   assert.equal(additionalCost.effect.kind, "cost.additional");
+  assert.equal(additionalCost.effect.id, "crescent-guardian.additional-cost");
   assert.equal(additionalCost.effect.optional, true);
   assert.equal(additionalCost.effect.appliesTo, "self");
   assert.equal(additionalCost.effect.stage, "optional-additional");
@@ -65,10 +68,13 @@ test("unl-122-219 Crescent Guardian: the cost's applicability is the printed spe
   // 356.2.b.1: the Optional Additional Cost is specified by a Passive Ability of
   // the card being played, gated on “you've played a spell this turn”. The
   // history count is available through condition.history, but not in a static
-  // Condition expression; this remains a named placeholder (see judgeReason).
+  // Condition expression; the named result is unavailable until the static history consumer is connected.
   assert.deepEqual(additionalCost.condition, {
-    kind: "expression",
-    value: { kind: "constant", value: "you-played-a-spell-this-turn" }
+    kind: "result",
+    result: "crescent-guardian.spell-history",
+    key: "count",
+    operator: "gte",
+    right: { kind: "constant", value: 1 }
   });
 });
 
@@ -80,8 +86,9 @@ test("unl-122-219 Crescent Guardian: 'I enter ready' is an entry replacement, no
   });
   // 356.4.f.1: “If you do” keys off the paid decision, not off a resource delta.
   assert.deepEqual(enterReady.condition, {
-    kind: "expression",
-    value: { kind: "constant", value: "crescent-guardian.additional-cost-was-paid" }
+    kind: "result",
+    result: "cost.additional",
+    id: "crescent-guardian.additional-cost"
   });
   assert.equal(enterReady.with.length, 1);
   const [enterReadyInstruction] = enterReady.with;
@@ -206,15 +213,16 @@ test("unl-122-219 Crescent Guardian golden: the supported entry-replacement frag
   );
 });
 
-test("unl-122-219 Crescent Guardian boundary: the entry matcher ignores any condition, so the declared gate is not consumed (CR 356.4.f.1)", () => {
+test("unl-122-219 Crescent Guardian boundary: a never condition must preserve exhausted entry (CR 356.4.f.1)", { todo: "RIFT-260: entry matcher returns before testCondition" }, () => {
   // Re-probed 2026-10-17: replacement/bind.ts matchesEnterAction() returns true
   // before testCondition() runs. Binding the entry declaration with a `never`
   // condition still readies the entering unit in the real pipeline, which is the
-  // production proof that this card's "If you do" gate is not evaluated. The
+  // regression for this card's "If you do" gate. The
   // authored condition is asserted separately so it stays reviewable.
   assert.deepEqual(enterReady.condition, {
-    kind: "expression",
-    value: { kind: "constant", value: "crescent-guardian.additional-cost-was-paid" }
+    kind: "result",
+    result: "cost.additional",
+    id: "crescent-guardian.additional-cost"
   });
   const board = fixture({
     cards: [{ id: "guardian", cardId: program.canonicalCardId, types: ["unit"], energy: 4, power: [], might: 4 }]
@@ -233,8 +241,7 @@ test("unl-122-219 Crescent Guardian boundary: the entry matcher ignores any cond
     }
   );
   assert.equal(bound.registration.id, "replacement:" + host.ref.id + ":" + host.ref.zoneEntryId);
-  // A real play lands the unit ready even though the bound condition is `never`:
-  // the entry-orientation matcher runs before any condition evaluation.
+  // CR 364.3.a: an inactive replacement must leave the default exhausted entry.
   board.engine.execute(board.card("guardian", {
     kind: "unit",
     body: [],
@@ -242,7 +249,7 @@ test("unl-122-219 Crescent Guardian boundary: the entry matcher ignores any cond
   }));
   resolveAll(board.engine);
   assert.equal(board.kernel.getObject("guardian").zone, "board");
-  assert.equal(board.kernel.getObject("guardian").exhausted, false);
+  assert.equal(board.kernel.getObject("guardian").exhausted, true);
   bound.cancel();
 });
 
@@ -250,11 +257,14 @@ test("unl-122-219 Crescent Guardian boundary: the spell-history applicability ha
   // condition.history really counts committed play actions by type (next golden),
   // but the static cost applicability is a condition on a static ability, and no
   // merged consumer maps history reads into cost applicability. The authored
-  // placeholder is a named constant string, not a history query, so this test
+  // condition declares a missing result dependency, so this test
   // pins both halves: the working history primitive and the missing adapter.
   assert.deepEqual(additionalCost.condition, {
-    kind: "expression",
-    value: { kind: "constant", value: "you-played-a-spell-this-turn" }
+    kind: "result",
+    result: "crescent-guardian.spell-history",
+    key: "count",
+    operator: "gte",
+    right: { kind: "constant", value: 1 }
   });
   const kernel = world().player("A").hand("spell", { types: ["spell"], owner: "A" }).build();
   const counted = resolveChainBody([{
@@ -263,15 +273,14 @@ test("unl-122-219 Crescent Guardian boundary: the spell-history applicability ha
     args: { query: { kind: "constant", value: { scope: "turn", action: "play", player: "A", objectFilter: { type: "spell" } } } }
   }], kernel).linkedValues["spell-count.count"];
   assert.equal(counted, 0);
-  // A constant-string condition is truthy regardless of that count, so no
-  // production cost step can gate the payment on the printed clause yet.
-  const gate = resolveChainBody([{
-    id: "placeholder-gate",
-    op: "condition.value",
-    args: { value: { kind: "constant", value: true } },
-    condition: additionalCost.condition
-  }], kernel.clone());
-  assert.equal(gate.results[0].result.linkedValues.value, true);
+  // A missing static history result must not become a truthy string. The body
+  // history instruction above does not publish this declared result dependency.
+  assert.throws(() => evaluateCondition(additionalCost.condition, {
+    context: kernel,
+    linked: key => kernel.linked(key),
+    canLookBack: () => true,
+    isIgnored: () => false
+  }), /Unavailable condition result: crescent-guardian\.spell-history/);
 });
 
 

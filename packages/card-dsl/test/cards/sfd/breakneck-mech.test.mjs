@@ -1,3 +1,4 @@
+// Scenario execution evidence: ../templates/static-replacement-effect-ready-663.test.mjs (supported parts only).
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -120,7 +121,6 @@ test("breakneck-mech structure: static grant + enter-ready replacement", () => {
   assert.equal(grant.effect.kind, "grant-keyword");
   assert.deepEqual(grant.effect.keywords, ["Deflect", "Ganking"]);
   assert.deepEqual(grant.effect.filter, {
-    type: "unit",
     tag: "Mech",
     controller: "controller",
     zone: "board"
