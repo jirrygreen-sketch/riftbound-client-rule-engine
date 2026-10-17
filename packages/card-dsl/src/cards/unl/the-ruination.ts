@@ -27,8 +27,8 @@ import type { CardProgram } from "../../ir/index.js";
  * 已锁定引用，仍然要走同一条目标管线。故本文件把无目标集合查询记录成可审查的描述形状，
  * 整卡不宣称可执行；不近似实现。
  *
- * 依赖：effect.kill 增加可消费的无目标 each/all 集合选择（RIFT-9 target.many；
- * 与 ogn-022-298 Thermo Beam「Kill all gear」同一缺口）。无契约变更请求。
+ * 依赖：effect.kill 增加可消费的无目标 each/all 集合选择；与 ogn-022-298
+ * Thermo Beam「Kill all gear」是同一缺口。无契约变更请求。
  */
 const program = {
   canonicalCardId: "card.hash-ba55ed991c377657c67727781733c33b7319e9f6e2abc066c541d2f9e83e7c5e",
@@ -41,7 +41,7 @@ const program = {
     "直接传 objects 会被拒绝（复核实测：effect.kill requires args.target, args.picks, or args.self: true）；用 selection: \"all\" 的 " +
     "TargetSpec 会走目标锁定管线并发出 became-target 事件（与 355.10.d 冲突），用 PickSpec 又要求控制者逐个选择（与 355.10.d.1 冲突）。" +
     "effect.repeat 同样不是替代路径——它的 action spec 只从 ctx.targets/ctx.picks 读取已锁定引用，仍走目标管线。" +
-    "缺的是 effect.kill 可消费的无目标 each/all 集合选择（RIFT-9 target.many；与 ogn-022-298 Thermo Beam「Kill all gear」同一缺口）。" +
+    "缺的是 effect.kill 可消费的无目标 each/all 集合选择（target.many 形态；与 ogn-022-298 Thermo Beam「Kill all gear」同一缺口）。" +
     "不近似实现，故本卡保持 judge-required。",
   abilities: [
     {

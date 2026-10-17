@@ -27,7 +27,7 @@ test("unl-146-219 Syndra, Transcendent: identity, status, judgeReason and verbat
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /820\.1\.c/);
   assert.match(program.judgeReason, /Finalize/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /showdown/);
   assert.match(program.judgeReason, /showdown/i);
 });
 

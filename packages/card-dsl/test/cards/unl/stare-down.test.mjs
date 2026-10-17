@@ -33,7 +33,8 @@ test("unl-107-219 Stare Down: identity, status, judgeReason and verbatim sourceT
   // the dependency.
   assert.match(program.judgeReason, /355\.10\.d/);
   assert.match(program.judgeReason, /effect\.move/);
-  assert.match(program.judgeReason, /RIFT-357/);
+  assert.match(program.judgeReason, /sameLocationAs/);
+  assert.match(program.judgeReason, /mightLessThan/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -151,7 +152,7 @@ test("unl-107-219 Stare Down fail-closed: the merged effect.move rejects the des
 test.todo(
   "Stare Down: \"Move all enemy units at that battlefield with less Might than the chosen unit\" needs a set/query " +
     "object selection for effect.move (355.10.d / 355.10.d.1: no choice is ever possible) plus a Might comparison " +
-    "predicate and a location anchor read from another selected object (RIFT-357 / RIFT-359)"
+    "predicate and a location anchor read from another selected object"
 );
 
 test.todo(

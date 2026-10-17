@@ -24,7 +24,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   458.1 不触发 Move 触发；460.1 规定 Recall 不影响状态，本卡没有写 exhausted，
  *   所以不额外声明横置以外的状态改变。
  *
- * status: judge-required —— 依赖未合入的部分，均不近似实现:
+ * status: judge-required —— 以下当前缺口均不近似实现:
  * - 替代绑定点已合入：bindReplacement 支持 replacement.event 的
  *   event/window/instead 声明，window "next-time-this-turn" 是绑定回合内的一次性窗口；
  *   被替代事件的对象用链接选择器 { linked: "replacement.object" } 绑定（355.10.c 的
@@ -53,7 +53,7 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "四处依赖未合入：(1) 引擎替代绑定点已合入（bindReplacement 支持 replacement.event 的 " +
+    "当前仍有五处缺口：(1) 引擎替代绑定点已合入（bindReplacement 支持 replacement.event 的 " +
     "event/window/instead，window \"next-time-this-turn\" 是绑定回合内的一次性窗口，被替代事件的对象由链接选择器 " +
     "\"replacement.object\" 绑定），golden 已用真实事件管线验证到这一层；仍缺卡牌程序 → 该绑定点的生产接线" +
     "但本卡把替代登记写在 play body 中，而现有卡牌程序绑定只消费 replacement ability，" +
