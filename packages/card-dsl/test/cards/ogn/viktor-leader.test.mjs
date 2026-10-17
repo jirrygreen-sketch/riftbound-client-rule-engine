@@ -32,6 +32,8 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, sourceText", () =
   assert.match(program.judgeReason, /excludeTags/);
   assert.match(program.judgeReason, /LocationRef/);
   assert.match(program.judgeReason, /383\.2\.c\.2/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /pipeline-match/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });
@@ -146,12 +148,14 @@ test("golden execution: a second player's world puts its Recruit token into that
 test.todo(
   "'another non-Recruit unit you control dies' (CR 429.1, 133.8.a, 383.2.c.2): the trigger pipeline must " +
     "project the dying object into the TriggerSpec filter and the filter vocabulary needs a negative tag " +
-    "dimension for 'non-Recruit' (events/trigger-spec.ts + card-dsl ObjectFilter, owned by RIFT-91/RIFT-9)"
+    "dimension for 'non-Recruit' (events/trigger-spec.ts + card-dsl ObjectFilter), and the card-program " +
+    "adapter must map the 'other'/'controller' placeholder keys onto engine selectors (RIFT-257)"
 );
 
 test.todo(
   "binding the symbolic { type: \"base\", player: \"controller\" } LocationRef at Finalize (CR 349/359.3.f.2) " +
-    "so 'into your base' resolves without substituting a runtime ref into the static IR (effect.token / Finalize work)"
+    "so 'into your base' resolves without substituting a runtime ref into the static IR (effect.token / Finalize " +
+    "work; the merged primitive negates the placeholder as an impossible location)"
 );
 
 test.todo(

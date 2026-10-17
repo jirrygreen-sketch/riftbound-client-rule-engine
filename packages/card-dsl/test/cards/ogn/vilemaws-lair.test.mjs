@@ -4,7 +4,9 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/vilemaws-lair.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
-import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
+import { ContinuousEffectRegistry } from "../../../../engine-core/dist/layers/duration.js";
+import { movement as movementQuery } from "../../../../engine-core/dist/layers/rules/query.js";
+import continuousMovement from "../../../../engine-core/dist/effects/instructions/continuous.movement.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-3e2d969f2528a782a98c698fc45d9937d376dd06244c444271adf9cbd4100e77";
@@ -51,6 +53,7 @@ test("Vilemaw's Lair program validates and is judge-required", () => {
   assert.match(program.judgeReason, /358\.3\.a/);
   assert.match(program.judgeReason, /zones\/movement/);
   assert.match(program.judgeReason, /sameLocationAs/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -100,50 +103,43 @@ test("Vilemaw's Lair golden: the merged layer engine records the declared restri
   assert.equal(snapshot.keywords.length, 0);
 });
 
-test("Vilemaw's Lair gap: a Battlefield→Base move still resolves while the restriction is recorded", () => {
-  // 358.3.a / 359.3.e.14.b require the move to be negated at resolution while
-  // later instructions still execute. The restriction is recorded by the layer
-  // engine (test above) but nothing consumes it, so the merged move primitive
-  // still relocates the unit. This is the concrete blocking gap.
-  const kernel = world()
-    .unit("unit-here", { location: { type: "battlefield", id: "battlefield-1" } })
-    .build();
-  const unitHere = unit("unit-here");
-  const engine = createLayerEngine([unitHere], [
+test("Vilemaw's Lair golden: the merged continuous.movement primitive registers the declared restriction and movement() reads it back", () => {
+  // The declaration itself is executable data: feed the authored effect kind /
+  // restriction name through the real primitive and the real layers/rules query.
+  // (The card-program -> registration binding is still missing — see judgeReason.)
+  const c = value => ({ kind: "constant", value });
+  const kernel = world().unit("unit-here").build();
+  const run = runInstruction(
+    continuousMovement,
     {
-      effect: {
-        id: "vilemaws-lair",
-        layer: "ability",
-        filter: ability.effect.filter,
-        effect: ability.effect
-      },
-      duration: { type: "permanent" },
-      timestamp: 1
-    }
-  ]);
-  engine.setObjects([unitHere]);
-  assert.deepEqual(engine.evaluate(unitHere.ref).movement.restrictions, ["move-from-here-to-base"]);
-
-  const unitRef = kernel.ref("unit-here");
-  const run = runInstruction(move, {
-    objects: { kind: "constant", value: { target: "unit-here" } },
-    to: { kind: "constant", value: "controller-base" }
-  }, { world: kernel, targets: { "unit-here": [unitRef] } });
-
+      restriction: c(ability.effect.restriction),
+      addsPermission: c(false),
+      appliesTo: c({ type: "unit", zone: "board" })
+    },
+    { world: kernel }
+  );
   assert.equal(run.result.status, "executed");
-  assert.deepEqual(kernel.getObject("unit-here").location, { type: "base", player: "A" });
-  assert.deepEqual(kernel.events.map(event => event.action), ["move-location"]);
+
+  const registry = new ContinuousEffectRegistry();
+  for (const entry of kernel.continuousEffects) registry.register(entry.effect, entry.duration);
+  const view = movementQuery(registry, kernel.ref("unit-here"), kernel.getObject("unit-here"));
+  assert.deepEqual(view.restrictions, ["move-from-here-to-base"]);
+  // 054.1: a prohibition does not flip the baseline permission flags.
+  assert.equal(view.canMove, true);
+  assert.equal(view.canGank, false);
+  assert.deepEqual(view.permissions, []);
 });
 
 test.todo(
   "Vilemaw's Lair enforcement: the Standard Move (144.4.b, zones/movement.ts) and move effects " +
     "(421.2.a) must read the layered movement restriction and negate the Battlefield→Base move " +
-    "at resolution while later instructions still execute (358.3.a, 359.3.e.14.b) — no consumer " +
-    "of MovementPermissions exists (RIFT-75 zones batch + RIFT-91 layers)"
+    "at resolution while later instructions still execute (358.3.a, 359.3.e.14.b) — layers/rules/query " +
+    "exposes movement() but neither zones/movement.ts nor effect.move reads it (RIFT-257 / zones wiring). " +
+    "No runnable test locks the over-permissive move: the gap lives here and in judgeReason."
 );
 
 test.todo(
   "Vilemaw's Lair scope + registration: the 053.3 'here' referent needs the sameLocationAs " +
-    "anchor in the layers matcher, and a merged producer must register this CardProgram's " +
-    "static ability as a ContinuousEffectSpec (RIFT-91)"
+    "anchor in the layers matcher (layers/filter.ts ignores it and over-matches, verified), and a " +
+    "merged producer must register this CardProgram's static ability as a ContinuousEffectSpec (RIFT-257)"
 );

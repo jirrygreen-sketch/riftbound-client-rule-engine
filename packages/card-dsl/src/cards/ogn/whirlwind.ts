@@ -35,6 +35,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   (choice.optional's chooser defaults to ctx.controller, interpreter/choice.ts).
  *   "a unit" itself is unrestricted on purpose — the printing names no
  *   controller, so the pick deliberately carries no player filter.
+ * - The card-program -> chain adapter (describePlay) is likewise unmerged
+ *   (RIFT-257), so even the single-chooser half has no production entry.
  * Until the per-player choice/iteration work lands, this card stays
  * judge-required rather than approximating "each player" with the caster's
  * choices.
@@ -48,7 +50,8 @@ const whirlwind = {
     "pick 只能一次性从 ctx.picks(id) 读取（契约 3.6 无按玩家迭代），封闭 opcode 表没有玩家迭代/选择原语（ability-templates.md target.player 未实现），" +
     "按固定次数 repeat 会把玩家人数写死、也无法指明起始玩家（回合顺序在数据层不可命名）；" +
     "同时每次迭代的 chooser 应是「被询问的那名玩家」，而单个 choice.optional 只会问能力控制者（interpreter/choice.ts 默认 ctx.controller）。" +
-    "choice.optional + effect.zone 半段只用已合入原语并有执行测试；依赖 target.player 与 pick chooser 落地。",
+    "choice.optional + effect.zone 半段只用已合入原语并有执行测试；整卡还缺 CardProgram → ChainDraft 的 describePlay 适配（RIFT-257）。" +
+    "依赖：target.player / pick chooser 落地与 RIFT-257。",
   abilities: [
     {
       kind: "play",

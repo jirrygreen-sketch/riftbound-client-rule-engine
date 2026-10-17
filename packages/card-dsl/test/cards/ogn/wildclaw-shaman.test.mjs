@@ -29,6 +29,7 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, verbatim sourceTe
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /spend/);
   assert.match(program.judgeReason, /383\.3\.b/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(
     program.sourceText,
     "When you play me, you may spend a buff to buff me and ready me. (If I don't have a buff, I get a +1 :rb_might: buff.)"
@@ -162,9 +163,11 @@ test.todo(
 );
 test.todo(
   "Wildclaw Shaman: 'me' needs a host-selector form for effect.buff/effect.ready that is not a " +
-    "TargetSpec (CR 355.10.d) — filed as a contract change request"
+    "TargetSpec (CR 355.10.d) — filed as a contract change request; effect.buff with no bound " +
+    "TargetSpec resolves to ignored/mistargeted today"
 );
 test.todo(
-  "Wildclaw Shaman: the played trigger only becomes reachable once the card-played timing emitted by " +
-    "chain/engine.ts is wired through the server-facing runtime (engine batch 4)"
+  "Wildclaw Shaman: the played trigger only becomes reachable once a CardProgram -> ChainDraft / " +
+    "TriggerRegistration adapter (RIFT-257) routes the authored ability; chain/engine.ts already " +
+    "emits the card-played timing point"
 );

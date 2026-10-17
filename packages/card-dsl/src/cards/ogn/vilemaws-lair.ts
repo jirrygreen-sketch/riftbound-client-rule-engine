@@ -16,35 +16,42 @@ import type { CardProgram } from "../../ir/index.js";
  * - 053.3: "here" is this Battlefield.
  *
  * Status: judge-required. The ability is a passive movement restriction with no
- * chain interaction; the merged layers engine does record it (LayerEngine's
- * applyAbility stores effect.restriction into the object's movement.restrictions,
- * which the golden test exercises with an equivalent registration) but nothing
- * consumes it:
+ * chain interaction. Re-checked against the merged code: the continuous.movement
+ * instruction primitive (RIFT-259), the layer engine's restriction recording and
+ * the layers/rules/query `movement()` reader all exist, but the card still cannot
+ * execute as a whole:
+ * - the primitive + query are not wired to card data: no merged path turns a
+ *   CardProgram's static ability into a ContinuousEffectSpec registration
+ *   (card-program binding, RIFT-257). Only trusted instruction callers register
+ *   effects today;
  * - zones/movement.ts validates Standard Moves from its own explicit
  *   DuelStandardMoveTiming/DuelBoard inputs and never reads the layers
- *   MovementPermissions, so a registered restriction cannot negate the move;
+ *   MovementPermissions, so even a registered restriction cannot negate the
+ *   Standard Move (144.4.b);
  * - effect.move documents that path restrictions and the corrective Recall are
- *   move-location's concern, and move-location has no hook for continuous
- *   movement restrictions either;
- * - layers/filter.ts implements no sameLocationAs anchor, so "here" would attach
- *   the restriction to units at every Battlefield once a producer exists;
- * - no merged producer turns a CardProgram's static ability into a
- *   ContinuousEffectSpec registration at all.
- * The 358.3.a/359.3.e.14.b expectation (the move is negated at resolution while
- * later instructions still execute) therefore still has to be produced by the
- * missing restriction consumer; it is recorded as a test.todo, not approximated.
+ *   move-location's concern, and effect.move has no hook for continuous
+ *   movement restrictions either, so the 358.3.a/359.3.e.14.b expectation is
+ *   still unproduced;
+ * - layers/filter.ts implements no sameLocationAs anchor (verified: a filter
+ *   with sameLocationAs matches an object at any location), so "here" would
+ *   attach the restriction to units at every Battlefield once a producer lands.
+ * The golden tests exercise the real primitive registration and the real
+ * `movement()` query against the declared restriction; the missing consumer
+ * stays a test.todo, not an approximation.
  */
 export default {
   canonicalCardId: "card.hash-3e2d969f2528a782a98c698fc45d9937d376dd06244c444271adf9cbd4100e77",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「Units can't move from here to base.」是 054/054.1 的禁止型移动限制（358.3.a、359.3.e.14.b 正好以本战场为例）：该限制要覆盖 144.4.b 的" +
-    "Battlefield→Base Standard Move 与效果移动。已合入的 layers/LayerEngine 能记录该限制（把 effect.restriction 写进 ObjectSnapshot.movement.restrictions），" +
-    "但没有任何消费方：① zones/movement.ts 只按自己的 DuelStandardMoveTiming / DuelBoard 输入校验 Standard Move，从不读图层 MovementPermissions，注册后也无法否定移动；" +
-    "② effect.move 文档明确路径限制与矫正 Recall 归 move-location，而 move-location 也没有读持续移动限制的接口；③ layers/filter.ts 不实现 sameLocationAs 锚点，" +
-    "「here」会落到任意战场的单位上；④ 没有已合入的路径把 CardProgram 的 static 能力注册成 ContinuousEffectSpec。依赖：RIFT-75（batch1-zones）、RIFT-91（layers-continuous）" +
-    "之后的移动限制消费任务。不近似实现（不把限制改写成一个假的 negated 占位指令）。",
+    "「Units can't move from here to base.」是 054/054.1 的禁止型移动限制（358.3.a、359.3.e.14.b 正好以本战场为例）：该限制要覆盖 144.4.b 的 " +
+    "Battlefield→Base Standard Move 与效果移动。复核合并代码：continuous.movement 指令（RIFT-259）、图层记录（ObjectSnapshot.movement.restrictions）" +
+    "与 layers/rules/query 的 movement() 读取入口都已合入，但整卡仍不可执行：① 没有路径把 CardProgram 的 static 能力注册成 ContinuousEffectSpec" +
+    "（卡牌程序绑定 RIFT-257，目前只有可信指令调用方能注册）；② zones/movement.ts 只按自己的 DuelStandardMoveTiming / DuelBoard 输入校验 Standard Move，" +
+    "从不读图层 MovementPermissions，注册后也无法否定移动；③ effect.move 文档明确路径限制与矫正 Recall 归 move-location，而 move-location / " +
+    "effect.move 都没有读持续移动限制的接口（358.3.a/359.3.e.14.b 的期望仍未产出）；④ layers/filter.ts 不实现 sameLocationAs 锚点" +
+    "（实测带 sameLocationAs 的过滤会匹配任意位置的单位），「here」会落到任意战场的单位上。" +
+    "依赖：RIFT-257（CardProgram 绑定）与 zones/movement 的移动限制消费方。不近似实现（不把限制改写成一个假的 negated 占位指令）。",
   sourceText: "Units can't move from here to base.",
   abilities: [
     {

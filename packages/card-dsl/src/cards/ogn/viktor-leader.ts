@@ -28,11 +28,22 @@ import type { CardProgram } from "../../ir/index.js";
  *   字段，所以 "non-Recruit" 只能用扩展键 excludeTags 声明占位（契约 3.2 的 filter
  *   允许扩展键；其它卡同样用 other / isToken / mightGte 这类占位）。当前匹配器不读该
  *   键，只写 type: unit 会把 Recruit 一并匹配，故不得放行整卡。
- * - object-killed 触发把死亡对象快照投进 TriggerSpec filter 的订阅方尚未合入
- *   （events/trigger-spec.ts 已定义 object/source/target 过滤维度，管线侧未接）。
+ * - "other: true" 与 "controller: \"controller\"" 也是占位约定：events/pipeline-match.ts
+ *   的 playerMatches 只识别 self/opponent/any/playerId；"controller" 落进「非 self 即
+ *   opponent」分支，实测会把己方单位判为不匹配、敌方单位判为匹配（与原文相反），
+ *   other 键则完全被忽略。卡牌侧扩展键必须由卡牌程序适配层映射，不能在引擎里近似。
+ * - object-killed 触发把死亡对象快照投进 TriggerSpec filter 的订阅方尚未合入：
+ *   events/trigger-spec.ts 已定义 object/source/target 过滤维度、
+ *   events/pipeline-match.ts 已实现匹配，但把 CardProgram 的 triggered 能力注册成
+ *   TriggerRegistration 的适配层未合入（RIFT-257；registerTrigger 目前只被可信内核
+ *   适配器调用），且程序里 `{ event, filter }` 的嵌套拼写不是 engine TriggerSpec 的
+ *   合法形状（validateTriggerSpec 只接受 ObjectFilter 或 { event, object }）。
  * - 位置绑定：静态 IR 只能写占位 LocationRef；effect.token 要求求值为合法
- *   LocationRef（参考内核按值比较，占位会被判非法位置并 negated/impossible），
- *   运行时绑定属 Finalize/管线职责。
+ *   LocationRef（effect.token 实测对 controller 占位返回 negated/impossible），
+ *   运行时绑定属 Finalize/管线职责（RIFT-257 族）。
+ *
+ * 依赖：RIFT-257（CardProgram 触发绑定与 filter 映射）、否定 tag 谓词、
+ * controller 占位解析、effect.token 位置绑定。
  */
 const viktorLeader = {
   canonicalCardId: "card.hash-7e53dfef149527260e304de53fa08d40d73dd789893fd093fd83cf275d95b2ac",
@@ -40,11 +51,16 @@ const viktorLeader = {
   status: "judge-required",
   judgeReason:
     "缺否定 tag 过滤：ObjectFilter 与各匹配器只有正向 tags/tag，无法表达「non-Recruit」（133.8/133.8.a 的 tag 排除，" +
-    "Recruit 定义见 187.1），只能按占位约定写扩展键 excludeTags（当前匹配器不读，写近似 filter 会把 Recruit 一并匹配）；" +
-    "object-killed 触发把死亡对象快照投进 TriggerSpec filter 的订阅实现尚未合入（events 管线侧，383.2.c.2 要求触发" +
-    "在死亡瞬间评估本卡仍在场）；effect.token 的 mode: \"play\" 需要求值为具体 LocationRef，静态 IR 的 controller base " +
-    "占位（assembly-rig/production-surge 同款约定）必须由 Finalize/管线绑定，参考内核按值比较会判为非法位置。" +
-    "依赖：RIFT-91/RIFT-9 的过滤与 effect.token 位置绑定、events 管线的死亡触发订阅。不近似实现。",
+    "Recruit 定义见 187.1），只能按占位约定写扩展键 excludeTags（当前匹配器不读，写近似 filter 会把 Recruit 一并匹配）。" +
+    "同类占位 other: true 与 controller: \"controller\" 也未被引擎识别：events/pipeline-match.ts 的 playerMatches " +
+    "只认 self/opponent/any/playerId，\"controller\" 落进「非 self 即 opponent」分支，实测把它当对手过滤（与原文相反），" +
+    "other 被忽略。CardProgram 的 triggered 能力也没有 → TriggerRegistration 的注册路径（RIFT-257；" +
+    "events/pipeline.registerTrigger 只被可信内核适配器调用），且 `{ event, filter }` 嵌套拼写不是 engine " +
+    "TriggerSpec 的合法形状（validateTriggerSpec 只接受 ObjectFilter 或 { event, object }）；而 383.2.c.2 要求触发" +
+    "在死亡瞬间评估本卡仍在场，这一订阅语义随该适配层落地。" +
+    "effect.token 的 mode: \"play\" 需要求值为具体 LocationRef，静态 IR 的 controller base 占位" +
+    "（assembly-rig/production-surge 同款约定）必须由 Finalize/管线绑定：effect.token 实测对占位返回 negated/impossible。" +
+    "依赖：RIFT-257（CardProgram 绑定与 filter 映射）、否定 tag 谓词、controller 占位解析、effect.token 位置绑定。不近似实现。",
   abilities: [
     {
       kind: "triggered",
