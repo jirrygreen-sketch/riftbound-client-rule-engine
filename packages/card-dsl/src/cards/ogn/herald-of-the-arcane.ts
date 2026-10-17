@@ -22,7 +22,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   decided at Finalize of the resulting game object (420.3.b.2);
  * - the frozen effect.token requires exactly one destination argument
  *   (location / target / pick / locations), and no merged Expr yields the
- *   current legal location set (RIFT-9 target.location). Fixing a single Base
+ *   current legal location set. Fixing a single Base
  *   or Battlefield here would silently delete the player's printed options, so
  *   the destination argument is left for the target/location work and the
  *   golden test supplies a concrete Base only to exercise the merged token-play
@@ -35,9 +35,9 @@ const program = {
   status: "judge-required",
   judgeReason:
     "「Play a 1 Might Recruit unit token」没有写出地点，因此 token 按 CR 355.2/355.2.a、440.2.b.1 的默认合法地点规则在 Finalize 时由玩家选择：其控制者的 Base 或该玩家控制的 Battlefield（420.3.b.2 规定在 resulting game object 的 finalization 时检查）。" +
-    "冻结的 effect.token 对 mode \"play\" 要求恰好一个目的地参数（location/target/pick/locations），而当前没有任何 Expr 能产出运行时的合法地点集合（RIFT-9 清单的 target.location 尚未合入）。" +
+    "冻结的 effect.token 对 mode \"play\" 要求恰好一个目的地参数（location/target/pick/locations），而当前没有任何 Expr 能产出运行时的合法地点集合；" +
     "把目的地固定为 Base 或某个 Battlefield 都会删掉印刷的合法选项，因此不近似实现；Recruit 定义（CR 187.1，1 Might、Recruit 标签、无印刷费）与链上创建+打出的本体已在 effect.token 合入。" +
-    "依赖：RIFT-9（target.location / 合法地点集合）、RIFT-257（CardProgram 启动能力绑定）与 RIFT-261（费用支付接线）。",
+    "需要目标地点选择契约把控制者的 Base 与其控制的 Battlefields 作为 Finalize 选项（RIFT-357）；固定某一个地点会删掉印刷许可。",
   abilities: [
     {
       kind: "activated",

@@ -12,7 +12,7 @@ import type { CardProgram } from "../../ir/index.js";
  * Modeling notes (Core Rules v1.5):
  * - "[Hidden]" (811) and "[Action]" (806) are keyword abilities expanded by
  *   the keyword registry (effects/keywords/Hidden.ts, Action.ts; contract
- *   3.7). Hidden's expansion (RIFT-84) grants the Hide discretionary action
+ *   3.7). Hidden's expansion grants the Hide discretionary action
  *   plus the facedown play permission; Action's expansion grants the Showdown
  *   timing permission. The card only names both keywords.
  * - "Kill a unit at a battlefield" is a targeted active kill (429.1.a.1.a,
@@ -20,8 +20,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   explains that "at a battlefield" restricts the unit and does not target
  *   the battlefield). When this card is played from facedown, 811.1.d.2
  *   further restricts the target to the battlefield it was hidden at; that
- *   restriction belongs to Hidden's expansion and the target system
- *   (RIFT-84 / RIFT-90), not to this data.
+ *   restriction belongs to Hidden's expansion and the target system, not to
+ *   this data.
  * - "Its controller draws 2" is a linked instruction: 359.3.e.14 uses Hidden
  *   Blade itself as its worked example — the "its" in the second instruction
  *   references the unit in the first, so the two instructions are linked.
@@ -34,7 +34,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   ignored), and the drawer is read from the unit's controller through the
  *   target selector.
  * - The card cannot honestly be marked executable because Hidden's own
- *   expansion is still blocked: its expansion (RIFT-84, merged) is a static
+ *   expansion is still blocked: it is a static
  *   `cost.hidden` continuous effect with no merged consumer — nothing reads
  *   cost.hidden to grant the Hide action or the facedown play — and
  *   cost/README.md records that the current zones/actions omit the
@@ -46,10 +46,10 @@ const hiddenBlade = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Hidden] 展开仍不可执行：RIFT-84 已合入 Hidden 关键词展开，但它的 cost.hidden 持续效果没有消费方——" +
+    "[Hidden] 展开仍不可执行：Hidden 关键词展开只声明了 cost.hidden 持续效果，但当前链/行动层没有消费方——" +
     "没有已合入代码据它授予 Hide 动作、facedown 区域或「facedown 免费/受限打出」；cost/README.md 记录现有区域与" +
     "动作尚缺 Hide/facedown。来自 facedown 的「目标限为藏匿所在战场」（811.1.d.2）同样依赖 Hidden 展开的消费方与" +
-    "目标系统。Hide 的费用/动作接线依赖 RIFT-261，CardProgram 关键词与打出绑定依赖 RIFT-257。两条正文指令（targeted 消灭 + 链接的「Its controller draws 2」）可用已合入解释器真实执行，" +
+    "目标系统。两条正文指令（targeted 消灭 + 链接的「Its controller draws 2」）可用已合入解释器真实执行，" +
     "见 golden 测试；整卡不因正文可执行而宣称 executable。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },

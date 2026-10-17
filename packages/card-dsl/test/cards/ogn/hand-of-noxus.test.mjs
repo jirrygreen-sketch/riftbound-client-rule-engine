@@ -30,9 +30,8 @@ test("ogn-253-298 Hand of Noxus: identity, status, and verbatim sourceText", () 
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /Legion/);
   assert.match(program.judgeReason, /812\.1\.b\.1/);
-  assert.match(program.judgeReason, /RIFT-90/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /history\/predicate/);
+  assert.match(program.judgeReason, /430\.2\.a/);
 });
 
 test("ogn-253-298 Hand of Noxus: Reaction activation with the printed Exhaust cost", () => {
@@ -49,9 +48,8 @@ test("ogn-253-298 Hand of Noxus: Reaction activation with the printed Exhaust co
 test("ogn-253-298 Hand of Noxus: [Legion] gate preserved as a restriction shape", () => {
   // 812.1 / 812.1.b.1 / 812.1.c: Legion gates the dependent ability on having
   // played another card this turn, excluding the Legion card itself. The gate
-  // is declared as a restriction carrying the history comparison; no merged
-  // consumer exists for card restrictions, and 812.1.c's exclude dimension is
-  // the contract 3.8 follow-up owned by RIFT-90.
+  // is declared as a restriction carrying the history comparison; its
+  // history/predicate consumer still needs to evaluate 812.1.c's exclude dimension.
   assert.equal(ability.restriction.kind, "legion");
   assert.deepEqual(ability.restriction.condition, {
     kind: "compare",
@@ -109,16 +107,16 @@ test("ogn-253-298 Hand of Noxus: the Exhaust cost is payable and the body runs t
 
 test.todo(
   "ogn-253-298: evaluate the Legion gate (812.1.b.1 / 812.1.c “another card this turn”) via a merged " +
-    "condition.history / condition.predicate path with HistoryQuery.exclude (RIFT-90)"
+    "condition.history / condition.predicate path with HistoryQuery.exclude"
 );
 
 test.todo(
   "ogn-253-298: honor the 430.2.a immediate finalize/resolve and 430.3 Reaction-Add payment window for " +
-    "resource-adding activated abilities (RIFT-257 / RIFT-261)"
+    "resource-adding activated abilities"
 );
 
 test.todo(
   "ogn-253-298: run the whole body through runAbilityBody — the merged interpreter evaluates args before " +
     "dispatch while effect.resources re-parses Exprs, so interpreter-driven execution of Expr-parsing " +
-    "primitives (effect.resources/draw/channel) is not wired through the card-program activation path (RIFT-257 / RIFT-261)"
+    "primitives (effect.resources/draw/channel) is not wired through the card-program activation path"
 );

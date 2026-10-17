@@ -28,7 +28,7 @@ test("ogn-281-298 Hallowed Tomb: identity, ruleset, status and printed text", ()
     program.sourceText,
     "When you hold here, you may return your Chosen Champion from your trash to your Champion Zone if it is empty."
   );
-  assert.match(program.judgeReason, /champion-zone/);
+  assert.match(program.judgeReason, /Champion Zone/);
 });
 
 test("ogn-281-298 Hallowed Tomb: optional hold trigger wrapping the return instruction", () => {
@@ -80,19 +80,13 @@ test("ogn-281-298 Hallowed Tomb: the return targets the Chosen Champion in the c
   assert.equal(instruction.picks, undefined);
 });
 
-test("ogn-281-298 Hallowed Tomb: every part of the encoded shape is outside the frozen vocabulary", () => {
-  // Guard against a silent approximation: if any of these values becomes
-  // supported without updating the card, this test forces a review of the
-  // status, because the card would otherwise still be reported as judged.
-  //  - the destination (108.3.a) is not a ZoneDestination (contract 3.6 lists
-  //    hand/deck-top/deck-bottom/trash/banishment/base/battlefield/rune-deck/
-  //    rune-zone/chain);
-  //  - ObjectFilter has no chosenChampion predicate (103.3.a.3 status);
-  //  - the emptiness test counts a zone outside the frozen ZoneId set.
+test("ogn-281-298 Hallowed Tomb: unresolved contract pieces remain explicit in the IR", () => {
+  // Keep each unsupported rule element visible in the card data so it can be
+  // wired to the corresponding engine contract without changing the printing.
   assert.equal(instruction.args.to.value, "champion-zone");
   assert.equal(instruction.targets[0].filter.chosenChampion, true);
   assert.equal(instruction.condition.left.filter.zone, "champion-zone");
-  assert.match(program.judgeReason, /ZoneDestination|zone vocabulary|zone/);
+  assert.match(program.judgeReason, /Champion Zone/);
 });
 
 test.todo(
@@ -107,5 +101,6 @@ test.todo(
 
 test.todo(
   "ogn-281-298 Hallowed Tomb: 'if it is empty' (CR 108.3.c.1) needs a zone-emptiness condition; the " +
-    "the hold timing point exists, but CardProgram triggered-ability registration is still pending (RIFT-257)"
+    "hold event's `here` relation also needs an adapter that binds the scoring event's battlefield identity " +
+    "to this source"
 );
