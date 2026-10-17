@@ -76,10 +76,10 @@ test("ven-159-166 Kinkou Temple: identity, ruleset, status and exact source text
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  assert.match(program.judgeReason, /ContinuousEffectSpec/);
   assert.match(program.judgeReason, /keywords/);
   assert.match(program.judgeReason, /sameLocationAs/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.doesNotMatch(program.judgeReason, /没有.*static.*注册|registerContinuousEffect 没有调用方|RIFT-91/);
   // The golden must prove the new program reaches the shared generated index,
   // not just the file system (scripts/gen-registries.mjs builds it from src/cards/**).
   assert.equal(cardProgramsById.get(program.canonicalCardId), program);
@@ -112,8 +112,8 @@ test("ven-159-166 Kinkou Temple golden: the merged arithmetic layer really adds 
   // The merged LayerEngine evaluates the declared continuous.might effect in the
   // arithmetic sublayer (479.4): a Tank unit at the Battlefield goes 2 -> 3
   // Might through the real layer path. This proves the arithmetic and the
-  // declared shape only: the "with [Tank]"/"here" gates of the declared filter
-  // are not evaluable yet (see the test.todo entries below).
+  // declared shape only; production static binding still needs the keyword
+  // predicate to honor the gate.
   const tankUnit = unit("tank-unit", { keywords: [{ id: "Tank" }], might: 2 });
   const engine = layeredEngine([tankUnit]);
 
@@ -147,17 +147,12 @@ test("ven-159-166 Kinkou Temple golden: the Tank KeywordDef that makes the gate 
 });
 
 test.todo(
-  "ven-159-166 Kinkou Temple: register the card program's static ability as a ContinuousEffectSpec so production applies " +
-    "the +1 Might (no merged path reads CardProgram abilities; registerContinuousEffect has no caller) — RIFT-91 follow-up"
-);
-
-test.todo(
   "ven-159-166 Kinkou Temple: give the merged filter a keyword predicate so 'with [Tank]' (815.3) selects only Tank " +
     "units; layers/filter.ts matches objectId/cardId/type/zone/location/controller/owner/state/tags/characteristics " +
     "but never compares ObjectSnapshot.keywords, so the declared gate is not evaluable yet"
 );
 
 test.todo(
-  "ven-159-166 Kinkou Temple: honour the 053.3 'here' anchor (sameLocationAs) so the +1 Might applies only at this " +
-    "Battlefield, and resolve 190.6 battlefield-ability control"
+  "ven-159-166 Kinkou Temple: verify the RIFT-257 static binder's sameLocationAs/self anchor against a production " +
+    "CardProgram lifecycle once the keyword predicate is available"
 );

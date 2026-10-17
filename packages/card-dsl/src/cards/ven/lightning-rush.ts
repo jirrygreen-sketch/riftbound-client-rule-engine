@@ -27,10 +27,10 @@ import type { CardProgram } from "../../ir/index.js";
  *   因此这条指令不写 amount（effect.zone 缺省移动全部仍合法的所选对象）：选了牌时剩下 2 张、
  *   拒绝抽牌时三张都留下，两种情况都由同一形状覆盖，不用把张数写死。
  * - [Flow]（829）是费用改写关键词（829.1.c 的 "Flow [Cost]"）：印刷费用为 2 Energy + 1 rainbow
- *   Power。展开归 effects/keywords/Flow（RIFT-266 分支），本卡只声明关键词。
+ *   Power。Flow KeywordDef 已合入，本卡只声明关键词；Flow 的消费与离链替代仍未接线。
  *
  * status = judge-required（见 judgeReason）：三段指令都用已合入原语表达，golden 借参考内核提供
- * 有序 picks 真实执行；整卡因“有序 top-3 查看的生产来源”与 [Flow] 展开未合入保持 judge-required。
+ * 有序 picks 真实执行；整卡因生产链有序 top-3 pick 生命周期与 Flow 消费/替代接线未合入而保持 judge-required。
  */
 const lightningRush = {
   canonicalCardId: "card.hash-caa60c112cdc9dccc741c15d4bb6d88be761ea9eff1495e0945ebb1a86bc5d74",
@@ -42,10 +42,10 @@ const lightningRush = {
     "并在缺有序来源时 negated（query 不保证区域内顺序，绝不用它截取近似）；已合入的链 Finalize 只锁定" +
     " instruction.targets 的 TargetSpec（chain/engine.ts assertFinalizationSurface），没有有序区域 pick 的" +
     "生产生命周期，因此生产打出时查看范围为空、后续“选一张抽上手 / 其余进弃牌区”都无牌可操作。依赖：有序区域" +
-    " picks / Finalize 生命周期（RIFT-64/RIFT-66 后续；同 ogn-183-298 Stacked Deck 缺口）。" +
-    "(2) 印刷的 [Flow] :rb_energy_2::rb_rune_rainbow:（829.1.c.1/.c.2）没有已合入的 KeywordDef 与之接线" +
-    "（RIFT-266 的 Flow 展开仍在独立分支，且契约 3.1 的 KeywordAbility 没有承载印刷 Flow 费用的字段，" +
-    "已上报契约变更请求），因此“从弃牌区按其 Flow 费用打出、然后放逐”的许可与替代结算缺失。" +
+    " picks / Finalize 生命周期（RIFT-358；同 ogn-183-298 Stacked Deck 缺口）。" +
+    "(2) 印刷的 [Flow] :rb_energy_2::rb_rune_rainbow:（829.1.c.1/.c.2）已有 KeywordDef，但契约 3.1 的" +
+    " KeywordAbility 没有承载印刷 Flow 费用的字段，flow.cost 的备选费用选择与离链放逐替代仍未接线，" +
+    "因此“从弃牌区按其 Flow 费用打出、然后放逐”的许可与替代结算缺失。" +
     "三段指令本身（effect.inspect 的查看 + 非目标 pick、choice.optional 的可选抽牌、effect.zone 移入弃牌区）" +
     "只用已合入原语表达并由 golden 真实执行；不近似实现。",
   abilities: [

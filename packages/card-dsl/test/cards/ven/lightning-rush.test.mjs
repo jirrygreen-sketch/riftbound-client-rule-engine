@@ -8,6 +8,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 // entry point that re-wraps Expr arguments for the registered primitives.
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 
 const CARD_ID = "card.hash-caa60c112cdc9dccc741c15d4bb6d88be761ea9eff1495e0945ebb1a86bc5d74";
 const SOURCE_TEXT =
@@ -70,18 +71,20 @@ test("ven-156-166 Lightning Rush: program passes validateCardProgram as judge-re
 test("ven-156-166 Lightning Rush: judgeReason names the ordered top-look and the Flow wiring gaps", () => {
   assert.match(program.judgeReason, /zoneSlice/);
   assert.match(program.judgeReason, /picksSpecId/);
-  assert.match(program.judgeReason, /RIFT-64\/RIFT-66|RIFT-66/);
+  assert.match(program.judgeReason, /RIFT-358/);
   assert.match(program.judgeReason, /829\.1\.c/);
-  assert.match(program.judgeReason, /RIFT-266/);
+  assert.match(program.judgeReason, /Flow|flow\.cost/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-64|RIFT-66|RIFT-266.*KeywordDef/);
 });
 
 test("ven-156-166 Lightning Rush: [Flow] is declared as a keyword, not re-implemented", () => {
   // 829.1.c.1/.c.2: "Flow [Cost]" is a keyword whose cost is printed text; the
   // card names it and the expansion (plus cost rewriting) belongs to
-  // effects/keywords/Flow (RIFT-266).
+  // effects/keywords/Flow (merged KeywordDef).
   assert.equal(program.abilities.length, 2);
   assert.deepEqual(flowKeyword, { kind: "keyword", keyword: "flow" });
   assert.equal(flowKeyword.value, undefined);
+  assert.equal(keywordDefinitionsById.has("Flow"), true);
 });
 
 test("ven-156-166 Lightning Rush: looking at the top three is a private ordered look, not a target", () => {
@@ -297,11 +300,11 @@ test("ven-156-166 Lightning Rush golden: a prevented look negates the instructio
 
 test.todo(
   "ven-156-166 Lightning Rush: the ordered 'top 3 of your Main Deck' pick set must be provisioned by the production " +
-    "Finalize/AwaitChoice lifecycle instead of the test kernel; needs the ordered-zone pick lifecycle (RIFT-64/RIFT-66)"
+    "Finalize/AwaitChoice lifecycle instead of the test kernel; needs the ordered-zone pick lifecycle (RIFT-358)"
 );
 
 test.todo(
   "ven-156-166 Lightning Rush: the printed [Flow] :rb_energy_2::rb_rune_rainbow: alternate cost and its then-banish " +
-    "replacement (829.1.b/829.1.c) need the Flow KeywordDef expansion plus a card-program -> keyword -> chain/cost wiring " +
-    "(RIFT-266), and the frozen KeywordAbility cannot carry the printed Flow cost (contract change request)"
+    "replacement (829.1.b/829.1.c) need the merged Flow KeywordDef's flow.cost consumer and replacement wiring, " +
+    "and the frozen KeywordAbility still cannot carry the printed Flow cost (contract change request)"
 );

@@ -33,7 +33,9 @@ test("ven-093-166 Kinkou Lifeblade: identity, ruleset, status, judgeReason and v
   assert.match(program.judgeReason, /Empower/);
   assert.match(program.judgeReason, /828\.1\.b\.1/);
   assert.match(program.judgeReason, /RIFT-87/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /continuous\.might/);
+  assert.match(program.judgeReason, /continuous\.grant-keyword/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-91 只合入|没有 .*continuous\.grant-keyword/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -80,8 +82,8 @@ test.todo(
 
 test.todo(
   "ven-093-166 Kinkou Lifeblade: both [Empowered][>] dependent abilities (828.1.b.1) need an Empowered status " +
-    "predicate (442.1.a, RIFT-87), the card-side continuous.might entry point (RIFT-91) and a " +
-    "continuous.grant-keyword instruction"
+    "predicate (442.1.a, RIFT-87); the merged continuous.might and continuous.grant-keyword primitives " +
+    "must then be fed that predicate"
 );
 
 test.todo(

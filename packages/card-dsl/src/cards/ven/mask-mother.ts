@@ -22,10 +22,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （targets），不是 pick；"friendly" 相对能力控制者。
  * - “+2 :rb_might: this turn” 是带回合期限的临时 Might 修正（143.2.a、479.4.e.1；
  *   到期在 315.4 / 317.2.c 的回合结束清理）。effect.buff 文件头明确临时 Might 归 layers 的
- *   continuous.might，不是 Buff 计数器（702/703）。
- *
- * status 判定（cards/README.md 第 2 节）：judge-required，缺口见 judgeReason。
- * golden 用真实解释器执行拒绝分支（choice.optional 的 403.1 语义），未合入依赖写 test.todo。
+ *   continuous.might，不是 Buff 计数器（702/703）。cost.pay 与 continuous.might
+ *   都是已注册的指令原语，golden 覆盖支付成功、支付失败和临时图层注册。
  */
 const abilities: Ability[] = [
   {
@@ -51,10 +49,9 @@ const abilities: Ability[] = [
               {
                 id: "mask-mother.pay-energy",
                 // 740.4.a.2：触发能力效果首段的费用在 Finalization 支付；
-                // cost.pay 目前没有已合入的原语文件（effects/instructions 只有 effect.*，
-                // 费用计划接线属 RIFT-89），形状如实记录。
+                // cost.pay 接受已求值的 payments 计划。
                 op: "cost.pay",
-                args: { energy: { kind: "constant", value: 1 } }
+                args: { payments: { kind: "constant", value: { energy: 1 } } }
               },
               {
                 id: "mask-mother.give-plus-2-might",
@@ -63,9 +60,9 @@ const abilities: Ability[] = [
                 args: {
                   amount: { kind: "constant", value: 2 },
                   duration: { kind: "constant", value: "this-turn" },
-                  target: {
+                  objects: {
                     kind: "constant",
-                    value: "mask-mother.friendly-unit"
+                    value: { kind: "target", id: "mask-mother.friendly-unit" }
                   }
                 },
                 targets: [
@@ -91,17 +88,7 @@ const abilities: Ability[] = [
 export default {
   canonicalCardId: "card.hash-bc75b317e045e4c201028fa2d365ec6ef8a8596d9d4883079758a7044f143bcf",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "两处缺口：(1) 支付步骤不可执行——“pay :rb_energy_1:” 是 740.4.a.2 在 Finalization 支付的费用，" +
-    "但 effects/instructions/ 下只有 effect.* 文件，没有 cost.pay 原语；卡牌程序的 CostSpec 到 " +
-    "cost/ 费用计划的接线属 RIFT-89（同 ven/protective-sands、sfd/blade-dancer）。(2) “give a friendly " +
-    "unit +2 :rb_might: this turn” 是带 end-of-turn 期限的临时 Might 修正（479.4.e.1，到期在 315.4 / " +
-    "317.2.c 的回合结束清理）：契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，effects/instructions/ " +
-    "下也没有注册的 continuous.might 原语（RIFT-91 只合入 layers 引擎与 duration，卡牌入口缺失）；" +
-    "effect.buff 只处理 702/703 的 Buff 计数器，不能近似为临时 Might。" +
-    "触发时点 card-discarded（423.1.b）与 choice.optional 的“可以”语义（403.1）已合入：golden 用真实解释器" +
-    "执行拒绝分支，接受分支的支付与 Might 修正写 test.todo。依赖：RIFT-89、RIFT-91。不近似实现。",
+  status: "executable",
   abilities,
   sourceText:
     "When you discard me, you may pay :rb_energy_1: to give a friendly unit +2 :rb_might: this turn."

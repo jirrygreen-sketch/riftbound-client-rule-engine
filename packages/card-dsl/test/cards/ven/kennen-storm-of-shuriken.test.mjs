@@ -38,8 +38,9 @@ test("ven-113-166 Kennen: identity, ruleset, status, judgeReason and exact sourc
   assert.equal(program.sourceText, SOURCE_TEXT);
   // Flow 半段与 conquer 发射都缺消费方；Burn 半段已可执行。
   assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /continuous\.grant-keyword/);
+  assert.match(program.judgeReason, /continuous\.grant-keyword|RIFT-258/);
   assert.match(program.judgeReason, /conquer/);
+  assert.doesNotMatch(program.judgeReason, /没有 continuous\.grant-keyword 原语|RIFT-120/);
 });
 
 test("ven-113-166 Kennen: the play trigger is a mandatory [Burn 2]", () => {
@@ -78,7 +79,7 @@ test("ven-113-166 Kennen: the conquer trigger grants Flow equal to the spell's c
 
   assert.equal(onConquer.body.length, 1);
   assert.equal(grantFlow.id, "kennen-storm-of-shuriken.grant-flow");
-  // 829.1：Flow 是关键词；卡侧没有 continuous.grant-keyword 原语，故只声明形状。
+  // 829.1：Flow 是关键词；动态 Flow 费用仍受消费方/契约字段限制。
   assert.equal(grantFlow.op, "continuous.grant-keyword");
   assert.deepEqual(grantFlow.args.keyword, { kind: "constant", value: "Flow" });
   // 829.1.c.1："equal to its cost" 是备选费用替换基础费用的取值。
@@ -97,8 +98,9 @@ test("ven-113-166 Kennen: the conquer trigger grants Flow equal to the spell's c
       selection: "one"
     }
   ]);
-  // Flow 的 KeywordDef 已合入（effects/keywords/Flow.ts）；缺的是消费方（RIFT-260/261）。
+  // Flow 的 KeywordDef 与授予原语已合入；缺的是动态费用消费与离链替代接线。
   assert.notEqual(keywordDefinitionsById.get("Flow"), undefined);
+  assert.notEqual(instructionDefinitionsById.get("continuous.grant-keyword"), undefined);
 });
 
 test("ven-113-166 Kennen golden: [Burn 2] moves the top 2 of the Main Deck to the trash in order", () => {
@@ -165,11 +167,12 @@ test("ven-113-166 Kennen golden: a replaced Burn negates the instruction and lea
 test.todo(
   "ven-113-166 Kennen: grant [Flow] to a spell in trash and let it be played from trash for that Flow " +
     "cost, then banished (CR 829.1 / 829.1.c.1 / 829.1.c.3) — the merged Flow KeywordDef needs its " +
-    "cost consumer (RIFT-261) and replacement registration (RIFT-260), and no card-side " +
-    "continuous.grant-keyword primitive is registered (RIFT-91)"
+    "cost consumer (RIFT-261), replacement registration (RIFT-260), and a dynamic params.cost " +
+    "carrier for continuous.grant-keyword"
 );
 
 test.todo(
-  "ven-113-166 Kennen: the conquer trigger runs end to end (Conquer Effect -> chain) — needs scoring -> " +
-    "chain/events conquer emission and CardProgram TriggerRegistration (RIFT-76/RIFT-120, contract section 7.2 batch 5)"
+  "ven-113-166 Kennen: the conquer trigger runs end to end — the scoring emission and TriggerSpec " +
+    "event vocabulary must agree on 'conquer' and include the conquered object/source for self matching " +
+    "(CR 383.4.c.2.b / 473.2.a)"
 );
