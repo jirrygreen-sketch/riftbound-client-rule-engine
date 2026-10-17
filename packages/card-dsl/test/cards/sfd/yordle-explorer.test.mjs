@@ -2,11 +2,9 @@
 //
 // status = judge-required (see the program's judgeReason): the printed-Power
 // cost gate of "with Power cost [[A]][[A]] or more" (CR 135.2.e.5 / 206.1,
-// applied as a 383.2.a.1 trigger condition) has no producer. The card-played
-// emission carries only the played object and player, so the EventPattern
-// details predicate can never match today (it fails closed instead of drawing
-// for every play). The trigger point, the controller binding and the
-// effect.draw body are merged and executed for real below.
+// applied as a 383.2.a.1 trigger condition) still lacks a production payload.
+// EventPattern.details, matching, trigger binding, and the effect.draw body are
+// exercised for real below.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -40,13 +38,13 @@ test("sfd-100-221 Yordle Explorer: identity, ruleset, status, judgeReason and ve
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
-  // README §2: the reason names the missing payload key, the rule and the task.
+  // README §2: the reason names the missing producer and the governing rules.
   assert.match(program.judgeReason, /383\.2\.a\.1/);
   assert.match(program.judgeReason, /206\.1/);
   assert.match(program.judgeReason, /card-played/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.equal(/powerCostGte/.test(program.judgeReason), true);
-  assert.match(program.judgeReason, /translateTriggerFilter/);
+  assert.match(program.judgeReason, /Unsupported filter field details/);
+  assert.match(program.judgeReason, /printed.*Power cost/);
+  assert.match(program.judgeReason, /fail-closed/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -158,12 +156,8 @@ test("sfd-100-221 Yordle Explorer golden: an empty deck links the actual drawn c
 });
 
 test.todo(
-  "sfd-100-221 Yordle Explorer: card-played must carry the played card's PRINTED (or copied) Power cost so the " +
-    "details predicate fires only for 2+ (CR 135.2.e.5 / 206.1 / 383.2.a.1) — TimingEmission/PipelineEvent have no " +
-    "cost payload today (chain/engine.ts emits the object and player only), so the merged filter stays fail-closed"
-);
-test.todo(
-  "sfd-100-221 Yordle Explorer: the CardProgram triggered ability must be installed as a production " +
-    "TriggerRegistration with its filter and source binding (contract 3.5) — RIFT-257 programs/ is not yet wired " +
-    "into the game-server chain"
+  "sfd-100-221 Yordle Explorer: preserve EventPattern.details through the production trigger adapter and " +
+    "carry the played card's PRINTED (or copied) Power cost so the details predicate fires only for 2+ " +
+    "(CR 135.2.e.5 / 206.1 / 383.2.a.1) — the adapter currently routes details through ObjectFilter and " +
+    "the chain emission does not derive that payload, so the merged filter stays fail-closed"
 );

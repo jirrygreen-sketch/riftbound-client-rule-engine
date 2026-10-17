@@ -4,8 +4,8 @@
 // layer can plan and pay the declared kill charge when the caller passes it
 // (cost/cost-plan.ts optionalAdditional + cost/plan-values.ts "kill"), and the
 // merged effect.kill primitive kills the locked gear; what is missing is the
-// CardProgram -> CostPlanInput wiring (RIFT-261/RIFT-257) plus the 356.4.f.1
-// paid receipt that must gate the second ability.
+// CardProgram -> CostPlanInput wiring plus the 356.4.f.1 paid receipt that
+// must gate the second ability.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -15,6 +15,8 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
 
 const CARD_ID = "card.hash-5433b0927a4bc2a2f4e5d52590d57b1bec38882780434c5aed6ac38f5eb85c16";
 const SOURCE_TEXT =
@@ -36,12 +38,12 @@ test("sfd-160-221 Zaun Punk: program validates and keeps its identity", () => {
 
 test("sfd-160-221 Zaun Punk: identity, status, judgeReason and verbatim sourceText", () => {
   assert.equal(program.status, "judge-required");
-  // README §2: name the missing wiring, the rule and the dependency tasks.
+  // README §2: name the current production gaps and the governing rule.
   assert.match(program.judgeReason, /optionalAdditional/);
   assert.match(program.judgeReason, /356\.4\.f\.1/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /接受调用方传入的 optionalAdditional/);
+  assert.match(program.judgeReason, /static cost\.additional/);
+  assert.match(program.judgeReason, /dynamic:friendly-gear/);
+  assert.match(program.judgeReason, /condition\.result/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -63,6 +65,23 @@ test("sfd-160-221 Zaun Punk: optional additional cost kills one friendly gear", 
   assert.equal(payment.choice.selection, "one");
   assert.equal(payment.choice.filter.type, "gear");
   assert.equal(payment.choice.filter.controller, "controller");
+});
+
+test("sfd-160-221 Zaun Punk: the merged program binding registers the self card-played trigger", () => {
+  const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
+  const kernel = world().unit("punk", {
+    cardId: CARD_ID,
+    types: ["unit"],
+    owner: "A",
+    controller: "A",
+    zone: "board"
+  }).build();
+  const [registration] = triggerRegistrations(registry, kernel.getObject("punk"));
+  assert.equal(registration.spec.at, "card-played");
+  assert.deepEqual(registration.spec.filter, {
+    event: "card-played",
+    object: { objectId: "punk" }
+  });
 });
 
 test("sfd-160-221 Zaun Punk: card-played self trigger kills one gear", () => {
@@ -199,8 +218,7 @@ test("sfd-160-221 Zaun Punk: declining the optional cost pays only the base cost
 
 test.todo(
   "sfd-160-221 Zaun Punk: charge the declared optional additional cost through the play procedure and gate the " +
-    "kill on the 356.4.f.1 paid receipt — no merged code reads a CardProgram's static cost.additional effect into " +
-    "CostPlanInput (cost/cost-plan.ts consumes a caller-supplied optionalAdditional list; the cost.pay primitives and " +
-    "wiring are RIFT-261, the CardProgram binding is RIFT-257), and the frozen Condition has no cost-result binding " +
+    "kill on the 356.4.f.1 paid receipt — the production play path still does not consume static cost.additional " +
+    "into CostPlanInput or resolve dynamic:friendly-gear, and the frozen Condition has no cost-result binding " +
     "(condition.result), so the second ability cannot be gated on 'if you paid the additional cost'"
 );
