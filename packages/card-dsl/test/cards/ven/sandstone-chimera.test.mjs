@@ -70,12 +70,12 @@ test("ven-036-166 Sandstone Chimera: the restriction applies to players, not onl
 test.todo(
   "ven-036-166 Sandstone Chimera: clamp the Channel Phase amount to 1 (315.3.b / 431.4.a) — turn/flow.ts " +
     "computes the channel count from the rune deck alone and no merged turn-flow consumer reads a channel " +
-    "restriction; the continuous.restrict primitive and the RIFT-257 static binding are merged, but no layer " +
+    "restriction; the continuous.restrict primitive and the static binding are merged, but no layer " +
     "read exposes them to the turn flow"
 );
 
 test.todo(
   "ven-036-166 Sandstone Chimera: evaluate \"While I'm at a battlefield\" (363.2.a) — the location predicate " +
-    "has no consumer on the turn-flow side; the static binding installs restriction rows through RIFT-257, " +
+    "has no consumer on the turn-flow side; the static binding installs restriction rows through the merged static binder, " +
     "but nothing evaluates the conditional landing during the Channel Phase"
 );

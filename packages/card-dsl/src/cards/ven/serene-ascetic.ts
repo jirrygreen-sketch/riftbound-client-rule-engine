@@ -27,8 +27,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *    没有可求值形态；
  * 3. “[Deflect] 和 [Shield 3]” 是持续授予关键词：programs/statics.ts 的
  *    createEngineStaticBinder().bindStatic 已能把该声明装进 ability 图层并在快照里
- *    写出 deflect 1 / shield 3（RIFT-257，golden 有执行证据）；被授予的 Deflect 还需要
- *    target.tax 图层消费方（RIFT-90）——当前没有模块在对该宿主的 target 声明里读并收取该税。
+ *    写出 deflect 1 / shield 3（golden 有执行证据）；被授予的 Deflect 还需要
+ *    target.tax 图层消费方——当前没有模块在对该宿主的 target 声明里读并收取该税。
  * 依赖：新增 Empower/Empowered 关键词任务、Empowered 状态谓词（RIFT-359 的谓词任务进行中）与
  * Deflect 目标税消费（RIFT-360 进行中）。本卡不伪造启动能力，也不把依赖能力写成无条件能力。
  */
@@ -71,8 +71,8 @@ export default {
     "Condition 里，“[Empowered][>]” 的依赖能力门控（828.1.b.1 / 828.1.c）没有可求值形态；" +
     "(3) “[Deflect] 和 [Shield 3]” 是持续授予关键词：programs/statics.ts 的 " +
     "createEngineStaticBinder().bindStatic 已能把该声明装进 ability 图层，图层快照真实写出 " +
-    "deflect 1 / shield 3（RIFT-257 已合入，golden 有执行证据）；剩余执行缺口是被授予的 Deflect " +
-    "需要 target.tax 图层消费方（RIFT-90/RIFT-360 进行中）。" +
+    "deflect 1 / shield 3（golden 有执行证据）；剩余执行缺口是被授予的 Deflect " +
+    "需要 target.tax 图层消费方（RIFT-360 进行中）。" +
     "依赖新的 Empower/Empowered 关键词任务、Empowered 状态谓词（RIFT-359 进行中）与 Deflect 目标税消费 " +
     "（RIFT-360 进行中）。不近似实现：不伪造启动能力，不把依赖能力写成无条件能力。",
   abilities,

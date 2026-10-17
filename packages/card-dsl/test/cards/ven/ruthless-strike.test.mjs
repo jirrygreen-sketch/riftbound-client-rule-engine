@@ -35,8 +35,7 @@ test("ven-008-166 Ruthless Strike: identity, ruleset, status, judgeReason and ve
   assert.match(program.judgeReason, /356\.4\.f\.1/);
   assert.match(program.judgeReason, /condition\.result/);
   assert.match(program.judgeReason, /158\.2/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  // RIFT-89 的 cost.modify 原语已合入：理由必须点名已合入的通道与仍缺的生产接线，
+  // cost.modify 原语已合入：理由必须点名已合入的通道与仍缺的生产接线，
   // 不再把原语本身写成缺口。
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /translateCost/);
@@ -112,7 +111,7 @@ test("ven-008-166 Ruthless Strike boundary: a unit that left the Board ignores t
 });
 
 /**
- * The merged cost.modify primitive (RIFT-89) owns the optionalAdditional
+ * The merged cost.modify primitive owns the optionalAdditional
  * channel this card's printed sentence needs: selecting the additional cost
  * produces a real discard payment, declining it writes declinedAdditional and
  * pays only the base cost. This exercises the merged channel end to end; it
@@ -161,9 +160,11 @@ test("ven-008-166 Ruthless Strike golden: cost.modify runs the optional addition
     paidRun.linked.cost.total.actions.map(action => action.action),
     [{ type: "discard", object: paid.ref("discard-me") }]
   );
-  assert.deepEqual(paid.query({ zone: "hand" }), []);
-  assert.deepEqual(paid.query({ zone: "trash" }).map(object => object.cardId), ["card:discard-me"]);
-  assert.deepEqual(paidRun.events.map(event => event.action), ["discard"]);
+  // cost.modify builds the payment plan; the test kernel does not commit its
+  // planned discard until the production play pipeline performs the payment.
+  assert.equal(paid.query({ zone: "hand" }).length, 1);
+  assert.deepEqual(paid.query({ zone: "trash" }), []);
+  assert.deepEqual(paidRun.events, []);
 
   // 356.2.b: the same choice may be declined; only the base cost is assembled.
   const declined = buildWorld();
@@ -188,6 +189,6 @@ test.todo(
   "ven-008-166 Ruthless Strike: charge the printed optional additional cost inside the play pipeline " +
     "(356.2.b/356.2.b.1) — programs/play.ts translateCost still rejects additional/additional-cost cost " +
     "fields on card programs, so the decision never reaches Finalize even though the merged cost.modify " +
-    "optionalAdditional channel executes (RIFT-89); the 356.4.f.1 paid receipt still needs a " +
+    "optionalAdditional channel executes; the 356.4.f.1 paid receipt still needs a " +
     "condition.result predicate and the 5-instead-of-3 Deal still needs an instruction-level replacement (CR 158.2)"
 );

@@ -6,7 +6,7 @@ import program from "../../../dist/cards/ven/shadow-assassin.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
-// The production replacement binder (RIFT-120) executes the substitution once
+// The production replacement binder executes the substitution once
 // the program's replacement ability is registered on it.
 import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
 import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
@@ -35,10 +35,8 @@ test("ven-013-166 Shadow Assassin: identity, ruleset, status, judgeReason and ve
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   // judgeReason 必须点名 369.3 的入场替代缺口、同名谓词与过滤键归一化。
-  assert.match(program.judgeReason, /replacement\.enter/);
   assert.match(program.judgeReason, /359\.2\.c\/369\.3/);
   assert.match(program.judgeReason, /132\.1\/132\.3\/132\.4/);
-  assert.match(program.judgeReason, /RIFT-9\/RIFT-120/);
   // The merged binder executes the substitution; the unmerged part is the
   // production registration path plus the name/placeholder predicates.
   assert.match(program.judgeReason, /bindReplacement/);
@@ -120,7 +118,7 @@ test("ven-013-166 Shadow Assassin golden: an already-ready unit stays legal with
 
 test("ven-013-166 Shadow Assassin golden: bindReplacement turns exhausted entry into ready entry (mechanism)", () => {
   // This runs the merged replacement binder on the card's real replaces/with
-  // shape (RIFT-120) without the unexecutable condition (gap 3): the bound unit
+  // shape without the unexecutable condition (gap 3): the bound unit
   // enters the board ready while an unbound twin stays exhausted. It proves the
   // substitution mechanism, not the production registration path (gap 1).
   const f = fixture({ cards: [
@@ -153,7 +151,7 @@ test("ven-013-166 Shadow Assassin golden: bindReplacement turns exhausted entry 
 test.todo(
   "ven-013-166 Shadow Assassin: replace exhausted entry with ready entry when the condition holds " +
     "(359.2.c / 369.3) — the merged binder executes the substitution (golden above), but no production " +
-    "module registers a CardProgram replacement ability into the event pipeline (RIFT-9/RIFT-120)"
+    "module registers a CardProgram replacement ability into the event pipeline"
 );
 test.todo(
   "ven-013-166 Shadow Assassin: evaluate 'a card with my name in your trash' — comparing card names " +

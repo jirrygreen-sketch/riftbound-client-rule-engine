@@ -31,7 +31,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * 3. 828.1.c 的状态门控需要 empowered 谓词（condition.predicate）；当前 Condition 没有该谓词。
  * 4. “I have [Assault 3]” 是 continuous.grant-keyword 图层授予（且功能上等于 807.1.c 的
  *    attacker 条件 Might 修正）：programs/statics.ts 的 createEngineStaticBinder().bindStatic
- *    已能把该声明装进 ability 图层并在快照里写出 assault 3（RIFT-257，golden 有执行证据）；
+ *    已能把该声明装进 ability 图层并在快照里写出 assault 3（golden 有执行证据）；
  *    依赖能力本身的 Empowered 门控仍无谓词。
  * 依赖：新增 Empower/Empowered KeywordDef、卡牌侧费用接线、Empowered 状态谓词（RIFT-359 进行中）。
  * 本程序不把依赖能力写成无条件能力，不手写 Empowered 判定，也不用 Buff 计数近似 +3 Might。
@@ -70,7 +70,7 @@ export default {
     "(3) 828.1.c 的 Dependent Ability 门控需要 empowered 谓词（condition.predicate），当前 Condition 没有该谓词；" +
     "(4)「I have [Assault 3]」是 continuous.grant-keyword 图层授予（807.1.c 的功能文本是 attacker 条件下 +3 Might），" +
     "programs/statics.ts 的 createEngineStaticBinder().bindStatic 已能把该声明装进 ability 图层并写出 assault 3 " +
-    "（RIFT-257 已合入，golden 有执行证据）；剩余缺口是依赖能力本身的 Empowered 门控谓词（RIFT-359 进行中）。" +
+    "（golden 有执行证据）；剩余缺口是依赖能力本身的 Empowered 门控谓词（RIFT-359 进行中）。" +
     "依赖：新增 Empower/Empowered KeywordDef、卡牌侧费用接线、Empowered 状态谓词。不近似实现（不用 Buff 计数代替 Might 修正，" +
     "不把依赖能力写成无条件能力）。",
   abilities,

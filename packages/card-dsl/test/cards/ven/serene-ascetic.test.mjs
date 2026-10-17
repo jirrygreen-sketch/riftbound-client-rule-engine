@@ -5,7 +5,7 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ven/serene-ascetic.js";
 import deflect from "../../../../engine-core/dist/effects/keywords/Deflect.js";
 import shield from "../../../../engine-core/dist/effects/keywords/Shield.js";
-// The production static binder (RIFT-257) installs card static abilities into
+// The production static binder installs card static abilities into
 // the merged layer engine; the chain fixture provides that engine.
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
@@ -31,9 +31,8 @@ test("ven-030-166 Serene Ascetic: identity, status, judgeReason and verbatim sou
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /827\.1\.c\.1/);
   assert.match(program.judgeReason, /828\.1\.b\.1/);
-  assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /RIFT-91/);
-  // The static binder (RIFT-257) is merged; the remaining execution gap is the
+  assert.match(program.judgeReason, /持续授予关键词/);
+  // The static binder is merged; the remaining execution gap is the
   // Deflect target-tax consumer and the Empowered gate predicate.
   assert.match(program.judgeReason, /bindStatic/);
   assert.match(program.judgeReason, /RIFT-360/);
@@ -125,6 +124,6 @@ test.todo(
 
 test.todo(
   "ven-030-166 Serene Ascetic: register the Empowered-gated Deflect/Shield grant as a ContinuousEffectSpec " +
-    "and bill the Deflect target tax (809.1.c / 814.1.c) — the static binder installs the grant (RIFT-257), " +
-    "but no merged consumer bills the Deflect target tax on choices against the host (RIFT-90/RIFT-360, in flight)"
+    "and bill the Deflect target tax (809.1.c / 814.1.c) — the static binder installs the grant, " +
+    "but no merged consumer bills the Deflect target tax on choices against the host (RIFT-360, in flight)"
 );

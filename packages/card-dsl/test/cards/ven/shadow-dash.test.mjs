@@ -69,10 +69,8 @@ test("ven-148-166 Shadow Dash: program passes validateCardProgram as judge-requi
 test("ven-148-166 Shadow Dash: judgeReason names the runtime destination and the temporary Might gaps", () => {
   // README §2: the reason names the missing selector/primitive and the owner.
   assert.match(program.judgeReason, /355\.4/);
-  assert.match(program.judgeReason, /RIFT-90/);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /143\.2\.a/);
-  assert.match(program.judgeReason, /RIFT-91/);
   assert.match(program.judgeReason, /Flow/);
   // The might primitive is merged; the remaining gap is the same-location
   // selector vocabulary, not a missing op.
@@ -305,7 +303,7 @@ test("ven-148-166 Shadow Dash golden: the same-location filter selector is rejec
       },
       { world: kernel }
     ),
-    /continuous\.might appliesTo must be "self"/
+    /continuous\.might appliesTo must evaluate to "self"/
   );
   // The rejected instruction never committed anything (fail closed).
   assert.deepEqual(kernel.events, []);
@@ -313,13 +311,13 @@ test("ven-148-166 Shadow Dash golden: the same-location filter selector is rejec
 
 test.todo(
   "Shadow Dash: 'to a battlefield where you have units' (355.4 / 355.4.a) needs a runtime Location selector in the " +
-    "target/location plan (RIFT-90); effect.move only accepts static LocationRefs, 'controller-base' or a static candidate list"
+    "target/location plan; effect.move only accepts static LocationRefs, 'controller-base' or a static candidate list"
 );
 
 test.todo(
   "Shadow Dash: 'they each get +1 :rb_might: this turn' (143.2.a effective Might, 317.2.c end-of-turn expiry) needs a card-facing " +
     "continuous.might selector for the same-location set; the merged primitive accepts refs/{objects:[refs]} shapes " +
-    "(executed above) but rejects the card's sameLocationAs filter anchor, which belongs to the RIFT-90 target/location plan"
+    "(executed above) but rejects the card's sameLocationAs filter anchor, which belongs to the target/location plan"
 );
 
 test.todo(

@@ -4,7 +4,7 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/shadow-fiend.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-// The production static binder (RIFT-257) installs card static abilities into
+// The production static binder installs card static abilities into
 // the merged layer engine; the chain fixture provides that engine.
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
@@ -32,8 +32,6 @@ test("ven-014-166 Shadow Fiend: identity, ruleset, status, judgeReason and verba
   assert.match(program.judgeReason, /827\.1\.c\.1/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /807\.1\.c/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-91/);
   // The grant primitive and its merged static binder are merged; the remaining
   // execution gap is the Empowered gate predicate and the card-side cost wiring.
   assert.match(program.judgeReason, /bindStatic/);
@@ -93,11 +91,11 @@ test("ven-014-166 Shadow Fiend golden: the production static binder installs Ass
 test.todo(
   "ven-014-166 Shadow Fiend: activate [Empower] for 2 Energy + 1 Fury Power (827.1.c.1) with the " +
     "'use only if not Empowered' restriction — needs the Empower/Empowered KeywordDef and the " +
-    "RIFT-89 cost-plan wiring"
+    "card-side cost-plan wiring"
 );
 test.todo(
   "ven-014-166 Shadow Fiend: [Assault 3] while Empowered through the layers engine — needs a " +
-    "card-side continuous.grant-keyword op plus the RIFT-91 registration entry point; the grant " +
-    "itself installs through the merged static binder (RIFT-257), while the 828.1.c Empowered gate " +
+    "card-side continuous.grant-keyword op plus the card-side registration entry point; the grant " +
+    "itself installs through the merged static binder, while the 828.1.c Empowered gate " +
     "still needs the status predicate (RIFT-359, in flight)"
 );

@@ -59,7 +59,7 @@ export default {
   status: "judge-required",
   judgeReason:
     "两处缺口，均不近似实现：(1)「players only channel 1 rune at the start of their Channel Phase」需要回合流程侧的可消费读数：" +
-    "continuous.restrict 原语与 RIFT-257 的 static 绑定已合入（statics.ts 能把该声明归一成 restriction 装进 ability 图层），" +
+    "continuous.restrict 原语与 static 绑定已合入（statics.ts 能把该声明归一成 restriction 装进 ability 图层），" +
     "但 layers 没有回合流程读数，turn/flow.ts 的 Channel Phase（315.3.b / 431.4.a）直接按 runeDeckCount 与固定 2/3 " +
     "计算数量、从不查询任何持续限制集合；程序以 continuous.restrict 的静态形状记录该限制（不伪造 channel 指令、不改写回合流程）；" +
     "(2)「While I'm at a battlefield」是 363.2.a 的条件持续能力，需要 Location 谓词与持续效果在回合流程侧的消费路径，" +

@@ -20,7 +20,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * status = judge-required（依赖均不近似实现）：
  * 1. 卡牌程序侧的替换注册未接线：programs/statics.ts 的 createEngineStaticBinder()
  *    .bindReplacement 已合入并能执行替代体（绑定后横置进场真的就绪进场，golden 有执行
- *    证据；机制先例 RIFT-9/RIFT-120），但没有任何生产模块把 CardProgram 的 replacement
+ *    证据；机制执行证据，但没有任何生产模块把 CardProgram 的 replacement
  *    能力经该绑定装进事件管线，因此按卡牌打出流程的替换不会发生。
  * 2. 同名比较没有可执行谓词：ObjectFilter 的 characteristics 只能做顶层字段等值，
  *    Expr 也没有「读来源的卡名并与候选比较」的形态；filter 里按 describe 记录的占位键
@@ -75,7 +75,7 @@ export default {
   judgeReason:
     "三处依赖未合入：(1) 卡牌程序侧的替换注册未接线——programs/statics.ts 的 createEngineStaticBinder()" +
     ".bindReplacement 已合入，绑定后替代体真实执行（横置进场 → 就绪进场，golden 有机制级执行证据；" +
-    "RIFT-9/RIFT-120），但没有生产模块把 CardProgram 的 replacement 能力装进事件管线，" +
+    "但没有生产模块把 CardProgram 的 replacement 能力装进事件管线，" +
     "因此打出流程中 359.2.c/369.3 的替换不会发生；不把 effect.ready 当作事后重置来近似。" +
     "(2)「a card with my name」缺卡名比较谓词——132.1/132.3/132.4 的同名是完整牌名比较，" +
     "ObjectFilter 的 characteristics 只做顶层字段等值，Expr 也没有读取来源卡名并与候选比较的形态，" +

@@ -40,8 +40,7 @@ import type { CardProgram } from "../../ir/index.js";
  *    require a Finalize/Resolve choice-plan adapter"），355.3 的 Finalize 选择计划适配器未合入；
  *    解释器侧的 choice.mode 本体已合入，golden 用 resolveChainBody + setAnswers 真实执行两个
  *    模式分支（empower 事件 / empower→disempower 事件序列）。
- * 依赖：trigger.delayed 原语（RIFT-9）、Empowered 谓词与 442.1.b/443.1.a 的动作层语义
- * （RIFT-91 之后）、Finalize 选择计划适配器（RIFT-90）。
+ * 依赖：trigger.delayed 原语、Empowered 谓词与 442.1.b/443.1.a 的动作层语义、Finalize 选择计划适配器。
  */
 export default {
   canonicalCardId: "card.hash-cc029bf96714e13a2e9bbc9f58b4d2a300a4d50e4257125afc218854ce4b3acf",
@@ -58,7 +57,7 @@ export default {
     "Finalize 选择计划适配器未合入；解释器侧 choice.mode 本体已合入，golden 用 resolveChainBody + 参考内核 " +
     "setAnswers 真实执行两个模式分支。" +
     "已合入并真实执行：两条模式的 effect.empower 本体（442/443 的状态动作），golden 覆盖单原语与模式选择两个层级。" +
-    "依赖：trigger.delayed 原语（RIFT-9）、Empowered 谓词与动作层语义、Finalize 选择计划适配器（RIFT-90）。",
+    "依赖：trigger.delayed 原语、Empowered 谓词与动作层语义、Finalize 选择计划适配器。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {

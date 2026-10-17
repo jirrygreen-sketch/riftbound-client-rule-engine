@@ -225,7 +225,7 @@ test("ven-035-166 Sanction golden: mode 2 disempowers the chosen Empowered unit 
 test.todo(
   "ven-035-166 Sanction: register the two 'at end of turn' delayed actions (391.2, turn-end) — " +
     "effects/instructions has no card-facing trigger.delayed opcode even though " +
-    "ResolveContext.registerDelayedTrigger exists (RIFT-9 inventory)"
+    "ResolveContext.registerDelayedTrigger exists"
 );
 
 test.todo(
@@ -237,5 +237,5 @@ test.todo(
 test.todo(
   "ven-035-166 Sanction: decide the mode at Finalize (355.3) — chain/engine.ts " +
     "programs/play.ts validateSurface judge-requires choice.mode until the Finalize/Resolve " +
-    "choice-plan adapter lands (RIFT-90); the interpreter-side choice.mode primitive executes"
+    "choice-plan adapter lands; the interpreter-side choice.mode primitive executes"
 );

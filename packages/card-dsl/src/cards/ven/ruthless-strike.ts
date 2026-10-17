@@ -23,8 +23,7 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * status = judge-required（三处缺口，均不近似实现）：
  * 1. 可选附加费用没有卡牌侧接线：cost.modify 原语已合入——optionalAdditional 通道真实执行，
- *    付费时产生 selectedAdditional 与真实 discard 动作、拒绝时写 declinedAdditional（RIFT-89
- *    batch3-cost-plan，golden 有执行证据）；但 programs/play.ts translateCost 仍把卡牌程序
+ *    付费时产生 selectedAdditional 与真实 discard 动作、拒绝时写 declinedAdditional（费用计划通道，golden 有执行证据）；但 programs/play.ts translateCost 仍把卡牌程序
  *    cost 里的 additional/additional-cost 字段判为 judge-required，费用决定无法在 Finalize
  *    落地，附加费也接不进被施放法术的合并费用计划。
  * 2. 没有费用结果绑定：“If you paid the additional cost” 需要 356.4.f.1 的支付凭证（调研记为
@@ -35,7 +34,7 @@ import type { CardProgram } from "../../ir/index.js";
  *    属于近似实现，故不写。
  * 已合入并真实执行的部分：effect.damage 的 3 点基准伤害与 [Action] 之外的目标形状；golden 用
  * 解释器 + 参考内核执行「a unit at a battlefield」的锁定目标伤害与目标失效分支。
- * 依赖：RIFT-89（可选附加费用与凭证）、契约级 condition.result 与指令级替代（RIFT-9 家族）。
+ * 依赖：可选附加费用与凭证、契约级 condition.result 与指令级替代。
  */
 export default {
   canonicalCardId: "card.hash-40879a4051400736fda23ede8e39ad9da54a90ec93c7462a8297c7dbf55dee93",
@@ -44,7 +43,7 @@ export default {
   judgeReason:
     "三处缺口，均不近似实现：(1) 可选附加费用没有卡牌侧接线：cost.modify 原语已合入，" +
     "optionalAdditional 通道真实执行——选中时写 selectedAdditional 并提交真实 discard 动作、拒绝时写 " +
-    "declinedAdditional（RIFT-89 batch3-cost-plan，golden 有执行证据）；但 programs/play.ts translateCost " +
+    "declinedAdditional（golden 有执行证据）；但 programs/play.ts translateCost " +
     "仍把卡牌程序 cost 里的 additional/additional-cost 字段判为 judge-required，356.2.b/356.2.b.1 的决定 " +
     "无法在 Finalize 落地，附加费也没有接进被施放法术的合并费用计划。" +
     "(2) 没有费用结果绑定：356.4.f.1 的「If you paid the additional cost」凭证在冻结 IR 没有对应谓词" +
@@ -53,7 +52,7 @@ export default {
     "(3) 「deal 5 to it instead」是同一 Deal 动作的指令级替代（CR 158.2），没有已合入的替代原语改写同一指令数额；" +
     "两条互斥 effect.damage 是两次不同 Deal 动作，属近似实现，故不写。" +
     "已合入并真实执行：effect.damage 的 3 点基准伤害与「a unit at a battlefield」的目标/限制形状（355.9.a.1、355.9.b、355.10.b），" +
-    "golden 用解释器 + 参考内核以锁定目标执行。依赖：RIFT-89（费用计划与凭证）、condition.result 与指令级替代（RIFT-9 家族）。",
+    "golden 用解释器 + 参考内核以锁定目标执行。依赖：卡牌侧费用计划与凭证接线、condition.result 与指令级替代。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

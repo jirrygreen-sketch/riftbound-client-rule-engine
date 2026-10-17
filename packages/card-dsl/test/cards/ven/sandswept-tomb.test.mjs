@@ -67,7 +67,6 @@ test("ven-164-166 Sandswept Tomb: identity, ruleset, status and exact source tex
   // below executes them); the remaining gap is the card-side wiring.
   assert.match(program.judgeReason, /layerFor/);
   assert.match(program.judgeReason, /translateCost/);
-  assert.match(program.judgeReason, /RIFT-90/);
 });
 
 test("ven-164-166 Sandswept Tomb: one static -1 any-Domain Power discount for the chantless spell cost", () => {
@@ -142,6 +141,6 @@ test.todo(
 test.todo(
   "ven-164-166 Sandswept Tomb: evaluate 'chooses one or more units here that are friendly to it' (355.7/355.15, 053.3 " +
     "'here', 740.1.a 'friendly to it') against the spell's finalized target plan — the frozen Condition has no " +
-    "played-spell-target predicate (RIFT-90's TargetPlan is consumed inside the chain only), layers/filter.ts does " +
+    "played-spell-target predicate (TargetPlan is consumed inside the chain only), layers/filter.ts does " +
     "not read the sameLocationAs anchor, and no selector reads 'the controller of the spell being played'"
 );
