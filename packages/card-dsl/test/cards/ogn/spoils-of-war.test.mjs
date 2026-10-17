@@ -14,10 +14,9 @@ test("Spoils of War program is structurally valid and judge-required", () => {
   assert.deepEqual(result.issues, []);
   assert.equal(result.ok, true);
   assert.equal(spoilsOfWar.status, "judge-required");
-  assert.match(spoilsOfWar.judgeReason, /cost\.modify/);
-  assert.match(spoilsOfWar.judgeReason, /HistoryQuery/);
-  assert.match(spoilsOfWar.judgeReason, /RIFT-261/);
-  assert.match(spoilsOfWar.judgeReason, /RIFT-257/);
+  assert.match(spoilsOfWar.judgeReason, /continuous\.cost-modification/);
+  assert.match(spoilsOfWar.judgeReason, /history|历史/);
+  assert.match(spoilsOfWar.judgeReason, /Finalize/);
   assert.equal(spoilsOfWar.rulesetVersion, "core-1.5");
   assert.equal(
     spoilsOfWar.canonicalCardId,
@@ -103,13 +102,13 @@ test("Spoils of War golden: an empty deck draws nothing but still resolves", () 
 
 test.todo(
   "Spoils of War discount: the -2 Energy discount must be consumed at Finalize when an " +
-    "enemy unit died this turn (356.4.b/356.4.d), needing a history predicate over enemy " +
-    "unit deaths (contract 3.8 objectFilter HistoryQuery) and a cost-plan consumer for the " +
-    "static continuous.cost-modification ability (依赖 RIFT-261 费用消费方 + 契约 3.8 历史查询 + RIFT-257 静态绑定)"
+    "enemy unit died this turn (356.4.b/356.4.d), requiring a production history evaluator " +
+    "for the enemy-unit predicate and a cost-plan consumer for the static " +
+    "continuous.cost-modification ability"
 );
 
 test.todo(
   "Spoils of War cast: pays the discounted 4-or-2 Energy plus 1 Body power and [Reaction] " +
-    "closed-state timing is enforced (依赖 RIFT-261 费用计划与链的 continuous.timing 消费)"
+    "closed-state timing is enforced after the Finalize discount is consumed"
 );
 

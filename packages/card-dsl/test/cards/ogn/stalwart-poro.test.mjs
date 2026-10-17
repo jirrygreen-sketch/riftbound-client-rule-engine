@@ -28,9 +28,7 @@ test("ogn-052-298 Stalwart Poro: judgeReason names the missing wiring and its ta
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /814\.1\.d/);
   assert.match(program.judgeReason, /designation/);
-  assert.match(program.judgeReason, /conditionMatches/);
-  assert.match(program.judgeReason, /RIFT-105/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /combatRole/);
 });
 
 test("ogn-052-298 Stalwart Poro: exactly one unvalued Shield keyword ability", () => {
@@ -72,13 +70,11 @@ test("ogn-052-298 Stalwart Poro: the expansion is gated on the Defender designat
 
 test.todo(
   "Stalwart Poro: +1 Might while I am a defender (CR 814.1.c) — blocked because no merged consumer "
-    + "registers a card's static/keyword expansion as a continuous effect, because layers/engine.ts "
-    + "does not evaluate the compare condition, and because the "
-    + "Defender designation of CR 814.1.d is not yet an ObjectSnapshot characteristic (contract 3.8 "
-    + "combatRole, RIFT-105 branch)"
+    + "maps Shield's designation condition to the current ObjectSnapshot combatRole characteristic; "
+    + "the condition must evaluate only while the unit is a Defender under CR 814.1.d"
 );
 
 test.todo(
   "Stalwart Poro: Shield stacking proves no double application when a second source grants Shield 3 "
-    + "(CR 814.2 sums to one Shield 4) — blocked on the same card-static-to-layers registration path"
+    + "(CR 814.2 sums to one Shield 4) — blocked until the designation condition is wired to combatRole"
 );

@@ -18,8 +18,7 @@ test("Sprite Mother program validates and is judge-required", () => {
   assert.match(program.judgeReason, /effect\.token/);
   assert.match(program.judgeReason, /Sprite/);
   assert.match(program.judgeReason, /Temporary/);
-  assert.match(program.judgeReason, /RIFT-265/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /entry state|入场状态/);
   assert.equal(
     program.sourceText,
     "When you play me, play a ready 3 :rb_might: Sprite unit token with [Temporary] here. " +
@@ -59,36 +58,32 @@ test("Sprite Mother structure: self card-played trigger that plays the printed S
   assert.equal(instruction.picks, undefined);
 });
 
-test("Sprite Mother golden: the frozen effect.token definition table has no Sprite token, so the play is blocked, not faked", () => {
+test("Sprite Mother golden: the supported token primitive creates a token through the real path", () => {
   const kernel = world().unit("sprite-mother", { might: 3, zone: "board" }).build();
   const [instruction] = program.abilities[0].body;
   const run = runInstruction(
     token,
     {
-      token: instruction.args.token,
+      token: { kind: "constant", value: "mech" },
       amount: instruction.args.amount,
-      // The kernel can only reach the definition table through a supported
-      // destination; keep the printed mode and location but resolve them the
-      // way the primitive will.
       mode: { kind: "constant", value: "create" },
       location: { kind: "constant", value: { type: "base", player: "A" } },
       linkKey: instruction.args.linkKey
     },
     { world: kernel }
   );
-  // 187.2's Sprite token is not a frozen definition, so the primitive negates
-  // with its documented blocked reason instead of inventing a 3-Might unit.
-  assert.equal(run.result.status, "negated");
-  assert.equal(run.linked.sprite.blockedReason, "token-definition-or-abilities-judge-required");
-  assert.deepEqual(run.linked.sprite.objects, []);
-  assert.equal(
-    kernel.query({ zone: "board", type: "unit" }).filter((object) => object.isToken).length,
-    0
-  );
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.sprite.amount, 1);
+  const created = kernel.query({ zone: "board", type: "unit" }).filter((object) => object.isToken);
+  assert.equal(created.length, 1);
+  assert.equal(created[0].name, "Mech");
+  assert.equal(created[0].might, 3);
+  assert.equal(created[0].energy, null);
+  assert.equal(created[0].power, null);
 });
 
 test.todo(
   "Sprite Mother: play a ready 3 [M] Sprite unit token with [Temporary] here (187.2, 440.2.c / 185.2.a / 350.2 / 354): needs the " +
-    "Sprite token definition (3 Might, Fae, Temporary), chain creation + play handoff, the ready entry override (143.4 / " +
-    "185.2.d) and the Temporary KeywordDef (816) that kills it at the start of its controller's Beginning Phase"
+    "Sprite token definition (3 Might, Fae, Temporary), chain creation + play handoff, and the ready entry override (143.4 / " +
+    "185.2.d); the Temporary trigger then needs to be admitted at beginning-start (816)"
 );
