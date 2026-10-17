@@ -20,11 +20,10 @@ import type { CardProgram } from "../../ir/index.js";
  * - 174 / 174.6：Legend 可以拥有 Passive Ability；107.4.c / 174.2.b：Legend 始终
  *   留在 Legend Zone。
  *
- * status = judge-required：见 judgeReason。continuous.might 本体（RIFT-258）、契约
- * 3.8 的 combatRole 快照字段与卡牌程序绑定（RIFT-257：attachProgramLifecycle/
- * bindStaticToLayers）都已合入，但 “defends alone” 谓词仍没有求值器（staticFilter
- * 对 defendsAlone 直接抛 Unsupported static filter field；layers/filter.ts 不读
- * combatRole/designation，也不支持“同 location 没有其他友方单位”型排除）。不近似实现。
+ * status = judge-required：见 judgeReason。continuous.might 本体、契约 3.8 的
+ * combatRole 快照字段与卡牌程序绑定都已合入，但 “defends alone” 谓词仍没有求值器
+ * （staticFilter 对 defendsAlone 直接抛 Unsupported static filter field；layers/filter.ts
+ * 不读 combatRole/designation，也不支持“同 location 没有其他友方单位”型排除）。不近似实现。
  */
 const wujuBladesmanStarter = {
   canonicalCardId:
@@ -32,23 +31,18 @@ const wujuBladesmanStarter = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不属于本卡 write scope：(1)「defends alone」谓词仍无法求值——它需要 " +
+    "两处缺口，均不属于本卡 write scope：(1)「defends alone」谓词仍无法求值——它需要 " +
     "(a) 该单位在当前战斗中持有 Defender designation（CR 466.2.c.3 / 814.1.d）：契约 3.8 的 " +
     "ObjectSnapshot.combatRole 已合入（effects/contract.ts）" +
     "并可由参考内核设置，但 programs/statics.ts staticFilter 对 defendsAlone 直接抛 " +
     "Unsupported static filter field defendsAlone，layers/filter.ts 的 matchesObjectFilter " +
     "不读 combatRole，也不存在把 combatRole 暴露给过滤器谓词的接点；" +
     "(b) 同一 location 上没有其他友方单位（CR 740.2.a）：冻结 ObjectFilter 没有该排除型条件，" +
-    "matchesObjectFilter 也不支持；(2) 静态光环过滤器里的 controller:\"self\" 语义未落地：" +
-    "bindStaticToLayers 经 staticFilter 把 \"self\" 解析成来源自身 controller，" +
-    "而 layers/filter.ts 的 matchesObjectFilter 用目标对象自身的 controller 解析过滤器里的 " +
-    "相对玩家——光环目标是「友方单位」却按对象自身 controller 匹配，缺少「能力控制者 → 过滤器」" +
-    "绑定；该路径同样没有 defendsAlone/combatRole 求值器；" +
-    "(3) Legend 的来源区域是 Legend Zone（CR 107.4.c / 174.2.b），契约 ZoneId（effects/contract.ts）" +
+    "matchesObjectFilter 也不支持；(2) Legend 的来源区域是 Legend Zone（CR 107.4.c / 174.2.b），契约 ZoneId（effects/contract.ts）" +
     "与参考内核都没有该区域，静态能力的来源区域也无处声明。" +
     "已合入的部分：continuous.might（RIFT-258）、卡牌静态能力接线（RIFT-257：" +
     "attachProgramLifecycle/bindStaticToLayers 经 evaluateCondition 求静态条件）都已合入。" +
-    "依赖：RIFT-91 后续（layers combatRole/排除谓词/相对玩家绑定）、Legend 来源区域扩展" +
+    "依赖：RIFT-91 后续（layers combatRole/排除谓词）、Legend 来源区域扩展" +
     "（契约变更请求）。不近似实现。",
   abilities: [
     {
@@ -61,7 +55,8 @@ const wujuBladesmanStarter = {
         filter: {
           type: "unit",
           // "friendly unit"：controller 的 "self" 是 events/trigger-spec.ts
-          // PlayerSelector 的契约拼写（= 能力控制者）；静态效果路径目前无法绑定它，见 judgeReason。
+          // PlayerSelector 的契约拼写（= 能力控制者）；生产 staticFilter 会把它归一化为
+          // 来源玩家 ID，再由 layers/filter.ts 做友敌匹配。
           controller: "self",
           zone: "board",
           // 「defends alone」的描述性谓词（Defender designation + 同 location

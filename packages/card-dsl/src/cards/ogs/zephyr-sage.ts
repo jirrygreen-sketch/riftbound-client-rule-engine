@@ -20,22 +20,22 @@ import type { CardProgram } from "../../ir/index.js";
  * continuous.might + designation=defender 条件）由 effects/keywords/Shield.ts 负责，
  * 卡文件不重复实现，也不写单卡结算代码。
  *
- * status = executable：整卡能力均有真实执行证据——
- * - 关键词展开经 expandProgram（keywords.ts，stacking: sum）合入；
- * - 生产卡牌程序 → 图层路径已合入：attachProgramLifecycle + createEngineStaticBinder
- *   把展开后的 static continuous.might 注册进图层注册表；
- * - CR 814.1.d.1 的防守期门由条件闭包承载：求值时的生产 environment 通过
- *   layers.snapshot 读取 LayeredObjectSnapshot；当前快照没有 designation 特征时
- *   object-property 抛 MissingInformation、条件按 fail-closed 处理为 false
- *   （防守期外 +1 不生效），不会退化为无条件 +1。桥接测试把当次战斗的
- *   combatRole/designation 挂到求值快照上，证明条件为真时 +1 精确生效、条件为假或
- *   解除绑定时回到印刷 Might（CR 814.2 的求和由 expandProgram 聚合）。
+ * status = judge-required：关键词展开与卡牌程序生命周期已合入，但 Shield 展开读取
+ * designation，而生产 ObjectSnapshot 在战斗中提供 combatRole。当前图层条件求值没有
+ * combatRole → designation 的适配，因此真实防守快照仍按印刷 Might 计算；不能用测试
+ * 手动补写 designation 来宣称整卡可执行。待生产路径完成该映射并有正向执行证据后再升级。
  */
 const zephyrSage = {
   canonicalCardId:
     "card.hash-2b68503e65fe0121f9346680649fa82fb83b4edc1e53b3a7416db4848ce941c6",
   rulesetVersion: "core-1.5",
-  status: "executable",
+  status: "judge-required",
+  judgeReason:
+    "Shield 的 KeywordDef 展开与 CardProgram 生命周期绑定已合入（RIFT-257）：" +
+    "effects/keywords/Shield.ts 产生 compare(object-property(self, 'designation'), eq, 'defender')，" +
+    "但生产 ObjectSnapshot 的战斗字段是 combatRole（契约 3.8），当前图层条件求值没有" +
+    " combatRole → designation 的映射，因此真实防守单位仍保持印刷 Might，不能证明 CR 814.1.c " +
+    "的 +1 可执行。保持 judge-required，待生产路径具备该适配与正向执行测试后升级。",
   abilities: [{ kind: "keyword", keyword: "shield" }],
   sourceText: "[Shield] (+1 :rb_might: while I'm a defender.)"
 } satisfies CardProgram;

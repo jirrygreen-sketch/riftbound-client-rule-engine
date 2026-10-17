@@ -7,6 +7,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import shield from "../../../../engine-core/dist/effects/keywords/Shield.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { createActionPipelineHost, bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -16,12 +17,10 @@ const CANONICAL_ID =
 const SOURCE_TEXT = "[Shield] (+1 :rb_might: while I'm a defender.)";
 const HOST = { canonicalCardId: CANONICAL_ID };
 
-/** A real ChainEngine harness whose object read backs onto the layer snapshot.
- *
- * The combat switch stands in for the canonical combat designation bit: the
- * production condition resolves objects through this host view, so setting it
- * to "defender"/"attacker" models the designation the board grants during
- * combat without touching the card IR or the generated condition closure.
+/** A real ChainEngine harness used for the production lifecycle negative proof.
+ * The canonical combat snapshot exposes combatRole; this card's Shield
+ * expansion still reads designation, so the positive combat case remains
+ * judge-required until that mapping exists in production.
  */
 function fixture() {
   let combat = null;
@@ -39,7 +38,7 @@ function fixture() {
     objects: () => combat === null
       ? kernel.objects
       : kernel.objects.map(object => object.ref.id === "zephyr"
-        ? { ...object, designation: combat, combatRole: combat }
+        ? { ...object, combatRole: combat }
         : object),
     perform: action => kernel.perform(action),
     choose: () => {
@@ -75,7 +74,7 @@ function play(f, id = "zephyr", draftId = "play-zephyr") {
   }
 }
 
-test("ogs-005-024 Zephyr Sage: program passes validateCardProgram as executable", () => {
+test("ogs-005-024 Zephyr Sage: program passes validateCardProgram as judge-required", () => {
   const result = validateCardProgram(program);
   assert.deepEqual(result.issues, []);
   assert.equal(result.ok, true);
@@ -85,10 +84,11 @@ test("ogs-005-024 Zephyr Sage: identity, verbatim sourceText and the merged regi
   assert.equal(program.canonicalCardId, CANONICAL_ID);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.rulesetVersion, "core-1.5");
-  // The printed Shield keyword is fully executable through the merged keyword
-  // expansion, production static binding and layer engine (see the goldens below).
-  assert.equal(program.status, "executable");
-  assert.equal(program.judgeReason, undefined);
+  // The printed Shield keyword expands through the merged KeywordDef; its
+  // production combat condition remains judge-required (see the todo below).
+  assert.equal(program.status, "judge-required");
+  assert.match(program.judgeReason, /combatRole/);
+  assert.match(program.judgeReason, /designation/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
@@ -143,111 +143,64 @@ test("ogs-005-024 Zephyr Sage: the expansion is +1 Might gated on the Defender d
   assert.equal(expanded.ok, true);
 });
 
-test("ogs-005-024 Zephyr Sage golden: the production lifecycle binds the Shield static to the layers", () => {
+test("ogs-005-024 Zephyr Sage golden: the production lifecycle refuses the judge-required Shield program", () => {
   const f = fixture();
-  // A real ProgramRegistry over this card's executable program; the lifecycle
-  // is the merged RIFT-257 path that expands the keyword and binds statics.
   const binding = createProgramBinding({ cardPrograms: [program] });
-  const handle = binding.attachLifecycle(f.engine);
+  assert.throws(() => binding.registry.get(CANONICAL_ID), error => {
+    assert.equal(error.code, "judge-required");
+    assert.match(error.message, /combatRole/);
+    return true;
+  });
+  const errors = [];
+  const handle = binding.attachLifecycle(f.engine, (error, source) => {
+    errors.push({ error, source });
+  });
 
   play(f);
   const onBoard = f.kernel.getObject("zephyr");
   assert.equal(onBoard.zone, "board");
   assert.equal(onBoard.might, 6);
 
-  // The expanded static is registered exactly once in the layer registry.
-  const engine = f.engine;
-  const entries = engine.layers.registry.list();
-  assert.equal(entries.length, 1);
-  const [entry] = entries;
-  assert.equal(entry.effect.layer, "arithmetic");
-  assert.equal(entry.effect.effect.kind, "continuous.might");
-  assert.equal(entry.effect.effect.amount, 1);
-  assert.equal(typeof entry.effect.effect.condition, "function");
-  assert.deepEqual(entry.effect.filter, {
-    objectId: "zephyr",
-    zone: "board",
-    zoneEntryId: onBoard.ref.zoneEntryId
-  });
-
-  // CR 814.1.d.1 fail-closed: the production condition evaluates against the
-  // layer snapshot, which carries no designation characteristic outside the
-  // Defender designation, so no +1 is granted during this plain entry.
-  assert.equal(engine.layers.evaluate(f.kernel.ref("zephyr")).might, 6);
-
+  assert.equal(f.engine.layers.registry.list().length, 0);
+  assert.ok(errors.some(({ error }) => error?.code === "judge-required"));
   handle.detach();
-  assert.equal(engine.layers.registry.list().length, 0);
 });
 
-test("ogs-005-024 Zephyr Sage golden: the Defender condition grants exactly +1 while it holds (CR 814.1.c/814.1.d.1)", () => {
-  // The merged production path is the lifecycle above; this scenario evaluates
-  // the same condition closure with the combat designation attached to the
-  // evaluated snapshot, standing in for the combat designation bit that the
-  // canonical engine owns. The bridge changes only the designation reading,
-  // never the card IR or the condition.
+test("ogs-005-024 Zephyr Sage regression: a real combatRole snapshot remains unmapped and grants no Shield bonus", () => {
   const f = fixture();
-  const binding = createProgramBinding({ cardPrograms: [program] });
-  const lifecycle = binding.attachLifecycle(f.engine);
   play(f);
+  const source = f.kernel.getObject("zephyr");
+  const [ability] = shield.expand({ host: HOST });
+  const handle = createEngineStaticBinder(f.engine).bindStatic(ability, source);
 
-  const engine = f.engine;
-  const [entry] = engine.layers.registry.list();
-  const condition = entry.effect.effect.condition;
-  assert.equal(typeof condition, "function");
-
-  const ref = f.kernel.ref("zephyr");
-
-  const designate = (objects, value) => objects.map(
-    object => object.ref.id === "zephyr"
-      ? { ...object, designation: value, combatRole: value }
-      : object
-  );
-
-  // CR 814.1.d.1 fail-closed before the Defender designation is acquired.
-  // The production closure resolves objects through the ability environment,
-  // so each scenario reads the condition through that same production path
-  // and then lets the arithmetic layer apply to the matching designation view.
-  const conditionThroughProductionPath = () => {
-    const snapshot = engine.layers.snapshot(ref);
-    assert.ok(snapshot, "the unit must be visible to the layer engine");
-    return condition(snapshot);
-  };
-  assert.equal(conditionThroughProductionPath(), false);
-  assert.equal(engine.layers.evaluate(ref).might, 6);
-
-  // The arithmetic layer grants the +1 while the Defender designation holds.
   f.setCombat("defender");
-  assert.equal(conditionThroughProductionPath(), true);
-  engine.layers.setObjects(designate(f.kernel.objects, "defender"));
-  assert.equal(engine.layers.evaluate(ref).might, 7);
-
-  // An attacker designation is not the Defender designation.
-  f.setCombat("attacker");
-  assert.equal(conditionThroughProductionPath(), false);
-  engine.layers.setObjects(designate(f.kernel.objects, "attacker"));
-  assert.equal(engine.layers.evaluate(ref).might, 6);
-
-  // The printed 6 Might returns once the designation is gone.
-  f.setCombat(null);
-  assert.equal(conditionThroughProductionPath(), false);
-  engine.layers.setObjects(f.kernel.objects);
-  assert.equal(engine.layers.evaluate(ref).might, 6);
-  lifecycle.detach();
+  f.engine.layers.setObjects(f.engine.pipeline.host.objects());
+  const ref = f.kernel.ref("zephyr");
+  const snapshot = f.engine.layers.snapshot(ref);
+  assert.equal(snapshot.combatRole, "defender");
+  assert.equal(snapshot.designation, undefined);
+  const [entry] = f.engine.layers.registry.list();
+  assert.equal(entry.effect.effect.condition(snapshot), false);
+  assert.equal(f.engine.layers.evaluate(ref).might, 6);
+  handle.unbind();
 });
 
-test("ogs-005-024 Zephyr Sage: the lifecycle's expanded keyword sums repeated Shield sources (CR 814.2)", () => {
+test.todo(
+  "ogs-005-024 Zephyr Sage: the production combat snapshot's combatRole must satisfy " +
+    "Shield's Defender designation condition and grant exactly +1 Might (CR 814.1.c/814.1.d.1) — " +
+    "blocked because the merged Shield expansion reads designation while ObjectSnapshot exposes " +
+    "combatRole; a positive test must use the production snapshot without manually injecting designation"
+);
+
+test("ogs-005-024 Zephyr Sage: the inspected lifecycle expansion retains one summed Shield static (CR 814.2)", () => {
   const f = fixture();
   const binding = createProgramBinding({ cardPrograms: [program] });
-  const handle = binding.attachLifecycle(f.engine);
-  play(f);
-  const engine = f.engine;
-  const [entry] = engine.layers.registry.list();
   const expanded = binding.inspect(f.kernel.getObject("zephyr")).abilities.filter(
     ability => ability.kind === "static"
   );
-  // The printed keyword plus the expanded static: expansion happens once with
-  // the summed value, so the registry holds one +1 entry, not two.
+  // Expansion happens once with the summed value, while the registry still
+  // refuses to execute this judge-required card until combatRole is mapped.
   assert.equal(expanded.length, 1);
-  assert.equal(entry.effect.effect.amount, 1);
-  handle.detach();
+  assert.equal(expanded[0].effect.amount.value, 1);
+  assert.equal(f.engine.layers.registry.list().length, 0);
 });

@@ -235,10 +235,10 @@ test("ogs-009-024 Master Yi, Honed golden: the merged replacement binding rewrit
   assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "object-readied").length, 0);
 });
 
-test("ogs-009-024 Master Yi, Honed golden: another unit still enters exhausted; without the binding the card keeps the default entry", () => {
+test("ogs-009-024 Master Yi, Honed golden: another unit still enters exhausted, and cancel releases the registration", () => {
   // Self-anchored filter: a different unit is never rewritten (CR 370.1.b).
   const f = fixture();
-  bindReplacement(
+  const bound = bindReplacement(
     { replaces: replacement.replaces, with: replacement.with },
     f.kernel.ref("master-yi"),
     {
@@ -262,19 +262,20 @@ test("ogs-009-024 Master Yi, Honed golden: another unit still enters exhausted; 
   resolveAll(f.engine);
   assert.equal(f.kernel.getObject("other-unit").exhausted, true);
 
-  // Negative proof: with no binding, the card keeps the default exhausted entry.
-  const plain = fixture();
-  plain.engine.execute({
+  // cancel() stops the registration from matching, so a later entry by the
+  // same host takes the default exhausted path on this same engine.
+  bound.cancel();
+  f.engine.execute({
     id: "play-master-yi",
     controller: "A",
-    source: plain.kernel.getObject("master-yi"),
+    source: f.kernel.getObject("master-yi"),
     kind: "unit",
     speed: "normal",
     body: []
   });
-  resolveAll(plain.engine);
-  assert.equal(plain.kernel.getObject("master-yi").zone, "board");
-  assert.equal(plain.kernel.getObject("master-yi").exhausted, true);
+  resolveAll(f.engine);
+  assert.equal(f.kernel.getObject("master-yi").zone, "board");
+  assert.equal(f.kernel.getObject("master-yi").exhausted, true);
 });
 
 test("ogs-009-024 Master Yi, Honed: the with-body readies the source through the merged primitive", () => {

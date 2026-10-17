@@ -40,7 +40,6 @@ test("ogs-019-024 Wuju Bladesman, Starter: identity, status, judgeReason and ver
   assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /matchesObjectFilter/);
   assert.match(program.judgeReason, /staticFilter/);
-  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /Legend Zone/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
@@ -114,10 +113,37 @@ test("ogs-019-024 Wuju Bladesman, Starter: the merged static binder fails closed
   });
 });
 
-test("ogs-019-024 Wuju Bladesman, Starter: the layer filter has no defends-alone or friendly semantics", () => {
-  // matchesObjectFilter silently ignores unknown keys, so defendsAlone and
-  // combatRole are not readable predicates today.
-  const defender = {
+test("ogs-019-024 Wuju Bladesman, Starter: production staticFilter normalizes friendly targets by controller", () => {
+  const registered = [];
+  const engine = {
+    layers: {
+      addContinuous: spec => registered.push(spec),
+      removeContinuous: () => {}
+    }
+  };
+  const source = {
+    ref: { id: "wuju", zoneEntryId: 1 },
+    cardId: CANONICAL_ID,
+    controller: "A",
+    owner: "A",
+    zone: "board",
+    location: { type: "battlefield", id: "battlefield-1" }
+  };
+  const binder = createEngineStaticBinder(engine);
+  const bindableAbility = {
+    ...program.abilities[0],
+    effect: {
+      ...program.abilities[0].effect,
+      filter: { ...program.abilities[0].effect.filter }
+    }
+  };
+  delete bindableAbility.effect.filter.defendsAlone;
+  const handle = binder.bindStatic(bindableAbility, source);
+  assert.equal(registered.length, 1);
+  assert.equal(registered[0].filter.controller, "A");
+  assert.equal(registered[0].filter.zone, "board");
+
+  const ally = {
     ref: { id: "u1", zoneEntryId: 1 },
     types: ["unit"],
     zone: "board",
@@ -132,21 +158,18 @@ test("ogs-019-024 Wuju Bladesman, Starter: the layer filter has no defends-alone
     combatRole: "defender",
     characteristics: {}
   };
-  assert.equal(matchesObjectFilter({ type: "unit", combatRole: "defender" }, defender), true, "unknown keys are ignored, not matched");
-  assert.equal(matchesObjectFilter({ type: "unit", combatRole: "attacker" }, { ...defender, combatRole: "attacker" }), true, "combatRole is not a filter field");
-  // controller:"self" resolves against the candidate's own controller, so it
-  // cannot bind the aura to the ability controller's units ("friendly").
-  assert.equal(matchesObjectFilter({ type: "unit", controller: "self" }, { ...defender, controller: "B" }), true);
+  const enemy = { ...ally, ref: { id: "u2", zoneEntryId: 1 }, controller: "B", owner: "B" };
+  assert.equal(matchesObjectFilter(registered[0].filter, ally), true);
+  assert.equal(matchesObjectFilter(registered[0].filter, enemy), false);
+  handle.unbind();
 });
 
 test.todo(
   "Wuju Bladesman, Starter: a friendly unit gets +2 Might exactly while it defends alone " +
     "(CR 363/364.3.a + 740.2.a: Defender designation from CR 466.2.c.3 with no other friendly " +
     "unit at the same location) — blocked because layers/filter.ts reads neither the merged " +
-    "ObjectSnapshot.combatRole (contract 3.8) nor any same-location exclusion predicate, because " +
-    "staticFilter rejects defendsAlone, and because the layer filter resolves the controller " +
-    "selector against each candidate's own controller instead of the ability controller " +
-    "(contract change request)"
+    "ObjectSnapshot.combatRole (contract 3.8) nor any same-location exclusion predicate, and " +
+    "staticFilter rejects defendsAlone (contract change request)"
 );
 
 test.todo(
