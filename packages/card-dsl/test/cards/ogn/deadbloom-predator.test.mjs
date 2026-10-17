@@ -1,20 +1,24 @@
+// RIFT-646 single-card golden: validation, identity, judgeReason and the key
+// structure of Deadbloom Predator. The real execution evidence for this card
+// (whole-card scenarios through the generic card harness plus the measured
+// outcome of binding each expanded static ability) lives in
+// `test/cards/templates/keyword-static-646.test.mjs`.
+//
+// The card stays judge-required: [Deflect]'s expanded `target.tax` and the
+// printed play-location permission still have no layer mapping in
+// `engine-core/src/programs/statics.ts`, so the template row records both as
+// fail-closed. Nothing here approximates either ability.
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/deadbloom-predator.js";
-import { deflectCost, collectTargetTaxes } from "../../../../engine-core/dist/target/tax/collect.js";
-import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
-import { playLocations } from "../../../../engine-core/dist/layers/rules/query.js";
+import { deflectCost } from "../../../../engine-core/dist/target/tax/collect.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
-import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL = "card.hash-c615c988d8b72525a349735e8c5029acbffec25179ae7427d5f8bc8aff9333b4";
 
 const [deflect, playPermission] = program.abilities;
-const forged = { ...program, status: "executable", judgeReason: undefined };
 
 test("ogn-161-298 Deadbloom Predator: program validates and keeps identity", () => {
   const result = validateCardProgram(program);
@@ -93,50 +97,6 @@ test("ogn-161-298 Deadbloom Predator: RIFT-360's tax module already prices the D
     payments: [{ kind: "power", amount: { kind: "constant", value: 1 }, allowedDomains: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"] }]
   });
   assert.deepEqual(deflectCost(0), { payments: [{ kind: "power", amount: { kind: "constant", value: 0 }, allowedDomains: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"] }] });
-});
-
-test("ogn-161-298 Deadbloom Predator: the production static binder rejects both declared statics (current gap)", () => {
-  // effects/keywords/Deflect.ts declares only static target.tax, and the card
-  // declares only static play-location-permission. programs/statics.ts layerFor
-  // has no mapping for either kind, so a real attachLifecycle binds nothing.
-  const state = fixture({ cards: [{ id: "predator", cardId: CANONICAL, types: ["unit"], might: 8 }] });
-  const errors = [];
-  createProgramBinding({ cardPrograms: [forged] }).attachLifecycle(state.engine, error => errors.push(String(error && error.message)));
-  state.engine.commit({ type: "move-zone", object: state.kernel.ref("predator"), to: "board", location: { type: "base", player: "A" } });
-
-  assert.deepEqual(errors, [
-    "Static ability kind play-location-permission has no layer mapping",
-    "Static ability kind target.tax has no layer mapping"
-  ]);
-  assert.deepEqual(state.engine.layers.registry.list(), []);
-  // And with nothing registered, the play-location query sees no permission.
-  assert.deepEqual(playLocations(state.engine.layers.registry), { permissions: [], restrictions: [] });
-});
-
-test("ogn-161-298 Deadbloom Predator: nothing forwards the card's static tax into a real target resolution", () => {
-  // The tax collector derives amounts from snapshot keywords / supplied
-  // bindings. The card's own static `target.tax` never reaches it because no
-  // binding consumes that static kind, so an opponent targeting this unit pays
-  // no tax today.
-  const kernel = world()
-    .unit("predator", { owner: "B", controller: "B", might: 8, keywords: [] })
-    .player("A")
-    .build();
-  const context = bindResolveContext(kernel, { source: kernel.getObject("predator"), controller: "A" });
-  const taxes = collectTargetTaxes(context, kernel.getObject("predator"), { kind: "spell" });
-  assert.deepEqual(taxes, []);
-
-  // Control: the same collector does price Deflect when the snapshot carries
-  // the keyword, which is what the unbound static expansion would have to do.
-  const granted = world()
-    .unit("predator", { owner: "B", controller: "B", might: 8, keywords: [{ id: "Deflect" }] })
-    .player("A")
-    .build();
-  const grantedContext = bindResolveContext(granted, { source: granted.getObject("predator"), controller: "A" });
-  const grantedTaxes = collectTargetTaxes(grantedContext, granted.getObject("predator"), { kind: "spell" });
-  assert.equal(grantedTaxes.length, 1);
-  assert.equal(grantedTaxes[0].stage, "mandatory-additional");
-  assert.deepEqual(grantedTaxes[0].cost, deflectCost(1));
 });
 
 test.todo(

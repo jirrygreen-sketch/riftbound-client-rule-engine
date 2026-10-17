@@ -1,3 +1,13 @@
+// RIFT-646 single-card golden: validation, identity, judgeReason and the key
+// structure of Banner of Conquest. Real execution evidence for this card (the
+// whole-card scenario through the generic card harness plus the measured
+// outcome of binding each expanded static ability) lives in
+// `test/cards/templates/keyword-static-646.test.mjs`.
+//
+// The card stays judge-required: the Deploy expansion's `continuous.location`
+// has no layer mapping, its `hold` trigger carries a `here` anchor the
+// production filter translator rejects, and the Assault grant registers but
+// reaches no unit at the source battlefield. Nothing here approximates them.
 import assert from "node:assert/strict";
 import test from "node:test";
 

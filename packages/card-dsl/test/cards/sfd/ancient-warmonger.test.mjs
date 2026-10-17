@@ -1,3 +1,14 @@
+// RIFT-646 single-card golden: validation, identity, judgeReason and the key
+// structure of Ancient Warmonger. Real execution evidence for this card (the
+// whole-card scenario through the generic card harness plus the measured
+// outcome of binding each expanded static ability) lives in
+// `test/cards/templates/keyword-static-646.test.mjs`.
+//
+// The card stays judge-required: the dynamic Assault grant registers at the
+// ability layer, but the layer engine passes its raw `count` value to a
+// keyword value slot that only accepts integers, Accelerate's `accelerate.cost`
+// has no layer mapping, and the granted Assault has no runtime consumer. Nothing
+// here approximates the dynamic value.
 import assert from "node:assert/strict";
 import test from "node:test";
 

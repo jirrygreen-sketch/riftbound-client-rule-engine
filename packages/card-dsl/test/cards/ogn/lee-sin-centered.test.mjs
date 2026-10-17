@@ -1,3 +1,14 @@
+// RIFT-646 single-card golden: validation, identity, judgeReason and the key
+// structure of Lee Sin, Centered. Real execution evidence for this card (the
+// whole-card scenario through the generic card harness plus the measured
+// outcome of binding each expanded static ability) lives in
+// `test/cards/templates/keyword-static-646.test.mjs`.
+//
+// The card stays judge-required: the aura's `exclude: "self"` anchor is
+// rejected by `programs/statics.ts` and the aura's resolved location anchor is
+// never matched by `layers/filter.ts`; Accelerate's `accelerate.cost` has no
+// layer mapping and Play/Finalize never collects it as an optional additional
+// cost. Nothing here approximates either ability.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -123,7 +134,8 @@ test.todo(
   "ogn-151-298 Lee Sin, Centered: 'Other buffed friendly units at my battlefield have +2 Might.' needs a " +
     "host-location ('my battlefield', 359.3.f.2) anchor the layer filter can match — statics.ts resolves " +
     "sameLocationAs to a structured location that layers/filter.ts never matches — and a dynamic 'other' " +
-    "exclusion (printed "other"), which staticFilter rejects outright."
+    'exclusion (printed "other"), which staticFilter rejects outright with ' +
+    "'Static exclude anchor needs a dynamic relative filter'."
 );
 
 test("ogn-151-298 Lee Sin, Centered: the characteristics predicate really identifies a Buffed unit (702.2.a/702.3)", () => {
