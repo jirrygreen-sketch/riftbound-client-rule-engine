@@ -50,7 +50,7 @@ const divineJudgment = {
     "且手牌按 355.10.a 非公开、按 355.10.e 整套选择不是 target）。" +
     "「Recycle the rest」需要补集选择：effect.recycle 只能从单一区域取 N 张（from.zone + amount）或按 target/objects 列表，" +
     "无法表达「除保留集合外的全部」，也不区分目的地（units/gear/手牌→主牌库底、runes→符文牌库底，417.1.a/417.1.b/417.1.c）。" +
-    "依赖：RIFT-357 的多玩家顺序选择与运行时 picks、补集 recycle 及按类型目的地分发；不近似实现。",
+    "依赖：多玩家顺序选择与运行时 picks、补集 recycle 及按类型目的地分发仍无生产消费者；不近似实现。",
   abilities: [
     {
       kind: "play",
