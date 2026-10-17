@@ -1,17 +1,15 @@
 // Golden test for Ziggs, Short-Fused (rad-023-167).
 //
-// judge-required (see the program's judgeReason): the CR 187.12 Bomb gear token
-// and its Deploy/Deathknell abilities are absent from the frozen effect.token
-// definition table and its Deploy/Deathknell consumers are missing, and the
-// friendly-gear Bonus Damage grant has no layer consumer.
-// Runnable evidence: (a) the play effect's real structure, (b) the merged
-// chain-create + play handoff for a token the frozen table does define, and
-// (c) the merged Bonus Damage arithmetic that the missing grant feeds into.
+// Partial execution evidence: location selection, a defined token's Chain/play
+// handoff, and explicit Bonus Damage arithmetic. Bomb creation, keyword binding,
+// and automatic friendly-gear Bonus Damage remain judge-required; substituting
+// a Mech or supplying bonus explicitly is not whole-card execution evidence.
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import { resolveLocationSelector } from "../../../../engine-core/dist/target/location/ref.js";
+import { queryLocationCandidates } from "../../../../engine-core/dist/target/location/candidates.js";
 import program from "../../../dist/cards/rad/ziggs-short-fused.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
@@ -48,6 +46,9 @@ test("rad-023-167 Ziggs, Short-Fused: identity, status, judgeReason and verbatim
   assert.match(program.judgeReason, /effect\.token/);
   assert.match(program.judgeReason, /continuous\.location/);
   assert.match(program.judgeReason, /trigger\.leave/);
+  assert.match(program.judgeReason, /argsSchema.*Expr.*runAbilityBody/);
+  assert.match(program.judgeReason, /here.*details\.battlefieldId/);
+  assert.match(program.judgeReason, /appliesTo:deal-actions/);
   assert.doesNotMatch(program.judgeReason, /RIFT-357|RIFT-82|RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
@@ -115,9 +116,20 @@ test("rad-023-167 Ziggs, Short-Fused: the merged chain-create + play handoff wor
   assert.equal(run.linked.bombToken.amount, 1);
   assert.equal(run.linked.bombToken.objectsComplete, true);
   assert.equal(run.linked.bombToken.createdAmount, 1);
+  assert.deepEqual(run.events.map(event => event.action), ["create-token", "play"]);
+  assert.deepEqual(run.events.map(event => event.timingPoint), ["chain-item-pending", "card-played"]);
   const [created] = kernel.objects.filter((object) => object.isToken);
   assert.equal(created.name, "Mech");
   assert.deepEqual(created.location, BATTLEFIELD);
+  assert.equal(created.zone, "board");
+  assert.equal(created.energy, null);
+  assert.equal(created.power, null);
+  assert.deepEqual(kernel.pendingItems, []);
+  assert.deepEqual(run.linked.bombToken.objects, [created.ref]);
+  const [chainRef] = run.linked.bombToken.createdObjects;
+  assert.equal(chainRef.id, created.ref.id);
+  assert.notEqual(chainRef.zoneEntryId, created.ref.zoneEntryId);
+  assert.equal(kernel.object(chainRef), null);
   // The declaration itself still names Bomb and mode "play".
   assert.equal(tokenInstruction.args.token.value, "bomb");
   assert.equal(tokenInstruction.args.mode.value, "play");
@@ -149,11 +161,40 @@ test("rad-023-167 Ziggs, Short-Fused: the merged location selector resolves a Ba
   assert.deepEqual(created.location, second);
 });
 
+test("rad-023-167 Ziggs, Short-Fused: battlefield choices include open and enemy-occupied locations (830.1.b.1)", () => {
+  const enemyField = { type: "battlefield", id: "enemy-field" };
+  const openField = { type: "battlefield", id: "open-field" };
+  const kernel = world()
+    .unit("ziggs", { might: 5, location: BATTLEFIELD })
+    .unit("enemy", { owner: "B", location: enemyField })
+    .build();
+  const environment = {
+    context: kernel,
+    players: ["A", "B"],
+    opponent: "B",
+    locations: [
+      { ref: BATTLEFIELD, controller: "A" },
+      { ref: enemyField, controller: "B" },
+      { ref: openField, controller: null }
+    ]
+  };
+  const selector = tokenInstruction.args.location.value;
+  assert.deepEqual(queryLocationCandidates(kernel, selector.filter, environment), [
+    BATTLEFIELD, enemyField, openField
+  ]);
+  for (const location of [enemyField, openField]) {
+    kernel.setAnswers({ [selector.id]: location });
+    assert.deepEqual(resolveLocationSelector(selector, environment), location);
+  }
+  assert.deepEqual(kernel.events, []);
+  assert.equal(kernel.objects.some(object => object.isToken), false);
+});
+
 test("rad-023-167 Ziggs, Short-Fused: effect.damage applies a passed-in Bonus Damage (712-715)", () => {
   // The grant is judged; the arithmetic the grant feeds into is merged, so the
   // golden proves 714/715.2 with the printed +1 for a gear-source deal action.
   const kernel = world()
-    .unit("gear-bearer", { might: 3 })
+    .unit("gear-bearer", { types: ["gear"] })
     .unit("enemy", { owner: "B", might: 3 })
     .build();
   const enemyRef = kernel.ref("enemy");
@@ -163,7 +204,7 @@ test("rad-023-167 Ziggs, Short-Fused: effect.damage applies a passed-in Bonus Da
     damage,
     {
       amount: { kind: "constant", value: 1 },
-      bonus: { kind: "constant", value: 1 },
+      bonus: bonusDamage.effect.amount,
       target: "enemy",
       source: { kind: "constant", value: sourceRef }
     },
@@ -171,6 +212,43 @@ test("rad-023-167 Ziggs, Short-Fused: effect.damage applies a passed-in Bonus Da
   );
   assert.equal(run.result.status, "executed");
   assert.equal(scoped.getObject("enemy").damage, 2);
+  assert.deepEqual(scoped.source.types, ["gear"]);
+  assert.deepEqual(run.events.map(event => event.action), ["damage"]);
+  assert.equal(run.linked.dealt, 2);
+  assert.equal(run.linked.dealtCount, 1);
+  assert.deepEqual(run.linked.dealtTo, [{ target: enemyRef, amount: 2 }]);
+});
+
+test("rad-023-167 Ziggs, Short-Fused: explicit gear Bonus Damage applies per target and ignores stale targets (715.2)", () => {
+  const board = world()
+    .unit("gear", { types: ["gear"] })
+    .unit("first", { owner: "B", might: 4 })
+    .unit("second", { owner: "B", might: 4 })
+    .build();
+  const kernel = board.clone({ sourceSnapshot: board.getObject("gear") });
+  const targets = [kernel.ref("first"), kernel.ref("second")];
+  const args = {
+    amount: { kind: "constant", value: 1 },
+    bonus: bonusDamage.effect.amount,
+    target: "enemies"
+  };
+  const run = runInstruction(damage, args, { world: kernel, targets: { enemies: targets } });
+  assert.equal(run.result.status, "executed");
+  assert.deepEqual(kernel.source.types, ["gear"]);
+  assert.equal(kernel.getObject("first").damage, 2);
+  assert.equal(kernel.getObject("second").damage, 2);
+  assert.deepEqual(run.events.map(event => event.action), ["damage", "damage"]);
+  assert.equal(run.linked.dealt, 4);
+  assert.equal(run.linked.dealtCount, 2);
+  assert.deepEqual(run.linked.dealtTo, targets.map(target => ({ target, amount: 2 })));
+
+  for (const object of targets) kernel.perform({ type: "kill", object });
+  const stale = runInstruction(damage, args, { world: kernel, targets: { enemies: targets } });
+  assert.equal(stale.result.status, "ignored");
+  assert.equal(stale.result.reason, "mistargeted");
+  assert.deepEqual(stale.events, []);
+  assert.equal(kernel.getObject("first").zone, "trash");
+  assert.equal(kernel.getObject("second").zone, "trash");
 });
 
 test.todo(
@@ -181,14 +259,14 @@ test.todo(
 );
 
 test.todo(
-  "rad-023-167 Ziggs, Short-Fused: effect.token still needs an interpreter adapter that accepts " +
-    "the evaluated LocationExpr selector at its frozen argsSchema boundary"
+  "rad-023-167 Ziggs, Short-Fused: effect.token needs an adapter from runAbilityBody's evaluated " +
+    "arguments, including the LocationExpr result, to its Expr-based argsSchema"
 );
 
 test.todo(
-  "rad-023-167 Ziggs, Short-Fused: Deploy still needs the continuous.location Finalize destination " +
-    "validator and hold-trigger location filtering; the Bomb Deathknell body still needs a registered " +
-    "trigger.leave primitive plus the 'here' location and mass-kill expansion"
+  "rad-023-167 Ziggs, Short-Fused: Deploy continuous.location metadata needs binding to location " +
+    "permission/restriction rules and hold.here needs host matching against details.battlefieldId; " +
+    "Deathknell still references unregistered trigger.leave and needs the Bomb token's own body binding"
 );
 
 test.todo(
