@@ -24,10 +24,9 @@ import type { CardProgram } from "../../ir/index.js";
  * - The granted Assault's functional text (+3 Might while the host is an
  *   attacker, CR 807.1.c/807.2) still has no executable consumer: the Assault
  *   KeywordDef exists, but the granted keyword is not automatically sent through
- *   its KeywordDef expansion, the attacker designation is not part of the layers
- *   ObjectSnapshot, and layers/engine.ts conditionMatches does not evaluate the
- *   `compare` condition the expansion carries, so the bonus would either never
- *   apply or apply unconditionally. The card therefore stays judge-required.
+ *   its KeywordDef expansion and the layers ObjectSnapshot exposes combatRole
+ *   without the designation mapping needed by that condition. The card therefore
+ *   stays judge-required.
  * - A Buff counter (CR 702) is a different object state, so nothing is
  *   approximated through effect.buff.
  */
@@ -40,9 +39,8 @@ const cleave = {
     "Assault 3 与 end-of-turn 期限），但被授予 Assault 的功能文本「+3 :rb_might: while it's an attacker」" +
     "（807.1.c/807.2）仍没有可执行消费链：Assault 的 KeywordDef 展开是条件于宿主 attacker designation 的 " +
     "continuous.might，而 (1) 授予的关键词不会自动再次进入 KeywordDef.expand，" +
-    "(2) designation 不在 layers 的 ObjectSnapshot 特征里，(3) layers/engine.ts 的 conditionMatches 不求解 " +
-    "compare 条件（未知 kind 一律按 true），该条件在真实图层计算里既不能生效也不能正确关闭。" +
-    "依赖：授予关键词二次展开、designation 谓词与 compare 条件消费方。不近似实现（不用 Buff 计数代替 Might 修改）。",
+    "(2) layers 的 ObjectSnapshot 只有 combatRole，尚未完成 designation → combatRole 映射，" +
+    "所以该条件在真实图层计算里不能只在攻击者状态下生效。依赖：授予关键词二次展开、designation → combatRole 映射。不近似实现（不用 Buff 计数代替 Might 修改）。",
   sourceText:
     "[Action] (Play on your turn or in showdowns.)\n" +
     "Give a unit [Assault 3] this turn. (+3 :rb_might: while it's an attacker.)",

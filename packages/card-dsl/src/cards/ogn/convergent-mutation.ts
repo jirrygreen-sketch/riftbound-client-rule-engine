@@ -20,8 +20,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   reference) and produce different target/trigger behaviour, so the card
  *   keeps a described target pair without claiming one reading as executable.
  * - "This turn" must expire with the turn (317.2.c / 468.7.c) and the set value
- *   is the other unit's Might at application (479.4.b); the instruction shape is
- *   authorable with the merged op plus a linked value read, but it cannot be
+ *   is the other unit's Might at application (479.4.b); both the condition.value
+ *   capture and the continuous.might registration are merged, but it cannot be
  *   declared executable until the reference reading is ruled.
  * Neither half is approximated (no Buff counter, no fixed value).
  *

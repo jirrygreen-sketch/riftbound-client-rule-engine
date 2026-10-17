@@ -18,13 +18,13 @@ test("captain-farron: identity, ruleset, status and verbatim sourceText", () => 
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  // The static binder exists; the remaining gaps are dynamic exclusion and
-  // the unevaluated designation/compare condition.
+  // The static binder exists; the remaining gaps are dynamic exclusion,
+  // keyword re-expansion, and designation-to-combatRole mapping.
   assert.match(program.judgeReason, /programs\/statics\.ts/);
   assert.match(program.judgeReason, /other|exclude/);
   assert.match(program.judgeReason, /designation/);
+  assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /807\.1\.c/);
-  assert.match(program.judgeReason, /conditionMatches|compare/);
   assert.equal(
     program.sourceText,
     "Other friendly units here have [Assault]. (+1 :rb_might: while they're attackers.)"

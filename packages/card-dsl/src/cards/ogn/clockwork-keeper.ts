@@ -21,14 +21,14 @@ import type { CardProgram } from "../../ir/index.js";
  *   use this very card as the example). "If you do, draw 1" therefore keys off
  *   the decision/receipt, not off any resource delta.
  *
- * Status: judge-required. Two gaps, neither approximated:
+ * Status: judge-required. The printed ability has one remaining production gap:
  * - The merged cost pipeline, optional additional-cost kind, and `cost.pay`
  *   instruction all exist, but programs/play.ts rejects CardProgram
  *   `additional-cost`/`optional` fields before producing a CostPlanInput. No
  *   production binding turns this declaration into the optional payment input.
- * - "If you do" needs the paid/declined receipt at resolution (356.4.f.1); the
- *   frozen IR has no cost-result binding (the survey lists it as
- *   condition.result) so the conditional draw cannot be gated.
+ * - "If you do" needs the paid/declined receipt at resolution (356.4.f.1).
+ *   The merged condition.result predicate can read that receipt once the same
+ *   play binder provides the cost plan and receipt to the body.
  * The single effect.draw (414.3) half is merged and is executed by the golden
  * test.
  */
@@ -41,8 +41,8 @@ export default {
     "355.1.a/356.2.b/356.2.b.1 规定该费用在打出流程的 Finalize 决定并支付。已合入的 cost/ 虽接受 Optional Additional Cost，" +
     "但 programs/play.ts 仍拒绝 CardProgram 的 additional-cost/optional 字段，未把卡牌声明接进 CostPlanInput.optionalAdditional；" +
     "cost.pay 与追加费用 kind 已存在，缺的是这条卡牌到费用计划的生产绑定；" +
-    "356.4.f.1 的「If you do」以「玩家决定支付」为凭证（与实付数额无关），冻结 IR 没有费用结果绑定（调研记为 condition.result），" +
-    "因此条件抽牌无法判定。依赖：CardProgram → CostPlanInput 绑定与费用结果回执表达。不近似实现，不用无条件 draw 冒充。" +
+    "356.4.f.1 的「If you do」以「玩家决定支付」为凭证（与实付数额无关），已合入的 condition.result 能读取该费用回执，" +
+    "但仍需 CardProgram → CostPlanInput 绑定把计划与回执送入结算。依赖：CardProgram → CostPlanInput 绑定。不近似实现，不用无条件 draw 冒充。" +
     "Draw 1 本体（effect.draw，414.3）已合入并在 golden 中真实执行。",
   abilities: [
     {
@@ -59,10 +59,15 @@ export default {
       body: [
         {
           // "draw 1" is conditional on the optional additional cost having been
-          // chosen (356.4.f.1); the receipt binding is unmerged (judgeReason).
+          // chosen (356.4.f.1); condition.result reads the finalized receipt.
           id: "clockwork-keeper.draw-1",
           op: "effect.draw",
-          args: { amount: { kind: "constant", value: 1 } }
+          args: { amount: { kind: "constant", value: 1 } },
+          condition: {
+            kind: "result",
+            result: "additional-cost-paid",
+            id: "clockwork-keeper.calm"
+          }
         }
       ]
     }

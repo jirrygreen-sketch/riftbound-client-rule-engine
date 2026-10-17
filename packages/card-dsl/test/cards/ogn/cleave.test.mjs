@@ -30,11 +30,11 @@ test("ogn-004-298 Cleave: program validates, is registered and stays judge-requi
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   // The grant registers (executed below), but the granted Assault's functional
-  // text still has no executable consumer (see judgeReason).
+  // text still lacks re-expansion and designation-to-combatRole consumption.
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /二次展开|KeywordDef\.expand/);
   assert.match(program.judgeReason, /designation/);
-  assert.match(program.judgeReason, /conditionMatches|compare/);
+  assert.match(program.judgeReason, /combatRole/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -157,6 +157,6 @@ test.todo(
 );
 test.todo(
   "ogn-004-298 Cleave: the granted Assault's +3 Might is computed by the merged Assault " +
-    "KeywordDef (effects/keywords/Assault.ts) once the granted keyword is expanded, the attacker designation is available " +
-    "in the layers ObjectSnapshot (CR 807.1.c/807.1.d.1, combat flow)"
+    "KeywordDef (effects/keywords/Assault.ts) once the granted keyword is expanded and the " +
+    "attacker designation is mapped from the layers combatRole (CR 807.1.c/807.1.d.1, combat flow)"
 );

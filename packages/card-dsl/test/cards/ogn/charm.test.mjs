@@ -33,6 +33,7 @@ test("Charm identity, ruleset, status and printed text", () => {
   // The still-current gap is the runtime-legal destination enumeration, not the
   // primitive's existence.
   assert.match(charm.judgeReason, /target\/location|effect\.move/);
+  assert.match(charm.judgeReason, /449\.2|动态绑定|当前位置/);
   // The generated registry indexes this program by canonicalCardId.
   assert.equal(cardRegistryById.get(charm.canonicalCardId), charm);
 });
