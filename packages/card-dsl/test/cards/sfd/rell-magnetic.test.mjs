@@ -101,19 +101,30 @@ test("sfd-024-221 Rell, Magnetic: the printed energy cap has no ObjectFilter voc
     }
   );
 
-  // ...and the underlying ObjectFilter matcher does not read the key at all:
-  // an Equipment with the printed Energy 2 stays unfiltered (silently ignored,
-  // never narrowed), which is exactly why the pick cannot bind yet.
-  const handGear = {
+  // ...and the underlying ObjectFilter matcher does not read the key at all.
+  // Isolate the controller condition first (the raw matcher compares the
+  // literal "controller" spelling against the object's controller, so the
+  // printed pick's own controller key must be neutralized here) and then
+  // bracket the printed Energy cap with equipment at 2 and 3.
+  const handGear = (energy) => ({
     ref: { id: "gear", zoneEntryId: 1 },
     id: "gear",
     types: ["gear"],
     tags: ["Equipment"],
     zone: "hand",
-    controller: "A",
+    controller: filter.controller,
     owner: "A",
-    energy: 2
-  };
-  assert.equal(matchesObjectFilter(filter, handGear), false);
+    energy
+  });
+  // Energy 2 satisfies the printed cap, energy 3 violates it — the raw matcher
+  // returns true for both, proving energyLte is silently ignored (never
+  // narrowed) rather than evaluated.
+  assert.equal(matchesObjectFilter(filter, handGear(2)), true);
+  assert.equal(matchesObjectFilter(filter, handGear(3)), true);
 });
+
+test.todo(
+  "sfd-024-221 Rell, Magnetic: the printed Energy cap (energyLte) needs ObjectFilter vocabulary and a raw-matcher " +
+    "predicate so an Equipment above the cap is excluded before the pick binds (CR 818.1.a; RIFT-221 cost-kind work)"
+);
 

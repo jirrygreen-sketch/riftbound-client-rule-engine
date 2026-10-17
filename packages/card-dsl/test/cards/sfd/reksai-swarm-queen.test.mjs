@@ -7,6 +7,11 @@ import recycle from "../../../../engine-core/dist/effects/instructions/effect.re
 import reveal from "../../../../engine-core/dist/effects/instructions/effect.reveal.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import {
+  bindResolveContext,
+  createActionPipelineHost
+} from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 
 const CANONICAL = "card.hash-66da1ff0419b3ebf3d4e801af0a225acbd65b392adf96224c9e14101755c0716";
 const [ability] = program.abilities;
@@ -22,11 +27,11 @@ test("sfd-170-221 Rek'Sai, Swarm Queen: program validates and keeps its identity
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /ordered picks/);
   assert.match(program.judgeReason, /RIFT-66/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  // Refreshed reason: the cost opcodes are merged; the gap is the missing
-  // finalized-plan producer on the game-effect Play path.
-  assert.match(program.judgeReason, /原语已合入/);
-  assert.match(program.judgeReason, /费用计划生成方/);
+  // Refreshed reason: the printed-cost path for effect.play without a cost
+  // override is merged; the reason records that evidence and keeps only the
+  // ordered-deck-pick and played-receipt gaps.
+  assert.match(program.judgeReason, /费用路径已合入/);
+  assert.match(program.judgeReason, /印刷费用/);
   // The type gate is expressible; the gap is the missing object list on
   // effect.play's receipt.
   assert.match(program.judgeReason, /played 计数|linkKey/);
@@ -150,8 +155,7 @@ test("sfd-170-221 Rek'Sai, Swarm Queen: declining the reveal skips the whole cho
 
 test.todo(
   "sfd-170-221 Rek'Sai, Swarm Queen: produce the ordered Main-Deck-top picks for effect.reveal and " +
-    "generate the chosen revealed card's cost plan for effect.play (RIFT-8x ordered deck-top " +
-    "provisioning, RIFT-89)"
+    "wire them into the chain's pick lifecycle (RIFT-8x ordered deck-top provisioning, RIFT-89)"
 );
 
 test.todo(
@@ -160,20 +164,20 @@ test.todo(
     "only records the played count (number), so there is no linked object whose types could be tested; " +
     "the 355.2.b location permission then has no gate to open"
 );
-// Direct evidence for the third recorded gap: the merged effect.play receipt
+// Direct evidence for the remaining receipt gap: the merged effect.play receipt
 // links only the played count (number) — never the played object references —
 // so the printed "if the played card is a unit" gate has no linked object to
-// read types from. The cost plan is constructed explicitly here (gap 2's
-// missing producer is the judge-required surface recorded above) so this test
-// exercises exactly gap 3.
+// read types from. The explicitly finalized plan only removes the printed-cost
+// derivation from this isolated primitive test; the full merged cost path is
+// exercised by the chain test below.
 import { buildCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import play from "../../../../engine-core/dist/effects/instructions/effect.play.js";
 
 test("sfd-170-221 Rek'Sai, Swarm Queen: a real effect.play receipt links only the played count, not the played card", () => {
   const kernel = world().player("A").deck(["c1", "c2", "c3"]).build();
   const top = kernel.zoneSlice("A", "deck", "top", 2).map((object) => object.ref);
-  // Explicit finalized plan (gap 2 already covers the missing producer); the
-  // play itself really moves the chosen revealed card out of the deck.
+  // Explicit finalized plan (isolated primitive test only); the play itself
+  // really moves the chosen revealed card out of the deck.
   const costPlan = buildCostPlan(kernel, {
     id: "reksai.play-test",
     cost: { kind: "explicit", energy: { kind: "constant", value: 0 } }
@@ -191,5 +195,91 @@ test("sfd-170-221 Rek'Sai, Swarm Queen: a real effect.play receipt links only th
   // whose types could gate "if the played card is a unit" (CR 355.2.b).
   assert.deepEqual(Object.keys(run.linked), ["played"]);
   assert.equal(typeof run.linked.played, "number");
+});
+
+test("sfd-170-221 Rek'Sai, Swarm Queen: a cost-free chain play derives and pays the printed cost", () => {
+  const kernel = world()
+    .player("A", { energy: 20, power: ["Fury"] })
+    .player("B", { energy: 20, power: ["Fury"] })
+    .base("source", { energy: 0, power: [], might: 2 })
+    .base("enemy", { owner: "B", might: 5, power: [] })
+    .deck(["tested-unit"], {
+      types: ["unit"],
+      energy: 3,
+      power: ["Fury"],
+      cardId: "some-other-card"
+    })
+    .build();
+  const decide = (request) => {
+    if (request.type === "select-objects" && request.min === request.max && request.options.length === request.min) {
+      return [...request.options];
+    }
+    if (request.type === "optional") {
+      return true;
+    }
+    throw new Error("unexpected choice: " + request.type);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (checkpoint) => {
+      kernel.restore(checkpoint.state);
+      kernel.copyLinkedFrom(checkpoint.links);
+    },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose: decide,
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint, choose: decide }),
+    testTrigger: () => false
+  });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"],
+    turnPlayer: "A",
+    phase: "main",
+    host,
+    cleanup: () => false,
+    describePlay: (action, source) => ({
+      id: "draft",
+      controller: "A",
+      kind: "unit",
+      speed: "normal",
+      body: [],
+      source
+    })
+  });
+
+  // The tested instruction is the card's effect.play with no cost override;
+  // the chain Finalize owns printed-cost derivation and payment (CR 420.3).
+  const top = kernel.zoneSlice("A", "deck", "top", 1)[0].ref;
+  kernel.setPicks("reksai.revealed-play", [top]);
+  const body = [
+    {
+      id: "reksai.play-one",
+      op: "effect.play",
+      args: {
+        pick: { kind: "constant", value: "reksai.revealed-play" },
+        linkKey: { kind: "constant", value: "played" }
+      }
+    }
+  ];
+  engine.enqueue({
+    id: "reksai.chain-play",
+    controller: "A",
+    kind: "add",
+    source: kernel.getObject("source"),
+    body
+  });
+  engine.advance();
+  let passes = 0;
+  while (engine.items.length) {
+    passes += 1;
+    assert.ok(passes <= 100, "chain did not settle");
+    engine.pass(engine.priority);
+  }
+
+  // Real printed-cost payment: a 3-energy unit leaves 20 -> 17 and enters play.
+  assert.equal(kernel.player("A").energy, 17);
+  assert.equal(kernel.getObject("tested-unit")?.zone, "board");
+  assert.deepEqual(kernel.getObject("tested-unit")?.location, { type: "base", player: "A" });
 });
 

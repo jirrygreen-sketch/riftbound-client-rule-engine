@@ -4,7 +4,8 @@
 // start transaction is still blocked), the printed "here" referent has no
 // EventPattern/ObjectFilter vocabulary, and effect.reveal's "pick" spelling is
 // inconsistent between the IR validator (requires an Expr) and the merged chain
-// adapter (unwraps it before the primitive, which then rejects the object).
+// adapter (its LITERAL_FIELDS declares no unpacking for the field, so the Expr
+// envelope reaches the primitive, which only accepts a bare id).
 // The golden still exercises the merged halves for real: the ordered deck-top
 // pick drives effect.reveal directly, and both branches of the "if it's a spell"
 // discriminator (compare "spell" in object-property(types)) genuinely move the
@@ -219,9 +220,9 @@ test.todo(
 );
 
 // Evidence for Ravenbloom Conservatory's third recorded gap: the merged chain
-// adapter unwraps effect.reveal's Expr pick back to a bare value before the
-// primitive runs, so the contract spelling (contract 3.2) is rejected at
-// runtime even though validateCardProgram accepts it.
+// adapter declares no LITERAL_FIELDS unpacking for effect.reveal's pick, so the
+// contract spelling (contract 3.2) reaches the primitive still wrapped in an
+// Expr and is rejected at runtime even though validateCardProgram accepts it.
 test("sfd-215-221 Ravenbloom Conservatory: the contract's Expr pick spelling is rejected by the merged chain adapter", () => {
   const kernel = world().player("A").deck(["top-card", "next-card"]).build();
   const ordered = kernel.zoneSlice("A", "deck", "top", 1).map((object) => object.ref);

@@ -26,7 +26,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "If the played card is a unit, you may play it here" adds an entry-location
  *   choice for the played unit (355.2.b).
  *
- * Status: judge-required — three merged-dependency gaps, none approximated:
+ * Status: judge-required — two merged-dependency gaps, none approximated:
  * - The top-2 slice still has to be produced by the caller: effect.reveal
  *   explicitly refuses a subset of a non-hand zone ("a subset of this zone
  *   requires upstream ordered picks; query order is not deck order"), and the
@@ -34,11 +34,6 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   lifecycle for an ordered zone pick (RIFT-66 added ctx.zoneSlice, but the
  *   card-level binding that would turn "top 2" into locked picks is missing).
  *   The same gap is recorded by sfd/called-shot.
- * - "You may play one" needs a cost plan for the chosen revealed card:
- *   effect.play requires an already-finalized plan and never derives printed
- *   costs, and the chain's play route only accepts a finalized cost override
- *   (RIFT-261's cost.pay/cost.modify primitives are merged, but no merged path
- *   produces a finalized plan for a game-effect Play here).
  * - "If the played card is a unit" cannot be gated: although the merged
  *   compare/in condition can test "unit" membership in an object's types array
  *   (see sfd/ravenbloom-conservatory), the gate must read the *played* card's
@@ -48,9 +43,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   here" (the 355.2.b entry-location permission) is deliberately not encoded as
  *   an unconditional location override.
  * The golden executes the merged parts: the optional wrapper, the linked
- * recycle of the rest, and the real deck-top slice read through zoneSlice.
+ * recycle of the rest, the real deck-top slice read through zoneSlice, the
+ * merged effect.play cost path, and an additional direct chain execution that
+ * plays a deck card without a cost override so the chain Finalize prints and
+ * pays the printed cost.
  * Dependencies: an ordered deck-top pick lifecycle in the chain Finalize/Resolve
- * (RIFT-257 follow-up) and a cost-plan binding for a game-effect Play (RIFT-261).
+ * (RIFT-257 follow-up) and an effect.play link receipt that records the played
+ * object references (the current receipt only records the played count).
  */
 const abilities: Ability[] = [
   {
@@ -157,15 +156,16 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处依赖未合入，均不近似实现：(1)「reveal the top 2 cards of your Main Deck」需要按牌库真实顺序提供有序 picks——effect.reveal 对非手牌的" +
+    "两处依赖未合入，均不近似实现：(1)「reveal the top 2 cards of your Main Deck」需要按牌库真实顺序提供有序 picks——effect.reveal 对非手牌的" +
     "真子集明确拒绝（“a subset of this zone requires upstream ordered picks; query order is not deck order”），链的 Finalize 只锁定 " +
     "instruction.targets 的 TargetSpec、没有有序区域 pick 的生命周期；RIFT-66 只加了 ctx.zoneSlice，把「牌库顶 2 张」变成卡牌可用的有序选择仍未接线" +
-    "（同 sfd/called-shot 记录的缺口）。(2)「You may play one」需要为所选牌生成费用计划：effect.play 只接受已 finalize 的计划、从不推导印刷费用，" +
-    "链的 play 路由也只接受 finalized 的 cost override（RIFT-261 的 cost.pay/cost.modify 原语已合入，但本卡经过的游戏效果 Play 路径没有已合入的费用计划生成方）。(3)「If the played card is a unit」" +
+    "（同 sfd/called-shot 记录的缺口）。费用路径已合入：effect.play 不带 cost override 时，链 Finalize 会对单位/装备/法术打出生成并支付印刷费用，" +
+    "已有真实执行证据（3 费单位从牌库打出，能量 20→17）。(2)「If the played card is a unit」" +
     "的闸门无法开：已合入的 compare/in 能测 types 数组成员（见 sfd/ravenbloom-conservatory 的真实执行证据），但被检查的对象必须来自 effect.play 的链接回执，" +
     "而该回执的 linkKey 只写 played 计数（number），不记录被播放的对象引用，因此没有可读 types 的链接对象；相应地「play it here」的入场地点许可（355.2.b）" +
-    "不写成无条件 location（避免对非单位牌近似实现）。golden 用锁定有序 pick 真实执行 effect.reveal、choice.optional 与链接 recycle，并用 zoneSlice 读出真实牌库顶。" +
-    "依赖：链 Finalize/Resolve 的有序区域 pick 生命周期（RIFT-257 后续）、游戏效果 Play 的费用计划绑定（RIFT-261）、以及记录被播放对象的链接值。",
+    "不写成无条件 location（避免对非单位牌近似实现）。golden 用锁定有序 pick 真实执行 effect.reveal、choice.optional 与链接 recycle，用 zoneSlice 读出真实牌库顶，" +
+    "并用无 cost override 的链上 effect.play 验证印刷费用会被生成和支付。依赖：链 Finalize/Resolve 的有序区域 pick 生命周期（RIFT-257 后续）、" +
+    "以及记录被播放对象引用的 effect.play 链接回执（当前只写 played 计数）。",
   abilities,
   sourceText:
     "When I attack, you may reveal the top 2 cards of your Main Deck. You may play one. Then recycle the rest. If the played card is a unit, you may play it here."

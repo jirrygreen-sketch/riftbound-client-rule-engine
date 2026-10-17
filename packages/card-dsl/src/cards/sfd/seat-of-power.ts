@@ -57,8 +57,10 @@ export default {
     "validator (unknown-field) and by programs/filters.ts translateTriggerFilter (\"Unsupported filter field " +
     "here\"), so the CardProgram trigger cannot register through the merged RIFT-257 adapter; (2) the count subject needs a " +
     "Battlefield-object query population and the teammate relation of 471.1.a / 315.2.b.3: the merged query path only filters " +
-    "Board snapshots through ObjectFilter keys, and no merged ObjectFilter / PlayerSelector / Expr models allies or the " +
-    "`you-or-ally` / `exclude` spellings used below (programs/filters.ts rejects both). The merged draw primitive and the " +
+    "Board snapshots through ObjectFilter keys, and no merged ObjectFilter / PlayerSelector / Expr models allies. The two " +
+    "spellings used below fail in different ways: programs/filters.ts rejects the exclude anchor outright " +
+    "(Unsupported filter field exclude), while you-or-ally passes the adapter unchanged as a literal controller value that " +
+    "the layer matcher can never match against a real player (the teammate semantics are simply missing). The merged draw primitive and the " +
     "count-driven amount are exercised by the golden test with an explicit count. Data issue (not modified): the catalog text " +
     "ends with two periods (control..), recorded unresolved in docs/plans/survey/data-issues-recheck.md; sourceText keeps the " +
     "catalog spelling verbatim.",
