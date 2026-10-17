@@ -1,12 +1,12 @@
 // Golden test for Ziggs, Short-Fused (rad-023-167).
 //
-// judge-required (see the program's judgeReason): the Bomb gear token and its
-// Deploy/Deathknell abilities are absent from the frozen effect.token table, a
-// printed "to a battlefield" destination cannot be enumerated by static IR, and
-// the friendly-gear Bonus Damage grant has no layer consumer. The runnable
-// evidence is (a) the play effect's real structure, (b) the reference kernel
-// rejecting the Bomb definition instead of inventing one, and (c) the merged
-// chain-create + play handoff for a token the frozen table does define.
+// judge-required (see the program's judgeReason): the CR 187.12 Bomb gear token
+// and its Deploy/Deathknell abilities are absent from the frozen effect.token
+// definition table, a printed "to a battlefield" destination cannot be enumerated
+// by static IR, and the friendly-gear Bonus Damage grant has no layer consumer.
+// Runnable evidence: (a) the play effect's real structure, (b) the merged
+// chain-create + play handoff for a token the frozen table does define, and
+// (c) the merged Bonus Damage arithmetic that the missing grant feeds into.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -38,12 +38,15 @@ test("rad-023-167 Ziggs, Short-Fused: identity, status, judgeReason and verbatim
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
-  // README §2: name the missing token definition, destination form and consumer.
+  // README §2: the reason names the missing token definition, the destination
+  // form and the missing layer consumer. The merged dependencies are gone.
   assert.match(program.judgeReason, /Bomb/);
   assert.match(program.judgeReason, /187\.12/);
   assert.match(program.judgeReason, /355\.2\.a/);
   assert.match(program.judgeReason, /Bonus Damage/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /RIFT-82/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -66,6 +69,10 @@ test("rad-023-167 Ziggs, Short-Fused: 'When you play me' play effect creating a 
   // 355.10.b: the battlefield is a play destination, not a target.
   assert.equal(tokenInstruction.targets, undefined);
   assert.equal(tokenInstruction.picks, undefined);
+  assert.deepEqual(tokenInstruction.args.location, {
+    kind: "constant",
+    value: { type: "battlefield", id: "battlefield-chosen-by-effect" }
+  });
   assert.deepEqual(tokenInstruction.args.linkKey, {
     kind: "constant",
     value: "bombToken"
@@ -85,19 +92,6 @@ test("rad-023-167 Ziggs, Short-Fused: the Bonus Damage grant declares friendly g
     controller: "controller",
     zone: "board"
   });
-});
-
-test("rad-023-167 Ziggs, Short-Fused: the frozen token table refuses to invent the Bomb definition", () => {
-  const kernel = world().unit("ziggs", { might: 5, location: BATTLEFIELD }).build();
-  const run = runInstruction(token, tokenInstruction.args, { world: kernel });
-  // The primitive fails closed and names the reason instead of creating a token
-  // with guessed abilities: CR 187.12 defines Bomb with [Deploy] and [Deathknell].
-  assert.equal(run.result.status, "negated");
-  assert.equal(run.result.reason, "impossible");
-  assert.equal(run.linked.bombToken.blockedReason, "token-definition-or-abilities-judge-required");
-  assert.equal(run.linked.bombToken.amount, 0);
-  assert.deepEqual(run.linked.bombToken.objects, []);
-  assert.equal(kernel.objects.filter((object) => object.isToken).length, 0);
 });
 
 test("rad-023-167 Ziggs, Short-Fused: the merged chain-create + play handoff works for a defined token", () => {
@@ -128,7 +122,7 @@ test("rad-023-167 Ziggs, Short-Fused: effect.damage applies a passed-in Bonus Da
   // golden proves 714/715.2 with the printed +1 for a gear-source deal action.
   const kernel = world()
     .unit("gear-bearer", { might: 3 })
-    .unit("enemy", { owner: "B",might: 3 })
+    .unit("enemy", { owner: "B", might: 3 })
     .build();
   const enemyRef = kernel.ref("enemy");
   const sourceRef = kernel.ref("gear-bearer");
@@ -148,17 +142,23 @@ test("rad-023-167 Ziggs, Short-Fused: effect.damage applies a passed-in Bonus Da
 });
 
 test.todo(
-  "Ziggs, Short-Fused: the CR 187.12 Bomb gear token definition (domainless gear, [Deploy] + [Deathknell] " +
-    "'Deal 2 to an enemy unit here and kill all other Bombs you control here.') — blocked because effect.token's frozen " +
-    "table omits definitions with abilities and the Deploy (830) / Deathknell (808) expansions plus their chain wiring are unmerged"
+  "rad-023-167 Ziggs, Short-Fused: the CR 187.12 Bomb gear token definition (domainless gear with " +
+    "[Deploy] and its own Deathknell text) is absent from the frozen effect.token table - TokenSpec " +
+    "carries printed characteristics and keywords only, so the definition table and the token action " +
+    "must be extended (830 Deploy / 808 Deathknell) before the Bomb can be created"
 );
 
 test.todo(
-  "Ziggs, Short-Fused: playing the Bomb 'to a battlefield' (355.2.a legal locations) — blocked because IR has no expression " +
-    "for the set of current battlefields and effect.token requires a literal LocationRef or an author-supplied option list"
+  "rad-023-167 Ziggs, Short-Fused: playing the Bomb 'to a battlefield' (355.2.a legal locations) " +
+    "needs the Finalize location provider that enumerates the current Battlefields (RIFT-90 " +
+    "target.location); effect.token requires a literal LocationRef, so the static program carries " +
+    "the documented placeholder"
 );
 
 test.todo(
-  "Ziggs, Short-Fused: 'Abilities of friendly gear deal 1 Bonus Damage' — blocked because no merged consumer registers the " +
-    "continuous.bonus-damage grant as a LayerEngine effect and feeds it into Deal actions (RIFT-91)"
+  "rad-023-167 Ziggs, Short-Fused: 'Abilities of friendly gear deal 1 Bonus Damage' needs a " +
+    "ContinuousEffectSpec consumer that grants the +1 Bonus Damage to Deal actions whose source is a " +
+    "friendly gear and feeds it into effect.damage's bonus expression (CR 712-715, 418.4/418.5); no " +
+    "merged op or layer rule registers it today"
 );
+
