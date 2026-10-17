@@ -63,6 +63,11 @@ const defy = {
     { kind: "keyword", keyword: "reaction" },
     {
       kind: "play",
+      cost: {
+        kind: "cost.printed",
+        energy: { kind: "constant", value: 1 },
+        power: { kind: "constant", value: 1 }
+      },
       body: [
         {
           id: "counter-spell",

@@ -1,3 +1,6 @@
+// Partial execution evidence for the merged counter primitive is consolidated
+// in ../templates/keyword-play-effect-counter-657.test.mjs; Hush's printed
+// Power-cost restriction remains judge-required until Finalize can compare it.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -54,6 +57,11 @@ test("rad-041-167 Hush: judge-required naming the missing Power-cost threshold c
 
 test("rad-041-167 Hush: [Reaction] plus a chain-spell counter with the printed cost restriction recorded", () => {
   assert.deepEqual(keyword, { kind: "keyword", keyword: "reaction" });
+  assert.deepEqual(play.cost, {
+    kind: "cost.printed",
+    energy: { kind: "constant", value: 1 },
+    power: { kind: "constant", value: 2 }
+  });
   assert.equal(play.body.length, 1);
 
   assert.equal(counterInstruction.op, "effect.counter");
