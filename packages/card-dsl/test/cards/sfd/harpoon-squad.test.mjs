@@ -8,7 +8,11 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
-import { translateTriggerFilter } from "../../../../engine-core/dist/programs/index.js";
+import { EventPipeline } from "../../../../engine-core/dist/events/pipeline.js";
+import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
+import { getTimingPoint } from "../../../../engine-core/dist/events/timing-points.js";
+import { createProgramBinding, translateTriggerFilter } from "../../../../engine-core/dist/programs/index.js";
 
 const CARD_ID = "card.hash-f696312134479041b97777c95666ee948dd620df1b82a432d5d877753660bfd2";
 const SOURCE_TEXT = "When I move from a battlefield, give me +2 :rb_might: this turn.";
@@ -42,11 +46,42 @@ const chainContext = (kernel, controller) => new Proxy(kernel, {
   }
 });
 
-const registrations = (kernel) => kernel.continuousEffects.map(entry => ({
+const registrations = (kernel) => kernel.continuousEffects.map((entry) => ({
   effect: entry.effect,
   duration: entry.duration,
   timestamp: 1
 }));
+
+/** A complete Move emission as events/action-adapter.ts publishes it. */
+const moveEvent = (id, fromZone) => ({
+  timingPoint: "object-moved",
+  kind: "object-moved",
+  player: "A",
+  fromZone,
+  object: {
+    ref: { id, zoneEntryId: 1 },
+    cardId: id === "harpoon-1" ? CARD_ID : `card:${id}`,
+    name: id,
+    types: ["unit"],
+    tags: [],
+    keywords: [],
+    owner: "A",
+    controller: "A",
+    zone: "board",
+    location: { type: "battlefield", id: "bf-2" },
+    might: 4,
+    energy: 4,
+    power: null,
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false,
+    combatRole: null
+  }
+});
 
 test("sfd-137-221 Harpoon Squad: program validates and is registered by canonicalCardId", () => {
   const result = validateCardProgram(program);
@@ -62,7 +97,9 @@ test("sfd-137-221 Harpoon Squad: identity, ruleset, status, judgeReason and verb
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /object-moved/);
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /invalid-event-type/);
+  assert.match(program.judgeReason, /449\.1\/449\.2/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-257|RIFT-120/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -131,8 +168,8 @@ test("sfd-137-221 Harpoon Squad golden: the merged continuous.might body lands +
 
 test("sfd-137-221 Harpoon Squad: the trigger filter translates to the host-anchored Move pattern it needs", () => {
   // The card-program binding translates the symbolic anchor and keeps the
-  // Move's origin filter; binding this pattern into the live pipeline is the
-  // remaining dependency recorded in judgeReason and the todo below.
+  // Move's origin filter; registering this pattern is the remaining dependency
+  // recorded in judgeReason.
   const translated = translateTriggerFilter(ability.trigger.filter, "harpoon-1", "object-moved");
   assert.deepEqual(translated, {
     event: "object-moved",
@@ -141,8 +178,66 @@ test("sfd-137-221 Harpoon Squad: the trigger filter translates to the host-ancho
   });
 });
 
+test("sfd-137-221 Harpoon Squad boundary: the Move timing exists but the closed event vocabulary refuses the pattern", () => {
+  // 449.1/449.2: the timing point is triggerable and the action adapter maps
+  // move-location onto it, so only the vocabulary entry is missing.
+  assert.equal(getTimingPoint("object-moved").triggerable !== false, true);
+  const translated = translateTriggerFilter(ability.trigger.filter, "harpoon-1", "object-moved");
+  let issues;
+  try {
+    assertTriggerSpec({ at: "object-moved", filter: translated });
+  } catch (error) {
+    issues = error.issues;
+  }
+  assert.deepEqual(
+    issues?.filter((issue) => issue.code === "invalid-event-type").map((issue) => issue.path),
+    ["trigger.filter.event"]
+  );
+});
+
+test("sfd-137-221 Harpoon Squad boundary: the translated pattern matches a real battlefield Move and no other unit", () => {
+  const translated = translateTriggerFilter(ability.trigger.filter, "harpoon-1", "object-moved");
+  assert.equal(matchesTriggerEvent(translated, moveEvent("harpoon-1", "battlefield"), "A"), true);
+  // 458/458.1 plus the source anchor: another unit's Move never fires this card.
+  assert.equal(matchesTriggerEvent(translated, moveEvent("other-unit", "battlefield"), "A"), false);
+});
+
+test("sfd-137-221 Harpoon Squad boundary: the production binding cannot register the Move trigger", () => {
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const kernel = world().player("A").player("B").unit("harpoon", { owner: "A", might: 4 }).build();
+  const pipeline = new EventPipeline({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (checkpoint) => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    execute: (action) => ({ outcome: kernel.perform(action), emissions: [] }),
+    context: () => kernel,
+    choose: () => { throw new Error("unexpected choice"); }
+  }, ["A", "B"], "A");
+  const source = { ...kernel.getObject("harpoon"), cardId: CARD_ID };
+
+  assert.throws(
+    () => binding.registerProgramTriggers({ pipeline }, source),
+    (error) => error.name === "TriggerSpecValidationError"
+  );
+  assert.equal(pipeline.triggers.size, 0);
+});
+
+test("sfd-137-221 Harpoon Squad boundary: the ObjectFilter fallback would widen the trigger to Base Moves", () => {
+  // ObjectFilter has no fromZone/fromLocation field (events/trigger-spec.ts), so
+  // the only shape that validates is `{ objectId }`, which also matches a
+  // Base-to-Battlefield Move. The program must not take that route (449.1/449.2).
+  const plain = translateTriggerFilter({ objectId: "harpoon-1" }, "harpoon-1", "object-moved");
+  assert.deepEqual(plain, { objectId: "harpoon-1" });
+  assertTriggerSpec({ at: "object-moved", filter: plain });
+  assert.equal(matchesTriggerEvent(plain, moveEvent("harpoon-1", "base"), "A"), true);
+  assert.equal(JSON.stringify(plain).includes("battlefield"), false);
+});
+
 test.todo(
   "sfd-137-221 Harpoon Squad: register the object-moved trigger so a real Move starting at a battlefield " +
-    "gives the host +2 Might this turn (449.1/449.2, fromZone payload; 458/458.1 excludes Recalls) — needs " +
+    "gives the host +2 Might this turn (449.1/449.2, fromZone payload; 458/458.1 excludes Recalls) - needs " +
     "object-moved in the EventPattern vocabulary plus the CardProgram trigger registration"
 );
+

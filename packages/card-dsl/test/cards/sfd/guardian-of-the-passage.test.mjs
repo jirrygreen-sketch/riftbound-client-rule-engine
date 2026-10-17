@@ -10,8 +10,10 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 // itself. The golden runs use that same path instead of hand-decoding args.
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
-import { translateInstructionTargets } from "../../../../engine-core/dist/programs/index.js";
+import { EventPipeline } from "../../../../engine-core/dist/events/pipeline.js";
+import { createProgramBinding, translateInstructionTargets, translateTriggerFilter } from "../../../../engine-core/dist/programs/index.js";
 
 const CARD_ID = "card.hash-291f978c4d26e5c73a603a5f856768f2a0714f4bbe78fc0e3dbe4ac83dfb8767";
 const TARGET_ID = "guardian-of-the-passage.card-in-trash";
@@ -102,8 +104,9 @@ test("sfd-035-221 Guardian of the Passage: identity, ruleset, status and verbati
 test("sfd-035-221 Guardian of the Passage: judgeReason names the hold-payload gap and the merged half", () => {
   assert.match(program.judgeReason, /held/);
   assert.match(program.judgeReason, /objectId/);
-  assert.match(program.judgeReason, /RIFT-120/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /details\.battlefieldId/);
+  assert.match(program.judgeReason, /matchesTriggerObject/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-120|RIFT-257/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -212,5 +215,56 @@ test("sfd-035-221 Guardian of the Passage golden: 'your trash' never offers an o
 test.todo(
   "sfd-035-221 Guardian of the Passage: emit the held battlefield's object/host identity with the hold " +
     "timing point (383.4.d.2.a) so the card's source: \"self\" anchor can match and the Hold Effect enters " +
-    "the chain — depends on the RIFT-120 hold-payload work"
+    "the chain once the hold emission carries the held object"
 );
+
+test("sfd-035-221 Guardian of the Passage boundary: the registered hold pattern never matches the real hold emission", () => {
+  // 383.4.d.2.a / 473.2.b: the Hold Effect belongs to the permanent present at
+  // this Battlefield. The binder keeps the source: "self" anchor by translating
+  // it into an object filter, but turn/flow.ts's score wave publishes only
+  // player + details.battlefieldId, so the pattern cannot match.
+  const translated = translateTriggerFilter(ability.trigger.filter, "guardian-1", "hold");
+  assert.deepEqual(translated, { event: "held", object: { objectId: "guardian-1" } });
+
+  const realHold = {
+    timingPoint: "hold",
+    kind: "hold",
+    player: "A",
+    details: { battlefieldId: "bf-1" }
+  };
+  assert.equal(matchesTriggerEvent(translated, realHold, "A"), false);
+  // The event name itself is merged and matches; only the missing object
+  // payload keeps the filter from firing (the player selector is the merged
+  // "self" spelling, which the pipeline binds to the ability controller).
+  assert.equal(matchesTriggerEvent({ event: "held", player: "self" }, realHold, "A"), true);
+});
+
+test("sfd-035-221 Guardian of the Passage boundary: the production binding registers the trigger, which then never fires", () => {
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const kernel = guardianWorld();
+  const pipeline = new EventPipeline({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (checkpoint) => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    execute: (action) => ({ outcome: kernel.perform(action), emissions: [] }),
+    context: () => kernel,
+    choose: () => { throw new Error("unexpected choice"); }
+  }, ["A", "B"], "A");
+  const source = kernel.getObject("guardian");
+  const ids = binding.registerProgramTriggers({ pipeline }, source);
+  assert.equal(ids.length, 1);
+  assert.equal(pipeline.triggers.size, 1);
+
+  // The real emission reaches the pipeline but matches nothing, so no trigger
+  // enters the chain and the trash card stays put.
+  const onTrigger = pipeline.onTrigger;
+  const fired = [];
+  pipeline.onTrigger = (snapshot) => { fired.push(snapshot); onTrigger?.(snapshot); };
+  pipeline.emit({ timingPoint: "hold", kind: "hold", player: "A", details: { battlefieldId: "bf-1" } });
+  assert.deepEqual(fired, []);
+  assert.equal(pipeline.log.some((event) => event.timingPoint === "hold"), true);
+  assert.equal(kernel.getObject("dead-ally").zone, "trash");
+  assert.equal(kernel.getObject("dead-gear").zone, "trash");
+});

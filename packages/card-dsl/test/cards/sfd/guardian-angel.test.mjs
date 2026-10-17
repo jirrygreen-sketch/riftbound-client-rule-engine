@@ -7,6 +7,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import attach from "../../../../engine-core/dist/effects/instructions/effect.attach.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { buildCostPlan, CostPlanError } from "../../../../engine-core/dist/cost/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-af3547abb5e6d69c2372b62331d6039acaf16cca337eefb27e5734bbee3fb307";
@@ -53,11 +54,13 @@ test("sfd-051-221 Guardian Angel: identity, ruleset, status, judgeReason and ver
   // The judgeReason names the missing payment path and the real dependencies.
   assert.match(program.judgeReason, /Equip/);
   assert.match(program.judgeReason, /Unsupported payment kind: equip/);
-  assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /params\.cost/);
-  // The stale RIFT-89/RIFT-120 attributions are replaced by the actual cost
-  // kind batch (RIFT-261) and the missing params.cost assembly path.
+  assert.match(program.judgeReason, /expandProgram/);
+  assert.match(program.judgeReason, /describeActivate 能给出草稿/);
+  // The stale task attributions are replaced by the live code paths that still
+  // reject the printed Equip cost.
   assert.doesNotMatch(program.judgeReason, /RIFT-120/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-261|未合入 HEAD/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   // The generated registry indexes this exact program object.
   assert.equal(cardRegistryById.get(CANONICAL), program);
@@ -154,5 +157,44 @@ test("sfd-051-221 Guardian Angel golden: the merged Equip activation cost cannot
   );
 });
 
-test.todo("sfd-051-221 Guardian Angel: paying the printed Calm Equip cost (CR 818.1.b / 818.1.c.3) needs an Equip payment kind in cost/plan-values.ts plus the KeywordDef.expand params.cost assembly path (contract 3.8 item 3) - RIFT-261 follow-up.");
-test.todo("sfd-051-221 Guardian Angel: assembling the card's KeywordAbility into the expansion (contract 3.5) is not merged; the merged effect.attach body above runs directly, and payCostPlan is only exercised once the cost kind and the params.cost assembly exist.");
+test("sfd-051-221 Guardian Angel boundary: the card-program binding cannot describe the activation either", () => {
+  // The same rejection surface the production activate path uses: the registry
+  // gate and the ability listing pass on an executable clone, the draft is
+  // described, and then the Equip payment placeholder blocks its cost plan.
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const kernel = equipWorld();
+  const source = kernel.getObject("gear");
+  assert.equal(binding.activationAbilities(source).length, 1);
+
+  const draft = binding.describeActivate(source, "A", 0);
+  assert.deepEqual(draft.cost.cost.payments, [
+    { kind: "equip", value: { kind: "constant", value: { kind: "source" } } }
+  ]);
+  assert.throws(
+    () => buildCostPlan(kernel.clone({ sourceSnapshot: source }), draft.cost),
+    (error) =>
+      error instanceof CostPlanError &&
+      error.reason === "judge-required" &&
+      /Unsupported payment kind: equip/.test(error.message)
+  );
+  // effect.attach is never reached: nothing was attached and nothing was paid.
+  assert.equal(kernel.getObject("gear").attachedTo, null);
+  assert.equal(kernel.getObject("gear").exhausted, false);
+});
+
+test("sfd-051-221 Guardian Angel boundary: the printed Calm rune never reaches the merged expansion", () => {
+  // programs/keywords.ts expandProgram calls KeywordDef.expand with only
+  // value/host (contract 3.8.3 params.cost is not delivered), so the expansion
+  // always keeps its generic placeholder instead of charging the printed Calm
+  // Power. The card's own reviewed record keeps the printed domain.
+  assert.deepEqual(expansionFor().map((ability) => ability.cost.payments), [
+    [{ kind: "equip", value: { kind: "constant", value: { kind: "source" } } }]
+  ]);
+  assert.equal(expansionFor().some((ability) => JSON.stringify(ability).includes("Calm")), false);
+  assert.equal(equip.costDomain, "Calm");
+});
+
+test.todo("sfd-051-221 Guardian Angel: paying the printed Calm Equip cost (CR 818.1.b / 818.1.c.3) needs an Equip payment kind in cost/plan-values.ts plus the KeywordDef.expand params.cost assembly path (contract 3.8 item 3).");
+test.todo("sfd-051-221 Guardian Angel: assembling the card's KeywordAbility printed params into the expansion (contract 3.8.3) is not merged; the merged effect.attach body above runs directly, and payCostPlan is only exercised once the cost kind and the params.cost assembly exist.");
