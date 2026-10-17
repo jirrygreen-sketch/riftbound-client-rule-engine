@@ -58,12 +58,12 @@ test("unl-168-219 Undying Loyalty: program validates and keeps its identity", ()
   assert.match(program.judgeReason, /356\.4/);
   assert.match(program.judgeReason, /356\.1\.c/);
   assert.match(program.judgeReason, /163\.2\.b/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
 });
 
 test("unl-168-219 Undying Loyalty: the conditional [2] energy discount is declared as cost.modify", () => {
   // 356.4 / 356.4.d: a discount on the total printed cost, evaluated in the
-  // Finalize cost steps; consumed by the cost system (RIFT-89).
+  // Finalize cost steps; consumed by the cost system (RIFT-261).
   assert.equal(discount.kind, "static");
   assert.equal(discount.effect.kind, "cost.modify");
   assert.deepEqual(discount.effect.value, { kind: "constant", value: { energy: -2 } });
@@ -90,7 +90,7 @@ test("unl-168-219 Undying Loyalty: printed cost plus the trash-unit play with de
     value: "undying-loyalty.unit-in-trash"
   });
   // 356.1.b.1: "ignoring its cost" is a zero-base Energy/Power plan produced by
-  // the cost pipeline (RIFT-89), never derived by effect.play itself.
+  // the cost pipeline (RIFT-261), never derived by effect.play itself.
   assert.deepEqual(playUnit.args.cost, {
     kind: "constant",
     value: { finalized: true, energy: 0, power: [], xp: 0 }
@@ -152,7 +152,7 @@ test("unl-168-219 Undying Loyalty golden: a unit no longer in the Trash is mista
 
 test.todo(
   "unl-168-219 Undying Loyalty: apply the [2] energy discount at Finalize when the player chose a Bird, Cat, Dog, " +
-    "or Poro (CR 356.4/356.4.d) — needs the cost.modify discount consumer (RIFT-89) plus an expression that reads " +
+    "or Poro (CR 356.4/356.4.d) — needs the cost.modify discount consumer (RIFT-261) plus an expression that reads " +
     "the play-time choice, which the frozen IR has no binding for (condition.result)"
 );
 
@@ -164,6 +164,6 @@ test.todo(
 
 test.todo(
   "unl-168-219 Undying Loyalty: generate the 356.1.b.1 ignore-cost finalized plan (base Energy and base Power 0) " +
-    "from the chosen trash unit through the cost pipeline (RIFT-89)"
+    "from the chosen trash unit through the cost pipeline (RIFT-261)"
 );
 

@@ -23,15 +23,19 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   475/478 的算术层与期限）。“my Might” 是自我指称（355.10.g），不是目标，因此不写 TargetSpec，
  *   也不使用 target 参数。
  *
- * status = judge-required（缺口不近似实现）：
- * - “Double my Might this turn” 是 arithmetic 层的本回合 Might 修正，但 effects/instructions/ 与关键词
- *   注册表都没有注册 continuous.might（或等价临时 Might 修改）原语，契约 3.6 的封闭 GameAction 集合也没有
- *   Might 修改动作（RIFT-91 只合入 layers 求值侧）；effect.buff 的文件头明确 Buff 计数器（702/703）
- *   不是 Might 修正，不得代替。
- * - [Deflect] 的 target.tax 没有消费方：契约 3.8 第 4 条把“成为目标/目标锁定通知”归引擎批 4，
- *   TargetPlan 只接受调用方经 TargetFinalizeOptions.tax 传入的税，链的 Finalize 没有从图层读取 target.tax
- *   的接线（RIFT-90），cost.pay 也未并入目标税（RIFT-89）。
- * 已合入并可真实执行的部分：2 Energy + 1 Fury Power 的印刷费用（golden 走 buildCostPlan/payCostPlan 真实支付）。
+ * status 判定（cards/README.md 第 2 节）：judge-required，一处缺口不近似实现：
+ * - Doubling 本体已可执行：RIFT-258 合入的 continuous.might 原语按 478 在 arithmetic 图层注册
+ *   Might 修正，duration "this-turn" 映射 end-of-turn 到期（317.1.a / 468.7.c）。433.1 / 433.1.a
+ *   要求增量等于“结算时该属性的当前值”（含图层结果），因此先由已合入的 condition.value 绑定原语
+ *   读出 source.might（解释器经 ObjectSelector "self" 绑定运行时引用；链上解析走 layers.evaluate，
+ *   读到的就是当前 Might），再以 linked-value 作为 continuous.might 的 amount。golden 用真实
+ *   解释器 + 图层引擎执行并断言“当前值 4 → +4 → 有效 Might 8”。
+ * - [Deflect]（809.1.b.3 省略数值时按 1；809.1.c 对手用法术/能力选择我时额外支付 [A]）仍不可执行：
+ *   已合入的 effects/keywords/Deflect.ts 只展开成 target.tax 图层声明，没有任何已合入消费方——链的
+ *   Finalize（chain/engine.ts）只接受调用方经 TargetFinalizeOptions.tax / taxAdapter 传入的税，
+ *   TargetPlan 不读取图层里的 target.tax，且没有卡牌关键词展开→layers 的生产注册路径（programs/
+ *   statics.ts 只有默认 noop 的 binder 钩子）。依赖：RIFT-90（target tax 接线）与 layers 注册路径。
+ * 已合入并可真实执行的部分（golden 覆盖）：2 Energy + 1 Fury Power 的印刷费用与上面的 Doubling。
  */
 const abilities: Ability[] = [
   // 809.1.b.3：印刷的 [Deflect] 省略数值，Deflect Value 按 1 处理（省略 value）。
@@ -46,17 +50,26 @@ const abilities: Ability[] = [
     },
     body: [
       {
+        id: "vi-hotheaded.read-might",
+        // 433.1 / 433.1.a：Doubling 读取“该属性当前值”；在结算时读出 source 的 Might（含图层
+        // 结果）并链接，供下一条指令作为增量使用。condition.value 是已合入的绑定原语。
+        op: "condition.value",
+        args: {
+          value: { kind: "object-property", object: "self", property: "might" },
+          key: { kind: "constant", value: "might" }
+        }
+      },
+      {
         id: "vi-hotheaded.double-might",
-        // 433.1 / 433.1.a：Doubling 增加“该属性当前值”的量，期限由该效果指定（this turn）。
-        // 本回合到期的临时 Might 修正属 layers 的 continuous.might（见 judgeReason）。
+        // 433.1.a：把 433.1 读到的当前 Might 追加为同量修正，期限由本效果指定（this turn；
+        // 478.1.a arithmetic 图层，continuous.might 的 end-of-turn 到期）。
         op: "continuous.might",
         args: {
           mode: { kind: "constant", value: "add" },
-          layer: { kind: "constant", value: "arithmetic" },
           amount: {
-            kind: "object-property",
-            object: "self",
-            property: "might"
+            kind: "linked-value",
+            instructionId: "vi-hotheaded.read-might",
+            key: "might"
           },
           duration: { kind: "constant", value: "this-turn" }
         }
@@ -71,15 +84,15 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "「Double my Might this turn.」（433.1/433.1.a 的 Doubling：按结算时该属性的当前值增加同量，期限由本效果指定）" +
-    "需要 arithmetic 层的本回合临时 Might 修正，但没有可执行路径：契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，" +
-    "effects/instructions/ 与关键词注册表都没有注册 continuous.might（或等价临时 Might 修改）原语，也没有任何指令通过 " +
-    "ResolveContext.addContinuous 注册该持续效果（RIFT-91 只合入 layers 求值侧）；effect.buff 的文件头明确 " +
-    "Buff 计数器（702/703）不是 Might 修正，不得代替。" +
-    "[Deflect]（809.1.b.3 省略数值时按 1；809.1.c）的 target.tax 同样没有消费方：契约 3.8 第 4 条把“成为目标/目标锁定通知”归引擎批 4，" +
-    "TargetPlan 只接受调用方经 TargetFinalizeOptions.tax 传入的税，链的 Finalize 没有从图层读取 target.tax 的接线" +
-    "（RIFT-90），cost.pay 也未并入目标税（RIFT-89）。" +
-    "已可真实执行的部分：2 Energy + 1 Fury Power 的印刷费用（buildCostPlan/payCostPlan）。依赖：RIFT-91、RIFT-90、RIFT-89。不近似实现。",
+    "「Double my Might this turn.」已可执行：433.1/433.1.a 的增量取结算时该属性的当前值，程序用已合入的 " +
+    "condition.value 绑定 source.might，再由 continuous.might（RIFT-258）以 linked-value 作为 amount 在 " +
+    "arithmetic 图层注册本回合（duration \"this-turn\" → end-of-turn 到期，317.1.a/468.7.c）的 Might 修正；" +
+    "golden 用真实解释器 + 图层引擎断言当前值 4 → 有效 Might 8。" +
+    "整卡仍不可执行：[Deflect]（809.1.b.3 省略数值按 1；809.1.c 对手用法术/能力选择我时额外支付 [A]）" +
+    "只有 effects/keywords/Deflect.ts 展开的 target.tax 图层声明，没有消费方——链的 Finalize 只接受调用方经 " +
+    "TargetFinalizeOptions.tax / taxAdapter 传入的税（chain/engine.ts），TargetPlan 不读取图层 target.tax，" +
+    "也没有卡牌关键词展开 → layers 的生产注册路径（programs/statics.ts 只有默认 noop 的 binder 钩子）。" +
+    "依赖：RIFT-90（target tax 接线）与 layers 注册路径（RIFT-91 后续/RIFT-257）。不近似实现。",
   abilities,
   sourceText:
     "[Deflect] (Opponents must pay :rb_rune_rainbow: to choose me with a spell or ability.)\n" +

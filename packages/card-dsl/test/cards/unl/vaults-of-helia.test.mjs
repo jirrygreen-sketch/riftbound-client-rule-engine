@@ -45,8 +45,8 @@ test("unl-219-219 Vaults of Helia: identity, status, judgeReason and verbatim so
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /356\.3/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /hold/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
@@ -107,13 +107,14 @@ test("unl-219-219 Vaults of Helia: the announced increase really raises a merged
 test.todo(
   "unl-219-219 Vaults of Helia: install the +1 Energy increase on the later plays of the hold " +
     "player's non-token units (356.3) — no merged path feeds a CardProgram static ability into a " +
-    "later CostPlanInput.increases and cost.modify has no instruction file (RIFT-89)"
+    "later CostPlanInput.increases and cost.modify has no instruction file (RIFT-261)"
 );
 
 test.todo(
   "unl-219-219 Vaults of Helia: emit the hold timing point from scoring (315.2.b.2, 471.2, " +
     "473.2.b) into the chain/events pipeline and register this CardProgram's triggered ability, " +
-    "including the 053.3 'here' referent (RIFT-31/RIFT-33, RIFT-120)"
+    "including the 053.3 'here' referent — hold is emitted by turn/flow.ts now, but the here filter " +
+    "is rejected by programs/filters.ts (RIFT-31/RIFT-33 payload, RIFT-257 registration)"
 );
 
 test.todo(

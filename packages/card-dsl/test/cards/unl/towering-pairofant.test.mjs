@@ -31,7 +31,7 @@ test("unl-008-219 Towering Pairofant: identity, status, judgeReason and verbatim
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /369\.3/);
   assert.match(program.judgeReason, /HistoryQuery/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("unl-008-219 Towering Pairofant: unvalued Assault (Assault Value defaults to 1)", () => {
@@ -79,6 +79,33 @@ test("unl-008-219 Towering Pairofant: 'I enter ready' is an entry replacement ga
   });
 });
 
+test("unl-008-219 Towering Pairofant: the merged replacement binder accepts the entry rewrite", async () => {
+  // RIFT-260's bindReplacement consumes the 369.3 entry-state spelling: the
+  // body's effect.ready on "source" is planned as the ready action that lands on
+  // the chain-zone permanent, so this half of the ability is really bindable.
+  const { bindReplacement } = await import("../../../../engine-core/dist/replacement/index.js");
+  const kernel = world().unit("pairofant", { zone: "board", controller: "A", exhausted: true }).build();
+  const deps = {
+    host: {
+      object: ref => kernel.object(ref),
+      objects: () => kernel.objects,
+      context: (source, controller) => kernel.clone({ sourceSnapshot: source, controller })
+    },
+    pipeline: { clock: { turn: 1 }, registerReplacement: () => {}, unregisterReplacement: () => {} }
+  };
+  const bound = bindReplacement(
+    { replaces: enterReady.replaces, with: enterReady.with, condition: undefined },
+    kernel.ref("pairofant"),
+    deps
+  );
+  assert.equal(bound.registration.id, "replacement:pairofant:1");
+  // The entry path carries the declared ready orientation (bind.ts
+  // matchesEnterAction on the chain-zone permanent); a direct board move is not
+  // that action, so only the registration contract is asserted here.
+  assert.equal(typeof bound.registration.matches, "function");
+  assert.equal(typeof bound.registration.apply, "function");
+});
+
 test("unl-008-219 Towering Pairofant: the replacement body's effect.ready readies the source", () => {
   const kernel = world()
     .unit("pairofant", { zone: "board", controller: "A", exhausted: true })
@@ -99,13 +126,13 @@ test("unl-008-219 Towering Pairofant: the generated card registry exposes the pr
 
 test.todo(
   "unl-008-219 Towering Pairofant: apply Assault's default +1 Might exactly while the unit holds the Attacker designation " +
-    "(CR 807.1.b.3 / 807.1.c / 807.1.d.1) — no card-to-layer registration path for KeywordDef expansions (RIFT-81 / " +
-    "RIFT-91) and the Attacker designation is not an ObjectSnapshot characteristic (contract 3.8 combatRole)"
+    "(CR 807.1.b.3 / 807.1.c / 807.1.d.1) — the KeywordDef is merged (RIFT-81), but no card/keyword-to-layers registration " +
+    "path exists and layers/engine.ts conditionMatches does not evaluate the compare(designation) gate (RIFT-91 follow-up / RIFT-257)"
 );
 
 test.todo(
   "unl-008-219 Towering Pairofant: register 'If a unit died this turn, I enter ready' as a board-entry replacement " +
-    "(CR 143.4 / 359.2.c / 369.3) with the this-turn death-history condition — no merged consumer turns a card's " +
-    "ReplacementAbility into a pipeline replacement, and the frozen HistoryQuery cannot filter deaths by object " +
-    "characteristics (contract 3.8 objectFilter addendum; RIFT-89~91)"
+    "(CR 143.4 / 359.2.c / 369.3) with the this-turn death-history condition — the RIFT-260 binder consumes the entry " +
+    "rewrite, but production still needs the card-replacement registration consumer (RIFT-257), and the condition needs a " +
+    "history predicate form for replacement conditions (compare(count) silently counts the live board instead)"
 );

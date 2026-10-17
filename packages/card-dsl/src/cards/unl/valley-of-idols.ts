@@ -21,22 +21,24 @@ import type { CardProgram } from "../../ir/index.js";
  *   已有 Buff 的单位被指示再 Buff 时不放置第二个（括号内是提醒文本，135.2.d.1–d.3：
  *   提醒文本对游戏规则没有影响）。effect.buff（mode "buff"）执行该动作。
  *
- * status = judge-required（逐个记录缺口，不近似实现）：
+ * status = judge-required（逐个记录缺口，不近似实现；复核后按当前 HEAD 更新依赖描述）：
  * 1. “they” 没有可求值的事件玩家选择器：chooser 与付款人都应是打出该单位的玩家，
  *    而冻结 IR 的 chooser/PlayerId 只能是静态 id 或玩家表达式，读不到触发事件的
- *    player（同 ogn/rakelstake 的缺口）。
+ *    player（同 ogn/rakelstake 的缺口）；programs/triggers.ts 只把 filter 平移成
+ *    事件模式，没有事件载荷 → chooser 的绑定。
  * 2. “pay :rb_energy_1:” 是紧随 “they may” 的基础费用（383.3.b、404.1.b.1）：
  *    TriggeredAbility 没有 CostSpec 字段（同 unl/piltover-enforcer 的 “exhaust me”），
- *    且 cost.pay 不是已合入的指令原语（RIFT-89）；把它留成结算期的付款指令会让
- *    “付不出也照样 Buff” 成立，属错误近似。
+ *    且 cost.pay 不是已合入的指令原语（复核 registry.generated 无 cost.* 条目；RIFT-261）；
+ *    把它留成结算期的付款指令会让 “付不出也照样 Buff” 成立，属错误近似。
  * 3. “it” 指被打出的那个单位（事件载荷对象）：契约 3.6 的 ObjectSelector 只有
  *    self/source/target/pick/linked，没有事件对象选择器；effect.buff 的 target 只接受
  *    TargetSpec id，而该单位由效果程序化指定（355.10.d），不能声明成目标。
  * 4. 触发侧：card-played 时点由 chain/engine.ts 发出，但没有已合入订阅方把卡牌程序的
- *    triggered ability 注册成触发，打出目的地的 “here” 也没有载荷（RIFT-31/RIFT-33、
- *    RIFT-120）；filter 里的 here: true 是同类战场卡占位（053.3）。
- * 依赖：事件玩家/事件对象选择器（契约变更请求）、RIFT-89（费用与 cost.pay）、
- * RIFT-31/RIFT-33/RIFT-120。
+ *    triggered ability 注册成触发（RIFT-257 的生产接线），打出目的地的 “here” 也没有载荷，
+ *    且 programs/filters.ts 以 “Unsupported filter field here” 直接拒绝该键（053.3 的占位）；
+ *    复核实测 registerProgramTriggers 因此对整卡 fail-closed。
+ * 依赖：事件玩家/事件对象选择器（契约变更请求）、RIFT-261（费用与 cost.pay）、
+ * RIFT-31/RIFT-33 的 here 载荷与 RIFT-257 的触发注册。
  */
 export default {
   canonicalCardId: "card.hash-8bf10670367f6b61f3c498325e7f4439d4e2341b2c8c6d47e1771e902955a174",
@@ -44,13 +46,15 @@ export default {
   status: "judge-required",
   judgeReason:
     "四处缺口，均不近似实现：(1) 「they may pay … to [Buff] it」的 “they” 是打出该单位的玩家（190.6.c：战场能力指明由某名玩家做选择时该玩家是该能力的控制者），" +
-    "但 IR 没有事件玩家选择器，chooser 与付款人都无法绑定该玩家。" +
+    "但 IR 没有事件玩家选择器，chooser 与付款人都无法绑定该玩家（programs/triggers.ts 只平移事件模式，不做事件载荷 → chooser 绑定）。" +
     "(2) 「pay :rb_energy_1:」紧随效果首部的 “they may”，按 383.3.b / 404.1.b.1 是触发能力的基础费用（Finalize 支付），而 TriggeredAbility 没有 CostSpec 字段，" +
-    "cost.pay 也不是已合入的指令原语（RIFT-89）；写成结算期付款会让“付不出仍 Buff”成立。" +
+    "cost.pay 也不是已合入的指令原语（复核 registry 无 cost.* 条目；RIFT-261）；写成结算期付款会让“付不出仍 Buff”成立。" +
     "(3) 「[Buff] it」的 it 是事件载荷里被打出的单位：契约 3.6 的 ObjectSelector 只有 self/source/target/pick/linked，没有事件对象选择器；" +
     "effect.buff 的 target 只接受 TargetSpec id，而该单位由效果程序化指定（355.10.d），不能声明为目标（程序里只写占位 id，不声明 targets）。" +
-    "(4) 触发侧：card-played 已由 chain/engine.ts 发出，但没有已合入订阅方把卡牌程序的 triggered ability 注册成触发，打出目的地也没有载荷（RIFT-120、RIFT-31/RIFT-33）。" +
-    "Buff 本体（702.2.a/702.3.a）与 choice.optional 包装（契约 3.9）已合入，golden 用真实内核执行了拒绝分支与 effect.buff；依赖：事件玩家/事件对象选择器（契约变更请求）、RIFT-89、RIFT-31/RIFT-33/RIFT-120。",
+    "(4) 触发侧：card-played 已由 chain/engine.ts 发出，但没有已合入订阅方把卡牌程序的 triggered ability 注册成触发（RIFT-257 的生产接线），打出目的地也没有载荷，" +
+    "且 programs/filters.ts 以 \"Unsupported filter field here\" 拒绝 here 键（053.3 的占位）；复核实测 registerProgramTriggers 对整卡 fail-closed。" +
+    "Buff 本体（702.2.a/702.3.a）与 choice.optional 包装（契约 3.9）已合入，golden 用真实内核执行了拒绝分支与 effect.buff；" +
+    "依赖：事件玩家/事件对象选择器（契约变更请求）、RIFT-261、RIFT-31/RIFT-33 的 here 载荷与 RIFT-257 的触发注册。",
   sourceText:
     "When a player plays a unit here, they may pay :rb_energy_1: to [Buff] it. " +
     "(Give it a +1 :rb_might: buff if it doesn't have one.)",

@@ -19,17 +19,19 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   读取"本回合有单位死亡"这一事件历史。
  *
  * status = judge-required（缺口不近似实现）：
- * - 入场替代需要"卡牌程序的 replacement 能力 → 事件管线替代注册与执行"的适配路径
- *   （object-enters-board 的替代消费方），合并代码没有该路径（warwick-hunter、
- *   disposal-expert、vanguard-attendant 记录同一批次缺口）；effect.ready 不能模拟入场替代
- *   （会多产生一次"成为就绪"事件，805.6.a 同源语义）。
- * - 条件 "If a unit died this turn" 需要在本回合窗口内按对象特征过滤的死亡事件历史谓词：
- *   已合入的 condition.history 原语经 interpreter/history.ts 只接受
- *   { scope, action, timingPoint, player, object }（额外字段直接抛错），契约 3.8 增补的
- *   HistoryQuery.objectFilter / exclude 未进当前 HEAD，且 ObjectSnapshot 没有死亡标记。
+ * - 入场替代的绑定层已合入（RIFT-260 的 src/replacement/bind.ts 能消费卡牌 replacement 能力、
+ *   识别 object-enters-board 的入场状态改写并把 effect.ready 规划成 ready action），golden 用真实
+ *   bindReplacement 绑定该能力并驱动了入口改写；缺的是生产侧把 CardProgram 的 replacement 注册进
+ *   管线的消费方（RIFT-257 的 programs/lifecycle 只在 attachProgramLifecycle 里做 binder 钩子，
+ *   默认 noop，链/回合流程没有调用方）。
+ * - 条件 "If a unit died this turn" 仍不可诚实求值：卡内用 Condition 的 compare(count) 形状表达，
+ *   但解释器求值 count 时执行的是 ctx.query(filter) 的**集合计数**（interpreter/expr.ts 忽略
+ *   subject 字段），"units-died-this-turn" 会被当成在场单位集合，条件会静默判错；Condition 代数里
+ *   没有历史谓词形态（只有 condition.history 指令，且它只作指令求值，不能作为 replacement 的 condition）。
+ *   契约 3.8 的 HistoryQuery.exclude/objectFilter 已在 interpreter/history.ts 落地，但那是指令侧通道，
+ *   不能作为替代能力的门控。不近似实现：不把条件改成 always、不用事后 effect.ready。
  *
- * 依赖：RIFT-89~91（replacement.enter / layers 批次）、契约 3.8 的历史查询增补与
- * RIFT-120 的卡牌程序替代注册适配。
+ * 依赖：RIFT-257（卡牌 replacement → 管线的生产注册）、替代条件的历史谓词求值。
  */
 const abilities: Ability[] = [
   // 807.1.b.3：省略数值 → Assault Value 1，不写 value 与写 value: 1 等价；
@@ -68,18 +70,18 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入：(1) 「I enter ready.」是入场替代效果（359.2.c / 369.3；805.6.a 说明不经过" +
-    "先横置再就绪的中间状态），契约 3.1 只能写成 replacement 能力，而卡牌替代能力到事件管线替代注册" +
-    "与执行的适配路径未合入（warwick-hunter、disposal-expert、vanguard-attendant 记录同一批次缺口）；" +
-    "effect.ready 明确不能模拟入场替代。" +
-    "(2) 条件「If a unit died this turn」需要本回合窗口内按对象特征过滤的死亡事件历史：已合入的 " +
-    "condition.history 原语（interpreter/history.ts）只接受 { scope, action, timingPoint, player, object }，" +
-    "遇到额外字段直接抛错，契约 3.8 增补的 HistoryQuery.objectFilter / exclude 未进当前 HEAD，" +
-    "ObjectSnapshot 也没有死亡标记，因此该条件无法诚实求值。" +
-    "[Assault]（807.1.b.3 省略数值 = Assault Value 1）按 807 只声明关键词与 807.1.b.3 的缺省值；" +
-    "其展开文件已合入但没有卡牌→图层的注册路径（registerContinuousEffect 无调用方，且 807.1.d 的" +
-    "Attacker designation 不是 ObjectSnapshot 特征，契约 3.8 combatRole 未进 HEAD）。" +
-    "依赖：RIFT-89~91（replacement.enter / layers 批次）、契约 3.8 历史查询增补、RIFT-120 卡牌注册适配。不近似实现。",
+    "(1) 「I enter ready.」是入场替代效果（359.2.c / 369.3；805.6.a 说明不经过先横置再就绪的中间状态），" +
+    "契约 3.1 的 replacement 形状与绑定层都已就绪（RIFT-260 的 src/replacement/bind.ts 识别 object-enters-board 的" +
+    "入场状态改写并把 effect.ready 规划成 ready action，golden 用真实 bindReplacement 绑定该能力并驱动入口改写），" +
+    "缺的是生产侧把 CardProgram 的 replacement 注册进管线的消费方：RIFT-257 的 programs/lifecycle 只露出默认 noop 的" +
+    "binder 钩子，链/回合流程没有调用方；effect.ready 不能模拟入场替代。" +
+    "(2) 条件「If a unit died this turn」不可诚实求值：卡内用 Condition 的 compare(count) 形状保留，但解释器对 count 的" +
+    "求值走 ctx.query(filter) 的集合计数（interpreter/expr.ts 忽略 subject），\"units-died-this-turn\" 会被当成在场单位集合，" +
+    "条件会静默判错；replacement 的 condition 也接不到 condition.history 指令（它只在指令体里求值），Condition 代数没有" +
+    "历史谓词形态，契约 3.8 的 HistoryQuery.exclude/objectFilter（interpreter/history.ts 已落地）不适用于替代门控。" +
+    "[Assault]（807.1.b.3 省略数值 = Assault Value 1）的 KeywordDef 已合入（RIFT-81），但同样缺卡牌→layers 的注册路径，" +
+    "且 807.1.d.1 的 designation 门控属 compare 条件、layers/engine.ts 不求值。" +
+    "依赖：RIFT-257（卡牌 replacement/static → 管线的生产注册）、替代条件的历史谓词求值与 layers 的 compare 求值。不近似实现。",
   abilities,
   sourceText:
     "[Assault] (+1 :rb_might: while I'm an attacker.)\n" +

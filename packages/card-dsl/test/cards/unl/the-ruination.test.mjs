@@ -25,6 +25,10 @@ test("unl-180-219 The Ruination: program validates and keeps its identity", () =
   assert.match(program.judgeReason, /355\.10\.d/);
   assert.match(program.judgeReason, /target\.many/);
   assert.match(program.judgeReason, /TargetSpec/);
+  // Re-review note: effect.repeat is not an honest route either — its action
+  // spec binds object fields from ctx.targets/ctx.picks only, so the untargeted
+  // 355.10.d set is still unrepresentable (see judgeReason).
+  assert.match(program.judgeReason, /repeat/);
 });
 
 test("unl-180-219 The Ruination: printed 9 energy + 3 Order power and one untargeted set kill", () => {

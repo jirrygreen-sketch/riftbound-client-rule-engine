@@ -24,7 +24,7 @@ test("unl-098-219 Targonian Visionary: identity, status, judgeReason and verbati
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /824\.1/);
   assert.match(program.judgeReason, /Level/);
-  assert.match(program.judgeReason, /XP/);
+  assert.match(program.judgeReason, /XP|xP/);
   assert.match(program.judgeReason, /continuous\.might/);
 });
 
@@ -54,20 +54,73 @@ test("unl-098-219 Targonian Visionary: the 11-XP gate keeps the 824.1.b.1 shape"
   assert.deepEqual(condition.left.filter, { player: "controller" });
 });
 
-test("unl-098-219 Targonian Visionary: no Level keyword expansion is registered in the merged engine", async () => {
+test("unl-098-219 Targonian Visionary: the merged [Level 11] KeywordDef expands the 11-XP predicate", async () => {
   const { keywordDefinitionsById } = await import(
     "../../../../engine-core/dist/effects/keywords/registry.generated.js"
   );
-  // The merged KeywordDef set is Accelerate…Weaponmaster; there is no "Level"
-  // entry, so [Level 11][>] cannot expand (824.1).
-  assert.equal(keywordDefinitionsById.has("Level"), false);
-  assert.equal(keywordDefinitionsById.has("Accelerate"), true);
+  // RIFT-268 landed effects/keywords/Level.ts; 824.1.a–b turn the printed
+  // "[Level 11][>]" into the predicate that makes the dependent ability active.
+  const definition = keywordDefinitionsById.get("Level");
+  assert.ok(definition, "the merged Level KeywordDef must be registered");
+  assert.equal(definition.valued, true);
+  assert.equal(definition.stacking, "separate");
+  const [predicate] = definition.expand({ value: 11, host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(predicate.kind, "static");
+  assert.equal(predicate.effect.kind, "condition.predicate");
+  assert.equal(predicate.effect.predicate, "level-active");
+  assert.equal(predicate.effect.query, "controller-xp");
+  assert.equal(predicate.effect.characteristic, "xp");
+  assert.equal(predicate.effect.operator, "gte");
+  assert.deepEqual(predicate.effect.threshold, { kind: "constant", value: 11 });
+  assert.equal(predicate.effect.id, "level:" + CANONICAL_ID + ":11:predicate");
+});
+
+test("unl-098-219 Targonian Visionary: the program's declared keyword matches the merged definition", async () => {
+  const { keywordDefinitionsById } = await import(
+    "../../../../engine-core/dist/effects/keywords/registry.generated.js"
+  );
+  // The declaration half of 824.1.a is expressible today; only the predicate
+  // consumers (XP evaluation plus the static-ability binder) are missing.
+  const { createProgramBinding } = await import("../../../../engine-core/dist/programs/index.js");
+  const { cardRegistryById } = await import("../../../dist/cards/registry.generated.js");
+  const binding = createProgramBinding({ cardPrograms: cardRegistryById });
+  const source = {
+    ref: { id: "visionary", zoneEntryId: 1 },
+    cardId: CANONICAL_ID,
+    name: "Targonian Visionary",
+    types: ["unit"],
+    tags: ["Mount Targon"],
+    keywords: [{ id: "Level", value: 11 }],
+    owner: "A",
+    controller: "A",
+    zone: "board",
+    location: { type: "battlefield", id: "battlefield-1" },
+    combatRole: null,
+    might: 6,
+    energy: 6,
+    power: ["Body"],
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false
+  };
+  const expanded = binding.inspect(source).abilities;
+  assert.equal(keywordDefinitionsById.has("Level"), true);
+  assert.deepEqual(expanded.map(ability => [ability.kind, ability.effect.kind]), [
+    ["static", "continuous.might"],
+    ["static", "condition.predicate"]
+  ]);
 });
 
 test.todo(
-  "unl-098-219 Targonian Visionary: expand [Level N][>] (CR 824.1.b.1: 'while you have N or more XP, this card gains [Text]') " +
-    "with dynamic Active/Inactive re-evaluation (824.1.c.1 / 824.1.d) — no kw-level expansion is merged"
+  "unl-098-219 Targonian Visionary: evaluate the level-active predicate against the controller's live XP " +
+    "(CR 824.1.c, 824.1.c.1, 824.1.d) — condition.predicate/value consumers must read PlayerSnapshot.xp"
 );
 test.todo(
-  "unl-098-219 Targonian Visionary: register the +4 Might arithmetic-layer effect and evaluate its 11+ XP gate — no merged producer turns a CardProgram static ability into a ContinuousEffectSpec, and the layer engine's conditionMatches does not evaluate compare (RIFT-91 card wiring + the XP predicate path)"
+  "unl-098-219 Targonian Visionary: attach the dependent +4 Might text to the predicate and register it as an " +
+    "arithmetic-layer ContinuousEffectSpec — no merged binder turns a CardProgram static ability into a layer " +
+    "registration, and layers/engine.ts conditionMatches does not evaluate compare (RIFT-91 follow-up / RIFT-257)"
 );

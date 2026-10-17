@@ -33,10 +33,37 @@ test("unl-025-219 Undying Legion: identity, status, judgeReason and verbatim sou
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   // 812.1.b.1 / 812.1.c: the dependent-keyword gate is named with its rule.
   assert.match(program.judgeReason, /812\.1/);
-  assert.match(program.judgeReason, /RIFT-82/);
+  assert.match(program.judgeReason, /RIFT-82|Legion\.ts/);
   // 366.1 / 356.1.a: the trash play permission and alternate cost.
   assert.match(program.judgeReason, /366\.1/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
+});
+
+test("unl-025-219 Undying Legion: the merged Legion KeywordDef publishes the history predicate without a consumer", async () => {
+  const { keywordDefinitionsById } = await import(
+    "../../../../engine-core/dist/effects/keywords/registry.generated.js"
+  );
+  // RIFT-82's expansion is a condition.predicate declaration whose payload names
+  // the 812.1.c one-card-different history query; the interpreter's
+  // condition.predicate branch only evaluates a companion Condition, so this
+  // payload has no evaluator yet (see judgeReason).
+  const definition = keywordDefinitionsById.get("Legion");
+  assert.ok(definition, "the merged Legion KeywordDef must be registered");
+  assert.equal(definition.valued, false);
+  assert.equal(definition.stacking, "single");
+  const [predicate] = definition.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(predicate.kind, "static");
+  assert.equal(predicate.effect.kind, "condition.predicate");
+  assert.equal(predicate.effect.link, "active");
+  assert.deepEqual(predicate.effect.history, {
+    scope: "turn",
+    action: "play",
+    player: "controller",
+    excluding: CANONICAL_ID
+  });
+  assert.equal(predicate.effect.operator, "gte");
+  assert.equal(predicate.effect.right, 1);
 });
 
 test("unl-025-219 Undying Legion: [Legion] is declared, not re-implemented", () => {
@@ -99,10 +126,12 @@ test("unl-025-219 Undying Legion golden: an insufficient Fury Power pool cannot 
 
 test.todo(
   "unl-025-219 Undying Legion: expand [Legion][>] (CR 812.1.b.1 'if you have played another card this turn, this" +
-    " card gains [Text]') with the 812.1.c card-identity exclusion through condition.history / HistoryQuery" +
-    " exclude (RIFT-82 plus the contract 3.8 history query landing)"
+    " card gains [Text]') with the 812.1.c card-identity exclusion — RIFT-82 publishes the predicate payload, but the" +
+    " condition.predicate consumer must translate its history/excluding fields (or HistoryQuery needs a card-identity" +
+    " exclusion) and a binder must attach the dependent [Text] (RIFT-257)"
 );
 test.todo(
   "unl-025-219 Undying Legion: the printed trash play permission (CR 366.1 / 420.1.a) and the 356.1.a alternate" +
-    " cost are consumed by Finalize legality and the cost plan (RIFT-89)"
+    " cost are consumed by Finalize legality and the cost plan — translateRestriction rejects play-from-zone without" +
+    " a rules adapter and cost wiring is RIFT-261"
 );
