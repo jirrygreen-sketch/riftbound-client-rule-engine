@@ -28,17 +28,24 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （190.6.d 的隐含 "you"）；与 Predict 步骤相互独立（359.3.e.11 尽可能执行），
  *   因此不写 linkedTo。
  *
- * status = judge-required：
- * 1. 5 张的 Predict 没有已合入的完整路径：effect.inspect 的非零 top 查看要求上游提供有序
- *    picksSpecId，而“上游按牌库顶提供有序 5 张”的生产接线未合入（契约 3.6 只有 zoneSlice
- *    保序原语，没有把它接进查看指令的调用方）；rad/command-attack 已记录同一缺口
- *    （单张 Predict 形状有已合入路径，5 张的没有）。
- * 2. 也没有把 [Predict 5] 作为关键词展开的 KeywordDef：effects/keywords/ 没有 predict.ts，
- *    RIFT-83 的 Vision 只内联了 Predict 1 的两步，本卡按 README 第 4 节把三步写进 body
- *    作为可审查的已支持部分，并按第 2 节保持 judge-required。
- * 3. 已支持部分：“Draw 2.” 与 Predict 三件套的结构由 golden 校验；effect.draw 的抽牌与
- *    effect.inspect + effect.recycle + effect.order 的组合在参考内核中按有序 picks 真实执行。
- * 依赖：RIFT-64/RIFT-66（有序牌库顶查询契约与 effect.inspect 接线）。
+ * 复核（2026-10-17，M2 覆盖率复核）：旧 judgeReason 的两条依赖均已落地——
+ * RIFT-358 把 PickSpec.zoneSlice 接进链的 Finalize（chain/picks/plan.ts 的
+ * finalizeOrderedPickPlans/lockSlice 以 ctx.zoneSlice 为唯一保序权威，绝不回退 query），
+ * RIFT-358 的 linked/exclude 又让“其余按任意顺序放回”能直接读前序实际结果。
+ * 因此 437.1.a 的三步不再需要调用方另行绑定：本卡自己声明有序来源，
+ * effect.inspect 的 top 作用域由该 zoneSlice 保序供给。
+ *
+ * status = executable：整卡能力都有 v1.5 依据，且已用真实 ProgramBinding +
+ * ChainEngine + EventPipeline（effects/testing/scenario）执行：
+ * 1. 「[Predict 5]」（437.1 / 437.1.a / 437.4 / 437.4.a）写成已合入的三件套——
+ *    effect.inspect（scope "top"、amount 5、0..5 张进入回收，有序来源由本卡的
+ *    zoneSlice 在 Finalize 锁定）→ effect.recycle（回收所选，417.1.a）→
+ *    effect.order（destination "top"、cardsPick 取“看过列表去掉已回收”的差集，
+ *    437.1.a 的“其余按任意顺序放回”；张数由实际结果决定，不写死）。
+ * 2. 「Draw 2.」是 effect.draw（414.1 / 414.3），与 Predict 步骤相互独立
+ *    （359.3.e.11），故不写 linkedTo。
+ * 3. [Predict X] 本身不是 805-832 的关键词表条目，而是 437 的 Limited Action；
+ *    卡侧只写动作，不重写关键词（cards/README.md 第 5 节）。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "reaction" },
@@ -50,13 +57,29 @@ const abilities: Ability[] = [
     },
     body: [
       {
+        // 「your Main Deck」= 施法者的主牌库（190.6.d 的隐含 "you"）。effect.inspect
+        // 的 player 需要单个 PlayerId 表达式，先读出控制者再用 linked-value 交给它
+        // （与已合入 unl/eclipse、ogn/stacked-deck 同一写法，不硬编码玩家 id）。
+        id: "clairvoyance.bind-controller",
+        op: "condition.value",
+        args: {
+          value: { kind: "object-property", object: "source", property: "controller" },
+          key: { kind: "constant", value: "controller" }
+        }
+      },
+      {
         // "[Predict 5]" 第 1 步：437.1 的私下查看 + 437.1.a 的“回收任意张”选择。
-        // 读牌库顶必须由上游按有序 picks 提供（契约 3.6 的 zoneSlice 语义）；
-        // 原语在缺有序范围时明确阻断，绝不用 query 猜顺序。
+        // 牌库顶 5 张的顺序由本卡自己的 PickSpec.zoneSlice 在 Finalize 锁定
+        // （chain/picks/plan.ts：zoneSlice 是唯一保序权威，query 顺序绝不被采用）。
         id: "clairvoyance.predict-look",
         op: "effect.inspect",
+        linkedTo: "clairvoyance.bind-controller",
         args: {
-          player: { kind: "constant", value: "controller" },
+          player: {
+            kind: "linked-value",
+            instructionId: "clairvoyance.bind-controller",
+            key: "controller"
+          },
           zone: { kind: "constant", value: "deck" },
           scope: { kind: "constant", value: "top" },
           amount: { kind: "constant", value: 5 },
@@ -66,7 +89,23 @@ const abilities: Ability[] = [
           choiceId: { kind: "constant", value: "clairvoyance.predict-select" },
           pickedKey: { kind: "constant", value: "clairvoyance.predict-looked" },
           choosePicksKey: { kind: "constant", value: "clairvoyance.predict-recycle" }
-        }
+        },
+        picks: [
+          {
+            id: "clairvoyance.predict-top-5",
+            // 契约 3.6 / RIFT-358：显式有序来源 = options: []、ordered: true、
+            // selection: "all"；Finalize 按真实牌库顺序锁定 5 张，子集选择在结算期的
+            // effect.inspect 里完成（437.1.a）。
+            options: [],
+            ordered: true,
+            selection: "all",
+            zoneSlice: {
+              zone: "deck",
+              from: "top",
+              count: { kind: "constant", value: 5 }
+            }
+          }
+        ]
       },
       {
         // "[Predict 5]" 第 2 步：417.1 回收所选（417.1.a 主牌库牌回主牌库底）。
@@ -75,34 +114,43 @@ const abilities: Ability[] = [
         linkedTo: "clairvoyance.predict-look",
         args: {
           objects: {
-            kind: "linked",
+            kind: "linked-value",
             instructionId: "clairvoyance.predict-look",
             key: "clairvoyance.predict-recycle"
           }
         }
       },
       {
-        // "[Predict 5]" 第 3 步：437.1.a 的“其余按任意顺序放回顶部”；
-        // 张数 = 5 - 实际回收张数，按链接值计算而不是写死。
+        // "[Predict 5]" 第 3 步：437.1.a 的“其余按任意顺序放回顶部”。
+        // “其余”= 实际看过的列表（linked）去掉实际回收的身份（exclude），
+        // 由 RIFT-358 的 linked/exclude 按完整身份做保序差集；张数由实际结果决定，
+        // 不写死 5-N，也绝不用当前区域 count 反推。
         id: "clairvoyance.predict-put-back",
         op: "effect.order",
         linkedTo: "clairvoyance.predict-recycle",
         args: {
           destination: { kind: "constant", value: "top" },
-          count: {
-            kind: "arithmetic",
-            operator: "sub",
-            operands: [
-              { kind: "constant", value: 5 },
-              {
-                kind: "linked-value",
-                instructionId: "clairvoyance.predict-recycle",
-                key: "recycledCount"
-              }
-            ]
-          },
+          cardsPick: { kind: "constant", value: "clairvoyance.predict-rest" },
           chooseOrder: { kind: "constant", value: true }
-        }
+        },
+        picks: [
+          {
+            id: "clairvoyance.predict-rest",
+            options: [],
+            ordered: true,
+            selection: "all",
+            linked: {
+              kind: "linked-value",
+              instructionId: "clairvoyance.predict-look",
+              key: "clairvoyance.predict-looked"
+            },
+            exclude: {
+              kind: "linked-value",
+              instructionId: "clairvoyance.predict-recycle",
+              key: "recycled"
+            }
+          }
+        ]
       },
       {
         // "Draw 2." — 414.3；与 Predict 步骤相互独立（359.3.e.11），故不写 linkedTo。
@@ -118,17 +166,7 @@ export default {
   canonicalCardId:
     "card.hash-932322ea9e594610dbc296c7b27a00cf97a5637134ab5407c3535c195d48e658",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "两处依赖未合入，均不近似实现：(1)「[Predict 5]」（437.1 / 437.1.a / 437.4）的私下查看需要上游按牌库顶提供有序 " +
-    "picksSpecId：effect.inspect 明确要求非零 top 查看由上游提供保序来源（契约 3.6 的 zoneSlice 语义），" +
-    "缺失时明确 negated/impossible，绝不用无序 query 近似；把 zoneSlice 接进查看指令的生产接线未合入" +
-    "（rad-013-167 command-attack 记录同一缺口：单张 Predict 有已合入路径，5 张的没有）。" +
-    "(2) effects/keywords/ 没有 [Predict X] 的 KeywordDef（RIFT-83 的 Vision 只内联了 Predict 1 的两步），" +
-    "本程序按 README 第 4 节把 437.1.a 的三步（inspect → recycle → order，张数按 linked-value 计算）写进 body 作为可审查的已支持部分，" +
-    "并按第 2 节保持 judge-required——能写出结构不等于整卡可执行。" +
-    "已支持部分：「Draw 2.」是已合入的 effect.draw（414.3），golden 真实执行；Predict 三步在参考内核中按有序 picks 真实执行。" +
-    "依赖：RIFT-64/RIFT-66（有序牌库顶查询契约与 effect.inspect 接线）。",
+  status: "executable",
   abilities,
   sourceText:
     "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +

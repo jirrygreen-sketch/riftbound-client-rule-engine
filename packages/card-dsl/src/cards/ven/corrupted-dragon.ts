@@ -1,6 +1,10 @@
 import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
 
-/** CR v1.5 194.3/194.3.a、359.2.c、383.3.a、421.1。首段 may 属 Finalize，可选触发不再重复包 choice.optional。 */
+/**
+ * CR v1.5 194.3/194.3.a、359.2.c、383.3.a、421.1。首段 may 属 Finalize，可选触发不再重复包 choice.optional。
+ *
+ * 复核（2026-10-17，M2 覆盖率复核）：三条缺口逐项实测仍成立（见 judgeReason 与 golden）。
+ */
 const moveEnemiesHome: Instruction = {
   id: "corrupted-dragon.move-enemies-home",
   op: "effect.move",
@@ -82,7 +86,20 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "入场替代仍缺 194.3/194.3.a 的当前 Victory Score 与自身分数的条件读取；现有 Expr 不能读取玩家分数或可变胜利分数，原条件字符串仅作描述。攻击能力的 mightLte: 5 需要有效 Might 数值谓词（143.2.a，RIFT-359），programs/filters 还不能翻译 sameLocationAs 的符号位置锚点。此外 combat/ 尚未发出 attack-declared，需要把实际取得战斗身份的路径接入现有事件管线。",
+    "三处当前缺口（2026-10-17 复核，均改装为实测证据）：" +
+    "(1) 入场替代（194.3/194.3.a、359.2.c）仍缺当前 Victory Score 与自身分数的条件读取：" +
+    "PlayerSnapshot 只有 score、没有 victoryScore 读数，Condition 的谓词集合（RIFT-359 增补的 " +
+    "played-from-hand / played-from-zone / event-printed / result）也不含任一玩家分数或可变胜利阈值，" +
+    "Expr 也没有对应读取路径；硬编码默认 8 就是臆造，故条件字符串仅作描述。" +
+    "(2) 攻击能力的 mightLte: 5 与 sameLocationAs 都还不能进生产目标计划：实测 translateObjectFilter " +
+    "对 mightLte 与 sameLocationAs 都抛 “Unsupported filter field”（programs/filters.ts 的 allowed 集合" +
+    "只有 objectId/cardId/type/zone/location/controller/owner/states/tags/characteristics），" +
+    "因此触发注册在翻译阶段就失败；143.2.a 的有效 Might 阈值谓词（RIFT-359 只覆盖印刷特征比较）与" +
+    "符号位置锚点的翻译都仍未合入。" +
+    "(3) combat/ 尚未发出 attack-declared：事件定义存在（events/timing-points.ts 的 emittedBy: \"combat\"），" +
+    "但 combat/flow.ts 的 advance() 在进入 Combat 时直接抛 TurnCombatBlockedError('combat-start-transaction')，" +
+    "没有任何 emit('attack-declared') 调用，实际取得战斗身份的路径未接入事件管线。" +
+    "已合入并用真实内核执行验证的部分：effect.move 的 objects/to（421.1 的 controller-base）与「any number」含 0（355.13）。",
   abilities,
   sourceText:
     "If your score is not within 3 points of the Victory Score, I enter ready.\n" +
