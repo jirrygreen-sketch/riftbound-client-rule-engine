@@ -50,7 +50,7 @@ test("ogn-060-298 Mask of Foresight: program passes validateCardProgram", () => 
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /740\.2\.a/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /载荷/);
   assert.equal(
     program.sourceText,
     "When a friendly unit attacks or defends alone, give it +1 :rb_might: this turn."
@@ -67,7 +67,7 @@ test("Mask of Foresight golden: both trigger bodies register the temporary +1 Mi
     const targetId = instruction.targets[0].id;
     const base = world().unit("attacker", { owner: "A", might: 3 }).build();
     const kernel = base.clone({ sourceSnapshot: base.getObject("attacker"), source: base.ref("attacker") });
-    // The trigger payload binding ("it") is the RIFT-257 gap; lock the target
+    // The trigger payload binding ("it") is still a production gap; lock the target
     // exactly as Finalize would supply the triggering unit.
     kernel.setTargets(targetId, [kernel.ref("attacker")]);
     const bound = chainContext(kernel);
@@ -154,8 +154,8 @@ test("Mask of Foresight structure: attack and defend triggers each granting +1 M
 
 test.todo(
   "Mask of Foresight: the +1 Might for the rest of the turn needs the layers consumer for " +
-    "continuous.might — merged (RIFT-258, golden executes it); the registration still has to be " +
-    "driven from the CardProgram trigger (RIFT-257) instead of a locked golden target."
+    "continuous.might — merged and golden-executed; production attack/defense event payload " +
+    "binding still has to replace the locked golden target."
 );
 
 test.todo(
@@ -168,6 +168,5 @@ test.todo(
 test.todo(
   "Mask of Foresight: “give it …” must bind the triggering unit itself (the attack-declared / " +
     "defense-declared payload object), not an arbitrary friendly unit; that payload-to-effect binding " +
-    "and the CardProgram trigger registration are not merged (RIFT-257), and the attack-declared / " +
-    "defense-declared producers belong to the combat workstream (RIFT-124)."
+    "and the attack-declared / defense-declared event producers are not merged."
 );

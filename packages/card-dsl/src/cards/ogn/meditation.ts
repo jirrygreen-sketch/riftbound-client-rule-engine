@@ -19,11 +19,9 @@ import type { CardProgram } from "../../ir/index.js";
  *   (415.4, naming this card) belongs to cost.exhaust and the finalized cost
  *   plan, not to the effect primitive. The merged cost planner accepts
  *   `exhaust` payments and optional additional components (the golden builds
- *   and pays the real plan), but the frozen CostSpec (contract 3.1) has no
- *   field for an "optional additional exhaust one friendly unit" component and
- *   no merged producer reads the card's `cost.additional` declaration into a
- *   CostPlanInput.optionalAdditional entry, so the play pathway cannot see it
- *   (RIFT-257/261).
+ *   and pays the real plan), but `programs/play.ts` still rejects `cost.additional`
+ *   instead of converting the declaration to a CostPlanInput.optionalAdditional entry,
+ *   so the play pathway cannot see it.
  * - "If you do, draw 2. Otherwise, draw 1." is the 359.2-style branch on the
  *   cost result: effect.draw x2 and effect.draw x1 are both merged (and both
  *   execute in the golden), but the discriminator needs the paid-cost result
@@ -40,11 +38,11 @@ const meditation = {
     "缺“可选追加费用（Optional Additional Cost）”的表达：CR 204.2/356.2.b 与 355.1.a 规定它在 Finalize 的选择阶段决定，" +
     "且按 CR 415.4 必须以“能够完成”为前提（费用式横置属于 cost.exhaust，effect.exhaust 文件头也把这场景划给费用计划）；" +
     "合并的费用计划能构造并支付 exhaust 支付动作与 optional-additional 组件（golden 已验证真实支付），" +
-    "但冻结的 CostSpec（契约 3.1）没有承载“可选：横置一个友方单位”组件的位置，也没有生产方读取本卡的 cost.additional 声明" +
-    "生成 optionalAdditional 条目（RIFT-257/261 程序/费用绑定），打出流程因此看不到这条可选费用。" +
+    "但 programs/play.ts 仍拒绝本卡的 cost.additional 声明，没有把它转换成 CostPlanInput.optionalAdditional 条目，" +
+    "打出流程因此看不到这条可选费用。" +
     "后续“If you do, draw 2. Otherwise, draw 1.”需要按费用结果分支" +
     "（condition.result 一类结果绑定，调研 46 个身份），当前 IR 没有该绑定；effect.draw 本身已合入但分支无法判定。" +
-    "依赖：RIFT-257/261（费用绑定与原语）+ 费用回执结果绑定（condition.result 属原语清单未合入项）。不近似实现。",
+    "依赖：cost.additional → CostPlanInput.optionalAdditional 的生产接线 + 费用回执结果绑定（condition.result 属原语清单未合入项）。不近似实现。",
   sourceText:
     "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +
     "As an additional cost to play this, you may exhaust a friendly unit. " +
