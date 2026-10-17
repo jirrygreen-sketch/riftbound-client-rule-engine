@@ -35,8 +35,8 @@ test("sfd-080-221 Bellows Breath: identity, ruleset, status and verbatim text", 
 
 test("sfd-080-221 Bellows Breath: judgeReason names the group requirement and the Repeat wiring", () => {
   assert.match(program.judgeReason, /355\.11/);
-  assert.match(program.judgeReason, /RIFT-90/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /355\.11\.b/);
+  assert.match(program.judgeReason, /optionalAdditional/);
 });
 
 test("sfd-080-221 Bellows Breath: [Action] keyword plus the printed [Repeat] additional cost", () => {
@@ -156,11 +156,11 @@ test("sfd-080-221 Bellows Breath golden: only the still-legal member of a mistar
 test.todo(
   "sfd-080-221 Bellows Breath: 'at the same location' is a 355.11 group-targeting requirement — all chosen units " +
     "must share one Location, with the resolution-time legal-subset re-choice of 355.11.b. The merged target plan " +
-    "only enforces per-member legality and min/max (RIFT-90), so kind \"group\" is declared but not enforced."
+    "only enforces per-member legality and min/max, so kind \"group\" is declared but not enforced."
 );
 
 test.todo(
   "sfd-080-221 Bellows Breath: [Repeat] :rb_energy_1::rb_rune_mind: must be collected at Finalize and the paid " +
-    "instance count fed to the interpreter's repeat node (CR 820.1.c.1 / 820.1.d.1; RIFT-89 cost plan plus the " +
-    "wiring named in effects/keywords/Repeat.ts)."
+    "instance count fed to the interpreter's repeat node (CR 820.1.c.1 / 820.1.d.1; the merged Repeat keyword, " +
+    "effect.repeat primitive and cost-plan optionalAdditional input exist, but no card-to-Finalize wiring)."
 );
