@@ -156,28 +156,11 @@ test("ogn-055-298 Wielder of Water golden: the production static binder does not
   handle?.unbind();
 });
 
-test("ogn-055-298 Wielder of Water: the static binder's filter bridge over-matches enemies into the 740.2.a friendly count (documented gap, pinned)", () => {
-  // layers/filter.ts:62 evaluates controller candidates against each
-  // candidate's own controller, so controller:'self' matches every
-  // candidate at the location and cannot express the rule's
-  // friendly-only scope. The pin asserts the documented defect in its
-  // over-matching direction: an enemy at the same location is wrongly
-  // counted as friendly, so a lone-attacker board that SHOULD be alone
-  // (rule truth: +2 might, 740.2.a) is wrongly denied the bonus
-  // (observed: might 2). A friendly co-located blocker over-matches the
-  // same way; the rule also denies the bonus there, so that outcome is
-  // rule-correct only by coincidence. Both directions are pinned below.
-  // Fixing the defect and flipping these pins is the dependency named
-  // in judgeReason.
-  const kernel = world().player("A")
-    .unit("wielder", { might: 2, combatRole: "defender", controller: "A", owner: "A", location: { type: "battlefield", id: "bf-1" } })
-    .unit("enemy-here", { might: 2, controller: "B", owner: "B", location: { type: "battlefield", id: "bf-1" } })
-    .build();
-  const engine = chainEngineFor(kernel);
-  const handle = createEngineStaticBinder(engine).bindStatic(staticAbility, kernel.getObject("wielder"));
-  assert.equal(engine.layers.evaluate(kernel.ref("wielder")).might, 2);
-  handle?.unbind();
-});
+test.todo(
+  "ogn-055-298 Wielder of Water: same-location enemy must remain alone under 740.2.a " +
+    "(rule-correct expected Might 4); current static binder returns Might 2 because its " +
+    "relative-controller count path is not implemented."
+);
 
 test("ogn-055-298 Wielder of Water golden: a friendly co-located unit suppresses the bonus (over-match direction, outcome matches the rule)", () => {
   // The same over-match counts a friendly blocker; 740.2.a also denies

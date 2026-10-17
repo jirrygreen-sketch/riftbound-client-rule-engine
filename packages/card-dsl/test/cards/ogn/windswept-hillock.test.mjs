@@ -41,7 +41,9 @@ test("Windswept Hillock program validates and is judge-required", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Ganking/);
   assert.match(program.judgeReason, /sameLocationAs/);
-  assert.match(program.judgeReason, /zones\/movement/);
+  assert.match(program.judgeReason, /static binder/);
+  assert.match(program.judgeReason, /sameLocationAs/);
+  assert.match(program.judgeReason, /hasGanking:false/);
   assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -152,7 +154,6 @@ test("Windswept Hillock: the merged movement query consumes the expansion's perm
 });
 
 test.todo(
-  "Windswept Hillock movement: the produced continuous.movement permission needs a production consumer — " +
-    "zones/movement.ts still reads caller-supplied readiness/hasGanking records instead of the layered " +
-    "permission (144.4.c / 144.4.c.1)"
+  "Windswept Hillock production static binder must grant Ganking to unit-here " +
+    "by resolving the source-relative sameLocationAs filter; current binder yields no keyword."
 );
