@@ -49,12 +49,11 @@ import type { CardProgram } from "../../ir/index.js";
  *    play's destination Battlefield, so neither the frequency nor the "here"
  *    restriction can be evaluated (the filter keys below are documented
  *    placeholders);
- * 3. no merged subscriber registers a CardProgram's triggered ability as a
- *    TriggerRegistration, and 190.6.c's "the named player controls it"
- *    resolution has no producer.
- * Dependencies: an event-player selector, a per-player once frequency and a
- * play-location payload (contract change requests) plus RIFT-31/RIFT-33 and
- * contract §7.2 batch 5. Nothing is approximated.
+ * 3. CardProgram trigger registration is merged, but this declaration still cannot be translated because
+ *    the event-player selector, per-player once key, and card-played destination/non-token payload are not
+ *    present in the frozen event contract. Nothing is approximated.
+ * Dependencies: event-player selector, per-player once frequency, and play-location/non-token payload
+ * (contract change requests; location workstream RIFT-357).
  */
 export default {
   canonicalCardId:
@@ -69,8 +68,9 @@ export default {
     "TriggerSpec.once 的 per-turn/per-combat/per-chain/per-game 以单个注册 + 来源为频度键（frequencyKey 用 source.ref），" +
     "不是每名事件玩家各一次；封闭的 card-played 载荷也不暴露打出目的地战场，因此频度与 here 限制都无法求值" +
     "（程序里的 once 是 printed 频度的记录占位，here/nonToken 键同样记录意图）。" +
-    "(3) 没有已合入订阅方把 CardProgram 的 triggered ability 注册成 TriggerRegistration，190.6.c「由文本指名的玩家控制该能力」的解析缺失。" +
-    "依赖：事件玩家选择器、per-player once 频度、打出地点载荷（契约变更请求）+ RIFT-31/RIFT-33（契约 §7.2 批 5 触发注册）。" +
+    "(3) CardProgram → TriggerRegistration 的生产绑定已合入，但本声明仍缺事件玩家选择器、per-player once 频度，以及 card-played 的打出地点/非 token 载荷，" +
+    "因此无法把 190.6.c 的选择者和 here 限制翻译成可执行过滤器。" +
+    "依赖：事件玩家选择器、per-player once 频度与打出地点/非 token 载荷（契约变更请求；位置工作流 RIFT-357）。" +
     "golden 用参考内核真实执行可选包装与 effect.move（移动到该单位自己的 Base），并用目标过滤器形状断言「另一个、你控制、在此」的意图。",
   sourceText:
     "The first time a player plays a non-token unit here each turn, they may move another unit they control here to its base.",

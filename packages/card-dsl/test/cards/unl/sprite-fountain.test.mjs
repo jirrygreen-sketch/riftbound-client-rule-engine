@@ -28,7 +28,7 @@ test("unl-078-219 Sprite Fountain: program validates and is judge-required", () 
   assert.match(program.judgeReason, /Sprite token/);
   assert.match(program.judgeReason, /Temporary/);
   assert.match(program.judgeReason, /383\.4\.g/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /trigger\.leave/);
 });
 
 test("unl-078-219 Sprite Fountain: identity, ruleset, status and the verbatim three-line source text", () => {
@@ -206,13 +206,8 @@ test.todo(
     "effect.ready is not equivalent"
 );
 test.todo(
-  "unl-078-219 Sprite Fountain: the Temporary keyword expansion (816.1.b / 816.1.c) must subscribe to " +
-    "beginning-start and kill the host before scoring — the KeywordDef body executes above, but no card program's " +
-    "keyword abilities are registered at runtime (RIFT-257)"
-);
-test.todo(
   "unl-078-219 Sprite Fountain: activate/repeat a named triggered ability (CR 383.4.g.1) through an internal " +
-    "chain entry for the Deathknell effect; the authored opcode is an unregistered placeholder"
+    "chain entry for the Deathknell effect once the named-trigger activation path is available"
 );
 test.todo(
   "unl-078-219 Sprite Fountain: the Deathknell expansion still references the unmerged trigger.leave primitive " +

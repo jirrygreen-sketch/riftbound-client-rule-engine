@@ -29,8 +29,9 @@ test("unl-084-219 Sprite Queen: identity, status, judgeReason and verbatim sourc
   assert.match(program.judgeReason, /Sprite/);
   assert.match(program.judgeReason, /143\.4/);
   assert.match(program.judgeReason, /184\.1/);
+  assert.match(program.judgeReason, /EventPattern/);
   assert.match(program.judgeReason, /RIFT-62/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /controller-relative/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -91,8 +92,4 @@ test.todo(
 test.todo(
   "unl-084-219 Sprite Queen: name 'to your base' as a controller-relative LocationRef for effect.token — " +
     "contract change request (effect.move already accepts \"controller-base\", effect.token does not)"
-);
-test.todo(
-  "unl-084-219 Sprite Queen: the [Temporary] keyword expansion kills each token at its controller's next " +
-    "Beginning Phase start before scoring (CR 816.1.b, RIFT-265 / RIFT-120)"
 );

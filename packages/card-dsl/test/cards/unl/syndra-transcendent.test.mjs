@@ -26,8 +26,8 @@ test("unl-146-219 Syndra, Transcendent: identity, status, judgeReason and verbat
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /820\.1\.c/);
-  assert.match(program.judgeReason, /RIFT-91/);
-  assert.match(program.judgeReason, /RIFT-89|RIFT-261/);
+  assert.match(program.judgeReason, /Finalize/);
+  assert.match(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /showdown/i);
 });
 
@@ -67,9 +67,9 @@ test.todo(
 );
 test.todo(
   "unl-146-219 Syndra, Transcendent: grant [Repeat] to your spells through the ability layer " +
-    "(CR 479.3) and carry the printed cost through KeywordDef params.cost (contract 3.8.3) — RIFT-91"
+    "(CR 479.3) and feed the layer-granted keyword plus its printed cost into the spell's KeywordDef/Finalize path"
 );
 test.todo(
   "unl-146-219 Syndra, Transcendent: charge the granted Repeat's additional cost at play time and " +
-    "repeat the spell's effect (CR 820.1.c.1 / 820.1.d.1 / 820.3) — RIFT-89 / RIFT-261"
+    "repeat the spell's effect (CR 820.1.c.1 / 820.1.d.1 / 820.3) through the Repeat payment and paid-count consumer"
 );

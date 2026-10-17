@@ -25,16 +25,15 @@ import type { CardProgram } from "../../ir/index.js";
  *   所以不额外声明横置以外的状态改变。
  *
  * status: judge-required —— 依赖未合入的部分，均不近似实现:
- * - 替代绑定点已合入（RIFT-260 的 replacement/）：bindReplacement 支持
- *   replacement.event 的 event/window/instead 声明，window "next-time-this-turn"
- *   是绑定回合内的一次性窗口；被替代事件的对象用链接选择器
- *   { linked: "replacement.object" } 绑定（355.10.c 的 "it"），planner 也支持
- *   heal / exhaust 这类封闭动作。golden 已用真实 move-zone/事件管线验证到这一层。
- *   仍缺的是卡牌程序 → 该绑定点的生产接线（programs/ 适配器没有运行时调用方，RIFT-257）。
+ * - 替代绑定点已合入：bindReplacement 支持 replacement.event 的
+ *   event/window/instead 声明，window "next-time-this-turn" 是绑定回合内的一次性窗口；
+ *   被替代事件的对象用链接选择器 { linked: "replacement.object" } 绑定（355.10.c 的
+ *   "it"），planner 也支持 heal / exhaust 这类封闭动作。golden 已用真实
+ *   move-zone/事件管线验证到这一层。
  * - 「Choose a friendly unit」按 355.10.c 是目标并已用 TargetSpec 编码；但替代体里的
  *   "it" 目前只能写成链接选择器，而**替代登记指令自己的 targets**（选择本身）在
  *   replacement 能力上没有承载位置：能力级 replaces/with 结构不含 TargetSpec，
- *   所以「选择的目标 → 被替代事件对象」这一步仍需要程序绑定层补齐（RIFT-257）。
+ *   所以「选择的目标 → 被替代事件对象」这一步仍需要卡牌程序绑定层补齐。
  * - 「recall it」不可执行：effect.move 的 mode "recall" 被原语显式阻断（封闭
  *   move-location 动作无法区分 Recall 与 Move，CR 457–460），不得用普通移动近似
  *   （458.1 会错误触发 Move 触发）。
@@ -46,7 +45,7 @@ import type { CardProgram } from "../../ir/index.js";
  * 形状按已合入的 ogs/highlander-yi（同型措辞）书写；golden 对替代登记、被替代事件
  * 对象绑定与替代体里的 heal / exhaust 用真实解释器/事件管线执行。
  *
- * 依赖：RIFT-257（卡牌程序 → 替代能力的生产接线）、Recall 独立动作、
+ * 依赖：卡牌程序到替代能力的绑定与 TargetSpec 传递、Recall 独立动作、
  * replacement.event 的 instead 字段与 planner 的 heal 缺省语义。
  */
 const program = {
@@ -54,10 +53,11 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "四处依赖未合入：(1) 替代绑定点已合入（RIFT-260 的 replacement/：bindReplacement 支持 replacement.event 的 " +
+    "四处依赖未合入：(1) 引擎替代绑定点已合入（bindReplacement 支持 replacement.event 的 " +
     "event/window/instead，window \"next-time-this-turn\" 是绑定回合内的一次性窗口，被替代事件的对象由链接选择器 " +
     "\"replacement.object\" 绑定），golden 已用真实事件管线验证到这一层；仍缺卡牌程序 → 该绑定点的生产接线" +
-    "（RIFT-257 的 programs/ 适配器没有运行时调用方）。(2) 印刷的「the next time」一次性窗口在替代登记里可表达，" +
+    "但本卡把替代登记写在 play body 中，而现有卡牌程序绑定只消费 replacement ability，" +
+    "尚未把本卡的 TargetSpec 选择传入替代登记。(2) 印刷的「the next time」一次性窗口在替代登记里可表达，" +
     "但「选择的目标 → 被替代的事件对象」这一步仍需程序绑定层补齐——替代能力（replaces/with）没有承载 TargetSpec 的位置，" +
     "登记指令自己的 targets 不会被 replacement 绑定消费；卡内保留 TargetSpec 是为了 355.10.c 的目标语义与审查。" +
     "(3) 被替代事件的对象用已合入的 { linked: \"replacement.object\" } 选择器绑定（355.10.c 的 \"it\"）；" +
@@ -67,7 +67,7 @@ const program = {
     "数组（实测 \"replacement.event instead must be an instruction body\"）；planner 的 effect.heal 在不给 amount 时按 1 计划，" +
     "而 419.1 的「heal it」是清除全部已标记伤害。" +
     "「Choose a friendly unit」按 355.10.c 是目标并已用 TargetSpec 编码；替代体里的 heal（419.1）与 exhaust（415.1）" +
-    "是已合入指令，在 golden 中经真实事件管线执行。依赖：RIFT-257（卡牌程序 → 替代能力的生产接线）、Recall 独立动作。",
+    "是已合入指令，在 golden 中经真实事件管线执行。依赖：卡牌程序到替代能力的绑定与 TargetSpec 传递、Recall 独立动作。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {

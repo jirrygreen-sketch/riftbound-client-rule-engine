@@ -40,12 +40,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *    （create on Chain → play）已可用，并把 sprite 名的拒绝作为证据记录。
  * 2. “ready” 入场状态不可表达（143.4 / 185.2.d），见上；目的地“to your base”本身可写成
  *    控制器基地 { type: "base", player: "controller" }。
- * 3. [Temporary] 的 KeywordDef 与展开都已合入，但 816.1.b/816.1.c 的 beginning-start
- *    订阅仍无生产接线：卡牌程序 → 关键词展开 → 时点/链 的适配器（programs/）没有运行时
- *    调用方（RIFT-257）。
- * 4. [Deathknell] 展开引用的 trigger.leave 原语未合入；“Repeat this gear's play effect.”
+ * 3. [Temporary] 的 KeywordDef 与 beginning-start 展开已合入，但当前封闭 EventPattern
+ *    词表不接受该触发过滤器，故含 Temporary 的完整 CardProgram 生命周期仍不能注册。
+ * 4. [Deathknell] 展开引用的 trigger.leave 原语未合入；显式的“Repeat this gear's play effect.”
  *    需要 383.4.g.1 的命名触发内部链入口（ogn/reckoners-arena 同样记录的缺口），
- *    合并内核没有该 opcode。
+ *    当前内核仍没有该命名触发入口。
  * 效果正文（打出 Sprite token）已按 187.2 / 440.2.c / 185.2.a 的形状写出，但被 (1) 阻断；
  * golden 对被阻断的 token 名、可解析定义的交接、Temporary 展开体与 Deathknell 的 kill 半段
  * 给出真实执行证据，其余保持 test.todo；不近似实现。
@@ -90,8 +89,7 @@ const abilities: Ability[] = [
     body: [
       {
         // 808.1.b.1 的 [Effect] = “Repeat this gear's play effect.”；383.4.g.1 的命名触发
-        // 入口没有合并实现（该 opcode 未注册，见文件头第 4 点），这里是保留形状的描述，
-        // 不是可执行数据。
+        // 内部链入口尚未接入，见文件头第 4 点；这里保留可审查的形状，尚不声称整卡可执行。
         id: "sprite-fountain.repeat-play-effect",
         op: "effect.activate-named-trigger",
         args: {
@@ -115,11 +113,11 @@ export default {
     "golden 用可解析定义证明同一 mode \"play\" 的「链上创建 + 打出」交接已可用，并把 sprite 名的 blockedReason 记录为证据。" +
     "(2) “ready” 是入场状态改写（143.4 / 185.2.d），effect.token 明确 “Entry overrides are not supported”；" +
     "先创建再补一次 effect.ready 会产生多余的“成为就绪”事件并错过入场规定，故不近似。" +
-    "(3) [Temporary] 的 KeywordDef 与展开已合入（RIFT-265：816.1.b 的 beginning-start 消灭触发，golden 执行其 body），" +
-    "但仍无卡牌程序 → 关键词展开 → 时点/链 的生产接线（programs/ 适配器没有运行时调用方，RIFT-257），订阅不会真的挂上。" +
+    "(3) [Temporary] 的 KeywordDef 与 beginning-start 展开已合入（golden 执行其 body），但当前封闭 EventPattern 词表不接受该触发过滤器，" +
+    "所以含 Temporary 的完整 CardProgram 生命周期仍不能注册。" +
     "(4) [Deathknell] 展开体引用的 trigger.leave 原语未合入；“Repeat this gear's play effect.” 需要 383.4.g.1 的命名触发内部链入口" +
-    "（ogn/reckoners-arena 同样记录的缺口），合并内核没有对应 opcode。" +
-    "依赖：RIFT-82（kw-deathknell / trigger.leave）、effect.token 的定义表扩展与入场状态支持、RIFT-257（卡牌程序绑定）、" +
+    "（ogn/reckoners-arena 同样记录的缺口），当前内核没有对应命名触发入口。" +
+    "依赖：RIFT-82（kw-deathknell / trigger.leave）、effect.token 的 Sprite 定义与入场状态支持、" +
     "以及 383.4.g.1 的命名触发入口。不近似实现。",
   abilities,
   sourceText:

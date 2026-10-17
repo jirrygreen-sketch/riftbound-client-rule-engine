@@ -43,7 +43,7 @@ test("unl-167-219 Starhound: identity, status, judgeReason and verbatim sourceTe
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /tags/);
   assert.match(program.judgeReason, /133\.8/);
-  assert.match(program.judgeReason, /owner/);
+  assert.match(program.judgeReason, /析取|disjunctive/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -138,10 +138,5 @@ test("unl-167-219 Starhound golden: an empty trash yields nothing to return", ()
 
 test.todo(
   "unl-167-219 Starhound: a disjunctive tag filter (\"a Bird, Cat, Dog, or Poro\", 133.8) for the TargetSpec — " +
-    "ObjectFilter.tags is an AND over every listed tag, so the four-way choice cannot be expressed yet (RIFT-90)"
-);
-test.todo(
-  "unl-167-219 Starhound: Finalize resolves the TargetSpec's owner \"self\" against the ability controller and rejects " +
-    "opponent-trash cards (108.2.a / 355.10.a); the production chain normalizes it, the reference path used above pre-locks " +
-    "the target (RIFT-90 / RIFT-120)"
+    "ObjectFilter.tags is an AND over every listed tag, so the four-way choice cannot be expressed yet (RIFT-357)"
 );

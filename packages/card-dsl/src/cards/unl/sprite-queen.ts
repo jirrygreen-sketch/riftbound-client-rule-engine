@@ -27,9 +27,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - “to your base” 需要相对能力控制者的 LocationRef：effect.token 的 location 只接受字面
  *   LocationRef，卡程序没有构建 controller-base 的表达式形态（effect.move 有 "controller-base"，
  *   effect.token 没有；ogn/altar-to-unity 记录同一缺口）。
- * - [Temporary]（816）的关键词展开与 keyword→时点/链注册（RIFT-265 + RIFT-120）未接线，
- *   token 不会在其控制者 Beginning Phase 开始时被消灭。
- * 依赖：RIFT-62（token 定义表与入场状态）、RIFT-120（触发注册）、RIFT-265（Temporary）、
+ * - Sprite token 自身需要的 [Temporary] KeywordDef 已合入，但本卡的 beginning-start 触发
+ *   仍不能通过当前封闭 EventPattern 词表注册；只有在 token 定义、入场状态和
+ *   controller-relative location 可表达且该触发过滤器可注册后，token 才能进入这条路径。
+ * 依赖：Sprite token 定义表、入场状态、beginning-start EventPattern 注册与
  * effect.token 的 controller-relative location 契约变更请求。
  */
 const abilities: Ability[] = [
@@ -95,8 +96,9 @@ const program = {
     "「成为就绪」事件，不是同一语义。" +
     "(3)「to your base」需要相对能力控制者的 LocationRef：effect.token 的 location 只接受字面 LocationRef，" +
     "卡程序没有 controller-base 的表达式形态（effect.move 有 \"controller-base\"，effect.token 没有；ogn/altar-to-unity 同缺口）。" +
-    "(4) [Temporary]（816）的关键词展开与 keyword→时点/链注册未接线（RIFT-265 定义 + RIFT-120 注册），token 不会在其控制者 Beginning Phase 开始时消灭。" +
-    "已写出：card-played 与 beginning-start 两条触发 + effect.token（sprite 定义、mode play、控制者基地占位）。依赖：RIFT-62、RIFT-120、RIFT-265、effect.token 的 controller-relative location 契约变更请求。",
+    "(4) Sprite token 自身的 [Temporary] KeywordDef 已合入，但 beginning-start 触发过滤器仍受当前封闭 EventPattern 词表限制；" +
+    "token 仍受前述定义表、ready 入场状态和 controller-relative location 限制。" +
+    "依赖：Sprite token 定义表、入场状态、beginning-start EventPattern 注册与 effect.token 的 controller-relative location 契约变更请求。",
   abilities,
   sourceText:
     "When you play me or at the start of your Beginning Phase, play a ready 3 :rb_might: Sprite unit token with [Temporary] " +
