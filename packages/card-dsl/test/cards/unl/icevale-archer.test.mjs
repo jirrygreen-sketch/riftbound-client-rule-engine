@@ -1,3 +1,12 @@
+// Golden test for Icevale Archer (unl-065-219).
+//
+// Execution evidence for this card's behaviour lives in the RIFT-705
+// parameterized template golden:
+// test/cards/templates/triggered-attack-declared-continuous-mig-705.test.mjs.
+// The card stays judge-required: the "a unit here" sameLocationAs body target is
+// rejected by the production filter translator (so the ability registers no
+// trigger), attack-declared has no producer (CR 466.2), and the leading
+// optional 1-energy cost has no carrier in the frozen IR (RIFT-89).
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -48,7 +57,15 @@ test("unl-065-219 Icevale Archer: attack trigger is filtered to this unit and th
   assert.equal(instruction.op, "continuous.might");
   assert.deepEqual(instruction.args.amount, { kind: "constant", value: -1 });
   assert.deepEqual(instruction.args.duration, { kind: "constant", value: "this-turn" });
-  assert.deepEqual(instruction.args.target, { kind: "constant", value: "icevale-archer.unit-here" });
+  // The merged continuous.might primitive reads its recipients from the
+  // evaluated objects selection; writing args.target with an Expr made the
+  // interpreter hand the Expr node itself to ctx.targets(), which always
+  // returned an empty set and ignored the modification.
+  assert.deepEqual(instruction.args.objects, {
+    kind: "constant",
+    value: { kind: "target", id: "icevale-archer.unit-here" }
+  });
+  assert.equal(instruction.args.target, undefined);
   assert.equal(instruction.linkedTo, undefined);
   assert.equal(instruction.picks, undefined);
 });
@@ -86,11 +103,54 @@ test("unl-065-219 Icevale Archer golden: the merged continuous.might op applies 
     .build();
   const kernel = base.clone({ sourceSnapshot: base.getObject("icevale-archer") });
   kernel.setTargets(unitHere.id, [kernel.ref("target")]);
-  const outcome = runAbilityBody([instruction], kernel);
+  // The test kernel resolves the declared controller/owner selectors literally,
+  // while the merged ChainEngine resolves the card's relative spelling before
+  // the layer matcher sees it. Only that one normalization is supplied here;
+  // the body, its args and its target come from the card unchanged.
+  const context = new Proxy(kernel, {
+    get(target, key) {
+      if (key === "query") {
+        return filter => {
+          const { controller: selector, ...rest } = filter ?? {};
+          if (selector === "opponent" || selector === "their") return target.query(rest).filter(object => object.controller !== "A");
+          if (selector === "self" || selector === "controller" || selector === "you") return target.query(rest).filter(object => object.controller === "A");
+          return target.query(rest);
+        };
+      }
+      const value = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  const outcome = runAbilityBody([instruction], context);
   assert.equal(outcome.status, "executed");
-  assert.equal(createLayerEngine(kernel.objects, kernel.continuousEffects).evaluate(kernel.ref("target")).might, 3);
+  assert.equal(kernel.continuousEffects.length, 1);
+  assert.equal(kernel.continuousEffects[0].effect.effect.kind, "continuous.might");
+  assert.equal(kernel.continuousEffects[0].effect.effect.amount, -1);
+  assert.equal(kernel.continuousEffects[0].effect.layer, "arithmetic");
   const layers = createLayerEngine(kernel.objects, kernel.continuousEffects);
+  assert.equal(layers.evaluate(kernel.ref("target")).might, 3);
+  assert.equal(layers.evaluate(kernel.ref("target")).buffs, 0, "a Might modification is not a Buff counter (702-704)");
+  assert.equal(layers.evaluate(kernel.ref("icevale-archer")).might, 2);
   assert.equal(layers.expireAt("turn-end").length, 1);
   assert.equal(layers.evaluate(kernel.ref("target")).might, 4);
+});
+
+test("unl-065-219 Icevale Archer golden: no locked recipient leaves the modification unregistered", () => {
+  // The declared TargetSpec requires exactly one member. With no locked target
+  // there is no recipient at all, and the primitive must ignore the instruction
+  // rather than fall back to the source or to any other Board unit
+  // (359.3.e.6). "a unit here" itself is a Finalize target-lock filter
+  // (sameLocationAs), which the production translator rejects for this card —
+  // see the judgeReason and the RIFT-705 template golden.
+  const base = world()
+    .unit("icevale-archer", { might: 2, location: { type: "battlefield", id: "bf-1" } })
+    .unit("elsewhere", { owner: "B", might: 4, location: { type: "battlefield", id: "bf-2" } })
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("icevale-archer") });
+  const outcome = runAbilityBody([instruction], kernel);
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results[0].result, { status: "ignored", reason: "mistargeted" });
+  assert.deepEqual(kernel.continuousEffects, []);
+  assert.equal(createLayerEngine(kernel.objects, kernel.continuousEffects).evaluate(kernel.ref("elsewhere")).might, 4);
 });
 

@@ -25,11 +25,19 @@ import type { CardProgram } from "../../ir/index.js";
  *    events/trigger-spec.ts 的封闭枚举里，combat/（base-combat-allocation、
  *    derived-might）不发射任何时点，战斗流程属引擎批 5（RIFT-31/33/77）。
  * 2. 效果本体 "give a unit -1 :rb_might: this turn" 使用已合入的 continuous.might 原语，
- *    但 body 目标过滤的 sameLocationAs（"a unit here"）会被触发目标翻译层拒绝，
- *    目标锁定在绑定即失败。
+ *    选择已改按原语的 objects 约定接线；真实路径上原语本身可执行（4 → 3、回合末到期），
+ *    但 body 目标过滤的 sameLocationAs（"a unit here"）仍被 programs/filters.ts 的
+ *    translateObjectFilter 拒绝（Unsupported filter field sameLocationAs），
+ *    触发在注册阶段就 fail-closed、pipeline 触发器数为 0。
  * 3. 前导可选 Energy 费用（383.3.b）在冻结 IR 里没有承载字段（triggered ability
  *    无 cost）；cost.pay 原语已合入，但 Finalize 费用计划入口仍未接线（RIFT-89）。
  * 依赖：RIFT-31/33/77（战斗时点）、RIFT-89（费用计划）、翻译层 sameLocationAs。
+ *
+ * 执行证据（RIFT-705 模板层，2026-10-17）：
+ * packages/card-dsl/test/cards/templates/triggered-attack-declared-continuous-mig-705.test.mjs
+ * 覆盖：本卡正文的 -1 Might 注册（arithmetic、end-of-turn）与无合法对象时的
+ * ignored mistargeted；生产注册的 fail-closed（ProgramBindingError judge-required、
+ * Unsupported filter field sameLocationAs、触发器 0）；以及攻击时点发射但正文不生效的边界。
  */
 const icevaleArcher = {
   canonicalCardId: "card.hash-cfa683e56408938bf27747d5d9dcb341900100c1cc87f15bd487c270cd7b2dee",
@@ -38,8 +46,10 @@ const icevaleArcher = {
   judgeReason:
     "三处缺口，均不近似实现：(1) 攻击时点 attack-declared 只存在于封闭枚举（events/timing-points.ts、trigger-spec.ts），" +
     "combat/ 不发射该时点（战斗流程属引擎批 5，RIFT-31/33/77），触发在真实内核中不可达；" +
-    "(2) 效果本体「give a unit -1 :rb_might: this turn」使用已合入的 continuous.might 图层修正，" +
-    "但 body 目标过滤的 sameLocationAs（a unit here）会被目标翻译层拒绝，目标锁定在绑定即失败；" +
+    "(2) 效果本体「give a unit -1 :rb_might: this turn」的 continuous.might 修正本体已可执行（objects 选择约定，见 RIFT-705 模板层，" +
+    "test/cards/templates/triggered-attack-declared-continuous-mig-705.test.mjs），" +
+    "但 body 目标过滤的 sameLocationAs（a unit here）仍被 programs/filters.ts 的目标翻译层拒绝" +
+    "（实测 ProgramBindingError judge-required「Unsupported filter field sameLocationAs」，触发器数为 0）；" +
     "(3) 前导可选 Energy 费用（383.3.b）在冻结 IR 的 triggered ability 里没有 cost 字段，" +
     "cost.pay 原语已合入但 Finalize 费用计划入口未接线（RIFT-89）——本能力只用 optional: true 表达 Finalize 决定，" +
     "不把费用写成事后指令。依赖：RIFT-31/33/77、RIFT-89、翻译层 sameLocationAs。",
@@ -55,13 +65,18 @@ const icevaleArcher = {
       body: [
         {
           id: "icevale-archer.give-minus-1",
-          // 临时 Might 修正属 continuous.might（见 judgeReason 第 2 点）；本指令按
-          // 契约形状书写，等待原语合入后由解释器 + 图层执行。
+          // 临时 Might 修正属 continuous.might（见 judgeReason 第 2 点）。选择用
+          // 合并原语的 objects 约定表达（smoke-screen / back-alley-bar 同形）；
+          // 写成 args.target 时解释器把 Expr 当规格 id 传给 ctx.targets()，
+          // 实测返回空集（ignored mistargeted），不新增规则语义。
           op: "continuous.might",
           args: {
             amount: { kind: "constant", value: -1 },
             duration: { kind: "constant", value: "this-turn" },
-            target: { kind: "constant", value: "icevale-archer.unit-here" }
+            objects: {
+              kind: "constant",
+              value: { kind: "target", id: "icevale-archer.unit-here" }
+            }
           },
           targets: [
             {

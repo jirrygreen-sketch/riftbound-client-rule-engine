@@ -35,6 +35,13 @@ import type { CardProgram } from "../../ir/index.js";
  *    抛 TurnCombatBlockedError('combat-start-transaction')（CR 466.2.c），
  *    因此 383.4.e 的攻击触发永远不会被真实战斗流程激发（见 azir-sovereign / fiora-peerless
  *    的同一缺口）。条件写法保留为可审查意图，不近似实现。
+ *
+ * 执行证据（RIFT-705 模板层，2026-10-17）：
+ * packages/card-dsl/test/cards/templates/triggered-attack-declared-continuous-mig-705.test.mjs
+ * 走真实路径断言：+2 Might 图层注册（arithmetic、amount 2、duration end-of-turn）、
+ * 回合末到期、无有效宿主时的 ignored mistargeted，以及本卡触发条件的三处实测缺口
+ * （相对玩家 "opponent" 求值 false、位置锚点被 layers/filter 丢弃、ready/here 计数本身可用）。
+ * 该模板层只作为已可执行部分的执行证据，不把正文组合判定为 executable。
  */
 export default {
   canonicalCardId: "card.hash-129e18f9d31400f8fce66c0a8cb60d4ca43ce586a107ec18cb24bee9d79e81d9",
