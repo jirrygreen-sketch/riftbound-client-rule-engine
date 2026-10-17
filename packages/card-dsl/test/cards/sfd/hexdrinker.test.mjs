@@ -9,6 +9,7 @@ import { buildCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-655981631747696ba307a61ac6067d55653bb1215a56106697946c14c7da3146";
@@ -53,7 +54,9 @@ test("sfd-102-221 Hexdrinker: identity, ruleset, status, judgeReason and verbati
   assert.match(program.judgeReason, /Equip/);
   assert.match(program.judgeReason, /params\.cost/);
   assert.match(program.judgeReason, /Unsupported payment kind: equip/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /expandProgram/);
+  assert.match(program.judgeReason, /describeActivate 能给出草稿/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-261|RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -151,5 +154,58 @@ test("sfd-102-221 Hexdrinker: the merged expansion's cost placeholder is what Fi
 
 test.todo(
   "sfd-102-221 Hexdrinker: charge the printed Equip cost (1 Body Power, CR 818.1.c) at Finalize once the " +
-    "\"equip\" cost-payment kind exists (RIFT-261) and contract 3.8.3 params.cost is delivered to KeywordDef.expand"
+    "\"equip\" cost-payment kind exists in cost/plan-values.ts and contract 3.8.3 params.cost is delivered to " +
+    "KeywordDef.expand by programs/keywords.ts"
 );
+
+test("sfd-102-221 Hexdrinker boundary: the card-program binding describes the activation but the Equip cost still cannot be planned", () => {
+  // The production activate path: the ability listing and the draft both work,
+  // and the printed cost is the blocker, not the description surface.
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const kernel = world()
+    .player("A", { energy: 20 })
+    .player("B", { energy: 20 })
+    .object("hexdrinker", {
+      owner: "A",
+      cardId: CARD_ID,
+      types: ["gear"],
+      tags: ["Equipment"],
+      might: null,
+      zone: "board",
+      location: { type: "base", player: "A" },
+      energy: 2,
+      power: null
+    })
+    .unit("ally", { might: 3 })
+    .build();
+  const source = kernel.getObject("hexdrinker");
+  assert.equal(binding.activationAbilities(source).length, 1);
+
+  const draft = binding.describeActivate(source, "A", 0);
+  assert.equal(draft.speed, "action");
+  assert.deepEqual(draft.cost.cost.payments, [
+    { kind: "equip", value: { kind: "constant", value: { kind: "source" } } }
+  ]);
+  assert.throws(
+    () => buildCostPlan(kernel.clone({ sourceSnapshot: source }), draft.cost),
+    (error) => {
+      assert.equal(error.reason, "judge-required");
+      assert.match(String(error.message), /Unsupported payment kind: equip/);
+      return true;
+    }
+  );
+  // Nothing was charged or attached by the refused plan.
+  assert.equal(kernel.getObject("hexdrinker").attachedTo, null);
+  assert.equal(kernel.getObject("hexdrinker").exhausted, false);
+  assert.equal(kernel.player("A").energy, 20);
+});
+
+test("sfd-102-221 Hexdrinker boundary: the printed Body rune never reaches the merged expansion", () => {
+  // programs/keywords.ts expandProgram passes only value/host, so the printed
+  // domain cannot appear in the expansion even though the card records it.
+  const definition = keywordDefinitionsById.get("Equip");
+  assert.equal(JSON.stringify(definition.expand({ value: 1, host: { canonicalCardId: CARD_ID } })).includes("Body"), false);
+  assert.equal(program.abilities[0].costDomain, "Body");
+});

@@ -14,27 +14,32 @@
  * - 150.1–150.3：Equipment 是带 Equipment 标签的 Gear，可以有 Equip；本地 catalog 的
  *   tags 为 ["Equipment"]，与 818.1.a 一致。
  *
- * status = judge-required（缺可支付的费用路径，不近似实现）：
+ * status = judge-required（缺可支付的费用路径与印刷费用装配，不近似实现）：
  * - 已合入的 Equip 展开声明 payments: [{ kind: "equip", value: { kind: "source" } }]，
  *   费用管线 cost/plan-values.ts 仍把未知支付种类视为 blocked：golden 实测 buildCostPlan
- *   抛 CostPlanError（reason "judge-required"，message "Unsupported payment kind: equip"）。
+ *   抛 CostPlanError（reason "judge-required"，message "Unsupported payment kind: equip"）；
+ *   describeActivate 能给出草稿，但该草稿的费用计划无法建立，Finalize 无法支付。
  * - 印刷的装备费（1 点 Calm Power）只以描述性 costDomain 记录：KeywordDef.expand 的
- *   params.cost 承载通道虽在契约 3.8 第 3 条冻结、接口也有 params 字段，但没有装配方把
- *   KeywordAbility 的印刷参数传进展开，卡牌程序 → 关键词展开 → 时点/链的接线仍未接通。
- * - 依赖：RIFT-261（Equip 费用支付种类）与关键词装配接线。不近似实现。
+ *   params.cost 承载通道虽在契约 3.8 第 3 条冻结、接口也有 params 字段，但装配方
+ *   （programs/keywords.ts 的 expandProgram）仍只按 value/host 调用 expand，
+ *   卡牌程序 → 关键词展开 → 时点/链的印刷费用接线未接通。
+ * - 依赖：cost 层的 Equip 支付种类与 KeywordDef.expand params.cost 的装配接线。不近似实现。
  */
 export default {
   canonicalCardId: "card.hash-af3547abb5e6d69c2372b62331d6039acaf16cca337eefb27e5734bbee3fb307",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "印刷的 [Equip] 费用（1 点 Calm Power，818.1.c.2）目前无法支付：已合入的 Equip 展开" +
-    "（RIFT-87，effects/keywords/Equip.ts）声明 payments: [{ kind: \"equip\", value: { kind: \"source\" } }]，" +
-    "费用管线 cost/plan-values.ts 的 readCost 对未知支付种类直接 blocked —— golden 实测 buildCostPlan " +
-    "抛 CostPlanError（reason \"judge-required\"，message \"Unsupported payment kind: equip\"）；" +
-    "该支付种类的补齐属 RIFT-261（未合入 HEAD）。印刷装备费同样没有装配通道：KeywordDef.expand 的" +
-    "params.cost 虽在契约 3.8 第 3 条冻结、接口也有 params 字段，但没有装配方把 KeywordAbility 的" +
-    "印刷参数传进展开，卡牌程序 → 关键词展开 → 时点/链的接线未接通。不近似实现（不把 Equip 降级成裸 effect.attach）。",
+    "印刷的 [Equip] 费用（1 点 Calm Power，818.1.c.2）仍不可执行，两处当前缺口：" +
+    "(1) 已合入的 Equip 展开（effects/keywords/Equip.ts）声明 payments: [{ kind: \"equip\", value: { kind: \"source\" } }]，" +
+    "而 cost/plan-values.ts 的 readCost 对未知支付种类直接 blocked —— golden 实测 buildCostPlan 抛 " +
+    "CostPlanError（reason \"judge-required\"，message \"Unsupported payment kind: equip\"），" +
+    "卡牌程序绑定 describeActivate 能给出草稿、但该草稿的费用计划无法建立，Finalize 无法支付；" +
+    "(2) 印刷装备费没有装配通道：KeywordDef.expand 的 params.cost 虽在契约 3.8 第 3 条冻结、接口也有 params 字段，" +
+    "但 programs/keywords.ts 的 expandProgram 仍只按 value/host 调用 expand，KeywordAbility 的印刷参数从未送达展开。" +
+    "可真实执行的部分：合并后的 effect.attach 本体（golden 用真实 attach 动作执行并断言附着的宿主）。" +
+    "依赖：cost 层的 Equip 支付种类与 KeywordDef.expand params.cost 的装配接线。" +
+    "不近似实现（不把 Equip 降级成裸 effect.attach，也不把 2 Energy 打出费用当作装备费）。",
   abilities: [
     { kind: "keyword", keyword: "equip", value: 1, costDomain: "Calm" }
   ],
