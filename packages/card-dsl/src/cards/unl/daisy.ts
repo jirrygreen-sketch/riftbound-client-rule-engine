@@ -30,14 +30,12 @@ import type { Ability, CardProgram, Condition } from "../../ir/index.js";
  *   位置与来源相同）；424.1 / 424.1.a：Stun 是效果型受限动作，effect.stun 已合入。
  *   括注 “(It doesn't deal combat damage this turn.)” 是 424.1.b 的提醒文本。
  *
- * status 判定（README 第 2 节）：judge-required —— 三处当前依赖仍未闭合，均不近似实现：
- * 1. “I enter ready” 的替代声明已经有 CardProgram → ReplacementRegistration 绑定路径，
- *    但仍需由实际 play 生命周期提供完整的动态入场事件证据；effect.ready 不能事后模拟。
- * 2. 减费没有可执行入口：cost/ 的费用计划只在调用方显式传入 discounts 时应用减费
+ * status 判定（README 第 2 节）：judge-required —— 两处当前依赖仍未闭合，均不近似实现：
+ * 1. 减费没有可执行入口：cost/ 的费用计划只在调用方显式传入 discounts 时应用减费
  *    （cost/cost-plan.ts 读 CostPlanInput.discounts），没有把 CardProgram 的 cost.modify 接进
  *    Finalize 的路径；且“按你的单位中 Bird/Cat/Dog/Poro 的去重标签数”需要跨对象并集计数谓词
  *    （同 Ivern 的判定），已合入的 ObjectFilter.tags 是同一对象上的 every 匹配。
- * 3. attack-declared 的 TriggerRegistration 与 effect.stun 本体已经有生产绑定路径，但目标
+ * 2. attack-declared 的 TriggerRegistration 与 effect.stun 本体已经有生产绑定路径，但目标
  *    过滤中的 sameLocationAs 动态锚点仍不能由当前程序绑定器锁定；触发条件也依赖同一并集谓词。
  * 程序保留减费声明（cost.modify 与并集占位形状）、触发与 Stun 的目标过滤；golden 用解释器与
  * 参考内核真实执行 effect.stun 部分与条件探针。
@@ -65,7 +63,7 @@ const UNITS_HAVE_ALL_FOUR_TAGS: Condition = {
 
 const abilities: Ability[] = [
   {
-    // 143.4 / 359.2.c / 369.3：“I enter ready” 是入场替代（管线缺口见 judgeReason 第 1 点）。
+    // 143.4 / 359.2.c / 369.3：“I enter ready” 是入场替代。
     kind: "replacement",
     replaces: {
       event: "object-enters-board",
@@ -136,12 +134,10 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处当前缺口，均不近似实现：(1)「I enter ready」的替代声明已有绑定路径，但仍需实际 play " +
-    "生命周期提供动态入场事件证据，不能用事后 effect.ready 模拟（143.4/359.2.c/369.3）。(2)「Reduce my cost by [1] for each of the " +
-    "following tags among your units」虽已有 cost.modify 原语，静态 cost.modify 尚未接入 Finalize 费用计划，" +
-    "且「你的单位中 Bird/Cat/Dog/Poro 的去重标签数」需要跨对象并集计数——ObjectFilter.tags 仍是同一对象上的 every 匹配。" +
-    "(3) attack-declared 的触发注册与 effect.stun 本体已经合入，但 sameLocationAs 动态目标锚点仍不能由当前程序绑定器锁定，" +
-    "触发条件也依赖同一跨对象并集谓词。golden 用解释器与参考内核真实执行 effect.ready、effect.stun 与条件探针。不近似实现。",
+    "两处当前缺口，均不近似实现：(1)「Reduce my cost by [1] for each of the following tags among your units」虽已有 cost.modify 原语，" +
+    "静态 cost.modify 尚未接入 Finalize 费用计划，" +
+    "且「你的单位中 Bird/Cat/Dog/Poro 的去重标签数」需要跨对象并集计数——ObjectFilter.tags 仍是同一对象上的 every 匹配。(2) attack-declared 的触发注册与 effect.stun 本体已经合入，" +
+    "但 sameLocationAs 动态目标锚点仍不能由当前程序绑定器锁定，触发条件也依赖同一并集谓词。不近似实现。",
   abilities,
   sourceText:
     "I enter ready.\n" +

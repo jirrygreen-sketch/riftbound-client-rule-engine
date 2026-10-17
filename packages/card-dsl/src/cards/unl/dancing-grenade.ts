@@ -25,8 +25,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   判为 judge-required：158.3 / 418.4 / 418.5 / 420.3 不足以安全落地。
  * - “本回合本卡造成伤害的次数”没有生产者：effect.damage 只链接单次动作的 dealt / dealtTo /
  *   dealtCount，condition.result 与按卡身份的历史计数未合入（ogn/disintegrate 记录同一缺口）。
- * - 重打费用 :rb_rune_rainbow: 在六域封闭 Domain 集合里没有取值（163.2.b），只以 ["rainbow"]
- *   作描述性记录（ven/matriarch-of-war、sfd/glasc-mixologist 同缺口）；“its controller” 作为
+ * - 重打费用虽然可由费用计划用 domains: [] 表达为允许六域的 1 Power，
+ *   但尚未接入“重放正在结算的法术”的嵌套 play 生命周期；“its controller” 作为
  *   重打的选择者也没有已合入选择符。
  * 因上述缺口，本卡只声明第一条真实正文指令 “Deal 2 to a unit”（effect.damage 已合入，golden 真实执行），
  * 重打与 Bonus Damage 的完整形状记录在 judgeReason，不写成可执行近似（不写固定次数的二次伤害）。
@@ -43,8 +43,8 @@ const dancingGrenade = {
     "不足以安全落地），故不写固定次数的 repeat 或二次 damage；(2)「this deals 1 additional Bonus Damage for each time this spell " +
     "has dealt damage this turn」的 Bonus Damage 次数没有生产者——effect.damage 只链接单次动作的 dealt / dealtTo / dealtCount，" +
     "condition.result 与按卡身份的历史计数未合入" +
-    "（ogn/disintegrate 同一缺口）；(3) 重打费用 :rb_rune_rainbow: 是任意域 Power（135.2.e.5.a / 163.2.b），" +
-    "六域封闭 Domain 集合无法表达（仅以 [\"rainbow\"] 描述性记录），且 “its controller” 作为重打选择者没有已合入选择符。" +
+    "（ogn/disintegrate 同一缺口）；(3) 重打费用尚未接入重放正在结算的法术的嵌套 play 生命周期，" +
+    "且 “its controller” 作为重打选择者没有已合入选择符。" +
     "「Deal 2 to a unit」（418.1 / 355.9.a.1）本身只用已合入的 effect.damage，golden 真实执行；不构成整卡证据。",
   abilities: [
     {

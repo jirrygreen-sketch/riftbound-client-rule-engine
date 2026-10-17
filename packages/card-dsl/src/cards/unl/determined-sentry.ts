@@ -19,11 +19,12 @@ import type { CardProgram } from "../../ir/index.js";
  *   restriction strings on the filtered object's MovementPermissions.
  *
  * Status: judge-required:
- * - the merged static-program binder can register this CardProgram ability as a
- *   ContinuousEffectSpec, and the layer query reports the restriction;
- * - movement execution still does not consume MovementPermissions: the rules
- *   query layer is not wired into Standard Move validation or effect.move, so a
- *   recorded restriction cannot negate the move.
+ * - the merged static-program binder records this CardProgram ability in the
+ *   movement layer, but the card declaration uses singular `restriction` while
+ *   the movement rules query consumes plural `restrictions`; the registered
+ *   card effect therefore does not appear in the query result;
+ * - the rules query is consumed by Standard Move validation, while effect.move
+ *   still has a separate missing consumer for this restriction.
  * The ability stays a passive movement restriction; it is not rewritten into a
  * fake negated placeholder instruction.
  */
@@ -34,9 +35,9 @@ export default {
   judgeReason:
     "「I can't move to base」是 054/054.1 的禁止型移动限制：它移除 144.4.b 的本单位战场→基地选项，" +
     "并同样禁止效果移动把本单位送往基地（451.1）。静态程序 binder 已能把 CardProgram 的 " +
-    "continuous.movement 注册为 ContinuousEffectSpec，layers/LayerEngine 与 movement() 查询也能报告该限制；" +
-    "但 Standard Move 校验和 effect.move 仍不读取 MovementPermissions，登记后的 restriction 尚不能否定移动。" +
-    "依赖：zones/movement 与 move-location 对 MovementPermissions 的生产消费接线。不近似实现。",
+    "continuous.movement 注册为 ContinuousEffectSpec；Standard Move 校验已有 zones/movement 的 MovementPermissions 消费，" +
+    "但本卡静态声明仍使用单数 restriction，而规则查询只读取复数 restrictions，导致登记后的卡牌限制在查询结果中为空。" +
+    "effect.move 仍缺少对该限制的消费路径。依赖：统一 continuous.movement 的 restriction 字段形状，并接入 effect.move。不近似实现。",
   abilities: [
     {
       kind: "static",
