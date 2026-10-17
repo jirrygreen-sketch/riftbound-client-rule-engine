@@ -47,7 +47,9 @@ const sigilOfTheStorm = {
       kind: "triggered",
       trigger: {
         at: "conquer",
-        filter: { event: "conquer", here: true, player: "self" }
+        // EventPattern uses "conquered"; pipeline-match maps it to the
+        // conquer timing point emitted by the scoring wave.
+        filter: { event: "conquered", here: true, player: "self" }
       },
       optional: false,
       body: [

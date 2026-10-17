@@ -10,18 +10,18 @@ import type { CardProgram } from "../../ir/index.js";
  *   [Tank] (I must be assigned combat damage first.)
  *
  * 三条能力都是关键词声明（契约 3.1 keyword ability、3.7 关键词只声明不重写；
- * 卡牌不写单卡结算代码）。三个关键词的 KeywordDef 都已合入，但展开结果都没有运行时
- * 注册/消费路径：
+ * 卡牌不写单卡结算代码）。三个关键词的 KeywordDef 都已合入，Reaction 的时机查询也已
+ * 接通；仍有以下运行时缺口：
  * - [Reaction]（CR v1.5 813.1）：effects/keywords/Reaction.ts 已合入，展开为
- *   continuous.timing（813.1.c 的 Closed State 打出许可）。layers/rules/query.ts
- *   已能消费 continuous.timing（actionTimings / canAct 重载），但没有任何已合入模块把
- *   卡牌/关键词展开注册进图层注册表（现有入口只覆盖结算期 continuous.* 指令），且 chain 自己的
- *   canAct()（契约 3.5 的时机许可查询）不读取图层——所以「任意时机打出」仍不可执行。
+ *   continuous.timing（813.1.c 的 Closed State 打出许可）。layers/rules/query.ts 与 chain.canAct()
+ *   已能消费 continuous.timing（actionTimings / canAct），但 Reaction 展开的
+ *   appliesTo: ["card", "activated-ability"] 尚没有 static binder 的对象/动作范围映射，
+ *   因而“包括对自己控制的战场”这段许可不能由 CardProgram 生命周期接入。
  * - [Shield 2]（814.1.b.1/.b.2 的 Shield Value = 2）：effects/keywords/Shield.ts
  *   已合入，按 814.1.c 展开为带 compare(designation == "defender") 条件的
  *   continuous.might +2（814.1.d/814.1.d.1）。ObjectSnapshot 已有 combatRole 特征，
- *   但 Shield KeywordDef 仍产生 property="designation"，且 layers 的 conditionMatches
- *   不消费 compare 条件；直接注册会把 +2 Might 变成常驻——不近似放行。
+ *   但 Shield KeywordDef 仍产生 property="designation"；条件求值读不到该属性，
+ *   因而 +2 Might 不会只在 Defender 时生效——不近似放行。
  *   814.2 的求和由 KeywordDef 的 stacking: "sum" 声明，814.3 的可引用特征依赖图层。
  * - [Tank]（815.1.b「我必须在战斗伤害步骤被优先指派致命伤害」）：effects/keywords/Tank.ts
  *   已合入，展开为 continuous.combat 的 damage-assignment/priority "first"
@@ -30,8 +30,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   明确注明未绑定 Tank/Backline 之类的指派优先级（815.1.c/815.1.c.1/815.1.c.2）。
  *   815.2 的多实例冗余与 815.3 的可引用特征同样依赖关键词展开与战斗模块。
  *
- * 整卡保持 judge-required：三条能力都有 v1.5 规则依据与关键词身份，但没有一条能在
- * 当前已合入的图层 / 链 / 战斗路径上真实执行（README 第 2 节）。
+ * 整卡保持 judge-required：Tank 与 Shield 仍缺真实消费者，Reaction 还缺 appliesTo 范围绑定。
  */
 const shenKinkou = {
   canonicalCardId: "card.hash-02482e5d821a8879fe503e6b27f785f4fc8c8139f58c9bd035f34f92f1b8522a",
@@ -42,11 +41,10 @@ const shenKinkou = {
     "(1) [Tank] 展开的 continuous.combat（815.1.b 的优先指派致命伤害）没有消费方——layers/engine.ts 不命中该 kind，" +
     "combat/base-combat-allocation.ts 未绑定任何指派优先级（815.1.c.1/815.1.c.2）；" +
     "(2) [Shield 2] 展开的 +2 Might 需要宿主持有 Defender 指定（814.1.d.1），但 Shield 仍引用" +
-    "未被图层识别的 designation 属性，layers 的 conditionMatches 也不评估 compare 条件，直接注册会变成常驻；" +
-    "(3) [Reaction] 展开的 continuous.timing（813.1.c）虽已有 layers/rules 查询，但没有把卡牌/关键词展开注册进图层的接线，" +
-    "chain.canAct()（契约 3.5 的唯一时机许可查询）也不读取图层。" +
-    "依赖：continuous.combat 消费方/战斗指派、关键词展开→layers 注册路径、combatRole/Defender 条件与 compare 求值、" +
-    "以及 chain 的时机许可读取图层。不近似实现。",
+    "未被图层对象特征识别的 designation 属性，compare(designation == defender) 条件求值无法得到 combatRole/Defender，" +
+    "(3) [Reaction] 展开的 continuous.timing（813.1.c）已有 layers/rules 与 chain.canAct 查询，但 appliesTo: [\"card\", \"activated-ability\"]" +
+    "尚无 static binder 的对象/动作范围映射，不能把包括自己控制战场的打出许可接入生命周期。" +
+    "依赖：continuous.combat 消费方/战斗指派、combatRole/Defender 条件求值、以及 Reaction appliesTo 范围绑定。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     { kind: "keyword", keyword: "shield", value: 2 },
