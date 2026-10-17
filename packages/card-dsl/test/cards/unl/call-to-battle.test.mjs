@@ -30,7 +30,8 @@ test("unl-101-219 Call to Battle: identity, status, judgeReason and verbatim sou
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /355\.4/);
   assert.match(program.judgeReason, /355\.9\.a/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /候选枚举|runtime|运行期/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(90|91|120|257)/);
 });
 
 test("unl-101-219 Call to Battle: own-unit move, opponent choice and the second move are kept as shapes", () => {
@@ -184,7 +185,7 @@ test("unl-101-219 Call to Battle golden: the merged destination choice resolves 
 
 test.todo(
   "unl-101-219 Call to Battle: 'to a battlefield you control' needs the runtime location-selection lifecycle " +
-    "(CR 355.4/355.4.a, RIFT-90/RIFT-91) — effect.move only takes static LocationRefs or a static candidate list"
+    "(CR 355.4/355.4.a) — the card has no producer for the runtime-controlled battlefield candidate list"
 );
 
 test.todo(

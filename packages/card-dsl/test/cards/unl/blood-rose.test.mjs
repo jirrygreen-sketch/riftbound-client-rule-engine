@@ -36,9 +36,9 @@ test("unl-109-219 Blood Rose: identity, ruleset, status, judgeReason and verbati
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /383\.3\.b/);
-  assert.match(program.judgeReason, /cost\.pay/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /TriggerRegistration/);
+  assert.match(program.judgeReason, /TriggeredAbility/);
+  assert.match(program.judgeReason, /Finalize/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(89|120|257)/);
   assert.equal(/待实现|需要裁定/.test(program.judgeReason), false);
 });
 
@@ -70,9 +70,10 @@ test("unl-109-219 Blood Rose: the may-pay is one choice.optional wrapping pay th
   assert.equal(mayPay.targets, undefined);
   assert.equal(mayPay.picks, undefined);
 
-  // 204.3.a / 205: the in-effect payment; the op is not merged (see judgeReason).
+  // 204.3.a / 205: the payment primitive is merged; the remaining gap is that
+  // this payment is a TriggeredAbility base cost and has no contract slot.
   assert.equal(pay.op, "cost.pay");
-  assert.equal(pay.args.energy.value, 1);
+  assert.deepEqual(pay.args.payments, { kind: "constant", value: { energy: 1 } });
   // 730.1 / 414.3: "pay ... to gain" chains the XP gain to the payment.
   assert.equal(gainXp.op, "effect.xp");
   assert.deepEqual(gainXp.args.amount, { kind: "constant", value: 1 });
@@ -210,12 +211,4 @@ test.todo(
   "unl-109-219 Blood Rose: the 'you may pay 1 energy' base cost of the triggered ability (CR 383.3.a / 383.3.b / " +
     "383.3.b.1) needs a cost slot on TriggeredAbility (contract 3.1) plus Finalize payment wiring; the merged " +
     "contract has no such slot"
-);
-test.todo(
-  "unl-109-219 Blood Rose: the in-effect 1-energy payment needs the cost.pay instruction primitive (CR 204.3.a / 205; " +
-    "RIFT-89 cost.* workstream is not merged)"
-);
-test.todo(
-  "unl-109-219 Blood Rose: register the card-played trigger as a TriggerRegistration and run it from the real play " +
-    "pipeline (CR 383.4.a.4; contract 3.5, RIFT-120 follow-up)"
 );

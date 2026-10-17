@@ -19,8 +19,9 @@ test("unl-019-219 Blighted Battleaxe: program validates and is judge-required", 
   assert.deepEqual(result.issues, []);
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Equip|equip/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /Unsupported payment kind: equip/);
+  assert.match(program.judgeReason, /Energy/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(261|257)/);
 });
 
 test("unl-019-219 Blighted Battleaxe: identity, ruleset, status and verbatim source text", () => {
@@ -85,10 +86,10 @@ test("unl-019-219 Blighted Battleaxe: the merged Equip expansion stays valid Eff
 });
 
 test("unl-019-219 Blighted Battleaxe: the merged program binding expands the declared keyword", () => {
-  // RIFT-257's adapter expands keyword abilities through the registry
+  // The production adapter expands keyword abilities through the registry
   // (expandProgram) before any chain draft is built; the golden asserts the
-  // card's declaration really reaches that expansion. Production registration
-  // of the expanded activation is still the recorded RIFT-257 gap.
+  // card's declaration really reaches that expansion. Only Equip payment
+  // planning remains blocked.
   const binding = createProgramBinding({
     cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
   });
@@ -113,7 +114,6 @@ test("unl-019-219 Blighted Battleaxe: the merged program binding expands the dec
 
 test.todo(
   "unl-019-219 Blighted Battleaxe: pay the printed Equip cost (1 energy + 1 Fury Power, 818.1.c / 818.1.c.3) " +
-    "through the cost plan and attach the gear end-to-end (RIFT-261: the \"equip\" payment kind plus the printed " +
-    "energy symbol count, which no frozen KeywordAbility field carries; cost/plan-values.ts readCost currently " +
-    "blocks the unknown payment kind, so the activation must not be run as if it were free)"
+    "through the cost plan and attach the gear end-to-end: readCost rejects the \"equip\" payment kind, and the " +
+    "frozen KeywordAbility has no field for the printed Energy symbol count, so the activation must not be run free"
 );

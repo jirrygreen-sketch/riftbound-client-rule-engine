@@ -28,9 +28,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   造成战斗伤害」是 424.1.b 的规则结果，不是独立指令。
  *
  * status = judge-required（README 第 2 节），缺口逐条列出且不近似实现：
- * (1) Move 目的地在运行期选择（355.4.a），冻结 IR 没有运行期 Location 选择器（原语清单的
- *     target.location 未合入）；effect.move 的 to 只接受静态 LocationRef、字面量
- *     controller-base 或静态候选列表，因此程序保留描述性占位（执行时被原语拒绝，fail closed）。
+ * (1) Move 目的地在运行期选择（355.4.a），卡程序没有运行期合法 Location 的枚举生产方；
+ *     effect.move 已支持由调用方提供的静态候选列表，因此程序保留描述性占位（执行时被原语拒绝，
+ *     fail closed）。
  * (2) you move an enemy unit 缺可判定载荷：events/action-adapter.ts 为 move-location 生成的
  *     object-moved 事件把 player 记成被移动对象的原控制者（move-location 动作不带 player），
  *     也没有 cause 归因，因此无法按 412.4 / 412.5 过滤「由你执行」的移动（同 ogn/radiant-dawn
@@ -38,9 +38,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * (3) it 无法指称触发载荷的对象：冻结的 ObjectSelector 集合是 self / source / target / pick /
  *     linked，没有事件对象选择器（同 ogn/back-alley-bar 的契约变更请求）；下方 TargetSpec 只是
  *     让指代有名字的声明式替身，不是该效果做出的目标选择（355.10.c）。
- * (4) exhaust this to [Stun] it 的效果内费用需要 cost.pay 原语，且 383.3.b 的基础费用在
- *     契约 3.1 的 TriggeredAbility 里也没有槽位（RIFT-89 未合入）；同时没有订阅方把
- *     CardProgram 的 triggered ability 注册为 TriggerRegistration（契约 3.5）。
+ * (4) 383.3.b 的“exhaust this”紧跟触发效果的 may，按规则属于触发能力基础费用，但契约 3.1
+ *     的 TriggeredAbility 没有 cost 槽位。已合入的 cost.pay 只接受标量资源计划或已 finalized 的
+ *     CostPlan；当前卡内的非标准横置费用没有可供 Finalize 读取的生产形态，不能把它当作普通
+ *     结算指令近似。卡牌 triggered 注册本身已经接通。
  * effect.move 与 effect.stun 本体已合入，golden 真实执行这两条原语路径。
  */
 const abilities: Ability[] = [
@@ -159,17 +160,17 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处依赖未合入，均不近似实现：(1) Move 目的地在运行期选择（355.4 / 355.4.a / 451.1），冻结 IR 没有运行期 Location 选择器" +
-    "（原语清单的 target.location 未合入），effect.move 的 to 只接受静态 LocationRef、字面量 controller-base 或静态候选列表；" +
+    "四处当前缺口，均不近似实现：(1) Move 目的地在运行期选择（355.4 / 355.4.a / 451.1），卡程序没有运行期合法 Location 的枚举生产方；" +
+    "effect.move 已支持由调用方提供的静态候选列表，程序仍保留描述性占位，执行时被原语拒绝；" +
     "程序保留描述性占位，执行时被原语拒绝，不为玩家猜目的地。" +
     "(2)「you move an enemy unit」缺可判定载荷：events/action-adapter.ts 的 object-moved 事件把 player 记成被移动对象的原控制者" +
     "（move-location 动作不带 player），也没有 cause 归因，无法按 412.4 / 412.5 过滤「由你执行」的移动（同 ogn/radiant-dawn 的责任归因缺口）。" +
     "(3)「it」是被移动单位，而冻结的 ObjectSelector 集合（self / source / target / pick / linked）没有事件对象选择器" +
     "（同 ogn/back-alley-bar 的契约变更请求）；程序里的 TargetSpec 是声明式替身（355.10.c：触发条件与费用里的对象不是目标），" +
     "不是该效果做出的目标选择。" +
-    "(4)「you may exhaust this to [Stun] it」的效果内费用需要 cost.pay 原语，且 383.3.b 的基础费用在契约 3.1 的 TriggeredAbility 没有槽位" +
-    "（RIFT-89 未合入）；同时没有订阅方把 CardProgram 的 triggered ability 注册为 TriggerRegistration（契约 3.5、RIFT-120 后续）。" +
-    "effect.move 与 effect.stun 本体已合入，golden 真实执行这两条原语路径。",
+    "(4)「you may exhaust this to [Stun] it」中横置费用按 383.3.b 属于触发能力基础费用，但契约 3.1 的 TriggeredAbility 没有 cost 槽位；" +
+    "已合入的 cost.pay 只接受标量资源计划或已 finalized 的 CostPlan，当前卡内的非标准横置费用没有可供 Finalize 读取的生产形态，" +
+    "不能把它当作普通结算指令近似。CardProgram 的 triggered 注册已经接通。effect.move 与 effect.stun 本体已合入，golden 真实执行这两条原语路径。",
   abilities,
   sourceText:
     "When you play this, you may move an enemy unit.\n" +

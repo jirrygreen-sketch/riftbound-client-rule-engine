@@ -29,9 +29,10 @@ test("unl-087-219 Blue Sentinel: identity, status, judgeReason and verbatim sour
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /trigger|触发倍率/);
-  assert.match(program.judgeReason, /registerDelayedTrigger/);
+  assert.match(program.judgeReason, /trigger\.delayed/);
   assert.match(program.judgeReason, /Universal Power/);
   assert.match(program.judgeReason, /163\.2\.b/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(9|120|257)/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 

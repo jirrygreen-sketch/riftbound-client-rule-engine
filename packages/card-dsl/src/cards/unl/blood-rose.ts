@@ -17,7 +17,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   触发能力 Finalize 到链上。契约 3.1 的 TriggeredAbility 没有 cost 槽位，Finalize 的收费
  *   管线也未接通（同 sfd/hall-of-legends 记录）。契约 3.9 要求 may 写成 choice.optional 把被选
  *   指令包在 body 里，这里按该形状保留「接受 → 支付 → 获得 XP」的完整顺序，不加第二道门控。
- * - 204.3.a / 205：效果内的费用在结算时支付，由 cost.pay 表达（RIFT-89 未合入，见 judgeReason）。
+ * - 204.3.a / 205：效果内的费用在结算时支付，由已合入的 cost.pay 表达；但本句的费用紧跟
+ *   触发效果开头的 may，按 383.3.b 仍必须作为触发能力基础费用在 Finalize 支付。
  * - 728-733：XP 是玩家资源；gain 1 XP = effect.xp（730.1）。
  * - 730.2 / 415.5 / 415.4 / 357.2：Spend 3 XP, :rb_exhaust: 是启动能力的费用
  *   （cost.xp 加「横置自身」）；横置费用必须能完成。
@@ -27,8 +28,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 416.1 / 416.1.b / 416.1.c：Ready 是 416.1 的动作；已就绪的对象再次 Ready 不再发生任何事
  *   （golden 覆盖该边界）。
  *
- * status = judge-required（README 第 2 节）：第一条触发能力依赖 383.3.b 的触发式能力基础费用
- * （契约 3.1 无槽位）与 cost.pay 原语（RIFT-89 未合入），整卡不能标记 executable。
+ * status = judge-required（README 第 2 节）：第一条触发能力仍缺 383.3.b 的触发式能力基础费用
+ * 槽位；契约 3.1 的 TriggeredAbility 没有 cost 字段，Finalize 无法在把能力放上链前收取 1 Energy。
+ * cost.pay 本体已合入，但不能用结算期指令替代该基础费用语义，整卡不能标记 executable。
  * 第二条启动能力的费用（3 XP + 横置）与 effect.ready 本体都已合入，golden 真实执行该半段
  * （费用计划可支付 + 真实 Ready 动作），并按 README 4.4 把缺依赖写成 TODO。
  */
@@ -57,7 +59,12 @@ const abilities: Ability[] = [
               {
                 id: "blood-rose.pay",
                 op: "cost.pay",
-                args: { energy: { kind: "constant", value: 1 } }
+                args: {
+                  // The primitive accepts a finalized scalar payment plan. The
+                  // TriggeredAbility base-cost slot is still missing, so this
+                  // remains a descriptive body step until that contract exists.
+                  payments: { kind: "constant", value: { energy: 1 } }
+                }
               },
               {
                 id: "blood-rose.gain-xp",
@@ -115,12 +122,11 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "第一条触发能力依赖两个未合入项，均不近似实现：(1) 383.3.b / 383.3.b.1 规定" +
+    "第一条触发能力仍有一个当前缺口，且不近似实现：383.3.b / 383.3.b.1 规定" +
     "「When you play a unit, you may pay :rb_energy_1: to gain 1 XP.」里紧跟 you may 的费用是该触发能力的基础费用" +
     "（只有支付后才会 Finalize 到链上），而契约 3.1 的 TriggeredAbility 没有 cost 槽位、Finalize 的收费管线也未接通" +
-    "（同 sfd/hall-of-legends 记录）。(2) 效果内费用需要 cost.pay 指令原语（204.3.a / 205），effects/instructions/ 尚无该 op" +
-    "（RIFT-89 cost.* 未合入）。此外没有订阅方把 CardProgram 的 triggered ability 注册为 TriggerRegistration" +
-    "（契约 3.5、RIFT-120 后续）。第二条启动能力已可用：3 XP 加横置的费用由合并费用管线支付，effect.ready 提交 416.1 的 Ready 动作；" +
+    "。cost.pay 指令本体与 CardProgram 的 triggered 注册已经合入，但它们不能替代 TriggeredAbility 的基础费用槽位。" +
+    "第二条启动能力已可用：3 XP 加横置的费用由合并费用管线支付，effect.ready 提交 416.1 的 Ready 动作；" +
     "golden 真实执行该半段。",
   abilities,
   sourceText:

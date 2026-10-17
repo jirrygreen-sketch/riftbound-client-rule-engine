@@ -27,26 +27,22 @@ import type { CardProgram } from "../../ir/index.js";
  *    ObjectFilter/matcher（layers/filter.ts 的 tags、解释器与内核的 tags）按“每个标签
  *    都命中”求值，写 tags: [...5 个标签] 会变成“同时具备全部 5 个标签”，删掉其中
  *    任何一个都会把另一张卡（或更窄的集合）实现成事实。
- * 2. +1 Might 属算术图层（479.4 / 479.4.e.1），但仍没有已合入路径把 CardProgram 的
- *    static 能力注册成 ContinuousEffectSpec：唯一注册入口是结算中的 continuous.* 原语与
- *    关键词展开，layers/engine.ts 的 registerContinuousEffect 没有调用方，
- *    programs/statics.ts 的 bindStatic 目前只有测试 binder；053.3 的 here 锚点
- *    （sameLocationAs）只被解释器查询（effects/interpreter/selectors.ts）实现，
- *    layers/filter.ts 的匹配器没有该锚点，静态注册会过度应用
- *    （同 rad/packed-amphitheater、ogn/windswept-hillock）。
- * 3. score/conquer/hold 时点已由 turn/flow.ts 的计分波原子发出（RIFT-270），RIFT-257 的
- *    programs/triggers.ts 也能把 triggered 能力注册为 TriggerRegistration；但卡面 filter 里的
+ * 2. +1 Might 属算术图层（479.4 / 479.4.e.1），CardProgram static 能力的生产绑定与
+ *    053.3 的 here 锚点（sameLocationAs）已经由 programs/statics.ts 接通；但本卡的
+ *    tagsAnyOf 仍不是静态过滤器词汇，因此该绑定会 fail closed，不能把五个标签的 or
+ *    语义误写成 tags 的 and 语义。
+ * 3. score/conquer/hold 时点已由 turn/flow.ts 的计分波原子发出，程序触发能力也能注册为
+ *    TriggerRegistration；但卡面 filter 里的
  *    here: true 仍不在封闭 EventPattern 词汇内（programs/filters.ts 的 translateTriggerFilter
- *    对 here 抛 judge-required），190.6.d 的“you = 战场控制者”绑定也未落地，
- *    触发无法正确挂到本来源（053.3 的 here 仍只是占位）。
+ *    对 here 抛 judge-required）；“you” 已可归一为来源控制者，但 here 的来源战场锚点仍未实现，
+ *    触发无法正确挂到本来源（053.3）。
  * 4. “replace this with the battlefield it replaced” 的动作不存在于封闭 GameAction 集合：
  *    439.5 要求被替代对象进入 Banishment、439.7.b 要求换回的原卡回到 token 的位置并继承
  *    状态（token 则停止存在），已合入的 create-token / move-zone / effect.token 都无法表达
  *    （战场 token 定义表也没有 brush）；且 “the battlefield it replaced” 是 Replace 时记录在
  *    token 上的被替代卡引用，契约 3.6 的 ObjectSelector 只有 self/source/target/pick/linked，
  *    没有读取该记录的形态。
- * 依赖：RIFT-91 后续（卡牌 static 注册、sameLocationAs 与标签集合谓词）、RIFT-257 后续
- * （here 锚点绑定与 190.6 战场控制者绑定）、Replace/Swap-Back 原语；不近似实现。
+ * 依赖：tagsAnyOf 的静态过滤器语义、here 锚点、Replace/Swap-Back 原语；不近似实现。
  */
 export default {
   canonicalCardId: "card.hash-8624ca0fcb3cd60db66cadac14c3f88e0dc422d1061843d35d39845b60616015",
@@ -56,14 +52,14 @@ export default {
     "四处缺口，均不近似实现：(1)「Bird, Cat, Dog, Poro, and Ivern units here have +1 [M]」的标签集合是 or 语义（133.8），" +
     "而已合入的 ObjectFilter 与匹配器只按「每个 tags 条目都命中」求值（layers/filter.ts、解释器 selectors、参考内核 matchesFilter），" +
     "写 tags: [五个标签] 会要求单位同时具备全部五个标签；程序用 tagsAnyOf 记录集合语义（描述性 fail-closed 键，不当作可执行谓词）。" +
-    "(2) +1 Might 属算术图层（479.4/479.4.e.1），但没有已合入路径把 CardProgram 的 static 能力注册成 ContinuousEffectSpec（registerContinuousEffect 无调用方），" +
-    "053.3 的 here 锚点（sameLocationAs）也未被 layers 过滤器实现（同 rad/packed-amphitheater、ogn/windswept-hillock）。" +
-    "(3) score/conquer/hold 时点已由 turn/flow.ts 的计分波原子发出（470.1/470.3/471/473.2、383.4；RIFT-270），RIFT-257 的 programs/triggers.ts 也能把 triggered 能力注册为 TriggerRegistration；" +
-    "但 filter 里的 here: true 不在封闭 EventPattern 词汇内（programs/filters.ts 对 here 抛 judge-required），190.6.d 的战场控制者绑定也未落地，触发无法挂到本来源。" +
+    "(2) +1 Might 属算术图层（479.4/479.4.e.1），CardProgram static 能力的生产绑定与 053.3 的 here 锚点（sameLocationAs）已经由 programs/statics.ts 接通；" +
+    "但 tagsAnyOf 仍不是静态过滤器词汇，绑定会 fail closed，不能把五个标签的 or 语义误写成 tags 的 and 语义。" +
+    "(3) score/conquer/hold 时点已由 turn/flow.ts 的计分波原子发出（470.1/470.3/471/473.2、383.4），程序触发能力也能注册为 TriggerRegistration；" +
+    "但 filter 里的 here: true 不在封闭 EventPattern 词汇内（programs/filters.ts 对 here 抛 judge-required）；“you” 已归一为来源控制者，here 的来源战场锚点仍未实现，触发无法挂到本来源。" +
     "(4) 「you may replace this with the battlefield it replaced」(439.3/439.5/439.7/439.7.b/439.7.c) 的动作不在封闭 GameAction 集合：" +
     "被替代对象要进 Banishment、换回的原卡要回到 token 的位置并继承状态、token 停止存在，已合入的 create-token/move-zone/effect.token 都表达不了（战场 token 定义表也没有 brush）；" +
     "“the battlefield it replaced” 是 Replace 时记录在 token 上的被替代卡引用，契约 3.6 的 ObjectSelector 没有读取该记录的形态。" +
-    "依赖：RIFT-91 后续（卡牌 static 注册、sameLocationAs 与标签集合谓词）、RIFT-257 后续（here 锚点与 190.6 战场控制者绑定）、Replace/Swap-Back 原语。",
+    "依赖：tagsAnyOf 的静态过滤器语义、here 锚点、Replace/Swap-Back 原语。",
   sourceText:
     "Bird, Cat, Dog, Poro, and Ivern units here have +1 :rb_might:.\n" +
     "When you score here, you may replace this with the battlefield it replaced.",

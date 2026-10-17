@@ -21,17 +21,15 @@ import type { CardProgram } from "../../ir/index.js";
  *   冻结字段里（见回复的契约变更请求）。
  *
  * status = judge-required（复核 2026-10-17）：
- * - 已合入的 Equip 展开（RIFT-87，effects/keywords/Equip.ts）声明的启动费用是
- *   payments: [{ kind: "equip" }]，而 cost/plan-values.ts 的 readCost 对未知支付种类
- *   直接 blocked，实测 buildCostPlan 抛 CostPlanError（reason "judge-required"，
- *   message "Unsupported payment kind: equip"）——印刷费用目前无法支付；
- * - 缺少卡牌程序 → 关键词展开 → 时点/链的接线（契约 3.5）：RIFT-257 的 createProgramBinding
- *   会对 keyword 能力做展开（expandProgram 走 keywordDefinitionsById），但没有任何生产方把
- *   KeywordAbility 交给关键词注册表展开并注册成链上的启动能力，也没有 Equip 费用的支付种类。
+ * - Equip 展开与卡牌程序绑定已经接通（effects/keywords/Equip.ts、programs/keywords.ts），
+ *   但展开出的 payments: [{ kind: "equip" }] 仍被 cost/plan-values.ts 视为不支持的支付种类，
+ *   buildCostPlan 会抛 CostPlanError（reason "judge-required"，message "Unsupported payment kind: equip"）。
+ * - 印刷费用还包含 1 个 Energy 符号，而冻结的 KeywordAbility 只承载 Power 数值和领域，无法把
+ *   Energy 部分传入 Equip 费用计划；cost.modify 对 Equip 的 [A]/[C] 费用改写也明确保持 judge-required。
  * 不把 Equip 近似成一条裸 effect.attach 指令（那会绕开 818.1.c.3/c.4 的费用与费用改写
  * 语义）；也不新增 IR 参数键。
  *
- * 依赖：Equip 费用支付种类（cost/plan-values.ts 的 "equip"）与关键词接线（RIFT-261 / RIFT-257）。
+ * 依赖：Equip 专用支付种类、印刷 Energy 参数的契约承载，以及 Equip 费用计划的支付/改写语义。
  */
 // `costDomain` 是既有合入先例使用的扩展字段（sfd/long-sword、sfd/bf-sword、
 // sfd/warmogs-armor 同样以 `as const` 书写）：冻结的 KeywordAbility（契约 3.1）只有
@@ -47,13 +45,12 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Equip 的启动费用尚不能在 EffectIR 费用管线里支付：已合入的 Equip 展开（effects/keywords/Equip.ts，RIFT-87）声明 " +
+    "Equip 的启动费用尚不能在 EffectIR 费用管线里支付：已合入的 Equip 展开（effects/keywords/Equip.ts）声明 " +
     "payments: [{ kind: \"equip\" }]，而 cost/plan-values.ts 的 readCost 对未知支付种类直接 blocked，" +
     "实测 buildCostPlan 抛 CostPlanError（reason \"judge-required\"，message \"Unsupported payment kind: equip\"）；" +
-    "印刷费用里也没有承载能量符号数的冻结字段（本印刷为 1 能量 + 1 Fury Power）。" +
-    "其次缺少卡牌程序→关键词展开→时点/链的生产接线（契约 3.5）：RIFT-257 的 createProgramBinding 能在 inspect/expandProgram 里展开 " +
-    "keyword 能力（golden 断言该展开），但没有生产方把该展开注册成链上的启动能力。" +
-    "依赖：Equip 费用支付种类与费用管线扩展（RIFT-261）以及关键词接线（RIFT-257）；不近似实现，" +
+    "印刷费用里也没有承载能量符号数的冻结字段（本印刷为 1 能量 + 1 Fury Power）；cost.modify 对 Equip 的 [A]/[C] 费用改写也明确保持 judge-required。" +
+    "卡牌程序→关键词展开→链绑定已经接通，golden 断言该展开，但不存在可支付 Equip 费用的生产路径。" +
+    "依赖：Equip 专用支付种类、印刷 Energy 参数的契约承载，以及 Equip 费用计划的支付/改写语义；不近似实现，" +
     "不用裸 effect.attach 绕开 818.1.c.3/c.4 的费用语义。",
   abilities: [
     // 818.1.a：本印刷带 Equipment 标签；818.1.c：印刷费用为 1 能量 + 1 Fury Power，

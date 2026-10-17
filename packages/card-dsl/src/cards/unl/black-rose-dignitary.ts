@@ -20,13 +20,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   431.4.b 明确“由游戏效果指示的 Channel”正是该原语覆盖的范围（Channel Phase 的常规 Channel 不属这里）。
  *
  * status = judge-required（缺口不近似实现）：
- * - [Assault] 的展开（static continuous.might + attacker 条件）没有整卡可执行路径：没有消费方把卡牌的
- *   keyword 能力解析为 KeywordDef 展开并注册成图层持续效果，layers 的 conditionMatches 也只识别
- *   always/never/type/has-tag/has-keyword（compare/designation 条件一律按 true），且 807.1.d 的
- *   Attacker designation 不在 ObjectSnapshot 特征里（契约 3.8 的 combatRole 未落地）。
- * - [Deathknell] 的展开体（effects/keywords/Deathknell.ts）只引用 trigger.leave 原语，而该 op 没有
- *   已合入的 InstructionDef，卡牌触发也没有注册进事件管线的入口（RIFT-82 / RIFT-257）。
- * 依赖：RIFT-82（触发式关键词展开与 trigger.leave）、RIFT-91（图层与卡牌注册）、契约 3.8（combatRole）。
+ * - [Assault] 的 KeywordDef 展开、卡牌程序静态绑定和 arithmetic 图层已经接通；但 807.1.d 的
+ *   Attacker designation 仍不在 ObjectSnapshot 特征里，compare 条件无法读取 combatRole，故不能
+ *   只在攻击者期间应用 +1 Might。
+ * - [Deathknell] 的 KeywordDef 展开与 object-killed 触发注册已经接通；展开体仍引用没有
+ *   InstructionDef 的 trigger.leave，且死亡被替代时移除触发、最后已知信息和离场前收集的完整
+ *   语义尚未由该原语承载。
+ * 依赖：契约 3.8 的 combatRole/Attacker 特征、trigger.leave 原语及其死亡替代/LKI 语义。
  * Channel 本体（effect.channel，431.1/431.2）已合入，golden 用解释器 + 参考内核真实执行。
  */
 const abilities: Ability[] = [
@@ -61,13 +61,12 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处展开未合入（均不近似实现）：(1) [Assault]（807.1.c/807.1.d.1）没有整卡可执行路径——" +
-    "没有消费方把卡牌程序的 keyword 能力解析为 KeywordDef 展开（static continuous.might）并注册成图层持续效果，" +
-    "layers 的 conditionMatches 只识别 always/never/type/has-tag/has-keyword（compare 条件一律按 true），" +
-    "且 807.1.d 的 Attacker designation 不是 ObjectSnapshot 特征（契约 3.8 的 combatRole 未落地）。" +
-    "(2) [Deathknell]（808.1）的展开体只引用 trigger.leave，而该 op 没有已合入的 InstructionDef，" +
-    "卡牌触发注册进事件管线的入口也不存在（808.1.d.1 的“死亡被替代则移出链”同属该管线）。" +
-    "依赖：RIFT-82、RIFT-91、契约 3.8（combatRole）。Channel 1 rune exhausted 本体（effect.channel，431.1/431.2）已合入，" +
+    "两处当前缺口，均不近似实现：(1) [Assault]（807.1.c/807.1.d）的 KeywordDef 展开、卡牌程序静态绑定和 arithmetic 图层" +
+    "已经接通，但 Attacker designation 仍不在 ObjectSnapshot 特征里，compare 条件无法读取" +
+    "combatRole，不能只在攻击者期间应用 +1 Might。(2) [Deathknell] 的 KeywordDef 展开与 object-killed" +
+    "触发注册已经接通，但展开体仍引用没有 InstructionDef 的 trigger.leave；死亡被替代时移除触发、" +
+    "最后已知信息和离场前收集的语义也没有可执行承载。依赖：契约 3.8 的 combatRole/Attacker 特征、" +
+    "trigger.leave 原语及其死亡替代/LKI 语义。Channel 1 rune exhausted 本体（effect.channel，431.1/431.2）已合入，" +
     "golden 用解释器 + 参考内核真实执行该半段。",
   abilities,
   sourceText:

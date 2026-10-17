@@ -26,7 +26,7 @@ import type { CardProgram } from "../../ir/index.js";
  * - 运行期 Location 选择仍缺失：effect.move 的 to 只接受字面 LocationRef、
  *   "controller-base" 或字面 LocationRef 候选列表；把运行期才成立的
  *   "battlefields you control" 写成 { kind: "choose", options: [...] } 会在
- *   argsSchema 阶段被拒（RIFT-90/RIFT-91 的地点选择生命周期）。
+ *   argsSchema 阶段被拒，因为卡程序没有地点候选枚举生产方。
  * - 玩家目标/选择仍缺失：ChoiceRequest 只有 optional/mode/select-objects/order/number，
  *   没有玩家选择；target.player 也没有指令文件，"对手集合"的解析、锁定与
  *   "由该玩家来选"的 chooser 绑定没有已合入路径。
@@ -34,7 +34,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   <linkKey>（默认 "moved"），解释器的 linked-value 逐字按 `<id>.<key>` 取值，
  *   既不支持 `movements.0.to` 这样的路径，回执本身也不是 LocationRef
  *   （把它当 to 传入会被原语拒绝，文件内的链接键只是保留形状）。
- * 依赖：运行期 Location 选择与结果绑定（RIFT-90/RIFT-91 后续）、玩家目标/选择（target.player）。
+ * 依赖：运行期 Location 候选枚举与结果绑定、玩家目标/选择（target.player）。
  */
 const callToBattle = {
   canonicalCardId: "card.hash-1d05a8db288bc071a9e9736106ed0815284bac8ec41b7795f5d4b43e4a75217c",
@@ -43,12 +43,12 @@ const callToBattle = {
   judgeReason:
     "三处缺口，均不近似实现：(1)「to a battlefield you control」是 CR 355.4/355.4.a 的 Finalize 目的地选择，" +
     "合法地点取决于运行时战场控制状态；effect.move 的 to 只接受字面 LocationRef、controller-base 或字面 LocationRef 候选列表，" +
-    "写成 { kind: \"choose\", options: [...] } 会在 argsSchema 阶段被拒（依赖 RIFT-90/RIFT-91 的地点选择生命周期）。" +
+    "写成 { kind: \"choose\", options: [...] } 会在 argsSchema 阶段被拒，因为卡程序没有地点候选枚举生产方。" +
     "(2)「choose an opponent」按 CR 355.7/355.9.a 是玩家选择，但 ChoiceRequest 只有 optional/mode/select-objects/order/number，" +
     "没有玩家选择；target.player 也没有已注册指令文件，对手集合的解析、锁定与 chooser 绑定没有路径。" +
     "(3)「They move a unit they control to the same battlefield」的 359.3.f.3 结果绑定不可用：effect.move 只把整份回执写进 " +
     "<linkKey>，解释器的 linked-value 逐字按 <id>.<key> 取值（不支持 movements.0.to 这样的路径），回执本身也不是 LocationRef。" +
-    "依赖：运行期 Location 选择与结果绑定（RIFT-90/RIFT-91 后续）、玩家目标/选择（target.player）。",
+    "依赖：运行期 Location 候选枚举与结果绑定、玩家目标/选择（target.player）。",
   abilities: [
     {
       kind: "play",

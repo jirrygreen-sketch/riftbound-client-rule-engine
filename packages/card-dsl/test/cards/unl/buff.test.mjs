@@ -59,8 +59,3 @@ test("unl-t04 Buff golden: each Buff still contributes exactly +1 Might (703), s
   assert.equal(spend.result.status, "executed");
   assert.equal(kernel.getObject("target").buffs, 0);
 });
-
-test.todo(
-  "unl-t04 Buff: no CardProgram ability is authored for this token because its text restates the shared 427.1.b.1/702.3 limit " +
-    "that effect.buff already enforces; an ability here would invent an action the token does not have"
-);
