@@ -4,9 +4,10 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/pillaged-armory.js";
 const ENGINE = new URL("../../../../engine-core/dist/", import.meta.url);
-const { keywordDefinitionsById } = await import(new URL("effects/keywords/registry.generated.js", ENGINE));
 const { runInstruction, world } = await import(new URL("effects/testing/index.js", ENGINE));
 const buff = (await import(new URL("effects/instructions/effect.buff.js", ENGINE))).default;
+const deploy = (await import(new URL("effects/keywords/Deploy.js", ENGINE))).default;
+const { runAbilityBody } = await import(new URL("effects/interpreter.js", ENGINE));
 
 const CARD_ID = "card.hash-c3300d4c2699318874a04e6169dc566f6c3e88300d3f2ccd920a1edf3352d84a";
 const EXPECTED_SOURCE =
@@ -21,6 +22,8 @@ test("rad-073-167 Pillaged Armory: program validates and is judge-required", () 
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Deploy/);
   assert.match(program.judgeReason, /TriggerRegistration/);
+  assert.match(program.judgeReason, /RIFT-267/);
+  assert.match(program.judgeReason, /RIFT-120/);
 });
 
 test("rad-073-167 Pillaged Armory: identity, ruleset, status and verbatim source text", () => {
@@ -111,9 +114,32 @@ test("rad-073-167 Pillaged Armory: a unit that already has a Buff is not buffed 
   assert.deepEqual(run.events, []);
 });
 
-test("rad-073-167 Pillaged Armory: the Deploy keyword has no merged definition", () => {
-  assert.equal(keywordDefinitionsById.get("Deploy"), undefined);
+test("rad-073-167 Pillaged Armory: the merged Deploy expansion and its kill body", () => {
+  // RIFT-267's KeywordDef is merged (contract 3.7): it expands to the
+  // continuous.location declaration plus the "opponent holds here" kill
+  // trigger. The kill body really executes; the consumers that would wire the
+  // declaration and the trigger are the open RIFT-120 gaps in judgeReason.
+  assert.equal(deploy.keyword, "Deploy");
+  const expansion = deploy.expand({ host: { canonicalCardId: program.canonicalCardId } });
+  assert.deepEqual(expansion.map((ability) => ability.kind), ["static", "triggered"]);
+  assert.equal(expansion[0].effect.kind, "continuous.location");
+  assert.equal(expansion[1].trigger.at, "hold");
+
+  const kill = expansion[1].body[0];
+  assert.equal(kill.op, "effect.kill");
+  assert.deepEqual(kill.args.self, { kind: "constant", value: true });
+  const base = world().object("pillaged-armory", {
+    owner: "A", types: ["gear"], might: null, energy: 1, power: null,
+    zone: "board", location: { type: "battlefield", id: "bf-1" }
+  }).build();
+  // effect.kill self acts on the ability source; bind it explicitly like the
+  // merged Deploy keyword golden does.
+  const kernel = base.clone({ sourceSnapshot: base.getObject("pillaged-armory") });
+  const outcome = runAbilityBody(expansion[1].body, kernel);
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.equal(kernel.getObject("pillaged-armory").zone, "trash");
 });
 
-test.todo("rad-073-167 Pillaged Armory: Deploy expansion (CR 830.1.b) needs a keywords/Deploy.ts definition plus the continuous.location/continuous.restrict consumers (\"kw-deploy\" workstream).");
+test.todo("rad-073-167 Pillaged Armory: the Deploy expansion's continuous.location play-location permission, the non-Unit cleanup recall exemption and the opponent-Hold kill trigger still need consumers (CR 830.1.b, RIFT-120).");
 test.todo("rad-073-167 Pillaged Armory: both triggers need the program -> TriggerRegistration adapter (contract 3.5, RIFT-120 follow-up) and a conquer payload that carries \"here\" before they can fire for real.");

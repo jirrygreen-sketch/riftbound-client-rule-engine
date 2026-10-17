@@ -26,20 +26,22 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   draw 只有在该支付完成后才发生，故 draw 用 linkedTo 依赖支付指令（同
  *   sfd/sunken-temple 的 pay → draw 结构）。
  *
- * status = judge-required（README 第 2 节）。四处缺口，均不近似实现：
- * 1. Accelerate 展开的消费方未合入：static accelerate.cost 需要 cost.additional /
- *    cost.pay 与 replacement.enter 管线（RIFT-86 / RIFT-89）；支付后才挂上替代
- *    （805.2.b）属打出流程。
- * 2. Gold gear token 定义不在已冻结的 effect.token 定义表内（effect.token.ts 头注
- *    释明确“Definitions requiring other abilities, including Gold, remain
- *    blocked/judge-required”），原语只会返回 blockedReason
- *    token-definition-or-abilities-judge-required。
+ * status = judge-required（README 第 2 节，2026-10-17 复核）。当前缺口，均不近似实现：
+ * 1. Accelerate 的 KeywordDef 已合入（RIFT-266 系列 / Accelerate.ts），但它的
+ *    accelerate.cost 静态声明没有生产消费方：卡牌侧的 keyword 能力不会展开成
+ *    Finalize 的 optionalAdditional 条目（chain/engine.ts 的 cost input 只来自
+ *    调用方与印刷 CostSpec），支付后才挂上替代（805.2.b）同样属于该打出流程接线。
+ * 2. Gold gear token 定义仍不在 effect.token 的 DEFINITIONS 表内（该表只有
+ *    recruit/sand-soldier/mech/reflection/tentacle；187.5 的 Gold 自带能力，按原语
+ *    文件说明保持 blocked/judge-required），mode "play" 返回 negated +
+ *    blockedReason token-definition-or-abilities-judge-required。
  * 3. “exhausted” 是入场状态改写（143.4 / 185.2.d），create-token 动作与 effect.token
- *    都不支持入场替代；先创建再补横置会多出一次“成为横置”事件，不等价。
- * 4. cost.pay 原语未合入（effects/instructions/ 无 cost.pay 文件，只有 RIFT-9 清单
- *    与费用计划模块），模式二的混沌符文支付没有已注册执行路径。
- * 依赖：RIFT-86（kw-repeat-accelerate）、RIFT-89（batch3-cost-plan）、
- * RIFT-62/RIFT-63（token 与链上生成）。
+ *    都不支持入场状态；先创建再补横置会多出一次“成为横置”事件，不等价。
+ * 4. 模式二的 “Pay :rb_rune_chaos: to draw 1” 是指令内费用（355.10.c.1）：费用计划模块
+ *    已能支付 power，但没有指令内 cost.pay 原语（effects/instructions/ 仍无该 op；
+ *    RIFT-261 进行中），模式二没有可执行路径。
+ * 依赖：RIFT-261（费用种类与 cost.pay）、RIFT-120（卡牌 keyword/费用接线）、
+ * RIFT-62/RIFT-63（token 定义与链上生成）。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "accelerate" },
@@ -117,15 +119,15 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处缺口，均不近似实现：(1) Accelerate 的展开消费方未合入——static accelerate.cost 需要 " +
-    "cost.additional / cost.pay 与 replacement.enter 管线（805.2.b 的延迟替代；RIFT-86 / RIFT-89）；" +
-    "(2) Gold gear token 定义（187.5，自带 [Reaction][>] Kill this, [E]: [Add] [A] 能力）不在已冻结的 " +
-    "effect.token 定义表内（该表按设计只含无额外能力的 token），原语返回 blockedReason " +
-    "token-definition-or-abilities-judge-required；" +
-    "(3) “exhausted” 是 token 入场状态改写（143.4 / 185.2.d），create-token 动作与 effect.token 都不支持入场替代，" +
-    "先创建再补横置会多出一次“成为横置”事件，不等价；" +
-    "(4) “Pay :rb_rune_chaos: to draw 1” 的 cost.pay 原语未合入（effects/instructions/ 无该 op）。" +
-    "依赖：RIFT-86（kw-repeat-accelerate）、RIFT-89（batch3-cost-plan）、RIFT-62/RIFT-63（token 与链上生成）。",
+    "四处缺口（2026-10-17 复核，均不近似实现）：(1) Accelerate 的 KeywordDef 已合入，但其 " +
+    "accelerate.cost 静态声明没有生产消费方——卡牌 keyword 不会展开成 Finalize 的 optionalAdditional 条目，" +
+    "805.2.b 的延迟入场替代也未接线（RIFT-120）。(2) Gold gear token 定义（187.5，自带 " +
+    "\"[Reaction][>] Kill this, [E]: [Add] [A]\" 能力）仍不在 effect.token 的 DEFINITIONS 表内，" +
+    "mode \"play\" 返回 negated 与 blockedReason token-definition-or-abilities-judge-required。" +
+    "(3) “exhausted” 是 token 入场状态改写（143.4 / 185.2.d），create-token 与 effect.token 都不支持入场状态，" +
+    "先创建再补横置会多出一次“成为横置”事件，不等价。(4) “Pay :rb_rune_chaos: to draw 1” 是指令内费用" +
+    "（355.10.c.1），effects/instructions/ 仍无 cost.pay 类原语（RIFT-261 进行中）。" +
+    "依赖：RIFT-261（费用种类与 cost.pay）、RIFT-120、RIFT-62/RIFT-63（token 与链上生成）。",
   abilities,
   sourceText:
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_chaos: as an additional cost to have me enter ready.)\n" +

@@ -39,6 +39,7 @@ test("rad-052-167 Resource Extractor: the judgeReason names the actual merged ga
   assert.match(program.judgeReason, /187\.5/);
   assert.match(program.judgeReason, /entry overrides/);
   assert.match(program.judgeReason, /143\.4/);
+  assert.match(program.judgeReason, /RIFT-120/);
 });
 
 test("rad-052-167 Resource Extractor: [Deploy] plus the turn-end trigger with its printed condition", () => {
@@ -130,7 +131,8 @@ test.todo(
 );
 
 test.todo(
-  "rad-052-167 Resource Extractor: expanding [Deploy] (830.1.b) needs a Deploy KeywordDef, the " +
-    "turn-end trigger needs the RIFT-120 CardProgram -> TriggerRegistration adapter, and the " +
-    "'you control this battlefield' condition needs an evaluated battlefield-control predicate."
+  "rad-052-167 Resource Extractor: the merged Deploy KeywordDef (RIFT-267) still needs its " +
+    "continuous.location / cleanup-consumer wiring, the turn-end trigger needs the RIFT-120 " +
+    "CardProgram -> TriggerRegistration adapter, and the 'you control this battlefield' condition " +
+    "needs an evaluated battlefield-control predicate."
 );

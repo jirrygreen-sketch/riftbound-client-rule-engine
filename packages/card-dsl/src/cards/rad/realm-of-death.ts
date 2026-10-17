@@ -27,38 +27,41 @@ import type { CardProgram } from "../../ir/index.js";
  * - Both units are chosen by one sentence ("an enemy unit ... and a friendly
  *   unit"), so each is a target (355.7 / 355.12) and there is no "up to".
  *
- * Status: judge-required. The Might modifications have no merged instruction:
- * the layers engine can evaluate an arithmetic continuous.might effect
- * (layers/engine.ts) and ResolveContext.addContinuous exists (contract 3.6),
- * but effects/instructions/ registers no op that creates one, so -2/+2 cannot
- * be applied and the damage would be computed from the printed Might instead of
- * the modified Might. The damage half is exercised on its own in the golden
- * test. Not approximated with Buff counters.
+ * Status: executable. RIFT-258 merged the card-facing `continuous.might`
+ * instruction (effects/instructions/continuous.might.ts) and the chain's
+ * ResolveContext adapter wires `addContinuous` into the layers engine
+ * (chain/engine.ts), so both temporary Might changes register arithmetic-layer
+ * effects with an end-of-turn duration and the two Deal actions read the
+ * modified Effective Might at resolution (143.2.a, 478). The golden test drives
+ * the card's own body through the real ChainEngine and asserts the layered
+ * Mights, the resulting damage, and the end-of-turn expiry. The instructions use
+ * the merged op's `objects` selection descriptor (`{ kind: "target", id }`) so
+ * the chain's interpreter adapter resolves the Finalize-locked TargetSpec; no
+ * Might value is approximated with a Buff counter.
  */
 export default {
   canonicalCardId: "card.hash-2d0655c3e2e7d9b1f55085edecfe69718e6edf9224340e2b87500e7770483b3d",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "缺临时 Might 修正的卡牌可用指令：layers/engine.ts 已能计算 arithmetic 的 continuous.might，ResolveContext.addContinuous 也已存在（契约 3.6），" +
-    "但 effects/instructions/ 未注册任何创建该持续效果的 op，因此「-2 :rb_might: this turn」「+2 :rb_might: this turn」（317.2.c 到期）无法落地；" +
-    "若省略这两条，后续伤害会按印刷 Might 而非修正后的 Might 计算，属近似实现，故整卡 judge-required。" +
-    "伤害半边按 418.6.b.3（CR 原文即以本类文本为例）用 effect.damage + object-property 表达，并已在 golden 测试中真实执行。" +
-    "依赖：RIFT-91（layers-continuous 的卡牌侧入口）/ RIFT-87；不近似实现（不得用 Buff 计数器代替）。",
+  status: "executable",
   abilities: [
     {
       kind: "play",
       body: [
         {
-          // "Give an enemy unit -2 Might this turn" — layers arithmetic effect
-          // with an end-of-turn duration; no merged op creates it (see
-          // judgeReason).
+          // "Give an enemy unit -2 Might this turn" — merged arithmetic-layer
+          // continuous.might op (RIFT-258) with an end-of-turn duration
+          // (317.2.c). `objects` carries the Finalize-locked TargetSpec through
+          // the chain interpreter adapter.
           id: "realm-of-death.debuff-enemy",
           op: "continuous.might",
           args: {
+            mode: { kind: "constant", value: "add" },
             amount: { kind: "constant", value: -2 },
             duration: { kind: "constant", value: "end-of-turn" },
-            target: { kind: "constant", value: "realm-of-death.enemy-unit" }
+            objects: {
+              kind: "constant",
+              value: { kind: "target", id: "realm-of-death.enemy-unit" }
+            }
           },
           targets: [
             {
@@ -71,14 +74,18 @@ export default {
           ]
         },
         {
-          // "and a friendly unit +2 Might this turn" — the second layers
-          // effect.
+          // "and a friendly unit +2 Might this turn" — the second
+          // arithmetic-layer effect.
           id: "realm-of-death.buff-friendly",
           op: "continuous.might",
           args: {
+            mode: { kind: "constant", value: "add" },
             amount: { kind: "constant", value: 2 },
             duration: { kind: "constant", value: "end-of-turn" },
-            target: { kind: "constant", value: "realm-of-death.friendly-unit" }
+            objects: {
+              kind: "constant",
+              value: { kind: "target", id: "realm-of-death.friendly-unit" }
+            }
           },
           targets: [
             {

@@ -23,27 +23,28 @@ import type { CardProgram } from "../../ir/index.js";
  *   the ability's recipient is each player who plays the card, not only the
  *   Battlefield's controller.
  *
- * Status (cards/README.md §2): judge-required. The Predict steps themselves are
- * writable with merged primitives (keyword Vision expands to exactly the
- * effect.inspect + effect.recycle pair used below; the golden test executes
- * that pair), but the triggered ability cannot execute as written because
- * three binding pieces are missing:
- * 1. "they" is the player who played the card — an event participant. The
- *    frozen IR has no event-player selector: effect.inspect takes a PlayerId
- *    Expr, and no ObjectSelector / Expr reads the triggering event's player
- *    (the same gap ogn/obelisk-of-power records). The "event-player" constant
- *    below is a documented placeholder, not executable data.
+ * Status (cards/README.md §2, rechecked 2026-10-17): judge-required. The Predict
+ * steps themselves are writable with merged primitives (Predict is now covered
+ * by the merged effect.inspect + effect.recycle pair, executed in the golden;
+ * RIFT-269's keyword actions map Predict through the same ops), but the
+ * triggered ability cannot execute as written because these binding pieces are
+ * missing:
+ * 1. "they" is the player who played the card — an event participant. The IR has
+ *    no event-player selector: effect.inspect takes a PlayerId Expr, and no
+ *    ObjectSelector / Expr reads the triggering event's player (the same gap
+ *    ogn/obelisk-of-power records). The "event-player" constant below is a
+ *    documented placeholder, not executable data.
  * 2. "the first time they play a unit or gear here each turn" is per-player, per-
  *    turn, and restricted to plays at this Battlefield. TriggerSpec.once
  *    frequencies (per-turn / per-combat / per-chain / per-game) are scoped to
  *    one registration+source, not per event player, and the closed timing-point
  *    payload does not expose the play's destination Battlefield for a
  *    "played here" filter.
- * 3. no merged module emits/registers card-program triggers (scoring/ and the
- *    combat/play paths are not bridged to the chain/events pipeline, and no
- *    subscriber turns a CardProgram's triggered ability into a
- *    TriggerRegistration); the filter keeps the sibling battlefield placeholder
- *    spelling (here: true), which the engine trigger-spec validator rejects.
+ * 3. no merged module registers a card-program trigger: the event pipeline
+ *    accepts TriggerRegistrations from the host, but nothing turns a
+ *    CardProgram's triggered ability into one (RIFT-120), and the filter keeps
+ *    the sibling battlefield placeholder spelling (here: true), which the engine
+ *    trigger-spec validator rejects.
  * Order is preserved: Predict looks first, then the optional recycle of the
  * looked-at card (437.1), so the recycle is linked to the inspect step.
  * Dependencies: an event-player selector and per-player once frequency
@@ -55,17 +56,15 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1) 「they [Predict]」的接收者是**事件玩家**（打出该牌的玩家），而 IR 没有事件玩家选择器：" +
-    "effect.inspect 的 player 只接受 PlayerId 表达式，ObjectSelector/Expr 都读不到触发事件的 player（同 ogn/obelisk-of-power 的缺口）；" +
-    "程序里的 \"event-player\" 是缺选择器的占位值，不可执行。" +
-    "(2) 「the first time they play a unit or gear here each turn」是每名玩家、每回合一次、且限定「打出到本战场」：" +
-    "TriggerSpec.once 的 per-turn/per-combat/per-chain/per-game 以 registration+source 为频度键（frequencyKey 用 source.ref），不是按事件玩家分别各一次；" +
-    "封闭时点载荷（card-played，见 events/timing-points.ts 的 card-play payloadType）也不暴露打出目的地战场，" +
-    "filter 的 here: true 是同类战场卡占位（053.3），引擎 trigger-spec 校验器当前不接受。" +
-    "(3) 没有任何已合入订阅方把 CardProgram 的 triggered ability 注册成 TriggerRegistration（scoring/ 与打出路径未接入 chain/events 单管线）。" +
-    "Predict 本体（437.1/437.3.a/437.4）可用已合入的 effect.inspect + effect.recycle 表达，golden 真实执行了这两步；" +
-    "但整卡在事件玩家选择器、per-player once 频度、打出地点载荷与触发注册落地前保持 judge-required。" +
-    "依赖：契约变更请求（事件玩家选择器 + per-player once + 打出地点载荷）、RIFT-31/RIFT-33（契约 §7.2 批 5）。不近似实现。",
+    "三处缺口（2026-10-17 复核，均不近似实现）：(1) 「they [Predict]」的接收者是事件玩家（打出该牌的玩家），" +
+    "IR 没有事件玩家选择器：effect.inspect 的 player 只接受 PlayerId 表达式，ObjectSelector/Expr 都读不到触发事件的 player" +
+    "（同 ogn/obelisk-of-power 的缺口）；程序里的 \"event-player\" 是缺选择器的占位值，不可执行。" +
+    "(2) 「the first time they play a unit or gear here each turn」是每名玩家、每回合一次、且限定打出到本战场：" +
+    "TriggerSpec.once 的频度键是单个 registration+source（events/pipeline.ts frequencyKey 用 source.ref），不是按事件玩家分别各一次；" +
+    "封闭的 card-played 载荷也不暴露打出目的地战场，filter 的 here: true 仍是 053.3 的占位（引擎 trigger-spec 校验器不接受该键）。" +
+    "(3) 没有已合入订阅方把 CardProgram 的 triggered ability 注册成 TriggerRegistration（RIFT-120）。" +
+    "Predict 本体（437.1/437.3.a/437.4）已用 effect.inspect + effect.recycle 表达并由 golden 真实执行。" +
+    "依赖：契约变更请求（事件玩家选择器 + per-player once + 打出地点载荷）、RIFT-120。",
   sourceText:
     "For each player, the first time they play a unit or gear here each turn, they [Predict]. " +
     "(They look at the top card of their Main Deck. They may recycle it.)",

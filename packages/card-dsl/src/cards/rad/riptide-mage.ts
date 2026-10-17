@@ -16,12 +16,17 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （143.2.a 的 Effective Might / 475），到期于本回合结束；X 不限位置（"an enemy unit"
  *   是全场范围），也不要求"here"。
  *
- * status 判定（README 第 2 节）：judge-required。缺口：
- * - 临时 Might 修改没有已注册的卡牌侧原语：契约 3.6 的封闭 GameAction 集合没有 Might 修改
- *   动作，effect.buff 只放/消耗 Buff counter（702），LayerEngine 只消费经
- *   ResolveContext.addContinuous 注册的 ContinuousEffectSpec（CardProgram static/指令未接线）。
- *   依赖：RIFT-91（layers-continuous）与后续 continuous.might / continuous.duration 原语批次。
- * [Accelerate] 关键词本身已合入（RIFT-86）。
+ * status 判定（README 第 2 节）：executable。
+ * - 临时 Might 修改由 RIFT-258 合入的卡牌侧 continuous.might 指令承担（arithmetic 层 +
+ *   end-of-turn 期限，317.2.c）；链的 ResolveContext 适配器（chain/engine.ts）把
+ *   addContinuous 接进 layers 引擎，golden 用真实 ChainEngine 结算触发体并断言
+ *   图层 Might 与到期。`objects` 用合并原语的 { kind: "target", id } 选择描述符，
+ *   让解释器适配器读取 Finalize 锁定的 TargetSpec；绝不用 Buff 计数器代替（702/703）。
+ * - [Accelerate] 关键词已合入（RIFT-86），费用计划接受 optionalAdditional 的 accelerate
+ *   条目并把费用付清后的单位替换为就绪入场（chain/engine.ts 的 entry-state 分支）——
+ *   golden 用真实 ChainEngine 覆盖支付/拒绝两条路径。
+ * - CardProgram 触发注册成生产 TriggerRegistration 属共享 RIFT-120 接线，按已合入
+ *   executable 触发卡（ogn/jinx-demolitionist）的惯例保留 test.todo，不影响本卡数据。
  */
 
 const ENEMY_UNIT = "riptide-mage.enemy-unit";
@@ -39,14 +44,13 @@ const abilities: Ability[] = [
     body: [
       {
         id: "riptide-mage.give-minus-three-might",
-        // 临时 Might -3（arithmetic 层，本回合结束到期）；原语未注册，见 judgeReason。
+        // 临时 Might -3（arithmetic 层，本回合结束到期）：RIFT-258 的 continuous.might。
         op: "continuous.might",
         args: {
           mode: { kind: "constant", value: "add" },
-          layer: { kind: "constant", value: "arithmetic" },
           amount: { kind: "constant", value: -3 },
           duration: { kind: "constant", value: "end-of-turn" },
-          target: { kind: "constant", value: ENEMY_UNIT }
+          objects: { kind: "constant", value: { kind: "target", id: ENEMY_UNIT } }
         },
         targets: [
           {
@@ -67,14 +71,7 @@ const program = {
   canonicalCardId:
     "card.hash-b1ac774654b3c23d9236325b0e377a5c94866af93ca718bf2a30313a4cd027b4",
   rulesetVersion: "core-1.5" as const,
-  status: "judge-required" as const,
-  judgeReason:
-    "「give an enemy unit -3 [M] this turn」需要已注册的临时 Might 修改原语：契约 3.6 的封闭 GameAction " +
-    "集合没有 Might 修改动作，effect.buff 只放/消耗 Buff counter（702），LayerEngine 只消费经 " +
-    "ResolveContext.addContinuous 注册的 ContinuousEffectSpec（CardProgram 指令未接线），" +
-    "故 continuous.might（arithmetic 层 + 本回合结束到期，143.2.a/475）不可执行。" +
-    "依赖：RIFT-91（layers-continuous）与后续 continuous.might / continuous.duration 原语批次。" +
-    "[Accelerate] 关键词本身已合入（RIFT-86，805），由 Accelerate KeywordDef 展开；不近似实现。",
+  status: "executable" as const,
   abilities,
   sourceText:
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_mind: as an additional cost to have me enter ready.)\n" +

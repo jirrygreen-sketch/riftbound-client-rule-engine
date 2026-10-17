@@ -27,11 +27,14 @@ test("rad-082-167 Primordial Roar: program passes validateCardProgram with the c
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("rad-082-167 Primordial Roar: judgeReason names Show Off, the finalization choice, and the locked value", () => {
+test("rad-082-167 Primordial Roar: judgeReason names the merged keyword and the remaining gaps", () => {
   assert.match(program.judgeReason, /ShowOff\.ts/);
   assert.match(program.judgeReason, /832\.1/);
   assert.match(program.judgeReason, /832\.1\.d\.1/);
-  assert.match(program.judgeReason, /RIFT-89\/90/);
+  assert.match(program.judgeReason, /cost\.reveal/);
+  assert.match(program.judgeReason, /show-off/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.equal(program.judgeReason.includes("没有 ShowOff.ts"), false);
 });
 
 test("rad-082-167 Primordial Roar: structure — the [Show Off] keyword declaration plus a printed-cost play ability", () => {
@@ -148,12 +151,13 @@ test("rad-082-167 Primordial Roar: a missing Show Off link makes the damage inst
 });
 
 test.todo(
-  "rad-082-167 Primordial Roar: [Show Off] has no merged keyword implementation " +
-    "(effects/keywords/ has no ShowOff.ts), so the keyword declaration cannot be expanded — RIFT-83/91."
+  "rad-082-167 Primordial Roar: the finalization-time Show Off choice (decline, or reveal a unit from " +
+    "hand and/or pick a friendly unit) and the characteristic lock of 832.1.d.1: the merged " +
+    "effects/keywords/ShowOff.ts only publishes a cost.reveal declaration with no consumer, and " +
+    "effect.show-off is not a registered op — RIFT-261/RIFT-120."
 );
 
 test.todo(
-  "rad-082-167 Primordial Roar: the finalization-time Show Off choice (decline, or reveal a unit from " +
-    "hand and/or pick a friendly unit) and the characteristic lock of 832.1.d.1 need the " +
-    "cost.reveal/condition.result template path and an effect.show-off instruction — RIFT-89/90."
+  "rad-082-167 Primordial Roar: hand the printed [Object] clause ('a unit') to the keyword expansion — " +
+    "contract 3.8.3's KeywordDef.expand params are not carried by the card-side KeywordAbility."
 );

@@ -35,6 +35,7 @@ test("rad-165-167 Rakelstake: identity, ruleset, status and exact source text", 
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /event-player/);
   assert.match(program.judgeReason, /per-player/);
+  assert.match(program.judgeReason, /RIFT-120/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -173,6 +174,6 @@ test.todo(
 test.todo(
   "rad-165-167 Rakelstake: register the card program's triggered ability as a TriggerRegistration " +
     "and run it from the real play pipeline (053.3 here referent, 190.6 Battlefield-controller " +
-    "resolution) — needs RIFT-31/RIFT-33 (contract §7.2 batch 5)"
+    "resolution) — RIFT-120"
 );
 

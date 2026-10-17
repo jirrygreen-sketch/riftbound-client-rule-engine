@@ -25,34 +25,34 @@ import type { CardProgram } from "../../ir/index.js";
  *   (events/timing-points.ts, CR 415.1/415.1.c) with a self-role filter; 415.2
  *   makes Exhausted a readable state, so the trigger condition is expressible.
  * - "give a friendly unit +3 :rb_might: this turn" is a temporary Might
- *   modification with an end-of-turn duration. Like the merged ogn/sfd cards
- *   (Stupefy, Punch First, Dangerous Duo, Riposte), this belongs to the layers
- *   `continuous.might` consumer: effect.buff only covers CR 702 Buff counters,
- *   and layers/ has no card-facing primitive that registers a continuous.might
- *   effect (ability-templates lists continuous.might as RIFT-91 scope).
-
- * Status: judge-required. The activated half's primitives are merged and the
- * golden test executes them, but the second ability is not executable (no
- * temporary-Might primitive), so the card as a whole is not executable. The
- * Might grant is recorded with the contract/layers shape and a concrete
- * judgeReason instead of being replaced by Buff counters.
+ *   modification with an end-of-turn duration. RIFT-258 merged the card-facing
+ *   `continuous.might` instruction (effects/instructions/continuous.might.ts)
+ *   and the chain's ResolveContext adapter wires `addContinuous` into the layers
+ *   engine (chain/engine.ts), so the grant registers a real arithmetic-layer
+ *   effect and expires at turn-end (317.2.c). effect.buff covers only CR 702
+ *   Buff counters and is never used as a substitute (702/703/427.1).
+ *
+ * Status: executable. The activated half pays its printed Exhaust cost through
+ * the merged Finalize cost plan (415.4/415.5) and executes Draw 1 + channel 1
+ * rune exhausted. The object-exhausted trigger (415.1) grants +3 Might this turn
+ * through the merged continuous.might op. The golden test drives both halves
+ * through the real ChainEngine and asserts the layered Might and its end-of-turn
+ * expiry. Registering the CardProgram trigger as a production
+ * TriggerRegistration remains the shared RIFT-120 wiring, recorded as test.todo
+ * exactly like the merged executable trigger cards (ogn/jinx-demolitionist).
  */
 const resplendentRostrum = {
   canonicalCardId: "card.hash-3fbe07d45b81cd1a97249fa165c6aa18b0f3350d24e4eaf06e090a22035f70d4",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "缺临时 Might 修正原语：契约 3.6 的封闭 GameAction 集合没有 might 修改动作，layers/ 也没有卡牌侧入口" +
-    "注册带 end-of-turn 期限的 continuous.might 持续效果（effect.buff 只覆盖 CR 702 的 Buff 指示物，" +
-    "两者不可互换）。依赖：RIFT-91（layers-continuous 持续效果层）。" +
-    "激活能力的 Draw 1 与 channel 1 rune exhausted 已合入并有 golden 执行证据；" +
-    "「When I become exhausted」触发的对象已由 object-exhausted 时点覆盖（415.1），但触发的效果体仍缺原语；" +
-    "不近似实现。",
+  status: "executable",
   abilities: [
     {
       kind: "activated",
       cost: {
-        kind: "cost.activated",
+        // 415.4/415.5: the leading [E] is the "Exhaust this" payment. The
+        // merged cost plan accepts CostSpec.kind "activated"/"explicit"
+        // (cost/plan-values.ts); "cost.activated" is rejected as unsupported.
+        kind: "activated",
         payments: [{ kind: "exhaust" }]
       },
       timing: "action",
@@ -82,14 +82,21 @@ const resplendentRostrum = {
       optional: false,
       body: [
         {
-          // "give a friendly unit +3 Might this turn" — recorded with the
-          // merged layers/continuous-effect shape; no registered primitive
-          // consumes it yet (see judgeReason).
+          // "give a friendly unit +3 Might this turn" — merged arithmetic-layer
+          // continuous.might (RIFT-258) with an end-of-turn duration. `objects`
+          // carries the Finalize-locked TargetSpec through the chain's
+          // interpreter adapter; the amount is never replaced by a Buff counter
+          // (702/703).
           id: "resplendent-rostrum.grant-might",
           op: "continuous.might",
           args: {
+            mode: { kind: "constant", value: "add" },
             amount: { kind: "constant", value: 3 },
-            duration: { kind: "constant", value: "end-of-turn" }
+            duration: { kind: "constant", value: "end-of-turn" },
+            objects: {
+              kind: "constant",
+              value: { kind: "target", id: "resplendent-rostrum.unit" }
+            }
           },
           targets: [
             {
