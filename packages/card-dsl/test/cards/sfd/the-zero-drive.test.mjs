@@ -10,6 +10,8 @@ import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/key
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { translateRestriction } from "../../../../engine-core/dist/programs/play.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
 
 const CARD_ID = "card.hash-91fa755a4f2e1cf5d93c1792c1f0be8e6c8af0d26bda9b82049276b62ce94102";
 const SOURCE_TEXT =
@@ -59,7 +61,7 @@ test("sfd-090-221 The Zero Drive: identity, ruleset, status, judgeReason and ver
   assert.match(program.judgeReason, /Equip/);
   assert.match(program.judgeReason, /banish-as-cost/);
   assert.match(program.judgeReason, /394.*398/);
-  assert.match(program.judgeReason, /use-only-if-unattached|Use only if unattached/);
+  assert.doesNotMatch(program.judgeReason, /use-only-if-unattached|Use only if unattached/);
   assert.match(program.judgeReason, /Deathknell/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -80,7 +82,15 @@ test("sfd-090-221 The Zero Drive: Equip declaration plus the linked-play activat
   assert.deepEqual(activated.cost.energy, { kind: "constant", value: 3 });
   assert.deepEqual(activated.cost.power, { kind: "constant", value: ["Mind"] });
   assert.deepEqual(activated.cost.payments, [{ kind: "banish", object: "self" }]);
-  assert.deepEqual(activated.restriction, { kind: "use-only-if-unattached" });
+  assert.deepEqual(activated.restriction, {
+    kind: "use-only-if-unattached",
+    condition: {
+      kind: "compare",
+      left: { kind: "object-property", object: "self", property: "attachedTo" },
+      operator: "eq",
+      right: { kind: "constant", value: null }
+    }
+  });
 
   // 420.3/356.1.b.1: a Limited Play Effect with the finalized zero-cost plan and
   // a non-target pick of the units banished with this source (394-398).
@@ -183,12 +193,35 @@ test("sfd-090-221 The Zero Drive: the merged program binding consumes the Gear's
   assert.equal(inspected.abilities.some((entry) => entry.kind === "keyword"), true);
 });
 
+test("sfd-090-221 The Zero Drive: unattached restriction translates and tracks attachment state", () => {
+  const [condition] = translateRestriction(activated.restriction, CARD_ID);
+  assert.deepEqual(condition, activated.restriction.condition);
+
+  const detached = zeroDriveWorld();
+  assert.equal(evaluateCondition(condition, {
+    context: detached,
+    host: detached.ref("the-zero-drive"),
+    linked: () => undefined,
+    canLookBack: () => true,
+    isIgnored: () => false
+  }), true);
+
+  const attached = zeroDriveWorld();
+  assert.equal(attached.perform({ type: "attach", object: attached.ref("the-zero-drive"), host: attached.ref("ally") }).status, "done");
+  assert.equal(evaluateCondition(condition, {
+    context: attached,
+    host: attached.ref("the-zero-drive"),
+    linked: () => undefined,
+    canLookBack: () => true,
+    isIgnored: () => false
+  }), false);
+});
+
 test.todo(
   "sfd-090-221 The Zero Drive: production Linked Ability tracking must supply the units banished with this source to the " +
     "all-units play pick, and each ignored-cost play must receive its finalized zero-cost plan"
 );
 
 test.todo(
-  "sfd-090-221 The Zero Drive: the declared Use only if unattached restriction must be consumed by activated-ability " +
-    "legality before the Banish-this cost is attempted"
+  "sfd-090-221 The Zero Drive: full activation legality must reject an attached source before the Banish-this cost is attempted"
 );

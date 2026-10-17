@@ -11,6 +11,7 @@ const grantKeyword = (await import(new URL("effects/instructions/continuous.gran
 const { buildCostPlan, payCostPlan } = await import(new URL("cost/index.js", ENGINE));
 
 const CARD_ID = "card.hash-bb98faffa9506df8c98b1086bec2cbd71a7dd9f4c677d8e31dc335ebfa6e61d5";
+const ALL_SIX_DOMAINS = ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"];
 const EXPECTED_SOURCE =
   ":rb_rune_rainbow:, :rb_exhaust:: Give the next spell you play this turn [Repeat] " +
   "equal to its cost. (You may pay the additional cost to repeat the spell's effect.)";
@@ -20,6 +21,7 @@ const [grantRepeat] = ability.body;
 
 function fixture() {
   const kernel = world()
+    .player("A", { power: ["Fury"] })
     .object("temporal-portal", {
       name: "Temporal Portal",
       cardId: CARD_ID,
@@ -55,11 +57,12 @@ test("sfd-078-221 Temporal Portal: one action-speed activated ability with the p
   // 151.2：Gear 启动式能力在控制者 Main Phase 执行。
   assert.equal(ability.timing, "action");
   // 415.4/415.5：印刷的 :rb_exhaust: 是「横置自身」费用。
-  assert.deepEqual(ability.cost.payments, [{ kind: "exhaust", object: "self" }]);
-  // :rb_rune_rainbow: 是任意域 Power [A]（135.2.e.5.a / 163.2.b）；六域封闭集合无法表达，
-  // 以描述性 ["rainbow"] 记录，不是某个具体域。
-  assert.deepEqual(ability.cost.power, { kind: "constant", value: ["rainbow"] });
-  assert.equal(ability.cost.power.value.includes("Mind"), false);
+  // :rb_rune_rainbow: 是任意域 Power [A]（135.2.e.5.a / 163.2.b）；费用管线
+  // 用六域 allowedDomains 表达该要求。
+  assert.deepEqual(ability.cost.payments, [
+    { kind: "power", amount: { kind: "constant", value: 1 }, allowedDomains: ALL_SIX_DOMAINS },
+    { kind: "exhaust", object: "self" }
+  ]);
 });
 
 test("sfd-078-221 Temporal Portal: the body grants Repeat to the next spell at a cost equal to its own", () => {
@@ -68,6 +71,7 @@ test("sfd-078-221 Temporal Portal: the body grants Repeat to the next spell at a
   // 820.1.b/820.1.c：给下一个法术授予一个 Repeat 实例，费用来自该法术自己的印刷文本。
   assert.equal(grantRepeat.op, "continuous.grant-keyword");
   assert.deepEqual(grantRepeat.args.keyword, { kind: "constant", value: "Repeat" });
+  // 820.1.c：保留印刷的动态费用语义标记；Finalize 尚没有消费方。
   assert.deepEqual(grantRepeat.args.amount, { kind: "constant", value: "equal-to-its-cost" });
   assert.deepEqual(grantRepeat.args.appliesTo, { kind: "constant", value: "next-spell-you-play" });
   assert.deepEqual(grantRepeat.args.duration, { kind: "constant", value: "end-of-turn" });
@@ -75,18 +79,29 @@ test("sfd-078-221 Temporal Portal: the body grants Repeat to the next spell at a
   assert.equal(grantRepeat.linkedTo, undefined);
 });
 
-test("sfd-078-221 Temporal Portal: the exhaust half of the printed cost is really payable", () => {
-  // 415.4/415.5：印刷的横置费用由已合入的费用管线真实收缴（本卡印刷费用的可执行半段）。
-  // 费用计划使用卡牌自己声明的 payments 条目；[A] 的 Power 部分无法进入六域封闭的费用计划。
-  const kernel = fixture();
-  const plan = buildCostPlan(kernel, {
-    id: "temporal-portal:activate",
-    cost: { kind: "activated", payments: ability.cost.payments }
-  });
-  const receipt = payCostPlan(kernel, plan);
-  assert.equal(receipt.paid, true);
-  assert.deepEqual(receipt.actions.map((action) => action.action.type), ["pay", "exhaust"]);
-  assert.equal(kernel.getObject("temporal-portal").exhausted, true);
+test("sfd-078-221 Temporal Portal: Universal Power and Exhaust are payable through the real cost pipeline", () => {
+  // 135.2.e.5.a / 415.4 / 415.5：每个任意域 Power 都能支付 [A]，并同时横置来源。
+  for (const domain of ALL_SIX_DOMAINS) {
+    const built = world()
+      .player("A", { power: [domain] })
+      .object("temporal-portal", {
+        name: "Temporal Portal",
+        cardId: CARD_ID,
+        types: ["gear"],
+        zone: "board",
+        location: { type: "base", player: "A" },
+        energy: 3,
+        power: null
+      })
+      .build();
+    const kernel = built.clone({ sourceSnapshot: built.getObject("temporal-portal") });
+    const plan = buildCostPlan(kernel, { id: "temporal-portal:activate", cost: ability.cost });
+    assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: ALL_SIX_DOMAINS }], domain);
+    const receipt = payCostPlan(kernel, plan);
+    assert.equal(receipt.paid, true, domain);
+    assert.deepEqual(receipt.actions.map((action) => action.action.type), ["pay", "exhaust"], domain);
+    assert.equal(kernel.getObject("temporal-portal").exhausted, true, domain);
+  }
 });
 
 test("sfd-078-221 Temporal Portal: the merged Repeat definition only carries a self-hosted instance", () => {
@@ -121,6 +136,22 @@ test("sfd-078-221 Temporal Portal: the merged grant-keyword primitive really gra
   assert.equal(bound.continuousEffects[0].effect.effect.keywordValue, 2);
 });
 
+test("sfd-078-221 Temporal Portal: the resweep grant keeps the printed dynamic-cost marker", () => {
+  // Resweep (2026-10): the merged primitive accepts selectors and
+  // appliesTo:"self", but neither the one-shot next-spell window nor the
+  // equal-to-its-cost remains a descriptive IR marker while the engine rejects
+  // it at the primitive boundary because no dynamic-cost consumer exists.
+  const rejected = grantKeyword.argsSchema.safeParse({
+    keyword: { kind: "constant", value: "Repeat" },
+    amount: { kind: "constant", value: "equal-to-its-cost" },
+    appliesTo: { kind: "constant", value: "next-spell-you-play" },
+    duration: { kind: "constant", value: "end-of-turn" }
+  });
+  assert.equal(rejected.success, false, "the grant contract has no amount argument");
+  assert.match(String(rejected.error), /Invalid continuous.grant-keyword argument: amount/);
+  assert.deepEqual(Object.keys(grantRepeat.args).sort(), ["amount", "appliesTo", "duration", "keyword"]);
+});
+
 test.todo(
   "sfd-078-221 Temporal Portal: granting Repeat to the next spell needs a one-shot next-spell window and a binding " +
     "from that pending spell to the granted instance"
@@ -129,9 +160,4 @@ test.todo(
 test.todo(
   "sfd-078-221 Temporal Portal: equal-to-its-cost needs the future spell's printed cost at Finalize to build the optional " +
     "Repeat payment"
-);
-
-test.todo(
-  "sfd-078-221 Temporal Portal: the printed Universal Power rainbow symbol needs a cost representation beyond the six " +
-    "closed domain values"
 );

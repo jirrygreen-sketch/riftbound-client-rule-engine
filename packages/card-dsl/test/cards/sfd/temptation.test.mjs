@@ -6,6 +6,7 @@ import program from "../../../dist/cards/sfd/temptation.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 
 const CANONICAL = "card.hash-472f50f62c82089c0d50baa218635f3214bbef1e2eb24fc259ec1761a6a9eb19";
 const SOURCE_TEXT =
@@ -51,7 +52,7 @@ test("sfd-129-221 Temptation: no speed keyword is printed, only the [Repeat] cos
   });
 });
 
-test("sfd-129-221 Temptation: one targeted enemy unit plus the descriptive destination", () => {
+test("sfd-129-221 Temptation: one targeted enemy unit plus the runtime destination choice", () => {
   assert.equal(play.body.length, 1);
   assert.equal(moveInstruction.id, "temptation.move-enemy-unit");
   assert.equal(moveInstruction.op, "effect.move");
@@ -73,40 +74,24 @@ test("sfd-129-221 Temptation: one targeted enemy unit plus the descriptive desti
     selection: "one"
   });
 
-  // The printed destination (355.4/355.4.a) cannot be enumerated by the frozen
-  // IR; the file keeps a descriptive marker instead of a guessed location.
+  // The merged LocationTargetSpec/LocationExpr path enumerates occupied
+  // runtime Locations. The remaining same-controller occupant relation is
+  // recorded in judgeReason.
+  assert.deepEqual(moveInstruction.locations, [{
+    id: "temptation.destination",
+    type: "any",
+    hasUnits: true,
+    min: 1,
+    max: 1,
+    selection: "one"
+  }]);
   assert.deepEqual(moveInstruction.args.to, {
-    kind: "constant",
-    value: {
-      kind: "destination-selector",
-      filter: {
-        anyUnitControlledByTheMovedUnitsController: true,
-        exclude: { target: "temptation.enemy-unit" }
-      }
-    }
+    kind: "location",
+    value: { kind: "target-location", target: "temptation.destination" }
   });
 });
 
-test("sfd-129-221 Temptation golden: the merged effect.move rejects the descriptive destination", () => {
-  // fail-closed evidence: the card's own `to` value is not a LocationRef,
-  // "controller-base", or a static LocationRef option list, so the merged
-  // primitive throws instead of moving the unit to an invented destination.
-  const kernel = world()
-    .unit("enemy-unit", { owner: "B", controller: "B", location: baseOf("B") })
-    .unit("other-enemy", { owner: "B", controller: "B", location: { type: "battlefield", id: "battlefield-1" } })
-    .build();
-  kernel.setTargets("temptation.enemy-unit", [kernel.ref("enemy-unit")]);
-
-  assert.throws(
-    () => runInstruction(move, moveInstruction.args, { world: kernel }),
-    /effect\.move to must be a location, controller-base, or location choice/
-  );
-  // Nothing moved and nothing was marked.
-  assert.deepEqual(kernel.getObject("enemy-unit").location, baseOf("B"));
-  assert.equal(kernel.events.length, 0);
-});
-
-test("sfd-129-221 Temptation golden: with a Finalize-chosen Location the enemy unit really moves", () => {
+test("sfd-129-221 Temptation golden: Finalize chooses an occupied Location and effect.move consumes it", () => {
   // The production caller owns the Finalize destination choice (355.4/355.4.a);
   // the golden run supplies a legal location and executes the card's own
   // objects/target expressions so the Move primitive itself is covered.
@@ -114,18 +99,19 @@ test("sfd-129-221 Temptation golden: with a Finalize-chosen Location the enemy u
     .unit("enemy-unit", { owner: "B", controller: "B", location: baseOf("B") })
     .unit("other-enemy", { owner: "B", controller: "B", location: { type: "battlefield", id: "battlefield-1" } })
     .build();
+  kernel.setTargets("temptation.enemy-unit", [kernel.ref("enemy-unit")]);
+  kernel.setAnswers({
+    "temptation.move-enemy-unit/location%3Atemptation.destination":
+      { type: "battlefield", id: "battlefield-1" }
+  });
+  const runtimeMove = {
+    ...moveInstruction,
+    targets: [{ ...targetSpec, filter: { type: "unit" } }]
+  };
   const before = kernel.getObject("enemy-unit");
-  const run = runInstruction(
-    move,
-    {
-      objects: moveInstruction.args.objects,
-      to: { kind: "constant", value: { type: "battlefield", id: "battlefield-1" } },
-      amount: moveInstruction.args.amount
-    },
-    { world: kernel, targets: { "temptation.enemy-unit": [kernel.ref("enemy-unit")] } }
-  );
+  const run = resolveChainBody([runtimeMove], kernel);
 
-  assert.equal(run.result.status, "executed");
+  assert.equal(run.status, "executed");
   assert.deepEqual(run.events.map((event) => event.action), ["move-location"]);
   assert.deepEqual(kernel.getObject("enemy-unit"), {
     ...before,
@@ -133,7 +119,7 @@ test("sfd-129-221 Temptation golden: with a Finalize-chosen Location the enemy u
   });
   // 421.1/448.2: a Move changes Locations on the Board but never the zone.
   assert.equal(kernel.getObject("enemy-unit").zone, "board");
-  assert.deepEqual(run.linked.moved, {
+  assert.deepEqual(run.results[0].result.linkedValues.moved, {
     count: 1,
     objects: [before.ref],
     movements: [
@@ -162,8 +148,8 @@ test("sfd-129-221 Temptation golden: a stale target is ignored when the unit alr
 });
 
 test.todo(
-  "sfd-129-221 Temptation: production Finalize must enumerate legal Locations and choose one containing another unit " +
-    "controlled by the moved unit's controller; the descriptive destination selector has no runtime consumer yet"
+  "sfd-129-221 Temptation: the LocationTargetSpec must filter occupants by the moved unit's controller, " +
+    "rather than only requiring an occupied Location"
 );
 
 test.todo(
