@@ -28,19 +28,19 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   移动的对象是本卡（ObjectSelector "source"）；移动由已合入的 effect.move 提交。
  *
  * status = judge-required（缺口不近似实现）：
- * - unit-stunned 时点没有发射方：该时点的唯一产生处是 events/action-adapter.ts 的动作
+ * - unit-stunned 时点的生产接线仍有限：该时点的唯一产生处是 events/action-adapter.ts 的动作
  *   管线适配器，而合入的 ChainEngine 尚未安装它（仅 engine-core 测试使用）；
  *   combat/ 也没有把 Stun 之外的状态变化接入事件管线。触发无法进链（383.3 的
  *   Pending Item 路径缺失；CardProgram 触发注册适配已合入）。
  * - "that battlefield" 需要触发事件中目标单位的 location：合并 ObjectSelector 只有
- *   self/source/target/pick/linked，没有事件对象/事件位置选择器，effect.move 的 to 只接受
+ *   self/source/target/pick/linked，没有事件位置选择器，effect.move 的 to 只接受
  *   静态 LocationRef / controller-base / 静态候选列表。程序里的目的地是描述性标记，
  *   解释器会按 effect.move 的目的地校验拒绝它，不会把本卡移到错误地点。
  * - [Shield]（814.1.d.1 的 Defender designation）与 [Tank]（815.1.c 的分配优先级）的展开
  *   本身也没有 designation/战斗分配消费方，故关键词声明也不能算整卡可执行。
  * golden 用真实解释器 + 参考内核执行已合入的 effect.move 子指令（目的地由事件位置锁定后传入）。
  *
- * 依赖：unit-stunned 的生产发射、事件对象/事件位置选择器、Shield/Tank 的战斗消费方。
+ * 依赖：unit-stunned 的生产发射、事件位置选择器、Shield/Tank 的战斗消费方。
  */
 
 /**
@@ -65,7 +65,7 @@ const abilities: Ability[] = [
       at: "unit-stunned",
       // 412.4/412.5："you [Stun] an enemy unit" —— 事件对象是被 Stun 的敌方单位
       // （424.1）；本卡不是该 Stun 的来源，因此不写 source: "self"。
-      filter: { event: "unit-stunned", object: { type: "unit", zone: "board", controller: "opponent" } }
+      filter: { type: "unit", zone: "board", controller: "opponent" }
     },
     // 383.3.a：效果开头的 "you may" 是触发能力自身的 finalize 决定。
     optional: true,
@@ -93,14 +93,14 @@ export default {
   judgeReason:
     "三处缺口，均不近似实现：（1）unit-stunned 时点（424.1）没有发射方：该时点的唯一产生处是 " +
     "events/action-adapter.ts 的动作管线适配器，而合入的 ChainEngine 尚未安装它（仅 engine-core 测试使用），" +
-    "因此触发无法进链（383.3 的 Pending Item 路径缺失；CardProgram 触发注册适配已合入）。" +
+    "因此触发无法稳定进链（383.3 的 Pending Item 路径缺失；CardProgram 触发注册适配已合入）。" +
     "（2）『move me to that battlefield』的『that battlefield』是那次 Stun 发生的战场（359.3.f.1 的 referent），" +
-    "合并 ObjectSelector 只有 self/source/target/pick/linked，没有事件对象/事件位置选择器，" +
+    "合并 ObjectSelector 只有 self/source/target/pick/linked，没有事件位置选择器，" +
     "effect.move 的 to 只接受静态 LocationRef / controller-base / 静态候选列表；程序里的目的地是描述性标记，" +
     "解释器会按目的地校验拒绝它，不会把本卡移到错误地点。" +
     "（3）[Shield]（814.1.d.1 的 Defender designation 条件）与 [Tank]（815.1.c 的分配优先级）的展开文件虽已合入，" +
     "但没有 designation/战斗分配消费方。" +
-    "依赖：unit-stunned 发射、事件对象/事件位置选择器、Shield/Tank 的战斗消费方。" +
+    "依赖：unit-stunned 发射、事件位置选择器、Shield/Tank 的战斗消费方。" +
     "effect.move 本体已合入，golden 用真实解释器 + 参考内核执行它（目的地按事件位置锁定后传入）。",
   abilities,
   sourceText:

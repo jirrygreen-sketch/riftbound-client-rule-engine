@@ -25,18 +25,11 @@ import type { CardProgram } from "../../ir/index.js";
  *    Requirement / 355.11.b 的结算期合法子集），condition 从句只作用于整条指令、不能
  *    过滤选择集合的成员。若按 type/controller 直接选，就会把 Might 超限或跨控制者的
  *    组合当成合法——正是红线禁止的近似。
- * 2. 目的地是运行期 Location 选择（355.4 / 355.4.a）：合并 IR 没有运行期 Location
- *    选择器，effect.move 的 to 只接受静态 LocationRef / controller-base / 静态候选列表；
- *    本卡保留描述性目的地标记（fail-closed，不会把单位移到臆造的地点）。
- * 依赖：target 系统的组约束与合法子集重验（RIFT-90）、运行期 Location 选择（RIFT-90/91）。
+ * 2. 目的地的运行期 Location 选择已可由 LocationTargetSpec + target-location 表达并执行；
+ *    组约束仍缺。
+ * 依赖：target 系统的组约束与合法子集重验（355.11）。
  * golden 只做校验、目标/选择器/参数的结构断言与缺口 todo；组约束不是可执行语义。
  */
-
-/** 描述性目的地标记，不是可执行 LocationRef（见 judgeReason 第 2 点）。 */
-const CHOSEN_LOCATION = {
-  kind: "destination-selector",
-  filter: { type: "location" }
-} as const;
 
 const tricksyTentacles = {
   canonicalCardId: "card.hash-a7dc7d29f0a8ac49b8977b2261f476c440c7c3025285bd5e6a7250b52981b37d",
@@ -46,9 +39,8 @@ const tricksyTentacles = {
     "两处依赖未合入，均不近似实现：(1) 组整体约束没有可判定形态——「with the same controller」（355.11 组内同控制者）与" +
     "「a total Might of 8 or less」（组内 Might 合计上限，355.11.a/355.11.b 含结算期合法子集重验）都无法用逐键比较的 " +
     "ObjectFilter / TargetSpec / PickSpec 表达，condition 从句只作用于整条指令、不能过滤选择集合的成员；" +
-    "按 type/controller 直接选会把 Might 超限或跨控制者的组合当成合法（依赖 RIFT-90 的目标/组约束系统）。" +
-    "(2)「to a single location」的目的地是运行期 Location 选择（355.4 / 355.4.a），合并 IR 没有运行期 Location 选择器，" +
-    "effect.move 的 to 只接受静态 LocationRef / controller-base / 静态候选列表；本卡只保留描述性目的地标记（依赖 RIFT-90/91）。" +
+    "按 type/controller 直接选会把 Might 超限或跨控制者的组合当成合法（组约束与结算期合法子集重验仍缺）。" +
+    "(2)「to a single location」已用 LocationTargetSpec + target-location 在结算时选定并由 effect.move 消费。" +
     "「any number of enemy units」已按 355.11/355.13 声明为 min 0、up-to 的组目标。",
   abilities: [
     {
@@ -63,12 +55,24 @@ const tricksyTentacles = {
         {
           id: "tricksy-tentacles.move-group",
           op: "effect.move",
+          locations: [
+            {
+              id: "tricksy-tentacles.destination",
+              type: "any",
+              min: 1,
+              max: 1,
+              selection: "one"
+            }
+          ],
           args: {
             objects: {
               kind: "constant",
               value: { target: "tricksy-tentacles.enemy-unit-group" }
             },
-            to: { kind: "constant", value: CHOSEN_LOCATION },
+            to: {
+              kind: "location",
+              value: { kind: "target-location", target: "tricksy-tentacles.destination" }
+            },
             // 整组移动到同一个地点：移动数量等于本组合法目标数，用 count 锚定同一组
             // 目标（组约束本身尚未可判定，见 judgeReason 第 1 点）。
             amount: {

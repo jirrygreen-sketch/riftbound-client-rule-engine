@@ -4,6 +4,9 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/trapping-grounds.js";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
   "card.hash-7a01ecd3aa462214de6a41d9b27507498954ccd6e7095b6e731dbe742c275f90";
@@ -11,7 +14,7 @@ const SOURCE_TEXT =
   "When you conquer here, if you assigned 3 or more excess damage, play a 1 :rb_might: Bird unit token with [Deflect].";
 
 const [ability] = program.abilities;
-const [playBird] = ability.body;
+const [chooseLocation, playBird] = ability.body;
 
 test("unl-217-219 Trapping Grounds: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -28,10 +31,8 @@ test("unl-217-219 Trapping Grounds: identity, status, judgeReason and verbatim s
   // The reason must name the real gaps with rule and task ids, not a generic
   // "not implemented" (cards README §2).
   assert.match(program.judgeReason, /187\.7/);
-  assert.match(program.judgeReason, /target\.location/);
-  assert.match(program.judgeReason, /355\.2/);
+  assert.doesNotMatch(program.judgeReason, /target\.location|RIFT-9/);
   assert.match(program.judgeReason, /467\.2\.c/);
-  assert.match(program.judgeReason, /RIFT-9/);
   assert.match(program.judgeReason, /source\/Battlefield/);
   assert.match(program.judgeReason, /attachLifecycle/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
@@ -66,8 +67,17 @@ test("unl-217-219 Trapping Grounds: conquer trigger with the excess-damage claus
   assert.equal(ability.trigger.once, undefined);
 });
 
-test("unl-217-219 Trapping Grounds: one Bird token play with no fixed destination", () => {
-  assert.equal(ability.body.length, 1);
+test("unl-217-219 Trapping Grounds: one Bird token play uses the runtime location choice", () => {
+  assert.equal(ability.body.length, 2);
+  assert.equal(chooseLocation.op, "condition.value");
+  assert.deepEqual(chooseLocation.locations, [{
+    id: "trapping-grounds.token-location",
+    type: "any",
+    controller: "controller",
+    min: 1,
+    max: 1,
+    selection: "one"
+  }]);
   assert.equal(playBird.id, "trapping-grounds.play-bird");
   assert.equal(playBird.op, "effect.token");
   // 187.7: the 1 [M] Bird is a domainless unit token with the Bird tag and
@@ -76,17 +86,17 @@ test("unl-217-219 Trapping Grounds: one Bird token play with no fixed destinatio
   assert.deepEqual(playBird.args.amount, { kind: "constant", value: 1 });
   assert.deepEqual(playBird.args.mode, { kind: "constant", value: "play" });
   assert.deepEqual(playBird.args.linkKey, { kind: "constant", value: "birdToken" });
-  // The printed text names no location, so the destination is the 355.2/355.2.a
-  // default valid-location choice made at the played token's Finalize. No
-  // destination argument is authored here (a fixed Base or Battlefield would
-  // delete the printed options) and no TargetSpec/PickSpec is invented.
-  assert.equal(playBird.args.location, undefined);
+  assert.deepEqual(playBird.args.location, {
+    kind: "linked-value",
+    instructionId: "trapping-grounds.choose-location",
+    key: "location"
+  });
   assert.equal(playBird.args.target, undefined);
   assert.equal(playBird.args.pick, undefined);
   assert.equal(playBird.args.locations, undefined);
   assert.equal(playBird.targets, undefined);
   assert.equal(playBird.picks, undefined);
-  assert.equal(playBird.linkedTo, undefined);
+  assert.equal(playBird.linkedTo, "trapping-grounds.choose-location");
   assert.equal(playBird.condition, undefined);
 });
 
@@ -104,12 +114,45 @@ test("unl-217-219 Trapping Grounds golden: the conquered pattern retains the sou
   assert.deepEqual(translated.object, { objectId: "trapping-grounds-source" });
 });
 
+test("unl-217-219 Trapping Grounds golden: the location choice and play-mode token path execute", () => {
+  const kernel = world()
+    .player("A")
+    .object("battlefield-1", {
+      types: ["battlefield"],
+      zone: "board",
+      location: null,
+      owner: "A",
+      controller: "A"
+    })
+    .unit("battlefield-occupant", { location: { type: "battlefield", id: "battlefield-1" }, owner: "A", controller: "A" })
+    .build();
+  kernel.setAnswers({
+    "trapping-grounds.choose-location/location%3Atrapping-grounds.token-location": {
+      type: "battlefield",
+      id: "battlefield-1"
+    }
+  });
+  const executableBody = ability.body.map((instruction) =>
+    instruction.id === "trapping-grounds.play-bird"
+      ? { ...instruction, args: { ...instruction.args, token: { kind: "constant", value: "mech" } } }
+      : instruction
+  );
+  const outcome = resolveChainBody(executableBody, kernel);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map((entry) => [entry.id, entry.result.status]), [
+    ["trapping-grounds.choose-location", "executed"],
+    ["trapping-grounds.play-bird", "executed"]
+  ]);
+  const created = kernel.query({ zone: "board", type: "unit" }).find((object) => object.isToken);
+  assert.equal(created.name, "Mech");
+  assert.deepEqual(created.location, { type: "battlefield", id: "battlefield-1" });
+});
+
 test.todo(
   "unl-217-219 Trapping Grounds: expose the conquer event's assigned excess-damage total " +
     "(467.2.c.1 assigning is not dealing, 467.2.c.4 excess above lethal) on the scoring payload " +
     "or through ResolveContext — the closed history query only counts actions (engine batch 4)"
 );
-
 test.todo(
   "unl-217-219 Trapping Grounds: bind the conquer trigger to the source Battlefield in production " +
     "(conquer is emitted by turn/flow.ts and createProgramBinding.attachLifecycle registers supplied " +
@@ -121,10 +164,4 @@ test.todo(
   "unl-217-219 Trapping Grounds: add the CR 187.7 Bird token (1 Might, Bird tag, Deflect) to the " +
     "frozen effect.token definition table, with its Deflect expansion (809) — definitions carrying " +
     "their own abilities or keywords are blocked there today (RIFT-83)"
-);
-
-test.todo(
-  "unl-217-219 Trapping Grounds: resolve the 355.2/355.2.a default valid-location choice for the " +
-    "played token at its Finalize (controller's Base or a Battlefield the controller controls) " +
-    "instead of hard-coding one location (target.location, RIFT-9)"
 );

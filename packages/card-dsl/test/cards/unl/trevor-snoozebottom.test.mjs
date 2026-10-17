@@ -5,6 +5,7 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/trevor-snoozebottom.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -16,7 +17,7 @@ const SOURCE_TEXT =
 const BATTLEFIELD = { type: "battlefield", id: "battlefield-1" };
 
 const [shield, onHold] = program.abilities;
-const [playSprite] = onHold.body;
+const [readHere, playSprite] = onHold.body;
 
 test("unl-048-219 Trevor Snoozebottom: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -34,8 +35,8 @@ test("unl-048-219 Trevor Snoozebottom: identity, status, judgeReason and verbati
   assert.match(program.judgeReason, /184\.1/);
   assert.match(program.judgeReason, /816\.1\.b/);
   assert.match(program.judgeReason, /383\.4\.d\.2/);
-  assert.match(program.judgeReason, /beginning-start/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.doesNotMatch(program.judgeReason, /beginning-start/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-257/);
 });
 
 test("unl-048-219 Trevor Snoozebottom: [Shield] is a declaration whose 814.1.b.3 default lives in the keyword file", () => {
@@ -54,10 +55,14 @@ test("unl-048-219 Trevor Snoozebottom: 'When I hold' subscribes to the hold timi
   assert.equal(onHold.kind, "triggered");
   assert.deepEqual(onHold.trigger, { at: "hold", filter: { event: "held", filter: { source: "self" } } });
   assert.equal(onHold.optional, false);
-  assert.equal(onHold.body.length, 1);
+  assert.equal(onHold.body.length, 2);
 });
 
 test("unl-048-219 Trevor Snoozebottom: the hold body plays the CR 187.2 Sprite token here", () => {
+  assert.equal(readHere.id, "trevor-snoozebottom.read-here");
+  assert.equal(readHere.op, "condition.value");
+  assert.deepEqual(readHere.args.value, { kind: "object-property", object: "source", property: "location" });
+  assert.deepEqual(readHere.args.key, { kind: "constant", value: "here" });
   assert.equal(playSprite.id, "trevor-snoozebottom.play-sprite");
   assert.equal(playSprite.op, "effect.token");
   // 187.2：3 [M] Sprite unit token（域外、Fae 标签、带 [Temporary]）。
@@ -65,18 +70,18 @@ test("unl-048-219 Trevor Snoozebottom: the hold body plays the CR 187.2 Sprite t
   assert.deepEqual(playSprite.args.amount, { kind: "constant", value: 1 });
   // 440.2.c / 185.2.a：被“打出”的 token 先在链上创建，再交给 play 动作。
   assert.deepEqual(playSprite.args.mode, { kind: "constant", value: "play" });
-  // “here” = 结算时来源所在的位置（契约 3.6 的符号选择器；argsSchema 尚未同步该形状）。
+  // “here” = 结算时来源所在的位置，由前一条 condition.value 链接。
   assert.deepEqual(playSprite.args.location, {
-    kind: "object-property",
-    object: "source",
-    property: "location"
+    kind: "linked-value",
+    instructionId: "trevor-snoozebottom.read-here",
+    key: "here"
   });
+  assert.equal(playSprite.linkedTo, "trevor-snoozebottom.read-here");
   assert.deepEqual(playSprite.args.linkKey, { kind: "constant", value: "sprite" });
   // 184.1 的 “ready” 入场状态改写与 token 上的 [Temporary] 都不写进本指令（见 judgeReason）。
   assert.deepEqual(Object.keys(playSprite.args).sort(), ["amount", "linkKey", "location", "mode", "token"]);
   assert.equal(playSprite.targets, undefined);
   assert.equal(playSprite.picks, undefined);
-  assert.equal(playSprite.linkedTo, undefined);
 });
 
 test("unl-048-219 Trevor Snoozebottom golden: the same play-mode shape really creates and plays a defined token", () => {
@@ -87,9 +92,11 @@ test("unl-048-219 Trevor Snoozebottom golden: the same play-mode shape really cr
   const run = runInstruction(
     token,
     {
-      ...playSprite.args,
       token: { kind: "constant", value: "mech" },
-      location: { kind: "object-property", object: kernel.ref("trevor"), property: "location" }
+      amount: playSprite.args.amount,
+      mode: playSprite.args.mode,
+      linkKey: playSprite.args.linkKey,
+      location: { kind: "constant", value: BATTLEFIELD },
     },
     { world: kernel }
   );
@@ -107,6 +114,14 @@ test("unl-048-219 Trevor Snoozebottom golden: the same play-mode shape really cr
   ]);
 });
 
+test("unl-048-219 Trevor Snoozebottom golden: condition.value reads the held unit's current location", () => {
+  const kernel = world().unit("trevor", { zone: "board", location: BATTLEFIELD }).build();
+  const scoped = kernel.clone({ source: kernel.ref("trevor"), sourceSnapshot: kernel.getObject("trevor") });
+  const outcome = resolveChainBody([readHere], scoped);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.linkedValues["trevor-snoozebottom.read-here.here"], BATTLEFIELD);
+});
+
 test.todo(
   "unl-048-219 Trevor Snoozebottom: add the CR 187.2 3 [M] Sprite unit token (domainless, Fae tag, " +
     "[Temporary]) to the effect.token definition table"
@@ -118,9 +133,8 @@ test.todo(
 );
 test.todo(
   "unl-048-219 Trevor Snoozebottom: expand the token's [Temporary] (CR 816.1.b: kill it at the start of its " +
-    "controller's Beginning Phase before scoring; 816.2.a redundant instances) — the KeywordDef is merged (RIFT-265) " +
-    "but its beginning-start trigger filter is outside the closed EventPattern vocabulary; expandProgram and " +
-    "the lifecycle binder register supplied programs, while the default room does not inject this CardProgram"
+    "controller's Beginning Phase before scoring; 816.2.a redundant instances) — the KeywordDef is merged " +
+    "but token lifecycle binding and default-room program injection are still missing"
 );
 test.todo(
   "unl-048-219 Trevor Snoozebottom: bind the hold trigger to the unit present at the held battlefield " +
@@ -128,6 +142,6 @@ test.todo(
 );
 test.todo(
   "unl-048-219 Trevor Snoozebottom: read the Defender designation for [Shield] (CR 814.1.d/814.1.d.1) — " +
-    "the Shield KeywordDef and static binder are merged (RIFT-81/RIFT-257), but the current ObjectSnapshot " +
+    "the Shield KeywordDef and static binder are merged, but the current ObjectSnapshot " +
     "does not provide designation; the unknown value is fail-closed as false, so +1 cannot apply while defending"
 );
