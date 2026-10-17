@@ -22,10 +22,14 @@ import type { CardProgram } from "../../ir/index.js";
  * - The "hold" timing point is now emitted: turn/flow.ts's scheduleScore
  *   publishes a structural Score wave (hold / score / points-gained) with
  *   details.battlefieldId (RIFT-124 turn workstream); the golden asserts it.
- * - The trigger condition still requires a host.testTrigger adapter: the event
- *   pipeline throws "Trigger condition adapter required" for registrations
- *   carrying a condition when that adapter is absent (no merged production host
- *   supplies one; only parity tests inject their own).
+ * - RIFT-359's condition adapter is merged: the pipeline calls host.testTrigger
+ *   when supplied and otherwise falls back to evaluateTriggerCondition through
+ *   host.context. What still fails is the symbolic owner inside the condition
+ *   on that fallback path: the production host's query (apps/game-server
+ *   engine-runtime/host.ts) compares owner: "self" literally against player
+ *   ids, so "your Rune Deck" counts 0; only the ChainEngine resolve context
+ *   normalizes symbolic owner/controller selectors (chain/engine.ts), and it
+ *   does not feed trigger-condition evaluation.
  * - "here" is not in the closed EventPattern vocabulary: assertTriggerSpec
  *   rejects the field with "EventPattern 不允许此字段" and the program adapter's
  *   translateTriggerFilter rejects it with "Unsupported filter field here", so
@@ -43,7 +47,11 @@ export default {
   judgeReason:
     "两处当前缺口，均不近似实现：" +
     "（1）触发条件「if your Rune Deck is empty」属 TriggerSpec.condition（383.2.a.1），" +
-    "但事件管线对带 condition 的注册要求 host.testTrigger，否则抛 \"Trigger condition adapter required\"。" +
+    "RIFT-359 的条件适配已合入：host 提供 testTrigger 时事件管线调用它，未提供时回退到 host.context 求值；" +
+    "但条件里的符号 owner（filter { owner: \"self\" }）在该回退路径不被归一：生产 host 的 query" +
+    "（apps/game-server 的 engine-runtime/host.ts）把 \"self\" 与玩家 id 字面比较，「你的符文牌库」恒计 0，" +
+    "空牌库条件永远误判；只有 ChainEngine 的 resolve 上下文（chain/engine.ts）归一符号 owner/controller，" +
+    "而它不喂触发条件求值。" +
     "（2）「when you hold here」的 here 锚点不在封闭 EventPattern 词表里：assertTriggerSpec 抛 \"EventPattern 不允许此字段\"，" +
     "程序绑定路径的 translateTriggerFilter 也抛 \"Unsupported filter field here\"（均已实测），" +
     "因此无法把触发注册到本卡的战场；payload 侧 details.battlefieldId 已随 hold/score 波发出。" +

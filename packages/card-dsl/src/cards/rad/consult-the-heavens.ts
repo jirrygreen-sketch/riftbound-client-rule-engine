@@ -30,7 +30,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * `appliesTo: ["card", "activated-ability"]` 抛 “Unsupported static appliesTo”（实测）；
  * [Shield] 的展开体（`continuous.might`）能绑定，但 814.1.d.1 的 Defender designation
  * 仍不是 ObjectSnapshot 的求值特征；牌库顶的有序 pick 也必须由上游在结算期提供
- * （契约 3.6 zoneSlice，提供方属 RIFT-358）。
+ * （契约 3.6 zoneSlice；有序锁定只由 ChainEngine 的 Finalize 提供，resolveChainBody 不带，提供方属 RIFT-358）。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "reaction" },
@@ -124,7 +124,7 @@ const program = {
     "[Reaction]（813.1.c）的展开体是 continuous.timing static，programs/statics.ts 对其 " +
     "appliesTo: [\"card\", \"activated-ability\"] 抛 \"Unsupported static appliesTo\"（实测），" +
     "展开无法经 CardProgram 注册；[Predict] 的牌库顶引用必须由上游在结算期按 " +
-    "437.1/契约 3.6 zoneSlice 提供有序 picks（RIFT-358）；814.1.d.1 的 Defender designation 仍未成为 " +
+    "437.1/契约 3.6 zoneSlice 提供有序 picks：该引用由 effect.inspect 经 ctx.picks(picksSpecId) 读取，而 zoneSlice 的有序锁定只由 ChainEngine 的 Finalize（plan.ts lockSlice + engine.ts 读写 item.pickPlans）提供，resolveChainBody 不带 zoneSlice，提供方仍在 RIFT-358；814.1.d.1 的 Defender designation 仍未成为 " +
     "ObjectSnapshot 特征（契约 3.8 combatRole，无产生方），Shield 的 +2 只能作为层注册被读出，暂不能按防守身份求值。" +
     "另见数据问题：本印刷在本地目录被记为 cardType Unit，而能力文本是法术式措辞（[Reaction] / [Predict]），" +
     "与同批 rad-034-167 Hunker Down（Spell）不一致。不近似实现。",

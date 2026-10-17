@@ -67,8 +67,14 @@ import type { CardProgram } from "../../ir/index.js";
  *   instruction below carries the pending ordered-look shape rather than
  *   falling back to query. The single-card Predict shape (rakelstake /
  *   keywords/Vision) does have a merged path; the 5-card one does not.
- * Dependencies: RIFT-358 (ordered top-card picks and mode/target finalization)
- * and a keyword characteristic predicate for 830.3.
+ * The ordered top-5 look has a merged core (RIFT-358's zoneSlice Finalize in
+ * chain/picks/plan.ts; chain/engine.ts locks item.pickPlans at Finalize and
+ * reads them at Resolve), but this card cannot use it: the pick sits inside a
+ * choice.mode body, which orderedPickSpecs never traverses (only
+ * sequence/repeat/choice.optional), and the chain's Finalize surface throws
+ * ChainContractBlockedError ("Mode choices require a Finalize/Resolve
+ * choice-plan adapter") for any choice.mode instruction. A keyword
+ * characteristic predicate for 830.3 is also still missing.
  */
 
 /**
@@ -99,7 +105,7 @@ const commandAttack = {
   judgeReason:
     "模式 1 的目标地点已按 RIFT-357 改写为运行期 Location 选择（Expr kind \"location\" 的 choose 形状，" +
     "filter { type: battlefield }，355.4 / 355.4.a），golden 用真实解释器 + 参考内核执行并断言实际位移，" +
-    "不再使用被拒绝的描述性标记。当前真实缺口两处，均不近似实现：" +
+    "不再使用被拒绝的描述性标记。当前真实缺口三处，均不近似实现：" +
     "(0) 地点候选来源不完整：target/location/candidates.ts 的 allRefs() 只从「已有对象驻留的战场」与玩家 Base 派生候选，" +
     "没有任何已合入调用方传入显式 LocationState，因此没有单位驻留的战场（355.4.a 允许的合法目的地）不会出现在选项里；" +
     "golden 断言了该边界，不把候选不足当作整卡可执行。" +
@@ -107,9 +113,12 @@ const commandAttack = {
     "testing/test-kernel.ts），programs/filters.ts 的 translateObjectFilter 仍以 \"Unsupported filter field hasKeyword\" 拒绝该键，" +
     "因此目标限制无法求值（830.3；依赖 Deploy 特征过滤器契约）。" +
     "(2)「Look at the top 5 cards of your Main Deck」是私下 top-N 查看：effect.inspect 的 top 作用域要求上游按真实牌库顺序" +
-    "提供有序 picksSpecId（query 不保证牌库顺序，zoneSlice 未接入查看指令），生产链的该提供方仍属 RIFT-358（进行中）。" +
+    "提供有序 picksSpecId。RIFT-358 的 zoneSlice 有序 pick 核心已合入（chain/picks/plan.ts 的 finalizeOrderedPickPlans/lockSlice，" +
+    "ChainEngine 在 Finalize 锁 item.pickPlans、Resolve 读锁），但本卡用不上：该 pick 位于 choice.mode 体内，" +
+    "orderedPickSpecs 只遍历 sequence/repeat/choice.optional、不进 choice.mode，且生产链的 assertFinalizationSurface 对 " +
+    "choice.mode 直接抛 \"Mode choices require a Finalize/Resolve choice-plan adapter\"；top-5 有序范围仍无落地路径。" +
     "模式 2 的 reveal/draw/recycle 与 choice 包装已按契约 3.9 写出并有执行证据。" +
-    "依赖：RIFT-358（有序 picks 与模式/目标 Finalize）与 Deploy 特征过滤器契约。不近似实现。",
+    "依赖：choice.mode 的 Finalize/Resolve choice-plan 适配（RIFT-358）与 Deploy 特征过滤器契约。不近似实现。",
   abilities: [
     {
       kind: "play",
@@ -179,8 +188,7 @@ const commandAttack = {
                       // 已合入的 effect.inspect 的 top 作用域要求上游按真实牌库顺序提供
                       // 有序 picksSpecId（契约 3.6 的 zoneSlice 才保序，query 不保序）；
                       // 本卡声明稳定的有序范围 id，由调用方按 zoneSlice 提供牌库顶 5 张。
-                      // 该范围的生产生命周期（链的 Finalize 只锁定 instruction.targets）
-                      // 仍未接线，见 judgeReason 第 4 点。
+                      // 该范围的生产生命周期仍未接线，见 judgeReason 第 2 点。
                       id: "command-attack.look-top-5",
                       op: "effect.inspect",
                       linkedTo: "command-attack.bind-controller",
