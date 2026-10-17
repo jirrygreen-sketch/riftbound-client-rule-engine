@@ -1,6 +1,13 @@
 import type { CardProgram } from "../../ir/index.js";
 
-/** Perched Grimwyrm (sfd-015-221). */
+/**
+ * Perched Grimwyrm (sfd-015-221).
+ *
+ * Execution evidence (RIFT-703): test/cards/templates/play-703.test.mjs pins the real
+ * describePlay rejection of this restriction and runs the printed play procedure to the
+ * chosen battlefield without it; test/cards/sfd/perched-grimwyrm.test.mjs keeps the
+ * structure assertions.
+ */
 export default {
   canonicalCardId: "card.hash-1e5601a20e9eec5eb8bd27251a8711e541767f111db13703166777e918b52cbb",
   rulesetVersion: "core-1.5",
