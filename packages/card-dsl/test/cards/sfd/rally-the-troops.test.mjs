@@ -37,29 +37,22 @@ test("Rally the Troops program is valid EffectIR v2 data and judge-required", ()
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });
 
-test("Rally the Troops golden: the play body registers this turn's delayed trigger and draws", () => {
-  // The shipped body is executed as authored through the production adapter:
-  // trigger.delayed registers the card-played trigger (LKI 359.3.f.3.a) and
-  // the draw is the spell's own sentence. The registration is observable on
-  // the reference kernel; the end-of-turn expiry (359.3.e.16) is engine work
-  // covered in the engine-core delayed-trigger tests.
+test("Rally the Troops golden: the merged interpreter has no trigger.delayed opcode, so the play body fails closed", () => {
+  // The shipped body is executed as authored through the production adapter;
+  // the merged registry has no trigger.delayed entry, so the registration
+  // instruction can never run and the spell would resolve nothing today. The
+  // body is never rewritten into another timing point to work around this.
   const kernel = world().player("A", { energy: 5 }).deck(["top-card"]).build();
   const bound = bindResolveContext(kernel, { source: kernel.objects[0] });
-  const outcome = resolveChainBody(play.body, bound);
-  assert.equal(outcome.status, "executed");
-  assert.deepEqual(
-    outcome.results.map((entry) => [entry.id, entry.result.status]),
-    [
-      ["rally-the-troops.register-trigger", "executed"],
-      ["rally-the-troops.draw", "executed"]
-    ]
+  assert.throws(
+    () => resolveChainBody(play.body, bound),
+    (error) => {
+      assert.match(error.message, /Unregistered instruction opcode: trigger\.delayed/);
+      return true;
+    }
   );
-  assert.equal(kernel.player("A").handSize, 1);
-  const [registration] = kernel.delayedTriggers;
-  assert.deepEqual(
-    [registration.at.at, registration.at.filter, registration.at.once],
-    ["card-played", { type: "unit", controller: "self" }, "per-game"]
-  );
+  // Nothing was drawn by the failed resolution: the spell has no executable path.
+  assert.equal(kernel.player("A").handSize, 0);
 });
 
 test("Rally the Troops structure: Action keyword, delayed trigger registration, unlinked draw", () => {

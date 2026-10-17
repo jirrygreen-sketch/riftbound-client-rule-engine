@@ -185,11 +185,11 @@ test("unl-050-219 Iascylla golden: the descriptive destination marker is rejecte
   });
 });
 
-test("unl-050-219 Iascylla: the production interpreter registers the card body's delayed trigger", () => {
+test("unl-050-219 Iascylla: the production interpreter has no trigger.delayed opcode for the card body", () => {
   // CR 391.2 / 392 / 393: the printed text defers the move to the start of the next
-  // Main Phase, so the card declares trigger.delayed. The merged op registers the
-  // delayed ability through the frozen contract seam; the choice plan (355.5.b) and
-  // the next-Main-Phase expiry remain the judge-required halves.
+  // Main Phase, so the card declares trigger.delayed. effects/instructions has no
+  // implementation for that opcode: the merged body throws instead of silently
+  // running the move at the wrong time.
   const kernel = world()
     .unit("iascylla", { controller: "A", location: { type: "battlefield", id: "battlefield-1" } })
     .unit("enemy-unit", { owner: "B", controller: "B", location: { type: "battlefield", id: "battlefield-2" } })
@@ -197,23 +197,20 @@ test("unl-050-219 Iascylla: the production interpreter registers the card body's
   const context = kernel.clone({ sourceSnapshot: kernel.getObject("iascylla") });
   context.setTargets("iascylla.enemy-unit", [kernel.ref("enemy-unit")]);
 
-  const outcome = resolveChainBody(ability.body, context);
-  // The registration executes; the nested choice plan lives in the
-  // registered delayed body (355.5.b / contract 3.9) and is not run at
-  // registration time.
-  assert.equal(outcome.status, "executed");
-  // The declared delay is registered; the enemy unit has not moved yet.
+  assert.throws(
+    () => resolveChainBody(ability.body, context),
+    /Unregistered instruction opcode: trigger\.delayed/
+  );
+  // The declared delay never advanced, and the enemy unit never moved.
   assert.deepEqual(kernel.getObject("enemy-unit").location, { type: "battlefield", id: "battlefield-2" });
-  assert.deepEqual(context.delayedTriggers.map((entry) => entry.at.at), ["main-start"]);
-  assert.deepEqual(outcome.results.map((entry) => [entry.id, entry.result.status]), [
-    ["iascylla.delayed-move", "executed"]
-  ]);
+  assert.deepEqual(context.delayedTriggers, []);
 });
 
 test("unl-050-219 Iascylla: the internal delayed-trigger seam is not reachable from card instructions", () => {
   // chain/engine.ts wires ResolveContext.registerDelayedTrigger, and the pipeline
-  // honours registration.delayed (delayed abilities outlive their source). The
-  // merged trigger.delayed op now consumes that seam; this pins it (CR 393).
+  // honours registration.delayed (delayed abilities outlive their source). No
+  // registered instruction consumes that seam, so a card cannot create the delayed
+  // ability; this pins the seam the missing opcode would need to use (CR 393).
   const kernel = world().unit("iascylla", { controller: "A" }).build();
   const context = kernel.clone({ sourceSnapshot: kernel.getObject("iascylla") });
   context.registerDelayedTrigger(
@@ -225,8 +222,8 @@ test("unl-050-219 Iascylla: the internal delayed-trigger seam is not reachable f
   assert.equal(context.delayedTriggers[0].body[0].op, "effect.move");
   assert.equal(
     keywordlessOps.includes("trigger.delayed"),
-    true,
-    "effects/instructions exposes the card-facing trigger.delayed op"
+    false,
+    "effects/instructions must still lack the card-facing trigger.delayed op"
   );
 });
 

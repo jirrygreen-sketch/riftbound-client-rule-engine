@@ -150,13 +150,12 @@ test.todo(
     "once-per-qualifying-event lifetime"
 );
 
-test("rad-154-167 Last Caress boundary: continuous.location still refuses the recorded once, trigger.delayed is registered", () => {
-  // The printed effect still needs a resolving-spell permission consumer
-  // (355.2.b / 801.3.a): the recorded continuous.location declaration carries
-  // an `once` argument the merged op rejects. The delayed-Buff half's
-  // trigger.delayed opcode is now registered; its next-unit subject anchor
-  // still fails trigger-spec validation closed.
-  assert.equal(instructionDefinitionsById.has("trigger.delayed"), true);
+test("rad-154-167 Last Caress boundary: the recorded declarations cannot reach the merged schemas", () => {
+  // The printed effect needs a resolving-spell permission (355.2.b / 801.3.a).
+  // The recorded continuous.location declaration carries an `once` argument the
+  // merged op rejects, and trigger.delayed is not a registered instruction, so
+  // neither half can be bound as written.
+  assert.equal(instructionDefinitionsById.has("trigger.delayed"), false);
   assert.throws(
     () => locationInstruction.argsSchema.parse(grantLocation.args),
     /Invalid continuous\.location argument: once/
