@@ -42,9 +42,8 @@ test("ven-076-166 Repair Specialist: identity, status, judgeReason and verbatim 
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /RIFT-91/);
   assert.match(program.judgeReason, /combatRole/);
-  assert.match(program.judgeReason, /RIFT-81/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-91|RIFT-81/);
 });
 
 test("ven-076-166 Repair Specialist: the grant is a static Assault declaration with a dynamic value", () => {
@@ -92,10 +91,10 @@ test("ven-076-166 golden: gear controlled by the opponent or outside the board i
 });
 
 test.todo(
-  "ven-076-166 Repair Specialist: granting the dynamic Assault value needs a card-side continuous.grant-keyword " +
-    "registration into layers/engine.ts (RIFT-91) — no CardProgram → ContinuousEffectSpec producer is merged"
+  "ven-076-166 Repair Specialist: granting the dynamic Assault value needs the layers engine to evaluate the " +
+    "grant-keyword count expression and a consumer that turns granted Assault instances into +X Might arithmetic layers"
 );
 test.todo(
-  "ven-076-166 Repair Specialist: Assault's attacker gate reads ObjectSnapshot.combatRole (contract 3.8) which is not " +
-    "merged, and layers/engine.ts conditionMatches does not evaluate compare conditions (RIFT-81 follow-up)"
+  "ven-076-166 Repair Specialist: Assault's attacker gate reads property \"designation\", but object snapshots only " +
+    "carry combatRole (null by default in the test kernel), so the granted +X Might while attacking stays false"
 );

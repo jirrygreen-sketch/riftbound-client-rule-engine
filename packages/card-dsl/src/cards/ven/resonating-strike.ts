@@ -8,7 +8,7 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * 规则依据（Core Rules v1.5）：
  * - 「[Hidden]」是 811 的被动关键词：811.1.b/811.1.c 的 Hide 动作与 facedown 区域行为由
- *   keywords/Hidden.ts 展开（cost.hidden）与 RIFT-89 的隐藏费用路径消费；811.1.d.2 还规定
+ *   keywords/Hidden.ts 展开（cost.hidden）与隐藏费用路径消费；811.1.d.2 还规定
  *   从 facedown 打出的隐藏法术，其目标必须从“藏匿所在战场”中选（本卡的目标限制会被它进一步
  *   收窄）。卡文件只声明关键词（契约 3.7）。
  * - 「[Reaction]」是 813 的许可类关键词（813.1.c），同样只声明。
@@ -33,15 +33,14 @@ import type { CardProgram } from "../../ir/index.js";
  * 2. 两个目标之间的“不同地点”分组限制（355.11）没有已合入的目标计划支持；并且第一个目标
  *    “battlefield you control” 需要 190 的战场控制状态谓词（过滤器没有 battlefield 控制字段，
  *    layers/filter.ts 只按对象字段匹配）。
- * 3. 「give it +2 Might this turn」没有已合入原语（契约 3.6 的封闭 GameAction 无 Might 修改动作，
- *    effects/instructions 下没有注册 continuous.might 的原语；RIFT-91 只合入了层求值侧）。
+ * 3. 「give it +2 Might this turn」已可用合入的 continuous.might（targets 形状）表达；
+ *    真实注册证据由 golden 执行（见 judgeReason 第 3 条措辞）。
  * 4. 「[Hidden]」的可执行路径缺失：keywords/Hidden.ts 的 cost.hidden 持续效果没有消费方
- *    （Hide 动作、facedown 区域、从 facedown 免费打出都属 RIFT-89），811.1.d.2 的目标收窄同样
+ *    （Hide 动作、facedown 区域、从 facedown 免费打出都属隐藏费用消费路径），811.1.d.2 的目标收窄同样
  *    依赖该消费方与目标系统。
- * 已合入并真实执行：「Move that unit …」的 effect.move 本体在该单位原地不动的守卫下 fail-closed；
- * golden 用参考内核与已合入的 effect.move 原语断言移动本体（以静态目的地替代）真实提交
- * move-location，并断言描述性目的地被解释器拒绝而不是静默移动。
- * 依赖：RIFT-90（目标/地点计划）、RIFT-91（continuous.might）、RIFT-89（cost.hidden）。
+ * 已合入并真实执行：effect.move 的移动本体（静态目的地替代）与 continuous.might 的算术层注册；
+ * golden 用参考内核断言真实 move-location、描述性目的地被解释器拒绝，以及 +2 Might 的
+ * end-of-turn 注册。依赖：位置/条件目标计划（RIFT-357/RIFT-359）与 cost.hidden 消费路径。
  */
 
 /**
@@ -60,16 +59,18 @@ export default {
   status: "judge-required",
   judgeReason:
     "四处缺口，均不近似实现：(1) 目的地不可表达——355.4/355.4.a 的目的地是“第一个目标（所选战场）”，" +
-    "需要运行期 Location 选择器（target.location 属未合入原语）；effect.move 的 to 只接受静态 LocationRef / " +
+    "需要运行期 Location 选择器（target.location 属未合入原语，RIFT-357）；effect.move 的 to 只接受静态 LocationRef / " +
     "controller-base / 静态候选列表，程序只保留描述性目的地标记，解释器会拒绝该形状而不是把单位移到错误地点。" +
     "(2) 两个目标之间的「at a different location」是 355.11 的分组限制，合并目标计划没有该形状；" +
     "「a battlefield you control」还需要 190 的战场控制状态谓词（layers/filter.ts 只按对象字段匹配）。" +
-    "(3)「give it +2 :rb_might: this turn」需要带 end-of-turn 期限的 continuous.might（317.2.c/143.2.a）；" +
-    "契约 3.6 的封闭 GameAction 无 Might 修改动作，effects/instructions 也没有注册该持续效果的原语（RIFT-91 只合入层求值侧）。" +
+    "(3)「give it +2 :rb_might: this turn」用合入的 continuous.might（targets 形状）记录为带 end-of-turn 期限的" +
+    "算术层注册（317.2.c/143.2.a），golden 用真实解释器执行该注册；它仍链接在 Move 指令后，实际生效还依赖" +
+    "第 (1)(2) 条的目标/地点计划。" +
     "(4) [Hidden] 的可执行路径缺失：keywords/Hidden.ts 的 cost.hidden 没有消费方（Hide 动作、facedown 区域、" +
-    "从 facedown 免费打出属 RIFT-89），811.1.d.2 的目标收窄同样依赖该消费方与目标系统。" +
+    "从 facedown 免费打出属隐藏费用消费路径），811.1.d.2 的目标收窄同样依赖该消费方与目标系统。" +
     "已合入并真实执行：effect.move 的移动本体与 355.9.a.1 的单位目标形状；golden 用参考内核断言真实 move-location，" +
-    "并断言描述性目的地被解释器拒绝（原地不动的守卫）。依赖：RIFT-90、RIFT-91、RIFT-89。",
+    "并断言描述性目的地被解释器拒绝（原地不动的守卫）；continuous.might 的 +2 注册同样用真实解释器执行。" +
+    "依赖：RIFT-357/RIFT-359 与 cost.hidden 消费路径。",
   abilities: [
     // 811.1：Hidden 只声明关键词；展开与消费方见 judgeReason 第 4 条。
     { kind: "keyword", keyword: "hidden" },
@@ -126,13 +127,14 @@ export default {
         },
         {
           // 「give it +2 Might this turn」：同一单位的临时 Might 修改（“it”，359.3.e.14）。
-          // op 未注册（见 judgeReason 第 3 条），不近似成 Buff 计数。
+          // continuous.might 已合入，不近似成 Buff 计数。
           id: "resonating-strike.grant-might",
           op: "continuous.might",
           linkedTo: "resonating-strike.move-unit",
           args: {
             amount: { kind: "constant", value: 2 },
-            duration: { kind: "constant", value: "this-turn" }
+            duration: { kind: "constant", value: "this-turn" },
+            target: { kind: "constant", value: "resonating-strike.friendly-unit" }
           },
           targets: [
             {

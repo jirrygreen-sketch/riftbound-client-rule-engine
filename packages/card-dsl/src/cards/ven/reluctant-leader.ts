@@ -19,17 +19,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 355.10.d / 355.10.d.1："me" 是按特征程序化指定的宿主自身，不是选择目标，因此
  *   effect.buff 一类的 target 参数形式不适用；本卡用所选指令的对象选择器记录宿主。
  *
- * status = judge-required（三处缺口，均不近似实现）：
- * 1. 触发条件「你打出另一个单位」无法在已合入实现中表达：events/pipeline-match.ts 的
- *    matchesTriggerEvent 只识别 object/source/target/player/fromZone/toZone/amount/
- *    details，没有「另一张牌 / 排除宿主自身」的过滤键；解释器的 ObjectSelector.exclude
- *    只作用于集合查询，不作用于触发过滤。
- * 2. 临时 Might 修正没有可执行路径：契约 3.6 的封闭 GameAction 集合没有 Might 修改
- *    动作，effects/instructions/ 下也没有注册 continuous.might 的原语（layers 引擎能求值
- *    arithmetic 层与 end-of-turn 期限，但没有把结算中的持续效果经 ResolveContext
- *    .addContinuous 落地的指令）；不能近似为 effect.buff 计数。
- * 3. card-played 时点由 chain/engine.ts 发射，但到 game-server / 卡牌触发的接线未合入
- *    （RIFT-120 后续）。
+ * status = judge-required（缺口见 judgeReason，均不近似实现）：触发过滤的「另一个」键
+ * 与 might-changed 管线是当前真实缺口；宿主 +2 Might 已由合入的 continuous.might 表达，
+ * golden 用真实解释器执行。
  */
 const abilities: Ability[] = [
   {
@@ -51,7 +43,7 @@ const abilities: Ability[] = [
     body: [
       {
         // “give me +2 :rb_might: this turn”：arithmetic 图层的临时 Might 修正；
-        // effects/instructions/ 下没有 continuous.might 原语消费它（见 judgeReason）。
+        // continuous.might 已合入，appliesTo self 把效果注册到能力宿主。
         id: "reluctant-leader.give-plus-2",
         op: "continuous.might",
         args: {
@@ -69,16 +61,13 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1) 触发条件「you play another unit」无法表达：events/pipeline-match.ts 的 " +
+    "两处缺口，均不近似实现：(1) 触发条件「you play another unit」无法表达：events/pipeline-match.ts 的 " +
     "matchesTriggerEvent 只识别 object/source/target/player/fromZone/toZone/amount/details，没有「另一张牌 / " +
-    "排除本卡」的过滤键；ObjectSelector.exclude 只作用于集合查询，不作用于触发过滤（383.4.a.4 要求这是" +
-    "“另一个对象被打出”的触发）。(2) 「give me +2 :rb_might: this turn」是带回合期限的临时 Might 修正，属" +
-    "算术图层：契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，effects/instructions/ 下没有注册 " +
-    "continuous.might 的原语（layers 引擎能求值 arithmetic 层与 end-of-turn 期限，但没有把结算中的持续效果经 " +
-    "ResolveContext.addContinuous 落地的指令）；effect.buff 文件头明确临时 Might 归 continuous.might，" +
-    "绝不能近似为 Buff 计数。(3) card-played 时点虽由 chain/engine.ts 发射，到卡牌触发的注册接线未合入" +
-    "（RIFT-120 后续）。依赖：事件管线扩展（“另一对象”过滤）、continuous.might 指令原语（RIFT-9 清单；" +
-    "RIFT-91 的图层求值侧已合入）、RIFT-120。",
+    "排除本卡」的过滤键；ObjectSelector.exclude 只作用于集合查询，不作用于触发过滤，而程序绑定侧的 " +
+    "translateObjectFilter 直接拒绝 other/exclude 键（383.4.a.4 要求这是“另一个对象被打出”的触发）。" +
+    "(2) might-changed 时点的 producer 没有接入事件管线。已支持部分：「give me +2 :rb_might: this turn」由合入的 " +
+    "continuous.might 经 appliesTo self 注册到宿主（golden 用真实解释器执行，算术层 2 点、回合结束到期）。" +
+    "依赖：事件管线扩展（“另一对象”过滤，RIFT-359 条件谓词不覆盖该键）与 might-changed 管线接线。",
   abilities,
   sourceText: "When you play another unit, give me +2 :rb_might: this turn."
 } satisfies CardProgram;
