@@ -8,6 +8,9 @@ import recycle from "../../../../engine-core/dist/effects/instructions/effect.re
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { describePlay } from "../../../../engine-core/dist/programs/play.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 
 const CANONICAL_ID =
   "card.hash-ae826439bb4605b7d72d3b0b431548f77c4cde681a949dd0e613036488b554c0";
@@ -39,6 +42,13 @@ test("unl-103-219 Disposal Order: identity, status, judgeReason and verbatim sou
   assert.match(program.judgeReason, /108\.2\.a/);
   assert.match(program.judgeReason, /355\.13/);
   assert.match(program.judgeReason, /effect\.recycle/);
+  // Each gap must carry its verified current evidence.
+  assert.match(program.judgeReason, /fail-closed/);
+  assert.match(program.judgeReason, /expected exactly 3 chosen object\(s\), got 1/);
+  assert.match(program.judgeReason, /Mode choices require a Finalize\/Resolve choice-plan adapter/);
+  assert.match(program.judgeReason, /assertFinalizationSurface/);
+  assert.match(program.judgeReason, /validateSurface/);
+  assert.match(program.judgeReason, /single-owner/);
 });
 
 test("unl-103-219 Disposal Order: [Reaction] plus a two-mode choice (recycle | draw)", () => {
@@ -160,7 +170,79 @@ test.todo(
     "player-chosen 0..3 count (CR 108.2.a / 355.13 / 417.6) — effect.recycle from takes one owner and locks the count"
 );
 
-test.todo(
-  "unl-103-219 Disposal Order: the 'Choose one —' mode question needs the chain Finalize/Resolve choice-plan adapter " +
-    "(chain/engine.ts assertFinalizationSurface blocks choice.mode inside card bodies)"
-);
+test("unl-103-219 Disposal Order: the declared multi-owner owner is rejected fail-closed, and a smaller up-to answer is refused", () => {
+  // (1) 108.2.a: "opponents' trashes" is a per-player zone set. The merged
+  // from shape accepts only controller/source-owner, so the authored
+  // descriptive owner must be rejected rather than silently read as the
+  // controller's own trash. (Real primitives: effect.recycle argsSchema.)
+  assert.throws(
+    () => recycle.argsSchema.parse(recycleInstruction.args.from.value),
+    (error) => /effect\.recycle requires at least one of target, objects, or from/.test(error.message)
+  );
+  // (2) 355.13: "up to 3" must accept a smaller answer. The merged from shape
+  // locks the count to exactly min(3, available), so answering 1 throws.
+  const kernel = world()
+    .player("A")
+    .player("B")
+    .deck(["a1", "a2", "a3", "a4"], { owner: "A" })
+    .build();
+  for (const ref of kernel.objectsInZone("A", "deck").slice()) {
+    assert.equal(kernel.perform({ type: "move-zone", object: ref, to: "trash" }).status, "done");
+  }
+  assert.equal(kernel.objectsInZone("A", "trash").length, 4);
+  const source = kernel.objectsInZone("A", "trash")[0];
+  const context = bindResolveContext(kernel, { source, controller: "A" });
+  const locked = bindResolveContext(context, {
+    choose: (request) => [...request.options].slice(0, 1)
+  });
+  assert.throws(
+    () => resolveChainBody(
+      [{
+        id: "up-to-three",
+        op: "effect.recycle",
+        args: {
+          from: {
+            kind: "constant",
+            value: { zone: "trash", owner: "controller", amount: { kind: "constant", value: 3 } }
+          }
+        }
+      }],
+      locked
+    ),
+    (error) => /effect\.recycle expected exactly 3 chosen object\(s\), got 1/.test(error.message)
+  );
+});
+
+test("unl-103-219 Disposal Order: the production play surface blocks the 'Choose one —' body", () => {
+  // 355.3: the mode question belongs to the chain's Finalize/Resolve
+  // lifecycle. Both the program-binding surface and the chain's own
+  // finalization guard reject choice.mode inside a card body, so the card
+  // cannot be marked executable on this declaration.
+  const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
+  const spell = {
+    ref: { id: "disposal-order", zoneEntryId: 1 },
+    cardId: CANONICAL_ID,
+    name: "Disposal Order",
+    types: ["spell"],
+    tags: [],
+    keywords: [],
+    owner: "A",
+    controller: "A",
+    zone: "hand",
+    location: null,
+    might: null,
+    energy: 2,
+    power: [],
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false
+  };
+  assert.throws(
+    () => describePlay(registry, { type: "play", object: spell.ref, player: "A" }, spell),
+    (error) => /Mode choices require a Finalize\/Resolve choice-plan adapter/.test(error.message)
+  );
+});

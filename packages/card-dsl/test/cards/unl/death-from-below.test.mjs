@@ -8,6 +8,10 @@ import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.
 import play from "../../../../engine-core/dist/effects/instructions/effect.play.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { translateInstructionTargets, translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 
 const CANONICAL_ID =
   "card.hash-332b81818b3c3740ca27663743bcff94806548a92b2601eea3956bec3778f6ac";
@@ -57,8 +61,16 @@ test("unl-186-219 Death from Below: identity, status, judgeReason and verbatim s
   assert.match(program.judgeReason, /388\.4/);
   assert.match(program.judgeReason, /389/);
   assert.match(program.judgeReason, /356\.1\.a/);
-  assert.match(program.judgeReason, /FinalizedCostPlan/);
-  assert.match(program.judgeReason, /Universal Power|rainbow/);
+  // The refreshed reason must name the verified current blockers: the missing
+  // reflexive op, the rejected source anchor, and the cost descriptor that is
+  // not an Expr. The obsolete "no Universal Power" claim is gone.
+  assert.match(program.judgeReason, /trigger\.reflexive/);
+  assert.match(program.judgeReason, /Unsupported filter field source/);
+  assert.match(program.judgeReason, /translateObjectFilter/);
+  assert.match(program.judgeReason, /buildCostPlan/);
+  assert.match(program.judgeReason, /must be an Expr/);
+  assert.doesNotMatch(program.judgeReason, /不能为 Universal Power 生成/);
+  assert.match(program.judgeReason, /rainbow/);
 });
 
 test("unl-186-219 Death from Below: one targeted battlefield kill plus a guarded, optional trash play", () => {
@@ -232,15 +244,67 @@ test("unl-186-219 Death from Below golden: the printed for-rainbow-rune cost is 
   assert.equal(kernel.getObject("death-from-below").zone, "trash");
 });
 
+test("unl-186-219 Death from Below: there is no card-usable reflexive-trigger op, and the play half fails closed", () => {
+  // 388 / 388.4 (this card is the official example) / 389 / 389.1: adding a
+  // new ability to the chain at resolution needs its own pending item. The
+  // merged instruction registry has no such op (it has no trigger.reflexive),
+  // and the authored sequence + choice.optional only preserves the shape.
+  assert.equal(instructionDefinitionsById.has("trigger.reflexive"), false);
+  assert.deepEqual(
+    playAbility.body.map((instruction) => instruction.op),
+    ["effect.kill", "sequence"]
+  );
+});
+
+test("unl-186-219 Death from Below: the trash self-reference's source anchor is rejected by the program binder", () => {
+  // 124 / 420.3: after the card changes zones, "this" must name the current
+  // Trash reference. The authored { source: "self", zone: "trash" } filter is
+  // not a supported anchor: programs/filters.ts rejects it fail-closed (the
+  // same step describePlay uses), and the IR has no self-in-zone selector.
+  const trashTarget = playFromTrash.targets[0];
+  assert.deepEqual(trashTarget.filter, { source: "self", zone: "trash" });
+  assert.throws(
+    () => translateObjectFilter(trashTarget.filter),
+    (error) => error.name === "ProgramBindingError" && /Unsupported filter field source/.test(error.message)
+  );
+  assert.throws(
+    () => translateInstructionTargets(playAbility.body),
+    (error) => error.name === "ProgramBindingError" && /Unsupported filter field source/.test(error.message)
+  );
+});
+
+test("unl-186-219 Death from Below: the Universal Power cost is planable, but the declared descriptor is not an Expr", () => {
+  // 356.1.a / 135.2.e.5.a: the replacement cost itself is expressible — the
+  // merged planner expands domains: [] into the six-domain 1 Power
+  // requirement. What is missing is the wiring into effect.play: the authored
+  // PLAY_FOR_RAINBOW descriptor is a plain object, so the primitive's schema
+  // rejects the argument instead of silently charging energy 0.
+  const kernel = world()
+    .player("A", { energy: 20, power: ["Order"] })
+    .hand("death-from-below", { types: ["spell"], energy: 4, power: ["Fury"], owner: "A", controller: "A" })
+    .build();
+  const context = bindResolveContext(kernel, {
+    source: kernel.getObject("death-from-below"),
+    controller: "A"
+  });
+  // 356.1.a / 135.2.e.5.a: the trusted catalog projection with domains: [] and
+  // one Power is the Universal Power spelling the planner expands to a single
+  // all-six-Domains requirement. (Listing the six Domains explicitly would
+  // instead produce six separate same-Domain requirements.)
+  const plan = buildCostPlan(context, {
+    id: "death-from-below.replay-cost",
+    cost: { kind: "printed" },
+    printed: { id: "death-from-below", cardType: "Spell", energy: 0, power: 1, domains: [] }
+  });
+  assert.deepEqual(plan.total.power, [
+    { amount: 1, allowedDomains: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"] }
+  ]);
+  assert.throws(
+    () => play.argsSchema.parse({ target: "death-from-below.self-in-trash", cost: playFromTrash.args.cost.value }),
+    (error) => /effect\.play cost must be an Expr/.test(error.message)
+  );
+});
+
 test.todo(
-  "unl-186-219 Death from Below: add the reflexive triggered ability to the chain as its own pending item when the condition holds (CR 388 / 388.4 - this card is the official example - and 389 / 389.1; the six Ability forms cannot add a chain item at resolution)"
-);
-test.todo(
-  "unl-186-219 Death from Below: resolve this as the card's current reference in Trash after it changed zones (CR 124 / 420.3; ObjectSelector has no self-in-zone form - engine batch 4 source/link references)"
-);
-test.todo(
-  "unl-186-219 Death from Below: charge the for-rainbow-rune replacement cost through a finalized cost plan (CR 356.1.a; effect.play requires a FinalizedCostPlan and the current Power vocabulary has no Universal Power value)"
-);
-test.todo(
-  "unl-186-219 Death from Below: decide the reflexive trigger's may during that trigger's finalization per CR 388.4 instead of an instruction-scoped choice.optional (may-scope ruling)"
+  "unl-186-219 Death from Below: decide the reflexive trigger's may during that trigger's finalization per CR 388.4 (and 355.5.b, which keeps reflexive choices out of the original item's finalize) instead of an instruction-scoped choice.optional (may-scope ruling)"
 );

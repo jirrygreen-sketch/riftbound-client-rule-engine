@@ -11,6 +11,7 @@ import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 
 const CANONICAL_ID =
   "card.hash-11be609f8d3a73cf3ab397a574e5dc2de111d0ec840bd515e8f6df0e19e3774b";
@@ -82,8 +83,13 @@ test("unl-149-219 Diana, No Longer Human: identity, status, judgeReason and verb
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /Ambush/);
   assert.match(program.judgeReason, /822/);
+  // The current, verified gap is that both Ambush static declarations are
+  // rejected by the production static binder.
+  assert.match(program.judgeReason, /play-location-permission/);
+  assert.match(program.judgeReason, /no layer mapping/);
+  assert.match(program.judgeReason, /Unsupported static appliesTo/);
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /Ambush|play-location-permission/);
+  assert.match(program.judgeReason, /card-played/);
 });
 
 test("unl-149-219 Diana, No Longer Human: [Ambush] is declared as a keyword only (CR 822)", () => {
@@ -134,11 +140,36 @@ test("unl-149-219 Diana, No Longer Human golden: the merged Might body registers
   assert.deepEqual(context.continuousEffects[0].duration, { type: "end-of-turn" });
 });
 
-test.todo(
-  "unl-149-219 Diana, No Longer Human: expand [Ambush] (CR 822.1.b: play to a battlefield where " +
-    "you control units, with Reaction timing while being played there) and let chain.canAct / " +
-    "Finalize consume the merged play-location-permission and conditional timing declarations"
-);
+test("unl-149-219 Diana, No Longer Human: both merged Ambush static declarations are rejected by the production binder", () => {
+  // 822.1.b: Ambush expands to a play-location permission plus a conditional
+  // Reaction timing. Neither can be bound today: layerFor has no mapping for
+  // play-location-permission, and the timing declaration uses the unsupported
+  // appliesTo: ["card"] anchor. Fail closed — the card must not be executable.
+  const definition = keywordDefinitionsById.get("Ambush");
+  assert.ok(definition, "effects/keywords/Ambush.ts must be registered");
+  const expanded = definition.expand({ value: ambush.value, host: { canonicalCardId: CANONICAL_ID } });
+  const statics = expanded.filter((ability) => ability.kind === "static");
+  assert.deepEqual(statics.map((ability) => ability.effect.kind), [
+    "play-location-permission",
+    "continuous.timing"
+  ]);
+
+  const kernel = world().unit("diana", { owner: "A", controller: "A", might: 3 }).build();
+  const source = kernel.getObject("diana");
+  const engine = {
+    layers: { addContinuous() {}, removeContinuous() {} },
+    pipeline: { host: { objects: () => [source], context() { throw new Error("no engine context"); } } }
+  };
+  const binder = createEngineStaticBinder(engine);
+  assert.throws(
+    () => binder.bindStatic(statics[0], source),
+    (error) => error.name === "ProgramBindingError" && /no layer mapping/.test(error.message)
+  );
+  assert.throws(
+    () => binder.bindStatic(statics[1], source),
+    (error) => error.name === "ProgramBindingError" && /Unsupported static appliesTo/.test(error.message)
+  );
+});
 
 test("unl-149-219 Diana, No Longer Human golden: a real card-played event for an allied spell grants +2 Might until end of turn", () => {
   const fixture = dianaFixture();

@@ -26,18 +26,21 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   108.2.a：每名玩家各有自己的 Trash，"opponents' trashes" 是复数区域。
  * - 模式二「Draw 1」是已合入的 effect.draw（414.1）。
  *
- * status = judge-required（RIFT-329 复核；不近似实现）：
+ * status = judge-required（2026-10-17 逐条对源码复核；不近似实现）：
  * - effect.recycle 的 from 形状是 { zone, owner?: "controller" | "source-owner",
  *   amount }：单一所有者的单一区域，无法表达 "opponents' trashes" 这种复数区域
- *   （同 ogn/forge-of-the-future 的缺口）；按 controller 读会静默漏掉对手的 Trash，
- *   描述性 owner（"opponents"）会被 argsSchema 直接拒绝（fail-closed）；
+ *   （同 ogn/forge-of-the-future 的缺口）；描述性 owner（"opponents"）会被 argsSchema
+ *   直接拒绝（fail-closed，实测）；
  * - "up to 3" 允许玩家选 0–3 张（355.13），但 from 把选择锁成恰好
- *   min(3, 可用数)（chooseFromZone 用 min: count, max: count），任何更小的答案都会
- *   被拒绝，无法表达玩家自选的更小张数；
- * - 「Choose one」的模式选择还需要链的 Finalize/Resolve choice-plan 适配器
- *   （chain/engine.ts assertFinalizationSurface 目前阻断 choice.mode 的卡牌 body），
- *   解释器 + 参考内核可执行该结构（golden 提供答案）。
- * 模式二与 choice.mode 结构已由 golden 真实执行；模式一按描述性 owner 写出。
+ *   min(3, 可用数)（chooseFromZone 用 min: count, max: count）：实测给出 1 张的答案时
+ *   原语抛 "effect.recycle expected exactly 3 chosen object(s), got 1"，无法表达玩家自选的
+ *   更小张数；
+ * - 「Choose one」的模式选择还需要链的 Finalize/Resolve choice-plan 适配器：
+ *   chain/engine.ts 的 assertFinalizationSurface 与 programs/play.ts 的 validateSurface
+ *   都以 "Mode choices require a Finalize/Resolve choice-plan adapter" 阻断 choice.mode 的
+ *   卡牌 body（实测 describePlay 抛该错），解释器 + 参考内核可执行该结构（golden 提供答案）。
+ * 模式二（Draw 1）、choice.mode 结构与已合入的 single-owner recycle-from 形状都由 golden 真实
+ * 执行；模式一按描述性 owner 写出，不近似实现。
  * 依赖：effect.recycle 的多所有者区域形式与 up-to 选择、链的模式选择适配器
  * （chain/engine.ts 的 Finalize 选择计划）。
  */
@@ -103,12 +106,13 @@ const disposalOrder = {
   judgeReason:
     "模式一无法用已合入的 effect.recycle from 形状表达（{ zone, owner?: controller | source-owner, amount }）：" +
     "(1)「opponents' trashes」按 CR 108.2.a 是每名对手各自的 Trash，是复数区域；from 只能读单一所有者的单一区域，" +
-    "按 controller 读会静默漏掉对手 Trash 中的牌，也没有规则条目把它收窄为控制者自己的区域；描述性 owner（\"opponents\"）会被 argsSchema 拒绝（fail-closed，" +
+    "按 controller 读会静默漏掉对手 Trash 中的牌，也没有规则条目把它收窄为控制者自己的区域；描述性 owner（\"opponents\"）会被 argsSchema 拒绝（fail-closed，实测，" +
     "同 ogn/forge-of-the-future 的缺口）。" +
     "(2)「up to 3」允许选 0–3 张（355.13），from 却把选择锁成恰好 min(3, 可用数)（chooseFromZone 用 min: count, max: count），" +
-    "更小的答案会被拒绝。(3)「Choose one」的模式选择还需要链的 Finalize/Resolve choice-plan 适配器" +
-    "（chain/engine.ts assertFinalizationSurface 目前阻断卡牌 body 里的 choice.mode）。" +
-    "模式二 Draw 1 与 choice.mode 结构只用已合入原语，golden 用解释器 + 参考内核真实执行。" +
+    "实测交回 1 张的答案时原语抛「effect.recycle expected exactly 3 chosen object(s), got 1」。(3)「Choose one」的模式选择还需要" +
+    "链的 Finalize/Resolve choice-plan 适配器：chain/engine.ts 的 assertFinalizationSurface 与 programs/play.ts 的 validateSurface " +
+    "都以「Mode choices require a Finalize/Resolve choice-plan adapter」阻断卡牌 body 里的 choice.mode（实测 describePlay 抛该错）。" +
+    "模式二 Draw 1、choice.mode 结构与已合入的 single-owner recycle-from 形状只用已合入原语，golden 用解释器 + 参考内核真实执行。" +
     "依赖：effect.recycle 的多所有者区域形式与 up-to 选择、链的模式选择适配器；不近似实现。",
   abilities,
   sourceText:

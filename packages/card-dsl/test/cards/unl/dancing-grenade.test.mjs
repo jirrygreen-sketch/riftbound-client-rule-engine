@@ -34,6 +34,13 @@ test("unl-020-219 Dancing Grenade: identity, status, judgeReason and verbatim so
   assert.match(program.judgeReason, /420\.3/);
   assert.match(program.judgeReason, /Bonus Damage/);
   assert.match(program.judgeReason, /rainbow/);
+  // The reason must name the re-verified current blockers by source, not by
+  // the obsolete \"condition.result\" summary alone.
+  assert.match(program.judgeReason, /effect\.play/);
+  assert.match(program.judgeReason, /不递归结算/);
+  assert.match(program.judgeReason, /HistoryQuery/);
+  assert.match(program.judgeReason, /Expr 没有历史读取/);
+  assert.match(program.judgeReason, /its controller/);
 });
 
 test("unl-020-219 Dancing Grenade: only the printed Deal 2 instruction is executable, no fabricated replay", () => {

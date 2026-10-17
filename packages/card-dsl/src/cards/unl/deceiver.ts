@@ -28,7 +28,14 @@ import type { CardProgram } from "../../ir/index.js";
  * - 816.1 / 816.1.a / 816.1.b：Temporary 是触发式关键词，功能等价于「在该永久物
  *   控制者的 Beginning Phase 开始时、计分前消灭它」，多个实例冗余。
  *
- * status = judge-required（四处缺口，均不近似实现）：
+ * status = judge-required（2026-10-17 逐条对源码复核；四处缺口，均不近似实现）：
+ * - 触发 filter 的事件词汇已修好：必须写作 "conquered" / "held"（TriggerSpec 的
+ *   EVENT_PATTERN_TYPES；events/pipeline-match.ts 的 EVENT_NAMES 把时点映射到这两个词），
+ *   写成 "conquer"/"hold" 会被 assertTriggerSpec 拒绝（实测）。但触发仍不能注册：body 里
+ *   continuous.grant-keyword 的目标过滤用 `object: { linked: … }` 读取刚创建的 token，而
+ *   programs/filters.ts 的 translateObjectFilter 以 "Unsupported filter field object"
+ *   拒绝该锚点（实测 registerProgramTriggers 抛 ProgramBindingError），所以两条触发都在
+ *   绑定阶段失败。
  * - `cost.pay` 与费用计划原语已经合入，但契约 3.1 的 TriggeredAbility 没有基础费用槽位，
  *   也没有把触发能力里的 discard 选择和 self exhaustion 接进生产 Finalize；保留
  *   cost.pay 形状不会把费用误写成两个效果。
@@ -38,8 +45,10 @@ import type { CardProgram } from "../../ir/index.js";
  * - 「It becomes a copy of another unit there」仍受 effect.copy 的 mode "effect" 阻断
  *   （copy-layer-traits-exceptions-and-attachment-duration-unavailable）；复制图层的
  *   已存在对象生命周期与嵌套目标选择尚未接线。
- * - Temporary KeywordDef 与 continuous.grant-keyword 原语已经合入，但关键词展开仍需要
- *   Beginning Phase 触发注册和层效果的生产生命周期，不能把 Temporary 改写成一次性 kill。
+ * - Temporary KeywordDef（beginning-start 的 mandatory triggered 能力）与
+ *   continuous.grant-keyword 原语已经合入，programs/triggers.ts 也接受该展开；缺的是
+ *   「经 continuous.grant-keyword 在结算中新授予的关键词也走 keywords 展开」这条接线：
+ *   授予只写 ability 图层，不产生 beginning-start 触发。不能把 Temporary 改写成一次性 kill。
  * 本卡保留可审查的结构与已合入原语，整卡仍不能标记 executable。
  *
  * 依赖：触发能力基础费用的 Finalize 接线、token ready 入场覆盖与动态 battlefield 引用、
@@ -51,18 +60,29 @@ const deceiver = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处当前缺口，均不近似实现：(1) CR 383.3.b 的 cost.pay 与费用计划原语已经合入，但契约 3.1 的 TriggeredAbility 没有基础费用槽位，" +
-    "生产 Finalize 尚未消费触发能力里的 discard 选择与 self exhaustion；(2) Reflection token 的 mode \"play\" 创建与交接已经合入，" +
-    "但 ready 入场覆盖（143.4/184.1）和 conquer/hold 事件到 \"there\" battlefield 的动态引用仍缺失；(3) effect.copy 的 mode \"effect\" 仍被" +
-    "copy-layer-traits-exceptions-and-attachment-duration-unavailable 阻断，嵌套目标与已存在对象复制生命周期未接线；" +
-    "(4) Temporary KeywordDef 与 continuous.grant-keyword 已合入，但 Beginning Phase 触发注册和生产层生命周期仍缺失。",
+    "四处当前缺口，均不近似实现（2026-10-17 逐条对源码复核）：(1) CR 383.3.b 的 cost.pay 与费用计划原语已经合入，" +
+    "但契约 3.1 的 TriggeredAbility 没有基础费用槽位，生产 Finalize 尚未消费触发能力里的 discard 选择与 self exhaustion；" +
+    "(2) Reflection token 的 mode \"play\" 创建与交接已经合入，但 \"ready\" 入场覆盖（143.4/184.1）仍无 entry override，" +
+    "且 conquer/hold 事件载荷只有 { player, details:{ battlefieldId } }、没有供 token destination 使用的 \"there\" 动态战场引用；" +
+    "(3) effect.copy 的 mode \"effect\" 仍被 copy-layer-traits-exceptions-and-attachment-duration-unavailable 阻断" +
+    "（effect.copy 显式 negate），嵌套目标与已存在对象复制生命周期未接线；" +
+    "(4) Temporary KeywordDef（beginning-start 的 mandatory triggered 能力，展开经 programs/triggers.ts 可注册）与 " +
+    "continuous.grant-keyword 已合入，缺的是「经 continuous.grant-keyword 在结算中新授予的关键词也走 keywords 展开」这条接线：" +
+    "授予只写 ability 图层，不产生 beginning-start 触发。触发 filter 的事件词汇已修好：必须是 \"conquered\"/\"held\"" +
+    "（TriggerSpec 的 EVENT_PATTERN_TYPES、events/pipeline-match.ts 的 EVENT_NAMES），写 \"conquer\"/\"hold\" 会被 " +
+    "assertTriggerSpec 拒绝（实测）。但触发仍不可注册：body 的 continuous.grant-keyword 目标过滤用 `object: { linked: … }` " +
+    "读取刚创建的 token，programs/filters.ts 的 translateObjectFilter 以 \"Unsupported filter field object\" 拒绝该锚点" +
+    "（实测 registerProgramTriggers 抛 ProgramBindingError），两条触发都在绑定阶段失败。",
   abilities: [
     {
       kind: "triggered",
       trigger: {
         at: "conquer",
-        // 383.4.c.2.b：「引用执行征服的玩家」的 Conquer Effect。
-        filter: { event: "conquer", player: "self" }
+        // 383.4.c.2.b：「引用执行征服的玩家」的 Conquer Effect。事件词汇写作
+        // "conquered"：TriggerSpec 的 EVENT_PATTERN_TYPES 与 events/pipeline-match.ts
+        // 的 EVENT_NAMES 把时点 conquer 映射到 "conquered"；写 "conquer" 会在
+        // registerTrigger 的 assertTriggerSpec 处被拒（同 sfd/chem-baroness 的 "held"）。
+        filter: { event: "conquered", player: "self" }
       },
       // 383.3.a / 403.1：效果开头的「you may」是触发自身的 Finalize 决定。
       optional: true,
@@ -176,8 +196,9 @@ const deceiver = {
       kind: "triggered",
       trigger: {
         at: "hold",
-        // 383.4.d.2.b：「引用执行固守的玩家」的 Hold Effect。
-        filter: { event: "hold", player: "self" }
+        // 383.4.d.2.b：「引用执行固守的玩家」的 Hold Effect。事件词汇写作 "held"
+        // （见上；events/pipeline-match.ts 的 EVENT_NAMES: held → hold）。
+        filter: { event: "held", player: "self" }
       },
       optional: true,
       body: [

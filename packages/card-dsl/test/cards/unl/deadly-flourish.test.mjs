@@ -31,8 +31,11 @@ test("unl-073-219 Deadly Flourish: identity, status, judgeReason and verbatim so
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /trigger\.delayed/);
+  assert.match(program.judgeReason, /Unregistered instruction opcode/);
   assert.match(program.judgeReason, /187\.5/);
   assert.match(program.judgeReason, /185\.2\.d|184\.1/);
+  assert.match(program.judgeReason, /Invalid effect\.token argument: entersExhausted/);
+  assert.match(program.judgeReason, /negated\/impossible/);
 });
 
 test("unl-073-219 Deadly Flourish: Deal 3 target plus the delayed Gold-token clause shape", () => {
@@ -168,17 +171,57 @@ test("unl-073-219 Deadly Flourish golden: the merged token primitive accepts the
   assert.equal(kernel.objects.some((object) => object.types.includes("unit")), true);
 });
 
-test.todo(
-  "unl-073-219 Deadly Flourish: registering the 'When it dies this turn' delayed trigger (CR 390/391.2/392) with " +
-    "the object-killed subscription, the 'it' event-object binding and the this-turn expiry — RIFT-9 trigger.delayed"
-);
+test("unl-073-219 Deadly Flourish: the declared trigger.delayed op is unregistered and fails closed", () => {
+  // 390/391.2/392: the delayed ability needs a card-usable registration op.
+  // ResolveContext.registerDelayedTrigger exists, but no registered
+  // instruction consumes it, so the authored body cannot execute.
+  assert.equal(instructionDefinitionsById.has("trigger.delayed"), false);
+  const kernel = world().player("A").unit("victim", { owner: "B", might: 5 }).build();
+  const context = kernel.clone({ source: kernel.getObject("victim"), controller: "A" });
+  assert.throws(
+    () => resolveChainBody(play.body, context),
+    (error) => /Unregistered instruction opcode: trigger\.delayed/.test(error.message)
+  );
+});
 
-test.todo(
-  "unl-073-219 Deadly Flourish: the Gold gear token definition (CR 187.5 with its own '[Reaction][>] Kill this, " +
-    "[E]: [Add] [A]' ability) must be added to effect.token before the token clause can execute"
-);
+test("unl-073-219 Deadly Flourish: the Gold gear token is not in the merged token definition table", () => {
+  // 187.5: Gold carries its own "[Reaction][>] Kill this, [E]: [Add] [A]"
+  // ability, so effect.token deliberately excludes it. The primitive must
+  // return negated/impossible rather than inventing an ability-free token.
+  const kernel = world().player("A").build();
+  const context = kernel.clone({ source: kernel.getObject("A:deck:1"), controller: "A" });
+  const outcome = resolveChainBody(
+    [{
+      id: "play-gold",
+      op: "effect.token",
+      args: {
+        token: { kind: "constant", value: "gold" },
+        amount: { kind: "constant", value: 1 },
+        mode: { kind: "constant", value: "play" },
+        location: { kind: "constant", value: { type: "base", player: "A" } }
+      }
+    }],
+    context
+  );
+  assert.deepEqual(
+    outcome.results.map((entry) => [entry.result.status, entry.result.reason ?? null]),
+    [["negated", "impossible"]]
+  );
+  assert.deepEqual(kernel.objectsInZone("A", "board"), []);
+});
 
-test.todo(
-  "unl-073-219 Deadly Flourish: 'exhausted' entry state (CR 143.4 / 184.1 / 185.2.d) has no create-token override; " +
-    "create-then-exhaust would emit a wrong became-exhausted event"
-);
+test("unl-073-219 Deadly Flourish: create-token rejects the 'exhausted' entry override", () => {
+  // 143.4 / 184.1 / 185.2.d: entering exhausted is an entry stipulation. The
+  // merged argsSchema has no override field, so the shape fails closed instead
+  // of being approximated by a later effect.exhaust (a wrong became-exhausted
+  // event).
+  assert.throws(
+    () => tokenPrimitive.argsSchema.parse({
+      token: { kind: "constant", value: "recruit" },
+      mode: { kind: "constant", value: "play" },
+      location: { kind: "constant", value: { type: "base", player: "A" } },
+      entersExhausted: { kind: "constant", value: true }
+    }),
+    (error) => /Invalid effect\.token argument: entersExhausted/.test(error.message)
+  );
+});
