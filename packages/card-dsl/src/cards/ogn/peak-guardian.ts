@@ -17,13 +17,15 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * 结构（契约 3.2/3.4/3.9）：
  * - body[0] 「buff me」：以 self 锚点为目标过滤的 effect.buff（mode buff）；
- * - body[1] 「buff all other friendly units there」：以 sameLocationAs: "self" + exclude: "self"
- *   + controller: "controller" 的 ObjectFilter 做集合查询的 effect.buff。
+ * - body[1] 「buff all other friendly units there」：暂以 sameLocationAs: "self" + exclude: "self"
+ *   + controller: "controller" 的 TargetSpec(selection: "all") 记录预期集合范围。
+ *   这只是受阻声明：TargetSpec 在 Finalize 锁定对象并产生 became-target，不能表达本卡的非目标集合；
+ *   effect.buff 目前只接收 TargetSpec id，仍缺在结算时读取非目标集合的路径。
  *
  * 关于门控的写法：本卡第二句是强制的 if 从句、不是玩家选择，因此**不**能用 choice.optional
  * 包一层（那会凭空引入一次玩家决定，等于伪造语义）。已合入的 TargetSpec.location 可以把
  * “来源所在位置必须是 battlefield”与 sameLocationAs: "self" 一起表达：来源在基地时，第二条
- * TargetSpec 没有合法对象，Buff 效果自然不执行。
+ * TargetSpec 没有合法对象。这个范围门控与剥离 targets 后的原语 golden 都不证明非目标集合语义已完成。
  *
  * status = judge-required：见 judgeReason。
  */
@@ -34,11 +36,13 @@ const peakGuardian = {
   judgeReason:
     "「if I am at a battlefield」已用 TargetSpec.location: { type: \"battlefield\" } 与 " +
     "sameLocationAs: \"self\" 表达（359.3.f.2 的 referent 在执行时检查）；来源在基地时，第二条 " +
-    "TargetSpec 没有合法对象，因此不会给基地上的其它单位加 Buff。当前剩余缺口是程序目标适配器仍拒绝并未消费 " +
-    "目标过滤的 object: self 与 sameLocationAs/exclude 动态锚点，" +
-    "因此这条集合查询还不能进入生产结算路径。依赖：目标适配器对 object: self 与 sameLocationAs/exclude 的支持。" +
-    "「buff me」与 702.3.a 的「已有 Buff 不再获得」边界，以及同位置其它友方单位的 Buff 集合行为，" +
-    "均已有 golden 执行证据。",
+    "TargetSpec 没有合法对象。当前仍缺：(1) 程序目标适配器拒绝目标过滤的 object: self 与 " +
+    "sameLocationAs/exclude 动态锚点；(2) effect.buff 的非目标集合支持。" +
+    "「buff all other friendly units there」按 CR 355.10.d/355.10.d.1 是按特征程序化选取的非目标集合，" +
+    "现有 TargetSpec.selection: all 却在 Finalize 锁定对象并产生 became-target，修好过滤器翻译后仍不忠实；" +
+    "effect.buff 只接受 TargetSpec id，缺少结算时查询非目标集合的路径。" +
+    "现有剥离 targets 的 golden 仅证明 Buff 原语的放置与 702.3.a 的已有 Buff 不再获得边界，" +
+    "不证明整卡集合选择语义。依赖：目标适配器动态锚点与 effect.buff 非目标集合接线。不近似实现。",
   abilities: [
     {
       kind: "triggered",

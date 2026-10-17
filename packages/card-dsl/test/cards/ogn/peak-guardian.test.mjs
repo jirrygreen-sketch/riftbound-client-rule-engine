@@ -3,6 +3,8 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/peak-guardian.js";
+import buff from "../../../../engine-core/dist/effects/instructions/effect.buff.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
 const { world } = await import(new URL("effects/testing/index.js", engineCore));
 const { runAbilityBody } = await import(new URL("effects/interpreter.js", engineCore));
@@ -15,6 +17,8 @@ const { translateTriggerFilter, translateObjectFilter } = await import(
 const SELF_ID = "peak-guardian.buff-me";
 const OTHERS_ID = "peak-guardian.buff-others-here";
 
+// These existing goldens isolate Buff counter placement using supplied targets.
+// Removing TargetSpecs here does not prove the printed non-target set lifecycle.
 const bodyForExecution = () =>
   program.abilities[0].body.map(({ targets, ...rest }) => rest);
 
@@ -51,6 +55,10 @@ test("ogn-223-298 Peak Guardian: program validates and has expected identity", (
   assert.match(program.judgeReason, /sameLocationAs/);
   assert.match(program.judgeReason, /object: self/);
   assert.match(program.judgeReason, /目标适配器/);
+  assert.match(program.judgeReason, /effect\.buff.*非目标/);
+  assert.match(program.judgeReason, /355\.10\.d\/355\.10\.d\.1/);
+  assert.match(program.judgeReason, /Finalize/);
+  assert.match(program.judgeReason, /became-target/);
   assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.equal(
     program.sourceText,
@@ -103,8 +111,8 @@ test("ogn-223-298 Peak Guardian: card-played self trigger, buff-me, then the sam
   // "Then, if I am at a battlefield" is a mandatory conditional clause: it is
   // NOT a player choice, so it must not be wrapped in choice.optional. The
   // merged TargetSpec.location gate rejects the whole peer set when the source
-  // is at a base; the remaining blocker is production translation of the
-  // dynamic sameLocationAs/exclude anchors.
+  // is at a base. Both production filter translation and the non-target Buff
+  // set lifecycle remain blocked; TargetSpec "all" still targets its members.
   assert.equal(buffOthers.condition, undefined);
 });
 
@@ -157,6 +165,56 @@ test("ogn-223-298 Peak Guardian: trigger-side binding works while instruction ta
       /Unsupported filter field (object|exclude|sameLocationAs)/
     );
   }
+});
+
+test("ogn-223-298 Peak Guardian: the Buff primitive rejects a non-target query instead of a TargetSpec id", () => {
+  const [, buffOthers] = program.abilities[0].body;
+  assert.throws(
+    () => buff.argsSchema.parse({
+      mode: buffOthers.args.mode.value,
+      target: { kind: "query", filter: buffOthers.targets[0].filter }
+    }),
+    /target must be a non-empty TargetSpec id/
+  );
+});
+
+test("ogn-223-298 Peak Guardian: the peer Buff set must emit no became-target events (CR 355.10.d/355.10.d.1)", {
+  todo: "effect.buff needs a resolution-time non-target set; TargetSpec selection:all currently locks and targets peers at Finalize"
+}, () => {
+  const f = fixture({ cards: [
+    { id: "peak-guardian", cardId: program.canonicalCardId, types: ["unit"], might: 5 },
+    { id: "ally-here", types: ["unit"], might: 2 }
+  ] });
+  for (const id of ["peak-guardian", "ally-here"]) {
+    f.engine.commit({
+      type: "move-zone", object: f.kernel.ref(id), to: "battlefield",
+      location: { type: "battlefield", id: "battlefield-1" }
+    });
+  }
+  f.engine.advance();
+  const [, buffOthers] = program.abilities[0].body;
+  // Isolate the TargetSpec lifecycle from the independently reproduced symbolic
+  // filter translation gap. Resolve this one peer by its live identity; keep the
+  // card's original instruction body and the declared all/min/max/location.
+  f.engine.execute(f.draft("peak-guardian-peer-set", {
+    source: f.kernel.getObject("peak-guardian"),
+    body: [buffOthers],
+    targets: [{ requirement: {
+      ...buffOthers.targets[0],
+      filter: { type: "unit", zone: "board", objectId: "ally-here", controller: "A" }
+    } }]
+  }));
+  const [plan] = f.engine.items[0].targetPlans;
+  assert.equal(plan.requirement.selection, "all");
+  assert.equal(plan.lockedAt, "finalize");
+  assert.deepEqual(plan.selected, [f.kernel.ref("ally-here")]);
+  assert.equal(f.kernel.getObject("ally-here").buffs, 0, "the effect has not resolved yet");
+  // Assert the printed rule, not the engine's currently incorrect card behavior.
+  assert.deepEqual(
+    f.engine.pipeline.events.filter(event => event.timingPoint === "became-target"),
+    [],
+    "355.10.d: a programmatically selected peer must never become a target"
+  );
 });
 
 test("ogn-223-298 Peak Guardian golden: 'buff me' places one Buff, and a second Buff is not placed (CR 702.3.a)", () => {
