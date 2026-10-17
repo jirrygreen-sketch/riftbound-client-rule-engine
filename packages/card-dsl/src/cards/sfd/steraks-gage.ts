@@ -16,14 +16,20 @@ import type { CardProgram } from "../../ir/index.js";
  *   是启动式能力关键词，印刷费用为 1 个 Calm 符文，功能上等于「[费用]: 把此装备附着到
  *   你控制的一个单位」。展开由 effects/keywords/Equip.ts 负责。
  *
- * status = judge-required：Equip 的启动费用仍不可执行。
+ * status = judge-required（2026-10-17 复核）：Equip 的启动费用仍不可执行。
  *
- * Equip 展开声明 `payments: [{ kind: "equip", … }]`，而
- * cost/plan-values.ts 的 readCost 对该支付种类当前直接 blocked，buildCostPlan
- * 抛出 CostPlanError（reason "judge-required"，message "Unsupported payment kind: equip"）。
- * Quick-Draw 的 card-played 附着触发与 continuous.timing 展开已经存在；但初始打出路径的
- * programs/play.ts 只从关键字名读取 abilitySpeed，没有把该静态 Reaction grant 转成打出速度。
- * 因此这张牌从手牌打出时仍缺少 Reaction 时机的生产消费方。
+ * - Equip 展开声明 `payments: [{ kind: "equip", … }]`，而 cost/plan-values.ts 的 readCost
+ *   对该支付种类直接 blocked，实测 buildCostPlan 抛 CostPlanError
+ *   （reason "judge-required"，message "Unsupported payment kind: equip"），启动式能力无法进链。
+ * - Quick-Draw 展开的 card-played 附着触发可以注册（已实测 spec 为
+ *   { at: "card-played", filter: { event: "card-played", source: { canonicalCardId } } }）。
+ * - 但 [Reaction] 时机仍无生产消费方：Quick-Draw 的静态展开用的是 args 键
+ *   value/source/scope/permissions，而已合入的 continuous.timing 原语只接受
+ *   grants/timings/appliesTo/duration/target/instanceId/executionId。该静态效果虽能注册进
+ *   ability 图层，却不带任何 timing grant——layers/rules/query.ts 的 actionTimings
+ *   对它返回空数组（golden 实测），programs/play.ts 的 abilitySpeed 也只从关键字名读打出速度。
+ * - 同类展开的 Action/Reaction 关键字在静态绑定器里因 `appliesTo: ["card", "activated-ability"]`
+ *   被拒绝（实测 "Unsupported static appliesTo [...]"），即速度类关键词展开整体尚未接通。
  *
  * 印刷的 Equip 费用为 1 个 Calm 符文；契约 3.1 的 KeywordAbility 没有承载印刷费用组成
  * 的字段，本卡按现有契约只声明 keyword + value: 1，费用组成保留在注释与 judgeReason 中。
@@ -33,11 +39,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Equip 的启动费用无法在费用管线支付：Equip 展开声明 payments: [{ kind: \"equip\" }]，" +
-    "cost/plan-values.ts 的 readCost 对该支付种类当前调用 blocked，实测 buildCostPlan 抛出 " +
+    "(1) Equip 的启动费用无法在费用管线支付：Equip 展开声明 payments: [{ kind: \"equip\" }]，" +
+    "cost/plan-values.ts 的 readCost 对该支付种类调用 blocked，实测 buildCostPlan 抛 " +
     "CostPlanError（reason \"judge-required\"，message \"Unsupported payment kind: equip\"）。" +
-    "Quick-Draw 的 card-played 附着触发与 continuous.timing 展开已经存在，但 programs/play.ts 的 " +
-    "abilitySpeed 只从关键字名读取打出速度，尚未把静态 Reaction grant 消费为初始打出时机。" +
+    "(2) Quick-Draw 的 card-played 附着触发已可注册，但 [Reaction] 时机仍无生产消费方：静态展开写入的是 " +
+    "value/source/scope/permissions，而已合入的 continuous.timing 只接受 grants/timings/appliesTo/duration/...；" +
+    "静态绑定器实测不产生任何 timing 授权，layers/rules/query.ts 的 actionTimings 返回空数组，" +
+    "programs/play.ts 的 abilitySpeed 也只从关键字名读打出速度。Action/Reaction 展开同样因 " +
+    "appliesTo: [\"card\", \"activated-ability\"] 被静态绑定器拒绝。" +
     "印刷 Equip 费用为 1 个 Calm 符文；契约 3.1 的 KeywordAbility 没有承载印刷费用组成的字段，" +
     "故只以 value: 1 记录印刷符号数。不把 Equip 写成裸 effect.attach，也不手写 Quick-Draw 的附着逻辑。",
   abilities: [

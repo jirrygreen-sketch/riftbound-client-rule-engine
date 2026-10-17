@@ -13,6 +13,7 @@ const { runInstruction, world } = await import(new URL("effects/testing/index.js
 const { validateTriggerSpec } = await import(new URL("events/trigger-spec.js", ENGINE));
 const { createProgramBinding } = await import(new URL("programs/index.js", ENGINE));
 const draw = (await import(new URL("effects/instructions/effect.draw.js", ENGINE))).default;
+const payCost = (await import(new URL("effects/instructions/cost.pay.js", ENGINE))).default;
 
 const CANONICAL = "card.hash-498c7e8ce2e20ef011de716db7cf2ff6e0f71a410cc40dace65553df8b0b2518";
 const SOURCE_TEXT =
@@ -33,16 +34,17 @@ test("sfd-144-221 Spirit Wheel: identity, ruleset, status, judgeReason and verba
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  // README section 2: the reason names the missing subscription and the missing
-  // base-cost payment support, with the real gaps.
+  // README section 2: the reason names the real gaps. The subscription itself
+  // has merged, so the live gap is the leading base-cost binding plus the
+  // TriggeredAbility cost field.
   assert.match(program.judgeReason, /TriggerRegistration/);
-  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /383\.3\.b/);
-  // The cost.pay primitive has merged since the original note; the refreshed
-  // reason names the TriggeredAbility cost field and the runtime payment
-  // reference instead of the old in-progress batch number.
+  assert.match(program.judgeReason, /404\.1\.b\.1/);
   assert.match(program.judgeReason, /TriggeredAbility/);
   assert.match(program.judgeReason, /Invalid cost\.pay argument/);
+  assert.match(program.judgeReason, /payablePlan/);
+  assert.match(program.judgeReason, /mayAtFinalize/);
+  assert.ok(!/RIFT-257/.test(program.judgeReason), "the merged binding task must not stay listed");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -123,8 +125,7 @@ test("sfd-144-221 Spirit Wheel golden: the printed draw really draws one card th
 });
 
 test("sfd-144-221 Spirit Wheel: the merged CardProgram binding registers through the real ChainEngine pipeline", async () => {
-  // RIFT-257 (contract 3.5) is the subscription producer the card was waiting
-  // for: registerProgramTriggers must turn the declared triggered ability into a
+  // registerProgramTriggers turns the declared triggered ability into a
   // TriggerRegistration on the shared pipeline, keeping the printed
   // became-target timing point and resolving the target filter's controller
   // placeholder to the ability controller.
@@ -148,6 +149,42 @@ test("sfd-144-221 Spirit Wheel: the merged CardProgram binding registers through
     player: "self"
   });
   assert.equal(registrations[0].optional, true);
+  // The live gap: the binding leaves the leading base cost and the Finalize
+  // "you may" decision (383.3.a/b) unbound even though the registration type
+  // carries both fields.
+  assert.equal(registrations[0].cost, undefined);
+  assert.equal(registrations[0].mayAtFinalize, undefined);
+});
+
+test("sfd-144-221 Spirit Wheel: the printed exhaust half of the base cost has no legal cost.pay spelling", () => {
+  // Live evidence for judgeReason. `payments: { energy: 1 }` is accepted and
+  // really pays one Energy, but every spelling that also carries the printed
+  // "and exhaust this" half is rejected outright, so the 383.3.b base cost can
+  // neither be bound nor paid.
+  const argsSchema = payCost.argsSchema;
+  assert.throws(
+    () => argsSchema.parse({ energy: { kind: "constant", value: 1 }, payments: pay.args.payments }),
+    /Invalid cost\.pay argument: energy/
+  );
+
+  // The resource-only half really pays one Energy and is accepted.
+  const payableKernel = world().player("A", { energy: 3 }).build();
+  const run = runInstruction(payCost, { payments: { kind: "constant", value: { energy: 1 } } }, { world: payableKernel });
+  assert.equal(run.result.status, "executed");
+  assert.equal(payableKernel.player("A").energy, 2);
+
+  // The card's own payments list (a nonstandard exhaust reference) and every
+  // object spelling that carries the exhaust half fail closed in payablePlan.
+  const spellings = [
+    ["card list", pay.args.payments],
+    ["actions", { kind: "constant", value: { energy: 1, actions: [{ type: "exhaust" }] } }],
+    ["exhaust", { kind: "constant", value: { energy: 1, exhaust: [{ kind: "source" }] } }]
+  ];
+  for (const [label, payments] of spellings) {
+    assert.throws(() => runInstruction(payCost, { payments }, { world: world().player("A", { energy: 3 }).build() }),
+      (error) => error.reason === "cannot-pay-cost",
+      `${label} must fail closed instead of silently dropping the exhaust`);
+  }
 });
 
 test("sfd-144-221 Spirit Wheel: accepting the optional never draws without a real payment", () => {

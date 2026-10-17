@@ -13,6 +13,10 @@ const { runInstruction, world } = await import(new URL("effects/testing/index.js
 const { translateTriggerFilter } = await import(new URL("programs/filters.js", ENGINE));
 const { assertTriggerSpec } = await import(new URL("events/trigger-spec.js", ENGINE));
 const { expandProgram } = await import(new URL("programs/keywords.js", ENGINE));
+const { createEngineStaticBinder } = await import(new URL("programs/statics.js", ENGINE));
+const { actionTimings } = await import(new URL("layers/rules/query.js", ENGINE));
+const { ChainEngine } = await import(new URL("chain/engine.js", ENGINE));
+const { bindResolveContext, createActionPipelineHost } = await import(new URL("events/action-adapter.js", ENGINE));
 
 const CARD_ID = "card.hash-b9ee923133a3002010f175ddd77b690a710fa21bed8ffaefa29904a936c710ca";
 const EXPECTED_SOURCE =
@@ -64,6 +68,40 @@ function fixture() {
   return kernel.clone({ sourceSnapshot: kernel.getObject("steraks-gage") });
 }
 
+/**
+ * A real ChainEngine + EventPipeline wired to the reference kernel, so the
+ * static-binding and timing-query evidence below exercises the production
+ * program layer rather than a card-local stub.
+ */
+function bindingFixture() {
+  const kernel = world()
+    .player("A", { energy: 20 })
+    .player("B", { energy: 20 })
+    .object("steraks-gage", {
+      name: "Sterak's Gage",
+      cardId: CARD_ID,
+      types: ["gear"],
+      tags: ["Equipment"],
+      zone: "board",
+      location: { type: "base", player: "A" },
+      energy: 3,
+      power: ["Calm"]
+    })
+    .unit("ally", { controller: "A", zone: "board", location: { type: "base", player: "A" }, might: 3 })
+    .build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (saved) => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose: () => { throw new Error("the timing evidence must not require a choice"); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint }),
+    testTrigger: (registration) => kernel.test(registration.spec.condition)
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host });
+  return { engine, kernel, source: kernel.getObject("steraks-gage") };
+}
+
 test("sfd-056-221 Sterak's Gage: program validates and is judge-required", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
@@ -72,7 +110,8 @@ test("sfd-056-221 Sterak's Gage: program validates and is judge-required", () =>
   assert.match(program.judgeReason, /equip/);
   assert.match(program.judgeReason, /CostPlanError|Unsupported payment kind/);
   assert.match(program.judgeReason, /Quick-Draw/);
-  assert.match(program.judgeReason, /abilitySpeed|Reaction grant/);
+  assert.match(program.judgeReason, /abilitySpeed|actionTimings/);
+  assert.match(program.judgeReason, /continuous\.timing/);
 });
 
 test("sfd-056-221 Sterak's Gage: identity, ruleset, status and verbatim source text", () => {
@@ -175,6 +214,43 @@ test("sfd-056-221 Sterak's Gage: Quick-Draw declares its Reaction timing grant",
     scope: "source",
     permissions: ["play", "attach"]
   });
+});
+
+test("sfd-056-221 Sterak's Gage: the declared Reaction grant produces no consumable timing", () => {
+  // Live evidence for judgeReason (2): the merged continuous.timing primitive
+  // accepts grants/timings/appliesTo, while the Quick-Draw expansion writes
+  // value/source/scope/permissions. The static effect registers into the ability
+  // layer but grants nothing, so the Chain's timing query cannot see Reaction.
+  const harness = bindingFixture();
+  const { engine, kernel, source } = harness;
+  const binder = createEngineStaticBinder(engine);
+  const timings = [];
+  for (const ability of expandProgram(program, source).abilities) {
+    if (ability.kind !== "static") continue;
+    binder.bindStatic(ability, source);
+    timings.push(...actionTimings(engine.layers.registry, source.ref, source, "A"));
+  }
+
+  assert.deepEqual(engine.layers.registry.list().map((entry) => entry.effect.effect.kind), ["continuous.timing"]);
+  assert.deepEqual(timings, [], "the merged query must not see a Reaction grant");
+  assert.deepEqual(engine.layers.registry.list()[0].effect.effect.grants, undefined);
+});
+
+test("sfd-056-221 Sterak's Gage: the sibling Action/Reaction expansions are rejected by the static binder", () => {
+  // The speed-keyword family shares the same blocker: their static filters use
+  // appliesTo: ["card", "activated-ability"], which the merged static binder
+  // refuses, so no Action/Reaction permission is installed today.
+  const { engine, source } = bindingFixture();
+  const binder = createEngineStaticBinder(engine);
+
+  for (const keyword of ["Action", "Reaction"]) {
+    const [ability] = keywordDefinitionsById.get(keyword).expand({ host: { canonicalCardId: CARD_ID } });
+    assert.throws(
+      () => binder.bindStatic(ability, source),
+      /Unsupported static appliesTo/,
+      `${keyword} must fail closed instead of granting an unconsumed permission`
+    );
+  }
 });
 
 test.todo(

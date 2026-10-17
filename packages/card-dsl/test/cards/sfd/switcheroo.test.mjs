@@ -5,8 +5,11 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/switcheroo.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { finalizeTargetPlan, resolveTargetPlan } from "../../../../engine-core/dist/target/target-plan.js";
+import { resolveLocationSelector } from "../../../../engine-core/dist/target/location/index.js";
 import { queryObjects } from "../../../../engine-core/dist/effects/interpreter/selectors.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-bc97ea8be41594b9d618dfc49882dc35b7da2291b707b6e49958c26e4ad49d0c";
@@ -66,6 +69,8 @@ test("sfd-145-221 Switcheroo: program passes validateCardProgram", () => {
 test("sfd-145-221 Switcheroo: judgeReason names the current swap and permission gaps", () => {
   assert.match(program.judgeReason, /effect\.swap-might/);
   assert.match(program.judgeReason, /sameLocationAs/);
+  assert.match(program.judgeReason, /exclude/);
+  assert.match(program.judgeReason, /ProgramBindingError/);
   assert.match(program.judgeReason, /cost\.hidden/);
   assert.ok(!/RIFT-(90|91|257)/.test(program.judgeReason));
 });
@@ -200,3 +205,56 @@ test.todo(
   "sfd-145-221 Switcheroo: the printed [Hidden] line still needs a consumer that grants Hide, stores the card facedown, " +
     "and permits its later facedown Reaction play"
 );
+
+test("sfd-145-221 Switcheroo: no effect.swap-might opcode is registered, so the body cannot dispatch", () => {
+  // Live evidence for judgeReason (1): the instruction registry has no atomic
+  // Might exchange, and the card's own op is not part of it.
+  assert.equal(instructionDefinitionsById.get("effect.swap-might"), undefined);
+  assert.equal(swapInstruction.op, "effect.swap-might");
+  assert.equal(instructionDefinitionsById.get(swapInstruction.op), undefined);
+});
+
+test("sfd-145-221 Switcheroo: the production target translator rejects both dynamic anchors", () => {
+  // Live evidence for judgeReason (2): the same-battlefield relation and the
+  // exclusion are still outside the production filter vocabulary, so a target
+  // plan cannot be built from the printed second slot.
+  for (const [label, filter] of [
+    ["sameLocationAs", secondSpec.filter],
+    ["exclude", { type: "unit", zone: "board", exclude: { target: "switcheroo.first-unit" } }]
+  ]) {
+    assert.throws(
+      () => translateObjectFilter(filter),
+      /Unsupported filter field/,
+      `${label} must still be rejected by the production translator`
+    );
+  }
+  // Only the first slot's plain filter survives translation; it carries no
+  // relation to the first target.
+  assert.deepEqual(
+    translateObjectFilter(firstSpec.filter),
+    { type: "unit", zone: "board", location: "battlefield" }
+  );
+});
+
+test("sfd-145-221 Switcheroo: TargetSpec.location cannot read a prior target yet", () => {
+  // Live evidence for the second half of judgeReason (2): the merged location
+  // selector kind exists, but a Finalize context that has written no prior
+  // selection cannot resolve it, so the dynamic anchor has no runtime source.
+  const kernel = world()
+    .unit("first-unit", { owner: "A", controller: "A", might: 2, location: { type: "battlefield", id: "battlefield-1" } })
+    .build();
+  const context = chainContext(kernel, "A");
+  const environment = {
+    context,
+    query: (filter) => context.query(filter),
+    linked: () => undefined,
+    canLookBack: () => false,
+    isIgnored: () => false
+  };
+
+  assert.deepEqual(context.targets("switcheroo.first-unit"), []);
+  assert.throws(
+    () => resolveLocationSelector({ kind: "target-location", target: "switcheroo.first-unit" }, environment),
+    /Target has no runtime location/
+  );
+});

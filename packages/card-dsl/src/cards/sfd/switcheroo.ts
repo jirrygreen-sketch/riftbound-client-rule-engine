@@ -32,12 +32,16 @@ import type { CardProgram } from "../../ir/index.js";
  *   instructions is observable and wrong. effect.buff is explicitly not a Might
  *   modification (703), so no substitute is authored.
  *
- * Status (cards/README.md §2): judge-required. The printed target group is
- * retained, but the atomic `effect.swap-might` operation is not in the merged
- * instruction vocabulary. The second target's same-battlefield relation also
- * needs a production target-location selector; the local selector can evaluate
- * it, while program target translation still rejects the dynamic anchor. The
- * Hidden permission remains a separate unresolved `cost.hidden` consumer.
+ * Status (cards/README.md §2, re-reviewed 2026-10-17): judge-required. The
+ * printed target group is retained, but the atomic `effect.swap-might` operation
+ * is not in the merged instruction vocabulary (the instruction registry has no
+ * such opcode, so `programs/play.ts`/`chain` cannot dispatch it either). The
+ * second target's same-battlefield relation also needs a production
+ * target-location selector: `translateObjectFilter` rejects both
+ * `sameLocationAs` and `exclude` with ProgramBindingError, and the merged Chain
+ * Finalize context writes no prior selections, so `TargetSpec.location`
+ * (`target-location`) has no runtime target to read. The Hidden permission
+ * remains a separate unresolved `cost.hidden` consumer.
  */
 const switcheroo = {
   canonicalCardId: "card.hash-bc97ea8be41594b9d618dfc49882dc35b7da2291b707b6e49958c26e4ad49d0c",
@@ -46,7 +50,8 @@ const switcheroo = {
   judgeReason:
     "当前仍缺三个真实消费方：(1) 原子交换两个单位当前 Might 并在本回合持续的 effect.swap-might 指令；" +
     "continuous.might 不能把两个目标的读数绑定成一次交换，不能用两条独立写入近似。(2) 第二个目标的 " +
-    "sameLocationAs 动态位置关系可由本地 selector 求值，但生产 target translator 还没有把该位置选择器接到 Finalize。" +
+    "sameLocationAs/exclude 动态位置关系：programs/filters.ts 实测对两者直接抛 ProgramBindingError(Unsupported filter field)，" +
+    "Chain Finalize context 也不写入先前选择，TargetSpec.location 的 target-location 选择器拿不到可读的 target。" +
     "(3) [Hidden] 的 cost.hidden 仍没有 Hide/facedown 区域与重放许可消费方。[Action] 时机与卡牌程序绑定已合入，" +
     "故不再把它们列为缺口。",
   abilities: [

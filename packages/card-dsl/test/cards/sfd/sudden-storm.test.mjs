@@ -7,6 +7,10 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 
 const CANONICAL = "card.hash-574418734c3b92b767c220f89099980a68fad40a1074ee6c38bc88c7efb84771";
 const SOURCE_TEXT =
@@ -33,7 +37,51 @@ test("sfd-017-221 Sudden Storm: judge-required only for Hidden's unresolved perm
   assert.match(program.judgeReason, /Hidden/);
   assert.match(program.judgeReason, /cost\.hidden/);
   assert.match(program.judgeReason, /facedown/);
+  // [Action]'s timing expansion is a second, live blocker: the merged static
+  // binder rejects the keyword's appliesTo form.
+  assert.match(program.judgeReason, /Action/);
+  assert.match(program.judgeReason, /Unsupported static appliesTo/);
   assert.doesNotMatch(program.judgeReason, /combatRole.*未|combatRole.*缺/);
+});
+
+test("sfd-017-221 Sudden Storm: both printed permission keywords fail to bind in production", () => {
+  // Live evidence for judgeReason: [Hidden] expands to a cost.hidden static that
+  // has no layer mapping, and [Action] to a continuous.timing whose appliesTo
+  // list the static binder rejects. Neither printed permission is installed.
+  const kernel = world().player("A", { energy: 20 }).player("B", { energy: 20 })
+    .object("storm", {
+      name: "Sudden Storm",
+      cardId: CANONICAL,
+      types: ["spell"],
+      zone: "hand",
+      energy: 3,
+      power: []
+    })
+    .deck(["A:deck:1", "A:deck:2"])
+    .build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (saved) => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose: () => { throw new Error("the permission evidence must not require a choice"); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host });
+  const source = kernel.getObject("storm");
+  const binder = createEngineStaticBinder(engine);
+
+  assert.throws(
+    () => binder.bindStatic(keywordDefinitionsById.get("Hidden").expand({ host: { canonicalCardId: CANONICAL } })[0], source),
+    /no layer mapping/,
+    "[Hidden]'s cost.hidden must stay unconsumed"
+  );
+  assert.throws(
+    () => binder.bindStatic(keywordDefinitionsById.get("Action").expand({ host: { canonicalCardId: CANONICAL } })[0], source),
+    /Unsupported static appliesTo/,
+    "[Action]'s Showdown permission must stay unbound"
+  );
+  assert.deepEqual(engine.layers.registry.list(), []);
 });
 
 test("sfd-017-221 Sudden Storm structure: [Hidden] + [Action] and the two guarded amounts", () => {
