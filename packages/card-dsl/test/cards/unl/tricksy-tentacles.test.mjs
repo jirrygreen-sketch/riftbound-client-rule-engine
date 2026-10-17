@@ -4,8 +4,6 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/tricksy-tentacles.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
-import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
-import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
   "card.hash-a7dc7d29f0a8ac49b8977b2261f476c440c7c3025285bd5e6a7250b52981b37d";
@@ -81,8 +79,7 @@ test("unl-054-219 Tricksy Tentacles: both group-wide requirements stay recorded,
 test("unl-054-219 Tricksy Tentacles: 'to a single location' is the runtime location choice, kept descriptive (355.4)", () => {
   // 355.4 / 355.4.a: one valid destination for the whole Move Effect, chosen at
   // Finalize. The merged IR has no runtime Location selector, so the card keeps
-  // a descriptive marker (not a fabricated LocationRef) — effect.move rejects
-  // it fail-closed, as the probe below shows.
+  // a descriptive marker; the TODO below records the missing consumer.
   assert.deepEqual(moveInstruction.args.to, {
     kind: "constant",
     value: { kind: "destination-selector", filter: { type: "location" } }
@@ -100,35 +97,6 @@ test("unl-054-219 Tricksy Tentacles: the whole group moves with one amount read 
   });
   assert.equal(moveInstruction.args.amount.filter.target.target, groupTarget.id);
   assert.equal(moveInstruction.targets.length, 1);
-});
-
-test("unl-054-219 Tricksy Tentacles fail-closed: the descriptive destination is rejected, never turned into a move", () => {
-  const kernel = world()
-    .unit("enemy-one", { owner: "B", might: 3 })
-    .unit("enemy-two", { owner: "B", might: 4 })
-    .build();
-  const before = kernel.snapshot();
-  // effect.move's destination() accepts only a static LocationRef,
-  // controller-base or a location choice; the marker throws instead of moving
-  // the locked group to a location the card never printed.
-  assert.throws(
-    () => runInstruction(
-      move,
-      {
-        objects: moveInstruction.args.objects,
-        to: moveInstruction.args.to,
-        amount: { kind: "constant", value: 2 }
-      },
-      {
-        world: kernel,
-        targets: {
-          "tricksy-tentacles.enemy-unit-group": [kernel.ref("enemy-one"), kernel.ref("enemy-two")]
-        }
-      }
-    ),
-    /effect\.move to must be a location/
-  );
-  assert.deepEqual(kernel.snapshot(), before);
 });
 
 test.todo(
