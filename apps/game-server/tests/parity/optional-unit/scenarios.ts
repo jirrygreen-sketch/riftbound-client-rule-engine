@@ -1,0 +1,36 @@
+/** Retirement inventory, not a replacement implementation of Accelerate. */
+export const optionalUnits = [
+  { printingId: "ogn-001-298", name: "Blazing Scorcher", energy: 5, might: 5,
+    turn: 7, canonicalCardId: "card.hash-0da93712208ccce43badde9998369ec8b785af649c804e812feb2bb580f2908c" },
+  { printingId: "ogn-010-298", name: "Legion Rearguard", energy: 2, might: 2,
+    turn: 3, canonicalCardId: "card.hash-a276ed720995bb4d684f3f838182e4271ea398c1cac8f48837c9e7c292cd0497" },
+] as const;
+
+export const migrationScenarios = [
+  { id: "E01", behavior: "play → optional choice; owner sees both options; opponents see activity only",
+    gap: "judge-required Accelerate program; keyword → card-play choice wiring" },
+  { id: "E02", behavior: "choose pay → printed Energy + 1 Energy + 1 Fury; only the played source contributes",
+    gap: "judge-required Accelerate program; keyword → optionalAdditional cost-plan wiring" },
+  { id: "E03", behavior: "choose decline → printed Energy only; no additional Power",
+    gap: "judge-required Accelerate program; explicit decline receipt and cost-plan wiring" },
+  { id: "E04", behavior: "fund pay → pay-pending → one ready Unit in Base; no become-ready event or score",
+    gap: "judge-required Accelerate program; paid receipt → delayed entry replacement" },
+  { id: "E05", behavior: "fund decline → pay-pending → one exhausted Unit in Base; no score",
+    gap: "judge-required Accelerate program; programs/chain Unit entry integration" },
+  { id: "E06", behavior: "choice blocks Rune commands; wrong actor/stale/foreign answer leaves all views unchanged",
+    gap: "judge-required Accelerate program; authenticated command/choice bridge" },
+  { id: "E07", behavior: "insufficient or foreign payment is atomic; funding preserves the frozen choice and total cost",
+    gap: "judge-required Accelerate program; pending payment/continuation bridge" },
+  { id: "E08", behavior: "duplicate choice/funding/payment reuses ACK without a second debit or entry",
+    gap: "judge-required Accelerate program; new game command/journal idempotency bridge" },
+  { id: "E09", behavior: "second Unit gets a fresh choice and payment; first Accelerate receipt cannot affect it",
+    gap: "judge-required Accelerate program; per-incarnation choice/payment lifecycle" },
+  { id: "E10", behavior: "unknown, mixed, stale or foreign sources stop the transaction without consuming resources",
+    gap: "judge-required Accelerate program; complete cost/entry source binding" },
+  { id: "E11", behavior: "restore at choice, payment and funding checkpoints → original options/costs → one entry",
+    gap: "judge-required Accelerate program; new game recovery and strict replay integration" },
+  { id: "E12", behavior: "Hand → Pending Chain precedes choice; total cost → payment → legality → physical Base entry",
+    gap: "judge-required Accelerate program; physical Unit Chain play path (CR 354–359)" },
+  { id: "E13", behavior: "resolved battle history → new decline/payment → exhausted entry, preserving prior score",
+    gap: "judge-required Accelerate program; new game resolved-history continuation and old replay adapter" },
+] as const;
