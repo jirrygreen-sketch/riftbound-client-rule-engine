@@ -71,9 +71,9 @@ test("ogn-277-298 Back-Alley Bar: the body asks for +1 Might this turn and targe
 });
 
 test("ogn-277-298 Back-Alley Bar: the merged Move primitive performs the move the trigger watches", () => {
-  // The trigger half cannot execute (no might primitive), but the Move the
-  // trigger fires on is merged: this asserts the movement the object-moved
-  // payload describes, including the origin location the filter uses.
+  // The Move the trigger fires on is merged (events/action-adapter.ts emits
+  // object-moved for a successful move-location): this asserts the movement
+  // payload the trigger filter reads, including its origin location.
   const kernel = world()
     .unit("mover", { zone: "board", location: BATTLEFIELD })
     .build();
