@@ -67,7 +67,8 @@ function lethalCleanup(engine: any, kernel: any): boolean {
       object.zone === "board" &&
       object.types.includes("unit") &&
       object.might !== null &&
-      (object.might <= 0 || object.damage >= object.might)
+      object.damage > 0 &&
+      object.damage >= Math.max(0, object.might)
     ) {
       const before = kernel.ref(object.ref.id);
       engine.commit({ type: "kill", object: object.ref });
