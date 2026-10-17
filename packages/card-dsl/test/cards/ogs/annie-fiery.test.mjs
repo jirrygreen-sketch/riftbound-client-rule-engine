@@ -21,9 +21,10 @@ test("ogs-001-024 Annie, Fiery: program validates and is judge-required", () => 
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
-test("ogs-001-024 Annie, Fiery: judgeReason names the missing layer consumer", () => {
-  assert.match(program.judgeReason, /continuous|图层/);
-  assert.match(program.judgeReason, /RIFT-91/);
+test("ogs-001-024 Annie, Fiery: judgeReason names the missing Bonus Damage grant primitive", () => {
+  assert.match(program.judgeReason, /continuous\.bonus-damage|Bonus Damage/);
+  assert.match(program.judgeReason, /RIFT-258/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /Bonus Damage/);
 });
 
@@ -78,5 +79,7 @@ test("ogs-001-024 Annie, Fiery: a negative Bonus Damage is not applied (CR 714.2
 test.todo(
   "ogs-001-024 Annie, Fiery: the continuous +1 Bonus Damage grant reaches Deal actions " +
     "created by this controller's spells and abilities (CR 712-715, 418.4/418.5) — " +
-    "depends on the layers/continuous-effect registration path (RIFT-91)"
+    "no continuous.bonus-damage instruction primitive or damage-pipeline consumer is merged " +
+    "(RIFT-258 covers might/keyword/combat grants only), and the static-ability registration path " +
+    "itself still awaits RIFT-257"
 );

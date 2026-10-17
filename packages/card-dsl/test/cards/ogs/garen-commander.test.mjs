@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import program from "../../../dist/cards/ogs/garen-commander.js";
 
@@ -27,12 +30,15 @@ test("ogs-013-024 Garen, Commander: program validates and is judge-required", ()
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, "Other friendly units have +1 :rb_might: here.");
+  // README section 2: name the missing semantics and the dependent task.
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /static/);
 });
 
-test("ogs-013-024 Garen, Commander: judgeReason names continuous.might and the dynamic here/other set", () => {
+test("ogs-013-024 Garen, Commander: judgeReason names the static-ability registration gap and the here/other set", () => {
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-91/);
-  assert.match(program.judgeReason, /here|sameLocationAs/);
+  assert.match(program.judgeReason, /sameLocationAs/);
+  assert.match(program.judgeReason, /053\.3/);
 });
 
 test("ogs-013-024 Garen, Commander: one static +1 Might effect scoped to other friendly units here", () => {
@@ -93,8 +99,65 @@ test("ogs-013-024 Garen, Commander: the here/other filter matches exactly the co
   assert.equal(scoped.getObject("enemy-here").exhausted, true);
 });
 
+test("ogs-013-024 Garen, Commander golden: the effect half registers +1 Might only for the co-located friendly units", () => {
+  // The static ability itself still needs the RIFT-257 registration path, but
+  // the merged continuous.might primitive plus the interpreter's anchor query
+  // execute the card's own filter exactly as printed: "other friendly units
+  // here" is the controller's units at the host's location, excluding the host
+  // (CR 053.3, 355.10.d, 359.3.f.2).
+  const base = world()
+    .unit("garen", { owner: "A", controller: "A", might: 5, location: BATTLEFIELD })
+    .unit("ally-here", { owner: "A", controller: "A", might: 2, location: BATTLEFIELD })
+    .unit("ally-elsewhere", { owner: "A", controller: "A", might: 3, location: { type: "base", player: "A" } })
+    .unit("enemy-here", { owner: "B", controller: "B", might: 4, location: BATTLEFIELD })
+    .build();
+  const productionQuery = (filter) => base.objects.filter((object) => matchesObjectFilter(
+    Object.fromEntries(Object.entries(filter).map(([key, value]) =>
+      [key, (key === "controller" || key === "owner") && value === "controller" ? "A" : value])),
+    object
+  ));
+  const context = bindResolveContext(base, {
+    source: base.getObject("garen"),
+    controller: "A",
+    query: productionQuery
+  });
+  const outcome = runAbilityBody([
+    {
+      id: "garen.grant-plus-1",
+      op: "continuous.might",
+      args: {
+        amount: { kind: "constant", value: 1 },
+        duration: { kind: "constant", value: "permanent" },
+        objects: {
+          kind: "constant",
+          value: { kind: "query", filter: program.abilities[0].effect.filter }
+        }
+      }
+    }
+  ], context);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map((result) => [result.id, result.result.status]), [
+    ["garen.grant-plus-1", "executed"]
+  ]);
+  assert.equal(base.continuousEffects.length, 1);
+  const [registration] = base.continuousEffects;
+  assert.equal(registration.effect.layer, "arithmetic");
+  assert.equal(registration.effect.effect.kind, "continuous.might");
+  assert.equal(registration.effect.effect.amount, 1);
+  // Only "ally-here" is in the set: the host is excluded (other), the unit at
+  // another location is excluded (here) and the co-located enemy is not friendly.
+  assert.equal(registration.effect.filter.objectId, "ally-here");
+
+  const layers = createLayerEngine(base.objects, base.continuousEffects.map((entry, index) => ({ ...entry, timestamp: index + 1 })));
+  assert.equal(layers.evaluate(base.ref("ally-here")).might, 3);
+  assert.equal(layers.evaluate(base.ref("garen")).might, 5);
+  assert.equal(layers.evaluate(base.ref("ally-elsewhere")).might, 3);
+  assert.equal(layers.evaluate(base.ref("enemy-here")).might, 4);
+});
+
 test.todo(
-  "ogs-013-024 Garen, Commander: other friendly units at the host's current location get +1 Might in the " +
-    "arithmetic layer (CR 143.2, 053.3, 355.10.d, 359.3.f.2) — depends on the layers/continuous-effect " +
-    "registration path and dynamic host/location binding (RIFT-91, RIFT-89/90)"
+  "ogs-013-024 Garen, Commander: the printed static ability itself registers when Garen enters and " +
+    "re-evaluates as units move (CR 143.2, 053.3) — depends on the CardProgram static-ability " +
+    "registration path and dynamic host/location binding (RIFT-257)"
 );

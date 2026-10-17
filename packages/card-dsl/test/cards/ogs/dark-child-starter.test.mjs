@@ -78,11 +78,11 @@ test("ogs-017-024 Dark Child, Starter: identity, status, judgeReason and verbati
   assert.equal(program.sourceText, SOURCE_TEXT);
   // README section 2: the reason must name the missing semantics and the
   // dependent tasks, not just "needs support".
-  assert.match(program.judgeReason, /turn-end/);
-  assert.match(program.judgeReason, /317\.1\.a/);
   assert.match(program.judgeReason, /TriggerRegistration/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /validateTriggerSpec/);
+  assert.match(program.judgeReason, /turn-end/);
   assert.match(program.judgeReason, /Legend Zone/);
-  assert.match(program.judgeReason, /RIFT-33/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -187,11 +187,10 @@ test("ogs-017-024 Dark Child, Starter: no exhausted rune still resolves with an 
 
 test.todo(
   "Dark Child, Starter: the turn-end trigger enters the chain on its controller's turn " +
-    "(CR 317.1.a) — blocked because no merged module emits the turn-end timing point into " +
-    "the single event pipeline (chain/engine.ts emit points cover showdown/chain/card-played/" +
-    "became-target/cleanup only; the duel turn modules never call pipeline.emit), and because " +
-    "no producer turns a CardProgram's triggered ability into a pipeline TriggerRegistration " +
-    "(contract 3.5; RIFT-33/RIFT-34 turn wiring)"
+    "(CR 317.1.a) — the timing point is emitted by the merged turn flow (turn/flow.ts endTurn), " +
+    "but no producer turns a CardProgram's triggered ability into a pipeline TriggerRegistration " +
+    "(contract 3.5; RIFT-257 card-program binding), and the frozen EventPattern vocabulary still " +
+    "rejects the turn-end spelling"
 );
 
 test.todo(

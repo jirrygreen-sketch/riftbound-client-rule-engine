@@ -17,25 +17,28 @@ import type { CardProgram } from "../../ir/index.js";
  *   ObjectFilter 锚点，解释器负责绑定运行时引用）。
  *
  * 状态：judge-required。
- * 1. 缺 continuous.might 的消费方：layers/engine.ts 有算术图层代码，但没有
- *    "卡牌静态能力 → 已注册持续效果"的装配/消费路径（keyword 侧 Assault.ts、
- *    Shield.ts 也把 continuous.might 明确列为未合入依赖）。
+ * 1. continuous.might 指令本体与图层算术已合入（RIFT-258；静态图层的
+ *    appliesTo/filter 形态也被该原语支持），但本卡是持续型 static 能力：没有已合入
+ *    的生产方把 CardProgram 的 static 能力解析成持续效果并在宿主入场时注册
+ *    （RIFT-257 card-program binding；layers/engine.ts 的 registerContinuousEffect
+ *    在卡牌路径上没有调用方）。
  * 2. 该持续效果需要在图层求值时按宿主当前位置动态取集合、并排除宿主（"other"
- *    + "here"），且静态能力以何对象为宿主绑定未接入。
+ *    + "here"：053.3、355.10.d、359.3.f.2）；interpreter 的集合查询已支持
+ *    sameLocationAs/exclude 锚点（selectors.ts），但静态能力的持续重估仍缺上述注册路径。
  * 本文件按契约 3.1 写出 static + 锚点过滤形状；不用 Buff 或其它原语近似 +1 Might。
- * 依赖：RIFT-91（layers-continuous）、RIFT-89/90（条件/目标批次）。
+ * 依赖：RIFT-257（CardProgram 静态能力绑定）。
  */
 export default {
   canonicalCardId: "card.hash-74b83d5a2a718072a63d9ce9431ec68047c326c6c61dad708fc3642b6b3c76a2",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 continuous.might 消费方：其他友方单位在此处 +1 Might 是算术图层的持续 +1 Might" +
-    "（CR 143.2），layers/ 尚无卡牌静态能力到已注册持续效果的装配/消费路径" +
-    "（Assault.ts、Shield.ts 同样把 continuous.might 列为未合入依赖）；且该效果需在" +
-    "图层求值时按宿主当前位置动态取集合并排除宿主（other + here：053.3、355.10.d、" +
-    "359.3.f.2），当前未接入。依赖：RIFT-91（layers-continuous）、RIFT-89/90（条件/目标批次）。" +
-    "不近似实现。",
+    "缺 CardProgram 静态能力的持续注册路径：continuous.might 指令（RIFT-258）已能注册算术层持续效果，" +
+    "interpreter 集合查询也能求值 sameLocationAs/exclude 锚点（other + here：053.3、355.10.d、359.3.f.2），" +
+    "但「其他友方单位在此处 +1 Might」是持续型 static 能力（CR 143.2），必须有生产方在宿主入场时把" +
+    "CardProgram 的 static 能力解析成已注册持续效果并随宿主位置变化重估——layers/engine.ts 的 " +
+    "registerContinuousEffect 在卡牌路径上没有调用方（RIFT-257 CardProgram 绑定）。不近似实现。" +
+    "依赖：RIFT-257（CardProgram 绑定）。",
   abilities: [
     {
       kind: "static",

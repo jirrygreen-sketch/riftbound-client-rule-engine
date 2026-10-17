@@ -27,8 +27,9 @@ test("ogs-014-024 Lux, Crownguard: program validates and is judge-required", () 
 test("ogs-014-024 Lux, Crownguard: judgeReason names restricted resource accounting and the cost gap", () => {
   assert.match(program.judgeReason, /only to play spells/);
   assert.match(program.judgeReason, /continuous\.restrict/);
-  assert.match(program.judgeReason, /RIFT-91/);
-  assert.match(program.judgeReason, /cost\.activated|cost\.exhaust/);
+  assert.match(program.judgeReason, /RIFT-259/);
+  assert.match(program.judgeReason, /cost\.activated/);
+  assert.match(program.judgeReason, /RIFT-261/);
 });
 
 test("ogs-014-024 Lux, Crownguard: Reaction-speed activated ability pays exhaust and adds 2 energy", () => {
@@ -86,11 +87,15 @@ test("ogs-014-024 Lux, Crownguard: a replacement hook can negate the Add without
 
 test.todo(
   "ogs-014-024 Lux, Crownguard: the 2 energy added is tracked as a restricted share spendable only on spell " +
-    "energy costs (CR 054.2, 163.1, 166.1, 430.2, 430.3) — continuous.restrict is not merged (RIFT-91); " +
-    "a global restriction or an ignored restriction is not acceptable"
+    "energy costs (CR 054.2, 163.1, 166.1, 430.2, 430.3) — continuous.restrict (RIFT-259) registers " +
+    "prohibit/require/permit/limit/applied-cost modes but has no added-resource restricted-share channel, " +
+    "and effect.resources only merges energy into one balance; a global restriction or an ignored " +
+    "restriction is not acceptable"
 );
 
 test.todo(
   "ogs-014-024 Lux, Crownguard: exhausting this unit is charged at Finalize as the activated ability's cost " +
-    "(CR 376, 813.1.c/813.1.d; cost.activated / cost.exhaust batch, RIFT-89)"
+    "(CR 376, 813.1.c/813.1.d) — the cost-plan payment reader accepts kind activated/explicit only, not " +
+    "the card's cost.activated spelling, and the Finalize binding for activated abilities belongs to " +
+    "RIFT-257/RIFT-261 (cost.pay unmerged)"
 );

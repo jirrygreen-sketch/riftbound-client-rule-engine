@@ -22,12 +22,14 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * 状态：judge-required。
  * 1. 缺受限资源记账：effect.resources 将能量并入符文池同一余额，没有"受限份额"
- *    表示；survey（docs/plans/survey/unclassified-ogn.md 第 42 条）结论指出"池中受限
- *    份额必须独立记账，不能给所有能量套全局限制或忽略限制"，并指向尚未合入的
- *    continuous.restrict。
- * 2. 启动费用的 Finalize 收费（cost.activated / cost.exhaust）尚未合入：
- *    sfd/assembly-rig.ts 的同类费用也是 data-only，其 TODO 同样标注费用支付依赖
- *    RIFT-89~91。
+ *    表示；continuous.restrict 原语虽已合入（RIFT-259），但其 modes 只有
+ *    prohibit/require/permit/limit/applied-cost，不提供"加入的资源份额只能用于
+ *    支付法术费用"的记账通道，也没有读取该受限份额的费用消费方；survey
+ *    （docs/plans/survey/unclassified-ogn.md 第 42 条）结论指出"池中受限
+ *    份额必须独立记账，不能给所有能量套全局限制或忽略限制"。
+ * 2. 启动费用的 Finalize 收费仍未接线：cost-plan 的 payment 只识别
+ *    kind: "activated"/"explicit"，不含 "cost.activated" 拼写，activated 能力
+ *    的 Finalize 也仍由 RIFT-257 的程序绑定负责（RIFT-261 的 cost.pay 原语未合入）。
  * 3. 数据问题（不改数据，见回复）：ogs-014-024 仍有 Demacia 标签，且写 "Use only to
  *    play spells"，同 canonicalCardId 的 ven-sp6-006 写 "Spend this Energy only to play
  *    spells"（docs/plans/survey/data-issues-recheck.md 第 31 行）。
@@ -38,11 +40,13 @@ export default {
   status: "judge-required",
   judgeReason:
     "缺受限资源记账：Use only to play spells（054.2）要求池中这 2 点能量可追踪为只能用于" +
-    "支付法术费用（survey unclassified-ogn.md 第 42 条结论：受限份额必须独立记账，不能给" +
-    "所有能量套全局限制或忽略限制），effect.resources 只并入同一余额，continuous.restrict " +
-    "未合入；另缺 cost.activated / cost.exhaust 的 Finalize 收费（横置自身费用），" +
-    "sfd/assembly-rig.ts 的同类费用同为 data-only 并标注依赖 RIFT-89~91。" +
-    "依赖：RIFT-91（layers-continuous / continuous.restrict）、RIFT-89（cost 批次）。" +
+    "支付法术费用（survey unclassified-ogn.md 第 42 条结论）。continuous.restrict 原语已合入" +
+    "（RIFT-259），但其模式（prohibit/require/permit/limit/applied-cost）没有" +
+    "「新增资源的受限份额」通道，费用侧也不读取受限份额；effect.resources 只并入同一余额。" +
+    "另缺启动费用的 Finalize 收费：cost-plan 的 payment 不识别 " +
+    "cost.activated 拼写（只接受 activated/explicit），activated 能力的 Finalize 绑定属 RIFT-257，" +
+    "RIFT-261 的 cost.pay 原语未合入。" +
+    "依赖：受限资源记账形态（RIFT-259 后续）、RIFT-261（cost.pay）、RIFT-257（程序绑定）。" +
     "数据问题：OGS 写 Use only to play spells，同 canonical 的 VEN 写 Spend this Energy only " +
     "to play spells（docs/plans/survey/data-issues-recheck.md）。不近似实现。",
   abilities: [
