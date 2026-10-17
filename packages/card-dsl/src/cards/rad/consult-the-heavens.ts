@@ -29,8 +29,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * 展开在卡牌程序绑定路径上失败：`programs/statics.ts` 对 `continuous.timing` 的
  * `appliesTo: ["card", "activated-ability"]` 抛 “Unsupported static appliesTo”（实测）；
  * [Shield] 的展开体（`continuous.might`）能绑定，但 814.1.d.1 的 Defender designation
- * 仍不是 ObjectSnapshot 的求值特征；牌库顶的有序 pick 也必须由上游在结算期提供
- * （契约 3.6 zoneSlice；有序锁定只由 ChainEngine 的 Finalize 提供，resolveChainBody 不带，提供方属 RIFT-358）。
+ * 仍不是 ObjectSnapshot 的求值特征。Predict 已使用契约 3.6 的 PickSpec.zoneSlice，
+ * 由真实 ChainEngine 在 Finalize 锁定控制者主牌库顶一张，结算时查看并选择回收或保留。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "reaction" },
@@ -66,12 +66,27 @@ const abilities: Ability[] = [
         ]
       },
       {
+        // effect.inspect 接受 linked-value；先由解释器读取打出者的来源快照，
+        // 保留真实 PlayerId，不把占位字符串作为玩家传给原语。
+        id: "consult-the-heavens.bind-controller",
+        op: "condition.value",
+        args: {
+          value: { kind: "object-property", object: "source", property: "controller" },
+          key: { kind: "constant", value: "controller" }
+        }
+      },
+      {
         // “[Predict].” — 437.1 的查看 + 选择是否回收；437.3.a 省略数值按 1 张；
         // 437.4 少牌时尽可能看。437.4.a 明确不因此 Burn Out。
         id: "consult-the-heavens.predict-look",
         op: "effect.inspect",
+        linkedTo: "consult-the-heavens.bind-controller",
         args: {
-          player: { kind: "constant", value: "controller" },
+          player: {
+            kind: "linked-value",
+            instructionId: "consult-the-heavens.bind-controller",
+            key: "controller"
+          },
           zone: { kind: "constant", value: "deck" },
           scope: { kind: "constant", value: "picks" },
           picksSpecId: { kind: "constant", value: "consult-the-heavens.predicted" },
@@ -84,14 +99,12 @@ const abilities: Ability[] = [
         picks: [
           {
             id: "consult-the-heavens.predicted",
-            options: ["top-card-of-controller-main-deck"],
-            min: 0,
-            max: 1,
-            selection: "up-to",
-            // 牌库顶是隐藏信息：选项集合由 Predict 的上游（牌库顶读取）在结算期提供；
-            // 静态 IR 写不出精确引用，故用描述性选项标记（同 effect.inspect 文档要求的
-            // “上游有序 picks”）。
-            filter: { zone: "deck", owner: "controller" }
+            options: [],
+            ordered: true,
+            selection: "all",
+            // 省略 player 表示能力控制者；短牌库按 437.4 尽可能提供引用。
+            // Finalize 只锁定引用，不查看、不公开，也不把 pick 当成目标。
+            zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 1 } }
           }
         ]
       },
@@ -120,11 +133,11 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "两半指令都已合入并各有真实执行证据（[Shield 2] 授予经 continuous.grant-keyword 建 ability 层注册、" +
-    "end-of-turn 到期；[Predict] 经 effect.inspect + effect.recycle，437.1/437.3.a/437.4），但整卡仍有三处真实缺口：" +
+    "end-of-turn 到期；[Predict] 经 PickSpec.zoneSlice + effect.inspect + effect.recycle，" +
+    "真实 ChainEngine 验证控制者牌库顶引用与回收/保留两条路径，437.1/437.3.a/437.4），但整卡仍有两处真实缺口：" +
     "[Reaction]（813.1.c）的展开体是 continuous.timing static，programs/statics.ts 对其 " +
     "appliesTo: [\"card\", \"activated-ability\"] 抛 \"Unsupported static appliesTo\"（实测），" +
-    "展开无法经 CardProgram 注册；[Predict] 的牌库顶引用必须由上游在结算期按 " +
-    "437.1/契约 3.6 zoneSlice 提供有序 picks：该引用由 effect.inspect 经 ctx.picks(picksSpecId) 读取，而 zoneSlice 的有序锁定只由 ChainEngine 的 Finalize（plan.ts lockSlice + engine.ts 读写 item.pickPlans）提供，resolveChainBody 不带 zoneSlice，提供方仍在 RIFT-358；814.1.d.1 的 Defender designation 仍未成为 " +
+    "展开无法经 CardProgram 注册；814.1.d.1 的 Defender designation 仍未成为 " +
     "ObjectSnapshot 特征（契约 3.8 combatRole，无产生方），Shield 的 +2 只能作为层注册被读出，暂不能按防守身份求值。" +
     "另见数据问题：本印刷在本地目录被记为 cardType Unit，而能力文本是法术式措辞（[Reaction] / [Predict]），" +
     "与同批 rad-034-167 Hunker Down（Spell）不一致。不近似实现。",

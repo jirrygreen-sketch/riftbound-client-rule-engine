@@ -9,6 +9,7 @@ import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { EventPipeline } from "../../../../engine-core/dist/events/pipeline.js";
 import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 
 const CANONICAL =
   "card.hash-6096f8a7ac4a9de3a47f4b906c5922677655ef6d2b97f64352b7057c63cafa87";
@@ -131,7 +132,9 @@ test("cosmic-vista: without the here anchor the hold trigger would translate, so
   assertTriggerSpec({ at: "hold", filter: translated });
 });
 
-test("cosmic-vista: the condition adapter is merged, but the symbolic owner misfires on the fallback path", () => {
+test("cosmic-vista: a non-empty Rune Deck prevents the conditional hold trigger (383.2.a.1)", {
+  todo: 'Trigger-condition fallback does not normalize owner: "self" in host.context.query; the count is incorrectly zero (events/pipeline.ts, 383.2.a.1)'
+}, () => {
   // 383.2.a.1: the empty-Rune-Deck clause is a TriggerSpec.condition. Since
   // RIFT-359 the pipeline calls host.testTrigger when supplied and otherwise
   // falls back to evaluateTriggerCondition through host.context. On that
@@ -139,40 +142,26 @@ test("cosmic-vista: the condition adapter is merged, but the symbolic owner misf
   // against player ids (apps/game-server engine-runtime/host.ts does not
   // normalize symbolic owner/controller selectors; only chain/engine.ts does,
   // and it does not feed trigger-condition evaluation), so "your Rune Deck"
-  // counts 0 even while a rune sits in A's Rune Deck and the condition fires
-  // when it must hold — the condition half still cannot be executed.
+  // counts 0 even while a rune sits in A's Rune Deck. Preserve the correct
+  // no-trigger expectation as a runnable TODO until that engine gap is fixed.
   const kernel = world()
     .player("A")
     .player("B")
     .unit("battlefield", { types: ["battlefield"] })
     .rune(["rune-in-deck"], { owner: "A" })
     .build();
-  const host = {
-    checkpoint: () => ({}),
-    restore: () => {},
-    objects: () => kernel.objects,
-    execute: (action) => ({ outcome: kernel.perform(action), emissions: [] }),
-    context: (source, controller, timingPoint) => {
-      const links = new Map();
-      return {
-        source,
-        controller,
-        timingPoint,
-        object: (ref) => kernel.object(ref),
-        query: (filter) => kernel.query(filter),
-        player: (id) => kernel.player(id),
-        evaluate: (expr) => kernel.evaluate(expr),
-        test: (condition) => kernel.test(condition),
-        linked: (key) => links.get(key),
-        choose: (request) => {
-          throw new Error(`Unexpected choice: ${request.id}`);
-        },
-        perform: (action) => ({ outcome: kernel.perform(action), emissions: [] }),
-        link: (key, value) => links.set(key, value),
-      };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (checkpoint) => {
+      kernel.restore(checkpoint.state);
+      kernel.copyLinkedFrom(checkpoint.links);
     },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint }),
     choose: (request) => { throw new Error(`Unexpected choice: ${request.id}`); }
-  };
+  });
   const pipeline = new EventPipeline(host, ["A", "B"], "A");
   const fired = [];
   pipeline.onTrigger = (snapshot) => fired.push(snapshot.registration.id);
@@ -187,8 +176,8 @@ test("cosmic-vista: the condition adapter is merged, but the symbolic owner misf
     },
     body: trigger.body
   });
-  // A rune is in A's Rune Deck, so 383.2.a.1 forbids the trigger. The literal
-  // owner comparison counts 0 anyway and the condition misfires to true.
+  assert.equal(kernel.player("A").runeDeckSize, 1);
+  // A rune is in A's Rune Deck, so 383.2.a.1 forbids the trigger.
   pipeline.emit({ timingPoint: "hold", player: "A" });
-  assert.deepEqual(fired, ["cosmic-vista"]);
+  assert.deepEqual(fired, []);
 });

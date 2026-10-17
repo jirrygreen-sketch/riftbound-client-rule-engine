@@ -50,7 +50,7 @@ export default {
     "RIFT-359 的条件适配已合入：host 提供 testTrigger 时事件管线调用它，未提供时回退到 host.context 求值；" +
     "但条件里的符号 owner（filter { owner: \"self\" }）在该回退路径不被归一：生产 host 的 query" +
     "（apps/game-server 的 engine-runtime/host.ts）把 \"self\" 与玩家 id 字面比较，「你的符文牌库」恒计 0，" +
-    "空牌库条件永远误判；只有 ChainEngine 的 resolve 上下文（chain/engine.ts）归一符号 owner/controller，" +
+    "非空符文牌库也被误判为空；只有 ChainEngine 的 resolve 上下文（chain/engine.ts）归一符号 owner/controller，" +
     "而它不喂触发条件求值。" +
     "（2）「when you hold here」的 here 锚点不在封闭 EventPattern 词表里：assertTriggerSpec 抛 \"EventPattern 不允许此字段\"，" +
     "程序绑定路径的 translateTriggerFilter 也抛 \"Unsupported filter field here\"（均已实测），" +
