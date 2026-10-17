@@ -35,8 +35,8 @@ test("The Candlelit Sanctum program validates and is judge-required", () => {
   assert.match(program.judgeReason, /ObjectRef/);
   assert.match(program.judgeReason, /picksSpecId/);
   assert.match(program.judgeReason, /RIFT-64/);
-  assert.match(program.judgeReason, /TriggerRegistration/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-358/);
+  assert.match(program.judgeReason, /here/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -303,7 +303,6 @@ test.todo(
 
 test.todo(
   "The Candlelit Sanctum trigger: the conquer timing point is emitted by scoring (473.2.a, " +
-    "471.1, now emitted by TurnFlow's Score wave) and the CardProgram's triggered ability is " +
-    "registered as a TriggerRegistration through the card-program binding (RIFT-257) with the " +
-    "053.3 'here' referent"
+    "471.1, now emitted by TurnFlow's Score wave), but the trigger filter still needs the " +
+    "053.3 'here' referent normalized before registration (RIFT-357)"
 );

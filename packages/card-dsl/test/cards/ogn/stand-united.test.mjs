@@ -31,7 +31,6 @@ test("Stand United identity, ruleset, status and printed text", () => {
   assert.equal(standUnited.status, "judge-required");
   assert.match(standUnited.judgeReason, /continuous\.might/);
   assert.match(standUnited.judgeReason, /RIFT-258/);
-  assert.match(standUnited.judgeReason, /RIFT-257/);
   assert.match(standUnited.judgeReason, /811\.2/);
   assert.equal(cardRegistryById.get(standUnited.canonicalCardId), standUnited);
   assert.equal(
@@ -259,10 +258,10 @@ test.todo(
   "Stand United: the printed sentence is a rule-modifying effect over the class of buffs, so a unit " +
     "that gains its first Buff later in the turn must receive the +1 and a unit whose Buff is spent must " +
     "lose it (the merged continuous.might instruction resolves and registers its object set once) - " +
-    "needs a class-level continuous-consumer model or a CardProgram static binding (RIFT-257)"
+    "needs a class-level continuous-consumer model so units gaining or spending a Buff later in the turn are updated"
 );
 
 test.todo(
   "Stand United [Hidden]: hide for [A] and play from the facedown zone for [0] (CR 811.1.b / 811.1.c.2) - " +
-    "needs the Hidden cost/zone workstream (RIFT-84)"
+    "needs a cost.hidden payment consumer and the facedown-zone play path"
 );

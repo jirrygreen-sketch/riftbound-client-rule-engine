@@ -30,9 +30,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   a unit at another Battlefield matches just the same, so the filter would
  *   over-trigger. "friendly unit" is likewise only recorded in the comment, not
  *   evaluable against the chooser from the payload (383.4.b.2);
- * - no merged subscriber turns a CardProgram's triggered ability into a
- *   TriggerRegistration (RIFT-257, in progress), and the controller of a
- *   Battlefield ability (190.6) is not resolved for a battlefield program.
+ * - the trigger registration path exists, but the controller of a Battlefield
+ *   ability (190.6) is not resolved for a battlefield program.
  */
 export default {
   canonicalCardId: "card.hash-a1fe32c7a5d6ccb45f7a6ad5b46788ec7aef047cd24e116d3ffa028b28a7f1c8",
@@ -44,8 +43,8 @@ export default {
     "053.3 的 “here” 需要锚定到本战场，而已合入的事件匹配器（events/pipeline-match.ts）不实现 sameLocationAs 锚点" +
     "（该锚点只在解释器的集合查询里被消费）：无法把“友方单位在本战场被法术指定为目标”与其他战场的事件区分开，按现状实现会过度触发" +
     "（became-target 载荷已带来源快照，EventPattern.source 的 spell 判别可表达；不得据此把整卡标为 executable）；" +
-    "此外没有已合入的订阅方把 CardProgram 的 triggered ability 注册为 TriggerRegistration（RIFT-257 进行中），" +
-    "战场卡作为能力来源的控制器（190.6）也未解析。依赖：RIFT-257（卡牌触发绑定与 here 锚点归一化）、触发条件/载荷绑定（testTrigger 适配器，见契约变更请求）。不近似实现。",
+    "触发注册路径已存在，但 Battlefield 能力来源的控制器（190.6）仍未解析；" +
+    "此外需要触发条件/载荷绑定（testTrigger 适配器）与 RIFT-357 的 here 锚点归一化（见契约变更请求）。不近似实现。",
   sourceText: "When a player chooses a friendly unit here with a spell for the first time each turn, they draw 1.",
   abilities: [
     {

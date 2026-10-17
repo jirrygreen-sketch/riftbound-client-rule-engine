@@ -19,8 +19,7 @@ import type { CardProgram } from "../../ir/index.js";
  * (effect.win, CR 195) and the golden test executes it; the hold timing point
  * is now really emitted by TurnFlow's Beginning Score wave (471.2 / 473.2.b).
  * What still blocks the card:
- * - no merged subscriber turns a CardProgram's triggered ability into a
- *   TriggerRegistration (RIFT-257, in progress), and 190.6's "control of a
+ * - the trigger registration path exists, but 190.6's "control of a
  *   Battlefield determines control of its abilities" is not resolved for
  *   battlefield programs;
  * - the trigger filter keeps the sibling battlefield spelling (here: true /
@@ -39,12 +38,11 @@ export default {
   status: "judge-required",
   judgeReason:
     "“you win the game”指令本身完全可用已合入的 effect.win（CR 195）表达并在 golden 里真实执行；hold 时点也已由 TurnFlow 的 Beginning Score 波真实发出（471.2 / 473.2.b）。阻断在触发侧：" +
-    "① 没有已合入的订阅方把 CardProgram 的 triggered ability 注册为 TriggerRegistration（RIFT-257 进行中），190.6 的战场能力控制者解析也未落地；" +
-    "② filter 的 here: true / player: controller 是同类战场卡占位（053.3 的 here 指代），已合入的 translateTriggerFilter / trigger-spec 不解析这两个键；" +
+    "① 190.6 的战场能力控制者解析也未落地；② filter 的 here: true / player: controller 是同类战场卡占位（053.3 的 here 指代），已合入的 translateTriggerFilter / trigger-spec 不解析这两个键；该位置锚点属于 RIFT-357 的进行中接线；" +
     "③ “if you have 7+ units here” 是 hold 事件上的触发条件：解释器的集合查询已实现 sameLocationAs 锚点（契约 3.6），但带 condition 的注册要求宿主提供 " +
     "testTrigger 适配器（events/pipeline.ts 会抛 Trigger condition adapter required），没有任何已合入宿主提供该适配器；condition 的 count 过滤器 " +
     "controller: \"controller\" 占位在普通查询路径也不会匹配真实 PlayerId。" +
-    "依赖：RIFT-257（卡牌触发绑定与 here/controller 归一化）、testTrigger 条件适配器（契约变更请求）。不近似实现。",
+    "依赖：RIFT-357 的 here/controller 归一化与 testTrigger 条件适配器（契约变更请求）。不近似实现。",
   sourceText: "When you hold here, if you have 7+ units here, you win the game.",
   abilities: [
     {
