@@ -1,9 +1,9 @@
 // Golden test for Ziggs, Explosive (rad-112-167).
 // The activated cost shape, the token declaration, the Defense Trigger and the
 // "you may kill a friendly gear" cost-within-instruction are all encoded. The
-// kill plus the +2 Might half now execute through the merged primitives; the
-// Bomb token definition, the battlefield destination, the Deploy/Deathknell
-// consumers and the defense-declared emitter are the judged gaps.
+// The kill plus the +2 Might half execute through the merged primitives. The
+// Bomb token definition, its Deploy/Deathknell consumers and the defense-declared
+// producer remain judged gaps.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -11,6 +11,7 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/rad/ziggs-explosive.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { resolveLocationSelector } from "../../../../engine-core/dist/target/location/ref.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
@@ -59,14 +60,15 @@ test("rad-112-167 Ziggs, Explosive: program validates and keeps identity", () =>
 test("rad-112-167 Ziggs, Explosive: judgeReason names the current gaps only", () => {
   assert.match(program.judgeReason, /187\.12/);
   assert.match(program.judgeReason, /Bomb/);
-  assert.match(program.judgeReason, /355\.2\.a/);
   assert.match(program.judgeReason, /Deploy/);
   assert.match(program.judgeReason, /Deathknell/);
   assert.match(program.judgeReason, /defense-declared/);
-  assert.match(program.judgeReason, /RIFT-357/);
-  assert.match(program.judgeReason, /Finalize/);
-  assert.match(program.judgeReason, /battlefieldId/);
-  assert.match(program.judgeReason, /CardProgram 绑定（RIFT-257）与 card-played 生产方已合入/);
+  assert.match(program.judgeReason, /LocationExpr/);
+  assert.match(program.judgeReason, /effect\.token/);
+  assert.match(program.judgeReason, /continuous\.location/);
+  assert.match(program.judgeReason, /trigger\.leave/);
+  assert.match(program.judgeReason, /combat-start-transaction/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-357|RIFT-82|RIFT-257|RIFT-33|RIFT-124/);
   assert.doesNotMatch(program.judgeReason, /cleanup 的非单位 Deploy 免召回/);
 });
 
@@ -89,18 +91,23 @@ test("rad-112-167 Ziggs, Explosive: the body declares a played Bomb token to a F
   // 355.10.b: the battlefield is a play permission, not a target.
   assert.equal(playBomb.targets, undefined);
   assert.equal(playBomb.picks, undefined);
-  // The concrete LocationRef list is runtime data (355.2.a); the static program
-  // carries the placeholder the Finalize location provider replaces (RIFT-357).
-  assert.deepEqual(playBomb.args.locations.value, [
-    { type: "battlefield", id: "battlefields-from-finalize" }
-  ]);
-  assert.equal(playBomb.args.choiceId.value, "bomb-token-battlefield");
+  // 355.2.a / merged location selectors: Finalize chooses one current Battlefield.
+  assert.deepEqual(playBomb.args.location, {
+    kind: "location",
+    value: {
+      kind: "choose",
+      id: "bomb-token-battlefield",
+      filter: { type: "battlefield" }
+    }
+  });
+  assert.equal(playBomb.args.locations, undefined);
+  assert.equal(playBomb.args.choiceId, undefined);
   assert.equal(playBomb.args.linkKey.value, "bombToken");
 });
 
-test("rad-112-167 Ziggs, Explosive: the merged chain-create + play handoff runs the declared locations/choiceId shape", () => {
+test("rad-112-167 Ziggs, Explosive: the merged chain-create + play handoff runs with a concrete battlefield", () => {
   // The Bomb definition is the judged gap (see the todos). The instruction's
-  // own shape - mode "play" through a locations + choiceId destination - is run
+  // own shape - mode "play" through a resolved Battlefield destination - is run
   // for real with the frozen Mech definition (187.4) so the declared structure
   // is proven executable rather than only validated.
   const kernel = world()
@@ -112,8 +119,7 @@ test("rad-112-167 Ziggs, Explosive: the merged chain-create + play handoff runs 
       token: { kind: "constant", value: "mech" },
       amount: { kind: "constant", value: 1 },
       mode: { kind: "constant", value: "play" },
-      locations: { kind: "constant", value: [{ type: "battlefield", id: "bf-1" }] },
-      choiceId: { kind: "constant", value: "bomb-token-battlefield" },
+      location: { kind: "constant", value: { type: "battlefield", id: "bf-1" } },
       linkKey: { kind: "constant", value: "bombToken" }
     },
     { world: kernel }
@@ -125,9 +131,34 @@ test("rad-112-167 Ziggs, Explosive: the merged chain-create + play handoff runs 
   const [created] = kernel.objects.filter(object => object.isToken);
   assert.equal(created.name, "Mech");
   assert.deepEqual(created.location, { type: "battlefield", id: "bf-1" });
-  // The declaration itself still names Bomb and the Finalize placeholder.
+  // The declaration itself still names Bomb and the location selector.
   assert.equal(playBomb.args.token.value, "bomb");
-  assert.equal(playBomb.args.locations.value[0].id, "battlefields-from-finalize");
+  assert.equal(playBomb.args.location.value.kind, "choose");
+});
+
+test("rad-112-167 Ziggs, Explosive: the merged location selector resolves a Battlefield before token play", () => {
+  const first = { type: "battlefield", id: "bf-1" };
+  const second = { type: "battlefield", id: "bf-2" };
+  const kernel = world()
+    .unit("ziggs", { might: 4, location: first })
+    .unit("other", { might: 2, location: second })
+    .build();
+  kernel.setAnswers({ "bomb-token-battlefield": second });
+  const selected = resolveLocationSelector(playBomb.args.location.value, {
+    context: kernel,
+    players: ["A", "B"],
+    opponent: "B"
+  });
+  assert.deepEqual(selected, second);
+  const run = runInstruction(
+    token,
+    { ...playBomb.args, token: { kind: "constant", value: "mech" }, location: { kind: "constant", value: selected } },
+    { world: kernel }
+  );
+  assert.equal(run.result.status, "executed");
+  const [created] = kernel.objects.filter(object => object.isToken);
+  assert.equal(created.name, "Mech");
+  assert.deepEqual(created.location, second);
 });
 
 test("rad-112-167 Ziggs, Explosive: 'When I defend' is the defense-declared self trigger (383.4.f)", () => {
@@ -239,31 +270,25 @@ test("rad-112-167 Ziggs, Explosive: a stale gear pick is dropped instead of gran
 
 test.todo(
   "rad-112-167 Ziggs, Explosive: the CR 187.12 Bomb gear token definition (domainless gear with " +
-    "[Deploy] and its own Deathknell text) is absent from the frozen effect.token definition table, " +
-    "and TokenSpec carries no ability field - the table and the token action must be extended " +
-    "before the activated ability's token can be created"
+    "[Deploy] and its own Deathknell text) is absent from the frozen effect.token definition table; " +
+    "TokenSpec carries no ability field, so the table and token action must be extended before Bomb " +
+    "can be created"
 );
 
 test.todo(
-  "rad-112-167 Ziggs, Explosive: 'Play a Bomb gear token to a battlefield' needs the Finalize " +
-    "location provider that enumerates the current legal Battlefields (355.2.a, " +
-    "in-progress RIFT-357 location selection); the static program only carries the documented placeholder list"
+  "rad-112-167 Ziggs, Explosive: effect.token still needs an interpreter adapter that accepts " +
+    "the evaluated LocationExpr selector at its frozen argsSchema boundary"
 );
 
 test.todo(
-  "rad-112-167 Ziggs, Explosive: Deploy (830.1.b) still needs the continuous.location Finalize " +
-    "destination validator and hold-trigger registration/location-filter adaptation: turn/flow.ts " +
-    "already provides the non-Unit Deploy cleanup exemption and hold/conquer/score events carry " +
-    "battlefieldId, but TriggerSpec cannot bind Deploy's 'here' to event.details.battlefieldId. " +
-    "The Bomb Deathknell body also needs the trigger.leave primitive that effects/keywords/Deathknell.ts " +
-    "declares plus a 'here' location and mass-kill expansion for 'deal 2 to an enemy unit here and " +
-    "kill all other Bombs you control here' - RIFT-82 / the Deploy consumer work"
+  "rad-112-167 Ziggs, Explosive: Deploy still needs the continuous.location Finalize destination " +
+    "validator and hold-trigger location filtering; the Bomb Deathknell body still needs a registered " +
+    "trigger.leave primitive plus the 'here' location and mass-kill expansion"
 );
 
 test.todo(
-  "rad-112-167 Ziggs, Explosive: the Defense Trigger cannot enter the chain yet - defense-declared " +
-    "has no emitter (events/action-adapter.ts ACTION_TIMINGS omits it; combat/flow.ts throws " +
-    "TurnCombatBlockedError('combat-start-transaction'); docs/rules/timing-point-producers.md marks " +
-    "it as pending)"
+  "rad-112-167 Ziggs, Explosive: the defense-declared timing point has no producer because " +
+    "combat/flow.ts still throws TurnCombatBlockedError('combat-start-transaction') before the " +
+    "Defend Trigger can enter the chain"
 );
 
