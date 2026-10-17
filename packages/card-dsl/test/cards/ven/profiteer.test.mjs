@@ -1,3 +1,5 @@
+import { buildCostPlan, CostPlanError } from "../../../../engine-core/dist/cost/index.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -48,7 +50,7 @@ test("ven-082-166 Profiteer: identity, ruleset, status, judgeReason and verbatim
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
   assert.match(program.judgeReason, /disempower/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /cost\/plan-values/);
   assert.match(program.judgeReason, /legend-zone/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
@@ -79,7 +81,7 @@ test("ven-082-166: the disempower half is a Finalize cost with a non-target sele
   ]);
   assert.equal(payDisempower.linkedTo, undefined);
   // 740.4.a.2：触发能力效果首段的费用在 Finalization 支付；443.2.a 的 disempower 是
-  // Limited Action，作为费用时只能作为费用计划的付款组件（RIFT-89 缺口见 judgeReason）。
+  // Limited Action，作为费用时只能作为费用计划的付款组件（disempower 支付种类缺口见 judgeReason）。
   assert.deepEqual(payDisempower.args.payments, {
     kind: "constant",
     value: [
@@ -164,7 +166,7 @@ test("ven-082-166 golden: the declared empower half really empowers the locked t
 test.todo(
   "ven-082-166 Profiteer: pay the printed disempower inside the may-body at Finalize and read its receipt " +
     "(740.4.a.2, 443.2) — cost/plan-values.ts supports no disempower payment kind, so the merged cost.pay " +
-    "primitive cannot pay this component (RIFT-89 disempower-kind gap)"
+    "primitive cannot pay this component (cost/plan-values.ts disempower-kind gap)"
 );
 
 test("ven-082-166 Profiteer golden: the card-played trigger filter fires on the merged EventPipeline", () => {
@@ -246,3 +248,13 @@ test.todo(
     "legend-zone (CR 108.3) and effect.empower only accepts Board objects, so the legend third of the printed " +
     "'legend, unit, or gear' range cannot resolve yet"
 );
+
+test("ven-082-166 Profiteer: cost.pay is registered but the original disempower payment cannot enter Finalize", () => {
+  const kernel = profiteerWorld();
+  assert.equal(instructionDefinitionsById.get(payDisempower.op).op, "cost.pay");
+  assert.throws(() => buildCostPlan(kernel, {
+    id: "profiteer:leading-cost", cost: { kind: "activated", payments: payDisempower.args.payments.value }
+  }), error => error instanceof CostPlanError && error.reason === "judge-required" && /disempower/.test(error.message));
+  assert.equal(kernel.getObject("soldier").empowered, 0);
+  assert.deepEqual(kernel.events, []);
+});

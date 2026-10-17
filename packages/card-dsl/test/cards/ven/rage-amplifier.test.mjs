@@ -1,3 +1,7 @@
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createActionPipelineHost, bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -91,7 +95,7 @@ test("ven-018-166 Rage Amplifier: identity, ruleset, status, judgeReason and ver
   assert.match(program.judgeReason, /Empower/);
   assert.match(program.judgeReason, /828\.1\.c/);
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /params\.cost/);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
@@ -123,8 +127,10 @@ test("ven-018-166 Rage Amplifier: +1 Might for your units, and the Empowered +2 
   assert.deepEqual(baseMight.condition, {
     kind: "not",
     condition: {
-      kind: "expression",
-      value: { kind: "constant", value: "self-is-empowered" }
+      kind: "compare",
+      left: { kind: "object-property", object: "self", property: "empowered" },
+      operator: "gte",
+      right: { kind: "constant", value: 1 }
     }
   });
 
@@ -138,8 +144,10 @@ test("ven-018-166 Rage Amplifier: +1 Might for your units, and the Empowered +2 
     value: "rage-amplifier-base-might"
   });
   assert.deepEqual(empoweredMight.condition, {
-    kind: "expression",
-    value: { kind: "constant", value: "self-is-empowered" }
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "gte",
+    right: { kind: "constant", value: 1 }
   });
   assert.deepEqual(empoweredMight.effect.filter, baseMight.effect.filter);
 });
@@ -167,12 +175,55 @@ test("ven-018-166 Rage Amplifier golden: the Empowered branch would raise the sa
 
 test.todo(
   "ven-018-166 Rage Amplifier: [Empower] 6 Energy + 1 Fury Power must expand to its activation cost with the " +
-    "\"use only if not Empowered\" restriction (827.1.c.1 / 442.1.b) - no Empower/Empowered KeywordDef exists " +
-    "in effects/keywords/registry.generated.ts (RIFT-81~88 batch excludes them)"
+    "\"use only if not Empowered\" restriction (827.1.c.1 / 442.1.b) - the registered Empower KeywordDef needs params.cost forwarding " +
+    "from KeywordAbility through programs/keywords.ts"
 );
 test.todo(
-  "ven-018-166 Rage Amplifier: the +1/+2 Might branches must be registered from the CardProgram's static ability " +
-    "and selected by an evaluable Empowered predicate (828.1.c) - the static → layers binding entry point is merged " +
-    "(programs/statics.ts createEngineStaticBinder, RIFT-91 batch) and both branches execute in the layer engine, " +
-    "but the empowered predicate itself is still missing (in-flight RIFT-359 condition predicates)"
+  "ven-018-166 Rage Amplifier: the full Empower activation and dependent aura (828.1.c) still need printed-cost " +
+    "forwarding and a production ObjectSnapshot.empowered contract; both original static branches execute through " +
+    "createEngineStaticBinder in the regression below"
 );
+
+test("ven-018-166 Rage Amplifier regression: both original static branches remain exclusive across status changes", () => {
+  const { kernel, engine } = staticFixture([
+    { id: "amplifier", cardId: CANONICAL, types: ["gear"], zone: "board", might: null, power: null }
+  ]);
+  const source = kernel.getObject("amplifier");
+  const binder = createEngineStaticBinder(engine);
+  binder.bindStatic(baseMight, source);
+  binder.bindStatic(empoweredMight, source);
+  assert.equal(engine.layers.snapshot(kernel.ref("source")).might, 3, "base +1 applies before Empower");
+  assert.equal(engine.layers.snapshot(kernel.ref("enemy")).might, 5);
+  assert.equal(engine.commit({ type: "empower", object: source.ref }).status, "done");
+  assert.equal(engine.layers.snapshot(kernel.ref("source")).might, 4, "+2 replaces +1 rather than stacking");
+  assert.equal(engine.layers.snapshot(kernel.ref("enemy")).might, 5);
+  assert.equal(kernel.getObject("amplifier").power, null);
+  assert.equal(engine.commit({ type: "disempower", object: source.ref }).status, "done");
+  assert.equal(engine.layers.snapshot(kernel.ref("source")).might, 3);
+});
+
+function staticFixture(cards) {
+  const builder = world().player("A", { energy: 20 }).player("B", { energy: 20 })
+    .unit("source", { might: 2, location: { type: "base", player: "A" } })
+    .unit("enemy", { owner: "B", might: 5, location: { type: "base", player: "B" } });
+  for (const card of cards) builder.object(card.id, { location: { type: "base", player: "A" }, ...card });
+  const kernel = builder.build();
+  const host = createActionPipelineHost({
+    checkpoint: () => kernel.snapshot(), restore: state => kernel.restore(state),
+    objects: () => kernel.objects, perform: action => kernel.perform(action),
+    choose: request => kernel.choose(request),
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ host, turnOrder: ["A", "B"], turnPlayer: "A", cleanup: engine => {
+    engine.layers.setObjects(kernel.objects);
+    let changed = false;
+    for (const object of engine.layers.evaluateAll()) {
+      if (object.zone === "board" && object.types.includes("unit") && object.might !== null &&
+          (object.might <= 0 || object.damage >= object.might)) {
+        changed = engine.commit({ type: "kill", object: object.ref }).status === "done" || changed;
+      }
+    }
+    return changed;
+  } });
+  return { kernel, engine };
+}

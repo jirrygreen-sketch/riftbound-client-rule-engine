@@ -31,9 +31,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   状态即生效”的依赖能力。
  * - 809 / 810：[Deflect] 与 [Ganking] 是只声明身份的关键词（展开归 effects/keywords/）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required（缺口见 judgeReason）。
- * golden 用真实解释器 + 参考内核执行已合入的 “empower me”（effect.empower）与
- * “+1 Might this turn”（continuous.might + appliesTo self），其余依赖写 test.todo。
+ * 当前状态与剩余接线见 judgeReason；不以原语存在代替整卡执行证据。
  */
 const abilities: Ability[] = [
   {
@@ -106,7 +104,7 @@ const abilities: Ability[] = [
       left: {
         kind: "object-property",
         object: "self",
-        property: "empoweredCount"
+        property: "empowered"
       },
       operator: "gte",
       right: { kind: "constant", value: 1 }
@@ -119,16 +117,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1) “When my Might becomes 10 or more” 的转换语义（709：previousMight < 10 ≤ currentMight）无法完整表达——" +
-    "might-changed 的载荷带两个数值，但 EventPattern 的 details 只接受标量、数值匹配器只作用于 event.amount，且 might-changed " +
-    "的 producer（events/producers/might-change.ts）没有管线接线；程序以 { source: \"self\" } 锚点 + 当前 Might ≥ 10 的 condition 记录" +
-    "（依赖 might-changed 载荷匹配扩展），从 10 以下降回 10 以上会多触发，故不标 executable；(2) 没有 Empowered 状态谓词" +
-    "（442.1.a 的二元状态不在 ObjectSnapshot / Condition 里，快照无 empowered 字段），[Empowered][>] 依赖能力（828.1.b.1）的门槛" +
-    "不可求值，empoweredCount 只是描述性记录；(3) Deflect/Ganking 的关键词语义没有运行时消费方（Deflect 的 target.tax 属 RIFT-360；" +
-    "Ganking 的 continuous.movement 移动系统不读该关键词；continuous.grant-keyword 指令与 static 绑定已合入，缺的是下游消费）。" +
-    "已支持部分：activated cost 已由 programs/activate.ts 绑定；effect.empower（“empower me”，442.1）与 continuous.might（“+1 Might this turn”，479.4.e.1/317.2.c，" +
-    "appliesTo self）由 golden 用真实解释器 + 参考内核执行。依赖：might-changed 事件生产与 Empowered 条件消费、" +
-    "RIFT-360（Deflect 目标税）。不近似实现。",
+    "仍缺三段：(1) 「When my Might becomes 10 or more」需要 previousMight < 10 <= currentMight；might-changed producer 已存在，但未接入图层更新事件流，EventPattern.details 仍只支持标量等值，无法表达前后阈值比较。当前条件只描述 current Might >= 10，不能将 10→11 当成新跨越。(2) 828.1.b.1 的门控已改用 self.empowered >= 1；参考内核可读取，ObjectSnapshot 尚未声明该状态，442.1 的重复 Empower 约束仍须生产动作层保证。(3) continuous.grant-keyword、Deflect target.tax 收集器与 Ganking movement 规则查询均已合入，但 Chain Finalize 尚未使用 createTargetTaxAdapter，仍把旧税 amount 转成 Energy；授予的 Deflect/Ganking 也未与生产目标税/标准移动完整联通。continuous.might 与 effect.empower 已真实执行，保留 judge-required，不近似实现。",
   abilities,
   sourceText:
     ":rb_energy_1:: Give me +1 :rb_might: this turn.\n" +

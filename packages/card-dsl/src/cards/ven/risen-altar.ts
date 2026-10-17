@@ -18,26 +18,14 @@ import type { CardProgram } from "../../ir/index.js";
  * - 053.3："here" 指本战场；190.6.a / 190.6.d：战场能力的控制者是它的控制者，"your units"
  *   即该控制者在本战场的单位。
  *
- * status = judge-required（缺口见 judgeReason，均不近似实现）：
- * 1. 静态费用改写没有进入 Finalize 费用计划的路径（cost-modification static 无 layerFor
- *    映射，也没有 finalize 期收集折扣的实现）；
- * 2. 二选一折扣形状缺失；
- * 3. 没有 Empower/Empowered KeywordDef，Empower 费用无从绑定。
+ * 当前状态与剩余接线见 judgeReason；不以原语存在代替整卡执行证据。
  */
 export default {
   canonicalCardId: "card.hash-fbf366107dc56ccff37dc34defc026e822358e66fe7bb2e1c905d067292ea927",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1) 没有已合入路径把 CardProgram 的 static 费用改写安装到后续那次打出/启动的费用计划上：" +
-    "cost/cost-plan.ts 的折扣只读调用方传入的 CostDiscount；cost.modify 原语虽已合入，但静态能力的绑定层没有 " +
-    "cost-modification 的 layerFor 映射，也没有 finalize 期收集折扣的实现；" +
-    "(2) 印刷折扣是「:rb_energy_1: 或 :rb_rune_rainbow: 少 1」的二选一（356.4.b、135.2.e.5.a），" +
-    "而冻结的 CostDiscount 只有单一 resource 字段，没有二选一形状，写死任一分支都是近似；" +
-    "(3) 折扣对象是「your units here 的 [Empower] 费用」（827.1.c.3），但 keywords/registry.generated.ts 没有任何 " +
-    "Empower/Empowered KeywordDef（RIFT-81~88 批次不含），Empower 费用无从绑定；" +
-    "且 \"here\" 需要的 sameLocationAs 锚点在解释器查询路径已实现，但 layers/filter.ts 的图层匹配器不读锚点，会作用到所有战场的单位。" +
-    "依赖：新增 Empower/Empowered 关键词任务、静态费用改写的 finalize 期收集路径、layers/filter.ts 的 sameLocationAs/here。",
+    "仍缺静态 Empower 减费的消费路径：827.1.c.3/356.4.b 要把 your units here 的 continuous.cost-modification 收集到后续启动费用；cost.modify 与 CostPlan 折扣已存在，但 programs/statics.ts 的 layerFor 没有费用改写映射，也没有 Empower 专属 Finalize 收集器。CostDiscount.resource 仍是单资源字段，无印刷的「1 Energy 或 1 [A]」二选一决定形状；Empower KeywordDef 已注册但 KeywordAbility / programs/keywords.ts 不传递 params.cost。sameLocationAs 已由 staticFilter 归一到 source.location，剩余 here 问题在 layers/filter.ts：结构 LocationRef 仍按对象引用相等匹配，缺值比较及来源移动时更新锚点；不能宣称会正确覆盖本战场单位。保留 judge-required，不近似实现。",
   abilities: [
     {
       kind: "static",
@@ -60,7 +48,7 @@ export default {
           ]
         },
         // "your units here"："self" 在本战场程序的过滤器里指能力控制者（190.6.d），
-        // sameLocationAs 是 053.3 的 "here" 锚点（layers/filter.ts 的图层匹配器尚未读取）。
+        // sameLocationAs 是 053.3 的 "here" 锚点（绑定器已归一，结构地点值比较仍待接线）。
         filter: { type: "unit", controller: "self", sameLocationAs: "self" }
       }
     }
