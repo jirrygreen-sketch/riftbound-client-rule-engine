@@ -20,17 +20,15 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   不是只对控制者。
  *
  * status = judge-required（缺口不近似实现）：
- * 1. 没有可消费该限制的持续效果类型：契约 3.6 的封闭 GameAction 集合没有“限制 Channel
- *    数量”的动作，effects/instructions 下没有 continuous.* 指令原语，layers 的
- *    LayerEngine 只识别 copy/trait/ability/arithmetic 图层的连续效果，没有“回合流程
- *   查询”的读数；turn/flow.ts 的 Channel Phase 直接按 `runeDeckCount` 与固定 2
- *   计算 channel 数量，从不查询任何持续限制集合。程序用描述性 kind
- *   记录该静态限制形状（不伪造 channel 指令，也不改写回合流程）。
+ * 1. 没有可消费该限制的回合流程读数：continuous.restrict 原语已合入
+ *    （effects/instructions/continuous.restrict.ts），programs/statics.ts 也能把该声明
+ *    归一成 restriction 装进 ability 图层；但 layers 仍没有“回合流程查询”读数，
+ *    turn/flow.ts 的 Channel Phase（315.3.b / 431.4.a）直接按 `runeDeckCount` 与固定
+ *    2/3 计算 channel 数量，从不查询任何持续限制集合。
  * 2. “While I'm at a battlefield” 的 Location 谓词：object-property 能读 location，
- *    但持续效果没有落地路径（同 sfd/tianna-crownguard 记录同一缺口）。
- * 3. 没有已合入路径把 CardProgram 的 static 能力注册成 ContinuousEffectSpec
- *    （RIFT-91 只交付了图层引擎；effect.empower 的回复记录同一缺口）。
- * 依赖：RIFT-91（卡牌接线）与 Channel Phase 限制的消费任务（turn/ 侧查询持续限制集合）。
+ *    但持续效果在回合流程侧没有消费路径（同 sfd/tianna-crownguard 记录同一缺口）。
+ * 依赖：Channel Phase 限制的消费任务（turn/ 侧查询持续限制集合）与条件持续效果的
+ * 条件求值接线。不伪造 channel 指令，也不改写回合流程。
  */
 const abilities: Ability[] = [
   {
@@ -60,14 +58,12 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1)「players only channel 1 rune at the start of their Channel Phase」需要可消费的持续限制：" +
-    "契约 3.6 的封闭 GameAction 集合没有“限制 Channel 数量”的动作，effects/instructions 下没有 continuous.* 指令原语，" +
-    "layers/LayerEngine 只识别 copy/trait/ability/arithmetic 图层、没有回合流程读数，turn/flow.ts 的 Channel Phase " +
-    "（315.3.b / 431.4.a）直接按 runeDeckCount 与固定 2 计算数量、从不查询任何持续限制集合；程序以 continuous.restrict" +
-    " 的静态形状记录该限制（不伪造 channel 指令、不改写回合流程）；" +
-    "(2)「While I'm at a battlefield」是 363.2.a 的条件持续能力，需要 Location 谓词与持续效果落地路径，" +
-    "且没有已合入路径把 CardProgram 的 static 能力注册成 ContinuousEffectSpec（RIFT-91 只交付图层引擎，" +
-    "同 sfd/tianna-crownguard）。依赖 RIFT-91（卡牌接线）与 Channel Phase 限制的消费任务。",
+    "两处缺口，均不近似实现：(1)「players only channel 1 rune at the start of their Channel Phase」需要回合流程侧的可消费读数：" +
+    "continuous.restrict 原语与 RIFT-257 的 static 绑定已合入（statics.ts 能把该声明归一成 restriction 装进 ability 图层），" +
+    "但 layers 没有回合流程读数，turn/flow.ts 的 Channel Phase（315.3.b / 431.4.a）直接按 runeDeckCount 与固定 2/3 " +
+    "计算数量、从不查询任何持续限制集合；程序以 continuous.restrict 的静态形状记录该限制（不伪造 channel 指令、不改写回合流程）；" +
+    "(2)「While I'm at a battlefield」是 363.2.a 的条件持续能力，需要 Location 谓词与持续效果在回合流程侧的消费路径，" +
+    "同 sfd/tianna-crownguard。依赖 Channel Phase 限制的消费任务与条件求值接线。",
   abilities,
   sourceText:
     "While I'm at a battlefield, players only channel 1 rune at the start of their Channel Phase."

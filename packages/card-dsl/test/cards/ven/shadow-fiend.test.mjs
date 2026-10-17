@@ -4,6 +4,10 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/shadow-fiend.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+// The production static binder (RIFT-257) installs card static abilities into
+// the merged layer engine; the chain fixture provides that engine.
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID =
   "card.hash-b0dae42b029e826ed425d0108e52126d253bfbcb0232487d1515afeae22ef257";
@@ -30,6 +34,10 @@ test("ven-014-166 Shadow Fiend: identity, ruleset, status, judgeReason and verba
   assert.match(program.judgeReason, /807\.1\.c/);
   assert.match(program.judgeReason, /RIFT-89/);
   assert.match(program.judgeReason, /RIFT-91/);
+  // The grant primitive and its merged static binder are merged; the remaining
+  // execution gap is the Empowered gate predicate and the card-side cost wiring.
+  assert.match(program.judgeReason, /bindStatic/);
+  assert.match(program.judgeReason, /RIFT-359/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -59,6 +67,29 @@ test("ven-014-166 Shadow Fiend: the Empowered dependent ability grants Assault 3
   });
 });
 
+test("ven-014-166 Shadow Fiend golden: the production static binder installs Assault 3 on the host", () => {
+  // The Empowered gate itself is not executable (gap 3), so this golden runs
+  // the grant effect the dependent ability declares — proving the merged
+  // layer path, not the printed gating.
+  const f = fixture({ cards: [{ id: "shadow-fiend", types: ["unit"] }] });
+  f.engine.commit({
+    type: "move-zone",
+    object: f.kernel.ref("shadow-fiend"),
+    to: "base",
+    location: { type: "base", player: "A" }
+  });
+  const source = f.kernel.getObject("shadow-fiend");
+  const binder = createEngineStaticBinder(f.engine);
+
+  const handle = binder.bindStatic({ kind: "static", effect: assault.effect }, source);
+  const withGrant = f.engine.layers.snapshot(f.kernel.ref("shadow-fiend"));
+  assert.deepEqual(withGrant && withGrant.keywords, [{ id: "assault", value: 3 }]);
+
+  handle.unbind();
+  const afterUnbind = f.engine.layers.snapshot(f.kernel.ref("shadow-fiend"));
+  assert.deepEqual(afterUnbind && afterUnbind.keywords, []);
+});
+
 test.todo(
   "ven-014-166 Shadow Fiend: activate [Empower] for 2 Energy + 1 Fury Power (827.1.c.1) with the " +
     "'use only if not Empowered' restriction — needs the Empower/Empowered KeywordDef and the " +
@@ -66,6 +97,7 @@ test.todo(
 );
 test.todo(
   "ven-014-166 Shadow Fiend: [Assault 3] while Empowered through the layers engine — needs a " +
-    "card-side continuous.grant-keyword op plus the RIFT-91 registration entry point; the Assault " +
-    "expansion exists but nothing consumes the grant"
+    "card-side continuous.grant-keyword op plus the RIFT-91 registration entry point; the grant " +
+    "itself installs through the merged static binder (RIFT-257), while the 828.1.c Empowered gate " +
+    "still needs the status predicate (RIFT-359, in flight)"
 );

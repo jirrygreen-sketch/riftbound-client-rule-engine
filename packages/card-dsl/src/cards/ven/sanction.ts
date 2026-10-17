@@ -35,11 +35,11 @@ import type { CardProgram } from "../../ir/index.js";
  *    会被匹配器当作普通等值字段而不匹配，但更重要的是 442.1.b/443.1.a 的“只影响当前 Empowered
  *    的对象”同样由动作层负责，卡层没有可如实声明的方式。这里用描述性谓词记录该限制，绝不
  *    放宽成“任意单位”。
- * 3. 模式选择在结算期执行：与 rad/lost-to-the-sands 相同，chain/engine.ts 的
- *    assertFinalizationSurface 对任何 choice.mode 抛 ChainContractBlockedError，355.3 的
- *    Finalize 选择计划适配器未合入。
- * 已合入并真实执行：两条模式的 effect.empower 本体（442/443 的状态动作），golden 用解释器 +
- * 参考内核在参考内核上真实执行 empower 与 disempower 两个方向，并断言状态变化。
+ * 3. 模式选择在结算期执行：与 rad/lost-to-the-sands 相同，生产打出链路在
+ *    programs/play.ts validateSurface 对任何 choice.mode 直接 judge-required（"Mode choices
+ *    require a Finalize/Resolve choice-plan adapter"），355.3 的 Finalize 选择计划适配器未合入；
+ *    解释器侧的 choice.mode 本体已合入，golden 用 resolveChainBody + setAnswers 真实执行两个
+ *    模式分支（empower 事件 / empower→disempower 事件序列）。
  * 依赖：trigger.delayed 原语（RIFT-9）、Empowered 谓词与 442.1.b/443.1.a 的动作层语义
  * （RIFT-91 之后）、Finalize 选择计划适配器（RIFT-90）。
  */
@@ -53,9 +53,11 @@ export default {
     "同 ogn Imperial Decree / sfd Hostile Takeover 判定），写成卡自身 triggered 能力违反 391.1/393。" +
     "(2)「a unit that's [Empowered]」的目标限制不可表达：ObjectSnapshot 不暴露 Empowered 状态（effect.empower 文件头记录的契约缺口），" +
     "合并过滤器词汇没有 empowered 谓词，442.1.b/443.1.a 的动作层语义同样未合入；程序只写描述性谓词，不放宽为任意单位。" +
-    "(3) 模式选择在结算期执行：chain/engine.ts 的 assertFinalizationSurface 对 choice.mode 抛 ChainContractBlockedError，" +
-    "355.3 要求的 Finalize 选择计划适配器未合入（同 rad/lost-to-the-sands）。" +
-    "已合入并真实执行：两条模式的 effect.empower 本体（442/443 的状态动作），golden 用解释器 + 参考内核真实执行 empower 与 disempower 两个方向。" +
+    "(3) 模式选择在结算期执行：生产打出链路在 programs/play.ts 的 validateSurface 对 choice.mode 直接 judge-required" +
+    "（“Mode choices require a Finalize/Resolve choice-plan adapter”，同 rad/lost-to-the-sands），355.3 要求的 " +
+    "Finalize 选择计划适配器未合入；解释器侧 choice.mode 本体已合入，golden 用 resolveChainBody + 参考内核 " +
+    "setAnswers 真实执行两个模式分支。" +
+    "已合入并真实执行：两条模式的 effect.empower 本体（442/443 的状态动作），golden 覆盖单原语与模式选择两个层级。" +
     "依赖：trigger.delayed 原语（RIFT-9）、Empowered 谓词与动作层语义、Finalize 选择计划适配器（RIFT-90）。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },

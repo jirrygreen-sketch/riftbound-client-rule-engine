@@ -6,6 +6,9 @@ import program from "../../../dist/cards/ven/sanction.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import empower from "../../../../engine-core/dist/effects/instructions/effect.empower.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+// Card bodies run through the chain's own interpreter adapter — the production
+// entry point that re-wraps Expr arguments for the registered primitives.
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 
 const CANONICAL = "card.hash-cc029bf96714e13a2e9bbc9f58b4d2a300a4d50e4257125afc218854ce4b3acf";
 const SOURCE_TEXT =
@@ -39,6 +42,9 @@ test("ven-035-166 Sanction: identity, ruleset, status, judgeReason and the verba
   assert.match(program.judgeReason, /Empowered/);
   assert.match(program.judgeReason, /choice\.mode/);
   assert.match(program.judgeReason, /355\.3/);
+  // The Finalize block lives in the play-pipeline surface check; the
+  // interpreter-side choice.mode primitive itself is merged and executed below.
+  assert.match(program.judgeReason, /validateSurface/);
 });
 
 test("ven-035-166 Sanction: [Reaction], printed cost and one mode choice (355.3)", () => {
@@ -166,6 +172,56 @@ test("ven-035-166 Sanction boundary: Disempower on a unit that left the Board is
   assert.deepEqual(run.result, { status: "ignored", reason: "mistargeted" });
 });
 
+/**
+ * The choice.mode interpreter primitive is merged; what is missing is the
+ * play-pipeline adapter (programs/play.ts validateSurface rejects choice.mode,
+ * see judgeReason). These goldens execute the card's real play body through the
+ * chain interpreter adapter with the delayed actions pruned: trigger.delayed is
+ * the separately recorded gap 1 and has no opcode to execute.
+ */
+const prunedModeBody = () => {
+  const body = JSON.parse(JSON.stringify(play.body));
+  const [chooseInstruction] = body;
+  chooseInstruction.args.modes.value = chooseInstruction.args.modes.value.map(mode => ({
+    ...mode,
+    body: mode.body.filter(instruction => instruction.op !== "trigger.delayed")
+  }));
+  return body;
+};
+
+test("ven-035-166 Sanction golden: mode 1 empowers the chosen unit through the real choice", () => {
+  const kernel = world().unit("unit", { zone: "board" }).build();
+  kernel.setAnswers({ "sanction.choose-one/mode%3A0": "sanction.empower-then-disempower" });
+  kernel.setTargets("sanction.unit", [kernel.ref("unit")]);
+
+  const outcome = resolveChainBody(prunedModeBody(), kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(result => [result.id, result.result.status]), [
+    ["sanction.empower-unit", "executed"],
+    ["sanction.choose-one", "executed"]
+  ]);
+  assert.deepEqual(outcome.linkedValues["sanction.choose-one.value"], ["sanction.empower-then-disempower"]);
+  assert.deepEqual(kernel.events.map(event => event.action), ["empower"]);
+});
+
+test("ven-035-166 Sanction golden: mode 2 disempowers the chosen Empowered unit through the real choice", () => {
+  const kernel = world().unit("unit", { zone: "board" }).build();
+  kernel.perform({ type: "empower", object: kernel.ref("unit") });
+  kernel.setAnswers({ "sanction.choose-one/mode%3A0": "sanction.disempower-then-empower" });
+  kernel.setTargets("sanction.empowered-unit", [kernel.ref("unit")]);
+
+  const outcome = resolveChainBody(prunedModeBody(), kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(result => [result.id, result.result.status]), [
+    ["sanction.disempower-unit", "executed"],
+    ["sanction.choose-one", "executed"]
+  ]);
+  assert.deepEqual(outcome.linkedValues["sanction.choose-one.value"], ["sanction.disempower-then-empower"]);
+  assert.deepEqual(kernel.events.map(event => event.action), ["empower", "disempower"]);
+});
+
 test.todo(
   "ven-035-166 Sanction: register the two 'at end of turn' delayed actions (391.2, turn-end) — " +
     "effects/instructions has no card-facing trigger.delayed opcode even though " +
@@ -180,6 +236,6 @@ test.todo(
 
 test.todo(
   "ven-035-166 Sanction: decide the mode at Finalize (355.3) — chain/engine.ts " +
-    "assertFinalizationSurface throws ChainContractBlockedError for choice.mode until the Finalize/Resolve " +
-    "choice-plan adapter lands (RIFT-90)"
+    "programs/play.ts validateSurface judge-requires choice.mode until the Finalize/Resolve " +
+    "choice-plan adapter lands (RIFT-90); the interpreter-side choice.mode primitive executes"
 );
