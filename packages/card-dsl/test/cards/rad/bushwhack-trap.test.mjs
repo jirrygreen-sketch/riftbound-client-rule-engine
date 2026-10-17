@@ -29,10 +29,10 @@ test("rad-108-167 Bushwhack Trap: program validates and keeps identity", () => {
 test("rad-108-167 Bushwhack Trap: judgeReason names Deploy, the Facedown Zone and the control clause", () => {
   assert.match(program.judgeReason, /Deploy/);
   assert.match(program.judgeReason, /830\.1\.b/);
-  assert.match(program.judgeReason, /RIFT-357/);
   assert.match(program.judgeReason, /facedown-zone/);
   assert.match(program.judgeReason, /107\.3\.b\.1/);
   assert.match(program.judgeReason, /190\.6/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-357|RIFT-359/);
 });
 
 test("rad-108-167 Bushwhack Trap: [Deploy] is declared as a keyword and nothing else (830.1/830.2)", () => {
@@ -57,7 +57,7 @@ test("rad-108-167 Bushwhack Trap: the Facedown-Zone permission is a static trait
 
 test.todo(
   "rad-108-167 Bushwhack Trap: [Deploy] expansion still needs its source-Battlefield here anchor " +
-    "and the location/cleanup consumers before the hold trigger can bind (CR 830.1.b; RIFT-357)"
+    "and the location/cleanup consumers before the hold trigger can bind (CR 830.1.b)"
 );
 test.todo(
   "rad-108-167 Bushwhack Trap: 'that player may hide an additional card here' raising the battlefield's " +
@@ -66,6 +66,6 @@ test.todo(
 );
 test.todo(
   "rad-108-167 Bushwhack Trap: 'while you or an ally control this battlefield' resolving the battlefield " +
-    "controller (190.6.a/190.6.d) with the here referent (CR 053.3; RIFT-357 / RIFT-359)"
+    "controller (190.6.a/190.6.d) with the here referent (CR 053.3)"
 );
 

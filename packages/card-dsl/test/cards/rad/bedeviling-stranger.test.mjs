@@ -34,13 +34,11 @@ test("rad-107-167 Bedeviling Stranger: program validates and keeps identity", ()
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("rad-107-167 Bedeviling Stranger: judgeReason names the location, gate and Hidden gaps", () => {
-  assert.match(program.judgeReason, /choose a battlefield/);
-  assert.match(program.judgeReason, /there/);
+test("rad-107-167 Bedeviling Stranger: judgeReason names the gate and Hidden gaps", () => {
   assert.match(program.judgeReason, /4 or more/);
   assert.match(program.judgeReason, /cost\.hidden/);
   assert.match(program.judgeReason, /Hide 动作/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-257|target\.location 一族未合入/);
 });
 
 test("rad-107-167 Bedeviling Stranger: [Hidden] stays one keyword declaration with a registered KeywordDef", () => {
@@ -65,11 +63,21 @@ test("rad-107-167 Bedeviling Stranger: 'you may return …' is choice.optional w
   assert.equal(mayReturn.id, "bedeviling-stranger.may-return");
   assert.equal(mayReturn.op, "choice.optional");
   assert.equal(mayReturn.linkedTo, undefined);
+  assert.deepEqual(mayReturn.locations, [
+    {
+      id: "bedeviling-stranger.chosen-battlefield",
+      type: "battlefield",
+      min: 1,
+      max: 1,
+      selection: "one"
+    }
+  ]);
   assert.equal(mayReturn.args.body.kind, "constant");
   assert.deepEqual(mayReturn.args.body.value.map(entry => entry.id), [
     "bedeviling-stranger.return-enemy"
   ]);
   assert.equal(returnEnemy.op, "effect.zone");
+  assert.equal(returnEnemy.locations, undefined);
   assert.deepEqual(returnEnemy.args.to, { kind: "constant", value: "hand" });
   assert.deepEqual(returnEnemy.args.target, {
     kind: "constant",
@@ -129,7 +137,13 @@ test("rad-107-167 Bedeviling Stranger: declining moves nothing", () => {
     .unit("stranger", { location: { type: "battlefield", id: "bf-1" } })
     .unit("enemy", { owner: "B", location: { type: "battlefield", id: "bf-1" } })
     .build();
-  kernel.setAnswers({ "bedeviling-stranger.may-return/optional": false });
+  kernel.setAnswers({
+    "bedeviling-stranger.may-return/location%3Abedeviling-stranger.chosen-battlefield": {
+      type: "battlefield",
+      id: "bf-1"
+    },
+    "bedeviling-stranger.may-return/optional": false
+  });
   const outcome = runAbilityBody(playTrigger.body, kernel);
   assert.equal(outcome.results[0].result.status, "negated");
   assert.equal(outcome.results[0].result.reason, "skipped");
@@ -156,17 +170,13 @@ test("rad-107-167 Bedeviling Stranger: a stale target makes the return instructi
 });
 
 test.todo(
-  "rad-107-167 Bedeviling Stranger: 'choose a battlefield' as a dynamic location choice and the " +
-    "'4 or more units there' gate binding 'there' to that battlefield (CR 355.5/355.10.b; " +
-    "target.location family not merged)"
+  "rad-107-167 Bedeviling Stranger: consume the chosen battlefield binding for the '4 or more units there' " +
+    "gate and the enemy target's same-location restriction (CR 355.5/355.10.b); the condition/count path " +
+    "cannot yet read a LocationTargetSpec binding"
 );
 test.todo(
   "rad-107-167 Bedeviling Stranger: [Hidden] expansion — the KeywordDef is merged but the Hide " +
     "action, facedown zone and next-turn [Reaction] play ignoring the base cost " +
     "(CR 811.1.b/811.1.d, cost.hidden) have no consumer"
-);
-test.todo(
-  "rad-107-167 Bedeviling Stranger: the card-played trigger needs the CardProgram → " +
-    "TriggerRegistration binding (RIFT-257)"
 );
 

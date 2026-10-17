@@ -28,14 +28,12 @@ import type { CardProgram } from "../../ir/index.js";
  * expressible: the trigger matcher matches the `zone: "battlefield"` filter
  * against the pre-move snapshot (`location?.type`), so the filter below is
  * evaluated by the merged matcher and has a golden execution test. The
- * remaining gaps:
- * - "you may pay :rb_energy_1:" needs the cost.pay instruction primitive and
- *   its Finalize/payment wiring (RIFT-261);
+ * remaining gap:
  * - "return it to its owner's hand" needs an event-object selector: the gear
  *   has already left the Board when the trigger resolves, and the merged
  *   pick/target system cannot name it (CR 355.10.c / 359.3.e.13);
- * - the trigger subscription needs the CardProgram → TriggerRegistration
- *   binding (RIFT-257).
+ * The cost.pay primitive and CardProgram → TriggerRegistration binding are
+ * merged; the payment uses the current `payments` shape below.
  * No semantics are approximated: the ability keeps its declared shape.
  */
 export default {
@@ -43,10 +41,9 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1)「you may pay :rb_energy_1:」需要 cost.pay 指令原语与 Finalize 收费接线（RIFT-261）；" +
-    "(2)「return it … to its owner's hand」需要在对象已离场后按事件对象回收（355.10.c / 359.3.e.13），" +
+    "唯一缺口是「return it … to its owner's hand」需要在对象已离场后按事件对象回收（355.10.c / 359.3.e.13），" +
     "当前 pick/target 只能引用仍在原区的对象，ObjectSelector 没有事件对象形式；" +
-    "(3) 触发订阅需要 CardProgram → TriggerRegistration 绑定（RIFT-257）。" +
+    "cost.pay 的 payments 形状与 CardProgram → TriggerRegistration 绑定均已合入，并由测试覆盖。" +
     "「died at a battlefield」的 355.10.b 限制已可由合并匹配器的 zone:\"battlefield\" 过滤表达" +
     "（pipeline-match.ts 用换区前快照的 location.type 求值）并有真实匹配执行测试；不近似实现。",
   abilities: [
@@ -74,7 +71,7 @@ export default {
                 {
                   id: "battlefield-armorer.pay",
                   op: "cost.pay",
-                  args: { energy: { kind: "constant", value: 1 } }
+                  args: { payments: { kind: "constant", value: { energy: 1 } } }
                 },
                 {
                   // "return it to its owner's hand" — the dying gear is named

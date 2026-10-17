@@ -40,8 +40,7 @@ test("rad-140-167 Chronobreak: judgeReason names the variable cost, lost locatio
   assert.match(program.judgeReason, /428/);
   assert.match(program.judgeReason, /effect\.play/);
   assert.match(program.judgeReason, /356\.1\.b\.1/);
-  assert.match(program.judgeReason, /RIFT-357/);
-  assert.match(program.judgeReason, /RIFT-358/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-357|RIFT-358/);
 });
 
 test("rad-140-167 Chronobreak: structure — mandatory variable Power cost plus banish and play-back", () => {
@@ -154,5 +153,5 @@ test.todo(
   "rad-140-167 Chronobreak: 'its owner plays that unit back to the same location or to their base, " +
     "ignoring its cost' — needs the pre-banish location, a per-object owner chooser with a per-object " +
     "destination choice, and an ignore-cost play rewrite (CR 420.3 / 356.1.b.1); effect.play-back " +
-    "has no production consumer, while location selection and ordered picks remain RIFT-357 / RIFT-358 work"
+    "has no production consumer"
 );
