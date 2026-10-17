@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
+import { translateCost } from "../../../../engine-core/dist/programs/play.js";
 import resources from "../../../../engine-core/dist/effects/instructions/effect.resources.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import program from "../../../dist/cards/ogs/lux-crownguard.js";
@@ -24,12 +25,9 @@ test("ogs-014-024 Lux, Crownguard: program validates and is judge-required", () 
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
-test("ogs-014-024 Lux, Crownguard: judgeReason names restricted resource accounting and the cost gap", () => {
+test("ogs-014-024 Lux, Crownguard: judgeReason names restricted resource accounting", () => {
   assert.match(program.judgeReason, /only to play spells/);
-  assert.match(program.judgeReason, /continuous\.restrict/);
-  assert.match(program.judgeReason, /RIFT-259/);
-  assert.match(program.judgeReason, /cost\.activated/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /受限资源|restricted share|份额/);
 });
 
 test("ogs-014-024 Lux, Crownguard: Reaction-speed activated ability pays exhaust and adds 2 energy", () => {
@@ -54,6 +52,13 @@ test("ogs-014-024 Lux, Crownguard: Reaction-speed activated ability pays exhaust
   assert.deepEqual(instruction.args.usage, { kind: "constant", value: "spell-energy-costs-only" });
   assert.equal(instruction.targets, undefined);
   assert.equal(instruction.linkedTo, undefined);
+});
+
+test("ogs-014-024 Lux, Crownguard: cost.activated normalizes to the activated payment plan", () => {
+  assert.deepEqual(translateCost(ability.cost, CANONICAL, "activate"), {
+    kind: "activated",
+    payments: [{ kind: "exhaust" }]
+  });
 });
 
 test("ogs-014-024 Lux, Crownguard: the Add instruction credits 2 energy to the controller's rune pool", () => {
@@ -87,15 +92,8 @@ test("ogs-014-024 Lux, Crownguard: a replacement hook can negate the Add without
 
 test.todo(
   "ogs-014-024 Lux, Crownguard: the 2 energy added is tracked as a restricted share spendable only on spell " +
-    "energy costs (CR 054.2, 163.1, 166.1, 430.2, 430.3) — continuous.restrict (RIFT-259) registers " +
+    "energy costs (CR 054.2, 163.1, 166.1, 430.2, 430.3) — continuous.restrict registers " +
     "prohibit/require/permit/limit/applied-cost modes but has no added-resource restricted-share channel, " +
     "and effect.resources only merges energy into one balance; a global restriction or an ignored " +
     "restriction is not acceptable"
-);
-
-test.todo(
-  "ogs-014-024 Lux, Crownguard: exhausting this unit is charged at Finalize as the activated ability's cost " +
-    "(CR 376, 813.1.c/813.1.d) — the cost-plan payment reader accepts kind activated/explicit only, not " +
-    "the card's cost.activated spelling, and the Finalize binding for activated abilities belongs to " +
-    "RIFT-257/RIFT-261 (cost.pay unmerged)"
 );

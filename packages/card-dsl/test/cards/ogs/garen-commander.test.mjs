@@ -30,14 +30,14 @@ test("ogs-013-024 Garen, Commander: program validates and is judge-required", ()
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, "Other friendly units have +1 :rb_might: here.");
-  // README section 2: name the missing semantics and the dependent task.
-  assert.match(program.judgeReason, /RIFT-257/);
+  // README section 2: name the missing semantics and the current dependency.
   assert.match(program.judgeReason, /static/);
 });
 
-test("ogs-013-024 Garen, Commander: judgeReason names the static-ability registration gap and the here/other set", () => {
+test("ogs-013-024 Garen, Commander: judgeReason names the source-relative filter gap", () => {
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /sameLocationAs/);
+  assert.match(program.judgeReason, /exclude/);
   assert.match(program.judgeReason, /053\.3/);
 });
 
@@ -100,8 +100,7 @@ test("ogs-013-024 Garen, Commander: the here/other filter matches exactly the co
 });
 
 test("ogs-013-024 Garen, Commander golden: the effect half registers +1 Might only for the co-located friendly units", () => {
-  // The static ability itself still needs the RIFT-257 registration path, but
-  // the merged continuous.might primitive plus the interpreter's anchor query
+  // The static ability binding path exists, but the merged continuous.might primitive plus the interpreter's anchor query
   // execute the card's own filter exactly as printed: "other friendly units
   // here" is the controller's units at the host's location, excluding the host
   // (CR 053.3, 355.10.d, 359.3.f.2).
@@ -158,6 +157,6 @@ test("ogs-013-024 Garen, Commander golden: the effect half registers +1 Might on
 
 test.todo(
   "ogs-013-024 Garen, Commander: the printed static ability itself registers when Garen enters and " +
-    "re-evaluates as units move (CR 143.2, 053.3) — depends on the CardProgram static-ability " +
-    "registration path and dynamic host/location binding (RIFT-257)"
+    "re-evaluates as units move (CR 143.2, 053.3) — depends on source-relative exclusion and " +
+    "dynamic host/location binding in the static layer"
 );
