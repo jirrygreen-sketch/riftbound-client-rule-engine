@@ -1,5 +1,5 @@
-// Scenario evidence: ../templates/static-641.test.mjs (supported paths and explicit binding gaps).
-// Whole-card execution remains pending; the existing component evidence below is retained.
+// Scenario execution evidence: ../templates/static-666.test.mjs (one row per card plus condition boundaries).
+// This file retains validation, identity, and key IR structure checks; whole-card status stays judge-required until all consumers exist.
 import assert from "node:assert/strict";
 import test from "node:test";
 
