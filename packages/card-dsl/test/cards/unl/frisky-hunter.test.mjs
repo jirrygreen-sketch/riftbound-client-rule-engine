@@ -3,8 +3,10 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/frisky-hunter.js";
-import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 
 const CANONICAL_ID =
   "card.hash-3a7cc51beec4c03c4ab2831bc17b65610301b0eacb31ebfd269232c29dea5258";
@@ -36,7 +38,6 @@ test("unl-033-219 Frisky Hunter: identity, status, judgeReason and verbatim sour
 test("unl-033-219 Frisky Hunter: card-played self trigger plays the CR 187.7 Bird token here", () => {
   assert.equal(program.abilities.length, 1);
   assert.equal(ability.kind, "triggered");
-  // 383.4.a / 420.4.a：打出完成的时点；符号选择器指向能力来源。
   assert.equal(ability.trigger.at, "card-played");
   assert.deepEqual(ability.trigger.filter, {
     event: "card-played",
@@ -47,12 +48,12 @@ test("unl-033-219 Frisky Hunter: card-played self trigger plays the CR 187.7 Bir
 
   assert.equal(playBird.id, "frisky-hunter.play-bird");
   assert.equal(playBird.op, "effect.token");
-  // 187.7：1 [M] Bird token（域外、Bird 标签、带 [Deflect]）。
+  // 187.7: the 1 [M] Bird token (domainless, Bird tag, [Deflect]).
   assert.deepEqual(playBird.args.token, { kind: "constant", value: "bird" });
   assert.deepEqual(playBird.args.amount, { kind: "constant", value: 1 });
-  // 440.2.c / 185.2.a：被“打出”的 token 先在链上生成，再交给 play 动作。
+  // 440.2.c / 185.2.a: a played token is created on the Chain first.
   assert.deepEqual(playBird.args.mode, { kind: "constant", value: "play" });
-  // “here” = 结算时来源所在的位置（契约 3.6 的符号选择器；argsSchema 尚未同步该形状）。
+  // "here" = the source's location at resolution (contract 3.6 selector).
   assert.deepEqual(playBird.args.location, {
     kind: "object-property",
     object: "source",
@@ -64,9 +65,26 @@ test("unl-033-219 Frisky Hunter: card-played self trigger plays the CR 187.7 Bir
   assert.equal(playBird.linkedTo, undefined);
 });
 
+test("unl-033-219 Frisky Hunter: the trigger registers through the merged program binding", () => {
+  // RIFT-257: the card-played subscription is produced from the card program;
+  // the body still cannot execute as written for the missing 187.7 definition.
+  const { judgeReason, ...rest } = program;
+  const binding = createProgramBinding({ cardPrograms: [{ ...rest, status: "executable" }] });
+  const source = {
+    ref: { id: "frisky-hunter", zoneEntryId: 1 }, cardId: CANONICAL_ID, name: "Frisky Hunter",
+    types: ["unit"], tags: [], keywords: [], owner: "A", controller: "A", zone: "board",
+    location: BATTLEFIELD, might: 3, energy: 4, power: null, exhausted: false, damage: 0,
+    stunned: false, buffs: 0, attachedTo: null, faceDown: false, isToken: false, combatRole: null
+  };
+  const expanded = binding.inspect(source).abilities.filter((entry) => entry.kind === "triggered");
+  assert.equal(expanded.length, 1);
+  assert.equal(expanded[0].trigger.at, "card-played");
+  assert.equal(expanded[0].optional, false);
+});
+
 test("unl-033-219 Frisky Hunter golden: the same play-mode shape really creates and plays a defined token", () => {
-  // 证明指令形状就是已合入的 440.2.c / 185.2.a 交接路径（只在卡面上把定义换成 merged 的 mech）：
-  // 缺的只是 187.7 的 Bird 定义本身，不为 Bird 发明语义。
+  // Proves the declared instruction shape is the merged 440.2.c / 185.2.a handoff
+  // path; only the 187.7 Bird definition itself is missing.
   const kernel = world()
     .unit("frisky-hunter", { zone: "board", location: BATTLEFIELD, might: 3 })
     .build();
@@ -103,11 +121,12 @@ test.todo(
 );
 test.todo(
   "unl-033-219 Frisky Hunter: decode the symbolic 'here' location (contract 3.6 ObjectSelector) in " +
-    "effect.token.argsSchema so the card's own IR shape executes as written (RIFT-62 / RIFT-1)"
+    "effect.token.argsSchema so the card's own IR shape executes as written (RIFT-62)"
 );
 test.todo(
   "unl-033-219 Frisky Hunter: the Bird's [Deflect] target tax with any-domain Power payment " +
-    "(CR 809.1.c.1) needs the target-plan tax consumer (RIFT-90)"
+    "(CR 809.1.c.1) — target/ implements the Deflect tax, but no caller derives it from the " +
+    "target's keywords yet (RIFT-90 follow-up)"
 );
 test.todo(
   "unl-033-219 Frisky Hunter: fire the card-played trigger from the real chain flow (CR 420.4.a) — " +

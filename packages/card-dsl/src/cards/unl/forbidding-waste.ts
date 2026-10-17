@@ -24,45 +24,41 @@ import type { CardProgram } from "../../ir/index.js";
  *   no printed "to a minimum of" here).
  * - 053.3 / 199.1: "here" is this Battlefield.
  *
- * Status: judge-required — three merged gaps, none approximated:
- * 1. no merged path registers a CardProgram's static ability as a
- *    ContinuousEffectSpec (registerContinuousEffect has no caller; engine-core
- *    never reads card-program abilities), so the layer effect cannot be
- *    installed (RIFT-91 follow-up; same gap as rad/packed-amphitheater,
- *    ogn/wielder-of-water).
- * 2. the merged layer filter implements no sameLocationAs anchor, so the
- *    effect would leak to units at every Battlefield and mis-apply the -2.
- * 3. the conditions cannot be evaluated: `conditionMatches` in layers/engine.ts
- *    returns true for every condition kind except always/never/type/has-tag/
- *    has-keyword, so the compare conditions below are not evaluated, and the
- *    "alone" predicate needs a location-relative count of other friendly units
- *    that the frozen filter/query surface cannot express for a layer effect
- *    (the interpreter's count/sameLocationAs/exclude vocabulary is not read by
- *    the layers engine). The defending designation is likewise absent (the
- *    contract §3.8 combatRole field is not implemented).
- * The program keeps the exact printed shape (arithmetic -2 for units at this
- * Battlefield, gated on defending + alone) so the gaps stay auditable; the
- * golden test asserts identity/structure and records the missing registration,
- * filter anchors and designation/predicate support as `test.todo`.
- *
- * Dependencies: RIFT-91 follow-up (card→layer registration, sameLocationAs and
- * count/exclude predicates in the layer filter) and contract §3.8's
- * combatRole/designation characteristic with the combat wiring (engine batch 5,
- * combat/ is not bridged to the chain/events pipeline).
+ * Status: judge-required — the merged dependencies remove none of these three gaps:
+ * 1. no merged implementation turns a CardProgram static ability into a layers
+ *    ContinuousEffectSpec: programs/statics.ts only exposes the bindStatic callback seam
+ *    (RIFT-257) and registerContinuousEffect still has no production caller, so this -2 cannot
+ *    be installed (RIFT-91 follow-up; same gap as rad/packed-amphitheater).
+ * 2. layers/filter.ts implements no sameLocationAs anchor, so the declared filter would leak
+ *    the -2 to units at every Battlefield instead of 053.3/199.1’s "here".
+ * 3. the conditions cannot be evaluated: layers/engine.ts conditionMatches returns true for
+ *    every condition kind except always/never/type/has-tag/has-keyword, so the compare below
+ *    is not evaluated, the 740.2.a "alone" predicate needs a location-relative count of other
+ *    friendly units that the layer filter cannot express, and 814.1.d’s Defender designation
+ *    has no producer in combat/ (contract §3.8 combatRole exists on ObjectSnapshot but is
+ *    never set by the merged combat flow).
+ * The program keeps the exact printed shape (arithmetic -2 for units at this Battlefield,
+ * gated on defending + alone) so the gaps stay auditable; the golden test asserts
+ * identity/structure and records the missing registration, filter anchors and
+ * designation/predicate support as test.todo.
+ * Dependencies: RIFT-257/RIFT-91 (card static -> layer registration, sameLocationAs and
+ * count/exclude predicates in the layer filter) and the 814.1.d Defender designation fed
+ * from combat (RIFT-124 follow-up).
  */
 export default {
   canonicalCardId: "card.hash-62355f7fd2699dda34a1601a315ab1ee9095ff67da700d49567b54955780324f",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1) 没有任何已合入路径把 CardProgram 的 static 能力注册成 layers/LayerEngine 的 ContinuousEffectSpec" +
-    "（registerContinuousEffect 没有调用方，engine-core 不读取卡牌能力；RIFT-91 后续，同 rad/packed-amphitheater、ogn/wielder-of-water）。" +
+    "(1) 没有任何已合入实现把 CardProgram 的 static 能力注册成 layers/LayerEngine 的 ContinuousEffectSpec：" +
+    "programs/statics.ts 只提供 bindStatic 回调接缝（RIFT-257），registerContinuousEffect 仍没有生产调用方，" +
+    "本卡的 -2 无法安装（RIFT-91 后续，同 rad/packed-amphitheater）。" +
     "(2) layers/filter.ts 不实现 053.3 的 sameLocationAs 锚点：按声明注册会把 -2 加到所有战场上的单位（与「a unit here」不符，过度应用）。" +
     "(3) 条件无法求值：layers/engine.ts 的 conditionMatches 只认 always/never/type/has-tag/has-keyword，其余 Condition 一律返回 true；" +
-    "「defending」需要 814.1.d/466.2.c.3 的 Defender designation（契约 3.8 的 combatRole 字段未在 engine-core 落地），" +
+    "「defending」需要 814.1.d/466.2.c.3 的 Defender designation（契约 3.8 的 combatRole 字段虽在 ObjectSnapshot 上，但合并的战斗流程从不设置它），" +
     "「alone」需要 740.2.a 的同地点其他友方单位计数（解释器的 count/sameLocationAs/exclude 词汇不被 layers 读取）。" +
     "程序保留精确的印刷形状（arithmetic 层 -2、here 锚点、defending + alone 门）供审查；不近似实现、不改写成 Buff 计数器（CR 702/703 是另一种对象）。" +
-    "依赖：RIFT-91 后续与契约 §3.8 combatRole/designation 及战斗接线（契约 §7.2 批 5）。",
+    "依赖：RIFT-257/RIFT-91 后续与 814.1.d 的 designation 生产方（RIFT-124 后续）。",
   sourceText:
     "While a unit here is defending alone, it has -2 :rb_might:. " +
     "(It's alone if there are no other friendly units here.)",

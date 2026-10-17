@@ -24,19 +24,17 @@ import type { CardProgram } from "../../ir/index.js";
  *   需要从费用选择的结果读取位置（见 judgeReason）。
  * - “to pay for this ability” 是规则提示语，不是额外指令；括号外整句只有一条效果。
  *
- * status = judge-required（缺口不近似实现）：
- * - 目的地不可表达：CR 355.4 要求效果指出目的地，而“the location of the unit you
- *   exhausted” 是费用选择对象的运行期位置。契约 3.6 的 ObjectSelector 只有
- *   self/source/target/pick/linked；费用选择的引用对 ResolveContext 不可见
- *   （ctx.picks 只反映 PickSpec，费用 choice 的答案不进链接值），effect.move 的 to
- *   只接受静态 LocationRef / controller-base / 静态候选列表，没有“某对象的当前位置”
- *   选择器。写死某个基地/战场会移动错地点，不近似。
- * - 费用内的横置选择也没有卡牌可读的接线：CostSpec 的 payments 只能携带静态
- *   PickSpec/options，运行期的 Board 单位集合无法在静态 IR 里枚举（本程序用
- *   options 占位标记，见回复的契约变更请求）。
- * - 缺少卡牌程序 → 启动能力注册/费用计划 → 链的接线（契约 3.5）。
- * 依赖：RIFT-89/90（费用选择结果与位置读取、目标/目的地计划）。effect.move 本体的
- * move-location 部分已合入，golden 用参考内核执行静态目的地的对照场景。
+ * status = judge-required（已按合入依赖复核，缺口不近似实现）：
+ * - 目的地仍不可表达：CR 355.4 要求效果指出目的地，而 “the location of the unit you exhausted” 是费用选择对象的
+ *   运行期位置。契约 3.6 的 ObjectSelector 只有 self/source/target/pick/linked，费用选择的引用既不是 target 也不是
+ *   pick，ResolveContext 没有读取费用选择引用的入口；effect.move 的 to 只接受 LocationRef / controller-base /
+ *   静态候选列表（静态 { kind: "location-of", … } 会被 argsSchema 拒绝），写死某个基地/战场会移动错地点，不近似。
+ * - 费用内的横置选择仍不可支付：CostSpec 的 PickSpec.options 必须是精确 ObjectRef（cost/plan-values.ts 的 reference()），
+ *   运行期 Board 单位集合无法在静态 IR 里枚举；本程序保留 options 占位标记（见回复的契约变更请求）。
+ * - 已合入的部分：卡牌程序 → 启动能力描述的生产适配器（RIFT-257 programs/activate.ts 的 describeActivate 能为本卡产出
+ *   action 速度的 ChainDraft），以及 “, :rb_exhaust:” 的 cost.exhaust 费用计划与 effect.move 本体（golden 用参考内核执行
+ *   静态目的地的对照场景）。但 Finalize 的费用计划仍会因占位 options 失败，整卡不能执行。
+ * 依赖：RIFT-89/90（费用选择结果与位置读取）、RIFT-261（费用种类与 cost.pay/cost.modify）。
  */
 export default {
   canonicalCardId:
@@ -48,9 +46,11 @@ export default {
     "而契约 3.6 的 ObjectSelector 只有 self/source/target/pick/linked，费用选择的结果既不是 target 也不是 pick，" +
     "ResolveContext 没有读取费用选择引用的入口；effect.move 的 to 只接受静态 LocationRef / controller-base / 静态候选列表，" +
     "写死某个基地或战场会移动到错误地点。" +
-    "(2) 费用内的 “Exhaust a unit you control” 需要运行期的 Board 单位集合作为 CostSpec 选择集合，静态 IR 无法枚举（本程序只用占位 options 标记形状）。" +
-    "(3) 缺少卡牌程序 → 启动能力注册/费用计划 → 链的接线（契约 3.5）。" +
-    "依赖 RIFT-89/90（费用选择结果回执、位置选择器与目标/目的地计划）；不近似实现。",
+    "(2) 费用内的 “Exhaust a unit you control” 仍不可支付：CostSpec 的 PickSpec options 必须是精确 ObjectRef（cost/plan-values.ts 的 reference()），" +
+    "运行期 Board 单位集合无法在静态 IR 里枚举（本程序只用占位 options 标记形状）。" +
+    "(3) 已解决的部分：卡牌程序 → 启动能力描述的生产适配器（RIFT-257 programs/activate.ts 的 describeActivate）已合入，" +
+    "本卡能产出 action 速度的 ChainDraft；但 Finalize 的费用计划仍因占位 options 失败，整卡不能执行。" +
+    "依赖 RIFT-89/90（费用选择结果回执、位置选择器）与 RIFT-261（费用种类与 cost.pay/cost.modify）；不近似实现。",
   abilities: [
     {
       kind: "activated",

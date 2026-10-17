@@ -32,20 +32,20 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   while you have 6+ XP.)” 是提醒文本（不是另外的能力）：前者对应 430.2.a 的
  *   Priority/Focus 不传递；后者是 824.1 的 XP 门槛本身。
  *
- * status = judge-required（缺口不近似实现）：
- * 1. 缺入场状态改写原语：契约 3.4/3.5 的替代族里没有卡牌 IR 可注册的
- *    replacement.enter（Accelerate 805.6 同型），effect.exhaust 不等价（见上）。
- * 2. “[A] 任意域 Power” 不可表达：契约与内核的 Domain 是 Fury/Calm/Mind/Body/Chaos/Order
- *    六域封闭集合（effects/contract.ts），effect.resources 明确记录 163.2.b 的 Universal
- *    Power 不可表达、绝不用某个域近似（已合入 ogn/daughter-of-the-void、rad/iron-revenant
- *    同型，程序以 { power: ["rainbow"] } 保留记号，原语对其返回 negated(impossible)）。
- * 3. 缺 Level 关键词展开（kw-level）：824.1.c 的“控制者有 6+ XP 时依赖能力 Active”需要
- *    可求值的 XP 谓词，合并 IR 的 Condition 只有 always/never/expression/compare/all/any/not，
- *    读取 PlayerSnapshot.xp 没有进入 Expr/谓词的路径；824.1.c.1/.d 的动态失活同样缺失。
- * 4. 费用与启动接线：两条能力都靠费用计划来横置来源，契约 3.5 的“卡牌程序 → 启动能力
- *    注册 → 链”尚无生产方。
- * 依赖：RIFT-89（费用/支付接线）、RIFT-90（目标与费用选择）、RIFT-91（图层/依赖能力）、
- * kw-level 与 replacement.enter；[A] 与印刷费用符号的承载字段属契约级缺口。
+ * status = judge-required（已按合入依赖复核；缺口不近似实现）：
+ * 1. 已解决：“This enters exhausted.” 的原语与绑定已合入（RIFT-260 replacement.enter + replacement/bind.ts），
+ *    golden 直接绑定本卡的声明并真实执行入场改写；但 CardProgram → replacement 注册的生产实现仍缺：
+ *    programs/statics.ts 只提供 bindReplacement 回调接缝（RIFT-257），没有调用 replacement/bind.ts 的实现。
+ * 2. “[A] 任意域 Power” 仍不可表达：契约与内核的 Domain 是 Fury/Calm/Mind/Body/Chaos/Order 六域封闭集合
+ *    （effects/contract.ts），effect.resources 对 Universal Power 明确返回 negated(impossible)、绝不用某个域近似
+ *    （已合入 ogn/daughter-of-the-void、rad/iron-revenant 同型）；程序以 { power: ["rainbow"] } 保留记号。
+ * 3. 已解决：启动能力描述的生产适配器已合入（RIFT-257 programs/activate.ts），本卡 Reaction Add 能力能产出 ChainDraft。
+ * 4. [Level 6] 的依赖能力仍不可用：程序用 restriction.kind = "dependent-keyword" 声明，但 programs/play.ts 的
+ *    translateRestriction 拒绝该 kind（"needs a rules adapter"）；824.1.c 的 XP 谓词也没有求值方
+ *    （合并的 Level KeywordDef 产出 condition.predicate + controller-xp 查询，但 layers/engine.ts 的 conditionMatches
+ *    不消费它，PlayerSnapshot.xp 也不能被 Expr 读取），824.1.c.1/.d 的动态失活同样缺失。
+ * 依赖：RIFT-257 后续（replacement 注册实现）、RIFT-261（费用种类与 cost.pay/cost.modify）、kw-level 的谓词求值；
+ * [A] 与印刷费用符号的承载字段属契约级缺口。
  */
 const abilities: Ability[] = [
   {
@@ -120,14 +120,16 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "(1) “This enters exhausted.” 需入场状态改写：契约 3.4/3.5 的替代族没有卡牌 IR 可注册的 replacement.enter" +
-    "（Accelerate 805.6 同型）；effect.exhaust 不等价——143.4/359.2.d 规定入场状态由进场动作决定，先入场再补横置会多出一次“成为横置”事件并错过入场替代。" +
-    "(2) [Add] :rb_rune_rainbow: 的任意域 [A] Power（430.5、135.2.e.5、163.2.b）不可表达：" +
-    "契约与内核的 Domain 是 Fury/Calm/Mind/Body/Chaos/Order 六域封闭集合，effect.resources 明确记录 Universal Power 不可表达、绝不用某个域近似。" +
-    "(3) 缺 Level 关键词展开（kw-level）：824.1.c 的“控制者有 6+ XP 时依赖能力 Active”需要可求值的 XP 谓词，" +
-    "合并 IR 的 Condition 没有读取 PlayerSnapshot.xp 的路径，824.1.c.1/.d 的动态失活同样缺失。" +
-    "(4) 两条启动能力的费用横置缺少“卡牌程序 → 启动能力注册 → 契约 3.5 链”的接线。" +
-    "依赖 RIFT-89/90/91 与 kw-level、replacement.enter；[A] 属契约级缺口。不近似实现。",
+    "(1) “This enters exhausted.” 的原语与绑定已合入（RIFT-260 replacement.enter + replacement/bind.ts），golden 直接绑定本卡声明并真实执行入场改写；" +
+    "但 CardProgram → replacement 注册的生产实现仍缺：programs/statics.ts 只提供 bindReplacement 回调接缝（RIFT-257），没有调用 replacement/bind.ts 的实现。" +
+    "effect.exhaust 不等价——143.4/359.2.d 规定入场状态由进场动作决定，先入场再补横置会多出一次“成为横置”事件并错过入场替代。" +
+    "(2) [Add] :rb_rune_rainbow: 的任意域 [A] Power（430.5、135.2.e.5、163.2.b）不可表达：契约与内核的 Domain 是六域封闭集合，" +
+    "effect.resources 明确记录 Universal Power 不可表达、返回 negated(impossible)，绝不用某个域近似。" +
+    "(3) 已解决：启动能力描述的生产适配器已合入（RIFT-257 programs/activate.ts），本卡 Reaction Add 能力能产出 ChainDraft；" +
+    "但 [Level 6] 的依赖能力仍不可用：restriction.kind = \"dependent-keyword\" 被 programs/play.ts 拒绝（\"needs a rules adapter\"），" +
+    "824.1.c 的 XP 谓词也没有求值方（合并的 Level KeywordDef 产出 condition.predicate + controller-xp 查询，layers/engine.ts 的 conditionMatches 不消费它，" +
+    "PlayerSnapshot.xp 也不能被 Expr 读取），824.1.c.1/.d 的动态失活同样缺失。" +
+    "依赖 RIFT-257 后续（replacement 注册实现）、RIFT-261（费用种类与 cost.pay/cost.modify）与 kw-level 谓词求值；[A] 属契约级缺口。不近似实现。",
   abilities,
   sourceText:
     "This enters exhausted.\n" +

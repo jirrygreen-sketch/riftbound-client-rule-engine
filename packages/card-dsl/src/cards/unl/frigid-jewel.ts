@@ -22,17 +22,19 @@ import type { CardProgram } from "../../ir/index.js";
  *   702/703 的 Buff 计数器是另一件事（已合入 ogn/darius-trifarian、unl/pridestalker、
  *   ogn/blastcone-fae 同型判定）。
  *
- * status = judge-required（缺口不近似实现）：
- * 1. “your second card each turn” 的可求值路径缺失：card-drawn 时点虽然声明了
- *    drawIndexThisTurn 载荷字段，但卡牌触发条件的求值入口（Condition/Expr）没有读取
- *    事件载荷的通道——Condition 只能读对象特征、链接值与对象计数，count 表达式不读
- *    事件载荷；合并 IR 也没有已注册的 condition.history 消费方（HistoryQuery 只按
- *    动作/时点计数，不表达“第几张”的序号）。count 表达式只是保留形状。
- * 2. “give a friendly unit +2 Might this turn” 无原语：契约 3.6 的封闭 GameAction 集合
- *    没有 might 修改动作，effects/instructions/ 下没有 continuous.might 文件，卡牌程序
- *    也无法把该持续效果注册进 layers（ctx.addContinuous 没有原语消费者）。
- * 3. 缺少卡牌程序 → TriggerRegistration 的接线（契约 3.5），card-drawn 触发不会被注册。
- * 依赖：引擎批 4 的事件载荷/触发条件求值（RIFT-120 后续）、RIFT-91（layers 的卡牌接入）。
+ * status = judge-required（缺口不近似实现；已按合入依赖复核）：
+ * 1. 剩余缺口：“your second card each turn” 仍无可求值路径。card-drawn 载荷的
+ *    drawIndexThisTurn（“本回合第几张”）要在触发进链前判定（383.2.a.1），而
+ *    events/pipeline.ts 对任何带 condition 的注册要求宿主提供 testTrigger 适配器
+ *    （"Trigger condition adapter required"，没有任何已合入 host 实现它）；Condition/Expr
+ *    自身也没有读取事件载荷的通道，HistoryQuery 只按动作/时点计数、不表达序号。
+ *    count 表达式只是保留形状，不把“第二张”放宽成“任意抽牌”。
+ * 2. 已解决：“+2 :rb_might: this turn” 由已合入的 continuous.might 原语执行（RIFT-258）：
+ *    它经 ctx.addContinuous 注册 arithmetic 层效果，this-turn 映射为 end-of-turn 期限
+ *    （317.1.a / 468.7.c / 479.4）；指令用契约 3.6 的 objects 选择器指回自己声明的
+ *    TargetSpec，golden 用链适配器真实执行并断言注册、有效 Might 与到期。
+ * 3. 已解决：卡牌程序 → TriggerRegistration 的接线（RIFT-257）已合入，card-drawn 触发可被注册。
+ * 依赖：引擎批 4 的触发条件求值（host.testTrigger 或事件载荷读取，RIFT-120 后续）。
  */
 export default {
   canonicalCardId:
@@ -40,14 +42,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "(1) “本回合抽到的第二张牌” 无可求值路径：触发条件需要读取 card-drawn 事件载荷的 drawIndexThisTurn（“本回合第几张”），" +
-    "但 Condition/Expr 只能读对象特征、链接值与对象计数，没有读取事件载荷的通道；HistoryQuery 只按动作/时点计数，不表达序号，" +
-    "condition.history 也没有已注册的卡牌侧消费方。count 表达式是保留形状，不把“第二张”近似成“任意抽牌”。" +
-    "(2) “+2 :rb_might: this turn” 无原语：契约 3.6 的封闭 GameAction 集合没有 might 修改动作，" +
-    "effects/instructions/ 下没有 continuous.might 文件，卡牌程序也没有把该持续效果注册进 layers 的指令入口" +
-    "（effect.buff 明确临时 Might 归 continuous.might，702/703 的 Buff 计数器是另一件事）。" +
-    "(3) 缺少卡牌程序 → TriggerRegistration 的接线（契约 3.5）。" +
-    "依赖引擎批 4 的事件载荷与触发条件求值（RIFT-120 后续）与 RIFT-91（layers 的卡牌接入）；不近似实现。",
+    "(1) “本回合抽到的第二张牌” 仍无可求值路径：card-drawn 载荷的 drawIndexThisTurn 要在触发进链前判定（383.2.a.1），" +
+    "而 events/pipeline.ts 对带 condition 的注册要求宿主提供 testTrigger 适配器（没有任何已合入 host 实现它），" +
+    "Condition/Expr 也不能读取事件载荷（HistoryQuery 只按动作/时点计数，不表达序号）；count 表达式是保留形状，" +
+    "不把“第二张”近似成“任意抽牌”。" +
+    "(2) 已解决：“+2 :rb_might: this turn” 由已合入的 continuous.might 原语（RIFT-258）执行——经 ctx.addContinuous 注册 arithmetic 层效果，" +
+    "this-turn → end-of-turn 期限（317.1.a / 468.7.c），指令用 objects 选择器指回自己声明的 TargetSpec；golden 已用链适配器真实执行。" +
+    "(3) 已解决：卡牌程序 → TriggerRegistration 的接线（RIFT-257）已合入。" +
+    "依赖：引擎批 4 的触发条件求值（host.testTrigger / 事件载荷读取，RIFT-120 后续）；不近似实现。",
   abilities: [
     {
       kind: "triggered",
@@ -61,7 +63,7 @@ export default {
         // 383.2.a.1：“your second card each turn” 紧跟触发条件，属于触发条件，
         // 在进链前求值。语义上要读的是 card-drawn 载荷的 drawIndexThisTurn == 2
         // （含刚抽到的这张），这里用等价的 count 表达式保留形状
-        // （事件载荷读取缺口见 judgeReason），不把“第二张”放宽成任意抽牌。
+        // （事件载荷读取与 testTrigger 适配器缺口见 judgeReason），不把“第二张”放宽成任意抽牌。
         condition: {
           kind: "compare",
           left: {
@@ -79,10 +81,16 @@ export default {
       body: [
         {
           id: "frigid-jewel.grant-might",
+          // RIFT-258：已合入的 continuous.might 原语固定 arithmetic 层；objects 用契约 3.6
+          // 的选择器指回本指令声明的 TargetSpec（缺省选择器是来源自身）。
           op: "continuous.might",
           args: {
             amount: { kind: "constant", value: 2 },
-            duration: { kind: "constant", value: "end-of-turn" }
+            duration: { kind: "constant", value: "end-of-turn" },
+            objects: {
+              kind: "constant",
+              value: { kind: "target", id: "frigid-jewel.friendly-unit" }
+            }
           },
           targets: [
             {

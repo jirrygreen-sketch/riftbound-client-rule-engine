@@ -22,24 +22,28 @@ import type { CardProgram } from "../../ir/index.js";
  *   restriction；位置锚点用冻结 ObjectFilter 的 sameLocationAs）。
  * - 括号内是该动作结果的释义，不是独立指令，因此不另写指令。
  *
- * status: judge-required —— 「+1 Might this turn」没有已合入原语：契约 3.6 的封闭
- * GameAction 集合没有 Might 修改动作，effects/instructions 也没有 continuous.might
- * 的卡牌入口（RIFT-91）。不把 +1 近似成 effect.buff（702 Buff 计数器）。Stun 半段
- * 已用 effect.stun 写全并在 golden 中真实执行（含目标失效边界）。
- *
- * 依赖：RIFT-91（layers/continuous.might 的卡牌指令入口）。无契约变更请求。
+ * status: judge-required —— 两条正文指令都已可由已合入原语真实执行，但整卡仍不能 as-written 生产执行：
+ * - 已解决：「Give a friendly unit +1 :rb_might: this turn」由已合入的 continuous.might 原语执行（RIFT-258）：
+ *   它经 ctx.addContinuous 注册 arithmetic 层效果，this-turn 映射为 end-of-turn 期限（317.1.a / 468.7.c / 433.1.a），
+ *   指令用契约 3.6 的 objects 选择器指回自己声明的 TargetSpec；「[Stun] an enemy unit」由已合入的 effect.stun 执行（424.1），
+ *   golden 用解释器 + 参考内核真实执行（含目标失效边界）。
+ * - 剩余缺口：「at its location」的 sameLocationAs 锚点（355.10.b）不被 programs/filters.ts 接受（允许字段集合里没有该键，
+ *   抛 judge-required "Unsupported filter field sameLocationAs"）：生产打出时 describePlay → translateInstructionTargets 会失败，
+ *   因此本卡无法 as-written 绑定/打出；已合入的锚点求值只在解释器侧（effects/interpreter/selectors.ts 的 queryObjects）。
+ *   不把 +1 近似成 effect.buff（702 Buff 计数器），也不硬编码战场身份。
+ * 依赖：programs/filters.ts 与 target/ 的位置锚点接线（RIFT-90 后续）。
  */
 const program = {
   canonicalCardId: "card.hash-7df5a08371438cce0299d5cb0462f93ad1b442be5e5d5f288e5a0ce882fa4230",
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "「Give a friendly unit +1 :rb_might: this turn」是 143.2.a 的临时 Might 修正（317.2.c 到期、433.1.a 图层），" +
-    "契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，effects/instructions 也没有卡牌可用的 continuous.might 指令" +
-    "（图层消费方与期限归 RIFT-91）；effect.buff 的文档明确临时 Might 不入 Buff 计数器（702/703），不得近似。" +
-    "「Stun an enemy unit at its location」只用已合入的 effect.stun（424.1）与 sameLocationAs 位置锚点，在 golden 中真实执行；" +
-    "Stunned 的清除（424.1.a.2）与不贡献战斗伤害（424.1.b）是 turn/combat 的规则结果。" +
-    "依赖：RIFT-91（layers/continuous.might）。",
+    "(1) 已解决：「Give a friendly unit +1 :rb_might: this turn」由已合入的 continuous.might 原语（RIFT-258）经 ctx.addContinuous 注册 arithmetic 层效果，" +
+    "this-turn 映射为 end-of-turn 期限（317.1.a / 468.7.c / 433.1.a）；指令用契约 3.6 的 objects 选择器指回自己声明的 TargetSpec，golden 用链适配器真实执行。" +
+    "(2) 已解决：「[Stun] an enemy unit」由已合入的 effect.stun 提交（424.1），424.1.a.1 的已 Stunned 边界由原语如实上报；golden 用解释器 + 参考内核真实执行。" +
+    "(3) 剩余缺口：「at its location」的 sameLocationAs 锚点（355.10.b）不被 programs/filters.ts 接受（允许字段集合里没有该键，抛 judge-required \"Unsupported filter field sameLocationAs\"），" +
+    "生产打出时 describePlay → translateInstructionTargets 会失败，本卡无法 as-written 绑定/打出；已合入的锚点求值只在解释器侧（effects/interpreter/selectors.ts）。" +
+    "不把 +1 近似成 effect.buff（702 Buff 计数器），也不硬编码战场身份。依赖：programs/filters.ts 与 target/ 的位置锚点接线（RIFT-90 后续）。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {
@@ -50,13 +54,19 @@ const program = {
       },
       body: [
         {
-          // 「Give a friendly unit +1 Might this turn」——按契约 3.6 的图层效果形状
-          // 记录意图；没有已注册的 continuous.might 指令（见 judgeReason）。
           id: "heroic-charge.grant-might",
+          // RIFT-258：已合入的 continuous.might 原语固定 arithmetic 层（没有 layer 参数）；
+          // this-turn → end-of-turn 期限（317.1.a / 468.7.c）。objects 用契约 3.6 的选择器
+          // 指回本指令声明的 TargetSpec。
           op: "continuous.might",
           args: {
+            mode: { kind: "constant", value: "add" },
             amount: { kind: "constant", value: 1 },
-            duration: { kind: "constant", value: "this-turn" }
+            duration: { kind: "constant", value: "this-turn" },
+            objects: {
+              kind: "constant",
+              value: { kind: "target", id: "heroic-charge.friendly-unit" }
+            }
           },
           targets: [
             {
