@@ -47,12 +47,16 @@ const recruitTheVanguard = {
   status: "judge-required",
   judgeReason:
     "“a battlefield you control” 依赖打出时的战场控制状态，而 effect.token 的 locations 只接受固定的 LocationRef 列表：" +
-    "没有已合入的生产方把“你控制的战场”集合解析成具体 LocationRef（ResolveContext 只暴露对象查询，" +
-    "没有任何已合入读数把战场控制关系表示为 LocationRef），因此四个 token 的候选目的地无法在卡牌数据里写全。" +
-    "同时每个 token 的目的地是各自 Finalize 的打出位置选择（355.2），不是卡牌层的单次选择。" +
+    "没有已合入的生产方把“你控制的战场”集合解析成具体 LocationRef——战场控制只存在于 combat/flow.ts 的 " +
+    "BattlefieldState（turn/flow.ts 的 battlefields 快照），ResolveContext 只暴露对象查询，" +
+    "layers/rules/query.ts 的 playLocations 也只提供 continuous.location 声明的具名许可、不含控制关系，" +
+    "因此四个 token 的候选目的地无法在卡牌数据里写全。" +
+    "同时每个 token 的目的地是各自 Finalize 的打出位置选择（355.2），不是卡牌层的单次选择，且把卡牌程序接到 " +
+    "Finalize 打出流程属 RIFT-257。" +
     "token 定义（CR 187.1 recruit：1 Might、energy/power 为 null）、数量与 create-on-chain + play 交接（440.2.c/185.2.a/350.2/354）均已合入，" +
     "“Play ... to your base” 半段由 golden 用真实原语执行（由调用方给出具体基地目的地）；" +
-    "不硬编码某个战场、也不退化为直接在场上创建来近似。依赖：location 集合读数（target.location，RIFT-9）与 355.2 的打出位置选择接线。",
+    "不硬编码某个战场、也不退化为直接在场上创建来近似。依赖：RIFT-257（卡牌程序/打出流程绑定）与 " +
+    "“受控战场集合 → LocationRef” 读数的契约变更请求。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

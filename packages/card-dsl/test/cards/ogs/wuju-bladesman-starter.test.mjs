@@ -34,7 +34,7 @@ test("ogs-019-024 Wuju Bladesman, Starter: identity, status, judgeReason and ver
   assert.match(program.judgeReason, /740\.2\.a/);
   assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /conditionMatches/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /Legend Zone/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
@@ -82,11 +82,10 @@ test("ogs-019-024 Wuju Bladesman, Starter: the aura is gated, never an unconditi
 test.todo(
   "Wuju Bladesman, Starter: a friendly unit gets +2 Might exactly while it defends alone " +
     "(CR 363/364.3.a + 740.2.a: Defender designation from CR 466.2.c.3 with no other friendly " +
-    "unit at the same location) — blocked because the Defender designation is not an " +
-    "ObjectSnapshot characteristic (contract 3.8 combatRole is not in HEAD), because the frozen " +
-    "ObjectFilter has no \"no other friendly unit at the same location\" exclusion and " +
-    "layers/filter.ts matchesObjectFilter cannot express it, and because no merged producer " +
-    "registers a card's static ability as a continuous effect (contract 3.5/3.7; RIFT-91)"
+    "unit at the same location) — blocked because layers/filter.ts reads neither the merged " +
+    "ObjectSnapshot.combatRole (contract 3.8) nor any same-location exclusion predicate, because " +
+    "layers/engine.ts conditionMatches silently passes unknown guards, and because no merged " +
+    "producer registers a card's static ability as a continuous effect (contract 3.5/3.7; RIFT-257)"
 );
 
 test.todo(

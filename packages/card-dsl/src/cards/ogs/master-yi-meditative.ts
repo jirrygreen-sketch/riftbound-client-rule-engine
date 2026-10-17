@@ -15,24 +15,28 @@ import type { CardProgram } from "../../ir/index.js";
  *   Channel 把符文从符文牌库取出放到棋盘），因此按控制者当前在棋盘符文区
  *   （zone: "rune-zone"）的符文数量计数；等价地是"你控制 8 个或更多符文"。
  *
- * 状态：judge-required。缺口有二：
- * 1. 没有已合入的 continuous.might 静态效果消费方。layers/engine.ts 虽有算术
- *    图层代码，但没有"卡牌静态能力 → 已注册持续效果"的装配路径；keyword 侧
- *    Assault.ts / Shield.ts 也把 continuous.might 明确列为未合入依赖（RIFT-91）。
- * 2. 条件里的符文计数（condition.compare + count）要在引擎条件求值路径上执行；
- *    当前只有参考测试内核能求值，生产条件管线未接（RIFT-89/90 条件/目标批次）。
+ * 状态：judge-required。缺口有二（continuous.might 本体已在 RIFT-258 合入）：
+ * 1. 没有"卡牌静态能力 → 已注册持续效果"的生产装配路径：continuous.might 只能经
+ *    指令原语调用 ctx.addContinuous，engine-core/src 不读取 CardProgram.abilities
+ *    （卡牌程序绑定属 RIFT-257），layers/engine.ts 收到的注册表里不会出现这张卡的
+ *    静态效果。
+ * 2. 即使注册落地，守卫条件也求不了值：layers/engine.ts 的 conditionMatches 只识别
+ *    always/never/type/has-tag/has-keyword，未识别的 compare 条件按 true 处理，
+ *    "8+ runes" 会被静默丢弃、+4 Might 变成无条件（符文计数的 count 读取本身在
+ *    参考内核可执行，见 golden）。
  */
 export default {
   canonicalCardId: "card.hash-87c4e90c814243a78c356216704a1ec163c6f16ccaba9de6697847335b8f6601",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 continuous.might 静态图层消费方：拥有 8+ 符文时 +4 Might 是算术图层的持续 +4 Might" +
-    "（CR 143.2），layers/ 尚无卡牌静态能力到已注册持续效果的装配/消费路径" +
-    "（Assault.ts、Shield.ts 同样把 continuous.might 列为未合入依赖）；" +
-    "条件 8+ runes 需要符文计数条件求值（CR 133.5.a.1、431.1 的棋盘符文区计数），" +
-    "生产条件管线未接。依赖：RIFT-91（layers-continuous）、RIFT-89/90（条件与目标批次）。" +
-    "不近似实现。",
+    "两处缺口：(1) continuous.might 原语（RIFT-258）本身已合入，但没有已合入的生产方" +
+    "把卡牌静态能力注册成持续效果——engine-core/src 不读取 CardProgram.abilities，" +
+    "layers 注册表只收指令原语 ctx.addContinuous 的结果（卡牌程序绑定属 RIFT-257）；" +
+    "(2) 即使注册落地，layers/engine.ts 的 conditionMatches 只识别 always/never/type/" +
+    "has-tag/has-keyword，未识别的 compare 条件按 true 处理，\"8+ runes\" 的守卫会被静默" +
+    "丢弃、+4 Might 变成无条件生效（符文计数条件本身在参考内核可执行，见 golden 的 " +
+    "channel-rune 场景；生产条件求值属 RIFT-91 后续）。依赖：RIFT-257、RIFT-91。不近似实现。",
   abilities: [
     {
       kind: "static",

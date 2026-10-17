@@ -26,6 +26,7 @@ test("ogs-015-024 Recruit the Vanguard: program passes validateCardProgram and i
   // README section 2: the reason names the missing location reading and tasks.
   assert.match(program.judgeReason, /LocationRef/);
   assert.match(program.judgeReason, /355\.2/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -137,8 +138,8 @@ test("ogs-015-024 Recruit the Vanguard golden: a prevented play retains the toke
 
 test.todo(
   "Recruit the Vanguard battlefield destination: 'a battlefield you control' needs a merged reader that turns the " +
-    "controlled-battlefield set into concrete LocationRefs (355.2, RIFT-9 target.location) before the destination " +
-    "options can be offered at Finalize"
+    "controlled-battlefield set into concrete LocationRefs (355.2) before the destination options can be offered " +
+    "at Finalize — no merged surface exposes battlefield control as LocationRefs (contract change request)"
 );
 
 test.todo(
