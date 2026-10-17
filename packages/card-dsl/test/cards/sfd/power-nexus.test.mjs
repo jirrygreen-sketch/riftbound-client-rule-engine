@@ -10,6 +10,7 @@ import { instructionDefinitionsById } from "../../../../engine-core/dist/effects
 import { buildCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { getTimingPoint } from "../../../../engine-core/dist/events/timing-points.js";
 
 const CANONICAL =
   "card.hash-37ce210574e7c91a9622befdf13147021c67804d234496c259e656e10217be0e";
@@ -169,17 +170,17 @@ test("sfd-214-221: scoring is Gaining a Point, not Scoring the Battlefield (470.
   assert.deepEqual(kernel.objectsInZone("A", "board"), before);
 });
 
-test("sfd-214-221: the trigger spec is valid once the battlefield-relative placeholder is resolved", () => {
-  // The stored filter carries the 053.3 placeholder (judgeReason); the merged
-  // validator accepts the resolved shape, which is what a future anchor
-  // vocabulary must produce for this Battlefield's own Hold Effect.
-  assert.throws(() => assertTriggerSpec(ability.trigger), /EventPattern 不允许此字段/);
-  // The resolved spelling the pipeline matcher understands: 'held' maps to the
-  // `hold` timing point (events/pipeline-match.ts EVENT_NAMES) and 'controller'
-  // normalizes to the controller-relative selector 'self'.
+test("sfd-214-221: the resolved Hold trigger spelling is a valid, matcher-understood spec", () => {
+  // The stored filter carries the 053.3 `here` placeholder (asserted by the
+  // structure test and named in judgeReason); this pins the spelling a future
+  // battlefield anchor must resolve to: the pipeline matcher maps the `held`
+  // event name onto the `hold` timing point (events/pipeline-match.ts
+  // EVENT_NAMES) and reads the controller through the `self` selector.
   assert.doesNotThrow(() =>
     assertTriggerSpec({ at: "hold", filter: { event: "held", player: "self" } })
   );
+  // The timing point the ability subscribes to is a declared one.
+  assert.equal(getTimingPoint(ability.trigger.at).id, "hold");
 });
 
 test.todo(

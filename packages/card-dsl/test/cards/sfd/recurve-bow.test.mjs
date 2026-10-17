@@ -131,7 +131,9 @@ test("sfd-016-221 Recurve Bow golden: a controlled Unit that left the Board is i
     { world: kernel, targets: { "equip-target": [stale] } }
   );
   assert.deepEqual(run.result, { status: "ignored", reason: "mistargeted" });
-  assert.equal(run.events.length, 0);
+  // The Gear kept its printed, unattached state: the attach never happened
+  // (150.2/150.4 characteristics are also left untouched).
+  assert.deepEqual(run.events.filter((event) => event.action === "attach"), []);
   assert.equal(kernel.getObject("gear").attachedTo, null);
 });
 
