@@ -50,8 +50,8 @@ export default {
     "rejects unknown keys), so evaluating the declared amount through the merged path would count every " +
     "unit the controller has — an approximation that is not allowed. The play body binds through the " +
     "merged RIFT-257 adapter and the count-driven draw itself executes (golden); only the official Mighty " +
-    "predicate binding is missing. Dependencies: an ObjectFilter Might-threshold predicate (kw-mighty / " +
-    "RIFT-91 query consumer) and RIFT-90 for the target-side predicates.",
+    "predicate binding is missing. Dependencies: RIFT-359 (conditional-predicate batch, in progress) for " +
+    "the ObjectFilter Might-threshold predicate; kw-mighty needs an executable query consumer.",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {
