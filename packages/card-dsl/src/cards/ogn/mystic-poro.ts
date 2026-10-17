@@ -21,15 +21,15 @@ import type { CardProgram } from "../../ir/index.js";
  * 注册表负责（RIFT-83 已合入 keywords/Vision.ts），卡牌程序不重复展开。
  *
  * status 判定（README 第 2 节；不因「能写出声明」标 executable）：
- * - CardProgram binding 已能把关键词能力展开并注册到 object-enters-board；
- *   但生产路径上 Vision 的 Predict 仍需要有序的牌库顶选择。
- * - 即使接线完成，已合入的 Vision 展开在生产路径仍不可执行：Predict 需要
- *   有序的牌库顶选择，effect.inspect 在 top scope 缺少上游有序 picksSpecId 时
- *   按自身文档记录的分区顺序契约缺口直接 negated（契约 3.6 的 zoneSlice 已能
- *   按区域顺序读牌库顶，但 inspect 不消费它；测试内核可用 setPicks 提供有序
- *   集合，生产装配层尚无等价入口）。
- * golden 真实执行 Vision 展开 body（先 negated 证据，再用内核有序 picks 执行
- * 看牌/回收两条路径），不近似实现。
+ * - ChainEngine 的 finalizeOrderedPickPlans 已接入 zoneSlice，有序来源已合入。
+ *   Vision 展开仍只在 effect.inspect 参数中引用 picksSpecId: "vision-top"，
+ *   没有在指令的 picks 中声明对应 zoneSlice，尚未迁移到这条生产路径。
+ * - 关键词可展开，但触发注册尚不成功：Vision 的旧 filter 含 object.id，
+ *   translateTriggerFilter 抛 Unsupported filter field object.id（817.1.c）。
+ * - Vision 的 effect.inspect.player 仍是 constant("A")；expandProgram 没有
+ *   将它绑定到实际能力控制者，B 控制的实例不能按 437.1 看自己的 Main Deck。
+ * golden 保留用内核有序 picks 执行看牌/回收两条路径的局部证据；绑定测试
+ * 另行验证实际关键词展开与注册阻断，不把局部执行视为整卡可执行。
  */
 const mysticPoro = {
   canonicalCardId: "card.hash-85fa951465a6a8b081cd52e0a9b48fd7e3d80cca31309f23efcf0cdf0f302c0e",
@@ -37,9 +37,11 @@ const mysticPoro = {
   status: "judge-required",
   judgeReason:
     "缺 Vision 关键词的生产可执行路径（CR 817.1.c / 437.1），不近似实现：" +
-    "CardProgram binding 已能把 Vision 展开为 object-enters-board 触发；但生产路径上 Predict 仍无法取得有序牌库顶：effect.inspect 在 top scope 需要上游有序 picksSpecId，" +
-    "缺少时按分区顺序契约缺口直接 negated（契约 3.6 的 zoneSlice 已能按区域顺序读牌库顶，但 inspect 不消费；" +
-    "有序 picks 目前只有测试内核的 setPicks 提供，生产装配层没有等价入口）。",
+    "ChainEngine 的 finalizeOrderedPickPlans 已通过 zoneSlice 提供生产有序来源；当前缺口在 keywords/Vision.ts 的迁移：" +
+    "(1) object-enters-board 的旧触发 filter 含 object.id，programs/filters.ts 的 translateTriggerFilter 抛 Unsupported filter field object.id，尚不能注册本来源进场触发（817.1.c）；" +
+    "(2) effect.inspect 只引用 picksSpecId: vision-top，未在指令 picks 声明对应的有序 zoneSlice 来源，Finalize 无法为该展开锁定牌库顶；" +
+    "(3) effect.inspect.player 仍硬编码 constant(\"A\")，expandProgram 未按实际 controller 绑定查看玩家，B 控制的 Vision 不能据此查看自己的 Main Deck（437.1）。" +
+    "卡牌按关键词契约只声明 vision；这些共享关键词迁移缺口仍阻断整卡，已有 setPicks golden 只证明看牌/可选回收子效果。",
   abilities: [{ kind: "keyword", keyword: "vision" }],
   sourceText:
     "[Vision] (When you play me, look at the top card of your Main Deck. You may recycle it.)"

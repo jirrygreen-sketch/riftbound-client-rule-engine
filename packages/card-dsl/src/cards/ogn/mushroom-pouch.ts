@@ -19,9 +19,13 @@ import type { CardProgram } from "../../ir/index.js";
  *   ability controller (190.6.d).
  *
  * Status: judge-required — after the RIFT-270 audit the trigger side is
- * closer: `beginning-start` is emitted by turn/flow.ts:202-204 (enter('beginning'))
- * for the turn player, so gap (2) from the original review is closed at the
- * producer. The remaining gap is the intervening "if" clause:
+ * closer: `beginning-start` is emitted by turn/flow.ts (enter('beginning'))
+ * for the turn player, but that does not restrict a subscription to its own
+ * controller's turn. Two gaps remain:
+ * - "your Beginning Phase" needs a player: "self" event filter. The matcher
+ *   supports it, but translateTriggerFilter adds event: "beginning-start" and
+ *   the production assertTriggerSpec rejects that event name. The placeholder
+ *   filter below is empty and would match either player's Beginning Phase;
  * - it needs to evaluate "you control a facedown card at a battlefield", and
  *   the engine's ObjectFilter/ZoneId have no facedown-zone spelling: zones are
  *   deck/hand/board/battlefield/base/rune-zone/… (107.3.e says a Facedown Zone
@@ -47,15 +51,18 @@ const mushroomPouch = {
     "faceDown 只能经 states 读取而没有任何已合入查询能把它限定到战场的 Facedown Zone（355.9.a.3），" +
     "condition.value 的 count 求值复用同一套 filter 词汇，无法判定该从句。" +
     "beginning-start 已由 turn/flow.ts 在回合玩家 Beginning Phase 发出（RIFT-270），CardProgram 触发注册也已合入；" +
-    "触发条件求值也已合入回退路径：events/pipeline.ts 在宿主缺 testTrigger 时改用 events/pipeline-match 的对象/区域匹配（evaluateTriggerCondition），生产事件不依赖 testTrigger 成员。" +
-    "当前唯一缺口仍是 Facedown Zone 词汇：该回退求值复用同一套 ObjectFilter/ZoneId 词汇，没有可限定位面朝下牌的战场子区域。Draw 1（414.3）已合入并由 golden 单独执行；不近似实现。",
+    "仍缺 \"your Beginning Phase\" 的生产过滤：当前 filter: {} 会匹配双方回合，产生方的 player 载荷不会自动限定己方；" +
+    "matchesTriggerEvent 虽支持 player: \"self\"，但 translateTriggerFilter 即使只收到 player 也会补 event: \"beginning-start\"，而 events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 没有该名称，assertTriggerSpec 拒绝注册，尚不能在卡牌范围内接通己方阶段过滤（315.2.a.1）。" +
+    "触发条件求值也已合入回退路径：events/pipeline.ts 在宿主缺 testTrigger 时用 evaluateTriggerCondition 经上下文 query 求值，生产事件不依赖 testTrigger 成员。" +
+    "当前缺口是己方 Beginning Phase 过滤接线与 Facedown Zone 词汇：该回退求值复用同一套 ObjectFilter/ZoneId 词汇，没有可限定位面朝下牌的战场子区域。Draw 1（414.3）已合入并由 golden 单独执行；不近似实现。",
   abilities: [
     {
       kind: "triggered",
       trigger: {
         at: "beginning-start",
-        // "your Beginning Phase" — the trigger belongs to the controller's own
-        // turn; the turn player check is the timing owner's job.
+        // Pending: the empty filter does not enforce "your Beginning Phase".
+        // A player: "self" pattern currently fails production trigger-spec
+        // validation after translation adds event: "beginning-start".
         filter: {},
         condition: {
           kind: "compare",
