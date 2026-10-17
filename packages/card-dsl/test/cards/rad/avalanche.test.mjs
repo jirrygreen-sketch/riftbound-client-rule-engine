@@ -1,3 +1,4 @@
+// Template scenarios: ../templates/play-effect-damage-659.test.mjs (set damage pending).
 import assert from "node:assert/strict";
 import test from "node:test";
 
