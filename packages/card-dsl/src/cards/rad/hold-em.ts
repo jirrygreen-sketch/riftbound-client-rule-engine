@@ -28,18 +28,21 @@ import type { CardProgram } from "../../ir/index.js";
  *   gated on an event history: "you've played a unit or gear to a battlefield
  *   this turn".
  *
- * Status: judge-required — the Might clause is executable and covered by the
- * golden test, but the printed discount cannot be installed or gated yet:
+ * Status: judge-required（2026-10-17 复核）— the Might clause is executable and
+ * covered by the golden test, but the printed discount cannot be installed or
+ * gated yet:
  * - the card-static cost modification has no consumer: cost/cost-plan.ts only
- *   applies discounts supplied by the caller in CostPlanInput.discounts, and
- *   the current static-program binder does not translate this effect into that
- *   per-play cost plan;
+ *   applies discounts supplied by the caller in CostPlanInput.discounts (observed:
+ *   a plain printed-cost plan keeps energy 3), and programs/statics.ts
+ *   `layerFor` rejects `continuous.cost-modification` with "has no layer mapping",
+ *   so the static-program binder cannot translate this effect into that plan;
  * - the gate needs an event history with an object filter ("a unit or gear")
  *   and the play destination ("to a battlefield"). HistoryQuery (contract 3.8)
  *   carries `objectFilter` and is reachable only through the
- *   `condition.history` instruction, which cannot gate a static cost effect;
- *   the play destination is still not part of the query. The gate below stays
- *   a descriptive constant that must not be executed.
+ *   `condition.history` instruction — a resolve-time instruction that cannot
+ *   gate a static cost effect, and Condition has no history kind at all. The
+ *   play destination is still not part of the query. The gate below stays a
+ *   descriptive constant that must not be executed (it evaluates truthy).
  * Dependencies: a CardProgram-static-to-CostPlan discount binding plus a
  * play-destination history predicate for the discount gate.
  * Not approximated: the discount is declared, never silently applied.
@@ -49,8 +52,10 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "当前缺口：(1) programs/statics 未把 continuous.cost-modification 转为打出时的 CostPlanInput.discounts；" +
-    "(2) Condition/Expr 无历史计数表达式可在构建费用计划时门控 static 减费。" +
+    "当前缺口（实测）：(1) programs/statics.ts 的 layerFor 对 continuous.cost-modification 抛 no layer mapping，" +
+    "没有把该静态声明转为打出时的 CostPlanInput.discounts；cost/cost-plan.ts 只消费调用方传入的 discounts。" +
+    "(2) Condition 没有历史种类（求值 { kind: history } 抛 Unsupported condition），只有 Resolve 期的 " +
+    "condition.history 指令，无法在构建费用计划时门控 static 减费。" +
     "HistoryQuery 的 objectFilter 已可筛选历史单位/装备，但它读取动作前对象快照，不能检验 play 动作的战场落点；" +
     "尚缺该 destination 历史谓词。continuous.might 的 +3/this-turn 已有执行证据，不近似减费条件。",
   abilities: [

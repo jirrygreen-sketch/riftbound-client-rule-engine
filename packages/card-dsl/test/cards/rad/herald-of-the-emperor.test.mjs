@@ -11,6 +11,10 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import might from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL = "card.hash-f31c457784f7a2bda7271b96edb7702e948e7047187f0226e77144f06ba40ce1";
 const SOURCE_TEXT = "When you play me, choose a friendly unit. Its base Might becomes 5 this turn.";
@@ -35,6 +39,59 @@ test("rad-118-167 Herald of the Emperor: judgeReason names the Trait-Altering ga
   assert.match(program.judgeReason, /479\.2/);
   assert.match(program.judgeReason, /143\.2\.a\.1/);
   assert.match(program.judgeReason, /set-property\(might\)/);
+  // Second-sweep refresh: name the concrete absent op and the rejected argument.
+  assert.match(program.judgeReason, /continuous\.base-might/);
+  assert.match(program.judgeReason, /instructionDefinitionsById/);
+  assert.match(program.judgeReason, /argsSchema/);
+});
+
+test("rad-118-167 Herald of the Emperor gap: no registered base-Might instruction, and the layer argument is rejected", () => {
+  // The merged instruction registry has no Trait-Altering base-Might entry, and
+  // the arithmetic op refuses an explicit layer argument, so the card's
+  // declared `continuous.base-might` cannot run (479.2 vs 479.4).
+  assert.equal(instructionDefinitionsById.has("continuous.base-might"), false);
+  assert.equal(instructionDefinitionsById.has("continuous.trait"), false);
+  assert.throws(
+    () => might.argsSchema.parse({
+      objects: { kind: "constant", value: { kind: "target", id: "herald.friendly-unit" } },
+      amount: { kind: "constant", value: 5 },
+      layer: { kind: "constant", value: "trait" },
+      duration: { kind: "constant", value: "this-turn" }
+    }),
+    /Invalid continuous\.might argument: layer/
+  );
+});
+
+test("rad-118-167 Herald of the Emperor gap: the Trait-Altering consumer exists but no card instruction binds to it", () => {
+  // The layer machinery itself is merged: a trait-layer set-property(might)
+  // really sets Base Might and honors an end-of-turn duration. The production
+  // static binder also registers trait-layer specs — what is missing is the
+  // card-facing instruction, which this program cannot reach without a
+  // registered op (see the previous test).
+  const f = fixture({ cards: [{ id: "src", cardId: CANONICAL, types: ["unit"], might: 3, zone: "board" }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("src"), to: "board" });
+  const binder = createEngineStaticBinder(f.engine);
+  const base = f.kernel.getObject("src");
+  binder.bindStatic({
+    kind: "static",
+    effect: {
+      kind: "set-property",
+      layer: "trait",
+      property: "might",
+      value: { kind: "constant", value: 5 },
+      appliesTo: "self"
+    }
+  }, base);
+  const [registered] = f.engine.layers.registry.list();
+  assert.equal(registered.effect.layer, "trait");
+  assert.equal(registered.effect.effect.kind, "set-property");
+
+  // The trait layer honors a "this turn" duration (479.2 / 317.2.c): the value
+  // applies while active and reverts at turn end, exactly what the card needs.
+  const layers = createLayerEngine(f.kernel.objects, [{ effect: registered.effect, duration: { type: "end-of-turn" }, timestamp: 1 }]);
+  assert.equal(layers.evaluate(f.kernel.ref("src")).might, 5);
+  layers.advance({ id: "turn-end" });
+  assert.equal(layers.evaluate(f.kernel.ref("src")).might, 3);
 });
 
 test("rad-118-167 Herald of the Emperor: 'When you play me' is the self-scoped card-played trigger (383.4.a.1)", () => {
@@ -118,8 +175,9 @@ test("rad-118-167 Herald of the Emperor contrast: the merged arithmetic set-Migh
 
 test.todo(
   "rad-118-167 Herald of the Emperor: 'its base Might becomes 5 this turn' needs a Trait-Altering " +
-    "layer primitive (CR 479.2 Base Might / 143.2.a.1) — continuous.might only registers the " +
-    "arithmetic layer (479.4)"
+    "layer instruction primitive (CR 479.2 Base Might / 143.2.a.1) registered in " +
+    "effects/instructions plus a static-program layer mapping — the trait layer itself is merged, " +
+    "but continuous.might only registers the arithmetic layer (479.4) and rejects a layer argument"
 );
 test.todo(
   "rad-118-167 Herald of the Emperor: once Base Might has a Trait-Altering primitive, execute the card-played " +

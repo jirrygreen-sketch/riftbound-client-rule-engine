@@ -7,6 +7,10 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL = "card.hash-6241ef3881abbc30d79cdaf37ca912ade70c601045279aed082fc727f4ace85c";
 const SOURCE_TEXT =
@@ -36,6 +40,48 @@ test("rad-070-167 Hold 'Em: judgeReason names the cost-plan wiring and the histo
   assert.match(program.judgeReason, /CostPlanInput\.discounts|static-program binder/);
   assert.match(program.judgeReason, /HistoryQuery/);
   assert.match(program.judgeReason, /objectFilter/);
+  // Second-sweep refresh: name the observed binder failure and the missing
+  // Condition kind instead of a generic "no consumer".
+  assert.match(program.judgeReason, /no layer mapping/);
+  assert.match(program.judgeReason, /condition\.history/);
+});
+
+test("rad-070-167 Hold 'Em gap: the production static binder rejects the discount declaration", () => {
+  // The discount is authored per the contract, but the merged binder has no
+  // layer for it, so it can never reach a play's CostPlanInput.discounts.
+  const f = fixture({ cards: [{ id: "src", cardId: CANONICAL, types: ["spell"], energy: 3, power: [] }] });
+  const binder = createEngineStaticBinder(f.engine);
+  assert.throws(
+    () => binder.bindStatic(discount, f.kernel.getObject("src")),
+    /continuous\.cost-modification has no layer mapping/
+  );
+  assert.deepEqual(f.engine.layers.registry.list(), []);
+});
+
+test("rad-070-167 Hold 'Em gap: a printed-cost plan receives no discount without caller-supplied input", () => {
+  // cost/cost-plan.ts applies only the discounts the caller passes, so the
+  // declared card effect leaves the printed 3 Energy cost untouched.
+  const base = world().hand("src", { types: ["spell"], energy: 3 }).build();
+  const ctx = base.clone({ sourceSnapshot: base.getObject("src") });
+  const plan = buildCostPlan(ctx, {
+    id: "play",
+    cost: { kind: "printed" },
+    printed: { id: "src", cardType: "Spell", domains: ["Body"], energy: 3, power: 0 }
+  });
+  assert.equal(plan.total.energy, 3);
+  assert.deepEqual(plan.discounts, []);
+});
+
+test("rad-070-167 Hold 'Em gap: the declared gate is a descriptive constant, and Condition has no history kind", () => {
+  // The gate is not executable: it evaluates truthy regardless of the turn's
+  // history, and the merged Condition evaluator has no history kind that could
+  // gate a static cost effect.
+  const kernel = world().build();
+  const environment = { context: kernel, linked: () => undefined, canLookBack: () => true, isIgnored: () => false };
+  assert.equal(evaluateCondition(discount.condition, environment), true);
+  assert.equal(discount.condition.kind, "expression");
+  assert.equal(discount.condition.value.kind, "constant");
+  assert.throws(() => evaluateCondition({ kind: "history" }, environment), /Unsupported condition: history/);
 });
 
 test("rad-070-167 Hold 'Em: structure — Action keyword and the printed energy-3 cost", () => {

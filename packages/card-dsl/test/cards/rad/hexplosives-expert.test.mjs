@@ -7,6 +7,11 @@ import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { AwaitChoice, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { runInstruction } from "../../../../engine-core/dist/effects/testing/index.js";
+import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { queryLocationCandidates } from "../../../../engine-core/dist/target/location/candidates.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 
 const CANONICAL_ID =
   "card.hash-35388dd2b47ca5aff627f64dbadee600be5e2d4c7d1f00c2d412147b43679458";
@@ -44,7 +49,55 @@ test("rad-141-167 Hexplosives Expert: identity, status and verbatim sourceText",
   assert.match(program.judgeReason, /Bomb|token definition/);
   assert.match(program.judgeReason, /355\.2\.a/);
   assert.match(program.judgeReason, /LocationState/);
+  // Second-sweep refresh: the reason records the observed negation and the
+  // unregistered Deathknell/trigger.leave dependency.
+  assert.match(program.judgeReason, /negated/);
+  assert.match(program.judgeReason, /trigger\.leave/);
 });
+
+test("rad-141-167 Hexplosives Expert gap: the Bomb definition is absent and the request negates with a receipt", () => {
+  // CR 187.12's Bomb gear token is not in the merged definition table, so the
+  // printed "Play a Bomb gear token" cannot execute; the receipt names the gap.
+  const kernel = locationWorld();
+  const before = kernel.snapshot();
+  const played = runInstruction(token, {
+    token: playBomb.args.token,
+    amount: playBomb.args.amount,
+    mode: playBomb.args.mode,
+    location: { kind: "constant", value: FIELD },
+    linkKey: playBomb.args.linkKey
+  }, { world: kernel });
+  assert.equal(played.result.status, "negated");
+  assert.equal(played.result.reason, "impossible");
+  assert.equal(played.linked.bombToken.blockedReason, "token-definition-or-abilities-judge-required");
+  assert.equal(played.linked.bombToken.amount, 0);
+  assert.deepEqual(played.linked.bombToken.objects, []);
+  assert.equal(kernel.objects.filter((object) => object.isToken).length, 0);
+  assert.deepEqual(kernel.snapshot(), before);
+});
+
+test("rad-141-167 Hexplosives Expert gap: the Bomb token's Deploy/Deathknell bodies have no executable expansion", () => {
+  // Deploy is merged, but Deathknell's expansion body still references the
+  // unregistered trigger.leave, and no registered op consumes the delayed hook.
+  assert.equal(keywordDefinitionsById.has("Deploy"), true);
+  const [expansion] = keywordDefinitionsById.get("Deathknell").expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.deepEqual(expansion.body.map((instruction) => instruction.op), ["trigger.leave"]);
+  assert.equal(instructionDefinitionsById.has("trigger.leave"), false);
+  assert.equal(instructionDefinitionsById.has("trigger.delayed"), false);
+});
+
+test("rad-141-167 Hexplosives Expert gap: only object-referenced battlefields appear as candidates (355.2.a)", () => {
+  // "to a battlefield" is expressible and the body binds the choice, but an
+  // otherwise unrepresented battlefield is missing from the candidate list
+  // unless the caller passes external LocationState.
+  const kernel = locationWorld();
+  assert.deepEqual(queryLocationCandidates(kernel, { type: "battlefield" }), [FIELD, OTHER_FIELD]);
+  assert.deepEqual(
+    queryLocationCandidates(kernel, { type: "battlefield" }, { locations: [{ ref: { type: "battlefield", id: "bf-empty" } }] }),
+    [{ type: "battlefield", id: "bf-empty" }, FIELD, OTHER_FIELD]
+  );
+});
+
 
 test("rad-141-167 Hexplosives Expert: one Action-speed activated ability with the printed cost", () => {
   // 377.1 / 404.1.a / 415.5: 1 Energy, 1 [A] Power and Exhaust this.
@@ -131,7 +184,8 @@ test("rad-141-167 Hexplosives Expert boundary: an unresolved Bomb request has em
 
 test.todo(
   "rad-141-167: add the CR 187.12 Bomb gear token definition (domainless Gear token with " +
-    "[Deploy] and [Deathknell]) and expand those abilities before the token can execute"
+    "[Deploy] and [Deathknell]) and expand those abilities before the token can execute; " +
+    "Deathknell still references the unregistered trigger.leave"
 );
 
 test("rad-141-167 Hexplosives Expert golden: the original body publicly chooses a battlefield and binds the answer", () => {

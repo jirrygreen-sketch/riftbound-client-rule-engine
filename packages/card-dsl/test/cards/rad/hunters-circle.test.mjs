@@ -8,6 +8,9 @@ import program from "../../../dist/cards/rad/hunters-circle.js";
 // layout instead of the package name.
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL =
   "card.hash-7737d765f33a7c1065a7cc21af4afc511f86a348b9bfcda04f685a4478b48ffd";
@@ -53,7 +56,43 @@ test("rad-163-167 Hunters' Circle: identity, ruleset, status and exact source te
   assert.match(program.judgeReason, /Condition/);
   assert.match(program.judgeReason, /per-turn-first-play/);
   assert.match(program.judgeReason, /first unit or gear/);
+  // Second-sweep refresh: name the two observed binder failures.
+  assert.match(program.judgeReason, /staticTarget/);
+  assert.match(program.judgeReason, /sameLocationAs/);
 });
+
+test("rad-163-167 Hunters' Circle gap: the production binder rejects the declaration twice over", () => {
+  // A Battlefield permanent has no location, so the source-relative anchor the
+  // card uses cannot resolve, and `appliesTo: "play-cost"` is not a supported
+  // static anchor at all. Either way the static ability never binds, so it can
+  // never reach a future play's CostPlanInput.discounts.
+  const f = fixture({ cards: [{ id: "field", cardId: CANONICAL, types: ["battlefield"] }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("field"), to: "board" });
+  const source = f.kernel.getObject("field");
+  assert.equal(source.location, null);
+  const binder = createEngineStaticBinder(f.engine);
+  assert.throws(() => binder.bindStatic(ability, source), /Unsupported static appliesTo "play-cost"/);
+  assert.throws(
+    () => binder.bindStatic(
+      { kind: "static", effect: { ...ability.effect, appliesTo: undefined } },
+      source
+    ),
+    /Static sameLocationAs source has no location/
+  );
+  assert.deepEqual(f.engine.layers.registry.list(), []);
+});
+
+test("rad-163-167 Hunters' Circle gap: Condition has no history kind for the first-play window", () => {
+  // The one-shot window needs a static cost gate; the merged Condition
+  // evaluator only supports always/never/compare/expression/all/any/not and
+  // the RIFT-359 predicate kinds, and `condition.history` is a resolve-time
+  // instruction that cannot gate a play's cost plan.
+  const kernel = world().build();
+  const environment = { context: kernel, linked: () => undefined, canLookBack: () => true, isIgnored: () => false };
+  assert.throws(() => evaluateCondition({ kind: "history" }, environment), /Unsupported condition: history/);
+  assert.equal(ability.condition.kind, "always");
+});
+
 
 test("rad-163-167 Hunters' Circle: one static -1 energy discount for each player's unit/gear play here", () => {
   assert.equal(program.abilities.length, 1);

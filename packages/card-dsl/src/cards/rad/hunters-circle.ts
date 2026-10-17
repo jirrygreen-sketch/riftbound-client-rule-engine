@@ -23,16 +23,21 @@ import type { CardProgram } from "../../ir/index.js";
  *   played to this Battlefield ("here", 053.3) and it must be the player's
  *   first such play that turn.
  *
- * Status (cards/README.md §2): judge-required. The discount value itself is
- * denotable by the merged cost-plan model (buildCostPlan applies announced
- * `discounts`), but the card cannot install it, because two pieces are
- * missing:
+ * Status (cards/README.md §2, 2026-10-17 recheck): judge-required. The discount
+ * value itself is denotable by the merged cost-plan model (buildCostPlan applies
+ * announced `discounts`), but the card cannot install it, because two pieces
+ * are missing:
  * 1. no current program-to-cost path registers a discount on a *future* play
- *    or turns this static ability into that play's CostPlanInput.
+ *    or turns this static ability into that play's CostPlanInput. The
+ *    production binder rejects the declaration before any cost is built:
+ *    programs/statics.ts `staticTarget` throws "Unsupported static appliesTo
+ *    \"play-cost\"", and even without `appliesTo` the `sameLocationAs: "self"`
+ *    anchor fails because a Battlefield permanent has no `location` (observed).
  * 2. the "first … on their turn" window needs a per-player, per-turn one-shot
  *    gate over plays to this Battlefield; the frozen Condition/HistoryQuery
- *    model has no "card was played to this location" predicate and no
- *    per-player one-shot window, and a continuous effect would otherwise
+ *    model has no "card was played to this location" predicate (Condition has
+ *    no history kind at all; `condition.history` is a resolve-time instruction)
+ *    and no per-player one-shot window, and a continuous effect would otherwise
  *    discount every qualifying play, which is not what the card says.
  * The static ability below is the closest structurally honest encoding: it
  * records the -1 energy delta and the unit-or-gear population without claiming
@@ -47,10 +52,12 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "当前缺口：(1) programs/statics 未把 cost.modify 转为后续打出的 CostPlanInput.discounts；" +
+    "当前缺口（实测）：(1) programs/statics 未把 cost.modify 转为后续打出的 CostPlanInput.discounts；" +
+    "production binder 在 staticTarget 阶段就抛 Unsupported static appliesTo \"play-cost\"，" +
+    "即使去掉 appliesTo，sameLocationAs:\"self\" 也因战场永久物没有 location 而失败。" +
     "(2)「the first unit or gear they play here on their turn」需在费用计算前判定每名玩家自己回合的首次打出到本战场。" +
-    "HistoryQuery 已有 player/scope/objectFilter，但没有 play destination 谓词；Condition 也不能读取该历史计数，" +
-    "per-turn-first-play 尚无消费方。已合入的地点选择与普通条件求值不能代替这个历史/费用绑定。",
+    "HistoryQuery 已有 player/scope/objectFilter，但没有 play destination 谓词；Condition 没有历史种类" +
+    "（condition.history 是 Resolve 期指令），per-turn-first-play 尚无消费方。已合入的地点选择与普通条件求值不能代替这个历史/费用绑定。",
   sourceText:
     "For each player, the first unit or gear they play here on their turn costs :rb_energy_1: less.",
   abilities: [

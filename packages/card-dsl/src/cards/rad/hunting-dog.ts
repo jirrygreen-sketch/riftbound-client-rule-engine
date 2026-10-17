@@ -23,16 +23,19 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "to your base" = 控制者的基地（182/183 的归属与控制；443.2 的 token 归属）。
  * - 809.1：Deflect 是目标附加费用的被动关键词（松鼠文本给出 809.1.c 的提醒）。
 
- * status = judge-required（README 第 2 节）。逐条复核后的当前缺口，均不近似实现：
+ * status = judge-required（README 第 2 节，2026-10-17 复核）。逐条复核后的当前缺口（均实测），不近似实现：
  * 1. Bird token 定义（187.7，带 Deflect 关键词）仍不在 effect.token 的定义表内；
+ *    bird 请求实测 negated 且 blockedReason = token-definition-or-abilities-judge-required；
  *    需要把该带能力的 token 定义与能力展开纳入 token 执行路径，不能凭卡面文本近似造出 Deflect。
  * 「to your base」已可由 LocationExpr 的 ability-controller-base 表达：先用
  * condition.value 绑定地点，再让 effect.token 读取 linked-value；这样兼容原语的 Expr
  * schema，不把相对玩家写进字面 LocationRef，也不硬编码具体玩家。
- * 2. Deathknell 关键词的展开体仍引用 trigger.leave，需要接通正文订阅与
- *    808.1.d.1 的死亡替代链移除。
- * 3. Deflect 的展开是 static target.tax，尚无静态绑定；目标计划已有税适配接口，
- *    但 ChainEngine 仍将税计入 Energy，需要按 809.1.c.1 改为任意域 Power。
+ * 2. Deathknell 关键词的展开体仍引用 trigger.leave，而 instructionDefinitionsById
+ *    无该 op，需要接通正文订阅与 808.1.d.1 的死亡替代链移除。
+ * 3. Deflect 的展开是 static target.tax，尚无静态绑定：programs/statics.ts 的层映射
+ *    对该 kind 抛 no layer mapping；目标计划已有税适配接口，但 ChainEngine 仍把税按
+ *    Energy 计入（实测 costPlan.total.energy 多 1、power 为空），需要按 809.1.c.1
+ *    改为任意域 Power。
  * 下面保留有依据的形状：关键词声明 + object-killed 自发触发 + effect.token（mode play、
  * 目的地写法）；其余依赖保持 judge-required。
  * 依赖：Bird token 定义与能力展开、Deathknell 事件路径、Deflect
@@ -78,11 +81,12 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处当前缺口，均不近似实现：(1) Bird token 定义（187.7，1 Might、Bird 标签、带 [Deflect]）仍不在 effect.token 的定义表内，" +
-    "需要把带能力的 token 定义与能力展开纳入 token 执行路径。" +
-    "(2) Deathknell 的展开体仍引用未注册的 trigger.leave，需接通正文订阅及 808.1.d.1 的死亡替代链移除。" +
-    "(3) Deflect 的 static target.tax 尚无程序静态绑定；目标计划虽有税适配接口，ChainEngine 当前将税计入 Energy，" +
-    "还需按 809.1.c/809.1.c.1 计入任意域 Power 附加费用。",
+    "三处当前缺口（实测），均不近似实现：(1) Bird token 定义（187.7，1 Might、Bird 标签、带 [Deflect]）仍不在 effect.token 的定义表内，" +
+    "bird 请求 negated（token-definition-or-abilities-judge-required），需要把带能力的 token 定义与能力展开纳入 token 执行路径。" +
+    "(2) Deathknell 的展开体仍引用未注册的 trigger.leave（instructionDefinitionsById 无该 op），" +
+    "需接通正文订阅及 808.1.d.1 的死亡替代链移除。" +
+    "(3) Deflect 的 static target.tax 无程序静态绑定（layerFor 抛 no layer mapping）；目标计划虽有税适配接口，" +
+    "ChainEngine 当前仍把税计入 Energy（实测 total.energy 增加、power 为空），还需按 809.1.c/809.1.c.1 计入任意域 Power 附加费用。",
   abilities,
   sourceText:
     "[Deathknell][>] Play a 1 :rb_might: Bird unit token with [Deflect] to your base. " +
