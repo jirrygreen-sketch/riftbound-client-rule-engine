@@ -26,23 +26,22 @@ import type { CardProgram } from "../../ir/index.js";
  *   engine's EventPattern reads concrete values only (details: { fromLocationId:
  *   <id> }), which static IR cannot supply for a runtime location; the
  *   engine-side EventPattern vocabulary does not accept the object-moved event
- *   name either (assertTriggerSpec rejects it). No merged consumer binds a
- *   CardProgram's triggered ability into a TriggerRegistration (RIFT-257).
+ *   name either. The trigger registration path exists, but this pattern still
+ *   needs the event matcher and payload binding.
  */
 export default {
   canonicalCardId: "card.hash-ba317497fb11f0057ab92dddc2368fdcdf29656f88954eb40ed97277241324c5",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两块依赖未合入：(1)「a friendly unit moves from my location」需要把 object-moved 事件的起止地点" +
+    "当前有两块缺口：(1)「a friendly unit moves from my location」需要把 object-moved 事件的起止地点" +
     "（payload 字段 fromKind/fromLocationId/toKind/toLocationId，见 events/timing-points.ts 的 payloadFields）" +
     "与能力宿主当前位置比较：关闭的 ObjectFilter/TriggerSpec 只有 sameLocationAs（比较当前地点），" +
     "EventPattern 的 details 只能写死具体 id，静态 IR 无法引用宿主运行时的地点身份；" +
-    "且引擎侧 EventPattern 事件词表不包含 object-moved，assertTriggerSpec 会拒绝该事件名（同批战场/移动卡记录同一缺口）。" +
+    "且引擎侧 EventPattern 事件词表不包含 object-moved，触发规格验证与匹配器因此无法消费该事件名。" +
     "(2)「I may be moved with it」需要以该次 Move 的 to 地点作为 effect.move 的目标，IR 的 ObjectSelector/Expr" +
     "没有事件 payload 选择器（契约 3.6：选择器只有 self/source/target/pick/linked）。" +
-    "此外没有消费方把卡牌的 triggered ability 注册成实时触发（卡牌程序绑定 RIFT-257）。" +
-    "依赖：RIFT-90（目标/事件适配）、事件 payload 选择器与 EventPattern 事件词表扩展（见本任务契约变更请求）、RIFT-257；不近似实现。",
+    "依赖：object-moved 的 EventPattern 词表/匹配器、fromLocationId 与宿主地点的动态比较，以及 effect.move 的事件 payload 目的地选择器（见本任务契约变更请求）；不近似实现。",
   abilities: [
     {
       kind: "triggered",

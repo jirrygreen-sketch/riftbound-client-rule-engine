@@ -17,7 +17,7 @@ test("Thermo Beam program is valid EffectIR v2 data and judge-required", () => {
   // The reason must cite the untargeted-set rule and the missing selection.
   assert.match(program.judgeReason, /355\.10\.d/);
   assert.match(program.judgeReason, /355\.5/);
-  assert.match(program.judgeReason, /target\.many/);
+  assert.match(program.judgeReason, /each\/all/);
 });
 
 test("Thermo Beam identity, status and sourceText match the printing", () => {
@@ -91,7 +91,7 @@ test("Thermo Beam golden execution: a gear set kills every gear and spares non-g
 
 test.todo(
   "Thermo Beam: 'Kill all gear' needs an untargeted each/all set selection " +
-    "consumed by effect.kill (RIFT-9 target.many; 355.10.d, 355.5), so every gear " +
+    "consumed by effect.kill (355.10.d, 355.5), so every gear " +
     "on the board dies with no selection step and no became-target events, " +
     "including a unit that is also a gear (178.3)."
 );

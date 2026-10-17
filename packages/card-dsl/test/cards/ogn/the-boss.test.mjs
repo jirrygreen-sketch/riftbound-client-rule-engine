@@ -54,8 +54,8 @@ test("the-boss identity: canonicalCardId, ruleset, judge-required status and ver
   assert.match(program.judgeReason, /optional/);
   assert.match(program.judgeReason, /cost\.pay/);
   assert.match(program.judgeReason, /recall/i);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /replacement\/planner\.ts/);
+  assert.match(program.judgeReason, /replacement\.event.*instead/);
   assert.match(program.judgeReason, /replacement\.object/);
   assert.equal(
     program.sourceText,
@@ -179,7 +179,8 @@ test("the-boss binding: the replaced-event selector plans the buff/exhaust remed
   // The merged RIFT-260 planner resolves { linked: "replacement.object" } to
   // the replaced event's object, so the spend-buff and exhaust instructions
   // address the dying unit without making it a target (CR 355.10.c). cost.pay
-  // is not a planned opcode yet (RIFT-261), so it is skipped here.
+  // is merged, but replacement/planner.ts cannot lower its payment
+  // plan into replacement actions yet, so it is skipped here.
   const spend = replacement.with.find(instruction => instruction.op === "effect.buff");
   const exhaust = replacement.with.find(instruction => instruction.op === "effect.exhaust");
   assert.deepEqual(instructionPlan(spend), [["spend-buff", "dying-unit"]]);
@@ -196,12 +197,11 @@ test("the-boss binding: the replaced-event selector plans the buff/exhaust remed
 
 test.todo(
   "the-boss replacement execution: the cost.pay primitive (rainbow + a completable exhaust cost, " +
-    "CR 415.4/415.5; RIFT-261) must merge before the replacement body can be planned at all."
+    "CR 415.4/415.5) still needs a replacement-planner payment branch before the replacement body can be planned at all."
 );
 
 test.todo(
-  "the-boss registration: bind this ReplacementAbility through the card-program replacement " +
-    "adapter (RIFT-257) and expose the printed 'you may pay ... instead' decision via RIFT-260's " +
-    "replacement.event optional wrapper (card IR cannot spell its raw instead body yet); the " +
-    "Recall action (CR 457-460) and the CR 702.2.a buffed-unit predicate are still open."
+  "the-boss replacement binding: expose the printed 'you may pay ... instead' decision through " +
+    "replacement.event's raw instead body; the Recall action (CR 457-460) and the CR 702.2.a " +
+    "buffed-unit predicate are still open."
 );

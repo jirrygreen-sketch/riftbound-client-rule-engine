@@ -40,9 +40,7 @@ import type { CardProgram } from "../../ir/index.js";
  *    receive the +1, and a unit whose Buff is spent keeps it (the card text
  *    is a rule-modifying continuous effect over "buffs" as a class, not a set
  *    of objects fixed at resolution);
- * 2. a play ability needs the card-program binding (RIFT-257) to be played
- *    from a hand;
- * 3. [Hidden]'s Hide action and facedown play still lack the cost.hidden path
+ * 2. [Hidden]'s Hide action and facedown play still lack the cost.hidden path
  *    (811.1.b/811.1.c.2); the hidden expansion itself is merged (RIFT-84) but
  *    its cost/zone consumption is not.
  * Not approximated by buffing extra units or by granting a second Buff counter
@@ -60,12 +58,11 @@ const standUnited = {
     "continuous.might 指令（RIFT-258）已合入并注册 end-of-turn 效果，Buff 计数经 ObjectFilter.characteristics 可读。" +
     "整卡仍不可执行：(1) 该指令在结算时一次性解析选择并逐对象注册效果，这份固定快照无法表达卡面的类别规则——" +
     "本回合稍后才获得第一个 Buff 的友方单位不会因此 +1，Buff 被消耗掉的单位也不会收回该 +1" +
-    "（卡面是以「Buff」为一类对象的规则修改型持续效果，不是结算时固定的一份对象集合）；(2) 从手牌打出还需要卡牌程序绑定（RIFT-257）；" +
-    "(3) [Hidden] 的 Hide 行动与背面打出也没有 cost.hidden 消费路径（811.1.b/811.1.c.2）。" +
+    "（卡面是以「Buff」为一类对象的规则修改型持续效果，不是结算时固定的一份对象集合）；(2) [Hidden] 的 Hide 行动与背面打出也没有 cost.hidden 消费路径（811.1.b/811.1.c.2）。" +
     "不近似实现：不能多发一个 Buff（702.3/427.1.b.1 禁止第二个 Buff，且 Buff 计数不是 Might 修改）。" +
     "“Buff a friendly unit”（427.1.b / effect.buff）与 [Hidden]/[Action] 关键词声明本身已按契约编码，" +
     "其中 Buff 与 Might 两段由 golden 用真实原语执行；Hidden 的 facedown 许可仍属 RIFT-84 的消费接线范围。" +
-    "依赖：RIFT-257（卡牌能力绑定）、RIFT-261（Hidden 的 Hide/费用接线）与 continuous.might 的类别级消费模型。",
+    "当前缺口：Buff 类别级 continuous.might 消费模型与 cost.hidden 的 Hide/背面区域接线。",
   sourceText:
     "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n" +
     "[Action] (Play on your turn or in showdowns.)\n" +
