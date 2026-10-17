@@ -8,6 +8,9 @@ import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
+import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
+import { runInstruction } from "../../../../engine-core/dist/effects/testing/index.js";
+
 const CARD_ID = "card.hash-d07e48aa4c135d7523968d576a0ed10afd4b5574804fc3baa31b2d60b20f46a3";
 const SOURCE_TEXT =
   ":rb_exhaust:: [Reaction] — Pay any amount of Energy to [Add] that much :rb_rune_rainbow:. " +
@@ -29,8 +32,8 @@ test("sfd-117-221 Ancient Henge: identity, ruleset, status, judgeReason and verb
   assert.match(program.judgeReason, /204\.3/);
   assert.match(program.judgeReason, /163\.2\.b/);
   assert.match(program.judgeReason, /430\.2/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /cost\.pay-any/);
+  assert.match(program.judgeReason, /programs\/activate\.ts/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -92,14 +95,25 @@ test("sfd-117-221 Ancient Henge: the printed Exhaust cost is payable under the m
 });
 
 test.todo(
-  "sfd-117-221 Ancient Henge: \"Pay any amount of Energy to [Add] that much [A]\" (CR 204.3/204.3.a, whose printed example is this card) needs a " +
-    "resolve-time player-chosen payment primitive that publishes the actually paid amount (cost.pay-any is not registered), bound to the Add via the body link."
+  "Ancient Henge: choose and pay an arbitrary amount at Resolve with a success-gated Add body and actual paid amount link (204.3/204.3.a)"
 );
 test.todo(
-  "sfd-117-221 Ancient Henge: [A] Universal Power (CR 135.2.e.5/163.2.b) is not representable in the closed six-domain Domain union; " +
-    "effect.resources documents that it must never be approximated by a chosen domain."
+  "Ancient Henge: represent domainless Universal Power without substituting a colored source (135.2.e.5/163.2.b)"
 );
 test.todo(
-  "sfd-117-221 Ancient Henge: the merged 'add' chain kind (chain/engine.ts advance/activateAddDuringPayment, 430.2/430.3) must be reachable " +
-    "from this card program's activated ability — no CardProgram -> chain binding registers it (RIFT-257)."
+  "Ancient Henge: classify the activated program as an add ChainKind so 430.2/430.3 resolve immediately without reactions"
 );
+
+
+test("Ancient Henge: the merged payer reports an explicit Energy payment and aborts without enough Energy", () => {
+  const kernel = world().player("A", { energy: 3 }).build();
+  const run = runInstruction(costPay, { payments: { kind: "constant", value: { energy: 2 } } }, { world: kernel });
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.payment.paid, true);
+  assert.equal(run.linked.payment.total.energy, 2);
+  assert.equal(kernel.player("A").energy, 1);
+  const before = kernel.snapshot();
+  assert.throws(() => runInstruction(costPay, { payments: { kind: "constant", value: { energy: 2 } } }, { world: kernel }),
+    error => error.reason === "cannot-pay-cost");
+  assert.deepEqual(kernel.snapshot(), before);
+});

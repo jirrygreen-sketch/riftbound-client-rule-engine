@@ -24,28 +24,16 @@ import type { CardProgram } from "../../ir/index.js";
  *   （ZoneDestination "deck-top"/"deck-bottom"），顶端/底端由结算期的目的地选择决定
  *   （effect.zone 的 choice 形式）。"your Main Deck" 是能力控制者的主牌库（375.1）。
  *
- * status = judge-required（复核 2026-10-17；触发注册与费用侧仍未接通，不近似实现）：
- * - 触发侧：object-killed 时点本身已由 events/action-adapter.ts 的 kill 动作映射发出（429.1），
- *   但没有任何生产模块把卡牌程序的 triggered 能力注册进唯一事件管线（events/pipeline.ts 只有
- *   引擎内部的 delayed 注册路径；src/programs/ 的绑定属仍在进行的 RIFT-257，分支未合入，契约 3.5）。
- * - 费用侧："exhaust me" 按 383.3.b 是基础费用，但契约 3.1 的 TriggeredAbility 没有 cost
- *   字段，指令层也没有已注册的 cost.pay 原语（effects/instructions/ 只有 effect.* 与 continuous.*），
- *   费用计划与收费管线未接通（RIFT-261）。
- * - 本文件只保留可审查的结构：触发 + choice.optional + 两条指令的形状；不写单卡结算代码。
+ * 当前复核：保持 judge-required；具体未接通路径见 judgeReason。
  */
 export default {
   canonicalCardId: "card.hash-fae74af4b0507308396536f4f9d367af185a5d09b03c11aa0a1c4db55655778b",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口：(1) 触发侧没有把卡牌程序的 triggered 能力注册进唯一事件管线的订阅方（events/pipeline.ts " +
-    "只有引擎内部的 delayed 注册路径，src/programs/ 的绑定属未合入的 RIFT-257；object-killed 时点本身已由 " +
-    "events/action-adapter.ts 的 kill 动作映射发出，429.1），契约 3.5 的接线仍未完成；(2) 费用侧" +
-    "「you may exhaust me to draw 1」中紧跟在 you may 之后的「exhaust me」按 CR 383.3.b/383.3.b.1 是触发能力的基础费用、" +
-    "必须在 Finalize 支付（415.4/415.5），但契约 3.1 的 TriggeredAbility 没有 cost 字段，指令层也没有已注册的 " +
-    "cost.pay 原语（effects/instructions/ 只有 effect.* 与 continuous.* 文件），费用计划与收费管线未接通（RIFT-261）。" +
-    "effect.draw 与 effect.zone 两条效果指令本体已合入并真实执行（golden 分别覆盖正常、拒绝与边界分支）；" +
-    "不近似实现（不把横置写成 effect.exhaust，也不把费用写成免费）。",
+    "CR 383.3.b/383.3.b.1 将开头的 “you may exhaust me to” 视为触发能力基础费用，必须在 Finalize 支付（415.4/415.5）。" +
+    "TriggeredAbility 没有 cost 字段，programs/triggers.ts 生成的 TriggerRegistration/ChainDraft 也未携带该费用；当前 body 内 cost.pay 的 payments 数组不是其支持的锁定费用计划。" +
+    "缺触发费用的 Finalize 选择、可支付性检查及事务消费；不能在 Resolve 才横置，也不能只凭 optional 接受就免费抽牌。",
   abilities: [
     {
       kind: "triggered",

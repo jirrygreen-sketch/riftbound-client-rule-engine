@@ -14,7 +14,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * 规则依据（Core Rules v1.5）：
  * - 821.1：Weaponmaster 是 Triggered Ability 关键词（打出触发、可选用你控制的 Equipment、
  *   支付其 Equip 费并附着）；按 README 第 5 节只声明 { kind: "keyword", keyword: "weaponmaster" }，
- *   展开归 effects/keywords/Weaponmaster.ts（该文件自述仍缺 cost.modify / cost.pay 的接线）。
+ *   展开归 effects/keywords/Weaponmaster.ts；Equip 费用绑定与 [A] 折扣仍见 judgeReason。
  * - 356.2.b / 356.2.b.1："You may pay :rb_rune_body::rb_rune_body: as an additional cost to play me"
  *   是 Optional Additional Cost，是否支付在打出流程第 2 步声明（355.1.a）。按契约 3.1 用描述性
  *   static cost.additional 保留形状（两枚 Body 符文 = 2 Power，allowedDomains: ["Body"]）。
@@ -27,35 +27,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 435.1 / 435.1.f-g："attach it to me" 是 Attach 动作，附着宿主是本单位（"me"）。
  * - 150.1 / 150.4：Equipment 是 Gear 上的标签；"If it's an Equipment" 是对被移动 gear 的标签判定。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required —— 三处缺口，均不近似实现：
- * 1. 费用与回执：可选附加费用没有卡牌侧收费入口（effects/instructions/ 无 cost.additional / cost.pay；
- *    cost/cost-plan.ts 的 optionalAdditional 只消费调用方传入的 OptionalCostInput；两者都属未合入的
- *    RIFT-261），冻结 Condition 也没有读取费用计划结果的来源（调研记为 condition.result），
- *    因此无法按 356.4.f.1 开闸；与 sfd/sea-monkey、sfd/zaun-punk 记录同一缺口。
- * 2. 目的地："to your base" 是**能力控制者**的 Base，而 effect.move 的 "controller-base" 按被移动对象
- *    的当前控制者解析（effect.move 源码：player = before.controller），对敌方 gear 会落到对手 Base。
- *    冻结 IR 没有「能力控制者的 Base」这一 LocationRef 表达式，写死座位或写成
- *    { type: "base", player: "controller" } 都会被原语当成真实 PlayerId。本卡只保留描述性目的地
- *    标记（原语会拒绝它而不是落到错误地点），与 rad/cataclysm、rad/demon-shade 同一口径。
- * 3. 持续控制："until I leave the board" 需要一个与来源在场绑定的控制权持续效果。effect.control 接受
- *    duration { type: "while-source-in-zone" } 并显式记录了本卡（含 359.3.e.16 的离场不生成语义），
- *    但该非永久期限目前被原语主动阻断（negated/impossible，blockedReason: Temporary control
- *    requires duration-aware take-control and layered expiry/restoration，479.2.a / 482.3）。
- * 已在本次复核中解决的缺口："If it's an Equipment"（150.1）现在可以真实求值——compare 的 in 运算符
- * 以左值标量 "Equipment" 测试右值数组（pick 指向的被移动 gear 的 tags，interpreter/expr.ts 的
- * object-property 读当前对象特征），attach 指令带上该 condition，golden 覆盖 Equipment 与
- * 非 Equipment 两个分支。
- * golden 用真实原语执行已可执行的部分：effect.move（目的地替换为具体 Base 后）、effect.attach
- * （宿主为本单位、带标签 condition），未合入依赖写 test.todo。
- * 依赖：RIFT-257（卡牌程序绑定）、RIFT-261（cost.pay / cost.modify / 费用种类）、地点表达式扩展、
- * continuous 控制期限。
+ * 当前复核：保持 judge-required；具体未接通路径见 judgeReason。
  */
-/** 描述性目的地标记，不是可执行 LocationRef（见 judgeReason 第 2 点）。 */
-const CONTROLLERS_BASE = {
-  kind: "destination-selector",
-  selector: "ability-controller-base"
-} as const;
-
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "weaponmaster" },
   {
@@ -86,12 +59,12 @@ const abilities: Ability[] = [
     body: [
       {
         // 421.1：把敌方 gear 移动到能力控制者的 Base。355.5/355.9.a.1："an enemy gear" 是在打出时
-        // 选定的目标。目的地见 judgeReason 第 2 点（描述性标记，fail-closed）。
+        // 选定的目标。LocationExpr 按能力控制者解析，不读敌方 gear 的控制者。
         id: "akshan-mischievous.move-gear",
         op: "effect.move",
         args: {
           objects: { kind: "constant", value: { target: "akshan-mischievous.enemy-gear" } },
-          to: { kind: "constant", value: CONTROLLERS_BASE },
+          to: { kind: "location", value: "ability-controller-base" },
           amount: { kind: "constant", value: 1 },
           linkKey: { kind: "constant", value: "moved-gear" }
         },
@@ -187,20 +160,9 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处缺口，均不近似实现：(1) 可选附加费用（2 枚 Body 符文，356.2.b/356.2.b.1）仍没有卡牌侧收费入口：" +
-    "effects/instructions/ 无 cost.additional / cost.pay，cost/cost-plan.ts 的 optionalAdditional 只消费调用方传入的" +
-    " OptionalCostInput（两者都属未合入的 RIFT-261），且没有把 CardProgram 声明接入打出流程的消费方（RIFT-257）；" +
-    "冻结 Condition 也没有读取费用计划结果的来源（调研记为 condition.result），无法按 356.4.f.1 开闸" +
-    "（与 sfd/sea-monkey、sfd/zaun-punk 同一缺口）。(2)「move an enemy gear to your base」的目的地不可表达：" +
-    "「your base」是能力控制者的 Base，而 effect.move 的 \"controller-base\" 按被移动对象的当前控制者解析" +
-    "（对敌方 gear 会落到对手 Base），冻结 IR 没有「能力控制者的 Base」LocationRef 表达式，本卡只保留描述性目的地标记，" +
-    "原语会拒绝它而不是落到错误地点（rad/cataclysm、rad/demon-shade 同一口径）。(3)「You control it until I leave the board」" +
-    "需要与来源在场绑定的控制期限：effect.control 接受 duration { type: \"while-source-in-zone\" }（原语显式记录本卡与 359.3.e.16），" +
-    "但该非永久期限被原语主动阻断（blockedReason: Temporary control requires duration-aware take-control and layered " +
-    "expiry/restoration，479.2.a/482.3）。旧缺口「If it's an Equipment」已解决：attach 指令现在带 compare/in 条件，" +
-    "以标量 \"Equipment\" 测试被移动 gear 的 tags 数组，golden 覆盖命中与跳过两个分支；golden 另真实执行 " +
-    "effect.move（目的地替换为具体 Base）与 effect.attach（宿主为本单位）两段；其余写 test.todo。" +
-    "依赖：RIFT-257（卡牌程序绑定）、RIFT-261（cost.pay / cost.modify / 费用种类）、地点表达式扩展、continuous 控制期限。",
+    "可选附加费用（356.2.b/356.2.b.1）的 static cost.additional 尚未被 programs/play.ts 收集进 Finalize 的 optionalAdditional，且 356.4.f.1 的支付决定收据没有 CardProgram Condition 绑定，不能无条件移动敌方装备。" +
+    "effect.control 对 while-source-in-zone 仍返回 negated/impossible，缺 479.2.a/482.3 的持续控制到期与原控制者恢复（359.3.e.16 的 Akshan 例子）。" +
+    "Weaponmaster 仍缺所选 Equipment 的权威 Equip 费用绑定与原始 [A] 符号来源；cost.modify 的 reduce-equip-cost 因 821.1.c.2-.5 主动阻断，不能用装备打出费或普通 Power 折扣代替。",
   abilities,
   sourceText:
     "[Weaponmaster]\n" +

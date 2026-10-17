@@ -34,30 +34,16 @@ import type { CardProgram } from "../../ir/index.js";
  * - 各指令相互独立（只有 play 依赖 banish，因为 "then" 是结果引用）：伤害与 "Banish this." 不被
  *   banish 的结果约束，按 359.3.e.11/3.4 尽可能执行。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。缺口是 "ignoring its cost" 的费用改写
- * 生产者：冻结的 CostSpec 没有 ignore/替代费用字段，effect.play 明确要求 cost 参数是费用系统产出、
- * 已 Finalize 的 FinalizedCostPlan（该原语既不推导印刷费用、也不实现忽略费用规则），按印刷费用打出
- * 会是错误结算；ResolveContext 也没有把 356.1.b.1 变成费用计划的入口。该费用改写入口与
- * cost.modify / cost.pay 属仍在进行的 RIFT-261（分支未合入），卡牌程序接入打出流程属 RIFT-257。
- * 同一缺口在 Portal Rescue（ogn-102-298）按同样口径记录。
- * banish 半段、由其衍生 owner 的打出、伤害与 "Banish this." 四条指令本身都只用已合入原语，
- * golden 用真实原语执行已支持部分（含 banish 收据换区后的新引用、忽略费用计划被拒绝而非按
- * 印刷费用结算的守卫）。不近似实现。
+ * 当前复核：保持 judge-required；具体未接通路径见 judgeReason。
  */
 const arcaneShift = {
   canonicalCardId: "card.hash-ff9a6c1b5cc8b6c38f2be0c96b63bf7e77ad4fb2c14de333e9f0a2b2ae17ae52",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「its owner plays it, ignoring its cost」缺已合入的费用改写生产者：CR 356.1.b/356.1.b.1 规定 " +
-    "\"ignoring its cost\" 把该牌的基础 Energy 与基础 Power 费用置零（不是 356.1.a 的 for [Cost] 替换，" +
-    "也不是 356.1.b.2 的单资源忽略）；冻结的 CostSpec 只有 kind/payments/energy/power/rune/discard，" +
-    "没有 ignore/替代费用字段，已合入的 effect.play 又明确要求 cost 参数是费用系统产出、已 Finalize 的 " +
-    "FinalizedCostPlan（它不推导印刷费用、也不实现忽略费用规则），ResolveContext 也没有把 " +
-    "356.1.b.1 变成费用计划的入口，按印刷费用打出会错误结算。该忽略/替代费用入口属未合入的 RIFT-261，" +
-    "卡牌程序接入打出流程属 RIFT-257。banish 半段（effect.banish，428.1/428.2）、由收据 owner 决定的打出、" +
-    "Deal 3 与本咒语自我放逐（effect.banish + \"self\"）都只用已合入原语并有执行测试；" +
-    "打出指令仍保持 linkedTo（359.3.e.14）与结算时读取 owner。不近似实现。",
+    "“its owner plays it, ignoring its cost” 仍缺从 effect.banish 收据的新引用及 owner（428.1/359.3.e.14）到嵌套打出 Finalize 的绑定。" +
+    "356.1.b/356.1.b.1 的 ignore-base:resources 算法已在费用层实现，但 cost.modify 的普通计划以 ctx.source 为源，不能为被放逐单位绑定其费用、所有者及合法打出地点；不得计算本咒语的费用来代替。" +
+    "effect.play 需要已 Finalize 的 FinalizedCostPlan，尚无消费方把该单位的完整 CostPlan 转换并传入，同时保留 356.1.b.3 的附加费用/增费；当前描述性 cost.modify 记录不是可支付计划。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

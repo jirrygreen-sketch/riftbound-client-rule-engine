@@ -12,6 +12,10 @@ import { instructionDefinitionsById } from "../../../../engine-core/dist/effects
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
+import { queryLocationCandidates } from "../../../../engine-core/dist/target/location/index.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
+
 const CARD_ID = "card.hash-390865ebc7ca61e906a68cd399d7f1300d7ddcba26677e93cbba334e99b8dee9";
 const SOURCE_TEXT =
   "Play a 2 :rb_might: Sand Soldier unit token for each Equipment you control. " +
@@ -85,7 +89,7 @@ test("sfd-198-221 Arise!: judgeReason names the destination gap and its dependen
   // the dependent work instead of restating "unsupported".
   assert.match(program.judgeReason, /355\.2/);
   assert.match(program.judgeReason, /LocationRef/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /effect\.token/);
   // It must not claim a workaround it does not have.
   assert.doesNotMatch(program.judgeReason, /近似实现：/);
 });
@@ -307,15 +311,39 @@ test("sfd-198-221 Arise! golden: a prevented play keeps the tokens that already 
 });
 
 test.todo(
-  "sfd-198-221 Arise!: the played tokens' destination is chosen during each token's Finalize " +
-    "(CR 355.2/355.2.a: the controller's Base or a Battlefield they control) — needs a merged " +
-    "location-set reading (target.location) plus the 355.2 play-location selection wiring and the " +
-    "CardProgram play binding (RIFT-257 / RIFT-261 batches)"
+  "Arise!: bind each created Sand Soldier to its legal play-location choice and token program in production Finalize (355.2/440.2.c); location querying already works"
 );
 
 test.todo(
-  "sfd-198-221 Arise!: the card's printed 6 energy + 1 Calm power plan is bound from the catalog at " +
-    "Finalize (356.1.c) and paid through the chain's cost plan; the program declares no " +
-    "CostSpec instead of restating printed values (RIFT-257 play binding; the cost-layer half of " +
-    "RIFT-89/RIFT-84 is merged)"
+  "Arise!: verify the whole spell and token plays through production Finalize after token location/program binding, retaining printed 6 Energy and 1 Calm Power (356.1.c)"
 );
+
+
+test("Arise!: the merged location query supplies only its controller's base or controlled battlefields", () => {
+  const kernel = world().player("A").player("B").build();
+  const mine = { type: "battlefield", id: "mine" };
+  const locations = [
+    { ref: mine, controller: "A" },
+    { ref: { type: "battlefield", id: "theirs" }, controller: "B" },
+    { ref: { type: "battlefield", id: "open" }, controller: null, occupied: false }
+  ];
+  assert.deepEqual(queryLocationCandidates(kernel, { controller: "controller" }, { players: ["A", "B"], locations }),
+    [mine, { type: "base", player: "A" }]);
+});
+
+test("Arise!: its unchanged printed cost is read by the merged planner and actually paid", () => {
+  const base = world().player("A", { energy: 6, power: ["Calm"] })
+    .hand("arise", { types: ["spell"], energy: 6, power: ["Calm"] }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("arise") });
+  assert.equal(play.cost, undefined);
+  const plan = buildCostPlan(kernel, { id: "arise.play", cost: { kind: "printed" } });
+  assert.equal(plan.total.energy, 6);
+  assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: ["Calm"] }]);
+  const run = runInstruction(costPay, { cost: { kind: "constant", value: plan } }, { world: kernel });
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.payment.paid, true);
+  assert.equal(kernel.player("A").energy, 0);
+  assert.deepEqual(run.linked.payment.actions[0].action.plan.power, ["Calm"]);
+  assert.equal(kernel.getObject("arise").energy, 6);
+  assert.deepEqual(kernel.getObject("arise").power, ["Calm"]);
+});
