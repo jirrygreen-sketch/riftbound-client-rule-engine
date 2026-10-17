@@ -21,36 +21,81 @@ import type { CardProgram } from "../../ir/index.js";
  * - 424/424.1.a：Stun 把单位渲染为 Stunned（effect.stun 已合入）。
  * - 424.1.b/424.1.c：“It doesn't deal combat damage this turn” 是 Stunned 自身
  *   的规则语义（提示文本），不由卡程序重复实现。
- * - “While there's a stunned enemy unit here, I have +2 [M]”：同地点（sameLocationAs
- *   宿主）存在 Stunned 的敌方单位时，宿主获得 +2 Might 的图层算术修正。
+ * - “While there's a stunned enemy unit here, I have +2 [M]”：同地点（053.3 的 here，
+ *   用 sameLocationAs 宿主表达）存在 Stunned（424.1.a 的二元状态）的敌方单位（740.1.b）时，
+ *   宿主获得 +2 Might 的图层算术修正。状态谓词用已合入的 states 键拼写
+ *   （layers/filter.ts 与 events/pipeline-match.ts 的 stateMatches 都读 states；
+ *   直接写 stunned: true 会被两处匹配器静默忽略）。
  *
- * status = judge-required（三处缺口均不近似实现）：
- * 1. [Hidden] 的展开虽然有 KeywordDef（RIFT-264 批次），但其消费方缺失——Hidden.ts
- *    自己记录 cost.hidden、Hidden 专用的 [A] cost.pay、effect.zone / continuous.timing 都未接入，
- *    Hide 动作与面朝下区域的免费打出许可没有执行路径；
- * 2. “you may pay :rb_energy_2:” 已有 cost.pay 原语，但费用计划仍没有接到冻结
- *    triggered ability 的 Finalize/消费路径（RIFT-261）；
- * 3. “While there's a stunned enemy unit here, I have +2 [M]” 需要卡牌侧 static
- *    效果进入 layers 的注册/求值入口：RIFT-257 的 attachProgramLifecycle 只把
- *    static 交给调用方 binder（缺省 noopStaticBinder），engine-core 内没有把
- *    static 数据转成 ctx.addContinuous 的实现；condition 也只有 compare/all/any/
- *    not/expression 五类（没有 stunned 状态谓词），layers 过滤器的 sameLocationAs
- *    锚点也未接线。
- * “Stun a unit” 半段用已合入的 effect.stun 真实执行（golden 覆盖接受/拒绝对比）。
+ * status = judge-required（复核 2026-10-17；四处缺口均不近似实现）：
+ * 1. [Hidden]（811.1）：KeywordDef 已展开为 static cost.hidden，费用侧也有执行证据——
+ *    cost/cost-plan.ts 的 buildHiddenCostPlan 能锁定 hide（1 点任意域 Power，811.1.b）
+ *    与 play（忽略 base Energy/Power）两种计划，payHiddenCostPlan 会真实支付；
+ *    但展开出的静态半段在生产绑定上 fail-closed——attachProgramLifecycle 的默认
+ *    createEngineStaticBinder 对它抛 ProgramBindingError(judge-required,
+ *    "Static ability kind cost.hidden has no layer mapping")；且 811.1.c（Hide 是独立
+ *    自由行动）、811.1.d（面朝下打出的战场限定）与 811.6（藏起后下一回合获得 Reaction）
+ *    的消费链整体缺失：封闭 GameAction 集合没有 hide，ZoneId/ObjectSnapshot 没有
+ *    Facedown Zone，turn/flow.ts 的清理对 faceDown 对象直接抛
+ *    TurnCombatBlockedError("hidden-cleanup-state")。
+ * 2. 740.4.a.2 要求「you may pay :rb_energy_2:」作为触发前置费用在 Finalize 支付：
+ *    冻结的 TriggeredAbility 没有 cost 字段，programs/triggers.ts 也不把卡牌的指令内
+ *    费用提取成 TriggerRegistration.cost/mayAtFinalize；并且两条触发的 TargetSpec 嵌在
+ *    choice.optional 的 body 内，chain/engine.ts 的 assertFinalizationSurface 以
+ *    "Nested/repeated targets require an interpreter target-selection lifecycle adapter"
+ *    阻断 Finalize（golden 用真实 ChainEngine 复现），触发连入链都到不了结算。
+ *    cost.pay 本体已合入并在解释器结算期真实支付（golden 证据），但该结算期支付不能替代
+ *    740.4.a.2 的 Finalize 费用。
+ * 3. +2 Might 光环：卡牌侧 static 注册已合入（programs/statics.ts 的
+ *    createEngineStaticBinder 已是 attachProgramLifecycle 的默认 binder，golden 用真实
+ *    绑定注册 arithmetic 图层修正），但条件的相对玩家与位置锚点在图层查询路径上不可求值：
+ *    生产查询最终走 layers/filter.ts 的 matchesObjectFilter，controller 只做字面量比较
+ *    （"opponent" 永不命中，条件 fail-closed、+2 永不生效），sameLocationAs 完全不被读取
+ *    （去掉 controller 门槛后会过度作用到其它战场与友方单位，golden 用实测对照说明）；
+ *    programs/statics.ts 的 staticFilter 也只把 sameLocationAs 解析到效果过滤器，
+ *    对 controller: opponent 直接抛 judge-required。
+ * 4. 生产链的解释器适配器还不能执行本卡自己的 Stun 指令：chain/interpreter-adapter.ts 的
+ *    LITERAL_FIELDS 没有登记 effect.stun.target，卡 IR 的 { kind: "constant", value: specId }
+ *    会被原语 schema 以 "effect.stun target must be a spec id string" 拒绝（golden 用该适配器
+ *    复现；同一指令取字面 spec id 则可执行，证明缺口在适配器表而非原语或卡 IR）。
+ * “Stun a unit” 半段用已合入的 effect.stun 在解释器上真实执行（golden 覆盖接受/拒绝对比）。
  */
 export default {
   canonicalCardId: "card.hash-6d5c7c18a2ff9af74ab3f4a4b8ac837540733c2922614f53be32ab4e75be8f6b",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1) [Hidden] 的 KeywordDef 已合入但没有消费方——Hidden.ts 记录 cost.hidden、Hidden 专用的 [A] cost.pay / " +
-    "effect.zone / continuous.timing 均未接入，Hide 动作与面朝下区域的免费打出许可无" +
-    "执行路径；(2) “you may pay :rb_energy_2:” 已有 cost.pay 原语，但费用计划仍没有接到冻结" +
-    "triggered ability 的 Finalize/消费路径（RIFT-261）；(3) “While there's a stunned enemy unit here, I have " +
-    "+2 :rb_might:” 的 static continuous.might 没有进入 layers 的注册方（RIFT-257 的 attachProgramLifecycle " +
-    "只调用调用方 binder，缺省 noopStaticBinder），且 Condition 无 stunned 状态谓词、图层过滤器不读 " +
-    "sameLocationAs。依赖 RIFT-261（费用/支付）、RIFT-257（static 效果→layers 接线）与 RIFT-87（条件/谓词）。" +
-    "“Stun a unit” 半段用已合入的 effect.stun 真实执行。",
+    "四处缺口，均不近似实现（复核 2026-10-17）：" +
+    "(1) [Hidden]（811.1）的 KeywordDef 已展开为 static cost.hidden，费用侧也有执行证据——" +
+    "buildHiddenCostPlan 能锁定 hide（1 点任意域 Power，811.1.b）与 play（忽略 base Energy/Power）两种计划，" +
+    "payHiddenCostPlan 真实支付（golden 用参考内核执行）；但 811.1.c 的 Hide 自由行动、811.1.d 的面朝下打出" +
+    "（含战场限定）与 811.6 的下一回合 Reaction 许可仍无执行路径：展开出的静态半段在生产绑定上 fail-closed" +
+    "（attachProgramLifecycle 的默认 createEngineStaticBinder 抛 ProgramBindingError(judge-required, " +
+    "\"Static ability kind cost.hidden has no layer mapping\")），封闭 GameAction 集合没有 hide，" +
+    "ZoneId/ObjectSnapshot 没有 Facedown Zone，turn/flow.ts 的清理对 faceDown 对象抛 " +
+    "TurnCombatBlockedError(\"hidden-cleanup-state\")。" +
+    "(2) 740.4.a.2 要求「you may pay :rb_energy_2:」作为触发前置费用在 Finalize 支付，但冻结的 " +
+    "TriggeredAbility 没有 cost 字段，programs/triggers.ts 也不把卡牌的指令内费用提取成 " +
+    "TriggerRegistration.cost/mayAtFinalize；两条触发的 TargetSpec 又嵌在 choice.optional 的 body 内，" +
+    "chain/engine.ts 的 assertFinalizationSurface 以 \"Nested/repeated targets require an interpreter " +
+    "target-selection lifecycle adapter\" 阻断 Finalize（golden 用真实 ChainEngine 复现该拒绝），" +
+    "触发连入链都到不了结算。cost.pay 本体已合入并在解释器结算期真实支付（golden 证据），" +
+    "但该结算期支付不能替代 740.4.a.2 的 Finalize 费用。" +
+    "(3) “While there's a stunned enemy unit here, I have +2 :rb_might:” 的 static 注册已合入" +
+    "（programs/statics.ts 的 createEngineStaticBinder 已是 attachProgramLifecycle 的默认 binder，" +
+    "golden 用真实绑定注册 arithmetic 图层修正），但条件的相对玩家与位置锚点在图层查询路径上不可求值：" +
+    "生产查询最终走 layers/filter.ts 的 matchesObjectFilter，controller 只做字面量比较" +
+    "（740.1.b 的 opponent 永不命中，条件 fail-closed、+2 永不生效），sameLocationAs 完全不被读取" +
+    "（去掉 controller 门槛后会过度作用到其它战场与友方单位，golden 用实测对照说明）；" +
+    "programs/statics.ts 的 staticFilter 也只把 sameLocationAs 解析到效果过滤器，对 controller: opponent " +
+    "直接抛 judge-required。" +
+    "(4) 生产链的解释器适配器还不能执行本卡自己的 Stun 指令：chain/interpreter-adapter.ts 的 LITERAL_FIELDS " +
+    "没有登记 effect.stun.target，卡 IR 的 { kind: \"constant\", value: specId } 会被原语 schema 以 " +
+    "\"effect.stun target must be a spec id string\" 拒绝（golden 用该适配器复现；同一指令取字面 spec id " +
+    "则可执行，说明缺口在适配器表而非原语或卡 IR）。" +
+    "依赖：Facedown Zone/Hide 动作接线、740.4.a.2 的触发费用与嵌套目标生命周期接线、" +
+    "图层查询的相对玩家/位置锚点、适配器的 effect.stun literal 目标登记。" +
+    "不近似实现（不换 controller 门槛的写法，也不把 +2 写成无条件修正）。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     {
@@ -152,7 +197,9 @@ export default {
             type: "unit",
             zone: "board",
             controller: "opponent",
-            stunned: true,
+            // 424.1.a 的二元状态用已合入的 states 谓词拼写；写成 stunned: true 会被
+            // layers/filter.ts 与参考内核静默忽略（恒真），不能表达该门槛。
+            states: "stunned",
             sameLocationAs: "self"
           }
         },
