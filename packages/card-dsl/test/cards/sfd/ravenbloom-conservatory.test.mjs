@@ -1,15 +1,7 @@
 // Golden test for Ravenbloom Conservatory (sfd-215-221).
 //
-// The card keeps judge-required: defense-declared has no producer (the combat
-// start transaction is still blocked), the printed "here" referent has no
-// EventPattern/ObjectFilter vocabulary, and effect.reveal's "pick" spelling is
-// inconsistent between the IR validator (requires an Expr) and the merged chain
-// adapter (its LITERAL_FIELDS declares no unpacking for the field, so the Expr
-// envelope reaches the primitive, which only accepts a bare id).
-// The golden still exercises the merged halves for real: the ordered deck-top
-// pick drives effect.reveal directly, and both branches of the "if it's a spell"
-// discriminator (compare "spell" in object-property(types)) genuinely move the
-// revealed card to hand or to the bottom of the deck.
+// The original body now executes through ordered zoneSlice/linked picks.
+// Defend event production and the Battlefield's here filter remain blocked.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -18,6 +10,10 @@ import program from "../../../dist/cards/sfd/ravenbloom-conservatory.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import reveal from "../../../../engine-core/dist/effects/instructions/effect.reveal.js";
+import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-5a86b358540e9ab2512400c77f3291739c2aa6ccb7b537449298a640b02b0e82";
@@ -27,19 +23,6 @@ const SOURCE_TEXT =
 const [ability] = program.abilities;
 const [revealInstruction, toHand, recycle] = ability.body;
 
-/**
- * The card's real ability body, with the reveal instruction swapped for the
- * spelling the merged chain adapter currently accepts (see the judgeReason's
- * third gap and the TODO). Everything else — link structure, conditions and
- * both branch instructions — is the card's own data, so the two branches are
- * exercised exactly as written.
- */
-const executableBody = [
-  { ...revealInstruction, args: { pick: 'ravenbloom.revealed-card' } },
-  { ...toHand, picks: undefined },
-  { ...recycle, picks: undefined }
-];
-
 /** A Battlefield plus an ordered Main Deck whose top card has the given types. */
 function conservatoryWorld(topTypes) {
   const builder = world()
@@ -48,6 +31,8 @@ function conservatoryWorld(topTypes) {
     .object("ravenbloom", {
       cardId: CANONICAL,
       types: ["battlefield"],
+      energy: null,
+      power: null,
       zone: "board",
       location: { type: "battlefield", id: "battlefield-1" },
       owner: "A",
@@ -73,11 +58,10 @@ function revealTopCard(kernel) {
   return { kernel, revealed: ordered, linked: run.linked };
 }
 
-/** Locks the ordered deck top and the two branch picks the production chain would own. */
+/** Supplies only the ordered top slice; the branch pick resolves from the reveal receipt. */
 function lockPicks(kernel) {
   const ordered = kernel.zoneSlice("A", "deck", "top", 1).map((object) => object.ref);
   kernel.setPicks("ravenbloom.revealed-card", ordered);
-  kernel.setPicks("ravenbloom.revealed-hand", ordered);
   return ordered;
 }
 
@@ -93,11 +77,11 @@ test("sfd-215-221 Ravenbloom Conservatory: identity, ruleset, status, judgeReaso
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
-  // The refreshed reason names the three real current gaps.
+  // Only the remaining trigger gaps keep the card judge-required.
   assert.match(program.judgeReason, /defense-declared/);
   assert.match(program.judgeReason, /RIFT-124/);
   assert.match(program.judgeReason, /here/);
-  assert.match(program.judgeReason, /effect\.reveal/);
+  assert.match(program.judgeReason, /RIFT-358/);
   assert.match(program.judgeReason, /pick/);
 });
 
@@ -126,9 +110,14 @@ test("sfd-215-221 Ravenbloom Conservatory structure: defend trigger, ordered rev
     kind: "constant",
     value: "ravenbloom.revealed-card"
   });
-  assert.deepEqual(revealInstruction.picks[0].filter, { zone: "deck", owner: "self" });
-  assert.equal(revealInstruction.picks[0].min, 1);
-  assert.equal(revealInstruction.picks[0].max, 1);
+  assert.deepEqual(revealInstruction.picks, [{
+    id: "ravenbloom.revealed-card", options: [], ordered: true, selection: "all",
+    zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 1 } }
+  }]);
+  assert.deepEqual(toHand.picks, [{
+    id: "ravenbloom.revealed-hand", options: [], ordered: true, selection: "all",
+    linked: { kind: "linked-value", instructionId: "ravenbloom.reveal", key: "revealed" }
+  }]);
 });
 
 test("sfd-215-221 Ravenbloom Conservatory: the spell branch is a type-membership condition, not a player choice", () => {
@@ -174,7 +163,7 @@ test("sfd-215-221 Ravenbloom Conservatory golden: a revealed spell really goes t
   const kernel = conservatoryWorld(["spell"]);
   lockPicks(kernel);
 
-  const outcome = resolveChainBody(executableBody, kernel);
+  const outcome = resolveChainBody(ability.body, kernel);
 
   assert.equal(outcome.status, "partial");
   assert.deepEqual(outcome.results.map((entry) => [entry.id, entry.result.status]), [
@@ -191,7 +180,7 @@ test("sfd-215-221 Ravenbloom Conservatory golden: a revealed non-spell really re
   const kernel = conservatoryWorld(["unit"]);
   lockPicks(kernel);
 
-  const outcome = resolveChainBody(executableBody, kernel);
+  const outcome = resolveChainBody(ability.body, kernel);
 
   assert.equal(outcome.status, "partial");
   assert.deepEqual(outcome.results.map((entry) => [entry.id, entry.result.status]), [
@@ -213,31 +202,54 @@ test.todo(
     "for a Battlefield's own identity; the merged trigger-spec validator rejects the placeholder field and the " +
     "card-program binding (RIFT-257) fails closed on unknown filter fields"
 );
-test.todo(
-  "sfd-215-221 Ravenbloom Conservatory: effect.reveal pick must accept the contract's Expr spelling through the " +
-    "merged chain adapter (contract 3.2 vs chain/interpreter-adapter.ts LITERAL_FIELDS) before the card's own " +
-    "reveal instruction can run inside its ability body"
-);
-
-// Evidence for Ravenbloom Conservatory's third recorded gap: the merged chain
-// adapter declares no LITERAL_FIELDS unpacking for effect.reveal's pick, so the
-// contract spelling (contract 3.2) reaches the primitive still wrapped in an
-// Expr and is rejected at runtime even though validateCardProgram accepts it.
-test("sfd-215-221 Ravenbloom Conservatory: the contract's Expr pick spelling is rejected by the merged chain adapter", () => {
-  const kernel = world().player("A").deck(["top-card", "next-card"]).build();
-  const ordered = kernel.zoneSlice("A", "deck", "top", 1).map((object) => object.ref);
-  kernel.setPicks("ravenbloom.revealed-card", ordered);
-
-  // The card ships the contract-3.2 spelling (see revealInstruction.args.pick);
-  // running it through the merged interpreter adapter proves the gap is real
-  // and not an approximation artifact.
-  assert.throws(
-    () => resolveChainBody([revealInstruction], kernel),
-    (error) => {
-      assert.ok(error instanceof Error);
-      assert.match(error.message, /effect\.reveal: pick must be a non-empty id/);
-      return true;
-    }
-  );
+test("sfd-215-221 Ravenbloom Conservatory: the original Expr reveal consumes the locked top card", () => {
+  const kernel = conservatoryWorld(["spell"]);
+  const ordered = lockPicks(kernel);
+  const outcome = resolveChainBody([revealInstruction], kernel);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.linkedValues["ravenbloom.reveal.revealed"], ordered);
+  assert.equal(outcome.linkedValues["ravenbloom.reveal.revealedCount"], 1);
+  assert.deepEqual(outcome.events.map(event => event.action), ["reveal"]);
+  assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["top-card", "next-card"]);
 });
 
+// Exercise the supported body through real Finalize/Resolve, with no setPicks
+// and no replacement reveal spelling. The unsupported Defend trigger is not
+// synthesized; this draft isolates the card's effect sequence.
+test("sfd-215-221 Ravenbloom Conservatory golden: Finalize locks the top card and Resolve executes both original branches", () => {
+  for (const spell of [true, false]) {
+    const kernel = conservatoryWorld(spell ? ["spell"] : ["unit"]);
+    const choose = request => { throw new AwaitChoice(request); };
+    const host = createActionPipelineHost({
+      checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+      restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+      objects: () => kernel.objects,
+      perform: action => kernel.perform(action),
+      choose,
+      context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose })
+    });
+    const engine = new ChainEngine({
+      turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host,
+      cleanup: chain => {
+        let changed = false;
+        for (const object of kernel.objects) {
+          if (object.zone === "board" && object.types.includes("unit") && object.might !== null &&
+              (object.might <= 0 || object.damage >= object.might)) {
+            changed = chain.commit({ type: "kill", object: object.ref }).status === "done" || changed;
+          }
+        }
+        return changed;
+      }
+    });
+    const top = kernel.zoneSlice("A", "deck", "top", 1).map(object => object.ref);
+    engine.execute({ id: "ravenbloom-body", source: kernel.getObject("ravenbloom"), controller: "A", kind: "activated", speed: "reaction", body: ability.body });
+    assert.deepEqual(engine.items[0].pickPlans, [{ id: "ravenbloom.revealed-card", refs: top }]);
+    assert.equal(engine.pipeline.events.filter(event => event.timingPoint === "card-revealed").length, 0);
+    resolveAll(engine);
+    assert.deepEqual(kernel.linked("ravenbloom.reveal.revealed"), top);
+    assert.deepEqual(kernel.zone("A", "hand").map(ref => ref.id), spell ? ["top-card"] : []);
+    assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), spell ? ["next-card"] : ["next-card", "top-card"]);
+    assert.equal(engine.pipeline.events.filter(event => event.timingPoint === "card-revealed").length, 1);
+    assert.equal(engine.pipeline.events.filter(event => event.timingPoint === "became-target").length, 0);
+  }
+});

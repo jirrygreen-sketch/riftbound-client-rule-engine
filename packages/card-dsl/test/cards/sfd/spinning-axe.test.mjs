@@ -3,8 +3,8 @@
 // The program declares keyword identities only (contract 3.1 / 3.7). The two
 // merge-verified halves are the Quick-Draw expansion's attach body and the Equip
 // expansion's attach body; both run through the production interpreter adapter
-// with a Finalize-locked target. Temporary, the Equip cost pipeline and the
-// card-played source identity are the judged gaps (see judgeReason).
+// with a Finalize-locked target. Quick-Draw's real play/trigger/attach path is
+// also covered; Temporary and the Equip cost pipeline remain judged gaps.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -12,7 +12,9 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/sfd/spinning-axe.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
-import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { createActionPipelineHost, bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
@@ -20,7 +22,7 @@ import { createProgramBinding, triggerRegistrations } from "../../../../engine-c
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { buildCostPlan, payCostPlan, DUEL_DOMAINS } from "../../../../engine-core/dist/cost/index.js";
-import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID =
   "card.hash-800c2a2c210066550ce1c729596dd3e463d221242fece59853f3a3983e3023b4";
@@ -104,12 +106,12 @@ test("sfd-186-221 Spinning Axe: identity, ruleset, status, judgeReason and verba
   assert.match(program.judgeReason, /816\.1\.b/);
   assert.match(program.judgeReason, /135\.2\.e\.5\.a/);
   assert.match(program.judgeReason, /params\.cost/);
-  // The Temporary KeywordDef and the CardProgram binding have merged since the
-  // original note; the refreshed reason points at the EventPattern vocabulary
-  // (beginning-start), the equip payment kind and the event source payload.
+  // Temporary timing and Equip costs remain blocked; the event source payload
+  // has merged and is covered by an actual play/trigger/attach below.
   assert.match(program.judgeReason, /beginning-start/);
   assert.match(program.judgeReason, /Unsupported payment kind: equip/);
   assert.match(program.judgeReason, /event\.source/);
+  assert.match(program.judgeReason, /RIFT-359/);
   assert.equal(program.judgeReason.includes("无已合入 KeywordDef"), false);
 });
 
@@ -235,8 +237,7 @@ test("sfd-186-221 golden: the merged binding layer registers the Quick-Draw card
   // KeywordDef): the expansion's card-played trigger must be registered for the
   // axe with its source discriminator bound to this card's printed identity, so
   // it fires for the axe's own play and not for other cards. The production
-  // card-played event still carries object/player only, so the discriminator
-  // cannot match until that payload lands (see judgeReason).
+  // card-played event now carries the required source identity (RIFT-359).
   const lifted = { ...program, status: "executable" };
   delete lifted.judgeReason;
   const bound = createProgramBinding({ cardPrograms: [lifted] });
@@ -244,7 +245,8 @@ test("sfd-186-221 golden: the merged binding layer registers the Quick-Draw card
     id: "spinning-axe", cardId: CARD_ID, types: ["gear"], might: 3,
     keywords: [{ id: "Quick-Draw" }, { id: "Equip", value: 1 }, { id: "Temporary" }]
   }] });
-  engine.commit({ type: "move-zone", object: kernel.ref("spinning-axe"), to: "base", location: { type: "base", player: "A" } });
+  engine.execute({ id: "axe-entry", source: kernel.getObject("spinning-axe"), controller: "A", kind: "gear", speed: "normal", body: [] });
+  resolveAll(engine);
   const registrations = triggerRegistrations(bound.registry, kernel.getObject("spinning-axe"));
 
   const quickDraw = registrations.find((registration) => registration.spec.filter.source !== undefined);
@@ -302,14 +304,7 @@ test("sfd-186-221 Spinning Axe: each Domain can pay the printed one-Power Equip 
   }
 });
 
-test.todo(
-  "sfd-186-221 Spinning Axe: the Quick-Draw play trigger can only fire end-to-end once the card-played event " +
-    "carries this card's identity for EventPattern.source binding (the adapter and trigger registration " +
-    "are merged; chain/engine.ts still emits object/player only, so the source filter from the merged " +
-    "Quick-Draw expansion never matches)"
-);
-
-// Direct evidence for the four recorded gaps, all against merged source.
+// Direct evidence for the remaining timing/cost gaps, all against merged source.
 test("sfd-186-221 Spinning Axe: the merged pipeline rejects the Temporary beginning-start subscription (CR 816.1.b)", () => {
   const spec = keywordDefinitionsById.get("Temporary").expand({ host: HOST })[0].trigger;
   assert.equal(spec.at, "beginning-start");
@@ -318,7 +313,8 @@ test("sfd-186-221 Spinning Axe: the merged pipeline rejects the Temporary beginn
   assert.deepEqual([...new Set(validation.issues.map(issue => issue.code))], ["invalid-event-type"]);
   // Registration through the real pipeline fails closed with the same reason.
   const f = fixture({ cards: [{ id: "spinning-axe", cardId: CARD_ID, types: ["gear"], might: 3, keywords: [{ id: "Temporary" }] }] });
-  f.engine.commit({ type: "move-zone", object: f.kernel.ref("spinning-axe"), to: "base", location: { type: "base", player: "A" } });
+  f.engine.execute(f.card("spinning-axe", { kind: "gear", body: [] }));
+  resolveAll(f.engine);
   assert.throws(() => f.engine.pipeline.registerTrigger({
     id: "temporary-axe",
     source: f.kernel.getObject("spinning-axe"),
@@ -357,24 +353,70 @@ test("sfd-186-221 Spinning Axe: expand receives no printed Equip cost, so the pr
   assert.equal(activation.cost.payments.length, 1);
 });
 
-test("sfd-186-221 Spinning Axe: the real card-played event carries no source identity for the Quick-Draw trigger", () => {
-  // Play the axe through the merged chain and inspect the emitted card-played
-  // event. chain/engine.ts builds it from object/player only, so the merged
-  // Quick-Draw filter's source discriminator can never match.
-  const f = fixture({ cards: [{ id: "spinning-axe", cardId: CARD_ID, types: ["gear"], might: 3, keywords: [{ id: "Quick-Draw" }, { id: "Equip", value: 1 }, { id: "Temporary" }] }] });
-  const lifted = { ...program, status: "executable", judgeReason: undefined };
-  const binding = createProgramBinding({ cardPrograms: [lifted] });
-  const draft = binding.describePlay({ type: "play", player: "A" }, f.kernel.getObject("spinning-axe"));
-  f.engine.execute(draft);
-  f.engine.pass(f.engine.priority);
-  f.engine.pass(f.engine.priority);
-  const played = f.engine.pipeline.events.filter(event => event.timingPoint === "card-played");
+test("sfd-186-221 Spinning Axe golden: the real card-played source triggers Quick-Draw and attaches to the chosen ally", () => {
+  const triggered = keywordDefinitionsById.get("Quick-Draw").expand({ host: HOST })[1];
+  const requests = [];
+  const kernel = world()
+    .player("A", { energy: 20, power: ["Fury"] })
+    .hand("spinning-axe", { cardId: CARD_ID, types: ["gear"], energy: 2, power: ["Fury"], might: 3, keywords: [{ id: "Quick-Draw" }] })
+    .base("source", { energy: 0, power: [], might: 3 })
+    .base("enemy", { owner: "B", might: 5 })
+    .build();
+  const choose = request => {
+    requests.push(request);
+    if (request.type === "select-objects" && request.id.includes("quick-draw-unit")) {
+      assert.equal(request.options.every(ref => kernel.object(ref).controller === "A"), true);
+      return [kernel.ref("source")];
+    }
+    throw new AwaitChoice(request);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose })
+  });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host,
+    cleanup: chain => {
+      let changed = false;
+      for (const object of kernel.objects) {
+        if (object.zone === "board" && object.types.includes("unit") && object.might !== null &&
+            (object.might <= 0 || object.damage >= object.might)) {
+          changed = chain.commit({ type: "kill", object: object.ref }).status === "done" || changed;
+        }
+      }
+      return changed;
+    }
+  });
+  // Exercise the supported Quick-Draw subscription in isolation. Temporary's
+  // timing and Equip's payment remain TODO; the whole card is judge-required.
+  engine.pipeline.registerTrigger({
+    id: "axe.quick-draw",
+    source: kernel.getObject("spinning-axe"),
+    controller: "A",
+    spec: triggered.trigger,
+    body: triggered.body,
+    optional: triggered.optional,
+    activeZones: ["board"]
+  });
+  engine.execute({ id: "play-axe", source: kernel.getObject("spinning-axe"), controller: "A", kind: "gear", speed: "normal", body: [] });
+  resolveAll(engine);
+  const played = engine.pipeline.events.filter(event => event.timingPoint === "card-played");
   assert.equal(played.length, 1);
-  assert.equal(Object.hasOwn(played[0], "source"), false);
+  assert.equal(Object.hasOwn(played[0], "source"), true);
+  assert.equal(played[0].source.ref.id, "spinning-axe");
+  assert.equal(played[0].source.cardId, CARD_ID);
   assert.equal(played[0].object.ref.id, "spinning-axe");
-  assert.equal(matchesTriggerEvent(
-    { event: "card-played", source: { canonicalCardId: CARD_ID } },
-    played[0],
-    "A"
-  ), false);
+  assert.equal(matchesTriggerEvent(triggered.trigger.filter, played[0], "A"), true);
+  assert.equal(matchesTriggerEvent({ ...triggered.trigger.filter, source: { canonicalCardId: "other-card" } }, played[0], "A"), false);
+  assert.equal(requests.filter(request => request.id.includes("quick-draw-unit")).length, 1);
+  assert.deepEqual(kernel.getObject("spinning-axe").attachedTo, kernel.ref("source"));
+  assert.equal(kernel.player("A").energy, 18);
+  assert.deepEqual(kernel.snapshot().history.filter(entry => entry.action.type === "pay").map(entry => entry.action.plan), [
+    { finalized: true, energy: 2, power: ["Fury"] }
+  ]);
+  assert.equal(engine.pipeline.events.filter(event => event.timingPoint === "object-attached").length, 1);
 });
