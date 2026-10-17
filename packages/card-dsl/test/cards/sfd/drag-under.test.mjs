@@ -22,6 +22,8 @@ test("Drag Under program is valid EffectIR v2 data and judge-required", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /366\.2/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(
     program.sourceText,
     "[Action] (Play on your turn or in showdowns.)\n" +
@@ -95,5 +97,5 @@ test("Drag Under golden: a unit that left the battlefield makes the instruction 
 
 test.todo(
   "Drag Under cost reduction: playing this spell from anywhere other than the hand reduces its " +
-    "printed 5 energy by 2 at Finalize (CR 366.2 + 349 cost steps) (依赖 cost.modify 原语与费用计划，RIFT-89 批次)"
+    "printed 5 energy by 2 at Finalize (CR 366.2 + 349 cost steps) (依赖 cost.modify 指令与卡牌静态效果到费用计划的绑定，RIFT-261 / RIFT-257)"
 );

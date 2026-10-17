@@ -28,17 +28,17 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   定义 id "recruit"。数量 3 是印刷常量。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required。
- * - object-moved 触发缺少「是本卡在移动」与「终点是战场」的可判定载荷：
- *   events/action-adapter.ts 为 move-location 生成的 object-moved 事件带 object = 被移动
- *   对象，但不填 toZone/toKind（timing-points.ts 声明的 payloadFields），因此
- *   toZone: "battlefield" 永远不命中；同时已合入的 events/pipeline-match.ts 只读取
- *   EventPattern 的 object/source/target/player/fromZone/toZone/amount/details，不读取
- *   卡程序里的内层 filter 锚点，所以 source: "self" 也没有消费方（需把被移动对象与
- *   宿主同一性暴露给卡牌注册层）。
- * - [Accelerate] 的展开已合入，但其费用计划消费方（Finalize 的 optionalAdditional 接线）
- *   属费用计划批次（RIFT-89）。
- * 依赖：移动时点接线（RIFT-120 为 move-location 补齐起点/终点并向卡牌注册层暴露"被移动对象
- * = 本卡"）、RIFT-89。
+ * - object-moved 触发缺少可判定载荷：events/action-adapter.ts 为 move-location 生成的
+ *   object-moved 事件带 object = 被移动对象，但不填 toZone/toKind（timing-points.ts
+ *   声明的 payloadFields），因此 toZone: "battlefield" 不会命中；events/pipeline-match.ts
+ *   消费 EventPattern 的 fromZone/toZone 时只比较事件上的同名字段。
+ * - 内层 filter 的 source: "self" 归属锚点也没有消费方：卡牌程序→TriggerRegistration
+ *   的绑定（卡牌程序绑定 RIFT-257，未合入 HEAD）才会把宿主身份接到匹配层；现无生产模块
+ *   展开卡牌 triggered 能力并注册进事件管线。
+ * - [Accelerate] 的展开（effects/keywords/Accelerate.ts）已合入，但其附加费用计划消费方
+ *   （Finalize 的 optionalAdditional 接线）与 cost.pay 原语属未合入的 RIFT-261 批次。
+ * 依赖：move-location 事件的起点/终点载荷与卡牌触发绑定（RIFT-257/RIFT-120 后续）、
+ * RIFT-261 的费用指令。
  * 不近似实现（不把任何移动都当作"移动到战场"，也不手改 token 状态或位置）。
  * token 体本身（effect.token mode "play" + 来源位置 referent）在 golden 测试里用参考内核
  * 真实执行，见下方 test 与 test.todo 的分工。
@@ -95,11 +95,12 @@ const program = {
   judgeReason:
     "object-moved 触发没有可判定的「本卡移动」与「终点是战场」载荷：events/action-adapter.ts 的 move-location 映射生成的" +
     " object-moved 事件带 object（被移动对象）但不填 toZone/toKind（timing-points.ts 声明的 payloadFields），" +
-    "因此 toZone: \"battlefield\" 无法命中；同时 events/pipeline-match.ts 只读取 EventPattern 的 object/source/target/" +
-    "player/fromZone/toZone/amount/details，不读取卡程序里的内层 filter 锚点，source: \"self\" 也没有消费方" +
-    "（需把被移动对象与宿主的同一性暴露给卡牌注册层；449.1/449.2 的起点终点、458 的 Recall 排除据此无法执行）；[Accelerate] 的展开" +
-    "（effects/keywords/Accelerate.ts）已合入，但其费用计划消费方（Finalize 的 optionalAdditional 接线）属 RIFT-89 批次。" +
-    "依赖：RIFT-120（move-location 事件载荷与移动注册）、RIFT-89（费用计划接线）。" +
+    "因此 toZone: \"battlefield\" 不会命中；内层 filter 的 source: \"self\" 归属锚点同样没有消费方——" +
+    "把卡牌 triggered 能力展开并注册成事件订阅的生产方（卡牌程序绑定 RIFT-257）未合入 HEAD，" +
+    "宿主与被移动对象的同一性无从比对（449.1/449.2 的起点终点、458 的 Recall 排除由此无法执行）。" +
+    "[Accelerate] 的展开（effects/keywords/Accelerate.ts）已合入，但其附加费用计划消费方（Finalize 的 optionalAdditional 接线）" +
+    "与 cost.pay 原语属未合入的 RIFT-261 批次。" +
+    "依赖：RIFT-257（卡牌触发/替代绑定与展开）、RIFT-261（费用指令）、move-location 事件载荷补全。" +
     "token 体（effect.token mode \"play\" 按 440.2.c/185.2.a 在链上生成后打出，位置取来源 referent，359.3.f.1）" +
     "用参考内核真实执行；触发本身不近似实现。",
   abilities,

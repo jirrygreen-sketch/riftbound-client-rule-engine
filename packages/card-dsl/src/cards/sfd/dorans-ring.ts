@@ -17,12 +17,13 @@ import type { CardProgram } from "../../ir/index.js";
  * status: judge-required. The card only declares the keyword (cards/README.md
  * section 5); execution depends on two unmerged pieces:
  * 1. contract 3.5 wiring from a CardProgram keyword ability into
- *    effects/keywords/Equip.ts is missing, and the printed Equip cost cannot reach
- *    KeywordDef.expand because the merged signature carries only value/host
- *    (contract 3.8.3 params.cost is not implemented).
+ *    effects/keywords/Equip.ts is missing (RIFT-257 card-program binding), and the
+ *    printed Equip cost cannot reach KeywordDef.expand because the merged Equip
+ *    expansion reads only value/host even though the interface now declares
+ *    params (contract 3.8.3 spelling).
  * 2. the merged Equip expansion declares cost.payments [{ kind: "equip" }], which
- *    cost/plan-values.ts readCost blocks with CostPlanError reason "judge-required"
- *    ("Unsupported payment kind: equip", RIFT-89 cost-payment batch).
+ *    cost/plan-values.ts readCost does not support (there is no Equip payment kind;
+ *    the cost.* instruction batch is RIFT-261, unmerged HEAD).
  * The merged effect.attach half is exercised by the golden test; that partial
  * evidence does not make the activation executable.
  */
@@ -40,11 +41,11 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Equip] cannot execute yet: (1) the card-program -> keyword-expansion -> chain wiring (contract 3.5) is unmerged, and the printed " +
-    "Equip cost (1 Chaos Power, CR 818.1.c) cannot reach KeywordDef.expand because the merged signature only carries value/host " +
-    "(contract 3.8.3 params.cost is not implemented); (2) the merged effects/keywords/Equip.ts expansion declares cost.payments " +
-    "[{ kind: \"equip\" }], which cost/plan-values.ts readCost rejects with CostPlanError reason \"judge-required\" " +
-    "(\"Unsupported payment kind: equip\", RIFT-89 cost-payment batch). The merged effect.attach body is exercised by the golden test; " +
+    "[Equip] cannot execute yet: (1) the card-program -> keyword-expansion -> chain wiring (contract 3.5) is unmerged (card-program binding RIFT-257), and the printed " +
+    "Equip cost (1 Chaos Power, CR 818.1.c) cannot reach KeywordDef.expand because the merged Equip expansion reads only value/host " +
+    "even though the interface declares the contract 3.8.3 params spelling; (2) the merged effects/keywords/Equip.ts expansion declares cost.payments " +
+    "[{ kind: \"equip\" }], and cost/plan-values.ts readCost has no Equip payment kind (the cost.* instruction batch is RIFT-261). " +
+    "The merged effect.attach body is exercised by the golden test; " +
     "the activation cost cannot be paid, so the card is not executable. 818.1.c.3/.c.4 (non-resource and cost-altering Equip text) do not apply here.",
   abilities: [equip],
   sourceText:

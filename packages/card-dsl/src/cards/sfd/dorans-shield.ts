@@ -17,11 +17,12 @@
  *
  * status = judge-required（缺可支付的费用路径与关键词接线，不近似实现）：
  * - 已合入的 Equip 展开声明 payments: [{ kind: "equip", value: source }]，费用管线
- *   cost/plan-values.ts 对未知支付种类直接 blocked：golden 实测 buildCostPlan 抛
- *   CostPlanError（reason "judge-required"，message "Unsupported payment kind: equip"）。
- * - 契约 3.8 第 3 条要求 expand 用 params.cost 承载印刷装备费，已合入的 KeywordDef 接口还没有
- *   该参数；卡牌程序 → 关键词展开 → 时点/链的接线（契约 3.5）未合入。
- * - 依赖：RIFT-89 之后的 Equip 费用支付支持与 RIFT-120 的关键词/链接线。不近似实现。
+ *   cost/plan-values.ts 的 readCost 没有 "equip" 这一支付种类（Equip 费用属未合入的
+ *   RIFT-261 费用指令批次），启动费用无法计算/支付。
+ * - 契约 3.8 第 3 条要求 expand 用 params.cost 承载印刷装备费，已合入的 KeywordDef 接口
+ *   虽声明了 params，但 Equip 展开只用 value/host，印刷的 Calm 符文没有落到 expand；
+ *   卡牌程序 → 关键词展开 → 时点/链的接线（契约 3.5）未合入（卡牌程序绑定 RIFT-257）。
+ * - 依赖：RIFT-261（Equip 费用与 cost.* 指令）、RIFT-257（卡牌程序关键词展开绑定）。不近似实现。
  */
 export default {
   canonicalCardId: "card.hash-6ef5f0dfecb89d68422cd4fa23ea64d155ef384d03c974ea67ff920203e89a46",
@@ -30,11 +31,12 @@ export default {
   judgeReason:
     "印刷的 [Equip] 费用（1 点 Calm Power，818.1.c.2）目前无法支付：已合入的 Equip 展开" +
     "（RIFT-87，effects/keywords/Equip.ts）声明 payments: [{ kind: \"equip\", value: source }]，" +
-    "费用管线 cost/plan-values.ts 的 readCost 对未知支付种类直接 blocked —— golden 实测 buildCostPlan " +
-    "抛 CostPlanError（reason \"judge-required\"，message \"Unsupported payment kind: equip\"）；" +
-    "契约 3.8 第 3 条要求 expand 用 params.cost 承载印刷装备费，已合入的 KeywordDef 接口仍无该参数，" +
-    "也缺卡牌程序→关键词展开→时点/链的接线（契约 3.5）。依赖：RIFT-89 之后的 Equip 费用支付支持" +
-    "与 RIFT-120 的关键词接线。不近似实现（不把 Equip 降级成裸 effect.attach）。",
+    "费用管线 cost/plan-values.ts 的 readCost 没有 \"equip\" 支付种类，启动费用无法计算/支付；" +
+    "契约 3.8 第 3 条要求 expand 用 params.cost 承载印刷装备费，已合入的 KeywordDef 虽声明了 params，" +
+    "但 Equip 展开只用 value/host，印刷的 Calm 符文没有落到 expand 参数上；" +
+    "也缺卡牌程序→关键词展开→时点/链的接线（契约 3.5）。" +
+    "依赖：RIFT-261（Equip 费用支付与 cost.* 指令）、RIFT-257（卡牌程序关键词展开绑定）。" +
+    "不近似实现（不把 Equip 降级成裸 effect.attach）。",
   abilities: [
     { kind: "keyword", keyword: "equip", value: 1, costDomain: "Calm" }
   ],

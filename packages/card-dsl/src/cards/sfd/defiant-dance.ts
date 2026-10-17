@@ -26,30 +26,19 @@ import type { CardProgram } from "../../ir/index.js";
  *   减量后小于 0 的一般处理是 143.2.c（被法术与能力引用时按 0 处理），不是本卡的印刷限制，
  *   因此这里不写 minimum（与 Stupefy/Smoke Screen 这类印刷 "to a minimum of 1" 的卡不同）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。缺口是临时 Might 修正原语：
- * - 契约 3.6 的封闭 GameAction 集合没有 Might 修改动作；effects/instructions/ 下没有任何
- *   原语通过 ResolveContext.addContinuous 注册 Might 修正（effect.buff 自己的文档明确
- *   "临时 Might 变化归 layers 的 continuous.might，绝不属于本原语"，702/703 的 Buff 计数器
- *   不是 Might 变化），RIFT-91 只合入了 layers 的求值侧；卡牌侧没有可用的注册入口。
- * - 两个目标的选择形状与 exclude 限制本身已可校验，但"修正作出"必须有上述注册路径才能落地；
- *   本文件按 layers 契约形状记录加法与减法两条指令，不做近似实现（不写成 Buff 计数、
- *   不省略 "this turn" 的期限、不省略 "another unit" 的排除）。
- * 依赖：continuous.might / effect.might-modify 指令原语与 continuous.duration 到期（RIFT-91），
- * 以及目标/条件管线（RIFT-87/RIFT-90）。
+ * status 判定（cards/README.md 第 2 节）：executable。
+ * - 两条修正均用已合入的 continuous.might 原语（RIFT-258）：按 478/478.1.a 注册 arithmetic
+ *   层效果，经 ResolveContext.addContinuous + duration "this-turn" 在清理时到期
+ *   （317.1.a/317.2.c/468.7.c）。golden 用生产链适配器（resolveChainBody）执行卡牌正文，
+ *   断言注册形状、加/减结果、回合末到期与目标失效边界。
+ * - 本卡没有印刷下限（143.2.c 的"小于 0 按 0 处理"是一般规则而非本卡限制），因此不写
+ *   minimum 参数；终值钳制由图层引擎的通用算术完成。
+ * - 两个目标与 "another unit" 的 exclude 限制（355.9.b）由解释器集合查询真实消费。
  */
 const defiantDance = {
   canonicalCardId: "card.hash-b159649107e1268bfb45d5d2c64def273ae76898db17907192d8e25e1d7526ef",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "缺临时 Might 修正的可执行路径：契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，effects/instructions/ 下" +
-    "没有任何原语通过 ResolveContext.addContinuous 注册该持续效果（effect.buff 文档明确临时 Might 变化归 layers 的 " +
-    "continuous.might，702/703 的 Buff 计数器不是 Might 变化；RIFT-91 只合入 layers 求值侧，卡牌侧没有注册入口）；" +
-    "「+2 :rb_might: this turn」与「-2 :rb_might: this turn」按 143.2.a 读写 Effective Might（arithmetic 层），" +
-    "并需按 317.2.c 在本回合清理中同时到期。本卡没有印刷下限（143.2.c 的“小于 0 按 0 处理”是一般规则而非本卡限制），" +
-    "因此不写 minimum 参数。两个目标与「another unit」的 exclude 限制（355.9.b）可校验，但修正落地依赖上述注册路径。" +
-    "依赖：continuous.might / effect.might-modify 原语与 continuous.duration 到期（RIFT-91）、目标与条件管线（RIFT-87/RIFT-90）。" +
-    "不近似实现：不写成 Buff 计数，不省略 this turn 期限，不省略 another unit 的排除。",
+  status: "executable",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {
@@ -60,6 +49,10 @@ const defiantDance = {
           id: "defiant-dance.buff-unit",
           op: "continuous.might",
           args: {
+            objects: {
+              kind: "constant",
+              value: { kind: "target", id: "defiant-dance.unit" }
+            },
             amount: { kind: "constant", value: 2 },
             duration: { kind: "constant", value: "this-turn" }
           },
@@ -79,6 +72,10 @@ const defiantDance = {
           id: "defiant-dance.debuff-another-unit",
           op: "continuous.might",
           args: {
+            objects: {
+              kind: "constant",
+              value: { kind: "target", id: "defiant-dance.another-unit" }
+            },
             amount: { kind: "constant", value: -2 },
             duration: { kind: "constant", value: "this-turn" }
           },
