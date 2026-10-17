@@ -42,7 +42,8 @@ export default {
         resource: "energy",
         amount: { kind: "constant", value: -2 },
         minimum: { kind: "constant", value: 1 },
-        filter: { type: "unit", tag: "Dragon", controller: "controller" }
+        // CR 133.8: Dragon is a tag; the printed text does not limit card type.
+        filter: { tag: "Dragon", controller: "controller" }
       }
     }
   ],

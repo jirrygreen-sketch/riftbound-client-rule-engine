@@ -1,3 +1,5 @@
+// Scenario evidence: ../templates/static-641.test.mjs (supported paths and explicit binding gaps).
+// Whole-card execution remains pending; the existing component evidence below is retained.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -42,10 +44,11 @@ test("structure: static Energy discount on the controller's Dragons with a minim
   // "Your Dragons": CR 133.8/133.8.a tags carry no innate meaning; the filter
   // names the Dragon tag and the controller.
   assert.deepEqual(discountAbility.effect.filter, {
-    type: "unit",
     tag: "Dragon",
     controller: "controller"
   });
+  // CR 133.8: tags can occur on multiple card types; the text does not say units.
+  assert.equal(discountAbility.effect.filter.type, undefined);
   assert.equal(discountAbility.condition, undefined);
 });
 
