@@ -63,7 +63,7 @@ type ObjectSelector =
 ## 4. Golden 测试分层
 
 使用 `node:test` 和 `node:assert/strict`，从构建后的 `dist` 导入程序及校验器。
-每张 `executable` 卡提供 1–3 个执行场景；其余卡仍须校验与结构测试。
+每张 `executable` 卡提供 1–3 个执行场景（可以是 4.1 节的模板级参数化用例中本卡自己的参数行）；其余卡仍须校验与结构测试。
 
 1. **校验与身份**：调用 `validateCardProgram(program)`，断言 `ok === true`、
    `issues` 为空；核对完整 `canonicalCardId`、规则版本、状态及原文。
@@ -82,6 +82,21 @@ type ObjectSelector =
 
 不能用 fixture 手工结算、直接改 frame/zone/resource/health、跳过回合步骤，或用伪造
 callback / no-op closure 充当执行成功；不能删测试、放宽断言或把错误行为写成预期。
+
+### 4.1 模板级参数化 golden（2026-10-17 用户批准）
+
+IR 结构相同的一组卡（同一能力模板，如“进场时抽 N”“对一个单位造成 N 点伤害”）可以共用一个
+参数化执行测试，放在 `packages/card-dsl/test/cards/templates/<template>.test.mjs`，
+用通用卡牌执行测试台（`effects/testing/scenario`）经真实路径执行。它可以作为第 3 层
+“真实执行”的证据，前提是：
+
+- **每张卡有自己的参数行**：完整 `canonicalCardId`（或程序文件路径）、本卡的局面与操作、
+  本卡特有的数值/目标/区域，以及**本卡自己的期望断言**（事件序列、状态变化、链接值）；
+  不能只断言“整组都执行成功”或共用同一份期望结果。
+- 每张卡的参数行生成独立的 `test` 用例，测试名包含卡名与 canonical 身份前缀，失败时能定位到单卡。
+- 第 1、2 层（校验与身份、结构）仍按单卡写在 `test/cards/<set>/<slug>.test.mjs`（可精简为
+  校验 + 关键结构断言），并在文件头注明执行证据所在的模板测试文件。
+- 模板测试覆盖的边界（negated / ignored / 无合法目标等）至少每个模板一组，卡特有边界仍按卡写。
 
 ## 5. 关键词只声明，不重写
 
