@@ -14,24 +14,24 @@ import type { CardProgram } from "../../ir/index.js";
  *   在 arithmetic 图层按控制者当前点数给本单位加 Might 的 continuous.might
  *   效果，取值在图层计算时动态求值（不是进场或结算时锁定）。
  *
- * status：judge-required。2026-10-17 实测：静态 continuous.might 经真实 attachLifecycle
- * 注册成功（图层注册数 1），但 amountFrom 只是描述性数据，不是可执行表达式——
- * 把玩家 A 的点数设为 3 后 evaluate 出的 Might 仍是印刷值 3（期望 6）。
- * 缺口具体为：Expr 没有读取 PlayerSnapshot.score（=194 的 points）的形式，
- * layers/engine.ts 的 valueOf 也只解析 constant/literal、object-property/object-attribute、
- * ref 与 add/subtract/multiply，ObjectSnapshot 本身不含 points。
- * 不近似成固定数值；因此本程序保留开放形状与金额来源描述（amountFrom 不可执行）。
+ * status：judge-required。玩家状态表达式已经合入，故金额改为正式的
+ * `player-property(points)`；2026-10-17 实测静态 continuous.might 仍经真实
+ * attachLifecycle 注册成功（图层注册数 1），但生产静态绑定会把该表达式原样交给
+ * LayerEngine，后者的 valueOf 不调用 expr-ext/evaluate.ts，遇到 player-property
+ * 会按 0 处理。把玩家 A 的点数设为 3 后 evaluate 出的 Might 仍是印刷值 3（期望 6）。
+ * 不近似成固定数值；表达式本身可校验，但消费方尚未接线。
  */
 const dravenShowboat = {
   canonicalCardId: "card.hash-2fce7f4e1db0ed6a111d74a7702d3846593794a9cddf1a1722959543f53ec58e",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "continuous.might 缺少「按控制者当前点数动态加 Might」的 amount 表达（CR 194/194.1）：" +
-    "Expr 没有读取 PlayerSnapshot.score（points）的形式，ObjectSnapshot 也不含 points，" +
-    "layers/engine.ts 的 valueOf 只解析 constant/literal、object-property/object-attribute、ref 与 add/subtract/multiply。" +
-    "实测：图层注册成功，但控制者 3 点时 evaluate 出的 Might 仍是 3（期望 6）。" +
-    "Amount 无法写成「= your points」；不近似为固定 Might 数值（amountFrom 仅描述性数据）。",
+    "continuous.might 仍缺「按控制者当前点数动态加 Might」的生产消费链（CR 194/194.1）：" +
+    "EffectIR 已能用 player-property(points) 读取 PlayerSnapshot.score，但 programs/statics.ts " +
+    "的静态绑定会把该表达式原样交给 layers/engine.ts；LayerEngine.valueOf 未接入 " +
+    "effects/interpreter/expr-ext/evaluate.ts，player-property 会落到 0。实测：图层注册成功，" +
+    "控制者 3 点时 evaluate 出的 Might 仍是 3（期望 6），点数变化也不会重算。" +
+    "不近似为固定 Might 数值；依赖生产静态 binder/LayerEngine 的动态表达式接线。",
   abilities: [
     {
       kind: "static",
@@ -40,8 +40,10 @@ const dravenShowboat = {
         mode: "add",
         layer: "arithmetic",
         appliesTo: "self",
-        // 描述性取值来源（不可执行数据）：amount 应为控制者当前 points。
-        amountFrom: { player: "controller", property: "points" }
+        // CR 194/194.1: the amount is the controller's current points. The
+        // player-state expression is valid IR; production LayerEngine wiring
+        // still needs to consume it dynamically.
+        amount: { kind: "player-property", player: "controller", property: "points" }
       }
     }
   ],

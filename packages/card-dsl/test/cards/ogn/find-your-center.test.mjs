@@ -26,6 +26,8 @@ test("Find Your Center identity, ruleset, status and printed text", () => {
   assert.equal(findYourCenter.rulesetVersion, "core-1.5");
   assert.equal(findYourCenter.status, "judge-required");
   assert.match(findYourCenter.judgeReason, /cost\.modify/);
+  assert.match(findYourCenter.judgeReason, /programs\/statics\.ts/);
+  assert.match(findYourCenter.judgeReason, /programs\/play\.ts/);
   assert.match(findYourCenter.judgeReason, /Victory Score/);
   assert.equal(cardRegistryById.get(findYourCenter.canonicalCardId), findYourCenter);
   assert.equal(

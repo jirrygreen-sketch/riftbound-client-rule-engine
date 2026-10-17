@@ -11,7 +11,11 @@ const findYourCenter = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺静态 cost.modify 到 Chain Finalize 的 CostPlanInput.discounts 绑定（CR 356.4）。TurnFlow 已有 victoryScore（Victory Score），ResolveContext.player 已有 score，但 Expr 没有读取这些值的适配，命名条件不能把非空字符串当成条件成立或硬编码默认 8（CR 194.3/194.3.a）。effect.channel 已提交 exhausted:true，effects/testing/test-kernel.ts 的 channel-rune 分支却只换区、未应用该入场状态，尚不能证明横置入场（CR 431.2）。",
+    "仍有三处当前生产缺口：programs/statics.ts 的 layerFor 不接受 cost.modify，" +
+    "programs/play.ts 也没有把该静态声明收集进 Chain Finalize 的 CostPlanInput.discounts（CR 356.4）；" +
+    "对手 score 与模式 Victory Score 的差值条件没有已接线的 player/mode 状态适配，不能把命名字符串当作成立或硬编码默认 8（CR 194.3/194.3.a）。" +
+    "effect.channel 已提交 exhausted:true，但 effects/testing/test-kernel.ts 的 channel-rune 分支只换区、" +
+    "未应用该入场状态，尚不能证明横置入场（CR 431.2）。",
   sourceText:
     "[Action] (Play on your turn or in showdowns.)\n" +
     "If an opponent's score is within 3 points of the Victory Score, this costs " +

@@ -26,6 +26,8 @@ test("ogn-210-298 Daring Poro: identity, ruleset, status, judgeReason, sourceTex
   assert.match(daringPoro.judgeReason, /Assault/);
   assert.match(daringPoro.judgeReason, /combatRole/);
   assert.match(daringPoro.judgeReason, /designation/);
+  assert.match(daringPoro.judgeReason, /expr-ext\/evaluate\.ts/);
+  assert.match(daringPoro.judgeReason, /programs\/statics\.ts/);
   assert.equal(daringPoro.sourceText, "[Assault] (+1 :rb_might: while I'm an attacker.)");
 });
 
