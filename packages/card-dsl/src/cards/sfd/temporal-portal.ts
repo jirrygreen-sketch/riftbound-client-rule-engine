@@ -19,25 +19,35 @@ import type { CardProgram } from "../../ir/index.js";
  *   （“equal to its cost”，按 206 取该牌的印刷费用）；这是对**下一次**法术打出的一次性
  *   （one-shot）授予，随本回合结束失效。
  *
- * status = judge-required（当前缺口均不近似实现）：
- * 1. 已合入的 continuous.grant-keyword 支持 target/pick/choose/objects/filter 选择器与
- *    appliesTo:"self"，但选择器只在激活结算时对当前世界求值；「本回合下一张你打出的法术」
- *    在激活时还不存在，原语没有 one-shot 挂起窗口（例如 card-played 时点的补登记）。
- * 2. Finalize 仍不能把未来法术自己的印刷费用读取为 Repeat 的可选追加费用组件；
- *    `equal-to-its-cost` 只保留为描述性 amount 标记，Repeat 展开仍只携带来源自带的
- *    repeat.cost 实例。
+ * status = judge-required（2026-10-17 RIFT-662 复核，逐条实测，均不近似实现）：
+ * 1. 印刷的授予形状在合并原语边界就被拒绝：continuous.grant-keyword 的 argsSchema
+ *    不接受 amount（实测 TypeError: Invalid continuous.grant-keyword argument: amount），
+ *    且 appliesTo 只接受 "self"。IR 里 amount="equal-to-its-cost"、
+ *    appliesTo="next-spell-you-play" 是印刷语义的描述性标记，这条 body 目前无法执行。
+ * 2. 即使忽略形状问题，「本回合你打出的下一个法术」在激活结算时还不存在：ObjectSelector
+ *    只有 self/source/target/pick/linked，ObjectFilter 没有「尚未打出」量词，TargetSpec
+ *    必须锁定 Finalize 时已存在的对象（355.5），Duration 词表也没有 one-shot next-spell
+ *    窗口（同 ogn/raging-firebrand、unl/the-academy、rad/firelights-hideout 的记录）。
+ * 3. Finalize 仍没有消费方把未来法术自己的印刷费用（206）读成可选 Repeat 追加费用组件
+ *    （820.1.c.1）；Repeat KeywordDef 的展开只携带来源自带的 repeat.cost 实例。
+ *
+ * 已支持且由模板测试真实执行的部分：印刷费用（135.2.e.5.a 的任意域 1 Power +
+ * 415.5 的 Exhaust 自身）经合并费用管线完整支付；执行证据见
+ * test/cards/templates/activated-activated-continuous-grant-key-662.test.mjs。
  */
 export default {
   canonicalCardId: "card.hash-bb98faffa9506df8c98b1086bec2cbd71a7dd9f4c677d8e31dc335ebfa6e61d5",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "当前缺口：(1) 已合入的 continuous.grant-keyword 支持 target/pick/choose/objects/filter 选择器与" +
-    "appliesTo:self，但没有 one-shot 挂起窗口：选择器只在激活结算时对当前世界求值，" +
-    "「本回合下一张你打出的法术」那时还不存在，无法把 Repeat 授予“本回合下一张法术”" +
-    "的一次性对象窗口；(2) Finalize 尚不能读取未来法术自己的印刷费用并生成可选 Repeat " +
-    "追加费用，IR 中的 amount=equal-to-its-cost 目前只有描述性标记、没有消费方；" +
-    "本卡的 exhaust 支付和固定关键词授予原语均已合入，不把它们列为缺口。",
+    "三处缺口（2026-10-17 实测，均不近似实现）：(1) 印刷的 continuous.grant-keyword 形状在合并原语边界被拒绝——" +
+    "argsSchema 不接受 amount（实测 TypeError: Invalid continuous.grant-keyword argument: amount），" +
+    "appliesTo 也只接受 self，amount=equal-to-its-cost 与 appliesTo=next-spell-you-play 仅作为描述性标记保留；" +
+    "(2)「本回合你打出的下一个法术」在激活结算时还不存在：ObjectSelector（self/source/target/pick/linked）" +
+    "与 ObjectFilter 没有 one-shot next-spell 窗口，TargetSpec 必须锁定 Finalize 时已存在的对象（355.5），" +
+    "Duration 词表也没有对应期限（同 ogn/raging-firebrand、unl/the-academy、rad/firelights-hideout）；" +
+    "(3) Finalize 没有消费方读取未来法术自己的印刷费用（206）来构建可选 Repeat 追加费用（820.1.c.1）。" +
+    "已支持且经模板测试真实执行：印刷费用（135.2.e.5.a 任意域 1 Power + 415.5 Exhaust 自身）由合并费用管线完整支付。",
   abilities: [
     {
       // 151.2：Gear 启动式能力在控制者 Main Phase 执行；契约 3.1 用 activated.timing 记录。
@@ -59,10 +69,8 @@ export default {
       body: [
         {
           // 820.1.b：给「本回合你打出的下一个法术」授予一个 Repeat 实例，其费用等于该法术的费用。
-          // IR 契约没有动态费用消费方；equal-to-its-cost 保留为描述性标记（见 judgeReason）。
-          // appliesTo:"next-spell-you-play" 同样是印刷形状的描述性标记：原语只接受
-          // appliesTo:"self" 或选择器，且选择器在激活结算时求值，未来的法术那时
-          // 还不存在（见 judgeReason 的 one-shot 挂起窗口缺口）。
+            // IR 契约没有动态费用消费方；equal-to-its-cost 保留为描述性标记。该标记与
+            // appliesTo:"next-spell-you-play" 一起在合并原语边界被拒绝（见 judgeReason）。
           id: "temporal-portal.grant-repeat",
           op: "continuous.grant-keyword",
           args: {

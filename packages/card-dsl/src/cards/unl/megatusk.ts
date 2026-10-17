@@ -22,15 +22,17 @@ import type { CardProgram } from "../../ir/index.js";
  *   没有可选余地（355.10.d：程序化选定的对象不是目标），因此用 `selection: "all"`、
  *   `min: 0`（同 rad/the-ball、ogn/kogmaw-caustic 对集合的写法），不是 “up to”。
  *
- * status = judge-required（缺口不近似实现）：
- * - continuous.grant-keyword 已合入，能把“your units here”按运行期位置查询注册到
- *   ability 图层，Ganking 的 KeywordDef 也已合入；golden 会执行这条 body。
- * - 仍缺 Ganking 的 movement permission consumer：continuous.movement 已能记录许可，
- *   但 zones/movement.ts 与 effect.move 尚未从图层读取它，所以整卡不能标记 executable。
- * 已合入且可执行的是本卡的启动费用：golden 用 buildCostPlan + payCostPlan 真实支付
- * 3 XP（并且验证 XP 不足时费用管线如实拒绝）。
+ * status = judge-required（2026-10-17 RIFT-662 复核，实测）：
+ * - 已合入且可执行：3 XP 启动费用（730.2）、continuous.grant-keyword 原语与按运行期位置
+ *   的「your units here」查询。模板测试经生产链真实支付 3 XP 并把 [Ganking] 注册到
+ *   来源与同战场友方单位（810.3 特征）；执行证据见
+ *   test/cards/templates/activated-activated-continuous-grant-key-662.test.mjs。
+ * - 仍缺 Ganking 的移动许可消费方（810.1.c / 144.4.c）：关键词展开的
+ *   continuous.movement 把许可写成字符串 permission:"battlefield-to-battlefield"，
+ *   而 layers/rules/query.ts 的 movement() 读 permission.routes，实测即使注册存在
+ *   canGank 仍为 false；被授予的关键词因此无法改变标准移动的合法目的地。不近似实现。
  *
- * 依赖：Ganking movement permission consumer（810.1.c/144.4.c）。
+ * 依赖：Ganking 移动许可形状归一与 zones/movement.ts / effect.move 的消费方。
  */
 export default {
   canonicalCardId:
@@ -39,10 +41,13 @@ export default {
   status: "judge-required",
   judgeReason:
     "「Give your units here [Ganking] this turn」的 continuous.grant-keyword 原语、运行期位置查询、" +
-    "Ganking KeywordDef 与 ability-layer 注册均已合入，body 可由解释器真实执行；但被授予的 Ganking " +
-    "仍需由 zones/movement.ts 与 effect.move 消费 continuous.movement 的跨战场许可（810.1.c/144.4.c）。" +
-    "已合入且可执行的是启动费用（204.1.b / 730.2 的 “Spend 3 XP”）：golden 用 buildCostPlan + " +
-    "payCostPlan 真实支付 3 XP，并验证 XP 不足时被拒绝。依赖：Ganking movement permission consumer。不近似实现。",
+    "Ganking KeywordDef 与 ability-layer 注册均已合入，模板测试经生产链真实执行（授予来源与同战场友方单位，" +
+    "810.3）；但被授予的 Ganking 仍缺移动许可消费方（810.1.c / 144.4.c）：关键词展开的 " +
+    "continuous.movement 把许可写成字符串 permission:\"battlefield-to-battlefield\"，而 " +
+    "layers/rules/query.ts 的 movement() 读 permission.routes，实测注册存在时 canGank 仍为 false，" +
+    "zones/movement.ts 与 effect.move 因此看不到该许可。已合入且可执行的是启动费用 " +
+    "（204.1.b / 730.2 的 “Spend 3 XP”），模板测试真实支付并验证 XP 不足时被拒绝。" +
+    "依赖：Ganking 移动许可形状归一与移动许可消费方。不近似实现。",
   abilities: [
     {
       kind: "activated",
@@ -60,7 +65,9 @@ export default {
           // id 与 end-of-turn 期限书写。
           op: "continuous.grant-keyword",
           args: {
-            keyword: { kind: "constant", value: "ganking" },
+            // 810.3：被注册的 KeywordId 是 "Ganking"（keywords/Ganking.ts）；
+            // 授予后的特征按该 id 可引用。
+            keyword: { kind: "constant", value: "Ganking" },
             duration: { kind: "constant", value: "end-of-turn" },
             // “your units here” is a criteria-based set (355.10.d), so the
             // interpreter resolves it through a query rather than a target.

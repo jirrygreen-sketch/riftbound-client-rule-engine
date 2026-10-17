@@ -18,14 +18,15 @@ import type { CardProgram } from "../../ir/index.js";
  *   必须先给我分配致命伤害，之后才能给同一控制者的其它无 [Tank] 单位分配伤害」；它是单位
  *   的可引用特征。本卡的授予带 “this turn” 期限（回合结束到期）。
  *
- * 复核（2026-10-17，第二轮 M2 覆盖率复核）：原 judgeReason 的两条依赖已合入——
+ * 复核（2026-10-17，RIFT-662 模板批次）：原 judgeReason 的两条依赖已合入——
  * Tank 的 KeywordDef（RIFT-264，effects/keywords/Tank.ts）与 continuous.grant-keyword
  * 指令原语（RIFT-258）都在当前内核里：授予按 478.1.a 建立 ability 层注册，"this turn"
  * 按 317.1.a / 468.7.c 走 end-of-turn 到期。本卡程序因此改用合并 IR 的选择器形状
  * （`objects: { kind: "target", id }`，契约 3.6 / 与 smoke-screen、siphon-power 的
- * 选择约定一致）而不是把 TargetSpec id 塞进 Expr；golden 用生产链适配器
- * （chain/interpreter-adapter）执行真实 body，并用图层引擎断言真实授予与到期、
- * 以及目标离场时的 ignored/mistargeted 边界。
+ * 选择约定一致）而不是把 TargetSpec id 塞进 Expr；模板测试经通用卡牌执行测试台
+ * （effects/testing/scenario）执行真实 body，并用图层引擎断言真实授予与到期、
+ * 以及目标离场时的 ignored/mistargeted 边界。执行证据见
+ * test/cards/templates/activated-activated-continuous-grant-key-662.test.mjs。
  *
  * status = judge-required（复核 2026-10-17，唯一剩余缺口）：
  * 815.1.b / 815.1.c.2 的战斗伤害分配语义没有消费方。[Tank] 展开出的
@@ -37,7 +38,8 @@ import type { CardProgram } from "../../ir/index.js";
  * DuelBaseCombatSourceEffectProof.keywordPriority: "proven-none"）。因此本卡即使授予成功，
  * 也不会改变 Combat Damage step 的指派顺序，不能宣称整卡可执行。
  * 依赖：战斗伤害分配工作流消费 continuous.combat。
- * 费用与 effect.exhaust 本体已合入，golden 用真实费用计划 + 真实解释器执行。
+ * 费用（204.1.b / 415.5 的 Exhaust 自身）与授予本体已合入，模板测试经真实费用计划与
+ * 真实解释器执行。
  */
 const eyeOfTwilight = {
   canonicalCardId: "card.hash-58b622a816049405488a25adae394668eeed8847e5a9ff884d3f09ce03886a4d",
