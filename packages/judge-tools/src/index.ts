@@ -38,3 +38,5 @@ export {
   stableHashJudgeReviewRequest,
   stableHashRuleFixtureSet
 } from "./serialization.js";
+
+export * from "./coverage/index.js";
