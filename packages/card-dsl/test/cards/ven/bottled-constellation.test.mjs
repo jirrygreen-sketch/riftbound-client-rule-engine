@@ -75,8 +75,8 @@ test("ven-067-166 Bottled Constellation: identity, ruleset, status, judgeReason 
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /383\.3\.b/);
-  assert.match(program.judgeReason, /TriggerRegistration/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /Finalize/);
+  assert.match(program.judgeReason, /PickSpec/);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
@@ -215,12 +215,10 @@ test("ven-067-166 Bottled Constellation golden: a non-target pick leaves the ene
 });
 
 test.todo(
-  "ven-067-166 Bottled Constellation: the main-start trigger must be registered from card data (CardProgram -> " +
-    "TriggerRegistration, RIFT-120 follow-up) though turn/ already emits the timing point (316.1/316.4); the " +
-    "registered channel itself (programs/triggers.ts) exists but the card-program producer does not"
+  "ven-067-166 Bottled Constellation: the leading \"kill 3 …\" must be paid as the triggered ability's base cost at " +
+    "Finalize (383.3.b) - the frozen TriggeredAbility shape has no cost field/producer"
 );
 test.todo(
-  "ven-067-166 Bottled Constellation: the leading \"kill 3 …\" must be paid as the triggered ability's base cost at " +
-    "Finalize (383.3.b) - frozen TriggeredAbility has no cost field and TriggerRegistration.cost has no producer, so the " +
-    "exactly-3 pick cannot be locked or validated yet"
+  "ven-067-166 Bottled Constellation: the exactly-3 PickSpec must lock at Finalize and revalidate at Resolve " +
+    "(383.3.b; min 3/max 3), rather than relying on caller-provided picks"
 );

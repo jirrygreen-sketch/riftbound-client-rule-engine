@@ -21,8 +21,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   unit here to draw 1" 与 Detonation Amplifier 的同型写法。因此被消灭的永久物用
  *   PickSpec（非目标选择）表达，绝不用 TargetSpec。383.3.b 进一步说明：它出现在效果
  *   开头并紧跟 "you may"，因此被当作该触发能力的基础费用（Finalize 支付，代价未付清
- *   则能力不进链）；本程序按“首条指令 = 前导费用”的先例写出，由尚未合入的 card-program
- *   adapter 解析（同 ogn/ekko-recurrent 的记录方式）。
+ *   则能力不进链）；本程序按“首条指令 = 前导费用”的先例写出，触发注册由
+ *   programs/triggers.ts 的 CardProgram → TriggerRegistration 入口负责。
  * - 429.1 / 429.6："kill" 是消灭动作（永久物从 Board 进入弃牌堆），已合入原语 effect.kill
  *   即该动作（"Kill [one or more permanents]" 的官方格式）。
  * - 194.1.c / 470.1–470.3："score 1 point" 是 Gaining Points，已合入原语 effect.score；
@@ -32,18 +32,16 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   是两种永久物的并集（133.4.a.2 的类型集合写法）。
  *
  * status = judge-required（缺口逐个列出，均不近似实现）：
- * 1. main-start 触发没有注册路径：没有已合入的 CardProgram → TriggerRegistration 适配器
- *    （RIFT-120 后续），本卡声明不会进链，即使 turn/ 会在 Main 阶段开始发出该时点。
- * 2. 383.3.b 把"kill 3 other friendly units and/or gear"定义为该触发能力的基础费用，
+ * 1. 383.3.b 把"kill 3 other friendly units and/or gear"定义为该触发能力的基础费用，
  *    冻结的 TriggeredAbility 形状没有 cost 字段（契约 3.1 只有 activated 有 cost），
- *    chain/engine.ts 的 TriggerRegistration.cost 是给 card-program adapter 预留的通道，
- *    该 adapter 未合入，费用既不能在 Finalize 支付也不能被校验。
- * 3. effect.kill 用 picks 只接受"最终锁定的非目标选择"，而本条要求的"恰好 3 个、不足时不能
- *    完成"的边界由 Finalize 的 PickSpec（min 3 / max 3）表达，PickSpec 的锁定与重验同样走
- *    未合入的 card-program/target 管线；golden 只能以调用方提供已锁定 picks 的方式执行，
- *    这不构成整卡证据。
- * 依赖：RIFT-120 的触发注册与 Finalize 费用/选择接线。已合入部分（choice.optional 包裹、
- * effect.kill 的 picks 形态、effect.score 的得点）由 golden 用解释器 + 参考内核真实执行。
+ *    虽然 chain/engine.ts 的 TriggerRegistration 提供 cost 通道，当前卡牌触发形状没有
+ *    生产这项费用的路径，因此费用既不能在 Finalize 支付也不能被校验。
+ * 2. effect.kill 用 picks 只接受"最终锁定的非目标选择"，而本条要求的"恰好 3 个、不足时不能
+ *    完成"的边界由 Finalize 的 PickSpec（min 3 / max 3）表达，PickSpec 的锁定与重验仍未
+ *    接入该卡的结算管线；golden 只能以调用方提供已锁定 picks 的方式执行，这不构成整卡证据。
+ * 依赖：383.3.b 的触发费用生产/支付与 Finalize 的 PickSpec 锁定/重验。CardProgram →
+ * TriggerRegistration 注册通道已合入；choice.optional 包裹、effect.kill 的 picks 形态与
+ * effect.score 的得点由 golden 用解释器 + 参考内核真实执行。
  */
 const abilities: Ability[] = [
   {
@@ -118,16 +116,15 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1) main-start 触发（316.1/316.4；时点由 turn/ 在 Main 阶段开始发出）" +
-    "没有注册路径：没有已合入的 CardProgram → TriggerRegistration 适配器（RIFT-120 后续），声明不会进链；" +
-    "(2) 383.3.b 把『kill 3 other friendly units and/or gear』定义为该触发能力的基础费用，" +
-    "冻结的 TriggeredAbility 形状没有 cost 字段（契约 3.1 只有 activated 有 cost），" +
-    "chain/engine.ts 的 TriggerRegistration.cost 是给未合入的 card-program adapter 预留的通道，" +
-    "费用既不能在 Finalize 支付也无法被校验；" +
-    "(3) 恰好 3 个的边界由 PickSpec（min 3/max 3）表达，但 PickSpec 的 Finalize 锁定与 Resolve 重验" +
-    "同属未合入的 card-program/target 管线，golden 只能以调用方提供已锁定 picks 的方式执行，" +
-    "不构成整卡证据。依赖 RIFT-120 的触发注册与 Finalize 费用/选择接线；" +
-    "已合入部分（355.10.c.1 的非目标 pick、effect.kill、effect.score）由 golden 真实执行。",
+    "两处缺口，均不近似实现：(1) 383.3.b 把『kill 3 other friendly units and/or gear』定义为" +
+    "该触发能力的基础费用，冻结的 TriggeredAbility 形状没有 cost 字段（契约 3.1 只有 activated 有 cost）；" +
+    "chain/engine.ts 的 TriggerRegistration 虽提供 cost 通道，当前卡牌触发形状没有生产这项费用的路径，" +
+    "因此费用既不能在 Finalize 支付也无法被校验；" +
+    "(2) 恰好 3 个的边界由 PickSpec（min 3/max 3）表达，但 PickSpec 的 Finalize 锁定与 Resolve 重验" +
+    "尚未接入该卡的结算管线，golden 只能以调用方提供已锁定 picks 的方式执行，不构成整卡证据。" +
+    "依赖 383.3.b 的触发费用生产/支付与 Finalize 的 PickSpec 锁定/重验；" +
+    "CardProgram → TriggerRegistration 注册通道已合入，355.10.c.1 的非目标 pick、effect.kill、effect.score " +
+    "已由 golden 真实执行。",
   abilities,
   sourceText:
     "At the start of your Main Phase, you may kill 3 other friendly units and/or gear to score 1 point."

@@ -120,6 +120,7 @@ test.todo(
   "ven-003-166 Brittle Steel: play from trash for the printed Flow cost (4 energy + 1 Fury power, " +
     "829.1.c.1) then banish it (829.1.b.1 delayed replacement) — the FlowKeywordInput consumer accepts " +
     "cost/params.cost, but the KeywordAbility IR has no field shape and expandProgram does not pass it " +
-    "(contract 3.8.3 production side unmerged; RIFT-261 alternate-cost consumer, RIFT-260 replacement " +
-    "registration)"
+    "(contract 3.8.3 production side unmerged; RIFT-261 alternate-cost consumer); replacement binding " +
+    "runs through programs/statics.ts → replacement/bind.ts, but replacement/pattern.ts has no " +
+    "object-leaves-chain matcher or leavingInstruction action marker (RIFT-260)"
 );

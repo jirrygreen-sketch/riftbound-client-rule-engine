@@ -140,8 +140,8 @@ test.todo(
 );
 test.todo(
   "ven-078-166 Baccai Witherclaw: the 727.1.b.3 nested gate ('active Deathknell exactly while Empowered') needs an " +
-    "Empowered status predicate (442.1.a / 727.1.c.1; RIFT-359); the trigger's cause/destination/empowered " +
-    "filter keys are rejected by programs/filters.ts until that predicate work lands"
+    "Empowered status predicate (442.1.a / 727.1.c.1; RIFT-359); translateTriggerFilter currently keeps the " +
+    "self anchor but drops the trigger's cause/destination/empowered fields until that predicate work lands"
 );
 test.todo(
   "ven-078-166 Baccai Witherclaw: the channelled runes must enter exhausted (431.2) — the merged channel-rune action " +

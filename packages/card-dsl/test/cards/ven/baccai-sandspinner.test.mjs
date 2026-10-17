@@ -131,9 +131,8 @@ test("ven-001-166: the Empowered dependent ability grants Deflect 1 and Assault 
   });
 });
 
-test("ven-001-166 review evidence: the grant primitive is merged but the Empower defs are not", () => {
+test("ven-001-166 review evidence: the grant primitive is merged", () => {
   assert.equal(instructionDefinitionsById.has("continuous.grant-keyword"), true);
-  assert.equal(instructionDefinitionsById.has("target.tax"), false);
 });
 
 test("ven-001-166 golden: the [Empowered] grant shape really registers Deflect 1 and Assault 2 through layers", () => {

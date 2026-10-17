@@ -17,7 +17,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   效果，829.1.c.1 说明 Flow 费用替代基础费用（本卡印刷为 4 能量 + 1 点 Fury 力量，135.2.e.4）。
  *   卡文件只声明关键词（cards/README.md 第 5 节）；展开与流程归 effects/keywords/Flow.ts。
  *
- * status = judge-required（三处缺口，均不近似实现）：
+ * status = judge-required（两处缺口，均不近似实现）：
  * 1. 印刷 Flow 费用无法送进展开：契约 3.1 的 KeywordAbility 只有 keyword / value，而 829.1.c 的
  *    Flow 费用是 CostSpec；已合入的 KeywordDef.expand 签名（effects/keyword-contract.ts）只有
  *    value/host——effects/keywords/Flow.ts 的 FlowKeywordInput 消费侧已接受 cost /
@@ -26,14 +26,13 @@ import type { CardProgram } from "../../ir/index.js";
  *    字段，也不用 value: 4 冒充费用。
  * 2. Flow 展开的消费方未合入：keywords/Flow.ts 自己记录 flow.cost 需要 RIFT-261 的费用消费方
  *    暴露可选的 alternative cost、保留 null 印刷费并记录“哪一份 Flow 实例被支付”；
- *    replacement.event 需要 RIFT-260 的替代注册/排序路径（区分正常离链与法术自身指示的离链，
- *    829.1.b.1——programs/lifecycle.ts 的 bindReplacementOnChain 已合入替换通道，但
- *    leavingInstruction 过滤键会被 programs/filters.ts 拒收）；continuous.timing 的
- *    “从弃牌堆打出”位置许可与链项终态也未合并。
- * 3. 卡牌程序 → 关键词展开 → 链的接线（契约 3.5）未合入，与 Accelerate / Equip 的判定同型。
+ *    Flow replacement declaration 经过 programs/statics.ts → replacement/bind.ts 已能注册替代，
+ *    但 replacement/pattern.ts 的 ACTION_KINDS 没有 object-leaves-chain，且闭合的
+ *    GameAction 没有 leavingInstruction 标记，无法匹配 Chain 离开或排除法术自身指示的离链
+ *    （829.1.b.1）。continuous.timing 的“从弃牌堆打出”位置许可与链项终态也未合并。
  * 已合入并真实执行的部分：「Kill a gear」的 effect.kill（429.1/429.6），golden 用解释器 +
  * 参考内核以 Finalize 锁定的目标真实执行，并覆盖目标失效（359.3.e）分支。
- * 依赖：RIFT-261（Flow 费用消费）、RIFT-260（replacement 注册）、关键词接线任务。
+ * 依赖：RIFT-261（Flow 费用消费）与 RIFT-260（replacement 匹配/排序）。
  * 无契约变更请求以外的臆造：未在卡里重写 Flow 或放逐逻辑。
  */
 export default {
@@ -41,18 +40,17 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1) 印刷 Flow 费用送不进展开——契约 3.1 的 KeywordAbility 只有 keyword / value，" +
+    "两处缺口，均不近似实现：(1) 印刷 Flow 费用送不进展开——契约 3.1 的 KeywordAbility 只有 keyword / value，" +
     "829.1.c 的 Flow 费用是 CostSpec；已合入的 KeywordDef.expand 只有 value/host，" +
     "effects/keywords/Flow.ts 的 FlowKeywordInput 消费侧已接受 cost / params.cost，" +
     "但 IR 的 KeywordAbility 没有承载字段的形状、expandProgram 也不会传入（契约 3.8.3 的生产侧未落地），" +
     "卡层无法声明 4 能量 + 1 点 Fury 力量，也不臆造字段或用 value: 4 冒充费用。" +
     "(2) Flow 展开的消费方未合入：Flow.ts 记录 flow.cost 需要 RIFT-261 的费用消费方（可选 alternate cost、保留 null 印刷费、" +
-    "记录被支付的 Flow 实例），「然后放逐」（829.1.b.1 的延迟替代）需要 RIFT-260 的替代注册/排序路径——" +
-    "programs/lifecycle.ts 的 bindReplacementOnChain 已合入替换通道，但 leavingInstruction 过滤键会被 " +
-    "programs/filters.ts 拒收；从弃牌堆打出的位置许可与链项终态同样未合并。" +
-    "(3) 卡牌程序 → 关键词展开 → 链的接线（契约 3.5）未合入（同 Accelerate / Equip 判定）。" +
+    "记录被支付的 Flow 实例）；Flow replacement declaration 经过 programs/statics.ts → replacement/bind.ts 已能注册替代，" +
+    "但 replacement/pattern.ts 的 ACTION_KINDS 没有 object-leaves-chain，且闭合的 GameAction 没有 leavingInstruction 标记，" +
+    "无法匹配 Chain 离开或排除法术自身指示的离链（829.1.b.1，RIFT-260）；从弃牌堆打出的位置许可与链项终态同样未合并。" +
     "已合入并真实执行：「Kill a gear」的 effect.kill（429.1/429.6，355.9.a.1 的 Board Gear 目标）由 golden 以解释器 + " +
-    "参考内核执行。依赖：RIFT-261、RIFT-260 与关键词接线任务。",
+    "参考内核执行。依赖：RIFT-261 与 RIFT-260。",
   abilities: [
     {
       // 829.1.a：Flow 出现在法术上；本卡只声明关键词，展开归 keywords/Flow.ts（见 judgeReason）。

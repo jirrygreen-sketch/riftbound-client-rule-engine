@@ -36,9 +36,10 @@ import type { Ability, CardProgram, Condition } from "../../ir/index.js";
  *    但 Empower 关键词本身缺 KeywordDef，印刷费用仍没有进入起动能力的展开路径；
  * 3. 没有 Empowered 状态谓词（442.1.a）：ObjectSnapshot 没有该字段（测试内核的
  *    empowered 计数不进入快照），condition.predicate 无法求值（RIFT-359）。727.1.c.1
- *    的“依赖能力在宿主死亡瞬间仍 Active”没有判定路径，触发过滤里的 cause /
- *    destination / empowered 键也会被 programs/filters.ts 的 translateObjectFilter
- *    拒收（该支持属于 RIFT-359 的条件谓词）；
+ *    的“依赖能力在宿主死亡瞬间仍 Active”没有判定路径；当前
+ *    programs/filters.ts 的 translateTriggerFilter 对 self 锚点会成功生成自身匹配，
+ *    但会丢弃同一过滤里的 empowered / cause / destination 字段，因此 Empowered
+ *    门控与死亡事件的因果/去向限制没有进入运行时匹配（该支持属于 RIFT-359 的条件谓词）；
  * 4. channel-rune 动作未落实 431.2 的进入状态：effect.channel 会把 exhausted: true 作为
  *    规定提交，但已合入的参考内核忽略该字段（符文仍以就绪状态进入符文区）。
  * 依赖新的 Empower/Empowered 关键词任务、RIFT-359（条件谓词）与内核补齐 431.2。
@@ -109,8 +110,9 @@ export default {
     "与 butcher-of-the-sands 同形），但 Empower 本体缺 KeywordDef、印刷费用仍没有进入起动能力的展开路径；" +
     "(3) 没有 Empowered 状态谓词——442.1.a 的状态不在 ObjectSnapshot / Condition 里（测试内核的" +
     " empowered 计数不进入快照），727.1.b.3 的「Empowered 成立时后面的 Deathknell 才 Active」与" +
-    " 727.1.c.1 的死亡瞬间判定都不可求值；触发过滤里的 cause / destination / empowered 键也会被" +
-    " programs/filters.ts 的 translateObjectFilter 拒收（该支持属于 RIFT-359 的条件谓词）；" +
+    " 727.1.c.1 的死亡瞬间判定都不可求值；当前 programs/filters.ts 的 translateTriggerFilter 对" +
+    " self 锚点会成功生成自身匹配，却丢弃触发过滤里的 empowered / cause / destination 字段，" +
+    " 所以 Empowered 门控与死亡事件的因果/去向限制没有进入运行时匹配（该支持属于 RIFT-359 的条件谓词）；" +
     "(4) 「Channel 2 runes exhausted」的进入规定（431.2）未落地：" +
     "effect.channel 会提交 exhausted: true 规定，但已合入的参考内核忽略该字段、符文仍以就绪状态进入。" +
     "channel 子效果本体已用参考内核真实执行；不近似实现。",
