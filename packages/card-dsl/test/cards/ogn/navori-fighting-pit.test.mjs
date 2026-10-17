@@ -5,7 +5,6 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/navori-fighting-pit.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 
 const CANONICAL = "card.hash-546a7aea49dffb7a5d50977e6011ab55e4c623b1ff68083db798c52197395627";
 const HERE = { type: "battlefield", id: "battlefield-1" };
@@ -19,12 +18,10 @@ test("ogn-283-298 Navori Fighting Pit: program validates and is judge-required",
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  // The gap must name the real cause: the hold timing point has no producer in
-  // merged code before RIFT-270; after the re-sweep the point is emitted by
-  // turn/flow's scoring wave and the remaining gaps are the here placeholder
-  // binding (RIFT-257) and the 703 Buff -> Might derivation.
+  // The gap must name the current causes: the hold timing point and trigger
+  // registration are merged; location binding and 703 remain.
   assert.match(program.judgeReason, /hold/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-357/);
   assert.match(program.judgeReason, /details\.battlefieldId/);
   assert.match(program.judgeReason, /703/);
   assert.equal(
@@ -110,17 +107,9 @@ test("ogn-283-298: a unit that already has a buff is not buffed again (CR 702.3.
   assert.equal(kernel.getObject("buffed-ally").buffs, 1);
 });
 
-test("ogn-283-298: the trigger filter still carries the unreplaced here placeholder", () => {
-  // Evidence for the judgeReason: the closed EventPattern vocabulary rejects
-  // the placeholder key, so the binding layer (RIFT-257) must translate it
-  // into the scoring payload's battlefield filter before the trigger can run.
-  assert.throws(() => assertTriggerSpec(ability.trigger), /EventPattern 不允许此字段/);
-});
-
 test.todo(
-  "ogn-283-298: the hold timing point (now emitted by turn/flow's scoring wave, RIFT-270) reaches " +
-    "this ability through the card-program trigger binding and the here placeholder is bound to the " +
-    "scoring payload's details.battlefieldId (RIFT-257)"
+  "ogn-283-298: bind the hold trigger's here placeholder and sameLocationAs target to the scoring " +
+    "payload's details.battlefieldId (RIFT-357)"
 );
 test.todo(
   "ogn-283-298: 703 layer arithmetic turns the placed Buff into +1 effective Might " +

@@ -30,12 +30,11 @@ test("ogn-255-298 Nine-Tailed Fox: identity, status, and verbatim sourceText", (
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /478\.1\.c/);
-  // Re-sweep: the Might op is merged; the remaining gaps are the attack
-  // timing producer, the battlefield-control payload, and the event-object
-  // selector (plus the RIFT-257 trigger binding).
+  // Re-sweep: the Might op and trigger registration are merged; the remaining
+  // gaps are the attack timing producer, battlefield-control payload, and
+  // event-object selector.
   assert.match(program.judgeReason, /attack-declared/);
   assert.match(program.judgeReason, /466\.2/);
-  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("ogn-255-298 Nine-Tailed Fox: attack-declared trigger for an enemy unit", () => {
@@ -143,12 +142,11 @@ test("ogn-255-298 Nine-Tailed Fox: the printed minimum of 1 clamps a 1-Might att
 test.todo(
   "ogn-255-298: the card-level execution — attack-declared has no producer yet (combat/flow.ts " +
     "throws TurnCombatBlockedError for the combat-start role transaction, CR 466.2), the payload " +
-    "does not carry the battlefield-control state, and 'it' needs an event-object selector; plus " +
-    "the card-program trigger registration (RIFT-257)"
+    "does not carry the battlefield-control state, and 'it' needs an event-object selector"
 );
 
 test.todo(
   "ogn-255-298: restrict the trigger to a battlefield the controller controls and bind “it” to the " +
     "attacking unit from the event (383.2.c.3.b / 359.3.f.3) — attack-declared payload control state (RIFT-124 " +
-    "follow-up) and event-object selector (RIFT-257/contract)"
+    "follow-up) and event-object selector (contract)"
 );

@@ -4,6 +4,7 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/noxian-guillotine-darius.js";
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 
@@ -37,8 +38,6 @@ test("ogn-254-298 Noxian Guillotine: program passes validateCardProgram", () => 
 test("ogn-254-298 Noxian Guillotine judgeReason names the delayed trigger, Legion and replacement gaps", () => {
   assert.match(program.judgeReason, /392/);
   assert.match(program.judgeReason, /registerDelayedTrigger/);
-  assert.match(program.judgeReason, /812\.1\.c/);
-  assert.match(program.judgeReason, /condition\.history/);
   assert.match(program.judgeReason, /158\.2/);
 });
 
@@ -56,8 +55,8 @@ test("ogn-254-298 Noxian Guillotine structure: [Action] + [Legion] with the two 
   ]);
 
   // The Legion condition (812.1.b.1/812.1.c) is a same-turn play-history check
-  // that must exclude this card; the contract shape is `exclude: "self"`, but
-  // the merged condition.history primitive does not consume it yet.
+  // that must exclude this card; the merged condition.history primitive
+  // consumes the contract shape `exclude: "self"`.
   assert.equal(legionCheck.op, "condition.history");
   assert.deepEqual(legionCheck.args.query.value, {
     scope: "turn",
@@ -135,16 +134,42 @@ test("ogn-254-298 Noxian Guillotine golden: a unit that already left the board c
   assert.equal(kernel.getObject("fleeing-target").zone, "hand");
 });
 
+test("ogn-254-298 Noxian Guillotine golden: Legion excludes this card from the same-turn history", () => {
+  const kernel = world()
+    .hand("guillotine", {
+      cardId: CARD_ID,
+      types: ["spell"],
+      energy: 2,
+      power: []
+    })
+    .hand("another-card", { types: ["spell"], energy: 1, power: [] })
+    .build();
+  assert.equal(kernel.perform({ type: "play", object: kernel.ref("guillotine"), player: "A" }).status, "done");
+  assert.equal(kernel.perform({ type: "play", object: kernel.ref("another-card"), player: "A" }).status, "done");
+
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("guillotine") });
+  // The card IR's `controller` token is asserted structurally above. For this
+  // primitive execution check, resolve that controller placeholder to the
+  // concrete test player while preserving the authored exclude:self field.
+  const query = legionCheck.args.query.value;
+  const executableHistory = {
+    ...legionCheck,
+    args: {
+      ...legionCheck.args,
+      query: { ...legionCheck.args.query, value: { ...query, player: "A" } }
+    }
+  };
+  const outcome = runAbilityBody([executableHistory], scoped);
+
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.equal(outcome.linkedValues["guillotine-legion-check.count"], 1);
+  assert.equal(outcome.linkedValues["guillotine-legion-check.value"], true);
+});
+
 test.todo(
   "Noxian Guillotine: registering the delayed 'kill it the next time it takes damage this turn' " +
     "trigger needs a primitive that calls ResolveContext.registerDelayedTrigger with a " +
-    "next-time scope and an end-of-turn expiry (CR 392; RIFT-120 batch 4 / RIFT-91 duration)."
-);
-
-test.todo(
-  "Noxian Guillotine: the [Legion] predicate needs condition.history to accept contract 3.8's " +
-    "exclude/objectFilter fields so 812.1.c's \"a card different than the one with the Legion " +
-    "ability\" can be enforced (HistoryQuery consumer / RIFT-257)."
+    "next-time scope and an end-of-turn expiry (CR 392)."
 );
 
 test.todo(

@@ -31,11 +31,10 @@ test("nocturne-horrifying: identity, ruleset, status, judgeReason and sourceText
   // 9. 文本/规则冲突与缺原语都必须写进 judgeReason。
   assert.match(program.judgeReason, /370\.1\.c\.1/);
   assert.match(program.judgeReason, /cost\.(printed|modify)/);
-  // Re-sweep: the replacement registration surface is merged (RIFT-260); the
-  // secret-zone simultaneous replacement event and the cost ops are not.
+  // Re-sweep: replacement registration and the cost.modify instruction are
+  // merged; the secret-zone event and Finalize cost/play wiring are not.
   assert.match(program.judgeReason, /RIFT-260/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /CostPlan/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -141,8 +140,8 @@ test.todo(
 );
 
 test.todo(
-  "nocturne-horrifying: 356.1.a 的替代费用计划生成（cost.printed / cost.modify，RIFT-89），" +
-    "并把计划写进 effect.play 的 cost 参数"
+  "nocturne-horrifying: 356.1.a 的替代费用计划生成（已合入 cost.modify），并把有效 " +
+    "Finalize CostPlan 写进 effect.play 的 cost 参数"
 );
 
 test.todo(
