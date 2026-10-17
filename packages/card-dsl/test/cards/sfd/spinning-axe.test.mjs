@@ -102,9 +102,9 @@ test("sfd-186-221 Spinning Axe: identity, ruleset, status, judgeReason and verba
   assert.match(program.judgeReason, /163\.2\.b/);
   // The Temporary KeywordDef and the CardProgram binding have merged since the
   // original note; the refreshed reason points at the EventPattern vocabulary
-  // (beginning-start), the in-progress cost work and the event source payload.
+  // (beginning-start), the equip payment kind and the event source payload.
   assert.match(program.judgeReason, /RIFT-39/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.equal(program.judgeReason.includes("RIFT-261"), false);
   assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.judgeReason.includes("无已合入 KeywordDef"), false);
 });
@@ -289,12 +289,12 @@ test.todo(
 test.todo(
   "sfd-186-221 Spinning Axe: paying the printed Equip cost (one [A] Power, CR 135.2.e.5 / 818.1.c.2) is blocked on " +
     "the `equip` payment kind in cost/plan-values.ts and on a contract representation for Universal Power " +
-    "(CR 163.2.b; in-progress RIFT-261); the merged cost plan rejects { kind: 'equip' } with reason judge-required"
+    "(CR 163.2.b); the merged cost plan rejects { kind: 'equip' } with reason judge-required"
 );
 
 test.todo(
   "sfd-186-221 Spinning Axe: the Quick-Draw play trigger can only fire end-to-end once the card-played event " +
-    "carries this card's identity for EventPattern.source binding and a card-program → TriggerRegistration " +
-    "adapter binds it (the RIFT-257 adapter is merged; chain/engine.ts still emits object/player only, so the " +
-    "source filter from the merged Quick-Draw expansion never matches)"
+    "carries this card's identity for EventPattern.source binding (the RIFT-257 adapter and trigger registration " +
+    "are merged; chain/engine.ts still emits object/player only, so the source filter from the merged " +
+    "Quick-Draw expansion never matches)"
 );

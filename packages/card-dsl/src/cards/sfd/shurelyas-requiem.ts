@@ -32,7 +32,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   effect.resources 明确记录 Universal Power 不可表达、绝不用某个域近似；本卡以描述性
  *   记号 costDomain: "rainbow" 记录印刷费用。
  * - [Equip] 的费用管线缺口：已合入的 Equip 展开声明 payments: [{ kind: "equip" }]，
- *   而 cost/plan-values.ts 的支付种类不含 equip（进行中的 RIFT-261），启动费用无法在 Finalize 支付。
+ *   而 cost/plan-values.ts 的支付种类不含 equip，启动费用无法在 Finalize 支付——
+ *   这是当前真实缺口（ Equip 支付种类仍不在已合入费用管线内）。
  * - 打出触发的注册方已合入（RIFT-257，programs/triggers.ts）：把 [Unique] 声明移出后，
  *   绑定层能把 card-played 触发注册成 TriggerRegistration 并解析 object: { canonicalCardId }
  *   过滤（golden 实测），所以这一项不再独立构成缺口——触发注册只在 [Unique] 展开恢复后才谈得上。
@@ -93,10 +94,10 @@ const program = {
     "（2）[Equip] 的印刷费用 :rb_rune_rainbow: 是 135.2.e.5/163.2.b 的 [A] 任意域（Universal）Power，" +
     "而契约与内核的 Domain 是 Fury/Calm/Mind/Body/Chaos/Order 六域封闭集合，effect.resources 明确记录 Universal Power 不可表达、绝不近似成某个具体域；" +
     "本卡以描述性记号 costDomain: \"rainbow\" 记录印刷费用。" +
-    "（3）已合入的 Equip 展开声明 payments: [{ kind: \"equip\" }]，而 cost/plan-values.ts 的支付种类不含 equip，该启动费用目前无法在 Finalize 支付（进行中的 RIFT-261）。" +
+    "（3）已合入的 Equip 展开声明 payments: [{ kind: \"equip\" }]，而 cost/plan-values.ts 的支付种类不含 equip，该启动费用目前无法在 Finalize 支付——当前真实缺口（Equip 支付种类仍不在已合入费用管线内）。" +
     "（4）打出触发的注册方不再构成缺口：RIFT-257（programs/triggers.ts）已合入，把 [Unique] 声明移出后，绑定层能把 card-played 触发注册成 TriggerRegistration，" +
     "并原样解析 object: { canonicalCardId } 过滤（golden 实测）；触发体本身的语义（effect.ready 的 { kind: \"query\" } 集合形状，416.1/416.1.c）也已由 golden 真实执行。" +
-    "依赖：关键词展开工作流（kw-unique，continuous.deck）、RIFT-261（费用支付种类）；[A] 属契约级缺口。",
+    "依赖：关键词展开工作流（kw-unique，continuous.deck）、Equip 支付种类的费用管线支持；[A] 属契约级缺口。",
   abilities,
   sourceText:
     "[Unique] (Your deck can have only 1 card with this name.)\n" +

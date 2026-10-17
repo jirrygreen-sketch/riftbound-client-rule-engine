@@ -26,15 +26,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   layers/engine.ts 的 conditionMatches 只认 always/never/type/has-tag/has-keyword，未知 kind 按 true，
  *   把上面的 compare 直接注册进图层会恒真开闸（golden 实测），所以卡内不得把它当已实现。
  * - 条件性 +2 Might 的执行侧已合入：continuous.might（RIFT-258）能注册算术层修改，golden 用该原语
- *   注册后经图层求值得到 +2；卡牌 static 的注册路径（RIFT-257 的 bindStatic/ProgramStaticBinder）
- *   仍只是回调接口，没有把它接成图层注册的消费方。
+ *   注册后经图层求值得到 +2；卡牌 static 的注册消费方也已合入（RIFT-257 的 bindStaticToLayers +
+ *   attachProgramLifecycle，programs/statics.ts），条件经 evaluateCondition 包装成运行时函数求值。
  * - 条件性 [Ganking] 授予：continuous.grant-keyword（RIFT-258）与 ability 图层（applyAbility 写 keywords）
- *   都已合入，缺的同样是 static 注册消费方；移动系统读的是 layer 的 movement 特征，grant 后的关键词
- *   也需要由该消费方落到图层上才有意义（同 ogn/block、sfd/gem-jammer 记录）。
- * - [Accelerate] 的展开已合入（RIFT-805 群组），但其费用计划消费方（Finalize 的 optionalAdditional
- *   接线）属进行中的 RIFT-261。
- * 依赖：RIFT-261（费用计划与 [A] 支付回执）、卡牌 static → 图层注册消费方（RIFT-257 回调接线）、
- * layers 条件求值器（compare 语义）与 Universal Power 的契约变更请求。
+ *   都已合入；static 注册消费方同样已合入（同上），卡牌 static 现在可以落到图层。
+ * - [Accelerate] 的展开与费用计划消费方都已合入：Finalize 的 optionalAdditional 接线
+ *   （cost/cost-plan.ts 的 selectedAdditional + chain/engine.ts 的加速进场判定）。
+ * 依赖：Universal Power 的契约变更请求 + layers 条件求值器（compare 语义）。
  * 不近似实现：不把 2 个 [A] 写成"任意 2 点力量"，不把条件性 +2 Might 写成 Buff，也不无条件授予 [Ganking]。
  */
 const abilities: Ability[] = [
@@ -94,11 +92,12 @@ const program = {
     "「:rb_rune_rainbow:」本身是 163.2.b 的 Universal Power，封闭 Domain 类型与 payment 记录不表达（effect.resources 明确 unsupported、不用具名域近似）。" +
     "该条件还缺求值器：layers/engine.ts 的 conditionMatches 只认 always/never/type/has-tag/has-keyword，未知 kind 按 true，把上述 compare 直接注册进图层会恒真开闸，" +
     "golden 实测该恒真行为。(2) 条件性 +2 Might 的执行侧已合入（continuous.might，RIFT-258）：golden 用该原语注册后经图层求值得到 +2；" +
-    "仍缺卡牌 static → 图层的注册消费方（RIFT-257 的 bindStatic/ProgramStaticBinder 只是回调接口，未接成图层注册）。(3) 条件性 [Ganking] 同理：" +
-    "continuous.grant-keyword（RIFT-258）与 layers 的 ability 层关键词写入（applyAbility）都已合入，缺的仍是 static 注册消费方；" +
-    "移动系统读取的是图层 movement 特征（同 ogn/block、sfd/gem-jammer 记录）。(4) [Accelerate] 展开已合入，但其费用计划消费方" +
-    "（Finalize 的 optionalAdditional 接线）属进行中的 RIFT-261。" +
-    "依赖：RIFT-261（费用计划与 [A] 支付回执）、RIFT-257（卡牌 static → 图层注册接线）、layers 条件求值器（compare 语义）与 Universal Power 的契约变更请求。",
+    "卡牌 static → 图层的注册消费方也已合入（RIFT-257 的 bindStaticToLayers + attachProgramLifecycle，programs/statics.ts，" +
+    "条件经 evaluateCondition 包装成运行时函数求值）。(3) 条件性 [Ganking] 同理已可落到图层：" +
+    "continuous.grant-keyword（RIFT-258）与 layers 的 ability 层关键词写入（applyAbility）都已合入，static 注册消费方同上已合入；" +
+    "移动系统读取的是图层 movement 特征（同 ogn/block、sfd/gem-jammer 记录）。(4) [Accelerate] 展开与其费用计划消费方都已合入" +
+    "（Finalize 的 optionalAdditional 接线，cost/cost-plan.ts 的 selectedAdditional + chain/engine.ts 的加速进场判定）。" +
+    "依赖：Universal Power 的契约变更请求 + layers 条件求值器（compare 语义）。",
   abilities,
   sourceText:
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_chaos: as an additional cost to have me enter ready.)\n" +

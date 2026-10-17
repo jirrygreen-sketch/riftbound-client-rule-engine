@@ -31,14 +31,17 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   **次数**（count），不是伤害量；conquer 时点（timing-points.ts）是 payloadType
  *   "scoring" 且未声明 payloadFields，也不携带战斗分配结果（同 ogn/tryndamere-barbarian
  *   与 unl/piltover-enforcer 记录的缺口）。
- * - conquer 时点没有发射方：events/action-adapter.ts 只为已提交游戏动作派生时点
- *   （ACTION_TIMINGS 含 score → score，无 conquer），turn/flow.ts 的
- *   scheduleScore/commit 只提交 score 动作，全仓库没有 conquer 的 emit，触发无法按
- *   383.4.c.2.a 进入链。
- * - [Deflect 2] 的展开（effects/keywords/Deflect.ts 的 target.tax 静态效果）已合入，
- *   但 target.tax 的消费方（TargetTaxAdapter.appendTargetTax 与链的目标合法性/附加费用，
- *   909→RIFT-90）尚未接入，809.1.b.2 的对手付费尚不可执行。
- * 依赖：RIFT-31/RIFT-33（战斗分配统计与 conquer 触发）、RIFT-90（target.tax 接线）。
+ * - conquer 时点有发射方（turn/flow.ts 在 scoring 时按 score.method 发射 conquer
+ *   时点事件，载荷只有 player + details.battlefieldId），但 events/trigger-spec.ts 的
+ *   EVENT_PATTERN_TYPES 词表只有 "conquered"（pipeline-match.ts 把 conquered 映射
+ *   回 conquer），没有裸 "conquer"——本卡的 filter: { event: "conquer" } 会被
+ *   assertTriggerSpec 拒绝注册；且 filter 内嵌的 filter: { source: "self" } 是
+ *   EventPattern 不允许的 unknown-field 拼写（应改用顶层 source 锚点）。
+ * - [Deflect 2] 的展开与 target.tax 消费方都已合入（chain/engine.ts 的 taxAdapter
+ *   + mandatoryAdditional 接线），但税额仍是 energy 代理而非 Universal Power [A]——
+ *   809.1.b.2 的对手付费仍不可执行（契约缺口）。
+ * 依赖：conquer 时点词表（EVENT_PATTERN_TYPES 补 conquer/conquered 裸名或改写 filter）+
+ *   excess damage 统计 + Universal Power 契约变更请求。
  * 不近似实现（不把条件写成常量、不把 "that much" 写成固定数额、不手改伤害或点数）。
  */
 const abilities: Ability[] = [
@@ -129,13 +132,18 @@ const program = {
     "没有任何可求值路径读取本次攻击向敌方单位分配的 excess damage 总量（CR 467.2.c.4 定义 excess = 超过致命所需的分配量）——" +
     "HistoryQuery（effects/contract.ts）只有 scope/action/timingPoint/player/object 且返回事件次数 count，不是伤害量；" +
     "conquer 时点是 payloadType \"scoring\" 且未声明 payloadFields，也不携带战斗分配结果（与 ogn/tryndamere-barbarian、" +
-    "unl/piltover-enforcer 记录的同一缺口）。同时 conquer 时点没有发射方：events/action-adapter.ts 只为已提交游戏动作派生时点" +
-    "（ACTION_TIMINGS 有 score 无 conquer），turn/flow.ts 只提交 score 动作，全仓库无 conquer 的 emit，" +
-    "触发无法按 383.4.c.2.a 进入链。[Deflect 2]（809）的展开 effects/keywords/Deflect.ts 已合入（target.tax 静态效果），" +
-    "但其消费方（TargetTaxAdapter.appendTargetTax 与链的目标合法性和附加费用）属 RIFT-90 批次，809.1.b.2 的对手付费尚不可执行。" +
+    "unl/piltover-enforcer 记录的同一缺口）。conquer 时点有发射方（turn/flow.ts 在 scoring 时按 score.method " +
+    "发射 conquer 时点事件，载荷只有 player + details.battlefieldId），但 events/trigger-spec.ts 的 " +
+    "EVENT_PATTERN_TYPES 词表只有 \"conquered\"（pipeline-match.ts 把 conquered 映射回 conquer），没有裸 " +
+    "\"conquer\"，且本卡 filter 内嵌的 filter: { source: \"self\" } 是 EventPattern 不允许的 unknown-field " +
+    "拼写（应改用顶层 source 锚点），assertTriggerSpec 会拒绝注册，触发无法按 383.4.c.2.a 进入链。" +
+    "[Deflect 2]（809）的展开 effects/keywords/Deflect.ts 已合入（target.tax 静态效果），" +
+    "其消费方也已合入（chain/engine.ts 的 taxAdapter + mandatoryAdditional 接线），但税额仍是 energy 代理而非 809.1.b.2 要求的" +
+    " Universal Power [A]——对手付费仍不可执行（契约缺口）。" +
     "正文里 excess damage 的读取位置（condition.value 读 source.excessDamageAssignedThisCombat）是待接线声明：" +
     "未接线时该指令求值抛 MissingInformation 并被 ignored，不会把数额算错。" +
-    "依赖：RIFT-31/RIFT-33（战斗伤害分配统计与 conquer 触发）、RIFT-90（target.tax 接线）。" +
+    "依赖：conquer 时点词表（EVENT_PATTERN_TYPES 补 conquer/conquered 裸名或改写 filter）、" +
+    "excess damage 统计（CR 467.2.c.4）与 Universal Power 的契约变更请求。" +
     "不近似实现（条件不写成常量、\"that much\" 不写成固定数额、不手改伤害）。",
   abilities,
   sourceText:

@@ -33,8 +33,11 @@ test("sfd-120-221 Sivir, Ambitious: judgeReason names the excess-damage, conquer
   assert.match(program.judgeReason, /conquer/);
   assert.match(program.judgeReason, /383\.4\.c\.2\.a/);
   assert.match(program.judgeReason, /target\.tax/);
-  assert.match(program.judgeReason, /RIFT-90/);
-  assert.match(program.judgeReason, /RIFT-31\/RIFT-33/);
+  // RIFT-90 (target.tax wiring) has merged, so the refreshed reason no longer
+  // cites it; the remaining gaps are the EventPattern conquer spelling, the
+  // excess-damage statistic and Universal Power.
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /Universal Power/);
 });
 
 test("sfd-120-221 Sivir, Ambitious: [Deflect 2] is declared with its printed value, not expanded", () => {
@@ -125,19 +128,19 @@ test("sfd-120-221 Sivir, Ambitious: the may-shape reads the assigned total, then
 test.todo(
   "sfd-120-221 Sivir, Ambitious: the 'assigned 5 or more excess damage to enemy units' trigger condition " +
     "needs the combat-damage assignment statistic (467.2.c.4) — HistoryQuery only returns event counts and the " +
-    "conquer payload declares no fields (RIFT-31 / RIFT-33)"
+    "conquer payload declares no fields; the conquer timing point itself is emitted by turn/flow.ts"
 );
 
 test.todo(
-  "sfd-120-221 Sivir, Ambitious: the conquer timing point is emitted after the player has performed a " +
-    "Conquer (383.4.c.2.a, 471.1, 473.2.a) — turn/flow.ts only commits the score action and no code emits conquer " +
-    "(RIFT-31 / RIFT-33)"
+  "sfd-120-221 Sivir, Ambitious: the conquer trigger cannot register yet — the EventPattern " +
+    "vocabulary has no bare conquer (only conquered, which pipeline-match maps back) and the nested " +
+    "filter: { source: self } spelling is an unknown-field rejection (383.4.c.2.a)"
 );
 
 test.todo(
   "sfd-120-221 Sivir, Ambitious: [Deflect 2]'s expansion (effects/keywords/Deflect.ts target.tax) is consumed by " +
     "the target pipeline so opponents must pay :rb_rune_rainbow::rb_rune_rainbow: to choose Sivir " +
-    "(809.1.b.2) — TargetTaxAdapter wiring, RIFT-90"
+    "(809.1.b.2) — the taxAdapter wiring has merged; the tax is still an energy proxy, and Universal Power [A] is a contract change request"
 );
 
 test.todo(

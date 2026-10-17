@@ -135,7 +135,7 @@ test("sfd-192-221 Shurelya's Requiem: identity, ruleset, status, judgeReason and
   assert.match(program.judgeReason, /Unique/);
   assert.match(program.judgeReason, /continuous\.deck/);
   assert.match(program.judgeReason, /163\.2\.b/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /Equip 支付种类/);
   assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /TriggerRegistration/);
 });
@@ -239,7 +239,7 @@ test.todo(
 test.todo(
   "sfd-192-221 Shurelya's Requiem: paying the printed Equip cost (one [A] Power, CR 135.2.e.5 / 818.1.c.2) is " +
     "blocked on the `equip` payment kind in cost/plan-values.ts and on a contract representation for Universal Power " +
-    "(CR 163.2.b; in-progress RIFT-261)"
+    "(CR 163.2.b)"
 );
 
 test("sfd-192-221 golden: the merged binding layer expands and registers the card-played play effect", () => {

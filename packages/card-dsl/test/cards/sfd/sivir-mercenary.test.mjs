@@ -29,11 +29,12 @@ test("sfd-143-221 Sivir, Mercenary: identity, ruleset, status, judgeReason and v
   assert.match(program.judgeReason, /163\.2\.b/);
   assert.match(program.judgeReason, /continuous\.might/);
   // The Might/grant execution sides merged with RIFT-258; the refreshed reason
-  // cites the static-to-layer registration consumer (RIFT-257) and the
-  // in-progress cost work (RIFT-261).
+  // cites the static-to-layer registration consumer (RIFT-257), the missing
+  // spent/cost-receipt read and the layer compare-condition gap.
   assert.match(program.judgeReason, /RIFT-258/);
   assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /spent/);
+  assert.match(program.judgeReason, /conditionMatches/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -174,25 +175,28 @@ test("sfd-143-221 Sivir, Mercenary: the layer condition evaluator treats the dec
 
 test.todo(
   "sfd-143-221 Sivir, Mercenary: evaluate \"you've spent at least [A][A] this turn\" — no merged Expr reads " +
-    "spent resources (count counts objects, not amounts; ResolveContext exposes no spend receipt), the layer " +
-    "condition evaluator has no compare semantics, and [A] is 163.2.b Universal Power, which the closed Domain " +
-    "type cannot express (RIFT-261; contract change request)"
+    "spent resources (count counts objects, not amounts; ResolveContext exposes no spend receipt), [A] is " +
+    "163.2.b Universal Power, which the closed Domain type cannot express (contract change request), and " +
+    "registering the compare through the layer path must stay blocked because the wrapped count filter would " +
+    "open the gate unconditionally (probe: might 6 with an empty spend record)"
 );
 
 test.todo(
-  "sfd-143-221 Sivir, Mercenary: the merged continuous.might instruction and layer consumer now exist; what is " +
-    "still missing is the static ability registration consumer (a ProgramStaticBinder that turns this card's " +
-    "declared effect into a layer registration) — RIFT-257 callback wiring"
+  "sfd-143-221 Sivir, Mercenary: the static-to-layer registration consumer has merged (bindStaticToLayers + " +
+    "attachProgramLifecycle); the remaining gap is the spent-read Expr and the Universal Power representation " +
+    "for the condition the wrapped registration evaluates"
 );
 
 test.todo(
   "sfd-143-221 Sivir, Mercenary: grant [Ganking] for the turn through a continuous.grant-keyword consumer that the " +
-    "movement system reads (810.1.b / 144.4.c.1) — the keyword/layer halves merged with RIFT-258, but no static " +
-    "registration consumer feeds this card's declaration into them"
+    "movement system reads (810.1.b / 144.4.c.1) — the keyword/layer halves and the static registration consumer " +
+    "have merged; what remains is the Ganking permission shape (the movement runtime reads permission.routes, " +
+    "not the granted keyword string) and the spent-read condition from the first TODO"
 );
 
 test.todo(
   "sfd-143-221 Sivir, Mercenary: paying the optional Accelerate cost [1][Chaos] and the enter-ready replacement " +
-    "run through the Finalize cost plan and the replacement pipeline (805; the optionalAdditional binding is " +
-    "in-progress RIFT-261)"
+    "run through the card-level play binding — the Finalize optionalAdditional cost plan and the Accelerate " +
+    "keyword expansion have merged (engine cost-plan tests cover them), so what remains is the card-level " +
+    "Finalize flow"
 );

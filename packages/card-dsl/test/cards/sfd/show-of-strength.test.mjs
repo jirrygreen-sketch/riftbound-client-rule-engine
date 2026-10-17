@@ -5,6 +5,7 @@ import program from "../../../dist/cards/sfd/show-of-strength.js";
 import { validateCardProgram } from "../../../dist/ir/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
+import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
 
 const CARD_ID = "card.hash-7be9e4bed44d19de26a4a7a292ab8406e43694b33916fc5246d46347fa4ad85f";
 
@@ -18,7 +19,7 @@ test("sfd-106-221 Show of Strength: program passes validateCardProgram", () => {
   // The Mighty KeywordDef has merged since the original note; the refreshed
   // reason points at the missing query/layer predicate consumer.
   assert.match(result.value.judgeReason, /mightGte/);
-  assert.match(result.value.judgeReason, /RIFT-91/);
+  assert.match(result.value.judgeReason, /RIFT-359/);
   assert.equal(result.value.judgeReason.includes("registry is currently empty"), false);
 });
 
@@ -102,6 +103,27 @@ test("sfd-106-221 Show of Strength: zero qualifying units draws zero", () => {
   assert.equal(testWorld.player("A").deckSize, 1);
 });
 
-test.todo("sfd-106-221 Show of Strength: the merged Mighty KeywordDef only exposes the static condition.predicate 'is-mighty' shape; a query/layer predicate consumer (ObjectFilter Might threshold) must replace the descriptive mightGte filter — kw-mighty under the in-progress RIFT-91 query consumer and RIFT-90 target predicates.");
+test.todo("sfd-106-221 Show of Strength: the merged Mighty KeywordDef only exposes the static condition.predicate 'is-mighty' shape; a query/layer predicate consumer (ObjectFilter Might threshold) must replace the descriptive mightGte filter — kw-mighty; the remaining gap is the Might-threshold query consumer, in-progress RIFT-359.");
 
-test.todo("sfd-106-221 Show of Strength: full chain play (Reaction admission in Closed State, cost payment) — the RIFT-257 play binding and cost.printed for this plain spell are merged; the printed 2 Energy + 1 Body Power payment still depends on the in-progress RIFT-261 cost work.");
+test("sfd-106-221 Show of Strength: the printed cost is really paid by the cost pipeline", () => {
+  const kernel = world()
+    .player("A", { energy: 4, power: ["Body"] })
+    .deck(["deck-1"])
+    .build();
+  const plan = buildCostPlan(kernel, {
+    id: "cost:show-of-strength",
+    cost: { kind: "explicit", energy: { kind: "constant", value: 2 }, power: { kind: "constant", value: 1 } },
+    domains: ["Body"]
+  });
+  assert.equal(plan.total.energy, 2);
+  assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: ["Body"] }]);
+
+  const energyBefore = kernel.player("A").energy;
+  const receipt = payCostPlan(kernel, plan);
+  assert.equal(receipt.paid, true);
+  // The 2 Energy requirement is charged from the paying player’s energy pool;
+  // the 1 Power requirement is allocated from the declared Body domain.
+  assert.equal(kernel.player("A").energy, energyBefore - 2);
+  assert.deepEqual(receipt.power.power, [{ requirementIndex: 0, from: "Body", amount: 1 }]);
+  assert.deepEqual(receipt.actions.map((entry) => entry.action.type), ["pay"]);
+});

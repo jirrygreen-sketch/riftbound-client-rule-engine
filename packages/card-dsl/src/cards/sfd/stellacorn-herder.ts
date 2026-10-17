@@ -25,7 +25,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （区域均为 "board"），没有 timing-points.ts 为 449.1/449.2/458 声明的 Location
  *   起终点载荷（fromKind/fromLocationId/toKind/toLocationId），无法区分 Move 与
  *   Recall。
- * 依赖：RIFT-120（object-moved 进入 EventPattern 词表并补齐移动载荷）。
+ * 依赖：RIFT-39（object-moved 进入 EventPattern 词表；移动载荷缺口由本卡说明记录）。
  * effect.draw（414.1/414.3）本体已合入并由 golden 真实执行；不近似实现。
  */
 const abilities: Ability[] = [
@@ -57,7 +57,7 @@ const program = {
     "其次，events/action-adapter.ts 为 move-location 派生的事件只带 object/fromZone/toZone（区域均为 \"board\"），" +
     "没有 timing-points.ts 为 449.1/449.2/458 声明的 Location 起终点载荷（fromKind/fromLocationId/toKind/toLocationId），" +
     "无法区分 Move 与 Recall。effect.draw（414.1/414.3）本体已合入，golden 用解释器 + 参考内核真实执行该 body。" +
-    "依赖：RIFT-120（object-moved 词表与移动载荷）。不近似实现。",
+    "依赖：RIFT-39（object-moved 进入 EventPattern 词表）。移动载荷（Location 起终点）与 Move/Recall 区分是第二个独立缺口，属契约级。不近似实现。",
   abilities,
   sourceText: "When I move, draw 1."
 } satisfies CardProgram;
