@@ -9,12 +9,11 @@ export default {
   status: "judge-required",
   judgeReason:
     "CR 355.3：programs/play.ts 的 validateSurface 与 chain/engine.ts 的 assertFinalizationSurface " +
-    "都拒绝 choice.mode，静态打出仍缺 Finalize 模式计划及所选模式内目标生命周期（解释器可执行模式不等于生产绑定可执行）。" +
-    "CR 355.2.a/187.1：RIFT-357 已合入；现有 LocationSelector.choose.filter 以 type:any + controller:controller " +
-    "动态枚举控制者基地与其控制的战场，condition.value 在结算时锁定一个 LocationRef，linked-value 再由 effect.token.location 消费，" +
-    "两种目的地均已用真实 Recruit 打出执行测试覆盖。CR 355.10/432.1.c：查看牌库顶两张需要有序动态 picks（RIFT-358 进行中），" +
-    "effect.inspect 缺该上游来源时会明确阻断；draw 1 与 recycle the other 的绑定随 RIFT-358 落地后还需收尾。" +
-    "effect.damage 与 continuous.might 均已可执行。",
+    "都未绑定 choice.mode，缺 Finalize 模式计划及所选模式内目标生命周期；orderedPickSpecs 也未遍历模式体，" +
+    "缺把模式内 zoneSlice 绑定到该计划。CR 355.2.a/187.1：Recruit 的 LocationSelector.choose.filter " +
+    "已能经 condition.value 与 linked-value 传给 effect.token.location，但仍缺将该地点选择纳入模式的 Finalize。" +
+    "查看模式的有序来源已迁移为 zoneSlice，独立模式可执行 inspect→draw→recycle（414.1.a/432.1.c），" +
+    "damage 与临时 Might 亦可执行；这些局部证据不构成整卡模式绑定。",
   abilities: [
     {
       kind: "play",
@@ -125,16 +124,22 @@ export default {
                   id: "encore.look-and-recycle-mode",
                   body: [
                     {
-                      // "Look at the top 2 cards of your Main Deck" — the
-                      // ordered top selection is the open part (see judgeReason).
+                      id: "encore.look-controller",
+                      op: "condition.value",
+                      args: {
+                        value: { kind: "object-property", object: "source", property: "controller" },
+                        key: { kind: "constant", value: "controller" }
+                      }
+                    },
+                    {
+                      // CR 432.1.c: capture the ordered source through the
+                      // chain's zoneSlice binding, including short decks.
                       id: "encore.look-top-two",
                       op: "effect.inspect",
+                      linkedTo: "encore.look-controller",
                       args: {
-                        player: { kind: "constant", value: "controller" },
-                        zone: {
-                          kind: "constant",
-                          value: { owner: "controller", zone: "deck" }
-                        },
+                        player: { kind: "linked-value", instructionId: "encore.look-controller", key: "controller" },
+                        zone: { kind: "constant", value: "deck" },
                         scope: { kind: "constant", value: "top" },
                         amount: { kind: "constant", value: 2 },
                         picksSpecId: { kind: "constant", value: "encore.top-two" },
@@ -143,24 +148,34 @@ export default {
                       picks: [
                         {
                           id: "encore.top-two",
-                          options: ["dynamic:top-2-of-main-deck"],
-                          min: 2,
-                          max: 2,
-                          selection: "all"
+                          options: [],
+                          ordered: true,
+                          selection: "all",
+                          zoneSlice: {
+                            zone: "deck",
+                            from: "top",
+                            count: { kind: "constant", value: 2 }
+                          }
                         }
                       ]
                     },
                     {
                       id: "encore.draw-one",
                       op: "effect.draw",
-                      args: { amount: { kind: "constant", value: 1 } }
+                      args: { amount: { kind: "constant", value: 1 } },
+                      // CR 414.1.a: draw the top card, with no selection.
+                      // CR 432.1.c.1: an empty looked-at set cannot cause Burn Out.
+                      condition: {
+                        kind: "compare",
+                        left: { kind: "linked-value", instructionId: "encore.look-top-two", key: "inspected" },
+                        operator: "gte",
+                        right: { kind: "constant", value: 1 }
+                      }
                     },
                     {
-                      // "and recycle the other" — the complement of the drawn
-                      // card; effect.recycle has no complement selection, so the
-                      // linked inspected set cannot name "the other" (see
-                      // judgeReason). The objects list stays as an auditable
-                      // shape, never as an approximation of the complement.
+                      // The drawn card has left the deck and its old identity
+                      // is stale (CR 124). Recycling the live inspected set
+                      // therefore affects only the other card (417.1).
                       id: "encore.recycle-other",
                       op: "effect.recycle",
                       linkedTo: "encore.look-top-two",
@@ -170,6 +185,12 @@ export default {
                           instructionId: "encore.look-top-two",
                           key: "inspected-picked"
                         }
+                      },
+                      condition: {
+                        kind: "compare",
+                        left: { kind: "linked-value", instructionId: "encore.look-top-two", key: "inspected" },
+                        operator: "gte",
+                        right: { kind: "constant", value: 2 }
                       }
                     }
                   ]

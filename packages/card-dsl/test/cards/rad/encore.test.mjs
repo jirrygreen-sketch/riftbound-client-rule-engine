@@ -9,6 +9,7 @@ import program from "../../../dist/cards/rad/encore.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const [play] = program.abilities;
 const [chooseTwo] = play.body;
@@ -56,8 +57,8 @@ test("rad-152-167 Encore: program validates and has expected identity", () => {
 
 test("rad-152-167 Encore: judgeReason records mode Finalize, location and ordered picks", () => {
   assert.match(program.judgeReason, /355\.3/);
-  assert.match(program.judgeReason, /RIFT-357/);
-  assert.match(program.judgeReason, /RIFT-358/);
+  assert.match(program.judgeReason, /地点选择纳入模式的 Finalize/);
+  assert.match(program.judgeReason, /模式内 zoneSlice 绑定/);
   assert.match(program.judgeReason, /LocationSelector\.choose\.filter/);
   assert.match(program.judgeReason, /condition\.value/);
   assert.match(program.judgeReason, /linked-value/);
@@ -139,22 +140,41 @@ test("rad-152-167 Encore: structure — Choose two with four modes in printed or
 
   // Mode 4: look at the top 2, draw 1, recycle the other.
   assert.deepEqual(lookMode.body.map(instruction => instruction.id), [
+    "encore.look-controller",
     "encore.look-top-two",
     "encore.draw-one",
     "encore.recycle-other"
   ]);
-  const [look] = lookMode.body;
+  const [bindViewer, look] = lookMode.body;
+  assert.equal(bindViewer.op, "condition.value");
+  assert.deepEqual(bindViewer.args.value, { kind: "object-property", object: "source", property: "controller" });
+  assert.deepEqual(bindViewer.args.key, { kind: "constant", value: "controller" });
   assert.equal(look.op, "effect.inspect");
   assert.deepEqual(look.args.scope, { kind: "constant", value: "top" });
   assert.deepEqual(look.args.amount, { kind: "constant", value: 2 });
   assert.equal(look.picks.length, 1);
   assert.equal(look.picks[0].id, "encore.top-two");
-  assert.deepEqual(look.picks[0].options, ["dynamic:top-2-of-main-deck"]);
-  const [drawOne, recycleOther] = lookMode.body.slice(1);
+  assert.deepEqual(look.args.player, { kind: "linked-value", instructionId: "encore.look-controller", key: "controller" });
+  assert.deepEqual(look.args.zone, { kind: "constant", value: "deck" });
+  assert.deepEqual(look.picks[0], {
+    id: "encore.top-two", options: [], ordered: true, selection: "all",
+    zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 2 } }
+  });
+  const [drawOne, recycleOther] = lookMode.body.slice(2);
   assert.equal(drawOne.op, "effect.draw");
   assert.deepEqual(drawOne.args.amount, { kind: "constant", value: 1 });
   assert.equal(recycleOther.op, "effect.recycle");
   assert.equal(recycleOther.linkedTo, "encore.look-top-two");
+  assert.deepEqual(recycleOther.args.objects, {
+    kind: "linked-value", instructionId: "encore.look-top-two", key: "inspected-picked"
+  });
+  for (const [instruction, minimum] of [[drawOne, 1], [recycleOther, 2]]) {
+    assert.deepEqual(instruction.condition, {
+      kind: "compare",
+      left: { kind: "linked-value", instructionId: "encore.look-top-two", key: "inspected" },
+      operator: "gte", right: { kind: "constant", value: minimum }
+    });
+  }
 });
 
 test("rad-152-167 Encore: the original Choose two body executes damage and Might modes in printed order", () => {
@@ -284,4 +304,48 @@ test("rad-152-167 Encore: a unit that left the board before resolution cancels o
 });
 
 test.todo("Encore: choose modes during Finalize and bind only the selected modes' targets (CR 355.3)");
-test.todo("Encore: ordered top two picks, draw the chosen inspected card and recycle its complement (RIFT-358)");
+test("Encore: the original look mode locks ordered top two, draws the top card and recycles only the other", () => {
+  const f = fixture();
+  // Give the deck a real order different from set-query insertion order.
+  const order = ["A:deck:3", "A:deck:1", "A:deck:4", "A:deck:2"];
+  assert.equal(f.engine.commit({ type: "order-top", player: "A", objects: order.map(id => f.kernel.ref(id)) }).status, "done");
+  f.engine.advance();
+  const inspected = order.slice(0, 2).map(id => f.kernel.ref(id));
+  // Execute only this original mode body through the real chain. Full-card
+  // mode selection at Finalize remains pending above; no program status changes.
+  f.engine.execute(f.draft("encore-look-mode", { body: lookMode.body }));
+  assert.deepEqual(f.engine.items[0].pickPlans, [{ id: "encore.top-two", refs: inspected }]);
+  assert.equal(f.kernel.events.some(event => event.action === "look"), false);
+  resolveAll(f.engine);
+  assert.deepEqual(f.kernel.linked("encore.look-top-two.inspected-picked"), inspected);
+  assert.equal(f.kernel.linked("encore.look-top-two.inspected"), 2);
+  assert.equal(f.kernel.linked("encore.draw-one.drawn"), 1);
+  assert.deepEqual(f.kernel.linked("encore.recycle-other.recycled"), [inspected[1]]);
+  assert.equal(f.kernel.getObject(order[0]).zone, "hand");
+  assert.equal(f.kernel.object(inspected[0]), null, "the drawn incarnation is never recycled from hand");
+  assert.deepEqual(f.kernel.zoneSlice("A", "deck", "top").map(object => object.ref.id), [order[2], order[3], order[1]]);
+  assert.deepEqual(f.kernel.events.map(event => event.action), ["order-top", "look", "draw", "recycle"]);
+  assert.equal(f.engine.pipeline.events.some(event => event.timingPoint === "became-target"), false);
+});
+
+test("Encore: a short looked-at set draws as much as possible without recycling an uninspected card or burning out", () => {
+  for (const size of [0, 1]) {
+    const f = fixture();
+    assert.equal(f.engine.commit({ type: "mill", player: "A", amount: 4 - size }).status, "done");
+    f.engine.advance();
+    const before = f.kernel.zoneSlice("A", "deck", "top").map(object => object.ref);
+    const trash = f.kernel.zoneSlice("A", "trash", "top").map(object => object.ref);
+    f.engine.execute(f.draft(`encore-short-${size}`, { body: lookMode.body }));
+    assert.deepEqual(f.engine.items[0].pickPlans, [{ id: "encore.top-two", refs: before }]);
+    resolveAll(f.engine);
+    assert.equal(f.kernel.linked("encore.look-top-two.inspected"), size);
+    assert.deepEqual(f.kernel.linked("encore.look-top-two.inspected-picked"), before);
+    assert.equal(f.kernel.player("A").handSize, size);
+    assert.deepEqual(f.kernel.zoneSlice("A", "deck", "top"), []);
+    assert.deepEqual(f.kernel.zoneSlice("A", "trash", "top").map(object => object.ref), trash);
+    assert.equal(f.kernel.events.some(event => event.action === "recycle"), false);
+    assert.equal(f.kernel.events.filter(event => event.action === "draw").length, size);
+    assert.equal(f.kernel.player("A").score, 0);
+    assert.equal(f.kernel.player("B").score, 0);
+  }
+});

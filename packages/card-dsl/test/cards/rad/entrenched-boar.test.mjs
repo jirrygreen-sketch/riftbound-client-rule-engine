@@ -95,12 +95,12 @@ test("rad-026-167 Entrenched Boar: identity, status, judgeReason and verbatim so
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
-  // README §2: the reason names each remaining semantic and its owner task.
+  // README §2: the reason names the remaining entry transaction gap.
   assert.match(program.judgeReason, /optional/);
   assert.match(program.judgeReason, /replacement\.event/);
-  assert.match(program.judgeReason, /replaces\.event 声明也支持 optional/);
+  assert.match(program.judgeReason, /replacement\.event\/replaces\.event 的 optional/);
   assert.match(program.judgeReason, /continuous\.restrict/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /condition\.predicate/);
   // The merged entry replacement must no longer be reported as unmerged.
   assert.doesNotMatch(program.judgeReason, /replacement\.enter 家族/);
   assert.doesNotMatch(program.judgeReason, /RIFT-91/);
@@ -231,7 +231,7 @@ test("rad-026-167 Entrenched Boar: the movement prohibition registers a real abi
   assert.deepEqual(readable[0].filter, scoped.ref("boar"));
 });
 
-test.todo('Entrenched Boar: atomic optional entry replacement plus new-incarnation movement restriction registration (CR 368.1/369.3/317.2.c; RIFT-359)');
+test.todo('Entrenched Boar: atomic optional entry replacement plus new-incarnation movement restriction registration (CR 368.1/369.3/317.2.c)');
 
 test("Entrenched Boar: its declared prohibition blocks only this unit's Standard Move and expires at turn end", () => {
   const scene = duelWorld();
