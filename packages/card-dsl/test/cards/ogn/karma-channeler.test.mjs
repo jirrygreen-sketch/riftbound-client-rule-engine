@@ -10,6 +10,8 @@ import { runInstruction, world } from "../../../../engine-core/dist/effects/test
 
 import { createProgramBinding, translateInstructionTargets } from "../../../../engine-core/dist/programs/index.js";
 import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 
 const CANONICAL = "card.hash-65e0ab54a0954e391f643dc900a7a0faa2cd298faa850e7c436e13659498922d";
 const [vision, recycleTrigger] = program.abilities;
@@ -30,7 +32,9 @@ test("ogn-235-298 Karma, Channeler: identity, status and verbatim sourceText", (
   assert.match(program.judgeReason, /card-recycled/);
   assert.match(program.judgeReason, /batchId/);
   assert.match(program.judgeReason, /批次/);
-  assert.match(program.judgeReason, /RIFT-358/);
+  assert.match(program.judgeReason, /vision-top picks/);
+  assert.match(program.judgeReason, /未排除符文/);
+  assert.match(program.judgeReason, /执行玩家/);
   assert.equal(
     program.sourceText,
     "[Vision] (When you play me, look at the top card of your Main Deck. You may recycle it.)\n" +
@@ -47,9 +51,8 @@ test("ogn-235-298 Karma, Channeler: [Vision] is declared as a keyword ability", 
 test("ogn-235-298 Karma, Channeler: the recycle clause is a mandatory buff of one friendly unit", () => {
   assert.equal(recycleTrigger.kind, "triggered");
   assert.equal(recycleTrigger.trigger.at, "card-recycled");
-  // 417.1.a/c: recycle routes a card to its OWNER's deck, and the merged pipeline derives the
-  // recycle event's player from the recycled card's controller, so the ObjectFilter spelling is
-  // the equivalent of "when you recycle". card-recycled is not an EVENT_PATTERN_TYPES member.
+  // This provisional controller filter binds, but cannot identify the instructed recycler
+  // of another player's card or exclude Runes (417.1.c, 052/161.1). Those gaps stay judged.
   assert.deepEqual(recycleTrigger.trigger.filter, { controller: "self" });
   assert.equal(recycleTrigger.optional, false);
 
@@ -145,7 +148,7 @@ test("ogn-235-298 Karma, Channeler: the original buff body resolves with its fri
 test.todo(
   "Karma Vision: the keyword expansion (effects/keywords/Vision.ts) still emits object.id=self, which " +
     "programs/filters.ts rejects, and binds the inspect viewer as the constant A plus an ordered " +
-    "resolution-time vision-top picks list (817.1.c, 437.1; RIFT-358)"
+    "resolution-time vision-top picks list (817.1.c, 437.1)"
 );
 test.todo(
   "Karma recycle trigger: one hit for the whole recycle batch (417.1); the merged pipeline emits one " +
@@ -214,3 +217,87 @@ for (const recycle of [false, true]) {
     assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), recycle ? ["a-bottom", "z-top"] : ["z-top", "a-bottom"]);
   });
 }
+
+// Isolate the recycle subscription because the unrelated Vision filter still
+// prevents whole-program registration. Use the real pipeline and chain scanner.
+function recycleFixture({ rune = false } = {}) {
+  const builder = world()
+    .unit("karma", { cardId: CANONICAL, might: 3 })
+    .unit("enemy", { owner: "B", might: 5 })
+    .deck(["A:deck:1", "A:deck:2", "A:deck:3"], { owner: "A" })
+    .deck(["B:deck:1", "B:deck:2", "B:deck:3"], { owner: "B" });
+  if (rune) builder.rune("rune");
+  const kernel = builder.build();
+  const choose = request => {
+    if (request.type === "select-objects") return request.options.slice(0, request.min ?? 0);
+    throw new Error(`Unexpected choice: ${request.id}`);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action), choose,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: engine => {
+    engine.layers.setObjects(kernel.objects);
+    let changed = false;
+    for (const object of engine.layers.evaluateAll()) {
+      if (object.zone === "board" && object.types.includes("unit") && object.might !== null && (object.might <= 0 || object.damage >= object.might)) {
+        engine.commit({ type: "kill", object: object.ref });
+        changed = true;
+      }
+    }
+    return changed;
+  } });
+  const binding = createProgramBinding({ cardPrograms: [{
+    ...program, status: "executable", judgeReason: undefined, abilities: [recycleTrigger]
+  }] });
+  binding.registerProgramTriggers(engine, kernel.getObject("karma"));
+  return { engine, kernel };
+}
+
+test("Karma supported recycle subscription: another player's single-card recycle does not trigger me", () => {
+  const f = recycleFixture();
+  f.engine.enqueue({ id: "opponent-recycle", kind: "triggered", controller: "B", source: f.kernel.getObject("enemy"), body: [{
+    id: "opponent-recycle", op: "effect.recycle", args: {
+      from: { kind: "constant", value: { zone: "deck", amount: { kind: "constant", value: 1 } } }
+    }
+  }] });
+  f.engine.advance();
+  resolveAll(f.engine);
+  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "card-recycled").length, 1);
+  assert.equal(f.engine.trace.filter(entry => entry.step === "pending" && entry.item.startsWith("trigger:")).length, 0);
+  assert.equal(f.kernel.getObject("karma").buffs, 0);
+});
+
+test("Karma TODO: one two-card recycle instruction collects one buff trigger", {
+  todo: "417.1: card-recycled events need shared batch identity and per-batch trigger collection"
+}, () => {
+  const f = recycleFixture();
+  f.engine.enqueue({ id: "recycle-two", kind: "triggered", controller: "A", source: f.kernel.getObject("karma"), body: [{
+    id: "recycle-two", op: "effect.recycle", args: {
+      from: { kind: "constant", value: { zone: "deck", amount: { kind: "constant", value: 2 } } }
+    }
+  }] });
+  f.engine.advance();
+  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "card-recycled").length, 2);
+  assert.equal(f.engine.items.filter(item => item.id.startsWith("trigger:")).length, 1);
+});
+
+test("Karma TODO: recycling a rune does not collect a buff trigger", {
+  todo: "052/161.1: the card-recycled subscription must exclude Runes"
+}, () => {
+  const f = recycleFixture({ rune: true });
+  f.engine.commit({ type: "channel-rune", player: "A", amount: 1 });
+  f.engine.advance();
+  f.engine.enqueue({ id: "recycle-rune", kind: "triggered", controller: "A", source: f.kernel.getObject("karma"), body: [{
+    id: "recycle-rune", op: "effect.recycle", args: {
+      from: { kind: "constant", value: { zone: "rune-zone", amount: { kind: "constant", value: 1 } } }
+    }
+  }] });
+  f.engine.advance();
+  assert.equal(f.kernel.getObject("rune").zone, "rune-deck");
+  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "card-recycled").length, 1);
+  assert.equal(f.engine.items.filter(item => item.id.startsWith("trigger:")).length, 0);
+});

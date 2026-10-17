@@ -58,8 +58,8 @@ test("Kai'Sa, Evolutionary identity and judge-required reason", () => {
   assert.match(program.judgeReason, /energyLessThan/);
   assert.match(program.judgeReason, /played 次数/);
   assert.match(program.judgeReason, /permission\.routes/);
-  // The RIFT-359 dependency is still the live owner of the predicate work described above.
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /候选法术印刷 Energy/);
+  assert.match(program.judgeReason, /嵌套 Finalize/);
   assert.equal(
     program.sourceText,
     "[Ganking] (I can move from battlefield to battlefield.)\n" +
