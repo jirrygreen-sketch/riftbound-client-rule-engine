@@ -1,9 +1,18 @@
-// 场景执行证据与整卡阻塞：../templates/keyword-static-static-649.test.mjs
+// Golden test for Gustwalker (unl-075-219).
+//
+// Execution evidence (the real printed 3 Energy + 1 Mind Power payment, the
+// registered-but-inactive [Level 3] statics, the fail-closed Hunt trigger
+// registration and the blocked printed expectations) lives in the RIFT-673
+// parameterized template golden:
+// test/cards/templates/keyword-static-static-673.test.mjs.
+// Original behavior and structure assertions remain in this file; the
+// template adds execution evidence without replacing these checks.
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/unl/gustwalker.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -21,6 +30,7 @@ test("unl-075-219 Gustwalker: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
   assert.deepEqual(result.issues, []);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
+  assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
 test("unl-075-219 Gustwalker: identity, ruleset, status, judgeReason, sourceText", () => {
@@ -123,4 +133,3 @@ test("unl-075-219 Gustwalker golden: the merged Hunt body really gains XP", () =
   assert.equal(outcome.results[0].result.status, "executed");
   assert.equal(kernel.player("A").xp, 2);
 });
-

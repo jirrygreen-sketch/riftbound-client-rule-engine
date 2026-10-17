@@ -21,14 +21,16 @@ import type { Ability, CardProgram, Condition } from "../../ir/index.js";
  *   另一个战场”。按 README 第 5 节只声明关键词，展开（continuous.movement 形状）
  *   由 effects/keywords/Ganking.ts 负责。
  *
- * 复核（2026-10-17，M2 覆盖率复核）：RIFT-593 的 Empower KeywordDef
+ * 复核（2026-10-17，M2 覆盖率复核）：执行证据在
+ * templates/keyword-static-static-673.test.mjs。RIFT-593 的 Empower KeywordDef
  * （effects/keywords/Empower.ts）已合入，Empowered 状态也用 `empowered` 属性暴露给
  * object-property 谓词（与本卡门控一致，见下），因此旧的「无 KeywordDef / 无状态谓词」
  * 两条理由均过时。仍不能整卡可执行的当前缺口：
  * 1. 印刷的 Empower 费用无法从卡侧送达展开：827.1.c 的 “[Cost]: Empower this” 是
  *    CostSpec，而契约 3.1 的 KeywordAbility 只有 keyword / value（没有 params 承载字段），
  *    programs/keywords.ts 的 expandProgram 也仍以 `def.expand({ value, host })` 调用、
- *    不传契约 3.8.3 的 params.cost；因此本卡无法声明印刷的 3 Energy，展开只得到
+ *    不传契约 3.8.3 的 params.cost；因此本卡无法为印刷的 3 Energy 声明可执行费用
+ *    （keyword 的 value 只保留符号数记录），展开只得到
  *    Empower.ts 的兜底 `{ kind: "empower" }`（该文件头同样记录“Missing printed costs
  *    remain an unsupported cost kind, so binding fails closed”，不把缺省当免费）。
  * 2. 即使展开能带上印刷费用，费用管线也还不认识 empower 支付种类：
@@ -57,9 +59,12 @@ const empoweredGate: Condition = {
 
 const abilities: Ability[] = [
   {
-    // 印刷费 3 Energy 无法表达（judgeReason 第 1 条）；KeywordAbility 没有承载字段。
+    // 827.1.c.1：印刷的 :rb_energy_3: 无法从 KeywordAbility 送达 expand
+    //（judgeReason 第 1 条；契约 3.1 没有 params 承载字段）。value 3 只保留印刷
+    // 符号数的可审查记录，不被当作可执行费用（同 ven/covert-informant）。
     kind: "keyword",
-    keyword: "empower"
+    keyword: "empower",
+    value: 3
   },
   {
     // [Empowered][>]「I have +2 :rb_might:」：arithmetic 图层修正（143.2.a）。
@@ -92,7 +97,8 @@ export default {
   judgeReason:
     "两处当前缺口，均不近似实现：(1) 印刷的 Empower 费用送不进展开——827.1.c 的 “[Cost]: Empower this” 是 " +
     "CostSpec，而契约 3.1 的 KeywordAbility 只有 keyword / value，programs/keywords.ts 的 expandProgram " +
-    "仍以 def.expand({ value, host }) 调用、不传契约 3.8.3 的 params.cost，卡层无法声明印刷的 3 Energy，" +
+    "仍以 def.expand({ value, host }) 调用、不传契约 3.8.3 的 params.cost，卡层无法把印刷的 3 Energy 作为" +
+    "可执行费用声明（keyword.value 只保留符号数记录，不是费用），" +
     "展开只得到 Empower.ts 的兜底 { kind: \"empower\" }（缺省不是免费，该文件头同记 “Missing printed costs " +
     "remain an unsupported cost kind, so binding fails closed”）。(2) 费用管线不认识 empower 支付种类：" +
     "cost/plan-values.ts 的 readCost 对非资源支付只接受 exhaust / discard / recycle / kill / reveal / spend-buff，" +

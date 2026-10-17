@@ -1,4 +1,12 @@
-// 场景执行证据与整卡阻塞：../templates/keyword-static-static-649.test.mjs
+// Golden test for Applied Researchers (ven-055-166).
+//
+// Execution evidence (the real printed 4 Energy payment, the still-inert
+// [Empowered] spell discount — verified both before and after a real Empower
+// action — and the fail-closed continuous.cost-modification binds) lives in the
+// RIFT-673 parameterized template golden:
+// test/cards/templates/keyword-static-static-673.test.mjs.
+// Original behavior and structure assertions remain in this file; the
+// template adds execution evidence without replacing these checks.
 import assert from "node:assert/strict";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
@@ -17,6 +25,7 @@ const [empower, energyDiscount, powerDiscount] = program.abilities;
 test("applied-researchers: passes validateCardProgram and is judge-required", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
+  assert.deepEqual(result.issues, []);
   assert.equal(
     program.canonicalCardId,
     "card.hash-ffb7fa0eb6027d1158053512ab5917c1ff4226d11f9110deeade65133c7312b4"

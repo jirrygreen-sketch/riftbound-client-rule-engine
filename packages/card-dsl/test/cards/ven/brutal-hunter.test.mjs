@@ -1,8 +1,17 @@
+// Golden test for Brutal Hunter (ven-070-166).
+//
+// Execution evidence (the real printed 3 Energy + 1 Body Power payment, the
+// Empowered-gated +2 Might and Ganking grant with its Disempower boundary and
+// the blocked printed [Empower] activation) lives in the RIFT-673 parameterized
+// template golden: test/cards/templates/keyword-static-static-673.test.mjs.
+// Original behavior and structure assertions remain in this file; the
+// template adds execution evidence without replacing these checks.
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/brutal-hunter.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
@@ -36,6 +45,7 @@ test("ven-070-166 Brutal Hunter: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
   assert.deepEqual(result.issues, []);
   assert.equal(result.ok, true);
+  assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
 test("ven-070-166 Brutal Hunter: identity, status, judgeReason and verbatim sourceText", () => {
@@ -56,9 +66,12 @@ test("ven-070-166 Brutal Hunter: identity, status, judgeReason and verbatim sour
 });
 
 test("ven-070-166 Brutal Hunter: [Empower] is declared as a keyword ability", () => {
-  assert.deepEqual(empower, { kind: "keyword", keyword: "empower" });
-  assert.equal(empower.value, undefined);
-  // 827.1.c.1 的启动费用与 828.1.b.1 的依赖能力都无展开实现，故不写成启动能力。
+  // Keep the keyword declaration check while recording the printed 3 Energy.
+  // value is a review-only record; it cannot carry params.cost into expansion.
+  assert.deepEqual(empower, { kind: "keyword", keyword: "empower", value: 3 });
+  assert.equal(empower.value, 3);
+  assert.equal(empower.params, undefined);
+  // 827.1.c.1 的印刷费用仍无法传入已有展开，不伪造启动能力。
   assert.equal(program.abilities.filter(ability => ability.kind === "activated").length, 0);
 });
 
@@ -87,6 +100,7 @@ test("ven-070-166 Brutal Hunter: 'and [Ganking]' is a gated ability-layer keywor
   assert.equal(gankingGrant.effect.keyword, "Ganking");
   assert.equal(gankingGrant.effect.appliesTo, "self");
   assert.deepEqual(gankingGrant.condition, mightBonus.condition);
+  assert.equal(mightBonus.effect.buffs, undefined);
 });
 
 test("ven-070-166 Brutal Hunter: review evidence — the grant primitives and the Empower def are merged", () => {
@@ -173,7 +187,7 @@ test("ven-070-166 Brutal Hunter: a missing Empowered reading is information-miss
 test("ven-070-166 Brutal Hunter: no keyword is declared unconditionally on the card face", () => {
   // [Ganking] 只在 Empowered 后获得；不得写成卡级关键词能力（那会变成始终拥有）。
   assert.equal(program.abilities.filter(ability => ability.kind === "keyword").length, 1);
-  assert.deepEqual(program.abilities[0], { kind: "keyword", keyword: "empower" });
+  assert.deepEqual(program.abilities[0], { kind: "keyword", keyword: "empower", value: 3 });
 });
 
 test.todo(

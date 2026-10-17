@@ -1,4 +1,11 @@
-// 场景执行证据与整卡阻塞：../templates/keyword-static-static-649.test.mjs
+// Golden test for Arachnoid Horror (unl-117-219).
+//
+// Execution evidence (the real printed 6 Energy + 1 Body Power payment, the
+// fail-closed play-location-permission binds and the blocked Hunt trigger
+// registration) lives in the RIFT-673 parameterized template golden:
+// test/cards/templates/keyword-static-static-673.test.mjs.
+// Original behavior and structure assertions remain in this file; the
+// template adds execution evidence without replacing these checks.
 import assert from "node:assert/strict";
 import test from "node:test";
 

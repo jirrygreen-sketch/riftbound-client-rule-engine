@@ -20,14 +20,18 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - “+1 :rb_might:” 是算术图层的 Might 增加（143.2.a、479.4.e.1），不是 Buff 计数器（702/703）。
  * - 810.1：[Ganking] 是 Passive Ability 关键词，单位因此可用标准移动在战场之间移动。
  *
- * status = judge-required。已合入依赖与剩余生产接线已重新核对；
+ * status = judge-required。执行证据在 templates/keyword-static-static-673.test.mjs；
+ * 已合入依赖与剩余生产接线已重新核对；
  * 当前真实缺口以 judgeReason 为准，子效果执行不证明整卡可执行。
  */
 const abilities: Ability[] = [
   {
-    // 印刷费 2 Energy 见 judgeReason 第 1 条；不伪造启动能力。
+    // 827.1.c.1：印刷的 :rb_energy_2: 无法从 KeywordAbility 送达 expand
+    //（judgeReason 第 1 条；契约 3.1 没有 params 承载字段）。value 2 保留印刷
+    // 符号数的可审查记录，不被当作可执行费用；不伪造启动能力。
     kind: "keyword",
-    keyword: "empower"
+    keyword: "empower",
+    value: 2
   },
   {
     // [Empowered][>] 的“I have +1 :rb_might:”：算术层 Might 增加（479.4.e.1）。

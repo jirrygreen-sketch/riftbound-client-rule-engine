@@ -19,7 +19,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "and [Ganking]"：条件授予的被动关键词，按契约 3.7 的 continuous.grant-keyword 形状声明，
  *   展开由已合入的 effects/keywords/Ganking.ts 负责（810.1.b 的战场间标准移动许可）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required，缺口以 judgeReason 为准并在 golden 中实测。
+ * status 判定（cards/README.md 第 2 节）：judge-required，缺口以 judgeReason 为准；
+ * 执行证据在 templates/keyword-static-static-673.test.mjs。
  * - "spent at least [A][A] this turn" 仍无可求值路径：合并 IR 的 Expr/Condition 只能读对象特征、
  *   链接值与对象计数（count 只数对象、不读金额），契约 3.6 的 ResolveContext 没有 spent / 费用回执读数
  *   （同 unl/virtuoso 记录的缺口）。powerSpentThisTurn 是待接线的读取位置，内核尚无该特征；

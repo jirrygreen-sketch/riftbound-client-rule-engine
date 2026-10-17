@@ -1,4 +1,12 @@
-// 场景执行证据与整卡阻塞：../templates/keyword-static-static-649.test.mjs
+// Golden test for Baccai Sandspinner (ven-001-166).
+//
+// Execution evidence (the real printed 6 Energy payment, the Empowered-gated
+// Deflect 1 / Assault 2 grant with the Disempower boundary, the fail-closed
+// cost-modification bind and the blocked printed expectations) lives in the
+// RIFT-673 parameterized template golden:
+// test/cards/templates/keyword-static-static-673.test.mjs.
+// Original behavior and structure assertions remain in this file; the
+// template adds execution evidence without replacing these checks.
 import assert from "node:assert/strict";
 import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 import test from "node:test";
@@ -111,6 +119,16 @@ test("ven-001-166: the 'costs 3 less' clause rewrites that Empower activation on
     type: "rune",
     controller: "self",
     zone: "rune-zone"
+  });
+  assert.deepEqual(costReduction.condition, {
+    kind: "compare",
+    left: {
+      kind: "count",
+      subject: "runes",
+      filter: { type: "rune", controller: "self", zone: "rune-zone" }
+    },
+    operator: "lte",
+    right: { kind: "constant", value: 4 }
   });
 });
 

@@ -1,9 +1,18 @@
-// 场景执行证据与整卡阻塞：../templates/keyword-static-static-649.test.mjs
+// Golden test for Mosstomper (unl-047-219).
+//
+// Execution evidence (the real printed 3 Energy + 1 Calm Power payment, the
+// registered [Level 3] statics behind their blocked XP gate, the fail-closed
+// Hunt trigger registration and the blocked printed expectations) lives in the
+// RIFT-673 parameterized template golden:
+// test/cards/templates/keyword-static-static-673.test.mjs.
+// Original behavior and structure assertions remain in this file; the
+// template adds execution evidence without replacing these checks.
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/mosstomper.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -22,6 +31,7 @@ test("unl-047-219 Mosstomper: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
   assert.deepEqual(result.issues, []);
   assert.equal(result.ok, true);
+  assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
 test("unl-047-219 Mosstomper: identity, status, judgeReason and verbatim sourceText", () => {

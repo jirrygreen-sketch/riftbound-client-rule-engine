@@ -1,4 +1,12 @@
-// 场景执行证据与整卡阻塞：../templates/keyword-static-static-649.test.mjs
+// Golden test for Sivir, Mercenary (sfd-143-221).
+//
+// Execution evidence (the real printed 4 Energy + 1 Chaos Power payment, the
+// still-closed "spent at least [A][A]" gate, the fail-closed accelerate.cost
+// bind and the blocked printed expectations) lives in the RIFT-673
+// parameterized template golden:
+// test/cards/templates/keyword-static-static-673.test.mjs.
+// Original behavior and structure assertions remain in this file; the
+// template adds execution evidence without replacing these checks.
 import assert from "node:assert/strict";
 import test from "node:test";
 

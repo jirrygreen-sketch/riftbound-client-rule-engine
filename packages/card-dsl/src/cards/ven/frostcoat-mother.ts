@@ -23,7 +23,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   Empowered 状态时 Active；+3 Might 属 layers 的 arithmetic 层（143.2/143.2.a、479）。
  *
  * status = judge-required：费用参数、逐符文折扣与生产状态/关键词消费仍缺，
- * 当前缺口见 judgeReason；静态子集证据见 templates/keyword-static-static-649.test.mjs。
+ * 当前缺口见 judgeReason；执行证据见 templates/keyword-static-static-673.test.mjs。
  */
 const abilities: Ability[] = [
   {

@@ -39,6 +39,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - Empowered 门控用显式谓词占位（"empowered"），由 condition.predicate 与关键词
  *   系统消费；本程序不手写状态判定，也不把依赖能力改成无条件能力。
  *
+ * 执行证据：templates/keyword-static-static-673.test.mjs。
  * 复核（2026-10-17，第二轮 M2 覆盖率复核）：
  * - 旧 judgeReason 第 (3) 条的「layers/ 尚未消费 continuous.grant-keyword」已不成立：
  *   指令原语随 RIFT-258 合入（注册表可见），它在 ability 图层建立注册，layers/engine.ts

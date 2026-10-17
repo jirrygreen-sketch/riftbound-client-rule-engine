@@ -1,9 +1,18 @@
-// 场景执行证据与整卡阻塞：../templates/keyword-static-static-649.test.mjs
+// Golden test for Frostcoat Mother (ven-032-166).
+//
+// Execution evidence (the registered per-rune cost rewrite behind its
+// fail-closed bind, the Empowered-gated +3 Might with its Disempower boundary
+// and the blocked printed [Empower] activation) lives in the RIFT-673
+// parameterized template golden:
+// test/cards/templates/keyword-static-static-673.test.mjs.
+// Original behavior and structure assertions remain in this file; the
+// template adds execution evidence without replacing these checks.
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/frostcoat-mother.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { createEngineStaticBinder, expandProgram, translateCost } from "../../../../engine-core/dist/programs/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
@@ -19,6 +28,7 @@ test("ven-032-166 Frostcoat Mother: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
   assert.deepEqual(result.issues, []);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
+  assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
 test("ven-032-166 Frostcoat Mother: identity, status, judgeReason and verbatim sourceText", () => {

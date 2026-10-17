@@ -1,4 +1,12 @@
-// 场景执行证据与整卡阻塞：../templates/keyword-static-static-649.test.mjs
+// Golden test for Grumpy Rockbear (ven-050-166).
+//
+// Execution evidence (the registered per-rune cost rewrite behind its
+// fail-closed bind, the Empowered-gated Deflect 1 / Shield 3 grant with both
+// the Empower and Disempower boundaries and the blocked printed [Empower]
+// activation) lives in the RIFT-673 parameterized template golden:
+// test/cards/templates/keyword-static-static-673.test.mjs.
+// Original behavior and structure assertions remain in this file; the
+// template adds execution evidence without replacing these checks.
 import assert from "node:assert/strict";
 import test from "node:test";
 

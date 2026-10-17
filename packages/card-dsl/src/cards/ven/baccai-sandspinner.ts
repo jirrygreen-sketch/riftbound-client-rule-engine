@@ -5,7 +5,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * CR v1.5 827.1.c.1：Empower 印刷费用为 5 Energy。
  * 442.1.a/828.1.b.1：依赖能力只在宿主 Empowered 时有效。
  * Empower KeywordDef 已合入；缺口是逐实例费用参数与生产接线。
- * 具体规则与剩余阻塞见 judgeReason；局部执行不代表整卡可执行。
+ * 具体规则与剩余阻塞见 judgeReason；执行证据在
+ * templates/keyword-static-static-673.test.mjs，局部执行不代表整卡可执行。
  */
 const abilities: Ability[] = [
   {
