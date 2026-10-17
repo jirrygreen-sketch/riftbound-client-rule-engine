@@ -30,43 +30,37 @@ import type { CardProgram } from "../../ir/index.js";
  *   layer modification, not a Buff counter (effect.buff documents the same
  *   boundary: Buff is the 702/703 counter).
  *
- * Status: judge-required — the printed ability cannot execute end to end, and
- * the two gaps are not approximated:
- * 1. no merged primitive registers a duration-bounded continuous Might
- *    modification: `effects/instructions/` has no `continuous.might` op and no
- *    merged caller reads a CardProgram's ability into `ctx.addContinuous`
- *    (RIFT-91 follow-up, same gap as ogn/back-to-back, ogn/lux-illuminated).
- * 2. the trigger side is an engine-wide dependency: the `card-played` timing
- *    point is really emitted by the chain (chain/engine.ts), but nothing
- *    turns a CardProgram's triggered ability into a TriggerRegistration, the
- *    `player: "self"` selector of an event pattern is resolved against the
- *    ability controller (chain context), and 190.6.c's "the player who played
- *    the spell controls the ability" binding is not wired. The `card-played`
- *    event payload does not expose the played spell's controller as the
- *    trigger's controller either.
- * The golden test executes the merged half (the non-target pick + the pick
- * filter's sameLocationAs anchor through the real interpreter) plus the target
- * shape assertions; the continuous Might and the trigger registration stay
- * `test.todo` with the task numbers.
+ * Status: judge-required (re-reviewed 2026-10-17) — the body is now executable
+ * on merged paths, and the remaining gap is the 190.6.c trigger binding:
+ * 1. the Might grant runs for real: RIFT-258's `continuous.might` takes
+ *    `objects` (not the old `pick`) and writes one arithmetic-layer registration
+ *    per resolved object with the end-of-turn duration (478 / 143.2.a); the
+ *    golden drives the card's own body through `runAbilityBody`, asserts the
+ *    registration and the +1 effective Might through the layer engine.
+ * 2. the trigger is still not honorable: RIFT-257's `registerProgramTriggers`
+ *    does bind the declared pattern (golden asserts the registration), but the
+ *    pipeline resolves `player: "self"` against the *ability controller*, and
+ *    190.6.c makes the player who played the spell the ability's controller.
+ *    No merged producer or binder re-binds the registration's controller from
+ *    the `card-played` payload, so the printed choice would go to the
+ *    Battlefield's controller instead of the spell's player.
  *
- * Dependencies: RIFT-91 follow-up (continuous.might instruction/registration
- * with an end-of-turn duration) and RIFT-120 follow-up (card-program trigger
- * registration + event-player binding for 190.6.c).
+ * Dependencies: RIFT-257 follow-up (payload-driven event-player binding for
+ * 190.6.c: the ability controller is the player named by the trigger event).
  */
 export default {
   canonicalCardId: "card.hash-07b0ff2f6b2a7899316d0f3ec26470eae4923b0137b2818ab839dff113b77608",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1) 「give a unit they control here +1 :rb_might: this turn」需要带 end-of-turn 期限的" +
-    "持续 Might 修正：契约 3.6 的封闭 GameAction 没有 Might 修改动作，effects/instructions/ 没有 continuous.might op，" +
-    "也没有已合入路径把 CardProgram 的 body 转成 LayerEngine 的 ContinuousEffectSpec（RIFT-91 后续；" +
-    "effect.buff 文档明确临时 Might 归 layers，不用 Buff 计数器近似，CR 702/703）。" +
-    "(2) 触发侧：「When a player plays a spell」按 CR 190.6.c 由**打出该法术的玩家**控制该触发能力并做选择，" +
-    "但没有任何已合入订阅方把 CardProgram 的 triggered ability 注册成 TriggerRegistration；事件管线的 EventPattern.player " +
-    "选择器（pipeline-match.ts 的 'self'）按能力控制者解析，而卡牌程序的能力控制者尚未按 190.6.c 绑定到事件玩家；" +
-    "card-played 载荷也没有把被打出法术的控制者暴露成触发控制者。依赖：RIFT-91 后续与 RIFT-120 后续的卡牌触发注册/事件玩家绑定。" +
-    "已支持部分：非目标 pick 形状与 sameLocationAs 锚点在 golden 里用真实解释器执行。",
+    "触发侧仍不可诚实执行，缺口只剩 190.6.c 的玩家绑定：RIFT-257 的 registerProgramTriggers 能注册本卡的 card-played 触发" +
+    "（golden 断言该注册），但事件管线把 EventPattern.player 的 \"self\" 解析成**能力控制者**（pipeline-match.ts），" +
+    "而 190.6.c 规定「打出该法术的玩家」才是该战场能力的控制者并做选择；没有任何已合入的生产方/binder 按 card-played 载荷" +
+    "重绑注册的 controller，因此实际会把选择交给战场控制者而非法术的玩家。" +
+    "已合入并以真实执行验证：RIFT-258 的 continuous.might 接受 objects 选择符并写入 arithmetic 图层 + end-of-turn 期限" +
+    "（golden 用 runAbilityBody + LayerEngine 断言注册、+1 有效 Might、位置锚点与拒绝选项的 skipped 边界）；" +
+    "choice.optional 与 sameLocationAs 锚点同样在执行路径上。" +
+    "依赖：RIFT-257 后续（按事件载荷绑定能力控制者，实现 190.6.c）。不近似实现。",
   sourceText:
     "When a player plays a spell, they may give a unit they control here +1 :rb_might: this turn.",
   abilities: [
@@ -99,9 +93,13 @@ export default {
                     amount: { kind: "constant", value: 1 },
                     duration: { kind: "constant", value: "end-of-turn" },
                     // 355.10.c.1/355.7: the unit is chosen inside the
-                    // instruction — a non-target pick, not a target. The
+                    // instruction — a non-target pick, not a target. RIFT-258's
+                    // parameter shape reads the pick through `objects`; the
                     // pick's filter below carries the 053.3 "here" anchor.
-                    pick: { kind: "constant", value: "abandoned-hall.unit-here" }
+                    objects: {
+                      kind: "constant",
+                      value: { kind: "pick", id: "abandoned-hall.unit-here" }
+                    }
                   },
                   picks: [
                     {

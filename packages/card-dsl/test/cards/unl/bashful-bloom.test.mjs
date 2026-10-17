@@ -6,6 +6,7 @@ import program from "../../../dist/cards/unl/bashful-bloom.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -32,7 +33,8 @@ test("unl-189-219 Bashful Bloom: identity, status, judgeReason and verbatim sour
   assert.match(program.judgeReason, /187\.2/);
   assert.match(program.judgeReason, /184\.1/);
   assert.match(program.judgeReason, /cost\.modify/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-265/);
 });
 
 test("unl-189-219 Bashful Bloom: 4 Energy + Exhaust, action speed, no cost modifier merged into the plan", () => {
@@ -108,8 +110,52 @@ test("unl-189-219 Bashful Bloom: the sprite play is blocked by the frozen token 
 test.todo(
   "unl-189-219 Bashful Bloom: add the 3 Might Sprite token (CR 187.2: domainless, Fae tag, Temporary keyword) to the token definitions"
 );
+test("unl-189-219 Bashful Bloom: the Temporary KeywordDef the Sprite token needs is merged", () => {
+  // CR 187.2 gives the Sprite token [Temporary]; RIFT-265 merged the KeywordDef,
+  // so the token's ability half is available even though the token definition
+  // itself (and the ready entry override) is still missing.
+  const temporary = keywordDefinitionsById.get("Temporary");
+  assert.ok(temporary, "effects/keywords/Temporary.ts must be registered");
+  const [expanded] = temporary.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(expanded.trigger.at, "beginning-start");
+  assert.deepEqual(expanded.body.map(step => [step.op, step.args.self]), [
+    ["effect.kill", { kind: "constant", value: true }]
+  ]);
+});
+
+test("unl-189-219 Bashful Bloom: mode \"play\" really creates on the Chain and hands the token to play", () => {
+  // 440.2.c / 185.2.a / 350.2 / 354: the merged effect.token creates on the
+  // Chain and then performs the play for that ref. The Sprite definition itself
+  // is still missing (CR 187.2), so the handoff is exercised with a token the
+  // frozen table does define — never substituted into the card.
+  const kernel = world().player("A", { energy: 0 }).build();
+  const run = runInstruction(
+    token,
+    {
+      token: { kind: "constant", value: "mech" },
+      mode: { kind: "constant", value: "play" },
+      location: { kind: "constant", value: { type: "base", player: "A" } }
+    },
+    { world: kernel }
+  );
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.token.createdAmount, 1);
+  assert.equal(run.linked.token.amount, 1);
+  assert.deepEqual(run.events.map(event => [event.action, event.timingPoint]), [
+    ["create-token", "chain-item-pending"],
+    ["play", "card-played"]
+  ]);
+  assert.equal(kernel.objects.find(object => object.isToken).zone, "board");
+});
+
 test.todo(
-  "unl-189-219 Bashful Bloom: Temporary keyword expansion (CR 816: kill at the controller's Beginning Phase before scoring, redundant instances)"
+  "unl-189-219 Bashful Bloom: add the 3 Might Sprite token to the frozen effect.token definitions (CR 187.2: " +
+    "domainless, Fae tag, Temporary keyword)"
+);
+
+test.todo(
+  "unl-189-219 Bashful Bloom: cost.modify reduction of 1 Energy per friendly unit with [Temporary] in the cost " +
+    "plan's discount stage (RIFT-261); count/ObjectFilter also have no keyword-characteristic dimension"
 );
 test.todo(
   "unl-189-219 Bashful Bloom: ready entry override for the created token (CR 143.4 / 184.1) — not create-then-ready"

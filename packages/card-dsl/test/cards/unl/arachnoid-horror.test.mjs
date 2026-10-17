@@ -5,6 +5,7 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/arachnoid-horror.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import xp from "../../../../engine-core/dist/effects/instructions/effect.xp.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -29,10 +30,13 @@ test("unl-117-219 Arachnoid Horror: identity, status, judgeReason and verbatim s
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /Hunt 2/);
-  assert.match(program.judgeReason, /823\.1\.c\.1/);
+  // The reason now points at the current gap (the expansion's 'conquer' event
+  // spelling vs. the frozen 'conquered') instead of the pre-RIFT-265 state.
+  assert.match(program.judgeReason, /823\.1/);
   assert.match(program.judgeReason, /play-location-permission/);
   assert.match(program.judgeReason, /740\.2\.a/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /RIFT-265/);
+  assert.match(program.judgeReason, /conquered/);
 });
 
 test("unl-117-219 Arachnoid Horror: [Hunt 2] is a valued keyword declaration (823.1.c)", () => {
@@ -112,9 +116,53 @@ test("unl-117-219 Arachnoid Horror golden: a replaced XP gain marks nothing (367
   assert.equal(kernel.player("A").xp, 0);
 });
 
+test("unl-117-219 Arachnoid Horror: the merged Hunt KeywordDef expands this card's Hunt 2 into the printed triggers", () => {
+  // RIFT-265 merged effects/keywords/Hunt.ts: 823.1.c.1 turns Hunt into one
+  // trigger per timing point whose body is the merged effect.xp primitive, and
+  // 823.1.c.3 passes the card's printed value (2) through.
+  const huntDef = keywordDefinitionsById.get("Hunt");
+  assert.ok(huntDef, "effects/keywords/Hunt.ts must be registered");
+  assert.equal(huntDef.valued, true);
+  assert.equal(huntDef.stacking, "sum");
+
+  const expanded = huntDef.expand({ value: hunt.value, host: { canonicalCardId: CANONICAL_ID } });
+  assert.deepEqual(expanded.map(ability => [ability.kind, ability.trigger.at]), [
+    ["triggered", "conquer"],
+    ["triggered", "hold"]
+  ]);
+  for (const ability of expanded) {
+    assert.deepEqual(ability.body.map(step => [step.id, step.op]), [
+      [`hunt:${CANONICAL_ID}:${ability.trigger.at}:xp`, "effect.xp"]
+    ]);
+    // 823.1.c.3: the expansion feeds the printed Hunt Value, not a default.
+    assert.deepEqual(ability.body[0].args.amount, { kind: "constant", value: 2 });
+    // The expansion's own event spelling is the frozen trigger vocabulary's
+    // 'conquer'; pipeline-match.ts maps the card-side 'conquered'/held aliases
+    // onto the conquer/hold timing points.
+    assert.deepEqual(ability.trigger.filter, {
+      event: ability.trigger.at,
+      filter: { source: "self" }
+    });
+  }
+});
+
+test("unl-117-219 Arachnoid Horror: the expanded Hunt 2 body really gains the printed 2 XP", () => {
+  // 823.1.c.1 / 728 / 730.1: the expansion's body is the merged effect.xp
+  // primitive, so the XP really reaches the controller's marked XP.
+  const huntDef = keywordDefinitionsById.get("Hunt");
+  const [conquer] = huntDef.expand({ value: hunt.value, host: { canonicalCardId: CANONICAL_ID } });
+  const kernel = world().build();
+  const run = runInstruction(xp, conquer.body[0].args, { world: kernel });
+
+  assert.equal(run.result.status, "executed");
+  assert.equal(kernel.player("A").xp, 2);
+  assert.equal(kernel.player("B").xp, 0);
+});
+
 test.todo(
-  "unl-117-219 Arachnoid Horror: [Hunt 2] expands to “When I Conquer or Hold, my controller gains 2 XP” " +
-    "(CR 823.1.c.1) once a Hunt KeywordDef and the conquer/hold timing emitters exist (RIFT-33/RIFT-120)"
+  "unl-117-219 Arachnoid Horror: register the expanded Hunt trigger with the pipeline so 'conquered' " +
+    "reaches the conquer timing point (RIFT-257 trigger binding + the expansion's 'conquer' event spelling, " +
+    "the same wiring gap as sfd/dunebreaker and ogn/startipped-peak)"
 );
 test.todo(
   "unl-117-219 Arachnoid Horror: both play-location permissions reach the Make Relevant Choices location choice " +

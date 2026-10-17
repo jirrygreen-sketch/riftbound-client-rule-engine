@@ -20,21 +20,24 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （143.2.a 的三种 Might 形式 / 475 图层），归 layers 的 continuous.might，
  *   不是 702 的 Buff 计数器（effect.buff 文件头同款边界）。
  *
- * status = judge-required（缺口不近似实现）：
- * - "I enter ready." 需要"卡牌程序的 replacement 能力 → 事件管线替代注册与执行"的
- *   适配路径（入口事件 object-enters-board 的替代消费方），合并代码没有该路径
- *   （warwick-hunter / disposal-expert / vanguard-attendant 记录同一批次缺口），
- *   且 effect.ready 不能替代入场替代（会多产生一次"成为就绪"事件）。
- * - 「Give a unit +3 :rb_might: this turn」需要已注册的 continuous.might 原语与
- *   end-of-turn 期限：effects/instructions/ 下没有该 op 文件，layers/ 也没有读取
- *   卡牌指令/static 能力的注册入口（RIFT-91）。
+ * status = judge-required（复核 2026-10-17：缺口只剩入场替代一处，不近似实现）：
+ * - 「Give a unit +3 :rb_might: this turn」已由 RIFT-258 合入的 continuous.might 原语
+ *   真实执行（arithmetic 图层 + end-of-turn 期限，478 / 143.2.a）；本文件已按合入后的
+ *   参数形状改写（objects + mode/amount/duration，不再有 `layer` 键，该键会被原语
+ *   schema 拒绝），golden 用 resolveChainBody + LayerEngine 断言 +3 与到期失效。
+ * - 仍缺「I enter ready.」：RIFT-260 的 bindReplacement 已能绑定入场朝向替代
+ *   （Accelerate 同型），但 RIFT-257 的 attachLifecycle 只在 object-enters-board 时
+ *   才回调 bindStatic/bindReplacement（chain 入场处只注册触发），那时换区已完成、
+ *   替代不可能再匹配该次入场；也没有任何已合入的 ProgramStaticBinder 实现把
+ *   ContinuousEffectSpec 注册进 LayerEngine。effect.ready 不能代替入场替代
+ *   （805.6.a：不存在"先横置再就绪"的中间状态）。
  *
  * 已合入并真实执行的部分：印刷费用 "Exhaust me"（145.1 / 415.4 / 415.5）由
  * cost/ 的 buildCostPlan + payCostPlan 消费（golden 中执行，并验证已横置对象不能
  * 再次支付该费用）。
  *
- * 依赖：RIFT-89~91（费用计划 / layers-continuous / replacement.enter 批次）、
- * RIFT-120 的卡牌程序注册适配（触发与替代）。
+ * 依赖：RIFT-257 后续（在 chain 入场前绑定卡牌替代/静态能力，并提供
+ * ContinuousEffectSpec 的 ProgramStaticBinder 实现）。
  */
 const abilities: Ability[] = [
   {
@@ -60,14 +63,17 @@ const abilities: Ability[] = [
     body: [
       {
         id: "arena-kingpin.grant-might",
-        // 143.2.a / 475：本回合的 Might 算术修正；原语未注册，见 judgeReason。
+        // 143.2.a / 475：本回合的 Might 算术修正，由已合入的 continuous.might
+        // 原语写进 arithmetic 图层；objects 是 RIFT-258 之后的合入参数形状。
         op: "continuous.might",
         args: {
           mode: { kind: "constant", value: "add" },
-          layer: { kind: "constant", value: "arithmetic" },
           amount: { kind: "constant", value: 3 },
           duration: { kind: "constant", value: "end-of-turn" },
-          target: { kind: "constant", value: "arena-kingpin.unit" }
+          objects: {
+            kind: "constant",
+            value: { kind: "target", id: "arena-kingpin.unit" }
+          }
         },
         targets: [
           {
@@ -90,16 +96,16 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入：(1) 「I enter ready.」是人入场替代效果（143.4 / 359.2.c / 369.3；" +
-    "805.6.a 说明不经过先横置再就绪的中间状态），契约 3.1 只能写成 replacement 能力，" +
-    "而卡牌替代能力到事件管线替代注册与执行的适配路径未合入（warwick-hunter、disposal-expert、" +
-    "vanguard-attendant 记录同一批次缺口）；effect.ready 明确不能模拟入场替代。" +
-    "(2) 「Give a unit +3 :rb_might: this turn」需要已注册的 continuous.might 原语与 end-of-turn 期限" +
-    "（143.2.a 的 Effective Might 算术修正 / 475 图层）：effects/instructions/ 下没有该 op 文件，" +
-    "layers/（RIFT-91）也没有读取卡牌指令的注册入口；不能改用 effect.buff——Buff 是 702 的计数器，" +
-    "不是 Might 修正。依赖：RIFT-91（layers-continuous / continuous.might 消费方）、RIFT-89~91 的" +
-    "入场替代批次与 RIFT-120 的卡牌程序注册适配。" +
-    "已合入部分：印刷费用 “Exhaust me”（145.1 / 415.4 / 415.5）由 cost/ 的费用计划真实支付，golden 执行该费用。",
+    "仍缺「I enter ready.」（143.4 / 359.2.c / 369.3 的人入场替代；805.6.a：不存在先横置再就绪的中间状态）：" +
+    "RIFT-260 的 bindReplacement 已能绑定入场朝向替代（Accelerate 同型，golden 直接绑定后真实执行），" +
+    "但 RIFT-257 的 attachLifecycle 只在 object-enters-board 时才回调 bindStatic/bindReplacement" +
+    "（chain 入场路径仅注册触发），那时换区已经完成、替代不可能再匹配该次入场；" +
+    "也没有任何已合入的 ProgramStaticBinder 实现把 ContinuousEffectSpec 注册进 LayerEngine。" +
+    "effect.ready 不能代替入场替代（会多产生一次“成为就绪”事件）。" +
+    "已合入并以真实执行验证：「Give a unit +3 :rb_might: this turn」由 RIFT-258 的 continuous.might" +
+    "写进 arithmetic 图层并带 end-of-turn 期限（golden 用 resolveChainBody + LayerEngine 断言 +3 与到期失效）；" +
+    "印刷费用 “Exhaust me”（145.1 / 415.4 / 415.5）由 cost/ 的费用计划真实支付。" +
+    "依赖：RIFT-257 后续（在 chain 入场前绑定卡牌替代/静态能力，并提供 ContinuousEffectSpec 的 binder 实现）。不近似实现。",
   abilities,
   sourceText: "I enter ready.\n:rb_exhaust:: Give a unit +3 :rb_might: this turn."
 } satisfies CardProgram;

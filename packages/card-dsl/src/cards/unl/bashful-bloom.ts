@@ -23,11 +23,14 @@ import type { CardProgram } from "../../ir/index.js";
  *   静态改写：需要 cost.modify，且“带 [Temporary] 的友方单位”计数依赖关键词特征
  *   过滤（817/713 式的特征读取）与关键词展开。
  *
- * status = judge-required（缺口不近似实现）：缺 sprite token 定义、Temporary 关键词
- * 展开、入场就绪改写与 cost.modify 的按计数减费；一次创建再横置/就绪都不可代替。
+ * status = judge-required（复核 2026-10-17，缺口不近似实现）：缺 sprite token 定义、
+ * 入场就绪改写与 RIFT-261 的 cost.modify 按计数减费；一次创建再横置/就绪都不可代替。
+ * [Temporary] 的 KeywordDef 已随 RIFT-265 合入（effects/keywords/Temporary.ts），
+ * 但关键词特征还没有可过滤维度，且 mode "play" 的链上创建 + play 交接已由 golden 用
+ * 已定义 token 真实执行验证。
  *
- * 依赖：RIFT-89/90（cost.modify 与费用计划的减费阶段）、effect.token 的定义表扩展
- * （按 187.2 的官方 token）与 RIFT-83/84 系列的关键词展开。
+ * 依赖：RIFT-261（cost.modify 与费用计划的减费阶段）、effect.token 的定义表扩展
+ * （按 187.2 的官方 token）与入场状态改写、关键词特征过滤计数。
  */
 export default {
   canonicalCardId:
@@ -35,12 +38,15 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 sprite token 与费用改写：187.2 的 3 [M] Sprite token 是“无域 + Fae 标签 + [Temporary]”的单位 token，" +
-    "effect.token 的冻结定义表（recruit/sand-soldier/mech/reflection/tentacle）没有 sprite；[Temporary] 的关键词展开（816）也未合入。" +
-    "“ready” 是入场状态改写（143.4 / 184.1），create-token 不支持，先创建再补一次 ready 会产生错误的“成为就绪”事件。" +
-    "“This ability costs :rb_energy_1: less for each friendly unit with [Temporary]” 需要 cost.modify 的按计数减费阶段，" +
-    "并依赖对 [Temporary] 关键词特征的过滤计数，合并 IR 的 count/ObjectFilter 都没有该维度。" +
-    "依赖 RIFT-89/90（cost.modify 与费用计划）与 effect.token 的定义表扩展；不近似实现。",
+    "三处缺口（复核 2026-10-17，均不近似实现）：" +
+    "(1) 缺 Sprite token 定义：187.2 的 3 [M] Sprite token 是“无域 + Fae 标签 + [Temporary]”的单位 token，" +
+    "effect.token 的冻结定义表（recruit/sand-soldier/mech/reflection/tentacle）没有 sprite；golden 用已定义 token 验证了 " +
+    "mode \"play\" 的链上创建 + play 交接（440.2.c / 185.2.a / 350.2 / 354）本身已可执行。" +
+    "(2) “ready” 是入场状态改写（143.4 / 184.1 / 185.2.d），create-token 不支持，先创建再补一次 ready 会产生错误的“成为就绪”事件。" +
+    "(3) “This ability costs :rb_energy_1: less for each friendly unit with [Temporary]” 需要 RIFT-261 的 cost.modify 按计数减费阶段" +
+    "（合并的费用计划只接受调用方显式传入的 discounts）；[Temporary] 的 KeywordDef 虽已随 RIFT-265 合入，" +
+    "但 count/ObjectFilter 仍没有关键词特征维度。" +
+    "依赖：effect.token 的 Sprite 定义与入场状态改写、RIFT-261（cost.modify 消费方）、关键词特征过滤计数。",
   abilities: [
     {
       kind: "activated",

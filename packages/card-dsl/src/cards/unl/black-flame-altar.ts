@@ -22,32 +22,31 @@ import type { CardProgram } from "../../ir/index.js";
  * - 053.3 / 199.1: "here" is this Battlefield, so the affected units are the
  *   units whose location is this Battlefield.
  *
- * Status: judge-required — the grant has no merged execution path, and neither
- * missing piece is approximated:
+ * Status: judge-required (re-reviewed 2026-10-17) — the Temporary KeywordDef landed
+ * (RIFT-265), so "has [Temporary]" is now a real registry characteristic, but the
+ * grant still has no merged execution path and nothing here is approximated:
  * 1. nothing registers a CardProgram's static ability as a
- *    ContinuousEffectSpec: `registerContinuousEffect` has no caller and
- *    engine-core never reads card-program abilities. The layers ability layer
- *    can apply a `continuous.grant-keyword` effect (engine.ts `applyAbility`
- *    reads effect.keyword/keywords), but it must be handed the registration by
- *    a caller that does not yet exist (RIFT-91 follow-up; same gap as
- *    ogn/fortified-position, rad/firelights-hideout).
- * 2. the printed gates cannot be evaluated by the merged matchers:
- *    `layers/filter.ts` implements no sameLocationAs anchor and no keyword
- *    predicate, and `conditionMatches` returns true for every condition kind
- *    except always/never/type/has-tag/has-keyword — so registering this effect
- *    as written would apply [Shield] to units at every Battlefield regardless
- *    of Temporary. There is also no merged `Temporary` KeywordDef
- *    (effects/keywords/ has no Temporary.ts), so "has [Temporary]" has no
- *    registry predicate to lean on.
- * The program keeps the intended layer shape (targeted keyword grant, ability
- * layer, "here" anchor, Temporary gate) so the gaps stay auditable; the golden
- * test asserts identity, structure and the exact filters, and records the
- * missing registration/predicate wiring as `test.todo` instead of asserting
- * that anything is unmerged.
+ *    ContinuousEffectSpec: `registerContinuousEffect` has no caller, and
+ *    RIFT-257's attachLifecycle needs a ProgramStaticBinder implementation that
+ *    does not exist. The layers ability layer can apply a
+ *    `continuous.grant-keyword` effect (engine.ts `applyAbility` reads
+ *    effect.keyword/keywords), but it must be handed the registration by a
+ *    caller that is still missing (same gap as ogn/fortified-position,
+ *    rad/firelights-hideout).
+ * 2. the printed gate cannot be evaluated by the merged matchers:
+ *    `layers/filter.ts` implements no sameLocationAs anchor (#[OBJECT_FILTER_ANCHORS]
+ *    is resolved by the interpreter's query path, not by the layer matcher) and no
+ *    keyword predicate (it never reads `keywords`); `conditionMatches` returns true
+ *    for every condition kind except always/never/type/has-tag/has-keyword — but
+ *    that branch is the *effect* condition, not a filter, so registering this
+ *    effect as written would apply [Shield] to units at every Battlefield. The
+ *    program therefore keeps the intended layer shape so the gaps stay auditable;
+ *    the golden asserts identity, structure and the exact filters.
  *
- * Dependencies: RIFT-91 follow-up (card→layer registration, sameLocationAs and
- * keyword predicates in the layer filter), a Temporary KeywordDef (RIFT-83/84
- * keyword batch), and the Shield expansion consumer.
+ * Dependencies: RIFT-257 (card static registration and a ContinuousEffectSpec
+ * binder; the layers filter also needs the sameLocationAs and keyword predicates),
+ * and the Shield expansion consumer (814.1.c: +1 Might while the unit is a defender,
+ * whose `designation` condition is not evaluated by the layer engine either).
  */
 export default {
   canonicalCardId: "card.hash-c4cfa13109f9e65730089b31964d83518df125baae9a5cb10592187c82a44c56",
@@ -56,14 +55,14 @@ export default {
   judgeReason:
     "两处缺口，均不近似实现：(1) 没有任何已合入路径把 CardProgram 的 static 能力注册成 layers/LayerEngine 的 ContinuousEffectSpec" +
     "（registerContinuousEffect 没有调用方，engine-core 不读取卡牌能力；ability 层的 applyAbility 会消费 continuous.grant-keyword，" +
-    "但需要尚不存在的调用方注册，同 ogn/fortified-position、rad/firelights-hideout；RIFT-91 后续）。" +
-    "(2) 印刷的两道门无法被已合入匹配器求值：layers/filter.ts 既不实现 053.3 的 sameLocationAs 锚点，也没有关键词谓词，" +
-    "conditionMatches 对 always/never/type/has-tag/has-keyword 以外的 Condition 一律返回 true；按现状注册会把 [Shield] 加到" +
-    "所有战场上的单位，与「Units here with [Temporary]」不符（过度应用，不得据此标 executable）。" +
-    "另外 effects/keywords/ 没有 Temporary.ts（[Temporary] 尚无 KeywordDef，RIFT-83/84），" +
-    "「has [Temporary]」没有可依赖的注册表谓词。" +
-    "已支持部分：Shield 自身的规则语义由 keywords/Shield.ts 承载（814.1.b.3 默认值 1；括号内文字只是 814.1.c 的复述，不是额外能力）；" +
-    "程序保留目标范围、ability 图层与 Temporary 门的具体形状供审查。依赖：RIFT-91 后续、Temporary 关键词批次、Shield 展开消费方。",
+    "但需要尚不存在的调用方与 ProgramStaticBinder 实现，同 ogn/fortified-position、rad/firelights-hideout；RIFT-257）。" +
+    "(2) 印刷的两道门无法被已合入匹配器求值：layers/filter.ts 既不实现 053.3 的 sameLocationAs 锚点（该锚点只在解释器的 query 路径解析），" +
+    "也没有关键词谓词（它从不读取 keywords）；条件匹配只认 always/never/type/has-tag/has-keyword 这类 effect condition，过滤器维度没有对应入口。" +
+    "按现状注册会把 [Shield] 加到所有战场上的单位，与「Units here with [Temporary]」不符（过度应用，不得据此标 executable）。" +
+    "已合入部分：[Temporary] 的 KeywordDef（effects/keywords/Temporary.ts，RIFT-265：816.1.b 的 beginning-start 触发）与 Shield 自身的规则语义" +
+    "（keywords/Shield.ts，814.1.b.3 默认值 1；括号内文字只是 814.1.c 的复述）都已存在，但被授予的 Shield 还需要 814.1.c 的 defender 条件消费方" +
+    "（layers 不读取 designation）。程序保留目标范围、ability 图层与 Temporary 门的具体形状供审查。" +
+    "依赖：RIFT-257（卡牌 static 注册与 binder 实现，含图层过滤器的 sameLocationAs/关键词谓词）、Shield 展开消费方。",
   sourceText:
     "Units here with [Temporary] have [Shield]. (+1 :rb_might: while they're defenders.)",
   abilities: [

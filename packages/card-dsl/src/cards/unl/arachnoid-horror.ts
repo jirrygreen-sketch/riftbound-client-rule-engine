@@ -24,17 +24,22 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   控制者的所有友方单位增加许可（while-on-board）。
  * - 提醒文字 "(When I conquer or hold, gain 2 XP.)" 是提醒文本（135.2.d.3），不另写能力。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。三处缺口，均不近似实现：
- * 1. [Hunt 2]（823）没有已合入的 KeywordDef："When I Conquer or Hold, my controller
- *    gains 2 XP" 需要 conquer / hold 时点（383.4.c/383.4.d，scoring/ 未接入唯一事件管线）
- *    与关键词展开接线（同 ogn/kaisa-survivor 的 conquer 触发缺口）。
- * 2. 两条 play-location-permission 没有任何消费方：engine-core 内只有卡数据声明该
- *    effect kind，layers 引擎不处理打出位置许可，Finalize 的合法位置校验也不读它
- *    （同 sfd/dauntless-vanguard、ogn/miss-fortune-buccaneer）。
- * 3. "an enemy unit is alone there" 的谓词没有求值路径：ObjectFilter 的锚点没有
- *    位置占用/孤立单位维度（740.2.a 需要“同位置没有其他友方单位”的计数），本程序
- *    用占位键记在许可的 effect value 里，不把它当成已可求值。
- * 本卡没有已合入的指令原语，因此没有执行类 golden 用例；golden 只做校验、身份与结构断言。
+ * status 判定（cards/README.md 第 2 节，复核 2026-10-17）：judge-required。三处缺口，均不近似实现：
+ * 1. [Hunt 2]（823）的关键词展开已随 RIFT-265 合入（effects/keywords/Hunt.ts：
+ *    conquer/hold 两个触发体、823.1.c.2 省略值按 1、823.2 求和），conquer/hold 也已有生产者
+ *    （turn/flow.ts 的 Score 波），但该展开声明的 filter 用触发式词汇 event: "conquer"；
+ *    冻结的 EventPattern 只认 conquer 的封闭拼写 "conquered"（pipeline-match.ts 的
+ *    EVENT_NAMES 映射 hold↔held），RIFT-257 的 trigger 翻译层会以触发词汇校验失败拒收
+ *    （同 sfd/dunebreaker、ogn/startipped-peak 记录的关键词展开接线缺口）。
+ * 2. 两条 play-location-permission 没有消费方：engine-core 内只有卡数据声明该 effect kind，
+ *    layers 引擎不处理打出位置许可，Finalize 的合法位置校验也不读它
+ *    （同 sfd/dauntless-vanguard、ogn/miss-fortune-buccaneer）；注册 static 能力还需要
+ *    ProgramStaticBinder 实现（RIFT-257）。
+ * 3. "an enemy unit is alone there" 的谓词没有求值路径：ObjectFilter 的锚点只有
+ *    object/source/target/host/attachedTo/sameLocationAs/exclude，没有位置占用/孤立单位维度
+ *    （740.2.a 需要"同位置没有其他友方单位"的计数），本程序用占位键记在许可的 effect value 里。
+ * 本卡没有已合入的指令原语，因此没有执行类 golden 用例；golden 做校验、身份、结构断言
+ * 与 Hunt 展开/时点的真实执行证据。
  */
 const abilities: Ability[] = [
   // 823.1.c：Hunt 带数值（Hunt 2），展开由关键词注册表负责。
@@ -79,14 +84,18 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1) [Hunt 2]（823）没有已合入的 KeywordDef：" +
-    "「When I Conquer or Hold, my controller gains 2 XP」（823.1.c.1）需要 conquer/hold 时点（383.4.c/383.4.d）" +
-    "与关键词展开接线，而 scoring/ 未接入唯一事件管线（RIFT-33/RIFT-120；同 ogn/kaisa-survivor）。" +
-    "(2) 两条打出位置许可（349、355.2.b）没有任何消费方：play-location-permission 只出现在卡数据里，" +
-    "layers 引擎不处理它，Finalize 的合法位置校验也不读它（同 sfd/dauntless-vanguard、ogn/miss-fortune-buccaneer）。" +
-    "(3)「if an enemy unit is alone there」需要位置占用与孤立单位谓词（170.11.a 的 occupied；740.2.a 的 alone = 同位置无其他友方单位），" +
-    "已合入的 ObjectFilter 锚点没有位置占用/同位置计数维度，本程序只用占位键记录该条件，不求值。" +
-    "依赖：823 的 kw-hunt 展开、RIFT-33/RIFT-120 的 conquer/hold 发射、打出位置许可消费方。不近似实现。",
+    "三处缺口（复核 2026-10-17）：(1) [Hunt 2]（823.1）的关键词展开已合入（effects/keywords/Hunt.ts，RIFT-265），" +
+    "conquer/hold 也已有生产者（turn/flow.ts 的 Score 波发出 'conquer'/'hold'，RIFT-124/262），" +
+    "但展开体声明的 filter 用 event: \"conquer\" ——冻结的 EventPattern 只接受封闭拼写 " +
+    "\"conquered\"（pipeline-match.ts 同时把 held 映射到 hold），RIFT-257 的 trigger 翻译会因此拒收该展开，" +
+    "关键词展开到触发注册这一环仍未接线（同 sfd/dunebreaker、ogn/startipped-peak）。" +
+    "(2) 两条打出位置许可（349、355.2.b）没有消费方：play-location-permission 只出现在卡数据里，" +
+    "layers 引擎不处理它，Finalize 的合法位置校验也不读它（同 sfd/dauntless-vanguard）；注册 static 能力还需要 " +
+    "ProgramStaticBinder 实现（RIFT-257）。(3)「if an enemy unit is alone there」需要位置占用与孤立单位谓词" +
+    "（170.11.a 的 occupied；740.2.a 的 alone = 同位置无其他友方单位），已合入的 ObjectFilter 锚点集合" +
+    "（object/source/target/host/attachedTo/sameLocationAs/exclude）没有位置占用/同位置计数维度，" +
+    "本程序只用占位键记录该条件，不求值。依赖：关键词展开到触发注册的接线（RIFT-257/265）、" +
+    "打出位置许可消费方与孤立单位谓词。不近似实现。",
   abilities,
   sourceText:
     "[Hunt 2] (When I conquer or hold, gain 2 XP.)\n" +

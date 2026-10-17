@@ -3,9 +3,12 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/allay-eager-admirer.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 
 const CANONICAL_ID =
   "card.hash-bd653b8aaef730f2cda1c769f847ec6222a08a3ec41066a74de13321000d898d";
@@ -31,6 +34,10 @@ test("unl-041-219 Allay, Eager Admirer: identity, status, judgeReason and verbat
   assert.match(program.judgeReason, /target\.tax/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /RIFT-90/);
+  // The grant primitive is merged now; the remaining registration gap is
+  // RIFT-257, and the reason must say so instead of claiming the op is absent.
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.doesNotMatch(program.judgeReason, /effects\/instructions\/ 下没有该原语/);
 });
 
 test("unl-041-219 Allay, Eager Admirer: [Deflect] is declared without a value (809.1.b.3 presumes 1)", () => {
@@ -107,8 +114,60 @@ test.todo(
   "unl-041-219 Allay, Eager Admirer: pay the Deflect tax with any-domain Power (CR 809.1.c.1) — the " +
     "merged conversion books the tax as Energy in chain/engine.ts"
 );
+test("unl-041-219 Allay, Eager Admirer golden: the declared aura really grants Deflect to other friendly units here", () => {
+  // RIFT-258 merged the continuous.grant-keyword primitive; the card's static
+  // declaration maps onto the merged argument shape (objects: query/filter) and
+  // the layer engine then grants the keyword to exactly the same-location
+  // friendly units (801.3.a / 809.1.c). No receiver re-expansion exists yet, so
+  // the tax half stays judged.
+  const base = world()
+    .unit("allay", { types: ["unit"], controller: "A", location: { type: "battlefield", id: "bf-1" }, might: 3 })
+    .unit("ally-here", { controller: "A", location: { type: "battlefield", id: "bf-1" }, might: 2 })
+    .unit("ally-elsewhere", { controller: "A", location: { type: "base", player: "A" }, might: 2 })
+    .unit("enemy-here", { owner: "B", controller: "B", location: { type: "battlefield", id: "bf-1" }, might: 2 })
+    .build();
+  // chain/engine.ts resolves the static controller/owner placeholders before
+  // the production matcher runs; same normalization as the merged
+  // sfd/switcheroo golden.
+  const kernel = bindResolveContext(base, {
+    source: base.getObject("allay"),
+    sourceSnapshot: base.getObject("allay"),
+    controller: "A",
+    query: (filter) => base.objects.filter((object) => matchesObjectFilter(
+      Object.fromEntries(Object.entries(filter).map(([key, value]) =>
+        [key, (key === "controller" || key === "owner") && value === "controller" ? "A" : value])),
+      object
+    ))
+  });
+  const declared = aura.effect;
+  const body = [{
+    id: "allay.grant-deflect",
+    op: "continuous.grant-keyword",
+    args: {
+      keyword: { kind: "constant", value: declared.keyword },
+      value: declared.value,
+      objects: { kind: "constant", value: { kind: "query", filter: declared.filter } }
+    }
+  }];
+
+  const outcome = runAbilityBody(body, kernel);
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.linkedValues["allay.grant-deflect.granted.count"], 1);
+  assert.deepEqual(outcome.linkedValues["allay.grant-deflect.granted.objects"], [base.ref("ally-here")]);
+  assert.equal(base.continuousEffects.length, 1);
+  assert.equal(base.continuousEffects[0].effect.layer, "ability");
+
+  // 809.1.b.3/809.2: the granted Deflect is value 1 and the layer engine really
+  // puts the keyword on the one same-location friendly unit.
+  const layers = createLayerEngine(base.objects, base.continuousEffects.map(entry => ({ ...entry })));
+  assert.deepEqual(layers.evaluate(base.ref("ally-here")).keywords, [{ id: "deflect", value: 1 }]);
+  assert.deepEqual(layers.evaluate(base.ref("ally-elsewhere")).keywords, []);
+  assert.deepEqual(layers.evaluate(base.ref("enemy-here")).keywords, []);
+  assert.deepEqual(layers.evaluate(base.ref("allay")).keywords, []);
+});
+
 test.todo(
-  "unl-041-219 Allay, Eager Admirer: expand 'your other units here have [Deflect]' as a continuous " +
-    "keyword grant and re-expand it on each receiver (contract 3.5/3.7, 801.3.a/364.1) — no " +
-    "continuous.grant-keyword primitive nor card static consumer is merged (RIFT-91)"
+  "unl-041-219 Allay, Eager Admirer: register the card's static ability as a ContinuousEffectSpec so the aura " +
+    "is visible in production (RIFT-257 ProgramStaticBinder), and re-expand the granted Deflect on each receiver " +
+    "so the target tax really applies (CR 809.1.c/809.1.d, contract 3.5/3.7)"
 );

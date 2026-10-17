@@ -7,9 +7,12 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan, prepareCostPayment } from "../../../../engine-core/dist/cost/payment.js";
 import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
 
 const CANONICAL_ID =
   "card.hash-42a7a3191d0a9e6cd6ac270c7dc6e9f36ee510fbfccf82e3b005ffd797864187";
@@ -33,7 +36,10 @@ test("unl-001-219 Arena Kingpin: identity, status, judgeReason and verbatim sour
   assert.match(program.judgeReason, /369\.3/);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /415\.5/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  // The Might half is merged (RIFT-258) and verified by execution below; the
+  // remaining gap is the RIFT-257 binding of the entry replacement.
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.doesNotMatch(program.judgeReason, /effects\/instructions\/ 下没有该 op/);
 });
 
 test("unl-001-219 Arena Kingpin: 'I enter ready' is an entry replacement, not a post-entry ready", () => {
@@ -72,11 +78,17 @@ test("unl-001-219 Arena Kingpin: the printed cost is 'Exhaust me' at Action spee
 
 test("unl-001-219 Arena Kingpin: 'Give a unit +3 Might this turn' targets one unit on the Board", () => {
   assert.deepEqual(activated.body.map(instruction => instruction.id), ["arena-kingpin.grant-might"]);
+  // RIFT-258's continuous.might takes objects/mode/amount/duration; the older
+  // `layer` argument is rejected by the merged arg schema.
   assert.equal(grantMight.op, "continuous.might");
   assert.deepEqual(grantMight.args.mode, { kind: "constant", value: "add" });
-  assert.deepEqual(grantMight.args.layer, { kind: "constant", value: "arithmetic" });
+  assert.equal(grantMight.args.layer, undefined);
   assert.deepEqual(grantMight.args.amount, { kind: "constant", value: 3 });
   assert.deepEqual(grantMight.args.duration, { kind: "constant", value: "end-of-turn" });
+  assert.deepEqual(grantMight.args.objects, {
+    kind: "constant",
+    value: { kind: "target", id: "arena-kingpin.unit" }
+  });
   // 355.9 / 355.10: "a unit" is chosen by the controller, so it is a target and
   // not a pick; no controller restriction is printed.
   assert.deepEqual(targetSpec, {
@@ -88,6 +100,84 @@ test("unl-001-219 Arena Kingpin: 'Give a unit +3 Might this turn' targets one un
   });
   assert.equal(grantMight.picks, undefined);
   assert.equal(grantMight.linkedTo, undefined);
+});
+
+test("unl-001-219 Arena Kingpin golden: +3 Might registers in the arithmetic layer and expires at end of turn", () => {
+  // 143.2.a / 475 / 478: the merged continuous.might primitive writes one
+  // arithmetic-layer registration with the end-of-turn duration; the layer
+  // engine then reports the modified Might (RIFT-258).
+  const kernel = world()
+    .unit("kingpin", { controller: "A", location: { type: "battlefield", id: "bf-1" }, might: 3 })
+    .unit("other", { controller: "B", location: { type: "battlefield", id: "bf-1" }, might: 2 })
+    .build();
+  kernel.setTargets("arena-kingpin.unit", [kernel.ref("other")]);
+  const ctx = kernel.clone({ sourceSnapshot: kernel.getObject("kingpin"), controller: "A" });
+
+  const outcome = resolveChainBody([grantMight], ctx);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
+    ["arena-kingpin.grant-might", "executed"]
+  ]);
+  assert.equal(ctx.continuousEffects.length, 1);
+  const [registration] = ctx.continuousEffects;
+  assert.equal(registration.effect.layer, "arithmetic");
+  assert.equal(registration.effect.effect.kind, "continuous.might");
+  assert.equal(registration.effect.effect.amount, 3);
+  // RIFT-258 registers one per-object spec: the filter pins the resolved ref.
+  assert.equal(registration.effect.filter.objectId, "other");
+  assert.deepEqual(registration.duration, { type: "end-of-turn" });
+
+  const layers = createLayerEngine(ctx.objects, ctx.continuousEffects.map(entry => ({ ...entry })));
+  assert.equal(layers.evaluate(ctx.ref("other")).might, 5);
+  const expired = layers.expireAt("turn-end");
+  assert.equal(expired.length, 1);
+  assert.equal(layers.evaluate(ctx.ref("other")).might, 2);
+});
+
+test("unl-001-219 Arena Kingpin golden: a target that left the Board is ignored (359.3.e.6)", () => {
+  const kernel = world()
+    .unit("kingpin", { controller: "A", location: { type: "battlefield", id: "bf-1" }, might: 3 })
+    .unit("other", { controller: "B", location: { type: "battlefield", id: "bf-1" }, might: 2 })
+    .build();
+  const stale = kernel.ref("other");
+  kernel.perform({ type: "kill", object: stale });
+  kernel.setTargets("arena-kingpin.unit", [stale]);
+  const ctx = kernel.clone({ sourceSnapshot: kernel.getObject("kingpin"), controller: "A" });
+
+  const outcome = resolveChainBody([grantMight], ctx);
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results[0].result, { status: "ignored", reason: "mistargeted" });
+  assert.equal(ctx.continuousEffects.length, 0);
+});
+
+test.todo(
+  "unl-001-219 Arena Kingpin: register 'I enter ready' as a board-entry replacement (CR 143.4 / 359.2.c / 369.3) — " +
+    "the merged bindReplacement binds it (asserted below) but RIFT-257's attachLifecycle only calls the static " +
+    "binder during object-enters-board, after the zone change already happened, so a card's replacement never " +
+    "matches its own entry"
+);
+
+test("unl-001-219 Arena Kingpin golden: the merged replacement module accepts and applies the entry rewrite", () => {
+  // The card's replacement shape is executable once it is bound before the
+  // entry (Accelerate-class, RIFT-260); the golden binds it directly to show the
+  // declared IR is real, not illustrative. Production binding is the RIFT-257
+  // gap recorded above.
+  const kernel = world()
+    .unit("kingpin", { zone: "chain", controller: "A", exhausted: true })
+    .build();
+  const bound = bindReplacement(
+    { replaces: enterReady.replaces, with: enterReady.with },
+    kernel.ref("kingpin"),
+    {
+      host: { object: ref => kernel.object(ref), objects: () => kernel.objects, context: () => kernel },
+      pipeline: { clock: { turn: 1 }, registerReplacement: () => {} }
+    }
+  );
+  // The entry declaration is bound as the CR 369.3 orientation rewrite rather
+  // than as a board-state action; the pipeline registration id is stable.
+  assert.equal(bound.registration.id, "replacement:kingpin:1");
+  assert.deepEqual(bound.registration.source.ref, { id: "kingpin", zoneEntryId: 1 });
+  bound.cancel();
 });
 
 test("unl-001-219 Arena Kingpin: the printed 'Exhaust me' cost is payable through the merged cost pipeline", () => {
@@ -149,17 +239,3 @@ test("unl-001-219 Arena Kingpin: the generated card registry exposes the program
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
-test.todo(
-  "unl-001-219 Arena Kingpin: unique effect.ready +3 Might until end of turn through the arithmetic layer " +
-    "(CR 143.2.a / 475) and every merged instruction of the body through runAbilityBody"
-);
-
-test.todo(
-  "unl-001-219 Arena Kingpin: register 'I enter ready' as a board-entry replacement (CR 143.4 / 359.2.c / 369.3) — " +
-    "no merged consumer turns a card's ReplacementAbility into a pipeline replacement (RIFT-89~91)"
-);
-
-test.todo(
-  "unl-001-219 Arena Kingpin: resolve 'Give a unit +3 Might this turn' through continuous.might with an end-of-turn " +
-    "duration (CR 143.2.a / 475) — no merged primitive or layer consumer accepts the card body's continuous effect (RIFT-91)"
-);

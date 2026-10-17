@@ -5,6 +5,7 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/altar-of-blood.js";
 import exhaust from "../../../../engine-core/dist/effects/instructions/effect.exhaust.js";
 import heal from "../../../../engine-core/dist/effects/instructions/effect.heal.js";
+import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-8a6701849fc591215d101121138ec91bc46da22693dc4c35b90fbfe6c36f0155";
@@ -31,6 +32,10 @@ test("unl-206-219 Altar of Blood: identity, status, judgeReason and verbatim sou
   assert.match(program.judgeReason, /Recall/);
   assert.match(program.judgeReason, /457-460/);
   assert.match(program.judgeReason, /rainbow/);
+  // RIFT-260's replacement layer is merged, so the reason must name what it
+  // actually refuses rather than the old "no registration path" claim.
+  assert.match(program.judgeReason, /RIFT-260/);
+  assert.doesNotMatch(program.judgeReason, /没有任何已合入路径读取/);
 });
 
 test("unl-206-219 Altar of Blood: a replacement over a unit death at this battlefield", () => {
@@ -119,13 +124,64 @@ test("unl-206-219 Altar of Blood: the merged exhaust primitive sets the state th
   assert.deepEqual(run.events.map(event => event.action), ["exhaust"]);
 });
 
+test("unl-206-219 Altar of Blood: the merged replacement layer registers the death replacement and exposes 'it'", () => {
+  // CR 370.1.a.1 / 355.10.c: RIFT-260 turns the card's replaces pattern into a
+  // pipeline registration and binds the replaced event's object through
+  // { linked: "replacement.object" }. The golden asserts that registration is
+  // real; it deliberately does not re-implement the printed payment.
+  const kernel = world()
+    .unit("altar", { types: ["battlefield"], location: HERE })
+    .unit("doomed", { location: HERE, might: 3 })
+    .build();
+  // The body declares its referent with the runtime selector spelling the
+  // planner accepts, and no target claim (the unit is not a target).
+  const ability = {
+    replaces: replacement.replaces,
+    with: [
+      {
+        id: "altar-of-blood.heal",
+        op: "effect.heal",
+        args: {
+          objects: { kind: "constant", value: { kind: "linked", instructionId: "replacement.object" } },
+          linkKey: { kind: "constant", value: "healed" }
+        }
+      },
+      {
+        id: "altar-of-blood.exhaust",
+        op: "effect.exhaust",
+        // The planner reads the referent through the selector object, not a raw
+        // string spelling (RIFT-260 accepts the replaced-event binding this way).
+        args: {
+          objects: { kind: "constant", value: { kind: "linked", instructionId: "replacement.object" } }
+        }
+      }
+    ]
+  };
+  const bound = bindReplacement(ability, kernel.ref("altar"), {
+    host: { object: ref => kernel.object(ref), objects: () => kernel.objects, context: () => kernel },
+    pipeline: { clock: { turn: 1 }, registerReplacement: () => {} }
+  });
+
+  assert.equal(bound.registration.id, "replacement:altar:1");
+  assert.deepEqual(bound.registration.source.ref, { id: "altar", zoneEntryId: 1 });
+  // The ability really matches a unit death at this battlefield.
+  const plan = bound.registration.apply(
+    { type: "kill", object: kernel.ref("doomed") },
+    { type: "kill", object: kernel.ref("doomed") }
+  );
+  assert.equal(plan.status, "replace");
+  assert.deepEqual(plan.actions.map(action => action.type), ["heal", "exhaust"]);
+  bound.cancel();
+});
+
 test.todo(
-  "unl-206-219 Altar of Blood: register the card replacement over a combat death with the replaced event's " +
-    "unit bound to the with-body and the unit's controller bound as the payer (event batch 4 / contract change " +
-    "request for a replaced-event object selector)"
+  "unl-206-219 Altar of Blood: bind the program's printed body (choice.optional around the three-Rune payment) " +
+    "once RIFT-260's planner accepts an optional/payment replacement shape — today only the closed GameAction " +
+    "opcode set is planned, so the wrapper fails loudly at bind time instead of replacing the death when the " +
+    "player declines"
 );
 
 test.todo(
-  "unl-206-219 Altar of Blood: execute the three-rune Universal Power payment (163.2.b / 135.2.e.5, RIFT-89 " +
+  "unl-206-219 Altar of Blood: execute the three-rune Universal Power payment (163.2.b / 135.2.e.5, RIFT-261 " +
     "cost plan) and the Recall action (457-460), so the doomed unit really reaches its Base without being a Move"
 );
