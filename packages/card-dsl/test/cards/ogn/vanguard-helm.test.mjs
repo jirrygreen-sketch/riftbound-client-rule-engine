@@ -34,7 +34,7 @@ test("vanguard-helm: identity, ruleset, status, judgeReason and printed text", (
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /buffed/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /Unsupported filter field other/);
   assert.match(program.judgeReason, /702\.2\.a/);
   assert.equal(
     program.sourceText,
@@ -149,11 +149,11 @@ test("vanguard-helm golden: a target that left the board before resolution is ig
 
 test.todo(
   "vanguard-helm: collecting the trigger on object-killed with the dying unit's last-known " +
-    "characteristics (383.2.c.3.b / 429.1.a.1.b) requires the card-program → TriggerRegistration " +
-    "adapter that supplies activeZones and the event-object payload binding (RIFT-120 follow-up)"
+    "characteristics (383.2.c.3.b / 429.1.a.1.b) still needs an end-to-end production trigger run " +
+    "after the `other` target-filter translation gap is fixed"
 );
 
 test.todo(
-  "vanguard-helm: the card-program → TriggerRegistration binding (RIFT-257) that registers this trigger " +
-    "with activeZones and the payload-object binding for the dying unit"
+  "vanguard-helm: the production binding filter translator must accept an explicit `another` target " +
+    "exclusion so this TriggerRegistration can reach Finalize (the current translator rejects `other`)."
 );

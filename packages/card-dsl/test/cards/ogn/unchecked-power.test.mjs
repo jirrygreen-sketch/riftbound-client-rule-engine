@@ -21,7 +21,7 @@ test("Unchecked Power program is structurally valid and judge-required", () => {
   // The judgeReason must name the actual gap (contract 3.1 / README §2).
   assert.match(program.judgeReason, /355\.10\.d/);
   assert.match(program.judgeReason, /effect\.damage/);
-  assert.match(program.judgeReason, /target.location \/ target\.many/);
+  assert.match(program.judgeReason, /非目标集合/);
 });
 
 test("Unchecked Power identity and printed text match the catalog", () => {
@@ -144,12 +144,12 @@ test.todo(
   "Unchecked Power: 'deal 12 to ALL units at battlefields' needs a set-damage form " +
     "(355.10.d/355.10.b) — either effect.damage over a resolution-time set query with a " +
     "location filter, or the target system's set requirement for multi-battlefield " +
-    "locations (RIFT-9 target.location/target.many, RIFT-90)."
+    "locations; the merged damage primitive still has no resolution-time non-target set form."
 );
 
 test.todo(
   "Unchecked Power: the friendly-unit set for 'all friendly units' has to be resolved " +
     "against the acting controller by the production set/query path (740.1.a/740.1.b, " +
     "chain/engine.ts#context normalizes only the literal self/opponent spellings; the " +
-    "Finalize placeholder vocabulary is RIFT-90 work)."
+    "Finalize placeholder vocabulary still has no controller-relative set binding)."
 );
