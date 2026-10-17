@@ -31,12 +31,12 @@ import type { CardProgram } from "../../ir/index.js";
  *   that already has one is not Buffed again (427.1.b.1 / 427.3).
  *
  * Status: judge-required. Three merged gaps, none approximated:
- * - the delayed play-location permission has no executable op: the recorded
- *   continuous.location instruction (RIFT-259) writes a placement permission
+ * - the delayed play-location permission has no executable consumer: the recorded
+ *   continuous.location instruction writes a placement permission
  *   into the layers, but its names ("any-battlefield") have no consumer in the
  *   Finalize placement validator, so the permission would never actually widen
  *   where the next unit may be played (355.2.b / 801.3.a);
- * - there is no card-facing delayed-instruction op (RIFT-9 trigger.delayed):
+ * - there is no card-facing delayed-instruction op:
  *   ResolveContext.registerDelayedTrigger exists (contract 3.6) and the chain
  *   engine can register a delayed trigger (chain/engine.ts), but
  *   effects/instructions/ registers no op that a card can use, and the "next
@@ -54,10 +54,10 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处未合入依赖：(1) 延迟的打出位置许可没有可执行路径：RIFT-259 的 continuous.location 指令能把 placement permission " +
+    "三处未合入依赖：(1) 延迟的打出位置许可没有可执行消费方：continuous.location 指令能把 placement permission " +
     "写进图层，但其名称（如 any-battlefield）在 Finalize 位置校验里没有消费方，许可不会真正放宽「下一个单位可以打到任意战场」" +
     "（355.2.b / 801.3.a）。(2) 卡牌可用的延迟指令不存在：ResolveContext.registerDelayedTrigger（契约 3.6）与 " +
-    "chain/engine.ts 的注册路径已存在，但 effects/instructions/ 没有注册任何卡牌可用的 trigger.delayed op（RIFT-9 清单中的 " +
+    "chain/engine.ts 的注册路径已存在，但 effects/instructions/ 没有注册任何卡牌可用的 trigger.delayed op，" +
     "trigger.delayed），且「the next unit you play」需要一次性（首个合格事件后失效）的窗口——TriggerSpec.once 只有 " +
     "per-turn / per-combat / per-chain / per-game，没有 once-per-qualifying-event。(3) 按 393，延迟能力必须由结算中的法术创建，" +
     "写成卡自身的静态能力是错误语义。已合入并有执行证据的只有 Buff 本体（427.3，golden 用参考内核真实执行）。不近似实现。",

@@ -34,9 +34,8 @@ import type { CardProgram } from "../../ir/index.js";
  * the card-facing path only ever supplies `{ kind: 'printed' }` (chain/engine.ts
  * finalize). There is no merged adapter that turns a card program's printed
  * "as an additional cost" clause into a CostPlanInput.mandatoryAdditional
- * entry, and no cost.additional / cost.pay primitive is merged either — the
- * cost-kind vocabulary and cost.pay / cost.modify belong to RIFT-261, and the
- * CardProgram binding to RIFT-257. Making the cost a body instruction instead
+ * entry, and the card-program play-cost adapter still does not translate this
+ * clause into that entry. Making the cost a body instruction instead
  * would resolve it at the wrong time (356.3/356.5) and would let the spell
  * resolve without paying, so that near-implementation is refused.
  */
@@ -48,9 +47,9 @@ const kiBurst = {
     "缺「As an additional cost」的落地路径：CR 356.2 要求强制附加费用在费用计划阶段收取，但卡牌侧" +
     "只有 { kind: 'printed' } 会进入 buildCostPlan（chain/engine.ts finalize），没有已合入的适配器" +
     "把卡程序的附加费用子句转成 CostPlanInput.mandatoryAdditional，也没有 cost.additional / " +
-    "cost.pay 原语（费用种类与 cost.pay / cost.modify 属 RIFT-261；卡程序绑定属 RIFT-257，" +
+    "cost.pay 原语本身已经存在，但卡程序的 additional-cost 子句仍未转换为 Finalize 的 mandatoryAdditional，" +
     "打出路径由协调任务的 describePlay 适配器持有）。写成 body 指令会在错误时机结算（356.3/356.5）" +
-    "并允许不付费用就结算，故不近似实现。effect.stun 已合入并有 golden 执行证据；依赖：RIFT-261 + RIFT-257。",
+    "并允许不付费用就结算，故不近似实现。effect.stun 已合入并有 golden 执行证据。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

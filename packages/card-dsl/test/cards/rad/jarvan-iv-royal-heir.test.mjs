@@ -20,7 +20,7 @@ test("rad-133-167 Jarvan IV, Royal Heir: program validates and has expected iden
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.equal(program.judgeReason.includes("continuous.might"), true);
+  assert.match(program.judgeReason, /Tank/);
   assert.equal(
     program.sourceText,
     "[Assault] (+1 :rb_might: while I'm attacking.)\n" +
@@ -156,19 +156,6 @@ test("rad-133-167 Jarvan IV, Royal Heir: [Assault] 展开本体属于关键词�
 });
 
 test.todo(
-  "rad-133-167 Jarvan IV, Royal Heir: [Assault]（807.1.c 的 \"while I am an attacker, +1 Might\"）与" +
-    "[Tank]（815.1.b/c 的伤害分配要求）都缺展开/消费方：continuous.might 没有图层写入路径" +
-    "（RIFT-91），combat/base-combat-allocation.ts 显式不绑定 Tank 优先级，designation 也还不在" +
-    "ObjectSnapshot 里"
-);
-
-test.todo(
-  "rad-133-167 Jarvan IV, Royal Heir: 攻击触发的注册（attack-declared 时点 → CardProgram 的 triggered" +
-    "能力）需要事件管线接线（批 4）；当前只有原语与解释器层面的执行证据"
-);
-
-test.todo(
-  "rad-133-167 Jarvan IV, Royal Heir: 解释器 dispatch 前对 args 求值 vs effect.move 的 argsSchema 要求" +
-    "Expr（\"to\"）这一形状差异需要收敛，之后才能用 runAbilityBody 直跑整条声明体并断言移动事件；" +
-    "当前用 runInstruction + 运行时引用给出移动本体的真实执行证据"
+  "rad-133-167 Jarvan IV, Royal Heir: [Tank] requires the combat damage assignment consumer " +
+    "for CR 815.1.b/c; the KeywordDef and card declaration alone do not enforce lethal-first ordering"
 );

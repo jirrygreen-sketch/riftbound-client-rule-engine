@@ -30,21 +30,18 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   持续期，不是现有 Duration 里的 end-of-turn / end-of-combat / while-source-in-zone。
  *
  * status = judge-required（逐个缺口写出证据，不近似实现）：
- * 1. 缺可执行的费用步骤：cost.pay 没有原语实现（effects/instructions/ 里没有
- *    cost.pay 文件，解释器直接抛 “Unregistered instruction opcode: cost.pay”），
- *    触发能力的基础费用（404.1.b.1 / 383.3.b）也没有接线到 IR——费用种类与
- *    cost.pay / cost.modify 属 RIFT-261。把 1 Energy 写成 effect.resources 会把
- *    Finalize 的费用变成结算效果。
+ * 1. 触发能力没有可绑定的顶层 CostSpec；choice.optional 内的 cost.pay 不能替代
+ *    Finalize 费用步骤。把 1 Energy 写成 effect.resources 会把费用变成结算效果。
  * 2. “It becomes a unit gear” 需要 trait 层的即时特征改写（拿到 unit 类型）与
  *    Might “设值”，并且要在图层内按 206 读取该装备印刷的 Energy 值。已合入的
  *    continuous.might 只做 Might 的 add/set，不携带 addTypes 这类 trait 改写
  *    （argsSchema 拒绝 addTypes: “Invalid continuous.might argument”）；Snapshot 类型
- *    改动需要单独的 trait 图层入口，卡牌 static → 图层的注册方也不存在（RIFT-257）。
+ *    改动需要单独的 trait 图层入口。
  * 3. 持续期 “until you choose another gear with me” 需要与来源绑定的“直到下一次选择”
  *    状态与到期清理：layers 的 Duration 只有 permanent / end-of-turn / end-of-combat /
  *    while-source-in-zone / until（某个时点），没有“再选一次”这种由后续选择触发的
  *    到期；同时要保留“用我选择”的来源关联（135.4.b / 801.3.a 的同类边界）。
- * 依赖 RIFT-261（费用/支付）与 RIFT-257（卡程序绑定）以及持续时间模型的扩展。
+ * 当前缺口是触发能力费用的绑定、trait 层类型改写，以及由后续选择驱动的持续时间模型。
  * golden 真实执行已合入的部分：choice.optional 的拒绝分支（不支付、不改写）。
  */
 const abilities: Ability[] = [
@@ -71,7 +68,7 @@ const abilities: Ability[] = [
               {
                 id: "lady-of-clockwork.pay",
                 // 204.3 / 383.3.b：这是能力费用（在 Finalize 支付），不是结算效果；
-                // cost.pay 没有原语实现（见 judgeReason 第 1 点）。
+                // 但 choice.optional 内的 cost.pay 不能替代触发能力的顶层 CostSpec。
                 op: "cost.pay",
                 args: { energy: { kind: "constant", value: 1 } }
               },
@@ -120,12 +117,12 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处未合入依赖：(1) 缺可执行的费用步骤：「you may pay :rb_energy_1:」在 204.3 / 383.3.b 下是触发能力的基础费用，" +
-    "但 cost.pay 没有原语实现、触发能力的基础费用也没有接线到 IR——费用种类与 cost.pay / cost.modify 属 RIFT-261；" +
+    "三处未合入依赖：(1) 「you may pay :rb_energy_1:」在 204.3 / 383.3.b 下是触发能力的基础费用，" +
+    "但触发能力没有可绑定的顶层 CostSpec，choice.optional 内的 cost.pay 不能替代 Finalize 费用步骤；" +
     "把它写成结算时的 effect.resources 会把费用变成效果。" +
     "(2)「It becomes a unit gear with Might equal to its Energy cost」需要 trait 层的类型改写（拿到 unit 类型）与 Might 设值，" +
     "并在图层内按 206 读取该装备印刷的 Energy 值；已合入的 continuous.might 只做 Might 的 add/set、不携带 addTypes（argsSchema 拒绝），" +
-    "卡牌 static → 图层的绑定方也不存在（RIFT-257）。" +
+    "卡牌静态效果到 trait/arithmetic 图层的完整绑定仍不成立。" +
     "(3) 持续期「until you choose another gear with me」需要与来源绑定的“直到下一次选择”到期状态：layers 的 Duration 只有 " +
     "permanent / end-of-turn / end-of-combat / while-source-in-zone / until（某个时点），没有由后续选择触发的到期模型" +
     "（135.4.b / 801.3.a 的同类边界）。golden 真实执行的是 choice.optional 的拒绝分支（不支付、不改写）。不近似实现。",

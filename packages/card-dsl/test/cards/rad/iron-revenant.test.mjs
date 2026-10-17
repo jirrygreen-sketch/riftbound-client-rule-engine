@@ -29,7 +29,7 @@ test("rad-143-167 Iron Revenant: identity, status and verbatim sourceText", () =
   // cards README §2: judgeReason names the missing payment kind, the Universal
   // Power gap, the use restriction and the printing difference.
   assert.match(program.judgeReason, /banish/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /cost\/plan-values\.ts/);
   assert.match(program.judgeReason, /163\.2\.b/);
   assert.match(program.judgeReason, /rad-170-167/);
 });
@@ -107,13 +107,13 @@ test.todo(
 test.todo(
   "rad-143-167: add a banish payment kind to the cost plan so “Banish a unit or gear from your " +
     "trash” is charged at Finalize from the public Trash (CR 355.10.a.1 / 355.10.c.1 / 415.4, " +
-    "cost kinds + cost.pay / cost.modify scope: RIFT-261)"
+    "the current cost payment vocabulary has no banish kind"
 );
 
 test.todo(
   "rad-143-167: represent and spend Universal Power ([A], CR 135.2.e.5 / 163.2.b) — the closed " +
-    "Domain union and gain-power action have no universal value, so this needs a contract change " +
-    "(RIFT-261), plus the 430.3 Reaction-Add activation window during payment"
+    "Domain union and gain-power action have no universal value, so this needs a contract change, " +
+    "plus the 430.3 Reaction-Add activation window during payment"
 );
 
 test.todo(

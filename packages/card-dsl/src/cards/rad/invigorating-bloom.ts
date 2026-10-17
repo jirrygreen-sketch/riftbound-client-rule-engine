@@ -26,15 +26,16 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * status = judge-required（不近似实现），当前缺口：
  * 1. “Exhaust a friendly [Mighty] unit” 是费用内的 filter 式对象选择：CostSpec 的
  *    choice 只接受逐项列出的精确 ObjectRef（cost/plan-values.ts 的 choiceObjects 要求每个
- *    option 都是 { id, zoneEntryId }），静态卡程序写不出来；费用种类的 filter 形状属
- *    RIFT-261（cost.pay / cost.modify 与费用种类）范围。
+ *    option 都是 { id, zoneEntryId }），静态卡程序写不出来；当前仍缺费用选择器的
+ *    filter 形状。
  * 2. [Mighty] 谓词：Mighty 已由 effects/keywords/Mighty.ts 展开为 condition.value 的静态
  *    描述（706–711），但过滤词汇里没有“当前 Might ≥ 5”的谓词，费用选择无法在 Finalize 阶段
  *    按 710 判定场上单位的当前 Might（同 Show of Strength sfd-106-221 的判定）。
  * 已合入并已有执行证据的部分：“give a friendly unit +3 :rb_might: this turn”
  * （continuous.might + end-of-turn 到期）、启动能力的横置自身费用（415.3）、以及
  * effect.draw 的 Draw 1（414.3）——见 golden 的真实执行用例。
- * 依赖：RIFT-261（费用种类 / filter 式对象费用）与当前 Might 谓词的过滤扩展。
+ * 当前缺口属于费用选择器与当前 Might 谓词的卡牌侧适配：CostSpec 的 choice 仍要求
+ * Finalize 前已经列出的精确 ObjectRef，且过滤器没有把场上当前 Might >= 5 作为合法谓词。
  */
 const abilities: Ability[] = [
   {
@@ -117,7 +118,7 @@ const program = {
   judgeReason:
     "仍缺两处：(1)「Exhaust a friendly [Mighty] unit」是费用内的 filter 式对象选择（355.10.c.1 明确不计为目标），" +
     "但 CostSpec 的 choice 只接受逐项列出的精确 ObjectRef（cost/plan-values.ts 的 choiceObjects），" +
-    "静态卡程序无法写出（同 Garbage Grabber ogn-099-298）；费用种类的 filter 形状属 RIFT-261 范围。" +
+    "静态卡程序无法写出（同 Garbage Grabber ogn-099-298）；当前费用选择器不接受 filter 形状。" +
     "(2) [Mighty] 谓词：effects/keywords/Mighty.ts 已把 706–711 展开为 condition.value 的描述，但过滤词汇里没有" +
     "「当前 Might ≥ 5」，710 又要求按场上单位的当前（含图层结果）Might 判定，费用选择在 Finalize 阶段无法求值" +
     "（同 Show of Strength sfd-106-221）。已合入并有执行证据：give +3 :rb_might: this turn（continuous.might，" +

@@ -26,8 +26,8 @@ test("rad-045-167 K'Sante, Dauntless: identity, ruleset, status, judgeReason and
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /designation/);
+  assert.match(program.judgeReason, /Shield Value/);
+  assert.match(program.judgeReason, /arithmetic/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -94,14 +94,7 @@ test("rad-045-167 K'Sante, Dauntless: both bodies declare doubling the Shield of
 });
 
 test.todo(
-  "rad-045-167 K'Sante, Dauntless: evaluate Shield 1 while K'Sante is a defender (CR 814.1.c/814.1.d.1) — " +
-    "needs the card static → layer registration path (RIFT-257 + RIFT-91), the defender designation " +
-    "characteristic (contract 3.8 combatRole) and a condition evaluator that does not treat unknown " +
-    "conditions as true (layers/engine.ts conditionMatches)"
-);
-
-test.todo(
   "rad-045-167 K'Sante, Dauntless: double the chosen unit's Shield value for the rest of the turn (814.2) and " +
     "expire it at the end-of-turn cleanup — needs a continuous instruction that multiplies a keyword value " +
-    "(merged continuous.might rejects multiply/layer args and only add/sets Might)"
+    "rather than changing Might directly"
 );

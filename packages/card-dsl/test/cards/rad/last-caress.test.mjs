@@ -139,5 +139,5 @@ test.todo(
     "(CR 391.2 / 420.4.a) whose window is the single next qualifying unit play; ResolveContext." +
     "registerDelayedTrigger exists (contract 3.6) and chain/engine.ts registers delayed triggers, but " +
     "effects/instructions/ has no card-facing op and TriggerSpec.once has no once-per-qualifying-event " +
-    "lifetime (RIFT-9 trigger.delayed)"
+    "lifetime"
 );

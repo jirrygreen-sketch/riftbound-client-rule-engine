@@ -22,10 +22,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   effect.channel 原语（exhausted: true，431.2.a 的 "channel 1 rune exhausted" 形式）。
  *
  * status = judge-required（逐个缺口写出证据，不近似实现）：
- * 1. 卡牌 static 能力没有进入图层的绑定路径：continuous.grant-keyword 作为指令原语已合入
- *    （把 keyword 写入 ability 图层），但 CardProgram 的 static 能力没有任何注册方
- *    （layers 的 registerContinuousEffect 无卡牌侧调用方）——卡牌程序绑定属 RIFT-257，
- *    图层消费属 RIFT-91。
+ * 1. 静态能力的绑定入口已经合入，但本卡的过滤器仍使用了当前绑定器不接受的
+ *    `keyword` 字段，无法诚实地选出带 [Deploy] 的装备。
  * 2. 即便授予落地，Action 许可也没有消费方：layers/engine.ts 的 applyAbility 把关键词写进
  *    object.keywords，而唯一读取 Action 许可的 layers/rules 的 canAct 只读
  *    continuous.timing 的 grants/timings 字段（actionTimings），不读 keywords——至今没有
@@ -34,7 +32,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *    type/zone/location/controller/owner/states/tags/characteristics，未知 key（如
  *    keyword）会被忽略，从而把“带 [Deploy] 的装备”放大成全部装备；同理触发条件里的
  *    count + keyword 也无法诚实求值。Deploy 的 KeywordDef 展开（effects/keywords/Deploy.ts）
- *    自述其 continuous.location 消费方与非单位装备的 cleanup 豁免尚未合入（RIFT-259）。
+ *    自述其 continuous.location 消费方与非单位装备的 cleanup 豁免尚未合入。
  * 已合入并已有执行证据的部分：conquer 触发形状与 effect.channel（exhausted: true）主体——
  * golden 用解释器 + 参考内核真实执行该 channel（431.1/431.2）。
  */
@@ -94,12 +92,12 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "三处未合入依赖：(1)「Your gear with [Deploy] have [Action]」是静态关键词授予，continuous.grant-keyword 指令原语虽已合入，" +
-    "但 CardProgram 的 static 能力没有进入图层的绑定方（layers 的 registerContinuousEffect 无卡牌侧调用方），属 RIFT-257 + RIFT-91。" +
+    "但当前静态绑定器拒绝 keyword 过滤字段，无法选出带 [Deploy] 的装备。" +
     "(2) 即使授予落地，Action 许可也读不到：layers/engine.ts 把关键词写进 object.keywords，而唯一消费 Action 许可的 " +
     "layers/rules 的 canAct 只读 continuous.timing 的 grants/timings（actionTimings），没有「关键词形式 Action → 时机许可」的接线。" +
     "(3)「具有 [Deploy]」的谓词（830.3）不在过滤词汇里：layers/filter.ts 忽略未知 key（如 keyword），会把「带 [Deploy] 的装备」" +
     "放大成全部装备，触发条件里的 count + keyword 同样无法诚实求值；Deploy 展开（effects/keywords/Deploy.ts）自述其 " +
-    "continuous.location 消费方与清理豁免尚未合入（RIFT-259）。已合入并有执行证据：conquer 触发形状与 effect.channel" +
+    "continuous.location 消费方与清理豁免尚未合入。已合入并有执行证据：conquer 触发形状与 effect.channel" +
     "（exhausted: true）主体，golden 用解释器 + 参考内核真实执行该 channel。不近似实现。",
   abilities,
   sourceText:

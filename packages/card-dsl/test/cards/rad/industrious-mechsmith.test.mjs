@@ -4,6 +4,8 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/industrious-mechsmith.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -28,9 +30,7 @@ test("rad-049-167 Industrious Mechsmith: program passes validateCardProgram", ()
 test("rad-049-167 Industrious Mechsmith: identity, ruleset, status, judgeReason and sourceText", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
-  assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /TriggerRegistration/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.equal(program.status, "executable");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -146,7 +146,24 @@ test("rad-049-167 Industrious Mechsmith golden: a replaced play keeps the earlie
   assert.equal(outcome.linkedValues["industrious-mechsmith.play-mech-token.mechToken.amount"], 0);
 });
 
-test.todo(
-  "rad-049-167 Industrious Mechsmith: 'When you play me' must be registered from the CardProgram as a " +
-    "TriggerRegistration so the card-played timing point really enqueues it (CR 420.4.a) — RIFT-257"
-);
+test("rad-049-167 Industrious Mechsmith: CardProgram trigger binds to card-played", () => {
+  const source = world()
+    .unit("industrious-mechsmith", {
+      cardId: CANONICAL,
+      owner: "A",
+      controller: "A",
+      might: 1,
+      location: { type: "battlefield", id: "bf1" }
+    })
+    .build()
+    .getObject("industrious-mechsmith");
+  const registrations = triggerRegistrations(new ProgramRegistry([program]), source);
+  assert.equal(registrations.length, 1);
+  assert.equal(registrations[0].spec.at, "card-played");
+  assert.deepEqual(registrations[0].spec.filter, {
+    event: "card-played",
+    object: { objectId: "industrious-mechsmith" },
+    player: "self"
+  });
+  assert.equal(registrations[0].activeZones[0], "board");
+});

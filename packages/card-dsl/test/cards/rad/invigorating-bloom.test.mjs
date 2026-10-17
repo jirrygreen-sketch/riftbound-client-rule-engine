@@ -44,9 +44,9 @@ test("rad-035-167 Invigorating Bloom: identity, status, judgeReason and verbatim
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
-  // README §2: name the remaining missing pieces and their owner tasks.
+  // README §2: name the remaining missing pieces precisely.
   assert.match(program.judgeReason, /355\.10\.c\.1/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /精确 ObjectRef|filter/);
   assert.match(program.judgeReason, /710/);
   assert.match(program.judgeReason, /cardType Unit/);
   assert.equal(program.sourceText, SOURCE_TEXT);
@@ -169,7 +169,7 @@ test("rad-035-167 Invigorating Bloom: the self-exhaust half of the cost is reall
 test.todo(
   "Invigorating Bloom: 'Exhaust a friendly [Mighty] unit' as a cost — blocked because CostSpec choices require exact " +
     "ObjectRefs (cost/plan-values.ts choiceObjects) and the filter vocabulary has no current-Might>=5 predicate for " +
-    "CR 710; needs a filter-shaped object cost from RIFT-261 (same gap as Garbage Grabber ogn-099-298)"
+    "CR 710; needs a filter-shaped object cost and a current-Might predicate in the cost selector"
 );
 
 test.todo(
