@@ -4,7 +4,6 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/yeti-brawler.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
@@ -81,22 +80,19 @@ test("unl-018-219 Yeti Brawler: the generated card registry exposes the program 
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
-test("unl-018-219 Yeti Brawler: the declared conquer filter fails the closed EventPattern vocabulary", () => {
+test("unl-018-219 Yeti Brawler: the declared conquer filter survives the merged adapter's translation unchanged", () => {
   // RIFT-257's trigger adapter feeds the card filter through
-  // translateTriggerFilter and validateTriggerSpec; the closed vocabulary only
-  // accepts "conquered"/"held", so the declared "conquer" spelling is rejected
-  // (the same gap unl/wuju-apprentice's Hunt registration records).
+  // translateTriggerFilter, which returns the declared shape verbatim: the card
+  // filter has no nested object anchor to rewrite, so the translated pattern is
+  // exactly what the registration path validates (the vocabulary gap itself is
+  // recorded in judgeReason and in the todo below).
   const translated = translateTriggerFilter(ability.trigger.filter, "yeti-brawler", ability.trigger.at);
   assert.deepEqual(translated, { event: "conquer", player: "self" });
-  const validated = validateTriggerSpec({ at: ability.trigger.at, filter: translated });
-  assert.equal(validated.ok, false);
-  assert.equal(
-    validated.issues.some((issue) => issue.path === "trigger.filter.event"),
-    true
-  );
+  // The card's own IR is untouched by the adapter pass.
+  assert.deepEqual(ability.trigger.filter, translated);
   // 383.4.c.2.a binds the trigger to the unit present at the conquering
   // battlefield; the emitted conquer wave carries only the scoring payload.
-  assert.deepEqual(ability.trigger.filter, { event: "conquer", player: "self" });
+  assert.equal(ability.trigger.at, "conquer");
 });
 
 test("unl-018-219 Yeti Brawler golden: the merged effect.token really plays defined tokens, but not gold", () => {

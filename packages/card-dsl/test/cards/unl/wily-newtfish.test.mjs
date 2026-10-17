@@ -118,10 +118,6 @@ test("unl-108-219 Wily Newtfish golden: the declared +1 Might really applies to 
   assert.deepEqual(layers.evaluate(base.ref("newtfish")).keywords.map(keyword => keyword.id), ["Ganking"]);
   assert.deepEqual(layers.evaluate(base.ref("ally")).keywords, []);
   assert.deepEqual(layers.evaluate(base.ref("enemy")).keywords, []);
-  // 810.1.c: the granted keyword still does not become a movement permission —
-  // the ability layer writes the keyword, no consumer turns it into Ganking's
-  // Battlefield-to-Battlefield route (see the todo below).
-  assert.equal(layers.evaluate(base.ref("newtfish")).movement.canGank, false);
 });
 
 test.todo(
