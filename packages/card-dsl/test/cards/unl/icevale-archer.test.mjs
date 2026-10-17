@@ -103,25 +103,10 @@ test("unl-065-219 Icevale Archer golden: the merged continuous.might op applies 
     .build();
   const kernel = base.clone({ sourceSnapshot: base.getObject("icevale-archer") });
   kernel.setTargets(unitHere.id, [kernel.ref("target")]);
-  // The test kernel resolves the declared controller/owner selectors literally,
-  // while the merged ChainEngine resolves the card's relative spelling before
-  // the layer matcher sees it. Only that one normalization is supplied here;
-  // the body, its args and its target come from the card unchanged.
-  const context = new Proxy(kernel, {
-    get(target, key) {
-      if (key === "query") {
-        return filter => {
-          const { controller: selector, ...rest } = filter ?? {};
-          if (selector === "opponent" || selector === "their") return target.query(rest).filter(object => object.controller !== "A");
-          if (selector === "self" || selector === "controller" || selector === "you") return target.query(rest).filter(object => object.controller === "A");
-          return target.query(rest);
-        };
-      }
-      const value = Reflect.get(target, key);
-      return typeof value === "function" ? value.bind(target) : value;
-    },
-  });
-  const outcome = runAbilityBody([instruction], context);
+  // The declared target is locked by Finalize (ctx.targets), so the merged
+  // primitive needs no set query here: the body, its args and its target come
+  // from the card unchanged.
+  const outcome = runAbilityBody([instruction], kernel);
   assert.equal(outcome.status, "executed");
   assert.equal(kernel.continuousEffects.length, 1);
   assert.equal(kernel.continuousEffects[0].effect.effect.kind, "continuous.might");
