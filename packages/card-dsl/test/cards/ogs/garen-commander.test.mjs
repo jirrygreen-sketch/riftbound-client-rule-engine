@@ -6,7 +6,10 @@ import { bindResolveContext } from "../../../../engine-core/dist/events/action-a
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { ProgramBindingError } from "../../../../engine-core/dist/programs/errors.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import program from "../../../dist/cards/ogs/garen-commander.js";
 
 const CANONICAL =
@@ -39,6 +42,7 @@ test("ogs-013-024 Garen, Commander: judgeReason names the source-relative filter
   assert.match(program.judgeReason, /sameLocationAs/);
   assert.match(program.judgeReason, /exclude/);
   assert.match(program.judgeReason, /053\.3/);
+  assert.match(program.judgeReason, /staticFilter/);
 });
 
 test("ogs-013-024 Garen, Commander: one static +1 Might effect scoped to other friendly units here", () => {
@@ -155,8 +159,45 @@ test("ogs-013-024 Garen, Commander golden: the effect half registers +1 Might on
   assert.equal(layers.evaluate(base.ref("enemy-here")).might, 4);
 });
 
-test.todo(
-  "ogs-013-024 Garen, Commander: the printed static ability itself registers when Garen enters and " +
-    "re-evaluates as units move (CR 143.2, 053.3) — depends on source-relative exclusion and " +
-    "dynamic host/location binding in the static layer"
-);
+test("ogs-013-024 Garen, Commander golden: the production static binder rejects the exclude anchor", () => {
+  // 复核 2026-10-17: the production binder is merged, so the remaining gap is
+  // inside it. staticFilter throws for `exclude` before any layer is created.
+  const { engine, kernel } = fixture({ cards: [{ id: "garen", might: 5 }] });
+  engine.commit({ type: "move-zone", object: kernel.ref("garen"), to: "base", location: { type: "base", player: "A" } });
+  assert.throws(
+    () => createEngineStaticBinder(engine).bindStatic(program.abilities[0], kernel.getObject("garen")),
+    (error) => error instanceof ProgramBindingError &&
+      error.code === "judge-required" &&
+      /Static exclude anchor needs a dynamic relative filter/.test(error.message)
+  );
+  assert.equal(engine.layers.registry.list().length, 0);
+});
+
+test("ogs-013-024 Garen, Commander golden: sameLocationAs is frozen at bind time instead of re-evaluated", () => {
+  // Same-shaped filter without the (rejected) exclude anchor: the merged binder
+  // accepts it but resolves "here" once, so after Garen moves battlefields the
+  // aura keeps buffing units at his previous location — the exact behavior
+  // CR 053.3 / 359.3.f.2 forbid.
+  const BF1 = { type: "battlefield", id: "bf-1" };
+  const BF2 = { type: "battlefield", id: "bf-2" };
+  const { engine, kernel } = fixture({ cards: [{ id: "garen", might: 5 }] });
+  const add = (id, might, location) => kernel.addObject({
+    ref: { id, zoneEntryId: 1 }, cardId: "card:" + id, name: id, types: ["unit"], tags: [], keywords: [],
+    owner: "A", controller: "A", zone: "board", location, might, energy: 1, power: [], exhausted: false,
+    damage: 0, stunned: false, buffs: 0, attachedTo: null, faceDown: false, isToken: false
+  }, "board");
+  add("ally-1", 2, BF1);
+  add("ally-2", 3, BF2);
+  engine.commit({ type: "move-zone", object: kernel.ref("garen"), to: "battlefield", location: BF1 });
+  const partial = {
+    kind: "static",
+    effect: { ...program.abilities[0].effect, filter: { type: "unit", controller: "controller", sameLocationAs: "source" } }
+  };
+  createEngineStaticBinder(engine).bindStatic(partial, kernel.getObject("garen"));
+  const [entry] = engine.layers.registry.list();
+  assert.deepEqual(entry.effect.filter, { type: "unit", controller: "A", location: BF1 });
+  engine.commit({ type: "move-location", object: kernel.ref("garen"), to: BF2 });
+  engine.layers.setObjects(kernel.objects);
+  assert.equal(engine.layers.evaluate(kernel.ref("ally-1")).might, 2, "the pre-move location is still the anchor");
+  assert.equal(engine.layers.evaluate(kernel.ref("ally-2")).might, 3, "the unit at Garen's new location is not buffed");
+});

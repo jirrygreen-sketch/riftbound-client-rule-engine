@@ -20,15 +20,19 @@ import type { CardProgram } from "../../ir/index.js";
  *   支付打出法术的费用；池中受限份额必须可追踪。
  * - 163.1/166.1：能量无域，加入并存放于控制者的符文池。
  *
- * 状态：judge-required。
- * 1. 缺受限资源记账：effect.resources 将能量并入符文池同一余额，没有"受限份额"
- *    表示；continuous.restrict 原语虽已合入，但其 modes 只有
- *    prohibit/require/permit/limit/applied-cost，不提供"加入的资源份额只能用于
+ * 状态：judge-required（复核 2026-10-17）。
+ * 1. 缺受限资源记账：effect.resources 的 argsSchema（ARG_KEYS）只接受
+ *    energy/power/player/target/pick/choiceId/linkKey，本卡 body 里的 usage 参数直接
+ *    抛 "Invalid effect.resources Expr argument: usage"（golden 实测）；即使删掉该键，
+ *    能量也只是并入符文池同一余额，没有"受限份额"表示。continuous.restrict 原语虽已合入，
+ *    但其 modes 只有 prohibit/require/permit/limit/applied-cost，不提供"加入的资源份额只能用于
  *    支付法术费用"的记账通道，也没有读取该受限份额的费用消费方；survey
  *    （docs/plans/survey/unclassified-ogn.md 第 42 条）结论指出"池中受限
  *    份额必须独立记账，不能给所有能量套全局限制或忽略限制"。
- * 2. 启动费用的 cost.activated 已可由程序绑定规范化为 activated payment；本卡仍不能执行的原因
- *    是受限资源份额没有记账和消费路径。
+ * 2. 启动费用侧：cost.activated 可由程序绑定规范化为 activated payment，但本卡的
+ *    restriction.kind 是 add-usage，programs/play.ts 的 translateLegalityCondition 只认
+ *    condition 字段或 CONDITION_KINDS，否则 judgeRequired("restriction ... needs a rules adapter")，
+ *    因此连启动前的使用限制也接不上。
  * 3. 数据问题（不改数据，见回复）：ogs-014-024 仍有 Demacia 标签，且写 "Use only to
  *    play spells"，同 canonicalCardId 的 ven-sp6-006 写 "Spend this Energy only to play
  *    spells"（docs/plans/survey/data-issues-recheck.md 第 31 行）。
@@ -38,13 +42,17 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺受限资源记账：Use only to play spells（054.2）要求池中这 2 点能量可追踪为只能用于" +
-    "支付法术费用（survey unclassified-ogn.md 第 42 条结论）。continuous.restrict 原语已合入" +
-    "但其模式（prohibit/require/permit/limit/applied-cost）没有" +
-    "「新增资源的受限份额」通道，费用侧也不读取受限份额；effect.resources 只并入同一余额。" +
-    "cost.activated 与 exhaust payment 已有程序绑定和规范化路径；仍缺的是受限资源份额的记账与" +
-    "费用消费方，不能把这 2 点能量错误地并入可支付任意费用的余额。" +
-    "依赖：受限资源记账形态与费用侧对受限份额的消费。" +
+    "两处当前缺口：(1) 受限资源记账与消费：Use only to play spells（054.2）要求池中这 2 点能量可追踪为" +
+    "只能用于支付法术费用（survey unclassified-ogn.md 第 42 条结论）。effect.resources 的封闭参数表" +
+    "（ARG_KEYS：energy/power/player/target/pick/choiceId/linkKey）没有 usage，本卡 body 会抛 " +
+    "\"Invalid effect.resources Expr argument: usage\"；即便去掉该键，能量也只并入同一余额。" +
+    "continuous.restrict 的模式（prohibit/require/permit/limit/applied-cost）没有「新增资源的受限份额」通道，" +
+    "费用侧也不读取受限份额；不能把这 2 点能量错误地并入可支付任意费用的余额。" +
+    "(2) 启动前的使用限制也接不上：ability.restriction.kind 是 add-usage，programs/play.ts 的 " +
+    "translateLegalityCondition 只接受 condition 字段或 CONDITION_KINDS，会对本卡抛 judge-required 的 " +
+    "\"restriction ... needs a rules adapter\"。" +
+    "cost.activated 与 exhaust payment 已有程序绑定和规范化路径。" +
+    "依赖：受限资源记账形态与费用侧对受限份额的消费、add-usage 限制的规则适配器。" +
     "数据问题：OGS 写 Use only to play spells，同 canonical 的 VEN 写 Spend this Energy only " +
     "to play spells（docs/plans/survey/data-issues-recheck.md）。不近似实现。",
   abilities: [

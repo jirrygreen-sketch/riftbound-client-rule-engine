@@ -16,31 +16,38 @@ import type { CardProgram } from "../../ir/index.js";
  * - "Your spells and abilities"：授予范围是本控制者的法术与能力（418.6.b.2 能力
  *   可作为 Deal 的来源）。
  *
- * 状态：judge-required。现有 continuous.might / grant-keyword / keyword /
- * combat 指令和 CardProgram static 绑定都已合入，但其中没有 Bonus Damage 的授予形态：
- * "给本控制者的法术与能力授予 +1 Bonus Damage" 既不是 continuous.might 的
- * Might 算术，也不是 grant-keyword 的关键词授予（712-715 定义 Bonus Damage 是
- * 附加在 Deal 动作上的伤害属性），effect.damage 的文件头仍明确由"持续效果/图层
- * 系统算好后经 bonus 表达式传入"。当前 layers/ 与 effects/instructions/ 都没有
- * 注册/消费该授予（continuous.bonus-damage 没有 opcode/layer 映射），也没有把静态
- * 能力的授予结果注入每次 Deal 的消费方，因此不能声称整卡可执行；本文件只按契约
- * 3.1 的 static 形状描述该持续效果，不做近似实现。
+ * 状态：judge-required（复核 2026-10-17）。production static binder
+ * （programs/statics.ts 的 createEngineStaticBinder 已接线，chain 生命周期会自动绑定
+ * static 能力）确实已被合入，但本卡连注册都过不去，两处缺口都是当前的：
+ * 1. layerFor 只把 kind 含 might/buff、copy、type/tag/trait、timing/keyword/
+ *    movement/restrict/combat 的静态效果映射到图层；`continuous.bonus-damage`
+ *    不含这些词，bindStatic 直接抛 "Static ability kind continuous.bonus-damage has no
+ *    layer mapping"（golden 实测 ProgramBindingError）。效果种类本身既没有
+ *    opcode 文件，也没有 layers/ 的消费分支。
+ * 2. staticTarget 只接受 appliesTo 为 self/source 选择符或 filter；本卡的
+ *    "给本控制者的法术与能力" 是动作级作用域，即使删掉 appliesTo 也会
+ *    抛 "Static ability kind continuous.bonus-damage has no layer mapping"，而
+ *    保留 appliesTo 时抛 "Unsupported static appliesTo ..."——效果应施加在
+ *    Deal 动作（418.4/418.5、712-715）而不是对象上。
+ * effect.damage 只消费调用方传入的 bonus 表达式（714/715.2 的加总与逐目标施加已在
+ * golden 证明），它不做授予，也没有把 static 授予结果注入每次 Deal 的消费方。
+ * 本文件保留契约 3.1 的 static 形状描述，不做近似实现。
  *
- * 依赖：Bonus Damage 授予原语（continuous.bonus-damage 形态）、静态层映射与伤害管线的
- * 授予消费方。
+ * 依赖：Bonus Damage 授予效果的 opcode（continuous.bonus-damage）、layers/statics
+ * 的 action-scope 映射，以及把授予结果注入每次 Deal 的消费方。
  */
 export default {
   canonicalCardId: "card.hash-cb7e947fa0684712ff2e8dbc8148eaa39687afa9028c093d407a3dc1f84712a5",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 Bonus Damage 授予原语与消费方：现有持续效果指令（continuous.might / " +
-    "grant-keyword / keyword / combat）都不表达“给本控制者的法术与能力授予 +1 Bonus Damage”" +
-    "——Bonus Damage 是附加在 Deal 动作上的伤害属性（CR 712-715、418.4/418.5），不是 Might 算术，" +
-    "也不是关键词授予；effect.damage 文件头明确由持续效果/图层系统算好后经 bonus 表达式传入，" +
-    "而 effects/instructions/ 下没有 continuous.bonus-damage 的 opcode 文件，layers/ 与伤害管线" +
-    "也没有把静态能力的授予结果注入每次 Deal 的消费方；静态层还没有" +
-    "continuous.bonus-damage 的效果映射。依赖：Bonus Damage 授予原语、静态层映射与伤害管线消费方。" +
+    "production static binder 已合入（programs/statics.ts 的 createEngineStaticBinder，由 chain 生命周期绑定），" +
+    "本卡仍在注册阶段失败，缺口有二：(1) layerFor 没有 continuous.bonus-damage 的图层映射，" +
+    "bindStatic 抛 \"Static ability kind continuous.bonus-damage has no layer mapping\"；" +
+    "(2) staticTarget 只接受对象选择符，本卡的授予作用域是 Deal 动作（CR 418.4/418.5、712-715），" +
+    "无法只写成对象 filter。effect.damage 的消费端（714 加总、715.2 每目标分别增加、714.2 非正不生效）" +
+    "已有执行测试，但没有任何生产消费者把该 static 授予注入每次 Deal，效果种类也没有 opcode。" +
+    "依赖：continuous.bonus-damage 的 opcode 与 layers 的 action-scope 映射，以及伤害管线的授予消费方。" +
     "不近似实现。",
   abilities: [
     {
