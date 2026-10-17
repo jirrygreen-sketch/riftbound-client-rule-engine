@@ -5,6 +5,7 @@ import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/sfd/sea-monkey.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { translateInstructionTargets } from "../../../../engine-core/dist/programs/filters.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-8b94882b556c55cce216445bf3c9f8b69b9e4c725571f25e890a951c67bb05c6";
@@ -41,7 +42,11 @@ test("sfd-098-221 Sea Monkey: judgeReason names the additional-cost and paid-rec
   assert.match(program.judgeReason, /cost\.additional/);
   assert.match(program.judgeReason, /356\.4\.f\.1/);
   assert.match(program.judgeReason, /condition\.result/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  // The cost pipeline (cost.pay / cost.modify, additional-cost binding) and the
+  // CardProgram filter adapter are the remaining dependencies; the card data
+  // must not silently approximate either half.
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("sfd-098-221 Sea Monkey: the optional additional cost is 1 Energy on a passive ability", () => {
@@ -116,8 +121,47 @@ test("sfd-098-221 Sea Monkey golden: a second buff is a no-op (702.3.a, 427.1.c)
   assert.deepEqual(outcome.events, []);
 });
 
+test("sfd-098-221 Sea Monkey: the declared additional cost and self anchor are not approximated", () => {
+  // Durable data-level guards for the two remaining dependencies (see
+  // judgeReason): the card must keep the printed additional cost on a static
+  // cost declaration (never rewritten as a resolution-time effect), and the
+  // "me" anchor must stay the contract 3.6 self selector rather than a
+  // hard-coded ObjectRef. The merged CardProgram adapter cannot bind the anchor
+  // yet, which is why the binding path stops there.
+  assert.equal(additionalCost.effect.kind, "cost.additional");
+  assert.equal("op" in additionalCost.effect, false);
+  assert.deepEqual(additionalCost.effect.payments, [
+    { kind: "energy", amount: { kind: "constant", value: 1 } }
+  ]);
+  assert.deepEqual(selfSpec.filter.object, "self");
+  assert.equal(selfSpec.filter.objectId, undefined);
+
+  // The merged programs/filters.ts adapter is the only bridge into the engine
+  // query. It must never silently drop the anchor (that would buff a wrong
+  // set): it either translates the body preserving the host-bound target, or it
+  // fails closed with the judge-required reason. This stays true when the
+  // anchor lands (RIFT-257).
+  let translated = null;
+  try {
+    translated = translateInstructionTargets(playTrigger.body);
+  } catch (error) {
+    assert.equal(error.code, "judge-required");
+    assert.match(error.message, /filter field object/);
+  }
+  if (translated !== null) {
+    const [anchor] = translated[0].targets;
+    assert.deepEqual(anchor.filter.object, "self");
+  }
+});
+
 test.todo(
   "sfd-098-221 Sea Monkey: charge the optional additional 1 Energy through the cost plan and expose the " +
-    "356.4.f.1 paid decision so the buff is gated on it — cost.additional / cost-plan wiring (RIFT-89); the " +
-    "frozen Condition has no cost-result source (survey: condition.result)"
+    "356.4.f.1 paid decision so the buff is gated on it — the additional-cost/finalized-receipt binding is " +
+    "still pending in the in-progress RIFT-261 cost work (cost.pay / cost.modify); the Condition shape has no " +
+    "cost-result source (survey: condition.result)"
+);
+
+test.todo(
+  "sfd-098-221 Sea Monkey: the CardProgram binding must accept the body's `object: \"self\"` target anchor " +
+    "(programs/filters.ts translateObjectFilter currently rejects it as an unsupported filter field) — RIFT-257"
 );

@@ -20,11 +20,19 @@ import type { CardProgram } from "../../ir/index.js";
  * 第 5 节）；展开由 engine-core 的 effects/keywords/Weaponmaster.ts 负责，
  * 卡内不重写关键词逻辑。
  *
- * status = judge-required（cards/README.md 第 2 节）：展开文件虽已合入，但其 body
- * 使用的 cost.modify / cost.pay 在 effects/instructions/registry.generated.ts 没有
- * 注册的 InstructionDef，也没有生产方把卡牌上的 keyword 能力接进打出流程，
- * 821.1.c.2 的 Equip 费计算与 821.1.c.3 的 [A] 减费无法执行。缺 RIFT-89
- * （费用计划/支付）与关键词展开接线；不近似实现。
+ * status = judge-required（cards/README.md 第 2 节）。已合入的部分：Weaponmaster
+ * KeywordDef（RIFT-264～268 关键词批次）与 CardProgram 绑定（RIFT-257）都已就绪——
+ * registerProgramTriggers 能把展开出的 card-played 触发注册成 TriggerRegistration，
+ * 展开体最后一步的 effect.attach 也能真实附着（golden 执行）。仍然缺的部分：
+ * - 展开出的 card-played 触发以 event.source 过滤本卡身份，而 chain/engine.ts 成功结算后
+ *   发出的 card-played 事件只带 object / player；events/pipeline-match.ts 只有在
+ *   event.source 存在时才匹配 source 过滤，所以生产形状的事件匹配不上（golden 断言两边的形状）。
+ * 展开体使用的 cost.modify / cost.pay 没有注册的 InstructionDef
+ * （effects/instructions/registry.generated.ts 只有 effect.* / continuous.*），
+ * Finalize 费用计划也没有按 821.1.c.2 计算所选 Equipment 的 Equip 费、按 821.1.c.3
+ * 减免 [A] 的消费方，所以触发进入链后必然在第一条 cost.modify 上失败。
+ * 依赖：进行中的 RIFT-261（cost.pay / cost.modify 与 Equip 费用计划接线）与 card-played
+ * 事件的来源身份载荷（RIFT-257 的 EventPattern.source 适配），不近似实现。
  */
 const sentinelAdept = {
   canonicalCardId:
@@ -32,15 +40,20 @@ const sentinelAdept = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "The Weaponmaster expansion file (effects/keywords/Weaponmaster.ts) is merged, " +
-    "but the card is not executable end to end: the expansion body pays the chosen " +
-    "Equipment's Equip cost through cost.modify / cost.pay, and neither opcode has a " +
-    "registered InstructionDef in effects/instructions/registry.generated.ts, nor does " +
-    "any producer expand a card's keyword ability into the play pipeline. 821.1.c.2 " +
-    "(cost determined as though the Equip ability were activated targeting this unit) " +
-    "and 821.1.c.3 (the [A] reduction) therefore cannot be calculated or paid before " +
-    "effect.attach runs. Depends on RIFT-89 (cost planning/payment primitives) and the " +
-    "keyword-expansion wiring; not approximated.",
+    "The Weaponmaster KeywordDef (RIFT-264~268) and the CardProgram binding (RIFT-257) are merged: " +
+    "registerProgramTriggers registers the expansion's card-played trigger, and the final effect.attach " +
+    "step attaches the chosen Equipment for real (golden). The card is still not executable end to end, " +
+    "on two merged-but-incomplete paths: (1) the expansion's card-played trigger filters on the card's " +
+    "own identity through event.source, but chain/engine.ts emits the successful-resolve card-played event " +
+    "with object/player only, and events/pipeline-match.ts only matches a source filter when event.source " +
+    "exists; the production-shaped event therefore never matches (golden asserts both shapes). (2) the " +
+    "expansion body pays the chosen Equipment's Equip cost through cost.modify / cost.pay, and neither " +
+    "opcode has a registered InstructionDef in effects/instructions/registry.generated.ts; there is also " +
+    "no Finalize cost-plan consumer that computes the Equip cost as though the Equip ability were " +
+    "activated targeting this unit (821.1.c.2) and applies the one-any-Power reduction (821.1.c.3), so a " +
+    "registered trigger fails on its first instruction. Depends on the in-progress RIFT-261 (cost.pay / " +
+    "cost.modify + Equip cost planning) and the card-played source-identity payload (RIFT-257 EventPattern " +
+    "source adapter); not approximated.",
   abilities: [{ kind: "keyword", keyword: "weaponmaster" }],
   sourceText:
     "[Weaponmaster] (When you play me, you may [Equip] one of your Equipment to me for :rb_rune_rainbow: less, even if it's already attached.)"

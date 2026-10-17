@@ -13,7 +13,10 @@ import program from "../../../dist/cards/sfd/spinning-axe.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 
@@ -97,8 +100,13 @@ test("sfd-186-221 Spinning Axe: identity, ruleset, status, judgeReason and verba
   assert.match(program.judgeReason, /Temporary/);
   assert.match(program.judgeReason, /816\.1\.b/);
   assert.match(program.judgeReason, /163\.2\.b/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  // The Temporary KeywordDef and the CardProgram binding have merged since the
+  // original note; the refreshed reason points at the EventPattern vocabulary
+  // (beginning-start), the in-progress cost work and the event source payload.
+  assert.match(program.judgeReason, /RIFT-39/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.equal(program.judgeReason.includes("无已合入 KeywordDef"), false);
 });
 
 test("sfd-186-221 Spinning Axe: three keyword declarations in printed order", () => {
@@ -182,21 +190,111 @@ test("sfd-186-221 golden: the Equip body attaches the axe to a locked unit you c
   assert.equal(attached.outcome.linkedValues["equip-attach.attached"].host.id, "ally");
 });
 
+test("sfd-186-221 golden: the merged Temporary expansion kills the axe through the real effect.kill primitive", () => {
+  // 816.1.b/816.1.c: at the start of the controller's Beginning Phase, before
+  // scoring, kill this permanent. The KeywordDef is merged and its body uses the
+  // merged effect.kill primitive, so the body itself executes; what the
+  // EventPattern vocabulary still blocks is the beginning-start subscription.
+  const [temporaryTriggered] = keywordDefinitionsById.get("Temporary").expand({ host: HOST });
+  assert.equal(temporaryTriggered.trigger.at, "beginning-start");
+  assert.deepEqual(temporaryTriggered.trigger.filter, { event: "beginning-start", player: "self" });
+
+  const kernel = axeWorld();
+  const bound = bindResolveContext(kernel, {
+    source: kernel.getObject("spinning-axe"),
+    sourceSnapshot: kernel.getObject("spinning-axe"),
+    controller: "A",
+    query: productionQuery(kernel)
+  });
+  const outcome = resolveChainBody(temporaryTriggered.body, bound);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map((result) => [result.id, result.result.status]), [
+    ["temporary:card.hash-800c2a2c210066550ce1c729596dd3e463d221242fece59853f3a3983e3023b4:kill", "executed"]
+  ]);
+  assert.equal(kernel.getObject("spinning-axe").zone, "trash");
+  assert.deepEqual(outcome.events.map((event) => event.action), ["kill"]);
+
+  // The subscription spec is where the merged path stops: the closed
+  // EventPattern vocabulary must contain the printed timing point, and any
+  // rejection must concern only the event-name vocabulary (never a rewritten
+  // timing point or a widened filter). This keeps passing once the vocabulary
+  // lands.
+  const validation = validateTriggerSpec(temporaryTriggered.trigger);
+  if (!validation.ok) {
+    assert.deepEqual([...new Set(validation.issues.map((issue) => issue.code))], ["invalid-event-type"]);
+  }
+  assert.equal(temporaryTriggered.trigger.at, "beginning-start");
+});
+
+test("sfd-186-221 golden: the merged binding layer registers the Quick-Draw card-played trigger for this card", () => {
+  // Durable contract (RIFT-257 programs/triggers.ts + the merged Quick-Draw
+  // KeywordDef): the expansion's card-played trigger must be registered for the
+  // axe with its source discriminator bound to this card's printed identity, so
+  // it fires for the axe's own play and not for other cards. The production
+  // card-played event still carries object/player only, so the discriminator
+  // cannot match until that payload lands (see judgeReason).
+  const lifted = { ...program, status: "executable" };
+  delete lifted.judgeReason;
+  const bound = createProgramBinding({ cardPrograms: [lifted] });
+  const registrations = [];
+  bound.registerProgramTriggers(
+    { pipeline: { registerTrigger: (registration) => registrations.push(registration), unregisterTrigger: () => {} } },
+    {
+      ref: { id: "spinning-axe", zoneEntryId: 1 },
+      cardId: CARD_ID,
+      name: "Spinning Axe",
+      types: ["gear"],
+      tags: ["Draven", "Equipment", "Signature"],
+      keywords: [{ id: "Quick-Draw" }, { id: "Equip", value: 1 }, { id: "Temporary" }],
+      owner: "A",
+      controller: "A",
+      zone: "board",
+      location: { type: "base", player: "A" },
+      might: 3,
+      energy: 2,
+      power: null,
+      exhausted: false,
+      damage: 0,
+      stunned: false,
+      buffs: 0,
+      attachedTo: null,
+      faceDown: false,
+      isToken: false
+    }
+  );
+
+  const quickDraw = registrations.find((registration) => registration.spec.filter.source !== undefined);
+  assert.ok(quickDraw, "the Quick-Draw card-played trigger must be registered");
+  assert.deepEqual(quickDraw.spec.filter, { event: "card-played", source: { canonicalCardId: CARD_ID } });
+  assert.equal(quickDraw.optional, false);
+
+  // The source discriminator must really gate the match on the card identity:
+  // it matches when the event carries this card as its source and not when it
+  // carries a different card.
+  const axe = axeWorld().getObject("spinning-axe");
+  const event = { timingPoint: "card-played", kind: "card-played", object: axe, source: axe, player: "A" };
+  assert.equal(matchesTriggerEvent(quickDraw.spec.filter, event, "A"), true);
+  assert.equal(
+    matchesTriggerEvent({ ...quickDraw.spec.filter, source: { canonicalCardId: "other-card" } }, event, "A"),
+    false
+  );
+});
+
 test.todo(
-  "sfd-186-221 Spinning Axe: [Temporary] expansion (CR 816.1.b/816.1.c — while unattached, kill it at the " +
-    "start of its controller's Beginning Phase, before scoring) is blocked on a Temporary KeywordDef and its " +
-    "beginning-start registration; keywords/ registers 16 keywords and none of them is Temporary " +
-    "(ability-templates kw-temporary = trigger.phase + effect.kill)"
+  "sfd-186-221 Spinning Axe: [Temporary]'s merged expansion (CR 816.1.b/816.1.c) subscribes beginning-start, " +
+    "which the closed EventPattern vocabulary (RIFT-39) still lacks, so pipeline.registerTrigger rejects the " +
+    "spec; the effect.kill body itself executes (see the golden below)"
 );
 
 test.todo(
   "sfd-186-221 Spinning Axe: paying the printed Equip cost (one [A] Power, CR 135.2.e.5 / 818.1.c.2) is blocked on " +
     "the `equip` payment kind in cost/plan-values.ts and on a contract representation for Universal Power " +
-    "(CR 163.2.b; RIFT-89); the merged cost plan rejects { kind: 'equip' } with reason judge-required"
+    "(CR 163.2.b; in-progress RIFT-261); the merged cost plan rejects { kind: 'equip' } with reason judge-required"
 );
 
 test.todo(
   "sfd-186-221 Spinning Axe: the Quick-Draw play trigger can only fire end-to-end once the card-played event " +
     "carries this card's identity for EventPattern.source binding and a card-program → TriggerRegistration " +
-    "adapter exists (chain/README wiring step 2; chain/engine.ts emits object/player only, RIFT-120 follow-up)"
+    "adapter binds it (the RIFT-257 adapter is merged; chain/engine.ts still emits object/player only, so the " +
+    "source filter from the merged Quick-Draw expansion never matches)"
 );

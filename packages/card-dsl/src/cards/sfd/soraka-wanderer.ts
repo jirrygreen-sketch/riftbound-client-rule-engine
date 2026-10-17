@@ -27,28 +27,35 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   Move; 460.1 keeps damage and statuses, so the printed heal and exhaust are
  *   performed by the replacement body.
  *
- * Status: judge-required — the whole ability is barred by four merged gaps,
- * none approximated:
- * - [Backline] has no KeywordDef (effects/keywords/ contains no Backline.ts)
- *   and the combat damage step binds no assignment-priority requirement:
- *   combat/base-combat-allocation.ts states "No Tank/Backline/other
- *   assignment-priority requirement is bound here", so 826.3/826.4.b cannot be
- *   executed.
- * - a card-declared ReplacementAbility has no registration path (engine batch
- *   4's event pipeline registers replacements as action matchers; no code turns
- *   a card program into one), and there is no selector for the replaced event's
- *   object (the dying unit is not a target choice, 355.10.c).
- * - "if it has less Might than me" needs the effective Might of two different
- *   objects compared at replacement time; the frozen IR has no expression that
- *   reads another object's Might, and the layer engine's conditionMatches does
- *   not evaluate compare conditions.
- * - effect.move blocks its recall mode ("Recall requires an action distinct
- *   from Move (CR 457-460)") and submits no substitute Move, so even a bound
- *   unit could not be recalled. Recall is not a Move (458), so approximating it
- *   with move-location/effect.zone is forbidden.
- * Dependencies: keyword batch (Backline), combat assignment batch (826),
- * replacement.enter/event registration (engine batch 4), the recall action, and
- * the Might-comparison contract request recorded in the reply.
+ * Status: judge-required — two of the original four gaps are now closed by
+ * merged work, none approximated:
+ * - [Backline] now has a KeywordDef (effects/keywords/Backline.ts, keyword
+ *   batch RIFT-264~268) and the combat damage step still binds no
+ *   assignment-priority requirement: combat/base-combat-allocation.ts states
+ *   "No Tank/Backline/other assignment-priority requirement is bound here", so
+ *   826.3/826.4.b still cannot be executed.
+ * - the replacement registration path has landed (RIFT-260 replacement/):
+ *   bindReplacement turns a card ReplacementAbility into an event-pipeline
+ *   registration, and the replaced event's object is addressable as
+ *   { linked: "replacement.object" } (CR 355.10.c "it"). This card's with body
+ *   still spells it as a declarative { target: "soraka.dying-unit" } selector,
+ *   which makes replacement/planner.ts's selectorRef recurse until the stack
+ *   overflows (RangeError) instead of binding; the body needs the event-object
+ *   selector spelling.
+ * - the Might-comparison gap remains, but it is narrower than "the IR has no
+ *   expression": evaluation exists (effects/interpreter/condition.ts evaluates
+ *   compare/object-property against live snapshots). What is missing is a
+ *   replacement-time binding for two different objects: the left operand must
+ *   read the replaced event's unit — the same { linked: "replacement.object" }
+ *   spelling — and layers/engine.ts's conditionMatches still does not evaluate
+ *   compare conditions, so a static/layer route cannot carry it either.
+ * - effect.move still blocks its recall mode ("Recall requires an action
+ *   distinct from Move (CR 457-460)") and submits no substitute Move, so even a
+ *   bound unit could not be recalled. Recall is not a Move (458), so
+ *   approximating it with move-location/effect.zone is forbidden.
+ * Dependencies: combat assignment batch (826), the replacement event-object
+ * selector binding for the card's own with body, the recall action (CR 457-460),
+ * and the Might-comparison contract request recorded in the reply.
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "backline" },
@@ -151,13 +158,15 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "四处依赖未合入：(1) [Backline]（826）没有 KeywordDef（effects/keywords/ 无 Backline.ts），战斗伤害步骤也未绑定 Tank/Backline 的分配优先级" +
-    "（combat/base-combat-allocation.ts 明确 “No Tank/Backline/other assignment-priority requirement is bound here”），826.3/826.4.b 不可执行；" +
-    "(2) 卡牌级 ReplacementAbility 没有注册路径（RIFT-120 的事件管线以动作匹配器注册替代，但没有卡牌程序→注册的接线），with 体也没有指向“被替代事件对象”的选择符" +
-    "（该单位按 355.10.c 不是目标选择）；(3)「if it has less Might than me」需要在替代时比较两个对象的有效 Might（143.2.a），冻结 IR 没有读取他者 Might 的表达式，" +
-    "图层 conditionMatches 也不求值 compare；(4) 即使绑定到对象，effect.move 的 recall 模式被显式阻断" +
+    "原始四处缺口中的两处已由合入工作收窄，仍不近似实现：(1) [Backline]（826）的 KeywordDef 已合入（effects/keywords/Backline.ts，关键词批次 RIFT-264~268），" +
+    "但战斗伤害步骤仍未绑定 Tank/Backline 的分配优先级（combat/base-combat-allocation.ts 明确 “No Tank/Backline/other assignment-priority requirement is bound here”），" +
+    "826.3/826.4.b 仍不可执行；(2) 替代注册路径已合入（RIFT-260 的 replacement/：bindReplacement 把卡牌 ReplacementAbility 注册为事件管线替代，" +
+    "被替代事件对象以 { linked: \"replacement.object\" } 绑定），但本卡 with 体仍把它写成声明性的 { target: \"soraka.dying-unit\" } 选择符——`forEach` 计划器在解析该选择符时" +
+    "无限递归（RangeError），无法完成绑定；需要把 with 体改写成事件对象链接选择符。(3)「if it has less Might than me」需要在替代时比较两个对象的有效 Might（143.2.a）：" +
+    "compare/object-property 求值本身已合入（effects/interpreter/condition.ts），缺口是替代时的对象绑定——左操作数要读被替代事件单位（同一个 { linked: \"replacement.object\" }），" +
+    "而 layers/engine.ts 的 conditionMatches 仍不求值 compare，静态/图层路线也带不了它。(4) 即使绑定到对象，effect.move 的 recall 模式仍被显式阻断" +
     "（“Recall requires an action distinct from Move”，458/458.3），且不得用普通移动近似（Recall 不是 Move）。" +
-    "依赖：关键词批次（Backline）、战斗分配批次（826）、替代注册（引擎批 4）、Recall 动作与事件对象选择符（见契约变更请求）。",
+    "依赖：战斗分配批次（826）、替代事件对象选择符绑定（RIFT-260 的 with 体接线）、Recall 动作（457-460）与 Might 比较的替代时对象绑定（见契约变更请求）。",
   abilities,
   sourceText:
     "I must be assigned combat damage last.\n" +
