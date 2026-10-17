@@ -7,6 +7,8 @@ import {
   type CostSpec,
   type Expr,
   type Instruction,
+  type LocationSelector,
+  type LocationTargetSpec,
   type ObjectFilter,
   type PickSpec,
   type Requirement,
@@ -62,6 +64,7 @@ interface ValidationContext {
   readonly priorInstructionIds: Set<string>;
   readonly targetIds: Set<string>;
   readonly pickIds: Set<string>;
+  readonly locationIds: Set<string>;
 }
 
 function addIssue(
@@ -178,6 +181,8 @@ function validateExpr(value: unknown, path: string, context: ValidationContext):
     } else {
       valid = validateValue(value.value, `${path}.value`, context) && valid;
     }
+  } else if (kind === "location") {
+    valid = validateLocationSelector(value.value, `${path}.value`, context) && valid;
   } else if (kind === "object-property") {
     valid = validateObjectSelector(value.object, `${path}.object`, context) && valid;
     valid = validateString(value.property, `${path}.property`, context, "Expected a property name.") && valid;
@@ -190,8 +195,9 @@ function validateExpr(value: unknown, path: string, context: ValidationContext):
       valid = validateString(value.key, `${path}.key`, context, "Expected a linked value key.") && valid;
     }
     if (typeof value.instructionId === "string") {
-      context.instructionReferences.push({ id: value.instructionId, path: `${path}.instructionId` });
-      if (!context.priorInstructionIds.has(value.instructionId)) {
+      const instructionId = value.instructionId as string;
+      context.instructionReferences.push({ id: instructionId, path: `${path}.instructionId` });
+      if (!context.priorInstructionIds.has(instructionId)) {
         addIssue(context, `${path}.instructionId`, "linked-instruction-not-prior", "A linked value must reference a preceding instruction.");
         valid = false;
       }
@@ -245,6 +251,131 @@ function validateObjectSelector(value: unknown, path: string, context: Validatio
     return false;
   }
   return true;
+}
+
+const LOCATION_RELATIONS = new Set([
+  "ability-controller-base",
+  "controller-base",
+  "opponent-base",
+  "source-location",
+  "target-location",
+  "target-controller-base",
+  "target-owner-base"
+]);
+
+function validateLocationFilter(value: unknown, path: string, context: ValidationContext): boolean {
+  if (!isRecord(value)) {
+    addIssue(context, path, "invalid-location-filter", "Expected a location filter.");
+    return false;
+  }
+  let valid = true;
+  for (const [key, item] of Object.entries(value)) {
+    if (["type", "kind"].includes(key)) {
+      if (item !== "base" && item !== "battlefield" && item !== "any") {
+        addIssue(context, `${path}.${key}`, "invalid-location-kind", "Expected base, battlefield, or any.");
+        valid = false;
+      }
+    } else if (["occupied", "open", "controlled", "contested", "hasUnits"].includes(key)) {
+      if (typeof item !== "boolean") {
+        addIssue(context, `${path}.${key}`, "invalid-location-predicate", "Expected a boolean location predicate.");
+        valid = false;
+      }
+    } else if (["player", "owner", "controller"].includes(key)) {
+      if (item !== null && typeof item !== "string") {
+        addIssue(context, `${path}.${key}`, "invalid-location-player", "Expected a player id, relative player, or null.");
+        valid = false;
+      }
+    } else {
+      valid = validateValue(item, `${path}.${key}`, context) && valid;
+    }
+  }
+  return valid;
+}
+
+function validateLocationSelector(value: unknown, path: string, context: ValidationContext): value is LocationSelector {
+  if (typeof value === "string") {
+    if (!LOCATION_RELATIONS.has(value)) {
+      addIssue(context, path, "invalid-location-selector", "Expected a supported relative location selector.");
+      return false;
+    }
+    return true;
+  }
+  if (!isRecord(value)) {
+    addIssue(context, path, "invalid-location-selector", "Expected a LocationRef or relative location selector.");
+    return false;
+  }
+  if (value.type === "base") {
+    return validateString(value.player, `${path}.player`, context, "Expected a base player id.");
+  }
+  if (value.type === "battlefield") {
+    return validateString(value.id, `${path}.id`, context, "Expected a battlefield id.");
+  }
+  const kind = value.kind;
+  if (kind === "relative") {
+    let valid = typeof value.relation === "string" && LOCATION_RELATIONS.has(value.relation);
+    if (!valid) addIssue(context, `${path}.relation`, "invalid-location-relation", "Expected a supported relative location relation.");
+    const needsTarget = value.relation === "target-location" || value.relation === "target-controller-base" || value.relation === "target-owner-base";
+    if (needsTarget && value.target === undefined) {
+      addIssue(context, `${path}.target`, "missing-target", "A target-relative location requires a target id.");
+      valid = false;
+    }
+    if (value.target !== undefined) valid = validateString(value.target, `${path}.target`, context, "Expected a target id.", SYMBOL_PATTERN) && valid;
+    if (needsTarget && typeof value.target === "string" && !context.targetIds.has(value.target) && !context.locationIds.has(value.target)) {
+      addIssue(context, `${path}.target`, "unresolved-target", `No target specification named "${value.target}" exists in this ability.`);
+      valid = false;
+    }
+    return valid;
+  }
+  if (kind === "location-of" || kind === "location-selector") {
+    const object = kind === "location-of" ? value.object : value.locationOf;
+    return validateObjectSelector(object, `${path}.${kind === "location-of" ? "object" : "locationOf"}`, context);
+  }
+  if (kind === "target-location" || kind === "target-controller-base" || kind === "target-owner-base") {
+    let valid = validateString(value.target, `${path}.target`, context, "Expected a target id.", SYMBOL_PATTERN);
+    if (typeof value.target === "string" && !context.targetIds.has(value.target) && !context.locationIds.has(value.target)) {
+      addIssue(context, `${path}.target`, "unresolved-target", `No target specification named "${value.target}" exists in this ability.`);
+      valid = false;
+    }
+    return valid;
+  }
+  if (kind === "source-location") return true;
+  if (kind === "linked-location") {
+    let valid = validateString(value.instructionId, `${path}.instructionId`, context, "Expected a linked instruction id.", SYMBOL_PATTERN);
+    if (valid) {
+      const instructionId = value.instructionId as string;
+      context.instructionReferences.push({ id: instructionId, path: `${path}.instructionId` });
+      if (!context.priorInstructionIds.has(instructionId)) {
+        addIssue(context, `${path}.instructionId`, "linked-instruction-not-prior", "A linked location must reference a preceding instruction.");
+        valid = false;
+      }
+    }
+    if (value.key !== undefined) valid = validateString(value.key, `${path}.key`, context, "Expected a linked location key.", SYMBOL_PATTERN) && valid;
+    return valid;
+  }
+  if (kind === "choose") {
+    let valid = validateString(value.id, `${path}.id`, context, "Expected a location choice id.", SYMBOL_PATTERN);
+    if (value.options !== undefined) {
+      if (!Array.isArray(value.options) || value.options.length === 0) {
+        addIssue(context, `${path}.options`, "invalid-location-options", "Expected at least one location option.");
+        valid = false;
+      } else value.options.forEach((option, index) => { valid = validateLocationSelector(option, `${path}.options[${index}]`, context) && valid; });
+    }
+    if (value.filter !== undefined) valid = validateLocationFilter(value.filter, `${path}.filter`, context) && valid;
+    return valid;
+  }
+  addIssue(context, `${path}.kind`, "invalid-location-selector", "Expected a concrete or relative location selector.");
+  return false;
+}
+
+function validateLocationTarget(value: unknown, path: string, context: ValidationContext): value is LocationTargetSpec {
+  if (!isRecord(value)) {
+    addIssue(context, path, "invalid-location-target", "Expected a location target specification.");
+    return false;
+  }
+  let valid = validateString(value.id, `${path}.id`, context, "Expected a location target id.", SYMBOL_PATTERN);
+  valid = validateLocationFilter(value, path, context) && valid;
+  valid = validateSelectionBounds(value, path, context) && valid;
+  return valid;
 }
 
 function validateFilter(value: unknown, path: string, context: ValidationContext): value is ObjectFilter {
@@ -336,6 +467,17 @@ function validateTarget(value: unknown, path: string, context: ValidationContext
   }
   let valid = validateString(value.id, `${path}.id`, context, "Expected a target id.", SYMBOL_PATTERN);
   valid = validateFilter(value.filter, `${path}.filter`, context) && valid;
+  if (hasOwn(value, "location")) {
+    const locationPath = `${path}.location`;
+    if (isRecord(value.location) && typeof value.location.id === "string" && value.location.type === "battlefield") {
+      valid = validateLocationSelector(value.location, locationPath, context) && valid;
+    } else if (isRecord(value.location) && value.location.type === "base" &&
+      typeof value.location.player === "string" && !["controller", "opponent"].includes(value.location.player)) {
+      valid = validateLocationSelector(value.location, locationPath, context) && valid;
+    } else {
+      valid = validateLocationFilter(value.location, locationPath, context) && valid;
+    }
+  }
   valid = validateSelectionBounds(value, path, context) && valid;
   return valid;
 }
@@ -413,7 +555,7 @@ function validateTaggedRuleObject(
   let valid = validateString(value.kind, `${path}.kind`, context, `Expected a ${label} kind.`, SYMBOL_PATTERN);
   if (hasOwn(value, "filter")) valid = validateFilter(value.filter, `${path}.filter`, context) && valid;
   for (const [key, item] of Object.entries(value)) {
-    if (isRecord(item) && ["constant", "literal", "object-property", "object-attribute", "linked", "linked-value", "count", "arithmetic"].includes(String(item.kind))) {
+    if (isRecord(item) && ["constant", "literal", "location", "object-property", "object-attribute", "linked", "linked-value", "count", "arithmetic"].includes(String(item.kind))) {
       valid = validateExpr(item, `${path}.${key}`, context) && valid;
     }
   }
@@ -524,6 +666,25 @@ function validateInstruction(
             valid = false;
           }
           ids.add(pick.id);
+        }
+      });
+    }
+  }
+  if (hasOwn(value, "locations")) {
+    if (!Array.isArray(value.locations)) {
+      addIssue(context, `${path}.locations`, "invalid-location-list", "Expected a location target specification list.");
+      valid = false;
+    } else {
+      const ids = new Set<string>();
+      value.locations.forEach((location, index) => {
+        valid = validateLocationTarget(location, `${path}.locations[${index}]`, context) && valid;
+        if (isRecord(location) && typeof location.id === "string") {
+          if (ids.has(location.id)) {
+            addIssue(context, `${path}.locations[${index}].id`, "duplicate-selection-id", `Selection id "${location.id}" is duplicated.`);
+            valid = false;
+          }
+          ids.add(location.id);
+          context.locationIds.add(location.id);
         }
       });
     }
@@ -701,12 +862,14 @@ function collectSelections(value: unknown, context: ValidationContext, seen = ne
   if (Array.isArray(value)) {
     value.forEach(item => collectSelections(item, context, seen));
   } else if (isRecord(value)) {
-    for (const key of typeof value.op === "string" ? ["targets", "picks"] : []) {
+    for (const key of typeof value.op === "string" ? ["targets", "picks", "locations"] : []) {
       const selections = value[key];
       if (Array.isArray(selections)) {
         for (const spec of selections) {
           if (isRecord(spec) && typeof spec.id === "string") {
-            (key === "targets" ? context.targetIds : context.pickIds).add(spec.id);
+            if (key === "targets") context.targetIds.add(spec.id);
+            else if (key === "picks") context.pickIds.add(spec.id);
+            else context.locationIds.add(spec.id);
           }
         }
       }
@@ -761,7 +924,8 @@ export function validateCardProgram(input: unknown): CardProgramValidationResult
     activeObjects: new WeakSet<object>(),
     priorInstructionIds: new Set<string>(),
     targetIds: new Set<string>(),
-    pickIds: new Set<string>()
+    pickIds: new Set<string>(),
+    locationIds: new Set<string>()
   };
   rejectRuntimeRefs(input, "$", context);
 
@@ -798,7 +962,8 @@ export function validateCardProgram(input: unknown): CardProgramValidationResult
     input.abilities.forEach((ability, index) => {
       const abilityContext: ValidationContext = {
         ...context, instructionIds: new Set(), scopeInstructionIds: new Set(),
-        instructionReferences: [], priorInstructionIds: new Set(), targetIds: new Set(), pickIds: new Set()
+        instructionReferences: [], priorInstructionIds: new Set(), targetIds: new Set(), pickIds: new Set(),
+        locationIds: new Set()
       };
       collectSelections(ability, abilityContext);
       validateAbility(ability, `$.abilities[${index}]`, abilityContext);

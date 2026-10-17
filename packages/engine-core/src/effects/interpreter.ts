@@ -2,6 +2,8 @@ import type {
   Condition, Expr, GameAction, GameEvent, Instruction, InstructionDef, InstructionResult,
   LegacyBoardTokenAction, ObjectRef, ResolveContext, Value
 } from "./contract.js";
+import type { LocationRef, PlayerId } from "./contract.js";
+import type { LocationFilter, LocationSelector } from "@riftbound/card-dsl";
 import { instructionDefinitionsById } from "./instructions/registry.generated.js";
 import { choiceMetadata, modeBodies, modeChoices, optionalChoice, orderedObjects } from "./interpreter/choice.js";
 import { evaluateCondition } from "./interpreter/condition.js";
@@ -9,6 +11,8 @@ import { evaluateExpression, type ExpressionContext } from "./interpreter/expr.j
 import { historyCount, objectRef } from "./interpreter/history.js";
 import { queryObjects } from "./interpreter/selectors.js";
 import { arithmetic, asValue, compareValues, integer, MissingInformation, record, string } from "./interpreter/values.js";
+import { chooseLocations, normalizeMoveArguments } from "./interpreter/locations.js";
+import { isLegalLocation, resolveLocationSelector, sameLocation } from "../target/location/index.js";
 
 export type InstructionRegistry = ReadonlyMap<string, InstructionDef<unknown>>;
 
@@ -38,10 +42,11 @@ interface Scope {
   readonly aliases: Map<string, Value>;
   readonly ignoredTargets: Map<string, ReadonlySet<string>>;
   readonly targets: Map<string, ObjectRef[]>;
+  readonly locations: Map<string, LocationRef[]>;
 }
 
 function scope(parent?: Scope): Scope {
-  return { parent, results: new Map(), values: new Map(), aliases: new Map(), ignoredTargets: new Map(), targets: new Map() };
+  return { parent, results: new Map(), values: new Map(), aliases: new Map(), ignoredTargets: new Map(), targets: new Map(), locations: new Map() };
 }
 
 function findScope(current: Scope, id: string): Scope | undefined {
@@ -54,6 +59,38 @@ function pathId(path: readonly string[]): string {
 }
 
 function refKey(ref: ObjectRef): string { return JSON.stringify([ref.id, ref.zoneEntryId]); }
+
+function isLocationSelector(value: unknown): value is LocationSelector {
+  if (typeof value === "string") return true;
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  if (record.type === "base") return typeof record.player === "string" && !["controller", "opponent"].includes(String(record.player));
+  if (record.type === "battlefield") return typeof record.id === "string";
+  return [
+    "relative", "location-of", "location-selector", "target-location",
+    "target-controller-base", "target-owner-base", "source-location",
+    "linked-location", "choose"
+  ].includes(String(record.kind));
+}
+
+function locationsFor(current: Scope, local: ReadonlyMap<string, LocationRef[]>, id: string): readonly LocationRef[] {
+  const selected = local.get(id);
+  if (selected) return selected;
+  for (let owner: Scope | undefined = current; owner; owner = owner.parent) {
+    const scoped = owner.locations.get(id);
+    if (scoped) return scoped;
+  }
+  return [];
+}
+
+function knownPlayers(context: ResolveContext): readonly PlayerId[] {
+  const ids = new Set<PlayerId>([context.controller]);
+  for (const object of context.query({})) {
+    ids.add(object.owner);
+    ids.add(object.controller);
+  }
+  return [...ids];
+}
 
 function readBody(value: unknown): readonly Instruction[] {
   if (!Array.isArray(value)) throw new Error("Instruction body must be an array");
@@ -113,7 +150,12 @@ class AbilityExecution {
     return results;
   }
 
-  private expressionContext(current: Scope, ignoredTargets: ReadonlySet<string>, context = this.context): ExpressionContext {
+  private expressionContext(
+    current: Scope,
+    ignoredTargets: ReadonlySet<string>,
+    context = this.context,
+    localLocations?: ReadonlyMap<string, LocationRef[]>
+  ): ExpressionContext {
     return {
       context,
       ...this.options,
@@ -127,7 +169,16 @@ class AbilityExecution {
         return this.context.linked(key === undefined ? id : `${id}.${key}`);
       },
       canLookBack: ref => this.lookBack.has(refKey(ref)),
-      isIgnored: ref => ignoredTargets.has(refKey(ref))
+      isIgnored: ref => ignoredTargets.has(refKey(ref)),
+      locations: id => {
+        const local = localLocations?.get(id);
+        if (local) return local;
+        for (let owner: Scope | undefined = current; owner; owner = owner.parent) {
+          const selected = owner.locations.get(id);
+          if (selected) return selected;
+        }
+        return [];
+      }
     };
   }
 
@@ -137,8 +188,9 @@ class AbilityExecution {
   ): InstructionResult {
     const writes: Record<string, Value> = Object.create(null) as Record<string, Value>;
     const targets = new Map<string, ObjectRef[]>();
+    const locations = new Map<string, LocationRef[]>();
     const ignoredTargets = new Set(inheritedIgnoredTargets);
-    const context = this.instructionContext(path, current, writes, targets, ignoredTargets);
+    const context = this.instructionContext(path, current, writes, targets, locations, ignoredTargets);
     let result: InstructionResult;
     try {
       const previous = instruction.linkedTo === undefined ? undefined : findScope(current, instruction.linkedTo);
@@ -150,13 +202,15 @@ class AbilityExecution {
       }
       if (instruction.linkedTo !== undefined && previous?.results.get(instruction.linkedTo)?.status === "ignored") {
         result = { status: "ignored", reason: "linked-ignored" };
-      } else if (!this.prepareTargets(instruction, context, targets, ignoredTargets, reselect)) {
+      } else if (!this.prepareLocations(instruction, context, current, locations)) {
+        result = { status: "ignored", reason: "mistargeted" };
+      } else if (!this.prepareTargets(instruction, context, current, targets, locations, ignoredTargets, reselect)) {
         result = { status: "ignored", reason: "mistargeted" };
       } else if (instruction.condition && !context.test(instruction.condition)) {
         result = skipped();
       } else {
         const args = Object.fromEntries(Object.entries(instruction.args).map(([key, expression]) => [key, context.evaluate(expression)]));
-        result = this.dispatch(instruction, args, context, path, current, reselect, ignoredTargets);
+        result = this.dispatch(instruction, args, context, path, current, locations, reselect, ignoredTargets);
       }
     } catch (error) {
       if (!(error instanceof MissingInformation)) throw error;
@@ -168,6 +222,7 @@ class AbilityExecution {
       this.partial = true;
     }
     for (const [id, refs] of targets) current.targets.set(id, refs);
+    for (const [id, refs] of locations) current.locations.set(id, refs);
     current.results.set(instruction.id, result);
     current.ignoredTargets.set(instruction.id, ignoredTargets);
     if (Object.keys(writes).length > 0) current.values.set(instruction.id, { ...writes });
@@ -177,7 +232,8 @@ class AbilityExecution {
 
   private instructionContext(
     path: readonly string[], current: Scope,
-    writes: Record<string, Value>, targets: Map<string, ObjectRef[]>, ignoredTargets: ReadonlySet<string>
+    writes: Record<string, Value>, targets: Map<string, ObjectRef[]>, locations: Map<string, LocationRef[]>,
+    ignoredTargets: ReadonlySet<string>
   ): ResolveContext {
     const base = this.context;
     const context: ResolveContext = {
@@ -186,17 +242,19 @@ class AbilityExecution {
       timingPoint: base.timingPoint,
       object: ref => base.object(ref),
       lastKnown: ref => base.lastKnown(ref),
-      query: filter => queryObjects(filter, this.expressionContext(current, ignoredTargets, context)),
+      query: filter => queryObjects(filter, this.expressionContext(current, ignoredTargets, context, locations)),
       zoneSlice: (player, zone, from, count) => base.zoneSlice(player, zone, from, count),
       targets: id => {
         let refs = targets.get(id);
         for (let owner: Scope | undefined = current; refs === undefined && owner; owner = owner.parent) refs = owner.targets.get(id);
         return [...(refs ?? base.targets(id))].filter(ref => !ignoredTargets.has(refKey(ref)));
       },
+      // Location selections are interpreter-local bindings; the frozen ResolveContext
+      // contract remains object-target based.
       picks: id => base.picks(id),
       player: id => base.player(id),
-      evaluate: expr => evaluateExpression(expr, this.expressionContext(current, ignoredTargets, context)),
-      test: condition => evaluateCondition(condition, this.expressionContext(current, ignoredTargets, context)),
+      evaluate: expr => evaluateExpression(expr, this.expressionContext(current, ignoredTargets, context, locations)),
+      test: condition => evaluateCondition(condition, this.expressionContext(current, ignoredTargets, context, locations)),
       linked: key => {
         if (Object.hasOwn(writes, key)) return writes[key];
         for (let owner: Scope | undefined = current; owner; owner = owner.parent) {
@@ -237,11 +295,67 @@ class AbilityExecution {
     return result;
   }
 
+  private prepareLocations(
+    instruction: Instruction,
+    context: ResolveContext,
+    current: Scope,
+    locations: Map<string, LocationRef[]>
+  ): boolean {
+    const specs = instruction.locations ?? [];
+    if (specs.length === 0) return true;
+    try {
+      const bindings = chooseLocations(context, specs, {
+        host: this.options.host,
+        players: knownPlayers(context),
+        opponent: knownPlayers(context).find(player => player !== context.controller),
+        linked: id => context.linked(id),
+        locationBindings: id => {
+          for (let owner: Scope | undefined = current; owner; owner = owner.parent) {
+            const selected = owner.locations.get(id);
+            if (selected) return selected;
+          }
+          return [];
+        }
+      });
+      for (const binding of bindings) locations.set(binding.id, [...binding.selected]);
+      return true;
+    } catch (error) {
+      if (error instanceof MissingInformation) return false;
+      throw error;
+    }
+  }
+
   private prepareTargets(
-    instruction: Instruction, context: ResolveContext, targets: Map<string, ObjectRef[]>, ignoredTargets: Set<string>, reselect: boolean
+    instruction: Instruction, context: ResolveContext, current: Scope,
+    targets: Map<string, ObjectRef[]>, locations: Map<string, LocationRef[]>, ignoredTargets: Set<string>, reselect: boolean
   ): boolean {
     for (const spec of instruction.targets ?? []) {
-      const options = context.query(spec.filter).map(object => object.ref).filter(ref => !ignoredTargets.has(refKey(ref)));
+      let resolvedLocation: LocationRef | null = null;
+      let locationResolutionFailed = false;
+      const locationRequirement = spec.location;
+      const symbolicLocation = isLocationSelector(locationRequirement);
+      if (symbolicLocation) {
+        try {
+          resolvedLocation = resolveLocationSelector(locationRequirement, {
+            context,
+            host: this.options.host,
+            locationBindings: id => locationsFor(current, locations, id)
+          });
+        } catch {
+          locationResolutionFailed = true;
+        }
+      }
+      const options = context.query(spec.filter).map(object => object.ref).filter(ref => {
+        if (ignoredTargets.has(refKey(ref))) return false;
+        const snapshot = context.object(ref);
+        if (!snapshot || locationRequirement === undefined) return true;
+        if (locationRequirement === null) return snapshot.location === null;
+        if (locationResolutionFailed) return false;
+        if (resolvedLocation !== null) return sameLocation(snapshot.location, resolvedLocation);
+        return isLegalLocation(context, snapshot.location!, locationRequirement as LocationFilter, {
+          players: knownPlayers(context)
+        });
+      });
       const valid = new Set(options.map(refKey));
       const min = integer(spec.min ?? (spec.selection === "up-to" || spec.selection === "any" || spec.selection === "all" ? 0 : 1), "Target minimum");
       let selected: ObjectRef[];
@@ -284,7 +398,7 @@ class AbilityExecution {
 
   private dispatch(
     instruction: Instruction, args: Readonly<Record<string, Value>>, context: ResolveContext,
-    path: readonly string[], current: Scope, reselect: boolean, ignoredTargets: Set<string>
+    path: readonly string[], current: Scope, locations: Map<string, LocationRef[]>, reselect: boolean, ignoredTargets: Set<string>
   ): InstructionResult {
     const start = this.events.length;
     switch (instruction.op) {
@@ -355,7 +469,16 @@ class AbilityExecution {
       default: {
         const definition = this.registry.get(instruction.op);
         if (!definition || definition.op !== instruction.op) throw new Error(`Unregistered instruction opcode: ${instruction.op}`);
-        const result = definition.execute(context, definition.argsSchema.parse(args));
+        const parsedArgs = instruction.op === "effect.move"
+          ? normalizeMoveArguments(args, context, {
+            host: this.options.host,
+            players: knownPlayers(context),
+            opponent: knownPlayers(context).find(player => player !== context.controller),
+            linked: (id, key) => context.linked(key === undefined ? id : `${id}.${key}`),
+            locationBindings: id => locationsFor(current, locations, id)
+          })
+          : args;
+        const result = definition.execute(context, definition.argsSchema.parse(parsedArgs));
         if (result.status !== "ignored") this.events.push(...result.events);
         return result;
       }

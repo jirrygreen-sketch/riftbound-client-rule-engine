@@ -8,8 +8,10 @@ import type {
   ResolveContext,
   Value
 } from "../effects/contract.js";
+import type { LocationFilter, LocationSelector } from "@riftbound/card-dsl";
 import { restrictions as ruleRestrictions } from "../layers/rules/query.js";
 import type { ContinuousEffectRegistry } from "../layers/duration.js";
+import { isLegalLocation, resolveLocationSelector, sameLocation } from "./location/index.js";
 
 export type TargetSelectionMode = "one" | "any" | "all" | "up-to";
 export type TargetPlanPhase = "finalize" | "resolve";
@@ -22,7 +24,7 @@ export interface TargetRequirement {
   readonly selection?: TargetSelectionMode;
   readonly kind?: "object" | "group";
   readonly group?: boolean;
-  readonly location?: LocationRef | null;
+  readonly location?: LocationRef | LocationFilter | LocationSelector | null;
 }
 
 export interface TargetPlan {
@@ -204,16 +206,41 @@ export function targetBounds(requirement: TargetRequirement, availableCount: num
   return Object.freeze({ min, max: Math.min(max, available) });
 }
 
-function sameLocation(left: LocationRef | null, right: LocationRef | null): boolean {
-  if (left === null || right === null) return left === right;
-  if (left.type !== right.type) return false;
-  if (left.type === "base" && right.type === "base") return left.player === right.player;
-  if (left.type === "battlefield" && right.type === "battlefield") return left.id === right.id;
-  return false;
+function isLocationSelectorValue(value: unknown): value is LocationSelector {
+  if (typeof value === "string") return true;
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  if (record.type === "base") return typeof record.player === "string" && !["controller", "opponent"].includes(String(record.player));
+  if (record.type === "battlefield") return typeof record.id === "string";
+  return [
+    "relative", "location-of", "location-selector", "target-location",
+    "target-controller-base", "target-owner-base", "source-location",
+    "linked-location", "choose"
+  ].includes(String(record.kind));
 }
 
-function matchesRequirement(snapshot: ObjectSnapshot, requirement: TargetRequirement): boolean {
-  return requirement.location === undefined || sameLocation(snapshot.location, requirement.location);
+function knownPlayers(context: ResolveContext): readonly PlayerId[] {
+  const ids = new Set<PlayerId>([context.controller]);
+  for (const object of context.query({})) {
+    ids.add(object.owner);
+    ids.add(object.controller);
+  }
+  return [...ids];
+}
+
+function matchesRequirement(context: ResolveContext, snapshot: ObjectSnapshot, requirement: TargetRequirement): boolean {
+  if (requirement.location === undefined) return true;
+  const location = requirement.location;
+  if (location === null) return snapshot.location === null;
+  if (snapshot.location === null) return false;
+  if (isLocationSelectorValue(location)) {
+    try {
+      return sameLocation(snapshot.location, resolveLocationSelector(location, { context }));
+    } catch {
+      return false;
+    }
+  }
+  return isLegalLocation(context, snapshot.location, location as LocationFilter, { players: knownPlayers(context) });
 }
 
 function defaultPending(ref: ObjectRef, snapshot: ObjectSnapshot): boolean {
@@ -234,7 +261,7 @@ function legalCandidates(
     const key = refKey(ref);
     if (seen.has(key)) continue;
     const current = context.object(ref);
-    if (current === null || !matchesRequirement(current, requirement)) continue;
+    if (current === null || !matchesRequirement(context, current, requirement)) continue;
     if (pending(ref, current, phase)) continue;
     if (options.isLegal && !options.isLegal(current, phase)) continue;
     if (options.ruleRegistry !== undefined && (
