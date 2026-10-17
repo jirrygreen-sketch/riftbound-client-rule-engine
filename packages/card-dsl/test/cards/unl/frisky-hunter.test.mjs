@@ -128,7 +128,3 @@ test.todo(
     "(CR 809.1.c.1) — target/ implements the Deflect tax, but no caller derives it from the " +
     "target's keywords yet (RIFT-90 follow-up)"
 );
-test.todo(
-  "unl-033-219 Frisky Hunter: fire the card-played trigger from the real chain flow (CR 420.4.a) — " +
-    "depends on RIFT-120 chain/event integration"
-);
