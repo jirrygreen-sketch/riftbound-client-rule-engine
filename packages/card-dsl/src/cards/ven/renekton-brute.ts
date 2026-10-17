@@ -17,13 +17,14 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   activated + CostSpec 记录（同 ven/heart-of-the-tempest 一类写法）。415.4 要求费用必须能
  *   完成才能支付，费用校验属 Finalize / 费用管线（RIFT-89）。
  * - “give me +1 :rb_might: this turn”：带回合期限的临时 Might 修正（479.4.e.1 的算术层增加；
- *   到期在回合结束清理，315.4 / 317.2.c）。effect.buff 文件头明确临时 Might 修改归 layers 的
- *   continuous.might，不是 Buff 计数器（702/703），因此不写成 Buff。
+ *   到期在回合结束清理，315.4 / 317.2.c）。已合入的 continuous.might 指令（RIFT-258）通过
+ *   appliesTo "self" 把算术层 +1 注册到能力来源上，不写成 Buff 计数（702/703）。
  * - “When my Might becomes 10 or more”：Might 变化事件的观察时点 "might-changed"
  *   （events/timing-points.ts，ruleRefs 143.2/708/709；载荷带 previousMight/currentMight）。
  *   709 定义 “become” 的转换语义（从低于阈值变为不低于），因此完整条件是
  *   previousMight < 10 ≤ currentMight；EventPattern 的 details 只接受标量、数值匹配器
- *   （NumericMatcher）只作用于 event.amount，转换的两个边都写不出来（见 judgeReason 第 2 条）。
+ *   （NumericMatcher）只作用于 event.amount，且 might-changed 的 producer 未接入管线，
+ *   转换的两个边都写不出来（见 judgeReason 第 1 条）。
  * - 442.1 / 827.1.b.1：“empower me” 把能力来源自身变为 Empowered；442.1.c 说明已 Empowered
  *   时什么也不发生；已合入的 effect.empower 支持 { kind: "source" } 选择。
  * - 828.1.a / 828.1.b.1：[Empowered][>] 是 Dependent Keyword，整段是“只要我拥有 Empowered
@@ -31,7 +32,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 809 / 810：[Deflect] 与 [Ganking] 是只声明身份的关键词（展开归 effects/keywords/）。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required（缺口见 judgeReason）。
- * golden 用真实解释器 + 参考内核执行已合入的 “empower me”（effect.empower），其余依赖写 test.todo。
+ * golden 用真实解释器 + 参考内核执行已合入的 “empower me”（effect.empower）与
+ * “+1 Might this turn”（continuous.might + appliesTo self），其余依赖写 test.todo。
  */
 const abilities: Ability[] = [
   {
@@ -46,15 +48,13 @@ const abilities: Ability[] = [
     body: [
       {
         id: "renekton.give-plus-1-might",
-        // 「give me +1 :rb_might: this turn」：临时 Might 修正的 IR 形状；
-        // effects/instructions/ 下没有注册该 op（见 judgeReason 第 1 条）。
-        op: "effect.might-modify",
+        // 「give me +1 :rb_might: this turn」：带回合期限的临时 Might 修正；“me” 是能力宿主
+        //（355.10.d：按特征自我指代不是目标），由已合入 continuous.might 的 appliesTo "self" 表达。
+        op: "continuous.might",
         args: {
           amount: { kind: "constant", value: 1 },
           duration: { kind: "constant", value: "this-turn" },
-          // “me” 是能力宿主：355.10.d/g 的按特征自我指代不是目标，用契约 3.6 的
-          // 符号选择器 source（能力来源），不写 TargetSpec。
-          object: { kind: "constant", value: { kind: "source" } }
+          appliesTo: { kind: "constant", value: "self" }
         }
       }
     ]
@@ -119,18 +119,16 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处缺口：(1) “give me +1 :rb_might: this turn” 是带 end-of-turn 期限的临时 Might 修正（479.4.e.1，" +
-    "到期在 315.4 / 317.2.c 的回合结束清理），但 effects/instructions/ 下没有注册的 Might 修正原语（契约 3.6 的" +
-    "封闭 GameAction 集合没有 Might 修改动作；RIFT-91 只合入 layers 引擎与 duration，卡牌入口缺失），" +
-    "effect.buff 只处理 702/703 的 Buff 计数器，不能近似；(2) “When my Might becomes 10 or more” 的转换语义" +
-    "（709：previousMight < 10 ≤ currentMight）无法完整表达——might-changed 载荷带两个数值，但 EventPattern 的 " +
-    "details 只接受标量、数值匹配器只作用于 event.amount，程序以 { source: \"self\" } 锚点 + 当前 Might ≥ 10 的 condition 记录" +
-    "（依赖 RIFT-87/120 的载荷匹配扩展），下降至 10 以上的情况会多触发，故不标 executable；(3) 没有 Empowered 状态" +
-    "谓词（442.1.a 的二元状态不在 ObjectSnapshot / Condition 里），[Empowered][>] 依赖能力（828.1.b.1）的门槛" +
-    "不可求值，empoweredCount 只是描述性记录；(4) “I have [Deflect] and [Ganking]” 需要卡牌侧的 continuous.grant-keyword" +
-    "（effects/instructions 无该 op）与关键词展开消费方（Deflect 的 target.tax 属 RIFT-90；Ganking 的 continuous.movement" +
-    "许可无消费方；RIFT-91）。已支持部分：effect.empower（“empower me”，442.1）由 golden 用真实解释器 + 参考内核执行。" +
-    "依赖：RIFT-89（费用/启动接线）、RIFT-87、RIFT-90、RIFT-91、RIFT-120。不近似实现。",
+    "三处缺口：(1) “When my Might becomes 10 or more” 的转换语义（709：previousMight < 10 ≤ currentMight）无法完整表达——" +
+    "might-changed 的载荷带两个数值，但 EventPattern 的 details 只接受标量、数值匹配器只作用于 event.amount，且 might-changed " +
+    "的 producer（events/producers/might-change.ts）没有管线接线；程序以 { source: \"self\" } 锚点 + 当前 Might ≥ 10 的 condition 记录" +
+    "（依赖 RIFT-87/120 的载荷匹配扩展），从 10 以下降回 10 以上会多触发，故不标 executable；(2) 没有 Empowered 状态谓词" +
+    "（442.1.a 的二元状态不在 ObjectSnapshot / Condition 里，快照无 empowered 字段），[Empowered][>] 依赖能力（828.1.b.1）的门槛" +
+    "不可求值，empoweredCount 只是描述性记录；(3) Deflect/Ganking 的关键词语义没有运行时消费方（Deflect 的 target.tax 属 RIFT-360；" +
+    "Ganking 的 continuous.movement 移动系统不读该关键词；continuous.grant-keyword 指令与 static 绑定已合入，缺的是下游消费）。" +
+    "已支持部分：effect.empower（“empower me”，442.1）与 continuous.might（“+1 Might this turn”，479.4.e.1/317.2.c，" +
+    "appliesTo self）由 golden 用真实解释器 + 参考内核执行。依赖：RIFT-89（费用/启动接线）、RIFT-87、RIFT-120、" +
+    "RIFT-360（Deflect 目标税）。不近似实现。",
   abilities,
   sourceText:
     ":rb_energy_1:: Give me +1 :rb_might: this turn.\n" +

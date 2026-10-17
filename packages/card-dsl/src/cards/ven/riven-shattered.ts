@@ -31,22 +31,22 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   combat: false 区分（本条是效果伤害，不是 467 的战斗伤害）。
  *
  * status = judge-required（缺口均不近似实现）：
- * 1. [Weaponmaster] 的展开文件（effects/keywords/Weaponmaster.ts）虽然已合入，但它自己的
- *    文件头就声明 judge-required：它引用 cost.modify / cost.pay 原语（effects/instructions
- *    下没有这两个文件），并需要打出效果的目标层绑定符号 controller 过滤；它的 PR 说明
- *    “The merged sequence/TargetSpec/count primitives guard the body when no Equipment is
- *    selected”，但费用计算与支付没有消费方。
+ * 1. [Weaponmaster] 的展开文件（effects/keywords/Weaponmaster.ts）虽然已合入，但其引用的
+ *    cost.modify / cost.pay 原语在 821.1.c.2 的 Equip 费用语义上没有消费方：
+ *    cost.modify 的 reduce-equip-cost 分支会按“821.1.c.2 缺权威 Equip 费用绑定”设计性抛出，
+ *    费用计算与支付不会执行。
  * 2. attack-declared 时点没有发射方：combat/ 不把 Attacker 指定接入事件管线（全仓库没有
  *    attack-declared 的 emit 调用，同 sfd/azir-sovereign、sfd/lucian-gunslinger 的记录），
  *    也没有已合入订阅方把 CardProgram 的 triggered ability 注册成 TriggerRegistration
  *    （RIFT-120 的链/事件单管线接线）。
- * 依赖：RIFT-89（cost.modify / cost.pay 费用计划接线）、RIFT-120/战斗触发发射与卡牌触发注册。
+ * 依赖：权威 Equip 费用绑定与 reduce-equip-cost 消费方、战斗触发发射与卡牌触发注册。
  * 已合入的 effect.damage 与 count + attachedTo 锚点在 golden 中用真实目标与真实附着关系执行，
  * 不手改 frame / attachedTo。
  */
 const abilities: Ability[] = [
   // 821.1.c：Weaponmaster 只声明关键词身份；减费、目标选择与附着序列归已合入的
-  // effects/keywords/Weaponmaster.ts 展开（其自身仍记录 cost.modify/cost.pay 缺口）。
+  // effects/keywords/Weaponmaster.ts 展开（cost.modify/cost.pay 已合入，但 reduce-equip-cost
+  // 因 821.1.c.2 缺权威 Equip 费用绑定而抛出）。
   { kind: "keyword", keyword: "weaponmaster" },
   {
     kind: "triggered",
@@ -112,12 +112,12 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1) [Weaponmaster] 的展开文件（effects/keywords/Weaponmaster.ts）虽已合入，但其文件头声明 judge-required：" +
-    "它引用 cost.modify 与 cost.pay 原语（effects/instructions 下没有这两个文件），需要打出效果的目标层绑定符号 controller 过滤，" +
-    "并按 821.1.c.2/821.1.c.2.a 计算所选 Equipment 的 Equip 费用（少 1 点任意域 Power）后附着——费用计算与支付没有消费方（RIFT-89）；" +
+    "两处缺口，均不近似实现：(1) [Weaponmaster] 的展开文件（effects/keywords/Weaponmaster.ts）虽已合入，" +
+    "cost.modify 与 cost.pay 原语也已合入，但 reduce-equip-cost 分支按 821.1.c.2 缺权威 Equip 费用绑定而设计性抛出，" +
+    "费用计算与支付不会执行；" +
     "(2) attack-declared 时点（323.2 / 383.4.e / 466.2.c）没有发射方：combat/ 不把 Attacker 指定接入事件管线（全仓库没有 attack-declared " +
-    "的 emit 调用），也没有已合入订阅方把 CardProgram 的 triggered ability 注册成 TriggerRegistration（RIFT-120）。" +
-    "依赖 RIFT-89（cost.modify / cost.pay 费用计划接线）与 RIFT-120（战斗触发发射与卡牌触发注册）。" +
+    "的 emit 调用），也没有已合入订阅方把 CardProgram 的 triggered ability 注册成 TriggerRegistration。" +
+    "依赖权威 Equip 费用绑定（reduce-equip-cost 消费方）与战斗触发发射/卡牌触发注册。" +
     "「choose an enemy unit here」按 355.9.b 声明为被选目标（sameLocationAs: \"self\" 的 053.3 here 锚点），" +
     "「Deal 2 to it for each Equipment attached to me」用 count + attachedTo 锚点在结算时读取附着数量（418.1）；" +
     "effect.damage 本体已合入，golden 用真实目标与真实附着关系执行。",

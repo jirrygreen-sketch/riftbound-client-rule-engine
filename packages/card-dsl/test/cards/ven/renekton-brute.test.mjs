@@ -50,11 +50,12 @@ test("ven-092-166 Renekton: identity, ruleset, status, judgeReason and verbatim 
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
-  assert.match(program.judgeReason, /might-modify|Might 修正/);
+  assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /might-changed/);
   assert.match(program.judgeReason, /RIFT-87/);
-  assert.match(program.judgeReason, /RIFT-90/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-360/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-91/);
+  assert.doesNotMatch(program.judgeReason, /没有注册的 Might 修正原语/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -67,15 +68,12 @@ test("ven-092-166 Renekton: '1 Energy: give me +1 Might this turn' is an action-
   assert.deepEqual(activated.cost, { kind: "activated", energy: { kind: "constant", value: 1 } });
   assert.equal(activated.body.length, 1);
   assert.equal(mightModify.id, "renekton.give-plus-1-might");
-  // 479.4.e.1 的临时 Might 修正形状；该 op 未注册（见 judgeReason 第 1 条）。
-  assert.equal(mightModify.op, "effect.might-modify");
+  // 479.4.e.1 的临时 Might 修正形状；continuous.might 已合入（RIFT-258）。
+  assert.equal(mightModify.op, "continuous.might");
   assert.deepEqual(mightModify.args.amount, { kind: "constant", value: 1 });
   assert.deepEqual(mightModify.args.duration, { kind: "constant", value: "this-turn" });
-  // “me” 是能力宿主：用契约 3.6 的符号选择器而不是 TargetSpec（355.10.d/g）。
-  assert.deepEqual(mightModify.args.object, {
-    kind: "constant",
-    value: { kind: "source" }
-  });
+  // “me” 是能力宿主：355.10.d/g 的按特征自我指代不是目标，由 appliesTo "self" 表达。
+  assert.deepEqual(mightModify.args.appliesTo, { kind: "constant", value: "self" });
   assert.equal(mightModify.targets, undefined);
   assert.equal(mightModify.picks, undefined);
 });
@@ -153,19 +151,32 @@ test("ven-092-166: [Empowered][>] grants Deflect and Ganking behind the descript
   assert.deepEqual(keywordGrant.condition.right, { kind: "constant", value: 1 });
 });
 
-test.todo(
-  "ven-092-166 Renekton: 'give me +1 :rb_might: this turn' needs a registered temporary Might modification " +
-    "(479.4.e.1 with the 315.4 / 317.2.c end-of-turn expiry) — the closed GameAction set has no Might-modification " +
-    "action and no continuous.might instruction exists (RIFT-91)"
-);
+test("ven-092-166 golden: 'give me +1 Might this turn' registers an arithmetic-layer boost on the source", () => {
+  const kernel = renektonWorld();
+  const outcome = runAbilityBody(activated.body, kernel);
 
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(
+    outcome.results.map((entry) => [entry.id, entry.result.status]),
+    [["renekton.give-plus-1-might", "executed"]]
+  );
+  // 479.4.e.1：一条算术层注册，来源为本卡，回合结束到期（315.4 / 317.2.c）。
+  assert.equal(kernel.continuousEffects.length, 1);
+  const [registration] = kernel.continuousEffects;
+  assert.equal(registration.effect.layer, "arithmetic");
+  assert.equal(registration.effect.effect.kind, "continuous.might");
+  assert.equal(registration.effect.effect.amount, 1);
+  assert.deepEqual(registration.effect.filter.objectId, "renekton");
+  assert.deepEqual(registration.duration, { type: "end-of-turn" });
+});
 test.todo(
   "ven-092-166 Renekton: the 'becomes 10 or more' transition (709 previousMight < 10 <= currentMight) needs the " +
-    "might-changed payload exposed to trigger matching — EventPattern.details only accepts scalars and NumericMatcher " +
-    "only matches event.amount (RIFT-87/RIFT-120)"
+    "might-changed payload exposed to trigger matching — EventPattern.details only accepts scalars, NumericMatcher " +
+    "only matches event.amount, and the might-changed producer is not wired into the pipeline (RIFT-87/RIFT-120)"
 );
 
 test.todo(
   "ven-092-166 Renekton: the [Empowered][>] grant of [Deflect] and [Ganking] needs an Empowered predicate (442.1.a, " +
-    "RIFT-87) plus keyword consumers — Deflect's target tax (RIFT-90) and Ganking's continuous.movement permission (RIFT-91)"
+    "RIFT-87) plus keyword consumers — Deflect's target tax (RIFT-360) and Ganking's movement permission, which the " +
+    "movement system leaves unread (continuous.grant-keyword itself is merged)"
 );

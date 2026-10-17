@@ -49,6 +49,10 @@ test("ven-152-166 Rebuttal: judgeReason names the printed-cost predicate, the pa
   assert.match(program.judgeReason, /163\.2\.b/);
   assert.match(program.judgeReason, /750-755/);
   assert.match(program.judgeReason, /753\.2/);
+  assert.match(program.judgeReason, /cost\.pay 原语虽已注册/);
+  assert.match(program.judgeReason, /Condition 回执谓词/);
+  // RIFT-90 is cited for the target-plan / chain re-selection work that is
+  // still pending, not as a stale "primitive missing" claim.
   assert.match(program.judgeReason, /RIFT-90/);
 });
 
@@ -120,25 +124,19 @@ test("ven-152-166 Rebuttal: paying [A], taking control and remaking choices all 
   assert.deepEqual(remakeChoices.args.remakeAll, { kind: "constant", value: true });
 });
 
-test("ven-152-166 Rebuttal: the Otherwise branch counters the same chosen chain item under a fail-closed condition", () => {
+test("ven-152-166 Rebuttal: the Otherwise branch is fail-closed while the payment receipt predicate is missing", () => {
   // 426.1-426.3: effect.counter makes the countered card do nothing, clears it
   // from the chain and refunds no cost. "Otherwise" is the branch on whether the
-  // [A] was paid; no cost receipt is exposed to the body (condition.result is
-  // unmerged), so the condition is a descriptive read that fails closed — it can
-  // never fire the counter when the payment actually happened, and never takes
-  // control when it did not.
+  // [A] was paid; Condition has no payment-receipt predicate, so the branch is
+  // explicitly { kind: "never" } and cannot fire the counter at all while the
+  // discriminator is missing — it never counters when the payment happened and
+  // never replaces the pay branch when it did not.
   assert.equal(counterOtherwise.id, "rebuttal.counter-otherwise");
   assert.equal(counterOtherwise.op, "effect.counter");
   assert.deepEqual(counterOtherwise.args.target, { kind: "constant", value: chosenSpell.id });
   assert.equal(counterOtherwise.linkedTo, undefined);
   assert.equal(counterOtherwise.targets, undefined);
-  assert.equal(counterOtherwise.condition.kind, "not");
-  assert.equal(counterOtherwise.condition.condition.kind, "expression");
-  assert.deepEqual(counterOtherwise.condition.condition.value, {
-    kind: "object-property",
-    object: "source",
-    property: "rebuttal.rainbow-power-paid"
-  });
+  assert.deepEqual(counterOtherwise.condition, { kind: "never" });
 });
 
 test("ven-152-166 Rebuttal: the control and counter primitives the card names are the merged registry entries", () => {
@@ -218,7 +216,8 @@ test.todo(
 test.todo(
   "ven-152-166 Rebuttal: 'You may pay :rb_rune_rainbow:. If you do … Otherwise, counter it' needs a resolution-time " +
     "[A] payment plus a cost receipt the body can read — the six-domain closed Domain set cannot express Universal Power " +
-    "(135.2.e.5.a / 163.2.b) and no merged op binds the paid amount to the following branch (RIFT-89, condition.result)"
+    "(135.2.e.5.a / 163.2.b); cost.pay is merged but has no [A] payment kind and Condition has no receipt predicate, " +
+    'so the Otherwise branch stays { kind: "never" } (fail-closed)'
 );
 
 test.todo(

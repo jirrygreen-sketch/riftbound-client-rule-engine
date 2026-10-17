@@ -30,7 +30,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   选择计划的节点，也没有 753.2 的结果绑定。按契约 3.9 用 choice.optional 把该从句包进 body。
  * - 「Otherwise, counter it」：未支付时反制该法术（426.1-426.3：被反制的牌不产生效果、离开链、费用
  *   不退还），由已合入的 effect.counter 执行；"Otherwise" 是对“是否支付”的结果分支（359 型结果绑定），
- *   当前没有可求值的费用回执（condition.result 未合入），因此该分支以描述性条件表达并 fail-closed，
+ *   当前没有可求值的费用回执（Condition 词汇没有回执谓词），因此判别器缺失时显式 { kind: "never" }
+ *   fail-closed，
  *   绝不在未支付时执行控制、也绝不在已支付时反制。
  *
  * status = judge-required：链上目标的锁定与 effect.counter / effect.control 都已合入并有执行测试，
@@ -51,7 +52,7 @@ const rebuttal = {
     "限制以描述性键 energyMax 保留（去掉它会变成“反制任意法术”）。依赖：target 系统的印刷费用谓词（RIFT-90 目标/链，或 cost-plan 的印刷费用读取）。" +
     "(2)「You may pay :rb_rune_rainbow:. If you do … Otherwise, counter it」缺结算期的支付原语与费用回执：" +
     ":rb_rune_rainbow: 是任意域 Power [A]（135.2.e.5.a、163.2.b），六域封闭 Domain 集合无法表达（effect.resources 记录不可近似），" +
-    "已合入原语里也没有“结算期支付并由后续指令读取实付结果”的形态（cost.pay 未注册，condition.result 未合入），" +
+    "cost.pay 原语虽已注册，但没有 [A] 付费种类，也没有“由后续指令读取实付结果”的 Condition 回执谓词，" +
     "因此“已支付 → 取得控制权 + 重选”和“未支付 → 反制”这一对互斥分支没有可求值的判别器；程序用描述性条件表达，" +
     "在判别器缺失时两条分支都 fail-closed（既不控制也不反制），不会把未支付当已支付。依赖：RIFT-89（结算期费用/费用回执）与结果绑定。" +
     "(3)「you may make new choices for it」是 CR 750-755 的 Making New Choices：752.1 只允许重选 location/mode/destination/target，" +
@@ -147,23 +148,13 @@ const rebuttal = {
         },
         {
           // 「Otherwise, counter it」：426.1-426.3 由已合入的 effect.counter 执行（被反制的牌不产生
-          // 效果、离开链、费用不退还）。条件读的是“是否支付”的费用回执，当前没有可求值路径
-          // （见 judgeReason 第 2 点），因此该指令 fail-closed：判别器缺失就不反制，
+          // 效果、离开链、费用不退还）。条件读的是“是否支付”的费用回执；Condition 词汇没有回执谓词
+          // （见 judgeReason 第 2 点），因此显式 { kind: "never" } fail-closed：判别器缺失就不反制，
           // 也不会与上面的控制分支同时发生。
           id: "rebuttal.counter-otherwise",
           op: "effect.counter",
           args: { target: { kind: "constant", value: CHOSEN_SPELL } },
-          condition: {
-            kind: "not",
-            condition: {
-              kind: "expression",
-              value: {
-                kind: "object-property",
-                object: "source",
-                property: "rebuttal.rainbow-power-paid"
-              }
-            }
-          }
+          condition: { kind: "never" }
         }
       ]
     }

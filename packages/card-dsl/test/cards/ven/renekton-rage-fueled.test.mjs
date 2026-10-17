@@ -157,5 +157,6 @@ test.todo(
 
 test.todo(
   "ven-019-166 Renekton: [Accelerate]'s cost/entry rewrite (805.1.b.1 Fury money, 805.6 ready " +
-    "entry) needs a card-program → cost-plan/entry-replacement wiring (RIFT-89)"
+    "entry) needs a card-program → cost-plan/entry-replacement wiring — the cost planner accepts " +
+    "optional additional costs, but no producer turns accelerate.cost on a card program into that plan (RIFT-89)"
 );

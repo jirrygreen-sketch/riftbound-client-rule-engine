@@ -33,9 +33,10 @@ import type { CardProgram } from "../../ir/index.js";
  * 2. attack-declared 时点没有发射方：combat/ 批次尚未把取得 Attacker 身份接入事件管线
  *    （combat/flow.ts 对战斗开始显式抛 TurnCombatBlockedError；全仓库没有 attack-declared
  *    的 emit 调用），触发无法进入链（RIFT-120/引擎批 4–5）。
- * 3. [Accelerate] 的展开虽已合入，但没有任何生产方把卡牌上的 keyword 能力接进打出流程：
- *    cost/cost-plan.ts 只消费调用方传入的 optionalAdditional，没有从 accelerate.cost 静态
- *    效果生成费用组件的路径（同上批 sfd/blazing-scorcher 的判定，RIFT-89）。
+ * 3. [Accelerate] 的展开与 cost-planner 词汇虽已合入，但没有任何生产方把卡牌上的
+ *    keyword 能力接进打出流程：cost/cost-plan.ts 只消费调用方传入的 optionalAdditional，
+ *    没有从 accelerate.cost 静态效果生成费用组件的路径（同上批 sfd/blazing-scorcher 的
+ *    判定，RIFT-89）。
  * “if you control 4 or fewer runes” 这一 Trigger Condition 是真实可求值的（golden 用
  * condition.predicate + 参考内核执行真实计数）。
  */
@@ -53,7 +54,8 @@ export default {
     "触发无法进入链（RIFT-120 / 引擎批 4–5）。(3) [Accelerate]（805）的展开文件已合入，但没有任何" +
     "生产方把卡牌上的 keyword 能力接进打出流程——cost/cost-plan.ts 只消费调用方传入的 optionalAdditional，" +
     "没有从 accelerate.cost 静态效果生成 1 Energy + 1 Fury Power 费用组件与 805.6 入场就绪替代的路径" +
-    "（同上批 sfd/blazing-scorcher，RIFT-89）。Trigger Condition「4 or fewer runes」本身可真实求值，" +
+    "（费用规划器的 additional/optional 词汇已合入，缺的是卡牌侧生产路径；同上批 sfd/blazing-scorcher，RIFT-89）。" +
+    "Trigger Condition「4 or fewer runes」本身可真实求值，" +
     "golden 用已合入的解释器执行真实计数。不近似实现。",
   abilities: [
     // 805.1.b：费用固定为 [1] + 一个与单位域匹配的 Power，keyword 不带数值（805.4 多个实例冗余）。

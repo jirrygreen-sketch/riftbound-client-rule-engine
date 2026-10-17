@@ -5,6 +5,7 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ven/resonating-strike.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
+import continuousMight from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-fa3fca39f51f36c4a7eaf70e836d2271f5e26b7994a64cbafa1b79ec0ea7dad7";
@@ -114,13 +115,41 @@ test("ven-034-166 Resonating Strike golden: the merged Move really relocates the
       amount: moveInstruction.args.amount,
       linkKey: moveInstruction.args.linkKey
     },
-    { world: kernel, targets: { [unitSpec.id]: [locked] } }
+    { world: kernel, targets: { [unitSpec.id]: [locked], ally: [locked] } }
   );
 
   assert.equal(run.result.status, "executed");
   assert.deepEqual(kernel.getObject("ally").location, { type: "battlefield", id: "bf-2" });
   assert.equal(run.linked.moved.count, 1);
   assert.deepEqual(run.events.map(event => event.action), ["move-location"]);
+});
+
+test("ven-034-166 Resonating Strike golden: +2 Might this turn registers on the moved unit", () => {
+  const kernel = world()
+    .unit("ally", { zone: "board", location: { type: "base", player: "A" } })
+    .build();
+  const locked = kernel.ref("ally");
+
+  const run = runInstruction(
+    continuousMight,
+    // runInstruction receives the evaluator-resolved argument shape, so bind
+    // the Expr args (plus the selection target) to plain values.
+    {
+      amount: 2,
+      duration: "this-turn",
+      target: "ally",
+    },
+    { world: kernel, targets: { [unitSpec.id]: [locked], ally: [locked] } }
+  );
+
+  assert.equal(run.result.status, "executed");
+  assert.equal(kernel.continuousEffects.length, 1);
+  const [registration] = kernel.continuousEffects;
+  assert.equal(registration.effect.layer, "arithmetic");
+  assert.equal(registration.effect.effect.kind, "continuous.might");
+  assert.equal(registration.effect.effect.amount, 2);
+  assert.deepEqual(registration.effect.filter.objectId, "ally");
+  assert.deepEqual(registration.duration, { type: "end-of-turn" });
 });
 
 test.todo(
@@ -136,8 +165,8 @@ test.todo(
 );
 
 test.todo(
-  "ven-034-166 Resonating Strike: give the moved unit +2 Might this turn — continuous.might has no merged " +
-    "instruction primitive (RIFT-9 inventory; RIFT-91 merged only the layer evaluation side)"
+  "ven-034-166 Resonating Strike: give the moved unit +2 Might this turn — the +2 arithmetic registration is " +
+    "proven by golden, but its linked placement behind the Move needs the destination/group-restriction plan first"
 );
 
 test.todo(

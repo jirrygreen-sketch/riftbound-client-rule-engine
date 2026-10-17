@@ -37,9 +37,8 @@ test("ven-163-166 Risen Altar: identity, ruleset, status and exact source text",
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /Empower/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /sameLocationAs/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-261|RIFT-257/);
 });
 
 test("ven-163-166 Risen Altar: the discount states both printed branches over your units here", () => {
@@ -155,8 +154,8 @@ test("ven-163-166 Risen Altar golden: a discount never drives the cost below zer
 
 test.todo(
   "ven-163-166 Risen Altar: install the static reduction on the affected Empower cost — no merged path turns a " +
-    "CardProgram's static continuous.cost-modification into the CostPlanInput.discounts of the later activation, and " +
-    "effects/instructions/ has no cost.modify primitive (in-flight RIFT-261); RIFT-257's statics.ts is only a callback slot"
+    "CardProgram's static continuous.cost-modification into the CostPlanInput.discounts of the later activation: the " +
+    "static binding layer has no cost-modification layerFor mapping and there is no finalize-time discount collector"
 );
 
 test.todo(
