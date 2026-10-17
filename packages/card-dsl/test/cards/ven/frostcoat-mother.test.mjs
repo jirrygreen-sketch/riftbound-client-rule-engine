@@ -30,6 +30,7 @@ test("ven-032-166 Frostcoat Mother: identity, status, judgeReason and verbatim s
   assert.match(program.judgeReason, /Empowered/);
   assert.match(program.judgeReason, /expandProgram/);
   assert.match(program.judgeReason, /appliesTo/);
+  assert.match(program.judgeReason, /费用消费方/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
