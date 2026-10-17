@@ -32,7 +32,6 @@ test("rad-180-167 Ezreal, Dashing: identity, ruleset, status, judgeReason and so
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.combat/);
   assert.match(program.judgeReason, /attack-declared/);
-  assert.match(program.judgeReason, /RIFT-261/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -208,7 +207,8 @@ test.todo(
     "transaction (RIFT-270 audit marks it 待后续)"
 );
 test.todo(
-  "rad-180-167 Ezreal, Dashing: charge the Mind Power cost at Finalize and hand the activated ability its " +
-    "resolution window — cost.pay (RIFT-261) plus the RIFT-257 card-program binding are unmerged"
+  "rad-180-167 Ezreal, Dashing: invoke the activated ability through the production Finalize/Resolve path, " +
+    "including payment of its declared Mind Power base cost; the cost shape is expressible and the move body " +
+    "executes through the merged primitive, but this test file only exercises the body directly"
 );
 

@@ -24,17 +24,15 @@ import type { CardProgram } from "../../ir/index.js";
  *   play, not an instruction this resolution executes.
  *
  * Status (cards/README.md §2): judge-required. Re-checked against the merged
- * ops; two card-level gaps plus the registration bridge remain, none
+ * ops; two card-level gaps plus the battlefield-host binding remain, none
  * approximated:
  * 1. The keyword grant itself is executable: continuous.grant-keyword (RIFT-258)
  *    registers an ability-layer effect, and the merged layers engine applies it
  *    (the golden drives the declared grant through the real interpreter and
  *    LayerEngine and observes the granted [Accelerate]). What is still missing
  *    is the registration path that would install that grant on a unit played
- *    later in the turn: no merged consumer turns a card program's ability into
- *    a LayerEngine registration (engine-core never reads card-program
- *    abilities), and the conquer trigger itself still has no card-program
- *    TriggerRegistration (RIFT-257).
+ *    later in the turn: the one-shot next-unit window is still missing, and the
+ *    conquer trigger still needs its battlefield-host binding.
  * 2. "the next unit you play this turn" has no IR shape: the frozen
  *    ObjectSelector set is self / source / target / pick / linked, ObjectFilter
  *    has no greatest/last-created quantifier, and a TargetSpec must lock
@@ -42,15 +40,12 @@ import type { CardProgram } from "../../ir/index.js";
  *    later in the turn. The Duration vocabulary (permanent / end-of-turn /
  *    end-of-combat / while-source-in-zone / until) has no one-shot "next unit"
  *    window either (same one-shot-window gap as ogn/raging-firebrand).
- * The trigger side: the conquer timing point is now emitted by the scoring task
- * in turn/flow.ts (contract 6 confirms 383.4.c), but 190.6 battlefield-controller
- * resolution and the card-program TriggerRegistration are still unmerged, and
- * the filter keeps the sibling battlefield placeholder spelling (here: true /
- * player: "controller") for the 053.3 referent, which the engine trigger-spec
- * validator does not accept yet.
+ * The trigger side: the conquer timing point and CardProgram TriggerRegistration
+ * are merged; 190.6 battlefield-controller resolution and the source battlefield
+ * identity binding are still missing.
  * The intended body is preserved below so the missing pieces stay auditable.
- * Dependencies: RIFT-257 (card-program trigger/continuous registration) and the
- * one-shot "next unit" window.
+ * Dependencies: the source battlefield identity binding and the one-shot
+ * "next unit" window.
  */
 export default {
   canonicalCardId: "card.hash-b0fa1aa611f78286913c3002834a073dcdd58ad0678ff45714b3accf84b68c72",
@@ -58,16 +53,14 @@ export default {
   status: "judge-required",
   judgeReason:
     "两处卡内缺口加注册接线依赖，均不近似实现：" +
-    "(1) 「the next unit you play this turn has [Accelerate]」的关键词授予已可执行——continuous.grant-keyword（RIFT-258）" +
+    "(1) 「the next unit you play this turn has [Accelerate]」的关键词授予本身已可执行——continuous.grant-keyword " +
     "注册 ability 图层效果，merged LayerEngine 会把 [Accelerate] 加到目标单位上（golden 用真实解释器 + 图层引擎执行）；" +
-    "仍缺的是把该授予装到本回合稍后打出的单位上的注册路径：没有已合入消费方把 CardProgram 的能力注册进 layers/LayerEngine" +
-    "（engine-core 源码不读取卡牌能力），conquer 触发也没有卡牌程序 TriggerRegistration（RIFT-257）。" +
+    "仍缺的是本回合稍后第一个合资格单位的 one-shot 窗口与延迟安装消费方，不能在 Finalize 时提前锁定该单位。" +
     "(2) 「the next unit you play」这个一次性窗口没有 IR 形状：ObjectSelector 只有 self/source/target/pick/linked，" +
     "ObjectFilter 没有 greatest/last-created 量词，TargetSpec 按 CR 355.5 必须在 finalize 时锁定已经存在的对象（该单位本回合稍后才打出），" +
     "Duration 只有 permanent/end-of-turn/end-of-combat/while-source-in-zone/until，没有 one-shot「next unit」期限（同 ogn/raging-firebrand 的缺口）。" +
-    "触发侧：conquer 时点已由 turn/flow.ts 的计分任务发出（383.4.c），但 190.6 的战场能力控制者解析与卡牌程序 TriggerRegistration 仍未合入；" +
-    "filter 的 here: true / player: \"controller\" 是同类战场卡占位（053.3 的 here 指代），引擎 trigger-spec 校验器当前不接受。" +
-    "依赖：RIFT-257（卡牌程序触发/持续效果注册）与 one-shot「next unit」窗口。不近似实现。",
+    "触发侧：conquer 时点与 CardProgram TriggerRegistration 已合入，但 190.6 的战场能力控制者解析" +
+    "以及 details.battlefieldId 与本战场宿主的绑定仍缺；one-shot「next unit」窗口也未合入。不近似实现。",
   sourceText:
     "When you conquer here, the next unit you play this turn has [Accelerate]. " +
     "(You may pay :rb_energy_1: and a Power of its Domain as an additional cost to have it enter ready.)",
@@ -77,9 +70,9 @@ export default {
       trigger: {
         at: "conquer",
         // "here" is this Battlefield (053.3) and "you" its Controller
-        // (190.6.d); the sibling battlefield programs keep the same
-        // placeholder spelling while the trigger pipeline is unmerged.
-        filter: { event: "conquer", here: true, player: "controller" }
+        // (190.6.d); the remaining placeholder is the source battlefield
+        // identity binding described in judgeReason.
+        filter: { event: "conquer", player: "self", details: { battlefieldId: "self" } }
       },
       optional: false,
       body: [

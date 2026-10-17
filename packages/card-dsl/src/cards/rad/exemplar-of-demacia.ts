@@ -26,14 +26,14 @@ import type { CardProgram } from "../../ir/index.js";
  * - “[Deploy] 装备”仍无法过滤：ObjectFilter 的公开词汇只有 objectId/cardId/type/controller/
  *   owner/zone/location/states/tags/characteristics，没有 keywords 成员；ObjectSnapshot 虽有
  *   keywords 数组，但触发器过滤读不到它——写入未知成员会被静默忽略（整个过滤器退化成
- *   「任何被打出的装备」），不能作为条件使用（依赖 RIFT-257 卡牌程序触发绑定与关键词过滤）。
- * - 费用没有可执行路径：本分支未合入 cost.pay / cost.modify（RIFT-261），[A]（任意域 Power，
+ *   「任何被打出的装备」），不能作为条件使用；当前触发过滤没有关键词特征读取。
+ * - 费用没有可执行路径：当前触发能力费用接口不能消费 cost.pay，[A]（任意域 Power，
  *   163.2.b / 135.2.e.5）在六域封闭的 Domain 集合里无法表达，且契约 ZoneId 没有
  *   Legend Zone（CR 107.4），传奇自身无法作为可横置的费用对象。
  * - “that battlefield” 的目的地缺口已缩小：effect.move 的 to 支持 target.location（从已锁定的
  *   目标读取 LocationRef）。但要指向“被打出装备所在的战场”，需要一个锁定该装备位置的目标；
  *   card-played 事件载荷不出现在 IR 的目标词汇里（ObjectSelector 只有 self/source/target/pick/linked），
- *   所以本卡仍把目的地写成描述性标记，等待 RIFT-257 的事件物体绑定。
+ *   所以本卡仍把目的地写成描述性标记，等待事件物体位置绑定。
  * golden 真实执行已有原语的部分（移动的 to/objects 形状可校验；无可独立执行的正文指令）。
  */
 export default {
@@ -44,15 +44,15 @@ export default {
   judgeReason:
     "三处缺口，均不近似实现：（1）“a gear with [Deploy]” 无法过滤——CR 830.1.a/830.3 的 Deploy 是 " +
     "Gear 的关键词特征，但 ObjectFilter 的公开词汇没有 keywords 成员，写进去会被触发匹配器静默忽略" +
-    "（过滤器退化成“任何被打出的装备”），因此不能作为条件（依赖 RIFT-257 的关键词过滤/触发绑定）。" +
+    "（当前过滤器没有关键词特征读取），因此不能作为条件。" +
     "（2）效果开头 “you may exhaust me and pay :rb_rune_rainbow:” 按 CR 383.3.b.1 是触发能力的基础费用、" +
-    "必须在 Finalize 支付（415.4 / 415.5），但本分支未合入 cost.pay/cost.modify（RIFT-261）；" +
+    "必须在 Finalize 支付（415.4 / 415.5），但触发能力注册没有把正文里的 cost.pay 转成基础费用计划；" +
     "[A]（任意域 Power，CR 163.2.b / 135.2.e.5）在六域封闭的 Domain 集合里不可表达；契约 ZoneId 也没有 Legend Zone" +
     "（CR 107.4），传奇自身无法作为横置费用的对象。" +
     "（3）“that battlefield” 没有可执行目的地：effect.move 的 to 只接受字面 LocationRef / controller-base / 字面地点选项，" +
-    "不接受 target/pick 描述符；事件物体的位置绑定与 to 的地点来源形式属 RIFT-257。" +
+    "不接受 target/pick 描述符；事件物体的位置绑定与 to 的地点来源形式仍缺。" +
     "被移动的友方单位是目标（CR 355.10 / 355.9.a.1），结构已按此声明。" +
-    "依赖 RIFT-261（费用原语）与 RIFT-257（事件物体/关键词过滤绑定）。",
+    "依赖触发能力基础费用接线、Universal Power/Legend 费用对象，以及事件物体的关键词与位置绑定。",
   abilities: [
     {
       kind: "triggered",
@@ -76,7 +76,7 @@ export default {
         {
           id: "exemplar-of-demacia.pay",
           // 383.3.b：这是触发能力的基础费用，在 Finalize 支付，不是结算指令；
-          // cost.pay 与费用计划未合入（RIFT-89），此处只保留可审查的声明。
+          // cost.pay 已合入，但当前触发能力费用接口不能消费该基础费用；此处只保留可审查的声明。
           op: "cost.pay",
           args: {
             // [A]：任意域 Power（135.2.e.5 / 163.2.b）。六域封闭集合下不可表达，

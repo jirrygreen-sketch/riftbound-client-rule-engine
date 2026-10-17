@@ -26,7 +26,6 @@ test("rad-090-167 Evelynn, Consuming: validates, identity and source text", () =
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /face down/);
   assert.match(program.judgeReason, /822/);
-  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -41,7 +40,8 @@ test("rad-090-167 Evelynn, Consuming: [Ambush] keyword plus the face-down card-p
   assert.equal(triggered.trigger.at, "card-played");
   assert.deepEqual(triggered.trigger.filter, {
     event: "card-played",
-    filter: { fromFaceDown: true }
+    player: "self",
+    details: { fromFaceDown: true }
   });
   assert.equal(triggered.optional, false);
   assert.deepEqual(triggered.body.map(instruction => instruction.id), [
@@ -134,9 +134,9 @@ test("rad-090-167 Evelynn, Consuming: the +1 Might body registers an end-of-turn
 
 test.todo(
   "rad-090-167 Evelynn, Consuming: 'When you play a card from face down' provenance (CR v1.5 811.1.d / 355.10.a.1 " +
-    "Facedown Zone) needs the card-played payload to record the played-from-face-down fact; the merged EventPattern " +
-    "and pipeline matcher ignore unknown filter members, so the filter cannot be honestly evaluated yet " +
-    "(RIFT-257 card-program trigger binding + the Facedown fact)"
+    "Facedown Zone) needs the card-played payload to record the played-from-face-down fact; the event matcher " +
+    "has no such detail to evaluate yet, so the filter cannot be honestly evaluated " +
+    "(card-played fromFaceDown fact)"
 );
 test.todo(
   "rad-090-167 Evelynn, Consuming: [Ambush] expansion (CR 822.1.b battlefield-with-your-units play permission and " +
