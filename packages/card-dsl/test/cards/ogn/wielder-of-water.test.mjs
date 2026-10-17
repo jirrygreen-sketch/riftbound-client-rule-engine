@@ -28,7 +28,7 @@ test("ogn-055-298 Wielder of Water: identity, ruleset, status, judgeReason and s
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /combatRole/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /static CardProgram binding/);
   assert.match(program.judgeReason, /conditionMatches/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
@@ -104,12 +104,6 @@ test("ogn-055-298 Wielder of Water: the condition is combat role plus the lone p
 });
 
 test.todo(
-  "ogn-055-298 Wielder of Water: the conditional +2 Might needs a merged layers consumer for " +
-    "continuous.might with a card-program registration path (RIFT-257); the instruction primitive " +
-    "and the layer arithmetic are merged and covered by the golden above."
-);
-
-test.todo(
   "ogn-055-298 Wielder of Water: the 'attacking or defending' half needs the combat designation " +
     "on ObjectSnapshot (contract 3.8 combatRole is in effects/contract.ts) plus its evaluation in " +
     "the layers engine: conditionMatches still only recognizes always/never/type/has-tag/has-keyword " +
@@ -121,9 +115,4 @@ test.todo(
     "same location) has no merged evaluator in the static-effect layer path: layers/filter.ts " +
     "implements no sameLocationAs anchor (verified over-match), and the interpreter-side anchor " +
     "resolution is not reachable from a static ability"
-);
-
-test.todo(
-  "ogn-055-298 Wielder of Water: no merged code turns a card program's static ability into a " +
-    "registered continuous layer effect (no addContinuous caller in the card-program path; RIFT-257)"
 );

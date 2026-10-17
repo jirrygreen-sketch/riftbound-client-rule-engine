@@ -30,7 +30,7 @@ test("ogn-159-298 Warwick, Hunter: judgeReason cites the entry replacement, the 
   assert.match(program.judgeReason, /effect\.kill/);
   assert.match(program.judgeReason, /damaged/);
   assert.match(program.judgeReason, /355\.10\.d/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /damaged/);
   assert.match(program.judgeReason, /combat-start-transaction/);
 });
 
@@ -171,12 +171,6 @@ test("ogn-159-298 Warwick, Hunter: an empty damaged set makes the kill mistarget
   assert.equal(kernel.getObject("clean-enemy").zone, "board");
 });
 
-test.todo(
-  "ogn-159-298 Warwick, Hunter: the board-entry replacement executes through the published " +
-    "bindReplacement interface, but nothing yet registers a CardProgram's replacement ability " +
-    "(RIFT-257); the Accelerate-style static entry body and the replacement.enter wrapper both " +
-    "need that card-program layer."
-);
 test.todo(
   "ogn-159-298 Warwick, Hunter: 'kill all damaged enemy units here' needs an untargeted set-kill form " +
     "(CR v1.5 355.10.d/355.10.d.1), a damage-marked ('damaged') filter predicate, a same-location " +

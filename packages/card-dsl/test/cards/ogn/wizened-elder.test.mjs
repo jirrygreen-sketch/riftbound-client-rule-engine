@@ -6,11 +6,14 @@ import program from "../../../dist/cards/ogn/wizened-elder.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import might from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
 import buff from "../../../../engine-core/dist/effects/instructions/effect.buff.js";
-import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { attachProgramLifecycle } from "../../../../engine-core/dist/programs/lifecycle.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 
 const CANONICAL =
   "card.hash-16335e499c8dc3283d678e27bfe613e02ef16a6babfe209f953b1959c52fd375";
@@ -20,11 +23,10 @@ const literal = value => ({ kind: "constant", value });
 const [staticAbility] = program.abilities;
 
 /**
- * The equivalent instruction the (still unmerged, RIFT-257) static-ability
- * binding will run: the merged continuous.might op with the card's own amount
- * and the 702.2.a buffed predicate as the merged filter spelling. The kernel is
- * bound to the elder so "I" resolves to the ability host, and the production
- * layer matcher (layers/filter.ts) evaluates the characteristics predicate.
+ * The equivalent instruction path uses the merged continuous.might op with the
+ * card's amount and the 702.2.a buffed predicate. The kernel is bound to the
+ * elder so "I" resolves to the ability host, and the production layer matcher
+ * evaluates the characteristics predicate.
  */
 function elderKernel({ buffs }) {
   const base = world()
@@ -64,14 +66,11 @@ test("ogn-065-298 Wizened Elder: program passes validateCardProgram", () => {
   assert.deepEqual(result.issues, []);
 });
 
-test("ogn-065-298 Wizened Elder: identity, ruleset, status, judgeReason and source text", () => {
+test("ogn-065-298 Wizened Elder: identity, ruleset, executable status and source text", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
-  assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /702\.2\.a/);
-  assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /characteristics/);
+  assert.equal(program.status, "executable");
+  assert.equal(program.judgeReason, undefined);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });
@@ -83,7 +82,6 @@ test("ogn-065-298 Wizened Elder: the additional +1 is a static arithmetic effect
   assert.equal(staticAbility.effect.kind, "continuous.might");
   assert.equal(staticAbility.effect.mode, "add");
   assert.equal(staticAbility.effect.layer, "arithmetic");
-  assert.equal(staticAbility.effect.appliesTo, "self");
   assert.deepEqual(staticAbility.effect.amount, literal(1));
 });
 
@@ -91,6 +89,7 @@ test("ogn-065-298 Wizened Elder: the condition is the 702.2.a buffed predicate",
   // 702.2.a: a unit is Buffed for as long as the buff remains on it. 702.3
   // caps a unit at one Buff, so characteristics { buffs: 1 } is exact.
   assert.deepEqual(staticAbility.effect.filter, {
+    object: "self",
     type: "unit",
     zone: "board",
     characteristics: { buffs: 1 }
@@ -98,6 +97,57 @@ test("ogn-065-298 Wizened Elder: the condition is the 702.2.a buffed predicate",
   // The printed +1 is a separate Might increase on top of the Buff's own +1
   // (703), never a second Buff counter (702.3).
   assert.equal("buffs" in staticAbility.effect, false);
+});
+
+test("ogn-065-298 Wizened Elder: the production static binder keeps the host and Buff predicate", () => {
+  const kernel = world()
+    .unit("wizened-elder", {
+      cardId: CANONICAL,
+      owner: "A",
+      controller: "A",
+      zone: "board",
+      might: 4,
+      buffs: 1
+    })
+    .build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => {
+      kernel.restore(checkpoint.state);
+      kernel.copyLinkedFrom(checkpoint.links);
+    },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: () => { throw new Error("unexpected choice"); },
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint }),
+    testTrigger: registration => kernel.test(registration.spec.condition)
+  });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"],
+    turnPlayer: "A",
+    phase: "main",
+    host,
+    cleanup: () => false
+  });
+  const registry = new ProgramRegistry([program]);
+  const lifecycle = attachProgramLifecycle(engine, registry);
+  try {
+    const source = kernel.getObject("wizened-elder");
+    engine.pipeline.emit({ timingPoint: "object-enters-board", object: source });
+    assert.equal(engine.layers.evaluate(kernel.ref("wizened-elder")).might, 5);
+
+    const spend = runInstruction(
+      buff,
+      { mode: "spend", target: "wizened-elder" },
+      { world: kernel, targets: { "wizened-elder": [kernel.ref("wizened-elder")] } }
+    );
+    assert.equal(spend.result.status, "executed");
+    engine.layers.setObjects(kernel.objects);
+    assert.equal(engine.layers.evaluate(kernel.ref("wizened-elder")).might, 4);
+  } finally {
+    lifecycle.detach();
+  }
 });
 
 test("ogn-065-298 Wizened Elder golden: a buffed unit really gets the additional +1 Might", () => {
@@ -175,9 +225,3 @@ test("ogn-065-298 Wizened Elder golden: the predicate tracks Buff gain and spend
   layers.setObjects(kernel.objects);
   assert.equal(layers.evaluate(kernel.ref("wizened-elder")).might, 5);
 });
-
-test.todo(
-  "ogn-065-298 Wizened Elder: register this static aura through the card-program binding (RIFT-257) so " +
-    "the merged continuous.might instruction runs in production, merging the host identity filter with the " +
-    "702.2.a buffed predicate"
-);

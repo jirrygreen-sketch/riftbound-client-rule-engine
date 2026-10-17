@@ -41,7 +41,6 @@ test("Windswept Hillock program validates and is judge-required", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Ganking/);
   assert.match(program.judgeReason, /sameLocationAs/);
-  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /zones\/movement/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -90,9 +89,9 @@ test("Windswept Hillock: the granted keyword id resolves to the merged Ganking d
 
 test("Windswept Hillock golden: the merged grant instruction grants only the unit here", () => {
   const kernel = hillockWorld();
-  // The equivalent instruction the (still unmerged) static-ability binding will
-  // run: the merged continuous.grant-keyword op with the card's own keyword and
-  // filter. The interpreter query implements the 053.3 sameLocationAs anchor.
+  // The equivalent instruction path for the static grant uses the merged
+  // continuous.grant-keyword op with the card's own keyword and filter. The
+  // interpreter query implements the 053.3 sameLocationAs anchor.
   const grant = {
     id: "windswept-hillock.grant-here",
     op: "continuous.grant-keyword",
@@ -128,8 +127,7 @@ test("Windswept Hillock: the merged movement query consumes the expansion's perm
   const [staticAbility] = ganking.expand({ host: { canonicalCardId: CANONICAL } });
   const literal = value => ({ kind: "constant", value });
   // The granted Ganking expansion, per unit, runs through the merged
-  // continuous.movement instruction (this is the instruction a RIFT-257
-  // grant consumer will execute for each unit that was granted Ganking).
+  // continuous.movement instruction.
   const run = runInstruction(
     movementInstruction,
     {
@@ -151,12 +149,6 @@ test("Windswept Hillock: the merged movement query consumes the expansion's perm
   assert.equal(movement(registry, kernel.ref("unit-here"), kernel.getObject("unit-here")).canGank, true);
   assert.equal(movement(registry, kernel.ref("unit-elsewhere"), kernel.getObject("unit-elsewhere")).canGank, false);
 });
-
-test.todo(
-  "Windswept Hillock registration: bind this CardProgram's static ability through the card-program layer " +
-    "(RIFT-257) so the merged continuous.grant-keyword instruction actually runs in production, with 190.6's " +
-    "battlefield-ability controller resolved"
-);
 
 test.todo(
   "Windswept Hillock movement: the produced continuous.movement permission needs a production consumer — " +

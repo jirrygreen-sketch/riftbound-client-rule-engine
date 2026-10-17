@@ -26,7 +26,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   interpreter reads picks from ctx.picks(id) (interpreter.ts) and has no
  *   per-player loop or chooser-bound pick (contract 3.6), and the frozen
  *   opcode list has no player-selection/iteration primitive
- *   (ability-templates.md target.player is unmerged). A fixed "repeat" count
+ *   (ability-templates.md target.player is part of RIFT-358). A fixed "repeat" count
  *   would hard-code the number of players, and the starting player is
  *   resolved from the turn order, which the data layer cannot name.
  * - Each iteration also has its own chooser: the decision belongs to the
@@ -35,8 +35,9 @@ import type { CardProgram } from "../../ir/index.js";
  *   (choice.optional's chooser defaults to ctx.controller, interpreter/choice.ts).
  *   "a unit" itself is unrestricted on purpose — the printing names no
  *   controller, so the pick deliberately carries no player filter.
- * - The card-program -> chain adapter (describePlay) is likewise unmerged
- *   (RIFT-257), so even the single-chooser half has no production entry.
+ * - The play adapter is merged, but it still cannot bind this ordered
+ *   per-player choice to a ChainDraft; the remaining work is the ordered-picks
+ *   contract (RIFT-358).
  * Until the per-player choice/iteration work lands, this card stays
  * judge-required rather than approximating "each player" with the caster's
  * choices.
@@ -50,8 +51,8 @@ const whirlwind = {
     "pick 只能一次性从 ctx.picks(id) 读取（契约 3.6 无按玩家迭代），封闭 opcode 表没有玩家迭代/选择原语（ability-templates.md target.player 未实现），" +
     "按固定次数 repeat 会把玩家人数写死、也无法指明起始玩家（回合顺序在数据层不可命名）；" +
     "同时每次迭代的 chooser 应是「被询问的那名玩家」，而单个 choice.optional 只会问能力控制者（interpreter/choice.ts 默认 ctx.controller）。" +
-    "choice.optional + effect.zone 半段只用已合入原语并有执行测试；整卡还缺 CardProgram → ChainDraft 的 describePlay 适配（RIFT-257）。" +
-    "依赖：target.player / pick chooser 落地与 RIFT-257。",
+    "choice.optional + effect.zone 半段只用已合入原语并有执行测试；整卡还缺逐玩家顺序 picks 与 per-chooser 绑定。" +
+    "依赖：RIFT-358（有序 picks / chooser）。",
   abilities: [
     {
       kind: "play",
