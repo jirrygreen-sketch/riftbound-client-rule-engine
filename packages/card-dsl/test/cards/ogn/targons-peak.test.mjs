@@ -6,11 +6,36 @@ import program from "../../../dist/cards/ogn/targons-peak.js";
 import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+const pipelineModule = await import("../../../../engine-core/dist/events/pipeline.js");
 
 const CANONICAL = "card.hash-443bbd81ca54ffdeed5341da932702bf2c62ea4d20d8be07b4fbfc36c4340493";
 const [ability] = program.abilities;
 const [delay] = ability.body;
 const [readyInstruction] = delay.args.body.value;
+
+/** A minimal board host snapshot for the direct pipeline registration test. */
+const battlefieldSource = {
+  ref: { id: "targons-peak", zoneEntryId: 1 },
+  cardId: CANONICAL,
+  name: "Targon's Peak",
+  types: ["battlefield"],
+  tags: [],
+  keywords: [],
+  owner: "A",
+  controller: "A",
+  zone: "board",
+  location: { type: "battlefield", id: "battlefield-1" },
+  might: null,
+  energy: null,
+  power: null,
+  exhausted: false,
+  damage: 0,
+  stunned: false,
+  buffs: 0,
+  attachedTo: null,
+  faceDown: false,
+  isToken: false
+};
 
 test("ogn-289-298 Targon's Peak: program validates and is judge-required", () => {
   const result = validateCardProgram(program);
@@ -21,7 +46,7 @@ test("ogn-289-298 Targon's Peak: program validates and is judge-required", () =>
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /conquer/);
   assert.match(program.judgeReason, /trigger\.delayed/);
-  assert.match(program.judgeReason, /RIFT-33|RIFT-31/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, "When you conquer here, ready 2 runes at the end of this turn.");
 });
 
@@ -68,6 +93,35 @@ test("ogn-289-298: the merged ready primitive supports the printed sub-instructi
   assert.equal(instructionDefinitionsById.has("effect.ready"), true);
 });
 
+test("ogn-289-298: the conquer timing point is emitted by the merged TurnFlow Score wave", () => {
+  // turn/flow.ts emits the structured conquer/hold/score wave from the Score
+  // action (docs/rules/timing-point-producers.md row `conquer` = 已有). The
+  // remaining trigger-side gap is the battlefield-relative `here` anchor and the
+  // CardProgram binding, not the emission itself.
+  const { EventPipeline } = pipelineModule;
+  const host = {
+    checkpoint: () => null,
+    restore: () => {},
+    execute: () => ({ outcome: { status: "done", events: [] }, emissions: [] }),
+    context: () => ({}),
+    objects: () => [battlefieldSource],
+    choose: () => { throw new Error("unexpected choose"); }
+  };
+  const pipeline = new EventPipeline(host, ["A", "B"], "A");
+  const seen = [];
+  pipeline.onTrigger = (snapshot) => seen.push(snapshot);
+  pipeline.registerTrigger({
+    id: "test.conquer.plain",
+    source: battlefieldSource,
+    controller: "A",
+    spec: { at: "conquer", filter: { event: "conquered", player: "self" } },
+    body: []
+  });
+  pipeline.emit({ timingPoint: "conquer", player: "A", details: { battlefieldId: "battlefield-1" } });
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].event.details.battlefieldId, "battlefield-1");
+});
+
 test("ogn-289-298: the printed ready-2-runes sub-instruction readies the chosen runes (416.1)", () => {
   // Only the printed sub-effect is exercised here, with its up-to pick supplied
   // through the non-target pick channel, as the delayed trigger's finalize
@@ -102,5 +156,6 @@ test.todo(
     "（依赖 RIFT-33 延迟窗口契约变更请求 3 与解释器生命周期契约变更请求 2）"
 );
 test.todo(
-  "ogn-289-298: conquer 由 scoring 发出并进链（RIFT-31 scenarios-scoring）"
+  "ogn-289-298: binding the here-anchored conquer filter and the card program's triggered ability into " +
+    "the pipeline (RIFT-257) remains pending; the conquer emission itself is merged"
 );

@@ -5,6 +5,7 @@ import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/symbol-of-the-solari.js";
 import moveDefinition from "../../../../engine-core/dist/effects/instructions/effect.move.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { planReplacementBody } from "../../../../engine-core/dist/replacement/index.js";
 
 const [ability] = program.abilities;
 const [recall] = ability.with;
@@ -37,6 +38,8 @@ test("symbol-of-the-solari: identity, ruleset, status, judgeReason and printed t
   // The Recall mode of effect.move is the fail-closed refusal (457-460).
   assert.match(program.judgeReason, /Recall/);
   assert.match(program.judgeReason, /457-460/);
+  assert.match(program.judgeReason, /BlockedReplacementError/);
+  assert.match(program.judgeReason, /combat-result/);
   assert.equal(
     program.sourceText,
     "If a combat where you are the attacker ends in a tie, recall ALL units instead. " +
@@ -124,6 +127,31 @@ test("symbol-of-the-solari golden: the merged Recall mode fails closed without m
   // A Recall is not a Move (458.1), so the refused instruction must not emit a
   // move-location action either.
   assert.deepEqual(run.events.map((event) => event.action).filter(Boolean), []);
+});
+
+test("symbol-of-the-solari: the merged replacement planner also refuses the Recall body", () => {
+  // RIFT-260's planner plans a replacement body into closed GameActions; a
+  // `mode: recall` effect.move throws BlockedReplacementError there too, so a
+  // card-program replacement binding cannot smuggle the Recall past the
+  // primitive's refusal either.
+  const kernel = battlefieldWorld();
+  const planner = {
+    host: {
+      object: ref => kernel.getObject(ref.id),
+      objects: () => kernel.objects,
+      context: () => kernel
+    },
+    controller: "A",
+    evaluate: expr => kernel.evaluate(expr)
+  };
+  assert.throws(
+    () => planReplacementBody(
+      [recall],
+      { hostRef: kernel.ref("symbol-of-the-solari"), replacedObject: kernel.ref("attacker"), usedWindow: false },
+      planner
+    ),
+    /mode 'recall' is blocked/
+  );
 });
 
 test.todo(

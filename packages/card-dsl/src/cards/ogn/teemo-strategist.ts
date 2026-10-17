@@ -30,22 +30,25 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * status: judge-required —— 有依据的 IR 保留如下，但整卡尚不可执行：
  * 1. [Hidden] 展开与 played-from-Hidden 状态判定缺失（811.1.b、811.1.d.3）：
- *    cost.hidden（Hide 费用）、continuous.timing（次回合 [Reaction]）与
- *    「面向下打出的牌」的状态信息都没有已合入实现（依赖 RIFT-84/RIFT-89/RIFT-91）。
+ *    keywords/Hidden.ts 已展开为静态 cost.hidden，但没有 Hide 行动的消费方
+ *    （封闭 GameAction 无 Hide、ZoneId 无 Facedown Zone、card-hidden 无产生方），
+ *    continuous.timing（次回合 [Reaction]）也还没有 CardProgram → 图层的注册接线
+ *    （RIFT-257）。
  * 2. “top 5 cards” 需要上游按真实牌库顺序提供 effect.reveal 的 pick。
  *    当前 zone/count 只能在全区域不超过 5 张时执行；真子集会明确阻断，
  *    不能把 ctx.query 的集合顺序当作牌库顺序。
  * 3. “for each card with [Hidden]” 需要「在被展示的子集合内按特征计数」的表达式；
- *    现有 count 只在整个查询集合上计数，尚无作用于链接子集合的计数形式。
+ *    现有 count 只在整个查询集合上计数（interpreter/expr.ts 的 count 走
+ *    queryObjects），尚无作用于链接子集合的计数形式。
  */
 const teemoStrategist = {
   canonicalCardId: "card.hash-605d9e63c28576716347062f9abdcd9fe543138a4b9bee8f5308c24ffac2ae1e",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "1) [Hidden] 展开与“从 Hidden 打出”的状态判定缺失：cost.hidden（811.1.b Hide 费用）" +
-    "与 continuous.timing（次回合 [Reaction]、811.1.d.3 面向下打出限制）都无已合入实现，" +
-    "依赖 RIFT-84（kw-hidden）/RIFT-89（cost.hidden、费用与区域）/RIFT-91（continuous.timing）。" +
+    "1) [Hidden] 展开与“从 Hidden 打出”的状态判定缺失：keywords/Hidden.ts 已展开为静态 cost.hidden（RIFT-84），" +
+    "但没有运行时消费方——封闭 GameAction 无 Hide 行动、ZoneId 无 Facedown Zone、card-hidden 无产生方；" +
+    "continuous.timing（次回合 [Reaction]、811.1.d.3 面向下打出限制）也没有 CardProgram → 图层的注册接线（RIFT-257）。" +
     "2) “reveal the top 5 cards of your Main Deck” 需要上游有序 pick 绑定：effect.reveal（RIFT-66）" +
     "已支持 pick 并拒绝按 ctx.query 顺序截取牌库真子集；当前 zone/count 仅在全区域不超过 5 张时可执行，" +
     "超过时明确阻断。需上游从 zoneSlice 提供真实顶 5 张并接入卡牌 IR，不用集合顺序近似。" +

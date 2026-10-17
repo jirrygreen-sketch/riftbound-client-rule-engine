@@ -16,21 +16,25 @@ import type { CardProgram } from "../../ir/index.js";
  * - “channel 1 rune exhausted”：effect.channel（431.1 channel 取符文牌库顶；431.2
  *   允许规定入场状态，`exhausted: true`）。
  *
- * status: judge-required —— 缺 Tank 的关键词展开与消费方：
- * 1. effects/keywords/ 没有 Tank.ts，815.1.b 的伤害分配强制没有被任何已合入模块消费
- *    （combat/base-combat-allocation.ts 明确注释不绑定 Tank 的分配优先级）。
- * 2. 关键词展开依赖关键词批次（kw-tank），伤害分配约束属引擎批 5 战斗流程。
- * channel 半段仅用已合入的 effect.channel，golden 测试以真实原语执行该半段。
+ * status: judge-required —— [Tank] 的展开已合入（keywords/Tank.ts，RIFT-264）但没有消费方：
+ * 1. 展开结果是 continuous.combat 的 damage-assignment/priority "first" 声明，
+ *    layers/engine.ts 的层分支不命中该 kind（layers/ops/index.ts 只把它持久化为注册行）。
+ * 2. 战斗伤害分配仍不读取指派优先级：combat/base-combat-allocation.ts 明确注释
+ *    "No Tank/Backline/other assignment-priority requirement is bound here"，815.1.b/815.1.c 不可执行。
+ * channel 半段仅用已合入的 effect.channel（431.1/431.2），golden 测试以真实原语执行该半段。
+ * 依赖：continuous.combat 的战斗消费方 + 伤害分配优先级绑定（引擎战斗流程）。
  */
 export default {
   canonicalCardId: "card.hash-c18b4d77a6fdbfcd9607beb0b7cb54e7133f47d1442f38f5e6dc0c7c5b88a769",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 [Tank] 的关键词展开与消费方：effects/keywords/ 下没有 Tank.ts（契约 3.7 要求每个关键词一个文件），" +
-    "combat/base-combat-allocation.ts 明确不绑定 Tank 的伤害分配约束，815.1.b 的强制顺序没有已合入实现；" +
-    "依赖关键词批次 kw-tank 与战斗流程（引擎批 5）。channel 半段用已合入的 effect.channel（431.1/431.2），" +
-    "但整卡仍需 Tank 展开才算可执行，故不标 executable。",
+    "[Tank] 的 KeywordDef 已合入（effects/keywords/Tank.ts，RIFT-264），展开为 single-stacking 的静态 " +
+    "continuous.combat（mode damage-assignment、priority first、excludesKeyword Tank），但没有消费方：" +
+    "layers/engine.ts 不命中该 kind，战斗伤害分配也不读取指派优先级" +
+    "（combat/base-combat-allocation.ts 注释未绑定任何 assignment-priority），815.1.b/815.1.c 的战术顺序不可执行。" +
+    "channel 半段用已合入的 effect.channel（431.1/431.2）并有执行测试；整卡仍需 Tank 的真实战斗消费方，故保持 judge-required。" +
+    "依赖：continuous.combat 消费方与战斗伤害分配顺序（引擎战斗流程）。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "tank" },
     {

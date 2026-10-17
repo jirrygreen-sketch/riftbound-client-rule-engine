@@ -86,17 +86,54 @@ test("golden: an empty rune deck channels as many as possible without negating (
   assert.equal(kernel.player("A").runePool.length, 0);
 });
 
-test("dependency evidence: no Tank KeywordDef is registered (CR 815 expansion missing)", () => {
-  assert.equal(keywordRegistryById.has("Tank"), false);
-  assert.equal(keywordRegistryById.has("tank"), false);
+test("Tank expands to the continuous.combat damage-assignment declaration (CR 815.1.b)", () => {
+  // 815.1.b ("I must be assigned lethal damage before any other unit with the
+  // same controller as me that does not have [Tank] during the Combat Damage
+  // step") now has the merged Tank KeywordDef (RIFT-264), but its expansion is a
+  // continuous.combat declaration the combat kernels never read (see
+  // combat/base-combat-allocation.ts).
+  const tank = keywordRegistryById.get("Tank");
+  assert.ok(tank, "effects/keywords/Tank.ts must be merged for the [Tank] declaration");
+  assert.equal(tank.valued, false);
+  assert.equal(tank.stacking, "single");
+  const expansion = tank.expand({ host: { canonicalCardId: CANONICAL } });
+  assert.equal(expansion.length, 1);
+  assert.equal(expansion[0].kind, "static");
+  assert.equal(expansion[0].effect.kind, "continuous.combat");
+  assert.equal(expansion[0].effect.mode, "damage-assignment");
+  assert.equal(expansion[0].effect.priority, "first");
+  assert.equal(expansion[0].effect.excludesKeyword, "Tank");
+});
+
+test("golden: the merged Tank expansion is a static ability carrying no instruction body", () => {
+  // The merged expansion is validated as EffectIR v2 data (contract 3.7). It is
+  // a static declaration: registering it produces no layer activity (the
+  // layers engine has no continuous.combat branch), so the golden asserts the
+  // data shape rather than a fabricated combat behaviour.
+  const tank = keywordRegistryById.get("Tank");
+  const expansion = tank.expand({ host: { canonicalCardId: CANONICAL } });
+  assert.deepEqual(expansion, [
+    {
+      kind: "static",
+      effect: {
+        kind: "continuous.combat",
+        appliesTo: "self",
+        mode: "damage-assignment",
+        priority: "first",
+        damage: "lethal",
+        controllerScope: "same-controller",
+        excludesKeyword: "Tank"
+      }
+    }
+  ]);
 });
 
 test.todo(
-  "Stormclaw Ursine: [Tank] expansion (CR 815.1.b combat-damage assignment order) has no " +
-    "effects/keywords/Tank.ts and nothing in combat/ reads it — combat/base-combat-allocation.ts " +
-    "explicitly binds no Tank requirement (kw-tank batch / engine batch 5)"
+  "Stormclaw Ursine: [Tank] (CR 815.1.b combat-damage assignment order) has the merged KeywordDef " +
+    "(RIFT-264) but nothing consumes the continuous.combat declaration — " +
+    "combat/base-combat-allocation.ts explicitly binds no Tank requirement"
 );
 test.todo(
-  "Stormclaw Ursine: the played trigger only becomes reachable once the card-played timing emitted " +
-    "by chain/engine.ts is wired through the server-facing runtime (engine batch 4)"
+  "Stormclaw Ursine: the played trigger (card-played timing, already emitted by chain/engine.ts) " +
+    "still needs the CardProgram -> TriggerRegistration binding (RIFT-257) to enter the chain from a real play"
 );

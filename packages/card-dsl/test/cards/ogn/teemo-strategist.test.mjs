@@ -32,6 +32,8 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, verbatim sourceTe
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Hidden/);
   assert.match(program.judgeReason, /zoneSlice/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /Facedown/);
   assert.equal(program.sourceText, printedSourceText);
 });
 
@@ -214,8 +216,8 @@ test.todo(
 );
 test.todo(
   "Teemo, Strategist: [Hidden] expansion — Hide cost (811.1.b), next-turn [Reaction] and the facedown " +
-    "play permission ('played from [Hidden]', 811.1.d.3) — keywords/Hidden.ts + cost.hidden " +
-    "(RIFT-84 / RIFT-89 / RIFT-91)"
+    "play permission ('played from [Hidden]', 811.1.d.3) — keywords/Hidden.ts expands it, but no Hide " +
+    "action/facedown zone/consumer and no CardProgram→layers registration exist (RIFT-257 + Hide contract)"
 );
 test.todo(
   "Teemo, Strategist: printed text is the pre-errata version; the official correction (S-ORIGINS " +

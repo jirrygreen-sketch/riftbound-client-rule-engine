@@ -22,7 +22,7 @@ test("ogn-290-298 The Arena's Greatest: program validates and is judge-required"
   assert.match(program.judgeReason, /470\.1/);
   assert.match(program.judgeReason, /beginning-start/);
   assert.match(program.judgeReason, /event-player/);
-  assert.match(program.judgeReason, /RIFT-33/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(
     program.sourceText,
     "At the start of each player's first Beginning Phase, that player gains 1 point."
@@ -80,6 +80,6 @@ test("ogn-290-298: prevented Gaining Points negates the instruction without awar
   assert.deepEqual(outcome.linkedValues[`${score.id}.scored`], []);
 });
 test.todo(
-  "ogn-290-298: beginning-start 由 turn/ 发出并进链；每位玩家的第一个 Beginning Phase 只触发一次" +
-    "（each-player-once 频度 + 事件玩家选择器，契约变更请求）"
+  "ogn-290-298: beginning-start 已由 turn/ 发出，但把本卡触发能力绑定进管线（RIFT-257）仍缺；" +
+    "每位玩家的第一个 Beginning Phase 只触发一次还需 each-player-once 频度 + 事件玩家选择器（契约变更请求）"
 );
