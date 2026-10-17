@@ -4,6 +4,8 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/the-harrowing.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { prepareCostPayment } from "../../../../engine-core/dist/cost/payment.js";
+import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
 import play from "../../../../engine-core/dist/effects/instructions/effect.play.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -11,6 +13,43 @@ const CARD_ID = "card.hash-b1f0d3c36b0411806913cc29b12f067b24cd42286481ac3676aa3
 const [ability] = program.abilities;
 const [playUnit] = ability.body;
 const unitSpec = playUnit.targets[0];
+
+// A caller-supplied catalog projection exercises the merged cost arithmetic.
+// The card still has no producer that obtains this from its locked target.
+const PRINTED_UNIT = {
+  id: "test-unit-printing",
+  cardType: "Unit",
+  domains: ["Chaos"],
+  energy: 3,
+  power: 1
+};
+
+function ignoredEnergyPlan(kernel, extraCosts = {}) {
+  const run = runInstruction(costModify, {
+    id: "the-harrowing.cost-probe",
+    cost: { kind: "printed" },
+    printed: PRINTED_UNIT,
+    baseModifications: [{ kind: "ignore-base", ignore: "energy" }],
+    ...extraCosts
+  }, { world: kernel });
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.asked, null);
+  assert.deepEqual(run.events, []);
+  const plan = run.linked.cost;
+  assert.equal(plan.finalized, true);
+  assert.deepEqual(plan.printed, { energy: 3, power: 1 });
+  assert.deepEqual(plan.modifications, [{ kind: "ignore-base", ignore: "energy" }]);
+  return plan;
+}
+
+function playOverride(kernel, plan) {
+  // Use the cost layer's actual allocation instead of hand-writing a flat
+  // FinalizedCostPlan or passing CostPlan.total to effect.play as if it were one.
+  const prepared = prepareCostPayment(kernel, plan);
+  assert.equal(prepared.actions.length, 1);
+  assert.equal(prepared.actions[0].action.type, "pay");
+  return prepared.actions[0].action.plan;
+}
 
 test("The Harrowing program is valid EffectIR v2 data", () => {
   const result = validateCardProgram(program);
@@ -26,6 +65,12 @@ test("The Harrowing identity and judge-required status match the printing", () =
   assert.match(program.judgeReason, /CostPlanInput/);
   assert.equal(program.judgeReason.includes("ignore-base"), true);
   assert.match(program.judgeReason, /chain handoff/);
+  assert.match(program.judgeReason, /chain handoff 均已合入/);
+  assert.match(program.judgeReason, /CostPlanInput\.printed/);
+  assert.match(program.judgeReason, /ctx\.source（本法术）/);
+  assert.match(program.judgeReason, /chain\/interpreter-adapter\.ts/);
+  assert.match(program.judgeReason, /CostPlan.*total/);
+  assert.match(program.judgeReason, /356\.1\.b\.3/);
   assert.equal(
     program.sourceText,
     "Play a unit from your trash, ignoring its Energy cost. (You must still pay its Power cost.)"
@@ -34,7 +79,7 @@ test("The Harrowing identity and judge-required status match the printing", () =
 });
 
 test("The Harrowing structure: printed cost plus a play from trash with a cost.modify descriptor", () => {
-  // No printed speed keyword: spells default to Action timing (159.2.a).
+  // No speed keyword: normal timing is outside Showdowns on your turn (155).
   assert.equal(program.abilities.length, 1);
   assert.equal(ability.kind, "play");
   assert.deepEqual(ability.cost, {
@@ -87,47 +132,66 @@ test("The Harrowing golden: the unfinalized cost modifier is refused, not silent
   assert.equal(kernel.events.length, 0);
 });
 
-test("The Harrowing golden: a caller-finalized plan (Energy 0, Power still owed) plays the unit", () => {
-  // This is the shape the cost plan must hand over once the cost pipeline derives the
-  // ignore-Energy rewrite: the card data itself never writes this plan.
+test("The Harrowing golden: a cost-layer-produced override (Energy 0, Power still owed) plays the unit", () => {
   const kernel = world()
+    .player("A", { energy: 0, power: ["Chaos"] })
     .card("trashed-unit", {
       owner: "A",
       controller: "A",
       types: ["unit"],
       might: 3,
+      energy: PRINTED_UNIT.energy,
+      power: ["Chaos"],
       zone: "trash"
     })
     .build();
+  const plan = ignoredEnergyPlan(kernel);
+  assert.deepEqual(plan.base, {
+    energy: 3, power: [{ amount: 1, allowedDomains: ["Chaos"] }], xp: 0, actions: []
+  });
+  assert.deepEqual(plan.total, {
+    energy: 0, power: [{ amount: 1, allowedDomains: ["Chaos"] }], xp: 0, actions: []
+  });
+  const override = playOverride(kernel, plan);
+  assert.equal(override.energy, 0);
+  assert.deepEqual(override.power, ["Chaos"]);
   const run = runInstruction(
     play,
     {
       target: unitSpec.id,
-      cost: { kind: "constant", value: { finalized: true, energy: 0, power: ["Chaos"], xp: 0 } }
+      cost: { kind: "constant", value: override }
     },
     { world: kernel, targets: { [unitSpec.id]: [kernel.ref("trashed-unit")] } }
   );
 
   assert.equal(run.result.status, "executed");
   assert.equal(kernel.getObject("trashed-unit").zone, "board");
+  assert.equal(kernel.getObject("trashed-unit").might, 3);
+  assert.equal(kernel.player("A").energy, 0);
   assert.deepEqual(kernel.events.map(event => event.action), ["pay", "play"]);
   assert.deepEqual(run.linked.played, 1);
+  // TestWorld's pay action does not spend Power; the retained Power obligation
+  // is proved by the planner/allocation and insufficient-Power test below.
 });
 
 test("The Harrowing golden: a unit that left the trash before resolution is ignored", () => {
   const kernel = world()
+    .player("A", { energy: 0, power: ["Chaos"] })
     .card("trashed-unit", {
       owner: "A",
       controller: "A",
       types: ["unit"],
+      energy: PRINTED_UNIT.energy,
+      power: ["Chaos"],
       zone: "trash"
     })
     .build();
+  const override = playOverride(kernel, ignoredEnergyPlan(kernel));
   const stale = kernel.ref("trashed-unit");
   kernel.perform({ type: "move-zone", object: stale, to: "banishment" });
   const run = runInstruction(
     play,
-    { target: unitSpec.id, cost: { kind: "constant", value: { finalized: true, energy: 0, power: ["Chaos"], xp: 0 } } },
+    { target: unitSpec.id, cost: { kind: "constant", value: override } },
     { world: kernel, targets: { [unitSpec.id]: [stale] } }
   );
 
@@ -138,6 +202,56 @@ test("The Harrowing golden: a unit that left the trash before resolution is igno
   assert.deepEqual(run.events, []);
 });
 
+test("The Harrowing golden: ignoring Energy still requires the unit's Power", () => {
+  const kernel = world()
+    .player("A", { energy: 9, power: ["Fury"] })
+    .card("trashed-unit", {
+      owner: "A", types: ["unit"], zone: "trash", energy: 3, power: ["Chaos"]
+    })
+    .build();
+  const plan = ignoredEnergyPlan(kernel);
+  assert.equal(plan.total.energy, 0);
+  assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: ["Chaos"] }]);
+  assert.throws(() => prepareCostPayment(kernel, plan), { reason: "cannot-pay-cost" });
+  assert.equal(kernel.getObject("trashed-unit").zone, "trash");
+  assert.equal(kernel.player("A").energy, 9);
+  assert.deepEqual(kernel.player("A").power, ["Fury"]);
+  assert.deepEqual(kernel.events, []);
+});
+
+test("The Harrowing golden: additional Energy costs and increases survive ignoring base Energy (356.1.b.3)", () => {
+  const kernel = world()
+    .player("A", { energy: 4, power: ["Chaos"] })
+    .card("trashed-unit", {
+      owner: "A", types: ["unit"], zone: "trash", energy: 3, power: ["Chaos"]
+    })
+    .build();
+  const plan = ignoredEnergyPlan(kernel, {
+    mandatoryAdditional: [{
+      id: "additional-energy",
+      cost: { energy: { kind: "constant", value: 2 } }
+    }],
+    modifier: { kind: "increase", resource: "energy", amount: { kind: "constant", value: 1 } }
+  });
+  assert.deepEqual(plan.components.map(component => [component.stage, component.cost.energy]), [
+    ["base", 0], ["mandatory-additional", 2], ["increase", 1]
+  ]);
+  assert.equal(plan.total.energy, 3);
+  assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: ["Chaos"] }]);
+  const override = playOverride(kernel, plan);
+  assert.equal(override.energy, 3);
+  assert.deepEqual(override.power, ["Chaos"]);
+  const run = runInstruction(play, {
+    target: unitSpec.id,
+    cost: { kind: "constant", value: override }
+  }, { world: kernel, targets: { [unitSpec.id]: [kernel.ref("trashed-unit")] } });
+  assert.equal(run.result.status, "executed");
+  assert.equal(kernel.getObject("trashed-unit").zone, "board");
+  assert.equal(kernel.player("A").energy, 1);
+  assert.deepEqual(run.events.map(event => event.action), ["pay", "play"]);
+  assert.equal(run.linked.played, 1);
+});
+
 test.todo(
   "The Harrowing: a merged consumer must read this card's cost.modify descriptor and have " +
     "Finalize build the ignore-base plan (356.1.b.2: base Energy set to 0, Power still owed; " +
@@ -146,6 +260,7 @@ test.todo(
 );
 
 test.todo(
-  "The Harrowing: 420.3's Limited-Action Play procedure (limited-action admission, chain handoff " +
-    "and the nested card's own resolution) is owned by chain/ and the cost plan."
+  "The Harrowing: adapt CostPlan.total and its additional costs into the nested unit's Finalize " +
+    "cost input (356.1.b.3 / 420.3.b.1); chain handoff already exists, but forwarding the full " +
+    "cost.modify result as a flat effect.play override would lose its Energy/Power obligations."
 );
