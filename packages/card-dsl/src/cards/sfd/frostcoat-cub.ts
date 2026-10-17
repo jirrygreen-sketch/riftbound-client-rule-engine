@@ -20,16 +20,20 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   effect.buff 文件头明确临时 Might 修改归 continuous.might，绝不能写成 Buff 计数（702/703）。
  *   "a unit" 未限定友敌，是结算时可选的单位（355.9.b 的对象选择）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required，两处当前缺口：
- * - 可选追加费用没有端到端通路：merged cost 计划能支付 power 组件（golden 以调用方传入的
- *   mandatoryAdditional 作孤立证据），但 Play/Finalize 没有读取卡牌程序声明的
- *   cost.additional 并自动生成 optionalAdditional 费用计划。
- * - 「if you paid the additional cost」需要 356.4.f.1 的支付回执（以支付决定为凭证，与实付量无关）：
- *   冻结 IR 没有费用结果绑定（调研记为 condition.result），第二条指令无法按已付/未付开闸；
- *   程序刻意不加恒真条件，也不把费用改写成效果。
+ * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-17），两处当前缺口：
+ * - 可选追加费用没有卡牌侧入口：merged cost 计划能支付 power 组件（golden 以调用方传入的
+ *   mandatoryAdditional 作孤立证据），但没有任何已合入消费方把 CardProgram 声明的 static
+ *   cost.additional 接进 CostPlanInput——programs/play.ts 的 translateCost 对
+ *   additional / additional-cost 与 optional 字段直接判 judge-required，
+ *   createEngineStaticBinder.bindStatic 对该 effect kind 抛
+ *   "Static ability kind cost.additional has no layer mapping"。
+ * - 「if you paid the additional cost」的谓词已合入（RIFT-359 的 Condition kind "result"，
+ *   由 effects/interpreter/predicates/result.ts 从 { plan, receipt } 读取 356.4.f.1 的支付决定），
+ *   本卡按该词汇写 TriggerSpec.condition；仍缺的是打出流程把被打出牌的 item.payment 回执送进
+ *   该 card-played 触发的 Resolve 输入，真实波次因此抛 MissingInformation（同 sfd/zaun-punk）。
  * 「give a unit -2 :rb_might: this turn」半段已可执行：continuous.might 注册
  * arithmetic 层修正并按回合末到期，golden 经生产链适配器真实执行（含目标失效 ignored）。
- * 依赖：Play/Finalize 的可选追加费用接线与费用回执的契约缺口。
+ * 依赖：CardProgram → CostPlanInput 的可选追加费用消费方与 card-played 触发的费用回执投递。
  */
 const abilities: Ability[] = [
   {
@@ -54,12 +58,17 @@ const abilities: Ability[] = [
   },
   {
     kind: "triggered",
-    trigger: { at: "card-played", filter: { event: "card-played", filter: { source: "self" } } },
+    trigger: {
+      at: "card-played",
+      filter: { event: "card-played", filter: { source: "self" } },
+      // 383.2.a.1 + 356.4.f.1：「if you paid the additional cost」紧跟在触发条件之后，
+      // 是触发条件的一部分；已合入的 result 谓词按支付决定（与实付量无关）开闸。
+      condition: { kind: "result", result: "additional-cost-paid", id: "frostcoat-cub.additional-cost" }
+    },
     optional: false,
     body: [
       {
-        // 「if you paid the additional cost」的门控无法表达（356.4.f.1 的支付回执属
-        // condition.result 类缺口）：这里刻意不加恒真条件，也不把费用改写成效果。
+        // 门控在触发条件上（见上）；指令本身不带条件，也不把费用改写成效果。
         id: "frostcoat-cub.give-minus-2-might",
         op: "continuous.might",
         args: {
@@ -91,14 +100,18 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处当前缺口：(1)「You may pay :rb_rune_mind: as an additional cost to play me」（356.2.b/356.2.b.1，355.1.a 选择、356.2 施加）" +
-    "没有端到端通路：merged cost 计划能支付 power 组件（golden 以调用方传入的 mandatoryAdditional 作孤立证据），" +
-    "但 Play/Finalize 没有读取卡牌程序声明的 cost.additional 并自动生成 optionalAdditional 费用计划。" +
-    "(2)「if you paid the additional cost」需要 356.4.f.1 的支付回执（以支付决定为凭证，与实付量无关）：" +
-    "冻结 IR 没有费用结果绑定（调研记为 condition.result），第二条指令无法按已付/未付开闸；程序不伪造恒真条件。" +
+    "两处当前缺口，均不近似实现：(1)「You may pay :rb_rune_mind: as an additional cost to play me」（356.2.b/356.2.b.1，355.1.a 选择、356.2 施加）" +
+    "没有卡牌侧入口：merged cost 计划能支付 power 组件（golden 以调用方传入的 mandatoryAdditional 作孤立证据），" +
+    "但没有任何已合入消费方把 CardProgram 声明的 static cost.additional 接进 CostPlanInput——" +
+    "programs/play.ts 的 translateCost 对 additional 字段抛 \"Additional costs are not bound\"、对 optional 字段抛 \"Unsupported play cost field optional\"，" +
+    "createEngineStaticBinder.bindStatic 对该 effect kind 抛 \"Static ability kind cost.additional has no layer mapping\"。" +
+    "(2)「if you paid the additional cost」的 356.4.f.1 谓词已合入（RIFT-359 的 Condition kind \"result\"，" +
+    "effects/interpreter/predicates/result.ts 从 { plan, receipt } 读取支付决定），本卡按该词汇写 TriggerSpec.condition；" +
+    "仍缺的是打出流程把被打出牌的 item.payment 回执送进该 card-played 触发的 Resolve 输入，真实波次因此抛 MissingInformation（同 sfd/zaun-punk）。" +
     "「give a unit -2 :rb_might: this turn」半段已可执行：continuous.might 注册 arithmetic 层修正并回合末到期，" +
-    "golden 已用生产链适配器真实执行（含目标失效 ignored）；绝不用 effect.buff 计数近似（702/703）。" +
-    "依赖：可选追加费用接线与费用回执契约缺口。",
+    "golden 已用生产链适配器真实执行（含目标失效 ignored），并用真实的 buildCostPlan/payCostPlan 回执执行 result 谓词的已付/未付两支；" +
+    "绝不用 effect.buff 计数近似（702/703）。" +
+    "依赖：CardProgram → CostPlanInput 的可选追加费用消费方与 card-played 触发的费用回执投递。",
   abilities,
   sourceText:
     "You may pay :rb_rune_mind: as an additional cost to play me.\n" +
