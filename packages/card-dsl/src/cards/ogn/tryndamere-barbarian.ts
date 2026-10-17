@@ -31,7 +31,7 @@ import type { CardProgram } from "../../ir/index.js";
  * - 同时，conquer 的 score 动作只带 player，触发 filter 的
  *   object:{objectId:"self"}（383.4.c.2.a 的单位身份）没有可绑定的事件对象；
  *   本卡按可接受拼写声明意图并保留该缺口。
- * 依赖：RIFT-31/33（战斗伤害分配的 excess 统计与单位身份载荷）。
+ * 依赖：战斗伤害分配统计接入 conquer 事件或 HistoryQuery，以及 conquer 事件携带征服单位身份。
  * 不把条件近似成固定常量，也不手改玩家点数。
  */
 const tryndamereBarbarian = {
@@ -45,7 +45,7 @@ const tryndamereBarbarian = {
     "(2)「When I conquer」的 383.4.c.2.a 单位身份没有事件对象可绑定：conquer 的 score 动作只带 player，" +
     "filter 的 object:{objectId:self} 只能声明意图、没有可绑定载荷。" +
     "已合入部分：「score 1 point」由 effect.score 真实执行，conquer 时点由 turn/flow.ts 的 Score 波发出。" +
-    "依赖：RIFT-31/33（战斗伤害分配统计与单位身份载荷）。不近似为固定条件或直接改点数。",
+    "依赖：战斗伤害分配统计接入 conquer 事件或 HistoryQuery，以及 conquer 事件携带征服单位身份。不近似为固定条件或直接改点数。",
   abilities: [
     {
       kind: "triggered",

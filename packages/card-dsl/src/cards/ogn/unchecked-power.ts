@@ -6,8 +6,8 @@ import type { CardProgram } from "../../ir/index.js";
  * Printed text:
  *   Exhaust all friendly units, then deal 12 to ALL units at battlefields.
  *
- * Status: judge-required (re-reviewed 2026-10-17) — the damage half is a
- * programmatically selected set with no merged write path:
+ * Status: judge-required (re-reviewed 2026-10-17) — both set halves still have
+ * a production binding gap:
  * - "Exhaust all friendly units" is a set, so it is NOT targeted (355.10.d).
  *   It is declared as a non-target pick (contract 3.1 `picks`), and
  *   `effect.exhaust` consumes it with its default amount (every eligible
@@ -27,6 +27,11 @@ import type { CardProgram } from "../../ir/index.js";
  *   (ctx.targets), so there is no query/multi-battlefield-set form for the
  *   damage instruction. The described instruction carries that unmerged shape
  *   and does not execute.
+ * - The friendly-unit pick uses the auditable `dynamic:friendly-units` option;
+ *   Finalize has no filter-derived resolver that turns this placeholder into
+ *   the controller's current unit refs. The golden binds those refs explicitly
+ *   through the reference kernel, so it proves the exhaust semantics without
+ *   claiming that the production picker is wired.
  * - The "then" ordering is preserved by declaring the damage after the
  *   exhaust; the halves are not `linkedTo` each other because neither
  *   references the other's result (359.3.e.14 links references, not ordering).
@@ -36,11 +41,11 @@ const uncheckedPower = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "第二个半段是程序化集合而非目标（355.10.d，其反例正是 “Kill all units at battlefields”）：" +
+    "两处集合绑定仍缺生产接线（复核 2026-10-17）：(1) 第二个半段是程序化集合而非目标（355.10.d，其反例正是 “Kill all units at battlefields”）：" +
     "“Deal 12 to ALL units at battlefields” 既指定地点（355.10.b/d）又不是可表达集合——目标系统（target/target-plan.ts）已合入，" +
     "但已合入的 effect.damage 只消费 Finalize 锁定的 TargetSpec id（ctx.targets），没有把 resolution-time 集合/地点交集交给伤害的形态，" +
     "也没有指令原语可注册该集合；当前 effect.damage 只接受 Finalize 锁定的 TargetSpec id，缺少结算期非目标集合的伤害形式。" +
-    "“Exhaust all friendly units” 半段用 effect.exhaust 的非目标 picks 集合形式，由 golden 在参考内核上真实执行。" +
+    "(2) “Exhaust all friendly units” 半段虽用 effect.exhaust 的非目标 picks 集合形式，但 PickSpec 的 dynamic:friendly-units 占位符没有 Finalize 的过滤器解析器；golden 只在参考内核上显式绑定 refs，不能作为生产接线证据。" +
     "两半均不声明为 targets、不近似、不手改状态。",
   abilities: [
     {

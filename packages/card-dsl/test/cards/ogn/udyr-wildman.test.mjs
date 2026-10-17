@@ -47,11 +47,10 @@ test("ogn-157-298 Udyr, Wildman: program validates and keeps identity", () => {
   assert.equal(program.sourceText.includes("battlefield.Stun"), true);
 });
 
-test("ogn-157-298 Udyr, Wildman: judgeReason cites the per-turn choice memory and the movement consumer", () => {
+test("ogn-157-298 Udyr, Wildman: judgeReason cites only the unresolved mode-choice gaps", () => {
   assert.match(program.judgeReason, /choice\.mode/);
-  assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /choice-plan adapter/);
-  assert.match(program.judgeReason, /Ganking/);
+  assert.doesNotMatch(program.judgeReason, /依赖：.*Ganking/);
 });
 
 test("ogn-157-298 Udyr, Wildman: 'Spend my buff:' is the activated cost and action timing (377.1 / 381.1)", () => {

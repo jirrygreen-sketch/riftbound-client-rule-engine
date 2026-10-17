@@ -22,6 +22,7 @@ test("Unchecked Power program is structurally valid and judge-required", () => {
   assert.match(program.judgeReason, /355\.10\.d/);
   assert.match(program.judgeReason, /effect\.damage/);
   assert.match(program.judgeReason, /非目标集合/);
+  assert.match(program.judgeReason, /dynamic:friendly-units/);
 });
 
 test("Unchecked Power identity and printed text match the catalog", () => {
@@ -149,7 +150,6 @@ test.todo(
 
 test.todo(
   "Unchecked Power: the friendly-unit set for 'all friendly units' has to be resolved " +
-    "against the acting controller by the production set/query path (740.1.a/740.1.b, " +
-    "chain/engine.ts#context normalizes only the literal self/opponent spellings; the " +
-    "Finalize placeholder vocabulary still has no controller-relative set binding)."
+    "against the acting controller by the production PickSpec/Finalize path (740.1.a/740.1.b); " +
+    "the dynamic:friendly-units placeholder still has no controller-relative set binding."
 );

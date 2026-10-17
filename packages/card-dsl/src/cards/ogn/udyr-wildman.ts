@@ -37,8 +37,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "Spend my buff:"（702.2.b 的 spend-buff）已用费用计划真实收取（golden）。
  * - "a unit at a battlefield" 的伤害/横置目标在真实链路里可用 TargetSpec 表达，
  *   对应模式的 effect.damage / effect.stun / effect.ready 已由 golden 真实执行。
- * 依赖：模式选择记忆账本、choice.mode 的 Finalize/Resolve choice-plan adapter、
- * Ganking 移动许可消费方（Standard Move 合法性检查）。
+ * 依赖：模式选择记忆账本、choice.mode 的 Finalize/Resolve choice-plan adapter。
  * 不近似实现（不把"本回合未选过"删掉当无限制，也不写死伤害数额）。
  */
 const abilities: Ability[] = [

@@ -39,6 +39,11 @@ function attackWorld(rune, domain) {
   return base.clone({ sourceSnapshot: base.getObject("tf") });
 }
 
+function lockTopRune(kernel) {
+  const [top] = kernel.zoneSlice("A", "rune-deck", "top", 1).map(object => object.ref);
+  kernel.setPicks("twisted-fate-gambler.top-rune", [top]);
+}
+
 test("twisted-fate-gambler: passes validateCardProgram", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.issues, null, 2));
@@ -50,7 +55,8 @@ test("twisted-fate-gambler: identity, ruleset, status, judgeReason and sourceTex
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /388/);
-  assert.match(program.judgeReason, /ordered-pick/);
+  assert.match(program.judgeReason, /反身触发/);
+  assert.doesNotMatch(program.judgeReason, /ordered-pick/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -80,9 +86,19 @@ test("twisted-fate-gambler: attack trigger and the reveal → recycle → branch
 test("twisted-fate-gambler: the top rune is revealed, then recycled from the linked result", () => {
   // CR 425.1 / 425.3.a: 展示 1 张符文；108.5.d 说明符文牌库顺序是秘密信息。
   assert.equal(reveal.op, "effect.reveal");
-  assert.deepEqual(reveal.args.zone, { kind: "constant", value: "rune-deck" });
-  assert.deepEqual(reveal.args.count, { kind: "constant", value: 1 });
+  assert.deepEqual(reveal.args.pick, { kind: "constant", value: "twisted-fate-gambler.top-rune" });
+  assert.equal(reveal.args.zone, undefined);
+  assert.equal(reveal.args.count, undefined);
   assert.equal(reveal.targets, undefined);
+  assert.deepEqual(reveal.picks, [
+    {
+      id: "twisted-fate-gambler.top-rune",
+      options: [],
+      ordered: true,
+      selection: "all",
+      zoneSlice: { zone: "rune-deck", from: "top", count: { kind: "constant", value: 1 } }
+    }
+  ]);
 
   // CR 417.1.b / 417.1.c: 符文回收进符文牌库（牌主自己的）。
   assert.equal(recycle.op, "effect.recycle");
@@ -146,6 +162,7 @@ test("twisted-fate-gambler: the Mind branch draws 1 and the Order branch stuns a
 
 test("twisted-fate-gambler golden: reveal + recycle move the top rune to the bottom of the rune deck", () => {
   const kernel = attackWorld("fury-rune", "Fury");
+  lockTopRune(kernel);
 
   const outcome = resolveChainBody([reveal, recycle], kernel);
   assert.equal(outcome.status, "executed");
@@ -161,6 +178,7 @@ test("twisted-fate-gambler golden: reveal + recycle move the top rune to the bot
 test("twisted-fate-gambler golden: the domain read yields the revealed rune's power list", () => {
   for (const [rune, domain] of [["fury-rune", "Fury"], ["mind-rune", "Mind"], ["order-rune", "Order"]]) {
     const kernel = attackWorld(rune, domain);
+    lockTopRune(kernel);
     const outcome = resolveChainBody(
       [
         reveal,
@@ -219,6 +237,7 @@ test("twisted-fate-gambler golden: the Fury branch's second instruction follows 
 
 test("twisted-fate-gambler golden: the Mind branch draws 1 (CR 414.3)", () => {
   const kernel = attackWorld("mind-rune", "Mind");
+  lockTopRune(kernel);
   // 先用真实 reveal + domain 读取建链，再用程序里的 Mind 分支执行
   const outcome = resolveChainBody(
     [
@@ -275,11 +294,6 @@ test.todo(
   "twisted-fate-gambler: 反身触发（388.1.b “Do one of the following”）要求按域条件把选中的分支作为**新的链项**" +
     "入链；没有卡牌可用的反身触发构造原语，且 chain/engine.ts 的 assertFinalizationSurface 拒绝 choice.mode" +
     "（Mode choices require a Finalize/Resolve choice-plan adapter）"
-);
-
-test.todo(
-  "twisted-fate-gambler: “reveal the top rune of your rune deck” 的顶张顺序（108.5.d）依赖把 zoneSlice/ordered picks" +
-    "接进 effect.reveal 的区域真子集路径（当前对符文牌库取顶 1 张会抛 “a subset of this zone requires upstream ordered picks”）"
 );
 
 test.todo(

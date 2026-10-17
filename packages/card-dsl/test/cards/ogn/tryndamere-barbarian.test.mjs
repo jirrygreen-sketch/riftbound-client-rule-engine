@@ -15,7 +15,8 @@ test("ogn-034-298 Tryndamere, Barbarian: program validates and is judge-required
   // The score clause is merged; the remaining gaps are the
   // excess-damage statistic and the conquering-unit event payload.
   assert.match(program.judgeReason, /excess damage/);
-  assert.match(program.judgeReason, /RIFT-31\/33/);
+  assert.match(program.judgeReason, /战斗伤害分配统计/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-31\/33/);
 });
 
 test("ogn-034-298 Tryndamere, Barbarian: identity, ruleset and exact source text", () => {
@@ -78,6 +79,6 @@ test("ogn-034-298 Tryndamere, Barbarian golden: the score clause gains 1 point t
 test.todo(
   "ogn-034-298 Tryndamere, Barbarian: the 'assigned 5 or more excess damage' trigger condition needs " +
     "the combat-damage assignment statistic (CR 467.2.c.4) exposed on the conquer event or through " +
-    "history (RIFT-31/RIFT-33), and the score payload must carry the conquering unit for the " +
+    "HistoryQuery, and the score payload must carry the conquering unit for the " +
     "383.4.c.2.a unit-identity binding."
 );
