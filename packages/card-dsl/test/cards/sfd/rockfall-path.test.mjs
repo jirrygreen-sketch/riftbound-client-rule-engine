@@ -60,12 +60,11 @@ test("sfd-216-221 Rockfall Path: identity, ruleset, status and printed text", ()
   // primitive/consumer, not just "not implemented".
   assert.match(program.judgeReason, /054/);
   assert.match(program.judgeReason, /continuous\.restrict/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-91/);
-  // RIFT-259 merged the primitive and the rules-query surface, so the accurate
-  // remaining gap is the missing consumer plus the registration path.
-  assert.match(program.judgeReason, /RIFT-259/);
-  assert.match(program.judgeReason, /ProgramStaticBinder/);
+  assert.match(program.judgeReason, /Finalize/);
+  assert.match(program.judgeReason, /no-battlefield/);
+  // The remaining gap is this Battlefield's destination-specific prohibition.
+  assert.match(program.judgeReason, /playDestinationIsLegal/);
+  assert.match(program.judgeReason, /static/);
   assert.match(program.judgeReason, /sameLocationAs/);
 });
 
@@ -95,11 +94,8 @@ test("sfd-216-221: one static prohibition on playing units at this Battlefield (
 });
 
 test("sfd-216-221: continuous.restrict is merged, and the layer snapshot carries no play restriction", () => {
-  // Evidence for the corrected judgeReason: RIFT-259 merged the primitive, so
-  // the registry has the opcode; the layer engine still records nothing for a
-  // continuous.restrict ability-layer entry on the evaluated object (only
-  // movement permissions land on the snapshot), and nothing consults the rules
-  // query during play.
+  // A play-destination prohibition belongs to the rules query, while the
+  // movement snapshot below keeps its independent default permissions.
   const definition = instructionDefinitionsById.get("continuous.restrict");
   assert.ok(definition, "the merged registry must carry continuous.restrict");
   assert.equal(definition.op, "continuous.restrict");
@@ -130,12 +126,9 @@ test("sfd-216-221: continuous.restrict is merged, and the layer snapshot carries
   assert.equal(snapshot.keywords.length, 0);
 });
 
-test("sfd-216-221: the merged restriction primitive registers its spec and no player path reads it", () => {
-  // Evidence for the judgeReason: the merged primitive really registers an
-  // ability-layer restriction (so the data is not the blocker), while the
-  // Finalize unit-play slice still binds only the actor's own Base as the
-  // entry location (cardplay-unit-v2.ts: baseLocationId -> board-base) and the
-  // restriction registry has no caller outside the rules-query helpers.
+test("sfd-216-221: the merged restriction primitive registers its generic action spec", () => {
+  // This generic primitive registration works. It does not supply the
+  // destination identity needed to prohibit only Rockfall Path.
   const kernel = world().unit("enemy-mech").build();
   const outcome = resolveChainBody(
     [{ id: "prohibition", op: "continuous.restrict", args: {
@@ -152,14 +145,12 @@ test("sfd-216-221: the merged restriction primitive registers its spec and no pl
   assert.deepEqual(registered.effect.effect.actions, ["play"]);
   assert.equal(registered.effect.effect.restriction, "units-cannot-be-played-here");
   assert.deepEqual(registered.duration, { type: "permanent" });
-  // The restriction is recorded on the pipeline, but nothing in the merged play
-  // path reads it, so a unit can still be played to this battlefield.
+  // Execution exists; the card-specific destination adapter remains blocked.
   assert.equal(typeof instructionDefinitionsById.get("continuous.restrict").execute, "function");
 });
 
 test.todo(
   "sfd-216-221: the merged continuous.restrict registration must be consulted when computing a " +
     "unit's Valid Locations (355.2.b) during Finalize, so playing a unit here is prohibited " +
-    "(054/054.1); the rules query has no caller yet, and a production CardProgram static registration " +
-    "path is still needed (RIFT-89 / RIFT-91)"
+    "(054/054.1), preserving other Battlefield and Base destinations; static registration and generic queries already exist"
 );

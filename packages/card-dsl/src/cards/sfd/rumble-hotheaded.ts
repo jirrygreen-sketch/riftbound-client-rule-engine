@@ -13,49 +13,27 @@ import type { CardProgram } from "../../ir/index.js";
  * (RIFT-81) are both merged.
  *
  * Ability 2 triggers when this unit conquers (timing point "conquer", which
- * turn/flow.ts emits in the Score wave). The recycle instruction targets
- * another friendly unit (417.6 treats named-object recycles as targets;
- * effect.recycle links the recycled refs and their count). The play
+ * turn/flow.ts emits in the Score wave). The recycle instruction still has a
+ * blocked target declaration: as a "to" cost it must instead make a non-target
+ * choice (355.10.c.1). effect.recycle links recycled refs and their count. The play
  * instruction then plays a Mech from the controller's trash. The Energy
  * discount travels on the effect.play cost argument in the frozen
- * FinalizedCostPlan shape, but computing the printed cost minus the recycled
- * unit's Might is the cost.modify / cost-plan work tracked as RIFT-89.
+ * FinalizedCostPlan shape, but binding the recycled Might snapshot into the nested Mech play Finalize
+ * plan remains blocked even though cost.modify / cost.pay are merged.
  *
- * Status: judge-required. Both halves have merged building blocks but neither
- * clause can run as printed, and nothing is approximated:
- * - Ability 1: continuous.grant-keyword registers an ability-layer keyword
- *   grant, but the registration path is still a caller-supplied
- *   ProgramStaticBinder callback (programs/statics.ts defaults to noop, and no
- *   production caller passes one that turns a CardProgram static ability into a
- *   ContinuousEffectSpec). Even registered, the granted keyword needs the
- *   Assault expansion's attacker designation, which ObjectSnapshot still lacks
- *   (contract 3.8 declares combatRole; layers/engine.ts conditionMatches does
- *   not evaluate the expansion's compare condition and returns true for an
- *   unknown kind, so the +1 Might would apply unconditionally).
- * - Ability 2: the trigger body needs the Finalize-time discount. cost.pay /
- *   cost.modify exist as instructions only on an unmerged branch (RIFT-261); the
- *   merged cost path consumes a caller-supplied CostPlanInput and its
- *   `discounts`, and programs/play.ts translateCost rejects a raw
- *   FinalizedCostPlan value in the card's `cost` field. The linked
- *   recycledMight key the program reads also does not exist: effect.recycle
- *   links recycled / recycledCount, not the recycled unit's Might.
+ * Current review:
+ * CR v1.5 807.1.c/.d.1: granted Assault still needs runtime Might
+ * consumption. CR 383.4.c: Conquer requires this unit at the scored battlefield.
+ * CR 355.10.c.1: the recycled unit is a non-target cost within an instruction.
+ * cost.modify/cost.pay and static binding are merged, but the recycled Might
+ * snapshot and the nested Mech play Finalize cost plan remain unbound.
  */
 export default {
   canonicalCardId: "card.hash-11c889b9d655c822e7ce3ec82c5a5f1e2d716ac6d3c2ed6fb9bb7b22c32ce870",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两半都有已合入构件，但都还跑不起来，且不近似实现：" +
-    "(1)「Your Mechs each have [Assault]」——RIFT-258 的 continuous.grant-keyword 与 RIFT-81 的 Assault 展开都已合入，" +
-    "但注册路径仍是调用方提供的 ProgramStaticBinder 回调（programs/statics.ts 默认 noop，生产路径没有调用者把 " +
-    "CardProgram static 能力注册成 ContinuousEffectSpec）；即便注册，Assault 展开的 +1 Might 依赖 attacker designation" +
-    "——ObjectSnapshot 只有契约 3.8 的 combatRole，" +
-    "layers/engine.ts 的 conditionMatches 不求值展开的 compare 条件（未知 kind 返回 true）。" +
-    "(2)「Reduce its Energy cost by the Might of the unit you recycled」——减费要在 Finalize 落实为 finalized cost plan；" +
-    "cost.pay/cost.modify 只在未合入的 RIFT-261 分支上，已合入的费用管线只消费调用方给的 CostPlanInput 及其 discounts，" +
-    "programs/play.ts 的 translateCost 也会拒绝把 FinalizedCostPlan 当作卡牌 cost 字段；程序读取的 recycledMight 链接值不存在" +
-    "（effect.recycle 只写 recycled/recycledCount）。conquer 时点本身已由 turn/flow.ts 的计分波发出。" +
-    "依赖：RIFT-261（cost.modify/费用计划）、卡牌 static/trigger 注册消费方（RIFT-257 后续）、attacker designation 与图层条件求值。",
+    "「Your Mechs each have [Assault]」可由默认 static binder 登记 continuous.grant-keyword，但运行时授予的 Assault 未进入 KeywordDef 展开/攻击者 Might 消费，且现有展开的 designation 与 combatRole 尚未对齐（CR v1.5 807.1.c/.d.1）。「When I conquer」事件只有 player/details.battlefieldId，无本单位 object，当前 role:self 过滤不能判定本单位在被征服战场（383.4.c）；回收作为「to」费用依 355.10.c.1 不应是目标，当前 role:other-friendly 也无法翻译。cost.modify/cost.pay 均已合入；仍缺被回收单位 Might 的费用取值时点、Mech 的真实印刷费用/减费计划与嵌套 effect.play Finalize 的绑定（356/357），不能把 recycled/recycledCount 当作不存在的 recycledMight。依赖：授予 Assault 的消费、conquer 场地身份、回收非目标费用与嵌套打出减费计划。",
   abilities: [
     {
       kind: "static",
