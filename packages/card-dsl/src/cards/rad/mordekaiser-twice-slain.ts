@@ -20,7 +20,7 @@ const abilities: Ability[] = [
       {
         // “kill a friendly unit” — 费用式动作，按 355.10.c.1 不是目标，因此用 picks
         // （非目标选择）而不是 targets；静态 IR 只能给出描述性选项，替代发生时的
-        // 具体引用由费用/替代的动态 picks 适配器（RIFT-358）提供。
+        // 具体引用由替代层的动态 picks 适配器提供。
         id: "mordekaiser.kill-friendly",
         op: "effect.kill",
         args: { picks: { kind: "constant", value: "mordekaiser.friendly-unit" } },
@@ -77,7 +77,7 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "缺替代内费用的非目标动态选择（CR 355.10.c.1，RIFT-358）：replacement/planner.ts effect.kill 只规划 args.target 对象，" +
+    "缺替代内费用的非目标动态选择（CR 355.10.c.1）：replacement/planner.ts 的 effect.kill 只规划 args.target 对象，" +
     "尚未消费本卡 args.picks；cost.choice 也只接受精确引用。缺区别于 Move 的 Recall 动作（457-460），effect.move 的 recall " +
     "模式与替代 planner 均阻断。ReplacementAbility 没有 optional/oncePerTurn 字段，bindReplacement 未把本卡「you " +
     "may/Once each turn」传给已有的管线支持。另缺 Accelerate（805.2.b）的付费门控：programs/play.ts 不消费 accelerate.cost，" +

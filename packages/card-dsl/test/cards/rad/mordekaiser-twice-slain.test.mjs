@@ -42,7 +42,7 @@ test("rad-020-167 Mordekaiser, Twice Slain: identity, status, judgeReason and ve
 
 test("rad-020-167 Mordekaiser, Twice Slain: judgeReason names selection, Recall, metadata and Accelerate gating", () => {
   assert.match(program.judgeReason, /355\.10\.c\.1/);
-  assert.match(program.judgeReason, /RIFT-358/);
+  assert.match(program.judgeReason, /replacement\/planner\.ts/);
   assert.match(program.judgeReason, /Recall/);
   assert.match(program.judgeReason, /optional\/oncePerTurn/);
   assert.match(program.judgeReason, /accelerate\.cost/);
@@ -231,7 +231,7 @@ test("rad-020-167 Mordekaiser, Twice Slain: the within-cost kill stays a non-tar
   assert.equal(scoped.getObject("ally").zone, "trash");
 });
 
-test.todo('Mordekaiser, Twice Slain: select and pay a friendly-unit sacrifice inside the replacement, with payment failure gating (CR 355.10.c.1, RIFT-358).');
+test.todo('Mordekaiser, Twice Slain: select and pay a friendly-unit sacrifice inside the replacement, with payment failure gating (CR 355.10.c.1).');
 test.todo('Mordekaiser, Twice Slain: execute Recall as a distinct relocation preserving statuses and bypassing movement restrictions (CR 457-460).');
 test.todo('Mordekaiser, Twice Slain: bind the replacement optional/oncePerTurn fields and connect Accelerate selected costs to entry orientation (CR 805.2.b).');
 

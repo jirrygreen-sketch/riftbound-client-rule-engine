@@ -5,14 +5,14 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * Entry replacement binding is implemented by programs/statics.ts and
  * replacement/bind.ts. HistoryQuery.objectFilter also supports historical
  * type/controller filters. The missing boundary is exposing that turn history
- * to a replacement Condition (RIFT-359); a body condition.history instruction
- * cannot gate the entry replacement. The partial body must stay judge-required.
+ * to a replacement Condition; a body condition.history instruction cannot gate
+ * the entry replacement. The partial body must stay judge-required.
  */
 const abilities: Ability[] = [
   {
     kind: "replacement",
     replaces: { event: "object-enters-board", filter: { source: "self" } },
-    // The historical if-clause still needs a replacement Condition (RIFT-359).
+    // The historical if-clause still needs a replacement Condition adapter.
     with: [
       {
         id: "lingering-animus.enter-ready",
@@ -30,7 +30,7 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "缺入场替代的历史条件求值（CR 364.3.a/369.3，RIFT-359）：Condition/Expr 不能读取「本回合有友方单位或装备死亡」的 HistoryQuery；" +
+    "缺入场替代的历史条件求值（CR 364.3.a/369.3）：Condition/Expr 不能读取「本回合有友方单位或装备死亡」的 HistoryQuery；" +
     "condition.history 是 body 指令，不能作为替代能力的 Condition 执行。history.objectFilter 已支持按历史对象类型/控制者过滤，" +
     "入场替代也已有 programs/statics.ts → replacement/bind.ts 路径；还需让 replacement/bind.ts 的 " +
     "matchesEnterAction 分支在命中入场时消费该条件（目前先直接返回 true），不能省略 if 后执行整卡。",

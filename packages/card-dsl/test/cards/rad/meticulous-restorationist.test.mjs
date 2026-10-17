@@ -23,7 +23,7 @@ test("rad-120-167 Meticulous Restorationist: program validates and has expected 
 });
 
 test("rad-120-167 Meticulous Restorationist: judgeReason names the event condition and trash subscription", () => {
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /PipelineHost\.testTrigger/);
   assert.match(program.judgeReason, /基础 Energy/);
   assert.match(program.judgeReason, /activeZones: \[board\]/);
   assert.match(program.judgeReason, /trash/);
@@ -102,7 +102,7 @@ test("rad-120-167 Meticulous Restorationist: accept path plays the card from tra
   assert.equal(outcome.linkedValues[`${playInstruction.id}.restored`], 1);
 });
 
-test.todo('Meticulous Restorationist: bind the card-played event object, compare its base Energy >=7, and handle null without coercion (CR 206.1, RIFT-359).');
+test.todo('Meticulous Restorationist: bind the card-played event object, compare its base Energy >=7, and handle null without coercion (CR 206.1).');
 test.todo('Meticulous Restorationist: activate this optional trigger from Trash through the card program lifecycle and resolve it with one Order Power payment.');
 
 test("Meticulous Restorationist: the actual cost planner requires an Order Power override", () => {
