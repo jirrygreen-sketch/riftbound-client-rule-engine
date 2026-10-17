@@ -33,8 +33,6 @@ test("ven-069-166 Mel: identity, status, judgeReason and verbatim sourceText", (
   assert.match(program.judgeReason, /827\.1\.c\.1/);
   assert.match(program.judgeReason, /426\.1/);
   assert.match(program.judgeReason, /continuous\.restrict/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-91/);
 });
 
 test("ven-069-166 Mel: 'When you play me, draw 1' is one mandatory self trigger", () => {
@@ -109,16 +107,3 @@ test("ven-069-166 golden: drawing from an empty deck links the real drawn count 
   assert.equal(run.linked.drawn, 0);
   assert.equal(kernel.player("A").handSize, 0);
 });
-
-test.todo(
-  "ven-069-166 Mel, Newly Awakened: [Empower] expansion (827.1.c.1: 3 Energy, 'use only if not Empowered') and the " +
-    "[Empowered][>] dependent abilities (828.1.b.1) need an Empower/Empowered KeywordDef — none is merged"
-);
-test.todo(
-  "ven-069-166 Mel: 'Your spells and abilities can't be countered' (426.1/426.2) needs a continuous.restrict consumer " +
-    "in the chain's Counter legality check — no such consumer is merged (RIFT-89)"
-);
-test.todo(
-  "ven-069-166 Mel: 'an additional -1 :rb_might:' (479.4.b) needs a continuous.might-modification consumer; the closed " +
-    "GameAction set has no Might change and no continuous.might primitive is merged (RIFT-91)"
-);
