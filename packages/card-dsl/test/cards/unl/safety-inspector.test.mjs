@@ -8,6 +8,12 @@ import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
+import { translateCost } from "../../../../engine-core/dist/programs/play.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { createActionPipelineHost, bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 
 const CANONICAL_ID =
   "card.hash-e6ded9cf1a86a9d78660918b257ded9725d2afb4395c59332d8c3f7d09d03eb9";
@@ -33,7 +39,9 @@ test("unl-164-219 Safety Inspector: identity, status, judgeReason and verbatim s
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /cost\.additional/);
   assert.match(program.judgeReason, /356\.4\.f\.1/);
-  assert.match(program.judgeReason, /CardProgram → CostPlan/);
+  assert.match(program.judgeReason, /each-player/);
+  assert.match(program.judgeReason, /no layer mapping/);
+  assert.match(program.judgeReason, /Unavailable condition result/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -197,3 +205,64 @@ test.todo(
 test.todo(
   "unl-164-219 Safety Inspector: collect the static cost.additional declaration into the CardProgram play cost plan; XP payment and receipts already execute above"
 );
+
+test("unl-164-219 Safety Inspector: the each-player controller filter currently matches no unit at all", () => {
+  // CR 429.6: the killer is each player's own choice among that player's units.
+  // The merged filter vocabulary only understands any/self/opponent/playerId,
+  // so the declared "each-player" selector matches neither player -- pinning
+  // that keeps the shape from silently selecting an arbitrary unit.
+  const kernel = world()
+    .unit("mine", { owner: "A", controller: "A" })
+    .unit("theirs", { owner: "B", controller: "B" })
+    .build();
+  assert.equal(matchesObjectFilter({ controller: "each-player" }, kernel.getObject("mine")), false);
+  assert.equal(matchesObjectFilter({ controller: "each-player" }, kernel.getObject("theirs")), false);
+  // The declared pick keeps its bounds so a later fan-out adapter can consume it.
+  assert.deepEqual(pickSpec.filter, { type: "unit", zone: "board", controller: "each-player" });
+  assert.equal(pickSpec.min, 1);
+  assert.equal(pickSpec.max, 1);
+});
+
+test("unl-164-219 Safety Inspector: the additional-cost receipt predicate has no Finalize producer", () => {
+  // CR 356.4.f.1: the exemption needs the actual payment decision. The read
+  // path exists, but no producer feeds a finalized plan/receipt into a program
+  // trigger, so evaluating the predicate without one fails closed.
+  const kernel = world().build();
+  const environment = {
+    context: kernel,
+    query: (filter) => kernel.query(filter),
+    linked: () => undefined,
+    canLookBack: () => true,
+    isIgnored: () => false
+  };
+  assert.throws(
+    () => evaluateCondition(
+      { kind: "result", result: "cost.additional", id: "safety-inspector.additional-cost" },
+      environment
+    ),
+    /Unavailable condition result: cost\.additional/
+  );
+});
+
+test("unl-164-219 Safety Inspector: the merged production surfaces still refuse the static cost.additional declaration", () => {
+  assert.throws(
+    () => translateCost({ kind: "additional", payments: additionalCost.effect.payments }, "safety-inspector", "play"),
+    (error) => error.name === "ProgramBindingError" && /Additional costs are not bound/.test(error.message)
+  );
+
+  const kernel = world().unit("inspector", { types: ["unit"] }).build();
+  const host = createActionPipelineHost({
+    checkpoint: () => kernel.snapshot(),
+    restore: (state) => kernel.restore(state),
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose: (request) => kernel.choose(request),
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  const binder = createEngineStaticBinder(engine);
+  assert.throws(
+    () => binder.bindStatic(additionalCost, kernel.getObject("inspector")),
+    (error) => error.name === "ProgramBindingError" && /no layer mapping/.test(error.message)
+  );
+});

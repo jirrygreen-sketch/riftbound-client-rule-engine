@@ -6,6 +6,7 @@ import program from "../../../dist/cards/unl/shard-of-undoing.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 const CANONICAL_ID =
   "card.hash-6c9353964d68cf174354c551a4cf9b2c7ca9c3322303954f03d108f7f1bca840";
@@ -32,7 +33,8 @@ test("unl-174-219 Shard of Undoing: identity, status, judgeReason and verbatim s
   assert.match(program.judgeReason, /Beginning Phase/);
   assert.match(program.judgeReason, /315\.2\.a\.1/);
   assert.match(program.judgeReason, /each opponent/);
-  assert.match(program.judgeReason, /TriggerRegistration|阶段字段/);
+  assert.match(program.judgeReason, /duringPhase/);
+  assert.match(program.judgeReason, /静默丢弃|Unsupported filter field duringPhase/);
 });
 
 test("unl-174-219 Shard of Undoing: a friendly unit's death subscribes to object-killed", () => {
@@ -129,5 +131,30 @@ test.todo(
 );
 test.todo(
   "Shard of Undoing: bind 'each opponent must kill one of their units' per opponent (CR 355.10.e/f) — no " +
-    "per-opponent chooser fan-out primitive is merged (RIFT-9 target.player family, same gap as ogn/kings-edict)"
+    "per-opponent chooser fan-out primitive is merged (target.player family, same gap as ogn/kings-edict)"
 );
+
+test("unl-174-219 Shard of Undoing: the declared phase window is still refused by the production trigger translator", () => {
+  // 315.2.a-b: "during your Beginning Phase" is a phase window on the death
+  // event, and no part of the closed trigger vocabulary carries it. With the
+  // flat spelling the merged translator rejects the field outright...
+  assert.throws(
+    () => translateTriggerFilter({ event: "object-killed", duringPhase: "beginning" }, "shard", "object-killed"),
+    (error) => error.name === "ProgramBindingError" && /Unsupported filter field duringPhase/.test(error.message)
+  );
+  // ...and with the card's own nested object spelling the phase window is
+  // dropped without any error, producing exactly the unconditional per-turn
+  // trigger this reason forbids. That silent widening is why the card must not
+  // bind the authored declaration yet.
+  assert.deepEqual(
+    translateTriggerFilter(ability.trigger.filter, "shard", "object-killed"),
+    { event: "object-killed", object: { type: "unit", controller: "self" } }
+  );
+  assert.equal(ability.trigger.once, "per-turn");
+  // The only alternative that translates cleanly would register the trigger for
+  // deaths in every phase (no phase window at all), so the program keeps the
+  // field and stays judge-required (no approximation).
+  assert.deepEqual(translateTriggerFilter({ event: "object-killed" }, "shard", "object-killed"), {
+    event: "object-killed"
+  });
+});
