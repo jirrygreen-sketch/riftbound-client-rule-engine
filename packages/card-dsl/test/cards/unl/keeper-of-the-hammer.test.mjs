@@ -158,6 +158,10 @@ test("unl-203-219 Keeper of the Hammer golden: fewer than 3 XP fails the cost be
 });
 
 test.todo(
+  "unl-203-219 Keeper of the Hammer: pay the exhaust cost using the Legend in its Legend Zone and preserve " +
+    "the same object identity (CR 107.4.a/107.4.c; ZoneId and exhaust-cost legality contract)"
+);
+test.todo(
   "unl-203-219 Keeper of the Hammer: the hold timing point reaches this ability through the trigger-to-chain " +
     "pipeline, and the activated CardProgram body reaches the ChainDraft adapter"
 );

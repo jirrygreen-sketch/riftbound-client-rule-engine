@@ -28,6 +28,7 @@ test("unl-097-219 Kinkou Initiate: identity, status, judgeReason and verbatim so
   assert.match(program.judgeReason, /total Might/);
   assert.match(program.judgeReason, /count/);
   // The reason names the sum-over-set expression and the rejected exclude anchor.
+  assert.match(program.judgeReason, /programs\/triggers\.ts 注册订阅/);
   assert.match(program.judgeReason, /exclude/);
 });
 
@@ -141,3 +142,8 @@ test("unl-097-219 Kinkou Initiate golden: the body runs through the chain adapte
   );
   assert.equal(ctx.player("A").handSize, 0);
 });
+
+test.todo(
+  "unl-097-219 Kinkou Initiate: sum Effective Might over the controller's other board units before " +
+    "evaluating the draw gate, covering both sides of the threshold (CR 143.2.a.1; sum-over-set Expr)"
+);

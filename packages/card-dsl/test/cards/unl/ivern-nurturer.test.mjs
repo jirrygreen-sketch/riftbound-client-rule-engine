@@ -71,6 +71,8 @@ test("unl-051-219 Ivern, Nurturer: identity, status, judgeReason and verbatim so
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /Bird, Cat, Dog, or Poro/);
   assert.match(program.judgeReason, /Recycle the rest/);
+  assert.match(program.judgeReason, /链接集合过滤谓词/);
+  assert.match(program.judgeReason, /zoneSlice 顺序注入 effect\.inspect/);
 });
 
 test("unl-051-219 Ivern, Nurturer: the printed text hangs off both the play and the hold condition (383.4.a.1/383.4.d.1)", () => {
@@ -327,6 +329,18 @@ test("unl-051-219 Ivern, Nurturer golden: the trait Buff really places one Buff 
   assert.deepEqual(run.events.map(event => event.action), ["buff"]);
 });
 
+test.todo(
+  "unl-051-219 Ivern, Nurturer: evaluate the revealed Bird, Cat, Dog, or Poro trait from the reveal-time " +
+    "snapshot before granting the Buff (CR 425 / 702; reveal snapshot predicate, RIFT-359)"
+);
+test.todo(
+  "unl-051-219 Ivern, Nurturer: compute the looked-at set minus the revealed card and recycle exactly that " +
+    "remainder (CR 417.1/417.1.a; set-difference expression)"
+);
+test.todo(
+  "unl-051-219 Ivern, Nurturer: Finalize restricts the linked looked-at pick options to units " +
+    "(CR 355.9.b/355.10.a; linked-set filter predicate)"
+);
 test.todo(
   "unl-051-219 Ivern, Nurturer: produce the ordered Main-Deck-top picks for effect.inspect in production " +
     "(contract 3.6 zoneSlice ordering must reach the look)"

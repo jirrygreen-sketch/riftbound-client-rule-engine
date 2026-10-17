@@ -26,6 +26,9 @@ test("unl-089-219 Jhin, Meticulous Killer: identity, status, judgeReason and ver
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /Energy/);
+  assert.match(program.judgeReason, /费用回执入口/);
+  assert.match(program.judgeReason, /CardProgram → CostPlan/);
+  assert.match(program.judgeReason, /有序顶牌 picks/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -72,6 +75,14 @@ test("unl-089-219 Jhin, Meticulous Killer: the declared keyword resolves to the 
   assert.equal(expansion[0].trigger.at, "object-enters-board");
 });
 
+test.todo(
+  "unl-089-219 Jhin, Meticulous Killer: evaluate the Energy actually paid to play a spell this turn " +
+    "from its finalized cost receipt (CR 383.2.a.1 / 355.1; receipt predicate)"
+);
+test.todo(
+  "unl-089-219 Jhin, Meticulous Killer: choosing the alternate play cost generates and pays a 1 Mind Power " +
+    "CostPlan (CR 356.1.a; play-for-alternate-cost adapter)"
+);
 test.todo(
   "unl-089-219 Jhin, Meticulous Killer: Vision's Predict binds the ordered top card " +
     "(CR 437.1 / 817.1.b) — effect.inspect still needs production injection of the ordered top-card picks " +

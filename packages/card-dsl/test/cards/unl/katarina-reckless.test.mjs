@@ -61,6 +61,8 @@ test("unl-023-219 Katarina, Reckless: identity, status, judgeReason and verbatim
   // The trigger registration path is merged; the reason names the two blocked
   // event facts instead of a missing adapter.
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /GameAction 封闭集合里没有 hide/);
+  assert.match(program.judgeReason, /card-played 事件载荷.*不暴露该特征/);
 });
 
 test("unl-023-219 Katarina, Reckless: the hide trigger waits on the card-hidden timing point", () => {
@@ -193,3 +195,20 @@ test("unl-023-219 Katarina, Reckless golden: the merged effect.damage alone appl
   assert.deepEqual(run.linked.dealtCount, 1);
   assert.equal(kernel.getObject("enemy-unit").damage, 2);
 });
+
+test.todo(
+  "unl-023-219 Katarina, Reckless: a completed Hide emits card-hidden and readies the source " +
+    "(CR 422.1; Hide action and event producer)"
+);
+test.todo(
+  "unl-023-219 Katarina, Reckless: playing a card from face down preserves that provenance for the damage " +
+    "trigger (CR 811.1.d; card-played payload)"
+);
+test.todo(
+  "unl-023-219 Katarina, Reckless: register the card-hidden subscription and route a completed Hide into " +
+    "the ready body (CR 422.1; event-pattern adapter)"
+);
+test.todo(
+  "unl-023-219 Katarina, Reckless: register the fromFaceDown card-played filter and route only matching " +
+    "plays into the damage body (CR 811.1.d; provenance filter adapter)"
+);

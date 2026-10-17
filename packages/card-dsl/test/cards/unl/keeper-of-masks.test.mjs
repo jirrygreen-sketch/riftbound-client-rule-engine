@@ -35,6 +35,8 @@ test("unl-081-219 Keeper of Masks: identity, status, judgeReason and verbatim so
   assert.match(program.judgeReason, /Temporary/);
   assert.match(program.judgeReason, /816/);
   assert.match(program.judgeReason, /446|479\.1/);
+  assert.match(program.judgeReason, /cost\.hidden/);
+  assert.match(program.judgeReason, /beginning-start/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -167,6 +169,14 @@ test("unl-081-219 Keeper of Masks: effect.copy is the primitive named by the sec
 });
 
 test.todo(
+  "unl-081-219 Keeper of Masks: Hide and the facedown play consume the printed Hidden cost and timing " +
+    "permission (CR 811.1/811.1.c.3; cost.hidden / continuous.timing adapters)"
+);
+test.todo(
   "unl-081-219 Keeper of Masks: the [Temporary] keyword expansion (CR 816.1.b) kills the token at the start of " +
     "its controller's Beginning Phase through the keyword-to-timing/chain registration path"
+);
+test.todo(
+  "unl-081-219 Keeper of Masks: apply effect.copy mode effect to the two played Reflection tokens " +
+    "with the copy layer's duration and exceptions (CR 446 / 479.1)"
 );

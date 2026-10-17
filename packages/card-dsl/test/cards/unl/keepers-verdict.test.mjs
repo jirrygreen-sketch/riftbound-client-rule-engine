@@ -199,6 +199,29 @@ test("unl-204-219 Keeper's Verdict golden: a stale unit reference is mistargeted
 });
 
 test.todo(
-  "unl-204-219 Keeper's Verdict: apply the printed [Action] Showdown timing permission through the keyword " +
-    "registry and the chain's canAct (CR 806.1.b)"
+  "unl-204-219 Keeper's Verdict: the unit's owner chooses top or bottom while the spell resolves through " +
+    "the production chain (CR 355.16/355.17; Finalize/Resolve choice-plan adapter)"
 );
+
+test("unl-204-219 Keeper's Verdict golden: the declared Action permits its controller to act with Showdown Focus (CR 806.1.b)", async () => {
+  const { abilitySpeed, expandProgram } = await import("../../../../engine-core/dist/programs/keywords.js");
+  const { fixture } = await import("../../../../engine-core/test/chain/helpers.mjs");
+  for (const turnPlayer of ["A", "B"]) {
+    const f = fixture({ turnPlayer, cards: [{ id: "verdict", cardId: CANONICAL_ID, types: ["spell"], energy: 2, power: ["Body", "Order"] }] });
+    const source = f.kernel.getObject("verdict");
+    const expanded = expandProgram(program, source);
+    const speed = abilitySpeed(expanded.abilities, source);
+    assert.equal(speed, "action");
+    assert.equal(expanded.expanded[0].effect.kind, "continuous.timing");
+    assert.deepEqual(expanded.expanded[0].effect.grants, ["showdown"]);
+    assert.equal(f.engine.canAct("A", speed, source.ref, source), turnPlayer === "A");
+
+    f.engine.openShowdown("A");
+    assert.equal(f.engine.canAct("A", speed, source.ref, source), true);
+    assert.equal(f.engine.canAct("A", "normal", source.ref, source), false);
+    assert.equal(f.engine.canAct("B", speed, source.ref, source), false);
+    f.engine.pass("A");
+    assert.equal(f.engine.focus, "B");
+    assert.equal(f.engine.canAct("A", speed, source.ref, source), false);
+  }
+});

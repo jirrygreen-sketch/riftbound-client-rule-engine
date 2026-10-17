@@ -36,6 +36,8 @@ test("unl-119-219 Kha'Zix, Evolving Hunter: identity, status, judgeReason and ve
   assert.match(program.judgeReason, /attack-declared/);
   // Hunt's KeywordDef and expansion are present; the remaining Hunt gap is the
   // conquer/hold event spelling and payload, not a missing definition.
+  assert.match(program.judgeReason, /KeywordDef 与展开已存在/);
+  assert.match(program.judgeReason, /conquer 发射也不带征服单位/);
 });
 
 test("unl-119-219 Kha'Zix, Evolving Hunter: [Hunt] omits the value, which is Hunt 1 (823.1.c.2)", () => {
@@ -224,6 +226,10 @@ test("unl-119-219 Kha'Zix, Evolving Hunter golden: a Might of 0 deals no damage 
 test.todo(
   "unl-119-219 Kha'Zix, Evolving Hunter: [Hunt] reaches the real conquered/held event producers with the " +
     "conquering unit in the payload (CR 823.1.c.1/.c.2)"
+);
+test.todo(
+  "unl-119-219 Kha'Zix, Evolving Hunter: charge the optional 3 XP instruction cost at Finalize, and declining " +
+    "it pays nothing and deals no damage (CR 740.4.a/740.4.a.2 / 730.2; instruction-cost receipt adapter)"
 );
 test.todo(
   "unl-119-219 Kha'Zix, Evolving Hunter: the attack-declared timing point reaches this trigger from the combat " +
