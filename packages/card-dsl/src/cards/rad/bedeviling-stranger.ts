@@ -23,27 +23,32 @@ import type { CardProgram } from "../../ir/index.js";
  *   指令包在 body 里（不写成 choice + linkedTo）。
  * - 区域迁移经封闭 GameAction return-to-hand（契约 3.6），由 effect.zone 提交。
  *
- * status = judge-required（README 第 2 节）。两处缺口，均不近似实现：
+ * status = judge-required（README 第 2 节）。三处缺口，均不近似实现：
  * 1. "If there are 4 or more units there" 需要在已选战场绑定后做位置限定的计数，
- *    当前条件/计数路径不能读取同一条指令的 LocationTargetSpec；把条件写成任意战场会改变卡牌语义。
- * 2. Hidden 的 cost.hidden 展开（KeywordDef 已合入）没有消费方：Hide 动作、
+ *    当前条件/计数路径不能读取 LocationTargetSpec 绑定；把条件写成任意战场会改变卡牌语义。
+ * 2. 「there」需要把敌方单位的目标位置绑定到已选战场；TargetSpec.location 只接受具体
+ *    LocationFilter，sameLocationAs 只接受对象选择器，当前合同没有可执行的地点绑定写法。
+ * 3. Hidden 的 cost.hidden 展开（KeywordDef 已合入）没有消费方：Hide 动作、
  *    facedown 区域与「下回合以 [Reaction] 从 facedown 打出」都未接入
  *    （time-point-producers.md 记 card-hidden 待后续）。
- * 下面保留有依据的部分：choice.optional 包住的 effect.zone（把战场上的敌方单位移回其拥有者手牌），
- * 目标过滤器写成「战场上的敌方单位」，动态战场选择已改用 LocationTargetSpec；「there」的收窄与 ≥4 门控是上述 judged 部分，
- * 由 golden 测试与 judgeReason 显式记录。
+ * 下面保留有依据的部分：先用 condition.value 消费 LocationTargetSpec 并绑定所选战场，
+ * 再由 choice.optional 包住 effect.zone（把该战场上的敌方单位移回其拥有者手牌）。
+ * 「there」的收窄仍不能在目标合同中绑定到 LocationTargetSpec：TargetSpec.location
+ * 只接受具体 LocationFilter，sameLocationAs 又只接受对象选择器，因此这里只保留
+ * 「战场上的敌方单位」这一可验证部分。读取该绑定的 ≥4 计数门控与 Hidden 的完整
+ * 生命周期也仍未合入，由 golden 测试与 judgeReason 显式记录。
  */
 export default {
   canonicalCardId: "card.hash-4122e96a3266bd012c251c2b82b1406e2deb7ff40f367359244639e4e4538ae4",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1) 「If there are 4 or more units there」的前置门控需要在已选战场绑定后读取该地点的计数，" +
-    "当前条件/计数路径不能消费同一条指令的 LocationTargetSpec，写成任意战场会改变卡牌语义；(2) Hidden 的 cost.hidden 展开（KeywordDef 已合入）" +
+    "三处缺口，均不近似实现：(1) 「If there are 4 or more units there」的前置门控需要在已选战场绑定后读取该地点的计数，" +
+    "当前条件/计数路径不能消费 LocationTargetSpec 绑定；(2) enemy target 的「there」需要把 TargetSpec.location 绑定到所选战场，" +
+    "但 validation 只接受具体 LocationFilter，sameLocationAs 只接受对象选择器，不能退化成任意战场；(3) Hidden 的 cost.hidden 展开（KeywordDef 已合入）" +
     "没有消费方：Hide 动作、facedown 区域与「下回合以 [Reaction] 且忽略基础费用打出」均未接入；" +
-    "已按已合入原语写出的部分：choice.optional 包住 effect.zone（把敌方单位移回其拥有者手牌），" +
-    "并用 LocationTargetSpec 声明「choose a battlefield」；目标过滤为「战场上的敌方单位」，并有真实执行测试；" +
-    "「there」的收窄与 ≥4 门控是 judged 部分。",
+    "已按已合入原语写出的部分：condition.value 绑定「choose a battlefield」，choice.optional 包住 effect.zone（把敌方单位移回其拥有者手牌），" +
+    "目标过滤保留「战场上的敌方单位」这一可执行子集，并有地点绑定与返回手牌的执行证据；上述三项运行期缺口仍是 judged 部分。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     {
@@ -52,8 +57,11 @@ export default {
       optional: false,
       body: [
         {
-          id: "bedeviling-stranger.may-return",
-          op: "choice.optional",
+          // 355.5：the battlefield is chosen before the optional return. A
+          // condition.value is the merged location-binding bridge used by
+          // other cards; it has no printed condition of its own.
+          id: "bedeviling-stranger.choose-battlefield",
+          op: "condition.value",
           locations: [
             {
               id: "bedeviling-stranger.chosen-battlefield",
@@ -63,6 +71,17 @@ export default {
               selection: "one"
             }
           ],
+          args: {
+            value: {
+              kind: "location",
+              value: { kind: "target-location", target: "bedeviling-stranger.chosen-battlefield" }
+            },
+            key: { kind: "constant", value: "chosen-battlefield" }
+          }
+        },
+        {
+          id: "bedeviling-stranger.may-return",
+          op: "choice.optional",
           args: {
             prompt: {
               kind: "constant",
@@ -85,9 +104,8 @@ export default {
                   targets: [
                     {
                       id: "bedeviling-stranger.enemy-unit-there",
-                      // 「there」= 被选战场；该收窄依赖 judged 的地点选择（见
-                      // judgeReason 第 (1)(2) 点），因此这里只能写到「战场上的
-                      // 敌方单位」这一层，不把任意战场当成被选战场。
+                      // 「there」的所选战场锚点尚不能由 TargetSpec 合同消费；
+                      // 这里只保留「战场上的敌方单位」这一可验证子集。
                       filter: {
                         type: "unit",
                         controller: "opponent",
