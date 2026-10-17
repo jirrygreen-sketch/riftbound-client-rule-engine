@@ -1,7 +1,7 @@
 // Golden test for Bedeviling Stranger (rad-107-167).
-// The [Hidden] keyword and the optional return half are encoded; the battlefield
-// choice, the "4 or more units there" gate and the facedown play path are the
-// judged gaps (see judgeReason and the test.todo entries below).
+// The [Hidden] keyword and the optional return half are encoded; the "4 or more
+// units there" gate and the facedown play path remain judged gaps (see
+// judgeReason and the test.todo entries below).
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -11,6 +11,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import hidden from "../../../../engine-core/dist/effects/keywords/Hidden.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import zone from "../../../../engine-core/dist/effects/instructions/effect.zone.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -20,7 +21,7 @@ const SOURCE_TEXT =
   "When you play me, choose a battlefield. If there are 4 or more units there, you may return an enemy unit there to its owner's hand.";
 
 const [hiddenKeyword, playTrigger] = program.abilities;
-const [mayReturn] = playTrigger.body;
+const [chooseBattlefield, mayReturn] = playTrigger.body;
 const [returnEnemy] = mayReturn.args.body.value;
 const [enemySpec] = returnEnemy.targets;
 
@@ -38,6 +39,8 @@ test("rad-107-167 Bedeviling Stranger: judgeReason names the gate and Hidden gap
   assert.match(program.judgeReason, /4 or more/);
   assert.match(program.judgeReason, /cost\.hidden/);
   assert.match(program.judgeReason, /Hide 动作/);
+  assert.match(program.judgeReason, /TargetSpec\.location/);
+  assert.match(program.judgeReason, /LocationFilter/);
   assert.doesNotMatch(program.judgeReason, /RIFT-257|target\.location 一族未合入/);
 });
 
@@ -59,11 +62,9 @@ test("rad-107-167 Bedeviling Stranger: 'When you play me' is the self-scoped car
 });
 
 test("rad-107-167 Bedeviling Stranger: 'you may return …' is choice.optional wrapping the zone move (contract 3.9)", () => {
-  assert.equal(playTrigger.body.length, 1);
-  assert.equal(mayReturn.id, "bedeviling-stranger.may-return");
-  assert.equal(mayReturn.op, "choice.optional");
-  assert.equal(mayReturn.linkedTo, undefined);
-  assert.deepEqual(mayReturn.locations, [
+  assert.equal(playTrigger.body.length, 2);
+  assert.equal(chooseBattlefield.op, "condition.value");
+  assert.deepEqual(chooseBattlefield.locations, [
     {
       id: "bedeviling-stranger.chosen-battlefield",
       type: "battlefield",
@@ -72,6 +73,17 @@ test("rad-107-167 Bedeviling Stranger: 'you may return …' is choice.optional w
       selection: "one"
     }
   ]);
+  assert.deepEqual(chooseBattlefield.args.value, {
+    kind: "location",
+    value: {
+      kind: "target-location",
+      target: "bedeviling-stranger.chosen-battlefield"
+    }
+  });
+  assert.equal(mayReturn.id, "bedeviling-stranger.may-return");
+  assert.equal(mayReturn.op, "choice.optional");
+  assert.equal(mayReturn.linkedTo, undefined);
+  assert.equal(mayReturn.locations, undefined);
   assert.equal(mayReturn.args.body.kind, "constant");
   assert.deepEqual(mayReturn.args.body.value.map(entry => entry.id), [
     "bedeviling-stranger.return-enemy"
@@ -132,21 +144,48 @@ test("rad-107-167 Bedeviling Stranger: accepting returns the enemy unit to its o
   assert.deepEqual(run.events.map(event => event.action), ["return-to-hand"]);
 });
 
+test("rad-107-167 Bedeviling Stranger golden: the battlefield choice binds a runtime location", () => {
+  const base = world()
+    .unit("stranger", { owner: "A", controller: "A", location: { type: "battlefield", id: "bf-1" } })
+    .unit("enemy-here", { owner: "B", controller: "B", location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  base.setAnswers({
+    "bedeviling-stranger.choose-battlefield/location%3Abedeviling-stranger.chosen-battlefield": {
+      type: "battlefield",
+      id: "bf-1"
+    }
+  });
+  const outcome = resolveChainBody([chooseBattlefield], base);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(
+    outcome.linkedValues["bedeviling-stranger.choose-battlefield.chosen-battlefield"],
+    { type: "battlefield", id: "bf-1" }
+  );
+  assert.deepEqual(base.getObject("enemy-here").location, { type: "battlefield", id: "bf-1" });
+});
+
 test("rad-107-167 Bedeviling Stranger: declining moves nothing", () => {
   const kernel = world()
     .unit("stranger", { location: { type: "battlefield", id: "bf-1" } })
     .unit("enemy", { owner: "B", location: { type: "battlefield", id: "bf-1" } })
     .build();
   kernel.setAnswers({
-    "bedeviling-stranger.may-return/location%3Abedeviling-stranger.chosen-battlefield": {
+    "bedeviling-stranger.choose-battlefield/location%3Abedeviling-stranger.chosen-battlefield": {
       type: "battlefield",
       id: "bf-1"
     },
     "bedeviling-stranger.may-return/optional": false
   });
   const outcome = runAbilityBody(playTrigger.body, kernel);
-  assert.equal(outcome.results[0].result.status, "negated");
-  assert.equal(outcome.results[0].result.reason, "skipped");
+  assert.deepEqual(
+    outcome.results.map((entry) => [entry.id, entry.result.status]),
+    [
+      ["bedeviling-stranger.choose-battlefield", "executed"],
+      ["bedeviling-stranger.may-return", "negated"]
+    ]
+  );
+  assert.equal(outcome.results[1].result.reason, "skipped");
   assert.deepEqual(outcome.events, []);
   assert.equal(kernel.getObject("enemy").zone, "board");
 });
@@ -171,8 +210,9 @@ test("rad-107-167 Bedeviling Stranger: a stale target makes the return instructi
 
 test.todo(
   "rad-107-167 Bedeviling Stranger: consume the chosen battlefield binding for the '4 or more units there' " +
-    "gate and the enemy target's same-location restriction (CR 355.5/355.10.b); the condition/count path " +
-    "cannot yet read a LocationTargetSpec binding"
+    "gate and bind the enemy target's location to that choice (CR 355.5/355.10.b); " +
+    "the condition/count path cannot yet read a LocationTargetSpec binding and TargetSpec.location " +
+    "still rejects target-location while sameLocationAs cannot name a location binding"
 );
 test.todo(
   "rad-107-167 Bedeviling Stranger: [Hidden] expansion — the KeywordDef is merged but the Hide " +
