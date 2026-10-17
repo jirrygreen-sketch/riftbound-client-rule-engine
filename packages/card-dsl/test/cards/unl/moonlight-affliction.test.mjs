@@ -4,6 +4,9 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/moonlight-affliction.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
   "card.hash-3dfe95c2b5760342ff53da5b907465cf7b0aa40a27553cfdfa36e7a449d7530b";
@@ -20,15 +23,13 @@ test("unl-066-219 Moonlight Affliction: program passes validateCardProgram", () 
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues, null, 2));
 });
 
-test("unl-066-219 Moonlight Affliction: identity, ruleset, status, judgeReason and verbatim sourceText", () => {
+test("unl-066-219 Moonlight Affliction: identity, ruleset, executable status and verbatim sourceText", () => {
   assert.equal(program.canonicalCardId, CANONICAL_ID);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.rulesetVersion, "core-1.5");
-  assert.equal(program.status, "judge-required");
+  assert.equal(program.status, "executable");
+  assert.equal(program.judgeReason, undefined);
   assert.equal(program.sourceText, SOURCE_TEXT);
-  assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /143\.2\.a/);
-  assert.match(program.judgeReason, /RIFT-91/);
   assert.equal(cardProgramsById.get(program.canonicalCardId), program);
 });
 
@@ -51,9 +52,9 @@ test("unl-066-219 Moonlight Affliction: [Reaction], printed cost and one printed
 test("unl-066-219 Moonlight Affliction: 'Give a unit -10 Might this turn' targets one Board unit", () => {
   // 355.5 / 355.5.a: "a unit" is an explicit choice of one game object, so it
   // is a target; 424.1-style Board restriction is carried by the filter.
-  assert.deepEqual(mightInstruction.args.target, {
+  assert.deepEqual(mightInstruction.args.objects, {
     kind: "constant",
-    value: "moonlight-affliction.chosen-unit"
+    value: { kind: "target", id: "moonlight-affliction.chosen-unit" }
   });
   assert.deepEqual(mightInstruction.targets, [
     {
@@ -81,27 +82,51 @@ test("unl-066-219 Moonlight Affliction: the -10 is temporary, never reduced or s
   assert.notEqual(mightInstruction.op, "effect.buff");
 });
 
-test("unl-066-219 Moonlight Affliction: the program carries no executable body instruction today", () => {
-  // The only body op is the unmerged continuous.might instruction, so there is
-  // no merged primitive to execute in the golden test — the card must not fake
-  // one. This keeps the judge-required status honest rather than papering over
-  // it with, say, a Buff placement.
-  assert.equal(play.body.length, 1);
-  assert.equal(mightInstruction.op, "continuous.might");
+function affectedWorld(might) {
+  const kernel = world()
+    .unit("target-unit", { owner: "B", controller: "B", might })
+    .build();
+  kernel.setTargets("moonlight-affliction.chosen-unit", [kernel.ref("target-unit")]);
+  return kernel;
+}
+
+const registrations = kernel => kernel.continuousEffects.map(entry => ({
+  effect: entry.effect,
+  duration: entry.duration,
+  timestamp: 1
+}));
+
+test("unl-066-219 Moonlight Affliction golden: the card body registers -10 Might until end of turn", () => {
+  const kernel = affectedWorld(12);
+  const outcome = resolveChainBody(play.body, kernel);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(result => [result.id, result.result.status]), [
+    ["moonlight-affliction.give-minus-10-might", "executed"]
+  ]);
+  assert.equal(kernel.continuousEffects.length, 1);
+  assert.equal(kernel.continuousEffects[0].effect.layer, "arithmetic");
+  assert.equal(kernel.continuousEffects[0].effect.effect.kind, "continuous.might");
+  assert.equal(kernel.continuousEffects[0].effect.effect.amount, -10);
+  assert.deepEqual(kernel.continuousEffects[0].duration, { type: "end-of-turn" });
+  const layers = createLayerEngine(kernel.objects, registrations(kernel));
+  assert.equal(layers.evaluate(kernel.ref("target-unit")).might, 2);
+  assert.deepEqual(layers.advance({ id: "turn-end" }).length, 1);
+  assert.equal(layers.evaluate(kernel.ref("target-unit")).might, 12);
 });
 
-test.todo(
-  "unl-066-219 Moonlight Affliction: 'Give a unit -10 [M] this turn' needs the card-facing " +
-    "continuous.might instruction (resolution-time ctx.addContinuous with an end-of-turn duration); " +
-    "contract 3.6's closed GameAction set has no Might-modification action — RIFT-91 follow-up"
-);
+test("unl-066-219 Moonlight Affliction golden: negative effective Might is referenced as zero", () => {
+  const kernel = affectedWorld(8);
+  resolveChainBody(play.body, kernel);
+  const layers = createLayerEngine(kernel.objects, registrations(kernel));
+  assert.equal(layers.evaluate(kernel.ref("target-unit")).might, 0);
+});
 
-test.todo(
-  "unl-066-219 Moonlight Affliction: the Might floor of 143.2.c ('treated as 0 when referenced, but not 0', " +
-    "143.2.c.1) belongs to the layers arithmetic evaluation, not to this card's data"
-);
-
-test.todo(
-  "unl-066-219 Moonlight Affliction: [Reaction] (CR 813) needs the continuous.timing consumer and " +
-    "chain canAct wiring (RIFT-85 / RIFT-91) — declared only"
-);
+test("unl-066-219 Moonlight Affliction golden: a stale target is ignored instead of retargeted", () => {
+  const kernel = affectedWorld(12);
+  const stale = kernel.ref("target-unit");
+  kernel.perform({ type: "kill", object: stale });
+  kernel.setTargets("moonlight-affliction.chosen-unit", [stale]);
+  const outcome = resolveChainBody(play.body, kernel);
+  assert.deepEqual(outcome.results[0].result, { status: "ignored", reason: "mistargeted" });
+  assert.equal(kernel.continuousEffects.length, 0);
+});

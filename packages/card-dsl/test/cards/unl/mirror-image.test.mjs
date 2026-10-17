@@ -30,8 +30,8 @@ test("unl-200-219 Mirror Image: identity, status, judgeReason and verbatim sourc
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
-  // Four named gaps: the Copy layer, the Temporary keyword grant, the ready
-  // entry override and the linked new-token referent.
+  // The remaining gaps are the Copy layer, Temporary expansion, and ready
+  // entry override.
   assert.match(program.judgeReason, /446\.1/);
   assert.match(program.judgeReason, /479\.1/);
   assert.match(program.judgeReason, /copy-layer-traits-exceptions-and-attachment-duration-unavailable/);
@@ -39,7 +39,6 @@ test("unl-200-219 Mirror Image: identity, status, judgeReason and verbatim sourc
   assert.match(program.judgeReason, /816/);
   assert.match(program.judgeReason, /184\.1/);
   assert.match(program.judgeReason, /143\.4/);
-  assert.match(program.judgeReason, /RIFT-91/);
 });
 
 test("unl-200-219 Mirror Image: one play ability with the token, the copy and the keyword grant in printed order", () => {
@@ -205,10 +204,8 @@ test("unl-200-219 Mirror Image golden: the linked copy reference names the creat
 });
 
 test("unl-200-219 Mirror Image golden: the token half runs for real and the blocked copy submits no substitute", () => {
-  // The keyword grant's executability depends on the unmerged layer consumer
-  // (judgeReason), so it is covered by the TODO below instead of an assertion
-  // about its registration; this scenario drives the two merged/blocked steps
-  // through the real interpreter.
+  // This scenario drives the merged token step and the explicitly blocked copy
+  // step through the real interpreter.
   const kernel = world().unit("mirror-target", { owner: "B", might: 4 }).build();
   kernel.setTargets("mirror-image.unit", [kernel.ref("mirror-target")]);
   const { targets: _omittedPlaySpec, ...playWithoutSpec } = playReflection;
@@ -226,18 +223,14 @@ test("unl-200-219 Mirror Image golden: the token half runs for real and the bloc
     ["mirror-image.copy-unit", "negated"]
   ]);
   assert.deepEqual(kernel.events.map((event) => event.action), ["create-token", "play"]);
-  assert.match(program.judgeReason, /continuous\.grant-keyword/);
 });
 
 test.todo(
-  "unl-200-219 Mirror Image: apply \"It becomes a copy of that unit\" through the Copy layer so the created token takes the chosen unit's copyable printed traits without a new object (CR 446.1/446.2/446.3, 479.1.a-479.1.d; effect.copy's effect mode and the layers copy work are unmerged - RIFT-91)"
+  "unl-200-219 Mirror Image: apply \"It becomes a copy of that unit\" through the Copy layer so the created token takes the chosen unit's copyable printed traits without a new object (CR 446.1/446.2/446.3, 479.1.a-479.1.d; effect.copy's effect mode and the layers copy work are still blocked)"
 );
 test.todo(
-  "unl-200-219 Mirror Image: give the token [Temporary] and expand it into its kill trigger at the start of the controller's Beginning Phase before scoring (CR 816.1.b/816.1.c, 816.2.a; no Temporary KeywordDef - RIFT-83/84 plus the keyword-grant layer of RIFT-91)"
+  "unl-200-219 Mirror Image: give the token [Temporary] and expand it into its kill trigger at the start of the controller's Beginning Phase before scoring (CR 816.1.b/816.1.c, 816.2.a; Temporary KeywordDef and trigger consumer are missing)"
 );
 test.todo(
   "unl-200-219 Mirror Image: let the played token enter ready as an entry-state override (CR 143.4/184.1/185.2.d; create-token supports no entry state, and a later ready action would emit a wrong becomes-ready event - token entry work)"
-);
-test.todo(
-  "unl-200-219 Mirror Image: resolve the \"it\" referent to the token created during this resolution for later instructions (CR 359.3.f.1/359.3.f.2; the receipt exists but the copy layer that consumes it does not - RIFT-91)"
 );

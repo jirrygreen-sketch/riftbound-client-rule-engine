@@ -21,9 +21,9 @@ import type { CardProgram } from "../../ir/index.js";
  * - “gain 2 XP”：effect.xp 已合入（730.1 / 733；获得者缺省为能力控制者，190.6.d）。
  *
  * status = judge-required（缺口不近似实现）：
- * - Accelerate 的展开文件虽已合入，但合并内核没有任何生产方把卡牌上的 keyword 能力接进
- *   打出流程（cost/cost-plan.ts 只消费调用方传入的 optionalAdditional，accelerate.cost
- *   静态效果没有图层消费方，因此 805.2.b/805.6 的“付费后就绪进场”不成立）；
+ * - Accelerate 的 KeywordDef 与 replacement 绑定已合入，但 additional-cost 的 Finalize
+ *   消费和“付费后才挂上替代”的延迟接线仍未完成（cost/cost-plan.ts 只消费调用方传入的
+ *   optionalAdditional，accelerate.cost 静态效果没有费用管线消费方）；
  * - “When I move to a battlefield” 的触发在已合入代码里无法诚实订阅：
  *   events/action-adapter.ts 为 move-location 生成的事件不填 toZone/toKind/
  *   toLocationId（timing-points.ts 声明的 payloadFields），内层 filter 锚点
@@ -32,8 +32,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   458/458.1 的 Recall 排除都无法判定。
  * 已合入且可执行的是触发效果本体：golden 用解释器 + 参考内核真实执行 effect.xp（2 XP）。
  *
- * 依赖：RIFT-84 / RIFT-89（Accelerate 的打出流程接线）、RIFT-120（移动时点载荷与
- * 卡牌触发注册）。
+ * 依赖：Accelerate additional-cost/Finalize 接线、移动时点载荷与卡牌触发注册。
  */
 export default {
   canonicalCardId:
@@ -41,15 +40,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入：(1) [Accelerate] 的展开（effects/keywords/Accelerate.ts：accelerate.cost 静态费用 + " +
-    "805.6 入场就绪替代）已合入，但没有任何生产方把卡牌上的 keyword 能力接进打出流程——cost/cost-plan.ts 只消费" +
-    "调用方传入的 optionalAdditional，accelerate.cost 也没有图层消费方，805.1.b.1 的域匹配与 805.2.b/805.6 的" +
-    "延迟替代都不生效。(2) 「When I move to a battlefield」无法诚实订阅：events/action-adapter.ts 为 move-location " +
+    "两处依赖未合入：(1) [Accelerate] 的 KeywordDef 与 replacement 绑定已合入，但 additional-cost 的 Finalize 消费和 " +
+    "805.2.b 的付费后延迟接线仍缺失——cost/cost-plan.ts 只消费调用方传入的 optionalAdditional，accelerate.cost " +
+    "没有费用管线消费方，805.1.b.1 的域匹配与 805.2.b/805.6 的付费条件仍不生效。(2) 「When I move to a battlefield」无法诚实订阅：events/action-adapter.ts 为 move-location " +
     "生成的事件不填 toZone/toKind/toLocationId（timing-points.ts 声明的 payloadFields），内层 filter 锚点 " +
     "source: self 也没有消费方（pipeline-match.ts 只读 EventPattern 的 object/source/target/player/fromZone/toZone/" +
     "amount/details），449.1/449.2 的起点终点与 458/458.1 的 Recall 排除无从判定。" +
     "触发效果本体 effect.xp（730.1）已合入，golden 用解释器 + 参考内核真实执行；“gain 2 XP”不因上述缺口而近似。" +
-    "依赖：RIFT-84 / RIFT-89（Accelerate 打出流程接线）、RIFT-120（移动时点载荷与卡牌触发注册）。",
+    "依赖：Accelerate additional-cost/Finalize 接线、移动时点载荷与卡牌触发注册。",
   abilities: [
     { kind: "keyword", keyword: "accelerate" },
     {

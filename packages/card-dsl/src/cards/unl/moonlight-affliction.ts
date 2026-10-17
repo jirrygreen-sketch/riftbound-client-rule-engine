@@ -14,22 +14,15 @@ import type { CardProgram } from "../../ir/index.js";
  *   的临时 Might 修正（143.2.a 的有效 Might；143.2.c 的“低于 0 只按 0 引用”是求值口径；
  *   到期由 317.2.c 的回合结束清理处理）。
  *
- * status = judge-required（README 第 2 节）：契约 3.6 的封闭 GameAction 集合没有 Might
- * 修改动作，effects/instructions/ 也没有注册 continuous.might 原语（图层求值侧属 RIFT-91，
- * 缺的是把结算中的持续效果经 ResolveContext.addContinuous 落地的指令）；effect.buff 明确
- * 只管 702/703 的 Buff 计数器，不能用来近似 Might。没有可执行的已支持部分，golden 只做
- * 校验与结构断言，缺口写成 test.todo。依赖：continuous.might 指令原语 + end-of-turn 期限（RIFT-91 后续）。
+ * status = executable：continuous.might 已通过 ResolveContext.addContinuous 注册 arithmetic
+ * layer effect，end-of-turn duration 由 layers/duration.ts 到期清理；Reaction 是卡牌的
+ * intrinsic speed keyword，链时机由现有 Reaction 展开处理。effect.buff 只管 702/703
+ * Buff 计数器，不能用来近似 Might。
  */
 const moonlightAffliction = {
   canonicalCardId: "card.hash-3dfe95c2b5760342ff53da5b907465cf7b0aa40a27553cfdfa36e7a449d7530b",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "临时 Might 修正无执行路径：「Give a unit -10 :rb_might: this turn」属算术图层的 continuous.might" +
-    "（143.2.a 的有效 Might、143.2.c 的低于 0 按 0 引用、317.2.c 的回合结束到期），契约 3.6 的封闭 GameAction 集合没有 " +
-    "Might 修改动作，effects/instructions/ 下也没有注册 continuous.might 原语（图层求值侧 RIFT-91 已合入，缺的是把结算中的" +
-    "持续效果经 ResolveContext.addContinuous 落地的指令）；effect.buff 文件头明确临时 Might 归 continuous.might、" +
-    "不是 702/703 的 Buff 计数器，不能近似。依赖：continuous.might 指令原语 + end-of-turn 期限（RIFT-91 后续）。",
+  status: "executable",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {
@@ -41,12 +34,15 @@ const moonlightAffliction = {
       body: [
         {
           id: "moonlight-affliction.give-minus-10-might",
-          // 临时 Might 修正：算术图层的 continuous.might（见 judgeReason）。
+          // 临时 Might 修正：算术图层的 continuous.might。
           op: "continuous.might",
           args: {
             amount: { kind: "constant", value: -10 },
             duration: { kind: "constant", value: "this-turn" },
-            target: { kind: "constant", value: "moonlight-affliction.chosen-unit" }
+            objects: {
+              kind: "constant",
+              value: { kind: "target", id: "moonlight-affliction.chosen-unit" }
+            }
           },
           targets: [
             {

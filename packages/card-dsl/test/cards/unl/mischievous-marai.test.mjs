@@ -91,10 +91,9 @@ test("unl-003-219 Mischievous Marai: identity, status, judgeReason and verbatim 
   assert.match(program.judgeReason, /cost\.hidden/);
   assert.match(program.judgeReason, /811\.1\.b/);
   assert.match(program.judgeReason, /card-played/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  // The program binding is merged, so the reason must name the missing
-  // play-location payload and the missing static registration path.
-  assert.match(program.judgeReason, /noopStaticBinder/);
+  // The remaining gaps are the Facedown/Hide consumer and play-location
+  // payload; lifecycle binding itself is already merged.
+  assert.match(program.judgeReason, /Facedown|Hide/);
   assert.match(program.judgeReason, /details/);
 });
 
@@ -244,11 +243,11 @@ test("unl-003-219 Mischievous Marai: the declared Hidden keyword expands to the 
 test.todo(
   "unl-003-219 Mischievous Marai: Hide for :rb_rune_rainbow: and the facedown play for :rb_energy_0: " +
     "(CR 811.1.b / 811.1.d.1) — Hidden's cost.hidden expansion is merged but cost/ and zones/ have no " +
-    "Facedown-Zone Hide action or free facedown play (RIFT-84 / RIFT-89)"
+    "Facedown-Zone Hide action or free facedown play"
 );
 
 test.todo(
   "unl-003-219 Mischievous Marai: fire 'When you play me to a battlefield' from the real chain flow " +
     "(CR 383.4.a) — the card-played event carries no play-location payload, so the printed location " +
-    "condition cannot be matched (RIFT-120 + event payload)"
+    "condition cannot be matched because the event has no play-location payload"
 );

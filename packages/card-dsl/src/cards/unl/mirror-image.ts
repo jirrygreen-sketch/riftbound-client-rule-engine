@@ -26,14 +26,12 @@ import type { CardProgram } from "../../ir/index.js";
  *    "effect" 明确被阻断（blockedReason: copy-layer-traits-exceptions-and-attachment-duration-unavailable，
  *    446 / 479.1.a-d），它只能以 mode "create" 生成新对象；用新建对象冒充"token 变成复制体"
  *    会得到错误的图层与身份（479.1.b.1）。
- * 2. "Give it [Temporary]" 需要关键词授予与 Temporary 的展开：effects/keywords/ 的 16 个
- *    已合入关键词不含 Temporary（与 ogn/sprite、rad/momentary-companion 同缺口），
- *    continuous.grant-keyword 也没有已注册原语（依赖 RIFT-91 与 Temporary 关键词任务）。
+ * 2. "Give it [Temporary]" 的 continuous.grant-keyword 原语已合入，但 Temporary
+ *    KeywordDef/其 816.1.b 的 Beginning Phase 触发仍未合入。
  * 3. "ready" 是入场状态改写（143.4 / 184.1 / 185.2.d）：create-token 不支持入场状态，
  *    先创建再补一次 ready 会产生错误的"成为就绪"事件，也可能错过入场替代（143.4.a）。
- * 4. "It becomes a copy" 的 referent "it" 需要"本次结算新创建的 token"这一链接对象：
- *    effect.token 的回执提供 token.objects（可直接读），但把它接进 copy 的 onto 需要
- *    第 1 点的复制图层。
+ * 4. effect.token 的回执已经提供本次结算创建的 token 对象；当前复制图层被阻断，
+ *    因而不能验证该链接在复制效果中的最终消费。
  *
  * 可执行部分：effect.token 的 play 路径对定义表内的 "reflection" 已合入，golden 用参考
  * 内核真实执行并断言新 token 的身份（0 Might / 无域 / Reflection 名称）；整卡不可执行。
@@ -47,11 +45,10 @@ export default {
     "四处依赖未合入，均不近似实现：(1) “It becomes a copy of that unit” 是 446.1 / 446.2 的 Copy 图层（479.1.a–d），" +
     "已合入的 effect.copy 的 mode \"effect\" 被显式阻断（blockedReason: copy-layer-traits-exceptions-and-attachment-duration-unavailable），" +
     "用 mode \"create\" 新建对象冒充“token 变成复制体”会得到错误的图层与身份（479.1.b.1）。" +
-    "(2) “Give it [Temporary]” 需要关键词授予与 816 的 Temporary 展开：effects/keywords 的 16 个已合入关键词不含 Temporary，" +
-    "continuous.grant-keyword 也没有已注册原语（与 ogn/sprite、rad/momentary-companion 同缺口，依赖 RIFT-91 与 Temporary 关键词任务）。" +
+    "(2) “Give it [Temporary]” 的 continuous.grant-keyword 原语已合入，但 816 的 Temporary KeywordDef 与 Beginning Phase 消费仍未合入。" +
     "(3) “Play a ready Reflection unit token” 的 “ready” 是入场状态改写（143.4 / 184.1 / 185.2.d）：create-token 不支持入场状态，" +
     "先创建再补一次 ready 会产生错误的“成为就绪”事件并可能错过 143.4.a 的入场替代。" +
-    "(4) 第 3 条结论同时意味着参考内核对入场状态不建模，golden 只断言 token 的身份与位置，不把“ready”当作已验证。[Action]/[Reaction] 均未印刷。" +
+    "(4) token 回执已经提供后续指令所需的对象链接，但复制图层阻断了该链接的最终消费；[Action]/[Reaction] 均未印刷。" +
     "已合入部分：effect.token 的 play 路径对定义表内的 \"reflection\"（187.6 的 0 Might 无域单位 token）可执行，golden 用参考内核真实执行。",
   abilities: [
     {

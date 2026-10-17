@@ -23,18 +23,14 @@ import type { CardProgram } from "../../ir/index.js";
  *   `min: 0`（同 rad/the-ball、ogn/kogmaw-caustic 对集合的写法），不是 “up to”。
  *
  * status = judge-required（缺口不近似实现）：
- * - effects/instructions/ 里没有任何已注册原语能把“授予关键词”写成可执行指令：
- *   RIFT-9 清单与 ability-templates 第 247 行的 continuous.keyword /
- *   continuous.grant-keyword 都还没有实现文件（仓库里只有 ogn/bounty-hunter 等卡牌
- *   程序的描述性声明），所以 body 在已合入内核上无法执行；
- * - layers（RIFT-91）只消费调用方注册的 ContinuousEffectSpec，没有
- *   CardProgram instruction → 图层的注册入口；被授予的 Ganking 还需在接收者上按
- *   810 再展开一次（两级处理），这一步同样未合入。
+ * - continuous.grant-keyword 已合入，能把“your units here”按运行期位置查询注册到
+ *   ability 图层，Ganking 的 KeywordDef 也已合入；golden 会执行这条 body。
+ * - 仍缺 Ganking 的 movement permission consumer：continuous.movement 已能记录许可，
+ *   但 zones/movement.ts 与 effect.move 尚未从图层读取它，所以整卡不能标记 executable。
  * 已合入且可执行的是本卡的启动费用：golden 用 buildCostPlan + payCostPlan 真实支付
  * 3 XP（并且验证 XP 不足时费用管线如实拒绝）。
  *
- * 依赖：RIFT-9（continuous.keyword 原语）、RIFT-81（关键词展开）、RIFT-91（layers
- * 接线）、RIFT-89（费用计划）。
+ * 依赖：Ganking movement permission consumer（810.1.c/144.4.c）。
  */
 export default {
   canonicalCardId:
@@ -42,14 +38,11 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「Give your units here [Ganking] this turn」需要能由卡牌 body 执行的持续关键词授予：" +
-    "RIFT-9 清单与 ability-templates 第 247 行的 continuous.keyword / continuous.grant-keyword 在 " +
-    "effects/instructions/ 下没有实现文件（只有其他卡牌程序里的描述性声明），layers（RIFT-91）也没有 " +
-    "「CardProgram 指令 → 图层注册」的入口，因此本卡 body 在已合入内核上无法执行；被授予的 Ganking " +
-    "还需按 810 在接收者上再展开一次（两级处理）。" +
+    "「Give your units here [Ganking] this turn」的 continuous.grant-keyword 原语、运行期位置查询、" +
+    "Ganking KeywordDef 与 ability-layer 注册均已合入，body 可由解释器真实执行；但被授予的 Ganking " +
+    "仍需由 zones/movement.ts 与 effect.move 消费 continuous.movement 的跨战场许可（810.1.c/144.4.c）。" +
     "已合入且可执行的是启动费用（204.1.b / 730.2 的 “Spend 3 XP”）：golden 用 buildCostPlan + " +
-    "payCostPlan 真实支付 3 XP，并验证 XP 不足时被拒绝。依赖：RIFT-9（continuous.keyword）、RIFT-81、" +
-    "RIFT-91（layers 接线）、RIFT-89（费用计划）。不近似实现。",
+    "payCostPlan 真实支付 3 XP，并验证 XP 不足时被拒绝。依赖：Ganking movement permission consumer。不近似实现。",
   abilities: [
     {
       kind: "activated",
@@ -63,28 +56,27 @@ export default {
         {
           id: "megatusk.grant-ganking",
           // 「Give your units here [Ganking] this turn」——801.3.a.2 的限时关键词授予。
-          // 该 op 未在 effects/instructions/ 注册（见 judgeReason），
-          // 结构按关键词能力的小写 id 与 end-of-turn 期限书写。
+          // continuous.grant-keyword 的执行入口已合入；结构按关键词能力的小写
+          // id 与 end-of-turn 期限书写。
           op: "continuous.grant-keyword",
           args: {
             keyword: { kind: "constant", value: "ganking" },
-            duration: { kind: "constant", value: "end-of-turn" }
-          },
-          targets: [
-            {
-              id: "megatusk.units-here",
-              // “your units here”：控制者是能力控制者，位置与来源相同（359.3.f）。
-              // 355.10.d：按特征程序化选定的完整集合不是目标选择，这里只声明集合范围。
-              filter: {
-                type: "unit",
-                controller: "controller",
-                zone: "board",
-                sameLocationAs: "source"
-              },
-              min: 0,
-              selection: "all"
+            duration: { kind: "constant", value: "end-of-turn" },
+            // “your units here” is a criteria-based set (355.10.d), so the
+            // interpreter resolves it through a query rather than a target.
+            objects: {
+              kind: "constant",
+              value: {
+                kind: "query",
+                filter: {
+                  type: "unit",
+                  controller: "self",
+                  zone: "board",
+                  sameLocationAs: "source"
+                }
+              }
             }
-          ]
+          }
         }
       ]
     }

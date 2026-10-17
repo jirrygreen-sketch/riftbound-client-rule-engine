@@ -18,12 +18,12 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * status = judge-required（缺口不近似实现）：
  * - “you control a facedown card” 没有可求值的集合读数：Facedown Zone 不是 location
- *   （107.3.e），契约 ZoneId 没有 facedown 成员，隐藏牌的运行时表示也未合入（RIFT-84 / RIFT-89）；
+ *   （107.3.e），契约 ZoneId 没有 facedown 成员，隐藏牌的运行时表示也未合入；
  *   ObjectSnapshot.faceDown 只能按单个对象读（states: "face-down"），没有已合入查询把“你控制的隐藏牌”
  *   集合表示出来（ogn/mushroom-pouch 记录同一缺口）。因此两支的判别式不可求值，整卡保持 judge-required，
  *   在 facedown 表示落地前不得接线（本卡不硬编码任意一支作为事实）。
  * - 两条 effect.damage 本身已合入；golden 用参考内核分别真实执行 2 点与 4 点的伤害形状（含失效目标 ignored），
- *   并断言条件结构；判别式与分支选择留给 RIFT-84 / RIFT-89。
+ *   并断言条件结构；判别式与分支选择留给 Facedown Zone 的查询与消费方。
  */
 const facedownClause = {
   kind: "compare",
@@ -42,8 +42,7 @@ const monsterHarpoon = {
   status: "judge-required",
   judgeReason:
     "「If you control a facedown card」没有可求值路径：CR 355.9.a.3 / 107.3.a / 107.3.e 的 Facedown Zone " +
-    "是战场子区域、不是 location，契约 ZoneId 没有 facedown 成员，隐藏牌的运行时表示未合入（依赖 RIFT-84 的 " +
-    "Hidden/facedown 支持与 RIFT-89 的 facedown 打出）；ObjectSnapshot.faceDown 只能按单个对象读（states: \"face-down\"），" +
+    "是战场子区域、不是 location，契约 ZoneId 没有 facedown 成员，隐藏牌的运行时表示未合入；ObjectSnapshot.faceDown 只能按单个对象读（states: \"face-down\"），" +
     "没有任何已合入查询能把“你控制的隐藏牌”集合表示出来（ogn/mushroom-pouch 同一缺口）。" +
     "因此 “deal 2 / deal 4 to it instead” 的判别式不可求值（135.2.b.5 的条件从句范围、补集分支形状已按 " +
     "ogn/solari-chief 的写法声明），整卡在 facedown 表示落地前不得接线；本卡不硬编码任意一支。" +

@@ -5,6 +5,8 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/megatusk.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID =
@@ -15,7 +17,6 @@ const SOURCE_TEXT =
 
 const [ability] = program.abilities;
 const [grant] = ability.body;
-const targetSpec = grant.targets[0];
 
 function megatuskWorld({ xp = 5 } = {}) {
   const base = world()
@@ -24,6 +25,13 @@ function megatuskWorld({ xp = 5 } = {}) {
       might: 6,
       energy: 6,
       power: null,
+      location: { type: "battlefield", id: "bf-1" }
+    })
+    .unit("ally-here", { location: { type: "battlefield", id: "bf-1" } })
+    .unit("ally-elsewhere", { location: { type: "battlefield", id: "bf-2" } })
+    .unit("enemy-here", {
+      owner: "B",
+      controller: "B",
       location: { type: "battlefield", id: "bf-1" }
     })
     .build();
@@ -41,9 +49,8 @@ test("unl-126-219 Megatusk: identity, status, judgeReason and verbatim sourceTex
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  assert.match(program.judgeReason, /continuous\.keyword/);
+  assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /810/);
-  assert.match(program.judgeReason, /RIFT-91/);
 });
 
 test("unl-126-219 Megatusk: 3 XP base cost, Action timing, no printed Exhaust", () => {
@@ -67,18 +74,44 @@ test("unl-126-219 Megatusk: the grant names Ganking with an end-of-turn duration
   assert.equal(grant.linkedTo, undefined);
   assert.equal(grant.picks, undefined);
 
-  // "your units here": controller anchor + 359.3.f "here" via sameLocationAs.
-  assert.deepEqual(targetSpec, {
-    id: "megatusk.units-here",
-    filter: {
-      type: "unit",
-      controller: "controller",
-      zone: "board",
-      sameLocationAs: "source"
-    },
-    min: 0,
-    selection: "all"
+  // "your units here" is a criteria-based set, resolved by the query at
+  // instruction time rather than locked as a target.
+  assert.deepEqual(grant.args.objects, {
+    kind: "constant",
+    value: {
+      kind: "query",
+      filter: {
+        type: "unit",
+        controller: "self",
+        zone: "board",
+        sameLocationAs: "source"
+      }
+    }
   });
+  assert.equal(grant.targets, undefined);
+});
+
+test("unl-126-219 Megatusk golden: the merged grant registers Ganking only for your units here", () => {
+  const kernel = megatuskWorld({ xp: 5 });
+  const rawQuery = kernel.query.bind(kernel);
+  kernel.query = filter => rawQuery({
+    ...filter,
+    ...(filter.controller === "self" ? { controller: "A" } : {})
+  });
+  const outcome = resolveChainBody(ability.body, kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(result => [result.id, result.result.status]), [
+    ["megatusk.grant-ganking", "executed"]
+  ]);
+  assert.deepEqual(outcome.results[0].result.linkedValues.granted.objects.map(ref => ref.id), [
+    "ally-here",
+    "megatusk"
+  ]);
+  const layers = createLayerEngine(kernel.objects, kernel.continuousEffects);
+  assert.deepEqual(layers.evaluate(kernel.ref("ally-here")).keywords, [{ id: "ganking", value: undefined }]);
+  assert.deepEqual(layers.evaluate(kernel.ref("ally-elsewhere")).keywords, []);
+  assert.deepEqual(layers.evaluate(kernel.ref("enemy-here")).keywords, []);
 });
 
 test("unl-126-219 Megatusk golden: the printed 3 XP activation cost is payable through the merged cost pipeline", () => {
@@ -103,6 +136,6 @@ test("unl-126-219 Megatusk golden: insufficient XP is refused instead of paid pa
 
 test.todo(
   "unl-126-219 Megatusk: give your units here [Ganking] this turn (801.3.a.2 granted keyword + 810 " +
-    "expansion) — effects/instructions has no continuous.grant-keyword / continuous.keyword primitive " +
-    "and no CardProgram-as-continuous-effect registration path (RIFT-9 / RIFT-81 / RIFT-91 / RIFT-89)"
+    "expansion) — the grant and ability-layer registration execute, but zones/movement.ts and effect.move " +
+    "do not consume the continuous.movement permission (810.1.c/144.4.c)"
 );

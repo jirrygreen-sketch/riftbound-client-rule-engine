@@ -30,7 +30,6 @@ test("unl-014-219 Monster Harpoon: identity, status, judgeReason and verbatim so
   assert.match(program.judgeReason, /Facedown/);
   assert.match(program.judgeReason, /355\.9\.a\.3/);
   assert.match(program.judgeReason, /107\.3\.e/);
-  assert.match(program.judgeReason, /RIFT-84/);
 });
 
 test("unl-014-219 Monster Harpoon: [Action] plus two complementary damage branches on one locked unit", () => {
@@ -117,6 +116,5 @@ test("unl-014-219 Monster Harpoon golden: a stale target ignores the branch inst
   assert.equal(run.events.length, 0);
 });
 
-test.todo("unl-014-219 Monster Harpoon: evaluate 'if you control a facedown card' — needs the Facedown Zone representation and a controller-scoped facedown query (CR 355.9.a.3 / 107.3.a / 107.3.e; RIFT-84 Hidden/facedown, RIFT-89 facedown play)");
-test.todo("unl-014-219 Monster Harpoon: the printed [Action] Showdown permission needs the continuous.timing consumer and the chain canAct wiring (CR 806 / 159.2.a) — RIFT-85 / RIFT-120 follow-up");
+test.todo("unl-014-219 Monster Harpoon: evaluate 'if you control a facedown card' — needs the Facedown Zone representation and a controller-scoped facedown query (CR 355.9.a.3 / 107.3.a / 107.3.e)");
 

@@ -110,17 +110,17 @@ test("unl-059-219 Master Yi, Unstoppable: [Level 16][>] declares Untargetable in
 
 test.todo(
   "unl-059-219 Master Yi, Unstoppable: expand [Level N][>] (CR 824.1.b.1: 'while you have N or more XP, this card " +
-    "gains [Text]') with dynamic Active/Inactive re-evaluation (824.1.c.1/.d) — no kw-level expansion is merged and " +
-    "no Expr path reads PlayerSnapshot.xp"
+    "gains [Text]') with dynamic Active/Inactive re-evaluation (824.1.c.1/.d) — the Level expansion is merged, but " +
+    "no condition/Expr path reads PlayerSnapshot.xp"
 );
 
 test.todo(
   "unl-059-219 Master Yi, Unstoppable: apply the printed 'I cost [2]/[4]/[6] less' discounts in the cost plan's " +
-    "discount stage with the Floors of 356.6 and the instead replacement of 356.1.c — no cost.modify instruction and " +
-    "no card-facing input for cost/cost-plan.ts's discounts (RIFT-89)"
+    "discount stage with the Floors of 356.6 and the instead replacement of 356.1.c — cost.modify exists, but static " +
+    "card effects are not consumed by cost/cost-plan.ts's Finalize discounts input"
 );
 
 test.todo(
   "unl-059-219 Master Yi, Unstoppable: make the [Level 16] Untargetable declaration reject illegal target choices " +
-    "(CR 756/757/758, 355.9.b) — no untargetable set in target legality and no layer consumer for card static effects"
+    "(CR 756/757/758, 355.9.b) — the declared restriction still has no target-legality consumer"
 );

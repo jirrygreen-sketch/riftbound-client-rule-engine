@@ -30,7 +30,7 @@ test("unl-127-219 Mister Root: identity, status, judgeReason and verbatim source
   assert.match(program.judgeReason, /Accelerate/);
   assert.match(program.judgeReason, /move-location/);
   assert.match(program.judgeReason, /449\.1/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /toZone/);
 });
 
 test("unl-127-219 Mister Root: unvalued Accelerate keyword plus the move-to-battlefield trigger", () => {
@@ -95,11 +95,11 @@ test("unl-127-219 Mister Root golden: a replaced gain-xp is reported as negated,
 
 test.todo(
   "unl-127-219 Mister Root: [Accelerate] (CR 805.1.b additional cost + 805.6 enter-ready replacement) — the " +
-    "expansion file is merged, but no producer hands a card keyword into the play pipeline and accelerate.cost has " +
-    "no layers consumer (RIFT-84 / RIFT-89)"
+    "KeywordDef and replacement binding are merged, but the additional-cost Finalize consumer and the pay-before-entry " +
+    "delay are still missing"
 );
 test.todo(
   "unl-127-219 Mister Root: subscribe 'When I move to a battlefield' for real (CR 449.1/449.2 targets and " +
     "458/458.1 Recall exclusion) — action-adapter.ts leaves toZone/toKind/toLocationId unset on object-moved and the " +
-    "inner source: self anchor has no consumer (RIFT-120)"
+    "inner source: self anchor has no consumer"
 );
