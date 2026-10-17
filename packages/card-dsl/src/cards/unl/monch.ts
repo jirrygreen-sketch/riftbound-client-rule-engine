@@ -21,20 +21,19 @@ import type { Ability, CardProgram, Condition } from "../../ir/index.js";
  * status 判定（cards/README.md 第 2 节）：judge-required（按 2026-10-16 合入批次复核）。
  * - 减费没有可执行路径：cost/cost-plan.ts 只在调用方显式提供 CostPlanInput.discounts 时应用折扣，
  *   没有任何已合入路径把卡牌的静态/持续减费装进这次打出的费用计划；programs/play.ts 的 translateCost
- *   明确对 additional/discount 字段 judgeRequired，且 effects/instructions/ 下没有注册 cost.modify
- *   （RIFT-261 仍在进行；同类缺口见 sfd/ornns-forge、ogn/eager-apprentice）。
- * - 入场就绪缺 CardProgram → 替代注册的接线：replacement/bind.ts（RIFT-260）已能绑定
+ *   明确对 additional/discount 字段 judgeRequired，静态 cost.modify 尚未接入费用计划
+ *   （同类缺口见 sfd/ornns-forge、ogn/eager-apprentice）。
+ * - replacement/bind.ts 已能绑定
  *   { replaces, with } 形状并改写入场取向，golden 用真实链 fixture 绑定卡程序声明的替代体验证；
- *   但 programs/statics.ts 缺省 noopStaticBinder、没有任何生产方读取卡牌 replacement 能力并注册，
- *   且 bindReplacement 读的 replaces.filter 用的是 object filter（object: {...}/self: true），
- *   而本卡写的是内层 filter.source: "self"，即使接线也匹配不到（缺口之一）。
+ *   但绑定时的条件不会在 entry interception 前求值；本卡的 entry filter 必须使用
+ *   replacement 绑定器读取的 self 形状。
  * - 条件既不参与图层也不参与入场替代：layers/engine.ts 的 conditionMatches 只识别
  *   always/never/type/has-tag/has-keyword（未识别的 compare 按 true，ogn/staunch-survivor 同一现象），
  *   而 replacement/bind.ts 的 registration.matches 对入场替代在 matchesEnterAction 命中后直接
  *   返回 true，根本不调用 testCondition —— 实测把 condition 换成 never 仍会就绪入场。
  *   因此“对手控制着 Stunned 单位”这个门槛在已合入路径上被完全跳过。
- * 依赖：RIFT-261（费用计划的减费安装）、卡牌 replacement → pipeline 的注册与 object-filter 形状（RIFT-257/260 后续）、
- * RIFT-91（图层 compare 条件求值）。不近似实现：不用事后 effect.ready 代替入场替代。
+ * 依赖：费用计划的减费安装、entry replacement 的条件求值、图层 compare 条件求值。
+ * 不近似实现：不用事后 effect.ready 代替入场替代。
  */
 const OPPONENT_STUNNED_UNIT: Condition = {
   kind: "compare",
@@ -63,7 +62,7 @@ const abilities: Ability[] = [
   {
     kind: "replacement",
     // 143.4 / 359.2.c / 369.3：把单位的横置入场替换为就绪入场（不产生“成为就绪”事件的补发）。
-    replaces: { event: "object-enters-board", filter: { source: "self", exhausted: true } },
+    replaces: { event: "object-enters-board", filter: { self: true, exhausted: true } },
     condition: OPPONENT_STUNNED_UNIT,
     with: [
       {
@@ -84,18 +83,16 @@ const program = {
     "三处缺口，均不近似实现（已按 2026-10-16 合入批次复核）：" +
     "(1) “I cost :rb_energy_2: less” 属 356.4 的 Finalize 减费阶段，但 cost/cost-plan.ts 只在调用方显式提供 " +
     "CostPlanInput.discounts 时应用折扣，没有任何已合入路径把卡牌的静态/持续减费装进这次打出的费用计划；" +
-    "programs/play.ts 的 translateCost 对 additional/discount 字段直接 judgeRequired，且 effects/instructions/ 下" +
-    "仍无注册的 cost.modify（RIFT-261 仍在进行；同 sfd/ornns-forge、ogn/eager-apprentice 的缺口）。" +
-    "(2) “I enter ready” 是入场替代（143.4/359.2.c/369.3）：replacement/bind.ts（RIFT-260）已能绑定 " +
+    "programs/play.ts 的 translateCost 对 additional/discount 字段直接 judgeRequired，静态 cost.modify 尚未接入费用计划。" +
+    "(2) “I enter ready” 是入场替代（143.4/359.2.c/369.3）：replacement/bind.ts 已能绑定 " +
     "{ replaces, with } 并改写入场取向（golden 用真实链 fixture 绑定卡程序声明的替代体验证，无多余“成为就绪”事件），" +
-    "但没有生产方读取 CardProgram 的 replacement 能力并注册（programs/statics.ts 缺省 noopStaticBinder），" +
-    "且 bindReplacement 读的是 object 过滤器（object:{...}/self:true），本卡写的内层 filter.source:\"self\" 匹配不到。" +
+    "但 entry interception 会先于 ability.condition 命中，条件不会阻止不满足门槛的就绪入场；" +
+    "本卡的 replacement filter 已按绑定器契约使用 self 形状。" +
     "(3) 条件 “If an opponent controls a stunned unit”（424.1.a）在两条已合入路径上都不成立：layers/engine.ts 的 conditionMatches " +
     "只识别 always/never/type/has-tag/has-keyword（未识别的 compare 按 true，ogn/staunch-survivor 同一现象），" +
     "而 replacement/bind.ts 的 registration.matches 对入场替代在 matchesEnterAction 命中后直接返回 true、" +
     "不调用 testCondition（实测把 condition 换成 never 仍就绪入场）。" +
-    "依赖：RIFT-261（费用计划减费安装）、卡牌 replacement → pipeline 的注册与 object-filter 形状（RIFT-257/260 后续）、" +
-    "RIFT-91（图层 compare 条件求值）。",
+    "依赖：费用计划减费安装、entry replacement 的条件求值、图层 compare 条件求值。",
   abilities,
   sourceText: "If an opponent controls a stunned unit, I cost :rb_energy_2: less and enter ready."
 } satisfies CardProgram;

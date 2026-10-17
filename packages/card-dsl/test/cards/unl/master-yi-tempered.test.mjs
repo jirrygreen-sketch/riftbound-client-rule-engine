@@ -30,10 +30,10 @@ test("unl-113-219 Master Yi, Tempered: identity, status, judgeReason and verbati
   assert.match(program.judgeReason, /Deflect/);
   assert.match(program.judgeReason, /Ganking/);
   // The merged keyword definitions are named as such; the remaining gaps are
-  // the trigger spelling/object payload, the XP predicate and the missing
-  // card-static registration.
-  assert.match(program.judgeReason, /RIFT-265/);
-  assert.match(program.judgeReason, /RIFT-268/);
+  // the trigger spelling/object payload, the XP predicate and the target-tax
+  // consumer.
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /PlayerSnapshot\.xp/);
 });
 
 test("unl-113-219 Master Yi, Tempered: [Hunt 2] carries its printed Hunt Value", () => {
@@ -139,11 +139,11 @@ test("unl-113-219 Master Yi, Tempered: the Deflect expansion is a target tax the
 });
 
 test.todo(
-  "unl-113-219 Master Yi, Tempered: expand [Hunt 2] as the 823.1.c.1 conquer/hold trigger and the 823.2 summing — effects/keywords has no Hunt KeywordDef"
+  "unl-113-219 Master Yi, Tempered: subscribe Hunt's conquer/hold expansion to the emitted conquered/held events and bind the conquering unit object (CR 823.1.c.1/823.2; current event spellings and score payload do not match)"
 );
 test.todo(
-  "unl-113-219 Master Yi, Tempered: expand [Level 6][>] (824.1.b.1) with dynamic Active/Inactive re-evaluation (824.1.c.1 / 824.1.d) — no kw-level expansion and no Expr path to PlayerSnapshot.xp"
+  "unl-113-219 Master Yi, Tempered: evaluate the merged Level predicate against controller XP and deactivate the dependent grants as XP changes (CR 824.1.c.1/824.1.d; condition.predicate and PlayerSnapshot.xp are not consumed)"
 );
 test.todo(
-  "unl-113-219 Master Yi, Tempered: register the Level-gated Deflect target tax and Ganking grant as ContinuousEffectSpecs and bill the tax through the target/cost plan (809.1.c, 810.1.c) — no merged card-program → continuous-effect producer (RIFT-91)"
+  "unl-113-219 Master Yi, Tempered: derive Deflect's target tax from the active granted keyword and let the movement workflow consume Ganking's layered permission (CR 809.1.c/810.1.c; target-tax and movement consumers remain open)"
 );

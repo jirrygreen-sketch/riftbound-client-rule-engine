@@ -34,10 +34,7 @@ test("unl-198-219 Moonfall: identity, status, judgeReason and verbatim sourceTex
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   // Two gaps: the runtime Location destination and the temporary Might layer.
   assert.match(program.judgeReason, /355\.4/);
-  assert.match(program.judgeReason, /RIFT-90/);
-  assert.match(program.judgeReason, /RIFT-91/);
   assert.match(program.judgeReason, /479\.4/);
-  assert.match(program.judgeReason, /RIFT-83\/84/);
   assert.match(program.judgeReason, /355\.10\.d/);
 });
 
@@ -104,15 +101,19 @@ test("unl-198-219 Moonfall: the Might deduction is a guarded, non-target set cla
   // the instruction declares no TargetSpec.
   assert.equal(mightMinusTwo.op, "sequence");
   assert.equal(mightMinusTwo.linkedTo, undefined);
-  assert.equal(mightModify.op, "effect.might-modify");
+  assert.equal(mightModify.op, "continuous.might");
   assert.deepEqual(mightModify.args.amount, { kind: "constant", value: -2 });
   assert.deepEqual(mightModify.args.duration, { kind: "constant", value: "this-turn" });
-  assert.deepEqual(mightModify.args.appliesTo, {
+  assert.deepEqual(mightModify.args.objects, {
     kind: "constant",
     value: {
-      type: "unit",
-      controller: "opponent",
-      sameLocationAs: { target: "moonfall.battlefield" }
+      kind: "query",
+      filter: {
+        type: "unit",
+        controller: "opponent",
+        zone: "board",
+        sameLocationAs: { target: "moonfall.battlefield" }
+      }
     }
   });
   assert.equal(mightModify.targets, undefined);
@@ -201,24 +202,19 @@ test("unl-198-219 Moonfall golden: declining the may move changes nothing", () =
 });
 
 test("unl-198-219 Moonfall golden: the Might clause carries the reviewed declarative shape only", () => {
-  // Whether the temporary Might modification is executable depends on the
-  // unmerged layer consumer (judgeReason), so this test only pins the declared
-  // shape and the "there" anchor; the execution evidence is the TODO below, and
-  // no no-op closure stands in for the effect.
-  assert.equal(mightModify.op, "effect.might-modify");
+  // The card-facing continuous.might instruction is real; this test pins the
+  // declared query shape while the nested referent propagation remains open.
+  assert.equal(mightModify.op, "continuous.might");
   assert.equal(mightMinusTwo.op, "sequence");
-  assert.deepEqual(mightModify.args.appliesTo.value.sameLocationAs, {
+  assert.deepEqual(mightModify.args.objects.value.filter.sameLocationAs, {
     target: "moonfall.battlefield"
   });
-  assert.deepEqual(mightModify.args.appliesTo.value.controller, "opponent");
+  assert.equal(mightModify.args.objects.value.filter.controller, "opponent");
 });
 
 test.todo(
-  "unl-198-219 Moonfall: offer \"that battlefield\" as the Move's runtime destination by reading the chosen battlefield target's current LocationRef (CR 355.4/355.4.a/451.1; target.location is unmerged - RIFT-90/RIFT-91)"
+  "unl-198-219 Moonfall: offer \"that battlefield\" as the Move's runtime destination by reading the chosen battlefield target's current LocationRef (CR 355.4/355.4.a/451.1; runtime Location selector is still missing)"
 );
 test.todo(
-  "unl-198-219 Moonfall: apply \"give enemy units there -2 :rb_might: this turn\" as a temporary Might modification (CR 479.4 Arithmetic layer; the closed GameAction set has no might-modification action - RIFT-83/84/RIFT-91)"
-);
-test.todo(
-  "unl-198-219 Moonfall: apply the printed [Action] Showdown timing permission through the keyword registry and the chain's canAct (CR 806.1.b; keyword expansion wiring - RIFT-84/RIFT-89)"
+  "unl-198-219 Moonfall: resolve the continuous.might query against the chosen battlefield after the nested optional move and apply the -2 this-turn effect to enemy units there (CR 359.3.f.1/479.4; runtime referent propagation remains incomplete)"
 );

@@ -22,20 +22,15 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   enemy spells and abilities"）。
  *
  * status = judge-required（缺口不近似实现）：
- * - 没有 Level 关键词展开（kw-level）：824.1.c 的"控制者有 N 点或更多 XP 时 Active"
- *   需要可求值的 XP 谓词，合并 IR 的 Condition 只有 always/never/expression/compare/
- *   all/any/not，读取 PlayerSnapshot.xp 没有进入 Expr/谓词的路径（824.1.c.1/.d 的动态
- *   失活同样缺失）；unl/wuju-master 记录同一缺口。
- * - 三条减费没有可执行形态：effects/instructions/ 没有 cost.modify 原语，冻结的 CostSpec
- *   只有 kind/payments/energy/power/discard（cost/plan-values.ts 的 readCost），
- *   cost/cost-plan.ts 的 discounts 输入由调用方提供、没有卡牌侧声明入口；程序只把
- *   三段印刷的减费数值记录在静态效果中（描述性数据，不是已执行的减费）。
- * - 最后一条的 Untargetable（756/757/758）也没有原语与目标合法性消费方
- *   （unl/alpha-wildclaw 记录同一缺口）。
+ * - Level 的关键词展开已经合入，但 824.1.c 的 XP 谓词仍不能从
+ *   PlayerSnapshot.xp 求值，因而依赖能力不会随 XP 动态启停。
+ * - cost.modify 指令已经合入；本卡的静态 cost.modify 仍没有接入打出费用
+ *   Finalize 的 discounts 阶段，所以三条减费仍只是声明。
+ * - 最后一条的 Untargetable（756/757/758）仍没有目标合法性消费方。
  * golden 只做校验、结构断言与缺口 todo，不为任一缺口写执行用例。
  *
- * 依赖：kw-level 关键词展开与 XP 谓词（RIFT-89/90 条件管线）、cost.modify 与费用计划的
- * 减费阶段（RIFT-89）、Untargetable 的原语与目标合法性消费方。
+ * 依赖：Level 的 XP 谓词求值、静态 cost.modify 到 Finalize 费用计划的接线、
+ * Untargetable 的目标合法性消费方。
  */
 
 /** 356.4.b / 356.4.c：每一条 Level 能力的印刷减费（Energy + Calm Power）。 */
@@ -114,17 +109,15 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：（1）[Level N][>] 依赖式关键词（824.1）没有展开实现：" +
+    "三处缺口，均不近似实现：（1）[Level N][>] 的关键词展开已合入，但 " +
     "824.1.c 的『控制者有 N 点或更多 XP 时依赖能力 Active』需要可求值的 XP 谓词，" +
-    "合并 IR 的 Condition 只有 always/never/expression/compare/all/any/not，读取 PlayerSnapshot.xp 没有进入 Expr/谓词的路径" +
-    "（824.1.c.1/.d 的动态失活同样缺失）；unl/wuju-master 记录同一缺口。" +
-    "（2）三条减费（356.4/356.4.b/356.4.c，下限 356.6）没有可执行形态：effects/instructions/ 没有 cost.modify 原语，" +
-    "冻结的 CostSpec 只有 kind/payments/energy/power/discard（cost/plan-values.ts 的 readCost），" +
-    "cost/cost-plan.ts 的 discounts 由调用方提供、没有卡牌侧声明入口；程序只把三段印刷减费记录为描述性数据。" +
+    "合并 IR 的 Condition 虽能表达 compare，但读取 PlayerSnapshot.xp 尚未进入 Expr/谓词路径" +
+    "（824.1.c.1/.d 的动态失活同样缺失）。" +
+    "（2）三条减费（356.4/356.4.b/356.4.c，下限 356.6）的 cost.modify 指令已经存在，" +
+    "但静态 cost.modify 尚未接入 cost/cost-plan.ts 的 Finalize discounts 阶段，因此程序中的数值还不能实际改写打出费用。" +
     "（3）最后一条的『I can't be chosen by enemy spells and abilities』是 756/757/757.1/758 的 Untargetable，" +
-    "没有原语与目标合法性消费方（unl/alpha-wildclaw 记录同一缺口）。" +
-    "依赖：kw-level 关键词展开与 XP 谓词（RIFT-89/90 条件管线）、cost.modify 与费用计划的减费阶段（RIFT-89）、" +
-    "Untargetable 的原语与目标合法性消费方。本卡所有效果都依赖上述缺口，golden 只做校验、结构断言与缺口 todo。",
+    "目标合法性消费方仍未合入。依赖：XP 谓词求值、静态 cost.modify 到 Finalize 的接线、" +
+    "Untargetable 的目标合法性消费方。本卡所有效果都依赖上述缺口，golden 只做校验、结构断言与缺口 todo。",
   abilities,
   sourceText:
     "[Level 3][>] I cost :rb_energy_2::rb_rune_calm: less. (While you have 3+ XP, get the effect.)\n" +

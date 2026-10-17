@@ -27,13 +27,12 @@ import type { CardProgram } from "../../ir/index.js";
  * 1. "to that battlefield" 需要把 battlefield 目标的当前 LocationRef 作为 effect.move 的
  *    工作目的地（target.location 未合入）；合并 IR 没有运行期 Location 选择器，
  *    effect.move 的 to 只接受静态 LocationRef / controller-base / 静态候选列表，因此本卡
- *    保留描述性目的地标记，解释器会拒绝该形状而不是落到错误地点（依赖 RIFT-90 / RIFT-91）。
- * 2. "give enemy units there -2 :rb_might: this turn" 是临时 Might 修正：契约 3.6 的封闭
- *    GameAction 集合没有 might 修改动作，effect.buff 既有文档把临时 Might 归 layers 的
- *    continuous.might / 479.4 Arithmetic 图层（RIFT-83/84）。（该集合同时需要 "there"
- *    锚点，同第 1 点。）
- * 依赖：RIFT-90（目标/目的地计划）、RIFT-91 与 RIFT-83/84（图层）。被移动的敌方单位已
- * 按 355.10 / 355.9.a.1 声明为目标；[Action] 声明本身可校验。
+ *    保留描述性目的地标记，解释器会拒绝该形状而不是落到错误地点。
+ * 2. "give enemy units there -2 :rb_might: this turn" 已改写为 continuous.might，
+ *    但其运行期集合仍依赖前面选择的 battlefield referent 在嵌套 optional/then
+ *    结算中保持可读（479.4 Arithmetic layer 与 359.3.f.1）。
+ * 依赖：运行期 Location 选择器与 nested referent consumer。被移动的敌方单位已按
+ * 355.10 / 355.9.a.1 声明为目标；[Action] 声明本身可校验。
  */
 
 /** 描述性目的地标记，不是可执行 LocationRef（见 judgeReason 第 1 点）。 */
@@ -42,20 +41,24 @@ const CHOSEN_BATTLEFIELD = {
   locationOf: { target: "moonfall.battlefield" }
 } as const;
 
-/** 描述性的临时 Might 修正（见 judgeReason 第 2 点）。 */
+/** 临时 Might 修正；运行期集合锚点仍见 judgeReason 第 2 点。 */
 const MIGHT_MINUS_2 = {
   id: "moonfall.might-modify",
-  op: "effect.might-modify",
+  op: "continuous.might",
   args: {
     amount: { kind: "constant", value: -2 },
     duration: { kind: "constant", value: "this-turn" },
     // “enemy units there”：355.10.d 的程序化集合 + 359.3.f.1 的地点 referent。
-    appliesTo: {
+    objects: {
       kind: "constant",
       value: {
-        type: "unit",
-        controller: "opponent",
-        sameLocationAs: { target: "moonfall.battlefield" }
+        kind: "query",
+        filter: {
+          type: "unit",
+          controller: "opponent",
+          zone: "board",
+          sameLocationAs: { target: "moonfall.battlefield" }
+        }
       }
     }
   }
@@ -68,9 +71,9 @@ export default {
   judgeReason:
     "两处依赖未合入，均不近似实现：(1) “move up to one enemy unit to that battlefield” 的目的地是前面选中的战场的当前 " +
     "LocationRef（CR 355.4 / 355.4.a / 451.1），合并 IR 没有运行期 Location 选择器（target.location 未合入），" +
-    "effect.move 的 to 只接受静态 LocationRef / controller-base / 静态候选列表；本卡只保留描述性目的地标记，解释器会拒绝它而不是落到错误地点（依赖 RIFT-90 / RIFT-91）。" +
-    "(2) “Then give enemy units there -2 :rb_might: this turn” 是临时 Might 修正：契约 3.6 的封闭 GameAction 集合没有 might 修改动作，" +
-    "effect.buff 既有文档把临时 Might 归 layers 的 continuous.might / 479.4 Arithmetic 图层（RIFT-83/84）；该集合的 “there” 锚点还依赖第 1 点的运行期地点读取。" +
+    "effect.move 的 to 只接受静态 LocationRef / controller-base / 静态候选列表；本卡只保留描述性目的地标记，解释器会拒绝它而不是落到错误地点。" +
+    "(2) “Then give enemy units there -2 :rb_might: this turn” 已使用可执行的 continuous.might 指令，" +
+    "但其运行期 enemy-unit 集合必须在嵌套 optional/then 结算中读取前面 battlefield 目标的地点 referent（479.4 与 359.3.f.1）；该锚点消费仍未完成。" +
     "已按契约落地的部分：战场目标与敌方单位目标（355.5 / 355.7 / 355.10.a.1 / 355.9.a.1）、“you may” 按契约 3.9 包进 choice.optional 的 body（不写 choice + linkedTo）、" +
     "受影响单位按 355.10.d 声明为非目标集合；[Action] 关键词声明可校验。",
   abilities: [

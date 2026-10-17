@@ -32,10 +32,10 @@ test("unl-035-219 Monch: identity, status, judgeReason and verbatim sourceText",
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /replacement\/bind\.ts/);
   assert.match(program.judgeReason, /369\.3/);
-  // The replacement binding (RIFT-260) is merged; the reason must name the
-  // missing card-static registration and the object-filter shape instead.
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-260/);
+  // Replacement binding and its filter shape are merged; the remaining reason
+  // is the conditional entry interception and the cost pipeline.
+  assert.match(program.judgeReason, /Finalize/);
+  assert.match(program.judgeReason, /entry interception/);
 });
 
 test("unl-035-219 Monch: the -2 energy discount is declared as a gated cost modification (CR 356.4)", () => {
@@ -52,7 +52,7 @@ test("unl-035-219 Monch: 'I enter ready' is a board-entry replacement, not a lat
   assert.equal(enterReady.kind, "replacement");
   assert.deepEqual(enterReady.replaces, {
     event: "object-enters-board",
-    filter: { source: "self", exhausted: true }
+    filter: { self: true, exhausted: true }
   });
   // 369.3：入场替代由「描述单位如何入场」识别；effect.ready 只是 body 的形状，
   // 真正的替代执行由 events 管线的 replacement 消费者在换区前完成（见 judgeReason）。
@@ -142,9 +142,9 @@ test("unl-035-219 Monch: the printed condition is an opponent-scoped stunned-uni
     controller: "opponent",
     states: "stunned"
   });
-  // The card's replaces filter uses the inner-source spelling, which the
-  // merged object-filter matcher does not read as "this card enters".
-  assert.deepEqual(enterReady.replaces.filter, { source: "self", exhausted: true });
+  // The replacement binder's enter-action matcher uses self to identify the
+  // object entering the board.
+  assert.deepEqual(enterReady.replaces.filter, { self: true, exhausted: true });
 });
 
 test("unl-035-219 Monch: the two printed effects share the one gating condition (383.2.a.1)", () => {
@@ -162,21 +162,20 @@ test("unl-035-219 Monch: the two printed effects share the one gating condition 
 test.todo(
   "unl-035-219 Monch: install the printed -2 energy discount into the play's finalized cost plan " +
     "(CR 356.4/356.4.a) — cost/cost-plan.ts only applies caller-supplied CostPlanInput.discounts, " +
-    "programs/play.ts's translateCost rejects the discount field, and no cost.modify instruction is " +
-    "registered (RIFT-261)"
+    "programs/play.ts's translateCost rejects the discount field, so the static cost.modify effect is not " +
+    "consumed by Finalize"
 );
 test.todo(
   "unl-035-219 Monch: register the 'I enter ready' board-entry replacement before the zone change " +
-    "(CR 143.4/359.2.c/369.3) — replacement/bind.ts (RIFT-260) binds this shape, but programs/statics.ts " +
-    "defaults to noopStaticBinder and the declared replaces.filter uses the inner source spelling that " +
-    "the binder does not read (RIFT-257/260 follow-up); a post-entry effect.ready must not be substituted"
+    "(CR 143.4/359.2.c/369.3) — replacement/bind.ts binds this shape, but entry interception " +
+    "does not evaluate the ability condition before applying the replacement; a post-entry effect.ready must not be substituted"
 );
 test.todo(
   "unl-035-219 Monch: evaluate 'if an opponent controls a stunned unit' on both halves — layers/engine.ts " +
     "conditionMatches has no compare branch and replacement/bind.ts's entry path returns before " +
-    "testCondition (RIFT-91 / RIFT-260 follow-up)"
+    "testCondition"
 );
 test.todo(
   "unl-035-219 Monch: fire the play-time cost modification and entry replacement from the real play flow " +
-    "(CR 349/356; RIFT-261/RIFT-257)"
+    "(CR 349/356)"
 );
