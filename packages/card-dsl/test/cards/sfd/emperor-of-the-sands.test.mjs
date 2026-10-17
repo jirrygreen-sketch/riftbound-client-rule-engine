@@ -6,7 +6,8 @@ import program from "../../../dist/cards/sfd/emperor-of-the-sands.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
-import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { fixture } from "../../../../engine-core/test/programs/helpers.mjs";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-956993968d114577bbdd0afa0d90d3d311a8e7b76415282b08d0cf69194c7dbf";
@@ -18,44 +19,12 @@ const SOURCE_TEXT =
 const [grantWeaponmaster, activatedAbility] = program.abilities;
 const [playSandSoldierInstruction] = activatedAbility.body;
 
-/** A minimal layered snapshot for the production filter matcher. */
-const layeredSnapshot = overrides => ({
-  ref: { id: "x", zoneEntryId: 1 },
-  cardId: null,
-  name: "x",
-  types: ["unit"],
-  tags: [],
-  keywords: [],
-  owner: "A",
-  controller: "A",
-  zone: "board",
-  location: { type: "base", player: "A" },
-  might: 2,
-  energy: null,
-  power: null,
-  exhausted: false,
-  damage: 0,
-  stunned: false,
-  buffs: 0,
-  attachedTo: null,
-  faceDown: false,
-  isToken: true,
-  printed: null,
-  actionTimings: [],
-  availableTimings: [],
-  movement: { allowed: true, canMove: true, canGank: false, restrictions: [] },
-  text: null,
-  effectText: null,
-  ...overrides
-});
-
 const legendWorld = () => {
   const base = world()
-    .unit("emperor", { types: ["legend"], location: { type: "base", player: "A" } })
+    .player("A", { energy: 1 })
+    .unit("emperor", { cardId: CARD_ID, types: ["legend"], energy: null, power: null, might: null, location: { type: "base", player: "A" } })
     .build();
-  const kernel = base.clone({ sourceSnapshot: base.getObject("emperor") });
-  kernel.addPlayer("A", { energy: 1 });
-  return kernel;
+  return base.clone({ sourceSnapshot: base.getObject("emperor") });
 };
 
 test("sfd-197-221 Emperor of the Sands: program validates and is registered by canonicalCardId", () => {
@@ -73,8 +42,9 @@ test("sfd-197-221 Emperor of the Sands: identity, ruleset, status, judgeReason a
   assert.match(program.judgeReason, /HistoryQuery/);
   assert.match(program.judgeReason, /054\.2/);
   assert.match(program.judgeReason, /LocationRef/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /821\.1\.c/);
+  assert.match(program.judgeReason, /107\.4/);
 });
 
 test("sfd-197-221 Emperor of the Sands: 'Your Sand Soldiers have [Weaponmaster]' is a static keyword grant", () => {
@@ -96,36 +66,28 @@ test("sfd-197-221 Emperor of the Sands: 'Your Sand Soldiers have [Weaponmaster]'
   });
 });
 
-test("sfd-197-221 Emperor of the Sands: the declared Sand Soldier filter selects exactly those units", () => {
-  // The production matcher (layers/filter.ts) really evaluates "type +
-  // controller + zone + characteristics.name". Its controller placeholder is
-  // bound to the ability controller here, exactly as the pipeline does for the
-  // `self`/`opponent` selectors it already normalizes (events/pipeline-match.ts)
-  // and as the target/query path is responsible for `"controller"`
-  // (chain/engine.ts's query normalization is the recorded follow-up).
-  const controller = "A";
-  const filter = Object.fromEntries(
-    Object.entries(grantWeaponmaster.effect.filter).map(([key, value]) => [
-      key,
-      value === "controller" ? controller : value
-    ])
-  );
-
-  // A Sand Soldier incarnation (187.3: domainless 2 Might unit token, Shurima
-  // tag, printed name Sand Soldier) matches.
-  assert.equal(matchesObjectFilter(filter, layeredSnapshot({ name: "Sand Soldier", tags: ["Shurima"] })), true);
-  // Other Shurima units are not "Sand Soldiers" — the tag alone would over-match.
-  assert.equal(matchesObjectFilter(filter, layeredSnapshot({ name: "Renekton", tags: ["Shurima"] })), false);
-  // "unit" is part of the grant's scope: a Gold-style gear token never matches.
-  assert.equal(
-    matchesObjectFilter(filter, layeredSnapshot({ name: "Sand Soldier", types: ["gear"] })),
-    false
-  );
-  // 740.1.a: the grant covers the controller's Sand Soldiers only.
-  assert.equal(
-    matchesObjectFilter(filter, layeredSnapshot({ name: "Sand Soldier", controller: "B" })),
-    false
-  );
+test("sfd-197-221 Emperor of the Sands: the real static binder grants Weaponmaster only to your Sand Soldiers", () => {
+  // Isolate the supported static ability with a Board fixture host. This does
+  // not assert Legend Zone support or the granted keyword's Equip behavior.
+  const f = fixture({ cards: [
+    { id: "emperor", cardId: CARD_ID, name: "Emperor of the Sands", types: ["legend"], energy: null, power: null, might: null },
+    { id: "soldier", name: "Sand Soldier", types: ["unit"], tags: ["Shurima"], might: 2 },
+    { id: "other-shuriman", name: "Renekton", types: ["unit"], tags: ["Shurima"], might: 3 },
+    { id: "enemy-soldier", owner: "B", name: "Sand Soldier", types: ["unit"], tags: ["Shurima"], might: 2 },
+    { id: "gear", name: "Sand Soldier", types: ["gear"] }
+  ] });
+  for (const id of ["emperor", "soldier", "other-shuriman", "enemy-soldier", "gear"]) {
+    const owner = f.kernel.getObject(id).owner;
+    f.engine.commit({ type: "move-zone", object: f.kernel.ref(id), to: "base", location: { type: "base", player: owner } });
+  }
+  const handle = createEngineStaticBinder(f.engine).bindStatic(grantWeaponmaster, f.kernel.getObject("emperor"));
+  f.engine.layers.setObjects(f.kernel.objects);
+  const hasWeaponmaster = (id) => f.engine.layers.snapshot(f.kernel.ref(id)).keywords
+    .some((keyword) => keyword.id === "weaponmaster");
+  assert.equal(hasWeaponmaster("soldier"), true);
+  for (const id of ["other-shuriman", "enemy-soldier", "gear"]) assert.equal(hasWeaponmaster(id), false);
+  handle.unbind();
+  assert.equal(hasWeaponmaster("soldier"), false);
 });
 
 test("sfd-197-221 Emperor of the Sands: :rb_energy_1:, :rb_exhaust: is an activated cost with the only-if restriction", () => {
@@ -206,22 +168,52 @@ test("sfd-197-221 Emperor of the Sands: the printed token is really created and 
   assert.equal(soldier.power, null);
 });
 
+test("sfd-197-221 Emperor of the Sands: merged history queries identify the controller's played Equipment", () => {
+  // History counting is supported. Its use as a pre-activation Condition/Expr
+  // remains pending, so this is evidence for that supported sub-operation only.
+  const kernel = world()
+    .hand("equipment", { types: ["gear"], tags: ["Equipment"] })
+    .hand("other-gear", { types: ["gear"] })
+    .hand("enemy-equipment", { owner: "B", types: ["gear"], tags: ["Equipment"] })
+    .build();
+  const historyBody = [{
+    id: "equipment-history",
+    op: "condition.history",
+    args: {
+      query: { kind: "constant", value: { scope: "turn", action: "play", player: "A", objectFilter: { tags: ["Equipment"] } } }
+    }
+  }];
+  const count = () => {
+    const outcome = resolveChainBody(historyBody, kernel);
+    assert.equal(outcome.status, "executed");
+    return outcome.linkedValues["equipment-history.count"];
+  };
+  assert.equal(count(), 0);
+  for (const [id, player] of [["enemy-equipment", "B"], ["other-gear", "A"]]) {
+    assert.equal(kernel.perform({ type: "play", object: kernel.ref(id), player }).status, "done");
+    assert.equal(count(), 0);
+  }
+  assert.equal(kernel.perform({ type: "play", object: kernel.ref("equipment"), player: "A" }).status, "done");
+  assert.equal(count(), 1);
+  assert.equal(kernel.perform({ type: "banish", object: kernel.ref("equipment") }).status, "done");
+  assert.equal(count(), 1, "the query uses the played object's historical characteristics");
+});
+
 test.todo(
-  "sfd-197-221 Emperor of the Sands: 'played an Equipment this turn' (054.2) needs a history predicate over " +
-    "played cards filtered by type/tag — HistoryQuery (effects/contract.ts) only exposes " +
-    "scope/action/timingPoint/player/object — plus a consumer for card Restrictions at Finalize"
+  "sfd-197-221 Emperor of the Sands: the pre-activation only-if Restriction needs condition.history as a " +
+    "Condition/Expr (054.2; RIFT-359); objectFilter history counting itself is covered above"
 );
+
 test.todo(
   "sfd-197-221 Emperor of the Sands: 'Play a … token to your base' needs a controller-relative LocationRef for " +
     "effect.token (it only accepts a literal PlayerId that must equal ctx.controller; effect.move already resolves " +
     "'controller-base')"
 );
 test.todo(
-  "sfd-197-221 Emperor of the Sands: the static grant-keyword needs a CardProgram -> LayerEngine registration path, " +
-    "the controller: \"controller\" placeholder binding in layers/filter.ts, and the Weaponmaster expansion " +
-    "(821.1.c Equip discount needs cost.modify / cost.pay) — RIFT-257 / RIFT-261"
+  "sfd-197-221 Emperor of the Sands: Weaponmaster needs authoritative Equip-cost binding and original [A] " +
+    "symbol provenance for the printed discount (821.1.c.2/c.3); static keyword granting itself is covered above"
 );
 test.todo(
-  "sfd-197-221 Emperor of the Sands: a Legend has no Legend Zone in contract 3.6's ZoneId (CR 108.3), so the " +
+  "sfd-197-221 Emperor of the Sands: a Legend has no Legend Zone in contract 3.6's ZoneId (CR 107.4), so the " +
     "cost's 'exhaust me' host cannot be bound in production"
 );

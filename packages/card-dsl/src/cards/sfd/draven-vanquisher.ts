@@ -30,7 +30,7 @@ function combatBuff(id: string, at: "attack-declared" | "defense-declared"): Abi
               {
                 id: `${id}.pay-fury`,
                 op: "cost.pay",
-                args: { power: { kind: "constant", value: ["Fury"] } }
+                args: { payments: { kind: "constant", value: { power: ["Fury"] } } }
               },
               {
                 id: `${id}.might`,
@@ -65,8 +65,9 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "胜利战斗触发需要 combat-result 对单位胜负的事件对象绑定（468.3），并播放 Gold gear token；Gold 定义、链上 token 创建、exhausted 入场覆盖均未合入（RIFT-62/RIFT-89）。" +
-    "攻击/防御能力需要 cost.pay、临时 continuous.might 与本回合期限（RIFT-89/RIFT-91），且这些触发的生产接线尚未完成。保留已知结构，不近似实现。",
+    "（1）combat-result、attack-declared 与 defense-declared 缺战斗结果/宣言发射及自身胜方、攻防身份过滤绑定（CR 468.3、407）；" +
+    "（2）effect.token 尚无 Gold 的完整定义与能力（187.5），不支持 entersExhausted 入场规定（184.1、185.2.d）；" +
+    "（3）token 的 location 不解析 { type: \"base\", player: \"controller\" } 相对控制者 LocationRef，需运行时目的地绑定。",
   abilities,
   sourceText:
     "When I win a combat, play a Gold gear token exhausted.\n" +
