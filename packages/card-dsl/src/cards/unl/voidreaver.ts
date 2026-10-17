@@ -31,24 +31,24 @@ import type { CardProgram, Instruction } from "../../ir/index.js";
  *   （effect.move 文件头的边界说明）。
  *
  * status = judge-required（缺口不近似实现）：
- * - 「when you win a combat」的时点虽在 timing-points.ts 中定义，但 EventPattern 的封闭词表仍不接受
- *   `combat-result`，且没有发射方把该结果接入事件管线：
- *   （468.3.a），但已合入的 combat/turn 流程没有把它接入事件管线——combat/flow.ts
- *   只发 control-established / control-lost / contested-applied，且 start-combat 与
- *   伤害分配仍以 TurnCombatBlockedError 保持 blocked（"combat-start-transaction"、
- *   "simultaneous-damage-transaction"），duel/engagement-executor-v2.ts 的
- *   settleCombatResult 只在 duel 分支内部判定结果。没有任何生产者 emit
- *   combat-result，触发无法进链。
+ * - 「when you win a combat」有两层缺口，均实测：
+ *   （a）EventPattern 的封闭事件词表仍不含 combat-result：把本卡的 filter 交给
+ *   pipeline.registerTrigger，validateTriggerSpec 以 invalid-event-type 拒绝（列出的事件名只有
+ *   zone-entered…conquered/held/scored/final-point），战斗胜负触发无法注册；
+ *   （b）即使有词表也没有生产者：combat/flow.ts 只发 control-established / control-lost /
+ *   contested-applied，start-combat 与伤害分配仍以 TurnCombatBlockedError 保持 blocked
+ *   （"combat-start-transaction"、"simultaneous-damage-transaction"），
+ *   duel/engagement-executor-v2.ts 的 settleCombatResult 只在 duel 分支内部判定结果，
+ *   没有任何模块 emit combat-result（468.3.a / 468.3.b）。
  * - 「Spend 1 XP / 2 XP, :rb_exhaust:」的两条启动能力只差费用，费用形状、目标与
- *   正文原语均已按现契约编码（cost.pay 的 xp 支付与 effect.buff / effect.move 都在
+ *   正文原语均已按现契约编码（cost/payment.ts 的 spend-xp 支付与 effect.buff / effect.move 都在
  *   合并原语中），但整卡因为战斗胜负触发不可执行而保持 judge-required；
  *   golden 对两条启动能力分别用真实费用计划与参考内核执行。
  * - 「me」是 Legend Zone 中的传奇（CR 107.4.a / 107.4.c）：契约 ZoneId 没有
  *   legend-zone，cost/payment.ts 的 exhaust 支付只接受 board / rune-zone 的对象
  *   （与其他传奇的既有口径一致）。
  *
- * 依赖：combat-result 的 EventPattern 词汇与战斗结果事件生产接线（引擎批 4 / RIFT-33 场景触发）、
- * 契约补充 legend-zone。
+ * 依赖：combat-result 的 EventPattern 词汇与战斗结果事件生产接线、契约补充 legend-zone。
  */
 const buffUnit: Instruction = {
   id: "voidreaver-1.buff-unit",
@@ -110,14 +110,15 @@ const voidreaver = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "触发侧有两层缺口：「When you win a combat」的时点 combat-result 虽在 timing-points.ts 定义，但 EventPattern 的封闭词表不接受该事件名；" +
-    "同时没有发射方把结果接入事件管线（CR 468.3.a / 468.3.b，" +
-    "payloadFields 含 winnerId/loserId），但已合入的流程没有生产者发出它——combat/flow.ts 只发 control-established / control-lost / contested-applied，" +
+    "触发侧有两层缺口：「When you win a combat」的时点 combat-result 虽在 timing-points.ts 定义，但 EventPattern 的封闭词表不接受该事件名" +
+    "（实测把本卡 filter 交给 pipeline.registerTrigger 时 validateTriggerSpec 以 invalid-event-type 拒绝）；" +
+    "同时没有发射方把结果接入事件管线（CR 468.3.a / 468.3.b，payloadFields 含 winnerId/loserId）——" +
+    "combat/flow.ts 只发 control-established / control-lost / contested-applied，" +
     "start-combat 与伤害分配仍以 TurnCombatBlockedError 保持 blocked（combat-start-transaction、simultaneous-damage-transaction），" +
     "duel/engagement-executor-v2.ts 的 settleCombatResult 只在 duel 分支内部判定结果；没有任何模块 emit combat-result，触发无法进链。" +
     "另「me」是 Legend Zone 中的传奇（CR 107.4.a / 107.4.c），契约 ZoneId 没有 legend-zone，cost/payment.ts 的 exhaust 支付只接受 board / rune-zone 的对象。" +
     "两条启动能力的费用（cost/plan-values.ts 的 xp + exhaust 支付）、effect.buff 与 effect.move 正文原语都已合入，golden 用真实费用计划与参考内核执行。" +
-    "依赖：combat-result 的 EventPattern 词汇与战斗结果事件生产接线（引擎批 4 / RIFT-33）以及契约补充 legend-zone。",
+    "依赖：combat-result 的 EventPattern 词汇与战斗结果事件生产接线，以及契约补充 legend-zone。",
   abilities: [
     {
       kind: "triggered",

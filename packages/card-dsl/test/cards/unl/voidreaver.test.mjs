@@ -9,6 +9,10 @@ import buff from "../../../../engine-core/dist/effects/instructions/effect.buff.
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
 import xp from "../../../../engine-core/dist/effects/instructions/effect.xp.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { TriggerSpecValidationError, EVENT_PATTERN_TYPES } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { isTimingPointId } from "../../../../engine-core/dist/events/timing-points.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-26b216537a1ea75534e8ac12dce51fb874287be073f54ce04f788aa43ab7c64e";
@@ -36,6 +40,10 @@ test("unl-201-219 Voidreaver: identity, status, judgeReason and verbatim sourceT
   assert.match(program.judgeReason, /combat-result/);
   assert.match(program.judgeReason, /468\.3\.a/);
   assert.match(program.judgeReason, /107\.4/);
+  // The refreshed reason names the observed rejection surface instead of the
+  // batch number of a finished task.
+  assert.match(program.judgeReason, /invalid-event-type/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-/);
 });
 
 test("unl-201-219 Voidreaver: 'When you win a combat' subscribes to combat-result as the winner", () => {
@@ -245,6 +253,34 @@ test("unl-201-219 Voidreaver golden: insufficient XP fails the whole cost before
   // 405 / 204.2.a: costs are all-or-nothing; the failed plan paid nothing.
   assert.equal(ctx.player("A").xp, 1);
   assert.equal(ctx.object(ctx.ref("khazix")).exhausted, false);
+});
+
+test("unl-201-219 Voidreaver gap: the combat-result trigger cannot be registered (closed event vocabulary)", () => {
+  // EventPattern's closed vocabulary has no combat-result, so the production
+  // pipeline rejects the card's subscription before any combat can occur. This is
+  // the first observed half of the trigger gap in judgeReason.
+  const { judgeReason: _reason, ...rest } = program;
+  const binding = createProgramBinding({ cardPrograms: [{ ...rest, status: "executable" }] });
+  const f = fixture({ describePlay: binding.describePlay });
+  const source = { ...f.kernel.getObject("source"), cardId: CANONICAL_ID, name: "Voidreaver" };
+  assert.throws(
+    () => binding.registerProgramTriggers(f.engine, source),
+    error => error instanceof TriggerSpecValidationError &&
+      error.issues.some(issue => issue.path === "trigger.filter.event" && issue.code === "invalid-event-type")
+  );
+});
+
+test("unl-201-219 Voidreaver gap: the timing point exists but is absent from the event vocabulary and has no producer", () => {
+  // 468.3.a/468.3.b: winning is decided at the combat-result step. The timing
+  // point is declared in timing-points.ts, yet EventPattern's closed vocabulary
+  // omits it, and the merged combat flow emits only control/contested timings
+  // while combat start and damage assignment stay blocked. Both halves are
+  // asserted against the merged implementation here.
+  assert.equal(isTimingPointId("combat-result"), true);
+  assert.equal(EVENT_PATTERN_TYPES.includes("combat-result"), false);
+  const f = fixture();
+  const emitted = f.engine.pipeline.events.map(event => event.timingPoint);
+  assert.deepEqual(emitted.filter(point => point === "combat-result"), []);
 });
 
 test.todo(

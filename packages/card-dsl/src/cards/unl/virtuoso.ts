@@ -25,33 +25,35 @@ import type { CardProgram } from "../../ir/index.js";
  * - 359.3.e.14.a-b：“Then, if …” 从句不链接到前面的可选指令：拒绝 banish 只是该
  *   指令 negated(skipped)，后续独立条件照常检查。
  *
- * status = judge-required（2026-10-16 复核：缺口不近似实现）。已合入并可执行的部分：
+ * status = judge-required（2026-10-17 复核：缺口不近似实现）。已合入并可执行的部分：
  * 触发本体通过 programs/ 适配器注册到 card-played 事件（closed 词汇，
  * 金标验证 translateTriggerFilter + validateTriggerSpec 通过），choice.optional 的
  * 接受/拒绝、effect.banish、effect.channel 与 effect.draw 都走解释器/参考内核真实执行。
- * 仍然缺口的四处（逐条按当前合并源码核对）：
- * - “if you spent [4] or more”（383.2.a.1）没有求值路径：chain/engine.ts 的 Finalize 把
- *   payCostPlan 的回执存在 ChainItem.payment 上，但契约 3.6 的 ResolveContext 没有
- *   spent / finalized 费用回执读取入口，Expr/Condition 只能读对象特征、链接值与对象计数
- *   （count 只数对象、不读金额）；费用计划与 cost.pay / cost.modify 原语已合入，缺的是支付回执读取；
- *   程序里的 count subject 是保留形状，不是求值。
- * - “banish it” 的 it 是触发事件里的法术对象：契约 3.6 的 ObjectSelector 只有
+ * 仍然缺口的五处（逐条按当前合并源码与实测核对）：
+ * - "if you spent [4] or more"（383.2.a.1）没有求值路径：条件求值环境只带 event；实测
+ *   { kind: "result", result: "cost.total", key: "energy" } 抛 "Unavailable condition result"。
+ *   chain/engine.ts 的 Finalize 确实把 payCostPlan 回执存在 ChainItem.payment 上，但只把它塞进
+ *   Resolve 期条件的输入（item.costPlan/item.payment），触发期的条件求值拿不到支付回执；
+ *   ResolveContext 也没有 spent/finalized 费用读取入口。程序里的 count subject 是保留形状，
+ *   实测它会按无关对象数量过度满足（0 个对象 false、4 个对象 true），不是金额求值。
+ * - "banish it" 的 it 是触发事件里的法术对象：契约 3.6 的 ObjectSelector 只有
  *   self/source/target/pick/linked；触发快照虽然携带 PipelineEvent，但没有把它绑定成
- *   对象选择符的路径（引擎批 4 的触发事件对象/载荷选择器），383.2.c.3.b /
- *   359.3.f.3 要求的入链锁定还不存在。
- * - “four spells banished with me”（CR 394–398）的 Linked Ability 作用域没有合并的
- *   追踪器；“put each in its trash” 只能经 effect.zone 的 target/pick 读取，而 picks 来自
- *   Finalize 锁定的答案，不能表达“与我关联的那 4 张放逐法术”。
- * - “you may banish it” 位于效果开头、后面仍接独立的 “Then, if …” 从句：383.3.a
+ *   对象选择符的路径，383.2.c.3.b / 359.3.f.3 要求的入链锁定还不存在。
+ * - "four spells banished with me"（CR 394–398）的 Linked Ability 作用域没有合并的
+ *   追踪器；"put each in its trash" 只能经 effect.zone 的 target/pick 读取，而 picks 来自
+ *   Finalize 锁定的答案，不能表达"与我关联的那 4 张放逐法术"（实测：4 张无关的放逐法术也能满足
+ *   该计数条件，put-in-trash 随即以 ignored 结束，只有 channel/draw 照常执行）。
+ * - "you may banish it" 位于效果开头、后面仍接独立的 "Then, if …" 从句：383.3.a
  *   （finalize 决定、拒绝则整条触发移出链）与 383.3.a.3（后面的 may 在结算时决定）两种读法
  *   在已有 4 张放逐法术时结果不同，需要裁定；本程序按契约 3.9 冻结形状把被选指令包进
  *   choice.optional（ability.optional=false），不宣称已裁定。
- * 另外，该 effect.banish 的 TargetSpec 嵌套在 choice.optional 的 body 内，而合并的链侧
- * assertFinalizationSurface 明确拒绝 nested/repeated targets（金标只覆盖解释器层的
- * body 执行）——即使前两条缺口解决，嵌套目标生命周期仍需链侧适配。
+ * - 该 effect.banish 的 TargetSpec 嵌套在 choice.optional 的 body 内，链侧
+ *   assertFinalizationSurface 明确拒绝 nested/repeated targets（实测：ChainEngine.execute 抛
+ *   ChainContractBlockedError "Nested/repeated targets require an interpreter target-selection
+ *   lifecycle adapter"；金标只覆盖解释器层的 body 执行）。
  *
- * 依赖：已合入费用计划/支付原语之上的 finalized payment receipt 读取、触发事件对象选择器与嵌套目标
- * 生命周期、Linked Ability 作用域（CR 394–398）的合并实现。
+ * 依赖：支付回执进入触发期条件求值、触发事件对象选择器与嵌套目标生命周期、Linked Ability 作用域
+ * （CR 394–398）的合并实现。
  */
 export default {
   canonicalCardId:
@@ -63,16 +65,17 @@ export default {
     "（closed 词汇，translateTriggerFilter + validateTriggerSpec 通过），choice.optional 接受/拒绝、effect.banish、" +
     "effect.channel、effect.draw 都由解释器/参考内核真实执行（golden 覆盖）。整卡仍缺四处：" +
     "(1) “if you spent [4] or more”（383.2.a.1）没有求值路径——链侧 Finalize 虽把 payCostPlan 回执存在 ChainItem.payment，" +
-    "但契约 3.6 的 ResolveContext 没有 spent / finalized 费用回执入口，Expr/Condition 只能读对象特征、链接值与对象计数" +
-    "（count 只数对象、不读金额）；费用计划、cost.pay 与 cost.modify 原语已经合入，缺的是支付回执的读取路径；" +
+    "但只送进 Resolve 期条件输入，触发期条件求值环境没有支付回执（实测 { kind: \"result\", result: \"cost.total\", key: \"energy\" } 抛 " +
+    "\"Unavailable condition result\"），ResolveContext 也没有 spent/finalized 费用读取入口；程序里的 count subject 是保留形状，" +
+    "实测按无关对象数量过度满足（0 个对象 false、4 个对象 true），不是金额求值；" +
     "(2) “banish it” 的 it 是触发事件里的法术对象——ObjectSelector 只有 self/source/target/pick/linked，" +
-    "触发快照的 PipelineEvent 没有绑定成对象选择符的路径（引擎批 4，383.2.c.3.b / 359.3.f.3）；" +
+    "触发快照的 PipelineEvent 没有绑定成对象选择符的路径（383.2.c.3.b / 359.3.f.3）；" +
     "(3) “four spells banished with me”（CR 394–398）的 Linked Ability 作用域没有合并追踪器，effect.zone 只能经 " +
-    "target/pick 读取，picks 来自 Finalize 锁定答案，无法表达关联集合；" +
+    "target/pick 读取，picks 来自 Finalize 锁定答案，无法表达关联集合（实测 4 张无关放逐法术即满足计数，put-in-trash 随后 ignored）；" +
     "(4) “you may banish it” 位于效果开头而后面仍接独立 “Then, if …” 从句，383.3.a（finalize 决定、拒绝即整条触发移出链）" +
     "与 383.3.a.3（结算时决定）两种读法在已有 4 张放逐法术时结果不同，需要裁定，本程序只按契约 3.9 冻结形状书写。" +
-    "另外该 effect.banish 的 TargetSpec 嵌在 choice.optional body 内，链侧 assertFinalizationSurface 明确拒绝 " +
-    "nested/repeated targets，嵌套目标生命周期仍需适配。不近似实现。",
+    "(5) 该 effect.banish 的 TargetSpec 嵌在 choice.optional body 内，链侧 assertFinalizationSurface 明确拒绝 " +
+    "nested/repeated targets（实测 ChainEngine.execute 抛 ChainContractBlockedError），嵌套目标生命周期仍需适配。不近似实现。",
   abilities: [
     {
       kind: "triggered",
