@@ -24,22 +24,21 @@ import type { CardProgram } from "../../ir/index.js";
  *   Battlefield's controller.
  *
  * Status (cards/README.md §2, rechecked 2026-10-17): judge-required. The Predict
- * steps themselves are writable with merged primitives (Predict is now covered
- * by the merged effect.inspect + effect.recycle pair, executed in the golden;
- * RIFT-269's keyword actions map Predict through the same ops), but the
- * triggered ability cannot execute as written because these binding pieces are
- * missing:
+ * steps themselves are executable with merged primitives (the merged
+ * effect.inspect + effect.recycle pair, executed in the golden; RIFT-269's
+ * keyword actions map Predict through the same ops), but the triggered ability
+ * cannot execute as written because these binding pieces are missing:
  * 1. "they" is the player who played the card — an event participant. The IR has
  *    no event-player selector: effect.inspect takes a PlayerId Expr, and no
- *    ObjectSelector / Expr reads the triggering event's player (the same gap
- *    ogn/obelisk-of-power records). The "event-player" constant below is a
- *    documented placeholder, not executable data.
+ *    ObjectSelector / Expr reads the triggering event's player. Measured: with
+ *    the authored body the look is negated, so the constant "event-player"
+ *    below stays a documented placeholder, not executable data.
  * 2. "the first time they play a unit or gear here each turn" is per-player, per-
- *    turn, and restricted to plays at this Battlefield. TriggerSpec.once
- *    frequencies (per-turn / per-combat / per-chain / per-game) are scoped to
- *    one registration+source, not per event player, and the closed timing-point
- *    payload does not expose the play's destination Battlefield for a
- *    "played here" filter.
+ *    turn, and restricted to plays at this Battlefield. The closed timing-point
+ *    payload for card-played carries object + player but no play destination, so
+ *    no filter can name "here"; TriggerSpec.once frequencies (per-turn /
+ *    per-combat / per-chain / per-game) are keyed by one registration+source in
+ *    events/pipeline.ts frequencyKey, not per event player.
  * 3. the binding layer is merged (programs/triggers.ts). On the normal path,
  *    translateTriggerFilter drops the sibling battlefield placeholder here:true
  *    before EventPipeline's strict validation, so the resulting registration
@@ -59,10 +58,12 @@ export default {
   judgeReason:
     "三处缺口（2026-10-17 复核，均不近似实现）：(1) 「they [Predict]」的接收者是事件玩家（打出该牌的玩家），" +
     "IR 没有事件玩家选择器：effect.inspect 的 player 只接受 PlayerId 表达式，ObjectSelector/Expr 都读不到触发事件的 player" +
-    "（同 ogn/obelisk-of-power 的缺口）；程序里的 \"event-player\" 是缺选择器的占位值，不可执行。" +
+    "（同 ogn/obelisk-of-power 的缺口）；实测按原样执行 body 时 look 被 negated，程序里的 \"event-player\" " +
+    "是缺选择器的占位值，不可执行。" +
     "(2) 「the first time they play a unit or gear here each turn」是每名玩家、每回合一次、且限定打出到本战场：" +
     "TriggerSpec.once 的频度键是单个 registration+source（events/pipeline.ts frequencyKey 用 source.ref），不是按事件玩家分别各一次；" +
-    "封闭的 card-played 载荷也不暴露打出目的地战场，filter 的 here: true 仍是 053.3 的占位（引擎 trigger-spec 校验器不接受该键）。" +
+    "封闭的 card-played 载荷只带 object + player，不暴露打出目的地战场，filter 的 here: true 仍是 053.3 的占位" +
+    "（引擎 trigger-spec 校验器不接受该键）。" +
     "(3) 绑定层已合入（programs/triggers.ts 的 triggerRegistrations/registerProgramTriggers）。" +
     "正常路径先由 translateTriggerFilter 处理 filter，再进入 EventPipeline 的严格校验；实测 here: true " +
     "会在翻译时被丢弃，随后生成的 registration 通过校验却失去「打出到此处」限制，可能过度触发。" +

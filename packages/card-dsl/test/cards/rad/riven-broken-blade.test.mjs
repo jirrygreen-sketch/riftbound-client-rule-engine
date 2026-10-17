@@ -9,6 +9,7 @@ import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
 import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { fixture as chainFixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL = "card.hash-92a8f107905f2dafc89ae0242541a797fd2b39c572e28a280cde2e6ef343444f";
 const SOURCE_TEXT =
@@ -62,6 +63,10 @@ test("rad-043-167 Riven, Broken Blade: identity, ruleset, status, judgeReason an
   assert.match(program.judgeReason, /choice\.exclusive-once-per-turn/);
   assert.match(program.judgeReason, /cost\.pay/);
   assert.match(program.judgeReason, /success-gated/);
+  // The reason must name the merged code that rejects each half, not task ids.
+  assert.match(program.judgeReason, /linkedTo/);
+  assert.match(program.judgeReason, /choice-plan/);
+  assert.equal(/RIFT-\d+/.test(program.judgeReason), false);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -203,3 +208,59 @@ test.todo(
     "in-instruction cost.pay path is merged — cost.pay itself is merged, the open piece is the success-gated " +
     "payment body (cost/kinds/README.md contract change request #2)"
 );
+
+test("rad-043-167 Riven, Broken Blade: without a Buff the linkedTo Stun still lands (no payment gate)", () => {
+  // CR 355.10.c.1 / 404.1.b.1: the spend is what the printed text requires before
+  // the Stun, but the merged interpreter continues linked instructions after a
+  // negated one (contract 3.4). This is the exact defect judgeReason names.
+  const { outcome, scoped } = runMode("riven-broken-blade.stun-mode", { buffs: 0 });
+
+  assert.deepEqual(
+    outcome.results.map(entry => [entry.id, entry.result.status, entry.result.reason ?? null]),
+    [
+      ["riven-broken-blade.spend-buff-for-stun", "negated", "skipped"],
+      ["riven-broken-blade.stun-enemy", "executed", null],
+      ["riven-broken-blade.choose", "executed", null]
+    ]
+  );
+  assert.equal(scoped.getObject("riven").buffs, 0);
+  assert.equal(scoped.getObject("enemy").stunned, true, "the Stun resolves with no Buff paid");
+});
+
+test("rad-043-167 Riven, Broken Blade: without a Buff the linkedTo ready still lands (no payment gate)", () => {
+  const { outcome, scoped } = runMode("riven-broken-blade.ready-mode", { buffs: 0 });
+
+  assert.deepEqual(
+    outcome.results.map(entry => [entry.id, entry.result.status, entry.result.reason ?? null]),
+    [
+      ["riven-broken-blade.spend-buff-for-ready", "negated", "skipped"],
+      ["riven-broken-blade.ready-me", "executed", null],
+      ["riven-broken-blade.choose", "executed", null]
+    ]
+  );
+  assert.equal(scoped.getObject("riven").exhausted, false, "the ready resolves with no Buff paid");
+});
+
+test("rad-043-167 Riven, Broken Blade: the choice.mode body is rejected by the merged chain Finalize", () => {
+  // CR 355.3: this is the second, currently fatal blocker — the production chain
+  // refuses to finalize any choice.mode until the choice-plan adapter exists.
+  const fixture = chainFixture();
+  const source = fixture.kernel.getObject("source");
+  fixture.engine.pipeline.registerTrigger({
+    id: "riven-broken-blade",
+    source,
+    controller: "A",
+    spec: { at: "object-exhausted", filter: {} },
+    body: triggered.body,
+    optional: false,
+    activeZones: ["board"]
+  });
+  fixture.engine.pipeline.emit({ timingPoint: "object-exhausted", object: source });
+  assert.equal(fixture.engine.items.length, 1);
+
+  assert.throws(
+    () => fixture.engine.advance(),
+    (error) => error.status === "blocked" &&
+      /Mode choices require a Finalize\/Resolve choice-plan adapter/.test(error.message)
+  );
+});

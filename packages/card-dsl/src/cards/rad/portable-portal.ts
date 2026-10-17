@@ -26,21 +26,28 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   的指令内费用（355.10.c.1），cost.pay 原语已合入，但缺 203.3 的
  *   success-gated payment body（cost/kinds/README.md 契约变更请求 #2）。
  *
- * status 判定（README 第 2 节，2026-10-17 复核）：judge-required。当前缺口：
- * 1. Deploy 的 KeywordDef 已合入（RIFT-267），但 continuous.location 的结构化打出位置
- *    数据不被 playLocations 消费（只认名称型 no-battlefield/no-base 许可，chain/engine.ts
- *    playDestinationIsLegal），hold 触发消灭也没有生产接线；绑定期 translateObjectFilter
- *    对 hold 的 here:true 会 fail-closed 抛 Unsupported filter field（programs/filters.ts）。
+ * status 判定（README 第 2 节，2026-10-17 复核）：judge-required。当前缺口（均实测）：
+ * 1. Deploy 的 KeywordDef 已合入（effects/keywords/Deploy.ts），但展开出的两半都没有消费方：static
+ *    continuous.location 在 programs/statics.ts 的 layerFor 没有图层映射（实测
+ *    createEngineStaticBinder.bindStatic 抛 judge-required「Static ability kind
+ *    continuous.location has no layer mapping」），hold 触发的 here:true 被
+ *    translateTriggerFilter 拒绝（实测「Unsupported filter field here」），830.1.b 的
+ *    打出位置许可与「对手在此固守时消灭」都还进不了链。
  * 2. "you may pay :rb_rune_body:" 的指令内 Power 支付：cost.pay 原语已合入
  *    （effects/instructions/cost.pay.ts，CR 203.3 失败必须 throw），但缺 success-gated
- *    payment body，ready 半段仍不能作为「支付成功后」的依赖体执行。
- * 3. "Friendly units here have [Ganking]" 的 static continuous.grant-keyword：
- *    layerFor 已把该 op 映射到 ability 层（programs/statics.ts），缺的只剩把 CardProgram
- *    static 能力接进生产（attachProgramLifecycle/layerFor 已合入，剩主机接线）。
+ *    payment body，ready 半段仍不能作为「支付成功后」的依赖体执行；程序里也还没有
+ *    cost.pay 指令，支付本身不会发生。
+ * 3. "Friendly units here have [Ganking]"：RIFT-257 的生产静态绑定已把该 grant 装进
+ *    ability 图层（实测 createProgramBinding → attachProgramLifecycle →
+ *    createEngineStaticBinder 的 bindStatic 通过，spec 过滤器把 sameLocationAs: "self"
+ *    解析成 { type: "battlefield", id }），但 layers/filter.ts 的 matchesObjectFilter
+ *    只按 location.type 字符串比较，结构化 LocationRef 永不匹配——实测同一战场单位也拿不到
+ *    Ganking；body 的 TargetSpec 过滤器 sameLocationAs 还被 programs/filters.ts 的
+ *    translateObjectFilter 直接拒绝（实测「Unsupported filter field sameLocationAs」）。
  * 已合入的部分：effect.ready 原语、契约 3.9 的 choice.optional 结构、Ganking 展开、
  * cost.pay 原语、绑定层（programs/triggers.ts、programs/statics.ts、programs/lifecycle.ts）。
- * 依赖：success-gated payment body（契约变更请求，README #2）；生产侧把 CardProgram
- * static/keyword 接进 layers 与打出流程。
+ * 依赖：success-gated payment body（契约变更请求，README #2）；结构化 location 的图层过滤与
+ * 指令目标过滤的 sameLocationAs 翻译。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "deploy" },
@@ -100,16 +107,23 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "(1) [Deploy]（RIFT-267 的 Deploy.ts 已合入）仍缺生产消费方：830.1.b 的 structured " +
-    "continuous.location 不被 playLocations/playDestinationIsLegal 读取（只认名称型 no-battlefield/no-base），" +
-    "hold 触发消灭也没有生产接线；绑定期 translateObjectFilter 对 here:true 抛 " +
-    "Unsupported filter field（fail-closed）。(2) 「you may pay :rb_rune_body:」是指令内 Power 支付" +
-    "（355.10.c.1），cost.pay 原语已合入（CR 203.3 失败必须 throw），但缺 success-gated payment body" +
-    "（cost/kinds/README.md 契约变更请求 #2），ready 半段不能凭 linkedTo 门控。" +
-    "(3) 「Friendly units here have [Ganking]」的 static continuous.grant-keyword 已能被 layerFor " +
-    "映射到 ability 层（programs/statics.ts），缺的只剩把 CardProgram static 能力接进生产的接线。" +
+    "(1) [Deploy]（effects/keywords/Deploy.ts 已合入）展开出的两半都没有消费方：static " +
+    "continuous.location 在 programs/statics.ts 的 layerFor 无图层映射（实测 bindStatic 抛 " +
+    "judge-required「Static ability kind continuous.location has no layer mapping」），" +
+    "830.1.b 的打出位置许可进不了链；hold 触发的 here:true 被 translateTriggerFilter 拒绝" +
+    "（实测「Unsupported filter field here」），对手在此固守时消灭也绑不上。" +
+    "(2) 「you may pay :rb_rune_body:」是指令内 Power 支付（355.10.c.1），cost.pay 原语已合入" +
+    "（CR 203.3 失败必须 throw），但缺 success-gated payment body（cost/kinds/README.md 契约变更请求 #2），" +
+    "ready 半段不能凭 linkedTo 门控；程序里也还没有 cost.pay 指令，支付本身不会发生。" +
+    "(3) 「Friendly units here have [Ganking]」的 static continuous.grant-keyword 已被 RIFT-257 的" +
+    "生产绑定装进 ability 图层（实测 createProgramBinding → attachProgramLifecycle → " +
+    "createEngineStaticBinder.bindStatic 通过，spec 过滤器把 sameLocationAs:self 解析为 { type: battlefield, id }），" +
+    "但 layers/filter.ts 的 matchesObjectFilter 只按 location.type 字符串比较，结构化 LocationRef 永不匹配" +
+    "（实测同一战场单位也拿不到 Ganking）；body 的 TargetSpec 过滤器 sameLocationAs 另被 " +
+    "programs/filters.ts 的 translateObjectFilter 拒绝（实测「Unsupported filter field sameLocationAs」）。" +
     "已合入的部分：effect.ready 原语、契约 3.9 的 choice.optional 结构、Ganking 关键词展开、" +
-    "cost.pay 原语与绑定层（programs/triggers、statics、lifecycle）。不近似实现。",
+    "cost.pay 原语与绑定层（programs/triggers、statics、lifecycle）。" +
+    "依赖：success-gated payment body、结构化 location 的图层过滤与指令目标过滤的 sameLocationAs 翻译。不近似实现。",
   abilities,
   sourceText:
     "[Deploy] (Play this only to a battlefield. When an opponent holds here, kill this.)\n" +

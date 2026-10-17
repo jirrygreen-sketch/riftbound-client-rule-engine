@@ -19,19 +19,20 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   单位，数值等于它自己的 Shield Value（807.2 多个 Assault 相加；814.1.b.2 定义
  *   Shield Value），期限到本回合结束。
  *
- * status = judge-required（2026-10-17 复核，缺口均不近似实现）：
+ * status = judge-required（2026-10-17 复核，两条缺口均实测，不近似实现）：
  * - continuous.grant-keyword 已合入（RIFT-258），但授予值 “equal to my [Shield]” 仍不可
  *   求值：Expr 没有读取某个关键词数值的位置——object-property 只按 ObjectSnapshot 的
  *   属性表取值，keywords 是 [{id, value}] 数组而非 "shield" 属性（interpreter/expr.ts 的
- *   hasOwn 检查），断言 property: "shield" 会抛 MissingInformation 使指令 ignored。
- *   需要“关键词值读取”表达式（谓词/字段）契约支持。
+ *   hasOwn 检查）。实测两条路径都不产生 Assault：经解释器抛出 MissingInformation 后该指令
+ *   ignored/mistargeted；直接调 continuous.grant-keyword 则因求值结果不是整数而抛
+ *   「value must be a non-negative integer」。需要“关键词值读取”表达式契约支持。
+ * - 费用侧 1 Energy + "Exhaust this" 已能构建费用计划（实测 buildCostPlan 读到 "activated"
+ *   的 energy 1 与一条 exhaust action），但支付被 cost/payment.ts 拒绝，实测
+ *   payCostPlan 抛 cannot-pay-cost「An exhaust cost requires a ready controlled object on the Board」：
+ *   契约 ZoneId 没有 Legend Zone（CR 107.4），传奇不在 Board 上，无法作为启动费用对象。
  * - “this turn” 的到期本身由 continuous.might/grant-keyword 的 duration 别名支持
  *   （end-of-turn），但必须与该动态值一起落地。
- * - 费用侧 1 Energy + "Exhaust this" 需要 cost/plan 的启动费用与传奇自身的 ZoneId：
- *   费用计划已能读取 CostSpec.kind "activated" 的 exhaust payment（cost/plan-values.ts
- *   与 cost/payment.ts），但契约 ZoneId 没有 Legend Zone（CR 107.4），传奇不能作为
- *   Board 对象被 cost 校验（payment.ts 要求 exhaust 目标 zone 是 board/rune-zone）。
- * 本卡只保留可审查的静态结构，golden 做校验、结构断言与缺口 todo。
+ * 本卡保留可审查的静态结构，golden 做校验、结构断言、真实执行证据与缺口 todo。
  */
 const abilities: Ability[] = [
   {
@@ -88,13 +89,16 @@ const program = {
     "「I have [Assault] equal to my [Shield] this turn」仍不可执行：(1) 授予值读取——" +
     "continuous.grant-keyword 与图层消费已合入，但 Expr 没有读取某对象关键词数值" +
     "（Shield Value，814.1.b.2）的位置：ObjectSnapshot.keywords 是 [{id, value}] 数组，" +
-    "object-property 按属性表取值并对缺失属性抛 MissingInformation（interpreter/expr.ts），" +
+    "object-property 按属性表取值并对缺失属性抛 MissingInformation（interpreter/expr.ts）；" +
+    "实测经解释器该指令 ignored/mistargeted，直接调 continuous.grant-keyword 则抛" +
+    "「value must be a non-negative integer」，两种路径都不产生 Assault。" +
     "需要关键词数值读取表达式（契约变更请求）。(2) 费用侧 1 Energy + Exhaust this" +
-    "（204.1.b / 415.4 / 415.5）需要传奇自身可被作为启动费用对象，但契约 ZoneId 没有 " +
-    "Legend Zone（CR 107.4 的 Champion Legend 就在该区域且不是 Board 对象），费用计划的 " +
-    "exhaust payment 校验只接受 board/rune-zone（cost/payment.ts）。依赖：关键词数值读取" +
-    "表达式（契约变更请求）与 Legend Zone 的契约支持；不近似实现（不把 Shield 值写成固定常量，" +
-    "不为传奇伪造 Board 目标）。",
+    "（204.1.b / 415.4 / 415.5）：费用计划已能读到 activated 的 energy 1 与 exhaust action" +
+    "（实测 buildCostPlan），但 cost/payment.ts 的 exhaust 校验只接受 board/rune-zone，实测 " +
+    "payCostPlan 抛 cannot-pay-cost「An exhaust cost requires a ready controlled object on the " +
+    "Board」；契约 ZoneId 没有 Legend Zone（CR 107.4 的 Champion Legend 就在该区域且不是 Board 对象）。" +
+    "依赖：关键词数值读取表达式（契约变更请求）与 Legend Zone 的契约支持；不近似实现" +
+    "（不把 Shield 值写成固定常量，不为传奇伪造 Board 目标）。",
   abilities,
   sourceText:
     ":rb_energy_1:, :rb_exhaust:: Give a friendly unit \"I have [Assault] equal to my [Shield]\" " +

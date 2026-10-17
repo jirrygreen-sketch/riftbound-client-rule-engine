@@ -9,6 +9,11 @@ import zone from "../../../../engine-core/dist/effects/instructions/effect.zone.
 import { mightyCondition } from "../../../../engine-core/dist/effects/keywords/Mighty.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { isTimingPointId } from "../../../../engine-core/dist/events/timing-points.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
 
 const CARD_ID =
   "card.hash-5100d228a6eda08c0fbbe5b5f17f74b70f6df76adde914277019866a34ba54b2";
@@ -22,9 +27,13 @@ test("rad-074-167 Raving Witness: program validates and is judge-required", () =
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
+  // README §2: the reason names the merged blockers, not task numbers.
   assert.match(program.judgeReason, /Mighty/);
   assert.match(program.judgeReason, /if\/otherwise/);
   assert.match(program.judgeReason, /object-moved/);
+  assert.match(program.judgeReason, /invalid-event-type/);
+  assert.match(program.judgeReason, /return-to-hand/);
+  assert.equal(/RIFT-\d+/.test(program.judgeReason), false);
 });
 
 test("rad-074-167 Raving Witness: sourceText is the verbatim deck-catalog ability text", () => {
@@ -184,3 +193,69 @@ test.todo(
     "validateTriggerSpec reports invalid-event-type (the timing point itself exists), so the " +
     "event vocabulary needs the move event before this trigger can register"
 );
+
+test("rad-074-167 Raving Witness: the as-printed body executes both branches against the locked deck top", () => {
+  // The body is the card's own IR (no fixture settlement): the deck top is bound
+  // by the ordered pick, and the two mutually exclusive conditions run against
+  // the locked object's printed Might (CR 707/708/711).
+  for (const [might, expected] of [[6, "hand"], [5, "hand"], [4, "deck"], [1, "deck"]]) {
+    const kernel = world()
+      .unit("witness", { might: 3 })
+      .card("bottom", { zone: "deck", might: 1 })
+      .card("top", { zone: "deck", might })
+      .build();
+    const [top] = kernel.zoneSlice("A", "deck", "top", 1);
+    assert.equal(top.ref.id, "top", "the ordered slice names the real deck top");
+    const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("witness") });
+    scoped.setPicks("raving-witness.top-card", [top.ref]);
+    scoped.setPicks("raving-witness.revealed-card", [top.ref]);
+    scoped.setAnswers({ "raving-witness.reveal-top/effect.reveal": [top.ref] });
+
+    const outcome = resolveChainBody(triggered.body, scoped);
+
+    const expectedReveal = "executed";
+    const expectedDraw = might >= 5 ? "executed" : "negated";
+    const expectedRecycle = might >= 5 ? "negated" : "executed";
+    assert.deepEqual(
+      outcome.results.map(entry => [entry.id, entry.result.status]),
+      [
+        ["raving-witness.reveal-top", expectedReveal],
+        ["raving-witness.draw-mighty", expectedDraw],
+        ["raving-witness.recycle-not-mighty", expectedRecycle]
+      ],
+      `printed Might ${might}: ${JSON.stringify(outcome.results)}`
+    );
+    if (might >= 5) {
+      // 707/708/711 + effect.zone: the locked card itself moved to the hand.
+      assert.equal(scoped.getObject("top").zone, "hand");
+      assert.deepEqual(outcome.events.map(event => event.action), ["reveal", "return-to-hand"]);
+      assert.deepEqual(scoped.zoneSlice("A", "deck", "top").map(object => object.ref.id), ["bottom"]);
+    } else {
+      // 417.1/417.1.a: the locked card recycled to the bottom of its owner's deck.
+      assert.equal(scoped.getObject("top").zone, "deck");
+      assert.deepEqual(outcome.events.map(event => event.action), ["reveal", "recycle"]);
+      assert.deepEqual(
+        scoped.zoneSlice("A", "deck", "top").map(object => object.ref.id).at(-1),
+        "top"
+      );
+    }
+  }
+});
+
+test("rad-074-167 Raving Witness: object-moved is missing from the merged event vocabulary", () => {
+  // The timing point exists and the action adapter maps move-location onto it,
+  // but EVENT_PATTERN_TYPES has no entry, so the strict validator rejects the
+  // translated registration (translateTriggerFilter itself succeeds).
+  assert.equal(isTimingPointId("object-moved"), true);
+  const source = world().unit("witness", { cardId: CARD_ID }).build().getObject("witness");
+  const lifted = { ...program, status: "executable" };
+  delete lifted.judgeReason;
+  const [registration] = triggerRegistrations(new ProgramRegistry([lifted]), source);
+  assert.deepEqual(registration.spec.filter, {
+    event: "object-moved",
+    object: { objectId: "witness" }
+  });
+  const result = validateTriggerSpec(registration.spec);
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.issues.map(issue => issue.code), ["invalid-event-type"]);
+});

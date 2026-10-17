@@ -8,6 +8,9 @@ import token from "../../../../engine-core/dist/effects/instructions/effect.toke
 import showOff from "../../../../engine-core/dist/effects/keywords/ShowOff.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { describePlay } from "../../../../engine-core/dist/programs/play.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { fixture as chainFixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL = "card.hash-e1dc41d23789b8f4890d5cd59e5dc7e12c0c0d447b2f09fd7acf63729930c55d";
 const SOURCE_TEXT =
@@ -20,6 +23,13 @@ const [mode] = play.body;
 const [fourRecruits] = mode.args.modes.value[0].body;
 const [twoRecruits] = mode.args.modes.value[1].body;
 
+/** The program registry rejects a judgeReason on an executable program outright. */
+function executable(candidate) {
+  const lifted = { ...candidate, status: "executable" };
+  delete lifted.judgeReason;
+  return lifted;
+}
+
 test("Rousing Display program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
   assert.deepEqual(result.issues, []);
@@ -30,11 +40,14 @@ test("Rousing Display identity, ruleset, status and printed text (including the 
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
+  // The reason must name the merged code that rejects each half, not task ids.
   assert.match(program.judgeReason, /Show Off/);
-  assert.match(program.judgeReason, /RIFT-268/);
+  assert.match(program.judgeReason, /show-off/);
+  assert.match(program.judgeReason, /executable KeywordDef/);
   assert.match(program.judgeReason, /cost\.reveal/);
-  assert.match(program.judgeReason, /validateSurface|choice-plan/);
+  assert.match(program.judgeReason, /choice-plan/);
   assert.match(program.judgeReason, /RIFT-359/);
+  assert.equal(program.judgeReason.includes("RIFT-268"), false);
   assert.equal(program.sourceText, SOURCE_TEXT);
   // The catalog's trailing "disa" is preserved verbatim (data issue reported
   // in the task reply; card-data must not be edited here).
@@ -117,8 +130,66 @@ test.todo(
     "and no printed Object clause (CR 832.1.c / 832.1.d.1, contract 3.4)"
 );
 
-test.todo(
-  "Rousing Display: 'If you showed off' needs the executable predicate for the finalization result; the two " +
-    "choice.mode branches currently record the structure only — the play body's choice.mode also needs the " +
-    "Finalize/Resolve choice-plan adapter that validateSurface names"
-);
+test("Rousing Display: the merged play surface rejects the body at keyword expansion (slug vs registry key)", () => {
+  // effects/keywords/ShowOff.ts registers the printed name "Show Off" while the
+  // EffectIR validator forces a lowercase symbol id and definitionFor only
+  // compares case-insensitively, so the play draft cannot be built (CR 832.1).
+  assert.equal(keywordDefinitionsById.has("Show Off"), true);
+  assert.equal(keywordDefinitionsById.has("show-off"), false);
+
+  const kernel = world().hand("card", { types: ["spell"], energy: 5 }).build();
+  const source = { ...kernel.getObject("card"), cardId: CANONICAL };
+
+  assert.throws(
+    () => describePlay(
+      new ProgramRegistry([executable(program)]),
+      { type: "play", object: source.ref, player: "A" },
+      source
+    ),
+    (error) => error.code === "judge-required" &&
+      /Keyword show-off has no executable KeywordDef/.test(error.message)
+  );
+});
+
+test("Rousing Display: the printed keyword spelling is rejected by the card validator", () => {
+  // The two merged sides disagree on the id: KeywordDef uses "Show Off", the
+  // EffectIR validator requires a lowercase symbol id without spaces.
+  const printedSpelling = {
+    ...program,
+    abilities: [{ kind: "keyword", keyword: "Show Off" }, program.abilities[1]]
+  };
+  assert.deepEqual(
+    validateCardProgram(printedSpelling).issues.map(issue => [issue.code, issue.path]),
+    [["invalid-string", "$.abilities[0].keyword"]]
+  );
+  // The authored slug validates but has no KeywordDef, so expansion fails.
+  assert.deepEqual(validateCardProgram(program).issues, []);
+  assert.equal(keywordDefinitionsById.get("Show Off").keyword, "Show Off");
+});
+
+test("Rousing Display: the choice.mode body stops at the merged chain Finalize gate", () => {
+  // chain/engine.ts assertFinalizationSurface rejects any choice.mode until the
+  // Finalize/Resolve choice-plan adapter exists, so even once the keyword id is
+  // settled the play body cannot be finalized as authored. The body is driven
+  // through a real chain item: register it, emit the trigger, then advance.
+  const fixture = chainFixture();
+  const source = fixture.kernel.getObject("source");
+
+  fixture.engine.pipeline.registerTrigger({
+    id: "rousing-display-body",
+    source,
+    controller: "A",
+    spec: { at: "object-exhausted", filter: {} },
+    body: play.body,
+    optional: false,
+    activeZones: ["board"]
+  });
+  fixture.engine.pipeline.emit({ timingPoint: "object-exhausted", object: source });
+  assert.equal(fixture.engine.items.length, 1);
+
+  assert.throws(
+    () => fixture.engine.advance(),
+    (error) => error.status === "blocked" &&
+      /Mode choices require a Finalize\/Resolve choice-plan adapter/.test(error.message)
+  );
+});

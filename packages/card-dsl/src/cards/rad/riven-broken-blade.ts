@@ -29,15 +29,20 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - [Stun] 与 ready：424（Stunned 状态；424.1.a.1 已 Stunned 不再重复）与 416.1（Ready）；
  *   两者原语 effect.stun / effect.ready 已合入。
  *
- * status 判定（README 第 2 节，2026-10-17 复核）：judge-required。缺口：
+ * status 判定（README 第 2 节，2026-10-17 复核）：judge-required。缺口（均实测）：
  * - `choice.exclusive-once-per-turn`（本回合未选过的分支记录，303 / 319）：IR 的 choice.mode
  *   只在单次结算内保证 count=1 / different=true，不能承载跨触发的回合历史（无已分配任务号）。
- * - 指令内 Buff 支付门控：cost.pay 原语已合入，但 success-gated payment body 仍缺
+ * - 指令内 Buff 支付门控：实测在 0 个 Buff 时，spend 指令 negated/skipped，但 linkedTo 的
+ *   stun 与 ready 仍然 executed（敌人照样被 Stun、自己被 Ready）——证明 linkedTo 不是
+ *   「支付成功才结算」的门控。cost.pay 原语已合入，但 success-gated payment body 仍缺
  *   （cost/kinds/README.md 契约变更请求 #2）；已合入的 effect.buff mode "spend" 不构成门控。
- * - CardProgram → TriggerRegistration 已有生产适配器；嵌套 {source:"self"}
- *   锚点经 translateTriggerFilter 已能翻译成
- *   {event:"object-exhausted", object:{objectId:"src"}}，翻译后的
- *   registration 也通过严格校验。触发绑定不再是本卡缺口。
+ * - 整条触发体的 choice.mode 还进不了生产链：实测 chain/engine.ts 的
+ *   assertFinalizationSurface 抛 ChainContractBlockedError「Mode choices require a
+ *   Finalize/Resolve choice-plan adapter」。
+ * CardProgram → TriggerRegistration 已有生产适配器；嵌套 {source:"self"}
+ * 锚点经 translateTriggerFilter 已能翻译成
+ * {event:"object-exhausted", object:{objectId:"src"}}，翻译后的 registration 也通过
+ * 严格校验。触发绑定不再是本卡缺口。
  * 分支结构已按契约 3.9 用 choice.mode 完整写出，已合入的 effect.buff / effect.stun /
  * effect.ready 在 golden 测试里用解释器 + 参考内核真实执行。
  */
@@ -174,15 +179,19 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处缺口（2026-10-17 复核，均不近似实现）：(1) 「choose one that hasn't been chosen this turn」" +
+    "三处缺口（2026-10-17 复核，均实测，不近似实现）：(1) 「choose one that hasn't been chosen this turn」" +
     "需要跨触发的回合历史收据（303 / 319）；IR 的 choice.mode 只在单次结算内保证 count=1/different=true，" +
     "没有 choice.exclusive-once-per-turn 之类原语（无已分配任务号）。" +
     "(2) 「Spend my buff to [Stun]/ready」的「[do X] to [do Y]」是指令内费用（355.10.c.1/404.1.b.1）：" +
-    "cost.pay 原语已合入，但 success-gated payment body 仍缺（cost/kinds/README.md 契约变更请求 #2）；" +
+    "实测在 0 个 Buff 时 spend 指令 negated/skipped 而 linkedTo 的 stun 与 ready 仍然 executed" +
+    "（敌人照样被 Stun、自己被 Ready），证明 linkedTo 不是「支付成功才结算」的门控；" +
+    "cost.pay 原语已合入，但 success-gated payment body 仍缺（cost/kinds/README.md 契约变更请求 #2）。" +
     "已合入的 effect.buff mode \"spend\" 只是消耗动作，按契约 3.4 的 negated 语义" +
     "不构成对后续链接指令的费用门控（不把 spend-buff 降级为普通 Might 修改，见文件头注释）。" +
+    "(3) 整条触发体的 choice.mode 进不了生产链：实测 chain/engine.ts 的 assertFinalizationSurface 抛 " +
+    "ChainContractBlockedError「Mode choices require a Finalize/Resolve choice-plan adapter」。" +
     "已合入的 effect.buff / effect.stun / effect.ready 由 golden 测试用解释器 + 参考内核真实执行。" +
-    "依赖：success-gated payment body（cost/kinds/README.md 契约变更请求 #2）。",
+    "依赖：success-gated payment body（cost/kinds/README.md 契约变更请求 #2）、Finalize/Resolve choice-plan 适配器。",
   abilities,
   sourceText:
     "When I become exhausted, choose one that hasn't been chosen this turn —\n" +
