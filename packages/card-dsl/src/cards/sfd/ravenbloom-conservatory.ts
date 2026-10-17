@@ -36,7 +36,8 @@ import type { CardProgram } from "../../ir/index.js";
  *    过滤器需要「事件发生在本战场」而静态程序无法知道运行时 battlefield id。
  * 3. effect.reveal 的 pick 参数在契约与已合入运行时之间不一致：IR 校验器要求 args 的每个
  *    值都是 Expr（写 { kind: "constant", value: id }），而 chain/interpreter-adapter.ts 的
- *    LITERAL_FIELDS 会把 effect.reveal.pick 解包成裸值再交原语，原语因此要求字符串 id ——
+ *    LITERAL_FIELDS 没有声明 effect.reveal 的 pick 解包，Expr 包裹会原样传给原语，
+ *    原语因此只接受裸字符串 id ——
  *    实测：Expr 拼写通过 validateCardProgram 但在 produce 路径抛
  *    "effect.reveal: pick must be a non-empty id"，裸字符串则在 validateCardProgram 被拒
  *    （invalid-expression）。该不一致属引擎/契约侧修复（见最终回复的契约变更请求），
@@ -49,7 +50,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入，均不近似实现。(1) defense-declared 没有产生方：combat/flow.ts 的战斗开始事务显式抛出 " +
+    "三处依赖未合入，均不近似实现。(1) defense-declared 没有产生方：combat/flow.ts 的战斗开始事务显式抛出 " +
     "TurnCombatBlockedError('combat-start-transaction')，时序审计（docs/rules/timing-point-producers.md）把 " +
     "attack-declared/defense-declared 记为「待后续」，触发因此进不了链（RIFT-124 的 combat 事务后续）。" +
     "(2) \"here\"（053.3）在 EventPattern / ObjectFilter 里不可表达：已合入的 trigger-spec 校验器拒绝 here 字段" +
@@ -57,7 +58,8 @@ export default {
     "CardProgram 绑定（RIFT-257）对未知过滤器字段 fail-closed 拒绝；本卡是 Battlefield 自身的能力，过滤器需要" +
     "「事件发生在本战场」，而静态程序无法知道运行时 battlefield id。" +
     "(3) effect.reveal 的 pick 在契约与已合入运行时之间不一致：IR 校验器要求 args 的值都是 Expr，" +
-    "而 chain/interpreter-adapter.ts 的 LITERAL_FIELDS 把 effect.reveal.pick 解包成裸值再交原语，原语只要字符串 id；" +
+    "而 chain/interpreter-adapter.ts 的 LITERAL_FIELDS 没有声明 effect.reveal 的 pick 解包，" +
+    "Expr 包裹原样传给原语，原语只接受裸字符串 id；" +
     "实测 Expr 拼写通过 validateCardProgram 但在链上抛「effect.reveal: pick must be a non-empty id」，裸字符串则在校验器被拒" +
     "（按契约 3.2 保持 Expr 拼写，缺口登录在最终回复的契约变更请求）。" +
     "正文其余部分已可执行：牌库顶 1 张经有序 picks 交 effect.reveal（425.1/425.2.a、契约 3.6 的顺序要求），" +
@@ -80,7 +82,7 @@ export default {
           id: "ravenbloom.reveal",
           op: "effect.reveal",
           // effect.reveal 的 pick 是 PickSpec id；契约 3.2 要求 args 的值为 Expr，
-          // 这里按契约写 Expr（已合入的链适配器对该字段的解包见 judgeReason 的第 3 条缺口）。
+          // 这里按契约写 Expr（已合入的链适配器未声明该字段的解包，见 judgeReason 的第 3 条缺口）。
           args: { pick: { kind: "constant", value: "ravenbloom.revealed-card" } },
           picks: [
             {

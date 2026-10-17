@@ -35,15 +35,17 @@ import type { CardProgram } from "../../ir/index.js";
  *    validator rejects (unknown field) and programs/filters.ts translateTriggerFilter
  *    rejects as well ("Unsupported filter field here"), so the ability cannot
  *    register through the merged CardProgram trigger adapter (RIFT-257).
- * 2. the count subject "other battlefields you or allies control" still needs a
- *    Battlefield-object query population and the teammate relation: the merged query
- *    path (chain engine context -> matchesObjectFilter) filters Board snapshots through
- *    ObjectFilter keys only, `controller: "you-or-ally"` and the `exclude` anchor are
- *    rejected by programs/filters.ts, and no merged ObjectFilter / PlayerSelector / Expr
- *    models the Mode-of-Play teammate relation (471.1.a, 315.2.b.3).
+ * 2. the count still needs the Mode-of-Play teammate relation (471.1.a,
+ *    315.2.b.3): no merged ObjectFilter / PlayerSelector / Expr expands
+ *    `controller: "you-or-ally"` to the controller and their allies. The count's
+ *    actual evaluateExpression -> queryObjects path already queries Battlefield
+ *    snapshots and handles `exclude: "self"` itself; translateObjectFilter is
+ *    not part of this path. Binding only controller to "A" correctly counts
+ *    other A-controlled Battlefields and excludes this Battlefield.
  * The trigger + count + draw shape is recorded below so the missing pieces stay
- * auditable; the draw half alone is executed by the golden test with an
- * explicit count, and the data issue (the extra period) is reported, not fixed.
+ * auditable; the golden executes the count and draw with controller bound to
+ * "A", including zero/one/multiple other Battlefields. This does not supply
+ * ally semantics. The extra-period data issue is reported, not fixed.
  */
 export default {
   canonicalCardId: "card.hash-8ad41dd9ba742358d12656164c456e4f9cc43b4712fcb9c9f120661d5c208fac",
@@ -55,11 +57,13 @@ export default {
     "(383.4.c / 473.2.a) still cannot run end to end, and nothing is approximated: (1) the battlefield-relative \"here\" " +
     "restriction has no EventPattern vocabulary — the 053.3 `here: true` placeholder is rejected by the events/trigger-spec " +
     "validator (unknown-field) and by programs/filters.ts translateTriggerFilter (\"Unsupported filter field " +
-    "here\"), so the CardProgram trigger cannot register through the merged RIFT-257 adapter; (2) the count subject needs a " +
-    "Battlefield-object query population and the teammate relation of 471.1.a / 315.2.b.3: the merged query path only filters " +
-    "Board snapshots through ObjectFilter keys, and no merged ObjectFilter / PlayerSelector / Expr models allies or the " +
-    "`you-or-ally` / `exclude` spellings used below (programs/filters.ts rejects both). The merged draw primitive and the " +
-    "count-driven amount are exercised by the golden test with an explicit count. Data issue (not modified): the catalog text " +
+    "here\"), so the CardProgram trigger cannot register through the merged RIFT-257 adapter; (2) the count still lacks the " +
+    "Mode-of-Play teammate relation of 471.1.a / 315.2.b.3: no merged ObjectFilter / PlayerSelector / Expr expands " +
+    "controller: you-or-ally into the controller and allies. The actual count path is evaluateExpression -> queryObjects: " +
+    "it already queries Battlefield snapshots and resolves exclude: self, without calling translateObjectFilter. " +
+    "Golden execution changes only controller to A, keeps the count expression and exclude anchor, and correctly draws " +
+    "0/1/2 cards for 0/1/2 other A-controlled Battlefields; the self Battlefield, enemy Battlefields and units do not count. " +
+    "The printed you-or-ally filter stays unchanged in this program pending teammate semantics. Data issue (not modified): the catalog text " +
     "ends with two periods (control..), recorded unresolved in docs/plans/survey/data-issues-recheck.md; sourceText keeps the " +
     "catalog spelling verbatim.",
   abilities: [
@@ -69,7 +73,7 @@ export default {
         at: "conquer",
         // "here" is this Battlefield (053.3) and "you" its Controller
         // (190.6.d); sibling battlefield programs keep the same placeholder
-        // spelling while the conquer pipeline is unmerged.
+        // spelling while battlefield-relative trigger filtering is missing.
         filter: { event: "conquer", here: true, player: "controller" }
       },
       optional: false,
@@ -77,9 +81,9 @@ export default {
         {
           // "draw 1 for each other battlefield you or allies control": one draw
           // whose amount is the size of the qualifying set, read at resolution
-          // (414.1 / 414.3, contract 3.6). The filter records the missing pieces
-          // (other / you-or-allies) so the intended set stays reviewable; it is
-          // not executable data (see judgeReason).
+          // (414.1 / 414.3, contract 3.6). The other/self exclusion is supported
+          // by the count path; the missing teammate relation is kept as the
+          // you-or-ally placeholder (see judgeReason).
           id: "seat-of-power.draw-per-battlefield",
           op: "effect.draw",
           args: {

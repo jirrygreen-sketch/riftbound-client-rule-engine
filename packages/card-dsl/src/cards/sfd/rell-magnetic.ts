@@ -48,8 +48,9 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Tank] 的 KeywordDef 已注册（effects/keywords/Tank.ts），但其展开的 continuous.combat 静态效果" +
-    "还没有战斗伤害分配消费方（815，RIFT-9/RIFT-91）。" +
+    "[Tank] 的 KeywordDef 已注册（effects/keywords/Tank.ts），其展开的 continuous.combat 静态效果" +
+    "（mode: damage-assignment、priority: first、damage: lethal）经生产静态绑定进 ability 图层后，" +
+    "layers/engine.ts 的 snapshot 没有任何伤害分配消费分支（continuous.combat 尚未接入 combat 伤害分配，815，RIFT-9/RIFT-91）。" +
     "攻击能力还需要按印刷 Energy 上限筛选 Equipment（energyLte）、生成忽略费用的 FinalizedCostPlan，并把被打出的对象链接给 effect.attach；当前 ObjectFilter 没有费用谓词，effect.play 只返回成功次数且没有卡牌程序→费用/附着接线（RIFT-89）。不近似实现。",
   abilities,
   sourceText:

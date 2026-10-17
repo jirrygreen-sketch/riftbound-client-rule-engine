@@ -193,3 +193,42 @@ test.todo(
     "original [A]/[C] symbols survive cost planning (821.1.c.3, in-progress RIFT-261); the " +
     "merged RIFT-257 adapter already registers the trigger"
 );
+// Direct evidence for the second recorded gap: the expansion's cost.modify
+// step reaches the merged interpreter with the Weaponmaster modifier attached
+// and then fails closed, because no merged source can bind the chosen
+// Equipment's Equip cost into a CostPlan (CR 821.1.c.2).
+// (runAbilityBody imported at the top of this file.)
+
+const costStep = choiceSequence.args.body.value.find((step) => step.op === "cost.modify");
+
+test("sfd-008-221 Sentinel Adept: the expansion's cost.modify step fails closed without an authoritative Equip-cost binding (CR 821.1.c.2)", () => {
+  const kernel = world()
+    .object("long-sword", {
+      name: "Long Sword",
+      types: ["gear"],
+      tags: ["Equipment"],
+      zone: "board",
+      energy: 2,
+      power: null,
+      might: 0
+    })
+    .unit("sentinel-adept", { might: 3, zone: "board", location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const context = kernel.clone({
+    source: kernel.ref("sentinel-adept"),
+    sourceSnapshot: kernel.getObject("sentinel-adept")
+  });
+  context.setTargets("weaponmaster-equipment", [kernel.ref("long-sword")]);
+
+  // The expansion's cost.modify is a registered primitive, so the merged
+  // interpreter (not the chain adapter) parses its constant-wrapped modifier.
+  assert.throws(
+    () => runAbilityBody([costStep], context),
+    (error) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /821\.1\.c\.2: missing authoritative Equip-cost binding/);
+      assert.match(error.message, /judge-required/);
+      return true;
+    }
+  );
+});

@@ -153,3 +153,41 @@ test("sfd-016-221 Recurve Bow: the merged Equip expansion really attaches this G
 
 test.todo("sfd-016-221 Recurve Bow: paying the printed Fury Equip cost (CR 818.1.b / 818.1.c.3) needs an equip payment kind in cost/plan-values.ts; the KeywordDef.expand signature already exposes params.cost but Equip.ts does not read it yet (contract 3.8 item 3; RIFT-261 follow-up).");
 test.todo("sfd-016-221 Recurve Bow: the card-program -> keyword expansion path is merged (RIFT-257 programs/keywords.ts); the activation cost becomes payable once the equip payment kind and the printed-cost binding exist, at which point payCostPlan can be exercised end to end.");
+// Direct evidence for the two printed-cost gaps recorded in the judgeReason:
+// the merged cost pipeline refuses the equip payment kind outright, and the
+// Equip KeywordDef still ignores the params.cost carrier promised by
+// contract 3.8 item 3.
+import { buildCostPlan, CostPlanError } from "../../../../engine-core/dist/cost/index.js";
+
+test("sfd-016-221 Recurve Bow: the merged cost pipeline rejects the equip payment kind (CR 818.1.b / 818.1.c.2)", () => {
+  const kernel = equipWorld();
+  const [expansion] = expansionFor();
+
+  assert.throws(
+    () => buildCostPlan(kernel, { id: "recurve-bow.equip", cost: expansion.cost }),
+    (error) => {
+      assert.ok(error instanceof CostPlanError);
+      assert.equal(error.reason, "judge-required");
+      assert.match(error.message, /Unsupported payment kind: equip/);
+      return true;
+    }
+  );
+});
+
+test("sfd-016-221 Recurve Bow: Equip.expand still ignores params.cost, so the printed Fury cost never reaches the plan", () => {
+  // Contract 3.8 item 3: the caller may pass the printed equip cost through
+  // params.cost. The merged Equip.ts signature accepts the carrier but its
+  // expand body never reads it — the returned activation cost stays the bare
+  // equip payment kind, which the cost pipeline then blocks (see the test
+  // above). This locks the exact unbound shape until RIFT-261 lands.
+  const definition = keywordDefinitionsById.get("Equip");
+  const [expansion] = definition.expand({
+    value: equip.value,
+    host: { canonicalCardId: CANONICAL },
+    params: { cost: { kind: "explicit", power: { kind: "constant", value: 1 } } }
+  });
+  assert.deepEqual(expansion.cost, {
+    kind: "activated",
+    payments: [{ kind: "equip", value: { kind: "constant", value: { kind: "source" } } }]
+  });
+});
