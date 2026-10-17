@@ -6,12 +6,33 @@ import program from "../../../dist/cards/ogn/peak-guardian.js";
 const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
 const { world } = await import(new URL("effects/testing/index.js", engineCore));
 const { runAbilityBody } = await import(new URL("effects/interpreter.js", engineCore));
+const { queryObjects } = await import(new URL("effects/interpreter/selectors.js", engineCore));
+const { queryTargetCandidates } = await import(new URL("target/target-plan.js", engineCore));
 
 const SELF_ID = "peak-guardian.buff-me";
 const OTHERS_ID = "peak-guardian.buff-others-here";
 
 const bodyForExecution = () =>
   program.abilities[0].body.map(({ targets, ...rest }) => rest);
+
+const targetContext = kernel => new Proxy(kernel, {
+  get(target, key) {
+    if (key === "query") {
+      return filter => queryObjects(
+        filter.controller === "controller" ? { ...filter, controller: "A" } : filter,
+        {
+          context: target,
+          host: target.source.ref,
+          linked: id => target.linked(id),
+          canLookBack: () => true,
+          isIgnored: () => false
+        }
+      );
+    }
+    const value = Reflect.get(target, key);
+    return typeof value === "function" ? value.bind(target) : value;
+  }
+});
 
 test("ogn-223-298 Peak Guardian: program validates and has expected identity", () => {
   const result = validateCardProgram(program);
@@ -25,7 +46,7 @@ test("ogn-223-298 Peak Guardian: program validates and has expected identity", (
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /battlefield/);
   assert.match(program.judgeReason, /sameLocationAs/);
-  assert.match(program.judgeReason, /位置类型谓词/);
+  assert.match(program.judgeReason, /目标适配器/);
   assert.equal(
     program.sourceText,
     "When you play me, buff me. Then, if I am at a battlefield, buff all other friendly units there. " +
@@ -70,15 +91,48 @@ test("ogn-223-298 Peak Guardian: card-played self trigger, buff-me, then the sam
     exclude: "self",
     sameLocationAs: "self"
   });
+  assert.deepEqual(buffOthers.targets[0].location, { type: "battlefield" });
   assert.equal(buffOthers.targets[0].selection, "all");
   assert.equal(buffOthers.targets[0].min, 0);
   assert.equal(buffOthers.targets[0].max, null);
   // "Then, if I am at a battlefield" is a mandatory conditional clause: it is
-  // NOT a player choice, so it must not be wrapped in choice.optional (that
-  // would invent a decision), and an inexact condition placeholder must not be
-  // authored either — the gate is the judged part (see judgeReason and the todo
-  // below), so the instruction carries no condition at all.
+  // NOT a player choice, so it must not be wrapped in choice.optional. The
+  // merged TargetSpec.location gate rejects the whole peer set when the source
+  // is at a base; the remaining blocker is production translation of the
+  // dynamic sameLocationAs/exclude anchors.
   assert.equal(buffOthers.condition, undefined);
+});
+
+test("ogn-223-298 Peak Guardian: TargetSpec.location gates the peer set to battlefields", () => {
+  const battlefield = world()
+    .unit("peak-guardian", { owner: "A", location: { type: "battlefield", id: "bf-1" } })
+    .unit("ally-here", { owner: "A", location: { type: "battlefield", id: "bf-1" } })
+    .unit("ally-elsewhere", { owner: "A", location: { type: "battlefield", id: "bf-2" } })
+    .unit("ally-base", { owner: "A", location: { type: "base", player: "A" } })
+    .build();
+  const battlefieldContext = battlefield.clone({
+    source: battlefield.ref("peak-guardian"),
+    sourceSnapshot: battlefield.getObject("peak-guardian")
+  });
+  assert.deepEqual(
+    queryTargetCandidates(targetContext(battlefieldContext), program.abilities[0].body[1].targets[0])
+      .map(ref => ref.id),
+    ["ally-here"]
+  );
+
+  const atBase = world()
+    .unit("peak-guardian", { owner: "A", location: { type: "base", player: "A" } })
+    .unit("ally-base", { owner: "A", location: { type: "base", player: "A" } })
+    .unit("ally-battlefield", { owner: "A", location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const baseContext = atBase.clone({
+    source: atBase.ref("peak-guardian"),
+    sourceSnapshot: atBase.getObject("peak-guardian")
+  });
+  assert.deepEqual(
+    queryTargetCandidates(targetContext(baseContext), program.abilities[0].body[1].targets[0]),
+    []
+  );
 });
 
 test("ogn-223-298 Peak Guardian golden: 'buff me' places one Buff, and a second Buff is not placed (CR 702.3.a)", () => {
@@ -158,8 +212,7 @@ test("ogn-223-298 Peak Guardian: peers that left the same location before resolu
 });
 
 test.todo(
-  "ogn-223-298 Peak Guardian: 'if I am at a battlefield' as a decidable condition — " +
-    "需要“来源当前位置的类型是 battlefield”的谓词才能在结算时门控 body[1]：Condition 现有操作符无法表达" +
-    "嵌套的 location.type（expression 对 location 对象只做布尔转换、恒为真），程序里因此不写语义不等价的占位条件；" +
-    "门控缺失时本卡在基地结算会多作用于基地上的其它友方单位"
+  "ogn-223-298 Peak Guardian: production target translation must consume the merged " +
+    "sameLocationAs/exclude anchors together with TargetSpec.location: battlefield so the peer " +
+    "set is empty when the source is at a base"
 );

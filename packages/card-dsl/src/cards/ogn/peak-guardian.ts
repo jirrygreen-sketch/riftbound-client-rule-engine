@@ -20,10 +20,10 @@ import type { CardProgram } from "../../ir/index.js";
  * - body[1] 「buff all other friendly units there」：以 sameLocationAs: "self" + exclude: "self"
  *   + controller: "controller" 的 ObjectFilter 做集合查询的 effect.buff。
  *
- * 关于条件从句的写法：本卡第二句是强制的 if 从句、不是玩家选择，因此**不**能用 choice.optional
- * 包一层（那会凭空引入一次玩家决定，等于伪造语义）。而「if I am at a battlefield」这个门控在现有
- * IR 里无法忠实表达（见 judgeReason），所以程序里**不**写一个语义不等价的 condition 占位，
- * body[1] 只精确表达它能表达的那半句「buff all other friendly units there」。
+ * 关于门控的写法：本卡第二句是强制的 if 从句、不是玩家选择，因此**不**能用 choice.optional
+ * 包一层（那会凭空引入一次玩家决定，等于伪造语义）。已合入的 TargetSpec.location 可以把
+ * “来源所在位置必须是 battlefield”与 sameLocationAs: "self" 一起表达：来源在基地时，第二条
+ * TargetSpec 没有合法对象，Buff 效果自然不执行。
  *
  * status = judge-required：见 judgeReason。
  */
@@ -32,17 +32,11 @@ const peakGuardian = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「if I am at a battlefield」这个门控在已合入的 IR 里不可判定：需要「来源当前位置的类型是 " +
-    "battlefield」这一谓词（359.3.f.2 的 referent 在执行时检查），而 Condition 只有 " +
-    "always/never/compare/all/any/not/expression——expression 只做布尔转换" +
-    "（object-property(source, location) 返回位置对象，恒为真），compare 只能比较被求值的值，" +
-    "嵌套位置类型（location.type）既不能被 object-property 读取，也没有对应的谓词节点；" +
-    "写死具体战场 id 不是卡面语义。" +
-    "因此程序里不写语义不等价的 condition 占位：body[1] 只精确表达它可以表达的那半句" +
-    "「buff all other friendly units there」（sameLocationAs/exclude/controller 的集合查询），" +
-    "而“只在我是战场时生效”的门控缺失——若本卡在基地被结算，这条指令会多作用于基地上的其它友方单位，" +
-    "这是本卡判为 judge-required 的原因之一；程序目标适配器也尚未消费 sameLocationAs/exclude 的动态锚点。依赖：" +
-    "位置类型谓词（或可判定的 target.location 形式）与目标适配器落地。" +
+    "「if I am at a battlefield」已用 TargetSpec.location: { type: \"battlefield\" } 与 " +
+    "sameLocationAs: \"self\" 表达（359.3.f.2 的 referent 在执行时检查）；来源在基地时，第二条 " +
+    "TargetSpec 没有合法对象，因此不会给基地上的其它单位加 Buff。当前剩余缺口是程序目标适配器仍拒绝并未消费 " +
+    "sameLocationAs/exclude 的动态锚点，" +
+    "因此这条集合查询还不能进入生产结算路径。依赖：目标适配器对 sameLocationAs/exclude 的支持。" +
     "「buff me」与 702.3.a 的「已有 Buff 不再获得」边界，以及同位置其它友方单位的 Buff 集合行为，" +
     "均已有 golden 执行证据。",
   abilities: [
@@ -88,6 +82,7 @@ const peakGuardian = {
                 exclude: "self",
                 sameLocationAs: "self"
               },
+              location: { type: "battlefield" },
               min: 0,
               max: null,
               selection: "all"
