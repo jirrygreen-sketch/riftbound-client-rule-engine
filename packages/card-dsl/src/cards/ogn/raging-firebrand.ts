@@ -14,10 +14,10 @@ import type { CardProgram } from "../../ir/index.js";
  *   法术打出的费用改写：需要一个一次性（one-shot）费用修正窗口，作用到本回合
  *   你接下来打出的第一张 Spell 的 Finalize 费用计划，随后失效。
  * - cost/ 的 buildCostPlan 支持 components/discounts 与 optionalAdditional，且
- *   cost.modify 指令原语（RIFT-261）已合入并能对调用方给的 CostSpec 建立 finalized
- *   计划；仍缺的是把"本回合下一张法术 -5 能量"作为一次性窗口安装到后续 Finalize：
- *   "next spell" 没有对应的持续效果期限类型（Duration 只有 permanent / end-of-turn /
- *   end-of-combat / while-source-in-zone / until），折扣只在单次计划内生效。
+ *   cost.modify 指令原语已合入并能对调用方给的 CostSpec 建立 finalized 计划；仍缺的
+ *   是把“本回合下一张法术 -5 能量”作为一次性窗口接到后续 Finalize。replacement
+ *   已有 next-time-this-turn 的 GameAction 窗口，但费用支付/Finalize 没有可拦截的
+ *   GameAction，折扣仍只在单次计划内生效。
  * - 触发注册的卡牌程序绑定（RIFT-257）已合入：programs/triggers.ts 的
  *   registerProgramTriggers + attachProgramLifecycle 能把 card-played 这类普通
  *   触发登记为 TriggerRegistration；缺的是该触发结算出的一次性费用修正窗口。
@@ -33,7 +33,8 @@ const ragingFirebrand = {
     "缺一次性（one-shot）费用窗口（复核 2026-10-17）：cost.modify 指令原语已合入，" +
     "能对调用方给的 CostSpec 生成 finalized 计划（golden 实测 -5 energy discount 与 356.6 的 0 下限）；" +
     "但没有任何已合入消费方把「本回合下一张法术 -5 能量」安装成后续打出的一张法术的费用修正——" +
-    "cost/buildCostPlan 的 discounts 只在单次计划内生效，Duration 也没有 one-shot「next spell this turn」期限。" +
+    "replacement 的 next-time-this-turn 只拦截 GameAction，费用支付/Finalize 没有可拦截的 GameAction，" +
+    "cost/buildCostPlan 的 discounts 仍只在单次计划内生效。" +
     "卡牌触发绑定已合入（programs/triggers.ts 的 registerProgramTriggers + attachProgramLifecycle " +
     "能登记 card-played 触发），缺的只是触发结算出的一次性窗口本身。" +
     "依赖：一次性费用修正窗口与卡牌费用描述符→后续 Finalize 计划的消费者。不近似为常驻减费。",

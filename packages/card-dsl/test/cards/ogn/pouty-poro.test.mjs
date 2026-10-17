@@ -31,10 +31,12 @@ test("ogn-013-298 Pouty Poro: judgeReason names the missing wiring and its tasks
   assert.match(program.judgeReason, /target\.tax/);
   assert.match(program.judgeReason, /809\.1\.c\.1/);
   assert.match(program.judgeReason, /taxSpecs\/appendTaxes/);
-  // cost.pay / cost.modify are merged; the current dependency is the target-tax
-  // production wiring, and the stale RIFT-261 claim must be gone.
-  assert.match(program.judgeReason, /RIFT-360/);
-  assert.match(program.judgeReason, /旧依赖任务已过时/);
+  // cost.pay / cost.modify and the target-tax planner are merged; the current
+  // gap is the production binder plus Finalize/payment integration.
+  assert.match(program.judgeReason, /chain\/engine\.ts/);
+  assert.match(program.judgeReason, /Energy mandatoryAdditional/);
+  assert.match(program.judgeReason, /any-domain Power CostPlan/);
+  assert.ok(!/RIFT-360/.test(program.judgeReason));
   assert.match(program.judgeReason, /layer mapping/);
 });
 
@@ -109,5 +111,5 @@ test.todo(
     + "any Domain (CR 809.1.c/809.1.c.1), derived from my target.tax continuous effect and charged at "
     + "Finalize — blocked because the merged static binder has no target.tax layer mapping, no producer "
     + "derives the Deflect tax from a permanent's target.tax effect, and the merged tax-to-cost "
-    + "conversion bills Energy instead of any-domain Power (RIFT-360)"
+    + "conversion still bills Energy in chain/engine.ts instead of consuming the any-domain Power CostPlan"
 );

@@ -28,15 +28,10 @@ import type { CardProgram } from "../../ir/index.js";
  *   action hitting several enemy units would trigger once per unit instead of
  *   once for the batch. `once` scopes (per-turn/per-phase/per-combat/
  *   per-showdown/per-chain/per-object/per-game) cannot express "per batch".
- * The card-program trigger binding (RIFT-257) is merged: programs/triggers.ts
- * registers ordinary triggered abilities through registerProgramTriggers +
- * attachProgramLifecycle. This card's authored filter has no event name
- * ("unit-stunned" is not in the closed EVENT_PATTERN_TYPES vocabulary; the
- * timing point spells it "unit-stunned" while scripting spells it
- * "conquered"/"held"), so the emitted event carries the payload object the
- * binder matches, and the event pipeline still needs a host testTrigger adapter
- * for a trigger carrying a condition. The buff body itself is merged and has
- * real execution tests.
+ * The card-program trigger binding and `unit-stunned` payload filter are
+ * already registered by programs/triggers.ts. The buff body itself is merged
+ * and has real execution tests; the remaining gaps are the Stun actor and
+ * per-batch trigger semantics above.
  */
 const program = {
   canonicalCardId:
@@ -49,10 +44,8 @@ const program = {
     "动作管线发出的 unit-stunned 事件 player 回落到被 Stun 单位的控制者（对手），无法诚实地过滤“你 Stun 的”敌方单位；" +
     "(2) “one or more” 批次语义——同一次 Stun 命中多个敌方单位只应触发一次，但时点逐单位发出、trigger.state 无批次分组，" +
     "once 作用域（per-turn/per-phase/per-combat/per-showdown/per-chain/per-object/per-game）也无 per-batch；" +
-    "(3) 卡牌触发绑定已合入：programs/triggers.ts 的 registerProgramTriggers + attachProgramLifecycle " +
-    "可注册普通 triggered 能力，但本卡 filter 没有事件判别词（closed EVENT_PATTERN_TYPES 无 unit-stunned，" +
-    "conquer/hold 才拼作 conquered/held），带 condition 的触发仍要求 host.testTrigger 适配器。" +
-    "effect.buff 部分已合入并有执行测试；整卡保持 judge-required，依赖 Stun 责任归因/批次语义（引擎批 4 的 trigger.state）。",
+    "(3) 卡牌触发绑定与 unit-stunned 载荷过滤已经可以注册，effect.buff 部分也已合入并有执行测试；" +
+    "整卡保持 judge-required，依赖 Stun 责任归因与批次语义（触发状态需能表达 per-batch）。",
   abilities: [
     {
       kind: "triggered",

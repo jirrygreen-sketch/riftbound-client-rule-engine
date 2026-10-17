@@ -25,8 +25,8 @@ test("Promising Future program is structurally valid and judge-required", () => 
   // The merged cost ops and card-program binding must not appear as missing
   // dependencies; the ordered-picks and per-player walk gaps stay listed.
   assert.match(program.judgeReason, /cost\.pay\/cost\.modify 与 ignore-base 算术、卡牌程序绑定均已合入/);
-  assert.match(program.judgeReason, /ordered\/zoneSlice\/linked\/exclude/);
-  assert.match(program.judgeReason, /非零 top-N 有序来源与 picks 生产接线/);
+  assert.match(program.judgeReason, /ordered PickSpec\/zoneSlice/);
+  assert.match(program.judgeReason, /逐玩家有序来源与选择结果管线/);
   assert.ok(!/RIFT-261/.test(program.judgeReason));
 });
 
@@ -48,9 +48,9 @@ test("Promising Future structure: the three printed stages in order", () => {
 });
 
 test("Promising Future structure: each player looks at the top 5 of their own Main Deck and chooses one", () => {
-  // Non-zero top-N looks need an ordered upstream collection (effect.inspect's
-  // documented boundary: query() does not guarantee deck order), and the
-  // inspecting set spans every player (355.10.e).
+  // Non-zero top-N looks use the merged ordered PickSpec vocabulary; the
+  // remaining gap is walking every player with an independent ordered source
+  // (355.10.e).
   assert.deepEqual(look.args.scope, { kind: "constant", value: "top" });
   assert.deepEqual(look.args.amount, { kind: "constant", value: 5 });
   assert.deepEqual(look.args.zone, { kind: "constant", value: "deck" });
@@ -97,9 +97,9 @@ test("Promising Future structure: the residue is recycled and the chosen card is
 
 test.todo(
   "Promising Future: each player looking at the top 5 of their own Main Deck needs a " +
-    "non-zero top-N inspect over an ordered collection (effect.inspect's documented " +
-    "blocker; 414.4/432.1.c for the look itself, 355.10.e for the multi-player shape; " +
-    "the ordered PickSpec vocabulary is RIFT-358, in flight)."
+    "non-zero top-N inspect over an ordered collection (414.4/432.1.c for the look " +
+    "itself, 355.10.e for the multi-player shape); the ordered PickSpec vocabulary " +
+    "is merged, but no per-player iteration or result shape is available."
 );
 
 test.todo(
