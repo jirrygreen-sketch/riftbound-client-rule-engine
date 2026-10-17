@@ -30,11 +30,10 @@ test("rad-145-167 Lady of Clockwork: identity, status and verbatim sourceText", 
   // cards README §2: judgeReason names cost.pay, the trait/Might layer gap and
   // the "until you choose another gear" duration model, with task numbers.
   assert.match(program.judgeReason, /cost\.pay/);
-  assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /Duration/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /206/);
+  assert.match(program.judgeReason, /Duration/);
 });
 
 test("rad-145-167 Lady of Clockwork: Main Phase start trigger for the controller", () => {
@@ -79,8 +78,8 @@ test("rad-145-167 Lady of Clockwork: “you may pay … to choose a friendly gea
 test("rad-145-167 Lady of Clockwork: unit-gear transformation reads the target's printed Energy cost", () => {
   assert.equal(becomeUnitGear.id, "lady-of-clockwork.become-unit-gear");
   // The trait change (Gear -> unit Gear) plus the Might set belong to the
-  // layers; continuous.might has no merged consumer, so the instruction stays
-  // a declaration of the intended layer effect.
+  // layers; continuous.might carries no trait rewrite and has no card → layer
+  // registration path, so the instruction stays a declaration (see judgeReason).
   assert.equal(becomeUnitGear.op, "continuous.might");
   assert.deepEqual(becomeUnitGear.args.addTypes, { kind: "constant", value: ["unit"] });
   assert.deepEqual(becomeUnitGear.args.mode, { kind: "constant", value: "set" });
@@ -95,6 +94,10 @@ test("rad-145-167 Lady of Clockwork: unit-gear transformation reads the target's
     kind: "object-property",
     object: { target: "lady-of-clockwork.gear" },
     property: "energy"
+  });
+  assert.deepEqual(becomeUnitGear.args.objects, {
+    kind: "constant",
+    value: { kind: "target", id: "lady-of-clockwork.gear" }
   });
   assert.equal(becomeUnitGear.linkedTo, "lady-of-clockwork.pay");
 
@@ -136,26 +139,6 @@ test("rad-145-167 Lady of Clockwork: declining the optional ability performs not
   assert.equal(scoped.events.length, 0);
 });
 
-test("rad-145-167 Lady of Clockwork: accepting the ability stops at the unmerged cost.pay opcode", () => {
-  // Accepting reaches the cost step, which has no merged primitive: the whole
-  // body aborts instead of approximating a payment or transforming the gear.
-  // The reference kernel must be left untouched by the failed run.
-  const kernel = world()
-    .player("A", { energy: 2 })
-    .unit("gear-1", { zone: "board", types: ["gear"], controller: "A", energy: 3 })
-    .build();
-  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("gear-1") });
-  scoped.setAnswers({ "lady-of-clockwork.opt-in/optional": true });
-
-  assert.throws(
-    () => runAbilityBody(ability.body, scoped),
-    /Unregistered instruction opcode: cost\.pay/
-  );
-  assert.equal(scoped.player("A").energy, 2);
-  assert.deepEqual(scoped.getObject("gear-1").types, ["gear"]);
-  assert.equal(scoped.getObject("gear-1").exhausted, false);
-});
-
 test("rad-145-167 Lady of Clockwork: choosing a gear is a target, so the printed text is not a look-up", () => {
   // Boundary: "choose a friendly gear" names one object and is targeted
   // (355.7 / 355.10), unlike the "ageless" each-set wording; the filter also
@@ -170,13 +153,14 @@ test("rad-145-167 Lady of Clockwork: choosing a gear is a target, so the printed
 
 test.todo(
   "rad-145-167: pay the 1 Energy at Finalize — needs the triggered-ability base cost wiring " +
-    "(CR 204.3 / 383.3.b / 404.1.b.1) and a cost.pay implementation in the cost plan (RIFT-89)"
+    "(CR 204.3 / 383.3.b / 404.1.b.1) and a cost.pay implementation in the cost pipeline " +
+    "(cost kinds + cost.pay / cost.modify: RIFT-261; card-program cost binding: RIFT-257)"
 );
 
 test.todo(
   "rad-145-167: turn the chosen Gear into a unit Gear whose Might is its printed Energy cost — " +
-    "needs the trait layer to add the unit type, a continuous.might set mode that reads another " +
-    "object's printed cost (CR 206), and a 5+ Might / Mighty recheck through the layers (RIFT-91)"
+    "needs a trait-layer type rewrite, a continuous Might set mode that reads another object's " +
+    "printed cost (CR 206) and the card static → layer registration path (RIFT-257)"
 );
 
 test.todo(

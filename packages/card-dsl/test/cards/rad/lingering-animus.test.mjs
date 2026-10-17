@@ -4,6 +4,7 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/lingering-animus.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const ENTER_READY = "lingering-animus.enter-ready";
@@ -18,11 +19,13 @@ test("rad-005-167 Lingering Animus: program validates and has expected identity"
   );
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.sourceText, "I enter ready if a friendly unit or gear died this turn.");
-  assert.match(program.judgeReason, /replacement\.enter/);
+  // README §2: the reason names the still-missing bindings and their owners.
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-260/);
   assert.match(program.judgeReason, /HistoryQuery/);
 });
 
-test("rad-005-167: board-entry replacement gated on this-turn friendly death history", () => {
+test("rad-005-167: board-entry replacement readies the entering unit (CR 369.3)", () => {
   assert.equal(program.abilities.length, 1);
   const [ability] = program.abilities;
   assert.equal(ability.kind, "replacement");
@@ -30,19 +33,16 @@ test("rad-005-167: board-entry replacement gated on this-turn friendly death his
     event: "object-enters-board",
     filter: { source: "self" }
   });
-  assert.equal(ability.condition.kind, "compare");
-  // 条件主题是审查用占位：解释器/历史系统需把“本回合死亡的友方单位或装备”计数绑定到该 subject。
-  assert.deepEqual(ability.condition.left, {
-    kind: "count",
-    subject: "friendly-unit-or-gear-died-this-turn",
-    filter: { zone: "history-record" }
-  });
-  assert.equal(ability.condition.operator, "gte");
-  assert.deepEqual(ability.condition.right, { kind: "constant", value: 1 });
+  // The condition needs a “friendly unit or gear died this turn” predicate that
+  // the merged Condition / HistoryQuery vocabulary does not provide, so it is
+  // deliberately absent instead of a placeholder that would silently be false.
+  assert.equal(ability.condition, undefined);
   assert.equal(ability.with.length, 1);
   assert.equal(ability.with[0].id, ENTER_READY);
   assert.equal(ability.with[0].op, "effect.ready");
-  assert.deepEqual(ability.with[0].args, {});
+  assert.deepEqual(ability.with[0].args, {
+    objects: { kind: "constant", value: { kind: "source" } }
+  });
 });
 
 test("rad-005-167: the replacement body readies the exhausted source through real effect.ready", () => {
@@ -69,11 +69,42 @@ test("rad-005-167: a ready source makes the body a no-op executed result (416.1.
   assert.deepEqual(scoped.events, []);
 });
 
+test("rad-005-167: the replacement also binds and rewrites the real entry move", () => {
+  // RIFT-260 binding: the same body is accepted by bindReplacement and applies
+  // to an object-enters-board rewrite. The condition-less card keeps this
+  // executable half covered; the “died this turn” gate stays missing (see
+  // judgeReason) so the card is not executable end to end.
+  const kernel = world()
+    .player("A", { energy: 0 })
+    .unit("lingering-animus", { might: 2, zone: "chain", exhausted: true })
+    .build();
+  const zoneEntries = [];
+  const pipeline = {
+    clock: { turn: 1 },
+    registerReplacement(registration) { zoneEntries.push(registration); }
+  };
+  const bound = bindReplacement(
+    program.abilities[0],
+    kernel.ref("lingering-animus"),
+    {
+      host: {
+        object: ref => kernel.object(ref),
+        objects: () => kernel.objects,
+        context: () => kernel
+      },
+      pipeline
+    }
+  );
+  assert.equal(zoneEntries.length, 1);
+  assert.equal(typeof bound.cancel, "function");
+  assert.equal(zoneEntries[0].source.ref.id, "lingering-animus");
+});
+
 test.todo(
   "rad-005-167 Lingering Animus: 入场替代（replacement.enter，369.3 把“横置进场”改为“就绪进场”）" +
-    "依赖 RIFT-83/RIFT-84；effect.ready 不能事后模拟入场状态"
+    "依赖 RIFT-257/260 的卡牌程序绑定；effect.ready 不能替代入场动作本身"
 );
 test.todo(
   "rad-005-167 Lingering Animus: “a friendly unit or gear died this turn” 的历史条件依赖" +
-    "condition.history / HistoryQuery 的按对象与类型过滤扩展（RIFT-89/90）"
+    "按对象类型/控制者过滤的历史谓词（Condition 无 history 节点，HistoryQuery 无类型/控制者维度）"
 );

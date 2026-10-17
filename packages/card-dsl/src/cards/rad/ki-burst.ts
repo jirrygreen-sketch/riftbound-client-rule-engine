@@ -28,17 +28,17 @@ import type { CardProgram } from "../../ir/index.js";
  *   target form). 424.1.b (a stunned unit deals no combat damage and is a
  *   defender exception) belongs to the combat layer, not to this card.
  *
- * Status: judge-required. The stun is executable today (golden test drives the
- * real effect.stun primitive), but the mandatory additional cost cannot be
- * charged: the merged chain Finalize builds cost plans from CostPlanInput, and
+ * Status: judge-required. The stun is executable today (the golden test drives
+ * the real effect.stun primitive), but the mandatory additional cost cannot be
+ * charged: the merged chain Finalize builds cost plans from CostPlanInput and
  * the card-facing path only ever supplies `{ kind: 'printed' }` (chain/engine.ts
- * finalize) — there is no merged adapter that turns a card program's printed
+ * finalize). There is no merged adapter that turns a card program's printed
  * "as an additional cost" clause into a CostPlanInput.mandatoryAdditional
- * entry, and no `effect.play` / `cost.additional` primitive exists either
- * (the merged play path is the chain's describePlay adapter, which the
- * coordinating integration task owns). Making the cost a body instruction
- * instead would resolve it at the wrong time (356.3/356.5) and would let the
- * spell resolve without paying, so that near-implementation is refused.
+ * entry, and no cost.additional / cost.pay primitive is merged either — the
+ * cost-kind vocabulary and cost.pay / cost.modify belong to RIFT-261, and the
+ * CardProgram binding to RIFT-257. Making the cost a body instruction instead
+ * would resolve it at the wrong time (356.3/356.5) and would let the spell
+ * resolve without paying, so that near-implementation is refused.
  */
 const kiBurst = {
   canonicalCardId: "card.hash-9b0c4b851a4af3d330a6b22579433d60ad39e8bb85ccc33f1b28ab2189ce2062",
@@ -48,9 +48,9 @@ const kiBurst = {
     "缺「As an additional cost」的落地路径：CR 356.2 要求强制附加费用在费用计划阶段收取，但卡牌侧" +
     "只有 { kind: 'printed' } 会进入 buildCostPlan（chain/engine.ts finalize），没有已合入的适配器" +
     "把卡程序的附加费用子句转成 CostPlanInput.mandatoryAdditional，也没有 cost.additional / " +
-    "effect.play 原语（打出路径由协调任务的 describePlay 适配器持有）。写成 body 指令会在错误时机" +
-    "结算（356.3/356.5）并允许不付费用就结算，故不近似实现。" +
-    "effect.stun 已合入并有 golden 执行证据；依赖：费用管线接线（RIFT-89 范围）与集成适配器。",
+    "cost.pay 原语（费用种类与 cost.pay / cost.modify 属 RIFT-261；卡程序绑定属 RIFT-257，" +
+    "打出路径由协调任务的 describePlay 适配器持有）。写成 body 指令会在错误时机结算（356.3/356.5）" +
+    "并允许不付费用就结算，故不近似实现。effect.stun 已合入并有 golden 执行证据；依赖：RIFT-261 + RIFT-257。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

@@ -28,23 +28,23 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * Status: judge-required. The primitives are merged (effect.damage,
  * effect.kill, choice.mode) and the golden test executes both modes against the
- * reference kernel, but the production chain refuses mode-bearing cards until
- * the Finalize/Resolve choice-plan adapter exists: ChainEngine.finalize calls
- * assertFinalizationSurface, which throws ChainContractBlockedError for any
- * `choice.mode` instruction (chain/engine.ts, contract 3.9 "users of choice.mode
- * need the choice-plan adapter"). Placing the mode choice at Finalize (355.3)
- * is the missing engine piece (engine batch 4 follow-up, RIFT-90/120 scope).
- * The card is therefore not executable end-to-end and is not marked executable.
+ * reference kernel, but the production chain still refuses mode-bearing cards:
+ * ChainEngine.finalize calls assertFinalizationSurface, which throws
+ * ChainContractBlockedError for any `choice.mode` instruction (chain/engine.ts,
+ * contract 3.9 "users of choice.mode need the choice-plan adapter"). Placing the
+ * mode choice at Finalize (355.3) is the missing engine piece, so the card is
+ * not executable end to end.
  */
-const lostToTheSands = {
+export default {
   canonicalCardId: "card.hash-ebc16c621c62d012f80adc1a2faa4b87722a2ea924309743bafb7b413e043f1c",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "choice.mode 已在解释器实现并有 golden 执行证据，但生产链仍显式阻断：ChainEngine.finalize 的 " +
-    "assertFinalizationSurface 对任何 choice.mode 抛 ChainContractBlockedError（链与事件核心的 " +
-    "Finalize/Resolve 选择计划适配器尚未合入，属引擎批 4 收尾 / RIFT-90 范围）。" +
-    "CR 355.3 要求模式在 Finalize 决定，当前没有该时机的选择计划落地路径，故整卡不可执行；" +
+    "两处未合入依赖：(1) choice.mode 已在解释器实现并有 golden 执行证据，但生产链仍显式阻断：" +
+    "ChainEngine.finalize 的 assertFinalizationSurface 对任何 choice.mode 抛 ChainContractBlockedError" +
+    "（链与事件核心的 Finalize/Resolve 选择计划适配器尚未合入），CR 355.3 要求模式在 Finalize 决定，" +
+    "当前没有该时机的选择计划落地路径。(2) 完整打出（3 Energy + 1 Fury Power 费用与 [Action] 时机）还依赖" +
+    "Finalize 的费用计划适配器（费用种类 / cost.pay：RIFT-261，卡程序绑定：RIFT-257）。" +
     "两条模式的原语本身已合入并用真实内核执行（见 golden 测试）。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "action" },
@@ -114,5 +114,3 @@ const lostToTheSands = {
     "Choose one —\n" +
     "Deal 4 to a unit at a battlefield.Kill a gear."
 } satisfies CardProgram;
-
-export default lostToTheSands;

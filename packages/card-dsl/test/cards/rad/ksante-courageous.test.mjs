@@ -20,7 +20,9 @@ test("rad-086-167 K'Sante, Courageous: validates, identity and source text", () 
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /383\.4\.d/);
-  assert.match(program.judgeReason, /RIFT-86/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /814/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -79,11 +81,12 @@ test("rad-086-167 K'Sante, Courageous: an empty Rune Deck channels as many as po
 
 test.todo(
   "ksante-courageous: [Accelerate] expansion (CR 805 optional additional cost [1] + matching-domain Power and the" +
-    " enter-ready replacement) through the Accelerate KeywordDef and the cost pipeline (RIFT-86 / RIFT-89)"
+    " enter-ready replacement) through the Accelerate KeywordDef and the cost pipeline (RIFT-261 + RIFT-257)"
 );
 test.todo(
   "ksante-courageous: [Shield 2] expansion (+2 Might while defending) through the Shield KeywordDef and layers" +
-    " (RIFT-81 / RIFT-91)"
+    " — the KeywordDef is merged, but no card static → layer registration path exists and the defender" +
+    " designation characteristic is absent (RIFT-257 + RIFT-91)"
 );
 test.todo(
   "ksante-courageous: hold trigger end-to-end (CR v1.5 383.4.d.2/.2.a): the 'hold' timing point emitted by scoring" +
