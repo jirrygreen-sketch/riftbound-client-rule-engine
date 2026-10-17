@@ -22,31 +22,33 @@ import type { CardProgram } from "../../ir/index.js";
  * - 356.4.f.1："If they do" 的凭证是玩家"决定支付"这一事实，与实付多少无关。
  *
  * status = judge-required（缺口均不近似实现）：
- * 1. 缺 cost.additional / cost.pay 与费用回执：effects/instructions/ 只有 effect.* 文件，
- *    RIFT-9 原语清单把 cost.additional / cost.pay 列为必需；cost/cost-plan.ts 的
- *    CostPlanInput.optionalAdditional 只消费调用方传入的组件，没有任何已合入路径把卡牌程序
- *    声明的附加费用与"是否支付"回执接进 Finalize（RIFT-89）。
- * 2. 缺“[A][A] 支付后改写打出位置”的消费者：打出位置的合法集合与强制要求在 Finalize
- *    校验（355.2.b / 355.17 / 420.3.b.2），layers 没有 play-location-permission 的读取方，
- *    也没有把"已付这笔附加费"写成位置强制要求的条件绑定。
+ * 1. 缺附加费用的生产接线：cost.pay 与 CostPlanInput.optionalAdditional 消费方已合入
+ *    （cost-plan 接受调用方传入的 optionalAdditional 并记录 selected/declined），
+ *    cost.additional 是尚无绑定消费方的静态声明，不是已注册指令；
+ *    但 Chain Finalize 只从打出项自身成本构建 input，没有生产者把卡程序声明的附加费用与
+ *    356.4.f.1 的「决定支付」选择接进 Finalize。
+ * 2. 缺“[A][A] 支付后改写打出位置”的消费者：playDestinationIsLegal 已在 Finalize
+ *    校验位置（355.2.b / 355.17 / 420.3.b.2），但没有把费用回执绑定成
+ *    then.play-to-source-battlefield 位置强制要求的消费方。
  * 3. 缺 "a Dragon" 的可求值谓词：Dragon 是印刷 tag（133.8），但费用/位置计划的 take 集合
  *    由调用方提供，卡程序无法声明“任何玩家打出的、带 Dragon tag 的单位”这一对象域。
- * 依赖：RIFT-89（cost.additional / cost.pay 与费用回执）、打出位置许可与强制要求的
- * Finalize 消费者（同 sfd/dauntless-vanguard、ogn/deadbloom-predator 的缺口）。
+ * 依赖：附加费用声明→Finalize optionalAdditional 的生产接线、费用回执→位置强制要求
+ * 绑定（同 sfd/dauntless-vanguard、ogn/deadbloom-predator 的缺口）。
  */
 export default {
   canonicalCardId: "card.hash-3c9c1ccb78aab17f295eb8db5ff0c0e32b4b941002aaf23a31a6d820c6a0193a",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1) 缺可选附加费用的收取与回执——effects/instructions/ 只有 effect.* 文件，" +
-    "没有 cost.additional / cost.pay 原语（RIFT-9 清单），cost/cost-plan.ts 的 optionalAdditional 只消费调用方传入的组件，" +
-    "没有任何已合入路径把卡牌程序声明的附加费用与 356.4.f.1 的「决定支付」回执接进 Finalize（RIFT-89）；" +
-    "(2) 缺「[A][A] 已付则打到本战场」的消费者：打出位置在 355.2/355.2.b/355.17/355.17.a 与 420.3.b.2 的 Finalize 校验，" +
-    "layers 没有 play-location-permission 的读取方，也没有把费用回执绑定成位置强制要求的通道；" +
+    "三处缺口，均不近似实现：(1) 缺可选附加费用的声明接线——cost.additional 是静态声明，尚无绑定消费方；cost.pay 与 " +
+    "CostPlanInput.optionalAdditional 消费方已合入，但 Chain Finalize 只从打出项自身成本构建 input，" +
+    "没有生产者把卡程序声明的附加费用与 356.4.f.1 的「决定支付」回执接进 Finalize；" +
+    "(2) 缺「[A][A] 已付则打到本战场」的消费者：playDestinationIsLegal 已在 Finalize 校验位置" +
+    "（355.2/355.2.b/355.17/355.17.a 与 420.3.b.2），但没有把费用回执绑定成 then.play-to-source-battlefield " +
+    "位置强制要求的消费方；" +
     "(3) 「a Dragon」是印刷 tag 谓词（133.8），但费用/位置计划的对象域由调用方提供，" +
     "卡程序无法声明「任何玩家打出的带 Dragon tag 的单位」。附费的两个 [A] 已按 135.2.e.5.a/163.2.b 记录成" +
-    "两条任意域 Power 需求（六域 eligible 集合）。依赖：RIFT-89（cost.additional/cost.pay 与费用回执）、" +
+    "两条任意域 Power 需求（六域 eligible 集合）。依赖：附加费用声明→optionalAdditional 的生产接线、" +
     "打出位置许可的 Finalize 消费者。不近似实现，不把可选附加费写成强制费。",
   abilities: [
     {
@@ -78,7 +80,7 @@ export default {
           }
         ],
         // "If they do, they play it to this battlefield"：355.17/355.17.a 的强制要求，
-        // 只在 356.4.f.1 的费用凭证成立时生效；condition.result 类绑定未合入。
+        // 只在 356.4.f.1 的费用凭证成立时生效；缺少费用回执到本位置要求的绑定。
         then: {
           kind: "play-to-source-battlefield",
           requirement: "mandatory",

@@ -22,16 +22,17 @@ import type { CardProgram } from "../../ir/index.js";
  * status = judge-required（三处缺口，均不近似实现）：
  * 1. 缺玩家目标形态：IR 的 TargetSpec.filter 是 ObjectFilter（对象集合），ResolveContext 只有
  *    ctx.targets(specId): ObjectRef[]（契约 3.6），没有 target.player / 玩家目标到后续指令的绑定
- *    （与本仓 ogn-155-298 Sabotage、ogn-177-298 Blind Fury 记录同一缺口，依赖 RIFT-9 target.player）。
+ *    表达式（与本仓 ogn-155-298 Sabotage、ogn-177-298 Blind Fury 记录同一缺口）。
  *    程序按既有写法保留 "opponent" 占位，golden 用具体对手执行展示半段。
- * 2. effect.recycle 没有结算期非目标选择描述符：已合入形态只有 target（目标）/ objects（已选定引用）/
- *    from{zone,owner,amount}（由区域拥有者选择、无卡牌过滤），无法表达"由本法术控制者从已展示手牌里
- *    挑一张"（与本仓 Sabotage 记录同一缺口）。
- * 3. "a Mind card" 的域谓词不可表达：已合入的过滤器（layers/filter.ts 的 matchesObjectFilter、参考内核的
- *    matchesFilter）只匹配 type/types/zone/location/controller/owner/states/tags/characteristics，
- *    没有"牌的域含 Mind"的读数（characteristics 按对象字段做等值/数组包含匹配，ObjectSnapshot 的 power
- *    是印刷 Power 列表而非可查询谓词），描述性键 domain 会被静默忽略——把它当已实现会让任何手牌都合法。
- * 依赖：RIFT-9（target.player、effect.recycle 的结算期 choose）、RIFT-90（目标计划/结算期选择）。
+ * 2. effect.recycle 没有结算期非目标选择描述符：已合入形态只有 target（目标）/ objects（已选定
+ *    引用）/ from{zone,owner,amount}（由区域拥有者选择、无卡牌过滤，见 effect.recycle.ts 的
+ *    chooseFromZone），无法表达"由本法术控制者从已展示手牌里挑一张"（同 Sabotage 记录）。
+ * 3. "a Mind card" 的域谓词不可表达：已合入的过滤器（layers/filter.ts 的 matchesObjectFilter、
+ *    参考内核的 matchesFilter）只匹配 type/types/zone/location/controller/owner/states/tags/
+ *    characteristics，没有"牌的域含 Mind"的读数（ObjectSnapshot.power 是印刷 Power 列表而非
+ *    可查询谓词），描述性键 domain 会被静默忽略——把它当已实现会让任何手牌都合法。
+ * 依赖：RIFT-359（条件/目标谓词词表：域谓词）、玩家目标与结算期 choose 描述符（进行中：
+ * RIFT-357 位置选择、RIFT-358 有序 picks、RIFT-360 目标税均不覆盖本卡缺口）。
  */
 const decreeOfStrength = {
   canonicalCardId: "card.hash-a8174733ce8471dd791d71e2914a7f93d9d2f6c25c8d7937bead01c30d962f4a",
@@ -40,13 +41,14 @@ const decreeOfStrength = {
   judgeReason:
     "三处缺口：(1)「Choose an opponent」按 355.7/355.9.a 是玩家目标，但已合入的 IR 没有玩家目标形态——" +
     "TargetSpec.filter 是 ObjectFilter，ResolveContext 只有 ctx.targets(specId): ObjectRef[]（契约 3.6），" +
-    "也没有把该目标绑定到后续指令 player 实参的表达式（同 ogn-155-298 Sabotage / ogn-177-298 Blind Fury，依赖 RIFT-9 target.player）；" +
+    "即没有 target.player 形态，" +
+    "也没有把该目标绑定到后续指令 player 实参的表达式（同 ogn-155-298 Sabotage / ogn-177-298 Blind Fury）；" +
     "(2)「you choose a Mind card from it. They recycle that card.」是结算期在已展示手牌里做非目标选择再回收（355.18、" +
     "417.1.a/417.1.c）：已合入的 effect.recycle 只有 target / objects / from{zone,owner,amount}，没有结算期 choose 描述符，" +
     "from 形态也没有卡牌过滤且选择者是区域拥有者；" +
     "(3)「a Mind card」的域谓词不可表达：已合入过滤器只匹配 type/types/zone/location/controller/owner/states/tags/characteristics，" +
     "没有「牌的域含 Mind」的读数（描述性 domain 键会被静默忽略，等于允许任何手牌，属近似）。" +
-    "依赖：RIFT-9（target.player、effect.recycle 的结算期 choose）与 RIFT-90（目标计划/结算期选择）。" +
+    "依赖：RIFT-359 的谓词词表（域谓词），以及玩家目标与结算期 choose 描述符（进行中 RIFT-357/358/360 均不覆盖）。" +
     "展示半段（effect.reveal 的整区形态，425.3.a）已合入，golden 用具体对手真实执行。不近似实现。",
   abilities: [
     {
@@ -87,7 +89,7 @@ const decreeOfStrength = {
             // "you choose a Mind card from it" + "They recycle that card"：在已展示手牌里
             // 由本法术控制者做一次带域限制的非目标选择，再按 417.1.a 回收。effect.recycle
             // 尚无结算期 choose 描述符、也没有域过滤（见 judgeReason 第 2、3 条），故这条
-            // 只作可审查数据：不执行、不改成"任意手牌"或"固定某张"等近近似写法。
+            // 只作可审查数据：不执行、不改成"任意手牌"或"固定某张"等近似写法。
             choose: {
               kind: "constant",
               value: {

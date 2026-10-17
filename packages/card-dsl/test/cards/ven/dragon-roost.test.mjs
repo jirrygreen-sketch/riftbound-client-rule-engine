@@ -58,7 +58,7 @@ test("ven-157-166 Dragon Roost: identity, ruleset, status and exact source text"
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /cost\.additional/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /optionalAdditional/);
   assert.match(program.judgeReason, /356\.4\.f\.1/);
   assert.match(program.judgeReason, /Dragon/);
   // The golden must prove the new program reaches the shared generated index,
@@ -171,8 +171,8 @@ test("ven-157-166 Dragon Roost golden: declining the optional cost leaves the ca
 
 test.todo(
   "ven-157-166 Dragon Roost: charge the optional [A][A] additional cost and feed 356.4.f.1's paid proof into " +
-    "\"If they do\" — no cost.additional / cost.pay instruction file exists (RIFT-9 inventory) and no merged path " +
-    "turns the card program's declared optional additional cost into CostPlanInput.optionalAdditional plus a receipt (RIFT-89)"
+    "\"If they do\" — cost.pay and the optionalAdditional planner exist, but the cost.additional " +
+    "static declaration has no producer wiring its cost and pay decision into Chain Finalize"
 );
 
 test.todo(
