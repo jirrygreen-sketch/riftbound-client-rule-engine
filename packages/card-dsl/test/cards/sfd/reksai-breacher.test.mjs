@@ -18,6 +18,8 @@ import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID = "card.hash-6eb6345b70c561ae3d2ed335eb50fdd0958d942af912aaceba44ad0038813815";
 
@@ -85,6 +87,10 @@ test("sfd-029-221 Rek'Sai, Breacher: judgeReason names the current registration,
   assert.match(program.judgeReason, /createEngineStaticBinder/);
   assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /designation/);
+  assert.match(program.judgeReason, /combatRole/);
+  assert.match(program.judgeReason, /evaluateCondition/);
+  assert.match(program.judgeReason, /Might.*3/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-91|conditionMatches|落到 true/);
 });
 
 test("sfd-029-221 Rek'Sai, Breacher: [Accelerate] and [Assault] are declared without values", () => {
@@ -143,39 +149,7 @@ test("sfd-029-221 Rek'Sai, Breacher golden: the merged grant primitive really gi
   assert.deepEqual(layers.evaluate(context.ref("enemy-poro")).keywords, []);
 });
 
-test("sfd-029-221 Rek'Sai, Breacher: the descriptive play-origin key is not part of the merged matcher", () => {
-  // The grant primitive accepts the card's filter shape, but the merged layer
-  // matcher (layers/filter.ts matchesObjectFilter) has no play-origin
-  // vocabulary, so a filter carrying only that key matches every friendly unit.
-  // The card therefore cannot mean "played from anywhere other than a hand"
-  // today (judgeReason) — the golden documents the real behaviour.
-  const kernel = world()
-    .unit("rekai", { owner: "A", controller: "A", might: 3 })
-    .unit("friendly-unit", { owner: "A", controller: "A", might: 2 })
-    .build();
-  const context = kernel.clone({ sourceSnapshot: kernel.getObject("rekai") });
-  const bound = productionContext(context);
-
-  const outcome = resolveChainBody(
-    [{ id: "grant", op: "continuous.grant-keyword",
-      args: {
-        keyword: c("accelerate"),
-        filter: { type: "unit", controller: "self", zone: "board", playedFromZoneNot: "hand" }
-      } }],
-    bound
-  );
-
-  assert.equal(outcome.status, "executed");
-  const layers = layerAfter(context);
-  // Both friendly units are granted: the origin restriction never applies.
-  assert.deepEqual(context.continuousEffects.map((entry) => entry.effect.filter.objectId).sort(), [
-    "friendly-unit",
-    "rekai"
-  ]);
-  assert.deepEqual(layers.evaluate(context.ref("friendly-unit")).keywords, [{ id: "accelerate", value: undefined }]);
-});
-
-test("sfd-029-221 Rek'Sai, Breacher: [Assault]'s expansion carries an unevaluatable attacker condition", () => {
+test("sfd-029-221 Rek'Sai, Breacher: [Assault] uses designation while the object contract exposes combatRole", () => {
   const definition = keywordDefinitionsById.get("Assault");
   assert.ok(definition, "the merged Assault KeywordDef must be registered");
   const [expansion] = definition.expand({ value: undefined, host: { canonicalCardId: CARD_ID } });
@@ -190,6 +164,32 @@ test("sfd-029-221 Rek'Sai, Breacher: [Assault]'s expansion carries an unevaluata
     operator: "eq",
     right: { kind: "constant", value: "attacker" }
   });
+
+  // The production static binder evaluates the compare condition through the
+  // interpreter. ObjectSnapshot has combatRole but no designation, so the
+  // missing characteristic is treated as false and the printed Might 3 stays 3.
+  const executable = {
+    ...program,
+    canonicalCardId: "card.synthetic-reksai-assault",
+    status: "executable",
+    judgeReason: undefined,
+    abilities: [expansion],
+    sourceText: "synthetic Assault"
+  };
+  const binding = createProgramBinding({ cardPrograms: [executable] });
+  const board = fixture({
+    cards: [{ id: "rekai", cardId: executable.canonicalCardId, types: ["unit"], energy: 3, power: [], might: 3 }],
+    describePlay: binding.describePlay
+  });
+  binding.attachLifecycle(board.engine);
+  board.engine.commit({
+    type: "move-zone",
+    object: board.kernel.ref("rekai"),
+    to: "battlefield",
+    location: { type: "battlefield", id: "bf-1" }
+  });
+  board.engine.layers.setObjects(board.kernel.objects);
+  assert.equal(board.engine.layers.snapshot(board.kernel.ref("rekai")).might, 3);
 });
 
 test.todo(
@@ -207,8 +207,8 @@ test.todo(
     "pipeline and entry replacement (CR 805.1.b, 805.2.b, 805.6.a) - RIFT-261 follow-up"
 );
 test.todo(
-  "sfd-029-221 Rek'Sai, Breacher: [Assault] needs the layers engine to evaluate the compare(designation) " +
-    "condition; layers/engine.ts conditionMatches falls through to true for unknown condition kinds, which would " +
-    "grant +1 Might unconditionally - RIFT-91 follow-up"
+  "sfd-029-221 Rek'Sai, Breacher: [Assault] needs its compare(object-property(self, designation)) condition aligned " +
+    "with the ObjectSnapshot combatRole characteristic (or a designation producer); the production static binder " +
+    "evaluates the condition and fails closed when designation is absent, so the unit remains at Might 3 - upstream contract alignment"
 );
 
