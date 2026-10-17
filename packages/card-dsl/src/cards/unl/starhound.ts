@@ -22,15 +22,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   的 to: "hand"；目的是该牌拥有者的手牌（108.7.a，内核按拥有者路由）。
  *
  * status = judge-required（缺口不近似实现）:
- * 1. "Bird, Cat, Dog, or Poro" 的四选一标签过滤没有 IR 表达：ObjectFilter.tags 是
- *    合取，用单标签近似会把"某一种生物"当成"四者之一"实现成另一张卡；
- * 2. "your trash" 的 owner: "self" 归一化只在生产链的 query 覆盖里（chain/engine.ts
- *    把 self/opponent 归一化为能力控制者），reference 内核按字面比较，参考路径需要
- *    字面 owner 预置（与其他同型卡一致）；端到端接线属 RIFT-120 后继。
+ * - "Bird, Cat, Dog, or Poro" 的四选一标签过滤没有 IR 表达：ObjectFilter.tags 是
+ *   合取，用单标签近似会把"某一种生物"当成"四者之一"实现成另一张卡。
+ *   owner: "self" 已由生产链的目标过滤翻译为能力控制者，不再作为缺口。
  * 已可执行部分：effect.zone 的 trash→hand 换区（golden 用锁定目标真实执行，含目标
  * 已离区的 ignored 边界）。
  *
- * 依赖：目标过滤的标签析取扩展（355.9.b / 133.8）与 RIFT-90 / RIFT-120 的归一化接线。
+ * 依赖：目标过滤的标签析取扩展（355.9.b / 133.8；RIFT-357）。
  */
 const CARD_IN_TRASH = "starhound.card-in-trash";
 
@@ -79,13 +77,12 @@ const program = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口：(1)「a Bird, Cat, Dog, or Poro」是四选一的标签过滤（133.8：标签被文本引用时才有效义），" +
+    "一处缺口：「a Bird, Cat, Dog, or Poro」是四选一的标签过滤（133.8：标签被文本引用时才有效义），" +
     "而 ObjectFilter.tags 是全部命中的合取（layers/filter.ts 与 events/pipeline-match.ts 的 tags.every），" +
     "IR 没有析取标签形态；用单标签近似会把「某一种生物」实现成另一张卡，故不近似。" +
-    "(2)「from your trash」的 owner: \"self\" 归一化只在生产链的 query 覆盖里（chain/engine.ts 把 self/opponent " +
-    "归一化为能力控制者），reference 内核按字面比较，参考路径需要字面 owner 预置；端到端接线属 RIFT-120 后继。" +
+    "「from your trash」的 owner: \"self\" 已由生产链目标过滤翻译为能力控制者；golden 直接锁定目标以覆盖效果执行。" +
     "已可执行部分：effect.zone 的 trash→hand 换区（448.2 / 108.7.a），golden 用锁定目标真实执行，" +
-    "并覆盖目标已离区时的 ignored（359.3.e.6）。依赖：目标过滤标签析取（355.9.b / 133.8）与 RIFT-90 / RIFT-120 归一化接线。",
+    "并覆盖目标已离区时的 ignored（359.3.e.6）。依赖：目标过滤标签析取（355.9.b / 133.8；RIFT-357）。",
   abilities,
   sourceText:
     "When you play me, return a Bird, Cat, Dog, or Poro from your trash to your hand."

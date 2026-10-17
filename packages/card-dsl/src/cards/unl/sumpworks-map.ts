@@ -21,17 +21,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （events/trigger-spec.ts）表达「计分玩家不是本能力控制者」。
  * - 414.1 / 414.3 / 190.6.d：draw 1 = effect.draw，隐含的 you 是能力控制者。
  *
- * status = judge-required（README 第 2 节），三处依赖未合入，全部不近似实现：
- * (1) [Temporary] 没有 KeywordDef：已合入的 16 个关键词不含 Temporary，816.1.b / 816.1.c 的
- *     延迟触发没有展开实现（effect.kill 原语本身已合入，缺的是关键词展开，与 ogn/sprite、
- *     ogn/fading-memories 同类，依赖 RIFT-83/84 系列）。
- * (2) [Reaction] 的展开只是 static continuous.timing；layers/ 的消费方与 chain/ 的
- *     canAct(player, speed) 时机许可尚未合入，Closed State 许可无法判定。
- * (3) When an opponent scores 的 score 时点没有已合入发出者：scoring/scoring.ts 只做分数账本
- *     变更、不产生时点，events/action-adapter.ts 的 score 映射只在 perform({type: score}) 路径
- *     生效，而生产计分流程尚未经该动作提交；同时没有订阅方把 CardProgram 的 triggered ability
- *     注册为 TriggerRegistration（契约 3.5、RIFT-120 后续）。
- * effect.draw 本体已合入，golden 用解释器真实执行。
+ * status = judge-required：effect.draw 本体、score 时点和 Temporary 的 kill 展开都有真实
+ * 解释器证据，但完整卡牌生命周期仍受两个当前契约缺口阻断。Temporary 展开把
+ * beginning-start 写入 EventPattern，而该词目前不在封闭的事件模式词表；Reaction 展开
+ * 的 continuous.timing appliesTo 形状也尚未被程序静态绑定器消费。因此不能把局部解释器
+ * 证据提升为整卡 executable。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "reaction" },
@@ -41,7 +35,7 @@ const abilities: Ability[] = [
     trigger: {
       at: "score",
       // 473.2：Score ability 在计分时触发；player: opponent 表示计分玩家不是本能力控制者。
-      filter: { event: "score", player: "opponent" }
+      filter: { event: "scored", player: "opponent" }
     },
     optional: false,
     body: [
@@ -60,14 +54,12 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处依赖未合入，均不近似实现：(1) [Temporary] 无 KeywordDef：已合入的关键词不含 Temporary，" +
-    "CR 816.1.b / 816.1.c 的「自身控制者 Beginning Phase 开始时（beginning-start，计分前）消灭此永久物」延迟触发没有展开实现" +
-    "（effect.kill 原语已合入，缺的是关键词展开；依赖 RIFT-83/84 系列关键词任务）。(2) [Reaction] 的展开只是 static " +
-    "continuous.timing（813.1.c 的 closed-state 许可），layers/ 消费方与 chain/ 的 canAct(player, speed) 尚未合入，" +
-    "无法判定本卡能否在 Closed State 打出。(3) 「When an opponent scores」的 score 时点没有已合入发出者：scoring/scoring.ts " +
-    "只做分数账本变更、不产生时点，events/action-adapter.ts 的 score 映射只在 perform({type: score}) 路径生效，" +
-    "而生产计分流程尚未经该动作提交；同时没有订阅方把 CardProgram 的 triggered ability 注册为 TriggerRegistration" +
-    "（契约 3.5、RIFT-120 后续）。effect.draw 本体已合入，golden 用解释器真实执行。",
+    "两处当前契约缺口阻断完整生命周期，均不近似实现：(1) Temporary KeywordDef 的 " +
+    "beginning-start 触发体使用合法时点，但该事件目前不在 EventPattern 的封闭词表中，" +
+    "所以 CardProgram 的触发注册无法绑定；(2) Reaction KeywordDef 的 continuous.timing 展开" +
+    "使用 card/activated-ability 的 appliesTo 数组，程序静态绑定器尚未消费该形状，Closed State" +
+    "许可不能从本卡声明接入。score 触发改用封闭词表中的 scored 映射到 score 时点；draw、" +
+    "Temporary 的 kill body 均有解释器执行证据。",
   abilities,
   sourceText:
     "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +

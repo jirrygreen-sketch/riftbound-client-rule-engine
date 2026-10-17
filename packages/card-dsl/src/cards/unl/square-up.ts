@@ -15,28 +15,22 @@ import type { CardProgram } from "../../ir/index.js";
  *   807.1.c 的展开归 keywords/Assault.ts；reminder 是同义释义。355.9.a.1 的 “a unit” 是目标。
  *
  * status = judge-required（缺口不近似实现）：
- * - 本回合关键词授予没有卡牌侧入口：effects/instructions/ 没有 continuous.grant-keyword
- *   原语（与 ogn/cleave、ogn/back-to-back、ven/heart-of-the-tempest 同缺口，依赖 RIFT-91 / RIFT-9）。
- * - Assault 的展开是条件于宿主 attacker designation 的 static continuous.might，designation
- *   尚未进入 ObjectSnapshot。
- * - [Repeat] 的附加费用（Discard 1）没有接线：Repeat.ts 的 static repeat.cost 没有消费方，
- *   cost.additional / cost.discard 未合入（RIFT-86 / RIFT-89），也没有把已支付实例数接到
- *   解释器 repeat 指令的打出管线；不写固定 count 的额外执行（会把未付费也重复写成事实）。
- * 本卡没有可独立执行的正文指令，golden 只做校验、结构断言与缺口 todo。
+ * - continuous.grant-keyword 已合入，本卡的目标授予可由解释器建立到期的 ability 图层效果；
+ *   其后的 Assault attacker designation 谓词仍不能在当前图层条件求值（RIFT-359）。
+ * - [Repeat] 的 Discard 1 附加费用以及已支付实例数到打出结算的接线仍缺，不能写固定次数
+ *   的额外执行（会把未付费也重复写成事实）。
+ * golden 覆盖授予原语真实登记与到期；整卡继续保持 judge-required。
  */
 const squareUp = {
   canonicalCardId: "card.hash-e4dc01dd2f105796f021b575a0dcf055c0b996025247706f3605affedf193ce6",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处依赖未合入，均不近似实现：(1)「Give a unit [Assault 4] this turn」需要带 end-of-turn 期限的连续关键词授予，" +
-    "但 effects/instructions/ 没有 continuous.grant-keyword（或 continuous.keyword）原语（同 cleave / back-to-back / " +
-    "heart-of-the-tempest 的缺口，依赖 RIFT-91 与 RIFT-9）；(2) 即使授予落地，Assault 的展开（keywords/Assault.ts，807.1.c）" +
-    "是条件于宿主 attacker designation 的 static continuous.might，该特征尚未进入 ObjectSnapshot；" +
-    "(3) [Repeat]（820.1.a/820.1.c，附加费用 Discard 1）没有接线：Repeat.ts 的 static repeat.cost 没有消费方，" +
-    "cost.additional / cost.discard 未合入（RIFT-86 / RIFT-89），也没有把已支付实例数接到解释器 repeat 指令的 count；" +
-    "本卡因此不写固定次数的额外执行。另外印刷参数 “Discard 1” 无法挂在 CardProgram 的 KeywordAbility 上" +
-    "（契约 3.1 只有 keyword/value，契约 3.8.3 的 params 只覆盖 KeywordDef.expand 入参）。",
+    "两处依赖未合入，均不近似实现：(1) continuous.grant-keyword 已能建立本回合的 Assault 4 " +
+    "ability 图层授予，但 Assault 展开要求读取 attacker designation（807.1.c/807.1.d.1），当前条件求值仍不消费该谓词（RIFT-359）；" +
+    "(2) [Repeat]（820.1.a/820.1.c，附加费用 Discard 1）的费用声明尚未接入 Finalize，" +
+    "也没有把已支付实例数接到打出结算的 repeat 次数，因此不能写固定次数的额外执行。" +
+    "契约 3.1 的 keyword/value 仍不足以承载 Repeat 的印刷费用，需由 Repeat 费用接线提供该数据。",
   abilities: [
     { kind: "keyword", keyword: "repeat" },
     {
@@ -49,13 +43,14 @@ const squareUp = {
       body: [
         {
           // “Give a unit [Assault 4] this turn”：授予与期限按 807.1.c / 317.2.c 声明；
-          // 该 op 未注册（见 judgeReason）。
+          // attacker designation 的条件消费仍由 judgeReason 中的引擎缺口覆盖。
           id: "square-up.grant-assault-4",
           op: "continuous.grant-keyword",
           args: {
             keyword: { kind: "constant", value: "Assault" },
             value: { kind: "constant", value: 4 },
-            duration: { kind: "constant", value: "end-of-turn" }
+            duration: { kind: "constant", value: "end-of-turn" },
+            objects: { kind: "constant", value: { kind: "target", id: "square-up.unit" } }
           },
           targets: [
             {

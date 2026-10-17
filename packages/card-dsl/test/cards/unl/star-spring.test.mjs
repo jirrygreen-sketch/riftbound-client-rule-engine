@@ -40,7 +40,7 @@ test("unl-215-219 Star Spring: judgeReason names the event-player and per-player
   assert.match(program.judgeReason, /event-player/);
   assert.match(program.judgeReason, /per-player/);
   assert.match(program.judgeReason, /TriggerSpec\.once/);
-  assert.match(program.judgeReason, /TriggerRegistration/);
+  assert.match(program.judgeReason, /载荷|card-played/);
 });
 
 test("unl-215-219 Star Spring: first-play-per-turn trigger for a non-token unit played here", () => {
@@ -252,11 +252,11 @@ test.todo(
   "unl-215-219 Star Spring: gate the trigger to each player's first non-token unit played at this " +
     "Battlefield each turn (383.1.b, 053.3) — TriggerSpec.once scopes are keyed to one registration " +
     "+ source and the card-played payload names no Battlefield (per-player once + play-location " +
-    "payload contract change request, RIFT-31/RIFT-33)"
+    "payload contract change request)"
 );
 
 test.todo(
   "unl-215-219 Star Spring: register the program's triggered ability as a TriggerRegistration and " +
-    "resolve the optional Move through the production chain (190.6.c choice ownership, 355.12) — " +
-    "needs RIFT-33 / contract §7.2 batch 5"
+    "resolve the optional Move through the production chain (190.6.c choice ownership, 355.12) after the " +
+    "event-player and play-location/non-token payload contract is available"
 );

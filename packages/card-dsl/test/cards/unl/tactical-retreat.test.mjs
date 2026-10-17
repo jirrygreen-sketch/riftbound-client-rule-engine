@@ -28,7 +28,7 @@ test("unl-175-219 Tactical Retreat: program validates and keeps its identity", (
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
   assert.match(program.judgeReason, /replacement\.event/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /TargetSpec/);
   assert.match(program.judgeReason, /457/);
   assert.match(program.judgeReason, /next time/);
   assert.match(program.judgeReason, /replacement\.object/);
@@ -166,7 +166,7 @@ test("unl-175-219 Tactical Retreat golden: the card's ability binds as a real on
   // pattern matches a kill of the chosen unit, the once-per-bound-turn window
   // allows exactly one interception, and the retained exhaust half plans a real
   // action bound to the replaced event's object. The entry stays judge-required
-  // for the card-program registration (RIFT-257) and the two recorded gaps.
+  // for the card-program binding and the recorded gaps.
   const kernel = world()
     .unit("ally", { owner: "A", might: 3, damage: 2, location: { type: "base", player: "A" } })
     .build();
@@ -245,8 +245,8 @@ test("unl-175-219 Tactical Retreat golden: the merged recall mode refuses to app
 test.todo(
   "unl-175-219 Tactical Retreat: register the card's death replacement so the chosen unit's death is intercepted, " +
     "with the printed one-occurrence 'the next time ... this turn' window and its end-of-turn expiry " +
-    "(CR 368.1/369.1/370.1.a.1) from the card program — the merged bindReplacement consumes the ability above and " +
-    "supports the next-time window; nothing registers a card's ReplacementAbility in production (RIFT-257)"
+    "(CR 368.1/369.1/370.1.a.1) from the card program — the merged bindReplacement consumes replacement abilities, " +
+    "but this play-body declaration still needs a production binding path"
 );
 
 test.todo(

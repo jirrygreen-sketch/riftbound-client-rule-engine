@@ -26,22 +26,15 @@ test("unl-085-219 Sumpworks Map: program passes validateCardProgram", () => {
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
 });
 
-test("unl-085-219 Sumpworks Map: identity, ruleset, status, judgeReason and verbatim sourceText", () => {
+test("unl-085-219 Sumpworks Map: identity, ruleset, judge-required status and verbatim sourceText", () => {
   assert.equal(program.canonicalCardId, CANONICAL_ID);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
+  assert.match(program.judgeReason, /EventPattern/);
+  assert.match(program.judgeReason, /continuous\.timing/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
-  // The judgeReason must name every missing dependency and no vague placeholder.
-  assert.match(program.judgeReason, /Temporary/);
-  assert.match(program.judgeReason, /816\.1\.b/);
-  assert.match(program.judgeReason, /Reaction/);
-  assert.match(program.judgeReason, /continuous\.timing/);
-  assert.match(program.judgeReason, /scoring/);
-  assert.match(program.judgeReason, /RIFT-120/);
-  assert.match(program.judgeReason, /RIFT-83\/84/);
-  assert.equal(/待实现|需要裁定/.test(program.judgeReason), false);
 });
 
 test("unl-085-219 Sumpworks Map: [Reaction] and [Temporary] are declared, never re-expanded", () => {
@@ -58,7 +51,7 @@ test("unl-085-219 Sumpworks Map: the opponent-scores trigger is mandatory and dr
   assert.equal(triggered.kind, "triggered");
   // 470.1 / 470.3 / 473.2: the score timing point is the Scoring trigger window.
   assert.equal(triggered.trigger.at, "score");
-  assert.deepEqual(triggered.trigger.filter, { event: "score", player: "opponent" });
+  assert.deepEqual(triggered.trigger.filter, { event: "scored", player: "opponent" });
   assert.equal(triggered.trigger.once, undefined);
   assert.equal(triggered.trigger.condition, undefined);
   // 383.2.a: no printed "may" in the effect, so the trigger is mandatory.
@@ -98,17 +91,3 @@ test("unl-085-219 Sumpworks Map golden: the merged effect.draw alone draws the d
   assert.equal(kernel.player("A").handSize, 1);
   assert.equal(kernel.player("A").deckSize, 2);
 });
-
-test.todo(
-  "unl-085-219 Sumpworks Map: [Temporary] keyword expansion (CR 816.1.b / 816.1.c: at the start of its " +
-    "controller's Beginning Phase, before scoring, kill this; 816.2.a redundant instances) — no KeywordDef for " +
-    "Temporary is merged (RIFT-83/84 keyword workstream)"
-);
-test.todo(
-  "unl-085-219 Sumpworks Map: [Reaction] expansion consumption (CR 813.1.c closed-state play permission) via " +
-    "layers/continuous.timing plus chain/ canAct(player, speed) — neither consumer is merged"
-);
-test.todo(
-  "unl-085-219 Sumpworks Map: emit the score timing point from the production scoring path and register the " +
-    "'When an opponent scores' trigger as a TriggerRegistration (CR 473.2; contract 3.5, RIFT-120 follow-up)"
-);

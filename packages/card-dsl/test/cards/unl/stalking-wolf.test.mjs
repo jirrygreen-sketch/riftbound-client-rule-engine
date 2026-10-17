@@ -8,6 +8,8 @@ import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
 import { AwaitChoice, runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import ambush from "../../../../engine-core/dist/effects/keywords/Ambush.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 
 const CANONICAL_ID =
   "card.hash-e0d6dea411202c84bc9da351b6c16a63eb618c96e03be8274b3ff5babc3419f8";
@@ -35,7 +37,7 @@ test("unl-166-219 Stalking Wolf: identity, status, judgeReason and verbatim sour
   assert.match(program.judgeReason, /Ambush/);
   assert.match(program.judgeReason, /822/);
   assert.match(program.judgeReason, /356\.2\.a/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /Finalize/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -51,6 +53,25 @@ test("unl-166-219 Stalking Wolf: [Ambush] is declared as a bare keyword (822.1.b
     program.abilities.some(ability => ability.kind === "keyword" && ability.keyword === "reaction"),
     false
   );
+});
+
+test("unl-166-219 Stalking Wolf: the merged Ambush KeywordDef expands both printed permissions", () => {
+  assert.equal(keywordDefinitionsById.get("Ambush"), ambush);
+  const expanded = ambush.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(expanded.length, 2);
+  assert.equal(expanded[0].kind, "static");
+  assert.equal(expanded[0].effect.kind, "play-location-permission");
+  assert.equal(expanded[1].kind, "static");
+  assert.equal(expanded[1].effect.kind, "continuous.timing");
+  assert.deepEqual(expanded[1].effect.grants, ["showdown", "closed-state"]);
+  const result = validateCardProgram({
+    canonicalCardId: CANONICAL_ID,
+    rulesetVersion: "core-1.5",
+    status: "executable",
+    sourceText: "[Ambush]",
+    abilities: expanded
+  });
+  assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
 });
 
 test("unl-166-219 Stalking Wolf: the additional kill is a mandatory cost component, not a target (355.10.c)", () => {
@@ -189,14 +210,14 @@ test("unl-166-219 Stalking Wolf golden: the merged kill primitive consumes the c
 });
 
 test.todo(
-  "unl-166-219 Stalking Wolf: the [Ambush] KeywordDef that widens the legal play locations to a battlefield where you " +
-    "have units and grants [Reaction] there (822.1.b / 822.1.c) — no effects/keywords/Ambush.ts is merged (RIFT-84 batch)"
+  "unl-166-219 Stalking Wolf: consume Ambush's merged play-location permission and conditional Reaction grant " +
+    "during Finalize/Chain legality (822.1.b / 822.1.c)"
 );
 test.todo(
   "unl-166-219 Stalking Wolf: disjunctive tag filtering for \"a Bird, Cat, Dog, or Poro\" (133.8; ObjectFilter.tags is an " +
-    "AND over every tag) so the cost's candidate pool is not narrowed to one creature type (RIFT-90)"
+    "AND over every tag) so the cost's candidate pool is not narrowed to one creature type (RIFT-357)"
 );
 test.todo(
   "unl-166-219 Stalking Wolf: the CardProgram -> CostPlan wiring that charges this mandatory additional cost during " +
-    "Finalize, and the play-location permission referencing the killed creature's former battlefield (355.2.b) — RIFT-89/90"
+    "Finalize, and the play-location permission referencing the killed creature's former battlefield (355.2.b)"
 );

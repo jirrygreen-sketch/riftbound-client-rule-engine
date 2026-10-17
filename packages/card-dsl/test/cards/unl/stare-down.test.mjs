@@ -33,7 +33,7 @@ test("unl-107-219 Stare Down: identity, status, judgeReason and verbatim sourceT
   // the dependency.
   assert.match(program.judgeReason, /355\.10\.d/);
   assert.match(program.judgeReason, /effect\.move/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /RIFT-357/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -151,11 +151,10 @@ test("unl-107-219 Stare Down fail-closed: the merged effect.move rejects the des
 test.todo(
   "Stare Down: \"Move all enemy units at that battlefield with less Might than the chosen unit\" needs a set/query " +
     "object selection for effect.move (355.10.d / 355.10.d.1: no choice is ever possible) plus a Might comparison " +
-    "predicate and a location anchor read from another selected object (RIFT-90 target plan / RIFT-9 target.query)"
+    "predicate and a location anchor read from another selected object (RIFT-357 / RIFT-359)"
 );
 
 test.todo(
   "Stare Down: Finalize-time locking of the friendly unit and the battlefield plus their became-target events " +
-    "(355.8, 754) and the base cost payment belong to the target system, the chain and the cost plan " +
-    "(RIFT-89 / RIFT-90 / RIFT-120)"
+    "(355.8, 754) and the base cost payment belong to the target system, the chain and the cost plan"
 );
