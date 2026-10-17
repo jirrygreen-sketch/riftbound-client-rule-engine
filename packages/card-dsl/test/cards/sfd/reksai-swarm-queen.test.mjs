@@ -3,14 +3,15 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/reksai-swarm-queen.js";
-import recycle from "../../../../engine-core/dist/effects/instructions/effect.recycle.js";
 import reveal from "../../../../engine-core/dist/effects/instructions/effect.reveal.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import {
   bindResolveContext,
   createActionPipelineHost
 } from "../../../../engine-core/dist/events/action-adapter.js";
+import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 
@@ -28,13 +29,10 @@ test("sfd-170-221 Rek'Sai, Swarm Queen: program validates and keeps its identity
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /ordered picks/);
   assert.match(program.judgeReason, /RIFT-66/);
-  // Refreshed reason: the printed-cost path for effect.play without a cost
-  // override is merged. The ordered-pick lifecycle, reveal Expr unpacking and
-  // played-object receipt remain three independent gaps.
   assert.match(program.judgeReason, /费用路径已合入/);
   assert.match(program.judgeReason, /印刷费用/);
-  assert.match(program.judgeReason, /effect\.reveal\.pick Expr 解包缺口/);
-  assert.match(program.judgeReason, /LITERAL_FIELDS/);
+  assert.match(program.judgeReason, /RIFT-358/);
+  assert.match(program.judgeReason, /attack-declared/);
   // The type gate is expressible; the gap is the missing object list on
   // effect.play's receipt.
   assert.match(program.judgeReason, /played 计数|linkKey/);
@@ -74,11 +72,8 @@ test("sfd-170-221 Rek'Sai, Swarm Queen: reveal reads the ordered top-two pick, r
   assert.deepEqual(revealInstruction.picks, [
     {
       id: "reksai.top-two",
-      options: ["dynamic:main-deck-top-two"],
-      min: 2,
-      max: 2,
-      selection: "any",
-      filter: { zone: "deck", owner: "controller" }
+      options: [], ordered: true, selection: "all",
+      zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 2 } }
     }
   ]);
 
@@ -87,9 +82,12 @@ test("sfd-170-221 Rek'Sai, Swarm Queen: reveal reads the ordered top-two pick, r
   assert.equal(playOne.op, "effect.play");
   assert.equal(playOne.linkedTo, "reksai.reveal");
   assert.equal(playOne.args.location, undefined);
-  assert.deepEqual(playOne.picks[0].options, [
-    { kind: "linked-value", instructionId: "reksai.reveal", key: "revealed" }
-  ]);
+  assert.deepEqual(playOne.picks, [{
+    id: "reksai.revealed-play", options: [], ordered: true, selection: "all",
+    linked: { kind: "linked-value", instructionId: "reksai.reveal", key: "revealed" }
+  }]);
+  assert.deepEqual(playOne.args.choice, { kind: "constant", value: { id: "reksai.choose-one", min: 1, max: 1 } });
+  assert.deepEqual(playOne.args.amount, { kind: "constant", value: 1 });
 
   // 417.1.a/417.1.c: the rest go to the bottom of their owner's Main Deck.
   assert.equal(recycleRest.op, "effect.recycle");
@@ -117,7 +115,7 @@ test("sfd-170-221 Rek'Sai, Swarm Queen: the merged reveal primitive reveals the 
   assert.deepEqual(kernel.zone("A", "deck").map((ref) => ref.id), ["c1", "c2", "c3"]);
 });
 
-test("sfd-170-221 Rek'Sai, Swarm Queen: the original reveal Expr fails through the chain adapter even with ordered picks", () => {
+test("sfd-170-221 Rek'Sai, Swarm Queen: the original reveal Expr executes through the chain adapter with ordered picks", () => {
   const base = world()
     .unit("reksai", { owner: "A", might: 5 })
     .deck(["c1", "c2", "c3"])
@@ -128,186 +126,153 @@ test("sfd-170-221 Rek'Sai, Swarm Queen: the original reveal Expr fails through t
   assert.deepEqual(kernel.picks("reksai.top-two"), top);
   assert.deepEqual(top.map((ref) => ref.id), ["c1", "c2"]);
 
-  // Use the original instruction unchanged: this isolates Expr unpacking from
-  // producing/locking ordered picks and from the optional wrapper's choice.
-  assert.throws(
-    () => resolveChainBody([revealInstruction], kernel),
-    { message: "effect.reveal: pick must be a non-empty id" }
-  );
-  assert.deepEqual(kernel.events, []);
+  const outcome = resolveChainBody([revealInstruction], kernel);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.linkedValues["reksai.reveal.revealed"], top);
+  assert.equal(outcome.linkedValues["reksai.reveal.revealedCount"], 2);
+  assert.deepEqual(kernel.events.map(event => event.action), ["reveal", "reveal"]);
   assert.deepEqual(kernel.zone("A", "deck").map((ref) => ref.id), ["c1", "c2", "c3"]);
 });
 
-test("sfd-170-221 Rek'Sai, Swarm Queen: recycling the rest drops references already played", () => {
-  const kernel = world().player("A").deck(["c1", "c2", "c3"]).build();
-  const top = kernel.zoneSlice("A", "deck", "top", 2).map((object) => object.ref);
-  // c1 was "played" (moved out of the deck); only c2 is still recyclable.
-  kernel.perform({
-    type: "move-zone",
-    object: top[0],
-    to: "board",
-    location: { type: "base", player: "A" }
+// Isolate the supported body from the still-blocked attack event and here
+// permission. Actual plays use the production card-program adapter, derive
+// printed cost, enter the chain, and resolve their own effects.
+function chainFixture({ revealCards = true, playCard = true, deck = ["c1", "c2", "c3"], types = ["spell"] } = {}) {
+  const kernel = world()
+    .player("A", { energy: 20, power: ["Fury"] })
+    .unit("reksai", { cardId: CANONICAL, energy: 5, power: ["Order"], might: 5, location: { type: "battlefield", id: "bf-1" } })
+    .deck(deck, { cardId: "synthetic:revealed", types, energy: 3, power: ["Fury"], might: types.includes("unit") ? 3 : null })
+    .build();
+  const requests = [];
+  const choose = request => {
+    requests.push(request);
+    if (request.type === "optional" && request.id === "reksai.may-reveal/optional") return revealCards;
+    if (request.type === "optional" && request.id.includes("reksai.may-play")) return playCard;
+    if (request.type === "select-objects" && request.id.includes("reksai.choose-one")) {
+      return [request.options.at(-1)];
+    }
+    throw new AwaitChoice(request);
+  };
+  const binding = createProgramBinding({ cardPrograms: [{
+    canonicalCardId: "synthetic:revealed", rulesetVersion: "core-1.5", status: "executable",
+    sourceText: types.includes("spell") ? "Draw 1." : "Synthetic vanilla unit.",
+    abilities: [{ kind: "play", body: types.includes("spell") ? [{ id: "revealed.draw", op: "effect.draw", args: { amount: { kind: "constant", value: 1 } } }] : [] }]
+  }] });
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose })
   });
-  const run = runInstruction(
-    recycle,
-    { objects: { kind: "linked-value", instructionId: "reksai.reveal", key: "revealed" } },
-    { world: kernel, linked: { revealed: top } }
-  );
-  assert.equal(run.result.status, "executed");
-  assert.deepEqual(run.linked.recycled, [{ id: "c2", zoneEntryId: 1 }]);
-  assert.equal(run.linked.recycledCount, 1);
-  // 417.1.a: c2 lands at the bottom of the Main Deck.
-  assert.deepEqual(kernel.zone("A", "deck").map((ref) => ref.id), ["c3", "c2"]);
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host,
+    describePlay: binding.describePlay,
+    cleanup: chain => {
+      let changed = false;
+      for (const object of kernel.objects) {
+        if (object.zone === "board" && object.types.includes("unit") && object.might !== null &&
+            (object.might <= 0 || object.damage >= object.might)) {
+          changed = chain.commit({ type: "kill", object: object.ref }).status === "done" || changed;
+        }
+      }
+      return changed;
+    }
+  });
+  const top = kernel.zoneSlice("A", "deck", "top", 2).map(object => object.ref);
+  engine.execute({ id: "reksai-body", source: kernel.getObject("reksai"), controller: "A", kind: "activated", speed: "reaction", body: ability.body });
+  assert.deepEqual(engine.items[0].pickPlans, [{ id: "reksai.top-two", refs: top }]);
+  assert.deepEqual(requests, [], "Finalize locks references without revealing cards or asking Resolve choices");
+  assert.equal(engine.pipeline.events.filter(event => event.timingPoint === "card-revealed").length, 0);
+  return { kernel, engine, top, requests };
+}
+
+test("sfd-170-221 Rek'Sai, Swarm Queen: recycling the rest drops references actually played through the chain", () => {
+  const { kernel, engine, top, requests } = chainFixture();
+  resolveAll(engine);
+  assert.deepEqual(kernel.linked("reksai.may-reveal/reksai.reveal.revealed"), top);
+  assert.deepEqual(kernel.linked("reksai.may-reveal/reksai.recycle-rest.recycled"), [top[0]]);
+  assert.equal(kernel.linked("reksai.may-reveal/reksai.recycle-rest.recycledCount"), 1);
+  assert.equal(kernel.linked("reksai.may-reveal/reksai.may-play/reksai.play-one.played"), 1);
+  assert.equal(kernel.getObject("c2").zone, "trash", "the chosen spell really resolves");
+  assert.equal(kernel.getObject("c3").zone, "hand", "the played spell's own Draw 1 resolves");
+  assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["c1"]);
+  const selection = requests.find(request => request.id.includes("reksai.choose-one"));
+  assert.deepEqual(selection.options, top);
+  assert.equal(selection.min, 1);
+  assert.equal(selection.max, 1);
+  assert.equal(kernel.player("A").energy, 17);
+  assert.deepEqual(kernel.snapshot().history.filter(entry => entry.action.type === "pay").map(entry => entry.action.plan), [
+    { finalized: true, energy: 3, power: ["Fury"] }
+  ]);
+  assert.equal(engine.pipeline.events.filter(event => event.timingPoint === "card-played").length, 1);
+  assert.equal(engine.pipeline.events.filter(event => event.timingPoint === "became-target").length, 0);
 });
 
 test("sfd-170-221 Rek'Sai, Swarm Queen: declining the reveal skips the whole chosen body", () => {
-  const kernel = world()
-    .player("A")
-    .deck(["c1", "c2", "c3"])
-    .unit("reksai", { zone: "board", might: 5, location: { type: "battlefield", id: "bf-1" } })
-    .build();
-  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("reksai") });
-  scoped.setAnswers({ "reksai.may-reveal/optional": false });
-  const outcome = runAbilityBody(ability.body, scoped);
-  assert.deepEqual(
-    outcome.results.map((entry) => [entry.id, entry.result.status, entry.result.reason]),
-    [["reksai.may-reveal", "negated", "skipped"]]
-  );
-  assert.equal(scoped.player("A").deckSize, 3);
+  const { kernel, engine } = chainFixture({ revealCards: false });
+  resolveAll(engine);
+  assert.equal(kernel.player("A").deckSize, 3);
+  assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["c1", "c2", "c3"]);
+  assert.deepEqual(kernel.events, []);
+  assert.equal(kernel.linked("reksai.may-reveal/reksai.reveal.revealed"), undefined);
+  assert.equal(kernel.player("A").energy, 20);
+});
+
+test("sfd-170-221 Rek'Sai, Swarm Queen: declining the optional wrapper retains its skipped result", () => {
+  const kernel = world().deck(["c1", "c2", "c3"]).unit("reksai", { might: 5 }).build();
+  kernel.setAnswers({ "reksai.may-reveal/optional": false });
+  const outcome = resolveChainBody(ability.body, kernel);
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status, entry.result.reason]), [
+    ["reksai.may-reveal", "negated", "skipped"]
+  ]);
+  assert.equal(kernel.player("A").deckSize, 3);
   assert.deepEqual(outcome.events, []);
 });
 
-test.todo(
-  "sfd-170-221 Rek'Sai, Swarm Queen: produce the ordered Main-Deck-top picks for effect.reveal and " +
-    "wire them into the chain's pick lifecycle (chain Finalize/Resolve; ctx.zoneSlice alone does not lock picks)"
-);
-
-test.todo(
-  "sfd-170-221 Rek'Sai, Swarm Queen: unpack the original effect.reveal.pick Expr in the chain adapter " +
-    "(contract 3.2 / LITERAL_FIELDS) so it consumes prelocked ordered picks and actually reveals the top two"
-);
-
-test.todo(
-  "sfd-170-221 Rek'Sai, Swarm Queen: gate the second 'you may play it here' entry-location choice on " +
-    "'if the played card is a unit' — the compare/in test itself is merged, but effect.play's link receipt " +
-    "only records the played count (number), so there is no linked object whose types could be tested; " +
-    "the 355.2.b location permission then has no gate to open"
-);
-// Direct evidence for the remaining receipt gap: the merged effect.play receipt
-// links only the played count (number) — never the played object references —
-// so the printed "if the played card is a unit" gate has no linked object to
-// read types from. The explicitly finalized plan only removes the printed-cost
-// derivation from this isolated primitive test; the full merged cost path is
-// exercised by the chain test below.
-import { buildCostPlan } from "../../../../engine-core/dist/cost/index.js";
-import play from "../../../../engine-core/dist/effects/instructions/effect.play.js";
-
-test("sfd-170-221 Rek'Sai, Swarm Queen: a real effect.play receipt links only the played count, not the played card", () => {
-  const kernel = world().player("A").deck(["c1", "c2", "c3"]).build();
-  const top = kernel.zoneSlice("A", "deck", "top", 2).map((object) => object.ref);
-  // Explicit finalized plan (isolated primitive test only); the play itself
-  // really moves the chosen revealed card out of the deck.
-  const costPlan = buildCostPlan(kernel, {
-    id: "reksai.play-test",
-    cost: { kind: "explicit", energy: { kind: "constant", value: 0 } }
-  });
-
-  const run = runInstruction(
-    play,
-    { pick: "reksai.revealed-play", linkKey: "played", cost: { kind: "constant", value: costPlan } },
-    { world: kernel, picks: { "reksai.revealed-play": [top[0]] } }
-  );
-
-  assert.equal(run.result.status, "executed");
-  assert.deepEqual(kernel.zone("A", "deck").map((ref) => ref.id), ["c2", "c3"]);
-  // The receipt carries the count only: no object list means no linked object
-  // whose types could gate "if the played card is a unit" (CR 355.2.b).
-  assert.deepEqual(Object.keys(run.linked), ["played"]);
-  assert.equal(typeof run.linked.played, "number");
+test("sfd-170-221 Rek'Sai, Swarm Queen: accepting reveal but declining play recycles the revealed cards", () => {
+  const { kernel, engine, top } = chainFixture({ playCard: false });
+  resolveAll(engine);
+  assert.deepEqual(kernel.linked("reksai.may-reveal/reksai.reveal.revealed"), top);
+  assert.equal(kernel.linked("reksai.may-reveal/reksai.recycle-rest.recycledCount"), 2);
+  assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id).slice(0, 1), ["c3"]);
+  assert.deepEqual(new Set(kernel.zone("A", "deck").map(ref => ref.id).slice(1)), new Set(["c1", "c2"]));
+  assert.equal(kernel.player("A").energy, 20);
+  assert.equal(engine.pipeline.events.filter(event => event.timingPoint === "card-played").length, 0);
 });
 
-test("sfd-170-221 Rek'Sai, Swarm Queen: a cost-free chain play derives and pays the printed cost", () => {
-  const kernel = world()
-    .player("A", { energy: 20, power: ["Fury"] })
-    .player("B", { energy: 20, power: ["Fury"] })
-    .base("source", { energy: 0, power: [], might: 2 })
-    .base("enemy", { owner: "B", might: 5, power: [] })
-    .deck(["tested-unit"], {
-      types: ["unit"],
-      energy: 3,
-      power: ["Fury"],
-      cardId: "some-other-card"
-    })
-    .build();
-  const decide = (request) => {
-    if (request.type === "select-objects" && request.min === request.max && request.options.length === request.min) {
-      return [...request.options];
-    }
-    if (request.type === "optional") {
-      return true;
-    }
-    throw new Error("unexpected choice: " + request.type);
-  };
-  const host = createActionPipelineHost({
-    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
-    restore: (checkpoint) => {
-      kernel.restore(checkpoint.state);
-      kernel.copyLinkedFrom(checkpoint.links);
-    },
-    objects: () => kernel.objects,
-    perform: (action) => kernel.perform(action),
-    choose: decide,
-    context: (source, controller, timingPoint) =>
-      bindResolveContext(kernel, { source, controller, timingPoint, choose: decide }),
-    testTrigger: () => false
-  });
-  const engine = new ChainEngine({
-    turnOrder: ["A", "B"],
-    turnPlayer: "A",
-    phase: "main",
-    host,
-    cleanup: () => false,
-    describePlay: (action, source) => ({
-      id: "draft",
-      controller: "A",
-      kind: "unit",
-      speed: "normal",
-      body: [],
-      source
-    })
-  });
+test("sfd-170-221 Rek'Sai, Swarm Queen: Finalize uses all available cards from a short deck", () => {
+  const { kernel, engine, top } = chainFixture({ deck: ["c1"], playCard: false });
+  resolveAll(engine);
+  assert.equal(top.length, 1);
+  assert.deepEqual(kernel.linked("reksai.may-reveal/reksai.reveal.revealed"), top);
+  assert.equal(kernel.linked("reksai.may-reveal/reksai.reveal.revealedCount"), 1);
+  assert.equal(kernel.linked("reksai.may-reveal/reksai.recycle-rest.recycledCount"), 1);
+  assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["c1"]);
+});
 
-  // The tested instruction is the card's effect.play with no cost override;
-  // the chain Finalize owns printed-cost derivation and payment (CR 420.3).
-  const top = kernel.zoneSlice("A", "deck", "top", 1)[0].ref;
-  kernel.setPicks("reksai.revealed-play", [top]);
-  const body = [
-    {
-      id: "reksai.play-one",
-      op: "effect.play",
-      args: {
-        pick: { kind: "constant", value: "reksai.revealed-play" },
-        linkKey: { kind: "constant", value: "played" }
-      }
-    }
-  ];
-  engine.enqueue({
-    id: "reksai.chain-play",
-    controller: "A",
-    kind: "add",
-    source: kernel.getObject("source"),
-    body
-  });
-  engine.advance();
-  let passes = 0;
-  while (engine.items.length) {
-    passes += 1;
-    assert.ok(passes <= 100, "chain did not settle");
-    engine.pass(engine.priority);
-  }
-
-  // Real printed-cost payment: a 3-energy unit leaves 20 -> 17 and enters play.
+test("sfd-170-221 Rek'Sai, Swarm Queen: a chain play derives and pays the printed unit cost", () => {
+  const { kernel, engine } = chainFixture({ types: ["unit"] });
+  resolveAll(engine);
   assert.equal(kernel.player("A").energy, 17);
-  assert.equal(kernel.getObject("tested-unit")?.zone, "board");
-  assert.deepEqual(kernel.getObject("tested-unit")?.location, { type: "base", player: "A" });
+  assert.deepEqual(kernel.snapshot().history.filter(entry => entry.action.type === "pay").map(entry => entry.action.plan), [
+    { finalized: true, energy: 3, power: ["Fury"] }
+  ]);
+  assert.equal(kernel.getObject("c2").zone, "board");
+  // Ordinary effect.play entry remains the control case; offering the extra
+  // unit-only here destination is the separate TODO below.
+  assert.deepEqual(kernel.getObject("c2").location, { type: "base", player: "A" });
+  assert.equal(kernel.linked("reksai.may-reveal/reksai.may-play/reksai.play-one.played"), 1);
+  assert.equal(kernel.linked("reksai.may-reveal/reksai.may-play/reksai.play-one.playedObjects"), undefined);
+  assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["c3", "c1"]);
 });
+
+test.todo(
+  "sfd-170-221 Rek'Sai, Swarm Queen: combat start must emit attack-declared for the real attack trigger (CR 383.4.e / RIFT-124)"
+);
+
+test.todo(
+  "sfd-170-221 Rek'Sai, Swarm Queen: gate the 'you may play it here' entry-location choice on the played unit " +
+    "(CR 355.2.b); effect.play still links only its played count, with no played object reference for the types gate"
+);
