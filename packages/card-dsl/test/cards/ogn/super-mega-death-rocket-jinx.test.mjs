@@ -4,6 +4,7 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/super-mega-death-rocket-jinx.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 
@@ -31,13 +32,13 @@ test("ogn-252-298 Super Mega Death Rocket!: program passes validateCardProgram",
   assert.equal(cardRegistryById.get(CARD_ID), program);
 });
 
-test("ogn-252-298 Death Rocket judgeReason names the trash-zone, cost.discard and source-selector gaps", () => {
-  assert.match(program.judgeReason, /366\.1/);
+test("ogn-252-298 Death Rocket judgeReason names the trash-zone, Finalize-cost and source-selector gaps", () => {
+  assert.match(program.judgeReason, /385\.2/);
   assert.match(program.judgeReason, /cost\.discard/);
   assert.match(program.judgeReason, /423\.3/);
   assert.match(program.judgeReason, /source\/self/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /383\.3\.b/);
+  assert.match(program.judgeReason, /Finalize/);
   assert.match(program.judgeReason, /不近似实现/);
 });
 
@@ -118,18 +119,28 @@ test("ogn-252-298 Death Rocket golden: a target that left the board is ignored, 
 });
 
 test.todo(
-  "Death Rocket: the conquer trigger works from the Trash (CR 366.1), which needs a declared " +
-    "activation zone for triggered abilities; the trigger pipeline defaults a source's active " +
-    "zone to ['board'] (events/pipeline.ts)."
+  "Death Rocket: the conquer trigger works from Trash (CR 385.2), requiring an ability-level " +
+    "activation-zone declaration; programs/triggers.ts currently defaults this Spell to ['chain']."
 );
 
 test.todo(
-  "Death Rocket: 'discard 1' as the clause's cost needs a registered cost.discard instruction " +
-    "(423.3, RIFT-261). The cost plan can plan a discard payment, but no primitive consumes it " +
-    "from an ability body; effect.discard is the effect-discard form of 423.4 and cannot stand in."
+  "Death Rocket: the leading discard cost must be declared/extracted and paid before Finalize " +
+    "(383.3.b/b.1, 423.3). cost.pay and discard plans exist; resolving payment in the body or " +
+    "using effect.discard (423.4) would pay at the wrong lifecycle stage."
 );
 
 test.todo(
   "Death Rocket: 'return this from your trash to your hand' needs contract 3.6's source/self " +
     "ObjectSelector to reach a zone-moving primitive; effect.zone only accepts target/pick ids."
 );
+
+test("Death Rocket: the authored play body deals exactly 5 through the chain interpreter", () => {
+  const kernel = world().unit("rocket-target", { might: 9 }).unit("other", { might: 9 }).build();
+  kernel.setTargets(targetSpec.id, [kernel.ref("rocket-target")]);
+  const outcome = resolveChainBody(play.body, kernel);
+  assert.equal(outcome.status, "executed");
+  assert.equal(kernel.getObject("rocket-target").damage, 5);
+  assert.equal(kernel.getObject("other").damage, 0);
+  assert.deepEqual(outcome.events.map(event => event.action), ["damage"]);
+  assert.equal(outcome.linkedValues["rocket-damage.dealt"], 5);
+});
