@@ -4,6 +4,7 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import guerillaWarfare from "../../../dist/cards/ogn/guerilla-warfare-teemo.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { buildHiddenCostPlan, payHiddenCostPlan } from "../../../../engine-core/dist/cost/kinds/hidden.js";
 import zone from "../../../../engine-core/dist/effects/instructions/effect.zone.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
@@ -31,7 +32,7 @@ test("Guerilla Warfare identity, ruleset, status, printed text and judgeReason",
       "You can hide cards ignoring costs this turn."
   );
   // The judgeReason must name the missing keyword predicate, the Hide machinery
-  // and the concrete tasks instead of a generic pending note.
+  // and the remaining production consumers instead of obsolete task numbers.
   assert.match(guerillaWarfare.judgeReason, /811\.5/);
   assert.match(guerillaWarfare.judgeReason, /keywords/);
   assert.match(guerillaWarfare.judgeReason, /811\.1\.b/);
@@ -189,7 +190,27 @@ test.todo(
 
 test.todo(
   "Guerilla Warfare Hide waiver: implement the Hide Discretionary Action, the facedown zone and the " +
-    "[A] payment (811.1.b / 422.1 / 422.2), then a duration-bounded cost waiver so the spell can grant " +
+    "Hide movement (811.1.b / 422.1 / 422.2), then a duration-bounded cost waiver so the spell can grant " +
     "cost-free hiding for the turn (not a Play permission, 811.1.c.1) — Hide action and permission consumer"
 );
 
+
+test("Guerilla Warfare supported Hidden costs: hide plans [A], total rewrites do not grant lasting Hide permission", () => {
+  const initial = world().player("A", { energy: 5, power: ["Mind"] })
+    .hand("hidden-card", { energy: 2, power: ["Mind"], types: ["spell"] }).build();
+  const kernel = initial.clone({ sourceSnapshot: initial.getObject("hidden-card") });
+  const plan = buildHiddenCostPlan(kernel, { id: "hidden-normal", mode: "hide" });
+  assert.equal(plan.total.energy, 0);
+  assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"] }]);
+  const payment = payHiddenCostPlan(kernel, plan);
+  assert.equal(payment.paid, true);
+  assert.deepEqual(payment.actions.map(entry => entry.action.type), ["pay"]);
+  assert.equal(kernel.player("A").energy, 5);
+  assert.equal(kernel.getObject("hidden-card").zone, "hand");
+
+  const waived = buildHiddenCostPlan(kernel, { id: "hidden-waived-plan", mode: "hide", ignoreAllCosts: true });
+  assert.equal(waived.total.energy, 0);
+  assert.deepEqual(waived.total.power, []);
+  assert.equal(kernel.continuousEffects.length, 0);
+  assert.equal(kernel.delayedTriggers.length, 0);
+});

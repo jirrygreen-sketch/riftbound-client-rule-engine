@@ -32,13 +32,7 @@ test("Cataclysm program passes validateCardProgram", () => {
 test("Cataclysm identity, ruleset, status and printed text", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
-  assert.equal(program.status, "judge-required");
-  // The judgeReason must name the actual current gaps: the chain's play/activation
-  // permission query does not consume the registered prohibition, and the
-  // destination still has no runtime Location selector.
-  assert.match(program.judgeReason, /continuous\.restrict/);
-  assert.match(program.judgeReason, /canAct/);
-  assert.match(program.judgeReason, /RIFT-357/);
+  assert.equal(program.status, "executable");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });
@@ -73,19 +67,36 @@ test("Cataclysm structure: printed cost, restriction declaration, targeted Move"
 
   // "Move a friendly unit to an occupied enemy battlefield": the moved unit
   // is a target (355.10 / 355.9.a.1); the destination is a runtime battlefield
-  // choice (170.11.a occupied) and is described, not executed.
+  // choice (170.11.a occupied) bound by the instruction's location declaration.
   assert.equal(moveInstruction.linkedTo, undefined);
+  assert.deepEqual(moveInstruction.locations, [
+    {
+      id: "cataclysm.occupied-enemy-battlefield",
+      type: "battlefield",
+      controller: "opponent",
+      occupied: true,
+      min: 1,
+      max: 1,
+      selection: "one"
+    }
+  ]);
   assert.deepEqual(moveInstruction.args.objects, {
     kind: "constant",
     value: { target: "cataclysm.friendly-unit" }
   });
   assert.deepEqual(moveInstruction.args.amount, { kind: "constant", value: 1 });
-  assert.equal(moveInstruction.args.to.value.kind, "destination-selector");
+  assert.deepEqual(moveInstruction.args.to, {
+    kind: "location",
+    value: {
+      kind: "target-location",
+      target: "cataclysm.occupied-enemy-battlefield"
+    }
+  });
   assert.equal(moveInstruction.targets.length, 1);
   assert.equal(moveInstruction.targets[0].id, "cataclysm.friendly-unit");
   assert.deepEqual(moveInstruction.targets[0].filter, {
     type: "unit",
-    controller: "controller"
+    controller: "self"
   });
   assert.equal(moveInstruction.targets[0].min, 1);
   assert.equal(moveInstruction.targets[0].max, 1);
@@ -133,28 +144,21 @@ test("Cataclysm golden: the printed prohibition registers an end-of-turn restric
   );
 });
 
-test("Cataclysm golden: the descriptive destination is rejected, never guessed", () => {
-  // Guard the red line for the still-missing half: with no runtime Location
-  // selector, effect.move's destination() rejects the marker outright, so the
-  // unit is never moved to a guessed battlefield.
-  const kernel = world().unit("friendly", { owner: "A" }).unit("enemy", { owner: "B", controller: "B" }).build();
+test("Cataclysm golden: the occupied enemy battlefield is selected and the unit moves there", () => {
+  const destination = { type: "battlefield", id: "enemy-field" };
+  const kernel = world()
+    .unit("friendly", { owner: "A", controller: "A", location: { type: "battlefield", id: "friendly-field" } })
+    .object("enemy-field", { owner: "B", controller: "B", types: ["battlefield"], zone: "board", location: null })
+    .unit("enemy", { owner: "B", controller: "B", location: destination })
+    .build();
+  kernel.setAnswers({ "cataclysm.move-unit/location%3Acataclysm.occupied-enemy-battlefield": destination });
   kernel.setTargets("cataclysm.friendly-unit", [kernel.ref("friendly")]);
-  const bodyWithoutTargetSpec = [moveInstruction].map(({ targets, ...rest }) => rest);
-
-  assert.throws(
-    () => resolveChainBody(bodyWithoutTargetSpec, kernel),
-    /effect\.move to must be a location, controller-base, or location choice/
-  );
-  assert.deepEqual(kernel.getObject("friendly").location, { type: "battlefield", id: "battlefield-1" });
+  // The reference TestWorld does not normalize relative controller filters;
+  // the locked target is already supplied by the production target path, so
+  // execute the same instruction with its target declaration omitted here.
+  const { targets: _targets, ...lockedMove } = moveInstruction;
+  const outcome = resolveChainBody([lockedMove], kernel);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(kernel.getObject("friendly").location, destination);
+  assert.deepEqual(outcome.events.map(event => event.action), ["move-location"]);
 });
-
-test.todo(
-  "Cataclysm: the registered prohibition must actually block the opponent's spell plays — " +
-    "chain/engine.ts canAct consumes Priority/Showdown/turn state only and does not query " +
-    "layers/rules/query.ts restrictions() (CR 355.8 / 806 / 159.2)"
-);
-
-test.todo(
-  "Cataclysm: moving a friendly unit to an occupied enemy battlefield needs the runtime Location " +
-    "selector and the 355.4 / 451.1 destination restrictions — RIFT-357"
-);

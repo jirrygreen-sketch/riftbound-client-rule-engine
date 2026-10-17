@@ -26,7 +26,7 @@ test("ogn-161-298 Deadbloom Predator: judgeReason cites the target tax and the u
   assert.match(program.judgeReason, /target\.tax/);
   assert.match(program.judgeReason, /play-location-permission/);
   assert.match(program.judgeReason, /RIFT-360/);
-  assert.match(program.judgeReason, /RIFT-357/);
+  assert.match(program.judgeReason, /位置选择器/);
   assert.match(program.judgeReason, /170\.11\.a/);
 });
 
@@ -80,5 +80,6 @@ test.todo(
 );
 test.todo(
   "ogn-161-298 Deadbloom Predator: the static play-location permission (170.11.a occupied enemy " +
-    "battlefield; 420.3.b.2 Finalize check) needs the runtime location-choice consumer (RIFT-357)."
+    "battlefield; 420.3.b.2 Finalize check) needs the play-Finalize consumer that merges this " +
+    "permission into the legal location set."
 );

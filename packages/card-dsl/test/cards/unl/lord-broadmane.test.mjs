@@ -59,9 +59,10 @@ test("unl-012-219 Lord Broadmane: identity, status, judgeReason and verbatim sou
   assert.match(program.judgeReason, /Ambush/);
   assert.match(program.judgeReason, /822\.1\.b/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  // Ambush's KeywordDef is merged now, so the reason must name the missing
-  // consumers (static -> layers, playLocations/canAct).
-  assert.match(program.judgeReason, /noopStaticBinder|playLocations/);
+  // Ambush's KeywordDef and the generic timing query are merged now, so the
+  // reason names the remaining conditional location/binder mismatch.
+  assert.match(program.judgeReason, /play-location-permission|appliesTo/);
+  assert.doesNotMatch(program.judgeReason, /canAct\(\).*不读取|没有读取 layers\/rules\/query\.ts/);
   assert.match(program.judgeReason, /designation/);
 });
 
@@ -231,9 +232,9 @@ test("unl-012-219 Lord Broadmane: Ambush expansion preserves both static permiss
 });
 
 test.todo(
-  "unl-012-219 Lord Broadmane: play [Ambush] from the real play flow (CR 822.1.b/.c) — the KeywordDef is merged " +
-    "and static binding now registers its declarations, but Finalize has no playLocations() consumer " +
-    "and chain.canAct() does not read the layer timing permission"
+  "unl-012-219 Lord Broadmane: play [Ambush] from the real play flow (CR 822.1.b/.c) — the KeywordDef and generic " +
+    "timing query are merged, but Finalize does not consume play-location-permission and static binding cannot bind " +
+    "the conditional appliesTo: [card] / location timing scope"
 );
 
 test.todo(

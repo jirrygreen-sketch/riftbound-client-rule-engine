@@ -25,36 +25,21 @@ import type { CardProgram } from "../../ir/index.js";
  *   cost removes neither the facedown-zone, control and slot requirements nor
  *   the next-turn Reaction permission.
  *
- * Status: judge-required — two dependencies remain incomplete:
- * - the [Hidden] restriction is not evaluable: no merged filter predicate
- *   tests a keyword characteristic. The layer matcher compares
- *   type/zone/location/controller/owner/states/tags/characteristics and has no
- *   keyword form, the reference kernel matches by value only, and
- *   ObjectSnapshot.keywords is not a filter key anywhere. The key is written
- *   as a descriptive, fail-closed restriction because dropping it would report
- *   "return any two trash cards" as the card effect.
- * - "hide cards ignoring costs this turn" needs the Hide cost/zone machinery
- *   plus a duration-bounded cost waiver: the merged Hidden KeywordDef declares
- *   only a static cost.hidden placeholder and documents that the Hide action,
- *   the facedown zone, the [A] payment and the next-turn Reaction permission
- *   are not implemented. The waiver is authored as a cost.modify instruction
- *   carrying the printed this-turn duration, but the cost primitive only
- *   rewrites an already finalized plan and cannot grant Hide itself.
- * The return clause uses only merged structures and is executed by the golden
- * test.
+ * Status: judge-required — keyword membership cannot yet be bound as a target
+ * restriction, and Hide/facedown/timing plus the turn-scoped cost waiver lack
+ * production consumers. Hidden cost planning itself has merged: [A] to hide,
+ * ignored base resources to play from Hidden, and total cost rewrites are
+ * available. None of those planners grants a Hide action or a lasting waiver.
+ * The return clause has primitive execution evidence below.
  */
 const guerillaWarfare = {
   canonicalCardId: "card.hash-1175fb7ab62c4d777b8ccd63b423982a0b70440ed2d5652d2b61dde6fb07b06f",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两段依赖未合入：(1)「cards with [Hidden]」是 811.5 的卡牌特征限制，但已合入的过滤体系没有关键词谓词——" +
-    "layers/filter.ts 只比较 type/zone/location/controller/owner/states/tags/characteristics，参考内核按值比较，" +
-    "ObjectSnapshot.keywords 没有任何过滤器键，因此该目标限制无法求值；写成 { keywords: [\"Hidden\"] } 是描述性的 fail-closed 形态，" +
-    "删掉它会把“任意两张垃圾场卡牌”写成事实（禁止近似）。(2)「You can hide cards ignoring costs this turn」改写 Hide 行动的费用" +
-    "（811.1.b 的 [A]、422.1/422.2 的 Hide 定义、811.1.c.1 Hide≠Play），需要 hidden 费用/明置区机制与本回合期限的减费许可；" +
-    "已合入的 Hidden KeywordDef 只声明 cost.hidden 占位并注明 Hide 行动、明置区、[A] 支付与次回合 Reaction 许可均未实现；" +
-    "当前 cost.modify 只能改写已给出的 finalized 费用计划，不能授予 Hide 行动或本回合的 Hide 权限。返回半段（effect.zone → hand，355.7/355.13/417.1.b）已合入，由 golden 执行。",
+    "CR 811.5 的「cards with [Hidden]」目标限制仍缺关键词成员谓词：programs/filters.ts 不接受 keywords，layers/filter.ts " +
+    "不检查该字段，目标候选与 Resolve 重验均未连接。还缺 Hide 行动、facedown 区域、次回合 Reaction 许可（811.1.b / 422.1 / 422.2），以及本回合 Hide " +
+    "免全部费用的持续注册与到期消费者；811.1.c.1 的 Hide 不是 Play。单次费用计划的 ignoreAllCosts 不能代替跨行动的本回合 Hide 免付费规则。",
   sourceText:
     "Return up to two cards with [Hidden] from your trash to your hand. " +
     "You can hide cards ignoring costs this turn.",
@@ -75,7 +60,7 @@ const guerillaWarfare = {
               id: "hidden-cards-in-trash",
               // "up to two cards with [Hidden] from your trash": 0..2 cards in
               // the controller's trash (355.13). The [Hidden] restriction is
-              // the descriptive key no merged filter predicate evaluates yet.
+              // a descriptive key the production target binder cannot consume.
               filter: { zone: "trash", owner: "self", keywords: ["Hidden"] },
               min: 0,
               max: 2,

@@ -4,6 +4,7 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/banner-of-conquest.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL = "card.hash-d0b3281a9fa74bb53091f97ba42c80b0e2e28e4604f24e8ea9af80e1316c03d9";
 const SOURCE_TEXT =
@@ -31,9 +32,10 @@ test("rad-002-167 Banner of Conquest: the judgeReason names the actual merged ga
   // cards/README.md section 2: a judge-required program must name the missing
   // op/keyword/rule and the dependency, not just say "unimplemented".
   assert.match(program.judgeReason, /Deploy/);
-  assert.match(program.judgeReason, /RIFT-267/);
-  assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /playLocations/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /continuous\.location/);
+  assert.match(program.judgeReason, /applyKeyword/);
   // The grant must not be approximated as an arithmetic Might bonus.
   assert.match(program.judgeReason, /807\.1\.c/);
 });
@@ -80,11 +82,31 @@ test.todo(
     "continuous.location consumer in Finalize placement and the cleanup recall exemption."
 );
 
-test.todo(
-  "rad-002-167 Banner of Conquest: registering the continuous Assault grant for friendly units " +
-    "at the source battlefield needs a CardProgram -> layers registration path (static abilities " +
-    "are not bound; RIFT-257)."
-);
+test("rad-002-167 Banner of Conquest: the merged static binder registers the Assault grant and the here anchor", async () => {
+  // RIFT-349 的 createEngineStaticBinder 是生产静态绑定路径：卡面的
+  // continuous.grant-keyword 会写进 ability 图层，filter 的 controller:self 与
+  // sameLocationAs:self 都解析成绝对过滤器（layers/engine.ts applyAbility 用它授予关键词）。
+  const f = fixture({
+    cards: [
+      { id: "banner", cardId: CANONICAL, types: ["gear"], keywords: [{ id: "Deploy" }], might: null },
+      { id: "ally", types: ["unit"], might: 2 }
+    ]
+  });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("banner"), to: "battlefield", location: { type: "battlefield", id: "battlefield-1" } });
+  const source = f.kernel.getObject("banner");
+  // The engine-backed binder is what createProgramBinding().attachLifecycle
+  // installs (RIFT-349); the default noopStaticBinder writes no layer entry.
+  const { createEngineStaticBinder } = await import("../../../../engine-core/dist/programs/statics.js");
+  const bound = createEngineStaticBinder(f.engine).bindStatic(grant, source);
+  assert.equal(f.engine.layers.registry.entries.size, 1);
+  const [registered] = f.engine.layers.registry.list();
+  assert.equal(registered.effect.effect.kind, "continuous.grant-keyword");
+  assert.equal(registered.effect.effect.keyword, "Assault");
+  assert.equal(registered.effect.filter.controller, "A");
+  assert.deepEqual(registered.effect.filter.location, { type: "battlefield", id: "battlefield-1" });
+  bound.unbind();
+  assert.equal(f.engine.layers.registry.entries.size, 0);
+});
 
 /**
  * The reference kernel's keyword def credentials are asserted alongside the

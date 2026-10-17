@@ -22,20 +22,19 @@ import type { CardProgram } from "../../ir/index.js";
  *   appliesTo 对手玩家、duration "this-turn"（原语映射为 end-of-turn 到期）。
  *
  * 未合入依赖（不近似实现）:
- * - continuous.restrict 原语与 layers/rules 查询已合入（本卡测试真实执行并验证对手
- *   过滤、到期），card-played trigger registration 也已具备；但 chain 的 canAct /
- *   Finalize 都没有读取持续禁止集合，禁止不会实际拦下打出。
- * 依赖：chain 的持续禁止许可消费。
+ * - Chain Execute 已消费持续禁止，但 controller:opponent 相对于待打出牌的控制者
+ *   求值，没有锚定触发来源的控制者；play-card 也被用于启动能力，且 Finalize 未重验。
+ * 依赖：来源相对玩家过滤、打出/启动区分与 Finalize 重验。
  */
 const brynhirThundersong = {
   canonicalCardId: "card.hash-c3d99cfdb7043f9a6d4f6898cda1e76169b34bfb8ba341d7b4189ff2c78fc63d",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "『opponents can't play cards this turn』是持续限制（CR 400/402–407 的打出许可）：continuous.restrict 原语已合入" +
-    "（RIFT-259，本卡测试真实执行并验证对手过滤与回合结束到期），但 chain 的 canAct 与 Finalize 都没有读取持续禁止集合的消费方，" +
-    "禁止不会实际拦下对手的打出；card-played 触发注册形状已可用，但生产链仍未消费该限制。" +
-    "触发时点 card-played（420.4.a）已定义。依赖：chain 的持续禁止许可消费。不近似实现。",
+    "continuous.restrict 的 play-card 禁止缺来源相对玩家过滤：appliesTo.controller:'opponent' " +
+    "仍相对于待打出牌的 draft.controller 求值，缺相对于 Brynhir 触发控制者的锚定（CR 191.5.a/b、420.4.a）。" +
+    "actionIsRestricted 还把 play-card 应用于 activated，需区分打牌与启动能力（400、402–407）；" +
+    "canAct/Finalize 未重验该持续禁止。依赖：来源相对玩家过滤、打出专用消费与 Finalize 合法性重验。",
   abilities: [
     {
       kind: "triggered",

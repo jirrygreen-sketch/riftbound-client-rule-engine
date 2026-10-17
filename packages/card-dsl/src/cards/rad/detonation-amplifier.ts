@@ -37,39 +37,49 @@ import type { CardProgram } from "../../ir/index.js";
  *   collection, and an effect that merely "activates" the trigger does not get
  *   the extra one.
  *
- * Status: judge-required (re-checked 2026-10-17). Current gaps, none approximated:
+ * Status: judge-required (re-checked 2026-10-17, third re-sweep). Current gaps,
+ * none approximated:
  * - The Deploy KeywordDef is merged (effects/keywords/Deploy.ts, RIFT-267) and
- *   expands 830.1.b, but its location, cleanup and Hold/here consumers are not
- *   executable yet.
+ *   expands 830.1.b, but its expansion cannot bind: programs/statics.ts's
+ *   layerFor() throws "Static ability kind continuous.location has no layer
+ *   mapping" for the continuous.location half, and the expanded hold trigger
+ *   carries the `here` key that programs/filters.ts refuses with "Unsupported
+ *   filter field here". Both were verified against the merged code.
  * - "trigger an additional time" has no engine model: the six Ability shapes
  *   have no trigger multiplier; ContinuousEffect.kind is an open string with no
  *   consumer for multiplicity; the Deathknell expansion still references the
  *   unmerged trigger.leave op; and the trigger-collection stage (events/) has no
- *   multiplicity hook. The static declaration below names the pending shape
- *   (Karthus, Eternal's precedent) rather than using repeat, which would wrongly
- *   re-execute at resolution instead of adding a trigger.
+ *   multiplicity hook; the merged static binder additionally refuses the
+ *   declaration's appliesTo shape with "Unsupported static appliesTo"
+ *   (verified). The static declaration below
+ *   names the pending shape (Karthus, Eternal's precedent) rather than using
+ *   repeat, which would wrongly re-execute at resolution instead of adding a
+ *   trigger.
  * - The play trigger body is bindable through the merged CardProgram adapter;
  *   its kill-then-draw half is executed by the golden test through the merged
  *   interpreter. Only the Deploy expansion and trigger-multiplicity semantics
  *   remain outside the executable path.
- * Dependencies: RIFT-357 for Deploy's location/here consumers and a trigger-
- *   multiplicity contract for 383.4.g.1 / Deathknell interaction.
+ * Dependencies: Deploy's continuous.location layer mapping plus a battlefield
+ *   `here` event anchor, and a trigger-multiplicity contract for 383.4.g.1 /
+ *   Deathknell interaction.
  */
 const detonationAmplifier = {
   canonicalCardId: "card.hash-5781b7f1661449d933821ba1a1c0653a6180580f9335eaee79a838078eb62552",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1) Deploy 的 KeywordDef 已合入（effects/keywords/Deploy.ts，RIFT-267，展开 830.1.b 的四项改写），" +
-    "但地点限制、清理豁免和对手 Hold 的 here 触发仍缺可执行消费方（RIFT-357）。" +
+    "两处当前缺口（2026-10-17 第三轮复核），均不近似实现：" +
+    "(1) Deploy 的 KeywordDef 已合入（effects/keywords/Deploy.ts，RIFT-267，展开 830.1.b），但展开无法绑定：" +
+    "programs/statics.ts 的 layerFor() 对 continuous.location 抛 \"Static ability kind continuous.location has no layer mapping\"，" +
+    "其展开出的 Hold 触发又带 here 键，被 programs/filters.ts 的 translateTriggerFilter 以 \"Unsupported filter field here\" 拒绝（两者均实测）。" +
     "(2)「Friendly [Deathknell] effects here trigger an additional time」没有引擎模型：Ability 六种形状没有触发倍率，" +
-    "ContinuousEffect.kind 无倍率消费者，keywords/Deathknell.ts 的展开体仍引用未注册的 trigger.leave 原语，" +
-    "触发收集阶段（events/）也没有倍率接口；程序只保留待接线的 static 声明（同 Karthus, Eternal 先例），" +
-    "不用结算期的 repeat 近似（383.4.g.1/383.4.g.2）。" +
+    "ContinuousEffect.kind 无倍率消费者（programs/statics.ts 对 continuous.trigger-multiplicity 只抛 \"Static ability kind continuous.trigger-multiplicity has no layer mapping\"，" +
+    "且该 static 声明的 appliesTo 形状先被以 \"Unsupported static appliesTo\" 拒绝，两者均实测），" +
+    "keywords/Deathknell.ts 的展开体仍引用未注册的 trigger.leave 原语，触发收集阶段（events/）也没有倍率接口；" +
+    "程序只保留待接线的 static 声明（同 Karthus, Eternal 先例），不用结算期的 repeat 近似（383.4.g.1/383.4.g.2）。" +
     "(3) Play Effect 触发的 CardProgram 注册路径已合入；kill-then-draw 半段本身也已合入（cost within instructions 用 PickSpec 表达，" +
-    "见 355.10.c.1 的原文示例），" +
-    "golden 通过解释器真实执行该半段。" +
-    "依赖：RIFT-357，以及触发倍率接口（events/，Deathknell 交互的契约变更）。",
+    "见 355.10.c.1 的原文示例），golden 通过解释器真实执行该半段。" +
+    "依赖：Deploy continuous.location 的图层映射与 battlefield here 锚点，以及触发倍率接口（events/，Deathknell 交互的契约变更）。",
   abilities: [
     // 830.1：印刷的 [Deploy] 声明（展开由已合入的 keywords/Deploy.ts 负责）。
     { kind: "keyword", keyword: "deploy" },

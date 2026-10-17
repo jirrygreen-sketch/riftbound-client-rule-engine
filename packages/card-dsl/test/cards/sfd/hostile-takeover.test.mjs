@@ -9,6 +9,8 @@ import move from "../../../../engine-core/dist/effects/instructions/effect.move.
 import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { isTimingPointId } from "../../../../engine-core/dist/events/timing-points.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 // Card bodies run through the chain's own interpreter adapter — the production
@@ -92,20 +94,26 @@ test("sfd-202-221 Hostile Takeover: program passes validateCardProgram and is ju
   assert.equal(cardRegistryById.get(CARD_ID), program);
 });
 
-test("sfd-202-221 Hostile Takeover: judgeReason names all three gaps and their rules", () => {
+test("sfd-202-221 Hostile Takeover: judgeReason names all three current gaps and their rules", () => {
   // README section 2: each gap must name the missing form, the rule basis and
-  // the dependent work.
+  // the dependent work. The earlier RIFT-261/RIFT-91/RIFT-9/RIFT-109 wording is
+  // gone because those tasks are merged; the reason now names the merged
+  // consumers that still refuse the shapes this card needs.
   assert.match(program.judgeReason, /cost\.hidden/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /continuous\.timing/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /layerFor/);
+  assert.match(program.judgeReason, /no layer mapping/);
+  assert.match(program.judgeReason, /facedown/);
+  assert.match(program.judgeReason, /hidden-cleanup-state/);
+  assert.match(program.judgeReason, /811\.1\.b/);
   assert.match(program.judgeReason, /trigger\.delayed/);
   assert.match(program.judgeReason, /391\.2/);
-  assert.match(program.judgeReason, /RIFT-9/);
+  assert.match(program.judgeReason, /393/);
   assert.match(program.judgeReason, /457-460/);
-  assert.match(program.judgeReason, /RIFT-109/);
+  assert.match(program.judgeReason, /effect\.move/);
   // The reason must be honest about the delayed control write-back too.
   assert.match(program.judgeReason, /479\.2\.a/);
+  // No merged task is still named as an outstanding dependency.
+  assert.doesNotMatch(program.judgeReason, /RIFT-(9|89|90|91|109|257|258|261)\b/);
 });
 
 test("sfd-202-221 Hostile Takeover structure: [Hidden] plus control, ready and a delayed revert", () => {
@@ -195,14 +203,49 @@ test("sfd-202-221 Hostile Takeover structure: [Hidden] plus control, ready and a
 test("sfd-202-221 Hostile Takeover: the declared dependencies are the judgeReason's named gaps", () => {
   // The merged Hidden expansion is the cost.hidden static effect (811), and the
   // card's own delayed clause is the pending trigger.delayed instruction; the
-  // judgeReason names both consumers (cost.hidden / RIFT-261 cost batch, the
-  // delayed-trigger opcode) instead of a generic "not implemented".
+  // judgeReason names both missing consumers (the layerFor mapping for
+  // cost.hidden, the unregistered delayed-trigger opcode) instead of a generic
+  // "not implemented".
   assert.equal(keywordDefinitionsById.get("Hidden").expand()[0].effect.kind, "cost.hidden");
   assert.equal(keywordDefinitionsById.has("Reaction"), true);
   assert.match(program.judgeReason, /cost\.hidden/);
   assert.match(program.judgeReason, /trigger\.delayed/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /no layer mapping/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
+});
+
+test("sfd-202-221 Hostile Takeover: the merged Hidden expansion is refused by the production static binder", () => {
+  // 811/811.1.b: [Hidden] expands to the static cost.hidden effect. The merged
+  // production binder (programs/statics.ts layerFor) has no layer for that kind,
+  // so it fails closed instead of granting a pretend Hide permission. This is
+  // the executed evidence for gap (1) in the judgeReason.
+  const kernel = world()
+    .unit("host", {
+      cardId: CARD_ID,
+      types: ["spell"],
+      zone: "hand",
+      location: null
+    })
+    .build();
+  const source = kernel.getObject("host");
+  const layers = createLayerEngine([source]);
+  const binder = createEngineStaticBinder({ layers });
+  const [expansion] = keywordDefinitionsById.get("Hidden").expand();
+  assert.equal(expansion.effect.kind, "cost.hidden");
+  assert.throws(
+    () => binder.bindStatic(expansion, source),
+    /Static ability kind cost\.hidden has no layer mapping/
+  );
+  assert.deepEqual(layers.registry.list(), []);
+});
+
+test("sfd-202-221 Hostile Takeover: the delayed half still has no card-facing instruction", () => {
+  // 391.2/392/393: the end-of-turn half is a Delayed Ability, so it may only be
+  // recorded through a registered trigger.delayed op. The merged instruction
+  // registry has no such entry, so the declared instruction cannot execute.
+  assert.equal(instructionDefinitionsById.has("trigger.delayed"), false);
+  assert.equal(instructionDefinitionsById.get(delayedRevert.op), undefined);
+  assert.match(program.judgeReason, /registry\.generated\.ts 无该条目/);
 });
 
 test("sfd-202-221 Hostile Takeover golden: control changes the unit and then readies it", () => {
@@ -352,13 +395,14 @@ test("sfd-202-221 Hostile Takeover: the 'at a battlefield' restriction matches b
 
 test.todo(
   "sfd-202-221 Hostile Takeover: the [Hidden] half — Hide now for :rb_rune_rainbow: and the facedown play " +
-    "for :rb_energy_0: with its later Reaction timing — depends on cost.hidden (RIFT-261) and the " +
-    "continuous.timing consumer (RIFT-91)"
+    "for :rb_energy_0: with its later Reaction timing — needs a layer/consumer for the expanded static " +
+    "cost.hidden (programs/statics.ts layerFor refuses it), a facedown ZoneId, and the Hide action wiring " +
+    "(cost/kinds/hidden.ts locks only the plan)"
 );
 
 test.todo(
   "sfd-202-221 Hostile Takeover: register the end-of-turn Delayed Ability (CR 391.2/392/393, and 359.3.e.16's " +
-    "own Hostile Takeover example) through a card-facing trigger.delayed instruction (RIFT-9), instead of a " +
+    "own Hostile Takeover example) through a card-facing trigger.delayed instruction, instead of a " +
     "card-owned passive trigger"
 );
 
@@ -371,5 +415,5 @@ test.todo(
 test.todo(
   "sfd-202-221 Hostile Takeover: a real Recall (CR 457-460: relocate to the controller's Base, not a Move, no " +
     "Move triggers, ignore movement restrictions, keep damage and statuses) needs a Recall action distinct from " +
-    "move-location (RIFT-109 follow-up)"
+    "move-location, which effect.move documents as BLOCKED"
 );

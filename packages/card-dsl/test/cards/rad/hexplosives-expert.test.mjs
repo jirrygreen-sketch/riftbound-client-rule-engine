@@ -5,8 +5,8 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/rad/hexplosives-expert.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
-import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
-import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { AwaitChoice, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
   "card.hash-35388dd2b47ca5aff627f64dbadee600be5e2d4c7d1f00c2d412147b43679458";
@@ -15,7 +15,16 @@ const SOURCE_TEXT =
   "(It has [Deploy]. When it dies, deal 2 to an enemy there and kill your other Bombs there.)";
 
 const [ability] = program.abilities;
-const [playBomb] = ability.body;
+const [chooseBattlefield, playBomb] = ability.body;
+const FIELD = { type: "battlefield", id: "chosen-field" };
+const OTHER_FIELD = { type: "battlefield", id: "other-field" };
+const choiceKey = `${chooseBattlefield.id}/hexplosives-expert.battlefield`;
+
+const locationWorld = () => world()
+  .unit("first-marker", { location: FIELD })
+  .unit("second-marker", { location: OTHER_FIELD })
+  .base("base-unit")
+  .build();
 
 test("rad-141-167 Hexplosives Expert: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -28,13 +37,13 @@ test("rad-141-167 Hexplosives Expert: identity, status and verbatim sourceText",
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  // cards README §2: the judgeReason names the current token and location gaps.
+  // cards README §2: distinguish location expressions from complete candidates.
   assert.match(program.judgeReason, /187\.12/);
   assert.match(program.judgeReason, /effect\.token/);
   assert.match(program.judgeReason, /judge-required/);
   assert.match(program.judgeReason, /Bomb|token definition/);
   assert.match(program.judgeReason, /355\.2\.a/);
-  assert.match(program.judgeReason, /RIFT-357/);
+  assert.match(program.judgeReason, /LocationState/);
 });
 
 test("rad-141-167 Hexplosives Expert: one Action-speed activated ability with the printed cost", () => {
@@ -54,7 +63,12 @@ test("rad-141-167 Hexplosives Expert: one Action-speed activated ability with th
 });
 
 test("rad-141-167 Hexplosives Expert: body plays a Bomb gear token to a battlefield", () => {
-  assert.equal(ability.body.length, 1);
+  assert.equal(ability.body.length, 2);
+  assert.equal(chooseBattlefield.op, "condition.value");
+  assert.deepEqual(chooseBattlefield.args.value, {
+    kind: "location",
+    value: { kind: "choose", id: "hexplosives-expert.battlefield", filter: { type: "battlefield" } }
+  });
   assert.equal(playBomb.id, "hexplosives-expert.play-bomb");
   assert.equal(playBomb.op, "effect.token");
   assert.deepEqual(playBomb.args.token, { kind: "constant", value: "bomb" });
@@ -63,8 +77,7 @@ test("rad-141-167 Hexplosives Expert: body plays a Bomb gear token to a battlefi
   // then handed to the play action.
   assert.deepEqual(playBomb.args.mode, { kind: "constant", value: "play" });
   assert.deepEqual(playBomb.args.location, {
-    kind: "constant",
-    value: { type: "battlefield", id: "battlefield-chosen-by-effect" }
+    kind: "linked-value", instructionId: chooseBattlefield.id, key: "value"
   });
   assert.deepEqual(playBomb.args.linkKey, { kind: "constant", value: "bombToken" });
   // 355.10.b: "to a battlefield" is a permission/restriction on the play
@@ -99,16 +112,19 @@ test("rad-141-167 Hexplosives Expert: the printed [A] cost is payable with Power
 });
 
 test("rad-141-167 Hexplosives Expert boundary: an unresolved Bomb request has empty receipts and no side effects", () => {
-  const kernel = world().build();
+  const kernel = locationWorld();
+  const objects = kernel.query({});
   const before = kernel.snapshot();
-  const run = runInstruction(token, playBomb.args, { world: kernel });
+  kernel.setAnswers({ [choiceKey]: FIELD });
+  const run = resolveChainBody(ability.body, kernel);
 
   // Preserve the receipt and state invariants while the token definition is
   // judge-required; these checks do not assert that an opcode is missing.
-  assert.deepEqual(run.result.events, []);
-  assert.equal(run.linked["bombToken.amount"], 0);
-  assert.deepEqual(run.linked["bombToken.objects"], []);
-  assert.equal(kernel.query({}).length, 0);
+  assert.deepEqual(run.results.at(-1).result.events, []);
+  assert.equal(run.linkedValues[`${playBomb.id}.bombToken.amount`], 0);
+  assert.deepEqual(run.linkedValues[`${playBomb.id}.bombToken.objects`], []);
+  assert.deepEqual(kernel.query({}), objects);
+  assert.equal(kernel.query({}).filter(object => object.isToken).length, 0);
   assert.equal(kernel.events.length, 0);
   assert.deepEqual(kernel.snapshot(), before);
 });
@@ -118,14 +134,34 @@ test.todo(
     "[Deploy] and [Deathknell]) and expand those abilities before the token can execute"
 );
 
-test.todo(
-  "rad-141-167: create the Bomb token on the Chain and hand it to the play action, then place it " +
-    "at the chosen battlefield — needs the chain-create + play handoff (CR 440.2.c / 185.2.a / " +
-    "350.2 / 354) and a controller-relative way to name the chosen legal battlefield (CR 355.2.a) — " +
-    "the destination/location work depends on the current position-choice contract (RIFT-357)"
-);
+test("rad-141-167 Hexplosives Expert golden: the original body publicly chooses a battlefield and binds the answer", () => {
+  const kernel = locationWorld();
+  const before = kernel.snapshot();
+  assert.throws(() => resolveChainBody(ability.body, kernel), error => {
+    assert.ok(error instanceof AwaitChoice);
+    assert.deepEqual(error.request, {
+      id: choiceKey, type: "mode", chooser: "A", visibility: "public", options: [FIELD, OTHER_FIELD]
+    });
+    return true;
+  });
+  assert.deepEqual(kernel.snapshot(), before);
+  kernel.setAnswers({ [choiceKey]: OTHER_FIELD });
+  const outcome = resolveChainBody(ability.body, kernel);
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.deepEqual(outcome.linkedValues[`${chooseBattlefield.id}.value`], OTHER_FIELD);
+  assert.deepEqual(outcome.events, []);
+  assert.deepEqual(kernel.pendingItems, []);
+});
+
+test("rad-141-167 Hexplosives Expert boundary: a base cannot answer the battlefield choice (355.10.b)", () => {
+  const kernel = locationWorld();
+  const before = kernel.snapshot();
+  kernel.setAnswers({ [choiceKey]: { type: "base", player: "A" } });
+  assert.throws(() => resolveChainBody(ability.body, kernel), /Invalid.*choice/i);
+  assert.deepEqual(kernel.snapshot(), before);
+});
 
 test.todo(
-  "rad-141-167: expand the Bomb token's [Deploy] (CR 830) and [Deathknell] (CR 808) abilities " +
-    "once the keyword expansions are merged"
+  "rad-141-167: bind the Bomb definition's Deploy/Deathknell bodies (CR 830 / 808) and supply the complete " +
+    "LocationState list, including otherwise unrepresented empty battlefields, to the LocationExpr choice (355.2.a)"
 );

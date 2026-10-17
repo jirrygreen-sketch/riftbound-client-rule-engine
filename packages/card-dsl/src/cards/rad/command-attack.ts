@@ -47,15 +47,11 @@ import type { CardProgram } from "../../ir/index.js";
  * - 359.2.b: a Permanent executes all of its rules text from top to bottom, so
  *   the mode list is this Gear's play ability body.
  *
- * Status: judge-required (re-checked). Mode 2 is fully expressible and executed by
- * the golden test; mode 1 and the target filter are not:
- * - Mode 1's destination is a chosen Battlefield Location (355.4 / 355.4.a) — a
- *   runtime Location choice. The frozen IR has no runtime Location selector:
- *   effect.move's `to` accepts only a static LocationRef, `"controller-base"`,
- *   or a static candidate list, and its own docs say the reference kernel
- *   models only relocation. The destination below is therefore the descriptive
- *   marker the sibling rad cards use; the interpreter rejects that shape
- *   (fail-closed) instead of moving the Gear to a wrong place.
+ * Status: judge-required (re-checked 2026-10-17 third re-sweep). Mode 2 is fully
+ * expressible and executed by the golden test; mode 1's destination was rewritten
+ * to the merged runtime Location selector when RIFT-357 (target/location/
+ * selectors plus the interpreter's `Expr.kind: "location"` bridge) landed, and
+ * is executed by the golden test. Two gaps remain:
  * - "with [Deploy]" has no filter predicate: ObjectFilter has no keyword field
  *   and the merged query implementations (layers/filter.ts,
  *   testing/test-kernel.ts) never read one, so the restriction cannot be
@@ -71,18 +67,28 @@ import type { CardProgram } from "../../ir/index.js";
  *   instruction below carries the pending ordered-look shape rather than
  *   falling back to query. The single-card Predict shape (rakelstake /
  *   keywords/Vision) does have a merged path; the 5-card one does not.
- * Dependencies: RIFT-357 (runtime Battlefield Location selection), RIFT-358
- * (ordered top-card picks and mode/target finalization), and a keyword
- * characteristic predicate for 830.3.
+ * Dependencies: RIFT-358 (ordered top-card picks and mode/target finalization)
+ * and a keyword characteristic predicate for 830.3.
  */
 
 /**
- * Descriptive destination marker, not an executable LocationRef: effect.move's
- * destination() accepts only base/battlefield literals or a candidate list, so
- * this shape is rejected outright (fail-closed) instead of guessing a location.
+ * "a battlefield" is a runtime Location choice (355.4 / 355.4.a). Since
+ * RIFT-357 merged, `Expr.kind: "location"` carries the symbolic selector and
+ * the interpreter resolves it through target/location after socketting the
+ * instruction's `locations` declaration; effect.move's own schema still only
+ * accepts an already-resolved LocationRef, so the bridge is what makes this the
+ * production path rather than a rejected marker.
+ *
+ * Candidate-source limitation (verified): target/location/candidates.ts's
+ * allRefs() only derives Battlefield locations from objects that already sit in
+ * one, plus the known players' Bases; no merged caller passes explicit
+ * LocationState. A Battlefield with no Unit on it therefore never appears as a
+ * choice — which is exactly the empty-Battlefield destination 355.4.a allows.
+ * The golden test asserts this boundary so the ability is not claimed complete.
  */
 const A_BATTLEFIELD = {
-  kind: "destination-selector",
+  kind: "choose",
+  id: "command-attack.battlefield-destination",
   filter: { type: "battlefield" }
 } as const;
 
@@ -91,19 +97,19 @@ const commandAttack = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处缺口，均不近似实现：(1) 模式 1 的目的地「a battlefield」是运行期 Location 选择" +
-    "（355.4 / 355.4.a），合并 IR 没有运行期 Location 选择器，effect.move 的 to 只接受静态 LocationRef / " +
-    "controller-base / 静态候选列表；程序只保留描述性目的地标记，解释器会拒绝该形状而不是把 Gear 移到错误地点。" +
-    "(2)「with [Deploy]」没有可求值的过滤谓词：ObjectFilter 没有关键词字段，已合入查询也不读它（layers/filter.ts、" +
-    "testing/test-kernel.ts），过滤里只记录待接线谓词名（Deploy 的 KeywordDef 已合入 effects/keywords/Deploy.ts，" +
-    "但它的展开是程序级图层注册，不会给 ObjectFilter 增加关键词谓词）。(3) 卡牌程序 → 关键词展开 → 图层/触发的绑定" +
-    "程序绑定路径已合入；当前仍缺模式 1 的 Deploy 特征过滤器与 Deploy 展开的地点/hold 消费方。" +
-    "(4)「Look at the top 5 cards of your Main Deck」是私下 top-N 查看，" +
-    "effect.inspect 明确要求上游提供有序 picksSpecId（query 不保证牌库顺序，zoneSlice 未接入查看指令）；" +
-    "单张 Predict 形状有已合入路径，5 张的没有。模式 2 的 reveal/draw/recycle 与 choice 包装已按契约 3.9 写出，" +
-    "golden 执行其中已合入的部分；不近似实现上述缺口。" +
-    "依赖：RIFT-357（运行期地点选择）、RIFT-358（有序 picks 与模式/目标 Finalize）、" +
-    "以及 Deploy 特征过滤器契约。不近似实现。",
+    "模式 1 的目标地点已按 RIFT-357 改写为运行期 Location 选择（Expr kind \"location\" 的 choose 形状，" +
+    "filter { type: battlefield }，355.4 / 355.4.a），golden 用真实解释器 + 参考内核执行并断言实际位移，" +
+    "不再使用被拒绝的描述性标记。当前真实缺口两处，均不近似实现：" +
+    "(0) 地点候选来源不完整：target/location/candidates.ts 的 allRefs() 只从「已有对象驻留的战场」与玩家 Base 派生候选，" +
+    "没有任何已合入调用方传入显式 LocationState，因此没有单位驻留的战场（355.4.a 允许的合法目的地）不会出现在选项里；" +
+    "golden 断言了该边界，不把候选不足当作整卡可执行。" +
+    "(1)「with [Deploy]」没有可求值的过滤谓词：ObjectFilter 没有关键词字段，已合入查询也不读它（layers/filter.ts、" +
+    "testing/test-kernel.ts），programs/filters.ts 的 translateObjectFilter 仍以 \"Unsupported filter field hasKeyword\" 拒绝该键，" +
+    "因此目标限制无法求值（830.3；依赖 Deploy 特征过滤器契约）。" +
+    "(2)「Look at the top 5 cards of your Main Deck」是私下 top-N 查看：effect.inspect 的 top 作用域要求上游按真实牌库顺序" +
+    "提供有序 picksSpecId（query 不保证牌库顺序，zoneSlice 未接入查看指令），生产链的该提供方仍属 RIFT-358（进行中）。" +
+    "模式 2 的 reveal/draw/recycle 与 choice 包装已按契约 3.9 写出并有执行证据。" +
+    "依赖：RIFT-358（有序 picks 与模式/目标 Finalize）与 Deploy 特征过滤器契约。不近似实现。",
   abilities: [
     {
       kind: "play",
@@ -125,12 +131,12 @@ const commandAttack = {
                     {
                       // 「Move a friendly gear with [Deploy] to a battlefield」：
                       // 效果移动（421 / 448-451），目的地是运行期 Location 选择
-                      // （描述性标记，见 judgeReason 第 1 点）。
+                      // （355.4 / 355.4.a，RIFT-357 的 Expr kind "location"）。
                       id: "command-attack.move",
                       op: "effect.move",
                       args: {
                         objects: { kind: "constant", value: { target: "command-attack.friendly-deploy-gear" } },
-                        to: { kind: "constant", value: A_BATTLEFIELD },
+                        to: { kind: "location", value: A_BATTLEFIELD },
                         amount: { kind: "constant", value: 1 }
                       },
                       targets: [

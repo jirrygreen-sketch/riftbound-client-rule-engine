@@ -5,6 +5,9 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/ivern-friend-to-all.js";
 import score from "../../../../engine-core/dist/effects/instructions/effect.score.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -33,7 +36,7 @@ test("unl-177-219 Ivern, Friend to All: identity, status, judgeReason and verbat
   assert.match(program.judgeReason, /choice\.mode/);
   assert.match(program.judgeReason, /continuous\.add-tag/);
   assert.match(program.judgeReason, /conquer\/hold|来源对象/);
-  assert.match(program.judgeReason, /并集/);
+  assert.equal(conquerCondition.kind, "all");
   assert.doesNotMatch(program.judgeReason, /RIFT-89|RIFT-90|RIFT-91|RIFT-120/);
 });
 
@@ -71,11 +74,11 @@ test("unl-177-219 Ivern, Friend to All: conquer and hold each score 1 point, gat
   assert.equal(program.abilities.length, 3);
   assert.deepEqual([conquerScore.trigger.at, holdScore.trigger.at], ["conquer", "hold"]);
   assert.deepEqual(conquerScore.trigger.filter, {
-    event: "conquer",
+    event: "conquered",
     filter: { source: "self" }
   });
   assert.deepEqual(holdScore.trigger.filter, {
-    event: "hold",
+    event: "held",
     filter: { source: "self" }
   });
   // The "if your units have all …" clause follows the effect, not the trigger
@@ -89,14 +92,17 @@ test("unl-177-219 Ivern, Friend to All: conquer and hold each score 1 point, gat
     assert.equal(instruction.targets, undefined);
     assert.equal(instruction.picks, undefined);
   }
-  // The union predicate is a retained shape: subject names the cross-object
-  // union, the filter only anchors the ability's controller.
-  assert.equal(conquerCondition.kind, "compare");
-  assert.equal(conquerCondition.operator, "gte");
-  assert.deepEqual(conquerCondition.right, { kind: "constant", value: 4 });
-  assert.equal(conquerCondition.left.kind, "count");
-  assert.equal(conquerCondition.left.subject, "controller-units-distinct-listed-tags-union");
-  assert.deepEqual(conquerCondition.left.filter, { player: "controller" });
+  // Each tag is required somewhere among friendly Board units; tags can be
+  // distributed across units or all be on one unit.
+  assert.equal(conquerCondition.kind, "all");
+  assert.deepEqual(conquerCondition.conditions, ["Bird", "Cat", "Dog", "Poro"].map(tag => ({
+    kind: "compare",
+    left: { kind: "count", subject: "units", filter: {
+      type: "unit", zone: "board", controller: "self", tags: [tag]
+    } },
+    operator: "gt",
+    right: { kind: "constant", value: 0 }
+  })));
   assert.deepEqual(holdScoreInstruction.condition, conquerCondition);
 });
 
@@ -112,9 +118,7 @@ test("unl-177-219 Ivern, Friend to All golden: the score body gains exactly 1 po
 });
 
 test("unl-177-219 Ivern, Friend to All golden: the effect-level condition really gates the score instruction", () => {
-  // The predicate evaluates false on the reference kernel (no merged union
-  // counter), so a false gate turns the instruction into negated/skipped and the
-  // player's score does not move — the gate is live, not decorative.
+  // No listed tags are present, so the effect-level predicate skips scoring.
   const kernel = world().player("A", { score: 2 }).unit("ivern", { tags: ["Ivern"] }).build();
   const conditionResult = kernel.test(conquerCondition);
   assert.equal(conditionResult, false);
@@ -132,10 +136,49 @@ test("unl-177-219 Ivern, Friend to All golden: the effect-level condition really
   assert.equal(kernel.player("A").score, 2);
 });
 
-test.todo(
-  "unl-177-219 Ivern, Friend to All: evaluate the cross-object tag union ('your units have Bird, Cat, Dog and Poro among them') — " +
-    "ObjectFilter.tags is an every-match on a single object in layers/filter.ts and the reference kernel, so the union needs a new predicate (contract change request)"
-);
+test("unl-177-219 Ivern, Friend to All golden: both original score bodies evaluate the real tag union through ChainEngine", () => {
+  const cases = [
+    { label: "distributed tags", tags: [["Bird"], ["Cat"], ["Dog"], ["Poro"]], expected: 1 },
+    { label: "all tags on one unit", tags: [["Bird", "Cat", "Dog", "Poro"]], expected: 1 },
+    { label: "missing Poro", tags: [["Bird"], ["Cat"], ["Dog"]], expected: 0 },
+    { label: "four copies of Bird", tags: [["Bird"], ["Bird"], ["Bird"], ["Bird"]], expected: 0 },
+    { label: "opponent Poro", tags: [["Bird", "Cat", "Dog"], ["Poro"]], owner: "B", expected: 0 },
+    { label: "Poro in hand", tags: [["Bird", "Cat", "Dog"], ["Poro"]], inHand: true, expected: 0 },
+    { label: "Poro on Gear", tags: [["Bird", "Cat", "Dog"], ["Poro"]], gear: true, expected: 0 }
+  ];
+  for (const ability of [conquerScore, holdScore]) for (const scenario of cases) {
+    const cards = scenario.tags.map((tags, index) => ({
+      id: `tag-${index}`, tags, might: 2,
+      types: scenario.gear && index === 1 ? ["gear"] : ["unit"],
+      owner: scenario.owner && index === 1 ? scenario.owner : "A"
+    }));
+    const f = fixture({ cards });
+    for (const [index, card] of cards.entries()) {
+      if (scenario.inHand && index === 1) continue;
+      f.engine.commit({ type: "move-zone", object: f.kernel.ref(card.id), to: "base",
+        location: { type: "base", player: card.owner } });
+    }
+    f.engine.enqueue({ id: "ivern-score", controller: "A", source: f.kernel.getObject("source"),
+      kind: "triggered", speed: "normal", body: ability.body });
+    f.engine.advance();
+    resolveAll(f.engine);
+    assert.equal(f.kernel.player("A").score, scenario.expected, `${ability.trigger.at}: ${scenario.label}`);
+    assert.equal(f.kernel.player("B").score, 0);
+    assert.equal(f.kernel.events.filter(event => event.action === "score").length, scenario.expected);
+  }
+});
+
+test("unl-177-219 Ivern, Friend to All: both event aliases pass the production trigger schema", () => {
+  for (const ability of [conquerScore, holdScore]) {
+    const translated = translateTriggerFilter(ability.trigger.filter, "ivern", ability.trigger.at);
+    const result = validateTriggerSpec({ ...ability.trigger, filter: translated });
+    assert.equal(result.ok, true, JSON.stringify(result.issues));
+    assert.deepEqual(result.issues, []);
+    assert.equal(translated.event, ability.trigger.at === "conquer" ? "conquered" : "held");
+    assert.deepEqual(translated.object, { objectId: "ivern" });
+  }
+});
+
 test.todo(
   "unl-177-219 Ivern, Friend to All: execute the play-time choice.mode of four tags — chain/engine.ts assertFinalizationSurface blocks mode choices " +
     "pending a Finalize/Resolve choice-plan adapter"
@@ -146,5 +189,5 @@ test.todo(
 );
 test.todo(
   "unl-177-219 Ivern, Friend to All: reach the conquer/hold timing points from the real scoring flow and register the two CardProgram triggers " +
-    "after the event vocabulary and source-object payload can match conquer/hold"
+    "after the Score wave can match the participating unit (conquered/held aliases already validate)"
 );

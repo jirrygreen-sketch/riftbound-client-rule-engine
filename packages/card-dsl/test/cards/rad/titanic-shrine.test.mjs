@@ -16,7 +16,8 @@ test("rad-089-167 Titanic Shrine: program validates and is judge-required", () =
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
   assert.deepEqual(result.issues, []);
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /paymentsPlan/);
+  assert.match(program.judgeReason, /TriggeredAbility/);
+  assert.match(program.judgeReason, /TriggerRegistration\.cost/);
   assert.match(program.judgeReason, /exhaust ObjectRef/);
   assert.match(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /Might/);
@@ -45,8 +46,9 @@ test("rad-089-167 Titanic Shrine: card-played trigger for a played unit, draw-on
     ["titanic-shrine.draw-1", "effect.draw"]
   ]);
   const [drawInstruction] = ability.body;
-  // "exhaust me" 是触发能力的费用（TriggeredAbility 没有 cost 字段，judgeReason 第 1 点）；
-  // 静态 IR 在 card-played 时点给不出该 exhaust ObjectRef，因此不写 effect.exhaust 近似。
+  // "exhaust me" 是触发能力的费用（TriggeredAbility 没有 cost 字段，且
+  // programs/triggers.ts 尚未把费用绑定到 TriggerRegistration.cost）；chain 已有
+  // 触发费用的 Finalize 消费方，因此不写 effect.exhaust 近似。
   assert.deepEqual(drawInstruction.args.amount, { kind: "constant", value: 1 });
   assert.equal(drawInstruction.linkedTo, undefined);
 });
@@ -61,5 +63,5 @@ test("rad-089-167 Titanic Shrine: the Draw 1 half executes against the reference
   assert.equal(kernel.player("A").deckSize, 1);
 });
 
-test.todo("rad-089-167 Titanic Shrine: paying \"exhaust me\" as a cost (CR 204.1.c / 204.3 / 355.10.c.1) needs a TriggeredAbility cost field; the merged cost.pay plan cannot encode the event-time exhaust ObjectRef and no trigger-side cost-plan consumer exists. The exhaust must not be approximated with effect.exhaust.");
+test.todo("rad-089-167 Titanic Shrine: expressing and binding \"exhaust me\" as a trigger cost (CR 204.1.c / 204.3 / 355.10.c.1) needs a TriggeredAbility cost field and a programs/triggers.ts mapping into TriggerRegistration.cost. The chain already consumes registered trigger costs at Finalize; the event-time exhaust ObjectRef still cannot be supplied by the current CardProgram IR. The exhaust must not be approximated with effect.exhaust.");
 test.todo("rad-089-167 Titanic Shrine: the condition \"Might greater than each other unit on the board\" needs the played unit bound from the card-played payload (no event-object ObjectSelector exists) plus a numerical Might comparison against every other board unit; the predicate itself belongs to the in-flight RIFT-359 conditional work.");

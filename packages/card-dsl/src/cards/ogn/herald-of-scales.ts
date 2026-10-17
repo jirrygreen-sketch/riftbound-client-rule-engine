@@ -22,7 +22,7 @@ import type { CardProgram } from "../../ir/index.js";
  * 1. 没有把静态 `continuous.cost-modification` 送进 cost/cost-plan.ts 折扣步骤
  *    （356.4）的 CardProgram 桥接。
  * 2. “Energy costs … reduced by [2], to a minimum of [1]” 的 minimum 语义（356.4.e）
- *    已由 CostDiscount.minimum 形状描述，但消费方（费用计划生成）未合并。
+ *    已由 buildCostPlan 实际消费；仍缺把本卡静态来源送入该计划的桥接。
  * 3. 该静态能力作用于“你即将打出的 Dragon 牌”，其 filter 与费用分量（energy）在
  *    此处按契约保持可审查形状，不近似实现。
  */
@@ -31,10 +31,9 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「Your Dragons' Energy costs are reduced by [2], to a minimum of [1]」需要费用改写（356.4 折扣步骤）：" +
-    "当前静态绑定器无法消费 continuous.cost-modification，而 cost/cost-plan.ts 只读取显式 CostDiscount 输入，" +
-    "没有把本卡的静态能力送入费用计划。356.4.e 的「minimum 只约束该折扣」虽有 CostDiscount.minimum 形状，" +
-    "但没有本卡静态来源的消费桥接；不近似实现，也不把最小 1 写成对印刷费用的改写。",
+    "仍缺 continuous.cost-modification → 生产 Finalize CostPlanInput.discounts 的来源桥接（CR 356.4）：programs/statics.ts" +
+    " 没有该静态类型的 layer 映射，chain/engine.ts 未从场上己方 Herald 收集 Dragon 费用折扣及来源生命周期。CR 356.4.e 要求每个折扣独立保留 " +
+    "minimum，不能把最小 1 写成印刷费用或总费用的永久下限。",
   abilities: [
     {
       kind: "static",

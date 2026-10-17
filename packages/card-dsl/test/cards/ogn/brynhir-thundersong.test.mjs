@@ -8,6 +8,8 @@ import restrict from "../../../../engine-core/dist/effects/instructions/continuo
 import { ContinuousEffectRegistry } from "../../../../engine-core/dist/layers/duration.js";
 import { restrictions } from "../../../../engine-core/dist/layers/rules/query.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 const CARD_ID = "card.hash-c3d99cfdb7043f9a6d4f6898cda1e76169b34bfb8ba341d7b4189ff2c78fc63d";
 const [triggered] = program.abilities;
@@ -32,6 +34,8 @@ test("brynhir-thundersong: identity, ruleset, status and verbatim sourceText", (
   assert.match(program.judgeReason, /continuous\.restrict/);
   assert.match(program.judgeReason, /canAct/);
   assert.match(program.judgeReason, /生产链|消费/);
+  assert.match(program.judgeReason, /draft\.controller/);
+  assert.match(program.judgeReason, /activated/);
   assert.equal(program.sourceText, "When you play me, opponents can't play cards this turn.");
 });
 
@@ -66,9 +70,26 @@ test("brynhir-thundersong: the body declares a turn-long play prohibition for op
 });
 
 test.todo(
-  "brynhir-thundersong: bind the card-played trigger from the CardProgram and make chain canAct(player, speed) / " +
-    "Finalize consult the lasting restriction so opponents cannot play cards (400/402-407; chain-side restriction consumer)"
+  "brynhir-thundersong: anchor opponents to the trigger controller, block only card plays (allow activated abilities), " +
+    "and recheck the prohibition in canAct/Finalize (CR 191.5.a/b, 400/402-407)"
 );
+
+test("Brynhir original trigger filter binds to self and its original body registers the turn-long prohibition", () => {
+  const base = world().unit("brynhir", { owner: "A" }).unit("opponent", { owner: "B" }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("brynhir") });
+  assert.deepEqual(translateTriggerFilter(triggered.trigger.filter, "brynhir", "card-played"), {
+    event: "card-played", object: { objectId: "brynhir" }, player: "self"
+  });
+  const outcome = resolveChainBody(triggered.body, kernel);
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.deepEqual(kernel.continuousEffects[0].effect.effect.actions, ["play-card"]);
+  assert.deepEqual(kernel.continuousEffects[0].effect.filter, { controller: "opponent" });
+  assert.deepEqual(kernel.continuousEffects[0].duration, { type: "end-of-turn" });
+  const registry = registryOf(kernel);
+  registry.expireAt({ id: "turn-end" }, () => null);
+  assert.equal(registry.list().length, 0);
+});
 
 test("brynhir-thundersong golden: the printed prohibition registers for opponents and expires at end of turn", () => {
   const base = world()

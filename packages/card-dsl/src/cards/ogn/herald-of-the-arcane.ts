@@ -20,13 +20,12 @@ import type { CardProgram } from "../../ir/index.js";
  *   valid-location choice for a Played Unit: its controller's Base or a
  *   Battlefield the controller controls (CR 355.2/355.2.a, 440.2.b.1),
  *   decided at Finalize of the resulting game object (420.3.b.2);
- * - the frozen effect.token requires exactly one destination argument
- *   (location / target / pick / locations), and no merged Expr yields the
- *   current legal location set. Fixing a single Base
- *   or Battlefield here would silently delete the player's printed options, so
- *   the destination argument is left for the target/location work and the
- *   golden test supplies a concrete Base only to exercise the merged token-play
- *   path.
+ * - target.location now supplies LocationExpr/choose and location candidates;
+ *   the missing bridge must supply controlled empty battlefields as well as
+ *   occupied ones and choose during the resulting token's Finalize. The token
+ *   primitive still does not accept LocationExpr directly. A choice earlier
+ *   in this ability would not prove the required resulting-Play lifecycle.
+ * The golden test exercises only the supported primitive and cost components.
  */
 const program = {
   canonicalCardId:
@@ -34,10 +33,9 @@ const program = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「Play a 1 Might Recruit unit token」没有写出地点，因此 token 按 CR 355.2/355.2.a、440.2.b.1 的默认合法地点规则在 Finalize 时由玩家选择：其控制者的 Base 或该玩家控制的 Battlefield（420.3.b.2 规定在 resulting game object 的 finalization 时检查）。" +
-    "冻结的 effect.token 对 mode \"play\" 要求恰好一个目的地参数（location/target/pick/locations），而当前没有任何 Expr 能产出运行时的合法地点集合；" +
-    "把目的地固定为 Base 或某个 Battlefield 都会删掉印刷的合法选项，因此不近似实现；Recruit 定义（CR 187.1，1 Might、Recruit 标签、无印刷费）与链上创建+打出的本体已在 effect.token 合入。" +
-    "需要目标地点选择契约把控制者的 Base 与其控制的 Battlefields 作为 Finalize 选项（RIFT-357）；固定某一个地点会删掉印刷许可。",
+    "仍缺 resulting token 的 Finalize 地点选择桥接（CR 355.2/355.2.a、420.3.b.2、440.2.b.1）：queryLocationCandidates " +
+    "默认只从现有对象的 location 与 Base 枚举，空战场需要调用者提供 LocationState；token 打出路径未提供全部受控战场及控制状态。effect.token 要求目的地，其 Expr " +
+    "schema 尚不接收 kind: location，原始 LocationExpr 经链适配器不能直接传入。需要在 token Finalize 时选择全部合法地点，不能固定 Base 或提前锁定地点。",
   abilities: [
     {
       kind: "activated",
@@ -55,7 +53,7 @@ const program = {
             amount: { kind: "constant", value: 1 },
             mode: { kind: "constant", value: "play" }
             // No destination argument: the default valid-location choice
-            // (355.2/355.2.a) is the missing target.location piece recorded in
+            // (355.2/355.2.a) still needs the token Finalize bridge recorded in
             // judgeReason. Adding a Base here would drop the Battlefield
             // options the printed text grants.
           }

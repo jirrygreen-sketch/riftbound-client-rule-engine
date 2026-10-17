@@ -13,6 +13,8 @@ const { createLayerEngine, ContinuousEffectRegistry } = await import(new URL("la
 const { movement } = await import(new URL("layers/rules/query.js", engineCore));
 const grantKeyword = (await import(new URL("effects/instructions/continuous.grant-keyword.js", engineCore))).default;
 const movementInstruction = (await import(new URL("effects/instructions/continuous.movement.js", engineCore))).default;
+const { createEngineStaticBinder } = await import(new URL("programs/statics.js", engineCore));
+const { fixture } = await import("../../../../engine-core/test/chain/helpers.mjs");
 
 const CANONICAL = "card.hash-bfada85ea0485d763baf4f6d82594347175927b1b09ec1e1d976fce15710013e";
 const [grantAbility] = program.abilities;
@@ -28,6 +30,23 @@ test("Bilgewater Bully program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
   assert.deepEqual(result.issues, []);
+});
+
+test("Bilgewater Bully original static binding tracks gaining and spending a Buff on this host only", () => {
+  const f = fixture({ cards: [{ id: "bully", types: ["unit"], might: 6, buffs: 0 }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("bully"), to: "battlefield", location: { type: "battlefield", id: "battlefield-1" } });
+  f.engine.advance();
+  const source = f.kernel.getObject("bully");
+  const handle = createEngineStaticBinder(f.engine).bindStatic(grantAbility, source);
+  const snapshot = () => { f.engine.layers.setObjects(f.kernel.objects); return f.engine.layers.snapshot(source.ref); };
+  assert.deepEqual(snapshot().keywords, []);
+  f.engine.commit({ type: "buff", object: source.ref, amount: 1 });
+  assert.deepEqual(snapshot().keywords.map(({ id }) => id), ["Ganking"]);
+  assert.equal(f.engine.layers.snapshot(f.kernel.ref("enemy")).keywords.length, 0);
+  f.engine.commit({ type: "spend-buff", object: source.ref, amount: 1, player: "A" });
+  assert.deepEqual(snapshot().keywords, []);
+  handle.unbind();
+  assert.equal(f.engine.layers.registry.list().length, 0);
 });
 
 test("identity: canonicalCardId, ruleset, status, judgeReason, verbatim sourceText", () => {
@@ -119,6 +138,6 @@ test("golden: the granted Ganking expands to the CR 810 movement permission", ()
 });
 
 test.todo(
-  "Bilgewater Bully: derive hasGanking for the production movement path from the layered movement permissions so the " +
-    "battlefield-to-battlefield Standard Move is legal only while buffed"
+  "Bilgewater Bully: re-expand dynamically granted Ganking, normalize the static permission string into permission.routes, " +
+    "and revoke the battlefield-to-battlefield Standard Move permission when the Buff is spent"
 );

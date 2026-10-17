@@ -34,10 +34,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   re-stating printed values.
  *
  * Status: judge-required — both instructions are expressible with merged
- * primitives and are executed in the golden test, and the [Action] timing
- * grant is now consumed by the merged layers/rules query (RIFT-259:
- * actionTimings / canAct decide the off-turn Showdown admission from the
- * registration). The card as a whole is still not executable: choosing the
+ * primitives and are executed in the golden test. The card as a whole is
+ * still not executable: choosing the
  * Move destination is a Finalize-time choice for the spell's controller
  * (355.4 / 355.4.a). The chain's current Finalize surface only finalizes
  * "instruction.targets" TargetSpecs and blocks nested/repeated targets
@@ -45,7 +43,7 @@ import type { CardProgram } from "../../ir/index.js";
  * "effect.move" destination argument is a fixed Expr (controller-base, a
  * LocationRef, or a { kind: "choose", options } location list) with no merged
  * provider turning "any legal Location other than the current one" into that
- * list. That lifecycle is the chain/target Finalize work (RIFT-84 / RIFT-90);
+ * list. That lifecycle is the pending chain/target Finalize work;
  * until it lands the card stays judge-required and the golden test supplies
  * the destination the acting player chose, the same way it supplies
  * Finalize-locked targets.
@@ -58,8 +56,7 @@ const rideTheWind = {
     "缺「Move 目标地点」的 Finalize 选择生命周期：CR 355.4/355.4.a 要求由法术控制者选择该单位当前地点以外的合法 Location，" +
     "而链的 Finalize 目前只处理 instruction.targets 的 TargetSpec，且禁止嵌套/重复目标（chain/engine.ts assertFinalizationSurface），" +
     "解释器侧 effect.move 的 to 只是固定 Expr（controller-base / LocationRef / { kind: choose } 列表）：没有已合入机制把「除当前地点外的任意合法地点」变成该 Expr，" +
-    "写死一个地点就是替玩家发明选择。另一处旧缺口已解决：[Action] 时机许可现由 layers/rules query 消费（RIFT-259，actionTimings/canAct 可判定 off-turn Showdown 许可）。" +
-    "Move 与 ready 两条指令本身只用已合入原语表达并有执行测试（含 359.3.e.14.b 的 Move 被 negate 后 ready 仍执行）；依赖 RIFT-84/RIFT-90 的地点选择与 Finalize 生命周期。",
+    "写死一个地点就是替玩家发明选择。Move 与 ready 两条指令本身只用已合入原语表达并有执行测试（含 359.3.e.14.b 的 Move 被 negate 后 ready 仍执行）；仍依赖 LocationTargetSpec 与排除当前地点的合法目的地选择在 Finalize 生命周期中落地。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

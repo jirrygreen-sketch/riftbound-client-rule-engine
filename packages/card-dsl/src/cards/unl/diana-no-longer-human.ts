@@ -20,11 +20,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * status = judge-required（缺口不近似实现）：
  * - Ambush KeywordDef 已合入并展开为有位置范围的 play-location-permission 与 conditional
  *   Reaction timing，但 chain.canAct / Finalize 仍未消费这两个声明。
- * - continuous.might 原语与 end-of-turn duration 已合入，卡内触发 body 可真实注册算术层效果；
- *   该效果仍依赖生产触发绑定和事件生命周期，不能把 +2 改写成 Buff。
- * - “When you play a spell” 的程序触发绑定已有声明路径，但当前生产 play 流程尚未提供该卡的
- *   card-played 事件与条件对象的完整接线证据。
- * 依赖：Ambush 的位置/时机消费方、card-played 生产触发生命周期。卡内按契约 3.6 使用符号选择器。
+ * - continuous.might 原语与 end-of-turn duration 已合入；“When you play a spell” 的生产触发
+ *   绑定也已合入（programs/triggers.ts 按单位 activeZones=['board'] 注册、chain play 流程在
+ *   结算完成时 emit card-played）：Diana 入场后该触发即可接线，不能把 +2 改写成 Buff。
+ * - 剩余阻塞仍是 Ambush：没有位置/时机消费方，Diana 无法以 Ambush 时机进入战场，触发也无从发生。
+ * 依赖：Ambush 的位置/时机消费方。卡内按契约 3.6 使用符号选择器。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "ambush" },
@@ -60,9 +60,11 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处当前缺口，均不近似实现：(1) CR 822 Ambush KeywordDef 已展开为有位置范围的 play-location-permission 与 conditional Reaction timing，" +
-    "但 chain.canAct / Finalize 尚未消费这两个声明；(2) continuous.might 与 end-of-turn duration 已合入，" +
-    "但该卡的 card-played 触发仍缺生产 play 事件与对象生命周期的完整绑定证据。保留 +2 的 arithmetic-layer 形状，不用 Buff 计数器近似。",
+    "当前缺口，不近似实现：CR 822 Ambush KeywordDef 已展开为有位置范围的 play-location-permission 与 conditional Reaction timing，" +
+    "但 chain.canAct / Finalize 仍无消费方，Diana 无法以 Ambush 时机进入战场。" +
+    "continuous.might 与 end-of-turn duration 已合入，card-played 触发的生产绑定也已合入（programs/triggers.ts 按 activeZones=['board'] 注册、" +
+    "chain play 结算完成时 emit card-played）：入场后触发即可接线，剩余阻塞仍是 Ambush 消费。" +
+    "保留 +2 的 arithmetic-layer 形状，不用 Buff 计数器近似。",
   abilities,
   sourceText:
     "[Ambush] (You may play me as a [Reaction] to a battlefield where you have units.)\n" +

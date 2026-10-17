@@ -6,6 +6,7 @@ import program from "../../../dist/cards/ven/forsaken-baccai.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID =
   "card.hash-6f947454591d22ba8b13d37e0096d52966b2aa026047f0a31cb9dd1d80addb64";
@@ -18,7 +19,8 @@ const [grant] = ability.body;
 
 /**
  * 参考内核按字面值比较 filter，而 IR 里的 "self"/"opponent" 是契约 3.6 的符号选择符；
- * 执行用例把这一处符号绑定到真实玩家 id；仅证明比较原语，生产 testTrigger 接线仍见 RIFT-359。
+ * 执行用例把这一处符号绑定到真实玩家 id；仅证明比较原语，生产 testTrigger 接线与相对玩家
+ * 归一化仍缺失（见 judgeReason 与 evidence 用例）。
  */
 function substitutePlayers(value, playerId, opponentId) {
   if (Array.isArray(value)) return value.map(item => substitutePlayers(item, playerId, opponentId));
@@ -80,7 +82,8 @@ test("ven-005-166 Forsaken Baccai: identity, ruleset, status, judgeReason and ve
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /exists|存在/);
   assert.match(program.judgeReason, /beginning-start/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /TriggerSpecValidationError/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -165,6 +168,33 @@ test.todo(
 
 
 test.todo(
-  "ven-005-166 Forsaken Baccai: beginning-start trigger needs the production testTrigger condition " +
-    "adapter and source-relative self/opponent rune count binding (RIFT-359; 383.2.a.1)"
+  "ven-005-166 Forsaken Baccai: beginning-start trigger registration needs the authored " +
+    "{ event: \"beginning-start\" } spelling accepted by EVENT_PATTERN_TYPES plus source-relative " +
+    "self/opponent rune count binding in the trigger condition path (383.2.a.1)"
 );
+
+/** 复核（2026-10-17）负向证据：触发注册词汇与相对玩家条件求值两处缺口。 */
+test("ven-005-166 Forsaken Baccai evidence: the authored beginning-start filter is rejected by the trigger vocabulary", () => {
+  const f = fixture({ cards: [{ id: "baccai", cardId: CARD_ID, types: ["unit"], might: 2 }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("baccai"), to: "base" });
+  const source = f.kernel.getObject("baccai");
+  // 315.2.a.1：beginning-start 是时点 id；TriggerSpec 的 EventPattern 词汇只接受事件类名，
+  // 所以生产能力在本卡上无法注册（空 filter 才能注册，但表达不了 "your Beginning Phase"）。
+  assert.throws(
+    () => f.engine.pipeline.registerTrigger({
+      id: "forsaken-baccai.authored",
+      source, controller: "A",
+      spec: { at: "beginning-start", filter: { event: "beginning-start", player: "self" } },
+      body: ability.body, optional: ability.optional, activeZones: ["board"], boundToIncarnation: true
+    }),
+    /trigger\.filter\.event/
+  );
+});
+
+test("ven-005-166 Forsaken Baccai evidence: symbolic self/opponent rune counts need an absolute player binding", () => {
+  // 383.2.a.1 / 133.5.a.1 / 431.1：触发条件经内核 test() 求值，符号选择符没有归一化。
+  const authored = substitutePlayers(ability.trigger.condition, "self", "opponent");
+  const kernel = runeZoneWorld({ aRuneDeck: 1, aChanneled: 1, bRuneDeck: 2, bChanneled: 2 });
+  assert.equal(kernel.test(authored), false, "symbolic self/opponent never match literal player ids");
+  assert.equal(kernel.test(substitutePlayers(ability.trigger.condition, "A", "B")), true, "an absolute binding satisfies the same gate");
+});

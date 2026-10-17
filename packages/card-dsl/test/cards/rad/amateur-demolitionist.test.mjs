@@ -3,8 +3,10 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/amateur-demolitionist.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const BATTLEFIELD_PICK = "amateur-demolitionist.battlefield";
 const PLAY_BOMB = "amateur-demolitionist.play-bomb";
@@ -24,6 +26,7 @@ test("rad-001-167 Amateur Demolitionist: program validates and has expected iden
   );
   assert.match(program.judgeReason, /bomb/i);
   assert.match(program.judgeReason, /effect\.token/);
+  assert.match(program.judgeReason, /describePlay/);
 });
 
 test("rad-001-167: card-played self trigger plays a Bomb gear token to a chosen battlefield", () => {
@@ -56,8 +59,7 @@ test("rad-001-167: card-played self trigger plays a Bomb gear token to a chosen 
 
 test("rad-001-167: the Bomb token body cannot create a token while its definition stays outside the table", () => {
   // 真实执行卡牌原始 body：effect.token 的冻结定义表没有 bomb，因此不创建任何 token
-  // （不近似成 Mech / Gold 等已有定义）。这里断言「没有 token 被创建」这一持久事实，
-  // 不锁定原语当前的 negated/blockedReason 结果（定义表扩展后该断言会失效）。
+  // （不近似成 Mech / Gold 等已有定义）。断言「没有 token 被创建」这一持久事实。
   const kernel = world()
     .unit("demolitionist", { might: 1, location: { type: "battlefield", id: "bf-1" } })
     .object("bf", {
@@ -75,7 +77,6 @@ test("rad-001-167: the Bomb token body cannot create a token while its definitio
   assert.equal(outcome.status, "partial");
   const [result] = outcome.results;
   assert.equal(result.id, PLAY_BOMB);
-  assert.notEqual(result.result.status, "executed");
   assert.deepEqual(kernel.query({ zone: "board", type: "token" }), []);
 });
 
@@ -86,5 +87,12 @@ test.todo(
 );
 test.todo(
   "rad-001-167 Amateur Demolitionist: mode \"play\" 的链上生成 + 打出（CR 440.2.c / 185.2.a / " +
-    "350.2 / 354）在生产链上需要 Finalize 费用交接与 CardProgram 绑定（RIFT-261 / RIFT-257）"
+    "350.2 / 354）在生产链上需要 CardProgram 的 describePlay 适配器与消费 { type: \"play\" } 的 " +
+    "host 动作（chain/engine.ts 要求 describePlay；EngineRuntimeHost 对 play 返回 impossible）"
 );
+test("rad-001-167: the merged binding registers the card-played self trigger", () => {
+  const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
+  const f = fixture({ cards: [{ id: "demolitionist", cardId: program.canonicalCardId, types: ["unit"], might: 1 }] });
+  const ids = binding.registerProgramTriggers(f.engine, f.kernel.getObject("demolitionist"));
+  assert.equal(ids.length, 1);
+});

@@ -8,6 +8,9 @@ const { world } = await import(new URL("effects/testing/index.js", engineCore));
 // card-dsl has no dependency edge on engine-core, so golden execution loads the
 // built engine through its workspace layout instead of the package name.
 const { runAbilityBody } = await import(new URL("effects/interpreter.js", engineCore));
+const { createProgramBinding } = await import(new URL("programs/index.js", engineCore));
+const { bindResolveContext, createActionPipelineHost } = await import(new URL("events/action-adapter.js", engineCore));
+const { ChainEngine } = await import(new URL("chain/engine.js", engineCore));
 
 const READY_ID = "jinx-rebel.ready-me";
 const MIGHT_ID = "jinx-rebel.might-this-turn";
@@ -23,8 +26,10 @@ test("ogn-202-298 Jinx, Rebel: program validates and has expected identity", () 
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /per-batch|批次/);
+  assert.match(program.judgeReason, /per-batch/);
+  assert.match(program.judgeReason, /批次/);
   assert.match(program.judgeReason, /card-discarded/);
+  assert.match(program.judgeReason, /batchId/);
   assert.equal(
     program.sourceText,
     "When you discard one or more cards, ready me and give me +1 :rb_might: this turn."
@@ -36,10 +41,10 @@ test("ogn-202-298 Jinx, Rebel: discard trigger with ready-me then an end-of-turn
   const [ability] = program.abilities;
   assert.equal(ability.kind, "triggered");
   assert.equal(ability.trigger.at, "card-discarded");
-  assert.deepEqual(ability.trigger.filter, {
-    event: "card-discarded",
-    player: "controller"
-  });
+  // 423.1.a: the discarding player is the Hand owner, so the ObjectFilter spelling
+  // is the equivalent of "when *you* discard". EVENT_PATTERN_TYPES has no
+  // card-discarded member, so the EventPattern spelling is rejected outright.
+  assert.deepEqual(ability.trigger.filter, { controller: "self" });
   assert.equal(ability.optional, false);
   assert.equal(ability.trigger.once, undefined);
   assert.equal(ability.trigger.condition, undefined);
@@ -120,6 +125,126 @@ test("ogn-202-298 Jinx, Rebel golden: both halves execute through the interprete
 });
 
 test.todo(
-  "Jinx, Rebel: one trigger for a multi-card discard batch, and another trigger for a separate batch in the same turn " +
-    "(CR 423.1.b); bind a supported card-discarded player filter and batch grouping"
+  "Jinx, Rebel: a single 'discard 2' instruction must collect ONE trigger for the whole batch (CR 423.1.b); " +
+    "the merged pipeline emits one card-discarded per discarded card with no batchId producer and no per-batch " +
+    "TriggerSpec.once scope (events/action-adapter.ts, TRIGGER_ONCE_SCOPES)"
 );
+
+/** The real ChainEngine over the reference kernel plus the merged program binding. */
+function fixture({ hand = ["h1"], amounts = [1], deck = ["d1", "d2", "d3"] } = {}) {
+  const builder = world()
+    .player("A", { energy: 10 })
+    .player("B", { energy: 10 })
+    .unit("jinx", { cardId: program.canonicalCardId, types: ["unit"], might: 5, exhausted: true });
+  for (const id of hand) builder.hand(id, { owner: "A" });
+  for (const id of deck) builder.card(id, { owner: "A", zone: "deck" });
+  const kernel = builder.build();
+  const decide = (request) => {
+    // Ordinary Hand choices are non-targeting (355.10.a): take the lowest legal count.
+    if (request.type === "select-objects") return request.options.slice(0, request.min ?? 0);
+    if (request.type === "optional") return false;
+    throw new Error(`Unexpected choice: ${request.id}`);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (checkpoint) => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose: decide,
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint, choose: decide }),
+    testTrigger: (registration) => kernel.test(registration.spec.condition)
+  });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false
+  });
+  // The program registry refuses judge-required programs, so the binding is exercised
+  // with the same IR under an executable status (sfd/honest-broker precedent). The
+  // status itself is asserted above and is never claimed executable by this test.
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const source = kernel.getObject("jinx");
+  const ids = binding.registerProgramTriggers(engine, source);
+  for (const amount of amounts) {
+    engine.enqueue({
+      id: `discard-${amount}`,
+      kind: "triggered",
+      controller: "A",
+      source,
+      body: [{
+        id: `discard-${amount}`,
+        op: "effect.discard",
+        args: { amount: { kind: "constant", value: amount }, choiceId: { kind: "constant", value: `pick-${amount}` } }
+      }]
+    });
+    engine.advance();
+  }
+  return { kernel, engine, ids };
+}
+
+const drain = (engine) => {
+  let guard = 0;
+  while (engine.items.length) {
+    if (++guard > 50) throw new Error("Nonterminating test chain");
+    engine.pass(engine.priority);
+  }
+};
+
+test("ogn-202-298 Jinx, Rebel: the discard trigger registers through the merged program binding", () => {
+  // RIFT-257's binding consumes the card's `at: "card-discarded"` subscription and the
+  // equivalent ObjectFilter spelling; the raw EventPattern spelling is rejected by
+  // assertTriggerSpec (card-discarded is not an EVENT_PATTERN_TYPES member).
+  const { ids, kernel, engine } = fixture();
+  assert.deepEqual(ids, ["program:jinx:1:0"]);
+  const [registration] = [...engine.pipeline.checkpoint().triggers.values()];
+  assert.equal(registration.spec.at, "card-discarded");
+  assert.deepEqual(registration.spec.filter, { controller: "self" });
+  assert.deepEqual(registration.activeZones, ["board"]);
+  assert.equal(kernel.getObject("jinx").exhausted, true);
+});
+
+test("ogn-202-298 Jinx, Rebel golden: a real discard fires the trigger, readies me and grants +1 Might this turn", () => {
+  const { kernel, engine } = fixture({ hand: ["h1", "h2"] });
+  drain(engine);
+
+  // 423.1.b: the discard really happened, and the discard timing point really fired.
+  assert.deepEqual(kernel.zone("A", "trash").map((ref) => ref.id), ["h1"]);
+  assert.equal(engine.pipeline.events.filter((event) => event.timingPoint === "card-discarded").length, 1);
+  // The trigger entered the chain as its own item.
+  assert.equal(engine.trace.some((entry) => entry.step === "pending" && entry.item.startsWith("trigger:")), true);
+  // "ready me" (416.1.b) readied the exhausted source for real.
+  assert.equal(kernel.getObject("jinx").exhausted, false);
+  // "give me +1 Might this turn" (317.2.c) registered on the source for the arithmetic layer.
+  const [registration] = engine.layers.registry.list();
+  assert.deepEqual(registration.effect.filter.objectId, "jinx");
+  assert.equal(registration.effect.layer, "arithmetic");
+  assert.equal(registration.effect.effect.kind, "continuous.might");
+  assert.equal(registration.effect.effect.amount, 1);
+  assert.deepEqual(registration.duration, { type: "end-of-turn" });
+});
+
+test("ogn-202-298 Jinx, Rebel TODO: one trigger per discard batch keeps the sum of separate discards correct", {
+  todo: "CR 423.1.b: group the discard GameActions into one trigger per batch; no batchId producer or per-batch once scope is merged"
+}, () => {
+  // Two separate one-card discards in the same turn must each trigger (two readyings / two
+  // +1 Might registrations), while one two-card batch must trigger only once. The merged
+  // pipeline cannot distinguish those cases; the correct expectation is asserted here and the
+  // current per-card behaviour is never written as the expected result.
+  // A single two-card discard must collect exactly ONE trigger. The merged pipeline queues one
+  // per discarded card: the batch is really discarded, but the trigger count is wrong before any
+  // resolution runs (the second body crashes on the duplicate continuous.might registration id).
+  const batch = fixture({ hand: ["h1", "h2"], amounts: [2] });
+  assert.deepEqual(batch.kernel.zone("A", "trash").map((ref) => ref.id), ["h1", "h2"]);
+  assert.equal(batch.engine.pipeline.events.filter((event) => event.timingPoint === "card-discarded").length, 2);
+  const queued = batch.engine.items.filter((item) => String(item.id).startsWith("trigger"));
+  assert.equal(queued.length, 1);
+
+  // Two separate single-card discards in the same turn must collect one trigger each.
+  const separate = fixture({ hand: ["h1", "h2"], amounts: [1, 1] });
+  assert.deepEqual(separate.kernel.zone("A", "trash").map((ref) => ref.id), ["h1", "h2"]);
+  assert.equal(
+    separate.engine.items.filter((item) => String(item.id).startsWith("trigger")).length,
+    2
+  );
+});

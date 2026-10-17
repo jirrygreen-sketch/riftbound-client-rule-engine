@@ -29,10 +29,13 @@ test("rad-069-167 Zero Point Inflection: program passes validateCardProgram with
 });
 
 test("rad-069-167 Zero Point Inflection: judgeReason names the hand-size gate and the printing's type mismatch", () => {
-  assert.match(program.judgeReason, /HistoryQuery/);
+  assert.match(program.judgeReason, /action-adapter/);
+  assert.match(program.judgeReason, /pipeline/);
+  assert.match(program.judgeReason, /object/);
+  assert.match(program.judgeReason, /批次/);
   assert.match(program.judgeReason, /hand/);
   assert.match(program.judgeReason, /programs\/triggers/);
-  assert.match(program.judgeReason, /per-event/);
+  assert.match(program.judgeReason, /事件对象/);
   // The catalog types this printing as a Spell while the text is a permanent.
   assert.match(program.judgeReason, /Spell/);
   assert.match(program.judgeReason, /157/);
@@ -240,9 +243,11 @@ test("rad-069-167 Zero Point Inflection: scoring to an invalid opponent pick is 
 
 test.todo(
   "rad-069-167 Zero Point Inflection: evaluating 'when you draw 1 or more cards with 9 or more other " +
-    "cards in your hand' still needs a per-event drawn-card payload and a post-draw hand re-read; " +
-    "HistoryQuery's exclude source anchor points at the card program's source object, not the card(s) " +
-    "drawn by this event. Trigger registration itself is merged."
+    "cards in your hand' still needs event-object and draw-batch binding into the trigger condition/IR; " +
+    "action-adapter emits one card-drawn event per drawn object with an object snapshot and amount, and " +
+    "pipeline retains the original draw action, but programs/triggers.ts does not bind those values into " +
+    "the CardProgram condition. The existing count can read the post-draw hand, while exclude still anchors " +
+    "to the program source instead of the card(s) drawn by this event. Trigger registration and event evidence are merged."
 );
 
 test.todo(

@@ -8,6 +8,8 @@ import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/key
 import grantKeyword from "../../../../engine-core/dist/effects/instructions/continuous.grant-keyword.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { queryTargetCandidates } from "../../../../engine-core/dist/target/target-plan.js";
 
 const CANONICAL = "card.hash-211d0bb8cf4f5b5202c2a9b7996e483898644aa24714b1e10edd80a54ba4b560";
 
@@ -48,6 +50,7 @@ test("Block body: one duration-bound [Shield 3] + [Tank] grant over a unit targe
   assert.equal(play.body.length, 1);
   assert.equal(grantInstruction.id, "grant-shield-3-and-tank");
   assert.equal(grantInstruction.op, "continuous.grant-keyword");
+  assert.deepEqual(grantInstruction.args.objects, { kind: "constant", value: { kind: "target", id: "granted-unit" } });
   // 814.1.b.2 keeps the Shield Value on the keyword entry itself: the merged
   // continuous.grant-keyword ignores a top-level `value` when `keywords` is
   // given, so the printed 3 lives on the Shield entry.
@@ -63,12 +66,57 @@ test("Block body: one duration-bound [Shield 3] + [Tank] grant over a unit targe
   assert.deepEqual(grantInstruction.targets, [
     {
       id: "granted-unit",
-      filter: { type: "unit" },
+      filter: { type: "unit", zone: "board" },
       min: 1,
       max: 1,
       selection: "one"
     }
   ]);
+});
+
+test("Block targets only Board units, including either controller, without exposing hand or deck units (355.9.a.1)", () => {
+  const kernel = world().unit("friendly").unit("enemy", { owner: "B" })
+    .hand("hand-unit").deck(["top-unit", "bottom-unit"], { owner: "B" }).build();
+  const candidates = queryTargetCandidates(kernel, grantInstruction.targets[0]);
+  assert.deepEqual(candidates.map(ref => ref.id).sort(), ["enemy", "friendly"]);
+});
+
+test("Block original play body grants both timed keywords only to its locked target", () => {
+  for (const departed of [false, true]) {
+    const base = world().unit("block-source", { types: ["spell"] }).unit("target", { owner: "B", might: 4 }).build();
+    const kernel = base.clone({ sourceSnapshot: base.getObject("block-source") });
+    const target = kernel.ref("target");
+    kernel.setTargets("granted-unit", [target]);
+    if (departed) kernel.perform({ type: "return-to-hand", object: target });
+    const outcome = resolveChainBody(play.body, kernel);
+    assert.equal(outcome.results[0].result.status, departed ? "ignored" : "executed");
+    assert.deepEqual(outcome.events, []);
+    const layers = createLayerEngine(kernel.objects, kernel.continuousEffects.map((entry, index) => ({ ...entry, timestamp: index + 1 })));
+    assert.deepEqual(layers.evaluate(kernel.ref("block-source")).keywords, []);
+    if (departed) {
+      assert.equal(outcome.results[0].result.reason, "mistargeted");
+      assert.equal(kernel.continuousEffects.length, 0);
+    } else {
+      assert.deepEqual(layers.evaluate(target).keywords.map(({ id, value }) => [id, value ?? null]), [["Shield", 3], ["Tank", null]]);
+      assert.equal(layers.evaluate(target).might, 4, "keyword registration alone does not assert combat execution");
+      layers.advance({ id: "turn-end" });
+      assert.deepEqual(layers.evaluate(target).keywords, []);
+    }
+  }
+});
+
+test("Block original body sums Shield 3 with existing Shield 1 and expires only the granted keywords (814.2)", () => {
+  const base = world().unit("block-source", { types: ["spell"] })
+    .unit("poro", { keywords: [{ id: "Shield", value: 1 }] }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("block-source") });
+  const target = kernel.ref("poro");
+  kernel.setTargets("granted-unit", [target]);
+  const outcome = resolveChainBody(play.body, kernel);
+  assert.equal(outcome.results[0].result.status, "executed");
+  const layers = createLayerEngine(kernel.objects, kernel.continuousEffects.map((entry, index) => ({ ...entry, timestamp: index + 1 })));
+  assert.deepEqual(layers.evaluate(target).keywords.map(({ id, value }) => [id, value ?? null]), [["Shield", 4], ["Tank", null]]);
+  layers.advance({ id: "turn-end" });
+  assert.deepEqual(layers.evaluate(target).keywords, [{ id: "Shield", value: 1 }]);
 });
 
 test("Block keywords are merged: Shield and Tank both have KeywordDefs", () => {
@@ -134,8 +182,8 @@ test("Block golden: the printed grant registers Shield 3 and Tank in the ability
 
 test.todo(
   "Block: give a unit [Shield 3] for this turn, summing with an existing Shield (CR 814.2 / 814.1.c: +3 Might " +
-    "only while it is a defender) - the grant is executable; the Combat Defender designation and conditional " +
-    "layers consumer remain (466.2.c.3)"
+    "only while it is a defender) - dynamically granted keywords need re-expansion and the Shield designation " +
+    "condition must bind combatRole (814.1.d)"
 );
 
 test.todo(

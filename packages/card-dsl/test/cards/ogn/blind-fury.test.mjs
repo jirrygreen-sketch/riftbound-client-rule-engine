@@ -21,6 +21,8 @@ test("Blind Fury program is valid EffectIR v2 data and judge-required", () => {
   assert.match(program.judgeReason, /355\.18/);
   assert.match(program.judgeReason, /356\.1\.b\.1/);
   assert.match(program.judgeReason, /play\/effect adapter|费用计划/);
+  assert.match(program.judgeReason, /zoneSlice/);
+  assert.match(program.judgeReason, /linked revealed/);
 });
 
 test("Blind Fury identity, status and sourceText match the printing", () => {
@@ -102,7 +104,7 @@ test("Blind Fury structure: [Action] plus reveal, choose/banish, ignoring-cost p
   });
 });
 
-test("Blind Fury golden execution: banish removes the chosen card, play returns it to the board", () => {
+test("Blind Fury golden subeffect: banish removes the chosen card and links its new Banishment incarnation", () => {
   const kernel = world().deck(["b-top"], { owner: "B" }).build();
   const chosen = kernel.ref("b-top");
 
@@ -115,6 +117,22 @@ test("Blind Fury golden execution: banish removes the chosen card, play returns 
   assert.equal(banished.result.status, "executed");
   assert.equal(banished.linked.banished.count, 1);
   assert.equal(kernel.getObject("b-top").zone, "banishment");
+  assert.deepEqual(banished.linked.banishedObject, kernel.ref("b-top"));
+  assert.notDeepEqual(banished.linked.banishedObject, chosen);
+});
+
+test("Blind Fury supported reveal primitive accepts an ordered top-card pick without revealing the rest", () => {
+  const kernel = world().deck(["b-top", "b-middle", "b-bottom"], { owner: "B" }).build();
+  const before = kernel.zoneSlice("B", "deck", "top").map(object => object.ref);
+  const run = runInstruction(reveal, { pick: "ordered-top" }, {
+    world: kernel,
+    picks: { "ordered-top": kernel.zoneSlice("B", "deck", "top", 1).map(object => object.ref) }
+  });
+  assert.equal(run.result.status, "executed");
+  assert.deepEqual(run.linked.revealed, [kernel.ref("b-top")]);
+  assert.equal(run.linked.revealedCount, 1);
+  assert.deepEqual(kernel.zoneSlice("B", "deck", "top").map(object => object.ref), before);
+  assert.deepEqual(run.events.map(event => event.action), ["reveal"]);
 });
 
 test("Blind Fury golden execution: 'recycle the rest' skips the already-banished card", () => {
@@ -172,7 +190,7 @@ test("Blind Fury golden execution: the merged effect.reveal reveals one opponent
 
 test.todo(
   "Blind Fury: the per-opponent reveal needs an each-opponent binding plus " +
-    "zoneSlice-ordered deck-top selection (effect.reveal does not use it yet), so each opponent reveals " +
+    "zoneSlice-to-reveal-pick adapter (effect.reveal rejects a proper deck subset), so each opponent reveals " +
     "the top card of their own Main Deck."
 );
 

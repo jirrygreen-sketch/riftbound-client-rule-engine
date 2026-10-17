@@ -1,6 +1,7 @@
 import type { Expr, Instruction, InstructionDef, ResolveContext, Value } from '../effects/contract.js';
 import { runAbilityBody, type InterpreterOptions } from '../effects/interpreter.js';
 import { instructionDefinitionsById } from '../effects/instructions/registry.generated.js';
+import { bindOrderedPickInstructions, orderedPickResolver } from './picks/linked.js';
 
 /**
  * The current interpreter evaluates args before dispatch, while primitive v1
@@ -38,7 +39,7 @@ const LITERAL_FIELDS: Readonly<Record<string, readonly string[]>> = {
   'effect.detach': ['pick'],
   'effect.play': ['target', 'pick', 'choice', 'linkKey'],
   'effect.recycle': ['target', 'from'],
-  'effect.reveal': ['target'],
+  'effect.reveal': ['target', 'pick', 'choiceId'],
   'effect.zone': ['target', 'pick', 'choice'],
   'effect.repeat': ['actions', 'action', 'effect', 'choices', 'choice', 'linkKey', 'resultKey']
 };
@@ -61,5 +62,15 @@ export function resolveChainBody(
   context: ResolveContext,
   options: InterpreterOptions = {}
 ) {
-  return runAbilityBody(prepare(body), context, registry, options);
+  const orderedPicks = orderedPickResolver(body);
+  return runAbilityBody(
+    prepare(body),
+    context,
+    bindOrderedPickInstructions(registry, body),
+    {
+      ...options,
+      picks: (id, pickContext, hasResult) =>
+        orderedPicks?.(id, pickContext, hasResult) ?? options.picks?.(id, pickContext, hasResult)
+    }
+  );
 }

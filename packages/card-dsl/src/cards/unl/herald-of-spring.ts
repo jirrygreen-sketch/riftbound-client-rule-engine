@@ -29,7 +29,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   hold 侧的「本卡是在场固守的那个单位」（383.4.d.2/.2.a）与 EventPattern 的 here 相对词汇同样缺失。
  * 「When you play me, gain 2 XP」只用已合入的 effect.xp（728/729/730.1，获得者缺省为能力控制者，190.6.d），
  * golden 用解释器 + 参考内核真实执行。不近似实现：不把 [Hunt] 手写成 conquer/hold 触发体。
- * 依赖：RIFT-31/33（scoring 载荷中的计分单位）与 EventPattern 的位置相对词汇。
+ * 依赖：计分波的单位对象/快照归因、hold 事件的单位绑定，以及 EventPattern 的
+ * battlefield-relative `here` 词汇。
  */
 const abilities: Ability[] = [
   // 823.1.c.2：印刷省略 Hunt Value，按 1 处理（提醒文字同值）。
@@ -60,7 +61,8 @@ const program = {
     "展开出的触发 filter 被翻译成对事件对象的 objectId 过滤，而这类事件没有 object，该过滤永远匹配不到（触发不会误触，但也不会触发）；" +
     "hold 侧的「本卡是在场固守的那个单位」（383.4.d.2/.2.a）与 EventPattern 的 here 相对词汇同样缺失。" +
     "「When you play me, gain 2 XP」只用已合入的 effect.xp（728/729/730.1，获得者缺省为能力控制者，190.6.d），golden 用解释器 + 参考内核真实执行。" +
-    "依赖：RIFT-31/33（scoring 载荷中的计分单位）与 EventPattern 的位置相对词汇；不近似实现。",
+    "当前缺口是计分波只有 player + details.battlefieldId，缺少发生征服/固守的单位对象或快照归因；" +
+    "hold 侧还缺少驻守单位绑定，EventPattern 也没有可由该载荷锚定的 battlefield-relative here 词汇；不近似实现。",
   abilities,
   sourceText:
     "[Hunt] (When I conquer or hold, gain 1 XP.)\n" + "When you play me, gain 2 XP."

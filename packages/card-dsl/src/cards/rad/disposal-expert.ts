@@ -21,7 +21,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   关键词注册表负责）；其展开所用 effects/keywords/Disarm.ts 与 continuous.might
  *   均已合入（RIFT-267 / RIFT-258）。
  *
- * 复核（2026-10-17 第二轮复核）：
+ * 复核（2026-10-17 第三轮复核）：
  * - 入场替代（RIFT-260 的 src/replacement/ + bindReplacement）已合入：本卡的 static replaces 体
  *   （单条自指 effect.ready）按其“表单 2”绑定，golden 用真实 replacement 绑定 + ChainEngine
  *   打出，执行就绪入场并断言不产生 object-readied（CR 369.3）。
@@ -30,8 +30,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   目前不会被执行；表单 3（replacement.event）虽在匹配时求值 condition，但其 `instead` 参数
  *   在 bind.ts 里按原始数组读取，而卡牌 IR 校验器要求 args 是 Expr，卡牌侧写不出该形态。
  *   两条路径的 CardProgram 注册已合入；当前仍需修复 form-2 entry 声明对 ability condition
- *   的匹配，并补齐 Disarm 展开所需的运行时地点过滤与攻击行动事务。
- *   815/831 类的战斗指派与身份也仍缺契约 3.8 combatRole 的落地。不近似实现。
+ *   的匹配。
+ * - [Disarm 2] 的展开体（keywords/Disarm.ts）自带 `sameLocationAs: "source"` 目标限制。该限制在
+ *   解释器自身已可用（effects/interpreter/selectors.ts 的 queryObjects 与 target/location 均已实现），
+ *   但**卡牌程序绑定路径**仍不可用：programs/filters.ts 的 translateObjectFilter 以
+ *   “Unsupported filter field sameLocationAs” 拒绝该键，因此展开体经 CardProgram 注册时失败。
+ *   815/831 类的战斗指派与身份同样仍缺契约 3.8 combatRole 的落地（combat/flow.ts 抛
+ *   combat-start-transaction，attack-declared 无产生方）。不近似实现。
  */
 const abilities: Ability[] = [
   {
@@ -67,11 +72,13 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处当前缺口：(1) 入场替代的 CardProgram 绑定已合入（replacement.enter + effect.ready，RIFT-260 的 " +
+    "两处当前缺口（2026-10-17 第三轮复核）：(1) 入场替代的 CardProgram 绑定已合入（replacement.enter + effect.ready，RIFT-260 的 " +
     "src/replacement/ + bindReplacement 已合入，golden 已用真实绑定 + ChainEngine 执行就绪入场），但 form-2 " +
     "entry 声明路径仍不求值 ability condition，故‘no other units’门槛无法生效（依赖 RIFT-359 条件消费）。" +
-    "(2) [Disarm 2] 的攻击触发虽然有 attack-declared 时点与关键词展开（RIFT-267），但 target filter 的 " +
-    "sameLocationAs 仍没有运行时地点过滤器（RIFT-357），且 815/831 类的战斗指派与身份仍缺契约 3.8 combatRole 的落地。" +
+    "(2) [Disarm 2] 的攻击触发虽有 attack-declared 时点与关键词展开（RIFT-267），且 sameLocationAs 地点限制在解释器内已可用" +
+    "（effects/interpreter/selectors.ts 的 queryObjects 按来源地点过滤，golden 有真实执行证据），但卡牌程序绑定路径仍不可用：" +
+    "programs/filters.ts 的 translateObjectFilter 以 \"Unsupported filter field sameLocationAs\" 拒绝该键，展开体经 CardProgram 注册即失败；" +
+    "815/831 类的战斗指派与身份也仍缺契约 3.8 combatRole 的落地（combat/flow.ts 抛 combat-start-transaction，attack-declared 无产生方）。" +
     "不近似实现",
   abilities,
   sourceText:

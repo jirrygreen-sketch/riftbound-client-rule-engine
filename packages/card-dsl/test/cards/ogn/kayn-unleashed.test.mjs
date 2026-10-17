@@ -5,7 +5,10 @@ import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/kayn-unleashed.js";
 
 import { createProgramBinding, createEngineStaticBinder } from "../../../../engine-core/dist/programs/index.js";
+import { LayerEngine } from "../../../../engine-core/dist/layers/engine.js";
+import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-1958207f0c4a0be000a8fb2e9fefe3b7deac31092670ca1484b69d633b7df9b7";
 const [ganking, replacement] = program.abilities;
@@ -23,6 +26,7 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, sourceText", () =
   assert.match(program.judgeReason, /Ganking/);
   assert.match(program.judgeReason, /continuous\.movement/);
   assert.match(program.judgeReason, /moved twice/);
+  assert.match(program.judgeReason, /permission\.routes/);
   assert.equal(
     program.sourceText,
     "[Ganking] (I can move from battlefield to battlefield.)\n" +
@@ -75,8 +79,78 @@ test("Kayn supported Ganking expansion registers the original static rule on its
 });
 
 test.todo(
-  "Kayn Ganking: adapt Ganking string permission to movement rule-query permission.routes, then execute a battlefield-to-battlefield Standard Move (810.1.b)"
+  "Kayn Ganking: adapt Ganking's string permission to the movement rule-query permission.routes array, then execute a battlefield-to-battlefield Standard Move (810.1.b, 144.4.c)"
 );
 test.todo(
-  "Kayn: replacement matching counts this incarnation's Move events in the current turn before preventing damage (438.7; RIFT-359)"
+  "Kayn: replacement matching counts this incarnation's Move events in the current turn before preventing damage (375, 438.7; RIFT-359)"
 );
+
+test("Kayn: the card's Ganking static ability really registers through the merged binding", () => {
+  // RIFT-257's binder consumes the card's Ganking expansion and RIFT-258's ability layer records it;
+  // this half of the card is real, and only the permission shape keeps the rule query blind.
+  const kernel = world().unit("kayn", { cardId: CANONICAL, types: ["unit"], might: 5 }).build();
+  const source = kernel.getObject("kayn");
+  const layers = new LayerEngine(kernel.objects);
+  layers.setObjects(kernel.objects);
+  const binder = createEngineStaticBinder({
+    layers,
+    pipeline: {
+      host: { objects: () => kernel.objects, context: () => kernel.clone({ sourceSnapshot: source }) },
+      registerReplacement: () => {}
+    }
+  });
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const [gankingStatic] = binding.inspect(source).abilities.filter((ability) => ability.kind === "static");
+  assert.equal(gankingStatic.effect.kind, "continuous.movement");
+  assert.equal(gankingStatic.effect.permission, "battlefield-to-battlefield");
+  binder.bindStatic(gankingStatic, source);
+  assert.deepEqual(layers.registry.list().map((entry) => entry.effect.effect.kind), ["continuous.movement"]);
+  assert.deepEqual(layers.registry.list().map((entry) => entry.effect.filter.objectId), ["kayn"]);
+});
+
+test("Kayn TODO: Ganking must open a battlefield-to-battlefield Standard Move (810.1.b, 144.4.c)", {
+  todo: "810.1.b: normalize Ganking's string permission to the movement rule query's permission.routes array"
+}, () => {
+  // The correct rule result: the movement rule query reports the Ganking permission for this unit.
+  // Today the keyword expansion records a STRING while layers/rules/query.ts reads
+  // effect.permission.routes, so the query reports no permission at all; that absence is not
+  // written as the expected behaviour.
+  const kernel = world().unit("kayn", { cardId: CANONICAL, types: ["unit"], might: 5 }).build();
+  const source = kernel.getObject("kayn");
+  const layers = new LayerEngine(kernel.objects);
+  layers.setObjects(kernel.objects);
+  layers.addContinuous({
+    id: "kayn-ganking",
+    layer: "ability",
+    source: source.ref,
+    filter: { objectId: "kayn", zone: "board", zoneEntryId: source.ref.zoneEntryId },
+    effect: {
+      kind: "continuous.movement",
+      permission: "battlefield-to-battlefield",
+      source: "battlefield",
+      destination: "battlefield",
+      move: "standard",
+      addsPermission: true
+    }
+  }, { type: "permanent" });
+  const view = movement(layers.registry, source.ref, source, "A");
+  assert.equal(view.canGank, true);
+  assert.equal(view.battlefieldToBattlefield, true);
+});
+
+test("Kayn TODO: the declared move-count condition counts objects instead of this incarnation's moves", {
+  todo: "375 / 438.7: count this incarnation's Move actions in the current turn when matching the replacement (RIFT-359)"
+}, () => {
+  // Two board objects and zero moves must satisfy "moved twice" = false. The merged
+  // replacement-condition path evaluates the count as a live object-set query, so the
+  // authored condition is true here; the correct expectation stays TODO rather than being
+  // written as the expected behaviour.
+  const kernel = world()
+    .unit("kayn", { cardId: CANONICAL, types: ["unit"], might: 5 })
+    .unit("other", { owner: "B", types: ["unit"], might: 3 })
+    .build();
+  assert.equal(kernel.history({ scope: "turn", action: "move-location" }), 0);
+  assert.equal(kernel.test(replacement.condition), false);
+});

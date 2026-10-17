@@ -76,7 +76,7 @@ export default {
     "CR 1.5 128.3 / 425 / 135.2.b.7，见 docs/plans/survey/unclassified-rad-sfd.md 第 25 条。" +
     "“类型数组包含”本身已可表达（解释器的 compareValues 把 in 实现为左值属于右数组，右值可用 object-property 读揭示牌的 types），" +
     "但猜测值没有任何生产者：没有 guess 链接值时条件读不到值、分支 fail-closed（两条分支因此各自带该 condition，非玩家选择，故不写 choice.mode）。" +
-    "“Reveal the top card of your Main Deck”的牌库顶顺序必须由 zoneSlice 或上游有序 pick 提供（RIFT-66 的 zoneSlice 已合入），" +
+    "“Reveal the top card of your Main Deck”的牌库顶顺序必须由已合入的 zoneSlice 或上游有序 pick 提供，" +
     "effect.reveal 自身的 ctx.query 不保证区域内顺序，对非手牌区域的子集明确要求上游有序 pick，" +
     "而没有已合入的提供者把牌库顶解析成这些引用。" +
     "另有卡牌数据问题：该印刷被目录标为 Spell，但文本是永久物的启动式能力（[E],[Exhaust] 费用，CR 1.5 145.1/151.1；" +

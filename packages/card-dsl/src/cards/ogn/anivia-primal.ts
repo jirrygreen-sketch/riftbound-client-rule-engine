@@ -18,8 +18,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * status 判定（cards/README.md 第 2 节）：judge-required。
  * - 时点 "attack-declared" 没有发射方：combat/flow.ts 的宣告事务仍以
- *   combat-start-transaction 显式阻断（CR 466.2，P0 契约 §7.2 批 5），
- *   事件管线里没有触发它的路径。
+ *   combat-start-transaction 显式阻断（CR 466.2），事件管线里没有触发它的路径；
+ *   触发绑定本身已合入，本 filter 的嵌套 self 锚点可被翻译与校验。
  * - 无目标集合伤害没有已合入原语：effect.damage 只经 ctx.targets(TargetSpec.id)
  *   读取 Finalize 锁定的目标；把 "all enemy units here" 写成 selection "all" 的
  *   TargetSpec 会在真实链路里把这些单位登记为"成为目标"的目标（355.9 / 754），
@@ -61,13 +61,13 @@ const program = {
   judgeReason:
     "缺攻击时点的发射路径与无目标集合伤害原语：（1）attack-declared 已在 timing-points.ts " +
     "定义为封闭枚举成员，但 combat/flow.ts 的宣告事务仍以 combat-start-transaction 显式阻断" +
-    "（CR 466.2，P0 契约 §7.2 批 5 Turn/Combat/priority-focus），没有模块发射该时点，触发无法进入链；" +
-    "触发注册同样依赖 RIFT-257 的 CardProgram 绑定；（2）" +
+    "（CR 466.2），没有模块发射该时点，触发无法进入链；触发绑定本身已合入，" +
+    "本 filter 的嵌套 self 锚点可被 translateTriggerFilter 翻译并通过 assertTriggerSpec；（2）" +
     "“deal 3 to all enemy units here” 按 355.10.d/355.10.d.1 是无选择的集合伤害、" +
     "不是目标，而已合入的 effect.damage 只读取 Finalize 锁定的 TargetSpec（没有 " +
     "query/集合形态），写成 selection \"all\" 的 TargetSpec 会错误登记为“成为目标”" +
-    "（355.9/754）。依赖：战斗宣告事务（RIFT-119/124 之后的 combat 工作流）、" +
-    "RIFT-257、无目标集合伤害形态。不近似实现。",
+    "（355.9/754）。依赖：战斗宣告事务（RIFT-119/124 之后的 combat 工作流，RIFT-120）、" +
+    "无目标集合伤害形态。不近似实现。",
   abilities,
   sourceText: "When I attack, deal 3 to all enemy units here."
 } satisfies CardProgram;

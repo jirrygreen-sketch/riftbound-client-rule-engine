@@ -7,6 +7,10 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 
 const CANONICAL_ID =
   "card.hash-11be609f8d3a73cf3ab397a574e5dc2de111d0ec840bd515e8f6df0e19e3774b";
@@ -16,6 +20,53 @@ const SOURCE_TEXT =
 
 const [ambush, spellTrigger] = program.abilities;
 const [grantMight] = spellTrigger.body;
+
+/**
+ * Production installs the card-program binding on a real ChainEngine
+ * (RIFT-257: createProgramBinding + registerProgramTriggers). The golden
+ * builds the same pair on the reference kernel so the card-played trigger
+ * subscribes to real emissions and its body resolves through the real
+ * interpreter. The chain play flow emits "card-played" with the played spell
+ * as the event object and the playing player (chain/engine.ts:440).
+ */
+function dianaFixture() {
+  const kernel = world()
+    .player("A", { energy: 10 })
+    .player("B", { energy: 10 })
+    .unit("diana", { owner: "A", controller: "A", cardId: CANONICAL_ID, might: 3, location: { type: "battlefield", id: "bf-1" } })
+    .unit("enemy", { owner: "B", controller: "B", might: 3, location: { type: "battlefield", id: "bf-1" } })
+    .unit("played-spell", { owner: "A", types: ["spell"], zone: "chain" })
+    .unit("enemy-spell", { owner: "B", types: ["spell"], zone: "chain" })
+    .build();
+  const decide = () => { throw new AwaitChoice({ id: "x", type: "optional" }); };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (checkpoint) => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose: decide,
+    context: (sourceSnapshot, controller, timingPoint) => bindResolveContext(kernel, {
+      source: sourceSnapshot, controller, timingPoint, choose: decide
+    }),
+    testTrigger: (registration) => kernel.test(registration.spec.condition)
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  // ProgramRegistry.get refuses judge-required programs before binding; the
+  // local executable clone isolates the halves this card already executes
+  // (the merged continuous.might body and the card-played trigger binding),
+  // while the shipped program keeps its judgeReason for the [Ambush] half.
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const triggerIds = binding.registerProgramTriggers(engine, kernel.getObject("diana"));
+  return { kernel, engine, binding, triggerIds };
+}
+
+function resolveAll(fixture, { limit = 12 } = {}) {
+  fixture.engine.advance();
+  let guard = 0;
+  while (fixture.engine.items.length && guard++ < limit) fixture.engine.pass(fixture.engine.priority);
+}
 
 test("unl-149-219 Diana, No Longer Human: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -88,11 +139,41 @@ test.todo(
     "you control units, with Reaction timing while being played there) and let chain.canAct / " +
     "Finalize consume the merged play-location-permission and conditional timing declarations"
 );
-test.todo(
-  "unl-149-219 Diana, No Longer Human: give me +2 Might this turn through the layers " +
-    "continuous.might consumer with the end-of-turn duration (CR 143.2.a / 479.4) from the production card-played trigger"
-);
-test.todo(
-  "unl-149-219 Diana, No Longer Human: register the 'when you play a spell' card-played trigger " +
-    "so it actually queues from production play with the spell controller bound to the ability controller (CR 420.4.a)"
-);
+
+test("unl-149-219 Diana, No Longer Human golden: a real card-played event for an allied spell grants +2 Might until end of turn", () => {
+  const fixture = dianaFixture();
+  assert.equal(fixture.triggerIds.length, 1);
+  fixture.engine.emit({
+    timingPoint: "card-played",
+    object: fixture.kernel.getObject("played-spell"),
+    player: "A"
+  });
+  resolveAll(fixture);
+
+  assert.equal(fixture.engine.layers.evaluate(fixture.kernel.ref("diana")).might, 5);
+  assert.equal(fixture.engine.layers.evaluate(fixture.kernel.ref("enemy")).might, 3);
+  // 143.2.a / 479.4: the bonus is an arithmetic-layer modification, not a
+  // 702 Buff counter, and the base snapshot stays untouched.
+  assert.equal(fixture.kernel.getObject("diana").might, 3);
+  assert.equal(fixture.engine.layers.evaluate(fixture.kernel.ref("diana")).buffs, 0);
+  assert.ok(fixture.engine.pipeline.events.some(event => event.timingPoint === "chain-item-resolve"));
+
+  // "this turn": expires at end of turn (CR 317.1.a / 468.7.c).
+  fixture.engine.layers.expireAt("turn-end");
+  assert.equal(fixture.engine.layers.evaluate(fixture.kernel.ref("diana")).might, 3);
+});
+
+test("unl-149-219 Diana, No Longer Human golden: an opponent's played spell does not trigger 'you play a spell'", () => {
+  const fixture = dianaFixture();
+  // controller: "self" compares the event object's controller with the ability
+  // controller (events/pipeline-match.ts playerMatches); an opponent's spell
+  // must not fire the trigger.
+  fixture.engine.emit({
+    timingPoint: "card-played",
+    object: fixture.kernel.getObject("enemy-spell"),
+    player: "B"
+  });
+  resolveAll(fixture);
+
+  assert.equal(fixture.engine.layers.evaluate(fixture.kernel.ref("diana")).might, 3);
+});

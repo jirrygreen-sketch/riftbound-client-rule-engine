@@ -11,6 +11,8 @@ import deflect from "../../../../engine-core/dist/effects/keywords/Deflect.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { finalizeTargetPlan } from "../../../../engine-core/dist/target/target-plan.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 
 const CARD_ID =
   "card.hash-c75d6f4a1bbeb87090ae0f7135aac4f6a4f1062063662b9ccae6fe99f1c9bc7d";
@@ -37,9 +39,25 @@ test("sfd-037-221 Navori Scout: judgeReason names the missing wiring and its tas
   assert.match(program.judgeReason, /Deflect/);
   assert.match(program.judgeReason, /target\.tax/);
   assert.match(program.judgeReason, /809\.1\.c\.1/);
-  assert.match(program.judgeReason, /target-tax production wiring/);
+  assert.match(program.judgeReason, /no layer mapping/);
   assert.match(program.judgeReason, /Energy/);
   assert.match(program.judgeReason, /any-Domain Power/);
+});
+
+test("sfd-037-221 Navori Scout: the merged static binder refuses the Deflect target tax", () => {
+  // 809.1.a/809.1.d: Deflect expands to a static target.tax. The merged
+  // production binder (programs/statics.ts layerFor) has no layer for that kind,
+  // so the tax still has no producer that reads it from the permanent. This is
+  // the executed evidence for the current gap in the judgeReason.
+  const kernel = world().unit("navori-scout", { cardId: CARD_ID, might: 4 }).build();
+  const source = kernel.getObject("navori-scout");
+  const [tax] = deflect.expand({ host: { canonicalCardId: CARD_ID } });
+  const layers = createLayerEngine([source]);
+  assert.throws(
+    () => createEngineStaticBinder({ layers }).bindStatic(tax, source),
+    /Static ability kind target\.tax has no layer mapping/
+  );
+  assert.deepEqual(layers.registry.list(), []);
 });
 
 test("sfd-037-221 Navori Scout: exactly one unvalued Deflect keyword ability", () => {

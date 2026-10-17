@@ -23,15 +23,19 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  * - "You may play it, ignoring its Energy cost"：420.3 的 Limited Play Effect；
  *   356.1.b.2 明确"ignoring its Energy cost"只把 Base Energy cost 置零、其余费用仍适用。
  *
- * 状态：judge-required。缺口：
- * 1. [Predict 3] 没有关键词展开（注册表无 predict；现有 Vision 只内联了
- *    Predict 1 的两步），按 README 第 5 节不在卡里手写同一套逻辑。
- * 2. [Deathknell] 的关键词展开（keywords/Deathknell.ts）产出 trigger.leave 指令，
- *    该 op 仍没有运行期消费路径，因此展开还不能执行；本程序把 Deathknell 的 [Effect] 用等价的 object-killed 触发写出来
+ * 状态：judge-required。缺口（复核 2026-10-17）：
+ * 1. [Predict 3] 没有关键词展开——KeywordDef 注册表（engine-core effects/keywords/
+ *    registry.generated.ts）无 Predict；现有 Vision 只内联 Predict 1 的两步。按
+ *    README 第 5 节不在卡里手写同一套逻辑，本卡的三步 body 只是等价结构 + golden。
+ * 2. [Deathknell] 的关键词展开（keywords/Deathknell.ts）body 引用 trigger.leave op，
+ *    该 op 不在已生成指令注册表（effects/instructions/registry.generated.ts），
+ *    解释器遇未知 op 阻断；808.1.d.2 的「进 Trash 前入链」时序没有消费方。因此展开
+ *    还不能执行；本程序把 Deathknell 的 [Effect] 用等价的 object-killed 触发写出来
  *    （808.1.c 的"功能等价"），并保留 keyword 声明。
  * The finalized zero-Energy plan for "ignoring its Energy cost" is already
  * consumed by effect.play; the golden covers that path.
- * 依赖：Predict 关键词展开、Deathknell 的 trigger.leave 消费与离场入链时序。
+ * 依赖：Predict KeywordDef 展开；trigger.leave op 消费
+ * 与 object-killed 离场入链时序消费方。
  * 不近似实现：不把"ignoring its Energy cost"当作忽略全部费用，也不用手写 Predict 冒充关键词。
  */
 
@@ -183,11 +187,13 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处缺口：(1) [Predict 3] 没有关键词展开（注册表无 predict；现有 Vision 只内联 Predict 1 的两步），" +
+    "两处缺口（复核 2026-10-17）：(1) [Predict 3] 没有关键词展开——KeywordDef 注册表无 predict，" +
+    "现有 Vision 只内联 Predict 1 的两步；" +
     "按 README 第 5 节不在卡里手写同一套看顶/回收/放回展开；(2) [Deathknell] 的关键词展开产出 trigger.leave 订阅指令，" +
-    "该 op 仍没有运行期消费路径，808.1.d.2 的「进 Trash 前入链」时序无消费方。" +
+    "该 op 不在已生成指令注册表，解释器遇未知 op 阻断，808.1.d.2 的「进 Trash 前入链」时序无消费方。" +
     "Predict 三步、Deathknell 的 Banish 半段以及 finalized zero-Energy plan for effect.play 已按 437 / 428 / 420.3 写出并由 golden 覆盖。" +
-    "依赖：Predict 关键词展开、Deathknell 的 trigger.leave 消费与离场入链时序。不近似实现：不把「ignore Energy cost」当成忽略全部费用。",
+    "依赖：Predict 关键词展开；trigger.leave op 消费与 object-killed 离场入链时序。" +
+    "不近似实现：不把「ignore Energy cost」当成忽略全部费用。",
   abilities,
   sourceText:
     "When you play me or when I hold, [Predict 3].\n" +

@@ -47,12 +47,10 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1) 当前没有把 CardProgram static 减费转成后续打出 CostPlanInput.discounts 的消费方" +
-    "（cost/buildCostPlan 只作用于单次调用方提供的计划）。" +
-    "(2)「the first unit or gear they play here on their turn」是一次性窗口：需要每名玩家、每回合的首次「打出到本战场」历史判定，" +
-    "而 Condition/HistoryQuery 没有「卡牌被打出到该地点」谓词，也没有 per-player one-shot 窗口形状；" +
-    "写成常驻持续效果会给本回合后续每一次符合条件的打出都减费，与卡面不符。" +
-    "依赖：static-program-to-CostPlan 绑定、RIFT-357 的地点谓词与 RIFT-359 的条件/一次性窗口语义。",
+    "当前缺口：(1) programs/statics 未把 cost.modify 转为后续打出的 CostPlanInput.discounts；" +
+    "(2)「the first unit or gear they play here on their turn」需在费用计算前判定每名玩家自己回合的首次打出到本战场。" +
+    "HistoryQuery 已有 player/scope/objectFilter，但没有 play destination 谓词；Condition 也不能读取该历史计数，" +
+    "per-turn-first-play 尚无消费方。已合入的地点选择与普通条件求值不能代替这个历史/费用绑定。",
   sourceText:
     "For each player, the first unit or gear they play here on their turn costs :rb_energy_1: less.",
   abilities: [

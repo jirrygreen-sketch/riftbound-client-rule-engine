@@ -32,8 +32,9 @@ test("unl-105-219 Imposing Challenger: identity, status, judgeReason and verbati
   assert.match(program.judgeReason, /449\.2/);
   // The program binding is merged; the reason must name the remaining movement
   // payload/position/comparison gaps.
-  assert.match(program.judgeReason, /RIFT-357/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /LocationSelector\/LocationTargetSpec/);
+  assert.match(program.judgeReason, /exclude/);
+  assert.match(program.judgeReason, /mightLessThan/);
   assert.match(program.judgeReason, /movement.*载荷|toLocationId/);
   assert.doesNotMatch(program.judgeReason, /RIFT-90|RIFT-120|RIFT-257|RIFT-270/);
 });
@@ -147,10 +148,10 @@ test("unl-105-219 Imposing Challenger golden: accepting the option tries the rec
 });
 
 test.todo(
-  "unl-105-219 Imposing Challenger: evaluate 'less Might than me' by comparing the candidate's Effective Might (143.2.a.1) with the host's — no merged ObjectFilter / Expr compares against another object's characteristic (same gap as sfd/soraka-wanderer)"
+  "unl-105-219 Imposing Challenger: evaluate 'less Might than me' by comparing the candidate's Effective Might (143.2.a.1) with the host's — the production target filter cannot bind a candidate-relative Might comparison"
 );
 test.todo(
-  "unl-105-219 Imposing Challenger: resolve 'to a different battlefield' by enumerating Battlefields other than the unit's current location (355.4.a / 449.2) — effect.move accepts only literal LocationRefs, 'controller-base' or a literal option list"
+  "unl-105-219 Imposing Challenger: resolve 'to a different battlefield' by enumerating Battlefields other than the unit's current location (355.4.a / 449.2) — target.location enumerates candidates, but the card selector does not forward exclusion of the current battlefield"
 );
 test.todo(
   "unl-105-219 Imposing Challenger: trigger on the Move Destination ('here' = the event's toLocationId) — " +

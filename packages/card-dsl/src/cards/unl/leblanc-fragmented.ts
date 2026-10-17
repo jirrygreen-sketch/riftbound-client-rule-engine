@@ -28,7 +28,8 @@ import type { Ability, CardProgram, Condition } from "../../ir/index.js";
  * status 判定（README 第 2 节）：judge-required —— 三处依赖未合入，均不近似实现：
  * 1. Assault 无可执行消费方：effects/keywords/Assault.ts 的展开读 designation（契约 3.8 的
  *    ObjectSnapshot.combatRole），该特征未合入，layers 的条件求值也不读 compare（同
- *    ogn/petty-officer、ogn/daring-poro 的判定），且没有把卡牌 keyword 能力接进图层的路径。
+ *    ogn/petty-officer、ogn/daring-poro 的判定）；Assault 的 KeywordDef 与 CardProgram
+ *    展开路径已经合入，但缺少可用的 designation/comparison 消费。
  * 2. Deathknell KeywordDef 仍展开为未注册的 trigger.leave 原语（effects/instructions 无该文件）；
  *    object-killed 的 CardProgram 触发注册已经合入，但 808.1.d.1–d.3 的离场处理与最后已知信息
  *    仍依赖离场指令和事件/链管线。
@@ -93,8 +94,8 @@ export default {
   status: "judge-required",
   judgeReason:
     "三处依赖未合入：(1) [Assault]（807.1.c）的展开不可执行——keywords/Assault.ts 读 designation" +
-    "（契约 3.8 的 ObjectSnapshot.combatRole，未合入），layers 的条件求值不识别 compare（同 petty-officer 的判定），" +
-    "且没有卡牌 keyword 能力 → 图层的接线。" +
+    "（契约 3.8 的 ObjectSnapshot.combatRole，未合入），layers 的条件求值不识别 compare（同 petty-officer 的判定）；" +
+    "Assault 的 KeywordDef 与 CardProgram 展开路径已经合入，但缺少可用的 designation/comparison 消费。" +
     "(2) [Deathknell]（808.1）的 KeywordDef 仍展开为未注册的 trigger.leave 原语（effects/instructions 无该文件），" +
     "object-killed 的 CardProgram 触发注册已经合入，但 808.1.d.1–d.3 的离场处理与最后已知信息仍缺。" +
     "(3)「If it's your Beginning Phase」需要可求值的阶段状态（当前 IR 没有阶段/回合状态读取入口），" +

@@ -27,7 +27,8 @@ import type { CardProgram } from "../../ir/index.js";
  * 1. Deploy 的 continuous.location 消费：playLocations 查询（src/layers/rules/query.ts）
  *   只读位置名称字符串，现有 Finalize 流程尚未消费 KeywordDef 的结构化 location 字段；
  * 2. hold 触发的 'here:true' 过滤：programs/filters.ts 明确禁止该键，固守时点也没有
- *    战场身份载荷，无法绑定“此战场”；
+ *    战场身份载荷（turn/flow.ts 的 hold 事件已携带 details.battlefieldId，但
+ *    programs/filters.ts 没有把该载荷接入过滤的适配层），无法绑定“此战场”；
  * 3. 对手 hold 时消灭此牌（Deploy 文案第二段）仍无对应消费方。
  * discard 1 / draw 3 / 回手三条指令都已合入，golden 用解释器与参考内核真实执行；
  * 不据此宣称整卡可执行。
@@ -39,9 +40,12 @@ export default {
   judgeReason:
     "Deploy 的 KeywordDef（effects/keywords/Deploy.ts，CR 830.1.b）与卡牌程序→触发注册" +
     "（programs/triggers.ts，契约 3.5）都已合入；当前缺口：(1) continuous.location 消费——" +
-    "playLocations 查询（src/layers/rules/query.ts）只读位置名称字符串，现有 Finalize 流程尚未消费 " +
-    "KeywordDef 的结构化 location 字段；(2) 'hold here' 的 here 过滤键被 programs/filters.ts 禁止，" +
-    "固守时点也没有战场身份载荷，无法绑定“此战场”；(3) 对手 hold 时消灭此牌的 Deploy 副能力没有消费方。" +
+    "playLocations 查询（src/layers/rules/query.ts）只把结构化 location 读成位置名称字符串的" +
+    " permission/restriction，现有 Finalize 流程尚未消费 KeywordDef 的结构化 location 字段；" +
+    "(2) 'hold here' 的 here 过滤键被 programs/filters.ts 显式拒绝（judge-required）；" +
+    "hold 事件已携带 details.battlefieldId（turn/flow.ts:99-102），但 filters 没有把该载荷" +
+    "接入 here 绑定的适配层；非 Unit 的 cleanup 回收豁免也已合入（turn/flow.ts:318-319）；" +
+    "(3) 对手 hold 时消灭此牌的 Deploy 副能力没有消费方。" +
     "discard 1、draw 3 与 return-to-hand 三条指令已合入并单独执行；不近似实现上述缺口。",
   abilities: [
     { kind: "keyword", keyword: "deploy" },

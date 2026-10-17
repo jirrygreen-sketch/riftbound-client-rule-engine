@@ -4,6 +4,9 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/commander-ledros.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { createEngineStaticBinder, createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
 
 const CANONICAL = "card.hash-c80681881ea8ea46056b7e0beb729fa6209936934189d25a1dda9a04ebf36b79";
 const [deflect, ganking, play] = program.abilities;
@@ -18,9 +21,10 @@ test("ogn-231-298 Commander Ledros: identity, status and verbatim sourceText", (
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /cost\.sacrifice/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /programs\/play\.ts/);
+  assert.match(program.judgeReason, /cost\.pay/);
+  assert.match(program.judgeReason, /target\.tax/);
+  assert.match(program.judgeReason, /routes/);
   assert.equal(
     program.sourceText,
     "As you play me, you may kill any number of friendly units as an additional cost. " +
@@ -72,17 +76,48 @@ test("ogn-231-298 Commander Ledros: the discount is one Order power per unit kil
   assert.deepEqual(play.body, []);
 });
 
+test("ogn-231-298 Commander Ledros: the declared Ganking expands and binds to movement()", () => {
+  const f = fixture({ cards: [{ id: "ledros", cardId: CANONICAL, types: ["unit"] }] });
+  f.engine.commit({
+    type: "move-zone",
+    object: f.kernel.ref("ledros"),
+    to: "battlefield",
+    location: { type: "battlefield", id: "battlefield-1" }
+  });
+  f.engine.advance();
+
+  const source = f.kernel.getObject("ledros");
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const ability = binding.inspect(source).abilities.find(item =>
+    item.kind === "static" && item.effect.kind === "continuous.movement"
+  );
+  assert.ok(ability, "Ganking must expand to a static movement permission");
+  const handle = createEngineStaticBinder(f.engine).bindStatic(ability, source);
+
+  const registration = f.engine.layers.registry.list().find(entry => entry.effect.effect.kind === "continuous.movement");
+  assert.ok(registration);
+  assert.equal(registration.effect.effect.kind, "continuous.movement");
+  assert.equal(registration.effect.effect.permission, "battlefield-to-battlefield");
+  // The binder registration is real, but movement() currently consumes the
+  // normalized permission.routes shape and therefore cannot consume this
+  // scalar KeywordDef payload yet.
+  const query = movement(f.engine.layers.registry, source.ref, source, "A");
+  assert.equal(query.canGank, false);
+
+  handle.unbind();
+  assert.equal(movement(f.engine.layers.registry, source.ref, source, "A").canGank, false);
+});
+
 test.todo(
   "ogn-231-298 Commander Ledros: collecting the optional kill additional cost and materializing " +
-    "the per-killed Order discount needs the cost.additional / cost.sacrifice instruction (RIFT-261) " +
-    "plus the CardProgram → cost-plan binding for the declared cost and discount " +
-    "(CR 204.2.a/356.2.b.1/356.4, RIFT-257)"
+    "the per-killed Order discount needs the CardProgram → CostPlanInput binding for the declared " +
+    "additional cost, kill receipt, and discount quantity (CR 204.2.a/356.2.b.1/356.4)"
 );
 test.todo(
   "ogn-231-298 Commander Ledros: [Deflect]'s mandatory target tax (CR 809.1.c/356.2.a.2) needs the " +
-    "target tax to be folded into the opponent's cost plan (RIFT-90)"
+    "static target.tax declaration to reach target Finalize and become an unrestricted-domain Power payment"
 );
 test.todo(
   "ogn-231-298 Commander Ledros: [Ganking]'s battlefield-to-battlefield standard move (CR 810.1.b/" +
-    "144.4.c.1) needs the continuous.movement consumer in the movement system"
+    "144.4.c.1) needs the scalar KeywordDef permission normalized to movement()'s permission.routes shape"
 );

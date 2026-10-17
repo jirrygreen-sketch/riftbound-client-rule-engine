@@ -49,13 +49,10 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「Give a unit +3 :rb_might: this turn」已可执行（continuous.might 的 arithmetic 图层 + end-of-turn 期限，RIFT-258；golden 用解释器 + 图层引擎真实执行）。" +
-    "整卡仍不可执行：「This costs :rb_energy_2: less if you've played a unit or gear to a battlefield this turn」需要两件当前缺口——" +
-    "(1) 把卡牌 static 减费安装进打出时的费用计划：cost/cost-plan.ts 只在调用方显式提供 CostPlanInput.discounts 时应用折扣，" +
-    "当前 static-program binder 尚未把该效果翻译成每次打出的费用计划；" +
-    "(2) 减费条件的事件历史表达：「本回合把单位或装备打到战场」需要带对象过滤（单位/装备）与落点（战场）的 HistoryQuery；" +
-    "契约 3.8 的 objectFilter 只经 condition.history 指令可达，无法门控 static 费用效果，落点谓词也仍缺失，故减费条件只能写成描述性常量（不得执行）。" +
-    "依赖：CardProgram-static-to-CostPlan 绑定与打出落点历史谓词。不近似实现。",
+    "当前缺口：(1) programs/statics 未把 continuous.cost-modification 转为打出时的 CostPlanInput.discounts；" +
+    "(2) Condition/Expr 无历史计数表达式可在构建费用计划时门控 static 减费。" +
+    "HistoryQuery 的 objectFilter 已可筛选历史单位/装备，但它读取动作前对象快照，不能检验 play 动作的战场落点；" +
+    "尚缺该 destination 历史谓词。continuous.might 的 +3/this-turn 已有执行证据，不近似减费条件。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

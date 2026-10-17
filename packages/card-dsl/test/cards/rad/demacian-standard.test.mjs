@@ -7,6 +7,28 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+
+/** Minimal engine so the production static binder can be exercised directly. */
+function binderFor(kernel) {
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (checkpoint) => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose: (request) => { throw new Error(`Unexpected choice: ${request.id}`); },
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false
+  });
+  return createEngineStaticBinder(engine);
+}
 
 const CARD_ID = "card.hash-480ea79884e6f85ff72527f8deb9eb55bbcacb01a51c7d33332e8d830f2c20fe";
 const SOURCE_TEXT =
@@ -35,10 +57,15 @@ test("rad-156-167 Demacian Standard: program validates and has expected identity
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-357/);
   assert.match(program.judgeReason, /RIFT-358/);
   assert.doesNotMatch(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /Deploy/);
+  // RIFT-357 (runtime locations) is merged and no longer the blocker: the
+  // remaining gaps are the here anchor, the trigger-collected attacker choice,
+  // and Deploy's missing continuous.location layer mapping.
+  assert.match(program.judgeReason, /Unsupported filter field here/);
+  assert.match(program.judgeReason, /no layer mapping/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-357/);
 });
 
 test("rad-156-167 Demacian Standard: Deploy + attack-here might body + hold return body", () => {
@@ -148,17 +175,40 @@ test("rad-156-167 Demacian Standard: a stale self reference ignores the return i
   assert.deepEqual(scoped.events.map((event) => event.action), ["move-zone"]);
 });
 
+test("rad-156-167 Demacian Standard: both here anchors are still rejected, never rebound to a whole board", () => {
+  // 466.2.c / 473.2.b: the attack and hold triggers are both scoped "here". The
+  // merged translator has no evaluable battlefield anchor, so it refuses each
+  // registration rather than subscribing to every battlefield.
+  for (const ability of [program.abilities[1], program.abilities[2]]) {
+    assert.throws(
+      () => translateTriggerFilter(ability.trigger.filter, "demacian-standard", ability.trigger.at),
+      /Unsupported filter field here/
+    );
+  }
+});
+
+test("rad-156-167 Demacian Standard: the Deploy expansion still cannot bind to a layer", () => {
+  // 830.1.b: Deploy's KeywordDef expands to a continuous.location static
+  // ability. The merged program binder maps no layer for that kind, so the
+  // expansion is refused outright instead of silently registering nothing.
+  const deploy = keywordDefinitionsById.get("Deploy");
+  assert.ok(deploy, "the merged Deploy KeywordDef is present");
+  const expanded = deploy.expand({} );
+  const locationAbility = expanded.find(ability => ability.kind === "static" && ability.effect.kind === "continuous.location");
+  assert.ok(locationAbility, "Deploy expands a continuous.location static ability");
+
+  const kernel = world().unit("demacian-standard", { types: ["gear"], location: BATTLEFIELD }).build();
+  const source = kernel.getObject("demacian-standard");
+  const binder = binderFor(kernel);
+  assert.throws(
+    () => binder.bindStatic(locationAbility, source),
+    /no layer mapping/
+  );
+});
+
 test.todo(
   "rad-156-167 Demacian Standard: 攻击触发里“one of them”的选择（触发条件收集该处攻击者后由控制者选一）" +
     "依赖触发选择与模式/目标 Finalize 落地（RIFT-358）"
-);
-test.todo(
-  "rad-156-167 Demacian Standard: [Deploy] 的 KeywordDef 已合入（keywords/Deploy.ts，RIFT-267，830.1.b），" +
-    "缺地点限制、清理豁免与 Hold 的 here 消费方（RIFT-357）"
-);
-test.todo(
-  "rad-156-167 Demacian Standard: hold / attack-declared 触发端到端订阅（315.2.b.2 / 471.2 / 473.2.b / 466.2.c）：" +
-    "hold 已由 turn/flow.ts 随 Score 波发出，但 here 锚点不在 EventPattern 词表（RIFT-357）"
 );
 
 test("rad-156-167 Demacian Standard: +2 Might this turn registers an arithmetic-layer modifier through the real interpreter", () => {

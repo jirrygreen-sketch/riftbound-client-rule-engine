@@ -40,7 +40,11 @@ test("ogn-250-298 Stormbringer judgeReason names the derived-affected-set gap", 
   assert.match(program.judgeReason, /355\.10\.b/);
   assert.match(program.judgeReason, /355\.10\.d/);
   assert.match(program.judgeReason, /战场/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  // RIFT-357 merged the location-target representation; the current gap is the
+  // damage primitive's missing non-target query form and the derived set.
+  assert.match(program.judgeReason, /ctx\.targets\(id\)/);
+  assert.match(program.judgeReason, /地点目标表示本身已合入/);
+  assert.match(program.judgeReason, /目标计划后续/);
 });
 
 test("ogn-250-298 Stormbringer structure: base unit and battlefield targets, bound location, move", () => {
@@ -200,8 +204,8 @@ test("ogn-250-298 Stormbringer golden: an enemy that left the board is dropped f
 
 test.todo(
   "Stormbringer: the battlefield target of 355.10.b/355.10.d plus the derived 'all enemy units at " +
-    "the chosen battlefield' affected set need target-plan support beyond object collections " +
-    "(RIFT-90 / RIFT-9 target.location)."
+    "the chosen battlefield' affected set need the non-target query form on effect.damage and a " +
+    "consumer that derives the board objects at the chosen LocationRef (target-plan follow-up)."
 );
 
 test("ogn-250-298 Stormbringer golden: 'move your unit there' binds the chosen battlefield location and really moves the unit", () => {

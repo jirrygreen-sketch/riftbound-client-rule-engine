@@ -30,13 +30,19 @@ test("ogn-155-298 Qiyana, Victorious: program validates and keeps identity", () 
 test("ogn-155-298 Qiyana, Victorious: judgeReason cites the current Deflect, conquer and binding gaps", () => {
   assert.match(program.judgeReason, /target\.tax/);
   assert.match(program.judgeReason, /809/);
-  // The conquer timing point is now emitted by the Score wave; the remaining
-  // gaps are the tax-to-payment wiring (RIFT-261), the card-program trigger
-  // binding (RIFT-257), the EventPattern source/here vocabulary and the
-  // choice.mode Finalize/Resolve adapter.
+  // The conquer timing point is emitted by the Score wave and the card-program
+  // trigger binding (RIFT-257) is merged; the remaining gaps are the target-tax
+  // production wiring (RIFT-360), the EventPattern source/here vocabulary and
+  // the choice.mode Finalize/Resolve adapter.
   assert.match(program.judgeReason, /turn\/flow\.ts/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  // cost.pay/cost.modify are merged; the reason must present the current target-tax
+  // producer gap and must not list the merged primitives as missing dependencies.
+  assert.match(program.judgeReason, /cost\.pay\/cost\.modify 已合入/);
+  assert.ok(!/未合入的 cost\.pay/.test(program.judgeReason));
+  // The card-program trigger binding is merged; the reason states that instead
+  // of listing the binding itself as a missing dependency.
+  assert.match(program.judgeReason, /触发注册的卡牌程序绑定已合入/);
+  assert.match(program.judgeReason, /RIFT-360/);
   assert.match(program.judgeReason, /assertFinalizationSurface/);
   assert.match(program.judgeReason, /EventPattern/);
 });
@@ -108,11 +114,12 @@ test("ogn-155-298 Qiyana, Victorious: the merged Deflect KeywordDef only emits t
 test.todo(
   "ogn-155-298 Qiyana, Victorious: the Deflect target tax (809.1.c/d) needs a consumer that reads the " +
     "expanded target.tax effect while targets are finalized and folds it into the cost plan and its " +
-    "payment (RIFT-261 cost.pay/cost.modify); the merged target plan only appends a caller-supplied tax."
+    "payment (RIFT-360, in flight); the merged target plan only appends a caller-supplied tax, and the " +
+    "merged static binder has no target.tax layer mapping."
 );
 test.todo(
   "ogn-155-298 Qiyana, Victorious: 'When I conquer' (383.4.c.2) needs the conquer event's participating " +
-    "unit/location identity in EventPattern so the trigger can be narrowed to this unit, and a merged " +
-    "CardProgram→TriggerRegistration binder (RIFT-257); the conquer timing point itself is now emitted by " +
+    "unit/location identity in EventPattern so the trigger can be narrowed to this unit (the " +
+    "CardProgram→TriggerRegistration binder itself is merged); the conquer timing point itself is now emitted by " +
     "turn/flow.ts and the choice.mode body still needs the Finalize/Resolve choice-plan adapter."
 );

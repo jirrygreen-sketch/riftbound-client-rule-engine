@@ -30,9 +30,12 @@ test("ogn-013-298 Pouty Poro: judgeReason names the missing wiring and its tasks
   assert.match(program.judgeReason, /Deflect/);
   assert.match(program.judgeReason, /target\.tax/);
   assert.match(program.judgeReason, /809\.1\.c\.1/);
-  assert.match(program.judgeReason, /TargetPlan 税/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /不属于本卡的 write scope/);
+  assert.match(program.judgeReason, /taxSpecs\/appendTaxes/);
+  // cost.pay / cost.modify are merged; the current dependency is the target-tax
+  // production wiring, and the stale RIFT-261 claim must be gone.
+  assert.match(program.judgeReason, /RIFT-360/);
+  assert.match(program.judgeReason, /旧依赖任务已过时/);
+  assert.match(program.judgeReason, /layer mapping/);
 });
 
 test("ogn-013-298 Pouty Poro: exactly one unvalued Deflect keyword ability", () => {
@@ -104,6 +107,7 @@ test("ogn-013-298 Pouty Poro: an unpayable Deflect tax rejects the choice (CR 80
 test.todo(
   "Pouty Poro: an opponent's spell or ability that chooses me costs 1 additional Power payable with "
     + "any Domain (CR 809.1.c/809.1.c.1), derived from my target.tax continuous effect and charged at "
-    + "Finalize — blocked because no producer derives the Deflect tax from a permanent's target.tax "
-    + "effect and the merged tax-to-cost conversion bills Energy instead of any-domain Power"
+    + "Finalize — blocked because the merged static binder has no target.tax layer mapping, no producer "
+    + "derives the Deflect tax from a permanent's target.tax effect, and the merged tax-to-cost "
+    + "conversion bills Energy instead of any-domain Power (RIFT-360)"
 );

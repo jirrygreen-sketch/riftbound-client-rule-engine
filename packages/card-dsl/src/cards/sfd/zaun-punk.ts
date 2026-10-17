@@ -25,28 +25,33 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   additional cost was "paid" when the player made the decision to pay it,
  *   regardless of how much was actually paid.
  *
- * Status: judge-required — both halves are declared, and the missing pieces
- * are named instead of approximated:
- * - there is no CardProgram -> cost-plan wiring for the declared additional
- *   cost: the merged cost/ layer accepts an optionalAdditional list from its
- *   caller (cost/cost-plan.ts) and its payment kinds support the kill charge
- *   shape (cost/plan-values.ts accepts kind "kill" with a choice), but no
- *   production play path reads a card program's static cost.additional effect
- *   into CostPlanInput or resolves its dynamic choice placeholder into runtime
- *   ObjectRefs. The static cost declaration therefore cannot yet participate in
- *   Finalize.
- * - "if you paid the additional cost" needs the paid receipt at resolution
- *   (356.4.f.1); the frozen IR has no cost-result binding (the survey records
- *   it as condition.result), so the kill cannot be gated. The body instruction
- *   below is deliberately left ungated rather than gated by an invented
- *   condition that would always evaluate true.
+ * Status: judge-required. Re-checked against the merged source; three links
+ * are still missing, and nothing is approximated:
+ * - CardProgram -> CostPlanInput: no merged consumer reads a program's static
+ *   `cost.additional` declaration. programs/play.ts builds the play draft only
+ *   from a PlayAbility's own `cost` and translateCost rejects the additional
+ *   spellings outright ("Unsupported play cost field optional"; "Additional
+ *   costs are not bound"), and programs/triggers.ts never turns a static
+ *   additional-cost ability into TriggerRegistration.cost. The merged cost
+ *   layer (cost/cost-plan.ts optionalAdditional + cost/plan-values.ts "kill")
+ *   can plan and pay the shape, but only when a caller supplies it.
+ * - Cost-choice option resolution: cost/plan-values.ts choiceObjects requires
+ *   every option to be an exact runtime ObjectRef (id + zoneEntryId). Nothing
+ *   merged resolves the declared "dynamic:friendly-gear" placeholder, or the
+ *   friendly-gear filter behind it, into that locked list at Finalize.
+ * - 356.4.f.1 paid receipt: the frozen Condition kinds are
+ *   always/never/compare/all/any/not/expression (the survey records the missing
+ *   one as condition.result), chain/engine.ts keeps the finalized receipt on
+ *   item.payment without exposing it to the trigger's Resolve context, and the
+ *   production pipeline host supplies no testTrigger adapter, so a
+ *   condition-carrying registration could not be evaluated either. The body
+ *   instruction below therefore stays ungated instead of gated by an invented
+ *   always-true condition.
  * The Kill body instruction itself is the merged effect.kill primitive and is
  * executed against a Finalize-locked target in the golden test; the golden also
  * charges the declared kill shape through the merged cost planner and its
- * payment receipt with a locked friendly-gear pick, which isolates the two
- * remaining links: the CardProgram -> CostPlanInput resolution (a program's
- * "dynamic:friendly-gear" option placeholder is not a runtime ObjectRef) and
- * the 356.4.f.1 paid receipt that has to gate the second ability.
+ * payment receipt with a locked friendly-gear pick, which isolates the three
+ * remaining links above.
  */
 const abilities: Ability[] = [
   {
@@ -109,16 +114,19 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "缺「卡牌程序声明的可选追加费用 → 费用计划」的接线与 356.4.f.1 的支付回执：" +
-    "已合入的 cost/ 计划接受调用方传入的 optionalAdditional（cost/cost-plan.ts），支付种类也支持 kill 形状" +
-    "（cost/plan-values.ts 的 nonstandard cost 含 kill + choice，golden 已用锁定的 friendly gear pick 真实走通" +
-    "计划与回执；choice 的 options 必须是运行时 ObjectRef，卡牌程序里的 dynamic 占位符需要调用方解析），" +
-    "但当前生产 play path 没有把卡牌程序声明的 static cost.additional 接进 CostPlanInput，" +
-    "也没有把 dynamic:friendly-gear 占位符解析成运行时 ObjectRef，因此该费用声明尚不能参与 Finalize。" +
-    "356.4.f.1 规定「If you paid the additional cost」以「玩家决定支付」为凭证，冻结 IR 没有费用结果绑定（调研记为 condition.result），" +
+    "仍缺三条接线，均不近似实现：" +
+    "(1) 356.2.b/356.2.b.1 要求可选附加费用由被打出卡牌的被动能力声明（决定属于 355.1/355.1.a 的费用步骤），" +
+    "但没有任何已合入消费方把 CardProgram 声明的 static cost.additional 接进 CostPlanInput——" +
+    "programs/play.ts 只用 PlayAbility 自身的 cost（translateCost 直接拒绝 additional/optional 拼写：\"Unsupported play cost field optional\"、\"Additional costs are not bound\"），" +
+    "programs/triggers.ts 也不会把 static 附加费用能力变成 TriggerRegistration.cost；" +
+    "已合入的 cost/ 计划（cost/cost-plan.ts 的 optionalAdditional 与 cost/plan-values.ts 的 kill 形状）只能由调用方传入。" +
+    "(2) 费用选择项解析：cost/plan-values.ts 的 choiceObjects 要求每个 option 都是运行时精确 ObjectRef（id + zoneEntryId），" +
+    "没有任何已合入模块把卡牌程序里的 \"dynamic:friendly-gear\" 占位符（或其 friendly-gear 过滤器）在 Finalize 解析成该锁定列表。" +
+    "(3) 356.4.f.1 支付回执：冻结 IR 的 Condition 只有 always/never/compare/all/any/not/expression（调研记为 condition.result），" +
+    "chain/engine.ts 把最终费用回执保存在 item.payment，未暴露给触发能力的 ResolveContext，生产管线宿主也没有 testTrigger 适配器，" +
     "故第二条（kill a gear）无法按已付/未付开闸；不伪造恒真条件，也不把费用改写成效果。" +
-    "effect.kill 本体（429.1/429.6）已合入，golden 用锁定目标真实执行 kill。" +
-    "依赖：CardProgram static cost.additional → CostPlanInput 的生产消费方，以及 356.4.f.1 支付回执到条件/触发上下文的绑定。",
+    "effect.kill 本体（429.1/429.6）已合入，golden 用锁定目标真实执行 kill，并用锁定的 friendly gear pick 真实走通费用计划与回执。" +
+    "依赖：CardProgram static cost.additional 的 Finalize 消费方、费用选择项的运行时 ObjectRef 解析、以及 356.4.f.1 支付回执到触发条件的绑定。",
   abilities,
   sourceText:
     "You may kill a friendly gear as an additional cost to play me.\n" +

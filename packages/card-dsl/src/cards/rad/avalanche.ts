@@ -20,11 +20,12 @@ import type { CardProgram } from "../../ir/index.js";
  *   no pick is declared, so no "becomes a target" trigger is emitted
  *   (355.6/355.7). Every unit takes 3 (418.1.c) simultaneously (418.1.d).
  *
- * Status: judge-required. The printed set is selected by characteristics and
- * is explicitly not a target (355.10.d), but the merged `effect.damage`
- * primitive reads its affected set from `ctx.targets(TargetSpec id)` only, so
- * there is still no "damage each current member of a characteristic set"
- * path:
+ * Status: judge-required (re-verified 2026-10-17). The printed set is selected
+ * by characteristics and is explicitly not a target (355.10.d), but the
+ * merged `effect.damage` primitive reads its affected set from
+ * `ctx.targets(TargetSpec id)` only (its argsSchema requires a `target`
+ * string and rejects an `objects` selector), so there is still no "damage each
+ * current member of a characteristic set" path:
  * - the "in bases" restriction itself is now expressible: the production
  *   filter (layers/filter.ts and layers/rules/query.ts) evaluates the string
  *   spelling `location: "base"` against `object.location.type`, and the filter
@@ -33,8 +34,11 @@ import type { CardProgram } from "../../ir/index.js";
  *   repeat/choice structures cannot produce "each current member of a
  *   characteristic set" without inventing a per-member targeting loop, which
  *   would wrongly add targets (355.10.d).
- * The batch set op (effect.damage over a set selector) is the missing shape
- * recorded below; it is not worked around with per-clause target loops.
+ * The missing shape is a non-targeting batch set op: the merged target system
+ * (RIFT-90, target/target-plan.ts) finalizes TargetSpecs and emits
+ * "became-target" for every selected object, which 355.10.d / 355.10.d.1 rule
+ * out for a characteristic-selected set, so it cannot be reused and is not
+ * worked around with per-clause target loops.
  */
 export default {
   canonicalCardId: "card.hash-93ccf4a04222adbd61db565ce07b24bcbe42a6cf03edc5ff3ab1d63feb45bad5",
@@ -44,8 +48,9 @@ export default {
     "缺“按特征选中整组对象、且不作为目标”的批量伤害路径：已合入的 effect.damage 只经 ctx.targets(TargetSpec id) 读受击集合，" +
     "而“all units in bases”按 355.10.d 不由玩家选择、不是目标，声明 TargetSpec 会错误触发“成为目标”相关触发。" +
     "「in bases」的限制本身已可表达（layers/filter.ts 与 layers/rules/query.ts 按 object.location.type 求值字符串 " +
-    "location:\"base\"，程序已改用该求值拼写）；仍缺批量集合原语（target.many / RIFT-90）与逐个成员结算的路径，" +
-    "repeat/choice 组合也无法逐成员结算而不引入假目标。不近似实现。",
+    "location:\"base\"，程序已改用该求值拼写）；已合入的目标系统（RIFT-90，target/target-plan.ts）只走 " +
+    "TargetSpec 并为每个被选对象发 became-target，355.10.d / 355.10.d.1 明确排除按特征选中的集合，" +
+    "因此不能复用。repeat/choice 组合也无法逐成员结算而不引入假目标；仍缺非目标的批量集合伤害原语。不近似实现。",
   abilities: [
     {
       kind: "play",

@@ -22,8 +22,12 @@ test("Promising Future program is structurally valid and judge-required", () => 
   assert.match(program.judgeReason, /effect\.inspect/);
   assert.match(program.judgeReason, /417\.5/);
   assert.match(program.judgeReason, /420\.3\/420\.4/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  // The merged cost ops and card-program binding must not appear as missing
+  // dependencies; the ordered-picks and per-player walk gaps stay listed.
+  assert.match(program.judgeReason, /cost\.pay\/cost\.modify 与 ignore-base 算术、卡牌程序绑定均已合入/);
+  assert.match(program.judgeReason, /ordered\/zoneSlice\/linked\/exclude/);
+  assert.match(program.judgeReason, /非零 top-N 有序来源与 picks 生产接线/);
+  assert.ok(!/RIFT-261/.test(program.judgeReason));
 });
 
 test("Promising Future identity and printed text match the catalog", () => {
@@ -94,7 +98,8 @@ test("Promising Future structure: the residue is recycled and the chosen card is
 test.todo(
   "Promising Future: each player looking at the top 5 of their own Main Deck needs a " +
     "non-zero top-N inspect over an ordered collection (effect.inspect's documented " +
-    "blocker; 414.4/432.1.c for the look itself, 355.10.e for the multi-player shape)."
+    "blocker; 414.4/432.1.c for the look itself, 355.10.e for the multi-player shape; " +
+    "the ordered PickSpec vocabulary is RIFT-358, in flight)."
 );
 
 test.todo(
@@ -105,7 +110,8 @@ test.todo(
 
 test.todo(
   "Promising Future: each player playing the card they chose, in turn order, ignoring " +
-    "Energy costs while still paying Power (420.3/420.3.b.1, 356.1/356.2), needs the " +
-    "cost-plan override consumer (RIFT-261 cost.pay/cost.modify) and a turn-order walk that no " +
-    "merged opcode provides; the card-program play binding is RIFT-257."
+    "Energy costs while still paying Power (420.3/420.3.b.1, 356.1/356.2), needs a turn-order " +
+    "walk that no merged opcode provides plus the card-side per-object ignore-Energy plan " +
+    "producer for effect.play (the cost.pay/cost.modify arithmetic and the card-program play " +
+    "binding are merged)."
 );

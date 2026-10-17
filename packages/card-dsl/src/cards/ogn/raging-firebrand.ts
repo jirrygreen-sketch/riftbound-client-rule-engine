@@ -13,29 +13,30 @@ import type { CardProgram } from "../../ir/index.js";
  * - 349/356："the next spell you play this turn costs [5] less" 是对**下一次**
  *   法术打出的费用改写：需要一个一次性（one-shot）费用修正窗口，作用到本回合
  *   你接下来打出的第一张 Spell 的 Finalize 费用计划，随后失效。
- * - cost/ 的 buildCostPlan 支持 components/discounts 与 optionalAdditional，但
- *   没有已注册的指令原语把"安装一个一次性减费"挂到触发结算上：
- *   effects/instructions/ 下没有 cost.modify 文件（RIFT-261 的
- *   cost.pay/cost.modify 未合入本分支）；"next spell" 的一次性窗口也没有对应的
- *   持续效果期限类型（Duration 只有 permanent / end-of-turn / end-of-combat /
- *   while-source-in-zone / until），且折扣只在单次 Finalize 计划内生效。
- * - 触发注册还缺卡牌程序绑定：没有任何已合入消费方把 CardProgram 的 triggered
- *   能力登记成 TriggerRegistration（RIFT-257）。
+ * - cost/ 的 buildCostPlan 支持 components/discounts 与 optionalAdditional，且
+ *   cost.modify 指令原语（RIFT-261）已合入并能对调用方给的 CostSpec 建立 finalized
+ *   计划；仍缺的是把"本回合下一张法术 -5 能量"作为一次性窗口安装到后续 Finalize：
+ *   "next spell" 没有对应的持续效果期限类型（Duration 只有 permanent / end-of-turn /
+ *   end-of-combat / while-source-in-zone / until），折扣只在单次计划内生效。
+ * - 触发注册的卡牌程序绑定（RIFT-257）已合入：programs/triggers.ts 的
+ *   registerProgramTriggers + attachProgramLifecycle 能把 card-played 这类普通
+ *   触发登记为 TriggerRegistration；缺的是该触发结算出的一次性费用修正窗口。
  *
- * status：judge-required。缺 cost.modify 指令原语与 one-shot 费用窗口；
- * 依赖 cost-plan 后续任务（RIFT-261）与卡牌触发绑定（RIFT-257）。
- * 不近似为常驻减费或固定数值改写。
+ * status：judge-required。缺一次性（one-shot）费用窗口与把 cost.modify 计划挂到
+ * 后续 Finalize 的消费方；不近似为常驻减费或固定数值改写。
  */
 const ragingFirebrand = {
   canonicalCardId: "card.hash-6a44ecaa1f76158a92ecce63e4d3e2d347cc32014c448f13003d9f2500cb3de7",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 cost.modify 指令原语与一次性费用窗口：effects/instructions/ 下没有 cost.modify 文件" +
-    "（RIFT-261 的 cost.pay/cost.modify 未合入本分支），没有原语把「本回合下一张法术 -5 能量」注册进 Finalize 费用计划" +
-    "（cost/buildCostPlan 的 discounts 只在单次计划内生效），Duration 也没有 one-shot「next spell this turn」期限；" +
-    "另缺卡牌触发绑定——没有任何已合入消费方把 CardProgram 的 triggered 能力登记成 TriggerRegistration（RIFT-257）。" +
-    "依赖：RIFT-261（cost.pay/cost.modify 与一次性费用修正）、RIFT-257（卡牌触发绑定）。不近似为常驻减费。",
+    "缺一次性（one-shot）费用窗口（复核 2026-10-17）：cost.modify 指令原语已合入，" +
+    "能对调用方给的 CostSpec 生成 finalized 计划（golden 实测 -5 energy discount 与 356.6 的 0 下限）；" +
+    "但没有任何已合入消费方把「本回合下一张法术 -5 能量」安装成后续打出的一张法术的费用修正——" +
+    "cost/buildCostPlan 的 discounts 只在单次计划内生效，Duration 也没有 one-shot「next spell this turn」期限。" +
+    "卡牌触发绑定已合入（programs/triggers.ts 的 registerProgramTriggers + attachProgramLifecycle " +
+    "能登记 card-played 触发），缺的只是触发结算出的一次性窗口本身。" +
+    "依赖：一次性费用修正窗口与卡牌费用描述符→后续 Finalize 计划的消费者。不近似为常驻减费。",
   abilities: [
     {
       kind: "triggered",

@@ -41,12 +41,9 @@ const imperialDecree = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺「本回合内任意单位受到伤害就消灭它」的延迟触发指令：该文本按 CR 390/391 生成一个 Delayed Ability" +
-    "（392/393：由效果创建、不依附于战场上的卡），窗口为本回合（317.2.c 到期），订阅 damage-dealt 时点" +
-    "（418.1.a/b，仅在实际造成正整数伤害时发出）。ResolveContext 侧已有 registerDelayedTrigger（契约 3.6），" +
-    "但当前指令注册表没有卡牌可用的 trigger.delayed / trigger.state op，" +
-    "因此卡程序无法注册该订阅；把能力写成卡自身的 triggered ability 会违反 391.1/393（延迟能力不依附卡本体）。" +
-    "不近似实现；需要一个能把 delayed spec/body 送入 ResolveContext.registerDelayedTrigger 的卡牌指令。",
+    "仍缺卡牌可用的 trigger.delayed 注册指令及每次事件的对象绑定（CR 390/391/393）：当前链上下文的 registerDelayedTrigger 桥接未把本回合期限映射到 " +
+    "expiresAt（317.2.c），也未把每次 damage-dealt 的 unit 绑定给 kill " +
+    "it。须仅对实际正伤害触发（418.1.a/b/e），使延迟能力在法术离链后继续存在并于本回合结束到期；不能改写为卡本体的常驻 triggered ability。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

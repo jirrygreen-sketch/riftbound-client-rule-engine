@@ -4,6 +4,7 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/battlefield-armorer.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
 import zone from "../../../../engine-core/dist/effects/instructions/effect.zone.js";
 import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -32,11 +33,9 @@ test("rad-130-167 Battlefield Armorer: program validates and has expected identi
   );
 });
 
-test("rad-130-167 Battlefield Armorer: judgeReason names the remaining payment, event-object and binding gaps", () => {
-  assert.match(program.judgeReason, /cost\.pay/);
-  assert.match(program.judgeReason, /RIFT-261/);
+test("rad-130-167 Battlefield Armorer: judgeReason names the remaining event-object gap", () => {
   assert.match(program.judgeReason, /事件对象|event object/i);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-261|RIFT-257/);
 });
 
 test("rad-130-167 Battlefield Armorer: structure — gear-death trigger, optional 1-energy payment, return to hand", () => {
@@ -60,7 +59,7 @@ test("rad-130-167 Battlefield Armorer: structure — gear-death trigger, optiona
   ]);
 
   assert.equal(pay.op, "cost.pay");
-  assert.deepEqual(pay.args.energy, { kind: "constant", value: 1 });
+  assert.deepEqual(pay.args.payments, { kind: "constant", value: { energy: 1 } });
   assert.equal(pay.linkedTo, undefined);
 
   assert.equal(returnGear.op, "effect.zone");
@@ -153,28 +152,26 @@ test("rad-130-167 Battlefield Armorer: declining the optional leaves the payment
   assert.deepEqual(kernel.events, []);
 });
 
-test("rad-130-167 Battlefield Armorer: the payment step is declared as data, never faked with a stub", () => {
-  // "you may pay :rb_energy_1:" is a cost within instructions (204.3). Its
-  // primitive is not merged, so the card declares the payment step and the
-  // return is linked to it; nothing in the card fakes the payment (no
-  // effect.exhaust, no free return). The dependency itself is recorded in
-  // judgeReason and the TODO below instead of locking the primitive's error.
+test("rad-130-167 Battlefield Armorer: the merged payment step executes before the blocked return", () => {
+  // "you may pay :rb_energy_1:" is a cost within instructions (204.3). The
+  // merged primitive consumes the current payments shape; the subsequent
+  // return remains linked to it but is still blocked by the missing event
+  // object selector.
   assert.equal(pay.op, "cost.pay");
-  assert.deepEqual(pay.args.energy, { kind: "constant", value: 1 });
+  assert.deepEqual(pay.args.payments, { kind: "constant", value: { energy: 1 } });
   assert.equal(returnGear.linkedTo, "battlefield-armorer.pay");
   assert.equal(returnGear.op, "effect.zone");
   assert.deepEqual(returnGear.args.to, { kind: "constant", value: "hand" });
   assert.equal(optIn.args.body.value.length, 2);
+  const kernel = world().player("A", { energy: 1 }).build();
+  const run = runInstruction(costPay, pay.args, { world: kernel });
+  assert.equal(run.result.status, "executed");
+  assert.equal(kernel.player("A").energy, 0);
+  assert.equal(run.linked.payment.paid, true);
 });
-
-test.todo(
-  "rad-130-167 Battlefield Armorer: trigger on 'a friendly gear at a battlefield dies' — the " +
-    "object-killed payload carries the pre-move location but TriggerSpec.filter has no " +
-    "battlefield/location predicate, so the 355.10.b restriction cannot be evaluated (RIFT-90 target/filter system)"
-);
 
 test.todo(
   "rad-130-167 Battlefield Armorer: 'return it to its owner's hand' must recycle the event object after " +
     "it left the board (355.10.c / 359.3.e.13); the merged pick/target system only resolves objects that are " +
-    "still in their zone (RIFT-90)"
+    "still in their zone and has no event-object selector"
 );

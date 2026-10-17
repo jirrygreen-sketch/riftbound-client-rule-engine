@@ -7,6 +7,7 @@ import program from "../../../dist/cards/rad/concert-poster.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 const CARD_ID = "card.hash-03f357977584ddf7e53bbe67b5c7b5c02cdcafe1cf40d289953589949e85d0d4";
 const SOURCE_TEXT =
@@ -27,11 +28,12 @@ test("rad-116-167 Concert Poster: program validates and has expected identity", 
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /cost\.pay/);
-  // cost.pay and the card-program adapter are merged; the remaining gap is
-  // Deploy's unresolved location and `here` event consumption.
-  assert.match(program.judgeReason, /cost\.pay/);
-  assert.match(program.judgeReason, /RIFT-357/);
   assert.match(program.judgeReason, /Deploy/);
+  // RIFT-357 (runtime locations) is merged and is no longer the blocker; the
+  // remaining gaps are the Deploy layer mapping and the `here` event anchor.
+  assert.match(program.judgeReason, /continuous\.location/);
+  assert.match(program.judgeReason, /here/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-357/);
 });
 
 test("rad-116-167 Concert Poster: Deploy keyword plus play/conquer optional Recruit bodies", () => {
@@ -143,7 +145,24 @@ test("rad-116-167 Concert Poster: accepting the play trigger pays 1 energy befor
   assert.deepEqual(outcome.events.map((event) => event.action), ["pay", "create-token", "play"]);
 });
 
-test.todo(
-  "rad-116-167 Concert Poster: play/conquer 触发器端到端订阅（card-played / conquer 时点 + here 绑定）" +
-    "的 here 锚点仍不在封闭 EventPattern 词表里（RIFT-357 地点锚点）"
-);
+test("rad-116-167 Concert Poster: the play trigger really binds through the merged program adapter", () => {
+  // 383.4.a / 407: "When you play this" is a card-played trigger whose self
+  // filter the merged adapter translates into the source's own objectId. The
+  // card stays judge-required (see judgeReason), so the translation layer is
+  // exercised directly rather than through the executable-only registry path.
+  assert.deepEqual(
+    translateTriggerFilter(program.abilities[1].trigger.filter, "poster", "card-played"),
+    { event: "card-played", object: { objectId: "poster" } }
+  );
+});
+
+test("rad-116-167 Concert Poster: the conquer trigger's here anchor is still rejected, never rebound", () => {
+  // 468.5.d / 471.1: the conquer trigger is scoped "here". The merged
+  // translator has no evaluable battlefield anchor for that key, so it refuses
+  // the registration instead of subscribing to every conquer for the player.
+  const filter = program.abilities[2].trigger.filter;
+  assert.throws(
+    () => translateTriggerFilter(filter, "poster", "conquer"),
+    /Unsupported filter field here/
+  );
+});

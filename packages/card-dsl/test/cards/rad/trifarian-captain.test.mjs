@@ -203,7 +203,7 @@ test.todo(
 test.todo(
   "rad-129-167 Trifarian Captain: \"a unit or gear with Energy cost no more than 3 and with Power cost no" +
     " more than [rainbow]\" 是 355.9.b 的目标限制；ObjectFilter 没有数值比较键、Condition 无法对集合" +
-    "逐项施加限制，当前只能作为描述性键记录（需要批 3 的目标系统扩展）"
+    "逐项施加限制，当前只能作为描述性键记录（条件谓词缺口属进行中的 RIFT-359）"
 );
 
 test.todo(

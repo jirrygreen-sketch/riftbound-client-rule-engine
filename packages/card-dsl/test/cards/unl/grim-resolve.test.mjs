@@ -64,6 +64,9 @@ test("unl-095-219 Grim Resolve: program passes validateCardProgram and keeps jud
   // clause is the remaining gap (trigger.delayed op + combat-result emission).
   assert.match(program.judgeReason, /trigger\.delayed/);
   assert.match(program.judgeReason, /468\.3/);
+  assert.match(program.judgeReason, /combat-result/);
+  assert.match(program.judgeReason, /唯一事件管线|事件对象/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(9|124)/);
   assert.doesNotMatch(program.judgeReason, /RIFT-91/);
 });
 

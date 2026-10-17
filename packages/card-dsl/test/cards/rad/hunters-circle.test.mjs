@@ -49,8 +49,9 @@ test("rad-163-167 Hunters' Circle: identity, ruleset, status and exact source te
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /CostPlanInput\.discounts/);
-  assert.match(program.judgeReason, /RIFT-357/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /destination/);
+  assert.match(program.judgeReason, /Condition/);
+  assert.match(program.judgeReason, /per-turn-first-play/);
   assert.match(program.judgeReason, /first unit or gear/);
 });
 
@@ -103,6 +104,6 @@ test.todo(
   "rad-163-167 Hunters' Circle: gate the discount to each player's FIRST qualifying play of their " +
     "turn only (a second unit/gear played here the same turn costs full) — needs per-player per-turn " +
     "one-shot history with a play-location predicate, which the current Condition/HistoryQuery shape " +
-    "cannot express (RIFT-357 / RIFT-359)"
+    "cannot express as a static cost gate; merged location choices do not query historical play destinations"
 );
 

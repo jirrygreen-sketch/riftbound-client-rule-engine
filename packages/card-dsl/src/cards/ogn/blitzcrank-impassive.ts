@@ -12,7 +12,7 @@ const program = {
   canonicalCardId: "card.hash-bee1f175cdca184a24a8807736a261b1b06bcc189438914248f9b1fba6eade3b",
   rulesetVersion: "core-1.5",
   status: "judge-required",
-  judgeReason: "[Tank] 的 KeywordDef 与 continuous.combat 声明已合入，但战斗伤害分配没有消费方，815.1.b/815.1.c 的指派优先级仍不可执行。card-played 触发的 self/relative filter 不能由当前触发绑定器解析；effect.move 的 object-property 参数还要求运行时 ObjectRef，嵌套 optional body 也没有完整目标生命周期适配。Hold 的 effect.zone 只接受 target 或 pick，无法表达非目标 self 返回 owner hand（CR 355.10.d、383.4.d）。依赖：Tank 战斗消费者、触发/参数绑定与 effect.zone 的 self selector；整卡不近似执行。",
+  judgeReason: "缺 Tank 的 continuous.combat 致死优先指派消费者（CR 815.1.b/c）。card-played/hold 的 object:'self' 触发过滤仍无符号适配，打出触发还需保留 battlefield 条件；effect.move 所处的 choice.optional 嵌套目标仍缺 Finalize/Resolve 生命周期适配。Hold 的 effect.zone 只接受 target 或 pick，无法非目标地返回 self 至 owner hand（355.10.d、383.4.d）；turn/flow 的 player/battlefieldId Hold 事件仍缺绑定到该战场在场单位的触发过滤。整卡不近似执行。",
   abilities: [
     {
       kind: "keyword",
@@ -47,9 +47,8 @@ const program = {
                       }
                     },
                     to: {
-                      kind: "object-property",
-                      object: "source",
-                      property: "location"
+                      kind: "location",
+                      value: "source-location"
                     },
                     amount: {
                       kind: "constant",

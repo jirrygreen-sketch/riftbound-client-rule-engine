@@ -17,10 +17,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   effect.damage 已实现 bonus 参数（“多个 bonus 由传入表达式先行加总”），但
  *   「本回合你打出的下一个法术」这个窗口与授予路径归延迟被动能力 / 图层。
  *
- * status = judge-required：
- * - 没有已注册原语消费 `ctx.registerDelayedTrigger`（契约 3.6 有该方法，
- *   chain/engine.ts 也有内部注册路径，但指令注册表里没有 trigger.delayed 或
- *   continuous.bonus-damage 的 op 文件），也没有把“下一次打出的法术”与该次 Deal
+ * status = judge-required（复核 2026-10-17）：
+ * - 仍然没有已注册原语消费 `ctx.registerDelayedTrigger`（契约 3.6 有该方法，
+ *   chain/engine.ts 也有内部注册路径，但生效 registry 里没有 trigger.delayed 或
+ *   continuous.bonus-damage 的 op），也没有把“下一次打出的法术”与该次 Deal
  *   动作关联的延迟被动能力管线（392 的 Delayed Passive Ability）；
  * - 已合入的 effect.damage 只接受调用方传入的 bonus 表达式（698），自己不做授予，
  *   拿一个静态 1 点 bonus 直接写进 instruction 就会对所有伤害生效，属近似实现；
@@ -60,13 +60,14 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "缺延迟被动能力的登记与消费：CR v1.5 392 的示例直接点名本卡（Delayed Passive Ability that " +
-    "passively adds 1 Bonus Damage to just the next spell played），但已合入的指令注册表里没有" +
+    "passively adds 1 Bonus Damage to just the next spell played），但生效的指令注册表里没有" +
     "任何消费 ctx.registerDelayedTrigger 的原语（契约 3.6 有该方法、chain/engine.ts 有内部注册路径，" +
-    "但没有 trigger.delayed 或 continuous.bonus-damage 的 instruction 文件），也没有把「本回合你打出的下一个法术」" +
+    "但没有 trigger.delayed 或 continuous.bonus-damage 的注册 op），也没有把「本回合你打出的下一个法术」" +
     "与那次 Deal 动作关联的管线；effect.damage 只接受调用方传入的 bonus 表达式（714 / 715.2），自己不做授予，" +
     "把静态 1 点 bonus 写进 instruction 会对所有伤害生效，属近似实现（712–715）。图层的 duration 注册表" +
     "（layers/duration.ts 的 end-of-turn）已合入，但授予与关联管线缺失使到期也无从落地。" +
-    "依赖：RIFT-120（延迟触发注册管线）与 trigger.delayed / continuous.bonus-damage 指令落地。" +
+    "依赖：trigger.delayed / continuous.bonus-damage 的注册 op 与「下一个法术」关联管线" +
+    "（链/事件接线已合入，这里缺的是该 op 本身）。" +
     "费用半段（横置自身）已用已合入的 cost.exhaust 费用计划真实执行。",
   abilities,
   sourceText:

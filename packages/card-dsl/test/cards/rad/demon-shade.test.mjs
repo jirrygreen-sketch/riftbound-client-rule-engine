@@ -5,6 +5,7 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/demon-shade.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -36,6 +37,10 @@ test("Demon Shade identity, ruleset, status and printed text (byte-for-byte)", (
   assert.match(program.judgeReason, /RIFT-357/);
   assert.match(program.judgeReason, /RIFT-358/);
   assert.match(program.judgeReason, /RIFT-359/);
+  // RIFT-357 is named as the landed contract that the destination is authored
+  // against; the real gap is the missing candidate source.
+  assert.match(program.judgeReason, /Location choice has no options/);
+  assert.doesNotMatch(program.judgeReason, /依赖 RIFT-357/);
   assert.doesNotMatch(program.judgeReason, /RIFT-(90|91|120|257)/);
   // The catalog text glues "battlefield.Give" together; sourceText keeps it.
   assert.equal(program.sourceText, SOURCE_TEXT);
@@ -63,14 +68,20 @@ test("Demon Shade structure: [Hidden], printed cost, and the two exclusive modes
   assert.equal(grantBranch.body.length, 1);
 
   // Move it to an open battlefield (170.11.c): targeted friendly unit and the
-  // descriptive destination marker for the missing runtime Location selector.
+  // merged runtime Location selector with the open predicate.
   assert.equal(moveInstruction.op, "effect.move");
   assert.deepEqual(moveInstruction.args.objects, {
     kind: "constant",
     value: { target: "demon-shade.moved-unit" }
   });
-  assert.equal(moveInstruction.args.to.value.kind, "destination-selector");
-  assert.equal(moveInstruction.args.to.value.filter.occupied, false);
+  assert.deepEqual(moveInstruction.args.to, {
+    kind: "location",
+    value: {
+      kind: "choose",
+      id: "demon-shade.open-battlefield",
+      filter: { type: "battlefield", occupied: false, controlled: false }
+    }
+  });
   assert.deepEqual(moveInstruction.targets, [
     {
       id: "demon-shade.moved-unit",
@@ -101,10 +112,39 @@ test("Demon Shade structure: [Hidden], printed cost, and the two exclusive modes
   ]);
 });
 
-test.todo(
-  "Demon Shade: 'an open battlefield' (CR 170.11.c) is a runtime Location choice and needs the runtime " +
-    "Location selector plus move restrictions — RIFT-357"
-);
+test("Demon Shade: the open-battlefield destination really resolves through the merged location selector", () => {
+  // 170.11.c: "open" means the Battlefield is unoccupied and uncontrolled. The
+  // merged Location selector already evaluates that predicate (it offers each
+  // candidate Battlefield the state knows about), and the merged effect.move
+  // bridge resolves the Expr before submitting the relocation.
+  const occupied = world()
+    .player("A").player("B")
+    .unit("mover", { owner: "A", controller: "A", location: { type: "base", player: "A" } })
+    .unit("occupant", { owner: "B", location: { type: "battlefield", id: "bf-occupied" } })
+    .build();
+  const scoped = occupied.clone({ sourceSnapshot: occupied.getObject("mover") });
+  scoped.setTargets("demon-shade.moved-unit", [occupied.ref("mover")]);
+
+  // A Battlefield that has a Unit on it is not open, so the choice has no
+  // option: the merged resolver blocks instead of moving to the wrong place.
+  assert.throws(
+    () => resolveChainBody([{ ...moveInstruction, targets: undefined }], scoped),
+    /Location choice has no options/
+  );
+  assert.deepEqual(scoped.getObject("mover").location, { type: "base", player: "A" });
+
+  // Without an unoccupied Battlefield among the known locations the merged
+  // candidate source yields nothing: the interpreter never guesses a location.
+  const noFields = world()
+    .unit("mover", { owner: "A", controller: "A", location: { type: "base", player: "A" } })
+    .build();
+  const scopedNoFields = noFields.clone({ sourceSnapshot: noFields.getObject("mover") });
+  scopedNoFields.setTargets("demon-shade.moved-unit", [noFields.ref("mover")]);
+  assert.throws(
+    () => resolveChainBody([{ ...moveInstruction, targets: undefined }], scopedNoFields),
+    /Location choice has no options/
+  );
+});
 
 test.todo(
   "Demon Shade: 'Give it [Ganking] this turn' needs the end-of-turn continuous.grant-keyword effect (CR 810, " +

@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
+import { queryLocationCandidates } from "../../../../engine-core/dist/target/location/index.js";
 import program from "../../../dist/cards/ogn/herald-of-the-arcane.js";
 // card-dsl has no dependency edge on engine-core (engine-core depends on
 // card-dsl), so golden execution loads the built engine through its workspace
@@ -27,7 +30,8 @@ test("herald identity: canonicalCardId, ruleset, judge-required status and verba
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /355\.2/);
-  assert.match(program.judgeReason, /RIFT-357/);
+  assert.match(program.judgeReason, /Finalize/);
+  assert.match(program.judgeReason, /LocationState/);
   assert.equal(
     program.sourceText,
     ":rb_energy_1:, :rb_exhaust:: Play a 1 :rb_might: Recruit unit token."
@@ -49,7 +53,7 @@ test("herald structure: action-speed activated ability with the printed cost and
   // the play action take it over.
   assert.deepEqual(instruction.args.mode, { kind: "constant", value: "play" });
   // No destination argument: the default valid-location choice (CR 355.2)
-  // comes from the missing target.location piece; a fixed Base would delete the
+  // still needs the token Finalize bridge; a fixed Base would delete the
   // printed Battlefield option.
   assert.equal(instruction.args.location, undefined);
   assert.equal(instruction.args.target, undefined);
@@ -68,7 +72,7 @@ test("herald golden: the Recruit token definition and play path work through the
       amount: instruction.args.amount,
       mode: instruction.args.mode,
       // The golden run supplies the concrete Base that the missing
-      // Finalize-time legal-location choice would pick; the program itself
+      // token Finalize-time legal-location bridge would pick; the program itself
       // keeps the choice open (judgeReason).
       location: { kind: "constant", value: baseA }
     },
@@ -97,6 +101,36 @@ test("herald golden: the Recruit token definition and play path work through the
 
 test.todo(
   "herald default destination: at Finalize choose the controller's Base or a Battlefield they " +
-    "control (CR 355.2/355.2.a, 440.2.b.1, 420.3.b.2); needs a runtime legal-location set for " +
-    "the controller's Base and controlled Battlefields (RIFT-357)."
+    "control (CR 355.2/355.2.a, 440.2.b.1, 420.3.b.2); needs the production " +
+    "token Finalize bridge to supply all controlled (including empty) Battlefield states and consume a location choice."
 );
+
+test("Herald of the Arcane supported cost: pays one Energy and exhausts this legend", () => {
+  const initial = world().player("A", { energy: 2 })
+    .unit("herald", { types: ["legend"], location: baseA, energy: null, power: null }).build();
+  const kernel = initial.clone({ sourceSnapshot: initial.getObject("herald") });
+  const plan = buildCostPlan(kernel, { id: "herald-activation", cost: ability.cost });
+  const payment = payCostPlan(kernel, plan);
+  assert.equal(payment.paid, true);
+  assert.equal(plan.total.energy, 1);
+  assert.deepEqual(plan.total.power, []);
+  assert.equal(kernel.player("A").energy, 1);
+  assert.equal(kernel.getObject("herald").exhausted, true);
+  assert.deepEqual(payment.actions.map(entry => entry.action.type), ["pay", "exhaust"]);
+  assert.deepEqual(plan.printed, { energy: null, power: null });
+});
+
+test("Herald of the Arcane supported location candidates include empty controlled fields when states are supplied", () => {
+  const kernel = world().build();
+  const controlled = { type: "battlefield", id: "controlled-empty" };
+  const enemy = { type: "battlefield", id: "enemy" };
+  const open = { type: "battlefield", id: "open" };
+  const candidates = queryLocationCandidates(kernel, { controller: "controller" }, {
+    players: ["A", "B"], locations: [
+      { ref: controlled, controller: "A", occupied: false },
+      { ref: enemy, controller: "B", occupied: false },
+      { ref: open, controller: null, occupied: false }
+    ]
+  });
+  assert.deepEqual(candidates, [controlled, baseA]);
+});

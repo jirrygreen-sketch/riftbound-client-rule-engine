@@ -22,15 +22,13 @@ import type { CardProgram } from "../../ir/index.js";
  *   body 只有一条 effect.discard（amount 1，默认弃牌者为 ctx.controller）。
  *
  * 未合入依赖（不近似实现）:
- * - Assault 的 KeywordDef（RIFT-81/264）已合入，但没有运行时消费方把 CardProgram 的
- *   keyword 能力展开（调用 KeywordDef.expand）并注册进图层（RIFT-257 的卡牌程序绑定）。
+ * - CardProgram keyword 展开、card-played trigger 绑定和 effect.discard 均已存在；
+ *   剩余缺口是 Assault 的展开结果在图层中读取攻击身份。
  * - 即使展开接线完成，Assault 2 的展开（"+2 [M] while attacker"）条件读宿主
  *   attacker designation：designation 不在 layers 的 ObjectSnapshot 特征里，
  *   layers/engine.ts 的 conditionMatches 也不求值 compare 条件（未知 kind 按 true），
  *   条件在真实图层计算里既不能生效也不能正确关闭。derived-might 仅覆盖官方目录程序。
- * - 触发 → 进链的卡牌程序接线同样属于 RIFT-257。
- * 依赖：RIFT-257（CardProgram keyword 绑定）、designation 谓词与 compare 条件消费方
- * （RIFT-91 后续）。
+ * 依赖：designation 谓词与 compare 条件消费方，以及 Assault 展开结果的图层消费。
  */
 const chemtechEnforcer = {
   canonicalCardId: "card.hash-ed8cf6c764ed889b192049c35919693d1664dee6da3044cdb42dae8a561a5a59",
@@ -38,10 +36,10 @@ const chemtechEnforcer = {
   status: "judge-required",
   judgeReason:
     "『When you play me, discard 1』可用已合入的 effect.discard（CR 423.1/423.4）并有执行测试；缺口在『[Assault 2]』：" +
-    "KeywordDef（RIFT-81/264，CR 807）已合入，但没有运行时消费方把卡牌程序的 keyword 能力展开（KeywordDef.expand）并注册进图层（RIFT-257）；" +
+    "KeywordDef.expand 与 CardProgram 的 keyword/trigger 绑定均已合入（CR 807）；" +
     "即使接线完成，展开读宿主 attacker designation，而 designation 不在 layers 的 ObjectSnapshot 特征里、layers/engine.ts 的 conditionMatches 不求值 compare 条件" +
     "（未知 kind 按 true），+2 [M] 条件在真实图层计算中无法只在我攻击时生效。derived-might 只覆盖官方目录程序。" +
-    "依赖：RIFT-257（CardProgram keyword 绑定）、designation 谓词与 compare 条件消费方（RIFT-91 后续）。不近似实现。",
+    "依赖：designation 谓词与 compare 条件消费方，以及 Assault 展开结果的图层消费。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "assault", value: 2 },
     {

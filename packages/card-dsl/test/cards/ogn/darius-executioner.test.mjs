@@ -55,6 +55,8 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, sourceText", () =
   assert.match(program.judgeReason, /812\.1\.c/);
   assert.match(program.judgeReason, /HistoryQuery/);
   assert.match(program.judgeReason, /479\.4/);
+  assert.match(program.judgeReason, /exclude:self/);
+  assert.match(program.judgeReason, /excluding:canonicalCardId/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });
@@ -170,11 +172,31 @@ test("golden execution: a source that already left the board is not readied (CR 
 
 test.todo(
   "[Legion] gate on the play trigger (CR 812.1.b.1, 812.1.c): the merged KeywordDef expansion needs a " +
-    "condition.predicate history consumption that excludes this card's own identity (812.1.c)"
+    "condition.predicate-to-trigger consumption using the existing physical-source history exclusion (812.1.c)"
 );
 
 test.todo(
-  "'Other friendly units have +1 [M] here.' (CR 479.4 arithmetic layer, 053/740.1.a scoping): no path registers " +
+  "'Other friendly units have +1 [M] here.' (CR 479.4 arithmetic layer, 053/740.1.a scoping): the static binder does not support " +
     "the static binder and layer filter to support the dynamic controller, sameLocationAs, and exclude anchors, " +
     "so the aura's scope cannot be evaluated as printed"
 );
+
+
+test("Legion supported history: exclude earlier source entries while counting a separate Darius of the same identity", () => {
+  const kernel = createTestWorld();
+  kernel.addObject({ ref: { id: "darius", zoneEntryId: 1 }, cardId: CANONICAL, owner: "A", controller: "A", types: ["unit"] }, "hand");
+  kernel.addObject({ ref: { id: "another-darius", zoneEntryId: 1 }, cardId: CANONICAL, owner: "A", controller: "A", types: ["unit"] }, "hand");
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("darius") });
+  for (const id of ["darius", "another-darius"]) {
+    assert.equal(scoped.perform({ type: "play", object: scoped.ref(id), player: "A" }).status, "done");
+  }
+  assert.equal(scoped.perform({ type: "return-to-hand", object: scoped.ref("darius") }).status, "done");
+  assert.equal(scoped.perform({ type: "play", object: scoped.ref("darius"), player: "A" }).status, "done");
+  const result = runAbilityBody([{
+    id: "legion-history", op: "condition.history",
+    args: { query: { kind: "constant", value: { scope: "turn", action: "play", player: "A", exclude: "self" } } }
+  }], scoped);
+  assert.equal(result.status, "executed");
+  assert.equal(result.linkedValues["legion-history.count"], 1);
+  assert.equal(scoped.history({ action: "play", player: "A" }), 3);
+});

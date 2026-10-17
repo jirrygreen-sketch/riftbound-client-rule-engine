@@ -16,7 +16,7 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * status: judge-required —— 效果本体（effect.damage + 目标锚点）已合入，但时点本身仍没有
  * 已合入的发射方：`attack-declared` 只出现在封闭枚举 events/timing-points.ts 与
- * events/trigger-spec.ts；RIFT-124 合入的 combat/flow.ts 在 combat start/role designation
+ * events/trigger-spec.ts；combat/flow.ts 在 combat start/role designation
  * 与 simultaneous damage 事务处仍显式抛出 TurnCombatBlockedError（combat-start-transaction /
  * simultaneous-damage-transaction），docs/rules/timing-point-producers.md 也把
  * attack-declared/defense-declared 记为「待后续」。触发无法在真实内核中发生，故不标 executable。
@@ -27,7 +27,7 @@ export default {
   status: "judge-required",
   judgeReason:
     "effect.damage 与目标锚点均已合入，但攻击时点 `attack-declared` 没有已合入的发射方：该 id 只" +
-    "存在于封闭枚举 events/timing-points.ts 与 events/trigger-spec.ts。RIFT-124 合入的 combat/flow.ts 已有战斗结构，" +
+    "存在于封闭枚举 events/timing-points.ts 与 events/trigger-spec.ts。combat/flow.ts 已有战斗结构，" +
     "但 combat start/role designation（attack-declared/combat-start）与 simultaneous damage 事务仍显式抛出 " +
     "TurnCombatBlockedError（combat-start-transaction / simultaneous-damage-transaction），docs/rules/timing-point-producers.md " +
     "亦把 attack-declared/defense-declared 记为「待后续」；战斗角色的原子时点波尚未实现。" +

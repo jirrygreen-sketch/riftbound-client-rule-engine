@@ -32,6 +32,25 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *    sameLocationAs 锚点。
  * 4. 触发订阅还需要 CardProgram → TriggerRegistration 绑定（RIFT-257）。
  * 依赖：attack-declared / might-changed 的生产接线、事件载荷谓词与 RIFT-257。
+ * status 判定（README 第 2 节）：judge-required（复核 2026-10-17）。缺口（不近似实现）：
+ * 1. 第二段触发订阅在绑定阶段就失败：「here」用的 sameLocationAs 锚点被 RIFT-257 的
+ *    programs/filters.ts 判 “Unsupported filter field sameLocationAs”，实测
+ *    registerProgramTriggers 抛 ProgramBindingError。该锚点在 Disarm 展开的 TargetSpec
+ *    里同样会被拒（translateInstructionTargets 走同一 translateObjectFilter）。
+ * 2. 即便锚点可表达，might-changed 也命中不了：该时点不在 EVENT_PATTERN_TYPES
+ *    （events/trigger-spec.ts），会在 pipeline.registerTrigger 的 assertTriggerSpec
+ *    处被判 invalid-event-type；且 events/producers/might-change.ts 的
+ *    deriveMightChangedEmissions 没有任何生产调用方在图层重算后把 before/after 交给它并入
+ *    唯一事件管线（docs/rules/timing-point-producers.md 记接入点待接线）。
+ * 3. “reduce … by 1 or more” 的幅度过滤没有求值路径：EventPattern.details 只比较字面标量，
+ *    无法比较 previousMight/currentMight 的大小；而 RIFT-257 的 programs/filters.ts 会把
+ *    details 交给 translateObjectFilter，只认
+ *    objectId/cardId/type/controller/owner/zone/location/states/tags/characteristics，
+ *    顶层 details 直接抛 ProgramBindingError。
+ * 4. Disarm 展开订阅的 attack-declared 没有生产者：combat/flow.ts 的战斗开始/角色指定仍抛
+ *    combat-start-transaction（docs/rules/timing-point-producers.md 记 attack-declared 为待后续）。
+ * RIFT-257 的 CardProgram → TriggerRegistration 绑定与 RIFT-267 的 Disarm KeywordDef、
+ * RIFT-258 的 continuous.might 均已合入，不再是缺口。
  */
 
 const abilities: Ability[] = [
@@ -60,22 +79,17 @@ const abilities: Ability[] = [
         id: "ahri-confident.give-me-might",
         // 临时 Might 修改（arithmetic 层 + 本回合结束到期）：continuous.might（RIFT-258）
         // 自行注册 arithmetic 层 spec（layer 不是本原语的参数）。
+        // “give me” 的“me”是能力宿主，用契约 3.6 的 appliesTo: "self" 简写
+        // （与已合入 sfd/harpoon-squad 同一形状）；不用 target 指向一个
+        // filter 里塞 object: "self" 的假 TargetSpec——那既不是符号选择器，
+        // 也会被 RIFT-257 的 translateObjectFilter 判 “Unsupported filter field object”。
         op: "continuous.might",
         args: {
           mode: { kind: "constant", value: "add" },
           amount: { kind: "constant", value: 1 },
           duration: { kind: "constant", value: "end-of-turn" },
-          target: { kind: "constant", value: "ahri-confident.self" }
+          appliesTo: { kind: "constant", value: "self" }
         },
-        targets: [
-          {
-            id: "ahri-confident.self",
-            filter: { type: "unit", object: "self" },
-            min: 1,
-            max: 1,
-            selection: "one"
-          }
-        ]
       }
     ]
   }
@@ -87,15 +101,21 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "Disarm KeywordDef（RIFT-267 / effects/keywords/Disarm.ts）与 continuous.might（RIFT-258）已合入，" +
-    "展开体与 +1 [M] 的 arithmetic 图层注册都已真实执行，但整卡仍不能 executable：" +
-    "(1) Disarm 展开订阅的 attack-declared 没有生产者——combat/flow.ts 在战斗开始/角色指定处仍抛 " +
-    "combat-start-transaction（docs/rules/timing-point-producers.md 记 attack-declared 待后续）；" +
-    "(2) might-changed 只有 producers/might-change.ts 的纯生产函数，没有任何模块在图层重算后调用它" +
-    "并入事件管线（同文档：接入点待接线）；(3)「reduce … by 1 or more」的过滤没有求值路径：" +
-    "EventPattern.details 只比较字面标量，不能比较 previousMight/currentMight 的大小，触发匹配器" +
-    "也不消费 sameLocationAs 锚点；(4) 订阅还需要 CardProgram → TriggerRegistration 绑定（RIFT-257）。" +
-    "不近似实现：不使用 Buff counter 代替 Might 修改。",
+    "(1)「here」不可表达：触发过滤的 sameLocationAs 锚点被 RIFT-257 的 translateObjectFilter 判 " +
+    "Unsupported filter field sameLocationAs，实测 registerProgramTriggers 抛 ProgramBindingError；" +
+    "Disarm 展开的 TargetSpec 走同一 translateObjectFilter，也会被同一原因拒绝。" +
+    "(2) might-changed 时点不可订阅：它不在 EVENT_PATTERN_TYPES（events/trigger-spec.ts），" +
+    "pipeline.registerTrigger 的 assertTriggerSpec 会判 invalid-event-type；events/producers/" +
+    "might-change.ts 的 deriveMightChangedEmissions 也仍无生产调用方（图层重算后没有把 before/after " +
+    "并入事件管线的接线，docs/rules/timing-point-producers.md 记接入点待接线）。" +
+    "(3)「reduce … by 1 or more」的幅度过滤没有求值路径：EventPattern.details 只比较字面标量，" +
+    "无法比较 previousMight/currentMight 大小；RIFT-257 的 programs/filters.ts 又把 details 交给 " +
+    "translateObjectFilter（只认 objectId/cardId/type/controller/owner/zone/location/states/tags/" +
+    "characteristics），顶层 details 直接抛 ProgramBindingError。" +
+    "(4) Disarm 展开订阅的 attack-declared 没有生产者——combat/flow.ts 在战斗开始/角色指定处仍抛 " +
+    "combat-start-transaction（同文档记 attack-declared 待后续）。" +
+    "RIFT-267 的 Disarm KeywordDef、RIFT-258 的 continuous.might 与 RIFT-257 的 CardProgram 绑定" +
+    "均已合入，不再是缺口。不近似实现：不使用 Buff counter 代替 Might 修改。",
   abilities,
   sourceText:
     "[Disarm] (When I attack, give an enemy unit here -1 :rb_might: this turn.)\n" +

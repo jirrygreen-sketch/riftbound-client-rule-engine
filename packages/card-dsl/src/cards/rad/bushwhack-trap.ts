@@ -37,9 +37,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *    layers 也没有读写 Facedown Zone 上限的消费方。
  * 3. 「you or an ally control this battlefield」需要按 190.6 解析战场控制者并支持
  *    队友口径；战场上「this battlefield」的指代（053.3）在静态 IR 里没有已合入的
- *    地点锚点（target.location 一族未合入）。
+ *    地点锚点的运行期消费方。
  * 依赖：Facedown Zone 区域模型与 Hide 动作、
- * 地点锚点与队友控制条件（RIFT-357 / RIFT-359）。
+ * 地点锚点与队友控制条件仍缺运行期消费方。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "deploy" },
@@ -73,8 +73,8 @@ export default {
     "Hide 动作，而契约 ZoneId 没有 facedown-zone（同 effect.stun.ts 记录的缺口；card-hidden 时点也没有接入），" +
     "layers 也没有读写上限的消费方；" +
     "(3) 「you or an ally control this battlefield」（190.6.a/190.6.d、053.3）需要战场控制者与队友口径的地点锚点，" +
-    "target.location 一族未合入。另注：本印刷是 Unit 且 might = null（无印刷值），程序保留 null 与 Device 标签，不改数据。" +
-    "依赖：Facedown Zone 区域模型与 Hide 动作、地点锚点与队友控制条件（RIFT-357 / RIFT-359）。",
+    "另注：本印刷是 Unit 且 might = null（无印刷值），程序保留 null 与 Device 标签，不改数据。" +
+    "依赖：Facedown Zone 区域模型与 Hide 动作、地点锚点与队友控制条件的运行期消费方。",
   abilities,
   sourceText:
     "[Deploy] (Play this only to a battlefield. When an opponent holds here, kill this.)\n" +

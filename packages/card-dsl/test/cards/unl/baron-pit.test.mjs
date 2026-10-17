@@ -32,7 +32,11 @@ test("unl-t01 Baron Pit: identity, status, judgeReason and verbatim sourceText",
   assert.match(program.judgeReason, /449\.1/);
   assert.match(program.judgeReason, /zones\/movement/);
   assert.match(program.judgeReason, /permission\.routes/);
-  assert.match(program.judgeReason, /RIFT-357/);
+  // Second-sweep refresh: the location selector (RIFT-357) is merged; the
+  // remaining blocker is the Standard Move endpoint consumer.
+  assert.match(program.judgeReason, /destinationLocationId/);
+  assert.match(program.judgeReason, /routeKinds/);
+  assert.doesNotMatch(program.judgeReason, /位置选择 RIFT-357|RIFT-357 的/);
   // The reminder parenthetical is part of the printed text even though it adds
   // no ability (135.2.d.1 / 135.2.d.3).
   assert.equal(program.sourceText, SOURCE_TEXT);
@@ -96,4 +100,27 @@ test("Baron Pit: the production static binder registers the declared route and p
   assert.deepEqual(movement(f.engine.layers.registry, object.ref, object, "A").permissions, []);
 });
 
-test.todo("baron-pit: match destination:self to this battlefield in Standard Move, without granting routes to other battlefields (CR 187.9/449.1/449.2; RIFT-357)");
+test("Baron Pit: the merged movement query reads the route but still gates Battlefield→Battlefield on Ganking alone (144.4.c)", () => {
+  // Evidence for the remaining gap: movement() exposes the registered
+  // destination:self permission, yet the Standard Move legality check reads only
+  // canGank for a Battlefield→Battlefield move, so this permission grants no
+  // usable move and the card cannot be called executable.
+  const f = fixture({ cards: [
+    { id: "pit", cardId: CANONICAL_ID, types: ["battlefield"], energy: null, power: null, zone: "board", location: { type: "battlefield", id: "pit" } },
+    { id: "traveller", types: ["unit"], might: 3, zone: "board", location: { type: "battlefield", id: "elsewhere" } }
+  ] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("pit"), to: "board", location: { type: "battlefield", id: "pit" } });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("traveller"), to: "board", location: { type: "battlefield", id: "elsewhere" } });
+  createEngineStaticBinder(f.engine).bindStatic(ability, f.kernel.getObject("pit"));
+  const object = f.kernel.getObject("traveller");
+  const view = movement(f.engine.layers.registry, object.ref, object, "A");
+
+  assert.deepEqual(view.permissions.map(permission => permission.endpoints),
+    [{ source: "anywhere", destination: "self" }]);
+  // The route carries the whole permission, so canGank stays false: the card is
+  // not Ganking and the endpoint-aware consumer is the missing half.
+  assert.equal(view.canGank, false);
+  assert.equal(view.battlefieldToBattlefield, false);
+});
+
+test.todo("baron-pit: consume the destination:self endpoint (source anywhere) in the Standard Move legality check, without granting routes to other battlefields (CR 187.9/449.1/449.2)");

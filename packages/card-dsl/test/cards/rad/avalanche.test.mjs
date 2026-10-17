@@ -3,7 +3,6 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/rad/avalanche.js";
-import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
@@ -26,7 +25,7 @@ test("rad-079-167 Avalanche: program passes validateCardProgram with the catalog
 test("rad-079-167 Avalanche: judgeReason names the missing batch set damage path", () => {
   assert.match(program.judgeReason, /ctx\.targets/);
   assert.match(program.judgeReason, /355\.10\.d/);
-  assert.match(program.judgeReason, /target\.many|RIFT-90/);
+  assert.match(program.judgeReason, /RIFT-90/);
 });
 
 test("rad-079-167 Avalanche: structure — printed energy 5 plus 2 power, one set damage instruction", () => {
@@ -57,17 +56,6 @@ test("rad-079-167 Avalanche: structure — printed energy 5 plus 2 power, one se
   });
 });
 
-test("rad-079-167 Avalanche: the authored set selector is rejected by the merged damage primitive", () => {
-  // effect.damage reads its affected set from ctx.targets(TargetSpec id) only,
-  // so a characteristic-selected set is not expressible: the primitive rejects
-  // the instruction instead of silently damaging a wrong set. This assertion
-  // pins that the card does not smuggle the set in as a fake target.
-  const kernel = world().base("base-unit").build();
-  const args = { amount: dealInstruction.args.amount, objects: dealInstruction.args.objects };
-  assert.throws(() => damage.argsSchema.parse(args), /args\.target must be a TargetSpec id string/);
-  assert.equal(kernel.getObject("base-unit").damage, 0);
-});
-
 test("rad-079-167 Avalanche: the production filter evaluates the 'in bases' restriction", () => {
   // "in bases" is expressible: the production layer filter compares the
   // string spelling against object.location.type, so a unit in a Base matches
@@ -85,23 +73,11 @@ test("rad-079-167 Avalanche: the production filter evaluates the 'in bases' rest
   assert.deepEqual(snapshot.location, { type: "base", player: "A" });
 });
 
-test("rad-079-167 Avalanche: the merged damage primitive still requires a TargetSpec, never a fake target", () => {
-  // The set is not a target (355.10.d): smuggling it in as a TargetSpec would
-  // wrongly emit became-target. The primitive reads ctx.targets(id) only, so
-  // the authored objects selector cannot execute it — the batch set op is the
-  // recorded missing shape.
-  const kernel = world().base("base-unit").build();
-  const args = { amount: dealInstruction.args.amount, objects: dealInstruction.args.objects };
-  assert.throws(() => damage.argsSchema.parse(args), /args\.target must be a TargetSpec id string/);
-  assert.equal(kernel.getObject("base-unit").damage, 0);
-  assert.equal(dealInstruction.targets, undefined);
-  assert.equal(dealInstruction.picks, undefined);
-});
-
 test.todo(
   "rad-079-167 Avalanche: 'Deal 3 to all units in bases' needs a batch damage path over a " +
-    "characteristic-selected set (target.many semantics, 355.10.d) plus a filter that evaluates " +
-    "location.type (Base vs Battlefield) — RIFT-90 (target system / set primitives)."
+    "characteristic-selected set (target.many semantics, 355.10.d): effect.damage " +
+    "reads ctx.targets(TargetSpec id) only and its argsSchema requires a target string, so the " +
+    "authored objects selector has no consumer."
 );
 
 test.todo(

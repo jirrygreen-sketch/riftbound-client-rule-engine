@@ -19,11 +19,18 @@ import type { CardProgram } from "../../ir/index.js";
  * 卡牌只声明关键词（契约 3.1/3.7、README 第 5 节）；展开由
  * effects/keywords/Accelerate.ts 负责。
  *
- * status = judge-required：Accelerate 展开（静态 accelerate.cost 声明 + 入场就绪的
- * 替代）与费用计划的 optionalAdditional accelerance 分支、替代管线（RIFT-260）都已合入，
- * 费用计划的 accelerate 组件由 cost/cost-plan.ts 生成（固定 [1]+1 Power），chain 的就绪
- * 进场也读 selectedAdditional；缺少的是把卡牌 keyword 能力自动接进打出流程的生产方
- * （RIFT-257 程序绑定 / RIFT-261 费用原语），见 judgeReason。
+ * status = judge-required（复核 2026-10-17，第三轮 M2 覆盖率复核）：
+ * - 已合入并真实执行：Accelerate 的展开（effects/keywords/Accelerate.ts：accelerate.cost
+ *   静态声明 + 入场就绪替代）、替代管线（RIFT-260）、费用原语的 cost.pay/cost.modify
+ *   （RIFT-261，已合入 HEAD）、cost/cost-plan.ts 的 optionalAdditional[accelerate] 分支
+ *   （固定 [1] + 1 Power）、以及 chain/engine.ts 读 selectedAdditional 的就绪进场。
+ * - 仍缺（生产方）：没有任何已合入路径把卡牌的 keyword 声明变成费用计划的
+ *   optionalAdditional 组件。实测 describePlay（programs/play.ts）对本卡返回 cost: undefined、
+ *   body: []，浏览器/服务端拿到的费用计划里没有 accelerate 组件；programs/play.ts 的
+ *   translateCost 对 additional/keyword/optional 等费用字段直接 judgeRequired。展开出的
+ *   accelerate.cost 静态能力也进不了图层：programs/statics.ts 的 layerFor 抛
+ *   “Static ability kind accelerate.cost has no layer mapping”。因此 805.1.b.1（Fury 域力量匹配）
+ *   与 805.2.b/805.6（延迟替代）在真实对局中不会自动生效。接线不属本卡 write scope。
  */
 const legionRearguard = {
   canonicalCardId:
@@ -31,12 +38,14 @@ const legionRearguard = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Accelerate 的展开文件（effects/keywords/Accelerate.ts）与替代管线（RIFT-260）已合入，费用计划的 " +
-    "optionalAdditional[accelerate] 分支也能生成 [1] + 1 Power 的组件（cost/cost-plan.ts）且 chain 就绪进场读 selectedAdditional；" +
-    "但合并内核没有任何生产方把卡牌 keyword 能力接进打出流程：没有由 keyword 声明自动生成 { kind: 'accelerate' } " +
-    "费用组件的路径（卡牌程序绑定 RIFT-257、费用原语 RIFT-261），accelerate.cost 静态效果无消费方，" +
-    "805.1.b.1（Fury 域力量匹配）与 805.2.b/805.6（延迟替代）因此不会自动生效。" +
-    "golden 已用费用计划 + 替代管线真实执行声明出的 Accelerate 流程；缺少的是接线本身，不属于本卡 write scope。",
+    "缺 keyword → 费用计划的生产方：Accelerate 的展开与替代管线（RIFT-260）、费用原语 cost.pay/cost.modify" +
+    "（RIFT-261，已合入 HEAD）、cost/cost-plan.ts 的 optionalAdditional[accelerate]（[1] + 1 Power）与 " +
+    "chain/engine.ts 读 selectedAdditional 的就绪进场都已合入；但没有已合入路径把卡牌 keyword 声明变成该组件。" +
+    "实测 programs/play.ts 的 describePlay 对本卡返回 cost: undefined、body: []（translateCost 对 " +
+    "additional/keyword/optional 费用字段直接 judgeRequired），展开的 accelerate.cost 静态能力也被 " +
+    "programs/statics.ts 以 “Static ability kind accelerate.cost has no layer mapping” 拒绝，" +
+    "故 805.1.b.1（Fury 域力量匹配）与 805.2.b/805.6（延迟替代）不会自动生效。接线不属本卡 write scope。" +
+    "golden 已用费用计划 + 替代管线真实执行声明出的 Accelerate 流程（805.1.b/805.6）。不近似实现。",
   abilities: [{ kind: "keyword", keyword: "accelerate" }],
   sourceText:
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_fury: as an additional cost to have me enter ready.)"

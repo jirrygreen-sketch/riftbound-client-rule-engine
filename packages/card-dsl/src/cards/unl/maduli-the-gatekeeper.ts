@@ -27,19 +27,16 @@ import type { CardProgram } from "../../ir/index.js";
  *   （143.2.a 的有效 Might；467.2.a 一类的 Might 汇总由 355.4.a / 451.1 的合法性检查承担）。
  *
  * status = judge-required（缺口不近似实现）：
- * - 目的地“occupied enemy battlefield”需要运行期的 Location 选择（筛出被占据的敌方战场并择一），
- *   合并 IR 没有运行期 Location 选择器（target.location 未合入），effect.move 的 to 只接受静态
- *   LocationRef、controller-base 或静态候选列表；即便选定战场，451.1 的“我的 Might 是否大于该地
- *   敌方单位总 Might”也需要按 143.2.a 汇总比较（同 rad/cataclysm 记录同一缺口）。卡内保留描述性
- *   目的地标记，真实执行绝不落到错误地点（effect.move 会拒绝该形状）。
+ * - “occupied enemy battlefield”的运行期 Location 选择已经可由 LocationExpr 的 choose/filter
+ *   表达并交给 effect.move；但 451.1 的“我的 Might 是否大于该地敌方单位总 Might”仍需要按 143.2.a
+ *   汇总比较，当前地点选择器没有把该动态条件接入候选合法性或结算门控。
  * - “I can't be readied.” 的 continuous.restrict 原语、static binder 和 restriction 查询已经合入，
  *   但 chain 的 canAct 与 416/315.1.b.1 的重置流程仍不读取该禁止，所以这条禁令尚未成为
  *   真实的 Ready/Awaken 规则约束。
  * - 已合入且被 golden 真实执行的是启动费用：buildCostPlan + payCostPlan 用 1 点 Chaos 力量
  *   真实支付（并按 Duel 资源分配验证 415.3/415.5 式的“付得出”），未提供 Chaos 时如实拒绝。
  *
- * 依赖：运行期 Location 选择与目标/目的地计划、Might 汇总比较，以及 Ready/Awaken 对
- * continuous.restrict 的消费。
+ * 依赖：目的地的 Might 汇总比较，以及 Ready/Awaken 对 continuous.restrict 的消费。
  */
 export default {
   canonicalCardId:
@@ -47,15 +44,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入：(1) 「Move me to an occupied enemy battlefield」的目的地是运行期 Location 选择" +
-    "（170.11.a 的 occupied + 敌方控制；355.4/355.4.a 要求移动前选定），合并 IR 没有运行期 Location 选择器" +
-    "（target.location 未合入），effect.move 的 to 只接受静态 LocationRef / controller-base / 静态候选列表；" +
-    "「my Might is greater than the total Might of enemy units there」还需要按 143.2.a 汇总比较该地敌方单位总 Might。" +
-    "本卡只保留描述性目的地标记，effect.move 会拒绝它而不是落到错误地点（同 rad/cataclysm 的记录）。" +
+    "两处依赖未合入：(1) 「Move me to an occupied enemy battlefield」的 LocationExpr choose/filter 已合入，" +
+    "可以筛出被占据且由对手控制的战场并交给 effect.move；但「my Might is greater than the total Might " +
+    "of enemy units there」仍需要按 143.2.a 汇总比较该地敌方单位总 Might，当前地点选择器没有动态条件门控" +
+    "（170.11.a / 355.4.a）。" +
     "(2) 「I can't be readied.」的 continuous.restrict 原语、static binder 和 restriction 查询已经合入，" +
     "但 chain 的 canAct 与 416/315.1.b.1 的重置流程仍不读取该禁止。" +
     "已合入且由 golden 真实执行的是冒号前的 1 点 Chaos 力量费用（204.1.b；buildCostPlan + payCostPlan，缺 Chaos 时如实拒绝）。" +
-    "依赖：运行期 Location 选择、Might 汇总比较，以及 Ready/Awaken 对 restriction 查询的消费。不近似实现。",
+    "依赖：目的地的 Might 汇总比较，以及 Ready/Awaken 对 restriction 查询的消费。不近似实现。",
   abilities: [
     {
       kind: "static",
@@ -83,15 +79,15 @@ export default {
           args: {
             // “me” 是宿主自身（355.10.d：程序化指定，不是目标选择）。
             objects: { kind: "constant", value: "self" },
-            // 描述性目的地标记，不是可执行 LocationRef：effect.move 的 destination() 只接受
-            // base/battlefield 字面量或候选列表，该形状会被直接拒绝（fail-closed），不会把
-            // 单位移到错误地点（见 judgeReason）。
+            // 170.11.a / 355.4：先从运行期地点状态中选择一个被占据且由对手控制的战场。
+            // “我的 Might > 该地敌方单位总 Might”的动态门控仍由 judgeReason 记录，
+            // 不能在这里近似成无条件移动。
             to: {
-              kind: "constant",
+              kind: "location",
               value: {
-                kind: "destination-selector",
-                filter: { type: "battlefield", occupied: true, controller: "opponent" },
-                condition: "my-might-greater-than-total-enemy-might-there"
+                kind: "choose",
+                id: "maduli-the-gatekeeper.destination",
+                filter: { type: "battlefield", occupied: true, controller: "opponent" }
               }
             },
             amount: { kind: "constant", value: 1 },

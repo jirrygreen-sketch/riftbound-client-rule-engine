@@ -29,10 +29,13 @@ test("rad-153-167 Agony's Embrace: identity, status, judgeReason, and verbatim s
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  // The gap must stay concrete: the missing action/zone/selector and the owning tasks.
+  // The gap must stay concrete: the missing action/zone/event fact and the missing
+  // turn-player predicate, each with the merged interface that rejects it.
   assert.match(program.judgeReason, /Hide 动作/);
-  assert.match(program.judgeReason, /Facedown Zone/);
-  assert.match(program.judgeReason, /RIFT-84/);
+  assert.match(program.judgeReason, /facedown-zone/);
+  assert.match(program.judgeReason, /355\.9\.a\.3/);
+  assert.match(program.judgeReason, /Unsupported filter field details/);
+  assert.match(program.judgeReason, /notYourTurn/);
   assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
@@ -42,9 +45,8 @@ test("rad-153-167 Agony's Embrace: once-per-turn card-played trigger for this co
   assert.equal(ability.kind, "triggered");
   // CR 383.4.a / timing point "card-played": a card was played.
   assert.equal(ability.trigger.at, "card-played");
-  // "you play" = this legend's controller; "from face down" has no payload field in
-  // the merged card-played event, so the declared details.fromFaceDown marker makes
-  // the filter fail closed (see judgeReason) instead of matching ordinary plays.
+  // "you play" = this legend's controller; "from face down" stays declared as the
+  // details.fromFaceDown premise (see judgeReason) instead of matching ordinary plays.
   assert.deepEqual(ability.trigger.filter, {
     event: "card-played",
     player: "self",

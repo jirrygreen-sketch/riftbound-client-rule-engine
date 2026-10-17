@@ -39,11 +39,9 @@ const brazenBuccaneer = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "『you may discard 1 as an additional cost. If you do, reduce my cost by [2]』是可选附加费用 + 由该费用授予的减费" +
-    "（CR 356.2.b.1、356.4、356.4.f.1）：buildCostPlan 已能表达 optionalAdditional（discard 支付）与按组件绑定的减费" +
-    "（本卡测试真实执行该费用计划并验证支付后总费用为 4、拒绝时保持 6），但 play Finalize 尚未消费 " +
-    "CardProgram 的 static cost.additional / cost.modify 声明；CostDiscount 也没有『仅在该可选附加费用被选择时才应用』的 " +
-    "paid-proof gate（356.4.f.1），卡面声明的已付凭证无法回传。依赖：static cost declarations → play CostPlan/Finalize 的绑定。不近似实现。",
+    "缺 static cost.additional/cost.modify 到 play CostPlan/Finalize 的适配：需要询问可选弃牌费用并把 " +
+    "card-in-controller-hand 解析为当前手牌的非目标费用选择（CR 356.2.b.1）。还缺 grantedBy 到 selectedAdditional 的 " +
+    "paid-proof gate（356.4.f.1），使总费用只在选择支付该附加费用时减 2（356.4）；不能把手工附加/移除 discount 当作声明已执行。",
   abilities: [
     {
       kind: "static",

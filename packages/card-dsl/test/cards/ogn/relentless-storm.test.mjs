@@ -29,8 +29,6 @@ test("ogn-249-298 Relentless Storm: identity, status, and verbatim sourceText", 
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /Mighty/);
   assert.match(program.judgeReason, /706/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-264/);
 });
 
 test("ogn-249-298 Relentless Storm: optional card-played trigger with the [Mighty] marker", () => {
@@ -111,13 +109,11 @@ test("ogn-249-298 Relentless Storm: the channel sub-instruction executes with th
 
 test.todo(
   "ogn-249-298: evaluate the [Mighty] trigger predicate (CR 706–709, Might >= 5) when the unit is played " +
-    "— the Mighty KeywordDef (RIFT-264) is merged but no consumer evaluates the marker inside the trigger filter; " +
-    "card-program trigger registration additionally needs RIFT-257"
+    "— the Mighty KeywordDef is merged but no consumer evaluates the marker inside the trigger filter"
 );
 
 test.todo(
   "ogn-249-298: pay the leading “exhaust me” cost during Finalize (404.1.b.1 / 415.4) and remove the trigger " +
     "from the chain when the source is already exhausted — TriggeredAbility has no cost field and no merged " +
-    "path turns the card program's leading [do X] into a trigger cost; the card-program trigger registration " +
-    "additionally needs RIFT-257"
+    "path turns the card program's leading [do X] into a trigger cost"
 );

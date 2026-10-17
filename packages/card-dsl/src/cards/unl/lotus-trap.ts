@@ -23,8 +23,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   addContinuous / registerDelayedTrigger），damage GameAction 没有倍率钩子。
  * - [Hidden] 的 cost.hidden 展开没有消费方：Hide 行动、facedown 区域以及从 facedown 免费/受限打出
  *   的流程都没有接入。
- * - [Reaction] 的 continuous.timing 没有图层/链侧消费方，Closed State 的时机许可无法生效。
- * 本卡没有可独立执行的正文指令，golden 只做校验、结构断言与缺口 todo。
+ * - [Reaction] 的 KeywordDef 展开和 chain.canAct 的通用时机查询已经合入；它不再是本卡缺口。
+ * 本卡的正文替代和 Hidden 生命周期仍未闭合，golden 覆盖声明结构、Reaction 时机许可以及缺口 todo。
  */
 const lotusTrap = {
   canonicalCardId: "card.hash-4a35c75cbe6c3eeae825ce423a2f3dbbdbbbc76b117a9c54735ebc7a7c7c4290",
@@ -35,8 +35,9 @@ const lotusTrap = {
     "“将受到的伤害改为双倍” 的替代效果；369.1 / 418.1 / 418.5），但 replacement.damage-multiplier 原语不存在，" +
     "卡牌程序也没有替代注册入口（ResolveContext 只有 addContinuous / registerDelayedTrigger），" +
     "damage GameAction 没有倍率维度；本地调研（docs/plans/survey/unclassified-unl.md 第 9 条）把它判为 needs-new-primitive。" +
-    "[Hidden] 的 cost.hidden 展开也没有消费方（Hide 行动、facedown 区域与从 facedown 打出的流程均未接入），" +
-    "[Reaction] 的 continuous.timing 消费方同样未合入，Closed State 的时机许可无法生效；不近似实现（不写成永久标记或固定伤害）。",
+    "[Hidden] 的 cost.hidden 展开也没有完整消费方（Hide 行动、facedown 区域与从 facedown 打出的流程均未接入）；" +
+    "[Reaction] 的 KeywordDef 展开与通用 chain.canAct 时机查询已经合入，不再作为本卡缺口；" +
+    "不近似实现（不写成永久标记或固定伤害）。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     { kind: "keyword", keyword: "reaction" },

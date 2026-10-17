@@ -32,7 +32,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   unl/piltover-enforcer.ts、rad/exemplar-of-demacia.ts、ogn/the-boss.ts 同一口径）。
  * - 「me」是 Legend Zone 中的传奇（CR 107.4.a / 107.4.c）：契约 ZoneId 没有 legend-zone，
  *   而 cost/payment.ts 的 exhaust 费用只接受 board / rune-zone 的支付对象，传奇自身
- *   无法作为可横置的费用对象（effect.exhaust.ts 文件头记录同一契约缺口）。
+ *   无法作为可横置的费用对象（effect.exhaust.ts 的 NON_BOARD_ZONES 注释记录同一契约缺口）。
  * draw 1、hold 时点与解释器路径已合入，golden 用参考内核真实执行已支持部分。
  *
  * 依赖：2v2 队友模型、TriggeredAbility 基础费用字段与契约补充 legend-zone。

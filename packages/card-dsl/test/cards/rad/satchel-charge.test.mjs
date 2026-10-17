@@ -5,6 +5,7 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/satchel-charge.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
+import { resolveLocationSelector } from "../../../../engine-core/dist/target/location/ref.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 
@@ -28,7 +29,7 @@ test("Satchel Charge identity, ruleset, status and printed text", () => {
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /187\.12/);
-  assert.match(program.judgeReason, /LocationRef/);
+  assert.match(program.judgeReason, /LocationExpr|LocationExpr 参数桥/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   // The generated registry indexes the program by this exact identity.
   assert.equal(cardRegistryById.get(CANONICAL), program);
@@ -52,7 +53,14 @@ test("Satchel Charge structure: [Action], targeted Move, then the Bomb token cla
     kind: "constant",
     value: { target: "satchel-charge.friendly-unit" }
   });
-  assert.equal(moveInstruction.args.to.value.kind, "destination-selector");
+  assert.deepEqual(moveInstruction.args.to, {
+    kind: "location",
+    value: {
+      kind: "choose",
+      id: "satchel-charge.battlefield-destination",
+      filter: { type: "battlefield" }
+    }
+  });
   assert.deepEqual(moveInstruction.targets, [
     {
       id: "satchel-charge.friendly-unit",
@@ -81,8 +89,8 @@ test("Satchel Charge golden: the Move half moves one friendly unit through the m
     .unit("friendly", { owner: "A", exhausted: true, might: 2 })
     .unit("enemy", { owner: "B", might: 3 })
     .build();
-  // The printed destination is a runtime choice (355.4 / 451.1) that has no IR
-  // selector yet, so the golden supplies a concrete second battlefield.
+  // The golden supplies a concrete second battlefield for the resolved
+  // LocationExpr while the card's full token clause remains judged.
   const run = runInstruction(
     move,
     { ...moveInstruction.args, to: { kind: "constant", value: second } },
@@ -95,6 +103,22 @@ test("Satchel Charge golden: the Move half moves one friendly unit through the m
   assert.equal(kernel.getObject("friendly").exhausted, true);
   assert.deepEqual(kernel.getObject("enemy").location, { type: "battlefield", id: "battlefield-1" });
   assert.deepEqual(run.events.map((event) => event.action), ["move-location"]);
+});
+
+test("Satchel Charge golden: the merged LocationExpr resolves a battlefield candidate", () => {
+  const first = { type: "battlefield", id: "battlefield-1" };
+  const second = { type: "battlefield", id: "battlefield-2" };
+  const kernel = world()
+    .unit("friendly", { owner: "A", location: first })
+    .unit("other", { owner: "B", location: second })
+    .build();
+  kernel.setAnswers({ "satchel-charge.battlefield-destination": second });
+  const selected = resolveLocationSelector(moveInstruction.args.to.value, {
+    context: kernel,
+    players: ["A", "B"],
+    opponent: "B"
+  });
+  assert.deepEqual(selected, second);
 });
 
 test("Satchel Charge golden: the merged token play path really plays a defined token", () => {
@@ -126,7 +150,6 @@ test.todo(
 );
 
 test.todo(
-  "Satchel Charge: the printed destination is a runtime location choice ('to a battlefield', 355.4 / 451.1) " +
-    "and needs an IR channel that evaluates the legal destinations (effect.move 'to' and effect.token " +
-    "'location' only accept static LocationRefs or static candidate lists)"
+  "Satchel Charge: effect.token still needs the dynamic LocationExpr argument bridge, and the " +
+    "location candidate producer must include empty battlefields (355.4 / 451.1)"
 );

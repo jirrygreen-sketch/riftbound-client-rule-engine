@@ -124,25 +124,8 @@ test("Trifarian War Camp: the production static binder registers the source-rela
   assert.deepEqual(f.engine.layers.registry.list(), []);
 });
 
-test.todo("Trifarian War Camp: bound here grants +1 only to both players' units at this Battlefield (CR 053.3 / 479.4; layers/filter LocationRef equality)", async () => {
-  const { fixture } = await import("../../../../engine-core/test/chain/helpers.mjs");
-  const { createEngineStaticBinder } = await import("../../../../engine-core/dist/programs/statics.js");
-  const f = fixture({ cards: [
-    { id: "camp", cardId: CANONICAL, types: ["battlefield"], energy: null, power: null },
-    { id: "friendly-here", types: ["unit"], might: 2 },
-    { id: "enemy-here", types: ["unit"], owner: "B", controller: "B", might: 4 },
-    { id: "elsewhere", types: ["unit"], might: 6 }
-  ] });
-  for (const id of ["camp", "friendly-here", "enemy-here", "elsewhere"]) {
-    f.engine.commit({ type: "move-zone", object: f.kernel.ref(id), to: "board", location: {
-      type: "battlefield", id: id === "elsewhere" ? "battlefield-2" : "battlefield-1"
-    } });
-  }
-  const handle = createEngineStaticBinder(f.engine).bindStatic(ability, f.kernel.getObject("camp"));
-  try {
-    for (const id of ["friendly-here", "enemy-here", "elsewhere"]) assert.equal(f.kernel.getObject(id).zone, "board");
-    assert.deepEqual(["friendly-here", "enemy-here", "elsewhere"].map(id => f.engine.layers.evaluate(f.kernel.ref(id)).might), [3, 5, 6]);
-  } finally {
-    handle.unbind();
-  }
-});
+test.todo(
+  "Trifarian War Camp: bound here grants +1 only to both players' units at this Battlefield (CR 053.3 / 479.4; " +
+    "BLOCKED: layers/filter.matchesObjectFilter compares cloned LocationRef objects by reference instead of by " +
+    "battlefield id/base-player value, so units at the same Battlefield currently miss the aura)."
+);

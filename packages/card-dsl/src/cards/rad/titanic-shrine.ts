@@ -16,10 +16,10 @@ import type { CardProgram } from "../../ir/index.js";
  * - 414.3："draw 1" 经 effect.draw 结算，抽牌者隐含为能力控制者（190.6.d）。
  *
  * status：judge-required。缺口：
- * 1. 成本内指令的费用支付：契约 3.1 的 TriggeredAbility 没有 cost 字段。指令层已合入
- *    cost.pay（effects/instructions/cost.pay.ts），但其 paymentsPlan 只收 energy/power/xp
- *    形状，静态 IR 在 card-played 时点给不出“me”的 exhaust ObjectRef；触发结算期也没有
- *    打出/激活 Finalize 费用计划那样的消费方。
+ * 1. 成本内指令的费用表达与绑定：契约 3.1 的 TriggeredAbility 没有 cost 字段，
+ *    programs/triggers.ts 也没有把卡牌程序里的触发费用绑定到 TriggerRegistration.cost；
+ *    chain/engine.ts 已消费该注册费用并在 Finalize 支付计划，静态 IR 仍无法在 card-played
+ *    时点表达“me”的 exhaust ObjectRef。
  * 2. "Might greater than each other unit on the board"：需要把被打出的单位从其
  *    card-played 事件载荷绑定出来（契约 3.6 的 ObjectSelector 没有“事件对象”形式），
  *    并对 Board 上其他单位做数值 Might 比较；events/pipeline-match.ts 的过滤器没有数值
@@ -33,10 +33,9 @@ export default {
   status: "judge-required",
   judgeReason:
     "三处缺口：(1)「exhaust me to draw 1」是成本内指令（204.1.c/204.3/355.10.c.1）：" +
-    "TriggeredAbility 没有 cost 字段；cost.pay/paymentsPlan 原语已合入，付款计划也支持 exhaust 付款" +
-    "（PaymentPlan.exhaust: readonly ObjectRef[]），但静态 IR 在 card-played 时点给不出“me”的具体 exhaust ObjectRef，" +
-    "触发结算期也没有" +
-    "费用计划消费方；(2)「Might greater than each other unit on the board」需要从 card-played " +
+    "契约 3.1 的 TriggeredAbility 没有 cost 字段，programs/triggers.ts 也没有把该费用绑定到" +
+    "TriggerRegistration.cost；chain/engine.ts 已消费注册费用并在 Finalize 支付计划，静态 IR 仍无法" +
+    "在 card-played 时点给出“me”的具体 exhaust ObjectRef；(2)「Might greater than each other unit on the board」需要从 card-played " +
     "事件载荷绑定被打出的单位（ObjectSelector 没有事件对象形式），并对 Board 上其他单位做数值 " +
     "Might 比较（events/pipeline-match.ts 的过滤器没有数值 Might 键，condition 也无法逐一比较）；" +
     "(3) 该条件谓词属 RIFT-359（进行中）。" +
@@ -55,8 +54,8 @@ export default {
       optional: false,
       body: [
         {
-        // 204.3：横置自身是触发能力的费用（缺口见 judgeReason 第 1 点），触发体只声明
-        // 费用支付后的效果——抽 1（414.3）。
+          // 204.3：横置自身是触发能力的费用（缺口见 judgeReason 第 1 点），触发体只声明
+          // 费用支付后的效果——抽 1（414.3）。
           id: "titanic-shrine.draw-1",
           op: "effect.draw",
           args: { amount: { kind: "constant", value: 1 } }

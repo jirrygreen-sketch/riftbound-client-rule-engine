@@ -6,6 +6,8 @@ import program from "../../../dist/cards/ogn/cannon-barrage.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { abilitySpeed, expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL = "card.hash-e73ab11687356c6a1a4425ed546ea0a9d32acf12452fea98985aa7f9ba011d35";
 const SOURCE_TEXT =
@@ -25,6 +27,7 @@ test("Cannon Barrage program is structurally valid and judge-required", () => {
   assert.match(program.judgeReason, /355\.10\.d/);
   assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /740\.2\.c/);
+  assert.match(program.judgeReason, /非目标/);
 });
 
 test("Cannon Barrage identity and printed text match the catalog", () => {
@@ -97,12 +100,20 @@ test.todo(
 );
 
 test.todo(
-  "Cannon Barrage: the 'in combat' test needs combatRole on ObjectSnapshot and its " +
+  "Cannon Barrage: the 'in combat' test needs the existing combatRole field connected to its " +
     "live designation producer in CombatFlow (contract 3.8 item 1, 740.2.c); until " +
     "that state is published the set cannot be evaluated."
 );
 
-test.todo(
-  "Cannon Barrage: [Reaction] admission during Closed States (813.1.c, 159.2.b.2) is " +
-    "chain-side timing work, not card data."
-);
+test("Cannon Barrage: its Reaction declaration is admitted by the real chain during a Closed State", () => {
+  const f = fixture();
+  const source = f.kernel.getObject("source");
+  const speed = abilitySpeed(expandProgram(program, source).abilities, source);
+  assert.equal(speed, "reaction");
+  f.engine.execute(f.draft("open-response-window"));
+  assert.equal(f.engine.turnState, "neutral-closed");
+  assert.equal(f.engine.canAct("A", speed), true);
+  assert.equal(f.engine.canAct("A", "action"), false);
+  resolveAll(f.engine);
+  assert.equal(f.kernel.player("A").handSize, 1);
+});

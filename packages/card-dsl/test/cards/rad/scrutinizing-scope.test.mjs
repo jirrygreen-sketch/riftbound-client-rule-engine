@@ -36,6 +36,7 @@ test("rad-064-167 Scrutinizing Scope: judgeReason names the guess primitive, the
   // The card-type data problem must be stated, not silently resolved.
   assert.match(program.judgeReason, /Spell/);
   assert.match(program.judgeReason, /145\.1\/151\.1/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-66/);
 });
 
 test("rad-064-167 Scrutinizing Scope: structure — one activated ability with the printed energy and exhaust cost", () => {

@@ -13,7 +13,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   Accelerate wording is explicit that the replacement means "it does not
  *   enter exhausted and then become ready", so `effect.ready` cannot stand in
  *   (effect.ready's own docs say the same). The replacement binding module
- *   (RIFT-260) binds an entry replacement only as a `replacement` ability of
+ *   binds an entry replacement only as a `replacement` ability of
  *   the entering permanent itself (the Accelerate/"I enter ready" form, see
  *   replacement/README.md); no merged instruction opcode registers a
  *   temporary replacement effect for the rest of the turn, and the resolving
@@ -34,7 +34,7 @@ const confront = {
   judgeReason:
     "缺“本回合未来单位入场就绪”的写入路径：契约 3.6 封闭 GameAction 集合没有“入场时改为就绪”的替代动作，" +
     "359.2.c 规定单位横置入场、805.6.a 明确入场替代不是“先横置再就绪”，故 effect.ready 不能替代。" +
-    "RIFT-260 的 replacement 绑定（replacement.enter）只把「进入者自身的永久入场替代」绑定到该永久物" +
+    "现有 replacement.enter 绑定只把「进入者自身的永久入场替代」绑定到该永久物" +
     "（replacement/README.md 的 Accelerate/“I enter ready”形态），而本卡是结算期法术为“本回合之后打出的" +
     "一组未来单位”授予临时替代效果：没有指令原语能为本回合注册临时替代效果，结算中的法术也不能给未来单位生成永久能力。" +
     "依赖：结算期临时替代效果注册原语 + 一组未来单位的入场替代写入路径。Draw 1 部分仅用已合入的 effect.draw，由 golden 测试真实执行。",

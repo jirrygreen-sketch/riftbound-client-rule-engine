@@ -17,19 +17,22 @@ import type { CardProgram } from "../../ir/index.js";
  *   （token 自身带 \"[Reaction][>] Kill this, [E]: [Add] [A].\"），并且是“以横置状态入场”
  *   的入场状态规定（143.4 / 185.2.d），不是入场后再横置。
  *
- * status：judge-required。三处缺口：
+ * status：judge-required（复核 2026-10-17）。四处缺口：
  * 1. Gold gear token 定义（187.5，自带能力）不在冻结的 effect.token 定义表里，实测
  *    effect.token 直接以 blockedReason \"token-definition-or-abilities-judge-required\"
  *    返回 negated；
- * 2. “exhausted”入场状态是 create-token 的入场改写，闭集动作不支持（effect.token 文件头
- *    明确 \"Entry overrides are not supported\"）；事后补 effect.exhaust 会多产生一次
- *    “成为横置”事件并错过入场替代，因此不这样做；
- * 3. \"Its controller\"（被消灭 Gear 的控制者）无法表达：需要从 kill 结果读取被消灭对象的
- *    控制者作为 token 的演奏者与位置（契约 3.6 的 ObjectSelector 没有事件对象形式，
- *    也没有“链接对象的控制者”表达式）。
- * 此外费用侧：印刷 2 energy 已于 2026-10-16 的记录中缺省，现在按 cost.printed 记录
- * （契约 §3.1），完整收费仍依赖 RIFT-261。effect.kill 与 [Action] 声明各自可结构校验
- * 并有真实执行测试；不近似实现 token 部分。
+ * 2. “exhausted”入场状态是 create-token 的入场改写（143.4 / 184.1 / 185.2.d），闭集动作
+ *    不支持：effect.token 的 argsSchema 只收 token/amount/mode/location/target/pick/
+ *    locations/choiceId/linkKey，额外传 exhausted 抛 \"Invalid effect.token argument\"；
+ *    事后补 effect.exhaust 会多产生一次“成为横置”事件并错过入场替代，因此不这样做；
+ * 3. \"Its controller\"（被消灭 Gear 的控制者）无法表达：effect.token 的演奏者固定为
+ *    ctx.controller（effect.token.ts 用 ctx.controller 提交 create-token/play），而契约 3.6
+ *    的 ObjectSelector 只有 self/source/{target}/{pick}/{linked}，没有“链接对象的控制者”
+ *    表达式；kill 收据（effect.kill 的 ctx.link(\"killed\")）只给 ObjectRef 列表。
+ * 4. 生产链还没有消费 { type: \"play\" } 的 host 动作（chain/engine.ts 对 Play 要求调用方
+ *    提供 describePlay，apps/game-server 的 EngineRuntimeHost 对该动作返回 impossible）。
+ * 费用侧：印刷 2 energy 按 cost.printed 记录（契约 §3.1），RIFT-261 的 cost.pay/cost.modify
+ * 已合入。effect.kill 与 [Action] 声明各自可结构校验并有真实执行测试；不近似实现 token 部分。
  */
 export default {
   canonicalCardId: "card.hash-dec87fe514b3143f6b040acdcfc5e343b048ce4ac93600347243dd78304d770c",
@@ -37,18 +40,24 @@ export default {
   status: "judge-required",
   judgeReason:
     "(1) Gold gear token 定义（CR 187.5，自带「[Reaction][>] Kill this, :rb_exhaust:: [Add] " +
-    ":rb_rune_rainbow:.」）不在冻结的 effect.token 定义表内，卡牌侧不能创建该定义；" +
-    "(2)「plays a Gold gear token exhausted」的横置入场是 create-token 的入场改写（143.4/185.2.d），" +
-    "闭集动作不支持（effect.token 明确 Entry overrides are not supported），事后补 effect.exhaust " +
-    "会多产生一次“成为横置”事件并错过入场替代，故不近似；" +
-    "(3)「Its controller」无法表达：需要从 kill 结果读取被消灭对象的控制者作为 token 的演奏者与位置" +
-    "（契约 3.6 的 ObjectSelector 没有事件对象形式，也没有“链接对象的控制者”表达式）。" +
-    "effect.kill 与 [Action] 声明已合入/可结构校验，但不构成整卡证据；不近似实现 token 部分。",
+    ":rb_rune_rainbow:.」）不在冻结的 effect.token 定义表内，卡牌侧不能创建该定义。" +
+    "(2)「plays a Gold gear token exhausted」的横置入场是 create-token 的入场改写" +
+    "（143.4 / 184.1 / 185.2.d），闭集动作不支持：effect.token 的 argsSchema 只收 " +
+    "token/amount/mode/location/target/pick/locations/choiceId/linkKey，额外传 exhausted 抛 " +
+    "Invalid effect.token argument；事后补 effect.exhaust 会多产生一次“成为横置”事件并错过入场替代，故不近似。" +
+    "(3)「Its controller」无法表达：effect.token 的演奏者固定为 ctx.controller（create-token/play " +
+    "都用 ctx.controller），而契约 3.6 的 ObjectSelector 只有 self/source/{target}/{pick}/{linked}，" +
+    "没有“链接对象的控制者”；effect.kill 的 killed 收据只给 ObjectRef 列表。" +
+    "(4) 生产链还没有消费 { type: \"play\" } 的 host 动作（chain/engine.ts 要求 describePlay 卡牌程序" +
+    "适配器，EngineRuntimeHost 对 play 返回 impossible）。" +
+    "RIFT-261 的 cost.pay/cost.modify 已合入，印刷 2 energy 按 cost.printed 记录；effect.kill 与 " +
+    "[Action] 声明可结构校验并有真实执行测试，但不构成整卡证据；不近似实现 token 部分。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {
       // 349/560：Gear 的打出能力。印刷打出费用 2 energy、power: null（无印刷力量，
-      // 不是 0）：按契约 §3.1 记 cost.printed，完整收费仍依赖 RIFT-261。
+      // 不是 0）：按契约 §3.1 记 cost.printed；RIFT-261 的费用计划与支付已合入，
+      // 本卡仍缺的部分见 judgeReason。
       kind: "play",
       cost: {
         kind: "cost.printed",

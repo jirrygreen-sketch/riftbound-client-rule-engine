@@ -22,13 +22,15 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 828.1.b / 828.1.b.1：”[Empowered][>] I have +3 :rb_might:” 是依赖能力，只在宿主拥有
  *   Empowered 状态时 Active；+3 Might 属 layers 的 arithmetic 层（143.2/143.2.a、479）。
  *
- * status = judge-required（缺口均不近似实现）：
- * 1. 没有 Empower / Empowered 的 KeywordDef：827.1.c.1 的起动费用与 “Use only if not
+ * status = judge-required（复核 2026-10-17，实测证据）：
+ * 1. 没有 Empower / Empowered 的 KeywordDef：expandProgram 抛 ProgramBindingError
+ *    （Keyword empower has no executable KeywordDef），827.1.c.1 的起动费用与 “Use only if not
  *    Empowered” 限制没有展开实现；
- * 2. 没有 Empowered 状态谓词（442.1.a），“[Empowered][>]” 的门控没有可求值形态；
- * 3. continuous.cost-modification 已记录每符文减费形状，但 Empower 关键词/费用消费方仍未
- *    读取该修改并应用到实际启动费用。
- * continuous.might 指令和图层求值已合入；本卡的 +3 仍受 Empowered 谓词门控影响。
+ * 2. 没有 Empowered 状态谓词（442.1.a）：“[Empowered][>]” 的门控没有可求值形态；
+ * 3. continuous.cost-modification 的静态声明无法绑定：staticTarget() 不认识 appliesTo
+ *    "empower-activation-cost"，实测 createEngineStaticBinder().bindStatic 抛 ProgramBindingError；
+ *    即使绑定成功也没有 Empower 费用消费方读取该修改。
+ * continuous.might 指令和图层求值已合入，但条件谓词与第 3 条同因，未 Empowered 时也可能生效。
  */
 const abilities: Ability[] = [
   {
@@ -75,9 +77,11 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 Empower / Empowered KeywordDef，827.1.c.1 的启动费用与未 Empowered 限制尚未展开；" +
-    "缺 Empowered 状态谓词（442.1.a/828.1.b.1）；827.1.c.3 的每符文减费尚无 Empower 费用消费方，" +
-    "programs/statics.ts 不能绑定本卡的 continuous.cost-modification 声明。",
+    "缺 Empower / Empowered KeywordDef：实测 expandProgram 抛 ProgramBindingError（Keyword empower has no " +
+    "executable KeywordDef），827.1.c.1 的起动费用与未 Empowered 限制尚未展开；缺 Empowered 状态谓词" +
+    "（442.1.a/828.1.b.1）。827.1.c.3 的每符文减费声明无法绑定：staticTarget() 不认识 appliesTo " +
+    "\"empower-activation-cost\"，实测 createEngineStaticBinder().bindStatic 抛 ProgramBindingError" +
+    "（Unsupported static appliesTo），且没有 Empower 费用消费方读取该 continuous.cost-modification。",
   abilities,
   sourceText:
     "[Empower] :rb_energy_12:. This ability costs :rb_energy_1: less for each rune you control. (Pay the cost: Empower me. Use only if not Empowered.)\n" +

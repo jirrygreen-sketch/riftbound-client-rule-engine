@@ -1,7 +1,8 @@
 // Golden test for Consult the Heavens (rad-025-167).
 //
-// judge-required (see the program's judgeReason): [Reaction] timing, Defender
-// designation and ordered Predict picks still need complete consumers. The
+// judge-required (see the program's judgeReason): the [Reaction] expansion is
+// refused by the merged static binder, the Defender designation still has no
+// producer, and ordered Predict picks still need an upstream provider. The
 // runnable evidence covers both the merged grant and Predict instructions.
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -15,6 +16,32 @@ import recycle from "../../../../engine-core/dist/effects/instructions/effect.re
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+
+/** Minimal engine so the production static binder can be exercised directly. */
+function binderFor() {
+  const kernel = world().player("A").player("B").unit("caster", { owner: "A", role: "unit" }).build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (checkpoint) => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose: (request) => { throw new Error(`Unexpected choice: ${request.id}`); },
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false
+  });
+  return createEngineStaticBinder(engine);
+}
+
+function sourceSnapshot() {
+  return world().player("A").unit("caster", { owner: "A", types: ["unit"] }).build().getObject("caster");
+}
 
 const CANONICAL =
   "card.hash-9ce83ec71d8426d676f633ef7afbd7cd6b50566fd1e1404050adaf4c506e0faf";
@@ -270,6 +297,35 @@ test.todo(
   "Consult the Heavens: the [Shield 2] modifier applies +2 only while the unit holds the Defender designation " +
     "(814.1.d.1); CR 814.1.d.1's designation is not an ObjectSnapshot characteristic (contract 3.8 combatRole)"
 );
+
+test("Consult the Heavens: the [Reaction] expansion is refused by the merged static binder", () => {
+  // 813.1.c: Reaction grants closed-state play permission through a
+  // continuous.timing static ability. The merged binder has no supported
+  // appliesTo shape for it, so binding fails loudly rather than registering a
+  // permission that applies to nothing.
+  const reaction = keywordDefinitionsById.get("Reaction");
+  assert.ok(reaction, "the merged Reaction KeywordDef is present");
+  const [timingAbility] = reaction.expand({});
+  assert.equal(timingAbility.kind, "static");
+  assert.equal(timingAbility.effect.kind, "continuous.timing");
+  assert.throws(
+    () => binderFor().bindStatic(timingAbility, sourceSnapshot()),
+    /Unsupported static appliesTo/
+  );
+});
+
+test("Consult the Heavens: the [Shield 2] expansion does bind, so only the Defender designation is missing", () => {
+  // 814.1.c: Shield expands to the arithmetic-layer +Might that is gated on the
+  // Defender designation. The merged binder accepts the static ability, so the
+  // remaining gap is the missing designation characteristic, not the binding.
+  const shield = keywordDefinitionsById.get("Shield");
+  assert.ok(shield, "the merged Shield KeywordDef is present");
+  const [mightAbility] = shield.expand({ value: 2, host: { canonicalCardId: CANONICAL } });
+  assert.equal(mightAbility.kind, "static");
+  assert.equal(mightAbility.effect.kind, "continuous.might");
+  const handle = binderFor().bindStatic(mightAbility, sourceSnapshot());
+  assert.equal(typeof handle.unbind, "function");
+});
 
 test.todo(
   "Consult the Heavens: reading the top card of the Main Deck inside the resolving ability requires the upstream ordered picks " +

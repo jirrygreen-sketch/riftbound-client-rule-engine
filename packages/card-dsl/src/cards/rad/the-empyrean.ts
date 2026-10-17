@@ -22,7 +22,8 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  *   Power cost（832.1.d.1 的锁定值）。
  * - 414.3："draw 2" 是 effect.draw。
  *
- * 状态：judge-required。缺的是 Show Off / Predict 这条链路本身：
+ * 状态：judge-required。缺的是 Show Off / Predict 这条链路本身
+ * （以已合入的 effects/keywords/ShowOff.ts 头部清单为准）：
  * - "reveal a card from hand or pick another friendly one"要求一条把"手牌
  *   revealed 结果"与"场上 picked 结果"合成同一组的非目标选择（832.1.c.3），
  *   现有 PickSpec 只能给固定 options 列表，没有"手牌或友方场上对象"的合成选项；
@@ -33,8 +34,10 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  *   选择（437.1.a）叠加在同一批已看卡上，[Predict] 也还没有 KeywordDef 统一编排。
  * 因此只写出有依据的骨架（play 能力 + Predict 的 reject/reorder 结构），
  * 不把 Show Off 近似成"随便展示一张"或把 Power cost 近似成固定张数。
- * 依赖：[Predict] KeywordDef 与本任务的"契约变更请求"
- * （见最终回复：展示快照与合成选项选择）。
+ * 依赖：cost.reveal / Finalize 展示与合法性管线、objects-shown-off
+ * 快照消费（832.1.d.1）、condition.result 的逐实例链接值，以及
+ * [Predict] KeywordDef（437.1 / 437.3 的编排）与 ShowOff 的 Object 参数扩展；
+ * 其中「展示快照 + 手牌/场上合成选项选择」是本任务最终回复里的契约变更请求。
  */
 /** "When you play me, if you showed off a card, [Predict] …, then draw 2." 的正文骨架。 */
 const predictBody: readonly Instruction[] = [
@@ -152,11 +155,17 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 Show Off / [Predict] 关键词展开（CR 832.1 / 437）：" +
-    "832.1.c.3 要把「从手牌展示」与「从友方场上拾取」合成同一组展示对象，现有 PickSpec 只有固定 options，无法表达这种合成选项；" +
-    "832.1.d.1 要求读取展示那一刻锁定的 Power cost，而 effect.reveal 只链接引用与数量、不写展示快照，" +
-    "没有原语产出 shownPowerCost 这类锁定值；[Predict] 也没有 KeywordDef（437.1 / 437.1.a 的看顶、可回收、任意顺序放回编排没有统一展开）。" +
-    "Predict 与抽牌的结构已按 437 写出并有结构测试；整卡依赖 [Predict] KeywordDef 与「展示快照」契约缺口（见最终回复的契约变更请求）。",
+    "缺 Show Off / [Predict] 的 Finalize 与结算链路（CR 832.1 / 437；以已合入的" +
+    " effects/keywords/ShowOff.ts 头部依赖清单为准）：(1) cost.reveal / Finalize" +
+    " 展示与合法性管线未合入，832.1.c.3 要求把「从手牌展示」与「从友方" +
+    "场上拾取」合成同一组展示对象，现有 PickSpec 只有固定 options，无法表达这种合成选项；" +
+    "(2) objects-shown-off 时点已在 events/timing-points.ts 注册，但没有链上链接/快照" +
+    "消费方，832.1.d.1 要求读取展示那一刻锁定的 Power cost，effect.reveal 只链接引用与" +
+    "数量、不写展示快照，没有原语产出 shownPowerCost 这类锁定值；(3) condition.result" +
+    " 的逐实例链接值没有消费方（832.2 的多个 Show Off 实例不得合并成一个布尔）；" +
+    "(4) [Predict]（437.1 / 437.3）没有 KeywordDef 统一编排看顶、可回收、任意顺序放回。" +
+    "Predict 与抽牌的结构已按 437 写出并有结构测试与 inspect/recycle/order 真实执行；" +
+    "整卡依赖上述 Finalize/快照/链接契约与 [Predict] KeywordDef（见最终回复的契约变更请求）。",
   abilities,
   sourceText:
     "[Show Off] a card. (As you play me, you may reveal a card from hand or pick another friendly one.)\n" +

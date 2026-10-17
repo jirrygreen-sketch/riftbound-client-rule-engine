@@ -6,6 +6,7 @@ import bulletTime from "../../../dist/cards/ogn/bullet-time-miss-fortune.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { abilitySpeed, expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 
 const CANONICAL = "card.hash-a3cda4342389b7462e190847b72891326166dd6d3a74a0400056dbbee1371daa";
 const BATTLEFIELD = id => ({ type: "battlefield", id });
@@ -34,6 +35,8 @@ test("Bullet Time identity, ruleset, status, printed text and judgeReason", () =
   assert.match(bulletTime.judgeReason, /effect\.damage/);
   assert.match(bulletTime.judgeReason, /cost\.pay-any/);
   assert.match(bulletTime.judgeReason, /链接值/);
+  assert.match(bulletTime.judgeReason, /单个战场/);
+  assert.match(bulletTime.judgeReason, /LocationSelector/);
   assert.equal(cardRegistryById.get(bulletTime.canonicalCardId), bulletTime);
 });
 
@@ -123,6 +126,20 @@ test.todo(
   "Bullet Time instruction cost: bind the card's instruction cost to a resolve-time any-amount payment " +
     "that publishes the amount actually paid as a linked value (204.3 / 204.3.a)"
 );
+
+test("Bullet Time: the declared Action permission expands through the production keyword adapter", () => {
+  const kernel = world().hand("bullet-time", {
+    cardId: CANONICAL, types: ["spell"], energy: 1, power: null
+  }).build();
+  const source = kernel.getObject("bullet-time");
+  const expanded = expandProgram(bulletTime, source);
+  assert.equal(abilitySpeed(expanded.abilities, source), "action");
+  assert.ok(expanded.expanded.some(ability => ability.effect?.kind === "continuous.timing"));
+  assert.equal(source.power, null);
+  assert.deepEqual(kernel.events, []);
+});
+
+test.todo("Bullet Time: bind one chosen battlefield before querying its enemy units (CR 355.10.d); units at other battlefields must remain untouched");
 
 test.todo(
   "Bullet Time non-target damage: let effect.damage consume the same query-set descriptor that effect.ready " +

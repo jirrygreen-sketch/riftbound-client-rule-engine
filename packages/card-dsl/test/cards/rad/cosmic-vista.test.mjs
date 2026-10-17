@@ -6,6 +6,9 @@ import program from "../../../dist/cards/rad/cosmic-vista.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { isTimingPointId } from "../../../../engine-core/dist/events/timing-points.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { EventPipeline } from "../../../../engine-core/dist/events/pipeline.js";
+import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 const CANONICAL =
   "card.hash-6096f8a7ac4a9de3a47f4b906c5922677655ef6d2b97f64352b7057c63cafa87";
@@ -103,12 +106,59 @@ test("cosmic-vista: hold and score are closed, registered timing points the rule
   assert.equal(isTimingPointId("points-gained"), true);
 });
 
-test.todo(
-  "cosmic-vista: the hold trigger needs the production host.testTrigger adapter for its Rune Deck condition " +
-    "(pipeline.ts throws \"Trigger condition adapter required\" when the adapter is absent)"
-);
+test("cosmic-vista: the declared here anchor is still rejected by both validation and translation", () => {
+  // 383.4.d.1 / 471.2: the Hold Effect is scoped to this Battlefield. The
+  // merged EventPattern vocabulary has no source-battlefield anchor, so both
+  // the closed validator and the card-program translator refuse the key
+  // instead of subscribing the ability to every hold.
+  assert.throws(() => assertTriggerSpec(trigger.trigger), /here/);
+  assert.throws(
+    () => translateTriggerFilter(trigger.trigger.filter, "cosmic-vista", "hold"),
+    /Unsupported filter field here/
+  );
+});
 
-test.todo(
-  "cosmic-vista: the EventPattern vocabulary must accept the source-battlefield here anchor before the trigger " +
-    "can be bound to the emitted hold event's battlefieldId"
-);
+test("cosmic-vista: without the here anchor the hold trigger would translate, so `here` is the real gap", () => {
+  // CR 383.4.d: the timing point and event name are merged. Only the
+  // battlefield anchor is missing — removing it yields a valid registration,
+  // which the program must not silently do (that would widen the trigger).
+  const translated = translateTriggerFilter(
+    { event: "held", player: "self" },
+    "cosmic-vista",
+    "hold"
+  );
+  assert.deepEqual(translated, { event: "held", player: "self" });
+  assertTriggerSpec({ at: "hold", filter: translated });
+});
+
+test("cosmic-vista: a conditional trigger still needs the host.testTrigger adapter", () => {
+  // 383.2.a.1: the empty-Rune-Deck clause is a TriggerSpec.condition. The
+  // merged pipeline throws for any conditional registration when the host
+  // supplies no testTrigger adapter (only some parity tests inject one).
+  const kernel = world().unit("battlefield", { types: ["battlefield"] }).build();
+  const host = {
+    checkpoint: () => ({}),
+    restore: () => {},
+    objects: () => kernel.objects,
+    execute: (action) => ({ outcome: kernel.perform(action), emissions: [] }),
+    context: () => { throw new Error("No context needed"); },
+    choose: (request) => { throw new Error(`Unexpected choice: ${request.id}`); }
+  };
+  const pipeline = new EventPipeline(host, ["A", "B"], "A");
+  pipeline.onTrigger = () => {};
+  pipeline.registerTrigger({
+    id: "cosmic-vista",
+    source: kernel.getObject("battlefield"),
+    controller: "A",
+    spec: {
+      at: "hold",
+      filter: { event: "held", player: "self" },
+      condition: trigger.trigger.condition
+    },
+    body: trigger.body
+  });
+  assert.throws(
+    () => pipeline.emit({ timingPoint: "hold", player: "A" }),
+    /Trigger condition adapter required/
+  );
+});

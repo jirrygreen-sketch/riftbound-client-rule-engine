@@ -8,6 +8,8 @@ import stun from "../../../../engine-core/dist/effects/instructions/effect.stun.
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { queryObjects } from "../../../../engine-core/dist/effects/interpreter/selectors.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-feadeed8b5695723dd7f149d233160c40dea1625510f9fd7eb248c153d97e305";
@@ -31,7 +33,6 @@ test("unl-196-219 Daisy!: identity, status, judgeReason and verbatim sourceText"
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  assert.match(program.judgeReason, /143\.4/);
   assert.match(program.judgeReason, /cost\.modify|减费/);
   assert.match(program.judgeReason, /attack-declared/);
   assert.match(program.judgeReason, /sameLocationAs|动态目标锚点/);
@@ -162,10 +163,38 @@ test("unl-196-219 Daisy! golden: the printed stun resolves on a locked enemy uni
   );
 });
 
-test.todo(
-  "unl-196-219 Daisy!: run the entry replacement through a real replacement pipeline (143.4/359.2.c/369.3) — " +
-    "the replacement declaration still needs a play-lifecycle event fixture; effect.ready must not be used as an after-the-fact ready"
-);
+test("unl-196-219 Daisy! golden: production play applies the entry replacement before Board entry", () => {
+  // ProgramRegistry only binds executable cards. The local executable clone
+  // isolates the already-supported replacement path while the shipped program
+  // remains judge-required for its unresolved discount and attack clauses.
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const f = fixture({
+    cards: [{ id: "daisy", cardId: CANONICAL_ID, types: ["unit"], energy: 9, power: [], might: 8 }],
+    describePlay: binding.describePlay
+  });
+  binding.attachLifecycle(f.engine);
+  f.engine.commit({
+    type: "play",
+    object: f.kernel.ref("daisy"),
+    player: "A",
+    location: { type: "battlefield", id: "battlefield-1" }
+  });
+  f.engine.advance();
+  resolveAll(f.engine);
+
+  assert.equal(f.kernel.getObject("daisy").zone, "board");
+  assert.equal(f.kernel.getObject("daisy").exhausted, false);
+  const entry = f.engine.pipeline.events.find(event =>
+    event.timingPoint === "object-enters-board" && event.object?.ref.id === "daisy"
+  );
+  assert.equal(entry.object.exhausted, false, "the first Board snapshot is already ready");
+  assert.equal(f.engine.pipeline.events.filter(event =>
+    ["object-readied", "object-exhausted"].includes(event.timingPoint) && event.object?.ref.id === "daisy"
+  ).length, 0, "entry orientation produces no intermediate ready/exhaust event on Board");
+});
+
 test.todo(
   "unl-196-219 Daisy!: apply the per-tag Energy discount at Finalize (356.4/356.4.b) — cost/cost-plan.ts only consumes caller-supplied discounts " +
     "and the static cost.modify declaration is not yet consumed by Finalize"

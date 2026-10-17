@@ -8,6 +8,8 @@ import restrict from "../../../../engine-core/dist/effects/instructions/continuo
 import { ContinuousEffectRegistry } from "../../../../engine-core/dist/layers/duration.js";
 import { restrictions } from "../../../../engine-core/dist/layers/rules/query.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const [ability] = program.abilities;
 const literal = (value) => ({ kind: "constant", value });
@@ -17,6 +19,22 @@ test("ogn-278-298 Bandle Tree: program validates and is registered", () => {
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
   assert.deepEqual(result.issues, []);
   assert.equal(cardProgramsById.get(program.canonicalCardId), program);
+});
+
+test("Bandle Tree original static declaration binds to this battlefield incarnation and unregisters", () => {
+  const f = fixture({ cards: [{ id: "tree", types: ["battlefield"], might: null }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("tree"), to: "battlefield", location: { type: "battlefield", id: "tree-field" } });
+  f.engine.advance();
+  const source = f.kernel.getObject("tree");
+  const handle = createEngineStaticBinder(f.engine).bindStatic(ability, source);
+  const [entry] = f.engine.layers.registry.list();
+  assert.equal(entry.effect.filter.objectId, "tree");
+  assert.equal(entry.effect.filter.zoneEntryId, source.ref.zoneEntryId);
+  assert.equal(entry.effect.effect.restriction, "facedown-zone-maximum-occupancy");
+  assert.equal(entry.effect.effect.amount, 1);
+  assert.equal(entry.effect.effect.location, "self");
+  handle.unbind();
+  assert.equal(f.engine.layers.registry.list().length, 0);
 });
 
 test("ogn-278-298 Bandle Tree: identity, ruleset, status and printed text", () => {

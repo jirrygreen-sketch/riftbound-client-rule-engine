@@ -7,6 +7,8 @@ import accelerate from "../../../../engine-core/dist/effects/keywords/Accelerate
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import effectReady from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 
 const CANONICAL_ID =
   "card.hash-0da93712208ccce43badde9998369ec8b785af649c804e812feb2bb580f2908c";
@@ -17,6 +19,26 @@ test("ogn-001-298 Blazing Scorcher: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
   assert.deepEqual(result.issues, []);
   assert.equal(result.ok, true);
+});
+
+test("Blazing Scorcher supported cost planner charges the Accelerate component only when selected", () => {
+  for (const selected of [false, true]) {
+    const base = world().player("A", { energy: 10, power: ["Fury"] })
+      .hand("scorcher", { energy: 5, power: ["Fury"], types: ["unit"] }).build();
+    const kernel = base.clone({ sourceSnapshot: base.getObject("scorcher") });
+    const plan = buildCostPlan(kernel, {
+      id: `scorcher:${selected}`,
+      cost: { kind: "explicit", energy: { kind: "constant", value: 5 } },
+      domains: ["Fury"],
+      optionalAdditional: [{ id: "accelerate", kind: "accelerate", selected }]
+    });
+    assert.equal(plan.total.energy, selected ? 6 : 5);
+    assert.deepEqual(plan.total.power, selected ? [{ amount: 1, allowedDomains: ["Fury"] }] : []);
+    assert.deepEqual(plan.selectedAdditional, selected ? [{ id: "accelerate", kind: "accelerate" }] : []);
+    assert.deepEqual(plan.declinedAdditional, selected ? [] : ["accelerate"]);
+    assert.equal(payCostPlan(kernel, plan).paid, true);
+    assert.equal(kernel.player("A").energy, selected ? 4 : 5);
+  }
 });
 
 test("ogn-001-298 Blazing Scorcher: identity, status, and verbatim sourceText", () => {

@@ -32,7 +32,9 @@ test("unl-034-219 Herald of Spring: identity, status, judgeReason and verbatim s
   assert.match(program.judgeReason, /823\.1/);
   assert.match(program.judgeReason, /Hunt/);
   assert.match(program.judgeReason, /383\.4\.d\.2/);
-  assert.match(program.judgeReason, /RIFT-31\/33/);
+  assert.match(program.judgeReason, /battlefieldId/);
+  assert.match(program.judgeReason, /单位对象|快照|归因/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-31\/33/);
   assert.doesNotMatch(program.judgeReason, /kw-hunt/);
   assert.doesNotMatch(program.judgeReason, /RIFT-(257|264|265|266|267|268)/);
 });
@@ -119,7 +121,7 @@ test("unl-034-219 Herald of Spring golden: a replaced gain-xp action negates the
 test.todo(
   "unl-034-219 Herald of Spring: attribute the conquer/hold trigger to the scoring unit — the merged Hunt " +
     "expansion registers both timings, but turn/flow.ts's Score wave carries only player + " +
-    "details.battlefieldId, so the self-scoped filter can never match (RIFT-31/RIFT-33)"
+    "details.battlefieldId, so the self-scoped filter has no scoring-unit object or snapshot to match"
 );
 test.todo(
   "unl-034-219 Herald of Spring: bind the hold trigger to the unit present at the held battlefield " +

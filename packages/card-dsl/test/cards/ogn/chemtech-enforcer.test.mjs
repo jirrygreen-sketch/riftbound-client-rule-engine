@@ -20,9 +20,10 @@ test("chemtech-enforcer: identity, ruleset, status and verbatim sourceText", () 
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  // The reason must name the still-current gaps: the missing CardProgram
-  // keyword binding and the unevaluated designation/compare condition.
-  assert.match(program.judgeReason, /RIFT-257/);
+  // The keyword and trigger bindings exist; the remaining gap is the
+  // unevaluated designation/compare condition in the Assault expansion.
+  assert.match(program.judgeReason, /KeywordDef\.expand/);
+  assert.match(program.judgeReason, /CardProgram.*trigger/);
   assert.match(program.judgeReason, /designation/);
   assert.match(program.judgeReason, /conditionMatches|compare/);
   assert.match(program.judgeReason, /807/);
@@ -113,6 +114,6 @@ test("chemtech-enforcer: the discarded card is observable as turn history when t
 
 test.todo(
   "chemtech-enforcer: Assault 2 keyword expansion (+2 Might while the Attacker designation is held, CR 807) " +
-    "needs the CardProgram keyword → KeywordDef.expand → layers binding (RIFT-257) plus the designation " +
-    "characteristic and compare-condition evaluation in layers (RIFT-91 follow-up)"
+    "needs the granted KeywordDef expansion to be consumed by layers plus the designation " +
+    "characteristic and compare-condition evaluation in layers"
 );

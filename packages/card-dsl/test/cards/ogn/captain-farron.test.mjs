@@ -18,9 +18,10 @@ test("captain-farron: identity, ruleset, status and verbatim sourceText", () => 
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  // The reason must name the still-current gaps: the missing card-static →
-  // layers binding and the unevaluated designating/compare condition.
-  assert.match(program.judgeReason, /RIFT-257/);
+  // The static binder exists; the remaining gaps are dynamic exclusion and
+  // the unevaluated designation/compare condition.
+  assert.match(program.judgeReason, /programs\/statics\.ts/);
+  assert.match(program.judgeReason, /other|exclude/);
   assert.match(program.judgeReason, /designation/);
   assert.match(program.judgeReason, /807\.1\.c/);
   assert.match(program.judgeReason, /conditionMatches|compare/);
@@ -58,10 +59,8 @@ test("captain-farron: the aura excludes its own source and does not restrict its
 
 test("captain-farron: the aura records the location anchor and the other-object exclusion as selectors", () => {
   // "here" is a source-relative location anchor and "other friendly units"
-  // excludes the host: both are contract 3.6 selector spellings, resolved when
-  // the static ability is registered into the layers engine (RIFT-257). The
-  // merged layers matcher does not consume these two anchors, so the test only
-  // pins the declared shape and leaves the registration path as the TODO below.
+  // excludes the host. The binder resolves the location anchor, but its
+  // production filter translator still rejects the dynamic exclusion.
   assert.deepEqual(aura.effect.filter.sameLocationAs, "self");
   assert.equal(aura.effect.filter.other, true);
   assert.equal(aura.effect.filter.zone, "board");
@@ -69,8 +68,8 @@ test("captain-farron: the aura records the location anchor and the other-object 
 });
 
 test.todo(
-  "captain-farron: register the card's static continuous.grant-keyword aura from the CardProgram " +
-    "(RIFT-257 binding), with the sameLocationAs/other anchors resolved in the layers registration"
+  "captain-farron: make static filter translation consume the other/exclude anchor so the " +
+    "CardProgram aura registers exactly the same-location units while excluding its host"
 );
 test.todo(
   "captain-farron: the granted Assault must be re-checked while each unit holds the Attacker designation (807.1.c/807.1.d.1)"

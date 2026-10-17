@@ -8,6 +8,7 @@ import buff from "../../../../engine-core/dist/effects/instructions/effect.buff.
 import might from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 
 const CARD_ID = "card.hash-9eef9a0508648141992bbe70aa56b64551bbd00d06fd8be401c85dda6f542339";
 const [reaction, play] = program.abilities;
@@ -28,6 +29,7 @@ test("Call to Glory identity and judge-required status match the printing", () =
   assert.equal(program.judgeReason.includes("356.1.b"), true);
   assert.match(program.judgeReason, /Finalize/);
   assert.match(program.judgeReason, /ignore-base/);
+  assert.match(program.judgeReason, /运行时友方 Buff 对象选择/);
   assert.equal(
     program.sourceText,
     "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +
@@ -65,6 +67,9 @@ test("Call to Glory structure: the +3 Might instruction with its single-unit tar
   assert.equal(mightInstruction.op, "continuous.might");
   assert.deepEqual(mightInstruction.args.amount, { kind: "literal", value: 3 });
   assert.deepEqual(mightInstruction.args.duration, { kind: "literal", value: "this-turn" });
+  assert.deepEqual(mightInstruction.args.objects, {
+    kind: "constant", value: { kind: "target", id: mightSpec.id }
+  });
   assert.deepEqual(mightSpec, {
     id: "call-to-glory.unit",
     filter: { types: "unit" },
@@ -167,3 +172,30 @@ test.todo(
     "increases) needs a CardProgram-to-Finalize adapter with a runtime buff-holder choice and " +
     "an ignore-base cost modification."
 );
+
+test("Call to Glory: the original Might body resolves through the production interpreter adapter", () => {
+  const kernel = world().unit("chosen", { might: 2, buffs: 1 }).unit("other", { might: 4 }).build();
+  kernel.setTargets(mightSpec.id, [kernel.ref("chosen")]);
+  const result = resolveChainBody(play.body, kernel);
+  assert.equal(result.status, "executed");
+  const layers = createLayerEngine(kernel.objects, kernel.continuousEffects);
+  assert.equal(layers.evaluate(kernel.ref("chosen")).might, 5);
+  assert.equal(layers.evaluate(kernel.ref("other")).might, 4);
+  assert.equal(kernel.getObject("chosen").buffs, 1);
+  layers.advance({ id: "turn-end" });
+  assert.equal(layers.evaluate(kernel.ref("chosen")).might, 2);
+});
+
+test("Call to Glory: the original body does not grant Might when its finalized target has left", () => {
+  const kernel = world().unit("chosen", { might: 2 }).unit("other", { might: 4 }).build();
+  const stale = kernel.ref("chosen");
+  assert.equal(kernel.perform({ type: "return-to-hand", object: stale }).status, "done");
+  kernel.setTargets(mightSpec.id, [stale]);
+  const result = resolveChainBody(play.body, kernel);
+  assert.equal(result.status, "partial");
+  assert.equal(result.results[0].result.status, "ignored");
+  assert.equal(kernel.continuousEffects.length, 0);
+  assert.equal(kernel.getObject("chosen").zone, "hand");
+  assert.equal(kernel.getObject("other").might, 4);
+  assert.deepEqual(result.events, []);
+});

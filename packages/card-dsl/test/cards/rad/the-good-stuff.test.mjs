@@ -148,5 +148,5 @@ test("rad-106-167 The Good Stuff: an empty hand negates the discard but the draw
   assert.equal(kernel.player("A").deckSize, 1);
 });
 
-test.todo("rad-106-167 The Good Stuff: the merged Deploy KeywordDef (CR 830.1.b) still has no structured location consumer - playLocations reads only location-name strings and the existing Finalize flow does not consume KeywordDef.location; cleanup has no non-Unit Deploy recall exemption, and the opponent-hold kill side has no consumer.");
-test.todo("rad-106-167 The Good Stuff: the \"hold here\" trigger is registered, but the here filter key is rejected by programs/filters.ts and the hold timing point has no battlefield-identity payload, so \"this battlefield\" cannot be bound.");
+test.todo("rad-106-167 The Good Stuff: the merged Deploy KeywordDef (CR 830.1.b) still has no structured location consumer - playLocations reads only location-name permission/restriction strings and the existing Finalize flow does not consume KeywordDef.location; the opponent-hold kill side has no consumer.");
+test.todo("rad-106-167 The Good Stuff: the \"hold here\" trigger is registered, but the here filter key is rejected by programs/filters.ts; the hold event already carries details.battlefieldId (turn/flow.ts:99-102) and non-Unit Deploy cleanup recall is exempted (turn/flow.ts:318-319), but filters have no adapter binding that payload to \"this battlefield\".");

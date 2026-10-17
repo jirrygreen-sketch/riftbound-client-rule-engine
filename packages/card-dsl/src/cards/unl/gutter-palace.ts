@@ -30,10 +30,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * (1) Bird token 没有定义：冻结的 effect.token 定义表只有 recruit / sand-soldier / mech /
  *     reflection / tentacle；187.7 的 Bird 还带 [Deflect] 关键词（809），带自身能力或关键词的
  *     token 定义按该原语文件头保持 blocked。
- * (2) token 的进入地点未印刷：355.2 在打出流程中选择合法 Location，冻结 IR 没有运行期
- *     Location 选择器（原语清单的 target.location 未合入），静态候选列表无法枚举「控制者 Base
- *     或其控制的战场」。程序里的 locations 是声明式占位，effect.token 会拒绝该形状（fail closed），
- *     绝不落到猜出来的地点。
+ * (2) token 的进入地点未印刷：355.2 在打出流程中选择合法 Location。RIFT-357 已合入
+ *     LocationSelector、LocationExpr 与解释器的候选查询；本卡用该选择器表达「控制者 Base
+ *     或其控制的战场」。当前剩余缺口是 effect.token 的解释器/argsSchema 边界尚未接收
+ *     evaluated LocationExpr，因此 token destination 仍需专门的适配接线。
  * (3) Discard 1 费用要求 Finalize 提供精确的手牌对象引用：cost/plan-values.ts 的 reference 只
  *     接受运行时 ObjectRef，静态 IR 按 README 第 3 节禁止写运行时引用；当前卡牌启动能力适配器
  *     尚未把该 PickSpec 选择接入费用计划。
@@ -125,10 +125,16 @@ const abilities: Ability[] = [
           amount: { kind: "constant", value: 1 },
           // 440.2.c / 185.2.a：Play ... token 先在链上生成再由打出流程接手。
           mode: { kind: "constant", value: "play" },
-          // 355.2：地点在打出流程中选择；静态 IR 无法枚举运行期合法 Location，
-          // 因此这里是声明式占位（见 judgeReason 第 2 点），执行时会被原语拒绝。
-          locations: { kind: "constant", value: ["runtime:valid-play-location"] },
-          choiceId: { kind: "constant", value: "gutter-palace.bird-location" }
+          // 355.2 / RIFT-357：地点在打出流程中选择；LocationExpr 的候选过滤
+          // 覆盖控制者 Base 与控制者所控制的 Battlefield。
+          location: {
+            kind: "location",
+            value: {
+              kind: "choose",
+              id: "gutter-palace.bird-location",
+              filter: { type: "any", controller: "controller" }
+            }
+          }
         }
       }
     ]
@@ -144,9 +150,9 @@ export default {
     "四处依赖未合入，均不近似实现：(1)「Play a 1 :rb_might: Bird unit token with [Deflect]」不可执行：CR 187.7 的 Bird 是无域 1 Might、" +
     "Bird 标签、带 [Deflect]（809）的单位 token，而冻结的 effect.token 定义表只有 recruit / sand-soldier / mech / reflection / tentacle，" +
     "带自身关键词或能力的 token 定义按该原语文件头保持 blocked。" +
-    "(2) token 的进入地点未印刷：355.2 要求在该牌的打出流程中选择合法 Location，而冻结 IR 没有运行期 Location 选择器" +
-    "（原语清单的 target.location 未合入），静态候选列表无法枚举「控制者 Base 或其控制的战场」；程序里的 locations 只是声明式占位，" +
-    "effect.token 会拒绝该形状（fail closed），不落到猜出来的地点。" +
+    "(2) token 的进入地点未印刷：355.2 要求在该牌的打出流程中选择合法 Location；" +
+    "RIFT-357 已合入 LocationSelector/LocationExpr 与解释器候选查询，程序用该选择器表达「控制者 Base 或其控制的战场」；" +
+    "当前 effect.token 的解释器/argsSchema 边界仍未接收 evaluated LocationExpr，token destination 需要专门适配，" +
     "(3)「Discard 1」作为费用要求 Finalize 提供精确手牌引用：cost/plan-values.ts 的 reference 只接受运行时 ObjectRef，" +
     "静态 IR 按 README 第 3 节禁止写运行时引用；当前卡牌启动能力适配器尚未把该 PickSpec 选择接入费用计划。" +
     "(4) 触发注册和 beginning-start 时点已经存在，但生产触发宿主仍需提供 exact-count 条件对手牌与战场单位集合的查询，" +

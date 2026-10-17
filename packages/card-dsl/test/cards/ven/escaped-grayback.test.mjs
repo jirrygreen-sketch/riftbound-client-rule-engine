@@ -4,8 +4,10 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/escaped-grayback.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/index.js";
 
 const CANONICAL_ID =
   "card.hash-873c8f0234994082b765c3eb70f58d38ed667f83edf9a43739a2a1f28910a0f5";
@@ -31,6 +33,8 @@ test("ven-124-166 Escaped Grayback: identity, ruleset, status, judgeReason and v
   assert.match(program.judgeReason, /827\.1\.c\.2/);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /Empowered/);
+  assert.match(program.judgeReason, /expandProgram/);
+  assert.match(program.judgeReason, /conditionMatches/);
 });
 
 test("ven-124-166 Escaped Grayback: [Empower] is declared as a keyword whose cost is a Kill", () => {
@@ -133,3 +137,65 @@ test.todo(
   "ven-124-166 Escaped Grayback: the [Empowered] dependent +2 Might reaches the layers behind the " +
     "Empowered status gate (CR 828.1.b.1 / 442.1.a) — no Empowered predicate exists"
 );
+
+/** 复核（2026-10-17）负向证据：关键词展开缺失与 Empowered 门控不生效。 */
+test("ven-124-166 Escaped Grayback evidence: expandProgram rejects the missing Empower KeywordDef", () => {
+  const kernel = world().unit("grayback", { types: ["unit"], zone: "board", controller: "A" }).build();
+  assert.throws(
+    () => expandProgram(program, kernel.getObject("grayback")),
+    /Keyword empower has no executable KeywordDef/
+  );
+});
+
+test("ven-124-166 Escaped Grayback evidence: the Kill cost really pays through the merged cost pipeline", () => {
+  // 827.1.c.2：Kill 是非资源费用分量；费用种类本身已合入，缺口只在关键词展开未携带它。
+  const base = world()
+    .player("controller")
+    .unit("grayback", { controller: "controller", might: 3 })
+    .unit("friendly-fodder", { controller: "controller", might: 1 })
+    .build();
+  const kernel = base.clone({ controller: "controller" });
+  const plan = buildCostPlan(kernel, {
+    id: "escaped-grayback.empower",
+    cost: {
+      kind: "explicit",
+      energy: { kind: "constant", value: 0 },
+      payments: [{ kind: "kill", amount: { kind: "constant", value: 1 }, object: kernel.ref("friendly-fodder") }]
+    },
+    domains: ["Order"]
+  });
+  const receipt = payCostPlan(kernel, plan);
+  assert.equal(receipt.paid, true);
+  assert.deepEqual(receipt.actions.map((entry) => [entry.action.type, entry.status]), [["pay", "done"], ["kill", "done"]]);
+  // 429.6：被作为费用的友方单位确实进入其拥有者的 Trash。
+  assert.equal(kernel.getObject("friendly-fodder").zone, "trash");
+  assert.deepEqual(kernel.events.map((event) => event.action), ["pay", "kill"]);
+});
+
+test("ven-124-166 Escaped Grayback evidence: the Empowered condition string is not recognized by the layer engine", () => {
+  // 442.1.a/828.1.b.1：没有 Empowered 谓词时 layers/engine.ts 的 conditionMatches 对未知 kind 返回 true，
+  // 未 Empowered 的宿主也会拿到 +2；程序不把它当作已门控效果，故整卡保持 judge-required。
+  const kernel = world()
+    .unit("grayback", { controller: "controller", might: 3, types: ["unit"], location: { type: "base", player: "controller" } })
+    .build()
+    .clone({ controller: "controller" });
+  const snapshot = kernel.getObject("grayback");
+  const engine = createLayerEngine([snapshot], [{
+    effect: {
+      id: "escaped-grayback.might",
+      layer: "arithmetic",
+      source: snapshot.ref,
+      filter: { objectId: "grayback" },
+      effect: {
+        kind: "continuous.might",
+        mode: "add",
+        amount: { kind: "constant", value: 2 },
+        condition: { kind: "expression", value: { kind: "constant", value: "empowered" } }
+      }
+    },
+    duration: { type: "permanent" },
+    timestamp: 1,
+    sequence: 1
+  }]);
+  assert.equal(engine.evaluate(snapshot.ref).might, 5, "unempowered host still gets +2 with the authored placeholder condition");
+});

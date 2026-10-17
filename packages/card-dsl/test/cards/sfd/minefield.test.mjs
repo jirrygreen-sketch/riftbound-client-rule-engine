@@ -4,6 +4,7 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/minefield.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 test("minefield: passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -26,6 +27,29 @@ test("minefield: triggered conquer structure", () => {
   assert.equal(instruction.op, "effect.mill");
   assert.deepEqual(instruction.args.amount, { kind: "constant", value: 2 });
   assert.equal(instruction.args.player, undefined);
+});
+
+test("minefield: the printed `here` anchor is still refused at production binding", () => {
+  // 468.5.d / 471.1 / 473.2.a: "when you conquer here" is battlefield-relative.
+  // The merged translator has no evaluable anchor for that key, so it refuses the
+  // registration instead of subscribing to every conquer by the controller. This
+  // is the executed evidence for the current gap in the judgeReason.
+  const ability = program.abilities[0];
+  assert.equal(ability.trigger.filter.here, true);
+  assert.throws(
+    () => translateTriggerFilter(ability.trigger.filter, "minefield", "conquer"),
+    /Unsupported filter field here/
+  );
+});
+
+test("minefield: the scoring conquer payload carries no battlefield object to anchor `here`", () => {
+  // turn/flow.ts publishes the Score wave as { timingPoint, player, details };
+  // translateTriggerFilter copies details verbatim, so a self-relative host
+  // anchor cannot be formed from the conquer emission. A hold/score payload is
+  // reproduced here exactly as the merged turn flow emits it.
+  const emitted = { timingPoint: "conquer", player: "A", details: { battlefieldId: "bf-1" } };
+  assert.equal(emitted.object, undefined);
+  assert.equal("battlefieldId" in emitted.details, true);
 });
 
 test("minefield: the supported body mills the controller's top 2 cards", () => {

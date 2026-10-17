@@ -4,6 +4,9 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/irelia-graceful.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-4226ae419dd851644c384f3f4d645badcec767b55055e62cb45fcc436ec55e03";
 const SOURCE_TEXT = "Your spells that choose me cost :rb_energy_1: or :rb_rune_rainbow: less.";
@@ -23,9 +26,12 @@ test("sfd-141-221 Irelia, Graceful: identity, ruleset, status, judgeReason and v
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /163\.2\.b/);
   assert.match(program.judgeReason, /356\.4/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /noopStaticBinder/);
+  assert.match(program.judgeReason, /no layer mapping/);
+  assert.match(program.judgeReason, /cost\.modify/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
+  // RIFT-261 landed; the cost.modify/cost.pay primitives are merged and the
+  // remaining gap is the missing static -> CostPlanInput.discounts compilation.
+  assert.doesNotMatch(program.judgeReason, /RIFT-(89|90|257|258|261)\b/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -52,7 +58,7 @@ test("sfd-141-221 Irelia, Graceful: the declared discount shape matches the cost
   // understands for discounts (cost/plan-types.ts CostDiscount: resource +
   // amount + component order, 356.4/356.4.c), so the remaining gap is the
   // card-static -> CostPlanInput.discounts wiring, not the shape itself. The
-  // judgeReason names that consumer (bindStatic / RIFT-261) and the two
+  // judgeReason names that consumer (layerFor / CostPlanInput.discounts) and the two
   // dimensions the current shape cannot carry (per-target scope, [A]).
   assert.equal(ability.kind, "static");
   assert.equal(ability.effect.stage, "discount");
@@ -60,6 +66,36 @@ test("sfd-141-221 Irelia, Graceful: the declared discount shape matches the cost
   assert.deepEqual(ability.effect.amount, { kind: "constant", value: 1 });
   assert.deepEqual(ability.effect.alternative, { resource: "power", universal: true, amount: 1 });
   assert.deepEqual(ability.effect.appliesTo, { type: "spell", object: "self" });
+});
+
+test("sfd-141-221 Irelia, Graceful: the merged static binder has no layer for the declared discount", () => {
+  // 355.6/356.4.c: the effect is a continuous.cost-modification discount scoped to
+  // "spells that choose me". The merged production binder refuses it twice: the
+  // declared appliesTo shape is unsupported, and the kind has no layer mapping.
+  // Both halves are executed evidence for the current gap in the judgeReason.
+  const kernel = world()
+    .unit("irelia", { cardId: CARD_ID, location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const source = kernel.getObject("irelia");
+  const layers = createLayerEngine([source]);
+  const binder = createEngineStaticBinder({ layers });
+  assert.equal(ability.effect.kind, "continuous.cost-modification");
+  assert.deepEqual(ability.effect.appliesTo, { type: "spell", object: "self" });
+  assert.throws(
+    () => binder.bindStatic(ability, source),
+    /Unsupported static appliesTo \{"type":"spell","object":"self"\}/
+  );
+  // Isolating the kind: with the "self" shorthand the binder still refuses the
+  // cost-modification layer, so the discount cannot reach CostPlanInput.discounts.
+  const selfScoped = {
+    ...ability,
+    effect: { ...ability.effect, appliesTo: "self" }
+  };
+  assert.throws(
+    () => binder.bindStatic(selfScoped, source),
+    /Static ability kind continuous\.cost-modification has no layer mapping/
+  );
+  assert.deepEqual(layers.registry.list(), []);
 });
 
 test.todo(

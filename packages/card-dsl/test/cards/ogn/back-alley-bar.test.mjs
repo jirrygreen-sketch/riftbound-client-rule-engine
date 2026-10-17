@@ -31,7 +31,7 @@ test("ogn-277-298 Back-Alley Bar: identity, ruleset, status and printed text", (
   // deck-catalog.json (ogn-277-298) carries this text verbatim.
   assert.equal(program.sourceText, "When a unit moves from here, give it +1 :rb_might: this turn.");
   assert.match(program.judgeReason, /might/i);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
 });
 
 test("ogn-277-298 Back-Alley Bar: Move trigger filtered on this battlefield as the origin", () => {
@@ -147,7 +147,7 @@ test.todo(
 
 test.todo(
   "ogn-277-298 Back-Alley Bar: the object-moved trigger still cannot register: the card's nested " +
-    "{ event, details } spelling is rejected by events/trigger-spec.ts and no merged consumer " +
-    "binds a CardProgram's triggered ability into a TriggerRegistration (RIFT-257); the " +
-    "origin-location payload and the Recall exclusion (CR 458.1) belong to RIFT-120."
+    "{ event, details } spelling is rejected by events/trigger-spec.ts (object-moved is not in " +
+    "EVENT_PATTERN_TYPES); the origin-location payload and the Recall exclusion (CR 458.1) " +
+    "belong to RIFT-120."
 );

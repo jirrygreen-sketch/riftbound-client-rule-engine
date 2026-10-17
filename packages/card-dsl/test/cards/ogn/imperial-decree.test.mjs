@@ -24,6 +24,8 @@ test("Imperial Decree identity and judge-required status match the printing", ()
   assert.equal(program.status, "judge-required");
   assert.equal(program.judgeReason.includes("trigger.delayed"), true);
   assert.equal(program.judgeReason.includes("390"), true);
+  assert.match(program.judgeReason, /expiresAt/);
+  assert.match(program.judgeReason, /绑定/);
   assert.equal(
     program.sourceText,
     "[Action] (Play on your turn or in showdowns.)\n" +
@@ -91,6 +93,18 @@ test.todo(
 
 test.todo(
   "Imperial Decree: the damage-dealt subscription must fire only for actual positive valid " +
-    "damage (418.1.a/b, 418.1.e/e.1) and expire with the 'this turn' effects (317.2.c); both " +
-    "belong to the delayed-trigger pipeline once the card-facing registration instruction is available."
+    "damage (418.1.a/b, 418.1.e/e.1) and expire with the 'this turn' effects (317.2.c); the existing EventPipeline expiry " +
+    "must be connected to the card-facing registration and each event object bound to the kill body."
 );
+
+test("Imperial Decree supported delayed body: a replaced kill reports negated and leaves the unit", () => {
+  const kernel = world().unit("damaged-unit", { owner: "B", controller: "B", damage: 1 }).build();
+  kernel.setTargets("imperial-decree.damaged-unit", [kernel.ref("damaged-unit")]);
+  kernel.addReplacement(action => action.type === "kill" ? "replaced" : null);
+  const outcome = runAbilityBody(delayed.args.body.value, kernel);
+  assert.equal(outcome.results[0].result.status, "negated");
+  assert.equal(outcome.results[0].result.reason, "replaced");
+  assert.deepEqual(outcome.events.map(event => [event.action, event.outcome]), [["kill", "replaced"]]);
+  assert.equal(kernel.getObject("damaged-unit").zone, "board");
+  assert.equal(kernel.getObject("damaged-unit").damage, 1);
+});

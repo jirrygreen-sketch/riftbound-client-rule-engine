@@ -28,11 +28,9 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Equip（818.1.c 的印刷费用）的启动费用尚不能在 EffectIR 费用管线里支付：已合入的 Equip 展开（effects/keywords/Equip.ts）声明 " +
-    "payments: [{ kind: \"equip\", value: { kind: \"source\" } }]，而 cost/plan-values.ts 的 readCost 对该专用支付种类直接 fail closed，" +
-    "实测 buildCostPlan 抛 CostPlanError（reason \"judge-required\"、message \"Unsupported payment kind: equip\"）。" +
-    "Equip 的关键词展开、attach 本体与程序绑定已经合入；" +
-    "依赖：Equip 专用费用种类的费用计划消费方。不近似实现（不把 Equip 改成裸 effect.attach 绕开费用）。",
+    "Equip 的印刷 1 Body Power 费用（CR 818.1.c）缺专用支付绑定：effects/keywords/Equip.ts 仍产出 kind=equip 的 source 支付描述，" +
+    "cost/plan-values.ts 的 readCost 以 CostPlanError（judge-required；Unsupported payment kind: equip）拒绝它。" +
+    "需要将该支付种类及 costDomain=Body 接入费用计划；不得绕过费用直接 attach。",
   abilities: [
     // 818.1.c：印刷费用为 1 个 Body Power 符号；卡只声明关键词身份、数值与费用域。
     { kind: "keyword", keyword: "equip", value: 1, costDomain: "Body" }
