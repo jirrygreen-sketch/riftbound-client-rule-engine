@@ -9,7 +9,12 @@ import program from "../../../dist/cards/ogn/zaun-warrens.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { EventPipeline } from "../../../../engine-core/dist/events/pipeline.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL = "card.hash-7eb7c2878a687bba1f5053f3c775d1f55e01679f4a8124757d2bb0a70b15ad88";
 const SOURCE_TEXT = "When you conquer here, discard 1, then draw 1.";
@@ -52,6 +57,10 @@ test("Zaun Warrens program validates and remains judge-required for the current 
   assert.match(program.judgeReason, /359\.3\.e\.11/);
   assert.match(program.judgeReason, /Unsupported filter field here/);
   assert.match(program.judgeReason, /battlefieldId/);
+  assert.match(program.judgeReason, /383\.4\.c/);
+  assert.match(program.judgeReason, /unknown-field/);
+  assert.match(program.judgeReason, /190\.6/);
+  assert.match(program.judgeReason, /control-established/);
   assert.doesNotMatch(program.judgeReason, /RIFT-357/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -186,10 +195,50 @@ test("Zaun Warrens: the conquer timing point is emitted by the merged Score wave
 });
 
 test("Zaun Warrens: production trigger binding still rejects the unresolved here anchor", () => {
+  // 053.3 / 383.4.c: the printed "here" is this Battlefield. The closed
+  // EventPattern vocabulary has no battlefield-relative field, so the validator
+  // rejects the placeholder and the program binder refuses to translate it.
+  const validated = validateTriggerSpec({ at: ability.trigger.at, filter: ability.trigger.filter });
+  assert.equal(validated.ok, false);
+  assert.deepEqual(
+    validated.issues.map(issue => [issue.path, issue.code]),
+    [["trigger.filter.here", "unknown-field"]]
+  );
   assert.throws(
     () => translateTriggerFilter(ability.trigger.filter, abilitySource.ref.id, ability.trigger.at),
     /Unsupported filter field here/
   );
+});
+
+test("Zaun Warrens: the production program binding cannot even register the trigger", () => {
+  // Programs/triggers.ts routes the card filter through translateTriggerFilter,
+  // so the unresolved "here" aborts registration for the shipped program; the
+  // card never reaches the EventPipeline at all.
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const { engine, kernel } = fixture({
+    cards: [{ id: "zaun-warrens", cardId: CANONICAL, types: ["battlefield"], energy: null, power: [] }]
+  });
+  assert.equal(engine.commit({ type: "move-zone", object: kernel.ref("zaun-warrens"), to: "board" }).status, "done");
+  assert.throws(
+    () => triggerRegistrations(binding.registry, kernel.getObject("zaun-warrens")),
+    /Unsupported filter field here/
+  );
+  assert.equal(engine.pipeline.triggers.size, 0);
+});
+
+test("Zaun Warrens: the real conquer emission carries only player and details.battlefieldId", () => {
+  // turn/flow.ts's Score wave is the only producer of the conquer timing point;
+  // it publishes { player, details: { battlefieldId } } and no Battlefield
+  // snapshot. events/pipeline-match.ts compares details entries as literal
+  // scalars, so the runtime id cannot be compared with the ability source's own
+  // Location; a source-anchored spelling would need a new filter vocabulary.
+  const conqueredByA = { eventId: 1, timingPoint: "conquer", player: "A", details: { battlefieldId: "bf-1" } };
+  assert.equal(matchesTriggerEvent({ event: "conquered", player: "self" }, conqueredByA, "A"), true);
+  assert.equal(matchesTriggerEvent({ event: "conquered", player: "self" }, conqueredByA, "B"), false);
+  // Matching the id is only a literal comparison with a value the static IR
+  // cannot know: the source's own battlefield id is a runtime fact.
+  assert.equal(matchesTriggerEvent({ event: "conquered", details: { battlefieldId: "bf-1" } }, conqueredByA, "A"), true);
+  assert.equal(matchesTriggerEvent({ event: "conquered", details: { battlefieldId: "bf-2" } }, conqueredByA, "A"), false);
 });
 
 test.todo(
