@@ -24,6 +24,7 @@ test("rad-129-167 Trifarian Captain: program validates and has expected identity
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.judgeReason.includes("zoneSlice"), true);
+  assert.doesNotMatch(program.judgeReason, /RIFT-358（.*进行中/);
   assert.equal(
     program.sourceText,
     "When you play me, look at the top 4 cards of your Main Deck. You may reveal from among them a unit or gear with Energy cost no more than :rb_energy_3: and with Power cost no more than :rb_rune_rainbow: and draw it. Recycle the rest."
@@ -51,6 +52,15 @@ test("rad-129-167 Trifarian Captain: look → 383.3.a.3 可选 reveal+入手 →
   assert.deepEqual(look.args.amount, { kind: "constant", value: 4 });
   assert.deepEqual(look.args.picksSpecId, { kind: "constant", value: TOP_FOUR });
   assert.deepEqual(look.args.pickedKey, { kind: "constant", value: "lookedCards" });
+  assert.deepEqual(look.picks, [
+    {
+      id: TOP_FOUR,
+      options: [],
+      ordered: true,
+      selection: "all",
+      zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 4 } }
+    }
+  ]);
 
   // "you may" 不是效果第一段（383.3.a.3）→ 结算时决定，包住 reveal + 入手。
   const choice = instructionById("trifarian-captain.may-reveal-and-draw");
@@ -88,7 +98,7 @@ test("rad-129-167 Trifarian Captain: look → 383.3.a.3 可选 reveal+入手 →
   assert.deepEqual(recycle.args.objects, {
     kind: "linked-value",
     instructionId: "trifarian-captain.look-top-four",
-    key: "lookedRest"
+    key: "lookedCards"
   });
   assert.equal(recycle.linkedTo, undefined);
 });
@@ -194,19 +204,48 @@ test("rad-129-167 Trifarian Captain: 接受时的可选分支按声明顺序执�
   assert.deepEqual(toHandRun.events.map(event => event.action), ["return-to-hand"]);
 });
 
-test.todo(
-  "rad-129-167 Trifarian Captain: 牌库顶按序来源——effect.inspect 的 top 范围必须由上游按契约 3.6 的" +
-    "zoneSlice 提供有序 picksSpecId，该生产接线属 RIFT-358（进行中），用 query 顺序冒充" +
-    "牌库顶被原语显式禁止"
-);
+test("rad-129-167 Trifarian Captain: ordered top-four source is consumed by effect.inspect", () => {
+  const kernel = world().deck(["top", "second", "third", "fourth", "fifth"]).unit("trifarian", {}).build();
+  const orderedTopFour = kernel.zoneSlice("A", "deck", "top", 4).map(object => object.ref);
+  const look = instructionById("trifarian-captain.look-top-four");
+  const run = runInstruction(
+    inspectDef,
+    { ...look.args, player: { kind: "object-property", object: kernel.ref("trifarian"), property: "controller" } },
+    { world: kernel, picks: { [TOP_FOUR]: orderedTopFour } }
+  );
+  assert.equal(run.result.status, "executed");
+  assert.deepEqual(run.linked.lookedCards.map(ref => ref.id), ["top", "second", "third", "fourth"]);
+  assert.equal(kernel.zone("A", "deck").length, 5);
+});
 
 test.todo(
   "rad-129-167 Trifarian Captain: \"a unit or gear with Energy cost no more than 3 and with Power cost no" +
     " more than [rainbow]\" 是 355.9.b 的目标限制；ObjectFilter 没有数值比较键、Condition 无法对集合" +
-    "逐项施加限制，当前只能作为描述性键记录（条件谓词缺口属进行中的 RIFT-359）"
+    "逐项施加限制，当前只能作为描述性键记录"
 );
 
-test.todo(
-  "rad-129-167 Trifarian Captain: \"the rest\" 需要 looked 集合减去被展示那张的补集；effect.inspect" +
-    "只链接张数与引用列表，PickSpec 也没有 exclude 语义（程序里的 lookedRest 键需上游写入）"
-);
+test("rad-129-167 Trifarian Captain: recycling lookedCards drops the chosen card after it moves to hand", () => {
+  const kernel = world().deck(["top", "second", "third", "fourth", "fifth"]).unit("trifarian", {}).build();
+  const looked = kernel.zoneSlice("A", "deck", "top", 4).map(object => object.ref);
+  const chosen = looked[1];
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("trifarian") });
+
+  const revealRun = runInstruction(revealDef, { pick: CHOSEN }, { world: scoped, picks: { [CHOSEN]: [chosen] } });
+  assert.equal(revealRun.result.status, "executed");
+  const toHandRun = runInstruction(
+    zoneDef,
+    { pick: CHOSEN, to: { kind: "constant", value: "hand" } },
+    { world: scoped, picks: { [CHOSEN]: [chosen] } }
+  );
+  assert.equal(toHandRun.result.status, "executed");
+
+  const recycleRun = runInstruction(
+    recycleDef,
+    { objects: { kind: "linked-value", instructionId: "trifarian-captain.look-top-four", key: "lookedCards" } },
+    { world: scoped, linked: { lookedCards: looked } }
+  );
+  assert.equal(recycleRun.result.status, "executed");
+  assert.equal(recycleRun.linked.recycledCount, 3);
+  assert.deepEqual(scoped.zone("A", "hand").map(ref => ref.id), ["second"]);
+  assert.deepEqual(scoped.zone("A", "deck").map(ref => ref.id), ["fifth", "top", "third", "fourth"]);
+});

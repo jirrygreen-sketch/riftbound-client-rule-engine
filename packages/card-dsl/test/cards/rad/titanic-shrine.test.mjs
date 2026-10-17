@@ -19,7 +19,7 @@ test("rad-089-167 Titanic Shrine: program validates and is judge-required", () =
   assert.match(program.judgeReason, /TriggeredAbility/);
   assert.match(program.judgeReason, /TriggerRegistration\.cost/);
   assert.match(program.judgeReason, /exhaust ObjectRef/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /Might/);
 });
 
@@ -64,4 +64,4 @@ test("rad-089-167 Titanic Shrine: the Draw 1 half executes against the reference
 });
 
 test.todo("rad-089-167 Titanic Shrine: expressing and binding \"exhaust me\" as a trigger cost (CR 204.1.c / 204.3 / 355.10.c.1) needs a TriggeredAbility cost field and a programs/triggers.ts mapping into TriggerRegistration.cost. The chain already consumes registered trigger costs at Finalize; the event-time exhaust ObjectRef still cannot be supplied by the current CardProgram IR. The exhaust must not be approximated with effect.exhaust.");
-test.todo("rad-089-167 Titanic Shrine: the condition \"Might greater than each other unit on the board\" needs the played unit bound from the card-played payload (no event-object ObjectSelector exists) plus a numerical Might comparison against every other board unit; the predicate itself belongs to the in-flight RIFT-359 conditional work.");
+test.todo("rad-089-167 Titanic Shrine: the condition \"Might greater than each other unit on the board\" needs the played unit bound from the card-played payload (no event-object ObjectSelector exists) plus a numerical Might comparison against every other board unit; the general event-object binding and quantified comparison consumer are still missing.");

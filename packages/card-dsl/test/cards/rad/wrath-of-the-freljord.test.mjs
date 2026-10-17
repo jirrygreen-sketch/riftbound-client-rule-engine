@@ -107,8 +107,8 @@ test("rad-077-167 Wrath of the Freljord: an already-ready unit produces no ready
 test.todo(
   "rad-077-167 Wrath of the Freljord: [Shield 3] while defending — the expansion emits " +
     "continuous.might gated on the Defender designation, but that designation is not an " +
-    "ObjectSnapshot characteristic (contract 3.8 adds only combatRole; Shield.ts header notes about " +
-    "RIFT-91 continuous.might are stale, the layer op is merged); bindStaticToLayers " +
+    "ObjectSnapshot characteristic (contract 3.8 adds only combatRole); the continuous.might " +
+    "layer operation is already merged; bindStaticToLayers " +
     "therefore catches MissingInformation and evaluates the condition to false, so the bonus " +
     "cannot be claimed executable until the designation feature is added."
 );
