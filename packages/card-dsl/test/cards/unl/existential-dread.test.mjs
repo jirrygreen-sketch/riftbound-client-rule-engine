@@ -45,6 +45,8 @@ test("unl-134-219 Existential Dread: identity, status, judgeReason and verbatim 
   assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /programs\/filters\.ts/);
   assert.match(program.judgeReason, /programs\/play\.ts/);
+  assert.match(program.judgeReason, /additional\/additional-cost/);
+  assert.match(program.judgeReason, /paid-instance count/);
   assert.doesNotMatch(program.judgeReason, /RIFT-86|RIFT-89|RIFT-91|RIFT-120|RIFT-257/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });

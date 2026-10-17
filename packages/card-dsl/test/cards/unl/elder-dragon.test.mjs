@@ -38,6 +38,7 @@ test("unl-118-219 Elder Dragon: identity, status, judgeReason and verbatim sourc
   assert.match(program.judgeReason, /142\.4\.c/);
   assert.match(program.judgeReason, /perLocation/);
   assert.match(program.judgeReason, /355\.11/);
+  assert.match(program.judgeReason, /programs\/triggers\.ts/);
   // The trigger-registration gap was withdrawn: programs/triggers.ts registers
   // this card-played trigger and the golden below drives it through production
   // binding, so the reason names only the two remaining gaps.
@@ -227,10 +228,9 @@ test("unl-118-219 Elder Dragon golden: the card-played trigger registers and a r
   );
 });
 
-test("unl-118-219 Elder Dragon golden: the per-location group keeps one unit per location", () => {
-  // Today one up-to TargetSpec is resolved through the merged TargetPlan; the
-  // golden records the printed grouping the interpreter already enforces by
-  // locking exactly one enemy unit at the chosen location.
+test("unl-118-219 Elder Dragon golden: only the chosen enemy unit takes damage", () => {
+  // This supported single-target execution preserves the unchosen enemy. The
+  // per-location selection restriction still needs the Finalize coverage below.
   const board = playElderDragon((world) => [world.kernel.ref("enemy-here")]);
 
   assert.equal(board.kernel.getObject("enemy-here").damage, 1);
@@ -246,4 +246,8 @@ test.todo(
   "unl-118-219 Elder Dragon: “choose up to one enemy unit at each location” resolves per-location groups " +
     "(CR 355.11 Targeting Requirements) — TargetSpec has no per-location quantifier and a flat up-to group would " +
     "allow two units at one location (target.many / TargetPlan work)"
+);
+test.todo(
+  "unl-118-219 Elder Dragon: Finalize must reject choosing two enemy units at the same location " +
+    "while permitting up to one enemy unit at each distinct location (CR 355.11)"
 );

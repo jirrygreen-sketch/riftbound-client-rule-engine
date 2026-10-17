@@ -8,6 +8,8 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import might from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { abilitySpeed, expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-de24e677d5541604808bbe583f958d702c8e2067e5a554af3d856ceac17c6354";
@@ -45,6 +47,7 @@ test("unl-063-219 Eclipse: identity, ruleset, status, judgeReason and verbatim s
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
+  assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /437\.1/);
   assert.match(program.judgeReason, /Finalize\/AwaitChoice/);
   assert.doesNotMatch(program.judgeReason, /RIFT-89|RIFT-90|RIFT-91|RIFT-120|RIFT-257/);
@@ -70,6 +73,34 @@ test("unl-063-219 Eclipse: [Reaction], printed cost and the printed instruction 
       ["eclipse.predict-recycle", "effect.recycle"]
     ]
   );
+});
+
+test("unl-063-219 Eclipse: Reaction expansion permits Showdown and closed-state timing", () => {
+  const board = fixture({
+    cards: [{ id: "eclipse", cardId: CANONICAL_ID, types: ["spell"], energy: 3, power: null }]
+  });
+  const source = board.kernel.getObject("eclipse");
+  const expanded = expandProgram(program, source);
+  const timingGrant = expanded.expanded.find(
+    (ability) => ability.kind === "static" && ability.effect.kind === "continuous.timing"
+  );
+  assert.ok(timingGrant);
+  assert.deepEqual(timingGrant.effect.grants, ["showdown", "closed-state"]);
+  const speed = abilitySpeed(expanded.abilities, source);
+  assert.equal(speed, "reaction");
+
+  board.engine.openShowdown("A");
+  assert.equal(board.engine.turnState, "showdown-open");
+  assert.equal(board.engine.canAct("A", speed, source.ref, source), true);
+  assert.equal(board.engine.canAct("A", "normal", source.ref, source), false);
+
+  // Finalize a real Draw ability to enter a closed state before it resolves.
+  board.engine.execute(board.draft("draw-before-eclipse"));
+  assert.equal(board.engine.turnState, "showdown-closed");
+  assert.equal(board.kernel.player("A").handSize, 1);
+  assert.equal(board.engine.canAct("A", speed, source.ref, source), true);
+  assert.equal(board.engine.canAct("A", "action", source.ref, source), false);
+  assert.equal(board.engine.canAct("B", speed, source.ref, source), false);
 });
 
 test("unl-063-219 Eclipse: 'Give a unit -4 Might this turn' is a temporary modification, never a Buff", () => {
@@ -223,6 +254,33 @@ test("unl-063-219 Eclipse golden: predicting an empty Main Deck looks at nothing
   assert.equal(outcome.status, "executed");
   assert.equal(kernel.player("A").deckSize, 0);
   assert.equal(kernel.player("A").handSize, 0);
+  assert.deepEqual(outcome.events, []);
+});
+
+test("unl-063-219 Eclipse fail-closed: the top scope refuses to guess deck order without ordered picks", () => {
+  // Contract 3.6: without the ordered pick set the looked-at range is empty, so
+  // the Predict sees nothing and the recycle is a legal no-op. The deck keeps
+  // its real order — no guessed slice, no invented top card.
+  const kernel = world().deck(["top-card", "rest-card"], { owner: "A" }).build();
+  kernel.setAnswers({ [PREDICT_CHOICE_ID]: [] });
+
+  const outcome = resolveChainBody(predictHalf(), kernel);
+
+  assert.deepEqual(
+    outcome.results.map((entry) => [entry.id, entry.result.status]),
+    [
+      ["eclipse.bind-controller", "executed"],
+      ["eclipse.predict-look", "executed"],
+      ["eclipse.predict-recycle", "executed"]
+    ]
+  );
+  // Nothing was looked at, so the picked list is empty rather than absent.
+  assert.deepEqual(outcome.linkedValues["eclipse.predict-look.predicted"], []);
+  assert.equal(outcome.linkedValues["eclipse.predict-look.inspected"], 0);
+  assert.deepEqual(
+    kernel.objectsInZone("A", "deck").map((ref) => ref.id),
+    ["top-card", "rest-card"]
+  );
   assert.deepEqual(outcome.events, []);
 });
 

@@ -42,6 +42,7 @@ test("unl-064-219 Fate Weaver: identity, ruleset, status, judgeReason, sourceTex
   assert.equal(program.status, "judge-required");
   // 缺口必须具体：有序牌库顶查看、energy 下限过滤、reveal 的适配器字段。
   assert.match(program.judgeReason, /picksSpecId/);
+  assert.match(program.judgeReason, /zoneSlice/);
   assert.match(program.judgeReason, /energy/);
   assert.match(program.judgeReason, /effect\.reveal/);
   assert.match(program.judgeReason, /Finalize/);
@@ -181,6 +182,21 @@ test("unl-064-219 Fate Weaver golden: declining the may skips only that instruct
   assert.equal(outcome.results[3].result.status, "executed");
   assert.deepEqual(kernel.zone("A", "hand"), []);
   assert.equal(outcome.linkedValues["fate-weaver.recycle-rest.recycledCount"], 4);
+});
+
+test("unl-064-219 Fate Weaver golden: without the ordered top-4 source the look range stays empty and nothing is guessed", () => {
+  const kernel = deckedWorld();
+  kernel.setAnswers({ "fate-weaver.may-reveal-spell/optional": false });
+  const outcome = resolveChainBody(ability.body, kernel);
+
+  // 缺有序来源：effect.inspect 不截取 query 近似，范围为空；随后的可选指令没有可选项。
+  assert.equal(outcome.linkedValues["fate-weaver.look-top-4.lookedCount"], 0);
+  assert.deepEqual(outcome.linkedValues["fate-weaver.look-top-4.looked"], []);
+  assert.deepEqual(kernel.zone("A", "hand"), []);
+  assert.deepEqual(
+    kernel.zone("A", "deck").map((ref) => ref.id),
+    ["top", "second", "third", "fourth", "fifth"]
+  );
 });
 
 test.todo(

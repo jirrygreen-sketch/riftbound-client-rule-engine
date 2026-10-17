@@ -168,6 +168,25 @@ test("unl-044-219 Flurry of Feathers golden: the counter mode removes a locked c
   );
 });
 
+test("unl-044-219 Flurry of Feathers fail-closed: the authored destination is a marker, never a fabricated LocationRef", () => {
+  const kernel = world().build();
+  // The card deliberately does not pin a location: a descriptive marker is not
+  // a legal LocationRef, so the merged effect.token negates the instruction
+  // instead of putting the tokens somewhere the printed text never named
+  // (355.2 / 355.2.a). No unit is created and no event is produced.
+  const outcome = resolveChainBody(birdMode.body, kernel);
+  assert.deepEqual(
+    outcome.results.map((entry) => [entry.id, entry.result.status, entry.result.reason ?? null]),
+    [["flurry-of-feathers.play-bird-tokens", "negated", "impossible"]]
+  );
+  assert.deepEqual(kernel.objects.map((object) => object.ref.id), []);
+  assert.deepEqual(kernel.objectsInZone("A", "board"), []);
+  assert.deepEqual(outcome.events, []);
+  // The authored destination stays descriptive data, not a LocationRef.
+  assert.equal(tokenInstruction.args.location.value.kind, "location-selector");
+  assert.equal(tokenInstruction.args.location.value.type, undefined);
+});
+
 test.todo(
   "unl-044-219 Flurry of Feathers: the 187.7 Bird token definition (domainless, 1 Might, Bird tag, " +
     "[Deflect]) must be added to effect.token's definition table together with the Deflect keyword " +
