@@ -4,6 +4,8 @@ import test from "node:test";
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { attachProgramLifecycle } from "../../../../engine-core/dist/programs/lifecycle.js";
 import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { describePlay } from "../../../../engine-core/dist/programs/play.js";
+import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
 import { createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/jayce-man-of-progress.js";
@@ -190,24 +192,20 @@ test("sfd-084-221 Jayce, Man of Progress golden: accepting the may-kill kills th
 });
 
 test("sfd-084-221 Jayce, Man of Progress chain golden: the killed receipt gates the may-play offer", () => {
-  const base = world().unit("jayce", { might: 4 }).unit("friendly-gear", { types: ["gear"], owner: "A", controller: "A" }).build();
-  const runScenario = ({ acceptKill, acceptPlay, killTarget }) => {
+  const base = world().player("A", { energy: 10 }).player("B")
+    .hand("jayce", { cardId: CARD_ID, types: ["unit"], might: 4, energy: 0, power: [] })
+    .unit("friendly-gear", { types: ["gear"], owner: "A", controller: "A" }).build();
+  const runScenario = ({ acceptKill, acceptPlay, replaceKill = false }) => {
     const kernel = base.clone();
-    kernel.setTargets(TARGET_ID, killTarget === undefined ? [] : [kernel.ref(killTarget)]);
+    const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
     const answers = [];
     const decide = (request) => {
       answers.push(request);
       if (request.type === "optional") return String(request.prompt).includes("Kill") ? acceptKill : acceptPlay;
       if (request.type === "select-objects") {
-        // _finalize re-runs the plan on a cloned context kernel; its options are
-        // the legal candidate set, so pick the required count from it.
         return request.options.slice(0, request.min ?? 1);
       }
       throw new Error(`unexpected choice ${JSON.stringify(request)}`);
-    };
-    const contextKernelFor = (source, controller, at) => {
-      const scoped = kernel.clone({ source, sourceSnapshot: kernel.getObject(source.id) ?? undefined, controller, timingPoint: at });
-      return bindResolveContext(scoped, { choose: (request) => decide({ ...request, scope: "context" }) });
     };
     const host = createActionPipelineHost({
       checkpoint: () => kernel.snapshot(),
@@ -215,23 +213,49 @@ test("sfd-084-221 Jayce, Man of Progress chain golden: the killed receipt gates 
       objects: () => kernel.objects,
       perform: (action) => kernel.perform(action),
       choose: (request) => decide({ ...request, scope: "host" }),
-      context: contextKernelFor,
-      testTrigger: () => true
+      context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose: decide })
     });
-    const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
-    const corrected = { ...program, status: "executable", judgeReason: undefined, canonicalCardId: "card:jayce" };
-    const registry = new ProgramRegistry([corrected]);
+    const engine = new ChainEngine({
+      turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host,
+      describePlay: (action, source) => describePlay(registry, action, source),
+      cleanup: (chain) => {
+        chain.layers.setObjects(kernel.objects);
+        let changed = false;
+        for (const object of chain.layers.evaluateAll()) {
+          if (object.zone === "board" && object.types.includes("unit") && object.might !== null &&
+              (object.might <= 0 || object.damage >= object.might)) {
+            chain.commit({ type: "kill", object: object.ref });
+            changed ||= kernel.getObject(object.ref.id)?.ref.zoneEntryId !== object.ref.zoneEntryId;
+          }
+        }
+        return changed;
+      }
+    });
+    if (replaceKill) {
+      // Bind an actual replacement to the pipeline: the attempted kill returns
+      // the gear to hand instead. No TestWorld replacement callback is used.
+      bindReplacement({
+        replaces: { event: "object-killed", filter: { objectId: "friendly-gear" } },
+        with: [{
+          id: "return-gear-instead", op: "effect.zone",
+          args: {
+            target: { kind: "constant", value: { linked: "replacement.object" } },
+            to: { kind: "constant", value: "hand" }
+          }
+        }]
+      }, kernel.ref("jayce"), {
+        host: { object: (ref) => kernel.object(ref), objects: () => kernel.objects, context: host.context },
+        pipeline: engine.pipeline
+      });
+    }
     attachProgramLifecycle(engine, registry, undefined, (error) => { throw error; });
-    kernel.perform({ type: "move-zone", object: kernel.ref("jayce"), to: "hand" });
-    engine.commit({ type: "move-zone", object: kernel.ref("jayce"), to: "board", player: "A" });
-    engine.pipeline.emit({ timingPoint: "card-played", object: kernel.getObject("jayce"), player: "A" });
-    engine.advance();
+    engine.execute(describePlay(registry, { type: "play", object: kernel.ref("jayce"), player: "A" }, kernel.getObject("jayce")));
     while (engine.items.length) engine.pass(engine.priority);
-    return { kernel, answers };
+    return { kernel, answers, engine };
   };
 
   // A completed kill offers the may-play choice; declining it there stops the play.
-  const accepted = runScenario({ acceptKill: true, acceptPlay: false, killTarget: "friendly-gear" });
+  const accepted = runScenario({ acceptKill: true, acceptPlay: false });
   assert.equal(accepted.kernel.getObject("friendly-gear").zone, "trash");
   assert.ok(accepted.answers.some((request) => request.type === "optional" && /Play a gear/.test(request.prompt)));
 
@@ -239,6 +263,18 @@ test("sfd-084-221 Jayce, Man of Progress chain golden: the killed receipt gates 
   const declined = runScenario({ acceptKill: false, acceptPlay: false });
   assert.equal(declined.kernel.getObject("friendly-gear").zone, "board");
   assert.ok(!declined.answers.some((request) => request.type === "optional" && /Play a gear/.test(request.prompt)));
+
+  // Accept the outer may-kill, then negate the kill through the real
+  // replacement binder. Without the receipt gate the inner may-play WOULD be
+  // asked here, which distinguishes this case from declining the outer may.
+  const replaced = runScenario({ acceptKill: true, acceptPlay: false, replaceKill: true });
+  assert.ok(replaced.answers.some((request) => request.type === "optional" && /Kill a friendly gear/.test(request.prompt)));
+  assert.equal(replaced.kernel.getObject("friendly-gear").zone, "hand");
+  assert.ok(replaced.engine.pipeline.events.some((event) => event.timingPoint === "object-enters-hand" && event.object.ref.id === "friendly-gear"));
+  assert.ok(!replaced.kernel.events.some((event) => event.action === "kill"));
+  assert.ok(!replaced.engine.pipeline.events.some((event) => event.timingPoint === "object-killed"));
+  assert.ok(!replaced.answers.some((request) => request.type === "optional" && /Play a gear/.test(request.prompt)),
+    "a replaced kill must not offer the subsequent play");
 });
 
 test("sfd-084-221 Jayce, Man of Progress golden: declining leaves every gear on the Board", () => {

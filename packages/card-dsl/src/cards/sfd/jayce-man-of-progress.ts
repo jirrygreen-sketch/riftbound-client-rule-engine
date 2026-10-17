@@ -140,13 +140,15 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处依赖仍未合入，均不近似实现：(1)「If you do」（359.3.e.14.b）的动作回执已合入并接线：" +
+    "「If you do」（359.3.e.14.b）的动作回执已合入并接线：" +
     "effect.kill 提供 killed 链接值（无消灭时为空数组），may-play 节点以 linkedTo: " +
     "jayce.kill-friendly-gear 加 compare/linked 条件读取该回执；真实链验证 kill 成功时" +
-    "后续 may-play 被询问、killed 为空数组或目标失效时后续不执行。" +
-    "(2)「play a gear with Energy cost no more than :rb_energy_7: from hand this turn」需要 206 的印刷费用上限比较（ObjectFilter 无费用谓词，未知键被静默忽略，同 sfd/sandshifter），" +
+    "后续 may-play 被询问；接受 may-kill 但真实替代将 gear 移回手牌时，" +
+    "kill 被否定且不出现后续打出询问；拒绝或目标失效也不执行后续。" +
+    "仍缺印刷费用过滤、许可窗口与费用计划，不近似实现：" +
+    "「play a gear with Energy cost no more than :rb_energy_7: from hand this turn」需要 206 的印刷费用上限比较（ObjectFilter 无费用谓词，未知键被静默忽略，同 sfd/sandshifter），" +
     "以及「本回合稍后」的一次性许可窗口：ObjectFilter 没有 greatest/last-created 量词，TargetSpec 必须锁定 Finalize 时已存在的对象（355.5），Duration 也没有 one-shot「本回合的下一张」期限（同 rad/firelights-hideout 的缺口）。" +
-    "(3)「ignoring its Energy cost」按 356.1.b.2 只把 Base Energy 置 0、Power 照付（印刷提示亦然）：effect.play 只接受已 finalize 的计划、从不推导印刷费用，" +
+    "「ignoring its Energy cost」按 356.1.b.2 只把 Base Energy 置 0、Power 照付（印刷提示亦然）：effect.play 只接受已 finalize 的计划、从不推导印刷费用，" +
     "RIFT-257 的 translateCost 对卡面 cost 字段直接转 judge-required、cost/ 也没有 ignore-base 的卡牌程序入口，且计划必须在被选牌确定后才生成（RIFT-261）。" +
     "effect.kill、choice.optional 与 killed 回执均已合入，golden 用锁定目标真实执行 kill 半段（接受/拒绝/目标失效三分支）并验证回执闸门。" +
     "依赖：RIFT-261（费用种类与 ignore-cost）、RIFT-90（印刷费用谓词）、一次性许可窗口（RIFT-91 后续）。",

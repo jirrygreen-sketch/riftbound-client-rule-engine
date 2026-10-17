@@ -32,16 +32,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   已在 ven/sky-crusier 等卡使用。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-17）。
- * 已合入：RIFT-257 的 programs/triggers.ts 能把 "When you play me"（card-played，
- * 383.4.a/420.4.a）注册进事件管线；effect.heal 的集合 query 与 effect.move 的
- * "controller-base" 目的地（421.1）都真实执行。
- * 仍缺：移动目标过滤（effect.move 的 TargetSpec）里的 "here" 用 sameLocationAs:
- * "self" 锚点，但 programs/filters.ts 的 translateObjectFilter（绑定路径）把锚点键
- * 视为 Unsupported filter field 并转 judge-required，TriggerRegistration 装不上，
- * 移动半段在真实对局里不可达。治疗查询不受该路径影响（effect.heal 的 query 只走
- * 解释器的 queryObjects），controller 占位符也已按链上实际归一化改为 "self"
- * （chain/engine.ts 的 query 包装只把 "self" 归一化成条目控制者）。
- * 依赖：programs/filters.ts 对目标过滤 sameLocationAs 锚点的翻译。
+ * 已支持部分：原始 effect.heal 在独立链项中经过 ChainEngine.query/queryObjects
+ * 验证同地点友军治疗与远端排除；原始 effect.move 的 controller-base（421.1）
+ * 在解释器子效果中验证。两者都不是整卡生命周期绑定成功的证据。
+ * 仍缺两条独立绑定路径：translateObjectFilter 拒绝移动 TargetSpec 的
+ * sameLocationAs: "self"；Reaction 原始展开的 appliesTo: ["card", "activated-ability"]
+ * 被 programs/statics.ts 的 staticTarget 拒绝，尚不能注册其持续时序许可（813.1.c）。
+ * 治疗 query 的原始锚点保留，controller: "self" 由真实 ChainEngine 归一化。
  * 不近似实现：不把 "here" 近似为无位置过滤、不把 "its base" 写成固定 seat、也不把
  * Heal 当成反向伤害。
  */
@@ -99,17 +96,15 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "一处依赖仍未合入：移动目标过滤（effect.move 的 TargetSpec）里的 \"here\" 用 " +
-    "sameLocationAs 锚点（契约 3.6），但 RIFT-257 合入的 programs/filters.ts " +
-    "（translateObjectFilter）对锚点键直接报 Unsupported filter field 并转 " +
-    "judge-required，TriggerRegistration 装不上，移动半段在真实对局里不可达。" +
-    "治疗半段不受该绑定路径影响：effect.heal 的 query 只走解释器运行时查询" +
-    "（effects/interpreter/selectors.ts 的 queryObjects 支持 sameLocationAs 锚点），" +
-    "controller 占位符也已按链上实际归一化改为 self（chain/engine.ts 的 query 包装" +
-    "只把 self 归一化成条目控制者），真实链验证同地点友军被治疗、远端友军不受" +
-    "影响。body 本体（effect.heal 集合治疗 + effect.move 到 controller-base）与 " +
-    "[Reaction] 的时序消费（chain/engine.ts 的 actionTimings/canActByRules 已读图层）" +
-    "均已合入。依赖：translateObjectFilter 对目标过滤 sameLocationAs 锚点的翻译。" +
+    "两处绑定缺口：(1) 移动 TargetSpec 的 sameLocationAs: self 锚点（契约 3.6）被 " +
+    "programs/filters.ts 的 translateObjectFilter 拒绝：Unsupported filter field sameLocationAs，" +
+    "原始触发能力不能注册；治疗 query 本身不被拒绝。(2) [Reaction]（813.1.c）展开的 " +
+    "continuous.timing 使用 appliesTo: [card, activated-ability]，programs/statics.ts 的 " +
+    "staticTarget 报 Unsupported static appliesTo [\"card\",\"activated-ability\"]，" +
+    "因此虽已有 actionTimings/canActByRules 消费方，原始展开仍不能绑定为时序许可。" +
+    "已支持部分分别验证：保持 controller: self 与 sameLocationAs: self 的原始治疗指令在" +
+    "独立 ChainEngine 链项中正确治疗同地点友军并排除远端友军；原始移动指令在解释器中" +
+    "正确移动锁定敌军到 controller-base（421.1）。这些子效果证据不表示整卡绑定已完成。" +
     "不近似实现（不把 here 近似为无位置过滤，不写死 seat 的基地）。",
   abilities,
   sourceText:
