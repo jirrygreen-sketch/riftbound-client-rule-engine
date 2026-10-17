@@ -10,6 +10,8 @@ import { LayerEngine } from "../../../../engine-core/dist/layers/engine.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { buildDiscardCostPlan, payDiscardCostPlan } from "../../../../engine-core/dist/cost/kinds/discard.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
 
 const CANONICAL = "card.hash-e9fc2b80d00083fe6d3d05f817392c9995133d2b989fa879251804de73b2df15";
 const TARGET_ID = "mordekaiser-dominating.unit-or-gear";
@@ -77,6 +79,23 @@ test("rad-137-167 Mordekaiser, Dominating: 383.3.b 的 \"discard 1\" 是 Finaliz
   for (const ability of abilities()) {
     assert.equal(ability.body.some(instruction => instruction.op === "effect.discard"), false);
   }
+});
+
+test("rad-137-167 Mordekaiser, Dominating boundary: production registrations carry no trigger cost", () => {
+  // Re-probed 2026-10-17: TriggeredAbility has no cost field and
+  // programs/triggers.ts forwards nothing, so Finalize can never charge the
+  // mandatory discard even though chain/engine.ts would consume a registration
+  // cost if one existed.
+  const kernel = world().unit("mordekaiser", { cardId: CANONICAL, types: ["unit"], might: 8 }).build();
+  const registrations = triggerRegistrations(
+    new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]),
+    kernel.getObject("mordekaiser")
+  );
+  assert.equal(registrations.length, 2);
+  for (const registration of registrations) {
+    assert.equal(Object.hasOwn(registration, "cost"), false);
+  }
+  assert.equal(program.abilities.some(ability => Object.hasOwn(ability, "cost")), false);
 });
 
 test("rad-137-167 Mordekaiser, Dominating: effect.kill 对锁定的装备目标真实执行", () => {

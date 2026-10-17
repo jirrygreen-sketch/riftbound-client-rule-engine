@@ -4,13 +4,17 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/mournful-spirit.js";
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
-import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { LayerEngine } from "../../../../engine-core/dist/layers/engine.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
 
 const CANONICAL = "card.hash-32901e49217e3463bf29df57238a9370865527412373a7daa3ca361f82eb7a09";
 const TARGET_ID = "mournful-spirit.unit-or-gear-here";
@@ -32,6 +36,34 @@ test("rad-126-167 Mournful Spirit: program validates and has expected identity",
   assert.match(program.judgeReason, /sameLocationAs: source/);
   assert.match(program.judgeReason, /trigger\.leave/);
   assert.equal(program.sourceText, "[Deathknell][>] You may kill a unit or gear here. (When I die, get the effect.)");
+});
+
+test("rad-126-167 Mournful Spirit boundary: the Deathknell skeleton references an unregistered trigger.leave opcode", () => {
+  // Re-probed 2026-10-17: the keyword expands to trigger.leave, which has no
+  // instruction definition, so the expanded body cannot resolve even though
+  // the card's own kill body can.
+  const [ability] = keywordDefinitionsById.get("Deathknell").expand({ host: { canonicalCardId: CANONICAL } });
+  assert.deepEqual(ability.body.map(instruction => instruction.op), ["trigger.leave"]);
+  assert.equal(instructionDefinitionsById.has("trigger.leave"), false);
+  const kernel = world().unit("spirit", { location: { type: "battlefield", id: "here" } }).build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("spirit") });
+  assert.throws(() => resolveChainBody(ability.body, scoped), /Unregistered instruction opcode/);
+});
+
+test("rad-126-167 Mournful Spirit boundary: production target translation rejects sameLocationAs and drops cause/destination", () => {
+  // programs/filters.ts translateObjectFilter has no relative-location anchor
+  // adapter, so the real triggered registration fails; the Deathknell filter's
+  // cause/destination metadata is silently reduced to the object anchor.
+  const kernel = world().unit("spirit", { cardId: CANONICAL, location: { type: "battlefield", id: "here" } }).build();
+  assert.throws(
+    () => triggerRegistrations(new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]), kernel.getObject("spirit")),
+    /Unsupported filter field sameLocationAs/
+  );
+  const [deathknell] = keywordDefinitionsById.get("Deathknell").expand({ host: { canonicalCardId: CANONICAL } });
+  assert.deepEqual(translateTriggerFilter(deathknell.trigger.filter, "spirit", "object-killed"), {
+    object: { objectId: "spirit" },
+    event: "object-killed"
+  });
 });
 
 test("rad-126-167 Mournful Spirit: Deathknell keyword + 383.3.a optional object-killed trigger", () => {

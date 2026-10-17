@@ -7,6 +7,8 @@ import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/key
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID = "card.hash-acd7471a82a9a0d5caee4793bb24dd67313afca36a5e9b63e8e43bb188c5e0d4";
 const SOURCE_TEXT =
@@ -27,6 +29,10 @@ test("rad-095-167 Momentary Companion: judgeReason names turn, Hidden permission
   assert.match(program.judgeReason, /cost\.hidden/);
   assert.match(program.judgeReason, /连续授予关键词/);
   assert.match(program.judgeReason, /beginning-start/);
+  // Re-probed 2026-10-17: ResolveContext has no turn player, the Hidden static
+  // effect has no layer mapping and the Temporary pattern is outside the enum.
+  assert.match(program.judgeReason, /layerFor/);
+  assert.match(program.judgeReason, /TriggerSpecValidationError/);
 });
 
 test("rad-095-167 Momentary Companion: [Hidden] keyword plus the card-played trigger", () => {
@@ -137,6 +143,36 @@ test("rad-095-167 Momentary Companion: the grant is not approximated with a buff
   assert.deepEqual(ops, ["continuous.grant-keyword"]);
   assert.equal(ops.includes("effect.buff"), false);
   assert.equal(instructionDefinitionsById.has("continuous.grant-keyword"), true);
+});
+
+test("rad-095-167 Momentary Companion boundary: the Hidden static expansion has no production layer mapping", () => {
+  // effects/keywords/Hidden.ts declares static effect { kind: "cost.hidden" };
+  // programs/statics.ts layerFor() rejects it, so Hide/permission wiring never
+  // reaches a layer consumer (CR 811).
+  const [hidden] = keywordDefinitionsById.get("Hidden").expand({ host: { canonicalCardId: CARD_ID } });
+  assert.equal(hidden.effect.kind, "cost.hidden");
+  const f = fixture({ cards: [{ id: "companion", cardId: CARD_ID, types: ["unit"] }] });
+  assert.throws(
+    () => createEngineStaticBinder(f.engine).bindStatic(hidden, f.kernel.getObject("companion")),
+    /Static ability kind cost\.hidden has no layer mapping/
+  );
+});
+
+test("rad-095-167 Momentary Companion boundary: the granted Temporary beginning-start trigger cannot be registered", () => {
+  // 816.1.b: the grant registers the keyword, but its expanded beginning-start
+  // trigger names an event pattern outside EVENT_PATTERN_TYPES, so the pipeline
+  // rejects the registration.
+  const [temporary] = keywordDefinitionsById.get("Temporary").expand({ host: { canonicalCardId: CARD_ID } });
+  const f = fixture();
+  const source = f.kernel.getObject("source");
+  assert.throws(
+    () => f.engine.pipeline.registerTrigger({
+      id: "temporary:self-kill", source, controller: source.controller,
+      spec: { at: temporary.trigger.at, filter: temporary.trigger.filter },
+      body: temporary.body, optional: temporary.optional
+    }),
+    error => error.name === "TriggerSpecValidationError" && /trigger\.filter\.event/.test(error.message)
+  );
 });
 
 test.todo('Momentary Companion: compare turn player with controller when card-played triggers, before granting Temporary.');
