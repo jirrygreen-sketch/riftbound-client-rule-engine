@@ -1,3 +1,4 @@
+// Partial execution evidence is consolidated in ../templates/keyword-static-647.test.mjs; this card remains judge-required for the gaps asserted below.
 import assert from "node:assert/strict";
 import test from "node:test";
 
