@@ -17,23 +17,22 @@ import type { CardProgram } from "../../ir/index.js";
  * - 053.3: "here" refers to this Battlefield.
  *
  * Status: judge-required. The merged became-target timing point is really
- * emitted by the chain (chain/engine.ts, TargetPlan finalization), and the draw
- * body runs through the reference kernel in the golden test, but the ability
- * cannot execute:
+ * emitted by the chain (chain/engine.ts, TargetPlan finalization, carrying the
+ * targeting source snapshot), and the draw body runs through the reference
+ * kernel in the golden test, but the ability cannot execute:
  * - "they draw 1" must draw for the player who did the choosing (the spelling
  *   player's controller). The frozen TriggerSpec/ResolveContext exposes no
  *   event-payload binding to the ability body, so only a placeholder pick (the
  *   same device Minefield uses for its miller) can name the drawer;
- * - "with a spell" and "here" would need the trigger's source-type gate and the
- *   053.3 referent anchored to this Battlefield. EventPattern.source is typed,
- *   but the merged pipeline emits became-target without a spell-type
- *   discriminator, and the engine's matchers implement no sameLocationAs anchor:
- *   an event that satisfies "a friendly unit becoming targeted by a spell"
- *   cannot be told apart from one at another Battlefield, and the filter would
- *   over-trigger. Writing it without those gates would be the approximation;
+ * - the 053.3 "here" scope needs the sameLocationAs anchor on the trigger's
+ *   target filter, which the merged pipeline matcher does not implement (the
+ *   anchor is only consumed by the interpreter's set-query path): an event for
+ *   a unit at another Battlefield matches just the same, so the filter would
+ *   over-trigger. "friendly unit" is likewise only recorded in the comment, not
+ *   evaluable against the chooser from the payload (383.4.b.2);
  * - no merged subscriber turns a CardProgram's triggered ability into a
- *   TriggerRegistration, and the controller of a Battlefield ability (190.6) is
- *   not resolved for a battlefield program.
+ *   TriggerRegistration (RIFT-257, in progress), and the controller of a
+ *   Battlefield ability (190.6) is not resolved for a battlefield program.
  */
 export default {
   canonicalCardId: "card.hash-a1fe32c7a5d6ccb45f7a6ad5b46788ec7aef047cd24e116d3ffa028b28a7f1c8",
@@ -41,11 +40,12 @@ export default {
   status: "judge-required",
   judgeReason:
     "“they draw 1”必须为做出选择的玩家（该法术的控制者）抽牌，但冻结的 TriggerSpec / ResolveContext 没有把触发事件载荷绑定进能力体的通道，" +
-    "只能像 minefield 的 miller 那样用一个占位 pick 命名抽牌者（383.4.b.2 的 Targeting Effect 载荷未落地）；“with a spell” 需要事件来源为法术的门" +
-    "（EventPattern.source 虽被类型化，但 pipeline 发出的 became-target 载荷不带法术类型判别），053.3 的 “here” 需要锚定到本战场——引擎匹配器不实现" +
-    "sameLocationAs 等锚点：无法把“友方单位在本战场被法术指定为目标”与其他战场的事件区分开，按现状实现会过度触发（不得据此标 executable）；此外没有已合入的订阅方把 CardProgram 的 triggered ability" +
-    "注册为 TriggerRegistration，战场卡作为能力来源的控制器（190.6）也未解析。依赖：RIFT-64（inspect/targeting 载荷）、RIFT-90（batch3-target-plan）、" +
-    "RIFT-120（batch4 链与事件单管线）之后的战场能力注册与事件载荷绑定。不近似实现。",
+    "只能像 minefield 的 miller 那样用一个占位 pick 命名抽牌者（383.4.b.2 的 Targeting Effect 载荷未落地）；" +
+    "053.3 的 “here” 需要锚定到本战场，而已合入的事件匹配器（events/pipeline-match.ts）不实现 sameLocationAs 锚点" +
+    "（该锚点只在解释器的集合查询里被消费）：无法把“友方单位在本战场被法术指定为目标”与其他战场的事件区分开，按现状实现会过度触发" +
+    "（became-target 载荷已带来源快照，EventPattern.source 的 spell 判别可表达；不得据此把整卡标为 executable）；" +
+    "此外没有已合入的订阅方把 CardProgram 的 triggered ability 注册为 TriggerRegistration（RIFT-257 进行中），" +
+    "战场卡作为能力来源的控制器（190.6）也未解析。依赖：RIFT-257（卡牌触发绑定与 here 锚点归一化）、触发条件/载荷绑定（testTrigger 适配器，见契约变更请求）。不近似实现。",
   sourceText: "When a player chooses a friendly unit here with a spell for the first time each turn, they draw 1.",
   abilities: [
     {

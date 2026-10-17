@@ -4,7 +4,6 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/trifarian-war-camp.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
-import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 
 const CANONICAL = "card.hash-ca6330500fc019b19ccf0df937fc22945cc8bf28a51c21eaef572c53cc31387f";
 const SOURCE_TEXT = "Units here have +1 :rb_might:. (This includes attackers.)";
@@ -65,7 +64,7 @@ test("Trifarian War Camp program validates and is judge-required", () => {
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /registerContinuousEffect/);
   assert.match(program.judgeReason, /sameLocationAs/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -108,37 +107,14 @@ test("Trifarian War Camp golden: the equivalent layer registration adds +1 Might
   assert.deepEqual(engine.evaluate(unitHere.ref).types, ["unit"]);
 });
 
-test("Trifarian War Camp gap: the declared 'here' filter is ignored by the merged matcher", () => {
-  // sameLocationAs is not implemented by layers/filter.ts, so the declared
-  // filter matches a unit at a different Battlefield too. That over-application
-  // is the concrete reason the card is not executable, so it is asserted as the
-  // observed gap rather than silently accepted.
-  const elsewhere = unit("unit-elsewhere", { location: { type: "battlefield", id: "battlefield-9" } });
-  assert.equal(
-    matchesObjectFilter(ability.effect.filter, {
-      ...elsewhere,
-      printed: elsewhere,
-      actionTimings: [],
-      availableTimings: [],
-      movement: { allowed: true, canMove: true, canGank: false, restrictions: [] },
-      text: null,
-      effectText: null
-    }),
-    true
-  );
-
-  const engine = layeredEngine([elsewhere]);
-  assert.equal(engine.evaluate(elsewhere.ref).might, 3);
-});
-
 test.todo(
-  "Trifarian War Camp registration: a merged producer must turn this CardProgram's static " +
-    "ability into a ContinuousEffectSpec for layers/LayerEngine (registerContinuousEffect has " +
-    "no caller today) and resolve 190.6's controller of the Battlefield ability"
+  "Trifarian War Camp registration: the card-program lifecycle binder (RIFT-257 programs/statics.ts) " +
+    "must turn this static ability into a ContinuousEffectSpec for layers/LayerEngine, and resolve " +
+    "190.6's controller of the Battlefield ability"
 );
 
 test.todo(
   "Trifarian War Camp scope: the 053.3 'here' referent needs the sameLocationAs anchor in " +
-    "layers/filter.ts (RIFT-91 consumer follow-up) so the +1 Might applies only at this " +
+    "layers/filter.ts so the +1 Might applies only at this " +
     "Battlefield; the source leaving use must drop the effect immediately (652.2.c)"
 );

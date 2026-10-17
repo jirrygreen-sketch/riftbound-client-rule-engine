@@ -20,21 +20,32 @@ import type { CardProgram } from "../../ir/index.js";
  * - abilities[1] 是 [Text] 本体：card-played 触发，触发条件用 count 表达式读「本回合已结算的、
  *   与本卡不同的牌」（812.1.c 的排除意图与 ogn/dangerous-duo.ts 的写法一致）。
  *
- * status = judge-required。见 judgeReason。
+ * status = judge-required。见 judgeReason：
+ * - [Legion] 的依赖能力激活条件（812.1.b.1「本回合已由你打出另一张与本卡不同的牌」）
+ *   在冻结的 TriggerSpec.condition 里只能写成 count/compare 形状；已合入的
+ *   condition.history 指令与 HistoryQuery.exclude（契约 3.8）是结算期指令，不能作为
+ *   进链前的触发条件求值，而触发条件的 count 表达式不实现按历史/卡身份计数（subject
+ *   不参与求值、filter 的 player 键也不是 ObjectFilter 字段），会过度激活；
+ *   effects/keywords/Legion.ts 自身展开用的 excluding 载荷仍被 history 解析器拒绝
+ *   （Unsupported history query field），按卡身份排除没有落地；
+ * - 「buff me」不是目标（355.10.d.1），但已合入的 effect.buff 只能从 ctx.targets 读取
+ *   对象；用 TargetSpec 包装会让链的 Finalize 发出 became-target 事件（错误登记目标），
+ *   故不这样近似；
+ * - 触发侧没有 CardProgram → TriggerRegistration 的订阅方（RIFT-257 进行中）。
  */
 const trifarianGloryseeker = {
   canonicalCardId: "card.hash-0e5542d49264324b5497b244de3b3ad36381c763af055108066e1b17f7fb2aa7",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺两件已合入依赖：(1) [Legion] 的依赖能力激活条件（812.1.c「本回合已由你结算另一张与本卡不同的牌」）" +
-    "只能写成 count + filter 形状（对照 ogn/dangerous-duo.ts），而 condition.history / condition.predicate " +
-    "对卡牌程序没有已注册的实现，HistoryQuery 也没有 812.1.c 需要的按卡身份排除字段" +
-    "（契约 3.8 已登记该缺口，实现未落地，见 effects/interpreter/history.ts 的键白名单）；" +
-    "(2)「buff me」不是目标（355.10.d.1：按特征程序化选中、不存在选择过程），但已合入的 effect.buff " +
-    "只能从 ctx.targets(TargetSpec id) 读取对象，没有 source/pick/query 形式的自身选择器；" +
-    "用 TargetSpec 包装会错误登记「成为目标」（755 类触发、Deflect 类目标税），故不这样近似。" +
-    "依赖：RIFT-82（kw-deathknell-legion 展开）、Legion 条件历史查询落地、effect.buff 的非目标选择形状。",
+    "[Legion]（812.1.b.1/812.1.c）的激活条件不能落地：进链前的 TriggerSpec.condition 只能写成 count/compare，" +
+    "而已合入的历史查询是结算期指令 condition.history（HistoryQuery 的 scope/action/player/exclude），不能用作触发条件；" +
+    "触发条件的 count 表达式也不实现历史计数——subject（cards-finalized-this-turn）不参与求值、filter 的 player 键不是 ObjectFilter 字段，" +
+    "按现状会过度激活（effects/keywords/Legion.ts 展开里的 excluding 载荷同样被 history 解析器拒绝：Unsupported history query field）。" +
+    "「buff me」侧：不是目标（355.10.d.1 按特征程序化选中、不存在选择过程），但已合入的 effect.buff 只能从 ctx.targets(TargetSpec id) 读取对象，" +
+    "没有 source/pick/query 形式的自身选择器；用 TargetSpec 包装会让链的 Finalize 发出 became-target 事件（错误登记「成为目标」），故不这样近似。" +
+    "触发侧另缺 CardProgram → TriggerRegistration 的订阅方（RIFT-257 进行中）。" +
+    "依赖：触发条件的历史查询（condition.history 作为触发条件求值）、HistoryQuery 的按卡身份排除、effect.buff 的非目标选择形状、RIFT-257。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "legion" },
     {

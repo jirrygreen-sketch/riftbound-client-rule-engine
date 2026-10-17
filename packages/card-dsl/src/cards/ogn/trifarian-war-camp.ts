@@ -18,15 +18,15 @@ import type { CardProgram } from "../../ir/index.js";
  *   buff immediately ends — the effect is tied to the source being in use.
  *
  * Status: judge-required: the static ability is authored with the contract 3.1
- * shape the layers system consumes (continuous.might, arithmetic, add), but no
- * merged producer turns a CardProgram's static ability into a registered
- * ContinuousEffectSpec for layers/LayerEngine (registerContinuousEffect has no
- * caller, and engine-core src never reads CardProgram abilities); layers/filter.ts
- * matches controller only by literal value (the "controller" placeholder never
- * matches) and implements no sameLocationAs anchor, so the "here" scope would
- * apply the buff at every Battlefield. The golden test therefore asserts the
- * declared shape and executes the equivalent LayerEngine registration to show
- * the layer math, without claiming the card is executable.
+ * shape the layers system consumes (continuous.might, arithmetic, add), and the
+ * merged layers engine (RIFT-258/91) evaluates the arithmetic modification, but
+ * no merged producer turns a CardProgram's static ability into a registered
+ * ContinuousEffectSpec for layers/LayerEngine — the card-program lifecycle
+ * binder is RIFT-257 (in progress) and registerContinuousEffect still has no
+ * production caller; layers/filter.ts also implements no sameLocationAs anchor,
+ * so the "here" scope would apply the buff at every Battlefield. The golden test
+ * therefore asserts the declared shape and executes the equivalent LayerEngine
+ * registration to show the layer math, without claiming the card is executable.
  */
 export default {
   canonicalCardId: "card.hash-ca6330500fc019b19ccf0df937fc22945cc8bf28a51c21eaef572c53cc31387f",
@@ -34,10 +34,11 @@ export default {
   status: "judge-required",
   judgeReason:
     "「Units here have +1 :rb_might:」按契约 3.1 / 479.3.b+479.4 写成 static + continuous.might（arithmetic 层、add、值 1），但缺少消费方：" +
-    "① 没有任何已合入路径把 CardProgram 的 static 能力注册为 layers/LayerEngine 的 ContinuousEffectSpec（registerContinuousEffect 无调用方，" +
-    "engine-core 源码从不读取卡牌程序能力）；② layers/filter.ts 的 matchesObjectFilter 对 controller 只做字面量比较（占位 controller 永不匹配），" +
-    "也不实现 053.3 的 here 锚点（sameLocationAs），会把 +1 加到所有战场的单位上（过度应用，不得据此标 executable）；" +
-    "③ 战场能力控制者（190.6）与来源在用/离场到期（652.2.c）的注册与失效路径未接。依赖：RIFT-91（layers-continuous）之后的战场 static 注册与过滤器锚点任务。不近似实现。",
+    "① 没有任何已合入路径把 CardProgram 的 static 能力注册为 layers/LayerEngine 的 ContinuousEffectSpec（registerContinuousEffect 仍无生产调用方，" +
+    "卡牌程序静态能力的生产绑定是 RIFT-257 的 programs/statics.ts 生命周期绑定，进行中）；" +
+    "② layers/filter.ts 的 matchesObjectFilter 不实现 053.3 的 here 锚点（sameLocationAs），会把 +1 加到所有战场的单位上（过度应用，不得据此标 executable）；" +
+    "③ 战场能力控制者（190.6）与来源在用/离场到期（652.2.c）的注册与失效路径未接。" +
+    "依赖：RIFT-257（CardProgram static → ContinuousEffectSpec 注册）、layers/filter.ts 的 sameLocationAs 锚点。不近似实现。",
   sourceText: "Units here have +1 :rb_might:. (This includes attackers.)",
   abilities: [
     {
