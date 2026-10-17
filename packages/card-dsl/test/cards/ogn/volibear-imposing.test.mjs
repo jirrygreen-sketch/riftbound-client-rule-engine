@@ -7,6 +7,11 @@ import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { getTimingPoint } from "../../../../engine-core/dist/events/timing-points.js";
+import { assertTriggerSpec, validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { createDuelBoard, placeDuelUnit, selectDuelBattlefields } from "../../../../engine-core/dist/duel/battlefields.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { moveDuelUnitsStandard } from "../../../../engine-core/dist/zones/movement.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
@@ -14,6 +19,18 @@ const CANONICAL = "card.hash-b57666e4f1117003af3567a39c4c880bafc5ff8b149545385d2
 
 const [shield, tank, moveTrigger] = program.abilities;
 const drawInstruction = moveTrigger.body[0];
+
+/** Two-player board with one unit on one of the shared battlefields. */
+function duelBoard(unitId, controller) {
+  const seats = ["A", "B"].map(playerId => ({
+    playerId,
+    battlefields: [1, 2, 3].map(index => ({ instanceId: `${playerId}-${index}`, cardId: `field-${index}` }))
+  }));
+  const empty = createDuelBoard(selectDuelBattlefields(seats, () => 0));
+  const [origin, destination] = empty.battlefields.map(field => field.locationId);
+  const board = placeDuelUnit(empty, { objectId: unitId, controllerPlayerId: controller, locationId: origin });
+  return { board, origin, destination };
+}
 
 test("ogn-158-298 Volibear, Imposing: program validates and keeps identity", () => {
   const result = validateCardProgram(program);
@@ -31,6 +48,7 @@ test("ogn-158-298 Volibear, Imposing: program validates and keeps identity", () 
 });
 
 test("ogn-158-298 Volibear, Imposing: judgeReason names the current keyword and movement gaps", () => {
+  // Re-verified 2026-10-17: every named gap is a still-current dependency.
   assert.match(program.judgeReason, /Tank/);
   assert.match(program.judgeReason, /815/);
   assert.match(program.judgeReason, /object-moved/);
@@ -40,9 +58,15 @@ test("ogn-158-298 Volibear, Imposing: judgeReason names the current keyword and 
   assert.match(program.judgeReason, /designation/);
   assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /movedToOtherThanSourceLocation/);
-  assert.match(program.judgeReason, /zones\/movement/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /requiresMoveTriggers/);
   assert.match(program.judgeReason, /standard-move-executor-v2/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-257|RIFT-264/);
+  assert.match(program.judgeReason, /cardplay-unit-v2/);
+  assert.match(program.judgeReason, /toLocationId/);
+  assert.match(program.judgeReason, /458\.1/);
+  // RIFT-257 (program binding) and RIFT-359 (condition predicates) are merged
+  // and must not be reported as current gaps anymore.
+  assert.doesNotMatch(program.judgeReason, /RIFT-257|RIFT-264|RIFT-359/);
 });
 
 test("ogn-158-298 Volibear, Imposing: Shield 3 and Tank stay keyword declarations", () => {
@@ -133,6 +157,92 @@ test("ogn-158-298 Volibear, Imposing: committed move-location emits object-moved
   assert.deepEqual(events[0].object.location, destination);
 });
 
+test("ogn-158-298 Volibear, Imposing boundary: object-moved is missing from the closed event vocabulary and the declared movement payload (449.2/458.1)", () => {
+  // 383.1/449.2: the trigger needs the object-moved timing point plus its origin
+  // and destination identity. The closed EVENT_PATTERN_TYPES list ends at
+  // final-point, so assertTriggerSpec rejects the trigger before registration,
+  // and the committed-emission fields declared in timing-points.ts are absent.
+  const timing = getTimingPoint("object-moved");
+  for (const field of ["fromKind", "fromLocationId", "toKind", "toLocationId"]) {
+    assert.ok(timing.payloadFields.includes(field), field);
+  }
+  const validation = validateTriggerSpec({
+    at: "object-moved",
+    filter: { event: "object-moved", object: { objectId: "mover" } }
+  });
+  assert.equal(validation.ok, false);
+  assert.deepEqual(
+    validation.issues.map(issue => [issue.path, issue.code]),
+    [["trigger.filter.event", "invalid-event-type"]]
+  );
+  assert.throws(
+    () => assertTriggerSpec({ at: "object-moved", filter: { event: "object-moved", object: { objectId: "mover" } } }),
+    error => error.name === "TriggerSpecValidationError" &&
+      error.issues.some(issue => issue.code === "invalid-event-type" && issue.path === "trigger.filter.event")
+  );
+
+  // A real committed move-location emits the timing point but the emission
+  // carries only the post-move snapshot, never the declared movement payload.
+  const f = fixture({ cards: [{ id: "mover", owner: "B", types: ["unit"], might: 2 }] });
+  f.engine.commit({
+    type: "move-zone",
+    object: f.kernel.ref("mover"),
+    to: "board",
+    location: { type: "base", player: "B" }
+  });
+  f.engine.advance();
+  const emitted = f.engine.pipeline.events.filter(event => event.timingPoint === "object-moved");
+  assert.equal(emitted.length, 0);
+  f.engine.commit({ type: "move-location", object: f.kernel.ref("mover"), to: { type: "battlefield", id: "battlefield-2" } });
+  const move = f.engine.pipeline.events.filter(event => event.timingPoint === "object-moved");
+  assert.equal(move.length, 1);
+  for (const field of ["fromKind", "fromLocationId", "toKind", "toLocationId", "details"]) {
+    assert.equal(move[0][field], undefined, field);
+  }
+
+  // The placeholder comparator is rejected by the production filter translator
+  // before assertTriggerSpec is even reached.
+  const source = world()
+    .object("volibear", { cardId: CANONICAL, types: ["unit"], controller: "B", owner: "B", might: 10 })
+    .build()
+    .getObject("volibear");
+  assert.throws(
+    () => triggerRegistrations(
+      new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]),
+      source
+    ),
+    error => error.name === "ProgramBindingError" && /Unsupported filter field movedToOtherThanSourceLocation/.test(error.message)
+  );
+});
+
+test("ogn-158-298 Volibear, Imposing boundary: production Standard Move never publishes object-moved to the pipeline (449.1/449.2)", () => {
+  // zones/movement.ts performs the Move, and duel/standard-move-executor-v2.ts
+  // hands the group to a trigger handler, but neither touches the EventPipeline;
+  // only a directly committed move-location reaches events/action-adapter.ts.
+  const f = fixture({ cards: [{ id: "mover", owner: "B", controller: "B", types: ["unit"], might: 2 }] });
+  const before = f.engine.pipeline.events.length;
+
+  const { board, origin, destination } = duelBoard("mover", "B");
+  const moved = moveDuelUnitsStandard(
+    board,
+    [{ objectId: "mover", readied: true, hasGanking: true }],
+    {
+      actor: "B",
+      unitUIDs: ["mover"],
+      destinationLocationId: destination,
+      timing: { phase: "main", stateOpen: true, turnPlayerId: "B", priorityPlayerId: "B" }
+    }
+  );
+  assert.equal(moved.group.requiresMoveTriggers, true);
+  assert.deepEqual(moved.group.events, [
+    { objectId: "mover", actor: "B", fromLocationId: origin, toLocationId: destination }
+  ]);
+  // The Standard Move path returns the obligation instead of emitting; the
+  // host pipeline (and therefore this CardProgram's trigger) sees nothing.
+  assert.equal(f.engine.pipeline.events.length, before);
+  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "object-moved").length, 0);
+});
+
 test("ogn-158-298 Volibear, Imposing: Tank and Shield expand through the registered KeywordDefs (815/814)", () => {
   assert.equal(keywordDefinitionsById.has("Tank"), true);
   const tankDef = keywordDefinitionsById.get("Tank");
@@ -197,12 +307,14 @@ test.todo(
 );
 test.todo(
   "ogn-158-298 Volibear, Imposing: 'When an opponent moves to a battlefield other than mine, draw 1.' " +
-    "needs zones/movement's Standard Move group and standard-move-executor-v2's handler settlement connected to this CardProgram (CR v1.5 421.1/449.1/449.2; " +
-    "committed move-location already emits it) and a predicate comparing the destination battlefield " +
-    "against the source's current location; EventPattern must accept object-moved, and bases and Recall (458.1) must not trigger it."
+    "needs object-moved in the closed EVENT_PATTERN_TYPES vocabulary, movement payload fields on the real emission, " +
+    "a destination-vs-source-location comparison predicate, and the production Standard Move " +
+    "(duel/standard-move-executor-v2.ts -> duel/cardplay-unit-v2.ts) publishing the timing wave " +
+    "(CR v1.5 383.1/421.1/449.1/449.2); bases and Recall (458.1) must not trigger it."
 );
 test.todo(
   "ogn-158-298 Volibear, Imposing: [Shield 3] must add 3 Might only while defending (CR v1.5 " +
-    "814.1.c/814.1.d.1); keywords/Shield.ts reads designation but ObjectSnapshot exposes combatRole, " +
-    "so the merged programs/statics binder cannot evaluate the keyword condition."
+    "814.1.c/814.1.d.1); keywords/Shield.ts reads designation, ObjectSnapshot exposes only " +
+    "combatRole, and no merged producer writes the designation, so the production " +
+    "programs/statics binder evaluates the keyword condition as false for a real defender."
 );
