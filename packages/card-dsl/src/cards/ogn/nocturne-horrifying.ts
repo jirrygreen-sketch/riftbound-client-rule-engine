@@ -30,16 +30,15 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * 1. 从秘密区域（牌库顶被查看时）打出卡牌的许可与打出位置/合法性（420.3.b、355.2 默认
  *    只有手牌能被正常打出；`effect.play` 只接受由调用方给出的 finalized cost plan，
  *    没有任何“从牌库打出”的权限来源）；
- * 2. 替代费用 “for [A]” 的费用计划生成（356.1.a 把 Base Cost 替换为 1 点任意域 Power），
- *    即 `cost.printed` / `cost.modify` 原语（RIFT-261，仍未注册）与把计划写进
- *    `effect.play` 的链接值形状；
+ * 2. 替代费用 “for [A]” 的费用计划生成（356.1.a 把 Base Cost 替换为 1 点任意域 Power）：
+ *    `cost.modify` 原语已经合入，但本卡仍缺把该替代费用写成可由 Finalize 消费的有效
+ *    CostPlan，并把计划写进 `effect.play` 的链接值；
  * 3. 370.1.c.1 要求的“秘密区域内的替代效果与事件同时生效”的替代管线：RIFT-260 的
  *    replacement/ 已合入事件拦截与注册面（bindReplacement/replacement.event，可匹配
  *    card-revealed/ reveal 动作），但没有“被查看（look）”这一秘密区域事件的匹配
  *    （ACTION_KINDS 无 look），也没有 370.1.c.1 的同刻生效语义；且本卡的文字是触发式措辞（见冲突）；
- * 4. 卡牌程序绑定：`cards-looked-at` 上“牌库中的牌自身给出许可”需要把本卡的 triggered
- *    能力注册为事件接收者（RIFT-257；look 事件的发射方 events/action-adapter.ts 已存在）。
- * 依赖：RIFT-261（cost 原语）、RIFT-260 后续的秘密区域替代事件与 RIFT-257（程序绑定）。
+ * 4. `cards-looked-at` 的秘密区域事件仍缺少把牌库顶对象作为本卡许可来源的生产接线。
+ * 依赖：RIFT-260 后续的秘密区域替代事件与 look 事件的许可/位置适配，以及 370.1.c.1 文本的裁定。
  */
 const abilities: Ability[] = [
   {
@@ -110,14 +109,13 @@ const program = {
     "仍不可执行，缺口不近似实现：(1) 文本/规则冲突——CR v1.5 370.1.c.1 把这段文本引为替代效果 “As you look at or " +
     "reveal me from the top of your deck, you may banish me. If you do, you may play me for [A].”，" +
     "而本地 sourceText 只有触发式 “look at … and see me, you may play me for :rb_rune_rainbow:.”；" +
-    "(2) 缺原语——从被查看的牌库顶（秘密区域）打出卡牌的许可与位置校验、356.1.a 的替代费用" +
-    "计划生成（cost.printed / cost.modify 仍未注册（RIFT-261），effect.play 只接受调用方给的 finalized plan）；" +
+    "(2) 缺生产接线——从被查看的牌库顶（秘密区域）打出卡牌的许可与位置校验，以及把已合入的 cost.modify " +
+    "替代费用原语产出的有效 CostPlan 写入 effect.play（effect.play 只接受调用方给的 finalized plan）；" +
     "(3) RIFT-260 的 replacement/ 已合入通用事件拦截与注册面（bindReplacement/replacement.event，" +
     "可匹配 card-revealed/reveal），但没有「被查看（look）」秘密区域事件的匹配（ACTION_KINDS 无 look），" +
     "370.1.c.1 的同刻生效语义仍缺；" +
-    "(4) 卡牌程序绑定（RIFT-257）：把本卡的 triggered 能力接到 cards-looked-at 事件接收者。" +
-    "依赖：RIFT-261（cost 原语）、RIFT-260 后续秘密区域替代事件与 RIFT-257（程序绑定）、" +
-    "以及 370.1.c.1 文本的裁定。不近似实现。",
+    "(4) cards-looked-at 仍缺秘密区域许可/位置适配，把被查看牌库顶对象作为本卡的事件接收者。" +
+    "依赖：RIFT-260 后续秘密区域替代事件与 look 事件的许可适配、以及 370.1.c.1 文本的裁定。不近似实现。",
   abilities,
   sourceText:
     "[Ganking] (I can move from battlefield to battlefield.)\n" +

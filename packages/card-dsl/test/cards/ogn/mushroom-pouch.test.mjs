@@ -30,9 +30,8 @@ test("mushroom-pouch: identity, ruleset, status and specific judgeReason", () =>
   assert.match(program.judgeReason, /Facedown/);
   assert.match(program.judgeReason, /ZoneId/);
   assert.match(program.judgeReason, /beginning-start/);
-  // Re-sweep after RIFT-270: the point now has a producer (turn/flow.ts), so
-  // the remaining trigger-side gap is the CardProgram binding (RIFT-257).
-  assert.match(program.judgeReason, /RIFT-257/);
+  // Re-sweep after RIFT-270: the point and program trigger registration are
+  // present; only the Facedown Zone condition remains.
   assert.match(program.judgeReason, /RIFT-270/);
 });
 
@@ -90,8 +89,4 @@ test("mushroom-pouch golden: the Draw 1 half draws one card (CR 414.3)", () => {
 
 test.todo(
   "mushroom-pouch: evaluating 'if you control a facedown card at a battlefield' needs a Facedown Zone scope (107.3.a/107.3.e: a battlefield sub-zone, not a location; ZoneId has no facedown member, and states: 'face-down' cannot be limited to it)."
-);
-
-test.todo(
-  "mushroom-pouch: the turn structure now emits beginning-start for the turn player's Beginning Phase (turn/flow.ts, RIFT-270); the trigger still needs the CardProgram registration path to bind this card's ability (RIFT-257)."
 );

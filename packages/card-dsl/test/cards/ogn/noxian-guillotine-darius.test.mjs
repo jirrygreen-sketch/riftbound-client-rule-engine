@@ -37,8 +37,6 @@ test("ogn-254-298 Noxian Guillotine: program passes validateCardProgram", () => 
 test("ogn-254-298 Noxian Guillotine judgeReason names the delayed trigger, Legion and replacement gaps", () => {
   assert.match(program.judgeReason, /392/);
   assert.match(program.judgeReason, /registerDelayedTrigger/);
-  assert.match(program.judgeReason, /812\.1\.c/);
-  assert.match(program.judgeReason, /condition\.history/);
   assert.match(program.judgeReason, /158\.2/);
 });
 
@@ -56,8 +54,8 @@ test("ogn-254-298 Noxian Guillotine structure: [Action] + [Legion] with the two 
   ]);
 
   // The Legion condition (812.1.b.1/812.1.c) is a same-turn play-history check
-  // that must exclude this card; the contract shape is `exclude: "self"`, but
-  // the merged condition.history primitive does not consume it yet.
+  // that must exclude this card; the merged condition.history primitive
+  // consumes the contract shape `exclude: "self"`.
   assert.equal(legionCheck.op, "condition.history");
   assert.deepEqual(legionCheck.args.query.value, {
     scope: "turn",
@@ -138,13 +136,7 @@ test("ogn-254-298 Noxian Guillotine golden: a unit that already left the board c
 test.todo(
   "Noxian Guillotine: registering the delayed 'kill it the next time it takes damage this turn' " +
     "trigger needs a primitive that calls ResolveContext.registerDelayedTrigger with a " +
-    "next-time scope and an end-of-turn expiry (CR 392; RIFT-120 batch 4 / RIFT-91 duration)."
-);
-
-test.todo(
-  "Noxian Guillotine: the [Legion] predicate needs condition.history to accept contract 3.8's " +
-    "exclude/objectFilter fields so 812.1.c's \"a card different than the one with the Legion " +
-    "ability\" can be enforced (HistoryQuery consumer / RIFT-257)."
+    "next-time scope and an end-of-turn expiry (CR 392)."
 );
 
 test.todo(

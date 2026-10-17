@@ -41,9 +41,8 @@ test("ogn-080-298 Mystic Reversal judgeReason names the merged control primitive
   assert.match(program.judgeReason, /752\.1/);
   assert.match(program.judgeReason, /753/);
   assert.match(program.judgeReason, /755/);
-  // Re-sweep: RIFT-260's replacement work does not cover re-selection; the
-  // remake primitive and the CardProgram play binding are still missing.
-  assert.match(program.judgeReason, /RIFT-257/);
+  // Re-sweep: replacement work does not cover re-selection; the remake
+  // primitive remains the current blocker.
   assert.match(program.judgeReason, /choice\.remake-chain-item-choices/);
 });
 
@@ -158,10 +157,4 @@ test.todo(
   "Mystic Reversal: Making New Choices (CR 750-755) - the missing choice.remake-chain-item-choices primitive must re-open the finalized item's choice plan for locations/modes/destinations/targets only (752.1), remake all of them (753/753.3), negate when no legal " +
     "choice exists (753.2), re-trigger targeting effects (754) and ignore resulting to-play costs (755) - " +
     "needs chain/target-plan re-selection support for a finalized item"
-);
-
-test.todo(
-  "Mystic Reversal: [Reaction] admission (813.1.b/813.1.c) belongs to the chain's canAct check plus the " +
-    "CardProgram play binding and a consumer of the continuous.timing grant " +
-    "(chain canAct does not read layers/rules actionTimings; contract 3.5 / RIFT-257)"
 );
