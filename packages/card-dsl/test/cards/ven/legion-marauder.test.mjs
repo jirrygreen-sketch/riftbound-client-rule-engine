@@ -29,7 +29,8 @@ test("ven-074-166 Legion Marauder: identity, status, judgeReason and verbatim so
   assert.match(program.judgeReason, /827\.1\.c\.2/);
   assert.match(program.judgeReason, /442\.1\.a/);
   assert.match(program.judgeReason, /RIFT-87/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /continuous\.might/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-91 只合入|没有 CardProgram/);
 });
 
 test("ven-074-166 Legion Marauder: [Empower] is declared without faking the either-or cost", () => {
@@ -72,5 +73,5 @@ test.todo(
 );
 test.todo(
   "ven-074-166 Legion Marauder: the +1 Might half needs an Empowered status predicate (442.1.a; RIFT-87) and a " +
-    "card-side continuous.might registration into layers (RIFT-91)"
+    "working Empowered gate; the continuous.might primitive and static registration are merged"
 );

@@ -21,7 +21,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 810.1：[Ganking] 是 Passive Ability 关键词，单位因此可用标准移动在战场之间移动。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required，缺口见 judgeReason；
- * 本卡没有已合入的可执行语句，golden 只做结构与关键词身份断言，未合入依赖写 test.todo。
+ * continuous.might 与 continuous.grant-keyword 已合入并保留真实 IR 形状，
+ * 但 Empowered 门控与 Ganking 的移动消费仍未完整接线。
  */
 const abilities: Ability[] = [
   {
@@ -79,14 +80,13 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处缺口：(1) keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef，827.1.c.1 的" +
+    "三处缺口：(1) keywords/registry.generated.ts 尚未提供 Empower / Empowered 的 KeywordDef，827.1.c.1 的" +
     "“[2 Energy]：Empower me，仅当未 Empowered 时启动”无法展开（依赖新的 Empower/Empowered 关键词任务，" +
-    "RIFT-83/84 批次不含它们）；(2) 没有 Empowered 状态谓词——442.1.a 的二元状态不在 ObjectSnapshot / " +
+    "RIFT-83/84 批次不含它们）；(2) Empowered 状态谓词尚未进入引擎——442.1.a 的二元状态不在 ObjectSnapshot / " +
     "Condition 里，两条 [Empowered][>] 依赖能力（828.1.b.1）的门槛不可求值，程序里的 empoweredCount 只是" +
-    "描述性记录（依赖 RIFT-87 条件/谓词）；(3) “I have +1 :rb_might:” 需要卡牌侧的 continuous.might 注册/求值" +
-    "原语（RIFT-91 只合入 layers 引擎，卡牌入口缺失）；(4) “and [Ganking]” 需要 continuous.grant-keyword 指令" +
-    "（effects/instructions 无该 op），且 Ganking 展开的 continuous.movement 许可在 zones/movement.ts 没有消费方" +
-    "（810.1.c / 144.4.c）。不近似实现（不把 +1 Might 写成 Buff 计数器）。",
+    "描述性记录（依赖 RIFT-87 条件/谓词）；(3) “I have +1 :rb_might:” 与 “and [Ganking]” 的原语已合入" +
+    "（continuous.might、continuous.grant-keyword），但 Empowered 门控仍无法求值，且 Ganking 展开的 " +
+    "continuous.movement 许可在 zones/movement.ts 没有消费方（810.1.c / 144.4.c）。不近似实现（不把 +1 Might 写成 Buff 计数器）。",
   abilities,
   sourceText:
     "[Empower] :rb_energy_2: (:rb_energy_2:: Empower me. Use only if not Empowered.)\n" +

@@ -32,9 +32,9 @@ test("ven-126-166 Ki Barrier: judgeReason names replacement registration and the
   assert.match(program.judgeReason, /438\.1/);
   assert.match(program.judgeReason, /438\.3/);
   assert.match(program.judgeReason, /replacement\.prevent/);
-  assert.match(program.judgeReason, /addContinuous/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /duration|期限/);
   assert.match(program.judgeReason, /不近似实现/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-120|RIFT-91/);
 });
 
 test("ven-126-166 Ki Barrier: [Reaction] plus a prevent declaration over the chosen unit", () => {
@@ -70,7 +70,7 @@ test("ven-126-166 Ki Barrier: [Reaction] plus a prevent declaration over the cho
 
 test("ven-126-166 Ki Barrier: the printed [Reaction] keyword is a registered definition", () => {
   // Positive-only check: the [Reaction] declaration names a real registry entry; the
-  // prevention half stays covered by judgeReason and the todos.
+  // prevention half stays covered by judgeReason and the replacement TODO.
   assert.equal(keywordDefinitionsById.has("Reaction"), true);
   assert.equal(keywordDefinitionsById.get("Reaction").valued, false);
   assert.equal(keywordDefinitionsById.get("Reaction").stacking, "single");
@@ -79,11 +79,11 @@ test("ven-126-166 Ki Barrier: the printed [Reaction] keyword is a registered def
 test.todo(
   "ven-126-166 Ki Barrier: install the 438.7 delayed damage prevention on the chosen unit and track " +
     "the remaining Prevent Value (438.1.b.1/438.2/438.3) so the next 7 damage is prevented in whole or " +
-    "in part — needs the replacement registration path (RIFT-120) and the unit-level Prevent tracking, " +
-    "neither of which exists in the frozen ResolveContext or ObjectSnapshot"
+    "in part — replacement.prevent and unit-level Prevent tracking are absent from the frozen ResolveContext " +
+    "and ObjectSnapshot"
 );
 
 test.todo(
   "ven-126-166 Ki Barrier: expire the prevention at end of turn (317.2.c) — the contract 3.1 replacement " +
-    "ability has no duration field; duration handling belongs to RIFT-91 continuous.duration"
+    "ability has no duration field or replacement cleanup hook"
 );

@@ -55,7 +55,7 @@ test("ven-120-166 Masa: identity, ruleset, status, judgeReason and verbatim sour
   // 缺可选追加费用原语与已付回执。
   assert.match(program.judgeReason, /cost\.additional/);
   assert.match(program.judgeReason, /356\.4\.f\.1/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-120|cost\.sacrifice/);
 });
 
 test("ven-120-166 Masa: the optional additional cost is one Order Power (CR 356.2.b / 163.2)", () => {
@@ -202,12 +202,12 @@ test("ven-120-166 golden: the declared 1 Order Power component is payable throug
 
 test.todo(
   "ven-120-166 Masa: the optional additional cost reaches Finalize, records the paid receipt and gates " +
-    "the Stun on it (CR 356.2.b / 356.4.f.1) — no cost.additional / cost.sacrifice primitive is merged and " +
-    "the frozen IR has no cost-result binding (RIFT-9 / RIFT-89)"
+    "the Stun on it (CR 356.2.b / 356.4.f.1) — CardProgram static cost.additional is not yet wired into " +
+    "the play Finalize plan and the frozen IR has no cost-result binding"
 );
 
 test.todo(
   "ven-120-166 Masa: the Play Effect trigger runs end to end, including the 'if you paid the additional " +
-    "cost' gate and 424.1.b/424.1.c consequences for the Stunned unit — the trigger-to-chain registration " +
-    "and combat consequences are not merged (RIFT-120)"
+    "cost' gate and 424.1.b/424.1.c consequences for the Stunned unit — the merged trigger path still lacks " +
+    "the additional-cost paid receipt"
 );

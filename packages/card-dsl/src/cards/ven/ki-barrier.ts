@@ -31,7 +31,7 @@ import type { CardProgram } from "../../ir/index.js";
  *     ObjectSnapshot 没有该字段，damage GameAction 也只有 {source, target, amount, combat}，
  *     无法表达「接下来 7 点」的部分防止与递减。
  * (3) "this turn" 的期限：契约 3.1 的 replacement 能力没有 duration 字段，
- *     本回合结束的到期属 continuous.duration / layers 清理批次（RIFT-91）。
+ *     需要 replacement 自身的本回合到期/清理接线，不能借用 continuous.might 的 duration。
  * 本文件保留可审查的声明形状（目标 + Prevent 语义 + 7 点 + this-turn），不写成伤害减免的近似实现。
  */
 const kiBarrier = {
@@ -46,8 +46,8 @@ const kiBarrier = {
     "「按实际防止量减少伤害」事件与 438.3/438.3.a 的额度递减要求在被影响单位上保留剩余额度，" +
     "ObjectSnapshot 没有该字段，冻结的 damage GameAction 也只有 {source, target, amount, combat}，" +
     "无法表达「接下来 7 点」的部分防止。" +
-    "(3)「this turn」的期限：契约 3.1 的 replacement 能力没有 duration 字段，本回合结束的到期属 " +
-    "continuous.duration / layers 清理（RIFT-91）。" +
+    "(3)「this turn」的期限：契约 3.1 的 replacement 能力没有 duration 字段，需要 replacement 自身的 " +
+    "本回合到期/清理接线。" +
     "「Choose a unit」的目标声明本身按 355.7/355.9.a.1 正确；[Reaction]（813.1/813.1.c）关键词已合入。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },

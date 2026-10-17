@@ -39,7 +39,7 @@ test("ven-114-166 Kharox: identity, ruleset, status, judgeReason and verbatim so
   assert.match(program.judgeReason, /Empower/);
   assert.match(program.judgeReason, /827\.1\.c\.1/);
   assert.match(program.judgeReason, /356\.1\.b\.1/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-120|scoring\/events wiring/);
 });
 
 test("ven-114-166 Kharox: [Empower] is declared as a keyword, never re-implemented", () => {
@@ -189,10 +189,11 @@ test.todo(
 test.todo(
   "ven-114-166 Kharox: 'choose an opponent' locks a chosen player through Finalize and 'play it, " +
     "ignoring its cost' receives a finalized zero-cost plan (CR 355.9.a / 356.1.b.1) — the " +
-    "contract's targets() returns ObjectRef[] only and no cost-plan generator is wired (RIFT-89)"
+    "contract's targets() returns ObjectRef[] only and no CardProgram ignore-cost plan generator is wired"
 );
 
 test.todo(
   "ven-114-166 Kharox: the become-Empowered trigger runs end to end (empowered-changed payload with " +
-    "previousCount/currentCount and the increase direction, 828.1.c) — scoring/events wiring is not merged"
+    "previousCount/currentCount and the increase direction, 828.1.c) — the TriggerSpec direction filter " +
+    "and empowered-changed payload fields still need a contract-level binding"
 );

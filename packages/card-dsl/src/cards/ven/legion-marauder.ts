@@ -28,8 +28,9 @@ import type { Ability, CardProgram, Condition } from "../../ir/index.js";
  *   里（见回复的契约变更请求），不伪造第二条启动能力；
  * 2. 没有 Empowered 状态谓词（442.1.a）：Empowered 状态不在 ObjectSnapshot 也不在
  *    契约的 Condition 代数里；
- * 3. “I have +1 :rb_might:” 需要卡牌侧 continuous.might 的注册/求值入口（RIFT-91）。
- * 依赖新的 Empower/Empowered 关键词任务、RIFT-87（条件/谓词）与 RIFT-91（layers 接线）。
+ * 3. “I have +1 :rb_might:” 的 continuous.might 原语与图层注册已合入；它仍受
+ *    Empowered 状态门控，不能在门控缺失时视为可执行。
+ * 依赖新的 Empower/Empowered 关键词任务与 RIFT-87（条件/谓词）。
  */
 
 /** 442.1.a / 828.1.c：Empowered 门槛（描述性谓词，见 judgeReason）。 */
@@ -72,8 +73,8 @@ export default {
     "card-dsl 的 KeywordAbility 只有 keyword / value，value 是 number）——印刷费用为 1 Energy 或 1 Body Power，" +
     "登记为契约变更请求（依赖新的 Empower 关键词任务）；(2) 没有 Empowered 状态谓词——442.1.a 的二元状态" +
     "不在 ObjectSnapshot / Condition 里，828.1.c 的门槛不可求值（依赖 RIFT-87）；(3) 「I have +1 :rb_might:」" +
-    "需要卡牌侧 continuous.might 的注册/求值入口（RIFT-91 只合入了 layers 引擎，没有 CardProgram → " +
-    "ContinuousEffectSpec 的接线）。不近似实现（不把 +1 :rb_might: 写成 Buff 计数器，也不把二选一费用写成" +
+    "使用的 continuous.might 原语与 CardProgram static 注册已合入，但 Empowered 门控仍无法求值。" +
+    "不近似实现（不把 +1 :rb_might: 写成 Buff 计数器，也不把二选一费用写成" +
     "单一路径的假费用）。",
   abilities,
   sourceText:

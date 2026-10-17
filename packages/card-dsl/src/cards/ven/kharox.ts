@@ -36,13 +36,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * 1. 没有 Empower / Empowered 的 KeywordDef：keywords/registry.generated.ts 只含
  *    RIFT-81~88 批次，827.1.c.1 的启动费用与「仅当未 Empowered」限制、828.1.b.1 的
  *    依赖能力都无展开实现；
- * 2. 没有 Empowered 状态谓词（442.1.a）：ObjectSnapshot / Condition 里没有该状态，
- *    触发过滤只能以描述性键记录；
+ * 2. 没有 Empowered 状态谓词（442.1.a），且 empowered-changed 的 direction 过滤与
+ *    previousCount/currentCount 载荷尚未接到 TriggerSpec，触发过滤只能以描述性键记录；
  * 3. 玩家选择没有已合入管线：targets() 只返回 ObjectRef[]，ChoiceRequest 也没有选择
  *    玩家的请求类型，「把对手集合解析为 PlayerId 并在 Finalize 锁定」没有消费方；
  * 4. "ignoring its cost" 需要费用管线生成 finalized 零费计划（356.1.b.1）：EffectIR 的
  *    CostSpec 没有 ignore / 替代费用字段的消费方，已合入的 effect.play 明确要求 cost
- *    参数是费用系统产出、已 Finalize 的计划（RIFT-89）。
+ *    参数是费用系统产出、已 Finalize 的计划。
  * golden 用已合入的 effect.mill（RIFT-112）以实例化的 PlayerId 真实执行 "[Burn 3]"，
  * 这是子效果证据而非整卡证据。
  */
@@ -105,7 +105,7 @@ const abilities: Ability[] = [
               {
                 // "Choose a unit in their trash and play it, ignoring its cost"：
                 // 356.1.b.1 把基础 Energy 与 Power 置零；费用计划的生成器未合入
-                // （RIFT-89），effect.play 要求 cost 已是 Finalize 完成的计划。
+                // effect.play 要求 cost 已是 Finalize 完成的计划。
                 id: "kharox.play-unit-from-trash",
                 op: "effect.play",
                 args: {
@@ -159,13 +159,13 @@ export default {
     "（RIFT-81~88 批次不含它们），827.1.c.1 的「6 Energy + 2 Chaos Power：Empower me，仅当未 Empowered 时启动」" +
     "与 828.1.b.1 的依赖能力都无展开实现；(2) 没有 Empowered 状态谓词（442.1.a）——状态不在 ObjectSnapshot / " +
     "Condition 里，触发过滤的 direction \"increase\" 只是描述性记录（828.1.c 要求只对增加方向触发，" +
-    "payload 的 previousCount/currentCount 也未被 action-adapter 填充）；(3) 「choose an opponent」是玩家选择" +
+    "programs/filters.ts 当前拒绝 direction，且 empowered-changed emission 没有 previousCount/currentCount 载荷）；(3) 「choose an opponent」是玩家选择" +
     "（355.9.a），但契约 3.6 的 targets() 只返回 ObjectRef[]，ChoiceRequest 也没有选择玩家的请求类型，" +
     "「把对手集合解析为 PlayerId 并在 Finalize 锁定」没有已合入实现（同 suave-negotiator 的缺口）；" +
     "(4) 「play it, ignoring its cost」需要费用管线生成 finalized 零费计划（356.1.b / 356.1.b.1），" +
     "CostSpec 的 ignore / 替代费用没有卡牌程序入口，已合入的 effect.play 明确要求 cost 是费用系统产出、" +
-    "已 Finalize 的计划（RIFT-89）。依赖：新增 Empower/Empowered 关键词任务、RIFT-89（费用与 ignore-cost 计划）、" +
-    "RIFT-120（触发注册）与玩家目标/选择的契约增补。「They [Burn 3]」半段用已合入的 effect.mill 真实执行" +
+    "已 Finalize 的计划。依赖：新增 Empower/Empowered 关键词任务、CardProgram 的 ignore-cost 计划生成与接线、" +
+    "empowered-changed 的方向/载荷契约与玩家目标/选择的契约增补。「They [Burn 3]」半段用已合入的 effect.mill 真实执行" +
     "（实例化 PlayerId），golden 覆盖按序烧 3 张与牌库不足的边界。",
   abilities,
   sourceText:

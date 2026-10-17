@@ -26,13 +26,12 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   该动作；括号里的文字是 424.1.b/424.1.c 的提示文本，不构成第二条能力。
  *
  * status = judge-required（两处缺口，均不近似实现）：
- * 1. 缺「可选追加费用」的收取与回执：effects/instructions/ 没有 cost.additional /
- *    cost.sacrifice 指令原语（RIFT-9 清单），也没有把卡牌程序声明的费用接进已合入
- *    cost/ 计划的接线（buildCostPlan 只消费调用方传入的 optionalAdditional）；冻结 IR
- *    没有费用结果绑定（调研记为 condition.result），故第二条无法按已付/未付开闸。
+ * 1. static cost.additional 的费用分量与 buildCostPlan 已合入，但还没有把 CardProgram
+ *    的追加费用声明送入打出 Finalize，也没有费用结果绑定（调研记为 condition.result），
+ *    故第二条无法按已付/未付开闸。
  *    这里不伪造恒真条件，也不把费用改写成效果。
- * 2. Play Effect 触发没有 end-to-end 注册路径（RIFT-120 后续）；"Stun an enemy unit at
- *    a battlefield" 的 effect.stun 本体已合入，golden 用真实解释器 + 最终化目标执行。
+ * 2. Play Effect 的 effect.stun 本体与 card-played TriggerRegistration 已合入；剩余问题是
+ *    已付追加费用回执无法进入触发条件。
  */
 const abilities: Ability[] = [
   {
@@ -97,13 +96,13 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1) 缺「可选追加费用」的收取与回执：effects/instructions/ 没有 cost.additional / " +
-    "cost.sacrifice 指令原语（RIFT-9 清单），也没有把卡牌程序声明的费用接进已合入 cost/ 计划的接线" +
-    "（buildCostPlan 只消费调用方传入的 optionalAdditional），费用侧只声明了 356.2.b/163.2 的 1 Order Power 分量；" +
+    "两处缺口，均不近似实现：(1) 缺「可选追加费用」的收取与回执：虽有 static cost.additional 声明，" +
+    "但没有把卡牌程序声明的追加费用送进打出 Finalize 的费用计划接线（buildCostPlan 只消费调用方传入的 optionalAdditional），" +
+    "费用侧虽已能处理 356.2.b/163.2 的 1 Order Power 分量；" +
     "356.4.f.1 规定「If you paid the additional cost」以「玩家决定支付」为凭证，冻结 IR 没有费用结果绑定" +
     "（调研记为 condition.result），程序里不写恒真条件、也不把费用改写成效果。(2) 「When you play me」的 Play " +
-    "Effect 触发（383.4.a.1）尚无 end-to-end 注册路径（RIFT-120 后续），触发不会自行进入链。" +
-    "依赖：RIFT-9（cost.additional / cost.sacrifice）、RIFT-89（费用计划接线与回执）、RIFT-120（触发注册）。" +
+    "Effect 触发（383.4.a.1）的注册路径已合入，但 356.4.f.1 的费用回执仍无法进入条件。" +
+    "依赖：CardProgram cost.additional → Finalize 接线与费用回执。" +
     "「[Stun] an enemy unit at a battlefield」半段用已合入的 effect.stun 真实执行（golden 覆盖普通、已 Stunned、" +
     "目标失效三种情形）。",
   abilities,

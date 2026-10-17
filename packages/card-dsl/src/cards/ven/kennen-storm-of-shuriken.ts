@@ -24,19 +24,19 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   "give a spell in your trash [Flow] equal to its cost this turn" 是授予该法术一个
  *   费用等于其自身费用的 Flow 实例（829.1.c.3 的多实例规则要求各自独立）。
  *   effects/keywords/Flow.ts 已合入 KeywordDef（flow.cost 静态效果 + 离链放逐替代），
- *   但其消费方（RIFT-261 的备选费用选择、RIFT-260 的替代注册）未合入；卡牌侧也没有
- *   把 Flow 授予某对象的 continuous.grant-keyword 原语（RIFT-91）。
+ *   continuous.grant-keyword 也已合入（RIFT-258），但该原语没有承载 Flow 实例的
+ *   params.cost；Flow 的备选费用消费仍依赖 RIFT-261，离链放逐替代仍依赖 RIFT-260。
  * - 355.7 / 355.10.a.1：Trash 是公开区域（Public Information），"a spell in your trash"
  *   是玩家选定的公开区域对象 → TargetSpec（非 pick）。
  *
  * status = judge-required（缺口均不近似实现）：
  * 1. [Burn 2] 半段可执行（effect.mill），golden 用真实解释器 + 参考内核执行；
- * 2. 「give a spell in your trash [Flow]」需要已合入 KeywordDef 的消费方（RIFT-261 /
- *    RIFT-260）与卡牌侧的 continuous.grant-keyword 原语：effects/instructions/ 下没有
- *    该 op，卡程序无法把 Flow 授予被选法术，"equal to its cost" 也只能以
- *    { kind: "cost.printed" } 描述（费用计划尚未消费该形状）；
- * 3. conquer 时点没有生产者（scoring/ 未接入 chain/events 单管线，RIFT-120），也没有把
- *    CardProgram 的 triggered ability 注册成 TriggerRegistration 的适配器。
+ * 2. 「give a spell in your trash [Flow]」需要 Flow 消费方（RIFT-261 的备选费用选择、
+ *    RIFT-260 的离链放逐替代）以及能把被选法术印刷费用带入动态关键词实例的契约字段。
+ *    continuous.grant-keyword 已合入，但其参数没有 params.cost，故本卡的
+ *    "equal to its cost" 仍只能以 { kind: "cost.printed" } 描述，不能形成可消费的 Flow 实例；
+ * 3. conquer 时点虽已由 scoring/turn-flow 发出，但 TriggerSpec 的事件枚举与 timing point
+ *    拼写不一致，计分波也没有携带被征服对象来匹配 source:self。
  */
 const abilities: Ability[] = [
   {
@@ -66,7 +66,7 @@ const abilities: Ability[] = [
       {
         // 829.1：给被选法术一个 Flow 实例；"equal to its cost" 是其印刷费用
         // （829.1.c.1 的备选费用替换基础费用），用 { kind: "cost.printed" } 记录。
-        // effects/instructions/ 下没有 continuous.grant-keyword 原语（见 judgeReason）。
+        // continuous.grant-keyword 已合入，但动态 Flow 费用字段仍缺（见 judgeReason）。
         id: "kennen-storm-of-shuriken.grant-flow",
         op: "continuous.grant-keyword",
         args: {
@@ -96,13 +96,12 @@ export default {
   status: "judge-required",
   judgeReason:
     "两处缺口，均不近似实现：(1) 「give a spell in your trash [Flow] equal to its cost this turn」需要 " +
-    "已合入 KeywordDef（effects/keywords/Flow.ts，829.1）的消费方与卡牌侧的授予入口：flow.cost 的备选费用选择属 " +
-    "RIFT-261、离链放逐的替代注册属 RIFT-260，而 effects/instructions/ 下没有 continuous.grant-keyword 原语" +
-    "（RIFT-91），卡程序无法把 Flow 授予被选法术；\"equal to its cost\"（829.1.c.1 的备选费用）只能用 " +
-    "{ kind: \"cost.printed\" } 描述，费用计划尚未消费该形状。(2) 「When I conquer」的 conquer 时点" +
-    "（383.4.c.2.b / 473.2.a）虽在 events/timing-points.ts 的封闭枚举中，但 scoring/（RIFT-76）未接入 " +
-    "chain/events 单管线（RIFT-120），没有生产者 emit conquer，也没有把 CardProgram 的 triggered ability " +
-    "注册成 TriggerRegistration 的适配器。[Burn 2] 半段（441.1/441.2/441.4）用已合入的 effect.mill 真实执行，" +
+    "已合入 KeywordDef（effects/keywords/Flow.ts，829.1）与 continuous.grant-keyword（RIFT-258），但动态 Flow " +
+    "实例没有可承载 params.cost 的卡牌字段；flow.cost 的备选费用选择属 RIFT-261、离链放逐的替代注册属 RIFT-260，" +
+    "故 \"equal to its cost\"（829.1.c.1）只能以 { kind: \"cost.printed\" } 描述，不能形成可消费实例。(2) 「When I conquer」的 " +
+    "conquer 时点虽已由 scoring/turn-flow 发出，但 TriggerSpec 的事件枚举仍使用 \"conquered\" 而不是 timing point 的 \"conquer\"，" +
+    "且计分波只携带 player/details，不携带被征服战场上的本卡对象，无法匹配 source:self；需要事件契约/载荷对齐，" +
+    "不是重新添加通用 CardProgram TriggerRegistration。[Burn 2] 半段（441.1/441.2/441.4）用已合入的 effect.mill 真实执行，" +
     "golden 断言主牌库顶 2 张按序进入弃牌区与牌库不足时的部分烧牌；Flow 与 conquer 两半保持 test.todo。",
   abilities,
   sourceText:
