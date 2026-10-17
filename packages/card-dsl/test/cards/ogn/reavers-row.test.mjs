@@ -10,6 +10,7 @@ import { translateInstructionTargets } from "../../../../engine-core/dist/progra
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { getTimingPoint, isTimingPointId } from "../../../../engine-core/dist/events/timing-points.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 
 const CANONICAL = "card.hash-50eea6ceaf8ca3375c963141d772172c81248799d0edc1429deefe6b8b1862e0";
 const HERE = { type: "battlefield", id: "battlefield-1" };
@@ -45,6 +46,7 @@ test("ogn-285-298 Reaver's Row: program validates and is judge-required", () => 
   assert.match(program.judgeReason, /combat\/flow\.ts/);
   assert.match(program.judgeReason, /sameLocationAs/);
   assert.match(program.judgeReason, /Unsupported filter field sameLocationAs/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-281|d8e60ac/);
   assert.equal(program.sourceText, "When you defend here, you may move a friendly unit here to base.");
 });
 
@@ -67,7 +69,7 @@ test("ogn-285-298: defend trigger with an optional move wrapped in choice.option
   assert.deepEqual(ability.trigger.filter, {
     event: "defense-declared",
     here: true,
-    player: "controller"
+    player: "self"
   });
   // "you may": the ability is optional AND the chosen instruction lives inside
   // the choice body (contract 3.9), never a bare choice + linkedTo.
@@ -158,8 +160,20 @@ test("ogn-285-298: the trigger names the defense-declared timing point with the 
   assert.equal(isTimingPointId("defense-declared"), true);
   assert.equal(ability.trigger.filter.event, "defense-declared");
   assert.equal(ability.trigger.filter.here, true);
-  assert.equal(ability.trigger.filter.player, "controller");
+  assert.equal(ability.trigger.filter.player, "self");
   assert.deepEqual(getTimingPoint("defense-declared").ruleRefs, ["323.2", "383.4.f", "466.2.c"]);
+});
+
+test("ogn-285-298: trigger validation isolates the unsupported battlefield-relative here anchor", () => {
+  const result = validateTriggerSpec(ability.trigger);
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.issues, [
+    {
+      path: "trigger.filter.here",
+      code: "unknown-field",
+      message: "EventPattern 不允许此字段。"
+    }
+  ]);
 });
 
 test.todo(

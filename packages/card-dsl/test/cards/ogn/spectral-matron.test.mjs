@@ -31,6 +31,7 @@ test("ogn-226-298 Spectral Matron: identity, status and verbatim sourceText", ()
   assert.match(program.judgeReason, /Nested\/repeated targets|嵌套目标/);
   assert.match(program.judgeReason, /assertFinalizationSurface/);
   assert.match(program.judgeReason, /cost\.printed/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.equal(
     program.sourceText,
     "When you play me, you may play a unit costing no more than :rb_energy_3: and no more than :rb_rune_rainbow: from your trash, ignoring its cost."

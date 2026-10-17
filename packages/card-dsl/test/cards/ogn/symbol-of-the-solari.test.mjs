@@ -45,6 +45,7 @@ test("symbol-of-the-solari: identity, ruleset, status, judgeReason and printed t
   assert.match(program.judgeReason, /该战场双方单位/);
   assert.match(program.judgeReason, /460\.1/);
   assert.match(program.judgeReason, /3d/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.equal(
     program.sourceText,
     "If a combat where you are the attacker ends in a tie, recall ALL units instead. " +
