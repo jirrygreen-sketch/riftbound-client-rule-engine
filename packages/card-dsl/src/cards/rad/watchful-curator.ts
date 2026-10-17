@@ -18,13 +18,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * status 判定（README 第 2 节）：judge-required。授予 Deflect 的生产绑定与图层结算
  * 已合入，但目标选择税与收费链路仍未完成，不能把关键词可读性当作整卡可执行。
- * 当前缺口属于 RIFT-360 的目标税/费用接线。
+ * 当前缺口是目标税的生产接线与正确的任意域 Power 支付链路。
  * - 生产绑定：构造时 validateCardProgram 通过；createEngineStaticBinder.bindStatic 把
  *   static 能力经
  *   bindStaticToLayers 注册为 ContinuousEffectSpec（layer = effect 声明的 ability 层；
  *   staticFilter 把 controller 占位符归一为来源控制者、type/zone 白名单透传），
  *   注册对象可直接进 LayerEngine。
- * - 结算形状：continuous.grant-keyword（RIFT-258）在结算期把 [Deflect] 写进匹配对象
+ * - 结算形状：continuous.grant-keyword 在结算期把 [Deflect] 写进匹配对象
  *   的关键词特征（809.3 可读、809.2 与已有 Deflect 求和）。
  * - 执行证据：golden 用解释器 + 图层引擎真实执行（含相加与可读性），并用上述生产
  *   注册路径把本卡 static 绑进真实图层引擎，断言匹配集。
@@ -34,7 +34,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   options.tax 时才把税追加到 TargetPlan；从授予的关键词自动生成目标税的生产接线尚未合入。
  * - chain/engine.ts 当前把 TargetTax 转成 Energy mandatoryAdditional；CR 809.1.c /
  *   809.1.c.1 要求对手支付任意域 Power，因此缺少正确的 Power 支付与无法支付时的
- *   Finalize/Resolve 阻断链路。依赖 RIFT-360（进行中）。
+ *   Finalize/Resolve 阻断链路。
  */
 const abilities: Ability[] = [
   {
@@ -56,13 +56,13 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "Deflect 的关键词展开与 static→LayerEngine 绑定已合入（RIFT-257/258 的相关部分），" +
+    "Deflect 的关键词展开与 static→LayerEngine 绑定已合入，" +
     "但整卡仍缺目标税和收费链路：(1) Deflect.expand 虽产生 target.tax，" +
     "target/target-plan.ts 的 taxSpecs/appendTaxes 只有调用方显式提供 options.tax 时才追加税，" +
     "当前没有从授予的 Deflect 自动生成该 options.tax 的生产接线；" +
     "(2) chain/engine.ts 当前把目标税转换为 Energy mandatoryAdditional，" +
-    "而 CR 809.1.c/809.1.c.1 要求支付任意域 Power，且缺少无法支付时阻断 Finalize/Resolve 的完整链路。" +
-    "依赖 RIFT-360（进行中）；不近似宣称可执行。",
+    "而 CR 809.1.c/809.1.c.1 要求支付任意域 Power，且缺少无法支付时阻断 Finalize/Resolve 的完整链路；" +
+    "不近似宣称可执行。",
   abilities,
   sourceText:
     "Your gear have [Deflect]. (Opponents must pay :rb_rune_rainbow: to choose each with a spell or ability.)"

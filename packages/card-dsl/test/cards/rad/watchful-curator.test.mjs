@@ -1,7 +1,7 @@
 // Golden test for Watchful Curator (rad-037-167).
 //
 // judge-required: the static grant of [Deflect] is executable, but the target-tax
-// production and any-domain Power payment chain is still pending RIFT-360.
+// production and any-domain Power payment chain is still missing.
 // The production evidence is createEngineStaticBinder().bindStatic registering
 // the grant as a ContinuousEffectSpec; the runnable evidence is the merged
 // continuous.grant-keyword instruction and the real LayerEngine applying the
@@ -107,7 +107,7 @@ test("rad-037-167 Watchful Curator: identity, status, judgeReason and verbatim s
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /options\.tax/);
   assert.match(program.judgeReason, /任意域 Power/);
-  assert.match(program.judgeReason, /RIFT-360/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-360/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -236,5 +236,5 @@ test("rad-037-167 Watchful Curator: the production static binder registers the g
 test.todo(
   "rad-037-167 Watchful Curator: selecting granted-Deflect gear must append its target.tax " +
     "automatically, require an any-domain Power payment per CR 809.1.c/809.1.c.1, and reject " +
-    "Finalize/Resolve when the opponent cannot pay; this production path depends on RIFT-360."
+    "Finalize/Resolve when the opponent cannot pay; the production tax adapter and any-domain Power payment chain are still missing."
 );
