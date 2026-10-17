@@ -8,6 +8,12 @@ import grantKeyword from "../../../../engine-core/dist/effects/instructions/cont
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { translateInstructionTargets } from "../../../../engine-core/dist/programs/filters.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import deploy from "../../../../engine-core/dist/effects/keywords/Deploy.js";
 
 const CARD_ID = "card.hash-c23ae2a28f5e64f8b56146faf62b3012c3c1902a3ebdd597858ac9d76f814fdc";
 const SOURCE_TEXT =
@@ -24,10 +30,16 @@ test("rad-087-167 Portable Portal: validates, identity and source text", () => {
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
+  // README §2: the reason must name the current merged blocker, not a task number.
   assert.match(program.judgeReason, /830\.1\.b/);
   assert.match(program.judgeReason, /continuous\.location/);
+  assert.match(program.judgeReason, /no layer mapping/);
+  assert.match(program.judgeReason, /here/);
   assert.match(program.judgeReason, /cost\.pay/);
   assert.match(program.judgeReason, /success-gated/);
+  assert.match(program.judgeReason, /sameLocationAs/);
+  assert.match(program.judgeReason, /matchesObjectFilter/);
+  assert.equal(program.judgeReason.includes("RIFT-267"), false);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -191,13 +203,109 @@ test.todo(
     "'when an opponent holds here, kill this' trigger still need a production consumer for the structured " +
     "location data and for the hold kill (CR 830.1.b); the binding layer rejects here:true fail-closed"
 );
-test.todo(
-  "rad-087-167 Portable Portal: the ':rb_rune_body:' in-instruction Power payment (355.10.c.1) needs the " +
-    "success-gated payment body (CR 203.3, cost/kinds/README.md request #2); the ready branch cannot be " +
-    "honestly gated yet"
-);
-test.todo(
-  "rad-087-167 Portable Portal: the static 'Friendly units here have [Ganking]' continuous.grant-keyword " +
-    "(op merged by RIFT-258, Ganking expansion by RIFT-83) already maps to the ability layer via layerFor; " +
-    "the remaining gap is the production wiring that feeds the CardProgram static into that path"
-);
+
+// The three TODO entries above/below are replaced by real executor evidence so
+// the remaining gaps are pinned to the merged code that actually rejects them.
+test("rad-087-167 Portable Portal: the merged Deploy expansion cannot bind (static layer + hold trigger)", () => {
+  // CR 830.1.b: RIFT-267 merged Deploy.ts, but neither half has a consumer.
+  const expansion = deploy.expand({ host: { canonicalCardId: CARD_ID } });
+  assert.deepEqual(expansion.map(ability => ability.kind), ["static", "triggered"]);
+  assert.equal(expansion[0].effect.kind, "continuous.location");
+
+  const kernel = world()
+    .unit("portal-gear", {
+      types: ["gear"],
+      zone: "board",
+      location: { type: "battlefield", id: "bf-1" }
+    })
+    .build();
+  const source = kernel.getObject("portal-gear");
+  const binder = createEngineStaticBinder({
+    layers: { addContinuous() {}, removeContinuous() {}, currentTimingPoint: "cleanup-start" }
+  });
+
+  // 830.1.b placement permission: layerFor has no mapping for continuous.location.
+  assert.throws(
+    () => binder.bindStatic(expansion[0], source),
+    (error) => error.code === "judge-required" &&
+      /Static ability kind continuous\.location has no layer mapping/.test(error.message)
+  );
+
+  // 830.1.b opponent-Hold clause: here:true is rejected fail-closed while the
+  // remaining filter still translates, so the registration looks valid.
+  const registry = new ProgramRegistry([{
+    canonicalCardId: CARD_ID,
+    rulesetVersion: "core-1.5",
+    status: "executable",
+    sourceText: "[Deploy]",
+    abilities: expansion
+  }]);
+  assert.throws(
+    () => triggerRegistrations(registry, { ...source, cardId: CARD_ID }),
+    (error) => error.code === "judge-required" && /Unsupported filter field here/.test(error.message)
+  );
+});
+
+test("rad-087-167 Portable Portal: the in-instruction Power payment has no cost.pay instruction", () => {
+  // CR 355.10.c.1 / 203.3: the cost.pay primitive is merged, but the program
+  // declares no payment instruction and there is no success-gated body, so the
+  // ready half cannot be gated on a committed payment.
+  assert.equal(instructionDefinitionsById.has("cost.pay"), true);
+  const [may] = program.abilities[1].body;
+  const bodyIds = [may, ...may.args.body.value].map(instruction => instruction.op);
+  assert.equal(bodyIds.includes("cost.pay"), false);
+  assert.match(program.judgeReason, /cost\.pay/);
+  assert.match(program.judgeReason, /success-gated/);
+});
+
+test("rad-087-167 Portable Portal: the production static grant installs but never matches its location filter", () => {
+  // The merged production path really does install the Ganking grant
+  // (createEngineStaticBinder -> bindStaticToLayers resolves sameLocationAs:self
+  // into a concrete {type:'battlefield', id}). layers/filter.ts's
+  // matchesObjectFilter compares `location` against location.type only, so the
+  // structured LocationRef matches nothing — including a unit on the same
+  // battlefield.
+  const kernel = world()
+    .unit("portal", { types: ["unit"], location: { type: "battlefield", id: "bf-1" } })
+    .unit("unit-here", { location: { type: "battlefield", id: "bf-1" } })
+    .unit("unit-elsewhere", { location: { type: "battlefield", id: "bf-2" } })
+    .build();
+  const engine = createLayerEngine(kernel.objects, []);
+  const binder = createEngineStaticBinder({ layers: engine });
+  const grant = program.abilities[2];
+  binder.bindStatic(grant, kernel.getObject("portal"));
+
+  const [spec] = engine.registry.list();
+  assert.equal(spec.effect.layer, "ability");
+  assert.equal(spec.effect.effect.kind, "continuous.grant-keyword");
+  assert.deepEqual(spec.effect.filter, {
+    type: "unit",
+    controller: "A",
+    zone: "board",
+    location: { type: "battlefield", id: "bf-1" }
+  });
+  engine.setObjects(kernel.objects);
+  assert.deepEqual(engine.evaluate(kernel.ref("unit-here")).keywords, []);
+  assert.deepEqual(engine.evaluate(kernel.ref("unit-elsewhere")).keywords, []);
+
+  // Control: the same filter written as a location-type string does grant.
+  const control = createLayerEngine(kernel.objects, []);
+  control.register({
+    id: "control",
+    layer: "ability",
+    source: kernel.ref("portal"),
+    filter: { type: "unit", zone: "board", location: "battlefield" },
+    effect: { kind: "continuous.grant-keyword", keyword: "Ganking" }
+  }, { type: "permanent" });
+  control.setObjects(kernel.objects);
+  assert.deepEqual(control.evaluate(kernel.ref("unit-here")).keywords.map(k => k.id), ["Ganking"]);
+});
+
+test("rad-087-167 Portable Portal: the sameLocationAs TargetSpec is rejected by the merged translator", () => {
+  // CR 053.3 / RIFT-90: the authored "here" anchor cannot reach the chain either,
+  // because programs/filters.ts whitelists filter fields without sameLocationAs.
+  assert.throws(
+    () => translateInstructionTargets(program.abilities[1].body),
+    (error) => error.code === "judge-required" && /Unsupported filter field sameLocationAs/.test(error.message)
+  );
+});

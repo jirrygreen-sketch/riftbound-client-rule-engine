@@ -6,6 +6,9 @@ import program from "../../../dist/cards/rad/primordial-roar.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 
 const CANONICAL = "card.hash-8b6deb587569a3df7032c50ff6c443facba501038a4e6e1fb77f5aedbedb57cf";
 const [showOff, play] = program.abilities;
@@ -28,14 +31,17 @@ test("rad-082-167 Primordial Roar: program passes validateCardProgram with the c
 });
 
 test("rad-082-167 Primordial Roar: judgeReason names the merged keyword and the remaining gaps", () => {
+  // The reason must name the merged code that rejects the program, not task ids.
   assert.match(program.judgeReason, /ShowOff\.ts/);
+  assert.match(program.judgeReason, /Show Off/);
+  assert.match(program.judgeReason, /show-off/);
+  assert.match(program.judgeReason, /definitionFor|executable KeywordDef/);
+  assert.match(program.judgeReason, /cost\.reveal/);
+  assert.match(program.judgeReason, /objects-shown-off/);
+  assert.match(program.judgeReason, /Unregistered instruction opcode|not a registered instruction op/);
   assert.match(program.judgeReason, /832\.1/);
   assert.match(program.judgeReason, /832\.1\.d\.1/);
-  assert.match(program.judgeReason, /cost\.reveal/);
-  assert.match(program.judgeReason, /show-off/);
-  assert.match(program.judgeReason, /objects-shown-off/);
-  assert.match(program.judgeReason, /生产者/);
-  assert.equal(program.judgeReason.includes("没有 ShowOff.ts"), false);
+  assert.equal(/RIFT-\d+/.test(program.judgeReason), false);
 });
 
 test("rad-082-167 Primordial Roar: structure — the [Show Off] keyword declaration plus a printed-cost play ability", () => {
@@ -151,14 +157,69 @@ test("rad-082-167 Primordial Roar: a missing Show Off link makes the damage inst
   assert.equal(kernel.getObject("damaged-unit").damage, 0);
 });
 
-test.todo(
-  "rad-082-167 Primordial Roar: the finalization-time Show Off choice (decline, or reveal a unit from " +
-    "hand and/or pick a friendly unit) and the characteristic lock of 832.1.d.1: the merged " +
-    "effects/keywords/ShowOff.ts only publishes a cost.reveal declaration with no consumer, " +
-    "effect.show-off is not a registered op, and the chain has no objects-shown-off producer."
-);
+// The two TODO entries above are replaced by executor-backed gap tests; the
+// remaining Show Off work is pinned to the merged code that actually rejects it.
+test("rad-082-167 Primordial Roar: the authored keyword slug is not in the merged keyword registry", () => {
+  // effects/keywords/ShowOff.ts registers the printed name while the EffectIR
+  // validator forces a lowercase symbol id, and programs/keywords.ts definitionFor
+  // only compares case-insensitively, so neither spelling works today.
+  assert.equal(keywordDefinitionsById.has("Show Off"), true);
+  assert.equal(keywordDefinitionsById.has("show-off"), false);
+  assert.equal(keywordDefinitionsById.get("Show Off").keyword, "Show Off");
 
-test.todo(
-  "rad-082-167 Primordial Roar: hand the printed [Object] clause ('a unit') to the keyword expansion — " +
-    "contract 3.8.3's KeywordDef.expand params are not carried by the card-side KeywordAbility."
-);
+  // The authored slug passes the card validator…
+  assert.deepEqual(validateCardProgram(program).issues, []);
+  assert.equal(showOff.value, 1);
+  // …but the printed spelling the registry actually publishes is rejected.
+  const printedSpelling = {
+    ...program,
+    abilities: [{ kind: "keyword", keyword: "Show Off" }, program.abilities[1]]
+  };
+  assert.deepEqual(
+    validateCardProgram(printedSpelling).issues.map(issue => issue.code),
+    ["invalid-string"]
+  );
+
+  const kernel = world().unit("host", { keywords: [{ id: "Show Off" }] }).build();
+  assert.throws(
+    () => expandProgram(program, { ...kernel.getObject("host"), cardId: CANONICAL }),
+    (error) => error.code === "judge-required" &&
+      /Keyword show-off has no executable KeywordDef/.test(error.message)
+  );
+
+  // Control: the merged expansion does produce the cost.reveal declaration under
+  // the registry key, so the failure is the id spelling/normalisation, not ShowOff.
+  const registered = {
+    ...program,
+    status: "executable",
+    abilities: [{ kind: "keyword", keyword: "Show Off" }, program.abilities[1]]
+  };
+  delete registered.judgeReason;
+  // Show Off stacks as "separate", so only the declared keyword is supplied here
+  // to assert the single expansion the card authors.
+  const expansion = expandProgram(registered, {
+    ...kernel.getObject("host"),
+    keywords: [],
+    cardId: CANONICAL
+  });
+  assert.deepEqual(
+    expansion.expanded.map(ability => [ability.kind, ability.effect.kind]),
+    [["static", "cost.reveal"]]
+  );
+  assert.equal(expansion.expanded[0].effect.object, null);
+});
+
+test("rad-082-167 Primordial Roar: effect.show-off is not a registered instruction opcode", () => {
+  // The authored Show Off instruction cannot be dispatched by the merged
+  // interpreter, and the merged cost.reveal declaration it depends on has no
+  // consumer recording the objects-shown-off lock of 832.1.c.2 / 832.1.d.1.
+  const kernel = world()
+    .unit("host", { zone: "board" })
+    .unit("victim", { owner: "B", controller: "B", zone: "board" })
+    .build();
+  assert.throws(
+    () => resolveChainBody([showInstruction], kernel.clone({ sourceSnapshot: kernel.getObject("host") })),
+    (error) => /Unregistered instruction opcode: effect\.show-off/.test(error.message)
+  );
+  assert.equal(keywordDefinitionsById.get("Show Off").expand({ host: { canonicalCardId: CANONICAL } })[0].effect.kind, "cost.reveal");
+});

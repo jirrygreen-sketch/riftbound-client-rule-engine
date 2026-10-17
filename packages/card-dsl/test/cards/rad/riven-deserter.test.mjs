@@ -14,6 +14,11 @@ import ready from "../../../../engine-core/dist/effects/instructions/effect.read
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
+import { translateRestriction } from "../../../../engine-core/dist/programs/play.js";
+import { translateInstructionTargets, translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 
 const CANONICAL = "card.hash-51aab7c27d79de8598bf1c63fd69200050369183a2f0e0d05edba616e72283a2";
 const SOURCE_TEXT =
@@ -39,8 +44,12 @@ test("rad-114-167 Riven, Deserter: judgeReason names temporary Might, the exhaus
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /choiceObjects/);
   assert.match(program.judgeReason, /386/);
-  assert.match(program.judgeReason, /translateLegalityCondition|rules adapter/);
-  assert.match(program.judgeReason, /Unsupported filter field|exclude/);
+  // The reason must name the merged code that rejects each half, not task ids.
+  assert.match(program.judgeReason, /exact object reference/);
+  assert.match(program.judgeReason, /translateRestriction|rules adapter/);
+  assert.match(program.judgeReason, /Unsupported filter field exclude/);
+  assert.match(program.judgeReason, /Unsupported filter field object/);
+  assert.equal(/RIFT-\d+/.test(program.judgeReason), false);
 });
 
 test("rad-114-167 Riven, Deserter: the first ability is an object-exhausted trigger excluding this unit (415.1)", () => {
@@ -208,4 +217,45 @@ test.todo(
     "object-exhausted trigger's CardProgram -> TriggerRegistration adapter is merged, but its " +
     "exclude/controller filter shape still needs concrete ObjectFilter support"
 );
+
+test("rad-114-167 Riven, Deserter: the declared cost options cannot be resolved to runtime objects", () => {
+  // CR 415.3.a / 355.5: the payer needs an exact { id, zoneEntryId } and cannot
+  // query the Board from filter/zone/type/controller metadata, so the authored
+  // "dynamic:friendly-units-on-board" option fails at plan time.
+  const kernel = world().unit("riven", { might: 5 }).unit("ally").build();
+  const context = bindResolveContext(kernel, {
+    source: kernel.getObject("riven"),
+    controller: "A",
+    timingPoint: "main-start"
+  });
+
+  assert.throws(
+    () => buildCostPlan(context, { id: "cost:riven", cost: activated.cost }),
+    (error) => error instanceof CostPlanError && error.reason === "invalid-cost-plan" &&
+      /Cost requires an exact object reference/.test(error.message)
+  );
+});
+
+test("rad-114-167 Riven, Deserter: the usage limit has no rules adapter and the filters cannot bind", () => {
+  // CR 386/386.1: ActivatedAbility.restriction is descriptive data; nothing turns
+  // the card's usage-limit into the Condition the merged chain Finalize checks.
+  assert.throws(
+    () => translateRestriction(activated.restriction, CANONICAL),
+    (error) => error.code === "judge-required" &&
+      /kind usage-limit needs a rules adapter/.test(error.message)
+  );
+
+  // CR 415.1: the object-exhausted trigger's exclude anchor is not in the merged
+  // event-pattern vocabulary, and the body's object:"self" anchor is rejected too.
+  assert.throws(
+    () => translateTriggerFilter(exhaustTrigger.trigger.filter, "riven", "object-exhausted"),
+    (error) => error.code === "judge-required" &&
+      /Unsupported filter field exclude/.test(error.message)
+  );
+  assert.throws(
+    () => translateInstructionTargets(exhaustTrigger.body),
+    (error) => error.code === "judge-required" &&
+      /Unsupported filter field object/.test(error.message)
+  );
+});
 

@@ -6,6 +6,10 @@ import program from "../../../dist/cards/rad/resource-extractor.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import tokenDefinition from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { translateInstructionTargets, translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import deployKeyword from "../../../../engine-core/dist/effects/keywords/Deploy.js";
 
 const CANONICAL = "card.hash-15ed917fed0055c9ae8325c668e501db603af32e4ff58c00dca6ad354739ac93";
 const SOURCE_TEXT =
@@ -40,8 +44,13 @@ test("rad-052-167 Resource Extractor: the judgeReason names the actual merged ga
   assert.match(program.judgeReason, /entry overrides/);
   assert.match(program.judgeReason, /143\.4/);
   assert.match(program.judgeReason, /TriggerRegistration/);
-  assert.match(program.judgeReason, /invalid-event-type|here:true/);
+  assert.match(program.judgeReason, /invalid-event-type/);
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /here:true/);
+  assert.match(program.judgeReason, /Unsupported filter field source/);
+  assert.equal(program.judgeReason.includes("RIFT-267"), false);
+  // RIFT-359 stays: the condition predicate is genuinely in flight (not merged).
+  assert.equal(/RIFT-(?!359)\d+/.test(program.judgeReason), false);
 });
 
 test("rad-052-167 Resource Extractor: [Deploy] plus the turn-end trigger with its printed condition", () => {
@@ -139,3 +148,53 @@ test.todo(
     "location filter and event vocabulary are supported, and the 'you control this battlefield' " +
     "condition needs an evaluated battlefield-control predicate."
 );
+
+test("rad-052-167 Resource Extractor: the merged Deploy expansion has no consumer for either half", () => {
+  // CR 830.1.b: RIFT-267 merged Deploy.ts, but continuous.location is unmapped in
+  // programs/statics.ts layerFor and the hold trigger's here:true is rejected by
+  // the merged filter translator.
+  const expansion = deployKeyword.expand({ host: { canonicalCardId: CANONICAL } });
+  assert.deepEqual(expansion.map(ability => ability.kind), ["static", "triggered"]);
+  assert.equal(expansion[0].effect.kind, "continuous.location");
+
+  const kernel = world()
+    .unit("extractor", {
+      types: ["gear"],
+      zone: "board",
+      location: { type: "battlefield", id: "bf1" }
+    })
+    .build();
+  const source = kernel.getObject("extractor");
+  const binder = createEngineStaticBinder({
+    layers: { addContinuous() {}, removeContinuous() {}, currentTimingPoint: "cleanup-start" }
+  });
+  assert.throws(
+    () => binder.bindStatic(expansion[0], source),
+    (error) => error.code === "judge-required" &&
+      /Static ability kind continuous\.location has no layer mapping/.test(error.message)
+  );
+  assert.throws(
+    () => translateTriggerFilter(expansion[1].trigger.filter, source.ref.id, "hold"),
+    (error) => error.code === "judge-required" && /Unsupported filter field here/.test(error.message)
+  );
+});
+
+test("rad-052-167 Resource Extractor: the turn-end trigger and its body cannot reach the chain", () => {
+  // CR 317.1.a / 364.3: the timing point exists and turn/flow.ts emits it, but
+  // EVENT_PATTERN_TYPES has no "turn-end", and the body's TargetSpec anchor
+  // `source: "self"` is not in the merged translator whitelist.
+  assert.equal(validateTriggerSpec(turnEndTrigger.trigger).ok, false);
+  assert.deepEqual(
+    validateTriggerSpec(turnEndTrigger.trigger).issues.map(issue => issue.code),
+    ["invalid-event-type"]
+  );
+  // The translated pattern itself is well-formed; only the vocabulary is missing.
+  assert.deepEqual(translateTriggerFilter(turnEndTrigger.trigger.filter, "gear", "turn-end"), {
+    event: "turn-end",
+    player: "self"
+  });
+  assert.throws(
+    () => translateInstructionTargets(turnEndTrigger.body),
+    (error) => error.code === "judge-required" && /Unsupported filter field source/.test(error.message)
+  );
+});

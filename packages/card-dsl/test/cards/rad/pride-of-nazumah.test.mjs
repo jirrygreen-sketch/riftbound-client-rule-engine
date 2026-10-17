@@ -7,6 +7,10 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import grantKeyword from "../../../../engine-core/dist/effects/instructions/continuous.grant-keyword.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
+import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 
 const CANONICAL_ID =
   "card.hash-429ae86450b57eb8b5283953594d1e2375732b2cc9c460d030a5a5b418afd418";
@@ -31,7 +35,13 @@ test("rad-147-167 Pride of Nazumah: identity, status, judgeReason, and verbatim 
   // The gap must stay concrete: which primitive is missing and which task owns it.
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /Shield Value/);
+  // The reason must name the merged code that rejects each half, not a task id.
+  assert.match(program.judgeReason, /MissingInformation/);
+  assert.match(program.judgeReason, /non-negative integer/);
+  assert.match(program.judgeReason, /cannot-pay-cost/);
+  assert.match(program.judgeReason, /board\/rune-zone/);
   assert.match(program.judgeReason, /Legend Zone/);
+  assert.equal(/RIFT-\d+/.test(program.judgeReason), false);
   // The generated card registry indexes this program by canonicalCardId.
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
@@ -133,8 +143,51 @@ test.todo(
     "recipient's Shield Value (CR 814.1.b.2) — the IR has no keyword-value read expression " +
     "(contract change request), so the merged continuous.grant-keyword cannot be fed"
 );
-test.todo(
-  "rad-147-167 Pride of Nazumah: pay 1 Energy and Exhaust this legend during Finalize " +
-    "(CR 204.1.b / 415.4 / 415.5) — the cost plan pays exhaust costs only for board/rune-zone " +
-    "objects and the contract ZoneId has no Legend Zone (CR 107.4)"
-);
+
+test("rad-147-167 Pride of Nazumah: the merged grant consumes a keyword value only as an integer", () => {
+  // Both merged paths fail on the same missing expression. The interpreter route
+  // reports ignored/mistargeted; the primitive route rejects the evaluated value
+  // outright, so no Assault is ever placed.
+  const { targets, ...bodyOnly } = grant;
+  const kernel = world()
+    .unit("ally", { might: 2, keywords: [{ id: "Shield", value: 2 }] })
+    .build();
+  assert.throws(
+    () => runInstruction(
+      grantKeyword,
+      { ...bodyOnly.args, target: "pride-of-nazumah.friendly-unit" },
+      { world: kernel, targets: { "pride-of-nazumah.friendly-unit": [kernel.ref("ally")] } }
+    ),
+    (error) => error instanceof TypeError && /value must be a non-negative integer/.test(error.message)
+  );
+  assert.equal(kernel.continuousEffects.length, 0);
+  assert.deepEqual(kernel.getObject("ally").keywords, [{ id: "Shield", value: 2 }]);
+});
+
+test("rad-147-167 Pride of Nazumah: the authored cost plans but the exhaust payment cannot commit", () => {
+  // CR 204.1.b / 415.4 / 415.5: the merged planner reads the printed "activated"
+  // cost, but the payer requires a ready controlled Board/rune-zone object, and
+  // CR 107.4 puts a Champion Legend outside the Board zones the contract knows.
+  const kernel = world()
+    .player("A", { energy: 3 })
+    .card("legend", { types: ["legend"], zone: "deck" })
+    .build();
+  const context = bindResolveContext(kernel, {
+    source: kernel.getObject("legend"),
+    controller: "A",
+    timingPoint: "main-start"
+  });
+
+  const plan = buildCostPlan(context, { id: "cost:pride", cost: ability.cost });
+  assert.equal(plan.total.energy, 1);
+  assert.deepEqual(plan.total.power, []);
+  assert.deepEqual(plan.total.actions.map(entry => [entry.action.type, entry.action.object.id]), [
+    ["exhaust", "legend"]
+  ]);
+
+  assert.throws(
+    () => payCostPlan(context, plan),
+    (error) => error instanceof CostPlanError && error.reason === "cannot-pay-cost" &&
+      /ready controlled object on the Board/.test(error.message)
+  );
+});

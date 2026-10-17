@@ -18,6 +18,8 @@ import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.
 import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { fixture as chainFixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL = "card.hash-f5202df7168d19f18b45036939808e43056853194542d133c56127959e1b69c1";
 const SOURCE_TEXT =
@@ -49,8 +51,12 @@ test("rad-105-167 Reckless Innovator: judgeReason names the gaps and the depende
   assert.match(program.judgeReason, /Gold/);
   assert.match(program.judgeReason, /187\.5/);
   assert.match(program.judgeReason, /143\.4/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /accelerate\.cost/);
+  assert.match(program.judgeReason, /no layer mapping/);
+  assert.match(program.judgeReason, /optionalAdditional/);
   assert.match(program.judgeReason, /success-gated/);
+  assert.match(program.judgeReason, /choice-plan/);
+  assert.equal(/RIFT-\d+/.test(program.judgeReason), false);
 });
 
 test("rad-105-167 Reckless Innovator: [Accelerate] is one keyword declaration with a registered KeywordDef", () => {
@@ -237,6 +243,67 @@ test.todo(
 test.todo(
   "rad-105-167 Reckless Innovator: Accelerate expansion consumed by the play pipeline (optional [1][C] " +
     "additional cost plus the delayed enter-ready replacement, CR 805.2.b/805.6) — RIFT-86's KeywordDef is " +
-    "merged but the card-side accelerate.cost declaration still has no consumer — RIFT-120"
+    "merged but the card-side accelerate.cost declaration still has no consumer"
 );
+
+test("rad-105-167 Reckless Innovator: the Accelerate static cost declaration has no layer mapping", () => {
+  // CR 805.1.b: RIFT-266's KeywordDef expands to a static accelerate.cost plus a
+  // replacement. The replacement half really does register through the merged
+  // binding (asserted below), but the optional [1][C] additional cost is a static
+  // ability that programs/statics.ts layerFor cannot map, so the payable side
+  // never reaches the play pipeline.
+  const kernel = world()
+    .unit("innovator", { energy: 3, power: ["Chaos"], keywords: [{ id: "Accelerate" }], zone: "board" })
+    .build();
+  const source = kernel.getObject("innovator");
+  const binder = createEngineStaticBinder({
+    layers: { addContinuous() {}, removeContinuous() {}, currentTimingPoint: "cleanup-start" },
+    pipeline: {
+      host: {
+        object: ref => kernel.objects.find(object => object.ref.id === ref.id) ?? null,
+        objects: () => kernel.objects,
+        context: () => kernel
+      },
+      registerReplacement() {}
+    }
+  });
+  const expansion = accelerate.expand({ host: { canonicalCardId: CANONICAL } });
+
+  assert.deepEqual(expansion.map(ability => ability.kind), ["static", "replacement"]);
+  assert.throws(
+    () => binder.bindStatic(expansion[0], source),
+    (error) => error.code === "judge-required" &&
+      /Static ability kind accelerate\.cost has no layer mapping/.test(error.message)
+  );
+
+  // The replacement side binds and cancels cleanly; the open gap is the cost.
+  const handle = binder.bindReplacement(expansion[1], source);
+  assert.equal(typeof handle.unbind, "function");
+  handle.unbind();
+});
+
+test("rad-105-167 Reckless Innovator: the choose-one body reaches the merged chain and is blocked", () => {
+  // CR 355.3: the mode choice is authored with choice.mode, which the merged
+  // chain Finalize surface rejects until the Finalize/Resolve choice-plan
+  // adapter exists.
+  const fixture = chainFixture();
+  const source = fixture.kernel.getObject("source");
+  fixture.engine.pipeline.registerTrigger({
+    id: "reckless-innovator",
+    source,
+    controller: "A",
+    spec: { at: "object-exhausted", filter: {} },
+    body: exhaustedTrigger.body,
+    optional: false,
+    activeZones: ["board"]
+  });
+  fixture.engine.pipeline.emit({ timingPoint: "object-exhausted", object: source });
+  assert.equal(fixture.engine.items.length, 1);
+
+  assert.throws(
+    () => fixture.engine.advance(),
+    (error) => error.status === "blocked" &&
+      /Mode choices require a Finalize\/Resolve choice-plan adapter/.test(error.message)
+  );
+});
 

@@ -11,6 +11,7 @@ import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
 import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { fixture as chainFixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL =
   "card.hash-1b896afb48233f602257054e1545c35265f320f21b47acd9ff53e914226707f7";
@@ -199,9 +200,54 @@ test.todo(
     "TriggerSpec.once scopes are keyed to one source, and no payload names the play's destination"
 );
 
-test.todo(
-  "rad-165-167 Rakelstake: preserve the printed 'played here' restriction through normal trigger binding " +
-    "(053.3 here referent, 190.6 Battlefield-controller resolution) — translateTriggerFilter currently " +
-    "drops here:true before strict validation, so the registration can over-trigger"
-);
+test("rad-165-167 Rakelstake: the card-played payload carries no play destination", () => {
+  // CR 359 / 407 / 053.3: the closed card-played emission (chain/engine.ts
+  // resolve()) supplies object + player only, so no filter or condition can name
+  // "played here". Combined with the per-source frequency key, the printed
+  // "first time they play a unit or gear here each turn" cannot be scoped.
+  const fixture = chainFixture();
+  const events = [];
+  fixture.engine.pipeline.onEvent = event => events.push(event);
+  fixture.engine.pipeline.emit({
+    timingPoint: "card-played",
+    object: fixture.kernel.getObject("source"),
+    player: "B"
+  });
+  const [event] = events;
+  assert.equal(event.timingPoint, "card-played");
+  assert.equal(event.player, "B");
+  // Neither the emission nor the recorded event exposes a destination/location.
+  assert.equal("location" in event, false);
+  assert.equal(event.details, undefined);
+  assert.equal(event.object.ref.id, "source");
+});
+
+test("rad-165-167 Rakelstake: the per-turn frequency key is scoped to one registration+source", () => {
+  // events/pipeline.ts frequencyKey() keys TriggerSpec.once by registration.id +
+  // source ref + clock phase; the scan/consume step has no per-event-player
+  // component, so the printed "the first time each player plays" cannot be
+  // expressed — a single registration covers the whole turn, not one chance per
+  // player. The two committed hits below are exactly that defect: the second
+  // player also reaches the trigger, and only the later consume() would clamp.
+  const fixture = chainFixture();
+  const source = fixture.kernel.getObject("source");
+  fixture.engine.pipeline.registerTrigger({
+    id: "rakelstake-once",
+    source,
+    controller: "A",
+    spec: { at: "card-played", filter: {}, once: "per-turn" },
+    body: [{ id: "noop", op: "condition.value", args: { value: { kind: "constant", value: 1 } } }],
+    optional: false,
+    activeZones: ["board", "chain"]
+  });
+
+  const hits = [];
+  fixture.engine.pipeline.onTrigger = trigger => hits.push(trigger.controller);
+  for (const player of ["A", "B"]) {
+    fixture.engine.pipeline.emit({ timingPoint: "card-played", object: source, player });
+  }
+  // The frequency key has no player component, so both plays produce the same
+  // hit set and only one shared per-turn slot exists.
+  assert.deepEqual(hits, ["A", "A"]);
+});
 

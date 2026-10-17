@@ -24,18 +24,20 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  *   经通过 reveal 锁定了具体对象，所以用移动而不是 effect.draw）。
  * - "Otherwise, recycle it"：417.1 / 417.1.a 的 Recycle 把牌放到其拥有者主牌库**底部**。
  *
- * 状态：judge-required。Mighty 判定本身可执行：707/708 的阈值是 5，
- * 当前 IR 用锁定对象的比较条件表达；condition.predicate 也能执行
- * mightyCondition 的同一比较语义，非棋盘对象按印刷 Might 判定（711）。
- * 剩余缺口集中在分支控制与触发词表：
- * - 契约 3.9 的控制结构只有 sequence / repeat / choice.optional / choice.mode，没有
- *   if/otherwise 节点；用两条互斥 condition 指令表达"否则"时，两次条件求值的时机
- *   无法保证（同一次结算内该牌可能已离开牌库），故不把它当成可执行。
- * - 触发词表也是当前缺口：object-moved 不在引擎 EVENT_PATTERN_TYPES（validateTriggerSpec
- *   实测 invalid-event-type；translateTriggerFilter 虽能翻译 {source:'self'}，但严格校验
- *   fail-closed），时点本身存在（timing-points.ts），需要事件词表接线。
- * - 结构已写出并用测试内核验证了揭示与移动/回收半段。
- * 依赖：if/otherwise 契约缺口，以及 object-moved 事件词表接线。
+ * 状态：judge-required（2026-10-17 实测复核）。
+ * 已可执行的部分：Mighty 判定按 707/708 的阈值 5 用锁定对象的比较条件表达，
+ * 非棋盘对象按印刷 Might 判定（711）；实测把牌库顶对象交给解释器后，Might 6 与 5 走
+ * draw 半段（return-to-hand，牌进手牌），Might 4 与 1 走 recycle 半段（牌回牌库底），
+ * 两条互斥条件各自 correct。揭示（effect.reveal，pick 形式）与两个半段的原语都可执行。
+ * 剩余缺口（两条都实测，不近似实现）：
+ * 1. 触发词表：object-moved 不在引擎 EVENT_PATTERN_TYPES（实测 validateTriggerSpec
+ *    返回 invalid-event-type；时点本身存在于 timing-points.ts，action-adapter 也把
+ *    move-location 映射到该时点）。translateTriggerFilter 能翻译 {source:'self'}，
+ *    但注册会被严格校验 fail-closed 拒绝，所以"When I move"绑不上。
+ * 2. 契约 3.9 的控制结构只有 sequence / repeat / choice.optional / choice.mode，没有
+ *    if/otherwise 节点。当前两条互斥 condition 指令在单次结算的测试里各自正确，但
+ *    引擎没有保证"否则"分支的条件读取与展示时锁定的是同一份快照；正式分支语义需要
+ *    契约层的 if/otherwise（或等价的 result 谓词）支持，故不把整卡标为 executable。
  * 不近似实现：Mighty 已按 707/708/711 用阈值比较表达，也不把"draw it"
  *   写成 effect.draw（那会变成抽牌库顶，而不是抽已揭示的那一张）。
  */
@@ -139,12 +141,16 @@ const program = {
   judgeReason:
     "Mighty 判定本身已可执行：707/708 的阈值是 5，当前分支用锁定对象的 compare 条件表达，" +
     "condition.predicate 也能执行 mightyCondition 的同一比较语义；非棋盘区域按 711 使用印刷 Might。" +
-    "剩余的真实缺口是契约 3.9 的控制结构只有 sequence / repeat / choice.optional / choice.mode，没有 if/otherwise 分支节点，" +
-    "用两条互斥 condition 指令表达「否则」时两次条件求值的时机无法保证（同一次结算内该牌可能已离开牌库），故不当作可执行。" +
-    "触发词表也是当前缺口：object-moved 不在引擎 EVENT_PATTERN_TYPES（validateTriggerSpec 实测 invalid-event-type；" +
-    "translateTriggerFilter 虽能翻译 {source:'self'}，但严格校验 fail-closed），时点本身存在（timing-points.ts）。" +
-    "结构已写出：object-moved 触发 + effect.reveal（pick 形式，牌库顶按真实顺序取）+ effect.zone to hand + effect.recycle to deck bottom；" +
-    "golden 用测试内核验证揭示与移动/回收半段。依赖：if/otherwise 契约缺口与 object-moved 事件词表接线。" +
+    "实测证据：把牌库顶对象交给解释器后，印刷 Might 6 与 5 走 draw 半段（return-to-hand，牌进手牌），" +
+    "Might 4 与 1 走 recycle 半段（牌回牌库底），effect.reveal 的 pick 形式与两个半段原语都真实执行。" +
+    "剩余两条缺口（均实测）：(1) 触发词表——object-moved 不在引擎 EVENT_PATTERN_TYPES，" +
+    "validateTriggerSpec 实测 invalid-event-type（时点本身存在，action-adapter 也把 move-location 映射到该时点），" +
+    "translateTriggerFilter 虽能翻译 {source:'self'} 但注册被严格校验 fail-closed 拒绝。" +
+    "(2) 契约 3.9 的控制结构只有 sequence / repeat / choice.optional / choice.mode，没有 if/otherwise 分支节点；" +
+    "两条互斥 condition 指令在单次结算里各自正确，但引擎没有保证「否则」分支与展示锁定同一份快照，" +
+    "正式分支语义需要契约层的 if/otherwise 或等价的 result 谓词支持。" +
+    "结构已写出：object-moved 触发 + effect.reveal（pick 形式，牌库顶按真实顺序取）+ effect.zone to hand + effect.recycle to deck bottom。" +
+    "依赖：object-moved 事件词表接线与 if/otherwise 契约缺口。" +
     "Mighty 使用 707/708/711 的阈值比较，不把「draw it」写成 effect.draw。",
   abilities,
   sourceText:
