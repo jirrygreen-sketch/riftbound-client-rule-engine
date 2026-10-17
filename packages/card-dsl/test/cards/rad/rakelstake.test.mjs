@@ -35,7 +35,7 @@ test("rad-165-167 Rakelstake: identity, ruleset, status and exact source text", 
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /event-player/);
   assert.match(program.judgeReason, /per-player/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /programs\\.triggers|triggerRegistrations/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -173,7 +173,9 @@ test.todo(
 
 test.todo(
   "rad-165-167 Rakelstake: register the card program's triggered ability as a TriggerRegistration " +
-    "and run it from the real play pipeline (053.3 here referent, 190.6 Battlefield-controller " +
-    "resolution) — RIFT-120"
+    "and run it from the real play pipeline: the adapter exists (programs/triggers.ts), but the " +
+    "here:true filter is rejected by the strict validator and silently dropped by the translator, " +
+    "so a real destination filter must land first (053.3 here referent, 190.6 Battlefield-controller " +
+    "resolution)"
 );
 

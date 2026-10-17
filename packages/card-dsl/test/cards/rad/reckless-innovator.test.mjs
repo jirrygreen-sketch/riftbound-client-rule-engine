@@ -2,7 +2,7 @@
 // The printed ability is [Accelerate] plus an object-exhausted "choose one" trigger.
 // The structure, the merged effect.draw half of mode two and the token boundary are
 // verified here; the Gold token definition, the exhausted entry override and the
-// in-instruction cost.pay path are still open (see judgeReason and the test.todo
+// success-gated payment body are still open (see judgeReason and the test.todo
 // entries below).
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -14,6 +14,8 @@ import accelerate from "../../../../engine-core/dist/effects/keywords/Accelerate
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
+import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
+import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-f5202df7168d19f18b45036939808e43056853194542d133c56127959e1b69c1";
@@ -47,7 +49,7 @@ test("rad-105-167 Reckless Innovator: judgeReason names the gaps and the depende
   assert.match(program.judgeReason, /187\.5/);
   assert.match(program.judgeReason, /143\.4/);
   assert.match(program.judgeReason, /RIFT-120/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /success-gated/);
 });
 
 test("rad-105-167 Reckless Innovator: [Accelerate] is one keyword declaration with a registered KeywordDef", () => {

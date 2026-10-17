@@ -27,12 +27,16 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  * 状态：judge-required。缺口集中在"分支判别 + 该牌的 Mighty 判定"：
  * - Condition 的比较运算符只有 eq/ne/lt/lte/gt/gte/in（in 判断左边是否属于右边数组），
  *   没有对象谓词，也没有把 Mighty 谓词接进 condition 的通道：keywords/Mighty.ts 的
- *   展开（condition.value / predicate）在图层与条件求值侧尚无消费方（RIFT-91）。
+ *   展开（condition.value / predicate）在图层与条件求值侧尚无消费方（RIFT-359）。
  * - 契约 3.9 的控制结构只有 sequence / repeat / choice.optional / choice.mode，没有
  *   if/otherwise 节点；用两条互斥 condition 指令表达"否则"时，两次条件求值的时机
  *   无法保证（同一次结算内该牌可能已离开牌库），故不把它当成可执行。
+ * - 触发词表也是当前缺口：object-moved 不在引擎 EVENT_PATTERN_TYPES（validateTriggerSpec
+ *   实测 invalid-event-type；translateTriggerFilter 虽能翻译 {source:'self'}，但严格校验
+ *   fail-closed），时点本身存在（timing-points.ts），需要事件词表接线。
  * - 结构已写出并用测试内核验证了揭示与移动/回收半段。
- * 依赖：RIFT-91（layers-continuous / Mighty 谓词消费方）与 if/otherwise 契约缺口。
+ * 依赖：RIFT-359（条件谓词 / Mighty 谓词消费方）、if/otherwise 契约缺口，
+ * 以及 object-moved 事件词表接线。
  * 不近似实现：不用 Buff counter 或数值 compare 冒充 Mighty 谓词，也不把"draw it"
  *   写成 effect.draw（那会变成抽牌库顶，而不是抽已揭示的那一张）。
  */
@@ -135,11 +139,13 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "分支判别依赖 Mighty 谓词而没有消费方：707/708 的 Mighty（有效 Might ≥ 5）在 keywords/Mighty.ts 里展开为 condition.value / predicate 持续效果，" +
-    "但图层与条件求值侧还没有该谓词的消费方（RIFT-91）；Condition 的运算符只有 eq/ne/lt/lte/gt/gte/in，没有对象谓词读法。" +
+    "但图层与条件求值侧还没有该谓词的消费方（RIFT-359）；Condition 的运算符只有 eq/ne/lt/lte/gt/gte/in，没有对象谓词读法。" +
     "同时契约 3.9 的控制结构只有 sequence / repeat / choice.optional / choice.mode，没有 if/otherwise 分支节点，" +
     "用两条互斥 condition 指令表达「否则」时两次条件求值的时机无法保证（同一次结算内该牌可能已离开牌库），故不当作可执行。" +
-    "结构已写出：object-moved 触发 + effect.reveal（pick 形式，RIFT-66 要求牌库顶按真实顺序取）+ effect.zone to hand + effect.recycle to deck bottom；" +
-    "golden 用测试内核验证揭示与移动/回收半段。依赖：RIFT-91（layers-continuous）与 if/otherwise 契约缺口。" +
+    "触发词表也是当前缺口：object-moved 不在引擎 EVENT_PATTERN_TYPES（validateTriggerSpec 实测 invalid-event-type；" +
+    "translateTriggerFilter 虽能翻译 {source:'self'}，但严格校验 fail-closed），时点本身存在（timing-points.ts）。" +
+    "结构已写出：object-moved 触发 + effect.reveal（pick 形式，牌库顶按真实顺序取）+ effect.zone to hand + effect.recycle to deck bottom；" +
+    "golden 用测试内核验证揭示与移动/回收半段。依赖：RIFT-359（条件谓词）、if/otherwise 契约缺口与 object-moved 事件词表接线。" +
     "不近似实现：不用 Buff 或数值 compare 冒充 Mighty 谓词，也不把「draw it」写成 effect.draw。",
   abilities,
   sourceText:

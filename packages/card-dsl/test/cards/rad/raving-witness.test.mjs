@@ -21,7 +21,7 @@ test("rad-074-167 Raving Witness: program validates and is judge-required", () =
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Mighty/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /if\/otherwise/);
 });
 
@@ -159,11 +159,17 @@ test("rad-074-167 Raving Witness: the otherwise branch recycles the revealed car
 test.todo(
   "rad-074-167 Raving Witness: branch on the revealed card's Mighty predicate — keywords/Mighty.ts " +
     "expands to a condition.value/predicate continuous effect, but layers and condition evaluation " +
-    "have no consumer for it (RIFT-91); no object predicate operator exists in Condition"
+    "have no consumer for it (RIFT-359); no object predicate operator exists in Condition"
 );
 
 test.todo(
   "rad-074-167 Raving Witness: if/otherwise control structure — contract 3.9 has only sequence / " +
     "repeat / choice.optional / choice.mode, so two complementary instruction conditions cannot " +
     "guarantee the exclusive branch (contract change request in the task reply)"
+);
+
+test.todo(
+  "rad-074-167 Raving Witness: object-moved is not in the engine EVENT_PATTERN_TYPES — " +
+    "validateTriggerSpec reports invalid-event-type (the timing point itself exists), so the " +
+    "event vocabulary needs the move event before this trigger can register"
 );

@@ -33,7 +33,8 @@ test("rad-082-167 Primordial Roar: judgeReason names the merged keyword and the 
   assert.match(program.judgeReason, /832\.1\.d\.1/);
   assert.match(program.judgeReason, /cost\.reveal/);
   assert.match(program.judgeReason, /show-off/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /objects-shown-off/);
+  assert.match(program.judgeReason, /生产者/);
   assert.equal(program.judgeReason.includes("没有 ShowOff.ts"), false);
 });
 
@@ -153,8 +154,8 @@ test("rad-082-167 Primordial Roar: a missing Show Off link makes the damage inst
 test.todo(
   "rad-082-167 Primordial Roar: the finalization-time Show Off choice (decline, or reveal a unit from " +
     "hand and/or pick a friendly unit) and the characteristic lock of 832.1.d.1: the merged " +
-    "effects/keywords/ShowOff.ts only publishes a cost.reveal declaration with no consumer, and " +
-    "effect.show-off is not a registered op — RIFT-261/RIFT-120."
+    "effects/keywords/ShowOff.ts only publishes a cost.reveal declaration with no consumer, " +
+    "effect.show-off is not a registered op, and the chain has no objects-shown-off producer."
 );
 
 test.todo(
