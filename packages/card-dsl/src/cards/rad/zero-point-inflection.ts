@@ -31,17 +31,17 @@ import type { CardProgram } from "../../ir/index.js";
  *   ("kill this", 429.6's self form), and then chooses an opponent who scores
  *   1 point (194.1.c, 470).
  *
- * Status: judge-required. Trigger registration is merged (programs/triggers.ts),
+ * Status: judge-required. Trigger registration and the underlying draw-event
+ * evidence are merged (programs/triggers.ts and events/action-adapter.ts),
  * but the "9 or more other cards in your hand" gate is still unexecutable:
- * - it needs the number of cards drawn by
- *   this event and a hand-size re-read after the draw commits. The merged
- *   card-drawn payload carries actionId/batchId/playerId/cardId/fromZone/
- *   drawIndexThisTurn but no per-event "cards drawn" set, and there is still no
- *   merged condition primitive that re-reads the hand size after the draw
- *   commits;
- * - the count filter's `exclude: "source"` anchors the card program's source
- *   object, not the card(s) drawn by this draw event, so there is no way to
- *   express "other" without a per-event drawn-card payload.
+ * - action-adapter emits one card-drawn event per drawn object with an object
+ *   snapshot and amount, while pipeline.ts also retains the original draw
+ *   action (including its batch amount); the missing piece is binding those
+ *   event object/batch values into the CardProgram trigger condition/IR;
+ * - the existing count expression can query the post-draw hand, but the
+ *   condition has no event-object binding that makes `exclude: "source"`
+ *   mean "exclude the card(s) drawn by this event", so it cannot express
+ *   "other" for a multi-card draw.
  * The discard / kill / score half uses only merged primitives (effect.discard
  * with "all", effect.kill with self: true, effect.score) and is executed by the
  * golden test.
@@ -51,14 +51,13 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "触发注册已合入（programs/triggers.ts，契约 3.5）；缺的是“本次抽牌后手牌中其他牌数 ≥ 9”的可执行条件：" +
-    "(1) 需要读“本次抽牌事件抽到的张数”，" +
-    "并在抽牌提交后重读手牌数；合并的 Condition 只有 always/never/compare/all/any/not/expression，" +
-    "card-drawn 载荷只有 actionId/batchId/playerId/cardId/fromZone/drawIndexThisTurn，" +
-    "没有“本次事件抽到的牌集合”这一载荷（HistoryQuery 虽已按契约 3.8 增加 exclude/objectFilter，" +
-    "但不含该载荷），TriggerSpec.filter 的 EventPattern 也没有手牌数字段。" +
-    "(2) count 过滤器的 exclude 锚定的是" +
-    "卡牌程序来源对象，不是本次 draw 事件抽到的牌；没有 per-event 抽牌载荷，就无法表达“other”。" +
+    "触发注册与抽牌事件证据已合入（programs/triggers.ts、events/action-adapter.ts、" +
+    "events/pipeline.ts）；缺的是“本次抽牌后手牌中其他牌数 ≥ 9”的事件绑定：" +
+    "(1) action-adapter 已为每张抽到的牌发出带 object 快照与 amount 的 card-drawn 事件，" +
+    "pipeline 也保留原始 draw action（含批次 amount），但 CardProgram 的 TriggerSpec/Condition " +
+    "与 programs/triggers.ts 尚未把事件对象、原始 action 和批次值绑定进可执行 IR；" +
+    "(2) 现有 count 表达式可以查询抽牌提交后的手牌，但 count 的 exclude 锚点仍是卡牌程序" +
+    "来源对象，不是本次 draw 事件抽到的牌，因而无法在多张抽牌时表达“other”。" +
     "另有卡牌数据问题：目录把该印刷标为 Spell，但文本是留在场上、随后被自身触发“kill this”的永久物（两个持续触发）；" +
     "Spell 结算后进弃牌堆（CR 1.5 157/351.2），“kill this”与持续触发都不成立，本任务不改数据、不推断真实卡型。" +
     "“discard your hand / kill this / They score 1 point”三半段用已合入原语表达，并有真实执行证据。",
