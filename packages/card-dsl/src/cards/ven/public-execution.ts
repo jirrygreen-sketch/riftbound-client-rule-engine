@@ -21,7 +21,7 @@ import type { CardProgram } from "../../ir/index.js";
  * - [Flow]（829）是费用改写关键词：印刷费用为 5 Energy + 2 rainbow Power。展开归
  *   effects/keywords/Flow，本卡只声明关键词。
  *
- * status = judge-required（见 judgeReason）：目标选择时的相对 Might 限制没有可求值谓词，
+ * status = judge-required（复核 2026-10-17，见 judgeReason）：目标选择时的相对 Might 限制没有可求值谓词，
  * 因此该目标当前不能被合法 Finalize；程序保留描述性限制键，并把同一个比较写成指令级 condition
  * （结算时重验，359.3.e.2），绝不把限制去掉（去掉会变成“消灭任意敌方单位”）。
  */
@@ -35,10 +35,13 @@ const publicExecution = {
     "但冻结的 ObjectFilter 没有 Might 谓词，已合入的过滤器（layers/filter.ts 的 matchesObjectFilter、" +
     "测试内核的 matchesFilter）只按 type/zone/controller/tags/characteristics 等字段匹配，" +
     "未知键（程序里的 mightLessThanTarget）被忽略——把它当已实现会让本卡能消灭任意敌方单位。" +
-    "依赖：目标计划的相对特征谓词与有效 Might 读取（RIFT-90 target/链，143.2.a/355.9.b）。" +
-    "(2) 印刷的 [Flow] :rb_energy_5::rb_rune_rainbow::rb_rune_rainbow:（829.1.c.1/.c.2）没有已合入的" +
-    " KeywordDef 与之接线（RIFT-266 的 Flow 展开仍在独立分支；契约 3.1 的 KeywordAbility 也没有承载印刷" +
-    " Flow 费用的字段，已上报契约变更请求），因此“从弃牌区按其 Flow 费用打出、然后放逐”的许可与替代结算缺失。" +
+    "（进行中 RIFT-359 条件谓词 / RIFT-360 目标税侧与 target-plan 的相对谓词接线。）" +
+    "TargetPlan 的锁定/合法性检查（target/target-plan.ts 的 finalizeTargetPlan / isLegal）已合入，" +
+    "但相对特征谓词仍没有生产接线。" +
+    "(2) Flow 的 KeywordDef 与展开已注册（effects/keywords/Flow.ts），且 KeywordDef 已接受契约 3.8.3 的 params.cost；" +
+    "但 KeywordAbility/卡牌程序消费方仍未把印刷的 5 能量 + 2 Rainbow Power 转发到 expand，" +
+    "同时 flow.cost 的替代费用消费与 replacement.event 的打出后放逐接线仍未合入（829.1.b.1/.c.1），" +
+    "因此“从弃牌区按其 Flow 费用打出、然后放逐”的许可与替代结算缺失。" +
     "已合入部分：effect.kill 本体（429.1/429.2.a）与两目标锁定后的相对 Might 比较（143.2.a 的有效 Might 读法）" +
     "由 golden 用真实原语执行；相对比较写成指令级 condition（359.3.e.2 的结算重验），不近似目标期限制。",
   abilities: [

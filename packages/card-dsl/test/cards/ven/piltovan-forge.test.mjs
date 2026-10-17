@@ -146,8 +146,9 @@ test("ven-161-166 Piltovan Forge golden: the discount touches Energy only, never
 });
 
 test.todo(
-  "ven-161-166 Piltovan Forge: install the -1 Energy discount on the later gear activation's cost plan — no cost.modify " +
-    "instruction file and no merged path turns a CardProgram's static cost modification into CostPlanInput.discounts (RIFT-89)"
+  "ven-161-166 Piltovan Forge: install the -1 Energy discount on the later gear activation's cost plan — cost.modify " +
+    "(merged) latches a modifier into a full CostPlan, but no merged path reads the CardProgram's static " +
+    "continuous.cost-modification and turns it into that activation's CostPlanInput.discounts (RIFT-89 wiring)"
 );
 
 test.todo(

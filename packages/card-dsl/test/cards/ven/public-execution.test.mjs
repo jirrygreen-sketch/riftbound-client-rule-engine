@@ -77,8 +77,10 @@ test("ven-154-166 Public Execution: judgeReason names the relative-Might target 
   assert.match(program.judgeReason, /355\.9\.b/);
   assert.match(program.judgeReason, /143\.2\.a/);
   assert.match(program.judgeReason, /mightLessThanTarget/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /Flow/);
+  assert.match(program.judgeReason, /params\.cost/);
+  assert.ok(!/RIFT-266/.test(program.judgeReason));
 });
 
 test("ven-154-166 Public Execution: [Flow] is declared as a keyword, not re-implemented", () => {
@@ -237,11 +239,12 @@ test("ven-154-166 Public Execution golden: the kill primitive itself refuses a s
 test.todo(
   "ven-154-166 Public Execution: 'an enemy unit with less Might than it' (355.9.b / 143.2.a) must be enforced while the " +
     "targets are chosen, not only at resolve — needs a relative-characteristic target predicate in the target/chain plan " +
-    "(RIFT-90); today the descriptive mightLessThanTarget key is evaluated by no merged code"
+    "(in-flight RIFT-359 condition predicates / RIFT-360 target side); today the descriptive mightLessThanTarget key " +
+    "is evaluated by no merged code"
 );
 
 test.todo(
   "ven-154-166 Public Execution: the printed [Flow] :rb_energy_5::rb_rune_rainbow::rb_rune_rainbow: alternate cost and its " +
-    "then-banish replacement (829.1.b/829.1.c) need the Flow KeywordDef expansion plus a card-program -> keyword -> " +
-    "chain/cost wiring (RIFT-266)"
+    "then-banish replacement (829.1.b/829.1.c) need the card-program -> KeywordDef params.cost forwarding, " +
+    "Flow alternate-cost Finalize consumer, and replacement.event chain wiring"
 );

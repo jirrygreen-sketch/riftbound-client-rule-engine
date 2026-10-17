@@ -7,6 +7,10 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
+import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
 
 const CARD_ID = "card.hash-5d0ab54108afb25c366527426f6c46a04e21256d6701bc128d66dd9ce8860f37";
 const SOURCE_TEXT =
@@ -27,6 +31,62 @@ const eggWorld = () => world()
   .player("A")
   .player("B")
   .build();
+
+/**
+ * The same minimal chain fixture shape engine-core's replacement tests use:
+ * a real ChainEngine over the reference kernel, so the bound replacement runs
+ * through the production entry pipeline instead of a hand-driven apply call.
+ */
+function chainFixture({ cards = [] } = {}) {
+  const builder = world().player("A", { energy: 5 }).player("B", { energy: 5 });
+  for (const card of cards) builder.hand(card.id, { energy: 1, power: [], ...card });
+  const kernel = builder.build();
+  const decide = (request) => {
+    if (request.type === "select-objects" && request.min === request.max && request.options.length === request.min) {
+      return [...request.options];
+    }
+    if (request.type === "mode") return request.options[0];
+    throw new AwaitChoice(request);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (saved) => {
+      kernel.restore(saved.state);
+      kernel.copyLinkedFrom(saved.links);
+    },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose: decide,
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint, choose: decide }),
+    testTrigger: () => false
+  });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"],
+    turnPlayer: "A",
+    phase: "main",
+    host,
+    cleanup: () => false
+  });
+  const card = (id, options = {}) => ({
+    id: `card:${id}`,
+    controller: "A",
+    source: kernel.getObject(id),
+    kind: "spell",
+    speed: "normal",
+    body: [],
+    cost: { id: `cost:${id}`, cost: { energy: { kind: "constant", value: 0 }, power: { kind: "constant", value: [] } } },
+    ...options
+  });
+  const resolveAll = () => {
+    let count = 0;
+    while (engine.items.length) {
+      if (++count > 50) throw new Error("Nonterminating test chain");
+      engine.pass(engine.priority);
+    }
+  };
+  return { engine, kernel, card, resolveAll };
+}
 
 test("ven-075-166 Platewyrm Egg: program validates and is registered by canonicalCardId", () => {
   const result = validateCardProgram(program);
@@ -168,11 +228,52 @@ test("ven-075-166 Platewyrm Egg: the 'instead' branch stays gated and is never e
   assert.notEqual(addTwo.args.energy.value, addOne.args.energy.value);
 });
 
-test.todo(
-  "ven-075-166 Platewyrm Egg: \"This enters exhausted.\" needs the board-entry replacement primitive " +
-    "(replacement.enter, contract 3.4/3.5) plus the card-IR registration path; effect.exhaust cannot express it " +
-    "(CR 143.4 / 359.2.d assign the entry state, and exhausting after entry adds a spurious becomes-exhausted event)"
-);
+test("ven-075-166 Platewyrm Egg golden: \"This enters exhausted.\" really rewrites the entry through the merged replacement binding", () => {
+  // The merged replacement layer (RIFT-257 batch) owns card IR bindings:
+  // replacement.enter accepts the declared ready|exhausted state and intercepts
+  // the chain → board entry move (CR 369.3 / 805.6). This golden binds the
+  // card's own replacement ability to the Egg while it is on the Chain and
+  // then plays it through the same chain machinery engine-core uses.
+  const f = chainFixture({ cards: [{ id: "platewyrm-egg", types: ["gear"] }] });
+  const eggRef = f.kernel.ref("platewyrm-egg");
+  bindReplacement(
+    {
+      replaces: enterReplacement.replaces,
+      with: enterReplacement.with
+    },
+    eggRef,
+    {
+      host: {
+        object: (ref) => f.kernel.object(ref),
+        objects: () => f.kernel.objects,
+        context: () => f.kernel
+      },
+      pipeline: f.engine.pipeline
+    }
+  );
+
+  f.engine.execute(f.card("platewyrm-egg", { kind: "gear", body: [] }));
+  f.resolveAll();
+
+  // The entry orientation is exhausted (149.1 / 359.2.d), and the replacement
+  // did not also emit a later "became ready" style event for this card.
+  assert.equal(f.kernel.getObject("platewyrm-egg").zone, "board");
+  assert.equal(f.kernel.getObject("platewyrm-egg").exhausted, true);
+  assert.equal(f.engine.pipeline.events.some((event) => event.timingPoint === "object-readied"), false);
+});
+
+test("ven-075-166 Platewyrm Egg golden: a Gear enters ready without the replacement", () => {
+  // Gear is the printed card type. The reference chain defaults a Gear to ready
+  // on entry; using a Unit here would exercise the Unit entry default instead of
+  // the replacement under review.
+  const f = chainFixture({ cards: [{ id: "platewyrm-egg", types: ["gear"] }] });
+
+  f.engine.execute(f.card("platewyrm-egg", { kind: "gear", body: [] }));
+  f.resolveAll();
+
+  assert.equal(f.kernel.getObject("platewyrm-egg").zone, "board");
+  assert.equal(f.kernel.getObject("platewyrm-egg").exhausted, false);
+});
 test.todo(
   "ven-075-166 Platewyrm Egg: [Empower] (1 Energy + exhaust, CR 827.1.c.1/415.5) and the Empowered gate for " +
     "\"If this is [Empowered], [Add] :rb_energy_2: instead\" (CR 828.1.c) need an Empower/Empowered KeywordDef " +
@@ -181,5 +282,5 @@ test.todo(
 test.todo(
   "ven-075-166 Platewyrm Egg: the printed either/or branch has no merged runtime form — contract 3.4 conditions " +
     "scope to one instruction and choice.mode is blocked by chain/engine.ts assertFinalizationSurface " +
-    "(\"Mode choices require a Finalize/Resolve choice-plan adapter\"), so no branch may be silently dropped (RIFT-89/90)"
+    "(\"Mode choices require a Finalize/Resolve choice-plan adapter\"), so no branch may be silently dropped"
 );

@@ -5,6 +5,7 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ven/plaza-guardian.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { finalizeTargetPlan } from "../../../../engine-core/dist/target/target-plan.js";
 
 const CANONICAL_ID =
   "card.hash-8d3c1fb92524f486e6dc9126c50fabcfa804299c7b5069e2e43ba6329df29f27";
@@ -55,8 +56,8 @@ test("ven-064-166 Plaza Guardian: identity, status, judgeReason and verbatim sou
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /continuous\.cost-modification/);
   assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /target\.tax/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /target-plan/);
+  assert.match(program.judgeReason, /RIFT-360/);
 });
 
 test("ven-064-166 Plaza Guardian: the printed discount is a static cost modification scoped to itself", () => {
@@ -127,7 +128,60 @@ test.todo(
     "(356.4 / 356.4.b / 356.4.g; cost.modify + 费用计划接线，RIFT-89) and assert a 10-energy printed cost drops " +
     "by the number of controlled gear"
 );
-test.todo(
-  "ven-064-166 Plaza Guardian: [Deflect]'s target.tax result needs its consumer in target choice / additional " +
-    "costs (809.1.c.1 requires any-domain Power; RIFT-90)"
-);
+
+test("ven-064-166 Plaza Guardian golden: finalizing a choice of this permanent appends the Deflect tax request", () => {
+  // 809.1.d 路由选中的目标：Deflect 1 是给选择者的强制追加费用，真实 target 管线
+  // （TargetTaxSpec → appendTargetTax）必须收到该请求。链级把税记成 Energy 而非
+  // 809.1.c.1 的任意域 Power，且没有 Deflect 关键词 → taxAdapter 的自动接线，
+  // 这两个缺口仍让整卡保持 judge-required（见 judgeReason 第 2 条）。
+  const kernel = world()
+    .unit("plaza-guardian", { types: ["unit"], controller: "A", might: 4 })
+    .build();
+  const ref = kernel.ref("plaza-guardian");
+  const requests = [];
+  const plan = finalizeTargetPlan(kernel, {
+    id: "spell-target",
+    filter: { type: "unit", zone: "board" },
+    min: 1,
+    max: 1,
+    selection: "one"
+  }, {
+    selected: [ref],
+    tax: { kind: "deflect", amount: 1 },
+    taxAdapter: {
+      appendTargetTax: request => {
+        requests.push(request);
+        return { status: "appended" };
+      }
+    }
+  });
+
+  assert.deepEqual(plan.selected, [ref]);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].kind, "deflect");
+  assert.equal(requests[0].amount, 1);
+  assert.equal(requests[0].payer, "A");
+  assert.deepEqual(requests[0].target, ref);
+});
+
+test("ven-064-166 Plaza Guardian golden: an unpayable Deflect tax rejects the choice", () => {
+  // 809.1.d：付不出追加费用的目标不能被锁定；unpayable 结果在通知前抛出。
+  const kernel = world()
+    .unit("plaza-guardian", { types: ["unit"], controller: "A", might: 4 })
+    .build();
+  assert.throws(
+    () =>
+      finalizeTargetPlan(
+        kernel,
+        { id: "spell-target", filter: { type: "unit", zone: "board" }, min: 1, max: 1, selection: "one" },
+        {
+          selected: [kernel.ref("plaza-guardian")],
+          tax: { kind: "deflect", amount: 1 },
+          taxAdapter: {
+            appendTargetTax: () => ({ status: "unpayable", reason: "no power available" })
+          }
+        }
+      ),
+    error => error.code === "target-tax-unpayable"
+  );
+});

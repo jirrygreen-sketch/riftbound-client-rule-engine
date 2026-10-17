@@ -59,14 +59,13 @@ test("ven-162-166 Protective Sands: identity, ruleset, status and exact source t
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  // The two gaps the judgeReason must name after the 2026-10-16 re-sweep: the
-  // cost.pay primitive (still RIFT-261) and the 053.3 "here" anchor (the
-  // conquer timing point itself is now emitted by the merged scoring flow).
-  assert.match(program.judgeReason, /cost\.pay/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /conquer/);
+  // The remaining gap the judgeReason must name after the 2026-10-17 re-sweep:
+  // the 053.3 "here" anchor (the conquer timing point and cost.pay are merged).
   assert.match(program.judgeReason, /here/);
+  assert.match(program.judgeReason, /conquer/);
+  assert.match(program.judgeReason, /740\.4\.a\.2/);
+  assert.match(program.judgeReason, /TriggeredAbility/);
+  assert.ok(!/RIFT-261（分支未合入）|cost\.pay\/ cost\.modify 属仍在进行/.test(program.judgeReason));
 });
 
 test("ven-162-166 Protective Sands: conquer-here trigger with the rune-count trigger condition", () => {
@@ -116,10 +115,10 @@ test("ven-162-166 Protective Sands: 'you may pay … to draw 1' is one optional 
     "protective-sands.draw"
   ]);
 
-  // The payment is the cost.pay primitive, which still has no instruction
-  // file (in-flight RIFT-261); the amount is the printed :rb_energy_1:.
+  // The payment is the merged cost.pay primitive (RIFT-261); the amount is
+  // the printed :rb_energy_1:, given in the payments resource-plan shape.
   assert.equal(pay.op, "cost.pay");
-  assert.deepEqual(pay.args.energy, { kind: "constant", value: 1 });
+  assert.deepEqual(pay.args.payments, { kind: "constant", value: { energy: 1 } });
   assert.equal(pay.linkedTo, undefined);
 
   // 414.3: "to draw 1" draws one card, and it follows the payment.
@@ -276,10 +275,34 @@ test("ven-162-166 Protective Sands golden: the closed 'conquered' discriminant f
   assert.equal(seen[0].event.details.battlefieldId, "bf1");
 });
 
+test("ven-162-166 Protective Sands golden: accepting the may really pays 1 Energy and draws 1", () => {
+  // 405.2.a / 414.3: this only proves the body-level cost.pay primitive and the
+  // subsequent draw. CR 740.4.a.2 still requires the payment to be extracted
+  // into the triggered ability's Finalize cost plan (see the TODO below).
+  const kernel = world().player("A", { energy: 2 }).deck(["top-card"]).build();
+  kernel.setAnswers({ [OPTIONAL_ID]: true });
+
+  const outcome = resolveChainBody(ability.body, kernel);
+
+  assert.equal(outcome.status, "executed");
+  // The optional wrapper flattens its accepted body: pay first, then draw.
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
+    ["protective-sands.pay", "executed"],
+    ["protective-sands.draw", "executed"],
+    ["protective-sands.opt-in", "executed"]
+  ]);
+  assert.equal(kernel.player("A").energy, 1);
+  assert.equal(kernel.zone("A", "deck").length, 0);
+  assert.equal(kernel.zone("A", "hand").length, 1);
+  assert.equal(kernel.zone("A", "hand")[0].id, "top-card");
+  assert.deepEqual(kernel.events.filter(event => event.action === "draw").length, 1);
+});
+
 test.todo(
-  "ven-162-166 Protective Sands: pay the printed :rb_energy_1: with cost.pay and then draw 1 — " +
-    "effects/instructions/ still has no cost.pay primitive (cost kinds and cost.pay/cost.modify belong to " +
-    "the in-flight RIFT-261)"
+  "ven-162-166 Protective Sands: extract the 1-Energy trigger cost into Finalize (CR 740.4.a.2) " +
+    "and reject the trigger before it enters the chain when the controller cannot pay; " +
+    "TriggeredAbility has no cost field and CardProgram -> TriggerRegistration cost/mayAtFinalize " +
+    "binding is still missing"
 );
 
 test.todo(

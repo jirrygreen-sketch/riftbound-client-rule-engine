@@ -10,6 +10,8 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import empower from "../../../../engine-core/dist/effects/instructions/effect.empower.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { EventPipeline } from "../../../../engine-core/dist/events/pipeline.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 const CANONICAL =
   "card.hash-f011b0eba0d960f743fcc486af923c64f5eb0128c2d7d5ff267454e665d10897";
@@ -47,7 +49,6 @@ test("ven-082-166 Profiteer: identity, ruleset, status, judgeReason and verbatim
   assert.equal(cardRegistryById.get(CANONICAL), program);
   assert.match(program.judgeReason, /disempower/);
   assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-120/);
   assert.match(program.judgeReason, /legend-zone/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
@@ -162,14 +163,83 @@ test("ven-082-166 golden: the declared empower half really empowers the locked t
 
 test.todo(
   "ven-082-166 Profiteer: pay the printed disempower inside the may-body at Finalize and read its receipt " +
-    "(740.4.a.2, 443.2) — cost/plan-values.ts supports no disempower payment kind and cost.pay has no merged " +
-    "instruction file (RIFT-89 cost-plan wiring)"
+    "(740.4.a.2, 443.2) — cost/plan-values.ts supports no disempower payment kind, so the merged cost.pay " +
+    "primitive cannot pay this component (RIFT-89 disempower-kind gap)"
 );
 
-test.todo(
-  "ven-082-166 Profiteer: the 'When you play me' trigger runs end to end — needs a CardProgram → " +
-    "TriggerRegistration subscriber so card-played triggers enter the chain (RIFT-120 chain/events pipeline)"
-);
+test("ven-082-166 Profiteer golden: the card-played trigger filter fires on the merged EventPipeline", () => {
+  // 383.4.a / 407: "When you play me" is a card-played trigger on this unit.
+  // The merged chain/events pipeline (RIFT-120 batch) owns trigger registration,
+  // so this golden registers the card's own translated filter with the real
+  // EventPipeline and asserts an emitted card-played event reaches the trigger
+  // sink (the same execution path chain/engine.ts uses).
+  const kernel = profiteerWorld();
+  const source = kernel.getObject("profiteer");
+  const host = {
+    checkpoint: () => null,
+    restore: () => {},
+    execute: () => ({ outcome: { status: "done", events: [] }, emissions: [] }),
+    context: () => ({}),
+    objects: () => [source],
+    choose: () => {
+      throw new Error("unexpected choice");
+    }
+  };
+  const pipeline = new EventPipeline(host, ["A", "B"], "A");
+  const seen = [];
+  pipeline.onTrigger = snapshot => seen.push(snapshot);
+  pipeline.registerTrigger({
+    id: "profiteer.card-played-probe",
+    source,
+    controller: "A",
+    optional: false,
+    body: [],
+    spec: {
+      at: "card-played",
+      filter: translateTriggerFilter(ability.trigger.filter, source.ref.id, "card-played")
+    }
+  });
+  pipeline.emit({ timingPoint: "card-played", object: source, player: "A" });
+
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].event.timingPoint, "card-played");
+  assert.equal(seen[0].event.object.ref.id, "profiteer");
+});
+
+test("ven-082-166 Profiteer golden: another card's card-played event does not fire the self filter", () => {
+  // 383.4.a: "me" is this card; the translated { source: "self" } filter must
+  // not match a play of a different unit on the same pipeline.
+  const kernel = profiteerWorld();
+  const source = kernel.getObject("profiteer");
+  const other = kernel.getObject("soldier");
+  const host = {
+    checkpoint: () => null,
+    restore: () => {},
+    execute: () => ({ outcome: { status: "done", events: [] }, emissions: [] }),
+    context: () => ({}),
+    objects: () => [source, other],
+    choose: () => {
+      throw new Error("unexpected choice");
+    }
+  };
+  const pipeline = new EventPipeline(host, ["A", "B"], "A");
+  const seen = [];
+  pipeline.onTrigger = snapshot => seen.push(snapshot);
+  pipeline.registerTrigger({
+    id: "profiteer.card-played-probe",
+    source,
+    controller: "A",
+    optional: false,
+    body: [],
+    spec: {
+      at: "card-played",
+      filter: translateTriggerFilter(ability.trigger.filter, source.ref.id, "card-played")
+    }
+  });
+  pipeline.emit({ timingPoint: "card-played", object: other, player: "A" });
+
+  assert.deepEqual(seen, []);
+});
 
 test.todo(
   "ven-082-166 Profiteer: a legend in the Legend Zone can be chosen and empowered — the frozen ZoneId has no " +

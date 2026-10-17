@@ -4,6 +4,7 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/punching-poro.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
 const CARD_ID =
   "card.hash-4e84bd06baa7f0981211f77e8859b781d223544ea2429070561399db373e5c6f";
@@ -72,7 +73,46 @@ test.todo(
     "RIFT-89 cost-plan wiring (the discard component exists in cost/plan-values.ts but no module " +
     "reads the card program's Empower cost)"
 );
-test.todo(
-  "ven-007-166 Punching Poro: +1 :rb_might: while Empowered through the layers engine — needs the " +
-    "empowered predicate and a card-side static-effect registration entry point (RIFT-91)"
-);
+
+test("ven-007-166 Punching Poro golden: the declared +1 Might really applies in the merged layers", () => {
+  // The static → layers binding entry point is merged (programs/statics.ts
+  // createEngineStaticBinder, RIFT-91 batch). This golden executes the card's
+  // own declared arithmetic effect in the merged layer engine; the 828.1.c
+  // Empowered gate stays judged (see judgeReason), so the program itself must
+  // not run as an unconditional ability.
+  const host = {
+    ref: { id: "punching-poro", zoneEntryId: 1 },
+    name: "Punching Poro",
+    types: ["unit"],
+    tags: [],
+    keywords: [],
+    owner: "A",
+    controller: "A",
+    zone: "board",
+    location: { type: "base", player: "A" },
+    might: 2,
+    energy: 2,
+    power: ["Fury"],
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false
+  };
+  const engine = createLayerEngine([host], [{
+    effect: {
+      id: "punching-poro.empowered-might",
+      layer: might.effect.layer,
+      filter: { type: "unit", controller: "A", zone: "board" },
+      effect: might.effect
+    },
+    duration: { type: "permanent" },
+    timestamp: 1
+  }]);
+  engine.setObjects([host]);
+
+  assert.equal(engine.evaluate(host.ref).might, 3);
+  assert.equal(engine.evaluate(host.ref).printed.might, 2);
+});

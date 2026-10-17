@@ -19,34 +19,36 @@ import type { CardProgram } from "../../ir/index.js";
  * - "the first … each turn" 是每回合一次的窗口：383.1 / 383.3.e.1 的 "the [Nth] time" 形状
  *   属触发识别，但这里的窗口作用在费用上，需要一个「本回合首次符合条件的激活」的历史门控。
  *
- * status = judge-required（缺口均不近似实现）：
- * 1. 没有已合入路径把这笔减费安装到后续那次激活的费用计划上：cost/cost-plan.ts 的
- *    CostPlanInput.discounts 只消费调用方传入的折扣（356.4），effects/instructions/ 也没有
- *    cost.modify 原语（RIFT-9 清单，属 RIFT-89 费用计划批次）。
- * 2. 「the first … each turn」窗口没有可求值形状：需要按回合重置、按玩家/来源计数的
- *    「本回合首次打出符合条件的 gear 激活能力」历史门控；冻结的 HistoryQuery 只有
+ * status = judge-required（复核 2026-10-17；缺口均不近似实现）：
+ * 1. cost.modify（RIFT-258/89 批次）已合入：它把 {kind:"reduce",resource:"energy",amount,minimum}
+ *    锁存成完整 CostPlan（link 键 cost），golden 继续用 buildCostPlan 真实执行折扣与 0 下限。
+ *    仍缺的是把这笔折扣安装到「后续那次激活」的费用计划上——没有已合入路径读取 CardProgram 的
+ *    static continuous.cost-modification 并生成那次激活的 discounts（依赖 RIFT-89 接线）。
+ * 2. 「the first … each turn」一次性窗口没有可求值形状：需要按回合重置、按玩家/来源计数的
+ *    「本回合首次符合条件的激活」历史门控；冻结的 HistoryQuery 只有
  *    {scope, action, timingPoint, player, object}（契约 3.6），没有"某类激活已发生几次"
  *    的 subject，也没有把"这是本回合第一次"写成持续效果期限的形状（同 sfd/ornns-forge、
  *    rad/hunters-circle 的一次性窗口缺口）。
  * 3. 「gear activated ability played」需要把该次激活与它所属的 gear 关联（377.1），
  *    ResolveContext 与图层都没有暴露激活来源的通道。
- * 依赖：RIFT-89（cost.modify 与费用计划接线）、一次性窗口的历史门控（同 RIFT-89 后续/
- * per-turn first-play 门控任务）。不近似实现，不把窗口写成常驻折扣。
+ * 依赖：RIFT-89（static 费用改写 → 激活计划接线）、一次性窗口的历史门控任务。
+ * 不近似实现，不把窗口写成常驻折扣。
  */
 export default {
   canonicalCardId: "card.hash-be867d899429959061bfc2cece46b8a8f554894791ea014d6a288b4075a635e9",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1) 没有已合入路径把减费安装到后续那次 gear 激活的费用计划上：" +
-    "cost/cost-plan.ts 的 CostPlanInput.discounts 只消费调用方传入的折扣（356.4.b/356.4.f/356.6），" +
-    "effects/instructions/ 也没有 cost.modify 原语（RIFT-9 清单，属 RIFT-89）；" +
+    "三处缺口，均不近似实现：(1) cost.modify（RIFT-258/89 批次）已合入并能把 {kind:\"reduce\",resource:\"energy\"," +
+    "amount,minimum} 锁存成完整 CostPlan（link 键 cost），但仍没有已合入路径读取 CardProgram 的 static " +
+    "continuous.cost-modification 并把这笔折扣安装到「后续那次 gear 激活」的费用计划 discounts 上（RIFT-89 接线）；" +
     "(2) 「the first … each turn」的一次性窗口没有 IR 形状：需要按回合重置的「本回合首次符合条件的激活」门控，" +
     "冻结的 HistoryQuery 只有 {scope, action, timingPoint, player, object}（契约 3.6），没有「某类激活已发生几次」的 subject，" +
     "Duration 也没有 one-shot 窗口（同 sfd/ornns-forge、rad/hunters-circle 的缺口）；" +
     "(3) 「gear activated ability played」需要把该次激活与所属 gear 关联（151.1/377.1），" +
     "ResolveContext 与图层都没有暴露激活来源的通道。" +
-    "依赖：RIFT-89（cost.modify 与费用计划接线）与 per-turn first-play 一次性窗口门控。不近似实现，不写成常驻折扣。",
+    "已合入并真实执行：buildCostPlan 应用本卡声明的 -1 Energy 折扣（356.4.b/356.4.f/356.6，含 0 下限与非标准付款不受影响）。" +
+    "依赖：RIFT-89（static 费用改写 → 激活计划接线）与 per-turn first-play 一次性窗口门控。不近似实现，不写成常驻折扣。",
   abilities: [
     {
       kind: "static",

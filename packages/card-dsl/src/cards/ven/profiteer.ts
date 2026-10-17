@@ -22,9 +22,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 442.1 / 442.2.a：把对象变为 Empowered 的 Empower 动作；443.1 定义 Disempower；
  *   两者都是 Limited Action（442.3.a / 443.2.a），只在游戏效果指示时执行。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。
+ * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-17）。
  * 已支持部分：effect.empower 是已合入原语，golden 用真实解释器 + 参考内核执行 "empower a
- * legend, unit, or gear" 半段（锁定选择由 Finalize 提供）；拒绝分支同样用真实解释器执行。
+ * legend, unit, or gear" 半段（锁定选择由 Finalize 提供）；拒绝分支同样用真实解释器执行；
+ * card-played 触发的注册与匹配（383.4.a / 407）已合入（RIFT-120 批次的 chain/events 管线），
+ * golden 用真实 EventPipeline 断言本卡的 filter 命中打出事件。
  * 缺口见 judgeReason，不近似实现。
  */
 const abilities: Ability[] = [
@@ -120,10 +122,8 @@ export default {
   judgeReason:
     "三处缺口：(1) 费用步骤不可执行——“disempower something you control” 是 740.4.a 的费用（740.4.a.2 在" +
     "Finalization 支付），但 cost/plan-values.ts 的非标准费用种类只有 exhaust/discard/recycle/kill/reveal/" +
-    "spend-buff，没有 disempower（443.2.a），且 cost.pay 没有已合入的原语文件（effects/instructions 只有 " +
-    "effect.*），费用计划接线属 RIFT-89（同 ven-143-166 Master of Shadows）；(2) card-played 触发进不了链——" +
-    "没有已合入订阅方把 CardProgram 的 triggered ability 注册成 TriggerRegistration（chain/engine.ts 只注册" +
-    "延迟触发；RIFT-120，契约 §7.2 批 5）；(3) " +
+    "spend-buff，没有 disempower（443.2.a），所以 cost.pay 原语无法支付这笔费用（RIFT-89 的支付种类缺口，" +
+    "同 ven-143-166 Master of Shadows）；(2) legend 目标无法结算——" +
     "目标里的 legend 指 Legend Zone（355.9.a.4），契约 ZoneId 没有 legend-zone（108.3），effect.empower 的" +
     "isBoardObject 只接受 Board 对象，所以传奇目标当前无法结算——依赖契约补充与 RIFT-91/RIFT-90 的图层/目标管线。" +
     "已支持部分：effect.empower 本体（442.1）与拒绝分支的 choice.optional（403.1）都由 golden 用真实解释器 +" +
