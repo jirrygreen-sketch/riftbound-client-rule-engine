@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/shadow.js";
@@ -31,9 +33,9 @@ test("unl-194-219 Shadow: identity, status, judgeReason and verbatim sourceText"
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /143\.4/);
   assert.match(program.judgeReason, /replacement\.enter|替代/);
-  assert.match(program.judgeReason, /rainbow/);
+  assert.match(program.judgeReason, /135\.2\.e\.5\.a/);
   assert.match(program.judgeReason, /combatRole/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /RIFT-359/);
 });
 
 test("unl-194-219 Shadow: 'I enter ready' is an entry replacement, never a create-then-ready pair", () => {
@@ -61,20 +63,20 @@ test("unl-194-219 Shadow: 'I enter ready' is an entry replacement, never a creat
   assert.deepEqual(enterReady.condition.right, { kind: "constant", value: true });
 });
 
-test("unl-194-219 Shadow: [Action] is declared and the activated cost keeps the rainbow rune", () => {
+test("unl-194-219 Shadow: [Action] is declared and [A] is one Power payable with any domain", () => {
   // 806.1: "[Action][>]" is a permissive keyword on an activated ability.
   assert.deepEqual(keyword, { kind: "keyword", keyword: "action" });
 
   assert.equal(activated.kind, "activated");
   assert.equal(activated.timing, "action");
-  // 377.1 / 404.1.a: the printed cost is 1 Energy plus [A] (any domain Power,
-  // 135.2.e.5 / 163.2.b) plus exhausting the source. The closed Domain union has
-  // no [A], so the printed mark is preserved instead of picking a domain.
+  // 135.2.e.5.a: one [A] accepts any domain, independently of Shadow's own domains.
   assert.deepEqual(activated.cost, {
     kind: "activated",
     energy: { kind: "constant", value: 1 },
-    power: { kind: "constant", value: ["rainbow"] },
-    payments: [{ kind: "exhaust", object: "self" }]
+    payments: [
+      { kind: "power", amount: { kind: "constant", value: 1 }, allowedDomains: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"] },
+      { kind: "exhaust", object: "self" }
+    ]
   });
 });
 
@@ -119,8 +121,8 @@ test("unl-194-219 Shadow golden: the entry replacement's with body readies the s
 
 test("unl-194-219 Shadow golden: the printed stun resolves on a locked enemy unit here", () => {
   // 424.1: the stun half is real; the combatRole restriction is a retained shape
-  // (contract 3.8) that the merged filter does not evaluate, so the Finalize
-  // answer is supplied exactly as production would.
+  // that still needs the programs/chain filter adapter. This test covers only
+  // the stun primitive after a target has been locked.
   const kernel = world()
     .unit("shadow", { location: { type: "battlefield", id: "bf-1" } })
     .unit("enemy-here", { owner: "B", location: { type: "battlefield", id: "bf-1" } })
@@ -146,17 +148,38 @@ test("unl-194-219 Shadow golden: a stun target that left the board is ignored (3
   assert.equal(kernel.getObject("enemy").stunned, false);
 });
 
+test("unl-194-219 Shadow golden: [A] pays with one Power from any of the six domains (135.2.e.5.a)", () => {
+  const domains = ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"];
+  for (const domain of domains) {
+    const base = world()
+      .player("A", { energy: 1, power: [domain] })
+      .unit("shadow", { power: ["Calm", "Chaos"], exhausted: false })
+      .build();
+    const kernel = base.clone({ sourceSnapshot: base.getObject("shadow") });
+    const plan = buildCostPlan(kernel, { id: "shadow:activate", cost: activated.cost, domains: ["Calm", "Chaos"] });
+    assert.equal(plan.total.energy, 1);
+    assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: domains }]);
+    const receipt = payCostPlan(kernel, plan);
+    assert.equal(receipt.paid, true);
+    assert.deepEqual(receipt.actions.map(entry => entry.action.type), ["pay", "exhaust"]);
+    assert.deepEqual(receipt.actions[0].action.plan.power, [domain]);
+    assert.equal(kernel.player("A").energy, 0);
+    assert.equal(kernel.getObject("shadow").exhausted, true);
+  }
+});
+
+test("unl-194-219 Shadow golden: lacking Power prevents payment before exhausting the source", () => {
+  const base = world().player("A", { energy: 1 }).unit("shadow", { exhausted: false }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("shadow") });
+  const plan = buildCostPlan(kernel, { id: "shadow:activate", cost: activated.cost });
+  assert.throws(() => payCostPlan(kernel, plan), error => error?.reason === "cannot-pay-cost");
+  assert.equal(kernel.player("A").energy, 1);
+  assert.equal(kernel.getObject("shadow").exhausted, false);
+});
+
 test.todo(
-  "unl-194-219 Shadow: run the entry replacement through a real replacement pipeline (143.4/359.2.c/369.3) — " +
-    "events has a replacement registry but no CardProgram -> ReplacementRegistration wiring, and effect.ready must not be used as an after-the-fact ready (RIFT-120)"
+  "unl-194-219 Shadow: read the chosen play destination and evaluate the conditional entry replacement before the board move (CR 143.4/359.2.c/369.3; RIFT-359)"
 );
 test.todo(
-  "unl-194-219 Shadow: evaluate 'If you play me to a battlefield' at the entry step — the played location fact has no merged reader and the placeholder fails closed"
-);
-test.todo(
-  "unl-194-219 Shadow: represent [A] (any-domain Power) in the cost plan — the closed Domain union has six named domains and cost/payment.ts has no domainless Power resource, " +
-    "so \"rainbow\" must not be approximated as a specific domain (contract change request)"
-);
-test.todo(
-  "unl-194-219 Shadow: evaluate the combatRole attacker restriction on the target filter (contract 3.8 combatRole) once the combat identity work lands (RIFT-90/RIFT-120)"
+  "unl-194-219 Shadow: retain sameLocationAs and combatRole through programs target translation and chain layer filtering (CR 355.9/424.1); ObjectSnapshot already carries attacker/defender identity"
 );

@@ -8,7 +8,6 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { readCost } from "../../../../engine-core/dist/cost/plan-values.js";
-import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { mightyCondition } from "../../../../engine-core/dist/effects/keywords/Mighty.js";
 
 const CANONICAL = "card.hash-33403d8f77f3caa9aa8f59a1a0290c3e349fe6a5893c3b812340601ac4a0629a";
@@ -36,7 +35,7 @@ test("unl-173-219 Sacrifice: program validates and keeps its identity", () => {
   assert.match(program.judgeReason, /356\.2\.a\.1/);
   assert.match(program.judgeReason, /mightGte/);
   assert.match(program.judgeReason, /706/);
-  assert.match(program.judgeReason, /RIFT-89\/261/);
+  assert.match(program.judgeReason, /CardProgram → CostPlan/);
   assert.match(program.judgeReason, /translateCost/);
 });
 
@@ -161,7 +160,7 @@ test("unl-173-219 Sacrifice golden: the merged cost reader turns the declared pa
   // 356.2.a.1: the mandatory additional cost is a kill; the merged cost/plan-values
   // reader already supports the kill payment kind and the non-target choice
   // (355.10.c). The missing piece is only the card-declared cost -> plan wiring
-  // (translateCost rejects kind "additional"), which is asserted below.
+  // (translateCost rejects kind "additional"); the full adapter remains a TODO.
   const kernel = world()
     .unit("mighty", { owner: "A", might: 6, location: { type: "base", player: "A" } })
     .unit("small", { owner: "A", might: 2, location: { type: "base", player: "A" } })
@@ -191,30 +190,11 @@ test("unl-173-219 Sacrifice golden: the merged cost reader turns the declared pa
   ]);
 });
 
-test("unl-173-219 Sacrifice: the merged cost matcher ignores the declared [Mighty] threshold key", () => {
-  // 706-711 / 143.2.a: a unit is Mighty at 5+ Might. The declared mightGte key is
-  // not a filter dimension in the merged matchers: dropping it changes nothing,
-  // so a 2-Might unit passes the filter the cost choice uses. This is the
-  // evidence behind the judgeReason, which names the missing restriction.
-  const { controller, ...costFilter } = costAbility.effect.payments[0].choice.filter;
-  const withoutThreshold = Object.fromEntries(
-    Object.entries(costFilter).filter(([key]) => key !== "mightGte")
-  );
+test("unl-173-219 Sacrifice golden: the Mighty predicate distinguishes units below and at the threshold (CR 708)", () => {
   const kernel = world()
-    .unit("mighty", { owner: "A", might: 6, types: ["unit"] })
-    .unit("small", { owner: "A", might: 2, types: ["unit"] })
+    .unit("mighty", { owner: "A", might: 5, types: ["unit"] })
+    .unit("small", { owner: "A", might: 4, types: ["unit"] })
     .build();
-  for (const [id, expected] of [["small", true], ["mighty", true]]) {
-    assert.equal(matchesObjectFilter(costFilter, kernel.getObject(id)), expected);
-    // The threshold key makes no difference to the merged matcher.
-    assert.equal(
-      matchesObjectFilter(withoutThreshold, kernel.getObject(id)),
-      matchesObjectFilter(costFilter, kernel.getObject(id))
-    );
-  }
-  assert.equal(withoutThreshold.type, "unit");
-  assert.equal(withoutThreshold.mightGte, undefined);
-
   // The merged Mighty predicate itself is evaluable, so the gap is the cost-choice
   // filter vocabulary, not the 708 threshold rule.
   assert.equal(
@@ -234,15 +214,8 @@ test("unl-173-219 Sacrifice: the merged cost matcher ignores the declared [Might
 });
 
 test.todo(
-  "unl-173-219 Sacrifice: charge the mandatory 'kill a friendly [Mighty] unit' additional cost at Finalize " +
-    "(CR 356.2.a/356.2.a.1, 355.10.c non-targeting cost) — the merged cost reader already builds the kill action; " +
-    "the declared cost.additional still needs a program-side plan adapter (programs/play.ts translateCost rejects " +
-    "kind \"additional\" with a judge-required ProgramBindingError), RIFT-89/261"
+  "unl-173-219 Sacrifice: collect cost.additional from the CardProgram and charge the mandatory Mighty-unit kill at Finalize (CR 356.2.a.1/355.10.c); the cost reader and payment primitive are already executable"
 );
-
 test.todo(
-  "unl-173-219 Sacrifice: enforce the [Mighty] restriction on the cost choice — a unit is Mighty while it has " +
-    "5+ Might (CR 706-711, 143.2.a effective Might) — the merged Mighty predicate and condition.predicate evaluate, " +
-    "but CostPayment.choice filters do not consume a Condition, and the descriptive mightGte key stays silently ignored"
+  "unl-173-219 Sacrifice: bind dynamic friendly-unit cost options and enforce current Might >= 5 through CostPayment.choice (CR 706–711/143.2.a); the Mighty predicate itself executes above"
 );
-

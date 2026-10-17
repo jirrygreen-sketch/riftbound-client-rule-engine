@@ -18,26 +18,19 @@ import type { CardProgram } from "../../ir/index.js";
  * - 418.6.a：未指定来源的 Deal 动作以描述该动作的能力为来源，effect.damage 缺省即
  *   ctx.source.ref，故不另写 source。
  *
- * status = judge-required（缺口不近似实现）：
- * - [Deathknell] 的展开不可执行：effects/keywords/Deathknell.ts 的触发体只引用
- *   trigger.leave，而 effects/instructions 没有该原语（registry.generated.ts 无 trigger.*
- *   条目）；808.1.d.1（死亡被替代时移出链）与 808.1.d.2/d.3（进链前记录 last-known）
- *   属触发/链管线。
- * - 没有任何模块把 CardProgram 的 triggered ability 注册成 TriggerRegistration
- *   （引擎批 4 / RIFT-120 事件管线），object-killed 订在真实内核里不可达。
- * 依赖：RIFT-82（kw-deathknell-legion）、RIFT-120（链/事件管线触发注册）。
- * "Deal 4 to an enemy unit" 本体只用已合入的 effect.damage，golden 已真实执行。
+ * status = judge-required：
+ * 当前缺口是 Deathknell 正文绑定（CR 808.1.c/808.1.d）：effects/keywords/Deathknell.ts 展开体仍引用 trigger.leave，
+ * 而 instructions 注册表没有该 op；programs/keywords.ts 也未把本卡的伤害正文接入该骨架。
+ * 展开过滤器中的 cause / destination 未被 programs/filters.ts 保留，仍需保证死亡送入 Trash 的过滤语义。
  */
 const ruinedRex = {
   canonicalCardId: "card.hash-5fc071b35396434404e95d25b47aa739a9bb470b51d8c62aa840cf72ceea550b",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Deathknell]（808.1）的展开不可执行：effects/keywords/Deathknell.ts 的触发体只引用未注册的 trigger.leave 原语" +
-    "（effects/instructions/registry.generated.ts 无 trigger.* 条目），808.1.d.1（死亡被替代则移出链）与 808.1.d.2/d.3" +
-    "（进链前记录 last-known）依赖触发/链管线；同时没有模块把 CardProgram 的 triggered ability 注册成 TriggerRegistration，" +
-    "object-killed 订在真实内核里不可达（引擎批 4 / RIFT-120）。依赖：RIFT-82（kw-deathknell-legion）、RIFT-120。" +
-    "「Deal 4 to an enemy unit」本体只用已合入的 effect.damage，已在 golden 中真实执行；整卡不因此标记 executable。",
+    "当前缺口是 Deathknell 正文绑定（CR 808.1.c/808.1.d）：effects/keywords/Deathknell.ts 展开体仍引用 trigger.leave，" +
+    "而 instructions 注册表没有该 op；programs/keywords.ts 也未把本卡的伤害正文接入该骨架。" +
+    "展开过滤器中的 cause / destination 未被 programs/filters.ts 保留，仍需保证死亡送入 Trash 的过滤语义。",
   abilities: [
     { kind: "keyword", keyword: "deathknell" },
     {

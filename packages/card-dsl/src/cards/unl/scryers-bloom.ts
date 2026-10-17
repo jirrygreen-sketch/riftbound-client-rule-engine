@@ -24,18 +24,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   按唯一可完成的顺序写 exhaust → kill。
  * - 151 / 151.2：Gear 启动能力默认在控制者 Main Phase 的 Open State 执行。
  *
- * status = judge-required（README 第 2 节），缺口逐条列出且不近似实现：
- * (1) This enters exhausted. 需要入场替代原语 replacement.enter 与卡牌 IR 到替代管线的接线
- *     （契约 3.4 / 3.5；同 ogn/iron-ballista）。
- * (2) [Predict 2] 的「看牌库顶 2 张」必须由上游按区域真实顺序提供 picks（契约 3.6 的
- *     zoneSlice 语义），而 effect.inspect 仍拒绝用无序 query 近似；该保序注入路径尚未进入
- *     契约（同 ven/apprentice-mage、rad/rakelstake 记录）。
- * (3) effect.inspect 的 argsSchema 仍要求 object-property 的 object 是运行时 ObjectRef，
- *     未同步契约 3.6 的符号选择器，因此查看者写成
- *     { kind: "object-property", object: "source", property: "controller" }（190.6.d 的能力
- *     控制者）在静态校验通过、原语执行时会被拒绝（RIFT-102 校验器收口）。
- * 已合入部分（inspect / recycle / order / draw / xp）在 golden 里用解释器真实执行：按本文件
- * 记录的两处缺口补上查看者与保序 picks 后运行程序原始 body。
+ * status = judge-required：
+ * 当前缺口是 Predict 2（CR 437.1.a/437.4）的有序范围绑定：effect.inspect 的 scope:top 只读取外部 picksSpecId，
+ * programs/ 与 chain/ 没有从真实牌库 zoneSlice 自动提供这组 top-2 picks 的路径（RIFT-358），不能用无序 query 近似。
+ * 149.1/359.2.d 的 replacement.enter 与卡牌替代绑定已合入；查看者已通过 condition.value 绑定来源控制者，
+ * 再由 effect.inspect 读取 linked-value，避免其旧 argsSchema 对符号 object-property 的限制。
  */
 const abilities: Ability[] = [
   {
@@ -64,15 +57,19 @@ const abilities: Ability[] = [
     },
     body: [
       {
+        // 先由解释器绑定能力控制者，再传给仍使用旧 Expr schema 的 effect.inspect。
+        id: "scryers-bloom.viewer",
+        op: "condition.value",
+        args: {
+          value: { kind: "object-property", object: "source", property: "controller" }
+        }
+      },
+      {
         id: "scryers-bloom.predict-look",
         op: "effect.inspect",
         args: {
           // your Main Deck：查看者是能力控制者（190.6.d）。
-          player: {
-            kind: "object-property",
-            object: "source",
-            property: "controller"
-          },
+          player: { kind: "linked-value", instructionId: "scryers-bloom.viewer", key: "value" },
           zone: { kind: "constant", value: "deck" },
           scope: { kind: "constant", value: "top" },
           // 437.1.a：牌库顶 2 张的保序来源由上游按该稳定 id 提供（契约 3.6）。
@@ -99,7 +96,7 @@ const abilities: Ability[] = [
         }
       },
       {
-        // 437.1.a：其余按任意顺序放回牌库顶；张数 = 2 减去实际回收张数（不写死）。
+        // 437.1.a / 437.4：其余张数 = 实际查看张数减去实际回收张数。
         id: "scryers-bloom.predict-put-back",
         op: "effect.order",
         linkedTo: "scryers-bloom.predict-recycle",
@@ -109,7 +106,7 @@ const abilities: Ability[] = [
             kind: "arithmetic",
             operator: "sub",
             operands: [
-              { kind: "constant", value: 2 },
+              { kind: "linked-value", instructionId: "scryers-bloom.predict-look", key: "inspected" },
               {
                 kind: "linked-value",
                 instructionId: "scryers-bloom.predict-recycle",
@@ -142,13 +139,10 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处依赖未合入，均不近似实现：(1)「This enters exhausted.」需要入场状态改写原语 replacement.enter 与卡牌 IR 到替代管线的接线" +
-    "（契约 3.4 / 3.5；149.1 / 359.2.d 的 Gear 默认就绪进场，effect.exhaust 事后执行不是等价物，同 ogn/iron-ballista）。" +
-    "(2)「[Predict 2]」的看牌库顶 2 张必须由上游按区域真实顺序提供有序 picks（契约 3.6 的 zoneSlice 语义），" +
-    "effect.inspect 明确拒绝用无序 query 近似（同 ven/apprentice-mage、rad/rakelstake）。" +
-    "(3) effect.inspect 的 argsSchema 仍要求 object-property 的 object 是运行时 ObjectRef，未同步契约 3.6 的符号选择器，" +
-    "因此查看者（190.6.d 的能力控制者）只能按符号选择器书写并在执行层被拒绝（RIFT-102 校验器收口）。" +
-    "已合入的 inspect / recycle / order / draw / xp 在 golden 里按这两处缺口补上绑定后真实执行；不近似实现入场状态与查看范围来源。",
+    "当前缺口是 Predict 2（CR 437.1.a/437.4）的有序范围绑定：effect.inspect 的 scope:top 只读取外部 picksSpecId，" +
+    "programs/ 与 chain/ 没有从真实牌库 zoneSlice 自动提供这组 top-2 picks 的路径（RIFT-358），不能用无序 query 近似。" +
+    "149.1/359.2.d 的 replacement.enter 与卡牌替代绑定已合入；查看者已通过 condition.value 绑定来源控制者，" +
+    "再由 effect.inspect 读取 linked-value，避免其旧 argsSchema 对符号 object-property 的限制。",
   abilities,
   sourceText:
     "This enters exhausted.\n" +

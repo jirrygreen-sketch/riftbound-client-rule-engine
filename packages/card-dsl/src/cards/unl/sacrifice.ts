@@ -23,22 +23,12 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （effect.channel 的 exhausted 参数）。两句由 "and" 连接但动作独立，不写 linkedTo
  *   （055 / 359.3.e.11：能做什么做什么）。
  *
- * status: judge-required —— 两处依赖未合入，均不近似实现:
- * - 追加费用没有接进费用管线（RIFT-89/261）：本卡声明的 cost.additional 静态效果没有
- *   消费方，programs/play.ts 的 translateCost 对 kind "additional" 直接
- *   ProgramBindingError（judge-required）；buildCostPlan 的 mandatoryAdditional 仍只由
- *   调用方传入。费用种类本身（cost/plan-values.ts 的 kill 分支）与 picks 选择已合入，
- *   golden 直接执行 cost/ 的 readCost/pay 路径与 effect.kill 的非目标 pick。
- * - 「friendly [Mighty] unit」的 Might ≥ 5 限制没有已合入谓词：冻结 ObjectFilter 与
- *   已合入过滤器（layers/filter.ts 的 matchesObjectFilter、测试内核
- *   matchesQueryFilter/matchesFilter）都不读 mightGte，未知键会被静默忽略——实测把
- *   7 Might 的战场单位交给该 filter 仍匹配——把它当已实现会让费用能用任意友方单位支付。
- *   Mighty 关键词已合入（effects/keywords/Mighty.ts，mightyCondition），可用
- *   condition.predicate 求值，但费用选择（CostPayment.choice 的 filter）不消费 Condition。
- * 「Draw 2 and channel 1 rune exhausted.」半段只用已合入的 effect.draw / effect.channel，
- * 在 golden 中用真实解释器执行程序原始 body。
- *
- * 依赖：RIFT-89/261（费用计划与追加费用接线）、Mighty 阈值的费用选择谓词。无契约变更请求。
+ * status = judge-required：
+ * 两处当前缺口：(1) 强制追加费用（CR 356.2.a.1）的 cost.additional 静态声明尚未接入 CardProgram → CostPlan：
+ * programs/play.ts 的 translateCost 拒绝 additional，describePlay 也不收集静态追加费用；费用计划和 kill 支付本身已可执行。
+ * (2) friendly [Mighty] unit（706–711）需要有效 Might >= 5 的费用选择谓词；cost/plan-values.ts 的 choiceObjects
+ * 只消费显式 options，不读取 choice.filter 中的 mightGte，也没有动态候选集合绑定。Mighty 谓词本身已合入；
+ * 不能用任意友方单位近似该费用。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "reaction" },
@@ -105,17 +95,11 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处依赖未合入：(1)「As an additional cost to play this, kill a friendly [Mighty] unit.」是 356.2.a.1 的强制追加费用，" +
-    "但这条 cost.additional 声明没有接进费用管线：programs/play.ts 的 translateCost 对 kind \"additional\" 直接" +
-    "ProgramBindingError（judge-required），buildCostPlan 的 mandatoryAdditional 仍只由调用方传入（RIFT-89/261）。" +
-    "费用种类本身可用——cost/plan-values.ts 的 kill 分支与 picks 选择已合入，golden 直接走 cost/ 的 readCost/pay 路径。" +
-    "(2)「friendly [Mighty] unit」需要 Might >= 5 的限制（706–711：场上按当前 Might 评估，143.2.a 的有效 Might）：" +
-    "冻结 ObjectFilter 与已合入过滤器（layers/filter.ts 的 matchesObjectFilter、测试内核的 matchesQueryFilter/matchesFilter）" +
-    "都不读 mightGte，未知键（本文件的 mightGte）会被静默忽略——实测 7 Might 的战场单位仍匹配该 filter，把它当已实现会让" +
-    "任意友方单位都能支付该费用。Mighty 已合入（effects/keywords/Mighty.ts 的 mightyCondition，可用 condition.predicate 求值），" +
-    "但费用选择（CostPayment.choice 的 filter）不消费 Condition。" +
-    "「Draw 2 and channel 1 rune exhausted.」只用已合入的 effect.draw（414.1/414.3）与 effect.channel（431.1/431.2.a），" +
-    "已在 golden 中经真实解释器执行程序原始 body。依赖：RIFT-89/261（费用计划与追加费用接线）、Mighty 阈值的费用选择谓词。",
+    "两处当前缺口：(1) 强制追加费用（CR 356.2.a.1）的 cost.additional 静态声明尚未接入 CardProgram → CostPlan：" +
+    "programs/play.ts 的 translateCost 拒绝 additional，describePlay 也不收集静态追加费用；费用计划和 kill 支付本身已可执行。" +
+    "(2) friendly [Mighty] unit（706–711）需要有效 Might >= 5 的费用选择谓词；cost/plan-values.ts 的 choiceObjects " +
+    "只消费显式 options，不读取 choice.filter 中的 mightGte，也没有动态候选集合绑定。Mighty 谓词本身已合入；" +
+    "不能用任意友方单位近似该费用。",
   abilities,
   sourceText:
     "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +

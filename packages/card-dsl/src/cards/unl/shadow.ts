@@ -17,36 +17,26 @@ import type { Ability, CardProgram, Condition } from "../../ir/index.js";
  *   "On Activated Abilities"），授予该能力在任意玩家回合的 Showdown 期间启动的许可；
  *   只声明关键词，展开属关键词注册表（契约 3.7）。
  * - 377.1 / 404.1.a / 415.3.a / 415.5：":" 之前是费用——1 energy + 1 点任意域 Power
- *   （:rb_rune_rainbow: = [A]，135.2.e.5 / 163.2.b）加上横置来源自身；合并费用管线
- *   （cost/plan-values.ts、cost/payment.ts）支持 energy 与 { kind: "exhaust", object: "self" }。
+ *   （:rb_rune_rainbow: = [A]，135.2.e.5.a）加上横置来源自身；现有 kind:power 的
+ *   allowedDomains 可列出六域，表示任意域的一个 Power，而不是六个 Power。
  * - 355.9 / 355.10 + 355.5："an enemy unit attacking here" 是单个由能力控制者选择的敌方
  *   单位 → 选目标；424.1 / 424.1.a：Stun 是效果型受限动作，effect.stun 已合入。
  *   括注 "(It doesn't deal combat damage this turn.)" 是 424.1.b 的提醒文本。
  *
- * status 判定（README 第 2 节）：judge-required —— 三处依赖未合入，均不近似实现：
- * 1. "I enter ready" 是入场替代（143.4 / 359.2.c / 369.3），而 replacement.enter 没有
- *    已合入的消费管线：events 的替代注册表存在，但没有把 CardProgram 的 replacement 能力
- *    注册进去的入口（RIFT-120 之后的卡牌适配），且 effect.ready 明确不参与入场流程
- *    （事后 ready 会产生额外的"成为就绪"事件）。
- * 2. 条件 "If you play me to a battlefield" 读的是打出时的入场位置，而打出位置状态在读
- *    上下文里没有可求值入口（ObjectSnapshot.location 在进场那一刻的记录方式未定义）。
- * 3. 启动能力的费用含 [A]（任意域 Power）：契约的封闭 Domain 只有六个命名域
- *    （Domain = Fury|Calm|Mind|Body|Chaos|Order），cost/plan-values.ts 的 domains() 对
- *    "rainbow" 会 invalid('Expected unique cost domains')，且 cost/payment.ts 的
- *    planDuelRunePayment 没有 domainless Power 资源（"ResolveContext cannot represent a
- *    domainless Power resource"），因此不能近似成任一具体域（同 malzahar-fanatic 的判定）。
- * 另外 "attacking here" 需要「本次战斗中作为攻击者」与「与来源同位置」两个限定：
- * 契约 3.8 的 ObjectSnapshot.combatRole 未合入（attack-declared/designation 的缺口，
- * 同 nine-tailed-fox 记录），sameLocationAs 锚点已合入但对 combatRole 无维度。
- * 依赖：RIFT-84（Action 消费方）、RIFT-89（费用管线与 Domain 契约）、RIFT-90（目标计划）、
- * RIFT-120（入场替代 + 战斗身份/时点）。
+ * status = judge-required：
+ * 两处当前缺口：(1) If you play me to a battlefield（CR 143.4/359.2.c/369.3）需要打出时选择的入场位置；
+ * 替代条件上下文没有读取该目的地的入口，replacement/bind.ts 的 matchesEnterAction 分支也未检查 ability.condition（RIFT-359）。
+ * (2) enemy unit attacking here 的 sameLocationAs/combatRole 过滤尚未贯通：ObjectSnapshot 已有 combatRole，
+ * 解释器已支持 sameLocationAs，但 programs/filters.ts 拒绝这两个目标过滤字段，chain/ 的图层过滤也不读取 combatRole。
+ * Action 启动、替代绑定与 [A] 费用均已有可用接口；[A] 按 135.2.e.5.a 表示为允许六域支付的一个 Power 费用，
+ * 不需要把任意域费用误当成新增 Universal Power 资源。
  */
 
 /**
  * "If you play me to a battlefield" 的保留条件形状：需要"本次打出选择的入场位置是战场"这一
  * 事实。ObjectSnapshot 的 location 特征只有在对象已进场后才有值，而入场替代在换区前做决定；
  * 该读取不被已合入的表达式求值支持，取不到信息时解释器按 MissingInformation 处理（fail closed），
- * 不会把条件当成恒真。真实求值属入场替代管线（RIFT-120）。
+ * 入场替代还需保留并检查该条件（RIFT-359）。
  */
 const PLAYED_TO_BATTLEFIELD: Condition = {
   kind: "compare",
@@ -64,7 +54,7 @@ const abilities: Ability[] = [
   { kind: "keyword", keyword: "action" },
   {
     // 143.4 / 359.2.c / 369.3："I enter ready" 是入场替代——把"横置进场"替换成"就绪进场"。
-    // 真实的替代管线未合入（见 judgeReason 第 1 点）；这里保留可审查的形状，with 体的
+    // 替代绑定本身已合入，目的地条件仍有缺口（见 judgeReason 第 1 点）；with 体的
     // effect.ready 是唯一的就绪动作（不写成"先横置再 ready"的双指令）。
     kind: "replacement",
     replaces: {
@@ -87,10 +77,15 @@ const abilities: Ability[] = [
     cost: {
       kind: "activated",
       energy: { kind: "constant", value: 1 },
-      // 135.2.e.5 / 163.2.b：[A] 是任意域 Power，封闭 Domain 集合下没有可执行值
-      // （见 judgeReason 第 3 点）；保留印刷记号，不近似成任一具体域。
-      power: { kind: "constant", value: ["rainbow"] },
-      payments: [{ kind: "exhaust", object: "self" }]
+      // 135.2.e.5.a：[A] 可由任意一个域的 Power 支付。
+      payments: [
+        {
+          kind: "power",
+          amount: { kind: "constant", value: 1 },
+          allowedDomains: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"]
+        },
+        { kind: "exhaust", object: "self" }
+      ]
     },
     body: [
       {
@@ -101,7 +96,7 @@ const abilities: Ability[] = [
           {
             id: "shadow.enemy-attacker-here",
             // 355.9 的选目标 + 053.3 的 "here" 锚点；"attacking" 需要 combatRole
-            // （契约 3.8，未合入，见 judgeReason）。
+            // （ObjectSnapshot 已有该特征，但目标过滤尚未贯通，见 judgeReason）。
             filter: {
               type: "unit",
               zone: "board",
@@ -125,19 +120,12 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处依赖未合入：(1)「If you play me to a battlefield, I enter ready」是入场替代" +
-    "（143.4/359.2.c/369.3），但 replacement.enter 没有已合入的消费管线——events 的替代注册表无法注册" +
-    "CardProgram 的 replacement 能力，且 effect.ready 明确不参与入场流程（会多产生一次" +
-    "\"成为就绪\"事件）；打出位置的事实也没有可求值入口（ObjectSnapshot.location 在进场前未定义）。" +
-    "(2)「[Action][>]」的许可类关键词（806.1）没有已合入消费方：continuous.timing 的展开与 chain 的" +
-    "canAct 时机查询未接线（effects/keywords/Action.ts 自注）；同类的启动能力默认 Action 时机。" +
-    "(3) 费用中的 :rb_rune_rainbow:（[A]，135.2.e.5/163.2.b）在封闭 Domain 集合下不可表示——" +
-    "cost/plan-values.ts 的 domains() 会拒绝 \"rainbow\"，cost/payment.ts 也没有 domainless Power 资源，" +
-    "因此不能近似成任一具体域（同 malzahar-fanatic 的判定）。(4)「an enemy unit attacking here」需要" +
-    "「本次战斗中作为攻击者」（契约 3.8 的 combatRole，未合入）与「here」（sameLocationAs，已合入）两个限定，" +
-    "当前 ObjectFilter 没有 combatRole 维度（同 nine-tailed-fox 记录的攻击者身份缺口）。" +
-    "程序保留替代形状与目标过滤（sameLocationAs + combatRole 占位）供审查；effect.ready 与 effect.stun 本体" +
-    "已合入，golden 分段真实执行并覆盖目标失效分支。依赖：RIFT-84、RIFT-89、RIFT-90、RIFT-120。不近似实现。",
+    "两处当前缺口：(1) If you play me to a battlefield（CR 143.4/359.2.c/369.3）需要打出时选择的入场位置；" +
+    "替代条件上下文没有读取该目的地的入口，replacement/bind.ts 的 matchesEnterAction 分支也未检查 ability.condition（RIFT-359）。" +
+    "(2) enemy unit attacking here 的 sameLocationAs/combatRole 过滤尚未贯通：ObjectSnapshot 已有 combatRole，" +
+    "解释器已支持 sameLocationAs，但 programs/filters.ts 拒绝这两个目标过滤字段，chain/ 的图层过滤也不读取 combatRole。" +
+    "Action 启动、替代绑定与 [A] 费用均已有可用接口；[A] 按 135.2.e.5.a 表示为允许六域支付的一个 Power 费用，" +
+    "不需要把任意域费用误当成新增 Universal Power 资源。",
   abilities,
   sourceText:
     "If you play me to a battlefield, I enter ready.\n" +

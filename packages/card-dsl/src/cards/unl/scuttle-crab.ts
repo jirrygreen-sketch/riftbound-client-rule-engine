@@ -31,23 +31,12 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 728 / 730.1："Gain 1 XP" 是玩家 XP 资源增加，由已合入的 effect.xp 执行
  *   （823.1.c.1 的 Hunt 同型写法）。
  *
- * status = judge-required（缺口不近似实现）：
- * - "Choose an opponent" 没有玩家目标/玩家选择形态：TargetSpec.filter 是 ObjectFilter，
- *   ResolveContext.targets() 只返回 ObjectRef[]，ChoiceRequest 只有 optional/mode/
- *   select-objects/order/number（没有选择玩家的请求类型），也没有把选择结果作为后续
- *   effect.reveal / effect.inspect 的 player 实参的链接绑定。程序保留
- *   target.player 声明与 "opponent" 占位（ogn/mindsplitter 同型）。
- * - "You can look at their facedown cards this turn" 需要（a）Facedown Zone 的读取入口：
- *   合并的 ZoneId 只有 hand/deck/rune-deck/trash/banishment/board/rune-zone/chain，
- *   没有 Facedown Zone（107.3.a），ObjectSnapshot.faceDown 只能判断状态、不能按区域查询；
- *   （b）“this turn” 的查看期限（425.1.a.3 的 Revealed/looked 状态期限）没有期限字段。
- * - [Deathknell] 展开体（effects/keywords/Deathknell.ts）只引用未注册的 trigger.leave，
- *   且链/事件管线尚未把卡程序触发注册进管线（RIFT-82 / RIFT-120）。
- * golden 对已合入部分（effect.draw、effect.reveal、effect.xp）用解释器 + 参考内核真实执行，
- * 玩家参数由调用方按最终锁定的对手传入。
- *
- * 依赖：玩家目标/玩家选择（target.player）与其链接绑定、Facedown Zone 的查询与查看期限、
- * RIFT-82（kw-deathknell 的 trigger.leave）、RIFT-120（触发注册）。
+ * status = judge-required：
+ * 三处当前缺口：(1) Choose an opponent（CR 355.7/355.9.a）需要玩家目标/选择与后续 player 参数的链接绑定；
+ * TargetSpec 与 ChoiceRequest 尚无玩家目标接口，target.player 仍是保留形状。(2) Facedown Zone（107.3.a/107.3.f）
+ * 不在当前 ZoneId 中，effect.inspect 也不能表达 this turn 的持续查看权限（425.1.a.3）。
+ * (3) Deathknell（808.1.c/808.1.d）展开仍引用 trigger.leave，且没有将卡牌正文接到该骨架的适配；
+ * programs/filters.ts 未保留 cause / destination 的过滤语义。card-played 触发注册与 draw/reveal/xp 原语已合入。
  */
 
 const abilities: Ability[] = [
@@ -131,17 +120,11 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：（1）『Choose an opponent』是玩家目标（355.7/355.9.a），" +
-    "但合并 IR 没有玩家目标形态：TargetSpec.filter 是 ObjectFilter、ResolveContext.targets() 只返回 ObjectRef[]，" +
-    "ChoiceRequest 也只有 optional/mode/select-objects/order/number（没有选择玩家的请求类型），" +
-    "且没有把选择结果绑定为后续 effect.reveal / effect.inspect 的 player 实参的链接通道；程序按 target.player + " +
-    "『opponent』占位保留形状。" +
-    "（2）『You can look at their facedown cards this turn』需要 Facedown Zone：合并 ZoneId 只有 " +
-    "hand/deck/rune-deck/trash/banishment/board/rune-zone/chain，没有 107.3.a 的 Facedown Zone，" +
-    "ObjectSnapshot.faceDown 只能判断状态、不能按区域查询；『this turn』的查看期限（425.1.a.3）也没有期限字段。" +
-    "（3）[Deathknell]（808）的展开体只引用未注册的 trigger.leave op，且链/事件管线尚未把卡程序触发注册进管线。" +
-    "依赖：玩家目标/玩家选择（target.player）及其链接绑定、Facedown Zone 查询与查看期限、RIFT-82（kw-deathknell）、" +
-    "RIFT-120（触发注册）。effect.draw / effect.reveal / effect.xp 本体已合入，golden 对它们做真实执行。",
+    "三处当前缺口：(1) Choose an opponent（CR 355.7/355.9.a）需要玩家目标/选择与后续 player 参数的链接绑定；" +
+    "TargetSpec 与 ChoiceRequest 尚无玩家目标接口，target.player 仍是保留形状。(2) Facedown Zone（107.3.a/107.3.f）" +
+    "不在当前 ZoneId 中，effect.inspect 也不能表达 this turn 的持续查看权限（425.1.a.3）。" +
+    "(3) Deathknell（808.1.c/808.1.d）展开仍引用 trigger.leave，且没有将卡牌正文接到该骨架的适配；" +
+    "programs/filters.ts 未保留 cause / destination 的过滤语义。card-played 触发注册与 draw/reveal/xp 原语已合入。",
   abilities,
   sourceText:
     "(Units with 0 :rb_might: can conquer and hold.)\n" +

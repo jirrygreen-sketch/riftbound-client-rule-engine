@@ -9,6 +9,9 @@ const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js"
 const { buildCostPlan } = await import(new URL("cost/cost-plan.js", ENGINE));
 const { payCostPlan } = await import(new URL("cost/payment.js", ENGINE));
 const { world } = await import(new URL("effects/testing/index.js", ENGINE));
+const { bindReplacement } = await import(new URL("replacement/index.js", ENGINE));
+const { EventPipeline } = await import(new URL("events/pipeline.js", ENGINE));
+const { createActionPipelineHost, bindResolveContext } = await import(new URL("events/action-adapter.js", ENGINE));
 
 const CANONICAL_ID =
   "card.hash-12391b1b0c8fa259528e28974f6a47bd51892b5b66931b7c3529759298d8deb7";
@@ -19,7 +22,7 @@ const SOURCE_TEXT =
 
 const [replacement, activated] = program.abilities;
 const [enterExhausted] = replacement.with;
-const [look, recycle, putBack, draw, gainXp] = activated.body;
+const [viewer, look, recycle, putBack, draw, gainXp] = activated.body;
 
 // effect.inspect issues its select request with the choiceId the card declares;
 // the interpreter prefixes it with the execution path.
@@ -44,7 +47,7 @@ test("unl-136-219 Scryer's Bloom: identity, ruleset, status, judgeReason and ver
   assert.match(program.judgeReason, /149\.1/);
   assert.match(program.judgeReason, /zoneSlice/);
   assert.match(program.judgeReason, /effect\.inspect/);
-  assert.match(program.judgeReason, /RIFT-102/);
+  assert.match(program.judgeReason, /RIFT-358/);
   assert.equal(/待实现|需要裁定/.test(program.judgeReason), false);
 });
 
@@ -75,8 +78,9 @@ test("unl-136-219 Scryer's Bloom: the activation cost is Kill this, 1 Energy, an
   assert.deepEqual(activated.cost.payments, [{ kind: "exhaust" }, { kind: "kill" }]);
 });
 
-test("unl-136-219 Scryer's Bloom: Predict 2 is inspect(2) -> recycle(chosen) -> order(top, 2 - recycled)", () => {
+test("unl-136-219 Scryer's Bloom: Predict 2 orders only the inspected cards that were not recycled", () => {
   assert.deepEqual(activated.body.map(instruction => instruction.id), [
+    "scryers-bloom.viewer",
     "scryers-bloom.predict-look",
     "scryers-bloom.predict-recycle",
     "scryers-bloom.predict-put-back",
@@ -91,13 +95,13 @@ test("unl-136-219 Scryer's Bloom: Predict 2 is inspect(2) -> recycle(chosen) -> 
   assert.deepEqual(look.args.amount, { kind: "constant", value: 2 });
   assert.deepEqual(look.args.choose, { kind: "constant", value: true });
   assert.deepEqual(look.args.chooseCount, { kind: "constant", value: { min: 0, max: 2 } });
-  // 190.6.d "your Main Deck": the viewer is the ability's controller, written
-  // with the contract 3.6 symbolic selector (the merged argsSchema still
-  // requires a runtime ObjectRef there — see judgeReason point 3).
+  // 190.6.d: bind the controller through the interpreter before inspect's Expr schema.
+  assert.equal(viewer.op, "condition.value");
+  assert.deepEqual(viewer.args.value, {
+    kind: "object-property", object: "source", property: "controller"
+  });
   assert.deepEqual(look.args.player, {
-    kind: "object-property",
-    object: "source",
-    property: "controller"
+    kind: "linked-value", instructionId: viewer.id, key: "value"
   });
   // 437.1.a: the ordered top-2 source is supplied upstream under this stable id.
   assert.deepEqual(look.args.picksSpecId, {
@@ -116,7 +120,7 @@ test("unl-136-219 Scryer's Bloom: Predict 2 is inspect(2) -> recycle(chosen) -> 
   assert.equal(recycle.linkedTo, "scryers-bloom.predict-look");
 
   // 437.1.a: put the rest back on top in any order; the count is computed, not
-  // hard-coded (2 - actually recycled).
+  // hard-coded (actually inspected - actually recycled).
   assert.equal(putBack.op, "effect.order");
   assert.equal(putBack.linkedTo, "scryers-bloom.predict-recycle");
   assert.deepEqual(putBack.args.destination, { kind: "constant", value: "top" });
@@ -124,7 +128,7 @@ test("unl-136-219 Scryer's Bloom: Predict 2 is inspect(2) -> recycle(chosen) -> 
     kind: "arithmetic",
     operator: "sub",
     operands: [
-      { kind: "constant", value: 2 },
+      { kind: "linked-value", instructionId: "scryers-bloom.predict-look", key: "inspected" },
       {
         kind: "linked-value",
         instructionId: "scryers-bloom.predict-recycle",
@@ -173,33 +177,28 @@ test("unl-136-219 Scryer's Bloom golden: the printed cost is payable through the
   assert.equal(context.getObject("scryers-bloom").zone, "trash");
 });
 
-/** Supplies only the two missing bindings the judgeReason names (viewer + ordered top 2). */
-function predictBodyFor(player) {
-  return activated.body.map(instruction =>
-    instruction.id === "scryers-bloom.predict-look"
-      ? {
-          ...instruction,
-          args: {
-            ...instruction.args,
-            player: { kind: "constant", value: player }
-          }
-        }
-      : instruction
-  );
+function bloomWorld(cards, owner = "A") {
+  const base = world()
+    .player(owner, { energy: 1 })
+    .unit("scryers-bloom", { types: ["gear"], cardId: CANONICAL_ID, owner, controller: owner })
+    .deck(cards, { owner })
+    .build();
+  return base.clone({ sourceSnapshot: base.getObject("scryers-bloom"), controller: owner });
 }
 
 test("unl-136-219 Scryer's Bloom golden: Predict 2 runs the merged inspect/recycle/order with ordered top picks", () => {
-  const kernel = world().deck(["top", "second", "third"]).build();
+  const kernel = bloomWorld(["top", "second", "third"]);
   const top = kernel.ref("top");
   kernel.setPicks("scryers-bloom.predict-top-2", [top, kernel.ref("second")]);
   // 437.1.a: "Recycle any of them" — here the player recycles exactly the top card.
   kernel.setAnswers({ [SELECT_ID]: [top], [PUT_BACK_ORDER_ID]: [kernel.ref("second")] });
 
-  const body = predictBodyFor("A").slice(0, 3);
+  const body = activated.body.slice(0, 4);
   const outcome = resolveChainBody(body, kernel);
 
   assert.equal(outcome.status, "executed");
   assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
+    ["scryers-bloom.viewer", "executed"],
     ["scryers-bloom.predict-look", "executed"],
     ["scryers-bloom.predict-recycle", "executed"],
     ["scryers-bloom.predict-put-back", "executed"]
@@ -213,18 +212,14 @@ test("unl-136-219 Scryer's Bloom golden: Predict 2 runs the merged inspect/recyc
 });
 
 test("unl-136-219 Scryer's Bloom golden: declining to recycle keeps both predicted cards, then draws 1 and gains 1 XP", () => {
-  const kernel = world().deck(["top", "second", "third", "fourth"]).build();
+  const kernel = bloomWorld(["top", "second", "third", "fourth"]);
   kernel.setPicks("scryers-bloom.predict-top-2", [kernel.ref("top"), kernel.ref("second")]);
   kernel.setAnswers({
     [SELECT_ID]: [],
     [PUT_BACK_ORDER_ID]: [kernel.ref("top"), kernel.ref("second")]
   });
 
-  const outcome = resolveChainBody(activated.body.map(instruction =>
-    instruction.id === "scryers-bloom.predict-look"
-      ? { ...instruction, args: { ...instruction.args, player: { kind: "constant", value: "A" } } }
-      : instruction
-  ), kernel);
+  const outcome = resolveChainBody(activated.body, kernel);
 
   assert.equal(outcome.status, "executed");
   // 437.1.a: nothing was recycled, so both predicted cards were put back on top
@@ -240,14 +235,14 @@ test("unl-136-219 Scryer's Bloom golden: declining to recycle keeps both predict
 });
 
 test("unl-136-219 Scryer's Bloom golden: a one-card Main Deck predicts as much as possible and still draws and gains XP (437.4)", () => {
-  const kernel = world().deck(["only-card"]).build();
+  const kernel = bloomWorld(["only-card"]);
   kernel.setPicks("scryers-bloom.predict-top-2", [kernel.ref("only-card")]);
   kernel.setAnswers({
     [SELECT_ID]: [],
     [PUT_BACK_ORDER_ID]: [kernel.ref("only-card")]
   });
 
-  const outcome = resolveChainBody(predictBodyFor("A"), kernel);
+  const outcome = resolveChainBody(activated.body, kernel);
 
   assert.equal(outcome.status, "executed");
   assert.equal(kernel.player("A").deckSize, 0);
@@ -255,16 +250,70 @@ test("unl-136-219 Scryer's Bloom golden: a one-card Main Deck predicts as much a
   assert.equal(kernel.player("A").xp, 1);
 });
 
+test("unl-136-219 Scryer's Bloom golden: the original body keeps controller B after its source dies as a cost", () => {
+  const kernel = bloomWorld(["b-top", "b-second", "b-third"], "B");
+  const top = kernel.ref("b-top");
+  const second = kernel.ref("b-second");
+  kernel.setPicks("scryers-bloom.predict-top-2", [top, second]);
+  kernel.setAnswers({
+    [SELECT_ID]: [top],
+    "scryers-bloom.predict-put-back/effect.order%3Atop%3AB": [second]
+  });
+  const receipt = payCostPlan(kernel, buildCostPlan(kernel, { id: "bloom:activate", cost: activated.cost }));
+  assert.equal(receipt.paid, true);
+  assert.equal(kernel.getObject("scryers-bloom").zone, "trash");
+  const outcome = resolveChainBody(activated.body, kernel);
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.linkedValues["scryers-bloom.viewer.value"], "B");
+  assert.equal(outcome.linkedValues["scryers-bloom.predict-look.inspected"], 2);
+  assert.equal(kernel.getObject("b-second").zone, "hand");
+  assert.deepEqual(kernel.zone("B", "deck").map(ref => ref.id), ["b-third", "b-top"]);
+  assert.equal(kernel.player("B").xp, 1);
+  assert.equal(kernel.player("A").handSize, 0);
+  assert.equal(kernel.player("A").xp, 0);
+});
+
+test("unl-136-219 Scryer's Bloom golden: the card's replacement enters exhausted through the event pipeline (149.1/359.2.d)", () => {
+  const kernel = world().hand("scryers-bloom", { types: ["gear"], exhausted: false }).build();
+  const context = (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint });
+  const host = createActionPipelineHost({
+    checkpoint: () => kernel.snapshot(),
+    restore: state => kernel.restore(state),
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: request => kernel.choose(request),
+    context
+  });
+  const pipeline = new EventPipeline(host, ["A", "B"], "A");
+  bindReplacement(replacement, kernel.ref("scryers-bloom"), {
+    host: { object: ref => kernel.object(ref), objects: () => kernel.objects, context },
+    pipeline
+  });
+  assert.equal(pipeline.commit({ type: "move-zone", object: kernel.ref("scryers-bloom"), to: "chain" }).status, "done");
+  const result = pipeline.commit({
+    type: "move-zone", object: kernel.ref("scryers-bloom"), to: "base", location: { type: "base", player: "A" }
+  });
+  assert.equal(result.status, "replaced");
+  assert.equal(kernel.getObject("scryers-bloom").zone, "board");
+  assert.equal(kernel.getObject("scryers-bloom").exhausted, true);
+  const entry = pipeline.events.find(event => event.timingPoint === "object-enters-board");
+  assert.equal(entry.object.exhausted, true);
+  assert.equal(pipeline.events.some(event => event.timingPoint === "object-exhausted"), false);
+});
+
+test("unl-136-219 Scryer's Bloom golden: recycling the only inspected card leaves no cards to order (437.4)", () => {
+  const kernel = bloomWorld(["only-card"]);
+  const only = kernel.ref("only-card");
+  kernel.setPicks("scryers-bloom.predict-top-2", [only]);
+  kernel.setAnswers({ [SELECT_ID]: [only] });
+  const outcome = resolveChainBody(activated.body.slice(0, 4), kernel);
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.linkedValues["scryers-bloom.predict-look.inspected"], 1);
+  assert.equal(outcome.linkedValues["scryers-bloom.predict-recycle.recycledCount"], 1);
+  assert.equal(outcome.linkedValues["scryers-bloom.predict-put-back.ordered"], 0);
+  assert.deepEqual(kernel.events.map(event => event.action), ["look", "recycle"]);
+});
+
 test.todo(
-  "unl-136-219 Scryer's Bloom: 'This enters exhausted.' needs the board-entry replacement primitive " +
-    "(replacement.enter, contract 3.4/3.5) plus the card-IR registration path; effect.exhaust after entry " +
-    "would add a spurious becomes-exhausted event and miss the entry replacement (CR 149.1 / 359.2.d)"
-);
-test.todo(
-  "unl-136-219 Scryer's Bloom: supply the ordered top-2 range for [Predict 2] from the real Main Deck order " +
-    "(CR 437.1.a, contract 3.6 zoneSlice) — the merged effect.inspect still rejects unordered query lookups"
-);
-test.todo(
-  "unl-136-219 Scryer's Bloom: sync effect.inspect's argsSchema with contract 3.6 so the viewer can be the " +
-    "symbolic source-controller selector instead of a runtime ObjectRef (RIFT-102 validator closure)"
+  "unl-136-219 Scryer's Bloom: bind ordered top-2 picks from the real Main Deck zoneSlice to Predict (CR 437.1.a/437.4; RIFT-358); viewer binding and entry replacement already have execution evidence"
 );

@@ -4,10 +4,7 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/unl/ruined-rex.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
-import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
-import killDefinition from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
-import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL =
   "card.hash-5fc071b35396434404e95d25b47aa739a9bb470b51d8c62aa840cf72ceea550b";
@@ -28,7 +25,7 @@ test("unl-067-219 Ruined Rex: identity, ruleset, status, judgeReason, sourceText
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /trigger\.leave/);
-  assert.match(program.judgeReason, /RIFT-82/);
+  assert.match(program.judgeReason, /cause \/ destination/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -90,26 +87,6 @@ test("unl-067-219 Ruined Rex golden: an enemy unit that left the board is ignore
   assert.equal(kernel.getObject("enemy-unit").zone, "hand");
 });
 
-test("unl-067-219 Ruined Rex: the merged Deathknell expansion cannot execute its trigger body", () => {
-  // keywords/Deathknell.ts 的展开体只引用 trigger.leave，而该 op 没有已注册实现，
-  // 因此经解释器执行会抛 "Unregistered instruction opcode"（这里用真实注册表复现，
-  // 不伪造 callback）。
-  const kernel = world().unit("ruined-rex").build();
-  assert.throws(
-    () => runAbilityBody([{ id: "dk", op: "trigger.leave", args: {} }], kernel, instructionDefinitionsById),
-    /Unregistered instruction opcode: trigger\.leave/
-  );
-  assert.equal(instructionDefinitionsById.has("trigger.leave"), false);
-  assert.equal(instructionDefinitionsById.has("effect.kill"), true);
-  assert.equal(killDefinition.op, "effect.kill");
-});
-
 test.todo(
-  "unl-067-219 Ruined Rex: [Deathknell] (CR 808.1) expansion — subscribing at object-killed, " +
-    "removal from the chain when the death is replaced (808.1.d.1), and last-known capture before " +
-    "the zone change (808.1.d.2/.d.3) — needs the keyword registry (RIFT-82) and the trigger.leave primitive"
-);
-test.todo(
-  "unl-067-219 Ruined Rex: registering the card's triggered ability as a TriggerRegistration " +
-    "(production chain/event pipeline) is shared wiring tracked by the coordinator (RIFT-120)"
+  "unl-067-219 Ruined Rex: bind the printed damage body to Deathknell and preserve killed-to-Trash filtering, replacement cancellation and last-known information (CR 808.1.c/808.1.d); trigger.leave and the keyword payload adapter remain required"
 );
