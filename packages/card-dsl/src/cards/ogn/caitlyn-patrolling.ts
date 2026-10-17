@@ -14,8 +14,8 @@ const program = {
   status: "judge-required",
   judgeReason:
     "缺 Backline 展开后的 continuous.combat 末位致命伤害分配消费方（CR 826.3/826.4.b）。" +
-    "at-battlefield 的 condition 包装已有 translateRestriction 适配，但本卡的限制和目标过滤仍把 battlefield 写成 zone；" +
-    "需接通 Board 上的 location 筛选与自身位置条件（355.10.b），不能用直接绑定伤害目标证明整段启动合法。",
+    "本卡已用 Board.location 表达 battlefield 限制与目标范围；仍需把该自身位置条件接入完整的 activation legality 与动态重验（355.10.b），" +
+    "不能用直接绑定伤害目标证明整段启动合法。",
   abilities: [
     {
       kind: "keyword",
@@ -41,7 +41,7 @@ const program = {
             subject: "objects",
             filter: {
               object: "self",
-              zone: "battlefield"
+              location: "battlefield"
             }
           },
           operator: "gte",
@@ -71,7 +71,7 @@ const program = {
               id: "battlefield-unit",
               filter: {
                 type: "unit",
-                zone: "battlefield"
+                location: "battlefield"
               },
               min: 1,
               max: 1,
