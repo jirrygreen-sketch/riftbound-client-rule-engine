@@ -4,6 +4,8 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/smoke-and-mirrors.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -31,6 +33,9 @@ test("unl-083-219 Smoke and Mirrors: identity, status, judgeReason and verbatim 
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /effect\.swap-location/);
   assert.match(program.judgeReason, /RIFT-90/);
+  // The Temporary keyword itself is merged (RIFT-265); the gap is the
+  // cross-target keyword predicate, which the judgeReason now records.
+  assert.match(program.judgeReason, /continuous\.grant-keyword/);
 });
 
 test("unl-083-219 Smoke and Mirrors: [Hidden] + [Action] plus the atomic swap shape and an independent Draw 1", () => {
@@ -95,6 +100,49 @@ test("unl-083-219 Smoke and Mirrors golden: the independent Draw 1 draws one car
   assert.equal(run.linked.drawnTo, "A");
   assert.equal(kernel.player("A").handSize, 1);
   assert.equal(kernel.player("A").deckSize, 1);
+});
+
+test("unl-083-219 Smoke and Mirrors: the merged keyword registry has Temporary, but no filter can read it", () => {
+  // 816.3 makes "has [Temporary]" a readable characteristic and the keyword
+  // itself is merged (RIFT-265), yet the declared keyword key is not a filter
+  // dimension: the layer matcher accepts a Temporary holder and a plain unit
+  // alike. This is the evidence behind the judgeReason's second gap.
+  assert.ok(keywordDefinitionsById.get("Temporary"), "effects/keywords/Temporary.ts must be registered");
+  const kernel = world()
+    .unit("plain", { owner: "A", might: 2, keywords: [] })
+    .unit("temporary", { owner: "A", might: 2, keywords: [{ id: "Temporary" }] })
+    .build();
+  const filter = { type: "unit", zone: "board" };
+  const withKeywordKey = { ...filter, keywords: ["Temporary"] };
+  for (const id of ["plain", "temporary"]) {
+    const snapshot = kernel.getObject(id);
+    assert.equal(
+      matchesObjectFilter(withKeywordKey, snapshot),
+      matchesObjectFilter(filter, snapshot)
+    );
+  }
+});
+
+test("unl-083-219 Smoke and Mirrors: the pair-relation target filter is accepted by the merged matchers", () => {
+  // The declared "another unit you control at a different location" pair relation
+  // is descriptive: the merged matcher reads the single-spec keys and ignores
+  // locationRelation, so this records the missing re-check rather than a claim.
+  const secondFilter = unitB.filter;
+  const kernel = world()
+    .unit("unit-a", { owner: "A", might: 2, location: { type: "battlefield", id: "bf-1" } })
+    .unit("unit-b", { owner: "A", might: 2, location: { type: "battlefield", id: "bf-2" } })
+    .build();
+  assert.equal(secondFilter.locationRelation, "different-from-selected-unit");
+  assert.deepEqual(secondFilter.exclude, { target: "smoke-and-mirrors.unit-a" });
+  // The layer matcher compares the controller placeholder literally; drop the
+  // placeholders the Finalize target pipeline resolves to isolate the pair keys.
+  const scoped = { ...secondFilter };
+  delete scoped.exclude;
+  delete scoped.locationRelation;
+  delete scoped.controller;
+  for (const id of ["unit-a", "unit-b"]) {
+    assert.equal(matchesObjectFilter(scoped, kernel.getObject(id)), true);
+  }
 });
 
 test.todo(

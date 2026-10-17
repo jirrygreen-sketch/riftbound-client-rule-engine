@@ -6,6 +6,8 @@ import program from "../../../dist/cards/unl/sprite-fountain.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-662d7db819f7136f036d9502c7ad7c650275c0c5bf7b8bd26034395aafbd7c0c";
@@ -26,6 +28,7 @@ test("unl-078-219 Sprite Fountain: program validates and is judge-required", () 
   assert.match(program.judgeReason, /Sprite token/);
   assert.match(program.judgeReason, /Temporary/);
   assert.match(program.judgeReason, /383\.4\.g/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("unl-078-219 Sprite Fountain: identity, ruleset, status and the verbatim three-line source text", () => {
@@ -155,18 +158,61 @@ test("unl-078-219 Sprite Fountain golden: the printed Temporary kill removes a b
   assert.deepEqual(run.events.map((event) => event.action), ["kill"]);
 });
 
+test("unl-078-219 Sprite Fountain: the card's own Sprite name is refused instead of substituted", () => {
+  // 187.2: the printed Sprite carries its own Temporary ability, so the merged
+  // token table refuses it with a documented blockedReason rather than playing a
+  // different token (judgeReason item 1).
+  const kernel = world().player("A").build();
+  const sprite = runInstruction(
+    token,
+    {
+      token: playSprite.args.token,
+      amount: playSprite.args.amount,
+      mode: playSprite.args.mode,
+      location: { kind: "constant", value: { type: "base", player: "A" } },
+      linkKey: playSprite.args.linkKey
+    },
+    { world: kernel }
+  );
+  assert.equal(sprite.result.status, "negated");
+  assert.equal(sprite.linked.spriteToken.amount, 0);
+  assert.equal(sprite.linked.spriteToken.blockedReason, "token-definition-or-abilities-judge-required");
+  assert.equal(kernel.query({ zone: "board" }).length, 0);
+});
+
+test("unl-078-219 Sprite Fountain golden: the merged Temporary expansion kills the host at beginning-start (CR 816.1.b)", () => {
+  // 816.1.b/816.1.c: the keyword definition is merged and its body is the merged
+  // effect.kill; what is missing is the subscription (judgeReason item 3).
+  const temporary = keywordDefinitionsById.get("Temporary");
+  assert.ok(temporary, "effects/keywords/Temporary.ts must be registered");
+  const [trigger] = temporary.expand({ host: { canonicalCardId: CARD_ID } });
+  assert.equal(trigger.kind, "triggered");
+  assert.equal(trigger.trigger.at, "beginning-start");
+  assert.equal(trigger.optional, false);
+
+  const kernel = world()
+    .unit("fountain", { types: ["gear"], might: null, zone: "board", keywords: [{ id: "Temporary" }] })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("fountain") });
+  const outcome = resolveChainBody(trigger.body, context);
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.equal(context.getObject("fountain").zone, "trash");
+});
+
 test.todo(
   "unl-078-219 Sprite Fountain: add the CR 187.2 Sprite token definition (3 Might, domainless, Fae tag, " +
-    "[Temporary]) to effect.token and support the printed ready entry state (143.4 / 185.2.d) — a follow-up " +
+    "[Temporary]) to effect.token and support the printed ready entry state (143.4 / 185.2.d) — the merged table " +
+    "carries only ability-free tokens and effect.token states that entry overrides are not supported; a follow-up " +
     "effect.ready is not equivalent"
 );
 test.todo(
   "unl-078-219 Sprite Fountain: the Temporary keyword expansion (816.1.b / 816.1.c) must subscribe to " +
-    "beginning-start and kill the host before scoring; no Temporary KeywordDef is registered"
+    "beginning-start and kill the host before scoring — the KeywordDef body executes above, but no card program's " +
+    "keyword abilities are registered at runtime (RIFT-257)"
 );
 test.todo(
   "unl-078-219 Sprite Fountain: activate/repeat a named triggered ability (CR 383.4.g.1) through an internal " +
-    "chain entry for the Deathknell effect; the authored opcode is an unregistered placeholder (RIFT-120 follow-up)"
+    "chain entry for the Deathknell effect; the authored opcode is an unregistered placeholder"
 );
 test.todo(
   "unl-078-219 Sprite Fountain: the Deathknell expansion still references the unmerged trigger.leave primitive " +

@@ -8,6 +8,8 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import ganking from "../../../../engine-core/dist/effects/keywords/Ganking.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { ContinuousEffectRegistry } from "../../../../engine-core/dist/layers/index.js";
+import { movement } from "../../../../engine-core/dist/layers/rules/index.js";
 
 const CANONICAL_ID =
   "card.hash-5d3fba8de73d7d55f79675ba2f61ea15aa7cde6f01ba1f7e39f3e3dbffcaa6b8";
@@ -33,6 +35,12 @@ test("unl-005-219 Revna the Lorekeeper: identity, status, judgeReason and verbat
   assert.match(program.judgeReason, /383\.2\.a\.1/);
   assert.match(program.judgeReason, /Ganking/);
   assert.match(program.judgeReason, /RIFT-89/);
+  // The Ganking half is no longer "no KeywordDef": the expansion exists and so do
+  // the continuous.movement consumers; the remaining gap is the shape mismatch
+  // plus the missing card-program -> layers registration (RIFT-257).
+  assert.match(program.judgeReason, /continuous\.movement/);
+  assert.match(program.judgeReason, /routes/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("unl-005-219 Revna the Lorekeeper: Ganking keyword plus a card-played spell trigger", () => {
@@ -95,6 +103,47 @@ test("unl-005-219 Revna the Lorekeeper: the Ganking expansion is a battlefield-t
   assert.equal(ability.effect.addsPermission, true);
 });
 
+test("unl-005-219 Revna the Lorekeeper: the merged movement() reader consumes a registered battlefield-to-battlefield permission", () => {
+  // layers/rules/query.ts movement() reads the normalized permission.routes shape
+  // the merged continuous.movement instruction emits; this is the consumer the
+  // Ganking permission has to reach.
+  const kernel = world()
+    .unit("revna", { zone: "board", controller: "A", location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const snapshot = kernel.getObject("revna");
+  const asRegistration = effect => ({
+    id: "ganking",
+    layer: "ability",
+    source: snapshot.ref,
+    filter: { objectId: snapshot.ref.id },
+    effect
+  });
+  const registry = new ContinuousEffectRegistry();
+  registry.register(
+    asRegistration({
+      kind: "movement",
+      permission: {
+        routes: ["battlefield-to-battlefield"],
+        source: "battlefield",
+        destination: "battlefield",
+        move: "standard"
+      }
+    }),
+    { type: "permanent" }
+  );
+  const consumed = movement(registry, snapshot.ref, snapshot, "A");
+  assert.equal(consumed.canGank, true);
+  assert.equal(consumed.battlefieldToBattlefield, true);
+  assert.deepEqual(consumed.permissions.map((permission) => permission.routes), [
+    ["battlefield-to-battlefield"]
+  ]);
+  // The Ganking expansion and the consumer describe the same route; the gap is
+  // the declaration spelling, which is recorded in judgeReason and below.
+  const [expansion] = ganking.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(expansion.effect.kind, "continuous.movement");
+  assert.equal(expansion.effect.permission, "battlefield-to-battlefield");
+});
+
 test("unl-005-219 Revna the Lorekeeper: the trigger body readies the source unit (CR 416.1)", () => {
   const kernel = world()
     .unit("revna", { zone: "board", controller: "A", exhausted: true, location: { type: "battlefield", id: "bf-1" } })
@@ -133,8 +182,9 @@ test.todo(
 
 test.todo(
   "unl-005-219 Revna the Lorekeeper: grant the battlefield-to-battlefield Standard Move from the merged Ganking " +
-    "expansion (CR 810.1.b / 810.1.c.1, 144.4.c) — no merged producer registers a card's keyword abilities through " +
-    "layers, and zones/movement.ts does not read the layered MovementPermissions (RIFT-83 / RIFT-91)"
+    "expansion (CR 810.1.b / 810.1.c.1, 144.4.c) once the KeywordDef's scalar permission/source/destination/move " +
+    "declaration reaches movement()'s normalized permission.routes reader and RIFT-257 registers a card's keyword " +
+    "abilities through layers"
 );
 
 test.todo(

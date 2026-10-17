@@ -25,17 +25,20 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   括号内的 "(While you have 3+ XP, get the effect.)" 是 824.1.b.1 的提醒文本，不是第三条能力。
  *
  * status = judge-required（缺口不近似实现）：
- * - [Hunt 2] 没有 KeywordDef（effects/keywords/ 下无 Hunt.ts），823.1.c.1 的 conquer/hold
- *   触发与 XP 获得没有展开实现；卡文件不自行手写一套等价触发（README 第 5 节：关键词只声明，
- *   展开归关键词文件）。
- * - [Level 3][>] 的依赖关键词没有展开：824.1.c 的"控制者 XP ≥ N"需要可求值的 XP 谓词，
- *   合并 IR 的 Condition 只有 always/never/expression/compare/all/any/not，PlayerSnapshot.xp
- *   没有进入 Expr / 谓词的路径；824.1.c.1 / 824.1.d 的即时失活同样缺失。
- * - 两条子效果各自的依赖也未合入：continuous.might（图层算术修正）与 replacement.enter
- *   （入场替代消费方）都没有卡牌可用的注册与执行路径。
+ * - [Hunt 2]（823）的 KeywordDef 已合入（effects/keywords/Hunt.ts：conquer/hold 两条
+ *   effect.xp 触发，823.1.c.1），展开体在 golden 中经真实解释器执行。仍缺的是消费侧：
+ *   scoring/turn 流程发出的 conquer / hold 时点没有进入卡牌触发的注册链路，也没有生产方
+ *   把卡牌 keyword 能力解析成 KeywordDef 并注册（RIFT-257 的 programs/ 适配器无运行时调用方）。
+ * - [Level 3][>]（824.1 的 Dependent Keyword）的展开已合入（effects/keywords/Level.ts），
+ *   但它产出的是 condition.predicate 声明的 XP 谓词，图层条件词表（layers/engine.ts 的
+ *   conditionMatches）只认 always/never/type/has-tag/has-keyword，condition.predicate 不识别
+ *   且未知条件按 true —— 直接绑定会让依赖能力恒生效；824.1.c.1 / 824.1.d 的即时失活同样缺失。
+ * - 两条子效果各自的绑定也未接通：「I have +1 :rb_might:」的 continuous.might 图层算术修正
+ *   与「enter ready」的入场替代（replacement.enter 已合入，golden 用真实 replacement 绑定验证）
+ *   都没有卡牌程序 → 能力的注册路径（RIFT-257）。
  *
- * 依赖：Hunt / Level 的关键词展开任务、RIFT-91（layers-continuous 与入场替代接线）、
- * RIFT-89/90（条件与谓词管线）、RIFT-120（卡牌触发注册）。
+ * 依赖：RIFT-257（卡牌程序 → 图层/触发的生产接线）、conquer/hold 时点进入触发注册链路、
+ * 图层条件对 condition.predicate 的消费（824.1.c.1/824.1.d 的即时失活）。
  */
 const abilities: Ability[] = [
   // 823.1.c：印刷为 "Hunt 2"，Hunt Value = 2（823.1.c.2 的缺省 1 不适用）。
@@ -85,17 +88,17 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处依赖未合入：(1) [Hunt 2]（823）没有 KeywordDef——effects/keywords/ 下无 Hunt.ts，" +
-    "823.1.c.1 的「When I Conquer or Hold, my controller gains 2 XP」没有展开实现；按 README 第 5 节，" +
-    "卡文件不自行手写一套等价触发，也不把该关键词近似成 effect.xp 的常驻指令。" +
-    "(2) [Level 3][>]（824.1 的 Dependent Keyword）没有展开：824.1.c 的「控制者 XP ≥ N」需要可求值的 XP 谓词，" +
-    "合并 IR 的 Condition 只有 always/never/expression/compare/all/any/not，PlayerSnapshot.xp 没有进入 Expr / 谓词的路径，" +
-    "824.1.c.1 / 824.1.d 的即时失活同样缺失。" +
-    "(3) 依赖能力的两条子效果各自也缺执行路径：「I have +1 :rb_might:」是 arithmetic 图层的 continuous.might" +
-    "（143.2.a / 475），卡牌可用的注册入口未合入（registerContinuousEffect 无调用方）；「enter ready」是入场替代" +
-    "（359.2.c / 369.3），replacement.enter 管线未合入，effect.ready 不能模拟（会多产生一次“成为就绪”事件）。" +
-    "依赖：Hunt / Level 的关键词展开任务、RIFT-91（layers-continuous 与入场替代接线）、RIFT-89/90（条件与谓词管线）、" +
-    "RIFT-120（卡牌触发注册）。不近似实现。",
+    "三处依赖未合入：(1) [Hunt 2]（823）的 KeywordDef 与展开体都已合入（effects/keywords/Hunt.ts 用 effect.xp 产生 " +
+    "conquer/hold 两条触发，823.1.c.1），golden 经真实解释器执行该展开体；仍缺消费侧——scoring/turn 发出的 conquer/hold " +
+    "时点没有进入触发注册链路，也没有生产方把卡牌 keyword 解析成 KeywordDef 并注册（RIFT-257）。" +
+    "(2) [Level 3][>]（824.1 的 Dependent Keyword）的展开已合入（effects/keywords/Level.ts），但它产出 condition.predicate " +
+    "的 XP 谓词，而图层条件词表（layers/engine.ts 的 conditionMatches）只认 always/never/type/has-tag/has-keyword，" +
+    "condition.predicate 不识别且未知条件按 true——直接绑定会让 824.1.c 的依赖能力恒生效，824.1.c.1 / 824.1.d 的" +
+    "XP 变化即时失活同样缺失。" +
+    "(3) 依赖能力的两条子效果也缺绑定：「I have +1 :rb_might:」是 arithmetic 图层的 continuous.might（143.2.a / 475），" +
+    "「enter ready」是入场替代（359.2.c / 369.3）——replacement.enter 原语已合入并在 golden 中用真实 replacement 绑定验证，" +
+    "但没有卡牌程序 → 图层/替代能力的生产接线（RIFT-257）；effect.ready 不能模拟入场替代（会多产生一次“成为就绪”事件）。" +
+    "依赖：RIFT-257（卡牌程序绑定）、conquer/hold 时点进入触发注册链路、图层条件对 condition.predicate 的消费。不近似实现。",
   abilities,
   sourceText:
     "[Hunt 2] (When I conquer or hold, gain 2 XP.)\n" +

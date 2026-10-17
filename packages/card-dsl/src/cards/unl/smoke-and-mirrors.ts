@@ -32,10 +32,12 @@ import type { CardProgram } from "../../ir/index.js";
  * - 缺 effect.swap-location：已合入的 effect.move 每条指令只移动一个选择集到固定
  *   LocationRef/controller-base/静态候选，不能把两个永久物的 Origin/Destination
  *   作为同一个原子 Move 关系交换；顺序两次 effect.move 会产生不同的合法性、战斗
- *   与触发结果，故不用它近似。
+ *   与触发结果，故不用它近似。（RIFT-259 的 continuous.movement 只声明移动许可，
+ *   不提供交换动作。）
  * - 「at least one of them has [Temporary]」无求值路径：Condition 只支持
  *   always/never/compare/all/any/not/expression，ObjectFilter 没有关键词维度
- *   （ObjectSnapshot.keywords 没有过滤器键，同 guerilla-warfare-teemo），谓词也
+ *   （模板里的 withoutKeyword 会被 layers/filter.ts 与测试内核静默忽略，
+ *   Temporary 的 KeywordDef 与 continuous.grant-keyword 本身已合入），谓词也
  *   不能跨两个 TargetSpec 读取特征。
  * - 「at a different location」是两个选择之间的关系限制：TargetPlan（RIFT-90）
  *   只有单 spec 的 filter/location，未提供成对关系重验。
@@ -52,9 +54,11 @@ const smokeAndMirrors = {
     "已合入的 effect.move 每条指令只把单个选择集移到固定 LocationRef/controller-base/静态候选，" +
     "顺序执行两次 effect.move 会在第二条的合法性重验与触发时点上产生不同结果（449.1/451.1），故不近似。" +
     "(2)「If at least one of them has [Temporary]」无求值路径：Condition 只有 always/never/compare/all/any/not/expression，" +
-    "ObjectFilter 没有关键词维度（ObjectSnapshot.keywords 无过滤器键，同 guerilla-warfare-teemo），且谓词不能跨两个 TargetSpec 读特征。" +
+    "ObjectFilter 没有关键词维度（关键词键会被 layers/filter.ts 与测试内核静默忽略；Temporary 的 KeywordDef 与 " +
+    "continuous.grant-keyword 本身已合入，缺的是跨选择的特征谓词），且谓词不能跨两个 TargetSpec 读特征。" +
     "(3)「at a different location」是两个选择之间的关系限制，TargetPlan（RIFT-90）只有单 spec 的 filter/location，没有成对关系重验。" +
-    "「Draw 1」是独立语句，只用已合入的 effect.draw，golden 真实执行。依赖：RIFT-9 的 effect.swap-location、关键词特征谓词与成对关系限制。",
+    "「Draw 1」是独立语句，只用已合入的 effect.draw，golden 真实执行。依赖：RIFT-9 的 effect.swap-location、" +
+    "关键词特征谓词与成对关系限制（RIFT-90 后续）。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     { kind: "keyword", keyword: "action" },

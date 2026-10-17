@@ -26,10 +26,12 @@ import type { CardProgram } from "../../ir/index.js";
  *   Temporary，187.2）被显式阻断（blockedReason
  *   "token-definition-or-abilities-judge-required"），因此 sprite 定义缺失；
  * - create-token 不支持入场状态改写，"ready" 无法表达（143.4 / 184.1 /
- *   185.2.d）；
+ *   185.2.d）；fixture 里的 entersReady 参数不在 effect.token 的 ARGUMENTS
+ *   白名单内，实测直接 TypeError（"Invalid effect.token argument: entersReady"），
+ *   所以它只是待办说明而不是可用 IR；
  * - Temporary 关键词展开（RIFT-265 已合入 keywords/Temporary.ts，816.1.b）只
  *   解决 token 自身的触发；token 定义与就绪入场仍缺失。
- * 依赖：RIFT-9 的 token 定义表扩充（按 187.2 的官方 Sprite）与入场状态改写；
+ * 依赖：effect.token 定义表扩充（按 187.2 的官方 Sprite）与入场状态改写；
  * 不用其他 token 替代 Sprite，也不先创建再补 ready。
  */
 const spriteBurst = {
@@ -40,9 +42,11 @@ const spriteBurst = {
     "缺 Sprite token 定义与 ready 入场改写：CR 187.2 的 3 [M] Sprite token 是「无领域 + 3 Might + Fae 标签 + [Temporary]」" +
     "的单位 token；已合入的 effect.token 只在冻结定义表（recruit/sand-soldier/mech/reflection/tentacle）解析定义 id，" +
     "带自身能力的 token 被显式阻断（blockedReason: token-definition-or-abilities-judge-required），sprite 定义缺失；" +
+    "golden 用同一 mode \"play\" 形状的可解析定义证明「create on Chain → play」交接本身已可用，缺口只在定义与入场状态。" +
     "「ready」是入场状态改写（143.4 默认横置入场 / 184.1 / 185.2.d），create-token 明确不支持 entry override，" +
-    "先创建再补 effect.ready 会产生错误的「成为就绪」事件。Temporary 关键词展开（816.1.b，RIFT-265）只覆盖 token 自身触发，" +
-    "不能替代 token 定义与入场状态。依赖：RIFT-9 的 token 定义表扩充与入场状态改写；不近似实现。",
+    "先创建再补 effect.ready 会产生错误的「成为就绪」事件；fixture 里的 entersReady 也不在 effect.token 的 ARGUMENTS 白名单内" +
+    "（实测 TypeError \"Invalid effect.token argument: entersReady\"）。Temporary 关键词展开（816.1.b，RIFT-265）只覆盖" +
+    "token 自身触发，不能替代 token 定义与入场状态。依赖：effect.token 定义表扩充与入场状态改写；不近似实现。",
   abilities: [
     {
       kind: "play",

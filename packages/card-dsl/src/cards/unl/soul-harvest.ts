@@ -19,13 +19,15 @@ import type { CardProgram } from "../../ir/index.js";
  *   greater」。该限制在 Finalize 与 Resolve 都要重验（355.9.b、359.3.e）。
  *
  * status: judge-required —— Might 上限谓词未合入：冻结 ObjectFilter 没有数值比较，
- * 已合入过滤器（layers/filter.ts 的 matchesObjectFilter、测试内核的 matchesFilter）
- * 只按 type/zone/location/controller/owner/tags/characteristics 等字段匹配，
- * 未知键（本文件的 mightLte）会被静默忽略——把它当已实现会让 Soul Harvest 能消灭
- * 任意战场单位。effect.kill 本体与 location 限制在 golden 中对锁定目标真实执行；
- * 精确的 Might 阈值不近似实现。
+ * 已合入过滤器（layers/filter.ts 的 matchesObjectFilter、测试内核的 matchesQueryFilter/
+ * matchesFilter）只按 type/zone/location/controller/owner/tags/characteristics 等字段匹配，
+ * 未知键（本文件的 mightLte）会被静默忽略——实测 7 Might 的战场单位与 2 Might 的战场单位
+ * 在 matchesObjectFilter 下同样通过该 filter——把它当已实现会让 Soul Harvest 能消灭
+ * 任意战场单位。Mighty 关键词的阈值谓词（effects/keywords/Mighty.ts 的 mightyCondition，
+ * 708/710）已可用 condition.predicate 求值，但 TargetSpec.filter 不消费 Condition。
+ * effect.kill 本体与 location 限制在 golden 中对锁定目标真实执行；精确的 Might 阈值不近似实现。
  *
- * 依赖：RIFT-81~91（Mighty 类 Might 谓词/目标过滤）、RIFT-90（TargetPlan 谓词）。无契约变更请求。
+ * 依赖：TargetPlan/TargetSpec 的有效 Might 阈値谓词（RIFT-90 后续）。无契约变更请求。
  */
 const program = {
   canonicalCardId: "card.hash-1874eb10cc2af76bced76159e28914196dd012c232435193372275264084a018",
@@ -34,9 +36,12 @@ const program = {
   judgeReason:
     "缺「3 :rb_might: or less」的目标谓词：355.9.b / 355.10.b 规定「Kill a unit at a battlefield with 3 Might or less」" +
     "以单位为唯一目标、location 只是限制，但 143.2.a 的有效 Might 阈值比较在冻结 ObjectFilter 与已合入过滤器" +
-    "（layers/filter.ts、测试内核 matchesFilter）中没有实现——未知键（本文件的 mightLte）会被静默忽略，" +
-    "把它当已实现会让本卡消灭任意战场单位。effect.kill（429.1.a.1.a）与 location 限制已合入并在 golden 中真实执行；" +
-    "整卡因阈值谓词保持 judge-required，不近似实现。依赖：RIFT-81~91（Might 谓词）、RIFT-90（TargetPlan 谓词）。",
+    "（layers/filter.ts 的 matchesObjectFilter、测试内核的 matchesQueryFilter/matchesFilter）中没有实现——未知键" +
+    "（本文件的 mightLte）会被静默忽略：实测 7 Might 与 2 Might 的战场单位在 matchesObjectFilter 下同样通过该 filter，" +
+    "把它当已实现会让本卡消灭任意战场单位。Mighty 关键词的阈值谓词（effects/keywords/Mighty.ts 的 mightyCondition，708/710）" +
+    "已可用 condition.predicate 求值，但 TargetSpec.filter 不消费 Condition。effect.kill（429.1.a.1.a）与 location 限制" +
+    "已合入并在 golden 中真实执行；整卡因阈值谓词保持 judge-required，不近似实现。依赖：TargetPlan/TargetSpec 的有效 Might" +
+    "阈值谓词（RIFT-90 后续）。",
   abilities: [
     {
       kind: "play",

@@ -21,30 +21,30 @@ import type { CardProgram } from "../../ir/index.js";
  * - 括号内是 Temporary 的规则释义，不是本卡的额外指令。
  *
  * status: judge-required —— 两处依赖未合入，均不近似实现:
- * - 没有「向对象授予关键词」的已合入原语：keywords/ 无 Temporary 定义
- *   （ability-templates.md 的 kw-temporary，24 处引用、高优先级未实现），
- *   effects/instructions 也没有 continuous.grant-keyword 的卡牌指令（RIFT-91），
- *   本文件沿用同批次已合入程序（ogn/fading-memories、sfd/gem-jammer）的写法声明形状。
- * - Temporary 的展开本体（816.1.b 在 beginning-start 注册延迟消灭触发）没有已合入路径；
- *   在卡内手写会重复关键词展开（README 第 5 节禁止）。
- * - 「without [Temporary]」的目标限制需要读取关键词特征（816.3）；冻结 ObjectFilter
- *   没有关键词键，未知键会被静默忽略。
+ * - 授予原语与关键词定义都已合入：continuous.grant-keyword（RIFT-258，ability 图层注册）
+ *   与 Temporary KeywordDef（RIFT-265，816.1.b 的 beginning-start 消灭触发）都在；
+ *   golden 已用真实解释器执行授予指令，并用图层引擎读出被授予的 Temporary。
+ *   仍缺的是「卡牌程序 → 关键词展开 → 时点/链」的生产接线（RIFT-257 的 programs/ 适配器
+ *   没有运行时调用方），所以 816.1.b 的触发不会真的挂到时点上。
+ * - 「without [Temporary]」的目标限制需要读取关键词特征（816.3）：冻结 ObjectFilter 没有
+ *   关键词键，未知键会被 layers/filter.ts 与测试内核静默忽略（实测没有 Temporary 的单位与
+ *   已有的单位都能通过同一 filter）。
  * 「Draw 2」半段用已合入的 effect.draw 并在 golden 中真实执行。
  *
- * 依赖：kw-temporary 关键词（RIFT-83 关键词批次）、RIFT-91（continuous.grant-keyword 图层）、
- * 关键词特征过滤谓词。无契约变更请求。
+ * 依赖：RIFT-257（卡牌程序绑定）、关键词特征过滤谓词。无契约变更请求。
  */
 const program = {
   canonicalCardId: "card.hash-20160abc2cd3adac87c1b0f03192e12ab9103b22ffbd5a8468e4072e00264025",
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处依赖未合入：(1)「Give it [Temporary]」需要「向对象授予关键词」的已合入路径：keywords/ 没有 Temporary 定义" +
-    "（ability-templates.md 的 kw-temporary 未实现），effects/instructions 也没有 continuous.grant-keyword 卡牌指令" +
-    "（图层消费方归 RIFT-91）；Temporary 本体（816.1.b/816.1.c：控制者 Beginning Phase 开始时、计分前消灭它）" +
-    "需要在 beginning-start 注册延迟触发，同样无已合入路径，卡内手写会重复关键词展开（cards/README 第 5 节）。" +
+    "两处依赖未合入：(1) 授予原语与关键词定义都已合入——continuous.grant-keyword（RIFT-258）在 ability 图层注册关键词，" +
+    "Temporary KeywordDef（RIFT-265）提供 816.1.b/816.1.c 的 beginning-start 消灭触发；golden 已用真实解释器执行授予指令，" +
+    "并用图层引擎读出被授予的 Temporary。仍缺的是卡牌程序 → 关键词展开 → 时点/链的生产接线（RIFT-257 的 programs/ 适配器" +
+    "没有运行时调用方），因此 816.1.b 的触发不会真的挂到时点上。" +
     "(2)「without [Temporary]」是 355.9.b 的目标限制、依 816.3 读取当前关键词特征，冻结 ObjectFilter 没有关键词键，" +
-    "未知键会被 layers/filter.ts 与测试内核静默忽略，不得当作已实现的限制。" +
+    "未知键会被 layers/filter.ts 与测试内核静默忽略（实测无 Temporary 与已有 Temporary 的单位都能通过同一 filter），" +
+    "不得当作已实现的限制。" +
     "「Draw 2」（414.1/414.3）只用已合入的 effect.draw，并在 golden 中真实执行。不近似实现。",
   abilities: [
     {
@@ -55,12 +55,17 @@ const program = {
       },
       body: [
         {
-          // 「Give it [Temporary]」——按关键词授予的连续效果形状记录意图；
-          // 没有已注册的授予指令与 Temporary 关键词（见 judgeReason）。
+          // 「Give it [Temporary]」——按已合入的 continuous.grant-keyword（RIFT-258）声明；
+          // 选择用 objects 的契约 3.6 符号选择器指向本卡的 TargetSpec（355.10.c 的 "it"），
+          // 由解释器在运行时绑定。仍缺的是卡牌程序 → 关键词展开 → 时点/链的生产接线（见 judgeReason）。
           id: "shadows-call.grant-temporary",
           op: "continuous.grant-keyword",
           args: {
-            keyword: { kind: "constant", value: "Temporary" }
+            keyword: { kind: "constant", value: "Temporary" },
+            objects: {
+              kind: "constant",
+              value: { kind: "target", id: "shadows-call.friendly-unit" }
+            }
           },
           targets: [
             {
