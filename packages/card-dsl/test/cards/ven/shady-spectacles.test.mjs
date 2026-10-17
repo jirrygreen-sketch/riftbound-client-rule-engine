@@ -55,8 +55,8 @@ test("ven-137-166 Shady Spectacles: identity, ruleset, status, judgeReason and v
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Unsupported payment kind: equip/);
   assert.match(program.judgeReason, /copy-layer-traits-exceptions-and-attachment-duration-unavailable/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /params\.cost/);
+  assert.match(program.judgeReason, /copy mode=effect/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -132,7 +132,7 @@ test("ven-137-166 Shady Spectacles: the Equip expansion declares the printed cos
 
 test.todo(
   "ven-137-166 Shady Spectacles: paying the printed Equip cost (1 Energy + 1 Order Power, CR 818.1.c/135.2.e.4) needs the " +
-    "\"equip\" cost-payment kind in cost/plan-values.ts (RIFT-89 cost-payment batch) and contract 3.8.3 params.cost so the " +
+    "\"equip\" cost-payment kind in cost/plan-values.ts and contract 3.8.3 params.cost so the " +
     "printed runes reach KeywordDef.expand"
 );
 test.todo(
@@ -143,7 +143,7 @@ test.todo(
 test.todo(
   "ven-137-166 Shady Spectacles: \"The equipped unit becomes a copy of that unit for as long as this is attached to it\" " +
     "(CR 446.1/446.2/446.4.a/479.1/479.1.d) needs the copy layer's trait copy plus an attachment-bound lifetime and an " +
-    "attachment-driven registration (RIFT-91); effect.copy mode \"effect\" stays blocked today"
+    "attachment-driven registration; effect.copy mode \"effect\" stays blocked today"
 );
 test("ven-137-166 Shady Spectacles binding: Equip expands into an activated ChainDraft with its target and cost", () => {
   const kernel = world().unit("shady-spectacles", {

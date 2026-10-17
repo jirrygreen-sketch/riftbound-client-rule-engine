@@ -20,17 +20,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 814.1 / 814.1.b.3 / 814.1.c：[Shield 3] 是本印刷写明的数值 3，功能等价于
  *   “当我是防守者时 +3 Might”；展开同样归 keywords/Shield.ts。
  *
- * status = judge-required（缺口均不近似实现）：
- * 1. keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef，
- *    827.1.c.1 的“3 Energy：Empower me，仅当未 Empowered 时启动”无法展开；
- * 2. 没有 Empowered 状态谓词（442.1.a 的二元状态）——“[Empowered][>]” 的门控
- *    没有可求值形态；
- * 3. “[Deflect] 和 [Shield 3]” 是持续授予关键词：programs/statics.ts 的
- *    createEngineStaticBinder().bindStatic 已能把该声明装进 ability 图层并在快照里
- *    写出 deflect 1 / shield 3（golden 有执行证据）；被授予的 Deflect 还需要
- *    target.tax 图层消费方——当前没有模块在对该宿主的 target 声明里读并收取该税。
- * 依赖：新增 Empower/Empowered 关键词任务、Empowered 状态谓词（RIFT-359 的谓词任务进行中）与
- * Deflect 目标税消费（RIFT-360 进行中）。本卡不伪造启动能力，也不把依赖能力写成无条件能力。
+ * 当前状态与剩余接线见 judgeReason；不以原语存在代替整卡执行证据。
  */
 const abilities: Ability[] = [
   {
@@ -54,8 +44,10 @@ const abilities: Ability[] = [
       ]
     },
     condition: {
-      kind: "expression",
-      value: { kind: "constant", value: "empowered" }
+      kind: "compare",
+      left: { kind: "object-property", object: "self", property: "empowered" },
+      operator: "gte",
+      right: { kind: "constant", value: 1 }
     }
   }
 ];
@@ -65,16 +57,13 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1) keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef，" +
-    "827.1.c.1 的“3 Energy：Empower me，仅当未 Empowered 时启动”无法展开（827.1.b.1 还要求" +
-    "来源不是目标）；(2) 没有 Empowered 状态谓词——442.1.a 的二元状态不在 ObjectSnapshot / " +
-    "Condition 里，“[Empowered][>]” 的依赖能力门控（828.1.b.1 / 828.1.c）没有可求值形态；" +
-    "(3) “[Deflect] 和 [Shield 3]” 是持续授予关键词：programs/statics.ts 的 " +
-    "createEngineStaticBinder().bindStatic 已能把该声明装进 ability 图层，图层快照真实写出 " +
-    "deflect 1 / shield 3（golden 有执行证据）；剩余执行缺口是被授予的 Deflect " +
-    "需要 target.tax 图层消费方（RIFT-360 进行中）。" +
-    "依赖新的 Empower/Empowered 关键词任务、Empowered 状态谓词（RIFT-359 进行中）与 Deflect 目标税消费 " +
-    "（RIFT-360 进行中）。不近似实现：不伪造启动能力，不把依赖能力写成无条件能力。",
+    "三处缺口（对应 827.1.c.1、828.1.b.1）：(1) Empower KeywordDef 已注册并支持未 Empowered 限制，" +
+    "但 KeywordAbility / programs/keywords.ts 不传递本卡印刷的 3 Energy CostSpec，无法建立完整启动费用计划；" +
+    "(2) “[Empowered][>]” 门控已改为 self.empowered >= 1，参考内核可求值，但生产 ObjectSnapshot 尚未声明 " +
+    "live empowered 计数；" +
+    "(3) Deflect/Shield 的 continuous.grant-keyword 持续授予关键词静态绑定（bindStatic）与两项 KeywordDef 展开已合入，" +
+    "但 target.tax 不是 programs/statics.ts layerFor() 支持的图层，且没有把该 Deflect 税自动接入目标 Finalize。" +
+    "不近似实现：不伪造启动能力，不把依赖能力写成无条件能力。",
   abilities,
   sourceText:
     "[Empower] :rb_energy_3: (:rb_energy_3:: Empower me. Use only if not Empowered.)\n" +
