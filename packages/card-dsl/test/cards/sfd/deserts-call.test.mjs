@@ -4,8 +4,8 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/deserts-call.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
-import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-13dac6e5e0aae54e0dba3935b0e7416d5e1cfe13a2c7817a155c406b27f0e5bf";
 const SOURCE_TEXT =
@@ -13,7 +13,7 @@ const SOURCE_TEXT =
   "Play a 2 :rb_might: Sand Soldier unit token.";
 
 const [play] = program.abilities;
-const [playToken] = play.body;
+const [chooseLocation, playToken] = play.body;
 
 test("sfd-031-221 Desert's Call: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -25,13 +25,12 @@ test("sfd-031-221 Desert's Call: program passes validateCardProgram", () => {
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("sfd-031-221 Desert's Call: judge-required for the open destination and the Repeat wiring", () => {
+test("sfd-031-221 Desert's Call: judge-required only for the Repeat wiring", () => {
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /355\.2/);
   assert.match(program.judgeReason, /target\.location/);
   assert.match(program.judgeReason, /820\.1\.c\.1/);
   assert.match(program.judgeReason, /Additional costs are not bound/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-86|RIFT-89/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-9/);
 });
 
 test("sfd-031-221 Desert's Call structure: no speed keyword, the Repeat payment and the Sand Soldier play", () => {
@@ -53,65 +52,86 @@ test("sfd-031-221 Desert's Call structure: no speed keyword, the Repeat payment 
 
   // "Play a 2 :rb_might: Sand Soldier unit token": the merged CR 187.3 frozen
   // definition and the 440.2.c / 185.2.a chain-create + play path.
-  assert.equal(play.body.length, 1);
+  assert.equal(play.body.length, 2);
   assert.equal(playToken.id, "deserts-call.play-sand-soldier-token");
   assert.equal(playToken.op, "effect.token");
   assert.deepEqual(playToken.args.token, { kind: "constant", value: "sand-soldier" });
   assert.deepEqual(playToken.args.amount, { kind: "constant", value: 1 });
   assert.deepEqual(playToken.args.mode, { kind: "constant", value: "play" });
-  assert.equal(playToken.linkedTo, undefined);
+  assert.equal(chooseLocation.op, "condition.value");
+  assert.deepEqual(chooseLocation.args.value, {
+    kind: "location",
+    value: { kind: "target-location", target: "deserts-call.token-location" }
+  });
+  assert.deepEqual(chooseLocation.locations, [{
+    id: "deserts-call.token-location",
+    type: "any",
+    controller: "controller",
+    min: 1,
+    max: 1,
+    selection: "one"
+  }]);
+  assert.equal(playToken.linkedTo, "deserts-call.choose-location");
+  assert.deepEqual(playToken.args.location, {
+    kind: "linked-value",
+    instructionId: "deserts-call.choose-location",
+    key: "location"
+  });
   assert.equal(playToken.targets, undefined);
-
-  // The printed text names no destination, so the 355.2 / 355.2.a legal-location
-  // choice is left open rather than pinned to a Base (which would delete the
-  // printed Battlefield options); the missing destination expression is recorded
-  // in judgeReason.
-  assert.equal(playToken.args.location, undefined);
   assert.equal(playToken.args.target, undefined);
   assert.equal(playToken.args.pick, undefined);
   assert.equal(playToken.args.locations, undefined);
 });
 
-test("sfd-031-221 Desert's Call golden: the Sand Soldier token lands as a 2 Might Shurima unit", () => {
-  // The golden run supplies the concrete Base the missing Finalize-time
-  // legal-location choice would pick; the token definition itself (187.3) is the
-  // merged frozen one, so this executes the real create + play path.
-  const kernel = world().player("A").build();
-  const base = { type: "base", player: "A" };
-  const run = runInstruction(
-    token,
-    {
-      token: playToken.args.token,
-      amount: playToken.args.amount,
-      mode: playToken.args.mode,
-      location: { kind: "constant", value: base },
-      linkKey: playToken.args.linkKey
-    },
-    { world: kernel }
-  );
+for (const [label, chosenLocation] of [
+  ["the controller's Base", { type: "base", player: "A" }],
+  ["a controlled Battlefield", { type: "battlefield", id: "battlefield-1" }]
+]) {
+  test(`sfd-031-221 Desert's Call golden: the Sand Soldier token lands at ${label}`, () => {
+    const builder = world().player("A");
+    if (chosenLocation.type === "battlefield") {
+      builder.object("battlefield-1", {
+        types: ["battlefield"],
+        zone: "board",
+        location: null,
+        owner: "A",
+        controller: "A",
+        energy: null,
+        power: null
+      });
+      builder.unit("battlefield-occupant", {
+        location: { type: "battlefield", id: "battlefield-1" },
+        owner: "A",
+        controller: "A"
+      });
+    }
+    const kernel = builder.build();
+    kernel.setAnswers({
+      "deserts-call.choose-location/location%3Adeserts-call.token-location": chosenLocation
+    });
+    const outcome = resolveChainBody(program.abilities[0].body, kernel);
 
-  assert.equal(run.result.status, "executed");
-  assert.deepEqual(run.events.map((event) => event.timingPoint), ["chain-item-pending", "card-played"]);
-  const soldiers = kernel.query({ zone: "board", type: "unit" }).filter((object) => object.isToken);
-  assert.equal(soldiers.length, 1);
-  const [soldier] = soldiers;
-  assert.equal(soldier.name, "Sand Soldier");
-  // 185.2.b / 187.3: the token unit has 2 Might; 185.3.a keeps its printed
-  // Energy and Power null (never rewritten as 0).
-  assert.equal(soldier.might, 2);
-  assert.deepEqual(soldier.tags, ["Shurima"]);
-  assert.equal(soldier.energy, null);
-  assert.equal(soldier.power, null);
-  assert.deepEqual(soldier.location, base);
-  assert.equal(soldier.controller, "A");
-  assert.equal(run.linked["sandSoldierToken.amount"], 1);
-});
-
-test.todo(
-  "sfd-031-221 Desert's Call: at Finalize the player chooses the token's valid Location (355.2 / " +
-    "355.2.a, 440.2.b.1, 420.3.b.2: the controller's Base or a Battlefield they control); the " +
-    "legal-location set has no Expr form — RIFT-9 target.location."
-);
+    assert.equal(outcome.status, "executed");
+    assert.deepEqual(outcome.results.map((entry) => [entry.id, entry.result.status]), [
+      ["deserts-call.choose-location", "executed"],
+      ["deserts-call.play-sand-soldier-token", "executed"]
+    ]);
+    assert.deepEqual(outcome.results[1].result.events.map((event) => event.timingPoint), ["chain-item-pending", "card-played"]);
+    const soldiers = kernel.query({ zone: "board", type: "unit" }).filter((object) => object.isToken);
+    assert.equal(soldiers.length, 1);
+    const [soldier] = soldiers;
+    assert.equal(soldier.name, "Sand Soldier");
+    // 185.2.b / 187.3: the token unit has 2 Might; 185.3.a keeps its printed
+    // Energy and Power null (never rewritten as 0).
+    assert.equal(soldier.might, 2);
+    assert.deepEqual(soldier.tags, ["Shurima"]);
+    assert.equal(soldier.energy, null);
+    assert.equal(soldier.power, null);
+    assert.deepEqual(soldier.location, chosenLocation);
+    assert.equal(soldier.controller, "A");
+    assert.equal(outcome.results[1].result.linkedValues["sandSoldierToken.amount"], 1);
+  });
+}
 
 test.todo(
   "sfd-031-221 Desert's Call: collecting the optional 2-energy Repeat cost at Finalize, exposing the " +
