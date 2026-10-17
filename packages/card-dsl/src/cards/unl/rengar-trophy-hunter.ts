@@ -28,11 +28,12 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * continuous.timing 两条声明）。
  *
  * 仍缺三处（不近似实现）：
- * 1. [Ambush] 的两条展开都没有消费方：play-location-permission / continuous.timing 的
- *    图层注册不改变 Finalize 的合法位置校验（355.2.b），chain.canAct() 也不读图层的时机授予。
- * 2. 本卡的 static play-location-permission 没有消费方：该 effect kind 只在卡程序与
- *    Ambush KeywordDef（effects/keywords/Ambush.ts）里发布，layers/rules 查询与 
- *    Finalize 的合法位置校验都不读它。
+ * 1. [Ambush] 的 continuous.timing 消费查询已经合入：
+ *    chain.canAct() 调用 actionTimings()，layers/rules 也能读取 timing grants；
+ *    当前缺口是 Ambush 展开的 location-scoped timing（appliesTo: ["card"] +
+ *    battlefield location）还不能由 programs/statics.ts 归一化为一次具体打出对象的图层注册。
+ * 2. 本卡的 static play-location-permission 仍没有 Finalize 消费方：layers/rules 的
+ *    playLocations() 只消费 continuous.location，未消费该独立 effect kind。
  * 3. "where there are enemy units" 需要“该战场存在敌方单位”的谓词：已合入的 ObjectFilter
  *    锚点没有位置占用/敌我计数维度，本程序用 battlefield: { enemyUnits: true } 的占位键
  *    保留印刷作用域，不把它当成已可求值。
@@ -72,14 +73,16 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1) [Ambush] 的 KeywordDef 已合入（RIFT-266），但它发布的两条声明仍无消费方：" +
-    "合法位置许可（822.1.b/822.1.c、355.2.b）不改变 Finalize 的合法位置校验，“被 Ambush 打出期间具有 [Reaction]”的 " +
-    "continuous.timing 授予也不被 chain.canAct() 读取。" +
+    "三处缺口，均不近似实现：(1) [Ambush] 的 KeywordDef 已合入（RIFT-266），" +
+    "chain.canAct() 已调用 actionTimings()，layers/rules 也支持 continuous.timing；" +
+    "当前缺口是 Ambush 展开的 location-scoped timing（appliesTo: [card] 与 battlefield location）" +
+    "还不能由 programs/statics.ts 归一化为具体打出对象的图层注册。" +
     "(2)「I can [Ambush] to a battlefield where there are enemy units」（822.1.d 的动词形态，规则原文的例子就是本卡）" +
-    "是 static play-location-permission（349、355.2.b），但该 effect kind 只在卡程序与 Ambush KeywordDef 里发布，" +
-    "layers/rules 查询与 Finalize 的合法位置校验都不读它。" +
-    "(3)「where there are enemy units」需要“该战场存在敌方单位”的谓词：已合入的 ObjectFilter 锚点没有位置占用/敌我计数维度，" +
-    "本程序用占位键记录该条件，不求值。依赖：打出位置许可的 Finalize 接线与 continuous.timing 的时机消费方。",
+    "是 static play-location-permission（349、355.2.b），但 layers/rules 的 playLocations() 只消费" +
+    "continuous.location，Finalize 仍没有该 effect kind 的位置许可消费方。" +
+    "(3)「where there are enemy units」需要“该战场存在敌方单位”的谓词：已合入的 ObjectFilter" +
+    "锚点没有位置占用/敌我计数维度，本程序用占位键记录该条件，不求值。" +
+    "依赖：Ambush timing 的静态绑定归一化、play-location-permission 的 Finalize 接线与敌方单位占用谓词。",
   abilities,
   sourceText:
     "[Ambush] (You may play me as a [Reaction] to a battlefield where you have units.)\n" +

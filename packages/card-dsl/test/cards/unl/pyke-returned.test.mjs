@@ -32,12 +32,9 @@ test("unl-145-219 Pyke, Returned: identity, status, judgeReason and verbatim sou
   assert.match(program.judgeReason, /187\.5/);
   assert.match(program.judgeReason, /184\.1|185\.2\.d/);
   assert.match(program.judgeReason, /RIFT-62/);
-  assert.match(program.judgeReason, /RIFT-120/);
-  // Stale "no host provides testTrigger" wording is gone; the merged pipeline
-  // has a test-host adapter and only lacks a CardProgram registration producer.
   assert.match(program.judgeReason, /host\.testTrigger/);
-  assert.match(program.judgeReason, /CardProgram/);
-  assert.doesNotMatch(program.judgeReason, /已合入 host 都不提供|RIFT-89 \/ RIFT-264 后续/);
+  assert.match(program.judgeReason, /captured last-known|LKI/);
+  assert.doesNotMatch(program.judgeReason, /触发注册生产方|没有生产方|RIFT-120/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -121,6 +118,7 @@ test.todo(
 test.todo(
   "unl-145-219 Pyke, Returned: register the 'once each turn' death trigger and evaluate the " +
     "'while I'm at a battlefield' condition against the source's last-known location before the " +
-    "trigger is queued (CR 383.2.a.1 / 383.3.e.1, 808.1.d.3) — the merged pipeline requires " +
-    "host.testTrigger; the missing piece is the CardProgram -> TriggerRegistration producer (RIFT-120)"
+    "trigger is queued (CR 383.2.a.1 / 383.3.e.1, 808.1.d.3) — host.testTrigger and the " +
+    "CardProgram -> TriggerRegistration/lifecycle path are merged; the remaining gap is binding " +
+    "the captured last-known source location into the condition ResolveContext"
 );

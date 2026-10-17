@@ -4,7 +4,7 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/rippers-bay.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
-import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import channel from "../../../../engine-core/dist/effects/instructions/effect.channel.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -37,7 +37,8 @@ test("unl-214-219 Ripper's Bay: judgeReason names the event-player, location and
   assert.match(program.judgeReason, /190\.6\.c/);
   assert.match(program.judgeReason, /object-enters-hand/);
   assert.match(program.judgeReason, /cost\.pay/);
-  assert.match(program.judgeReason, /CostPlan/);
+  assert.match(program.judgeReason, /payments/);
+  assert.doesNotMatch(program.judgeReason, /没有生产者|生产方.*支付|CostPlan.*生产/);
 });
 
 test("unl-214-219 Ripper's Bay: a unit entering a hand from this Battlefield is the trigger event", () => {
@@ -75,12 +76,14 @@ test("unl-214-219 Ripper's Bay: contract 3.9 optional wrapper around pay 1 then 
   assert.equal(choice.targets, undefined);
   assert.equal(choice.picks, undefined);
 
-  // The printed 1 Energy is a cost within instructions (204.3.a). cost.pay is
-  // not a merged instruction primitive, so the declaration keeps the amount
-  // reviewable; the payer is the ability's controller (190.6.c/190.6.d), which
-  // is why no fabricated player argument appears here.
+  // The merged cost.pay primitive accepts an inline payments map and builds the
+  // one-energy plan for the current ability controller.
   assert.equal(pay.op, "cost.pay");
-  assert.deepEqual(pay.args.energy, { kind: "constant", value: 1 });
+  assert.deepEqual(pay.args.payments, {
+    kind: "constant",
+    value: { energy: 1 }
+  });
+  assert.equal(pay.args.energy, undefined);
   assert.equal(pay.args.payer, undefined);
 
   // 431.1 / 431.2: channel one rune from the top of the channelling player's
@@ -97,13 +100,48 @@ test("unl-214-219 Ripper's Bay: declining the optional performs neither the paym
   const kernel = world().unit("unit-here", { owner: "A" }).rune(["r1", "r2"]).build();
   kernel.setAnswers({ [OPTIONAL_ID]: false });
 
-  const outcome = runAbilityBody(ability.body, kernel);
+  const outcome = resolveChainBody(ability.body, kernel);
 
   assert.equal(outcome.status, "partial");
   assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
     ["rippers-bay.opt-in", "negated"]
   ]);
   assert.equal(outcome.results[0].result.reason, "skipped");
+  assert.equal(kernel.player("A").runeDeckSize, 2);
+  assert.equal(kernel.player("A").runePool.length, 0);
+  assert.deepEqual(kernel.events, []);
+});
+
+test("unl-214-219 Ripper's Bay: payments executes 1 Energy before channeling", () => {
+  const kernel = world()
+    .player("A", { energy: 1 })
+    .unit("unit-here", { owner: "A", controller: "A" })
+    .rune(["r1", "r2"], { owner: "A" })
+    .build();
+  kernel.setAnswers({ [OPTIONAL_ID]: true });
+
+  const outcome = resolveChainBody(ability.body, kernel);
+
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.equal(kernel.player("A").energy, 0);
+  assert.equal(kernel.player("A").runeDeckSize, 1);
+  assert.equal(kernel.player("A").runePool.length, 1);
+  assert.deepEqual(kernel.events.map(event => event.action), ["pay", "channel-rune"]);
+});
+
+test("unl-214-219 Ripper's Bay: insufficient Energy rejects payment before channeling", () => {
+  const kernel = world()
+    .player("A", { energy: 0 })
+    .unit("unit-here", { owner: "A", controller: "A" })
+    .rune(["r1", "r2"], { owner: "A" })
+    .build();
+  kernel.setAnswers({ [OPTIONAL_ID]: true });
+
+  assert.throws(
+    () => resolveChainBody(ability.body, kernel),
+    /cannot-pay-cost|Insufficient|Energy/i
+  );
+  assert.equal(kernel.player("A").energy, 0);
   assert.equal(kernel.player("A").runeDeckSize, 2);
   assert.equal(kernel.player("A").runePool.length, 0);
   assert.deepEqual(kernel.events, []);
@@ -157,12 +195,6 @@ test.todo(
   "unl-214-219 Ripper's Bay: resolve 'that player' as the ability's controller so the payment and " +
     "the channel belong to the player whose unit was returned (CR 190.6.c) — needs an event-player " +
     "binding in the CardProgram TriggerRegistration (contract change request plus RIFT-33)"
-);
-
-test.todo(
-  "unl-214-219 Ripper's Bay: submit the 1-Energy cost within instructions at resolution " +
-    "(CR 204.3.a/383.3.a) — cost.pay is merged and settles an already finalized CostPlan, " +
-    "but no producer builds or submits the payer-scoped plan at resolution"
 );
 
 test.todo(

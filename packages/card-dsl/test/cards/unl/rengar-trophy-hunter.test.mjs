@@ -33,9 +33,10 @@ test("unl-120-219 Rengar, Trophy Hunter: identity, status, judgeReason and verba
   assert.match(program.judgeReason, /RIFT-266/);
   // Second-sweep refresh proof: the merged Ambush KeywordDef is named; only its
   // play-location-permission consumers are missing.
-  assert.match(program.judgeReason, /Ambush KeywordDef/);
+  assert.match(program.judgeReason, /KeywordDef/);
+  assert.match(program.judgeReason, /actionTimings|continuous\.timing/);
   // The stale "no Ambush KeywordDef is merged" wording must be gone.
-  assert.doesNotMatch(program.judgeReason, /没有已合入的 KeywordDef|无 Ambush 文件/);
+  assert.doesNotMatch(program.judgeReason, /没有已合入的 KeywordDef|无 Ambush 文件|chain\.canAct\(\).*不读/);
 });
 
 test("unl-120-219 Rengar, Trophy Hunter: [Ambush] stays a keyword declaration (822.1.a)", () => {
@@ -75,9 +76,8 @@ test("unl-120-219 Rengar, Trophy Hunter: the reminder text is reminder text only
 });
 
 test.todo(
-  "unl-120-219 Rengar, Trophy Hunter: [Ambush] adds the battlefield permission and grants [Reaction] while " +
-    "being played there (CR 822.1.b / 822.1.c / 355.2.b) — the merged Ambush expansion is not consumed by " +
-    "Finalize's placement check or chain.canAct()"
+  "unl-120-219 Rengar, Trophy Hunter: [Ambush] location-scoped timing and play-location permissions must be " +
+    "normalized by the static binder and consumed by Finalize (CR 822.1.b / 822.1.c / 355.2.b)"
 );
 test.todo(
   "unl-120-219 Rengar, Trophy Hunter: the verb-form permission lets the card be played to a battlefield with " +

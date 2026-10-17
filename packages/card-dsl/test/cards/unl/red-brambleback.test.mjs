@@ -11,6 +11,7 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import buff from "../../../../engine-core/dist/effects/instructions/effect.buff.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 
 const CANONICAL_ID =
   "card.hash-cc540d8a2bbd62d237f265dc99b08da25c4499af36778a1dc01cf4165c0b9553";
@@ -60,9 +61,9 @@ test("unl-029-219 Red Brambleback: identity, status, judgeReason and verbatim so
   // The newly verified gap: the scoring wave carries no conquering-unit attribution.
   assert.match(program.judgeReason, /payloadFields/);
   assert.match(program.judgeReason, /sigil-of-the-storm/);
-  // Second-sweep refresh proof: the merged conquered-to-conquer alias is named,
-  // and the old validateTriggerSpec-rejection wording is gone.
+  // The closed EventPattern spelling and the pipeline alias are both named.
   assert.match(program.judgeReason, /pipeline-match/);
+  assert.match(program.judgeReason, /conquered/);
   assert.doesNotMatch(program.judgeReason, /validateTriggerSpec/);
   assert.doesNotMatch(program.judgeReason, /RIFT-120/);
 });
@@ -98,12 +99,28 @@ test("unl-029-219 Red Brambleback: the extra-trigger clause is a trigger-collect
   // resolution) is deliberately not used here.
 });
 
+test("unl-029-219 Red Brambleback: the closed conquered event spelling passes registration validation", () => {
+  const translated = translateTriggerFilter(
+    conquerTrigger.trigger.filter,
+    "brambleback",
+    conquerTrigger.trigger.at
+  );
+  assert.deepEqual(translated, {
+    event: "conquered",
+    object: { objectId: "brambleback" }
+  });
+  assert.doesNotThrow(() => assertTriggerSpec({
+    at: conquerTrigger.trigger.at,
+    filter: translated
+  }));
+});
+
 test("unl-029-219 Red Brambleback: the conquer trigger Buffs one chosen friendly unit", () => {
   // 383.4.c.2: "When I conquer" is this unit's Conquer Effect.
   assert.equal(conquerTrigger.kind, "triggered");
   assert.equal(conquerTrigger.trigger.at, "conquer");
   assert.deepEqual(conquerTrigger.trigger.filter, {
-    event: "conquer",
+    event: "conquered",
     filter: { source: "self" }
   });
   assert.equal(conquerTrigger.optional, false);
@@ -185,9 +202,9 @@ test("unl-029-219 Red Brambleback: the card's `source: self` anchor translates t
   // translation the registration path uses: the source anchor becomes an object
   // filter on the unit. Binding that filter to a real conquer emission is the
   // separate gap recorded below.
-  const translated = translateTriggerFilter(conquerTrigger.trigger.filter, "brambleback", "conquer");
+  const translated = translateTriggerFilter(conquerTrigger.trigger.filter, "brambleback", "conquered");
   assert.deepEqual(translated, {
-    event: "conquer",
+    event: "conquered",
     object: { objectId: "brambleback" }
   });
 });

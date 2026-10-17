@@ -30,8 +30,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * 仍缺三处：
  * - conquer 订阅缺单位归属：scoring 波次只发 player + details（timing-points.ts 的 conquer
  *   没有声明 payloadFields），383.4.c.2 要绑的“在这里征服的这张单位”没有归属字段；
- *   管线映射（events/pipeline-match.ts）把 conquered 事件归并为 conquer，卡片 filter 的
- *   `event: "conquer"` 能通过 card-dsl 的符号校验并到达触发匹配（校验只查符号形状，不查闭表）。
+ *   管线映射（events/pipeline-match.ts）把闭表的 conquered 归并为运行时 conquer，卡片 filter
+ *   必须使用受支持的 event: "conquered" 拼写，不能写运行时 timing point conquer。
  * - “trigger an additional time” 没有引擎模型：Ability 的六种形状没有触发倍率，
  *   ContinuousEffect.kind 没有倍率消费者，触发收集阶段（events/）也没有倍率接口
  *   （与已合入 ogn/karthus-eternal、rad/detonation-amplifier 记录同一缺口，按 Karthus 先例写 static 声明）。
@@ -69,7 +69,7 @@ const abilities: Ability[] = [
     trigger: {
       at: "conquer",
       // 383.4.c.2：“When I conquer” 由本卡自身的征服触发。
-      filter: { event: "conquer", filter: { source: "self" } }
+      filter: { event: "conquered", filter: { source: "self" } }
     },
     optional: false,
     body: [
@@ -105,7 +105,8 @@ const program = {
     "conquer 时点已由 turn/flow.ts 的 Score 波次真实发出，effect.buff 与卡牌程序绑定（RIFT-257）也已合入；" +
     "但仍有三处缺口，均不近似实现：(1) conquer 订阅缺单位归属：scoring 波次只发 player + details" +
     "（timing-points.ts 的 conquer 未声明 payloadFields；events/pipeline-match.ts 把 conquered 归并为 conquer），" +
-    "383.4.c.2 的“在这里征服的这张单位”没有归属字段可绑（同 ogn/sigil-of-the-storm 的归属缺口）。" +
+    "383.4.c.2 的“在这里征服的这张单位”没有归属字段可绑（同 ogn/sigil-of-the-storm 的归属缺口）；" +
+    "事件过滤器使用闭表的 conquered 拼写，注册前 assertTriggerSpec 已可通过。" +
     "(2)「Your conquer effects for conquering here trigger an additional time.」" +
     "（383.4.c.3 的 Conquer Effects 触发收集改写；383.4.g.2 用本卡自己的例子区分“真正 Conquer”与“被激活的触发”）" +
     "没有引擎模型：Ability 的六种形状没有触发倍率，ContinuousEffect.kind 没有倍率消费者，触发收集阶段（events/）也没有倍率接口" +

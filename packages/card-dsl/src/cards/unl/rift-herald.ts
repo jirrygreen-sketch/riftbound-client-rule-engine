@@ -38,8 +38,8 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  *    （ObjectFilter 的 type 匹配是同一对象上的判定，无法在这一步把"已查看集合"再按 unit 收窄）；
  *    且 chain/interpreter-adapter.ts 的 LITERAL_FIELDS 未解码 effect.reveal 的 pick 字段，
  *    链式派发会以 "pick must be a non-empty id" 拒绝（契约变更请求，同 diana-lunari 记录）。
- * 3. "[Deathknell]" 的展开使用未注册的 trigger.leave 原语，808.1.d.1–d.3 的触发收集、
- *    死亡被替代移出链与最后已知信息属事件/链管线（RIFT-82、RIFT-120）。
+ * 3. "[Deathknell]" 的 KeywordDef 展开使用未注册的 trigger.leave 原语；808.1.d.1–d.3 的
+ *    死亡被替代移出链与最后已知信息仍需该关键词展开接入事件/链管线（RIFT-82）。
  * 4. "Play a unit from your hand … ignoring its Energy cost" 需要为所选牌生成 base Energy 为 0、
  *    Power 保留的 finalized 费用计划：cost.printed/cost.pay 原语本体已合入，但没有生产方为“打出所选牌”
  *    生成这种计划（effect.play 只接受调用方已 finalize 的计划，卡牌程序不得自行推导打印费用，
@@ -47,8 +47,8 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  * 程序保留 "look → optional(reveal + 取到手上) → recycle 其余" 的顺序与 effect.play 的调用形状，
  * golden 用解释器与参考内核真实执行已合入的 recycle 与可选包装部分。
  *
- * 依赖：RIFT-64/66（有序牌库顶查看的卡牌接线）、RIFT-82（kw-deathknell-legion）、
- * cost 计划生产方（RIFT-89 后续）、RIFT-120（事件管线触发注册）。
+ * 依赖：RIFT-64/66（有序牌库顶查看的卡牌接线）、RIFT-82（Deathknell trigger.leave 展开）、
+ * cost 计划生产方。
  */
 
 /**
@@ -232,8 +232,8 @@ export default {
     "静态 IR 写不出结算期的牌库顶引用（RIFT-64/66 的后续）。(2)「reveal a unit from among them」缺少" +
     "「已查看集合按 unit 收窄」的成员筛选谓词，且 chain/interpreter-adapter.ts 的 LITERAL_FIELDS 未解码 " +
     "effect.reveal 的 pick 字段，链式派发以 \"pick must be a non-empty id\" 拒绝（契约变更请求）。" +
-    "(3) [Deathknell]（808.1）的展开使用未注册的 trigger.leave 原语，808.1.d.1–d.3 的触发收集、" +
-    "死亡被替代移出链与最后已知信息属事件/链管线（RIFT-82、RIFT-120）。(4)「Play a unit from your hand … " +
+    "(3) [Deathknell]（808.1）的 KeywordDef 展开使用未注册的 trigger.leave 原语，808.1.d.1–d.3 的触发收集、" +
+    "死亡被替代移出链与最后已知信息仍需该关键词展开接入事件/链管线（RIFT-82）。(4)「Play a unit from your hand … " +
     "ignoring its Energy cost」需要为所选牌生成 base Energy=0、Power 保留的 finalized 费用计划" +
     "（356.1.b.2）；cost.printed/cost.pay 原语本体已合入，但没有生产方为“打出所选牌”生成这种计划，" +
     "effect.play 只接受调用方已 finalize 的计划，卡牌程序不得自行推导被选牌的印刷费用，也不把 null 写成 0" +
