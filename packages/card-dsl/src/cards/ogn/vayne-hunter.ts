@@ -35,10 +35,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   决定，实际控制记录在 turn/flow.ts 与 combat/flow.ts 的 BattlefieldState），
  *   count 的 subject 也不参与求值（expr.ts 只读 expr.filter），所以
  *   { count, subject:"battlefields", filter:{ controller:"opponent" } } 恒为 0。
- * - 征服触发有两层缺口。触发拼写：object:{objectId:"self"} 经
- *   translateTriggerFilter 原样保留、"self" 不会被绑定成宿主 id，实测对携带本单位
- *   object 的 conquer 事件仍不匹配；改用嵌套拼写 { filter: { source: "self" } }
- *   能翻译成 object:{objectId:宿主} 并匹配该事件，但生产 conquer 发射载荷只有
+ * - 征服触发仍有两层缺口。事件过滤已改用已合入的 source:self 绑定形状，能翻译成
+ *   object:{objectId:宿主} 并匹配携带本单位 object 的 conquer 事件，但生产 conquer 发射载荷只有
  *   { player, details:{ battlefieldId } }、没有参战单位 object（383.4.c.2.a 的
  *   单位身份），所以生产路径上仍恒假。body：choice.optional 内的 TargetSpec
  *   filter { source: "self" } 被 programs/filters.ts 的 translateObjectFilter 抛
@@ -68,8 +66,7 @@ const vayneHunter = {
     "条件本身也没有可求值形态：战场不是带控制者的 ObjectSnapshot（battlefield token 的 owner/controller 由放置者决定，实际控制记录在 turn/flow.ts、combat/flow.ts 的 BattlefieldState），" +
     "且 count 的 subject 不参与求值（interpreter/expr.ts 只读 expr.filter），{ count, subject:\"battlefields\", filter:{ controller:\"opponent\" } } 恒为 0。" +
     "(3) 「When I conquer, you may pay :rb_energy_1: to return me」（383.4.c.1、383.4.c.2.a）：" +
-    "触发拼写 object:{objectId:\"self\"} 经 translateTriggerFilter 原样保留（\"self\" 不绑定成宿主 id），实测对携带本单位 object 的 conquer 事件仍不匹配；" +
-    "嵌套拼写 { filter:{ source:\"self\" } } 能翻译成 object:{objectId:宿主}，但生产 conquer 发射载荷只有 { player, details:{ battlefieldId } }、没有参战单位 object，生产路径仍恒假；" +
+    "事件过滤已改用 { filter:{ source:\"self\" } } 的已合入绑定形状，能翻译成 object:{objectId:宿主}；但生产 conquer 发射载荷只有 { player, details:{ battlefieldId } }、没有参战单位 object，生产路径仍无法确认是本单位征服；" +
     "body 侧 choice.optional 内的 TargetSpec filter { source:\"self\" } 被 programs/filters.ts 的 translateObjectFilter 抛 \"Unsupported filter field source\"，实测 triggerRegistrations 在 body 翻译阶段即失败；" +
     "即便换成可翻译的 filter，chain/engine.ts assertFinalizationSurface 仍以 \"Nested/repeated targets require an interpreter target-selection lifecycle adapter\" 拒绝嵌套目标（实测 ChainContractBlockedError）；" +
     "且 cost.pay 资源不足时抛 cannot-pay-cost，当前缺只跳过该可选体的 payment scope/savepoint（cost/README.md 契约变更请求 1/2）。" +
@@ -108,10 +105,9 @@ const vayneHunter = {
     {
       kind: "triggered",
       // 383.4.c：Conquer Effect。封闭判别值 "conquered" 映射到 conquer 时点；
-      // object:{objectId:"self"} 声明「本单位在征服战场在场」的意图（383.4.c.2.a）。
-      // translateTriggerFilter 原样保留这个 "self"（不绑定宿主 id），而生产
-      // conquer 载荷只有 { player, details:{ battlefieldId } }，所以匹配恒假（见 judgeReason）。
-      trigger: { at: "conquer", filter: { event: "conquered", object: { objectId: "self" } } },
+      // source:self 是已合入的事件过滤绑定形状，会在翻译时绑定到本宿主（383.4.c.2.a）。
+      // 生产 conquer 载荷仍没有参战单位 object，因此整卡继续保持 judge-required。
+      trigger: { at: "conquer", filter: { event: "conquered", filter: { source: "self" } } },
       optional: false,
       body: [
         {
