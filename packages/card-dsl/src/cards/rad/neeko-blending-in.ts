@@ -24,14 +24,15 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   the board" 是来源在场期间的持续期限（107.4.d.2：非 Champion 传奇只能存在于 Legend
  *   Zone 或 Banishment）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。三处依赖未合入：
+ * status 判定（cards/README.md 第 2 节）：judge-required（2026-10-17 复核）。三处依赖仍缺：
  * 1. ZoneId 没有 legend-zone 成员（见 effect.empower / effect.exhaust / effect.stun 的
  *    同款契约缺口注释），也没有已注册的 "effect.create-legend" 原语把传奇 Create 到
  *    Legend Zone（440.2.b.4 / 107.4.d.1）；
  * 2. 运行期读不到构筑期决定的"those legends"：CardProgram.deckbuilding 有 IR 与校验，但
- *    engine-core/src/deck/index.ts 只有占位 export，没有消费方把决定变成运行期名单；
- * 3. "while I'm on the board" 需要来源离场时移除该传奇（107.4.d.2）；契约 Duration 已有
- *    { type: "while-source-in-zone" }，但没有卡牌侧原语/消费方接线。
+ *    engine-core/src/deck/index.ts 仍是 `export {}`，没有消费方把决定变成运行期名单；
+ * 3. "while I'm on the board"（107.4.d.2）需要来源离场时移除该传奇：契约 Duration 已有
+ *    { type: "while-source-in-zone" }，且 continuous.* 指令（RIFT-258/259）能用它注册持续效果，
+ *    但没有把传奇 Create 到 Legend Zone 的原语/消费方，触发注册路径也缺（RIFT-257）。
  * 因此 deckbuilding 决定与触发结构按现有契约原样保留，整卡不标 executable，也不近似实现。
  */
 const abilities: Ability[] = [
@@ -66,14 +67,15 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处缺口：(1) 把传奇加入 Legend Zone 是 Create 动作（CR 440.2.b.4），107.4.d.1 明确这类" +
-    "传奇不是 Champion Legend；契约 ZoneId 没有 legend-zone 成员（effect.empower/effect.exhaust/" +
-    "effect.stun 已记录同一契约缺口），也没有已注册的 effect.create-legend 原语；" +
+    "2026-10-17 复核后仍有三处缺口：(1) 把传奇加入 Legend Zone 是 Create 动作（CR 440.2.b.4），" +
+    "107.4.d.1 明确这类传奇不是 Champion Legend；契约 ZoneId 没有 legend-zone 成员" +
+    "（effect.empower/effect.exhaust/effect.stun 已记录同一契约缺口），也没有已注册的 effect.create-legend 原语；" +
     "(2) 「choose one of those legends」要在运行期读取 103.1 的构筑期决定（CardProgram.deckbuilding），" +
-    "但 engine-core/src/deck 只有占位 export，没有把 3 张额外传奇变成运行期名单的消费方；" +
-    "(3) 「while I'm on the board」需要来源离场时移除该传奇（107.4.d.2）：契约 Duration 有 " +
-    "while-source-in-zone，但没有卡牌侧原语/消费方。依赖：ZoneId 契约变更请求 + 新增 create-legend/" +
-    "deckbuilding 消费任务（均未分配）。不近似实现（不用 move-zone 把传奇兜进普通区域，也不省略期限）。",
+    "但 engine-core/src/deck 只有占位 export（export {}），没有把 3 张额外传奇变成运行期名单的消费方；" +
+    "(3) 「while I'm on the board」需要来源离场时移除该传奇（107.4.d.2）：契约 Duration 有 while-source-in-zone，" +
+    "但没有把传奇 Create 到 Legend Zone 的原语/消费方，触发注册路径亦缺（RIFT-257）。" +
+    "依赖：ZoneId 契约变更请求 + create-legend / deckbuilding 消费任务（均未分配）、RIFT-257。" +
+    "不近似实现（不用 move-zone 把传奇兜进普通区域，也不省略期限）。",
   abilities,
   // 103.1：构筑期额外选择 3 张互不同名（none match names）的传奇，作为 Legend Zone 备选。
   deckbuilding: [

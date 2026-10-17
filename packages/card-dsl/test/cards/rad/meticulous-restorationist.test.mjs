@@ -5,6 +5,7 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/meticulous-restorationist.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { getTimingPoint } from "../../../../engine-core/dist/events/timing-points.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-c53e9086202d34746759796f864fa5b794a4a294941dad556175a2e226acace5";
@@ -18,9 +19,17 @@ test("rad-120-167 Meticulous Restorationist: program validates and has expected 
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  // 缺的是“读触发事件对象基础 Energy 费用”的条件求值，不是“待实现”。
+});
+
+test("rad-120-167 Meticulous Restorationist: judgeReason records the remaining gaps only", () => {
+  // The play-from-trash half is executable, so the reason must not list the
+  // cost plan as a gap; it must name the event-payload condition and the
+  // trigger-registration gaps and cite their owners.
   assert.match(program.judgeReason, /Energy cost/);
-  assert.match(program.judgeReason, /condition\.predicate/);
+  assert.match(program.judgeReason, /Condition\/Expr/);
+  assert.match(program.judgeReason, /card-played/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.equal(/费用计划未合入|RIFT-89/.test(program.judgeReason), false);
 });
 
 test("rad-120-167 Meticulous Restorationist: card-played trigger with an optional play-from-trash body", () => {
@@ -55,6 +64,15 @@ test("rad-120-167 Meticulous Restorationist: card-played trigger with an optiona
     kind: "constant",
     value: { finalized: true, power: ["Order"] }
   });
+});
+
+test("rad-120-167 Meticulous Restorationist: card-played is a real timing point (383.4.a)", () => {
+  // The trigger subscribes to a closed-enum timing point, and the ability's
+  // condition contract (a ThresholdSpec over the played card's printed Energy
+  // cost) is recorded in judgeReason and the todos, not probed here.
+  const timing = getTimingPoint("card-played");
+  assert.equal(timing.id, "card-played");
+  assert.equal(program.abilities[0].trigger.at, timing.id);
 });
 
 test("rad-120-167 Meticulous Restorationist: declining the option does nothing", () => {
@@ -104,15 +122,9 @@ test("rad-120-167 Meticulous Restorationist: accept path plays the card from tra
 test.todo(
   "rad-120-167 Meticulous Restorationist: 触发条件“a card with Energy cost :rb_energy_7: or more”" +
     "需要读取被播下事件对象的印刷（基础）Energy 费用（206.1）；static IR 的 Condition/Expr 只能读 " +
-    "self/source 静态选择器，依赖 condition.predicate / condition.value 对事件载荷的支持" +
-    "（RIFT-9 condition 组，契约 3.5 事件载荷消费）"
+    "self/source 静态选择器，card-played 时点也没有供条件消费的载荷字段"
 );
 test.todo(
-  "rad-120-167 Meticulous Restorationist: 打出本卡的 Finalize 费用收取（Order Power 的实际支付与符文" +
-    "回收）依赖费用计划 + cost.pay 管线（RIFT-89 费用批次）；本测试只锁定 effect.play 携带的已 Finalize" +
-    "费用计划形状与打出动作本身"
-);
-test.todo(
-  "rad-120-167 Meticulous Restorationist: “自己回合外从 trash 打出”的时机许可（card-played 触发进链 + " +
-    "chain 的 canAct 判定）依赖触发管线与链（RIFT-120 事件/链批次）"
+  "rad-120-167 Meticulous Restorationist: 把该 trigger 注册进事件管线并订阅 card-played——引擎不读取 CardProgram " +
+    "能力，带 condition 的注册还要求宿主 testTrigger 适配器（RIFT-257）"
 );

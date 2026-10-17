@@ -1,11 +1,11 @@
 // Golden test for Mordekaiser, Twice Slain (rad-020-167).
 //
-// The card is judge-required (see the program's judgeReason): the printed
-// "you may … instead" optionality has no IR home, the "kill a friendly unit"
-// within-instruction cost needs a filter-based non-target cost selection, and
-// Recall is explicitly blocked by effect.move. The runnable evidence is the
-// three merged primitives of the replacement body (effect.kill via picks,
-// effect.heal, effect.exhaust).
+// The card is judge-required (see the program's judgeReason). The merged
+// dependencies — the Accelerate / Assault KeywordDefs, continuous.might, and
+// the RIFT-260 replacement layer with its optional replacement.event window —
+// are executed as evidence below. The remaining gaps are the within-cost
+// "kill a friendly unit" selection, Recall, and the card-level replacement
+// registration plus its once-per-turn window.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -40,15 +40,19 @@ test("rad-020-167 Mordekaiser, Twice Slain: identity, status, judgeReason and ve
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
-  // README §2: the reason must name the missing semantics and the owner tasks.
-  assert.match(program.judgeReason, /optional/);
-  assert.match(program.judgeReason, /ReplacementAbility/);
-  assert.match(program.judgeReason, /355\.10\.c\.1/);
-  assert.match(program.judgeReason, /recall/i);
-  assert.match(program.judgeReason, /RIFT-109/);
-  assert.match(program.judgeReason, /RIFT-120/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
+});
+
+test("rad-020-167 Mordekaiser, Twice Slain: judgeReason names the remaining gaps and drops the merged ones", () => {
+  assert.match(program.judgeReason, /355\.10\.c\.1/);
+  assert.match(program.judgeReason, /planInstruction/);
+  assert.match(program.judgeReason, /recall/i);
+  assert.match(program.judgeReason, /RIFT-257/);
+  // The merged dependencies must not be presented as gaps any more.
+  assert.match(program.judgeReason, /KeywordDef 与 continuous\.might 已合入/);
+  assert.equal(/RIFT-120/.test(program.judgeReason), false);
+  assert.equal(/RIFT-91/.test(program.judgeReason), false);
 });
 
 test("rad-020-167 Mordekaiser, Twice Slain: Accelerate + Assault 3 declared in printed order", () => {
@@ -61,6 +65,22 @@ test("rad-020-167 Mordekaiser, Twice Slain: Accelerate + Assault 3 declared in p
   assert.equal(assault.stacking, "sum");
   assert.ok(accelerate.ruleRefs.includes("805.1.b"));
   assert.ok(assault.ruleRefs.includes("807.1.c"));
+});
+
+test("rad-020-167 Mordekaiser, Twice Slain: Assault 3 really expands to a +3 arithmetic-layer Might effect", () => {
+  const [expansion] = assault.expand({ value: assaultKeyword.value, host: HOST });
+  assert.equal(expansion.kind, "static");
+  // 807.1.c: the expansion is the merged continuous.might shape consumed by the
+  // arithmetic layer while the Attacker designation holds.
+  assert.equal(expansion.effect.kind, "continuous.might");
+  assert.equal(expansion.effect.mode, "add");
+  assert.equal(expansion.effect.layer, "arithmetic");
+  assert.deepEqual(expansion.effect.amount, { kind: "constant", value: 3 });
+  assert.equal(expansion.effect.appliesTo, "self");
+  assert.equal(expansion.condition.kind, "compare");
+  assert.equal(expansion.condition.operator, "eq");
+  assert.equal(expansion.condition.left.property, "designation");
+  assert.deepEqual(expansion.condition.right, { kind: "constant", value: "attacker" });
 });
 
 test("rad-020-167 Mordekaiser, Twice Slain: the replacement intercepts its own death", () => {
@@ -189,29 +209,57 @@ test("rad-020-167 Mordekaiser, Twice Slain: the recall step is still blocked by 
   assert.equal(sourceRef.zoneEntryId, 1);
 });
 
-test.todo(
-  "Mordekaiser, Twice Slain: the printed 'you may … instead' optional replacement (369.1/368.1) — blocked because " +
-    "ReplacementAbility has no optional field and the card-level replacement registration path is unmerged (RIFT-120); " +
-    "writing choice.optional inside the body would replace the death even when declined"
-);
+test("rad-020-167 Mordekaiser, Twice Slain: the recall step is declared with the frozen move spelling the planner refuses", () => {
+  // 457-460: Recall is not a Move. The program records the intent with the
+  // move spelling plus mode "recall"; the merged replacement planner documents
+  // that this exact mode is blocked (README "Supported planned opcodes" lists
+  // effect.move with "mode recall is blocked, CR 457-460"). The gap stays in
+  // judgeReason and the todos instead of being pinned by a throw assertion.
+  assert.equal(recallInstruction.op, "effect.move");
+  assert.deepEqual(recallInstruction.args.mode, { kind: "constant", value: "recall" });
+  assert.deepEqual(recallInstruction.args.to, { kind: "constant", value: "controller-base" });
+  assert.deepEqual(recallInstruction.args.objects, { kind: "constant", value: "source" });
+});
+
+test("rad-020-167 Mordekaiser, Twice Slain: the within-cost kill stays a non-target pick, never a target", () => {
+  // 355.10.c.1: the kill is a within-cost action, so the program declares it
+  // with args.picks and gives the instruction no TargetSpec. That shape is a
+  // durable property of the card; how the replacement layer plans it is the
+  // gap recorded in judgeReason.
+  assert.equal(killInstruction.op, "effect.kill");
+  assert.deepEqual(killInstruction.args, {
+    picks: { kind: "constant", value: "mordekaiser.friendly-unit" }
+  });
+  assert.equal(killInstruction.targets, undefined);
+  assert.equal(killInstruction.picks.length, 1);
+  assert.deepEqual(killInstruction.picks[0].filter, {
+    type: "unit",
+    zone: "board",
+    controller: "controller",
+    other: true
+  });
+
+  // The pick still resolves through the merged interpreter for the static body.
+  const kernel = world().unit("mordekaiser", { might: 5 }).unit("ally", { might: 2 }).build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("mordekaiser") });
+  scoped.setPicks("mordekaiser.friendly-unit", [scoped.ref("ally")]);
+  const run = runAbilityBody([{ ...killInstruction, linkedTo: undefined }], scoped);
+  assert.equal(run.results[0].result.status, "executed");
+  assert.equal(scoped.getObject("ally").zone, "trash");
+});
 
 test.todo(
   "Mordekaiser, Twice Slain: 'kill a friendly unit' as a within-instruction cost selection (355.10.c.1) — blocked because " +
-    "CostSpec choices require exact ObjectRefs (cost/plan-values.ts choiceObjects) and cost.sacrifice / cost.pay are unmerged (RIFT-89)"
+    "the merged replacement planner accepts only an object-selector spelling for effect.kill and CostSpec choices require " +
+    "exact ObjectRefs (cost/plan-values.ts choiceObjects)"
 );
 
 test.todo(
-  "Mordekaiser, Twice Slain: 'recall me instead' as a real Recall (457-460) — blocked because effect.move rejects mode \"recall\" " +
-    "(the frozen move-location action cannot distinguish Recall from Move) and the kernel has no Recall action (RIFT-109)"
+  "Mordekaiser, Twice Slain: 'recall me instead' as a real Recall (457-460) — blocked because effect.move and the " +
+    "replacement planner both refuse mode \"recall\" (the frozen move-location action cannot distinguish Recall from Move)"
 );
 
 test.todo(
-  "Mordekaiser, Twice Slain: [Accelerate] (805) and [Assault 3] (807.1.c, +3 while attacker) expansions — the KeywordDefs are merged " +
-    "(RIFT-86/RIFT-81) but no producer resolves a card's keyword abilities into them and registers the layers (RIFT-91), and the " +
-    "Attacker designation is not yet an ObjectSnapshot characteristic (contract 3.8)"
-);
-
-test.todo(
-  "Mordekaiser, Twice Slain: the 'Once each turn' one-shot lifetime on the replacement — blocked because the replacement " +
-    "registration path does not model card-level once-per-turn windows (RIFT-120)"
+  "Mordekaiser, Twice Slain: register the card-level replacement and model its 'Once each turn' window — " +
+    "bindReplacement needs a caller-supplied pipeline/host and no merged path reads a CardProgram replacement ability (RIFT-257)"
 );

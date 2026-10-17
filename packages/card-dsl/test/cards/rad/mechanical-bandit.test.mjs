@@ -4,7 +4,7 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/mechanical-bandit.js";
 const ENGINE = new URL("../../../../engine-core/dist/", import.meta.url);
-const { isTimingPointId } = await import(new URL("events/timing-points.js", ENGINE));
+const { isTimingPointId, getTimingPoint } = await import(new URL("events/timing-points.js", ENGINE));
 const { runInstruction, world } = await import(new URL("effects/testing/index.js", ENGINE));
 const reveal = (await import(new URL("effects/instructions/effect.reveal.js", ENGINE))).default;
 const recycle = (await import(new URL("effects/instructions/effect.recycle.js", ENGINE))).default;
@@ -19,10 +19,17 @@ test("rad-111-167 Mechanical Bandit: program validates and is judge-required", (
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
   assert.deepEqual(result.issues, []);
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /beginning-start/);
+});
+
+test("rad-111-167 Mechanical Bandit: judgeReason records the current gaps only", () => {
+  // The beginning-start emitter is merged, so it must no longer be listed as a
+  // missing producer; the player fan-out, ordered top pick and comparison gaps remain.
+  assert.match(program.judgeReason, /beginning-start 已有发出者/);
   assert.match(program.judgeReason, /each player/);
   assert.match(program.judgeReason, /ordered picks/);
   assert.match(program.judgeReason, /lowest Energy cost/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.equal(/没有发出者|链层只把它用于清理时钟/.test(program.judgeReason), false);
 });
 
 test("rad-111-167 Mechanical Bandit: identity, ruleset, status and verbatim source text", () => {
@@ -31,50 +38,34 @@ test("rad-111-167 Mechanical Bandit: identity, ruleset, status and verbatim sour
   assert.equal(program.sourceText, EXPECTED_SOURCE);
 });
 
-test("rad-111-167 Mechanical Bandit: beginning-start trigger carrying the per-player top-card reveal", () => {
-  assert.equal(program.abilities.length, 1);
+test("rad-111-167 Mechanical Bandit: beginning-start is a real timing point with a merged producer (315.2.a.1)", () => {
+  // The trigger's timing point is part of the closed enum, and the turn flow
+  // publishes it via enter('beginning') (docs/rules/timing-point-producers.md).
+  assert.equal(isTimingPointId("beginning-start"), true);
+  const timing = getTimingPoint("beginning-start");
+  assert.equal(timing.id, "beginning-start");
+
   const [ability] = program.abilities;
   assert.equal(ability.kind, "triggered");
   assert.equal(ability.trigger.at, "beginning-start");
-  // 时点是封闭枚举：断言 id 合法（events/timing-points.ts）。
-  assert.equal(isTimingPointId(ability.trigger.at), true);
   assert.deepEqual(ability.trigger.filter, {});
   assert.equal(ability.optional, false);
+});
 
-  assert.equal(ability.body.length, 1);
-  const [instruction] = ability.body;
+test("rad-111-167 Mechanical Bandit: the reveal instruction names the deck top and the 1-card count (425.1/425.3)", () => {
+  assert.equal(program.abilities.length, 1);
+  assert.equal(program.abilities[0].body.length, 1);
+  const [instruction] = program.abilities[0].body;
   assert.equal(instruction.id, "mechanical-bandit.reveal");
   assert.equal(instruction.op, "effect.reveal");
   // 425.1 / 425.3：牌库顶必须按真实区域顺序读取，而不是集合查询；
-  // player 的 "each-player" 是描述性占位（无玩家扇出，见 judgeReason）。
+  // player 的 "each-player" 是描述性占位（玩家扇出仍缺，见 judgeReason）。
   assert.deepEqual(instruction.args.zone, { kind: "constant", value: "deck" });
   assert.deepEqual(instruction.args.count, { kind: "constant", value: 1 });
   assert.deepEqual(instruction.args.player, { kind: "constant", value: "each-player" });
   assert.equal(instruction.targets, undefined);
   assert.equal(instruction.picks, undefined);
   assert.equal(instruction.linkedTo, undefined);
-});
-
-test("rad-111-167 Mechanical Bandit: the merged reveal primitive rejects an ordered top-card subset", () => {
-  // 这条真实失败就是 judgeReason 第 3 点的证据：非手牌区域的真子集需要上游有序 picks，
-  // 当前 effect.reveal 没有消费 zoneSlice。
-  const instruction = program.abilities[0].body[0];
-  const kernel = world().deck(["top", "second"]).build();
-  assert.throws(
-    () => runInstruction(
-      reveal,
-      {
-        player: { kind: "constant", value: "A" },
-        zone: instruction.args.zone,
-        count: instruction.args.count
-      },
-      { world: kernel }
-    ),
-    /a subset of this zone requires upstream ordered picks/
-  );
-  assert.equal(kernel.player("A").deckSize, 2);
-  assert.equal(kernel.player("A").handSize, 0);
-  assert.deepEqual(kernel.events, []);
 });
 
 test("rad-111-167 Mechanical Bandit: revealing a whole single-card deck executes and links the top card", () => {
@@ -114,6 +105,6 @@ test("rad-111-167 Mechanical Bandit: \"Recycle the rest\" would go through effec
   assert.deepEqual(kernel.zone("A", "deck").map((ref) => ref.id), ["d2", "d1"]);
 });
 
-test.todo("rad-111-167 Mechanical Bandit: the beginning-start timing point has no merged emitter (the chain layer only uses it for its cleanup clock; the turn/phase flow does not emit it), so the trigger cannot fire.");
 test.todo("rad-111-167 Mechanical Bandit: \"each player reveals the top card\" needs player fan-out (effect.reveal accepts a single PlayerId) and zone ordering for the reveal subset (consume zoneSlice, RIFT-64 gap).");
 test.todo("rad-111-167 Mechanical Bandit: \"If you revealed a card with the lowest Energy cost, draw it. Recycle the rest.\" needs a cross-object minimum of Energy costs (CR 206, null is not 0), binding that revealed card to the draw, and a set difference for the remainder.");
+test.todo("rad-111-167 Mechanical Bandit: the card-played/beginning-start trigger must be registered into the event pipeline — no merged path consumes a CardProgram triggered ability (RIFT-257).");

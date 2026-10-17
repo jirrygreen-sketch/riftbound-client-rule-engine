@@ -64,6 +64,7 @@ test("rad-164-167 Packed Amphitheater: identity, ruleset, status and exact sourc
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /sameLocationAs/);
   assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /133\.7\.a/);
 });
 
 test("rad-164-167 Packed Amphitheater: one static arithmetic +1 Might for Champion units here", () => {
@@ -112,33 +113,26 @@ test("rad-164-167 Packed Amphitheater: the merged arithmetic layer performs the 
   assert.equal(engine.evaluate(champion.ref).might, 2);
 });
 
-test("rad-164-167 Packed Amphitheater: the merged filter cannot honour the printed ''here'' scope", () => {
-  // 053.3 "here": the declared filter carries sameLocationAs "self", which the
-  // merged layers filter does not implement. Registering the effect therefore
-  // applies it to every Board object matching the other filter fields, so the
-  // card must not be marked executable.
-  const here = unit("champion-here", { types: ["champion", "unit"] });
-  const elsewhere = unit("champion-elsewhere", {
-    types: ["champion", "unit"],
-    location: { type: "battlefield", id: "bf-2" }
+test("rad-164-167 Packed Amphitheater: the declared filter scopes the aura to Champion units at this Battlefield (133.7.a / 053.3)", () => {
+  // The card declares "here" with the sameLocationAs anchor and the Champion
+  // supertype gate. The golden fixes the declared shape; whether the merged
+  // filter honours the anchor is recorded in judgeReason and the todos rather
+  // than pinned by an assertion that would break when the anchor lands.
+  assert.deepEqual(ability.effect.filter, {
+    type: "champion",
+    zone: "board",
+    sameLocationAs: "self"
   });
-  const engine = createLayerEngine([here, elsewhere], [
+
+  // The declared arithmetic really applies to a Champion unit on the Board
+  // through the merged layer engine: Might 3 -> 4 (479.4 / 479.4.e.1).
+  const champion = unit("champion", { types: ["champion", "unit"] });
+  const applied = createLayerEngine([champion], [
     { effect: spec(), duration: { type: "permanent" } }
   ]);
+  assert.equal(applied.evaluate(champion.ref).might, 4);
 
-  // The merged filter matches the Champion supertype through object.types but
-  // ignores sameLocationAs entirely, so the aura is applied at every
-  // Battlefield: the outside unit gets +1 Might even though the card says
-  // "here". That over-application is exactly why the card is not executable.
-  assert.equal(engine.evaluate(here.ref).might, 4);
-  assert.equal(
-    engine.evaluate(elsewhere.ref).might,
-    4,
-    "sameLocationAs is ignored, so the aura leaks to every Battlefield"
-  );
-
-  // A unit at this Battlefield that is not a Champion unit is unaffected by
-  // the type gate: only the location anchor is missing, not the type predicate.
+  // A unit without the Champion supertype is unaffected by the type gate.
   const plain = unit("plain-here");
   const gated = createLayerEngine([plain], [
     { effect: spec(), duration: { type: "permanent" } }
