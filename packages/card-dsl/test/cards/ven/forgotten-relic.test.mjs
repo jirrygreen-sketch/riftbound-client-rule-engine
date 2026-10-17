@@ -5,8 +5,10 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ven/forgotten-relic.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import millDefinition from "../../../../engine-core/dist/effects/instructions/effect.mill.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID = "card.hash-15ff48d601dbbf88a4e20335d5fed2db90642596b505780338ee6d79f6623847";
 const SOURCE_TEXT =
@@ -34,9 +36,11 @@ test("ven-108-166 Forgotten Relic: identity, ruleset, status, judgeReason and ve
   assert.equal(program.status, "judge-required");
   // The reason names the two real gaps: the reflexive trigger and the result binding.
   assert.match(program.judgeReason, /trigger\.reflexive/);
-  assert.match(program.judgeReason, /condition\.result/);
+  assert.match(program.judgeReason, /结果条件/);
   assert.match(program.judgeReason, /388\.1/);
   assert.match(program.judgeReason, /355\.5\.b/);
+  assert.match(program.judgeReason, /Unregistered instruction opcode/);
+  assert.match(program.judgeReason, /ChainContractBlockedError/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -218,3 +222,32 @@ test.todo(
     "and cross-chain binding (survey condition.result) so the reflexive body reads the burn performed by " +
     "the specific instruction (CR 441.1.a)"
 );
+
+/**
+ * 复核（2026-10-17）执行证据：反身触发原语缺失、反身目标生命周期被阻断。
+ */
+test("ven-108-166 Forgotten Relic evidence: trigger.reflexive is not a registered opcode", () => {
+  const kernel = world().deck(["top"]).build();
+  assert.throws(
+    () => runAbilityBody([onPlayBurn, onPlayReflexive], kernel),
+    /Unregistered instruction opcode: trigger\.reflexive/,
+  );
+});
+
+test("ven-108-166 Forgotten Relic evidence: a reflexive body with its own selection is blocked at Finalize", () => {
+  const f = fixture({ cards: [{ id: "relic", cardId: CARD_ID, types: ["gear"] }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("relic"), to: "base" });
+  f.engine.advance();
+  const give = onPlayReflexive.args.body.value[0];
+  // 355.5.b：反身链项的选择在它自己的 finalize 时进行；把该 body 放进嵌套作用域后，
+  // 当前 Finalize 面按 assertFinalizationSurface 拒绝嵌套目标。
+  const nestedBody = [{
+    id: "forgotten-relic.reflexive-scope",
+    op: "repeat",
+    args: { count: { kind: "constant", value: 1 }, body: { kind: "constant", value: [give] } }
+  }];
+  assert.throws(
+    () => { f.engine.execute(f.draft("forgotten-relic.probe", { body: nestedBody })); resolveAll(f.engine); },
+    /Nested\/repeated targets require an interpreter target-selection lifecycle adapter/,
+  );
+});

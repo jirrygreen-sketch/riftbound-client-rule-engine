@@ -24,10 +24,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   Buff 计数器。
  *
  * status = judge-required（两处 Empower 语义缺口，均不近似实现）：
- * 1. 没有 Empower / Empowered 的 KeywordDef，827.1.c.1 的「[Kill 一个友方单位]：Empower 我，
- *    仅当未 Empowered 时启动」没有展开实现，也未绑定印刷的非资源 Kill 费用；
- * 2. 没有 Empowered 状态谓词（442.1.a）：状态不在 ObjectSnapshot / Condition 里，静态效果的
- *    condition 只能以显式谓词字符串占位；
+ * 1. 没有 Empower / Empowered 的 KeywordDef：实测 expandProgram 抛 ProgramBindingError
+ *    （Keyword empower has no executable KeywordDef），827.1.c.1 的「[Kill 一个友方单位]：Empower 我，
+ *    仅当未 Empowered 时启动」没有展开实现，印刷的非资源 Kill 费用也没有随关键词绑定
+ *    （Kill 支付种类本身已合入，golden 用真实费用管线执行支付，见下）；
+ * 2. 没有 Empowered 状态谓词（442.1.a）：状态不在 ObjectSnapshot / Condition 里，静态效果
+ *    仍被 keyword 展开挡住；把 +2 Might 单独交给图层时，实测未 Empowered 的宿主也得到 +2
+ *    （condition 字符串 \"empowered\" 不被 conditionMatches 识别，直接返回 true）。
  * 关键词授予的 +2 Might 本体用已合入的图层引擎（createLayerEngine）在 golden 中真实
  * 求值：这是「该 declared 静态形状在图层里确实产出 +2」的证据，不是整卡证据。
  */
@@ -61,8 +64,12 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 Empower / Empowered KeywordDef：827.1.c.1 的启动能力、827.1.c.2 的印刷 Kill 费用及未 Empowered 限制尚未展开绑定；" +
-    "还缺 Empowered 状态谓词（442.1.a/828.1.b.1），不能门控静态 continuous.might。",
+    "缺 Empower / Empowered KeywordDef：实测 programs/keywords.ts 的 expandProgram 抛 ProgramBindingError" +
+    "（Keyword empower has no executable KeywordDef），827.1.c.1 的启动能力与「仅当未 Empowered 时启动」限制无法展开，" +
+    "827.1.c.2 的印刷 Kill 费用也不能随关键词绑定（Kill 支付种类已合入 cost/plan-values.ts，golden 用真实费用管线执行）。" +
+    "还缺 Empowered 状态谓词（442.1.a/828.1.b.1）：状态不在 ObjectSnapshot，静态 effect 的 condition 谓词字符串不被" +
+    "layers/engine.ts 的 conditionMatches 识别（未知 kind 一律返回 true），实测未 Empowered 宿主也从 continuous.might 得到 +2 Might，" +
+    "不能把该声明当作已门控效果。",
   abilities,
   sourceText:
     "[Empower] — Kill a friendly unit (Pay the cost: Empower me. Use only if not Empowered.)\n" +

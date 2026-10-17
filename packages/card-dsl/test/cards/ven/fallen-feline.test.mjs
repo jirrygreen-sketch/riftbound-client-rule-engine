@@ -6,8 +6,10 @@ import program from "../../../dist/cards/ven/fallen-feline.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import restrict from "../../../../engine-core/dist/effects/instructions/continuous.restrict.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/index.js";
 import { restrictions } from "../../../../engine-core/dist/layers/rules/query.js";
 import { ContinuousEffectRegistry } from "../../../../engine-core/dist/layers/duration.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
@@ -36,6 +38,8 @@ test("ven-132-166 Fallen Feline: identity, status, judgeReason and verbatim sour
   assert.match(program.judgeReason, /continuous\.restrict/);
   assert.match(program.judgeReason, /762\.1/);
   assert.match(program.judgeReason, /appliesTo:opponent/);
+  assert.match(program.judgeReason, /namedFrom/);
+  assert.match(program.judgeReason, /condition:false/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -122,6 +126,54 @@ test.todo(
     "persistent host-bound naming result, a namedFrom predicate, static appliesTo:opponent binding, " +
     "and battlefield-condition consumption by the rule query"
 );
+
+/**
+ * 复核（2026-10-17）执行证据：四处缺口用真实解释器 / 静态 binder / 规则查询复现。
+ */
+test("ven-132-166 Fallen Feline evidence: the naming instruction is not a registered opcode", () => {
+  const kernel = world()
+    .unit("fallen-feline", { types: ["unit"], zone: "board", owner: "A", controller: "A" })
+    .build();
+  // 759/760：命名动作必须由解释器执行；当前未注册，失败关闭而不是伪造命名结果。
+  assert.throws(
+    () => runAbilityBody([nameInstruction], kernel.clone({ sourceSnapshot: kernel.getObject("fallen-feline") })),
+    /Unregistered instruction opcode: choice\.name/,
+  );
+});
+
+test("ven-132-166 Fallen Feline evidence: static appliesTo:opponent cannot bind and the rule query ignores the battlefield condition", () => {
+  const f = fixture({ cards: [{ id: "fallen-feline", cardId: CANONICAL_ID, types: ["unit"], might: 3, energy: 2, power: ["Order"] }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("fallen-feline"), to: "base" });
+  const binder = createEngineStaticBinder(f.engine);
+  // programs/statics.ts 的相对玩家限制过滤：opponent 没有绑定，绑定期失败关闭。
+  assert.throws(
+    () => binder.bindStatic(playRestriction, f.kernel.getObject("fallen-feline")),
+    /Unsupported static appliesTo "opponent"/,
+  );
+
+  // layers/rules/query.ts 的 restrictions() 不消费静态条件：注册一个 condition:false 的限制，
+  // 查询仍然返回命中；战场门控因此无法阻止 Base 上的宿主生效。
+  const registry = new ContinuousEffectRegistry();
+  registry.register({
+    id: "fallen-feline.probe",
+    layer: "ability",
+    source: f.kernel.ref("fallen-feline"),
+    filter: { type: "spell" },
+    effect: {
+      kind: "restriction",
+      mode: "prohibit",
+      actions: ["play-spell"],
+      appliesTo: "opponent",
+      namedFrom: playRestriction.effect.namedFrom,
+      condition: () => false
+    }
+  }, { type: "permanent" }, 1);
+  const found = restrictions(registry, "play-spell", undefined, undefined, "A");
+  assert.equal(found.length, 1);
+  // namedFrom 原样保留但无消费方（查询结果字段只暴露 source/filter/名字）。
+  assert.deepEqual(found[0].filter, { type: "spell" });
+  assert.equal("namedFrom" in found[0], false);
+});
 
 
 test("ven-132-166 Fallen Feline: the real condition distinguishes a battlefield from Base", () => {

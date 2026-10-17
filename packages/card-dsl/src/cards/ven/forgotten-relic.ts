@@ -29,14 +29,18 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  *   continuous.might，按 317.2.c 在本回合结束时同时到期（433.1.a 的算术层调制）；
  *   effect.buff 的文件头明确临时 Might 修正不属于 Buff 计数器（702）。
  *
- * status = judge-required（当前缺口均不近似实现）：
+ * status = judge-required（复核 2026-10-17，缺口均不近似实现）：
  * 1. 缺反身触发原语：契约 3.1 的六种 Ability 与已合入指令注册表都没有创建 Reflexive
  *    Pending Item 的形态（388.1/389.1/355.5.b；调研 RIFT-9 记名为 trigger.reflexive，
- *    docs/plans/survey/unclassified-unl.md 的该行正以本卡为例）；且反身链项内的目标
- *    选择被 chain/engine.ts 的 assertFinalizationSurface 阻断（"Nested/repeated targets
- *    require an interpreter target-selection lifecycle adapter"）。
+ *    docs/plans/survey/unclassified-unl.md 的该行正以本卡为例）；实测解释器抛
+ *    Unregistered instruction opcode: trigger.reflexive；且反身链项内的目标
+ *    选择被 chain/engine.ts 的 assertFinalizationSurface 阻断（实测抛 ChainContractBlockedError，
+ *    "Nested/repeated targets require an interpreter target-selection lifecycle adapter"）。
  * 2. effect.mill 已产生 burnedCard / burned / burnedCount 结果；缺的是反身触发按本次
  *    烧牌结果判断单位（441.1.a），并把旧对象引用携入新链项，供最后已知 Might 读取。
+ *    当前 IR 与解释器都没有结果条件（条件求值只认 always/never/expression/compare/
+ *    all/any/not），也没有承载反身链项结果的求值上下文；"a unit" 判定还需要被烧牌的最终
+ *    区域信息，当前没有该链路。
  * continuous.might 已合入；Burn 1、真实结果链接和目标本体的结构由 golden 验证。
  * 依赖：trigger.reflexive、结果条件/跨链绑定（调研名 condition.result）及反身目标生命周期。
  */
@@ -143,9 +147,13 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 trigger.reflexive 创建独立 Pending Item 与其目标 finalize 生命周期（388.1/388.2/389.1/355.5.b）；" +
-    "还缺依据本次 effect.mill 的结果判断烧掉单位，并把 burnedCard 引用携入反身链项的结果条件/跨链绑定" +
-    "（441.1.a/359.3.e.13；调研名 condition.result）。不能用普通顺序指令近似反身触发。",
+    "缺 trigger.reflexive 创建独立 Pending Item 与其目标 finalize 生命周期（388.1/388.2/389.1/355.5.b）：" +
+    "实测解释器抛 Unregistered instruction opcode: trigger.reflexive，且反身链项内的目标被 chain/engine.ts 的 " +
+    "assertFinalizationSurface 以 ChainContractBlockedError 阻断（Nested/repeated targets require an interpreter " +
+    "target-selection lifecycle adapter）。还缺依据本次 effect.mill 的结果判断烧掉单位，并把 burnedCard 引用携入" +
+    "反身链项（441.1.a/359.3.e.13）：当前 Condition/解释器都没有结果条件（解释器的条件求值只认 " +
+    "always/never/expression/compare/all/any/not），也没有承载反身链项结果的求值上下文，“a unit” 判定" +
+    "还缺被烧牌的最终区域信息。不能用普通顺序指令近似反身触发。",
   abilities,
   sourceText:
     "When you play this or at the start of your Beginning Phase, [Burn 1]. " +

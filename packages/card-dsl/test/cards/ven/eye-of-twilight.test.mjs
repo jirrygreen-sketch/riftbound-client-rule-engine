@@ -79,6 +79,7 @@ test("ven-147-166 Eye of Twilight: validateCardProgram passes and identity is ve
   // 复核后的 judgeReason 只保留 815.1.b/815.1.c.2 的战斗伤害分配消费方。
   assert.match(program.judgeReason, /815\.1\.b/);
   assert.match(program.judgeReason, /continuous\.combat/);
+  assert.match(program.judgeReason, /proven-none/);
   assert.doesNotMatch(program.judgeReason, /缺 Tank KeywordDef/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
@@ -228,3 +229,25 @@ test.todo(
     "continuous.combat returns negated/impossible without a consumer, and combat/ only proves the " +
     "narrow path with keywordPriority: \"proven-none\""
 );
+
+/** 复核（2026-10-17）负向证据：continuous.combat 原语无消费方。 */
+test("ven-147-166 evidence: continuous.combat is blocked without a combat consumer", () => {
+  const kernel = world()
+    .unit("ally", { owner: "A", controller: "A", might: 3 })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("ally") });
+  const outcome = runAbilityBody([{
+    id: "eye-of-twilight.probe-combat",
+    op: "continuous.combat",
+    args: {
+      flags: { kind: "constant", value: ["tank"] },
+      objects: { kind: "constant", value: { kind: "source" } },
+      duration: { kind: "constant", value: "this-turn" }
+    }
+  }], context);
+  // 815.1.b：指派优先级原语没有战斗工作流消费方，原语按契约失败关闭而非登记空效果。
+  assert.deepEqual(outcome.results.map(result => [result.id, result.result.status, result.result.reason]), [
+    ["eye-of-twilight.probe-combat", "negated", "impossible"]
+  ]);
+  assert.equal(context.continuousEffects.length, 0);
+});
