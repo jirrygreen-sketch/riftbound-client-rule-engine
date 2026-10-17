@@ -6,6 +6,10 @@ import program from "../../../dist/cards/sfd/janna-savior.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { attachProgramLifecycle } from "../../../../engine-core/dist/programs/lifecycle.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -20,31 +24,24 @@ const [reaction, ability] = program.abilities;
 const [healHere, moveEnemyHome] = ability.body;
 
 /**
- * Emulates the production query path for the goldens below: the chain's query
- * wrapper binds the controller placeholder (chain/engine.ts normalizes "self")
- * and asks the layers filter for the rest. The merged program binding
- * (RIFT-257) rejects the sameLocationAs anchor before this point (see
- * judgeReason), so the anchor comparison is performed here for the golden
- * scenario; this proves the effect bodies, not the binding of the anchor.
+ * Emulates the production query wrapper for the goldens below: the chain's
+ * query (chain/engine.ts) normalizes only the "self" placeholder and rejects
+ * opponents, then defers the remaining fields — including the sameLocationAs
+ * anchor — to the interpreter's runtime queryObjects, which performs the real
+ * location comparison (see the chain goldens below).
  */
 function productionContext(kernel) {
   const query = (filter) => {
     const normalized = { ...filter };
     for (const key of ["controller", "owner"]) {
-      if (normalized[key] === "self" || normalized[key] === "controller") normalized[key] = kernel.controller;
+      if (normalized[key] === "self") normalized[key] = kernel.controller;
     }
-    return kernel.objects.filter((object) => {
-      for (const key of ["controller", "owner"]) {
-        if (normalized[key] === "opponent" && object[key] === kernel.controller) return false;
-      }
-      const resolved = { ...normalized };
-      if (resolved.controller === "opponent") resolved.controller = "any";
-      if (resolved.sameLocationAs === "self" || resolved.sameLocationAs === "source") {
-        resolved.location = kernel.source.location?.type ?? null;
-        delete resolved.sameLocationAs;
-      }
-      return matchesObjectFilter(resolved, object);
-    });
+    if (normalized.controller === "opponent" || normalized.owner === "opponent") {
+      const key = normalized.controller === "opponent" ? "controller" : "owner";
+      normalized[key] = "any";
+      return kernel.objects.filter((object) => object[key] !== kernel.controller && matchesObjectFilter(normalized, object));
+    }
+    return kernel.objects.filter((object) => matchesObjectFilter(normalized, object));
   };
   return bindResolveContext(kernel, { query });
 }
@@ -104,7 +101,7 @@ test("sfd-053-221 Janna, Savior: the heal is an each-set of your units here, not
       filter: {
         type: "unit",
         zone: "board",
-        controller: "controller",
+        controller: "self",
         sameLocationAs: "self"
       }
     }
@@ -176,6 +173,68 @@ test("sfd-053-221 Janna, Savior golden: an already undamaged board heals nothing
   assert.deepEqual(outcome.linkedValues["janna-savior.heal-units-here.healedHere"], { amount: 0, count: 0, objects: [] });
   assert.deepEqual(kernel.getObject("enemy-here").location, { type: "base", player: "B" });
   assert.deepEqual(outcome.events.map((event) => event.action), ["move-location"]);
+});
+
+test("sfd-053-221 Janna, Savior chain golden: the play trigger heals allies here and moves the enemy home", () => {
+  const base = jannaWorld();
+  const kernel = base.clone({ source: base.ref("janna"), sourceSnapshot: base.getObject("janna") });
+  kernel.setTargets("janna-savior.enemy-unit-here", [kernel.ref("enemy-here")]);
+  const answers = [];
+  const decide = (request) => {
+    answers.push(request);
+    if (request.type === "optional") return true;
+    if (request.type === "select-objects") return request.options.filter((ref) => ref.id === "enemy-here");
+    throw new Error(`unexpected choice ${JSON.stringify(request)}`);
+  };
+  const contextKernelFor = (source, controller, at) => {
+    const scoped = kernel.clone({ source, sourceSnapshot: kernel.getObject(source.id) ?? undefined, controller, timingPoint: at });
+    return bindResolveContext(scoped, { choose: (request) => decide({ ...request, scope: "context" }) });
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => kernel.snapshot(),
+    restore: (state) => kernel.restore(state),
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose: (request) => decide({ ...request, scope: "host" }),
+    context: contextKernelFor,
+    testTrigger: () => true
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  // The executable copy mirrors what production CAN bind today: the heal query
+  // keeps its sameLocationAs anchor (it is only consumed by the interpreter's
+  // runtime queryObjects), while the move target drops the anchor because
+  // translateObjectFilter still rejects it — that dropped anchor is exactly the
+  // remaining gap recorded in judgeReason.
+  const corrected = {
+    ...program,
+    status: "executable",
+    judgeReason: undefined,
+    canonicalCardId: "card:janna",
+    abilities: program.abilities.map((entry) => entry.kind !== "triggered" ? entry : {
+      ...entry,
+      body: entry.body.map((instruction) => instruction.op !== "effect.move" ? instruction : {
+        ...instruction,
+        targets: instruction.targets.map((target) => {
+          const { sameLocationAs: _anchor, ...filter } = target.filter;
+          return { ...target, filter };
+        })
+      })
+    })
+  };
+  const registry = new ProgramRegistry([corrected]);
+  attachProgramLifecycle(engine, registry, undefined, () => { /* the move anchor binding error is the documented gap; static binding is not needed for this trigger path */ });
+  // The card must be on the battlefield when the play action completes, so the
+  // permanent trigger's active zone matches.
+  kernel.perform({ type: "move-zone", object: kernel.ref("janna"), to: "hand" });
+  engine.commit({ type: "move-zone", object: kernel.ref("janna"), to: "board", location: BATTLEFIELD, player: "A" });
+  engine.pipeline.emit({ timingPoint: "card-played", object: kernel.getObject("janna"), player: "A" });
+  engine.advance();
+  while (engine.items.length) engine.pass(engine.priority);
+  assert.deepEqual(kernel.getObject("ally-here").damage, 0);
+  assert.equal(kernel.getObject("ally-far").damage, 1);
+  assert.deepEqual(kernel.getObject("enemy-here").location, { type: "base", player: "B" });
+  assert.deepEqual(kernel.getObject("enemy-elsewhere").location, OTHER_BATTLEFIELD);
+  assert.equal(kernel.events.filter((event) => event.action === "heal").length, 1);
 });
 
 test.todo(

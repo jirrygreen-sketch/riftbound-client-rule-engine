@@ -7,6 +7,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import quickDraw from "../../../../engine-core/dist/effects/keywords/Quick-Draw.js";
 import deflect from "../../../../engine-core/dist/effects/keywords/Deflect.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { actionTimings } from "../../../../engine-core/dist/layers/rules/query.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -30,7 +31,8 @@ test("sfd-054-221 Jax, Unmatched: identity, ruleset, status, judgeReason and ver
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /RIFT-258/);
-  assert.match(program.judgeReason, /triggerRegistrations/);
+  assert.match(program.judgeReason, /expandProgram/);
+  assert.match(program.judgeReason, /grantsFor/);
   assert.match(program.judgeReason, /target\.tax/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -108,16 +110,48 @@ test("sfd-054-221 Jax, Unmatched golden: the Equipment-scoped grant really adds 
   assert.equal(matchesObjectFilter(normalizedFilter, kernel.getObject("equipment")), true);
 });
 
+test("sfd-054-221 Jax, Unmatched gap regressions: hand gear has no play trigger or Reaction timing", () => {
+  // (1) The granted keyword never reaches expandProgram: the hand gear's
+  // program lookup stays judge-required, so its card-played attach trigger
+  // (819.1.b/c) is not registered (the card program only declares the grant).
+  // (2) The expanded continuous.timing stores the Reaction permission in its
+  // value field, which grantsFor does not read — the engine's own speed query
+  // (actionTimings) sees no reaction for the granted gear (819.1.a).
+  const kernel = world()
+    .unit("jax", { cardId: CARD_ID, types: ["unit"], might: 5 })
+    .hand("equipment", { types: ["gear"], tags: ["Equipment"] })
+    .build();
+  const layers = createLayerEngine(kernel.objects, [
+    {
+      effect: { id: "jax.grant-quick-draw", layer: "ability", source: kernel.ref("jax"), filter: { ...grant.effect.filter, controller: "A" }, effect: grant.effect },
+      duration: { type: "permanent" },
+      timestamp: 1,
+      sequence: 1
+    }
+  ]);
+  const granted = layers.evaluate(kernel.ref("equipment"));
+  assert.deepEqual(granted.keywords.map((keyword) => keyword.id), ["quick-draw"]);
+  const gearProgram = quickDraw.expand({ host: { canonicalCardId: CARD_ID } });
+  assert.deepEqual(actionTimings(layers.registry, kernel.ref("equipment"), granted, "A"), []);
+  assert.equal(gearProgram.some((ability) => ability.kind === "triggered"), true);
+  // The engine still has no path from the granted keyword to that expansion or
+  // from the expansion's value field to the layer timings: both stay todo.
+});
+
 test.todo(
   "sfd-054-221 Jax, Unmatched: 'Each Equipment in your hand has [Quick-Draw]' reaches the layers engine " +
-    "(the static-to-layer binder is merged) but the granted Quick-Draw's card-played attach trigger must " +
-    "be registered for hand objects — triggerRegistrations only run in attachProgramLifecycle attach, " +
-    "so hand gear never gets the trigger pipeline attached"
+    "(the static-to-layer binder is merged and hand objects do enter the attach pipeline: " +
+    "attachProgramLifecycle calls attach on both object-enters-board and object-enters-chain, and attach " +
+    "always calls registerProgramTriggers first) but expandProgram only aggregates the program's declared " +
+    "keywords and source.keywords — the layer-granted quick-draw never reaches the keyword expansion, so " +
+    "the granted gear's card-played attach trigger is never registered"
 );
 
 test.todo(
   "sfd-054-221 Jax, Unmatched: the granted Quick-Draw's card-played attach trigger must reach the chain/target " +
-    "pipeline (hand-object trigger registration is missing), and [Deflect]'s target tax must be collected as " +
+    "pipeline once keyword expansion reads layer-granted keywords; Quick-Draw's expanded continuous.timing " +
+    "also stores its Reaction permission in the value field, which grantsFor does not read (only grants/timings), " +
+    "so the gear's play speed stays normal; and [Deflect]'s target tax must be collected as " +
     "any-domain Power (809.1.c.1) rather than the Energy-shaped tax the chain builds today — " +
     "the Deflect tax consumer is still missing (RIFT-90)"
 );
