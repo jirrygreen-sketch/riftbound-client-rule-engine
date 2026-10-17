@@ -21,6 +21,9 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, verbatim sourceTe
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.cost-modification/);
   assert.match(program.judgeReason, /356\.4/);
+  assert.match(program.judgeReason, /programs\/statics\.ts/);
+  assert.match(program.judgeReason, /CostPlanInput\.discounts/);
+  assert.ok(!/RIFT-\d+/.test(program.judgeReason));
   assert.equal(
     program.sourceText,
     "Your Dragons' Energy costs are reduced by :rb_energy_2:, to a minimum of :rb_energy_1:."

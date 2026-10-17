@@ -15,7 +15,7 @@ import type { CardProgram } from "../../ir/index.js";
  * - "friendly legends, units, and gear" 是集合查询（355.10.d 型，不选择目标），
  *   过滤锚点为对手控制者之外的己方 board 上的 legend / unit / gear。
  *
- * 状态：judge-required。所需能力授予层尚未合入：
+ * 状态：judge-required。所需能力授予层仍没有生产消费者：
  * - 当前静态绑定器只消费已知的 timing/keyword/movement/restrict/combat 等能力层
  *   效果，没有 `continuous.grant-abilities` 的任意能力正文复制消费者；已合入的
  *   continuous.grant-keyword 只授予关键词，不能替代运行时启动能力复制。

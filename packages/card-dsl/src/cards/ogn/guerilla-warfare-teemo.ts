@@ -37,9 +37,10 @@ const guerillaWarfare = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "CR 811.5 的「cards with [Hidden]」目标限制仍缺关键词成员谓词：programs/filters.ts 不接受 keywords，layers/filter.ts " +
-    "不检查该字段，目标候选与 Resolve 重验均未连接。还缺 Hide 行动、facedown 区域、次回合 Reaction 许可（811.1.b / 422.1 / 422.2），以及本回合 Hide " +
-    "免全部费用的持续注册与到期消费者；811.1.c.1 的 Hide 不是 Play。单次费用计划的 ignoreAllCosts 不能代替跨行动的本回合 Hide 免付费规则。",
+    "CR 811.5 的「cards with [Hidden]」目标限制仍缺关键词成员谓词：programs/filters.ts 的 " +
+    "translateObjectFilter 会拒绝 keywords，layers/filter.ts 也没有关键词匹配，目标候选与 Resolve 重验均未连接。还缺 Hide 行动、facedown 区域、" +
+    "次回合 Reaction 许可（811.1.b / 422.1 / 422.2），以及本回合 Hide 免全部费用的持续注册与到期消费者；811.1.c.1 的 Hide 不是 Play。" +
+    "单次费用计划的 ignoreAllCosts 不能代替跨行动的本回合 Hide 免付费规则。",
   sourceText:
     "Return up to two cards with [Hidden] from your trash to your hand. " +
     "You can hide cards ignoring costs this turn.",
@@ -69,9 +70,9 @@ const guerillaWarfare = {
           ]
         },
         {
-          // "You can hide cards ignoring costs this turn" — an unmerged Hide
-          // cost waiver with the printed end-of-turn duration (see
-          // judgeReason); Hide still needs its action and permission consumer.
+          // "You can hide cards ignoring costs this turn" — a Hide cost waiver
+          // with the printed end-of-turn duration (see judgeReason); Hide still
+          // needs its action and permission consumer.
           id: "hide-ignoring-costs",
           op: "cost.modify",
           args: {

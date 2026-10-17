@@ -26,6 +26,9 @@ test("Imperial Decree identity and judge-required status match the printing", ()
   assert.equal(program.judgeReason.includes("390"), true);
   assert.match(program.judgeReason, /expiresAt/);
   assert.match(program.judgeReason, /绑定/);
+  assert.match(program.judgeReason, /registerDelayedTrigger/);
+  assert.match(program.judgeReason, /damage-dealt/);
+  assert.ok(!/RIFT-\d+/.test(program.judgeReason));
   assert.equal(
     program.sourceText,
     "[Action] (Play on your turn or in showdowns.)\n" +

@@ -20,6 +20,8 @@ test("ogn-037-298 Immortal Phoenix: program validates and is judge-required", ()
   assert.match(program.judgeReason, /Finalize/);
   assert.match(program.judgeReason, /designation/);
   assert.match(program.judgeReason, /combatRole/);
+  assert.match(program.judgeReason, /activeZones/);
+  assert.ok(!/RIFT-\d+/.test(program.judgeReason));
 });
 
 test("ogn-037-298 Immortal Phoenix: identity, ruleset and exact source text", () => {

@@ -31,8 +31,12 @@ test("ogn-253-298 Hand of Noxus: identity, status, and verbatim sourceText", () 
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /Legion/);
   assert.match(program.judgeReason, /812\.1\.b\.1/);
-  assert.match(program.judgeReason, /history\/predicate/);
+  assert.match(program.judgeReason, /condition\.history \/ condition\.predicate/);
+  assert.match(program.judgeReason, /cards-finalized-this-turn/);
+  assert.match(program.judgeReason, /translateRestriction/);
+  assert.match(program.judgeReason, /describeActivate/);
   assert.match(program.judgeReason, /430\.2\.a/);
+  assert.ok(!/RIFT-\d+/.test(program.judgeReason));
 });
 
 test("ogn-253-298 Hand of Noxus: Reaction activation with the printed Exhaust cost", () => {
@@ -106,7 +110,7 @@ test("ogn-253-298 Hand of Noxus: the Exhaust cost is payable and the body runs t
 
 test.todo(
   "ogn-253-298: evaluate the Legion gate (812.1.b.1 / 812.1.c “another card this turn”) at activation Finalize before costs; " +
-    "condition.history / condition.predicate and HistoryQuery.exclude exist but the restriction binder cannot run them"
+    "condition.history / condition.predicate are instruction-level primitives and HistoryQuery.exclude works, but the restriction binder cannot run the history gate"
 );
 
 test.todo(

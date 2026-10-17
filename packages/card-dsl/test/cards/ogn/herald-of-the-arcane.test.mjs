@@ -32,6 +32,8 @@ test("herald identity: canonicalCardId, ruleset, judge-required status and verba
   assert.match(program.judgeReason, /355\.2/);
   assert.match(program.judgeReason, /Finalize/);
   assert.match(program.judgeReason, /LocationState/);
+  assert.match(program.judgeReason, /effect\.token/);
+  assert.ok(!/RIFT-\d+/.test(program.judgeReason));
   assert.equal(
     program.sourceText,
     ":rb_energy_1:, :rb_exhaust:: Play a 1 :rb_might: Recruit unit token."
