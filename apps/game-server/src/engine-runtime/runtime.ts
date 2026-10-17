@@ -191,7 +191,6 @@ class MatchRuntime implements EngineRuntime {
   }
 
   restore(journal: RuntimeJournal): EngineRuntime {
-    if (!this.journalWriter) this.start();
     if (journal.header.matchId !== this.runtimeOptions.matchId) throw new Error("Journal matchId does not match runtime");
     const options = this.runtimeOptions;
     this.match = null; this.host = null; this.binding = null; this.journalWriter = null; this.stateVersion = 0; this.pending = null; this.seen.clear();
