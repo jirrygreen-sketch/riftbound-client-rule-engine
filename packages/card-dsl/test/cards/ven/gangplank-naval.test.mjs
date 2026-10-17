@@ -32,7 +32,8 @@ test("ven-086-166 Gangplank: identity, ruleset, status, judgeReason and verbatim
   assert.match(program.judgeReason, /Empower/);
   assert.match(program.judgeReason, /369/);
   assert.match(program.judgeReason, /return-to-hand|Return to Hand|return me to hand/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /ACTION_KINDS/);
+  assert.match(program.judgeReason, /BlockedReplacementError/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -72,16 +73,17 @@ test("ven-086-166 Gangplank: the replacing instruction gives the source +3 Might
 
 test.todo(
   "ven-086-166 Gangplank: [Empower] 2 Body Power activation (827.1.c.1 cost.activated + effect.empower, " +
-    "'Use only if not Empowered') needs an Empower KeywordDef — none is merged (RIFT-83/84)"
+    "'Use only if not Empowered') needs an Empower KeywordDef — none is merged"
 );
 
 test.todo(
   "ven-086-166 Gangplank: the three replaced outcomes ('would stun me, give me -:rb_might:, or return me to hand') " +
-    "need EventPattern discriminators for the return-to-hand zone change and the Might-decrease modification (RIFT-120), " +
-    "plus an Empowered status predicate for the dependent gate (442.1.a, RIFT-87)"
+    "need pattern support: 'stun' is missing from replacement/pattern.ts ACTION_KINDS, chosenBy is not a discriminator, " +
+    "and return-to-hand / Might-decrease have no EventPattern form, plus an Empowered status predicate for the " +
+    "dependent gate (442.1.a, in-progress RIFT-359)"
 );
 
 test.todo(
-  "ven-086-166 Gangplank: the '+3 :rb_might: instead' rider needs a card-side continuous.might entry point and " +
-    "a CardProgram → ReplacementRegistration consumer (RIFT-91, RIFT-120 follow-up)"
+  "ven-086-166 Gangplank: the '+3 :rb_might: instead' rider needs the replacement planner to accept the merged " +
+    "continuous.might instruction as replacement body (currently BlockedReplacementError)"
 );

@@ -4,6 +4,7 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/gust-monk.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import banish from "../../../../engine-core/dist/effects/instructions/effect.banish.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -37,7 +38,8 @@ test("ven-101-166 Gust Monk: identity, status, judgeReason and verbatim sourceTe
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /cost\.additional/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /translateCost/);
+  assert.match(program.judgeReason, /RIFT-359/);
 });
 
 test("ven-101-166 Gust Monk: the printed optional additional cost is declared", () => {
@@ -129,15 +131,18 @@ test("ven-101-166 golden: an empty trash negates the banish instead of inventing
 test.todo(
   "ven-101-166 Gust Monk: charge the optional 1-Energy additional cost (356.2.b / 356.2.b.1) — " +
     "effects/instructions/ has no cost.additional primitive and buildCostPlan only consumes a caller-supplied " +
-    "optionalAdditional (RIFT-89)"
+    "optionalAdditional; programs/play.ts translateCost judge-requires additional-cost"
 );
 
 test.todo(
   "ven-101-166 Gust Monk: decide 'if you paid the additional cost' (356.4.f.1) — the frozen Condition/Expr " +
-    "cannot read a cost-plan receipt (the recorded condition.result gap; RIFT-89/90)"
+    "cannot read a cost-plan receipt (the recorded condition.result gap; adjacent to in-progress RIFT-359)"
 );
 
-test.todo(
-  "ven-101-166 Gust Monk: grant [Assault 2] until end of turn — no continuous.grant-keyword primitive is " +
-    "registered and the layers engine has no card-side registration path (RIFT-83/RIFT-91)"
+test(
+  "ven-101-166 golden: continuous.grant-keyword is merged and really registers the Assault grant",
+  () => {
+    assert.equal(instructionDefinitionsById.has("continuous.grant-keyword"), true);
+    assert.equal(assaultInstruction.op, "continuous.grant-keyword");
+  }
 );

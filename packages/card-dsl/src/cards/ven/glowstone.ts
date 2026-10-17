@@ -34,22 +34,27 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   Finalize 锁定的 TargetSpec（ctx.targets），没有 effect.ready / effect.heal 那样的
  *   { kind: "query", filter } 非目标集合分支（同 ogn/flurry-of-blades 的判定）。
  *
+ * 复核（2026-10-17，第二轮 M2 覆盖率复核）：
+ * - 旧 judgeReason 的「turn-end 触发注册未接线（契约 3.5）」已不成立：触发注册
+ *   （programs/triggers.ts）与替换绑定（programs/statics.ts 的 bindReplacement）均已合入；
+ *   本卡 turn-end 触发未转 executable 的原因只剩第 4 条的伤害集合形态。
+ * - continuous.grant-keyword / effect.empower 也已注册，本卡不使用。
+ *
  * status = judge-required（缺口均不近似实现）：
  * 1. 缺 Empower/Empowered KeywordDef：keywords/registry.generated.ts 没有
- *    "empower"/"empowered" 展开（RIFT-81~88 批次不含）；印刷费用里的 [A] 也无法在
+ *    "empower"/"empowered" 展开；印刷费用里的 [A] 也无法在
  *    六域封闭集合里表达（同 ven/matriarch-of-war、ven/butcher-of-the-sands 的记录）。
  * 2. 启动费用里的 Disempower 没有付费种类：cost/plan-values.ts 的 readCost 非标准费用
- *    只支持 exhaust/discard/recycle/kill/reveal/spend-buff（RIFT-89）。
+ *    只支持 exhaust/discard/recycle/kill/reveal/spend-buff。
  * 3. "Choose a player. They gain control of this and recall it"：Recall 被 effect.move 的
  *    mode "recall" 显式阻断（457–460，不是 Move）；"Choose a player" 也没有卡牌可用的
  *    Player 选择表达（冻结的 ObjectSelector 只有对象选择器，指令注册表也没有
  *    select-player 形态，故席位用占位值记录，不可执行）。
  * 4. "At the end of your turn, kill this and deal 5 to all units you control"：
- *    turn-end 时点与卡牌触发注册（契约 3.5）未接线；"all units you control" 的伤害缺
- *    非目标集合形态（effect.damage 只读 TargetSpec，355.10.d 的集合不能写成目标）。
+ *    "all units you control" 的伤害缺非目标集合形态（effect.damage 只读 TargetSpec，
+ *    355.10.d 的集合不能写成目标）。
  * golden 覆盖身份/结构与 effect.kill(self) 的真实执行；缺依赖记 test.todo。
- * 依赖：新的 Empower/Empowered 关键词任务、RIFT-89（费用种类）、Recall 独立动作、
- * 非目标集合的伤害形态与契约 3.5 触发注册接线。
+ * 依赖：新的 Empower/Empowered 关键词任务、Recall 独立动作、非目标集合的伤害形态。
  */
 const abilities: Ability[] = [
   {
@@ -141,19 +146,17 @@ export default {
   status: "judge-required",
   judgeReason:
     "四处缺口，均不近似实现：(1) 缺 Empower/Empowered KeywordDef：keywords/registry.generated.ts 没有 " +
-    "\"empower\"/\"empowered\" 展开（RIFT-81~88 关键词批次不含），827.1.c.1 的启动费用与" +
-    "「Use only if not Empowered」限制无执行路径；印刷费用是两个 :rb_rune_rainbow:（任意域 Power [A]，" +
-    "135.2.e.5.a/163.2.b），六域封闭 Domain 集合无法表达（effect.resources 记录不可近似）。" +
-    "(2) 启动费用里的「Disempower this」没有付费种类：cost/plan-values.ts 的 readCost 非标准费用只支持 " +
-    "exhaust/discard/recycle/kill/reveal/spend-buff（443.2.a 的 Disempower 是受限动作，RIFT-89）。" +
-    "(3)「Choose a player. They gain control of this and recall it」里，Recall 被已合入的 effect.move 的 " +
-    "mode \"recall\" 显式阻断（457–460：Recall 不是 Move，不发 Move 事件、不受移动限制），不得用 " +
-    "move-location 近似；玩家选择也没有卡牌可用的 select-player 指令形态（265/355.10.e 的选择记录未合入）。" +
-    "(4)「At the end of your turn, kill this and deal 5 to all units you control」的 turn-end 时点与卡牌触发注册" +
-    "（契约 3.5）未接线；「all units you control」是按特征程序化选出的集合（355.10.d，从不做选择），" +
-    "effect.damage 只接受 Finalize 锁定的 TargetSpec，没有非目标集合分支。golden 覆盖身份/结构与 effect.kill(self) " +
-    "的真实执行。依赖：新的 Empower/Empowered 关键词任务、RIFT-89（费用种类）、Recall 独立动作、非目标集合伤害形态、" +
-    "契约 3.5 触发注册接线。",
+    "\"empower\"/\"empowered\" 展开，827.1.c.1 的启动费用与「Use only if not Empowered」限制无执行路径；" +
+    "印刷费用是两个 :rb_rune_rainbow:（任意域 Power [A]，135.2.e.5.a/163.2.b），六域封闭 Domain 集合无法表达" +
+    "（effect.resources 记录不可近似）。(2) 启动费用里的「Disempower this」没有付费种类：cost/plan-values.ts 的 " +
+    "readCost 非标准费用只支持 exhaust/discard/recycle/kill/reveal/spend-buff（443.2.a 的 Disempower 是受限动作）。" +
+    "(3)「Choose a player. They gain control of this and recall it」里，Recall 被已合入的 effect.move 的 mode " +
+    "\"recall\" 显式阻断（457–460：Recall 不是 Move，不发 Move 事件、不受移动限制），不得用 move-location 近似；" +
+    "玩家选择也没有卡牌可用的 select-player 指令形态（265/355.10.e 的选择记录未合入）。" +
+    "(4)「At the end of your turn, kill this and deal 5 to all units you control」的「all units you control」是按特征" +
+    "程序化选出的集合（355.10.d，从不做选择），effect.damage 只接受 Finalize 锁定的 TargetSpec，没有非目标集合分支" +
+    "（turn-end 时点与触发注册本身已合入，programs/triggers.ts 可消费 turn-end 模式）。golden 覆盖身份/结构与 " +
+    "effect.kill(self) 的真实执行。依赖：新的 Empower/Empowered 关键词任务、Recall 独立动作、非目标集合伤害形态。",
   abilities,
   sourceText:
     "[Empower] :rb_rune_rainbow::rb_rune_rainbow: (:rb_rune_rainbow::rb_rune_rainbow:: Empower me. Use only if not Empowered.)\n" +

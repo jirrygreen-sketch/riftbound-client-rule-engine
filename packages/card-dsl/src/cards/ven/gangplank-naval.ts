@@ -24,6 +24,16 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 替代效果在动作执行前拦截（契约 3.5 的 GameAction 层）；卡程序只能声明被替代的事件形状
  *   与替换后的指令（见 judgeReason 的缺口）。
  *
+ * 复核（2026-10-17，第二轮 M2 覆盖率复核）：
+ * - 旧 judgeReason 的「continuous.might 无原语（RIFT-91）」与「无 replacement 消费方
+ *   （RIFT-120）」已不成立：continuous.might 已注册并经 runAbilityBody 真实执行
+ *   （arithmetic 图层），ProgramStaticBinder.bindReplacement 也已合入。
+ * - 仍不可执行的是：Empower/Empowered KeywordDef；Empowered 状态谓词（进行中任务
+ *   RIFT-359）；替代面的 stun 事件在 replacement/pattern.ts 的封闭 ACTION_KINDS 里
+ *   没有映射、chosenBy 不是可判别键、return-to-hand 与 -Might 修改没有 pattern 形态、
+ *   continuous.might 不在 replacement planner 支持的替换指令集里（实测
+ *   BlockedReplacementError）。
+ *
  * status 判定（cards/README.md 第 2 节）：judge-required，缺口见 judgeReason，
  * 不近似实现（不把三个被替代结果压成一个，也不把替代写成触发）。
  */
@@ -81,13 +91,13 @@ export default {
     "四处缺口：(1) keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef，827.1.c.1 的" +
     "“[2 Body Power]：Empower me，仅当未 Empowered 时启动”无法展开（依赖新的 Empower/Empowered 关键词任务）；" +
     "(2) 没有 Empowered 状态谓词——442.1.a 的二元状态不在 ObjectSnapshot / Condition 里，828.1.b.1 的依赖" +
-    "能力门槛不可求值（依赖 RIFT-87）；(3) “give me +3 :rb_might:”是算术层 Might 增加（479.4.e.1），卡牌侧" +
-    "没有 continuous.might 的注册/求值原语（RIFT-91 只合入 layers 引擎，卡牌入口缺失）；" +
-    "(4) 替代面不可执行：“If a spell or ability that chooses me would stun me, give me -:rb_might:, or return me " +
-    "to hand” 的三种被替代结果里，return-to-hand 与 -Might 修改在冻结的 EventPattern 里没有判别值，" +
-    "“chooses me” 需要 targeting 来源（355.6/355.7）与 369 的替代注册接线，而合并代码没有把 CardProgram 的 " +
-    "replacement 能力注册成 ReplacementRegistration 的消费方（events/pipeline.ts 需要调用方提供 matches/apply；" +
-    "RIFT-120 之后的 card-program 适配器未合入）。不近似实现（不把三种结果压成一个，也不把替代写成触发）。",
+    "能力门槛不可求值（进行中任务 RIFT-359 条件谓词）；(3) “give me +3 :rb_might:”的 continuous.might" +
+    "指令已合入（runAbilityBody 实测执行并注册 arithmetic 图层），但替代消费方仍未合入这一条替换指令：" +
+    "replacement/planner.ts 不支持 op continuous.might（实测 BlockedReplacementError）；" +
+    "(4) 369.1 的替代事件面不可执行：event \"stun\" 不在 replacement/pattern.ts 的封闭 ACTION_KINDS 映射里" +
+    "（未知事件永不匹配），chosenBy 也不是可判别键；return-to-hand 与 -Might 修改在冻结的 EventPattern 里" +
+    "没有判别值，“chooses me” 需要 targeting 来源（355.6/355.7）。不近似实现（不把三种结果压成一个，" +
+    "也不把替代写成触发）。",
   abilities,
   sourceText:
     "[Empower] :rb_rune_body::rb_rune_body: (:rb_rune_body::rb_rune_body:: Empower me. " +

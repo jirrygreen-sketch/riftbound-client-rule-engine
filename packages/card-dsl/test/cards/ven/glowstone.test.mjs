@@ -164,7 +164,7 @@ test.todo(
 );
 test.todo(
   "ven-133-166 Glowstone: paying \"Disempower this\" (CR 443.2/443.2.a) needs the disempower payment kind in " +
-    "cost/plan-values.ts readCost (RIFT-89)"
+    "cost/plan-values.ts readCost"
 );
 test.todo(
   "ven-133-166 Glowstone: \"Choose a player. They gain control of this and recall it\" needs a select-player form " +
@@ -172,6 +172,6 @@ test.todo(
     "effect.move's recall mode is explicitly blocked (CR 457-460)"
 );
 test.todo(
-  "ven-133-166 Glowstone: the turn-end trigger and its \"deal 5 to all units you control\" set need contract 3.5 " +
-    "CardProgram -> TriggerRegistration wiring and a non-target set form for effect.damage (CR 355.10.d)"
+  "ven-133-166 Glowstone: the \"deal 5 to all units you control\" set needs a non-target set form for " +
+    "effect.damage (CR 355.10.d); the turn-end trigger point itself is merged (programs/triggers.ts)"
 );
