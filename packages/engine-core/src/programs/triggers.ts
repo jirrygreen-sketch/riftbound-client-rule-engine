@@ -17,7 +17,9 @@ export function triggerRegistrations(registry: ProgramRegistry, source: ObjectSn
     if (ability.kind !== 'triggered') return [];
     try {
       const body = translateInstructionTargets(ability.body) as any;
-      const filter = translateTriggerFilter(ability.trigger.filter as Record<string, unknown>, source.ref.id, ability.trigger.at as TimingPointId);
+      // Phase timing points are not closed EventPattern types; an empty IR
+      // filter stays empty so pipeline validation remains the real boundary.
+      const filter = translateTriggerFilter(ability.trigger.filter as Record<string, unknown>, source.ref.id, '');
       return [{
         id: `program:${source.ref.id}:${source.ref.zoneEntryId}:${index}`,
         source,
