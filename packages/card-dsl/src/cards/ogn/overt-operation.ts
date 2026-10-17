@@ -20,9 +20,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   re-asks for targets each iteration (the same unit may be chosen twice
  *   instead of each unit being visited once) and has no per-object iteration
  *   binding; the chain layer additionally blocks nested targets until the
- *   interpreter target-selection lifecycle adapter exists (chain/README.md,
- *   contract change request 2). The intended shape is recorded below and must
- *   not be treated as executable semantics.
+ *   interpreter target-selection lifecycle adapter exists. The intended shape
+ *   is recorded below and must not be treated as executable semantics.
  * - "Then buff all friendly units" is a programmatic, non-target set
  *   (355.10.d / 355.10.d.1: no player ever chooses the members). The merged
  *   effect.buff only reads a Finalize-locked TargetSpec id; declaring one for
@@ -44,7 +43,7 @@ const overtOperation = {
     "两条依赖未合入：(1)「For each friendly unit, you may spend its buff to ready it.」需要逐对象绑定、每个友方单位各一次" +
     "的可选迭代（702.2.b 消耗 + 416.1 重置）；已合入的 repeat 只重复同一 body 且默认每轮重新选目标（同一单位可被重复选中，" +
     "没有 per-object 绑定），链层还会对嵌套目标抛 ChainContractBlockedError，等待解释器目标生命周期适配器" +
-    "（chain/README.md 契约变更请求 2）。(2)「Then buff all friendly units.」是按特征程序化的非目标集合" +
+    "。(2)「Then buff all friendly units.」是按特征程序化的非目标集合" +
     "（355.10.d/355.10.d.1），effect.buff 只读 Finalize 锁定的 TargetSpec，没有 effect.ready / effect.heal 的 " +
     "{kind:'query'} 形态；写成 TargetSpec 会错误触发成为目标（355.7、754）。printed cost 与 Action 关键词的 " +
     "程序绑定已可记录；提醒文字的 +1 Might 是 703 的 Buff 计数，不写成临时 Might 修正。依赖：解释器目标生命周期、" +

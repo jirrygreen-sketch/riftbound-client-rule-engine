@@ -57,7 +57,7 @@ export default {
     "生产/服务端没有任何实现；(2) 条件里 count 过滤器的控制者占位符（controller/self）在该路径上没有解析方——参考内核 matchesFilter 按原样比较字符串，" +
     "只有 ChainEngine 的 ResolveContext query 会归一化占位符，而触发条件不经过这条 query；(3) 生产触发体翻译器拒绝 buff 目标的 " +
     "filter.object: \"self\"，因此自身目标还不能绑定到生产 TriggerRegistration。依赖：生产侧触发条件适配器、占位符解析与自指目标过滤翻译。" +
-    "不近似实现——把场上任意 Poro（含对手的）都算作条件满足会实现成另一张卡。" +
+    "不近似实现——把场上任意 Poro（含对手的）都算作条件满足会实现成另一张卡；" +
     "buff me 与 draw 1 本体（effect.buff、effect.draw）已合入并在 golden 中真实执行。",
   abilities: [
     {

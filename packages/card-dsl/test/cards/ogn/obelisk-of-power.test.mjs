@@ -22,6 +22,8 @@ test("ogn-284-298 Obelisk of Power: program validates and is judge-required", ()
   // recipient selector; beginning-start itself is a registered timing point.
   assert.match(program.judgeReason, /beginning-start/);
   assert.match(program.judgeReason, /per-turn/);
+  assert.match(program.judgeReason, /per-game/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.match(program.judgeReason, /event-player/);
   assert.match(program.judgeReason, /逐玩家 once/);
   assert.equal(

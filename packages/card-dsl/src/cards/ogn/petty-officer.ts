@@ -22,9 +22,10 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * status 判定（README 第 2 节）：
  * - KeywordDef、continuous.might 展开与 CardProgram keyword 生命周期绑定已经合入。
- * - 展开仍不可在生产图层中忠实执行：它读取 "designation"，而契约快照字段是
- *   combatRole；同时 layers/engine.ts 的 conditionMatches 不消费 compare/object-property
- *   条件，未知条件会按 true 处理，攻击者条件因此无法正确关闭。
+ * - 展开仍不可在生产图层中忠实执行：它读取 "designation"，而实际快照字段是
+ *   combatRole。programs/statics.ts 已用 evaluateCondition 求值 compare/object-property，
+ *   缺失 designation 时捕获异常并返回 false，因此攻击者也未获得 Assault 加成。
+ *   缺口是关键词条件与实际战斗指定字段未接通，不是条件求值器缺失。
  * 保留有依据的声明，执行证据覆盖已合入展开，不近似实现。
  */
 const pettyOfficer = {
@@ -32,10 +33,10 @@ const pettyOfficer = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 Assault 关键词的可执行路径（CR 807.1.c / 807.1.d.1）：展开依赖攻击者指定，" +
-    "但它读取 designation，而契约快照字段是 combatRole；layers/engine.ts 的 conditionMatches 也不消费 " +
-    "compare/object-property 条件，未知条件按 true 处理，attacker 条件在真实图层计算中会恒真，" +
-    "无法只在我攻击时 +1 Might。依赖：生产快照的 combatRole 落地与图层条件求值。不近似实现。",
+    "缺 Assault 条件与实际战斗指定的字段接线（CR 807.1.c / 807.1.d.1）：展开的 compare/object-property " +
+    "读取 designation，而生产快照已提供 combatRole。programs/statics.ts 的 evaluateCondition 已执行该条件，" +
+    "但缺失 designation 时捕获异常并返回 false，因此攻击者也未获得 +1 Might；非攻击者没有加成。" +
+    "依赖：Assault 的 designation 条件与实际 combatRole 的映射。不近似实现。",
   abilities: [{ kind: "keyword", keyword: "assault" }],
   sourceText: "[Assault] (+1 :rb_might: while I'm an attacker.)"
 } satisfies CardProgram;

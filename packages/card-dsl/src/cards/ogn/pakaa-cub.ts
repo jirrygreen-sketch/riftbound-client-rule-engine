@@ -30,12 +30,10 @@ const pakaaCub = {
   status: "judge-required",
   judgeReason:
     "Hidden 的展开文件（effects/keywords/Hidden.ts：static cost.hidden）与 cost/cost-plan.ts 的 " +
-    "buildHiddenCostPlan 已合入并有执行证据，但没有 Hide Discretionary Action 的调用方；" +
-    "811.1.c 的 Hide Discretionary Action" +
-    "（支付 [A]、按己方战场面朝下放置、811.1.b 的下一回合起 [Reaction] + 忽略基础费打出）尚未接线；" +
-    "契约 ZoneId（effects/contract.ts）也没有面朝下区域，811.1.d.1–d.3 的落点与目标限制无处表达。" +
-    "缺少的是 Hide 动作与面朝下区域的接线；Hidden 关键词程序绑定已经合入，但 811.1.c 的 Hide " +
-    "流程与 811.1.d.1–d.3 的来源战场限制仍没有可执行消费方。不近似实现。",
+    "buildHiddenCostPlan 已合入并有执行证据；仍缺两个接线：(1) 没有任何调用方执行 811.1.c 的 " +
+    "Hide Discretionary Action（支付 [A]、按己方战场面朝下放置、811.1.b 的下一回合起 [Reaction] + 忽略基础费打出）；" +
+    "(2) 契约 ZoneId（effects/contract.ts）没有面朝下区域，811.1.d.1–d.3 的落点与目标限制无处表达。" +
+    "依赖：Hide 动作调用方与面朝下区域契约。不近似实现。",
   abilities: [{ kind: "keyword", keyword: "hidden" }],
   sourceText:
     "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)"
