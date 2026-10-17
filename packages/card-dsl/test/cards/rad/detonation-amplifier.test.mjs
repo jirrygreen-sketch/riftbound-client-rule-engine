@@ -6,6 +6,28 @@ import program from "../../../dist/cards/rad/detonation-amplifier.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+
+/** Minimal engine so the production static binder can be exercised directly. */
+function binderFor(kernel) {
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (checkpoint) => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose: (request) => { throw new Error(`Unexpected choice: ${request.id}`); },
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false
+  });
+  return createEngineStaticBinder(engine);
+}
 
 const CANONICAL = "card.hash-5781b7f1661449d933821ba1a1c0653a6180580f9335eaee79a838078eb62552";
 const SOURCE_TEXT =
@@ -74,8 +96,11 @@ test("rad-017-167 Detonation Amplifier: the judgeReason names the actual merged 
   assert.match(program.judgeReason, /Deathknell/);
   assert.match(program.judgeReason, /383\.4\.g\.1/);
   // The Deploy KeywordDef and card-program adapter are merged; the gaps are
-  // its location/here consumers and trigger multiplicity.
-  assert.match(program.judgeReason, /RIFT-357/);
+  // Deploy's static-layer binding, the battlefield `here` anchor, and trigger
+  // multiplicity. RIFT-357 (runtime locations) is merged and no longer blocks.
+  assert.match(program.judgeReason, /no layer mapping/);
+  assert.match(program.judgeReason, /Unsupported filter field here/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-357/);
   assert.doesNotMatch(program.judgeReason, /RIFT-257/);
 });
 
@@ -167,7 +192,41 @@ test("rad-017-167 Detonation Amplifier golden: declining skips both the kill and
   assert.deepEqual(outcome.events, []);
 });
 
-test.todo(
-  "rad-017-167 Detonation Amplifier: Deploy's location, cleanup and Hold/here consumers remain " +
-    "unavailable (RIFT-357), and 'trigger an additional time' still needs an events multiplicity hook (383.4.g.1)."
-);
+test("rad-017-167 Detonation Amplifier: the Deploy expansion is refused at the static-layer binding", () => {
+  // 830.1.b: Deploy's expansion is a continuous.location static ability plus a
+  // Hold trigger carrying `here`. Both halves die in the merged binder instead
+  // of registering a partially wrong effect.
+  const deploy = keywordDefinitionsById.get("Deploy");
+  assert.ok(deploy, "the merged Deploy KeywordDef is present");
+  const expanded = deploy.expand({});
+  const locationAbility = expanded.find(ability =>
+    ability.kind === "static" && ability.effect.kind === "continuous.location");
+  const holdAbility = expanded.find(ability => ability.kind === "triggered");
+  assert.ok(locationAbility, "Deploy expands a continuous.location static ability");
+  assert.ok(holdAbility, "Deploy expands a Hold trigger");
+
+  const kernel = world()
+    .unit("amplifier", { types: ["gear"], location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const source = kernel.getObject("amplifier");
+  const binder = binderFor(kernel);
+  assert.throws(() => binder.bindStatic(locationAbility, source), /no layer mapping/);
+  assert.throws(
+    () => translateTriggerFilter(holdAbility.trigger.filter, "amplifier", "hold"),
+    /Unsupported filter field here/
+  );
+});
+
+test("rad-017-167 Detonation Amplifier: the multiplicity declaration is refused by the static binder", () => {
+  // 383.4.g.1: "trigger an additional time" edits trigger collection. The
+  // merged binder cannot consume the declaration at all: its appliesTo shape is
+  // not a supported static target, so binding fails before any layer mapping is
+  // consulted. It must not be approximated by repeat at resolution.
+  const kernel = world()
+    .unit("amplifier", { types: ["gear"], location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  assert.throws(
+    () => binderFor(kernel).bindStatic(multiplicity, kernel.getObject("amplifier")),
+    /Unsupported static appliesTo/
+  );
+});
