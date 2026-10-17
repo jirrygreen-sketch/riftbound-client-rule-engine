@@ -12,7 +12,8 @@ import type { CardProgram } from "../../ir/index.js";
  * 2026-10-12-official-gallery): energy 4, power 2 (Fury), might null, tags [].
  *
  * Status: judge-required. Three of the four clauses need merged machinery that
- * does not exist yet; the last is expressible and is covered by the golden test:
+ * does not exist yet; the recycle step is expressible and is covered by the
+ * golden test:
  * - "Each opponent reveals the top card of their Main Deck" binds one reveal per
  *   opponent. The merged effect.reveal takes a single player expression and has
  *   no each-opponent iteration (RIFT-9 target.player; 133.3 says "opponent"
@@ -28,15 +29,16 @@ import type { CardProgram } from "../../ir/index.js";
  *   (finalizePick in engine-core/src/target/target-plan.ts) and effect.reveal
  *   links only the revealed references, not a resolution-time selection plan, so
  *   the choice-timing adapter is missing. The intended shape below uses a
- *   PickSpec over the linked revealed set, and the banish instruction itself is
- *   the merged effect.banish (verified together with effect.play by probe).
+ *   PickSpec over the linked revealed set; effect.banish and effect.play are
+ *   merged and are exercised directly by the golden tests.
  * - "play it, ignoring its cost": ignoring a printed cost sets the base Energy
  *   and Power costs to zero (356.1.b.1), and further additional costs or
  *   increases still apply afterwards (356.1.b.3). effect.play documents that it
  *   never derives printed costs and does not implement an ignored-cost rule; it
- *   only consumes an already-finalized cost plan, so the ignore-base
- *   modification belongs to the cost pipeline (RIFT-89) and is not smuggled in
- *   as a zeroed plan here.
+ *   only consumes an already-finalized cost plan. The merged cost pipeline can
+ *   express an ignore-base rewrite (cost/cost-plan.ts) but no merged producer
+ *   turns this card's instruction into that plan, so the ignore-base wiring
+ *   (RIFT-257 / RIFT-261) is missing and is not smuggled in as a zeroed plan.
  * - "Then recycle the rest" IS expressible: effect.recycle drops references that
  *   are no longer live, so recycling the linked revealed set after the chosen
  *   card has left that zone recycles exactly the remaining cards, and 417.1.c
@@ -46,8 +48,8 @@ import type { CardProgram } from "../../ir/index.js";
  * intended program stays reviewable.
  *
  * Dependencies: RIFT-9 target.player (each-opponent binding), zoneSlice-ordered
- * reveal, a resolution-time choice over a linked set, and the cost-ignore base
- * modification in the finalize cost plan.
+ * reveal, a resolution-time choice over a linked set, and the RIFT-257/261
+ * cost-ignore wiring in the finalize cost plan.
  */
 const blindFury = {
   canonicalCardId: "card.hash-5d9f81372ed036e6b436801528f2d8f8c5ebcc636cfa4c396219c28c446bdfac",
@@ -59,7 +61,8 @@ const blindFury = {
     "(2) 「Choose one and banish it」是结算时从本次展示的集合中做选择（355.18），已合入的 picks 在 Finalize 前锁定" +
     "（target-plan finalizePick），effect.reveal 只链接展示到的引用、不产出结算期选择计划，缺 condition.result / 结算期选择原语；" +
     "(3) 「play it, ignoring its cost」是把印刷基础 Energy/Power 费置零（356.1.b.1，追加费用仍按 356.1.b.3 继续计算），" +
-    "effect.play 文档明确既不推导印刷费用也不实现 ignore-cost 规则，只接受已 finalize 的费用计划，属 RIFT-89 费用管线。" +
+    "effect.play 文档明确既不推导印刷费用也不实现 ignore-cost 规则，只接受已 finalize 的费用计划；cost/cost-plan.ts 能表达 ignore-base 改写，" +
+    "但没有已合入的生产方把本卡指令接成该费用计划（RIFT-257 卡牌程序绑定 / RIFT-261 费用指令）。" +
     "「Then recycle the rest」可表达：effect.recycle 丢弃已失效引用，故回收展示集合即回收其余牌（417.1.c 各自回各自牌库），该步有 golden 执行测试。",
   sourceText:
     "[Action] (Play on your turn or in showdowns.)\n" +

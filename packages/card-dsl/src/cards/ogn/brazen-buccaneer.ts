@@ -28,14 +28,12 @@ import type { CardProgram } from "../../ir/index.js";
  *   356.4.f.1（"If you do" 的凭证是支付决定，不是弃牌动作本身）。
  *
  * 未合入依赖（不近似实现）:
- * - effects/instructions/ 目前只有 effect.* 原语，没有 cost.additional / cost.modify /
- *   cost.pay 文件（RIFT-9 原语清单要求）；卡牌程序里的 static 费用改写效果也没有
- *   消费方：没有任何已合入组件把 CardProgram 的 static 效果注册进费用计划。
- * - RIFT-89 的 cost/buildCostPlan 已能表达 optionalAdditional + discounts，但没有
- *   CardProgram → CostPlan 的 IR 接线；并且 CostPlanInput/CostDiscount 没有"仅在该
- *   可选附加费用被选择时才应用"的减费维度（356.4.f.1 的闸门）：组件绑定的减费只能
- *   作用于它绑定的组件，不能以"已付/未付"为条件。
- * 依赖：RIFT-9（cost.additional / cost.modify）、RIFT-89（费用管线接线）。
+ * - cost/buildCostPlan 已能表达 optionalAdditional（含 discard 支付）与 component 绑定的
+ *   discount，但仍没有 CardProgram → CostPlan 的 IR 接线（RIFT-257）：没有已合入组件把
+ *   这里的 static 费用声明注册进费用计划，CostDiscount 也没有"仅在该可选附加费用被选择时
+ *   才应用"的条件（356.4.f.1 的闸门）。
+ * - RIFT-261 的 cost.pay / cost.modify 指令尚未合入，卡面没有可声明它们的 op。
+ * 依赖：RIFT-257（卡牌程序→费用管线绑定）、RIFT-261（cost.pay / cost.modify）。
  */
 const brazenBuccaneer = {
   canonicalCardId: "card.hash-da18079d11afce4cad1d799fd51de5b0219e0635613cd5a5b4a5f38e1a42aafc",
@@ -43,10 +41,11 @@ const brazenBuccaneer = {
   status: "judge-required",
   judgeReason:
     "『you may discard 1 as an additional cost. If you do, reduce my cost by [2]』是可选附加费用 + 由该费用授予的减费" +
-    "（CR 356.2.b.1、356.4、356.4.f.1）：缺 cost.additional / cost.modify 指令原语（effects/instructions/ 只有 effect.* 文件，RIFT-9 清单要求 " +
-    "cost.additional / cost.modify）；RIFT-89 的 buildCostPlan 能表达 optionalAdditional + discounts，但没有 CardProgram → CostPlan 的接线，" +
-    "且 CostPlanInput/CostDiscount 没有『仅在该可选附加费用被选择时才应用』的减费维度（356.4.f.1），卡面声明的已付凭证无法回传。" +
-    "依赖：RIFT-9（cost.additional / cost.modify）、RIFT-89（费用计划接线）。不近似实现。",
+    "（CR 356.2.b.1、356.4、356.4.f.1）：buildCostPlan 已能表达 optionalAdditional（discard 支付）与按组件绑定的减费" +
+    "（本卡测试真实执行该费用计划并验证支付后总费用为 4、拒绝时保持 6），但仍缺 CardProgram → CostPlan 的绑定层（RIFT-257），" +
+    "卡面的 static 费用声明不会被生产路径登记；CostDiscount 也没有『仅在该可选附加费用被选择时才应用』的条件（356.4.f.1），" +
+    "卡面声明的已付凭证无法回传；RIFT-261 的 cost.pay / cost.modify 指令亦未合入。" +
+    "依赖：RIFT-257（卡牌程序→费用管线绑定）、RIFT-261（cost.pay / cost.modify）。不近似实现。",
   abilities: [
     {
       kind: "static",

@@ -33,8 +33,11 @@ import type { CardProgram } from "../../ir/index.js";
  *   here would wrongly fire "becomes a target" effects (355.7, 754).
  * - "Pay any amount of [A]" needs a resolve-time, player-chosen payment
  *   primitive bound to the amount that the effect reads. No merged primitive
- *   performs (or reports) such an instruction-cost payment: cost.pay is a
- *   Finalize-time plan and the paid amount is not exposed as a linked value.
+ *   performs (or reports) such an instruction-cost payment: the merged cost
+ *   pipeline is a Finalize-time plan, the card-facing cost.pay / cost.modify
+ *   instructions (RIFT-261) are not merged, and no producer binds this
+ *   instruction to a plan (RIFT-257); the paid amount is not exposed as a
+ *   linked value.
  * The damage set and the payment binding are therefore recorded in the pending
  * descriptor shape (identical to the merged Flurry of Blades program, which
  * blocks for the same missing non-target damage form) rather than approximated
@@ -50,9 +53,10 @@ const bulletTime = {
     "已合入的 effect.damage 只读取 Finalize 锁定的 TargetSpec（ctx.targets(id)），没有 effect.ready / effect.heal 那种 " +
     "{kind:'query', filter} 非目标集合分支；写 TargetSpec 会错误触发成为目标（355.7、754）。" +
     "(2)「Pay any amount of [A]」是 204.3/204.3.a 的指令内费用（该条规则以本卡为例）：金额在结算时由玩家选择且伤害量由实付额决定，" +
-    "已合入原语没有任何结算期“任意数量支付并发布实付额”的形态——cost.pay 只处理 Finalize 费用计划，实付额也不作为链接值暴露；" +
+    "已合入原语没有任何结算期“任意数量支付并发布实付额”的形态——合并的费用管线只处理 Finalize 费用计划，" +
+    "卡面可用的 cost.pay / cost.modify 指令（RIFT-261）未合入，也没有生产方把该指令绑定成费用计划（RIFT-257），实付额也不作为链接值暴露；" +
     "把金额写死或拆成无条件伤害都属近似实现。" +
-    "印刷 power:null 表示无印刷费，未改写为 0。依赖：effect.damage 非目标集合形态 + 指令内费用原语（RIFT-9 家族）。",
+    "印刷 power:null 表示无印刷费，未改写为 0。依赖：effect.damage 非目标集合形态 + RIFT-257/261 的指令内费用接线。",
   sourceText:
     "[Action] (Play on your turn or in showdowns.)\n" +
     "Pay any amount of :rb_rune_rainbow: to deal that much damage to all enemy units at a battlefield.",

@@ -5,6 +5,8 @@ import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/call-to-glory.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import buff from "../../../../engine-core/dist/effects/instructions/effect.buff.js";
+import might from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-9eef9a0508648141992bbe70aa56b64551bbd00d06fd8be401c85dda6f542339";
@@ -24,8 +26,8 @@ test("Call to Glory identity and judge-required status match the printing", () =
   assert.equal(program.status, "judge-required");
   assert.equal(program.judgeReason.includes("356.2.b"), true);
   assert.equal(program.judgeReason.includes("356.1.b"), true);
-  assert.equal(program.judgeReason.includes("RIFT-89"), true);
-  assert.equal(program.judgeReason.includes("RIFT-91"), true);
+  assert.equal(program.judgeReason.includes("RIFT-257"), true);
+  assert.equal(program.judgeReason.includes("RIFT-261"), true);
   assert.equal(
     program.sourceText,
     "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +
@@ -130,14 +132,38 @@ test("Call to Glory golden: a stale buff pick leaves the unit untouched", () => 
   assert.equal(kernel.getObject("buffed-unit").buffs, 1);
 });
 
+test("Call to Glory golden: the printed +3 Might executes through continuous.might and expires at end of turn", () => {
+  const kernel = world()
+    .unit("call-to-glory", { owner: "A", types: ["spell"], zone: "chain" })
+    .unit("buffed-unit", { owner: "A", controller: "A", might: 2 })
+    .build();
+  const run = runInstruction(
+    might,
+    {
+      amount: mightInstruction.args.amount,
+      duration: mightInstruction.args.duration,
+      target: mightSpec.id
+    },
+    { world: kernel, targets: { [mightSpec.id]: [kernel.ref("buffed-unit")] } }
+  );
+
+  assert.equal(run.result.status, "executed");
+  assert.equal(kernel.continuousEffects.length, 1);
+  assert.deepEqual(kernel.continuousEffects[0].duration, { type: "end-of-turn" });
+  const engine = createLayerEngine(
+    [kernel.getObject("buffed-unit")],
+    kernel.continuousEffects.map((entry, index) => ({ ...entry, timestamp: index + 1 }))
+  );
+  const ref = kernel.ref("buffed-unit");
+  assert.equal(engine.evaluate(ref).might, 5);
+  // 317.2.c: "this turn" expires at the end-of-turn cleanup.
+  engine.advance({ id: "turn-end" });
+  assert.equal(engine.evaluate(ref).might, 2);
+});
+
 test.todo(
   "Call to Glory: the conditional rewrite \"If you do, ignore this spell's cost\" (356.1.b sets " +
     "the base cost to zero; 357.2.a counts the paid additional cost; 356.1.b.3 keeps later " +
-    "increases) needs the Finalize cost-plan generation and consumption (RIFT-89)."
-);
-
-test.todo(
-  "Call to Glory: the +3 Might this turn (433.1.a layer modulation, 317.2.c end-of-turn expiry) " +
-    "needs the card-facing continuous.might instruction that feeds the merged layers engine " +
-    "(RIFT-91)."
+    "increases) needs the card-program binding that generates the Finalize cost plan with the " +
+    "runtime buff-holder choice (RIFT-257) and the card-facing cost operations (RIFT-261)."
 );

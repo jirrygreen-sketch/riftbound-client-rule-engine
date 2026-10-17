@@ -4,13 +4,16 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import block from "../../../dist/cards/ogn/block.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import grantKeyword from "../../../../engine-core/dist/effects/instructions/continuous.grant-keyword.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-211d0bb8cf4f5b5202c2a9b7996e483898644aa24714b1e10edd80a54ba4b560";
 
 const [hidden, action, play] = block.abilities;
 const [grantInstruction] = play.body;
+const literal = (value) => ({ kind: "constant", value });
 
 test("Block program is structurally valid EffectIR v2 data", () => {
   const result = validateCardProgram(block);
@@ -24,6 +27,7 @@ test("Block identity, ruleset, status and printed text", () => {
   assert.equal(block.status, "judge-required");
   assert.match(block.judgeReason, /Tank/);
   assert.match(block.judgeReason, /815/);
+  assert.match(block.judgeReason, /RIFT-257/);
   assert.equal(cardRegistryById.get(block.canonicalCardId), block);
   assert.equal(
     block.sourceText,
@@ -44,11 +48,14 @@ test("Block body: one duration-bound [Shield 3] + [Tank] grant over a unit targe
   assert.equal(play.body.length, 1);
   assert.equal(grantInstruction.id, "grant-shield-3-and-tank");
   assert.equal(grantInstruction.op, "continuous.grant-keyword");
+  // 814.1.b.2 keeps the Shield Value on the keyword entry itself: the merged
+  // continuous.grant-keyword ignores a top-level `value` when `keywords` is
+  // given, so the printed 3 lives on the Shield entry.
   assert.deepEqual(grantInstruction.args.keywords, {
     kind: "constant",
-    value: ["Shield", "Tank"]
+    value: [{ id: "Shield", value: 3 }, { id: "Tank" }]
   });
-  assert.deepEqual(grantInstruction.args.value, { kind: "constant", value: 3 });
+  assert.equal(grantInstruction.args.value, undefined);
   assert.deepEqual(grantInstruction.args.duration, { kind: "constant", value: "this-turn" });
   assert.equal(grantInstruction.picks, undefined);
   assert.equal(grantInstruction.linkedTo, undefined);
@@ -64,13 +71,11 @@ test("Block body: one duration-bound [Shield 3] + [Tank] grant over a unit targe
   ]);
 });
 
-test("Block dependencies are genuinely unmerged: no Tank KeywordDef and no grant opcode", () => {
-  // CR 815 Tank has no keyword implementation in the merged registry.
-  assert.equal(keywordDefinitionsById.has("Tank"), false);
-  // Shield's KeywordDef does exist (814), which is why the judgeReason names
-  // Tank, the timed grant and the Defender designation rather than Shield.
+test("Block keywords are merged: Shield and Tank both have KeywordDefs", () => {
+  // CR 814 Shield and CR 815 Tank are both registered (RIFT-264 added Tank).
   assert.ok(keywordDefinitionsById.has("Shield"));
-  assert.equal(instructionDefinitionsById.has("continuous.grant-keyword"), false);
+  assert.ok(keywordDefinitionsById.has("Tank"));
+  assert.equal(keywordDefinitionsById.get("Tank").keyword, "Tank");
 });
 
 test("Block: Shield's merged expansion is defender-conditional, not a flat +3 Might (CR 814.1.c)", () => {
@@ -87,6 +92,44 @@ test("Block: Shield's merged expansion is defender-conditional, not a flat +3 Mi
   assert.deepEqual(expansion.condition.right, { kind: "constant", value: "defender" });
   // Shield values from multiple sources sum (814.2; the keyword is stacking "sum").
   assert.equal(shield.stacking, "sum");
+});
+
+test("Block golden: the printed grant registers Shield 3 and Tank in the ability layer and expires at end of turn", () => {
+  const base = world()
+    .unit("block", { owner: "A", types: ["spell"] })
+    .unit("granted-unit", { owner: "B", controller: "B", keywords: [] })
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("block") });
+  const run = runInstruction(
+    grantKeyword,
+    {
+      keywords: grantInstruction.args.keywords,
+      duration: grantInstruction.args.duration,
+      objects: literal({ kind: "target", id: "granted-unit" })
+    },
+    { world: kernel, targets: { "granted-unit": [kernel.ref("granted-unit")] } }
+  );
+
+  assert.equal(run.result.status, "executed");
+  assert.deepEqual(kernel.continuousEffects.map((entry) => entry.duration), [
+    { type: "end-of-turn" }
+  ]);
+  const engine = createLayerEngine(
+    [kernel.getObject("granted-unit")],
+    kernel.continuousEffects.map((entry, index) => ({ ...entry, timestamp: index + 1 }))
+  );
+  const ref = kernel.ref("granted-unit");
+  // Semantic compare: the layer engine keeps an explicit `value: undefined`
+  // key for unvalued grants, which deepEqual distinguishes from an absent key.
+  assert.deepEqual(
+    engine.evaluate(ref).keywords.map((keyword) => ({ id: keyword.id, value: keyword.value ?? null })),
+    [
+      { id: "Shield", value: 3 },
+      { id: "Tank", value: null }
+    ]
+  );
+  engine.advance({ id: "turn-end" });
+  assert.deepEqual(engine.evaluate(ref).keywords, []);
 });
 
 test.todo(
