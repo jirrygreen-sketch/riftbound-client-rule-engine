@@ -35,8 +35,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *    任一域近似，程序里以描述性 ["rainbow", "rainbow"] 记录。
  * 3. 「if I'm at a battlefield」需要在触发时求值的 Location 谓词：object-property 能读
  *    location，但持续/触发条件没有落地路径（同 sfd/tianna-crownguard 的缺口）。
- * 4. card-played 时点虽在封闭枚举中，但没有已合入订阅方把 CardProgram 的 triggered
- *    ability 注册成 TriggerRegistration（RIFT-120 的链/事件单管线接线）；383.2.c.1 关于
+ * 4. card-played 触发的静态注册已随 RIFT-257 合入（programs/triggers.ts →
+ *    registerProgramTriggers → engine.pipeline.registerTrigger，attachProgramLifecycle 自动附着）；
+ *    383.2.c.1 关于
  *    「本卡在同一时点进入该区域时触发条件是否成立」的判定同样没有卡牌可用路径。
  * 依赖：RIFT-89（cost.modify 与一次性费用窗口）、RIFT-91（条件/图层接线）、RIFT-120
  * （卡牌触发注册）。不近似实现：不把折扣写成固定整数减免，也不用某个域近似 [A]。
@@ -95,8 +96,9 @@ export default {
     "六域封闭枚举，Universal Power 不可表示、不得用任一域近似，程序以描述性 [\"rainbow\",\"rainbow\"] 记录；" +
     "(3)「if I'm at a battlefield」是 383.2.a.1 的触发条件（规则原文的 Sona 例同形），需要触发时求值的 Location 谓词，" +
     "object-property 能读 location 但没有持续/触发条件落地路径（同 sfd/tianna-crownguard），依赖 RIFT-91；" +
-    "(4) card-played 时点虽在封闭枚举中（359 / 383.4.a），但没有已合入订阅方把 CardProgram 的 triggered ability 注册成" +
-    " TriggerRegistration（RIFT-120），383.2.c.1 的「本卡同一时点进入该区域时条件是否成立」判定也没有卡牌可用路径。" +
+    "(4) card-played 触发的静态注册已随 RIFT-257 合入（programs/triggers.ts → registerProgramTriggers → " +
+    "engine.pipeline.registerTrigger，attachProgramLifecycle 自动附着），383.2.c.1 的「本卡同一时点进入该区域时条件是否成立」" +
+    "判定也没有卡牌可用路径；card-played 的 activeZones 对永久物是 board（本卡在场时才会注册）。" +
     "「your first card each turn」按 383.1.b / 383.3.e.1 用 TriggerSpec.once: \"per-turn\" 表达（同 rad/akali-brash）。",
   abilities,
   sourceText:

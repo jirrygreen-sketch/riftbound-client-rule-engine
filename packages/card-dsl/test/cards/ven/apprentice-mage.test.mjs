@@ -83,10 +83,10 @@ test("apprentice-mage: judgeReason names every missing dependency", () => {
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
-test("apprentice-mage: review evidence — continuous.might is merged, Empower/Empowered are not", () => {
-  assert.equal(instructionDefinitionsById.has("continuous.might"), true);
-  assert.equal(keywordDefinitionsById.get("Empower"), undefined);
-  assert.equal(keywordDefinitionsById.get("Empowered"), undefined);
+test("apprentice-mage: the declared Empower activation keeps the printed 2-Energy cost", () => {
+  // 契约 3.8.3：KeywordAbility 没有费用字段，KeywordDef.expand 的输入只加 params；
+  // 印刷费 2 Energy 记录在 judgeReason，不伪造启动能力。
+  assert.deepEqual(empower, { kind: "keyword", keyword: "empower", value: 2 });
 });
 
 test("apprentice-mage: the merged effect.inspect argsSchema still rejects the symbolic player selector", () => {
@@ -257,4 +257,10 @@ test.todo(
   "apprentice-mage: effect.inspect accepting the contract 3.6 symbolic selector for " +
     "object-property (player: { object: 'source', property: 'controller' }); the merged " +
     "argsSchema still requires a zone-bound ObjectRef"
+);
+
+test.todo(
+  "apprentice-mage: the Empower/Empowered KeywordDefs, the 442.1.a Empowered status predicate and " +
+    "the empowered-changed direction filter are pending — until they land, 827.1.c.1, 828.1.c and " +
+    "828.1.d cannot expand (see judgeReason)"
 );

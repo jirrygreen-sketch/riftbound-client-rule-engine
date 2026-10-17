@@ -31,7 +31,7 @@ test("ven-038-166 Akali, Silent: identity, status, judgeReason and verbatim sour
   assert.match(program.judgeReason, /355\.9\.b/);
   assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /host\.testTrigger/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -147,5 +147,6 @@ test.todo(
 
 test.todo(
   "ven-038-166 Akali, Silent: resolve 'When I move to a battlefield' end to end (143.2.a / 317.2.c) — the merged " +
-    "continuous.might primitive executes +2 (see the golden), but the object-moved trigger wiring (RIFT-120) is still pending"
+    "continuous.might primitive executes +2 (see the golden); static trigger registration landed via RIFT-257,\n" +
+    "but the object-moved payload lacks toZone and the condition path needs host.testTrigger (fail-closed)"
 );

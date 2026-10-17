@@ -25,10 +25,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * status = judge-required（三处依赖均不近似实现）：
  * 1. cost.pay 指令已随 RIFT-258 合入（golden 真实执行支付并产出 receipt），但生产触发接线未合入：
  *    RIFT-89 的费用计划/触发接线仍在进行，攻击触发的支付步还没有 CardProgram → TriggerRegistration
- *    的执行入口（同 ven-162-166 Protective Sands 的记录）。
- * 2. attack-declared 没有已合入的发出方：该 id 只出现在封闭枚举与关键词展开里，combat/ 不把它
- *    发进唯一事件管线，也没有订阅方把 CardProgram 的 triggered ability 注册成 TriggerRegistration
- *    （RIFT-120；同 ogn/crackshot-corsair 的记录）。
+ *    的执行入口（同 ven-162-166 Protective Sands 的记录）。参考测试内核的 pay 动作只扣
+ *    energy/xp，Power 消费要等 engine-core 真实资源侧集成。
+ * 2. attack-declared 没有已合入的发出方：combat/flow.ts 仍以 TurnCombatBlockedError
+ *    ('combat-start-transaction') 阻塞宣告事务（466.2），攻击时点不进入唯一事件管线；
+ *    CardProgram 触发的静态注册已随 RIFT-257 合入（programs/triggers.ts），缺的是时点发射。
  * 3. continuous.grant-keyword 指令已随 RIFT-258 合入且 golden 真实执行授予 [Assault 2]
  *    （end-of-turn 到期，经 layers 引擎投影出关键词），但触发接线（第 2 条）仍使整条
  *    攻击触发无法在生产管线中结算；Assault 自身的展开文件已合入。
@@ -86,14 +87,17 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处依赖未合入：(1) cost.pay 指令已随 RIFT-258 合入（golden 真实执行 1 点 Fury Power 支付并产出 receipt），" +
-    "但 RIFT-89 的费用计划/触发接线未合入，生产管线还没有把攻击触发里的支付步接到 CardProgram 的执行入口；" +
-    "(2) attack-declared 没有已合入的发出方——该 id 只出现在封闭枚举与关键词展开里，combat/ 不把它发进唯一事件管线，" +
-    "也没有订阅方把 CardProgram 的 triggered ability 注册成 TriggerRegistration（RIFT-120，同 ogn/crackshot-corsair 的记录）；" +
-    "(3) continuous.grant-keyword 已随 RIFT-258 合入（golden 真实执行 [Assault 2] 授予，end-of-turn 到期并经 layers 引擎" +
-    "投影出关键词），但触发接线（第 2 条）仍使整条攻击触发无法在生产管线中结算；Assault 的展开文件已合入。" +
-    "已支持部分：choice.optional 的「可以」语义（契约 3.9，拒绝时整条被选指令跳过）由 golden 用真实解释器 + 参考内核执行。" +
-    "依赖：RIFT-89、RIFT-120。不近似实现。",
+    "\u4e09\u5904\u4f9d\u8d56\u672a\u5408\u5165\uff1a(1) cost.pay \u6307\u4ee4\u5df2\u968f RIFT-258 \u5408\u5165\uff08golden \u771f\u5b9e\u6267\u884c 1 \u70b9 Fury Power \u652f\u4ed8\u5e76\u4ea7\u51fa receipt\uff1b" +
+    "\u53c2\u8003\u6d4b\u8bd5\u5185\u6838\u7684 pay \u52a8\u4f5c\u53ea\u6263 energy/xp\uff0cPower \u6d88\u8d39\u8981\u7b49 engine-core \u771f\u5b9e\u8d44\u6e90\u4fa7\u96c6\u6210\uff09\uff0c" +
+    "\u4f46 RIFT-89 \u7684\u8d39\u7528\u8ba1\u5212/\u89e6\u53d1\u63a5\u7ebf\u672a\u5408\u5165\uff0c\u751f\u4ea7\u7ba1\u7ebf\u8fd8\u6ca1\u6709\u628a\u653b\u51fb\u89e6\u53d1\u91cc\u7684\u652f\u4ed8\u6b65\u63a5\u5230 CardProgram \u7684\u6267\u884c\u5165\u53e3\uff1b" +
+    "(2) attack-declared \u6ca1\u6709\u5df2\u5408\u5165\u7684\u53d1\u51fa\u65b9\u2014\u2014combat/flow.ts \u4ecd\u4ee5 TurnCombatBlockedError('combat-start-transaction') " +
+    "\u963b\u585e\u5ba3\u544a\u4e8b\u52a1\uff08466.2\uff09\uff0c\u653b\u51fb\u65f6\u70b9\u4e0d\u8fdb\u5165\u552f\u4e00\u4e8b\u4ef6\u7ba1\u7ebf\uff1bCardProgram \u89e6\u53d1\u7684\u9759\u6001\u6ce8\u518c\u5df2\u968f RIFT-257 \u5408\u5165" +
+    "\uff08programs/triggers.ts\uff09\uff0c\u7f3a\u7684\u662f\u65f6\u70b9\u53d1\u5c04\uff1b" +
+    "(3) continuous.grant-keyword \u6307\u4ee4\u5df2\u968f RIFT-258 \u5408\u5165\u4e14 golden \u771f\u5b9e\u6267\u884c\u6388\u4e88 [Assault 2]\uff08end-of-turn \u5230\u671f\uff0c" +
+    "\u7ecf layers \u5f15\u64ce\u6295\u5f71\u51fa\u5173\u952e\u8bcd\uff09\uff0c\u4f46\u89e6\u53d1\u63a5\u7ebf\uff08\u7b2c 2 \u6761\uff09\u4ecd\u4f7f\u6574\u6761\u653b\u51fb\u89e6\u53d1\u65e0\u6cd5\u5728\u751f\u4ea7\u7ba1\u7ebf\u4e2d\u7ed3\u7b97\uff1b" +
+    "Assault \u81ea\u8eab\u7684\u5c55\u5f00\u6587\u4ef6\u5df2\u5408\u5165\u3002" +
+    "\u5df2\u652f\u6301\u90e8\u5206\uff1achoice.optional \u7684\u300c\u53ef\u4ee5\u300d\u8bed\u4e49\uff08\u5951\u7ea6 3.9\uff0c\u62d2\u7edd\u65f6\u6574\u6761\u88ab\u9009\u6307\u4ee4\u8df3\u8fc7\uff09\u7531 golden \u7528\u771f\u5b9e\u89e3\u91ca\u5668 + " +
+    "\u53c2\u8003\u5185\u6838\u6267\u884c\u3002\u4f9d\u8d56\uff1aRIFT-89\u3001RIFT-120\u4e0e Power \u8d44\u6e90\u6d88\u8d39\u7684\u5185\u6838\u96c6\u6210\u3002\u4e0d\u8fd1\u4f3c\u5b9e\u73b0\u3002",
   abilities,
   sourceText:
     "When I attack, you may pay :rb_rune_fury: to give me [Assault 2] this turn. " +

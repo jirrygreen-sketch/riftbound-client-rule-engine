@@ -139,6 +139,10 @@ test("ven-009-166 Baccai Reaper golden: accepting pays 1 Fury Power and grants [
     { requirementIndex: 0, from: "Fury", amount: 1 }
   ]);
   assert.ok(outcome.events.some((event) => event.action === "pay"));
+  // 注意：receipt 证明「计划已支付到准备/回执层」（204.1.b 的支付动作已产出），但参考
+  // 内核的 pay 动作只扣 energy/xp（test-kernel.ts:300），不消费 PlayerSnapshot.power 池，
+  // 因此「池余额被真实扣减」在 card-dsl 测试内核上尚不可验证（见下方 TODO 与依赖）。
+
   // [Assault 2]：ability 层的关键词授予，end-of-turn 到期。
   assert.equal(context.continuousEffects.length, 1);
   assert.equal(context.continuousEffects[0].effect.effect.keyword, "Assault");
@@ -154,6 +158,31 @@ test("ven-009-166 Baccai Reaper golden: accepting pays 1 Fury Power and grants [
     { id: "Assault", value: 2 }
   ]);
 });
+
+test("ven-009-166 Baccai Reaper golden: the payment fails closed with an empty Power pool and no grant runs", () => {
+  // 边界证据：成本计划先经 planDuelRunePayment 校验（cost/resources.ts 的
+  // 'insufficient matching Power'），参考内核 pay 动作扣 energy/xp——Power 不足时
+  // cost.pay 在任何授予之前失败，整个事务不提交。
+  const kernel = world().player("A", { power: [] }).unit("baccai-reaper", { might: 4 }).build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("baccai-reaper") });
+  context.setAnswers({ [OPTIONAL_ID]: true });
+
+  assert.throws(
+    () => runAbilityBody(ability.body, context),
+    (error) => error instanceof Error && /insufficient matching Power/i.test(error.message)
+  );
+  assert.deepEqual(context.player("A").power, []);
+  assert.equal(context.continuousEffects.length, 0);
+  assert.equal(context.getObject("baccai-reaper").keywords.length, 0);
+});
+
+test.todo(
+  "ven-009-166 Baccai Reaper: the Power pool debit cannot be verified on the reference kernel — " +
+    "test-kernel.ts:300's pay action debits only energy/xp and leaves PlayerSnapshot.power untouched, " +
+    "so holding one Fury pays twice (both runs return paid:true and grant the effect while the pool " +
+    "stays ['Fury']); the recurring-debit boundary (a second payment from an empty pool must fail) " +
+    "needs the engine-core Power-integration task to land in the reference kernel"
+);
 
 test.todo(
   "ven-009-166 Baccai Reaper: resolve the attack trigger's payment step in the production pipeline — " +

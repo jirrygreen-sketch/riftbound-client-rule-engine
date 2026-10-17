@@ -26,7 +26,7 @@ test("ven-044-166 Astral Heron: identity, status, judgeReason and verbatim sourc
   assert.match(program.judgeReason, /next-card/);
   assert.match(program.judgeReason, /163\.2\.b/);
   assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /registerProgramTriggers/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -99,5 +99,6 @@ test.todo(
 );
 
 test.todo(
-  "ven-044-166 Astral Heron: register the card-played trigger as a TriggerRegistration (383.2.c.1) — RIFT-120"
+  "ven-044-166 Astral Heron: resolve the card-played trigger end to end — static registration landed\n" +
+    "via RIFT-257; the 383.2.c.1 condition evaluation still has no card-usable path"
 );
