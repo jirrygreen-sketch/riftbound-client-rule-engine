@@ -30,9 +30,8 @@ test("sfd-023-221 Piercing Light: program passes validateCardProgram", () => {
 test("sfd-023-221 Piercing Light: judge-required for the Repeat wiring and the zero-target Finalize", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /820\.1\.c\.1/);
-  assert.match(program.judgeReason, /RIFT-86/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /optionalAdditional/);
+  assert.match(program.judgeReason, /355\.13/);
   assert.match(program.judgeReason, /355\.13/);
 });
 
@@ -157,18 +156,18 @@ test("sfd-023-221 Piercing Light golden: a single-sentence mistarget does not su
 test.todo(
   "sfd-023-221 Piercing Light: collecting the optional 2-energy + 1-Fury-power Repeat cost at " +
     "Finalize, exposing the paid count to the effect execution, and re-making choices for the " +
-    "additional execution (820.1.c.1 / 820.1.d.1 / 820.2) need the Repeat cost wiring and the cost " +
-    "plan — RIFT-86 / RIFT-89."
+    "additional execution (820.1.c.1 / 820.1.d.1 / 820.2) need the cost plan's optionalAdditional " +
+    "wiring and a paid-instance receipt."
 );
 
 test.todo(
   "sfd-023-221 Piercing Light: locking a zero-choice 'up to one' target through the production " +
-    "Finalize flow (355.13) and the became-target trigger for the chosen units belong to the target " +
-    "system — RIFT-90."
+    "Finalize flow (355.13) and the became-target trigger for the chosen units belong to the " +
+    "target system's Finalize consumer."
 );
 
 test.todo(
   "sfd-023-221 Piercing Light: excluding the first sentence's unit from the second target through " +
     "the merged `exclude` anchor needs the chain's Finalize target pipeline to evaluate the anchor " +
-    "against the first locked TargetSpec — RIFT-90."
+  "against the first locked TargetSpec."
 );

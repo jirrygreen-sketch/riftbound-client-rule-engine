@@ -37,13 +37,12 @@ test("sfd-214-221 Power Nexus: identity, ruleset, status and verbatim source tex
   // Build-time codegen over src/cards/**; the golden proves the identity is
   // actually registered (one identity, one file).
   assert.equal(cardProgramsById.get(CANONICAL), program);
-  // Both current dependencies: the battlefield-relative anchor / unknown filter
-  // field and the still-unmerged cost.pay instruction (see judgeReason).
+  // The current dependency is the battlefield-relative anchor / unknown filter
+  // field; cost.pay is merged and executed by the golden below (see judgeReason).
   assert.match(program.judgeReason, /hold producer is merged|hold/);
   assert.match(program.judgeReason, /here:true/);
   assert.match(program.judgeReason, /battlefield-relative/);
   assert.match(program.judgeReason, /cost\.pay/);
-  assert.match(program.judgeReason, /RIFT-261/);
 });
 
 test("sfd-214-221: hold trigger whose printed may is one choice.optional body (3.9)", () => {
@@ -80,18 +79,10 @@ test("sfd-214-221: four [A] Power are declared as a cost plan the reader already
   assert.equal(pay.id, "power-nexus.pay-four-runes");
   assert.equal(pay.op, "cost.pay");
   assert.equal(pay.linkedTo, undefined);
-  assert.deepEqual(pay.args.payments, {
-    kind: "constant",
-    value: [
-      {
-        // 135.2.e.5: :rb_rune_rainbow: is Power of any Domain; 135.2.e.5.a:
-        // as a cost it may be paid by Power of any Domain, i.e. all six.
-        kind: "power",
-        amount: { kind: "constant", value: 4 },
-        allowedDomains: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"]
-      }
-    ]
-  });
+  // 135.2.e.5: :rb_rune_rainbow: is Power of any Domain; 135.2.e.5.a: as a cost
+  // it may be paid by Power of any Domain, so cost.pay's object payments shape
+  // records the numeric requirement 4 and no domain restriction.
+  assert.deepEqual(pay.args.payments, { kind: "constant", value: { energy: 0, power: 4 } });
 
   // 470.1/470.2: "score 1 point" is Gaining a Point through an effect, for the
   // ability controller; the printed "pay … to …" makes it depend on the
@@ -119,10 +110,9 @@ test("sfd-214-221: declining the optional chooses neither payment nor point gain
 });
 
 test("sfd-214-221: the declared four-[A] payment is readable by the merged cost plan reader", () => {
-  // The accepted branch is still gated on the unmerged cost.pay opcode
-  // (judgeReason), but the declared payment shape itself is already understood:
-  // the reader accepts four Power with all six Domains allowed, which is how
-  // :rb_rune_rainbow: is spelled as a cost (135.2.e.5 / 135.2.e.5.a).
+  // The cost plan reader still models the object payments as four Power with
+  // every Domain allowed (135.2.e.5 / 135.2.e.5.a); the golden below executes
+  // the same accepted branch through the merged cost.pay instruction.
   const kernel = world()
     .player("A", { power: ["Calm", "Calm", "Calm", "Calm"] })
     .player("B")
@@ -157,6 +147,54 @@ test("sfd-214-221: the merged Score half really gains the printed 1 point (470.1
   assert.deepEqual(run.linked.scored, [{ player: "A", amount: 1 }]);
 });
 
+test("sfd-214-221 golden: accepting the optional really pays four [A] Power, then scores 1 point", () => {
+  // The accepted branch runs the program's own choice.optional body with the
+  // merged cost.pay instruction; the test kernel deliberately keeps Power
+  // resources (so only the receipt and Score side effects are asserted).
+  const kernel = world().player("A", { score: 2, power: ["Calm", "Calm", "Calm", "Calm"] }).player("B", { score: 4 }).build();
+  kernel.setAnswers({ "power-nexus.opt-in/optional": true });
+
+  const outcome = runAbilityBody(ability.body, kernel);
+
+  assert.equal(outcome.status, "executed");
+  // The interpreter reports the choice's child results first and the opt-in
+  // wrapper last; all three instructions executed.
+  assert.deepEqual(
+    [...outcome.results.map((entry) => entry.id)].sort(),
+    ["power-nexus.opt-in", "power-nexus.pay-four-runes", "power-nexus.score-1"]
+  );
+  for (const entry of outcome.results) assert.equal(entry.result.status, "executed");
+  // cost.pay's receipt: the four [A] requirement was paid as a single plan
+  // (CR 356-357), with the pay event on the task pipeline.
+  const payment = outcome.results.find((entry) => entry.id === "power-nexus.pay-four-runes").result.linkedValues.payment;
+  assert.equal(payment.paid, true);
+  assert.deepEqual(payment.total.power, [
+    { amount: 4, allowedDomains: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"] }
+  ]);
+  assert.deepEqual(payment.actions.map((entry) => entry.action.type), ["pay"]);
+  assert.deepEqual(outcome.events.map((event) => event.action), ["pay", "score"]);
+  // The printed "pay … to score" dependency: the point gain is linked to the
+  // payment and both happen in the same optional branch (contract 3.9).
+  assert.deepEqual(outcome.results.find((entry) => entry.id === "power-nexus.score-1").result.linkedValues.scored, [
+    { player: "A", amount: 1 }
+  ]);
+  assert.equal(kernel.player("A").score, 3);
+  assert.equal(kernel.player("B").score, 4);
+});
+
+test("sfd-214-221 golden: the accepted branch fails closed when the player cannot pay four [A]", () => {
+  // CR 203.3: an unpayable cost must throw, not silently skip the payment or
+  // award the point; cost.pay raises CostPlanError from the payment plan.
+  const kernel = world().player("A", { score: 2, power: ["Calm"] }).player("B").build();
+  kernel.setAnswers({ "power-nexus.opt-in/optional": true });
+
+  assert.throws(() => runAbilityBody(ability.body, kernel), (error) => error.name === "CostPlanError" && /insufficient matching Power/.test(error.message));
+  // The transaction boundary belongs to the caller; the failed attempt must not
+  // award the printed point in this direct execution.
+  assert.equal(kernel.player("A").score, 2);
+  assert.equal(kernel.player("B").score, 0);
+});
+
 test("sfd-214-221: scoring is Gaining a Point, not Scoring the Battlefield (470.1/470.3)", () => {
   const kernel = world().player("A", { score: 0 }).build();
   const before = kernel.objectsInZone("A", "board");
@@ -184,8 +222,8 @@ test("sfd-214-221: the resolved Hold trigger spelling is a valid, matcher-unders
 });
 
 test.todo(
-  "sfd-214-221: hold 由 scoring/ 发出并进链，Battlefield 能力按控制者注册触发（RIFT-31/RIFT-33）"
+  "sfd-214-221: hold 由 scoring/ 发出并进链，Battlefield 能力按控制者注册触发；here:true 被触发规格校验拒绝且 EventPattern/ObjectFilter 没有 battlefield 锚"
 );
 test.todo(
-  "sfd-214-221: 合入 cost.pay 原语后，四个 [A] 符文（135.2.e.5/135.2.e.5.a）的支付与 1 点获得在同一可选分支内真实执行（RIFT-89）"
+  "sfd-214-221: hold 触发在链上真正匹配本 Battlefield 后，可选分支的金色执行升级为端到端生产链路（cost.pay 已执行支付与得分）"
 );

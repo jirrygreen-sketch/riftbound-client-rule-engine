@@ -29,28 +29,23 @@ import type { CardProgram } from "../../ir/index.js";
  *   1. energy: null / power: null on the catalog record mean "no printed value"
  *   and are never turned into 0 (no cost is declared on this program at all).
  *
- * status (cards/README.md section 2): judge-required. The grant is declarable but
- * three pieces the printed +1 Might needs are not merged, so nothing about the
- * grant can run:
- * 1. No caller feeds a CardProgram ability into layers/LayerEngine as a
- *    ContinuousEffectSpec: `registerContinuousEffect` has no caller and
- *    engine-core never reads `CardProgram.abilities`, so this declaration is
- *    never registered at runtime (the same gap ogn/windswept-hillock.ts,
- *    ogn/trifarian-war-camp.ts and rad/packed-amphitheater.ts record).
+ * status (cards/README.md section 2): judge-required. The printed +1 Might still
+ * has no executable expansion, so the grant must not be claimed as running:
+ * 1. The static-binder path exists (programs/statics.ts resolves the ability
+ *    controller and registers the CardProgram filter into layers/LayerEngine;
+ *    the golden exercises it in memory), but production card-program lifecycles
+ *    are not wired end-to-end yet.
  * 2. No consumer expands a granted keyword into its KeywordDef. layers/engine.ts
  *    only records the keyword characteristic via `applyKeyword`; nothing reads a
  *    granted Assault and applies the arithmetic "while I am an attacker, +X [M]"
  *    effect that effects/keywords/Assault.ts defines. Declaring the keyword is
  *    not the same as applying it, so 807.1.c's +1 Might never happens.
- * 3. The "your" placeholder is unbound: layers/filter.ts resolves only "self",
- *    "opponent", "any" and player-id selectors, so `controller: "controller"`
- *    matches nothing today. The grant therefore fails closed — it never
- *    over-reaches to an opponent's Equipment — but it also never reaches the
- *    controller's Equipment (chain/engine.ts normalizes only self/opponent).
- * Dependencies: RIFT-91 (layers-continuous registration and selector binding)
- * and RIFT-81 (kw-assault-shield expansion consumption). Nothing is
- * approximated: the grant is not inlined as a per-card Might change, and no
- * printed value is invented.
+ * 3. The Equipment propagation path (718.3: an Attached card's Effect Text is
+ *    appended to its Top-Most card) has no executable bridge, so a granted
+ *    Assault cannot reach the equipped unit through the attached Equipment.
+ * Dependencies: the granted-keyword expansion consumer and the 718.3 Equipment
+ * propagation bridge. Nothing is approximated: the grant is not inlined as a
+ * per-card Might change, and no printed value is invented.
  */
 export default {
   canonicalCardId: "card.hash-d6988e3c4bfaf3cd84e8451ade514abc99df9e47acaa479d8e17bd78b14d1db5",

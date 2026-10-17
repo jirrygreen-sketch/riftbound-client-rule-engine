@@ -7,10 +7,11 @@ import program from "../../../dist/cards/sfd/petricite-monument.js";
 import temporary from "../../../../engine-core/dist/effects/keywords/Temporary.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
-// The production static binder (RIFT-349) is the path that turns the printed
-// static ability into a live layer effect; the golden exercises it directly.
+// The production static binder is the path that turns the printed static
+// ability into a live layer effect; the golden exercises it directly.
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 
 const CARD_ID = "card.hash-40f4f4fa670faf83d3f284bef5c9dc3ae0047668559d38ad02a7521cff81b378";
 const SOURCE_TEXT =
@@ -31,7 +32,7 @@ test("sfd-104-221 Petricite Monument: identity, ruleset, status, judgeReason and
   assert.match(program.judgeReason, /816\.1\.b/);
   assert.match(program.judgeReason, /Temporary/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /target\.tax/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -67,6 +68,16 @@ test("sfd-104-221 Petricite Monument: Temporary expansion and kill body execute 
   const outcome = resolveChainBody(expanded.body, kernel);
   assert.equal(outcome.status, "executed");
   assert.equal(kernel.getObject("petricite-monument").zone, "trash");
+});
+
+test("sfd-104-221 Petricite Monument golden: the Temporary expansion's trigger spec fails closed today", () => {
+  // The merged KeywordDef emits event "beginning-start", which is not in the
+  // trigger-spec vocabulary; validateTriggerSpec must reject it so the card
+  // program cannot silently subscribe to an unregistered timing event.
+  const [expanded] = temporary.expand({ host: { canonicalCardId: CARD_ID } });
+  const result = validateTriggerSpec(expanded.trigger);
+  assert.equal(result.ok, false);
+  assert.ok(result.issues.some((issue) => issue.code === "invalid-event-type"));
 });
 
 test("sfd-104-221 Petricite Monument golden: the static binder grants [Deflect] to friendly units only", () => {
@@ -106,5 +117,5 @@ test.todo(
 );
 test.todo(
   "sfd-104-221 Petricite Monument: the granted [Deflect] layer value is live, but the target.tax " +
-    "reader (RIFT-90) and any-Domain Power tax booking (809.1.c.1) are still missing."
+    "reader and any-Domain Power tax booking (809.1.c.1) are still missing."
 );
