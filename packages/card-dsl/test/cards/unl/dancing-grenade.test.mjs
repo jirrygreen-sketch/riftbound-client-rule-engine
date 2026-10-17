@@ -95,6 +95,24 @@ test("unl-020-219 Dancing Grenade golden: the merged cost plan accepts a domainl
   assert.deepEqual(prepareCostPayment(ctx, plan).actions[0].action.plan.power, ["Order"]);
 });
 
+test("unl-020-219 Dancing Grenade golden: the merged bonus argument applies positive Bonus Damage per target (714/715.2)", () => {
+  // The printed count has no producer; this locks the merged Bonus Damage arithmetic the
+  // replay clause would feed once the count exists, without asserting any fabricated count.
+  const kernel = world().unit("target-unit", { might: 9 }).build();
+  const run = runInstruction(
+    damage,
+    {
+      amount: dealTwo.args.amount,
+      bonus: { kind: "constant", value: 1 },
+      target: UNIT
+    },
+    { world: kernel, targets: { [UNIT]: [kernel.ref("target-unit")] } }
+  );
+  assert.equal(run.result.status, "executed");
+  assert.equal(kernel.getObject("target-unit").damage, 3);
+  assert.equal(run.linked.dealt, 3);
+});
+
 test("unl-020-219 Dancing Grenade golden: a locked target that left the Board is ignored, never redirected", () => {
   // Card-specific boundary kept here because the scenario harness has no
   // mid-chain operation that can invalidate a locked target between Finalize
