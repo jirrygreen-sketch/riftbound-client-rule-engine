@@ -121,3 +121,7 @@ test.todo(
     "layer primitive (CR 479.2 Base Might / 143.2.a.1) — continuous.might only registers the " +
     "arithmetic layer (479.4)"
 );
+test.todo(
+  "rad-118-167 Herald of the Emperor: once Base Might has a Trait-Altering primitive, execute the card-played " +
+    "TriggerRegistration through the chain and assert the chosen friendly unit's base Might is 5 until turn end (383.4.a.2)"
+);

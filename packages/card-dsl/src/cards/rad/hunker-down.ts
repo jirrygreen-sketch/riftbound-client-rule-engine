@@ -27,17 +27,24 @@ import type { CardProgram } from "../../ir/index.js";
  *   the ready instruction: a replaced or negated ready must still draw
  *   (359.3.e.14.b, and 359.3.e.8 for partial target loss).
  *
- * Status: executable — every instruction runs on merged primitives, and the
- * standard-move kernel consumes the recorded MovementPermissions restriction.
- * The CardProgram play path and Reaction timing are also bound by the current
- * programs layer. The golden tests execute the body, query the registered
- * restriction, and prove that a real Standard Move is rejected while the
- * separate Draw instruction still resolves.
+ * Status: judge-required — every instruction runs on merged primitives and
+ * Standard Move consumes the recorded MovementPermissions restriction, but
+ * effect.move delegates to move-location, whose current action path does not
+ * consult continuous movement restrictions. CR 054.1 also forbids effect Moves
+ * under "can't move" (451), so Standard Move evidence alone is insufficient.
+ * The golden tests preserve ready/draw/receipt assertions, execute Standard
+ * Move rejection and expiry, and exercise the supported body and Reaction
+ * timing in a real chain without admitting the whole judged program.
  */
 export default {
   canonicalCardId: "card.hash-2664ce34bf1adce071ce02ab9d89d11c45b42381e2728fbb02be19a2d83e1575",
   rulesetVersion: "core-1.5",
-  status: "executable",
+  status: "judge-required",
+  judgeReason:
+    "三段正文已通过真实解释器执行：effect.ready、continuous.movement 的 cannot-move 限制与 effect.draw；" +
+    "zones/movement.ts 的 Standard Move 已消费 MovementPermissions，且本回合结束后限制到期。" +
+    "当前缺口是效果移动：effect.move 把限制检查交给 move-location，但该动作及 chain/events 适配路径尚未读取持续移动限制，" +
+    "因此不能落实 054.1 对所有 Move（含 451 的效果移动）的禁止。依赖：move-location 的持续移动限制消费；不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {

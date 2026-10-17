@@ -5,7 +5,8 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/rad/hexplosives-expert.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
   "card.hash-35388dd2b47ca5aff627f64dbadee600be5e2d4c7d1f00c2d412147b43679458";
@@ -30,6 +31,7 @@ test("rad-141-167 Hexplosives Expert: identity, status and verbatim sourceText",
   // cards README §2: the judgeReason names the current token and location gaps.
   assert.match(program.judgeReason, /187\.12/);
   assert.match(program.judgeReason, /effect\.token/);
+  assert.match(program.judgeReason, /judge-required/);
   assert.match(program.judgeReason, /Bomb|token definition/);
   assert.match(program.judgeReason, /355\.2\.a/);
   assert.match(program.judgeReason, /RIFT-357/);
@@ -94,6 +96,21 @@ test("rad-141-167 Hexplosives Expert: the printed [A] cost is payable with Power
   assert.equal(ctx.player("A").energy, 2);
   assert.deepEqual(ctx.player("A").power, ["Body"]);
   assert.equal(ctx.getObject("ziggs").exhausted, true);
+});
+
+test("rad-141-167 Hexplosives Expert boundary: an unresolved Bomb request has empty receipts and no side effects", () => {
+  const kernel = world().build();
+  const before = kernel.snapshot();
+  const run = runInstruction(token, playBomb.args, { world: kernel });
+
+  // Preserve the receipt and state invariants while the token definition is
+  // judge-required; these checks do not assert that an opcode is missing.
+  assert.deepEqual(run.result.events, []);
+  assert.equal(run.linked["bombToken.amount"], 0);
+  assert.deepEqual(run.linked["bombToken.objects"], []);
+  assert.equal(kernel.query({}).length, 0);
+  assert.equal(kernel.events.length, 0);
+  assert.deepEqual(kernel.snapshot(), before);
 });
 
 test.todo(

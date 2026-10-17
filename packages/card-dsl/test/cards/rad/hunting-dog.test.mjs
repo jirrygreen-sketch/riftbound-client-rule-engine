@@ -10,6 +10,10 @@ import program from "../../../dist/cards/rad/hunting-dog.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import deathknell from "../../../../engine-core/dist/effects/keywords/Deathknell.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
+import { createContinuousEffectRegistry } from "../../../../engine-core/dist/layers/duration.js";
+import { appliedCosts } from "../../../../engine-core/dist/layers/rules/query.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-883ac11e924326f2848f19e337d6d2f7e70dc660d572f974d06708fc1f752353";
 const SOURCE_TEXT =
@@ -75,12 +79,39 @@ test("rad-119-167 Hunting Dog: the body plays a 1 Might Bird token with Deflect 
   assert.equal(playBird.args.keywords, undefined);
 });
 
-test("rad-119-167 Hunting Dog: the merged Deflect expansion is a static target tax", () => {
+test("rad-119-167 Hunting Dog boundary: an unresolved Bird request has empty receipts and no token side effects", () => {
+  const kernel = world().build();
+  const before = kernel.snapshot();
+  const run = runInstruction(
+    token,
+    {
+      token: playBird.args.token,
+      amount: playBird.args.amount,
+      mode: playBird.args.mode,
+      // Bind the ability controller's base to isolate the token request's
+      // receipt/state invariants from the unresolved dynamic location choice.
+      location: { kind: "constant", value: { type: "base", player: "A" } },
+      linkKey: playBird.args.linkKey
+    },
+    { world: kernel }
+  );
+
+  assert.equal(run.linked["birdToken.amount"], 0);
+  assert.deepEqual(run.linked["birdToken.objects"], []);
+  assert.equal(kernel.objects.filter(object => object.isToken).length, 0);
+  assert.deepEqual(run.result.events, []);
+  assert.deepEqual(run.events, []);
+  assert.deepEqual(kernel.snapshot(), before);
+});
+
+test("rad-119-167 Hunting Dog: the merged Deflect expansion is a static target tax and leaves movement costs alone", () => {
   const definition = keywordDefinitionsById.get("Deflect");
   assert.ok(definition, "effects/keywords/Deflect.ts must be registered");
   const [expansion] = definition.expand({ value: 1, host: { canonicalCardId: CANONICAL } });
   assert.equal(expansion.kind, "static");
   assert.deepEqual(expansion.effect, { kind: "target.tax", value: { kind: "constant", value: 1 } });
+  const registry = createContinuousEffectRegistry();
+  assert.deepEqual(appliedCosts(registry, "move"), []);
 });
 
 test.todo(

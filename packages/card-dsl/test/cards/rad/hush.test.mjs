@@ -127,3 +127,7 @@ test.todo(
     "(yielding skipped, not an illegal finalize per 355.8/355.17.b), and ObjectSnapshot.power is a " +
     "domain list rather than a numeric Power cost"
 );
+test.todo(
+  "rad-041-167 Hush: after the Power-cost target threshold is enforceable at Finalize, execute full CardProgram " +
+    "Reaction play in Closed State, pay 1 Energy + 2 Power, and counter only a legal 2-or-more-Power spell"
+);

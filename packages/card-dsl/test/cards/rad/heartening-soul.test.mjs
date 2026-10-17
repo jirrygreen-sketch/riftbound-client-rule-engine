@@ -172,3 +172,7 @@ test.todo(
   "rad-040-167 Heartening Soul: target legality for a legend in the Legend Zone (CR 355.9.a.4) needs " +
     "a current target/location contract that can bind the Legend Zone"
 );
+test.todo(
+  "rad-040-167 Heartening Soul: once complete Ability grants and Legend Zone targets are bound, use the " +
+    "CardProgram lifecycle to register the static grant and card-played trigger, then activate the granted exhaust-cost ability"
+);

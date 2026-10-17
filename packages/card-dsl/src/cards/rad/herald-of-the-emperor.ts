@@ -67,7 +67,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1) 缺少「把 Base Might 设为 5（本回合）」的 Trait-Altering 图层原语：已合入的 continuous.might " +
+    "当前缺口，不近似实现：缺少「把 Base Might 设为 5（本回合）」的 Trait-Altering 图层原语：已合入的 continuous.might " +
     "（无论 mode add 还是 set）都注册 layer arithmetic 的效果（mode set 写 kind set-might，由 layers/engine.ts 的 applyArithmetic 消费），" +
     "属 479.4 的算术图层，而卡面按 143.2.a.1 / 479.2 改的是 Base Might，两者语义不同；" +
     "当前仍缺把 Base Might 设值注册到 Trait-Altering 图层的指令与消费方。" +

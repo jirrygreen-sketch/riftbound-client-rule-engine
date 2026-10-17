@@ -93,6 +93,7 @@ test("rad-132-167 Heimerdinger: 程序不把占位位置当成来源自身位置
   // 这条断言防止"用来源位置近似被替代动作的目的地"：来源在战场 bf1 时，
   // 替代体声明的占位常量与 bf1 不等，必须在替代管线里被绑定为被替代动作的位置。
   const instruction = bodyInstruction();
+  assert.notDeepEqual(instruction.args.location.value, BATTLEFIELD);
   assert.deepEqual(instruction.args.location.value, { type: "battlefield", id: "replaced-play-location" });
   assert.equal(instruction.args.location.value.id, "replaced-play-location");
 });

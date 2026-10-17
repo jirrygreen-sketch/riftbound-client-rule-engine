@@ -86,7 +86,7 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "缺 187.12 的 Bomb gear token 定义：effect.token 的已实现定义表只有 recruit / sand-soldier / mech / reflection / " +
+    "保持 judge-required：缺 187.12 的 Bomb gear token 定义；effect.token 的已实现定义表只有 recruit / sand-soldier / mech / reflection / " +
     "tentacle；Bomb 带 [Deploy] 与 [Deathknell] 两条能力，仍需要专门的 token 定义与能力展开才能执行。" +
     "打出位置 “to a battlefield” 同样不可表达：effect.token 的 location 必须求值为字面 LocationRef，" +
     "locations + choiceId 需要作者侧给出完整合法地点列表，而当前 IR 没有“当前所有战场”的集合表达式（355.2.a；依赖 RIFT-357）。" +
