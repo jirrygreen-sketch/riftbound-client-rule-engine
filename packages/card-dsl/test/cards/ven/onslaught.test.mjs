@@ -1,5 +1,11 @@
-// Template evidence: ../templates/keyword-play-continuous-might-653.test.mjs.
-// Whole-card scenarios remain blocked by Flow; existing body goldens remain valid.
+// Execution evidence: ../templates/keyword-play-continuous-might-683.test.mjs
+// (RIFT-683). That suite's rows run this program's original abilities, printed
+// base cost, Board-unit target and continuous.might body through the real card
+// scenario harness (including the turn-end expiry and ignored-target boundary);
+// its measured-gate test expands the [Flow] keyword through the production
+// binder and asserts the real rejection of flow.cost and of the leave-chain
+// banish. This file keeps the validation, identity, structure and
+// primitive-level evidence.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -38,11 +44,12 @@ test("ven-081-166 Onslaught: identity, ruleset, status and exact source text", (
 });
 
 test("ven-081-166 Onslaught: judgeReason names the remaining Flow cost and chain-exit gaps", () => {
+  assert.match(program.judgeReason, /flow\.cost/);
+  assert.match(program.judgeReason, /no layer mapping/);
+  assert.match(program.judgeReason, /effect\.banish/);
+  assert.match(program.judgeReason, /params\.cost/);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /317\.2\.c/);
-  assert.match(program.judgeReason, /params\.cost/);
-  assert.match(program.judgeReason, /Flow/);
-  assert.match(program.judgeReason, /replacement/);
   assert.match(program.judgeReason, /不近似实现/);
 });
 
@@ -140,7 +147,7 @@ test("ven-081-166 Onslaught golden: a target that left the board receives no con
 });
 
 test.todo(
-  "ven-081-166 Onslaught: select and record the separate Flow instance with its printed 4 Energy cost " +
-    "via params.cost, permit the Trash play, and consume the leave-chain banish replacement " +
-    "(829.1.b / 829.1.b.1 / 829.1.c.3)"
+  "ven-081-166 Onslaught: play the spell from Trash for its printed 4 Energy flow cost and banish it " +
+    "when it leaves the chain (829.1.b/829.1.b.1/829.1.c.1); measured in " +
+    "keyword-play-continuous-might-683.test.mjs."
 );

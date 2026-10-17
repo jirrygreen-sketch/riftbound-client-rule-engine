@@ -1,10 +1,16 @@
-// Template evidence: ../templates/keyword-play-continuous-might-653.test.mjs.
-// Only the Might sub-effect executes; the printed compound target predicate stays blocked.
+// Execution evidence: ../templates/keyword-play-continuous-might-683.test.mjs
+// (RIFT-683). That suite's rows run this program's original abilities, printed
+// base cost, target predicate (type/zone/controller) and continuous.might body
+// through the real card scenario harness, plus the ignored-target boundary; its
+// measured-gate test executes the production filter translator and asserts the
+// real rejection of the named `targetRestriction` description. This file keeps
+// the validation, identity, structure and primitive-level evidence.
+import assert from "node:assert/strict";
+import test from "node:test";
+
 import might from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
-import assert from "node:assert/strict";
-import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/decree-of-focus.js";
@@ -33,6 +39,10 @@ test("ven-040-166 Decree of Focus: program passes validateCardProgram with the c
 
 test("ven-040-166 Decree of Focus: judgeReason names the remaining compound target restriction", () => {
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
+  assert.match(program.judgeReason, /740\.2\.c/);
+  assert.match(program.judgeReason, /combatRole/);
+  assert.match(program.judgeReason, /targetRestriction/);
+  assert.match(program.judgeReason, /continuous\.might/);
 });
 
 test("ven-040-166 Decree of Focus: printed energy 1, absent power, [Reaction] keyword", () => {
@@ -113,16 +123,6 @@ test("ven-040-166 Decree of Focus: the descriptive clause stays out of every rea
   assert.equal(typeof unitTarget.filter.targetRestriction, "string");
 });
 
-
-
-test("decree-of-focus: the review records the current blockers", () => {
-  assert.match(program.judgeReason, /740\.2\.c/);
-  assert.match(program.judgeReason, /combatRole/);
-  assert.match(program.judgeReason, /RIFT-359/);
-});
-
-test.todo("decree-of-focus: 740.2.c/355.9: test enemy Fury combat relation OR enemy Fury spell target plan (RIFT-359)");
-
 test("decree-of-focus supported effect: temporary Might changes through the real primitive and expires", () => {
   const kernel = world().unit("locked-unit", { might: 3 }).build();
   // Only the arithmetic sub-effect is exercised here; the printed target restriction remains blocked.
@@ -149,3 +149,12 @@ test("decree-of-focus supported effect: a stale target produces no continuous re
   assert.deepEqual(run.result, { status: "ignored", reason: "mistargeted" });
   assert.deepEqual(kernel.continuousEffects, []);
 });
+
+// The disjunctive predicate still has no evaluable shape; the template suite's
+// measured-gate test executes the production filter translator and records the
+// exact rejection, so no TODO is needed here beyond pointing at it.
+test.todo(
+  "decree-of-focus: 740.2.c/355.9 — evaluate \"in combat with an enemy Fury unit OR being chosen " +
+    "by an enemy Fury spell\"; measured in keyword-play-continuous-might-683.test.mjs, needs a " +
+    "disjunctive/relational TargetSpec predicate."
+);
