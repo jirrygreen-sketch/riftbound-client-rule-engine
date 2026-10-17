@@ -112,7 +112,10 @@ function hostFor(programUnderTest, id) {
   return { f, source: f.kernel.getObject(id) };
 }
 
-test("ven-032-166 Frostcoat Mother evidence: the cost modification stays blocked while the corrected Empowered gate follows live state", () => {
+// 2026-10-17 RIFT-618: deleted the stale "expandProgram rejects the missing Empower KeywordDef"
+// assertion — effects/keywords/Empower.ts is merged, so that absence claim is no longer true.
+
+function assertCostModificationAndEmpoweredGate() {
   const { f, source } = hostFor(program, "frostcoat");
   const binder = createEngineStaticBinder(f.engine);
   // 827.1.c.3：减费声明要作为 Empower 启动费用的改写被消费；当前 staticTarget 直接失败关闭。
@@ -133,4 +136,12 @@ test("ven-032-166 Frostcoat Mother evidence: the cost modification stays blocked
   handle.unbind();
   f.engine.layers.setObjects(f.kernel.objects);
   assert.equal(f.engine.layers.evaluate(f.kernel.ref("frostcoat")).might, 3);
+}
+
+test("ven-032-166 Frostcoat Mother evidence: the cost modification cannot bind and the Empowered gate is unenforced", () => {
+  assertCostModificationAndEmpoweredGate();
+});
+
+test("ven-032-166 Frostcoat Mother evidence: the cost modification stays blocked while the corrected Empowered gate follows live state", () => {
+  assertCostModificationAndEmpoweredGate();
 });

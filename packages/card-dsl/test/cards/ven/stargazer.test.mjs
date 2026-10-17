@@ -5,6 +5,8 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ven/stargazer.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -129,14 +131,25 @@ test("ven-098-166 golden: without the discount the same spell keeps its printed 
   assert.deepEqual(plan.discounts, []);
 });
 
-test.todo(
-  "ven-098-166 Stargazer: install the static discount on the Finalize cost plan of the Flow spell being " +
-    "played — the merged cost.modify primitive only links a plan; programs/statics.ts layerFor() throws " +
-    "judge-required for continuous.cost-modification and the cost system does not read layers"
-);
+test("ven-098-166 Stargazer gap: the production static binder refuses the declared discount", () => {
+  // Executed evidence for judgeReason point 1: programs/statics.ts staticTarget()
+  // rejects the card's appliesTo before any layer mapping can be considered, so
+  // no Finalize cost plan can read this discount from the program.
+  const kernel = world().unit("stargazer", {}).build();
+  const source = kernel.getObject("stargazer");
+  const binder = createEngineStaticBinder({ layers: createLayerEngine([source]) });
+  assert.throws(
+    () => binder.bindStatic(ability, source),
+    /Unsupported static appliesTo "spell-play-cost"/
+  );
+});
 
-test.todo(
-  "ven-098-166 Stargazer: evaluate 'spells with [Flow] you play from your trash' (829.1.c) — the frozen " +
-    "ObjectFilter has no keyword predicate, the continuous effect receives neither the played card's keywords nor " +
-    "the source zone of that play"
-);
+test("ven-098-166 Stargazer gap: the Flow-from-trash gate stays a named fail-closed predicate", () => {
+  // 829.1.c: the frozen ObjectFilter has no keyword predicate and the continuous
+  // effect receives neither the played card's keywords nor the play's source
+  // zone, so the gate must not be widened to "every spell you play".
+  assert.equal(ability.condition.kind, "expression");
+  assert.equal(ability.condition.value.value, "spell-with-flow-played-from-your-trash");
+  assert.equal(ability.condition.kind === "always", false);
+  assert.deepEqual(effect.when.value, { spellHasKeyword: "flow", playedFromZone: "trash" });
+});

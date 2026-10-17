@@ -19,43 +19,40 @@ import type { CardProgram } from "../../ir/index.js";
  * - “Give a unit at a battlefield -2 Might this turn” 是临时 Might 修正，归 layers 的
  *   continuous.might（effect.buff 边界注释明确临时 Might 不进入 Buff 计数器）。
  *
- * 复核（2026-10-17，第二轮 M2 覆盖率复核）：触发体 empower me（effect.empower）与
- * 临时 -2 Might（continuous.might + 图层引擎 + turn-end 到期）都已有 golden 执行证据。
+ * 复核（2026-10-17 RIFT-618 第三轮 M2 覆盖率复核；结论以源码与本任务 golden 实测为准）：
+ * 触发体 empower me（effect.empower，827.2）与临时 -2 Might（continuous.might + 图层
+ * 引擎 + turn-end 到期）都已有 golden 执行证据；旧理由里“empower 展开缺失”的说法已过时
+ * （effects/keywords/Empower.ts 已由 RIFT-593 合入）。
  *
  * status = judge-required（当前真实缺口，均不近似实现）：
- * 1. 触发的两项过滤无法表达：封闭时点 empowered-changed 存在且可触发，但
- *    events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 没有 empowerment 事件判别值
- *    （validateTriggerSpec 会拒绝 event: "empowered-changed"），事件载荷/EventPattern
- *    也没有“增加方向”（empower 与 disempower 共用该时点，443.1/443.1.a）与排除宿主
- *    自身的 “something else” 键；body（empower me，来源即宿主，827.1.b.1 不是目标）
- *    本身可用已合入的 effect.empower 执行；
- * 2. “Disempower me” 作为费用需要 disempower 付费种类，但 cost/plan-values.ts 的
- *    非标准费用仍只支持 exhaust/discard/recycle/kill/reveal/spend-buff
- *    （RIFT-261 的费用种类批次仍在进行，未合入 disempower）；
- * 3. 临时 Might -2 所需的 continuous.might 指令原语已由 RIFT-258 合入（本次复核由
- *    golden 用真实解释器 + 图层引擎执行：结束于 turn-end 的 arithmetic 注册、-2 生效），
- *    但整卡仍被触发过滤与 disempower 费用阻断，故保持 judge-required。
- * 依赖：事件载荷/触发器过滤扩展（契约变更请求）、RIFT-261（disempower 付费种类）。
+ * 1. 触发过滤无法表达：empowered-changed 是封闭时点，但 EVENT_PATTERN_TYPES 没有
+ *    empowerment 判别值（validateTriggerSpec 直接拒绝 event: "empowered-changed"，
+ *    本任务实测 assertTriggerSpec 抛 TriggerSpecValidationError）、EventPattern 没有
+ *    “增加方向”键（empower 与 disempower 共用该时点，443.1）、也没有排除宿主自身的
+ *    “something else”键；action-adapter.ts 发出的载荷只带 previous/current 计数选项，
+ *    没有可过滤的方向字段。
+ * 2. “Disempower me” 是费用但没有付费种类：cost/plan-values.ts 的非标准费用仍只支持
+ *    exhaust/discard/recycle/kill/reveal/spend-buff，本任务实测 buildCostPlan 对
+ *    { kind: "disempower" } 抛 CostPlanError "Unsupported payment kind: disempower"。
+ * 依赖：闭合时点过滤扩展（契约变更请求）与 disempower 付费种类。
  */
 export default {
   canonicalCardId: "card.hash-96a4d656fe980065c6206e2b07389b146cc4347f8396756aeeb3b2ef9c30a281",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两条缺口（复核 2026-10-17；empower 体与 -2 Might 图层 golden 均已真实执行，不再列缺口）：" +
-    "(1) “When you empower something else” 的触发器过滤不可表达——封闭时点 " +
-    "empowered-changed（442.2.a）的载荷/EventPattern 没有增加方向（empower 与 disempower " +
-    "共用该时点，443.1），也没有排除宿主自身的 “something else” 键（events/trigger-spec.ts " +
-    "的 ObjectFilter 只允许 objectId/cardId/type/controller/owner/zone/location/states/tags/" +
-    "characteristics，且 EVENT_PATTERN_TYPES 没有 empowerment 判别值，validateTriggerSpec " +
-    "会拒绝 event: \"empowered-changed\"），事件载荷的 previousCount/currentCount 也未被 " +
-    "action-adapter 填充；(2) “Disempower me” 作为费用" +
-    "需要 disempower 付费种类（443.2.a），cost/plan-values.ts 的非标准费用仍只支持 " +
-    "exhaust/discard/recycle/kill/reveal/spend-buff（仍在进行的 RIFT-261 尚未合入 disempower）；" +
-    "整卡仍被触发过滤与 disempower 费用阻断，保持 judge-required。“-2 :rb_might: this turn” 的 " +
-    "continuous.might 原语已合入，golden 用真实解释器 + 图层引擎执行（end-of-turn 到期的 " +
-    "arithmetic 注册、实际 -2）。依赖事件载荷/过滤器扩展（契约变更请求）、" +
-    "RIFT-261（disempower 付费种类）。不近似实现。",
+    "两条当前缺口（复核 2026-10-17，RIFT-618；均不近似实现）：" +
+    "(1) 「When you empower something else」的触发过滤不可表达：EVENT_PATTERN_TYPES 没有 empowerment " +
+    "判别值，本任务实测 assertTriggerSpec 对 event: \"empowered-changed\" 抛 TriggerSpecValidationError；" +
+    "EventPattern 也没有增加方向键（442.2.a/443.1 的 empower 与 disempower 共用此时点）与排除宿主自身的" +
+    "「something else」键，action-adapter.ts 的载荷没有可过滤的方向字段。" +
+    "(2) 「Disempower me」作为费用需要 disempower 付费种类（443.2.a），cost/plan-values.ts 的非标准费用" +
+    "仍只支持 exhaust/discard/recycle/kill/reveal/spend-buff；本任务实测 buildCostPlan 对 " +
+    "{ kind: \"disempower\" } 抛 CostPlanError \"Unsupported payment kind: disempower\"。" +
+    "已合入且有真实执行证据：触发体的 effect.empower（827.2/827.2.a）经参考内核真实改变状态并写出" +
+    "empowered 链接值；「-2 :rb_might: this turn」的 continuous.might 经真实解释器 + 图层引擎注册，" +
+    "按 turn-end 到期并实际 -2（478/478.1.a，不触碰 Buff 计数器）。" +
+    "依赖：闭合时点过滤扩展（契约变更请求）、disempower 付费种类。",
   abilities: [
     {
       kind: "triggered",

@@ -83,14 +83,16 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "复核 2026-10-17（第二轮覆盖率复核；本轮真实缺口，均不近似实现）：1 Energy、横置费用、" +
-    "目标锁定与 effect.damage 都已合入并有 golden 执行证据；「Discard a gear」的费用选择仍无运行时" +
-    "落点——423.1.a 规定弃哪张牌由执行动作的玩家在结算期选择，但 cost/plan-values.ts 的 " +
-    "choiceObjects 只接受精确的 ObjectRef 候选（Cost requires an exact object reference），" +
-    "静态卡牌程序写不了运行时手牌身份，也没有已合入路径在 Finalize 时从付款者手牌解析 " +
-    "PickSpec 描述性候选（如 gear-in-controller-hand）再交给 discard 付费种类。" +
-    "依赖：费用计划的运行时候选解析接线。不近似实现：不把『弃一张装备』改成固定弃某张、" +
-    "不用 effect.discard 代替费用、不放宽 423.3 的“费用必须能完成”。",
+    "唯一当前缺口是「Discard a gear」的费用选择没有运行时落点（复核 2026-10-17，RIFT-618；不近似实现）：" +
+    "423.1.a 规定弃哪张牌由执行动作的玩家在结算期选择，但 cost/plan-values.ts 的 choiceObjects 只接受 " +
+    "精确的 ObjectRef 候选（本任务实测 buildCostPlan 对 choice.options: [\"gear-in-controller-hand\"] 抛 " +
+    "CostPlanError \"Cost requires an exact object reference\"），静态卡牌程序写不了运行时手牌身份；" +
+    "也没有已合入路径在 Finalize 时从付款者手牌解析 PickSpec 描述性候选再交给 discard 付费种类。" +
+    "已合入且有真实执行证据：1 Energy + 横置 + discard 的费用计划与支付（显式 ObjectRef 候选下 " +
+    "buildCostPlan/payCostPlan 真实扣能量、弃牌、横置，golden 断言）、目标锁定与 effect.damage（418.1）" +
+    "（含位置过滤与目标失效的 ignored 边界）。不把「弃一张装备」改成固定弃某张、" +
+    "不用 effect.discard 代替费用、不放宽 423.3 的「费用必须能完成」。" +
+    "依赖：费用计划的运行时候选解析接线（手牌 PickSpec → 支付者选择）。",
   abilities,
   sourceText: "Discard a gear, :rb_energy_1:, :rb_exhaust:: Deal 4 to a unit at a battlefield."
 } satisfies CardProgram;

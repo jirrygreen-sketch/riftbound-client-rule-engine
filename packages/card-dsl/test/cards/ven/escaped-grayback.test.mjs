@@ -145,6 +145,9 @@ test.todo(
     "Empowered status gate (CR 828.1.b.1 / 442.1.a) — guarantee empowered in production ObjectSnapshot adapters"
 );
 
+// 2026-10-17 RIFT-618: deleted the stale "expandProgram rejects the missing Empower KeywordDef"
+// assertion — effects/keywords/Empower.ts is merged, so that absence claim is no longer true.
+
 test("ven-124-166 Escaped Grayback evidence: expandProgram now expands Empower while preserving the missing-cost sentinel", () => {
   const kernel = world().unit("grayback", { types: ["unit"], zone: "board", controller: "A" }).build();
   const { expanded } = expandProgram(program, kernel.getObject("grayback"));
