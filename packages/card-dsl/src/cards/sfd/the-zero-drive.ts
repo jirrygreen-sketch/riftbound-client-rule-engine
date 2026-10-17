@@ -31,9 +31,6 @@ import type { CardProgram } from "../../ir/index.js";
  * 3. "Play all units banished with this" needs a Linked Ability tracker that
  *    produces the pick set, plus a production path that supplies the finalized
  *    zero-cost plan for each play. The effect.play primitive itself is merged.
- * 4. "Use only if unattached" still needs a consumer mapping the declared
- *    Restriction onto chain legality.
-
  * Data note (reported, not edited): the local deck-catalog sourceText contains
  * only the Equip and activated-ability lines; CR v1.5 396/398 additionally quotes
  * "[Deathknell][>] Banish me." for this card. Per the task rules the catalog text
@@ -53,10 +50,10 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "当前有四处真实缺口：(1) Equip 的印刷费用尚不能通过关键词展开调用传入，且展开后的 payments: [{ kind: \"equip\" }] " +
+    "当前有三处真实缺口：(1) Equip 的印刷费用尚不能通过关键词展开调用传入，且展开后的 payments: [{ kind: \"equip\" }] " +
     "会被 cost/plan-values.ts 拒绝；(2) 启动费用中的 Banish this 没有 banish-as-cost 支付分支；" +
     "(3) CR 394–398 的“all units banished with this”需要 Linked Ability tracker 产生 pick 集合，并由生产打出流程" +
-    "为每张牌提供 finalized zero-cost plan，effect.play 本体已经合入；(4) Use only if unattached 的 Restriction 仍没有链合法性消费方。" +
+    "为每张牌提供 finalized zero-cost plan，effect.play 本体已经合入；" +
     "Data note: local catalog sourceText lacks the Deathknell line quoted by CR 396/398; sourceText is kept verbatim and not invented.",
   abilities: [
     equip,
@@ -71,9 +68,17 @@ export default {
         // cost; no merged cost-payment kind performs it (see judgeReason 2).
         payments: [{ kind: "banish", object: "self" }]
       },
-      // "Use only if unattached." — activation restriction, descriptive shape;
-      // no consumer maps CardProgram restrictions onto chain legality.
-      restriction: { kind: "use-only-if-unattached" },
+      // "Use only if unattached." — activation restriction consumed by the
+      // chain legality path through its live attachedTo condition.
+      restriction: {
+        kind: "use-only-if-unattached",
+        condition: {
+          kind: "compare",
+          left: { kind: "object-property", object: "self", property: "attachedTo" },
+          operator: "eq",
+          right: { kind: "constant", value: null }
+        }
+      },
       body: [
         {
           id: "the-zero-drive.play-banished-units",
