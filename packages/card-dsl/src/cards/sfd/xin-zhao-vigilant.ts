@@ -2,16 +2,23 @@ import type { CardProgram } from "../../ir/index.js";
 
 /**
  * Xin Zhao, Vigilant — sfd-176-221 (CR v1.5 815.1.b/c, 364.3, 369.3).
- * Tank assignment priority and condition-gated entry are separate blockers.
- * Generic lifecycle/replacement binding exists; the enter branch must evaluate
- * the condition with the correct source incarnation before changing entry state.
+ * Re-verified 2026-10-17 against the merged engine. Tank assignment priority
+ * and condition-gated entry remain current blockers; the condition and entry
+ * rewrite both have merged consumers, but not in the same decision.
  */
 export default {
   canonicalCardId: "card.hash-74a101bf90abcf30478ceacbdf6a254627d4b912349d7ed3b6a76591368936a8",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "(1) Tank 的 continuous.combat 声明尚未被 combat/base-combat-allocation.ts 消费，815.1.b/815.1.c 的先向 Tank 分配致命战斗伤害不能执行。(2) 带条件的就绪入场（364.3/369.3）在 replacement/bind.ts 的 matchesEnterAction 命中后直接返回 true，绕过 ability.condition；必须在替代入场前求值其他友方 Base 单位 count>=2（RIFT-359）。exclude:self 还需与进入对象的当前 incarnation 一致，不能沿用登记时 hostRef。通用替代注册与生命周期绑定已存在；谓词和 effect.ready 的局部测试不证明条件入场或 Tank 完成。",
+    "两处当前缺口（复核 2026-10-17），均不近似实现：" +
+    "(1) [Tank]（815.1.b/815.1.c）的 continuous.combat 声明仍无消费方：layers/ops 只持久化该 kind、不产生伤害分配优先规则，" +
+    "combat/base-combat-allocation.ts 的其它路径只接受 keywordPriority: \"proven-none\"；" +
+    "实测 3 Might 的 Tank 单位与 3 Might 的普通单位之间可以先给普通单位分配 3 点，违反 815.1.c.2。" +
+    "(2) 「I enter ready if ...」是 364.3/369.3 的条件入场替代，但 replacement/bind.ts 的 matchesEnterAction 只比对 filter（source:self、exhausted:true），" +
+    "在命中后不调用 testCondition(ability.condition)；实测把 condition 换成恒假（1 == 2）后单位仍入场 ready。" +
+    "同时 exclude:\"self\" 是注册时的 hostRef，进入路径的真实对象是新的 incarnation（zoneEntryId 已变），条件求值必须绑定进入对象的当前 incarnation；" +
+    "replacements 的通用注册与 effect.ready 本体已可执行，但上述两条入场决策缺口使整卡不可执行。",
   abilities: [
     { kind: "keyword", keyword: "tank" },
     {

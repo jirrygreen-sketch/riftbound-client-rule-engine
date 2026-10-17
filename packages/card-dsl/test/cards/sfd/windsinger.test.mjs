@@ -7,6 +7,12 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import zone from "../../../../engine-core/dist/effects/instructions/effect.zone.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
 const CARD_ID = "card.hash-75f4edacd5ddc4bb087703bc231650c3942cea51f1bdb7b370bd27a6da6fd390";
 const SOURCE_TEXT =
@@ -43,13 +49,19 @@ test("sfd-138-221 Windsinger: identity, ruleset, status, judgeReason and verbati
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  // README section 2: the reason names the concrete current gaps and task numbers.
+  // README section 2: the reason names only the current gaps against merged source.
   assert.match(program.judgeReason, /mightLte/);
+  assert.match(program.judgeReason, /Unsupported filter field exclude/);
+  assert.match(program.judgeReason, /143\.2\.a/);
   assert.match(program.judgeReason, /355\.9\.b/);
-  assert.match(program.judgeReason, /exclude/);
-  assert.match(program.judgeReason, /811\.1\.d\.3/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /mayAtFinalize/);
   assert.match(program.judgeReason, /383\.3\.a/);
+  assert.match(program.judgeReason, /cost\.hidden has no layer mapping/);
+  assert.match(program.judgeReason, /811\.1\.d\.3/);
+  assert.match(program.judgeReason, /hidden-cleanup-state/);
+  // RIFT-359 landed only the condition/result predicates: it is not an
+  // outstanding dependency for this card and must no longer be named.
+  assert.doesNotMatch(program.judgeReason, /RIFT-359/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -164,6 +176,100 @@ test("sfd-138-221 Windsinger: Hidden expands through the real keyword registry",
   assert.equal(expansion.effect.kind, "cost.hidden");
 });
 
-test.todo("Windsinger: bind effective Might <=3 and exclude:source in the production target filter (RIFT-359)");
-test.todo("Windsinger: map the leading optional trigger to mayAtFinalize (383.3.a)");
-test.todo("Windsinger: complete Hide/next-turn Reaction play and the original-battlefield Play Effect restriction (811.1.b/811.1.d.3)");
+test("sfd-138-221 Windsinger: the printed target filter is refused by the production translator", () => {
+  // 355.9.c/740.1.a's "another" is the contract 3.6 exclude anchor; the merged
+  // production translator rejects it outright, so the Finalize target plan can
+  // never lock the printed candidate set.
+  assert.throws(
+    () => translateObjectFilter({ type: "unit", zone: "board", location: "battlefield", exclude: "source", mightLte: 3 }),
+    error => error.code === "judge-required" && /Unsupported filter field exclude/.test(error.message)
+  );
+});
+
+test("sfd-138-221 Windsinger: the Might cap has no consumer and a 7-Might unit passes the filter", () => {
+  // 143.2.a's effective-Might threshold is not a supported ObjectFilter
+  // predicate: the merged layer matcher silently ignores the unknown key, so a
+  // 7-Might battlefield unit would be a legal target for "3 Might or less".
+  const sevenMight = {
+    ref: { id: "big-unit", zoneEntryId: 1 },
+    cardId: "card:big-unit",
+    name: "big-unit",
+    types: ["unit"],
+    tags: [],
+    keywords: [],
+    owner: "B",
+    controller: "B",
+    zone: "board",
+    location: { type: "battlefield", id: "battlefield-1" },
+    combatRole: null,
+    might: 7,
+    energy: null,
+    power: null,
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false
+  };
+  assert.equal(matchesObjectFilter({ type: "unit", zone: "board", mightLte: 3 }, sevenMight), true);
+});
+
+test("sfd-138-221 Windsinger: production trigger binding never sets mayAtFinalize", () => {
+  // 383.3.a/.a.1/.a.2: the leading "you may" is the Finalize decision, and
+  // TriggerRegistration.mayAtFinalize already exists. The card-program adapter
+  // only forwards ability.optional, so the registration cannot reach that
+  // Finalize decision.
+  const kernel = world().unit("windsinger", { cardId: CARD_ID, types: ["unit"], zone: "board" }).build();
+  const source = kernel.getObject("windsinger");
+  const { judgeReason: _reason, ...executableProbe } = program;
+  // The printed target's exclude anchor and mightLte cap are both refused
+  // before registration (gap (1)); drop exactly those two to reach the
+  // registration half of gap (2). The card's own filter is covered by the
+  // translator test above and cannot be bound as authored today.
+  const { exclude: _exclude, mightLte: _mightLte, ...translatableFilter } = triggered.body[0].targets[0].filter;
+  const probe = {
+    ...executableProbe,
+    status: "executable",
+    abilities: executableProbe.abilities.map(ability => ability === triggered ? {
+      ...ability,
+      body: ability.body.map(instruction => ({
+        ...instruction,
+        targets: instruction.targets.map(target => ({ ...target, filter: translatableFilter }))
+      }))
+    } : ability)
+  };
+  const [registration] = triggerRegistrations(new ProgramRegistry([probe]), source);
+  assert.equal(registration.optional, true);
+  assert.equal(registration.mayAtFinalize, undefined);
+});
+
+test("sfd-138-221 Windsinger: the merged Hidden expansion is refused by the production static binder", () => {
+  // 811.1: [Hidden] expands to static cost.hidden, whose only merged pieces are
+  // the cost plan helpers (811.1.b). The production layer binder has no mapping
+  // for that kind and fails closed instead of granting a pretend Hide.
+  const kernel = world().unit("windsinger", { cardId: CARD_ID, types: ["spell"], zone: "hand", location: null }).build();
+  const source = kernel.getObject("windsinger");
+  const binder = createEngineStaticBinder({ layers: createLayerEngine([source]) });
+  const [expansion] = keywordDefinitionsById.get("Hidden").expand({ host: { canonicalCardId: CARD_ID } });
+  assert.throws(
+    () => binder.bindStatic(expansion, source),
+    /Static ability kind cost\.hidden has no layer mapping/
+  );
+});
+
+test.todo(
+  "Windsinger: bind the effective-Might <=3 predicate (143.2.a/355.9.b) and the exclude:source anchor " +
+    "(355.9.c/740.1.a) into the production target filter and its Finalize target plan; the merged " +
+    "translateObjectFilter still rejects the exclude anchor and layers/filter.ts ignores mightLte"
+);
+test.todo(
+  "Windsinger: map the leading optional trigger to TriggerRegistration.mayAtFinalize so 383.3.a's " +
+    "decision happens at Finalize; programs/triggers.ts currently forwards only ability.optional"
+);
+test.todo(
+  "Windsinger: connect the static cost.hidden expansion to the Hide action, a facedown zone, next-turn " +
+    "Reaction free play and the 811.1.d.3 original-battlefield Play Effect target restriction; " +
+    "programs/statics.ts layerFor refuses cost.hidden and cost/kinds/hidden.ts only builds/pays the plan"
+);
