@@ -1,3 +1,4 @@
+// Partial execution evidence is consolidated in ../templates/keyword-static-647.test.mjs; this card remains judge-required for the gaps asserted below.
 import assert from "node:assert/strict";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
