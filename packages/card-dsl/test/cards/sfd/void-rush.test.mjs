@@ -6,8 +6,9 @@ import program from "../../../dist/cards/sfd/void-rush.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import reveal from "../../../../engine-core/dist/effects/instructions/effect.reveal.js";
 import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
-import effectPlay from "../../../../engine-core/dist/effects/instructions/effect.play.js";
+import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
 import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-cd92b45de0981074325a5119213251cd97706ab04339f5fe7339e69c8761258a";
@@ -33,7 +34,8 @@ test("sfd-188-221 Void Rush: program validates, is registered and stays judge-re
   // README section 2: the reason names the concrete current gaps and task numbers.
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /356\.4/);
-  assert.match(program.judgeReason, /RIFT-358/);
+  assert.match(program.judgeReason, /LITERAL_FIELDS/);
+  assert.match(program.judgeReason, /printed/);
   assert.match(program.judgeReason, /LITERAL_FIELDS/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -165,7 +167,7 @@ test("sfd-188-221 Void Rush golden: a short deck reveals what is there instead o
   assert.deepEqual(run.linked.revealed, [kernel.ref("only-card")]);
 });
 
-test("Void Rush chain: the merged Finalize locks the ordered deck-top reveal source (RIFT-358)", () => {
+test("Void Rush chain: the merged Finalize locks the ordered deck-top reveal source", () => {
   const f = fixture();
   f.engine.advance();
   const top = f.kernel.zoneSlice("A", "deck", "top", 2).map(object => object.ref);
@@ -190,7 +192,7 @@ test("Void Rush chain: the merged Finalize locks the ordered deck-top reveal sou
   assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "card-revealed").length, 2);
 });
 
-test("Void Rush golden: cost.modify freezes a genuine [2] Energy discount plan on the selected card's printed cost", () => {
+test("Void Rush primitive subpath: cost.modify freezes a genuine [2] Energy discount plan on an explicit printed cost", () => {
   const kernel = world().player("A", { energy: 20 }).hand("void-rush", { types: ["spell"], energy: 2, power: [] }).build();
   const run = runInstruction(costModify, {
     id: "void-rush.cost-plan",
@@ -211,17 +213,32 @@ test("Void Rush golden: cost.modify freezes a genuine [2] Energy discount plan o
   assert.deepEqual(plan.discounts.map(value => [value.before, value.after]), [[2, 0]]);
 });
 
-test("Void Rush golden: effect.play consumes the frozen finalized plan and pays the discounted energy", () => {
+test("Void Rush primitive subpath: cost.pay consumes the plan produced by cost.modify", () => {
   const kernel = world().player("A", { energy: 20 }).hand("void-rush", { types: ["spell"], energy: 2, power: [] }).build();
-  const run = runInstruction(effectPlay, {
-    object: { kind: "constant", value: kernel.ref("void-rush") },
-    cost: { kind: "constant", value: { finalized: true, energy: 0, power: [], xp: 0 } }
+  const run = runInstruction(costModify, {
+    id: "void-rush.cost-plan",
+    printed: { id: "void-rush", cardType: "Spell", energy: 2, power: 0, domains: [] },
+    modifier: {
+      kind: "reduce",
+      resource: "energy",
+      amount: { kind: "constant", value: 2 },
+      minimum: { kind: "constant", value: 0 }
+    }
   }, { world: kernel });
-  assert.equal(run.result.status, "executed");
-  assert.equal(run.linked.played, 1);
-  // The [2] discount is real: the play consumes the frozen plan's zero energy
-  // instead of the printed 2; the plan handoff from the selected revealed card
-  // remains the recorded gap (see judgeReason 1).
+  const paid = runInstruction(costPay, { cost: { kind: "constant", value: run.linked.cost } }, { world: kernel });
+  assert.equal(paid.result.status, "executed");
+  assert.equal(paid.linked.payment.total.energy, 0);
+  // The [2] discount is consumed from the actual cost.modify result. The
+  // selected-card plan handoff into effect.play remains the recorded gap.
   assert.equal(kernel.player("A").energy, 20);
-  assert.deepEqual(kernel.events.map(event => event.action), ["pay", "play"]);
+  assert.deepEqual(kernel.events.map(event => event.action), ["pay"]);
+});
+
+test("Void Rush chain: the original cost-plan IR is blocked by the adapter's static id decoding", () => {
+  const f = fixture();
+  f.engine.advance();
+  assert.throws(
+    () => resolveChainBody([costPlan], f.kernel),
+    /cost\.modify id must be a non-empty string \(or supply source\)/
+  );
 });

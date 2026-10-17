@@ -12,7 +12,7 @@ const voidRush = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "(1) 普通减费已合入：may-play 前置 cost.modify 真实冻结 [2] Energy 折扣计划（356.4），但所选揭示牌的印刷费无法进入该计划（cost.modify 只读 ctx.source 或显式 printed，无 linked 对象印刷费投影），且应付额在 plan.total，而 effect.play/链 Finalize 只消费扁平 FinalizedCostPlan（finalized/energy/power/xp），所选牌计划→Play 的交接仍缺（420.3）。(2) zoneSlice 有序 picks 与链适配器 LITERAL_FIELDS 对 effect.reveal.pick 的解包已由 RIFT-358 合入（链测试已锁定 pickPlans）；judge-required 程序仍不入生产注册表。(3) Draw any you did not play this way 必须对实际剩余揭示对象执行 Draw（414.1）；effect.draw 的 pick 仅选抽牌者、不接受指定卡集合，choice.optional 也只产 value:true 不回链所选引用，未打出集合无 exclude 产生方。不能用固定抽 2、回手动作或不存在的 condition.result 近似。抽剩余牌独立于是否接受可选打出。",
+    "(1) 原始 IR 的 cost.modify 在 chain/interpreter-adapter.ts 的 LITERAL_FIELDS 未解包字面量 id：本卡的 id 是 constant Expr，resolveChainBody 会在原语看到 Expr 并以“id must be a non-empty string (or supply source)”拒绝；直接原语在收到静态 id 时可冻结 [2] Energy 计划（356.4）。即使补上适配解包，所选揭示牌的印刷费仍无法进入该计划（cost.modify 只读 ctx.source 或显式 printed，无 linked 对象印刷费投影），且应付额在 plan.total，而 effect.play/链 Finalize 只消费扁平 FinalizedCostPlan（finalized/energy/power/xp），所选牌计划→Play 的交接仍缺（420.3）。(2) zoneSlice 有序 picks 与链适配器对 effect.reveal.pick 的解包已合入（链测试已锁定 pickPlans）；judge-required 程序仍不入生产注册表。(3) Draw any you did not play this way 必须对实际剩余揭示对象执行 Draw（414.1）；effect.draw 的 pick 仅选抽牌者、不接受指定卡集合，choice.optional 也只产 value:true 不回链所选引用，未打出集合无 exclude 产生方。不能用固定抽 2、回手动作或不存在的 condition.result 近似。抽剩余牌独立于是否接受可选打出。",
   sourceText:
     "Reveal the top 2 cards of your Main Deck. You may play one of them, reducing its cost by :rb_energy_2:. Draw any you did not play this way.",
   abilities: [
@@ -35,7 +35,7 @@ const voidRush = {
             {
               id: "void-rush.top-two",
               // The ordered deck-top two of the ability controller (CR
-              // 425.3.a): the merged RIFT-358 chain Finalize locks this
+              // 425.3.a): the merged chain Finalize locks this
               // source; 432.1.c keeps an under-full deck legal.
               options: [],
               ordered: true,

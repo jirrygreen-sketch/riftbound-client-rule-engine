@@ -55,7 +55,7 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "continuous.cost-modification 尚未接入 Finalize 的 CostPlanInput.discounts/increases：programs/statics.ts 的 layerFor 没有该 kind 的映射，友敌法术关系也须随费用查询求值。费用原语已支持普通 Energy/Power 改费及 any-domain [A] 费用要求；本卡的 [1][A] 是同时修改两种资源，最低 [1] 按 356.4.e 仅属于本折扣，加费按 356.3。While I am in combat 仍需 740.2.c 的进行中战斗与战斗身份谓词，不能仅数 self（RIFT-359）。不近似实现。",
+    "continuous.cost-modification 尚未接入 Finalize 的 CostPlanInput.discounts/increases：programs/statics.ts 的 layerFor 没有该 kind 的映射，友敌法术关系也须随费用查询求值。费用原语已支持普通 Energy/Power 改费及 any-domain [A] 费用要求；本卡的 [1][A] 是同时修改两种资源，最低 [1] 按 356.4.e 仅属于本折扣，加费按 356.3。While I am in combat 仍缺 740.2.c 的进行中战斗与战斗身份谓词：当前 CountExpr 的 subject（self-in-combat）没有在 interpreter 中被消费，evaluateExpression 只按 filter 查询对象，因此不能把“来源正在战斗”当成已满足条件。不近似实现。",
   abilities,
   sourceText:
     "While I'm in combat, friendly spells cost :rb_energy_1::rb_rune_rainbow: less to a minimum of :rb_energy_1:, " +

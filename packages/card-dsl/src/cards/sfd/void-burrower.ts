@@ -11,7 +11,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "conquer 发射与 CardProgram 触发注册已存在；当前阻断是：(1) programs/triggers.ts 未把首个 you may 映射到 mayAtFinalize，也未把 leading exhaust 转成 TriggerRegistration.cost；383.3.a/b、404.1.b.1 要求 Finalize 决定并付费，不能结算期用 effect.exhaust 代替。(2) 有序牌库顶 picks 与链适配器 LITERAL_FIELDS 对 effect.reveal.pick 的解包已由 RIFT-358 合入（链测试已锁定 pickPlans），仅剩 mayAtFinalize/cost 的生产接线。(3) effect.play 的印刷费用计划须由打出绑定提供，不能用免费测试内核的 play 证明已支付。(4) 同一 canonical 身份的 sfd-243-221 写作 You may banish one, then play it. Recycle the rest.，与本卡 sfd-187-221 的直接打出有 428.1/420.3 区域路径差异；docs/plans/survey/unclassified-rad-sfd.md 第 5 条仍缺勘误或按印刷号裁定依据。保持 judge-required。",
+    "conquer 发射与 CardProgram 触发注册已存在；当前阻断是：(1) programs/triggers.ts 未把首个 you may 映射到 mayAtFinalize，也未把 leading exhaust 转成 TriggerRegistration.cost；383.3.a/b、404.1.b.1 要求 Finalize 决定并付费，不能结算期用 effect.exhaust 代替。(2) 有序牌库顶 picks 与链适配器 LITERAL_FIELDS 对 effect.reveal.pick 的解包已合入（链测试已锁定 pickPlans），仅剩 mayAtFinalize/cost 的生产接线。(3) effect.play 的印刷费用计划须由打出绑定提供，不能用免费测试内核的 play 证明已支付。(4) 同一 canonical 身份的 sfd-243-221 写作 You may banish one, then play it. Recycle the rest.，与本卡 sfd-187-221 的直接打出有 428.1/420.3 区域路径差异；docs/plans/survey/unclassified-rad-sfd.md 第 5 条仍缺勘误或按印刷号裁定依据。保持 judge-required。",
   abilities: [
     {
       kind: "triggered",
@@ -51,7 +51,7 @@ export default {
             {
               id: "void-burrower.top-two",
               // Ordered Main Deck slice (contract 3.6 / CR 425.3.a): the
-              // merged RIFT-358 chain Finalize locks this source from
+              // The merged chain Finalize locks this source from
               // ctx.zoneSlice(controller, "deck", "top", 2); the query
               // vocabulary cannot express deck order.
               options: [],

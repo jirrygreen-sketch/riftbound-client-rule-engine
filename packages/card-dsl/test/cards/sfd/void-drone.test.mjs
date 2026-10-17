@@ -19,6 +19,8 @@ test("sfd-010-221 Void Drone: validates identity and cost-modification shape", (
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Finalize/);
   assert.match(program.judgeReason, /not-hand/);
+  assert.match(program.judgeReason, /effect\.play/);
+  assert.match(program.judgeReason, /来源区域/);
   assert.equal(program.sourceText, "I cost :rb_energy_2: less to play from anywhere other than your hand.");
 });
 

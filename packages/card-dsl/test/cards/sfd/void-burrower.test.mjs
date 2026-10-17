@@ -59,7 +59,8 @@ test("sfd-187-221 Void Burrower: identity, ruleset, status, judgeReason and verb
   // The four recorded blockers, including the identity's printing difference.
   assert.match(program.judgeReason, /conquer/);
   assert.match(program.judgeReason, /mayAtFinalize/);
-  assert.match(program.judgeReason, /RIFT-358/);
+  assert.match(program.judgeReason, /LITERAL_FIELDS/);
+  assert.match(program.judgeReason, /mayAtFinalize/);
   assert.match(program.judgeReason, /sfd-243-221/);
   assert.match(program.judgeReason, /428\.1/);
 });
@@ -271,7 +272,7 @@ test("Void Burrower supported recycle subpath: all revealed cards recycle when n
   assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["d3", "d1", "d2"]);
 });
 
-test("Void Burrower: the merged chain Finalize locks the ordered top-two reveal source (RIFT-358)", () => {
+test("Void Burrower: the merged chain Finalize locks the ordered top-two reveal source", () => {
   const f = fixture();
   f.engine.advance();
   const top = f.kernel.zoneSlice("A", "deck", "top", 2).map(object => object.ref);
