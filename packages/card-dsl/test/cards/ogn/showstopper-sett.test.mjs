@@ -6,7 +6,9 @@ import showstopper from "../../../dist/cards/ogn/showstopper-sett.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import buff from "../../../../engine-core/dist/effects/instructions/effect.buff.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-b22bcf86e002f1a9a45cb4011a53cb3377c815e03ab16283a99130fec4987f95";
@@ -90,6 +92,21 @@ test("Showstopper structure: Buff the base unit, then move that same locked unit
   });
 });
 
+test("Showstopper: base-type matching includes both bases and exact locations distinguish them", () => {
+  const kernel = world()
+    .unit("own-base", { owner: "A", location: BASE("A") })
+    .unit("enemy-base", { owner: "A", location: BASE("B") })
+    .build();
+  const ownBase = kernel.getObject("own-base");
+  const enemyBase = kernel.getObject("enemy-base");
+
+  assert.equal(matchesObjectFilter({ type: "unit", location: "base" }, ownBase), true);
+  assert.equal(matchesObjectFilter({ type: "unit", location: "base" }, enemyBase), true);
+  assert.deepEqual(kernel.query({ type: "unit", location: BASE("A") }).map(object => object.ref.id), ["own-base"]);
+  assert.deepEqual(kernel.query({ type: "unit", location: BASE("B") }).map(object => object.ref.id), ["enemy-base"]);
+  assert.equal(instructionDefinitionsById.has("effect.move"), true);
+});
+
 test("Showstopper golden: the Buff half places a buff on the base unit (702.2.a)", () => {
   const kernel = world().unit("unit", { owner: "A", location: BASE("A") }).build();
   const run = runInstruction(
@@ -157,6 +174,41 @@ test("Showstopper golden: the Move half sends the same unit to a battlefield", (
   // An effect Move is not the Standard Move ability: no exhaust, no cost (144).
   assert.equal(kernel.getObject("unit").exhausted, true);
   assert.deepEqual(run.events.map(event => event.action), ["move-location"]);
+});
+
+test("Showstopper golden: awaiting a concrete destination keeps the unit in base, then the answer moves it", () => {
+  const kernel = world().unit("own-base", { owner: "A", location: BASE("A") }).build();
+  // Runtime enumeration of legal battlefields remains pending. Exercise the
+  // supported choice consumer with concrete destinations supplied by the caller.
+  const args = {
+    ...moveInstruction.args,
+    to: {
+      kind: "constant",
+      value: { kind: "choose", id: "showstopper.destination", options: [BATTLEFIELD("bf1"), BATTLEFIELD("bf2")] }
+    }
+  };
+  const options = { world: kernel, targets: { "friendly-unit-in-base": [kernel.ref("own-base")] } };
+
+  const asked = runInstruction(move, args, options);
+  assert.deepEqual(asked.asked.request, {
+    id: "showstopper.destination",
+    type: "mode",
+    chooser: "A",
+    visibility: "public",
+    options: [BATTLEFIELD("bf1"), BATTLEFIELD("bf2")]
+  });
+  assert.deepEqual(kernel.getObject("own-base").location, BASE("A"));
+  assert.deepEqual(asked.events, []);
+  assert.deepEqual(asked.linked, {});
+
+  const ran = runInstruction(move, args, {
+    ...options,
+    answers: { "showstopper.destination": BATTLEFIELD("bf2") }
+  });
+  assert.equal(ran.result.status, "executed");
+  assert.deepEqual(kernel.getObject("own-base").location, BATTLEFIELD("bf2"));
+  assert.equal(ran.linked.moved.count, 1);
+  assert.deepEqual(ran.events.map(event => event.action), ["move-location"]);
 });
 
 test.todo(

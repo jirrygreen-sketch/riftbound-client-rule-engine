@@ -5,6 +5,8 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/sett-kingpin.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { LayerEngine } from "../../../../engine-core/dist/layers/engine.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-8e8505ab8acf50a1be41bbb00297263ad9415f1e111039591ccbaefedd5a2d00";
 const [tank, mightAbility] = program.abilities;
@@ -64,6 +66,39 @@ test("ogn-240-298 Sett, Kingpin: the Might bonus counts buffed friendly units at
     sameLocationAs: "self",
     buffed: true
   });
+});
+
+test("ogn-240-298 Sett, Kingpin: no buffed units leaves Sett at printed Might", () => {
+  const kernel = world()
+    .unit("sett", { might: 5, buffs: 0, location: { type: "battlefield", id: "battlefield-1" } })
+    .build();
+  const declared = new LayerEngine([kernel.getObject("sett")]);
+  declared.addContinuous({
+    id: "sett:declared",
+    layer: "arithmetic",
+    source: kernel.ref("sett"),
+    filter: { type: "unit" },
+    effect: mightAbility.effect
+  }, { type: "permanent" });
+
+  // This zero-count case does not establish support for nonzero dynamic counts;
+  // that dependency remains recorded by the TODO below.
+  assert.equal(declared.evaluate(kernel.ref("sett")).might, 5);
+});
+
+test("ogn-240-298 Sett, Kingpin: the supported literal arithmetic adds to printed Might", () => {
+  const kernel = world().unit("sett", { might: 5 }).build();
+  const literal = new LayerEngine([kernel.getObject("sett")]);
+  literal.addContinuous({
+    id: "sett:literal",
+    layer: "arithmetic",
+    source: kernel.ref("sett"),
+    filter: { type: "unit" },
+    effect: { ...mightAbility.effect, amount: { kind: "constant", value: 2 } }
+  }, { type: "permanent" });
+
+  assert.equal(literal.evaluate(kernel.ref("sett")).might, 7);
+  assert.equal(kernel.getObject("sett").might, 5);
 });
 
 test.todo(

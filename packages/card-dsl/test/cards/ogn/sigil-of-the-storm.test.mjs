@@ -5,6 +5,7 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/sigil-of-the-storm.js";
 import recycle from "../../../../engine-core/dist/effects/instructions/effect.recycle.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 
 const CANONICAL = "card.hash-99269cca1e28890ac67140558b99391b7697d84d62ce158a0946bed6920daedd";
 const [ability] = program.abilities;
@@ -53,6 +54,20 @@ test("ogn-287-298: conquer trigger whose body recycles one rune (417.6 non-targe
     }
   });
   assert.deepEqual(RECYCLE_ARGS.from.amount, instruction.args.from.value.amount);
+});
+
+test("ogn-287-298: the supported conquer/player filter matches the controller and excludes the opponent", () => {
+  // The relative battlefield condition remains pending. Test only the authored
+  // event and player selectors; this does not register the full here trigger.
+  const { event, player } = ability.trigger.filter;
+  const filter = { event, player };
+  const conquer = { eventId: 1, timingPoint: "conquer", player: "A" };
+
+  assert.equal(matchesTriggerEvent(filter, conquer, "A"), true);
+  assert.equal(matchesTriggerEvent(filter, { ...conquer, player: "B" }, "A"), false);
+  assert.equal(matchesTriggerEvent(filter, { ...conquer, player: "B" }, "B"), true);
+  assert.equal(matchesTriggerEvent(filter, conquer, "B"), false);
+  assert.equal(matchesTriggerEvent(filter, { ...conquer, timingPoint: "hold" }, "A"), false);
 });
 
 test("ogn-287-298: the body recycles exactly one chosen rune to the Rune Deck (417.1.b)", () => {
