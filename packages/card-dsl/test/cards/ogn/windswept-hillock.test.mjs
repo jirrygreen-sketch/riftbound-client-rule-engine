@@ -42,6 +42,7 @@ test("Windswept Hillock program validates and is judge-required", () => {
   assert.match(program.judgeReason, /Ganking/);
   assert.match(program.judgeReason, /sameLocationAs/);
   assert.match(program.judgeReason, /zones\/movement/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 

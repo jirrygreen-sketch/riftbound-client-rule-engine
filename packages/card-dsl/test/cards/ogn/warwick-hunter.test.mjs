@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
@@ -25,13 +26,16 @@ test("ogn-159-298 Warwick, Hunter: program validates and keeps identity", () => 
   assert.equal(program.sourceText, "I enter ready.\nWhen I attack, kill all damaged enemy units here.");
 });
 
-test("ogn-159-298 Warwick, Hunter: judgeReason cites the entry replacement, the set kill and the damaged predicate", () => {
-  assert.match(program.judgeReason, /bindReplacement/);
+test("ogn-159-298 Warwick, Hunter: judgeReason cites the set kill and the damaged predicate; the merged entry-replacement pipeline note stays in the source comment only", () => {
+  // bindReplacement is a merged capability, so it is documented in the
+  // program's source comment (see the header note) instead of judgeReason.
+  const sourceText = fs.readFileSync(new URL('../../../src/cards/ogn/warwick-hunter.ts', import.meta.url), 'utf8');
+  assert.match(sourceText, /bindReplacement/);
   assert.match(program.judgeReason, /effect\.kill/);
   assert.match(program.judgeReason, /damaged/);
   assert.match(program.judgeReason, /355\.10\.d/);
-  assert.match(program.judgeReason, /damaged/);
   assert.match(program.judgeReason, /combat-start-transaction/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
 test("ogn-159-298 Warwick, Hunter: 'I enter ready.' is an entry replacement that readies the source (369.3 / 359.2.c)", () => {

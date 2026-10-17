@@ -43,6 +43,7 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, sourceText", () =
   assert.match(program.judgeReason, /translateTriggerFilter/);
   assert.match(program.judgeReason, /translateObjectFilter/);
   assert.match(program.judgeReason, /Unsupported filter field object/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 

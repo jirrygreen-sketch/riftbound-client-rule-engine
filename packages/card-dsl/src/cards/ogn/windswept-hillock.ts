@@ -19,7 +19,9 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * Status: judge-required. The granted keyword is a registered KeywordId
  * ("Ganking", keywords/Ganking.ts), and the merged
- * continuous.grant-keyword instruction (RIFT-258) can express the grant: the
+ * continuous.grant-keyword instruction (merged workstreams RIFT-83/258 —
+ * historical note only; merged capabilities stay out of judgeReason) can
+ * express the grant: the
  * golden test executes it through the interpreter with the 053.3 "here"
  * scoping carried by the sameLocationAs anchor that
  * effects/interpreter/selectors.ts implements, and reads the granted keyword
@@ -37,9 +39,9 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「Units here have [Ganking]」授予的是已注册的 KeywordId（effects/keywords/Ganking.ts，RIFT-83；810 / 144.4.c）：" +
+    "「Units here have [Ganking]」授予的是已注册的 KeywordId（effects/keywords/Ganking.ts；810 / 144.4.c）：" +
     "① 授予本体可用已合入的 continuous.grant-keyword 指令表达，解释器与 static binder 都能解析 053.3 的 sameLocationAs 锚点，" +
-    "golden 用解释器 + 参考内核真实执行「只授予此战场单位」并通过图层引擎读回授予结果；" +
+    "golden 用解释器 + 参考内核真实执行「只授予此战场单位」并通过图层引擎读回授予结果（该半段可执行，非缺口）；" +
     "② 整卡仍不可执行：授予关键词展开出的 continuous.movement 许可只能经 layers/rules/query.ts 的 movement() 查询读取，生产移动路径 zones/movement.ts 仍只读调用方传入的 readiness/hasGanking 记录，" +
     "战场→战场的 Standard Move 在生产链路仍被拒绝（144.4.c / 144.4.c.1）；" +
     "③ 190.6 的战场能力控制者解析缺失。依赖：移动许可的生产消费方与 Battlefield controller 解析。不近似实现。",

@@ -31,14 +31,17 @@ import type { CardProgram } from "../../ir/index.js";
  * 1. programs/filters.ts translateTriggerFilter converts the nested
  *    `filter: { source: "self" }` spelling into the top-level
  *    `pattern.object` binding, so the merged matcher and assertTriggerSpec
- *    now accept it (the previously cited RIFT-21/RIFT-257 gaps are merged);
+ *    now accept it (the previously cited RIFT-21/RIFT-257 gaps are merged —
+ *    historical note only; merged capabilities stay out of judgeReason);
  * 2. the remaining gap is the trigger body: registerProgramTriggers runs
  *    translateInstructionTargets, and translateObjectFilter rejects the
  *    TargetSpec `filter: { object: "self" }` spelling with
  *    "Unsupported filter field object", so the buff bodies cannot be
  *    registered for "When I'm played" / "when I conquer".
  * The activated +4 Might half, the spend-buff cost and the buff-trigger bodies
- * all execute on merged paths and are covered by real execution tests; the
+ * all execute on merged paths (the continuous.might primitive itself was
+ * merged as RIFT-258 — historical note only) and are covered by real
+ * execution tests; the
  * 703 Buff -> +1 Might derivation stays an engine-side gap (layers/engine.ts
  * only moves the Buff counter).
  */
@@ -48,13 +51,13 @@ export default {
   status: "judge-required",
   judgeReason:
     "触发半段仍不可执行：触发过滤的嵌套写法 filter: { source: \"self\" } 已由已合入的 programs/filters.ts " +
-    "translateTriggerFilter 转换为顶层 pattern.object 绑定，不再被 assertTriggerSpec 拒绝（旧理由中引用的 " +
-    "RIFT-21/RIFT-257 均已合入，视为过时）；当前真实缺口是触发体 TargetSpec 的 filter: { object: \"self\", type: \"unit\" } " +
+    "translateTriggerFilter 转换为顶层 pattern.object 绑定，不再被 assertTriggerSpec 拒绝；" +
+    "当前真实缺口是触发体 TargetSpec 的 filter: { object: \"self\", type: \"unit\" } " +
     "在 registerProgramTriggers → translateInstructionTargets → translateObjectFilter 被拒绝" +
     "（Unsupported filter field object），「When I'm played / when I conquer」的触发体无法注册；" +
     "static binder 的 staticFilter 虽支持 object:\"self\"，但只作用于 static 能力，不作用于触发体目标；" +
     "effect.buff 的 target 也只接受 TargetSpec id，无宿主选择器形态（契约变更请求）。" +
-    "+4 Might 半段（continuous.might + appliesTo self，RIFT-258）、spend-buff 费用与 effect.buff 触发体本体均有真实执行测试；" +
+    "+4 Might 半段（continuous.might + appliesTo self）、spend-buff 费用与 effect.buff 触发体本体均有真实执行测试；" +
     "CR 703 的「Buff 提供 +1 Might」派生不在已合入图层引擎（layers/engine.ts 只增减 buffs 计数），保持引擎侧缺口。" +
     "整卡在触发体目标绑定前保持 judge-required，不近似实现。",
   abilities: [
