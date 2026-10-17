@@ -61,8 +61,10 @@ export default {
     "「作为攻击者 +X [M]」算术静态效果（807.1.c），所以印刷的 +1 Might 不会发生；" +
     "(2) 718.3 的 Attached 卡 Effect Text 追加到 Top-Most 卡的传播没有可执行桥接，" +
     "被授予的 Assault 因此到不了该 Equipment 所装备的单位；" +
-    "(3) 生产端把卡牌程序生命周期接线到对局的端到端路径尚未合入（golden 只在测试内核内绑定）。" +
-    "不近似实现（不写成单卡专用结算，也不改成数值修正）。",
+    "(3) 生产端接线已合入（apps/game-server 的 engine-runtime 调 createProgramBinding + attachLifecycle），" +
+    "但该生命周期不把授予的关键词喂给任何展开消费者，所以 (1) 仍是本卡的阻断点。" +
+    "RIFT-667 复核实测：授予记录为 { id: \"Assault\", value: undefined }（807.1.b.3 无印刷数值），" +
+    "该授予不会产出任何 Might。不近似实现（不写成单卡专用结算，也不改成数值修正）。",
   abilities: [
     {
       kind: "static",
