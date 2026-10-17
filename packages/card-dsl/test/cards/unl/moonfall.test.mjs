@@ -32,13 +32,13 @@ test("unl-198-219 Moonfall: identity, status, judgeReason and verbatim sourceTex
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
-  // Two gaps: the runtime Location destination and the temporary Might layer.
-  assert.match(program.judgeReason, /355\.4/);
+  // One gap remains: the temporary Might layer cannot consume a location binding.
   assert.match(program.judgeReason, /479\.4/);
   assert.match(program.judgeReason, /355\.10\.d/);
+  assert.match(program.judgeReason, /sameLocationAs/);
 });
 
-test("unl-198-219 Moonfall: [Action] plus the may-move wrapped in choice.optional with the battlefield target", () => {
+test("unl-198-219 Moonfall: [Action] plus the may-move wrapped in choice.optional with the location choice", () => {
   assert.equal(program.abilities.length, 2);
   assert.deepEqual(actionKeyword, { kind: "keyword", keyword: "action" });
   assert.equal(play.kind, "play");
@@ -54,13 +54,15 @@ test("unl-198-219 Moonfall: [Action] plus the may-move wrapped in choice.optiona
   assert.equal(optionalMove.linkedTo, undefined);
   assert.deepEqual(optionalMove.args.body.kind, "constant");
 
-  // "Choose a battlefield where you have units" is a specific choice
-  // (355.5 / 355.7) on a public-zone object (170 / 355.10.a.1), so it is a
-  // TargetSpec on the control node that carries the printed first clause.
-  assert.deepEqual(optionalMove.targets, [
+  // "Choose a battlefield where you have units" is a public location choice
+  // (355.4 / 355.5), constrained to a controller-held battlefield with units.
+  assert.equal(optionalMove.targets, undefined);
+  assert.deepEqual(optionalMove.locations, [
     {
       id: "moonfall.battlefield",
-      filter: { type: "battlefield", controller: "self" },
+      type: "battlefield",
+      controller: "controller",
+      hasUnits: true,
       min: 1,
       max: 1,
       selection: "one"
@@ -84,14 +86,10 @@ test("unl-198-219 Moonfall: [Action] plus the may-move wrapped in choice.optiona
     selection: "up-to"
   });
 
-  // "to that battlefield" is a runtime Location (355.4/355.4.a); the marker is
-  // descriptive and the interpreter rejects it instead of guessing a location.
+  // "to that battlefield" is a runtime LocationExpr (355.4/355.4.a).
   assert.deepEqual(moveEnemyUnit.args.to, {
-    kind: "constant",
-    value: {
-      kind: "destination-selector",
-      locationOf: { target: "moonfall.battlefield" }
-    }
+    kind: "location",
+    value: { kind: "target-location", target: "moonfall.battlefield" }
   });
 });
 
@@ -142,17 +140,62 @@ test("unl-198-219 Moonfall golden: effect.move really moves the enemy unit when 
   assert.deepEqual(run.events.map((event) => event.action), ["move-location"]);
 });
 
+function locationWorld() {
+  return world()
+    .object("bf-1", {
+      owner: "A",
+      controller: "A",
+      types: ["battlefield"],
+      zone: "board",
+      location: null
+    })
+    .object("bf-2", {
+      owner: "B",
+      controller: "B",
+      types: ["battlefield"],
+      zone: "board",
+      location: null
+    })
+    .unit("ally", { owner: "A", controller: "A", location: { type: "battlefield", id: "bf-1" } })
+    .unit("enemy", { owner: "B", controller: "B", location: { type: "battlefield", id: "bf-2" } })
+    .build();
+}
+
+test("unl-198-219 Moonfall golden: the chosen location expression drives the real move", () => {
+  const ctx = locationWorld();
+  ctx.setTargets("moonfall.enemy-unit", [ctx.ref("enemy")]);
+  ctx.setAnswers({
+    "moonfall.move-enemy-unit/location%3Amoonfall.battlefield": {
+      type: "battlefield",
+      id: "bf-1"
+    }
+  });
+
+  // The card declares the location choice on the may-action control node. The
+  // isolated move execution below supplies the same finalized location scope
+  // and locked target at the instruction boundary, exercising the merged
+  // LocationExpr consumer.
+  const { targets: _omittedTargets, ...moveWithoutTargets } = moveEnemyUnit;
+  const executable = [{ ...moveWithoutTargets, locations: optionalMove.locations }];
+  const outcome = resolveChainBody(executable, ctx);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(ctx.getObject("enemy").location, { type: "battlefield", id: "bf-1" });
+  assert.deepEqual(outcome.results.map((result) => [result.id, result.result.status]), [
+    ["moonfall.move-enemy-unit", "executed"]
+  ]);
+});
+
 test("unl-198-219 Moonfall golden: the optional clause executes the real move when accepted", () => {
   const kernel = world()
     .unit("enemy", { owner: "B", might: 2, location: { type: "battlefield", id: "bf-1" } })
     .build();
   const ctx = kernel.clone();
-  ctx.setTargets("moonfall.battlefield", [ctx.ref("enemy")]);
   ctx.setTargets("moonfall.enemy-unit", [ctx.ref("enemy")]);
   ctx.setAnswers({ "moonfall.optional-move/optional": true });
-  // The card's own destination marker cannot be executed; the caller supplies
-  // the destination the controller chose during Finalize (355.4/355.4.a).
-  const { targets: _omittedOptionalSpec, ...optionalWithoutSpec } = optionalMove;
+  // This isolates the optional control node; the location-aware move path has
+  // its own golden test above.
+  const { targets: _omittedOptionalSpec, locations: _omittedLocationSpec, ...optionalWithoutSpec } = optionalMove;
   const { targets: _omittedMoveSpec, ...moveWithoutSpec } = moveEnemyUnit;
   const executable = [{
     ...optionalWithoutSpec,
@@ -185,10 +228,9 @@ test("unl-198-219 Moonfall golden: declining the may move changes nothing", () =
     .unit("enemy", { owner: "B", might: 2, location: { type: "battlefield", id: "bf-1" } })
     .build();
   const ctx = kernel.clone();
-  ctx.setTargets("moonfall.battlefield", [ctx.ref("enemy")]);
   ctx.setTargets("moonfall.enemy-unit", [ctx.ref("enemy")]);
   ctx.setAnswers({ "moonfall.optional-move/optional": false });
-  const { targets: _omittedSpec, ...optionalWithoutSpec } = optionalMove;
+  const { targets: _omittedSpec, locations: _omittedLocationSpec, ...optionalWithoutSpec } = optionalMove;
   const executable = [optionalWithoutSpec];
 
   const outcome = resolveChainBody(executable, ctx);
@@ -213,8 +255,5 @@ test("unl-198-219 Moonfall golden: the Might clause carries the reviewed declara
 });
 
 test.todo(
-  "unl-198-219 Moonfall: offer \"that battlefield\" as the Move's runtime destination by reading the chosen battlefield target's current LocationRef (CR 355.4/355.4.a/451.1; runtime Location selector is still missing)"
-);
-test.todo(
-  "unl-198-219 Moonfall: resolve the continuous.might query against the chosen battlefield after the nested optional move and apply the -2 this-turn effect to enemy units there (CR 359.3.f.1/479.4; runtime referent propagation remains incomplete)"
+  "unl-198-219 Moonfall: resolve the continuous.might query against the chosen battlefield after the nested optional move and apply the -2 this-turn effect to enemy units there (CR 359.3.f.1/479.4; queryObjects sameLocationAs cannot consume a location binding)"
 );

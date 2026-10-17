@@ -11,9 +11,8 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * 规则依据（CR v1.5）：
  * - [Action]（806.1 / 806.1.b）是许可类关键词，卡牌只声明（契约 3.7）。
- * - "Choose a battlefield where you have units"：战场是游戏对象（170）、其区域是公开信息
- *   （355.10.a.1），具体选择（355.5）使其成为目标（355.7）；"where you have units" 是
- *   战场的合法性限制。
+ * - "Choose a battlefield where you have units"：这是公开信息上的运行期地点选择
+ *   （355.4 / 355.5）；"where you have units" 是战场地点的合法性限制。
  * - "You may move up to one enemy unit to that battlefield"："you may" 属 383.3.a 的
  *   可选执行，按契约 3.9 用 choice.optional 把被选指令包进 body；移动是效果移动
  *   （451，不是 Standard Move 144），被移动的敌方单位是目标（355.10 / 355.9.a.1），
@@ -24,24 +23,15 @@ import type { CardProgram } from "../../ir/index.js";
  *   （359.3.f.1 的 referent）；本回合的 -2 Might 属 479.4 Arithmetic 图层的临时修正。
  *
  * status = judge-required（不近似实现）：
- * 1. "to that battlefield" 需要把 battlefield 目标的当前 LocationRef 作为 effect.move 的
- *    工作目的地（target.location 未合入）；合并 IR 没有运行期 Location 选择器，
- *    effect.move 的 to 只接受静态 LocationRef / controller-base / 静态候选列表，因此本卡
- *    保留描述性目的地标记，解释器会拒绝该形状而不是落到错误地点。
- * 2. "give enemy units there -2 :rb_might: this turn" 已改写为 continuous.might，
+ * 1. "give enemy units there -2 :rb_might: this turn" 已改写为 continuous.might，
  *    但其运行期集合仍依赖前面选择的 battlefield referent 在嵌套 optional/then
  *    结算中保持可读（479.4 Arithmetic layer 与 359.3.f.1）。
- * 依赖：运行期 Location 选择器与 nested referent consumer。被移动的敌方单位已按
- * 355.10 / 355.9.a.1 声明为目标；[Action] 声明本身可校验。
+ * 依赖：continuous.might 的 location-aware query / nested referent consumer。
+ * 运行期 Location 选择、effect.move 的 LocationExpr 目的地、被移动的敌方单位目标
+ * 与 [Action] 声明均已接通。
  */
 
-/** 描述性目的地标记，不是可执行 LocationRef（见 judgeReason 第 1 点）。 */
-const CHOSEN_BATTLEFIELD = {
-  kind: "destination-selector",
-  locationOf: { target: "moonfall.battlefield" }
-} as const;
-
-/** 临时 Might 修正；运行期集合锚点仍见 judgeReason 第 2 点。 */
+/** 临时 Might 修正；运行期集合锚点仍见 judgeReason 的剩余缺口。 */
 const MIGHT_MINUS_2 = {
   id: "moonfall.might-modify",
   op: "continuous.might",
@@ -69,34 +59,31 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入，均不近似实现：(1) “move up to one enemy unit to that battlefield” 的目的地是前面选中的战场的当前 " +
-    "LocationRef（CR 355.4 / 355.4.a / 451.1），合并 IR 没有运行期 Location 选择器（target.location 未合入），" +
-    "effect.move 的 to 只接受静态 LocationRef / controller-base / 静态候选列表；本卡只保留描述性目的地标记，解释器会拒绝它而不是落到错误地点。" +
-    "(2) “Then give enemy units there -2 :rb_might: this turn” 已使用可执行的 continuous.might 指令，" +
-    "但其运行期 enemy-unit 集合必须在嵌套 optional/then 结算中读取前面 battlefield 目标的地点 referent（479.4 与 359.3.f.1）；该锚点消费仍未完成。" +
-    "已按契约落地的部分：战场目标与敌方单位目标（355.5 / 355.7 / 355.10.a.1 / 355.9.a.1）、“you may” 按契约 3.9 包进 choice.optional 的 body（不写 choice + linkedTo）、" +
-    "受影响单位按 355.10.d 声明为非目标集合；[Action] 关键词声明可校验。",
+    "一处依赖未合入，且不近似实现：“Then give enemy units there -2 :rb_might: this turn” 已使用可执行的 continuous.might 指令，" +
+    "但其运行期 enemy-unit 集合必须在嵌套 optional/then 结算中读取前面 battlefield LocationSpec 的地点 referent（479.4 与 359.3.f.1）；" +
+    "当前 queryObjects 的 sameLocationAs 只消费 ObjectSelector，不能消费 location target binding，故该锚点消费仍未完成。" +
+    "已按契约落地的部分：战场位置选择与敌方单位目标（355.4 / 355.5 / 355.10 / 355.9.a.1）、“you may” 按契约 3.9 包进 choice.optional 的 body（不写 choice + linkedTo）、" +
+    "受影响单位按 355.10.d 声明为非目标集合、运行期战场选择与 effect.move 的目标地点解析；[Action] 关键词声明可校验。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {
       kind: "play",
       body: [
         {
-          // “Choose a battlefield where you have units.” 先于可选的移动做出
-          // （355.5 的具体选择；355.7 / 355.10.a.1 使它成为目标），因此战场
-          // 的 TargetSpec 声明在承载后续指令的这条控制节点上（与已合入的
-          // ogn/shakedown 把 TargetSpec 声明在 choice.mode 上的写法一致）。
+          // “Choose a battlefield where you have units.” 先于可选的移动做出；
+          // 地点选择声明在承载后续指令的控制节点上。
           // “You may move up to one enemy unit to that battlefield.”（383.3.a 的
           // “you may”；契约 3.9：被选指令包进 choice.optional 的 body）。
           id: "moonfall.optional-move",
           op: "choice.optional",
-          targets: [
+          locations: [
             {
               id: "moonfall.battlefield",
-              // 170 / 355.10.a.1：战场是公开区域的游戏对象；“where you have units”
-              // 是它的合法性限制（本阶段过滤器没有该谓词，随 judgeReason 第 1 点
-              // 一并接线）。
-              filter: { type: "battlefield", controller: "self" },
+              // 355.4 / 355.5：战场位置是公开地点选择；hasUnits 表达“where you
+              // have units”的占据限制，controller 绑定到能力控制者。
+              type: "battlefield",
+              controller: "controller",
+              hasUnits: true,
               min: 1,
               max: 1,
               selection: "one"
@@ -118,7 +105,7 @@ export default {
                       kind: "constant",
                       value: { target: "moonfall.enemy-unit" }
                     },
-                    to: { kind: "constant", value: CHOSEN_BATTLEFIELD },
+                    to: { kind: "location", value: { kind: "target-location", target: "moonfall.battlefield" } },
                     // “up to one”：数量上限 1，无可移动单位时按 055 / 359.3.e.11
                     // 尽可能执行（0 个即无事发生）。
                     amount: { kind: "constant", value: 1 }
