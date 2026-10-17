@@ -1,3 +1,4 @@
+// Execution evidence for keyword expansion is consolidated in ../templates/keyword-only.test.mjs.
 // Golden test for Garen, Rugged (ogs-007-024).
 //
 // The card prints two keywords in one block, so the runnable evidence is the

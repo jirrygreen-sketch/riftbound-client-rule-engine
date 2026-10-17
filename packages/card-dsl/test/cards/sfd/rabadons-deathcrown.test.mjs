@@ -1,3 +1,4 @@
+// Execution evidence for keyword expansion is consolidated in ../templates/keyword-only.test.mjs.
 // Golden test for Rabadon's Deathcrown (sfd-191-221).
 //
 // The catalog ability is [Unique] + [Equip] only; the merged Equip expansion's
