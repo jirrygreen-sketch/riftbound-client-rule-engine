@@ -37,7 +37,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *    replacement/ 已合入事件拦截与注册面（bindReplacement/replacement.event，可匹配
  *    card-revealed/ reveal 动作），但没有“被查看（look）”这一秘密区域事件的匹配
  *    （ACTION_KINDS 无 look），也没有 370.1.c.1 的同刻生效语义；且本卡的文字是触发式措辞（见冲突）；
- * 4. `cards-looked-at` 的秘密区域事件仍缺少把牌库顶对象作为本卡许可来源的生产接线。
+ * 4. `look` 动作使用 `objects` 数组，但事件适配器只读取单个 `object`/`target`，
+ *    `cards-looked-at` 因此没有被看牌的 `object` 载荷；触发过滤器嵌套的
+ *    `objectId: "self"` 也没有绑定为来源 ID，两段事件/身份接线均仍缺失。
  * 依赖：RIFT-260 后续的秘密区域替代事件与 look 事件的许可/位置适配，以及 370.1.c.1 文本的裁定。
  */
 const abilities: Ability[] = [
@@ -114,8 +116,8 @@ const program = {
     "(3) RIFT-260 的 replacement/ 已合入通用事件拦截与注册面（bindReplacement/replacement.event，" +
     "可匹配 card-revealed/reveal），但没有「被查看（look）」秘密区域事件的匹配（ACTION_KINDS 无 look），" +
     "370.1.c.1 的同刻生效语义仍缺；" +
-    "(4) 事件匹配本身已可用：action-adapter 的 look 发射把被看对象作为 object 载荷，触发注册的 objectId:self 可按 ref.id 命中本卡；" +
-    "仍缺的是秘密区域打出许可/位置适配与 370.1.c.1 的替代管线裁定。" +
+    "(4) cards-looked-at 的事件/身份接线仍缺：look 动作使用 objects 数组，action-adapter 只读取单个 object/target，未生成被看牌的 object 载荷；" +
+    "translateTriggerFilter 对嵌套 objectId:self 也未绑定为注册来源 ID（383.2.c）。" +
     "依赖：RIFT-260 后续秘密区域替代事件与 look 事件的许可适配、以及 370.1.c.1 文本的裁定。不近似实现。",
   abilities,
   sourceText:

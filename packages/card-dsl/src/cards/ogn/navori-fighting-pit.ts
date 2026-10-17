@@ -24,9 +24,10 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * Status: judge-required — after the RIFT-270 audit the `hold` point is
  * emitted (turn/flow.ts's scoring wave emits the method point plus `score`),
- * but the trigger still cannot run in production: the EventPattern vocabulary
- * and target translator do not yet bind the `here` placeholder and
- * `sameLocationAs` to the scoring payload's battlefield identity (RIFT-357),
+ * but the trigger still cannot run in production: trigger filters do not yet
+ * bind `here` to scoring details.battlefieldId, and translateInstructionTargets
+ * rejects the target's `sameLocationAs` anchor. RIFT-357's merged selectors,
+ * interpreter anchors and static binding do not cover those program adapters,
  * and Layers do not yet derive the +1 Might per Buff of 703 (the layer engine
  * keeps the buffs counter but evaluates printed Might). The body only uses
  * merged primitives and is executed by the golden test against the reference
@@ -41,7 +42,8 @@ const navoriFightingPit = {
     "但触发仍无法生产化，缺口不近似实现：" +
     "(1) 触发 filter 里的 here=true 仍是触发过滤路径的占位键：RIFT-357 已合入 target/location 选择器、interpreter 位置绑定与 statics 的 sameLocationAs 解析，" +
     "但 programs/filters.ts 对 here 仍抛 judge-required，需要把注册源战场绑定为 scoring details.battlefieldId 过滤的触发侧适配；" +
-    "(2) 703 的 Buff → +1 Might 推导未实现：已验证 LayerEngine 对 buffs=1 的单位仍按印刷 Might 求值（buffs 计数器单独存在）；" +
+    "(2) translateInstructionTargets 仍拒绝目标 filter 的 sameLocationAs:self，报 Unsupported filter field sameLocationAs，缺程序绑定的目标适配；解释器和静态能力支持该字段不代表目标翻译已就绪；" +
+    "(3) 703 的 Buff → +1 Might 推导未实现：已验证 LayerEngine 对 buffs=1 的单位仍按印刷 Might 求值（buffs 计数器单独存在）；" +
     "能力本体只用已合入的 effect.buff 原语，位置锚点用契约 3.6 的 sameLocationAs: \"self\"，均由 golden 真实执行。",
   sourceText: "When you hold here, buff a unit here. (If it doesn't have a buff, it gets a +1 :rb_might: buff.)",
   abilities: [
@@ -49,8 +51,8 @@ const navoriFightingPit = {
       kind: "triggered",
       trigger: {
         at: "hold",
-        // "here" marks the source-Battlefield restriction; it stays until the
-        // scoring payload exposes the held battlefield (see judgeReason).
+        // Scoring already supplies details.battlefieldId; the trigger adapter
+        // still needs to bind this source-Battlefield restriction to it.
         filter: { event: "hold", here: true, player: "controller" }
       },
       optional: false,

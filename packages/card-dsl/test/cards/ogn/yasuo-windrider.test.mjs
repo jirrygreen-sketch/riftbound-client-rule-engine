@@ -47,6 +47,10 @@ test("ogn-205-298 Yasuo, Windrider: program validates and has expected identity"
   assert.match(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /Ganking/);
   assert.match(program.judgeReason, /第 N 次/);
+  // The movement consumer exists; the remaining gap is production assembly.
+  assert.match(program.judgeReason, /RIFT-347/);
+  assert.match(program.judgeReason, /canGank/);
+  assert.match(program.judgeReason, /生产装配.*DuelMovementRuleContext/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -107,6 +111,55 @@ test("ogn-205-298 Yasuo, Windrider: the granted Ganking id matches the registere
   });
 });
 
+test("ogn-205-298 Yasuo, Windrider: the optional rules bridge consumes normalized Ganking permission for a Standard Move", async () => {
+  const { default: movement } = await import("../../../../engine-core/dist/effects/instructions/continuous.movement.js");
+  const { ContinuousEffectRegistry } = await import("../../../../engine-core/dist/layers/duration.js");
+  const { selectDuelBattlefields, createDuelBoard, placeDuelUnit } = await import("../../../../engine-core/dist/duel/battlefields.js");
+  const { moveDuelUnitsStandard } = await import("../../../../engine-core/dist/zones/movement.js");
+  const seats = ["A", "B"].map(playerId => ({
+    playerId,
+    battlefields: [1, 2, 3].map(index => ({ instanceId: `${playerId}-${index}`, cardId: `field-${index}` }))
+  }));
+  const empty = createDuelBoard(selectDuelBattlefields(seats, () => 0));
+  const [origin, destination] = empty.battlefields.map(field => field.locationId);
+  const board = placeDuelUnit(empty, { objectId: "yasuo", controllerPlayerId: "A", locationId: origin });
+  const kernel = world()
+    .unit("yasuo", {
+      cardId: CANONICAL,
+      location: { type: "battlefield", id: origin },
+      might: 4
+    })
+    .build();
+  const [staticAbility] = ganking.expand({ host: { canonicalCardId: CANONICAL } });
+  const { kind, ...effectArgs } = staticAbility.effect;
+  const registered = runInstruction(movement, Object.fromEntries(
+    Object.entries(effectArgs).map(([key, value]) => [key, literal(value)])
+  ), { world: kernel });
+  assert.equal(registered.result.status, "executed");
+  const registry = new ContinuousEffectRegistry();
+  for (const entry of kernel.continuousEffects) registry.register(entry.effect, entry.duration);
+  // The real primitive normalizes permission to permission.routes. Production
+  // static binding still needs that normalization and registry assembly.
+  const result = moveDuelUnitsStandard(
+    board,
+    [{ objectId: "yasuo", readied: true, hasGanking: false }],
+    {
+      actor: "A",
+      unitUIDs: ["yasuo"],
+      destinationLocationId: destination,
+      timing: { phase: "main", stateOpen: true, turnPlayerId: "A", priorityPlayerId: "A" }
+    },
+    { registry }
+  );
+
+  assert.equal(result.board.units.find(unit => unit.objectId === "yasuo").locationId, destination);
+  assert.deepEqual(result.readiness, [{ objectId: "yasuo", readied: false, hasGanking: false }]);
+  assert.equal(result.group.exhaustedCount, 1);
+  assert.deepEqual(result.group.events, [
+    { objectId: "yasuo", actor: "A", fromLocationId: origin, toLocationId: destination }
+  ]);
+});
+
 test("ogn-205-298 Yasuo, Windrider golden: 'you score 1 point' really gains 1 point (CR 470.2)", () => {
   const kernel = yasuoWorld();
   const outcome = runAbilityBody([scoreInstruction], kernel);
@@ -161,6 +214,6 @@ test.todo(
 
 test.todo(
   "ogn-205-298 Yasuo, Windrider: [Ganking]'s expansion execution (810.1.c / 144.4.c Battlefield→Battlefield " +
-    "Standard Move) — the permission is only read by layers/rules/query.ts movement(); zones/movement.ts still " +
-    "consumes caller-supplied readiness/hasGanking records"
+    "Standard Move) — RIFT-347's optional rules bridge already consumes canGank; production must assemble " +
+    "DuelMovementRuleContext and normalize the keyword's string permission to permission.routes"
 );

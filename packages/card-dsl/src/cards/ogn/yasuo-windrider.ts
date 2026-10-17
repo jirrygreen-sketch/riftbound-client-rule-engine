@@ -21,11 +21,12 @@ import type { CardProgram } from "../../ir/index.js";
  * - body 用 effect.score 获得 1 点（470.2）。
  *
  * status = judge-required：effect.score 原语、object-moved 事件绑定与历史查询都可执行（golden 真实执行），
- * 阻断在：(1) 「第 N 次恰好触发一次」的触发形状——封闭 TriggerSpec 只在每次事件命中时求值
- * condition，当前 compare + count 不能表达第三次事件的边沿判定，计数到 3 后会继续命中；
+ * 阻断在：(1) 「第 N 次恰好触发一次」需要历史条件谓词与生产触发求值适配：
+ * condition.history 是指令，当前 TriggerSpec 的 count 走对象查询，未接回合移动历史；
  * (2) Ganking 展开的 continuous.movement 许可已由 RIFT-347 桥入
- * moveDuelUnitsStandard 的可选 rules 桥（layers/rules/query.ts），但仍需调用方
- * 提供 rules 上下文与 readiness/hasGanking 记录的生产消费方。
+ * moveDuelUnitsStandard 的可选 rules 桥（layers/rules/query.ts），可消费 canGank；
+ * 剩余缺口是生产装配 DuelMovementRuleContext，并把关键词静态展开的字符串 permission
+ * 规范化为查询器读取的 permission.routes，再将持续效果注册表接入移动入口。
  *
  * 数据备注（不在本任务改数据）：同一 canonicalCardId 的 SFD 印刷在本地 catalog 中不存在
  * （docs/plans/survey/unclassified-ogn.json 把 ogn-205-298 记为 data-issue：OGN 带 Ionia、
@@ -39,10 +40,10 @@ const yasuoWindrider = {
     "已合入并已用真实执行核验：「you score 1 point」按 CR 470.2 用 effect.score 原语执行（golden 里真实获得 1 点）；" +
     "「本回合本单位被移动的次数」用 object-moved 的历史查询（action: move-location）计数，golden 里真实走完三次 effect.move 并读到 count = 3（458 Recall 不计入）。" +
     "整卡仍不可执行：(1)「The third time I move in a turn」（383.1.b）需要「第 N 次事件恰好触发一次」的触发形状——" +
-    "封闭 TriggerSpec 在每次事件命中时求值 condition，condition.history 到 3 之后每次移动仍会满足，会重复计分；现有 Expr/Condition 没有该形状；" +
-    "(2) [Ganking] 的展开虽已存在（effects/keywords/Ganking.ts 展开成 continuous.movement 静态效果），但该许可只有 layers/rules/query.ts 的 movement() 查询读取，" +
-    "生产移动路径 zones/movement.ts 仍只读调用方传入的 readiness/hasGanking 记录（810.1.c/144.4.c）。" +
-    "依赖：RIFT-359（条件谓词/第 N 次事件边沿）与移动许可的生产消费方。不近似实现（不用每三次循环代替第三次，也不用战场 Scoring 流程代替 Gaining Points）。",
+    "condition.history 是指令，不能直接作为 TriggerSpec 条件；当前 count 表达式走对象查询，未接本回合自身移动历史，生产触发求值还缺 testTrigger 适配器；" +
+    "(2) [Ganking] 展开成 continuous.movement 静态效果，RIFT-347 已让 zones/movement.ts 的 moveDuelUnitsStandard 接收可选 rules 参数并查询、消费 canGank（810.1.c/144.4.c）；" +
+    "剩余缺口是生产装配 DuelMovementRuleContext：关键词静态展开的字符串 permission 经 statics.ts 原样注册，而查询器读取 permission.routes，仍需规范化该许可并将持续效果注册表传入移动入口。" +
+    "依赖：RIFT-359（条件谓词/第 N 次事件边沿）与移动许可的生产装配。不近似实现（不用每三次循环代替第三次，也不用战场 Scoring 流程代替 Gaining Points）。",
   abilities: [
     { kind: "keyword", keyword: "ganking" },
     {

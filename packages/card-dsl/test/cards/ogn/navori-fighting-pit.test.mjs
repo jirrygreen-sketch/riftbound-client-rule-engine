@@ -23,6 +23,8 @@ test("ogn-283-298 Navori Fighting Pit: program validates and is judge-required",
   assert.match(program.judgeReason, /hold/);
   assert.match(program.judgeReason, /RIFT-357/);
   assert.match(program.judgeReason, /details\.battlefieldId/);
+  // Interpreter/static anchors do not establish the program target binder.
+  assert.match(program.judgeReason, /translateInstructionTargets.*sameLocationAs.*目标适配/);
   assert.match(program.judgeReason, /703/);
   assert.equal(
     program.sourceText,
@@ -108,8 +110,8 @@ test("ogn-283-298: a unit that already has a buff is not buffed again (CR 702.3.
 });
 
 test.todo(
-  "ogn-283-298: bind the hold trigger's here placeholder and sameLocationAs target to the scoring " +
-    "payload's details.battlefieldId (RIFT-357)"
+  "ogn-283-298: bind hold's here filter to scoring details.battlefieldId and adapt the " +
+    "sameLocationAs:self target in translateInstructionTargets; RIFT-357 selectors are merged"
 );
 test.todo(
   "ogn-283-298: 703 layer arithmetic turns the placed Buff into +1 effective Might " +

@@ -35,6 +35,10 @@ test("nocturne-horrifying: identity, ruleset, status, judgeReason and sourceText
   // merged; the secret-zone event and Finalize cost/play wiring are not.
   assert.match(program.judgeReason, /RIFT-260/);
   assert.match(program.judgeReason, /CostPlan/);
+  // The real look action carries an array; the event payload and nested
+  // self identity each still need their own production adapter.
+  assert.match(program.judgeReason, /look 动作使用 objects 数组.*未生成.*object 载荷/);
+  assert.match(program.judgeReason, /嵌套 objectId:self.*未绑定.*来源 ID/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -145,6 +149,6 @@ test.todo(
 );
 
 test.todo(
-  "nocturne-horrifying: 370.1.c.1 要求的“秘密区域内的替代效果与事件同时生效”替代管线（RIFT-260 的 replacement/ 已合入通用事件拦截与注册面，但没有「被查看/被展示」的秘密区域事件匹配）；" +
+  "nocturne-horrifying: 370.1.c.1 的秘密区域同刻替代（RIFT-260 已支持 card-revealed/reveal，look 的 objects→object 载荷与嵌套 objectId:self 来源绑定仍缺）；" +
     "同时复核 CR 370.1.c.1 示例文本与本地 sourceText 的措辞冲突（需要裁定）"
 );
