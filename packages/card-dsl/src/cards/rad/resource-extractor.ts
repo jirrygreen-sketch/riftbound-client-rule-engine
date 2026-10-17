@@ -37,7 +37,8 @@ import type { CardProgram } from "../../ir/index.js";
  * - The Deploy KeywordDef is merged (RIFT-267), but its 830.1.b rewrites still
  *   have no consumers: Finalize does not read continuous.location, cleanup does
  *   not apply the non-Unit "not recalled" exemption, and the opponent-Hold kill
- *   trigger is never registered into the event pipeline (RIFT-120).
+ *   trigger's here:true filter cannot be translated by the merged binding
+ *   adapter, so the Deploy hold clause remains pending.
  * - The Gold token is deliberately absent from effect.token's DEFINITIONS table:
  *   definitions carrying their own abilities (Gold, 187.5) are documented there
  *   as blocked / judge-required, and the primitive returns negated with
@@ -47,13 +48,16 @@ import type { CardProgram } from "../../ir/index.js";
  *   state "Entry overrides are not supported" (143.4 / 185.2.d), so playing it
  *   ready would misreport the board, and a later effect.exhaust would be a
  *   separate exhaust action rather than the printed entry state.
- * - The trigger has no registration path (no CardProgram -> TriggerRegistration
- *   adapter, RIFT-120), and the "you control this battlefield" condition has no
+ * - The CardProgram -> TriggerRegistration adapter is merged, but the
+ *   "turn-end" event is absent from the engine's EVENT_PATTERN_TYPES
+ *   (validateTriggerSpec reports invalid-event-type even though the timing
+ *   point exists), and the Deploy hold filter's here:true is rejected by
+ *   translation. The "you control this battlefield" condition has no
  *   evaluated predicate: the IR Condition kinds (always / never / compare / all /
  *   any / not / expression) carry no battlefield-control query. The condition is
  *   recorded as the pending predicate shape.
- * Dependencies: RIFT-120 (Deploy consumers + trigger registration), the token
- * definition table (187.5 / RIFT-9), and the entry-state override.
+ * Dependencies: Deploy's concrete location filter and turn-end event vocabulary,
+ * the token definition table (187.5 / RIFT-9), and the entry-state override.
  */
 const resourceExtractor = {
   canonicalCardId: "card.hash-15ed917fed0055c9ae8325c668e501db603af32e4ff58c00dca6ad354739ac93",
@@ -62,16 +66,20 @@ const resourceExtractor = {
   judgeReason:
     "四处缺口（2026-10-17 复核，均不近似实现）：(1) Deploy 的 KeywordDef 已合入（RIFT-267），但 " +
     "830.1.b 的改写仍无消费方：Finalize 不读 continuous.location 的打出位置许可、Cleanup 不应用" +
-    "非单位 Gear 不召回的豁免、hold 触发消灭也没有注册进事件管线（RIFT-120）。" +
+    "非单位 Gear 不召回的豁免、hold 触发的 here:true 位置过滤也没有可执行消费方。" +
     "(2) Gold gear token 定义（CR 187.5，带自身 " +
     '"[Reaction][>] Kill this, [E]: [Add] [A]"' +
     " 能力）不在 effect.token 的 DEFINITIONS 表：该原语对带能力的 token 保持 blocked/judge-required，" +
     "实测返回 negated 且 blockedReason = token-definition-or-abilities-judge-required。" +
     "(3) exhausted 入场覆盖：effect.token 文档明确不支持 entry overrides（143.4 / 185.2.d），" +
     '"play ... token exhausted" 与 ready 的差别没有原语路径（先入场再 effect.exhaust 会多出一次横置动作，不是入场状态）。' +
-    "(4) 触发没有注册路径（缺 CardProgram → TriggerRegistration 适配器，RIFT-120），" +
+    "(4) CardProgram → TriggerRegistration 适配器已合入，但 turn-end 事件不在引擎 EVENT_PATTERN_TYPES 词表内" +
+    "（validateTriggerSpec 实测 invalid-event-type，时点本身存在），Deploy 的 hold 过滤器还含有翻译器不支持的 here:true；" +
     "且「if you control this battlefield」没有可求值谓词（Condition 的 always/never/compare/all/any/not/expression " +
-    "都不查询战场控制状态）；程序只保留待接线条件形状。依赖：RIFT-120、token 定义表（187.5 / RIFT-9）、入场状态覆盖。",
+    "都不查询战场控制状态；此外 turn-end 事件不在引擎 EVENT_PATTERN_TYPES 词表内" +
+    "（validateTriggerSpec 实测 invalid-event-type，时点本身存在）；程序只保留待接线条件形状。" +
+    "依赖：token 定义表（187.5 / RIFT-9）、入场状态覆盖、turn-end 事件词表" +
+    "（无已分配任务号）、战场控制谓词（进行中：RIFT-359 条件谓词）。",
   abilities: [
     // 830.1：印刷的 [Deploy] 声明（展开依赖 kw-deploy）。
     { kind: "keyword", keyword: "deploy" },

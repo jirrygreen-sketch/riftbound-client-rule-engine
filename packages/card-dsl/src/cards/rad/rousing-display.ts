@@ -33,7 +33,12 @@ import type { CardProgram } from "../../ir/index.js";
  * 可执行部分：effect.token 的 play 路径（recruit，187.1）已合入，golden 用参考内核真实执行
  * 「play two 1 Might Recruit unit tokens to your base」；这不足以宣称整卡可执行。
  * 依赖：cost.reveal / objects-shown-off 的 Finalize 消费方与 ShowOffParams 的印刷 Object 子句
- * （RIFT-261 范围）、RIFT-257（卡牌程序到打出流程的绑定）。
+ * 3. 打出体的 choice.mode 结构会被 validateSurface 拒绝：programs/play.ts 实测
+ *    "Mode choices require a Finalize/Resolve choice-plan adapter"，play 能力
+ *    还需等待该 Finalize/Resolve 选择计划适配器（无已分配任务号）。
+ * 依赖：cost.reveal / objects-shown-off 的 Finalize 消费方与 ShowOffParams 的印刷
+ * Object 子句（无已分配任务号）、Finalize/Resolve choice-plan 适配器、「If you showed
+ * off」判别式谓词（进行中：RIFT-359 条件谓词）。
  */
 const rousingDisplay = {
   canonicalCardId: "card.hash-e1dc41d23789b8f4890d5cd59e5dc7e12c0c0d447b2f09fd7acf63729930c55d",
@@ -47,7 +52,8 @@ const rousingDisplay = {
     "本卡用 choice.mode 的两个模式保留结构（与 ravenbloom-conservatory 处理不可表达分支的写法一致），不把玩家选择冒充为该判别式。" +
     "「play two 1 Might Recruit unit tokens to your base」的 effect.token play 路径已合入并由 golden 真实执行" +
     "（Recruit 定义 see CR 187.1），但局部执行不构成整卡证据。依赖：cost.reveal / objects-shown-off 的 Finalize 消费方与" +
-    "ShowOffParams 的印刷 Object 子句（RIFT-261 范围）、RIFT-257。",
+    "ShowOffParams 的印刷 Object 子句（无已分配任务号）、Finalize/Resolve choice-plan 适配器、" +
+    "「If you showed off」判别式谓词（进行中：RIFT-359 条件谓词）。",
   abilities: [
     // 832.1：印刷的 [Show Off]；其对象说明（Energy cost 7 或更高的牌）记录在 judgeReason。
     { kind: "keyword", keyword: "show-off" },

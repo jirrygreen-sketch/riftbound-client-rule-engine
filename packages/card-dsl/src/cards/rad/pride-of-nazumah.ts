@@ -28,9 +28,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - “this turn” 的到期本身由 continuous.might/grant-keyword 的 duration 别名支持
  *   （end-of-turn），但必须与该动态值一起落地。
  * - 费用侧 1 Energy + "Exhaust this" 需要 cost/plan 的启动费用与传奇自身的 ZoneId：
- *   费用计划已能读取 CostSpec.kind "activated" 的 exhaust payment（RIFT-89 合入），
- *   但契约 ZoneId 没有 Legend Zone（CR 107.4），传奇不能作为 Board 对象被 cost 校验
- *   （payment.ts 要求 exhaust 目标 zone 是 board/rune-zone）。
+ *   费用计划已能读取 CostSpec.kind "activated" 的 exhaust payment（cost/plan-values.ts
+ *   与 cost/payment.ts），但契约 ZoneId 没有 Legend Zone（CR 107.4），传奇不能作为
+ *   Board 对象被 cost 校验（payment.ts 要求 exhaust 目标 zone 是 board/rune-zone）。
  * 本卡只保留可审查的静态结构，golden 做校验、结构断言与缺口 todo。
  */
 const abilities: Ability[] = [
@@ -50,8 +50,8 @@ const abilities: Ability[] = [
     body: [
       {
         id: "pride-of-nazumah.grant-assault",
-        // 契约 3.7 / RIFT-9 模板中的 continuous.grant-keyword；尚无已注册实现，
-        // 本指令只作为待接线声明存在（见 judgeReason）。
+        // 契约 3.7 / 连续效果模板中的 continuous.grant-keyword；op 与图层消费已合入，
+        // 本指令的动态数值读取仍缺（见 judgeReason）。
         op: "continuous.grant-keyword",
         args: {
           keyword: { kind: "constant", value: "Assault" },
@@ -86,7 +86,7 @@ const program = {
   status: "judge-required",
   judgeReason:
     "「I have [Assault] equal to my [Shield] this turn」仍不可执行：(1) 授予值读取——" +
-    "continuous.grant-keyword 与图层消费已合入（RIFT-258），但 Expr 没有读取某对象关键词数值" +
+    "continuous.grant-keyword 与图层消费已合入，但 Expr 没有读取某对象关键词数值" +
     "（Shield Value，814.1.b.2）的位置：ObjectSnapshot.keywords 是 [{id, value}] 数组，" +
     "object-property 按属性表取值并对缺失属性抛 MissingInformation（interpreter/expr.ts），" +
     "需要关键词数值读取表达式（契约变更请求）。(2) 费用侧 1 Energy + Exhaust this" +
