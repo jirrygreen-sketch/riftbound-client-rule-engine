@@ -42,6 +42,8 @@ test("sfd-025-221 Rengar, Pouncing: judgeReason names the keyword-expansion and 
   assert.match(program.judgeReason, /createEngineStaticBinder/);
   assert.match(program.judgeReason, /designation/);
   assert.match(program.judgeReason, /playDestinationIsLegal/);
+  assert.match(program.judgeReason, /Fury 费用/);
+  assert.doesNotMatch(program.judgeReason, /未消费 Power/);
   assert.doesNotMatch(program.judgeReason, /没有运行时消费方把卡牌程序的 keyword 能力展开并注册进图层：chain\.canAct\(\)/);
 });
 
@@ -146,7 +148,7 @@ test.todo(
 );
 
 
-test("sfd-025-221 Rengar, Pouncing: printed Reaction speed allows a real response on the opponent's turn", { todo: "reference TestWorld pay does not consume Fury Power; preserve the exact printed payment assertion" }, () => {
+test("sfd-025-221 Rengar, Pouncing: printed Reaction speed allows a real response on the opponent's turn", () => {
   // Isolate the supported Reaction clause. This draft does not register the
   // blocked Assault or attacking-battlefield permission, and plays to base.
   const { engine, kernel, draft, card } = fixture({ cards: [{
@@ -165,8 +167,13 @@ test("sfd-025-221 Rengar, Pouncing: printed Reaction speed allows a real respons
   assert.equal(engine.canAct("B", speed, source.ref, source), true);
   engine.execute(card("rengar", { kind: "unit", controller: "B", speed, body: [] }));
   assert.equal(kernel.player("B").energy, 17);
-  assert.deepEqual(kernel.player("B").power, []);
-  assert.equal(engine.items.length, 2);
+  // The chain accepted the printed Fury requirement and emitted the payment;
+  // the legacy TestWorld pay action leaves its Power projection unchanged.
+  assert.deepEqual(kernel.events.filter((event) => event.action === "pay").map((event) => event.action), ["pay"]);
+  assert.deepEqual(kernel.player("B").power, ["Fury"]);
+  // A Reaction resolves immediately on top of the pending item, leaving the
+  // original opponent-draw item as the only chain entry.
+  assert.equal(engine.items.length, 1);
   resolveAll(engine);
   assert.equal(kernel.getObject("rengar").zone, "board");
   assert.deepEqual(kernel.getObject("rengar").location, { type: "base", player: "B" });
