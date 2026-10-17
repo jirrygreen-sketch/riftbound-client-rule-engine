@@ -26,9 +26,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - “don't trigger” 需要触发收集阶段的抑制接口：当前没有
  *   `continuous.trigger-suppression` 的收集阶段消费者，events/ 的触发收集也没有「本战场上的
  *   [Temporary] 触发不收集」的挂钩；用连续效果假装抑制会在触发已进链后才生效，语义不同。
- * - [Temporary]（816）的 KeywordDef、`effect.kill` 展开和 CardProgram 触发注册已经合入，
- *   它们不是本卡当前的缺口。
- * 依赖：战斗分配消费者（826，combat/）、触发收集阶段的抑制接口（events/）。
+ * - [Temporary]（816）的 KeywordDef、`effect.kill` 展开和 beginning-start 产生器已经合入；
+ *   但封闭 EVENT_PATTERN_TYPES / registerProgramTriggers 仍不接受 beginning-start，
+ *   所以该触发不能注册进链。
+ * 依赖：战斗分配消费者（826，combat/）、beginning-start 的 EventPattern 注册、
+ * 触发收集阶段的抑制接口（events/）。
  */
 const abilities: Ability[] = [
   // 826.3：印刷的 [Backline] 声明（展开归 keywords/Backline.ts，分配顺序消费方未合入）。
@@ -63,9 +65,11 @@ const program = {
     "(2)「Your [Temporary] effects at my battlefield don't trigger」需要在触发收集阶段抑制：当前没有 " +
     "continuous.trigger-suppression 的收集阶段消费者，events/ 的触发收集也没有「本战场上的 [Temporary] 触发不收集」挂钩；" +
     "用连续效果近似会在触发已进链后才生效，语义不同。" +
-    "[Temporary] 的 KeywordDef、effect.kill 展开和 CardProgram 触发注册已经合入。" +
+    "[Temporary] 的 KeywordDef、effect.kill 展开和 beginning-start 产生器已经合入，但封闭 EVENT_PATTERN_TYPES / " +
+    "registerProgramTriggers 仍不接受 beginning-start，无法注册进链。" +
     "已写出：[Backline] 关键词声明 + continuous.trigger-suppression（Temporary / controller / here）的待接线形状。" +
-    "依赖：战斗分配消费者（826/combat）、触发收集阶段的抑制接口（events/）。",
+    "依赖：战斗分配消费者（826/combat）、beginning-start 的 EventPattern 注册、" +
+    "触发收集阶段的抑制接口（events/）。",
   abilities,
   sourceText:
     "[Backline] (I must be assigned combat damage last.)\n" +
