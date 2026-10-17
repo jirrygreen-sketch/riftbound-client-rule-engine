@@ -28,7 +28,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   by that owner, and "(You choose the order.)" is a resolution-time order
  *   choice over the banished units.
  *
- * Status: judge-required. Three merged gaps, none approximated:
+ * Status: judge-required. Re-checked against the merged surface; all three gaps hold:
  * - a variable ("any amount") additional cost has no merged representation:
  *   cost/plan-types.ts models fixed CostAmount components plus discounts, and no
  *   API binds the paid X into the resolving instruction;
@@ -46,12 +46,14 @@ export default {
   status: "judge-required",
   judgeReason:
     "三处未合入依赖：(1)「pay any amount of Power」是可变数额的强制附加费用（204.2.a、135.2.b.5 的 X），" +
-    "cost/plan-types.ts 只建模固定 CostAmount 组件与折扣，没有可变 X，也没有把已支付的 X 绑定给结算指令的接口；" +
+    "cost/plan-types.ts 只建模固定 CostAmount 组件与折扣，没有可变 X，也没有把已支付的 X 绑定给结算指令的接口" +
+    "（变量费用属 RIFT-261 的费用种类扩展）；" +
     "(2)「its owner plays that unit back to the same location」需要记录被放逐单位放逐前的位置，" +
     "而 Banish 按 428 移到放逐区、按 124 产生新的对象身份，旧位置不可回读；" +
     "(3)「its owner plays … or to their base, ignoring its cost」需要逐对象的 owner 选择者与逐对象的目的地选择，" +
     "已合入的 effect.play 只接受单一 player 与单一 location，且 cost 必须是已 Finalize 的费用计划（无 ignore-cost 改写，356.1.b.1）。" +
-    "Banish 指令本体（effect.banish，数额取自链接值）已在 golden 测试中真实执行。依赖：RIFT-89 可变费用 / RIFT-90 目标与选择；不近似实现。",
+    "Banish 指令本体（effect.banish，数额取自链接值）已在 golden 测试中真实执行。" +
+    "依赖：RIFT-261（可变费用 / ignore-cost 改写）、RIFT-90（逐对象选择与目的地计划）；不近似实现。",
   abilities: [
     {
       kind: "play",

@@ -29,10 +29,10 @@ test("rad-108-167 Bushwhack Trap: program validates and keeps identity", () => {
 test("rad-108-167 Bushwhack Trap: judgeReason names Deploy, the Facedown Zone and the control clause", () => {
   assert.match(program.judgeReason, /Deploy/);
   assert.match(program.judgeReason, /830\.1\.b/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /facedown-zone/);
   assert.match(program.judgeReason, /107\.3\.b\.1/);
   assert.match(program.judgeReason, /190\.6/);
-  assert.match(program.judgeReason, /RIFT-84/);
 });
 
 test("rad-108-167 Bushwhack Trap: [Deploy] is declared as a keyword and nothing else (830.1/830.2)", () => {
@@ -57,8 +57,8 @@ test("rad-108-167 Bushwhack Trap: the Facedown-Zone permission is a static trait
 
 test.todo(
   "rad-108-167 Bushwhack Trap: [Deploy] expansion (play/create only to a battlefield, no recall for " +
-    "non-unit permanents, kill this when an opponent holds here; CR 830.1.b) — no KeywordDef exists; " +
-    "research maps kw-deploy to continuous.location / continuous.restrict (RIFT-81~91)"
+    "non-unit permanents, kill this when an opponent holds here; CR 830.1.b) exists in " +
+    "effects/keywords/Deploy.ts but has no CardProgram -> layer/trigger registration consumer (RIFT-257)"
 );
 test.todo(
   "rad-108-167 Bushwhack Trap: 'that player may hide an additional card here' raising the battlefield's " +

@@ -26,20 +26,21 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 190.6.a / 190.6.d：战场由控制者定义「you」，"you or an ally" 还涉及队友
  *   （2v2 模式）的战场控制判定。
 
- * status = judge-required（README 第 2 节）。三处缺口，均不近似实现：
- * 1. Deploy 没有已注册 KeywordDef：effects/keywords/ 的 16 个已注册关键词不含
- *    Deploy，830.1.b 的三项改写（入场地点许可 / 非单位不召回 / 对手固守时消灭）
- *    都没有展开实现；调研表把 kw-deploy 映射到 continuous.location /
- *    continuous.restrict，两者都未合入。
+ * status = judge-required（README 第 2 节）。复核后的三处缺口，均不近似实现：
+ * 1. Deploy 的 KeywordDef 已合入（effects/keywords/Deploy.ts：continuous.location 的
+ *    入场/移动许可 + 830.1.b 的「对手在此固守时消灭」触发），但它的展开依赖卡牌程序
+ *    → 图层/触发注册的消费方（RIFT-257 的 src/programs/ 仍在进行），且它的 hold 触发
+ *    用 here 锚点，同样受第 3 点限制。
  * 2. 「hide an additional card here」是 Facedown Zone 上限改写（107.3.b.1），需要
  *    Facedown Zone 的区域对象与 Hide 动作：合同 ZoneId 只含 hand/deck/rune-deck/
  *    trash/banishment/board/rune-zone/chain，没有 facedown-zone（effect.stun.ts 的
- *    边界注释记录了同一缺口），layers 也没有读写 Facedown Zone 上限的消费方。
+ *    边界注释记录了同一缺口，RIFT-270 的时点产生方审计同样把 card-hidden 列为「待后续」），
+ *    layers 也没有读写 Facedown Zone 上限的消费方。
  * 3. 「you or an ally control this battlefield」需要按 190.6 解析战场控制者并支持
  *    队友口径；战场上「this battlefield」的指代（053.3）在静态 IR 里没有已合入的
  *    地点锚点（target.location 一族未合入）。
- * 依赖：kw-deploy 展开与 continuous.location / continuous.restrict（RIFT-81~91 关键词批次）、
- * Facedown Zone 区域模型与 Hide 动作（RIFT-84 kw-deflect-hidden 的 cost.hidden 同批）。
+ * 依赖：RIFT-257（卡牌程序 → 图层/触发注册）、Facedown Zone 区域模型与 Hide 动作
+ * （RIFT-84 kw-deflect-hidden 的 cost.hidden 同批）、地点锚点（RIFT-90 目标/地点计划）。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "deploy" },
@@ -66,15 +67,16 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1) Deploy 没有已注册 KeywordDef——effects/keywords/ 的 16 个关键词不含 Deploy，" +
-    "830.1.b 的入场地点许可 / 非单位不召回 / 对手固守时消灭三项改写无展开实现（调研表 kw-deploy 指向 " +
-    "continuous.location / continuous.restrict，均未合入）；" +
+    "三处缺口，均不近似实现：(1) Deploy 的 KeywordDef 已合入（effects/keywords/Deploy.ts，830.1.b 的" +
+    "入场/移动许可与「对手在此固守时消灭」触发），但缺卡牌程序 → 图层/触发注册的消费方（RIFT-257 的 src/programs/ 仍在进行），" +
+    "且它的 hold 触发用 here 锚点、同样受第 3 点限制；" +
     "(2) 「hide an additional card here」是 Facedown Zone 上限改写（107.3.b.1），需要 Facedown Zone 区域对象与 " +
-    "Hide 动作，而契约 ZoneId 没有 facedown-zone（同 effect.stun.ts 记录的缺口），layers 也没有读写上限的消费方；" +
+    "Hide 动作，而契约 ZoneId 没有 facedown-zone（同 effect.stun.ts 记录的缺口；RIFT-270 的时点审计也把 card-hidden 列为待后续），" +
+    "layers 也没有读写上限的消费方；" +
     "(3) 「you or an ally control this battlefield」（190.6.a/190.6.d、053.3）需要战场控制者与队友口径的地点锚点，" +
     "target.location 一族未合入。另注：本印刷是 Unit 且 might = null（无印刷值），程序保留 null 与 Device 标签，不改数据。" +
-    "依赖：kw-deploy 展开与 continuous.location / continuous.restrict（RIFT-81~91 关键词批次）、" +
-    "Facedown Zone 区域模型与 Hide 动作（RIFT-84 同批 cost.hidden）。",
+    "依赖：RIFT-257（卡牌程序 → 图层/触发注册）、Facedown Zone 区域模型与 Hide 动作（RIFT-84 同批 cost.hidden）、" +
+    "地点锚点（RIFT-90）。",
   abilities,
   sourceText:
     "[Deploy] (Play this only to a battlefield. When an opponent holds here, kill this.)\n" +

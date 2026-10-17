@@ -4,6 +4,9 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/clanging-sentry.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 
 const CANONICAL = "card.hash-664329985c0c826779032a079e87a5c433f6be42cbfb4f724f81fd89fcc9a90a";
@@ -11,6 +14,61 @@ const SOURCE_TEXT =
   "Your Mechs have [Disarm]. (When each of us attacks, give an enemy unit there -1 :rb_might: this turn.)";
 
 const [grant] = program.abilities;
+
+const registrations = (kernel) => kernel.continuousEffects.map((entry) => ({
+  effect: entry.effect,
+  duration: entry.duration,
+  timestamp: 1
+}));
+
+// The registrations written by the executed body live on the scoped kernel the
+// interpreter ran against, so both the object list and the effect list come from
+// that same scoped world.
+const keywordsOf = (kernel, id) =>
+  createLayerEngine(kernel.objects, registrations(kernel)).evaluate(kernel.ref(id)).keywords;
+
+/**
+ * "Your Mechs": the controller's Board Mechs (190.6.c). Following the merged
+ * rad/coalesced-energy and sfd/show-of-strength goldens, the execution scenarios
+ * substitute the production "controller" placeholder with the concrete player id:
+ * the reference kernel compares filter scalars literally, and resolving the
+ * relative-player placeholder is the real Finalize/target pipeline's job.
+ */
+const FRIENDLY_MECHS = {
+  type: "unit",
+  tag: "Mech",
+  controller: "A",
+  zone: "board"
+};
+
+/**
+ * The printed static ability's grant as one executable body instruction: the
+ * merged continuous.grant-keyword primitive consumes Expr-valued arguments, so
+ * the static effect's fields are wrapped as constants here (the production
+ * CardProgram -> layer registration consumer that would do this wiring is the
+ * RIFT-257 gap recorded in judgeReason and the todos below).
+ */
+function grantInstruction(id) {
+  return {
+    id,
+    op: "continuous.grant-keyword",
+    args: {
+      keyword: { kind: "constant", value: grant.effect.keyword },
+      value: grant.effect.value,
+      duration: { kind: "constant", value: "end-of-turn" },
+      filter: { kind: "constant", value: FRIENDLY_MECHS }
+    }
+  };
+}
+
+function sentryWorld() {
+  return world()
+    .unit("mech", { owner: "A", tags: ["Mech"], zone: "board" })
+    .unit("soldier", { owner: "A", zone: "board" })
+    .unit("enemy-mech", { owner: "B", controller: "B", tags: ["Mech"], zone: "board" })
+    .unit("clanging-sentry", { owner: "A", tags: ["Mech"], zone: "board" })
+    .build();
+}
 
 test("rad-055-167 Clanging Sentry: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -22,14 +80,16 @@ test("rad-055-167 Clanging Sentry: identity, ruleset, status, judgeReason and so
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /Disarm/);
+  // The reason must name the actual remaining gap — the CardProgram -> layer
+  // registration consumer (RIFT-257) — not the already-merged grant instruction
+  // or the Disarm KeywordDef.
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("rad-055-167 Clanging Sentry: one static grant of unvalued Disarm to every friendly Mech", () => {
+test("rad-055-167 Clanging Sentry: one static grant of Disarm 1 to every friendly Mech", () => {
   assert.equal(program.abilities.length, 1);
   assert.equal(grant.kind, "static");
   assert.deepEqual(grant.effect, {
@@ -42,18 +102,106 @@ test("rad-055-167 Clanging Sentry: one static grant of unvalued Disarm to every 
   assert.equal(grant.condition, undefined);
 });
 
-test("rad-055-167 Clanging Sentry: the granted Disarm keyword has no merged KeywordDef", () => {
-  // 831.2 的官方例证正是本卡：两张 Clanging Sentry 让 Mech 的 Disarm 值相加为 2。
-  assert.equal(keywordDefinitionsById.get("disarm"), undefined);
+test("rad-055-167 Clanging Sentry golden: the printed grant registers Disarm on friendly Mechs only", () => {
+  const kernel = sentryWorld();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("clanging-sentry") });
+
+  const outcome = runAbilityBody([grantInstruction("clanging-sentry.grant-disarm")], scoped);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(
+    outcome.results.map((entry) => [entry.id, entry.result.status]),
+    [["clanging-sentry.grant-disarm", "executed"]]
+  );
+  // 478.1.a: one ability-layer registration per surviving matched object.
+  assert.deepEqual(
+    scoped.continuousEffects.map((entry) => [entry.effect.layer, entry.effect.effect.keyword, entry.effect.effect.keywordValue, entry.effect.filter.objectId]).sort(),
+    [
+      ["ability", "disarm", 1, "clanging-sentry"],
+      ["ability", "disarm", 1, "mech"]
+    ]
+  );
+
+  assert.deepEqual(keywordsOf(scoped, "mech"), [{ id: "disarm", value: 1 }]);
+  assert.deepEqual(keywordsOf(scoped, "clanging-sentry"), [{ id: "disarm", value: 1 }]);
+  // "Your Mechs": the other friendly unit and the opponent's Mech are untouched.
+  assert.deepEqual(keywordsOf(scoped, "soldier"), []);
+  assert.deepEqual(keywordsOf(scoped, "enemy-mech"), []);
+});
+
+test("rad-055-167 Clanging Sentry golden: a grant adds onto a Disarm value the unit already has", () => {
+  // The merged primitive's combining path (CR 831.2): when the target already has
+  // a Disarm value, continuous.grant-keyword keeps that value in the ability layer
+  // and adds its own instance through the arithmetic companion, so 2 + 1 reads as
+  // one Disarm 3 rather than two separate instances (831.1.d.1).
+  const kernel = world().unit("mech", { owner: "A", tags: ["Mech"], zone: "board", keywords: [{ id: "disarm", value: 2 }] }).build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("mech") });
+
+  const outcome = runAbilityBody([grantInstruction("clanging-sentry.grant-disarm")], scoped);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(
+    scoped.continuousEffects.map((entry) => entry.effect.layer),
+    ["ability", "arithmetic"]
+  );
+  assert.deepEqual(keywordsOf(scoped, "mech"), [{ id: "disarm", value: 3 }]);
+});
+
+test("rad-055-167 Clanging Sentry golden: the merged Disarm expansion deals -1 Might this turn", () => {
+  // 831.1.d: the granted Disarm expands (keywords/Disarm.ts) to "when the host
+  // attacks, give an enemy unit there -1 [M] this turn". Its own instruction
+  // runs unchanged on the merged continuous.might primitive (RIFT-258).
+  const disarm = keywordDefinitionsById.get("Disarm");
+  assert.equal(disarm.stacking, "sum");
+  const [expanded] = disarm.expand({ host: { canonicalCardId: CANONICAL } });
+  assert.equal(expanded.kind, "triggered");
+  assert.equal(expanded.trigger.at, "attack-declared");
+  const [instruction] = expanded.body;
+  assert.equal(instruction.op, "continuous.might");
+  assert.deepEqual(instruction.args.amount, { kind: "constant", value: -1 });
+  assert.deepEqual(instruction.args.duration, { kind: "constant", value: "this-turn" });
+  assert.deepEqual(instruction.targets[0].filter, {
+    type: "unit",
+    zone: "board",
+    controller: "opponent",
+    sameLocationAs: "source"
+  });
+
+  const kernel = world()
+    .unit("enemy", { owner: "B", controller: "B", might: 3, zone: "board" })
+    .unit("src", { owner: "A" })
+    .build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("src") });
+  scoped.setTargets("disarm.enemy-unit", [kernel.ref("enemy")]);
+
+  const outcome = runAbilityBody([{ ...instruction, targets: undefined }], scoped);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(
+    outcome.results.map((entry) => [entry.id, entry.result.status]),
+    [["disarm.give-minus-might", "executed"]]
+  );
+  assert.deepEqual(
+    scoped.continuousEffects.map((entry) => [entry.effect.effect.kind, entry.effect.effect.amount, entry.duration]),
+    [["continuous.might", -1, { type: "end-of-turn" }]]
+  );
+
+  const layers = createLayerEngine(kernel.objects, registrations(scoped));
+  assert.equal(layers.evaluate(kernel.ref("enemy")).might, 2);
+  assert.equal(layers.expireAt("turn-end").length, 1);
+  assert.equal(layers.evaluate(kernel.ref("enemy")).might, 3);
 });
 
 test.todo(
-  "rad-055-167 Clanging Sentry: expand [Disarm] (831.1.d attack trigger: give an enemy unit there -1 Might this turn) " +
-    "once a Disarm KeywordDef exists (no assigned task) — its Might modification also needs continuous.might / " +
-    "continuous.duration (RIFT-91)"
+  "rad-055-167 Clanging Sentry: register the printed static grant through the CardProgram -> " +
+    "ContinuousEffectSpec consumer so production actually gives friendly Mechs Disarm " +
+    "(ResolveContext.addContinuous is only reached by primitives today; RIFT-257 src/programs/)"
 );
 
 test.todo(
-  "rad-055-167 Clanging Sentry: evaluate the continuous.grant-keyword layer so friendly Mechs actually gain Disarm, " +
-    "with the 831.2 summing semantics — the CardProgram static path into the layer engine is unmerged (RIFT-91 follow-up)"
+  "rad-055-167 Clanging Sentry: expand the granted Disarm into its 831.1.d attack trigger on the " +
+    "attack-declared timing point, which needs the same program-binding path (RIFT-257)"
+);
+
+test.todo(
+  "rad-055-167 Clanging Sentry: 831.2's official example — two Clanging Sentries leave a Mech " +
+    "with Disarm 2 — needs the layered snapshot of the first grant to be visible when the second " +
+    "grant resolves, which only the CardProgram -> layer registration consumer supplies (RIFT-257)"
 );

@@ -5,7 +5,10 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/rad/command-attack.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import reveal from "../../../../engine-core/dist/effects/instructions/effect.reveal.js";
+import zone from "../../../../engine-core/dist/effects/instructions/effect.zone.js";
+import recycle from "../../../../engine-core/dist/effects/instructions/effect.recycle.js";
 
 const CANONICAL = "card.hash-322879459664911876c55f40be8e59ed07ad8e5c3f1a7cc3b296600b3a4b87a6";
 // Verbatim catalog bytes, including the data issue: the two modes run together
@@ -20,9 +23,24 @@ const [modeChoice] = play.body;
 const [moveMode, lookMode] = modeChoice.args.modes.value;
 const [moveInstruction] = moveMode.body;
 const [moveSpec] = moveInstruction.targets;
-const [lookInstruction, revealChoice, recycleInstruction] = lookMode.body;
+const [bindController, lookInstruction, revealChoice, recycleInstruction] = lookMode.body;
 const [revealInstruction, drawInstruction] = revealChoice.args.body.value;
 const [pickSpec] = revealInstruction.picks;
+const [drawnPickSpec] = drawInstruction.picks;
+
+function deckedKernel() {
+  const kernel = world()
+    .player("A")
+    .deck(["gear-a", "spell-b", "gear-c", "unit-d", "spell-e", "deeper"], { owner: "A" })
+    .unit("src", { owner: "A" })
+    .build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("src") });
+  // The ordered deck-top range is provided by the caller through zoneSlice
+  // order (contract 3.6); the reference kernel models it with setPicks.
+  const topFive = kernel.objectsInZone("A", "deck").slice(0, 5);
+  scoped.setPicks("command-attack.top-five", topFive);
+  return { kernel: scoped, topFive };
+}
 
 test("rad-033-167 Command: Attack: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -39,12 +57,13 @@ test("rad-033-167 Command: Attack: identity, ruleset, status and exact source te
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("rad-033-167 Command: Attack: the judgeReason names the actual merged gaps", () => {
+test("rad-033-167 Command: Attack: the judgeReason names the actual remaining gaps", () => {
   assert.match(program.judgeReason, /355\.4/);
   assert.match(program.judgeReason, /Deploy/);
   assert.match(program.judgeReason, /ObjectFilter/);
   assert.match(program.judgeReason, /top 5/);
   assert.match(program.judgeReason, /picksSpecId/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("rad-033-167 Command: Attack: 'Choose one —' is one choice.mode with two declared modes", () => {
@@ -59,7 +78,7 @@ test("rad-033-167 Command: Attack: 'Choose one —' is one choice.mode with two 
   assert.deepEqual(modeChoice.args.different, { kind: "constant", value: true });
   assert.equal(modeChoice.args.modes.kind, "constant");
   assert.deepEqual(
-    modeChoice.args.modes.value.map(mode => mode.id),
+    modeChoice.args.modes.value.map((mode) => mode.id),
     ["command-attack.move-gear", "command-attack.look-for-gear"]
   );
 });
@@ -96,15 +115,40 @@ test("rad-033-167 Command: Attack mode 1: an effect Move of a friendly Deploy ge
 });
 
 test("rad-033-167 Command: Attack mode 2: private top-5 look, optional reveal-draw, recycle the rest", () => {
-  // "Look at the top 5 cards of your Main Deck": a non-zero top-N private look,
-  // which effect.inspect documents as needing an upstream ordered picks
-  // collection (query cannot order a deck).
+  // "your Main Deck" is the caster's deck (190.6.d), bound once with
+  // condition.value and read back as a linked value because effect.inspect's
+  // player argument accepts a PlayerId Expr, not a symbolic object selector.
+  assert.equal(bindController.id, "command-attack.bind-controller");
+  assert.equal(bindController.op, "condition.value");
+  assert.deepEqual(bindController.args.value, {
+    kind: "object-property",
+    object: "source",
+    property: "controller"
+  });
+
+  // "Look at the top 5 cards of your Main Deck": the merged effect.inspect top
+  // scope consumes the card's stable ordered range id (contract 3.6's zoneSlice
+  // order); it never reads deck order from the unordered set query.
   assert.equal(lookInstruction.id, "command-attack.look-top-5");
   assert.equal(lookInstruction.op, "effect.inspect");
   assert.equal(lookInstruction.args.scope.value, "top");
   assert.equal(lookInstruction.args.amount.value, 5);
   assert.equal(lookInstruction.args.zone.value, "deck");
-  assert.equal(lookInstruction.linkedTo, undefined);
+  assert.deepEqual(lookInstruction.args.picksSpecId, {
+    kind: "constant",
+    value: "command-attack.top-five"
+  });
+  assert.equal(lookInstruction.linkedTo, "command-attack.bind-controller");
+  assert.deepEqual(lookInstruction.picks, [
+    {
+      id: "command-attack.top-five",
+      options: ["dynamic:main-deck-top-five"],
+      min: 0,
+      max: 5,
+      selection: "up-to",
+      filter: { owner: "self", zone: "deck" }
+    }
+  ]);
 
   // "You may reveal a gear from among them and draw it": a resolution-time
   // optional (383.3.a.3) wrapped per contract 3.9, linked to the look.
@@ -113,10 +157,10 @@ test("rad-033-167 Command: Attack mode 2: private top-5 look, optional reveal-dr
   assert.equal(revealChoice.linkedTo, "command-attack.look-top-5");
   assert.equal(revealChoice.args.body.kind, "constant");
   assert.deepEqual(
-    revealChoice.args.body.value.map(instruction => [instruction.id, instruction.op]),
+    revealChoice.args.body.value.map((instruction) => [instruction.id, instruction.op]),
     [
       ["command-attack.reveal-gear", "effect.reveal"],
-      ["command-attack.draw-gear", "effect.draw"]
+      ["command-attack.draw-gear", "effect.zone"]
     ]
   );
 
@@ -135,41 +179,155 @@ test("rad-033-167 Command: Attack mode 2: private top-5 look, optional reveal-dr
   assert.equal(pickSpec.max, 1);
   assert.equal(pickSpec.selection, "up-to");
 
-  // "and draw it": the draw follows the reveal (425.4.a).
-  assert.deepEqual(drawInstruction.args.amount, { kind: "constant", value: 1 });
+  // "and draw it": 414.1 moves the revealed card from the Main Deck into its
+  // owner's hand (the merged effect.zone form), not another top card.
+  assert.deepEqual(drawInstruction.args.to, { kind: "constant", value: "hand" });
+  assert.equal(drawInstruction.linkedTo, "command-attack.reveal-gear");
+  assert.deepEqual(drawnPickSpec.options, [
+    { kind: "linked-value", instructionId: "command-attack.reveal-gear", key: "revealed" }
+  ]);
 
-  // "Recycle the rest": a following, independent instruction of the same mode.
+  // "Recycle the rest": a following, independent instruction of the same mode
+  // that recycles everything still in the looked-at set.
   assert.equal(recycleInstruction.id, "command-attack.recycle-rest");
   assert.equal(recycleInstruction.op, "effect.recycle");
   assert.equal(recycleInstruction.linkedTo, "command-attack.look-top-5");
   assert.deepEqual(recycleInstruction.args.objects, {
     kind: "linked-value",
     instructionId: "command-attack.look-top-5",
-    key: "command-attack-rest"
+    key: "command-attack-looked"
   });
 });
 
-test("rad-033-167 Command: Attack golden: the top-5 look fails closed instead of reading the deck out of order", () => {
-  // Guard the red line: with no ordered picks collection, the look must not
-  // silently fall back to query(). The reference kernel negates it, draws
-  // nothing and leaves the deck untouched.
-  const kernel = world().deck(["top", "second", "third", "fourth", "fifth"]).unit("src").build();
-  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("src") });
-  scoped.setAnswers({ "command-attack.reveal-and-draw-opt/optional": false });
+test("rad-033-167 Command: Attack golden: the top-5 look sees the deck's real order and moves nothing", () => {
+  const { kernel, topFive } = deckedKernel();
+  const before = kernel.objectsInZone("A", "deck");
 
-  const outcome = resolveChainBody(lookMode.body, scoped);
+  const outcome = resolveChainBody([bindController, lookInstruction], kernel);
 
-  assert.equal(outcome.status, "partial");
-  assert.equal(outcome.results[0].result.status, "negated");
-  assert.equal(outcome.results[0].result.reason, "impossible");
-  assert.deepEqual(scoped.zone("A", "deck").map(ref => ref.id), [
-    "top",
-    "second",
-    "third",
-    "fourth",
-    "fifth"
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.linkedValues["command-attack.look-top-5.command-attack-looked"].length, 5);
+  assert.deepEqual(
+    outcome.linkedValues["command-attack.look-top-5.command-attack-looked"].map((ref) => ref.id),
+    topFive.map((ref) => ref.id)
+  );
+  // 128.3-128.4 / 432.1.c: a private look leaves the objects in their zone.
+  assert.deepEqual(kernel.objectsInZone("A", "deck"), before);
+  assert.deepEqual(outcome.events.map((event) => event.action), ["look"]);
+});
+
+test("rad-033-167 Command: Attack golden: accepting reveals a gear, draws it, and recycles the rest", () => {
+  const { kernel, topFive } = deckedKernel();
+  const chosen = topFive[2]; // gear-c
+  kernel.setPicks("command-attack.revealed-gear", [chosen]);
+  kernel.setPicks("command-attack.drawn-gear", [chosen]);
+  kernel.setAnswers({ "command-attack.reveal-and-draw-opt/optional": true });
+
+  // The reveal step is driven at the primitive level because the chain adapter
+  // (chain/interpreter-adapter.ts LITERAL_FIELDS) unwraps only `target` for
+  // effect.reveal, not the card's declared `pick` — the same gap the merged
+  // sfd/ornn-blacksmith golden records.
+  const lookOutcome = resolveChainBody([bindController, lookInstruction], kernel);
+  assert.equal(lookOutcome.status, "executed");
+
+  const revealed = runInstruction(reveal, { pick: revealInstruction.args.pick.value }, {
+    world: kernel,
+    picks: { "command-attack.revealed-gear": [chosen] }
+  });
+  assert.equal(revealed.result.status, "executed");
+  // 425.1.a.2: the revealed card stays in the Main Deck until the draw moves it.
+  assert.equal(kernel.getObject(chosen.id).zone, "deck");
+
+  // The chain adapter's LITERAL_FIELDS decodes effect.zone's `pick`/`to` at the
+  // card level, but runInstruction drives the primitive's schema directly, so
+  // the already-unwrapped literal values are passed here (the same split the
+  // merged sfd/ornn-blacksmith golden documents for effect.reveal / effect.zone).
+  const drawn = runInstruction(zone, {
+    pick: drawInstruction.args.pick.value,
+    to: { kind: "constant", value: "hand" },
+    amount: { kind: "constant", value: 1 }
+  }, {
+    world: kernel,
+    picks: { "command-attack.drawn-gear": [chosen] }
+  });
+  assert.equal(drawn.result.status, "executed");
+  assert.deepEqual(kernel.objectsInZone("A", "hand").map((ref) => ref.id), ["gear-c"]);
+
+  // "Recycle the rest": the moved card's stale reference drops out (124), so the
+  // other four looked-at cards go to the bottom of the owner's Main Deck.
+  const recycled = runInstruction(recycle, {
+    objects: recycleInstruction.args.objects
+  }, {
+    world: kernel,
+    linked: { "command-attack-looked": topFive }
+  });
+  assert.equal(recycled.result.status, "executed");
+  assert.equal(recycled.linked.recycledCount, 4);
+  assert.deepEqual(kernel.objectsInZone("A", "deck").map((ref) => ref.id), [
+    "deeper",
+    "gear-a",
+    "spell-b",
+    "unit-d",
+    "spell-e"
   ]);
-  assert.equal(scoped.player("A").handSize, 0);
+});
+
+test("rad-033-167 Command: Attack golden: declining the may recycles every looked-at card", () => {
+  const { kernel, topFive } = deckedKernel();
+  kernel.setAnswers({ "command-attack.reveal-and-draw-opt/optional": false });
+
+  const outcome = resolveChainBody(lookMode.body, kernel);
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(
+    outcome.results.map((entry) => [entry.id, entry.result.status]),
+    [
+      ["command-attack.bind-controller", "executed"],
+      ["command-attack.look-top-5", "executed"],
+      ["command-attack.reveal-and-draw-opt", "negated"],
+      ["command-attack.recycle-rest", "executed"]
+    ]
+  );
+  assert.deepEqual(kernel.objectsInZone("A", "hand"), []);
+  assert.deepEqual(kernel.objectsInZone("A", "deck").map((ref) => ref.id), [
+    "deeper",
+    ...topFive.map((ref) => ref.id)
+  ]);
+});
+
+test("rad-033-167 Command: Attack golden: without an upstream ordered range the look sees nothing", () => {
+  // The card names its ordered range, but no upstream provider filled it (the
+  // production Finalize surface locks instruction targets only). The merged
+  // effect.inspect therefore looks at zero cards and never falls back to the
+  // unordered set query, so no card is reordered or moved (contract 3.6; the
+  // same reading the merged sfd/called-shot golden records).
+  const kernel = world()
+    .player("A")
+    .deck(["gear-a", "spell-b", "gear-c", "unit-d", "spell-e", "deeper"], { owner: "A" })
+    .unit("src", { owner: "A" })
+    .build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("src") });
+
+  const outcome = resolveChainBody([bindController, lookInstruction, recycleInstruction], scoped);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(
+    outcome.results.map((entry) => [entry.id, entry.result.status]),
+    [
+      ["command-attack.bind-controller", "executed"],
+      ["command-attack.look-top-5", "executed"],
+      ["command-attack.recycle-rest", "executed"]
+    ]
+  );
+  assert.equal(outcome.linkedValues["command-attack.look-top-5.command-attack-looked"].length, 0);
+  assert.equal(outcome.linkedValues["command-attack.recycle-rest.recycledCount"], 0);
+  assert.deepEqual(scoped.objectsInZone("A", "deck").map((ref) => ref.id), [
+    "gear-a",
+    "spell-b",
+    "gear-c",
+    "unit-d",
+    "spell-e",
+    "deeper"
+  ]);
   assert.deepEqual(outcome.events, []);
 });
 
@@ -198,12 +356,12 @@ test("rad-033-167 Command: Attack golden: mode 1's descriptive destination is re
 
 test.todo(
   "rad-033-167 Command: Attack: the runtime Battlefield destination (355.4 / 355.4.a) needs a " +
-    "Location selector in the target/location plan (RIFT-90); a merged non-zero top-N ordered " +
-    "look is the RIFT-64/RIFT-66 follow-up (zoneSlice ordering is not wired into inspect/reveal)."
+    "Location selector in the target/location plan (RIFT-90); the ordered top-5 range's production " +
+    "lifecycle (the chain's Finalize locks instruction.targets only) is the RIFT-64/RIFT-66 follow-up."
 );
 
 test.todo(
   "rad-033-167 Command: Attack: 'with [Deploy]' needs a keyword predicate in the filter " +
-    "vocabulary (830.3) and [Deploy] has no KeywordDef (830.1.b); Finalize must also lock the " +
-    "mode before its target (355.3 before 355.5), which is RIFT-90/RIFT-120 work."
+    "vocabulary (830.3); Finalize must also lock the mode before its target (355.3 before 355.5), " +
+    "and the [Deploy] expansion needs the CardProgram binding (RIFT-257)."
 );

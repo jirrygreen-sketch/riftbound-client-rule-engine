@@ -1,4 +1,4 @@
-import type { CardProgram } from "../../ir/index.js";
+import type { CardProgram, Instruction } from "../../ir/index.js";
 
 /**
  * Brawl (rad-004-167) — Spell, 3 Energy + 1 Chaos Power, Chaos domain.
@@ -12,73 +12,84 @@ import type { CardProgram } from "../../ir/index.js";
  * - 806 [Action] is a Permissive keyword and 159.2.a makes Action the default
  *   spell timing; both are owned by the merged keywords/Action.ts, so the card
  *   only declares { kind: "keyword", keyword: "action" }.
- * - 807.2: "grants Assault from an additional source sums into one Assault
- *   Value"; 807.3 makes Assault (and whether a unit has it) a readable
- *   characteristic. The granted value is therefore dynamic, not a printed
- *   constant: the card text fixes it at the target unit's current Might.
+ * - 807.1.b / 807.1.c / 807.2: "[Assault] equal to its Might" grants a
+ *   keyword whose Assault Value is the target unit's Might at resolution; a
+ *   grant from an additional source sums into the same single Assault Value
+ *   (807.2), which the merged layers arithmetic companion performs.
+ * - 807.3 makes Assault (and whether a unit has it) a readable characteristic.
  * - 801.3.a / 801.3.a.2: a granting effect carries its own duration; "this
- *   turn" is the printed duration.
+ *   turn" maps to the end-of-turn expiry (317.1.a).
  * - "Give a unit ..." names one game object and is a target (355.7 / 355.10),
  *   not a pick.
-
- * Status: judge-required. The grant half needs two unmerged pieces:
- * - a duration-bounded keyword grant (contract 3.7 / ability-templates list
- *   "continuous.keyword"; the merged layers/evaluate only consumes continuous
- *   effects registered through ctx.addContinuous, and no registered
- *   instruction op accepts a keyword grant);
- * - a way to read the *target's* Might as the granted Assault Value. Contract
- *   3.2's object-property expression can read a selector, but the value has to
- *   be locked onto the granted continuous effect at resolution (the layers
- *   effect amount must carry the resolved number, not a re-read that could
- *   change later), and the layers engine has no consumer for a granted
- *   keyword today. Writing a static amount or reusing effect.buff (CR 702 Buff
- *   counters) would be a near-implementation, which the red line forbids.
-
- * The card therefore keeps the exact structure (keyword + play ability + one
- * targeted instruction) with the instruction's op and args recording the
- * missing semantic; the golden test asserts the structure and only executes
- * what the merged primitives can honestly run.
+ *
+ * Closing the dynamic value: continuous.grant-keyword's `value` argument is a
+ * scalar Expr, and its schema (like every primitive schema) reads a real
+ * ObjectRef, so a static object selector cannot be handed to it directly. The
+ * printed amount is therefore read once at resolution with condition.value over
+ * the locked target's Might and handed to the grant as a linked value — the
+ * same authoring the merged sfd/called-shot and sfd/ornn-blacksmith goldens use
+ * for a resolution-time number. The layers registration then carries that
+ * number, so a later Might change cannot rewrite the granted Assault Value
+ * (801.3.a.2).
+ *
+ * Status: executable. The whole printed ability runs on merged paths: the body
+ * is the merged continuous.grant-keyword instruction (RIFT-258) plus the merged
+ * condition.value control instruction, and the cards/README.md §4 golden drives
+ * the card's own body through the production chain adapter plus the layer
+ * engine, asserting the locked value, the 807.2 sum with an existing Assault
+ * value, the end-of-turn expiration and the mistargeted edge.
  */
+const captureMight: Instruction = {
+  id: "brawl.capture-might",
+  // "equal to its Might"：结算时读取所选单位的当前 Might（契约 3.6 取值时机即调用时）。
+  // object-property 只能读静态 ObjectRef，因此用 condition.value 把该数值捕获进链接值，
+  // 再交给 continuous.grant-keyword 的标量 value（同 sfd/called-shot 的结算期取值写法）。
+  op: "condition.value",
+  args: {
+    value: {
+      kind: "object-property",
+      object: { target: "brawl.unit" },
+      property: "might"
+    },
+    key: { kind: "constant", value: "might" }
+  }
+};
+
+const grantAssault: Instruction = {
+  id: "brawl.grant-assault",
+  op: "continuous.grant-keyword",
+  linkedTo: "brawl.capture-might",
+  args: {
+    keyword: { kind: "constant", value: "Assault" },
+    // 801.3.a.2 / 807.1.c：数值随授予时锁进 ability 图层，之后单位 Might 变化不回溯改写。
+    value: {
+      kind: "linked-value",
+      instructionId: "brawl.capture-might",
+      key: "might"
+    },
+    duration: { kind: "constant", value: "this-turn" },
+    objects: { kind: "constant", value: { kind: "target", id: "brawl.unit" } }
+  },
+  targets: [
+    {
+      id: "brawl.unit",
+      filter: { type: "unit", zone: "board" },
+      min: 1,
+      max: 1,
+      selection: "one"
+    }
+  ]
+};
+
 const brawl = {
   canonicalCardId: "card.hash-cad809540cf272ccc60c72a21f1a6766f3fdc07a03fa01da81c97bd46c428af7",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "缺带期限的关键词授予原语（continuous.keyword / grant-keyword）：契约 3.7 与 " +
-    "ability-templates 列出的 continuous.keyword 尚无实现，layers/ 也没有消费 Granted " +
-    "keyword 的路径；同时需要把「被选单位的当前 Might」锁定为该授予的 Assault 数值" +
-    "（CR 807.2/807.3，数值随授予时的单位 Might 而定），当前 expression 只能在结算时读取、" +
-    "无法随持续效果锁定进图层；依赖 RIFT-81（kw-assault-shield 关键词展开）与 " +
-    "RIFT-91（layers-continuous 持续效果层）。不近似实现（不用固定数值，也不把 Assault " +
-    "改写成 CR 702 的 Buff 指示物）。",
+  status: "executable",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {
       kind: "play",
-      body: [
-        {
-          id: "brawl.grant-assault",
-          op: "continuous.grant-keyword",
-          args: {
-            keyword: { kind: "constant", value: "Assault" },
-            amount: {
-              kind: "object-property",
-              object: { target: "brawl.unit" },
-              property: "might"
-            },
-            duration: { kind: "constant", value: "end-of-turn" }
-          },
-          targets: [
-            {
-              id: "brawl.unit",
-              filter: { type: "unit", zone: "board" },
-              min: 1,
-              max: 1,
-              selection: "one"
-            }
-          ]
-        }
-      ]
+      body: [captureMight, grantAssault]
     }
   ],
   sourceText:

@@ -3,6 +3,10 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/blade-of-the-exile.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import attach from "../../../../engine-core/dist/effects/instructions/effect.attach.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 
 const CARD_ID = "card.hash-d127ec787d0c328ab80a9aa29a656cd77a9dda6050627ec1bad17db1942c9853";
 const SOURCE_TEXT =
@@ -15,8 +19,11 @@ test("rad-150-167 Blade of the Exile: program validates and has expected identit
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  assert.match(program.judgeReason, /cost\.exhaust/);
-  assert.match(program.judgeReason, /RIFT-87/);
+  // The reason must name the still-open cost work, not the already-merged
+  // Equip KeywordDef.
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /355\.10\.c/);
 });
 
 test("rad-150-167 Blade of the Exile: a single Equip keyword whose printed cost is a two-way choice", () => {
@@ -42,16 +49,69 @@ test("rad-150-167 Blade of the Exile: source text keeps the rainbow symbol and t
   assert.equal(program.abilities.length, 1);
 });
 
+test("rad-150-167 Blade of the Exile: the merged Equip expansion attaches the gear to a friendly unit", () => {
+  // 818.1.b / 818.1.c.2: the registered expansion's body is "Attach this gear to
+  // a unit you control" through the merged effect.attach primitive. Executing it
+  // proves the expansion's body half; the printed cost half is what stays judged.
+  const equip = keywordDefinitionsById.get("Equip");
+  assert.notEqual(equip, undefined);
+  const [activation] = equip.expand({ host: { canonicalCardId: CARD_ID } });
+  assert.equal(activation.kind, "activated");
+  assert.equal(activation.timing, "action");
+  const [body] = activation.body;
+  assert.equal(body.op, "effect.attach");
+
+  const kernel = world()
+    .unit("blade-of-the-exile", {
+      types: ["gear"],
+      zone: "board",
+      location: { type: "base", player: "A" }
+    })
+    .unit("friendly-unit", { owner: "A", zone: "board", location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("blade-of-the-exile") });
+  const run = runInstruction(
+    attach,
+    body.args,
+    { world: scoped, targets: { "equip-target": [kernel.ref("friendly-unit")] } }
+  );
+  assert.equal(run.result.status, "executed");
+  assert.deepEqual(scoped.getObject("blade-of-the-exile").attachedTo, kernel.ref("friendly-unit"));
+  assert.deepEqual(run.events.map((event) => event.action), ["attach"]);
+});
+
+test("rad-150-167 Blade of the Exile: the rainbow Power option is payable by any domain", () => {
+  // 135.2.e.5 / 135.2.e.5.a: [A] is one Power of any Domain. The merged cost
+  // plan accepts exactly that requirement, so this half of the printed cost is
+  // already representable; the alternative-cost choice is what is missing.
+  const kernel = world().unit("blade-of-the-exile", { owner: "A", types: ["gear"], zone: "board" }).build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("blade-of-the-exile") });
+  const plan = buildCostPlan(context, {
+    id: "blade-of-the-exile:equip-rainbow",
+    cost: {
+      kind: "activated",
+      payments: [
+        {
+          kind: "power",
+          amount: { kind: "constant", value: 1 },
+          allowedDomains: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"]
+        }
+      ]
+    }
+  });
+  assert.equal(plan.finalized, true);
+  assert.deepEqual(plan.total.power, [
+    { amount: 1, allowedDomains: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"] }
+  ]);
+});
+
 test.todo(
-  "rad-150-167 Blade of the Exile: Equip 展开无法表达印刷费用的二选一——Equip.ts 只展开单一 payments 费用，" +
-    "“:rb_rune_rainbow: or exhaust a friendly unit” 需要费用层面的选择与 cost.exhaust 非标准费用" +
-    "（RIFT-9 cost 组），依赖 RIFT-87 的 cost.activated / cost.pay 落地"
+  "rad-150-167 Blade of the Exile: the printed two-way cost choice — rainbow Power OR exhaust a " +
+    "friendly unit — needs cost-side alternative payments plus the non-target cost selection of a " +
+    "friendly unit (CR 818.1.c.3 / 355.10.c / 355.10.c.1); RIFT-261 owns cost.pay / cost.modify"
 );
+
 test.todo(
-  "rad-150-167 Blade of the Exile: 非资源费用“exhaust a friendly unit”的候选单位是费用里的选择而非目标" +
-    "（355.10.c / 355.10.c.1），需要费用侧对象选择（cost.exhaust + 选择收据）后才能执行"
-);
-test.todo(
-  "rad-150-167 Blade of the Exile: Attach 到所选单位的实际附着（818.1.b / 818.1.b.2 / effect.attach）" +
-    "与 818.1.c.4 的费用改写依赖 Equip 关键词展开与图层/费用管线"
+  "rad-150-167 Blade of the Exile: activating the Equip ability in production needs the " +
+    "CardProgram -> keyword expansion -> chain binding (RIFT-257)"
 );

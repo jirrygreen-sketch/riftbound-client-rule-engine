@@ -26,7 +26,8 @@ test("black-rose-sanctum: passes validateCardProgram and carries the catalog ide
 test("black-rose-sanctum: judgeReason names the per-player base, the per-player frequency and the play flow", () => {
   assert.match(program.judgeReason, /their base/);
   assert.match(program.judgeReason, /once/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("black-rose-sanctum: object-killed trigger for a non-token unit dying at this battlefield", () => {
@@ -115,5 +116,5 @@ test.todo(
 );
 test.todo(
   "black-rose-sanctum: chain creation plus the finalized cost plan for playing the new token " +
-    "(440.2.c / 185.2.a / 185.3.a.1; RIFT-89)"
+    "(440.2.c / 185.2.a / 185.3.a.1; RIFT-261 / RIFT-257)"
 );

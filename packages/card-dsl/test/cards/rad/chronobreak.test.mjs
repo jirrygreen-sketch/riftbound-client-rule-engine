@@ -40,6 +40,8 @@ test("rad-140-167 Chronobreak: judgeReason names the variable cost, lost locatio
   assert.match(program.judgeReason, /428/);
   assert.match(program.judgeReason, /effect\.play/);
   assert.match(program.judgeReason, /356\.1\.b\.1/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-90/);
 });
 
 test("rad-140-167 Chronobreak: structure — mandatory variable Power cost plus banish and play-back", () => {
@@ -146,12 +148,12 @@ test("rad-140-167 Chronobreak: a reference that already left the board is not re
 test.todo(
   "rad-140-167 Chronobreak: 'pay any amount of Power' as a mandatory variable additional cost " +
     "(CR 204.2.a) — cost/plan-types.ts has fixed CostAmount components only, with no X binding into " +
-    "the resolving instructions (RIFT-89 cost system)"
+    "the resolving instructions (RIFT-261 cost kinds)"
 );
 
 test.todo(
   "rad-140-167 Chronobreak: 'its owner plays that unit back to the same location or to their base, " +
     "ignoring its cost' — needs the pre-banish location, a per-object owner chooser with a per-object " +
     "destination choice, and an ignore-cost play rewrite (CR 420.3 / 356.1.b.1); effect.play takes one " +
-    "player and one location and requires a FinalizedCostPlan (RIFT-90 / RIFT-89)"
+    "player and one location and requires a FinalizedCostPlan (RIFT-90 / RIFT-261)"
 );

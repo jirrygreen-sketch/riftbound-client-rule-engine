@@ -33,8 +33,8 @@ test("rad-024-167 Blossoming Dreamroot: identity, ruleset, status and exact sour
 test("rad-024-167 Blossoming Dreamroot: the judgeReason names the actual merged gaps", () => {
   assert.match(program.judgeReason, /combat-result/);
   assert.match(program.judgeReason, /468\.3/);
-  assert.match(program.judgeReason, /assertTriggerSpec/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /here/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("rad-024-167 Blossoming Dreamroot: [Deploy] plus the combat-result trigger with a draw body", () => {
@@ -76,16 +76,6 @@ test("rad-024-167 Blossoming Dreamroot golden: the draw body draws 1 through the
   assert.equal(kernel.player("A").deckSize, 1);
 });
 
-test("rad-024-167 Blossoming Dreamroot: the trigger filter uses the here placeholder the engine rejects", async () => {
-  // This asserts WHY the card is judge-required rather than executable: the
-  // merged trigger-spec validator has no location anchor (events/trigger-spec.ts).
-  const { assertTriggerSpec } = await import("../../../../engine-core/dist/events/trigger-spec.js");
-  assert.throws(
-    () => assertTriggerSpec(combatTrigger.trigger),
-    error => error.name === "TriggerSpecValidationError" && /here/.test(error.message)
-  );
-});
-
 test.todo(
   "rad-024-167 Blossoming Dreamroot: emitting combat-result into the single event pipeline (CR 468.3) " +
     "is the combat/events bridging work (contract section 7.2 batch 5, RIFT-33)."
@@ -93,5 +83,12 @@ test.todo(
 
 test.todo(
   "rad-024-167 Blossoming Dreamroot: expanding [Deploy] (830.1.b) needs a Deploy KeywordDef (kw-deploy), " +
-    "and registering the triggered ability needs the RIFT-120 CardProgram -> TriggerRegistration adapter."
+    "whose merged expansion also needs the hold timing point from scoring; registering the triggered " +
+    "ability needs the RIFT-257 CardProgram -> TriggerRegistration adapter."
+);
+
+test.todo(
+  "rad-024-167 Blossoming Dreamroot: the trigger filter's source-Battlefield anchor needs a location " +
+    "anchor in the EventPattern/ObjectFilter vocabulary (053.3 here / sameLocationAs); the merged " +
+    "validator's allow-list has neither, so the placeholder cannot be evaluated."
 );
