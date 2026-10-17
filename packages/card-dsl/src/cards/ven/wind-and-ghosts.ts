@@ -24,7 +24,7 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * status = judge-required（唯一整卡缺口不近似实现）：
  * - 分支条件里的 Might 比较依赖 143.2.a 的有效 Might 与条件管线接线。当前条件表达式尚未把图层计算后的
- *   Might 读数作为卡牌分支谓词的稳定来源，因此不能声称整卡可执行；该条件/谓词工作属于进行中的 RIFT-359。
+ *   Might 读数作为卡牌分支谓词的稳定来源，因此不能声称整卡可执行；有效 Might 尚未接入 CardProgram 条件。
  * 已合入部分：effect.banish（428.1/428.2）与 effect.zone（448.2 的拥有者手牌路由）本体，golden 用真实原语
  * 分别执行"放逐"与"回到拥有者手牌"两个已支持半段（含目标失效 ignored 与敌方牌回敌方手牌的边界）。
  */
@@ -34,9 +34,9 @@ const windAndGhosts = {
   status: "judge-required",
   judgeReason:
     "唯一整卡缺口是两条分支的 Might 比较：143.2.a 要求读取图层计算后的有效 Might，当前没有稳定路径把该读数接到 CardProgram 的 condition，" +
-    "因此条件分支不能声称已可执行（进行中的 RIFT-359）。" +
+    "因此条件分支不能声称已可执行（缺少有效 Might 到 CardProgram condition 的接线）。" +
     "已合入部分：effect.banish（428.1/428.2）与 effect.zone（448.2 的拥有者手牌路由，108.1）本体，golden 用真实原语分别执行两个半段" +
-    "（含目标失效 ignored 与敌方牌回敌方手牌）。依赖：RIFT-359 Might 条件/谓词接线。不近似实现。",
+    "（含目标失效 ignored 与敌方牌回敌方手牌）。依赖：有效 Might 条件/谓词接线。不近似实现。",
   abilities: [
     // 806.1 / 159.2.a：印刷 [Action]，许可类关键词，展开归 Action.ts。
     { kind: "keyword", keyword: "action" },

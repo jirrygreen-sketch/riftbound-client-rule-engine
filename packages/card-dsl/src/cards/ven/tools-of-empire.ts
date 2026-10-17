@@ -21,12 +21,14 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   门控的替换分支，两条 Might 数值在同一效果组内二选一。
  *
  * status = judge-required（缺口均不近似实现）：
- * 1. [Empower] 的 KeywordDef 展开尚未提供，启动费用和“仅当未 Empowered 时启动”的门控仍缺执行路径。
- * 2. “If this is [Empowered] … instead” 依赖 Empowered 状态条件谓词（进行中的 RIFT-359）；
+ * 1. Empower KeywordDef 已注册，但 KeywordAbility 只有 keyword/value，expandProgram 只传 value/host，
+ *    不能把本卡印刷的 2 Energy 送入 params.cost；展开会落到默认的 unsupported `cost.kind: "empower"`，
+ *    所以启动费用仍不能支付。
+ * 2. “If this is [Empowered] … instead” 依赖 Empowered 状态条件谓词；
  *    因而 +4 分支不能在运行时与 +2 分支互斥判定。
  * continuous.might、横置费用和单位 TargetSpec 已合入；golden 直接执行 +2 分支并验证图层登记，
  * 缺依赖记 test.todo；不把 +4 写成无条件、不把 instead 丢掉，也不用 Buff 计数近似。
- * 依赖：Empower KeywordDef 展开、RIFT-359 Empowered 条件谓词。
+ * 依赖：KeywordAbility → Empower params.cost 的费用接线、Empowered 状态条件谓词。
  */
 const abilities: Ability[] = [
   {
@@ -96,8 +98,10 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1) [Empower] 的 KeywordDef 展开尚未提供，827.1.c.1 的启动费用与“仅当未 Empowered 时启动”门控无执行路径；" +
-    "(2)“If this is [Empowered] … instead” 依赖进行中的 RIFT-359 Empowered 状态条件谓词，因而 +4 分支不能与 +2 分支互斥判定。" +
+    "两处缺口，均不近似实现：(1) Empower KeywordDef 已注册，但 KeywordAbility 只有 keyword/value，" +
+    "expandProgram 只传 value/host，无法把本卡的 2 Energy 送入 params.cost；展开会落到默认的 unsupported " +
+    "cost.kind: empower，故启动费用仍不能支付；(2)“If this is [Empowered] … instead” 依赖 Empowered " +
+    "状态条件谓词，因而 +4 分支不能与 +2 分支互斥判定。" +
     "continuous.might、横置费用和单位 TargetSpec 已合入，golden 直接执行 +2 分支并验证 end-of-turn 图层登记；不近似实现。",
   abilities,
   sourceText:

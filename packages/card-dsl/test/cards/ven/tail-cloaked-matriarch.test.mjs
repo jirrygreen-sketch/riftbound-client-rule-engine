@@ -4,6 +4,7 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/tail-cloaked-matriarch.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -56,7 +57,8 @@ test("ven-104-166 Tail-Cloaked Matriarch: identity, status, judgeReason and verb
   assert.match(program.judgeReason, /costEnergyLte/);
   assert.match(program.judgeReason, /costPowerLte/);
   assert.match(program.judgeReason, /allowedDomains/);
-  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /action adapter/);
+  assert.match(program.judgeReason, /params\.cost/);
   assert.ok(!/RIFT-89|RIFT-87/.test(program.judgeReason));
 });
 
@@ -66,6 +68,16 @@ test("ven-104-166 Tail-Cloaked Matriarch: [Empower] is declared, not re-implemen
   // KeywordAbility 没有承载印刷费用的 params 字段（契约 3.8.3 只加在 KeywordDef.expand 上）。
   assert.equal(empower.value, undefined);
   assert.equal(empower.params, undefined);
+});
+
+test("ven-104-166 Tail-Cloaked Matriarch: the merged Empower definition still needs the card's printed cost", () => {
+  const definition = keywordDefinitionsById.get("Empower");
+  assert.ok(definition);
+  const [expanded] = definition.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(expanded.kind, "activated");
+  // The merged definition is real, but without the missing params.cost bridge it
+  // deliberately falls back to the unsupported generic Empower cost.
+  assert.deepEqual(expanded.cost, { kind: "empower" });
 });
 
 test("ven-104-166 Tail-Cloaked Matriarch: the Empowered trigger and its optional play body", () => {
@@ -149,19 +161,14 @@ test("ven-104-166 golden: no locked target makes the play ignored, not played fr
 });
 
 test.todo(
-  "ven-104-166 Tail-Cloaked Matriarch: [Empower]'s activation (827.1.c.1: 2 Energy + 1 Chaos Power, 'use only " +
-    "if not Empowered') needs an Empower KeywordDef — none is merged"
-);
-
-test.todo(
   "ven-104-166 Tail-Cloaked Matriarch: the [Empowered] dependent trigger (828.1.d) needs an Empowered status " +
-    "predicate and the increase-direction filter on empowered-changed (442.1.a/442.2.a; EVENT_PATTERN_TYPES " +
-    "has no empowerment discriminator and the payload carries no direction field)"
+    "predicate and the increase-direction filter on empowered-changed (442.1.a/442.2.a; ObjectSnapshot has no " +
+    "empowered field and the action adapter does not populate previous/current counts or direction)"
 );
 
 test.todo(
   "ven-104-166 Tail-Cloaked Matriarch: enforce the printed-cost ceilings ('Energy cost no more than 3', " +
-    "'Power cost no more than [A]', 163.2.b) — implement costEnergyLte / costPowerLte predicates (RIFT-359) " +
+    "'Power cost no more than [A]', 163.2.b) — implement costEnergyLte / costPowerLte predicates " +
     "and bind them to target selection; programs/filters.ts currently rejects these descriptive fields; " +
     "the cost system already expresses [A] with six-domain allowedDomains"
 );

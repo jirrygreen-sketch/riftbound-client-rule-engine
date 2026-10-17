@@ -22,7 +22,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   “at end of turn” 属 Delayed Ability（窗口为本回合，317.1.a 的 turn-end 时点结算）；
  *   Disempower 是 Limited Action（443.2.a），只能由游戏效果指示执行，“it” 指被 empower 的那个对象。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required，四处缺口均不近似实现：
+ * status 判定（cards/README.md 第 2 节）：judge-required，三处缺口均不近似实现：
  * 1. [Hidden] 的 KeywordDef 已合入，但 Hide/facedown 的消费链仍未闭合（Hidden.ts 记录
  *    cost.hidden）；Hide 行动与面朝下区域的免费打出许可仍无完整执行路径。
  * 2. “from face down” 无法判定：355.9.a.3/107.3.e 的 Facedown Zone 不在 ObjectFilter 的 zone
@@ -33,8 +33,6 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *    registerDelayedTrigger，但卡牌程序没有已注册的 trigger.delayed 指令把它暴露出来，
  *    因此卡牌程序无法按 391.2 建立该窗口。因此该半段
  *    保留有依据的 IR 形状（at/window/body），并链到 empower 的链接值以说明 “it” 的指代。
- * 4. “Empowered 对象收到 Disempower” 的状态前提也没有谓词：442.1.a 的二元状态不在
- *    ObjectSnapshot / Condition 里（effect.empower 文件头记录同一契约缺口，RIFT-359）。
  * 已支持部分：“empower something here” 用已合入的 effect.empower（choose + sameLocationAs
  * 过滤器）在参考内核里真实执行，见 golden 测试。
  */
@@ -124,15 +122,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处缺口，均不近似实现：(1) [Hidden] 的 KeywordDef 已合入但 Hide/facedown 消费链仍未闭合——Hidden.ts 记录 cost.hidden，" +
+    "三处缺口，均不近似实现：(1) [Hidden] 的 KeywordDef 已合入但 Hide/facedown 消费链仍未闭合——Hidden.ts 记录 cost.hidden，" +
     "Hide 行动与面朝下区域的免费打出许可仍无完整执行路径；" +
     "(2)「play me from face down」无法判定：355.9.a.3/107.3.e 的 Facedown Zone 不在 ObjectFilter 的 zone 词汇里，" +
     "card-played 载荷也不携带打出前区域，程序用 details.fromFaceDown 声明该条件并 fail-closed；" +
     "(3)「Disempower it at end of turn」是 391.2 的延迟能力（窗口 this turn，317.1.a 的 turn-end 结算），" +
-    "但卡牌程序没有已注册的 trigger.delayed 指令把 ResolveContext.registerDelayedTrigger 暴露出来；" +
-    "(4) 442.1.a 的 Empowered 二元状态不在 ObjectSnapshot / Condition 里，Disempower 的状态前提没有谓词（RIFT-359）。" +
+    "但 trigger.delayed 尚未注册到指令表，无法把 ResolveContext.registerDelayedTrigger 暴露给卡牌程序；" +
     "已支持部分：「empower something here」用已合入的 effect.empower（choose + sameLocationAs）在 golden 中真实执行。" +
-    "依赖：Hidden/facedown 消费链、trigger.delayed 卡牌指令、RIFT-359 Empowered 状态谓词。",
+    "依赖：Hidden/facedown 消费链、trigger.delayed 指令注册与延迟触发消费。",
   abilities,
   sourceText:
     "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n" +
