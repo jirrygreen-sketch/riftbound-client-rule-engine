@@ -12,7 +12,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 831.1 / 831.1.d：Disarm 是攻击触发式关键词，功能上等于「当我攻击时，给此处一个
  *   敌方单位 -X [M] 直到本回合结束」；831.1.c.3 X 省略时视为 1；831.1.d.1 多个
  *   Disarm 实例合并为一次触发、数值相加（stacking: "sum"）。卡牌只声明关键字
- *   （契约 3.1 / README 第 5 节），展开归 effects/keywords/ 的 Disarm（未合入）。
+ *   （契约 3.1 / README 第 5 节），展开归 effects/keywords/ 的 Disarm。
  * - 383.4.d / 383.4.d.1 / 383.4.d.2.a："When I hold…" 是 Hold Effect；时点 hold
  *   （events/timing-points.ts，ruleRefs 315.2.b.2 / 471.2 / 473.2.b），触发来源是
  *   固守时在场的本单位。
@@ -26,7 +26,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   "a facedown card here" 指该战场 Facedown Zone 里的牌。
 
  * status = judge-required（README 第 2 节）。缺口如下，均不近似实现：
- * 1. [Disarm] 的 KeywordDef 已合入（RIFT-264~268 批次；effects/keywords/Disarm.ts），
+ * 1. [Disarm] 的 KeywordDef 已合入（effects/keywords/Disarm.ts），
  *    展开体是 continuous.might（RIFT-258）+ this-turn 期限 + here 锚点，golden 用真实解释器
  *    执行该展开体（锁定目标后注册 -1 Might 的 arithmetic 效果）。仍未合入的是产出方：
  *    attack-declared 在 docs/rules/timing-point-producers.md 里是「待后续」——
@@ -35,13 +35,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * 2. 触发条件读不到 Facedown Zone：契约 ZoneId 没有 facedown-zone 成员
  *    （effect.stun.ts 记录了同一缺口），ObjectSnapshot 也没有「该战场上我控制的
  *    facedown 牌」这一集合；把条件写成任意 faceDown 标记会放宽语义。
- * 3. hold 时点的发射方已合入（turn/flow.ts 的 Beginning 计分任务，RIFT-124/270），
- *    但卡牌程序触发注册仍未接线（RIFT-257）：没有任何已合入路径把 CardProgram 的 triggered
- *    能力变成 TriggerRegistration，且引擎的 assertTriggerSpec 不接受本卡用来声明 self 的
- *    ObjectFilter 拼写。
+ * 3. hold 时点的发射方与 CardProgram TriggerRegistration 都已合入；当前仍缺的是把
+ *    scoring 事件的 battlefieldId 与本战场宿主绑定，才能实现这里的“here”限定。
  * 已按已合入原语写出的部分：hold 触发 + TriggerSpec.condition 门控 + effect.score 体，
  * golden 测试用参考内核真实执行 score 指令并验证条件求值路径。
- * 依赖：RIFT-257（卡牌程序触发/关键词注册）、combat 角色事务（attack-declared 发射）、
+ * 依赖：combat 角色事务（attack-declared 发射）、
  * Facedown Zone 区域模型。
  */
 const abilities: Ability[] = [
@@ -50,7 +48,7 @@ const abilities: Ability[] = [
     kind: "triggered",
     trigger: {
       at: "hold",
-      filter: { self: true },
+      filter: { event: "hold", player: "self", details: { battlefieldId: "self" } },
       condition: {
         // 「if you control a facedown card here」= 383.2.a.1 的触发条件从句。
         // 计数目标集合是「该战场 Facedown Zone 中由本控制者控制的牌」；契约没有
@@ -62,7 +60,7 @@ const abilities: Ability[] = [
           subject: "facedown-cards-you-control-here",
           filter: {
             type: "card",
-            controller: "controller",
+            controller: "self",
             zone: "facedown-zone",
             sameLocationAs: "source"
           }
@@ -94,10 +92,10 @@ export default {
     "combat/flow.ts 的角色事务未实现（CombatFlow 抛 combat-start-transaction），该触发永远不会命中；" +
     "(2) 「if you control a facedown card here」读不到 Facedown Zone：契约 ZoneId 没有 facedown-zone 成员" +
     "（同 effect.stun.ts 记录的缺口），也没有「该战场上我控制的 facedown 牌」集合，把条件放宽成任意 faceDown 标记会改变卡牌语义；" +
-    "(3) hold 时点的发射方已合入（turn/flow.ts 的 Beginning 计分任务），但卡牌程序触发注册未接线（RIFT-257）：" +
-    "没有路径把 CardProgram 的 triggered 能力变成 TriggerRegistration，引擎的 assertTriggerSpec 也不接受本卡的 self 过滤器拼写。" +
+    "(3) hold 时点的发射方与 CardProgram TriggerRegistration 已合入，但 scoring 事件只有字面 battlefieldId，" +
+    "当前没有把该 id 与本战场宿主绑定的查询路径；这里的 details.battlefieldId: self 仍是待绑定标记。" +
     "已写出的可执行部分：hold 触发 + TriggerSpec.condition 门控（383.2.a.1）+ effect.score 体（194.1.c/470.1，golden 真实执行）。" +
-    "依赖：RIFT-257（卡牌程序触发/关键词注册）、combat 角色事务（attack-declared 发射）、Facedown Zone 区域模型。",
+    "依赖：combat 角色事务（attack-declared 发射）、hold 事件的来源战场绑定、Facedown Zone 区域模型。",
   abilities,
   sourceText:
     "[Disarm] (When I attack, give an enemy unit here -1 :rb_might: this turn.)\n" +

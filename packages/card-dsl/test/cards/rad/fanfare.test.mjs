@@ -27,10 +27,9 @@ test("rad-047-167 Fanfare: judgeReason names the delayed-trigger primitive and t
   // delayed-trigger registration, TriggerSpec.once's missing use counter, and
   // the end-of-turn expiry task.
   assert.match(program.judgeReason, /registerDelayedTrigger/);
-  assert.match(program.judgeReason, /effect\.delayed-trigger/);
+  assert.match(program.judgeReason, /trigger\.delayed/);
   assert.match(program.judgeReason, /per-turn/);
   assert.match(program.judgeReason, /expiresAt/);
-  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("rad-047-167 Fanfare: structure — printed energy 3, no power, one delayed-trigger registration", () => {
@@ -46,7 +45,7 @@ test("rad-047-167 Fanfare: structure — printed energy 3, no power, one delayed
 
   assert.equal(play.body.length, 1);
   assert.equal(registration.id, "fanfare.register-delayed-trigger");
-  assert.equal(registration.op, "effect.delayed-trigger");
+  assert.equal(registration.op, "trigger.delayed");
   assert.equal(registration.linkedTo, undefined);
   assert.equal(registration.targets, undefined);
   assert.equal(registration.picks, undefined);
@@ -91,5 +90,5 @@ test.todo(
     "unit plays and expires at end of turn needs a merged delayed-trigger instruction " +
     "(ResolveContext.registerDelayedTrigger behind an opcode), a use counter beyond " +
     "TriggerSpec.once, and an expiresAt/end-of-turn cleanup binding for card-created delayed " +
-    "triggers — RIFT-257 (card-program binding) plus the delayed-trigger opcode task."
+    "triggers — the delayed-trigger opcode, three-use counter, and expiresAt propagation."
 );

@@ -20,12 +20,14 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   entry-orientation 声明，golden 用真实事件管线执行并断言“就绪进场、无 object-readied 时点”。
  * - “Other units enter ready.” 仍未解决：它作用于其他单位的入场，需要替代体引用“被替代事件的对象”，
  *   而卡牌 IR 只能按 TargetSpec/pick/linked 选择器表达；把它写成 self 目标会被绑定层拒绝，
- *   写成 choice.optional 等包装也会被替代规划器拒绝（依赖 RIFT-257 卡牌程序绑定）。
+ *   写成 choice.optional 等包装也会被替代规划器拒绝；当前替代体不能把带
+ *   replacement.object 的正文写成可绑定的 replacement.event 形状。
  * - “Units don't ready during the Awaken Phase.” 用已合入的 continuous.restrict 记录，但没有消费者：
- *   Awaken 阶段（315.1.b）的就绪流程不查图层限制（依赖 RIFT-257 的 static 注册与回合接线）。
+ *   Awaken 阶段（315.1.b）的就绪流程不查图层限制；CardProgram 的 static/replacement 生命周期绑定已存在，
+ *   当前缺口是 Awaken 就绪流程消费该 restriction。
  * - “ready all enemy units” 本身已可执行（effect.ready + query），golden 测试真实执行该指令。
  *
- * 依赖：RIFT-257（卡牌程序绑定：替代体事件对象引用与 static 注册）。
+ * 依赖：替代体正文的事件对象绑定与 Awaken 就绪流程的 restriction 消费。
  */
 const abilities: Ability[] = [
   {
@@ -98,10 +100,10 @@ const program = {
     "(1) “Other units enter ready.”（365.1 的其他单位入场改写）需要替代体指向“被替代事件的对象”，" +
     "合并 IR 的对象选择器只有 self/source/target/pick/linked；绑定层只在 replacement.event 声明里暴露 " +
     "replacement.object 链接值，而带有该正文的替代会被规划器拒绝（replacement.event 的 instead 必须是" +
-    "指令数组，IR 的 Expr 包装形状不可表达），故无法诚实订阅（依赖 RIFT-257 卡牌程序绑定）。" +
+    "指令数组，IR 的 Expr 包装形状不可表达），故无法诚实订阅。" +
     "(2) “Units don't ready during the Awaken Phase.” 已用 continuous.restrict 记录（RIFT-259），" +
-    "但 Awaken 阶段（315.1.b）的常规就绪流程不读图层限制，且 CardProgram static 能力没有图层注册接线" +
-    "（同 rad/packed-amphitheater；依赖 RIFT-257）。" +
+    "但 Awaken 阶段（315.1.b）的常规就绪流程不读图层限制；CardProgram 的 static/replacement 生命周期绑定已存在，" +
+    "当前缺口是 Awaken 就绪流程消费该 restriction。" +
     "已可执行并真实执行的两段：“I enter ready.”（RIFT-260 的 entry-orientation 替代，" +
     "golden 断言就绪进场且无 object-readied 时点）与“When you play me, ready all enemy units.”" +
     "（effect.ready + 非目标 query，355.10.d）。",

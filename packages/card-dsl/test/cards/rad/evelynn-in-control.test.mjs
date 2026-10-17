@@ -36,7 +36,6 @@ test("rad-109-167 Evelynn, In Control: judgeReason names Disarm, the Facedown Zo
   assert.match(program.judgeReason, /Disarm\.ts/);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /facedown-zone/);
-  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /attack-declared/);
   // The hold emitter is merged now, so it must not be reported as missing.
   assert.doesNotMatch(program.judgeReason, /RIFT-76/);
@@ -98,7 +97,11 @@ test("rad-109-167 Evelynn, In Control: the merged Disarm expansion really regist
 test("rad-109-167 Evelynn, In Control: 'When I hold' is the self-scoped hold trigger (383.4.d.2.a)", () => {
   assert.equal(holdTrigger.kind, "triggered");
   assert.equal(holdTrigger.trigger.at, "hold");
-  assert.deepEqual(holdTrigger.trigger.filter, { self: true });
+  assert.deepEqual(holdTrigger.trigger.filter, {
+    event: "hold",
+    player: "self",
+    details: { battlefieldId: "self" }
+  });
   assert.equal(holdTrigger.trigger.once, undefined);
   assert.equal(holdTrigger.optional, false);
 });
@@ -111,7 +114,7 @@ test("rad-109-167 Evelynn, In Control: the facedown clause is a trigger conditio
   assert.equal(condition.left.subject, "facedown-cards-you-control-here");
   assert.deepEqual(condition.left.filter, {
     type: "card",
-    controller: "controller",
+    controller: "self",
     zone: "facedown-zone",
     sameLocationAs: "source"
   });
@@ -184,9 +187,8 @@ test("rad-109-167 Evelynn, In Control: the declared facedown condition cannot be
 
 test.todo(
   "rad-109-167 Evelynn, In Control: subscribe the hold trigger and resolve effect.score for the ability " +
-    "controller — the hold timing point is emitted by turn/flow.ts but no merged path turns a CardProgram " +
-    "triggered ability into a TriggerRegistration, and assertTriggerSpec rejects the card's self ObjectFilter " +
-    "spelling — RIFT-257"
+    "controller — the hold timing point and CardProgram TriggerRegistration are merged, but the scoring " +
+    "event's battlefieldId still has no binding to the source battlefield"
 );
 test.todo(
   "rad-109-167 Evelynn, In Control: 'if you control a facedown card here' needs the Facedown Zone model " +
@@ -201,6 +203,6 @@ test.todo(
   "rad-109-167 Evelynn, In Control: chain/interpreter-adapter.ts does not list the continuous.* ops in " +
     "LITERAL_FIELDS, so a card-authored target Expr reaches the primitive undecoded and resolves to an unknown " +
     "spec id; the Disarm expansion's declared target must be decoded in the chain adapter before the merged " +
-    "attack trigger can resolve (RIFT-257/120 wiring)"
+    "attack trigger can resolve"
 );
 
