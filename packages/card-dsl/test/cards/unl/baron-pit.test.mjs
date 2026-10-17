@@ -6,6 +6,9 @@ import program from "../../../dist/cards/unl/baron-pit.js";
 // The Ganking expansion is what an approximation of this card would silently
 // reuse if "can move here from anywhere" were written as [Ganking].
 import ganking from "../../../../engine-core/dist/effects/keywords/Ganking.js";
+import movement from "../../../../engine-core/dist/effects/instructions/continuous.movement.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
 const CANONICAL_ID =
   "card.hash-9a277d1f603718992521dc7464de01bdb5cc00d5d35d10081db5b0c9cfc4c3db";
@@ -32,8 +35,11 @@ test("unl-t01 Baron Pit: identity, status, judgeReason and verbatim sourceText",
   assert.match(program.judgeReason, /449\.1/);
   assert.match(program.judgeReason, /zones\/movement/);
   assert.match(program.judgeReason, /sameLocationAs/);
+  // RIFT-259 merged the primitive itself; the gap moved to the layer engine's
+  // boolean-only folding and the Standard Move consumer.
+  assert.match(program.judgeReason, /RIFT-259/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /RIFT-75/);
-  assert.match(program.judgeReason, /RIFT-91/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -75,16 +81,57 @@ test("unl-t01 Baron Pit: the declared permission is not the [Ganking] expansion"
   assert.notEqual(gankingAbility.effect.destination, ability.effect.destination);
 });
 
+test("unl-t01 Baron Pit: the merged continuous.movement primitive registers the declared destination permission", () => {
+  // RIFT-259's primitive accepts exactly this card's declared shape
+  // (permission/move/destination/addsPermission) and writes one ability-layer
+  // registration with the route and duration resolved.
+  const kernel = world()
+    .unit("baron-pit", { types: ["battlefield"], controller: "A", location: { type: "battlefield", id: "pit" } })
+    .unit("unit", { controller: "B", location: { type: "battlefield", id: "elsewhere" }, might: 2 })
+    .build();
+  const ctx = kernel.clone({ sourceSnapshot: kernel.getObject("baron-pit"), controller: "A" });
+
+  const run = runInstruction(movement, {
+    permission: ability.effect.permission === undefined
+      ? undefined
+      : { kind: "constant", value: ability.effect.permission },
+    move: { kind: "constant", value: ability.effect.move },
+    destination: { kind: "constant", value: ability.effect.destination },
+    addsPermission: { kind: "constant", value: ability.effect.addsPermission },
+    appliesTo: { kind: "constant", value: ability.effect.filter }
+  }, { world: ctx });
+
+  assert.equal(run.result.status, "executed");
+  assert.equal(ctx.continuousEffects.length, 1);
+  const [registration] = ctx.continuousEffects;
+  assert.equal(registration.effect.layer, "ability");
+  assert.equal(registration.effect.effect.kind, "movement");
+  // 449.1/449.2: both halves of the Move are recorded on the route.
+  assert.deepEqual(registration.effect.effect.permission.routes, [
+    "standard-move-to-here-from-anywhere"
+  ]);
+  assert.equal(registration.effect.effect.permission.destination, "self");
+  assert.equal(registration.effect.effect.permission.move, "standard");
+
+  // The layer engine folds the registration into the object's MovementPermissions;
+  // the destination route has no evaluable field there, which is the recorded gap.
+  const layers = createLayerEngine(ctx.objects, ctx.continuousEffects.map(entry => ({ ...entry })));
+  assert.deepEqual(layers.evaluate(ctx.ref("unit")).movement, {
+    allowed: true, canMove: true, canGank: false, restrictions: []
+  });
+});
+
 test.todo(
   "unl-t01 Baron Pit: consume the destination permission in the Standard Move (144.4, 449.1/449.2) " +
     "so a unit may move to this Battlefield from anywhere, without adding the Ganking " +
     "Battlefield->Battlefield option — zones/movement.ts only reads its own readiness/timing " +
-    "inputs and no merged code reads the layered MovementPermissions (RIFT-75, RIFT-91)"
+    "inputs and the layer snapshot keeps no destination route (RIFT-75, layers field + RIFT-257 binding)"
 );
 
 test.todo(
   "unl-t01 Baron Pit: register this CardProgram's static ability as a ContinuousEffectSpec so the " +
-    "permission is even visible in production — registerContinuousEffect has no caller (RIFT-91)"
+    "permission is even visible in production — registerContinuousEffect has no caller and no " +
+    "ProgramStaticBinder implementation exists (RIFT-257)"
 );
 
 test.todo(

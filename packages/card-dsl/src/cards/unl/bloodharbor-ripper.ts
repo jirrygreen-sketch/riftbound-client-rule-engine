@@ -22,16 +22,19 @@ import type { CardProgram } from "../../ir/index.js";
  *   按 440.2.c / 185.2.a “play” 需要先创建到链上再交给打出流程，且 184.1 的
  *   “exhausted” 入场状态改写需要 create-token 支持。
  *
- * status = judge-required：
- * - effect.token 的冻结定义表没有 gold（其自身能力使其按设计保持 blocked），
- *   且 mode "play" 需要链上创建 + 费用免除的打出流程（440.2.c / 185.2.a /
- *   350.2 / 354），合并内核的 create-token 只支持直接创建到棋盘；
+ * status = judge-required（复核 2026-10-17）：
+ * - effect.token 的冻结定义表没有 gold：187.5 的 Gold gear token 自带
+ *   “[Reaction][>] Kill this, :rb_exhaust:: [Add] :rb_rune_rainbow:.”，带自身能力的
+ *   token 被原语显式判为 token-definition-or-abilities-judge-required；
  * - “exhausted” 入场改写（143.4 / 184.1 / 185.2.d）在 create-token 中不支持，
- *   先创建再横置会产生错误的“成为横置”事件，不近似实现。
- * 前半段（回手）是已合入能力的真实执行部分。
+ *   先创建再横置会产生错误的"成为横置"事件，不近似实现。
+ * 已合入并用真实执行验证的部分：mode "play" 的链上创建 + play 交接（440.2.c /
+ * 185.2.a / 350.2 / 354；create-token to chain 与 effect.play，golden 用已定义 token
+ * 验证该交接）与回手段的 effect.zone。回手的目标过滤已按合并后的过滤器词汇改写为
+ * location: "battlefield"（programs/filters.ts 拒绝没有具体身份的 { type: "battlefield" }
+ * 结构化位置），golden 现在通过 resolveChainBody 执行程序自己的 body。
  *
- * 依赖：RIFT-62 的 create-token to "chain" + cost.printed/cost.pay 打出接线、
- * Gold 定义（187.5）与入场状态改写。
+ * 依赖：Gold token 定义（187.5，含其自身能力）与 create-token 的入场状态改写。
  */
 export default {
   canonicalCardId:
@@ -39,11 +42,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "“Play a Gold gear token exhausted” 无可执行路径：effect.token 的冻结定义表没有 gold（187.5 的 Gold gear token 带自身能力，按原语文档保持 blocked），" +
-    "mode \"play\" 需要先创建到链上再交给打出流程（440.2.c / 185.2.a / 350.2 / 354），合并内核的 create-token 只支持直接创建到棋盘；" +
-    "“exhausted” 入场改写（143.4 / 184.1 / 185.2.d）不被 create-token 支持，先创建再补一次横置会产生错误的“成为横置”事件，不近似实现。" +
-    "依赖：RIFT-62（create-token to chain 与 effect.play 交接）、Gold 定义与入场状态改写。" +
-    "前半段 “Return a friendly unit at a battlefield to its owner's hand” 的 effect.zone 已合入，golden 用真实解释器 + 参考内核执行。",
+    "“Play a Gold gear token exhausted” 仍无可执行路径，两处缺口：(1) effect.token 的冻结定义表没有 gold——187.5 的 Gold gear token " +
+    "自带 “[Reaction][>] Kill this, :rb_exhaust:: [Add] :rb_rune_rainbow:.”，带自身能力的 token 被原语显式判为 " +
+    "token-definition-or-abilities-judge-required；(2) “exhausted” 入场改写（143.4 / 184.1 / 185.2.d）不被 create-token 支持，" +
+    "先创建再补一次横置会产生错误的“成为横置”事件，不近似实现。" +
+    "已合入并以真实执行验证：mode \"play\" 的链上创建 + play 交接（440.2.c / 185.2.a / 350.2 / 354，create-token to \"chain\" 与 " +
+    "effect.play，golden 用已定义 token 跑通该交接），以及回手段 “Return a friendly unit at a battlefield to its owner's hand” 的 " +
+    "effect.zone；回手目标过滤已按合并后的词汇写成 location: \"battlefield\"（programs/filters.ts 明确拒绝无具体身份的 { type: \"battlefield\" }），" +
+    "golden 通过 resolveChainBody 执行程序自己的 body。依赖：Gold token 定义（187.5）与入场状态改写。",
   abilities: [
     {
       kind: "activated",
@@ -65,11 +71,11 @@ export default {
             {
               id: "friendly-unit-at-battlefield",
               // 355.9 / 355.10：“a friendly unit at a battlefield” 是单个选目标。
-              filter: {
-                type: "unit",
-                controller: "controller",
-                location: { type: "battlefield" }
-              },
+              // programs/filters.ts 只接受具体位置身份；合并后的过滤器词汇用
+              // location: "battlefield" 表达 “at a battlefield”（layers/filter.ts
+              // 与它比较对象位置的 type），结构化 { type: "battlefield" } 会被判为
+              // “需要具体战场身份”而拒绝。
+              filter: { type: "unit", controller: "controller", location: "battlefield" },
               min: 1,
               max: 1,
               selection: "one"

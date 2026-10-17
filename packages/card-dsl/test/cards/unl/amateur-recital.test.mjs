@@ -8,6 +8,8 @@ import program from "../../../dist/cards/unl/amateur-recital.js";
 // own schema validation (engine-core/src/chain/interpreter-adapter.ts).
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { EventPipeline } from "../../../../engine-core/dist/events/pipeline.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 
 const CANONICAL = "card.hash-16deedb0db72d0ab2151c19d3fe3648037a218f76385c1a46853b273e5671102";
 const SOURCE_TEXT = "When you hold here, you may move a unit at a battlefield to its base.";
@@ -46,7 +48,8 @@ test("unl-207-219 Amateur Recital: identity, status, judgeReason and verbatim so
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /hold/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /here/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("unl-207-219 Amateur Recital: a hold trigger with an optional move wrapped in choice.optional", () => {
@@ -155,13 +158,55 @@ test("unl-207-219 Amateur Recital: declining the option moves nothing", () => {
   assert.deepEqual(scoped.getObject("battle-unit").location, HERE);
 });
 
-test.todo(
-  "unl-207-219 Amateur Recital: emit the hold timing point from the Beginning Phase scoring step into " +
-    "the chain/events pipeline and resolve 190.6's battlefield-controller binding (RIFT-76/RIFT-120, " +
-    "contract §7.2 batch 5)"
-);
+test("unl-207-219 Amateur Recital: the merged hold emission reaches a plain hold registration", () => {
+  // turn/flow.ts publishes the Beginning Scoring Step's hold through the Score
+  // wave into the single event pipeline (471.2 / 473.2.b), carrying the held
+  // battlefield as details.battlefieldId. The card-side gap is the here anchor,
+  // not the producer (same assertion as ogn/startipped-peak).
+  const source = {
+    ref: { id: "recital", zoneEntryId: 1 }, cardId: CANONICAL, name: "Amateur Recital",
+    types: ["battlefield"], tags: [], keywords: [], owner: "A", controller: "A", zone: "board",
+    location: HERE, might: null, energy: null, power: null, exhausted: false, damage: 0,
+    stunned: false, buffs: 0, attachedTo: null, faceDown: false, isToken: false
+  };
+  const pipeline = new EventPipeline({
+    checkpoint: () => null,
+    restore: () => {},
+    execute: () => ({ outcome: { status: "done", events: [] }, emissions: [] }),
+    context: () => ({}),
+    objects: () => [source],
+    choose: () => { throw new Error("unexpected choose"); }
+  }, ["A", "B"], "A");
+  const seen = [];
+  pipeline.onTrigger = snapshot => seen.push(snapshot);
+  pipeline.registerTrigger({
+    id: "test.hold.plain",
+    source,
+    controller: "A",
+    spec: { at: "hold", filter: { event: "held", player: "self" } },
+    body: []
+  });
 
-test.todo(
-  "unl-207-219 Amateur Recital: register the CardProgram's triggered ability as a TriggerRegistration " +
-    "(RIFT-120 follow-up)"
-);
+  pipeline.emit({ timingPoint: "hold", player: "A", details: { battlefieldId: "battlefield-1" } });
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].event.details.battlefieldId, "battlefield-1");
+});
+
+test("unl-207-219 Amateur Recital: the here placeholder is rejected by the merged trigger translator", () => {
+  // The frozen EventPattern vocabulary has no battlefield-relative anchor: the
+  // RIFT-257 adapter fails closed on the placeholder key instead of binding a
+  // filter that would match holds at every battlefield.
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const source = {
+    ref: { id: "recital", zoneEntryId: 1 }, cardId: CANONICAL, name: "Amateur Recital",
+    types: ["battlefield"], tags: [], keywords: [], owner: "A", controller: "A", zone: "board",
+    location: HERE, might: null, energy: null, power: null, exhausted: false, damage: 0,
+    stunned: false, buffs: 0, attachedTo: null, faceDown: false, isToken: false
+  };
+  assert.throws(
+    () => binding.registerProgramTriggers({ pipeline: { registerTrigger: () => {} } }, source),
+    error => error.code === "judge-required" && /Unsupported filter field here/.test(error.message)
+  );
+});

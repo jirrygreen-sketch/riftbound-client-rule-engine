@@ -20,17 +20,21 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   排除本卡自身用 exclude（与 captain-farron 的 “Other friendly units here” 同款）。
  *   本卡的 “While I'm at a battlefield” 是能力生效的前置条件：只有我在战场上时授予才成立。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。
- * - Deflect 的展开文件已合入，但没有生产方把永久物上的 target.tax 持续效果接进目标选择：
- *   target/target-plan.ts 的 taxSpecs / appendTaxes 只在调用方显式传入 tax 时才追加 Deflect 税，
- *   链侧也没有从永久物特征派生 Deflect 税（RIFT-90 的目标税接线；ogn/pouty-poro 记录同一缺口）。
+ * status 判定（cards/README.md 第 2 节，复核 2026-10-17）：judge-required。
+ * - continuous.grant-keyword 原语已随 RIFT-258 合入；本卡的 static 声明保持
+ *   keyword/value/filter 的数据形状（static 的 effect 是 ContinuousEffect，不是指令参数），
+ *   golden 把该声明映射到原语的合入参数（objects: { kind: "query", filter }）后用解释器
+ *   + 图层引擎真实执行，断言只有同位置的其他友方单位获得 Deflect。
+ * - 仍缺消费方：CardProgram 的 static 能力没有任何已合入路径注册成 ContinuousEffectSpec
+ *   （RIFT-257 的 attachLifecycle 只在永久物入场时调用 staticBinder，而战场/静态来源的接线与
+ *   binder 实现都还没有；registerContinuousEffect 无调用方）。
+ * - Deflect 自身的 target.tax 仍没有生产方：target/target-plan.ts 的 taxSpecs/appendTaxes 只在
+ *   调用方显式传入 tax 时才追加，链侧也没有从永久物特征派生 Deflect 税；被授予的关键词还需要在
+ *   接收者上再展开一次（两级处理），该消费方同样未合入。
  * - 已合入的 tax→费用换算按 Energy 记账（chain/engine.ts 把税额写成 energy 形态的 mandatory
  *   additional cost），而 809.1.c.1 要求这笔追加费用始终可用任意域（rainbow）力量支付。
- * - “your other units here have [Deflect]” 是 continuous.grant-keyword 的持续授予，没有已注册的
- *   卡牌侧原语（effects/instructions/ 下只有 effect.* 文件），layers（RIFT-91）也只消费经
- *   ResolveContext.addContinuous 注册的 ContinuousEffectSpec，CardProgram 的 static 能力尚未接线；
- *   被授予的 Deflect 还需要在接收者上再展开一次（两级处理），该消费方同样未合入。
- * 依赖：RIFT-90（target.tax 接线与任意域支付）、RIFT-84（kw-deflect-hidden 的消费）、RIFT-91（layers 接线）。
+ * 依赖：RIFT-257（卡牌 static 注册与 binder 实现）、RIFT-90（target.tax 接线与任意域支付）、
+ * RIFT-84（kw-deflect-hidden 的消费）。
  * 不近似实现：不把授予写成固定数值加算，也不用别的关键词顶替。
  */
 const abilities: Ability[] = [
@@ -74,15 +78,18 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处缺口，均不近似实现：(1) 自带的 [Deflect]（809.1.b.3 省略值按 1）虽然展开文件 " +
+    "三处缺口，均不近似实现：(1) CardProgram 的 static 能力仍没有注册路径：RIFT-258 的 " +
+    "continuous.grant-keyword 原语与 layers 的 ability 图层都已合入（golden 用真实解释器 + 图层引擎执行本卡的授予，" +
+    "断言只有同位置的其他友方单位获得 Deflect），但 RIFT-257 的 attachLifecycle 只在永久物入场时调用 staticBinder，" +
+    "没有已合入的 ProgramStaticBinder 实现把 ContinuousEffectSpec 注册进 LayerEngine（registerContinuousEffect 无调用方）。" +
+    "(2) 自带的 [Deflect]（809.1.b.3 省略值按 1）虽然展开文件 " +
     "effects/keywords/Deflect.ts 已合入（static target.tax），但没有任何生产方把永久物上的 target.tax 持续效果接进目标选择：" +
     "target/target-plan.ts 的 taxSpecs/appendTaxes 只在调用方显式传入 tax 时才追加，chain 侧也没有从永久物特征派生 Deflect 税" +
-    "（RIFT-90；ogn/pouty-poro 记录同一缺口）。(2) 已合入的 tax→费用换算按 Energy 记账（chain/engine.ts 把税额写成 energy 形态的" +
+    "（RIFT-90；ogn/pouty-poro 记录同一缺口）；被授予的 Deflect 还需在接收者上再按 809 展开一次（两级处理），该消费方同样未合入。" +
+    "(3) 已合入的 tax→费用换算按 Energy 记账（chain/engine.ts 把税额写成 energy 形态的" +
     " mandatory additional cost），与 809.1.c.1 要求的“该 Power 始终可用任意域支付”不符。" +
-    "(3) “While I'm at a battlefield, your other units here have [Deflect]” 需要 continuous.grant-keyword 持续效果" +
-    "（801.3.a/364.1）：effects/instructions/ 下没有该原语，layers（RIFT-91）也只消费经 ResolveContext.addContinuous " +
-    "注册的 ContinuousEffectSpec、CardProgram static 未接线，被授予的 Deflect 还需在接收者上再按 809 展开一次（两级处理）也没有消费方。" +
-    "依赖：RIFT-90（target.tax 接线与任意域支付）、RIFT-84（kw-deflect-hidden）、RIFT-91（layers 接线）。不近似实现。",
+    "依赖：RIFT-257（卡牌 static 注册与 ProgramStaticBinder 实现）、RIFT-90（target.tax 接线与任意域支付）、" +
+    "RIFT-84（kw-deflect-hidden 的消费）。不近似实现。",
   abilities,
   sourceText:
     "[Deflect] (Opponents must pay :rb_rune_rainbow: to choose me with a spell or ability.)\n" +

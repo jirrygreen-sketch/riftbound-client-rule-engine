@@ -29,40 +29,49 @@ import type { CardProgram } from "../../ir/index.js";
  *   a replacement effect, decided by the unit's controller when the
  *   replacement would apply.
  *
- * Status: judge-required — three independent gaps, none approximated:
- * 1. no merged path turns a CardProgram's ReplacementAbility into a
- *    ReplacementRegistration (the event pipeline takes caller-supplied
- *    matchers; nothing reads `replaces`/`with`), and no merged selector names
- *    the replaced event's unit (its controller must also make the payment
- *    decision, per the printed "its controller").
+ * Status: judge-required (re-reviewed 2026-10-17) — RIFT-260's replacement layer
+ * is now merged, which changes the shape of the gaps rather than removing them:
+ * 1. `bindReplacement` does turn a card ReplacementAbility into a pipeline
+ *    registration and does expose the replaced event's object as
+ *    `{ linked: "replacement.object" }` (REPLACED_EVENT_LINK), so CR 355.10.c's
+ *    "it" is expressible. What the layer does not accept is this program's
+ *    `choice.optional` wrapper: the planner supports only the closed GameAction
+ *    opcode set and throws `Unsupported replacement opcode: choice.optional` at
+ *    bind time, while the printed "may pay" must not be flattened into a bare
+ *    optional node either (CR 370.2: the may-decision is the pipeline's own
+ *    optional flag, and the frozen ReplacementAbility has no `optional` field).
+ *    The payer is the unit's controller, and no merged planner action carries
+ *    that decision.
  * 2. "during combat" needs a combat discriminator on the replaced death
  *    event; the closed timing payload exposes no "during combat" flag and the
  *    frozen Condition set cannot read one.
  * 3. the Recall is blocked (457-460) and the three-rune Universal Power
  *    payment has no executable value under the frozen Domain/cost model.
  * The golden test executes the merged halves (effect.heal clears the marked
- * damage, effect.exhaust sets the state) with the replacement's unit locked,
- * exactly as the merged sfd/soraka-wanderer golden does; recall, payment and
- * registration stay `test.todo`.
+ * damage, effect.exhaust sets the state) and binds the replacement through the
+ * real RIFT-260 layer to record exactly where the body stops; recall and payment
+ * stay `test.todo`.
  *
- * Dependencies: engine batch 4 replacement registration with a replaced-event
- * object selector (contract change request), the Recall action (RIFT-75/91
- * follow-up, `effect.move` blockedReason), and Universal Power payment
- * (RIFT-89 cost plan).
+ * Dependencies: a replacement-body optional/payment shape the RIFT-260 planner
+ * accepts (contract change request), the Recall action (RIFT-75/91 follow-up,
+ * `effect.move` blockedReason), and Universal Power payment (RIFT-261 cost plan).
  */
 export default {
   canonicalCardId: "card.hash-8a6701849fc591215d101121138ec91bc46da22693dc4c35b90fbfe6c36f0155",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1) 卡牌级 ReplacementAbility 没有注册路径：事件管线只接受调用方提供的动作匹配器，" +
-    "没有任何已合入路径读取 CardProgram 的 replaces/with，也没有选择符能指向“被替代事件中的单位”（该单位按 355.10.c 不是目标，" +
-    "且“its controller may pay”需要把该单位的控制者绑定成抉择者）；(2)「during combat」需要在被替代的死亡事件上判别战斗期，" +
-    "封闭时点载荷没有战斗期标志，Condition 也没有读取它的路径；(3)「recall it」是 457-460 的 Recall——effect.move 的 mode \"recall\" "+
-    "被原语显式阻断（封闭 move-location 动作无法区分 Recall 与 Move，不得用普通移动近似），而 " +
-    ":rb_rune_rainbow:×3 是 163.2.b/135.2.e.5 的 Universal Power，封闭 Domain 集合与 cost.pay 没有可执行的任意域 Power 值" +
-    "（同 ven/matriarch-of-war 的缺口）。已支持部分：effect.heal 与 effect.exhaust 在 golden 里用真实原语执行。" +
-    "依赖：引擎批 4 的替代注册与事件对象选择符、Recall 动作（RIFT-75/91 后续）、RIFT-89 的费用计划。",
+    "三处缺口，均不近似实现：(1) RIFT-260 的 bindReplacement 已能注册卡牌替代，并把被替代事件的对象暴露为 " +
+    "{ linked: \"replacement.object\" }（REPLACED_EVENT_LINK，355.10.c 的“it”因此可指称）；但这一版 planner 只接受封闭 GameAction 操作码，" +
+    "本程序的 choice.optional 包装会在绑定期抛 Unsupported replacement opcode: choice.optional，而印刷的“may pay”也不能裸写进 with" +
+    "（CR 370.2：可以/拒绝属于管线的 optional 判定，冻结的 ReplacementAbility 也没有 optional 字段）；" +
+    "付款人按原文是该单位的控制者，planner 的 chooser 取自受影响对象的控制者，没有任何动作承载这笔由单位控制者支付的决定。" +
+    "(2)「during combat」需要在被替代的死亡事件上判别战斗期，封闭时点载荷没有战斗期标志，Condition 也没有读取它的路径；" +
+    "(3)「recall it」是 457-460 的 Recall——effect.move 的 mode recall 被原语显式阻断（封闭 move-location 动作无法区分 Recall 与 Move，" +
+    "不得用普通移动近似），而 :rb_rune_rainbow:×3 是 163.2.b/135.2.e.5 的 Universal Power，封闭 Domain 集合与费用管线没有可执行的任意域 Power 值" +
+    "（同 ven/matriarch-of-war 的缺口）。已支持部分：effect.heal 与 effect.exhaust 在 golden 里用真实原语执行，" +
+    "替代的绑定也在 golden 里通过 RIFT-260 层实测记录停止位置。" +
+    "依赖：RIFT-260 后续可接受的替代体可选/支付形状（契约变更请求）、Recall 动作（RIFT-75/91 后续）、RIFT-261 的费用计划。",
   sourceText:
     "If a unit here would die during combat, its controller may pay " +
     ":rb_rune_rainbow::rb_rune_rainbow::rb_rune_rainbow: to heal it, exhaust it, and recall it instead.",

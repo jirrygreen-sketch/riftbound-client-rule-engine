@@ -3,8 +3,10 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/bloodharbor-ripper.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
-import zone from "../../../../engine-core/dist/effects/instructions/effect.zone.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -18,6 +20,23 @@ const SOURCE_TEXT =
 const [ability] = program.abilities;
 const [returnUnit, playGold] = ability.body;
 const targetSpec = returnUnit.targets[0];
+
+/**
+ * chain/engine.ts resolves the static controller/owner spellings before it
+ * calls the production matcher ('controller' becomes the ability controller,
+ * and location "battlefield" is compared against the Location type in
+ * layers/filter.ts). The reference kernel compares filter values literally, so
+ * the goldens go through the same normalization the production chain applies
+ * (the merged sfd/switcheroo and ogn/siphon-power goldens use this helper).
+ */
+const chainContext = (kernel, controller) => bindResolveContext(kernel, {
+  controller,
+  query: (filter) => kernel.objects.filter((object) => matchesObjectFilter(
+    Object.fromEntries(Object.entries(filter).map(([key, value]) =>
+      [key, (key === "controller" || key === "owner") && value === "controller" ? controller : value])),
+    object
+  ))
+});
 
 test("unl-185-219 Bloodharbor Ripper: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -33,7 +52,11 @@ test("unl-185-219 Bloodharbor Ripper: identity, status, judgeReason and verbatim
   assert.match(program.judgeReason, /Gold gear token/);
   assert.match(program.judgeReason, /187\.5/);
   assert.match(program.judgeReason, /143\.4/);
-  assert.match(program.judgeReason, /RIFT-62/);
+  // The merged create-token-to-chain / effect.play handoff is no longer a gap:
+  // it is asserted below with a real token definition and executed by the
+  // golden test, so the reason only records the Gold definition and the entry
+  // state override that are still missing.
+  assert.doesNotMatch(program.judgeReason, /RIFT-62/);
 });
 
 test("unl-185-219 Bloodharbor Ripper: 1 Energy + Exhaust activation at Action speed", () => {
@@ -57,11 +80,11 @@ test("unl-185-219 Bloodharbor Ripper: return-to-hand targets one friendly unit a
   // 355.9 / 355.10: "a friendly unit at a battlefield" is a single target.
   assert.deepEqual(targetSpec, {
     id: "friendly-unit-at-battlefield",
-    filter: {
-      type: "unit",
-      controller: "controller",
-      location: { type: "battlefield" }
-    },
+    // The merged filter vocabulary spells "at a battlefield" as
+    // location: "battlefield"; programs/filters.ts refuses a structured
+    // { type: "battlefield" } without a concrete identity, which would make the
+    // production describeActivate throw instead of locking a target.
+    filter: { type: "unit", controller: "controller", location: "battlefield" },
     min: 1,
     max: 1,
     selection: "one"
@@ -103,27 +126,63 @@ test("unl-185-219 Bloodharbor Ripper: the printed cost is payable through the me
   assert.equal(ctx.object(ctx.ref("pyke")).exhausted, true);
 });
 
-test("unl-185-219 Bloodharbor Ripper: the return half executes the program's own args on the reference kernel", () => {
-  // Index 0 of the body is a single effect.zone instruction, so it runs through
-  // the primitive runner with the program's own printed arguments and the
-  // Finalize-locked target set (README §4: run existing primitives for the
-  // supported half; the program body itself is driven where the interpreter's
-  // evaluated-argument protocol matches the primitive schema).
+test("unl-185-219 Bloodharbor Ripper: the return half runs the program's own body through the chain adapter", () => {
+  // effect.zone declares Expr-typed arguments, so the card's own body is driven
+  // through the production chain adapter (the same path ogn/amateur-recital
+  // uses) with the Finalize-locked target set.
   const kernel = world()
     .unit("pyke", { zone: "board", types: ["legend"], controller: "A" })
     .unit("ally", { zone: "board", location: { type: "battlefield", id: "bf-1" } })
     .build();
-  const run = runInstruction(
-    zone,
-    { target: targetSpec.id, to: returnUnit.args.to },
-    { world: kernel, targets: { [targetSpec.id]: [kernel.ref("ally")] } }
+  kernel.setTargets(targetSpec.id, [kernel.ref("ally")]);
+  const scoped = chainContext(
+    kernel.clone({ sourceSnapshot: kernel.getObject("pyke"), controller: "A" }),
+    "A"
   );
-  assert.equal(run.result.status, "executed");
-  assert.deepEqual(run.linked, { moved: 1, movedIds: ["ally"], destination: "hand" });
+
+  const outcome = resolveChainBody([returnUnit], scoped);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
+    ["bloodharbor-ripper.return-unit", "executed"]
+  ]);
+  // effect.zone's receipt is written under the instruction's path-qualified key.
+  assert.equal(scoped.linkedSnapshot()["bloodharbor-ripper.return-unit.moved"], 1);
   // 108 / 128: the unit leaves the board and its owner draws it back into hand.
-  assert.equal(kernel.getObject("ally").zone, "hand");
-  assert.equal(kernel.getObject("ally").owner, "A");
-  assert.deepEqual(kernel.events.map(event => event.action), ["return-to-hand"]);
+  assert.equal(scoped.getObject("ally").zone, "hand");
+  assert.equal(scoped.getObject("ally").owner, "A");
+  assert.deepEqual(outcome.events.map(event => event.action), ["return-to-hand"]);
+});
+
+test("unl-185-219 Bloodharbor Ripper: mode \"play\" really creates on the Chain and hands the token to play", () => {
+  // 440.2.c / 185.2.a / 350.2 / 354: the merged effect.token creates the token
+  // on the Chain and then performs the play for that ref. The Gold definition
+  // itself is still missing (CR 187.5), so the merged handoff is exercised with
+  // a token the frozen table does define — never substituted into the card.
+  const kernel = world().player("A", { energy: 0 }).build();
+  const scoped = kernel.clone({ controller: "A" });
+  const outcome = resolveChainBody(
+    [
+      {
+        id: "probe.play-defined-token",
+        op: "effect.token",
+        args: {
+          token: { kind: "constant", value: "mech" },
+          mode: { kind: "constant", value: "play" },
+          location: { kind: "constant", value: { type: "base", player: "A" } }
+        }
+      }
+    ],
+    scoped
+  );
+  assert.equal(outcome.status, "executed");
+  const receipt = outcome.results[0].result.linkedValues.token;
+  assert.equal(receipt.createdAmount, 1);
+  assert.equal(receipt.amount, 1);
+  assert.deepEqual(outcome.events.map(event => [event.action, event.timingPoint]), [
+    ["create-token", "chain-item-pending"],
+    ["play", "card-played"]
+  ]);
+  assert.equal(scoped.objects.find(object => object.isToken).zone, "board");
 });
 
 test("unl-185-219 Bloodharbor Ripper: a stale locked target makes the return ignored (CR 359.3.e.5–e.7)", () => {
@@ -132,13 +191,15 @@ test("unl-185-219 Bloodharbor Ripper: a stale locked target makes the return ign
     .build();
   const stale = kernel.ref("ally");
   kernel.perform({ type: "kill", object: stale });
-  const run = runInstruction(
-    zone,
-    { target: targetSpec.id, to: returnUnit.args.to },
-    { world: kernel, targets: { [targetSpec.id]: [stale] } }
+  kernel.setTargets(targetSpec.id, [stale]);
+  const scoped = chainContext(
+    kernel.clone({ sourceSnapshot: kernel.getObject("pyke"), controller: "A" }),
+    "A"
   );
-  assert.deepEqual(run.result, { status: "ignored", reason: "mistargeted" });
-  assert.equal(run.events.length, 0);
+
+  const outcome = resolveChainBody([returnUnit], scoped);
+  assert.deepEqual(outcome.results[0].result, { status: "ignored", reason: "mistargeted" });
+  assert.deepEqual(outcome.events, []);
 });
 
 test("unl-185-219 Bloodharbor Ripper: playing the Gold token is blocked, not approximated", () => {
@@ -170,9 +231,6 @@ test("unl-185-219 Bloodharbor Ripper: playing the Gold token is blocked, not app
 
 test.todo(
   "unl-185-219 Bloodharbor Ripper: Gold gear token definition with its printed ability (CR 187.5) — effect.token's frozen table has no gold entry"
-);
-test.todo(
-  "unl-185-219 Bloodharbor Ripper: chain-create then cost-waived play of the token (CR 440.2.c / 185.2.a / 350.2 / 354) — RIFT-62"
 );
 test.todo(
   "unl-185-219 Bloodharbor Ripper: exhausted entry override on the created token (CR 143.4 / 184.1 / 185.2.d)"
