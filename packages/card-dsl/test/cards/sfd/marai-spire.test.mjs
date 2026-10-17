@@ -1,3 +1,6 @@
+// RIFT-643: static|| execution evidence is consolidated in ../templates/static-643.test.mjs.
+// This file retains the card's identity, status, sourceText, and key IR guards.
+
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -43,7 +46,16 @@ test("sfd-211-221 Marai Spire: static Repeat-cost discount scoped to friendly Re
     zone: "board"
   });
   // "While you control this battlefield" (190.6.a / 190.6.d) is kept explicit.
-  assert.deepEqual(ability.condition, { kind: "always" });
+  assert.deepEqual(ability.condition, {
+    kind: "compare",
+    left: {
+      kind: "count",
+      subject: "objects",
+      filter: { object: "self", controller: "self" }
+    },
+    operator: "gte",
+    right: { kind: "constant", value: 1 }
+  });
 });
 
 test("sfd-211-221 Marai Spire: the merged static binder refuses this ability", () => {

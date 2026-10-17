@@ -53,7 +53,8 @@ export default {
         kind: "continuous.grant-keyword",
         // 814.1.b.3: the printed [Shield] has no value, so the granted keyword
         // is Shield 1; the expansion lives in keywords/Shield.ts.
-        keywords: [{ id: "shield", value: 1 }],
+        // KeywordId matches effects/keywords/Shield.ts (CR 814.1.b.3).
+        keywords: [{ id: "Shield", value: 1 }],
         // 479.3: granting an ability belongs in the ability layer
         // (contract §3.4 layer order copy → trait → ability → arithmetic).
         layer: "ability",

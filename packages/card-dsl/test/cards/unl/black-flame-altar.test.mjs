@@ -1,3 +1,6 @@
+// RIFT-643: static|| execution evidence is consolidated in ../templates/static-643.test.mjs.
+// This file retains the card's identity, status, sourceText, and key IR guards.
+
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -60,7 +63,7 @@ test("unl-208-219 Black Flame Altar: one static ability-layer keyword grant scop
   assert.equal(ability.effect.layer, "ability");
   // 814.1.b.3: printed [Shield] without a value is Shield 1; the expansion
   // (defender-gated +1 Might) lives in keywords/Shield.ts, not here.
-  assert.deepEqual(ability.effect.keywords, [{ id: "shield", value: 1 }]);
+  assert.deepEqual(ability.effect.keywords, [{ id: "Shield", value: 1 }]);
 
   // 053.3/199.1: "here" is this Battlefield; 816.3: "with [Temporary]" is a
   // keyword-characteristic gate. Static binding translates the location anchor;
@@ -87,7 +90,7 @@ test("Black Flame Altar: the real grant instruction registers Shield 1 in the ab
   assert.equal(kernel.continuousEffects.length, 1);
   const layers = createLayerEngine(kernel.objects, kernel.continuousEffects);
   assert.deepEqual(layers.evaluate(kernel.ref("temporary-unit")).keywords.map(keyword => [keyword.id, keyword.value]), [
-    ["Temporary", undefined], ["shield", 1]
+    ["Temporary", undefined], ["Shield", 1]
   ]);
   assert.deepEqual(layers.evaluate(kernel.ref("other-unit")).keywords, []);
 });
@@ -128,7 +131,7 @@ test("unl-208-219 Black Flame Altar: the resolved here-scope does not match even
     kind: "static",
     effect: {
       kind: "continuous.grant-keyword",
-      keywords: [{ id: "shield", value: 1 }],
+      keywords: [{ id: "Shield", value: 1 }],
       layer: "ability",
       filter: { type: "unit", zone: "board", sameLocationAs: "self" }
     }

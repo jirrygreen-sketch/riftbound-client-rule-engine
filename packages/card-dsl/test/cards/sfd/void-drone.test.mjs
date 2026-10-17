@@ -1,3 +1,6 @@
+// RIFT-643: static|| execution evidence is consolidated in ../templates/static-643.test.mjs.
+// This file retains the card's identity, status, sourceText, and key IR guards.
+
 import assert from "node:assert/strict";
 import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";

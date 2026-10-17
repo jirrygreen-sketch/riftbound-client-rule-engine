@@ -59,7 +59,18 @@ export default {
           isToken: false
         }
       },
-      condition: { kind: "always" }
+      // 190.6.a/190.6.d: this battlefield supplies the ability only while its
+      // controller controls it. The first-play window remains judge-required.
+      condition: {
+        kind: "compare",
+        left: {
+          kind: "count",
+          subject: "objects",
+          filter: { object: "self", controller: "self" }
+        },
+        operator: "gte",
+        right: { kind: "constant", value: 1 }
+      }
     }
   ]
 } satisfies CardProgram;
