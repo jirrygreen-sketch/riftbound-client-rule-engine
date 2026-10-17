@@ -22,21 +22,24 @@ import type { CardProgram } from "../../ir/index.js";
  *   读取当前控制者的场上单位；"ready" 是 416.1/416.1.c 的就绪动作（已合入 effect.ready）。
  *
  * status = judge-required（README 第 2 节；逐项列出缺口，不近似实现）：
- * - [Unique] 无已合入 KeywordDef，也没有 continuous.deck 消费方（effects/keywords/registry.generated.ts
- *   的 26 项不含 Unique；契约 3.1/3.3 没有构筑期限制的语义位置，只有未定义语义的
+ * - [Unique] 无已合入 KeywordDef（effects/keywords/registry.generated.ts 的 26 项不含
+ *   Unique；契约 3.1/3.3 没有构筑期限制的语义位置，只有未定义语义的
  *   deckbuilding?: DeckbuildingDecision[] 形状），卡内自造限制会发明语义。这同时是 §3.7 的
  *   展开级缺口：programs/keywords.ts 的 expandProgram 对未注册关键词直接抛
  *   ProgramBindingError（"Keyword unique has no executable KeywordDef"），整个程序的展开与
  *   触发注册都会停在这一条上（golden 实测），所以即使打出触发本身可执行也注册不了。
+ * - continuous.deck 原语虽已合入，但 programs/statics.ts 的 layerFor 没有该 kind 的图层
+ *   映射（实测 bindStatic 抛 ProgramBindingError "Static ability kind continuous.deck has no
+ *   layer mapping"），CardProgram.deckbuilding 也没有构筑期消费方，构筑限制仍无执行路径。
  * - [Equip] 的 [A] 费用可由 power payment + 六域 allowedDomains 表达并支付（135.2.e.5.a），
  *   不需要 Universal Power 资源。costDomain: "rainbow" 记录该印刷费用；仍缺参数传递，
  *   programs/keywords.ts 只向 expand 传 value/host，没有把印刷费用送到 params.cost。
  * - [Equip] 的费用管线缺口：已合入的 Equip 展开声明 payments: [{ kind: "equip" }]，
  *   而 cost/plan-values.ts 的支付种类不含 equip，启动费用无法在 Finalize 支付——
  *   应将展开的印刷费用接为已有 power payment（六域 allowedDomains）。
- * - 打出触发的注册方已合入（RIFT-257，programs/triggers.ts）：把 [Unique] 声明移出后，
- *   绑定层能把 card-played 触发注册成 TriggerRegistration 并解析 object: { canonicalCardId }
- *   过滤（golden 实测），所以这一项不再独立构成缺口——触发注册只在 [Unique] 展开恢复后才谈得上。
+ * - 打出触发的注册方不再是缺口（programs/triggers.ts）：把 [Unique] 声明移出后，绑定层能把
+ *   card-played 触发注册成 TriggerRegistration 并解析 object: { canonicalCardId } 过滤
+ *   （golden 实测），触发体 effect.ready 的 { kind: "query" } 集合语义也由 golden 真实执行。
  *
  * golden 测试真实执行已合入的触发本体（effect.ready 的 query 形状：就绪我方单位、
  * 不动对手单位）与 Equip 展开的 effect.attach 本体；其余缺口写成 test.todo。
@@ -88,15 +91,16 @@ const program = {
   judgeReason:
     "当前缺口，均不近似实现：" +
     "（1）[Unique] 是 825.1/825.3 的 Deck Constraint Permission（825.4：本体无额外效果），但 effects/keywords/registry.generated.ts 的 26 项不含 Unique，" +
-    "也没有 continuous.deck 消费方；契约 3.1/3.3 没有构筑期限制的语义位置（只有未定义语义的 deckbuilding?: DeckbuildingDecision[] 形状）。这也是展开级缺口：" +
-    "programs/keywords.ts 的 expandProgram 对未注册关键词直接抛 ProgramBindingError（\"Keyword unique has no executable KeywordDef\"），整个程序的展开与触发注册都会停在" +
-    "这一条上（golden 实测）。" +
+    "continuous.deck 原语虽已合入，programs/statics.ts 的 layerFor 却没有该 kind 的图层映射（实测 bindStatic 抛 ProgramBindingError \"Static ability kind continuous.deck has no layer mapping\"）；" +
+    "CardProgram.deckbuilding 也没有构筑期消费方，卡内自造限制会发明语义。这也是展开级缺口：programs/keywords.ts 的 expandProgram 对未注册关键词直接抛 " +
+    "ProgramBindingError（\"Keyword unique has no executable KeywordDef\"），整个程序的展开与触发注册都会停在这一条上（golden 实测）。" +
     "（2）[Equip] 的印刷 [A] 费用按 CR 135.2.e.5.a 可用任意域 Power 支付，现有 power payment + 六域 allowedDomains 已能表达并支付；" +
     "costDomain: \"rainbow\" 保留印刷记号，但 programs/keywords.ts 只向 expand 传 value/host，未把印刷费用传入 params.cost。" +
-    "（3）Equip 支付种类尚未转换成费用管线支持的 power payment：展开仍声明 payments: [{ kind: \"equip\" }]，cost/plan-values.ts 因未知支付种类阻断 Finalize。" +
-    "打出触发的注册方不再构成缺口：RIFT-257（programs/triggers.ts）已合入，把 [Unique] 声明移出后，绑定层能把 card-played 触发注册成 TriggerRegistration，" +
+    "（3）Equip 支付种类尚未转换成费用管线支持的 power payment：展开仍声明 payments: [{ kind: \"equip\" }]，cost/plan-values.ts 因未知支付种类阻断 Finalize" +
+    "（实测 buildCostPlan 抛 CostPlanError reason \"judge-required\"、message \"Unsupported payment kind: equip\"）。" +
+    "打出触发的注册方不再构成缺口：programs/triggers.ts 已合入，把 [Unique] 声明移出后，绑定层能把 card-played 触发注册成 TriggerRegistration，" +
     "并原样解析 object: { canonicalCardId } 过滤（golden 实测）；触发体本身的语义（effect.ready 的 { kind: \"query\" } 集合形状，416.1/416.1.c）也已由 golden 真实执行。" +
-    "依赖：kw-unique/continuous.deck、Equip 印刷费用参数传递与支付种类转换。",
+    "依赖：kw-unique 的图层映射/构筑期消费方、Equip 印刷费用参数传递与支付种类转换。",
   abilities,
   sourceText:
     "[Unique] (Your deck can have only 1 card with this name.)\n" +

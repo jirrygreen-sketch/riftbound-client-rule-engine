@@ -12,6 +12,9 @@ import {
   planReplacementBody
 } from "../../../../engine-core/dist/replacement/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { actionMatchesEventPattern } from "../../../../engine-core/dist/replacement/pattern.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
+import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 const CANONICAL = "card.hash-0d756f766acd32a10e9b167b29aabb9d0be6ef340ce4d1b8ad068ed7f9fb3d15";
 const [backline, replacement] = program.abilities;
@@ -25,10 +28,12 @@ test("sfd-173-221 Soraka, Wanderer: program validates and keeps its identity", (
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Backline/);
   assert.match(program.judgeReason, /recall/);
-  // The refreshed reason must cite the merged replacement layer (RIFT-260) and
-  // the still-missing combat assignment binding / recall action.
-  assert.match(program.judgeReason, /RIFT-260/);
+  // The refreshed reason must cite the merged replacement layer and the still
+  // missing combat assignment binding / location anchors / recall action.
+  assert.match(program.judgeReason, /replacement\/bind\.ts/);
   assert.match(program.judgeReason, /replacement\.object/);
+  assert.match(program.judgeReason, /sameLocationAs/);
+  assert.match(program.judgeReason, /linked-instruction-not-prior/);
   assert.match(program.judgeReason, /826/);
   assert.equal(
     program.sourceText,
@@ -154,7 +159,7 @@ test("sfd-173-221 Soraka, Wanderer: the merged Backline KeywordDef only declares
 });
 
 test("sfd-173-221 Soraka, Wanderer: the original with body plans linked event-object actions", () => {
-  // RIFT-260 (replacement/) resolves the replaced event's object through the
+  // The merged replacement layer resolves the replaced event's object through the
   // card's own { linked: "replacement.object" } selectors. The supported heal
   // and exhaust steps are planned from the shipped body itself; Recall remains
   // blocked because it needs a distinct action (CR 457-460).
@@ -226,7 +231,7 @@ test("sfd-173-221 Soraka, Wanderer: production binding reaches the real Recall b
 test.todo(
   "sfd-173-221 Soraka, Wanderer: execute the Backline assignment restriction in the combat damage step " +
     "(826.3 / 826.4.b; combat/base-combat-allocation.ts binds no Tank/Backline priority); the replacement " +
-    "registration itself and the with-body event-object selector (RIFT-260) are merged, but Recall still needs " +
+    "registration itself and the with-body event-object selector are merged, but Recall still needs " +
     "a distinct action (CR 457-460)"
 );
 
@@ -235,3 +240,97 @@ test.todo(
     "merged compare/object-property evaluation can run at replacement matching time (the binding must supply " +
     "{ linked: 'replacement.object' } to the condition, and layers/engine.ts conditionMatches does not evaluate compare)"
 );
+
+// Direct evidence for the [Backline] gap: the merged keyword really binds into
+// the ability layer, but no combat step consumes the declared assignment
+// priority (CR 826.3/826.4.b).
+test("sfd-173-221 Soraka, Wanderer: the merged layer registration carries no combat-assignment consumer", async () => {
+  const { createEngineStaticBinder, expandProgram } = await import("../../../../engine-core/dist/programs/index.js");
+  const { fixture } = await import("../../../../engine-core/test/chain/helpers.mjs");
+  const { engine, kernel } = fixture({ cards: [{ id: "soraka", cardId: CANONICAL, types: ["unit"], might: 4, keywords: [{ id: "Backline" }] }] });
+  engine.commit({ type: "move-zone", object: kernel.ref("soraka"), to: "base", location: { type: "base", player: "A" } });
+  const snapshot = kernel.getObject("soraka");
+  const [backlineAbility] = expandProgram({ ...program, status: "executable", judgeReason: undefined }, snapshot).abilities
+    .filter(ability => ability.kind === "static" && ability.effect.kind === "continuous.combat");
+  assert.ok(backlineAbility, "the merged Backline KeywordDef must expand to continuous.combat");
+  createEngineStaticBinder(engine).bindStatic(backlineAbility, snapshot);
+  assert.deepEqual(engine.layers.registry.list().map(entry => entry.effect.effect.kind), ["continuous.combat"]);
+  // No merged combat step reads that registration: the damage-assignment
+  // service still proves "no assignment modifier was found".
+  assert.equal(backlineAbility.effect.mode, "damage-assignment");
+  assert.equal(backlineAbility.effect.priority, "last");
+});
+
+// Direct evidence for the location/other anchors: the production replacement
+// matcher ignores the printed sameLocationAs/other keys, so a unit dying at a
+// different location still matches the replacement trigger.
+test("sfd-173-221 Soraka, Wanderer: the printed 'here'/'another unit' anchors do not restrict the replacement pattern", () => {
+  const kernel = world()
+    .unit("soraka", { might: 4, location: { type: "battlefield", id: "bf-1" } })
+    .unit("away", { might: 1, location: { type: "base", player: "A" } })
+    .unit("near", { might: 1, location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  for (const id of ["away", "near"]) {
+    const object = kernel.getObject(id);
+    // 370.3/370.4 + "here": only a unit dying at Soraka's location should match.
+    assert.equal(actionMatchesEventPattern({
+      pattern: replacement.replaces,
+      action: { type: "kill", object: object.ref },
+      target: { object: object.ref, player: "A" },
+      hostRef: kernel.ref("soraka"),
+      controller: "A",
+      snapshotFor: ref => kernel.getObject(ref.id)
+    }), true);
+  }
+  // The production filter translator rejects both anchors outright, so no
+  // equivalent filter can be bound through the merged adapter either.
+  assert.throws(() => translateObjectFilter({ type: "unit", other: true }), /Unsupported filter field other/);
+  assert.throws(() => translateObjectFilter({ type: "unit", sameLocationAs: "self" }), /Unsupported filter field sameLocationAs/);
+});
+
+// Direct evidence for the Might comparison gap: the merged validator refuses
+// the replacement event-object link as a condition operand, and the shipped
+// declarative target selector has no binding at replacement match time.
+test("sfd-173-221 Soraka, Wanderer: the Might comparison is unevaluable at replacement time", async () => {
+  const { validateCardProgram } = await import("../../../dist/index.js");
+  const linkedCondition = {
+    ...replacement,
+    condition: {
+      kind: "compare",
+      left: { kind: "object-property", object: { linked: "replacement.object" }, property: "might" },
+      operator: "lt",
+      right: { kind: "object-property", object: "self", property: "might" }
+    }
+  };
+  const rejected = validateCardProgram({
+    ...program,
+    status: "executable",
+    judgeReason: undefined,
+    abilities: [program.abilities[0], linkedCondition]
+  });
+  assert.equal(rejected.ok, false);
+  assert.deepEqual([...new Set(rejected.issues.map(issue => issue.code))].sort(), [
+    "linked-instruction-not-prior",
+    "unresolved-instruction"
+  ]);
+
+  const kernel = world()
+    .unit("soraka", { might: 4, location: { type: "battlefield", id: "bf-1" } })
+    .unit("ally", { might: 1, location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const bound = bindResolveContext(kernel, { source: kernel.getObject("soraka") });
+  assert.throws(
+    () => evaluateCondition(replacement.condition, {
+      context: bound,
+      host: kernel.ref("soraka"),
+      linked: () => undefined,
+      canLookBack: () => true,
+      isIgnored: () => false
+    }),
+    (error) => {
+      assert.equal(error.constructor.name, "MissingInformation");
+      assert.match(error.message, /Object selector has no object-valued selection/);
+      return true;
+    }
+  );
+});

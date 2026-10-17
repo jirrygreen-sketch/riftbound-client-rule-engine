@@ -6,8 +6,10 @@ import program from "../../../dist/cards/sfd/sivir-mercenary.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import continuousMight from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
+import grantKeyword from "../../../../engine-core/dist/effects/instructions/continuous.grant-keyword.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { createEngineStaticBinder, createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { createEngineStaticBinder, createProgramBinding, expandProgram } from "../../../../engine-core/dist/programs/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID = "card.hash-bd07122c30b6cd8a4c4c84c4bcce0070fad8ea471344189ee61fb766cb54e888";
@@ -30,15 +32,17 @@ test("sfd-143-221 Sivir, Mercenary: identity, ruleset, status, judgeReason and v
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /135\.2\.e\.5\.a/);
   assert.match(program.judgeReason, /continuous\.might/);
-  // The Might/grant execution sides merged with RIFT-258; the refreshed reason
-  // cites the static-to-layer registration consumer (RIFT-257), the missing
-  // spent/cost-receipt read and the Ganking movement permission gap.
-  assert.match(program.judgeReason, /RIFT-258/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  // The Might/grant execution sides are merged; the refreshed reason cites the
+  // static-to-layer registration consumer, the missing spent/cost-receipt read,
+  // the Ganking movement-permission gap and the unmapped accelerate.cost shape.
   assert.match(program.judgeReason, /spent/);
   assert.match(program.judgeReason, /evaluateCondition/);
   assert.match(program.judgeReason, /powerSpentThisTurn/);
   assert.match(program.judgeReason, /permission\.routes/);
+  assert.match(program.judgeReason, /accelerate\.cost/);
+  assert.match(program.judgeReason, /no layer mapping/);
+  assert.match(program.judgeReason, /continuous\.might/);
+  assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -84,7 +88,7 @@ test("sfd-143-221 Sivir, Mercenary: the Ganking half is declared as a conditiona
 });
 
 test("sfd-143-221 Sivir, Mercenary: the merged arithmetic layer applies the declared +2 Might when registered", () => {
-  // The layers engine (RIFT-91) executes the amount this card declares. The
+  // The merged layers engine executes the amount this card declares. The
   // "spent [A][A]" gate itself stays TODO (no merged spend read), so this run
   // registers the effect unconditionally the way a met condition would.
   const kernel = world().unit("sivir", { might: 4, location: { type: "battlefield", id: "bf-1" } }).build();
@@ -109,7 +113,7 @@ test("sfd-143-221 Sivir, Mercenary: the merged arithmetic layer applies the decl
 });
 
 test("sfd-143-221 Sivir, Mercenary: the merged continuous.might primitive registers the arithmetic effect this card declares", () => {
-  // RIFT-258's continuous.might is the execution side the card was waiting for:
+  // The merged continuous.might is the execution side the card was waiting for:
   // running the card's declared amount/mode through the real primitive records
   // one arithmetic-layer registration on the controller's source unit, and the
   // layers engine then evaluates the printed +2.
@@ -187,7 +191,7 @@ test("sfd-143-221 Sivir, Mercenary: the production binder re-evaluates a support
 test.todo(
   "sfd-143-221 Sivir, Mercenary: evaluate \"you've spent at least [A][A] this turn\" — no merged Expr reads " +
     "spent amounts this turn (ResolveContext exposes no spend receipt); source.powerSpentThisTurn is " +
-    "an unresolved read position, and a missing read closes the bound condition (RIFT-359)"
+    "an unresolved read position, and a missing read closes the bound condition (test above)"
 );
 
 test("sfd-143-221 Sivir, Mercenary: the shipped program remains judge-gated before lifecycle binding", () => {
@@ -201,6 +205,84 @@ test.todo(
     "have merged; what remains is the Ganking permission shape (the movement runtime reads permission.routes, " +
     "not the granted keyword string) and the spent-read condition from the first TODO"
 );
+
+// Direct evidence for the Ganking half: the merged keyword grant really writes
+// the ability-layer keyword, but no movement permission is produced, so a
+// Standard Move query still reports no Battlefield-to-Battlefield route.
+test("sfd-143-221 Sivir, Mercenary: a granted Ganking keyword produces no movement permission (810.1.b/810.1.c)", () => {
+  const kernel = world().unit("sivir", { might: 4, location: { type: "battlefield", id: "bf-1" } }).build();
+  const scoped = kernel.clone({ source: kernel.ref("sivir"), sourceSnapshot: kernel.getObject("sivir") });
+  const run = runInstruction(grantKeyword, {
+    keyword: { kind: "constant", value: "Ganking" },
+    appliesTo: { kind: "constant", value: "self" },
+    duration: { kind: "constant", value: "this-turn" }
+  }, { world: scoped });
+  assert.equal(run.result.status, "executed");
+  assert.deepEqual(scoped.continuousEffects.map(entry => entry.effect.effect.kind), ["continuous.grant-keyword"]);
+
+  const engine = createLayerEngine(kernel.objects, scoped.continuousEffects.map((entry, index) => ({
+    ...entry,
+    timestamp: 1,
+    sequence: index + 1
+  })));
+  const snapshot = engine.evaluate(kernel.ref("sivir"));
+  // 478 / 810.3: the keyword really is on the object...
+  assert.equal(snapshot.keywords.some(keyword => keyword.id.toLowerCase() === "ganking"), true);
+  // ...but movement() reads permission.routes, which the keyword grant never
+  // writes, so the printed Battlefield-to-Battlefield route is still absent.
+  assert.equal(movement(engine.registry, kernel.ref("sivir"), snapshot, "A").canGank, false);
+  assert.equal(movement(engine.registry, kernel.ref("sivir"), snapshot, "A").battlefieldToBattlefield, false);
+});
+
+// Direct evidence for the Accelerate half: the merged expansion declares
+// accelerate.cost, but the card-side static binder has no layer for it, so the
+// printed optional cost can never reach Finalize from the card's own data.
+test("sfd-143-221 Sivir, Mercenary: the merged lifecycle binder rejects the accelerate.cost declaration (805.1.b)", () => {
+  const lifted = { ...program, status: "executable", judgeReason: undefined };
+  const snapshot = {
+    ref: { id: "sivir", zoneEntryId: 1 },
+    cardId: CARD_ID,
+    name: "Sivir, Mercenary",
+    types: ["unit"],
+    tags: ["Sivir", "Shurima", "Champion"],
+    keywords: [{ id: "Accelerate" }],
+    owner: "A",
+    controller: "A",
+    zone: "board",
+    location: { type: "base", player: "A" },
+    might: 4,
+    energy: 4,
+    power: ["Chaos"],
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false
+  };
+  const expanded = expandProgram(lifted, snapshot);
+  const accelerate = expanded.abilities.find(ability => ability.kind === "static" && ability.effect.kind === "accelerate.cost");
+  assert.ok(accelerate, "the merged Accelerate KeywordDef must declare accelerate.cost");
+
+  const { engine, kernel } = fixture({ cards: [{ id: "sivir", cardId: CARD_ID, types: ["unit"], might: 4, keywords: [{ id: "Accelerate" }] }] });
+  engine.commit({ type: "move-zone", object: kernel.ref("sivir"), to: "base", location: { type: "base", player: "A" } });
+  assert.throws(
+    () => createEngineStaticBinder(engine).bindStatic(accelerate, kernel.getObject("sivir")),
+    (error) => {
+      assert.equal(error.name, "ProgramBindingError");
+      assert.match(error.message, /accelerate\.cost has no layer mapping/);
+      return true;
+    }
+  );
+  // The lifecycle path reports exactly that failure instead of silently
+  // ignoring the printed cost.
+  const binding = createProgramBinding({ cardPrograms: [lifted] });
+  const errors = [];
+  binding.attachLifecycle(engine, (error) => errors.push(error.message));
+  engine.commit({ type: "move-zone", object: kernel.ref("sivir"), to: "battlefield", location: { type: "battlefield", id: "battlefield-1" } });
+  assert.equal(errors.some(message => /accelerate\.cost has no layer mapping/.test(message)), true);
+});
 
 test.todo(
   "sfd-143-221 Sivir, Mercenary: paying the optional Accelerate cost [1][Chaos] and the enter-ready replacement " +

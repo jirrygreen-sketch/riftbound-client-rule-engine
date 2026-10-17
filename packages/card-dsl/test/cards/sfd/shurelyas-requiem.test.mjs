@@ -16,7 +16,7 @@ import { bindResolveContext } from "../../../../engine-core/dist/events/action-a
 import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
-import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { createEngineStaticBinder, createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { buildCostPlan, payCostPlan, DUEL_DOMAINS } from "../../../../engine-core/dist/cost/index.js";
@@ -137,10 +137,10 @@ test("sfd-192-221 Shurelya's Requiem: identity, ruleset, status, judgeReason and
 
   assert.match(program.judgeReason, /Unique/);
   assert.match(program.judgeReason, /continuous\.deck/);
+  assert.match(program.judgeReason, /no layer mapping/);
   assert.match(program.judgeReason, /135\.2\.e\.5\.a/);
   assert.match(program.judgeReason, /Equip 支付种类/);
   assert.match(program.judgeReason, /params\.cost/);
-  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /TriggerRegistration/);
 });
 
@@ -234,9 +234,10 @@ test("sfd-192-221 golden: the Equip body attaches the requiem to a locked unit y
 });
 
 test.todo(
-  "sfd-192-221 Shurelya's Requiem: [Unique] (CR 825.1/825.3) needs a Unique KeywordDef and a continuous.deck " +
-    "consumer; keywords/registry.generated.ts lists 26 entries and none of them is Unique, and contract 3.1/3.3 " +
-    "has no deck-constraint semantics. The missing KeywordDef also blocks the whole program's expandProgram " +
+  "sfd-192-221 Shurelya's Requiem: [Unique] (CR 825.1/825.3) needs a Unique KeywordDef plus a layer/deckbuilding " +
+    "consumer for the merged continuous.deck shape; keywords/registry.generated.ts lists 26 entries and none of " +
+    "them is Unique, the card-side static binder has no continuous.deck mapping, and CardProgram.deckbuilding has " +
+    "no deck-construction consumer. The missing KeywordDef also blocks the whole program's expandProgram " +
     "(see the golden below)"
 );
 
@@ -266,6 +267,40 @@ test("sfd-192-221 Shurelya's Requiem: each Domain can pay the printed one-Power 
     }]);
     assert.deepEqual(kernel.events.map(event => event.action), ["pay"]);
   }
+});
+
+test("sfd-192-221 Shurelya's Requiem: the merged cost pipeline refuses the declared Equip payment kind (CR 818.1.b)", () => {
+  // The still-current blocker: the printed Equip activation cost reaches
+  // Finalize as { kind: "equip" }, which cost/plan-values.ts does not support.
+  const kernel = requiemWorld();
+  const context = bindResolveContext(kernel, { source: kernel.getObject("shurelyas-requiem") });
+  assert.throws(
+    () => buildCostPlan(context, {
+      id: "requiem-equip-activation",
+      cost: { payments: [{ kind: "equip", value: { kind: "source" } }] }
+    }),
+    (error) => {
+      assert.equal(error.reason, "judge-required");
+      assert.match(error.message, /Unsupported payment kind: equip/);
+      return true;
+    }
+  );
+});
+
+test("sfd-192-221 Shurelya's Requiem: the merged static binder has no continuous.deck layer for [Unique] (CR 825.3.a)", () => {
+  const { engine, kernel } = fixture({ cards: [{ id: "requiem", cardId: CARD_ID, types: ["gear"], might: 2 }] });
+  engine.commit({ type: "move-zone", object: kernel.ref("requiem"), to: "base", location: { type: "base", player: "A" } });
+  assert.throws(
+    () => createEngineStaticBinder(engine).bindStatic({
+      kind: "static",
+      effect: { kind: "continuous.deck", mode: "max", name: "Shurelya's Requiem" }
+    }, kernel.getObject("requiem")),
+    (error) => {
+      assert.equal(error.name, "ProgramBindingError");
+      assert.match(error.message, /continuous\.deck has no layer mapping/);
+      return true;
+    }
+  );
 });
 
 test("sfd-192-221 golden: the merged binding layer expands and registers the card-played play effect", () => {

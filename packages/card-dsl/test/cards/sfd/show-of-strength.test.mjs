@@ -6,6 +6,11 @@ import { validateCardProgram } from "../../../dist/ir/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/index.js";
+import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID = "card.hash-7be9e4bed44d19de26a4a7a292ab8406e43694b33916fc5246d46347fa4ad85f";
 
@@ -19,7 +24,8 @@ test("sfd-106-221 Show of Strength: program passes validateCardProgram", () => {
   // The Mighty KeywordDef has merged since the original note; the refreshed
   // reason points at the missing query/layer predicate consumer.
   assert.match(result.value.judgeReason, /mightGte/);
-  assert.match(result.value.judgeReason, /RIFT-359/);
+  assert.match(result.value.judgeReason, /condition\.value/);
+  assert.match(result.value.judgeReason, /kw-mighty/);
   assert.equal(result.value.judgeReason.includes("registry is currently empty"), false);
 });
 
@@ -103,7 +109,54 @@ test("sfd-106-221 Show of Strength: zero qualifying units draws zero", () => {
   assert.equal(testWorld.player("A").deckSize, 1);
 });
 
-test.todo("sfd-106-221 Show of Strength: the merged Mighty KeywordDef only exposes the static condition.predicate 'is-mighty' shape; a query/layer predicate consumer (ObjectFilter Might threshold) must replace the descriptive mightGte filter — kw-mighty; the remaining gap is the Might-threshold query consumer, in-progress RIFT-359.");
+test.todo("sfd-106-221 Show of Strength: the merged Mighty KeywordDef only exposes the static condition.value 'is-mighty' shape; a query/layer predicate consumer (ObjectFilter Might threshold) must replace the descriptive mightGte filter — kw-mighty needs an executable query consumer.");
+
+// Direct evidence for each recorded gap: the Mighty expansion cannot bind into
+// the layers today, and the authored threshold filter is not executable by any
+// merged matcher without silently counting every unit.
+test("sfd-106-221 Show of Strength: the merged static binder has no layer mapping for the Mighty predicate (CR 706-708)", () => {
+  const [mightyAbility] = keywordDefinitionsById.get("Mighty").expand({ host: { canonicalCardId: CARD_ID } });
+  assert.equal(mightyAbility.kind, "static");
+  assert.equal(mightyAbility.effect.kind, "condition.value");
+  assert.equal(mightyAbility.effect.predicate, "is-mighty");
+  const { engine, kernel } = fixture({ cards: [{ id: "mighty", cardId: CARD_ID, types: ["unit"], might: 6 }] });
+  engine.commit({ type: "move-zone", object: kernel.ref("mighty"), to: "base", location: { type: "base", player: "A" } });
+  assert.throws(
+    () => createEngineStaticBinder(engine).bindStatic(mightyAbility, kernel.getObject("mighty")),
+    (error) => {
+      assert.equal(error.name, "ProgramBindingError");
+      assert.match(error.message, /condition\.value has no layer mapping/);
+      return true;
+    }
+  );
+});
+
+test("sfd-106-221 Show of Strength: the authored mightGte filter is rejected by the production translator", () => {
+  const authored = program.abilities[1].body[0].args.amount.filter;
+  assert.deepEqual(authored, { type: "unit", controller: "you", mightGte: 5 });
+  assert.throws(
+    () => translateObjectFilter(authored),
+    (error) => {
+      assert.match(error.message, /Unsupported filter field mightGte/);
+      return true;
+    }
+  );
+});
+
+test("sfd-106-221 Show of Strength: the merged layer matcher ignores the Might threshold and would over-count", () => {
+  const kernel = world()
+    .unit("weak", { owner: "A", might: 1 })
+    .unit("mighty", { owner: "A", might: 6 })
+    .unit("opponent", { owner: "B", might: 7 })
+    .build();
+  // With the contract placeholder bound to the controller, a Might-1 unit still
+  // satisfies the filter: the threshold key is not part of the merged matcher.
+  assert.equal(matchesObjectFilter({ type: "unit", controller: "A", mightGte: 5 }, kernel.getObject("weak")), true);
+  assert.equal(matchesObjectFilter({ type: "unit", controller: "A", mightGte: 5 }, kernel.getObject("mighty")), true);
+  // The opponent is excluded by the controller anchor, so the read would be 2
+  // rather than the printed 1 — an approximation the program never performs.
+  assert.equal(matchesObjectFilter({ type: "unit", controller: "A", mightGte: 5 }, kernel.getObject("opponent")), false);
+});
 
 test("sfd-106-221 Show of Strength: the printed cost is really paid by the cost pipeline", () => {
   const kernel = world()

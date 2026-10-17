@@ -4,6 +4,8 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/rally-the-troops.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import buff from "../../../../engine-core/dist/effects/instructions/effect.buff.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -33,6 +35,24 @@ test("Rally the Troops program is valid EffectIR v2 data and judge-required", ()
       "Draw 1."
   );
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
+});
+
+test("Rally the Troops golden: the merged interpreter has no trigger.delayed opcode, so the play body fails closed", () => {
+  // The shipped body is executed as authored through the production adapter;
+  // the merged registry has no trigger.delayed entry, so the registration
+  // instruction can never run and the spell would resolve nothing today. The
+  // body is never rewritten into another timing point to work around this.
+  const kernel = world().player("A", { energy: 5 }).deck(["top-card"]).build();
+  const bound = bindResolveContext(kernel, { source: kernel.objects[0] });
+  assert.throws(
+    () => resolveChainBody(play.body, bound),
+    (error) => {
+      assert.match(error.message, /Unregistered instruction opcode: trigger\.delayed/);
+      return true;
+    }
+  );
+  // Nothing was drawn by the failed resolution: the spell has no executable path.
+  assert.equal(kernel.player("A").handSize, 0);
 });
 
 test("Rally the Troops structure: Action keyword, delayed trigger registration, unlinked draw", () => {
