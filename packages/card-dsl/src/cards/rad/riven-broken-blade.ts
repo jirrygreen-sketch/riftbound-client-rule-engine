@@ -32,9 +32,12 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * status 判定（README 第 2 节，2026-10-17 复核）：judge-required。缺口：
  * - `choice.exclusive-once-per-turn`（本回合未选过的分支记录，303 / 319）：IR 的 choice.mode
  *   只在单次结算内保证 count=1 / different=true，不能承载跨触发的回合历史（无已分配任务号）。
- * - 指令内 Buff 支付门控：费用计划能支付 spend-buff，但没有把支付结果绑定到指令链的
- *   cost.pay 类原语（RIFT-261 进行中）；已合入的 effect.buff mode "spend" 不构成门控。
+ * - 指令内 Buff 支付门控：cost.pay 原语已合入，但 success-gated payment body 仍缺
+ *   （cost/kinds/README.md 契约变更请求 #2）；已合入的 effect.buff mode "spend" 不构成门控。
  * - 触发能力仍缺 CardProgram → TriggerRegistration 的生产适配器（RIFT-120）。
+ *   嵌套 {source:"self"} 锚点经 translateTriggerFilter 已能翻译成
+ *   {event:"object-exhausted", object:{objectId:"src"}}；剩余的是严格校验对
+ *   嵌套 filter 键的 unknown-field 与生产接线。
  * 分支结构已按契约 3.9 用 choice.mode 完整写出，已合入的 effect.buff / effect.stun /
  * effect.ready 在 golden 测试里用解释器 + 参考内核真实执行。
  */
@@ -175,11 +178,14 @@ const program = {
     "需要跨触发的回合历史收据（303 / 319）；IR 的 choice.mode 只在单次结算内保证 count=1/different=true，" +
     "没有 choice.exclusive-once-per-turn 之类原语（无已分配任务号）。" +
     "(2) 「Spend my buff to [Stun]/ready」的「[do X] to [do Y]」是指令内费用（355.10.c.1/404.1.b.1）：" +
-    "费用计划模块已能校验并提交 spend-buff 支付，但没有把该支付绑定进指令链的 cost.pay 类原语" +
-    "（RIFT-261 进行中）；已合入的 effect.buff mode \"spend\" 只是消耗动作，按契约 3.4 的 negated 语义" +
+    "cost.pay 原语已合入，但 success-gated payment body 仍缺（cost/kinds/README.md 契约变更请求 #2）；" +
+    "已合入的 effect.buff mode \"spend\" 只是消耗动作，按契约 3.4 的 negated 语义" +
     "不构成对后续链接指令的费用门控（不把 spend-buff 降级为普通 Might 修改，见文件头注释）。" +
-    "(3) 触发能力缺 CardProgram → TriggerRegistration 的生产适配器（RIFT-120）。" +
-    "已合入的 effect.buff / effect.stun / effect.ready 由 golden 测试用解释器 + 参考内核真实执行。",
+    "(3) 触发能力缺 CardProgram → TriggerRegistration 的生产适配器（RIFT-120）；" +
+    "嵌套 {source:\"self\"} 锚点经 translateTriggerFilter 已能翻译（object:{objectId:\"src\"}），" +
+    "剩余的是严格校验对嵌套 filter 键的 unknown-field 与生产接线。" +
+    "已合入的 effect.buff / effect.stun / effect.ready 由 golden 测试用解释器 + 参考内核真实执行。" +
+    "依赖：success-gated payment body（cost/kinds/README.md 契约变更请求 #2）。",
   abilities,
   sourceText:
     "When I become exhausted, choose one that hasn't been chosen this turn —\n" +

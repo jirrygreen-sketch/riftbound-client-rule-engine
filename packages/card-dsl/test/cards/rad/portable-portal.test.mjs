@@ -25,8 +25,8 @@ test("rad-087-167 Portable Portal: validates, identity and source text", () => {
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /830\.1\.b/);
-  assert.match(program.judgeReason, /continuous\\.location/);
-  assert.match(program.judgeReason, /cost\\.pay/);
+  assert.match(program.judgeReason, /continuous\.location/);
+  assert.match(program.judgeReason, /cost\.pay/);
   assert.match(program.judgeReason, /success-gated/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });

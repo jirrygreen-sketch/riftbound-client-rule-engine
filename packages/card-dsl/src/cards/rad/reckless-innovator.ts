@@ -93,17 +93,27 @@ const abilities: Ability[] = [
                 body: [
                   {
                     // 355.10.c.1：成本内指令的支付部分；混沌符文（Power）支付。
+                    // cost.pay 的主参数是 payments（power 只是修饰选项），无印刷
+                    // 能量时 energy 显式为 0。
                     id: "reckless-innovator.pay-chaos",
                     op: "cost.pay",
                     args: {
-                      power: { kind: "constant", value: ["Chaos"] }
+                      payments: {
+                        kind: "constant",
+                        value: { energy: 0, power: ["Chaos"] }
+                      }
                     }
                   },
                   {
                     id: "reckless-innovator.draw-one",
                     op: "effect.draw",
                     linkedTo: "reckless-innovator.pay-chaos",
-                    args: { amount: { kind: "constant", value: 1 } }
+                    args: {
+                      amount: {
+                        kind: "constant",
+                        value: { kind: "constant", value: 1 }
+                      }
+                    }
                   }
                 ]
               }

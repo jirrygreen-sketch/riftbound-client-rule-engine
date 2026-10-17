@@ -58,7 +58,7 @@ test("rad-043-167 Riven, Broken Blade: identity, ruleset, status, judgeReason an
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /choice\.exclusive-once-per-turn/);
   assert.match(program.judgeReason, /cost\.pay/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /success-gated/);
   assert.match(program.judgeReason, /RIFT-120/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
@@ -182,10 +182,12 @@ test.todo(
 test.todo(
   "rad-043-167 Riven, Broken Blade: make spending the Buff an in-instruction cost ([do X] to [do Y], CR 355.10.c.1 / " +
     "404.1.b.1) so a failed spend blocks the Stun / ready branch — the cost plan pays spend-buff but no " +
-    "in-instruction cost.pay path is merged (RIFT-261, in progress)"
+    "in-instruction cost.pay path is merged — cost.pay itself is merged, the open piece is the success-gated " +
+    "payment body (cost/kinds/README.md contract change request #2)"
 );
 
 test.todo(
   "rad-043-167 Riven, Broken Blade: wire the object-exhausted trigger to the real exhaust action events (CR 415.1.b) " +
-    "so 'When I become exhausted' fires from production play — RIFT-120"
+    "so 'When I become exhausted' fires from production play — translateTriggerFilter already translates the " +
+    "nested {source:'self'} anchor; RIFT-120 owns the production registration"
 );

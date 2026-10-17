@@ -40,6 +40,7 @@ test("rad-052-167 Resource Extractor: the judgeReason names the actual merged ga
   assert.match(program.judgeReason, /entry overrides/);
   assert.match(program.judgeReason, /143\.4/);
   assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
 });
 
 test("rad-052-167 Resource Extractor: [Deploy] plus the turn-end trigger with its printed condition", () => {

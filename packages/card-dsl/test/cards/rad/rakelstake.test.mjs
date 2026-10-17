@@ -35,7 +35,7 @@ test("rad-165-167 Rakelstake: identity, ruleset, status and exact source text", 
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /event-player/);
   assert.match(program.judgeReason, /per-player/);
-  assert.match(program.judgeReason, /programs\\.triggers|triggerRegistrations/);
+  assert.match(program.judgeReason, /programs\.triggers|triggerRegistrations/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 

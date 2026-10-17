@@ -48,7 +48,9 @@ import type { CardProgram } from "../../ir/index.js";
  *   ready would misreport the board, and a later effect.exhaust would be a
  *   separate exhaust action rather than the printed entry state.
  * - The trigger has no registration path (no CardProgram -> TriggerRegistration
- *   adapter, RIFT-120), and the "you control this battlefield" condition has no
+ *   adapter, RIFT-120), the "turn-end" event is absent from the engine's
+ *   EVENT_PATTERN_TYPES (validateTriggerSpec reports invalid-event-type even
+ *   though the timing point exists), and the "you control this battlefield" condition has no
  *   evaluated predicate: the IR Condition kinds (always / never / compare / all /
  *   any / not / expression) carry no battlefield-control query. The condition is
  *   recorded as the pending predicate shape.
@@ -71,7 +73,10 @@ const resourceExtractor = {
     '"play ... token exhausted" 与 ready 的差别没有原语路径（先入场再 effect.exhaust 会多出一次横置动作，不是入场状态）。' +
     "(4) 触发没有注册路径（缺 CardProgram → TriggerRegistration 适配器，RIFT-120），" +
     "且「if you control this battlefield」没有可求值谓词（Condition 的 always/never/compare/all/any/not/expression " +
-    "都不查询战场控制状态）；程序只保留待接线条件形状。依赖：RIFT-120、token 定义表（187.5 / RIFT-9）、入场状态覆盖。",
+    "都不查询战场控制状态；此外 turn-end 事件不在引擎 EVENT_PATTERN_TYPES 词表内" +
+    "（validateTriggerSpec 实测 invalid-event-type，时点本身存在）；程序只保留待接线条件形状。" +
+    "依赖：RIFT-120、token 定义表（187.5 / RIFT-9）、入场状态覆盖、turn-end 事件词表" +
+    "（无已分配任务号）、战场控制谓词（进行中：RIFT-359 条件谓词）。",
   abilities: [
     // 830.1：印刷的 [Deploy] 声明（展开依赖 kw-deploy）。
     { kind: "keyword", keyword: "deploy" },

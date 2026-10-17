@@ -39,8 +39,7 @@ test("rad-114-167 Riven, Deserter: judgeReason names temporary Might, the exhaus
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /choiceObjects/);
   assert.match(program.judgeReason, /386/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /translateLegalityCondition|rules adapter/);
 });
 
 test("rad-114-167 Riven, Deserter: the first ability is an object-exhausted trigger excluding this unit (415.1)", () => {
@@ -199,10 +198,12 @@ test("rad-114-167 Riven, Deserter: the +1 Might body is the merged continuous.mi
 
 test.todo(
   "rad-114-167 Riven, Deserter: 'Exhaust a friendly unit' as a cost selecting a runtime object (CR 415.3.a, " +
-    "355.5) — the cost planner only accepts concrete PickSpec options (RIFT-261)"
+    "355.5) — the cost planner only accepts concrete PickSpec options; cost.pay and cost.modify are merged " +
+    "but accept concrete references only"
 );
 test.todo(
   "rad-114-167 Riven, Deserter: 'Use this ability only once each turn' enforced (CR 386/386.1) — the " +
-    "activation limit needs a chain/cost consumer, and the card-played trigger needs the RIFT-257 registration"
+    "activation limit reaches translateLegalityCondition's rules adapter (programs/play.ts), and the " +
+    "object-exhausted trigger needs the CardProgram -> TriggerRegistration adapter"
 );
 
