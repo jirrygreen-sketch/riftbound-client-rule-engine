@@ -21,9 +21,10 @@ import type { Ability, CardProgram, Expr } from "../../ir/index.js";
  * status 判定（README 第 2 节）：judge-required。缺口不是表达式，而是**声明通道**：
  * 工程里没有卡牌侧的 `continuous.cost-modification`（或 cost.modify / cost.printed）
  * 消费者——费用计划 `buildCostPlan` 的 `discounts` 只由调用方（chain/engine.ts 的费用
- * 输入）提供，没有任何代码把卡片程序里的静态费用改写读成 `CostDiscount`；同时 “self”
- * 这个 owner/牌主占位符只有卡片 IR 语义，费用计划的 `ResolveContext.query` 过滤器仍是
- * 运行时字面值。依赖：费用改写消费方（RIFT-89 的费用计划接线 + cost.modify 原语）。
+ * 输入）提供，没有任何代码把卡片程序里的静态费用改写读成 `CostDiscount`；RIFT-261 的
+ * cost.pay / cost.modify 原语未合入本树，也没有 CardProgram 静态效果 → 费用计划的绑定
+ * （RIFT-257）。同时 “self” 这个 owner/牌主占位符只有卡片 IR 语义，费用计划的
+ * `ResolveContext.query` 过滤器仍是运行时字面值。
  * 折扣金额表达式本身可由解释器真实执行，golden 测试用解释器 + 参考内核断言减费点数，
  * 并用已合入的 `buildCostPlan` 证明同一表达式能产出 10→7 的 Energy 折扣。
  */
@@ -62,7 +63,7 @@ const program = {
     "continuous.cost-modification 静态效果读成费用计划的 CostDiscount，但 engine-core 里没有任何消费者——" +
     "buildCostPlan 的 discounts 只由调用方（chain 的费用输入）提供，cost.modify / cost.printed 也没有原语文件；" +
     "同时 amount 里的 owner: \"self\"（本卡拥有者的 trash）没有费用计划侧的解析定义。" +
-    "依赖：RIFT-89（batch3 费用计划接线 + cost.modify 原语）。折扣点数表达式本身已可由解释器求值，" +
+    "依赖：RIFT-261（cost.pay/cost.modify 未合入本树）、RIFT-257（CardProgram 静态效果绑定）。折扣点数表达式本身已可由解释器求值，" +
     "golden 测试真实执行并断言 10→7 的减费结果。",
   abilities,
   sourceText: "I cost :rb_energy_1: less for each card in your trash."

@@ -10,6 +10,7 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
+import { createLayerEngine, createContinuousEffectRegistry, expireContinuousEffectsAt } from "../../../../engine-core/dist/layers/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-7f8a999072e7b65566be686c006f6ade129a206d08922b9e25ebe2d9167d26ae";
@@ -39,8 +40,11 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, sourceText", () =
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
+  // The refreshed reason: the +4 Might half now executes (continuous.might,
+  // RIFT-258); the remaining gaps are the trigger-binding ones.
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-21/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -92,10 +96,14 @@ test("the third ability is the activated 'spend my buff' with a spend-buff cost 
   assert.equal(spendBuff.body.length, 1);
   const [grant] = spendBuff.body;
   assert.equal(grant.id, "sett.grant-might");
-  // The +4 Might instruction is recorded but not executable (continuous.might).
   assert.equal(grant.op, "continuous.might");
   assert.deepEqual(grant.args.amount, { kind: "constant", value: 4 });
   assert.deepEqual(grant.args.duration, { kind: "constant", value: "this-turn" });
+  // "me" is the ability source, not a chosen target: the primitive's
+  // appliesTo "self" selector resolves the effect to the host, so no
+  // TargetSpec is authored (355.7).
+  assert.deepEqual(grant.args.appliesTo, { kind: "constant", value: "self" });
+  assert.equal(grant.targets, undefined);
 });
 
 test("golden: 'when I'm played, buff me' adds exactly one Buff counter (702.2.a/702.3)", () => {
@@ -135,10 +143,36 @@ test("golden: the cost cannot be paid without a Buff (702.2.b.1)", () => {
   assert.equal(kernel.getObject("sett").buffs, 0);
 });
 
-test.todo(
-  "execute 'Give me +4 :rb_might: this turn' through a registered continuous.might layers consumer, " +
-    "including end-of-turn expiry and the 703 boundary that a Buff only contributes +1 Might (RIFT-91)"
-);
+test("golden: the activated +4 Might registers an end-of-turn arithmetic effect on the source and expires at turn-end", () => {
+  const kernel = settWorld({ buffs: 1 });
+  const outcome = resolveChainBody(spendBuff.body, kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map((entry) => [entry.id, entry.result.status]), [
+    ["sett.grant-might", "executed"]
+  ]);
+  assert.equal(kernel.continuousEffects.length, 1);
+  const [registration] = kernel.continuousEffects;
+  // 478 / 478.1.a: Might modifications live in the arithmetic layer; the
+  // end-of-turn duration ("this turn") is resolved to the turn-end window.
+  assert.equal(registration.effect.layer, "arithmetic");
+  assert.equal(registration.effect.effect.kind, "continuous.might");
+  assert.equal(registration.effect.effect.amount, 4);
+  assert.equal(registration.effect.filter.objectId, "sett");
+  assert.deepEqual(registration.duration, { type: "end-of-turn" });
+
+  // The layer engine applies the +4 on top of the printed Might. CR 703 notes
+  // a Buff contributes its own +1 Might as a layers derivation; the merged
+  // layers/engine.ts moves only the Buff counter, so this assertion pins the
+  // modification itself (4 -> 8) rather than the separate 703 derivation.
+  const registrations = kernel.continuousEffects.map((entry) => ({ effect: entry.effect, duration: entry.duration, timestamp: 1 }));
+  assert.equal(createLayerEngine(kernel.objects, registrations).evaluate(kernel.ref("sett")).might, 8);
+
+  // Expiry: the effect is gone at turn-end, so the Might returns to printed.
+  const registry = createContinuousEffectRegistry(registrations);
+  assert.equal(expireContinuousEffectsAt(registry, "turn-end", (ref) => kernel.object(ref)).length, 1);
+  assert.equal(createLayerEngine(kernel.objects, registry.list()).evaluate(kernel.ref("sett")).might, 4);
+});
 test.todo(
   "conquer trigger end-to-end: object-killed/conquer timing subscription with last-known source capture (RIFT-90/820)"
 );

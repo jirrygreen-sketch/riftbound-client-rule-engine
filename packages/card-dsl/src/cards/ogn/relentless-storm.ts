@@ -22,14 +22,15 @@ import type { CardProgram } from "../../ir/index.js";
  *   exhausted true；431.3 符文不足时尽量 channel。
  *
  * status = judge-required：
- * - 合并的解释器/事件管线没有把卡牌 TriggerSpec 里的 [Mighty] 谓词求值接进触发过滤
- *   （706–709 的 Might ≥ 5 既不是 ObjectFilter 的字段，也不是已注册的 condition.history）；
- *   chain 侧注册触发时也没有 testTrigger 适配器，"you play a [Mighty] unit" 无法真实判定。
+ * - [Mighty] 的 KeywordDef（RIFT-264）与 continuous.might（RIFT-258）已合入，但触发 filter 的
+ *   [Mighty] 条件没有求值路径：程序里的 characteristics: { mighty: true } 是占位标记，706–709 的
+ *   "Might ≥ 5" 既不是 ObjectFilter 的封闭可求值字段，也没有把谓词接进触发匹配的消费方，
+ *   events/pipeline-match.ts 按快照字面属性比较会让它永不匹配。
  * - 触发式 “exhaust me” 的费用语义（415.4 / 404.1.b.1：位于效果开头的 [do X] 按费用在
  *   Finalize 支付，415.1.b/c 下已横置的来源无法支付、触发应移出链）没有接线：
  *   TriggeredAbility 无费用字段，合并管线也没有把卡牌程序里的 [do X] 转成触发费用的路径。
- * 依赖：RIFT-87/90（目标与条件管线）、RIFT-89（费用接线）。effect.channel 部分已可用，
- * golden 用解释器实际执行该子效果。
+ * - 卡牌 triggered ability 注册成实时触发依赖 RIFT-257（card-program 绑定）。
+ * effect.exhaust / effect.channel 子效果已可用，golden 用解释器实际执行该子效果。
  */
 const relentlessStorm = {
   canonicalCardId:
@@ -37,11 +38,13 @@ const relentlessStorm = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 [Mighty] 触发谓词的求值路径：706–709 的 “Might ≥ 5” 既不是 ObjectFilter 的封闭字段，" +
-    "也不是已注册的 condition.history；chain 侧注册卡牌触发（TriggerRegistration）时没有 testTrigger 适配器，" +
-    "“you play a [Mighty] unit” 无法真实判定。触发效果开头 “exhaust me” 的费用语义（404.1.b.1：" +
-    "费用在 Finalize 支付、不能支付则该触发移出链）也没有合并的 CostSpec/费用接线。" +
-    "依赖 RIFT-87/90（条件与目标管线）与 RIFT-89（费用接线）；effect.channel 子效果已可用。",
+    "三处缺口：[Mighty] 的 KeywordDef（RIFT-264）与 continuous.might（RIFT-258）已合入，" +
+    "但 (1) 触发 filter 的 [Mighty] 条件仍没有求值路径——characteristics: { mighty: true } 是占位标记，" +
+    "706–709 的 “Might ≥ 5” 既不是 ObjectFilter 的封闭可求值字段，也没有把谓词接进触发匹配的消费方，" +
+    "events/pipeline-match.ts 会因快照没有该属性而永不匹配；(2) 触发效果开头 “exhaust me” 的费用语义" +
+    "（404.1.b.1：费用在 Finalize 支付、不能支付则该触发移出链）没有接线——TriggeredAbility 无费用字段，" +
+    "合并管线没有把卡牌程序里的 [do X] 转成触发费用的路径；(3) 卡牌 triggered ability 注册成实时触发依赖 RIFT-257。" +
+    "effect.exhaust / effect.channel 子效果已可用并有执行测试；整卡保持 judge-required，不近似实现。",
   abilities: [
     {
       kind: "triggered",

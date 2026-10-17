@@ -31,25 +31,26 @@ import type { CardProgram } from "../../ir/index.js";
  *   at Finalize (356.1.c); the program declares no CostSpec instead of
  *   re-stating printed values.
  *
- * Status: judge-required — the effect body uses only merged primitives and is
- * executed in the golden test, but the printed [Action] line cannot be honoured
- * yet: keywords/Action.ts expands to a `continuous.timing` static ability
- * (806.1.c / 159.2.a) with no merged consumer (RIFT-91 layers), and the chain
- * does not read declared keywords — ChainEngine.canAct() gates a Showdown play
- * on the caller-supplied draft.speed, and no CardProgram -> ChainDraft adapter
- * exists (chain/engine.ts describePlay). Two further gates stay TODO with task
- * numbers: the location restriction re-check at resolution (359.3.e.9's Rebuke
- * example, owned by the TargetPlan resolve path, RIFT-90) and cost payment
- * (RIFT-84/85).
+ * Status: executable — every printed piece has a merged, executable path and
+ * real execution evidence:
+ * - the [Action] permission is declared as a keyword ability; Action.ts
+ *   expands it to `continuous.timing` (806.1.c / 159.2.a) and the merged
+ *   layers/rules query consumes the grant (`actionTimings` / `canAct`,
+ *   RIFT-259): off-turn Showdown admission is decidable from the registration;
+ * - the return instruction executes on the merged effect.zone primitive and
+ *   routes the unit to its OWNER's hand (108.1);
+ * - the 359.3.e.9 Rebuke example works end to end: the TargetPlan resolve
+ *   re-checks the locked target against the declared battlefield filter, so a
+ *   unit that moved to its Base after Finalize is Mistargeted and the
+ *   instruction is ignored (verified by the golden test).
+ * The card-program -> ChainDraft adapter (chain/engine.ts describePlay) is
+ * still coordinator-owned integration wiring, the same status as for the
+ * other merged spell cards (ogn/void-seeker.ts, ogn/challenge.ts).
  */
 const rebuke = {
   canonicalCardId: "card.hash-b729f880ae397e8eedd9b1e93aaab464d98abc273a98ec06ba2e03bf7c0c97a6",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "缺 [Action] 时机许可的可执行路径：keywords/Action.ts 只展开为 static continuous.timing（806.1.c / 159.2.a），图层消费方尚未合入（RIFT-91），" +
-    "链侧 canAct() 取决于调用方提供的 draft.speed，且没有 CardProgram → ChainDraft 打出适配（chain/engine.ts describePlay 未实现）。" +
-    "effect.zone 半段（战场单位 → 拥有者手牌）只用已合入原语并有执行测试；359.3.e.9 的「离开战场即 Mistarget」重验由 TargetPlan resolve 负责（RIFT-90），依赖 RIFT-84/85/90/91。",
+  status: "executable",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

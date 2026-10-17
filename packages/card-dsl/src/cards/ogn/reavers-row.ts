@@ -19,22 +19,29 @@ import type { CardProgram } from "../../ir/index.js";
  *   target locked while the ability is finalized; "here" is expressed with the
  *   frozen `sameLocationAs: "self"` anchor (contract 3.6).
  *
- * Status: judge-required — the ability cannot run in production because no
- * merged module emits `defense-declared` into the single event pipeline (see
- * judgeReason). The body only uses merged primitives (choice.optional +
- * effect.move) and is executed by the golden test.
+ * Status: judge-required — three gaps, none approximated:
+ * 1. no merged module emits `defense-declared` into the single event pipeline:
+ *    combat/flow.ts still throws combat-start-transaction and the RIFT-270
+ *    producer audit lists attack/defense-declared as 待后续;
+ * 2. "here" has no evaluable anchor: the closed EventPattern/ObjectFilter
+ *    vocabulary has no battlefield-relative spelling, so the static filter
+ *    cannot read its host's runtime location id (the `here: true` key is the
+ *    documented placeholder);
+ * 3. no merged subscriber turns a CardProgram's triggered ability into a live
+ *    TriggerRegistration (card-program binding, RIFT-257).
+ * The body only uses merged primitives (choice.optional + effect.move) and is
+ * executed by the golden test.
  */
 const reaversRow = {
   canonicalCardId: "card.hash-50eea6ceaf8ca3375c963141d772172c81248799d0edc1429deefe6b8b1862e0",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺时点接线：\"When you defend here\" 依赖 defense-declared 时点（CR 383.4.f.2、323.2）进入唯一事件管线，" +
-    "但已合入代码没有任何模块 emit 攻防宣告（chain/engine.ts 只消费调用方提供的时点，combat/ 尚未接线），" +
-    "需 combat/触发接线任务（RIFT-33 及契约 §7.2 批 5）；触发器 filter 里的 here=true 是等待战斗载荷的占位键，" +
-    "引擎侧 assertTriggerSpec 同样以 \"EventPattern 不允许此字段\" 拒绝它（golden 测试断言了这一点）。" +
-    "能力本体（choice.optional 包裹 effect.move，to: \"controller-base\"）只用已合入原语，" +
-    "位置锚点用 sameLocationAs: \"self\"；整卡在时点接线前保持 judge-required，不近似实现。",
+    "三处缺口：(1) defense-declared 时点（CR 383.4.f.2.a、323.2）仍没有发射方——combat/flow.ts 的攻防宣告事务未实现" +
+    "（显式抛 combat-start-transaction），RIFT-270 审计也把 attack/defense-declared 标为待后续，触发无法进入唯一事件管线；" +
+    "(2)「here」没有可求值的锚点：EventPattern/ObjectFilter 没有战场相对词汇，静态 filter 读不到宿主的运行时地点身份，" +
+    "程序里的 here=true 是等待战斗载荷绑定的占位键；(3) 没有消费方把卡牌的 triggered ability 注册成实时触发（卡牌程序绑定 RIFT-257）。" +
+    "能力本体（choice.optional 包裹 effect.move，to: \"controller-base\"）只用已合入原语并有执行测试；整卡保持 judge-required，不近似实现。",
   sourceText: "When you defend here, you may move a friendly unit here to base.",
   abilities: [
     {

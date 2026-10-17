@@ -20,6 +20,7 @@ test("Sabotage program is structurally valid and judge-required", () => {
   assert.equal(sabotage.status, "judge-required");
   assert.match(sabotage.judgeReason, /355\.7/);
   assert.match(sabotage.judgeReason, /effect\.recycle/);
+  assert.match(sabotage.judgeReason, /执行测试/);
   assert.equal(sabotage.rulesetVersion, "core-1.5");
   assert.equal(
     sabotage.canonicalCardId,

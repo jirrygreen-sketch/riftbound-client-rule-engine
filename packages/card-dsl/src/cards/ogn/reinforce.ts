@@ -47,27 +47,33 @@ import type { CardProgram } from "../../ir/index.js";
  *   reply.
  *
  * Status: judge-required. The look / banish / recycle halves are merged and
- * are executed by the golden test, but the cost reduction cannot be declared
- * or executed: there is no `cost.modify` primitive under
- * effects/instructions/, and effect.play requires its `cost` argument to
- * already be a FinalizedCostPlan computed by the cost system (it never derives
- * printed costs and never implements an ignored/discounted cost rule). Without
- * it, playing the banished card would either pay the full printed cost or do
- * nothing — both wrong, so the play instruction carries the intended cost
- * descriptor and resolves negated instead of approximating.
+ * are executed by the golden test, but two gaps remain:
+ * - the cost reduction cannot be declared or executed: there is no
+ *   `cost.modify` / `cost.printed` primitive under effects/instructions/ in
+ *   this tree, buildCostPlan's discounts are still caller-supplied only, and
+ *   effect.play requires its `cost` argument to already be a FinalizedCostPlan
+ *   computed by the cost system (it never derives printed costs and never
+ *   implements an ignored/discounted cost rule). The RIFT-261 cost-op batch is
+ *   not merged here; without it, playing the banished card would either pay
+ *   the full printed cost or do nothing — both wrong, so the play instruction
+ *   keeps the intended cost descriptor as reviewable data;
+ * - the ordered deck-top pick lifecycle is not merged: effect.inspect's "top"
+ *   scope requires an upstream ordered picksSpecId (its own contract states a
+ *   set query is never used to approximate deck order).
  */
 const reinforce = {
   canonicalCardId: "card.hash-c2c17a54e193d86678b7e7bb36f02bf0db8c677c91f7ac73a0fa57cb2acc8be5",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "减费无法表达或执行：「play it, reducing its cost by :rb_energy_5:」需要按 CR 356.1.c/356.6 在打出该牌时改写其印刷基础费用" +
-    "（能源费 -5，且不得低于 0）；effects/instructions/ 下没有 cost.modify 原语，冻结的 CostSpec 也只有 kind/payments/energy/power/discard" +
-    "（cost/plan-values.ts 的 readCost），无法声明减费；已合入的 effect.play 明确要求 cost 参数是费用系统产出、已 Finalize 的" +
-    " FinalizedCostPlan（它不推导印刷费用、也不实现减费/忽略费用规则），因此“从放逐区打出并减 5 费”没有可执行路径。" +
-    "依赖：RIFT-89（batch3 cost-plan 的 cost.modify/减费入口）。" +
-    "Look at top 5（effect.inspect 的 top 作用域，需上游有序 picksSpecId，RIFT-66）、banish 所选牌（effect.banish）与" +
-    "Recycle the remaining（effect.recycle）都已合入并由 golden 真实执行；整卡仍按缺减费依赖保持 judge-required，不近似实现。",
+    "两处缺口：(1) 减费仍不可表达或执行——「play it, reducing its cost by :rb_energy_5:」需要按 CR 356.1.c/356.6 " +
+    "在打出该牌时改写其印刷基础费用（能源费 -5，不得低于 0）；本树 effects/instructions/ 仍没有 cost.modify / cost.printed 原语，" +
+    "冻结的 CostSpec 只有 kind/payments/energy/power/discard（cost/plan-values.ts 的 readCost），buildCostPlan 的 discounts " +
+    "只由调用方提供、没有消费方读取卡牌程序，已合入的 effect.play 也要求 cost 参数是费用系统产出、已 Finalize 的 FinalizedCostPlan" +
+    "（RIFT-261 cost.pay/cost.modify 未合入）；(2) 缺「按牌库顶顺序取前 5 张」的生产选择生命周期——effect.inspect 的 top scope " +
+    "必须由上游提供有序 picksSpecId（其自身文档明确 query 不保证顺序，缺有序来源时 negated/impossible），链的 Finalize 面只锁定 " +
+    "instruction.targets 的 TargetSpec（chain/engine.ts assertFinalizationSurface），没有有序区域 pick 的生命周期。" +
+    "look/banish/recycle 三段只用已合入原语并已由 golden 真实执行；依赖 RIFT-261、有序 picks 生命周期与 RIFT-257 卡牌绑定。不近似实现。",
   abilities: [
     {
       kind: "play",
