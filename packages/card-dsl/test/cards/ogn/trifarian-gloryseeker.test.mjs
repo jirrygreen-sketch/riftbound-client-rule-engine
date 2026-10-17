@@ -24,6 +24,8 @@ test("ogn-217-298 Trifarian Gloryseeker: program validates and has expected iden
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Legion/);
   assert.match(program.judgeReason, /effect\.buff/);
+  assert.match(program.judgeReason, /condition\.history/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(
     program.sourceText,
     "[Legion] — When you play me, buff me. (If I don't have a buff, I get a +1 :rb_might: buff. " +
@@ -111,11 +113,19 @@ test("ogn-217-298 Trifarian Gloryseeker: a unit that already has a Buff is not B
 
 test.todo(
   "ogn-217-298 Trifarian Gloryseeker: [Legion] dependent-ability activation (CR 812.1.b.1/812.1.c) — " +
-    "需要 condition.history/predicate 的卡牌侧实现与按卡身份排除字段（契约 3.8 已登记、实现未落地），依赖 RIFT-82"
+    "the activation gate must be evaluated as a trigger condition over this turn's finalized cards " +
+    "excluding this card; condition.history is a resolution-time instruction and the trigger condition's " +
+    "count expression does not count history, and the keyword's excluding payload is rejected by the " +
+    "history parser (Unsupported history query field)"
 );
 
 test.todo(
   "ogn-217-298 Trifarian Gloryseeker: 'buff me' as a non-target self selection — " +
     "effect.buff 只从 ctx.targets(TargetSpec id) 读取对象；用 TargetSpec 包装会错误登记成为目标（355.10.d.1），" +
     "待原语支持 source/pick/query 形式的自身选择器"
+);
+
+test.todo(
+  "ogn-217-298 Trifarian Gloryseeker: bind the card-played CardProgram trigger through the complete " +
+    "program adapter (RIFT-257)"
 );

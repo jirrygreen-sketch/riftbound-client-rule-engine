@@ -21,21 +21,20 @@ import type { CardProgram } from "../../ir/index.js";
  *   sequence（your-turn 条件）→ [effect.move, effect.ready（Empowered 条件）]。
  * - 355.9 / 355.10 / 359.3.e.7：单个 “a friendly unit” 是被选目标，结算时目标失效则 ignored。
  *
- * status = judge-required（四处缺口均不近似实现）：
- * 1. 缺 [Empower] 关键词展开：effects/keywords/ 没有 Empower KeywordDef（已合入的关键词批次
- *    RIFT-81~88 只含 Assault/Shield、Deathknell/Legion、Ganking/Vision、Deflect/Hidden、
- *    Action/Reaction、Repeat/Accelerate、Equip/Quick-Draw/Weaponmaster、Mighty），
- *    827.1.c.1 的启动费用与 “Use only if not Empowered” 限制都没有可执行展开；按 README
- *    第 5 节本卡只声明关键词，不手写展开。印刷费用里的 [A] 也无法在六域封闭 Domain 集合中
- *    表达（163.2.b；effect.resources 已记录「绝不用某个域近似」）。
- * 2. 缺「If it's your turn」的回合归属谓词：Condition / Expr / TriggerSpec 都没有
+ * status = judge-required（复核 2026-10-16；四处缺口均不近似实现）：
+ * 1. 仍缺 [Empower] 关键词展开：effects/keywords/ 没有 Empower KeywordDef（RIFT-264~268 的
+ *    关键词批次仍不含它），827.1.c.1 的启动费用与 “Use only if not Empowered” 限制都没有
+ *    可执行展开；按 README 第 5 节本卡只声明关键词，不手写展开。印刷费用里的 [A] 也无法在
+ *    六域封闭 Domain 集合中表达（163.2.b；effect.resources 已记录「绝不用某个域近似」）。
+ * 2. 仍缺「If it's your turn」的回合归属谓词：Condition / Expr / TriggerSpec 都没有
  *    active-player / turn-owner 测试，程序里以描述性 expression 条件保留从句作用范围。
- * 3. 缺「if I'm [Empowered]」的状态谓词：契约 3.6 的 ObjectSnapshot 不暴露 Empowered
- *    状态，condition.predicate 原语未合入（effect.empower 文档记录同一契约缺口）。
- * 4. 「a friendly unit in a showdown」不可表达：Showdown 是回合状态（308.1、310.3–310.4），
- *    ObjectFilter 没有 showdown 字段——target 过滤只能表达「at a battlefield」；程序里用
- *    描述性键 inShowdown 记录该条件，但没有任何已合入的目标/触发消费方读取它。
- * 依赖：新增 Empower/Empowered 关键词任务、RIFT-90（目标/谓词）、RIFT-91（图层）与条件管线；
+ * 3. 仍缺「if I'm [Empowered]」的状态谓词：契约的 ObjectSnapshot 不暴露 Empowered 状态
+ *    （effect.empower 文档记录同一契约缺口），程序里以描述性 expression 条件保留。
+ * 4. 仍缺「a friendly unit in a showdown」的目标维度：ObjectSnapshot 没有 showdown 字段，
+ *    ObjectFilter 也没有该键（308.1、310.3–310.4 的 Showdown 是回合状态）；程序里用
+ *    描述性键 inShowdown 记录，但 programs/filters.ts 的 translateObjectFilter 会以
+ *    judge-required 拒绝未知键（fail closed，不静默放任成普通“战场上的单位”）。
+ * 依赖：新增 Empower/Empowered 关键词任务、回合/状态谓词与 showdown 目标维度；
  * effect.move / effect.ready 本体已合入，golden 用真实解释器执行这两个子效果。
  */
 const rogueAssassin = {
@@ -44,16 +43,17 @@ const rogueAssassin = {
   status: "judge-required",
   judgeReason:
     "四处缺口：(1) 缺已合入的 [Empower] KeywordDef——effects/keywords/ 没有 Empower 展开" +
-    "（RIFT-81~88 关键词批次不含它），827.1.c.1 的「3 能量 + 1 [A]：Empower this。仅当未 Empowered 时启动」" +
+    "（RIFT-264~268 关键词批次仍不含它），827.1.c.1 的「3 能量 + 1 [A]：Empower this。仅当未 Empowered 时启动」" +
     "与 827.1.b.1 的「来源不是目标」都无执行路径；费用里的 :rb_rune_rainbow: 是任意域 Power [A]" +
     "（135.2.e.5.a、163.2.b），六域封闭 Domain 集合无法表达。" +
     "(2) 缺「If it's your turn」的回合归属谓词：Condition/Expr 没有 active-player / turn-owner 测试" +
     "（135.2.b.5.b 要求该从句作用于同句后续所有指令，程序用 sequence + 描述性 expression 条件保留范围）。" +
-    "(3) 缺「if I'm [Empowered]」的状态谓词：契约 3.6 的 ObjectSnapshot 不暴露 Empowered 状态，" +
-    "condition.predicate 原语未合入（effect.empower 文档记录同一契约缺口）。" +
+    "(3) 缺「if I'm [Empowered]」的状态谓词：契约的 ObjectSnapshot 不暴露 Empowered 状态" +
+    "（effect.empower 文档记录同一契约缺口），程序以描述性 expression 条件保留。" +
     "(4) 「a friendly unit in a showdown」不可表达：Showdown 是回合状态（308.1、310.3–310.4），" +
-    "ObjectFilter 没有 showdown 字段，target 过滤只能用描述性键 inShowdown 记录、没有消费方。" +
-    "依赖新增 Empower/Empowered 关键词任务、RIFT-90（目标/谓词）、RIFT-91（图层）与条件管线；" +
+    "ObjectSnapshot/ObjectFilter 都没有 showdown 键，programs/filters.ts 的 translateObjectFilter 会以 " +
+    "judge-required 拒绝描述性键（fail closed，不静默当成普通战场单位）。" +
+    "依赖新增 Empower/Empowered 关键词任务、回合/状态谓词与 showdown 目标维度；" +
     "effect.move / effect.ready 两个子效果已合入，golden 用真实解释器执行。不近似实现。",
   abilities: [
     // [Empower] :rb_energy_3::rb_rune_rainbow: —— 只声明关键词身份；印刷费用与

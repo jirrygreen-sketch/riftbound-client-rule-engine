@@ -20,28 +20,38 @@ import type { CardProgram } from "../../ir/index.js";
  *   (414.1/414.3 "Draw X"); deck-shortage Burn Out handling (414.4) stays
  *   with the kernel.
  *
- * Status is judge-required: the Might predicate in the count filter requires
- *   the condition.predicate / condition.value "mighty" filter supported by the
- *   Mighty keyword (kw-mighty); the frozen keyword registry is currently empty
- *   (RIFT-16 generator target, keyword implementations are the RIFT-83 scope).
- *   Until the Mighty predicate exists in the registry, the numeric
- *   `might-gte-5` filter used here is descriptive rather than verified against
- *   an official keyword definition.
+ * Status is judge-required, with a narrower gap than the original note: the
+ * Mighty KeywordDef has since merged (effects/keywords/Mighty.ts, RIFT-264~268
+ * keyword batch), but it only publishes a static `condition.predicate` /
+ * `condition.value` "is-mighty" shape — no merged query/layer evaluator
+ * consumes it, and ObjectFilter has no Might-threshold predicate slot. The
+ * count filter's `mightGte: 5` key is silently ignored by every merged filter
+ * matcher (layers/filter.ts matchesObjectFilter reads type/zone/controller/
+ * owner/tags/characteristics only; programs/filters.ts translateObjectFilter
+ * rejects unknown keys outright), so evaluating this amount through the merged
+ * query path would count every unit the controller has. The predicate is
+ * therefore descriptive and cannot be executed without inventing semantics.
+ * The play body itself binds through the merged RIFT-257 adapter, and the
+ * count-driven draw executes (golden).
  */
 export default {
   canonicalCardId: "card.hash-7be9e4bed44d19de26a4a7a292ab8406e43694b33916fc5246d46347fa4ad85f",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "The amount expression counts 'your Mighty units' through a count filter " +
-    "{ type: 'unit', controller: 'you', mightGte: 5 }. Mighty is CR v1.5 706-708 " +
-    "(a unit is Mighty while its Might is 5+), but the keyword registry that is " +
-    "supposed to own the canonical 'mighty' predicate is still empty " +
-    "(keywords/registry.generated.ts has no entries; kw-mighty is part of the " +
-    "RIFT-83 keyword scope). The draw instruction itself (effect.draw, " +
-    "count-driven amount) is fully merged; only the official Mighty predicate " +
-    "binding is missing, so the card stays judge-required rather than " +
-    "approximating the predicate.",
+    "The amount expression counts 'your Mighty units' through the count filter " +
+    "{ type: 'unit', controller: 'you', mightGte: 5 }. Mighty is CR v1.5 706-708 (a unit is Mighty " +
+    "while its Might is 5 or greater). The Mighty KeywordDef has merged (effects/keywords/Mighty.ts), " +
+    "but it only publishes a static condition.predicate / condition.value 'is-mighty' shape: no merged " +
+    "query or layer evaluator consumes that predicate (layers/engine.ts conditionMatches only resolves " +
+    "always/never/type/has-tag/has-keyword), and ObjectFilter has no Might-threshold slot. Every merged " +
+    "filter matcher silently ignores the unknown `mightGte` key (layers/filter.ts matchesObjectFilter " +
+    "reads type/zone/controller/owner/tags/characteristics; programs/filters.ts translateObjectFilter " +
+    "rejects unknown keys), so evaluating the declared amount through the merged path would count every " +
+    "unit the controller has — an approximation that is not allowed. The play body binds through the " +
+    "merged RIFT-257 adapter and the count-driven draw itself executes (golden); only the official Mighty " +
+    "predicate binding is missing. Dependencies: an ObjectFilter Might-threshold predicate (kw-mighty / " +
+    "RIFT-91 query consumer) and RIFT-90 for the target-side predicates.",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {

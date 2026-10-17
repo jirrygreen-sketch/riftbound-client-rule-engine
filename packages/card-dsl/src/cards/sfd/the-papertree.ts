@@ -20,14 +20,14 @@ import type { CardProgram } from "../../ir/index.js";
  *   programmatic set (355.10.d, not a target) whose membership is decided by
  *   the Mode of Play, and each member each channels for themselves (431.1).
  *
- * Status: judge-required. Two merged gaps, none approximated:
- * 1. no merged module emits hold into the single event pipeline
- *    (scoring/scoring.ts returns triggerScore/triggerMethod flags that
- *    turn-executor-v2 consumes; the chain/pipeline emit sites cover only
- *    chain / card-played / showdown / cleanup / became-target), so the
- *    triggered ability cannot enter the chain. The filter's here placeholder
- *    is the 053.3 spelling the trigger-spec validator rejects
- *    (RIFT-31/RIFT-33, contract 7.2 batch 5).
+ * Status: judge-required. Two current gaps, none approximated:
+ * 1. the hold timing point is now emitted by the merged turn/scoring flow
+ *    (turn/flow.ts scheduleScore → 'hold' with a details.battlefieldId
+ *    payload), but "here" still has no evaluable anchor: the static filter
+ *    cannot read its own host's runtime location id, the EventPattern
+ *    vocabulary has no payload-location selector, and the `here: true`
+ *    placeholder is rejected by assertTriggerSpec (the golden asserts that).
+ *    The card-program trigger binding itself (RIFT-257) is merged.
  * 2. "each player channels" is a per-player iteration. The merged IR executes
  *    one body under a single ResolveContext: effect.channel reads one
  *    PlayerId (or an Expr evaluating to one — an array is negated as
@@ -48,9 +48,10 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Two merged gaps, none approximated. (1) The hold timing point (383.4.d / 471.2 / 473.2.b) is never emitted into the single event " +
-    "pipeline: scoring/scoring.ts only returns triggerScore/triggerMethod flags for turn-executor-v2, so the trigger cannot enter the " +
-    "chain (RIFT-31/RIFT-33, contract 7.2 batch 5); the filter here placeholder is the 053.3 spelling assertTriggerSpec rejects. " +
+    "Two current gaps, none approximated. (1) The hold timing point (383.4.d / 471.2 / 473.2.b) is emitted by the merged turn/scoring flow " +
+    "(turn/flow.ts scheduleScore publishes hold with a details.battlefieldId payload), but the here anchor has no evaluable form: the static filter " +
+    "cannot read the host's runtime location id, the EventPattern vocabulary has no payload-location selector, and the filter here placeholder is the " +
+    "053.3 spelling assertTriggerSpec rejects (the golden asserts it). The card-program trigger binding (RIFT-257) is merged. " +
     "(2) \"each player channels 1 rune exhausted\" is a per-player iteration with no merged execution path: effect.channel reads one " +
     "PlayerId (an array evaluates to negated/impossible), the frozen opcode list has no player-set enumeration or per-seat repetition " +
     "(RIFT-9 target.player / player-iteration work is unmerged; same gap as ogn/whirlwind and ogn/obelisk-of-power), so the body carries " +

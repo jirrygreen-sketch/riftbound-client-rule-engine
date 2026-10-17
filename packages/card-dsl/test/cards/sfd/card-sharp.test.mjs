@@ -4,6 +4,8 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/card-sharp.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
+import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-94f6785f45c0764b0cc33e8a81071bd4f8cfdc8c7bc304c63df0687a8e936307";
 const EACH_ID = "card-sharp.each-player-may-play-gold";
@@ -33,7 +35,7 @@ test("sfd-081-221 Card Sharp: judgeReason names the multi-player choice, result 
   assert.match(program.judgeReason, /party-favors/);
   assert.match(program.judgeReason, /187\.5/);
   assert.match(program.judgeReason, /RIFT-9/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /token/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -87,7 +89,11 @@ test("sfd-081-221 Card Sharp: 'For each opponent who did' reads the first clause
     key: "opponentsWhoPlayed"
   });
   assert.deepEqual(bonusTokens.args.mode, { kind: "constant", value: "play" });
-  assert.deepEqual(bonusTokens.args.entersExhausted, { kind: "constant", value: true });
+  // "exhausted" is an entry state (184.1/185.2.d) that effect.token's argument
+  // schema does not accept, so it stays recorded in the first clause's shape
+  // and in the judgeReason instead of being smuggled into the token args.
+  assert.equal("entersExhausted" in bonusTokens.args, false);
+  assert.deepEqual(eachPlayer.args.entersExhausted, { kind: "constant", value: true });
   // "you play": the ability's controller (190.6.d).
   assert.deepEqual(bonusTokens.args.location, {
     kind: "constant",
@@ -106,5 +112,26 @@ test.todo(
 );
 test.todo(
   "sfd-081-221 Card Sharp: play a Gold gear token exhausted — CR 187.5 definition plus 440.2.c/185.2.a chain " +
-    "creation and the 184.1/185.2.d exhausted entry stipulation (token primitive task)"
+    "creation and the 184.1/185.2.d exhausted entry stipulation"
 );
+
+test("sfd-081-221 Card Sharp: the merged effect.token primitive refuses the Gold definition", () => {
+  // The second clause names the printed "gold" definition; the merged primitive
+  // refuses definitions that carry their own abilities (CR 187.5) and reports
+  // the reason, so no substitute token can be created in its place.
+  const kernel = world().player("A")
+    .unit("sharp", { types: ["unit"], might: 3, location: { type: "base", player: "A" } })
+    .build();
+  const run = runInstruction(token, {
+    token: { kind: "constant", value: "gold" },
+    amount: { kind: "constant", value: 1 },
+    mode: { kind: "constant", value: "play" },
+    location: { kind: "constant", value: { type: "base", player: "A" } },
+    linkKey: { kind: "constant", value: "bonusGoldTokens" }
+  }, { world: kernel.clone({ sourceSnapshot: kernel.getObject("sharp") }) });
+
+  assert.deepEqual(run.result, { status: "negated", reason: "impossible", events: [] });
+  assert.equal(run.linked.bonusGoldTokens.blockedReason, "token-definition-or-abilities-judge-required");
+  assert.equal(run.linked.bonusGoldTokens.amount, 0);
+  assert.deepEqual(kernel.objects.filter((object) => object.isToken).map((object) => object.ref.id), []);
+});

@@ -4,8 +4,9 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/sivir-mercenary.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import continuousMight from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-bd07122c30b6cd8a4c4c84c4bcce0070fad8ea471344189ee61fb766cb54e888";
 const SOURCE_TEXT =
@@ -27,7 +28,12 @@ test("sfd-143-221 Sivir, Mercenary: identity, ruleset, status, judgeReason and v
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /163\.2\.b/);
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  // The Might/grant execution sides merged with RIFT-258; the refreshed reason
+  // cites the static-to-layer registration consumer (RIFT-257) and the
+  // in-progress cost work (RIFT-261).
+  assert.match(program.judgeReason, /RIFT-258/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -96,23 +102,97 @@ test("sfd-143-221 Sivir, Mercenary: the merged arithmetic layer applies the decl
   assert.equal(kernel.getObject("sivir").buffs, 0);
 });
 
+test("sfd-143-221 Sivir, Mercenary: the merged continuous.might primitive registers the arithmetic effect this card declares", () => {
+  // RIFT-258's continuous.might is the execution side the card was waiting for:
+  // running the card's declared amount/mode through the real primitive records
+  // one arithmetic-layer registration on the controller's source unit, and the
+  // layers engine then evaluates the printed +2.
+  const kernel = world().unit("sivir", { might: 4, location: { type: "battlefield", id: "bf-1" } }).build();
+  const scoped = kernel.clone({
+    source: kernel.ref("sivir"),
+    sourceSnapshot: kernel.getObject("sivir")
+  });
+
+  const run = runInstruction(
+    continuousMight,
+    {
+      amount: { kind: "constant", value: 2 },
+      mode: { kind: "constant", value: "add" },
+      appliesTo: { kind: "constant", value: "self" }
+    },
+    { world: scoped }
+  );
+  assert.equal(run.result.status, "executed");
+  assert.deepEqual(scoped.continuousEffects.map((entry) => entry.effect.filter.objectId), ["sivir"]);
+  assert.equal(scoped.continuousEffects[0].effect.effect.amount, 2);
+
+  const engine = createLayerEngine(kernel.objects, scoped.continuousEffects.map((entry, index) => ({
+    ...entry,
+    timestamp: 1,
+    sequence: index + 1
+  })));
+  assert.equal(engine.evaluate(kernel.ref("sivir")).might, 6);
+  // 702-704: the +2 is a Might modification, never a Buff counter.
+  assert.equal(kernel.getObject("sivir").buffs, 0);
+});
+
+test("sfd-143-221 Sivir, Mercenary: the layer condition evaluator treats the declared spend gate as true until a compare evaluator exists", () => {
+  // Durable evidence for the judgeReason: the card's gate is a compare over
+  // "Universal Power spent this turn". layers/engine.ts's conditionMatches only
+  // resolves always/never/type/has-tag/has-keyword and returns true for unknown
+  // kinds, so registering the declared static ability unchanged would grant +2
+  // Might unconditionally. This golden pins that behavior so the card must stay
+  // judge-required until the condition evaluator and the spent read land.
+  const kernel = world().unit("sivir", { might: 4, location: { type: "battlefield", id: "bf-1" } }).build();
+  const snapshot = kernel.getObject("sivir");
+  const engine = createLayerEngine([snapshot], [
+    {
+      effect: {
+        id: "sivir-mercenary.might.gated",
+        layer: "arithmetic",
+        source: snapshot.ref,
+        filter: { objectId: "sivir" },
+        effect: {
+          kind: "continuous.might",
+          mode: "add",
+          amount: { kind: "constant", value: 2 },
+          condition: mightStatic.condition
+        }
+      },
+      duration: { type: "permanent" },
+      timestamp: 1,
+      sequence: 1
+    }
+  ]);
+  assert.equal(engine.evaluate(snapshot.ref).might, 6);
+  // The declared gate still names the unmodelled spend read, so nothing may
+  // treat it as evaluated. The comparison operators themselves are the merged
+  // interpreter's job, not the layer's.
+  assert.equal(mightStatic.condition.left.subject, "universal-power-spent-this-turn");
+  assert.equal(typeof mightStatic.condition.left.kind, "string");
+});
+
 test.todo(
   "sfd-143-221 Sivir, Mercenary: evaluate \"you've spent at least [A][A] this turn\" — no merged Expr reads " +
-    "spent resources (count counts objects, not amounts; ResolveContext exposes no spend receipt) and [A] is " +
-    "163.2.b Universal Power, which the closed Domain type cannot express (RIFT-89; contract change request)"
+    "spent resources (count counts objects, not amounts; ResolveContext exposes no spend receipt), the layer " +
+    "condition evaluator has no compare semantics, and [A] is 163.2.b Universal Power, which the closed Domain " +
+    "type cannot express (RIFT-261; contract change request)"
 );
 
 test.todo(
-  "sfd-143-221 Sivir, Mercenary: register the conditional +2 Might through a merged continuous.might instruction " +
-    "(the layers engine can evaluate it, but effects/instructions/ has no such opcode) — RIFT-9 / RIFT-91"
+  "sfd-143-221 Sivir, Mercenary: the merged continuous.might instruction and layer consumer now exist; what is " +
+    "still missing is the static ability registration consumer (a ProgramStaticBinder that turns this card's " +
+    "declared effect into a layer registration) — RIFT-257 callback wiring"
 );
 
 test.todo(
   "sfd-143-221 Sivir, Mercenary: grant [Ganking] for the turn through a continuous.grant-keyword consumer that the " +
-    "movement system reads (810.1.b / 144.4.c.1) — no merged instruction or layer path registers the grant"
+    "movement system reads (810.1.b / 144.4.c.1) — the keyword/layer halves merged with RIFT-258, but no static " +
+    "registration consumer feeds this card's declaration into them"
 );
 
 test.todo(
   "sfd-143-221 Sivir, Mercenary: paying the optional Accelerate cost [1][Chaos] and the enter-ready replacement " +
-    "run through the Finalize cost plan and the replacement pipeline (805 / RIFT-89)"
+    "run through the Finalize cost plan and the replacement pipeline (805; the optionalAdditional binding is " +
+    "in-progress RIFT-261)"
 );

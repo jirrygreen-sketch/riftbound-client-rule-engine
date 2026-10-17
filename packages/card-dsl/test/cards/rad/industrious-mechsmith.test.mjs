@@ -4,15 +4,20 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/industrious-mechsmith.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
-import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
-import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-fd4d12013cc7cd7178ca0dc066919c845a2ca4cf3a00d76ebd6d1532e7fff561";
 const SOURCE_TEXT = "When you play me, play a 3 :rb_might: Mech unit token here.";
 
 const [triggered] = program.abilities;
-const [instruction] = triggered.body;
+const [readHere, playMech] = triggered.body;
+
+function fixture(location = { type: "battlefield", id: "bf1" }) {
+  return world()
+    .unit("industrious-mechsmith", { owner: "A", controller: "A", might: 1, location })
+    .build();
+}
 
 test("rad-049-167 Industrious Mechsmith: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -24,13 +29,13 @@ test("rad-049-167 Industrious Mechsmith: identity, ruleset, status, judgeReason 
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /effect\.token/);
-  assert.match(program.judgeReason, /here/);
+  assert.match(program.judgeReason, /TriggerRegistration/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("rad-049-167 Industrious Mechsmith: card-played self trigger plays the CR 187.4 Mech token", () => {
+test("rad-049-167 Industrious Mechsmith: card-played self trigger reads 'here' then plays the Mech token", () => {
   assert.equal(program.abilities.length, 1);
   assert.equal(triggered.kind, "triggered");
   assert.equal(triggered.trigger.at, "card-played");
@@ -39,97 +44,109 @@ test("rad-049-167 Industrious Mechsmith: card-played self trigger plays the CR 1
     filter: { source: "self", player: "controller" }
   });
   assert.equal(triggered.optional, false);
-  assert.equal(triggered.body.length, 1);
+  assert.equal(triggered.body.length, 2);
 
-  assert.equal(instruction.id, "industrious-mechsmith.play-mech-token");
-  assert.equal(instruction.op, "effect.token");
-  assert.deepEqual(instruction.args.token, { kind: "constant", value: "mech" });
-  assert.deepEqual(instruction.args.amount, { kind: "constant", value: 1 });
-  // 440.2.c / 185.2.a：被"打出"的 token 先在链上创建，再交给 play 动作。
-  assert.deepEqual(instruction.args.mode, { kind: "constant", value: "play" });
-  // "here" 用契约 3.6 的符号选择器；effect.token 的 argsSchema 尚未同步该形状（见 judgeReason）。
-  assert.deepEqual(instruction.args.location, {
+  // "here" = the resolving source's current location. Static IR cannot write a
+  // runtime LocationRef, so the referent is read at resolution (420.3.b /
+  // 359.3.f.1) and handed on as a linked value.
+  assert.equal(readHere.id, "industrious-mechsmith.read-here");
+  assert.equal(readHere.op, "condition.value");
+  assert.deepEqual(readHere.args.value, {
     kind: "object-property",
     object: "source",
     property: "location"
   });
-  assert.deepEqual(instruction.args.linkKey, { kind: "constant", value: "mechToken" });
-  assert.equal(instruction.targets, undefined);
-  assert.equal(instruction.linkedTo, undefined);
+  assert.deepEqual(readHere.args.key, { kind: "constant", value: "here" });
+
+  assert.equal(playMech.id, "industrious-mechsmith.play-mech-token");
+  assert.equal(playMech.op, "effect.token");
+  assert.deepEqual(playMech.args.token, { kind: "constant", value: "mech" });
+  assert.deepEqual(playMech.args.amount, { kind: "constant", value: 1 });
+  // 440.2.c / 185.2.a: a token that is "played" is created on the Chain and then
+  // handed to the play action.
+  assert.deepEqual(playMech.args.mode, { kind: "constant", value: "play" });
+  assert.deepEqual(playMech.args.location, {
+    kind: "linked-value",
+    instructionId: "industrious-mechsmith.read-here",
+    key: "here"
+  });
+  assert.deepEqual(playMech.args.linkKey, { kind: "constant", value: "mechToken" });
+  assert.equal(playMech.targets, undefined);
+  assert.equal(playMech.linkedTo, undefined);
 });
 
-test("rad-049-167 Industrious Mechsmith golden: effect.token play-mode really creates and plays the Mech at the source location", () => {
-  const kernel = world()
-    .unit("industrious-mechsmith", {
-      zone: "board",
-      location: { type: "battlefield", id: "battlefield-1" },
-      might: 1
-    })
-    .build();
-  // effect.token 的 location 只接受具体 LocationRef 或 target/pick 推导；测试按 Finalize 提供
-  // 的"来源当前位置"注入真实引用（静态 IR 里是上面的符号选择器，见 README 第 3 节的依赖说明）。
-  const run = runInstruction(
-    token,
-    {
-      token: { kind: "constant", value: "mech" },
-      amount: { kind: "constant", value: 1 },
-      mode: { kind: "constant", value: "play" },
-      location: { kind: "object-property", object: kernel.ref("industrious-mechsmith"), property: "location" },
-      linkKey: { kind: "constant", value: "mechToken" }
-    },
-    { world: kernel }
+test("rad-049-167 Industrious Mechsmith golden: the 3 Might Mech is really created and played here", () => {
+  const base = fixture();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("industrious-mechsmith") });
+
+  const outcome = resolveChainBody(triggered.body, kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(
+    outcome.results.map((result) => [result.id, result.result.status]),
+    [
+      ["industrious-mechsmith.read-here", "executed"],
+      ["industrious-mechsmith.play-mech-token", "executed"]
+    ]
   );
+  assert.deepEqual(outcome.linkedValues["industrious-mechsmith.read-here.here"], {
+    type: "battlefield",
+    id: "bf1"
+  });
 
-  assert.equal(run.result.status, "executed");
-  const [created] = kernel.query({ zone: "board", type: "unit" }).filter((object) => object.isToken);
-  assert.equal(created.name, "Mech");
-  assert.equal(created.might, 3);
-  assert.deepEqual(created.tags, ["Mech"]);
-  assert.deepEqual(created.location, { type: "battlefield", id: "battlefield-1" });
-  assert.equal(created.controller, "A");
-  assert.equal(created.cardId, null);
-  assert.equal(created.energy, null);
-  assert.equal(run.linked["mechToken.amount"], 1);
-  assert.deepEqual(run.events.map((event) => `${event.action}@${event.timingPoint}`), [
-    "create-token@chain-item-pending",
-    "play@card-played"
-  ]);
+  // CR 187.4: the Mech is a domainless 3 Might unit token with the Mech tag.
+  const tokens = kernel.objects.filter((object) => object.isToken);
+  assert.equal(tokens.length, 1);
+  const [mech] = tokens;
+  assert.equal(mech.name, "Mech");
+  assert.equal(mech.might, 3);
+  assert.deepEqual(mech.tags, ["Mech"]);
+  assert.deepEqual(mech.types, ["unit"]);
+  assert.deepEqual(mech.location, { type: "battlefield", id: "bf1" });
+  assert.equal(mech.controller, "A");
+  assert.equal(mech.owner, "A");
+  // 185.3: tokens have no printed cost, and null is never turned into 0.
+  assert.equal(mech.cardId, null);
+  assert.equal(mech.energy, null);
+  assert.equal(mech.power, null);
+  assert.equal(outcome.linkedValues["industrious-mechsmith.play-mech-token.mechToken.amount"], 1);
+
+  // 440.2.c / 185.2.a: the real action order is create-token (Chain) then play.
+  assert.deepEqual(outcome.events.map((event) => event.action), ["create-token", "play"]);
 });
 
-test("rad-049-167 Industrious Mechsmith golden: a replacement on the play action negates the instruction and leaves no token", () => {
-  const kernel = world().unit("industrious-mechsmith", { zone: "board", location: { type: "base", player: "A" } }).build();
+test("rad-049-167 Industrious Mechsmith golden: 'here' also follows the source to its base", () => {
+  const base = fixture({ type: "base", player: "A" });
+  const kernel = base.clone({ sourceSnapshot: base.getObject("industrious-mechsmith") });
+
+  const outcome = resolveChainBody(triggered.body, kernel);
+
+  assert.equal(outcome.status, "executed");
+  const [mech] = kernel.objects.filter((object) => object.isToken);
+  assert.deepEqual(mech.location, { type: "base", player: "A" });
+});
+
+test("rad-049-167 Industrious Mechsmith golden: a replaced play keeps the earlier Chain creation and adds no token", () => {
+  const base = fixture();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("industrious-mechsmith") });
   kernel.addReplacement((action) => (action.type === "play" ? "replaced" : null));
-  const run = runInstruction(
-    token,
-    {
-      token: { kind: "constant", value: "mech" },
-      amount: { kind: "constant", value: 1 },
-      mode: { kind: "constant", value: "play" },
-      location: { kind: "object-property", object: kernel.ref("industrious-mechsmith"), property: "location" },
-      linkKey: { kind: "constant", value: "mechToken" }
-    },
-    { world: kernel }
-  );
 
-  assert.equal(run.result.status, "negated");
-  assert.equal(run.result.reason, "replaced");
-  assert.deepEqual(kernel.query({ zone: "board", type: "unit" }).filter((object) => object.isToken), []);
-  // 链上创建已经发生，只有 play 被替代；链接值保留实际发生的那一步（effect.token 的 objectsComplete 语义）。
-  assert.equal(run.linked["mechToken.createdAmount"], 1);
-  assert.equal(run.linked["mechToken.amount"], 0);
-});
+  const outcome = resolveChainBody(triggered.body, kernel);
 
-test("rad-049-167 Industrious Mechsmith: effect.token is registered", () => {
-  assert.equal(instructionDefinitionsById.get("effect.token"), token);
+  // 359.3.e.11 / contract 3.3: the play is replaced, so the instruction is
+  // negated; the Chain creation that really happened is still reported.
+  assert.equal(outcome.results[1].result.status, "negated");
+  assert.equal(outcome.results[1].result.reason, "replaced");
+  // The new object exists on the Chain and is still pending play; it never
+  // reaches the board, so no Mech was "played".
+  assert.deepEqual(kernel.zone("A", "board").map((ref) => ref.id), ["industrious-mechsmith"]);
+  assert.deepEqual(kernel.zone("A", "chain").map((ref) => ref.id), ["token-1"]);
+  assert.deepEqual(kernel.pendingItems.map((item) => item.object.id), ["token-1"]);
+  assert.equal(outcome.linkedValues["industrious-mechsmith.play-mech-token.mechToken.createdAmount"], 1);
+  assert.equal(outcome.linkedValues["industrious-mechsmith.play-mech-token.mechToken.amount"], 0);
 });
 
 test.todo(
-  "rad-049-167 Industrious Mechsmith: decode the symbolic 'here' location (contract 3.6 ObjectSelector) in " +
-    "effect.token.argsSchema so the card's own IR shape executes as written — depends on RIFT-62 (primitive arg parsing) " +
-    "and contract sync (RIFT-1)"
-);
-
-test.todo(
-  "rad-049-167 Industrious Mechsmith: fire the card-played trigger from the real chain flow (CR 420.4.a) — " +
-    "depends on RIFT-120 chain/event integration"
+  "rad-049-167 Industrious Mechsmith: 'When you play me' must be registered from the CardProgram as a " +
+    "TriggerRegistration so the card-played timing point really enqueues it (CR 420.4.a) — RIFT-257"
 );

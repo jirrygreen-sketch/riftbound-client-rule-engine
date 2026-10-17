@@ -27,16 +27,17 @@ import type { CardProgram } from "../../ir/index.js";
  *   进入控制者自己的 Base，对应原文 “to your base”。
  *
  * status = judge-required（四处缺口均不近似实现）：
- * 1. keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef，
- *    827.1.c.1 的启动费用与“仅当未 Empowered 时”限制、828.1.b.1 的依赖能力都
- *    无法展开（RIFT-81~88 批次不含它们）；
+ * 1. keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef（已合入的
+ *    26 个关键词里没有它们），827.1.c.1 的启动费用与“仅当未 Empowered 时”限制、
+ *    828.1.b.1 的依赖能力都无法展开（依赖新的 Empower/Empowered 关键词任务）；
  * 2. 没有 Empowered 状态谓词：442.1.a 的二元状态不在 ObjectSnapshot / Condition
  *    里，触发过滤里的 `empowered: true` 只是描述性记录（严格触发器校验会以
- *    unknown-field 拒绝，golden 已断言）；
+ *    unknown-field 拒绝，RIFT-257 的 translateTriggerFilter 同样以 unsupported 拒绝）；
  * 3. effects/keywords/Deathknell.ts 展开出的触发能力引用 trigger.leave 原语，但
  *    effects/instructions/ 下没有该文件（与 RIFT-154 的 kogmaw-caustic 同型缺口）；
  * 4. 727.1.c.1 的“依赖能力在宿主死亡瞬间仍 Active”判定与 808.1.d.3 的换区前
- *    最后已知信息没有卡牌可用路径。
+ *    最后已知信息没有卡牌可用路径（RIFT-257 的 binder 只把 static/replacement
+ *    交给调用方，关键词依赖能力的门控没有消费方）。
  * “Play two 1 [M] Recruit unit tokens to your base” 半段已合入（effect.token 的
  * mode "play"），golden 用真实解释器 + 参考内核执行。
  */
@@ -45,14 +46,17 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处缺口：(1) keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef，" +
+    "四处缺口：(1) keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef（已合入的 26 个" +
+    "已注册关键词里没有它们），" +
     "827.1.c.1 的“1 Energy + 1 Order Power：Empower me，仅当未 Empowered 时启动”与 828.1.b.1 的" +
     "依赖能力（仅当 Empowered 时获得后面的 Deathknell 效果）都无展开实现；(2) 没有 Empowered 状态" +
     "谓词——442.1.a 的二元状态不在 ObjectSnapshot / Condition 里，触发过滤中的 `empowered: true`" +
-    "只是描述性记录（严格触发器校验以 unknown-field 拒绝，golden 已断言）；(3) Deathknell 展开依赖 " +
+    "只是描述性记录（严格触发器校验以 unknown-field 拒绝，RIFT-257 的 translateTriggerFilter 同样按 " +
+    "unsupported filter field 拒绝）；(3) Deathknell 展开依赖 " +
     "trigger.leave 原语，effects/instructions/ 下没有该文件（与 kogmaw-caustic 同型缺口）；" +
     "(4) 727.1.c.1 的“依赖能力在宿主死亡时仍 Active”判定与 808.1.d.3 的换区前最后已知信息没有卡牌" +
-    "可用路径。依赖新的 Empower/Empowered 关键词任务、RIFT-82（Deathknell / trigger.leave）与 " +
+    "可用路径（RIFT-257 的 binder 只转交 static/replacement，依赖能力门控无消费方）。依赖新的 " +
+    "Empower/Empowered 关键词任务、RIFT-82（Deathknell / trigger.leave）与 " +
     "RIFT-87（条件/谓词）。“Play two 1 :rb_might: Recruit unit tokens to your base” 半段用已合入的 " +
     "effect.token（mode play）真实执行。",
   abilities: [

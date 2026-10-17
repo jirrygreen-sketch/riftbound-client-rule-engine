@@ -45,8 +45,8 @@ test("sfd-122-221 Called Shot: program passes validateCardProgram", () => {
 test("sfd-122-221 Called Shot: judgeReason names both gaps and their tasks", () => {
   assert.match(program.judgeReason, /effect\.inspect/);
   assert.match(program.judgeReason, /zoneSlice/);
-  assert.match(program.judgeReason, /RIFT-86/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /820\.1\.c|Repeat/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -248,7 +248,7 @@ test("sfd-122-221 Called Shot golden: an empty Main Deck looks at nothing withou
 test.todo(
   "sfd-122-221 Called Shot: the ordered 'top 2 cards of your Main Deck' pick set must be provisioned by " +
     "the production Finalize/AwaitChoice lifecycle instead of the test kernel (contract 3.6 zoneSlice; the " +
-    "chain Finalize only locks TargetSpecs) — RIFT-84 / RIFT-90"
+    "chain Finalize only locks TargetSpecs) — RIFT-257"
 );
 
 test.todo(

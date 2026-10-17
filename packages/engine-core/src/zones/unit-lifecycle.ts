@@ -7,7 +7,7 @@ import {
   assertDuelResources, restoreDuelResources, type DuelResources,
 } from '../duel/resources.js';
 import {
-  moveDuelUnitsStandard, type DuelReadiness, type DuelStandardMoveGroup,
+  moveDuelUnitsStandard, type DuelMovementRuleContext, type DuelReadiness, type DuelStandardMoveGroup,
 } from './movement.js';
 import type { SetupCard } from '../duel/setup.js';
 
@@ -477,9 +477,10 @@ export function deriveDuelReadinessFromUnitMeta(state: DuelUnitLifecycleState,
 /** Actual movement.ts action once; root still queues Move triggers then runs one Open cleanup. */
 export function moveDuelUnitsWithMetadata<S extends DuelUnitLifecycleState>(
   state: S, request: unknown, deriveGanking: (unitUID: string) => boolean,
+  rules?: DuelMovementRuleContext,
 ): { state: S; group: DuelStandardMoveGroup } {
   const readiness = deriveDuelReadinessFromUnitMeta(state, deriveGanking);
-  const moved = moveDuelUnitsStandard(state.board, readiness, request);
+  const moved = moveDuelUnitsStandard(state.board, readiness, request, rules);
   const next = copy(state);
   const byId = new Map(moved.readiness.map(entry => [entry.objectId, entry.readied]));
   const metadata = Object.fromEntries(Object.entries(next.unitMeta).map(([uid, m]) =>

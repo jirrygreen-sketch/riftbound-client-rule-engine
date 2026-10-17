@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/kayle-justified.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 
@@ -20,6 +21,7 @@ test("ven-134-166 Kayle, Justified: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
   assert.deepEqual(result.issues, []);
   assert.equal(result.ok, true);
+  assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
 test("ven-134-166 Kayle, Justified: identity, status, judgeReason and verbatim sourceText", () => {
@@ -29,8 +31,8 @@ test("ven-134-166 Kayle, Justified: identity, status, judgeReason and verbatim s
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /Empower/);
   assert.match(program.judgeReason, /442\.1\.c\.1/);
-  assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /Deflect/);
+  assert.match(program.judgeReason, /empoweredCount/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("ven-134-166 Kayle, Justified: [Empower] plus the printed three-times permission", () => {
@@ -73,11 +75,15 @@ test("ven-134-166 Kayle, Justified: +2 Might per Empowered instance and the thre
   assert.deepEqual(keywordGrant.condition.right, { kind: "constant", value: 3 });
 });
 
-test("ven-134-166 Kayle, Justified: the unmerged ops stay unmerged", () => {
-  // Guards against a future silent approximation: neither the Might modifier nor
-  // the keyword grant has a registered primitive today.
-  assert.equal(instructionDefinitionsById.get("continuous.might"), undefined);
-  assert.equal(instructionDefinitionsById.get("continuous.grant-keyword"), undefined);
+test("ven-134-166 Kayle, Justified: both static effects name merged primitive ops and registered keywords", () => {
+  // RIFT-258 merged the two instruction primitives the static abilities name,
+  // so the IR is no longer waiting on the primitive layer; the remaining gap is
+  // the static -> layers registration path plus the Empowered-count predicate
+  // (see judgeReason).
+  assert.equal(typeof instructionDefinitionsById.get("continuous.might")?.execute, "function");
+  assert.equal(typeof instructionDefinitionsById.get("continuous.grant-keyword")?.execute, "function");
+  assert.ok(keywordDefinitionsById.get("Deflect"), "Deflect's KeywordDef is merged (RIFT-84)");
+  assert.ok(keywordDefinitionsById.get("Ganking"), "Ganking's KeywordDef is merged (RIFT-264 batch)");
 });
 
 test.todo(
@@ -86,16 +92,7 @@ test.todo(
 );
 
 test.todo(
-  "ven-134-166 Kayle, Justified: the up-to-three Empowered stacking (442.1.c.1) needs an " +
-    "Empowered-count predicate wired into effect.empower's multiple/limit params"
-);
-
-test.todo(
-  "ven-134-166 Kayle, Justified: '+2 :rb_might: for each time I'm [Empowered]' needs the " +
-    "card-side continuous.might primitive plus layers registration (RIFT-91)"
-);
-
-test.todo(
-  "ven-134-166 Kayle, Justified: '[Deflect 3] and [Ganking]' while Empowered three times needs " +
-    "a continuous keyword-grant primitive (no continuous.grant-keyword consumer is merged)"
+  "ven-134-166 Kayle, Justified: '+2 :rb_might: for each time I'm [Empowered]' and the three-times " +
+    "[Deflect 3] / [Ganking] grant need the static ability to be registered into the layer " +
+    "engine (RIFT-257 static binder) together with an Empowered-count predicate (442.1.c.1, RIFT-87)"
 );

@@ -15,7 +15,11 @@ test("sfd-106-221 Show of Strength: program passes validateCardProgram", () => {
   assert.equal(result.value.rulesetVersion, "core-1.5");
   assert.equal(result.value.status, "judge-required");
   assert.match(result.value.judgeReason, /Mighty/);
-  assert.match(result.value.judgeReason, /RIFT-83/);
+  // The Mighty KeywordDef has merged since the original note; the refreshed
+  // reason points at the missing query/layer predicate consumer.
+  assert.match(result.value.judgeReason, /mightGte/);
+  assert.match(result.value.judgeReason, /RIFT-91/);
+  assert.equal(result.value.judgeReason.includes("registry is currently empty"), false);
 });
 
 test("sfd-106-221 Show of Strength: structure — reaction keyword plus a count-driven draw", () => {
@@ -52,16 +56,15 @@ test("sfd-106-221 Show of Strength: structure — reaction keyword plus a count-
   );
 });
 
-test("sfd-106-221 Show of Strength: draw amount is the count of the controller's mighty units (reference kernel)", () => {
-  // 参考内核把 mightGte 过滤为未知键忽略，因此 count 退化为“你控制的单位数”；
-  // 这个 golden 锁定的是 amount = count(filter) 的求值形状与 draw 结果，而不是
-  // Mighty 谓词本身（谓词归 RIFT-83 的 kw-mighty）。
-  // 参考内核的 query() 只支持精确匹配，且其 matchesFilter 把 zone 精确匹配到
-  // 当前 zone；卡片 IR 里的 controller: "you"（结算时由引擎解析为能力控制者）
-  // 在内核里要替换成实际控制者 "A"，并补 zone: "board" 只数场上单位（牌库卡
-  // 片在内核里同样带 types: ["unit"]）。Mighty 谓词由 RIFT-83 的 kw-mighty
-  // 接管，这里只锁定 count -> draw 的求值形状（内核把 mightGte 当未知键忽略，
-  // 所以两张 5+ Might 的我方单位都命中，另一张敌方 7 Might 单位不命中）。
+test("sfd-106-221 Show of Strength: the count-driven draw follows the controller's quantified set", () => {
+  // The golden locks the amount = count(filter) evaluation shape and the draw
+  // result, not the Mighty predicate itself: every merged matcher silently
+  // ignores the declared `mightGte` key, so the count here is the controller's
+  // unit set (the printed predicate binding is the judged gap, see the
+  // judgeReason). The reference kernel's query only supports exact predicates
+  // and matches `zone` literally, so the kernel-side expression replaces the
+  // contract placeholders with the concrete controller and adds zone: board
+  // (deck cards also carry types: ["unit"] in the kernel).
   const testWorld = world()
     .deck(["deck-1", "deck-2", "deck-3"])
     .unit("mighty-1", { owner: "A", might: 6 })
@@ -99,6 +102,6 @@ test("sfd-106-221 Show of Strength: zero qualifying units draws zero", () => {
   assert.equal(testWorld.player("A").deckSize, 1);
 });
 
-test.todo("sfd-106-221 Show of Strength: Mighty predicate from the official kw-mighty keyword (condition.predicate / condition.value) replaces the descriptive mightGte filter — depends on RIFT-83 (keyword registry population) and RIFT-87 (condition predicate support).");
+test.todo("sfd-106-221 Show of Strength: the merged Mighty KeywordDef only exposes the static condition.predicate 'is-mighty' shape; a query/layer predicate consumer (ObjectFilter Might threshold) must replace the descriptive mightGte filter — kw-mighty under the in-progress RIFT-91 query consumer and RIFT-90 target predicates.");
 
-test.todo("sfd-106-221 Show of Strength: full chain play (Reaction admission in Closed State, cost payment) — depends on RIFT-84/RIFT-85 (chain admission + cost.finalized) and RIFT-83 (Reaction keyword).");
+test.todo("sfd-106-221 Show of Strength: full chain play (Reaction admission in Closed State, cost payment) — the RIFT-257 play binding and cost.printed for this plain spell are merged; the printed 2 Energy + 1 Body Power payment still depends on the in-progress RIFT-261 cost work.");

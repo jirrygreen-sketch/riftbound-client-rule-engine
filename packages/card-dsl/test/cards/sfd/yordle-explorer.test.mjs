@@ -1,9 +1,24 @@
+// Golden test for Yordle Explorer (sfd-100-221).
+//
+// status = judge-required (see the program's judgeReason): the printed-Power
+// cost gate of "with Power cost [[A]][[A]] or more" (CR 135.2.e.5 / 206.1,
+// applied as a 383.2.a.1 trigger condition) has no producer. The card-played
+// emission carries only the played object and player, so the EventPattern
+// details predicate can never match today (it fails closed instead of drawing
+// for every play). The trigger point, the controller binding and the
+// effect.draw body are merged and executed for real below.
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { validateCardProgram } from "../../../dist/ir/validation.js";
+import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/yordle-explorer.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import {
+  EVENT_PATTERN_TYPES,
+  validateEventPattern,
+  validateTriggerSpec
+} from "../../../../engine-core/dist/events/trigger-spec.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -14,29 +29,29 @@ const SOURCE_TEXT =
 const [ability] = program.abilities;
 const [drawInstruction] = ability.body;
 
-test("sfd-100-221 Yordle Explorer: program validates and is registered", () => {
+test("sfd-100-221 Yordle Explorer: program validates and is registered by canonicalCardId", () => {
   const result = validateCardProgram(program);
   assert.deepEqual(result.issues, []);
-  assert.equal(result.ok, true);
+  assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
   assert.equal(cardRegistryById.get(CARD_ID), program);
 });
 
-test("sfd-100-221 Yordle Explorer: identity, ruleset, status and verbatim text", () => {
+test("sfd-100-221 Yordle Explorer: identity, ruleset, status, judgeReason and verbatim text", () => {
   assert.equal(program.canonicalCardId, CARD_ID);
-  assert.equal(program.rulesetVersion, "core-1.5");
+  assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
+  // README §2: the reason names the missing payload key, the rule and the task.
+  assert.match(program.judgeReason, /383\.2\.a\.1/);
+  assert.match(program.judgeReason, /206\.1/);
+  assert.match(program.judgeReason, /card-played/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.equal(/powerCostGte/.test(program.judgeReason), true);
+  assert.match(program.judgeReason, /translateTriggerFilter/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
-test("sfd-100-221 Yordle Explorer: judgeReason names the printed-Power-cost predicate gap", () => {
-  assert.match(program.judgeReason, /383\.2\.a\.1/);
-  assert.match(program.judgeReason, /Power cost/);
-  assert.match(program.judgeReason, /206\.1/);
-  assert.match(program.judgeReason, /RIFT-120/);
-});
-
 test("sfd-100-221 Yordle Explorer: a card-played trigger scoped to the controller's plays", () => {
-  // 383.4.a / 420.4.a: "When you play a card" fires after any play the ability's
+  // 383.1 / 383.4.a.4: "When you play a card" fires after any play the ability's
   // controller completes; 190.6.d makes "you" the ability controller.
   assert.equal(program.abilities.length, 1);
   assert.equal(ability.kind, "triggered");
@@ -46,16 +61,58 @@ test("sfd-100-221 Yordle Explorer: a card-played trigger scoped to the controlle
   assert.equal(ability.trigger.once, undefined);
   assert.equal(ability.trigger.filter.event, "card-played");
   assert.equal(ability.trigger.filter.player, "self");
+  // The "Power cost 2+" clause rides on the closed EventPattern payload shape
+  // (383.2.a.1 + 206.1); see the program's judgeReason for the missing producer.
+  assert.deepEqual(ability.trigger.filter.details, { printedPowerCostAtLeast: 2 });
+  assert.equal(ability.trigger.filter.filter, undefined);
+  assert.equal(ability.trigger.filter.object, undefined);
 });
 
-test("sfd-100-221 Yordle Explorer: the Power-cost ceiling is a declarative filter key, not a live predicate", () => {
-  // 383.2.a.1 puts the "with Power cost … or more" clause on the trigger itself;
-  // 135.2.e.5 / 206.1 fix its meaning (any-domain Power, printed cost). The
-  // frozen Condition has no event-object printed-cost read, so the key records
-  // the printed threshold without pretending to evaluate it.
-  assert.deepEqual(ability.trigger.filter.filter, { powerCostGte: 2 });
-  assert.equal(ability.trigger.filter.object, undefined);
-  assert.equal(ability.trigger.filter.source, undefined);
+test("sfd-100-221 Yordle Explorer: the trigger filter passes the engine's own EventPattern/TriggerSpec validation", () => {
+  // Contract 3.5: the card's filter must be a real engine EventPattern, not a
+  // card-local vocabulary. "card-played" is a registered event name here.
+  assert.ok(EVENT_PATTERN_TYPES.includes("card-played"));
+  const pattern = validateEventPattern(ability.trigger.filter);
+  assert.equal(pattern.ok, true, JSON.stringify(pattern.ok ? [] : pattern.issues));
+  const spec = validateTriggerSpec(ability.trigger);
+  assert.equal(spec.ok, true, JSON.stringify(spec.ok ? [] : spec.issues));
+});
+
+test("sfd-100-221 Yordle Explorer: the merged matcher evaluates the cost predicate from the event payload", () => {
+  // The merged matcher compares EventPattern.details against the event's own
+  // details key, so the predicate is a real gate: it matches a play whose
+  // printed Power cost reaches the threshold and stays closed for a play below
+  // it or without the payload. This is the execution semantics the production
+  // card-played payload has to feed (see judgeReason), not an approximation.
+  const playedEvent = details => ({
+    timingPoint: "card-played",
+    object: {
+      ref: { id: "played-card", zoneEntryId: 1 },
+      cardId: "card:played-card",
+      types: ["spell"],
+      controller: "A",
+      owner: "A",
+      zone: "chain",
+      tags: []
+    },
+    player: "A",
+    ...(details === undefined ? {} : { details })
+  });
+  assert.equal(matchesTriggerEvent(ability.trigger.filter, playedEvent(), "A"), false);
+  assert.equal(
+    matchesTriggerEvent(ability.trigger.filter, playedEvent({ printedPowerCostAtLeast: 2 }), "A"),
+    true
+  );
+  // A card below the threshold does not match (206.1's printed value is the gate).
+  assert.equal(
+    matchesTriggerEvent(ability.trigger.filter, playedEvent({ printedPowerCostAtLeast: 1 }), "A"),
+    false
+  );
+  // "you play" binds the ability controller (190.6.d).
+  assert.equal(
+    matchesTriggerEvent(ability.trigger.filter, { ...playedEvent({ printedPowerCostAtLeast: 2 }), player: "B" }, "A"),
+    false
+  );
 });
 
 test("sfd-100-221 Yordle Explorer: body is one unlinked effect.draw of exactly 1", () => {
@@ -101,13 +158,12 @@ test("sfd-100-221 Yordle Explorer golden: an empty deck links the actual drawn c
 });
 
 test.todo(
-  "sfd-100-221 Yordle Explorer: evaluate 'with Power cost :rb_rune_rainbow::rb_rune_rainbow: or more' at " +
-    "trigger time (383.2.a.1) — the frozen Condition/Expr cannot read the played card's printed Power cost " +
-    "(206.1, 135.2.e.5) and the card-played emission carries no cost payload, so the filter key stays " +
-    "declarative (RIFT-120 follow-up: event-object cost predicate)"
+  "sfd-100-221 Yordle Explorer: card-played must carry the played card's PRINTED (or copied) Power cost so the " +
+    "details predicate fires only for 2+ (CR 135.2.e.5 / 206.1 / 383.2.a.1) — TimingEmission/PipelineEvent have no " +
+    "cost payload today (chain/engine.ts emits the object and player only), so the merged filter stays fail-closed"
 );
-
 test.todo(
-  "sfd-100-221 Yordle Explorer: register the card-played subscription with its trigger condition through " +
-    "the CardProgram -> trigger pipeline (383.2.a.1, 420.4.a) — RIFT-120 follow-up"
+  "sfd-100-221 Yordle Explorer: the CardProgram triggered ability must be installed as a production " +
+    "TriggerRegistration with its filter and source binding (contract 3.5) — RIFT-257 programs/ is not yet wired " +
+    "into the game-server chain"
 );

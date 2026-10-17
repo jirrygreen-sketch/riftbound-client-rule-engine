@@ -8,10 +8,21 @@ import program from "../../../dist/cards/ogn/bilgewater-bully.js";
 // its workspace layout instead of the package name.
 const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
 const { keywordRegistryById } = await import(new URL("effects/keywords/registry.generated.js", engineCore));
-const { instructionDefinitionsById } = await import(new URL("effects/instructions/registry.generated.js", engineCore));
+const { runInstruction, world } = await import(new URL("effects/testing/index.js", engineCore));
+const { createLayerEngine, ContinuousEffectRegistry } = await import(new URL("layers/index.js", engineCore));
+const { movement } = await import(new URL("layers/rules/query.js", engineCore));
+const grantKeyword = (await import(new URL("effects/instructions/continuous.grant-keyword.js", engineCore))).default;
+const movementInstruction = (await import(new URL("effects/instructions/continuous.movement.js", engineCore))).default;
 
 const CANONICAL = "card.hash-bfada85ea0485d763baf4f6d82594347175927b1b09ec1e1d976fce15710013e";
 const [grantAbility] = program.abilities;
+const literal = (value) => ({ kind: "constant", value });
+
+const registryOf = (kernel) => {
+  const registry = new ContinuousEffectRegistry();
+  for (const entry of kernel.continuousEffects) registry.register(entry.effect, entry.duration);
+  return registry;
+};
 
 test("Bilgewater Bully program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -24,7 +35,7 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, verbatim sourceTe
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /continuous\.movement/);
   assert.equal(
     program.sourceText,
@@ -49,14 +60,31 @@ test("structure: static conditional Ganking grant on the buffed host", () => {
   assert.equal(grantAbility.body, undefined);
 });
 
-test("dependency evidence: no merged instruction implements a keyword grant", () => {
-  // The grant must be a static layer effect (contract 3.7); no primitive
-  // opcode consumes "continuous.grant-keyword".
-  assert.equal(instructionDefinitionsById.has("continuous.grant-keyword"), false);
-  assert.equal(instructionDefinitionsById.has("effect.grant-keyword"), false);
+test("golden: the granted Ganking reaches the ability layer and expires at end of turn", () => {
+  // RIFT-258 merged continuous.grant-keyword; the card's own static grant is
+  // driven through that primitive with the printed keyword and duration.
+  const base = world().unit("bilgewater-bully", { owner: "A", buffs: 1 }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("bilgewater-bully") });
+  const run = runInstruction(
+    grantKeyword,
+    { keyword: literal(grantAbility.effect.keyword), duration: literal("this-turn"), appliesTo: literal("self") },
+    { world: kernel }
+  );
+
+  assert.equal(run.result.status, "executed");
+  assert.equal(kernel.continuousEffects.length, 1);
+  assert.deepEqual(kernel.continuousEffects[0].duration, { type: "end-of-turn" });
+  const engine = createLayerEngine(
+    [kernel.getObject("bilgewater-bully")],
+    kernel.continuousEffects.map((entry, index) => ({ ...entry, timestamp: index + 1 }))
+  );
+  const ref = kernel.ref("bilgewater-bully");
+  assert.ok(engine.evaluate(ref).keywords.some((keyword) => keyword.id === "Ganking"));
+  engine.advance({ id: "turn-end" });
+  assert.deepEqual(engine.evaluate(ref).keywords, []);
 });
 
-test("dependency evidence: Ganking expands only to an unconsumed continuous.movement effect", () => {
+test("golden: the granted Ganking expands to the CR 810 movement permission", () => {
   const ganking = keywordRegistryById.get("Ganking");
   assert.ok(ganking, "effects/keywords/Ganking.ts must be registered");
   assert.equal(ganking.keyword, "Ganking");
@@ -66,12 +94,32 @@ test("dependency evidence: Ganking expands only to an unconsumed continuous.move
   assert.equal(expansion.length, 1);
   assert.equal(expansion[0].kind, "static");
   assert.equal(expansion[0].effect.kind, "continuous.movement");
-  // Nothing in the merged instruction set performs this movement permission.
-  assert.equal(instructionDefinitionsById.has("continuous.movement"), false);
+
+  // Drive the merged continuous.movement instruction with the expansion's own
+  // permission fields; the layers/rules query reports the Ganking route.
+  const base = world().unit("ganker", { owner: "A" }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("ganker") });
+  const effect = expansion[0].effect;
+  const run = runInstruction(
+    movementInstruction,
+    {
+      permission: literal(effect.permission),
+      source: literal(effect.source),
+      destination: literal(effect.destination),
+      move: literal(effect.move),
+      addsPermission: literal(true),
+      appliesTo: literal({ object: "self" })
+    },
+    { world: kernel }
+  );
+  assert.equal(run.result.status, "executed");
+  const result = movement(registryOf(kernel), kernel.ref("ganker"), kernel.getObject("ganker"), "A");
+  assert.equal(result.canGank, true);
+  assert.equal(result.battlefieldToBattlefield, true);
 });
 
 test.todo(
-  "Bilgewater Bully: execute 'While I'm buffed, I have [Ganking]' once the ability layer consumes " +
-    "continuous.grant-keyword (RIFT-91) and the movement system reads continuous.movement " +
-    "(RIFT-83 Ganking expansion / movement workstream)"
+  "Bilgewater Bully: register the conditional static grant from the CardProgram (buffs >= 1) and derive " +
+    "hasGanking for the production movement path from the layered movement permissions (RIFT-257) so the " +
+    "battlefield-to-battlefield Standard Move is legal only while buffed"
 );

@@ -28,8 +28,9 @@ const timeWarp = {
   judgeReason:
     "缺回合队列写入路径：734/735 规定 “take a turn after this one” 由效果在回合队列当前回合之后插入一个该玩家的临时 Additional Turn，" +
     "而契约 3.6 的封闭 GameAction 集合没有回合队列动作，turn/ 无队列接口、时点枚举也无 Additional Turn 边界，" +
-    "没有任何已合入指令原语可产生它（不得用跳过阶段或复用 turn-start 近似）。" +
-    "“Banish this.” 仅用已合入的 effect.banish 与 source 选择器，由 golden 测试经生产链适配器真实执行。",
+    "没有任何已合入指令原语可产生它（不得用跳过阶段或复用 turn-start 近似）；take-turn-after-this 的 effect.additional-turn 也只是形状声明。" +
+    "“Banish this.” 仅用已合入的 effect.banish 与 source 选择器，由 golden 测试经生产链适配器真实执行。" +
+    "此外打出本体依赖 RIFT-261（费用/打出结算的卡程序绑定）与 RIFT-257（CardProgram play 能力绑定）。",
   abilities: [
     {
       kind: "play",

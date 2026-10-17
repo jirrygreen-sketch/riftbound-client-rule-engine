@@ -19,37 +19,44 @@ import type { CardProgram } from "../../ir/index.js";
  * - “you score 1 point”：获得 1 点（470.1、473.1）；effect.score 已合入，与
  *   “战场被计分”是两回事（470.1–3），因此用 effect.score 而非 effect.win。
  *
- * status = judge-required：Shield 半段可展开，但 Hold Effects 的触发条件与计分
- * 事件没有可执行路径——“hold” 时点在 events/timing-points.ts 内，但 events/
- * trigger-spec.ts 的 EVENT_PATTERN_TYPES 没有 held/hold 判别值（validateTriggerSpec
- * 会拒绝 event: "hold"），事件载荷也没有“本卡所在战场被固守”的过滤维度；
- * scoring/scoring.ts 的 Hold 判定与触发收集只服务 M1 的 duel 路径，没有把卡牌程序的
- * 触发注册进该流程的接线（RIFT-120 的链/事件单管线）。condition 里的
- * sameLocationAs/exclude 与 denominator 计数形状已按契约写出，可在依赖落地后复核。
- * 依赖 RIFT-120（链与事件单管线）与 Hold 触发注册接线；不近似实现。
+ * status = judge-required（复核 2026-10-16）：Shield 半段可展开，hold 时点也已由
+ * 合入的回合/计分流程发出（turn/flow.ts scheduleScore 的 Hold 计分步骤产生 'hold'
+ * 发射并带 details.battlefieldId，engine-core/test/game/lifecycle.test.mjs 断言），
+ * RIFT-257 的卡牌程序绑定（src/programs/triggers.ts）也已能注册 CardProgram 的
+ * triggered ability。仍未接通的是：
+ * 1. 053.3 的 "here" 锚点——事件的战场身份只存在于 details.battlefieldId 载荷，
+ *    静态 filter 读不到事件出的战场（pipeline-match.ts 的 details 匹配只接受写死的值），
+ *    程序里的 here: true 也会被 programs/filters.ts 的 translateTriggerFilter
+ *    以 judge-required 拒绝（fail closed）；
+ * 2. 190.6 的战场能力控制者解析（hold 事件由战场上单位触发时如何取“你”）没有接线。
+ * 依赖 053.3 here 锚点 / 190.6 战场能力绑定；不近似实现。
  */
 export default {
   canonicalCardId: "card.hash-66a1a38d0f80c94dd99d8c34671b92d3e97ad609edb9693e7c2f2f31a8e70aa5",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Hold Effects 不可执行：(1) events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 没有 held/hold 判别值，" +
-    "validateTriggerSpec 会以 invalid-event-type 拒绝 event: \"hold\"（golden 已断言），" +
-    "events/timing-points.ts 里虽定义了 " +
-    "\"hold\" 时点（315.2.b.2、471.2、473.2.b），但没有把卡牌程序注册进该计分流程的接线；" +
-    "(2) scoring/scoring.ts 的固守判定与触发收集当前只服务 M1 duel 路径，没有 RIFT-120 链/事件单管线的" +
-    "卡牌触发注册路径。[Shield] 关键词展开（814.1.c）与“score 1 point” 的 effect.score 已合入，" +
-    "hold 触发的 body 结构（count + sameLocationAs + exclude 的“恰好一个你控制的其它单位”）已按契约" +
-    "写出，可在依存落地后复核。依赖 RIFT-120 与 Hold 触发注册接线；不近似实现。",
+    "Hold Effects 仍差两处接线（均不近似实现）：(1) 053.3 的「here」没有可求值锚点——hold 时点" +
+    "（315.2.b.2、471.2、473.2.b）已由合入的回合/计分流程发出（turn/flow.ts scheduleScore 在 Beginning 的" +
+    "Hold 计分步骤产生 'hold' 发射并带 details.battlefieldId，engine-core/test/game/lifecycle.test.mjs 断言），" +
+    "RIFT-257 的卡牌程序绑定（src/programs/triggers.ts）也已能注册 CardProgram 的 triggered ability，" +
+    "但事件的战场身份只存在于 details.battlefieldId 载荷，静态 filter 读不到事件出的战场" +
+    "（pipeline-match.ts 的 details 匹配只接受写死的值），程序里的 here: true 也会被 " +
+    "programs/filters.ts 的 translateTriggerFilter 以 judge-required 拒绝（fail closed，不静默放行）；" +
+    "(2) 190.6 的战场能力控制者解析（单位固守时「you」如何绑定战场控制者）仍未接线。" +
+    "[Shield] 关键词展开（814.1.c）与「score 1 point」的 effect.score 已合入，hold body 的" +
+    "「恰好一个你控制的其它单位」条件（count + sameLocationAs + exclude）与 hold 事件发射均有真实执行证据。" +
+    "依赖：053.3 here 锚点 / 190.6 战场能力绑定；不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "shield" },
     {
       kind: "triggered",
       trigger: {
         at: "hold",
-        // 471.2/473.2.b：本卡所在战场被固守时触发；过滤里的 `here` 是描述性的
-        // Hold 载荷记录（严格触发器校验拒绝 event: "hold"，见 judgeReason）。
-        filter: { event: "hold", here: true, player: "controller" }
+        // 471.2/473.2.b：本卡所在战场被固守时触发。封闭判别值是 "held"
+        // （EVENT_NAMES 将其映射到 hold 时点）；过滤里的 `here` 仍是 053.3 的
+        // 未绑定战场指代（见 judgeReason）。
+        filter: { event: "held", here: true, player: "self" }
       },
       optional: false,
       body: [

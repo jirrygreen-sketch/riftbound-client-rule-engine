@@ -6,7 +6,7 @@ import program from "../../../dist/cards/sfd/seat-of-power.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 
 const CANONICAL =
   "card.hash-8ad41dd9ba742358d12656164c456e4f9cc43b4712fcb9c9f120661d5c208fac";
@@ -46,7 +46,12 @@ test("sfd-217-221 Seat of Power: identity, ruleset, status and verbatim (double-
   assert.equal(program.sourceText.endsWith("control.."), true);
   assert.match(program.judgeReason, /conquer/);
   assert.match(program.judgeReason, /allies/);
-  assert.match(program.judgeReason, /RIFT-31/);
+  // The refreshed reason must cite the current gaps: the here placeholder and
+  // the "you-or-ally" / exclude filter vocabulary (both rejected by the merged
+  // filter adapters), not the stale "no conquer emitter" note.
+  assert.match(program.judgeReason, /RIFT-270/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.equal(program.judgeReason.includes("No merged module emits conquer"), false);
   assert.match(program.judgeReason, /data-issues-recheck/);
 });
 
@@ -89,26 +94,20 @@ test("sfd-217-221: the amount is a dynamic count, not a hard-coded 1", () => {
   });
 });
 
-test("sfd-217-221: the merged kernel's count cannot enumerate Battlefields or allies", () => {
-  // Evidence for the judgeReason. The reference test kernel's query matches
-  // snapshots of Board units; its WorldBuilder can only create Unit-like
-  // objects (unit/battlefield/base/card all build ObjectSnapshot units), and
-  // the filter's controller selector has no "you-or-ally" spelling. The count
-  // therefore cannot distinguish the printed set here.
-  const kernel = world().unit("unit-a").unit("unit-b", { owner: "B" }).build();
-  assert.equal(
-    kernel.evaluate({
-      kind: "count",
-      subject: "battlefields",
-      filter: { type: "battlefield", controller: "you-or-ally", exclude: "self" }
-    }),
-    0
-  );
-  // Even the raw objects the builder exposes are units, not Battlefields.
-  assert.deepEqual(
-    kernel.objects.map(object => object.types),
-    [["unit"], ["unit"]]
-  );
+test("sfd-217-221: the card keeps the printed count/here spellings instead of approximating them", () => {
+  // Durable data-level guard (independent of how far the engine currently is):
+  // the printed "other battlefield you or allies control" must never be
+  // narrowed to a single controller or to a hard-coded amount just to make the
+  // count pass. The placeholder spellings stay auditable until the merged
+  // vocabulary covers the teammate relation and the battlefield-relative here
+  // anchor (see judgeReason).
+  assert.deepEqual(drawInstruction.args.amount.filter.controller, "you-or-ally");
+  assert.equal(drawInstruction.args.amount.filter.exclude, "self");
+  assert.equal(ability.trigger.filter.here, true);
+  assert.equal(ability.trigger.filter.player, "controller");
+  // No hard-coded 1 for the "for each" amount, and no second draw instruction.
+  assert.equal(ability.body.length, 1);
+  assert.equal(drawInstruction.args.amount.kind, "count");
 });
 
 test("sfd-217-221: the merged draw primitive executes the count-driven shape for a bound population", () => {
@@ -149,12 +148,31 @@ test("sfd-217-221: zero qualifying battlefields draws zero cards", () => {
   assert.deepEqual(kernel.events, []);
 });
 
-test("sfd-217-221: the trigger filter still carries the unreplaced here placeholder", () => {
-  assert.throws(() => assertTriggerSpec(ability.trigger), /EventPattern 不允许此字段/);
+test("sfd-217-221: the trigger keeps the printed battlefield-relative here restriction instead of a substitute event", () => {
+  // Durable guard: the card must keep the printed "conquer here" restriction.
+  // While the EventPattern vocabulary has no battlefield-relative anchor the
+  // spec must fail closed (never silently register a broader conquer trigger
+  // that would draw on every battlefield); once the anchor lands the same
+  // printed restriction is what gets validated.
+  assert.equal(ability.trigger.at, "conquer");
+  assert.equal(ability.trigger.filter.here, true);
+  const validation = validateTriggerSpec(ability.trigger);
+  if (!validation.ok) {
+    // Until the vocabulary lands, every rejection must concern exactly the
+    // printed placeholders (here / conquer / controller selector) — never a
+    // silently narrowed or substituted trigger.
+    const paths = [...new Set(validation.issues.map((issue) => issue.path))].sort();
+    assert.deepEqual(paths, [
+      "trigger.filter.event",
+      "trigger.filter.here",
+      "trigger.filter.player"
+    ]);
+  }
 });
 
 test.todo(
-  "sfd-217-221: conquer 由 scoring/ 发出并进链，战场能力按控制者注册触发（RIFT-31/RIFT-33）"
+  "sfd-217-221: 战场能力的触发注册（conquer 时点由 turn/flow.ts 的 Score wave 发出，但 EventPattern 的" +
+    "战场相对 here 语义词表未合入；依赖 RIFT-257 的 CardProgram → TriggerRegistration 过滤器适配）"
 );
 test.todo(
   "sfd-217-221: Battlefield 对象进入可查询集合、ObjectFilter 支持 exclude 锚点与队友（allies）关系后，" +

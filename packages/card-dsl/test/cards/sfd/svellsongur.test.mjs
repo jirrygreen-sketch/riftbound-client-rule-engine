@@ -66,6 +66,8 @@ test("sfd-059-221 Svellsongur: program validates and is judge-required", () => {
   assert.match(program.judgeReason, /479\.1/);
   assert.match(program.judgeReason, /copy/);
   assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /Unsupported payment kind/);
 });
 
@@ -132,6 +134,5 @@ test.todo(
 );
 test.todo(
   "sfd-059-221 Svellsongur: paying the printed Equip cost (1 energy + 1 Calm rune, 818.1.c / 818.1.c.3) needs the " +
-    "\"equip\" payment kind in cost plan-values (RIFT-89 follow-up) plus the program -> keyword expansion -> chain wiring " +
-    "(contract 3.5)"
+    "\"equip\" payment kind in cost plan-values (RIFT-261); the RIFT-257 program binding itself is merged"
 );

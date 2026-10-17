@@ -21,9 +21,10 @@ import type { CardProgram } from "../../ir/index.js";
  * 费用声明 + 入场替代）由 engine-core 的 Effects/keywords/Accelerate.ts 负责，
  * 本文件不重复实现。
  *
- * status = judge-required：关键词展开文件已合入，但合并内核没有消费方把卡牌上
- * 的 keyword 能力接进打出流程（见 judgeReason）。依赖落地后复核并改为
- * executable，同时把下面的 test.todo 换成真实执行场景。
+ * status = judge-required：关键词展开（accelerate.cost + 入场替代）与费用计划对
+ * optionalAdditional 的 accelerate 组件支持都已合入，但合并内核没有消费方把卡牌上
+ * 的 keyword 能力接进打出流程，accelerate.cost 静态效果也没有卡牌绑定层（见
+ * judgeReason）。依赖落地后复核并改为 executable。
  */
 const blazingScorcher = {
   canonicalCardId:
@@ -32,12 +33,12 @@ const blazingScorcher = {
   status: "judge-required",
   judgeReason:
     "Accelerate 的展开文件（effects/keywords/Accelerate.ts：accelerate.cost 静态费用声明 + " +
-    "object-enters-board 入场替代）已合入，但合并内核没有任何生产方把卡牌上的 keyword 能力接进打出流程：" +
-    "cost/cost-plan.ts 只消费调用方传入的 optionalAdditional，没有从 keyword 声明生成 " +
-    "{ kind: 'accelerate' } 费用组件的路径；accelerate.cost 静态效果也没有图层消费方；" +
-    "chain/engine.ts:357 的就绪进场只读已生成的 cost plan，805.1.b.1 的域匹配力量与 " +
-    "805.2.b/805.6 的延迟替代因此都不生效。缺少的是一层「卡牌程序 → 费用/替代管线」接线，" +
-    "不属于本卡的 write scope；接线落地前不近似实现。",
+    "object-enters-board 入场替代）与 cost/cost-plan.ts 对 { kind: 'accelerate' } 组件的收取" +
+    "（含 805.1.b.1 的域匹配力量）均已合入，本卡测试真实执行展开后的就绪进场替代体；" +
+    "但合并内核没有任何生产方把卡牌上的 keyword 能力接进打出流程：没有 RIFT-257 卡牌程序绑定层从 keyword " +
+    "生成 optionalAdditional accelerate 组件，accelerate.cost 静态效果也没有卡牌侧的注册入口，" +
+    "chain/engine.ts 的就绪进场只读调用方已生成的 cost plan，805.2.b 的延迟替代因此不生效。" +
+    "缺少的是「卡牌程序 → 费用/替代管线」接线（RIFT-257）；接线落地前不近似实现。",
   abilities: [{ kind: "keyword", keyword: "accelerate" }],
   sourceText:
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_fury: as an additional cost to have me enter ready.)"

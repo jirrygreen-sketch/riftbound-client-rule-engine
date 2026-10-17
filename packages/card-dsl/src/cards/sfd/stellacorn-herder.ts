@@ -16,16 +16,17 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   GameAction，牌库顺序与 Burn Out 由内核负责（已合入 effect.draw）。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required。
- * - object-moved 触发缺「移动的是本卡」的可判定载荷：events/action-adapter.ts 为
- *   move-location 派生的事件带 object/fromZone/toZone（区域），但不带 Location
- *   起终点（timing-points.ts 声明的 payloadFields），且 events/pipeline-match.ts 只读
- *   EventPattern 的 object/source/target/player/fromZone/toZone/amount/details，不读取
- *   卡程序里的内层 filter 锚点（filter: { source: "self" }），因此触发会命中任意移动。
- *   458/458.1 的 Recall 排除同样依赖该载荷。
- * - 进一步，没有已合入消费方把 CardProgram 的 triggered 能力注册成事件订阅
- *   （CardProgram → TriggerRegistration，RIFT-120）。
- * 依赖：RIFT-120（move-location 事件载荷与卡牌触发注册）。不近似实现（不把任意移动
- * 当作本卡移动，也不用直接改区域代替 effect.draw）。
+ * - 卡牌程序绑定（RIFT-257）已合入，events/pipeline 的注册路径会调用
+ *   translateTriggerFilter 把内层锚点 filter: { source: "self" } 解析为 objectId
+ *   锚点；但 EventPattern 词表（events/trigger-spec.ts 的 EVENT_PATTERN_TYPES）
+ *   没有 object-moved，pipeline.registerTrigger → assertTriggerSpec 以
+ *   invalid-event-type 拒绝该 filter，触发器无法注册。
+ * - events/action-adapter.ts 为 move-location 派生的事件只带 object/fromZone/toZone
+ *   （区域均为 "board"），没有 timing-points.ts 为 449.1/449.2/458 声明的 Location
+ *   起终点载荷（fromKind/fromLocationId/toKind/toLocationId），无法区分 Move 与
+ *   Recall。
+ * 依赖：RIFT-120（object-moved 进入 EventPattern 词表并补齐移动载荷）。
+ * effect.draw（414.1/414.3）本体已合入并由 golden 真实执行；不近似实现。
  */
 const abilities: Ability[] = [
   {
@@ -50,13 +51,13 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "object-moved 触发缺可判定载荷：events/action-adapter.ts 为 move-location 派生的事件只带 object/fromZone/toZone（区域），" +
-    "不填 449.1/449.2 要求的 Location 起终点（timing-points.ts 声明的 payloadFields），且 events/pipeline-match.ts 只读 " +
-    "EventPattern 的 object/source/target/player/fromZone/toZone/amount/details，不读取卡程序里的内层锚点 filter: { source: \"self\" }，" +
-    "因此该触发会命中任意对象的移动，无法表达「是本卡在移动」，458/458.1 的 Recall 排除同样缺该载荷；" +
-    "此外没有已合入消费方把 CardProgram 的 triggered 能力注册成事件订阅（RIFT-120）。" +
-    "effect.draw（414.1/414.3）本体已合入，golden 用解释器 + 参考内核真实执行该 body。" +
-    "依赖：RIFT-120（move-location 事件载荷与卡牌触发注册）。不近似实现。",
+    "卡牌程序绑定（RIFT-257）已合入，translateTriggerFilter 能把内层锚点 " +
+    "filter: { source: \"self\" } 解析为 objectId 锚点；但 EventPattern 词表（events/trigger-spec.ts 的 " +
+    "EVENT_PATTERN_TYPES）没有 object-moved，注册时会被 assertTriggerSpec 以 invalid-event-type 拒绝，触发器无法进入唯一事件管线。" +
+    "其次，events/action-adapter.ts 为 move-location 派生的事件只带 object/fromZone/toZone（区域均为 \"board\"），" +
+    "没有 timing-points.ts 为 449.1/449.2/458 声明的 Location 起终点载荷（fromKind/fromLocationId/toKind/toLocationId），" +
+    "无法区分 Move 与 Recall。effect.draw（414.1/414.3）本体已合入，golden 用解释器 + 参考内核真实执行该 body。" +
+    "依赖：RIFT-120（object-moved 词表与移动载荷）。不近似实现。",
   abilities,
   sourceText: "When I move, draw 1."
 } satisfies CardProgram;

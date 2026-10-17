@@ -8,7 +8,11 @@ import program from "../../../dist/cards/ven/protective-sands.js";
 // layout instead of the package name.
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { EventPipeline } from "../../../../engine-core/dist/events/pipeline.js";
+import { TurnFlow } from "../../../../engine-core/dist/turn/flow.js";
 
 const CANONICAL =
   "card.hash-be16710fdfd6fce7243538754b9e041ce61077a17c75b104b7d6dc5dd119ce97";
@@ -55,11 +59,14 @@ test("ven-162-166 Protective Sands: identity, ruleset, status and exact source t
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  // The two gaps the judgeReason must name: the cost.pay primitive and the
-  // conquer trigger pipeline.
+  // The two gaps the judgeReason must name after the 2026-10-16 re-sweep: the
+  // cost.pay primitive (still RIFT-261) and the 053.3 "here" anchor (the
+  // conquer timing point itself is now emitted by the merged scoring flow).
   assert.match(program.judgeReason, /cost\.pay/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /conquer/);
+  assert.match(program.judgeReason, /here/);
 });
 
 test("ven-162-166 Protective Sands: conquer-here trigger with the rune-count trigger condition", () => {
@@ -70,10 +77,10 @@ test("ven-162-166 Protective Sands: conquer-here trigger with the rune-count tri
   assert.equal(ability.trigger.at, "conquer");
   // 053.3 "here" + 190.6.a/190.6.d "you" (the battlefield's controller). The
   // "self" spelling is the merged PlayerSelector for the ability's controller;
-  // "here" is the 053.3 referent placeholder the trigger-spec validator does
-  // not accept yet (see judgeReason).
+  // "conquered" is the closed EventPattern discriminant that EVENT_NAMES maps
+  // to the conquer timing point; "here" is the still-unbound 053.3 referent.
   assert.deepEqual(ability.trigger.filter, {
-    event: "conquer",
+    event: "conquered",
     here: true,
     player: "self"
   });
@@ -109,8 +116,8 @@ test("ven-162-166 Protective Sands: 'you may pay … to draw 1' is one optional 
     "protective-sands.draw"
   ]);
 
-  // The payment is the RIFT-9 cost.pay primitive, which has no instruction
-  // file yet (RIFT-89); the amount is the printed :rb_energy_1:.
+  // The payment is the cost.pay primitive, which still has no instruction
+  // file (in-flight RIFT-261); the amount is the printed :rb_energy_1:.
   assert.equal(pay.op, "cost.pay");
   assert.deepEqual(pay.args.energy, { kind: "constant", value: 1 });
   assert.equal(pay.linkedTo, undefined);
@@ -162,14 +169,121 @@ test("ven-162-166 Protective Sands golden: declining the payment skips both the 
   assert.equal(kernel.zone("A", "hand").length, 0);
 });
 
+test("ven-162-166 Protective Sands golden: the merged scoring flow really emits conquer with the battlefield id", () => {
+  // Production turn flow (turn/flow.ts scheduleScore → Score commit wave): the
+  // 'conquer' emission is produced by the same pipeline the card trigger will
+  // subscribe to, and it carries the battlefield as details.battlefieldId.
+  const builder = world().player("A").player("B");
+  for (const player of ["A", "B"]) {
+    builder
+      .deck(Array.from({ length: 12 }, (_, index) => `${player}:deck:${index}`), { owner: player })
+      .rune(Array.from({ length: 8 }, (_, index) => `${player}:rune:${index}`), { owner: player });
+  }
+  builder.unit("mover", { controller: "A", might: 4 });
+  const worldKernel = builder.build();
+  const choose = request => {
+    if (request.type === "select-objects" && request.min === request.max && request.options.length === request.min) {
+      return [...request.options];
+    }
+    if (request.type === "mode") return request.options[0];
+    throw new AwaitChoice(request);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: worldKernel.snapshot(), links: worldKernel.clone() }),
+    restore: saved => {
+      worldKernel.restore(saved.state);
+      worldKernel.copyLinkedFrom(saved.links);
+    },
+    objects: () => worldKernel.objects,
+    perform: action => worldKernel.perform(action),
+    choose,
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(worldKernel, { source, controller, timingPoint, choose }),
+    testTrigger: () => false
+  });
+  const flow = new TurnFlow({
+    host,
+    player: id => worldKernel.player(id),
+    turnOrder: ["A", "B"],
+    battlefields: [{ id: "bf1", controller: null }, { id: "bf2", controller: "B" }]
+  });
+  flow.start();
+  const source = worldKernel.getObject("mover");
+  // Moves into the uncontrolled battlefield bf1; Cleanup discovers Contested
+  // and the merged combat flow conquers after the showdown is settled.
+  flow.execute({
+    id: "protective-sands-entry",
+    controller: "A",
+    source,
+    kind: "unit",
+    body: [],
+    cost: { id: "cost:entry", cost: { energy: { kind: "constant", value: 0 }, power: { kind: "constant", value: [] } } },
+    location: { type: "battlefield", id: "bf1" }
+  });
+  let guard = 0;
+  while (flow.chain.items.length) {
+    if (++guard > 60) throw new Error("protective-sands golden: chain did not settle");
+    flow.pass(flow.chain.priority);
+  }
+  for (let step = 0; step < 12 && !flow.chain.pipeline.events.some(event => event.timingPoint === "conquer"); step++) {
+    if (flow.combat.active && flow.chain.turnState?.startsWith("showdown")) flow.pass(flow.chain.priority);
+    flow.advance();
+    guard = 0;
+    while (flow.chain.items.length) {
+      if (++guard > 60) throw new Error("protective-sands golden: trigger chain did not settle");
+      flow.pass(flow.chain.priority);
+    }
+  }
+  const conquer = flow.chain.pipeline.events.filter(event => event.timingPoint === "conquer");
+  assert.equal(conquer.length, 1);
+  assert.equal(conquer[0].player, "A");
+  assert.deepEqual(conquer[0].details, { battlefieldId: "bf1" });
+  assert.equal(worldKernel.player("A").score, 1);
+});
+
+test("ven-162-166 Protective Sands golden: the closed 'conquered' discriminant fires on the emitted conquer timing point", () => {
+  // The trigger filter now uses the closed EVENT_PATTERN_TYPES value
+  // "conquered" (events/pipeline-match.ts EVENT_NAMES maps it to "conquer").
+  // Registering the card's own filter against the real EventPipeline is the
+  // maximum evidence available while the 053.3 "here" anchor is unbound.
+  const kernel = world().unit("mover", { controller: "A", might: 4 }).build();
+  const source = kernel.getObject("mover");
+  const host = {
+    checkpoint: () => null,
+    restore: () => {},
+    execute: () => ({ outcome: { status: "done", events: [] }, emissions: [] }),
+    context: () => ({}),
+    objects: () => [source],
+    choose: () => {
+      throw new Error("unexpected choice");
+    }
+  };
+  const pipeline = new EventPipeline(host, ["A", "B"], "A");
+  const seen = [];
+  pipeline.onTrigger = snapshot => seen.push(snapshot);
+  pipeline.registerTrigger({
+    id: "protective-sands.conquer-probe",
+    source,
+    controller: "A",
+    optional: false,
+    body: [],
+    // The card's own discriminant plus the controller selector; the "here"
+    // key stays out because the engine-side translator rejects it fail-closed.
+    spec: { at: "conquer", filter: { event: "conquered", player: "self" } }
+  });
+  pipeline.emit({ timingPoint: "conquer", player: "A", details: { battlefieldId: "bf1" } });
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].event.details.battlefieldId, "bf1");
+});
+
 test.todo(
-  "ven-162-166 Protective Sands: pay the printed :rb_energy_1: with the cost.pay primitive and then draw 1 " +
-    "— effects/instructions/ contains only effect.* files, so RIFT-9's required cost.pay (RIFT-89 cost plan wiring) " +
-    "has no instruction file to execute"
+  "ven-162-166 Protective Sands: pay the printed :rb_energy_1: with cost.pay and then draw 1 — " +
+    "effects/instructions/ still has no cost.pay primitive (cost kinds and cost.pay/cost.modify belong to " +
+    "the in-flight RIFT-261)"
 );
 
 test.todo(
-  "ven-162-166 Protective Sands: the conquer-here trigger runs end to end (Conquer Effect → chain) — needs " +
-    "scoring → chain/events conquer emission and CardProgram TriggerRegistration (RIFT-76/RIFT-120, contract §7.2 " +
-    "batch 5) plus 190.6 battlefield-controller resolution and the 053.3 \"here\" anchor"
+  "ven-162-166 Protective Sands: bind \"here\" to the conquer event's battlefield payload (053.3) and resolve " +
+    "the battlefield controller's abilities (190.6) so the CardProgram trigger registers without the " +
+    "descriptive here key — the conquer emission itself is already merged"
 );

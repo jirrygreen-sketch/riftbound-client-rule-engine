@@ -34,7 +34,8 @@ test("rad-141-167 Hexplosives Expert: identity, status and verbatim sourceText",
   assert.match(program.judgeReason, /effect\.token/);
   assert.match(program.judgeReason, /judge-required/);
   assert.match(program.judgeReason, /355\.2\.a/);
-  assert.match(program.judgeReason, /RIFT-81/);
+  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("rad-141-167 Hexplosives Expert: one Action-speed activated ability with the printed cost", () => {
@@ -100,7 +101,7 @@ test("rad-141-167 Hexplosives Expert: the printed [A] cost is payable with Power
 
 test("rad-141-167 Hexplosives Expert: the Bomb token is negated by the merged primitive, never guessed", () => {
   // 187.12 defines the Bomb gear token with its own [Deploy] and [Deathknell]
-  // abilities. effect.token's frozen definition table has no bomb entry and
+  // abilities. effect.token's merged definition table has no bomb entry and
   // documents that definitions requiring other abilities stay judge-required;
   // the golden locks that negative evidence instead of inventing a Bomb.
   const kernel = world().build();
@@ -115,15 +116,15 @@ test("rad-141-167 Hexplosives Expert: the Bomb token is negated by the merged pr
 
 test.todo(
   "rad-141-167: add the CR 187.12 Bomb gear token definition (domainless Gear token with " +
-    "[Deploy] and [Deathknell]) to the effect.token definition table — the frozen table stops " +
-    "at recruit/sand-soldier/mech/reflection/tentacle and blocks ability-bearing definitions " +
-    "(RIFT-81~91)"
+    "[Deploy] and [Deathknell]) to the effect.token definition table — the merged table stops " +
+    "at recruit/sand-soldier/mech/reflection/tentacle and blocks ability-bearing definitions (RIFT-62)"
 );
 
 test.todo(
   "rad-141-167: create the Bomb token on the Chain and hand it to the play action, then place it " +
     "at the chosen battlefield — needs the chain-create + play handoff (CR 440.2.c / 185.2.a / " +
-    "350.2 / 354) and a controller-relative way to name the chosen legal battlefield (CR 355.2.a)"
+    "350.2 / 354) and a controller-relative way to name the chosen legal battlefield (CR 355.2.a) — " +
+    "the destination/location work is RIFT-90 plus the RIFT-257 binding"
 );
 
 test.todo(

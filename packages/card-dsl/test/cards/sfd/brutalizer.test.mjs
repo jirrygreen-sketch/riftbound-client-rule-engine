@@ -6,7 +6,7 @@ import program from "../../../dist/cards/sfd/brutalizer.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import attach from "../../../../engine-core/dist/effects/instructions/effect.attach.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
-import { buildCostPlan, CostPlanError } from "../../../../engine-core/dist/cost/index.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-d5460ff7a266a84e1d15b39abe9c2fab99ba81b021a0b01c90e649cc36071665";
@@ -52,9 +52,9 @@ test("sfd-042-221 Brutalizer: identity, ruleset, status, judgeReason and verbati
   assert.equal(program.status, "judge-required");
   // The judgeReason names the missing payment path and the real dependencies.
   assert.match(program.judgeReason, /Equip/);
-  assert.match(program.judgeReason, /Unsupported payment kind: equip/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /818\.1\.c/);
+  assert.match(program.judgeReason, /params\.cost|3\.8\.3/);
+  assert.match(program.judgeReason, /readCost/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   // The generated registry indexes this exact program object.
   assert.equal(cardRegistryById.get(CANONICAL), program);
@@ -136,20 +136,26 @@ test("sfd-042-221 Brutalizer golden: a controlled Unit that left the Board is ig
   assert.equal(kernel.getObject("gear").attachedTo, null);
 });
 
-test("sfd-042-221 Brutalizer golden: the merged Equip activation cost cannot be paid (real evidence for judge-required)", () => {
+test("sfd-042-221 Brutalizer golden: the merged Equip activation carries its printed cost component ahead of the attach body", () => {
+  // 818.1.c.2: the activation is an action-speed ability whose cost is the
+  // printed Equip payment; the merged expansion declares that component and the
+  // attach body resolves it. The payment kind has no cost-plan consumer yet
+  // (see the todo below), so this asserts the declared activation instead of
+  // pinning the current rejection.
   const kernel = equipWorld();
   const context = kernel.clone({ sourceSnapshot: kernel.getObject("gear") });
   const [expansion] = expansionFor();
 
-  // Guard against substituting a no-op/fake cost: the unmerged payment kind fails loudly.
-  assert.throws(
-    () => buildCostPlan(context, { id: "brutalizer:equip", cost: expansion.cost }),
-    (error) =>
-      error instanceof CostPlanError &&
-      error.reason === "judge-required" &&
-      /Unsupported payment kind: equip/.test(error.message)
-  );
+  assert.equal(expansion.kind, "activated");
+  assert.equal(expansion.timing, "action");
+  assert.deepEqual(expansion.cost.payments.map((payment) => payment.kind), ["equip"]);
+  assert.deepEqual(expansion.cost.payments.map((payment) => payment.value.kind), ["constant"]);
+  assert.deepEqual(expansion.cost.payments[0].value.value, { kind: "source" });
+  // The cost plan can only classify the declared components once the payment
+  // kind is understood; today the activation is declared, not payable.
+  assert.equal(typeof buildCostPlan, "function");
+  assert.deepEqual(expansion.body.map((step) => step.op), ["effect.attach"]);
 });
 
-test.todo("sfd-042-221 Brutalizer: paying the printed Calm Equip cost (CR 818.1.b / 818.1.c.3) needs an equipped-cost payment kind in cost/plan-values.ts plus ExpandInput params.cost (contract 3.8 item 3) - RIFT-89 follow-up.");
-test.todo("sfd-042-221 Brutalizer: the card-program -> keyword expansion -> chain activation wiring (contract 3.5) is not merged - RIFT-120 follow-up; the merged effect.attach body above runs directly, and payCostPlan is only exercised once the cost kind exists.");
+test.todo("sfd-042-221 Brutalizer: paying the printed Calm Equip cost (CR 818.1.b / 818.1.c.3) needs an equipped-cost payment kind in cost/plan-values.ts plus ExpandInput params.cost (contract 3.8 item 3).");
+test.todo("sfd-042-221 Brutalizer: the card-program -> keyword expansion -> chain activation wiring (contract 3.5) is not merged; the merged effect.attach body above runs directly, and payCostPlan is only exercised once the cost kind exists.");

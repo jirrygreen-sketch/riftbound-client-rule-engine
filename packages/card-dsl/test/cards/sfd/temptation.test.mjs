@@ -32,8 +32,8 @@ test("sfd-129-221 Temptation: judgeReason names the destination and [Repeat] gap
   assert.match(program.judgeReason, /effect\.move/);
   assert.match(program.judgeReason, /target\.location/);
   assert.match(program.judgeReason, /RIFT-90/);
-  assert.match(program.judgeReason, /RIFT-86/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -173,6 +173,6 @@ test.todo(
 
 test.todo(
   "sfd-129-221 Temptation: [Repeat] :rb_energy_2: — collecting the optional additional cost at Finalize " +
-    "and executing the effect one extra time per paid instance (820.1.b/820.1.d/820.2.a) needs the Repeat " +
-    "keyword expansion (RIFT-86) and the cost plan (RIFT-89)"
+    "and executing the effect one extra time per paid instance (820.1.b/820.1.d/820.2.a) needs the card-program " +
+    "to cost-plan optionalAdditional producer (RIFT-261)"
 );

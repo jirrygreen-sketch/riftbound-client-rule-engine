@@ -3,8 +3,12 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/wuju-apprentice.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -29,8 +33,9 @@ test("unl-040-219 Wuju Apprentice: identity, status, judgeReason and verbatim so
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /823\.1/);
   assert.match(program.judgeReason, /824\.1/);
-  assert.match(program.judgeReason, /PlayerSnapshot\.xp/);
-  assert.match(program.judgeReason, /kw-level/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-268/);
+  assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
 test("unl-040-219 Wuju Apprentice: [Hunt] is a keyword declaration only", () => {
@@ -85,16 +90,49 @@ test("unl-040-219 Wuju Apprentice golden: an empty deck draws as much as possibl
   assert.equal(kernel.player("A").handSize, 0);
 });
 
+test("unl-040-219 Wuju Apprentice golden: the merged [Hunt] expansion really gains 1 XP on conquer and hold", () => {
+  // RIFT-265's Hunt definition expands this card's declaration into the two
+  // printed triggers (823.1.b / 823.1.c.1) with the omitted value read as 1
+  // (823.1.c.2); effect.xp really increases the controller's XP.
+  const hunt = keywordDefinitionsById.get("Hunt");
+  assert.equal(typeof hunt, "object");
+  assert.equal(hunt.valued, true);
+  assert.equal(hunt.stacking, "sum");
+  const expansion = hunt.expand({ value: hunt.value, host: { canonicalCardId: CANONICAL_ID } });
+  assert.deepEqual(expansion.map((ability) => ability.trigger.at), ["conquer", "hold"]);
+  for (const ability of expansion) {
+    assert.equal(ability.body[0].op, "effect.xp");
+    assert.deepEqual(ability.body[0].args.amount, { kind: "constant", value: 1 });
+  }
+
+  const kernel = world().player("A", { xp: 0 }).unit("apprentice", { owner: "A", controller: "A" }).build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("apprentice") });
+  for (const ability of expansion) {
+    const outcome = resolveChainBody(ability.body, context);
+    assert.equal(outcome.status, "executed");
+  }
+  assert.equal(context.player("A").xp, 2);
+  assert.equal(context.events.filter((event) => event.action === "gain-xp").length, 2);
+});
+
+test("unl-040-219 Wuju Apprentice: the [Level 6] dependent ability passes the closed trigger vocabulary", () => {
+  // The dependent ability is a card-played trigger; translateTriggerFilter turns
+  // its declared event spelling into the closed EventPattern vocabulary.
+  const translated = translateTriggerFilter(dependentAbility.trigger.filter, "apprentice", "card-played");
+  assert.equal(validateTriggerSpec({ at: "card-played", filter: translated }).ok, true);
+});
+
 test.todo(
-  "unl-040-219 Wuju Apprentice: expand [Hunt] (CR 823.1.b/823.1.c.1, 823.2 summing) into conquer and hold " +
-    "triggers gaining 1 XP — no hunt KeywordDef exists (ability-templates kw-hunt)"
+  "unl-040-219 Wuju Apprentice: register the merged [Hunt] expansion with the event pipeline — Hunt.ts declares " +
+    "event \"conquer\"/\"hold\" while the closed EVENT_PATTERN_TYPES only accepts \"conquered\"/\"held\", so " +
+    "validateTriggerSpec rejects the registration (RIFT-257 follow-up)"
 );
 test.todo(
-  "unl-040-219 Wuju Apprentice: expand [Level 6][>] (CR 824.1.b.1: 'while you have 6 or more XP, this card " +
-    "gains [Text]') with the dynamic Active/Inactive re-evaluation of 824.1.c.1/824.1.d — no kw-level " +
-    "expansion and no readable XP expression path are merged (RIFT-89/90)"
+  "unl-040-219 Wuju Apprentice: bind the [Level 6][>] dependent ability (CR 824.1.b.1 / 824.1.c.1 / 824.1.d) — " +
+    "keywords/Level.ts publishes only the condition.predicate declaration and no compiler attaches it to this " +
+    "card's dependent text, and the merged Condition cannot read the controller's XP (RIFT-268 follow-up)"
 );
 test.todo(
-  "unl-040-219 Wuju Apprentice: fire the card-played trigger from the real chain flow (CR 420.4.a) — " +
-    "depends on RIFT-120 chain/event integration"
+  "unl-040-219 Wuju Apprentice: evaluate the 6+ XP gate on the dependent ability — the retained compare shape " +
+    "counts queried objects (PlayerSnapshot.xp has no Expr path), so it must not be bound as-is (CR 824.1.c)"
 );

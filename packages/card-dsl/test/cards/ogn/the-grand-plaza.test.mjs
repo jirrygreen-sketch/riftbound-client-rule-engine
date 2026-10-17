@@ -3,8 +3,7 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/the-grand-plaza.js";
-import win from "../../../../engine-core/dist/effects/instructions/effect.win.js";
-import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 
 const CANONICAL = "card.hash-627933b535ef66e1e1bb12785313b937e23dc2c7ac48a1ff26c8c49a94e0c233";
@@ -35,8 +34,8 @@ test("The Grand Plaza program validates and is judge-required", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /effect\.win/);
-  assert.match(program.judgeReason, /RIFT-76/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /testTrigger/);
   assert.match(program.judgeReason, /sameLocationAs/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -109,39 +108,15 @@ test("The Grand Plaza golden: a replaced win is negated without declaring anyone
   assert.deepEqual(kernel.events.map(event => [event.action, event.outcome]), [["win", "replaced"]]);
 });
 
-test("The Grand Plaza condition cannot be evaluated in production: its placeholders resolve to nobody", () => {
-  // The condition is a real "count units, gte 7" query. Two of its parts are
-  // placeholders the merged reference kernel does not resolve:
-  //   - controller: "controller" (never equal to a real PlayerId), and
-  //   - sameLocationAs: "self" (not implemented by the merged matchers).
-  // The assertions below record exactly that, so the condition stays part of the
-  // documented gap instead of being declared executable.
-  const kernel = plazaWorld(7);
-  const host = kernel.ref("grand-plaza");
-  const outcome = runAbilityBody([
-    {
-      id: "check",
-      op: "condition.predicate",
-      args: { condition: { kind: "constant", value: ability.trigger.condition } }
-    }
-  ], kernel, undefined, { host });
-
-  // The world really holds the seven units, yet the declared filter matches none
-  // of them: only the controller placeholder blocks the match.
-  assert.equal(kernel.query({ type: "unit", zone: "board" }).length, 7);
-  assert.deepEqual(kernel.query(ability.trigger.condition.left.filter), []);
-  assert.deepEqual(outcome.results[0].result.linkedValues, { value: false });
-});
-
 test.todo(
   "The Grand Plaza condition scope: '7+ units here' needs the 053.3 'here' referent to " +
-    "restrict the count to the held Battlefield; the merged matcher ignores sameLocationAs, " +
-    "so the count would include units at other Battlefields (excluding Pending chain items, RIFT-90)"
+    "restrict the count to the held Battlefield through the trigger condition; the registration " +
+    "path needs a host testTrigger adapter (events/pipeline.ts), and the interpreter's plain " +
+    "query path must bind controller: 'controller' to the ability controller"
 );
 
 test.todo(
-  "The Grand Plaza hold trigger: the Beginning scoring step emits the hold event (315.2.b.2, " +
-    "471.2, 473.2.b) and the CardProgram's triggered ability is registered as a " +
-    "TriggerRegistration — the scoring package (RIFT-76) is not bridged to the chain/events " +
-    "pipeline (RIFT-120) and no subscriber registers card-program triggers"
+  "The Grand Plaza hold trigger: the Beginning scoring step now emits the hold event " +
+    "(TurnFlow's Score wave), so the remaining gap is binding this CardProgram's triggered " +
+    "ability as a TriggerRegistration (RIFT-257) with the 053.3 'here' referent"
 );

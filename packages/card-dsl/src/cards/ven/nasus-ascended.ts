@@ -10,6 +10,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   Empowered.)
  *   [Empowered][>] When I conquer, you score 1 point.
  *
+ * 复核（RIFT-337）：Deflect 的 KeywordDef 已随 RIFT-84 合入，但 Empower / Empowered
+ * 仍缺 KeywordDef（keywords/registry.generated.ts 的 26 个已注册关键词里没有它们），
+ * 且 static → layers 的注册方与 target.tax 的卡牌接线仍未合入，见 judgeReason。
+ *
  * 规则依据（Core Rules v1.5）：
  * - 809 Deflect：Passive Ability 关键词（809.1）；格式 "Deflect [X]"，X 是
  *   Deflect Value（809.1.b.2），省略时按 1（809.1.b.3）；809.1.c 功能上等价于
@@ -73,13 +77,15 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「[Deflect 2]」「[Empower] 8」与「[Empowered][>]」依赖尚未合入的关键词展开：" +
-    "effects/keywords/ 中没有 Empower / Empowered 的 KeywordDef（827.1.c.1 的 " +
-    "cost.activated + effect.empower + “Use only if not Empowered” 限制、828.1.c 的 " +
-    "Empowered 状态门控都无实现），layers/ 也没有消费 continuous.grant-keyword / " +
-    "condition.predicate(empowered) 的路径（依赖 RIFT-83/84 关键词展开与 RIFT-91 " +
-    "layers-continuous）。Deflect 的 card 侧声明可用（809.1.b.2），但其展开 " +
-    "target.tax 的图层消费方（RIFT-90）尚未与卡牌关键词注册表接通。" +
+    "「[Empower] 8」与「[Empowered][>]」依赖尚未合入的关键词展开：effects/keywords/ 中没有 " +
+    "Empower / Empowered 的 KeywordDef（827.1.c.1 的 cost.activated + effect.empower + " +
+    "“Use only if not Empowered” 限制、828.1.c 的 Empowered 状态门控都无实现），ObjectSnapshot / " +
+    "Condition 也没有 Empowered 谓词，RIFT-257 的 expandProgram 会以 “Keyword empower has no " +
+    "executable KeywordDef” 拒绝（依赖新的 Empower/Empowered 关键词任务与 RIFT-87 条件/谓词）。" +
+    "「[Deflect 2]」的 KeywordDef 已合入（effects/keywords/Deflect.ts，RIFT-84），但展开出的 static " +
+    "target.tax 既没有图层消费者（layers/engine.ts 无该分支），也没有把它接到 target-plan 的 " +
+    "Deflect 附加费上（RIFT-90 的 TargetTaxAdapter 只由调用方提供），且 static 效果进图层的注册方" +
+    "（RIFT-257 的 binder 接线）仍未合入。" +
     "征服触发的 effect.score 原语已合入并单独可执行；不近似实现缺口的费用改写与状态门控。",
   abilities,
   sourceText:

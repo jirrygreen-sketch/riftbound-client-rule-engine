@@ -25,21 +25,33 @@ import type { CardProgram } from "../../ir/index.js";
  * - 359.3.e.14.a-b：“Then, if …” 从句不链接到前面的可选指令：拒绝 banish 只是该
  *   指令 negated(skipped)，后续独立条件照常检查。
  *
- * status = judge-required（缺口不近似实现）：
- * - “if you spent [4] or more” 无可求值路径：合并 IR 的 Expr/Condition 只能读对象特征、
- *   链接值与对象计数，没有读取 finalized 费用计划实际支付 Energy 的表达式（契约 3.6
- *   的 ResolveContext 也没有 “spent” 读取入口），count 表达式只数对象、不能表达金额。
- * - “banish it” 的 it 是触发事件里的法术对象；契约 3.6 的 ObjectSelector 只有
- *   self/source/target/pick/linked，没有“触发事件对象”，这里的 TargetSpec 只是
- *   形状保留，真实绑定按 383.2.c.3.b / 359.3.f.3 必须由触发系统在入链时锁定。
- * - “four spells banished with me” 的 Linked Ability 作用域没有合并的追踪器，
- *   “put each in its trash” 无法选出那些牌（effect.zone 只能读 target/pick）。
- * - “you may banish it” 位于效果开头但后面仍接独立的 “Then, if …” 从句：383.3.a
- *   （finalize 决定、拒绝则整个触发移出链）与按指令作用域在结算时决定两种读法，
- *   在已有 4 张放逐法术时结果不同；需要裁定，本程序按契约 3.9 冻结形状书写。
+ * status = judge-required（2026-10-16 复核：缺口不近似实现）。已合入并可执行的部分：
+ * 触发本体通过 RIFT-257 的 programs/ 适配器注册到 card-played 事件（closed 词汇，
+ * 金标验证 translateTriggerFilter + validateTriggerSpec 通过），choice.optional 的
+ * 接受/拒绝、effect.banish、effect.channel 与 effect.draw 都走解释器/参考内核真实执行。
+ * 仍然缺口的四处（逐条按当前合并源码核对）：
+ * - “if you spent [4] or more”（383.2.a.1）没有求值路径：chain/engine.ts 的 Finalize 把
+ *   payCostPlan 的回执存在 ChainItem.payment 上，但契约 3.6 的 ResolveContext 没有
+ *   spent / finalized 费用回执读取入口，Expr/Condition 只能读对象特征、链接值与对象计数
+ *   （count 只数对象、不读金额）；费用种类与 cost.pay / cost.modify 仍属尚在进行的
+ *   RIFT-261。程序里的 count subject 是保留形状，不是求值。
+ * - “banish it” 的 it 是触发事件里的法术对象：契约 3.6 的 ObjectSelector 只有
+ *   self/source/target/pick/linked；触发快照虽然携带 PipelineEvent，但没有把它绑定成
+ *   对象选择符的路径（引擎批 4 的触发事件对象/载荷选择器，RIFT-257 后续），383.2.c.3.b /
+ *   359.3.f.3 要求的入链锁定还不存在。
+ * - “four spells banished with me”（CR 394–398）的 Linked Ability 作用域没有合并的
+ *   追踪器；“put each in its trash” 只能经 effect.zone 的 target/pick 读取，而 picks 来自
+ *   Finalize 锁定的答案，不能表达“与我关联的那 4 张放逐法术”。
+ * - “you may banish it” 位于效果开头、后面仍接独立的 “Then, if …” 从句：383.3.a
+ *   （finalize 决定、拒绝则整条触发移出链）与 383.3.a.3（后面的 may 在结算时决定）两种读法
+ *   在已有 4 张放逐法术时结果不同，需要裁定；本程序按契约 3.9 冻结形状把被选指令包进
+ *   choice.optional（ability.optional=false），不宣称已裁定。
+ * 另外，该 effect.banish 的 TargetSpec 嵌套在 choice.optional 的 body 内，而合并的链侧
+ * assertFinalizationSurface 明确拒绝 nested/repeated targets（金标只覆盖解释器层的
+ * body 执行）——即使前两条缺口解决，嵌套目标生命周期仍需链侧适配。
  *
- * 依赖：RIFT-89（费用计划的实际支付回执/Energy 读取）、引擎批 4（触发事件对象
- * 选择器与事件载荷）、Linked Ability 作用域（CR 394–398）的合并实现。
+ * 依赖：RIFT-261（费用种类 / cost.pay 的实际支付回执读取）、RIFT-257 后续（触发事件对象
+ * 选择器与嵌套目标生命周期）、Linked Ability 作用域（CR 394–398）的合并实现。
  */
 export default {
   canonicalCardId:
@@ -47,17 +59,20 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺“本次打出实际支付了多少 Energy”的读取路径：合并 IR 的 Expr/Condition 只能读对象特征、链接值与对象计数 " +
-    "（count 只数对象、不读金额），契约 3.6 的 ResolveContext 也没有 spent / finalized 费用回执入口，" +
-    "因此 383.2.a.1 的触发条件 “if you spent [4] or more” 无法求值（依赖 RIFT-89 的费用计划回执）。" +
-    "“banish it” 的 it 指触发事件中的法术：合并 ObjectSelector 只有 self/source/target/pick/linked，" +
-    "没有“触发事件对象”，本程序里的 TargetSpec 只是形状，真实绑定按 383.2.c.3.b / 359.3.f.3 属于触发系统" +
-    "（引擎批 4）。" +
-    "“four spells banished with me” 是 Linked Ability 作用域（CR 394–398），合并内核没有该追踪器，" +
-    "“put each in its trash” 无法选出 4 张被放逐的法术。" +
-    "另外 “you may banish it” 位于效果开头但后续仍接独立的 “Then, if …” 从句：383.3.a 的 finalize 决定" +
-    "（拒绝即整条触发移出链）与按指令作用域在结算时决定两种读法在已有 4 张放逐法术时结果不同，需要裁定；" +
-    "本程序按契约 3.9 冻结形状把被选指令包进 choice.optional（ability.optional=false），不近似执行其余缺口。",
+    "触发本体已可执行：RIFT-257 的 programs/ 适配器把本卡的 card-played 触发与 filter 注册进事件管线" +
+    "（closed 词汇，translateTriggerFilter + validateTriggerSpec 通过），choice.optional 接受/拒绝、effect.banish、" +
+    "effect.channel、effect.draw 都由解释器/参考内核真实执行（golden 覆盖）。整卡仍缺四处：" +
+    "(1) “if you spent [4] or more”（383.2.a.1）没有求值路径——链侧 Finalize 虽把 payCostPlan 回执存在 ChainItem.payment，" +
+    "但契约 3.6 的 ResolveContext 没有 spent / finalized 费用回执入口，Expr/Condition 只能读对象特征、链接值与对象计数" +
+    "（count 只数对象、不读金额），费用种类与 cost.pay / cost.modify 仍属尚在进行的 RIFT-261；" +
+    "(2) “banish it” 的 it 是触发事件里的法术对象——ObjectSelector 只有 self/source/target/pick/linked，" +
+    "触发快照的 PipelineEvent 没有绑定成对象选择符的路径（引擎批 4 / RIFT-257 后续，383.2.c.3.b / 359.3.f.3）；" +
+    "(3) “four spells banished with me”（CR 394–398）的 Linked Ability 作用域没有合并追踪器，effect.zone 只能经 " +
+    "target/pick 读取，picks 来自 Finalize 锁定答案，无法表达关联集合；" +
+    "(4) “you may banish it” 位于效果开头而后面仍接独立 “Then, if …” 从句，383.3.a（finalize 决定、拒绝即整条触发移出链）" +
+    "与 383.3.a.3（结算时决定）两种读法在已有 4 张放逐法术时结果不同，需要裁定，本程序只按契约 3.9 冻结形状书写。" +
+    "另外该 effect.banish 的 TargetSpec 嵌在 choice.optional body 内，链侧 assertFinalizationSurface 明确拒绝 " +
+    "nested/repeated targets，嵌套目标生命周期仍需适配。不近似实现。",
   abilities: [
     {
       kind: "triggered",

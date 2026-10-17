@@ -27,19 +27,25 @@ import type { CardProgram } from "../../ir/index.js";
  *   也没有把时点载荷暴露给卡程序的通道，程序里的 "event-combat-attacker" /
  *   "event-combat-defender" 是缺事件参与者选择器的占位值，不是伪造的席位。
  *
- * status = judge-required（缺口在触发与接收者绑定，不近似实现）：
+ * status = judge-required（复核 2026-10-16；缺口在触发与接收者绑定，不近似实现）：
  * 1. 没有事件参与者选择器："the attacker and defender" 是本次战斗的两个事件参与者，
- *    IR 无法表达（同 ogn/obelisk-of-power、rad/rakelstake 的缺口；契约 3.8 的
- *    ObjectSnapshot.combatRole 也尚未进入 engine-core 的 effects/contract.ts）。
- * 2. combat-start 时点虽在封闭枚举中，但没有任何已合入模块 emit 它：combat/ 目录只有
- *    结算辅助（derived-might / base-combat-allocation 等），事件管线仅对
- *    combat-start 递增战斗计数（events/pipeline.ts），生产流程没有生产者；也没有已合入
- *    订阅方把 CardProgram 的 triggered ability 注册成 TriggerRegistration，
- *    190.6 的战场能力控制者解析同样缺失。filter 的 here: true 是 053.3 的战场指代占位。
+ *    冻结 IR 的 PlayerSelector 只有 self/opponent/any/{playerId}，effect.resources 也只接受
+ *    求值为 PlayerId 的 Expr 或对象控制者，没有把 combat-start 载荷（attackerId/defenderId）
+ *    暴露给卡程序的通道；ObjectSnapshot.combatRole 已进入 effects/contract.ts，但战斗
+ *    designation 的写入方仍未实现（combat/flow.ts 的 start 事务会抛
+ *    combat-start-transaction）。
+ * 2. combat-start 时点仍未发射：combat/flow.ts 的战斗开始事务尚未实现（主动抛出
+ *    combat-start-transaction），事件管线只在收到该时点时递增战斗计数；
+ *    docs/rules/timing-point-producers.md 仍将该时点标为"待后续"。
+ *    RIFT-257 的卡牌程序绑定（src/programs/triggers.ts）已能注册 CardProgram 的
+ *    triggered ability，190.6 的战场能力控制者解析仍未接线；filter 的 here: true 是
+ *    053.3 的战场指代占位（静态 filter 读不到事件出的战场，且会被 programs/filters.ts
+ *    以 judge-required 拒绝，fail closed）。
  * 3. 已支持部分由 golden 真实执行：effect.resources 的"各加 1 Energy、不加 Power"语义
- *    （在补齐攻守席位绑定后）与占位状态下的"不静默加资源"。
- * 依赖：事件参与者选择器与 combat-start 发射/注册（契约变更请求 + RIFT-120/§7.2 批 5）、
- * RIFT-33 的战斗触发接线。
+ *    （golden 把攻守两个席位作为参数补齐后执行卡片自身的 body）；席位如何从 combat-start
+ *    绑定见第 1 点，保持 test.todo，不近似绑定。
+ * 依赖：战斗开始/designation 事务（combat-start 发射）、事件参与者选择器（契约变更请求）、
+ * 053.3 here 锚点 / 190.6 战场能力绑定。
  */
 export default {
   canonicalCardId: "card.hash-f3d497c8272c7189495fd4ff73a5a4450b60af7a9e559bdf73d4c3e1380bfcc3",
@@ -50,13 +56,18 @@ export default {
     "466.2.c.3 取得身份），而冻结 IR 没有事件参与者选择器：events/trigger-spec.ts 的 PlayerSelector 只有 " +
     "self/opponent/any/{playerId}，effect.resources 只接受求值为 PlayerId 的 Expr 或对象控制者，" +
     "也没有把 combat-start 时点载荷（attackerId/defenderId）暴露给卡程序的通道；契约 3.8 的 ObjectSnapshot.combatRole " +
-    "同样未进入 engine-core 的 effects/contract.ts（同 ogn/obelisk-of-power、rad/rakelstake 的缺口）。" +
+    "虽已进入 engine-core 的 effects/contract.ts，但 combat designation 的写入方仍未实现（combat/flow.ts 的战斗开始事务主动抛 " +
+    "combat-start-transaction；同 ogn/obelisk-of-power、rad/rakelstake 的缺口）。" +
     "程序中的 \"event-combat-attacker\"/\"event-combat-defender\" 是缺选择器的占位值，不可执行。" +
-    "(2) combat-start 时点（466.1/466.2.b）虽在 events/timing-points.ts 的封闭枚举中，但没有任何已合入模块 emit 它：" +
-    "combat/ 只有结算辅助，事件管线仅对 combat-start 递增战斗计数；也没有已合入订阅方把 CardProgram 的 triggered ability " +
-    "注册成 TriggerRegistration，190.6 的战场能力控制者解析缺失；filter 的 here: true 是 053.3 的占位。" +
+    "(2) combat-start 时点（466.1/466.2.b）仍未发射：combat/flow.ts 的战斗开始事务尚未实现（主动抛 combat-start-transaction），" +
+    "事件管线仅在该时点递增战斗计数，docs/rules/timing-point-producers.md 仍标为待后续；RIFT-257 的卡牌程序绑定" +
+    "（src/programs/triggers.ts）已能注册 CardProgram 的 triggered ability，190.6 的战场能力控制者解析仍未接线；" +
+    "filter 的 here: true 是 053.3 的占位（静态 filter 读不到事件出的战场），会被 programs/filters.ts " +
+    "以 judge-required 拒绝（fail closed）。" +
     "(3) 效果本体已合入：effect.resources 的「各加 1 Energy、不加 Power」（430.1/430.2/430.5）在 golden 中于补齐两个席位后真实执行；" +
-    "占位状态下不静默加任何资源。依赖：事件参与者选择器（契约变更请求）、combat-start 发射与战场能力注册（RIFT-120/§7.2 批 5、RIFT-33）。",
+    "席位如何自 combat-start 载荷绑定见第 1 点（保持 test.todo，不近似实现）。" +
+    "依赖：战斗开始/designation 事务（combat-start 发射）、事件参与者选择器（契约变更请求）、" +
+    "053.3 here 锚点 / 190.6 战场能力绑定。",
   abilities: [
     {
       kind: "triggered",

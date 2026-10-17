@@ -63,7 +63,7 @@ test("sfd-064-221 Cloth Armor: program validates and is judge-required", () => {
   assert.deepEqual(result.issues, []);
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /equip/);
-  assert.match(program.judgeReason, /Unsupported payment kind/);
+  assert.match(program.judgeReason, /params\.cost|3\.8\.3/);
   assert.match(program.judgeReason, /Quick-Draw/);
 });
 

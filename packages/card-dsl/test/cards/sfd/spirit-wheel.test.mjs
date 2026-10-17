@@ -11,6 +11,7 @@ const ENGINE = new URL("../../../../engine-core/dist/", import.meta.url);
 const { runAbilityBody } = await import(new URL("effects/interpreter.js", ENGINE));
 const { runInstruction, world } = await import(new URL("effects/testing/index.js", ENGINE));
 const { validateTriggerSpec } = await import(new URL("events/trigger-spec.js", ENGINE));
+const { createProgramBinding } = await import(new URL("programs/index.js", ENGINE));
 const draw = (await import(new URL("effects/instructions/effect.draw.js", ENGINE))).default;
 
 const CANONICAL = "card.hash-498c7e8ce2e20ef011de716db7cf2ff6e0f71a410cc40dace65553df8b0b2518";
@@ -35,9 +36,9 @@ test("sfd-144-221 Spirit Wheel: identity, ruleset, status, judgeReason and verba
   // README section 2: the reason names the missing subscription and the missing
   // cost-within-instructions payment, with the real task numbers.
   assert.match(program.judgeReason, /TriggerRegistration/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /383\.3\.b/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -116,12 +117,86 @@ test("sfd-144-221 Spirit Wheel golden: the printed draw really draws one card th
   assert.deepEqual(run.events.map((event) => event.action), ["draw"]);
 });
 
-test.todo(
-  "sfd-144-221 Spirit Wheel: the became-target trigger needs the card-program -> " +
-    "TriggerRegistration producer (contract 3.5, RIFT-120 follow-up) before it can fire."
-);
+test("sfd-144-221 Spirit Wheel: the merged CardProgram binding registers the became-target subscription", () => {
+  // RIFT-257 (contract 3.5) is the subscription producer the card was waiting
+  // for: registerProgramTriggers must turn the declared triggered ability into a
+  // TriggerRegistration on the shared pipeline, keeping the printed
+  // became-target timing point and resolving the target filter's controller
+  // placeholder to the ability controller.
+  const lifted = { ...program, status: "executable" };
+  delete lifted.judgeReason;
+  const binding = createProgramBinding({ cardPrograms: [lifted] });
+  const registrations = [];
+  const ids = binding.registerProgramTriggers(
+    { pipeline: { registerTrigger: (registration) => registrations.push(registration), unregisterTrigger: () => {} } },
+    {
+      ref: { id: "spirit-wheel", zoneEntryId: 1 },
+      cardId: CANONICAL,
+      name: "Spirit Wheel",
+      types: ["gear"],
+      tags: [],
+      keywords: [],
+      owner: "A",
+      controller: "A",
+      zone: "board",
+      location: { type: "base", player: "A" },
+      might: null,
+      energy: 2,
+      power: null,
+      exhausted: false,
+      damage: 0,
+      stunned: false,
+      buffs: 0,
+      attachedTo: null,
+      faceDown: false,
+      isToken: false
+    }
+  );
+
+  assert.equal(ids.length, 1);
+  assert.equal(registrations[0].spec.at, "became-target");
+  assert.deepEqual(registrations[0].spec.filter, {
+    event: "became-target",
+    target: { type: "unit", controller: "self" },
+    player: "self"
+  });
+  assert.equal(registrations[0].optional, true);
+});
+
+test("sfd-144-221 Spirit Wheel: accepting the optional never draws without a real payment", () => {
+  // 383.3.b/383.3.b.1: the printed "pay 1 energy and exhaust this" is the
+  // ability's base cost. Whether the cost opcode is registered yet or not, the
+  // durable requirement is that accepting the optional never draws for free:
+  // either the payment really happens (energy spent, wheel exhausted) or the
+  // attempt fails closed with no card drawn. This keeps passing once the
+  // in-progress RIFT-261 cost work lands.
+  const kernel = world().player("A", { energy: 3 }).deck(["d1", "d2"]).build();
+  kernel.setAnswers({ [OPTIONAL_ID]: true });
+
+  let outcome = null;
+  try {
+    outcome = runAbilityBody(ability.body, kernel);
+  } catch (error) {
+    // Fail-closed path while cost.pay / the Finalize cost plan are unmerged
+    // (RIFT-261): the interpreter must reject the whole attempt.
+    assert.match(String(error && error.message), /cost\.pay|payment|cost plan/i);
+    // Nothing was approximated: no card was drawn and the energy was untouched.
+    assert.equal(kernel.player("A").handSize, 0);
+    assert.equal(kernel.player("A").energy, 3);
+    assert.deepEqual(kernel.events, []);
+  }
+  if (outcome !== null) {
+    // Once the payment path exists, accepting must really pay 1 Energy (and
+    // exhaust the wheel) before the draw happens; drawing for free is never a
+    // valid outcome.
+    const paidEnergy = kernel.player("A").energy === 2;
+    assert.equal(kernel.player("A").handSize, paidEnergy ? 1 : 0);
+    assert.equal(kernel.player("A").energy <= 2, true, "the 1 Energy base cost must be really paid");
+  }
+});
+
 test.todo(
   "sfd-144-221 Spirit Wheel: paying \"1 energy and exhaust this\" as the trigger's base cost " +
     "(CR 383.3.b/383.3.b.1) needs a cost field on TriggeredAbility or a merged cost.pay " +
-    "primitive plus the finalize payment pipeline (RIFT-89 follow-up)."
+    "primitive plus the finalize payment pipeline (in-progress RIFT-261)."
 );

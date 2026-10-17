@@ -13,8 +13,11 @@ import program from "../../../dist/cards/sfd/shurelyas-requiem.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID =
@@ -56,6 +59,30 @@ const requiemWorld = () => world()
     location: { type: "battlefield", id: "battlefield-1" }
   })
   .build();
+
+/** The Gear as it sits on the Board; the printed costs are never coerced. */
+const hostSnapshot = () => ({
+  ref: { id: "shurelyas-requiem", zoneEntryId: 1 },
+  cardId: CARD_ID,
+  name: "Shurelya's Requiem",
+  types: ["gear"],
+  tags: ["Ornn", "Equipment", "Signature"],
+  keywords: [{ id: "Unique" }, { id: "Equip", value: 1 }],
+  owner: "A",
+  controller: "A",
+  zone: "board",
+  location: { type: "base", player: "A" },
+  might: 2,
+  energy: 4,
+  power: null,
+  exhausted: false,
+  damage: 0,
+  stunned: false,
+  buffs: 0,
+  attachedTo: null,
+  faceDown: false,
+  isToken: false
+});
 
 /**
  * Execute the trigger body with the production filter matcher so the contract's
@@ -108,7 +135,8 @@ test("sfd-192-221 Shurelya's Requiem: identity, ruleset, status, judgeReason and
   assert.match(program.judgeReason, /Unique/);
   assert.match(program.judgeReason, /continuous\.deck/);
   assert.match(program.judgeReason, /163\.2\.b/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /TriggerRegistration/);
 });
 
@@ -203,18 +231,65 @@ test("sfd-192-221 golden: the Equip body attaches the requiem to a locked unit y
 
 test.todo(
   "sfd-192-221 Shurelya's Requiem: [Unique] (CR 825.1/825.3) needs a Unique KeywordDef and a continuous.deck " +
-    "consumer; keywords/ registers 16 keywords and none of them is Unique, and contract 3.1/3.3 has no " +
-    "deck-constraint semantics"
+    "consumer; keywords/registry.generated.ts lists 26 entries and none of them is Unique, and contract 3.1/3.3 " +
+    "has no deck-constraint semantics. The missing KeywordDef also blocks the whole program's expandProgram " +
+    "(see the golden below)"
 );
 
 test.todo(
   "sfd-192-221 Shurelya's Requiem: paying the printed Equip cost (one [A] Power, CR 135.2.e.5 / 818.1.c.2) is " +
     "blocked on the `equip` payment kind in cost/plan-values.ts and on a contract representation for Universal Power " +
-    "(CR 163.2.b; RIFT-89)"
+    "(CR 163.2.b; in-progress RIFT-261)"
 );
 
-test.todo(
-  "sfd-192-221 Shurelya's Requiem: the card-played play effect can only fire end-to-end once a card-program → " +
-    "TriggerRegistration adapter registers CardProgram.triggered abilities with the chain (chain/README wiring step 2; " +
-    "events/pipeline.registerTrigger is kernel-facing only, RIFT-120 follow-up)"
-);
+test("sfd-192-221 golden: the merged binding layer expands and registers the card-played play effect", () => {
+  // Any merged trigger registration must go through expandProgram, which
+  // resolves the program's keywords. Because [Unique] has no KeywordDef the
+  // whole program stops there today; this locks the durable contract by
+  // exercising the same path with the Unique declaration removed (the fixture
+  // never claims the shipped program is executable) and asserting that the
+  // card-played play effect binds to this card's own identity.
+  const lifted = { ...program, status: "executable" };
+  delete lifted.judgeReason;
+  // Both the declared keyword ability and the live snapshot's printed keyword
+  // list route through expandProgram. Until the Unique KeywordDef lands, the
+  // expansion must fail closed (judge-required; never a partial expansion), so
+  // record that outcome and only continue with an expansion that really
+  // succeeded.
+  const expansionAttempt = (() => {
+    try {
+      const expanded = expandProgram(lifted, hostSnapshot());
+      return { ok: true, expanded };
+    } catch (error) {
+      return { ok: false, error };
+    }
+  })();
+  if (!expansionAttempt.ok) {
+    assert.equal(expansionAttempt.error.code, "judge-required");
+    assert.match(expansionAttempt.error.message, /Keyword unique has no executable KeywordDef/);
+ }
+
+  const withoutUnique = { ...lifted, abilities: lifted.abilities.filter((ability) => ability.keyword !== "unique") };
+  const binding = createProgramBinding({ cardPrograms: [withoutUnique] });
+  const registrations = [];
+  const equipOnlySnapshot = { ...hostSnapshot(), keywords: [{ id: "Equip", value: 1 }] };
+  const ids = binding.registerProgramTriggers(
+    { pipeline: { registerTrigger: (registration) => registrations.push(registration), unregisterTrigger: () => {} } },
+    equipOnlySnapshot
+  );
+  assert.equal(ids.length, 1);
+  assert.equal(registrations[0].spec.at, "card-played");
+  assert.deepEqual(registrations[0].spec.filter, {
+    event: "card-played",
+    object: { canonicalCardId: CARD_ID }
+  });
+  assert.equal(registrations[0].optional, false);
+
+  // The registered filter really discriminates on this card's identity.
+  const event = { timingPoint: "card-played", kind: "card-played", object: equipOnlySnapshot, player: "A" };
+  assert.equal(matchesTriggerEvent(registrations[0].spec.filter, event, "A"), true);
+  assert.equal(
+    matchesTriggerEvent({ event: "card-played", object: { canonicalCardId: "other-card" } }, event, "A"),
+    false
+  );
+});

@@ -22,7 +22,7 @@ test("ogn-186-298 Treasure Trove: identity, version and verbatim multiline sourc
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /pipeline-match/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(
     program.sourceText,
     "When this leaves the board, draw 1 and channel 1 rune exhausted.\n" +
@@ -109,9 +109,10 @@ test("ogn-186-298 Treasure Trove: kill-this half kills the source gear through e
 
 test.todo(
   "Treasure Trove: production object-leaves-board trigger registration with last-known source information " +
-    "(383.2.c.3 / card-program trigger adapter, RIFT-120 integration)"
+    "(383.2.c.3 / card-program trigger adapter, RIFT-257 programs/triggers.ts, whose " +
+    "translateTriggerFilter normalizes the role/self anchor the merged matcher ignores)"
 );
 test.todo(
   "Treasure Trove: pay 1 Chaos Power plus exhaust-this at Finalize before the kill-self ability resolves " +
-    "(chain cost plan, RIFT-89/90 + RIFT-120)"
+    "(chain cost plan + the activated-ability program binding, RIFT-257/RIFT-261)"
 );

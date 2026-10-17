@@ -37,8 +37,9 @@ test("ven-163-166 Risen Altar: identity, ruleset, status and exact source text",
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /Empower/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /sameLocationAs/);
 });
 
 test("ven-163-166 Risen Altar: the discount states both printed branches over your units here", () => {
@@ -155,7 +156,7 @@ test("ven-163-166 Risen Altar golden: a discount never drives the cost below zer
 test.todo(
   "ven-163-166 Risen Altar: install the static reduction on the affected Empower cost — no merged path turns a " +
     "CardProgram's static continuous.cost-modification into the CostPlanInput.discounts of the later activation, and " +
-    "effects/instructions/ has no cost.modify primitive (RIFT-9 list, RIFT-89 cost-plan wiring)"
+    "effects/instructions/ has no cost.modify primitive (in-flight RIFT-261); RIFT-257's statics.ts is only a callback slot"
 );
 
 test.todo(
@@ -171,5 +172,6 @@ test.todo(
 
 test.todo(
   "ven-163-166 Risen Altar: restrict 'your units here' to this battlefield — layers/filter.ts does not implement the " +
-    "sameLocationAs (053.3 'here') anchor, so the declared filter would apply at every battlefield (RIFT-91)"
+    "sameLocationAs (053.3 'here') anchor (the interpreter query path has it), so the declared filter would apply at " +
+    "every battlefield"
 );

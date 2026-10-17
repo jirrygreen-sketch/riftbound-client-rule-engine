@@ -23,27 +23,30 @@ import type { CardProgram } from "../../ir/index.js";
  *   merged effect.ready primitive with the default `"source"` selector ("ready
  *   me", 412.4/416.1).
  *
- * Status: judge-required. Ability 2 is expressible and has execution tests;
- * ability 1 is missing four merged pieces, none approximated:
- * - the IR `ReplacementAbility` has no `optional` field, while the printed text
- *   is "you may pay ... instead". The pipeline's ReplacementRegistration.optional
- *   decision is engine-internal (contract 3.8/4); encoding the "may" as a
- *   choice.optional inside `with` would replace the death even when the player
- *   declines, which is wrong, so the may-decision is recorded here instead;
- * - `cost.pay` (rainbow + exhaust) is a RIFT-9 required primitive with no
- *   merged instruction file; the exhaust must be a cost (CR 415.4/415.5: "as a
- *   cost ... must be able to be completed"), not effect.exhaust's state change;
- * - the `with` body has no ObjectSelector for the object of the replaced event.
- *   "source" is The Boss itself, and there is no target choice to make
- *   (355.10.c); the dying unit cannot be bound, so spending its Buff and
- *   recalling it stay declarative;
+ * Status: judge-required. Ability 2 is expressible and has execution tests.
+ * Ability 1 now binds the replaced event's object through the merged RIFT-260
+ * binding (`{ linked: "replacement.object" }`, contract 3.6), but still cannot
+ * register or run:
+ * - `cost.pay` (rainbow + exhaust as a completable cost, CR 415.4/415.5) is a
+ *   RIFT-261 instruction with no merged file; `bindReplacement` rejects it at
+ *   bind time as an unsupported planned opcode, so the replacement stays
+ *   unbindable no matter how the rest of the body is spelled;
+ * - the "you may pay ... instead" decision now has a merged home in RIFT-260's
+ *   `replacement.event { optional }`, but a card program cannot spell that
+ *   wrapper's `instead` instruction body in the frozen IR (validateInstruction
+ *   accepts only Expr args while the binding layer requires a raw instruction
+ *   array), so the may-decision is recorded here; see the contract change
+ *   request;
  * - `effect.move` explicitly blocks its recall mode: "Recall requires an action
- *   distinct from Move (CR 457-460)" and submits no substitute Move, so even
- *   with a bound reference the recall cannot execute yet.
- * The contract's ZoneId also has no Legend Zone (CR 108.3), so a Legend that
- * must exhaust itself cannot be represented as a Board object; that gap is
- * already tracked by the effect.exhaust task and is repeated in the reply's
- * contract-change request.
+ *   distinct from Move (CR 457-460)" and submits no substitute Move;
+ * - a "buffed unit you control" (CR 702.2.a: a unit with a Buff counter) has no
+ *   predicate in the EventPattern/ObjectFilter vocabulary or the replacement
+ *   matchers (`replacement/pattern.ts` normalizes unknown keys away), so the
+ *   declared `buffed: true` filter would over-match; it is intent data only;
+ * - no merged consumer turns a CardProgram's replacement ability into a
+ *   ReplacementRegistration (RIFT-257, in progress).
+ * The contract's ZoneId also has no Legend Zone (CR 108.3); the cost pipeline's
+ * "exhaust me" payment stays recorded in the contract-change request.
  */
 const program = {
   canonicalCardId:
@@ -51,11 +54,16 @@ const program = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "能力 1 是死亡替代：IR 的 ReplacementAbility 没有 optional 字段，而原文为 \"you may pay ... instead\"，引擎内部的 ReplacementRegistration.optional 才是正确的“可以”位置——若把 choice.optional 写进 with，玩家拒绝支付时死亡仍会被替代，语义错误，因此不近似。" +
-    "另外还缺：cost.pay（RIFT-9 清单，未合入原语文件；按 CR 415.4/415.5 这里的横置必须是可完成的费用，不能用 effect.exhaust 的状态改变代替）；with 指令没有指向“被替代事件对象”的 ObjectSelector（source 是本传奇自身，被消灭单位按 CR 355.10.c 又不是目标选择），无法绑定该单位的 Buff / 位置；effect.move 的 recall 模式被显式阻断（Recall requires an action distinct from Move，CR 457-460）。" +
-    "替代过滤还需要“buffed 单位”谓词（CR 702.2.a：身上有 Buff 计数即为 buffed），当前 EventPattern/ObjectFilter 词汇都没有该字段，replaces.filter 的 buffed: true 只是待接线的声明。" +
-    "能力 2（When you conquer, ready me）仅用已合入的 effect.ready 与 conquer 时点，有真实执行测试；整卡因能力 1 保持 judge-required。" +
-    "依赖：引擎批 4 的替代/事件管线、RIFT-89（cost.pay）、RIFT-9 的 recall/replacement 语义与事件对象选择符（见契约变更请求）、P2 批 6 生产接线。",
+    "能力 1（死亡替代）当前缺件：① cost.pay（rainbow + 作为可完成费用的横置，CR 415.4/415.5）是 RIFT-261 指令，未合入；" +
+    "replacement 绑定层会在 bind 时把 cost.pay 判为不受支持的 planned opcode 并抛 BlockedReplacementError，因此整条替代无法注册；" +
+    "② “you may pay ... instead” 的决策在 RIFT-260 的 replacement.event { optional } 已有位置，但卡牌侧无法在冻结 IR 里拼写该 wrapper 的 instead 指令体" +
+    "（validateInstruction 只接受 Expr 参数，绑定层要求原始指令数组），见契约变更请求；" +
+    "③ effect.move 的 recall 模式仍被显式阻断（Recall 是与 Move 不同的动作，CR 457-460，封闭 GameAction 集合没有对应动作）；" +
+    "④ “buffed 单位”（CR 702.2.a：身上有 Buff 计数）在 EventPattern/ObjectFilter 词汇与替代匹配器（replacement/pattern.ts 会把未知键归一化掉）中都没有谓词，" +
+    "replaces.filter 的 buffed: true 只是意图声明，注册后会过度匹配；⑤ 没有已合入消费方把 CardProgram 的替代能力注册成 ReplacementRegistration（RIFT-257 进行中）。" +
+    "已合入并已改写：被替代事件对象用契约 3.6 的 { linked: \"replacement.object\" }（RIFT-260 的 REPLACED_EVENT_LINK），with 体的 buff/move/exhaust 选择符与替代 planner 形状一致。" +
+    "能力 2（When you conquer, ready me）用已合入的 effect.ready 与 conquer 时点，有真实执行测试；整卡因能力 1 保持 judge-required。" +
+    "依赖：RIFT-261（cost.pay/cost.modify）、RIFT-257（CardProgram 替代绑定）、CR 457-460 的 Recall 动作与 CR 702.2.a 的 buffed 谓词（契约变更请求）。",
   abilities: [
     {
       kind: "replacement",
@@ -80,7 +88,7 @@ const program = {
           args: {
             // "pay :rb_rune_rainbow: and exhaust me": the exhaust is a cost
             // (CR 415.4/415.5), binding the source legend implicitly; the
-            // finalized payment plan is owned by the cost pipeline (RIFT-89).
+            // finalized payment plan is owned by the cost pipeline (RIFT-261).
             power: { kind: "constant", value: ["rainbow"] },
             payments: { kind: "constant", value: [{ kind: "exhaust" }] }
           }
@@ -90,10 +98,10 @@ const program = {
           op: "effect.buff",
           args: {
             mode: { kind: "constant", value: "spend" },
-            // "its buff" = the replaced event's unit. There is no selector for
-            // that object yet, so this id is intentionally NOT backed by a
-            // TargetSpec: the unit is not a target (CR 355.10.c).
-            target: { kind: "constant", value: "the-boss.dying-unit" }
+            // "its buff" = the replaced event's unit, bound through the merged
+            // RIFT-260 selector (contract 3.6 linked form). The unit is not a
+            // target (CR 355.10.c), so no TargetSpec backs this id.
+            target: { kind: "constant", value: { linked: "replacement.object" } }
           },
           linkedTo: "the-boss.pay"
         },
@@ -101,7 +109,7 @@ const program = {
           id: "the-boss.recall",
           op: "effect.move",
           args: {
-            objects: { kind: "constant", value: { target: "the-boss.dying-unit" } },
+            objects: { kind: "constant", value: { linked: "replacement.object" } },
             to: { kind: "constant", value: "controller-base" },
             mode: { kind: "constant", value: "recall" }
           },
@@ -113,7 +121,7 @@ const program = {
           args: {
             // "recall it exhausted": Recalls do not change statuses (CR 460.1),
             // so the exhausted state is applied explicitly after the recall.
-            pick: { kind: "constant", value: "the-boss.dying-unit" }
+            objects: { kind: "constant", value: { linked: "replacement.object" } }
           },
           linkedTo: "the-boss.recall"
         }

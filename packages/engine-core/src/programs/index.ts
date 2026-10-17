@@ -24,7 +24,7 @@ export interface ProgramBinding {
 
 export function createProgramBinding(options: { cardPrograms: ProgramSource; staticBinder?: ProgramStaticBinder }): ProgramBinding {
   const registry = new ProgramRegistry(options.cardPrograms);
-  const binder = options.staticBinder ?? noopStaticBinder;
+  const binder = options.staticBinder;
   return {
     registry,
     describePlay: (action, source) => describePlayDraft(registry, action, source),
@@ -32,8 +32,8 @@ export function createProgramBinding(options: { cardPrograms: ProgramSource; sta
     activationAbilities: source => listActivationAbilities(registry, source),
     registerProgramTriggers: (engine, source) => registerTriggers(registry, engine, source),
     unregisterProgramTriggers: unregisterTriggers,
-    bindStatic: (ability, source) => bindStaticAbility(binder, ability, source),
-    bindReplacement: (ability, source) => bindReplacementAbility(binder, ability, source),
+    bindStatic: (ability, source) => bindStaticAbility(binder ?? noopStaticBinder, ability, source),
+    bindReplacement: (ability, source) => bindReplacementAbility(binder ?? noopStaticBinder, ability, source),
     attachLifecycle: (engine, onError) => attachProgramLifecycle(engine, registry, binder, onError),
     inspect: source => {
       const program = registry.inspect(source.cardId);

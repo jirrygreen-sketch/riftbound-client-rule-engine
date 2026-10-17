@@ -439,6 +439,18 @@ test('unknown costs stay judge-required instead of silently becoming free', () =
   }
 });
 
+test('malformed payment containers fail as invalid plans before any payment', () => {
+  for (const cost of [
+    { payments: null },
+    { payments: [{}] },
+    { payments: [{ kind: 1 }] },
+    { discard: null },
+    { payments: [{ kind: 'discard', choice: { id: 'bad', options: null } }] }
+  ]) {
+    assert.throws(() => build(fixture(), { cost }), failure('invalid-cost-plan'));
+  }
+});
+
 test('negative, fractional, unsafe and null cost expressions are not numeric zero', () => {
   for (const amount of [-1, 0.5, Number.MAX_SAFE_INTEGER + 1, null, '1']) assert.throws(() => build(fixture(), { cost: energy(amount) }), failure('invalid-cost-plan'));
 });

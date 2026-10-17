@@ -18,18 +18,23 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "and [Ganking]"：条件授予的被动关键词，按契约 3.7 的 continuous.grant-keyword 形状声明，
  *   展开由已合入的 effects/keywords/Ganking.ts 负责（810.1.b 的战场间标准移动许可）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。
- * - "spent at least [A][A] this turn" 无可求值路径：合并 IR 的 Expr/Condition 只能读对象特征、
+ * status 判定（cards/README.md 第 2 节）：judge-required，缺口已收窄。
+ * - "spent at least [A][A] this turn" 仍无可求值路径：合并 IR 的 Expr/Condition 只能读对象特征、
  *   链接值与对象计数（count 只数对象、不读金额），契约 3.6 的 ResolveContext 没有 spent / 费用回执读数
  *   （同 unl/virtuoso 记录的缺口）；"[A]" 本身是 163.2.b 的 Universal Power，封闭 Domain 类型与
- *   payment 记录也不表达（effect.resources 明确保持 unsupported）。
- * - 条件性 +2 Might 需要卡牌侧 continuous.might 指令（RIFT-9 清单；RIFT-91 只合入了 layers 求值侧），
- *   与 sf d/harpoon-squad 同一缺口。
- * - 条件性 [Ganking] 授予需要 continuous.grant-keyword 的注册路径（尚无消费方，同 ogn/block、
- *   sfd/gem-jammer 记录）；layers 的 ability 层也没有把授予的关键词暴露成可被移动系统读取的特征。
- * - [Accelerate] 的展开已合入，但其费用计划消费方（Finalize 的 optionalAdditional 接线）属 RIFT-89。
- * 依赖：RIFT-89（费用计划与 [A] 支付回执）、卡牌侧 continuous.might 与 continuous.grant-keyword 指令
- * （RIFT-9 / RIFT-91）、Universal Power 的契约变更请求。
+ *   payment 记录也不表达（effect.resources 明确保持 unsupported）。此外该条件必须**先有**求值器：
+ *   layers/engine.ts 的 conditionMatches 只认 always/never/type/has-tag/has-keyword，未知 kind 按 true，
+ *   把上面的 compare 直接注册进图层会恒真开闸（golden 实测），所以卡内不得把它当已实现。
+ * - 条件性 +2 Might 的执行侧已合入：continuous.might（RIFT-258）能注册算术层修改，golden 用该原语
+ *   注册后经图层求值得到 +2；卡牌 static 的注册路径（RIFT-257 的 bindStatic/ProgramStaticBinder）
+ *   仍只是回调接口，没有把它接成图层注册的消费方。
+ * - 条件性 [Ganking] 授予：continuous.grant-keyword（RIFT-258）与 ability 图层（applyAbility 写 keywords）
+ *   都已合入，缺的同样是 static 注册消费方；移动系统读的是 layer 的 movement 特征，grant 后的关键词
+ *   也需要由该消费方落到图层上才有意义（同 ogn/block、sfd/gem-jammer 记录）。
+ * - [Accelerate] 的展开已合入（RIFT-805 群组），但其费用计划消费方（Finalize 的 optionalAdditional
+ *   接线）属进行中的 RIFT-261。
+ * 依赖：RIFT-261（费用计划与 [A] 支付回执）、卡牌 static → 图层注册消费方（RIFT-257 回调接线）、
+ * layers 条件求值器（compare 语义）与 Universal Power 的契约变更请求。
  * 不近似实现：不把 2 个 [A] 写成"任意 2 点力量"，不把条件性 +2 Might 写成 Buff，也不无条件授予 [Ganking]。
  */
 const abilities: Ability[] = [
@@ -84,13 +89,16 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "(1)「If you've spent at least :rb_rune_rainbow::rb_rune_rainbow: this turn」无可求值路径：合并 IR 的 Expr/Condition 只能读对象特征、" +
-    "链接值与对象计数（count 只数对象、不读金额），契约 3.6 的 ResolveContext 没有 spent / finalized 费用回执读数（同 unl/virtuoso 的缺口）；" +
+    "缺口已收窄但仍不可执行，不近似实现：(1)「If you've spent at least :rb_rune_rainbow::rb_rune_rainbow: this turn」无可求值路径——合并 IR 的 Expr/Condition " +
+    "只能读对象特征、链接值与对象计数（count 只数对象、不读金额），契约 3.6 的 ResolveContext 没有 spent / finalized 费用回执读数（同 unl/virtuoso 的缺口）；" +
     "「:rb_rune_rainbow:」本身是 163.2.b 的 Universal Power，封闭 Domain 类型与 payment 记录不表达（effect.resources 明确 unsupported、不用具名域近似）。" +
-    "(2) 条件性 +2 Might 需要卡牌侧 continuous.might 指令（RIFT-9 清单；RIFT-91 只合入 layers 求值侧），与 sfd/harpoon-squad 同一缺口。" +
-    "(3) 条件性 [Ganking] 授予需要 continuous.grant-keyword 的注册路径与 layers ability 层消费（无已合入指令入口，同 ogn/block、sfd/gem-jammer 记录）。" +
-    "(4) [Accelerate] 展开（805）已合入，但其费用计划消费方（Finalize 的 optionalAdditional 接线）属 RIFT-89。" +
-    "依赖：RIFT-89（费用计划与 [A] 支付回执）、continuous.might / continuous.grant-keyword 指令（RIFT-9 / RIFT-91）、Universal Power 的契约变更请求。不近似实现。",
+    "该条件还缺求值器：layers/engine.ts 的 conditionMatches 只认 always/never/type/has-tag/has-keyword，未知 kind 按 true，把上述 compare 直接注册进图层会恒真开闸，" +
+    "golden 实测该恒真行为。(2) 条件性 +2 Might 的执行侧已合入（continuous.might，RIFT-258）：golden 用该原语注册后经图层求值得到 +2；" +
+    "仍缺卡牌 static → 图层的注册消费方（RIFT-257 的 bindStatic/ProgramStaticBinder 只是回调接口，未接成图层注册）。(3) 条件性 [Ganking] 同理：" +
+    "continuous.grant-keyword（RIFT-258）与 layers 的 ability 层关键词写入（applyAbility）都已合入，缺的仍是 static 注册消费方；" +
+    "移动系统读取的是图层 movement 特征（同 ogn/block、sfd/gem-jammer 记录）。(4) [Accelerate] 展开已合入，但其费用计划消费方" +
+    "（Finalize 的 optionalAdditional 接线）属进行中的 RIFT-261。" +
+    "依赖：RIFT-261（费用计划与 [A] 支付回执）、RIFT-257（卡牌 static → 图层注册接线）、layers 条件求值器（compare 语义）与 Universal Power 的契约变更请求。",
   abilities,
   sourceText:
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_chaos: as an additional cost to have me enter ready.)\n" +

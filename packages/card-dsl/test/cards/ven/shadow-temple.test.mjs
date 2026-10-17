@@ -7,7 +7,10 @@ import program from "../../../dist/cards/ven/shadow-temple.js";
 // card-dsl), so golden execution loads the built engine through its workspace
 // layout instead of the package name.
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { TurnFlow } from "../../../../engine-core/dist/turn/flow.js";
 
 const CANONICAL =
   "card.hash-cd62916d98e552e83db520590945a7564cccd36cd0f631954e41d7c21e16695a";
@@ -35,8 +38,11 @@ test("ven-165-166 Shadow Temple: identity, ruleset, status and exact source text
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /effect\.mill/);
-  assert.match(program.judgeReason, /RIFT-76/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  // After the re-sweep the hold emission is merged; the remaining gap is the
+  // 053.3 "here" anchor and the 190.6 battlefield-ability binding.
+  assert.match(program.judgeReason, /scheduleScore/);
+  assert.match(program.judgeReason, /programs\/triggers\.ts/);
+  assert.match(program.judgeReason, /here/);
 });
 
 test("ven-165-166 Shadow Temple: hold-here trigger whose whole body is a Burn 3 (CR 441.1/441.2)", () => {
@@ -47,9 +53,10 @@ test("ven-165-166 Shadow Temple: hold-here trigger whose whole body is a Burn 3 
   // replaced, so the body is unconditional.
   assert.equal(ability.trigger.at, "hold");
   // 053.3 "here" + 190.6.a/190.6.d "you"; "here" stays the 053.3 referent
-  // placeholder while the trigger pipeline is unmerged (see judgeReason).
+  // placeholder while the here anchor is unbound (see judgeReason); "held" is
+  // the closed EventPattern discriminant that EVENT_NAMES maps to hold.
   assert.deepEqual(ability.trigger.filter, {
-    event: "hold",
+    event: "held",
     here: true,
     player: "self"
   });
@@ -119,10 +126,58 @@ test("ven-165-166 Shadow Temple golden: a replaced burn negates the instruction 
   assert.deepEqual(deckIds(kernel), ["top", "second", "third", "fourth"]);
 });
 
+test("ven-165-166 Shadow Temple golden: the merged scoring flow really emits hold for a controlled battlefield", () => {
+  const builder = world().player("A").player("B");
+  for (const player of ["A", "B"]) {
+    builder
+      .deck(Array.from({ length: 12 }, (_, index) => `${player}:deck:${index}`), { owner: player })
+      .rune(Array.from({ length: 8 }, (_, index) => `${player}:rune:${index}`), { owner: player });
+  }
+  builder.unit("holder", {
+    controller: "A",
+    might: 4,
+    location: { type: "battlefield", id: "bf1" }
+  });
+  const kernel = builder.build();
+  const choose = request => {
+    if (request.type === "select-objects" && request.min === request.max && request.options.length === request.min) {
+      return [...request.options];
+    }
+    if (request.type === "mode") return request.options[0];
+    throw new AwaitChoice(request);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => {
+      kernel.restore(saved.state);
+      kernel.copyLinkedFrom(saved.links);
+    },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
+    testTrigger: () => false
+  });
+  const flow = new TurnFlow({
+    host,
+    player: id => kernel.player(id),
+    turnOrder: ["A", "B"],
+    battlefields: [{ id: "bf1", controller: "A" }, { id: "bf2", controller: null }]
+  });
+  flow.start();
+  // The Hold timeline belongs to the Beginning scoring step; it is the same
+  // production pipeline the card's trigger registration will subscribe to.
+  const hold = flow.chain.pipeline.events.filter(event => event.timingPoint === "hold");
+  assert.equal(hold.length, 1);
+  assert.equal(hold[0].player, "A");
+  assert.deepEqual(hold[0].details, { battlefieldId: "bf1" });
+  assert.equal(kernel.player("A").score, 1);
+});
+
 test.todo(
-  "ven-165-166 Shadow Temple: the hold-here trigger runs end to end (Hold Effect → chain) — needs " +
-    "scoring → chain/events hold emission and CardProgram TriggerRegistration (RIFT-76/RIFT-120, contract " +
-    "§7.2 batch 5) plus 190.6 battlefield-controller resolution and the 053.3 \"here\" anchor"
+  "ven-165-166 Shadow Temple: bind the \"here\" hold filter (053.3) and the battlefield controller's abilities " +
+    "(190.6) — the hold emission and the RIFT-257 trigger registrar are merged, but the event only carries " +
+    "details.battlefieldId and programs/filters.ts rejects the here key fail-closed"
 );
 
 test.todo(

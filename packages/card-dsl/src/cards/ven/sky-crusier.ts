@@ -87,8 +87,9 @@ export default {
     "（结算期选择），但 cost/plan-values.ts 的 PaymentObjectReference 要求 CostSpec 里直接列出" +
     "精确的 ObjectRef 候选（choice.options），静态卡牌程序无法知道运行时手牌身份；当前只能像" +
     "Assembly Rig 那样写占位候选项，plan-values 会以 invalid-cost-plan（Cost requires an exact " +
-    "object reference）拒绝，或者由调用方经 ctx.picks 注入候选——该注入约定尚未进入契约（依赖 " +
-    "RIFT-89 费用计划、RIFT-102 的对象引用收口）。另外 1 Energy + 横置 + Deal 4 的目标与伤害原语" +
+    "object reference）拒绝，或者由调用方经 ctx.picks 注入候选——RIFT-102 的对象引用收口已合入，" +
+    "但“由选择生命周期在运行时解析手牌候选”的部分仍属费用计划接线（RIFT-261 仍在进行，" +
+    "plan-values.ts 尚未改变）。另外 1 Energy + 横置 + Deal 4 的目标与伤害原语" +
     "均已合入，可单独执行验证。不近似实现：不把『弃一张装备』改成固定弃某张、不用 effect.discard " +
     "代替费用、不放宽 423.3 的“费用必须能完成”。",
   abilities,

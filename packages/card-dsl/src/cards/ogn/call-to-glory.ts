@@ -29,21 +29,20 @@ import type { CardProgram } from "../../ir/index.js";
  *   models `ignore-base` rewrites (cost/plan-types.ts BaseCostModification)
  *   but nothing in the merged instruction set lets a card declare "pay the
  *   optional additional cost, then ignore the base cost if it was paid"; the
- *   plan for this card is generated at Finalize (RIFT-89).
+ *   plan for this card would be generated at Finalize by the card-program
+ *   binding (RIFT-257) and the card-facing cost operations (RIFT-261).
  * - "Give a unit +3 :rb_might: this turn" is a temporary Might modification
  *   that expires in the end-of-turn cleanup (317.2.c "3d. All 'this turn'
  *   effects expire simultaneously."; 433.1.a layer modulation). It belongs to
- *   the layers system: effect.buff's own header says temporary Might changes
- *   "belong to continuous.might, never to this primitive" (703 Buffs are
- *   counters), and no registered instruction converts a card instruction into
- *   a duration-bounded ctx.addContinuous call.
+ *   the layers system and now uses the merged continuous.might instruction
+ *   (RIFT-258: signed amount, this-turn duration, end-of-turn expiry).
  *
- * Status: judge-required. Both the conditional ignore-cost rewrite (the
- * merged cost plan still cannot take a runtime ObjectRef option set from
- * static IR, RIFT-89 follow-up) and the temporary Might instruction (the
- * card-facing continuous.might op is still missing; RIFT-91 merged the layers
- * engine it would feed) are unmerged. Not approximated: no free play, no
- * Buff-as-Might substitution.
+ * Status: judge-required. The Might half is merged and executed by the golden
+ * test; what remains missing is the conditional ignore-cost rewrite: the
+ * merged cost plan cannot take a runtime ObjectRef option set from static IR,
+ * and the card-program binding that would generate the plan for this card
+ * (RIFT-257) plus the card-facing cost operations (RIFT-261) are not merged.
+ * Not approximated: no free play, no Buff-as-Might substitution.
  */
 const callToGlory = {
   canonicalCardId: "card.hash-9eef9a0508648141992bbe70aa56b64551bbd00d06fd8be401c85dda6f542339",
@@ -52,12 +51,14 @@ const callToGlory = {
   judgeReason:
     "两处依赖未合入：(1)「As you play this, you may spend a buff as an additional cost. If you do, ignore " +
     "this spell's cost.」：可选追加费用（356.2.b/356.2.b.1、357.2 支付；702.2.b.1/b.2 限定可消耗的 Buff）和" +
-    "「已支付则把本牌 Base Cost 置 0」的费用改写（356.1.b、357.2.a）都属 RIFT-89；且 merged cost plan 的" +
+    "「已支付则把本牌 Base Cost 置 0」的费用改写（356.1.b、357.2.a）缺少生产接线：merged cost plan 的" +
     "非标准费用选项集要求 choice.options 是精确运行时 ObjectRef（cost/plan-values.ts 的 reference），" +
     "静态 IR 按 README §3 禁止写运行时引用，因此该选项集只能由 Finalize 的费用系统在运行时生成。" +
-    "(2)「Give a unit +3 Might this turn」是临时 Might 修正（317.2.c 到期 / 433.1.a 图层），属 layers 的" +
-    "continuous.might：RIFT-91 已合入层引擎与期限，但 effects/instructions 中仍无卡牌可用的 continuous.might" +
-    "指令 op，effect.buff 明确临时 Might 不入 Buff 计数器（703）。不近似实现（不免费打出、不用 Buff 冒充 Might）。",
+    "缺卡牌程序绑定层（RIFT-257）与卡面费用指令 cost.pay / cost.modify（RIFT-261）。" +
+    "(2)「Give a unit +3 Might this turn」已改用已注册的 continuous.might 原语（RIFT-258：带符号增减、" +
+    "this-turn 期限、317.2.c 到期），本卡测试真实执行并验证 +3 与回合结束到期；effect.buff 明确临时 Might " +
+    "不入 Buff 计数器（703）。不近似实现（不免费打出、不用 Buff 冒充 Might）。" +
+    "依赖：RIFT-257/RIFT-261 费用接线；Might 半段依赖已合入。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {
@@ -69,7 +70,7 @@ const callToGlory = {
         // （cost/plan-values.ts 的 readCost 只接受 printed / activated / explicit）。
         // 注意：merged cost plan 的 nonstandard 支付要求 choice.options 是精确运行时
         // ObjectRef，静态 IR 按 README §3 禁止写运行时引用，因此该选项集在 Finalize
-        // 生成费用计划时仍属 RIFT-89；卡牌不结算费用。
+        // 生成费用计划时属 RIFT-257/261 的绑定与费用指令接线；卡牌不结算费用。
         kind: "explicit",
         energy: { kind: "constant", value: 3 },
         payments: [

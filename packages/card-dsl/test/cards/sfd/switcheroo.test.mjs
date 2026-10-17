@@ -68,6 +68,8 @@ test("sfd-145-221 Switcheroo: judgeReason names the missing swap primitive", () 
   assert.match(program.judgeReason, /303\.1/);
   assert.match(program.judgeReason, /unclassified-rad-sfd/);
   assert.match(program.judgeReason, /703/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /434\.1/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -201,6 +203,6 @@ test.todo(
 
 test.todo(
   "sfd-145-221 Switcheroo: [Hidden]'s Hide cost and facedown replay (811, 422) and [Action]'s Showdown " +
-    "admission need cost.hidden (RIFT-89), continuous.timing (RIFT-91) and a CardProgram -> ChainDraft " +
-    "play adapter (RIFT-84)"
+    "admission need cost.hidden (RIFT-261) and continuous.timing (RIFT-91); the CardProgram -> ChainDraft " +
+    "play adapter (RIFT-257) is merged"
 );

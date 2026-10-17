@@ -26,24 +26,21 @@ import type { CardProgram } from "../../ir/index.js";
  * - 470.1 / 470.3: finishing the Conquer is the Scoring process; this ability
  *   itself only draws, it does not gain points.
  *
- * Status: judge-required. Three merged gaps, none approximated:
- * 1. no merged module emits conquer into the single event pipeline
- *    (scoring/scoring.ts returns triggerScore/triggerMethod flags that
- *    turn-executor-v2 consumes; the chain/pipeline emit sites cover only
- *    chain / card-played / showdown / cleanup / became-target), so the
- *    triggered ability cannot enter the chain. The filter's here placeholder
- *    is the 053.3 spelling the trigger-spec validator rejects
- *    (RIFT-31/RIFT-33, contract 7.2 batch 5).
- * 2. the count subject "other battlefields you or allies control" needs two
- *    things the frozen IR lacks: a Battlefield-object query population (the
- *    merged reference kernel's filter only matches snapshots of Board units;
- *    no module produces Battlefield objects into a query) and the teammate
- *    ("allies") relation, which exists only in Modes of Play with Teams
- *    (471.1.a, 315.2.b.3) and is modelled by no merged ObjectFilter /
- *    PlayerSelector / Expr; "other" would use the exclude anchor, which the
- *    primitive selector resolver implements, but there is no population to
- *    exclude from.
- * 3. the production chain query path has no battlefield-object source either.
+ * Status: judge-required. The conquer timing point itself is no longer the gap:
+ * turn/flow.ts's Score wave now emits `conquer` (recorded by the RIFT-270
+ * timing-point producer audit in docs/rules/timing-point-producers.md), so the older
+ * "no merged module emits conquer" note is stale. The remaining gaps are:
+ * 1. the battlefield-relative "here" restriction has no EventPattern vocabulary:
+ *    the card keeps the 053.3 `here: true` placeholder, which the events/trigger-spec
+ *    validator rejects (unknown field) and programs/filters.ts translateTriggerFilter
+ *    rejects as well ("Unsupported filter field here"), so the ability cannot
+ *    register through the merged CardProgram trigger adapter (RIFT-257).
+ * 2. the count subject "other battlefields you or allies control" still needs a
+ *    Battlefield-object query population and the teammate relation: the merged query
+ *    path (chain engine context -> matchesObjectFilter) filters Board snapshots through
+ *    ObjectFilter keys only, `controller: "you-or-ally"` and the `exclude` anchor are
+ *    rejected by programs/filters.ts, and no merged ObjectFilter / PlayerSelector / Expr
+ *    models the Mode-of-Play teammate relation (471.1.a, 315.2.b.3).
  * The trigger + count + draw shape is recorded below so the missing pieces stay
  * auditable; the draw half alone is executed by the golden test with an
  * explicit count, and the data issue (the extra period) is reported, not fixed.
@@ -53,17 +50,18 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Three merged gaps, none approximated. (1) No merged module emits conquer into the single event pipeline " +
-    "(scoring/scoring.ts only returns triggerScore/triggerMethod flags for turn-executor-v2), so the Conquer Effect " +
-    "(383.4.c / 473.2.a) cannot enter the chain; the filter here placeholder is the 053.3 spelling assertTriggerSpec " +
-    "rejects (RIFT-31/RIFT-33, contract 7.2 batch 5). (2) The count subject needs a Battlefield-object query population " +
-    "and the teammate relation of 471.1.a / 315.2.b.3: the merged reference kernel's filter matches Board-unit snapshots " +
-    "only (no Battlefield object source), and no merged ObjectFilter / PlayerSelector / Expr models allies (Modes of Play " +
-    "with Teams only). The exclude anchor exists in the primitive selector resolver, but the population it must exclude " +
-    "from does not exist. (3) The production chain query path has no battlefield-object source either. The merged draw " +
-    "primitive and the count-driven amount are exercised by the golden test with an explicit count; the printed effect " +
-    "cannot run end to end yet. Data issue (not modified): the catalog text ends with two periods (control..), recorded " +
-    "unresolved in docs/plans/survey/data-issues-recheck.md; sourceText keeps the catalog spelling verbatim.",
+    "The conquer timing point is merged (turn/flow.ts emits it in the Score wave; the RIFT-270 producer audit records " +
+    "this in docs/rules/timing-point-producers.md), but the printed ability " +
+    "(383.4.c / 473.2.a) still cannot run end to end, and nothing is approximated: (1) the battlefield-relative \"here\" " +
+    "restriction has no EventPattern vocabulary — the 053.3 `here: true` placeholder is rejected by the events/trigger-spec " +
+    "validator (unknown-field) and by programs/filters.ts translateTriggerFilter (\"Unsupported filter field " +
+    "here\"), so the CardProgram trigger cannot register through the merged RIFT-257 adapter; (2) the count subject needs a " +
+    "Battlefield-object query population and the teammate relation of 471.1.a / 315.2.b.3: the merged query path only filters " +
+    "Board snapshots through ObjectFilter keys, and no merged ObjectFilter / PlayerSelector / Expr models allies or the " +
+    "`you-or-ally` / `exclude` spellings used below (programs/filters.ts rejects both). The merged draw primitive and the " +
+    "count-driven amount are exercised by the golden test with an explicit count. Data issue (not modified): the catalog text " +
+    "ends with two periods (control..), recorded unresolved in docs/plans/survey/data-issues-recheck.md; sourceText keeps the " +
+    "catalog spelling verbatim.",
   abilities: [
     {
       kind: "triggered",

@@ -17,25 +17,28 @@ import type { CardProgram } from "../../ir/index.js";
  *   配 `exclude: "self"`（契约 3.6 的 ObjectSelector 形状）表达，由图层 / 战斗系统
  *   在造成战斗伤害前求值（契约 3.1 的 static ability 条件字段）。
  *
- * status = judge-required：卡程序按契约写出该持续效果的有依据形状，但
- * effects/instructions/ 与 layers 没有消费方——封闭 GameAction 集合没有“限制战斗
- * 伤害”的动作，也没有卡牌侧 continuous.combat 原语的注册入口（RIFT-9 清单中的
- * continuous.combat 族，survey 第 4 节），战斗伤害执行器只读取已合入的语义注册表
- * （combat/derived-might.ts 的 self-Assault/self-Shield 通道）。依赖 RIFT-91（layers
- * 接线）与 continuous.combat 原语；不近似实现（不用 effect.damage 造替代语义）。
- * 条件形状本身用已合入的 condition.predicate 在 golden 中真实求值。
+ * status = judge-required（复核 2026-10-16）：continuous.combat 原语（RIFT-258）已合入，
+ * 但它对自己的文档边界仍然成立——没有 combat consumer 消费该图层行，原语在当前实现里
+ * 返回 negated/impossible 而不是登记一条无行为的效果；战斗伤害执行器与战斗开始/伤害
+ * 事务（combat/flow.ts 的 combat-start-transaction / simultaneous-damage-transaction）
+ * 也尚未实现，因此“本单位不造成战斗伤害”（467.2.c.1.a）没有可执行路径。同时卡牌程序的
+ * static 绑定仍只有 RIFT-257 的回调位（programs/statics.ts），没有把静态能力接进图层。
+ * 不近似实现（不用 effect.damage 造替代语义）；条件形状本身用已合入的 condition.predicate
+ * 在 golden 中真实求值，count 的 sameLocationAs/exclude 锚点在解释器查询路径可用。
  */
 export default {
   canonicalCardId: "card.hash-e99af0758d26984ed89173384615fc55536c8bab7b751efe428c2565832ff0f7",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 continuous.combat 持续效果的可执行路径：467.2.c.1.a 的战斗伤害限制既不在封闭 GameAction " +
-    "集合内，effects/instructions/ 下也没有 continuous.combat / 战斗伤害限制原语，卡牌程序无法把该" +
-    "静态效果注册进 layers（ctx.addContinuous 目前只有 chain/engine 内部接线），战斗伤害执行器只读取" +
-    "已合入的语义注册表（combat/derived-might.ts 的 self-Assault/self-Shield 通道）。依赖 RIFT-91" +
-    "（layers 接线）与 RIFT-9 清单中的 continuous.combat 原语。程序已按契约写出有依据的静态效果形状" +
-    "（ability 级 condition：count + sameLocationAs + exclude），不近似实现。",
+    "缺 continuous.combat 持续效果的可执行路径：467.2.c.1.a 的战斗伤害限制没有 combat consumer——" +
+    "RIFT-258 已合入 effects/instructions/continuous.combat.ts，但它按自身文档边界对无消费方的注册统一返回 " +
+    "negated/impossible（不登记无行为的效果），combat/flow.ts 的战斗开始与同时伤害事务也仍主动抛 " +
+    "combat-start-transaction / simultaneous-damage-transaction；卡牌程序的 static 绑定仍只有 RIFT-257 的" +
+    "回调位（programs/statics.ts），没有把静态能力接进图层。战斗伤害执行器当前只读取已合入的语义注册表" +
+    "（combat/derived-might.ts 的 self-Assault/self-Shield 通道）。程序已按契约写出有依据的静态效果形状" +
+    "（ability 级 condition：count + sameLocationAs + exclude），条件由 golden 用真实解释器求值；不近似实现。" +
+    "依赖：continuous.combat 的 combat consumer（战斗批次）与卡牌静态绑定接线。",
   abilities: [
     {
       kind: "static",

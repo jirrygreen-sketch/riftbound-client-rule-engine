@@ -16,30 +16,35 @@ import type { CardProgram } from "../../ir/index.js";
  *   "7+ units here" counts the holding player's units at this Battlefield.
  *
  * Status: judge-required. The win instruction itself is fully merged
- * (effect.win, CR 195) and the golden test executes it; what blocks the card is
- * the trigger side:
- * - the hold timing point is declared, but the Beginning scoring step lives in
- *   duel/turn-flow.ts / turn-executor-v2.ts, which has no bridge to the
- *   chain/events pipeline (RIFT-120), so nothing emits "hold";
- * - the "if you have 7+ units here" clause is a condition on the hold event,
- *   which can only read a count through the same pipeline binding that is
- *   missing; layers' filter anchors (sameLocationAs) are also unimplemented, so
- *   the location scope would over-count;
+ * (effect.win, CR 195) and the golden test executes it; the hold timing point
+ * is now really emitted by TurnFlow's Beginning Score wave (471.2 / 473.2.b).
+ * What still blocks the card:
  * - no merged subscriber turns a CardProgram's triggered ability into a
- *   TriggerRegistration, and 190.6's "control of a Battlefield determines
- *   control of its abilities" is not resolved for battlefield programs.
+ *   TriggerRegistration (RIFT-257, in progress), and 190.6's "control of a
+ *   Battlefield determines control of its abilities" is not resolved for
+ *   battlefield programs;
+ * - the trigger filter keeps the sibling battlefield spelling (here: true /
+ *   player: "controller") for the 053.3 referent, which the merged
+ *   translateTriggerFilter / trigger-spec layer does not resolve;
+ * - the "if you have 7+ units here" clause is a condition on the hold event: the
+ *   interpreter's set query implements the sameLocationAs anchor (contract
+ *   3.6), but the trigger's condition can only be evaluated through the host
+ *   testTrigger adapter, which no merged host provides (events/pipeline.ts
+ *   throws "Trigger condition adapter required"), and the engine's literal
+ *   controller placeholder never matches in the plain query path.
  */
 export default {
   canonicalCardId: "card.hash-627933b535ef66e1e1bb12785313b937e23dc2c7ac48a1ff26c8c49a94e0c233",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "“you win the game”指令本身完全可用已合入的 effect.win（CR 195）表达并在 golden 里真实执行，阻断在触发侧：" +
-    "① hold 时点虽在 events/timing-points.ts 定义，但 Beginning 计分步骤在 duel/turn-flow.ts / turn-executor-v2.ts 内，未接入 " +
-    "chain/events 单管线（RIFT-120），没有任何生产者发出 hold 时点；② “if you have 7+ units here” 是 hold 事件上的条件，需要 383.4.d 的触发载荷" +
-    "绑定（事件 → 条件求值）与 053.3 的 here 位置锚定，而引擎过滤器的 sameLocationAs 锚点未实现，会把任意战场的单位算进来（过度计数，不得据此标 executable）；" +
-    "③ 没有已合入的订阅方把 CardProgram 的 triggered ability 注册为 TriggerRegistration，190.6 的战场能力控制者解析也未落地。" +
-    "依赖：RIFT-76（batch1-scoring）、RIFT-90（batch3-target-plan）、RIFT-120（batch4-chain-events）之后的 hold 发射与战场能力注册。不近似实现。",
+    "“you win the game”指令本身完全可用已合入的 effect.win（CR 195）表达并在 golden 里真实执行；hold 时点也已由 TurnFlow 的 Beginning Score 波真实发出（471.2 / 473.2.b）。阻断在触发侧：" +
+    "① 没有已合入的订阅方把 CardProgram 的 triggered ability 注册为 TriggerRegistration（RIFT-257 进行中），190.6 的战场能力控制者解析也未落地；" +
+    "② filter 的 here: true / player: controller 是同类战场卡占位（053.3 的 here 指代），已合入的 translateTriggerFilter / trigger-spec 不解析这两个键；" +
+    "③ “if you have 7+ units here” 是 hold 事件上的触发条件：解释器的集合查询已实现 sameLocationAs 锚点（契约 3.6），但带 condition 的注册要求宿主提供 " +
+    "testTrigger 适配器（events/pipeline.ts 会抛 Trigger condition adapter required），没有任何已合入宿主提供该适配器；condition 的 count 过滤器 " +
+    "controller: \"controller\" 占位在普通查询路径也不会匹配真实 PlayerId。" +
+    "依赖：RIFT-257（卡牌触发绑定与 here/controller 归一化）、testTrigger 条件适配器（契约变更请求）。不近似实现。",
   sourceText: "When you hold here, if you have 7+ units here, you win the game.",
   abilities: [
     {

@@ -14,23 +14,26 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   触发条件里也指 Targeted），因此写成 TargetSpec（controller: "controller"），
  *   不是 pick。
  * - 143.2.a / 143.2.a.1（例）："Its base Might becomes 5 this turn" 改的是 Base
- *   Might —— Trait-Altering 图层的设值，不是「Increase its Might to 5」那种算术图层
- *   写法；475 / 479.2 定义图层顺序。
+ *   Might —— 479.2 的 Trait-Altering 图层设值，不是 479.4 算术图层的
+ *   "Increase its Might to 5"；475 / 479.2 定义图层顺序。
  * - "this turn" = end-of-turn 期限，由时点驱动的期限清理负责（契约 3.5）。
 
- * status = judge-required（README 第 2 节）。两处缺口，均不近似实现：
- * 1. 没有已注册的「把 Base Might 设为 N（本回合）」原语：effects/instructions/ 里
- *    continuous.might / continuous.duration 都不存在（RIFT-91 layers-continuous
- *    未合入），effect.buff 的边界注释明确临时 Might 修改归 layers；把 Base Might 当
- *    有效 Might 处理会改变 143.2.a.1 的三层语义（Trait-Altering vs Arithmetic）。
+ * status = judge-required（README 第 2 节）。缺口（均不近似实现）：
+ * 1. 没有已注册的「把 Base Might 设为 N（本回合）」原语：已合入的
+ *    effects/instructions/continuous.might.ts 无论 mode "add" 还是 "set" 都注册
+ *    layer: "arithmetic" 的效果（mode "set" 写 kind "set-might"，engine.ts 的
+ *    applyArithmetic 消费），仍是 479.4 的算术图层；Trait-Altering 图层的
+ *    Base Might 设值（479.2 的 Base Might 行）没有对应的指令原语
+ *    （continuous.trait / set-base-might 都没有文件），把 Base Might 当有效 Might
+ *    处理会改变 143.2.a.1 与 479.2/479.4 的分层语义。
  * 2. card-played 触发没有已合入订阅方：events/ 的 EventPipeline 有 registerTrigger，
  *    但没有已合入模块把 CardProgram 的 triggered ability 转成 TriggerRegistration
- *    （scoring/、打出路径与 chain/events 单管线尚未接通，契约 §7.2 批 4/5）。
+ *    （卡牌程序绑定，RIFT-257 进行中）。
  * 下面保留有依据的形状：card-played 自发触发 + 目标式（己方单位）的
- * continuous.base-might 指令与本回合期限；golden 测试做结构断言并真实执行可用于
- * 对照的已合入原语路径，其余写 test.todo。
- * 依赖：RIFT-91（layers-continuous，Trait-Altering 的 Base Might 设值与期限）、
- * RIFT-120（chain/events 触发注册）。
+ * continuous.base-might 指令与本回合期限；golden 测试做结构断言，并单独用已合入原语
+ * 做对照执行（continuous.might 的 arithmetic 设值真实生效、并在回合末到期），
+ * 不把它当作本卡的 Base Might 语义。
+ * 依赖：Trait-Altering 图层的 Base Might 设值原语与 RIFT-257。
  */
 const abilities: Ability[] = [
   {
@@ -40,7 +43,7 @@ const abilities: Ability[] = [
     body: [
       {
         // 143.2.a.1 / 475 / 479.2：Trait-Altering 图层的 Base Might 设值；
-        // continuous.* 指令尚未注册（见 judgeReason 第 1 点），保留印刷语义。
+        // 该图层的指令原语尚未注册（见 judgeReason 第 1 点），保留印刷语义。
         id: "herald.set-base-might",
         op: "continuous.base-might",
         args: {
@@ -67,14 +70,13 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1) 缺少「把 Base Might 设为 5（本回合）」的原语——effects/instructions/ 没有 " +
-    "continuous.might / continuous.duration（RIFT-91 layers-continuous 未合入），effect.buff 明确不含临时 Might 修改，" +
-    "把 Base Might（Trait-Altering，143.2.a.1/475/479.2）当成有效 Might 处理会改变分层语义；" +
-    "(2) card-played 触发没有已合入订阅方：EventPipeline 有 registerTrigger，但没有模块把 CardProgram 的 triggered " +
-    "ability 转成 TriggerRegistration（打出路径与 chain/events 单管线未接通，契约 §7.2 批 4/5）。已写出的形状：" +
-    "card-played 自发触发 + 目标式（己方单位）continuous.base-might 指令 + this-turn 期限。" +
-    "依赖：RIFT-91（layers-continuous 的 Base Might 设值与期限）、RIFT-120（chain/events 触发注册）。",
+    "两处缺口，均不近似实现：(1) 缺少「把 Base Might 设为 5（本回合）」的 Trait-Altering 图层原语：已合入的 continuous.might " +
+    "（无论 mode add 还是 set）都注册 layer arithmetic 的效果（mode set 写 kind set-might，由 layers/engine.ts 的 applyArithmetic 消费），" +
+    "属 479.4 的算术图层，而卡面按 143.2.a.1 / 479.2 改的是 Base Might，两者语义不同；" +
+    "effects/instructions/ 下没有 continuous.trait / set-base-might 等 Trait-Altering 设值原语。(2) card-played 触发没有已合入订阅方：" +
+    "EventPipeline 提供 registerTrigger，但没有模块把 CardProgram 的 triggered ability 转成 TriggerRegistration（卡牌程序绑定 RIFT-257 进行中）。" +
+    "已写出的形状：card-played 自发触发 + 目标式（己方单位）continuous.base-might 指令 + this-turn 期限；golden 单独用已合入原语做对照执行。" +
+    "依赖：Trait-Altering 图层的 Base Might 设值原语与 RIFT-257。",
   abilities,
   sourceText: "When you play me, choose a friendly unit. Its base Might becomes 5 this turn."
 } satisfies CardProgram;
-

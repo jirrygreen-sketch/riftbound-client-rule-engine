@@ -22,17 +22,23 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - “draw 1”：414.1 / 414.3 的抽牌，已合入的 effect.draw 只提交封闭集合里的 draw 动作，
  *   抽牌者缺省为能力控制者（190.6.d 的隐含 “you”）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。
- * - 没有 Hunt 的 KeywordDef（effects/keywords/ 无 Hunt 文件），823.1.b 的 conquer / hold 两个
- *   触发与 effect.xp 展开无从执行（823.1.c.2 的默认值 1 由关键词文件承担）。
- * - 没有 Level 的展开（kw-level）：824.1.c 的“[N] XP 或更多时依赖能力 Active、掉到以下立即
- *   Inactive”需要可求值的 XP 谓词，而冻结的 Condition 只有 always/never/expression/compare/
- *   all/any/not，PlayerSnapshot.xp 没有进入 Expr 的路径，count 表达式只数被查询对象。因此本程序
- *   把 824.1.c 的门控保留为 TriggerSpec.condition 的 compare 形状（与 unl/wuju-master 的处理一致），
- *   并明确它不是可执行的 XP 读取。
- * - 卡牌 keyword 能力 → KeywordDef 展开 → 触发注册的生产方也未合入（契约 3.5/3.7）。
- * 依赖：kw-hunt 与 kw-level 关键词任务（ability-templates 的 kw-hunt / kw-level 行）与
- * RIFT-89/90（条件/谓词管线）、RIFT-33/RIFT-120（触发→链）。
+ * status 判定（cards/README.md 第 2 节）：judge-required（2026-10-16 复核）。
+ * 已合入并可执行的部分：
+ * - [Hunt] 的 KeywordDef 随 RIFT-265 合入（effects/keywords/Hunt.ts，823.1.c.2 的缺省值 1、
+ *   823.2 的求和）；golden 通过关键词展开 + effect.xp 真实执行 conquer 与 hold 两条 1 XP。
+ * - RIFT-268 的 Level 关键词只发布 condition.predicate（predicate "level-active"、
+ *   query "controller-xp"、threshold），不展开依赖能力文本。
+ * 仍缺的缺口：
+ * - Hunt 的展开虽有数据，但没有关键字/触发注册的生产方：programs/triggers.ts 把展开结果
+ *   翻译成 TriggerSpec 时只认封闭词汇 EVENT_PATTERN_TYPES（"conquered"/"held"），
+ *   而 Hunt.ts 写的是 "conquer"/"hold"，validateTriggerSpec 因此抛错（探针确认；同型见
+ *   gemhand-hunter 的 TODO），scoring 的 conquer/hold 波也没有把它接进去。
+ * - [Level 6][>] 的依赖能力没有绑定：Level.ts 只发布谓词，没有把 Dependent Ability 挂在
+ *   关键词实例上的编译形式，Condition 也没有读取控制者 XP 的形态（只有 always/never/
+ *   compare/all/any/not/expression，PlayerSnapshot.xp 没有 Expr 路径），824.1.c.1/.d 的
+ *   动态 Active/Inactive 无法评估；程序里的 compare 形状只是保留门控，不是求值。
+ * 依赖：RIFT-257 后续（卡牌 keyword/触发注册与展开词汇接线，含 Hunt 的 conquered/held
+ * 拼写）、RIFT-268 的 Level 展开后续（Dependent Ability 绑定与 XP 谓词求值）。
  * 不近似实现：不手写 Hunt 的 conquer/hold 触发体，也不把 6+ XP 门控删成无条件能力；
  * “draw 1” 本体只用已合入的 effect.draw，golden 用解释器 + 参考内核真实执行。
  */
@@ -74,17 +80,17 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处缺口，均不近似实现：(1) [Hunt]（823.1）没有 KeywordDef：effects/keywords/ 下无 Hunt 文件，" +
-    "823.1.b/823.1.c.1 的 conquer 与 hold 触发（823.1.c.2 省略值按 1、823.2 多来源求和）以及 " +
-    "卡牌 keyword 能力 → 关键词展开 → 触发注册的生产方（契约 3.5/3.7）都未合入，hold 侧的" +
-    "“本卡是在场固守的那一个单位”载荷绑定（383.4.d.2/.2.a）也没有接线。" +
-    "(2) [Level 6][>]（824.1）没有展开：824.1.b.1 的“当你有 [N] 点或更多 XP 时获得 [Text]”与 " +
-    "824.1.c/824.1.d 的动态 Active/Inactive 需要可求值的 XP 谓词，而合并的 Condition 只有 " +
-    "always/never/expression/compare/all/any/not，PlayerSnapshot.xp 没有进入 Expr 的路径（count 只数被查询对象），" +
-    "因此本程序的 TriggerSpec.condition 只是 824.1.c 门控的保留形状，不可执行。" +
-    "依赖：kw-hunt 与 kw-level 关键词任务（ability-templates 的对应行）、RIFT-89/90（条件/谓词管线）、" +
-    "RIFT-33/RIFT-120（触发→链）。“draw 1” 本体只用已合入的 effect.draw（414.1/414.3），" +
-    "golden 用解释器 + 参考内核真实执行。",
+    "已合入并可执行的部分：[Hunt] 的 KeywordDef 随 RIFT-265 合入（823.1.c.2 缺省值 1、823.2 求和），" +
+    "golden 用关键词展开 + effect.xp 真实执行 conquer 与 hold 各 1 XP；RIFT-268 的 Level 关键词发布 " +
+    "condition.predicate（level-active / controller-xp / threshold 6）。整卡仍缺两处，均不近似实现：" +
+    "(1) Hunt 展开没有触发注册的生产方——programs/triggers.ts 翻译 TriggerSpec 时只认封闭词汇 " +
+    "EVENT_PATTERN_TYPES 的 \"conquered\"/\"held\"，而 Hunt.ts 写的是 \"conquer\"/\"hold\"，validateTriggerSpec " +
+    "会直接抛错（探针确认；同型缺口见 unl/gemhand-hunter），scoring 的 conquer/hold 波也没有接线。" +
+    "(2) [Level 6][>] 的 Dependent Ability 没有绑定：Level.ts 只发布谓词，没有把依赖能力挂在关键词实例上的" +
+    "编译形式，Condition 也无法读取控制者 XP（只有 always/never/compare/all/any/not/expression，" +
+    "PlayerSnapshot.xp 没有 Expr 路径），824.1.c.1/.d 的动态 Active/Inactive 无法评估；程序里的 compare 只是保留门控。" +
+    "“draw 1” 本体只用已合入的 effect.draw（414.1/414.3），golden 用解释器 + 参考内核真实执行。" +
+    "依赖：RIFT-257 后续（keyword → 触发注册与展开词汇接线）、RIFT-268 的 Level 展开后续（依赖能力绑定与 XP 谓词）。",
   abilities,
   sourceText:
     "[Hunt] (When I conquer or hold, gain 1 XP.)\n" +

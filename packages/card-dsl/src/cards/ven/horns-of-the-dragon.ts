@@ -22,17 +22,20 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * status 判定（README 第 2 节）：judge-required。
  * Tank 的 KeywordDef 已合入（effects/keywords/Tank.ts，RIFT-264；展开为
- * static `continuous.combat`，priority "first"），但把该声明变成可执行语义的
- * 消费方还没有合入：
+ * static `continuous.combat`，priority "first"），但两层消费方都还没有合入：
  * 1. 战斗伤害分配：combat/base-combat-allocation.ts 明确写着 "No Tank/Backline/
  *    other assignment-priority requirement is bound here"，815.1.b /
  *    815.1.c.2 的「先分配致命伤害」无法落地；
- * 2. 关键词接线：没有已合入的生产方把 CardProgram 的 keyword 能力解析为
- *    KeywordDef 展开并注册进图层（RIFT-91 / RIFT-258/259）。
+ * 2. 关键词接线：CardProgram 的 keyword 能力由 RIFT-257 的 expandProgram 解析
+ *    （expandProgram → KeywordDef.expand 已可执行，golden 直接验证），但展开出的
+ *    static `continuous.combat` 既没有 layers 分支（layers/engine.ts 只处理
+ *    copy/trait/ability/arithmetic，continuous.combat 无对应 apply 分支），
+ *    continuous.combat 指令原语本身在当前契约下也保持 blocked（无 combat consumer
+ *    时返回 negated/impossible，不写假注册）。
  * Tank 的全部功能就是这条分配强制，缺它就等于缺整张卡，因此不标 executable；
  * 不把分配顺序近似成 Might 数值修正，也不手改战斗流程。
- * 依赖：战斗工作流（`continuous.combat` 消费方）与图层/关键词注册接线
- * （RIFT-91、RIFT-258/259）。
+ * 依赖：战斗工作流（`continuous.combat` 消费方，含 467.2.c.6–c.9 的指派顺序）
+ * 与关键词展开进图层的消费方。
  */
 export default {
   canonicalCardId: "card.hash-9e6cf771d3c68dc759e26aa3068eb3f3f2873734ee60fe6d8df8ef5a2ac46dbe",
@@ -40,11 +43,12 @@ export default {
   status: "judge-required",
   judgeReason:
     "[Tank]（815）的 KeywordDef 已合入（effects/keywords/Tank.ts，RIFT-264，展开为 static continuous.combat、" +
-    "priority \"first\"），但 815.1.b / 815.1.c.2 的战斗伤害分配消费方未合入：" +
+    "priority \"first\"），RIFT-257 的 expandProgram 也能把卡牌关键词展开成该 static 能力（golden 已验证）；" +
+    "但 815.1.b / 815.1.c.2（467.2.c.6–c.9 的指派顺序）仍无消费方：" +
     "combat/base-combat-allocation.ts 明确注释 \"No Tank/Backline/other assignment-priority requirement is " +
-    "bound here\"，且没有已合入路径把 CardProgram 的 keyword 能力展开并注册进图层（RIFT-91/RIFT-258/259）。" +
-    "Tank 的全部功能就是这条分配强制，缺它即缺整张卡；依赖战斗工作流（continuous.combat 消费方）与" +
-    "图层/关键词注册接线。不近似实现（不改写成 Might 修正，也不手改伤害分配流程）。",
+    "bound here\"，layers/engine.ts 没有 continuous.combat 分支，continuous.combat 指令原语本身也保持 " +
+    "blocked（无 combat consumer 时返回 negated/impossible）。Tank 的全部功能就是这条分配强制，缺它即缺整张卡；" +
+    "依赖战斗工作流（continuous.combat 消费方）。不近似实现（不改写成 Might 修正，也不手改伤害分配流程）。",
   abilities: [{ kind: "keyword", keyword: "tank" }],
   sourceText: "[Tank] (I must be assigned combat damage first.)"
 } satisfies CardProgram;

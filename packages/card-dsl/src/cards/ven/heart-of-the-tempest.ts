@@ -16,37 +16,38 @@ import type { CardProgram } from "../../ir/index.js";
  *   [Reaction] 用 timing = "reaction" 记录，而非伪造卡级关键词）。
  * - 404.1.a/415.5：印刷 “Disempower me, :rb_exhaust:” 中 “:” 前的 Disempower 与
  *   Exhaust 都是启动费用；443.2/443.2.a 的 Disempower 是 Limited Action。
- * - “[Assault 2] this turn” 是暂时授予 Assault 2（807.1.c），由 layers 的
- *   ability 层持续效果实现（RIFT-91 的 applyKeyword 已支持，关键词展开由已合入的
- *   RIFT-81 Assault KeywordDef 提供）。
+ * - 807.1.c：“[Assault 2] this turn” 是暂时授予 Assault 2，由 RIFT-258 已合入的
+ *   continuous.grant-keyword 指令原语注册 ability 层持续效果（317.1.a / 468.7.c
+ *   的本回合期限）；Assault 自身的展开由已合入的 RIFT-81 KeywordDef 提供。
  *
- * status = judge-required（三处缺口均不近似实现）：
+ * status = judge-required（两处缺口均不近似实现）：
  * 1. “from anywhere other than your hand” 无法表达：card-played 的 EventPattern
  *    只有 fromZone 等值匹配（events/trigger-spec.ts 的 validateTriggerSpec 也只接受
  *    单个区域字符串），没有否定形式，且 chain/engine.ts 发出的 card-played 事件
- *    不带 fromZone 载荷；filter 里以描述性 notFromHand 记录该否定条件；
- * 2. cost/plan-values.ts 没有 disempower 付费种类（RIFT-89）；
- * 3. “Give a unit [Assault 2] this turn” 需要卡牌侧 continuous.grant-keyword 指令
- *    原语（带 end-of-turn 期限）；effects/instructions 没有该 op（RIFT-91 只合入了
- *    图层引擎，同 gem-jammer 的缺口）。
- * 依赖：事件载荷/EventPattern 扩展（契约变更请求）、RIFT-89、RIFT-91；触发 body
- * “empower me” 用已合入的 effect.empower 真实执行。
+ *    不带 fromZone 载荷；filter 里以描述性 notFromHand 记录该否定条件
+ *    （契约变更请求）；
+ * 2. “Disempower me” 作为费用需要 disempower 付费种类（443.2.a），
+ *    cost/plan-values.ts 的非标准费用只支持 exhaust/discard/recycle/kill/reveal/
+ *    spend-buff；付费种类与 cost.pay / cost.modify 仍属未合入的 RIFT-261。
+ *
+ * 已合入部分的执行证据：触发 body “empower me” 用 effect.empower；“Give a unit
+ * [Assault 2] this turn” 用 continuous.grant-keyword（RIFT-258），golden 通过真实
+ * 解释器注册 ability 层效果并断言本回合到期。
  */
 export default {
   canonicalCardId: "card.hash-aa310ded3ca355bccab78b17783adac7b21e0b2477c14135b2cf52ebad7d96a5",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1) “from anywhere other than your hand” 无法表达——card-played 的 " +
+    "两处缺口：(1) “from anywhere other than your hand” 无法表达——card-played 的 " +
     "EventPattern 只有 fromZone 等值匹配、没有否定形式（validateTriggerSpec 的 ObjectFilter " +
     "也不接受额外的否定键），chain/engine.ts 发出的 card-played 事件也不带 fromZone 载荷，" +
-    "程序里以描述性 notFromHand 记录；(2) “Disempower me” 作为费用需要 disempower 付费种类" +
-    "（443.2.a），cost/plan-values.ts 的非标准费用只支持 exhaust/discard/recycle/kill/" +
-    "reveal/spend-buff（RIFT-89）；(3) “Give a unit [Assault 2] this turn” 需要卡牌侧 " +
-    "continuous.grant-keyword 指令原语与 end-of-turn 期限（RIFT-91 图层引擎已合入、" +
-    "RIFT-81 的 Assault 关键词已合入，但 effects/instructions 没有该 op）。依赖事件载荷/" +
-    "EventPattern 扩展（契约变更请求）、RIFT-89、RIFT-91；“empower me” 本体用已合入的 " +
-    "effect.empower 可执行。不近似实现。",
+    "程序里以描述性 notFromHand 记录（契约变更请求）；(2) “Disempower me” 作为费用需要 " +
+    "disempower 付费种类（443.2.a），cost/plan-values.ts 的非标准费用只支持 " +
+    "exhaust/discard/recycle/kill/reveal/spend-buff，付费种类与 cost.pay / cost.modify " +
+    "仍属未合入的 RIFT-261。“empower me” 本体用已合入的 effect.empower；" +
+    "“Give a unit [Assault 2] this turn” 已由 RIFT-258 的 continuous.grant-keyword " +
+    "（this-turn 期限）真实执行并由 golden 覆盖。不近似实现。",
   abilities: [
     {
       kind: "triggered",
@@ -93,6 +94,8 @@ export default {
             keyword: { kind: "constant", value: "Assault" },
             value: { kind: "constant", value: 2 },
             duration: { kind: "constant", value: "this-turn" },
+            // “a unit”：355.9.a.1 / 355.10.a 的目标，TargetSpec 在 Finalize 锁定；
+            // continuous.grant-keyword 的 target 参数取 TargetSpec id。
             target: {
               kind: "constant",
               value: "heart-of-the-tempest.unit"

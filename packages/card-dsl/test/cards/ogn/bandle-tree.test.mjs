@@ -4,8 +4,13 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/bandle-tree.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
+import restrict from "../../../../engine-core/dist/effects/instructions/continuous.restrict.js";
+import { ContinuousEffectRegistry } from "../../../../engine-core/dist/layers/duration.js";
+import { restrictions } from "../../../../engine-core/dist/layers/rules/query.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const [ability] = program.abilities;
+const literal = (value) => ({ kind: "constant", value });
 
 test("ogn-278-298 Bandle Tree: program validates and is registered", () => {
   const result = validateCardProgram(program);
@@ -25,6 +30,8 @@ test("ogn-278-298 Bandle Tree: identity, ruleset, status and printed text", () =
   assert.equal(program.sourceText, "You may hide an additional card here.");
   assert.match(program.judgeReason, /continuous\.restrict/);
   assert.match(program.judgeReason, /cost\.hidden/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-261/);
 });
 
 test("ogn-278-298 Bandle Tree: one static ability raising this battlefield's facedown limit", () => {
@@ -41,23 +48,36 @@ test("ogn-278-298 Bandle Tree: one static ability raising this battlefield's fac
   assert.equal(ability.condition, undefined);
 });
 
-test("ogn-278-298 Bandle Tree: no instruction is encoded, since neither restriction op is merged", () => {
-  // The merged instruction registry (effects/instructions/registry.generated.ts)
-  // has no continuous.restrict or cost.hidden file, and no layer evaluator
-  // consumes continuous.restrict. Encoding a body instruction would describe an
-  // executable ability that nothing can execute.
-  assert.equal("body" in ability, false);
-  assert.equal("with" in ability, false);
+test("ogn-278-298 Bandle Tree golden: the +1 Facedown Zone cap registers through continuous.restrict", () => {
+  // CR 107.3.b.1: the declared permission is a numeric cap increase. The merged
+  // continuous.restrict primitive registers it with mode "limit" and amount 1.
+  const base = world().unit("bandle-tree", { types: ["battlefield"], zone: "board" }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("bandle-tree") });
+  const run = runInstruction(
+    restrict,
+    {
+      mode: literal("limit"),
+      restriction: literal(ability.effect.restriction),
+      amount: literal(ability.effect.amount),
+      appliesTo: literal({ object: "self" })
+    },
+    { world: kernel }
+  );
+
+  assert.equal(run.result.status, "executed");
+  assert.deepEqual(kernel.continuousEffects.map((entry) => entry.duration), [{ type: "permanent" }]);
+  const registry = new ContinuousEffectRegistry();
+  for (const entry of kernel.continuousEffects) registry.register(entry.effect, entry.duration);
+  const found = restrictions(registry, "facedown-zone-maximum-occupancy");
+  assert.equal(found.length, 1);
+  assert.equal(found[0].cap, true);
+  assert.equal(found[0].amount, 1);
 });
 
 test.todo(
-  "ogn-278-298 Bandle Tree: raising the Facedown Zone maximum occupancy by 1 (CR 107.3.b.1) " +
-    "needs a merged continuous.restrict consumer"
-);
-
-test.todo(
-  "ogn-278-298 Bandle Tree: the Hide action and its slot check (CR 422.1/422.2.a, 811.1.b) " +
-    "need cost.hidden, which has no merged instruction file"
+  "ogn-278-298 Bandle Tree: bind the static CardProgram restriction to the layer pipeline (RIFT-257) and enforce " +
+    "the raised Facedown Zone maximum in the Hide action (CR 422.1/422.2.a, 811.1.b; the Hide cost/zone work is " +
+    "RIFT-261 cost.hidden)"
 );
 
 test.todo(

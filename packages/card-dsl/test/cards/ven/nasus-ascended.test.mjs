@@ -3,8 +3,13 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/nasus-ascended.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import deflect from "../../../../engine-core/dist/effects/keywords/Deflect.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 
 test("nasus-ascended: passes validateCardProgram and is judge-required", () => {
   const result = validateCardProgram(program);
@@ -15,6 +20,7 @@ test("nasus-ascended: passes validateCardProgram and is judge-required", () => {
   );
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
+  assert.equal(cardRegistryById.get(program.canonicalCardId), program);
   assert.equal(
     program.sourceText,
     "[Deflect 2] (Opponents must pay :rb_rune_rainbow::rb_rune_rainbow: to choose me with a spell or ability.)\n" +
@@ -29,9 +35,9 @@ test("nasus-ascended: judgeReason names the missing keyword expansions and layer
   assert.match(program.judgeReason, /827\.1\.c\.1/);
   assert.match(program.judgeReason, /828\.1\.c/);
   assert.match(program.judgeReason, /Deflect/);
-  assert.match(program.judgeReason, /RIFT-83\/84/);
-  assert.match(program.judgeReason, /RIFT-90/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-84/);
+  assert.match(program.judgeReason, /target\.tax/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -39,6 +45,27 @@ test("nasus-ascended: Deflect 2 and Empower 8 are declared as keywords, not expa
   assert.equal(program.abilities.length, 3);
   assert.deepEqual(program.abilities[0], { kind: "keyword", keyword: "deflect", value: 2 });
   assert.deepEqual(program.abilities[1], { kind: "keyword", keyword: "empower", value: 8 });
+});
+
+test("nasus-ascended: the merged keyword binding expands the declared [Deflect 2]", () => {
+  // RIFT-84's Deflect KeywordDef is merged and sums its printed value into one
+  // static target.tax ability (809.1.b.2/809.2); RIFT-257's expandProgram resolves
+  // the card's declaration through the generated keyword registry.
+  assert.equal(keywordDefinitionsById.get("Deflect"), deflect);
+  // 快照不带印刷关键词：只让 CardProgram 的声明参与展开，避免同一 [Deflect 2]
+  // 被 declared + printed 各算一次（807.2/809.2 的求和针对真实实例）。
+  const kernel = world()
+    .unit("nasus", { zone: "board" })
+    .build();
+
+  // 只声明 Deflect：展开为 target.tax（卡牌侧不重写 809.1.c 的附加费用）。
+  const deflectOnly = { ...program, abilities: program.abilities.filter(ability => ability.keyword !== "empower") };
+  const local = new ProgramRegistry([{ ...deflectOnly, status: "executable", judgeReason: undefined }]);
+  const expanded = expandProgram(local.get(program.canonicalCardId), kernel.getObject("nasus"));
+  assert.deepEqual(
+    expanded.expanded.filter(ability => ability.kind === "static").map(ability => ability.effect),
+    [{ kind: "target.tax", value: { kind: "constant", value: 2 } }]
+  );
 });
 
 test("nasus-ascended: the Empowered dependent ability is a self-scoped conquer trigger", () => {
@@ -92,12 +119,13 @@ test("nasus-ascended: the same body does not score for a non-controller", () => 
 });
 
 test.todo(
-  "nasus-ascended: [Deflect 2] expansion through keywords/Deflect.ts plus the target.tax layer " +
-    "consumer appending 2 Power of any Domain to an opposing spell that chooses this unit " +
-    "(809.1.c/809.1.c.1/809.1.d; RIFT-90 + keyword registry)"
+  "nasus-ascended: [Deflect 2]'s merged target.tax expansion needs the card-side static binding " +
+    "into the TargetPlan tax adapter so an opposing spell that chooses this unit appends 2 Power of " +
+    "any Domain (809.1.c/809.1.c.1/809.1.d; RIFT-257 static binder + RIFT-90 tax adapter)"
 );
 test.todo(
   "nasus-ascended: [Empower] 8 activation (827.1.c.1 cost.activated + effect.empower, " +
     "'play only if not Empowered' 827.1.c.5) and the Empowered-state gate on the dependent " +
-    "ability (828.1.c; RIFT-83/84 keyword expansions + RIFT-91 layers)"
+    "ability (828.1.c) need the Empower/Empowered KeywordDefs (RIFT-264 batch has none) plus the " +
+    "Empowered predicate in Condition/ObjectSnapshot (RIFT-87)"
 );

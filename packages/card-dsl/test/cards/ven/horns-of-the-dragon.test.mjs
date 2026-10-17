@@ -9,6 +9,9 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 // layout instead of the package name.
 import tank from "../../../../engine-core/dist/effects/keywords/Tank.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
   "card.hash-9e6cf771d3c68dc759e26aa3068eb3f3f2873734ee60fe6d8df8ef5a2ac46dbe";
@@ -31,7 +34,7 @@ test("ven-118-166 Horns of the Dragon: identity, status, judgeReason and verbati
   assert.match(program.judgeReason, /815\.1\.b/);
   assert.match(program.judgeReason, /continuous\.combat/);
   assert.match(program.judgeReason, /base-combat-allocation/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-264/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -85,9 +88,32 @@ test("ven-118-166 Horns of the Dragon: the generated card registry exposes the p
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
+test("ven-118-166 Horns of the Dragon: the merged binding expands the declared keyword into its KeywordDef ability", () => {
+  // RIFT-257's expandProgram resolves a CardProgram's keyword ability through the
+  // generated keyword registry (keyword -> KeywordDef.expand), so the Tank
+  // declaration really produces the continuous.combat static ability here.
+  const kernel = world()
+    .unit("horns-of-the-dragon", { zone: "board", might: 6, keywords: [{ id: "Tank" }] })
+    .build();
+  const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
+  const expanded = expandProgram(registry.get(CANONICAL_ID), kernel.getObject("horns-of-the-dragon"));
+
+  assert.deepEqual(expanded.declared.map(ability => ability.keyword), ["tank"]);
+  assert.equal(expanded.expanded.length, 1);
+  const [ability] = expanded.expanded;
+  assert.equal(ability.kind, "static");
+  assert.equal(ability.effect.kind, "continuous.combat");
+  assert.equal(ability.effect.mode, "damage-assignment");
+  assert.equal(ability.effect.priority, "first");
+  assert.equal(ability.effect.damage, "lethal");
+  assert.equal(ability.effect.controllerScope, "same-controller");
+  assert.equal(ability.effect.appliesTo, "self");
+  assert.equal(ability.effect.excludesKeyword, "Tank");
+});
+
 test.todo(
   "ven-118-166 Horns of the Dragon: assign lethal damage to Horns of the Dragon before any other unit with the " +
-    "same controller that does not have [Tank] during the Combat Damage step (CR 815.1.b / 815.1.c.1 / 815.1.c.2) — " +
-    "combat/base-combat-allocation.ts still binds no Tank assignment-priority requirement and no merged producer " +
-    "resolves a card's keyword abilities into KeywordDef expansions and registers them (RIFT-91 / RIFT-258/259)"
+    "same controller that does not have [Tank] during the Combat Damage step (CR 815.1.b / 815.1.c.1 / 815.1.c.2, " +
+    "467.2.c.6-c.9) — combat/base-combat-allocation.ts still binds no Tank assignment-priority requirement and " +
+    "the merged continuous.combat registration has no combat consumer"
 );
