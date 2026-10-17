@@ -13,7 +13,7 @@ const SOURCE_TEXT =
   "[Repeat] :rb_energy_2: (You may pay the additional cost to repeat this spell's effect.)\n" +
   "Look at the top 3 cards of your Main Deck. You may reveal a unit from among them and draw it. Recycle the rest.";
 
-const [play] = program.abilities;
+const [repeat, play] = program.abilities;
 const [bindInstruction, lookInstruction, mayReveal, recycleInstruction] = play.body;
 const [revealInstruction, drawInstruction] = mayReveal.args.body.value;
 const [viewedPick] = lookInstruction.picks;
@@ -82,13 +82,13 @@ test("unl-032-219 Double Trouble: identity, ruleset, status, judgeReason and ver
 });
 
 test("unl-032-219 Double Trouble: [Repeat] 2-energy additional cost and the four-step body", () => {
-  assert.equal(program.abilities.length, 1);
+  assert.equal(program.abilities.length, 2);
+  assert.deepEqual(repeat, { kind: "keyword", keyword: "repeat" });
   assert.equal(play.kind, "play");
-  // 820.1.c.1: the printed Repeat cost is 2 energy. The base 2-energy printed
-  // cost is bound by the cost pipeline from the catalog (356.1.c).
+  // 356.1.c: the printed base cost is 2 energy. The KeywordAbility contract
+  // currently has no field for the separate printed Repeat cost parameter.
   assert.deepEqual(play.cost, {
-    kind: "additional-cost",
-    keyword: "repeat",
+    kind: "cost.printed",
     energy: { kind: "constant", value: 2 }
   });
 
@@ -300,7 +300,7 @@ test.todo(
 
 test.todo(
   "unl-032-219 Double Trouble: paying the [Repeat] 2-energy additional cost and executing the spell's " +
-    "effect one extra time with re-made choices (CR 820.1.c.1 / 820.1.d.1 / 820.2) needs the cost-plan " +
-    "consumer (RIFT-89) and the resolution-side paid-count reader (RIFT-91); made choices must be " +
-    "re-asked, which the merged effect.repeat/built-in repeat wiring does not yet read"
+    "effect one extra time with re-made choices (CR 820.1.c.1 / 820.1.d.1 / 820.2) needs a KeywordAbility " +
+    "parameter channel, a Repeat cost-plan consumer, and the resolution-side paid-count reader; made " +
+    "choices must be re-asked"
 );

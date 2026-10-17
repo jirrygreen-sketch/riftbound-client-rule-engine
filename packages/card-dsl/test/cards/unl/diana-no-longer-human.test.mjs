@@ -4,6 +4,9 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/diana-no-longer-human.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 
 const CANONICAL_ID =
   "card.hash-11be609f8d3a73cf3ab397a574e5dc2de111d0ec840bd515e8f6df0e19e3774b";
@@ -29,7 +32,7 @@ test("unl-149-219 Diana, No Longer Human: identity, status, judgeReason and verb
   assert.match(program.judgeReason, /Ambush/);
   assert.match(program.judgeReason, /822/);
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /Ambush|play-location-permission/);
 });
 
 test("unl-149-219 Diana, No Longer Human: [Ambush] is declared as a keyword only (CR 822)", () => {
@@ -37,8 +40,7 @@ test("unl-149-219 Diana, No Longer Human: [Ambush] is declared as a keyword only
   assert.deepEqual(ambush, { kind: "keyword", keyword: "ambush" });
   assert.equal(ambush.value, undefined);
   // 822.1.b 的展开（合法打出位置 + Reaction 许可）属关键词管线；卡内不重写。
-  // 该关键词的 KeywordDef 是否已合入由关键词任务决定（见 judgeReason 与下方 TODO），
-  // 因此这里不断言注册表内容——依赖合入后会让这类断言失败。
+  assert.equal(keywordDefinitionsById.has("Ambush"), true);
 });
 
 test("unl-149-219 Diana, No Longer Human: 'when you play a spell' is a card-played trigger on a spell", () => {
@@ -47,7 +49,7 @@ test("unl-149-219 Diana, No Longer Human: 'when you play a spell' is a card-play
   assert.equal(spellTrigger.trigger.at, "card-played");
   assert.deepEqual(spellTrigger.trigger.filter, {
     event: "card-played",
-    object: { type: "spell", controller: "controller" }
+    object: { type: "spell", controller: "self" }
   });
   assert.equal(spellTrigger.trigger.condition, undefined);
   assert.equal(spellTrigger.trigger.once, undefined);
@@ -61,23 +63,36 @@ test("unl-149-219 Diana, No Longer Human: 'give me +2 Might this turn' targets t
   assert.equal(grantMight.op, "continuous.might");
   assert.deepEqual(grantMight.args.amount, { kind: "constant", value: 2 });
   assert.deepEqual(grantMight.args.duration, { kind: "constant", value: "end-of-turn" });
-  // 355.10.g：“me” 指能力宿主，用契约 3.6 的符号选择器；不是 targets/picks 选择。
-  assert.deepEqual(grantMight.args.object, { kind: "constant", value: "self" });
+  // 355.10.g：“me” 指能力宿主，用 continuous.might 的 appliesTo 选择器；不是 targets/picks 选择。
+  assert.deepEqual(grantMight.args.appliesTo, { kind: "constant", value: "self" });
   assert.equal(grantMight.targets, undefined);
   assert.equal(grantMight.picks, undefined);
   assert.equal(grantMight.linkedTo, undefined);
 });
 
+test("unl-149-219 Diana, No Longer Human golden: the merged Might body registers a temporary arithmetic effect", () => {
+  const kernel = world()
+    .unit("diana", { owner: "A", controller: "A", might: 3, location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const context = kernel.clone({ source: kernel.ref("diana"), sourceSnapshot: kernel.getObject("diana") });
+  const outcome = resolveChainBody([grantMight], context);
+  assert.equal(outcome.status, "executed");
+  assert.equal(context.continuousEffects.length, 1);
+  assert.equal(context.continuousEffects[0].effect.effect.kind, "continuous.might");
+  assert.equal(context.continuousEffects[0].effect.effect.amount, 2);
+  assert.deepEqual(context.continuousEffects[0].duration, { type: "end-of-turn" });
+});
+
 test.todo(
   "unl-149-219 Diana, No Longer Human: expand [Ambush] (CR 822.1.b: play to a battlefield where " +
     "you control units, with Reaction timing while being played there) and let chain.canAct / " +
-    "Finalize read the permission — no Ambush KeywordDef is merged"
+    "Finalize consume the merged play-location-permission and conditional timing declarations"
 );
 test.todo(
   "unl-149-219 Diana, No Longer Human: give me +2 Might this turn through the layers " +
-    "continuous.might consumer with the end-of-turn duration (CR 143.2.a / 479.4) — RIFT-91"
+    "continuous.might consumer with the end-of-turn duration (CR 143.2.a / 479.4) from the production card-played trigger"
 );
 test.todo(
   "unl-149-219 Diana, No Longer Human: register the 'when you play a spell' card-played trigger " +
-    "so it actually queues from production play (CR 420.4.a) — RIFT-257 / RIFT-120"
+    "so it actually queues from production play with the spell controller bound to the ability controller (CR 420.4.a)"
 );

@@ -106,7 +106,7 @@ test("unl-020-219 Dancing Grenade golden: a stale target is ignored instead of r
   assert.equal(run.events.length, 0);
 });
 
-test.todo("unl-020-219 Dancing Grenade: 'Its controller may play this spell again for :rb_rune_rainbow:' — needs the official ruling on the resolving spell's source, nested replay order and damage-count attribution (docs/plans/survey/unclassified-unl.md item 7; CR 158.3 / 420.3) and a card-side path that can play the resolving chain item again (RIFT-120)");
-test.todo("unl-020-219 Dancing Grenade: 'for each time this spell has dealt damage this turn' — needs a per-card damage history count (condition.result / history scope), since effect.damage only links the single action's dealt/dealtTo/dealtCount (RIFT-9 condition.result)");
-test.todo("unl-020-219 Dancing Grenade: :rb_rune_rainbow: is Universal Power (CR 135.2.e.5.a / 163.2.b) and has no value in the closed six-domain set; the replay cost stays descriptive until the power vocabulary covers it (RIFT-89)");
+test.todo("unl-020-219 Dancing Grenade: 'Its controller may play this spell again for :rb_rune_rainbow:' still needs a resolving-chain-item replay path with the official source and nested-order ruling (CR 158.3 / 420.3)");
+test.todo("unl-020-219 Dancing Grenade: 'for each time this spell has dealt damage this turn' still needs a per-card damage history count, because effect.damage links only one action's dealt/dealtTo/dealtCount");
+test.todo("unl-020-219 Dancing Grenade: :rb_rune_rainbow: is Universal Power (CR 135.2.e.5.a / 163.2.b) and the current closed Power vocabulary cannot finalize that replay cost");
 

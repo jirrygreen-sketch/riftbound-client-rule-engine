@@ -120,10 +120,8 @@ test("unl-073-219 Deadly Flourish golden: a stale target ignores the damage clau
 });
 
 test("unl-073-219 Deadly Flourish golden: the printed damage clause runs through the production interpreter", () => {
-  // RIFT-329 re-review: the instruction registry is the closed set the delayed
-  // body would run in. The damage clause and the interpreter itself are merged,
-  // so the golden executes a real body through the production adapter while
-  // recording which opcodes the registry does and does not provide today.
+  // The damage clause and interpreter are merged, so this golden executes the
+  // printed damage body through the production adapter.
   assert.equal(instructionDefinitionsById.has("effect.damage"), true);
   const kernel = world().unit("enemy-unit", { owner: "B", might: 4 }).build();
   const outcome = resolveChainBody(
@@ -148,11 +146,9 @@ test("unl-073-219 Deadly Flourish golden: the printed damage clause runs through
 });
 
 test("unl-073-219 Deadly Flourish golden: the merged token primitive accepts the ability-free definitions the clause can use", () => {
-  // RIFT-329 re-review: effect.token is the merged creation path the printed
-  // "play a Gold gear token" clause must go through. The golden executes that
-  // primitive for real with a definition the merged table does provide, so the
-  // card's remaining gap is scoped to the Gold definition itself (187.5) and the
-  // exhausted entry override rather than the creation path.
+  // effect.token is the merged creation path for the printed token clause. The
+  // golden executes it with a supported ability-free definition; this card's
+  // remaining gap is the Gold definition and exhausted entry override.
   const kernel = world().player("A").build();
   const run = runInstruction(
     tokenPrimitive,

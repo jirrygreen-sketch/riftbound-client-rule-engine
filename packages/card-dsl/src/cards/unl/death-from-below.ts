@@ -30,7 +30,7 @@ import type { CardProgram } from "../../ir/index.js";
  *    跨区（124）后不再是指向 Trash 里那张牌的引用，合并原语没有为"自己在某区域的当前引用"
  *    提供选择器（依赖引擎批 4 的链接与来源引用）。
  * 3. "for :rb_rune_rainbow:" 的替换费用（356.1.a）需要 finalized 费用计划：effect.play
- *    要求已 Finalize 的 FinalizedCostPlan，程序只记录描述性替换费用（RIFT-89）。
+ *    要求已 Finalize 的 FinalizedCostPlan，当前费用管线仍不能为 Universal Power 生成该替换计划。
  * 4. 388.4 的"you may"是反身触发 Finalize 时的决定，而契约 3.9 的 choice.optional 是
  *    指令级形状；两者读法不同（与 unl-181-219 Virtuoso 记录的 may-scope 问题同类），
  *    需要裁定。
@@ -59,7 +59,7 @@ export default {
     "IR 的六种 Ability 与 choice.optional 都做不到；下面对 “Then, …” 的 sequence + choice.optional 只是形状保留（与 ogn/twisted-fate-gambler 对 388 的处理一致）。" +
     "(2) “play this from your trash” 的 “this” 需要该牌在 Trash 的当前引用：ObjectSelector 只有 self/source/target/pick/linked，跨区（124）后 self/source 不再指向 Trash 里那张牌，" +
     "没有“自己在某区域的当前引用”选择器（依赖引擎批 4 的来源/链接引用）。" +
-    "(3) “for :rb_rune_rainbow:” 的费用替换（356.1.a）需要 finalized 费用计划：effect.play 要求已 Finalize 的 FinalizedCostPlan，程序只记录描述性替换费用（依赖 RIFT-89）。" +
+    "(3) “for :rb_rune_rainbow:” 的费用替换（356.1.a）需要 finalized 费用计划：effect.play 要求已 Finalize 的 FinalizedCostPlan，当前费用管线不能为 Universal Power 生成该替换计划。" +
     "(4) 388.4 的 “you may” 是反身触发在 Finalize 时的决定，与契约 3.9 的指令级 choice.optional 读法不同（与 unl-181-219 记录的 may-scope 问题同类），需要裁定。" +
     "effect.kill（429）与 “if it had 3 :rb_might: or less” 的最后已知读取（359.3.e.12–e.13）已合入，golden 真实执行。",
   abilities: [

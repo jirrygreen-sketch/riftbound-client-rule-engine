@@ -3,11 +3,11 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/determined-sentry.js";
-import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
-import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
 import { ContinuousEffectRegistry } from "../../../../engine-core/dist/layers/duration.js";
+import { createEngineStaticBinder, createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-1fdab35e21db7372013c7ccc1c69b1ebf752b66cdac3f9cef733a8a4619b112b";
@@ -56,7 +56,7 @@ test("unl-111-219 Determined Sentry: identity, status, judgeReason and verbatim 
   // name the missing consumer.
   assert.match(program.judgeReason, /054/);
   assert.match(program.judgeReason, /144\.4\.b/);
-  assert.match(program.judgeReason, /zones\/movement/);
+  assert.match(program.judgeReason, /MovementPermissions|zones\/movement/);
 });
 
 test("unl-111-219 Determined Sentry: one passive movement restriction on the host", () => {
@@ -97,38 +97,26 @@ test("unl-111-219 Determined Sentry golden: the merged layer engine records the 
   assert.equal(snapshot.movement.canGank, false);
 });
 
-test("unl-111-219 Determined Sentry gap: effect.move still sends the unit to its Base while the restriction is recorded", () => {
-  // 054.1 / 451.1 require the prohibition to negate the Move at resolution.
-  // The restriction is recorded by the layer engine (test above) but nothing
-  // consumes it, so the merged move primitive relocates the unit. This is the
-  // concrete blocking gap behind the judge-required status.
-  const subject = unit();
-  const engine = createLayerEngine([subject], [
-    {
-      effect: {
-        id: "determined-sentry",
-        layer: "ability",
-        filter: ability.effect.filter,
-        source: subject.ref,
-        effect: ability.effect
-      },
-      duration: { type: "permanent" },
-      timestamp: 1
-    }
-  ]);
-  engine.setObjects([subject]);
-  assert.deepEqual(engine.evaluate(subject.ref).movement.restrictions, ["move-to-base"]);
-
-  const kernel = world().unit("determined-sentry", { location: { type: "battlefield", id: "battlefield-1" } }).build();
-  const ref = kernel.ref("determined-sentry");
-  const run = runInstruction(
-    move,
-    { objects: { kind: "constant", value: { target: "sentry" } }, to: { kind: "constant", value: "controller-base" } },
-    { world: kernel, targets: { sentry: [ref] } }
-  );
-  assert.equal(run.result.status, "executed");
-  assert.deepEqual(kernel.getObject("determined-sentry").location, { type: "base", player: "A" });
-  assert.deepEqual(kernel.events.map(event => event.action), ["move-location"]);
+test("unl-111-219 Determined Sentry golden: the production static binder registers the movement restriction", () => {
+  const f = fixture({ cards: [{ id: "determined-sentry", cardId: CANONICAL_ID, types: ["unit"] }] });
+  f.engine.commit({
+    type: "move-zone",
+    object: f.kernel.ref("determined-sentry"),
+    to: "battlefield",
+    location: { type: "battlefield", id: "battlefield-1" }
+  });
+  f.engine.advance();
+  const source = f.kernel.getObject("determined-sentry");
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const staticAbility = binding.inspect(source).abilities.find(item => item.kind === "static");
+  const handle = createEngineStaticBinder(f.engine).bindStatic(staticAbility, source);
+  const [entry] = f.engine.layers.registry.list();
+  assert.equal(entry.effect.effect.kind, "continuous.movement");
+  assert.equal(entry.effect.effect.restriction, "move-to-base");
+  assert.equal(entry.effect.filter.objectId, "determined-sentry");
+  assert.equal(entry.effect.filter.zoneEntryId, source.ref.zoneEntryId);
+  handle.unbind();
+  assert.equal(f.engine.layers.registry.list().length, 0);
 });
 
 test("unl-111-219 Determined Sentry golden: RIFT-259's movement query serves the continuous.movement spec to a caller", () => {

@@ -55,10 +55,9 @@ test("unl-161-219 Divining Shells: identity, status, judgeReason and verbatim so
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /effect\.buff/);
-  assert.match(program.judgeReason, /RIFT-91/);
-  assert.match(program.judgeReason, /contract 3\.5|契约 3\.5/);
+  assert.match(program.judgeReason, /Vision/);
+  assert.match(program.judgeReason, /object\.id|objectId/);
+  assert.match(program.judgeReason, /有序|top-card/);
 });
 
 test("unl-161-219 Divining Shells: [Vision] is declared as a keyword only", () => {
@@ -166,6 +165,25 @@ test("unl-161-219 Divining Shells: the card never approximates the Might grant w
   assert.deepEqual(giveMight.args.duration, { kind: "constant", value: "end-of-turn" });
 });
 
+test("unl-161-219 Divining Shells golden: the activated body registers the temporary Might effect", () => {
+  const kernel = world()
+    .unit("divining-shells", { owner: "A", controller: "A", types: ["gear"], might: null })
+    .unit("target-unit", { owner: "A", controller: "A", might: 3 })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("divining-shells") });
+  context.setTargets(mightTarget.id, [context.ref("target-unit")]);
+  const outcome = resolveChainBody(activated.body, context);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
+    ["divining-shells.give-might", "executed"]
+  ]);
+  assert.equal(context.continuousEffects.length, 1);
+  assert.equal(context.continuousEffects[0].effect.effect.kind, "continuous.might");
+  assert.equal(context.continuousEffects[0].effect.effect.amount, 2);
+  assert.deepEqual(context.continuousEffects[0].duration, { type: "end-of-turn" });
+});
+
 test("unl-161-219 Divining Shells: [Vision] recycles the seen top card through the merged expansion (817.1.b / 437.1)", () => {
   const kernel = world().deck(["z-top-seen", "a-rest"]).build();
   const top = kernel.zone("A", "deck")[0];
@@ -186,11 +204,6 @@ test("unl-161-219 Divining Shells: declining the recycle keeps the top card (817
 });
 
 test.todo(
-  "Divining Shells: 'Give a unit +2 Might this turn' needs a merged continuous.might instruction (CR 143.2.a / " +
-    "475–477 arithmetic layer) with an end-of-turn duration (317.2.c) — effects/instructions has no such opcode, " +
-    "and effect.buff's own header keeps temporary Might out of the Buff counters (RIFT-9 list / RIFT-91 follow-up)"
-);
-test.todo(
-  "Divining Shells: register the Vision keyword ability from the CardProgram as an object-enters-board trigger in " +
-    "the chain (CR 817.1.c, contract 3.5) — no card-keyword to trigger adapter is merged"
+  "Divining Shells: bind the merged Vision expansion to the host object and inject the real controller into its " +
+    "object-enters-board trigger and ordered top-card pick (CR 817.1.c / 437.1)"
 );

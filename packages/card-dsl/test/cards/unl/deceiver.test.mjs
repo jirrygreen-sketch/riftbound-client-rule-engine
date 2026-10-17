@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/deceiver.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 
 const CANONICAL_ID =
   "card.hash-6ea8e63a198fef36cfbb65b0e39e0cf0f4206a9abd810a75bf107bcaad25da29";
@@ -29,10 +30,9 @@ test("unl-199-219 Deceiver: identity, status, judgeReason and verbatim sourceTex
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /383\.3\.b/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-62/);
+  assert.match(program.judgeReason, /TriggeredAbility|Finalize/);
+  assert.match(program.judgeReason, /ready|there/);
   assert.match(program.judgeReason, /Temporary/);
-  assert.match(program.judgeReason, /RIFT-84/);
 });
 
 test("unl-199-219 Deceiver: 'conquer or hold' is two named triggers with the §3.9 may wrapper", () => {
@@ -82,8 +82,9 @@ test("unl-199-219 Deceiver: the base cost keeps discard 1 and exhaust me as one 
     [holdPay, "deceiver.hold-pay"]
   ]) {
     // 383.3.b / 204.3: a cost within instructions right after the leading "you
-    // may" is the trigger's base cost, paid at Finalize. cost.pay is not a
-    // merged instruction file (see judgeReason), so the shape is declarative.
+    // may" is the trigger's base cost, paid at Finalize. The merged cost.pay
+    // primitive keeps this declarative shape until the trigger Finalize adapter
+    // can consume it.
     assert.equal(pay.op, "cost.pay");
     assert.equal(pay.linkedTo, undefined);
     assert.deepEqual(pay.args.payments, {
@@ -106,7 +107,7 @@ test("unl-199-219 Deceiver: the Reflection token play keeps the chain-create and
     [holdToken, holdPay]
   ]) {
     assert.equal(token.op, "effect.token");
-    // 187.6: Reflection is the 0 [M] domainless unit token in the frozen table.
+    // 187.6: Reflection is the 0 [M] domainless unit token in the merged table.
     assert.deepEqual(token.args.token, { kind: "constant", value: "reflection" });
     assert.deepEqual(token.args.amount, { kind: "constant", value: 1 });
     // 440.2.c / 185.2.a: a token that is "played" is created on the Chain first.
@@ -118,8 +119,8 @@ test("unl-199-219 Deceiver: the Reflection token play keeps the chain-create and
       kind: "constant",
       value: { type: "battlefield", id: "that-battlefield" }
     });
-    // 143.4 / 184.1: "ready" is an entry-state override that create-token does
-    // not support; there is deliberately no create-then-ready substitute.
+    // 143.4 / 184.1: "ready" is an entry-state override; the merged token
+    // primitive still has no entry override, so there is no create-then-ready substitute.
     assert.deepEqual(Object.keys(token.args).sort(), [
       "amount",
       "linkKey",
@@ -168,7 +169,7 @@ test("unl-199-219 Deceiver: 'Give it [Temporary]' is declared as a keyword grant
     [holdTemporary, "deceiver.hold"]
   ]) {
     // 816.1: Temporary is a triggered-ability keyword; the grant is recorded for
-    // the keyword registry / layers, which have no implementation yet.
+    // the merged keyword registry and still needs production trigger binding.
     assert.equal(temporary.op, "continuous.grant-keyword");
     assert.deepEqual(temporary.args.keyword, {
       kind: "constant",
@@ -194,18 +195,21 @@ test("unl-199-219 Deceiver: 'Give it [Temporary]' is declared as a keyword grant
   }
 });
 
+test("unl-199-219 Deceiver: the merged Temporary definition is available for the declared grant", () => {
+  assert.equal(keywordDefinitionsById.has("Temporary"), true);
+});
+
 test.todo(
   "unl-199-219 Deceiver: pay 'discard 1 and exhaust me' as the trigger's base cost at Finalize " +
-    "(CR 383.3.b / 204.3 / 415.4-415.5) — TriggeredAbility has no cost slot and no cost.pay / cost.discard " +
-    "instruction file is merged (RIFT-89)"
+    "(CR 383.3.b / 204.3 / 415.4-415.5) — TriggeredAbility has no base-cost slot and the production Finalize adapter does not consume the nested payment"
 );
 test.todo(
   "unl-199-219 Deceiver: chain-create then cost-waived play of the Reflection token with the 'ready' entry " +
-    "override (CR 440.2.c / 185.2.a / 350.2 / 354 / 143.4 / 184.1) — RIFT-62 and an entry-state argument"
+    "override (CR 440.2.c / 185.2.a / 350.2 / 354 / 143.4 / 184.1) — effect.token still has no entry-state override"
 );
 test.todo(
   "unl-199-219 Deceiver: 'It becomes a copy of another unit there' through the copy layer (CR 446.1-446.2) — " +
-    "effect.copy's \"effect\" mode is blocked (copy-layer-traits-exceptions-and-attachment-duration-unavailable, RIFT-91)"
+    "effect.copy's \"effect\" mode remains blocked by copy-layer-traits-exceptions-and-attachment-duration-unavailable"
 );
 test.todo(
   "unl-199-219 Deceiver: bind 'there' from the conquer / hold payload — the sealed timing points declare no " +
@@ -213,5 +217,5 @@ test.todo(
 );
 test.todo(
   "unl-199-219 Deceiver: give the created token [Temporary] (CR 816.1: kill at the start of the controller's " +
-    "Beginning Phase before scoring) — keywords/Temporary.ts and the layers consumer are not merged (RIFT-84)"
+    "Beginning Phase before scoring) — the KeywordDef is merged, but production trigger registration and layer lifetime are pending"
 );

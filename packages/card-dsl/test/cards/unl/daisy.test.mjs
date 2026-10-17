@@ -34,8 +34,7 @@ test("unl-196-219 Daisy!: identity, status, judgeReason and verbatim sourceText"
   assert.match(program.judgeReason, /143\.4/);
   assert.match(program.judgeReason, /cost\.modify|减费/);
   assert.match(program.judgeReason, /attack-declared/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /sameLocationAs|动态目标锚点/);
 });
 
 test("unl-196-219 Daisy!: 'I enter ready' is an entry replacement of the exhausted entry state", () => {
@@ -113,8 +112,8 @@ test("unl-196-219 Daisy! golden: the entry replacement's with body readies the s
 });
 
 test("unl-196-219 Daisy! golden: the four-tag condition really gates the attack trigger", () => {
-  // The union predicate is a retained shape: on the reference kernel it evaluates
-  // false, so the trigger condition is not met and the stun body must not run.
+  // This fixture has only Bird and Cat among the controller's units, so the
+  // printed all-four-tags condition is not met and the stun body is skipped.
   const kernel = world()
     .unit("daisy", { tags: ["Ivern", "Ionia"] })
     .unit("bird-unit", { tags: ["Bird"] })
@@ -165,16 +164,16 @@ test("unl-196-219 Daisy! golden: the printed stun resolves on a locked enemy uni
 
 test.todo(
   "unl-196-219 Daisy!: run the entry replacement through a real replacement pipeline (143.4/359.2.c/369.3) — " +
-    "no CardProgram -> ReplacementRegistration wiring and effect.ready must not be used as an after-the-fact ready (RIFT-120)"
+    "the replacement declaration still needs a play-lifecycle event fixture; effect.ready must not be used as an after-the-fact ready"
 );
 test.todo(
   "unl-196-219 Daisy!: apply the per-tag Energy discount at Finalize (356.4/356.4.b) — cost/cost-plan.ts only consumes caller-supplied discounts " +
-    "and there is no CardProgram -> CostPlan wiring (RIFT-89)"
+    "and the static cost.modify declaration is not yet consumed by Finalize"
 );
 test.todo(
   "unl-196-219 Daisy!: evaluate the cross-object four-tag union ('your units have all 4 tags') — ObjectFilter.tags is a per-object every-match " +
-    "(layers/filter.ts, reference kernel), so the union needs a new predicate (contract change request)"
+    "(layers/filter.ts, reference kernel), so the union still needs a cross-object predicate (contract change request)"
 );
 test.todo(
-  "unl-196-219 Daisy!: reach the attack-declared timing point from the real combat flow and register the CardProgram trigger (engine batch 4/5, RIFT-120)"
+  "unl-196-219 Daisy!: bind sameLocationAs to the attack event's battlefield before selecting the enemy unit here (355.9 / 359.3.f.1)"
 );
