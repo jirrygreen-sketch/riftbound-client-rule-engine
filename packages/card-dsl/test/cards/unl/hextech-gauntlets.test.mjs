@@ -36,9 +36,9 @@ test("unl-188-219 Hextech Gauntlets: identity, status, judgeReason and verbatim 
   // README 第 2 节：judgeReason 必须点名缺哪个语义与依赖任务。
   assert.match(program.judgeReason, /818\.1\.c\.4/);
   assert.match(program.judgeReason, /cost\.modify/);
-  assert.match(program.judgeReason, /RIFT-89/);
   assert.match(program.judgeReason, /135\.2\.e\.5/);
   assert.match(program.judgeReason, /equip/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(89|90|91|120|257)/);
 });
 
 test("unl-188-219 Hextech Gauntlets: the only ability is the Equip keyword with the printed 3 Energy symbols", () => {
@@ -133,11 +133,11 @@ test("unl-188-219 Hextech Gauntlets: the merged Equip body attaches the Gear to 
 
 test.todo(
   "Hextech Gauntlets: pay the printed Equip cost (3 Energy + 1 Any Domain Power [A], CR 135.2.e.5.a / 818.1.c) — " +
-    "needs the printed Equip cost carried into and payable through the Finalize cost plan (RIFT-89 cost pipeline)"
+    "needs the printed Equip cost carried into and payable through the Finalize cost plan"
 );
 test.todo(
   "Hextech Gauntlets: reduce the Equip Energy cost by the Might of the chosen unit (CR 818.1.c.4 / 143.2.a / 206) " +
-    "through a cost.modify discount evaluated at Finalize against the locked target's effective Might (RIFT-89)"
+    "through a cost.modify discount evaluated at Finalize against the locked target's effective Might"
 );
 test.todo(
   "Hextech Gauntlets: carry the printed Equip cost in the card program — KeywordAbility (contract 3.1) has no cost " +

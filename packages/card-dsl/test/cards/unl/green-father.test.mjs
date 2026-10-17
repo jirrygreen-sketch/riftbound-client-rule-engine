@@ -184,7 +184,7 @@ test("unl-195-219 Green Father golden: an already-exhausted legend cannot be exh
 
 test.todo(
   "unl-195-219 Green Father: execute the CR 439.3 Replace action — the closed GameAction set has no replace " +
-    "and no effect.replace instruction file is merged (contract change request)"
+    "and the card-program effect.replace binding is still required (contract change request)"
 );
 test.todo(
   "unl-195-219 Green Father: add the CR 187.8 Brush battlefield token definition (its own +1 [M] ability and the " +
@@ -196,7 +196,7 @@ test.todo(
 );
 test.todo(
   "unl-195-219 Green Father: pay the leading 'exhaust me' as the trigger's base cost at Finalize " +
-    "(CR 383.3.b / 204.3 / 415.4-415.5) — TriggeredAbility has no cost slot (RIFT-89)"
+    "(CR 383.3.b / 204.3 / 415.4-415.5) — bind the trigger base cost through the Finalize cost field"
 );
 test.todo(
   "unl-195-219 Green Father: represent the Legend itself as an exhaust-cost object — the frozen ZoneId has no " +

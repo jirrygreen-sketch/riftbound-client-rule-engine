@@ -35,8 +35,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   无法作为可横置的费用对象（effect.exhaust.ts 文件头记录同一契约缺口）。
  * draw 1、hold 时点与解释器路径已合入，golden 用参考内核真实执行已支持部分。
  *
- * 依赖：引擎批 4/5（2v2 队友模型、卡牌程序 → 触发注册接线，RIFT-120 后续）、
- * RIFT-89（触发能力基础费用 / Finalize 收费管线）、契约补充 legend-zone。
+ * 依赖：2v2 队友模型、TriggeredAbility 基础费用字段与契约补充 legend-zone。
  */
 export default {
   canonicalCardId:
@@ -51,7 +50,7 @@ export default {
     "用 effect.exhaust 的状态改变代替费用会漏掉 415.4 / 415.5「费用必须能完成」与 415.1.b「已横置不能再次横置」的 Finalize 检查。" +
     "(3)「me」是 Legend Zone 中的传奇（CR 107.4.a / 107.4.c），契约 ZoneId 没有 legend-zone，cost/payment.ts 的 exhaust 费用只接受 board / rune-zone，" +
     "传奇自身无法作为可横置的费用对象。hold 时点、effect.draw 与解释器路径已合入并有执行测试。" +
-    "依赖：引擎批 4/5（2v2 队友模型、卡牌程序→触发注册接线，RIFT-120 后续）、RIFT-89（触发能力基础费用接线）、契约补充 legend-zone。",
+    "依赖：2v2 队友模型、TriggeredAbility 基础费用字段与契约补充 legend-zone。",
   abilities: [
     {
       kind: "triggered",

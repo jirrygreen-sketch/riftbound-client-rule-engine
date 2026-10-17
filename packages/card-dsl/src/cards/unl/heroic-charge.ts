@@ -23,7 +23,7 @@ import type { CardProgram } from "../../ir/index.js";
  * - 括号内是该动作结果的释义，不是独立指令，因此不另写指令。
  *
  * status: judge-required —— 两条正文指令都已可由已合入原语真实执行，但整卡仍不能 as-written 生产执行：
- * - 已解决：「Give a friendly unit +1 :rb_might: this turn」由已合入的 continuous.might 原语执行（RIFT-258）：
+ * - 已解决：「Give a friendly unit +1 :rb_might: this turn」由已合入的 continuous.might 原语执行：
  *   它经 ctx.addContinuous 注册 arithmetic 层效果，this-turn 映射为 end-of-turn 期限（317.1.a / 468.7.c / 433.1.a），
  *   指令用契约 3.6 的 objects 选择器指回自己声明的 TargetSpec；「[Stun] an enemy unit」由已合入的 effect.stun 执行（424.1），
  *   golden 用解释器 + 参考内核真实执行（含目标失效边界）。
@@ -31,19 +31,19 @@ import type { CardProgram } from "../../ir/index.js";
  *   抛 judge-required "Unsupported filter field sameLocationAs"）：生产打出时 describePlay → translateInstructionTargets 会失败，
  *   因此本卡无法 as-written 绑定/打出；已合入的锚点求值只在解释器侧（effects/interpreter/selectors.ts 的 queryObjects）。
  *   不把 +1 近似成 effect.buff（702 Buff 计数器），也不硬编码战场身份。
- * 依赖：programs/filters.ts 与 target/ 的位置锚点接线（RIFT-90 后续）。
+ * 依赖：programs/filters.ts 与 target/ 的动态位置锚点接线。
  */
 const program = {
   canonicalCardId: "card.hash-7df5a08371438cce0299d5cb0462f93ad1b442be5e5d5f288e5a0ce882fa4230",
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "(1) 已解决：「Give a friendly unit +1 :rb_might: this turn」由已合入的 continuous.might 原语（RIFT-258）经 ctx.addContinuous 注册 arithmetic 层效果，" +
+    "(1) 已解决：「Give a friendly unit +1 :rb_might: this turn」由已合入的 continuous.might 原语经 ctx.addContinuous 注册 arithmetic 层效果，" +
     "this-turn 映射为 end-of-turn 期限（317.1.a / 468.7.c / 433.1.a）；指令用契约 3.6 的 objects 选择器指回自己声明的 TargetSpec，golden 用链适配器真实执行。" +
     "(2) 已解决：「[Stun] an enemy unit」由已合入的 effect.stun 提交（424.1），424.1.a.1 的已 Stunned 边界由原语如实上报；golden 用解释器 + 参考内核真实执行。" +
     "(3) 剩余缺口：「at its location」的 sameLocationAs 锚点（355.10.b）不被 programs/filters.ts 接受（允许字段集合里没有该键，抛 judge-required \"Unsupported filter field sameLocationAs\"），" +
     "生产打出时 describePlay → translateInstructionTargets 会失败，本卡无法 as-written 绑定/打出；已合入的锚点求值只在解释器侧（effects/interpreter/selectors.ts）。" +
-    "不把 +1 近似成 effect.buff（702 Buff 计数器），也不硬编码战场身份。依赖：programs/filters.ts 与 target/ 的位置锚点接线（RIFT-90 后续）。",
+    "不把 +1 近似成 effect.buff（702 Buff 计数器），也不硬编码战场身份。依赖：programs/filters.ts 与 target/ 的动态位置锚点接线。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {
@@ -55,7 +55,7 @@ const program = {
       body: [
         {
           id: "heroic-charge.grant-might",
-          // RIFT-258：已合入的 continuous.might 原语固定 arithmetic 层（没有 layer 参数）；
+          // continuous.might 原语固定 arithmetic 层（没有 layer 参数）；
           // this-turn → end-of-turn 期限（317.1.a / 468.7.c）。objects 用契约 3.6 的选择器
           // 指回本指令声明的 TargetSpec。
           op: "continuous.might",

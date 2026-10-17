@@ -5,9 +5,7 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/gutter-palace.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
-import { buildCostPlan, CostPlanError } from "../../../../engine-core/dist/cost/index.js";
-import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
-import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
   "card.hash-bcbe9b5d738a83a45e624acaf6d4f8ec5125c1fc1bc5704e46f6776a7abae109";
@@ -35,9 +33,9 @@ test("unl-088-219 Gutter Palace: identity, ruleset, status, judgeReason and verb
   assert.match(program.judgeReason, /187\.7/);
   assert.match(program.judgeReason, /effect\.token/);
   assert.match(program.judgeReason, /355\.2/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /mechanical-bandit/);
-  assert.match(program.judgeReason, /loose-cannon/);
+  assert.match(program.judgeReason, /PickSpec/);
+  assert.match(program.judgeReason, /exact-count/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(89|102|120)/);
   assert.equal(/待实现|需要裁定/.test(program.judgeReason), false);
 });
 
@@ -148,62 +146,6 @@ test("unl-088-219 Gutter Palace golden: the merged effect.win declares the contr
   assert.deepEqual(kernel.events.map(event => event.action), ["win"]);
 });
 
-test("unl-088-219 Gutter Palace golden: 'Discard 1' cannot be planned from static IR (exact runtime refs required)", () => {
-  // 423.1.a: the discarder picks the card at resolution, but cost/plan-values.ts
-  // reference() only accepts exact runtime ObjectRefs; a static card program
-  // cannot name a hand identity (README section 3 forbids runtime refs). The
-  // merged plan therefore fails closed instead of discarding a fixed card.
-  const kernel = world()
-    .hand("hand-card", { owner: "A" })
-    .unit("gutter-palace", {
-      types: ["gear"],
-      might: null,
-      energy: 4,
-      power: null,
-      zone: "board",
-      location: { type: "base", player: "A" },
-      controller: "A",
-      owner: "A"
-    })
-    .build();
-  const context = kernel.clone({ sourceSnapshot: kernel.getObject("gutter-palace") });
-
-  assert.throws(
-    () => buildCostPlan(context, { id: "gutter-palace:play-bird", cost: activated.cost }),
-    error =>
-      error instanceof CostPlanError &&
-      error.reason === "invalid-cost-plan" &&
-      /exact object reference/.test(error.message)
-  );
-});
-
-test("unl-088-219 Gutter Palace golden: the merged effect.token refuses the undeclared entry location instead of guessing", () => {
-  const kernel = world().unit("gutter-palace", {
-    types: ["gear"],
-    zone: "board",
-    location: { type: "base", player: "A" },
-    controller: "A",
-    owner: "A"
-  }).build();
-  const run = runInstruction(
-    token,
-    {
-      token: playBird.args.token,
-      mode: playBird.args.mode,
-      amount: playBird.args.amount,
-      locations: playBird.args.locations,
-      choiceId: playBird.args.choiceId
-    },
-    { world: kernel }
-  );
-  // 355.2 needs a runtime-legal Location; the descriptive placeholder is not a
-  // LocationRef, so the primitive negates and nothing is created.
-  assert.equal(run.result.status, "negated");
-  assert.equal(run.result.reason, "impossible");
-  assert.deepEqual(kernel.query({ zone: "board", type: "token" }), []);
-  assert.deepEqual(kernel.events, []);
-});
-
 test.todo(
   "unl-088-219 Gutter Palace: add the CR 187.7 Bird token (domainless, 1 Might, Bird tag, [Deflect] per 809) to the " +
     "effect.token definition table — definitions carrying their own keywords/abilities stay blocked"
@@ -214,10 +156,9 @@ test.todo(
 );
 test.todo(
   "unl-088-219 Gutter Palace: pay 'Discard 1' from a Finalize-supplied exact hand reference (CR 423.1.a / 423.3; " +
-    "RIFT-89 cost plan, RIFT-102 reference closure)"
+    "the card-program activation adapter must supply the selected hand ObjectRef to the cost plan"
 );
 test.todo(
-  "unl-088-219 Gutter Palace: emit beginning-start from the production turn flow and register the win trigger as a " +
-    "TriggerRegistration (CR 315.2.a.1, 383.2.a.1; contract 3.5, RIFT-120 follow-up); the hand count also needs an " +
-    "Expr read of PlayerSnapshot.handSize (same gap as ogn/loose-cannon)"
+  "unl-088-219 Gutter Palace: evaluate the beginning-start exact-count condition in the production trigger host " +
+    "(CR 315.2.a.1, 383.2.a.1); the registered trigger needs a query over the controller's hand and battlefield units"
 );

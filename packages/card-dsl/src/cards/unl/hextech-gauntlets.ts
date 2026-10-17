@@ -38,13 +38,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   blocked（实测 buildCostPlan 抛 CostPlanError reason "judge-required"、message
  *   "Unsupported payment kind: equip"）。
  * - 印刷参数（3 Energy + 1 [A]）与 818.1.c.4 的减费都没有消费方：减费需要
- *   cost.modify / 折扣阶段并读取 Finalize 目标的有效 Might（RIFT-89；
+ *   cost.modify / 折扣阶段并读取 Finalize 目标的有效 Might；
  *   docs/plans/survey/unclassified-unl.md 第 68 行就把本卡列为 mappable 且标注需要
  *   cost.modify + condition.value + effect.attach），当前 CostSpec 没有指向"被选目标的
  *   Might"的表达式，也没有 Equip 费用的参数承载。
  * - 卡牌程序 → 关键词展开 → 时点/链的接线（契约 3.5）同样未合入。
- * 依赖：RIFT-89（equip 支付种类、Equip 费用参数、cost.modify 折扣读 Finalize 目标 Might）、
- * 契约 3.5 接线；不近似实现，不改 IR 类型。
+ * 依赖：Equip 支付种类、原始费用参数与符号来源、cost.modify 的 Equip 减费绑定，以及
+ * 契约 3.5 的卡牌程序启动能力接线；不近似实现，不改 IR 类型。
  */
 const abilities: Ability[] = [
   {
@@ -73,9 +73,9 @@ const program = {
     "(3) 818.1.c.4 的减费需要 cost.modify / 356.4 折扣阶段读取 Finalize 锁定目标的有效 Might " +
     "（143.2.a / 206；docs/plans/survey/unclassified-unl.md 第 68 行所列 cost.modify + " +
     "condition.value），当前 CostSpec 没有指向被选目标 Might 的表达式，也没有 Equip 费用的" +
-    "参数消费方（RIFT-89）；(4) 卡牌程序→关键词展开→时点/链的接线（契约 3.5）未合入。" +
-    "不近似实现，不改 IR 类型。依赖：RIFT-89（equip 支付种类、Equip 费用参数、cost.modify 折扣）" +
-    "与契约 3.5 接线。",
+    "参数消费方；(4) 卡牌程序→关键词展开→时点/链的接线（契约 3.5）未合入。" +
+    "不近似实现，不改 IR 类型。依赖：Equip 支付种类、原始费用参数与符号来源、cost.modify 的 Equip 减费绑定，" +
+    "以及契约 3.5 接线。",
   abilities,
   sourceText:
     "[Equip] :rb_energy_3::rb_rune_rainbow:. This ability's Energy cost is reduced " +

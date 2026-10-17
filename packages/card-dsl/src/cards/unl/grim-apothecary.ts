@@ -26,15 +26,15 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   新的区域身份）由已合入的 effect.zone（to: hand → return-to-hand 动作）提交，卡牌不自己改区域。
  *
  * status = judge-required（已按合入依赖复核，缺口不近似实现）：
- * - [Ambush] 的 KeywordDef 已合入（RIFT-264～268），但它的两条声明都没有消费方：没有已合入代码读取
+ * - [Ambush] 的 KeywordDef 已合入，但它的两条声明都没有消费方：没有已合入代码读取
  *   play-location-permission（822.1.b 的额外合法打出位置），chain/engine.ts 的 canAct 也不读取
  *   continuous.timing 的 grants（822.1.c 的 Reaction 许可；layers/rules 的 canAct 真值表存在但没有接进 ChainEngine）。
  * - card-played 触发体的目标 “a friendly unit at a battlefield” 用结构化 location 过滤器 { type: "battlefield" } 表达，
  *   但 programs/filters.ts 拒绝它（"Structured location filters need a concrete location identity"），
  *   因此这条 Play Effect 无法按 as-written 绑定/打出，需要位置相对词汇或战场身份绑定。
- * - 已解决的部分：card-played 触发的生产注册接线（RIFT-257 programs/triggers.ts）已合入；
+ * - 已解决的部分：card-played 触发的生产注册接线（programs/triggers.ts）已合入；
  *   choice.optional + effect.zone 的 may-return 半段已用解释器 + 参考内核真实执行（接受 / 拒绝 / 目标失效三种分支）。
- * 依赖：RIFT-89/90（打出位置与时机许可消费方）、programs/filters.ts 的战场位置词汇。
+ * 依赖：Ambush 的 play-location/timing 消费方、programs/filters.ts 的战场位置词汇。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "ambush" },
@@ -95,14 +95,14 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "(1) [Ambush]（822.1.b/822.1.c）的 KeywordDef 已合入（RIFT-264～268），但两条声明都没有消费方：" +
+    "(1) [Ambush]（822.1.b/822.1.c）的 KeywordDef 已合入，但两条声明都没有消费方：" +
     "没有已合入代码读取 play-location-permission 的「打到你有单位的战场」许可，chain/engine.ts 的 canAct 也不读取 continuous.timing 的 grants，" +
     "822.1.c 的 Reaction 许可无处落地（layers/rules 的 canAct 真值表已合并但未接进 ChainEngine）。" +
     "(2) card-played 触发体的 “a friendly unit at a battlefield” 用结构化 location 过滤器表达，但 programs/filters.ts 拒绝它" +
     "（\"Structured location filters need a concrete location identity\"），该 Play Effect 无法 as-written 绑定/打出。" +
-    "(3) 已解决：card-played 触发的生产注册接线（RIFT-257 programs/triggers.ts）已合入；" +
+    "(3) 已解决：card-played 触发的生产注册接线（programs/triggers.ts）已合入；" +
     "「When you play me, you may return a friendly unit at a battlefield to its owner's hand.」半段用 403.1 / 契约 3.9 的 choice.optional（被选指令包进 body）" +
-    "+ effect.zone（to: hand），golden 用解释器 + 参考内核真实执行接受 / 拒绝 / 目标失效三种分支。依赖 RIFT-89/90 与战场位置词汇。",
+    "+ effect.zone（to: hand），golden 用解释器 + 参考内核真实执行接受 / 拒绝 / 目标失效三种分支。依赖 Ambush 的 play-location/timing 消费方与战场位置词汇。",
   abilities,
   sourceText:
     "[Ambush] (You may play me as a [Reaction] to a battlefield where you have units.)\n" +

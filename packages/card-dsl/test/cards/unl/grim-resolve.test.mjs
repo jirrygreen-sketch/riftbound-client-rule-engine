@@ -84,8 +84,8 @@ test("unl-095-219 Grim Resolve: [Action] + the merged Might grant + the delayed 
       ["grim-resolve.win-combat-xp", "trigger.delayed"]
     ]
   );
-  // RIFT-258: the merged primitive fixes the arithmetic layer and takes the
-  // objects selector; the authored layer argument is no longer part of the IR.
+  // The merged primitive fixes the arithmetic layer and takes the objects
+  // selector; the authored layer argument is no longer part of the IR.
   assert.equal(grant.args.layer, undefined);
   assert.deepEqual(grant.args.mode, { kind: "constant", value: "add" });
   assert.deepEqual(grant.args.amount, { kind: "constant", value: 3 });
@@ -163,6 +163,6 @@ test("unl-095-219 Grim Resolve golden: Gain 2 XP gives the caster two experience
 
 test.todo(
   "unl-095-219 Grim Resolve: register the \"When it wins a combat this turn\" delayed trigger (CR 390/391.2/392, " +
-    "468.3.a combat-result) and bind \"it\" to the chosen unit — the trigger.delayed opcode is unregistered and " +
-    "combat/flow.ts does not emit combat-result yet (RIFT-9 / RIFT-124 follow-up)"
+    "468.3.a combat-result) and bind \"it\" to the chosen unit — wire trigger.delayed to the combat-result emission " +
+    "and preserve the selected unit through the this-turn window"
 );

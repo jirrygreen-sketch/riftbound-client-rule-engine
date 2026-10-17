@@ -19,9 +19,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   只提交封闭集合里的 gain-xp 动作，获得者缺省是能力控制者（190.6.d 的隐含 “you”）。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required（已按合入依赖复核）。
- * - 已解决：[Hunt] 的 KeywordDef 已合入（RIFT-264～268，effects/keywords/Hunt.ts）：823.1.c.2 的省略值按 1、
+ * - 已解决：[Hunt] 的 KeywordDef 已合入（effects/keywords/Hunt.ts）：823.1.c.2 的省略值按 1、
  *   823.1.b/823.1.c.1 的 conquer + hold 两个触发与 effect.xp 展开、823.2 的 sum stacking 都已实现；
- *   卡牌 keyword 能力 → KeywordDef 展开 → 触发注册的生产方也已合入（RIFT-257 的 programs/keywords.ts +
+ *   卡牌 keyword 能力 → KeywordDef 展开 → 触发注册的生产方也已合入（programs/keywords.ts +
  *   programs/triggers.ts，本卡展开出 conquer/hold/card-played 三条注册）。
  * - 剩余缺口：823.1.b 的“当我征服或固守”归因仍无法判定——turn/flow.ts 的 Score wave 只发 player +
  *   details.battlefieldId，没有事件对象/单位快照；展开出的触发 filter 经 programs/filters.ts 变成对事件对象的
@@ -54,8 +54,8 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "(1) 已解决：[Hunt] 的 KeywordDef 已合入（RIFT-264～268，effects/keywords/Hunt.ts），823.1.b/823.1.c.1 的 conquer 与 hold 两个触发、823.1.c.2 的省略值按 1、" +
-    "823.2 的 sum stacking 与 effect.xp 展开都已实现；卡牌 keyword → 关键词展开 → 触发注册的生产方也已合入（RIFT-257 programs/keywords.ts + programs/triggers.ts）。" +
+    "(1) 已解决：[Hunt] 的 KeywordDef 已合入（effects/keywords/Hunt.ts），823.1.b/823.1.c.1 的 conquer 与 hold 两个触发、823.1.c.2 的省略值按 1、" +
+    "823.2 的 sum stacking 与 effect.xp 展开都已实现；卡牌 keyword → 关键词展开 → 触发注册的生产方也已合入（programs/keywords.ts + programs/triggers.ts）。" +
     "(2) 剩余缺口：823.1.b 的“当我征服或固守”归因无法判定——turn/flow.ts 的 Score wave 只发 player + details.battlefieldId，没有事件对象/单位快照；" +
     "展开出的触发 filter 被翻译成对事件对象的 objectId 过滤，而这类事件没有 object，该过滤永远匹配不到（触发不会误触，但也不会触发）；" +
     "hold 侧的「本卡是在场固守的那个单位」（383.4.d.2/.2.a）与 EventPattern 的 here 相对词汇同样缺失。" +
