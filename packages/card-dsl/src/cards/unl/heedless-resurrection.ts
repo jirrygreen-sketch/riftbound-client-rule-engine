@@ -27,17 +27,18 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   必须由费用管线生成已 finalize 的计划（effect.play 明确只接受已 finalize 的计划，
  *   从不自己推导印刷费用）。
  *
- * status: judge-required（缺口不近似实现）:
- * - 强制追加费用（cost.sacrifice 型）没有已合入原语，也没有「卡牌程序声明的费用 →
- *   cost/ 计划」的接线（buildCostPlan 的费用组件来自调用方，RIFT-89）；
- * - 费用结果（被消灭的单位）无法绑定进效果体：冻结 IR 的 ObjectSelector 只有
- *   self/source/target/pick/linked，费用计划里的选择不是链接值，356.1.c 的
- *   「印刷费用不高于被消灭单位」比较因此无求值路径（也不存在印刷费用上限谓词）；
- * - 「ignoring its cost」需要费用系统产出零基础费用的 finalized 计划（RIFT-89）。
- * golden 用已合入的 effect.play + 显式零费计划对锁定目标真实执行，并单独执行
- * effect.kill 的 pick 形态证明费用半段可执行；整卡不宣称可执行。
- *
- * 依赖：RIFT-89（费用计划接线、追加费用与忽略费用）、印刷费用上限谓词（RIFT-90）。无契约变更请求。
+ * status: judge-required（已按合入依赖复核；缺口不近似实现）:
+ * - 强制追加费用仍未接线（356.2.a.1 / 356.2.a / 357.2）：cost/plan-values.ts 已支持 kill 类的对象支付，
+ *   但没有任何已合入消费方把本卡声明的 static cost.additional 能力变成 CostPlanInput.mandatoryAdditional
+ *   （卡牌程序 → 费用计划的生产入口仍属 RIFT-261 进行中的费用种类与 cost.pay/cost.modify 范围）；
+ *   同一声明里的 PickSpec options 也不能枚举运行期 Board 单位（cost/plan-values.ts 要求精确 ObjectRef）。
+ * - 费用结果无法绑定进效果体：冻结 IR 的 ObjectSelector 只有 self/source/target/pick/linked，费用计划里的非目标选择
+ *   不是链接值，因此 356.1.c 的「印刷费用不高于被消灭单位」比较既没有求值路径，也没有对应的 ObjectFilter 键
+ *   （programs/filters.ts 会拒绝描述性键；未知键在 layers/ 与测试内核里也只是被静默忽略，不能当成已实现）。
+ * - 「ignoring its cost」需要费用系统产出 base Energy/Power 为 0 的 finalized 计划（356.1.b.1，RIFT-261）。
+ * golden 用已合入的 effect.play + 显式零费计划对锁定目标真实执行，并单独执行 effect.kill 的 pick 形态证明
+ * 费用半段可执行；整卡不宣称可执行。依赖：RIFT-261（费用计划/追加费用/ignore-cost 接线）、RIFT-90（印刷费用上限谓词）。
+ * 无契约变更请求。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "reaction" },
@@ -114,15 +115,15 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处依赖未合入：(1)「As an additional cost to play this, kill a friendly unit.」是 356.2.a.1 的强制追加费用" +
-    "（cost.sacrifice 型）：effects/instructions 没有该原语，也没有把卡牌程序声明的费用接进已合入 cost/ 计划的入口" +
-    "（buildCostPlan 只消费调用方传入的 mandatoryAdditional，RIFT-89）。(2) 费用结果无法绑定进效果体：冻结 IR 的" +
-    "ObjectSelector 只有 self/source/target/pick/linked，费用计划里的非目标选择不是链接值，因此「that costs no more Energy " +
-    "and no more Power than the killed unit」（356.1.c 的印刷费用比较）既缺少与费用选择相连的求值路径，也缺少印刷费用上限谓词" +
-    "（未知 filter 键会被 layers/filter.ts 与测试内核静默忽略）。(3)「ignoring its cost」按 356.1.b.1 需要费用系统产出" +
-    "base Energy/Power 为 0 的 finalized 计划（effect.play 明确不接受自行推导的费用）。" +
+    "(1)「As an additional cost to play this, kill a friendly unit.」是 356.2.a.1 的强制追加费用（cost.sacrifice 型）：" +
+    "cost/plan-values.ts 已支持 kill 类的对象支付，但没有任何已合入消费方把本卡声明的 static cost.additional 能力变成 CostPlanInput.mandatoryAdditional" +
+    "（卡牌程序 → 费用计划的生产入口仍属 RIFT-261 的费用种类与 cost.pay/cost.modify 范围）；同一声明的 PickSpec options 也不能枚举运行期 Board 单位。" +
+    "(2) 费用结果无法绑定进效果体：冻结 IR 的 ObjectSelector 只有 self/source/target/pick/linked，费用计划里的非目标选择不是链接值，" +
+    "因此「that costs no more Energy and no more Power than the killed unit」（356.1.c 的印刷费用比较）既缺少与费用选择相连的求值路径，" +
+    "也缺少印刷费用上限谓词（programs/filters.ts 拒绝描述性键；未知键会被 layers/filter.ts 与测试内核静默忽略，不能当成已实现）。" +
+    "(3)「ignoring its cost」按 356.1.b.1 需要费用系统产出 base Energy/Power 为 0 的 finalized 计划（effect.play 明确不接受自行推导的费用，RIFT-261）。" +
     "golden 用已合入的 effect.play + 显式零费计划与 effect.kill 的 picks 形态执行已支持部分；整卡不近似实现。" +
-    "依赖：RIFT-89（费用计划/追加费用/ignore-cost 接线）、RIFT-90（印刷费用上限谓词）。",
+    "依赖：RIFT-261（费用计划/追加费用/ignore-cost 接线）、RIFT-90（印刷费用上限谓词）。",
   abilities,
   sourceText:
     "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +

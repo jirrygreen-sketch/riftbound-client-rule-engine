@@ -26,16 +26,21 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （355.10.d 的集合写法；ogn/kogmaw-caustic、rad/the-ball 记录同一约定）；“here” 用契约 3.6 的
  *   sameLocationAs 锚点指向来源位置。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。
- * - [Backline] 的展开文件已合入（RIFT-264），但整条关键词功能不可执行：战斗伤害分配不读取分配优先级
- *   要求，combat/base-combat-allocation.ts 明确写着 "No Tank/Backline/other assignment-priority
- *   requirement is bound here"，826.3/826.4 无处落地。
- * - hold 触发缺少「本卡是在固守的战场上在场的那个单位」的时点载荷绑定：时点 hold 由 scoring 发出，
- *   载荷只带战场/玩家，没有在场单位快照，826/383.4.d.2 的按单位归因无法判定（ogn/ahri-alluring、
- *   rad/ksante-courageous 记录同一缺口）。
- * - 卡牌 keyword 能力 → KeywordDef 展开 → 图层注册的生产方也未合入（契约 3.5/3.7）。
- * 依赖：战斗伤害分配工作流（826 / RIFT-9 continuous.combat）、RIFT-31/33（scoring/triggers 的 hold 载荷）、
- * RIFT-91（layers 接线）。effect.buff 本体已合入，golden 用解释器 + 参考内核真实执行。
+ * status 判定（cards/README.md 第 2 节）：judge-required（已按合入依赖复核）。
+ * - [Backline] 的 KeywordDef 已合入（RIFT-264，effects/keywords/Backline.ts），但它的 continuous.combat
+ *   声明没有消费方：combat/base-combat-allocation.ts 仍写着 “No Tank/Backline/other assignment-priority
+ *   requirement is bound here”，continuous.combat 原语也只返回 negated/impossible，因此 826.3/826.4.a/
+ *   826.4.b 的分配顺序要求无处落地。
+ * - hold 触发缺少「本卡是在固守的战场上在场的那个单位」的载荷（383.4.d.2/.2.a）：turn/flow.ts 的 scoring
+ *   wave 只发 player + details.battlefieldId，没有单位快照；本卡 filter 经 programs/filters.ts 变成对事件
+ *   对象的 objectId 过滤，而这类事件没有 object，永远匹配不到（RIFT-31/33）。
+ * - 触发体的 “[Buff] all units here” 目标用 sameLocationAs 锚点表达 355.10.d / 053.3 的 here，但
+ *   programs/filters.ts 的允许字段集合没有该键并抛 judge-required，生产适配器无法绑定这条触发体
+ *   （解释器侧 anchors 已合入，见 effects/interpreter/selectors.ts）。
+ * - 卡牌 keyword 能力 → KeywordDef 展开的生产方已合入（RIFT-257 的 programs/keywords.ts expandProgram），
+ *   该过时缺口已删除。
+ * 依赖：战斗伤害分配工作流（826 / continuous.combat 消费方）、RIFT-31/33（scoring 载荷中的固守单位）、
+ * programs/filters.ts 的 sameLocationAs 锚点支持。effect.buff 本体与触发体已可用解释器 + 参考内核真实执行。
  * 不近似实现：不把 Backline 写成静态数值，也不把 hold 触发改成别的时点。
  */
 const abilities: Ability[] = [
@@ -76,14 +81,15 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处缺口，均不近似实现：(1) [Backline]（826.3/826.4）的展开文件 effects/keywords/Backline.ts 已合入，" +
-    "但整条关键词功能不可执行——战斗伤害分配不读取分配优先级要求，combat/base-combat-allocation.ts 明确写着 " +
-    "“No Tank/Backline/other assignment-priority requirement is bound here”，826.3/826.4.a/826.4.b 无处落地。" +
-    "(2) hold 触发缺少「本卡是在固守的战场上在场的那个单位」的时点载荷绑定（383.4.d.2/.2.a）：时点 hold 由 scoring 发出，" +
-    "载荷只带战场/玩家，没有在场单位快照（ogn/ahri-alluring、rad/ksante-courageous 记录同一缺口）。" +
-    "(3) 卡牌 keyword 能力 → KeywordDef 展开 → 图层注册的生产方未合入（契约 3.5/3.7）。" +
-    "依赖：战斗伤害分配工作流（826 / RIFT-9 continuous.combat）、RIFT-31/33（scoring/triggers 的 hold 载荷）、RIFT-91（layers 接线）。" +
-    "「When I hold, [Buff] all units here」的 effect.buff 本体已合入（702.2.a/702.3.a），golden 用解释器 + 参考内核真实执行。",
+    "(1) [Backline]（826.3/826.4）的 KeywordDef 已合入（RIFT-264），但整条关键词功能仍不可执行：战斗伤害分配不读取分配优先级要求，" +
+    "combat/base-combat-allocation.ts 仍写明 “No Tank/Backline/other assignment-priority requirement is bound here”，" +
+    "continuous.combat 原语没有消费方、只返回 negated/impossible，826.4.a/826.4.b 无处落地。" +
+    "(2) hold 触发缺少「本卡是在固守的战场上在场的那个单位」的载荷（383.4.d.2/.2.a）：turn/flow.ts 的 scoring wave 只发 player 与" +
+    "details.battlefieldId，没有单位快照；本卡 filter 被翻译成对事件对象的 objectId 过滤，而这类事件没有 object，永远匹配不到（RIFT-31/33）。" +
+    "(3) 触发体 “[Buff] all units here” 的 TargetSpec 用 sameLocationAs 锚点表达 053.3 的 here，但 programs/filters.ts 的允许字段集合没有该键并抛 " +
+    "judge-required，生产适配器无法绑定这条触发体（解释器侧 anchors 已合入，见 effects/interpreter/selectors.ts）。" +
+    "已解决：卡牌 keyword 能力 → KeywordDef 展开的生产方（RIFT-257 programs/keywords.ts expandProgram）；effect.buff 本体已合入，" +
+    "golden 用解释器 + 参考内核真实执行。依赖：826 的 continuous.combat 消费方、RIFT-31/33、programs/filters.ts 的 sameLocationAs 支持。",
   abilities,
   sourceText:
     "[Backline] (I must be assigned combat damage last.)\n" +

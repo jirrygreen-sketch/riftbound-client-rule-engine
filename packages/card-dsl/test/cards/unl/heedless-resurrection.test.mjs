@@ -57,10 +57,12 @@ test("unl-142-219 Heedless Resurrection: program validates and keeps its identit
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
+  // The cost / ignore-cost wiring is still on RIFT-261; the printed-cost
+  // ceiling predicate is RIFT-90.
   assert.match(program.judgeReason, /356\.2\.a\.1/);
   assert.match(program.judgeReason, /356\.1\.b\.1/);
   assert.match(program.judgeReason, /ObjectSelector/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
 });
 
 test("unl-142-219 Heedless Resurrection: [Reaction] plus the mandatory kill-friendly-unit additional cost", () => {
@@ -68,8 +70,7 @@ test("unl-142-219 Heedless Resurrection: [Reaction] plus the mandatory kill-frie
   assert.deepEqual(speed, { kind: "keyword", keyword: "reaction" });
 
   // 356.2.a.1: "as an additional cost" without "may" is a Mandatory Additional
-  // Cost; 355.10.c states the killed unit is not a target, so it is a
-  // non-target pick on the cost component.
+  // Cost; 355.10.c states the killed unit is not a target.
   assert.equal(costAbility.kind, "static");
   assert.equal(costAbility.effect.kind, "cost.additional");
   assert.equal(costAbility.effect.optional, false);
@@ -102,8 +103,8 @@ test("unl-142-219 Heedless Resurrection: printed cost plus a trash-unit play wit
     kind: "constant",
     value: "heedless-resurrection.unit-in-trash"
   });
-  // 356.1.b.1: "ignoring its cost" sets base Energy and base Power to 0; the
-  // finalized plan itself is produced by the cost pipeline (RIFT-89).
+  // 356.1.b.1: "ignoring its cost" sets base Energy and Power to 0; the
+  // finalized plan itself would be produced by the cost pipeline (RIFT-261).
   assert.deepEqual(playUnit.args.cost, {
     kind: "constant",
     value: { finalized: true, energy: 0, power: [], xp: 0 }
@@ -112,7 +113,7 @@ test("unl-142-219 Heedless Resurrection: printed cost plus a trash-unit play wit
   assert.equal(playUnit.linkedTo, undefined);
 
   // 355.10.a / 355.9.a: the Trash is a public zone, so the unit is a target.
-  // The printed-cost ceilings against the killed unit stay descriptive
+  // The printed-cost ceiling against the killed unit stays descriptive
   // (356.1.c; see judgeReason).
   assert.deepEqual(playUnit.targets, [
     {
@@ -146,8 +147,6 @@ test("unl-142-219 Heedless Resurrection golden: the merged play primitive plays 
   // base Energy and Power; the printed 2 Energy / 1 Chaos is not charged.
   assert.equal(kernel.getObject("killed-unit").zone, "board");
   assert.equal(kernel.player("A").energy, 0);
-  // The zero-cost finalized plan still pays first (356.4.f.1 receipts follow
-  // the printed plan), then the object is played onto the Board.
   assert.deepEqual(kernel.events.map((event) => event.action), ["pay", "play"]);
 });
 
@@ -186,17 +185,17 @@ test("unl-142-219 Heedless Resurrection golden: a trash unit that already left f
 
 test.todo(
   "unl-142-219 Heedless Resurrection: charge the mandatory 'kill a friendly unit' additional cost at Finalize " +
-    "(CR 356.2.a/356.2.a.1, 355.10.c non-targeting cost) — needs the card-program cost plan wiring (RIFT-89)"
+    "(CR 356.2.a/356.2.a.1, 355.10.c non-targeting cost) — cost/plan-values.ts supports kill payments, but no merged " +
+    "consumer turns the card's static cost.additional ability into CostPlanInput.mandatoryAdditional (RIFT-261)"
 );
 
 test.todo(
   "unl-142-219 Heedless Resurrection: restrict the played trash unit to 'costs no more Energy and no more Power " +
     "than the killed unit' (CR 356.1.c printed-cost comparison against the cost's chosen object) — needs the " +
-    "printed-cost predicate (RIFT-90) and a cost-result binding, which the frozen IR has no expression for"
+    "printed-cost predicate and a cost-result binding, which the frozen IR has no expression for (RIFT-90)"
 );
 
 test.todo(
   "unl-142-219 Heedless Resurrection: generate the 356.1.b.1 ignore-cost finalized plan from the chosen trash unit " +
-    "(base Energy and base Power set to 0) through the cost pipeline (RIFT-89)"
+    "(base Energy and base Power set to 0) through the cost pipeline (RIFT-261)"
 );
-

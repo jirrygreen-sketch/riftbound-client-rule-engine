@@ -19,18 +19,17 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - “here” = 打出本单位的那个位置（420.3.b 的 here referent；464.2.b 的后续引用重新
  *   指向该位置），静态 IR 里只能用契约 3.6 的 object-property + "source" 选择器表达。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。
- * - 缺 Bird token 定义：已合入的 effect.token 只在冻结定义表（recruit / sand-soldier /
- *   mech / reflection / tentacle —— 都刻意是没有额外能力的定义）里解析 token id，
- *   187.7 的 Bird 带 [Deflect]，因此该指令没有可解析的定义，程序不能声称整卡可执行。
- * - “here” 的形状不一致（README 第 3 节的“类型/校验器尚未同步契约”情形）：卡程序用契约
- *   3.6 的符号选择器，而已合入 effect.token.argsSchema 的 isExpr 仍要求 object-property
- *   的 object 是运行时 ObjectRef，符号选择器会被拒绝（与 rad/industrious-mechsmith、
- *   sfd/treasure-hoard 记录同一 IR 层缺口，依赖 RIFT-62 / RIFT-1）。
- * - token 上的 [Deflect]（809.1.c.1 的“可选任意域力量支付”追加费）还依赖目标税接线
- *   （RIFT-90）。
- * 依赖：effect.token 的定义表扩展（187.7）、RIFT-62（argsSchema 与契约同步）、
- * RIFT-90（Deflect 目标税消费方）。不近似实现：不用别的 token 顶替 Bird，不硬编码位置。
+ * status 判定（cards/README.md 第 2 节）：judge-required（已按合入依赖复核）。
+ * - 缺 Bird token 定义：已合入的 effect.token 只在冻结定义表（recruit / sand-soldier / mech /
+ *   reflection / tentacle —— 都刻意是没有额外能力的定义）里解析 token id，187.7 的 Bird 带 [Deflect]，
+ *   因此该指令没有可解析的定义，原语返回 blockedReason "token-definition-or-abilities-judge-required"。
+ * - “here” 的形状仍不一致（README 第 3 节的“类型/校验器尚未同步契约”情形）：卡程序用契约 3.6 的符号选择器，
+ *   而已合入 effect.token.argsSchema 的 isExpr 仍要求 object-property 的 object 是运行时 ObjectRef，
+ *   符号选择器会被直接拒绝（与 rad/industrious-mechsmith、sfd/treasure-hoard 记录同一 IR 层缺口，依赖 RIFT-62）。
+ * - token 上的 [Deflect]（809.1.c.1 的“可选任意域力量支付”追加费）依赖目标税消费方：target/ 的 Deflect
+ *   税机制已合入，但没有已合并调用方从目标的关键词派生该税（RIFT-90 后续）。
+ * 依赖：effect.token 的定义表扩展（187.7）、RIFT-62（argsSchema 与契约同步）、RIFT-90（Deflect 目标税消费方）。
+ * 不近似实现：不用别的 token 顶替 Bird，不硬编码位置。
  */
 const abilities: Ability[] = [
   {
@@ -66,12 +65,11 @@ const program = {
   judgeReason:
     "缺 187.7 的 1 [M] Bird unit token 定义：该 token 是域外单位 token、带 Bird 标签与 [Deflect]，" +
     "而已合入 effect.token 的冻结定义表只含没有额外能力的 recruit / sand-soldier / mech / reflection / tentacle，" +
-    "因此 “play a 1 :rb_might: Bird unit token” 没有可解析的定义（440.2.c / 185.2.a 的链上创建 + 打出交接本身已合入）。" +
-    "其次，“here” 只能用契约 3.6 的 ObjectSelector（object-property + \"source\"）表达，" +
-    "但 effect.token.argsSchema 的 isExpr 仍要求运行时 ObjectRef，符号选择器被直接拒绝（README 第 3 节的校验器未同步，" +
-    "与 rad/industrious-mechsmith、sfd/treasure-hoard 同一缺口）。" +
-    "token 上 [Deflect]（809.1.c.1 的追加费可用任意域力量支付）也还缺目标税消费方。" +
-    "依赖：effect.token 定义表扩展（187.7）、RIFT-62（argsSchema 同步）、RIFT-90（Deflect 目标税）。不近似实现。",
+    "原语因此返回 blockedReason \"token-definition-or-abilities-judge-required\"，没有可执行的创建路径（440.2.c / 185.2.a 的链上创建 + 打出交接本身已合入）。" +
+    "其次，“here” 只能用契约 3.6 的 ObjectSelector（object-property + \"source\"）表达，但 effect.token.argsSchema 的 isExpr 仍要求运行时 ObjectRef，" +
+    "符号选择器被直接拒绝（README 第 3 节的校验器未同步，与 rad/industrious-mechsmith、sfd/treasure-hoard 同一缺口，依赖 RIFT-62）。" +
+    "token 上 [Deflect]（809.1.c.1 的追加费可用任意域力量支付）也还缺目标税消费方：target/ 的 Deflect 税机制已合入，但没有已合并调用方从目标关键词派生该税（RIFT-90 后续）。" +
+    "依赖：effect.token 定义表扩展（187.7）、RIFT-62、RIFT-90。不近似实现。",
   abilities,
   sourceText:
     "When you play me, play a 1 :rb_might: Bird unit token with [Deflect] here. " +

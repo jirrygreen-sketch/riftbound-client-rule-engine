@@ -18,15 +18,18 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - “gain 2 XP”：728 / 729 / 730.1 的 XP 资源增加，额度在结算时取值；已合入的 effect.xp
  *   只提交封闭集合里的 gain-xp 动作，获得者缺省是能力控制者（190.6.d 的隐含 “you”）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。
- * - effects/keywords/ 没有 Hunt 的 KeywordDef（823 的展开：conquer 与 hold 两个触发时点 +
- *   effect.xp），因此 [Hunt] 这条能力本身没有可执行展开；823.1.b 的两个时点载荷（尤其是
- *   hold 的“本卡是在场固守的单位”，383.4.d.2）也尚未接线。
- * - 卡牌 keyword 能力 → KeywordDef 展开 → 触发注册的生产方未合入（契约 3.5/3.7）。
- * 依赖：kw-hunt 关键词任务（823；ability-templates 的 kw-hunt 行列为 trigger.score +
- * effect.xp）与触发→链管线（RIFT-33/RIFT-120）。
- * 不近似实现：不把 [Hunt] 手写成 conquer/hold 触发体（那是关键词文件的职责）。
- * “When you play me, gain 2 XP” 只用已合入的 effect.xp，golden 用解释器 + 参考内核真实执行。
+ * status 判定（cards/README.md 第 2 节）：judge-required（已按合入依赖复核）。
+ * - 已解决：[Hunt] 的 KeywordDef 已合入（RIFT-264～268，effects/keywords/Hunt.ts）：823.1.c.2 的省略值按 1、
+ *   823.1.b/823.1.c.1 的 conquer + hold 两个触发与 effect.xp 展开、823.2 的 sum stacking 都已实现；
+ *   卡牌 keyword 能力 → KeywordDef 展开 → 触发注册的生产方也已合入（RIFT-257 的 programs/keywords.ts +
+ *   programs/triggers.ts，本卡展开出 conquer/hold/card-played 三条注册）。
+ * - 剩余缺口：823.1.b 的“当我征服或固守”归因仍无法判定——turn/flow.ts 的 Score wave 只发 player +
+ *   details.battlefieldId，没有事件对象/单位快照；展开出的触发 filter 经 programs/filters.ts 变成对事件对象的
+ *   objectId 过滤，而这类事件没有 object，objectId 过滤永远匹配不到（因此触发不会误触，但也不会触发）。
+ *   hold 侧的「本卡是在场固守的那个单位」（383.4.d.2/.2.a）与 EventPattern 的 here 相对词汇同样缺失。
+ * 「When you play me, gain 2 XP」只用已合入的 effect.xp（728/729/730.1，获得者缺省为能力控制者，190.6.d），
+ * golden 用解释器 + 参考内核真实执行。不近似实现：不把 [Hunt] 手写成 conquer/hold 触发体。
+ * 依赖：RIFT-31/33（scoring 载荷中的计分单位）与 EventPattern 的位置相对词汇。
  */
 const abilities: Ability[] = [
   // 823.1.c.2：印刷省略 Hunt Value，按 1 处理（提醒文字同值）。
@@ -51,14 +54,13 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "[Hunt]（823.1）没有可执行的展开：effects/keywords/ 下没有 Hunt 的 KeywordDef，" +
-    "823.1.b/823.1.c.1 要求的 conquer 与 hold 两个触发（823.1.c.2 省略值按 1；823.2 多来源求和）" +
-    "以及卡牌 keyword 能力 → 关键词展开 → 触发注册的生产方（契约 3.5/3.7）都未合入，" +
-    "hold 侧的“本卡是在场固守的那个单位”载荷绑定（383.4.d.2/.2.a）也没有接线。" +
-    "依赖：kw-hunt 关键词任务（ability-templates 的 kw-hunt 行：trigger.score + effect.xp）" +
-    "与触发→链管线（RIFT-33/RIFT-120）。" +
-    "「When you play me, gain 2 XP」只用已合入的 effect.xp（728/729/730.1，获得者缺省为能力控制者，190.6.d），" +
-    "golden 用解释器 + 参考内核真实执行。不近似实现：不把 [Hunt] 手写成 conquer/hold 触发体。",
+    "(1) 已解决：[Hunt] 的 KeywordDef 已合入（RIFT-264～268，effects/keywords/Hunt.ts），823.1.b/823.1.c.1 的 conquer 与 hold 两个触发、823.1.c.2 的省略值按 1、" +
+    "823.2 的 sum stacking 与 effect.xp 展开都已实现；卡牌 keyword → 关键词展开 → 触发注册的生产方也已合入（RIFT-257 programs/keywords.ts + programs/triggers.ts）。" +
+    "(2) 剩余缺口：823.1.b 的“当我征服或固守”归因无法判定——turn/flow.ts 的 Score wave 只发 player + details.battlefieldId，没有事件对象/单位快照；" +
+    "展开出的触发 filter 被翻译成对事件对象的 objectId 过滤，而这类事件没有 object，该过滤永远匹配不到（触发不会误触，但也不会触发）；" +
+    "hold 侧的「本卡是在场固守的那个单位」（383.4.d.2/.2.a）与 EventPattern 的 here 相对词汇同样缺失。" +
+    "「When you play me, gain 2 XP」只用已合入的 effect.xp（728/729/730.1，获得者缺省为能力控制者，190.6.d），golden 用解释器 + 参考内核真实执行。" +
+    "依赖：RIFT-31/33（scoring 载荷中的计分单位）与 EventPattern 的位置相对词汇；不近似实现。",
   abilities,
   sourceText:
     "[Hunt] (When I conquer or hold, gain 1 XP.)\n" + "When you play me, gain 2 XP."

@@ -23,45 +23,49 @@ import type { CardProgram } from "../../ir/index.js";
  *   是窗口（317.2.c）。
  * - 「gain 2 XP」是已合入的 effect.xp（728–730），获得者是能力控制者（190.6.d）。
  *
- * status = judge-required（不近似实现）：
- * - 临时 Might 修正没有可执行路径：契约 3.6 的封闭 GameAction 集合没有 Might 修改
- *   动作，effects/instructions/ 下没有 continuous.might / effect.might-modify 原语，
- *   卡牌程序也没有把持续效果注册进 layers 的指令入口（ctx.addContinuous 目前没有
- *   卡牌侧消费者；同 pridestalker / frigid-touch 的缺口，依赖 RIFT-91 的接线）。
- * - 延迟触发没有注册原语："When it wins a combat this turn" 是 Delayed Ability
- *   （390 / 391.2 / 392），ResolveContext.registerDelayedTrigger 存在但注册表没有
- *   trigger.delayed opcode（RIFT-9），combat-result 时点也没有被 emit 进单管线；
- *   "it" 需要触发事件对象选择器（359.3.f.3 的绑定），两端都缺。
- * - 两个子句共享同一目标：第一条指令的 TargetSpec 由第二条引用（359.3.f.3），
- *   但触发时点/延迟窗口未落地。
- * 依赖：RIFT-91（layers 接线）、RIFT-9 的 trigger.delayed 与 combat-result 时点接线。
+ * status = judge-required（已按合入依赖复核，不近似实现）：
+ * - 已解决：「Give a friendly unit +3 [M] this turn」由已合入的 continuous.might 原语执行（RIFT-258）：
+ *   它经 ctx.addContinuous 注册 arithmetic 层效果，this-turn 映射为 end-of-turn 期限（317.1.a / 468.7.c），
+ *   指令改成用契约 3.6 的 objects 选择器指回自己声明的 TargetSpec（原稿的 layer 参数与 targets-only 形状都不是
+ *   已注册原语的 args 形状；layer 由原语固定为 arithmetic，见 effects/instructions/continuous.might.ts）。
+ * - 剩余缺口：「When it wins a combat this turn」是延迟触发能力（CR 390/391.2/392，468.3.a 的胜负判定 +
+ *   317.2.c 的窗口）：没有卡牌可用的 trigger.delayed opcode（RIFT-9，op 未注册），combat-result 时点也没有
+ *   被 emit 进唯一事件管线（combat/flow.ts 的结果事务尚未实现），"it" 所需的触发事件对象绑定（359.3.f.3）同样缺失。
+ *   两个子句共享同一目标（359.3.f.3），但触发时点/延迟窗口未落地。
+ * effect.buff 是 702 的 Buff 计数器，不是临时 Might 修正，不用它冒充。「gain 2 XP」本身是已合入的 effect.xp。
+ * 依赖：RIFT-9 的 trigger.delayed 与 combat-result 时点接线（RIFT-124 后续）。
  */
 const grimResolve = {
   canonicalCardId: "card.hash-f385047d7a4e0de7205afceb0e18bea608003fce1dfced764451413396098017",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处依赖未合入，均不近似实现：(1)「+3 [M] this turn」是临时 Might 修正，归 layers 的 continuous.might（CR 317.2.c 的 this turn 到期），" +
-    "但契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，effects/instructions/ 下没有 continuous.might / effect.might-modify 原语，" +
-    "卡牌 static/持续效果也没有注册进图层的指令入口（ctx.addContinuous 目前无卡牌侧消费者；同 pridestalker、frigid-touch 的缺口，RIFT-91）。" +
-    "(2)「When it wins a combat this turn」是延迟触发能力（CR 390/391.2/392，468.3.a 的胜负判定 + 317.2.c 的窗口）：" +
-    "没有卡牌可用的 trigger.delayed opcode（RIFT-9），combat-result 时点也没有被 emit 进唯一事件管线，\"it\" 所需的触发事件对象绑定（359.3.f.3）同样缺失；" +
+    "(1) 已解决：「+3 [M] this turn」由已合入的 continuous.might 原语（RIFT-258）经 ctx.addContinuous 注册 arithmetic 层效果，" +
+    "this-turn 映射为 end-of-turn 期限（317.1.a / 468.7.c）；指令用契约 3.6 的 objects 选择器指回自己声明的 TargetSpec，golden 用链适配器真实执行。" +
+    "(2) 剩余缺口：「When it wins a combat this turn」是延迟触发能力（CR 390/391.2/392，468.3.a 的胜负判定 + 317.2.c 的窗口）：" +
+    "没有卡牌可用的 trigger.delayed opcode（RIFT-9，op 未注册），combat-result 时点也没有被 emit 进唯一事件管线（combat/flow.ts 的结果事务尚未实现），" +
+    "\"it\" 所需的触发事件对象绑定（359.3.f.3）同样缺失；两个子句共享同一目标但触发时点/延迟窗口未落地。" +
     "effect.buff 是 702 的 Buff 计数器，不是临时 Might 修正，不用它冒充。「gain 2 XP」本身是已合入的 effect.xp。" +
-    "依赖：RIFT-91、RIFT-9 的 trigger.delayed 与 combat-result 时点接线。",
+    "依赖：RIFT-9 的 trigger.delayed 与 combat-result 时点接线（RIFT-124 后续）。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {
       kind: "play",
       body: [
         {
-          // 未注册 op：临时 Might 修正的保留形状（见 judgeReason）。
           id: "grim-resolve.grant-3-might",
+          // RIFT-258：已合入的 continuous.might 原语固定 arithmetic 层（没有 layer 参数）；
+          // this-turn → end-of-turn 期限（317.1.a / 468.7.c）。objects 用契约 3.6 的选择器
+          // 指回本指令声明的 TargetSpec。
           op: "continuous.might",
           args: {
             mode: { kind: "constant", value: "add" },
-            layer: { kind: "constant", value: "arithmetic" },
             amount: { kind: "constant", value: 3 },
-            duration: { kind: "constant", value: "this-turn" }
+            duration: { kind: "constant", value: "this-turn" },
+            objects: {
+              kind: "constant",
+              value: { kind: "target", id: "grim-resolve.friendly-unit" }
+            }
           },
           targets: [
             {
