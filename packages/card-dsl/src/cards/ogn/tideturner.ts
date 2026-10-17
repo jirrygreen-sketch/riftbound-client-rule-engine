@@ -4,8 +4,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * Tideturner — CR v1.5 811, 383.4.a, 355.4–355.7, 448.3.
  * Capture both original locations before either Move. Hidden and the nested
  * Finalize target lifecycle remain blocked; the swap body has execution evidence.
- * RIFT-357's LocationSelector binding is available to general expressions;
- * the swap already resolves its destinations through linked values.
+ * Location expressions are available to general expressions; the swap already
+ * resolves its destinations through linked values.
  */
 const abilities: Ability[] = [
   {
@@ -113,7 +113,7 @@ const program = {
   judgeReason:
     "[Hidden] 仍缺 Hide 行动、Facedown Zone、战场控制与回合归属驱动的次回合解锁，以及从藏牌区以 Reaction/0 Energy 打出的生产路径（CR 811.1.b–811.1.d、811.5）；cost.hidden 的静态展开尚无对应生命周期消费。" +
     "交换体的 condition.value / effect.move 已可执行，CardProgram 触发注册与 self 过滤归一化也已合入；但友方目标在 choice.optional 的嵌套 body 内，programs/play.validateSurface 与 chain/engine.assertFinalizationSurface 会拒绝该目标生命周期，需保留 355.5/355.12 的 Finalize 选择语义。" +
-    "依赖：Hidden 的区域/行动集成与嵌套目标 Finalize 适配；RIFT-357 已合入，通用 location 表达式可经 condition.value 求值并写入 linked-value，本卡交换体也已通过 linked-value 绑定原始位置，不缺位置绑定；不以剥离 TargetSpec 或直接移动状态冒充完整打出。",
+    "依赖：Hidden 的区域/行动集成与嵌套目标 Finalize 适配；通用 location 表达式可经 condition.value 求值并写入 linked-value，本卡交换体也已通过 linked-value 绑定原始位置，不缺位置绑定；不以剥离 TargetSpec 或直接移动状态冒充完整打出。",
   abilities,
   sourceText:
     "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n" +
