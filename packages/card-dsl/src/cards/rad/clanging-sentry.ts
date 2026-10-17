@@ -52,7 +52,9 @@ const program = {
     "静态程序绑定已经能把 CardProgram 的 static 能力注册成 ContinuousEffectSpec；" +
     "仍缺的是动态 grant-keyword 产生后，按 831.1.d 把 Disarm 再展开并注册到 attack-declared 的消费方，" +
     "且 attack-declared 时点尚无事件发射方（combat/flow.ts 抛 combat-start-transaction，" +
-    "因此受授予的 Mech 在生产对局里不会安排该攻击触发。不近似实现。",
+    "因此受授予的 Mech 在生产对局里不会安排该攻击触发。" +
+    "此外，同一 static 给已带 Disarm 的 Mech 授予时，图层把已有数值改写为授予值而不是按 831.2 相加" +
+    "（通用测试台实测：Mech 自带 Disarm 3 + 本卡授予 1 = 读到 Disarm 1）。不近似实现。",
   abilities,
   sourceText:
     "Your Mechs have [Disarm]. (When each of us attacks, give an enemy unit there -1 :rb_might: this turn.)"

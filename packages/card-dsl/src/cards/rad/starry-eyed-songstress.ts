@@ -50,8 +50,10 @@ export default {
     "没有读取卡牌 static、也没有 356.2.b.1 步骤 2 声明与「已支付该附加费」判定链的入口。" +
     "(2) “exhaust me” 是费用式横置（CR 415.4 / 415.5，必须能完成），且 “me” 是 Legend Zone 里的传奇" +
     "（CR 107.4.c / 355.9.a.4）：契约 ZoneId 没有 legend-zone、LocationRef 只有 base/battlefield，" +
-    "无法作为可横置的费用对象表达；“three friendly units” 按 355.10.c.1 属于费用、不产生目标，" +
-    "这里只保留非目标选择形状。",
+    "无法作为可横置的费用对象表达；" +
+    "(3) 通用测试台实测：同一场景里打出 3 能量法术时，传奇与三个友方单位都保持 ready，" +
+    "说明没有支付该附加费用的路径。" +
+    "“three friendly units” 按 355.10.c.1 属于费用、不产生目标，这里只保留非目标选择形状。",
   abilities: [
     {
       kind: "static",

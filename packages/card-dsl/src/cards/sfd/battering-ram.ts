@@ -25,6 +25,8 @@ export default {
     "『每张本回合已打出的牌减 1，最低费用 1』需要 CardProgram→CostPlan 接线：cost.modify 与 buildCostPlan 已合入 discounts/minimum/零地板，" +
     "但没有任何管线把卡程序 static 的 continuous.cost-modification 接进打出费用计划（statics 不映射该 kind，chain finalize 不读卡程序 static）；" +
     "Expr.count 只查询当前对象集合，没有 cards-played-this-turn 的按回合打牌历史计数来源，折扣数量无处求值；" +
+    "通用测试台实测：本卡 static 绑定即抛 Static ability kind continuous.cost-modification has no layer mapping，" +
+    "本回合已打出两张牌后打出本卡仍按印刷的 5 能量全额支付。" +
     "356.4.e 的每折扣最低费用语义也没有卡牌侧消费者。保留声明，不近似实现。",
   abilities: [
     {

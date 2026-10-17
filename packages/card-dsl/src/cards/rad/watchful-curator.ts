@@ -62,6 +62,8 @@ const program = {
     "当前没有从授予的 Deflect 自动生成该 options.tax 的生产接线；" +
     "(2) chain/engine.ts 当前把目标税转换为 Energy mandatoryAdditional，" +
     "而 CR 809.1.c/809.1.c.1 要求支付任意域 Power，且缺少无法支付时阻断 Finalize/Resolve 的完整链路；" +
+    "(3) 同一 static 给已带 Deflect 的 gear 授予时，图层把已有数值改写为授予值而不是按 809.2 相加" +
+    "（通用测试台实测：gear 自带 Deflect 3 + 本卡授予 1 = 读到 Deflect 1）。" +
     "不近似宣称可执行。",
   abilities,
   sourceText:

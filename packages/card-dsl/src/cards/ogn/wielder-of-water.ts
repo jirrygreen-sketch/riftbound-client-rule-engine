@@ -43,14 +43,17 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「While I'm attacking or defending alone, I have +2 [M]」（364.3.a 的条件被动）不可执行：" +
-    "攻防半段已可执行——契约 3.8 的 ObjectSnapshot.combatRole 已合入，static binder 的 abilityEnvironment " +
-    "（programs/statics.ts）通过 effects/interpreter 真实求值 Condition；旧理由里的 expression 常量与 " +
-    "sameLocationAs 缺口已过时。当前真实缺口是 740.2.a 的 alone 只统计同位置的其他友好单位：" +
-    "static binder 的 count 查询把非锚点字段交给 layers/filter.ts 的 matchesObjectFilter，其 selectorMatches " +
-    "以候选单位自己的 controller 作为 owner 比较值（filter.ts:62），controller:\"self\" 对同位置所有候选恒真、" +
-    "controller:\"opponent\" 恒假，「仅友方」计数无正确执行路径。依赖：static 条件查询的相对 controller " +
-    "（能力来源）解析，或 740.2.a 的专用 static 求值支持。不近似实现。",
+    "2026-10-17 复核（逐条实测）：" +
+    "(1) 攻防半段的生产路径已通：契约 3.8 的 ObjectSnapshot.combatRole 已合入，static binder 的 " +
+    "abilityEnvironment（programs/statics.ts）经 effects/interpreter 真实求值 Condition；参考内核里 " +
+    "combatRole:\"attacker\" 的单独单位实测得 Might 4。" +
+    "(2) 通用卡牌测试台（packages/engine-core/src/effects/testing/scenario/）的 objectConfig 不搬运 " +
+    "ObjectSnapshot.combatRole，场景里的宿主永远不在战斗中，因此本卡的攻防半段无法经测试台真实路径覆盖。" +
+    "(3) 740.2.a 的 alone 仍无正确 static 路径：static binder 的 count 查询把非锚点字段交给 " +
+    "layers/filter.ts 的 matchesObjectFilter，其 selectorMatches 以候选单位自己的 controller 作为 " +
+    "owner 比较值（filter.ts:62），controller:\"self\" 对同位置所有候选恒真、controller:\"opponent\" " +
+    "恒假（实测同位置的敌方单位会被当成友方）。依赖：static 条件查询的相对 controller（能力来源）解析，" +
+    "或 740.2.a 的专用 static 求值支持；以及测试台对 combatRole 的搬运。不近似实现。",
   abilities: [
     {
       kind: "static",
@@ -79,9 +82,10 @@ export default {
           },
           {
             // "alone": no other friendly unit at the same location (740.2.a);
-            // the count keeps the rule's friendly scope via controller:
-            // "self", which the static binder cannot resolve correctly yet
-            // (see the status note above).
+            // The count keeps the rule's friendly scope via controller:
+            // "self"; the static binder's filter matcher still compares the
+            // candidate against its own controller (see judgeReason), so the
+            // friendly-only scope has no correct execution path yet.
             kind: "compare",
             left: {
               kind: "count",

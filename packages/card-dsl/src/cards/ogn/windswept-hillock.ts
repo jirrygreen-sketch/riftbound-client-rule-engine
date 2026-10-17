@@ -44,7 +44,9 @@ export default {
     "① 授予本体可用已合入的 continuous.grant-keyword 指令表达，解释器路径能解析 053.3 的 sameLocationAs 锚点，" +
     "golden 用解释器 + 参考内核真实执行「只授予此战场单位」并通过图层引擎读回授予结果；" +
     "② continuous.movement 的图层查询与 zones/movement.ts 生产消费方已经接通：hasGanking:false 配合许可注册表可完成战场间移动（144.4.c / 144.4.c.1）；" +
-    "③ 当前真实缺口是生产 static binder 的同址授予：绑定 Windswept Hillock 后，同址单位实际没有 Ganking，无法从卡牌能力注册移动许可；" +
+    "③ 当前真实缺口是生产 static binder 的同址授予：binder 本身能绑定（把 sameLocationAs 折成具体 LocationRef），" +
+    "但 layers/filter.ts 对 LocationRef 按对象同一性比较（实测绑定得到的 filter.location 与新构造的同值 LocationRef deepEqual 却不相等），" +
+    "因此注册出来的 filter 匹配不到任何对象，同址单位实际没有 Ganking，无法从卡牌能力注册移动许可；" +
     "④ 190.6 的战场能力控制者解析缺失。依赖：static binder 的 sameLocationAs 授予与 Battlefield controller 解析。不近似实现。",
   sourceText: "Units here have [Ganking]. (They can move from battlefield to battlefield.)",
   abilities: [

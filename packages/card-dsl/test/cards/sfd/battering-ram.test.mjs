@@ -1,3 +1,6 @@
+// Scenario execution evidence: ../../templates/static-642.test.mjs.
+// This file keeps the validation and identity checks plus the key structural
+// assertions; the real execution path for this card lives in that template row.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
