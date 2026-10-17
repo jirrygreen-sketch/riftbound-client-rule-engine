@@ -13,6 +13,9 @@ import reveal from "../../../../engine-core/dist/effects/instructions/effect.rev
 import recycle from "../../../../engine-core/dist/effects/instructions/effect.recycle.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+
 const CARD_ID = "card.hash-3d95fd18b92dc4a0dc9393e066e851d61c9f5d05119ba24e56141fb10179c79f";
 
 const [ability] = program.abilities;
@@ -41,9 +44,9 @@ test("sfd-041-221 Apprentice Smith: judgeReason names the current zone-order and
   // The re-review after the continuous/replacement/keyword/producer batches: the
   // gear discriminator is executable, the zone-order and trigger gaps remain.
   assert.match(program.judgeReason, /zoneSlice/);
-  assert.match(program.judgeReason, /RIFT-66/);
+  assert.match(program.judgeReason, /RIFT-358/);
   assert.match(program.judgeReason, /object-moved/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
   assert.doesNotMatch(program.judgeReason, /array-contains|choice\.mode/);
 });
 
@@ -242,14 +245,24 @@ test("sfd-041-221 Apprentice Smith golden: the gear discriminator really drives 
 });
 
 test.todo(
-  "sfd-041-221 Apprentice Smith: 'the top card of your Main Deck' must be read through zoneSlice " +
-    "(contract 3.6: query does not guarantee zone order) once effect.reveal consumes ordered upstream " +
-    "refs, so the revealed card is guaranteed to be the actual top card — RIFT-66"
+  "Apprentice Smith: bind zoneSlice-ordered deck-top picks to effect.reveal (425.1/425.3.a; RIFT-358 is not merged at this HEAD)"
 );
 
 test.todo(
-  "sfd-041-221 Apprentice Smith: the object-moved event must carry to/toKind payload and expose the moved " +
-    "object's identity to the card registration so a Recall (458/458.1) does not trigger the ability " +
-    "(CR 421.1, 449.1, 449.2) — it needs the card-program trigger registration (RIFT-257) on top of the " +
-    "merged event pipeline"
+  "Apprentice Smith: accept object-moved in the event-pattern vocabulary, preserving real Move identity and excluding Recall (421.1/449.1/458.1)"
 );
+
+
+test("Apprentice Smith: a real Move emits the moved object and the merged translator binds the self anchor", () => {
+  const f = fixture({ cards: [{ id: "smith", cardId: CARD_ID, types: ["unit"], might: 2 }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("smith"), to: "board", location: { type: "base", player: "A" } });
+  const ref = f.kernel.ref("smith");
+  const result = f.host.execute({ type: "move-location", object: ref, to: { type: "battlefield", id: "field" } });
+  assert.equal(result.outcome.status, "done");
+  const moved = result.emissions.find(event => event.timingPoint === ability.trigger.at);
+  assert.deepEqual(moved.object.ref, ref);
+  assert.deepEqual(moved.object.location, { type: "battlefield", id: "field" });
+  assert.deepEqual(translateTriggerFilter(ability.trigger.filter, ref.id, ability.trigger.at), {
+    event: "object-moved", object: { objectId: "smith" }
+  });
+});

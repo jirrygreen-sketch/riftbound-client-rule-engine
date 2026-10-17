@@ -8,6 +8,11 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
+import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
+import { runInstruction } from "../../../../engine-core/dist/effects/testing/index.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { isTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+
 const CARD_ID = "card.hash-01131fb927733e60c9009e61900d2495713b314af34ab00ef3cddc7512efe6be";
 const SOURCE_TEXT =
   "When you recycle a rune, you may exhaust me to play a Gold gear token exhausted.\n" +
@@ -41,8 +46,8 @@ test("sfd-203-221 Battle Mistress: identity, ruleset, status, judgeReason and ve
   assert.match(program.judgeReason, /card-recycled/);
   assert.match(program.judgeReason, /187\.5/);
   assert.match(program.judgeReason, /one or more/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /TriggeredAbility/);
+  assert.match(program.judgeReason, /legend-zone/);
 });
 
 test("sfd-203-221 Battle Mistress: 'when you recycle a rune' subscribes to the recycle event", () => {
@@ -163,21 +168,33 @@ test("sfd-203-221 Battle Mistress: the printed exhaust cost is charged as a real
 });
 
 test.todo(
-  "sfd-203-221 Battle Mistress: card-recycled is missing from events/trigger-spec.ts's closed " +
-    "EVENT_PATTERN_TYPES, and the event is emitted per card with no 'this recycle' batch predicate " +
-    "(417.1/417.1.b, 185.1 'runes are not cards') — same gap as ogn/karma-channeler"
+  "Battle Mistress: accept the card-recycled EventPattern with rune and responsible-player filtering (417.1/185.1)"
 );
 test.todo(
-  "sfd-203-221 Battle Mistress: the Gold gear token (187.5) is not in effect.token's frozen definition " +
-    "table, and 'exhausted' is an entry state (143.4/185.2.d) that create-token does not support"
+  "Battle Mistress: define Gold with its own printed ability and support exhausted entry (187.5/143.4/185.2.d)"
 );
 test.todo(
-  "sfd-203-221 Battle Mistress: the cost's 'exhaust me' needs a Legend Zone in contract 3.6's ZoneId " +
-    "(CR 108.3) and the card-side cost.pay entry point (RIFT-261); the triggers need the RIFT-257 " +
-    "card-program -> TriggerRegistration subscriber"
+  "Battle Mistress: bind the trigger base cost at Finalize and support a Legend Zone exhaust payer (383.3.b.1/107.4)"
 );
 test.todo(
-  "sfd-203-221 Battle Mistress: 'one or more enemy units die' needs simultaneous-event batching and " +
-    "responsibility attribution (370.1.a.2 / 383.1.b); object-killed is emitted per unit with the dying " +
-    "unit's controller in `player`, so two simultaneous deaths would trigger twice instead of once"
+  "Battle Mistress: group simultaneous enemy deaths by the same game action so one or more triggers once (370.1.a.2)"
 );
+
+
+test("Battle Mistress: the merged trigger translator preserves enemy-unit death filtering", () => {
+  const translated = translateTriggerFilter(deathTrigger.trigger.filter, "battle-mistress", deathTrigger.trigger.at);
+  assert.deepEqual(translated, { event: "object-killed", object: { type: "unit", zone: "board", controller: "opponent" } });
+  assert.equal(isTriggerSpec({ at: deathTrigger.trigger.at, filter: translated }), true);
+});
+
+test("Battle Mistress: cost.pay consumes a locked exhaust plan without granting the unresolved token", () => {
+  // The existing reference fixture binds a board source for the supported
+  // payment half; it does not model the missing Legend Zone payment path.
+  const kernel = legendWorld();
+  const plan = buildCostPlan(kernel, { id: "battle-mistress.exhaust", cost: { kind: "activated", payments: payExhaust.args.payments.value } });
+  const run = runInstruction(costPay, { cost: { kind: "constant", value: plan } }, { world: kernel });
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.payment.paid, true);
+  assert.equal(kernel.getObject("battle-mistress").exhausted, true);
+  assert.equal(kernel.query({ type: "gear" }).length, 0);
+});

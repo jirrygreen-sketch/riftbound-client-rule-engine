@@ -6,7 +6,8 @@ import program from "../../../dist/cards/sfd/akshan-mischievous.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import attach from "../../../../engine-core/dist/effects/instructions/effect.attach.js";
-import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-237227d339dd27a4f456f9ba38485d4f136673d8abcc77adbca944e2fa427ef8";
@@ -20,33 +21,17 @@ const [moveInstruction, controlInstruction, attachInstruction] = playTrigger.bod
 
 const resultFor = (outcome, id) => outcome.results.find(result => result.id === id);
 
-// The printed "your base" is the ability controller's Base (see judgeReason);
-// the frozen IR has no controller-relative LocationRef spelling, so the golden
-// supplies the concrete Base the ability means, exactly like the destination
-// the player chose at Finalize. The move's TargetSpec keeps the reference
-// kernel's literal controller ("B"), because the reference kernel does not
-// resolve the contract "opponent" anchor (RIFT-90's Finalize target pipeline
-// does; the pinning is documented in the chain-adapter golden below).
-const attachInstructionWithConcreteBase = () => [
-  {
-    ...moveInstruction,
-    args: {
-      ...moveInstruction.args,
-      to: { kind: "constant", value: { type: "base", player: "A" } }
-    },
-    targets: [
-      {
-        ...moveInstruction.targets[0],
-        filter: { ...moveInstruction.targets[0].filter, controller: "B" }
-      }
-    ]
-  },
-  // The authored take-control half still runs (its duration is negated as
-  // documented in judgeReason), so the authored link chain stays intact for
-  // the attach instruction below.
-  controlInstruction,
-  attachInstruction
-];
+// Normalize only player-relative filters as the production chain does. The
+// authored LocationExpr is executed unchanged, including for an enemy gear.
+const productionContext = kernel => bindResolveContext(kernel, {
+  query: filter => kernel.objects.filter(object => matchesObjectFilter(
+    Object.fromEntries(Object.entries(filter).map(([key, value]) => [key,
+      ["controller", "owner"].includes(key) && value === "opponent" ? "B" :
+        ["controller", "owner"].includes(key) && ["self", "controller"].includes(value) ? kernel.controller : value])),
+    object
+  ))
+});
+const attachInstructions = () => playTrigger.body;
 
 test("sfd-109-221 Akshan, Mischievous: program validates and is registered", () => {
   const result = validateCardProgram(program);
@@ -62,13 +47,12 @@ test("sfd-109-221 Akshan, Mischievous: identity, ruleset, status and verbatim te
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
-test("sfd-109-221 Akshan, Mischievous: judgeReason names the current cost/destination/control gaps", () => {
-  // The re-review after the RIFT-258..270, 257-not-yet-merged batches: the
-  // Equipment tag gate is closed, the cost/destination/control gaps remain.
+test("sfd-109-221 Akshan, Mischievous: judgeReason names the current additional-cost, control and Equip-cost gaps", () => {
+  // Fees, source-bound control and the Weaponmaster Equip-cost path still block the card.
   assert.match(program.judgeReason, /356\.2\.b/);
   assert.match(program.judgeReason, /356\.4\.f\.1/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /programs\/play\.ts/);
+  assert.match(program.judgeReason, /reduce-equip-cost/);
   assert.match(program.judgeReason, /479\.2\.a/);
   assert.doesNotMatch(program.judgeReason, /array-contains/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
@@ -115,7 +99,7 @@ test("sfd-109-221 Akshan, Mischievous: card-played self trigger with the three i
   ]);
 });
 
-test("sfd-109-221 Akshan, Mischievous: the move targets one enemy gear with the descriptive destination", () => {
+test("sfd-109-221 Akshan, Mischievous: the move targets one enemy gear with the ability controller base destination", () => {
   // 421.1 / 421.2: a Move between Board locations. 355.5 / 355.9.a.1: "an enemy
   // gear" is chosen when Akshan is played, so it is a target.
   assert.equal(moveInstruction.op, "effect.move");
@@ -124,8 +108,8 @@ test("sfd-109-221 Akshan, Mischievous: the move targets one enemy gear with the 
     value: { target: "akshan-mischievous.enemy-gear" }
   });
   assert.deepEqual(moveInstruction.args.to, {
-    kind: "constant",
-    value: { kind: "destination-selector", selector: "ability-controller-base" }
+    kind: "location",
+    value: "ability-controller-base"
   });
   assert.deepEqual(moveInstruction.args.amount, { kind: "constant", value: 1 });
   assert.equal(moveInstruction.picks, undefined);
@@ -205,9 +189,6 @@ test("sfd-109-221 Akshan, Mischievous: the attach links the moved gear onto Aksh
 });
 
 test("sfd-109-221 Akshan, Mischievous golden: the merged move primitive relocates the locked enemy gear", () => {
-  // The program's authored destination is the descriptive controller-base
-  // marker (see judgeReason), which effect.move rejects rather than resolving
-  // to the wrong base; the golden supplies the concrete Base the ability means.
   const kernel = world()
     .player("A")
     .player("B")
@@ -221,20 +202,14 @@ test("sfd-109-221 Akshan, Mischievous golden: the merged move primitive relocate
       location: { type: "battlefield", id: "bf-1" }
     })
     .build();
-  const run = runInstruction(
-    move,
-    {
-      objects: moveInstruction.args.objects,
-      to: { kind: "constant", value: { type: "base", player: "A" } },
-      amount: { kind: "constant", value: 1 },
-      linkKey: { kind: "constant", value: "moved-gear" }
-    },
-    { world: kernel, targets: { "akshan-mischievous.enemy-gear": [kernel.ref("enemy-gear")] } }
-  );
-  assert.equal(run.result.status, "executed");
-  assert.equal(run.linked["moved-gear"].count, 1);
+  kernel.setTargets("akshan-mischievous.enemy-gear", [kernel.ref("enemy-gear")]);
+  const outcome = resolveChainBody([moveInstruction], productionContext(kernel));
+  assert.equal(outcome.status, "executed");
+  const result = resultFor(outcome, moveInstruction.id).result;
+  assert.equal(result.status, "executed");
+  assert.equal(result.linkedValues["moved-gear"].count, 1);
   assert.deepEqual(kernel.getObject("enemy-gear").location, { type: "base", player: "A" });
-  assert.deepEqual(run.events.map(event => event.action), ["move-location"]);
+  assert.deepEqual(outcome.events.map(event => event.action), ["move-location"]);
 });
 
 test("sfd-109-221 Akshan, Mischievous golden: the merged attach primitive binds the gear to Akshan", () => {
@@ -276,9 +251,6 @@ test("sfd-109-221 Akshan, Mischievous golden: the merged attach primitive binds 
 });
 
 test("sfd-109-221 Akshan, Mischievous golden: the declared trigger body runs through the real chain adapter", () => {
-  // The chain adapter executes the authored body verbatim; the move destination
-  // is the only value the golden substitutes, because the printed "your base"
-  // has no frozen-IR spelling (see judgeReason).
   const kernel = world()
     .player("A")
     .player("B")
@@ -293,44 +265,34 @@ test("sfd-109-221 Akshan, Mischievous golden: the declared trigger body runs thr
     })
     .build();
   kernel.setTargets("akshan-mischievous.enemy-gear", [kernel.ref("enemy-gear")]);
-  const bodyForKernel = [
-    {
-      ...moveInstruction,
-      args: { ...moveInstruction.args, to: { kind: "constant", value: { type: "base", player: "A" } } },
-      // The reference kernel compares filter values literally; the contract
-      // "opponent" anchor is resolved by the Finalize target pipeline (RIFT-90),
-      // so the kernel-facing copy pins the gear's actual controller.
-      targets: [
-        {
-          ...moveInstruction.targets[0],
-          filter: { ...moveInstruction.targets[0].filter, controller: "B" }
-        }
-      ]
-    }
-  ];
-  const outcome = resolveChainBody(bodyForKernel, kernel);
+  const outcome = resolveChainBody([moveInstruction], productionContext(kernel));
   assert.equal(outcome.status, "executed");
   assert.equal(resultFor(outcome, "akshan-mischievous.move-gear").result.status, "executed");
   assert.deepEqual(kernel.getObject("enemy-gear").location, { type: "base", player: "A" });
 });
 
 test.todo(
-  "sfd-109-221 Akshan, Mischievous: charge the optional additional cost (two Body runes) and gate the play " +
-    "effect on the 356.4.f.1 paid receipt — cost.additional / cost.pay and the cost-plan consumer are still " +
-    "pending (RIFT-261), no CardProgram play binding exists (RIFT-257), and the survey records a missing " +
-    "condition.result binding"
+  "Akshan: collect static cost.additional at Finalize and bind the 356.4.f.1 payment decision before the play effect"
 );
 
-test.todo(
-  "sfd-109-221 Akshan, Mischievous: express \"to your base\" as the ability controller's Base — effect.move's " +
-    "'controller-base' resolves against the moved object's controller, and the frozen IR has no " +
-    "controller-relative LocationRef expression (contract change request)"
-);
+test("sfd-109-221 Akshan, Mischievous: relative base follows the ability controller rather than the gear owner", () => {
+  const built = world().player("A").player("B")
+    .unit("akshan", { owner: "B", controller: "B", location: { type: "base", player: "B" } })
+    .unit("gear", { types: ["gear"], owner: "A", controller: "A", location: { type: "battlefield", id: "field" } })
+    .build();
+  const kernel = built.clone({ controller: "B", sourceSnapshot: built.getObject("akshan") });
+  kernel.setTargets("akshan-mischievous.enemy-gear", [kernel.ref("gear")]);
+  const context = bindResolveContext(kernel, {
+    query: filter => kernel.query({ ...filter, controller: filter.controller === "opponent" ? "A" : filter.controller })
+  });
+  const outcome = resolveChainBody([moveInstruction], context);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(kernel.getObject("gear").location, { type: "base", player: "B" });
+  assert.equal(kernel.getObject("gear").controller, "A");
+});
 
 test.todo(
-  "sfd-109-221 Akshan, Mischievous: support duration-aware take-control for 'You control it until I leave the " +
-    "board' (482.3, 359.3.e.16's official Akshan example; 479.2.a) — effect.control currently negates every " +
-    "non-permanent duration instead of restoring the underlying controller in timestamp order"
+  "Akshan: duration-aware take-control must restore the underlying controller when the source leaves (479.2.a/482.3/359.3.e.16)"
 );
 
 test("sfd-109-221 Akshan, Mischievous: 'If it's an Equipment' is a real compare/in condition on the moved gear's tags (150.1)", () => {
@@ -372,7 +334,7 @@ test("sfd-109-221 Akshan, Mischievous golden: the Equipment gate really attaches
   kernel.setTargets("akshan-mischievous.enemy-gear", [kernel.ref("enemy-gear")]);
   kernel.setPicks("akshan-mischievous.attached-gear", [kernel.ref("enemy-gear")]);
 
-  const outcome = resolveChainBody(attachInstructionWithConcreteBase(), kernel);
+  const outcome = resolveChainBody(attachInstructions(), productionContext(kernel));
 
   assert.equal(outcome.status, "partial");
   assert.deepEqual(
@@ -409,7 +371,7 @@ test("sfd-109-221 Akshan, Mischievous golden: a non-Equipment gear is skipped, n
   kernel.setTargets("akshan-mischievous.enemy-gear", [kernel.ref("enemy-gear")]);
   kernel.setPicks("akshan-mischievous.attached-gear", [kernel.ref("enemy-gear")]);
 
-  const outcome = resolveChainBody(attachInstructionWithConcreteBase(), kernel);
+  const outcome = resolveChainBody(attachInstructions(), productionContext(kernel));
 
   assert.equal(outcome.status, "partial");
   assert.deepEqual(
@@ -425,7 +387,5 @@ test("sfd-109-221 Akshan, Mischievous golden: a non-Equipment gear is skipped, n
 });
 
 test.todo(
-  "sfd-109-221 Akshan, Mischievous: the [Weaponmaster] expansion (821.1.c) must choose an Equipment, pay its " +
-    "Equip cost reduced by [A], and attach it — the KeywordDef is merged but its cost.modify / cost.pay " +
-    "instructions are not (RIFT-261), and no consumer binds the declared keyword to a play (RIFT-257)"
+  "Akshan: Weaponmaster needs authoritative Equip-cost binding and original [A] symbol provenance (821.1.c.2-.5); ordinary cost.modify/cost.pay already execute"
 );

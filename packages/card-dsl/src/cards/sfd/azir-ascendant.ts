@@ -30,17 +30,7 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  *   attachedTo，解释器按锚点解析）。附着的对象在结算时从「附着在该单位上的 Equipment」
  *   里选（effect.attach 的 choose 形态），不是新的目标选择。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-17）。
- * - 启动能力没有卡牌程序 → 链的启动路径：契约 3.1 的 activated 能力要由链在 Finalize
- *   校验时机与限制，但没有任何已合入消费方把 CardProgram 的 activated 能力变成可启动的
- *   链项（src/programs/ 的绑定属未合入的 RIFT-257），因此费用（1 Calm Power）、[Action]
- *   许可与「每回合一次」限制都到不了判定点；已合入的 chain/engine.ts 的 restrictions 数组
- *   按 Condition 求值，而「once-per-turn」类使用上限没有对应的谓词消费方（与已合入
- *   rad/black-market 的 usage-limit 记录同一缺口）。
- * - 交换与附着本体只用已合入原语（condition.value、effect.move、effect.attach、
- *   choice.optional），golden 用解释器 + 参考内核真实执行（含拒绝分支与「未装备」分支）。
- * 依赖：RIFT-257（卡牌程序 → 链的启动/触发注册）、使用上限（usage-limit）的谓词消费方。
- * 不近似实现（不把「每回合一次」写进效果，也不手改位置或附着状态）。
+ * 当前复核：保持 judge-required；具体未接通路径见 judgeReason。
  */
 const BIND_ORIGIN: Instruction = {
   // 355.4 / 448.3：先锁我的原位置（第二次移动的目的地）。
@@ -183,15 +173,8 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "启动能力没有卡牌程序 → 链的启动注册路径：契约 3.1 的 activated 能力要由链在 Finalize 校验时机与限制，" +
-    "但没有任何已合入消费方把 CardProgram 的 activated 能力变成可启动的链项（src/programs/ 的绑定属未合入的 RIFT-257），" +
-    "费用（377.1 的 1 点 Calm Power）、[Action] 许可（806.1.c 的 Showdown 时机）与「Use only once per turn」限制都到不了判定点；" +
-    "已合入的 chain/engine.ts 把 restrictions 当 Condition 求值，而 once-per-turn 使用上限没有对应的谓词消费方" +
-    "（与已合入 rad/black-market 的 usage-limit 记录同一缺口）。" +
-    "交换本体（355.4/448.3 先锁两个原位置，effect.move 用 linked-value 目的地）与带条件的可选附着" +
-    "（choice.optional + count/attachedTo 条件 + effect.attach 的 choose 形态，818.3.b/435.1）只用已合入原语，" +
-    "golden 用解释器 + 参考内核真实执行（含拒绝附着与未装备分支）。" +
-    "依赖：RIFT-257（卡牌程序 → 链的启动/触发注册）、使用上限（usage-limit）的谓词消费方。不近似实现。",
+    "“Use only once per turn” 的 usage-limit/once-per-turn 限制仍无每回合使用次数谓词或计数接线；programs/play.ts 的 translateRestriction/translateLegalityCondition 对该描述性 kind 返回 judge-required（383.3.e）。" +
+    "不能绕过限制只执行 activated 交换/附着 body，也不能以触发能力的 once:per-turn 冒充启动能力次数限制。",
   abilities,
   sourceText:
     ":rb_rune_calm:: [Action] — Choose a unit you control. Move me to its location and it to my original location. " +
