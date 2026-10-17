@@ -8,6 +8,10 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 // card-dsl), so golden execution loads the built engine through its workspace
 // layout instead of the package name.
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { createTargetTaxAdapter } from "../../../../engine-core/dist/target/tax/index.js";
+import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
   "card.hash-aefc9e1b1b204e123d076f130b2b9b284f4a1f64a08fa9127a1a92c95ff3f6d9";
@@ -59,8 +63,8 @@ test("unl-024-219 Rengar, Unseen: identity, status, judgeReason and verbatim sou
   // The stale "no KeywordDef consumer / combatRole not in ObjectSnapshot" wording
   // is gone (RIFT-257/258 and contract 3.8 landed); the reason must name the real
   // remaining pipeline gaps.
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-258/);
+  assert.match(program.judgeReason, /CardProgram/);
+  assert.match(program.judgeReason, /静态 compare 条件已可求值/);
   assert.match(program.judgeReason, /combatRole/);
   // Second-sweep refresh proof: the merged target-plan Deflect-tax scaffolding
   // is named instead of claiming target.tax has no merged consumer.
@@ -128,6 +132,28 @@ test("unl-024-219 Rengar, Unseen: every ability is a bare keyword declaration (c
   }
 });
 
+test("unl-024-219 Rengar, Unseen golden: its expanded Deflect taxes an opposing ability with any-domain Power", () => {
+  // Bind the actual keyword expansion at the tax API boundary. Chain Finalize
+  // and the static binder still need to supply this bound tax automatically.
+  const initial = world().player("A", { energy: 0, power: ["Order"] })
+    .unit("ability-source").unit("rengar", { owner: "B", cardId: CANONICAL_ID, might: 4 }).build();
+  const kernel = initial.clone({ sourceSnapshot: initial.getObject("ability-source") });
+  const target = kernel.getObject("rengar");
+  const expanded = createProgramBinding({ cardPrograms: [program] }).inspect(target).abilities;
+  const tax = expanded.find(ability => ability.kind === "static" && ability.effect.kind === "target.tax");
+  assert.ok(tax);
+  const adapter = createTargetTaxAdapter(kernel, {
+    id: "choose-rengar", cost: { energy: { kind: "constant", value: 0 } }
+  }, { kind: "ability", effects: [{ id: "rengar-deflect", target: target.ref, effect: tax.effect }] });
+  const requirement = { id: "enemy", filter: { type: "unit", controller: "B", zone: "board" }, min: 1, max: 1 };
+  assert.deepEqual(adapter.finalizeTargetPlan(requirement, { selected: [target.ref] }).selected, [target.ref]);
+  assert.equal(adapter.costPlan.total.energy, 0);
+  assert.equal(adapter.costPlan.total.power.reduce((sum, item) => sum + item.amount, 0), 1);
+  const receipt = payCostPlan(kernel, adapter.costPlan);
+  assert.deepEqual(receipt.actions[0].action.plan, { finalized: true, energy: 0, power: ["Order"] });
+  assert.equal(kernel.getObject("rengar").might, 4);
+});
+
 test.todo(
   "unl-024-219 Rengar, Unseen: charge the Accelerate optional additional cost (CR 805.1.b: [1][Fury]) in the" +
     " Finalize cost plan and apply the 805.6 enter-ready replacement (the merged keyword expansion is" +
@@ -135,12 +161,12 @@ test.todo(
 );
 test.todo(
   "unl-024-219 Rengar, Unseen: apply Assault 2 in the arithmetic layer only while this unit holds the Attacker" +
-    " designation (CR 807.1.c/.d) — ObjectSnapshot.combatRole exists (contract 3.8 other half), but no combat" +
-    " designation transaction emits it and layers/engine.ts does not evaluate the compare condition"
+    " designation (CR 807.1.c/.d) — map the keyword designation read to ObjectSnapshot.combatRole and" +
+    " provide the combat designation transaction"
 );
 test.todo(
   "unl-024-219 Rengar, Unseen: append the Deflect 1 target tax when an opponent chooses this unit (CR 809.1.c;" +
-    " the target tax has no query and the tax adapter only reads caller-supplied options)"
+    " target/tax computes any-domain Power, but Chain Finalize does not use that adapter)"
 );
 test.todo(
   "unl-024-219 Rengar, Unseen: let the movement system read the Ganking continuous.movement permission" +

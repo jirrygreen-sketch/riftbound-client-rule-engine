@@ -28,27 +28,8 @@ import type { Ability, CardProgram, Condition } from "../../ir/index.js";
  *   而是把授予放在 824.1.c 门控的持续效果里（否则默认会假定本卡无条件下带 1 点 Deflect 值，与
  *   809.2/814.2 式的求和含义冲突）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。Hunt 与 Level 的 KeywordDef、
- * continuous.might / continuous.grant-keyword 指令以及 CardProgram 绑定均已合入。
- *
- * 仍不能宣称整卡可执行的三处缺口（不近似实现）：
- * 1. 合并的 Hunt 展开（823.1.b/823.1.c.1）产出的 TriggerSpec 过不了引擎的封闭校验：
- *    触发时点 id 是 conquer/hold，而 events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 把
- *    对应事件名拼成 `conquered`/`held`；keywords/Hunt.ts 也写
- *    `filter: { event: "conquer", filter: { source: "self" } }`，ObjectFilter 同样不允许
- *    嵌套 `filter` 字段（validateTriggerSpec 报 invalid-event-type + unknown-field），
- *    所以 823.1 的 conquer/hold 订阅在任何生产路径上都注册不了。这是共享契约的拼写
- *    不一致：仓库内 44 张卡用 `event: "conquer"`，均会被拒绝（只有 1 张用 conquered）。
- * 2. 824.1.c/824.1.d 的 XP 门槛仍不可求值：Level 的展开只发布 `condition.predicate`
- *    形状（keywords/Level.ts），而 layers/engine.ts 的 conditionMatches 只识别
- *    always/never/type/has-tag/has-keyword，未识别的条件按 true 处理；PlayerSnapshot.xp
- *    也没有进入 Expr 的路径（count 只数被查询对象）。因此本卡的 3+ XP 门控仍是保留形状。
- * 3. 被授予的 Deflect 虽能展开为 target.tax，但目标选择与费用计划仍没有读取该持续效果的
- *    生产路径；因此 Level 的第二半不能在真实选目标时生效。
- * 依赖：keywords/Hunt.ts 改用封闭枚举的 `conquered`/`held` 事件名（共享契约，非本卡）、
- * layers 的 condition.predicate/PlayerSnapshot.xp 求值，以及 target.tax 的目标费用消费方。
- * 不近似实现：不把 [Hunt 2] 手写成触发体，不把 3+ XP 门控删成无条件能力，也不把 Deflect
- * 授予写成固定数值加算。
+ * 2026-10-17 复核：仍为 judge-required，当前缺口见 judgeReason。
+ * 已有原语、关键词定义或通用适配器不代表本卡完整生产路径可执行。
  */
 const LEVEL_THREE_XP: Condition = {
   kind: "compare",
@@ -95,18 +76,9 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "Hunt/Level 的 KeywordDef 与 continuous.might、continuous.grant-keyword 指令均已合入，但整卡仍不可执行，" +
-    "三处缺口均不近似实现：(1) 合并的 Hunt 展开过不了引擎的封闭 TriggerSpec 校验：" +
-    "触发时点 id 是 conquer/hold，而 events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 把对应事件拼成 `conquered`/`held`，" +
-    "keywords/Hunt.ts 又写 `{ event: \"conquer\", filter: { source: \"self\" } }`（ObjectFilter 不允许嵌套 `filter`），" +
-    "因此 823.1 的 conquer/hold 订阅在任何生产路径上都注册失败。这是共享契约的拼写不一致：仓库内 44 张卡的 " +
-    "`event: \"conquer\"` 同样被拒绝，只有 1 张用 `conquered`（缺口不在本卡 write scope）。" +
-    "(2) 824.1.c/824.1.d 的 XP 门槛仍不可求值：Level 只发布 condition.predicate 形状（keywords/Level.ts），" +
-    "layers/engine.ts 的 conditionMatches 只识别 always/never/type/has-tag/has-keyword（未识别条件按 true），" +
-    "PlayerSnapshot.xp 也没有进入 Expr 的路径（count 只数被查询对象），所以本程序里的 3+ XP 门控只是保留形状。" +
-    "(3) 被授予的 Deflect 虽可展开为 target.tax，但目标选择与费用计划仍没有读取该持续效果的生产路径，" +
-    "所以 Level 的第二半不能在真实选目标时生效。依赖：keywords/Hunt.ts 改用封闭枚举的 conquered/held 事件名、" +
-    "layers 的 condition.predicate/xp 求值，以及 target.tax 的目标费用消费方。",
+    "缺 Hunt 的事件名适配（823.1）：programs/filters.ts 已把嵌套 filter 翻译成 object，但 conquer/hold 仍与封闭 EventPattern 的 conquered/held 不一致，订阅不能注册。" +
+    "缺 Level 的 controller-xp 表达式读取 PlayerSnapshot.xp（824.1.c/824.1.d）：continuous.might 与 continuous.grant-keyword 已有静态绑定条件求值，count 仍只数对象而不读取 subject。" +
+    "缺授予 Deflect 后的 target.tax 到 Chain Finalize 费用接线（809.1.c.1）；target/tax 已能收集分层关键词并计算任意域 Power，链仍使用自身按 Energy 记账的适配器。",
   abilities,
   sourceText:
     "[Hunt 2] (When I conquer or hold, gain 2 XP.)\n" +

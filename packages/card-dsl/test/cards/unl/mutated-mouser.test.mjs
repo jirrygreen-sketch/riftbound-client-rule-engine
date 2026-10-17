@@ -28,6 +28,7 @@ test("unl-036-219 Mutated Mouser: identity, status, judgeReason and verbatim sou
   // The reason names the designation condition and combat allocation consumers.
   assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /conditionMatches/);
+  assert.match(program.judgeReason, /MissingInformation/);
   assert.match(program.judgeReason, /814\.1\.d/);
   assert.match(program.judgeReason, /815\.1\.c/);
   assert.doesNotMatch(program.judgeReason, /RIFT-\d+|未进 HEAD/);
@@ -58,7 +59,7 @@ test("unl-036-219 Mutated Mouser: the merged Shield and Tank expansions match th
   assert.equal(shieldExpansion.kind, "static");
   assert.equal(shieldExpansion.effect.kind, "continuous.might");
   assert.deepEqual(shieldExpansion.effect.amount, { kind: "constant", value: 2 });
-  // 814.1.d：条件读 Defender designation（契约 3.8 的 combatRole，未进 HEAD）。
+  // 814.1.d：展开仍读 designation，快照已有 combatRole；缺字段映射。
   assert.equal(shieldExpansion.condition.left.property, "designation");
   assert.deepEqual(shieldExpansion.condition.right, { kind: "constant", value: "defender" });
 
@@ -71,7 +72,7 @@ test("unl-036-219 Mutated Mouser: the merged Shield and Tank expansions match th
 
 test.todo(
   "unl-036-219 Mutated Mouser: evaluate the Defender designation in the arithmetic layer so Shield 2 applies " +
-    "only while defending (CR 814.1.d/814.1.d.1) by wiring combatRole reads and designation transactions"
+    "only while defending (CR 814.1.d/814.1.d.1) by mapping designation to combatRole and producing combat roles"
 );
 test.todo(
   "unl-036-219 Mutated Mouser: consume [Tank]'s lethal-first priority while assigning combat damage " +

@@ -34,6 +34,7 @@ test("unl-047-219 Mosstomper: identity, status, judgeReason and verbatim sourceT
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /conquered/);
+  assert.match(program.judgeReason, /programs\/filters\.ts/);
   assert.match(program.judgeReason, /target\.tax/);
   assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
@@ -123,7 +124,7 @@ test("unl-047-219 Mosstomper: the merged Level expansion only publishes the unev
   assert.equal(predicate.kind, "static");
   assert.equal(predicate.effect.kind, "condition.predicate");
   // 824.1.a: the [Level N] threshold is published as a query descriptor; the XP
-  // read itself still has no evaluator (layers/engine.ts conditionMatches).
+  // read itself still has no Expr evaluator; static compare conditions can run.
   assert.equal(predicate.effect.query, "controller-xp");
   assert.equal(predicate.effect.characteristic, "xp");
   assert.deepEqual(predicate.effect.threshold, { kind: "constant", value: 3 });

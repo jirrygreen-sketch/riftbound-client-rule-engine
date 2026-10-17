@@ -11,6 +11,9 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
 
 const CANONICAL_ID =
   "card.hash-29fe440bf64648cf3c6845485b73efbd8c2cae11e1cf26c7b3bb6a355351ebae";
@@ -47,8 +50,8 @@ test("unl-028-219 Pyke, Dockside Butcher: identity, status, judgeReason and verb
   assert.match(program.judgeReason, /cost\.hidden/);
   assert.match(program.judgeReason, /additional cost/);
   assert.match(program.judgeReason, /356\.4\.f\.1/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-258/);
+  assert.match(program.judgeReason, /Hide\/面朝下/);
+  assert.match(program.judgeReason, /condition\.result/);
   // The stale "cost.pay is unmerged" wording is gone: the primitive settles a
   // finalized CostPlan (verified by probe), so the reason names the real gaps.
   assert.match(program.judgeReason, /CostPlan/);
@@ -84,14 +87,14 @@ test("unl-028-219 Pyke, Dockside Butcher: the Play Effect gates on the paid rece
     event: "card-played",
     filter: { source: "self" }
   });
-  // 383.2.a.1: a trailing "if ..." is part of the trigger condition; the paid
-  // receipt binding is missing, so the read stays descriptive (see judgeReason).
-  assert.equal(playedTrigger.trigger.condition.kind, "expression");
-  assert.deepEqual(playedTrigger.trigger.condition.value, {
-    kind: "object-property",
-    object: "source",
-    property: "pyke.additional-cost-paid"
+  // 383.2.a.1 / 356.4.f.1: the predicate reads this optional-cost decision.
+  // Passing the original play receipt to trigger conditions remains blocked.
+  assert.deepEqual(playedTrigger.trigger.condition, {
+    kind: "result",
+    result: "cost.additional",
+    id: playCost.cost.id
   });
+  assert.equal(playCost.cost.id, "pyke-dockside-butcher.additional-cost");
   assert.equal(playedTrigger.optional, false);
 
   // 355.10.g / 416.1: "ready me" is the source, never a target.
@@ -126,6 +129,37 @@ test("unl-028-219 Pyke, Dockside Butcher golden: 'ready me' readies the exhauste
   ]);
   assert.equal(kernel.getObject("pyke").exhausted, false);
   assert.deepEqual(kernel.events.map(event => event.action), ["ready"]);
+});
+
+test("unl-028-219 Pyke, Dockside Butcher golden: the printed predicate reads the real Fury additional-cost decision (356.4.f.1)", () => {
+  // The caller supplies the component at this supported API boundary; this is
+  // not evidence that describePlay can yet translate the printed play cost.
+  for (const [selected, discounted, componentId, expected] of [
+    [true, false, playCost.cost.id, true],
+    [false, false, playCost.cost.id, false],
+    [true, true, playCost.cost.id, true],
+    [true, false, "another-card.additional-cost", false]
+  ]) {
+    const initial = world().player("A", { energy: 3, power: ["Fury"] })
+      .hand("pyke", { cardId: CANONICAL_ID, energy: 3, power: null }).build();
+    const kernel = initial.clone({ sourceSnapshot: initial.getObject("pyke") });
+    const plan = buildCostPlan(kernel, {
+      id: "pyke-play", cost: { kind: "printed" },
+      optionalAdditional: [{ id: componentId, kind: "additional", selected,
+        cost: { power: playCost.cost.power } }],
+      discounts: discounted ? [{ id: "power-discount", resource: "power", amount: { kind: "constant", value: 1 } }] : []
+    });
+    const receipt = payCostPlan(kernel, plan);
+    assert.equal(evaluateCondition(playedTrigger.trigger.condition, {
+      context: kernel, cost: { plan, receipt }, linked: kernel.linked.bind(kernel)
+    }), expected);
+    assert.equal(plan.printed.power, null);
+    assert.equal(plan.total.energy, 3);
+    assert.equal(plan.total.power.reduce((sum, requirement) => sum + requirement.amount, 0), selected && !discounted ? 1 : 0);
+    assert.deepEqual(receipt.additional.map(item => item.id), selected ? [componentId] : []);
+    assert.equal(kernel.player("A").energy, 0);
+    assert.deepEqual(receipt.actions[0].action.plan.power, selected && !discounted ? ["Fury"] : []);
+  }
 });
 
 test("unl-028-219 Pyke, Dockside Butcher golden: an already-ready source is a no-op (CR 416.1.c)", () => {
