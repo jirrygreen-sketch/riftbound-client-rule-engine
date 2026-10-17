@@ -6,6 +6,10 @@ import program from "../../../dist/cards/ven/shadow-assassin.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+// The production replacement binder executes the substitution once
+// the program's replacement ability is registered on it.
+import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID =
   "card.hash-101dc13865ec4192cab5368a9a51d1582968c98f57b52ab293cd35e4c5313b0c";
@@ -31,10 +35,11 @@ test("ven-013-166 Shadow Assassin: identity, ruleset, status, judgeReason and ve
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   // judgeReason 必须点名 369.3 的入场替代缺口、同名谓词与过滤键归一化。
-  assert.match(program.judgeReason, /replacement\.enter/);
   assert.match(program.judgeReason, /359\.2\.c\/369\.3/);
   assert.match(program.judgeReason, /132\.1\/132\.3\/132\.4/);
-  assert.match(program.judgeReason, /RIFT-9\/RIFT-120/);
+  // The merged binder executes the substitution; the unmerged part is the
+  // production registration path plus the name/placeholder predicates.
+  assert.match(program.judgeReason, /bindReplacement/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -111,11 +116,42 @@ test("ven-013-166 Shadow Assassin golden: an already-ready unit stays legal with
   });
 });
 
+test("ven-013-166 Shadow Assassin golden: bindReplacement turns exhausted entry into ready entry (mechanism)", () => {
+  // This runs the merged replacement binder on the card's real replaces/with
+  // shape without the unexecutable condition (gap 3): the bound unit
+  // enters the board ready while an unbound twin stays exhausted. It proves the
+  // substitution mechanism, not the production registration path (gap 1).
+  const f = fixture({ cards: [
+    { id: "bound-assassin", types: ["unit"] },
+    { id: "unbound-assassin", types: ["unit"] }
+  ] });
+  bindReplacement(
+    { replaces: replacement.replaces, with: replacement.with },
+    f.kernel.ref("bound-assassin"),
+    {
+      host: {
+        object: ref => f.kernel.object(ref),
+        objects: () => f.kernel.objects,
+        context: () => f.kernel
+      },
+      pipeline: f.engine.pipeline
+    }
+  );
+  f.engine.execute(f.card("bound-assassin", { kind: "unit", body: [] }));
+  f.engine.execute(f.card("unbound-assassin", { kind: "unit", body: [] }));
+  resolveAll(f.engine);
+
+  assert.equal(f.kernel.getObject("bound-assassin").zone, "board");
+  assert.equal(f.kernel.getObject("bound-assassin").exhausted, false);
+  // The unbound control keeps the default exhausted entry (359.2.c).
+  assert.equal(f.kernel.getObject("unbound-assassin").zone, "board");
+  assert.equal(f.kernel.getObject("unbound-assassin").exhausted, true);
+});
+
 test.todo(
   "ven-013-166 Shadow Assassin: replace exhausted entry with ready entry when the condition holds " +
-    "(359.2.c / 369.3) — the event pipeline's replacement registry has no adapter that reads a " +
-    "CardProgram replacement ability, so the substitution never happens (RIFT-9/RIFT-120; same gap " +
-    "as sfd/071-221 Breakneck Mech and sfd/176-221 Xin Zhao, Vigilant)"
+    "(359.2.c / 369.3) — the merged binder executes the substitution (golden above), but no production " +
+    "module registers a CardProgram replacement ability into the event pipeline"
 );
 test.todo(
   "ven-013-166 Shadow Assassin: evaluate 'a card with my name in your trash' — comparing card names " +
