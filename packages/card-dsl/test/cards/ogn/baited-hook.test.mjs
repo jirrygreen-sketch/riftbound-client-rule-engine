@@ -97,11 +97,10 @@ test("baited-hook: identity, ruleset, status, judgeReason and printed text", () 
   assert.match(program.judgeReason, /Might/);
   assert.match(program.judgeReason, /killed unit/);
   assert.match(program.judgeReason, /effect\.inspect/);
-  assert.match(program.judgeReason, /RIFT-359/);
-  assert.match(program.judgeReason, /RIFT-358/);
   assert.match(program.judgeReason, /191\.5\.b/);
   assert.match(program.judgeReason, /ResolveContext\.controller/);
   assert.match(program.judgeReason, /TODO/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-358|RIFT-359/);
   assert.equal(
     program.sourceText,
     ":rb_energy_1::rb_rune_order:, :rb_exhaust:: Kill a friendly unit. Look at the top 5 cards of your Main Deck. " +
@@ -166,8 +165,13 @@ test("baited-hook: the look reads the top 5 of the Main Deck through an ordered 
   assert.deepEqual(lookInstruction.args.pickedKey, { kind: "constant", value: "looked" });
   assert.equal(lookInstruction.targets, undefined);
   assert.equal(lookInstruction.picks.length, 1);
-  assert.equal(lookInstruction.picks[0].id, "baited-hook.looked-cards");
-  assert.equal(lookInstruction.picks[0].selection, "all");
+  assert.deepEqual(lookInstruction.picks[0], {
+    id: "baited-hook.looked-cards",
+    options: [],
+    ordered: true,
+    selection: "all",
+    zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 5 } }
+  });
   // Preserve the authored binding's structure without claiming it reads the
   // immutable ability controller. These goldens do not rewrite inspect.player.
   assert.equal(viewerInstruction.op, "condition.value");
@@ -369,13 +373,13 @@ test("baited-hook golden: a killed unit that left the board before resolution ma
 test.todo(
   "baited-hook: 'a unit … that has Might up to 1 more than the killed unit' as a selection legality " +
     "bound (each candidate's current Might compared with the killed unit's last-known Might, " +
-    "359.3.e.13 / contract 3.6 lastKnown / RIFT-359); no merged filter value can relate two objects or a " +
+    "359.3.e.13 / contract 3.6 lastKnown); no merged filter value can relate two objects or a " +
     "linked value, so the descriptive mightUpTo key on the pick is not enforced — see judgeReason."
 );
 function chainHook({ accept = true, destination = { type: "base", player: "A" }, battlefields = false } = {}) {
-  // This tests supported steps, with unchanged source control and externally
-  // supplied ordered picks. The judge-required Hook is not registered as an
-  // executable program. Played Pit Crew cards use the production program binder.
+  // This tests supported steps through the production chain. The judge-required
+  // Hook is not registered as an executable program. Played Pit Crew cards use
+  // the production program binder.
   const builder = world()
     .player("A", { energy: 20, power: ["Order"] })
     .player("B", { energy: 20 })
@@ -393,7 +397,6 @@ function chainHook({ accept = true, destination = { type: "base", player: "A" },
   }
   const kernel = builder.build();
   const looked = kernel.zoneSlice("A", "deck", "top", 5);
-  kernel.setPicks("baited-hook.looked-cards", looked.map(object => object.ref));
   kernel.setPicks("baited-hook.banished-unit", [looked[2].ref]);
   kernel.setTargets("baited-hook.killed-unit", [kernel.ref("ally")]);
   kernel.setAnswers({
@@ -460,8 +463,11 @@ function resolveAll(engine) {
   }
 }
 
-test("baited-hook chain: supported steps preserve play parameters with supplied picks and unchanged source control", () => {
+test("baited-hook chain: supported steps preserve play parameters with Finalize-locked picks and unchanged source control", () => {
   const { engine, kernel, playActions } = chainHook();
+  assert.deepEqual(engine.items[0].pickPlans.map(plan => ({ id: plan.id, refs: plan.refs.map(ref => ref.id) })), [
+    { id: "baited-hook.looked-cards", refs: ["d1", "d2", "d3", "d4", "d5"] }
+  ]);
   resolveAll(engine);
 
   assert.equal(kernel.player("A").energy, 19);
