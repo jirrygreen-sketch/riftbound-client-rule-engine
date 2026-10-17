@@ -14,7 +14,7 @@ import type { CardProgram } from "../../ir/index.js";
  * - "give it +1 [M] this turn": the referent of "it" is the unit readied by
  *   the triggering event. Contract 3.6's ObjectSelector only offers self /
  *   source / target / pick / linked; there is no event-payload object
- *   selector (RIFT-21 binding is not merged), so the body cannot name the
+ *   selector is absent from the ObjectSelector contract, so the body cannot name the
  *   triggering unit without inventing semantics.
  * - "+1 [M] this turn" is a temporary continuous Might modification (703
  *   covers Buff counters instead). The continuous.might instruction and layers
@@ -30,8 +30,8 @@ const piratesHaven = {
   status: "judge-required",
   judgeReason:
     "continuous.might 指令与图层注册路径已合入，但「it」必须绑定 object-readied 触发事件中的被重置单位，" +
-    "契约 3.6 的 ObjectSelector 没有事件对象选择器（依赖 RIFT-21 触发 payload 绑定/契约补充）；" +
-    "触发能力的 CardProgram 绑定还依赖 RIFT-257。ready 时点与 Might 子效果已有执行证据，整卡不可执行；不近似实现。",
+    "契约 3.6 的 ObjectSelector 没有事件对象选择器，无法把「it」绑定到 object-readied 事件对象；" +
+    "trigger 注册、ready 时点与 Might 子效果已有执行证据，但该事件对象绑定仍不可执行。不近似实现。",
   abilities: [
     {
       kind: "triggered",
@@ -56,7 +56,7 @@ const piratesHaven = {
           targets: [
             {
               // Stand-in for the triggering readied unit: the static IR has no
-              // event-object selector (contract 3.6 / RIFT-21).
+              // Event-object selector is not part of contract 3.6.
               id: "pirates-haven.readied-unit",
               filter: { type: "unit", controller: "self" },
               min: 1,

@@ -43,8 +43,8 @@ const packOfWonders = {
     "故「[Hidden] card」分支究竟指 facedown card 还是别处的 Hidden 牌需要裁定；若指 107.3/422 的 Facedown Zone 卡，" +
     "冻结的 ZoneId 集合没有 facedown-zone，ObjectSnapshot 也没有 facedown-zone 判定，无法选择或重验该目标" +
     "（费用模块契约变更请求第 3 条记录同一缺口）。`another` 的 `exclude: \"self\"` 已可记录，" +
-    "但 facedown 目标与 Hidden 语义仍不可执行；已合入的 effect.zone 可把 gear/unit 送回其拥有者手牌（056.1）。" +
-    "依赖：RIFT-257 CardProgram 绑定、面朝下区域契约与 Hidden/Hide 消费方；整卡不可执行，不近似实现。",
+    "但 facedown 目标与 Hidden 语义仍不可执行；已合入的 effect.zone 可把 gear/unit 送回其拥有者手牌（056.1），" +
+    "而程序目标适配器也尚未消费 `exclude: \"self\"`。整卡不可执行，不近似实现。",
   abilities: [
     {
       kind: "activated",

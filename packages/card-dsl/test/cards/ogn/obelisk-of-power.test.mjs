@@ -23,7 +23,7 @@ test("ogn-284-298 Obelisk of Power: program validates and is judge-required", ()
   assert.match(program.judgeReason, /beginning-start/);
   assert.match(program.judgeReason, /per-turn/);
   assert.match(program.judgeReason, /event-player/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /逐玩家 once/);
   assert.equal(
     program.sourceText,
     "At the start of each player's first Beginning Phase, that player channels 1 rune."
@@ -87,7 +87,7 @@ test("ogn-284-298: the per-player-once frequency and event-player recipient rema
 
 test.todo(
   "ogn-284-298: beginning-start 由 turn/ 发出并进链，每位玩家的第一个 Beginning Phase " +
-    "只触发一次（each-player-once 频度 + 事件玩家收件人；依赖 RIFT-257 与契约变更请求）"
+    "只触发一次（需要逐玩家 once 频度与事件玩家收件人选择器）"
 );
 test.todo(
   "ogn-284-298: \"that player\" 收件人选择器（事件玩家）落地后 effect.channel 以该玩家为参数执行" +

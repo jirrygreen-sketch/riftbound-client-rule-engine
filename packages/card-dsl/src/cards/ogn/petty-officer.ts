@@ -18,32 +18,24 @@ import type { CardProgram } from "../../ir/index.js";
  * `{ kind: "keyword", keyword: "assault" }`（印刷未写数值，省略 value；
  * 默认 1 由 keywords/Assault.ts 的 807.1.b.3 处理）。
  * 展开（continuous.might 静态效果 + attacker 条件）由 engine-core 的关键词
- * 注册表负责（RIFT-81 已合入 keywords/Assault.ts），卡牌程序不重复展开。
+ * 注册表负责，卡牌程序不重复展开。
  *
  * status 判定（README 第 2 节）：
- * - KeywordDef 与 continuous.might 展开已经合入，但没有已合入的 CardProgram
- *   keyword → KeywordDef → layers 绑定（RIFT-257）。
- * - 即使接线完成，已合入的 keywords/Assault.ts 展开仍不可执行：展开读
- *   "designation" 对象属性（契约 3.8 的 ObjectSnapshot.combatRole），而当前
- *   interpreter 的 ObjectSnapshot 没有该特征，且 layers/engine.ts 的
- *   conditionMatches 不识别 compare 条件（只认 always/never/type/has-tag/
- *   has-keyword，其它一律按 true 处理），所以攻击者条件在图层计算里既不能
- *   生效也不能正确关闭。
- * 保留有依据的声明，执行证据写 test.todo，不近似实现。
+ * - KeywordDef、continuous.might 展开与 CardProgram keyword 生命周期绑定已经合入。
+ * - 展开仍不可在生产图层中忠实执行：它读取 "designation"，而契约快照字段是
+ *   combatRole；同时 layers/engine.ts 的 conditionMatches 不消费 compare/object-property
+ *   条件，未知条件会按 true 处理，攻击者条件因此无法正确关闭。
+ * 保留有依据的声明，执行证据覆盖已合入展开，不近似实现。
  */
 const pettyOfficer = {
   canonicalCardId: "card.hash-2daf12389f3f2209c75815321b3f70aaadfe8d1f9e8cc4b3dd747c93c0f780dc",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 Assault 关键词的可执行路径（CR 807.1.c / 807.1.d.1）：(1) KeywordDef 与 continuous.might 展开虽已合入，" +
-    "但没有 CardProgram keyword → KeywordDef → layers 的绑定（RIFT-257）；" +
-    "(2) 已合入的 keywords/Assault.ts 展开依赖攻击者指定（展开读 designation 对象属性，即契约 3.8 的 ObjectSnapshot.combatRole），" +
-    "而 interpreter 的 ObjectSnapshot 没有该特征，layers/engine.ts 的 conditionMatches 也不识别 compare 条件" +
-    "（只认 always/never/type/has-tag/has-keyword，其它按 true），attacker 条件在真实图层计算中恒真，" +
-    "无法只在我攻击时 +1 Might。依赖：RIFT-257（CardProgram 绑定）、RIFT-264（Assault 关键词展开）、" +
-    "RIFT-258（layers-continuous 条件支持）、" +
-    "契约 3.8 combatRole 落地。不近似实现。",
+    "缺 Assault 关键词的可执行路径（CR 807.1.c / 807.1.d.1）：展开依赖攻击者指定，" +
+    "但它读取 designation，而契约快照字段是 combatRole；layers/engine.ts 的 conditionMatches 也不消费 " +
+    "compare/object-property 条件，未知条件按 true 处理，attacker 条件在真实图层计算中会恒真，" +
+    "无法只在我攻击时 +1 Might。依赖：生产快照的 combatRole 落地与图层条件求值。不近似实现。",
   abilities: [{ kind: "keyword", keyword: "assault" }],
   sourceText: "[Assault] (+1 :rb_might: while I'm an attacker.)"
 } satisfies CardProgram;

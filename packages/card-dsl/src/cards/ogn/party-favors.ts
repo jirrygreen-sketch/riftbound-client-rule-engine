@@ -44,8 +44,8 @@ const partyFavors = {
     "choice.mode 的 chooser 是单个静态 id，IR 也没有能产出「其他玩家」席位列表的 Expr 或按席位重复的控制结构，" +
     "因此「Each other player chooses Cards or Runes.」无法声明；后续「For each player that chooses X」需要按上述选择结果分支" +
     "（且计数逐玩家），没有该结果绑定就无法判定两个分支。effect.draw（414.3）与 effect.channel（431.1/431.2，含 exhausted 入场）" +
-    "本身已合入，但只能在一个确定的玩家上执行。依赖：RIFT-257 CardProgram 绑定、" +
-    "多玩家选择/逐玩家结果协调与 player-list 表达式。不近似实现。",
+    "本身已合入，但只能在一个确定的玩家上执行。依赖：多玩家选择/逐玩家结果协调与 player-list " +
+    "表达式。不近似实现。",
   abilities: [
     {
       kind: "play",

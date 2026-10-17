@@ -24,7 +24,8 @@ test("ogn-181-298 Pack of Wonders: identity, version and verbatim source text", 
     ":rb_exhaust:: Return another friendly gear, unit, or [Hidden] card to its owner's hand."
   );
   assert.match(program.judgeReason, /Facedown Zone/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /facedown/);
+  assert.match(program.judgeReason, /exclude/);
   assert.match(program.judgeReason, /811\.5\.a/);
 });
 
@@ -83,8 +84,8 @@ test("ogn-181-298 Pack of Wonders: the public gear/unit branch returns the objec
 });
 
 test.todo(
-  "Pack of Wonders: choose and return a facedown [Hidden] card from a Facedown Zone " +
-    "(ZoneId has no facedown-zone member, cost README contract request 3 / RIFT-89)"
+  "Pack of Wonders: choose and return a facedown [Hidden] card from its Facedown Zone " +
+    "(ZoneId has no facedown-zone member, and the target adapter must consume the exclude:self anchor)"
 );
 test("ogn-181-298 Pack of Wonders: the target filter excludes the source gear", () => {
   const [ability] = program.abilities;
