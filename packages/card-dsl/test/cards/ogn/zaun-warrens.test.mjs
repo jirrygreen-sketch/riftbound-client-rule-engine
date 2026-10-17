@@ -9,6 +9,7 @@ import program from "../../../dist/cards/ogn/zaun-warrens.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { EventPipeline } from "../../../../engine-core/dist/events/pipeline.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 const CANONICAL = "card.hash-7eb7c2878a687bba1f5053f3c775d1f55e01679f4a8124757d2bb0a70b15ad88";
 const SOURCE_TEXT = "When you conquer here, discard 1, then draw 1.";
@@ -40,7 +41,7 @@ const abilitySource = {
   isToken: false
 };
 
-test("Zaun Warrens program validates and is judge-required", () => {
+test("Zaun Warrens program validates and remains judge-required for the current here binding gap", () => {
   const result = validateCardProgram(program);
   assert.deepEqual(result.issues, []);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
@@ -49,8 +50,9 @@ test("Zaun Warrens program validates and is judge-required", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /conquered/);
   assert.match(program.judgeReason, /359\.3\.e\.11/);
-  assert.match(program.judgeReason, /RIFT-357/);
+  assert.match(program.judgeReason, /Unsupported filter field here/);
   assert.match(program.judgeReason, /battlefieldId/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-357/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -183,9 +185,17 @@ test("Zaun Warrens: the conquer timing point is emitted by the merged Score wave
   assert.equal(seen[0].event.details.battlefieldId, "battlefield-1");
 });
 
+test("Zaun Warrens: production trigger binding still rejects the unresolved here anchor", () => {
+  assert.throws(
+    () => translateTriggerFilter(ability.trigger.filter, abilitySource.ref.id, ability.trigger.at),
+    /Unsupported filter field here/
+  );
+});
+
 test.todo(
   "Zaun Warrens trigger: bind the source Battlefield's 053.3 here referent to the emitted details.battlefieldId " +
-    "and resolve 190.6's controller of the Battlefield ability (RIFT-357 / Battlefield control binding)"
+    "and resolve 190.6's controller of the Battlefield ability; the current EventPattern/ObjectFilter " +
+    "contract has no runtime source-location comparison"
 );
 
 test.todo(

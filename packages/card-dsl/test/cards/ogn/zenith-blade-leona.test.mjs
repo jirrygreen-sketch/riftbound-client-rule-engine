@@ -11,7 +11,7 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
-import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { ChainContractBlockedError, ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 
 const CANONICAL = "card.hash-a4a04e52d4544c14530e273f53c3890ccd0d8688ef9dc725dc0ef6b1d20103de";
 const BASE = player => ({ type: "base", player });
@@ -62,6 +62,7 @@ test("Zenith Blade identity, ruleset, status, printed text and judgeReason", () 
   assert.match(zenithBlade.judgeReason, /choice\.optional/);
   assert.match(zenithBlade.judgeReason, /355\.12/);
   assert.match(zenithBlade.judgeReason, /Finalize|生命周期/);
+  assert.match(zenithBlade.judgeReason, /Nested\/repeated targets/);
   assert.match(zenithBlade.judgeReason, /combat|467\.2\.c\.1\.a/);
   assert.match(zenithBlade.judgeReason, /467\.2\.c\.1\.a/);
   assert.match(zenithBlade.judgeReason, /effect\.stun/);
@@ -249,10 +250,8 @@ test("Zenith Blade golden: declining the optional Move leaves the unit untouched
 });
 
 test("Zenith Blade golden: an unresolved nested target leaves the card source and Move state untouched", () => {
-  // The nested target lifecycle remains unavailable. Keep the observable
-  // post-attempt behavior assertion even though the obsolete contract-error
-  // assertion was removed: a blocked attempt must not move the friendly unit
-  // or emit a move event.
+  // The nested target lifecycle remains unavailable. Assert the actual chain
+  // contract block and the post-attempt state: no Move action may leak through.
   const kernel = world()
     .unit("zenith-blade", { types: ["spell"], zone: "chain", owner: "A", controller: "A" })
     .unit("enemy-unit", { owner: "B", location: BATTLEFIELD("bf1") })
@@ -274,6 +273,7 @@ test("Zenith Blade golden: an unresolved nested target leaves the card source an
   });
   const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
 
+  let blocked;
   try {
     engine.execute({
       id: "zenith-blade:play",
@@ -283,11 +283,12 @@ test("Zenith Blade golden: an unresolved nested target leaves the card source an
       speed: "action",
       body: play.body
     });
-  } catch {
-    // The unavailable nested-target lifecycle is recorded in judgeReason;
-    // this test preserves the post-attempt state contract.
+  } catch (error) {
+    blocked = error;
   }
 
+  assert.ok(blocked instanceof ChainContractBlockedError);
+  assert.match(blocked.message, /Nested\/repeated targets require an interpreter target-selection lifecycle adapter/);
   assert.deepEqual(kernel.getObject("friendly-unit").location, BASE("A"));
   assert.equal(kernel.events.some(event => event.action === "move-location"), false);
 });

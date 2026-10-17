@@ -19,18 +19,13 @@ import type { CardProgram } from "../../ir/index.js";
  * Status: judge-required for the trigger side only. The merged effect.discard
  * and effect.draw primitives execute the whole body through the interpreter and
  * the reference kernel in the golden test (empty hand, single card, and the
- * chooser path); the conquer timing point is now really emitted by the merged
- * TurnFlow Score wave (payload details.battlefieldId), and the golden drives a
- * real EventPipeline registration to receive it. The ability still cannot run
- * in production because:
- * - the merged program binding can register ordinary triggered abilities, but
- *   this Battlefield trigger still needs the source Battlefield's runtime
- *   location and its 190.6 controller resolved from the conquer event;
- * - 053.3's "here" has no evaluable anchor: the emitted conquer event carries
- *   the Battlefield only as a payload detail (details.battlefieldId) and the
- *   static filter cannot reference the host's runtime location; the here: true
- *   key below is the documented placeholder pending the binding layer's
- *   normalization (the closed trigger vocabulary has no such field).
+ * chooser path); the conquer timing point is emitted by the TurnFlow Score wave
+ * (payload details.battlefieldId), and the golden drives a real EventPipeline
+ * registration to receive it. The ability still cannot run in production because
+ * programs/filters.ts rejects the 053.3 `here: true` placeholder while translating
+ * a CardProgram trigger. The scoring event carries only player and
+ * details.battlefieldId, so the binding layer has no source Battlefield location
+ * to compare and no 190.6 controller resolution for this trigger.
  * The filter uses the closed EventPattern/PlayerSelector vocabulary for the
  * evaluable parts (event "conquered", player "self" = the ability controller).
  * Nothing here is approximated: the body keeps the printed order without a
@@ -42,12 +37,10 @@ export default {
   status: "judge-required",
   judgeReason:
     "指令体完全用已合入原语表达并在 golden 中真实执行（effect.discard 数量 1 → effect.draw 数量 1；两条不 linkedTo，对应 359.3.e.11 官方例子" +
-    "“Discard 2, then draw 2”：弃牌被否定时抽牌照常结算）；conquer 时点现已由已合入的回合计分流程真实发出" +
-    "（turn/flow.ts 的 Score 波，载荷 details.battlefieldId），golden 用真实事件管线注册并收到该事件。阻断只在触发侧：" +
-    "① 053.3 的 here 没有可求值锚点：事件只以 details.battlefieldId 携带战场 id，" +
-    "需要把注册源 Battlefield 的运行时位置与该载荷绑定，并完成 190.6 的战场能力控制者解析；" +
-    "静态 filter 读不到宿主运行时位置，here: true 是等待绑定层归一化的占位键（封闭触发词表没有该字段）；" +
-    "filter 的 event/player 已按封闭词表拼写（conquered / self）。依赖：RIFT-357（运行时位置锚点/选择绑定）与 Battlefield 控制者解析。不近似实现。",
+    "“Discard 2, then draw 2”：弃牌被否定时抽牌照常结算）；conquer 时点已由 TurnFlow 的 Score wave 真实发出（载荷 details.battlefieldId），" +
+    "golden 也已用真实 EventPipeline 收到该事件（封闭事件词为 conquered）。整卡仍不可执行：程序绑定翻译 trigger.filter 时，programs/filters.ts 对 053.3 的 here: true 抛出 " +
+    "“Unsupported filter field here”；Score 事件只有 player 与 details.battlefieldId，没有来源 Battlefield 的运行时位置或 190.6 控制者绑定，" +
+    "因此无法把“here”与本战场归一化。不近似实现。",
   sourceText: "When you conquer here, discard 1, then draw 1.",
   abilities: [
     {

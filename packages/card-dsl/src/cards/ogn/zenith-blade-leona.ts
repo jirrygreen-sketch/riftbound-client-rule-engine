@@ -29,12 +29,11 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * Status: judge-required — the optional Move half cannot be finalized:
  * - the nested instruction inside choice.optional carries the Move's target
- *   selection. The merged chain Finalize surface still lacks the nested target
- *   lifecycle ("Nested/repeated targets require an interpreter target-selection
- *   lifecycle adapter", chain/README contract change request 2); the golden
- *   drives the Stun, Location read and Move subeffects with Finalize-style locks.
- *   Hoisting the target out of the optional wrapper would contradict the frozen
- *   3.9 shape for "may".
+ *   selection. ChainEngine.assertFinalizationSurface still throws
+ *   "Nested/repeated targets require an interpreter target-selection lifecycle
+ *   adapter"; the golden drives the Stun, Location read and Move subeffects
+ *   with Finalize-style locks. Hoisting the target out of the optional wrapper
+ *   would contradict the frozen 3.9 shape for "may".
  * - the Move Destination is the stunned unit's battlefield, a runtime Location.
  *   The merged effect.move accepts it only through an Expr the primitive itself
  *   evaluates, so this program publishes it with condition.value and the
@@ -46,9 +45,9 @@ import type { CardProgram } from "../../ir/index.js";
  *   are still explicitly blocked in the Turn/Combat workstream.
  * - the Move is an effect Move, not the Standard Move ability (144, 451.1), so
  *   it neither exhausts nor pays for the friendly unit.
- * - the card-program Play binding is merged; the remaining Play path is
- *   blocked by the nested target lifecycle and combat consequences listed
- *   below.
+ * - the card-program Play binding and runtime Location read are merged; the
+ *   remaining Play path is blocked by the nested target lifecycle and combat
+ *   consequences listed below.
  * The Stun half is merged and is executed by the golden test with a
  * Finalize-locked target, the same way the merged Rune Prison program does.
  */
@@ -57,17 +56,17 @@ const zenithBlade = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「You may move a friendly unit to that enemy unit's battlefield」的可选半段缺 Finalize 生命周期：" +
+    "「You may move a friendly unit to that enemy unit's battlefield」的可选半段仍缺 Finalize 生命周期：" +
     "按契约 3.9 的冻结形状，may 必须写成 choice.optional 并把被选指令包进 body，而该 Move 指令自带目标选择" +
     "（355.12：对若干对象执行游戏动作的许可，全部选择都视为目标并独立于“是否执行”决定）；" +
-    "已合入的链 Finalize 面尚未提供嵌套目标生命周期（chain/README 契约变更请求 2），" +
+    "ChainEngine.assertFinalizationSurface 仍会以 “Nested/repeated targets require an interpreter target-selection lifecycle adapter” 阻断嵌套目标（chain/README 契约变更请求 2），" +
     "golden 已用真实解释器/链适配器执行 Stun、Location 读取和 Move 子效果，并保留该嵌套目标形状。" +
     "把目标提升到可选包装之外会违反 3.9 的 may 形状，故不近似实现。" +
     "另：目的地是“被 Stun 单位的战场”，属运行时 Location（355.4.a / 449.2 / 451.1），" +
     "IR 用 condition.value 发布该 Location 供 effect.move 求值（golden 真实执行该 Move）；" +
     "Move 后果中，已合入的 TurnFlow/CombatFlow 会为已提交的 effect Move 产生 Contested（452 contested-applied）并搭起 Showdown 阶段，" +
     "但战斗开始（466.2）与同时战斗伤害（467.2.c.1.a / 467.3）在 Turn/Combat 工作流仍被显式阻断。" +
-    "Stun 半段只用已合入的 effect.stun（424.1/424.1.a.1），由 golden 真实执行。",
+    "Stun 半段只用已合入的 effect.stun（424.1/424.1.a.1），由 golden 真实执行；运行时 Location 读取与 effect.move 子效果也已有真实执行证据。",
   sourceText:
     "[Action] (Play on your turn or in showdowns.)\n" +
     "Stun an enemy unit at a battlefield. You may move a friendly unit to that enemy unit's battlefield. " +

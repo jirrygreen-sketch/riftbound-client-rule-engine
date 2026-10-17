@@ -31,6 +31,7 @@ test("zhonyas-hourglass: identity, ruleset, status and printed text", () => {
   assert.match(program.judgeReason, /effect\.move/);
   assert.match(program.judgeReason, /457/);
   assert.match(program.judgeReason, /replacement\.object/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(260|84)/);
   assert.equal(
     program.sourceText,
     "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n" +
@@ -62,7 +63,7 @@ test("zhonyas-hourglass: replacement body is kill-this, recall-that-unit, exhaus
 
   // "Recall that unit" — 457/458: a Recall is not a Move, so the instruction
   // asks for mode "recall" and names the intercepted unit through the merged
-  // RIFT-260 replaced-event selector (355.10.c: not a new target).
+  // The replaced-event selector (355.10.c: not a new target).
   assert.equal(recall.op, "effect.move");
   assert.deepEqual(recall.args.mode, literal("recall"));
   assert.deepEqual(recall.args.to, literal("controller-base"));
@@ -101,7 +102,7 @@ function hourglassWorld() {
 
 test("zhonyas-hourglass golden: the merged planner binds 'that unit' and plans kill-this / exhaust-that-unit", () => {
   const { hostRef, dyingRef, plan } = hourglassWorld();
-  // The merged RIFT-260 planner resolves { linked: "replacement.object" } to
+  // The merged replacement planner resolves { linked: "replacement.object" } to
   // the replaced event's unit, so the body addresses the dying unit without
   // making it a target (355.10.c). kill-this resolves the source selector to
   // the gear host.
@@ -152,6 +153,20 @@ test("zhonyas-hourglass: the supported kill and exhaust clauses still bind witho
   );
 });
 
+test("zhonyas-hourglass: the full replacement binding stops at the missing Recall action", () => {
+  const { hostRef, kernel } = hourglassWorld();
+  const pipeline = { clock: { turn: 1 }, registerReplacement() {}, unregisterReplacement() {} };
+
+  assert.throws(
+    () => bindReplacement(
+      { replaces: replacement.replaces, with: replacement.with },
+      hostRef,
+      { host: { object: ref => kernel.getObject(ref.id), objects: () => kernel.objects, context: () => kernel }, pipeline }
+    ),
+    /Recall action exists|mode "recall" is blocked/
+  );
+});
+
 test("zhonyas-hourglass golden: a blocked Recall attempt leaves the unit's location and status unchanged", () => {
   const kernel = world()
     .player("A", { energy: 20 })
@@ -175,8 +190,8 @@ test("zhonyas-hourglass golden: a blocked Recall attempt leaves the unit's locat
 
 test.todo(
   "zhonyas-hourglass: encode the printed 'the next time' one-shot lifetime using the " +
-    "replacement.event window; the current frozen replacement ability shape cannot carry its raw instead body " +
-    "(validateInstruction accepts only Expr args)"
+    "replacement.event window; the current frozen replacement ability shape cannot carry its raw instead instruction array " +
+    "(CardProgram stores Instruction.args as Expr while bindReplacement requires a bare array)"
 );
 
 test.todo(
@@ -187,6 +202,6 @@ test.todo(
 
 test.todo(
   "zhonyas-hourglass: [Hidden]'s Hide action and facedown play need the cost.hidden consumption path " +
-    "(811.1.b / 811.1.c.2); the hidden keyword expansion itself is merged (RIFT-84)"
+    "(811.1.b / 811.1.c.2); the keyword declaration expands to cost.hidden, but no production Hide/facedown consumer exists"
 );
 
