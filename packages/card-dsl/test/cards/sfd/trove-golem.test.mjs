@@ -5,6 +5,8 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/trove-golem.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-6e0d0c7e82324687174e1c1585a9fdba369a29e517e743eb601994ed2edb5de9";
 const [ability] = program.abilities;
@@ -47,4 +49,37 @@ test("sfd-174-221 Trove Golem: card-played self trigger plays four Gold tokens",
   });
   assert.deepEqual(instruction.args.entersExhausted, { kind: "constant", value: true });
   assert.equal(instruction.linkedTo, undefined);
+});
+
+// This preserves the pre-template positive assertion for the merged
+// create-token -> play handoff using a defined token. Gold itself remains
+// blocked by the card's judge-required dependencies and is covered by the
+// template scenario evidence.
+test("sfd-174-221 Trove Golem golden: the card's own chain-create + play shape really plays four defined tokens", () => {
+  const { entersExhausted, ...consumedArgs } = instruction.args;
+  const saturatingArgs = {
+    ...consumedArgs,
+    location: { kind: "constant", value: { type: "base", player: "A" } }
+  };
+  const kernel = world().player("A").build();
+  const run = runInstruction(
+    token,
+    { ...saturatingArgs, token: { kind: "constant", value: "mech" } },
+    { world: kernel }
+  );
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked["goldTokens.amount"], 4);
+  assert.equal(run.linked["goldTokens.createdAmount"], 4);
+  assert.deepEqual(
+    run.events.map((event) => event.action),
+    ["create-token", "play", "create-token", "play", "create-token", "play", "create-token", "play"]
+  );
+  const played = kernel.objects.filter((object) => object.isToken);
+  assert.equal(played.length, 4);
+  for (const created of played) {
+    assert.deepEqual(created.location, { type: "base", player: "A" });
+    assert.equal(created.controller, "A");
+    assert.equal(created.energy, null);
+    assert.equal(created.power, null);
+  }
 });
