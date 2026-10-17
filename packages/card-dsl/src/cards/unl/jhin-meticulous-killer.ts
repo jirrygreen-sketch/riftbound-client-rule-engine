@@ -21,6 +21,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   按 ogn/nocturne-horrifying 的先例以许可静态能力（play-for-alternate-cost）保留形状。
  *
  * status = judge-required（缺口均不近似实现）：
+ * - [Vision]（817.1.b/817.1.c）的展开已合入，但实测它的 trigger.filter 在生产路径被拒：
+ *   registerProgramTriggers → TriggerSpec 判「Unsupported filter field object.id」，
+ *   因此本卡进场后并不会 Predict（模板测试 keyword-static-671.test.mjs 的边界行以 todo 断言
+ *   “打出时应 cards-looked-at”）。展开文件自己也记录 Predict 需要调用方注入有序顶牌 picks，
+ *   且展开中的 player 占位值必须绑定到实际控制者。
  * - 条件「本回合为打出法术实际支付了多少 Energy」仍无可求值路径：链侧已经把 finalized payment
  *   receipt 暴露给结算条件，但合并 IR 没有按本回合、按法术累计实际支付 Energy 的谓词或表达式；
  *   保留的 count 形状只数对象，不读取金额。
@@ -70,13 +75,16 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处缺口，均不近似实现：(1)「If you've spent :rb_energy_4: or more to play a spell this turn」仍无可求值路径：" +
+    "三处缺口，均不近似实现：(1) [Vision]（817.1.b/c）的 KeywordDef 已合入，但本卡的展开在生产触发器绑定被拒：" +
+    "registerProgramTriggers 的 TriggerSpec 校验判「Unsupported filter field object.id」，进场后实测不会 Predict；" +
+    "该展开同时要求调用方注入有序顶牌 picks，并把展开中的 player 占位绑定为实际控制者。" +
+    "(2)「If you've spent :rb_energy_4: or more to play a spell this turn」仍无可求值路径：" +
     "链侧已把 finalized payment receipt 暴露给结算条件，但合并 IR 没有按本回合、按法术累计实际支付 Energy 的谓词或表达式；" +
     "保留的 count 形状只数对象、不读取金额，因此“为打出法术实际支付了多少 Energy”仍无法求值。" +
-    "(2)「you may play me for :rb_rune_mind:」的静态替代费用形状仍没有 CardProgram → CostPlan 的消费方；" +
+    "(3)「you may play me for :rb_rune_mind:」的静态替代费用形状仍没有 CardProgram → CostPlan 的消费方：" +
+    "生产 static binder 对 play-for-alternate-cost 判「Static ability kind play-for-alternate-cost has no layer mapping」，" +
     "本卡的静态许可（play-for-alternate-cost，1 Mind Power）只保留形状。" +
-    "另外 [Vision]（817）虽已声明且 KeywordDef 已合入，但其 Predict 仍要求调用方注入有序顶牌 picks，" +
-    "并把展开中的 player 占位值绑定为实际控制者。依赖：费用回执/替代费用消费方、有序 picks 注入与 Vision 控制者绑定。",
+    "依赖：Vision 触发器过滤与有序 picks 注入、费用回执/替代费用消费方。",
   abilities,
   sourceText:
     "[Vision] (When you play me, look at the top card of your Main Deck. You may recycle it.)\n" +

@@ -60,7 +60,9 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处当前缺口：(1) continuous.restrict 原语已合入，但「opponents can't score points」需要 score 动作的" +
+    "三处当前缺口（2026-10-17 实测）：(1) continuous.restrict 原语已合入，但本卡的静态声明首先被生产 binder 判" +
+    "「Unsupported static appliesTo \"opponents\"」并 fail-closed（这正是模板测试 keyword-static-671.test.mjs 中的实测结果）；" +
+    "即便注册成功，「opponents can't score points」也需要 score 动作的" +
     "禁止语义与 scoring/ 侧消费方：封闭 GameAction 集合没有「禁止 Scoring」动作，scoring/ 只在调用方传入 score 动作时" +
     "执行 470 起的流程，但没有生产方读取 layers/rules/query.ts 的 restrictions()。" +
     "(2)「at a battlefield」的 363.2.a 条件仍需位置类型谓词，当前消费方不能从 ObjectSnapshot 求值。" +
