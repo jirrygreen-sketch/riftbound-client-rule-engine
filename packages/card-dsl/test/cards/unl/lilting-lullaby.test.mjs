@@ -5,8 +5,11 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/lilting-lullaby.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import counter from "../../../../engine-core/dist/effects/instructions/effect.counter.js";
+import restrict from "../../../../engine-core/dist/effects/instructions/continuous.restrict.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createContinuousEffectRegistry } from "../../../../engine-core/dist/layers/duration.js";
+import { restrictions } from "../../../../engine-core/dist/layers/rules/query.js";
 
 const CANONICAL_ID =
   "card.hash-0fd730fbefcd79781194c269d2e2a4c9e610d42a403c6f112d892d3bf8f1a3fe";
@@ -38,7 +41,7 @@ test("unl-190-219 Lilting Lullaby: identity, status, judgeReason and verbatim so
   // The unresolved part is the prohibition's consumer and the referent that
   // names the player it applies to.
   assert.match(program.judgeReason, /continuous\.restrict/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /continuous\.restrict/);
   assert.match(program.judgeReason, /359\.3\.f\.1/);
   // The counter half cites the rule entries that make the chain spell a legal
   // target and exclude self-targeting and pending items.
@@ -143,6 +146,28 @@ test("unl-190-219 Lilting Lullaby golden: the prohibition clause carries the rev
   });
 });
 
+test("unl-190-219 Lilting Lullaby golden: the merged restriction primitive registers a one-turn spell prohibition", () => {
+  const kernel = world().unit("spell", { owner: "B", controller: "B", types: ["spell"], zone: "chain" }).build();
+  const literal = {
+    ...bodyWithoutTargetSpecs[1],
+    args: {
+      ...bodyWithoutTargetSpecs[1].args,
+      // The card's target.controller referent is the remaining dynamic gap;
+      // this literal filter exercises the merged primitive and query contract.
+      appliesTo: { kind: "constant", value: { controller: "B", zone: "board" } }
+    }
+  };
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("spell"), controller: "A" });
+  const outcome = resolveChainBody([literal], scoped);
+  assert.equal(outcome.status, "executed");
+  const registry = createContinuousEffectRegistry();
+  for (const entry of scoped.continuousEffects) registry.register(entry.effect, entry.duration);
+  const found = restrictions(registry, "play-spell");
+  assert.equal(found.length, 1);
+  assert.deepEqual(found[0].actions, ["play-spell"]);
+  assert.deepEqual(found[0].filter, { controller: "B", zone: "board" });
+});
+
 test("unl-190-219 Lilting Lullaby golden: a countered spell keeps its printed cost unrefunded", () => {
   // 426.3: countering does not refund costs. The kernel models the card in
   // Trash; no energy is returned to its controller here.
@@ -176,11 +201,11 @@ test("unl-190-219 Lilting Lullaby golden: a stale chain reference is mistargeted
 });
 
 test.todo(
-  "unl-190-219 Lilting Lullaby: register the this-turn \"can't play spells\" prohibition and consume it from the chain's canAct timing query (CR 355.8 / 806 / 159.2; no continuous.restrict primitive or consumer - RIFT-91 plus the chain permission query)"
+  "unl-190-219 Lilting Lullaby: consume the registered this-turn prohibition from the chain's canAct/Finalize timing query (CR 355.8 / 806 / 159.2)"
 );
 test.todo(
-  "unl-190-219 Lilting Lullaby: resolve \"Its controller\" as the countered spell's controller referent and expire the prohibition at the end-of-turn timing point (CR 359.3.f.1; RIFT-91)"
+  "unl-190-219 Lilting Lullaby: resolve \"Its controller\" as the countered spell's controller referent and expire the prohibition at the end-of-turn timing point (CR 359.3.f.1)"
 );
 test.todo(
-  "unl-190-219 Lilting Lullaby: enforce the printed [Reaction] Closed-State permission and the target legality rules (355.9.a.2 / 355.9.c / contract 3.4 pending-item exclusion) in the production chain (RIFT-90/RIFT-120)"
+  "unl-190-219 Lilting Lullaby: enforce the printed [Reaction] Closed-State permission and the target legality rules (355.9.a.2 / 355.9.c / contract 3.4 pending-item exclusion) in the production chain"
 );

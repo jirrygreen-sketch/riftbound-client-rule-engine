@@ -8,6 +8,8 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-189fb540b58840dbea672bf530705d9fc1548c9fb015ca1b98912e7e4bff7fc1";
@@ -33,7 +35,7 @@ test("unl-156-219 Loyal Poro: identity, status, judgeReason and verbatim sourceT
   assert.match(program.judgeReason, /trigger\.leave/);
   assert.match(program.judgeReason, /740\.2\.a/);
   assert.match(program.judgeReason, /808\.1\.c\.2/);
-  assert.match(program.judgeReason, /RIFT-82/);
+  assert.match(program.judgeReason, /object-killed|trigger.leave/);
 });
 
 test("unl-156-219 Loyal Poro: [Deathknell] is declared, not re-implemented (contract 3.7)", () => {
@@ -107,15 +109,27 @@ test("unl-156-219 Loyal Poro golden: an empty deck draws as much as possible (CR
   assert.equal(kernel.player("A").handSize, 0);
 });
 
+test("unl-156-219 Loyal Poro golden: the object-killed CardProgram trigger registers through the merged binding", () => {
+  const lifted = { ...program, status: "executable" };
+  delete lifted.judgeReason;
+  const binding = createProgramBinding({ cardPrograms: [lifted] });
+  const board = fixture({
+    cards: [{ id: "poro", cardId: CANONICAL_ID, types: ["unit"], energy: 3, power: [], might: 3 }]
+  });
+  const source = { ...board.kernel.getObject("poro"), cardId: CANONICAL_ID, zone: "board" };
+  const ids = binding.registerProgramTriggers(board.engine, source);
+  assert.equal(ids.length, 2);
+  assert.match(ids[0], /^program:poro:1:/);
+});
+
 test.todo(
   "unl-156-219 Loyal Poro: expand [Deathknell] (subscribe object-killed, removal from the chain when " +
     "the death is replaced per 808.1.d.1, last-known information recorded pre-chain per 808.1.d.3) — " +
-    "the KeywordDef only references the unmerged trigger.leave op and card triggers are not registered " +
-    "into the event pipeline (RIFT-82 / RIFT-257)"
+    "the registered KeywordDef still references the unregistered trigger.leave op"
 );
 test.todo(
   "unl-156-219 Loyal Poro: evaluate \"didn't die alone\" against the source's last-known location before " +
     "the trigger is queued (CR 740.2.a, 808.1.c.2, 808.1.d.3) — the event pipeline does not evaluate a " +
     "CardProgram trigger condition yet and the 'controller' placeholder is not normalized outside the " +
-    "chain query (RIFT-257 / RIFT-120)"
+    "chain query"
 );

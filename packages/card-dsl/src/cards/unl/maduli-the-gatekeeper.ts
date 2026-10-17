@@ -32,14 +32,14 @@ import type { CardProgram } from "../../ir/index.js";
  *   LocationRef、controller-base 或静态候选列表；即便选定战场，451.1 的“我的 Might 是否大于该地
  *   敌方单位总 Might”也需要按 143.2.a 汇总比较（同 rad/cataclysm 记录同一缺口）。卡内保留描述性
  *   目的地标记，真实执行绝不落到错误地点（effect.move 会拒绝该形状）。
- * - “I can't be readied.” 没有消费方：effects/instructions 没有 continuous.restrict 原语，
- *   layers/ 也不消费禁止声明、chain 的 canAct 与 416/315.1.b.1 的重置流程都不读它（同
- *   rad/cataclysm 的记录）；因此这条禁令当前只作结构与评审材料，绝不当可执行。
+ * - “I can't be readied.” 的 continuous.restrict 原语、static binder 和 restriction 查询已经合入，
+ *   但 chain 的 canAct 与 416/315.1.b.1 的重置流程仍不读取该禁止，所以这条禁令尚未成为
+ *   真实的 Ready/Awaken 规则约束。
  * - 已合入且被 golden 真实执行的是启动费用：buildCostPlan + payCostPlan 用 1 点 Chaos 力量
  *   真实支付（并按 Duel 资源分配验证 415.3/415.5 式的“付得出”），未提供 Chaos 时如实拒绝。
  *
- * 依赖：RIFT-90/91（运行期 Location 选择与目标/目的地计划）、RIFT-89（费用计划已合入）、
- * continuous.restrict 消费方（引擎批 4）。
+ * 依赖：运行期 Location 选择与目标/目的地计划、Might 汇总比较，以及 Ready/Awaken 对
+ * continuous.restrict 的消费。
  */
 export default {
   canonicalCardId:
@@ -52,10 +52,10 @@ export default {
     "（target.location 未合入），effect.move 的 to 只接受静态 LocationRef / controller-base / 静态候选列表；" +
     "「my Might is greater than the total Might of enemy units there」还需要按 143.2.a 汇总比较该地敌方单位总 Might。" +
     "本卡只保留描述性目的地标记，effect.move 会拒绝它而不是落到错误地点（同 rad/cataclysm 的记录）。" +
-    "(2) 「I can't be readied.」需要 continuous.restrict 式的持续禁止及其消费者：effects/instructions 没有该原语、" +
-    "layers 不消费禁止声明、416/315.1.b.1 的重置流程也不读它（同 rad/cataclysm）。" +
+    "(2) 「I can't be readied.」的 continuous.restrict 原语、static binder 和 restriction 查询已经合入，" +
+    "但 chain 的 canAct 与 416/315.1.b.1 的重置流程仍不读取该禁止。" +
     "已合入且由 golden 真实执行的是冒号前的 1 点 Chaos 力量费用（204.1.b；buildCostPlan + payCostPlan，缺 Chaos 时如实拒绝）。" +
-    "依赖：RIFT-90/91（运行期 Location 选择与计划）、continuous.restrict 消费方（引擎批 4）。不近似实现。",
+    "依赖：运行期 Location 选择、Might 汇总比较，以及 Ready/Awaken 对 restriction 查询的消费。不近似实现。",
   abilities: [
     {
       kind: "static",

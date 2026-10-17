@@ -18,9 +18,9 @@ import type { CardProgram } from "../../ir/index.js";
  *   "不能 / 必须 / 仅可" 归到 continuous.restrict / continuous.permission 一类。
  *
  * status = judge-required（不近似实现）：
- * 1. "can't play spells this turn" 没有消费方：effects/instructions 没有
- *    continuous.restrict 这类原语，layers/ 目前只消费 copy / arithmetic / 关键词 / 移动图层，
- *    chain 的 canAct 也不读任何禁止声明（依赖 RIFT-91 layers-continuous 与链的许可查询）。
+ * 1. "can't play spells this turn" 的 `continuous.restrict` 原语和 restriction 查询已经合入，
+ *    但“其控制者”的动态引用仍不能被该指令求值，且 chain 的 canAct/Finalize 尚未消费本回合
+ *    restriction；因此不能把声明当成已生效的禁止。
  * 2. "Its controller" 要被禁止的玩家由目标法术的控制者决定：程序用
  *    object-property({ target }) 的 controller 表达（359.3.f.1 的 referent 读取），但需要
  *    持续禁止的消费者（第 1 点）才能落地。
@@ -29,9 +29,8 @@ import type { CardProgram } from "../../ir/index.js";
  */
 
 /**
- * 描述性的持续禁止声明（见 judgeReason 第 1 点）：effects/instructions 没有
- * continuous.restrict 原语，layers/ 与 chain 也没有该声明的消费者；参数形状沿用
- * rad/cataclysm 的既有写法，不近似为"结算时再检查一次"或任何时点替代。
+ * 持续禁止声明（见 judgeReason 第 1 点）：原语已经合入，但目标法术 controller 的
+ * 动态引用与 chain 许可消费仍未闭合，不近似为"结算时再检查一次"或任何时点替代。
  */
 const CANT_PLAY_SPELLS = {
   mode: "prohibit",
@@ -44,9 +43,9 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺持续禁止的消费者与到期处理：(1) “Its controller can't play spells this turn” 是本回合对该玩家的打出禁止，" +
-    "能否打出属于 chain 的时机许可查询（355.8 / 806 / 159.2），但 effects/instructions 没有 continuous.restrict 这类原语，" +
-    "layers/ 也没有禁止声明的消费方，chain 的 canAct 不读任何禁止声明（依赖 RIFT-91 layers-continuous 与链许可查询）。" +
+    "缺持续禁止的动态引用与消费方：(1) “Its controller can't play spells this turn” 是本回合对该玩家的打出禁止，" +
+    "continuous.restrict 原语与 restriction 查询已经合入，但当前指令不能把 object-property(target.controller) " +
+    "解析成 appliesTo 过滤器，且 chain 的 canAct/Finalize 尚未读取本回合 restriction。" +
     "(2) 被禁止的玩家是 “Its controller”，由目标法术的控制者在结算时读取（359.3.f.1 的 referent），需要第 1 点的持续效果才能落地。" +
     "counter 半段（effect.counter，426.1–426.3）与目标合法性（355.9.a.2 链上法术、355.9.c 不能以自己为目标、契约 3.4 排除 Pending 链项）" +
     "已合入，golden 用参考内核真实执行反制；局部执行不构成整卡证据。",
