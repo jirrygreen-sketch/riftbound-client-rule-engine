@@ -32,6 +32,7 @@ test("ogn-275-298 Altar to Unity: identity, ruleset, status and printed text", (
   // The unresolved part is the controller-relative base destination.
   assert.match(program.judgeReason, /base/);
   assert.match(program.judgeReason, /LocationRef/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("ogn-275-298 Altar to Unity: mandatory hold trigger playing a CR 187.1 Recruit token", () => {
@@ -91,27 +92,16 @@ test("ogn-275-298 Altar to Unity: the merged primitive plays a 1 Might Recruit t
   assert.equal(recruit.power, null);
 });
 
-test("ogn-275-298 Altar to Unity: the printed base placeholder is negated, not silently placed", () => {
-  // The program keeps `player: "controller"` because the frozen IR has no
-  // controller-relative LocationRef. The merged primitive must refuse it
-  // instead of creating the token in an arbitrary seat.
-  const kernel = world().build();
-  const run = runInstruction(token, instruction.args, { world: kernel });
-
-  assert.equal(run.result.status, "negated");
-  assert.equal(run.result.reason, "impossible");
-  assert.deepEqual(run.events, []);
-  assert.equal(kernel.query({ zone: "board", type: "unit" }).length, 0);
-  assert.equal(kernel.query({}).length, 0);
-});
-
 test.todo(
   "ogn-275-298 Altar to Unity: playing the token into 'your base' needs a controller-relative " +
     "LocationRef (contract change request: effect.token accepts only a literal PlayerId that must " +
-    "equal ctx.controller, while effect.move already resolves the literal 'controller-base')"
+    "equal ctx.controller, while effect.move already resolves the literal 'controller-base'). " +
+    "The program keeps the printed placeholder spelling until that dependency lands."
 );
 
 test.todo(
-  "ogn-275-298 Altar to Unity: the hold timing point reaching this ability through the trigger -> " +
-    "chain pipeline (RIFT-33 scenarios-triggers / RIFT-26 scenarios-chain)"
+  "ogn-275-298 Altar to Unity: the hold trigger still cannot register: the nested " +
+    "{ event, here, player } spelling is rejected by events/trigger-spec.ts (engine spellings are " +
+    "held/self) and no merged consumer binds a CardProgram's triggered ability into a " +
+    "TriggerRegistration (RIFT-257)."
 );

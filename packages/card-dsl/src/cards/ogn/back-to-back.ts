@@ -15,33 +15,26 @@ import type { CardProgram } from "../../ir/index.js";
  *   "unit you control"). The printed count is fixed, so the TargetSpec pins
  *   min: 2 / max: 2; it is not "up to" (355.13 would allow zero). Finalize
  *   rejects the card when fewer than two friendly units are available.
- * - "each +2 :rb_might: this turn" is a temporary Might modification that
- *   expires in the end-of-turn cleanup (317.2.c "3d. All 'this turn' effects
- *   expire simultaneously."; 433.1.a layer modulation). That effect belongs
- *   to the layers system: effect.buff's own header states that temporary
- *   Might changes "belong to continuous.might, never to this primitive", and
- *   no registered instruction turns a card instruction into
- *   ctx.addContinuous with a continuous.might effect. The layers engine
- *   (RIFT-91, merged) is the consumer; the card-facing instruction op is
- *   still missing, so the printed amount is recorded on the pending
- *   `continuous.might` op instead of being approximated with Buff counters
- *   (703: Buffs are counters, not a Might modification).
+ * - "each +2 :rb_might: this turn" is a temporary Might modification executed
+ *   by the merged continuous.might primitive (RIFT-258): it registers one
+ *   arithmetic-layer effect per resolved object through
+ *   ResolveContext.addContinuous with the end-of-turn duration
+ *   (317.2.c "3d. All 'this turn' effects expire simultaneously."; 317.1.a /
+ *   468.7.c, layers/ops resolveContinuousDuration). effect.buff is not used —
+ *   703 Buffs are counters, not a Might modification.
  *
- * Status: judge-required for the Might half. Identity, keywords, the fixed
- * two-unit target group and the target group bounds are covered by the golden
- * test; the merged target system enforces the 2/2 bounds.
+ * Status: executable — the whole printed ability executes on merged paths. The
+ * golden test drives the card's own body through the interpreter, the merged
+ * target system and the layer engine, asserting the 2/2 target bounds, the two
+ * arithmetic-layer registrations, the +2 effective Might per unit, the
+ * end-of-turn expiry and the stale-target edge. The [Reaction] permission's
+ * chain admission stays engine work recorded in test.todo, exactly as in the
+ * other merged keyword cards (cf. ogn/grove-of-the-god-willow).
  */
 const backToBack = {
   canonicalCardId: "card.hash-da1c2e22f4362a3f4d0eaa86e904a11354020a28a999ebe7cd71d8e76da691d7",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "缺临时 Might 修正的指令原语：CR 317.2.c / 433.1.a 的「this turn +2 Might」属于 layers 的" +
-    "continuous.might（本回合到期），effect.buff 明确临时 Might 不入 Buff 计数器（CR 703）；" +
-    "RIFT-91 已合入 layers 引擎（addContinuous / Duration / 到期时点），但 effects/instructions 里" +
-    "没有任何已注册 op 把卡指令转成带 end-of-turn 期限的持续效果调用（层引擎缺『卡牌侧入口』这一原语）。" +
-    "依赖：M1 原语清单里的 continuous.might 指令（与 RIFT-91 的层引擎对接）。" +
-    "不近似实现（不改写成 Buff、不固定伤害）。",
+  status: "executable",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {
@@ -52,20 +45,28 @@ const backToBack = {
       },
       body: [
         {
-          // "Give two friendly units each +2 Might this turn" — the pending
-          // layers instruction (continuous.might with an end-of-turn duration
-          // and the 317.2.c expiry). No registered primitive consumes it yet
-          // (see judgeReason).
+          // "Give two friendly units each +2 Might this turn" — the merged
+          // continuous.might primitive registers one arithmetic-layer effect
+          // per resolved object (478/478.1.a) with the end-of-turn duration
+          // (317.2.c expiry).
           id: "back-to-back.grant-might",
           op: "continuous.might",
           args: {
-            amount: { kind: "literal", value: 2 },
-            duration: { kind: "literal", value: "this-turn" }
+            amount: { kind: "constant", value: 2 },
+            duration: { kind: "constant", value: "this-turn" },
+            objects: {
+              kind: "constant",
+              value: { kind: "target", id: "back-to-back.units" }
+            }
           },
           targets: [
             {
               id: "back-to-back.units",
-              filter: { types: "unit", controller: "controller" },
+              // "friendly units" = units the ability controller controls; the
+              // merged chain query normalizes the "self" player selector
+              // against the item's controller (the merged on-the-hunt /
+              // siphon-power spelling).
+              filter: { type: "unit", zone: "board", controller: "self" },
               min: 2,
               max: 2,
               selection: "any"

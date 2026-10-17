@@ -24,6 +24,7 @@ test("ogn-276-298 Aspirant's Climb: identity, ruleset, status and printed text",
   // The unresolved part is the missing Victory Score operation.
   assert.match(program.judgeReason, /Victory Score/);
   assert.match(program.judgeReason, /194\.3/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("ogn-276-298 Aspirant's Climb: no ability is encoded because no primitive changes the Victory Score", () => {

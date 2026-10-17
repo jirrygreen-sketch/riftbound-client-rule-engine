@@ -45,6 +45,7 @@ test("ogn-056-298 Adaptatron: identity, ruleset, status, judgeReason and source 
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /conquer/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });
@@ -174,7 +175,7 @@ test("ogn-056-298 Adaptatron golden: with no gear the kill is ignored and the bu
 // ---------------------------------------------------------------------------
 
 test.todo(
-  "ogn-056-298 Adaptatron: the conquer trigger firing needs an emitter for the conquer timing " +
-    "point (383.4.c, 471.1/473.2.a); merged scoring emits no pipeline timing and the duel " +
-    "executor only gates internal step names (P0 contract 7.2 batch 5 / scoring workstream)"
+  "ogn-056-298 Adaptatron: the conquer trigger still cannot register: the card's nested " +
+    "{ event, filter } spelling is rejected by events/trigger-spec.ts and no merged consumer " +
+    "binds a CardProgram's triggered ability into a TriggerRegistration (RIFT-257)."
 );

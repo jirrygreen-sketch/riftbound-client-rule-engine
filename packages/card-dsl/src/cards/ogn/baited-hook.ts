@@ -36,7 +36,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   dropped from the recycled set by 124 / 359.3.e.4 — that is the merged
  *   mechanics performing "the rest", not an instruction written by this card.
  *
- * Status: judge-required — one printed restriction has no merged form:
+ * Status: judge-required — two gaps, neither approximated:
  * - "a unit from among them that has Might up to 1 more than the killed unit"
  *   is a legality bound that compares each candidate's current Might against a
  *   value read from ANOTHER object (the killed unit's last-known Might, 359.3.e.13
@@ -50,7 +50,7 @@ import type { CardProgram } from "../../ir/index.js";
  * - The look-up of the killed unit's Might itself is expressible (the interpreter
  *   reads it through the killed instruction's linked reference with look-back);
  *   only its use as a selection constraint is missing.
- * - Second gap, found while wiring the golden run: contract 3.6 requires the
+ * - Second gap: contract 3.6 requires the
  *   looking player to be written as an ObjectSelector expression ("your Main
  *   Deck" = the ability controller, 190.6.d), and the interpreter's expression
  *   evaluator resolves that form. The merged `effect.inspect` argsSchema, however,
@@ -60,6 +60,12 @@ import type { CardProgram } from "../../ir/index.js";
  *   The selector form is authored because it is what the contract requires; the
  *   schema mismatch is reported as a contract-change request instead of being
  *   sidestepped with a hard-coded player id.
+ * - Third gap: an activated ability still needs the RIFT-257 CardProgram
+ *   binding (describeActivate) before the cost plan, targets and body execute
+ *   through the production chain; the merged cost plan itself rejects the
+ *   historical `kind: "cost.printed"` spelling (only `"printed"` is accepted),
+ *   which is why the cost declared here is `kind: "activated"` with its printed
+ *   components.
  * The golden test executes the cost payment, the kill, the ordered look, the
  * optional wrapper, the banish and the cost-waived play for real; the constrained
  * candidate selection is a test.todo.
@@ -78,6 +84,7 @@ const baitedHook = {
     "第二处缺口：契约 3.6 要求“your Main Deck”的查看者写成 ObjectSelector 表达式（190.6.d 的能力控制者），解释器的表达式求值器能解析该形态，" +
     "但已合入的 effect.inspect argsSchema 仍把 object-property/object-attribute 的 object 校验为运行时 ObjectRef 而非选择器" +
     "（effect.resources 已接受选择器），经链式适配器派发会在求值前抛错；按契约写选择器形态并提交契约变更请求，不用硬编码玩家 id 绕过。" +
+    "第三处缺口：启动能力仍需 RIFT-257 的 CardProgram 绑定（describeActivate）才能让费用计划、目标与 body 经生产链执行。" +
     "费用（1 能量 + 1 Order Power + 横置）、Kill、按牌库真实顺序查看顶 5 张、choice.optional、banish 与零费用计划的 play " +
     "都只用已合入原语，已由 golden 真实执行（look 的 player 由调用方按求值后的值提供）。",
   abilities: [

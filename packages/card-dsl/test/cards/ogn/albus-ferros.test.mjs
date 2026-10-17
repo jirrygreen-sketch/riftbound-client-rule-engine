@@ -25,6 +25,7 @@ test("ogn-230-298 Albus Ferros: identity, status and verbatim sourceText", () =>
   // CR 704.1 / 742.1: Buff counters are counters, not game objects that can be targeted.
   assert.match(program.judgeReason, /704\.1/);
   assert.match(program.judgeReason, /pick/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(
     program.sourceText,
     "When you play me, spend any number of buffs. For each buff spent, channel 1 rune exhausted."
@@ -35,7 +36,14 @@ test("ogn-230-298 Albus Ferros: mandatory card-played trigger with the counter s
   assert.equal(program.abilities.length, 1);
   assert.equal(ability.kind, "triggered");
   assert.equal(ability.trigger.at, "card-played");
-  assert.deepEqual(ability.trigger.filter, { role: "self" });
+  // 旧 { role: "self" } 拼写会被引擎侧 ObjectFilter 校验拒绝；改用 canonicalCardId
+  // 的自身拼写（与 sfd/poro-herder 等已合入卡一致），由 RIFT-257 负责注册。
+  assert.deepEqual(ability.trigger.filter, {
+    event: "card-played",
+    object: {
+      canonicalCardId: "card.hash-ef48253b8c94c8b28932090e3ba51b03bd2a1b1ea8a5465de707daabf2bb92c5"
+    }
+  });
   // No "may" in the printed text: the trigger is mandatory.
   assert.equal(ability.optional, false);
   assert.deepEqual(ability.body.map(instruction => instruction.id), [
@@ -112,21 +120,39 @@ test("ogn-230-298 Albus Ferros: spending zero buffs channels nothing", () => {
   assert.equal(outcome.events.filter(event => event.action === "channel-rune").length, 0);
 });
 
-test("ogn-230-298 Albus Ferros: the merged effect.buff rejects the declared pick form (fails closed)", () => {
+test("ogn-230-298 Albus Ferros: the merged effect.buff spends a counter through its target form", () => {
   // The declared pick form (args.pick) is not consumed by the merged effect.buff, so the
-  // declared instruction fails closed: no counter is spent and no rune is channeled.
-  const kernel = world().unit("buffed", { buffs: 1 }).rune(["rune-1"]).build();
-  kernel.setPicks(buffPick.id, [kernel.ref("buffed")]);
-  assert.throws(
-    () => resolveChainBody([spendInstruction], kernel),
-    error => /effect\.buff args: target must be a non-empty TargetSpec id/.test(error.message)
+  // merged half is exercised through its supported TargetSpec form: the already-buffed
+  // unit loses exactly one counter (702.2.b) and the spent count feeds the repeat.
+  const kernel = world().unit("buffed", { controller: "A", buffs: 1 }).rune(["rune-1"]).build();
+  kernel.setTargets("albus-ferros.buffs", [kernel.ref("buffed")]);
+  const outcome = resolveChainBody(
+    [
+      {
+        id: "albus-ferros.spend-buffs",
+        op: "effect.buff",
+        args: {
+          mode: { kind: "constant", value: "spend" },
+          target: { kind: "constant", value: "albus-ferros.buffs" }
+        }
+      }
+    ],
+    kernel
   );
-  assert.equal(kernel.getObject("buffed").buffs, 1);
+
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.deepEqual(outcome.results[0].result.linkedValues.spent.map(ref => ref.id), ["buffed"]);
+  assert.equal(outcome.results[0].result.linkedValues.spentCount, 1);
+  assert.equal(kernel.getObject("buffed").buffs, 0);
   assert.deepEqual(kernel.zone("A", "rune-zone"), []);
 });
 
 test.todo(
   "ogn-230-298 Albus Ferros: the non-target counter pick (CR 704.1/742.1/745.1.a, any number per " +
     "CR 355.13) needs effect.buff's pick form; the golden tests supply the spend count directly " +
-    "because the merged primitive only accepts args.target (TargetSpec)"
+    "because the merged primitive only accepts args.target (TargetSpec)."
+);
+test.todo(
+  "ogn-230-298 Albus Ferros: the card-played trigger registration into the real chain " +
+    "needs the RIFT-257 CardProgram binding; the filter now uses the canonicalCardId self spelling."
 );

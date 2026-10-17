@@ -23,7 +23,7 @@ test("Ava Achiever identity and judge-required reason", () => {
   );
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /cost\.printed|finalized cost plan/);
   assert.match(program.judgeReason, /picks/);
   assert.equal(
@@ -120,9 +120,9 @@ test("golden: choosing to proceed really plays the [Hidden] card with a zero-cos
     .build();
   kernel.setAnswers({ "ava.opt-in/optional": true });
 
-  // ava.pay 是未合入的 cost.pay 原语：解释器遇到未注册 opcode 会抛错，因此这里
-  // 只把 body 拆到“pay 之后的 play 指令”为止，验证 effect.play 能真实打出这张
-  // [Hidden] 牌（356.1.b.1 的零费用计划 + 359.3.f 的 here 位置）。
+  // ava.pay 依赖尚未合入的卡面费用指令（RIFT-261），因此这里只把 body 拆到
+  // “pay 之后的 play 指令”为止，验证 effect.play 能真实打出这张 [Hidden] 牌
+  // （356.1.b.1 的零费用计划 + 359.3.f 的 here 位置）。
   const play = ability.body[0].args.body.value[1];
   const location = { type: "battlefield", id: "battlefield-1" };
   // 已注册的原语期望“未求值的 Expr 参数”，因此走 chain 的适配器（resolveChainBody），
@@ -154,5 +154,6 @@ test("golden: choosing to proceed really plays the [Hidden] card with a zero-cos
 test.todo(
   "Ava Achiever: binding the pick filter ({ zone: hand, Hidden }) into concrete resolution-time " +
     "options, then paying 1 Mind Power and playing the card with a 0/0 finalized cost plan " +
-    "(RIFT-8x pick/finalize binding; RIFT-89 cost.printed / cost.pay)"
+    "(RIFT-8x pick/finalize binding; RIFT-261 cost.printed / cost.pay), plus the attack-declared " +
+    "trigger registration through RIFT-257."
 );

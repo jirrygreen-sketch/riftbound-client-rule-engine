@@ -41,7 +41,8 @@ test("ogn-148-298 Anivia, Primal: judgeReason names the attack-emission and set-
   assert.match(program.judgeReason, /attack-declared/);
   assert.match(program.judgeReason, /355\.10\.d/);
   assert.match(program.judgeReason, /effect\.damage/);
-  assert.match(program.judgeReason, /TargetSpec/);
+  assert.match(program.judgeReason, /combat-start-transaction|combat/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("ogn-148-298 Anivia, Primal: one attack trigger with a fixed 3 damage body", () => {
@@ -62,8 +63,9 @@ test("ogn-148-298 Anivia, Primal: one attack trigger with a fixed 3 damage body"
   assert.equal(instruction.op, "effect.damage");
   assert.deepEqual(instruction.args.amount, { kind: "constant", value: 3 });
   // The "all enemy units here" set is NOT a target (355.10.d), so the program
-  // deliberately carries no TargetSpec for it: the value is a描述占位串 and the
-  // instruction is not executable. The gap is recorded in judgeReason.
+  // deliberately declares no TargetSpec for it: the value is a descriptive
+  // placeholder for the missing untargeted set-damage form, and the gap is
+  // recorded in judgeReason and the test.todo below.
   assert.deepEqual(instruction.args.target, {
     kind: "literal",
     value: "anivia.enemy-units-here"
@@ -112,7 +114,9 @@ test("ogn-148-298 Anivia, Primal: with no locked set the primitive mistargets �
 
 test.todo(
   "ogn-148-298 Anivia, Primal: the 'attack-declared' timing point needs an emitter from the " +
-    "combat flow (CR v1.5 383.4.e / 347.2.a; combat wiring is P0 contract 7.2 batch 5 after RIFT-119)."
+    "combat flow (CR v1.5 383.4.e / 347.2.a); combat/flow.ts still blocks the declaration " +
+    "transaction with combat-start-transaction (P0 contract 7.2 batch 5 after RIFT-119/124) " +
+    "and the trigger registration needs RIFT-257."
 );
 test.todo(
   "ogn-148-298 Anivia, Primal: 'deal N to all enemy units here' needs an untargeted set-damage " +

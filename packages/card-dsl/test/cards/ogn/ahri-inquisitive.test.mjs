@@ -6,6 +6,7 @@ import program from "../../../dist/cards/ogn/ahri-inquisitive.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
 const [attackAbility, defendAbility] = program.abilities;
 const [debuffInstruction] = attackAbility.body;
@@ -43,8 +44,8 @@ test("Ahri, Inquisitive identity and judge-required reason", () => {
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-91/);
-  assert.match(program.judgeReason, /359\.3\.f/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /attack-declared/);
   assert.equal(
     program.sourceText,
     "When I attack or defend, give an enemy unit here -2 :rb_might: this turn, to a minimum of 1 :rb_might:."
@@ -84,7 +85,8 @@ test("structure: -2 Might this turn with the printed minimum of 1, targeting an 
     assert.deepEqual(debuff.args.amount, c(-2));
     assert.deepEqual(debuff.args.duration, c("this-turn"));
     assert.deepEqual(debuff.args.minimum, c(1));
-    assert.deepEqual(debuff.args.target, c("ahri.enemy-unit-here"));
+    // RIFT-258 的 continuous.might：objects 用 target 选择符指名 Finalize 锁定的目标。
+    assert.deepEqual(debuff.args.objects, c({ kind: "target", id: "ahri.enemy-unit-here" }));
 
     // 355.9.b / 355.10："an enemy unit" 是一个目标选择。
     assert.equal(debuff.targets.length, 1);
@@ -122,7 +124,7 @@ test("golden: a locked enemy unit that is no longer 'here' is mistargeted and ig
   assert.deepEqual(outcome.events, []);
 });
 
-test("golden: a locked enemy unit at the same location passes target legality", () => {
+test("golden: a locked enemy unit at the same location gets -2 Might this turn (RIFT-258)", () => {
   const kernel = world()
     .unit("ahri", { might: 3, location: { type: "battlefield", id: "bf-1" } })
     .unit("enemy-here", { might: 4, owner: "B", controller: "B", location: { type: "battlefield", id: "bf-1" } })
@@ -130,16 +132,54 @@ test("golden: a locked enemy unit at the same location passes target legality", 
   const sourced = kernel.clone({ sourceSnapshot: kernel.getObject("ahri") });
   sourced.setTargets(targetSpec.id, [sourced.ref("enemy-here")]);
 
-  // continuous.might 尚未注册：目标合法性通过后才会触达原语分发，因此这里只断言
-  // “未被 mistargeted 忽略”——未注册 opcode 会抛出，说明合法性检查已经通过。
-  assert.throws(
-    () => runAbilityBody([withConcreteOpponent(debuffInstruction, "B")], sourced),
-    /Unregistered instruction opcode: continuous\.might/
+  const outcome = runAbilityBody([withConcreteOpponent(debuffInstruction, "B")], sourced);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(
+    outcome.results.map(entry => [entry.id, entry.result.status]),
+    [["ahri.debuff-attack", "executed"]]
   );
+  // 478 / 478.1.a：Might 修改注册在 arithmetic 层，按 317.1.a 在回合末到期；
+  // 479.4.b 把印刷下限 1 快照进 effect.minimum。
+  assert.equal(sourced.continuousEffects.length, 1);
+  const [registration] = sourced.continuousEffects;
+  assert.equal(registration.effect.layer, "arithmetic");
+  assert.equal(registration.effect.effect.kind, "continuous.might");
+  assert.equal(registration.effect.effect.amount, -2);
+  assert.equal(registration.effect.effect.minimum, 1);
+  assert.deepEqual(registration.duration, { type: "end-of-turn" });
+
+  const engine = createLayerEngine(
+    sourced.objects,
+    sourced.continuousEffects.map((entry, index) => ({ ...entry, timestamp: index + 1 }))
+  );
+  assert.equal(engine.evaluate(sourced.ref("enemy-here")).might, 2);
+  assert.equal(engine.expireAt("turn-end").length, 1);
+  assert.equal(engine.evaluate(sourced.ref("enemy-here")).might, 4);
+});
+
+test("golden: the printed minimum of 1 clamps the reduction (479.4.b)", () => {
+  const kernel = world()
+    .unit("ahri", { might: 3, location: { type: "battlefield", id: "bf-1" } })
+    .unit("enemy-weak", { might: 2, owner: "B", controller: "B", location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const sourced = kernel.clone({ sourceSnapshot: kernel.getObject("ahri") });
+  sourced.setTargets(targetSpec.id, [sourced.ref("enemy-weak")]);
+
+  const outcome = runAbilityBody([withConcreteOpponent(debuffInstruction, "B")], sourced);
+  assert.equal(outcome.status, "executed");
+  // 2 Might 单位吃 -2(最小 1)：施加时快照为 -1，最终停在 1，而不是被压到 0。
+  assert.equal(sourced.continuousEffects[0].effect.effect.amount, -1);
+  const engine = createLayerEngine(
+    sourced.objects,
+    sourced.continuousEffects.map((entry, index) => ({ ...entry, timestamp: index + 1 }))
+  );
+  assert.equal(engine.evaluate(sourced.ref("enemy-weak")).might, 1);
 });
 
 test.todo(
-  "Ahri, Inquisitive: giving an enemy unit -2 Might this turn with the printed minimum of 1 clamp and " +
-    "end-of-turn expiry (continuous.might + continuous.duration, RIFT-91; effect.buff is the 702–705 Buff " +
-    "counter and cannot substitute)"
+  "Ahri, Inquisitive: the attack-declared / defense-declared timing points and the ability's " +
+    "self-scoped trigger registration (383.4.e.1 / 383.4.f.1) still have no merged path: " +
+    "combat/flow.ts blocks the declaration transaction (CR 466.2) and the nested " +
+    "{ event, filter } spelling is rejected by events/trigger-spec.ts; RIFT-257 owns the binding."
 );
