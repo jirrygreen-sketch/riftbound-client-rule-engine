@@ -23,50 +23,63 @@ import type { CardProgram } from "../../ir/index.js";
  *   unit's battlefield" is read from the stunned unit's Location at resolution
  *   through an object-property expression published by condition.value, which
  *   the merged interpreter evaluates.
+ * - "move a friendly unit": 355.12 makes every choice for a may-action a
+ *   target chosen independently of the decision to perform the action, so the
+ *   TargetSpec sits on the may node itself (the merged sfd/disarming-rake and
+ *   ogn/salvage "you may kill a gear" shape). The Move instruction inside the
+ *   body therefore carries only the { target: ... } selector; the nested
+ *   target shape is what ChainEngine.assertFinalizationSurface rejected.
  * - The reminder text "(A stunned unit doesn't deal combat damage this turn.)"
  *   is the consequence of the Stunned state itself (424.1.b), not an
  *   instruction, so it is not authored separately.
  *
- * Status: judge-required — the optional Move half cannot be finalized:
- * - the nested instruction inside choice.optional carries the Move's target
- *   selection. ChainEngine.assertFinalizationSurface still throws
- *   "Nested/repeated targets require an interpreter target-selection lifecycle
- *   adapter"; the golden drives the Stun, Location read and Move subeffects
- *   with Finalize-style locks. Hoisting the target out of the optional wrapper
- *   would contradict the frozen 3.9 shape for "may".
- * - the Move Destination is the stunned unit's battlefield, a runtime Location.
- *   The merged effect.move accepts it only through an Expr the primitive itself
- *   evaluates, so this program publishes it with condition.value and the
- *   interpreter adapter path resolves it (the golden test runs that Move).
- *   Destination legality (355.4.a / 449.2 / 451.1) belongs to the Turn flow;
- *   for committed effect Moves the merged TurnFlow/CombatFlow now produce the
- *   Contested consequence (452 contested-applied) and stage the Showdown, but
- *   combat start (466.2) and simultaneous combat damage (467.2.c.1.a / 467.3)
- *   are still explicitly blocked in the Turn/Combat workstream.
- * - the Move is an effect Move, not the Standard Move ability (144, 451.1), so
- *   it neither exhausts nor pays for the friendly unit.
- * - the card-program Play binding and runtime Location read are merged; the
- *   remaining Play path is blocked by the nested target lifecycle and combat
- *   consequences listed below.
- * The Stun half is merged and is executed by the golden test with a
- * Finalize-locked target, the same way the merged Rune Prison program does.
+ * Status: judge-required, with the target shape now aligned to 355.12 and the
+ * whole printed ability expressed in merged IR. The golden drives the card
+ * through the real ChainEngine: describePlay builds the draft from the program
+ * and Finalize locks both printed choices (355.12). Resolve itself stops one
+ * instruction earlier on an engine-side adapter gap: chain/interpreter-adapter.ts
+ * LITERAL_FIELDS has no effect.stun entry, so the card's own Stun instruction is
+ * rejected with "effect.stun target must be a spec id string" (the golden
+ * asserts that exact boundary). The Stun primitive and the Location read plus
+ * optional Move are therefore executed through the merged interpreter and the
+ * chain adapter respectively.
+ *
+ * The remaining gap is the runtime Move destination itself: 355.4 / 355.4.a /
+ * 451.1 require the Move Destination to be a valid Location chosen at
+ * Finalize, and this card's destination is the stunned unit's battlefield (a
+ * runtime Location). The merged effect.move evaluates a linked Location, and
+ * the merged TurnFlow emits the resulting object-leaves/enters-battlefield
+ * timing plus Contested (452) for the committed move-location action, but no
+ * merged path answers 355.4.a/449.2 legality for an effect Move: the Finalize
+ * surface has no location plan for effect.move (only target/pick plans are
+ * locked), and combat start (466.2) / simultaneous combat damage
+ * (467.2.c.1.a / 467.3) remain explicitly blocked in Turn/Combat, so the
+ * Showdown this Move stages cannot be completed.
+ *
+ * The Move is an effect Move, not the Standard Move ability (144, 451.1), so
+ * it neither exhausts nor pays for the friendly unit — the golden asserts that.
+ * The Stun half is merged and executed by the golden through the primitive
+ * registry, the same way the merged Rune Prison / Solari Chief programs record
+ * their adapter dependency.
  */
 const zenithBlade = {
   canonicalCardId: "card.hash-a4a04e52d4544c14530e273f53c3890ccd0d8688ef9dc725dc0ef6b1d20103de",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「You may move a friendly unit to that enemy unit's battlefield」的可选半段仍缺 Finalize 生命周期：" +
-    "按契约 3.9 的冻结形状，may 必须写成 choice.optional 并把被选指令包进 body，而该 Move 指令自带目标选择" +
-    "（355.12：对若干对象执行游戏动作的许可，全部选择都视为目标并独立于“是否执行”决定）；" +
-    "ChainEngine.assertFinalizationSurface 仍会以 “Nested/repeated targets require an interpreter target-selection lifecycle adapter” 阻断嵌套目标（chain/README 契约变更请求 2），" +
-    "golden 已用真实解释器/链适配器执行 Stun、Location 读取和 Move 子效果，并保留该嵌套目标形状。" +
-    "把目标提升到可选包装之外会违反 3.9 的 may 形状，故不近似实现。" +
-    "另：目的地是“被 Stun 单位的战场”，属运行时 Location（355.4.a / 449.2 / 451.1），" +
-    "IR 用 condition.value 发布该 Location 供 effect.move 求值（golden 真实执行该 Move）；" +
-    "Move 后果中，已合入的 TurnFlow/CombatFlow 会为已提交的 effect Move 产生 Contested（452 contested-applied）并搭起 Showdown 阶段，" +
-    "但战斗开始（466.2）与同时战斗伤害（467.2.c.1.a / 467.3）在 Turn/Combat 工作流仍被显式阻断。" +
-    "Stun 半段只用已合入的 effect.stun（424.1/424.1.a.1），由 golden 真实执行；运行时 Location 读取与 effect.move 子效果也已有真实执行证据。",
+    "已复核并改写为 355.12 的冻结形状：may 仍是 choice.optional 包住 Move，而「a friendly unit」的 TargetSpec 按 355.12" +
+    "（may-action 的全部选择都视为目标、独立于是否执行的决定）挂在 may 节点上——同已合入的 sfd/disarming-rake、ogn/salvage。" +
+    "golden 经真实 ChainEngine 的 describePlay 从程序生成 draft，并让 Finalize 锁定两处印刷选择（355.12 的敌方单位与友方单位）；" +
+    "Resolve 本身停在更早的引擎侧适配缺口：chain/interpreter-adapter.ts 的 LITERAL_FIELDS 没有 effect.stun 条目，" +
+    "卡内 Stun 指令被拒为 “effect.stun target must be a spec id string”（golden 断言该边界）。" +
+    "已合入并有真实执行证据的部分：effect.stun（424.1/424.1.a.1）经原语注册表令敌方单位 Stunned；" +
+    "condition.value 读出该单位的运行时 Location，effect.move 据此把友方单位移入该战场，declined 分支不移动；" +
+    "effect Move 不是 Standard Move（144/451.1），不横置也不付费（golden 断言）。" +
+    "仍缺的唯一依赖是 effect Move 的 355.4 / 355.4.a / 451.1 目的地合法性：目的地是「被 Stun 单位的战场」这一运行时 Location，" +
+    "Finalize 面只为 target/pick 生成锁定计划、没有 effect.move 的 location plan，" +
+    "因此无法在 Finalize 前证明该目的地是「该单位当前位置之外且允许出现」的合法 Location；" +
+    "已合入的 TurnFlow/CombatFlow 会为已提交的 move-location 发出离/入战场时点并置 Contested（452），" +
+    "但战斗开始（466.2）与同时战斗伤害（467.2.c.1.a / 467.3）在 Turn/Combat 工作流仍被显式阻断，该 Move 搭起的 Showdown 无法推进完。不近似实现。",
   sourceText:
     "[Action] (Play on your turn or in showdowns.)\n" +
     "Stun an enemy unit at a battlefield. You may move a friendly unit to that enemy unit's battlefield. " +
@@ -128,23 +141,26 @@ const zenithBlade = {
                       instructionId: "read-that-battlefield",
                       key: "battlefield"
                     }
-                  },
-                  targets: [
-                    {
-                      id: "friendly-unit",
-                      // "a friendly unit": one targeted unit the controller
-                      // controls; the Move destination is fixed by the text,
-                      // so no destination choice is authored.
-                      filter: { type: "unit", controller: "self" },
-                      min: 1,
-                      max: 1,
-                      selection: "one"
-                    }
-                  ]
+                  }
                 }
               ]
             }
-          }
+          },
+          targets: [
+            {
+              id: "friendly-unit",
+              // 355.12: every choice made for the may-action is a target chosen
+              // independently of the decision to perform it, so the TargetSpec
+              // sits on the may node (the merged disarming-rake / salvage
+              // "you may <action> a <thing>" shape). The Move body carries only
+              // the { target: ... } selector; the Move destination is fixed by
+              // the printed text, so no destination choice is authored.
+              filter: { type: "unit", controller: "self" },
+              min: 1,
+              max: 1,
+              selection: "one"
+            }
+          ]
         }
       ]
     }
