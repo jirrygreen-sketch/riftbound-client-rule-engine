@@ -4,7 +4,11 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/blighted-battleaxe.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-21de7fcaef3e38ea7173a7b6b370c00cc4d0e2893c34cafde3a98ee7b65ac558";
 const SOURCE_TEXT =
@@ -18,7 +22,8 @@ test("unl-019-219 Blighted Battleaxe: program validates and is judge-required", 
   assert.deepEqual(result.issues, []);
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Equip|equip/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("unl-019-219 Blighted Battleaxe: identity, ruleset, status and verbatim source text", () => {
@@ -82,12 +87,56 @@ test("unl-019-219 Blighted Battleaxe: the merged Equip expansion stays valid Eff
   assert.equal(activation.body[0].targets[0].filter.type, "unit");
 });
 
+test("unl-019-219 Blighted Battleaxe: the merged Equip payment kind still blocks the printed cost", () => {
+  // 818.1.c.3: the printed Equip cost must be payable. The merged planner has no
+  // "equip" payment kind (cost/plan-values.ts readCost blocks unknown kinds), so
+  // the activation fails loudly instead of attaching for free.
+  const kernel = world()
+    .player("A", { energy: 1, power: ["Fury"] })
+    .base("battleaxe", { types: ["gear"], energy: 1, power: ["Fury"] })
+    .unit("ally", { controller: "A" })
+    .build();
+  const ctx = kernel.clone({ sourceSnapshot: kernel.getObject("battleaxe") });
+  const [expansion] = keywordDefinitionsById.get("Equip").expand({
+    value: equip.value,
+    host: { canonicalCardId: CARD_ID }
+  });
+  assert.throws(
+    () => buildCostPlan(ctx, { id: "cost:equip", cost: expansion.cost }),
+    error => error instanceof CostPlanError && error.reason === "judge-required" &&
+      /Unsupported payment kind: equip/.test(error.message)
+  );
+});
+
+test("unl-019-219 Blighted Battleaxe: the merged program binding expands the declared keyword", () => {
+  // RIFT-257's adapter expands keyword abilities through the registry
+  // (expandProgram) before any chain draft is built; the golden asserts the
+  // card's declaration really reaches that expansion. Production registration
+  // of the expanded activation is still the recorded RIFT-257 gap.
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const source = {
+    ref: { id: "battleaxe", zoneEntryId: 1 }, cardId: CARD_ID, name: "Blighted Battleaxe",
+    types: ["gear"], tags: ["Equipment"], keywords: [], owner: "A", controller: "A", zone: "board",
+    location: { type: "base", player: "A" }, might: 4, energy: 4, power: [], exhausted: false,
+    damage: 0, stunned: false, buffs: 0, attachedTo: null, faceDown: false, isToken: false
+  };
+  const inspected = binding.inspect(source);
+
+  // The registry stores the validated program value; compare identity, not the
+  // object reference.
+  assert.equal(inspected.program.canonicalCardId, CARD_ID);
+  const activation = inspected.abilities.find(ability => ability.kind === "activated");
+  assert.ok(activation, "the Equip expansion must contribute the activated attach ability");
+  assert.deepEqual(activation.cost.payments, [
+    { kind: "equip", value: { kind: "constant", value: { kind: "source" } } }
+  ]);
+  assert.deepEqual(activation.body.map(step => [step.id, step.op]), [["equip-attach", "effect.attach"]]);
+});
+
 test.todo(
   "unl-019-219 Blighted Battleaxe: pay the printed Equip cost (1 energy + 1 Fury Power, 818.1.c / 818.1.c.3) " +
-    "through the cost plan and attach the gear end-to-end (RIFT-89 follow-up); the KeywordAbility also has no " +
-    "field for the printed energy symbol count"
-);
-test.todo(
-  "unl-019-219 Blighted Battleaxe: the card-program -> keyword expansion -> chain wiring (contract 3.5) is " +
-    "required before the declared KeywordAbility is expanded at runtime"
+    "through the cost plan and attach the gear end-to-end (RIFT-261: the \"equip\" payment kind plus the printed " +
+    "energy symbol count, which no frozen KeywordAbility field carries)"
 );
