@@ -67,7 +67,8 @@ test("sfd-084-221 Jayce, Man of Progress: judgeReason names the receipt, cost, w
   assert.match(program.judgeReason, /206/);
   assert.match(program.judgeReason, /356\.1\.b\.2/);
   assert.match(program.judgeReason, /355\.5/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /translateCost/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -229,7 +230,7 @@ test("sfd-084-221 Jayce, Man of Progress golden: the merged play primitive plays
 
 test.todo(
   "sfd-084-221 Jayce, Man of Progress: gate the play on the kill receipt ('If you do', CR 359.3.e.14.b) " +
-    "once the frozen IR has an action-result binding (condition.result; RIFT-89)"
+    "once the frozen IR has an action-result binding (condition.result)"
 );
 test.todo(
   "sfd-084-221 Jayce, Man of Progress: enforce 'a gear with Energy cost no more than 7' as a working " +
@@ -237,5 +238,7 @@ test.todo(
 );
 test.todo(
   "sfd-084-221 Jayce, Man of Progress: generate the ignore-Energy-only cost plan (356.1.b.2) for the chosen " +
-    "hand card and provide the 'this turn' one-shot play permission window (355.5; RIFT-89 / RIFT-91 follow-up)"
+    "hand card and provide the 'this turn' one-shot play permission window (355.5) — programs/play.ts " +
+    "translateCost turns the card's cost fields into judge-required and cost/ has no card-program ignore-base " +
+    "entry (RIFT-261 in flight)"
 );

@@ -6,7 +6,10 @@ import program from "../../../dist/cards/sfd/kato-the-arm.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import deflect from "../../../../engine-core/dist/effects/keywords/Deflect.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-5c42b9538a43758dced9b213312dffeb6ebdd4fa21de3590ccf10cb802f80cd0";
@@ -32,13 +35,13 @@ test("sfd-112-221 Kato the Arm: identity, ruleset, status and verbatim text", ()
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
-test("sfd-112-221 Kato the Arm: judgeReason names all three gaps with task ids", () => {
+test("sfd-112-221 Kato the Arm: judgeReason names the current gaps", () => {
   assert.match(program.judgeReason, /object-moved/);
-  assert.match(program.judgeReason, /toZone/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /registerTrigger/);
+  assert.match(program.judgeReason, /invalid-event-type/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -95,6 +98,12 @@ test("sfd-112-221 Kato the Arm: 'my keywords' is read from the source, not resta
   // 364.2 / 756-757.1: the granted set is whatever keywords the source has; the
   // program must not enumerate them (that would freeze a moment-in-time list).
   assert.equal(grantKeywords.op, "continuous.grant-keyword");
+  // The grant reuses the one locked "a friendly unit" TargetSpec; without the
+  // target argument the primitive would fall back to the source itself.
+  assert.deepEqual(grantKeywords.args.target, {
+    kind: "constant",
+    value: "kato-the-arm.friendly-unit"
+  });
   assert.deepEqual(grantKeywords.args.keywords, {
     kind: "object-property",
     object: "source",
@@ -120,88 +129,107 @@ test("sfd-112-221 Kato the Arm: the Might grant reads the source's Might at reso
   assert.deepEqual(grantMight.args.duration, { kind: "constant", value: "this-turn" });
 });
 
-test("sfd-112-221 Kato the Arm golden: the merged arithmetic layer applies the source's Might as a bonus", () => {
-  // RIFT-91's layer engine consumes the declared amount for the unit the card
-  // names; running it proves the +N shape, while the "this turn" lifetime and
-  // the card-program registration stay TODO below.
-  const kernel = world()
-    .unit("kato", { might: 3, zone: "board", location: { type: "battlefield", id: "bf-1" } })
-    .unit("ally", { might: 2, zone: "board", location: { type: "battlefield", id: "bf-1" } })
-    .build();
-  const source = kernel.getObject("kato");
-  const ally = kernel.getObject("ally");
-
-  const engine = createLayerEngine([source, ally], [
-    {
-      effect: {
-        id: "kato-the-arm.grant-might",
-        layer: "arithmetic",
-        source: source.ref,
-        filter: { objectId: "ally" },
-        effect: {
-          kind: "continuous.might",
-          mode: "add",
-          // 143.2.a / 478: the amount is the source's effective Might as this
-          // arithmetic layer is evaluated (source 3 -> ally 2 + 3).
-          amount: { kind: "constant", value: source.might }
+/**
+ * Production query path, reproduced for the reference kernel: the RIFT-257
+ * binding translates the card's `controller: "controller"` spelling to "self"
+ * (programs/filters.ts normalizePlayer), then chain/engine.ts normalizes "self"
+ * to the item's controller and matches through layers/filter.ts.
+ */
+function chainQueryContext(kernel) {
+  return bindResolveContext(kernel, {
+    query: (filter) => {
+      const normalized = { ...filter };
+      for (const key of ["controller", "owner"]) {
+        if (normalized[key] === "controller" || normalized[key] === "self") normalized[key] = kernel.controller;
+      }
+      return kernel.objects.filter((object) => {
+        for (const key of ["controller", "owner"]) {
+          if (normalized[key] === "opponent" && object[key] === kernel.controller) return false;
         }
-      },
-      duration: { type: "end-of-turn" },
-      timestamp: 1,
-      sequence: 1
+        return matchesObjectFilter({
+          ...normalized,
+          ...(normalized.controller === "opponent" ? { controller: "any" } : {})
+        }, object);
+      });
     }
-  ]);
+  });
+}
 
-  assert.equal(engine.evaluate(ally.ref).might, 5);
-  assert.equal(engine.evaluate(source.ref).might, 3);
+test("sfd-112-221 Kato the Arm golden: both grants execute and read the source's live values", () => {
+  // 143.2.a / 478: the Might amount reads the source's effective Might at
+  // resolution; "my keywords" grants exactly the keywords the source has
+  // (364.2 / 756-757.1 — never a frozen list). Both halves run through the real
+  // interpreter and register ability/arithmetic layer effects with the printed
+  // this-turn lifetime (317.1.a / 468.7.c).
+  const kernel = world()
+    .player("A", { energy: 20 })
+    .unit("kato", {
+      cardId: CARD_ID,
+      types: ["unit"],
+      keywords: [{ id: "Deflect" }, { id: "Assault", value: 2 }],
+      might: 3,
+      location: { type: "battlefield", id: "bf-1" }
+    })
+    .unit("ally", {
+      might: 2,
+      keywords: [{ id: "Reaction" }],
+      location: { type: "battlefield", id: "bf-1" }
+    })
+    .build();
+  const context = kernel.clone({ source: kernel.ref("kato"), sourceSnapshot: kernel.getObject("kato"), controller: "A" });
+  context.setTargets("kato-the-arm.friendly-unit", [context.ref("ally")]);
+
+  const outcome = runAbilityBody(moveAbility.body, chainQueryContext(context));
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map((entry) => [entry.id, entry.result.status]), [
+    ["kato-the-arm.grant-keywords", "executed"],
+    ["kato-the-arm.grant-might", "executed"]
+  ]);
+  // 317.1.a / 468.7.c: every registered half carries the printed this-turn
+  // lifetime (the grant plus one arithmetic companion per valued keyword).
+  assert.ok(context.continuousEffects.length >= 2);
+  assert.ok(context.continuousEffects.every((entry) => entry.duration.type === "end-of-turn"));
+
+  const layers = createLayerEngine(
+    context.objects,
+    context.continuousEffects.map((entry, index) => ({ ...entry, timestamp: index + 1 }))
+  );
+  const ally = layers.evaluate(context.ref("ally"));
+  // "my keywords" is exactly the source's set, and the +Might equals its Might.
+  assert.deepEqual(ally.keywords.map((keyword) => [keyword.id, keyword.value]), [
+    ["Reaction", undefined],
+    ["Deflect", undefined],
+    ["Assault", 2]
+  ]);
+  assert.equal(ally.might, 5);
+  assert.equal(layers.evaluate(context.ref("kato")).might, 3);
 });
 
-test("sfd-112-221 Kato the Arm golden: the Might bonus tracks the source value, never a fixed constant", () => {
-  for (const [sourceMight, expected] of [[3, 5], [5, 7], [1, 3]]) {
+test("sfd-112-221 Kato the Arm golden: a source with different Might/keywords changes both results", () => {
+  for (const [sourceMight, expectedMight] of [[3, 5], [5, 7], [1, 3]]) {
     const kernel = world()
-      .unit("kato", { might: sourceMight })
-      .unit("ally", { might: 2 })
+      .player("A", { energy: 20 })
+      .unit("kato", { cardId: CARD_ID, types: ["unit"], keywords: [{ id: "Deflect" }], might: sourceMight })
+      .unit("ally", { might: 2, keywords: [{ id: "Reaction" }] })
       .build();
-    const source = kernel.getObject("kato");
-    const ally = kernel.getObject("ally");
-    const engine = createLayerEngine([source, ally], [
-      {
-        effect: {
-          id: "kato-the-arm.grant-might",
-          layer: "arithmetic",
-          source: source.ref,
-          filter: { objectId: "ally" },
-          effect: {
-            kind: "continuous.might",
-            mode: "add",
-            amount: { kind: "constant", value: source.might }
-          }
-        },
-        duration: { type: "end-of-turn" },
-        timestamp: 1,
-        sequence: 1
-      }
-    ]);
-    assert.equal(engine.evaluate(ally.ref).might, expected, "source Might " + sourceMight);
+    const context = kernel.clone({ source: kernel.ref("kato"), sourceSnapshot: kernel.getObject("kato"), controller: "A" });
+    context.setTargets("kato-the-arm.friendly-unit", [context.ref("ally")]);
+    const outcome = runAbilityBody(moveAbility.body, chainQueryContext(context));
+    assert.equal(outcome.status, "executed");
+    const layers = createLayerEngine(
+      context.objects,
+      context.continuousEffects.map((entry, index) => ({ ...entry, timestamp: index + 1 }))
+    );
+    assert.equal(layers.evaluate(context.ref("ally")).might, expectedMight, "source Might " + sourceMight);
+    assert.deepEqual(layers.evaluate(context.ref("ally")).keywords.map((keyword) => keyword.id), ["Reaction", "Deflect"]);
   }
 });
 
 test.todo(
-  "sfd-112-221 Kato the Arm: the object-moved event must carry to/toKind so toZone: \"battlefield\" matches " +
-    "only genuine Moves onto a battlefield (449.1/449.2, with 458/458.1 excluding Recalls) and must expose " +
-    "the moved object to the card registration (RIFT-120)"
-);
-
-test.todo(
-  "sfd-112-221 Kato the Arm: 'give a friendly unit my keywords' needs a card-facing continuous.grant-keyword " +
-    "instruction that reads the source's live keyword set and registers an end-of-turn grant through " +
-    "ResolveContext.addContinuous (layers already evaluate granted keywords) — RIFT-91"
-);
-
-test.todo(
-  "sfd-112-221 Kato the Arm: 'equal to my Might this turn' needs a card-facing continuous.might instruction " +
-    "whose amount is evaluated against the source at resolution and whose lifetime ends with the turn " +
-    "(143.2.a, 317.2.c) — the closed GameAction set has no Might-modification action (RIFT-91)"
+  "sfd-112-221 Kato the Arm: the object-moved trigger must register and deliver to the chain — " +
+    "events/trigger-spec.ts EVENT_PATTERN_TYPES has no \"object-moved\" entry so assertTriggerSpec rejects the card's " +
+    "subscription with invalid-event-type; the event must also carry toKind/toZone and expose the moved object (421.1, 449.1/449.2)"
 );
 
 test.todo(

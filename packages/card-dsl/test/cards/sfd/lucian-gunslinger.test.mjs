@@ -5,6 +5,7 @@ import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/sfd/lucian-gunslinger.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-9cbd19f7b3430a1dd398620ef97b933b43283fd7e9514a877188b5aa5d1cd80a";
@@ -36,14 +37,54 @@ test("sfd-028-221 Lucian, Gunslinger: judgeReason names the Assault-value and at
   assert.match(program.judgeReason, /Assault/);
   assert.match(program.judgeReason, /关键词数值/);
   assert.match(program.judgeReason, /attack-declared/);
-  assert.match(program.judgeReason, /RIFT-81/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /designation|combat-start-transaction/);
+  assert.match(program.judgeReason, /sameLocationAs/);
 });
 
 test("sfd-028-221 Lucian, Gunslinger: [Assault] is declared with no value (807.1.b.3 presumes 1)", () => {
   assert.equal(program.abilities.length, 2);
   assert.deepEqual(assault, { kind: "keyword", keyword: "assault" });
   assert.equal(assault.value, undefined);
+});
+
+test("sfd-028-221 Lucian, Gunslinger: the merged Assault expansion resolves to +1 Might while attacking", () => {
+  // 807.1.b.3: a value-less printed Assault presumes 1. RIFT-257's expandProgram
+  // resolves the card's keyword declaration into the merged Assault expansion
+  // (807.1.c: +X Might while the host is an attacker).
+  const snapshot = {
+    ref: { id: "lucian", zoneEntryId: 1 },
+    cardId: CARD_ID,
+    name: "Lucian, Gunslinger",
+    types: ["unit"],
+    tags: [],
+    keywords: [],
+    owner: "A",
+    controller: "A",
+    zone: "board",
+    location: { type: "battlefield", id: "bf-1" },
+    might: 2,
+    energy: 3,
+    power: null,
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false
+  };
+  const expanded = expandProgram(program, snapshot);
+  assert.equal(expanded.expanded.length, 1);
+  const [assaultExpansion] = expanded.expanded;
+  assert.equal(assaultExpansion.kind, "static");
+  assert.equal(assaultExpansion.effect.kind, "continuous.might");
+  assert.deepEqual(assaultExpansion.effect.amount, { kind: "constant", value: 1 });
+  assert.deepEqual(assaultExpansion.condition, {
+    kind: "compare",
+    left: { kind: "object-property", object: "self", property: "designation" },
+    operator: "eq",
+    right: { kind: "constant", value: "attacker" }
+  });
 });
 
 test("sfd-028-221 Lucian, Gunslinger: the attack trigger targets one enemy unit here", () => {
@@ -125,8 +166,8 @@ test("sfd-028-221 Lucian, Gunslinger golden: a lost target makes the damage inst
 
 test.todo(
   "sfd-028-221 Lucian, Gunslinger: [Assault] expansion (+1 Might while the host is an attacker) — the " +
-    "KeywordDef exists but no consumer expands CardProgram keyword abilities into layers, and Attacker " +
-    "designation is not readable (RIFT-81 / RIFT-91)"
+    "KeywordDef is merged and expandProgram resolves it, but nothing writes the Attacker designation " +
+    "(combat/flow.ts throws combat-start-transaction) and layer conditions do not evaluate it"
 );
 
 test.todo(
@@ -137,5 +178,6 @@ test.todo(
 
 test.todo(
   "sfd-028-221 Lucian, Gunslinger: the attack-declared timing point is emitted by combat and delivers " +
-    "this trigger to the chain (CR 383.4.e.2, 383.4.e.2.a) — RIFT-33 / RIFT-120"
+    "this trigger to the chain (CR 383.4.e.2, 383.4.e.2.a) — timing-points.ts records it as pending the " +
+    "combat transaction (combat/flow.ts throws combat-start-transaction)"
 );

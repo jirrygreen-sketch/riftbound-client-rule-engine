@@ -26,11 +26,16 @@
  *   尚未落到 KeywordDef 接口。这里以扩展字段 costAdditions 记录该印刷费用供审查——
  *   它是描述性数据，不是可执行原语调用，也不改共享契约。
  *
- * status = judge-required：
- * - 已合入的 Equip 展开（RIFT-87）只声明 payments: [{ kind: "equip", value: source }]，
- *   cost/plan-values.ts 的 readCost 没有 "equip" 支付种类（RIFT-89 之后的 Equip 费用支持
- *   未落地），因此连 1 点 Chaos Power 这一半都无法计算/支付，更无法承载 818.1.c.3 的
- *   非资源费用部分；卡牌程序→关键词展开→时点/链的接线（契约 3.5）也未合入。
+ * status = judge-required（复核 2026-10-16）：
+ * - 已合入的 Equip 展开（RIFT-87）声明 payments: [{ kind: "equip", value: source }]，
+ *   但 cost/plan-values.ts 的 readCost 仍没有 "equip" 支付种类（golden 证明
+ *   buildCostPlan 对该 payments 形状抛 Unsupported payment kind: equip，属仍在进行的
+ *   RIFT-261 费用种类批次），因此连 1 点 Chaos Power 这一半都无法计算/支付，更无法承载
+ *   818.1.c.3 的非资源费用部分；卡牌程序→关键词展开→时点/链的接线（契约 3.5）也仍缺
+ *   （RIFT-257 的 expandProgram 可解析声明，但 Equip 展开的 cost 参数没有 KeywordDef
+ *   承载字段，见下条）。
+ * - 契约 3.8 第 3 条要求 expand 用 params.cost 承载印刷装备费，已合入的 KeywordDef
+ *   接口仍无该参数（印刷费用以扩展字段 costAdditions 记录供审查）。
  * - 已合入的费用管线本身支持 recycle 非标准费用（cost/plan-values.ts 的
  *   "recycle" 支付种类），golden 用该印刷声明的具体引用真实收取过一次，证明缺的是
  *   关键词侧的承载字段与 Equip 费用支付，而不是回收费用本身。
@@ -48,9 +53,10 @@ export default {
     "只有 { keyword, value }，契约 3.8 第 3 条要求 expand 用 params.cost 承载印刷装备费，已合入的 " +
     "KeywordDef 接口仍无该参数（印刷费用以扩展字段 costAdditions 记录供审查）；(2) 已合入的 Equip 展开" +
     "（RIFT-87）声明 payments: [{ kind: \"equip\", value: source }]，cost/plan-values.ts 的 readCost " +
-    "没有 \"equip\" 支付种类，费用计划无法构建；(3) 缺卡牌程序→关键词展开→时点/链的接线（契约 3.5）。" +
+    "没有 \"equip\" 支付种类，费用计划对该形状抛 Unsupported payment kind（RIFT-261 费用种类批次），无法构建；" +
+    "(3) 缺卡牌程序→关键词展开→时点/链的接线（契约 3.5；RIFT-257 的 expandProgram 可解析声明，但等 KeywordDef 承载 cost）。" +
     "费用管线本身支持 recycle 非标准费用（cost/plan-values.ts），golden 用印刷声明的具体引用真实收取过一次；" +
-    "不改共享契约、不近似实现。依赖：RIFT-89 之后的 Equip 费用支持（含混合费用）与 RIFT-120 的关键词接线。",
+    "不改共享契约、不近似实现。依赖：RIFT-261（cost 种类与 KeywordDef params.cost）与关键词接线。",
   abilities: [
     {
       kind: "keyword",

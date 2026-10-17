@@ -22,7 +22,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   只把 Base Energy cost 置 0、Power 仍然照付（印刷提示 (You must still pay its Power cost.) 亦然）；
  *   "this turn" 是本回合一次性的后续打出许可（回合末到期的持续许可窗口）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required，四处依赖未合入，均不近似实现：
+ * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-16），四处依赖仍未合入，均不近似实现：
  * - 「If you do」需要前一条 kill 的动作回执（condition.result 类缺口），冻结 IR 无该绑定；
  *   不加恒真条件、也不把 kill 改写成费用。
  * - 「play a gear ... from hand this turn」是**本回合稍后**的一次性许可窗口：ObjectFilter 没有
@@ -30,12 +30,15 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   在触发结算时尚未由玩家选定；Duration 词汇（permanent/end-of-turn/end-of-combat/while-source-in-zone）
  *   也没有 one-shot「本回合的下一张」窗口（同 rad/firelights-hideout、ogn/raging-firebrand 的缺口）。
  * - 「ignoring its Energy cost」需要费用管线生成只把 Base Energy 置 0、保留 Power 的 finalized plan
- *   （356.1.b.2）：effect.play 只接受已 finalize 的计划、从不推导印刷费用，cost/ 的 ignore-base 也
- *   没有卡牌程序入口（RIFT-89）；而且计划必须在被选牌确定之后才能生成。
+ *   （356.1.b.2）：effect.play 只接受已 finalize 的计划、从不推导印刷费用；RIFT-257 的
+ *   programs/play.ts translateCost 也对卡面的 cost 字段转 judge-required（discount/ignore 等键被拒），
+ *   没有卡牌程序入口，而且计划必须在被选牌确定之后才能生成（RIFT-261 费用种类/费用计划批次）。
  * - 「a gear with Energy cost no more than :rb_energy_7:」需要印刷费用上限比较（206）：冻结 ObjectFilter
  *   没有费用谓词、已合入过滤器会静默忽略未知键（同 sfd/sandshifter、sfd/pickpocket 的缺口）。
- * effect.kill 与 choice.optional 已合入，golden 用锁定目标真实执行 kill 半段（接受/拒绝/目标失效）。
- * 依赖：RIFT-89（费用计划与 ignore-cost 接线）、RIFT-90（印刷费用谓词与结果绑定）、一次性许可窗口（RIFT-91 后续）。
+ * effect.kill 与 choice.optional 已合入，golden 用锁定目标真实执行 kill 半段（接受/拒绝/目标失效），
+ * 并用真实管道验证触发注册的形状。
+ * 依赖：RIFT-261（费用种类与 ignore-cost 接线）、RIFT-90（印刷费用谓词与结果绑定）、
+ * 一次性许可窗口（RIFT-91 后续）。
  */
 const abilities: Ability[] = [
   {
@@ -124,14 +127,14 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "四处依赖未合入，均不近似实现：(1)「If you do」是 359.3.e.14.b 的直接引用游戏动作条件（调研记为 condition.result）：冻结 IR 没有动作回执绑定，" +
+    "四处依赖仍未合入，均不近似实现：(1)「If you do」是 359.3.e.14.b 的直接引用游戏动作条件（调研记为 condition.result）：冻结 IR 没有动作回执绑定，" +
     "后续打出指令无法按 kill 实际发生开闸；不加恒真条件，也不把 kill 改写成费用。" +
     "(2)「play a gear with Energy cost no more than :rb_energy_7: from hand this turn」需要 206 的印刷费用上限比较（冻结 ObjectFilter 无费用谓词，未知键被静默忽略，同 sfd/sandshifter），" +
     "以及「本回合稍后」的一次性许可窗口：ObjectFilter 没有 greatest/last-created 量词，TargetSpec 必须锁定 Finalize 时已存在的对象（355.5），Duration 也没有 one-shot「本回合的下一张」期限（同 rad/firelights-hideout 的缺口）。" +
     "(3)「ignoring its Energy cost」按 356.1.b.2 只把 Base Energy 置 0、Power 照付（印刷提示亦然）：effect.play 只接受已 finalize 的计划、从不推导印刷费用，" +
-    "cost/ 的 ignore-base 也没有卡牌程序入口，且计划必须在被选牌确定后才生成（RIFT-89）。" +
+    "RIFT-257 的 translateCost 对卡面 cost 字段直接转 judge-required、cost/ 也没有 ignore-base 的卡牌程序入口，且计划必须在被选牌确定后才生成（RIFT-261）。" +
     "effect.kill 与 choice.optional 已合入，golden 用锁定目标真实执行 kill 半段（接受/拒绝/目标失效三分支）。" +
-    "依赖：RIFT-89（费用计划与 ignore-cost）、RIFT-90（印刷费用谓词与结果绑定）、一次性许可窗口（RIFT-91 后续）。",
+    "依赖：RIFT-261（费用种类与 ignore-cost）、RIFT-90（印刷费用谓词与结果绑定）、一次性许可窗口（RIFT-91 后续）。",
   abilities,
   sourceText:
     "When you play me, you may kill a friendly gear. If you do, you may play a gear with Energy cost no more than :rb_energy_7: from hand this turn, ignoring its Energy cost. (You must still pay its Power cost.)"

@@ -26,19 +26,18 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （continuous.might；effect.buff 文件头明确临时 Might 修改不属 Buff 计数），数值在结算时读
  *   来源的有效 Might（143.2.a）。既不是 Buff 计数，也不是「设值」。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required —— 三处缺口，均不近似实现：
- * 1. 触发无法送达：object-moved 时点由事件层定义，但 events/action-adapter.ts 为 move-location
- *    生成的事件不填 toZone/toKind（timing-points.ts 声明的 payloadFields），内层锚点 source: "self"
- *    也没有消费方；且 Tag 上没有 CardProgram → 触发注册的接线（sfd/apprentice-smith、
- *    sfd/ribbon-dancer 记录同一缺口，RIFT-120）。
- * 2. 关键词授予不可执行：effects/instructions/ 没有 continuous.grant-keyword 指令原语
- *    （ven/heart-of-the-tempest、ogn/block 同一缺口，RIFT-91），也没有「我的关键词」这一快照读数。
- * 3. 临时 Might 修正不可执行：契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，指令注册表里
- *    没有 continuous.might 原语，卡程序也没有把持续效果经 ResolveContext.addContinuous 落地的入口
- *    （unl/pridestalker、sfd/ribbon-dancer、ogn/sett-brawler 同一缺口；图层求值侧 RIFT-91 已合入）。
+ * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-16）——两处缺口：
+ * 1. 触发无法注册：object-moved 虽在 timing-points.ts 的封闭时点表里（refs 421.1/449.1/
+ *    449.2），但 trigger-spec.ts 的 EVENT_PATTERN_TYPES 没有 "object-moved"（只有
+ *    "conquered"/"held"/…），RIFT-257 的 pipeline.registerTrigger → assertTriggerSpec 会在
+ *    卡牌触发注册时报 invalid-event-type；本卡的 toZone: "battlefield" 过滤因此无法送达。
+ *    需要事件词汇表补 "object-moved"（及 toKind/toZone 载荷匹配）后才能注册。
+ * 2. 「my keywords」的描述性读法：指令体用 continuous.grant-keyword 运行时读取来源快照
+ *    （RIFT-258 已合入 primitive），但由于 (1) 触发无法注册，整条能力无从进入链。
+ * 已执行证据：两段效果（关键词授予 + Might 授予）经解释器真实注册 ability/arithmetic
+ *    层效果并读到运行时值（golden 用链式查询归一化执行），但不构成整卡可执行。
  * 不把 "equal to my Might" 写成常量，也不把临时修正近似成 Buff 计数器。
- * golden 只做身份/结构与已合入部分；未合入依赖写 test.todo。
- * 依赖：RIFT-120（移动时点载荷与卡牌触发注册）、RIFT-91（layers/持续效果消费）、RIFT-83/90（Deflect 展开与 target.tax）。
+ * 依赖：EVENT_PATTERN_TYPES 的 object-moved 词汇与移动事件载荷绑定。
  */
 const abilities: Ability[] = [
   // 809.1.b.3：未写数值即 1，按 README 第 5 节省略 value，由关键词展开补默认值。
@@ -61,6 +60,10 @@ const abilities: Ability[] = [
         id: "kato-the-arm.grant-keywords",
         op: "continuous.grant-keyword",
         args: {
+          // 复用已锁定的同一 "a friendly unit" TargetSpec（355.5/355.7）：
+          // continuous.grant-keyword 的选择参数按 spec id 读取锁定目标，
+          // 缺省时会落到来源自身，不能表达「give a friendly unit」的受赠者。
+          target: { kind: "constant", value: "kato-the-arm.friendly-unit" },
           // 读取来源自身的关键词特征（"my keywords"）。
           keywords: {
             kind: "object-property",
@@ -107,17 +110,15 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处缺口，均不近似实现：(1) 触发无法送达——object-moved 事件虽有封闭时点，但 events/action-adapter.ts " +
-    "为 move-location 生成的事件不填 toZone/toKind（timing-points.ts 声明的 payloadFields），toZone: \"battlefield\" " +
-    "永不命中，内层锚点 source: \"self\" 也没有消费方，且没有 CardProgram → 触发注册的接线（RIFT-120；" +
-    "sfd/apprentice-smith、sfd/ribbon-dancer 同一缺口）。(2)「give a friendly unit my keywords」需要 " +
-    "continuous.grant-keyword 指令原语与「我的关键词」快照读数，指令注册表没有该 op（ven/heart-of-the-tempest、" +
-    "ogn/block 同一缺口，RIFT-91）。(3)「+ :rb_might: equal to my Might this turn」是带本回合期限的临时 Might 修正：" +
-    "契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，effects/instructions/ 也没有 continuous.might 原语，" +
-    "卡程序没有经 ResolveContext.addContinuous 落地持续效果的入口（图层求值侧 RIFT-91 已合入；" +
-    "unl/pridestalker、sfd/ribbon-dancer、ogn/sett-brawler 同一缺口）。不把 \"equal to my Might\" 写成常量，" +
-    "也不把临时修正近似成 Buff 计数器（703）。[Deflect] 声明本身可校验，其 target.tax 展开的消费方属 RIFT-90/91。" +
-    "依赖：RIFT-120（移动时点载荷与触发注册）、RIFT-91（持续效果消费）、RIFT-90（target.tax）。",
+    "两处缺口，均不近似实现：(1) 触发无法注册——object-moved 是 events/timing-points.ts 的封闭时点" +
+    "（refs 421.1/449.1/449.2，events/action-adapter.ts 也为 move-location 发出该事件），但 events/trigger-spec.ts " +
+    "的 EVENT_PATTERN_TYPES 封闭词汇表没有 \"object-moved\"，RIFT-257 的 pipeline.registerTrigger → assertTriggerSpec " +
+    "会在注册本卡触发时报 invalid-event-type，toZone: \"battlefield\" 过滤无从匹配（need：词汇表与事件载荷的 " +
+    "toKind/toZone 字段）。(2) 由于 (1)，「my keywords」经 continuous.grant-keyword（RIFT-258 已合入本卡所需 primitive）" +
+    "的运行时读取与「+ my Might」的 continuous.might 都到不了结算；两段体已用解释器 + 链式查询归一化真实执行注册" +
+    "（ability/arithmetic 层、this-turn 期限），但不构成整卡执行证据。" +
+    "不把 \"equal to my Might\" 写成常量，也不把临时修正近似成 Buff 计数器（703）。" +
+    "[Deflect] 声明本身可校验，其 target.tax 展开的消费方属 RIFT-90/91。依赖：EVENT_PATTERN_TYPES 的 object-moved 词汇与移动载荷绑定。",
   abilities,
   sourceText:
     "[Deflect] (Opponents must pay :rb_rune_rainbow: to choose me with a spell or ability.)\n" +

@@ -57,8 +57,9 @@ test("sfd-150-221 Last Rites: identity, ruleset, status, judgeReason and verbati
   // blocked equip payment kind, each with its dependency.
   assert.match(program.judgeReason, /params\.cost/);
   assert.match(program.judgeReason, /costAdditions/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /Unsupported payment kind/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -193,10 +194,10 @@ test("sfd-150-221 Last Rites: the merged Equip expansion is valid EffectIR for t
 test.todo(
   "sfd-150-221 Last Rites: the printed mixed Equip cost (1 Chaos Power + Recycle 2 from your " +
     "trash, CR 818.1.c.2/818.1.c.3) needs a KeywordAbility cost carrier - contract 3.8 item 3's " +
-    "ExpandInput params.cost - so the keyword expansion can declare both halves (RIFT-89 follow-up)."
+    "ExpandInput params.cost - so the keyword expansion can declare both halves (RIFT-261 cost batch)."
 );
 test.todo(
   "sfd-150-221 Last Rites: paying the printed Equip cost needs the \"equip\" payment kind in " +
-    "cost/plan-values.ts (RIFT-89 follow-up) plus the card-program -> keyword expansion -> chain " +
-    "wiring (contract 3.5, RIFT-120 follow-up)."
+    "cost/plan-values.ts (RIFT-261 cost batch; the golden shows the merged plan throws " +
+    "Unsupported payment kind: equip) plus the card-program -> keyword expansion -> chain wiring (contract 3.5)."
 );

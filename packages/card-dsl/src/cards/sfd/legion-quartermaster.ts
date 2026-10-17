@@ -21,16 +21,17 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "a friendly gear"：150/141 的类型与 355.9.a.1 的默认区域——Board 上的 gear，
  *   且由本卡控制者控制（"friendly"）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。
+ * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-16）。
  * - 缺「卡牌程序 → 费用计划」的接线：已合入的 cost/ 计划只消费调用方传入的
- *   mandatoryAdditional（cost/cost-plan.ts），没有任何模块把卡程序声明的附加费用
- *   接进 Finalize（RIFT-89）。
+ *   mandatoryAdditional（cost/cost-plan.ts）；RIFT-257 的 programs/play.ts 对
+ *   CostSpec 的非 printed 字段（additional/additional-cost 等）直接转 judge-required，
+ *   没有任何模块把卡程序声明的附加费用接进 Finalize（RIFT-261 费用种类与计划批次）。
  * - 已合入的非标准费用组件词汇是 cost/plan-values.ts 的 exhaust/discard/recycle/
  *   kill/reveal/spend-buff；`return-to-hand` 不在其中，因此返回手牌的强制附加费用
- *   即使接上费用管线也没有可支付组件。
+ *   即使接上费用管线也没有可支付组件（golden 证明该形状被费用计划拒绝）。
  * 本文件按契约 3.1 把该强制附加费用声明为 static 的 cost.additional（appliesTo
  * "self"、optional false、stage "mandatory-additional"），费用对象用非目标 pick 表达，
- * 不把费用改写成效果、也不写成 TargetSpec。依赖：RIFT-89（费用计划接线与费用组件）。
+ * 不把费用改写成效果、也不写成 TargetSpec。依赖：RIFT-261（费用计划接线与费用组件）。
  */
 const abilities: Ability[] = [
   {
@@ -67,12 +68,13 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "缺「卡牌程序 → 费用计划」接线：356.2/356.2.a 的强制附加费用要在 Total Cost 第 2 步收取，" +
-    "但已合入的 cost/ 只消费调用方传入的 mandatoryAdditional（cost/cost-plan.ts），没有任何模块把卡程序声明的 " +
-    "cost.additional 接进 Finalize（RIFT-89）；并且已合入的非标准费用组件词汇只有 " +
+    "但已合入的 cost/ 只消费调用方传入的 mandatoryAdditional（cost/cost-plan.ts），RIFT-257 的 translateCost " +
+    "对非 printed 的 CostSpec 字段直接转 judge-required，没有任何模块把卡程序声明的 " +
+    "cost.additional 接进 Finalize（RIFT-261 费用种类与计划批次）；并且已合入的非标准费用组件词汇只有 " +
     "exhaust/discard/recycle/kill/reveal/spend-buff（cost/plan-values.ts 的 NonstandardCostAction），" +
     "\"return a friendly gear to its owner's hand\"（414.1 的区域移动，目的地是拥有者手牌）没有可支付组件。" +
     "费用对象按 355.10.c 的非目标 pick 表达、不写成 TargetSpec，也不把费用改写成效果。" +
-    "依赖：RIFT-89（费用计划接线与 return-to-hand 费用组件）。不近似实现。",
+    "依赖：RIFT-261（费用计划接线与 return-to-hand 费用组件）。不近似实现。",
   abilities,
   sourceText: "As an additional cost to play me, return a friendly gear to its owner's hand."
 } satisfies CardProgram;

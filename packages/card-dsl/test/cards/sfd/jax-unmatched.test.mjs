@@ -6,6 +6,9 @@ import program from "../../../dist/cards/sfd/jax-unmatched.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import quickDraw from "../../../../engine-core/dist/effects/keywords/Quick-Draw.js";
 import deflect from "../../../../engine-core/dist/effects/keywords/Deflect.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-a83dac0c953bf9bfdee67886a82147cb411410a3e9967fae69b37320583c94f9";
 const SOURCE_TEXT =
@@ -26,8 +29,9 @@ test("sfd-054-221 Jax, Unmatched: identity, ruleset, status, judgeReason and ver
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /RIFT-91/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /RIFT-258/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /target\.tax/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -70,16 +74,50 @@ test("sfd-054-221 Jax, Unmatched: the granted keyword expands to Reaction timing
   assert.equal(attach.body[0].op, "effect.attach");
 });
 
+test("sfd-054-221 Jax, Unmatched golden: the Equipment-scoped grant really adds Quick-Draw in hand", () => {
+  // 150.1/150.5: Equipment is the gear tag; 819: those gears have Quick-Draw
+  // while in your hand. The merged continuous.grant-keyword primitive registers
+  // the ability-layer effect and the layer engine reads the granted keyword; the
+  // card's declared filter is used verbatim (with the binding's controller
+  // normalization applied by the golden).
+  const kernel = world()
+    .unit("jax", { cardId: CARD_ID, types: ["unit"], might: 5 })
+    .hand("equipment", { types: ["gear"], tags: ["Equipment"] })
+    .hand("plain-gear", { types: ["gear"], tags: [] })
+    .hand("equipment-spell", { types: ["spell"], tags: ["Equipment"] })
+    .build();
+  const normalizedFilter = {
+    ...grant.effect.filter,
+    controller: grant.effect.filter.controller === "controller" ? "self" : grant.effect.filter.controller
+  };
+  const effect = { ...grant.effect, filter: normalizedFilter };
+  const layers = createLayerEngine(kernel.objects, [
+    {
+      effect: { id: "jax.grant-quick-draw", layer: "ability", source: kernel.ref("jax"), filter: normalizedFilter, effect },
+      duration: { type: "permanent" },
+      timestamp: 1,
+      sequence: 1
+    }
+  ]);
+
+  assert.deepEqual(layers.evaluate(kernel.ref("equipment")).keywords.map((keyword) => keyword.id), ["quick-draw"]);
+  assert.deepEqual(layers.evaluate(kernel.ref("plain-gear")).keywords, []);
+  // A spell with the Equipment tag is not a gear: 150.1 defines Equipment as a tag on Gear.
+  assert.deepEqual(layers.evaluate(kernel.ref("equipment-spell")).keywords, []);
+  // The same declared filter, evaluated by the engine's own matcher, agrees.
+  assert.equal(matchesObjectFilter(normalizedFilter, kernel.getObject("equipment")), true);
+});
+
 test.todo(
-  "sfd-054-221 Jax, Unmatched: 'Each Equipment in your hand has [Quick-Draw]' needs a continuous keyword " +
-    "grant whose scope covers the Hand zone, registered from the CardProgram into the layers engine " +
-    "(effects/instructions/ has no registered continuous.* opcode and layers/ is not wired to card " +
-    "programs) — RIFT-9 / RIFT-91"
+  "sfd-054-221 Jax, Unmatched: 'Each Equipment in your hand has [Quick-Draw]' must be installed from the " +
+    "CardProgram into the layers engine — RIFT-257's attachProgramLifecycle only calls the bindStatic " +
+    "callback slot (default no-op) and has no layer registration, so the declared static grant never " +
+    "becomes an active effect"
 );
 
 test.todo(
   "sfd-054-221 Jax, Unmatched: the granted Quick-Draw's continuous.timing permission and its card-played " +
     "attach trigger must reach the chain/target pipeline, and [Deflect]'s target tax must be collected as " +
     "any-domain Power (809.1.c.1) rather than the Energy-shaped tax the chain builds today — " +
-    "RIFT-91 / RIFT-90 / RIFT-89"
+    "continuous.timing has no chain.canAct consumer (P0 contract 3.5) and the Deflect tax consumer is missing (RIFT-90)"
 );
