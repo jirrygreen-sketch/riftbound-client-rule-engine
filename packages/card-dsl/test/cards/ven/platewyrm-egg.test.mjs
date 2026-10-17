@@ -11,6 +11,7 @@ import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
 import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 
 const CARD_ID = "card.hash-5d0ab54108afb25c366527426f6c46a04e21256d6701bc128d66dd9ce8860f37";
 const SOURCE_TEXT =
@@ -105,6 +106,11 @@ test("ven-075-166 Platewyrm Egg: identity, ruleset, status, judgeReason and verb
   assert.match(program.judgeReason, /replacement\.enter/);
   assert.match(program.judgeReason, /Empower/);
   assert.match(program.judgeReason, /828\.1\.c|Empowered/);
+  assert.match(program.judgeReason, /KeywordAbility/);
+  assert.match(program.judgeReason, /params\.cost/);
+  assert.match(program.judgeReason, /ObjectSnapshot/);
+  assert.match(program.judgeReason, /ChainDraft\.kind=activated/);
+  assert.match(program.judgeReason, /430\.2\.a|430\.3/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -123,8 +129,8 @@ test("ven-075-166 Platewyrm Egg: enter-exhausted replacement, Empower keyword an
   assert.deepEqual(enterReplacement.with[0].args.state, { kind: "constant", value: "exhausted" });
 
   // 827.1.c: the printed Empower cost is 1 Energy + exhaust the source; the card
-  // only declares the keyword (expansion belongs to the keyword registry).
-  assert.deepEqual(empower, { kind: "keyword", keyword: "empower", value: 1 });
+  // only declares the non-valued keyword (expansion belongs to the keyword registry).
+  assert.deepEqual(empower, { kind: "keyword", keyword: "empower" });
 
   // 813.1.c.2 / 813.1.d: "[Reaction][>]" rewrites the activation timing.
   assert.equal(activated.kind, "activated");
@@ -274,11 +280,40 @@ test("ven-075-166 Platewyrm Egg golden: a Gear enters ready without the replacem
   assert.equal(f.kernel.getObject("platewyrm-egg").zone, "board");
   assert.equal(f.kernel.getObject("platewyrm-egg").exhausted, false);
 });
+
+test("ven-075-166 Platewyrm Egg: the merged activation adapter exposes Reaction Add as ordinary activated", () => {
+  // The card remains judge-required, so use an executable copy only to inspect
+  // the production adapter's current classification. Empower expansion is
+  // present, but the declared Reaction Add is still returned as activated.
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const source = world()
+    .unit("platewyrm-egg", {
+      cardId: CARD_ID,
+      types: ["gear"],
+      zone: "board",
+      location: { type: "base", player: "A" },
+      energy: 3,
+      power: null,
+      might: null
+    })
+    .build()
+    .getObject("platewyrm-egg");
+
+  assert.equal(binding.activationAbilities(source).length, 2);
+  const draft = binding.describeActivate(source, "A", 0);
+  assert.equal(draft.kind, "activated");
+  assert.equal(draft.speed, "reaction");
+  assert.deepEqual(draft.cost.cost, activated.cost);
+  assert.deepEqual(draft.body, activated.body);
+});
+
 test.todo(
-  "ven-075-166 Platewyrm Egg: bind the printed Empower 1 Energy + exhaust through KeywordAbility / " +
-    "programs/keywords.ts params.cost (827.1.c.1/415.5); the Empower KeywordDef is merged"
+  "ven-075-166 Platewyrm Egg: carry the printed Empower 1 Energy + exhaust through KeywordAbility / " +
+    "programs/keywords.ts params.cost (827.1.c.1/415.5), and expose empowered on the production ObjectSnapshot"
 );
 test.todo(
-  "ven-075-166 Platewyrm Egg: programs/activate.ts must classify the Reaction Add as kind:add so " +
-    "430.3/430.5 immediate resolution and activation during payment use the real Add path"
+  "ven-075-166 Platewyrm Egg: classify the Reaction Add as ChainDraft.kind=add so " +
+    "430.2.a/430.3 immediate resolution and activation during payment use the real Add path"
 );

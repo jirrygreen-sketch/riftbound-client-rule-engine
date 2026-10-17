@@ -44,10 +44,10 @@ const abilities: Ability[] = [
     ]
   },
   {
-    // 827.1.c：印刷费用是 1 Energy + 横置来源；只声明关键词身份，展开归关键词注册表。
+    // 827.1.c：印刷费用是 1 Energy + 横置来源；费用由 Empower KeywordDef 展开。
+    // KeywordAbility 目前没有 params.cost 槽，不能把这笔印刷费用塞进 value。
     kind: "keyword",
-    keyword: "empower",
-    value: 1
+    keyword: "empower"
   },
   {
     kind: "activated",
@@ -105,7 +105,7 @@ export default {
   canonicalCardId: "card.hash-5d0ab54108afb25c366527426f6c46a04e21256d6701bc128d66dd9ce8860f37",
   rulesetVersion: "core-1.5",
   status: "judge-required",
-  judgeReason: "当前缺口：(1) Empower.ts 的 KeywordDef 已合入，但 KeywordAbility / programs/keywords.ts 未传 params.cost，不能绑定印刷的 1 Energy + 横置费用（827.1.c.1 / 415.5）；ObjectSnapshot 契约仍未声明参考内核已有的 empowered 特征。(2) programs/activate.ts 将本卡 Reaction Add 描述成 kind:activated，尚未识别为 kind:add，无法接入 430.3/430.5 的立即结算及支付中启动路径。replacement.enter 已由真实链路验证；instead 分支可由 condition.predicate 保存 Empowered 状态后互斥执行 effect.resources 的 Add 1 / Add 2（828.1.c），不再依赖 choice.mode；golden 执行原始 body，不近似实现启动时序。",
+  judgeReason: "当前缺口：(1) Empower.ts 的 KeywordDef、未 Empowered 限制和 effect.empower 已合入，但 KeywordAbility 只有 keyword/value，programs/keywords.ts 不能把本卡印刷的 1 Energy + 横置费用传入 params.cost（827.1.c.1 / 415.5）；ObjectSnapshot 契约也未声明参考内核已有的 empowered 状态，生产适配器不能据此提供契约保证。(2) programs/activate.ts 的 describeActivate 固定把启动能力描述为 ChainDraft.kind=activated；卡牌 IR 没有 Add 能力分类通道，因而本卡的 Reaction Add 尚不能进入 ChainKind=add 的 430.2.a/430.3 立即结算与支付中启动路径。replacement.enter、Empowered 分支和 effect.resources 的 1/2 Energy 已由真实链路验证；不近似实现缺失的启动接线。",
   abilities,
   sourceText:
     "This enters exhausted.\n" +
