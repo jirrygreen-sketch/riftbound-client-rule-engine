@@ -1,3 +1,4 @@
+// RIFT-684 execution evidence is also covered by templates/play-effect-kill-684.test.mjs.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -95,4 +96,3 @@ test.todo(
   "unl-180-219 The Ruination: the kill attribution (429.5) and the object-killed timing point for each killed unit " +
     "(Deathknell, replacement effects) are emitted by the engine's single event pipeline, not by this card"
 );
-

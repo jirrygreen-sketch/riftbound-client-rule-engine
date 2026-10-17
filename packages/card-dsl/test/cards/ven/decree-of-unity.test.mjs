@@ -1,3 +1,4 @@
+// RIFT-684 execution evidence is also covered by templates/play-effect-kill-684.test.mjs.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -42,7 +43,11 @@ test("ven-131-166 Decree of Unity: judgeReason names the missing domain predicat
 test("ven-131-166 Decree of Unity: one kill instruction over an enemy unit-or-gear target", () => {
   assert.equal(program.abilities.length, 1);
   assert.equal(play.kind, "play");
-  assert.equal(play.cost, undefined);
+  assert.deepEqual(play.cost, {
+    kind: "cost.printed",
+    energy: { kind: "constant", value: 2 },
+    power: { kind: "constant", value: 1 }
+  });
   assert.equal(play.body.length, 1);
 
   assert.equal(killInstruction.id, "decree-of-unity.kill");
