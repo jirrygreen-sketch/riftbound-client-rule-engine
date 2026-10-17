@@ -7,6 +7,12 @@ import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+// RIFT-257's program binding is the production path the [Hunt] expansion has to
+// take; the golden below records exactly where it still stops.
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { resolveChainBody as resolveProductionBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 
 const CANONICAL_ID =
   "card.hash-204eccc6166c5de77fb944367f972c5488c896a4054343aae4b3c15ca9b01b0f";
@@ -157,9 +163,63 @@ test("unl-102-219 Crowd Favorite golden: a unit that already has a Buff is not b
   assert.deepEqual(context.events, []);
 });
 
-test.todo(
-  "unl-102-219 Crowd Favorite: expand [Hunt] as the 823.1.c.1 conquer/hold trigger ('my controller gains X XP', 823.1.c.2 default 1, 823.2 summing) — effects/keywords has no Hunt KeywordDef"
-);
-test.todo(
-  "unl-102-219 Crowd Favorite: run the whole activated ability through the chain (Finalize pays 2 XP, Resolve executes the Buff, 145.2 Main-Phase admission) — the chain needs the card-program adapter and the conquer/hold scoring timing points"
-);
+test("unl-102-219 Crowd Favorite: RIFT-257 expands [Hunt] into conquer/hold XP triggers (823.1.c.1)", () => {
+  // RIFT-329 re-review: the KeywordDef now exists, so the old "no Hunt
+  // KeywordDef" TODO is retired and the expansion is asserted for real.
+  const hunt = keywordDefinitionsById.get("Hunt");
+  assert.ok(hunt, "effects/keywords/Hunt.ts must be in the generated registry");
+  assert.equal(hunt.valued, true);
+  assert.equal(hunt.stacking, "sum");
+
+  const expanded = hunt.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.deepEqual(expanded.map((ability) => ability.trigger.at), ["conquer", "hold"]);
+  for (const ability of expanded) {
+    assert.equal(ability.body[0].op, "effect.xp");
+    // 823.1.c.2: an omitted Hunt value is 1.
+    assert.deepEqual(ability.body[0].args.amount, { kind: "constant", value: 1 });
+  }
+});
+
+test("unl-102-219 Crowd Favorite golden: the [Hunt] expansion's real xp body grants XP through the production adapter", () => {
+  const hunt = keywordDefinitionsById.get("Hunt");
+  const [conquer] = hunt.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  const kernel = world().player("A", { xp: 0 }).build();
+  const outcome = resolveProductionBody(conquer.body, kernel);
+  assert.equal(outcome.status, "executed");
+  assert.equal(kernel.player("A").xp, 1);
+  assert.equal(outcome.results[0].result.linkedValues.gained, 1);
+});
+
+test("unl-102-219 Crowd Favorite golden: RIFT-257's binding derives the production ChainDraft for the activated ability", () => {
+  // RIFT-329 re-review: the CardProgram -> ChainDraft adapter now exists, so the
+  // activated half's declared cost really does become the ChainDraft cost the
+  // engine would finalize and pay (145.2 Main-Phase admission stays chain-owned).
+  const executable = {
+    canonicalCardId: program.canonicalCardId,
+    rulesetVersion: program.rulesetVersion,
+    status: "executable",
+    abilities: program.abilities,
+    sourceText: program.sourceText
+  };
+  const binding = createProgramBinding({ cardPrograms: [executable] });
+  const board = fixture({
+    cards: [{ id: "crowd-favorite", cardId: program.canonicalCardId, types: ["unit"], energy: 3, power: [], might: 3 }]
+  });
+  board.kernel.perform({
+    type: "move-zone",
+    object: board.kernel.ref("crowd-favorite"),
+    to: "battlefield",
+    location: { type: "battlefield", id: "bf-1" }
+  });
+  const source = board.kernel.getObject("crowd-favorite");
+  const abilities = binding.activationAbilities(source);
+  assert.equal(abilities.length, 1);
+  assert.deepEqual(abilities[0].cost, {
+    kind: "activated",
+    payments: [{ kind: "xp", amount: { kind: "constant", value: 2 } }]
+  });
+  // The declared effect body is the merged effect.buff instruction, which the
+  // golden above already executes through the real interpreter.
+  assert.equal(abilities[0].body.length, 1);
+  assert.equal(abilities[0].body[0].op, "effect.buff");
+});

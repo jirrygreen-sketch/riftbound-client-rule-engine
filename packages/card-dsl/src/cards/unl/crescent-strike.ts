@@ -21,16 +21,19 @@ import type { CardProgram } from "../../ir/index.js";
  *   （除主目标外的该战场所有敌方单位，玩家对这些单位没有选择），不是目标；
  *   "other" 排除主目标，用 exclude 锚点表达。
  *
- * status = judge-required（不近似实现）：
- * - effect.damage 只读取 Finalize 锁定的 TargetSpec（ctx.targets(id)），没有
- *   effect.ready / effect.heal 那样的 {kind:"query", filter} 非目标集合分支
- *   （同 ogn/firestorm、ogn/flurry-of-blades 的缺口，RIFT-9 的 target.query）；
- *   把「该处其他敌方单位」写成 TargetSpec 会错误触发「成为目标」（355.7、754）。
- * - 战场与单位之间的联合选择/关系重验（355.11 的 group、"there" 的 Finalize
- *   顺序）属于 TargetPlan（RIFT-90），本程序只保留可审查的描述形状。
+ * status = judge-required（RIFT-329 复核；不近似实现）：
+ * - effect.damage 只有 target 形态（argsSchema 要求 target: TargetSpec id；没有
+ *   effect.ready / effect.heal 那样的 {kind:"query", filter} 非目标集合分支），
+ *   本卡第二条指令的 objects 会在原语 parse 阶段被拒（同 ogn/firestorm、
+ *   ogn/flurry-of-blades 的缺口，RIFT-9 的 target.query）；把「该处其他敌方单位」
+ *   写成 TargetSpec 会错误触发「成为目标」（355.7、754）。
+ * - 战场与单位之间的 "there" 关系重验（355.10.b/355.11）仍未接线：
+ *   RIFT-90 的 TargetPlan 只按 `location: LocationRef` 字段校验固定地点，
+ *   programs/filters.ts 的 translateObjectFilter 对 sameLocationAs 抛 judge-required；
+ *   本程序只保留可审查的描述形状。
  * 「Deal 4 to that unit」一半只用已合入的 effect.damage，golden 用解释器 +
  * 参考内核真实执行（目标由测试内核 provision，与 firestorm / graves 同一约定）。
- * 依赖：effect.damage 的非目标集合形态（RIFT-9 target.query）。
+ * 依赖：effect.damage 的非目标集合形态（RIFT-9 target.query）与 sameLocationAs 过滤锚点绑定。
  */
 const crescentStrike = {
   canonicalCardId: "card.hash-f7adf9f6506b55f668b24e077add9d1252841ee4cbb74fb432903d6cfc842c88",
@@ -38,11 +41,11 @@ const crescentStrike = {
   status: "judge-required",
   judgeReason:
     "缺非目标集合的伤害形态：CR 355.10.d 规定按特征程序化选出、玩家无从选择的单位不是目标，" +
-    "但已合入的 effect.damage 只读取 Finalize 锁定的 TargetSpec（ctx.targets(id)），没有 effect.ready / effect.heal " +
-    "那样的 {kind: \"query\", filter} 分支（同 ogn/firestorm、ogn/flurry-of-blades 的缺口，RIFT-9 的 target.query）；" +
+    "但 effect.damage 只有 target 形态（argsSchema 要求 target: TargetSpec id），没有 effect.ready / effect.heal " +
+    "那样的 {kind: \"query\", filter} 分支（同 ogn/firestorm、ogn/flurry-of-blades 的缺口，RIFT-9 的 target.query），程序的 objects 会在 parse 阶段被拒；" +
     "把「该处其他敌方单位」写成 TargetSpec 会错误触发「成为目标」（355.7、754），故不近似实现。" +
-    "另外战场与单位之间的联合选择与 \"there\" 关系的 Finalize 顺序/重验（355.11、RIFT-90 TargetPlan）尚未接线，" +
-    "本程序只保留战场 + 单位的 TargetSpec 与 exclude 集合描述。" +
+    "另外战场与单位之间的 \"there\" 关系（355.10.b/355.11）仍未接线：RIFT-90 的 TargetPlan 只校验固定的 location 字段，" +
+    "programs/filters.ts 的 translateObjectFilter 对 sameLocationAs 抛 judge-required；本程序只保留战场 + 单位的 TargetSpec 与 exclude 集合描述。" +
     "「Deal 4 to that unit」一半只用已合入的 effect.damage，golden 真实执行。",
   abilities: [
     { kind: "keyword", keyword: "action" },

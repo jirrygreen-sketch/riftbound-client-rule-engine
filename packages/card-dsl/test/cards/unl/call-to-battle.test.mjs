@@ -5,6 +5,7 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/call-to-battle.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 
 const CANONICAL_ID =
   "card.hash-1d05a8db288bc071a9e9736106ed0815284bac8ec41b7795f5d4b43e4a75217c";
@@ -136,6 +137,49 @@ test("unl-101-219 Call to Battle golden: a stale chosen unit ignores the move (3
   );
   assert.deepEqual(run.result, { status: "ignored", reason: "mistargeted" });
   assert.equal(run.events.length, 0);
+});
+
+test("unl-101-219 Call to Battle golden: the merged destination choice resolves through a real candidate list", () => {
+  // RIFT-329 re-review: effect.move's own location-choice machinery is merged
+  // (a nonempty list of literal LocationRefs, resolved with ctx.choose). What
+  // this card still lacks is the runtime enumeration of "battlefields you
+  // control" feeding that list, so the golden supplies the candidates directly
+  // and shows the choice itself executing.
+  const kernel = world()
+    .unit("friendly", { owner: "A", location: { type: "base", player: "A" } })
+    .build();
+  const context = kernel.clone({ source: kernel.ref("friendly"), sourceSnapshot: kernel.getObject("friendly") });
+  context.setTargets("friendly-spec", [kernel.ref("friendly")]);
+  context.setAnswers({
+    "call-to-battle.move-own-unit/call-to-battle.destination": { type: "battlefield", id: "bf-2" }
+  });
+
+  const outcome = resolveChainBody(
+    [
+      {
+        id: "call-to-battle.move-own-unit",
+        op: "effect.move",
+        args: {
+          objects: { kind: "constant", value: { target: "friendly-spec" } },
+          to: {
+            kind: "constant",
+            value: {
+              kind: "choose",
+              id: "call-to-battle.destination",
+              options: [
+                { type: "battlefield", id: "bf-1" },
+                { type: "battlefield", id: "bf-2" }
+              ]
+            }
+          }
+        }
+      }
+    ],
+    context
+  );
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(context.getObject("friendly").location, { type: "battlefield", id: "bf-2" });
 });
 
 test.todo(

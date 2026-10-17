@@ -6,6 +6,8 @@ import program from "../../../dist/cards/unl/conscription.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 
 const CANONICAL = "card.hash-25d95fca3a71b0c54c47c59f37cb281740cdfe6478a2d0f9c23309aaff471bcd";
 const SOURCE_TEXT =
@@ -47,7 +49,11 @@ test("unl-140-219 Conscription: program validates and keeps its identity", () =>
   assert.match(program.judgeReason, /356\.4\.f\.1/);
   assert.match(program.judgeReason, /mightLte/);
   assert.match(program.judgeReason, /recall/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  // RIFT-329 re-review: the cost-plan wiring is still unmerged and now named
+  // RIFT-261; the Might ceiling keeps failing closed in programs/filters.ts.
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /translateObjectFilter/);
+  assert.ok(!/RIFT-89/.test(program.judgeReason));
 });
 
 test("unl-140-219 Conscription: the optional 5 XP additional cost is recorded as a cost component", () => {
@@ -178,10 +184,62 @@ test("unl-140-219 Conscription golden: a target that left the Board ignores the 
   assert.equal(kernel.getObject("enemy").zone, "hand");
 });
 
+test("unl-140-219 Conscription golden: the merged cost plan really charges the caller-supplied 5 XP component (356.2.b)", () => {
+  // RIFT-329 re-review: the Finalize-side optional-additional machinery is
+  // merged — a selected optional component with an xp payment builds and pays
+  // through the real plan. What the card still lacks is the wiring that feeds
+  // its declared cost.additional into this input, which is why the reason names
+  // RIFT-261 rather than a missing consumer.
+  const kernel = world().player("A", { xp: 7, energy: 5 }).build();
+  kernel.addObject({
+    ref: { id: "conscription", zoneEntryId: 1 },
+    cardId: program.canonicalCardId,
+    name: "Conscription",
+    types: ["spell"],
+    tags: [],
+    keywords: [],
+    owner: "A",
+    controller: "A",
+    zone: "chain",
+    location: null,
+    might: null,
+    energy: 5,
+    power: null,
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false
+  }, "chain");
+  const context = kernel.clone({ source: kernel.ref("conscription"), sourceSnapshot: kernel.getObject("conscription") });
+  const plan = buildCostPlan(context, {
+    id: "cost:conscription",
+    cost: { kind: "explicit", energy: { kind: "constant", value: 5 } },
+    optionalAdditional: [
+      {
+        id: "conscription.additional-cost",
+        kind: "additional",
+        cost: { kind: "explicit", payments: [{ kind: "xp", amount: { kind: "constant", value: 5 } }] },
+        selected: true
+      }
+    ]
+  });
+  assert.equal(plan.finalized, true);
+  assert.deepEqual(plan.selectedAdditional.map((entry) => entry.id), ["conscription.additional-cost"]);
+  assert.equal(plan.total.xp, 5);
+  assert.equal(plan.total.energy, 5);
+
+  const receipt = payCostPlan(context, plan);
+  assert.equal(receipt.paid, true);
+  assert.equal(context.player("A").xp, 2);
+});
+
 test.todo(
   "unl-140-219 Conscription: charge the optional 5 XP additional cost at Finalize and switch the target range " +
     "when it was paid (CR 356.2.b/356.2.b.1 payment, 356.4.f.1 paid receipt) — needs the card-program cost plan " +
-    "wiring (RIFT-89) and a cost-result binding, which the frozen IR has no expression for (condition.result)"
+    "wiring (RIFT-261) and a cost-result binding, which the frozen IR has no expression for (condition.result)"
 );
 
 test.todo(

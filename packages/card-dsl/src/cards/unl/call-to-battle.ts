@@ -22,31 +22,33 @@ import type { CardProgram } from "../../ir/index.js";
  *   对手决定，其 chooser/target 都是那名玩家（355.10.e：由其他玩家参与选定的集合
  *   不是目标），目的地与第一条移动相同（359.3.f.3 的结果绑定）。
  *
- * status = judge-required（不近似实现）：
- * - 缺运行期 Location 选择：effect.move 的 to 只接受静态 LocationRef /
- *   controller-base / 静态候选列表，"a battlefield you control" 需要按控制状态在
- *   合法战场里筛选取一（355.4 / 355.4.a），本程序以描述性目的地标记保留形状
- *   （依赖 RIFT-90 / RIFT-91）。
- * - 缺玩家目标/选择：choice 请求没有选择玩家的类型，ctx.picks 虽允许 PlayerId，
- *   但"对手集合"的解析与锁定、以及把该玩家绑定为第二条移动的 chooser 都没有
- *   已合入路径（依赖 target.player）。
- * - 第二条移动's chooser 与目标应由所选对手决定，单一 ResolveContext 无法表达
- *   按玩家绑定的选择；"the same battlefield" 需要第一条移动的目的地结果绑定，
- *   也没有可用的地点选择器。
- * 依赖：运行期 Location 选择（RIFT-90/RIFT-91）、玩家目标/选择（target.player）。
+ * status = judge-required（RIFT-329 复核；三处缺口均不近似实现）：
+ * - 运行期 Location 选择仍缺失：effect.move 的 to 只接受字面 LocationRef、
+ *   "controller-base" 或字面 LocationRef 候选列表；把运行期才成立的
+ *   "battlefields you control" 写成 { kind: "choose", options: [...] } 会在
+ *   argsSchema 阶段被拒（RIFT-90/RIFT-91 的地点选择生命周期）。
+ * - 玩家目标/选择仍缺失：ChoiceRequest 只有 optional/mode/select-objects/order/number，
+ *   没有玩家选择；target.player 也没有指令文件，"对手集合"的解析、锁定与
+ *   "由该玩家来选"的 chooser 绑定没有已合入路径。
+ * - "the same battlefield" 的结果绑定不可用：effect.move 只把整份回执写进
+ *   <linkKey>（默认 "moved"），解释器的 linked-value 逐字按 `<id>.<key>` 取值，
+ *   既不支持 `movements.0.to` 这样的路径，回执本身也不是 LocationRef
+ *   （把它当 to 传入会被原语拒绝，文件内的链接键只是保留形状）。
+ * 依赖：运行期 Location 选择与结果绑定（RIFT-90/RIFT-91 后续）、玩家目标/选择（target.player）。
  */
 const callToBattle = {
   canonicalCardId: "card.hash-1d05a8db288bc071a9e9736106ed0815284bac8ec41b7795f5d4b43e4a75217c",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处依赖未合入，均不近似实现：(1)「to a battlefield you control」是 CR 355.4/355.4.a 的 Finalize 目的地选择，" +
-    "合法地点取决于运行时战场控制状态；effect.move 的 to 只接受静态 LocationRef / controller-base / 静态候选列表，" +
-    "本卡以描述性目的地标记保留形状（依赖 RIFT-90/RIFT-91）。(2)「choose an opponent」按 CR 355.7/355.9.a 是玩家选择，" +
-    "但契约 3.6 的 targets() 只返回 ObjectRef[]，ChoiceRequest 也没有选择玩家的类型（同 suave-negotiator、sabotage 的缺口），" +
-    "对手集合的解析与锁定没有已合入路径。(3)「They move a unit they control to the same battlefield」需要把所选玩家绑定为" +
-    "第二条移动的 chooser/控制者，并绑定与第一条相同的运行时目的地（359.3.f.3 的结果引用），两者都没有可用的选择器；" +
-    "依赖 target.player 与 RIFT-90 的地点选择生命周期。",
+    "三处缺口，均不近似实现：(1)「to a battlefield you control」是 CR 355.4/355.4.a 的 Finalize 目的地选择，" +
+    "合法地点取决于运行时战场控制状态；effect.move 的 to 只接受字面 LocationRef、controller-base 或字面 LocationRef 候选列表，" +
+    "写成 { kind: \"choose\", options: [...] } 会在 argsSchema 阶段被拒（依赖 RIFT-90/RIFT-91 的地点选择生命周期）。" +
+    "(2)「choose an opponent」按 CR 355.7/355.9.a 是玩家选择，但 ChoiceRequest 只有 optional/mode/select-objects/order/number，" +
+    "没有玩家选择；target.player 也没有已注册指令文件，对手集合的解析、锁定与 chooser 绑定没有路径。" +
+    "(3)「They move a unit they control to the same battlefield」的 359.3.f.3 结果绑定不可用：effect.move 只把整份回执写进 " +
+    "<linkKey>，解释器的 linked-value 逐字按 <id>.<key> 取值（不支持 movements.0.to 这样的路径），回执本身也不是 LocationRef。" +
+    "依赖：运行期 Location 选择与结果绑定（RIFT-90/RIFT-91 后续）、玩家目标/选择（target.player）。",
   abilities: [
     {
       kind: "play",

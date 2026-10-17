@@ -31,39 +31,50 @@ import type { CardProgram } from "../../ir/index.js";
  *   impossible kill must not draw; the draw reads the kill's own receipt.
  * - 414.1 / 414.3: "draw 1" is effect.draw for the implicit "you" (190.6.d).
  *
- * Status: judge-required — two merged gaps, neither approximated:
+ * Status: judge-required (re-reviewed for RIFT-329) — two remaining gaps,
+ * neither approximated:
  * 1. The kill is the triggered ability's base cost (383.3.b), but no merged
- *    primitive charges a cost-inside-an-instruction at Finalize: the cost
- *    plan workstream has no `cost.sacrifice`/cost instruction, and even the
- *    merged `cost.pay` shape has no instruction file. Writing the kill as a
- *    resolving `effect.kill` (as below, following the merged
- *    ogn/monastery-of-hirana precedent for the same "may pay X to get Y"
- *    wording) records the printed cost/effect linkage but does not put the
- *    kill at its 383.3.b finalize timing.
- * 2. No merged subscriber turns a CardProgram's triggered ability into a
- *    TriggerRegistration, and the Battlefield-controller binding of 190.6 is
- *    not resolved for a battlefield program, so the `beginning-start` trigger
- *    cannot be attached to this source.
+ *    primitive charges a cost-inside-an-instruction at Finalize:
+ *    instructions/registry.generated.ts has no `cost.sacrifice` / cost
+ *    instruction at all (cost.pay/cost.modify remain on RIFT-261), so nothing
+ *    can be paid before the Chain finalizes. Writing the kill as a resolving
+ *    `effect.kill` (as below, following the merged ogn/monastery-of-hirana
+ *    precedent for the same "may pay X to get Y" wording) records the printed
+ *    cost/effect linkage but does not put the kill at its 383.3.b finalize
+ *    timing.
+ * 2. RIFT-257 added programs/triggers.ts, which turns a CardProgram's
+ *    triggered ability into a TriggerRegistration, but registration still
+ *    throws for this card: `beginning-start` is a valid timing point
+ *    (events/timing-points.ts) yet absent from the closed EventPattern
+ *    vocabulary (events/trigger-spec.ts EVENT_PATTERN_TYPES, enforced by
+ *    assertTriggerSpec in EventPipeline.registerTrigger), so the filter cannot
+ *    be registered at all. The 190.6.d battlefield-controller binding is the
+ *    second part: a registration's controller comes from the source snapshot's
+ *    controller, and this engine models a Battlefield as a token whose
+ *    controller is not the battlefield's controller, so the `player: "self"`
+ *    gate could not be attached to this source correctly even with the
+ *    vocabulary accepted.
  * The kill and the draw themselves are merged primitives, and the golden test
  * executes the card's own body through the real interpreter (accept, kill,
  * conditional draw; decline; replaced kill) exactly as the merged precedents
- * do. Dependencies: RIFT-89 (finalize-locked cost within an instruction /
- * cost.sacrifice) and RIFT-120 follow-up (card-program trigger registration
- * with 190.6 battlefield-controller binding).
+ * do. Dependencies: RIFT-261 (finalize-locked cost within an instruction /
+ * cost.sacrifice) and the EventPattern vocabulary plus 190.6 battlefield
+ * controller binding for a battlefield program's trigger registration.
  */
 export default {
   canonicalCardId: "card.hash-979c0c88664ea7abe8ba5d613868eeb8569d56983d9d9b734d3ef2d55ca0e6c6",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处已合入缺口，均不近似实现：(1) 383.3.b/383.3.b.1 把「you may kill a unit you control here」（紧跟在效果开头 " +
-    "的 you may 之后）规定为该触发能力的 base cost，必须在 finalize 支付；合并原语没有在 finalize 收取「指令内费用」的路径" +
-    "（effect/instructions 下没有 cost.sacrifice / cost 类指令，连 cost.pay 形状也没有指令文件，RIFT-89）。" +
+    "两处缺口，均不近似实现：(1) 383.3.b/383.3.b.1 把「you may kill a unit you control here」（紧跟在效果开头 " +
+    "的 you may 之后）规定为该触发能力的 base cost，必须在 finalize 支付；instructions/registry.generated.ts 里没有任何 cost 类指令" +
+    "（cost.sacrifice / cost.pay / cost.modify 仍在 RIFT-261），没有在 finalize 收取「指令内费用」的路径。" +
     "本程序按已合入的 ogn/monastery-of-hirana 同型写法把消灭写成结算期 effect.kill + 条件抽牌，保留印刷的 cost→effect 链接，" +
-    "但不宣称已满足 383.3.b 的 finalize 时机。(2) 没有已合入订阅方把 CardProgram 的 triggered ability 注册成 TriggerRegistration，" +
-    "190.6 的战场能力控制者绑定也未落地，beginning-start 触发无法挂到本来源。" +
+    "但不宣称已满足 383.3.b 的 finalize 时机。(2) RIFT-257 的 programs/triggers.ts 已能把 CardProgram 的 triggered ability 注册成 TriggerRegistration，但本卡的注册会直接抛错：" +
+    "beginning-start 是合法时点（events/timing-points.ts），却不在封闭 EventPattern 词汇内（events/trigger-spec.ts 的 EVENT_PATTERN_TYPES，EventPipeline.registerTrigger 经 assertTriggerSpec 强制）；" +
+    "另外注册的 controller 取来源快照的 controller，而本引擎里战场对象是 token，其 controller 不等于战场控制者，190.6.d 的 player: \"self\" 闸门即使词汇放开也无法正确挂到本来源。" +
     "已支持部分：消灭（非目标 picks，355.10.c.1）与抽牌（414.1/414.3，读消灭的 killed 回执，359.3.e.14.b）都是已合入原语，" +
-    "golden 用真实解释器执行本卡 body（接受／拒绝／死亡被替代）。依赖：RIFT-89 与 RIFT-120 后续。",
+    "golden 用真实解释器执行本卡 body（接受／拒绝／死亡被替代）。依赖：RIFT-261 与 EventPattern 词汇 + 190.6 的战场控制者绑定。",
   sourceText:
     "At the start of your Beginning Phase, you may kill a unit you control here to draw 1. " +
     "(This happens before scoring.)",

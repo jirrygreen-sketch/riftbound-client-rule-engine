@@ -29,25 +29,34 @@ import type { CardProgram } from "../../ir/index.js";
  *   { object: "self" } in the target filter (sett-brawler spelling), never a
  *   runtime ObjectRef.
  *
- * Status: judge-required. The Hunt half cannot execute: effects/keywords/ has no
- * Hunt entry (the merged KeywordDefs are Accelerate, Action, Assault, Deathknell,
- * Deflect, Equip, Ganking, Hidden, Legion, Mighty, Quick-Draw, Reaction, Repeat,
- * Shield, Vision, Weaponmaster), so 823.1.c.1's conquer/hold subscription and
- * 823.2's summing are not implemented. The activated half (2 XP -> effect.buff)
- * uses only merged cost/payment and effect.buff code and is executed for real by
- * the golden test.
+ * Status: judge-required (re-reviewed for RIFT-329). The Hunt half still cannot
+ * execute end to end, but the missing piece is no longer the KeywordDef:
+ * effects/keywords/Hunt.ts is merged (823.1.c.1 expansion into a conquer and a
+ * hold trigger with effect.xp, 823.1.c.2 default 1, 823.2 summing) and
+ * programs/keywords.ts expands it. Registration still fails: the expansion
+ * spells its trigger event "conquer"/"hold", while the closed EventPattern
+ * vocabulary (events/trigger-spec.ts EVENT_PATTERN_TYPES, enforced by
+ * assertTriggerSpec in EventPipeline.registerTrigger) only accepts
+ * "conquered"/"held"/"scored"; registerProgramTriggers therefore throws before
+ * any subscription exists. Even with the accepted spelling, the scoring wave
+ * (turn/flow.ts:102) carries only the scoring player and
+ * `details.battlefieldId`, so the expansion's `{ source: "self" }` object filter
+ * has no object to bind and the here/“I conquered” attribution is missing.
+ * The activated half (2 XP -> effect.buff) uses only merged cost/payment and
+ * effect.buff code and is executed for real by the golden test.
  */
 export default {
   canonicalCardId: "card.hash-204eccc6166c5de77fb944367f972c5488c896a4054343aae4b3c15ca9b01b0f",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Hunt] 的具体展开未合入：823.1.c.1 规定 Hunt 功能上等同「When I Conquer or Hold, my controller gains X XP」" +
-    "（823.1.c.2 省略数值时 X=1、823.2 多来源相加），但 effects/keywords/ 没有 Hunt.ts（已合入的 KeywordDef 只有" +
-    "Accelerate/Action/Assault/Deathknell/Deflect/Equip/Ganking/Hidden/Legion/Mighty/Quick-Draw/Reaction/Repeat/Shield/Vision/Weaponmaster），" +
-    "因此 conquer/hold 订阅与获得 XP 无法执行；keyword: \"hunt\" 只是声明（契约 3.1/3.7、README 第 5 节）。" +
+    "[Hunt] 的展开已合入（effects/keywords/Hunt.ts：823.1.c.1 的 conquer/hold 两个 effect.xp 触发，823.1.c.2 省略值按 1、823.2 相加，RIFT-265），" +
+    "programs/keywords.ts 也会展开声明；但注册这步就走不通：展开体写的事件名是 \"conquer\"/\"hold\"，" +
+    "而封闭 EventPattern 词汇（events/trigger-spec.ts 的 EVENT_PATTERN_TYPES，EventPipeline.registerTrigger 经 assertTriggerSpec 强制）只接受 \"conquered\"/\"held\"/\"scored\"，" +
+    "registerProgramTriggers 会在订阅建立前抛错。即便换成合法拼写，计分波（turn/flow.ts:102）也只带计分玩家与 details.battlefieldId，" +
+    "展开体的 { source: \"self\" } 对象过滤器没有可绑定的对象，190.6 的「我征服」归属仍然缺失。" +
     "启动能力一半（Spend 2 XP → [Buff] me）只用已合入的费用管线（xp 付费种类，728/730.2）与 effect.buff（427.1/702.2.a/702.3），" +
-    "golden 用真实费用计划与解释器执行。依赖：Hunt 关键词展开（823.1.c.1/823.2）。",
+    "golden 用真实费用计划与解释器执行。依赖：Hunt 展开的事件拼写与 EventPattern/计分载荷的来源单位绑定（RIFT-265 后续 + RIFT-257 后续，823.1.c.1）。",
   abilities: [
     { kind: "keyword", keyword: "hunt" },
     {

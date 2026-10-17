@@ -21,16 +21,21 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  * - "Deal 1 to them"：418.1（Deal 动作）与 418.6.a（未指定来源时，描述该 Deal 动作的
  *   效果即来源），用已合入的 effect.damage；对象是上一条选出的那组敌方单位。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。三处缺口，均不近似实现：
+ * status 判定（cards/README.md 第 2 节）：judge-required（RIFT-329 复核后逐项更新）。两处缺口，均不近似实现：
  * 1. "Any amount of your damage is enough to kill enemy units"（142.4.c）没有已合入的
  *    写入路径：effects/instructions/ 下没有 continuous.lethal-threshold 原语（RIFT-9
  *    调研为 unl-118-219 规划的 newPrimitive），layers 也没有该阈值层的消费方，
  *    "your damage"（由该玩家标记的伤害）与"enemy units"的作用域无法注册。
  * 2. "up to one enemy unit at each location" 需要逐位置分组的多目标形状：TargetSpec 只有
  *    单一 min/max/selection，没有“按 location 分组、每组各自 0..1”的量词（355.11 的成组
- *    目标由 target.many / TargetPlan 承担），写成扁平 "up to N" 会在同一 location 选两个
- *    单位，属近似实现。
- * 3. 缺 CardProgram → TriggerRegistration 适配器（RIFT-120 后续），触发能力没有注册路径。
+ *    目标由 target.many / TargetPlan 承担）；RIFT-90 的 TargetPlan 只读 filter 与固定的
+ *    location 字段，TargetSpec 上的 perLocation 占位键没有任何消费者
+ *    （放进 filter 里则会被 programs/filters.ts 视为未知键拒绝），
+ *    写成扁平 "up to N" 会在同一 location 选两个单位，属近似实现。
+ * 复核撤销的旧缺口：原第 3 点“缺 CardProgram → TriggerRegistration 适配器”已不成立——
+ * programs/triggers.ts（RIFT-257）能把本卡的 card-played 触发注册进事件管线，
+ * "source: self" 与 player: controller 也按来源快照解析；golden 已用 production
+ * 绑定 + 真实打出流程跑通注册与结算。
  * body 的 effect.damage（1 点，来源为该效果）已合入，golden 用解释器 + 参考内核真实执行；
  * 目标形状用 perLocation: 1 占位键保留印刷作用域（见第 2 点），不把它当成已可求值。
  *
@@ -94,13 +99,15 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1)「Any amount of your damage is enough to kill enemy units」（142.4.c：改变致死伤害数额，规则原文的例子就是本卡）" +
+    "两处缺口：(1)「Any amount of your damage is enough to kill enemy units」（142.4.c：改变致死伤害数额，规则原文的例子就是本卡）" +
     "没有已合入的写入路径：effects/instructions/ 下没有 continuous.lethal-threshold 原语（RIFT-9 调研为本卡的 newPrimitive），" +
     "layers 也没有该阈值层的消费方，“由你标记的伤害 vs 敌方单位”的作用域无法注册。" +
     "(2)「choose up to one enemy unit at each location」（355.11 的成组目标）需要逐 location 分组的多目标形状：" +
-    "TargetSpec 只有单一 min/max/selection，没有“按 location 分组、每组各自 0..1”的量词；写成扁平 up-to N 会在同一 location 选两个单位，属近似实现，" +
+    "TargetSpec 只有单一 min/max/selection，RIFT-90 的 TargetPlan 只读 filter 与固定的 location 字段，TargetSpec 上的 perLocation 占位键没有消费者（放进 filter 里会被 programs/filters.ts 拒绝），没有“按 location 分组、每组各自 0..1”的量词；" +
+    "写成扁平 up-to N 会在同一 location 选两个单位，属近似实现，" +
     "本程序用写明的 perLocation 占位键保留印刷作用域。" +
-    "(3) 缺 CardProgram → TriggerRegistration 适配器（RIFT-120 后续），触发能力没有注册路径。" +
+    "（旧第 3 点“缺 CardProgram → TriggerRegistration 适配器”在 RIFT-329 复核中已撤销：RIFT-257 的 programs/triggers.ts 能注册本卡的 card-played 触发，" +
+    "source: self 与 player: controller 也按来源快照解析，golden 已用 production 绑定加真实打出流程验证。）" +
     "body 的 effect.damage（1 点，418.1/418.6.a）已合入并在 golden 中真实执行。不近似实现。",
   abilities,
   sourceText:

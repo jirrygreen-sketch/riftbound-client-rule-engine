@@ -22,16 +22,18 @@ import type { CardProgram } from "../../ir/index.js";
  *   token 按 440.2.c / 185.2.a 先在链上创建再由 play 接手，"exhausted" 是 184.1 /
  *   185.2.d 的入场状态改写。
  *
- * status = judge-required（不近似实现）：
+ * status = judge-required（RIFT-329 复核；不近似实现）：
  * - 没有卡牌可用的延迟触发注册原语：ResolveContext.registerDelayedTrigger（契约
- *   3.6）存在，但 effects/instructions/ 没有任何 opcode 消费它（RIFT-9 清单的
- *   trigger.delayed），"this turn" 的窗口/到期与 object-killed 的事件对象绑定
- *   （"it"）都没有落地；把能力写成卡自身的 triggered ability 会违反 391.1/393
- *   （延迟能力由效果创建、不依附卡本体）。
- * - Gold token 定义（187.5，带自身能力）被 effect.token 显式阻断
- *   （blockedReason: token-definition-or-abilities-judge-required）。
- * - "exhausted" 入场改写（143.4 / 184.1 / 185.2.d）不被 create-token 支持；先创建
- *   再补 effect.exhaust 会产生错误的「成为横置」事件。
+ *   3.6，chain/engine.ts:253 有实现）存在，但 instructions/registry.generated.ts 里
+ *   没有任何指令消费它（RIFT-9 清单的 trigger.delayed；本文件的 trigger.delayed op
+ *   未注册），"this turn" 的窗口/到期与 object-killed 的事件对象绑定（"it"）都没有落地；
+ *   把能力写成卡自身的 triggered ability 会违反 391.1/393（延迟能力由效果创建、
+ *   不依附卡本体）。
+ * - Gold token 定义（187.5，带自身能力）不在 effect.token 的定义表：实测执行
+ *   token "gold" 返回 negated/impossible，带能力的 token 仍被显式阻断。
+ * - "exhausted" 入场改写（143.4 / 184.1 / 185.2.d）不被 create-token 支持
+ *   （entersExhausted 是 argsSchema 拒绝的未知参数）；先创建再补 effect.exhaust
+ *   会产生错误的「成为横置」事件。
  * 「Deal 3」一半只用已合入的 effect.damage，golden 用解释器 + 参考内核真实执行。
  * 依赖：RIFT-9 的 trigger.delayed 与 token 定义表扩充（Gold，187.5）、入场状态改写。
  */
@@ -40,12 +42,12 @@ const deadlyFlourish = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处依赖未合入，均不近似实现：(1)「When it dies this turn」是延迟触发能力（CR 390/391.2/392，窗口为 317.2.c 的本回合），" +
-    "但已合入的指令注册表没有卡牌可用的 trigger.delayed opcode（RIFT-9 清单），ResolveContext.registerDelayedTrigger 没有消费者，" +
+    "三处缺口，均不近似实现：(1)「When it dies this turn」是延迟触发能力（CR 390/391.2/392，窗口为 317.2.c 的本回合），" +
+    "但指令注册表没有卡牌可用的 trigger.delayed opcode（RIFT-9 清单），ResolveContext.registerDelayedTrigger 仍没有指令消费者，" +
     "object-killed（429.1）的事件对象绑定（\"it\"）与到期窗口都没有落地；写成卡自身的 triggered ability 会违反 391.1/393。" +
     "(2) Gold gear token 定义（CR 187.5，带自身 \"[Reaction][>] Kill this, [E]: [Add] [A]\" 能力）不在 effect.token 的定义表，" +
-    "带能力的 token 被显式阻断（blockedReason: token-definition-or-abilities-judge-required）。" +
-    "(3)「exhausted」是入场状态改写（143.4 / 184.1 / 185.2.d），create-token 不支持 entry override；先创建再补 effect.exhaust " +
+    "实测执行 token \"gold\" 返回 negated/impossible，带能力的 token 仍被显式阻断。" +
+    "(3)「exhausted」是入场状态改写（143.4 / 184.1 / 185.2.d），create-token 不支持 entry override（entersExhausted 被 argsSchema 拒绝）；先创建再补 effect.exhaust " +
     "会产生错误的「成为横置」事件，不用它冒充。\"Deal 3 to an enemy unit\" 一半只用已合入的 effect.damage，golden 真实执行。" +
     "依赖：RIFT-9 的 trigger.delayed、token 定义表扩充与入场状态改写。",
   abilities: [
