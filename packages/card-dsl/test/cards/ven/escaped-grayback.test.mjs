@@ -6,8 +6,13 @@ import program from "../../../dist/cards/ven/escaped-grayback.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { expandProgram } from "../../../../engine-core/dist/programs/index.js";
+import empowerDefinition from "../../../../engine-core/dist/effects/keywords/Empower.js";
+import empowerEffect from "../../../../engine-core/dist/effects/instructions/effect.empower.js";
+import { createActionPipelineHost, bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { TurnFlow } from "../../../../engine-core/dist/turn/flow.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 
 const CANONICAL_ID =
   "card.hash-873c8f0234994082b765c3eb70f58d38ed667f83edf9a43739a2a1f28910a0f5";
@@ -34,7 +39,8 @@ test("ven-124-166 Escaped Grayback: identity, ruleset, status, judgeReason and v
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /Empowered/);
   assert.match(program.judgeReason, /expandProgram/);
-  assert.match(program.judgeReason, /conditionMatches/);
+  assert.match(program.judgeReason, /params\.cost/);
+  assert.match(program.judgeReason, /ObjectSnapshot/);
 });
 
 test("ven-124-166 Escaped Grayback: [Empower] is declared as a keyword whose cost is a Kill", () => {
@@ -55,10 +61,10 @@ test("ven-124-166 Escaped Grayback: the [Empowered] dependent clause grants +2 M
   assert.equal(mightGrant.effect.layer, "arithmetic");
   assert.equal(mightGrant.effect.appliesTo, "self");
   assert.deepEqual(mightGrant.effect.amount, { kind: "constant", value: 2 });
-  // 442.1.a 的 Empowered 状态没有可求值谓词：用显式谓词字符串占位。
+  // 442.1.a：比较真实状态；字符串常量并不是状态谓词。
   assert.deepEqual(mightGrant.condition, {
-    kind: "expression",
-    value: { kind: "constant", value: "empowered" }
+    kind: "compare", left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "gt", right: { kind: "constant", value: 0 }
   });
   // 143.2.a / 475-477：+2 是算术图层修正，绝不是 702 的 Buff 计数。
   assert.equal(mightGrant.effect.buffs, undefined);
@@ -129,22 +135,25 @@ test("ven-124-166 Escaped Grayback golden: the declared +2 Might produces an ari
 
 test.todo(
   "ven-124-166 Escaped Grayback: [Empower] expansion (827.1.c.1: '[Kill a friendly unit]: Empower me, use " +
-    "only if not Empowered') and its activation wiring — no Empower/Empowered KeywordDef is available and " +
-    "the keyword expansion does not yet consume the declared nonstandard Kill cost"
+    "only if not Empowered') — pass the printed Kill cost and its non-target friendly-unit choice through KeywordAbility/expandProgram"
 );
 
 test.todo(
   "ven-124-166 Escaped Grayback: the [Empowered] dependent +2 Might reaches the layers behind the " +
-    "Empowered status gate (CR 828.1.b.1 / 442.1.a) — no Empowered predicate exists"
+    "Empowered status gate (CR 828.1.b.1 / 442.1.a) — guarantee empowered in production ObjectSnapshot adapters"
 );
 
-/** 复核（2026-10-17）负向证据：关键词展开缺失与 Empowered 门控不生效。 */
-test("ven-124-166 Escaped Grayback evidence: expandProgram rejects the missing Empower KeywordDef", () => {
+test("ven-124-166 Escaped Grayback evidence: expandProgram now expands Empower while preserving the missing-cost sentinel", () => {
   const kernel = world().unit("grayback", { types: ["unit"], zone: "board", controller: "A" }).build();
-  assert.throws(
-    () => expandProgram(program, kernel.getObject("grayback")),
-    /Keyword empower has no executable KeywordDef/
-  );
+  const { expanded } = expandProgram(program, kernel.getObject("grayback"));
+  assert.equal(expanded.length, 1);
+  assert.equal(expanded[0].kind, "activated");
+  assert.deepEqual(expanded[0].cost, { kind: "empower" });
+  assert.equal(expanded[0].body[0].op, "effect.empower");
+  assert.deepEqual(expanded[0].restriction.condition, {
+    kind: "compare", left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "eq", right: { kind: "constant", value: 0 }
+  });
 });
 
 test("ven-124-166 Escaped Grayback evidence: the Kill cost really pays through the merged cost pipeline", () => {
@@ -155,13 +164,16 @@ test("ven-124-166 Escaped Grayback evidence: the Kill cost really pays through t
     .unit("friendly-fodder", { controller: "controller", might: 1 })
     .build();
   const kernel = base.clone({ controller: "controller" });
-  const plan = buildCostPlan(kernel, {
-    id: "escaped-grayback.empower",
-    cost: {
+  const cost = {
       kind: "explicit",
       energy: { kind: "constant", value: 0 },
       payments: [{ kind: "kill", amount: { kind: "constant", value: 1 }, object: kernel.ref("friendly-fodder") }]
-    },
+  };
+  const [activation] = empowerDefinition.expand({ host: { canonicalCardId: CANONICAL_ID }, params: { cost } });
+  assert.deepEqual(activation.cost, cost);
+  const plan = buildCostPlan(kernel, {
+    id: "escaped-grayback.empower",
+    cost: activation.cost,
     domains: ["Order"]
   });
   const receipt = payCostPlan(kernel, plan);
@@ -172,30 +184,34 @@ test("ven-124-166 Escaped Grayback evidence: the Kill cost really pays through t
   assert.deepEqual(kernel.events.map((event) => event.action), ["pay", "kill"]);
 });
 
-test("ven-124-166 Escaped Grayback evidence: the Empowered condition string is not recognized by the layer engine", () => {
-  // 442.1.a/828.1.b.1：没有 Empowered 谓词时 layers/engine.ts 的 conditionMatches 对未知 kind 返回 true，
-  // 未 Empowered 的宿主也会拿到 +2；程序不把它当作已门控效果，故整卡保持 judge-required。
+test("ven-124-166 Escaped Grayback: production static binding gates +2 on live Empowered status", () => {
   const kernel = world()
     .unit("grayback", { controller: "controller", might: 3, types: ["unit"], location: { type: "base", player: "controller" } })
     .build()
     .clone({ controller: "controller" });
+  const host = createActionPipelineHost({
+    checkpoint: () => kernel.snapshot(), restore: state => kernel.restore(state),
+    objects: () => kernel.objects, perform: action => kernel.perform(action),
+    choose: request => kernel.choose(request),
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const flow = new TurnFlow({ host, player: id => kernel.player(id), turnOrder: ["controller", "B"],
+    battlefields: [{ id: "bf1", controller: null }, { id: "bf2", controller: null }] });
+  const engine = flow.chain;
   const snapshot = kernel.getObject("grayback");
-  const engine = createLayerEngine([snapshot], [{
-    effect: {
-      id: "escaped-grayback.might",
-      layer: "arithmetic",
-      source: snapshot.ref,
-      filter: { objectId: "grayback" },
-      effect: {
-        kind: "continuous.might",
-        mode: "add",
-        amount: { kind: "constant", value: 2 },
-        condition: { kind: "expression", value: { kind: "constant", value: "empowered" } }
-      }
-    },
-    duration: { type: "permanent" },
-    timestamp: 1,
-    sequence: 1
-  }]);
-  assert.equal(engine.evaluate(snapshot.ref).might, 5, "unempowered host still gets +2 with the authored placeholder condition");
+  engine.layers.setObjects(kernel.objects);
+  const handle = createEngineStaticBinder(engine).bindStatic(mightGrant, snapshot);
+  assert.equal(engine.layers.evaluate(snapshot.ref).might, 3);
+  const empowered = runInstruction(empowerEffect, { objects: { kind: "constant", value: snapshot.ref } }, { world: kernel });
+  assert.equal(empowered.result.status, "executed");
+  engine.layers.setObjects(kernel.objects);
+  assert.equal(engine.layers.evaluate(snapshot.ref).might, 5);
+  const removed = runInstruction(empowerEffect, {
+    objects: { kind: "constant", value: snapshot.ref }, mode: { kind: "constant", value: "disempower" }
+  }, { world: kernel });
+  assert.equal(removed.result.status, "executed");
+  engine.layers.setObjects(kernel.objects);
+  assert.equal(engine.layers.evaluate(snapshot.ref).might, 3);
+  assert.deepEqual(kernel.events.map(event => event.action), ["empower", "disempower"]);
+  handle.unbind();
 });

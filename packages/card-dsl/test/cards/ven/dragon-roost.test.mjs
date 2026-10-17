@@ -8,7 +8,9 @@ import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 // card-dsl), so golden execution loads the built engine through its workspace
 // layout instead of the package name.
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
-import { prepareCostPayment } from "../../../../engine-core/dist/cost/payment.js";
+import { payCostPlan, prepareCostPayment } from "../../../../engine-core/dist/cost/payment.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
+import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL =
@@ -169,6 +171,26 @@ test("ven-157-166 Dragon Roost golden: declining the optional cost leaves the ca
   assert.deepEqual(plan.declinedAdditional, ["dragon-roost.additional-cost"]);
 });
 
+test("Dragon Roost supported pieces: Dragon tags and the optional-payment result are executable", () => {
+  for (const selected of [true, false]) {
+    const ctx = contextFor({ energy: 0, power: ["Mind", "Fury"] });
+    ctx.addObject({ ...ctx.getObject("dragon"), ref: { id: "non-dragon", zoneEntryId: 1 }, tags: [] }, "hand");
+    const candidates = ctx.query(translateObjectFilter(effect.filter));
+    assert.deepEqual(candidates.map(object => object.ref.id), ["dragon"]);
+    const plan = buildCostPlan(ctx, { id: "roost-payment", cost: { energy: { kind: "constant", value: 0 } },
+      optionalAdditional: [additionalCost(selected)] });
+    const receipt = payCostPlan(ctx, plan);
+    assert.equal(receipt.paid, true);
+    assert.equal(evaluateCondition({ kind: "result", result: "cost.additional", id: effect.id }, {
+      context: ctx, cost: { plan, receipt }
+    }), selected);
+    assert.deepEqual(receipt.actions[0].action.plan.power, selected ? ["Fury", "Mind"] : []);
+    // The resource allocation is real; TestWorld's pay action does not debit Power.
+    // This proves the tag and paid-decision readers, not the missing play-location binding.
+    assert.equal(ctx.getObject("dragon").zone, "hand");
+  }
+});
+
 test.todo(
   "ven-157-166 Dragon Roost: charge the optional [A][A] additional cost and feed 356.4.f.1's paid proof into " +
     "\"If they do\" — cost.pay and the optionalAdditional planner exist, but the cost.additional " +
@@ -177,11 +199,11 @@ test.todo(
 
 test.todo(
   "ven-157-166 Dragon Roost: turn payment of the additional cost into the 355.17/355.17.a mandatory play-to-this-battlefield " +
-    "requirement — Finalize validates play locations (355.2.b / 420.3.b.2) but no merged consumer reads a play-location " +
-    "requirement gated on a cost receipt"
+    "requirement — Finalize validates play locations (355.2.b / 420.3.b.2) and result conditions read payment decisions, " +
+    "but no producer binds this static declaration's decision to the location requirement"
 );
 
 test.todo(
   "ven-157-166 Dragon Roost: evaluate the 'a Dragon' predicate (133.8 tag) against any player's card as it is finalized — " +
-    "the cost/location plan's object population is supplied by the caller, so the card program cannot name the played Dragon"
+    "tags filtering works; still needs this static cost/location declaration bound to the pending played object"
 );

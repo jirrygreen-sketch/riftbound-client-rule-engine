@@ -1,6 +1,9 @@
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world, runInstruction } from "../../../../engine-core/dist/effects/testing/index.js";
 import might from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
+import empowerDefinition from "../../../../engine-core/dist/effects/keywords/Empower.js";
+import empowerEffect from "../../../../engine-core/dist/effects/instructions/effect.empower.js";
+import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -112,11 +115,45 @@ test("ven-079-166 Dame the Despoiler: both combat bodies have matching measureme
 test("dame-the-despoiler: the review records the current blockers", () => {
   assert.match(program.judgeReason, /Empower/);
   assert.match(program.judgeReason, /827\.1\.c\.1/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /params\.cost/);
   assert.match(program.judgeReason, /sameLocationAs/);
 });
 
-test.todo("dame-the-despoiler: 827/828: pass the printed Empower cost and gate combat triggers on Empowered (RIFT-359)");
+test.todo("dame-the-despoiler: 827/828: pass the printed Empower cost through KeywordAbility and guarantee empowered in production ObjectSnapshot adapters");
+
+test("Dame Empower: the merged definition preserves 5 Energy plus Body and the pipeline records the required payment", () => {
+  const cost = { kind: "activated", energy: { kind: "constant", value: 5 },
+    payments: [{ kind: "power", amount: { kind: "constant", value: 1 }, allowedDomains: ["Body"] }] };
+  const [activation] = empowerDefinition.expand({ host: { canonicalCardId: CANONICAL_ID }, params: { cost } });
+  assert.equal(activation.kind, "activated");
+  assert.equal(activation.timing, "action");
+  assert.deepEqual(activation.cost, cost);
+  assert.equal(activation.body[0].op, "effect.empower");
+  assert.equal(activation.body[0].targets, undefined);
+  const kernel = world().player("A", { energy: 6, power: ["Body", "Mind"] }).unit("dame").build();
+  const receipt = payCostPlan(kernel, buildCostPlan(kernel, { id: "dame.empower", cost: activation.cost }));
+  assert.equal(receipt.paid, true);
+  assert.equal(kernel.player("A").energy, 1);
+  assert.deepEqual(receipt.actions[0].action.plan.power, ["Body"]);
+  assert.deepEqual(receipt.power.power.map(({ from, amount }) => ({ from, amount })), [{ from: "Body", amount: 1 }]);
+  // TestWorld's pay action debits Energy only; Power consumption still needs host verification.
+});
+
+test("Dame Empowered gate: both combat subscriptions read live status rather than a truthy string", () => {
+  const base = world().unit("dame").build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("dame") });
+  for (const trigger of [attackTrigger, defendTrigger]) {
+    assert.deepEqual(trigger.trigger.condition, {
+      kind: "compare", left: { kind: "object-property", object: "self", property: "empowered" },
+      operator: "gt", right: { kind: "constant", value: 0 }
+    });
+    assert.equal(kernel.test(trigger.trigger.condition), false);
+  }
+  const run = runInstruction(empowerEffect, { amount: { kind: "constant", value: 1 } }, { world: kernel });
+  assert.equal(run.result.status, "executed");
+  assert.deepEqual(kernel.events.map(event => event.action), ["empower"]);
+  for (const trigger of [attackTrigger, defendTrigger]) assert.equal(kernel.test(trigger.trigger.condition), true);
+});
 
 test.todo("dame-the-despoiler: 355.9: translate sameLocationAs into program target binding");
 
