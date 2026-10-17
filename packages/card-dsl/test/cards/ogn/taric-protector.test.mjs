@@ -1,8 +1,8 @@
 // Golden test for Taric, Protector (ogn-074-298).
 //
 // Execution evidence (play, payment, keyword expansion and the fail-closed
-// static bind) lives in the RIFT-650 parameterized template golden:
-// test/cards/templates/keyword-keyword-static-650.test.mjs.
+// static bind) lives in the RIFT-674 parameterized template golden:
+// test/cards/templates/keyword-keyword-static-674.test.mjs.
 // This file keeps validation, identity, verbatim text, declared status and the
 // key structure of the printed abilities.
 import assert from "node:assert/strict";

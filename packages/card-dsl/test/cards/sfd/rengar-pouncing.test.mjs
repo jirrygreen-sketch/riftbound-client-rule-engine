@@ -1,8 +1,8 @@
 // Golden test for Rengar, Pouncing (sfd-025-221).
 //
 // Execution evidence (the printed 3 energy / 1 Fury payment and the Reaction
-// play through a real Chain) lives in the RIFT-650 parameterized template
-// golden: test/cards/templates/keyword-keyword-static-650.test.mjs.
+// play through a real Chain) lives in the RIFT-674 parameterized template
+// golden: test/cards/templates/keyword-keyword-static-674.test.mjs.
 // This file keeps validation, identity, verbatim text, declared status and the
 // key structure of the printed abilities.
 import assert from "node:assert/strict";
