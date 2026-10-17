@@ -26,10 +26,10 @@ import type { CardProgram } from "../../ir/index.js";
  *    属近似实现。
  * 2. 授予没有消费者：把该计数喂进本次 Deal 动作的 bonus 需要“对 Deal 动作授予 Bonus Damage”
  *    的持续效果/图层模型（同 ogn Void Gate / Annie, Fiery 的判定），当前没有已合入的注册路径。
- * 3. [Action] 之外的关键词/链接线与其它已合入法术一致（RIFT-120）。
+ * 3. 卡牌程序 → 链的关键词/费用接线同其它批次（RIFT-120 注册通道已合入，卡牌侧接线仍缺）。
  * 已合入并真实执行：effect.damage 的 2 点基准伤害与 bonus 参数的 714/715.1 加总；golden 用
  * 解释器 + 参考内核演示 2 + N 的实际结算与 715.4（无伤害则不适用）边界。
- * 依赖：RIFT-91（layers-continuous 的 Bonus Damage 授予）与 name 谓词（见契约变更请求）。
+ * 依赖：Bonus Damage 授予消费方（continuous 图层）与 name 谓词（见契约变更请求）。
  */
 export default {
   canonicalCardId: "card.hash-eccd412b01dd63e0ce45a6b2789921b93b875f0321bcb6cea756edf8d23c9a71",
@@ -42,9 +42,10 @@ export default {
     "用 canonicalCardId 过滤会把 132.3 的同名跨印次排除掉。" +
     "(2) 把该计数喂进本次 Deal 动作需要“对 Deal 动作授予 Bonus Damage”的持续效果/图层消费方（418.4/418.5/713-715；" +
     "effect.damage 只对调用方传入的 bonus 表达式做加总），当前没有已合入注册路径（同 Void Gate / Annie, Fiery 判定）。" +
-    "(3) 卡牌程序 → 链的关键词/费用接线同其它批次（RIFT-120）。" +
+    "(3) 卡牌程序 → 链的关键词/费用接线（RIFT-120 注册通道已合入，卡牌侧接线仍缺）。" +
     "已合入并真实执行：「Deal 2 to a unit at a battlefield」的 effect.damage 与 bonus 的 714/715.1 加总、" +
-    "715.4 的无伤害不适用，golden 用解释器 + 参考内核断言。依赖：RIFT-91、name 谓词（契约变更请求）。",
+    "715.4 的无伤害不适用，golden 用解释器 + 参考内核断言。依赖：Bonus Damage 授予消费方（continuous 图层）、" +
+    "name 谓词（契约变更请求）。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {
