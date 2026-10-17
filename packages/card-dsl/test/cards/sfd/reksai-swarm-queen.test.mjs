@@ -12,6 +12,7 @@ import {
   createActionPipelineHost
 } from "../../../../engine-core/dist/events/action-adapter.js";
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 
 const CANONICAL = "card.hash-66da1ff0419b3ebf3d4e801af0a225acbd65b392adf96224c9e14101755c0716";
 const [ability] = program.abilities;
@@ -28,10 +29,12 @@ test("sfd-170-221 Rek'Sai, Swarm Queen: program validates and keeps its identity
   assert.match(program.judgeReason, /ordered picks/);
   assert.match(program.judgeReason, /RIFT-66/);
   // Refreshed reason: the printed-cost path for effect.play without a cost
-  // override is merged; the reason records that evidence and keeps only the
-  // ordered-deck-pick and played-receipt gaps.
+  // override is merged. The ordered-pick lifecycle, reveal Expr unpacking and
+  // played-object receipt remain three independent gaps.
   assert.match(program.judgeReason, /费用路径已合入/);
   assert.match(program.judgeReason, /印刷费用/);
+  assert.match(program.judgeReason, /effect\.reveal\.pick Expr 解包缺口/);
+  assert.match(program.judgeReason, /LITERAL_FIELDS/);
   // The type gate is expressible; the gap is the missing object list on
   // effect.play's receipt.
   assert.match(program.judgeReason, /played 计数|linkKey/);
@@ -114,6 +117,27 @@ test("sfd-170-221 Rek'Sai, Swarm Queen: the merged reveal primitive reveals the 
   assert.deepEqual(kernel.zone("A", "deck").map((ref) => ref.id), ["c1", "c2", "c3"]);
 });
 
+test("sfd-170-221 Rek'Sai, Swarm Queen: the original reveal Expr fails through the chain adapter even with ordered picks", () => {
+  const base = world()
+    .unit("reksai", { owner: "A", might: 5 })
+    .deck(["c1", "c2", "c3"])
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("reksai") });
+  const top = kernel.zoneSlice("A", "deck", "top", 2).map((object) => object.ref);
+  kernel.setPicks(revealInstruction.picks[0].id, top);
+  assert.deepEqual(kernel.picks("reksai.top-two"), top);
+  assert.deepEqual(top.map((ref) => ref.id), ["c1", "c2"]);
+
+  // Use the original instruction unchanged: this isolates Expr unpacking from
+  // producing/locking ordered picks and from the optional wrapper's choice.
+  assert.throws(
+    () => resolveChainBody([revealInstruction], kernel),
+    { message: "effect.reveal: pick must be a non-empty id" }
+  );
+  assert.deepEqual(kernel.events, []);
+  assert.deepEqual(kernel.zone("A", "deck").map((ref) => ref.id), ["c1", "c2", "c3"]);
+});
+
 test("sfd-170-221 Rek'Sai, Swarm Queen: recycling the rest drops references already played", () => {
   const kernel = world().player("A").deck(["c1", "c2", "c3"]).build();
   const top = kernel.zoneSlice("A", "deck", "top", 2).map((object) => object.ref);
@@ -155,7 +179,12 @@ test("sfd-170-221 Rek'Sai, Swarm Queen: declining the reveal skips the whole cho
 
 test.todo(
   "sfd-170-221 Rek'Sai, Swarm Queen: produce the ordered Main-Deck-top picks for effect.reveal and " +
-    "wire them into the chain's pick lifecycle (RIFT-8x ordered deck-top provisioning, RIFT-89)"
+    "wire them into the chain's pick lifecycle (chain Finalize/Resolve; ctx.zoneSlice alone does not lock picks)"
+);
+
+test.todo(
+  "sfd-170-221 Rek'Sai, Swarm Queen: unpack the original effect.reveal.pick Expr in the chain adapter " +
+    "(contract 3.2 / LITERAL_FIELDS) so it consumes prelocked ordered picks and actually reveals the top two"
 );
 
 test.todo(
@@ -282,4 +311,3 @@ test("sfd-170-221 Rek'Sai, Swarm Queen: a cost-free chain play derives and pays 
   assert.equal(kernel.getObject("tested-unit")?.zone, "board");
   assert.deepEqual(kernel.getObject("tested-unit")?.location, { type: "base", player: "A" });
 });
-

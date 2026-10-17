@@ -232,4 +232,3 @@ test("sfd-008-221 Sentinel Adept: the expansion's cost.modify step fails closed 
     }
   );
 });
-

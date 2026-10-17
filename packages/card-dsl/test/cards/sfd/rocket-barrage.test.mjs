@@ -282,4 +282,3 @@ test("sfd-077-221 Rocket Barrage: the merged play-cost adapter refuses the optio
     }
   );
 });
-

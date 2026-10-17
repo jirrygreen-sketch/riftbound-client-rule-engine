@@ -127,4 +127,3 @@ test.todo(
   "sfd-024-221 Rell, Magnetic: the printed Energy cap (energyLte) needs ObjectFilter vocabulary and a raw-matcher " +
     "predicate so an Equipment above the cap is excluded before the pick binds (CR 818.1.a; RIFT-221 cost-kind work)"
 );
-

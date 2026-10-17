@@ -246,4 +246,3 @@ test("sfd-098-221 Sea Monkey: the production static binder cannot map the cost.a
     "expected the self-anchor rejection, got: " + JSON.stringify(messages)
   );
 });
-
