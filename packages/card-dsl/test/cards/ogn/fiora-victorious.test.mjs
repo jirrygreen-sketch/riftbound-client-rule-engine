@@ -93,4 +93,4 @@ test("ogn-232-298 Fiora, Victorious: the three granted KeywordDefs expand to the
   assert.equal(shield.expand({ value: 1, host })[0].effect.kind, "continuous.might");
 });
 
-test.todo("Fiora, Victorious: expand conditional keyword grants into live Ganking/Shield behaviors and effective-Might checks (RIFT-359), and Deflect target costs (RIFT-360)");
+test.todo("Fiora, Victorious: expand conditional keyword grants into live Ganking/Shield behaviors and effective-Might checks, and connect Deflect target costs to Finalize (CR 708/710, 809.1.c, 810.1.b, 814.1.c)");

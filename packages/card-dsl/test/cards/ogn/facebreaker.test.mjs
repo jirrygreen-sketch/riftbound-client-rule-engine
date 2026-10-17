@@ -210,7 +210,7 @@ test("Facebreaker anchor: the enemy spec matches only a unit at the first target
 });
 
 test.todo("Facebreaker: Hide/facedown lifecycle, next-turn Reaction and Hidden battlefield restrictions (CR 811.1.b–d)");
-test.todo("Facebreaker: bind sameLocationAs across the two Finalize targets (RIFT-359; CR 355.9.b)");
+test.todo("Facebreaker: bind sameLocationAs across the two Finalize targets (CR 355.9.b)");
 
 test("Hidden cost component: hide pays one any-domain Power; later play waives base but retains additional costs", () => {
   const base = world().player("A", { energy: 3, power: ["Mind"] })

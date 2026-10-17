@@ -125,6 +125,6 @@ test("Find Your Center golden: a short Rune Deck channels as much as possible (C
   assert.equal(kernel.player("A").runeDeckSize, 0);
 });
 
-test.todo("Find Your Center: read current Victory Score in the condition (RIFT-359; CR 194.3/194.3.a) and bind the static discount into Finalize");
+test.todo("Find Your Center: read current Victory Score in the condition (CR 194.3/194.3.a) and bind the static discount into Finalize");
 
 test.todo("Find Your Center: apply channel-rune.exhausted to actual rune entry state in the reference kernel (CR 431.2)");

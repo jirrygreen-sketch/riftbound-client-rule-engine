@@ -12,7 +12,7 @@ const facebreaker = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺 cost.hidden 的 Hide 行动与 facedown 区域生命周期、下一回合起 Reaction 许可，以及 Hidden 法术目标限于隐藏战场的规则接线（CR 811.1.b/811.1.c/811.1.d.2）。此外 programs/filters.ts 未翻译第二目标的 sameLocationAs，Chain Finalize 需支持两目标在同一战场的关系约束（CR 355.9.b；RIFT-359）。",
+    "仍缺 cost.hidden 的 Hide 行动与 facedown 区域生命周期、下一回合起 Reaction 许可，以及 Hidden 法术目标限于隐藏战场的规则接线（CR 811.1.b/811.1.c/811.1.d.2）。此外 programs/filters.ts 不翻译第二目标的 sameLocationAs，TargetSpec.location 当前只接受具体或静态位置过滤，Chain Finalize 仍无法把第二目标绑定到第一目标的战场（CR 355.9.b）。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     { kind: "keyword", keyword: "action" },
