@@ -39,8 +39,5 @@ test("ogn-276-298 Aspirant's Climb: no ability is encoded because no primitive c
 });
 
 test.todo(
-  "ogn-276-298 Aspirant's Climb: raising the Victory Score by 1 (CR 194.3.a) needs a " +
-    "victory-score primitive / contract change request; the engine already models the value " +
-    "internally (scoring/setDuelVictoryScoreForEffect) without a card-facing opcode; the " +
-    "RIFT-257 static binding is already merged."
+  "ogn-276-298 Aspirant's Climb: bind a continuous Victory Score +1 rule to the battlefield's active lifetime, stacking and removing it in TurnFlow (CR 194.3.a/485.3.a); the independent scoring-state setter is insufficient."
 );

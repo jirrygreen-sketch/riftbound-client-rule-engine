@@ -9,6 +9,7 @@ import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
+import { fixture, settle, move } from "../../../../engine-core/test/turn/helpers.mjs";
 
 const CANONICAL =
   "card.hash-efa44994f07966ad8095ddd1f56f9c20b1246888b3f037a54a196793f2cb0f4b";
@@ -85,15 +86,21 @@ test("ogn-056-298 Adaptatron: the merged binding registers the self-anchored con
 });
 
 test("ogn-056-298 Adaptatron: a real conquered emission matches nothing self-anchored (383.4.c.1 gap)", () => {
-  // turn/flow.ts Score wave emits conquered with only player + details, no
-  // participant object, so the translated object-anchored filter can never
-  // match — that remains the true gap in judgeReason.
-  const translated = translateTriggerFilter(triggered.trigger.filter, "adaptatron-host", "conquer");
-  const matched = matchesTriggerEvent(
-    translated,
-    { timingPoint: "conquer", player: "A", details: { battlefieldId: "bf-1" } },
-    "A"
-  );
+  // Produce the conquer through real movement, showdown passes and scoring.
+  const f = fixture();
+  f.flow.start();
+  f.flow.execute(f.draft("move-host", [move("move", { type: "battlefield", id: "bf1" })]));
+  settle(f.flow);
+  f.flow.pass("A");
+  f.flow.pass("B");
+  const event = f.flow.chain.pipeline.events.find(entry => entry.timingPoint === "conquer");
+  assert.ok(event);
+  assert.equal(event.player, "A");
+  assert.equal(event.details.battlefieldId, "bf1");
+  assert.equal(f.kernel.getObject("source").location.id, "bf1");
+  assert.equal(f.kernel.player("A").score, 1);
+  const translated = translateTriggerFilter(triggered.trigger.filter, "source", "conquer");
+  const matched = matchesTriggerEvent(translated, event, "A");
   assert.equal(matched, false);
 });
 
@@ -210,8 +217,5 @@ test("ogn-056-298 Adaptatron golden: with no gear the kill is ignored and the bu
 // ---------------------------------------------------------------------------
 
 test.todo(
-  "ogn-056-298 Adaptatron: the conquered emission needs the 383.4.c.1 participant " +
-    "identity (present at the conquering battlefield) so the self-anchored filter " +
-    "can match a real Score-wave emission; player:'self' is an approximation and " +
-    "is not used."
+  "ogn-056-298 Adaptatron: bind the host's presence during the conquer action (CR 383.4.c.2.a), object:self on the buff instruction, and Finalize targets inside choice.optional; no controller-wide conquer approximation."
 );

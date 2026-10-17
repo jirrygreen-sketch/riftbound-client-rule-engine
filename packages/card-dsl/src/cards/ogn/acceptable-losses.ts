@@ -23,35 +23,18 @@ import type { CardProgram } from "../../ir/index.js";
  *   player's own choice, not the caster's — which is what a PickSpec's
  *   chooser field expresses.
  *
- * Status: judge-required — the kill half uses only the merged effect.kill
- * primitive (executed in the golden test), but two parts of the text have no
- * merged execution path:
- * - "Each player" must resolve as one kill per player, in turn order. The
- *   merged IR is executed as a single body by one ResolveContext: the
- *   interpreter's Picks come from "ctx.picks(id)" (interpreter.ts), whose
- *   contract has no per-player iteration or chooser-bound pick (contract 3.6),
- *   and there is no player-selection/iteration primitive in the frozen opcode
- *   list (ability-templates.md lists target.player as unmerged). Repeating the
- *   instruction a fixed number of times would hard-code a player count.
- * - "their gear" is the choosing player's own Gear, evaluated per chooser;
- *   the merged ObjectFilter player selectors are resolved against the ability
- *   controller (chain/engine.ts normalizes only "self"/"opponent" against the
- *   item's controller), and a pick filter cannot be rebound to the picker.
- * Both gaps belong to the per-player choice/iteration work (target.player +
- * pick chooser scoping); until then this card stays judge-required instead of
- * approximating "each player" with one caster-chosen kill.
+ * Status: judge-required. effect.kill and Action have execution paths, but
+ * repeat cannot enumerate players or rebind each player's non-target choice
+ * and kill responsibility (355.10.e / 412.1). Ordered zoneSlice/linked pick
+ * bindings do not implement chooser-relative filter selection. Fixed player
+ * counts or caster-chosen kills would change the printed effect.
  */
 const acceptableLosses = {
   canonicalCardId: "card.hash-b3827545fbd7637410bd870c5f9e3d7996c213e335b7df3d7fe6460e05c58891",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺「Each player」的逐玩家选择/迭代：CR 355.10.e 把「每个玩家各杀自己的一件装备」定义为结算时的选择（非目标），CR 412.1 由各自玩家负责自己的消灭，" +
-    "但已合入的 IR 是单次 body + 单一 ResolveContext，pick 只能经 ctx.picks(id) 一次性读取（契约 3.6 无按玩家迭代与 chooser 绑定 pick），" +
-    "封闭 opcode 表也没有 player 迭代/选择原语（ability-templates.md 的 target.player 未实现）；按固定次数 repeat 会把玩家人数写死。" +
-    "同时「their gear」需按各自选择者重绑 owner/controller，而过滤器玩家选择器只按能力控制者解析（chain/engine.ts）。" +
-    "kill 半段只用已合入的 effect.kill 表达并有执行测试（golden 真实执行选定消灭与失效引用两条路径）；" +
-    "依赖 target.player 与 pick chooser 落地。",
+    "缺逐玩家（per-player）结算作用域：CR 355.10.e/412.1 要求各玩家在结算时选择并负责消灭自己控制的一件装备；repeat 只有次数，没有按 turn order 枚举玩家并重绑 chooser/controller 的 body。chain/picks 已支持 zoneSlice/linked 有序来源，但本卡 PickSpec.filter 的候选查询、每位选择者的选择与 effect.kill 的责任玩家仍未接线。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

@@ -18,32 +18,18 @@ import type { CardProgram } from "../../ir/index.js";
  * - "give … -2 [M] this turn, to a minimum of 1"：临时 Might 修正，属
  *   continuous.might + 本回合期限 + 下限钳制，见 judgeReason。
  *
- * 状态：judge-required。效果本体已可执行：已合入的 continuous.might（RIFT-258）
- * 按 478/479.4.b 注册 arithmetic 层减法并快照印刷下限、按 this-turn 在回合末到期
- * （317.1.a/468.7.c），golden 用解释器与参考内核真实执行（含同位置目标合法性、
- * 最低 1 的逐条钳制与到期）。触发绑定也已合入（RIFT-257，programs/triggers.ts +
- * filters.ts 的 translateTriggerFilter，能把本卡嵌套 { filter: { source: 'self' } }
- * 拼写翻译成 object:{objectId:宿主} 并通过 assertTriggerSpec；instruction 目标
- * 过滤的 sameLocationAs 锚点仍不被 programs/filters.ts 的绑定翻译路径接受）。
- * 仍缺的是触发发射本身：
- * attack-declared / defense-declared（383.4.e.1 / 383.4.f.1）没有发射方——
- * combat/flow.ts 的宣告事务仍以 combat-start-transaction 显式阻断（CR 466.2）。
- *
- * 依赖：RIFT-120（链/事件与战斗宣告事务）。
+ * 状态：judge-required。continuous.might 已可执行；生产路径仍缺 CR 466.2
+ * 的战斗开启/攻防身份事务及 attack-declared / defense-declared 发射。
+ * here 的 sameLocationAs:source 仍被目标绑定层拒绝；替代的 TargetSpec.location
+ * location-of/source 虽有内核实现，validateCardProgram 尚把它当 location filter
+ * 并拒绝该 kind，不能绕过共享校验器迁移。golden 仅验证解释器子效果。
  */
 const ahriInquisitive = {
   canonicalCardId: "card.hash-c68ef91624a369cffdc5c5e3f81ab2700878a51de07b1cde21bbfc25db8dea10",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "效果本体已合入并可执行：「give an enemy unit here -2 :rb_might: this turn, to a minimum of 1 :rb_might:」由 continuous.might" +
-    "注册 arithmetic 层效果（478/479.4.b：施加时快照印刷下限 1 的逐条钳制），按 this-turn 到期（317.1.a/468.7.c），" +
-    "golden 经解释器 + 图层引擎真实执行并断言登记、最低下限、同位置目标合法性（359.3.f）与到期。" +
-    "触发绑定也已合入（programs/triggers.ts + filters.ts 的 translateTriggerFilter 能把本卡嵌套" +
-    " { filter: { source: 'self' } } 拼写翻译成 object:{objectId:宿主} 并通过 assertTriggerSpec；" +
-    "instruction 目标过滤的 sameLocationAs 锚点仍不被 programs/filters.ts 的绑定翻译路径接受）。" +
-    "仍缺：attack-declared / defense-declared 的发射方——combat/flow.ts 的宣告事务仍被 combat-start-transaction 阻断" +
-    "（CR 466.2）。依赖：RIFT-120（链/事件与战斗宣告事务）。不近似实现。",
+    "缺 attack-declared / defense-declared 的真实发射：combat/flow.ts 仍以 combat-start-transaction 阻断 CR 466.2 的战斗开启与攻防身份事务（383.4.e.2/383.4.f.2）。另缺 continuous.might 目标的动态 here 绑定：programs/filters.ts 拒绝 sameLocationAs:source；替代的 TargetSpec.location location-of/source 虽有 target-plan 内核实现，validateCardProgram 仍按 LocationFilter 校验并报 invalid-location-kind。translateTriggerFilter 的 self 翻译不补足这些缺口（CR 359.3.f.2），需同步共享目标校验与绑定契约。",
   abilities: [
     {
       kind: "triggered",
@@ -71,8 +57,8 @@ const ahriInquisitive = {
           targets: [
             {
               id: "ahri.enemy-unit-here",
-              // sameLocationAs 锚点：IR 校验接受；kernel 环境的 queryObjects 真实解析；
-              // programs/filters.ts 的绑定翻译路径尚未接受（见 judgeReason）。
+              // The interpreter resolves this live anchor; production binding
+              // and symbolic target-location validation remain blocked.
               filter: {
                 type: "unit",
                 controller: "opponent",
@@ -110,8 +96,8 @@ const ahriInquisitive = {
           targets: [
             {
               id: "ahri.enemy-unit-here",
-              // sameLocationAs 锚点：IR 校验接受；kernel 环境的 queryObjects 真实解析；
-              // programs/filters.ts 的绑定翻译路径尚未接受（见 judgeReason）。
+              // The interpreter resolves this live anchor; production binding
+              // and symbolic target-location validation remain blocked.
               filter: {
                 type: "unit",
                 controller: "opponent",

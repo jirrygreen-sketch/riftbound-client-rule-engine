@@ -7,9 +7,9 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * CR v1.5 anchors:
  * - 421.1 / 449.1 / 449.2: Move is the action that changes a Permanent's
- *   Location; the "object-moved" timing point carries the movement payload
+ *   Location; the "object-moved" timing point declares a movement payload
  *   (fromKind / fromLocationId / toKind / toLocationId, see
- *   events/timing-points.ts), and "from here" is that payload's origin. The
+ *   events/timing-points.ts), but the adapter does not populate those fields. The
  *   merged action adapter emits the timing point for a successful
  *   move-location (events/action-adapter.ts).
  * - 458 / 458.1: a Recall is not a Move and does not trigger Move abilities,
@@ -23,40 +23,20 @@ import type { CardProgram } from "../../ir/index.js";
  *   with the end-of-turn duration; effect.buff (703 Buffs are counters) is not
  *   substituted.
  *
- * Status rationale (contract §3.1, cards README §2): the Might half now
- * executes on merged paths (the golden drives the card's own instruction
- * through the merged primitive and layer engine), but the card cannot run end
- * to end:
- * - the affected object: "it" is the unit from the trigger payload. The frozen
- *   ObjectSelector set is self / source / target / pick / linked, and none of
- *   them can name a triggering event's object, so the body cannot reference its
- *   subject today (recorded as a contract change request in the task reply);
- *   the TargetSpec below is a structural stand-in, not a choice the printed
- *   text ever makes;
- * - the trigger subscription: the object-moved emission exists (the merged
- *   move-location action emits it, and timing-points.ts carries the
- *   fromKind/fromLocationId payload), but object-moved is not a member of
- *   events/trigger-spec.ts EVENT_PATTERN_TYPES, so validateTriggerSpec rejects
- *   the spelling before any binding layer could register it; the "from here"
- *   origin anchor also has no merged field (fromLocationId would need this
- *   battlefield's identity, which the frozen IR cannot reference).
- *
- * The trigger and the intended layers-contract body shape are kept so the
- * missing pieces stay auditable.
+ * Status: judge-required. continuous.might executes, but three event seams
+ * remain: object-moved is absent from the trigger validator's event vocabulary;
+ * the actual action-adapter emission does not populate the declared origin
+ * fields; and ObjectSelector cannot name the moved unit from the event.
+ * The origin must bind dynamically to this battlefield, and Recall must stay
+ * distinct from Move (458.1). The TargetSpec is a blocked structural stand-in,
+ * not a target choice made by the printed text.
  */
 export default {
   canonicalCardId: "card.hash-493d66d1c2a0fe93d708e9d2f3e005dc5a57140526eb8080cdad1ce0977c081a",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口：(1)「it」指触发载荷中的被移动单位，而冻结的 ObjectSelector 集合（self/source/target/pick/linked）没有事件对象选择器，" +
-    "body 里的 TargetSpec 只是结构性占位、不是印刷文本会做的选择（契约变更请求）；" +
-    "(2) 触发无法注册：object-moved 发射本身已存在（合并的 move-location 动作会发射，timing-points.ts 载荷含 fromKind/fromLocationId），" +
-    "但 object-moved 不在 events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 词表内，validateTriggerSpec 直接拒绝；" +
-    "且「from here」起点锚点没有合并字段（fromLocationId 需要本战场的身份，冻结 IR 无法引用）。" +
-    "这片段仍必须按 458.1 排除 Recall、按载荷起点「from here」过滤（RIFT-120 触发工作流）。" +
-    "Might 半段（continuous.might，143.2.a/478/317.1.a）已合入并由 golden 真实执行并断言登记、+1 生效值与回合末到期。" +
-    "依赖：事件对象选择器与 object-moved 词表（契约变更请求）、RIFT-120。不近似实现。",
+    "缺三处事件接线：（1）object-moved 虽已发射，却不在 events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 内，触发无法注册；（2）events/action-adapter.ts 的实际 Move 发射没有 fromKind/fromLocationId，timing-points.ts 的声明不等于载荷实现，且缺把起点 here 动态绑定到宿主战场的过滤器；（3）ObjectSelector 没有读取触发载荷中移动单位的入口，continuous.might 的 TargetSpec 只是占位，会错误要求文本未包含的目标选择（CR 355.10.c）。需保留 Move 与 Recall 的区别（CR 458.1）并对实际移动单位施加本回合 +1（317.1.a/478）。",
   sourceText: "When a unit moves from here, give it +1 :rb_might: this turn.",
   abilities: [
     {
@@ -66,6 +46,7 @@ export default {
         // "from here": the Move's origin is this battlefield.
         filter: {
           event: "object-moved",
+          object: { type: "unit" },
           details: { fromKind: "battlefield", fromLocationId: "self" }
         }
       },
