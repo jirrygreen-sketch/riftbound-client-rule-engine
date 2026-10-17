@@ -8,7 +8,6 @@ import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
-import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -152,11 +151,6 @@ test("ven-149-166 golden: the [Empowered] clause readies exactly two exhausted g
   assert.equal(kernel.getObject("gear-3").exhausted, true);
 });
 
-test("ven-149-166: review evidence — no Empower/Empowered KeywordDef is merged", () => {
-  assert.equal(keywordDefinitionsById.get("Empower"), undefined);
-  assert.equal(keywordDefinitionsById.get("Empowered"), undefined);
-});
-
 test("ven-149-166 golden: the printed Empower cost (2 Energy + 2 [A]) pays with any-domain Power", () => {
   // 135.2.e.5.a：每个 [A] 都能用任意域的 Power 支付；这里用 Mind/Body 两点付掉，
   // 再确认单域两点不足时被拒（不是把所有 Power 当成任意域）。
@@ -190,6 +184,6 @@ test("ven-149-166 golden: the Empower cost is still gated by its printed Energy 
 
 test.todo(
   "ven-149-166: Empower/Empowered keyword expansion (827.1.c.1 activation + 'only if not Empowered' " +
-    "restriction, 828.1.b.1 dependent ability) — no Empower/Empowered KeywordDef exists, and the " +
-    "442.1.a state predicate is missing"
+    "restriction, 828.1.b.1 dependent ability) — needs the printed-cost activation, the " +
+    "442.1.a Empowered state predicate and dependent-ability binding"
 );

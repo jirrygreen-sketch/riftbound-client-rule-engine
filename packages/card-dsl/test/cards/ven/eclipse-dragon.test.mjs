@@ -149,7 +149,7 @@ test.todo(
     "no producer wires accelerate.cost into Finalize optionalAdditional (cost-plan itself supports the accelerate kind)"
 );
 test.todo(
-  "ven-016-166 Eclipse Dragon: fire 'When I move' — events/action-adapter.ts does not fill " +
-    "toZone/toKind for move-location, pipeline-match does not read the program's inner filter anchors, " +
-    "and no subscriber registers the CardProgram triggered ability (RIFT-120)"
+  "ven-016-166 Eclipse Dragon: fire 'When I move' — program trigger translation already binds the source object ID, " +
+    "but EVENT_PATTERN_TYPES excludes object-moved, so assertTriggerSpec rejects registration; the move-location " +
+    "emission also lacks location payload, and the rune-count controller selector needs RIFT-359"
 );

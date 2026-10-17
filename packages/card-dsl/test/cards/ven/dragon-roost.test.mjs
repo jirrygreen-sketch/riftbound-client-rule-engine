@@ -171,8 +171,8 @@ test("ven-157-166 Dragon Roost golden: declining the optional cost leaves the ca
 
 test.todo(
   "ven-157-166 Dragon Roost: charge the optional [A][A] additional cost and feed 356.4.f.1's paid proof into " +
-    "\"If they do\" — cost.additional / cost.pay instructions exist and buildCostPlan consumes an " +
-    "explicit optionalAdditional, but no producer wires the card program's declared cost and pay decision into Chain Finalize"
+    "\"If they do\" — cost.pay and the optionalAdditional planner exist, but the cost.additional " +
+    "static declaration has no producer wiring its cost and pay decision into Chain Finalize"
 );
 
 test.todo(

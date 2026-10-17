@@ -69,7 +69,9 @@ test("ven-117-166 Disciple of Shen: identity, ruleset, status, judgeReason and v
   assert.match(program.judgeReason, /Hidden/);
   assert.match(program.judgeReason, /cost\.hidden/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /Facedown Zone/);
+  assert.match(program.judgeReason, /Hide 动作与打出流程接线/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-89/);
   assert.match(program.judgeReason, /RIFT-359/);
 });
 
@@ -136,7 +138,7 @@ test("ven-117-166 golden: an enemy unit here is not 'a unit you control'", () =>
 });
 
 test("ven-117-166 golden: the declared Grant-Keyword adds Shield 3 to the layered keyword list", () => {
-  // RIFT-91 的 layers 引擎对 ability 层识别 grant 类 kind 并追加工关键词；这里用该卡
+  // layers 引擎对 ability 层识别 grant 类 kind 并追加关键词；这里用该卡
   // 声明的 keyword/value 形状做真实求值，证明“授予 Shield 3”的 declared 形状在图层里
   // 有实际产出。它不证明 828/814 的门控与卡牌注册路径已接通（见 judgeReason）。
   const kernel = world()
@@ -174,8 +176,8 @@ test("ven-117-166 golden: the declared Grant-Keyword adds Shield 3 to the layere
 
 test.todo(
   "ven-117-166 Disciple of Shen: [Hidden]'s Hide action, the facedown zone, the later [Reaction] and the " +
-    "0-Energy play (CR 811.1.d / 811.5 / 811.6) have no runtime — Hidden.ts records that " +
-    "cost.hidden / cost.pay / effect.zone are unmerged (RIFT-89) and cost.hidden has no layerFor mapping"
+    "0-Energy play (CR 811.1.d / 811.5 / 811.6) need facedown-zone/Hide integration and later-play permissions; " +
+    "cost.hidden has no layerFor mapping, while cost.pay, effect.zone and buildHiddenCostPlan already exist"
 );
 
 test.todo(

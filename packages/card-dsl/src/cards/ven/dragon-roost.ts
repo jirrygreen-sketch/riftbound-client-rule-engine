@@ -22,8 +22,9 @@ import type { CardProgram } from "../../ir/index.js";
  * - 356.4.f.1："If they do" 的凭证是玩家"决定支付"这一事实，与实付多少无关。
  *
  * status = judge-required（缺口均不近似实现）：
- * 1. 缺附加费用的生产接线：cost.additional / cost.pay 指令与 CostPlanInput.optionalAdditional
- *    消费方已合入（cost-plan 接受调用方传入的 optionalAdditional 并记录 selected/declined），
+ * 1. 缺附加费用的生产接线：cost.pay 与 CostPlanInput.optionalAdditional 消费方已合入
+ *    （cost-plan 接受调用方传入的 optionalAdditional 并记录 selected/declined），
+ *    cost.additional 是尚无绑定消费方的静态声明，不是已注册指令；
  *    但 Chain Finalize 只从打出项自身成本构建 input，没有生产者把卡程序声明的附加费用与
  *    356.4.f.1 的「决定支付」选择接进 Finalize。
  * 2. 缺“[A][A] 支付后改写打出位置”的消费者：playDestinationIsLegal 已在 Finalize
@@ -39,7 +40,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1) 缺可选附加费用的收取与回执——cost.additional / cost.pay 指令与 " +
+    "三处缺口，均不近似实现：(1) 缺可选附加费用的声明接线——cost.additional 是静态声明，尚无绑定消费方；cost.pay 与 " +
     "CostPlanInput.optionalAdditional 消费方已合入，但 Chain Finalize 只从打出项自身成本构建 input，" +
     "没有生产者把卡程序声明的附加费用与 356.4.f.1 的「决定支付」回执接进 Finalize；" +
     "(2) 缺「[A][A] 已付则打到本战场」的消费者：playDestinationIsLegal 已在 Finalize 校验位置" +
@@ -79,7 +80,7 @@ export default {
           }
         ],
         // "If they do, they play it to this battlefield"：355.17/355.17.a 的强制要求，
-        // 只在 356.4.f.1 的费用凭证成立时生效；condition.result 类绑定未合入。
+        // 只在 356.4.f.1 的费用凭证成立时生效；缺少费用回执到本位置要求的绑定。
         then: {
           kind: "play-to-source-battlefield",
           requirement: "mandatory",

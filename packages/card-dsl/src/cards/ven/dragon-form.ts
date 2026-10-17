@@ -28,10 +28,13 @@ import type { CardProgram } from "../../ir/index.js";
  *     算术层（buildMightSpec 产 kind:"set-might"），不等于 143.2.a 的 Trait 层设值；
  *     this-turn 期限别名本身已支持（DurationAlias），缺的是设值原语与其图层消费方
  *     （同型记录见 rad/piltovan-guidebot、rad/herald-of-the-emperor）。
- * (2) [Flow] 的可执行路径缺失：[Flow] 虽已在关键词注册表（keywords/Flow.ts），但 829.1.b/829.1.c
- *     依赖 RIFT-261（费用消费方暴露可选择的备选费用、保留 null 印刷费用、记录实付的 Flow 实例）
- *     与 RIFT-260（替代注册/排序路径，并区分本卡自身执行造成的离链），两者都未合入；
- *     cost/plan-types.ts 虽有 'flow' 修改种类，但没有卡牌侧生产者与实付 Flow 实例的选择入口。
+ * (2) [Flow] 的专用接线缺失：KeywordDef.expand 已有 params.cost，buildCostPlan 已支持
+ *     flow 备选费用与 baseChoices，programs/statics.ts 也已接入 bindReplacement；
+ *     但 KeywordAbility / expandProgram 没有把印刷 Flow 费用 3 Energy 传入展开，flow.cost
+ *     静态声明也未转为 Finalize 的费用输入与实付实例回执（829.1.c.1/.c.3）。
+ *     替代匹配器 ACTION_KINDS 不含 object-leaves-chain，flow-cost-selected 仍为字符串常量，
+ *     未按已 finalize、实付 Flow 实例及 leavingInstruction 匹配离链（829.1.b.1）；
+ *     从 Trash 打出的许可也未接入打出流程。
  * 本文件不写近似实现：不把 base Might 设值写成 arithmetic 加减，也不把 Flow 降级成普通费用。
  */
 const dragonForm = {
@@ -45,9 +48,11 @@ const dragonForm = {
     "continuous.might 的 set 模式属算术层（buildMightSpec 产 kind:\"set-might\"），不等于 143.2.a 的 Trait 层设值；" +
     "this-turn 期限别名已支持，缺的是设值原语与图层消费方（同型记录见 rad/piltovan-guidebot、rad/herald-of-the-emperor）；" +
     "143.2.c.1 说明实际值不被钳制，因此不写印刷下限。" +
-    "(2) [Flow]（829）的展开虽在 keywords/Flow.ts，但 829.1.b/829.1.c 依赖未合入的 RIFT-261" +
-    "（费用消费方暴露可选择的备选费用、保留 null 印刷费用、记录实付 Flow 实例）与 RIFT-260" +
-    "（替代注册/排序，并区分本卡自身执行造成的离链），没有卡牌侧生产者；不把 Flow 降级成普通费用。" +
+    "(2) [Flow]（829）的通用费用规划和替代绑定已支持：KeywordDef.expand.params.cost、buildCostPlan 的 flow/baseChoices " +
+    "与 programs/statics.ts → bindReplacement 均已合入。缺口是 KeywordAbility / expandProgram 未传递印刷 Flow 费用 3 Energy，" +
+    "flow.cost 静态声明未接进 Finalize 费用选择与实付实例回执（829.1.c.1/829.1.c.3），以及从 Trash 打出的许可。" +
+    "替代匹配器 ACTION_KINDS 不含 object-leaves-chain，flow-cost-selected 仍为字符串常量；尚未按已 finalize、" +
+    "实付 Flow 实例及 leavingInstruction 匹配离链（829.1.b.1），不把 Flow 降级成普通费用。" +
     "「Choose a unit」的目标声明本身按 355.7/355.9.a.1 正确，等依赖性合入后即可执行。",
   abilities: [
     { kind: "keyword", keyword: "flow" },
