@@ -15,50 +15,25 @@ import type { CardProgram } from "../../ir/index.js";
  *   it as choice.optional with the chosen instruction inside its body.
  * - 355.5 / 355.7: "an enemy unit" is chosen by the ability's controller and is
  *   therefore a target (TargetSpec). "to that battlefield" is the Destination of
- *   the triggering Move, i.e. the source unit's current location (449.2).
+ *   the triggering Move, captured when the trigger condition is fulfilled (359.3.f.3).
  * - 421.2.a / 451: this is an effect Move, so no exhaust cost applies; the
  *   frozen effect.move primitive submits the move-location action. "that
- *   battlefield" is read at resolution with the contract 3.2 object-property
- *   expression over the symbolic "source" selector (royal-guard precedent), not
- *   a hard-coded location id.
+ *   battlefield" uses the merged source-location expression over the captured
+ *   trigger source, rather than the source object's later live location.
  *
- * Status: judge-required. Re-checked against the current instruction,
- * program-binding and event implementations. Two remaining gaps (none approximated):
- * - "to a battlefield" restricts the trigger to Moves whose Destination is a
- *   Battlefield. The declared object-moved payload (fromKind / toKind /
- *   fromLocationId / toLocationId) is still not populated by
- *   events/action-adapter.ts, and the closed EVENT_PATTERN_TYPES has no
- *   "object-moved" spelling, so registerProgramTriggers fails closed
- *   (invalid-event-type; the retained `movedToBattlefield` placeholder is
- *   also rejected by programs/filters.ts).
- * - The destination is read with the contract 3.6 symbolic selector
- *   ({kind: "object-property", object: "source"}), and the merged effect.move
- *   schema still does not accept it: its own isExpr requires a runtime ObjectRef
- *   for object-property (effect.move.ts isExpr), so the instruction fails closed
- *   with "effect.move requires a to Expr" before the interpreter can bind the
- *   host reference. The merged read-then-move alternative (condition.value +
- *   effect.move linked-value, the azir-sovereign/fae-porter precedent) is
- *   proven end to end in the golden for the accepting branch, but README §3
- *   forbids rewriting the printed destination away from the contract selector
- *   here.
+ * Status: judge-required. The remaining gap is the object-moved event vocabulary
+ * and Destination-kind gate. The merged location expression resolves the captured
+ * source snapshot, so later moves or zone exits do not redirect this instruction
+ * (359.3.f.3). The original optional body has real execution coverage. It does not
+ * prove the missing event registration or Destination gate.
  */
 export default {
   canonicalCardId: "card.hash-bd638db89dd40b1e7a4af53d4b6502145b269d568f69478b4f5e9f979e6a89c3",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现（按当前 HEAD 复核）：" +
-    "(1)「move to a battlefield」把触发限制在目的地为战场的 Move 上（449.2）：events/action-adapter.ts 仍未为 " +
-    "move-location 填充 timing-points.ts 声明的 fromKind/toKind/fromLocationId/toLocationId 载荷，" +
-    "且封闭 EVENT_PATTERN_TYPES（events/trigger-spec.ts）不含 \"object-moved\"，programs/triggers.ts 注册时抛 invalid-event-type；" +
-    "事件 filter 里的 movedToBattlefield 只是描述性占位键，programs/filters.ts 也会以不支持的过滤字段拒绝它。" +
-    "(2) 目的地的契约 3.6 符号选择器（{ kind: \"object-property\", object: \"source\" }）仍未被 effect.move 的 schema 接受：" +
-    "该原语自己的 isExpr 要求 object-property 的 object 是运行时 ObjectRef（effect.move.ts），因此指令在解释器绑定宿主引用之前就失败关闭" +
-    "（\"effect.move requires a to Expr\"）。golden 覆盖两侧证据：拒绝分支在合并 schema 处失败关闭；接受分支用已合入的 " +
-    "condition.value + effect.move linked-value 读取来源当前位置并真实把敌方单位移过去（azir-sovereign/fae-porter 先例），" +
-    "但 README 第 3 节要求不得把印刷的符号目的地改写成其它形状。" +
-    "触发形状与 effect.move 调用形状只用已合入契约结构。依赖：事件载荷与 object-moved 触发词汇/注册、" +
-    "以及 effect.move 的符号目的地支持。",
+    "仍缺 object-moved 触发的生产绑定（CR 449.2、359.3.f.3）：EVENT_PATTERN_TYPES 未收录 object-moved，" +
+    "action-adapter.ts 未填充 fromKind/toKind/fromLocationId/toLocationId，movedToBattlefield 也没有过滤器适配，无法限制“目的地为战场”的 Move。",
   abilities: [
     {
       kind: "triggered",
@@ -93,28 +68,25 @@ export default {
                       kind: "constant",
                       value: { target: "irresistible-faefolk.enemy-unit" }
                     },
-                    // “that battlefield” = 触发那次 Move 的目的地 = 本卡当前所在位置（449.2）。
-                    to: {
-                      kind: "object-property",
-                      object: "source",
-                      property: "location"
-                    },
+                    // 359.3.f.3：链上下文 source 是触发时的快照；随后移动不改指代。
+                    to: { kind: "location", value: "source-location" },
                     amount: { kind: "constant", value: 1 },
                     linkKey: { kind: "constant", value: "moved" }
-                  },
-                  targets: [
-                    {
-                      id: "irresistible-faefolk.enemy-unit",
-                      filter: { type: "unit", zone: "board", controller: "opponent" },
-                      min: 1,
-                      max: 1,
-                      selection: "one"
-                    }
-                  ]
+                  }
                 }
               ]
             }
-          }
+          },
+          // Lock the enemy target when finalizing this optional ability (355.5.b).
+          targets: [
+            {
+              id: "irresistible-faefolk.enemy-unit",
+              filter: { type: "unit", zone: "board", controller: "opponent" },
+              min: 1,
+              max: 1,
+              selection: "one"
+            }
+          ]
         }
       ]
     }

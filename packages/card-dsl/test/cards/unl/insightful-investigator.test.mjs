@@ -4,7 +4,8 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/insightful-investigator.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID =
   "card.hash-c9dc0b3daad63f09feabdf740bc69b2b327719079fe5d68568f0f4680d45abd2";
@@ -39,7 +40,7 @@ test("unl-135-219 Insightful Investigator: identity, status, judgeReason and ver
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /target\.player/);
   assert.match(program.judgeReason, /383\.3\.b/);
-  assert.match(program.judgeReason, /Finalize\/Resolve|resolution-time/);
+  assert.match(program.judgeReason, /结算时可选支付.*可支付性/);
   assert.doesNotMatch(program.judgeReason, /RIFT-9|RIFT-89/);
 });
 
@@ -116,7 +117,7 @@ test("unl-135-219 Insightful Investigator: the may node wraps pay, discard and d
     }
   });
 
-  // 355.10.a / 423.1.a: a card in hand is not a target and the discarding player chooses it.
+  // 355.10.a / 423.1.a: a card in hand is not a target; the controller chooses it before the opponent discards.
   assert.equal(discardChosen.op, "effect.discard");
   assert.deepEqual(discardChosen.args.amount, { kind: "constant", value: 1 });
   assert.deepEqual(discardChosen.args.player, {
@@ -232,6 +233,16 @@ test.todo(
 );
 test.todo(
   "unl-135-219 Insightful Investigator: pay 2 XP during resolution and expose whether it was paid (CR 383.3.b / " +
-    "204.3.a) — cost.pay accepts an explicit finalized payment value, but the production Finalize/Resolve flow " +
-    "does not yet bind this resolution-time choice and its payment result"
+    "204.3.a) — the payment primitive and receipt work; the optional affordability decision and failure recovery remain unbound"
 );
+
+test("unl-135-219 Insightful Investigator golden: the original cost.pay instruction spends exactly 2 XP and returns a receipt", () => {
+  const kernel = world().player("A", { xp: 5, energy: 3 }).build();
+  const run = runInstruction(costPay, payXp.args, { world: kernel });
+  assert.equal(run.result.status, "executed");
+  assert.equal(kernel.player("A").xp, 3);
+  assert.equal(kernel.player("A").energy, 3);
+  assert.equal(run.linked.payment.paid, true);
+  assert.equal(run.linked.payment.player, "A");
+  assert.equal(run.events.filter(event => event.action === "spend-xp").length, 1);
+});

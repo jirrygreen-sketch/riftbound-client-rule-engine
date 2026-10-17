@@ -28,42 +28,24 @@ import type { Ability, CardProgram, Condition } from "../../ir/index.js";
  * - 470.1 / 470.2 / 194.1.c："score 1 point" 是通过效果的得分（Gaining a Point），
  *   已合入的 effect.score 正是该动作。
  *
- * status 判定（README 第 2 节，按当前 HEAD 复核）：judge-required —— 四处依赖未合入，均不近似实现：
- * 1. 打出时的四选一（355.1）没有已合入的抉择计划：chain/engine.ts 的
- *    assertFinalizationSurface 显式阻断 choice.mode（"Mode choices require a
- *    Finalize/Resolve choice-plan adapter"），因此四选项没有可执行路径。
- * 2. "I gain that tag" 没有卡牌可用的指令入口：layers 的 trait 层能消费 add-tag/grant-tag
- *    （layers/engine.ts 的 applyTrait），但当前 CardProgram 指令面没有把 continuous.add-tag 接入
- *    trait 层，也没有把这条结算指令注册成 ContinuousEffectSpec。
- * 3. 并集计数没有可求值谓词：ObjectFilter 的 tags 是"同一对象上全部命中"（layers/filter.ts 与
- *    参考内核的 matchesFilter 都是 every 语义；事件侧 ObjectFilter 的 tags 同样是 every），
- *    无法表达 "Bird、Cat、Dog、Poro 各自被你的至少一个单位拥有" 的跨对象并集；程序用保留形状
- *    （subject 记录并集语义）书写，未用"一个单位同时有四个标签"或"有 4 个单位"近似。
- * 4. conquer/hold 触发还不能在生产事件管线中命中：Score 波只带 player/details，不带征服或固守单位，
- *    且 EventPattern 的封闭词汇使用 conquered/held 别名，无法匹配程序的 conquer/hold + source:self 形状。
- * 触发结构（conquer/hold 两条）、目标与条件形状、effect.score 本体已按已合入契约写出，
- * golden 用解释器与参考内核真实执行 effect.score 部分。
- *
- * 依赖：choice.mode 的 Finalize/Resolve 抉择计划、CardProgram→trait 层的标签授予接线、
- * 跨对象标签并集谓词，以及 conquer/hold 事件的来源对象载荷与事件词汇接线。
+ * status = judge-required：缺打出期 choice.mode、continuous.add-tag 指令和
+ * Score 波的参与单位匹配。标签并集可由四个独立 count>0 条件合取表达，
+ * golden 经真实 ChainEngine 执行原始得分 body，覆盖并集命中和缺失边界。
  */
 
-/**
- * "your units have all of the following tags among them — Bird, Cat, Dog, and Poro" 的
- * 保留形状：语义是"你控制的单位中，这 4 个标签各自的并集命中数 ≥ 4"（跨对象并集）。
- * 已合入的 filters 只能表达同一对象上的 tags every 匹配，因此 subject 名记录真实语义、
- * filter 只标注能力控制者（同 wily-newtfish 的 controller-xp 占位写法），不把并集近似成
- * 单对象四标签或单位数量。
- */
+/** Each listed tag must occur on at least one friendly Board unit (133.8). */
 const UNITS_HOLD_ALL_FOUR_TAGS: Condition = {
-  kind: "compare",
-  left: {
-    kind: "count",
-    subject: "controller-units-distinct-listed-tags-union",
-    filter: { player: "controller" }
-  },
-  operator: "gte",
-  right: { kind: "constant", value: 4 }
+  kind: "all",
+  conditions: ["Bird", "Cat", "Dog", "Poro"].map(tag => ({
+    kind: "compare",
+    left: {
+      kind: "count",
+      subject: "units",
+      filter: { type: "unit", zone: "board", controller: "self", tags: [tag] }
+    },
+    operator: "gt",
+    right: { kind: "constant", value: 0 }
+  }))
 };
 
 const scoreIfAllFourTags = (id: string): Ability => ({
@@ -71,7 +53,7 @@ const scoreIfAllFourTags = (id: string): Ability => ({
   trigger: {
     at: id === "ivern-friend-to-all.conquer" ? "conquer" : "hold",
     filter: {
-      event: id === "ivern-friend-to-all.conquer" ? "conquer" : "hold",
+      event: id === "ivern-friend-to-all.conquer" ? "conquered" : "held",
       filter: { source: "self" }
     }
   },
@@ -82,7 +64,7 @@ const scoreIfAllFourTags = (id: string): Ability => ({
       op: "effect.score",
       args: { amount: { kind: "constant", value: 1 } },
       // 383.2.a.1："if your units have all … among them" 跟在效果之后，属效果的一部分，
-      // 在本指令结算时检查；并集谓词的缺口见文件头第 3 点。
+      // 在本指令结算时检查；四个标签分别检查，不要求单一单位拥有全部标签。
       condition: UNITS_HOLD_ALL_FOUR_TAGS
     }
   ]
@@ -178,21 +160,9 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处依赖未合入：(1)「As you play me, choose Bird, Cat, Dog, or Poro」是打出步骤（355.1）的四选一，" +
-    "但 chain/engine.ts 的 assertFinalizationSurface 显式阻断 choice.mode（\"Mode choices require a " +
-    "Finalize/Resolve choice-plan adapter\"），没有可执行的打出期抉择计划。" +
-    "(2)「I gain that tag」没有 CardProgram→trait 层的结算入口：layers 的 trait 层（layers/engine.ts 的 applyTrait）" +
-    "能消费 add-tag/grant-tag，但当前没有把 continuous.add-tag 结算指令注册并写入 ContinuousEffectSpec。" +
-    "(3)「your units have all of the following tags among them — Bird, Cat, Dog, and Poro」是跨对象并集，" +
-    "而 ObjectFilter 的 tags 是同一对象上的 every 匹配（layers/filter.ts、参考内核与事件侧过滤都是 every），" +
-    "无法表达「每个标签分别被你的某个单位拥有」；程序保留 count/subject 的并集形状，不近似成" +
-    "「一个单位同时有四个标签」或「你有 4 个单位」。" +
-    "(4) conquer/hold 触发还不能在生产事件管线中命中：Score 波只带 player/details，不带征服或固守单位，" +
-    "且 EventPattern 的封闭词汇使用 conquered/held 别名，无法匹配程序的 conquer/hold + source:self 形状。" +
-    "已可真实执行的部分：conquer/hold 两条触发结构、效果内条件的作用域（383.2.a.1）与 effect.score 本体" +
-    "（470.1/470.2/194.1.c），golden 用解释器与参考内核执行 effect.score。" +
-    "依赖：choice.mode 的 Finalize/Resolve 抉择计划、标签授予接线、跨对象标签并集谓词，以及 conquer/hold 事件的" +
-    "来源对象载荷与事件词汇接线。不近似实现。",
+    "仍缺三处：(1) As you play 的 choice.mode 在 programs/play.ts 与 chain/engine.ts 被 Finalize/Resolve choice-plan guard 阻断（CR 355.1）。" +
+    "(2) continuous.add-tag 没有 CardProgram 指令注册与 trait 层写入接线（133.8）；trait 层本身已有 add-tag/grant-tag。" +
+    "(3) conquer/hold 的 Score 波只有 player/details.battlefieldId，缺参与征服/固守单位的对象匹配（383.4.c/383.4.d）。",
   abilities,
   sourceText:
     "As you play me, choose Bird, Cat, Dog, or Poro. I gain that tag.\n" +
