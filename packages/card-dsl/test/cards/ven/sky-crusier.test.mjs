@@ -4,7 +4,6 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/sky-crusier.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
-import { buildCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import damageDefinition from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -30,7 +29,7 @@ test("sky-crusier: passes validateCardProgram and is judge-required", () => {
 test("sky-crusier: judgeReason names the discard-cost selection gap and its dependencies", () => {
   assert.match(program.judgeReason, /423\.1\.a/);
   assert.match(program.judgeReason, /ObjectRef/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /RIFT-102/);
   assert.match(program.judgeReason, /effect\.discard/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
@@ -61,19 +60,6 @@ test("sky-crusier: the printed cost is 1 Energy plus discard-a-gear plus exhaust
   assert.deepEqual(discardPayment.choice.filter, { type: "gear", zone: "hand" });
   // ":rb_exhaust:" 是横置本单位的费用。
   assert.deepEqual(exhaustPayment, { kind: "exhaust" });
-});
-
-test("sky-crusier: the discard cost cannot be built with a placeholder candidate, so the card stays judged", () => {
-  const kernel = world().unit("sky-crusier", { energy: 4 }).hand("gear-card", { types: ["gear"] }).build();
-  assert.throws(
-    () => buildCostPlan(kernel, { id: "sky-crusier", cost: ability.cost }),
-    error => {
-      assert.equal(error.name, "CostPlanError");
-      assert.equal(error.reason, "invalid-cost-plan");
-      assert.match(error.message, /exact object reference/);
-      return true;
-    }
-  );
 });
 
 test("sky-crusier: body deals exactly 4 to one unit at a battlefield", () => {
@@ -153,7 +139,8 @@ test("sky-crusier: a target that left its zone before resolution makes the damag
 });
 
 test.todo(
-  "sky-crusier: charge/validate the 1 Energy + discard-a-gear + exhaust cost at Finalize " +
-    "(423.3 requires the discard to be completable) once cost choices accept a runtime hand " +
-    "selection instead of exact pre-listed ObjectRefs (RIFT-89 cost plan, RIFT-102 selector follow-up)"
+  "sky-crusier: build and charge the 1 Energy + discard-a-gear + exhaust cost at Finalize " +
+    "(423.3 requires the discard to be completable) once the cost plan resolves the discarded gear " +
+    "from the paying player's hand at runtime — the RIFT-102 ObjectSelector freeze is merged, " +
+    "but cost/plan-values.ts still demands exact pre-listed ObjectRef candidates (in-flight RIFT-261)"
 );

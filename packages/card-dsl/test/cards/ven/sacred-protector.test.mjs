@@ -61,7 +61,9 @@ test("ven-129-166 Sacred Protector: identity, status, judgeReason and verbatim s
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /continuous\.combat/);
   assert.match(program.judgeReason, /467\.2\.c\.1\.a/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /combat consumer/);
+  assert.match(program.judgeReason, /RIFT-258/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("ven-129-166 Sacred Protector: one static no-combat-damage ability with the exactly-one condition", () => {
@@ -127,5 +129,6 @@ test("ven-129-166 golden: an enemy unit here is not 'a unit you control'", () =>
 
 test.todo(
   "ven-129-166 Sacred Protector: preventing its combat damage (467.2.c.1.a) needs the " +
-    "card-side continuous.combat primitive and its layers registration — none is merged (RIFT-91)"
+    "combat consumer for continuous.combat (the RIFT-258 primitive is merged but returns negated/impossible " +
+    "without a consumer) plus the combat start/simultaneous-damage transactions"
 );

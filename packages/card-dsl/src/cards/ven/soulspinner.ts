@@ -20,19 +20,18 @@ import type { CardProgram } from "../../ir/index.js";
  *   （`{ kind: "keyword", keyword: "ambush" }`，无印刷数值），展开属于
  *   effects/keywords/Ambush.ts（已合入，RIFT-266）。
  *
- * status 判定（README 第 2 节）：judge-required。
+ * status 判定（README 第 2 节，复核 2026-10-16）：judge-required。
  * Ambush 的展开是两条 static 声明（play-location-permission 与
- * continuous.timing），但两个消费方都没有合入：
+ * continuous.timing）；RIFT-258/259 已提供 continuous.timing 图层的查询实现
+ * （layers/rules/query.ts 的 canAct 读注册表），RIFT-257 也提供了 keyword 展开
+ * 的入口（programs/keywords.ts），但两个消费方仍未接通：
  * 1. play-location-permission：engine-core/src 下只有卡牌数据与 Ambush.ts 自己
- *    声明它，Finalize 的合法打出位置校验（822.1.c / 822.3；契约 3.8.4 把位置
- *    选择与 pending/目标通知留给引擎批 4）没有消费方；
- * 2. continuous.timing：chain.canAct()（契约 3.5 声明的唯一时机许可查询）只读
- *    phase / showdown / priority，不读图层许可，822.1.b 的条件 [Reaction] 无法
- *    生效；同时没有已合入的生产方把 CardProgram 的 keyword 能力展开并注册进
- *    图层（RIFT-91 / RIFT-258/259）。
- * 依赖：RIFT-91（layers-continuous）、引擎批 4（Finalize 位置选择与链时机许可）
- * 与 RIFT-258/259 的关键词注册接线。不近似实现（不把许可写成默认打出位置，
- * 也不把它改成无条件的 Reaction）。
+ *    声明它，Finalize 的合法打出位置校验（822.1.c / 822.3）没有读取方；
+ * 2. chain.canAct()（chain/engine.ts，契约 3.5 的时机许可查询）本身只读
+ *    phase / showdown / priority，不接受图层注册表，822.1.b 的条件 [Reaction]
+ *    无法生效；也没有生产方把 CardProgram 的 keyword 能力展开并注册进图层。
+ * 依赖：打出位置校验接线、chain.canAct 读取图层时机许可、keyword static 注册。
+ * 不近似实现（不把许可写成默认打出位置，也不把它改成无条件的 Reaction）。
  */
 export default {
   canonicalCardId: "card.hash-b3976fdbbb870e1d3f2e8cd4a8c353a35d653828284910792b79b5d6e6982f12",
@@ -42,11 +41,12 @@ export default {
     "[Ambush]（822）的 KeywordDef 已合入（effects/keywords/Ambush.ts，RIFT-266，展开为 static " +
     "play-location-permission 与 static continuous.timing），但两个消费方未合入：" +
     "(1) play-location-permission 在 engine-core/src 下只有 Ambush.ts 声明，Finalize 的合法打出位置校验" +
-    "（822.1.c / 822.3；契约 3.8.4 把位置选择留给引擎批 4）没有消费方；" +
-    "(2) chain.canAct()（契约 3.5 的唯一时机许可查询）只读 phase/showdown/priority，不读 continuous.timing，" +
-    "822.1.b 的条件 Reaction 无法生效，且没有已合入路径把 CardProgram 的 keyword 能力展开并注册进图层" +
-    "（RIFT-91/RIFT-258/259）。依赖：RIFT-91（layers-continuous）、引擎批 4（Finalize 位置选择与链时机许可）、" +
-    "RIFT-258/259。不近似实现（不改成默认打出位置或无条件的 Reaction）。",
+    "（822.1.c / 822.3）没有读取方；" +
+    "(2) chain.canAct()（chain/engine.ts，契约 3.5 的时机许可查询）只读 phase/showdown/priority、不接受图层注册表，" +
+    "822.1.b 的条件 Reaction 无法生效；RIFT-258/259 的 continuous.timing 图层查询（layers/rules/query.ts）目前只有测试消费，" +
+    "没有生产方把 CardProgram 的 keyword 能力展开并注册进图层（RIFT-257 只提供展开入口）。" +
+    "依赖：打出位置校验接线、chain.canAct 读取图层时机许可、keyword static 注册。" +
+    "不近似实现（不改成默认打出位置或无条件的 Reaction）。",
   abilities: [{ kind: "keyword", keyword: "ambush" }],
   sourceText: "[Ambush] (You may play me as a [Reaction] to a battlefield where you have units.)"
 } satisfies CardProgram;
