@@ -18,31 +18,35 @@ import type { CardProgram } from "../../ir/index.js";
  *   控制的 Battlefield；括号里 "You may play them to different locations." 正是提示这一
  *   逐 Token 的选择权。355.2.b 允许某些效果扩大合法地点集合。
  *
- * status = judge-required（token 目的地无法表达，且缺触发/链接线，不近似实现）：
- * - 已合入的 effect.token 只接受一个固定的目的地（location），或 locations + choiceId
- *   的**单次**选择；三个 token 逐 Token 选地点（可能各不相同）需要 355.2 的逐 finalize
- *   位置选择，而没有任何已合入的生产方能把「该玩家的 Base 或该玩家控制的 Battlefield」
- *   这一合法地点集合解析成 LocationRef（RIFT-9 清单里的 target.location 未合入）。
- *   因此程序里不写 location/locations：写死基地或某个战场都会删掉印刷的地点选项。
- * - 缺卡牌程序→关键词展开/触发→链的接线（契约 3.5，RIFT-120 后续）与 Finalize 的
- *   打出位置选择（355.2）。
- * - 已可真实执行的部分：Exhaust this 费用的收取（cost/plan-values.ts + cost/payment.ts，
- *   golden 用程序自己的 cost 真实收取）与链上生成 + 打出的 token 本体（golden 由调用方
- *   补上 355.2 会给出的具体地点，与已合入 sfd herald-of-the-arcane 同一口径）。
+ * status = judge-required（逐 Token 地点无法表达；不近似实现）：
+ * - 已合入的 effect.token 只接受一个固定的目的地（location），或 locations + choiceId 的
+ *   **整条指令一次**选择，且三者必须恰好给出一个（实测不写目的地会抛
+ *   “effect.token requires exactly one destination argument”）。三个 token 逐 Token 选地点
+ *   （可能各不相同）需要 355.2 的逐 finalize 位置选择，冻结原语没有该路径。
+ * - 也没有任何已合入生产方把「该玩家的 Base 或该玩家控制的 Battlefield」这一**合法地点集合**
+ *   解析成 LocationRef（RIFT-9 清单里的 target.location 未合入），所以连 locations 的候选集
+ *   都无从生成。程序里不写 location/locations：写死基地或某个战场会删掉印刷的地点选项。
+ * - 已可真实执行的部分：Exhaust this 费用的真实收取（cost/plan-values.ts + cost/payment.ts，用卡
+ *   自身的 cost 收取，415.4 的已横置拒绝也成立）与链上生成 + 打出的 Recruit token 本体
+ *   （golden 由调用方补上 355.2 会给出的具体地点，与已合入 sfd/herald-of-the-arcane 同一口径）。
+ *   程序绑定侧：programs/ProgramRegistry.get 拒绝 judge-required 程序，因此该启动项要等状态改为
+ *   executable 后才能经生产绑定执行（contract 3.5 的接线存在，但本卡的状态门槛未解除）。
  */
 export default {
   canonicalCardId: "card.hash-1a195f8245b52279e6972886278ad1ad1a5802773ad4affa1e6ecff419aad1aa",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「Play three 1 :rb_might: Recruit unit tokens. (You may play them to different locations.)」的" +
-    "打出地点无法表达：CR 355.2/355.2.a 规定每个被打出的单位各自选择一个合法地点（默认是该玩家的 Base " +
-    "或该玩家控制的 Battlefield），而已合入的 effect.token 只接受单一 location，或 locations + choiceId 的" +
-    "整条指令一次选择；逐 Token 的地点选择需要 Finalize 的位置选择，且没有任何已合入生产方把合法地点集合" +
-    "解析成 LocationRef（RIFT-9 的 target.location 未合入）。程序不写死基地或某个战场（那会删掉印刷选项）。" +
-    "另缺卡牌程序→链的接线（契约 3.5，RIFT-120 后续）。已可真实执行的部分：Exhaust this 费用" +
-    "（204.1.b/415.3.a/415.5，cost/plan-values.ts + cost/payment.ts）与 187.1 Recruit token 的链上生成 + " +
-    "打出（440.2.c/185.2.a），golden 用程序自己的 cost 与 args 真实执行（地点由调用方按 355.2 给出）。不近似实现。",
+    "「Play three 1 :rb_might: Recruit unit tokens. (You may play them to different locations.)」的逐 Token 打出地点无法表达：" +
+    "CR 355.2/355.2.a 规定每个被打出的单位各自选择一个合法地点（默认是该玩家的 Base 或该玩家控制的 Battlefield），" +
+    "而已合入的 effect.token 只接受单一 location，或 locations + choiceId 的整条指令一次选择，且恰好需要一个目的地参数（实测不写目的地会抛 " +
+    "“effect.token requires exactly one destination argument”）；逐 Token 的地点选择需要 Finalize 的位置选择。" +
+    "同时没有任何已合入生产方把「该玩家的 Base 或该玩家控制的 Battlefield」这一合法地点集合解析成 LocationRef（RIFT-9 的 target.location 未合入），" +
+    "locations 的候选集也无从生成。程序不写死基地或某个战场（那会删掉印刷选项）。" +
+    "已可真实执行的部分：Exhaust this 费用（204.1.b/415.3.a/415.5，cost/plan-values.ts + cost/payment.ts，含 415.4 的已横置拒绝）" +
+    "与 187.1 Recruit token 的链上生成 + 打出（440.2.c/185.2.a），golden 用程序自己的 cost 与 args 真实执行（地点由调用方按 355.2 给出）。" +
+    "程序绑定侧：programs/ProgramRegistry.get 拒绝 judge-required 程序，该启动项要等状态改为 executable 后才能经生产绑定执行。" +
+    "依赖：逐 Token 打出位置选择（355.2）与合法地点集合的生产方。不近似实现。",
   abilities: [
     {
       kind: "activated",

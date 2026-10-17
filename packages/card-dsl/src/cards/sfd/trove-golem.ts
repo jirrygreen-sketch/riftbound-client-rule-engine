@@ -8,31 +8,30 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * Rules evidence (Core Rules v1.5):
  * - "When you play me" is a Play Effect (383.4.a): the card-played timing point
- *   filtered to this card.
+ *   filtered to this card through the contract 3.6 source anchor.
  * - "play four Gold gear tokens" — a token that is *played* is first created on
  *   the Chain and then completed by the play procedure (440.2.c, 185.2.a, 350.2,
  *   354); 182/183 give each created token the ability controller as its
  *   controller/owner.
- * - "exhausted" is an entry stipulation (184.1, 185.2.d) for tokens whose
- *   default entry state would be ready.
+ * - "exhausted" is an entry stipulation (184.1, 185.2.d) for tokens whose default
+ *   entry state would be ready.
  *
- * Status: judge-required — the token path is the same blocked boundary as the
- * merged Treasure Hoard (sfd-220-221) / Ferrous Forerunner (sfd-021-221), and
+ * Status: judge-required — two token-specific dependencies are still missing, and
  * nothing is approximated:
- * - the Gold gear token definition (CR 187.5, a domainless gear token carrying
- *   its own printed "[Reaction][>] Kill this, [E]: [Add] [A]" ability) is
- *   deliberately absent from effect.token's frozen DEFINITIONS table, which
- *   documents that such definitions stay blocked/judge-required; running the
- *   merged primitive on "gold" returns negated with blockedReason
- *   "token-definition-or-abilities-judge-required".
- * - playing a NEW token requires chain creation plus the hand-off play; the
- *   frozen create-token action creates only on the Board and effect.token
- *   negates mode "play" with blockedReason "token-play-requires-chain-creation".
- * - the "exhausted" entry override is unsupported by the creation actions, and
- *   effect.exhaust's boundary notes that a later exhaust is not equivalent
- *   (143.4 / 184.1).
- * Dependencies: the Gold definition plus chain-create/entry-state work of the
- * token primitive task, and the chain play hand-off.
+ * 1. the Gold gear token definition (CR 187.5: a domainless gear token carrying its
+ *    own printed "[Reaction][>] Kill this, [E]: [Add] [A]" ability) is deliberately
+ *    absent from effect.token's frozen DEFINITIONS table, which documents that such
+ *    definitions stay blocked/judge-required. Running the merged primitive on
+ *    "gold" returns negated with blockedReason
+ *    "token-definition-or-abilities-judge-required".
+ * 2. the "exhausted" entry override is unsupported by the creation/play actions;
+ *    effect.exhaust's boundary notes that a later exhaust is not equivalent
+ *    (143.4 / 184.1 / 185.2.d).
+ * The chain-create + play handoff itself IS merged (RIFT-62): the golden proves the
+ * card's own token/amount/mode/location shape against a merged definition really
+ * creates and plays four tokens. The judged half stays on the Gold definition and
+ * the entry state, so the printed "exhausted" entry is recorded as a
+ * `test.todo` instead of being approximated by a later exhaust.
  */
 const abilities: Ability[] = [
   {
@@ -68,11 +67,13 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "Gold gear token（CR 187.5，自带 “Kill this, [E]: [Add] [A]” 能力）不在 effect.token 的冻结定义表；该文件明确此类定义保持 " +
-    "blocked/judge-required，对 “gold” 执行会得到 negated/blockedReason: token-definition-or-abilities-judge-required。" +
-    "「play four … tokens」还必须按 440.2.c/185.2.a/350.2/354 先在链上创建再由 play 接手，冻结 create-token 只在场上创建、" +
-    "mode \"play\" 被显式 negated（token-play-requires-chain-creation）；「exhausted」是入场规定（184.1/185.2.d），" +
-    "create-token/play 不支持改写，事后 effect.exhaust 不等价（143.4）。不近似实现。依赖：Gold 定义与链上创建/入场状态（token 原语任务）、打出流程接线。",
+    "两处 token 依赖仍未合入（链上创建 + play 接手本身已合入，RIFT-62）：" +
+    "(1) Gold gear token 定义（CR 187.5：域外 gear token，自带印刷能力 “[Reaction][>] Kill this, [E]: [Add] [A]”）不在 effect.token 的冻结定义表；" +
+    "该文件明确此类定义保持 blocked/judge-required，对 “gold” 执行会得到 negated + blockedReason: token-definition-or-abilities-judge-required。" +
+    "(2)「exhausted」是入场状态规定（184.1/185.2.d），create-token/play 不支持改写；事后 effect.exhaust 不等价（143.4，effect.exhaust 文件头亦如此说明）。" +
+    "已可真实执行：卡自身的 token/amount/mode/location 形状在已合入定义上会真实执行 create-token → play 四次" +
+    "（golden 以此证明形状与 440.2.c 路径可用，且入场状态为默认 ready）；印刷的「exhausted」入场以 test.todo 记录，不按 ready 静默通过。" +
+    "依赖：Gold 定义（187.5）与入场状态改写（184.1/185.2.d）。不近似实现。",
   abilities,
   sourceText: "When you play me, play four Gold gear tokens exhausted."
 } satisfies CardProgram;
