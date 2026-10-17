@@ -32,33 +32,23 @@ import type { CardProgram } from "../../ir/index.js";
  *   instructions is observable and wrong. effect.buff is explicitly not a Might
  *   modification (703), so no substitute is authored.
  *
- * Status (cards/README.md §2): judge-required. Re-check against the merged
- * dependencies: the target pipeline (RIFT-90), the layer engine's duration
- * expiry (RIFT-91) and the card-program binding (RIFT-257) are in place, but
- * the atomic Swap primitive itself is still missing — effects/instructions has
- * no effect.swap-might, and CR 434.1.a/434.1.b build the Swap from a paired
- * Increase + Decrease of exactly their difference, which continuous.might
- * cannot express (its args take no arithmetic Expr, and two independent reads
- * and writes are observable under CR 303.1). The printed structure (two-unit
- * same-battlefield target group, end-of-turn duration) is preserved for review
- * without approximating the swap; the [Hidden]/[Action] permission consumers
- * (cost.hidden, continuous.timing) remain unmerged as well.
+ * Status (cards/README.md §2): judge-required. The printed target group is
+ * retained, but the atomic `effect.swap-might` operation is not in the merged
+ * instruction vocabulary. The second target's same-battlefield relation also
+ * needs a production target-location selector; the local selector can evaluate
+ * it, while program target translation still rejects the dynamic anchor. The
+ * Hidden permission remains a separate unresolved `cost.hidden` consumer.
  */
 const switcheroo = {
   canonicalCardId: "card.hash-bc97ea8be41594b9d618dfc49882dc35b7da2291b707b6e49958c26e4ad49d0c",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺「原子交换两个单位当前 Might」的原语：CR 137/142 与 303.1（游戏动作一次一个、完整执行）要求同时读取两个单位当时的 Might、" +
-    "再在同一持续期内交换这两个值；调研表（docs/plans/survey/unclassified-rad-sfd.md，sfd-145-221）把该缺口记为尚未实现的新原语 effect.swap-might。" +
-    "已合入的 continuous.might 只能施加一个数额，两条独立修正无法表达差值交换（读-写分两步会被 303.1 的“一次一个”暴露，且中途状态错误）；" +
-    "CR 434.1.a/434.1.b 要求 Swap 由「对较低值 Increase、对较高值 Decrease 同一个差值」两条成对效果构成，" +
-    "而 continuous.might 的参数不接受 arithmetic Expr、也不把两个目标的读数绑定在一起。" +
-    "effect.buff 明确不是 Might 修改（703），故不近似实现。" +
-    "复核已合入依赖：目标管线（RIFT-90）、图层到期（RIFT-91）与卡牌程序绑定（RIFT-257）均已就绪，" +
-    "[Hidden]/[Action] 的 cost.hidden 与 continuous.timing 许可消费方仍未合入（RIFT-261/RIFT-91）。" +
-    "「two units at the same battlefield this turn」的目标组（355.9.b + sameLocationAs 锚点 + exclude，min 2/max 2）与 this-turn 期限形状已按契约声明，" +
-    "但交换本身需 effect.swap-might 原语落地。依赖：effect.swap-might 原语、cost.hidden 与 continuous.timing 消费方。",
+    "当前仍缺三个真实消费方：(1) 原子交换两个单位当前 Might 并在本回合持续的 effect.swap-might 指令；" +
+    "continuous.might 不能把两个目标的读数绑定成一次交换，不能用两条独立写入近似。(2) 第二个目标的 " +
+    "sameLocationAs 动态位置关系可由本地 selector 求值，但生产 target translator 还没有把该位置选择器接到 Finalize。" +
+    "(3) [Hidden] 的 cost.hidden 仍没有 Hide/facedown 区域与重放许可消费方。[Action] 时机与卡牌程序绑定已合入，" +
+    "故不再把它们列为缺口。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     { kind: "keyword", keyword: "action" },
@@ -73,7 +63,7 @@ const switcheroo = {
       body: [
         {
           // 「Swap the Might of two units at the same battlefield this turn」：
-          // 原子交换（effect.swap-might 未合入，见 judgeReason）。
+          // 原子交换（effect.swap-might 当前不可用，见 judgeReason）。
           id: "switcheroo.swap-might",
           op: "effect.swap-might",
           args: {

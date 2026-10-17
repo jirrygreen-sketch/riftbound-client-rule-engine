@@ -5,6 +5,7 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/sudden-storm.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-574418734c3b92b767c220f89099980a68fad40a1074ee6c38bc88c7efb84771";
@@ -27,13 +28,12 @@ test("sfd-017-221 Sudden Storm: program passes validateCardProgram", () => {
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("sfd-017-221 Sudden Storm: judge-required for the attacker reading and Hidden's expansion", () => {
+test("sfd-017-221 Sudden Storm: judge-required only for Hidden's unresolved permission", () => {
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /combatRole/);
-  assert.match(program.judgeReason, /3\.8/);
   assert.match(program.judgeReason, /Hidden/);
-  assert.match(program.judgeReason, /RIFT-84/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /cost\.hidden/);
+  assert.match(program.judgeReason, /facedown/);
+  assert.doesNotMatch(program.judgeReason, /combatRole.*未|combatRole.*缺/);
 });
 
 test("sfd-017-221 Sudden Storm structure: [Hidden] + [Action] and the two guarded amounts", () => {
@@ -99,9 +99,26 @@ test("sfd-017-221 Sudden Storm structure: [Hidden] + [Action] and the two guarde
   assert.deepEqual(dealFour.condition.right, { kind: "constant", value: "attacker" });
 });
 
+test("sfd-017-221 Sudden Storm golden: combatRole selects exactly one printed damage branch", () => {
+  for (const [combatRole, expected] of [[null, 2], ["attacker", 4]]) {
+    const kernel = world().unit("branch-unit", {
+      owner: "B",
+      controller: "B",
+      might: 5,
+      combatRole,
+      location: { type: "battlefield", id: "battlefield-1" }
+    }).build();
+    kernel.setTargets(targetSpec.id, [kernel.ref("branch-unit")]);
+    const outcome = resolveChainBody(play.body, kernel);
+    assert.equal(outcome.status, "partial");
+    assert.equal(kernel.getObject("branch-unit").damage, expected);
+    assert.equal(outcome.results.filter((entry) => entry.result.status === "executed").length, 1);
+  }
+});
+
 test("sfd-017-221 Sudden Storm golden: the printed 2 damage reaches the locked battlefield unit", () => {
-  // The attacker reading (combatRole) is unmerged, so the golden run supplies
-  // the concrete amount branch the missing characteristic would select. The
+  // The golden runs the printed amount branch directly through the merged
+  // damage primitive; the condition itself reads ObjectSnapshot.combatRole.
   // target is locked through the kernel (the pit-rookie convention: the
   // reference kernel cannot re-run the card's richer target filter).
   const kernel = world().unit("battlefield-unit", { owner: "B", might: 4 }).build();
@@ -150,17 +167,6 @@ test("sfd-017-221 Sudden Storm golden: a stale battlefield target is ignored, no
 });
 
 test.todo(
-  "sfd-017-221 Sudden Storm: reading 'it's attacking' (the Attacker designation of 807.1.d.1 / 461) " +
-    "needs ObjectSnapshot.combatRole from contract 3.8 and the condition consumer that evaluates it " +
-    "— RIFT-91 / contract 3.8."
-);
-
-test.todo(
-  "sfd-017-221 Sudden Storm: [Hidden]'s Hide permission, facedown zone and facedown play (811.1.b / " +
-    "811.1.c / 811.6) still have no consumer for the merged cost.hidden declaration — RIFT-84 / RIFT-89."
-);
-
-test.todo(
-  "sfd-017-221 Sudden Storm: [Action]'s Showdown permission (806.1.c / 159.2.a) needs the keyword " +
-    "expansion plus the chain's canAct timing query — RIFT-83 / RIFT-85."
+  "sfd-017-221 Sudden Storm: the printed [Hidden] line still needs a production consumer that grants Hide, stores the " +
+    "card facedown, and permits its later facedown Reaction play"
 );

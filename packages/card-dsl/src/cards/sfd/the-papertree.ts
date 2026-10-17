@@ -20,44 +20,22 @@ import type { CardProgram } from "../../ir/index.js";
  *   programmatic set (355.10.d, not a target) whose membership is decided by
  *   the Mode of Play, and each member each channels for themselves (431.1).
  *
- * Status: judge-required. Two current gaps, none approximated:
- * 1. the hold timing point is now emitted by the merged turn/scoring flow
- *    (turn/flow.ts scheduleScore → 'hold' with a details.battlefieldId
- *    payload), but "here" still has no evaluable anchor: the static filter
- *    cannot read its own host's runtime location id, the EventPattern
- *    vocabulary has no payload-location selector, and the `here: true`
- *    placeholder is rejected by assertTriggerSpec (the golden asserts that).
- *    The card-program trigger binding itself (RIFT-257) is merged.
- * 2. "each player channels" is a per-player iteration. The merged IR executes
- *    one body under a single ResolveContext: effect.channel reads one
- *    PlayerId (or an Expr evaluating to one — an array is negated as
- *    impossible), and the frozen opcode list has no player-set enumeration or
- *    per-seat repetition (RIFT-9's target.player / player-iteration work is
- *    unmerged; the same gap is recorded for ogn/whirlwind and
- *    ogn/obelisk-of-power). Declaring a single effect.channel would silently
- *    channel for the ability controller only, which is not what the card
- *    prints; the body below therefore carries the documented
- *    "each-player" placeholder recipient and is not executable data.
- * The channel amount and the exhausted stipulation are the merged primitive's
- * arguments, and the golden test drives that primitive for one seat (431.1 /
- * 431.2) while pinning the submitted channel-rune action; the reference test
- * kernel does not model the rune entry state, which stays a test.todo.
+ * Status: judge-required. The hold timing point and `effect.channel` primitive
+ * are executable pieces. Two rules bindings remain: the hold trigger must bind
+ * its `here` location to the event's battlefieldId, and “each player” needs a
+ * player-set iteration that runs one channel action per seat. The body keeps the
+ * printed exhausted stipulation and does not silently channel only for the
+ * controller.
  */
 export default {
   canonicalCardId: "card.hash-4d3a916ba4eb2379af2f90b22c56765b66af29ff69411c03a17ac2e8789cf6c0",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Two current gaps, none approximated. (1) The hold timing point (383.4.d / 471.2 / 473.2.b) is emitted by the merged turn/scoring flow " +
-    "(turn/flow.ts scheduleScore publishes hold with a details.battlefieldId payload), but the here anchor has no evaluable form: the static filter " +
-    "cannot read the host's runtime location id, the EventPattern vocabulary has no payload-location selector, and the filter here placeholder is the " +
-    "053.3 spelling assertTriggerSpec rejects (the golden asserts it). The card-program trigger binding (RIFT-257) is merged. " +
-    "(2) \"each player channels 1 rune exhausted\" is a per-player iteration with no merged execution path: effect.channel reads one " +
-    "PlayerId (an array evaluates to negated/impossible), the frozen opcode list has no player-set enumeration or per-seat repetition " +
-    "(RIFT-9 target.player / player-iteration work is unmerged; same gap as ogn/whirlwind and ogn/obelisk-of-power), so the body carries " +
-    "the documented each-player placeholder recipient instead of silently channeling for the controller only. The merged effect.channel " +
-    "primitive supplies the printed amount and the exhausted entry stipulation (431.1/431.2) and is driven by the golden test for one " +
-    "seat; the reference test kernel does not model the rune entry state (test.todo).",
+    "两处当前缺口：(1) hold 事件的 details.battlefieldId 还没有与本卡宿主位置绑定的 here/payload-location " +
+    "选择器，因此静态 filter 的 here 标记不能在生产触发匹配中求值；(2)“each player channels 1 rune exhausted”" +
+    "需要玩家集合迭代，当前 effect.channel 每次只接受一个 PlayerId。hold 时点、触发绑定、effect.channel 的数量和" +
+    "exhausted 入场参数均已合入；不把 each-player 占位符缩成控制者单席。",
   abilities: [
     {
       kind: "triggered",
@@ -65,7 +43,7 @@ export default {
         at: "hold",
         // "here" is this Battlefield (053.3) and "you" its Controller
         // (190.6.d); sibling battlefield programs keep the same placeholder
-        // spelling while the hold pipeline is unmerged.
+        // spelling while the payload-location binding is pending.
         filter: { event: "hold", here: true, player: "controller" }
       },
       optional: false,
