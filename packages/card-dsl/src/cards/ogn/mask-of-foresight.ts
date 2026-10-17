@@ -19,10 +19,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - continuous.might 指令、算术层注册和 end-of-turn 期限已合入，golden 已用它真实注册
  *   +1 Might；仍缺的是生产触发接线——attack-declared / defense-declared 的事件生产、
  *   触发载荷（“攻击/防守的那个单位”）到 body “it” 的绑定尚未接通；
- * - “alone” 谓词（740.2.a：同位置无其他友方单位）需要扫描同位置友方单位数的谓词，
- *   当前 merged 的 condition 只有 always/never/compare/all/any/not/expression，
- *   没有直接表达“同位置无其他友方单位”的谓词（可用 count + compare 组合，但需要
- *   触发载荷对象作为锚点，见上一条）。
+ * - “alone” 谓词（740.2.a：同位置无其他友方单位）需要扫描同位置友方单位数；现有
+ *   condition 已有 count/compare 组合，但还没有把触发载荷对象作为同位置查询锚点的
+ *   生产绑定，因此仍不能可靠表达这项条件。
  * 不近似实现：不给 Buff counter，也不写固定数额的 damage/might 近似。
  */
 const abilities: Ability[] = [
@@ -105,8 +104,8 @@ const program = {
   judgeReason:
     "缺两处支撑：① 触发载荷绑定——continuous.might 的算术层 + end-of-turn 期限已合入且 golden 已真实注册，" +
     "但 attack-declared / defense-declared 的事件生产与触发载荷（“攻击/防守的那个单位”）到 body “it” 的绑定仍未接通；" +
-    "② “alone” 谓词（CR v1.5 740.2.a：同位置无其他友方单位）在当前 condition 词汇（always/never/" +
-    "compare/all/any/not/expression）中没有直接表达，需要以触发载荷单位为锚点的同位置友方计数。" +
+    "② “alone” 谓词（CR v1.5 740.2.a：同位置无其他友方单位）虽可由现有 count + compare 组合描述，" +
+    "但生产 condition 尚未把触发载荷单位绑定为同位置查询锚点，因而仍不能可靠计数。" +
     "依赖：attack-declared / defense-declared 生产与载荷绑定，以及 740.2.a 谓词/combat 时点接线。不近似实现：不用 Buff counter，也不写固定加成。",
   abilities,
   sourceText: "When a friendly unit attacks or defends alone, give it +1 :rb_might: this turn."

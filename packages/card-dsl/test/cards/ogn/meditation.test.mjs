@@ -8,6 +8,7 @@ import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/in
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import exhaust from "../../../../engine-core/dist/effects/instructions/effect.exhaust.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 
 const CANONICAL = "card.hash-5f2d6f607453430a6a4ce49c58ea5afd8af16815ac3b16ed3cdf9526ba7f074f";
 
@@ -64,19 +65,28 @@ test("Meditation body: draw 2 when the cost was paid, draw 1 otherwise", () => {
   assert.deepEqual(drawOne.args.amount, { kind: "constant", value: 1 });
   // "If you do / Otherwise" are mutually exclusive result branches; the two
   // instructions are deliberately independent (an ignored branch must not
-  // suppress the other) and each carries its own condition.
+  // suppress the other) and each reads the finalized optional-cost receipt.
   assert.equal(drawTwo.linkedTo, undefined);
   assert.equal(drawOne.linkedTo, undefined);
-  assert.equal(drawTwo.condition.kind, "expression");
-  assert.deepEqual(drawOne.condition.kind, "not");
-  assert.equal(drawOne.condition.condition.kind, "expression");
-  assert.deepEqual(drawTwo.condition.value, drawOne.condition.condition.value);
+  assert.deepEqual(drawTwo.condition, {
+    kind: "result",
+    result: "additional-cost-paid",
+    id: "meditation.exhaust"
+  });
+  assert.deepEqual(drawOne.condition, {
+    kind: "not",
+    condition: {
+      kind: "result",
+      result: "additional-cost-paid",
+      id: "meditation.exhaust"
+    }
+  });
 });
 
 test("Meditation golden: the Draw 2 and Draw 1 halves each draw through effect.draw", () => {
-  // The branch itself is unexecutable (no cost receipt binding), but the two
-  // draw amounts are the card's own values and must resolve through the real
-  // primitive: CR 414.1 draws from the top of the Main Deck.
+  // The two draw amounts are the card's own values and resolve through the
+  // real primitive: CR 414.1 draws from the top of the Main Deck. Branch
+  // selection is covered below with a finalized cost receipt.
   const paid = world().deck(["a", "b", "c"], { owner: "A" }).build();
   const drawTwoRun = runInstruction(draw, drawTwo.args, { world: paid });
   assert.equal(drawTwoRun.result.status, "executed");
@@ -190,7 +200,56 @@ test.todo(
     "CostPlanInput.optionalAdditional"
 );
 
-test.todo(
-  "Meditation result branch: draw 2 when the additional cost was paid and draw 1 otherwise " +
-    "(CR 359 result binding) - needs the cost receipt exposed to the body (condition.result, unmerged primitive)"
-);
+test("Meditation golden: condition.result selects Draw 2 only when the optional cost was paid", () => {
+  const paid = world()
+    .player("A", { energy: 10 })
+    .unit("meditation", { types: ["spell"], owner: "A" })
+    .unit("friendly-unit", { owner: "A" })
+    .deck(["a", "b", "c"], { owner: "A" })
+    .build();
+  const paidRef = paid.ref("friendly-unit");
+  paid.setPicks("meditation.exhaust-choice", [paidRef]);
+  const paidContext = paid.clone({ sourceSnapshot: paid.getObject("meditation") });
+  const paidPlan = buildCostPlan(paidContext, {
+    id: "cost:meditation-result-paid",
+    cost: { kind: "explicit", energy: { kind: "constant", value: 2 } },
+    optionalAdditional: [{
+      id: "meditation.exhaust",
+      kind: "additional",
+      selected: true,
+      cost: { payments: [{ kind: "exhaust", choice: { id: "meditation.exhaust-choice", options: [paidRef], min: 1, max: 1, selection: "one" } }] }
+    }]
+  });
+  const paidReceipt = payCostPlan(paidContext, paidPlan);
+  const paidOutcome = resolveChainBody(play.body, paidContext, { cost: { plan: paidPlan, receipt: paidReceipt } });
+  assert.deepEqual(paidOutcome.results.map(result => [result.id, result.result.status]), [
+    ["draw-2-if-paid", "executed"],
+    ["draw-1-otherwise", "negated"]
+  ]);
+  assert.equal(paidContext.player("A").handSize, 2);
+
+  const declined = world()
+    .player("A", { energy: 10 })
+    .unit("meditation", { types: ["spell"], owner: "A" })
+    .unit("friendly-unit", { owner: "A" })
+    .deck(["a", "b", "c"], { owner: "A" })
+    .build();
+  const declinedContext = declined.clone({ sourceSnapshot: declined.getObject("meditation") });
+  const declinedPlan = buildCostPlan(declinedContext, {
+    id: "cost:meditation-result-declined",
+    cost: { kind: "explicit", energy: { kind: "constant", value: 2 } },
+    optionalAdditional: [{
+      id: "meditation.exhaust",
+      kind: "additional",
+      selected: false,
+      cost: { payments: [{ kind: "exhaust" }] }
+    }]
+  });
+  const declinedReceipt = payCostPlan(declinedContext, declinedPlan);
+  const declinedOutcome = resolveChainBody(play.body, declinedContext, { cost: { plan: declinedPlan, receipt: declinedReceipt } });
+  assert.deepEqual(declinedOutcome.results.map(result => [result.id, result.result.status]), [
+    ["draw-2-if-paid", "negated"],
+    ["draw-1-otherwise", "executed"]
+  ]);
+  assert.equal(declinedContext.player("A").handSize, 1);
+});
