@@ -29,18 +29,27 @@ import type { CardProgram } from "../../ir/index.js";
  *   stays judge-required.
  * - A Buff counter (CR 702) is a different object state, so nothing is
  *   approximated through effect.buff.
+ *
+ * RIFT-681 execution evidence: the real play (1 Energy payment, the locked
+ * board-unit target, the ability-layer Assault 3 registration) and the boundary
+ * where no legal Board unit exists run through the generic card scenario harness in
+ * test/cards/templates/keyword-play-continuous-grant-keyword-681.test.mjs. The
+ * granted keyword's functional text stays the only gap, so the card remains
+ * judge-required.
  */
 const cleave = {
   canonicalCardId: "card.hash-e946abd159c3e001431a6266172cc524d41158117457180e81e85ef7690a4354",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "关键词授予原语已合入并可执行（continuous.grant-keyword；golden 已真实注册 ability 层 " +
-    "Assault 3 与 end-of-turn 期限），但被授予 Assault 的功能文本「+3 :rb_might: while it's an attacker」" +
-    "（807.1.c/807.2）仍没有可执行消费链：Assault 的 KeywordDef 展开是条件于宿主 attacker designation 的 " +
-    "continuous.might，而 (1) 授予的关键词不会自动再次进入 KeywordDef.expand，" +
-    "(2) layers 的 ObjectSnapshot 只有 combatRole，尚未完成 designation → combatRole 映射，" +
-    "所以该条件在真实图层计算里不能只在攻击者状态下生效。依赖：授予关键词二次展开、designation → combatRole 映射。不近似实现（不用 Buff 计数代替 Might 修改）。",
+    "唯一未合入的依赖是被授予 Assault 的功能文本「+3 :rb_might: while it's an attacker」（807.1.c/807.1.d.1）：" +
+    "continuous.grant-keyword 原语与整卡打出已可执行（RIFT-681 的模板参数化 golden 经通用测试台真实支付 1 能量、" +
+    "锁定 Board 单位目标并在 ability 图层登记 Assault 3 + end-of-turn 期限）。" +
+    "缺的是该登记关键词的消费链：(1) 运行时授予的关键词不会再次进入 KeywordDef.expand；" +
+    "(2) Assault 展开读取 object-property(self, \"designation\")，而生产 ObjectSnapshot 只暴露 combatRole，" +
+    "layers 也没有 designation 读取器或战斗指定产生方（ObjectSnapshot 的 combatRole 默认 null）。" +
+    "依赖：授予关键词的 KeywordDef 二次展开与 designation/combatRole 对齐。" +
+    "不近似实现（不用 Buff 计数代替条件 Might 修改）。",
   sourceText:
     "[Action] (Play on your turn or in showdowns.)\n" +
     "Give a unit [Assault 3] this turn. (+3 :rb_might: while it's an attacker.)",

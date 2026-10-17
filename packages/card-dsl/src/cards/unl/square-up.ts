@@ -20,17 +20,22 @@ import type { CardProgram } from "../../ir/index.js";
  *   `designation`，而运行时快照只提供 `combatRole`，没有该特征的消费映射。
  * - [Repeat] 的 Discard 1 附加费用以及已支付实例数到打出结算的接线仍缺；cost-plan 和
  *   effect.repeat 本体已存在，但 CardProgram 的关键词实例没有接入 Finalize/paid-count。
- * golden 覆盖授予原语真实登记与到期；整卡继续保持 judge-required。
+ * RIFT-681 的模板参数化 golden（test/cards/templates/
+ * keyword-play-continuous-grant-keyword-681.test.mjs）经通用测试台真实支付 4 能量、
+ * 登记 ability 图层授予并覆盖既有 Assault 宿主求和边界；整卡继续保持 judge-required。
  */
 const squareUp = {
   canonicalCardId: "card.hash-e4dc01dd2f105796f021b575a0dcf055c0b996025247706f3605affedf193ce6",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未接通，均不近似实现：(1) continuous.grant-keyword 已能建立本回合的 Assault 4 " +
-    "ability 图层授予，但 Assault 展开要求读取 attacker designation（807.1.c/807.1.d.1）；运行时快照只提供 combatRole，" +
-    "当前条件求值没有 designation 的消费映射。(2) [Repeat]（820.1.a/820.1.c，附加费用 Discard 1）的费用声明尚未接入 Finalize，" +
-    "也没有把已支付实例数接到打出结算的 repeat 次数；cost-plan 与 effect.repeat 本体已有，缺的是 CardProgram 关键词实例的费用与 paid-count 接线。",
+    "两处依赖未接通，均不近似实现（RIFT-681 模板 golden 给出了真实证据边界）：" +
+    "(1) 整卡打出半段已可执行——continuous.grant-keyword 经通用测试台真实支付 4 能量并在 ability 图层登记本回合的 Assault 4" +
+    "（含既有 Assault 1 宿主求和到 5 的边界），但 Assault 展开要求读取 attacker designation（807.1.c/807.1.d.1），" +
+    "而生产 ObjectSnapshot 只提供 combatRole，layers 没有 designation 读取器或指定产生方。" +
+    "(2) [Repeat]（820.1.a/820.1.c）印刷的 Discard 1 附加费用在契约 3.1 的 KeywordAbility 里没有承载槽位，" +
+    "也没有接入 Finalize 的可选附加费用收取；已支付实例数同样没有接到打出结算的 repeat 次数" +
+    "（cost-plan 与 effect.repeat 本体已合入，缺 CardProgram 关键词实例的费用与 paid-count 接线）。",
   abilities: [
     { kind: "keyword", keyword: "repeat" },
     {
