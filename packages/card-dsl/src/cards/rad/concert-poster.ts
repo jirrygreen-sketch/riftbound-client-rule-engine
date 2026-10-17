@@ -23,14 +23,18 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   440.2.c / 185.2.a / 350.2 / 354 在链上生成 token 并完成打出（`effect.token` mode "play"）。
  *   Recruit = CR 187.1 的 1 Might 单位 token（定义表 id "recruit"）；token 无印刷费用（185.3）。
  *
- * 复核（2026-10-17 第二轮复核）：
- * - `[Deploy]` 的 KeywordDef 已合入（effects/keywords/Deploy.ts，RIFT-267），但其
- *   `continuous.location`、清理豁免和带 `here` 的 Hold 触发仍没有可执行消费方。
+ * 复核（2026-10-17 第三轮复核）：
+ * - `[Deploy]` 的 KeywordDef 已合入（effects/keywords/Deploy.ts，RIFT-267），但其展开仍不可绑定：
+ *   `programs/statics.ts` 的 `layerFor()` 对 `continuous.location` 直接抛
+ *   “Static ability kind continuous.location has no layer mapping”（实测），
+ *   `layers/rules/query.ts` 的 `playLocations()` 也读不到该效应（登记后 permissions/restrictions 仍为空）。
+ * - conquer 触发的 `here` 锚点仍被 `programs/filters.ts` 的 `translateTriggerFilter` 以
+ *   “Unsupported filter field here” 拒绝，无法把它绑定到发出 hold/conquer 载荷的那个战场。
  * - `cost.pay` 已合入，使用 `payments: { energy: 1 }` 的支付计划形状；golden 覆盖真实扣除
  *   能量后再生成并打出 Recruit token。
  *
  * 可执行部分：支付、token 的链上生成与打出（`effect.token` mode "play"）由 golden 用参考内核
- * 真实执行；整卡仍因 Deploy 的地点/`here` 消费方而保持 judge-required。
+ * 真实执行；整卡仍因 Deploy 的连续效应绑定与 `here` 事件锚点而保持 judge-required。
  */
 const playAbility: Ability = {
   kind: "triggered",
@@ -117,10 +121,15 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "cost.pay 已合入并可按 payments 计划真实支付 1 能量，token 生成 + 打出链路也有执行证据；" +
-    "整卡仍缺 Deploy 的可执行消费方：continuous.location 的任意战场/只能打到战场限制、" +
-    "非单位 Gear 清理豁免，以及带 here 锚点的 Hold 触发都无法由当前地点与事件模式求值（CR 830.1.b）。" +
-    "本卡的 conquer 触发同样保留 here 锚点。依赖：RIFT-357 地点选择/地点锚点；不近似实现。",
+    "两处当前缺口（2026-10-17 第三轮复核），均不近似实现：" +
+    "(1) [Deploy]（830.1.b）的 KeywordDef 已合入，但它的展开无法绑定：programs/statics.ts 的 layerFor() 对 " +
+    "continuous.location 抛 \"Static ability kind continuous.location has no layer mapping\"（实测），" +
+    "因此「可打出到任意战场 / 只能打到战场 / 非单位 Gear 不被召回」三条改写都进不了图层；" +
+    "layers/rules/query.ts 的 playLocations() 对登记后的该效应也读不到 permissions/restrictions。" +
+    "(2) conquer 触发的 here 锚点没有可求值形态：programs/filters.ts 的 translateTriggerFilter 以 " +
+    "\"Unsupported filter field here\" 拒绝该键，无法把它绑定到发出 conquer 载荷（details.battlefieldId）的那个战场。" +
+    "已合入并有执行证据：cost.pay 按 payments 计划真实支付 1 能量，effect.token 的链上生成 + 打出链路（Recruit，187.1 / 440.2.c）。" +
+    "依赖：Deploy continuous.location 的图层映射与消费方、EventPattern 的 battlefield here 锚点。",
   abilities: [{ kind: "keyword", keyword: "deploy" }, playAbility, conquerAbility],
   sourceText:
     "[Deploy] (Play this only to a battlefield. When an opponent holds here, kill this.)\n" +

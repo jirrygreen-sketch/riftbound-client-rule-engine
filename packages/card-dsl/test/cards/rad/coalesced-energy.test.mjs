@@ -6,6 +6,8 @@ import program from "../../../dist/cards/rad/coalesced-energy.js";
 const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
 const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js", engineCore));
 const { world } = await import(new URL("effects/testing/index.js", engineCore));
+const { EventPipeline } = await import(new URL("events/pipeline.js", engineCore));
+const { assertTriggerSpec } = await import(new URL("events/trigger-spec.js", engineCore));
 
 const CANONICAL = "card.hash-5a4ff9de2d69584e442e29d394392ce09de6bc41ca2d52dadd0958701383a1c1";
 const [ability] = program.abilities;
@@ -25,11 +27,13 @@ test("rad-016-167 Coalesced Energy: program passes validateCardProgram and keeps
 test("rad-016-167 Coalesced Energy: judge-required naming the phase-event filter gap", () => {
   assert.equal(program.status, "judge-required");
   // turn-end now has a merged emitter and the program adapter exists. The
-  // remaining gap is the closed EventPattern vocabulary for phase timings.
+  // remaining gap is the closed EventPattern vocabulary for phase timings;
+  // the executor test below proves both accepted spellings are wrong.
   assert.match(program.judgeReason, /turn-end/);
   assert.match(program.judgeReason, /317\.1\.a/);
   assert.match(program.judgeReason, /EventPattern/);
   assert.doesNotMatch(program.judgeReason, /RIFT-257/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-357/);
 });
 
 test("rad-016-167 Coalesced Energy: end-of-turn trigger recycling all runes then channeling 4 exhausted", () => {
@@ -185,6 +189,56 @@ test("rad-016-167 Coalesced Energy golden: a short Rune Deck channels as many as
   assert.equal(outcome.linkedValues["coalesced-energy.channel-4.channeled"], 2);
   assert.equal(kernel.player("A").runeDeckSize, 0);
   assert.equal(kernel.player("A").runePool.length, 2);
+});
+
+test("rad-016-167 Coalesced Energy: the phase-event filter is rejected by the closed vocabulary", () => {
+  // CR 317.1.a: "At the end of your turn" subscribes to the turn-end timing
+  // point. The merged EventPattern vocabulary has no phase-event value, so the
+  // declared filter is refused outright instead of registering a wider trigger.
+  assert.throws(
+    () => assertTriggerSpec(ability.trigger),
+    /trigger\.filter\.event/
+  );
+});
+
+test("rad-016-167 Coalesced Energy: the two accepted spellings are both wrong, so neither is used", () => {
+  // Registered through the merged event pipeline:
+  // - { controller: "self" } is accepted but a phase emission carries no
+  //   event.object/target, so it can never match.
+  // - {} would match every player's turn-end, widening "your turn".
+  const kernel = world().player("A").player("B").unit("hero", { owner: "A" }).build();
+  const host = {
+    checkpoint: () => ({}),
+    restore: () => {},
+    objects: () => kernel.objects,
+    execute: (action) => ({ outcome: kernel.perform(action), emissions: [] }),
+    context: () => { throw new Error("No context needed"); },
+    choose: (request) => { throw new Error(`Unexpected choice: ${request.id}`); }
+  };
+  const pipeline = new EventPipeline(host, ["A", "B"], "A");
+  const fired = [];
+  pipeline.onTrigger = (snapshot) => fired.push(snapshot.registration.id);
+  const source = kernel.getObject("hero");
+
+  pipeline.registerTrigger({
+    id: "controller-self",
+    source,
+    controller: "A",
+    spec: { at: "turn-end", filter: { controller: "self" } },
+    body: []
+  });
+  pipeline.emit({ timingPoint: "turn-end", player: "A" });
+  assert.deepEqual(fired, [], "{ controller: 'self' } never matches a phase event");
+
+  pipeline.registerTrigger({
+    id: "empty-filter",
+    source,
+    controller: "A",
+    spec: { at: "turn-end", filter: {} },
+    body: []
+  });
+  pipeline.emit({ timingPoint: "turn-end", player: "B" });
+  assert.deepEqual(fired, ["empty-filter"], "{} widens 'your turn' to the opponent's turn-end");
 });
 
 test.todo(

@@ -24,10 +24,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - [Predict]（437.1 / 437.3.a / 437.4）：看牌库顶一张并选择是否回收它；数值省略时按 1 张。
  *   Predict 的查看 + 选择由 effect.inspect，回收由 effect.recycle，二者均已合入。
  *
- * status = judge-required（见 judgeReason）：授予与 Predict 两半的指令都已可用（grant 经
- * 解释器 + 图层求值，Predict 经 inspect + recycle），但 [Reaction] 的时机许可与 [Shield]
- * 的 Defender designation 仍没有完整消费方；牌库顶的有序 pick 也必须由上游在结算期提供
- * （契约 3.6 zoneSlice）。
+ * status = judge-required（2026-10-17 第三轮复核，见 judgeReason）：授予与 Predict 两半的
+ * 指令都已可用（grant 经解释器 + 图层求值，Predict 经 inspect + recycle），但 [Reaction] 的
+ * 展开在卡牌程序绑定路径上失败：`programs/statics.ts` 对 `continuous.timing` 的
+ * `appliesTo: ["card", "activated-ability"]` 抛 “Unsupported static appliesTo”（实测）；
+ * [Shield] 的展开体（`continuous.might`）能绑定，但 814.1.d.1 的 Defender designation
+ * 仍不是 ObjectSnapshot 的求值特征；牌库顶的有序 pick 也必须由上游在结算期提供
+ * （契约 3.6 zoneSlice，提供方属 RIFT-358）。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "reaction" },
@@ -118,9 +121,11 @@ const program = {
   judgeReason:
     "两半指令都已合入并各有真实执行证据（[Shield 2] 授予经 continuous.grant-keyword 建 ability 层注册、" +
     "end-of-turn 到期；[Predict] 经 effect.inspect + effect.recycle，437.1/437.3.a/437.4），但整卡仍有三处真实缺口：" +
-    "[Reaction] 展开的 continuous.timing 许可没有完整的时机消费方；[Predict] 的牌库顶引用必须由上游在结算期按 " +
+    "[Reaction]（813.1.c）的展开体是 continuous.timing static，programs/statics.ts 对其 " +
+    "appliesTo: [\"card\", \"activated-ability\"] 抛 \"Unsupported static appliesTo\"（实测），" +
+    "展开无法经 CardProgram 注册；[Predict] 的牌库顶引用必须由上游在结算期按 " +
     "437.1/契约 3.6 zoneSlice 提供有序 picks（RIFT-358）；814.1.d.1 的 Defender designation 仍未成为 " +
-    "ObjectSnapshot 特征（契约 3.8 combatRole），Shield 的 +2 只能作为层注册被读出，暂不能按防守身份求值。" +
+    "ObjectSnapshot 特征（契约 3.8 combatRole，无产生方），Shield 的 +2 只能作为层注册被读出，暂不能按防守身份求值。" +
     "另见数据问题：本印刷在本地目录被记为 cardType Unit，而能力文本是法术式措辞（[Reaction] / [Predict]），" +
     "与同批 rad-034-167 Hunker Down（Spell）不一致。不近似实现。",
   abilities,

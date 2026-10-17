@@ -23,13 +23,15 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   在动作层映射为 `return-to-hand`，归属按对象的 owner 路由（本卡的返回目标是本卡自身，静态 IR 用契约 3.6
  *   的 `"source"` 选择器，由解释器绑定运行时引用；picks 条目是对象引用的声明位）。
  *
- * 复核（2026-10-16 第一轮复核）：
+ * 复核（2026-10-17 第三轮复核）：
  * - `continuous.might` 指令原语已合入（RIFT-258）：+2 Might this turn 走 arithmetic 层注册，
- *   选择器改为原语接受的 `objects.target` 形态；
- * - `[Deploy]` 的 KeywordDef 已合入（effects/keywords/Deploy.ts，RIFT-267），但其地点限制、清理
- *   豁免和 Hold 的 here 触发仍缺可执行消费方；
- * - 缺口：`attack-declared` / `hold` 的 here 锚点不在封闭 EventPattern 词表里（assertTriggerSpec
- *   拒绝该字段），“one of them” 也仍缺“从触发条件收集到的攻击者集合里选一个”的触发式选择落地。
+ *   选择器改为原语接受的 `objects.target` 形态，golden 有真实执行测试；
+ * - `[Deploy]` 的 KeywordDef 已合入（effects/keywords/Deploy.ts，RIFT-267），但其展开仍不可绑定：
+ *   `programs/statics.ts` 的 `layerFor()` 对 `continuous.location` 抛
+ *   “Static ability kind continuous.location has no layer mapping”（实测）；
+ * - 缺口：`attack-declared` / `hold` 的 here 锚点没有可求值形态（`programs/filters.ts` 的
+ *   `translateTriggerFilter` 以 “Unsupported filter field here” 拒绝该键），“one of them”
+ *   也仍缺“从触发条件收集到的攻击者集合里选一个”的触发式选择落地。
  *
  * 可执行部分：hold 分支（`choice.optional` + `effect.zone` 返回手牌）、以及攻击分支的“无合格攻击者时不生效”
  * 只保留结构；golden 用参考内核真实执行 hold 分支的接受/拒绝两条路径。
@@ -107,13 +109,18 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处当前缺口，均不近似实现：(1)「when one or more friendly units attack here」/「when you hold here」" +
-    "的 here 锚点不在封闭 EventPattern 词表里，assertTriggerSpec 直接拒绝该字段（实测），无法把触发注册到" +
-    "本卡所在战场（RIFT-357 地点锚点）；(2) 攻击触发里“one of them”需要在触发条件收集该处攻击者后由控制者选择其中之一，" +
-    "属触发式选择与模式/目标 Finalize 的落地（RIFT-358），当前没有可执行路径。" +
+    "三处当前缺口（2026-10-17 第三轮复核），均不近似实现：" +
+    "(1) 「when one or more friendly units attack here」/「when you hold here」的 here 锚点没有可求值形态：" +
+    "programs/filters.ts 的 translateTriggerFilter 以 \"Unsupported filter field here\" 拒绝该键，" +
+    "无法把触发绑定到本卡所在战场（载荷只带 details.battlefieldId，程序侧读不到）。" +
+    "(2) 攻击触发里“one of them”需要在触发条件收集该处攻击者后由控制者选择其中之一，" +
+    "属触发式选择与模式/目标 Finalize 的落地（RIFT-358），当前没有可执行路径；815/831 类的战斗指派与身份" +
+    "（契约 3.8 combatRole）也仍缺产生方（combat/flow.ts 抛 combat-start-transaction）。" +
+    "(3) [Deploy] 的 KeywordDef 已合入（effects/keywords/Deploy.ts，RIFT-267），但展开无法绑定：" +
+    "programs/statics.ts 的 layerFor() 对 continuous.location 抛 \"Static ability kind continuous.location has no layer mapping\"（实测），" +
+    "830.1.b 的地点限制与清理豁免进不了图层。" +
     "已合入部分：+2 Might this turn 用 continuous.might（RIFT-258）表达并有真实执行测试；" +
-    "hold 分支（choice.optional + effect.zone 返回手牌）已可执行且有接受/拒绝两条真实执行测试；" +
-    "[Deploy] 的 KeywordDef 已合入（effects/keywords/Deploy.ts，RIFT-267），缺的是地点与 Hold 消费方。",
+    "hold 分支（choice.optional + effect.zone 返回手牌）已可执行且有接受/拒绝两条真实执行测试。",
   abilities: [
     { kind: "keyword", keyword: "deploy" },
     attackAbility,
