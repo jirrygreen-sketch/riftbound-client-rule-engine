@@ -4,6 +4,8 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/ahri-alluring.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL =
   "card.hash-4f9cef9a5292a16fac59206baa263b0654606faa95119ee4a76583f82b2a4dac";
@@ -23,6 +25,7 @@ test("ogn-066-298 Ahri, Alluring: identity, ruleset, status, judgeReason and sou
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /hold/);
   assert.match(program.judgeReason, /effect\.score/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });
@@ -53,22 +56,36 @@ test("ogn-066-298 Ahri, Alluring: 'you score 1 point' is one amount-1 instructio
   assert.equal(scoreInstruction.condition, undefined);
 });
 
-test.todo(
-  "ogn-066-298 Ahri, Alluring: the hold trigger cannot fire: merged scoring " +
-    "(scoring/scoring.ts scoreDuelBattlefield) returns a scoring outcome and emits no pipeline " +
-    "timing, and the duel turn executor only uses 'hold' as its own internal step name " +
-    "(P0 contract 7.2 batch 5 / scoring workstream)"
-);
+test("ogn-066-298 Ahri, Alluring golden: the score instruction awards the ability controller 1 point (RIFT-115)", () => {
+  const kernel = world().player("A").player("B").build();
+  const outcome = runAbilityBody(triggered.body, kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(
+    outcome.results.map(entry => [entry.id, entry.result.status]),
+    [["ahri-alluring.score-1", "executed"]]
+  );
+  // 194.1.c / 470.1-3：受让者缺省为能力控制者，只有该玩家获得 1 点。
+  assert.equal(kernel.player("A").score, 1);
+  assert.equal(kernel.player("B").score, 0);
+  assert.deepEqual(outcome.results[0].result.linkedValues.scored, [{ player: "A", amount: 1 }]);
+  assert.deepEqual(outcome.events.map(event => event.action), ["score"]);
+});
+
+test("ogn-066-298 Ahri, Alluring golden: a zero-point award links an empty list without scoring", () => {
+  const kernel = world().player("A").player("B").build();
+  const outcome = runAbilityBody(
+    [{ id: "zero", op: "effect.score", args: { amount: { kind: "constant", value: 0 } } }],
+    kernel
+  );
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.equal(kernel.player("A").score, 0);
+  assert.deepEqual(outcome.results[0].result.linkedValues.scored, []);
+});
 
 test.todo(
-  "ogn-066-298 Ahri, Alluring: effect.score has no merged instruction file, so 'you score 1 " +
-    "point' has no registered opcode; the survey (ability-templates.md, 22 identities) maps it " +
-    "to effect.score and the program keeps that shape without approximating points through " +
-    "another action"
-);
-
-test.todo(
-  "ogn-066-298 Ahri, Alluring: point accounting and the Final Point window (470.1/470.2, " +
-    "473.1.b) belong to the engine; once effect.score lands, the golden test must assert the " +
-    "controller's points and the points-gained event"
+  "ogn-066-298 Ahri, Alluring: the hold trigger still cannot register: the card's nested " +
+    "{ event, filter } spelling is rejected by events/trigger-spec.ts (engine spellings are " +
+    "held/self) and no merged consumer binds a CardProgram's triggered ability into a " +
+    "TriggerRegistration (RIFT-257)."
 );

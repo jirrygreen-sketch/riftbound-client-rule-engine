@@ -50,7 +50,8 @@ const acceptableLosses = {
     "但已合入的 IR 是单次 body + 单一 ResolveContext，pick 只能经 ctx.picks(id) 一次性读取（契约 3.6 无按玩家迭代与 chooser 绑定 pick），" +
     "封闭 opcode 表也没有 player 迭代/选择原语（ability-templates.md 的 target.player 未实现）；按固定次数 repeat 会把玩家人数写死。" +
     "同时「their gear」需按各自选择者重绑 owner/controller，而过滤器玩家选择器只按能力控制者解析（chain/engine.ts）。" +
-    "kill 半段只用已合入的 effect.kill 表达并有执行测试；依赖 target.player 与 pick chooser 落地。",
+    "kill 半段只用已合入的 effect.kill 表达并有执行测试（golden 真实执行选定消灭与失效引用两条路径）；" +
+    "依赖 target.player 与 pick chooser 落地。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

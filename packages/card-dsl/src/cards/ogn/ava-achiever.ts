@@ -17,17 +17,19 @@ import type { CardProgram } from "../../ir/index.js";
  * - 383.3.a/383.3.b：效果开头的 "you may … to …" 是可选的执行决定；按契约
  *   §3.9 用 choice.optional 把被选择的指令包进 body，而不是 choice + linkedTo。
  *
- * 状态：judge-required。可运行的部分是本原文的结构与“拒绝执行”路径；
- * 完整效果缺少两处已合入能力：
- * - "play a card with [Hidden] from your hand" 的选择无法结算：候选来自 filter
+ * 状态：judge-required。攻击触发本体、choice.optional 拒绝路径与 effect.play 的
+ * 零费用计划都由 golden 经链式适配器真实执行；仍缺：
+ * - "play a card with [Hidden] from your hand" 的选择绑定：候选来自 filter
  *   （手牌 + [Hidden]），但冻结的 PickSpec / `ctx.picks` 只读取运行时已提供的
  *   options，Finalize / 选择管线还没有把 filter 查询绑定成 picks（RIFT-8x
  *   target/pick）；不能让卡牌程序自带 fixture 候选。
- * - "ignoring its cost" 需要按 356.1.b.1 生成 energy/power 都被置 0 的 finalized
- *   cost plan；cost.printed / cost.pay 未合入（RIFT-89），effect.play 只接受
- *   已经 Finalize 的计划，卡牌程序不得自行推导打印费用。
+ * - "ignoring its cost" 的支付与 Finalize 计划：费用改写需要卡面费用指令
+ *   （cost.printed / cost.pay，RIFT-261 未合入本工作树），effect.play 只接受
+ *   已经 Finalize 的计划；卡牌程序不得自行推导打印费用。
+ * - attack-declared 触发进链与自我范围拼写：宣告事务仍被 combat-start-transaction
+ *   阻断（CR 466.2），并依赖 RIFT-257 的 CardProgram 触发绑定。
  *
- * 依赖：RIFT-89（batch3-cost-plan）、RIFT-8x（Finalize / pick 选择管线）。
+ * 依赖：RIFT-261、RIFT-8x（Finalize / pick 选择管线）、RIFT-257。
  */
 const avaAchiever = {
   canonicalCardId: "card.hash-2c1a169269b0950e25c0db04cc22a192284b006d0d720477f488d2f0ddef6e3b",
@@ -37,8 +39,10 @@ const avaAchiever = {
     "「play a card with [Hidden] from your hand」的选择无法结算：冻结的 PickSpec / ctx.picks 只读取运行时提供的 options，" +
     "Finalize / 选择管线尚未把 { zone: hand, Hidden } 的 filter 查询绑定成 picks（RIFT-8x）；" +
     "「ignoring its cost」需要按 CR v1.5 356.1.b.1 生成 energy/power 置 0 的 finalized cost plan，" +
-    "cost.printed / cost.pay 未合入（RIFT-89），effect.play 只接受已 Finalize 的计划，不近似实现。" +
-    "依赖：RIFT-89（batch3-cost-plan）、RIFT-8x（Finalize/pick 选择管线）。",
+    "卡面费用指令 cost.printed / cost.pay 未合入（RIFT-261），effect.play 只接受已 Finalize 的计划，不近似实现；" +
+    "attack-declared 触发还依赖战斗宣告事务（CR 466.2）与 RIFT-257 的 CardProgram 触发绑定。" +
+    "choice.optional 的拒绝路径与零费用计划下的 effect.play 已由 golden 经链式适配器真实执行（play 的 location 由调用方按来源当前位置提供）。" +
+    "依赖：RIFT-261、RIFT-8x（Finalize/pick 选择管线）、RIFT-257。",
   abilities: [
     {
       kind: "triggered",
@@ -74,9 +78,9 @@ const avaAchiever = {
                     // 选择管线按 pick 的 filter 提供，而不是静态 IR 里的固定对象。
                     pick: { kind: "constant", value: "ava.hidden-card" },
                     // 356.1.b.1：ignoring its cost → base Energy/Power 皆为 0 的
-                    // finalized 计划由费用管线生成（当前缺 RIFT-89 原语）。这里的 0/[]
-                    // 是“忽略费用”的结果，不是这张牌的印刷费用；被忽略的牌的印刷费用
-                    // 仍保持无印刷值/印刷值原样，绝不在此改写为 0。
+                    // finalized 计划由费用管线生成（卡面费用指令仍缺 RIFT-261）。这里的
+                    // 0/[] 是“忽略费用”的结果，不是这张牌的印刷费用；被忽略的牌的印刷
+                    // 费用仍保持无印刷值/印刷值原样，绝不在此改写为 0。
                     cost: { kind: "constant", value: { finalized: true, energy: 0, power: [] } },
                     // "here"（359.3.f）：打出到本能力来源当前所在位置。
                     location: { kind: "object-property", object: "source", property: "location" }

@@ -21,28 +21,41 @@ import type { CardProgram } from "../../ir/index.js";
  *   the Recruit tag; 185.3.a / 185.3.b: tokens have no costs and no domains
  *   (null characteristics, never 0).
  *
- * Status rationale (contract §3.1, cards README §2): the trigger and the token
- * definition are expressible and the merged `effect.token` implements the
- * chain-create + play handoff, but the printed destination "in your base"
- * cannot be named by the frozen IR. `location` must evaluate to literal data
- * ({type:"base", player:<PlayerId>}) and the primitive only accepts a base
- * whose player is `ctx.controller`; no Expr or ObjectSelector can build a
- * LocationRef from the ability controller (effect.move accepts the literal
- * "controller-base", effect.token has no such spelling). Hard-coding a seat
- * would place the token in the wrong player's base, so the card stays
- * judge-required with the intended shape preserved.
+ * Status rationale (contract §3.1, cards README §2): the `hold` timing point is
+ * now emitted by the TurnFlow Score wave, and the merged `effect.token`
+ * implements the chain-create + play handoff, but two gaps remain:
+ * - the printed destination "in your base" cannot be named by the frozen IR.
+ *   `location` must evaluate to literal data ({type:"base",
+ *   player:<PlayerId>}) and the primitive only accepts a base whose player is
+ *   `ctx.controller` (verified: the "controller" placeholder is negated before
+ *   any token is created); no Expr or ObjectSelector can build a LocationRef
+ *   from the ability controller (effect.move accepts the literal
+ *   "controller-base", effect.token has no such spelling). Hard-coding a seat
+ *   would place the token in the wrong player's base.
+ * - the trigger cannot register: the nested `{ event, here, player }` spelling
+ *   is rejected by the engine validator (events/trigger-spec.ts EventPattern
+ *   has no `here` field and the engine spellings are "held"/"self"), and no
+ *   merged consumer binds a CardProgram's triggered ability into a
+ *   TriggerRegistration (RIFT-257).
  *
  * `player: "controller"` below is the spelling merged cards use for "the
  * ability controller's base" (sfd/assembly-rig, sfd/rumble-scrapper). It is
- * deliberately not resolvable today; the golden test asserts that the merged
- * primitive negates this placeholder instead of silently creating a token.
+ * deliberately not resolvable today; the golden test executes the token half
+ * with the concrete seat the controller occupies and records the placeholder
+ * as a test.todo (the merged primitive negates the placeholder instead of
+ * silently creating a token in an arbitrary base).
  */
 export default {
   canonicalCardId: "card.hash-235642b62ac009ff34cfa13db7debd2bf1e71c1a9bf411cf5ffab5dfd06e5099",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "The printed destination 'in your base' cannot be named: effect.token evaluates `location` as literal data and accepts only {type:'base', player:<PlayerId>} whose player equals ctx.controller, while the frozen IR has no controller-relative LocationRef expression or spelling (effect.move resolves the literal 'controller-base', effect.token does not). Hard-coding a seat would create the token in the wrong base, which is not approximated here. The hold trigger, the CR 187.1 Recruit definition and the 440.2.c chain-create + play handoff are already merged; the card depends on an effect.token follow-up / contract change request for a controller-relative location (also see the trigger pipeline dependency RIFT-33 scenarios-triggers).",
+    "两处缺口：(1) 印刷目的地 'in your base' 无法命名：effect.token 把 location 当字面数据求值且只接受 player 等于 ctx.controller 的 {type:'base', player:<PlayerId>}（实测 controller 占位值在创建 token 前被 negated），" +
+    "冻结 IR 没有控制者相对的 LocationRef 表达式或拼写（effect.move 认字面量 'controller-base'，effect.token 没有）；写死座位会把 token 放进错误玩家的基地，属近似实现。" +
+    "(2) 触发无法注册：本卡嵌套 { event, here, player } 拼写被引擎侧 assertTriggerSpec 拒绝（events/trigger-spec.ts 的 EventPattern 没有 here 字段，自身玩家拼写为 self），" +
+    "且没有已合入消费方把 CardProgram 的 triggered 能力绑定成 TriggerRegistration（RIFT-257）。" +
+    "hold 时点已由 turn/flow.ts 的 Score 波发射；CR 187.1 的 Recruit 定义与 440.2.c 的链上创建 + play 交接已合入并由 golden 真实执行（token 半段用控制者实际座位）。" +
+    "依赖：effect.token 的控制者相对 location（契约变更请求）与 RIFT-257。不近似实现。",
   sourceText: "When you hold here, play a 1 :rb_might: Recruit unit token in your base.",
   abilities: [
     {

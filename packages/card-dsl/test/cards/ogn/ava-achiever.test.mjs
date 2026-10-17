@@ -23,7 +23,7 @@ test("Ava Achiever identity and judge-required reason", () => {
   );
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /cost\.printed|finalized cost plan/);
   assert.match(program.judgeReason, /picks/);
   assert.equal(
@@ -154,5 +154,6 @@ test("golden: choosing to proceed really plays the [Hidden] card with a zero-cos
 test.todo(
   "Ava Achiever: binding the pick filter ({ zone: hand, Hidden }) into concrete resolution-time " +
     "options, then paying 1 Mind Power and playing the card with a 0/0 finalized cost plan " +
-    "(RIFT-8x pick/finalize binding; RIFT-89 cost.printed / cost.pay)"
+    "(RIFT-8x pick/finalize binding; RIFT-261 cost.printed / cost.pay), plus the attack-declared " +
+    "trigger registration through RIFT-257."
 );

@@ -108,6 +108,8 @@ test("baited-hook: identity, ruleset, status, judgeReason and printed text", () 
   // The second gap: the merged effect.inspect schema rejects selector-valued
   // Expr arguments, so the caller must resolve the player expression.
   assert.match(program.judgeReason, /effect\.inspect/);
+  // The third gap: the activated ability still needs the RIFT-257 binding.
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(
     program.sourceText,
     ":rb_energy_1::rb_rune_order:, :rb_exhaust:: Kill a friendly unit. Look at the top 5 cards of your Main Deck. " +
@@ -346,5 +348,10 @@ test.todo(
   "baited-hook: 'a unit … that has Might up to 1 more than the killed unit' as a selection legality " +
     "bound (each candidate's current Might compared with the killed unit's last-known Might, " +
     "359.3.e.13 / contract 3.6 lastKnown); no merged filter value can relate two objects or a " +
-    "linked value, so the descriptive mightUpTo key on the pick is not enforced — see judgeReason"
+    "linked value, so the descriptive mightUpTo key on the pick is not enforced — see judgeReason."
+);
+test.todo(
+  "baited-hook: the activated ability's production binding (RIFT-257 describeActivate) must " +
+    "generate the Finalize cost plan, the kill target and the look picks; the golden drives the " +
+    "card's own body through the merged chain adapter with caller-supplied locked sets instead."
 );

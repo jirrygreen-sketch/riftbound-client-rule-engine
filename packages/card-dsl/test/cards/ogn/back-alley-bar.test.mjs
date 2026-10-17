@@ -5,7 +5,9 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/back-alley-bar.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
+import might from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
 const [ability] = program.abilities;
 const [instruction] = ability.body;
@@ -29,6 +31,7 @@ test("ogn-277-298 Back-Alley Bar: identity, ruleset, status and printed text", (
   // deck-catalog.json (ogn-277-298) carries this text verbatim.
   assert.equal(program.sourceText, "When a unit moves from here, give it +1 :rb_might: this turn.");
   assert.match(program.judgeReason, /might/i);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("ogn-277-298 Back-Alley Bar: Move trigger filtered on this battlefield as the origin", () => {
@@ -50,12 +53,19 @@ test("ogn-277-298 Back-Alley Bar: Move trigger filtered on this battlefield as t
 test("ogn-277-298 Back-Alley Bar: the body asks for +1 Might this turn and targets no object", () => {
   assert.equal(ability.body.length, 1);
   assert.equal(instruction.id, "back-alley-bar.give-might");
-  assert.equal(instruction.op, "effect.might-modify");
+  assert.equal(instruction.op, "continuous.might");
   assert.deepEqual(instruction.args.amount, { kind: "constant", value: 1 });
   assert.deepEqual(instruction.args.duration, { kind: "constant", value: "this-turn" });
-  // CR 355.10.c: "a unit moves from here" is only a trigger condition, so the
-  // moved unit is not a target and no TargetSpec is declared.
-  assert.equal(instruction.targets, undefined);
+  // RIFT-258 的 continuous.might：objects 用 target 选择符指名生效对象。这里的
+  // TargetSpec 是触发载荷对象的结构性占位（CR 355.10.c：印刷文本从不做选择），
+  // 直到事件对象选择器落地前不能当作可执行的完整语义。
+  assert.deepEqual(instruction.args.objects, {
+    kind: "constant",
+    value: { kind: "target", id: "back-alley-bar.moved-unit" }
+  });
+  assert.equal(instruction.targets.length, 1);
+  assert.equal(instruction.targets[0].id, "back-alley-bar.moved-unit");
+  assert.deepEqual(instruction.targets[0].filter, { type: "unit", zone: "board" });
   assert.equal(instruction.picks, undefined);
   assert.equal(instruction.linkedTo, undefined);
 });
@@ -81,11 +91,54 @@ test("ogn-277-298 Back-Alley Bar: the merged Move primitive performs the move th
   assert.deepEqual(run.events.map(event => event.action), ["move-location"]);
 });
 
-test.todo(
-  "ogn-277-298 Back-Alley Bar: +1 Might this turn on the moved unit (CR 122.5/703) needs a " +
-    "temporary Might modification primitive; effect.buff leaves it to layers/continuous.might, " +
-    "and a Buff counter would be a different Game Object (CR 702-704)"
-);
+test("ogn-277-298 Back-Alley Bar: the merged continuous.might registers +1 for the stand-in and expires at cleanup (RIFT-258)", () => {
+  const kernel = world().unit("mover", { owner: "A", controller: "A", might: 2 }).build();
+  const run = runInstruction(
+    might,
+    {
+      amount: instruction.args.amount,
+      duration: instruction.args.duration,
+      objects: instruction.args.objects.value
+    },
+    {
+      world: kernel,
+      targets: { "back-alley-bar.moved-unit": [kernel.ref("mover")] }
+    }
+  );
+
+  assert.equal(run.result.status, "executed");
+  assert.equal(kernel.continuousEffects.length, 1);
+  assert.equal(kernel.continuousEffects[0].effect.layer, "arithmetic");
+  assert.equal(kernel.continuousEffects[0].effect.effect.kind, "continuous.might");
+  assert.equal(kernel.continuousEffects[0].effect.effect.amount, 1);
+  assert.deepEqual(kernel.continuousEffects[0].duration, { type: "end-of-turn" });
+
+  const engine = createLayerEngine(
+    kernel.objects,
+    kernel.continuousEffects.map((entry, index) => ({ ...entry, timestamp: index + 1 }))
+  );
+  assert.equal(engine.evaluate(kernel.ref("mover")).might, 3);
+  assert.equal(engine.expireAt("turn-end").length, 1);
+  assert.equal(engine.evaluate(kernel.ref("mover")).might, 2);
+});
+
+test("ogn-277-298 Back-Alley Bar: a stand-in target that left the Board is ignored (359.3.e.6)", () => {
+  const kernel = world().unit("mover", { owner: "A", controller: "A", might: 2 }).build();
+  const stale = kernel.ref("mover");
+  kernel.perform({ type: "kill", object: stale });
+  const run = runInstruction(
+    might,
+    {
+      amount: instruction.args.amount,
+      duration: instruction.args.duration,
+      objects: instruction.args.objects.value
+    },
+    { world: kernel, targets: { "back-alley-bar.moved-unit": [stale] } }
+  );
+
+  assert.deepEqual(run.result, { status: "ignored", reason: "mistargeted" });
+  assert.equal(kernel.continuousEffects.length, 0);
+});
 
 test.todo(
   "ogn-277-298 Back-Alley Bar: naming the moved unit from the trigger payload needs an " +
@@ -93,6 +146,8 @@ test.todo(
 );
 
 test.todo(
-  "ogn-277-298 Back-Alley Bar: the object-moved timing point with its origin-location payload " +
-    "reaching this ability, and Recalls staying excluded (CR 458.1; RIFT-33 scenarios-triggers)"
+  "ogn-277-298 Back-Alley Bar: the object-moved trigger still cannot register: the card's nested " +
+    "{ event, details } spelling is rejected by events/trigger-spec.ts and no merged consumer " +
+    "binds a CardProgram's triggered ability into a TriggerRegistration (RIFT-257); the " +
+    "origin-location payload and the Recall exclusion (CR 458.1) belong to RIFT-120."
 );
