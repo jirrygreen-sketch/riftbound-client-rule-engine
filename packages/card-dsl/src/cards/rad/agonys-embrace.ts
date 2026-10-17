@@ -20,28 +20,15 @@ import type { CardProgram } from "../../ir/index.js";
  *   结算时检查（135.2.b.3 / 359.3.f.2）；“it's not your turn” 指当前回合玩家
  *   （CR 304）不是该传奇的操控者。
  *
- * status = judge-required（复核 2026-10-17；缺口均不近似实现）：
- * - “from face down” 无法在触发过滤里判定：Hide 动作仍不在 GameAction 集内，没有模块发出
- *   card-hidden，OBJECT_FILTER_ZONES 也没有 facedown-zone；card-played 的发射点
- *   （chain/engine.ts）只带 object/player，不携带“该牌从哪个区域打出”的来源事实
- *   （CR 355.9.a.3 / 107.3.e）。RIFT-84 已合入的 Hidden KeywordDef 只展开 cost.hidden 声明。
- * - 该事实也不能用 EventPattern.details 声明：RIFT-257 已合入的 programs/filters.ts 把
- *   details 交给 translateObjectFilter，而后者只接受
- *   objectId/cardId/type/controller/owner/zone/location/states/tags/characteristics，
- *   details 会被判为 “Unsupported filter field details” 并在注册时抛 ProgramBindingError
- *   （translateTriggerFilter 只把 details 从嵌套 filter 搬运，顶层 details 仍落进对象过滤）。
- *   改用 states: ["face-down"] 也不成立：states 求值的是事件对象的当前状态，而
- *   card-played 的 object 是打出后的快照（此时已不 faceDown），它描述的不是打出前的来源。
- *   因此程序用顶层 details.fromFaceDown 明确声明该前提并 fail-closed，不把普通打出算进来。
- * - “if it's not your turn” 需要比较“当前回合玩家 vs 能力控制者”：turnPlayer 只存在于
- *   layers/rules/query.ts 的查询输入与 events/pipeline.ts 的 clock，Expr 只有
- *   constant/location/object-property/linked/count/arithmetic，Condition 只有
- *   always/never/compare/all/any/not/expression，没有该谓词位置；object-property 读取的是
- *   ObjectSnapshot 特征，notYourTurn 不在其中（读取抛 MissingInformation → 指令 ignored）。
- * RIFT-257 的 CardProgram → TriggerRegistration 绑定（programs/triggers.ts）已合入，
- * 不再是缺口；该触发无法命中源于上面两条语义事实缺失，而不是订阅层。
- * 两条子效果本身（draw 1、discard 1）都只使用已合入原语，但都位于上述无法判定的
- * 触发/条件之下，所以整卡不能标记 executable；golden 校验结构并独立执行已合入原语。
+ * status = judge-required（2026-10-17 源码复核）：
+ * - card-played 已携带 fromZone、打出前 source 和 details.playedFromZone/printed；
+ *   不再缺普通打出的来源记录。但 GameAction/ZoneId 尚无 Hide/Facedown Zone，
+ *   也没有 fromFaceDown 生产者；不能把其他来源或打出后的 faceDown 状态当作该事实。
+ * - 触发用显式 object:{} 将 details 留在事件模式中，已可完成翻译/注册；
+ *   但 fromZone/played-from-zone 条件仍没有 Facedown Zone 值可消费（107.3.e / 355.9.a.3）。
+ * - “if it's not your turn” 缺结算时的回合玩家比较；事件虽有 activePlayerId，
+ *   默认 Condition/Expr 不能读取该字段，notYourTurn 也不是对象特征（304 / 383.2.b）。
+ * Draw/Discard 的独立执行证据不覆盖这两个前提。
  */
 export default {
   canonicalCardId:
@@ -49,32 +36,21 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "(1)「when you play a card from face down」没有可求值路径：chain/engine.ts 的 card-played 发射" +
-    "只带 object/player，不携带打出前区域；Hide 动作不在 GameAction 集内（effects/contract.ts），" +
-    "没有模块发出 card-hidden，OBJECT_FILTER_ZONES（events/trigger-spec.ts）也没有 facedown-zone，" +
-    "CR 355.9.a.3 / 107.3.e 的 Facedown card 事实无从取得。该事实也无法用 EventPattern.details 声明：" +
-    "触发过滤的 programs/filters.ts 把 details 交给 translateObjectFilter，而它只接受 " +
-    "objectId/cardId/type/controller/owner/zone/location/states/tags/characteristics，顶层 details " +
-    "判为 Unsupported filter field details 并在注册时抛 ProgramBindingError；states:[face-down] 也求值" +
-    "事件对象的当前状态，而 card-played 的 object 已是打出后快照（faceDown false），不描述打出前来源。" +
-    "(2)「if it's not your turn」（CR 304 / 383.2.b / 135.2.b.3）需要比较当前回合玩家与能力控制者，" +
-    "但 Expr 只有 constant/location/object-property/linked/count/arithmetic、Condition 只有 " +
-    "always/never/compare/all/any/not/expression；turnPlayer 只存在于 layers/rules/query.ts 的查询输入，" +
-    "object-property 读取 ObjectSnapshot 特征，notYourTurn 不在 ObjectSnapshot 中（读取抛 " +
-    "MissingInformation → 指令 ignored）。" +
-    "draw 1（effect.draw，414.1）与 discard 1（effect.discard，423.1）已有真实执行测试，" +
-    "但都在无法判定的触发/条件之下；整卡保持 judge-required，不近似实现。",
+    "(1) 面朝下打出（CR 107.3.e / 355.9.a.3）仍缺 Hide 动作与 facedown-zone 的 ZoneId/过滤值及生产接线；" +
+    "card-played 已有 fromZone、打出前 source 和 details.playedFromZone/printed，但不产生 fromFaceDown。" +
+    "details.fromFaceDown 过滤已可翻译/注册，但没有该来源事实；不能用打出后的 faceDown 状态代替。" +
+    "(2)「if it's not your turn」（304 / 383.2.b）缺结算时 turnPlayer 与能力控制者的比较；默认 Condition/Expr 不读取事件 activePlayerId，notYourTurn 不是 ObjectSnapshot 特征。",
   abilities: [
     {
       kind: "triggered",
       trigger: {
         at: "card-played",
         // “when you play a card from face down”：事件物体必须是你打出的、且来自
-        // 面朝下区域。“由你打出”由 player 表达；面朝下来源在合并载荷里没有字段
-        // （见 judgeReason），这里用 details.fromFaceDown 明确声明，宁可 fail-closed
-        // 也不把普通打出的牌算作面朝下打出。
+        // 面朝下区域。“由你打出”由 player 表达；object:{} 使 details 按事件字段翻译，
+        // 不再误交给对象过滤器。fromFaceDown 仍未生产，因此普通打出不会命中。
         filter: {
           event: "card-played",
+          object: {},
           player: "self",
           details: { fromFaceDown: true }
         },

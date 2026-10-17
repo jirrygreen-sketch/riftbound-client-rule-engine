@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/coalesced-energy.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
 const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js", engineCore));
 const { world } = await import(new URL("effects/testing/index.js", engineCore));
@@ -26,6 +27,8 @@ test("rad-016-167 Coalesced Energy: program passes validateCardProgram and keeps
 
 test("rad-016-167 Coalesced Energy: judge-required naming the phase-event filter gap", () => {
   assert.equal(program.status, "judge-required");
+  assert.ok(program.judgeReason.includes("translateTriggerFilter"));
+  assert.ok(program.judgeReason.includes("player:self"));
   // turn-end now has a merged emitter and the program adapter exists. The
   // remaining gap is the closed EventPattern vocabulary for phase timings;
   // the executor test below proves both accepted spellings are wrong.
@@ -246,3 +249,45 @@ test.todo(
     "Shurima) per the official RAD-016/167 image, while packages/card-data/data/deck-catalog.json " +
     "records cardType 'Spell' and might 4 — a card-data defect reported by this task (not edited here)"
 );
+
+for (const controller of ["A", "B"]) {
+  test(`Coalesced Energy resweep: original body recycles only ${controller}'s runes through ChainEngine`, () => {
+    const requests = [];
+    const f = fixture({ turnPlayer: controller, choose: request => {
+      requests.push(structuredClone(request));
+      if (request.type === "select-objects") return [...request.options];
+      throw new Error(`Unexpected choice: ${request.id}`);
+    } });
+    const opponent = controller === "A" ? "B" : "A";
+    const source = f.kernel.getObject(controller === "A" ? "source" : "enemy");
+    // Initial objects only; the program performs every subsequent zone change.
+    for (const [owner, ids, zone] of [
+      [controller, ["r1", "r2"], "rune-zone"],
+      [controller, ["r3", "r4", "r5", "r6"], "rune-deck"],
+      [opponent, ["opponent-rune"], "rune-zone"]
+    ]) for (const id of zone === "rune-deck" ? [...ids].reverse() : ids) f.kernel.addObject({
+      ...source, ref: { id, zoneEntryId: 1 }, name: id, owner, controller: owner,
+      types: ["rune"], zone, location: null, energy: null, power: null, might: null
+    }, zone);
+    const opponentRunes = f.kernel.zone(opponent, "rune-zone");
+    f.engine.advance();
+    // This is body evidence only: the printed turn-end subscription remains
+    // judge-required. The original IR, including owner:self, is unchanged.
+    f.engine.execute({ id: "coalesced-body", controller, source, kind: "activated", speed: "reaction", body: ability.body });
+    resolveAll(f.engine);
+    assert.equal(f.kernel.linked("coalesced-energy.recycle-runes.recycledCount"), 2);
+    assert.equal(f.kernel.linked("coalesced-energy.channel-4.channeled"), 4);
+    assert.deepEqual(f.kernel.zone(controller, "rune-zone").map(ref => ref.id), ["r3", "r4", "r5", "r6"]);
+    assert.deepEqual(f.kernel.zone(controller, "rune-deck").map(ref => ref.id), ["r1", "r2"]);
+    assert.deepEqual(f.kernel.zone(opponent, "rune-zone"), opponentRunes);
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].chooser, controller);
+    assert.equal(requests[0].visibility, "chooser-only");
+    assert.deepEqual(requests[0].options.map(ref => ref.id), ["r1", "r2"]);
+    const actions = f.engine.pipeline.events.flatMap(event => event.action ? [event.action] : []);
+    const channel = actions.find(action => action.type === "channel-rune");
+    assert.deepEqual(channel, { type: "channel-rune", player: controller, amount: 4, exhausted: true });
+    assert.deepEqual([...new Set(actions.filter(action => action.type === "recycle").map(action => action.object.id))], ["r1", "r2"]);
+    assert.ok(actions.findIndex(action => action.type === "channel-rune") > actions.findIndex(action => action.type === "recycle"));
+  });
+}

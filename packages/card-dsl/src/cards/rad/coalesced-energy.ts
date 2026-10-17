@@ -30,39 +30,23 @@ import type { CardProgram } from "../../ir/index.js";
  * which is the canonical spelling used by the merged keyword expansions
  * (keywords/Equip.ts, keywords/Weaponmaster.ts).
  *
- * Status: judge-required (re-checked 2026-10-17 third re-sweep). Both
- * instructions are merged and the golden test runs them through the real
- * interpreter + reference kernel. The "turn-end" timing point also has a
- * merged emitter (turn/flow.ts emits it in the Ending Step before cleanup, per
- * docs/rules/timing-point-producers.md). The remaining blocker is the closed
- * EventPattern vocabulary: it has no phase-event value that can express
- * "At the end of your turn", even though the timing point itself is
- * triggerable (CR 317.1.a). Verified against the merged code:
- * - assertTriggerSpec({ at: "turn-end", filter: { event: "turn-end", player:
- *   "self" } }) throws "trigger.filter.event: 值必须属于 ..." — the closed list
- *   holds only object/state events (zone-entered, card-played, object-killed,
- *   attack-declared, conquered, held, scored, ...), no phase timing.
- * - The two spellings the vocabulary does accept are both wrong here:
- *   { controller: "self" } registers but never matches a phase event (the
- *   pipeline's event pattern is matched against event.object/target, and a
- *   turn-end emission carries neither), and {} matches every player's turn-end
- *   ("your turn" would become "any turn"). Neither is used.
- * The golden test asserts both facts so the gap cannot silently regress into an
- * approximated trigger.
+ * Status: judge-required (2026-10-17 source audit).
+ * turn/flow.ts emits turn-end and both printed instructions are executable.
+ * The actual gap is the program translator: a player-only EventPattern can
+ * match a phase event, but translateTriggerFilter inserts the default turn-end
+ * event name, which is absent from EVENT_PATTERN_TYPES. controller:self cannot
+ * replace player:self because phase emissions have no object to match.
+ * Full-body chain tests must consume the original self count filter rather
+ * than replacing it with a concrete player in the authored instructions.
  */
 const coalescedEnergy = {
   canonicalCardId: "card.hash-5a4ff9de2d69584e442e29d394392ce09de6bc41ca2d52dadd0958701383a1c1",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "body 两条指令（effect.recycle 的 from 形式、effect.channel exhausted）已合入并由 golden 用真实解释器 + " +
-    "参考内核执行，turn-end 时点也已有发射方（src/turn/flow.ts 在 Ending Step 进入清理前 emit，CR 317.1.a）。" +
-    "当前真实缺口是 EventPattern 的封闭事件词表没有阶段类事件值：assertTriggerSpec 对 " +
-    "filter { event: \"turn-end\", player: \"self\" } 抛 \"trigger.filter.event: 值必须属于 zone-entered, ...\"" +
-    "（词表只含对象/状态事件，没有阶段时点），因此无法表达 \"At the end of your turn\" 的 player: self 订阅。" +
-    "词表里可接受的两种写法都不可用：{ controller: \"self\" } 能注册但阶段事件不带 event.object/target，永不会匹配；" +
-    "{} 会在任何玩家的 turn-end 触发，把 \"your turn\" 放宽成 \"any turn\"。" +
-    "golden 用事件管线实测断言这两点，避免缺口被近似实现。依赖：EventPattern 的阶段时点过滤（含 player 语义）。",
+    "「At the end of your turn」（CR 317.1.a）缺阶段 EventPattern 的程序绑定：turn-end 已有生产者，" +
+    "但 EVENT_PATTERN_TYPES 不接受 event:turn-end；translateTriggerFilter 即使收到仅 { player:self } 也会补回该事件名，注册仍失败。" +
+    "玩家过滤本身可由事件管线求值，不能再称缺 player 语义；{ controller:self } 需 event.object 而阶段事件没有，{} 则会放宽成任何玩家回合。",
   abilities: [
     {
       kind: "triggered",

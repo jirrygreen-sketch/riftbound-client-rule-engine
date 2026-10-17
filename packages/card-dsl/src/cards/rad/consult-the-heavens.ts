@@ -24,13 +24,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - [Predict]（437.1 / 437.3.a / 437.4）：看牌库顶一张并选择是否回收它；数值省略时按 1 张。
  *   Predict 的查看 + 选择由 effect.inspect，回收由 effect.recycle，二者均已合入。
  *
- * status = judge-required（2026-10-17 第三轮复核，见 judgeReason）：授予与 Predict 两半的
- * 指令都已可用（grant 经解释器 + 图层求值，Predict 经 inspect + recycle），但 [Reaction] 的
- * 展开在卡牌程序绑定路径上失败：`programs/statics.ts` 对 `continuous.timing` 的
- * `appliesTo: ["card", "activated-ability"]` 抛 “Unsupported static appliesTo”（实测）；
- * [Shield] 的展开体（`continuous.might`）能绑定，但 814.1.d.1 的 Defender designation
- * 仍不是 ObjectSnapshot 的求值特征。Predict 已使用契约 3.6 的 PickSpec.zoneSlice，
- * 由真实 ChainEngine 在 Finalize 锁定控制者主牌库顶一张，结算时查看并选择回收或保留。
+ * status = judge-required（2026-10-17 源码复核）：
+ * - Reaction 展开的 appliesTo:[card,activated-ability] 仍被 staticTarget 拒绝。
+ * - combatRole 已存在于 ObjectSnapshot，expr-ext 也能把 designation 映射到它；
+ *   但默认 expr.ts / programs/statics.ts 没有消费该扩展，Shield 展开仍读取 designation。
+ * - continuous.grant-keyword 只授予 keyword 特征；生产生命周期尚不重新展开临时授予的
+ *   Shield 并绑定它的条件 Might。还需真实战斗角色的生产与到期路径。
+ * Predict 的 zoneSlice + inspect/recycle 已通过真实 ChainEngine 验证，不能列作缺口。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "reaction" },
@@ -132,15 +132,11 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两半指令都已合入并各有真实执行证据（[Shield 2] 授予经 continuous.grant-keyword 建 ability 层注册、" +
-    "end-of-turn 到期；[Predict] 经 PickSpec.zoneSlice + effect.inspect + effect.recycle，" +
-    "真实 ChainEngine 验证控制者牌库顶引用与回收/保留两条路径，437.1/437.3.a/437.4），但整卡仍有两处真实缺口：" +
-    "[Reaction]（813.1.c）的展开体是 continuous.timing static，programs/statics.ts 对其 " +
-    "appliesTo: [\"card\", \"activated-ability\"] 抛 \"Unsupported static appliesTo\"（实测），" +
-    "展开无法经 CardProgram 注册；814.1.d.1 的 Defender designation 仍未成为 " +
-    "ObjectSnapshot 特征（契约 3.8 combatRole，无产生方），Shield 的 +2 只能作为层注册被读出，暂不能按防守身份求值。" +
-    "另见数据问题：本印刷在本地目录被记为 cardType Unit，而能力文本是法术式措辞（[Reaction] / [Predict]），" +
-    "与同批 rad-034-167 Hunker Down（Spell）不一致。不近似实现。",
+    "(1) [Reaction]（CR 813.1.c）的 continuous.timing static 展开仍因 appliesTo:[card,activated-ability] 被 programs/statics.ts 拒绝为 Unsupported static appliesTo。" +
+    "(2) [Shield 2]（814.1.d.1）的 combatRole 已是 ObjectSnapshot 特征；但 Shield 展开读取 designation，" +
+    "expr-ext 的别名映射未接入默认表达式/静态条件求值。continuous.grant-keyword 还仅授予特征，缺临时 Shield 到条件 Might 展开的生命周期及战斗角色生产。" +
+    "zoneSlice/Predict 的 ChainEngine 查看、回收/保留路径已有执行证据，不是缺口。" +
+    "目录的 cardType Unit 与法术式原文尚待 card-data 核实，本任务不改类型、原文或 null 印刷值。",
   abilities,
   sourceText:
     "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +
