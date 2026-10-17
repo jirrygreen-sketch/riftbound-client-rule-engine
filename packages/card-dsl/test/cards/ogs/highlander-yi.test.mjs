@@ -137,7 +137,9 @@ test("ogs-020-024 Highlander, Yi golden: the card's own body fails on the unregi
     query: (filter) => kernel.query({ ...filter, ...(filter.controller === "self" ? { controller: "A" } : {}) })
   });
   assert.equal(instructionDefinitionsById.has("replacement.event"), false);
-  assert.equal(instructionDefinitionsById.has("trigger.delayed"), false);
+  // The delayed-trigger opcode is merged; replacement.event remains the
+  // unregistered opcode this card's play body fails on.
+  assert.equal(instructionDefinitionsById.has("trigger.delayed"), true);
   assert.throws(
     () => resolveChainBody(play.body, context),
     /Unregistered instruction opcode: replacement\.event/

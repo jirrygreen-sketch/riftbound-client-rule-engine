@@ -171,17 +171,27 @@ test("unl-073-219 Deadly Flourish golden: the merged token primitive accepts the
   assert.equal(kernel.objects.some((object) => object.types.includes("unit")), true);
 });
 
-test("unl-073-219 Deadly Flourish: the declared trigger.delayed op is unregistered and fails closed", () => {
-  // 390/391.2/392: the delayed ability needs a card-usable registration op.
-  // ResolveContext.registerDelayedTrigger exists, but no registered
-  // instruction consumes it, so the authored body cannot execute.
-  assert.equal(instructionDefinitionsById.has("trigger.delayed"), false);
+test("unl-073-219 Deadly Flourish: the delayed clause fails closed on its unbound it anchor", () => {
+  // 390/391.2/392: the merged trigger.delayed op registers card-declared
+  // delayed abilities, but this card's filter anchors "it" with an embedded
+  // target selector that the frozen TriggerSpec schema does not describe. The
+  // op fails closed (negated/impossible) instead of registering a wrong
+  // trigger; the Gold definition and exhausted entry override remain gaps.
+  assert.equal(instructionDefinitionsById.has("trigger.delayed"), true);
   const kernel = world().player("A").unit("victim", { owner: "B", might: 5 }).build();
-  const context = kernel.clone({ source: kernel.getObject("victim"), controller: "A" });
-  assert.throws(
-    () => resolveChainBody(play.body, context),
-    (error) => /Unregistered instruction opcode: trigger\.delayed/.test(error.message)
+  const context = kernel.clone({ source: kernel.ref("victim"), sourceSnapshot: kernel.getObject("victim"), controller: "A" });
+  context.setTargets("deadly-flourish.enemy-unit", [context.ref("victim")]);
+  const fullBody = play.body.map(({ targets, ...instruction }) => instruction);
+  const outcome = resolveChainBody(fullBody, context);
+  assert.deepEqual(
+    outcome.results.map((entry) => [entry.id, entry.result.status, entry.result.reason ?? null]),
+    [
+      ["deadly-flourish.deal-3", "executed", null],
+      ["deadly-flourish.delayed-gold", "negated", "impossible"]
+    ]
   );
+  assert.equal(outcome.status, "partial");
+  assert.equal(context.getObject("victim").damage, 3);
 });
 
 test("unl-073-219 Deadly Flourish: the Gold gear token is not in the merged token definition table", () => {

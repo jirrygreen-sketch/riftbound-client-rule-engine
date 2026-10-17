@@ -60,11 +60,7 @@ function chainKernel(kernel) {
   });
 }
 
-// Only the supported prefix runs: the delayed-ability registration has no merged
-// opcode (registering it would throw), so the body is executed up to that point.
-const supportedBody = playAbility.body
-  .filter((instruction) => instruction.op !== "trigger.delayed")
-  .map(({ targets, ...instruction }) => instruction);
+const fullBody = playAbility.body.map(({ targets, ...instruction }) => instruction);
 
 /** A battlefield-resident defending unit with its Finalize-locked target set. */
 function scenario({ exhausted = true } = {}) {
@@ -201,11 +197,10 @@ test("sfd-202-221 Hostile Takeover structure: [Hidden] plus control, ready and a
 });
 
 test("sfd-202-221 Hostile Takeover: the declared dependencies are the judgeReason's named gaps", () => {
-  // The merged Hidden expansion is the cost.hidden static effect (811), and the
-  // card's own delayed clause is the pending trigger.delayed instruction; the
-  // judgeReason names both missing consumers (the layerFor mapping for
-  // cost.hidden, the unregistered delayed-trigger opcode) instead of a generic
-  // "not implemented".
+  // The merged Hidden expansion is the cost.hidden static effect (811); the
+  // delayed clause is registered through the merged trigger.delayed op, which
+  // the judgeReason still names for its pending window-lifetime half (the
+  // layerFor mapping for cost.hidden remains the other missing consumer).
   assert.equal(keywordDefinitionsById.get("Hidden").expand()[0].effect.kind, "cost.hidden");
   assert.equal(keywordDefinitionsById.has("Reaction"), true);
   assert.match(program.judgeReason, /cost\.hidden/);
@@ -239,25 +234,33 @@ test("sfd-202-221 Hostile Takeover: the merged Hidden expansion is refused by th
   assert.deepEqual(layers.registry.list(), []);
 });
 
-test("sfd-202-221 Hostile Takeover: the delayed half still has no card-facing instruction", () => {
-  // 391.2/392/393: the end-of-turn half is a Delayed Ability, so it may only be
-  // recorded through a registered trigger.delayed op. The merged instruction
-  // registry has no such entry, so the declared instruction cannot execute.
-  assert.equal(instructionDefinitionsById.has("trigger.delayed"), false);
-  assert.equal(instructionDefinitionsById.get(delayedRevert.op), undefined);
-  assert.match(program.judgeReason, /registry\.generated\.ts 无该条目/);
+test("sfd-202-221 Hostile Takeover: the delayed half registers through the card-facing instruction", () => {
+  // 391.2/392/393: the end-of-turn half is a Delayed Ability, registered
+  // through the merged trigger.delayed op into the delayed pipeline mode (393
+  // keeps it alive after the source leaves the board). The registration is
+  // observable on the reference kernel and pins the card's declared window.
+  assert.equal(instructionDefinitionsById.has("trigger.delayed"), true);
+  const kernel = scenario();
+  const outcome = resolveChainBody(fullBody, chainKernel(kernel));
+  assert.equal(outcome.status, "executed");
+  const [registration] = kernel.delayedTriggers;
+  assert.deepEqual(
+    [registration.at.at, registration.at.filter, registration.at.once],
+    ["turn-end", {}, "per-game"]
+  );
 });
 
 test("sfd-202-221 Hostile Takeover golden: control changes the unit and then readies it", () => {
   const kernel = scenario();
-  const outcome = resolveChainBody(supportedBody, chainKernel(kernel));
+  const outcome = resolveChainBody(fullBody, chainKernel(kernel));
 
   assert.equal(outcome.status, "executed");
   assert.deepEqual(
     outcome.results.map((entry) => [entry.id, entry.result.status]),
     [
       ["hostile-takeover.take-control", "executed"],
-      ["hostile-takeover.ready", "executed"]
+      ["hostile-takeover.ready", "executed"],
+      ["hostile-takeover.delayed-revert", "executed"]
     ]
   );
   // 127.1: the owner is unchanged by a control change.
@@ -274,7 +277,7 @@ test("sfd-202-221 Hostile Takeover golden: control changes the unit and then rea
 
 test("sfd-202-221 Hostile Takeover golden: an already-readied unit is not readied again (416.1.c)", () => {
   const kernel = scenario({ exhausted: false });
-  const outcome = resolveChainBody(supportedBody, chainKernel(kernel));
+  const outcome = resolveChainBody(fullBody, chainKernel(kernel));
 
   assert.equal(outcome.status, "executed");
   assert.equal(kernel.getObject("enemy-unit").controller, "A");
