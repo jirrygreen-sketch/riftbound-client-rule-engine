@@ -7,8 +7,10 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 // card-dsl has no dependency edge on engine-core (engine-core depends on
 // card-dsl), so golden execution loads the built engine through its workspace
 // layout instead of the package name.
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -18,7 +20,7 @@ const SOURCE_TEXT =
   ":rb_energy_2::rb_rune_fury:: Double my Might this turn.";
 
 const [deflect, activated] = program.abilities;
-const [doubleMight] = activated.body;
+const [readMight, doubleMight] = activated.body;
 
 test("unl-030-219 Vi, Hotheaded: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -35,7 +37,6 @@ test("unl-030-219 Vi, Hotheaded: identity, status, judgeReason and verbatim sour
   assert.match(program.judgeReason, /433\.1/);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /target\.tax/);
-  assert.match(program.judgeReason, /RIFT-91/);
   assert.match(program.judgeReason, /RIFT-90/);
 });
 
@@ -60,21 +61,31 @@ test("unl-030-219 Vi, Hotheaded: 2 Energy + 1 Fury Power at Action speed", () =>
 });
 
 test("unl-030-219 Vi, Hotheaded: Doubling reads the source's current Might at resolution", () => {
-  assert.equal(doubleMight.id, "vi-hotheaded.double-might");
-  // No merged continuous.might primitive exists; the op records the intended
-  // arithmetic-layer effect (see judgeReason) and must not be approximated with
-  // effect.buff.
-  assert.equal(doubleMight.op, "continuous.might");
-  // 433.1 / 433.1.a (whose worked example is this wording): the amount is the
-  // attribute's CURRENT value, read when the doubling is performed.
-  assert.deepEqual(doubleMight.args.amount, {
+  // 433.1 / 433.1.a：增量是结算时的当前值。第一步用 condition.value 绑定原语读出 source.might，
+  // 第二步以 linked-value 作为 continuous.might 的 amount，避免把数值写死成印刷值。
+  assert.equal(readMight.id, "vi-hotheaded.read-might");
+  assert.equal(readMight.op, "condition.value");
+  assert.deepEqual(readMight.args.value, {
     kind: "object-property",
     object: "self",
     property: "might"
   });
+  assert.deepEqual(readMight.args.key, { kind: "constant", value: "might" });
+  assert.equal(readMight.targets, undefined);
+  assert.equal(readMight.picks, undefined);
+  assert.equal(readMight.linkedTo, undefined);
+
+  assert.equal(activated.body.length, 2);
+  assert.equal(doubleMight.id, "vi-hotheaded.double-might");
+  assert.equal(doubleMight.op, "continuous.might");
+  assert.deepEqual(doubleMight.args.amount, {
+    kind: "linked-value",
+    instructionId: "vi-hotheaded.read-might",
+    key: "might"
+  });
   assert.deepEqual(doubleMight.args.duration, { kind: "constant", value: "this-turn" });
-  assert.deepEqual(doubleMight.args.layer, { kind: "constant", value: "arithmetic" });
   assert.deepEqual(doubleMight.args.mode, { kind: "constant", value: "add" });
+  assert.equal(doubleMight.args.layer, undefined);
   // "my Might" is a self-reference (355.10.g), so no TargetSpec is written and
   // the instruction cannot register a "becomes targeted" event.
   assert.equal(doubleMight.targets, undefined);
@@ -114,22 +125,44 @@ test("unl-030-219 Vi, Hotheaded golden: a non-Fury Power pool cannot pay the pri
   assert.deepEqual(ctx.player("A").power, ["Calm"]);
 });
 
-test("unl-030-219 Vi, Hotheaded: the doubling amount reads the live Might characteristic", () => {
-  // The authored amount is an object-property read of the source's Might, so
-  // the instruction cannot be mistaken for a fixed +3; the value is only known
-  // at resolution (433.1.a's worked example).
-  const kernel = world().unit("vi", { might: 3 }).build();
+test("unl-030-219 Vi, Hotheaded golden: Doubling registers the live Might as an end-of-turn arithmetic change", () => {
+  const kernel = world().unit("vi", { might: 4 }).build();
   const ctx = kernel.clone({ sourceSnapshot: kernel.getObject("vi") });
-  assert.equal(ctx.evaluate(doubleMight.args.amount), 3);
-  // The card program never writes a substitute fixed amount.
-  assert.equal(doubleMight.args.amount.value, undefined);
+  const outcome = resolveChainBody(activated.body, ctx);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(
+    outcome.results.map(entry => [entry.id, entry.result.status]),
+    [["vi-hotheaded.read-might", "executed"], ["vi-hotheaded.double-might", "executed"]]
+  );
+  // 433.1.a: the +N amount is the attribute's current value (here 4), not the
+  // printed 3 (143.2.a: Might means effective/current Might).
+  assert.equal(ctx.continuousEffects.length, 1);
+  const [registration] = ctx.continuousEffects;
+  assert.equal(registration.effect.layer, "arithmetic");
+  assert.equal(registration.effect.effect.kind, "continuous.might");
+  assert.equal(registration.effect.effect.amount, 4);
+  assert.deepEqual(registration.effect.filter.objectId, "vi");
+  assert.deepEqual(registration.duration, { type: "end-of-turn" });
+
+  const registrations = ctx.continuousEffects.map(entry => ({ effect: entry.effect, duration: entry.duration, timestamp: 1 }));
+  const engine = createLayerEngine(ctx.objects, registrations);
+  assert.equal(engine.evaluate(ctx.ref("vi")).might, 8);
+  // 317.1.a / 468.7.c: "this turn" expires in the Expiration Step.
+  assert.equal(engine.expireAt("turn-end").length, 1);
+  assert.equal(engine.evaluate(ctx.ref("vi")).might, 4);
 });
 
-test.todo(
-  "unl-030-219 Vi, Hotheaded: perform the 433.1 Doubling as an arithmetic-layer Might modification with a" +
-    " this-turn duration and cleanup expiry (CR 433.1.a / 475 / 478; no continuous.might instruction is" +
-    " merged — RIFT-91)"
-);
+test("unl-030-219 Vi, Hotheaded golden: Doubling reflects a smaller live Might instead of a fixed amount", () => {
+  // 433.1.a (Last Stand example): the amount follows the current value, so a
+  // 2-Might Vi doubles to 4 — the program never writes a substitute constant.
+  const kernel = world().unit("vi", { might: 2 }).build();
+  const ctx = kernel.clone({ sourceSnapshot: kernel.getObject("vi") });
+  resolveChainBody(activated.body, ctx);
+  assert.equal(ctx.continuousEffects[0].effect.effect.amount, 2);
+  const engine = createLayerEngine(ctx.objects, ctx.continuousEffects.map(entry => ({ effect: entry.effect, duration: entry.duration, timestamp: 1 })));
+  assert.equal(engine.evaluate(ctx.ref("vi")).might, 4);
+});
 test.todo(
   "unl-030-219 Vi, Hotheaded: append the [Deflect] target tax when an opponent chooses this unit (CR 809.1.c;" +
     " RIFT-90 target tax + RIFT-89 cost.pay merge)"

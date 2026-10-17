@@ -19,21 +19,20 @@ import type { CardProgram } from "../../ir/index.js";
  * - “this turn” 是本回合期限：由时点驱动的到期（契约 3.5），起于 hold 结算、止于
  *   回合结束。
  *
- * status = judge-required（逐个记录缺口，不近似实现）：
- * 1. 缺把加费安装到“本回合稍后打出”的原语：cost.modify 只在 RIFT-9 原语清单里，
- *    effects/instructions/ 没有该 op 文件（同 sfd/ornns-forge、rad/hunters-circle）；
- *    cost/buildCostPlan 虽接受 increases（356.3 阶段），但只作用于调用方提供的单次
- *    计划，没有任何已合入路径把 CardProgram 的 static 能力放进后续打出的
+ * status = judge-required（逐个记录缺口，不近似实现；复核后按当前 HEAD 更新）：
+ * 1. 缺把加费安装到“本回合稍后打出”的原语：复核实测 effects/instructions/registry 没有
+ *    cost.modify / cost.pay 条目（RIFT-261 未合入；同 sfd/ornns-forge、rad/hunters-circle）；
+ *    cost/buildCostPlan 虽接受 increases（356.3 阶段）且 golden 证明算术成立，但只作用于
+ *    调用方提供的单次计划，没有任何已合入路径把 CardProgram 的 static 能力放进后续打出的
  *    CostPlanInput.increases。
- * 2. 缺触发注册与时点发射：hold 由 scoring/ 发出但未接入 chain/events 单管线，也没有
- *    已合入订阅方把卡牌程序的 triggered ability 注册成触发（RIFT-31/RIFT-33、RIFT-120）；
- *    filter 里的 here: true 是同类战场卡占位（053.3）。事物“是否在本回合发生过 hold”
- *    也没有可读的历史门控（该句本身就是本回合期限的许可，需要与时点驱动的到期绑定）。
- * 3. 本回合期限需要与时点绑定：layers 的 Duration 只有 permanent / end-of-turn /
- *    end-of-combat / while-source-in-zone / until，可表达 end-of-turn，但没有
- *    “hold 之后到回合结束”这条由触发开启的费用期限的已合入接线。
- * 依赖：RIFT-89（cost.modify 指令/静态加费注册，接在已合入的 cost-plan increases 阶段）与
- * RIFT-31/RIFT-33/RIFT-120（hold 发射与卡牌触发注册）。
+ * 2. 缺触发注册与时点载荷：hold 现已由 turn/flow.ts 的 Score wave 发出（timing-point-producers.md），
+ *    但没有已合入订阅方把卡牌程序的 triggered ability 注册成触发（RIFT-257 的生产接线），
+ *    且 programs/filters.ts 以 “Unsupported filter field here” 直接拒绝 here: true（053.3 的占位）；
+ *    复核实测 registerProgramTriggers 对整卡 fail-closed。
+ * 3. 本回合期限需要与时点绑定：layers 的 Duration 有 end-of-turn，但没有“hold 之后到回合结束”
+ *    这条由触发开启的费用期限的已合入接线。
+ * 依赖：RIFT-261（cost.modify/静态加费注册，接在已合入的 cost-plan increases 阶段）与
+ * RIFT-31/RIFT-33 的 here 载荷及 RIFT-257 的触发注册。
  */
 export default {
   canonicalCardId: "card.hash-0b929c2c78280ff14e852a6d803fa3e55251591cfc73088ec115c83af1360d7e",
@@ -41,12 +40,12 @@ export default {
   status: "judge-required",
   judgeReason:
     "三处缺口，均不近似实现：(1) 缺少把 +1 Energy 加费安装到“本回合稍后打出”的原语：cost.modify 只在 RIFT-9 原语清单里，" +
-    "effects/instructions/ 没有该 op 文件；cost/buildCostPlan 虽然支持 356.3 阶段的 increases（CostComponentInput），但只作用于调用方提供的单次计划，" +
+    "effects/instructions/registry 没有该 op 条目（复核实测；RIFT-261 未合入）；cost/buildCostPlan 虽然支持 356.3 阶段的 increases（CostComponentInput），但只作用于调用方提供的单次计划，" +
     "没有任何已合入路径把 CardProgram 的 static 能力放进后续打出的 CostPlanInput.increases（同 sfd/ornns-forge、rad/hunters-circle 的缺口）。" +
-    "(2) 触发侧：hold 时点（383.4.d、315.2.b.2、471.2、473.2.b）由 scoring/ 发出但未接入 chain/events 单管线，也没有已合入订阅方把卡牌程序的 triggered ability 注册成触发" +
-    "（RIFT-31/RIFT-33、RIFT-120）；filter 里的 here: true 是同类战场卡占位（053.3）。" +
+    "(2) 触发侧：hold 时点（383.4.d、315.2.b.2、471.2、473.2.b）现已由 turn/flow.ts 的 Score wave 发出，但没有已合入订阅方把卡牌程序的 triggered ability 注册成触发" +
+    "（RIFT-257 的生产接线），且 programs/filters.ts 以 \"Unsupported filter field here\" 拒绝 here: true（053.3 的占位）；复核实测 registerProgramTriggers 对整卡 fail-closed。" +
     "(3) 「this turn」需要由触发开启、回合结束到期的费用期限：layers 的 Duration 可表达 end-of-turn，但没有 hold 触发开启该期限的已合入接线。" +
-    "程序保留 non-token 单位的过滤形状（185.1.a 的 token 性质、356.7 的付款玩家）；依赖 RIFT-89 与 RIFT-31/RIFT-33/RIFT-120。不近似实现。",
+    "程序保留 non-token 单位的过滤形状（185.1.a 的 token 性质、356.7 的付款玩家）；依赖 RIFT-261 与 RIFT-31/RIFT-33 的 here 载荷及 RIFT-257 的触发注册。不近似实现。",
   sourceText: "When you hold here, your non-token units cost :rb_energy_1: more to play this turn.",
   abilities: [
     {

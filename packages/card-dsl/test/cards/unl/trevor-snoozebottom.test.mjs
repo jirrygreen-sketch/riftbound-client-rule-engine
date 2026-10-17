@@ -34,6 +34,8 @@ test("unl-048-219 Trevor Snoozebottom: identity, status, judgeReason and verbati
   assert.match(program.judgeReason, /184\.1/);
   assert.match(program.judgeReason, /816\.1\.b/);
   assert.match(program.judgeReason, /383\.4\.d\.2/);
+  assert.match(program.judgeReason, /beginning-start/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("unl-048-219 Trevor Snoozebottom: [Shield] is a declaration whose 814.1.b.3 default lives in the keyword file", () => {
@@ -116,13 +118,16 @@ test.todo(
 );
 test.todo(
   "unl-048-219 Trevor Snoozebottom: expand the token's [Temporary] (CR 816.1.b: kill it at the start of its " +
-    "controller's Beginning Phase before scoring; 816.2.a redundant instances) — no Temporary KeywordDef exists"
+    "controller's Beginning Phase before scoring; 816.2.a redundant instances) — the KeywordDef is merged (RIFT-265) " +
+    "but its beginning-start trigger filter is outside the closed event-pattern vocabulary and no producer expands " +
+    "keyword instances into TriggerRegistrations (RIFT-257/RIFT-120)"
 );
 test.todo(
   "unl-048-219 Trevor Snoozebottom: bind the hold trigger to the unit present at the held battlefield " +
-    "(CR 383.4.d.2/.2.a) — the hold payload carries only battlefield/player (RIFT-31/RIFT-33)"
+    "(CR 383.4.d.2/.2.a) — hold is emitted by turn/flow.ts now, but the payload carries only battlefield/player (RIFT-31/RIFT-33)"
 );
 test.todo(
   "unl-048-219 Trevor Snoozebottom: read the Defender designation for [Shield] (CR 814.1.d/814.1.d.1) — " +
-    "contract 3.8 combatRole is not in HEAD and no card keyword consumer is merged (RIFT-91)"
+    "the Shield KeywordDef is merged (RIFT-81), but no card keyword consumer is merged and layers/engine.ts " +
+    "conditionMatches does not evaluate the compare(designation) gate (RIFT-91 follow-up / RIFT-257)"
 );

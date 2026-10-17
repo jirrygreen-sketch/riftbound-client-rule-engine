@@ -18,35 +18,40 @@ import type { CardProgram } from "../../ir/index.js";
  *   order copy → trait → ability → arithmetic of contract 3.4), not a Buff
  *   counter (702/703 Buffs are objects placed on the unit).
  *
- * Status: judge-required, two merged gaps (not approximated):
- * - No kw-level expansion exists. The merged keyword set (effects/keywords/
- *   files delivered by RIFT-81~88: Accelerate, Action, Assault, Deathknell,
- *   Deflect, Equip, Ganking, Hidden, Legion, Mighty, Quick-Draw, Reaction,
- *   Repeat, Shield, Vision, Weaponmaster) has no Level entry, and the frozen
- *   Condition algebra (always / never / expression / compare / all / any / not)
- *   has no path to PlayerSnapshot.xp, so 824.1.c.1/.d cannot be evaluated.
- * - The +4 Might is a continuous.might arithmetic-layer effect; no merged
- *   consumer turns a CardProgram static ability into a ContinuousEffectSpec
- *   (RIFT-91 delivered the layer engine, not the card wiring), and the layer
- *   engine's conditionMatches does not evaluate `compare` — writing the gate as
- *   `always` would apply +4 unconditionally, which is why it is not done.
+ * Status: judge-required — the [Level 11] KeywordDef itself is merged
+ * (effects/keywords/Level.ts, RIFT-268) and expands this card's declaration to a
+ * level-active predicate carrying the printed threshold 11, but the two
+ * consumers that make the Level Ability execute are still missing:
+ * - The predicate has no evaluator: `condition.predicate` / `condition.value`
+ *   consumers must read the controlling player's live XP (824.1.c: Active
+ *   exactly while the controller has N+ XP; 824.1.c.1 / 824.1.d: it deactivates
+ *   again on a drop or a controller change). PlayerSnapshot.xp has no Expr or
+ *   predicate path — the frozen Condition algebra (always / never / expression /
+ *   compare / all / any / not) cannot read it, and layers/engine.ts
+ *   conditionMatches evaluates no `compare` at all, so registering the +4 today
+ *   would apply it unconditionally.
+ * - No binder attaches the dependent ability text ("I have +4 :rb_might:") to
+ *   the predicate, and no merged module registers a CardProgram static ability
+ *   into the layers registry (programs/statics.ts ships only the default noop
+ *   binder hook).
  *
  * The retained IR keeps the printed amount (4) and the 11-XP gate shape for the
- * follow-up task; the golden test only validates structure and the missing
- * keyword registration.
+ * follow-up task; the golden test validates the structure, the merged keyword
+ * registration, and that the predicate really is not evaluable today.
  */
 export default {
   canonicalCardId: "card.hash-7a28733b1d7d68a60f53e6b2afcce546b7e3c138e103f63079734f2d3809e08f",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口：(1) [Level 11][>] 是依赖式关键词（824.1 / 824.1.a–d）：需要 kw-level 展开把" +
-    "「控制者有 11 点或更多 XP 时该依赖能力 Active」做成可求值谓词，并支持 824.1.c.1 / 824.1.d 的" +
-    "动态失活；合并的关键词集合（RIFT-81~88 交付的 16 个 KeywordDef）里没有 Level，Condition 只有" +
-    "always/never/expression/compare/all/any/not，读取 PlayerSnapshot.xp 没有进入 Expr/谓词的路径。" +
-    "(2)「I have +4 :rb_might:」是 arithmetic 图层的 continuous.might 修正，没有已合入路径把 CardProgram 的" +
-    "static 能力注册成 ContinuousEffectSpec（RIFT-91 只合入图层引擎，未接卡牌侧），且层引擎的 conditionMatches 不求值" +
-    "compare/XP 条件，改成 always 就等于无条件 +4，属近似实现。依赖 kw-level 展开、XP 谓词路径与 RIFT-91 的卡牌接线。",
+    "[Level 11][>] 的 KeywordDef 已合入（effects/keywords/Level.ts，RIFT-268）：824.1.a–b 的依赖式关键词" +
+    "会展开成带阈值 11 的 level-active 谓词（predicate/controller-xp/operator gte），golden 断言该展开形状。" +
+    "整卡仍不可执行，两处消费方缺失：(1) 谓词没有求值方——824.1.c/824.1.c.1/824.1.d 要求按控制者实时 XP 判定" +
+    "Active 与动态失活，但 PlayerSnapshot.xp 没有 Expr/谓词路径（冻结 Condition 只有 always/never/expression/" +
+    "compare/all/any/not），layers/engine.ts 的 conditionMatches 也不求值 compare，因此现在注册 +4 会变成无条件生效。" +
+    "(2) 没有 binder 把依赖能力文本「I have +4 :rb_might:」（arithmetic 图层的 continuous.might 修正）挂到该谓词上，" +
+    "也没有任何已合入模块把 CardProgram 的 static 能力注册进 layers（programs/statics.ts 只有默认 noop 的 binder 钩子）。依赖：XP 谓词求值（condition.predicate/value 消费方）" +
+    "与卡牌 static 能力 → layers 的注册接线（RIFT-91 后续/RIFT-257）。不近似实现。",
   abilities: [
     {
       kind: "static",

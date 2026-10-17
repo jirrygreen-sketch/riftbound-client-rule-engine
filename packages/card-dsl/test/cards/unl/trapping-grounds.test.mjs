@@ -32,6 +32,7 @@ test("unl-217-219 Trapping Grounds: identity, status, judgeReason and verbatim s
   assert.match(program.judgeReason, /467\.2\.c/);
   assert.match(program.judgeReason, /RIFT-9/);
   assert.match(program.judgeReason, /RIFT-31\/RIFT-33/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -96,7 +97,8 @@ test.todo(
 test.todo(
   "unl-217-219 Trapping Grounds: emit the conquer timing point from scoring/ into the chain/events " +
     "pipeline and register this CardProgram's triggered ability as a trigger, including the 053.3 " +
-    "'here' referent (RIFT-31/RIFT-33, RIFT-120)"
+    "'here' referent (conquer is emitted by turn/flow.ts now; the here filter is rejected by " +
+    "programs/filters.ts — RIFT-31/RIFT-33 payload, RIFT-120/RIFT-257 registration)"
 );
 
 test.todo(

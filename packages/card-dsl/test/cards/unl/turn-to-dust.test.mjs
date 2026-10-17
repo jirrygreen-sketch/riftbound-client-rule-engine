@@ -3,6 +3,9 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/turn-to-dust.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 const CANONICAL_ID =
   "card.hash-d499c08d49d46da72e1362f82b24b913abf3b6fbc0e80676cbb858f169d91e75";
 const SOURCE_TEXT =
@@ -24,7 +27,8 @@ test("unl-070-219 Turn to Dust: identity, status, judgeReason and verbatim sourc
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /continuous\.keyword|continuous\.grant-keyword/);
   assert.match(program.judgeReason, /816/);
-  assert.match(program.judgeReason, /RIFT-9/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /beginning-start/);
 });
 
 test("unl-070-219 Turn to Dust: one play ability granting Temporary to one gear target", () => {
@@ -52,12 +56,65 @@ test("unl-070-219 Turn to Dust: one play ability granting Temporary to one gear 
   assert.equal(grant.linkedTo, undefined);
 });
 
-test.todo(
-  "unl-070-219 Turn to Dust: execute the [Temporary] keyword grant on a gear (CR 816.3 + contract 3.4 ability-layer " +
-    "keyword grants) — no continuous.grant-keyword / continuous.keyword instruction file is merged"
-);
+test("unl-070-219 Turn to Dust golden: the grant registers a Temporary ability-layer keyword on the locked gear", () => {
+  const kernel = world().unit("gear-a", { types: ["gear"], might: null }).build();
+  const ctx = kernel.clone({ sourceSnapshot: kernel.getObject("gear-a") });
+  ctx.setTargets("turn-to-dust.gear", [kernel.ref("gear-a")]);
+  const outcome = resolveChainBody(play.body, ctx);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(
+    outcome.results.map(entry => [entry.id, entry.result.status]),
+    [["turn-to-dust.grant-temporary", "executed"]]
+  );
+  // 478.1.a: keyword grants live in the ability layer; 816.3 makes Temporary a
+  // readable characteristic of the permanent.
+  assert.equal(ctx.continuousEffects.length, 1);
+  const [registration] = ctx.continuousEffects;
+  assert.equal(registration.effect.layer, "ability");
+  assert.equal(registration.effect.effect.kind, "continuous.grant-keyword");
+  assert.equal(registration.effect.effect.keyword, "Temporary");
+  assert.deepEqual(registration.effect.filter.objectId, "gear-a");
+
+  const engine = createLayerEngine(ctx.objects, ctx.continuousEffects.map(entry => ({ effect: entry.effect, duration: entry.duration, timestamp: 1 })));
+  assert.deepEqual(engine.evaluate(ctx.ref("gear-a")).keywords.map(keyword => keyword.id), ["Temporary"]);
+});
+
+test("unl-070-219 Turn to Dust golden: a gear that left the Board is mistargeted and nothing is granted", () => {
+  const kernel = world().unit("gear-a", { types: ["gear"], might: null }).build();
+  const stale = kernel.ref("gear-a");
+  // 124: a zone change invalidates the old reference; the Finalize-locked
+  // target no longer resolves (359.3.e.6), so the grant is ignored.
+  kernel.perform({ type: "move-zone", object: stale, to: "trash" });
+  const ctx = kernel.clone({ sourceSnapshot: kernel.getObject("gear-a") });
+  ctx.setTargets("turn-to-dust.gear", [stale]);
+  const outcome = resolveChainBody(play.body, ctx);
+
+  assert.deepEqual(
+    outcome.results.map(entry => [entry.id, entry.result.status, entry.result.reason]),
+    [["turn-to-dust.grant-temporary", "ignored", "mistargeted"]]
+  );
+  assert.equal(ctx.continuousEffects.length, 0);
+});
+
+test("unl-070-219 Turn to Dust golden: the granted Temporary expansion is a real 816.1.b kill of the host", async () => {
+  // RIFT-265's Temporary KeywordDef really expands to the 816.1.b trigger body;
+  // the golden executes that body (the missing half is only its registration
+  // when the keyword is granted at runtime - see judgeReason).
+  const { default: temporary } = await import("../../../../engine-core/dist/effects/keywords/Temporary.js");
+  const [expansion] = temporary.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(expansion.trigger.at, "beginning-start");
+  const kernel = world().unit("gear-a", { types: ["gear"], might: null }).build();
+  const ctx = kernel.clone({ sourceSnapshot: kernel.getObject("gear-a") });
+  const { runAbilityBody } = await import("../../../../engine-core/dist/effects/interpreter.js");
+  const outcome = runAbilityBody(expansion.body, ctx);
+  assert.equal(outcome.status, "executed");
+  assert.equal(ctx.getObject("gear-a").zone, "trash");
+  assert.deepEqual(ctx.events.map(event => event.action), ["kill"]);
+});
 
 test.todo(
   "unl-070-219 Turn to Dust: the granted [Temporary] trigger (CR 816.1.b) killing the gear at the start of its " +
-    "controller's Beginning Phase through the keyword expansion and trigger pipeline"
+    "controller's Beginning Phase through the keyword expansion and trigger pipeline - runtime keyword grants must be " +
+    "expanded into TriggerRegistrations, and beginning-start must join the closed event-pattern vocabulary (RIFT-257 / RIFT-120)"
 );

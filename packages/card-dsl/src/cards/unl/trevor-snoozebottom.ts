@@ -26,20 +26,24 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   185.2.d 说明 token 沿用其类型的入场规则——所以这是创建/打出动作的入场状态改写，不是事后的
  *   effect.ready（后者会多出一次“成为就绪”事件，见 effect.ready 自身的边界说明）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。
- * - 缺 Sprite token 定义：已合入的 effect.token 只在冻结定义表（recruit / sand-soldier / mech /
- *   reflection / tentacle —— 都刻意不带额外能力）里解析 token id，187.2 的 Sprite 带 [Temporary]，
- *   因此 “play a ready 3 [M] Sprite unit token” 没有可解析的定义（声明如实返回 blockedReason，
+ * status 判定（cards/README.md 第 2 节）：judge-required（复核后缺口更新如下）。
+ * - 缺 Sprite token 定义（未变）：已合入的 effect.token 只在冻结定义表（recruit / sand-soldier /
+ *   mech / reflection / tentacle —— 都刻意不带额外能力）里解析 token id，187.2 的 Sprite 带
+ *   [Temporary]，因此 “play a ready 3 [M] Sprite unit token” 没有可解析的定义（复核实测该指令对
+ *   sprite 返回 negated + blockedReason "token-definition-or-abilities-judge-required"，
  *   不用别的 token 顶替）。
- * - “ready” 的入场状态改写不受支持：create-token / play 动作明确不支持 entry override，先创建再补
- *   一次 effect.ready 会产生错误的“成为就绪”事件。
- * - [Temporary] 没有 KeywordDef（816.1.b 的“在控制者 Beginning Phase 开始、计分前 kill this”与
- *   816.2.a 的多实例冗余都未实现），token 上的这条印刷能力无从执行。
- * - hold 触发缺少「本卡是在固守的战场上在场的那个单位」的时点载荷绑定（383.4.d.2/.2.a）：时点 hold
- *   由 scoring 发出，载荷只带战场/玩家，没有在场单位快照。
- * 依赖：effect.token 定义表扩展（187.2）与入场状态改写、RIFT-82 系（kw-temporary 展开）、
- * RIFT-31/33（scoring/triggers 的 hold 载荷）、RIFT-91（layers 条件与卡牌接线，[Shield] 的
- * Defender designation 仍缺，契约 3.8 的 combatRole 未进 HEAD）。
+ * - “ready” 的入场状态改写不受支持（未变）：create-token / play 动作明确不支持 entry override，
+ *   先创建再补一次 effect.ready 会产生错误的“成为就绪”事件。
+ * - [Temporary] 的 KeywordDef 已合入（RIFT-265），但授予/印在 token 上的实例仍进不了触发注册：
+ *   展开的 filter 事件名 beginning-start 不在 events/trigger-spec.ts 的封闭 EVENT_PATTERN_TYPES
+ *   词表内（assertTriggerSpec 以 invalid-event-type 拒绝），且生产路径没有把运行时关键词展开成
+ *   TriggerRegistration 的订阅方（RIFT-257）。
+ * - hold 触发缺少「本卡是在固守的战场上在场的那个单位」的时点载荷绑定（383.4.d.2/.2.a）：hold
+ *   已由 turn/flow.ts 的 Score wave 发出，但载荷只带战场/玩家，没有在场单位快照。
+ * - [Shield] 的 KeywordDef 已合入（RIFT-81），但同样缺卡牌→layers 的注册路径，且 814.1.d.1 的
+ *   Defender designation 门控是 compare 条件、layers/engine.ts 不求值（现注册会无条件 +1）。
+ * 依赖：effect.token 定义表扩展（187.2）与入场状态改写、阶段时点进入事件词表与运行时关键词展开
+ * （RIFT-257/RIFT-120）、RIFT-31/33 的 hold 载荷、卡牌 static 能力 → layers 注册（RIFT-91 后续）。
  * 不近似实现：不用其他 token 代替 Sprite，不用事后 effect.ready 冒充入场就绪，
  * 不把 [Shield] 写成无条件的数值加算。
  */
@@ -84,14 +88,18 @@ const program = {
   judgeReason:
     "四处缺口，均不近似实现：(1) 缺 187.2 的 3 [M] Sprite unit token 定义——它是域外单位 token、" +
     "3 Might、Fae 标签、带 [Temporary]，而已合入 effect.token 的冻结定义表只含没有额外能力的 " +
-    "recruit/sand-soldier/mech/reflection/tentacle，该指令没有可解析的定义（440.2.c/185.2.a 的链上创建 + 打出交接本身已合入）。" +
+    "recruit/sand-soldier/mech/reflection/tentacle，复核实测该指令对 sprite 返回 negated 与 " +
+    "blockedReason \"token-definition-or-abilities-judge-required\"（440.2.c/185.2.a 的链上创建 + 打出交接本身已合入）。" +
     "(2) “ready” 是入场状态改写（143.4 / 184.1 / 185.2.d），create-token/play 动作明确不支持 entry override，" +
     "先创建再补一次 effect.ready 会产生多余的“成为就绪”事件。(3) token 上的 [Temporary]（816.1.b 的" +
-    "“在控制者 Beginning Phase 开始、计分前 kill this”，816.2.a 多实例冗余）没有 KeywordDef，无从执行。" +
-    "(4) hold 触发缺少「本卡是在固守的战场上在场的那个单位」的载荷绑定（383.4.d.2/.2.a，时点 hold 只带战场/玩家）。" +
-    "另外 [Shield]（814.1.b.3 省略值按 1）的展开文件已合入，但卡牌 keyword 能力 → KeywordDef 展开 → 图层注册的生产方未合入，" +
-    "且 814.1.d 的 Defender designation 不是 ObjectSnapshot 特征（契约 3.8 的 combatRole 未进 HEAD）。" +
-    "依赖：effect.token 定义表扩展与入场状态改写、RIFT-82 系（kw-temporary）、RIFT-31/33（hold 载荷）、RIFT-91（layers 接线）。",
+    "“在控制者 Beginning Phase 开始、计分前 kill this”，816.2.a 多实例冗余）的 KeywordDef 已合入（RIFT-265），" +
+    "但其展开的 filter 事件名 beginning-start 不在 events/trigger-spec.ts 的封闭 EVENT_PATTERN_TYPES 词表内" +
+    "（assertTriggerSpec 以 invalid-event-type 拒绝），也没有生产订阅方把运行时/印刷关键词展开成 TriggerRegistration（RIFT-257）。" +
+    "(4) hold 触发缺少「本卡是在固守的战场上在场的那个单位」的载荷绑定（383.4.d.2/.2.a；hold 现由 turn/flow.ts 的 Score wave 发出，" +
+    "但载荷只带战场/玩家）。另外 [Shield]（814.1.b.3 省略值按 1）的 KeywordDef 已合入（RIFT-81），但卡牌 keyword 能力 → KeywordDef 展开 → 图层注册的生产方未合入，" +
+    "且 814.1.d.1 的 Defender designation 门控是 compare 条件、layers/engine.ts 的 conditionMatches 不求值（现注册会无条件 +1）。" +
+    "依赖：effect.token 定义表扩展与入场状态改写、阶段时点进入事件词表与运行时关键词展开（RIFT-257/RIFT-120）、" +
+    "RIFT-31/33（hold 载荷）、卡牌 static 能力 → layers 注册（RIFT-91 后续）。",
   abilities,
   sourceText:
     "[Shield] (+1 :rb_might: while I'm a defender.)\n" +

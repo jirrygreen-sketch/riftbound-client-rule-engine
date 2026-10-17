@@ -32,8 +32,9 @@ test("unl-218-219 Valley of Idols: identity, status, judgeReason and verbatim so
   assert.match(program.judgeReason, /190\.6\.c/);
   assert.match(program.judgeReason, /383\.3\.b/);
   assert.match(program.judgeReason, /355\.10\.d/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /here/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -140,7 +141,7 @@ test.todo(
 test.todo(
   "unl-218-219 Valley of Idols: pay the 1 Energy as the trigger's base cost at Finalize (383.3.b, " +
     "404.1.b.1) — TriggeredAbility has no CostSpec field and cost.pay is not a merged instruction " +
-    "primitive (RIFT-89); paying at resolution would let an unable player still Buff the unit"
+    "primitive (RIFT-261); paying at resolution would let an unable player still Buff the unit"
 );
 
 test.todo(
@@ -151,7 +152,8 @@ test.todo(
 
 test.todo(
   "unl-218-219 Valley of Idols: register this CardProgram's triggered ability and expose the play's " +
-    "destination Battlefield so the 053.3 'here' filter can match (RIFT-31/RIFT-33, RIFT-120)"
+    "destination Battlefield so the 053.3 'here' filter can match — programs/filters.ts rejects the " +
+    "here key today, and no producer registers card triggers (RIFT-31/RIFT-33 payload, RIFT-257 registration)"
 );
 
 test.todo(

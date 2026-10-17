@@ -25,7 +25,7 @@ test("unl-099-219 Towering Combatant: identity, status, judgeReason and verbatim
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /814/);
   assert.match(program.judgeReason, /815/);
-  assert.match(program.judgeReason, /combatRole/);
+  assert.match(program.judgeReason, /designation/);
   assert.match(program.judgeReason, /base-combat-allocation/);
 });
 
@@ -47,17 +47,33 @@ test("unl-099-219 Towering Combatant: the reminders are not re-authored as instr
   }
 });
 
-test("unl-099-219 Towering Combatant: Shield's expansion exists, Tank's does not", async () => {
+test("unl-099-219 Towering Combatant: both keyword expansions are registered", async () => {
   const { keywordDefinitionsById } = await import(
     "../../../../engine-core/dist/effects/keywords/registry.generated.js"
   );
   assert.equal(keywordDefinitionsById.has("Shield"), true);
-  assert.equal(keywordDefinitionsById.has("Tank"), false);
+  assert.equal(keywordDefinitionsById.has("Tank"), true);
   // 814.2 / 815.2: Shield sums, Tank is redundant.
   assert.equal(keywordDefinitionsById.get("Shield").stacking, "sum");
+  assert.equal(keywordDefinitionsById.get("Tank").stacking, "single");
 });
 
-test("unl-099-219 Towering Combatant: the merged layer engine still records an equivalent restriction-free +2 shape only", async () => {
+test("unl-099-219 Towering Combatant: [Tank] expands to a continuous.combat requirement with no combat consumer", async () => {
+  const { keywordDefinitionsById } = await import(
+    "../../../../engine-core/dist/effects/keywords/registry.generated.js"
+  );
+  // 815.1.b / 815.1.c.1-.2: Tank is a passive combat-damage assignment
+  // requirement; the merged expansion declares it but no combat step reads it.
+  const definitions = keywordDefinitionsById.get("Tank");
+  const [expansion] = definitions.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(expansion.kind, "static");
+  assert.equal(expansion.effect.kind, "continuous.combat");
+  assert.equal(expansion.effect.mode, "damage-assignment");
+  assert.equal(expansion.effect.priority, "first");
+  assert.equal(expansion.effect.damage, "lethal");
+});
+
+test("unl-099-219 Towering Combatant: registering the Shield expansion today would apply +2 with no defending state", async () => {
   // Concrete evidence for the judgeReason: the Shield expansion is a static
   // continuous.might effect gated on the Defender designation, and the layer
   // engine's conditionMatches never evaluates that `compare` condition — so
@@ -110,15 +126,19 @@ test("unl-099-219 Towering Combatant: the merged layer engine still records an e
     }
   ]);
   engine.setObjects([unit]);
-  // The Defender designation is not a merged characteristic and the layer
-  // engine cannot evaluate the compare condition, so the +2 is applied with no
-  // defending state at all — the concrete reason the card stays judge-required.
+  // 814.1.d.1: Shield applies only while the host holds the Defender
+  // designation, but layers/engine.ts conditionMatches evaluates no `compare`,
+  // so the gated +2 fires unconditionally on a non-defending unit — the
+  // concrete reason the card stays judge-required.
   assert.equal(engine.evaluate(unit.ref).might, 5);
+  // Control case: the same unit while actually defending still wants +2, so the
+  // gap is the gate, not the arithmetic.
+  assert.deepEqual(expansion.condition.right, { kind: "constant", value: "defender" });
 });
 
 test.todo(
-  "unl-099-219 Towering Combatant: register the Shield 2 static effect as a ContinuousEffectSpec and honour its 'I'm a defender' condition (contract 3.8 combatRole + RIFT-91 card wiring + layer condition evaluation)"
+  "unl-099-219 Towering Combatant: register the Shield 2 static effect as a ContinuousEffectSpec and honour its 'I'm a defender' condition (814.1.c/814.1.d.1) — needs the card/keyword-to-layers registration path plus compare/designation evaluation in layers/engine.ts (RIFT-91 follow-up / RIFT-257)"
 );
 test.todo(
-  "unl-099-219 Towering Combatant: execute [Tank] by binding the 815.1.b / 815.1.c.1-.2 combat-damage assignment requirement — effects/keywords has no Tank KeywordDef and combat/base-combat-allocation.ts binds no assignment priority"
+  "unl-099-219 Towering Combatant: execute [Tank] by binding the 815.1.b / 815.1.c.1-.2 combat-damage assignment requirement — the Tank KeywordDef is merged (RIFT-264) and expands to continuous.combat, but combat/base-combat-allocation.ts binds no assignment priority and no consumer reads continuous.combat"
 );
