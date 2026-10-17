@@ -1,3 +1,5 @@
+// RIFT-651 template execution evidence (pending XP-history gating and Ganking
+// movement consumption): packages/card-dsl/test/cards/templates/static-static-651.test.mjs
 import assert from "node:assert/strict";
 import test from "node:test";
 
