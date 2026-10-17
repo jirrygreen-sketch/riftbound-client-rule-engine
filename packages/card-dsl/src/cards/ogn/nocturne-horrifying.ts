@@ -114,7 +114,8 @@ const program = {
     "(3) RIFT-260 的 replacement/ 已合入通用事件拦截与注册面（bindReplacement/replacement.event，" +
     "可匹配 card-revealed/reveal），但没有「被查看（look）」秘密区域事件的匹配（ACTION_KINDS 无 look），" +
     "370.1.c.1 的同刻生效语义仍缺；" +
-    "(4) cards-looked-at 仍缺秘密区域许可/位置适配，把被查看牌库顶对象作为本卡的事件接收者。" +
+    "(4) 事件匹配本身已可用：action-adapter 的 look 发射把被看对象作为 object 载荷，触发注册的 objectId:self 可按 ref.id 命中本卡；" +
+    "仍缺的是秘密区域打出许可/位置适配与 370.1.c.1 的替代管线裁定。" +
     "依赖：RIFT-260 后续秘密区域替代事件与 look 事件的许可适配、以及 370.1.c.1 文本的裁定。不近似实现。",
   abilities,
   sourceText:

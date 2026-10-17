@@ -23,8 +23,9 @@ import type { CardProgram } from "../../ir/index.js";
  * status = judge-required：effect.score 原语、object-moved 事件绑定与历史查询都可执行（golden 真实执行），
  * 阻断在：(1) 「第 N 次恰好触发一次」的触发形状——封闭 TriggerSpec 只在每次事件命中时求值
  * condition，当前 compare + count 不能表达第三次事件的边沿判定，计数到 3 后会继续命中；
- * (2) Ganking 展开的 continuous.movement
- * 许可只有 layers/rules/query.ts 读取，生产 Standard Move（zones/movement.ts）不消费。
+ * (2) Ganking 展开的 continuous.movement 许可已由 RIFT-347 桥入
+ * moveDuelUnitsStandard 的可选 rules 桥（layers/rules/query.ts），但仍需调用方
+ * 提供 rules 上下文与 readiness/hasGanking 记录的生产消费方。
  *
  * 数据备注（不在本任务改数据）：同一 canonicalCardId 的 SFD 印刷在本地 catalog 中不存在
  * （docs/plans/survey/unclassified-ogn.json 把 ogn-205-298 记为 data-issue：OGN 带 Ionia、

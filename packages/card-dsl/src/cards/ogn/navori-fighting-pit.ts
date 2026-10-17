@@ -39,8 +39,8 @@ const navoriFightingPit = {
   judgeReason:
     "复核 RIFT-270 后时点产生方已就绪：hold 由 turn/flow.ts 的计分波（471.2/473.2.b，CR 383.4.d）在唯一事件管线发出；" +
     "但触发仍无法生产化，缺口不近似实现：" +
-    "(1) 触发 filter 里的 here=true 与目标的 sameLocationAs:self 都是等待位置适配器绑定的占位键，" +
-    "需要把注册源战场绑定为 scoring details.battlefieldId 过滤（RIFT-357）；" +
+    "(1) 触发 filter 里的 here=true 仍是触发过滤路径的占位键：RIFT-357 已合入 target/location 选择器、interpreter 位置绑定与 statics 的 sameLocationAs 解析，" +
+    "但 programs/filters.ts 对 here 仍抛 judge-required，需要把注册源战场绑定为 scoring details.battlefieldId 过滤的触发侧适配；" +
     "(2) 703 的 Buff → +1 Might 推导未实现：已验证 LayerEngine 对 buffs=1 的单位仍按印刷 Might 求值（buffs 计数器单独存在）；" +
     "能力本体只用已合入的 effect.buff 原语，位置锚点用契约 3.6 的 sameLocationAs: \"self\"，均由 golden 真实执行。",
   sourceText: "When you hold here, buff a unit here. (If it doesn't have a buff, it gets a +1 :rb_might: buff.)",
