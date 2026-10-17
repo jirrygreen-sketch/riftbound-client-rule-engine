@@ -27,15 +27,21 @@ test("sfd-170-221 Rek'Sai, Swarm Queen: program validates and keeps its identity
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /ordered picks/);
-  assert.match(program.judgeReason, /RIFT-66/);
-  assert.match(program.judgeReason, /费用路径已合入/);
-  assert.match(program.judgeReason, /印刷费用/);
+  // RIFT-66/RIFT-358/RIFT-359 are merged and recorded as available; the two
+  // live gaps are the combat attack event producer and the played-object
+  // reference, so the reason must not list them as dependencies.
   assert.match(program.judgeReason, /RIFT-358/);
+  assert.match(program.judgeReason, /有序选择与费用路径已合入/);
+  assert.match(program.judgeReason, /印刷费用/);
   assert.match(program.judgeReason, /attack-declared/);
+  assert.match(program.judgeReason, /combat-start-transaction/);
+  assert.match(program.judgeReason, /simultaneous-damage-transaction/);
   // The type gate is expressible; the gap is the missing object list on
   // effect.play's receipt.
   assert.match(program.judgeReason, /played 计数|linkKey/);
+  assert.match(program.judgeReason, /印刷费用/);
+  assert.match(program.judgeReason, /有序选择与费用路径已合入/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-124|依赖：[^。]*RIFT-66/);
   assert.equal(
     program.sourceText,
     "When I attack, you may reveal the top 2 cards of your Main Deck. You may play one. Then " +
@@ -269,7 +275,8 @@ test("sfd-170-221 Rek'Sai, Swarm Queen: a chain play derives and pays the printe
 });
 
 test.todo(
-  "sfd-170-221 Rek'Sai, Swarm Queen: combat start must emit attack-declared for the real attack trigger (CR 383.4.e / RIFT-124)"
+  "sfd-170-221 Rek'Sai, Swarm Queen: combat start must emit attack-declared for the real attack trigger (CR 383.4.e) — " +
+    "CombatFlow.advance/dealDamage still throw TurnCombatBlockedError('combat-start-transaction' / 'simultaneous-damage-transaction')"
 );
 
 test.todo(

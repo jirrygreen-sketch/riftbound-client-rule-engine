@@ -17,6 +17,8 @@ import { bindResolveContext } from "../../../../engine-core/dist/events/action-a
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { buildCostPlan, CostPlanError } from "../../../../engine-core/dist/cost/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 
 const CARD_ID =
   "card.hash-f57b9ca8014fe44251722063cac371908fc07829fc257206b3c21b2c62f38d89";
@@ -88,11 +90,14 @@ test("sfd-190-221 Forgefire Cape: identity, ruleset, status, judgeReason and ver
   assert.match(program.judgeReason, /Unique/);
   assert.match(program.judgeReason, /825\./);
   assert.match(program.judgeReason, /163\.2\.b/);
-  // The keyword registry now holds 25 keywords; Unique is still absent, so
+  // The keyword registry now holds 27 keywords; Unique is still absent, so
   // the reason must not cite the stale count or an obsolete cost-task attribution.
-  assert.match(program.judgeReason, /25 个关键词不含 Unique/);
-  assert.doesNotMatch(program.judgeReason, /16 个关键词/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-89|RIFT-257|RIFT-261/);
+  assert.match(program.judgeReason, /27 个关键词不含 Unique/);
+  assert.match(program.judgeReason, /Keyword unique has no executable KeywordDef/);
+  assert.match(program.judgeReason, /Unsupported payment kind: equip/);
+  assert.doesNotMatch(program.judgeReason, /16 个关键词|25 个关键词/);
+  // The dependency sentence lists gaps only; merged cost work is named as such.
+  assert.doesNotMatch(program.judgeReason, /依赖：[^。]*RIFT-/);
 });
 
 test("sfd-190-221 Forgefire Cape: Unique declaration plus a valued rainbow-cost Equip", () => {
@@ -152,12 +157,38 @@ test("sfd-190-221 Forgefire Cape golden: no locked target leaves the cape unatta
 
 test.todo(
   "sfd-190-221 Forgefire Cape: [Unique] (CR 825.1/825.3 — a deck may contain only one card of a given name) needs " +
-    "a Unique KeywordDef and a deck-constraint consumer; keywords/ registers 25 keywords and none of them is Unique, " +
-    "and contract 3.1/3.3 has no deck-constraint semantics (only the undefined deckbuilding?: DeckbuildingDecision[] shape)"
+    "a Unique KeywordDef and a deck-constraint consumer; keywords/ registers 27 keywords and none of them is Unique " +
+    "(expandProgram throws \"Keyword unique has no executable KeywordDef\"), and contract 3.1/3.3 has no " +
+    "deck-constraint semantics (only the undefined deckbuilding?: DeckbuildingDecision[] shape)"
 );
 
 test.todo(
   "sfd-190-221 Forgefire Cape: paying the printed Equip cost (one [A] Power, CR 135.2.e.5 / 818.1.c.2) is blocked on " +
-    "the `equip` payment binding in cost/plan-values.ts and on a contract representation for Universal Power " +
-    "(CR 163.2.b); the merged cost plan rejects the equip kind with reason judge-required"
+    "the `equip` payment binding in cost/plan-values.ts (the merged cost.pay / cost.modify kinds still reject it " +
+    "with \"Unsupported payment kind: equip\") and on the missing Equip.ts params.cost binding; the [A] Universal Power " +
+    "(CR 163.2.b) itself is still not representable by effect.resources / the closed Domain type"
 );
+
+test("sfd-190-221 Forgefire Cape: the production binding rejects the missing Unique KeywordDef", () => {
+  // Evidence for gap (1): the registry refuses judge-required programs, so the
+  // expansion path is exercised with the status lifted; expandProgram still
+  // fails closed on the absent Unique KeywordDef.
+  const lifted = { ...program, status: "executable", judgeReason: undefined };
+  const binding = createProgramBinding({ cardPrograms: [lifted] });
+  assert.throws(
+    () => binding.inspect(capeWorld().getObject("forgefire-cape")),
+    /Keyword unique has no executable KeywordDef/
+  );
+});
+
+test("sfd-190-221 Forgefire Cape: the merged cost pipeline still rejects the Equip payment kind", () => {
+  assert.throws(
+    () => buildCostPlan(capeWorld(), { id: "forgefire-cape.equip", cost: activation.cost }),
+    (error) => {
+      assert.ok(error instanceof CostPlanError);
+      assert.equal(error.reason, "judge-required");
+      assert.match(error.message, /Unsupported payment kind: equip/);
+      return true;
+    }
+  );
+});

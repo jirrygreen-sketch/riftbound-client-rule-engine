@@ -6,6 +6,10 @@ import program from "../../../dist/cards/sfd/rocket-barrage.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { AwaitChoice, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 
 const CANONICAL_ID = "card.hash-b104ab4f2d5ede379d04e1002cd97a70d95148d73cddde15852f5dce8b204e9e";
 const SOURCE_TEXT =
@@ -85,7 +89,14 @@ test("sfd-077-221 Rocket Barrage: identity, ruleset, status and verbatim text (w
 
 test("sfd-077-221 Rocket Barrage: judgeReason names the Repeat cost wiring", () => {
   assert.match(program.judgeReason, /820\.1/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /Additional costs are not bound/);
+  assert.match(program.judgeReason, /Unsupported play cost field optional/);
+  assert.match(program.judgeReason, /repeat\.cost has no layer mapping/);
+  assert.match(program.judgeReason, /Mode choices require a Finalize\/Resolve choice-plan adapter/);
+  assert.match(program.judgeReason, /依赖：PlayAbility 与 repeat\.cost 静态声明的费用计划消费方/);
+  // RIFT-89/261 are merged cost work; the reason must name the missing consumers
+  // instead of citing them as pending dependencies.
+  assert.doesNotMatch(program.judgeReason, /RIFT-89|RIFT-261/);
 });
 
 test("sfd-077-221 Rocket Barrage: the printed [Repeat] additional cost is 4 energy plus one Mind power", () => {
@@ -264,8 +275,9 @@ test("sfd-077-221 Rocket Barrage golden: the merged repeat control re-runs the b
 test.todo(
   "sfd-077-221 Rocket Barrage: [Repeat] :rb_energy_4::rb_rune_mind: must be collected at Finalize and the paid " +
     "instance count fed to the interpreter's repeat node so the mode choice is re-made for each additional " +
-    "execution (CR 820.1.c.1 / 820.1.d.1 / 820.2 / 820.2.a; RIFT-89 cost plan plus the wiring named in " +
-    "effects/keywords/Repeat.ts)."
+    "execution (CR 820.1.c.1 / 820.1.d.1 / 820.2 / 820.2.a) — no consumer turns the PlayAbility declaration or " +
+    "the Repeat keyword expansion's repeat.cost static ability into CostPlanInput, and the merged repeat control " +
+    "is only reachable from a caller-supplied paid instance count."
 );
 // Direct evidence for the [Repeat] gap recorded in the judgeReason: the merged
 // play-cost adapter refuses the optional additional-cost declaration before
@@ -280,5 +292,64 @@ test("sfd-077-221 Rocket Barrage: the merged play-cost adapter refuses the optio
       assert.match(error.message, /Unsupported play cost field optional on rocket-barrage:play/);
       return true;
     }
+  );
+});
+
+test("sfd-077-221 Rocket Barrage: no consumer maps the Repeat expansion's repeat.cost declaration", () => {
+  // Evidence for the second half of the [Repeat] gap: the merged keyword
+  // expansion authors a repeat.cost static ability, but the production static
+  // binder has no layer mapping for that effect kind, so the declared instance
+  // never reaches the Finalize cost plan.
+  const [declaration] = keywordDefinitionsById.get("Repeat").expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(declaration.kind, "static");
+  assert.equal(declaration.effect.kind, "repeat.cost");
+  const kernel = world().unit("spell", { might: 3 }).build();
+  const binder = createEngineStaticBinder({
+    layers: createLayerEngine(kernel.objects, []),
+    pipeline: {
+      host: {
+        objects: () => kernel.objects,
+        context: (snapshot) => kernel.clone({ sourceSnapshot: snapshot, source: snapshot.ref })
+      }
+    }
+  });
+  assert.throws(
+    () => binder.bindStatic(declaration, kernel.getObject("spell")),
+    /Static ability kind repeat\.cost has no layer mapping/
+  );
+});
+
+test("sfd-077-221 Rocket Barrage: the chain Finalize refuses the card's choice.mode body", () => {
+  // Evidence for the mode-choice gap: the production play draft for this card's
+  // own body is rejected by chain/engine.ts assertFinalizationSurface, so the
+  // printed "Choose one" cannot be finalized at all today.
+  const lifted = { ...program, status: "executable", judgeReason: undefined };
+  const binding = createProgramBinding({ cardPrograms: [lifted] });
+  const kernel = world().player("A", { energy: 20 }).build();
+  kernel.addObject({
+    ref: { id: "spell", zoneEntryId: 1 },
+    cardId: CANONICAL_ID,
+    name: "Rocket Barrage",
+    types: ["spell"],
+    tags: [],
+    keywords: [],
+    owner: "A",
+    controller: "A",
+    zone: "hand",
+    location: null,
+    might: null,
+    energy: 4,
+    power: ["Mind"],
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false
+  }, "hand");
+  assert.throws(
+    () => binding.describePlay({ type: "play", object: kernel.ref("spell"), player: "A" }, kernel.getObject("spell")),
+    /Mode choices require a Finalize\/Resolve choice-plan adapter/
   );
 });

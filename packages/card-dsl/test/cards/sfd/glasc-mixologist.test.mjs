@@ -5,6 +5,8 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/sfd/glasc-mixologist.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
@@ -24,9 +26,14 @@ test("sfd-165-221 Glasc Mixologist: program validates and keeps its identity", (
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /163\.2\.b/);
   assert.match(program.judgeReason, /356\.1\.b/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /costEnergyLte/);
+  assert.match(program.judgeReason, /trigger\.leave/);
   assert.match(program.judgeReason, /已选垃圾场单位.*ignore-base/);
+  // RIFT-358/RIFT-359 are named only as already-merged work that closes none of
+  // the gaps; the dependency sentence must not list any merged task as a gap.
+  assert.match(program.judgeReason, /RIFT-358 的有序 picks 与 RIFT-359 的条件谓词均已合入/);
   assert.doesNotMatch(program.judgeReason, /RIFT-82|RIFT-89|RIFT-261/);
+  assert.doesNotMatch(program.judgeReason, /依赖：[^。]*RIFT-/);
   assert.equal(cardRegistryById.get(CANONICAL), program);
   assert.equal(
     program.sourceText,
@@ -124,14 +131,50 @@ test("sfd-165-221 Glasc Mixologist: the merged play primitive plays the locked t
 
 test.todo(
   "sfd-165-221 Glasc Mixologist: enforce the printed-cost ceiling (Energy <= 3, Power <= 1 including [A] " +
-    "Universal Power, 163.2.b) and generate the ignore-cost plan from the chosen trash unit (356.1.b.1, " +
-    "RIFT-90 printed-cost predicate and selected-object cost-plan wiring)"
+    "Universal Power, 163.2.b) and generate the ignore-cost plan from the chosen trash unit (356.1.b.1; " +
+    "needs a printed-cost predicate for target filters and the selected-object cost-plan wiring)"
+);
+
+test.todo(
+  "sfd-165-221 Glasc Mixologist: register the [Deathknell] trigger — the KeywordDef is merged, but its " +
+    "expansion body references the unregistered trigger.leave opcode (the instructions registry has no such op)"
 );
 
 test("sfd-165-221 Glasc Mixologist: the merged Deathknell keyword is registered", () => {
   assert.equal(keywordDefinitionsById.has("Deathknell"), true);
   assert.equal(keywordDefinitionsById.get("Deathknell").stacking, "separate");
   assert.deepEqual(keyword, { kind: "keyword", keyword: "deathknell" });
+  // The expansion is authored but its body opcode is still missing: the merged
+  // Deathknell definition expands to a trigger.leave instruction that the
+  // instruction registry does not know, so the trigger cannot execute.
+  const [expansion] = keywordDefinitionsById.get("Deathknell").expand({ host: { canonicalCardId: CANONICAL } });
+  assert.equal(expansion.kind, "triggered");
+  assert.equal(expansion.trigger.at, "object-killed");
+  assert.deepEqual(expansion.body.map((instruction) => instruction.op), ["trigger.leave"]);
+  assert.equal(instructionDefinitionsById.has("trigger.leave"), false);
+  assert.throws(
+    () => resolveChainBody(expansion.body, bindResolveContext(world().unit("dead", { zone: "board" }).build(), { source: { ref: { id: "dead", zoneEntryId: 1 }, cardId: CANONICAL, name: "x", types: ["unit"], tags: [], keywords: [], owner: "A", controller: "A", zone: "board", location: null, might: 5, energy: 5, power: null, exhausted: false, damage: 0, stunned: false, buffs: 0, attachedTo: null, faceDown: false, isToken: false }, controller: "A" }) ),
+    /Unregistered instruction opcode: trigger\.leave/
+  );
+});
+
+test("sfd-165-221 Glasc Mixologist: the production trigger registration fails closed on the descriptive ceilings", () => {
+  // Evidence for gap (1): the card's own target filter carries the printed-cost
+  // ceilings, and the production adapter refuses the descriptive keys instead
+  // of treating them as a working restriction.
+  const lifted = { ...program, status: "executable", judgeReason: undefined };
+  const binding = createProgramBinding({ cardPrograms: [lifted] });
+  const kernel = world().unit("mix", { cardId: CANONICAL, types: ["unit"], zone: "board" }).build();
+  const engine = {
+    pipeline: { registerTrigger() { throw new Error("the registration itself must not be reached"); }, unregisterTrigger() {} }
+  };
+  assert.throws(
+    () => binding.registerProgramTriggers(engine, kernel.getObject("mix")),
+    (error) => {
+      assert.match(error.message, /Unsupported filter field costEnergyLte/);
+      return true;
+    }
+  );
 });
 
 test("sfd-165-221 Glasc Mixologist golden: the card's own optional body plays the locked trash unit on accept", () => {

@@ -7,6 +7,9 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { translateInstructionTargets } from "../../../../engine-core/dist/programs/filters.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 
 const CARD_ID = "card.hash-8b94882b556c55cce216445bf3c9f8b69b9e4c725571f25e890a951c67bb05c6";
 const SOURCE_TEXT =
@@ -41,12 +44,18 @@ test("sfd-098-221 Sea Monkey: judgeReason names the additional-cost and paid-rec
   assert.match(program.judgeReason, /356\.2\.b/);
   assert.match(program.judgeReason, /cost\.additional/);
   assert.match(program.judgeReason, /356\.4\.f\.1/);
-  assert.match(program.judgeReason, /condition\.result/);
-  // The cost pipeline (cost.pay / cost.modify, additional-cost binding) and the
-  // CardProgram filter adapter are the remaining dependencies; the card data
-  // must not silently approximate either half.
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /Condition kind "result"/);
+  assert.match(program.judgeReason, /item\.payment/);
+  assert.match(program.judgeReason, /MissingInformation/);
+  // The three live dependencies: no CardProgram -> CostPlanInput consumer, no
+  // receipt delivery to the card-played trigger, and no self-anchor consumption
+  // in the filter adapters. The merged RIFT-261/RIFT-359 work is not listed as
+  // a gap anymore, and the card data must not approximate any half.
+  assert.match(program.judgeReason, /additional costs are not bound/i);
+  assert.match(program.judgeReason, /cost\.additional has no layer mapping/);
+  assert.match(program.judgeReason, /OBJECT_FILTER_ANCHORS/);
+  assert.doesNotMatch(program.judgeReason, /进行中的 RIFT-261/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-257/);
 });
 
 test("sfd-098-221 Sea Monkey: the optional additional cost is 1 Energy on a passive ability", () => {
@@ -70,10 +79,15 @@ test("sfd-098-221 Sea Monkey: card-played self trigger whose body buffs the host
     event: "card-played",
     filter: { source: "self" }
   });
-  // "if you paid the additional cost" gates this ability; the frozen IR has no
-  // condition source that reads the cost plan result (see judgeReason), so no
-  // always-true condition is fabricated here.
-  assert.equal(playTrigger.trigger.condition, undefined);
+  // 383.2.a.1 + 356.4.f.1: "if you paid the additional cost" is part of the
+  // Trigger Condition and reads the finalized optional-cost decision; the IR
+  // spells it with the merged `result` predicate, never an always-true
+  // condition.
+  assert.deepEqual(playTrigger.trigger.condition, {
+    kind: "result",
+    result: "additional-cost-paid",
+    id: "sea-monkey.additional-cost"
+  });
   assert.equal(playTrigger.optional, false);
 
   assert.equal(playTrigger.body.length, 1);
@@ -98,8 +112,9 @@ test("sfd-098-221 Sea Monkey: card-played self trigger whose body buffs the host
 test("sfd-098-221 Sea Monkey golden: the buff body places one Buff on the host (702.2.a)", () => {
   const kernel = monkeyWorld();
   // The reference kernel compares the filter's raw values and ignores the
-  // contract 3.6 "object" anchor (RIFT-90 owns that binding), so the golden
-  // pins the already-Finalize-locked host reference itself.
+  // contract 3.6 "object" anchor (the merged target-plan work does not consume
+  // OBJECT_FILTER_ANCHORS), so the golden pins the already-Finalize-locked host
+  // reference itself.
   kernel.setTargets("sea-monkey.self", [kernel.ref("sea-monkey")]);
   const outcome = resolveChainBody(playTrigger.body, kernel);
   assert.equal(outcome.status, "executed");
@@ -140,7 +155,7 @@ test("sfd-098-221 Sea Monkey: the declared additional cost and self anchor are n
   // query. It must never silently drop the anchor (that would buff a wrong
   // set): it either translates the body preserving the host-bound target, or it
   // fails closed with the judge-required reason. This stays true when the
-  // anchor lands (RIFT-257).
+  // anchor lands.
   let translated = null;
   try {
     translated = translateInstructionTargets(playTrigger.body);
@@ -155,51 +170,68 @@ test("sfd-098-221 Sea Monkey: the declared additional cost and self anchor are n
 });
 
 test.todo(
-  "sfd-098-221 Sea Monkey: charge the optional additional 1 Energy through the cost plan and expose the " +
-    "356.4.f.1 paid decision so the buff is gated on it — the additional-cost/finalized-receipt binding is " +
-    "still pending in the in-progress RIFT-261 cost work (cost.pay / cost.modify); the Condition shape has no " +
-    "cost-result source (survey: condition.result)"
-);
-
-test.todo(
   "sfd-098-221 Sea Monkey: the CardProgram binding must accept the body's `object: \"self\"` target anchor " +
-    "(programs/filters.ts translateObjectFilter currently rejects it as an unsupported filter field) — RIFT-257"
+    "(programs/filters.ts translateObjectFilter rejects it as an unsupported filter field, and " +
+    "layers/filter.ts matchesObjectFilter does not consume OBJECT_FILTER_ANCHORS)"
 );
-// Direct evidence for the three recorded gaps: the paid-decision gate has no
-// Condition vocabulary, the "me" anchor is rejected by the filter adapter, and
-// the production static binder cannot map the cost.additional declaration.
+test.todo(
+  "sfd-098-221 Sea Monkey: no merged consumer turns the card's static cost.additional declaration into " +
+    "CostPlanInput, and the played card's item.payment receipt never reaches the card-played trigger's " +
+    "Resolve inputs (the same wiring gap recorded by sfd/zaun-punk)"
+);
+// Direct evidence for the recorded gaps: the "me" anchor is rejected by the
+// production filter adapters, and the production static binder cannot map the
+// cost.additional declaration. The paid-decision gate itself is merged
+// (RIFT-359) and its real receipt run lives further below.
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
-test("sfd-098-221 Sea Monkey: no Condition vocabulary can read the additional-cost payment decision (CR 356.4.f.1)", () => {
-  // Attach the missing gate where the printed text puts it (the play trigger),
-  // spelled as the surveyed cost-result condition. The merged validator rejects
-  // the kind outright — there is no constant-true escape hatch to abuse.
-  const attempt = {
-    ...program,
-    canonicalCardId: "card.synthetic-sea-monkey-cost-result",
-    status: "executable",
-    judgeReason: undefined,
-    abilities: [
-      additionalCost,
-      {
-        ...playTrigger,
-        trigger: {
-          ...playTrigger.trigger,
-          condition: { kind: "cost-result", plan: { kind: "constant", value: "sea-monkey.cost-plan" } }
-        }
-      }
-    ]
-  };
-  const result = validateCardProgram(attempt);
-  assert.equal(result.ok, false);
-  const issue = result.issues.find((entry) => entry.path === "$.abilities[1].trigger.condition.kind");
-  assert.ok(issue, "the trigger-condition path must be validated");
-  assert.equal(issue.code, "invalid-condition-kind");
-  assert.match(issue.message, /Expected a supported condition kind/);
+test("sfd-098-221 Sea Monkey golden: the trigger condition reads the real paid/declined receipt (356.4.f.1)", () => {
+  // 383.2.a.1 + 356.4.f.1: the shipped IR carries the merged `result` predicate,
+  // and the receipt itself comes from a genuine buildCostPlan/payCostPlan run of
+  // the declared optional charge (the production adapter that would supply it
+  // from the CardProgram declaration is the gap recorded in judgeReason).
+  const base = world()
+    .player("A", { energy: 5 })
+    .unit("monkey", { cardId: CARD_ID, types: ["unit"], energy: 2, power: null, might: 2, owner: "A", controller: "A" })
+    .build();
+  const context = base.clone({ source: base.ref("monkey"), sourceSnapshot: base.getObject("monkey") });
+  const planFor = (selected) => buildCostPlan(context, {
+    id: "sea-monkey:play",
+    cost: { kind: "printed" },
+    optionalAdditional: [{
+      id: "sea-monkey.additional-cost",
+      kind: "additional",
+      selected,
+      cost: { payments: [{ kind: "energy", amount: { kind: "constant", value: 1 } }] }
+    }]
+  });
+  const condition = playTrigger.trigger.condition;
+  const environment = (plan, receipt) => ({
+    context: bindResolveContext(base, { source: base.getObject("monkey"), controller: "A", cost: { plan, receipt } }),
+    event: { timingPoint: "card-played" },
+    cost: { plan, receipt },
+    linked: (key) => base.linked(key),
+    canLookBack: () => true,
+    isIgnored: () => false
+  });
+
+  const paidPlan = planFor(true);
+  const paidReceipt = payCostPlan(context.clone(), paidPlan);
+  assert.deepEqual(paidPlan.total.energy, 3);
+  assert.deepEqual(paidPlan.selectedAdditional, [{ id: "sea-monkey.additional-cost", kind: "additional" }]);
+  assert.deepEqual(paidReceipt.additional, [{ id: "sea-monkey.additional-cost", kind: "additional", paid: true }]);
+  assert.equal(evaluateCondition(condition, environment(paidPlan, paidReceipt)), true);
+
+  // 356.4.f.1: the decision, not the amount, decides "paid" — declines are false
+  // even though the base cost was still paid in full.
+  const declinedPlan = planFor(false);
+  const declinedReceipt = payCostPlan(context.clone(), declinedPlan);
+  assert.deepEqual(declinedPlan.declinedAdditional, ["sea-monkey.additional-cost"]);
+  assert.equal(evaluateCondition(condition, environment(declinedPlan, declinedReceipt)), false);
 });
 
 test("sfd-098-221 Sea Monkey: the production filter adapter rejects the body's self anchor", () => {
