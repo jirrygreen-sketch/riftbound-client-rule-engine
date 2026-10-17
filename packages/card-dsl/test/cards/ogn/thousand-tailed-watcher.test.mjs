@@ -39,6 +39,7 @@ test("Thousand-Tailed Watcher identity and judge-required reason", () => {
   assert.match(program.judgeReason, /layerFor/);
   assert.match(program.judgeReason, /no layer mapping/);
   assert.match(program.judgeReason, /describePlay/);
+  assert.match(program.judgeReason, /optionalAdditional/);
   assert.match(program.judgeReason, /805\.6\.a/);
   assert.equal(
     program.sourceText,
