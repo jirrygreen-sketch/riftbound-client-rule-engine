@@ -29,15 +29,21 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   的 Energy 总量"的表达式；契约 3.6 的 HistoryQuery 只有对象/动作/时点/玩家维度
  *   （金额维度缺失），ResolveContext 也没有 spent 入口（依赖 RIFT-89 的费用计划回执）。
  *   与 ogn/loose-cannon、unl/virtuoso 的同一缺口口径一致：不把金额条件近似成对象计数或恒真。
- * - [Ganking] 的展开文件已合入，但没有生产方把卡牌 keyword 能力解析成 KeywordDef 并注册进
- *   图层；zones/movement.ts 也不读取图层 MovementPermissions（810.1.c.2 的移动许可因此在
- *   生产链路仍未生效，与 windswept-hillock、master-yi-honed 记录同批次）。
+ * - [Ganking]（810）的 KeywordDef（effects/keywords/Ganking.ts）与消费侧（RIFT-259 的
+ *   continuous.movement 原语、layers/rules/query.ts 的 movement() 查询）都已合入，但两边
+ *   形状不通：Ganking 展开输出 { kind: "continuous.movement", permission: "battlefield-to-
+ *   battlefield", source/destination/move, addsPermission: true }，而 movement() 只读取
+ *   { kind: "movement", permission: { routes: [...] } } —— continuous.movement 指令自己
+ *   归一化成 routes 形状，但关键词展开没有走该归一化；实测把展开原样注册进图层后
+ *   canGank/battlefieldToBattlefield 仍为 false，只有归一化形状才为 true。
+ *   另外仍没有生产方把卡牌 keyword 能力解析成 KeywordDef 并注册进图层（RIFT-257 的
+ *   programs/ 适配器没有运行时调用方）。810.1.b 的战场→战场 Standard Move 许可因此未生效。
  *
  * 已合入并真实执行的部分：触发体的 "ready me"（416.1）用 effect.ready 以 "source"
  * 选择器在 golden 中真实执行，并覆盖已就绪单位的 no-op 情况（416.1.b/c）。
  *
- * 依赖：RIFT-83 / RIFT-89（Ganking 展开的图层与移动许可消费）、RIFT-89（费用计划的实际
- * 支付回执）、RIFT-120（卡牌程序的触发注册适配）。
+ * 依赖：RIFT-89（费用计划的实际支付回执）、Ganking 展开与 continuous.movement 归一化的
+ * 对齐、RIFT-257（卡牌程序 → 图层/触发的生产接线）。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "ganking" },
@@ -90,13 +96,15 @@ export default {
     "只能读对象特征、链接值与对象计数（count 只数对象、不读金额），契约 3.6 的 HistoryQuery 只有 " +
     "{ scope, action, timingPoint, player, object }，ResolveContext 也没有 spent / finalized 费用回执入口，" +
     "因此 383.2.a.1 的触发条件无法求值（依赖 RIFT-89 的费用计划回执）。" +
-    "(2) [Ganking]（810）的 KeywordDef（effects/keywords/Ganking.ts，static continuous.movement）已合入，" +
-    "但没有生产方把卡牌的 keyword 能力解析成 KeywordDef 展开并注册进图层，zones/movement.ts 也不读取" +
-    "图层 MovementPermissions（与 windswept-hillock、master-yi-honed 记录同一批次缺口）；810.1.b 的" +
-    "战场→战场 Standard Move 许可因此未生效。" +
+    "(2) [Ganking]（810）的 KeywordDef（effects/keywords/Ganking.ts）与消费侧（RIFT-259 的 continuous.movement " +
+    "原语、layers/rules/query.ts 的 movement()）都已合入，但两边形状不通：Ganking 展开输出 " +
+    "permission: \"battlefield-to-battlefield\"（标量字段），movement() 只读 continuous.movement 归一化后的 " +
+    "permission: { routes: [...] }；实测把展开原样注册进图层后 canGank 仍为 false。" +
+    "另外仍没有生产方把卡牌 keyword 能力解析成 KeywordDef 并注册进图层（RIFT-257 的 programs/ 适配器无运行时调用方）；" +
+    "810.1.b 的战场→战场 Standard Move 许可因此未生效。" +
     "已合入部分：触发体的 “ready me”（416.1）用 effect.ready 的 ‘source’ 选择器在 golden 中真实执行，" +
-    "并覆盖已就绪单位的 no-op（416.1.b/c）。依赖：RIFT-89（费用回执与 Ganking 移动许可消费）、" +
-    "RIFT-83 / RIFT-91、RIFT-120（卡牌触发注册）。不近似实现。",
+    "并覆盖已就绪单位的 no-op（416.1.b/c）。依赖：RIFT-89（费用回执）、Ganking 展开与 continuous.movement " +
+    "归一化的对齐、RIFT-257（卡牌程序 → 图层/触发的生产接线）。不近似实现。",
   abilities,
   sourceText:
     "[Ganking] (I can move from battlefield to battlefield.)\n" +

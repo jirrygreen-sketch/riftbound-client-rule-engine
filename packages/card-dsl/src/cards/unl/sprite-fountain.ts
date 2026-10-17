@@ -15,7 +15,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - [Temporary]（816.1 / 816.1.a–c）：触发式能力关键词，功能等价于“在该永久物控制者的
  *   Beginning Phase 开始时、计分之前，消灭此牌”；816.2/816.2.a 冗余、816.3 是可读特征。
  *   按 cards/README.md 第 5 节只声明 keyword 能力，展开归关键词注册表
- *   （effects/keywords/Temporary.ts 尚未合入）。
+ *   （effects/keywords/Temporary.ts，RIFT-265 已合入并按 816.1.b 展开 beginning-start
+ *   消灭触发；其 body 在 golden 中经真实解释器执行）。
  * - "When you play this, …" 是 383.4.a / 383.4.a.1 的 Play Effect：触发条件包含“打出
  *   自身的永久物进场”，时点 card-played、filter 指向自身。383.4.a.4 的排除只针对
  *   “另一个对象被打出时触发”的能力，本卡被打出的就是自身。
@@ -35,16 +36,19 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * status = judge-required（缺口不近似实现）：
  * 1. effect.token 的冻结 DEFINITIONS 表只有 recruit / sand-soldier / mech / reflection /
  *    tentacle；Sprite（187.2，带 Temporary 的 token）不在表内，该文件明确“带其他能力
- *    的定义保持 blocked/judge-required”。
+ *    的定义保持 blocked/judge-required”。golden 用可解析定义验证同一 mode "play" 交接
+ *    （create on Chain → play）已可用，并把 sprite 名的拒绝作为证据记录。
  * 2. “ready” 入场状态不可表达（143.4 / 185.2.d），见上；目的地“to your base”本身可写成
  *    控制器基地 { type: "base", player: "controller" }。
- * 3. [Temporary] 关键词没有 KeywordDef（keywords/ 下无 Temporary.ts），816.1.b/816.1.c 的
- *    beginning-start 订阅无法展开；也没有卡牌程序 → 关键词展开 → 时点/链的接线（契约 3.5）。
+ * 3. [Temporary] 的 KeywordDef 与展开都已合入，但 816.1.b/816.1.c 的 beginning-start
+ *    订阅仍无生产接线：卡牌程序 → 关键词展开 → 时点/链 的适配器（programs/）没有运行时
+ *    调用方（RIFT-257）。
  * 4. [Deathknell] 展开引用的 trigger.leave 原语未合入；“Repeat this gear's play effect.”
  *    需要 383.4.g.1 的命名触发内部链入口（ogn/reckoners-arena 同样记录的缺口），
  *    合并内核没有该 opcode。
- * 效果正文（打出 Sprite token）已按 187.2 / 440.2.c / 185.2.a 的形状写出，但被 (1) 阻断，
- * golden 只做校验、结构断言与 TODO；不近似实现。
+ * 效果正文（打出 Sprite token）已按 187.2 / 440.2.c / 185.2.a 的形状写出，但被 (1) 阻断；
+ * golden 对被阻断的 token 名、可解析定义的交接、Temporary 展开体与 Deathknell 的 kill 半段
+ * 给出真实执行证据，其余保持 test.todo；不近似实现。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "temporary" },
@@ -108,15 +112,15 @@ export default {
   judgeReason:
     "(1) Sprite token（187.2：域外 3 Might 单位 token，带 Fae 标签与 [Temporary]）不在 effect.token 的冻结定义表" +
     "（recruit/sand-soldier/mech/reflection/tentacle），该文件明确带其他能力的定义保持 blocked/judge-required；" +
-    "“play a ready … token” 还要求 440.2.c / 185.2.a 的链上创建 + 打出交接。" +
+    "golden 用可解析定义证明同一 mode \"play\" 的「链上创建 + 打出」交接已可用，并把 sprite 名的 blockedReason 记录为证据。" +
     "(2) “ready” 是入场状态改写（143.4 / 185.2.d），effect.token 明确 “Entry overrides are not supported”；" +
     "先创建再补一次 effect.ready 会产生多余的“成为就绪”事件并错过入场规定，故不近似。" +
-    "(3) 缺 [Temporary] 关键词展开（keywords/ 下无 Temporary.ts）：816.1.b/816.1.c 需要在控制者的 Beginning Phase 开始时" +
-    "（beginning-start，早于计分）消灭该永久物；也没有卡牌程序 → 关键词展开 → 时点/链的接线（契约 3.5）。" +
+    "(3) [Temporary] 的 KeywordDef 与展开已合入（RIFT-265：816.1.b 的 beginning-start 消灭触发，golden 执行其 body），" +
+    "但仍无卡牌程序 → 关键词展开 → 时点/链 的生产接线（programs/ 适配器没有运行时调用方，RIFT-257），订阅不会真的挂上。" +
     "(4) [Deathknell] 展开体引用的 trigger.leave 原语未合入；“Repeat this gear's play effect.” 需要 383.4.g.1 的命名触发内部链入口" +
     "（ogn/reckoners-arena 同样记录的缺口），合并内核没有对应 opcode。" +
-    "依赖：RIFT-82（kw-deathknell / trigger.leave）、Temporary 关键词任务、effect.token 的定义表扩展与入场状态支持、" +
-    "以及 383.4.g.1 的命名触发入口（RIFT-120 后续）。不近似实现。",
+    "依赖：RIFT-82（kw-deathknell / trigger.leave）、effect.token 的定义表扩展与入场状态支持、RIFT-257（卡牌程序绑定）、" +
+    "以及 383.4.g.1 的命名触发入口。不近似实现。",
   abilities,
   sourceText:
     "[Temporary] (Kill this at the start of its controller's Beginning Phase, before scoring.)\n" +

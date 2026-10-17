@@ -5,6 +5,9 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/soul-sword.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import attach from "../../../../engine-core/dist/effects/instructions/effect.attach.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/index.js";
 
 const CARD_ID = "card.hash-87e2eedcbebff6711e1c1841d161efbe5d63d047836446fb4ececd034911f1be";
 const SOURCE_TEXT = "[Equip] :rb_rune_calm: (:rb_rune_calm:: Attach this to a unit you control.)";
@@ -18,6 +21,8 @@ test("unl-039-219 Soul Sword: program validates and is judge-required", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Equip|equip/);
   assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /effect\.attach/);
 });
 
 test("unl-039-219 Soul Sword: identity, ruleset, status and verbatim source text", () => {
@@ -73,6 +78,69 @@ test("unl-039-219 Soul Sword: the merged Equip expansion stays valid EffectIR fo
   assert.equal(activation.body[0].targets[0].max, 1);
   assert.equal(activation.body[0].targets[0].selection, "one");
   assert.equal(activation.body[0].targets[0].filter.type, "unit");
+});
+
+test("unl-039-219 Soul Sword golden: the merged effect.attach binds the gear to the chosen unit (CR 818.1.c.2)", () => {
+  // 818.1.c.2 makes the Equip ability functionally "[Cost]: Attach this gear to
+  // a unit you control". The expansion's target and the merged attach
+  // primitive both run here; the missing piece is the payment of the printed
+  // 1 Calm Power (asserted below).
+  const kernel = world()
+    .unit("soul-sword", {
+      owner: "A",
+      types: ["gear"],
+      zone: "board",
+      location: { type: "base", player: "A" }
+    })
+    .unit("ally", { owner: "A", might: 3, location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const expansion = keywordDefinitionsById.get("Equip").expand({
+    value: equip.value,
+    host: { canonicalCardId: CARD_ID }
+  });
+  const [activation] = expansion;
+  const [attachInstruction] = activation.body;
+  kernel.setTargets("equip-target", [kernel.ref("ally")]);
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("soul-sword") });
+  const run = runInstruction(attach, attachInstruction.args, { world: context });
+
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.attached.count, 1);
+  assert.deepEqual(run.linked.attached.objects, [kernel.ref("soul-sword")]);
+  assert.deepEqual(run.linked.attached.host, kernel.ref("ally"));
+  // 435.1/435.1.f: the attached Gear records its host; the host is untouched.
+  assert.deepEqual(context.getObject("soul-sword").attachedTo, kernel.ref("ally"));
+  assert.equal(context.getObject("soul-sword").zone, "board");
+  assert.equal(context.getObject("ally").attachedTo, null);
+});
+
+test("unl-039-219 Soul Sword: the printed 1 Calm Power cannot be paid by the merged cost plan", () => {
+  // 818.1.c / 818.1.c.3: the printed Equip cost is one Calm rune symbol. The
+  // merged Equip expansion declares payments [{ kind: "equip" }] and the merged
+  // cost reader does not support that kind, so the ability cannot be paid today.
+  const kernel = world()
+    .unit("soul-sword", {
+      owner: "A",
+      types: ["gear"],
+      zone: "board",
+      location: { type: "base", player: "A" }
+    })
+    .build();
+  const expansion = keywordDefinitionsById.get("Equip").expand({
+    value: equip.value,
+    host: { canonicalCardId: CARD_ID }
+  });
+  assert.deepEqual(expansion[0].cost.payments, [
+    { kind: "equip", value: { kind: "constant", value: { kind: "source" } } }
+  ]);
+  assert.throws(
+    () =>
+      buildCostPlan(
+        kernel.clone({ sourceSnapshot: kernel.getObject("soul-sword") }),
+        { id: "soul-sword", cost: expansion[0].cost }
+      ),
+    (error) => error.name === "CostPlanError" && error.reason === "judge-required"
+  );
 });
 
 test.todo(

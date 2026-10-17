@@ -23,16 +23,23 @@ import type { CardProgram } from "../../ir/index.js";
  *   effects/keywords/Assault.ts（RIFT-81）。
  *
  * status = judge-required（缺口不近似实现）：
- * - 两个 KeywordDef 的展开文件都已合入，但没有任何生产方把卡牌的 keyword 能力接进打出流程：
- *   cost/cost-plan.ts 只消费调用方传入的 optionalAdditional，没有从 accelerate.cost 静态
- *   效果生成 { kind: 'accelerate' } 费用组的路径；805.2.b/805.6 的延迟入场替代也没有
- *   消费方（blazing-scorcher、azir-sovereign、kaisa-survivor 记录同一批次缺口）。
- * - [Assault 4] 的展开是 static continuous.might + designation 条件，但 registerContinuousEffect
- *   没有调用方，且 807.1.d 的 Attacker designation 不是 ObjectSnapshot 特征
- *   （契约 3.8 的 combatRole 未进当前 HEAD）。
+ * - [Accelerate]（805）的两半都已合入：cost/cost-plan.ts 的 optionalAdditional 支持
+ *   kind "accelerate"（805.1.b 的固定 [1][C]、805.1.b.1 的域匹配力量，golden 用真实
+ *   buildCostPlan 断言支付与拒绝两条路径），replacement/ 的入场替代也能把 805.6 的
+ *   "exhausted=true 横置入场" 改写成就绪入场（golden 用 bindReplacement + 真实 move-zone 验证）。
+ *   仍缺的是把卡牌 keyword 接进打出流程的生产接线：没有任何消费方读取 accelerate.cost
+ *   静态效果来生成 { kind: "accelerate" } 费用组，也没有卡牌程序 → 替代能力的注册路径
+ *   （RIFT-257 的 programs/ 适配器没有运行时调用方）。
+ * - [Assault 4] 的展开是 static continuous.might + designation 条件，图层算术修正本身可用
+ *   （continuous.might 原语 + LayerEngine），但 807.1.d 的 Attacker designation 只在 RIFT-124
+ *   的 combat 流程里产生，combat 的角色事务仍抛 combat-start-transaction，没有已合入的
+ *   designation 消费者；而且 Assault 展开用的 condition.kind 是 compare(object-property
+ *   (self, "designation"))，图层条件词表（layers/engine.ts 的 conditionMatches）只认
+ *   always/never/type/has-tag/has-keyword，未知条件按 true —— 实测把该展开绑定到非攻击者
+ *   仍会加 4 Might（3 → 7），直接绑定就是近似实现。
  *
- * 依赖：RIFT-86 / RIFT-89（费用计划对卡牌 keyword 的消费）、RIFT-81 / RIFT-91（Assault 展开
- * 与图层接线）、契约 3.8 的 combatRole 落地。
+ * 依赖：RIFT-257（卡牌程序绑定）、Accelerate 费用组的生产接线、RIFT-124 的攻击者 designation
+ * 与图层条件对 designation/combatRole 的消费。
  */
 export default {
   canonicalCardId:
@@ -40,17 +47,19 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两个关键词的展开文件都已合入，但没有消费方把它们接进打出与图层流程：(1) [Accelerate]（805）的" +
-    "effects/keywords/Accelerate.ts（accelerate.cost 静态费用声明 + 805.6 的 object-enters-board 入场替代）" +
-    "没有任何生产方读取——cost/cost-plan.ts 只消费调用方传入的 optionalAdditional，没有从卡牌 keyword 生成 " +
-    "{ kind: 'accelerate' } 费用组的路径，805.1.b.1 的域匹配力量（本卡 Fury）与 805.2.b/805.6.a 的延迟就绪" +
-    "替代因此都不生效（blazing-scorcher、kaisa-survivor、azir-sovereign 记录同一缺口）。" +
-    "(2) [Assault 4]（807）的 effects/keywords/Assault.ts（static continuous.might + " +
-    "compare(object-property(self, 'designation'), eq, 'attacker')）同样没有卡牌→图层的注册路径" +
-    "（registerContinuousEffect 无调用方），且 807.1.d 的 Attacker designation 不是 ObjectSnapshot 特征" +
-    "（契约 3.8 combatRole 未进 HEAD）。" +
-    "依赖：RIFT-86 / RIFT-89（费用计划对卡牌 keyword 的消费）、RIFT-81 / RIFT-91（Assault 展开与图层接线）、" +
-    "契约 3.8 的 combatRole 落地。不近似实现（不把 Assault 4 写成恒定的 +4，也不手改费用）。",
+    "两个关键词的展开都已合入，但仍没有消费方把它们接进打出与图层流程：" +
+    "(1) [Accelerate]（805）——effects/keywords/Accelerate.ts 的 accelerate.cost 静态费用声明与 805.6 的 " +
+    "object-enters-board 入场替代本身可用：cost/cost-plan.ts 的 optionalAdditional 支持 kind \"accelerate\"（805.1.b 的 " +
+    "固定 [1][C] 与 805.1.b.1 的域匹配力量，golden 用真实 buildCostPlan 断言支付/拒绝），replacement/ 的 bindReplacement " +
+    "也能把横置入场改写成就绪入场（golden 用真实 move-zone 验证）。缺的是卡牌 keyword → 费用组/替代能力 的生产接线：" +
+    "没有消费方读取 accelerate.cost 生成 { kind: \"accelerate\" } 费用组，也没有卡牌程序 → 替代能力的注册路径（RIFT-257）。" +
+    "(2) [Assault 4]（807）——continuous.might 图层算术修正本身可用，但 807.1.d 的 Attacker designation 只在 RIFT-124 的 " +
+    "combat 流程产生（角色事务仍抛 combat-start-transaction），且 Assault 展开用的 " +
+    "compare(object-property(self, \"designation\"), eq, \"attacker\") 不在图层条件词表内" +
+    "（layers/engine.ts 的 conditionMatches 只认 always/never/type/has-tag/has-keyword，未知条件按 true）——" +
+    "实测把该展开绑定到非攻击者仍会加 4 Might（3 → 7），直接绑定即近似实现。" +
+    "依赖：RIFT-257（卡牌程序绑定）、Accelerate 费用组的生产接线、RIFT-124 的攻击者 designation 与图层条件消费。" +
+    "不近似实现（不把 Assault 4 写成恒定的 +4，也不手改费用）。",
   abilities: [
     // 805.1.b：费用固定为 [1][C]，keyword 不带数值；805.4：多个实例冗余。
     { kind: "keyword", keyword: "accelerate" },

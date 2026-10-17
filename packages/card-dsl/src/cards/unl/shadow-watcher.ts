@@ -22,12 +22,19 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   窗口，也没有“事件发生在某阶段内”的范围键，count 表达式又只数当前集合对象、不查历史台账。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required。
- * - 入场替代没有消费方：events 侧有替代注册表，但没有读取 CardProgram 的 replacement 能力并注册的
- *   入口（契约 3.1 replacement → 事件管线替代注册的适配路径未合入；sfd/breakneck-mech、
- *   sfd/vayne-hunter、sfd/dunebreaker 记录同一批次缺口）。
- * - 条件无法诚实求值：需要「本回合 + 你的 Beginning Phase 内 + 有友方单位被消灭」的历史窗口，
- *   冻结的 Condition/HistoryQuery 表达不了（没有阶段范围的死亡台账读取入口），count 只数当前集合。
- * 依赖：RIFT-9（replacement.enter 系列）、RIFT-120（链与事件单管线）与阶段范围的历史查询。
+ * - 入场替代的绑定点已合入（RIFT-260 的 replacement/：bindReplacement 会把本能力的
+ *   replaces/with 变成事件管线的动作匹配器，replacement.enter 也在 planner 支持集内）；
+ *   golden 直接绑定本能力并让真实 move-zone 走过拦截、把横置的链区永久物改成就绪入场。
+ *   仍缺的是卡牌程序到该绑定点的生产接线（RIFT-257 的 programs/ 适配器无运行时调用方）。
+ * - 条件无法诚实求值：需要「本回合 + 你的 Beginning Phase 内 + 有友方单位被消灭」的历史窗口。
+ *   合并 HistoryQuery 仍只有 scope/action/timingPoint/player/object/exclude/objectFilter，
+ *   scope 只到 turn/combat/game，没有「你的 Beginning Phase」这一阶段窗口；对象侧也没有玩家侧
+ *   死亡台账的读取入口，count 表达式只数当前集合对象，其 filter 词表（type/controller/…）
+ *   同样没有「本回合死亡」维度。实测两个已合入读取方对同一个 filter 也不一致：
+ *   layers/filter.ts 的 matchesObjectFilter 会匹配活着的友方单位，而解释器的 count 查询
+ *   只返回当前集合对象、对该 filter 计数为 0；两边都没有读「死亡台账」。
+ *   condition.predicate 已合入但只转发到 ResolveContext.test，没有阶段窗口谓词。
+ * 依赖：RIFT-257（卡牌程序 → 替代/图层能力的生产接线）与阶段范围的历史/谓词查询。
  * 不近似实现：不用事后 effect.ready 代替入场替代，也不把条件写成常量。
  * golden 的 test.todo 记录了缺口；effect.ready 本体已合入并在其它卡中真实执行过。
  */
@@ -65,15 +72,19 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处缺口，均不近似实现：(1) “I enter ready” 是入场替代（143.4 / 359.2.c；369.3 的官方示例 Master Yi, Honed），" +
-    "但缺 replacement.enter 的消费方：events 侧有替代注册表，却没有读取 CardProgram replacement 能力并注册的入口" +
-    "（契约 3.1 replacement → 事件管线替代注册的适配路径未合入，sfd/breakneck-mech、sfd/vayne-hunter、sfd/dunebreaker 记录同一缺口）；" +
-    "用事后 effect.ready 近似会多出一次状态变化（effect.ready 文档明确不参与入场替代）。(2) 条件 " +
-    "“If a friendly unit died during your Beginning Phase this turn” 无法诚实求值：需要“本回合 + 你的 Beginning Phase" +
-    "（315.2 / 315.2.a / 315.2.a.1）内 + 有友方单位被消灭（429.1 / 429.1.a）”的历史窗口，" +
-    "冻结的 HistoryQuery 只有 scope/action/timingPoint/player/object，没有阶段范围键与玩家侧死亡台账入口，" +
-    "count 表达式只数当前集合对象。依赖：RIFT-9（replacement.enter 系列）、RIFT-120（链与事件单管线）" +
-    "与阶段范围的历史查询。effect.ready 本体已合入，golden 对其保留 test.todo 并在此说明缺口。",
+    "两处缺口，均不近似实现：(1) “I enter ready” 是入场替代（143.4 / 359.2.c；369.3 的官方示例 Master Yi, Honed）。" +
+    "绑定点本身已合入：RIFT-260 的 replacement/ 提供 bindReplacement，planner 支持 replacement.enter；golden 已把本能力绑成" +
+    "真实事件拦截，并由真实的 move-zone 把横置的链区永久物改成就绪入场。仍缺卡牌程序 → 该绑定点的生产接线" +
+    "（RIFT-257 的 programs/ 适配器没有运行时调用方）；用事后 effect.ready 近似会多出一次状态变化（effect.ready 文档明确" +
+    "不参与入场替代）。(2) 条件 “If a friendly unit died during your Beginning Phase this turn” 无法诚实求值：" +
+    "需要“本回合 + 你的 Beginning Phase（315.2 / 315.2.a / 315.2.a.1）内 + 有友方单位被消灭（429.1 / 429.1.a）”的历史窗口，" +
+    "而合并 HistoryQuery 仍只有 scope/action/timingPoint/player/object/exclude/objectFilter，scope 只到 turn/combat/game，" +
+    "没有“你的 Beginning Phase”这一阶段窗口；对象侧也没有玩家侧死亡台账入口，count 表达式只数当前集合对象，其 filter 词表" +
+    "同样没有“本回合死亡”维度。实测两个已合入读取方对同一 filter 也不一致：layers/filter.ts 的 matchesObjectFilter 会匹配活着的" +
+    "友方单位，而解释器的 count 查询对该 filter 计数为 0——两边都不读死亡台账。condition.predicate 已合入但只转发到" +
+    "ResolveContext.test，没有阶段窗口谓词。" +
+    "依赖：RIFT-257（卡牌程序 → 替代能力的生产接线）与阶段范围的历史/谓词查询。" +
+    "effect.ready 本体已合入，golden 保留 test.todo 并在上方说明缺口。",
   abilities,
   sourceText: "If a friendly unit died during your Beginning Phase this turn, I enter ready."
 } satisfies CardProgram;
