@@ -267,3 +267,19 @@ test.todo(
     "execution (CR 820.1.c.1 / 820.1.d.1 / 820.2 / 820.2.a; RIFT-89 cost plan plus the wiring named in " +
     "effects/keywords/Repeat.ts)."
 );
+// Direct evidence for the [Repeat] gap recorded in the judgeReason: the merged
+// play-cost adapter refuses the optional additional-cost declaration before
+// any plan can be built, so the printed [Repeat] cost never reaches Finalize.
+import { translateCost } from "../../../../engine-core/dist/programs/play.js";
+
+test("sfd-077-221 Rocket Barrage: the merged play-cost adapter refuses the optional [Repeat] cost declaration (CR 820.1.c.1)", () => {
+  assert.throws(
+    () => translateCost(play.cost, "rocket-barrage:play", "play"),
+    (error) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /Unsupported play cost field optional on rocket-barrage:play/);
+      return true;
+    }
+  );
+});
+

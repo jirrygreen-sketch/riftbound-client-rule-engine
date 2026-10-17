@@ -218,3 +218,25 @@ test.todo(
     "reveal instruction can run inside its ability body"
 );
 
+// Evidence for Ravenbloom Conservatory's third recorded gap: the merged chain
+// adapter unwraps effect.reveal's Expr pick back to a bare value before the
+// primitive runs, so the contract spelling (contract 3.2) is rejected at
+// runtime even though validateCardProgram accepts it.
+test("sfd-215-221 Ravenbloom Conservatory: the contract's Expr pick spelling is rejected by the merged chain adapter", () => {
+  const kernel = world().player("A").deck(["top-card", "next-card"]).build();
+  const ordered = kernel.zoneSlice("A", "deck", "top", 1).map((object) => object.ref);
+  kernel.setPicks("ravenbloom.revealed-card", ordered);
+
+  // The card ships the contract-3.2 spelling (see revealInstruction.args.pick);
+  // running it through the merged interpreter adapter proves the gap is real
+  // and not an approximation artifact.
+  assert.throws(
+    () => resolveChainBody([revealInstruction], kernel),
+    (error) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /effect\.reveal: pick must be a non-empty id/);
+      return true;
+    }
+  );
+});
+

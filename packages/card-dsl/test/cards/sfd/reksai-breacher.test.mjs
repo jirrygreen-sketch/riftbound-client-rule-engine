@@ -212,3 +212,37 @@ test.todo(
     "evaluates the condition and fails closed when designation is absent, so the unit remains at Might 3 - upstream contract alignment"
 );
 
+// Direct evidence for the first recorded gap: the production static binder
+// (the default binder used by attachProgramLifecycle) translates the grant
+// through staticFilter, whose whitelist rejects the card's playedFromZoneNot
+// placeholder with a judge-required ProgramBindingError.
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { ProgramBindingError } from "../../../../engine-core/dist/programs/errors.js";
+
+test("sfd-029-221 Rek'Sai, Breacher: the production static binder rejects the grant's playedFromZoneNot placeholder", () => {
+  const kernel = world()
+    .unit("breacher", { might: 3, zone: "board", location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const layers = createLayerEngine(kernel.objects, []);
+  const binder = createEngineStaticBinder({
+    layers,
+    pipeline: {
+      host: {
+        objects: () => kernel.objects,
+        context: (snapshot, controller, timingPoint) =>
+          kernel.clone({ sourceSnapshot: snapshot, source: snapshot.ref })
+      }
+    }
+  });
+
+  assert.throws(
+    () => binder.bindStatic(grant, kernel.getObject("breacher")),
+    (error) => {
+      assert.ok(error instanceof ProgramBindingError);
+      assert.equal(error.code, "judge-required");
+      assert.match(error.message, /Unsupported static filter field playedFromZoneNot/);
+      return true;
+    }
+  );
+});
+

@@ -162,3 +162,23 @@ test("sfd-009-221 Serrated Dirk: the merged CardProgram binding builds the activ
 
 test.todo("sfd-009-221 Serrated Dirk: paying the printed Fury Equip cost (CR 818.1.b / 818.1.c.3) needs an equip payment kind in cost/plan-values.ts plus the printed cost flowing through ExpandInput params.cost (contract 3.8 item 3) - in-progress RIFT-261.");
 test.todo("sfd-009-221 Serrated Dirk: the printed Fury Equip cost still cannot flow through KeywordAbility -> expand params.cost -> Finalize (RIFT-261); the merged RIFT-257 describeActivate already builds the activation draft for this card.");
+// Direct evidence for the recorded cost gap: the merged cost pipeline refuses
+// the equip payment kind before any payment can be assessed (CR 818.1.b /
+// 818.1.c.2). The printed Fury cost stays descriptive until RIFT-261 lands.
+import { buildCostPlan, CostPlanError } from "../../../../engine-core/dist/cost/index.js";
+
+test("sfd-009-221 Serrated Dirk: the merged cost pipeline rejects the equip payment kind (CR 818.1.b / 818.1.c.2)", () => {
+  const kernel = equipWorld();
+  const [expansion] = expansionFor();
+
+  assert.throws(
+    () => buildCostPlan(kernel, { id: "serrated-dirk.equip", cost: expansion.cost }),
+    (error) => {
+      assert.ok(error instanceof CostPlanError);
+      assert.equal(error.reason, "judge-required");
+      assert.match(error.message, /Unsupported payment kind: equip/);
+      return true;
+    }
+  );
+});
+

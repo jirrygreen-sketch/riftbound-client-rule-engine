@@ -160,3 +160,36 @@ test.todo(
     "only records the played count (number), so there is no linked object whose types could be tested; " +
     "the 355.2.b location permission then has no gate to open"
 );
+// Direct evidence for the third recorded gap: the merged effect.play receipt
+// links only the played count (number) — never the played object references —
+// so the printed "if the played card is a unit" gate has no linked object to
+// read types from. The cost plan is constructed explicitly here (gap 2's
+// missing producer is the judge-required surface recorded above) so this test
+// exercises exactly gap 3.
+import { buildCostPlan } from "../../../../engine-core/dist/cost/index.js";
+import play from "../../../../engine-core/dist/effects/instructions/effect.play.js";
+
+test("sfd-170-221 Rek'Sai, Swarm Queen: a real effect.play receipt links only the played count, not the played card", () => {
+  const kernel = world().player("A").deck(["c1", "c2", "c3"]).build();
+  const top = kernel.zoneSlice("A", "deck", "top", 2).map((object) => object.ref);
+  // Explicit finalized plan (gap 2 already covers the missing producer); the
+  // play itself really moves the chosen revealed card out of the deck.
+  const costPlan = buildCostPlan(kernel, {
+    id: "reksai.play-test",
+    cost: { kind: "explicit", energy: { kind: "constant", value: 0 } }
+  });
+
+  const run = runInstruction(
+    play,
+    { pick: "reksai.revealed-play", linkKey: "played", cost: { kind: "constant", value: costPlan } },
+    { world: kernel, picks: { "reksai.revealed-play": [top[0]] } }
+  );
+
+  assert.equal(run.result.status, "executed");
+  assert.deepEqual(kernel.zone("A", "deck").map((ref) => ref.id), ["c2", "c3"]);
+  // The receipt carries the count only: no object list means no linked object
+  // whose types could gate "if the played card is a unit" (CR 355.2.b).
+  assert.deepEqual(Object.keys(run.linked), ["played"]);
+  assert.equal(typeof run.linked.played, "number");
+});
+

@@ -165,3 +165,85 @@ test.todo(
   "sfd-098-221 Sea Monkey: the CardProgram binding must accept the body's `object: \"self\"` target anchor " +
     "(programs/filters.ts translateObjectFilter currently rejects it as an unsupported filter field) — RIFT-257"
 );
+// Direct evidence for the three recorded gaps: the paid-decision gate has no
+// Condition vocabulary, the "me" anchor is rejected by the filter adapter, and
+// the production static binder cannot map the cost.additional declaration.
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+
+test("sfd-098-221 Sea Monkey: no Condition vocabulary can read the additional-cost payment decision (CR 356.4.f.1)", () => {
+  // Attach the missing gate where the printed text puts it (the play trigger),
+  // spelled as the surveyed cost-result condition. The merged validator rejects
+  // the kind outright — there is no constant-true escape hatch to abuse.
+  const attempt = {
+    ...program,
+    canonicalCardId: "card.synthetic-sea-monkey-cost-result",
+    status: "executable",
+    judgeReason: undefined,
+    abilities: [
+      additionalCost,
+      {
+        ...playTrigger,
+        trigger: {
+          ...playTrigger.trigger,
+          condition: { kind: "cost-result", plan: { kind: "constant", value: "sea-monkey.cost-plan" } }
+        }
+      }
+    ]
+  };
+  const result = validateCardProgram(attempt);
+  assert.equal(result.ok, false);
+  const issue = result.issues.find((entry) => entry.path === "$.abilities[1].trigger.condition.kind");
+  assert.ok(issue, "the trigger-condition path must be validated");
+  assert.equal(issue.code, "invalid-condition-kind");
+  assert.match(issue.message, /Expected a supported condition kind/);
+});
+
+test("sfd-098-221 Sea Monkey: the production filter adapter rejects the body's self anchor", () => {
+  assert.throws(
+    () => translateObjectFilter(selfSpec.filter),
+    (error) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /Unsupported filter field object/);
+      return true;
+    }
+  );
+});
+
+test("sfd-098-221 Sea Monkey: the production static binder cannot map the cost.additional declaration", () => {
+  // The registry refuses judge-required programs, so the binding path is
+  // exercised against the same abilities with the status lifted for this
+  // scenario only; the shipped program keeps judge-required.
+  const lifted = { ...program, canonicalCardId: "card.synthetic-sea-monkey", status: "executable", judgeReason: undefined };
+  const binding = createProgramBinding({ cardPrograms: [lifted] });
+  const board = fixture({
+    cards: [{ id: "monkey", cardId: lifted.canonicalCardId, types: ["unit"], energy: 2, power: [], might: 2 }],
+    describePlay: binding.describePlay
+  });
+  const errors = [];
+  binding.attachLifecycle(board.engine, (error) => errors.push(error));
+  board.engine.commit({
+    type: "move-zone",
+    object: board.kernel.ref("monkey"),
+    to: "battlefield",
+    location: { type: "battlefield", id: "bf-1" }
+  });
+  board.engine.layers.setObjects(board.kernel.objects);
+
+  // Both static abilities fail closed through the default engine binder: the
+  // additional-cost declaration has no layer mapping, and the buff body's
+  // self anchor is refused by the same production filter adapter.
+  const messages = errors.map((error) => String(error.message));
+  assert.ok(
+    messages.some((message) => /Static ability kind cost\.additional has no layer mapping/.test(message)),
+    "expected the cost.additional mapping rejection, got: " + JSON.stringify(messages)
+  );
+  assert.ok(
+    messages.some((message) => /Unsupported filter field object/.test(message)),
+    "expected the self-anchor rejection, got: " + JSON.stringify(messages)
+  );
+});
+

@@ -178,3 +178,43 @@ test.todo(
   "sfd-217-221: Battlefield 对象进入可查询集合、ObjectFilter 支持 exclude 锚点与队友（allies）关系后，" +
     "count 真实统计\"other battlefield you or allies control\"（RIFT-9 target.query / 队伍模式接线）"
 );
+// Direct evidence for the two vocabulary gaps recorded in the judgeReason:
+// the exclude anchor is rejected outright, and you-or-ally passes the binding
+// adapter only as an unnormalized literal that the layer matcher then treats
+// as an unknown player value (never an ally set).
+import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+test("sfd-217-221 Seat of Power: the exclude anchor is rejected by the merged filter adapter", () => {
+  assert.throws(
+    () => translateObjectFilter(BATTLEFIELD_COUNT.filter),
+    (error) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /Unsupported filter field exclude/);
+      return true;
+    }
+  );
+});
+
+test("sfd-217-221 Seat of Power: you-or-ally has no PlayerSelector semantics in the binding or the matcher (CR 471.1.a)", () => {
+  // The adapter does not normalize the spelling — it is carried through as a
+  // literal controller value...
+  const translated = translateObjectFilter({ type: "battlefield", controller: "you-or-ally" });
+  assert.deepEqual(translated, { type: "battlefield", controller: "you-or-ally" });
+
+  // ...and the layer matcher compares that literal against each object's
+  // controller, so an allied battlefield never matches. Teammate semantics
+  // therefore exist in neither layer; the printed count cannot be evaluated.
+  const kernel = world().player("A").build();
+  const battlefield = {
+    ref: { id: "bf-1", zoneEntryId: 1 },
+    id: "bf-1",
+    types: ["battlefield"],
+    tags: [],
+    zone: "board",
+    controller: "A",
+    owner: "A"
+  };
+  assert.equal(matchesObjectFilter({ controller: "you-or-ally" }, battlefield), false);
+  assert.equal(matchesObjectFilter({ controller: "A" }, battlefield), true);
+});
+

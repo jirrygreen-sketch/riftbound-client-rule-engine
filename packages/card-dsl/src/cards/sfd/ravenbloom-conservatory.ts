@@ -49,7 +49,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入，均不近似实现。(1) defense-declared 没有产生方：combat/flow.ts 的战斗开始事务显式抛出 " +
+    "三处依赖未合入，均不近似实现。(1) defense-declared 没有产生方：combat/flow.ts 的战斗开始事务显式抛出 " +
     "TurnCombatBlockedError('combat-start-transaction')，时序审计（docs/rules/timing-point-producers.md）把 " +
     "attack-declared/defense-declared 记为「待后续」，触发因此进不了链（RIFT-124 的 combat 事务后续）。" +
     "(2) \"here\"（053.3）在 EventPattern / ObjectFilter 里不可表达：已合入的 trigger-spec 校验器拒绝 here 字段" +
