@@ -22,26 +22,22 @@ import type { CardProgram } from "../../ir/index.js";
  *   stays a legal choice and simply is not Buffed again) is behaviour of the
  *   primitive and is not re-implemented here.
  *
- * Status: judge-required — the trigger cannot be honestly bound with merged
- * code:
- * - "buffed" has no merged predicate in the trigger-filter vocabulary.
- *   EventPattern/ObjectFilter (events/trigger-spec.ts) offers objectId, cardId,
- *   type, controller, owner, zone, location, states, tags and characteristics; a
- *   Buff counter is not surfaced as a state. The closest honest spelling is the
- *   descriptive `characteristics: { buffs: 1 }` recorded below, which the merged
- *   matcher (events/pipeline-match.ts) compares with `===` against the event
- *   snapshot; that is NOT 702.2.a's "has a Buff counter" (buffs >= 1) — an object
- *   carrying a second Buff would be Buffed but fail this filter — so the key is
- *   recorded for review only and is never the executable predicate. (Tracked with
- *   the same gap as ogn-269-298 The Boss / ogn-090-298 Spirits' Refuge.)
+ * Status: judge-required (re-reviewed 2026-10-17):
+ * - "buffed" is expressible and verified against the merged matcher: 702.3
+ *   allows only one Buff on a Unit at a time and effect.buff refuses to place a
+ *   second one, so `characteristics: { buffs: 1 }` is exactly 702.2.a's "has a
+ *   Buff counter"; events/pipeline-match.ts compares it with `===` against the
+ *   dying unit's snapshot, and a golden asserts it matches a buffed unit and
+ *   rejects an unbuffed one.
  * - the death event's payload filter must be bound to the dying unit of THIS
  *   trigger, and the trigger must be collected with the dying unit's last-known
- *   information (383.2.c.3.b / 429.1.a.1.b). The card-program →
+ *   information (383.2.c.3.b / 429.1.a.1.b). The pipeline already collects
+ *   object-killed with the pre-leave snapshot, but the card-program →
  *   TriggerRegistration adapter that supplies `activeZones`, the trigger body /
  *   cost and the payload-object binding for card programs is still unmerged
- *   (RIFT-120 follow-up), so the trigger shown below is not registered by any
- *   merged path. (The "friendly" half is verified against the merged matcher:
- *   for `object-killed` the payload's `player` is the dying unit's controller, so
+ *   (RIFT-257), so the trigger shown below is not registered by any merged path.
+ *   (The "friendly" half is verified against the merged matcher: for
+ *   `object-killed` the payload's `player` is the dying unit's controller, so
  *   `player: "self"` does restrict it to this ability's controller.)
  * The Buff body itself uses only merged structures: contract 3.2 targets, the
  * ""another"-style exclusion via the other: true filter key (740.1.a) and the
@@ -54,16 +50,13 @@ const vanguardHelm = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "触发条件缺已合入的谓词与接线：" +
-    "(1) buffed（702.2.a：身上有 Buff counter 即为 Buffed）在 EventPattern/ObjectFilter（events/trigger-spec.ts）里没有谓词——" +
-    "可用字段只有 objectId/cardId/type/controller/owner/zone/location/states/tags/characteristics，Buff counter 不作为 states 暴露；" +
-    "最接近的写法是描述性键 characteristics: { buffs: 1 }，但合入匹配器（events/pipeline-match.ts）用 === 比较，" +
-    "并不等于 702.2.a 的\"至少有一个 Buff counter\"（身上有第二个 Buff 的单位仍是 Buffed，却不会命中），" +
-    "因此该键只作评审标记，绝不是可执行谓词。" +
-    "(2) 缺少把卡牌程序注册成触发器的 card-program → TriggerRegistration 适配器（activeZones、触发正文/费用与事件对象绑定，RIFT-120 后续接线）：" +
-    "合入代码里没有任何路径会用本卡声明的 filter 注册该触发，也没有按 383.2.c.3.b / 429.1.a.1.b 用离场前最后已知信息收集该死亡单位。" +
-    "（friendly 半段已对合入匹配器实测：object-killed 载荷的 player 是被消灭单位的控制者，故 player: self 确实限定为本能力控制者。）" +
-    "Buff 正文（另一个友方单位，740.1.a；effect.buff 的 702.2.a/427.1.b 语义）只用已合入结构，由 golden 以调用方提供的 Finalize 目标真实执行；整卡因触发绑定保持 judge-required，不近似实现。",
+    "触发绑定缺失（复核 2026-10-17）：buffed 谓词已可用——702.3 规定一名单位至多一个 Buff 且 effect.buff 不重复放置，" +
+    "因此 characteristics:{buffs:1} 精确等于 702.2.a 的「身上有 Buff counter」，已对合入匹配器（events/pipeline-match.ts）实测" +
+    "（buffed 单位命中、未 buff 单位不命中，golden 断言）；friendly 半段的 player:self 同样与 object-killed 载荷的控制者对齐。" +
+    "剩余缺口是没有把卡牌程序注册成触发器的 card-program → TriggerRegistration 适配器（activeZones、触发正文/费用与事件对象绑定，" +
+    "RIFT-257）：合入代码里没有任何路径会用本卡声明的 filter 注册该触发（pipeline 以离场前快照收集 object-killed 的机制已具备）。" +
+    "Buff 正文（另一个友方单位，740.1.a；effect.buff 的 702.2.a/427.1.b 语义）只用已合入结构，由 golden 以调用方提供的 Finalize 目标真实执行。" +
+    "整卡因触发绑定保持 judge-required，不近似实现。",
   abilities: [
     {
       kind: "triggered",
@@ -73,9 +66,9 @@ const vanguardHelm = {
           event: "object-killed",
           // "a buffed friendly unit": the dying unit must be a unit controlled by
           // this ability's controller (740.1.a) and must have a Buff counter
-          // (702.2.a). "buffs" is a descriptive characteristics key: the merged
-          // filter vocabulary has no "buffed" predicate, and it is never treated
-          // as matching by accident (see judgeReason).
+          // (702.2.a). 702.3 caps a unit at one Buff, so buffs:1 is the exact
+          // "has a Buff counter" predicate; the merged matcher compares
+          // characteristics with === against the dying unit's snapshot.
           object: { type: "unit", characteristics: { buffs: 1 } },
           player: "self"
         }

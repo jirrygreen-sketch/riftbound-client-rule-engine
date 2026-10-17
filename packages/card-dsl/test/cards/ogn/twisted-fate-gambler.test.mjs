@@ -6,8 +6,7 @@ import program from "../../../dist/cards/ogn/twisted-fate-gambler.js";
 const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
 const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js", engineCore));
 const { runAbilityBody } = await import(new URL("effects/interpreter.js", engineCore));
-const { runInstruction, world } = await import(new URL("effects/testing/index.js", engineCore));
-const stunPrimitive = (await import(new URL("effects/instructions/effect.stun.js", engineCore))).default;
+const { world } = await import(new URL("effects/testing/index.js", engineCore));
 
 const CANONICAL = "card.hash-6d4a83a454e91140b5cccaf25cef83d38b553d0863d8f7c80b8719fe33d8475e";
 const SOURCE_TEXT =
@@ -254,33 +253,36 @@ test("twisted-fate-gambler golden: the Mind branch draws 1 (CR 414.3)", () => {
 });
 
 test("twisted-fate-gambler golden: the Order branch stuns an enemy unit (CR 424.1)", () => {
-  // effect.stun 的参数形状要求 target 是 TargetSpec id 字符串，而链式适配器把
-  // `{ kind: "constant", value: "enemy-unit" }` 原样交给原语 schema，会抛
-  // “effect.stun target must be a spec id string”。因此这里用概要原语直接执行
-  // （Finalize 已锁定目标的等价调用），并在 test.todo 记录适配器缺口。
+  // The interpreter reads the Finalize-locked targets; the golden supplies that
+  // lock through setTargets and runs the card's own stun instruction through
+  // runAbilityBody (the chain-adapter decoding gap is recorded in judgeReason
+  // and the todo below).
   const kernel = attackWorld("order-rune", "Order");
-  const locked = kernel.ref("enemy-far");
-  const run = runInstruction(stunPrimitive, { target: "enemy-unit" }, {
-    world: kernel,
-    targets: { "enemy-unit": [locked] }
-  });
-  assert.equal(run.result.status, "executed");
+  kernel.setTargets("enemy-unit", [kernel.ref("enemy-far")]);
+
+  const outcome = runAbilityBody(withLockedTargets([stun1]), kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map((entry) => [entry.id, entry.result.status]), [
+    ["twisted-fate-gambler.stun-1", "executed"]
+  ]);
   assert.equal(kernel.getObject("enemy-far").stunned, true);
-  assert.deepEqual(run.events.map((event) => event.action), ["stun"]);
+  assert.deepEqual(outcome.events.map((event) => event.action), ["stun"]);
   assert.equal(stun1.args.target.value, "enemy-unit");
 });
 
 test.todo(
   "twisted-fate-gambler: 反身触发（388.1.b “Do one of the following”）要求按域条件把选中的分支作为**新的链项**" +
-    "入链；effects/ 下没有卡牌可用的反身触发构造原语（choice.mode 只按玩家选择）"
+    "入链；没有卡牌可用的反身触发构造原语，且 chain/engine.ts 的 assertFinalizationSurface 拒绝 choice.mode" +
+    "（Mode choices require a Finalize/Resolve choice-plan adapter）"
 );
 
 test.todo(
-  "twisted-fate-gambler: “reveal the top rune of your rune deck” 的顶张顺序（108.5.d）依赖 RIFT-66 的" +
-    "zoneSlice 接进 effect.reveal（当前 reveal 用 query 取候选，不保证区域内顺序）"
+  "twisted-fate-gambler: “reveal the top rune of your rune deck” 的顶张顺序（108.5.d）依赖把 zoneSlice/ordered picks" +
+    "接进 effect.reveal 的区域真子集路径（当前对符文牌库取顶 1 张会抛 “a subset of this zone requires upstream ordered picks”）"
 );
 
 test.todo(
-  "twisted-fate-gambler: 经链式适配器执行 effect.stun 需要适配器支持 IR 里 `{kind:\"constant\",value:\"specId\"}`" +
+  "twisted-fate-gambler: 经链式适配器执行 effect.stun 需要 chain/interpreter-adapter.ts 的 LITERAL_FIELDS 支持 IR 里 target" +
     "的目标 id 解码（当前会抛 “effect.stun target must be a spec id string”）；修复后再断言 Order 分支走链路径"
 );

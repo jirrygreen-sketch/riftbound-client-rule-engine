@@ -15,12 +15,12 @@ import type { CardProgram } from "../../ir/index.js";
  *   objects would take, 438.2 says prevented damage is replaced by a reduced
  *   event, and 438.7 classifies Prevent as a Delayed Replacement Effect, which
  *   the events pipeline owns. The card declares that replacement (contract 3.1
- *   replacement ability) and leaves interception to the engine, but three
- *   merged pieces are missing, so the card is judge-required:
- *   - ResolveContext (contract 3.6) exposes addContinuous and
- *     registerDelayedTrigger but no replacement registration, and
- *     effects/instructions has no replacement.prevent primitive, so a card
- *     program cannot install a damage prevention replacement;
+ *   replacement ability) and leaves interception to the engine. Re-reviewed
+ *   2026-10-17: the replacement registration path (replacement/bind.ts,
+ *   RIFT-260) is merged, but three pieces are still missing, so the card is
+ *   judge-required:
+ *   - effects/instructions has no replacement.prevent primitive, so the
+ *     declared body cannot install a damage prevention replacement;
  *   - the frozen damage GameAction carries only { source, target, amount,
  *     combat }, so "spell and ability damage" cannot be told apart from combat
  *     damage at the action level;
@@ -33,12 +33,11 @@ const unyieldingSpirit = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「Prevent all spell and ability damage this turn」是延迟替代效果（438.1、438.1.b、438.2、438.7），" +
-    "三条依赖未合入：(1) ResolveContext（契约 3.6）只有 addContinuous / registerDelayedTrigger，没有替代效果注册接口，" +
-    "effects/instructions 也没有 replacement.prevent 原语，卡牌程序无法安装伤害预防替代；" +
-    "(2) 冻结的 damage GameAction 只有 {source, target, amount, combat}，无法区分“法术与能力伤害”与战斗伤害；" +
-    "(3) 契约 3.1 的 replacement 能力没有 duration 字段，无法声明“本回合”。不近似实现；" +
-    "依赖：替代效果注册原语（replacement.prevent）与 damage 分类。",
+    "「Prevent all spell and ability damage this turn」是延迟替代效果（438.1、438.1.b、438.2、438.7），复核 2026-10-17 后仍有三处缺口：" +
+    "(1) 替代注册管线（replacement/bind.ts，RIFT-260）已合入，但 effects/instructions 没有 replacement.prevent 原语，" +
+    "声明的预防体无法安装成伤害预防替代；(2) 冻结的 damage GameAction 只有 {source, target, amount, combat}，" +
+    "无法区分“法术与能力伤害”与战斗伤害；(3) 契约 3.1 的 replacement 能力没有 duration 字段，无法声明“本回合”窗口。" +
+    "不近似实现；依赖：replacement.prevent 原语与 damage 的来源分类。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {

@@ -21,7 +21,7 @@ test("Unchecked Power program is structurally valid and judge-required", () => {
   // The judgeReason must name the actual gap (contract 3.1 / README §2).
   assert.match(program.judgeReason, /355\.10\.d/);
   assert.match(program.judgeReason, /effect\.damage/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /target.location \/ target\.many/);
 });
 
 test("Unchecked Power identity and printed text match the catalog", () => {
