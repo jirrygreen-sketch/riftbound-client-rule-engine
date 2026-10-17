@@ -50,7 +50,7 @@ const emperorsDivide = {
     "buildHiddenCostPlan 已支持 Hide [A] 与从 Hidden 免费打出的费用，但 cost.hidden 静态效果没有 Hide 行动、facedown 区域、下一回合 Reaction 权限的集成消费方（811.1.b/811.1.c）。" +
     "(2) 811.1.d.2 要求从 facedown 打出时所有被选单位都位于它被隐藏的战场，这是来源绑定的目标限制；" +
     "现有 TargetSpec filter 只能表达「unit 位于某个 battlefield」（355.10.b），无法表达「与隐藏来源同一战场」，" +
-    "该来源限制的 TargetSpec 字段不存在（811.1.d.2 不可表达）。(3)「at a battlefield」的目标组需满足同一战场约束，并在结算时选择最大合法子集（355.11.a/355.11.b/.b.1）；target-plan 只有逐对象的固定 location 重检，尚未绑定本卡的组约束/位置选择（RIFT-357）。effect.move 对已合法目标组的移动（355.12/355.13 的 any number → min 0；107.1.c 的 controller-base）已有真实子效果测试。",
+    "该来源限制的 TargetSpec 字段不存在（811.1.d.2 不可表达）。(3)「at a battlefield」的目标组需满足同一战场约束，并在结算时选择最大合法子集（355.11.a/355.11.b/.b.1）；target-plan 目前只有逐对象的固定 location 重检，尚未绑定本卡的组约束、同地 Finalize 选择与分离后的最大合法子集重选。effect.move 对已合法目标组的移动（355.12/355.13 的 any number → min 0；107.1.c 的 controller-base）已有真实子效果测试。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     { kind: "keyword", keyword: "action" },

@@ -7,6 +7,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-67da502bedfc109e81093202c4a30a43cf37ca8aada9f1460b33bee5c979fdae";
@@ -130,6 +131,20 @@ test("sfd-153-221 Eye of the Herald golden: a chosen Unit that left the Board is
   assert.equal(outcome.events.length, 0);
   assert.equal(kernel.getObject("eye-of-the-herald").attachedTo, null);
   assert.deepEqual(kernel.zone("A", "hand").map((ref) => ref.id), ["ally"]);
+});
+
+test("sfd-153-221 Eye of the Herald: the current cost reader rejects the printed Equip payment kind", () => {
+  const [activation] = expansionFor();
+  const kernel = eyeWorld();
+  assert.throws(
+    () => buildCostPlan(kernel.clone({ sourceSnapshot: kernel.getObject("eye-of-the-herald") }), {
+      id: "eye-of-the-herald:equip",
+      cost: activation.cost
+    }),
+    error => error.name === "CostPlanError" &&
+      error.reason === "judge-required" &&
+      /Unsupported payment kind: equip/.test(error.message)
+  );
 });
 
 test.todo(

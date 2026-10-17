@@ -5,6 +5,8 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/sfd/emperors-divide.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { createEngineStaticBinder, expandProgram } from "../../../../engine-core/dist/programs/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID = "card.hash-ecb9b44b724f5cf8fc83e9f49da0b24bed461053303201914a0ce0ef8db8ed45";
@@ -176,6 +178,27 @@ test("sfd-043-221 Emperor's Divide golden: choosing zero units is a legal play t
   assert.deepEqual(kernel.getObject("one").location, { type: "battlefield", id: "bf-1" });
 });
 
+test("sfd-043-221 Emperor's Divide: the merged Hidden expansion reaches the binder but has no cost consumer", () => {
+  const source = world()
+    .card("divide", {
+      cardId: program.canonicalCardId,
+      types: ["spell"],
+      zone: "board",
+      energy: 2,
+      power: null
+    })
+    .build()
+    .getObject("divide");
+  const expanded = expandProgram(program, source).expanded;
+  const hiddenExpansion = expanded.find(ability => ability.kind === "static" && ability.effect.kind === "cost.hidden");
+  assert.ok(hiddenExpansion, "Hidden must expand to the merged cost.hidden declaration");
+  const binder = createEngineStaticBinder({ layers: createLayerEngine([source]) });
+  assert.throws(
+    () => binder.bindStatic(hiddenExpansion, source),
+    /Static ability kind cost\.hidden has no layer mapping/
+  );
+});
+
 test.todo(
   "sfd-043-221 Emperor's Divide: [Hidden] needs the cost.hidden consumer — the Hide Discretionary Action, the " +
     "facedown zone and the free facedown play (CR 811.1.b / 811.1.c); no merged primitive consumes cost.hidden " +
@@ -190,5 +213,5 @@ test.todo(
 
 test.todo(
   "sfd-043-221 Emperor's Divide: enforce a single battlefield for the target group at Finalize, then " +
-    "reselect a maximal legal subset if the group separates before resolution (355.11.a/b/b.1; RIFT-357)"
+    "reselect a maximal legal subset if the group separates before resolution (355.11.a/b/b.1)"
 );

@@ -6,6 +6,8 @@ import program from "../../../dist/cards/sfd/emperors-dais.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
 import zone from "../../../../engine-core/dist/effects/instructions/effect.zone.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
@@ -285,6 +287,29 @@ test("sfd-207-221 Emperor's Dais golden: an unaffordable payment aborts before a
   assert.deepEqual(kernel.getObject("ally").location, BATTLEFIELD);
   assert.deepEqual(kernel.events, []);
   assert.equal(kernel.query({ type: "unit" }).filter(object => object.isToken).length, 0);
+});
+
+test("sfd-207-221 Emperor's Dais: production binding rejects the relative here anchors", () => {
+  assert.throws(
+    () => translateObjectFilter(returnUnit.targets[0].filter),
+    error => error.code === "judge-required" &&
+      /sameLocationAs/.test(error.message)
+  );
+
+  const source = world()
+    .object("dais", {
+      cardId: program.canonicalCardId,
+      types: ["battlefield"],
+      location: BATTLEFIELD
+    })
+    .build()
+    .getObject("dais");
+  const executableProbe = { ...program, status: "executable", judgeReason: undefined };
+  assert.throws(
+    () => triggerRegistrations(new ProgramRegistry([executableProbe]), source),
+    error => error.code === "judge-required" &&
+      /Unsupported filter field sameLocationAs/.test(error.message)
+  );
 });
 
 test.todo(

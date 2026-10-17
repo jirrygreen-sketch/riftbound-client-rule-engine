@@ -8,6 +8,7 @@ const { keywordDefinitionsById } = await import(new URL("effects/keywords/regist
 const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js", ENGINE));
 const { translateObjectFilter } = await import(new URL("programs/filters.js", ENGINE));
 const { world } = await import(new URL("effects/testing/index.js", ENGINE));
+const { buildCostPlan } = await import(new URL("cost/index.js", ENGINE));
 
 const CARD_ID = "card.hash-f9773189acce6bbb236b5fe609b108079a3b1b13064783ef685543fb56e8e969";
 const EXPECTED_SOURCE = "[Equip] :rb_rune_mind: (:rb_rune_mind:: Attach this to a unit you control.)";
@@ -122,6 +123,20 @@ test("sfd-073-221 Experimental Hexplate: the merged attach body really attaches 
 test("sfd-073-221 Experimental Hexplate: the Equip expansion declares its activation cost as an equip payment", () => {
   const [activation] = keywordDefinitionsById.get("Equip").expand({ value: equip.value, host: { canonicalCardId: CARD_ID } });
   assert.deepEqual(activation.cost.payments.map((payment) => payment.kind), ["equip"]);
+});
+
+test("sfd-073-221 Experimental Hexplate: the current cost reader rejects the Equip payment kind", () => {
+  const [activation] = keywordDefinitionsById.get("Equip").expand({ value: equip.value, host: { canonicalCardId: CARD_ID } });
+  const kernel = fixture();
+  assert.throws(
+    () => buildCostPlan(kernel.clone({ sourceSnapshot: kernel.getObject("experimental-hexplate") }), {
+      id: "experimental-hexplate:equip",
+      cost: activation.cost
+    }),
+    error => error.name === "CostPlanError" &&
+      error.reason === "judge-required" &&
+      /Unsupported payment kind: equip/.test(error.message)
+  );
 });
 
 test.todo(

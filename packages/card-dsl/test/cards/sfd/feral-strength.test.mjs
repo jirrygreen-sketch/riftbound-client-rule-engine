@@ -5,6 +5,8 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/sfd/feral-strength.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { describePlay } from "../../../../engine-core/dist/programs/play.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -137,4 +139,24 @@ test("sfd-034-221 Feral Strength golden: the chosen unit gains +2 Might and the 
   assert.deepEqual(outcome.events, []);
   assert.equal(layers.expireAt("turn-end").length, 1);
   assert.equal(layers.evaluate(kernel.ref("chosen")).might, 3);
+});
+
+test("sfd-034-221 Feral Strength: play binding rejects the printed Repeat additional cost", () => {
+  const kernel = world()
+    .card("feral", {
+      cardId: program.canonicalCardId,
+      owner: "A",
+      controller: "A",
+      zone: "hand",
+      types: ["spell"],
+      energy: 2,
+      power: null
+    })
+    .build();
+  const source = kernel.getObject("feral");
+  const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
+  assert.throws(
+    () => describePlay(registry, { type: "play", object: source.ref, player: "A" }, source),
+    error => error.code === "judge-required" && /Unsupported play cost field optional/.test(error.message)
+  );
 });

@@ -6,6 +6,9 @@ import program from "../../../dist/cards/sfd/fae-porter.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -184,6 +187,25 @@ test("sfd-125-221 Fae Porter golden: a unit already at the source battlefield is
   assert.equal(run.result.status, "executed");
   assert.deepEqual(run.events, []);
   assert.equal(run.linked.moved.count, 0);
+});
+
+test("sfd-125-221 Fae Porter: the moved trigger binds structurally but fails closed at production validation", () => {
+  const source = world()
+    .unit("fae", { cardId: program.canonicalCardId, location: { type: "battlefield", id: "field-1" } })
+    .build()
+    .getObject("fae");
+  const [registration] = triggerRegistrations(
+    new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]),
+    source
+  );
+  assert.equal(registration.spec.at, "object-moved");
+  assert.equal(registration.cost, undefined);
+  assert.equal(registration.mayAtFinalize, undefined);
+  assert.throws(
+    () => assertTriggerSpec(registration.spec),
+    error => error.name === "TriggerSpecValidationError" &&
+      /trigger\.filter\.event/.test(error.message)
+  );
 });
 
 test.todo(
