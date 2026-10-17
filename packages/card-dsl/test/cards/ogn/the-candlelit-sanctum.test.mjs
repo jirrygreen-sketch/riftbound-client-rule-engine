@@ -35,6 +35,7 @@ test("The Candlelit Sanctum program validates and is judge-required", () => {
   assert.match(program.judgeReason, /zoneSlice/);
   assert.match(program.judgeReason, /linked \+ exclude/);
   assert.match(program.judgeReason, /here/);
+  assert.match(program.judgeReason, /控制者/);
   assert.ok(!/RIFT-(64|357|358)/.test(program.judgeReason));
   assert.equal(program.sourceText, SOURCE_TEXT);
 });

@@ -25,6 +25,7 @@ test("The Harrowing identity and judge-required status match the printing", () =
   assert.equal(program.judgeReason.includes("356.1.b.2"), true);
   assert.match(program.judgeReason, /CostPlanInput/);
   assert.equal(program.judgeReason.includes("ignore-base"), true);
+  assert.match(program.judgeReason, /chain handoff/);
   assert.equal(
     program.sourceText,
     "Play a unit from your trash, ignoring its Energy cost. (You must still pay its Power cost.)"

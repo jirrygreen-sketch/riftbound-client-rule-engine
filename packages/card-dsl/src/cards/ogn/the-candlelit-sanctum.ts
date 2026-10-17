@@ -23,9 +23,10 @@ import type { CardProgram } from "../../ir/index.js";
  * computes the looked-minus-recycled remainder through a linked exclusion. The
  * golden test drives the full look → recycle → put-back chain through the
  * production adapter with both recycle choices. The remaining gap is the
- * conquer timing point's 053.3 "here" referent: the trigger filter keeps the
- * battlefield spelling (here: true / player: "controller"), which the merged
- * translateTriggerFilter/trigger-spec layer does not resolve.
+ * conquer timing point's 053.3 "here" referent and Battlefield ability-controller
+ * binding: the trigger filter keeps the battlefield spelling (here: true /
+ * player: "controller"), which the merged programs/filters.ts and trigger-spec
+ * layer do not resolve.
  */
 export default {
   canonicalCardId: "card.hash-9cbd7ae406600f049622c2827bd155c0754bc7dee82570641d6f2eccff28654a",
@@ -35,7 +36,7 @@ export default {
     "“看主牌库顶两张，可以回收其中任意张，其余任意顺序放回”三步已按有序 pick 契约编码并可由已合入原语完整执行：" +
     "zoneSlice 在 Finalize 锁定牌库顺序，linked + exclude 在 Resolve 计算“看过减已回收”的余集，golden 经生产适配器覆盖两种选择。" +
     "“your Main Deck”的查看者用 condition.value + linked-value 绑定；这是对 effect.inspect 参数校验形状的兼容写法，不是规则缺口。" +
-    "整条能力仍不可执行的唯一当前缺口是 conquer 触发的 053.3 “here” 位置锚点：filter 的 here: true / player: controller 仍无法由 translateTriggerFilter / trigger-spec 解析，" +
+    "整条能力仍不可执行的当前缺口是 conquer 触发的 053.3 “here” 位置锚点与 Battlefield 能力控制者绑定：filter 的 here: true / player: controller 仍无法由 programs/filters.ts / trigger-spec 解析，" +
     "因此无法把本战场的征服事件绑定到该 Battlefield 能力；不近似实现。",
   sourceText:
     "When you conquer here, look at the top two cards of your Main Deck. " +

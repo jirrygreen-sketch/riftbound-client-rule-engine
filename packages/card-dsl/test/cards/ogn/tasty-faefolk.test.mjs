@@ -21,7 +21,7 @@ test("ogn-075-298: identity, exact source text, pure data and explicit blocked s
   assert.match(program.judgeReason, /programs\/keywords\.ts/);
   assert.match(program.judgeReason, /accelerate\.cost/);
   assert.match(program.judgeReason, /805\.2\.b/);
-  assert.match(program.judgeReason, /channel-rune.*431\.2/);
+  assert.doesNotMatch(program.judgeReason, /test-kernel|参考测试内核/);
   assert.equal(program.sourceText, "[Accelerate] (You may pay :rb_energy_1::rb_rune_calm: as an additional cost to have me enter ready.)\n[Deathknell] — Channel 2 runes exhausted and draw 1. (When I die, get the effect.)");
   assert.deepEqual(JSON.parse(JSON.stringify(program)), program);
 });
@@ -227,8 +227,6 @@ test("Tasty Faefolk: original body draws independently with zero or one rune for
 });
 
 test.todo("Tasty Faefolk: bind optional Accelerate 1 energy + matching Calm power payment in programs/play.ts to its delayed enter-ready replacement without object-readied (CR 805.1.b.1/805.2.b/805.6.a)");
-
-test.todo("Tasty Faefolk: channel-rune must apply exhausted:true to the actual entering runes; effects/testing/test-kernel.ts currently only changes zones (CR 431.2)");
 
 test("Tasty Faefolk golden subeffect: empty Rune Deck channels zero without negating", () => {
   const kernel = world().unit("faefolk", { might: 6, power: null }).build();
