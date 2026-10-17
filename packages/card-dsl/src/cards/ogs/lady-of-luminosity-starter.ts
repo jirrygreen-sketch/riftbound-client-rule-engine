@@ -19,12 +19,12 @@ import type { CardProgram } from "../../ir/index.js";
  * - 174 / 174.7：Legend 可以有 Triggered Ability；107.4.c / 174.2.b：始终留在
  *   Legend Zone。
  *
- * status = judge-required：费用门槛（“costs [5] or more”）仍没有已合入的求值路径——
- * 管线的 TriggerRegistration/PipelineEvent 不携带被打出牌的印刷费用或费用计划，
- * 也没有 "cost-gte" 型谓词过滤器（现有持续效果指令不覆盖费用读值）。
+ * status = judge-required（复核 2026-10-17）：费用门槛（“costs [5] or more”）仍没有
+ * 已合入的求值路径——chain/engine.ts 的 card-played emission 只带 object/player，
+ * PipelineEvent.details 为空，也不存在 206 要求的“印刷/复制费用 ≥ 5 Energy”谓词。
  * 触发结构（card-played + 主体 effect.draw）都可执行；但不能在没有费用信息时把门槛
  * 近似成“任意法术”，因此整卡保持 judge-required，golden 只执行已支持的部分
- * （见 judgeReason 与 test.todo）。
+ * （见 judgeReason 与 test.todo）。Legend 的来源区域缺口同样未合入。
  */
 const ladyOfLuminosityStarter = {
   canonicalCardId:
@@ -34,16 +34,16 @@ const ladyOfLuminosityStarter = {
   judgeReason:
     "费用门槛「costs :rb_energy_5: or more」仍无法求值：触发过滤器的封闭形状（契约 3.5、" +
     "events/trigger-spec.ts 的 ObjectFilter / EventPattern）只按对象特征、区域、事件载荷与" +
-    "amount/details 过滤，PipelineEvent（pipeline-types.ts）不带被打出牌的印刷费用或费用计划，" +
-    "也没有 206 所要求的「印刷/复制费用 ≥ 5 Energy」谓词（现有持续效果指令" +
-    "不覆盖费用读值；sfd/sunken-temple.ts 与 sfd/show-of-strength.ts 记录同一判定）。" +
-    "触发时点 card-played（chain/engine.ts 已 emit）与效果 effect.draw 都已合入，" +
-    "但在拿不到费用时把门槛放宽成「任意法术」就是近似实现，按红线不做。" +
-    "另有一处非本卡 write scope 的接线缺口：Legend 的来源区域是 Legend Zone（CR 107.4.c），" +
-    "当前契约 ZoneId 与参考内核都没有该区域" +
-    "（默认 activeZones 为 ['board']）。" +
-    "依赖：206 的印刷费用谓词（cost-gte / condition.value）与 Legend Zone 契约。" +
-    "不近似实现。",
+    "amount/details 过滤；golden 用生产链真实打出的法术事件证明 chain/engine.ts 的 card-played " +
+    "emission 只有 object/player，details 为 undefined、也没有费用快照，" +
+    "所以本卡 filter 里的 printedEnergyCostAtLeast 永远命中不了（实测 matchesTriggerEvent === false）。" +
+    "206 要求的「印刷/复制费用 ≥ 5 Energy」谓词仍没有生产消费者" +
+    "（sfd/sunken-temple.ts 与 sfd/show-of-strength.ts 记录同一判定）；拿不到费用时把门槛放宽成" +
+    "「任意法术」就是近似实现，按红线不做。" +
+    "Legend 的来源区域是 Legend Zone（CR 107.4.c），effects/contract.ts 的 ZoneId 与参考内核都没有该区域，" +
+    "programs/triggers.ts 给永久物的 card-played 触发固定 activeZones ['board']，也覆盖不到 Legend 来源。" +
+    "触发时点 card-played（chain/engine.ts 已 emit）与效果 effect.draw 都已合入。" +
+    "依赖：206 的印刷费用谓词与 card-played 费用载荷、Legend Zone 契约。不近似实现。",
   abilities: [
     {
       kind: "triggered",

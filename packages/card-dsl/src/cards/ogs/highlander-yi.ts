@@ -26,26 +26,31 @@ import type { CardProgram } from "../../ir/index.js";
  *   be applied as part of the replaced outcome. "Send it to base" is the
  *   reminder for the Recall itself.
  *
- * Status: judge-required — the card-program replacement binding
- * (replacement/registerReplacement path, `replacement.event` with the
- * next-time-this-turn window, and the `{ linked: "replacement.object" }`
- * replaced-event binding), so the registration half is now reachable; the card
- * still cannot execute as printed because its replacement body needs a real
- * Recall and the body's chosen unit cannot be named from the card program:
+ * Status: judge-required (re-checked 2026-10-17) — `replacement.event` and its
+ * next-time-this-turn window plus the `{ linked: "replacement.object" }`
+ * replaced-event binding are merged in the replacement binder, but this card's
+ * printed shape still cannot execute. Three live gaps:
+ * - the play body registers the replacement with a `replacement.event`
+ *   *instruction*, and no such opcode exists in the instruction registry: the
+ *   merged interpreter rejects the card's own body with "Unregistered
+ *   instruction opcode: replacement.event" (the binder consumes that op only
+ *   inside a `kind: "replacement"` ability's `with` array, never as a
+ *   resolution-time registration); there is also no `trigger.delayed` op that
+ *   could express "this turn, the next death";
  * - Recall cannot be performed or approximated: effect.move documents that
  *   mode "recall" is blocked because the frozen move-location action cannot
- *   distinguish a Recall from a Move (457-460); binding this card's own
- *   replacement body fails closed with BlockedReplacementError for exactly that
- *   mode, and submitting an ordinary Move instead would wrongly fire Move
- *   triggers (458.1);
- * - the replacement body has no ObjectSelector for the object of the replaced
- *   event when the replaced object is the chosen unit itself: the merged
- *   binding exposes `{ linked: "replacement.object" }`, but this card's "it"
- *   is the previously chosen (355.10.c) unit rather than the event's object,
- *   so the body cannot be bound from the static IR;
+ *   distinguish a Recall from a Move (457-460); the merged planner fails closed
+ *   with BlockedReplacementError for exactly that mode, and submitting an
+ *   ordinary Move instead would wrongly fire Move triggers (458.1);
+ * - the replacement body's "it" is the previously chosen unit (355.10.c), not
+ *   the replaced event's object. The planner resolves `{ linked:
+ *   "replacement.object" }` but has no Finalize-locked TargetSpec binding, so
+ *   `{ target: "highlander-yi.chosen-unit" }` fails with "Unsupported
+ *   object-valued replacement argument" even though the replaced object of this
+ *   card's death replacement is that same unit.
  * The chosen-unit target and the replacement shape are recorded below for
- * review. The remaining gaps are the Recall action and binding the previously
- * chosen unit into the replacement body.
+ * review; the remaining gaps are the registration opcode, the Recall action and
+ * the replaced-object binding.
  *
  * Data note (not changed here): docs/plans/survey/data-issues-recheck.md
  * records that the S-ORIGINS printing of Highlander spells this as "...would
@@ -59,16 +64,19 @@ const highlanderYi = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "卡牌程序的替代绑定已支持 replacement.event 的 next-time-this-turn 一次性窗口、" +
-    "{ linked: \"replacement.object\" } 的被替代事件绑定），但本卡的替代体仍不可执行：" +
-    "(1) Recall 无法执行也无法近似：effect.move 文档明确 mode \"recall\" 被阻断（封闭 move-location 动作无法区分 Recall 与 Move，CR 457-460），" +
-    "绑定本卡替代体会直接抛 BlockedReplacementError，而用普通移动顶替会错误触发 Move 触发（458.1）并改变状态" +
+    "替代绑定本身已合入（replacement/bind.ts 支持 replacement.event 的 next-time-this-turn 一次性窗口与 " +
+    "{ linked: \"replacement.object\" }），但本卡的印刷能力仍不可执行，三处都是当前缺口：" +
+    "(1) 打出体的替代登记指令 op 是 replacement.event，而指令注册表没有该 opcode——" +
+    "合并解释器对本卡 body 直接抛 \"Unregistered instruction opcode: replacement.event\"" +
+    "（binder 只在 kind \"replacement\" 能力的 with 数组里消费它，没有结算期登记原语，也没有 trigger.delayed）；" +
+    "(2) Recall 无法执行也无法近似：effect.move 明确 mode \"recall\" 被阻断（封闭 move-location 动作无法区分 Recall 与 Move，" +
+    "CR 457-460），合并 planner 对该 mode 抛 BlockedReplacementError，而用普通移动顶替会错误触发 Move 触发（458.1）并改变状态" +
     "（460.1 要求 Recall 不影响状态，印刷的 exhausted 是本卡写明的例外）；" +
-    "(2) 替代体里的 \"it\" 指的是先前选择的单位（355.10.c：该指代不是新的目标选择），" +
-    "而合并绑定暴露的 replacement.object 是「被替代事件的对象」——本卡被替代的是该单位的死亡事件，" +
-    "但静态 IR 没有把「先前选择的单位」绑定进替代体的 ObjectSelector，无法写出不依赖运行时引用的替代体；" +
-    "因此不近似实现；“Choose a friendly unit”本身是目标（355.10.c 示例）并且已按 TargetSpec 编码。" +
-    "依赖：Recall 独立动作与替代体的被选单位绑定。",
+    "(3) 替代体里的 \"it\" 是先前选择的单位（355.10.c：该指代不是新的目标选择），" +
+    "planner 能解析 replacement.object 链接，但没有 Finalize 锁定 TargetSpec 的绑定通道，" +
+    "{ target: \"highlander-yi.chosen-unit\" } 抛 \"Unsupported object-valued replacement argument\"。" +
+    "不近似实现；“Choose a friendly unit”本身是目标（355.10.c 示例）并且已按 TargetSpec 编码。" +
+    "依赖：替代登记原语（trigger.delayed 或等价 op）、Recall 独立动作，以及替代体的被选单位绑定。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {

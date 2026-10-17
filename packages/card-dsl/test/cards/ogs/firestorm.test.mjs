@@ -5,6 +5,9 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ogs/firestorm.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 
 const CANONICAL_ID = "card.hash-4f827e86263468c7ee54c70750f747df55cb193818954ea93bd73791d1bf837a";
 const SOURCE_TEXT = "Deal 3 to all enemy units at a battlefield.";
@@ -26,6 +29,7 @@ test("ogs-002-024 Firestorm: program passes validateCardProgram and is judge-req
   assert.match(program.judgeReason, /effect\.damage/);
   assert.match(program.judgeReason, /355\.10\.d/);
   assert.match(program.judgeReason, /RIFT-9/);
+  assert.match(program.judgeReason, /parseArgs/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -112,10 +116,37 @@ test("ogs-002-024 Firestorm: the enemy-unit half is not approximated with a Targ
   assert.equal(storm.targets.length, 1);
 });
 
-test.todo(
-  "Firestorm resolution: effect.damage needs a non-target set form (355.10.d, RIFT-9 target.query) so it deals 3 " +
-    "to every enemy unit at the chosen battlefield, once each, without targeting any unit"
-);
+test("ogs-002-024 Firestorm golden: the merged effect.damage rejects this card's objects set verbatim", () => {
+  // 复核 2026-10-17: RIFT-9's non-target damage set is still open. The card's
+  // own args fail the merged primitive's schema before any action is planned.
+  const kernel = world().unit("enemy-here", { owner: "B", controller: "B", location: { type: "battlefield", id: "bf-1" } }).build();
+  assert.throws(
+    () => runInstruction(damage, storm.args, {
+      world: kernel,
+      targets: { "firestorm.battlefield": [kernel.ref("enemy-here")] }
+    }),
+    /effect\.damage args\.target must be a TargetSpec id string/
+  );
+  assert.equal(kernel.getObject("enemy-here").damage, 0);
+});
+
+test("ogs-002-024 Firestorm golden: driving the card's own body stops at the same missing set form", () => {
+  // The battlefield half is routable today: the declared TargetSpec resolves
+  // through the merged interpreter. Only the units set has no consumer, so the
+  // instruction must not silently become a per-unit targeting effect.
+  const kernel = world()
+    .unit("bf", { owner: "A", controller: "A", types: ["battlefield"], location: { type: "battlefield", id: "bf-1" } })
+    .unit("enemy-here", { owner: "B", controller: "B", location: { type: "battlefield", id: "bf-1" }, might: 9 })
+    .unit("enemy-elsewhere", { owner: "B", controller: "B", location: { type: "battlefield", id: "bf-2" }, might: 9 })
+    .build();
+  kernel.setTargets("firestorm.battlefield", [kernel.ref("bf")]);
+  assert.throws(
+    () => resolveChainBody(play.body, kernel),
+    /effect\.damage args\.target must be a TargetSpec id string/
+  );
+  assert.equal(kernel.getObject("enemy-here").damage, 0);
+  assert.equal(kernel.getObject("enemy-elsewhere").damage, 0);
+});
 
 test.todo(
   "Firestorm full chain play: pay 6 energy + 1 Fury power and lock the battlefield at Finalize " +

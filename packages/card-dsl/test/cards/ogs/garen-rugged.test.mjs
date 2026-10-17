@@ -15,6 +15,8 @@ import assault from "../../../../engine-core/dist/effects/keywords/Assault.js";
 import shield from "../../../../engine-core/dist/effects/keywords/Shield.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-4cb8d7a21af85e64b1351cadd5764e7d72532c46a93c2c85289c8c4351c33818";
@@ -41,6 +43,7 @@ test("ogs-007-024 Garen, Rugged: identity, status, judgeReason and verbatim sour
   assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /designation/);
   assert.match(program.judgeReason, /conditionMatches/);
+  assert.match(program.judgeReason, /Unavailable characteristic/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -144,15 +147,51 @@ test("ogs-007-024 Garen, Rugged: the generated card registry exposes the program
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
-test.todo(
-  "Garen, Rugged: +2 Might exactly while the 5 Might unit holds the Attacker designation and +2 while it " +
-    "holds the Defender designation (CR 807.1.c / 814.1.c) — blocked because the KeywordDef " +
-    "expansions read a designation property while ObjectSnapshot exposes combatRole, and " +
-    "layers/engine.ts conditionMatches does not evaluate the compare predicate"
-);
+test("ogs-007-024 Garen, Rugged golden: the production binder fails closed on the missing designation characteristic", () => {
+  // 复核 2026-10-17: the KeywordDef expansion and the production static binder
+  // are both merged. The expansion's compare reads "designation", which the
+  // ObjectSnapshot contract does not carry, so the condition wrapper swallows
+  // the missing-information error and no +2 is ever applied.
+  const expansion = assault.expand({ value: program.abilities[0].value, host: HOST })[0];
+  const { engine, kernel } = fixture({ cards: [{ id: "garen", might: 5, combatRole: "attacker" }] });
+  engine.commit({ type: "move-zone", object: kernel.ref("garen"), to: "base", location: { type: "base", player: "A" } });
+  createEngineStaticBinder(engine).bindStatic(expansion, kernel.getObject("garen"));
+  assert.equal(engine.layers.registry.list().length, 1);
+  engine.layers.setObjects(kernel.objects);
+  assert.equal(engine.layers.evaluate(kernel.ref("garen")).might, 5);
+});
+
+test("ogs-007-024 Garen, Rugged golden: layers/engine.ts ignores the compare predicate and applies +2 unconditionally", () => {
+  // Same merged layer engine, but with a raw continuous registration that still
+  // carries the object-shaped compare condition (as a bound static would once
+  // the characteristic name lines up). conditionMatches does not evaluate
+  // `compare`, so a defender wrongly receives the attacker-only +2.
+  const { engine, kernel } = fixture({ cards: [{ id: "garen", might: 5, combatRole: "defender" }] });
+  engine.commit({ type: "move-zone", object: kernel.ref("garen"), to: "base", location: { type: "base", player: "A" } });
+  engine.layers.addContinuous({
+    id: "garen-rugged.raw-assault",
+    layer: "arithmetic",
+    source: kernel.ref("garen"),
+    filter: { objectId: "garen" },
+    effect: {
+      kind: "continuous.might",
+      mode: "add",
+      amount: 2,
+      condition: {
+        kind: "compare",
+        left: { kind: "object-property", object: "self", property: "designation" },
+        operator: "eq",
+        right: { kind: "constant", value: "attacker" }
+      }
+    }
+  }, { type: "permanent" });
+  engine.layers.setObjects(kernel.objects);
+  assert.equal(engine.layers.evaluate(kernel.ref("garen")).might, 7);
+});
 
 test.todo(
   "Garen, Rugged: CR 807.2 / 814.2 (with CR 466.2.c.3) — a second Assault or Shield source sums per keyword, " +
-    "and role exclusivity keeps the two +2s from stacking in one Combat; keywords already declare " +
-    "stacking \"sum\", execution depends on the designation and compare path"
+    "and role exclusivity keeps the two +2s from stacking in one Combat; the keyword stacking \"sum\" and the " +
+    "combat/derived-might narrow path are merged, but execution still depends on the designation " +
+    "characteristic and the layers compare consumer"
 );

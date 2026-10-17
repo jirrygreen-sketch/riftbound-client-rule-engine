@@ -5,7 +5,11 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ogs/highlander-yi.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
+import { planReplacementBody } from "../../../../engine-core/dist/replacement/planner.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 
 const CANONICAL_ID = "card.hash-65c099c33a6f39283027cbf4532037cbd7fe982a1e896afd5bf5d35e0fc16512";
 const SOURCE_TEXT =
@@ -29,6 +33,7 @@ test("ogs-020-024 Highlander, Yi: program passes validateCardProgram and is judg
   assert.match(program.judgeReason, /Recall/);
   assert.match(program.judgeReason, /457-460/);
   assert.match(program.judgeReason, /replacement\.object/);
+  assert.match(program.judgeReason, /Unregistered instruction opcode/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -117,12 +122,72 @@ test("ogs-020-024 Highlander, Yi golden: Recall remains blocked rather than appr
   assert.equal(kernel.getObject("friendly").exhausted, false);
 });
 
+test("ogs-020-024 Highlander, Yi golden: the card's own body fails on the unregistered replacement opcode", () => {
+  // 复核 2026-10-17: replacement.event is implemented inside the binder, but it
+  // is NOT an instruction opcode, so the card's own play body cannot run at all
+  // once its declared target is satisfiable.
+  const kernel = world().unit("friendly", { owner: "A", controller: "A", location: { type: "battlefield", id: "bf-1" } }).build();
+  kernel.setTargets("highlander-yi.chosen-unit", [kernel.ref("friendly")]);
+  // The reference kernel compares "self" literally, so bind the acting player
+  // for the card's controller: "self" filter (the same convention the other
+  // goldens in this suite use for production-bound filters).
+  const context = bindResolveContext(kernel, {
+    source: kernel.getObject("friendly"),
+    controller: "A",
+    query: (filter) => kernel.query({ ...filter, ...(filter.controller === "self" ? { controller: "A" } : {}) })
+  });
+  assert.equal(instructionDefinitionsById.has("replacement.event"), false);
+  assert.equal(instructionDefinitionsById.has("trigger.delayed"), false);
+  assert.throws(
+    () => resolveChainBody(play.body, context),
+    /Unregistered instruction opcode: replacement\.event/
+  );
+});
+
+test("ogs-020-024 Highlander, Yi golden: the merged planner still blocks the Recall half", () => {
+  // The binder's planner is merged and is the authoritative cell for this
+  // replacement body; it refuses mode "recall" by rule 457-460 instead of
+  // silently substituting a Move (which would fire Move triggers, 458.1).
+  assert.throws(
+    () => planReplacementBody(
+      [recall],
+      { hostRef: { id: "friendly", zoneEntryId: 1 }, replacedObject: { id: "friendly", zoneEntryId: 1 }, usedWindow: false },
+      {
+        host: { object: () => null, objects: () => [], context: () => ({}) },
+        controller: "A",
+        evaluate: (expr) => expr && typeof expr === "object" ? expr.value : null
+      }
+    ),
+    (error) => error.name === "BlockedReplacementError" && /Recall/.test(error.message)
+  );
+  assert.equal(instructionDefinitionsById.has("effect.recall"), false);
+});
+
+test("ogs-020-024 Highlander, Yi golden: the exhausted half cannot be bound from the chosen unit either", () => {
+  // Even replacing the already-blocked Recall with a legal destination, the
+  // second instruction's object selector ({ target: ... }) is not resolvable in
+  // the binder: it has no Finalize-locked TargetSpec binding for replacement
+  // bodies (only the replaced event's object is exposed).
+  assert.throws(
+    () => planReplacementBody(
+      [exhaust],
+      { hostRef: { id: "friendly", zoneEntryId: 1 }, replacedObject: { id: "friendly", zoneEntryId: 1 }, usedWindow: false },
+      {
+        host: { object: () => null, objects: () => [], context: () => ({}) },
+        controller: "A",
+        evaluate: (expr) => expr && typeof expr === "object" ? expr.value : null
+      }
+    ),
+    (error) => error.name === "BlockedReplacementError" &&
+      /Unsupported object-valued replacement argument/.test(error.message)
+  );
+});
+
 test.todo(
   "Highlander, Yi: card-level replacement registration (binding the chosen unit into the replaced death, honouring " +
-    "the printed 'the next time' one-shot window) — replacement.event binding and its one-shot window are " +
-    "available, but the body's 'it' is the previously chosen unit, which the " +
-    "static IR cannot bind (the merged binding exposes only the replaced event's object), and the installed " +
-    "replacement body has no selector for that earlier TargetSpec"
+    "the printed 'the next time' one-shot window) — needs a registration primitive that reachable CardProgram IR can " +
+    "reference (trigger.delayed or an equivalent op) plus a Finalize-locked chosen-unit binding inside replacement bodies; " +
+    "the merged binder exposes only the replaced event's object"
 );
 
 test.todo(

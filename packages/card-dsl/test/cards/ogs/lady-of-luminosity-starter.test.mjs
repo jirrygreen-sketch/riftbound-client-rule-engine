@@ -20,6 +20,8 @@ import {
 } from "../../../../engine-core/dist/events/trigger-spec.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-6f04b2b3d826c60923e569bd93f6bfbe953076e0f78f137d2db69f5b53e10948";
@@ -42,6 +44,7 @@ test("ogs-021-024 Lady of Luminosity, Starter: identity, status, judgeReason and
   assert.match(program.judgeReason, /206/);
   assert.match(program.judgeReason, /cost/);
   assert.match(program.judgeReason, /Legend Zone/);
+  assert.match(program.judgeReason, /card-played/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -103,6 +106,43 @@ test("ogs-021-024 Lady of Luminosity, Starter: the printed Energy cost is never 
   const serialized = JSON.stringify(program);
   assert.equal(/\"energy\"\s*:/.test(serialized), false);
   assert.equal(/\"power\"\s*:/.test(serialized), false);
+});
+
+test("ogs-021-024 Lady of Luminosity, Starter golden: a real played spell emits card-played with no cost payload", () => {
+  // 复核 2026-10-17: drive the production chain. The emitted card-played event
+  // carries the played spell object and player only; details is undefined, so
+  // this card's cost gate cannot match and the gate must not be relaxed to
+  // "any spell". A spell of printed cost 5 is used to make the intent explicit.
+  let captured = null;
+  const f = fixture({
+    turnOrder: ["A", "B"],
+    turnPlayer: "A",
+    energy: 20,
+    cards: [{ id: "five-cost-spell", types: ["spell"], energy: 5, power: [] }]
+  });
+  f.engine.pipeline.registerTrigger({
+    id: "lady.watch",
+    source: f.kernel.getObject("source"),
+    controller: "A",
+    spec: { at: "card-played", filter: {} },
+    body: [],
+    activeZones: ["chain", "board", "trash"]
+  });
+  f.engine.pipeline.onTrigger = (snapshot) => { captured = snapshot.event; };
+  f.engine.execute(f.card("five-cost-spell", {
+    cost: {
+      id: "cost:five-cost-spell",
+      cost: { kind: "explicit", energy: { kind: "constant", value: 5 }, power: { kind: "constant", value: [] } }
+    }
+  }));
+  resolveAll(f.engine);
+  assert.ok(captured, "the merged chain emits card-played for a played spell");
+  assert.equal(captured.timingPoint, "card-played");
+  assert.equal(captured.object.types.includes("spell"), true);
+  assert.equal(captured.player, "A");
+  assert.equal(captured.details, undefined, "no printed-cost payload is attached");
+  assert.equal("action" in captured, false);
+  assert.equal(matchesTriggerEvent(ability.trigger.filter, captured, "A"), false);
 });
 
 test.todo(

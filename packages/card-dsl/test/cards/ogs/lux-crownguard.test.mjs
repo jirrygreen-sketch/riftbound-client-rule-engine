@@ -2,9 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
-import { translateCost } from "../../../../engine-core/dist/programs/play.js";
+import { translateCost, translateRestriction } from "../../../../engine-core/dist/programs/play.js";
 import resources from "../../../../engine-core/dist/effects/instructions/effect.resources.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { ProgramBindingError } from "../../../../engine-core/dist/programs/errors.js";
 import program from "../../../dist/cards/ogs/lux-crownguard.js";
 
 const CANONICAL =
@@ -28,6 +29,8 @@ test("ogs-014-024 Lux, Crownguard: program validates and is judge-required", () 
 test("ogs-014-024 Lux, Crownguard: judgeReason names restricted resource accounting", () => {
   assert.match(program.judgeReason, /only to play spells/);
   assert.match(program.judgeReason, /受限资源|restricted share|份额/);
+  assert.match(program.judgeReason, /ARG_KEYS/);
+  assert.match(program.judgeReason, /add-usage/);
 });
 
 test("ogs-014-024 Lux, Crownguard: Reaction-speed activated ability pays exhaust and adds 2 energy", () => {
@@ -97,3 +100,32 @@ test.todo(
     "and effect.resources only merges energy into one balance; a global restriction or an ignored " +
     "restriction is not acceptable"
 );
+
+test("ogs-014-024 Lux, Crownguard golden: the card's own Add args are rejected for the unsupported usage key", () => {
+  // 复核 2026-10-17: the merged effect.resources schema has no restricted-share
+  // channel, so the card's own body fails before any energy is credited.
+  const kernel = world().player("A", { energy: 0 }).build();
+  assert.throws(
+    () => runInstruction(resources, instruction.args, { world: kernel }),
+    /Invalid effect\.resources Expr argument: usage/
+  );
+  assert.equal(kernel.player("A").energy, 0);
+  // Dropping usage only merges the energy into the shared pool, which is not the
+  // printed restriction (054.2): the same balance would pay non-spell costs.
+  const unrestricted = runInstruction(resources, { energy: instruction.args.energy }, { world: kernel });
+  assert.equal(unrestricted.result.status, "executed");
+  assert.equal(kernel.player("A").energy, 2);
+  assert.equal(unrestricted.linked.resources.usage, undefined);
+});
+
+test("ogs-014-024 Lux, Crownguard golden: the printed add-usage restriction has no rules adapter", () => {
+  // programs/play.ts translates ability.restriction before Finalize; `add-usage`
+  // is neither a Condition kind nor carried by a condition field, so the
+  // production play binding fails closed instead of silently dropping the
+  // printed "only to play spells" restriction.
+  assert.throws(
+    () => translateRestriction(ability.restriction, CANONICAL),
+    (error) => error instanceof ProgramBindingError &&
+      /add-usage needs a rules adapter/.test(error.message)
+  );
+});

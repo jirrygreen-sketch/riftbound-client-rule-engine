@@ -17,6 +17,11 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import {
+  OBJECT_FILTER_ZONES,
+  validateTriggerSpec
+} from "../../../../engine-core/dist/events/trigger-spec.js";
 
 const CANONICAL_ID =
   "card.hash-bada5b917cb4b9f966ee3a8e2d81ca8bcacdc8093220a3f2d94d8234495aae12";
@@ -80,7 +85,9 @@ test("ogs-017-024 Dark Child, Starter: identity, status, judgeReason and verbati
   // dependent tasks, not just "needs support".
   assert.match(program.judgeReason, /validateTriggerSpec/);
   assert.match(program.judgeReason, /turn-end/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
   assert.match(program.judgeReason, /Legend Zone/);
+  assert.match(program.judgeReason, /OBJECT_FILTER_ZONES/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -90,6 +97,20 @@ test("ogs-017-024 Dark Child, Starter: turn-end trigger with a 2-rune ready body
   // "At the end of your turn" is the closed turn-end timing point (317.1.a).
   assert.equal(ability.trigger.at, "turn-end");
   assert.deepEqual(ability.trigger.filter, { event: "turn-end", player: "self" });
+  // The declared filter is rejected by the merged trigger validator. The
+  // spellings that would pass it cannot express "your turn": ObjectFilter has
+  // no player key, so a bare {} fires on both players' turn-end; `controller`
+  // applies to an event object and turn-end carries none (CR 317.1.a).
+  const validated = validateTriggerSpec(ability.trigger);
+  assert.equal(validated.ok, false);
+  assert.deepEqual(validated.issues.map(issue => [issue.path, issue.code]), [
+    ["trigger.filter.event", "invalid-event-type"]
+  ]);
+  assert.equal(validateTriggerSpec({ at: "turn-end", filter: { player: "self" } }).ok, false);
+  assert.equal(validateTriggerSpec({ at: "turn-end", filter: {} }).ok, true);
+  assert.equal(matchesTriggerEvent({}, { timingPoint: "turn-end", player: "B" }, "A"), true);
+  assert.equal(validateTriggerSpec({ at: "turn-end", filter: { controller: "self" } }).ok, true);
+  assert.equal(matchesTriggerEvent({ controller: "self" }, { timingPoint: "turn-end", player: "A" }, "A"), false);
   // The runtime matcher compares the event name against the emitted timing
   // point (event.kind ?? timingPoint), so a turn-end event for this player
   // matches and other timings/players do not.
@@ -99,6 +120,11 @@ test("ogs-017-024 Dark Child, Starter: turn-end trigger with a 2-rune ready body
   assert.equal(ability.trigger.condition, undefined);
   assert.equal(ability.trigger.once, undefined);
   assert.equal(ability.optional, false);
+  // CR 107.4.c / 174.2.b: the Legend source sits in the Legend Zone. No
+  // merged zone vocabulary has it, so the default activeZones ['board']
+  // (programs/triggers.ts) can never cover this card.
+  assert.equal(OBJECT_FILTER_ZONES.includes("legend"), false);
+  assert.equal(OBJECT_FILTER_ZONES.includes("legend-zone"), false);
 
   assert.equal(ability.body.length, 1);
   assert.equal(readyInstruction.id, "dark-child.ready-2-runes");
@@ -194,3 +220,23 @@ test.todo(
     "the frozen ZoneId (effects/contract.ts) and the reference kernel have no legend zone, and a " +
     "registration's default activeZones is ['board']"
 );
+
+test("ogs-017-024 Dark Child, Starter golden: the real registration path raises TriggerSpecValidationError for this filter", () => {
+  // CR 317.1.a's timing point is emitted by turn/flow.ts endTurn and the card
+  // program registration path is merged, but pipeline.registerTrigger runs
+  // assertTriggerSpec first. These are the two live failures, not the stale
+  // "registration not wired" wording.
+  const { engine, kernel } = fixture({ turnOrder: ["A", "B"], turnPlayer: "A", cards: [{ id: "legend", cardId: CANONICAL_ID, types: ["legend"], might: null }] });
+  assert.throws(
+    () => engine.pipeline.registerTrigger({
+      id: "dark-child.turn-end",
+      source: kernel.getObject("legend"),
+      controller: "A",
+      spec: ability.trigger,
+      body: ability.body,
+      activeZones: ["board"]
+    }),
+    (error) => error.name === "TriggerSpecValidationError" && /trigger\.filter\.event/.test(error.message)
+  );
+});
+

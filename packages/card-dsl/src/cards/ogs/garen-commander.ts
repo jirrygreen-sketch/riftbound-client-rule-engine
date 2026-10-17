@@ -16,23 +16,29 @@ import type { CardProgram } from "../../ir/index.js";
  *   检查，故 IR 用同一位置锚点 sameLocationAs: "source" 表达（契约 3.6 的
  *   ObjectFilter 锚点，解释器负责绑定运行时引用）。
  *
- * 状态：judge-required。continuous.might 与 CardProgram static 绑定已经合入，但本卡的
- * 静态 filter 同时需要按宿主当前位置动态取集合并排除宿主（"other" + "here"：053.3、
- * 355.10.d、359.3.f.2）。解释器的集合查询已支持 sameLocationAs/exclude 锚点；
- * 生产静态绑定目前拒绝 exclude/source 这种相对排除，并在绑定时固定位置，无法完成该
- * 动态集合的精确重算。
+ * 状态：judge-required（复核 2026-10-17）。continuous.might、CardProgram static 绑定与
+ * chain 生命周期接线都已合入，但 production static binder 仍有两处硬缺口：
+ * 1. programs/statics.ts 的 staticFilter 显式拒绝 exclude 锚点：本卡 filter 里的
+ *    exclude: "source" 直接抛 "Static exclude anchor needs a dynamic relative filter"
+ *    （golden 用真实 binder 证明），所以连注册都到不了图层。
+ * 2. sameLocationAs 在绑定时被求值成固定的 concrete LocationRef：golden 用去掉 exclude
+ *    的同形 filter 证明绑定后 filter.location 定格在宿主当时的位置，宿主移动到另一个
+ *    战场后仍给原位置的单位 +1——不是 053.3/359.3.f.2 要求的动态重算。
  * 本文件按契约 3.1 写出 static + 锚点过滤形状；不用 Buff 或其它原语近似 +1 Might。
- * 依赖：静态层对 source-relative exclude 与宿主位置变化的支持。
+ * 依赖：静态层对 source-relative exclude 的消费，以及宿主位置变化的动态重算。
  */
 export default {
   canonicalCardId: "card.hash-74b83d5a2a718072a63d9ce9431ec68047c326c6c61dad708fc3642b6b3c76a2",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "静态绑定仍无法精确消费本卡的 source-relative filter：continuous.might 与 static 绑定路径已存在，" +
-    "interpreter 集合查询也能求值 sameLocationAs/exclude 锚点（other + here：053.3、355.10.d、359.3.f.2），" +
-    "但生产静态 filter 不接受 exclude: \"source\"，且绑定时固定 source 位置，无法在宿主移动后" +
-    "重算「其他友方单位在此处 +1 Might」（CR 143.2）。不近似实现。依赖：静态层的相对排除与动态位置重算。",
+    "continuous.might、static 绑定路径与 chain 生命周期都已合入，但生产 static binder 仍无法消费本卡的 source-relative filter：" +
+    "(1) programs/statics.ts 的 staticFilter 拒绝 exclude 锚点，bindStatic 抛 " +
+    "\"Static exclude anchor needs a dynamic relative filter\"（golden 实测 ProgramBindingError）；" +
+    "(2) sameLocationAs 在绑定时被求值成固定 LocationRef，宿主移动后不会重算" +
+    "（golden 用同形 filter 证明位置被定格），而 CR 053.3/359.3.f.2 要求 here 按求值时的宿主位置重查。" +
+    "解释器集合查询本身已支持 sameLocationAs/exclude 锚点，缺的是静态层的生产消费方。不近似实现。" +
+    "依赖：静态层对 source-relative exclude 的消费与宿主位置变化的动态重算。",
   abilities: [
     {
       kind: "static",
