@@ -33,17 +33,17 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  *   已被移入手牌的那张引用失效而自动落选，正好是 "the rest"。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-17）。
- * - effect.inspect 的非零 top 查看虽已有 zoneSlice/ordered-pick 原语支持，但链的
- *   Finalize 仍只锁定 instruction.targets 的 TargetSpec（chain/engine.ts 的
- *   assertFinalizationSurface），没有把本卡 picksSpecId 接入生产打出生命周期，因此
- *   生产打出会因缺有序来源而看不到任何牌（golden 已证明未供有序来源时查看 0 张）。
+ * - effect.inspect 的非零 top 查看已有 zoneSlice/ordered-pick 原语支持；RIFT-358
+ *   已在链 Finalize 锁定 zoneSlice/linked 形态的 ordered pick
+ *   （chain/engine.ts 的 finalizeOrderedPickPlans），但本卡 picksSpecId 仍是
+ *   runtime 占位、没有生产打出生命周期里的消费方，因此生产打出会因缺有序来源
+ *   而看不到任何牌（golden 已证明未供有序来源时查看 0 张）。
  * - "reveal a gear from among them" 需要「从查看结果里按 gear 类型选一张」的判定：
  *   已合入的 effect.inspect 的 choose 只能对全部被查看对象做 0..1 选择、不带类型过滤，
  *   而写进 PickSpec 的 filter 只是描述性数据（本条 pick 的候选来自链接值），没有已合入的
  *   消费方会把「链接列表 + gear 过滤」变成可重放的结算期选择。若用无过滤的 choose 近似，
- *   会让玩家选到非装备牌——按红线不近似实现。此外链适配器
- *   （chain/interpreter-adapter.ts 的 LITERAL_FIELDS 只为 effect.reveal 列出 target）
- *   未解包 pick，卡声明的 pick 会在参数校验前被拒绝（effect.reveal: pick must be a non-empty id）。
+ *   会让玩家选到非装备牌——按红线不近似实现。effect.reveal 的 pick 字面量本身可执行：
+ *   RIFT-358 已让链适配器为 reveal 解包 pick/choiceId（chain/interpreter-adapter.ts）。
  * - 触发侧：hold 时点已由回合/计分流程发出，program 绑定已合入并在生产侧可用，
  *   filter.event 已按 TriggerSpec 词汇写作 "held" 并能完成注册；但计分流程的 hold
  *   载荷只带 player/details（turn/flow.ts 的 battlefield-score 波次），不含对象，
@@ -177,14 +177,13 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处当前缺口：(1)「look at the top 4 cards of your Main Deck」需要把已有 zoneSlice/ordered-pick 支持接入 Finalize：" +
-    "effect.inspect 的非零 top 作用域要求上游提供有序 picksSpecId，而链的 Finalize 仍只锁定 instruction.targets 的 TargetSpec" +
-    "（chain/engine.ts 的 assertFinalizationSurface），没有本卡 picksSpecId 的生产生命周期。" +
+    "三处当前缺口：(1)「look at the top 4 cards of your Main Deck」需要把已有 zoneSlice/ordered-pick 支持接入生产打出：" +
+    "effect.inspect 的非零 top 作用域要求上游提供有序 picksSpecId；RIFT-358 已在链 Finalize 锁定 zoneSlice/linked 形态的" +
+    "ordered pick（chain/engine.ts 的 finalizeOrderedPickPlans），但本卡 picksSpecId 仍是 runtime 占位、没有生产打出生命周期。" +
     "(2)「You may reveal a gear from among them」需要从查看结果里按 gear 类型选一张：effect.inspect 的 choose 只能对全部被查看对象做 0..1 选择、不带类型过滤，" +
     "写进 PickSpec 的 filter 只是描述性数据（候选来自链接值），没有消费方把「链接列表 + gear 过滤」变成可重放的结算期选择；" +
-    "用无过滤的 choose 近似会让玩家选到非装备牌，按红线不近似实现；并且链适配器（chain/interpreter-adapter.ts 的 LITERAL_FIELDS）" +
-    "只为 effect.reveal 解包 target、未解包 pick，卡声明的 pick 在到原语前就被参数校验拒绝" +
-    "（effect.reveal: pick must be a non-empty id）。" +
+    "用无过滤的 choose 近似会让玩家选到非装备牌，按红线不近似实现。effect.reveal 的 pick 字面量本身可执行：" +
+    "RIFT-358 已让链适配器为 reveal 解包 pick/choiceId（chain/interpreter-adapter.ts）。" +
     "(3) 触发侧：hold 时点已由回合/计分流程发出，program 绑定已合入并在生产侧可用，" +
     "filter.event 已按 TriggerSpec 词汇写作 \"held\" 并能完成注册；但计分流程的 hold 载荷只带 player/details" +
     "（turn/flow.ts 的 battlefield-score 波次）、不含对象，filter 的 self 归属永远命中不了。" +

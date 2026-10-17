@@ -87,9 +87,9 @@ const program = {
     "judge-required 拒绝，chain Finalize 也只检查调用方传入的 condition，054.2 的 only 门无法执行。" +
     "（3）契约 3.6 的 ZoneId（hand/deck/rune-deck/trash/banishment/board/rune-zone/chain）没有 Legend Zone（CR 108.3），" +
     "415.5/415.4 的费用式「横置我」缺少可执行宿主：费用计划只接受 board/rune-zone 上的对象（cost/payment.ts 的 checkAction；同 ogn/the-boss）。" +
-    "（4）[Reaction] 启动许可（813.1.c.2）本身可由 programs/activate.ts 声明为 ChainDraft.speed，但 chain.canAct 只读自身状态、" +
-    "不读 continuous.timing 图层许可（layers/rules 查询尚无 chain 消费方），传奇的费用宿主也使实际启动不成立。" +
-    "依赖：被选次数与选择来源归因的 history 维度、canAct 读取图层许可的消费方接线，" +
+    "（4）[Reaction] 启动许可（813.1.c.2）可由 programs/activate.ts 声明为 ChainDraft.speed，chain.canAct 也已读取 " +
+    "actionTimings 合并的 continuous.timing 图层许可（chain/engine.ts），但传奇的费用宿主（Legend Zone）仍使实际启动不成立。" +
+    "依赖：被选次数与选择来源归因的 history 维度、" +
     "以及 legend-zone 的契约表达。effect.draw 与「横置我」的 CostSpec 形状已合入，golden 真实执行；" +
     "不近似实现（不用 effect.exhaust 冒充费用，不把条件近似成某个可读计数）。",
   abilities,

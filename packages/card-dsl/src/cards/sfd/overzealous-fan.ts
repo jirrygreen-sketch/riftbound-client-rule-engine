@@ -19,22 +19,17 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   是选择的具体对象（355.10 / 355.9.a.1，"attacking" = 466.2.c 的 Attacker 身份），
  *   "to its base" 是该攻击者拥有者的 Base（198.1/198.2 的 Base Location；107.1.b）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。三处已合入缺口：
+ * status 判定（cards/README.md 第 2 节）：judge-required。两处当前缺口：
  * - defense-declared 时点没有发射方：events/action-adapter.ts 只为已提交游戏动作派生时点
  *   （ACTION_TIMINGS 无 defense-declared），combat/ 的 Defender 身份指派
  *   （466.2.c/323.2）尚未接入事件管线——combat/flow.ts 的 combat 开启路径直接抛
  *   TurnCombatBlockedError('combat-start-transaction')，全仓库没有 defense-declared 的 emit。
- * - "an attacking unit" 的目标合法性需要 Attacker 身份谓词（466.2.c）；ObjectFilter 的
- *   states 只有 ready/exhausted/stunned/attached/face-down，ObjectSnapshot 没有
- *   combatRole/designation（契约 3.8 只冻结了字段设计，实现属战斗批次），
- *   目标无法在 Finalize 按「正在攻击」筛选。
- * - "to its base" 需要该攻击者拥有者的 Base Location：effect.move 的 to 只接受静态
- *   LocationRef、controller-base 或静态候选列表；controller-base 会落到移动后控制者的
- *   Base（若控制者中途改变便不等价），而 198.2 要求的是拥有者的 Base，且该值要按所选
- *   目标在结算时派生（target.location 未合入）。
- * 依赖：combat 身份指派与事件管线发射、目标与目的地计划、
- * Attacker designation。不近似实现（不换时点、不用 controller-base 冒充
- * 拥有者 Base、不把「正在攻击」放宽成任意单位）。
+ * - "an attacking unit" 的目标合法性需要 Attacker 身份谓词（466.2.c）。数据侧已用
+ *   combatRole: "attacker" 表达（引擎快照与参考内核按该字段匹配），但生产程序绑定的
+ *   programs/filters.ts 仍把该键 fail-closed 拒绝，且 combat/ 的战斗指派未接入事件管线，
+ *   正式对局里该身份不会被赋值。
+ * 依赖：combat 身份指派与事件管线发射、目标计划消费方（含生产 filter 注册）、
+ * Attacker designation。不近似实现（不换时点、不把「正在攻击」放宽成任意单位）。
  */
 const abilities: Ability[] = [
   {
@@ -77,20 +72,24 @@ const abilities: Ability[] = [
                     kind: "constant",
                     value: { target: "overzealous-fan.attacking-unit" }
                   },
-                  // "to its base"：该攻击者**拥有者**的 Base（198.2）。effect.move 的
-                  // controller-base 会按移动后的控制者取 Base，不等价；按所选目标在结算时
-                  // 派生 LocationRef（target.location）尚未合入，故声明待接线的目的地。
-                  to: { kind: "constant", value: { ownerBaseOf: { target: "overzealous-fan.attacking-unit" } } },
+                  // "to its base"：该攻击者**拥有者**的 Base（198.2）。target-owner-base
+                  // 位置选择器已端到端合入（IR 校验、结算时按所选目标派生
+                  // {type:"base", player:owner}、effect.move 的目的地规范化），不用
+                  // controller-base 冒充（它取的是移动后的控制者）。
+                  to: {
+                    kind: "constant",
+                    value: { kind: "target-owner-base", target: "overzealous-fan.attacking-unit" }
+                  },
                   amount: { kind: "constant", value: 1 },
                   linkKey: { kind: "constant", value: "moved" }
                 },
                 targets: [
                   {
                     id: "overzealous-fan.attacking-unit",
-                    // "an attacking unit"：必须是 466.2.c 的 Attacker。ObjectFilter 的
-                    // states 没有该身份（契约 3.8 的 combatRole/designation 尚未实现），
-                    // 这里用 attacking 谓词声明该缺失条件，fail-closed 而不是放宽成任意单位。
-                    filter: { type: "unit", zone: "board", attacking: true },
+                    // "an attacking unit"：必须是 466.2.c 的 Attacker；引擎快照已有
+                    // combatRole 字段（战斗批次尚未把 Attacker 指派接入事件管线，且生产
+                    // 程序绑定还没有注册该 filter 键）。
+                    filter: { type: "unit", zone: "board", combatRole: "attacker" },
                     min: 1,
                     max: 1,
                     selection: "one"
@@ -110,18 +109,15 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处当前缺口（kill/optional 部分已合入并有 golden）：(1) defense-declared 时点没有发射方——events/action-adapter.ts 只为已提交游戏动作派生时点" +
+    "两处当前缺口（kill/optional、目标目的地均已合入并有 golden）：(1) defense-declared 时点没有发射方——events/action-adapter.ts 只为已提交游戏动作派生时点" +
     "（ACTION_TIMINGS 无 defense-declared），combat/ 的 Defender 身份指派（466.2.c/323.2、383.4.f.2）尚未接入事件管线，" +
     "combat/flow.ts 的 combat 开启路径直接抛 TurnCombatBlockedError('combat-start-transaction')，全仓库没有该时点的 emit；" +
-    "(2)「an attacking unit」的目标合法性需要 Attacker 身份谓词（466.2.c）——ObjectFilter 的 states 只有 " +
-    "ready/exhausted/stunned/attached/face-down，ObjectSnapshot 没有 combatRole/designation（契约 3.8 只冻结字段设计，" +
-    "实现属战斗批次），Finalize 无法按「正在攻击」筛选目标；" +
-    "(3)「to its base」需要所选攻击者**拥有者**的 Base（198.2）：effect.move 的 to 只接受静态 LocationRef、" +
-    "controller-base 或静态候选列表，controller-base 按移动后的控制者取 Base、不等价，按目标派生 LocationRef 的" +
-    "target.location 未合入。" +
-    "「kill me」的 effect.kill（self: true，429.1/429.1.a.1.a）与 choice.optional（403.1、契约 3.9）形状已合入，" +
-    "golden 对 kill 体做真实执行。依赖：combat 身份指派与事件发射、目标与目的地计划、" +
-    "Attacker designation。不近似实现（不换时点、不用 controller-base 冒充拥有者 Base、不放宽成任意单位）。",
+    "(2)「an attacking unit」用 combatRole:'attacker'（466.2.c）声明，参考内核可匹配，但生产程序绑定的 " +
+    "programs/filters.ts 未注册该键（fail-closed），且 combat/ 的 Attacker/Defender 指派尚未接入事件管线。" +
+    "「to its base」用已合入的 target-owner-base 位置选择器按所选目标的拥有者取 Base（198.2），" +
+    "accept-branch golden 对 kill-self 与真实移动做端到端执行。" +
+    "依赖：combat 身份指派与事件发射、生产目标计划消费方（含 filter 注册）。" +
+    "不近似实现（不换时点、不放宽成任意单位）。",
   abilities,
   sourceText: "When I defend, you may kill me to move an attacking unit to its base."
 } satisfies CardProgram;

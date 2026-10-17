@@ -34,16 +34,13 @@ test("sfd-128-221 Overzealous Fan: program validates and keeps its identity", ()
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("sfd-128-221 Overzealous Fan: judgeReason names all three merged gaps", () => {
+test("sfd-128-221 Overzealous Fan: judgeReason names the merged and remaining gaps", () => {
   assert.match(program.judgeReason, /defense-declared/);
   assert.match(program.judgeReason, /466\.2\.c/);
   assert.match(program.judgeReason, /combat-start-transaction/);
-  assert.match(program.judgeReason, /combatRole\/designation/);
+  assert.match(program.judgeReason, /programs\/filters\.ts/);
   assert.match(program.judgeReason, /198\.2/);
-  assert.match(program.judgeReason, /controller-base/);
   assert.match(program.judgeReason, /combat 身份指派与事件发射/);
-  assert.match(program.judgeReason, /target\.location 未合入/);
-  assert.match(program.judgeReason, /Attacker designation/);
 });
 
 test("sfd-128-221 Overzealous Fan: 'when I defend' subscribes to defense-declared once per combat", () => {
@@ -86,17 +83,18 @@ test("sfd-128-221 Overzealous Fan: the may-shape kills the source, then moves an
   assert.deepEqual(moveAttacker.targets, [
     {
       id: "overzealous-fan.attacking-unit",
-      filter: { type: "unit", zone: "board", attacking: true },
+      filter: { type: "unit", zone: "board", combatRole: "attacker" },
       min: 1,
       max: 1,
       selection: "one"
     }
   ]);
-  // "to its base" is the owner's Base (198.2), derived from the chosen unit;
-  // controller-base would follow the post-move controller and is not used.
+  // "to its base" is the owner's Base (198.2), derived from the chosen unit at
+  // execution time by the merged target-owner-base selector; controller-base
+  // would follow the post-move controller and is not used.
   assert.deepEqual(moveAttacker.args.to, {
     kind: "constant",
-    value: { ownerBaseOf: { target: "overzealous-fan.attacking-unit" } }
+    value: { kind: "target-owner-base", target: "overzealous-fan.attacking-unit" }
   });
   assert.equal(moveAttacker.args.mode, undefined);
   assert.deepEqual(moveAttacker.args.linkKey, { kind: "constant", value: "moved" });
@@ -141,16 +139,35 @@ test.todo(
 
 test.todo(
   "sfd-128-221 Overzealous Fan: finalize can reject non-attacking units for \"an attacking unit\" using " +
-    "the 466.2.c Attacker designation (contract 3.8 combatRole; ObjectSnapshot has no such field yet)"
+    "the 466.2.c Attacker designation (the snapshot has combatRole, but production combat flow " +
+    "does not assign it and programs/filters.ts still rejects the filter key)"
 );
 
-test.todo(
-  "sfd-128-221 Overzealous Fan: \"to its base\" resolves the chosen attacker's OWNER's Base (198.1/198.2) " +
-    "as a derived LocationRef instead of controller-base — target.location destination plan"
-);
+test("sfd-128-221 Overzealous Fan golden: accepting the may kills the Fan and moves the chosen attacker to its owner's Base", () => {
+  // 383.4.f / 355.10.c.1 / 198.2: with the defense trigger and Attacker
+  // designation supplied by the combat layer, accepting the optional kill
+  // destroys the Fan and then executes the linked real move through the
+  // interpreter: the chosen attacker goes to the chosen unit's OWNER's Base.
+  const kernel = world()
+    .unit("fan", { owner: "A", might: 2 })
+    .base("enemy-base", { owner: "B" })
+    .unit("attacker", { owner: "B", controller: "B", combatRole: "attacker" })
+    .build();
+  const context = withFanAsSource(kernel);
+  context.setTargets("overzealous-fan.attacking-unit", [context.ref("attacker")]);
+  context.setAnswers({ "overzealous-fan.may-kill/optional": true });
 
-test.todo(
-  "sfd-128-221 Overzealous Fan golden: accepting the may kills the Fan and then moves the chosen " +
-    "attacker to its owner's Base; the authored destination is a declared owner-base marker (198.2), " +
-    "so no authentic execution is possible until that LocationRef is resolvable"
-);
+  const outcome = resolveChainBody(ability.body, context);
+
+  assert.equal(outcome.status, "executed");
+  // The optional choice flattens its accepted child instructions into the
+  // outcome, so the executed ids end with the choice instruction itself.
+  assert.deepEqual(outcome.results.map((entry) => entry.id), [
+    "overzealous-fan.kill-self",
+    "overzealous-fan.move-attacker",
+    "overzealous-fan.may-kill"
+  ]);
+  assert.equal(context.getObject("fan").zone, "trash");
+  assert.deepEqual(context.getObject("attacker").location, { type: "base", player: "B" });
+  assert.deepEqual(context.events.map((event) => event.action), ["kill", "move-location"]);
+});
