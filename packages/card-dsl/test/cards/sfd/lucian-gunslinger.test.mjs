@@ -9,6 +9,8 @@ import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js
 import { ProgramBindingError } from "../../../../engine-core/dist/programs/errors.js";
 import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
 import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { translateInstructionTargets } from "../../../../engine-core/dist/programs/filters.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
 import { evaluateExpression } from "../../../../engine-core/dist/effects/interpreter/expr.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
@@ -48,6 +50,12 @@ test("sfd-028-221 Lucian, Gunslinger: judgeReason names the Assault-value and at
   assert.match(program.judgeReason, /combat-start-transaction/);
   assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /sameLocationAs/);
+  assert.match(program.judgeReason, /showdown-conversion/);
+  assert.match(program.judgeReason, /383\.4\.e\.2\.a/);
+  assert.match(program.judgeReason, /466\.2\.d/);
+  assert.match(program.judgeReason, /807\.2/);
+  assert.match(program.judgeReason, /effects\/interpreter\/expr\.ts/);
+  assert.match(program.judgeReason, /translateInstructionTargets.*translateObjectFilter/);
   assert.doesNotMatch(program.judgeReason, /RIFT-257|RIFT-33/);
 });
 
@@ -179,14 +187,70 @@ test("sfd-028-221 Lucian, Gunslinger boundary: the placeholder cannot read a key
   );
 });
 
+test("sfd-028-221 Lucian, Gunslinger: the original body revalidates a target that moves away or leaves the board", () => {
+  // CR 359.3.e.2 / 359.3.f.2: target revalidation precedes the amount read.
+  // These legal mistargeting cases exercise the untouched body through the
+  // production primitive adapter; the normal Assault-value case remains TODO.
+  for (const departure of ["move-location", "kill"]) {
+    const kernel = world()
+      .unit("lucian", {
+        cardId: CARD_ID,
+        might: 2,
+        energy: 3,
+        power: null,
+        keywords: [{ id: "Assault", value: 4 }],
+        location: { type: "battlefield", id: "bf-1" }
+      })
+      .unit("enemy", {
+        owner: "B", controller: "B", might: 5,
+        location: { type: "battlefield", id: "bf-1" }
+      })
+      .build();
+    const context = kernel.clone({
+      sourceSnapshot: kernel.getObject("lucian"),
+      targets: new Map([[TARGET_ID, [kernel.ref("enemy")]]])
+    });
+    // TestWorld requires concrete players; ChainEngine.context normally binds
+    // this relative player. The body and its sameLocationAs anchor stay intact.
+    const bound = bindResolveContext(context, {
+      query: filter => context.query({
+        ...filter,
+        ...(filter.controller === "opponent" ? { controller: "B" } : {})
+      })
+    });
+    const departed = context.perform(departure === "kill"
+      ? { type: "kill", object: context.ref("enemy") }
+      : { type: "move-location", object: context.ref("enemy"), to: { type: "battlefield", id: "bf-2" } });
+    assert.equal(departed.status, "done");
+    const before = context.snapshot();
+    const outcome = resolveChainBody(attack.body, bound);
+
+    assert.equal(outcome.status, "partial");
+    assert.deepEqual(outcome.results, [{
+      id: damageInstruction.id,
+      op: "effect.damage",
+      path: [damageInstruction.id],
+      result: { status: "ignored", reason: "mistargeted" }
+    }]);
+    assert.deepEqual(outcome.events, []);
+    assert.deepEqual(outcome.linkedValues, {});
+    assert.deepEqual(context.snapshot(), before);
+    assert.equal(context.getObject("lucian").power, null);
+    assert.equal(context.getObject("enemy").damage, 0);
+    assert.equal(context.getObject("enemy").zone, departure === "kill" ? "trash" : "board");
+  }
+});
+
 test("sfd-028-221 Lucian, Gunslinger boundary: the interpreter resolves enemy unit here", () => {
   const kernel = world()
     .unit("lucian", { location: { type: "battlefield", id: "bf-1" } })
-    .unit("enemy-here", { owner: "B", controller: "B", location: { type: "battlefield", id: "bf-1" } })
+    .unit("enemy-here", { owner: "A", controller: "B", location: { type: "battlefield", id: "bf-1" } })
+    .unit("friendly-here", { owner: "B", controller: "A", location: { type: "battlefield", id: "bf-1" } })
+    .unit("enemy-gear-here", { types: ["gear"], owner: "B", controller: "B", location: { type: "battlefield", id: "bf-1" } })
     .unit("enemy-elsewhere", { owner: "B", controller: "B", location: { type: "battlefield", id: "bf-2" } })
     .build();
   const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("lucian"), source: kernel.ref("lucian") });
-  const matched = queryObjects(targetSpec.filter, {
+  const environment = {
     context: scoped,
     host: scoped.ref("lucian"),
     linked: () => undefined,
@@ -198,21 +262,43 @@ test("sfd-028-221 Lucian, Gunslinger boundary: the interpreter resolves enemy un
       ...filter,
       ...(filter.controller === "opponent" ? { controller: "B" } : {})
     })
-  }).map(object => object.ref.id);
+  };
+  const matched = queryObjects(targetSpec.filter, environment).map(object => object.ref.id);
   assert.deepEqual(matched, ["enemy-here"]);
+
+  // 359.3.f.2: "here" follows the source's current location at resolution.
+  const moved = scoped.perform({
+    type: "move-location", object: scoped.ref("lucian"),
+    to: { type: "battlefield", id: "bf-2" }
+  });
+  assert.equal(moved.status, "done");
+  assert.deepEqual(scoped.events.map(event => event.action), ["move-location"]);
+  assert.deepEqual(
+    queryObjects(targetSpec.filter, environment).map(object => object.ref.id),
+    ["enemy-elsewhere"]
+  );
 });
 
 test("sfd-028-221 Lucian, Gunslinger boundary: production trigger binding rejects sameLocationAs", () => {
-  const kernel = world().unit("lucian", { cardId: CARD_ID }).build();
-  const source = kernel.getObject("lucian");
+  // Probe the target translator directly without promoting this blocked card
+  // to executable just to bypass ProgramRegistry's status guard.
   assert.throws(
-    () => triggerRegistrations(
-      new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]),
-      source
-    ),
+    () => translateInstructionTargets(attack.body),
     error => error instanceof ProgramBindingError &&
       error.code === "judge-required" &&
       /Unsupported filter field sameLocationAs/.test(error.message)
+  );
+});
+
+test("sfd-028-221 Lucian, Gunslinger boundary: production registry preserves the actual judge-required guard", () => {
+  const kernel = world().unit("lucian", { cardId: CARD_ID }).build();
+  const registry = new ProgramRegistry([program]);
+  assert.equal(registry.inspect(CARD_ID).status, "judge-required");
+  assert.throws(
+    () => triggerRegistrations(registry, kernel.getObject("lucian")),
+    error => error instanceof ProgramBindingError &&
+      error.code === "judge-required" &&
+      error.message === program.judgeReason
   );
 });
 
@@ -234,6 +320,9 @@ test("sfd-028-221 Lucian, Gunslinger golden: the printed damage instruction shap
 
   assert.equal(run.result.status, "executed");
   assert.deepEqual(run.events.map(event => event.action), ["damage"]);
+  assert.equal(run.linked.dealt, 1);
+  assert.equal(run.linked.dealtCount, 1);
+  assert.deepEqual(run.linked.dealtTo, [{ target: kernel.ref("enemy"), amount: 1 }]);
   assert.equal(kernel.getObject("enemy").damage, 1);
   assert.equal(kernel.getObject("lucian").damage, 0);
 });
