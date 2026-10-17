@@ -33,6 +33,7 @@ test("Cannon Barrage program is structurally valid and judge-required", () => {
   assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /740\.2\.c/);
   assert.match(program.judgeReason, /非目标/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
 test("Cannon Barrage identity and printed text match the catalog", () => {

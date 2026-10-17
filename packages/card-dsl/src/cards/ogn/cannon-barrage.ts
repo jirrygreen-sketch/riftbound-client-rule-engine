@@ -38,7 +38,7 @@ const cannonBarrage = {
     "另缺 CombatFlow 对 ObjectSnapshot.combatRole 的实时发布及与正在战斗的战场关联（740.2.c）：combat/flow.ts 的战斗开始仍抛" +
     " TurnCombatBlockedError('combat-start-transaction')，当前局面无法得到全部在战斗中的敌方单位；" +
     "已有 combatRole 契约字段、测试内核赋值及 characteristics 过滤不等于生产战斗状态已接通。" +
-    "依赖：effect.damage 的非目标集合形态（RIFT-9 target.query，与 ogn-133-298 Flurry of Blades 同一缺口）与战斗 designation 发布。",
+    "依赖：effect.damage 的非目标集合形态（与其它“全部/各单位”伤害牌相同的 query 消费缺口）与战斗 designation 发布。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {

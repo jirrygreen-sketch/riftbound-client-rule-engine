@@ -43,7 +43,7 @@ const cleave = {
   status: "judge-required",
   judgeReason:
     "唯一未合入的依赖是被授予 Assault 的功能文本「+3 :rb_might: while it's an attacker」（807.1.c/807.1.d.1）：" +
-    "continuous.grant-keyword 原语与整卡打出已可执行（RIFT-681 的模板参数化 golden 经通用测试台真实支付 1 能量、" +
+    "continuous.grant-keyword 原语与整卡打出已可执行（模板化 golden 经通用测试台真实支付 1 能量、" +
     "锁定 Board 单位目标并在 ability 图层登记 Assault 3 + end-of-turn 期限）。" +
     "缺的是该登记关键词的消费链：(1) 运行时授予的关键词不会再次进入 KeywordDef.expand；" +
     "(2) Assault 展开读取 object-property(self, \"designation\")，而生产 ObjectSnapshot 只暴露 combatRole，" +

@@ -42,6 +42,7 @@ test("ogn-004-298 Cleave: program validates, is registered and stays judge-requi
   assert.match(program.judgeReason, /二次展开|KeywordDef\.expand/);
   assert.match(program.judgeReason, /designation/);
   assert.match(program.judgeReason, /combatRole/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
