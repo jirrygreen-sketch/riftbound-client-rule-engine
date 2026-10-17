@@ -10,6 +10,8 @@ import { instructionDefinitionsById } from "../../../../engine-core/dist/effects
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID = "card.hash-ea7dd5402b09dfde273f51aee83776f88c4e3f1fb8f52b4863aa43d307a8ebda";
 const SOURCE_TEXT =
@@ -97,6 +99,27 @@ test("ogn-080-298 Mystic Reversal: the control primitive is merged; the remake c
   // Making New Choices clause remains judge-required until its primitive lands.
   assert.equal(instructionDefinitionsById.has("effect.control"), true);
   assert.equal(keywordDefinitionsById.has("Reaction"), true);
+});
+
+test("ogn-080-298 Mystic Reversal: the merged program binding gives the play draft Reaction speed", () => {
+  const executable = { ...program, status: "executable", judgeReason: undefined };
+  const binding = createProgramBinding({ cardPrograms: [executable] });
+  const f = fixture({
+    cards: [
+      { id: "spell", cardId: CARD_ID, types: ["spell"], energy: 1, power: [] }
+    ]
+  });
+  const draft = binding.describePlay(
+    { type: "play", object: f.kernel.ref("spell"), player: "A" },
+    f.kernel.getObject("spell")
+  );
+
+  assert.equal(draft.speed, "reaction");
+  assert.deepEqual(draft.body.map(instruction => instruction.id), [
+    "mystic-reversal.gain-control",
+    "mystic-reversal.may-remake-choices"
+  ]);
+  assert.deepEqual(draft.body[0].targets[0].filter, { type: "spell", zone: "chain" });
 });
 
 test("ogn-080-298 Mystic Reversal golden: declining the may skips the remake and leaves the chain item alone", () => {

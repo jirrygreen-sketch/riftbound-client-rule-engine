@@ -4,6 +4,7 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/noxian-guillotine-darius.js";
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 
@@ -131,6 +132,38 @@ test("ogn-254-298 Noxian Guillotine golden: a unit that already left the board c
   assert.equal(run.result.reason, "mistargeted");
   assert.equal(run.events.length, 0);
   assert.equal(kernel.getObject("fleeing-target").zone, "hand");
+});
+
+test("ogn-254-298 Noxian Guillotine golden: Legion excludes this card from the same-turn history", () => {
+  const kernel = world()
+    .hand("guillotine", {
+      cardId: CARD_ID,
+      types: ["spell"],
+      energy: 2,
+      power: []
+    })
+    .hand("another-card", { types: ["spell"], energy: 1, power: [] })
+    .build();
+  assert.equal(kernel.perform({ type: "play", object: kernel.ref("guillotine"), player: "A" }).status, "done");
+  assert.equal(kernel.perform({ type: "play", object: kernel.ref("another-card"), player: "A" }).status, "done");
+
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("guillotine") });
+  // The card IR's `controller` token is asserted structurally above. For this
+  // primitive execution check, resolve that controller placeholder to the
+  // concrete test player while preserving the authored exclude:self field.
+  const query = legionCheck.args.query.value;
+  const executableHistory = {
+    ...legionCheck,
+    args: {
+      ...legionCheck.args,
+      query: { ...legionCheck.args.query, value: { ...query, player: "A" } }
+    }
+  };
+  const outcome = runAbilityBody([executableHistory], scoped);
+
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.equal(outcome.linkedValues["guillotine-legion-check.count"], 1);
+  assert.equal(outcome.linkedValues["guillotine-legion-check.value"], true);
 });
 
 test.todo(

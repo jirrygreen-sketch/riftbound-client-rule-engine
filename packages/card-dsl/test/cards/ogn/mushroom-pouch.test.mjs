@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/mushroom-pouch.js";
+import { createProgramBinding, triggerRegistrations } from "../../../../engine-core/dist/programs/index.js";
 
 const ENGINE = new URL("../../../../engine-core/dist/", import.meta.url);
 const { world } = await import(new URL("effects/testing/index.js", ENGINE));
@@ -11,6 +12,7 @@ const { default: draw } = await import(new URL("effects/instructions/effect.draw
 
 const [ability] = program.abilities;
 const [drawInstruction] = ability.body;
+const CARD_ID = program.canonicalCardId;
 
 test("mushroom-pouch: passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -41,6 +43,29 @@ test("mushroom-pouch: one mandatory beginning-start trigger (CR 315.2.a.1)", () 
   assert.equal(ability.trigger.at, "beginning-start");
   assert.equal(ability.trigger.once, undefined);
   assert.equal(ability.optional, false);
+});
+
+test("mushroom-pouch: the merged program binding registers the beginning-start trigger", () => {
+  const executable = { ...program, status: "executable", judgeReason: undefined };
+  const binding = createProgramBinding({ cardPrograms: [executable] });
+  const kernel = world()
+    .unit("pouch", {
+      cardId: CARD_ID,
+      types: ["unit"],
+      location: { type: "battlefield", id: "battlefield-1" },
+      energy: 3,
+      power: [],
+      might: 2
+    })
+    .build();
+  const source = kernel.getObject("pouch");
+  const registrations = triggerRegistrations(binding.registry, source);
+
+  assert.equal(registrations.length, 1);
+  assert.equal(registrations[0].spec.at, "beginning-start");
+  assert.deepEqual(registrations[0].spec.filter, {});
+  assert.equal(registrations[0].body[0].id, "draw-1");
+  assert.equal(registrations[0].optional, false);
 });
 
 test("mushroom-pouch: the intervening 'if you control a facedown card' clause is a condition, not a target", () => {

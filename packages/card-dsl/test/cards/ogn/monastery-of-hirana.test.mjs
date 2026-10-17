@@ -56,6 +56,7 @@ test("ogn-282-298 Monastery of Hirana: identity, ruleset, status and printed tex
   // location anchor for "here".
   assert.match(program.judgeReason, /383\.3\.b/);
   assert.match(program.judgeReason, /cost\.pay/);
+  assert.match(program.judgeReason, /details\.battlefieldId/);
   assert.match(program.judgeReason, /RIFT-357/);
 });
 
@@ -231,5 +232,11 @@ test.todo(
     "so the player can decline even when a buff is available; TriggeredAbility has no cost field and " +
     "cost.pay's spend-buff instruction still lacks a TriggeredAbility Finalize adapter, so merged " +
     "effect.buff only reports 'skipped' after the fact"
+);
+
+test.todo(
+  "ogn-282-298 Monastery of Hirana: bind the conquer trigger's `here` anchor to the scoring " +
+    "payload details.battlefieldId (RIFT-357), so only a conquer at the hosted battlefield can " +
+    "offer the spend-then-draw ability"
 );
 
