@@ -23,6 +23,7 @@ const [playRecruits] = ability.body;
 /** Vanguard Armory on the Board, ready. */
 function armoryWorld({ exhausted = false } = {}) {
   const base = world()
+    .player("A")
     .object("vanguard-armory", {
       name: "Vanguard Armory",
       cardId: CANONICAL,
@@ -39,23 +40,19 @@ function armoryWorld({ exhausted = false } = {}) {
   return base.clone({ sourceSnapshot: base.getObject("vanguard-armory") });
 }
 
-test("sfd-168-221 Vanguard Armory: program passes validateCardProgram", () => {
+test("sfd-168-221 Vanguard Armory: program validates, is registered and stays judge-required", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
   assert.deepEqual(result.issues, []);
-});
-
-test("sfd-168-221 Vanguard Armory: identity, ruleset, status, judgeReason and verbatim source text", () => {
+  assert.equal(cardRegistryById.get(CANONICAL), program);
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  // README section 2: the reason names the missing destination reading and the
-  // rule it depends on, plus the chain wiring.
+  // README section 2: the reason names the missing per-token destination reading
+  // and the rule it depends on.
   assert.match(program.judgeReason, /355\.2/);
   assert.match(program.judgeReason, /LocationRef/);
-  assert.match(program.judgeReason, /RIFT-120/);
   assert.equal(program.sourceText, SOURCE_TEXT);
-  assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
 test("sfd-168-221 Vanguard Armory: one action-speed activated ability costing Exhaust this", () => {
@@ -117,7 +114,7 @@ test("sfd-168-221 Vanguard Armory golden: the printed token body plays three 1-M
   // The golden supplies the concrete location that the printed per-token choice
   // (355.2/355.2.a) would yield; the program's token/amount/mode come from the
   // card data unchanged.
-  const kernel = world().build();
+  const kernel = world().player("A").build();
   const base = { type: "base", player: "A" };
   const run = runInstruction(
     token,
@@ -161,8 +158,4 @@ test.todo(
     "location set into concrete LocationRefs plus the finalize-time play-location choice " +
     "(RIFT-9 target.location); effect.token only accepts one fixed location or one choice for the " +
     "whole instruction."
-);
-test.todo(
-  "sfd-168-221 Vanguard Armory: the card-program -> chain activation wiring (contract 3.5) is not " +
-    "merged - RIFT-120 follow-up; the printed cost and token body above run directly."
 );

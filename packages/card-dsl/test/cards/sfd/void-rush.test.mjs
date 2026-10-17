@@ -7,33 +7,34 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import reveal from "../../../../engine-core/dist/effects/instructions/effect.reveal.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
+const CARD_ID = "card.hash-cd92b45de0981074325a5119213251cd97706ab04339f5fe7339e69c8761258a";
+const SOURCE_TEXT =
+  "Reveal the top 2 cards of your Main Deck. You may play one of them, reducing its cost by " +
+  ":rb_energy_2:. Draw any you did not play this way.";
+
 const [play] = program.abilities;
 const revealInstruction = play.body[0];
 const mayPlay = play.body[1];
 const playInstruction = mayPlay.args.body.value[0];
 const drawRest = play.body[2];
 
-test("Void Rush program is valid EffectIR v2 data and judge-required", () => {
+test("sfd-188-221 Void Rush: program validates, is registered and stays judge-required", () => {
   const result = validateCardProgram(program);
   assert.deepEqual(result.issues, []);
   assert.equal(result.ok, true);
-  assert.equal(
-    program.canonicalCardId,
-    "card.hash-cd92b45de0981074325a5119213251cd97706ab04339f5fe7339e69c8761258a"
-  );
+  assert.equal(cardRegistryById.get(CARD_ID), program);
+  assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
+  // README section 2: the reason names the concrete current gaps and task numbers.
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /366\.2/);
-  assert.equal(
-    program.sourceText,
-    "Reveal the top 2 cards of your Main Deck. You may play one of them, reducing its cost by " +
-      ":rb_energy_2:. Draw any you did not play this way."
-  );
-  assert.equal(cardRegistryById.get(program.canonicalCardId), program);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /LITERAL_FIELDS/);
+  assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
-test("Void Rush structure: printed cost, ordered deck-top reveal, optional reduced play, remaining to hand", () => {
+test("sfd-188-221 Void Rush structure: printed cost, ordered deck-top reveal, optional reduced play, remaining to hand", () => {
   assert.deepEqual(play.cost, {
     kind: "cost.printed",
     energy: { kind: "constant", value: 2 },
@@ -62,7 +63,7 @@ test("Void Rush structure: printed cost, ordered deck-top reveal, optional reduc
   assert.deepEqual(topTwo.options, ["deck-top-two-of-controller"]);
 });
 
-test("Void Rush structure: the play inside the optional body names the reduced-cost requirement", () => {
+test("sfd-188-221 Void Rush structure: the play inside the optional body names the reduced-cost requirement", () => {
   // One optional decision (contract 3.9) whose body holds the play of one
   // revealed card; the printed cost minus 2 is a cost-plan request that only
   // cost.modify can materialize (see judgeReason).
@@ -86,7 +87,7 @@ test("Void Rush structure: the play inside the optional body names the reduced-c
   ]);
 });
 
-test("Void Rush structure: the remaining revealed cards move to hand through a non-target pick", () => {
+test("sfd-188-221 Void Rush structure: the remaining revealed cards move to hand through a non-target pick", () => {
   // "Draw any you did not play this way": 355.10.e keeps the cards non-targeted,
   // and the instruction is linked to the optional play (359.3.e.14).
   assert.equal(drawRest.op, "effect.zone");
@@ -106,11 +107,11 @@ test("Void Rush structure: the remaining revealed cards move to hand through a n
   ]);
 });
 
-test("Void Rush golden: the reveal half shows the ordered top two cards and leaves them on the deck", () => {
+test("sfd-188-221 Void Rush golden: the ordered deck-top reveal executes with a caller-supplied pick", () => {
   const kernel = world().deck(["c1", "c2", "c3"]).build();
   const topTwo = kernel.zone("A", "deck").slice(0, 2);
-  // runInstruction drives the primitive directly, so the pick id is supplied
-  // already evaluated (the interpreter evaluates Expr args before dispatch).
+  // The primitive itself executes the card's authored args when the ordered pick
+  // is supplied (the missing producer is the Finalize lifecycle, see judgeReason).
   const run = runInstruction(reveal, { pick: "void-rush.top-two" }, {
     world: kernel,
     picks: { "void-rush.top-two": topTwo }
@@ -123,7 +124,7 @@ test("Void Rush golden: the reveal half shows the ordered top two cards and leav
   assert.deepEqual(kernel.zone("A", "deck").map((ref) => ref.id), ["c1", "c2", "c3"]);
 });
 
-test("Void Rush golden: a short deck reveals what is there instead of failing (432.1.c)", () => {
+test("sfd-188-221 Void Rush golden: a short deck reveals what is there instead of failing (432.1.c)", () => {
   const kernel = world().deck(["only-card"]).build();
   const run = runInstruction(reveal, { pick: "void-rush.top-two" }, {
     world: kernel,
@@ -135,13 +136,12 @@ test("Void Rush golden: a short deck reveals what is there instead of failing (4
 });
 
 test.todo(
-  "Void Rush reduced-cost play: the chosen revealed card is played with a finalized cost plan of " +
-    "its printed cost reduced by 2 (CR 366.2 / 349) and the cost system owns the plan " +
-    "(effect.play refuses to derive printed costs) (依赖 cost.modify 与费用计划，RIFT-89 批次)"
+  "sfd-188-221 Void Rush: play one revealed card with a finalized plan of its printed cost reduced by 2 " +
+    "(CR 366.2 / 349) - effect.play refuses to derive printed costs and cost.modify / cost.pay are unmerged " +
+    "(RIFT-261)."
 );
 
 test.todo(
-  "Void Rush remaining-cards handling: the revealed cards that were not played this way move to " +
-    "hand and the ones actually played are excluded (395 Linked Abilities / 359.3.e.14 result " +
-    "binding) (依赖结果绑定 condition.result)"
+  "sfd-188-221 Void Rush: move only the revealed cards that were NOT played this way to hand (395 Linked " +
+    "Abilities / 359.3.e.14 result binding) and supply the ordered deck-top pick through Finalize."
 );

@@ -3,25 +3,39 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/sfd/veteran-poro.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
-test("program passes validateCardProgram", () => {
+const CARD_ID = "card.hash-77fdefa1bb982497df81cd6fd64fdde8c460c8cfb52aa2708aa568b849ca42e7";
+
+const weaponmasterExpansion = () => {
+  const definition = keywordDefinitionsById.get("Weaponmaster");
+  assert.ok(definition, "effects/keywords/Weaponmaster.ts must be registered");
+  return definition.expand({ host: { canonicalCardId: CARD_ID } });
+};
+
+test("sfd-099-221 Veteran Poro: program validates, is registered and stays judge-required", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.issues, null, 2));
-});
-
-test("identity: canonicalCardId, ruleset, status, judgeReason, sourceText", () => {
-  assert.equal(
-    program.canonicalCardId,
-    "card.hash-77fdefa1bb982497df81cd6fd64fdde8c460c8cfb52aa2708aa568b849ca42e7"
-  );
+  assert.deepEqual(result.issues, []);
+  assert.equal(cardRegistryById.get(CARD_ID), program);
+  assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /[Ww]eaponmaster/);
-  assert.ok(program.sourceText.includes("[Weaponmaster]"));
-  assert.ok(program.sourceText.includes("even if it's already attached"));
+  // README section 2: the reason names the missing primitives and the rules they serve.
+  assert.match(program.judgeReason, /cost\.modify/);
+  assert.match(program.judgeReason, /cost\.pay/);
+  assert.match(program.judgeReason, /821\.1/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.equal(
+    program.sourceText,
+    "[Weaponmaster] (When you play me, you may [Equip] one of your Equipment to me for :rb_rune_rainbow: less, even if it's already attached.)"
+  );
 });
 
-test("abilities: exactly one unvalued Weaponmaster keyword ability", () => {
+test("sfd-099-221 Veteran Poro: exactly one unvalued Weaponmaster keyword ability", () => {
   assert.equal(program.abilities.length, 1);
   const ability = program.abilities[0];
   assert.equal(ability.kind, "keyword");
@@ -29,8 +43,46 @@ test("abilities: exactly one unvalued Weaponmaster keyword ability", () => {
   assert.equal(ability.value, undefined);
 });
 
+test("sfd-099-221 Veteran Poro: the merged Weaponmaster expansion is structurally valid EffectIR", () => {
+  // RIFT-87 merged the expansion; it renders 821.1.c as a play trigger whose body
+  // pays the chosen Equipment's reduced Equip cost before attaching.
+  const [ability] = weaponmasterExpansion();
+  assert.equal(ability.kind, "triggered");
+  assert.equal(ability.trigger.at, "card-played");
+  const [choice] = ability.body;
+  assert.equal(choice.op, "sequence");
+  assert.deepEqual(choice.targets, [
+    {
+      id: "weaponmaster-equipment",
+      filter: { type: "gear", controller: "self", tags: ["Equipment"] },
+      min: 0,
+      max: 1,
+      selection: "up-to"
+    }
+  ]);
+  assert.deepEqual(choice.args.body.value.map((instruction) => instruction.op), [
+    "cost.modify",
+    "cost.pay",
+    "effect.attach"
+  ]);
+});
+
+test("sfd-099-221 Veteran Poro: selecting no Equipment skips the whole cost/attach sequence", () => {
+  // The expansion's own guard: with no Equipment chosen the body is a skipped
+  // negation, so nothing is paid and nothing is attached. This executes on the
+  // merged interpreter and proves the authored shape is well-formed.
+  const [ability] = weaponmasterExpansion();
+  const kernel = world().object("gear", { types: ["gear"], tags: ["Equipment"], zone: "board", location: { type: "base", player: "A" } }).build();
+  kernel.setTargets("weaponmaster-equipment", []);
+  const outcome = runAbilityBody(ability.body, kernel);
+  assert.deepEqual(outcome.results.map((entry) => entry.id), ["weaponmaster-choice"]);
+  assert.equal(outcome.results[0].result.status, "negated");
+  assert.equal(outcome.results[0].result.reason, "skipped");
+  assert.deepEqual(kernel.events, []);
+});
+
 test.todo(
-  "Weaponmaster expansion: on play, choose one of your Equipment, pay its Equip cost reduced by " +
-    "[A], attach it to me even if already attached (CR 821.1.c; keywords/weaponmaster.ts owned by " +
-    "RIFT-8x keyword workstream, needs cost.modify + effect.attach)"
+  "sfd-099-221 Veteran Poro: pay the chosen Equipment's Equip cost reduced by [A] and attach it to this unit " +
+    "(CR 821.1.c) once cost.modify / cost.pay are merged (RIFT-261) and the card-program binding reaches the " +
+    "keyword expansion (RIFT-257 follow-up). No full-price Equip or named-domain [A] substitute is used."
 );

@@ -45,10 +45,12 @@ test("sfd-115-221 Trinity Force: identity, ruleset, status, judgeReason and verb
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /Equip/);
+  assert.equal(typeof program.judgeReason, "string");
+  // README section 2: the reason names the missing wiring and the concrete cost gap.
   assert.match(program.judgeReason, /params\.cost/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /Unsupported payment kind: equip/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /818\.1/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -63,7 +65,7 @@ test("sfd-115-221 Trinity Force: one Equip keyword declaration carrying the prin
   assert.equal(equip.costDomain, "Body");
 });
 
-test("sfd-115-221 Trinity Force: the merged Equip body attaches this gear to the chosen controlled unit", () => {
+test("sfd-115-221 Trinity Force golden: the merged Equip body attaches this gear to the chosen controlled unit", () => {
   const activation = equipActivation();
   assert.equal(activation.kind, "activated");
   assert.equal(activation.timing, "action");
@@ -107,9 +109,7 @@ test("sfd-115-221 Trinity Force: the merged Equip body attaches this gear to the
 });
 
 test.todo(
-  "sfd-115-221 Trinity Force: paying the printed Equip cost (1 Body Power, CR 818.1.c) needs the \"equip\" cost-payment kind in cost/plan-values.ts " +
-    "(RIFT-89 cost-payment batch) and contract 3.8.3 params.cost so the printed rune reaches KeywordDef.expand."
-);
-test.todo(
-  "sfd-115-221 Trinity Force: the card-program -> keyword expansion -> chain wiring from contract 3.5 must register the Equip activated ability before the whole card is executable."
+  "sfd-115-221 Trinity Force: paying the printed Equip cost (1 Body Power, CR 818.1.c) needs the \"equip\" cost-payment kind " +
+    "(RIFT-261 cost.pay/cost.modify) and contract 3.8.3 params.cost so the printed rune reaches KeywordDef.expand " +
+    "(programs/keywords.ts currently calls def.expand({ value, host }))."
 );

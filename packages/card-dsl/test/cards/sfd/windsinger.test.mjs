@@ -5,6 +5,7 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/windsinger.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import zone from "../../../../engine-core/dist/effects/instructions/effect.zone.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-75f4edacd5ddc4bb087703bc231650c3942cea51f1bdb7b370bd27a6da6fd390";
@@ -18,12 +19,8 @@ const [hidden, triggered] = program.abilities;
 const [mayReturn] = triggered.body;
 const [returnToHand] = mayReturn.args.body.value;
 
-// The reference kernel's matchesFilter compares `location` literally (JSON
-// equality against the serialized LocationRef) and ignores unknown keys, so it
-// cannot prepare the may-node's "at a battlefield"/Might-ceiling target set.
-// The golden therefore executes the merged sub-effect (the return-to-hand
-// instruction) with a Finalize-locked target — exactly the shape the production
-// chain hands to the primitive — and leaves the wrapper itself as a test.todo.
+// The card's return half is driven with a Finalize-locked target - exactly the
+// shape the production chain hands to the primitive.
 function runReturn(kernel, unitRef) {
   return runInstruction(
     zone,
@@ -47,10 +44,12 @@ test("sfd-138-221 Windsinger: identity, ruleset, status, judgeReason and verbati
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
+  // README section 2: the reason names the concrete current gaps and task numbers.
   assert.match(program.judgeReason, /mightLte/);
   assert.match(program.judgeReason, /355\.9\.b/);
+  assert.match(program.judgeReason, /exclude/);
   assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -153,19 +152,28 @@ test("sfd-138-221 Windsinger golden: no legal target leaves the return with noth
   assert.deepEqual(run.events, []);
 });
 
+test("sfd-138-221 Windsinger: the merged Hidden expansion exists but has no consumer", () => {
+  // RIFT-84 merged cost.hidden as a static effect; nothing consumes it (no Hide
+  // action, no facedown zone), which is the gap the judgeReason records.
+  const definition = keywordDefinitionsById.get("Hidden");
+  assert.ok(definition, "effects/keywords/Hidden.ts must be registered");
+  const [expansion] = definition.expand({ host: { canonicalCardId: CARD_ID } });
+  assert.equal(expansion.kind, "static");
+  assert.equal(expansion.effect.kind, "cost.hidden");
+});
+
 test.todo(
   "sfd-138-221 Windsinger: enforce the '3 :rb_might: or less' return ceiling at Finalize/Resolve " +
-    "(355.9.b / 143.2.a effective-Might predicate) once a Might filter predicate is merged (RIFT-81~91)"
+    "(355.9.b / 143.2.a effective-Might predicate) once a Might filter predicate is merged (RIFT-81~91)."
+);
+
+test.todo(
+  "sfd-138-221 Windsinger: teach programs/filters.ts the contract 3.6 `exclude`/`here` anchors (and register the " +
+    "trigger through the CardProgram binding) so the printed 'another' restriction can be bound honestly " +
+    "(RIFT-257 follow-up)."
 );
 
 test.todo(
   "sfd-138-221 Windsinger: the [Hidden] expansion (811.1) needs the cost.hidden / Hide path consumer: the " +
-    "Hide Discretionary Action, the facedown zone, and the free play from facedown for [A] — RIFT-89"
-);
-
-test.todo(
-  "sfd-138-221 Windsinger: the card-played trigger must reach this ability through the trigger -> chain " +
-    "pipeline (383.4.a / 420.4.a, RIFT-120) and Finalize must resolve the may node's 'at a battlefield' + " +
-    "exclude-source restrictions against the ability controller (355.9, RIFT-90); the reference path used " +
-    "above pre-locks the target, so the may/decline wrapper is unverified"
+    "Hide Discretionary Action, the facedown zone, and the free play from facedown for [A] (RIFT-89)."
 );

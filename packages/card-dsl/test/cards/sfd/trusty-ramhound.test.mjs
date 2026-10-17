@@ -3,20 +3,44 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/trusty-ramhound.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-88c1812cc994f155d1a08ed94e9690205a48e0ecd3e4d827b49d468bc6f8e69f";
 const [ability] = program.abilities;
 
-test("sfd-159-221 Trusty Ramhound: program validates and keeps its identity", () => {
+// Card filters spell the ability controller "self"; the reference kernel matches
+// filter values literally, so the production matcher runs with the resolved
+// controller exactly as chain/engine.ts resolves it.
+const productionContext = (kernel) => bindResolveContext(kernel, {
+  source: kernel.getObject("ramhound"),
+  sourceSnapshot: kernel.getObject("ramhound"),
+  controller: "A",
+  query: (filter) => kernel.objects.filter((object) => matchesObjectFilter(
+    Object.fromEntries(Object.entries(filter).map(([key, value]) => [
+      key,
+      (key === "controller" || key === "owner") && value === "self" ? "A" : value
+    ])),
+    object
+  ))
+});
+
+test("sfd-159-221 Trusty Ramhound: program validates, is registered and keeps its identity", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
+  assert.deepEqual(result.issues, []);
+  assert.equal(cardRegistryById.get(CANONICAL), program);
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /conditionMatches/);
+  assert.match(program.judgeReason, /sameLocationAs/);
   assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(
     program.sourceText,
     "While you have another unit here, I have +1 :rb_might:."
@@ -26,7 +50,7 @@ test("sfd-159-221 Trusty Ramhound: program validates and keeps its identity", ()
 test("sfd-159-221 Trusty Ramhound: one static arithmetic Might effect on self", () => {
   assert.equal(program.abilities.length, 1);
   assert.equal(ability.kind, "static");
-  // 143.2.a / 475-477: Might is altered in the arithmetic layer, not via a
+  // 143.2.a / 475-478: Might is altered in the arithmetic layer, not via a
   // Buff counter (702).
   assert.equal(ability.effect.kind, "continuous.might");
   assert.equal(ability.effect.mode, "add");
@@ -42,21 +66,72 @@ test("sfd-159-221 Trusty Ramhound: 'another unit you control here' condition sha
   assert.deepEqual(condition.right, { kind: "constant", value: 1 });
   assert.equal(condition.left.kind, "count");
   assert.equal(condition.left.subject, "other-units-here");
-  // 355.9.c "another" excludes the source; 359.3.f "here" is its location.
+  // 355.9.c "another" excludes the source; 359.3.f "here" is its location. Both
+  // are the contract 3.6 anchors, not descriptive keys.
   assert.deepEqual(condition.left.filter, {
-    type: "unit",
     zone: "board",
-    controller: "controller",
-    other: true,
+    type: "unit",
+    controller: "self",
+    exclude: "self",
     sameLocationAs: "self"
   });
 });
 
-test("sfd-159-221 Trusty Ramhound: the merged arithmetic layer adds the declared +1 Might", () => {
+test("sfd-159-221 Trusty Ramhound golden: the declared gate evaluates true with another unit here", () => {
+  // The interpreter's queryObjects implements both anchors, so the declared
+  // condition is a real predicate: it sees the other unit at the same
+  // battlefield and ignores the ally elsewhere and the enemy.
+  const kernel = world().player("A")
+    .unit("ramhound", { might: 2, controller: "A", owner: "A", location: { type: "battlefield", id: "bf-1" } })
+    .unit("ally-here", { might: 2, controller: "A", owner: "A", location: { type: "battlefield", id: "bf-1" } })
+    .unit("ally-elsewhere", { might: 2, controller: "A", owner: "A", location: { type: "base", player: "A" } })
+    .unit("enemy-here", { might: 2, controller: "B", owner: "B", location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const outcome = resolveChainBody([
+    { id: "probe", op: "condition.predicate", args: { condition: { kind: "constant", value: ability.condition } } }
+  ], productionContext(kernel));
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.linkedValues["probe.value"], true);
+
+  // Removing the only other unit at this battlefield flips it to false; the ally
+  // at the Base never counts ("here") and the enemy unit never counts ("you").
+  const alone = world().player("A")
+    .unit("ramhound", { might: 2, controller: "A", owner: "A", location: { type: "battlefield", id: "bf-1" } })
+    .unit("ally-elsewhere", { might: 2, controller: "A", owner: "A", location: { type: "base", player: "A" } })
+    .unit("enemy-here", { might: 2, controller: "B", owner: "B", location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const aloneOutcome = resolveChainBody([
+    { id: "probe", op: "condition.predicate", args: { condition: { kind: "constant", value: ability.condition } } }
+  ], productionContext(alone));
+  assert.equal(aloneOutcome.linkedValues["probe.value"], false);
+});
+
+test("sfd-159-221 Trusty Ramhound golden: an instruction gated by the condition is skipped when alone", () => {
+  // The same condition on a real instruction: with an ally here the gated
+  // instruction executes, alone it is a skipped negation.
+  const gated = { id: "gated", op: "condition.predicate", args: { condition: { kind: "constant", value: ability.condition } }, condition: ability.condition };
+  const withAlly = world().player("A")
+    .unit("ramhound", { might: 2, controller: "A", owner: "A", location: { type: "battlefield", id: "bf-1" } })
+    .unit("ally-here", { might: 2, controller: "A", owner: "A", location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const executed = resolveChainBody([gated], productionContext(withAlly));
+  assert.equal(executed.results[0].result.status, "executed");
+  assert.equal(executed.linkedValues["gated.value"], true);
+
+  const alone = world().player("A")
+    .unit("ramhound", { might: 2, controller: "A", owner: "A", location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const skipped = resolveChainBody([gated], productionContext(alone));
+  assert.equal(skipped.status, "partial");
+  assert.equal(skipped.results[0].result.status, "negated");
+  assert.equal(skipped.results[0].result.reason, "skipped");
+});
+
+test("sfd-159-221 Trusty Ramhound golden: the merged arithmetic layer applies the declared +1 Might", () => {
   // RIFT-91's layer engine consumes the declared continuous.might effect when a
   // caller registers it; this executes the real arithmetic path for the amount
-  // this card declares. The "while you have another unit here" gate itself stays
-  // TODO (the layer condition vocabulary cannot evaluate a count condition).
+  // this card declares. The gate itself has no layer-side evaluation (see
+  // judgeReason), so no layer assertion claims the condition is honoured.
   const kernel = world()
     .unit("ramhound", { zone: "board", might: 2, location: { type: "battlefield", id: "bf-1" } })
     .build();
@@ -79,8 +154,7 @@ test("sfd-159-221 Trusty Ramhound: the merged arithmetic layer adds the declared
 });
 
 test.todo(
-  "sfd-159-221 Trusty Ramhound: evaluate the 'while you have another unit here' gate — the merged " +
-    "layer engine's conditionMatches returns true for every non-type/has-tag/has-keyword condition, so " +
-    "count/compare plus sameLocationAs/other predicates and card-program continuous registration are " +
-    "required (RIFT-91 follow-up, RIFT-32/33 layer scenarios)"
+  "sfd-159-221 Trusty Ramhound: evaluate the 'while you have another unit here' gate on the layer path " +
+    "(conditionMatches must handle compare/count and matchesObjectFilter must implement the sameLocationAs/exclude " +
+    "anchors) and register the card's static ability (RIFT-91 follow-up / RIFT-257 follow-up)."
 );

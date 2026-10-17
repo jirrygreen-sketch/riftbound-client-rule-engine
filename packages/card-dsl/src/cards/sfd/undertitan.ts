@@ -11,36 +11,37 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "When you play me" is a Play Effect (383.4.a): the card-played timing point
  *   filtered to this card. "your other units" is a set selection by
  *   characteristics — "each"/"all" effects are not targets (355.10.d) — so the
- *   body carries no TargetSpec and excludes the source itself (355.9.c).
+ *   body carries no TargetSpec; "other" excludes the source unit (355.9.c) and is
+ *   expressed with the contract 3.6 anchor `exclude: "self"` (a bare `other: true`
+ *   key is not a filter anchor and would silently let Undertitan take the +2).
  * - "give ... +2 :rb_might: this turn" is a temporary Might modification that
  *   expires at end of turn; Might is altered in the arithmetic layer (143.2.a,
- *   475–477), and the duration is a continuous-effect lifetime, not a Buff
- *   (702 Buffs are counters; effect.buff's own header states temporary Might
- *   changes "belong to continuous.might, never to this primitive").
+ *   475–477) and the duration resolves to the layers `end-of-turn` lifetime
+ *   (317.1.a / 468.7.c). It is never approximated with a Buff counter (702: Buffs
+ *   are counters; effect.buff's own header sends temporary Might changes to
+ *   continuous.might).
  * - "As I'm revealed from your deck" is not an instruction: 135.2.b.6 uses this
- *   exact text as its example of a replacement clause, and 369.1 / 2334-2388
- *   name Undertitan as the example of a Replacement Effect that alters a reveal
- *   from the deck. "[Add] :rb_energy_2:" adds 2 Energy to the controller's Rune
- *   Pool (430.1, 166.1).
+ *   exact text as its example of a replacement clause, and 369.1 / 370.1.b.1 name
+ *   Undertitan as the example of a Replacement Effect over a reveal from the deck.
+ *   "[Add] :rb_energy_2:" adds 2 Energy to the controller's Rune Pool (430.1, 166.1).
  *
- * Status: judge-required — both halves have concrete merged gaps:
- * - the temporary Might grant needs a consumable continuous.might effect; the
- *   layers engine (RIFT-91) exists, but no instruction primitive registers
- *   one, no merged consumer reads the amount of a card-program static effect,
- *   and "this turn" expiry has no wired duration task — the same
- *   judge-required position already recorded by the merged Dangerous Duo
- *   (ogn-016-298) and Frigid Touch (sfd-066-221).
- * - the reveal replacement has no registration path: the event pipeline
- *   registers replacements as action matchers and nothing turns a card
- *   program's ReplacementAbility into one, the replaced "reveal" event is not
- *   one of the frozen GameActions observable that way, and there is no added
- *   replacement-event binding for card programs (engine batch 4).
- * The golden test executes the merged effect.resources primitive ([Add] 2
- * Energy, 430.1) against the reference kernel; the Might and replacement halves
- * stay TODO with their task numbers.
- * Dependencies: RIFT-91 follow-up (continuous.might primitive + end-of-turn
- * duration + card-program registration), engine batch 4/5 (card replacement
- * registration), plus an observable "revealed from deck" event.
+ * Status: judge-required. The Might half now executes end to end; the replacement
+ * half still lacks its registration consumer:
+ * - The merged continuous.might instruction (RIFT-258) registers a per-object
+ *   arithmetic-layer effect with an end-of-turn lifetime. The golden drives the
+ *   card's own instruction through the interpreter, the reference kernel and the
+ *   layer engine, and asserts that only the other friendly units get +2, that
+ *   Undertitan itself and enemy units do not, and that the effect expires at
+ *   end of turn.
+ * - The reveal replacement has no CardProgram -> replacement registration: the
+ *   merged replacement/ module (RIFT-260) binds this exact pattern to the
+ *   `card-revealed` action and the body (effect.resources, 430.1) executes (the
+ *   golden drives that merged binding with the card's own replaces/with data),
+ *   but programs/statics.ts defaults to `noopStaticBinder` and no merged consumer
+ *   supplies a `bindReplacement` implementation (RIFT-257 follow-up).
+ * Dependencies: RIFT-257 follow-up (card replacement registration). Nothing is
+ * approximated: the +2 is never a Buff counter and the reveal clause is never
+ * turned into a plain instruction.
  */
 const abilities: Ability[] = [
   {
@@ -58,7 +59,8 @@ const abilities: Ability[] = [
           amount: { kind: "constant", value: 2 },
           duration: { kind: "constant", value: "end-of-turn" },
           // 355.10.d: "your other units" is a set selected by characteristics,
-          // not a target choice; "other" excludes the source unit (355.9.c).
+          // not a target choice; 355.9.c: "other" excludes the source unit
+          // through the contract 3.6 `exclude` anchor.
           objects: {
             kind: "constant",
             value: {
@@ -66,8 +68,8 @@ const abilities: Ability[] = [
               filter: {
                 zone: "board",
                 type: "unit",
-                controller: "controller",
-                other: true
+                controller: "self",
+                exclude: "self"
               }
             }
           }
@@ -78,8 +80,9 @@ const abilities: Ability[] = [
   {
     // "As I'm revealed from your deck, [Add] :rb_energy_2:." — the leading
     // clause is not an instruction (135.2.b.6) but a Replacement Effect over
-    // the reveal (369.1); the replacement body is the merged Add of 2 Energy
-    // (430.1). The replaced-event binding/registration is the judged part.
+    // the reveal (369.1 / 370.1.b.1); the replacement body is the merged Add of
+    // 2 Energy (430.1). The missing piece is the CardProgram -> replacement
+    // registration consumer (see judgeReason).
     kind: "replacement",
     replaces: {
       event: "card-revealed",
@@ -103,14 +106,13 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处依赖未合入：(1)「give your other units +2 :rb_might: this turn」需要可消费的 continuous.might 持续效果——" +
-    "契约 3.6 封闭 GameAction 无 Might 修改动作，effect.buff 明确临时 Might 修改属 continuous.might 而不属本原语；" +
-    "已合入的图层（RIFT-91）没有注册入口、没有读取卡牌 static 效果 amount 的消费者，「this turn」到期也没有接线" +
-    "（与已合入的 Dangerous Duo ogn-016-298 / Frigid Touch sfd-066-221 同一 judge-required 口径）。" +
-    "(2)「As I'm revealed from your deck, [Add] :rb_energy_2:」是替代效果（135.2.b.6 以本句为例；369.1/CR 2334 引 Undertitan 为" +
-    "“替代一次揭示”的例子）：事件管线（RIFT-120）只以动作匹配器注册替代、且揭示不是可从该处观察的封闭 GameAction，" +
-    "没有卡牌程序→替代注册的接线。with 体本身是已合入的 effect.resources（430.1 加 2 能量），golden 真实执行该半段。" +
-    "依赖：RIFT-91 后续（continuous.might 原语 + end-of-turn 期限 + 卡牌注册）、引擎批 4/5（替代注册）、可观察的“从牌库被揭示”事件。",
+    "半段可执行、半段未接线：(1)「give your other units +2 :rb_might: this turn」已可执行——continuous.might（RIFT-258）注册 arithmetic 层效果并支持 end-of-turn 期限" +
+    "（317.1.a/468.7.c）；卡内选择按契约 3.6 写成 controller: \"self\" + exclude: \"self\"（\"other\" 排除来源，355.9.c），" +
+    "golden 经解释器 + 参考内核 + 图层引擎真实执行（只有其他友方单位 +2、来源与敌方不变、回合结束到期）。" +
+    "(2)「As I'm revealed from your deck, [Add] :rb_energy_2:」（135.2.b.6 的非指令从句）仍缺卡牌程序→替代注册的消费方：replacement/（RIFT-260）已合入并能匹配 reveal 动作（card-revealed）、" +
+    "with 体（effect.resources，430.1）也已可执行（golden 用卡自身的 replaces/with 数据驱动该绑定），" +
+    "但 programs/statics.ts 的 bindReplacement 默认是 noopStaticBinder，没有已合入实现把卡牌 replacement 能力注册进事件管线（RIFT-257 后续）。" +
+    "依赖：RIFT-257 后续（卡牌替代注册）。不近似实现（+2 不用 Buff 计数器近似，揭示句也不改写成普通指令）。",
   abilities,
   sourceText:
     "When you play me, give your other units +2 :rb_might: this turn.\n" +
