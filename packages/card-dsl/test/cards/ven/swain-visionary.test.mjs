@@ -138,10 +138,10 @@ test("ven-065-166 golden: the trigger condition shape is the conjunction of the 
 });
 
 test("ven-065-166 golden: the merged history primitive evaluates the three-clause filters (HistoryQuery objectFilter)", () => {
-  // 卡程序里的 count 表达式由触发管线换成 condition.history 查询（scope/action 相同
-  // + objectFilter）；参考内核对条件谓词做的是现场求值，所以 objectFilter 的执行
-  // 证据用 condition.history 指令直接验证。play 动作由内核真实执行并连 object
-  // 快照写入 history（timingPoint card-played）。
+  // 该 golden 显式使用已合入的 condition.history 原语（interpreter/history.ts）验证
+  // objectFilter/isToken 维度；它不执行卡内原始条件——原始条件走 count 表达式的
+  // 现场集合查询，见下一个反例。play 动作由内核真实执行并连 object 快照写入
+  // history（timingPoint card-played）。
   const playedHistoryQuery = (objectFilter, filterPlayer = "A") => ({
     id: "swain-visionary.conquer-condition",
     op: "condition.history",
@@ -205,12 +205,63 @@ test("ven-065-166 golden: the merged history primitive evaluates the three-claus
   assert.equal(tokenUnitGate.linkedValues["swain-visionary.conquer-condition.value"], false);
 });
 
+test("ven-065-166 golden: the card's original condition does not read play history (fails closed)", () => {
+  // 用卡内原始条件（含 controller:"controller" 占位符，不做内核替换）执行，复现
+  // 触发管线的现场求值路径：count 表达式走集合查询、不读历史。占位符在集合查询
+  // 里不匹配任何真实 playerId，所以打牌前后都 fail-closed 为假。把占位符换成
+  // 真实 playerId 后，三类牌留在手里、playHistory=0 时条件就返回 true（集合查询
+  // 命中当前手牌）——这条「错误 true」证明即使换掉占位符，求值也不读「本回合
+  // 打出过」这一历史事实；打出到棋盘后它同样为 true，但那是棋盘现状与历史巧合，
+  // 不是历史判定。两条路径都不读历史，因此条件不可执行。
+  const kernel = world()
+    .player("A")
+    .card("hand-unit", { owner: "A", zone: "hand", types: ["unit"], isToken: false })
+    .card("hand-gear", { owner: "A", zone: "hand", types: ["gear"], isToken: false })
+    .card("hand-spell", { owner: "A", zone: "hand", types: ["spell"] })
+    .build();
+  for (const id of ["hand-unit", "hand-gear", "hand-spell"]) {
+    const outcome = kernel.perform({
+      type: "play",
+      player: "A",
+      object: kernel.ref(id),
+      cost: { finalized: true, energy: 0, power: [] }
+    });
+    assert.equal(outcome.status, "done", "play " + id);
+  }
+  assert.equal(kernel.history({ scope: "turn", action: "play", player: "A" }), 3);
+  assert.equal(kernel.getObject("hand-unit").zone, "board");
+  assert.equal(kernel.getObject("hand-gear").zone, "board");
+  assert.equal(kernel.getObject("hand-spell").zone, "board");
+  const playedOutcome = runAbilityBody(predicateBody(conquer.trigger.condition), kernel);
+  assert.equal(playedOutcome.status, "executed");
+  assert.equal(playedOutcome.linkedValues["swain-visionary.conquer-condition.value"], false);
+
+  // 对照反例：同样的牌留在手里（playHistory = 0），条件应表达「本回合打出过」而
+  // 返回 false——占位符路径 fail-closed 为假，换真值后集合查询命中手牌返回 true，
+  // 两条路径都不读历史。
+  const handKernel = world()
+    .player("A")
+    .card("hand-unit", { owner: "A", zone: "hand", types: ["unit"], isToken: false })
+    .card("hand-gear", { owner: "A", zone: "hand", types: ["gear"], isToken: false })
+    .card("hand-spell", { owner: "A", zone: "hand", types: ["spell"] })
+    .build();
+  assert.equal(handKernel.history({ scope: "turn", action: "play", player: "A" }), 0);
+  const withPlaceholder = runAbilityBody(predicateBody(conquer.trigger.condition), handKernel);
+  assert.equal(withPlaceholder.status, "executed");
+  assert.equal(withPlaceholder.linkedValues["swain-visionary.conquer-condition.value"], false);
+  const withRealController = runAbilityBody(predicateBody(conditionForKernel()), handKernel);
+  assert.equal(withRealController.status, "executed");
+  assert.equal(withRealController.linkedValues["swain-visionary.conquer-condition.value"], true);
+});
+
 test.todo(
   "ven-065-166 Swain, Visionary: [Vision]'s Predict needs the ordered top-deck source for effect.inspect " +
     "(817.1.b / 437.1) plus the ordered picks prerequisite (RIFT-357 / RIFT-358, in flight)"
 );
 test.todo(
   "ven-065-166 Swain, Visionary: evaluate 'played a non-token unit, a non-token gear, and a spell this turn' " +
-    "at trigger time (CR 383.2.a.1) — the objectFilter evaluation itself is merged and golden-tested; " +
-    "what stays missing is the CardProgram → trigger registration adapter (RIFT-120)"
+    "at trigger time (CR 383.2.a.1) — the trigger pipeline evaluates spec.condition as a live set query " +
+    "(host.testTrigger → kernel.test), not from play history; no merged path evaluates the three-clause " +
+    "'played … this turn' condition (HistoryQuery/condition.history is merged as an independent primitive " +
+    "but is not wired into the card's count condition)"
 );

@@ -66,7 +66,7 @@ test.todo(
 test.todo(
   "ven-043-166 Steel Paws: bill the Deflect tax as any-domain Power when an opponent chooses this unit " +
     "(809.1.c / 809.1.c.1) — the tax machinery is merged (target/target-plan.ts) but no keyword-to-target-plan " +
-    "wiring exists, and the closed six-domain union cannot express [A]"
+    "wiring exists; [A] itself is expressible through the merged six-domain allowedDomains cost system"
 );
 
 test.todo(

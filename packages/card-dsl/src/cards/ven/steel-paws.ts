@@ -26,12 +26,14 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * 1. 没有 Empower / Empowered 的 KeywordDef（keywords/registry.generated.ts 不含），
  *    827.1.c.1 的起动费用与 “Use only if not Empowered” 限制无法展开；
  * 2. 没有 Empowered 状态谓词（442.1.a），“[Empowered][>]” 的门控没有可求值形态；
- * 3. “+7 Might” 需要卡牌侧 continuous.might 注册/求值入口（RIFT-91 只合入图层求值侧）；
+ * 3. “+7 Might” 的 arithmetic 图层产出已可由已合入的 continuous.might 求值，缺的是
+ *    Empowered 门控谓词与卡侧注册接线；
  * 4. [Deflect] 的展开文件已合入（static target.tax），但没有生产方把永久物上的 target.tax
- *    接进目标选择与追加费用，且 809.1.c.1 要求的任意域 Power（:rb_rune_rainbow:）在六域封闭
- *    Domain 集合下不可表示（RIFT-90/RIFT-89）。
- * 依赖：新增 Empower/Empowered 关键词任务、RIFT-90（目标税接线）、RIFT-89（任意域 Power 付费）、
- * RIFT-87（条件/谓词）、RIFT-91（layers 接线）。不近似实现：不把 Deflect 写成别的时点或数值，
+ *    接进目标选择与追加费用；[A]（:rb_rune_rainbow:，809.1.c.1 要求的任意域 Power）
+ *    已由费用系统六域 allowedDomains 表达（cost/kinds/hidden.ts、cost.pay 接受六域
+ *    payments），不再是缺口。
+ * 依赖：新增 Empower/Empowered 关键词任务、442.1.a 状态谓词、keyword→target.tax
+ * 自动接线。不近似实现：不把 Deflect 写成别的时点或数值，
  * 也不把 +7 Might 写成 Buff 计数器。
  */
 const abilities: Ability[] = [
@@ -67,9 +69,9 @@ export default {
     " 的依赖能力门控没有可求值形态（+7 Might 的 arithmetic 图层产出可由已合入的 continuous.might 执行，" +
     "缺的只是 Empowered 门控与卡侧注册接线）；(3) [Deflect] 的展开（effects/keywords/Deflect.ts 的 static " +
     "target.tax）与 target/target-plan.ts 的税机制均已合入，但没有从永久物关键词自动接进目标计划的生产方" +
-    "（tax 由调用方显式传入），且 809.1.c.1 要求的任意域 Power（:rb_rune_rainbow:）在六域封闭 Domain 集合下" +
-    "不可表示。依赖：新的 Empower/Empowered 关键词任务、442.1.a 状态谓词、keyword→target.tax 自动接线、" +
-    "任意域 Power 付费。",
+    "（tax 由调用方显式传入）。[A]（:rb_rune_rainbow:，809.1.c.1 要求的任意域 Power）已由费用系统六域 " +
+    "allowedDomains 表达（cost/kinds/hidden.ts、cost.pay 接受六域 payments），不再是缺口。" +
+    "依赖：新的 Empower/Empowered 关键词任务、442.1.a 状态谓词、keyword→target.tax 自动接线。",
   abilities,
   sourceText:
     "[Deflect] (Opponents must pay :rb_rune_rainbow: to choose me with a spell or ability.)\n" +

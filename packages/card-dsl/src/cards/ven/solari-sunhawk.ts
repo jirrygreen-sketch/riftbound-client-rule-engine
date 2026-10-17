@@ -36,8 +36,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * 3. 卡牌侧没有把 continuous.might / continuous.grant-keyword 静态效果注册进图层的入口
  *    （ctx.addContinuous 只有 chain/engine 内部接线；RIFT-91 的 layers 引擎已合入求值
  *    骨架），因此依赖能力无法激活。
- * 依赖：新增 Empower/Empowered 关键词任务、RIFT-91（图层与卡牌持续效果注册）、
- * RIFT-90（Deflect 的 target.tax 消费方）。
+ * 依赖：新增 Empower/Empowered 关键词任务与 442.1.a 状态谓词；并把卡内声明的
+ * continuous.might 与 [Deflect 2] 的 continuous.grant-keyword 接到图层/target.tax
+ * 执行入口（图层求值骨架已合入）。
  */
 const abilities: Ability[] = [
   {

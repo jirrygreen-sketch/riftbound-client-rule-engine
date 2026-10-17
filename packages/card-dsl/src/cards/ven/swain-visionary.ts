@@ -27,20 +27,31 @@ import type { Ability, CardProgram, Condition, Instruction } from "../../ir/inde
  *
  * 复核（2026-10-17，第二轮 M2 覆盖率复核）：HistoryQuery 的 objectFilter/exclude
  * 维度已合入（effects/contract.ts + interpreter/history.ts + 参考内核 matchesFilter，
- * 支持 type/isToken/controller 等），三件套条件可真实求值——golden 用真实 play 动作
- * 写入内核 history 后断言条件由 false 翻转为 true。旧缺口「objectFilter 未落地」
- * 已过时。
+ * 支持 type/isToken/controller 等），condition.history 原语可独立真实执行——golden
+ * 用真实 play 动作写入内核 history 后断言各过滤维度命中。但卡内 count 条件在条件
+ * 求值路径上是现场对象集合查询（参考内核 test → evaluate → query →
+ * matchesQueryFilter），不读打牌历史：本回合打出的牌已离手，集合查询命不中
+ * 「本回合打出过」这一历史事实，且 filter 里的 controller:"controller" 占位符在
+ * 集合查询里不匹配任何真实 playerId（fail-closed 为假）。旧结论「三件套条件
+ * 可真实求值、条件由 false 翻转为 true」已过时——真实求值的是 condition.history
+ * 原语，不是卡内原始条件。
  *
  * status = judge-required（当前真实缺口，均不近似实现）：
  * 1. [Vision] 的展开（effects/keywords/Vision.ts）不可执行：其 effect.inspect 在
  *    top scope 缺少上游有序 picksSpecId 时按自身文档直接 negated（契约 3.6 的
  *    zoneSlice 已能按区域顺序读牌库顶，但 inspect 尚未消费它），Predict 的看牌与
- *    可选回收无法完成；且没有已合入的卡牌程序 → 触发注册适配器（RIFT-120）。
- * 2. 征 conquer 触发到链上的生产注册（卡牌程序 → 触发注册适配器，RIFT-120）；
- *    三件套历史条件本身已可求值（objectFilter golden 真实执行）。
- * 依赖：RIFT-357 / RIFT-358（位置选择、有序 picks——Vision 的 inspect top 依赖）、
- * RIFT-120（卡牌触发注册）。征服触发的 effect.score 本体已合入并单独可执行
- * （golden 用真实解释器 + 参考内核执行），但不把缺历史条件的触发当作可执行整卡。
+ *    可选回收无法完成。
+ * 2. conquer 触发（383.2.a.1 三件套条件）的注册适配器已合入（registerProgramTriggers
+ *    + 生命周期接线，golden 断言注册成功），但它不自动转换条件语义——触发扫描用
+ *    host.testTrigger 对 spec.condition 做现场求值：count 表达式走集合查询、不读
+ *    本回合打出历史，且 controller 占位符在集合查询里无锚点（fail-closed 为假）。
+ *    golden 用卡内原始条件复现：占位符路径打牌前后都 fail-closed 为假；把占位符
+ *    换成真实 playerId 后，三类牌留在手里、playHistory=0 时条件就错误返回 true
+ *    （集合查询命中当前手牌）——证明求值不读「本回合打出过」这一历史事实。
+ * 依赖：RIFT-357 / RIFT-358（位置选择、有序 picks——Vision 的 inspect top 依赖）；
+ * 触发条件的历史求值路径（把 count-over-played-this-turn 接到 condition.history
+ * 或等价谓词）。征服触发的 effect.score 本体已合入并单独可执行（golden 用真实
+ * 解释器 + 参考内核执行），但不把缺历史条件的触发当作可执行整卡。
  */
 
 /** 383.2.a.1：紧跟 Condition 的 if 从句属于触发条件，逐项按历史维度表达。 */
@@ -116,10 +127,17 @@ export default {
     "两处缺口（复核 2026-10-17）：(1) [Vision]（817.1.b/817.1.c 的 Predict）展开不可执行——" +
     "keywords/Vision.ts 的 effect.inspect 在 top scope 缺少上游有序 picksSpecId 时直接 negated" +
     "（契约 3.6 的 zoneSlice 已合入但 inspect 未消费），看牌与可选回收无法完成，依赖 RIFT-357 / RIFT-358" +
-    "（位置选择、有序 picks，进行中）；(2) conquer 触发（383.2.a.1 三件套条件）还没有卡牌程序 → 触发注册的生产适配器（RIFT-120）。" +
-    "三件套历史条件本身已可求值：HistoryQuery 的 objectFilter/exclude 已合入（effects/contract.ts、" +
-    "interpreter/history.ts、参考内核 matchesFilter），golden 用真实 play 动作写入 history 后断言条件由 " +
-    "false 翻转为 true；effect.score 本体也已合入并由 golden 真实执行。不近似实现" +
+    "（位置选择、有序 picks，进行中）；(2) conquer 触发（383.2.a.1 三件套条件）的注册适配器已合入" +
+    "（registerProgramTriggers + 生命周期接线，golden 断言注册），但它不自动转换条件语义——触发扫描用 " +
+    "host.testTrigger 对 spec.condition 做现场求值：count 表达式走集合查询、不读本回合打出历史，" +
+    "且 controller 占位符在集合查询里无锚点（fail-closed 为假）。" +
+    "HistoryQuery 的 objectFilter/exclude 已合入（effects/contract.ts、interpreter/history.ts、" +
+    "参考内核 matchesFilter），condition.history 原语可独立真实执行（golden 用真实 play 动作写入 " +
+    "history 后断言各过滤维度命中），但没有路径把卡内 count 条件接到它；golden 用卡内原始条件复现：" +
+    "占位符路径打牌前后都 fail-closed 为假；换成真实 playerId 后，三类牌留在手里、playHistory=0 时" +
+    "条件就错误返回 true（集合查询命中当前手牌）——证明求值不读「本回合打出过」这一历史事实；" +
+    "effect.score 本体已合入并真实执行。" +
+    "不近似实现" +
     "（不把三件套条件降级成动作计数，也不把 Vision 写成手写 Predict）。",
   abilities,
   sourceText:

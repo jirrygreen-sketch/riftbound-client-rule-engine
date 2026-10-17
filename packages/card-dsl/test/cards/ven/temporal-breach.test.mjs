@@ -166,5 +166,5 @@ test.todo(
   "ven-066-166 Temporal Breach: 'its owner plays it to the same location, ignoring its cost' needs the " +
     "pre-banish location (428 + 124 make the old reference unusable), a per-object owner chooser and a " +
     "zero-cost FinalizedCostPlan (356.1.b.1) — effect.play takes one player, one location and an " +
-    "already-finalized plan, and no card-program ignore-cost entry point exists (RIFT-89 / RIFT-90)"
+    "already-finalized plan, and no card-program ignore-cost entry point exists"
 );
