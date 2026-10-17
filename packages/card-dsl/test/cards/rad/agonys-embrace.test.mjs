@@ -36,7 +36,8 @@ test("rad-153-167 Agony's Embrace: identity, status, judgeReason, and verbatim s
   assert.match(program.judgeReason, /355\.9\.a\.3/);
   assert.match(program.judgeReason, /Unsupported filter field details/);
   assert.match(program.judgeReason, /notYourTurn/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /translateObjectFilter/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-257/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -139,7 +140,7 @@ test("rad-153-167 Agony's Embrace: the merged Discard 1 half really discards the
 test.todo(
   "rad-153-167 Agony's Embrace: recognize 'a card played from face down' in the card-played " +
     "trigger (CR 355.9.a.3 / 107.3.e; needs the Hide action, the Facedown Zone and a card-played " +
-    "from-zone payload plus the RIFT-257 card-program trigger binding)"
+    "from-zone payload plus the trigger registration path)"
 );
 test.todo(
   "rad-153-167 Agony's Embrace: evaluate 'if it's not your turn' against the current turn player " +

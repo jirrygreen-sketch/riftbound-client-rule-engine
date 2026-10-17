@@ -82,7 +82,7 @@ const abilities: Ability[] = [
         // “give me” 的“me”是能力宿主，用契约 3.6 的 appliesTo: "self" 简写
         // （与已合入 sfd/harpoon-squad 同一形状）；不用 target 指向一个
         // filter 里塞 object: "self" 的假 TargetSpec——那既不是符号选择器，
-        // 也会被 RIFT-257 的 translateObjectFilter 判 “Unsupported filter field object”。
+        // 也会被 translateObjectFilter 判 “Unsupported filter field object”。
         op: "continuous.might",
         args: {
           mode: { kind: "constant", value: "add" },
@@ -101,7 +101,7 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "(1)「here」不可表达：触发过滤的 sameLocationAs 锚点被 RIFT-257 的 translateObjectFilter 判 " +
+    "(1)「here」不可表达：触发过滤的 sameLocationAs 锚点被 translateObjectFilter 判 " +
     "Unsupported filter field sameLocationAs，实测 registerProgramTriggers 抛 ProgramBindingError；" +
     "Disarm 展开的 TargetSpec 走同一 translateObjectFilter，也会被同一原因拒绝。" +
     "(2) might-changed 时点不可订阅：它不在 EVENT_PATTERN_TYPES（events/trigger-spec.ts），" +
@@ -109,13 +109,13 @@ const program = {
     "might-change.ts 的 deriveMightChangedEmissions 也仍无生产调用方（图层重算后没有把 before/after " +
     "并入事件管线的接线，docs/rules/timing-point-producers.md 记接入点待接线）。" +
     "(3)「reduce … by 1 or more」的幅度过滤没有求值路径：EventPattern.details 只比较字面标量，" +
-    "无法比较 previousMight/currentMight 大小；RIFT-257 的 programs/filters.ts 又把 details 交给 " +
+    "无法比较 previousMight/currentMight 大小；programs/filters.ts 又把 details 交给 " +
     "translateObjectFilter（只认 objectId/cardId/type/controller/owner/zone/location/states/tags/" +
     "characteristics），顶层 details 直接抛 ProgramBindingError。" +
     "(4) Disarm 展开订阅的 attack-declared 没有生产者——combat/flow.ts 在战斗开始/角色指定处仍抛 " +
     "combat-start-transaction（同文档记 attack-declared 待后续）。" +
-    "RIFT-267 的 Disarm KeywordDef、RIFT-258 的 continuous.might 与 RIFT-257 的 CardProgram 绑定" +
-    "均已合入，不再是缺口。不近似实现：不使用 Buff counter 代替 Might 修改。",
+    "Disarm KeywordDef、continuous.might 与 CardProgram 绑定" +
+    "均已具备，不再是缺口；不近似实现：不使用 Buff counter 代替 Might 修改。",
   abilities,
   sourceText:
     "[Disarm] (When I attack, give an enemy unit here -1 :rb_might: this turn.)\n" +

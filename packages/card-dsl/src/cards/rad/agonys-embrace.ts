@@ -53,7 +53,7 @@ export default {
     "只带 object/player，不携带打出前区域；Hide 动作不在 GameAction 集内（effects/contract.ts），" +
     "没有模块发出 card-hidden，OBJECT_FILTER_ZONES（events/trigger-spec.ts）也没有 facedown-zone，" +
     "CR 355.9.a.3 / 107.3.e 的 Facedown card 事实无从取得。该事实也无法用 EventPattern.details 声明：" +
-    "RIFT-257 的 programs/filters.ts 把 details 交给 translateObjectFilter，而它只接受 " +
+    "触发过滤的 programs/filters.ts 把 details 交给 translateObjectFilter，而它只接受 " +
     "objectId/cardId/type/controller/owner/zone/location/states/tags/characteristics，顶层 details " +
     "判为 Unsupported filter field details 并在注册时抛 ProgramBindingError；states:[face-down] 也求值" +
     "事件对象的当前状态，而 card-played 的 object 已是打出后快照（faceDown false），不描述打出前来源。" +
@@ -61,8 +61,8 @@ export default {
     "但 Expr 只有 constant/location/object-property/linked/count/arithmetic、Condition 只有 " +
     "always/never/compare/all/any/not/expression；turnPlayer 只存在于 layers/rules/query.ts 的查询输入，" +
     "object-property 读取 ObjectSnapshot 特征，notYourTurn 不在 ObjectSnapshot 中（读取抛 " +
-    "MissingInformation → 指令 ignored）。RIFT-257 的 CardProgram → TriggerRegistration 绑定已合入，" +
-    "不再是缺口。draw 1（effect.draw，414.1）与 discard 1（effect.discard，423.1）已合入并有真实执行测试，" +
+    "MissingInformation → 指令 ignored）。" +
+    "draw 1（effect.draw，414.1）与 discard 1（effect.discard，423.1）已有真实执行测试，" +
     "但都在无法判定的触发/条件之下；整卡保持 judge-required，不近似实现。",
   abilities: [
     {

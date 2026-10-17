@@ -108,7 +108,7 @@ const program = {
   status: "judge-required",
   judgeReason:
     "(1) 两段触发都无法订阅：object-moved 不在 EVENT_PATTERN_TYPES（events/trigger-spec.ts），" +
-    "pipeline.registerTrigger 的 assertTriggerSpec 判 invalid-event-type，RIFT-257 的" +
+    "pipeline.registerTrigger 的 assertTriggerSpec 判 invalid-event-type，" +
     "programs/triggers.ts 与 filters.ts 也无法把该事件名交出去。" +
     "(2) Universal Power（[A]，135.2.e.5 / 163.2.b）无可执行表达——契约 3.6 的 Domain 是六域" +
     "封闭枚举，effect.resources 明确记载 Universal Power 不可表示、不得用任一域近似（实测得到 " +
@@ -117,8 +117,7 @@ const program = {
     "（interpreter/history.ts）只提供动作计数（含契约 3.8 的 exclude/objectFilter 消费），没有序数谓词。" +
     "(4)「Until your next Ending Phase, you may play that card. (You still pay its costs.)」需要" +
     "期限化的打出许可原语：effect.play-permission 未注册（effects/instructions/ 无该文件）。" +
-    "RIFT-261 的 cost.pay/cost.modify 与 RIFT-257 的绑定均已合入，不再是缺口。已合入部分" +
-    "（object-moved 时点、effect.banish 牌库顶、effect.resources 能量）在 golden 测试真实执行。不近似实现。",
+    "object-moved 时点、effect.banish 牌库顶、effect.resources 能量等已表达部分在 golden 测试真实执行；不近似实现。",
   abilities,
   sourceText:
     "The first time I move each turn, [Add] :rb_energy_1::rb_rune_rainbow:.\n" +

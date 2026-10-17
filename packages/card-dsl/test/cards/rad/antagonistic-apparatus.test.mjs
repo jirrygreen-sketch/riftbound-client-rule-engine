@@ -32,6 +32,7 @@ test("rad-009-167 Antagonistic Apparatus: program validates and has expected ide
   assert.match(program.judgeReason, /argsSchema/);
   assert.match(program.judgeReason, /exhausted/);
   assert.match(program.judgeReason, /describePlay/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(257|260|349)/);
 });
 
 test("rad-009-167: enter-ready replacement plus card-played Mech token body", () => {

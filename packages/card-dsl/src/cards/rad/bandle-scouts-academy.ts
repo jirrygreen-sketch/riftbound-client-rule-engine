@@ -52,14 +52,14 @@ export default {
     "(1) 「When you hide a card here」无法订阅：card-hidden 不在 EVENT_PATTERN_TYPES " +
     "（events/trigger-spec.ts），pipeline.registerTrigger 直接拒绝该 spec；Hide 动作也不在 GameAction " +
     "集内，没有模块发出该时点（docs/rules/timing-point-producers.md）。「here」也不是 EventPattern " +
-    "字段，RIFT-257 的 programs/filters.ts 判 “Unsupported filter field here”。" +
+    "字段，programs/filters.ts 判 “Unsupported filter field here”。" +
     "(2) Gold gear token（187.5）自带启动能力，effect.token 的冻结定义表按设计不收录（blocked，返回 " +
     "token-definition-or-abilities-judge-required）。" +
     "(3) 「exhausted」是入场替代修正（143.4 / 185.2.d），create-token 动作没有该参数：" +
     "effect.token 的 argsSchema 只收 token/amount/mode/location/target/pick/locations/choiceId/linkKey。" +
     "(4) 生产链没有消费 { type: \"play\" } 的 host 动作（chain/engine.ts 要求调用方提供 describePlay；" +
-    "EngineRuntimeHost 对 play 返回 impossible）。RIFT-257 的 CardProgram 绑定与 RIFT-261 的费用种类/" +
-    "cost.pay 均已合入，不再是缺口。不近似实现。",
+    "EngineRuntimeHost 对 play 返回 impossible）。" +
+    "不近似实现。",
   sourceText:
     "When you hide a card here, play a Gold gear token exhausted. (It has \"[Reaction][>] Kill this, :rb_exhaust:: [Add] :rb_rune_rainbow:.\")",
   abilities: [

@@ -29,6 +29,7 @@ test("rad-015-167 Akali, Brash: program validates and has expected identity", ()
   assert.match(program.judgeReason, /effect\.play-permission/);
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
   assert.match(program.judgeReason, /invalid-event-type/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(257|261)/);
 });
 
 test("rad-015-167: first-move resource trigger and second-move banish trigger", () => {
@@ -113,5 +114,5 @@ test.todo(
 );
 test.todo(
   "rad-015-167 Akali, Brash: “Until your next Ending Phase, you may play that card.” 的期限化" +
-    "打出许可原语 effect.play-permission 缺失（未注册；费用交接归 RIFT-261）"
+    "打出许可原语 effect.play-permission 缺失（未注册）"
 );

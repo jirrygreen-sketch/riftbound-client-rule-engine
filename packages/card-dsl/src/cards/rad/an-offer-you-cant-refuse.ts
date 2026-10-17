@@ -50,7 +50,7 @@ export default {
     "没有“链接对象的控制者”；effect.kill 的 killed 收据只给 ObjectRef 列表。" +
     "(4) 生产链还没有消费 { type: \"play\" } 的 host 动作（chain/engine.ts 要求 describePlay 卡牌程序" +
     "适配器，EngineRuntimeHost 对 play 返回 impossible）。" +
-    "RIFT-261 的 cost.pay/cost.modify 已合入，印刷 2 energy 按 cost.printed 记录；effect.kill 与 " +
+    "印刷 2 energy 按 cost.printed 记录；effect.kill 与 " +
     "[Action] 声明可结构校验并有真实执行测试，但不构成整卡证据；不近似实现 token 部分。",
   abilities: [
     { kind: "keyword", keyword: "action" },
