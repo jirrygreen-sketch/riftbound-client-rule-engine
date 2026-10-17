@@ -8,6 +8,8 @@ import { runInstruction, world } from "../../../../engine-core/dist/effects/test
 import play from "../../../../engine-core/dist/effects/instructions/effect.play.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 
+import { buildCostPlan } from "../../../../engine-core/dist/cost/index.js";
+
 const [ganking, triggered] = program.abilities;
 const c = value => ({ kind: "constant", value });
 
@@ -49,7 +51,7 @@ test("Kai'Sa, Evolutionary identity and judge-required reason", () => {
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /356\.1\.b\.2/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /points/);
   assert.equal(
     program.sourceText,
@@ -155,21 +157,30 @@ test("golden: declining the optional play skips the body entirely", () => {
 });
 
 test.todo(
-  "Kai'Sa, Evolutionary: the Finalize-time predicate comparing the candidate spell's printed Energy cost " +
-    "with the controller's current points (CR 4138–4155) as a dynamic target filter (RIFT-8x/90)"
+  "Kai'Sa: target filtering compares candidate spell Energy with current controller points (CR 471-473; RIFT-359)"
+);
+test.todo(
+  "Kai'Sa: bind the actually selected spell to an ignore-base-energy cost plan and nested Finalize, preserving its Power (356.1.b.2)"
+);
+test.todo(
+  "Kai'Sa: link the played spell's current reference after its resolution so Then recycle it runs at the correct time"
+);
+test.todo(
+  "Kai'Sa Ganking: adapt Ganking string permission to movement rule-query permission.routes and perform a Standard Move (810.1.b)"
 );
 
-test.todo(
-  "Kai'Sa, Evolutionary: 'without paying its Energy cost' as a finalized plan with base Energy 0 and the " +
-    "printed Power still payable for the actually chosen card (CR 356.1.b.2; RIFT-261 cost.printed / cost.pay)"
-);
-
-test.todo(
-  "Kai'Sa, Evolutionary: 'Then recycle it' binding the actually-played card's object reference out of the " +
-    "play resolution (effect.play currently links only the success count)"
-);
-
-test.todo(
-  "Kai'Sa, Evolutionary: [Ganking] expansion granting the battlefield-to-battlefield standard move " +
-    "(RIFT-83 KeywordDef merged; the card/keyword-expansion to layers registration path is RIFT-257)"
-);
+test("Kai'Sa supported cost planning: ignore only Energy and retain the selected spell's printed Power", () => {
+  const initial = world().card("spell", { types: ["spell"], zone: "trash", energy: 2, power: ["Mind"] }).build();
+  const kernel = initial.clone({ sourceSnapshot: initial.getObject("spell") });
+  const plan = buildCostPlan(kernel, {
+    id: "kaisa-selected-spell-cost",
+    cost: { kind: "printed" },
+    baseModifications: [{ kind: "ignore-base", ignore: "energy" }]
+  });
+  assert.equal(plan.finalized, true);
+  assert.equal(plan.printed.energy, 2);
+  assert.deepEqual(plan.printed.power, ["Mind"]);
+  assert.equal(plan.total.energy, 0);
+  assert.deepEqual(plan.total.power, [{ allowedDomains: ["Mind"], amount: 1 }]);
+  assert.deepEqual(plan.source, kernel.ref("spell"));
+});

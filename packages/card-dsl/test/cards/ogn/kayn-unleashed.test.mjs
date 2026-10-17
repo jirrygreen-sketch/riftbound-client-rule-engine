@@ -4,11 +4,15 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/kayn-unleashed.js";
 
+import { createProgramBinding, createEngineStaticBinder } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+
 const CANONICAL = "card.hash-1958207f0c4a0be000a8fb2e9fefe3b7deac31092670ca1484b69d633b7df9b7";
 const [ganking, replacement] = program.abilities;
 
 test("program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
+  assert.deepEqual(result.issues, []);
   assert.equal(result.ok, true, JSON.stringify(result.issues, null, 2));
 });
 
@@ -52,14 +56,27 @@ test("damage immunity records the intended twice-moved condition and a preventio
   assert.deepEqual(replacement.with, []);
 });
 
+test("Kayn supported Ganking expansion registers the original static rule on its host", () => {
+  const f = fixture({ cards: [{ id: "kayn", cardId: CANONICAL, types: ["unit"] }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("kayn"), to: "battlefield", location: { type: "battlefield", id: "battlefield-1" } });
+  f.engine.advance();
+  const source = f.kernel.getObject("kayn");
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const ability = binding.inspect(source).abilities.find(item => item.kind === "static");
+  const handle = createEngineStaticBinder(f.engine).bindStatic(ability, source);
+  const [entry] = f.engine.layers.registry.list();
+  assert.equal(entry.effect.layer, "ability");
+  assert.equal(entry.effect.effect.kind, "continuous.movement");
+  assert.equal(entry.effect.effect.permission, "battlefield-to-battlefield");
+  assert.equal(entry.effect.filter.objectId, "kayn");
+  assert.equal(entry.effect.filter.zoneEntryId, source.ref.zoneEntryId);
+  handle.unbind();
+  assert.equal(f.engine.layers.registry.list().length, 0);
+});
+
 test.todo(
-  "expand [Ganking] into an executable battlefield-to-battlefield movement permission once the movement " +
-    "system consumes continuous.movement and a card/keyword-expansion binding registers it (RIFT-83 " +
-    "KeywordDef and RIFT-258/259 continuous.movement are merged; RIFT-257 binding and the zones/movement " +
-    "consumer are still missing)"
+  "Kayn Ganking: adapt Ganking string permission to movement rule-query permission.routes, then execute a battlefield-to-battlefield Standard Move (810.1.b)"
 );
 test.todo(
-  "count this unit's own Move events in the current turn inside a replacement condition; the closed Condition " +
-    "IR has no history form and ResolveContext.history is not reachable from a replacement condition, so the " +
-    "declared compare/count predicate (CR 438.7) cannot gate the prevention yet"
+  "Kayn: replacement matching counts this incarnation's Move events in the current turn before preventing damage (438.7; RIFT-359)"
 );

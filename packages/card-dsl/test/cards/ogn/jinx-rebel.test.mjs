@@ -24,7 +24,7 @@ test("ogn-202-298 Jinx, Rebel: program validates and has expected identity", () 
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /per-batch|批次/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /card-discarded/);
   assert.equal(
     program.sourceText,
     "When you discard one or more cards, ready me and give me +1 :rb_might: this turn."
@@ -64,10 +64,10 @@ test("ogn-202-298 Jinx, Rebel: discard trigger with ready-me then an end-of-turn
 });
 
 test("ogn-202-298 Jinx, Rebel golden: 'ready me' readies the exhausted source through the interpreter", () => {
-  const kernel = world()
+  const initial = world()
     .unit("jinx", { might: 5, exhausted: true, location: { type: "base", player: "A" } })
     .build();
-  Object.defineProperty(kernel, "source", { value: kernel.getObject("jinx") });
+  const kernel = initial.clone({ sourceSnapshot: initial.getObject("jinx") });
 
   const [ready] = program.abilities[0].body;
   const outcome = runAbilityBody([ready], kernel);
@@ -80,10 +80,10 @@ test("ogn-202-298 Jinx, Rebel golden: 'ready me' readies the exhausted source th
 });
 
 test("ogn-202-298 Jinx, Rebel: readying an already-ready source is a no-op, not a failure (CR 416.1.b)", () => {
-  const kernel = world()
+  const initial = world()
     .unit("jinx", { might: 5, exhausted: false, location: { type: "base", player: "A" } })
     .build();
-  Object.defineProperty(kernel, "source", { value: kernel.getObject("jinx") });
+  const kernel = initial.clone({ sourceSnapshot: initial.getObject("jinx") });
 
   const [ready] = program.abilities[0].body;
   const outcome = runAbilityBody([ready], kernel);
@@ -95,10 +95,10 @@ test("ogn-202-298 Jinx, Rebel: readying an already-ready source is a no-op, not 
 });
 
 test("ogn-202-298 Jinx, Rebel golden: both halves execute through the interpreter", () => {
-  const kernel = world()
+  const initial = world()
     .unit("jinx", { might: 5, exhausted: true, location: { type: "base", player: "A" } })
     .build();
-  Object.defineProperty(kernel, "source", { value: kernel.getObject("jinx") });
+  const kernel = initial.clone({ sourceSnapshot: initial.getObject("jinx") });
 
   const outcome = runAbilityBody(program.abilities[0].body, kernel);
   assert.equal(outcome.status, "executed");
@@ -120,7 +120,6 @@ test("ogn-202-298 Jinx, Rebel golden: both halves execute through the interprete
 });
 
 test.todo(
-  "ogn-202-298 Jinx, Rebel: 'one or more cards' fires the trigger once per discard batch " +
-    "(CR 423.1.b；card-discarded 按牌逐张发出，触发生命期枚举没有 per-batch 去重；trigger-spec 的 " +
-    "EVENT_PATTERN_TYPES 也没有该事件名，注册绑定属 RIFT-257)"
+  "Jinx, Rebel: one trigger for a multi-card discard batch, and another trigger for a separate batch in the same turn " +
+    "(CR 423.1.b); bind a supported card-discarded player filter and batch grouping"
 );

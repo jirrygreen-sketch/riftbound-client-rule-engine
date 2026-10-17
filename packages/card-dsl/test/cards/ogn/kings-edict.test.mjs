@@ -30,12 +30,12 @@ test("ogn-237-298 King's Edict: program passes validateCardProgram", () => {
 });
 
 test("ogn-237-298 King's Edict judgeReason names the chooser order and per-spell exclusion gaps", () => {
-  assert.match(program.judgeReason, /choose/);
+  assert.match(program.judgeReason, /each other player/);
   assert.match(program.judgeReason, /回合顺序/);
   assert.match(program.judgeReason, /hasn't been chosen for this spell/);
   assert.match(program.judgeReason, /355\.10\.e/);
-  assert.match(program.judgeReason, /RIFT-9/);
-  assert.match(program.judgeReason, /choice\.optional|choice\.mode/);
+  assert.match(program.judgeReason, /累计/);
+  assert.match(program.judgeReason, /pick/);
 });
 
 test("ogn-237-298 King's Edict structure: other-player choice node then a linked non-target kill", () => {
@@ -110,7 +110,6 @@ test("ogn-237-298 King's Edict golden: no units chosen leaves every unit alive",
 });
 
 test.todo(
-  "King's Edict: iterating the choosers in turn order from the next player and accumulating the " +
-    "per-spell \"already chosen\" exclusion need a multi-player choice primitive (RIFT-9 " +
-    "target.player / multi-player choice coordination) plus target-plan integration (RIFT-90)."
+  "King's Edict: starting with the next player, each opponent makes a non-target pick excluding all earlier picks " +
+    "for this spell; kill the accumulated set only after the choices finish (CR 355.10.e, 355.18)"
 );

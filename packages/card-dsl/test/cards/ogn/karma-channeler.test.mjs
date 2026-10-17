@@ -8,6 +8,9 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import buff from "../../../../engine-core/dist/effects/instructions/effect.buff.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
+import { createProgramBinding, translateInstructionTargets } from "../../../../engine-core/dist/programs/index.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
+
 const CANONICAL = "card.hash-65e0ab54a0954e391f643dc900a7a0faa2cd298faa850e7c436e13659498922d";
 const [vision, recycleTrigger] = program.abilities;
 const [buffInstruction] = recycleTrigger.body;
@@ -25,8 +28,8 @@ test("ogn-235-298 Karma, Channeler: identity, status and verbatim sourceText", (
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /effect\.inspect/);
   assert.match(program.judgeReason, /card-recycled/);
-  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /批次/);
+  assert.match(program.judgeReason, /RIFT-358/);
   assert.equal(
     program.sourceText,
     "[Vision] (When you play me, look at the top card of your Main Deck. You may recycle it.)\n" +
@@ -66,9 +69,7 @@ test("ogn-235-298 Karma, Channeler: the recycle clause is a mandatory buff of on
 });
 
 test("ogn-235-298 Karma, Channeler: the recycle trigger is declared on the existing card-recycled timing point", () => {
-  // The timing point itself exists (events/timing-points.ts). Registering the
-  // trigger needs the closed EVENT_PATTERN_TYPES whitelist to accept the
-  // event name plus the "one or more cards" batch semantics (see judgeReason).
+  // Resolution still needs one trigger for the complete non-rune recycle batch.
   assert.equal(recycleTrigger.trigger.at, "card-recycled");
   assert.deepEqual(recycleTrigger.trigger.filter, { event: "card-recycled", player: "self" });
 });
@@ -108,28 +109,56 @@ test("ogn-235-298 Karma, Channeler: a unit that already has a buff is not buffed
   assert.deepEqual(run.linked.buffed, []);
 });
 
-test("ogn-235-298 Karma, Channeler: the declared buff instruction runs through the ability interpreter", () => {
-  const kernel = world().unit("karma").unit("ally").build();
-  kernel.setTargets(friendlyUnit.id, [kernel.ref("ally")]);
-  const { targets, ...instruction } = buffInstruction;
-  assert.equal(targets.length, 1);
-  const outcome = resolveChainBody([instruction], kernel);
-
-  assert.equal(outcome.status, "executed");
-  assert.deepEqual(outcome.results.map(result => [result.id, result.result.status]), [
-    ["karma-channeler.buff-friendly-unit", "executed"]
-  ]);
-  assert.equal(kernel.getObject("ally").buffs, 1);
+test("ogn-235-298 Karma, Channeler: the original buff body resolves with its friendly target restriction", () => {
+  const requests = [];
+  const f = fixture({
+    cards: [{ id: "karma", cardId: CANONICAL }, { id: "ally" }],
+    choose: request => {
+      requests.push(request);
+      if (request.type === "select-objects") return [request.options.find(ref => ref.id === "ally")];
+    }
+  });
+  for (const id of ["karma", "ally"]) {
+    f.engine.commit({ type: "move-zone", object: f.kernel.ref(id), to: "base", location: { type: "base", player: "A" } });
+  }
+  f.engine.advance();
+  // Only the supported resolution body is under test. Recycle batch
+  // collection remains blocked; no synthetic card is marked executable.
+  f.engine.enqueue({
+    id: "karma-buff-body", kind: "triggered", controller: "A", source: f.kernel.getObject("karma"),
+    body: translateInstructionTargets(recycleTrigger.body)
+  });
+  f.engine.advance();
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].options.some(ref => ref.id === "enemy"), false);
+  assert.equal(f.kernel.getObject("ally").buffs, 0);
+  resolveAll(f.engine);
+  assert.equal(f.kernel.getObject("ally").buffs, 1);
+  assert.equal(f.kernel.getObject("enemy").buffs, 0);
+  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "buff-added").length, 1);
 });
 
 test.todo(
-  "ogn-235-298 Karma, Channeler: [Vision]'s Predict step (CR 437.1/437.3) needs an ordered " +
-    "top-of-deck source for effect.inspect (the merged primitive blocks non-zero top ranges " +
-    "without an ordered picksSpecId) plus the RIFT-257 card keyword-to-trigger binding; the " +
-    "Vision KeywordDef expansion itself is merged and executed by the engine-core Vision goldens"
+  "Karma Vision: bind the actual controller and ordered vision-top for each resolution (817.1.c, 437.1; RIFT-358)"
 );
 test.todo(
-  "ogn-235-298 Karma, Channeler: registering the recycle trigger needs 'card-recycled' to be " +
-    "part of the closed EVENT_PATTERN_TYPES plus the 'one or more cards' batch semantics and the " +
-    "'Runes aren't cards' zone filter (CR 417.1/417.5, 185.1)"
+  "Karma recycle trigger: one hit per non-rune recycle batch, with a supported card-recycled filter (417.1, 052, 161.1)"
 );
+
+for (const recycle of [false, true]) {
+  test(`Karma supported Vision body: ${recycle ? "recycle" : "keep"} the seen top card`, () => {
+    const kernel = world().unit("karma", { cardId: CANONICAL }).deck(["z-top", "a-bottom"]).build();
+    const binding = createProgramBinding({ cardPrograms: [program] });
+    const ability = binding.inspect(kernel.getObject("karma")).abilities.find(item => item.kind === "triggered" && item.trigger.at === "object-enters-board");
+    const [look] = ability.body;
+    const top = kernel.zoneSlice("A", "deck", "top", look.args.amount.value).map(object => object.ref);
+    kernel.setPicks(look.args.picksSpecId.value, top);
+    kernel.setAnswers({ ["vision-look/" + encodeURIComponent("effect.inspect:select:A:A:deck")]: recycle ? top : [] });
+    const outcome = resolveChainBody(ability.body, kernel);
+    assert.equal(outcome.status, "executed");
+    assert.deepEqual(outcome.linkedValues["vision-look.vision-picked"], top);
+    assert.equal(outcome.linkedValues["vision-recycle.recycledCount"], recycle ? 1 : 0);
+    assert.deepEqual(outcome.events.map(event => event.action), recycle ? ["look", "recycle"] : ["look"]);
+    assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), recycle ? ["a-bottom", "z-top"] : ["z-top", "a-bottom"]);
+  });
+}
