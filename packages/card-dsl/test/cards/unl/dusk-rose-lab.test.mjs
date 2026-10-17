@@ -53,7 +53,9 @@ test("unl-209-219 Dusk Rose Lab: identity, status, judgeReason and verbatim sour
   // The cost-within-instruction gap is the cost.sacrifice/finalize path; the
   // trigger-registration gap is the closed EventPattern vocabulary plus the
   // 190.6.d battlefield-controller binding, not a missing adapter.
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /cost\.sacrifice/);
+  assert.match(program.judgeReason, /finalize/);
+  assert.match(program.judgeReason, /cost\.pay/);
   assert.match(program.judgeReason, /beginning-start/);
   assert.match(program.judgeReason, /190\.6/);
   assert.doesNotMatch(program.judgeReason, /RIFT-89|RIFT-90|RIFT-91|RIFT-120|RIFT-257/);
@@ -176,7 +178,7 @@ test("unl-209-219 Dusk Rose Lab: a replaced kill pays nothing and the linked dra
 
 test.todo(
   "unl-209-219 Dusk Rose Lab: charge the kill as the triggered ability's base cost at Finalize " +
-    "(CR 383.3.b/383.3.b.1, RIFT-261 cost-within-instruction / cost.sacrifice), so the draw really " +
+    "(CR 383.3.b/383.3.b.1, cost.sacrifice plus the triggered-ability base-cost slot), so the draw really " +
     "depends on a cost paid before resolution"
 );
 

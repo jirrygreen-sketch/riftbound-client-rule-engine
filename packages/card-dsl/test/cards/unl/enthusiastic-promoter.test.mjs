@@ -63,7 +63,7 @@ test("unl-043-219 Enthusiastic Promoter: the hold trigger subscribes to the hold
   assert.equal(onHold.kind, "triggered");
   // 383.4.d.1’s "When I hold…" spelling; the hold timing point is emitted by
   // the scoring wave (315.2.b.2 / 471.2 / 473.2.b).
-  assert.deepEqual(onHold.trigger, { at: "hold", filter: { event: "hold", filter: { source: "self" } } });
+  assert.deepEqual(onHold.trigger, { at: "hold", filter: { event: "held", filter: { source: "self" } } });
   assert.equal(onHold.optional, false);
   assert.equal(onHold.body.length, 1);
 });

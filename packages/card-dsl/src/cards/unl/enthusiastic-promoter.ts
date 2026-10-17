@@ -48,7 +48,9 @@ const abilities: Ability[] = [
   { kind: "keyword", keyword: "backline" },
   {
     kind: "triggered",
-    trigger: { at: "hold", filter: { event: "hold", filter: { source: "self" } } },
+    // `held` is the closed EventPattern spelling; pipeline-match maps it to
+    // the `hold` timing point emitted by scoring.
+    trigger: { at: "hold", filter: { event: "held", filter: { source: "self" } } },
     optional: false,
     body: [
       {
