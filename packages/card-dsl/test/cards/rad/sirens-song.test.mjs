@@ -8,6 +8,8 @@ import reaction from "../../../../engine-core/dist/effects/keywords/Reaction.js"
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
 import { resolveLocationSelector } from "../../../../engine-core/dist/target/location/ref.js";
+import { queryLocationCandidates } from "../../../../engine-core/dist/target/location/candidates.js";
+import { translateInstructionTargets } from "../../../../engine-core/dist/programs/filters.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-4192b981ea612f380ed34cb8529363e9618f8f512b964c7c2d22a1323d4ef7e9";
@@ -31,6 +33,7 @@ test("Siren's Song identity, ruleset, status and printed text", () => {
   assert.match(program.judgeReason, /355\.4/);
   assert.match(program.judgeReason, /moved-this-turn/);
   assert.match(program.judgeReason, /355\.9\.b/);
+  assert.match(program.judgeReason, /Unsupported filter field movedThisTurn/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });
@@ -114,13 +117,31 @@ test("Siren's Song execution: the merged LocationExpr resolves a battlefield can
   assert.deepEqual(selected, second);
 });
 
-test.todo(
-  "Siren's Song: 'an enemy unit that moved this turn' needs a moved-this-turn target predicate " +
-    "(CR 449 / 355.9.b) — HistoryQuery cannot restrict target legality; the object-moved timing point " +
-    "itself is already emitted by the event pipeline"
-);
+test("Siren's Song: the moved-this-turn target predicate is rejected by the production filter translator", () => {
+  // CR 449 / 355.9.b: target legality would need a movement-history predicate;
+  // the merged translator has no such vocabulary and fail-closes the whole play
+  // binding instead of registering a wider target.
+  assert.throws(
+    () => translateInstructionTargets(play.body),
+    (error) => error.code === "judge-required" && /Unsupported filter field movedThisTurn/.test(error.message)
+  );
+});
 
-test.todo(
-  "Siren's Song: the LocationExpr is merged, but the runtime candidate producer still " +
-    "omits empty battlefields (CR 355.4 / 355.4.a / 451.1)"
-);
+test("Siren's Song: the runtime candidate producer has no empty battlefields", () => {
+  // CR 355.4 / 355.4.a / 451.1: the legal-destination set must include every
+  // battlefield the moved unit may exist at, but the merged producer derives
+  // candidates from known objects only.
+  const emptyWorld = world().build();
+  assert.deepEqual(
+    queryLocationCandidates(emptyWorld, { type: "battlefield" }, { players: ["A", "B"], opponent: "B" }),
+    []
+  );
+  const oneField = world()
+    .unit("enemy", { owner: "B", controller: "B", location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  assert.deepEqual(
+    queryLocationCandidates(oneField, { type: "battlefield" }, { players: ["A", "B"], opponent: "B" }),
+    [{ type: "battlefield", id: "bf-1" }],
+    "bf-2 is a legal empty battlefield but never appears"
+  );
+});
