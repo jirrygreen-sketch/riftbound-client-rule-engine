@@ -23,6 +23,10 @@ test("sfd-170-221 Rek'Sai, Swarm Queen: program validates and keeps its identity
   assert.match(program.judgeReason, /ordered picks/);
   assert.match(program.judgeReason, /RIFT-66/);
   assert.match(program.judgeReason, /RIFT-261/);
+  // Refreshed reason: the cost opcodes are merged; the gap is the missing
+  // finalized-plan producer on the game-effect Play path.
+  assert.match(program.judgeReason, /原语已合入/);
+  assert.match(program.judgeReason, /费用计划生成方/);
   // The type gate is expressible; the gap is the missing object list on
   // effect.play's receipt.
   assert.match(program.judgeReason, /played 计数|linkKey/);

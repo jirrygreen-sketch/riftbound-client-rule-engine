@@ -37,7 +37,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "You may play one" needs a cost plan for the chosen revealed card:
  *   effect.play requires an already-finalized plan and never derives printed
  *   costs, and the chain's play route only accepts a finalized cost override
- *   (RIFT-261 cost.pay/cost.modify are not merged in this worktree).
+ *   (RIFT-261's cost.pay/cost.modify primitives are merged, but no merged path
+ *   produces a finalized plan for a game-effect Play here).
  * - "If the played card is a unit" cannot be gated: although the merged
  *   compare/in condition can test "unit" membership in an object's types array
  *   (see sfd/ravenbloom-conservatory), the gate must read the *played* card's
@@ -160,7 +161,7 @@ const program = {
     "真子集明确拒绝（“a subset of this zone requires upstream ordered picks; query order is not deck order”），链的 Finalize 只锁定 " +
     "instruction.targets 的 TargetSpec、没有有序区域 pick 的生命周期；RIFT-66 只加了 ctx.zoneSlice，把「牌库顶 2 张」变成卡牌可用的有序选择仍未接线" +
     "（同 sfd/called-shot 记录的缺口）。(2)「You may play one」需要为所选牌生成费用计划：effect.play 只接受已 finalize 的计划、从不推导印刷费用，" +
-    "链的 play 路由也只接受 finalized 的 cost override（RIFT-261 的 cost.pay/cost.modify 未合入本 worktree）。(3)「If the played card is a unit」" +
+    "链的 play 路由也只接受 finalized 的 cost override（RIFT-261 的 cost.pay/cost.modify 原语已合入，但本卡经过的游戏效果 Play 路径没有已合入的费用计划生成方）。(3)「If the played card is a unit」" +
     "的闸门无法开：已合入的 compare/in 能测 types 数组成员（见 sfd/ravenbloom-conservatory 的真实执行证据），但被检查的对象必须来自 effect.play 的链接回执，" +
     "而该回执的 linkKey 只写 played 计数（number），不记录被播放的对象引用，因此没有可读 types 的链接对象；相应地「play it here」的入场地点许可（355.2.b）" +
     "不写成无条件 location（避免对非单位牌近似实现）。golden 用锁定有序 pick 真实执行 effect.reveal、choice.optional 与链接 recycle，并用 zoneSlice 读出真实牌库顶。" +

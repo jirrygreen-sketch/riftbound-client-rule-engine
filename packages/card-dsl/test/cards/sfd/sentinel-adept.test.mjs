@@ -53,13 +53,17 @@ test("sfd-008-221 Sentinel Adept: identity, ruleset, status and verbatim sourceT
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
-test("sfd-008-221 Sentinel Adept: judgeReason names the missing cost opcodes and dependency", () => {
+test("sfd-008-221 Sentinel Adept: judgeReason names the current cost-opcode and payload gaps", () => {
   assert.match(program.judgeReason, /Weaponmaster/);
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /cost\.pay/);
   assert.match(program.judgeReason, /821\.1\.c\.2/);
   assert.match(program.judgeReason, /821\.1\.c\.3/);
   assert.match(program.judgeReason, /RIFT-261/);
+  // Refreshed reason: both cost opcodes are registered; the real blocker is the
+  // judge-required raise inside cost.modify's Weaponmaster branch.
+  assert.match(program.judgeReason, /both opcodes/);
+  assert.match(program.judgeReason, /are registered/);
   // The card-played source-identity payload is the second merged-but-incomplete
   // path: the expansion filters on event.source, which the production event
   // does not carry yet.
@@ -184,7 +188,8 @@ test("sfd-008-221 Sentinel Adept: the source-identity filter needs a payload the
 test.todo(
   "sfd-008-221 Sentinel Adept: on play, choose one of your Equipment, pay its Equip cost " +
     "reduced by [A], then attach it to me even if it is already attached (821.1.c / " +
-    "821.1.c.2 / 821.1.c.3) — blocked because cost.modify / cost.pay have no registered " +
-    "InstructionDef and no Finalize cost-plan consumer binds the printed Equip cost " +
-    "(in-progress RIFT-261); the merged RIFT-257 adapter already registers the trigger"
+    "821.1.c.2 / 821.1.c.3) — blocked because the registered cost.modify Weaponmaster branch " +
+    "raises judge-required until an authoritative Equip-cost binding exists (821.1.c.2) and " +
+    "original [A]/[C] symbols survive cost planning (821.1.c.3, in-progress RIFT-261); the " +
+    "merged RIFT-257 adapter already registers the trigger"
 );
