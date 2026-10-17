@@ -185,10 +185,27 @@ export interface TargetSpec {
   readonly [key: string]: unknown;
 }
 
+/** A real zone-order source, captured without looking at its cards during Finalize. */
+export interface PickZoneSlice {
+  /** Omitted means the ability's controller, not the source's current controller. */
+  readonly player?: Expr;
+  readonly zone: "hand" | "deck" | "rune-deck" | "trash" | "banishment" | "board" | "rune-zone" | "chain";
+  readonly from: "top" | "bottom";
+  /** Omitted reads the whole zone; a short zone supplies all available objects. */
+  readonly count?: Expr;
+}
+
 /** A non-target pick specification; picks do not trigger "becomes a target" effects. */
 export interface PickSpec {
   readonly id: string;
   readonly options: readonly Value[];
+  /** Explicit ordered sources use options: [], ordered: true, selection: "all". */
+  readonly ordered?: boolean;
+  readonly zoneSlice?: PickZoneSlice;
+  /** Resolve-time binding to an actual preceding instruction result, in result order. */
+  readonly linked?: LinkedValueExpr | LinkedExpr;
+  /** Subtract an actual result list from linked, retaining the remaining order. */
+  readonly exclude?: LinkedValueExpr | LinkedExpr;
   readonly filter?: ObjectFilter;
   readonly min?: number;
   readonly max?: number | null;
