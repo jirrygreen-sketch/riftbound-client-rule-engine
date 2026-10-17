@@ -20,19 +20,10 @@ import type { CardProgram } from "../../ir/index.js";
  *   effect.ready），条件用 count + filter 的 compare；不写事后 effect.ready。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required。
- * - 替代体注册即阻塞：replacement/bind.ts 经 replacement/planner.ts 校验替代体时，
- *   with 里的裸 effect.ready args: {} 没有对象选择符，抛 BlockedReplacementError:
- *   effect.ready/effect.exhaust requires an object selector，替代从未注册；
- *   entry-declaration 静态声明只接受 objects: { kind: "constant", value: { kind: "source" } }
- *   这类对象选择符（805.6 Accelerate 的写法），裸 args: {} 是 effect 解释器的
- *   play-body 写法。
- * - 条件缺口：ability.condition 的 count + filter 走解释器 queryObjects，
- *   exclude: "self" 锚点会正确排除自身（不是缺口）；但 controller: "controller"
- *   占位符在生产 query 归一化（chain/engine.ts）里只认 self/opponent，会被当作
- *   字面玩家 id 比对，条件恒为 false；另外 replacement/bind.ts 的 matches() 在
- *   matchesEnterAction 命中时直接返回 true，不评估 ability.condition。
- * 依赖：entry 替代体的对象选择符形态、controller: "controller" 占位符的真实绑定、
- *   entry 替代条件的求值门控。
+ * - 条件缺口：ability.condition 的 count + filter 已有 `self` 控制者和 `exclude: "self"`
+ *   的 IR 形状，但 replacement/bind.ts 的 matches() 在 matchesEnterAction 命中时直接返回 true，
+ *   不评估 ability.condition；条件不满足时也会错误地改写入场方向。
+ * 依赖：entry 替代条件的求值门控（RIFT-359）。
  * 不近似实现（不把入场替代写成事后 effect.ready，也不把条件写成恒真）。
  */
 export default {
@@ -41,15 +32,9 @@ export default {
   status: "judge-required",
   judgeReason:
     "「I enter ready if you control another Dragon」是入场替代（143.4 / 359.2.c / 369.3，364.3.a 的官方同型示例）。" +
-    "当前缺口有两处：(1) 注册即阻塞——replacement/bind.ts 经 replacement/planner.ts 校验替代体时，" +
-    "with 里的裸 effect.ready args: {} 没有对象选择符，抛 BlockedReplacementError: effect.ready/effect.exhaust requires an object selector，" +
-    "替代从未注册；entry-declaration 静态声明只接受 objects: { kind: \"constant\", value: { kind: \"source\" } } 这类对象选择符" +
-    "（805.6 Accelerate 的写法），裸 args: {} 是 effect 解释器的 play-body 写法。" +
-    "(2) ability.condition 的 count + filter 走解释器 queryObjects，exclude: \"self\" 锚点会正确排除自身（不是缺口）；" +
-    "但 controller: \"controller\" 占位符在生产 query 归一化（chain/engine.ts）里只认 self/opponent，" +
-    "会被当作字面玩家 id 比对而永远失配，条件恒为 false；另外 replacement/bind.ts 的 matches() 在 matchesEnterAction 命中时直接返回 true，" +
-    "不评估 ability.condition。" +
-    "依赖：entry 替代体的对象选择符形态、controller: \"controller\" 占位符的真实绑定、entry 替代条件的求值门控。" +
+    "当前缺口是 replacement/bind.ts 的 matches() 在 matchesEnterAction 命中时直接返回 true，不评估 ability.condition；" +
+    "因此条件不满足时也会改写入场方向。" +
+    "依赖：entry 替代条件的求值门控（RIFT-359）。" +
     "不近似实现（不把入场替代写成事后 effect.ready，也不把条件写成恒真）。",
   abilities: [
     {
@@ -69,7 +54,7 @@ export default {
           filter: {
             type: "unit",
             tags: ["Dragon"],
-            controller: "controller",
+            controller: "self",
             zone: "board",
             exclude: "self"
           }
@@ -81,7 +66,7 @@ export default {
         {
           id: "direwing.enter-ready",
           op: "effect.ready",
-          args: {}
+          args: { objects: { kind: "constant", value: { kind: "source" } } }
         }
       ]
     }
