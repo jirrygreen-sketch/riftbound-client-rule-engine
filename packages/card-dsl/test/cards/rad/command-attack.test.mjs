@@ -59,12 +59,15 @@ test("rad-033-167 Command: Attack: identity, ruleset, status and exact source te
 
 test("rad-033-167 Command: Attack: the judgeReason names the actual remaining gaps", () => {
   assert.match(program.judgeReason, /355\.4/);
+  assert.match(program.judgeReason, /830\.3/);
   assert.match(program.judgeReason, /Deploy/);
   assert.match(program.judgeReason, /ObjectFilter/);
   assert.match(program.judgeReason, /top 5/);
   assert.match(program.judgeReason, /picksSpecId/);
-  assert.match(program.judgeReason, /RIFT-357/);
   assert.match(program.judgeReason, /RIFT-358/);
+  // RIFT-357 is merged and is named as the landed dependency, never as a gap.
+  assert.doesNotMatch(program.judgeReason, /依赖：RIFT-357/);
+  assert.doesNotMatch(program.judgeReason, /描述性目的地标记/);
   assert.doesNotMatch(program.judgeReason, /RIFT-(90|64|66|257)/);
 });
 
@@ -92,12 +95,16 @@ test("rad-033-167 Command: Attack mode 1: an effect Move of a friendly Deploy ge
     kind: "constant",
     value: { target: "command-attack.friendly-deploy-gear" }
   });
-  // The destination is a chosen Battlefield Location (355.4 / 355.4.a); the
-  // frozen IR has no runtime Location selector, so the program keeps a
-  // descriptive marker that effect.move rejects outright (fail-closed).
+  // The destination is a chosen Battlefield Location (355.4 / 355.4.a);
+  // RIFT-357's merged Expr kind "location" carries the symbolic selector and
+  // the interpreter resolves it at resolution time.
   assert.deepEqual(moveInstruction.args.to, {
-    kind: "constant",
-    value: { kind: "destination-selector", filter: { type: "battlefield" } }
+    kind: "location",
+    value: {
+      kind: "choose",
+      id: "command-attack.battlefield-destination",
+      filter: { type: "battlefield" }
+    }
   });
   assert.deepEqual(moveInstruction.args.amount, { kind: "constant", value: 1 });
   assert.equal(moveInstruction.picks, undefined);
@@ -333,36 +340,72 @@ test("rad-033-167 Command: Attack golden: without an upstream ordered range the 
   assert.deepEqual(outcome.events, []);
 });
 
-test("rad-033-167 Command: Attack golden: mode 1's descriptive destination is rejected, never guessed", () => {
+test("rad-033-167 Command: Attack golden: mode 1 really moves the Deploy gear to the chosen battlefield", () => {
+  // 355.4 / 355.4.a: the destination is a valid Location other than the moved
+  // object's current one, chosen at resolution. The merged runtime Location
+  // selector (RIFT-357) offers the real Battlefield locations; the answer is
+  // supplied the way a production resolution would supply it.
   const kernel = world()
+    .player("B")
     .unit("deploy-gear", {
       types: ["gear"],
-      energy: 1,
       zone: "board",
       location: { type: "base", player: "A" }
     })
     .unit("src")
+    .unit("battlefield-unit", {
+      owner: "B",
+      zone: "board",
+      location: { type: "battlefield", id: "bf-1" }
+    })
+    .build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("src") });
+  scoped.setTargets("command-attack.friendly-deploy-gear", [kernel.ref("deploy-gear")]);
+  scoped.setAnswers({ "command-attack.move/command-attack.battlefield-destination": { type: "battlefield", id: "bf-1" } });
+  const bodyWithoutTargetSpec = moveMode.body.map(({ targets, ...rest }) => rest);
+
+  const outcome = resolveChainBody(bodyWithoutTargetSpec, scoped);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(
+    outcome.results.map((entry) => [entry.id, entry.result.status]),
+    [["command-attack.move", "executed"]]
+  );
+  // 421/448: an effect Move relocates the Gear without the Standard Move's
+  // exhaust cost or Main-Phase gate (451.1).
+  assert.deepEqual(scoped.getObject("deploy-gear").location, { type: "battlefield", id: "bf-1" });
+  assert.equal(scoped.getObject("deploy-gear").exhausted, false);
+  assert.deepEqual(scoped.events.map((event) => event.action), ["move-location"]);
+});
+
+test("rad-033-167 Command: Attack golden: a battlefield-less board offers no destination and moves nothing", () => {
+  // 355.4.a: only valid Battlefield locations are legal destinations. With no
+  // such location in the game state the Location choice has no options, so the
+  // Move is negated instead of guessing a destination.
+  const kernel = world()
+    .unit("deploy-gear", {
+      types: ["gear"],
+      zone: "board",
+      location: { type: "base", player: "A" }
+    })
+    .unit("src", { location: { type: "base", player: "A" } })
     .build();
   const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("src") });
   scoped.setTargets("command-attack.friendly-deploy-gear", [kernel.ref("deploy-gear")]);
   const bodyWithoutTargetSpec = moveMode.body.map(({ targets, ...rest }) => rest);
 
-  // The interpreter evaluates the marker and effect.move's destination()
-  // rejects it, so the Gear stays where it is.
-  assert.throws(
-    () => resolveChainBody(bodyWithoutTargetSpec, scoped),
-    /effect\.move to must be a location, controller-base, or location choice/
-  );
+  assert.throws(() => resolveChainBody(bodyWithoutTargetSpec, scoped), /Location choice has no options/);
   assert.deepEqual(scoped.getObject("deploy-gear").location, { type: "base", player: "A" });
 });
 
 test.todo(
-  "rad-033-167 Command: Attack: the runtime Battlefield destination (355.4 / 355.4.a) needs a " +
-    "Location selector in the target/location plan (RIFT-357); the ordered top-5 range and mode/target " +
-    "Finalize lifecycle are the RIFT-358 follow-up."
+  "rad-033-167 Command: Attack: the ordered top-5 range and mode/target Finalize lifecycle (RIFT-358) " +
+    "are still not wired into the production chain; the golden supplies the ordered range the way " +
+    "contract 3.6 requires."
 );
 
 test.todo(
-  "rad-033-167 Command: Attack: 'with [Deploy]' needs a keyword predicate in the filter " +
-    "vocabulary (830.3); the Deploy location and hold expansion still need their runtime consumers."
+  "rad-033-167 Command: Attack: 'with [Deploy]' needs a keyword predicate in the filter vocabulary " +
+    "(830.3); programs/filters.ts translateObjectFilter still rejects 'hasKeyword' with " +
+    "\"Unsupported filter field hasKeyword\", so the targeting restriction cannot be evaluated."
 );
