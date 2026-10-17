@@ -27,7 +27,7 @@ test("rad-057-167 Piltovan Guidebot: identity, ruleset, judgeReason and sourceTe
   assert.match(program.judgeReason, /143\.2\.a/);
   assert.match(program.judgeReason, /Energy cost/);
   assert.equal(program.judgeReason.includes("trait 层"), true);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.equal(program.judgeReason.includes("RIFT-120"), false);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -88,6 +88,5 @@ test.todo(
 );
 
 test.todo(
-  "rad-057-167 Piltovan Guidebot: register the triggered ability as a TriggerRegistration so it fires from the real " +
-    "card-played flow (CR 420.4.a) — RIFT-120"
+  "rad-057-167 Piltovan Guidebot: consume the card-played trigger's event object in the real flow (CR 420.4.a)"
 );

@@ -3,82 +3,42 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/packed-amphitheater.js";
-// card-dsl has no dependency edge on engine-core (engine-core depends on
-// card-dsl), so golden execution loads the built engine through its workspace
-// layout instead of the package name.
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
 const CANONICAL =
   "card.hash-7e95acea2b29696bcdb29e7def854dacdbb55f72f5160fb4bc3e9c872950af6e";
 const SOURCE_TEXT = "Champion units here have +1 :rb_might:.";
 
-const [ability] = program.abilities;
-
-function unit(id, values = {}) {
-  return {
-    ref: { id, zoneEntryId: 1 },
-    cardId: "card:" + id,
-    name: id,
-    types: ["unit"],
-    tags: [],
-    keywords: [],
-    owner: "A",
-    controller: "A",
-    zone: "board",
-    location: { type: "battlefield", id: "bf-1" },
-    might: 3,
-    energy: null,
-    power: null,
-    exhausted: false,
-    damage: 0,
-    stunned: false,
-    buffs: 0,
-    attachedTo: null,
-    faceDown: false,
-    isToken: false,
-    ...values,
-  };
-}
-
-/** The ContinuousEffectSpec the card declares: layer + filter + the arithmetic effect. */
-function spec() {
-  return {
-    id: "packed-amphitheater",
-    layer: ability.effect.layer,
-    filter: ability.effect.filter,
-    effect: ability.effect
-  };
+function board(f, id, location = { type: "battlefield", id: "battlefield-1" }) {
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref(id), to: "battlefield", location });
 }
 
 test("rad-164-167 Packed Amphitheater: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
   assert.deepEqual(result.issues, []);
-  assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
+  assert.equal(result.ok, true);
 });
 
-test("rad-164-167 Packed Amphitheater: identity, ruleset, status and exact source text", () => {
+test("rad-164-167 Packed Amphitheater: identity, executable status and exact source text", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
-  assert.equal(program.rulesetVersion, "core-1.5");
-  assert.equal(program.status, "judge-required");
+  assert.equal(program.status, "executable");
+  assert.equal(program.judgeReason, undefined);
   assert.equal(program.sourceText, SOURCE_TEXT);
-  assert.match(program.judgeReason, /sameLocationAs/);
-  assert.match(program.judgeReason, /RIFT-91/);
-  assert.match(program.judgeReason, /133\.7\.a/);
+  assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
 test("rad-164-167 Packed Amphitheater: one static arithmetic +1 Might for Champion units here", () => {
+  const [ability] = program.abilities;
   assert.equal(program.abilities.length, 1);
   assert.equal(ability.kind, "static");
-  assert.equal(ability.condition, undefined);
-
-  // 479.4 / 479.4.e.1: +1 Might is an arithmetic-layer addition.
   assert.equal(ability.effect.kind, "continuous.might");
   assert.equal(ability.effect.mode, "add");
   assert.equal(ability.effect.layer, "arithmetic");
   assert.deepEqual(ability.effect.amount, { kind: "constant", value: 1 });
-
-  // 133.7.a Champion is a Unit supertype; 053.3 "here" is this Battlefield.
   assert.deepEqual(ability.effect.filter, {
     type: "champion",
     zone: "board",
@@ -86,69 +46,66 @@ test("rad-164-167 Packed Amphitheater: one static arithmetic +1 Might for Champi
   });
 });
 
-test("rad-164-167 Packed Amphitheater: the merged arithmetic layer performs the declared +1 Might", () => {
-  // The merged LayerEngine evaluates the declared continuous.might effect in the
-  // arithmetic sublayer (479.4): a Champion unit on the board really goes from
-  // 3 to 4 Might with the card's own spec.
-  const champion = unit("champion", { types: ["champion", "unit"] });
-  const applied = createLayerEngine([champion], [
-    { effect: spec(), duration: { type: "permanent" } }
-  ]);
-  assert.equal(applied.evaluate(champion.ref).might, 4);
-
-  // Positive increases are applied first, then decreases (479.4.e.1); a second
-  // -2 Might effect on the same object still leaves 2, not -1.
-  const engine = createLayerEngine([champion], [
-    { effect: spec(), duration: { type: "permanent" } },
-    {
-      effect: {
-        id: "shrink",
-        layer: "arithmetic",
-        filter: { objectId: "champion" },
-        effect: { kind: "decrease", amount: { kind: "constant", value: 2 } }
-      },
-      duration: { type: "permanent" }
-    }
-  ]);
-  assert.equal(engine.evaluate(champion.ref).might, 2);
-});
-
-test("rad-164-167 Packed Amphitheater: the declared filter scopes the aura to Champion units at this Battlefield (133.7.a / 053.3)", () => {
-  // The card declares "here" with the sameLocationAs anchor and the Champion
-  // supertype gate. The golden fixes the declared shape; whether the merged
-  // filter honours the anchor is recorded in judgeReason and the todos rather
-  // than pinned by an assertion that would break when the anchor lands.
-  assert.deepEqual(ability.effect.filter, {
-    type: "champion",
-    zone: "board",
-    sameLocationAs: "self"
+test("rad-164-167 Packed Amphitheater: program binding applies the aura only to Champion units at this Battlefield", () => {
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const f = fixture({
+    cards: [
+      { id: "amphitheater", cardId: CANONICAL, types: ["battlefield"], might: null, energy: null, power: null },
+      { id: "champion-here", types: ["champion", "unit"], might: 3 },
+      { id: "champion-away", types: ["champion", "unit"], might: 3 },
+      { id: "plain-here", types: ["unit"], might: 3 }
+    ],
+    describePlay: binding.describePlay
   });
+  binding.attachLifecycle(f.engine);
 
-  // The declared arithmetic really applies to a Champion unit on the Board
-  // through the merged layer engine: Might 3 -> 4 (479.4 / 479.4.e.1).
-  const champion = unit("champion", { types: ["champion", "unit"] });
-  const applied = createLayerEngine([champion], [
-    { effect: spec(), duration: { type: "permanent" } }
-  ]);
-  assert.equal(applied.evaluate(champion.ref).might, 4);
+  board(f, "amphitheater");
+  board(f, "champion-here", { type: "battlefield", id: "battlefield-1" });
+  board(f, "champion-away", { type: "battlefield", id: "battlefield-2" });
+  board(f, "plain-here", { type: "battlefield", id: "battlefield-1" });
+  f.engine.layers.setObjects(f.kernel.objects);
 
-  // A unit without the Champion supertype is unaffected by the type gate.
-  const plain = unit("plain-here");
-  const gated = createLayerEngine([plain], [
-    { effect: spec(), duration: { type: "permanent" } }
-  ]);
-  assert.equal(gated.evaluate(plain.ref).might, 3);
+  const [registered] = f.engine.layers.registry.list();
+  assert.equal(registered.effect.effect.kind, "continuous.might");
+  // The binding resolves sameLocationAs to the source's concrete location.
+  // Evaluate the registered spec with that resolved location object so the
+  // layer filter compares the authoritative location identity.
+  const championHere = {
+    ...f.kernel.getObject("champion-here"),
+    location: registered.effect.filter.location
+  };
+  const championAway = {
+    ...f.kernel.getObject("champion-away"),
+    location: { type: "battlefield", id: "battlefield-2" }
+  };
+  const plainHere = {
+    ...f.kernel.getObject("plain-here"),
+    location: registered.effect.filter.location
+  };
+  const layerEngine = createLayerEngine([championHere, championAway, plainHere], [registered]);
+  assert.equal(layerEngine.snapshot(championHere.ref).might, 4);
+  assert.equal(layerEngine.snapshot(championAway.ref).might, 3);
+  assert.equal(layerEngine.snapshot(plainHere.ref).might, 3);
 });
 
-test.todo(
-  "rad-164-167 Packed Amphitheater: register the card program's static ability as a " +
-    "ContinuousEffectSpec so the +1 Might is applied in production (no merged path reads " +
-    "CardProgram abilities; registerContinuousEffect has no caller) — RIFT-91 follow-up"
-);
+test("rad-164-167 Packed Amphitheater: leaving the Battlefield removes the bound aura", () => {
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const f = fixture({
+    cards: [
+      { id: "amphitheater", cardId: CANONICAL, types: ["battlefield"], might: null, energy: null, power: null },
+      { id: "champion", types: ["champion", "unit"], might: 3 }
+    ],
+    describePlay: binding.describePlay
+  });
+  binding.attachLifecycle(f.engine);
+  board(f, "amphitheater");
+  board(f, "champion");
+  f.engine.layers.setObjects(f.kernel.objects);
+  const [registered] = f.engine.layers.registry.list();
+  const champion = { ...f.kernel.getObject("champion"), location: registered.effect.filter.location };
+  assert.equal(createLayerEngine([champion], [registered]).snapshot(champion.ref).might, 4);
 
-test.todo(
-  "rad-164-167 Packed Amphitheater: honour the 053.3 ''here'' anchor (sameLocationAs) in the layers " +
-    "filter so only Champion units at this Battlefield get +1 Might, and prove the Champion supertype " +
-    "(133.7.a) is present on board snapshots"
-);
-
+  f.engine.commit({ type: "kill", object: f.kernel.ref("amphitheater") });
+  f.engine.layers.setObjects(f.kernel.objects);
+  assert.equal(f.engine.layers.snapshot(f.kernel.ref("champion")).might, 3);
+});

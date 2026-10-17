@@ -24,16 +24,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "while … you may pay … less to play a gear" 的受益者是本卡控制者打出的 gear。
  *
  * 状态：judge-required。缺口：
- * 1. 关键词无关，但需要 continuous.cost-modification 这一类持续效果原语 + 费用管线
- *    消费方；实测 instructionDefinitionsById 无 "continuous.cost-modification"，费用
- *    管线（cost/plan-values.ts）也没有读取持续折扣的入口（折扣只能通过
- *    CostPlanInput.discounts 由调用者显式传入）。属 RIFT-89（batch3-cost-plan）。
- * 2. "Once each turn" 的用量限制需要引擎记录本回合是否已用（持续效果的 once per turn
- *    计数），当前 ContinuousEffectSpec/Duration 无该字段，属 RIFT-91（layers-continuous）
- *    与契约缺口。
+ * 1. continuous.cost-modification 尚无费用 Finalize 消费方；当前折扣只能由
+ *    CostPlanInput.discounts 调用者显式传入。
+ * 2. "Once each turn" 的用量限制需要引擎记录本回合是否已用，当前
+ *    ContinuousEffectSpec/Duration 无该字段。
  * 3. 条件"我在 battlefield"需要位置读取，这条本身可用（ObjectSnapshot.location 已存在），
  *    但把它接成持续效果的条件求值仍依赖上述消费方。
- * 依赖：RIFT-89（batch3-cost-plan）、RIFT-91（layers-continuous）。
+ * 依赖：费用 Finalize 消费方与持续效果的 per-turn 使用计数。
  * 不近似实现：不把这条写成结算期 effect.resources 或把折扣近似成固定 Energy 减费。
  */
 const abilities: Ability[] = [
@@ -72,11 +69,10 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "费用改写没有消费方：这条按 364.3 / 366.2 / 404.2 写成 static 的 continuous.cost-modification 持续效果（1 Energy + 1 任意领域 Power 的折扣，受益者是控制者打出的 gear），" +
-    "但 effects/instructions 没有该 op（实测 instructionDefinitionsById 无 continuous.cost-modification），" +
-    "费用管线（cost/plan-values.ts）也只接受调用者通过 CostPlanInput.discounts 显式传入的折扣，没有读取持续折扣的入口，属 RIFT-89（batch3-cost-plan）；" +
-    "「Once each turn」的用量限制还需要引擎记录本回合是否已用，ContinuousEffectSpec/Duration 没有该字段，属 RIFT-91（layers-continuous）与契约缺口。" +
-    "条件「while I'm at a battlefield」本身可用 ObjectSnapshot.location 表达，但求值同样依赖上述消费方。不近似实现：不写成结算期资源指令、不近似为固定 Energy 减费。",
+    "2026-10-17 复核：该能力已正确表达为 static 的 continuous.cost-modification，" +
+    "但费用 Finalize 尚无消费方把 1 Energy 与 1 any-domain Power 折扣应用到控制者打出的 gear。" +
+    "此外，ContinuousEffectSpec/Duration 没有 once-per-turn 使用计数，无法落实同一回合只用一次。" +
+    "while-at-a-battlefield 的位置条件仍需由上述消费方在费用结算时求值；不把折扣近似成结算期资源指令。",
   abilities,
   sourceText:
     "Once each turn, while I'm at a battlefield, you may pay :rb_energy_1::rb_rune_rainbow: less to play a gear."

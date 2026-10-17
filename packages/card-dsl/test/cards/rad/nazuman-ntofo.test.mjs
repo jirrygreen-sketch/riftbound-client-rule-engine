@@ -32,10 +32,10 @@ test("rad-071-167 Nazuman Ntofo: identity, ruleset, status and verbatim source t
 });
 
 test("rad-071-167 Nazuman Ntofo: judgeReason names the Equip cost kind and the keyword wiring", () => {
-  // Rule-based anchors stay durable across dependency merges.
-  assert.match(program.judgeReason, /818\.1\.c\.3|equip/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /Unsupported payment kind: equip/);
+  assert.match(program.judgeReason, /not-equipment-tag/);
+  assert.match(program.judgeReason, /card-data/);
+  assert.equal(/RIFT-257|RIFT-261/.test(program.judgeReason), false);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -126,4 +126,4 @@ test("rad-071-167 Nazuman Ntofo: the merged Equip body attaches this Gear to the
   assert.equal(attachInstruction.op, "effect.attach");
 });
 
-test.todo("rad-071-167 Nazuman Ntofo: paying the printed Equip cost (1 energy, 818.1.c / 818.1.c.3) needs the \"equip\" cost payment kind in the cost pipeline (RIFT-261) plus the program -> keyword expansion -> chain wiring (contract 3.5; RIFT-257).");
+test.todo("rad-071-167 Nazuman Ntofo: paying the printed Equip cost (1 energy, 818.1.c / 818.1.c.3) needs the \"equip\" cost payment kind in the cost pipeline; the merged Equip body is executable but payment admission remains blocked.");

@@ -65,8 +65,7 @@ test("rad-072-167 Overloaded Traveler: program passes validateCardProgram with t
 test("rad-072-167 Overloaded Traveler: judgeReason names the conditional Might, the Deploy predicate, and the type mismatch", () => {
   // Rule anchors stay durable as engine dependencies merge.
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-258/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /\[Deploy\]/);
   assert.match(program.judgeReason, /830\.3/);
   assert.match(program.judgeReason, /143\.2/);
@@ -101,7 +100,7 @@ test("rad-072-167 Overloaded Traveler: structure — the friendly-[Deploy]-gear-
   // nothing would read.
   assert.deepEqual(condition.left.filter, {
     type: "gear",
-    controller: "you",
+    controller: "self",
     sameLocationAs: "self"
   });
   assert.equal(Object.hasOwn(condition.left.filter, "keyword"), false);
@@ -153,14 +152,6 @@ test("rad-072-167 Overloaded Traveler: the card never approximates the condition
 });
 
 test.todo(
-  "rad-072-167 Overloaded Traveler: register the card's static ability as a ContinuousEffectSpec so the " +
-    "while-conditional +1 Might reaches production — no merged caller turns a CardProgram static ability " +
-    "into a layer registration (registerContinuousEffect / LayerEngine.addContinuous have no caller; RIFT-91 follow-up)"
-);
-test.todo(
-  "rad-072-167 Overloaded Traveler: filtering on the [Deploy] keyword needs a keyword predicate in the query " +
-    "path (830.3 makes Deploy a checkable characteristic); layers/filter.ts can only test keywords through " +
-    "characteristics field equality or the continuous-effect has-keyword condition"
 );
 test.todo(
   "rad-072-167 Overloaded Traveler: the catalog types this printing as Spell with Might 2 while its text " +

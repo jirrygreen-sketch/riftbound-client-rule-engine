@@ -4,6 +4,10 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/party-crasher.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import tank from "../../../../engine-core/dist/effects/keywords/Tank.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 
 const CANONICAL = "card.hash-51a7a5074ce15f7be681afd13ce27fd042c4566c3987a18a4e7dafdf0faadc53";
 
@@ -16,43 +20,97 @@ test("rad-122-167 Party Crasher: program validates and has expected identity", (
   assert.equal(program.judgeReason.includes("Tank"), true);
   assert.equal(program.judgeReason.includes("continuous.cost-modification"), true);
   assert.equal(program.sourceText, "I cost :rb_energy_1: less for each exhausted unit you control.\n[Tank] (I must be assigned combat damage first.)");
-  // The generated card registry indexes this program by canonicalCardId.
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
 test("rad-122-167 Party Crasher: [Tank] keyword plus the per-exhausted-unit energy discount", () => {
   assert.equal(program.abilities.length, 2);
-  const [tank, discount] = program.abilities;
-
-  // [Tank] 只声明关键词（815.1.b 的伤害分配要求由关键词展开负责）。
-  assert.deepEqual(tank, { kind: "keyword", keyword: "tank" });
-
-  // "I cost 1 less for each exhausted unit you control"：静态费用改写（356.4/356.4.g）。
+  const [tankAbility, discount] = program.abilities;
+  assert.deepEqual(tankAbility, { kind: "keyword", keyword: "tank" });
   assert.equal(discount.kind, "static");
   assert.equal(discount.effect.kind, "continuous.cost-modification");
   assert.equal(discount.effect.resource, "energy");
   assert.equal(discount.effect.appliesTo, "self");
   assert.deepEqual(discount.effect.amount, { kind: "constant", value: -1 });
-
-  const per = discount.effect.per;
-  assert.equal(per.kind, "count");
-  assert.deepEqual(per.filter, { type: "unit", controller: "controller", states: "exhausted" });
-
-  // condition：至少 1 个可减单位（计数为 0 时无减免）。
-  assert.equal(discount.condition.kind, "compare");
+  assert.deepEqual(discount.effect.per.filter, {
+    type: "unit", controller: "controller", states: "exhausted"
+  });
   assert.equal(discount.condition.operator, "gte");
   assert.deepEqual(discount.condition.right, { kind: "constant", value: 1 });
-  assert.deepEqual(discount.condition.left, per);
+});
+
+test("rad-122-167 Party Crasher: merged Tank KeywordDef expands to a combat ability", () => {
+  const registered = keywordDefinitionsById.get("Tank");
+  assert.equal(registered, tank);
+  const [expanded] = tank.expand({ host: { canonicalCardId: CANONICAL } });
+  assert.equal(expanded.kind, "static");
+  assert.deepEqual(expanded.effect, {
+    kind: "continuous.combat",
+    appliesTo: "self",
+    mode: "damage-assignment",
+    priority: "first",
+    damage: "lethal",
+    controllerScope: "same-controller",
+    excludesKeyword: "Tank"
+  });
+});
+
+test("rad-122-167 Party Crasher: program binding registers Tank in the ability layer", () => {
+  const executableProgram = { ...program, status: "executable", judgeReason: undefined };
+  const binding = createProgramBinding({ cardPrograms: [executableProgram] });
+  const inspected = binding.inspect({
+    ref: { id: "party", zoneEntryId: 1 },
+    cardId: CANONICAL,
+    name: "Party Crasher",
+    types: ["unit"],
+    tags: [],
+    keywords: [],
+    owner: "A",
+    controller: "A",
+    zone: "hand",
+    location: null,
+    might: 6,
+    energy: 9,
+    power: ["Order"],
+    exhausted: false,
+    damage: 0,
+    stunned: false,
+    buffs: 0,
+    attachedTo: null,
+    faceDown: false,
+    isToken: false
+  });
+  assert.ok(inspected.abilities.some(ability =>
+    ability.kind === "static" && ability.effect.kind === "continuous.combat"
+  ));
+
+  const f = fixture({
+    cards: [{ id: "party", cardId: CANONICAL, types: ["unit"], might: 6 }],
+    describePlay: binding.describePlay
+  });
+  binding.attachLifecycle(f.engine);
+  f.engine.commit({
+    type: "move-zone",
+    object: f.kernel.ref("party"),
+    to: "battlefield",
+    location: { type: "battlefield", id: "battlefield-1" }
+  });
+  const entries = f.engine.layers.registry.list();
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].effect.layer, "ability");
+  assert.equal(entries[0].effect.effect.kind, "continuous.combat");
+
+  f.engine.commit({ type: "kill", object: f.kernel.ref("party") });
+  assert.equal(f.engine.layers.registry.list().length, 0);
 });
 
 test.todo(
-  "rad-122-167 Party Crasher: Tank 展开（815.1.b/c 的战斗伤害分配要求：Tank 单位必须先被分配" +
-    "致命伤害）依赖 effects/keywords/Tank.ts 与 combat 的分配优先级绑定，当前" +
-    "base-combat-allocation.ts 显式未绑定任何 Tank/Backline 要求"
+  "rad-122-167 Party Crasher: Tank's continuous.combat effect still needs the combat damage " +
+    "assignment consumer so lethal damage is assigned to Tank units first (815.1.b/c); " +
+    "base-combat-allocation.ts currently proves keywordPriority=proven-none"
 );
 
 test.todo(
-  "rad-122-167 Party Crasher: 356.4 的 \"cost 1 less for each exhausted unit you control\" 需要费用系统" +
-    "在 Finalize 消费卡牌程序的 continuous.cost-modification，并按 356.4.g 在折扣步骤把 per 计数换算为" +
-    "-1 × N（依赖 RIFT-89 费用计划与 RIFT-91 图层），当前没有任何指令/管线读取该静态费用改写"
+  "rad-122-167 Party Crasher: the Finalize cost pipeline must consume continuous.cost-modification " +
+    "and count each exhausted friendly unit as a -1 Energy reduction (356.4/356.4.g)"
 );
