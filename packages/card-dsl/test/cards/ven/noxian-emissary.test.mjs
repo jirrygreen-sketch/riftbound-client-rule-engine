@@ -5,8 +5,7 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ven/noxian-emissary.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
-import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
-import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -32,17 +31,14 @@ test("ven-128-166 Noxian Emissary: identity, status, judgeReason and verbatim so
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /Empower/);
-  assert.match(program.judgeReason, /trigger\.leave/);
+  assert.match(program.judgeReason, /ObjectSnapshot/);
   assert.match(program.judgeReason, /727\.1\.c\.1/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-359/);
 });
 
 test("ven-128-166 Noxian Emissary: [Empower] is declared, not re-implemented (contract 3.7)", () => {
   assert.deepEqual(empower, { kind: "keyword", keyword: "empower" });
-  // 827.1.c.1's cost expansion must come from the keyword registry; the merged
-  // registry (26 definitions) still has no Empower/Empowered KeywordDef.
-  assert.equal(keywordDefinitionsById.get("Empower"), undefined);
-  assert.equal(keywordDefinitionsById.get("Empowered"), undefined);
+
 });
 
 test("ven-128-166 Noxian Emissary: the Empowered Deathknell dependent ability shape", () => {
@@ -73,27 +69,12 @@ test("ven-128-166 Noxian Emissary: the Empowered Deathknell dependent ability sh
   assert.equal(playRecruits.linkedTo, undefined);
 });
 
-test("ven-128-166 Noxian Emissary: the descriptive empowered/trigger filter is rejected by the strict validator", () => {
-  // The dependent-keyword gate (442.1.a Empowered status, 727.1.b.3) has no merged
-  // predicate, so the filter stays descriptive and the strict engine validator
-  // rejects it: this is why the card is judge-required, not executable.
-  const result = validateTriggerSpec(deathknellEffect.trigger);
-  assert.equal(result.ok, false);
-  const codes = new Set(result.issues.map(issue => issue.code));
-  assert.ok(codes.has("unknown-field"), JSON.stringify([...codes]));
-});
-
 test("ven-128-166 golden: 'Play two 1 :rb_might: Recruit unit tokens to your base' runs for real", () => {
-  // effect.token's frozen argsSchema expects the unevaluated Expr arguments and
-  // evaluates them itself, so the program's own instruction is driven through
-  // the real primitive runner (the same convention as sfd/royal-guard and
-  // sfd/assembly-rig golden tests); the interpreter evaluates arguments before
-  // dispatch and is therefore used for the other cards' bodies.
-  // 静态 IR 无法写出运行时 PlayerId，程序用 "controller" 占位；参考内核按字面
-  // 比较，因此把内核的控制者绑定成同名玩家（"you" = 能力控制者，契约 3.6）。
+  // Execute only the supported token body; the Empowered death gate remains
+  // judge-required. The real adapter preserves the primitive's Expr arguments.
   const kernel = world().player("controller").build().clone({ controller: "controller" });
-  const run = runInstruction(token, playRecruits.args, { world: kernel });
-  assert.equal(run.result.status, "executed");
+  const outcome = resolveChainBody(deathknellEffect.body, kernel);
+  assert.equal(outcome.status, "executed");
 
   const recruits = kernel.query({ zone: "board", type: "unit" });
   assert.equal(recruits.length, 2);
@@ -109,7 +90,7 @@ test("ven-128-166 golden: 'Play two 1 :rb_might: Recruit unit tokens to your bas
   }
   // Both tokens are created on the Chain and then Played (440.2.c / 185.2.a).
   assert.deepEqual(
-    run.events.map(event => [event.action, event.timingPoint]),
+    outcome.events.map(event => [event.action, event.timingPoint]),
     [
       ["create-token", "chain-item-pending"],
       ["play", "card-played"],
@@ -118,8 +99,8 @@ test("ven-128-166 golden: 'Play two 1 :rb_might: Recruit unit tokens to your bas
     ]
   );
   assert.deepEqual(kernel.pendingItems, []);
-  assert.equal(run.linked["token.amount"], 2);
-  assert.equal(run.linked["token.objects"].length, 2);
+  assert.equal(outcome.linkedValues["noxian-emissary.play-two-recruits.token.amount"], 2);
+  assert.equal(outcome.linkedValues["noxian-emissary.play-two-recruits.token.objects"].length, 2);
 });
 
 test("ven-128-166 golden: an opponent's base destination negates the token play", () => {
@@ -141,12 +122,11 @@ test("ven-128-166 golden: an opponent's base destination negates the token play"
 });
 
 test.todo(
-  "ven-128-166 Noxian Emissary: [Empower] expansion (827.1.c.1: 1 Energy + 1 Order Power, " +
-    "'use only if not Empowered') needs an Empower KeywordDef — the merged 26-keyword registry has none"
+  "ven-128-166 Noxian Emissary: expand [Empower] with the printed 1 Energy + 1 Order Power cost " +
+    "and enforce use only if not Empowered (827.1.c.1) through the keyword/cost path"
 );
 
 test.todo(
-  "ven-128-166 Noxian Emissary: [Empowered][>>][Deathknell] dependent-keyword gating " +
-    "(828.1.b.1 + 727.1.b.3) needs an Empowered status predicate (RIFT-87) and the trigger.leave " +
-    "primitive that the merged Deathknell expansion names (RIFT-82)"
+  "ven-128-166 Noxian Emissary: evaluate the Empowered dependent Deathknell gate from the host's " +
+    "pre-death LKI (727.1.c.1 / 808.1.d.3 / 828.1.b.1), using an Empowered state predicate (RIFT-359)"
 );

@@ -67,6 +67,6 @@ test.todo(
 
 test.todo(
   "ven-029-166 Ol' Poro: the Finalize legality check must consume a card program's play " +
-    "Requirement — chain/engine.ts only consumes caller-supplied requirements/restrictions today " +
-    "(RIFT-89/RIFT-90 play-plan wiring)"
+    "not-before-own-turn Requirement through translateLegalityCondition and the per-player turn ordinal; " +
+    "standard play requirements/restrictions are already forwarded"
 );

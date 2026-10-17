@@ -27,18 +27,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - “and give me +2 :rb_might: this turn”：临时 Might 修正属 layers 的 continuous.might
  *   （143.2/143.2.a、479），effect.buff 文档明确临时 Might 不进入 Buff 计数器。
  *
- * status = judge-required（缺口均不近似实现）：
- * 1. 牌库顶有序读取未接通（effect.reveal 拒绝非手牌真子集、只经 query 读区域）；
- * 2. 分支判别器“展示时是不是 unit”没有可求值形态（无条件数组包含、无展示快照落值）；
- * 3. 临时 Might +2 需要卡牌侧 continuous.might 原语与 this-turn 到期（RIFT-91 只合入图层求值侧）；
- * 4. object-moved 触发缺可判定载荷：events/action-adapter.ts 为 move-location 生成的事件不填
- *    toZone/toKind，内层锚点 source: "self" 也没有消费方（events/pipeline-match.ts 只读
- *    EventPattern 的 object/source/target/player/fromZone/toZone/amount/details）。
- * 依赖：RIFT-66（zoneSlice 在展示类原语的落地）、数组包含/展示快照条件、RIFT-91（layers 接线）、
- * RIFT-120（移动时点载荷与卡牌触发注册），另有 engine-core 侧适配器登记缺口：
- * chain/interpreter-adapter.ts 的 LITERAL_FIELDS 只为 effect.reveal 解包 target、未解包 pick
- * （同 sfd/ornn-blacksmith、sfd/reksai-swarm-queen 记录的同一缺口）。已合入的 effect.zone 与
- * effect.reveal 本体在 golden 中用有序 pick 与锁定引用真实执行。
+ * status = judge-required：仍缺牌库顶 ordered-pick producer（RIFT-358）、展示时的类型快照与
+ * 自动分支谓词（RIFT-359），以及 effect.reveal 的 pick 解包适配。
+ * object-moved 已带移动对象快照，source:self 由 translateTriggerFilter 绑定为 objectId；
+ * 通用触发注册可用。continuous.might 用已注册的 objects/source 选择器与 this-turn 期限，
+ * golden 真实执行 reveal / zone 子效果及 +2 Might，未把玩家选 mode 当成自动条件。
  */
 const abilities: Ability[] = [
   {
@@ -146,15 +139,14 @@ const abilities: Ability[] = [
                   },
                   {
                     id: "pakaa-protector.might-this-turn",
-                    // 临时 Might +2（this turn）；原语未注册，见 judgeReason 第 3 条。
+                    // 临时 Might +2（this turn）；算术图层由原语固定。
                     // 不写成 Buff 计数器（702/703 的 Buff 不是 Might 变化）。
                     op: "continuous.might",
                     args: {
                       mode: { kind: "constant", value: "add" },
-                      layer: { kind: "constant", value: "arithmetic" },
                       amount: { kind: "constant", value: 2 },
                       duration: { kind: "constant", value: "this-turn" },
-                      object: { kind: "constant", value: { kind: "source" } }
+                      objects: { kind: "constant", value: { kind: "source" } }
                     }
                   }
                 ]
@@ -172,19 +164,10 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处依赖未合入，均不近似实现：(1)「reveal the top card of your Main Deck」需要按牌库真实顺序提供有序 picks——" +
-    "effect.reveal 对非手牌的真子集明确拒绝（“a subset of this zone requires upstream ordered picks; query order is not deck order”），" +
-    "把 zoneSlice／牌库顶 1 张变成卡牌可用的有序选择尚未接线（RIFT-66 只定义了 zoneSlice）；" +
-    "(2)「If it's a unit … Otherwise …」的分支判别器没有可求值形态：契约 3.4 的 Show Off 口径要求在展示时锁定被引用特征值，" +
-    "而 Condition 只有 eq/ne/lt/lte/gt/gte/in（in 判左值是否属于右数组），没有数组包含，effect.reveal 也只链接 ref 列表、" +
-    "不落类型快照（同 sfd/apprentice-smith、sfd/ravenbloom-conservatory）；" +
-    "(3)「give me +2 :rb_might: this turn」需要卡牌侧 continuous.might 原语与 this-turn 到期（143.2.a / 317.2.c）：" +
-    "契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，RIFT-91 只合入图层求值侧，effect.buff 的文档明确临时 Might 不进入" +
-    " Buff 计数器；(4) object-moved 触发缺可判定载荷：events/action-adapter.ts 为 move-location 生成的事件不填 toZone/toKind，" +
-    "内层锚点 source: \"self\" 也没有消费方（events/pipeline-match.ts 只读 EventPattern 的 object/source/target/player/fromZone/" +
-    "toZone/amount/details）；另有适配器登记缺口：chain/interpreter-adapter.ts 的 LITERAL_FIELDS 只为 effect.reveal 解包 target、" +
-    "未解包 pick（同 sfd/ornn-blacksmith、sfd/reksai-swarm-queen 的记录）。依赖 RIFT-66、数组包含/展示快照条件、RIFT-91、RIFT-120；" +
-    "effect.reveal 与 effect.zone 本体在 golden 中用锁定有序 pick 真实执行。",
+    "三处当前缺口：(1) 牌库顶有序 picks 生产尚未接入卡牌选择：effect.reveal 不把 query 顺序当作牌库顺序，需要 zoneSlice/top-card 的 ordered-pick producer（RIFT-358；425.1）。" +
+    "(2) “If it is a unit … Otherwise …”需要展示时类型快照与自动条件分支；effect.reveal 只链接 ref 列表，当前 choice.mode 只是描述两个分支，不能让玩家代替条件选择（RIFT-359）。" +
+    "(3) chain/interpreter-adapter.ts 的 LITERAL_FIELDS 对 effect.reveal 只解包 target、未解包 pick。" +
+    "object-moved 的对象快照与 source:self 触发绑定、effect.zone 和 continuous.might（143.2.a / 317.2.c）均已可用；测试分别执行已支持子效果，整卡保持 judge-required。",
   abilities,
   sourceText:
     "When I move, reveal the top card of your Main Deck. If it's a unit, draw it. Otherwise, put it in your trash and give me +2 :rb_might: this turn."

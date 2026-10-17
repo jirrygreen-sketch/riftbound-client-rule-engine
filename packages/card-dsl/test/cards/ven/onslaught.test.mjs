@@ -9,6 +9,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 // primitives.
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
 const CARD_ID = "card.hash-3d956150539f05acad046c9b3b303490605a2e9f9546aa9bc58fb0b8256412a9";
 const SOURCE_TEXT =
@@ -34,13 +35,12 @@ test("ven-081-166 Onslaught: identity, ruleset, status and exact source text", (
   assert.equal(cardRegistryById.get(CARD_ID), program);
 });
 
-test("ven-081-166 Onslaught: judgeReason names the missing Might op and the Flow gaps", () => {
+test("ven-081-166 Onslaught: judgeReason names the remaining Flow cost and chain-exit gaps", () => {
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /317\.2\.c/);
-  assert.match(program.judgeReason, /RIFT-258/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /params\.cost/);
   assert.match(program.judgeReason, /Flow/);
-  assert.match(program.judgeReason, /RIFT-260\/261/);
+  assert.match(program.judgeReason, /replacement/);
   assert.match(program.judgeReason, /不近似实现/);
 });
 
@@ -62,11 +62,11 @@ test("ven-081-166 Onslaught: [Flow] keyword plus one +6 Might instruction on one
   ]);
 
   // 143.2.a / 317.2.c: a temporary Might change with a this-turn duration; the
-  // op that would register it is named in judgeReason.
+  // registered continuous.might instruction creates the arithmetic-layer effect.
   assert.deepEqual(givePlusSix.args, {
     amount: { kind: "constant", value: 6 },
     duration: { kind: "constant", value: "this-turn" },
-    target: { kind: "constant", value: "onslaught.unit" }
+    objects: { kind: "constant", value: { kind: "target", id: "onslaught.unit" } }
   });
   assert.equal(givePlusSix.linkedTo, undefined);
   assert.equal(givePlusSix.condition, undefined);
@@ -84,8 +84,8 @@ test("ven-081-166 Onslaught: [Flow] keyword plus one +6 Might instruction on one
 });
 
 test("ven-081-166 Onslaught: the declared unit filter really selects Board units", () => {
-  // The Might instruction's op is not registered (judgeReason), so the filter
-  // is exercised through the real interpreter query path instead.
+  // Exercise the declared filter through the interpreter query path as well as
+  // the targeted continuous effect below.
   const kernel = world()
     .unit("board-unit", { owner: "A", controller: "A", might: 4 })
     .card("spell-in-trash", { owner: "A", zone: "trash", types: ["spell"] })
@@ -107,16 +107,38 @@ test("ven-081-166 Onslaught: the declared unit filter really selects Board units
   assert.equal(outcome.linkedValues["onslaught.probe.value"], 1);
 });
 
-test.todo(
-  "ven-081-166 Onslaught: give one unit +6 Might this turn in the arithmetic layer, expiring at " +
-    "cleanup (CR 143.2.a / 317.2.c / 478.1.a) — needs the card-facing continuous.might instruction " +
-    "that registers through ResolveContext.addContinuous (RIFT-258 on top of the RIFT-91 layers engine); " +
-    "effect.buff only counts Buffs (702/703) and is never used as a substitute"
-);
+test("ven-081-166 Onslaught golden: the original body gives the chosen enemy unit +6 Might until turn end", () => {
+  const kernel = world().unit("ally", { might: 3 }).unit("enemy", { owner: "B", might: 4 }).build();
+  kernel.setTargets(unitSpec.id, [kernel.ref("enemy")]);
+  const outcome = resolveChainBody(play.body, kernel);
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.deepEqual(outcome.linkedValues["onslaught.give-plus-6.affected.objects"], [kernel.ref("enemy")]);
+  assert.equal(kernel.continuousEffects.length, 1);
+  const layers = createLayerEngine(kernel.objects, kernel.continuousEffects);
+  assert.equal(layers.evaluate(kernel.ref("enemy")).might, 10);
+  assert.equal(layers.evaluate(kernel.ref("enemy")).buffs, 0);
+  assert.equal(layers.evaluate(kernel.ref("ally")).might, 3);
+  assert.deepEqual(layers.advance({ id: "combat-end" }), []);
+  assert.equal(layers.evaluate(kernel.ref("enemy")).might, 10);
+  assert.equal(layers.advance({ id: "turn-end" }).length, 1);
+  assert.equal(layers.evaluate(kernel.ref("enemy")).might, 4);
+});
+
+test("ven-081-166 Onslaught golden: a target that left the board receives no continuous effect", () => {
+  const kernel = world().unit("target", { might: 4 }).build();
+  const stale = kernel.ref("target");
+  assert.equal(kernel.perform({ type: "kill", object: stale }).status, "done");
+  kernel.setTargets(unitSpec.id, [stale]);
+  const outcome = resolveChainBody(play.body, kernel);
+  assert.equal(outcome.status, "partial");
+  assert.equal(outcome.results[0].result.status, "ignored");
+  assert.equal(outcome.results[0].result.reason, "mistargeted");
+  assert.deepEqual(kernel.continuousEffects, []);
+});
 
 test.todo(
-  "ven-081-166 Onslaught: play this from Trash for its printed Flow cost (:rb_energy_4:) and banish it " +
-    "afterwards (CR 829.1 / 829.1.b / 829.1.c.1) — needs the RIFT-261 alternate-cost consumer for a " +
-    "separate selectable Flow instance plus the RIFT-260 replacement registration that sends the " +
-    "finalized Flow spell to Banishment"
+  "ven-081-166 Onslaught: select and record the separate Flow instance with its printed 4 Energy cost " +
+    "via params.cost, permit the Trash play, and consume the leave-chain banish replacement " +
+    "(829.1.b / 829.1.b.1 / 829.1.c.3)"
 );

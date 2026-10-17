@@ -6,6 +6,7 @@ import program from "../../../dist/cards/ven/oasis-raider.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
 const CARD_ID =
   "card.hash-53cec70ec57166a99b31590256f5edbab3c1ad0c9a311a661db2a5672c4ac0e9";
@@ -71,7 +72,8 @@ test("ven-006-166 Oasis Raider: identity, ruleset, status, judgeReason and verba
   assert.match(program.judgeReason, /beginning-start/);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /programs\/keywords\.ts/);
+  assert.match(program.judgeReason, /continuous\.movement/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -135,17 +137,31 @@ test("ven-006-166 Oasis Raider golden: the fewer-runes condition really evaluate
   assert.equal(evaluateCondition(condition, tied), false);
 });
 
+test("ven-006-166 Oasis Raider golden: the original body grants +2 Might and Ganking only to the host until turn end", () => {
+  const base = world().unit("raider", { might: 4 }).unit("other", { might: 3 }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("raider") });
+  const outcome = resolveChainBody(ability.body, kernel);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(entry => entry.result.status), ["executed", "executed"]);
+  assert.equal(kernel.continuousEffects.length, 2);
+  const layers = createLayerEngine(kernel.objects, kernel.continuousEffects);
+  assert.equal(layers.evaluate(kernel.ref("raider")).might, 6);
+  assert.deepEqual(layers.evaluate(kernel.ref("raider")).keywords, [{ id: "Ganking", value: undefined }]);
+  assert.equal(layers.evaluate(kernel.ref("raider")).buffs, 0);
+  assert.equal(layers.evaluate(kernel.ref("other")).might, 3);
+  assert.deepEqual(layers.evaluate(kernel.ref("other")).keywords, []);
+  assert.deepEqual(outcome.linkedValues["oasis-raider.plus-2-might.affected.objects"], [kernel.ref("raider")]);
+  assert.deepEqual(outcome.linkedValues["oasis-raider.grant-ganking.granted.objects"], [kernel.ref("raider")]);
+  // Drive the real duration registry, without modifying the registered effects.
+  assert.deepEqual(layers.advance({ id: "combat-end" }), []);
+  assert.equal(layers.evaluate(kernel.ref("raider")).might, 6);
+  assert.equal(layers.advance({ id: "turn-end" }).length, 2);
+  assert.equal(layers.evaluate(kernel.ref("raider")).might, 4);
+  assert.deepEqual(layers.evaluate(kernel.ref("raider")).keywords, []);
+});
+
 test.todo(
-  "ven-006-166 Oasis Raider: fire at the start of the controller's Beginning Phase — no merged " +
-    "module emits beginning-start into the single event pipeline and no subscriber registers the " +
-    "CardProgram triggered ability as a TriggerRegistration (RIFT-120)"
-);
-test.todo(
-  "ven-006-166 Oasis Raider: give +2 Might this turn — needs the card-side continuous.might " +
-    "primitive (RIFT-9 inventory; RIFT-91 merged only the layer evaluator); never a Buff counter"
-);
-test.todo(
-  "ven-006-166 Oasis Raider: grant [Ganking] for this turn — needs a duration-bounded " +
-    "continuous.grant-keyword instruction (RIFT-91); the Ganking expansion exists but nothing " +
-    "consumes the grant"
+  "ven-006-166 Oasis Raider: dynamically granted Ganking must expand to continuous.movement " +
+    "after resolution (810.1.b / 810.1.c); programs/keywords.ts currently expands at binding time, " +
+    "while Standard Move already consumes the movement rule query"
 );

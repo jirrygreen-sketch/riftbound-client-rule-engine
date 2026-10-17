@@ -27,10 +27,10 @@ test("otterpus: passes validateCardProgram and is judge-required", () => {
   );
 });
 
-test("otterpus: judgeReason names the replacement-binding and per-player-turn gaps", () => {
+test("otterpus: judgeReason names the scoring-player binding and per-player-turn gaps", () => {
   assert.match(program.judgeReason, /replacement/);
-  assert.match(program.judgeReason, /RIFT-260/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /replacement\/planner\.ts/);
+  assert.match(program.judgeReason, /args\.target/);
   assert.match(program.judgeReason, /first or second turn/);
   assert.match(program.judgeReason, /485\.7|487\.7|490\.7|491\.7/);
   assert.match(program.judgeReason, /HistoryQuery/);
@@ -78,7 +78,7 @@ test("otterpus: the replacing draw really draws 1 through the chain adapter", ()
 test("otterpus golden: the merged replacement binder turns the card's pattern into a real score replacement", () => {
   // RIFT-260 的 bindReplacement 把 replaces 模式变成 ReplacementRegistration、把
   // with 计划成封闭 GameAction：这是 470.1/470.3/471/473.2 的 score 替代，替身是
-  // effect.draw（"they draw 1 instead"）。缺的只剩 engine-core 内的注册方。
+  // effect.draw；此处只验证 A 自己得分的已支持规划，玩家绑定和回合条件见 TODO。
   const kernel = world()
     .player("A")
     .player("B")
@@ -109,12 +109,6 @@ test("otterpus golden: the merged replacement binder turns the card's pattern in
     actions: [{ type: "draw", player: "A", amount: 1 }]
   });
 });
-
-test.todo(
-  "otterpus: register the replacement data as a ReplacementRegistration on the 'score' event " +
-    "(470.1/470.3/471/473.2) — RIFT-260's bindReplacement already plans the draw (verified above), " +
-    "but no engine-core path binds a CardProgram's replacement ability (RIFT-257 static binder)"
-);
 
 test.todo(
   "otterpus: bind the replaced scoring player to the draw of 'they draw 1 instead' — " +
