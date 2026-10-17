@@ -10,6 +10,8 @@ import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine, ChainContractBlockedError } from "../../../../engine-core/dist/chain/engine.js";
 
 const CANONICAL = "card.hash-a4a04e52d4544c14530e273f53c3890ccd0d8688ef9dc725dc0ef6b1d20103de";
 const BASE = player => ({ type: "base", player });
@@ -24,10 +26,10 @@ const moveSpec = moveInstruction.targets[0];
 /**
  * Two execution paths are merged, and each accepts different argument shapes.
  *
- * - `runAbilityBody` with the default registry evaluates every argument first
- *   and hands the primitive literal values (a target id string, a LocationRef),
+ * - runAbilityBody with the default registry evaluates every argument first and
+ *   hands the primitive literal values (a target id string, a LocationRef),
  *   which is what effect.stun accepts and what effect.move rejects.
- * - `resolveChainBody` (chain/interpreter-adapter.ts) keeps the raw Expr nodes
+ * - resolveChainBody (chain/interpreter-adapter.ts) keeps the raw Expr nodes
  *   inside one literal envelope and decodes the declared literal fields, which
  *   is what effect.move needs to evaluate a linked Location itself.
  * The tests therefore drive each half through the path the merged engine uses
@@ -55,12 +57,13 @@ test("Zenith Blade identity, ruleset, status, printed text and judgeReason", () 
       "(A stunned unit doesn't deal combat damage this turn.)"
   );
   // The judgeReason must name the blocked nested-target Finalize surface, the
-  // rule that makes the choice part of the Move, and the Move pipeline duties.
+  // rule that makes the choice part of the Move, and the current Move
+  // consequence state.
   assert.match(zenithBlade.judgeReason, /choice\.optional/);
   assert.match(zenithBlade.judgeReason, /355\.12/);
   assert.match(zenithBlade.judgeReason, /assertFinalizationSurface/);
-  assert.match(zenithBlade.judgeReason, /389|contract 3\.9|契约 3\.9/);
-  assert.match(zenithBlade.judgeReason, /355\.4/);
+  assert.match(zenithBlade.judgeReason, /RIFT-257/);
+  assert.match(zenithBlade.judgeReason, /467\.2\.c\.1\.a/);
   assert.match(zenithBlade.judgeReason, /effect\.stun/);
   assert.equal(cardRegistryById.get(zenithBlade.canonicalCardId), zenithBlade);
 });
@@ -135,7 +138,7 @@ test("Zenith Blade golden: the Stun half stuns the locked enemy unit (CR 424.1)"
   const kernel = world().unit("enemy-unit", { owner: "B", might: 4, location: BATTLEFIELD("bf1") }).build();
   const run = runInstruction(
     stun,
-    // The interpreter evaluates `target` before dispatch, so a direct primitive
+    // The interpreter evaluates target before dispatch, so a direct primitive
     // run receives the already-evaluated spec id (merged Rune Prison precedent).
     { target: stunInstruction.args.target.value },
     { world: kernel, targets: { "enemy-unit-at-battlefield": [kernel.ref("enemy-unit")] } }
@@ -245,6 +248,50 @@ test("Zenith Blade golden: declining the optional Move leaves the unit untouched
   assert.deepEqual(outcome.events, []);
 });
 
+test("Zenith Blade golden: the merged chain Finalize really blocks the nested Move target today", () => {
+  // Real ChainEngine run of this card's own play body: the Move target lives
+  // inside choice.optional.args.body, and chain/engine.ts
+  // assertFinalizationSurface rejects any target found at nesting depth > 0.
+  // Hoisting it onto the optional wrapper would change the frozen 3.9 shape.
+  const kernel = world()
+    .unit("zenith-blade", { types: ["spell"], zone: "chain", owner: "A", controller: "A" })
+    .unit("enemy-unit", { owner: "B", location: BATTLEFIELD("bf1") })
+    .unit("friendly-unit", { owner: "A", location: BASE("A") })
+    .build();
+  const choose = request => {
+    if (request.type === "select-objects") return [...request.options].slice(0, request.max ?? 1);
+    if (request.type === "optional") return true;
+    throw new Error("unexpected choose " + request.type);
+  };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint, choose }),
+    testTrigger: () => false
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+
+  assert.throws(
+    () => engine.execute({
+      id: "zenith-blade:play",
+      controller: "A",
+      source: kernel.getObject("zenith-blade"),
+      kind: "activated",
+      speed: "action",
+      body: play.body
+    }),
+    error => error instanceof ChainContractBlockedError &&
+      error.status === "blocked" &&
+      /Nested\/repeated targets require an interpreter target-selection lifecycle adapter/.test(error.message)
+  );
+  // Nothing was played and no Move happened.
+  assert.deepEqual(kernel.getObject("friendly-unit").location, BASE("A"));
+  assert.equal(kernel.events.some(event => event.action === "move-location"), false);
+});
+
 test("Zenith Blade: the merged paths really cannot run the card body today", () => {
   // Direct evidence for the judgeReason. Each merged execution path rejects one
   // half of the printed effect, and neither rejection may be papered over in
@@ -333,8 +380,14 @@ test.todo(
 
 test.todo(
   "Zenith Blade Move Destination legality: enumerate the runtime-legal Locations (355.4.a / 449.2 / " +
-    "451.1) and resolve the Move consequences — Contested (452), Move-triggered Showdown/Combat " +
-    "(453-454) and the post-Move Cleanup (455) — in the Turn/Combat workstream"
+    "451.1); the merged TurnFlow/CombatFlow already produce Contested (452) and stage the Showdown for " +
+    "committed effect Moves, but combat start (466.2) and simultaneous combat damage (467.2.c.1.a / 467.3) " +
+    "remain explicitly blocked in the Turn/Combat workstream"
+);
+
+test.todo(
+  "Zenith Blade play binding: playing this spell from hand needs the card-program Play binding (RIFT-257) " +
+    "— chain/engine.ts requires a describePlay adapter for Play actions"
 );
 
 test.todo(

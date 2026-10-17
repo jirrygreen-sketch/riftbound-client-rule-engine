@@ -8,11 +8,37 @@ import program from "../../../dist/cards/ogn/zaun-warrens.js";
 // layout instead of the package name.
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { EventPipeline } from "../../../../engine-core/dist/events/pipeline.js";
 
 const CANONICAL = "card.hash-7eb7c2878a687bba1f5053f3c775d1f55e01679f4a8124757d2bb0a70b15ad88";
 const SOURCE_TEXT = "When you conquer here, discard 1, then draw 1.";
 
-const [discard, draw] = program.abilities[0].body;
+const [ability] = program.abilities;
+const [discard, draw] = ability.body;
+
+/** A minimal board host snapshot for the direct pipeline registration test. */
+const abilitySource = {
+  ref: { id: "zaun-warrens", zoneEntryId: 1 },
+  cardId: CANONICAL,
+  name: "Zaun Warrens",
+  types: ["battlefield"],
+  tags: [],
+  keywords: [],
+  owner: "A",
+  controller: "A",
+  zone: "board",
+  location: { type: "battlefield", id: "battlefield-1" },
+  might: null,
+  energy: null,
+  power: null,
+  exhausted: false,
+  damage: 0,
+  stunned: false,
+  buffs: 0,
+  attachedTo: null,
+  faceDown: false,
+  isToken: false
+};
 
 test("Zaun Warrens program validates and is judge-required", () => {
   const result = validateCardProgram(program);
@@ -21,25 +47,25 @@ test("Zaun Warrens program validates and is judge-required", () => {
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /conquer/);
+  assert.match(program.judgeReason, /conquered/);
   assert.match(program.judgeReason, /359\.3\.e\.11/);
-  assert.match(program.judgeReason, /RIFT-76/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /battlefieldId/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
 test("Zaun Warrens structure: conquer trigger, then discard 1 and draw 1 unlinked", () => {
   assert.equal(program.abilities.length, 1);
-  const [ability] = program.abilities;
   assert.equal(ability.kind, "triggered");
   assert.equal(ability.optional, false);
   assert.equal(ability.trigger.at, "conquer");
-  // 053.3: "here" is this Battlefield; the sibling battlefield programs keep
-  // the same placeholder spelling for the referent and the holding player.
+  // The evaluable parts use the closed EventPattern vocabulary: "conquered"
+  // is the closed event name, "self" the ability controller. "here" is the
+  // documented 053.3 placeholder still awaiting binding-layer normalization.
   assert.deepEqual(ability.trigger.filter, {
-    event: "conquer",
+    event: "conquered",
     here: true,
-    player: "controller"
+    player: "self"
   });
   assert.equal(ability.trigger.once, undefined);
   assert.equal(ability.trigger.condition, undefined);
@@ -70,7 +96,7 @@ test("Zaun Warrens structure: conquer trigger, then discard 1 and draw 1 unlinke
 test("Zaun Warrens golden: an empty hand negates the discard and still draws 1 (CR 359.3.e.11)", () => {
   const kernel = world().deck("deck-card").build();
 
-  const outcome = resolveChainBody(program.abilities[0].body, kernel);
+  const outcome = resolveChainBody(ability.body, kernel);
 
   assert.equal(outcome.status, "partial");
   assert.deepEqual(outcome.results.map(result => [result.id, result.result.status]), [
@@ -88,7 +114,7 @@ test("Zaun Warrens golden: an empty hand negates the discard and still draws 1 (
 test("Zaun Warrens golden: a single card in hand is discarded and then replaced by the draw", () => {
   const kernel = world().deck("deck-card").hand("hand-card").build();
 
-  const outcome = resolveChainBody(program.abilities[0].body, kernel);
+  const outcome = resolveChainBody(ability.body, kernel);
 
   assert.equal(outcome.status, "executed");
   assert.deepEqual(outcome.results.map(result => [result.id, result.result.status]), [
@@ -106,7 +132,7 @@ test("Zaun Warrens golden: the discarding player chooses which card leaves a mul
 
   // Without an answer the primitive suspends and the world is untouched.
   assert.throws(
-    () => resolveChainBody(program.abilities[0].body, kernel),
+    () => resolveChainBody(ability.body, kernel),
     error => error.request?.id === "zaun-warrens.discard/effect.discard%3AA" &&
       error.request?.type === "select-objects" &&
       error.request?.min === 1 && error.request?.max === 1 &&
@@ -118,7 +144,7 @@ test("Zaun Warrens golden: the discarding player chooses which card leaves a mul
   // Replaying the whole body with the answer discards exactly the chosen card.
   const chosen = kernel.ref("hand-b");
   kernel.setAnswers({ "zaun-warrens.discard/effect.discard%3AA": [chosen] });
-  const outcome = resolveChainBody(program.abilities[0].body, kernel);
+  const outcome = resolveChainBody(ability.body, kernel);
 
   assert.equal(outcome.status, "executed");
   assert.deepEqual(kernel.events.map(event => event.action), ["discard", "draw"]);
@@ -126,15 +152,46 @@ test("Zaun Warrens golden: the discarding player chooses which card leaves a mul
   assert.deepEqual(kernel.zone("A", "hand").map(ref => ref.id), ["hand-a", "deck-card"]);
 });
 
+test("Zaun Warrens: the conquer timing point is emitted by the merged Score wave and reaches a registered trigger", () => {
+  // turn/flow.ts emits "conquer" inside the Score wave and carries the
+  // conquered battlefield as details.battlefieldId; the merged pipeline
+  // delivers it to registrations whose spec matches. The card-side gaps are
+  // the CardProgram trigger binding (RIFT-257) and the 053.3 here anchor, not
+  // the emission itself.
+  const host = {
+    checkpoint: () => null,
+    restore: () => {},
+    execute: () => ({ outcome: { status: "done", events: [] }, emissions: [] }),
+    context: () => ({}),
+    objects: () => [abilitySource],
+    choose: () => { throw new Error("unexpected choose"); }
+  };
+  const pipeline = new EventPipeline(host, ["A", "B"], "A");
+  const seen = [];
+  pipeline.onTrigger = snapshot => seen.push(snapshot);
+  // The closed EventPattern vocabulary names this event "conquered"; the
+  // matcher maps it to the "conquer" timing point (events/pipeline-match.ts
+  // EVENT_NAMES). PlayerSelector "self" is the ability controller.
+  pipeline.registerTrigger({
+    id: "test.conquer.plain",
+    source: abilitySource,
+    controller: "A",
+    spec: { at: "conquer", filter: { event: "conquered", player: "self" } },
+    body: []
+  });
+  pipeline.emit({ timingPoint: "conquer", player: "A", details: { battlefieldId: "battlefield-1" } });
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].event.details.battlefieldId, "battlefield-1");
+});
+
 test.todo(
-  "Zaun Warrens trigger: the conquer timing point is emitted by scoring when the player " +
-    "gains control and scores the Battlefield (473.2.a, 471.1), and the CardProgram's triggered " +
-    "ability is registered as a TriggerRegistration with the 053.3 'here' referent and the " +
-    "controller of the Battlefield ability (190.6) resolved — scoring (RIFT-76) is not bridged " +
-    "to the chain/events pipeline (RIFT-120) and no subscriber registers card-program triggers"
+  "Zaun Warrens trigger: bind this CardProgram's triggered ability through the card-program layer (RIFT-257), " +
+    "normalize the 053.3 here referent to the emitted details.battlefieldId, and resolve 190.6's controller " +
+    "of the Battlefield ability"
 );
 
 test.todo(
-  "Zaun Warrens 359.3.e.11 end-to-end: a replacement effect that negates the discard leaves the " +
-    "unlinked draw resolving inside the real chain resolution (needs the chain/events pipeline, RIFT-120)"
+  "Zaun Warrens 359.3.e.11 end-to-end: a replacement effect that negates the discard leaves the unlinked draw " +
+    "resolving inside a real chain Resolve (the golden drives the interpreter path; production chain resolution " +
+    "needs the trigger binding above)"
 );
