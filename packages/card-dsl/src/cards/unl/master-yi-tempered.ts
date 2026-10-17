@@ -27,7 +27,8 @@ import type { CardProgram } from "../../ir/index.js";
  * - 810.1 / 810.1.b / 810.1.c.1: [Ganking] adds the Battlefield→Battlefield
  *   Standard Move permission.
  *
- * Status: judge-required. Re-checked against the merged keyword, program-binding
+ * Status: judge-required. Execution evidence: templates/keyword-static-static-673.test.mjs.
+ * Re-checked against the merged keyword, program-binding
  * and continuous-effect implementations (2026-10-17; every claim is measured):
  * 1. Hunt's KeywordDef and Level's expansion are merged, but Hunt's expansion
  *    still cannot subscribe: it authors the event spellings "conquer"/"hold",

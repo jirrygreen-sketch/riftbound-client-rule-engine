@@ -28,7 +28,8 @@ import type { Ability, CardProgram, Condition } from "../../ir/index.js";
  *   而是把授予放在 824.1.c 门控的持续效果里（否则默认会假定本卡无条件下带 1 点 Deflect 值，与
  *   809.2/814.2 式的求和含义冲突）。
  *
- * 2026-10-17 复核：仍为 judge-required，当前缺口见 judgeReason。
+ * 2026-10-17 复核：仍为 judge-required，当前缺口见 judgeReason；执行证据见
+ * templates/keyword-static-static-673.test.mjs。
  * 已有原语、关键词定义或通用适配器不代表本卡完整生产路径可执行。
  */
 const LEVEL_THREE_XP: Condition = {

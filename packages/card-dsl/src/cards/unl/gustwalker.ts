@@ -22,7 +22,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   - "and [Ganking]" 是关键词授予（810：Ganking 为被动能力关键词，给标准移动增加
  *     战场到战场的许可，810.1.c.1 不移除原有选项）。
  *
- * status = judge-required（缺口不近似实现）：
+ * status = judge-required（缺口不近似实现）；执行证据见
+ * templates/keyword-static-static-673.test.mjs。
  * 1. Hunt 的 conquer/hold：turn/flow 的 score 分支会以玩家为发射方发出 conquer/hold
  *    事件（不是拼写缺失），但事件载荷不带 object，[Hunt 2] 的 "When I"（self 归属）
  *    无法命中；Hunt 数值求和本身已由 expandProgram 实现。

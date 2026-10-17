@@ -1,14 +1,18 @@
-// 场景执行证据与整卡阻塞：../templates/keyword-static-static-649.test.mjs
+// Golden test for Master Yi, Tempered (unl-113-219).
+//
+// Execution evidence (the real printed 4 Energy payment, the registered
+// [Level 6] grants with their unresolved XP gate, the fail-closed Hunt trigger
+// registration and the blocked printed expectations) lives in the RIFT-673
+// parameterized template golden:
+// test/cards/templates/keyword-static-static-673.test.mjs.
+// This file keeps validation, identity, verbatim text, declared status and the
+// key structure of the printed abilities.
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/master-yi-tempered.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
-import { createEngineStaticBinder, createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
-import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
-import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-c32a0493f88b4c947cb3f7806d8ba125b166dd6478a848bb39f1da87aed3ae92";
@@ -34,14 +38,10 @@ test("unl-113-219 Master Yi, Tempered: identity, status, judgeReason and verbati
   assert.match(program.judgeReason, /824\.1/);
   assert.match(program.judgeReason, /Deflect/);
   assert.match(program.judgeReason, /Ganking/);
-  // The merged keyword definitions are named as such; the remaining gaps are
-  // the trigger spelling/object payload, the XP predicate and the target-tax
-  // consumer.
+  // The remaining gaps are the trigger spelling/object payload, the XP
+  // predicate, the target-tax consumer and the movement permission.
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
   assert.match(program.judgeReason, /controller-xp/);
-  // The authored Level gate is explicitly blocked; the engine still has no
-  // player XP evaluator or layer mapping for Level's own predicate. Granted
-  // Ganking shape does not satisfy the movement query.
   assert.match(program.judgeReason, /TriggerSpecValidationError/);
   assert.match(program.judgeReason, /condition\.predicate/);
   assert.match(program.judgeReason, /permission\.routes/);
@@ -85,181 +85,13 @@ test("unl-113-219 Master Yi, Tempered: Ganking is granted to the host", () => {
   assert.deepEqual(gankingGrant.effect.filter, { object: "self" });
 });
 
-test("unl-113-219 Master Yi, Tempered: the merged keyword registry now provides Hunt and Level", async () => {
-  const { keywordDefinitionsById } = await import(
-    "../../../../engine-core/dist/effects/keywords/registry.generated.js"
-  );
-  // RIFT-265 and RIFT-268 merged these definitions, so the card's remaining
-  // gaps are the subscription spelling/object payload and the unevaluated XP
-  // predicate, not the missing KeywordDefs.
-  assert.equal(keywordDefinitionsById.has("Hunt"), true);
-  assert.equal(keywordDefinitionsById.has("Level"), true);
-  assert.equal(keywordDefinitionsById.has("Deflect"), true);
-  assert.equal(keywordDefinitionsById.has("Ganking"), true);
-});
-
-test("unl-113-219 Master Yi, Tempered: Hunt 2 expands to the conquer/hold XP triggers (823.1.c.1)", async () => {
-  const { default: hunt } = await import("../../../../engine-core/dist/effects/keywords/Hunt.js");
-  const expansion = hunt.expand({ value: hunt.value ?? program.abilities[0].value, host: { canonicalCardId: CANONICAL_ID } });
-  assert.equal(expansion.length, 2);
-  assert.deepEqual(expansion.map(ability => ability.trigger.at), ["conquer", "hold"]);
-  assert.deepEqual(expansion.map(ability => ability.body[0].op), ["effect.xp", "effect.xp"]);
-  // 823.2: the printed Hunt Value 2 flows through the keyword's own expansion,
-  // so the card does not restate the XP gain.
-  assert.deepEqual(expansion.map(ability => ability.body[0].args.amount), [
-    { kind: "constant", value: 2 },
-    { kind: "constant", value: 2 }
-  ]);
-});
-
-test("unl-113-219 Master Yi, Tempered: the Level expansion publishes the 6+ XP predicate for the layers pipeline", async () => {
-  const { default: level } = await import("../../../../engine-core/dist/effects/keywords/Level.js");
-  const [predicate] = level.expand({ value: 6, host: { canonicalCardId: CANONICAL_ID } });
-  // 824.1.a / 824.1.b.1: [Level 6][>] publishes the threshold predicate that
-  // makes the dependent ability text Active while the controller has 6+ XP.
-  assert.equal(predicate.kind, "static");
-  assert.equal(predicate.effect.kind, "condition.predicate");
-  assert.deepEqual(predicate.effect.threshold, { kind: "constant", value: 6 });
-  assert.equal(predicate.effect.operator, "gte");
-  assert.equal(predicate.effect.controller, "controller");
-  assert.equal(predicate.effect.link, "active");
-});
-
-test("unl-113-219 Master Yi, Tempered: the card's own grants are registered as static declarations", () => {
-  // The two static abilities are the card's [Level 6][>] grants. They are
-  // authored per contract 3.7; installing them into layers is the recorded gap.
-  assert.deepEqual(program.abilities.filter(ability => ability.kind === "static").map(ability => [
-    ability.effect.kind,
-    ability.effect.keyword,
-    ability.condition.conditions[1].right.value
-  ]), [
-    ["continuous.grant-keyword", "Deflect", 6],
-    ["continuous.grant-keyword", "Ganking", 6]
-  ]);
-});
-
-test("unl-113-219 Master Yi, Tempered: the Deflect expansion is a target tax the merged target plan can bill", async () => {
-  // 809.1.c / 809.1.d: the granted Deflect is a mandatory additional Power cost
-  // for each time an opponent chooses this unit. The KeywordDef exists and the
-  // target plan charges the tax it declares, but nothing registers the card's
-  // Level-gated grant (see judgeReason).
-  const { default: deflectDefinition } = await import(
-    "../../../../engine-core/dist/effects/keywords/Deflect.js"
-  );
-  const [expansion] = deflectDefinition.expand({ host: { canonicalCardId: CANONICAL_ID } });
-  assert.equal(expansion.kind, "static");
-  assert.equal(expansion.effect.kind, "target.tax");
-  // 809.1.b.3: the omitted Deflect Value is presumed 1.
-  assert.deepEqual(expansion.effect.value, { kind: "constant", value: 1 });
-});
-
 test.todo(
-  "unl-113-219 Master Yi, Tempered: subscribe Hunt's conquer/hold expansion to the emitted conquered/held events and bind the conquering unit object (CR 823.1.c.1/823.2; current event spellings and score payload do not match)"
+  "unl-113-219 Master Yi, Tempered: [Hunt 2] needs the conquer/hold event vocabulary and a unit " +
+    "object payload so its subscription registers and matches (823.1.c.1)"
 );
 test.todo(
-  "unl-113-219 Master Yi, Tempered: derive Deflect's target tax from the active granted keyword and let the movement workflow consume Ganking's layered permission (CR 809.1.c/810.1.c; target-tax and movement consumers remain open)"
+  "unl-113-219 Master Yi, Tempered: [Level 6]'s controller-XP gate needs an evaluable predicate with " +
+    "live activation/deactivation, its own condition.predicate static needs a layer mapping, the granted " +
+    "[Deflect] needs a target.tax consumer in Chain Finalize and the granted [Ganking] needs a movement " +
+    "consumer reading permission.routes (824.1.c / 809.1.c / 810.1.c)"
 );
-
-test("unl-113-219 Master Yi, Tempered: Hunt's conquer/hold spelling is rejected by the closed event vocabulary (CR 823.1.c.1)", async () => {
-  const { default: hunt } = await import("../../../../engine-core/dist/effects/keywords/Hunt.js");
-  const [conquer] = hunt.expand({ value: 2, host: { canonicalCardId: CANONICAL_ID } });
-  assert.equal(conquer.trigger.at, "conquer");
-  assert.throws(
-    () => assertTriggerSpec({
-      at: conquer.trigger.at,
-      filter: { event: "conquer", filter: { source: "self" } }
-    }),
-    (error) => error.name === "TriggerSpecValidationError" &&
-      error.issues.some((issue) => issue.code === "invalid-event-type")
-  );
-  // The check is specifically on the event spelling inside the filter: the
-  // closed event vocabulary accepts "conquered", so the same registration shape
-  // passes once the word is past-tense.
-  assert.doesNotThrow(() => assertTriggerSpec({
-    at: "conquer",
-    filter: { event: "conquered", object: { type: "unit" } }
-  }));
-});
-
-test("unl-113-219 Master Yi, Tempered: the unresolved [Level 6][>] query stays blocked rather than counting objects as XP (CR 824.1.c.1/824.1.d)", () => {
-  // The old count expression read objects, granting Level at zero XP. The
-  // authored never guard blocks that unsupported read until player XP is wired.
-  for (const xp of [0, 5, 6, 10]) {
-    const f = fixture({
-      cards: [{ id: "yi", cardId: CANONICAL_ID, types: ["unit"], energy: 4, power: ["Body"], might: 4 }]
-    });
-    f.kernel.addPlayer("A", { xp });
-    f.engine.commit({
-      type: "move-zone",
-      object: f.kernel.ref("yi"),
-      to: "board",
-      location: { type: "battlefield", id: "bf-1" }
-    });
-    const source = f.kernel.getObject("yi");
-    const binder = createEngineStaticBinder(f.engine);
-    const deflect = binder.bindStatic(program.abilities[1], source);
-    const ganking = binder.bindStatic(program.abilities[2], source);
-    assert.equal(f.kernel.player("A").xp, xp);
-    assert.deepEqual(
-      f.engine.layers.evaluate(source.ref).keywords.map((keyword) => keyword.id),
-      [],
-      `XP ${xp}: unresolved player query must remain explicitly blocked`
-    );
-    ganking.unbind();
-    deflect.unbind();
-  }
-});
-
-test("unl-113-219 Master Yi, Tempered: Level's own predicate and Deflect's target tax have no layer mapping (CR 824.1.b / 809.1.c)", async () => {
-  const { default: level } = await import("../../../../engine-core/dist/effects/keywords/Level.js");
-  const { default: deflect } = await import("../../../../engine-core/dist/effects/keywords/Deflect.js");
-  const f = fixture({
-    cards: [{ id: "yi", cardId: CANONICAL_ID, types: ["unit"], energy: 4, power: ["Body"], might: 4 }]
-  });
-  f.engine.commit({
-    type: "move-zone",
-    object: f.kernel.ref("yi"),
-    to: "board",
-    location: { type: "battlefield", id: "bf-1" }
-  });
-  const source = f.kernel.getObject("yi");
-  const binder = createEngineStaticBinder(f.engine);
-  const [predicate] = level.expand({ value: 6, host: { canonicalCardId: CANONICAL_ID } });
-  assert.throws(
-    () => binder.bindStatic(predicate, source),
-    (error) => error.name === "ProgramBindingError" && /no layer mapping/.test(error.message)
-  );
-  const [tax] = deflect.expand({ host: { canonicalCardId: CANONICAL_ID } });
-  assert.equal(tax.effect.kind, "target.tax");
-  assert.throws(
-    () => binder.bindStatic(tax, source),
-    (error) => error.name === "ProgramBindingError" && /no layer mapping/.test(error.message)
-  );
-});
-
-test("unl-113-219 Master Yi, Tempered: the granted Ganking registration does not satisfy the movement query (CR 810.1.c)", async () => {
-  const { default: ganking } = await import("../../../../engine-core/dist/effects/keywords/Ganking.js");
-  const [ability] = ganking.expand({ host: { canonicalCardId: CANONICAL_ID } });
-  assert.equal(ability.effect.permission, "battlefield-to-battlefield");
-  const f = fixture({
-    cards: [{ id: "yi", cardId: CANONICAL_ID, types: ["unit"], energy: 4, power: ["Body"], might: 4 }]
-  });
-  f.engine.commit({
-    type: "move-zone",
-    object: f.kernel.ref("yi"),
-    to: "board",
-    location: { type: "battlefield", id: "bf-1" }
-  });
-  const source = f.kernel.getObject("yi");
-  const handle = createEngineStaticBinder(f.engine).bindStatic(ability, source);
-  // The-shaped permission is registered, but the query reads permission.routes
-  // and therefore still reports no Ganking route.
-  assert.deepEqual(
-    f.engine.layers.registry.list().map((entry) => entry.effect.effect.permission),
-    ["battlefield-to-battlefield"]
-  );
-  const view = movement(f.engine.layers.registry, source.ref, f.engine.layers.evaluate(source.ref), "A");
-  assert.equal(view.canGank, false);
-  assert.equal(view.battlefieldToBattlefield, false);
-  handle.unbind();
-});
