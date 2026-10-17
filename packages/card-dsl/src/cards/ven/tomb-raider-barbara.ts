@@ -31,7 +31,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   "If it's [Empowered]" 与 "Otherwise" 的分支判别器没有可求值形态（effect.empower 的
  *   文件也记录同一契约缺口）；
  * card-played 时点和 CardProgram 的 triggered binding 已合入；不再把触发注册列为缺口。
- * 依赖：Empowered 状态条件谓词（进行中的 RIFT-359）。
+ * 依赖：Empowered 状态条件谓词（ObjectSnapshot / Condition 尚未提供）。
  * 已合入的 effect.empower（mode: disempower）与 effect.kill 本体在 golden 中用锁定目标真实执行，
  * 不伪造分支判定。
  */
@@ -115,7 +115,7 @@ export default {
     "两处缺口，均不近似实现：(1) 没有 Empowered 状态谓词——442.1.a / 442.2 的状态不在 ObjectSnapshot / Condition 里" +
     "（effect.empower 的文件记录同一契约缺口），因此「If it's [Empowered], disempower it. Otherwise, kill it.」的两条" +
     "分支判别器没有可求值形态；程序用同一个 TargetSpec 上的互斥 expression 条件保留印刷分支，不把判定交给玩家；" +
-    "card-played 时点和 triggered binding 已由现有程序管线提供。依赖进行中的 RIFT-359（Empowered 状态条件谓词）。" +
+    "card-played 时点和 triggered binding 已由现有程序管线提供。依赖：Empowered 状态条件谓词（ObjectSnapshot / Condition 尚未提供）。" +
     "符号 7 是 383.2.a.1 的触发条件（符文区 rune 计数 >= 7，133.5.a.1 / 431.1）；" +
     "effect.empower（mode: disempower，443.1.b）与 effect.kill（429.1/429.2.a）本体已合入，golden 用锁定目标真实执行。",
   abilities,
