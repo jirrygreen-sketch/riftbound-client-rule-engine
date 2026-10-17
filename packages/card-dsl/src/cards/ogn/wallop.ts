@@ -17,27 +17,15 @@ import type { CardProgram } from "../../ir/index.js";
  *   spending the buff itself is 702.2.b (only buffs on units the spender
  *   controls, 702.2.b.1 / 702.2.b.2), and a chosen optional cost is "paid"
  *   once that decision is made (356.4.f.1). The play ability's CostSpec
- *   declares that optional spend-buff payment, using the merged cost planner's
- *   input vocabulary (RIFT-89 optionalAdditional plus its spend-buff payment
- *   kind).
+ *   declares that optional spend-buff payment.
  * - "If you do, ignore this spell's cost" is a base cost modification applied
  *   at Finalize (356.1.b.1: ignoring the cost sets the base Energy/Power
  *   components to 0; 356.1.b.3: later additional costs would still apply). It
- *   is declared the way the merged corpus declares cost rewrites (a static
- *   continuous.cost-modification ability; see sfd/production-surge.ts), with
- *   the decision it depends on named in its "when" field. Two dependencies are
- *   missing, so the card is judge-required:
- *   - nothing consumes a CardProgram ability's cost: buildCostPlan receives its
- *     discounts/modifications from the caller (baseModifications is a caller
- *     input; the planner's ignore-base modification kind is reachable only that
- *     way), nothing turns the static continuous.cost-modification ability into a
- *     baseModifications entry (no continuous.cost-modification consumer exists in
- *     engine-core), and effects/instructions has no cost.additional / cost.modify
- *     primitive at all (the merged registry has no cost.* entry), so the
- *     "if you do" rewrite is not wired from card data;
- *   - the decision happens at Finalize while the effect resolves later, and
- *     the frozen Condition/Expr vocabulary (contract 3.2/3.6) has no form that
- *     reads "was this optional additional cost paid" from the cost receipt.
+ *   is declared as a static continuous.cost-modification ability. The card
+ *   remains judge-required because the play adapter rejects this additional-cost
+ *   shape, static cost modifications are not collected into the play CostPlan,
+ *   and the condition vocabulary has no receipt lookup for "was this optional
+ *   cost paid".
  * - "Ready a unit." is ordinary targeting of a unit on the board (355.9.a.1)
  *   and uses the merged effect.ready primitive; the golden test executes it.
  */
@@ -47,14 +35,10 @@ const wallop = {
   status: "judge-required",
   judgeReason:
     "「As you play this, you may spend a buff as an additional cost. If you do, ignore this spell's cost.」" +
-    "是 Finalize 阶段的可选追加费用 + 基础费用改写（355.1.a、356.2.b、356.1.b.1、356.1.b.3、356.4.f.1、702.2.b），" +
-    "两条依赖未合入：(1) 已合入的 cost/ 只提供 buildCostPlan 输入（optionalAdditional 与 spend-buff 支付种类；" +
-    "ignore-base 修改只能由调用方以 baseModifications 传入），没有任何消费者读取卡牌程序 play.cost，" +
-    "也没有把静态 continuous.cost-modification 转成 baseModifications（engine-core 没有该 effect kind 的消费方），" +
-    "effects/instructions 的注册表里没有任何 cost.* 原语（没有 cost.additional / cost.modify）；(2) 费用决定发生在 Finalize、效果在 Resolve，" +
-    "“if you do” 的联动没有可表达的 Condition/Expr 形态（契约 3.2/3.6 没有读取费用回执的表达式）。" +
-    "费用声明与 Ready a unit 已按契约数据写出；Ready a unit 半段用已合入的 effect.ready 可执行。" +
-    "依赖：RIFT-257（CardProgram 费用绑定）与 RIFT-261（cost.pay / cost.modify）。",
+    "是 Finalize 阶段的可选追加费用 + 基础费用改写（355.1.a、356.2.b、356.1.b.1、356.1.b.3、356.4.f.1、702.2.b）。" +
+    "当前 play adapter 会拒绝该 additional-cost 形状，静态 continuous.cost-modification 也尚未进入 play 的 CostPlan；" +
+    "此外，Finalize 的可选费用回执没有可供 Condition/Expr 读取的表达式，无法可靠驱动“if you do, ignore this spell's cost”。" +
+    "费用声明与 Ready a unit 已按契约数据写出；Ready a unit 半段用已合入的 effect.ready 可执行。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {

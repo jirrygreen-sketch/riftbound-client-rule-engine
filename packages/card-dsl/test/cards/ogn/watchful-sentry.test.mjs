@@ -16,7 +16,7 @@ test("Watchful Sentry program validates and is judge-required", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /trigger\.leave/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /last-known-information/);
   assert.equal(
     program.sourceText,
     "[Deathknell] — Draw 1. (When I die, get the effect.)"
@@ -58,6 +58,5 @@ test("Watchful Sentry golden: the printed Draw 1 effect draws one card", () => {
 test.todo(
   "Watchful Sentry Deathknell end-to-end: the permanent being killed registers its Pending trigger before moving to the " +
     "Trash with last-known information recorded, and a replaced death removes it from the chain (808.1.d.1 / 808.1.d.2 / " +
-    "808.1.d.3); blocked on the trigger.leave primitive (no registered InstructionDef) and the CardProgram " +
-    "keyword/trigger registration (RIFT-257)"
+  "808.1.d.3); blocked on the trigger.leave execution and its replacement-aware last-known-information path"
 );

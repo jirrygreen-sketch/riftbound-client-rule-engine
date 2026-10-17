@@ -24,16 +24,12 @@ import type { CardProgram } from "../../ir/index.js";
  *   判定属于 Finalize（383.3.b.1）与宿主选择器缺口，见 status 说明与 golden 测试的分层。
  *
  * status: judge-required —— “spend a buff” 作为触发能力的费用尚未实现：
- * 1. value 层没有“宿主自身”的对象选择器：effect.buff / effect.ready 的 objects 参数
+ * 1. value 层没有“宿主自身”的对象选择器：effect.buff 的 target 参数
  *    只接受 TargetSpec / pick / 引用（effect.ready 支持 {kind:"source"}，effect.buff 只
  *    接受 TargetSpec id），而本卡的 “me” 是能力宿主、不是选择目标（355.10.d）；把它写成
  *    TargetSpec 会错误触发“成为目标”规则，也会允许对手影响选择，故不伪造目标。
- * 2. 383.3.b.1 要求该“指令内费用”在 Finalize 支付并据此决定触发能否进链；已合入的
- *    TriggerRegistration.cost 桥接（card-program 适配层）尚未消费 choice.optional 内的
- *    spend-buff 费用，属引擎批 6 / 费用计划（RIFT-89/90）。
- * 3. 触发能力本身仍没有 CardProgram → ChainDraft / TriggerRegistration 的注册适配
- *    （RIFT-257）：chain/engine.ts 已发射 card-played 时点，但 describePlay 由调用方
- *    提供，卡数据没有接线路径。
+ * 2. 383.3.b.1 要求该“指令内费用”在 Finalize 支付并据此决定触发能否进链；
+ *    TriggerRegistration 没有消费 choice.optional 内的 spend-buff 费用。
  */
 export default {
   canonicalCardId: "card.hash-050d713d056c980eaa282af3d9145bdcc7e5f630b1b27d672aad1c0fcced6a31",
@@ -41,15 +37,13 @@ export default {
   status: "judge-required",
   judgeReason:
     "1) 「spend a buff to buff me and ready me」里的指令内费用（740.4.a、355.10.c.1）尚无落地路径：" +
-    "383.3.b/383.3.b.1 要求在 Finalize 支付该费用并据此决定触发能否进链，已合入的 TriggerRegistration.cost " +
-    "桥接没有消费 choice.optional 内的 spend-buff 费用（依赖 RIFT-89/90 费用与目标计划）。" +
+    "383.3.b/383.3.b.1 要求在 Finalize 支付该费用并据此决定触发能否进链，" +
+    "TriggerRegistration 没有消费 choice.optional 内的 spend-buff 费用。" +
     "2) 「buff me」缺少宿主选择器：effect.buff 的 target 参数只接受 TargetSpec id（内部读 ctx.targets），" +
     "没有 effect.ready 那样的 objects 选择器形式（实测未绑定 TargetSpec 时返回 ignored mistargeted）；" +
     "而“me”是宿主自身、不是选择目标（355.10.d），" +
     "故不伪造 TargetSpec，并把「effect.buff 需要宿主/选择器形态的 target」作为契约变更请求上报。" +
     "（effect.ready 的 objects: {kind: \"source\"} 已支持“ready me”，golden 测试据此真实执行该半段。）" +
-    "3) 触发能力没有 CardProgram → ChainDraft / TriggerRegistration 的注册适配（RIFT-257）：" +
-    "chain/engine.ts 已发射 card-played 时点，但 describePlay 由调用方提供，卡数据没有接线路径。" +
     "effect.buff（mode buff/spend，702.2.b/702.2.b.1/702.3.a）与 effect.ready（416.1）本体已合入，但不构成整卡可执行证据。",
   abilities: [
     {

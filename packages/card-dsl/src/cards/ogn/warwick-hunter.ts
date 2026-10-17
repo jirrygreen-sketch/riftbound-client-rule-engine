@@ -19,13 +19,12 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "I enter ready." 的入场替代管线已合入（RIFT-260 的 bindReplacement 绑定
  *   replacement.enter / 静态入场朝向形状），golden 已用该发布接口 + 真实 ChainEngine
  *   执行本卡声明的 ability：单位就绪进场且不产生 object-readied 时点（805.6.a）。
- *   整卡仍不可执行的原因是卡牌程序 → bindReplacement 的注册层（RIFT-257）未合入，
- *   以及下面 attack 触发的缺口。
+ *   下面 attack 触发的缺口仍阻塞整卡。
  * - "kill all damaged enemy units here" 同时缺（a）damaged 谓词过滤器，
  *   （b）无目标集合消灭形态（355.10.d："all …" 由特征程序化选定、不是目标；
  *   effect.kill 只读取 TargetSpec/picks/self），（c）attack-declared 的发射方
  *   （combat/flow.ts 仍抛 combat-start-transaction）。
- * 依赖：战斗时点发射（批 5）、无目标集合 kill 形态、damaged 谓词、RIFT-257。
+ * 依赖：战斗时点发射、无目标集合 kill 形态和 damaged 谓词。
  * 不近似实现（不用 selection "all" 的 TargetSpec 冒充集合，也不手工加伤害标记）。
  */
 const abilities: Ability[] = [
@@ -69,15 +68,14 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "四处缺口：（1）“I enter ready.”（369.3，对照 359.2.c）的入场替代管线已合入（RIFT-260；" +
+    "三处缺口：（1）“I enter ready.”（369.3，对照 359.2.c）的入场替代管线已合入（RIFT-260；" +
     "golden 用 bindReplacement 发布接口 + 真实 ChainEngine 执行本卡 ability，单位就绪进场且" +
-    "不产生 object-readied 时点），但卡牌程序 → bindReplacement 的注册层（RIFT-257）未合入，卡数据" +
-    "本身没有接线路径。（2）“all damaged enemy units here” 是无目标的集合消灭（355.10.d/355.10.d.1 的" +
+    "不产生 object-readied 时点）。（2）“all damaged enemy units here” 是无目标的集合消灭（355.10.d/355.10.d.1 的" +
     "程序化选定、无选择不成为目标），而已合入的 effect.kill 只读 TargetSpec/picks/self，" +
     "没有集合形态；写成 selection \"all\" 的 TargetSpec 会错误登记为“成为目标”。" +
     "（3）“damaged” 谓词无 ObjectFilter 形状：trigger-spec.ts 的 characteristics 只做" +
     "等值/数组包含，damage 标记不在可过滤特征里。（4）attack-declared 时点尚无发射方" +
-    "（combat/flow.ts 仍抛 combat-start-transaction，属契约 §7.2 批 5）。依赖：RIFT-257、" +
+    "（combat/flow.ts 仍抛 combat-start-transaction，属契约 §7.2 批 5）。依赖：" +
     "战斗时点发射、无目标集合 kill、damaged 谓词。不近似实现。",
   abilities,
   sourceText: "I enter ready.\nWhen I attack, kill all damaged enemy units here."

@@ -46,7 +46,7 @@ test("ogn-041-298 Volibear, Furious: identity, ruleset, status, judgeReason and 
   assert.match(program.judgeReason, /attack-declared/);
   assert.match(program.judgeReason, /Deflect/);
   assert.match(program.judgeReason, /combat-start-transaction/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /rainbow/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });
@@ -198,7 +198,6 @@ test.todo(
 
 test.todo(
   "ogn-041-298 Volibear, Furious: the [Deflect 2] target tax (809.1.b.1/.b.2: opponents pay " +
-    "two rainbow runes) needs the keyword expansion wired into the target plan and cost plan; " +
-    "the merged target.tax consumer appends an energy-shaped tax only, and no code expands a " +
-    "CardProgram keyword into effects/keywords/Deflect.ts (RIFT-257/RIFT-89/RIFT-90)"
+    "two rainbow runes) needs target-plan and cost-plan payment typing; the merged target.tax " +
+    "consumer currently appends an energy-shaped mandatory additional cost"
 );

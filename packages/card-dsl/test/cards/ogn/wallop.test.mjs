@@ -15,8 +15,8 @@ test("Wallop program is structurally valid and judge-required", () => {
   assert.equal(result.ok, true);
   assert.equal(wallop.status, "judge-required");
   assert.match(wallop.judgeReason, /356\.1\.b\.1/);
-  assert.match(wallop.judgeReason, /cost\.modify/);
-  assert.match(wallop.judgeReason, /RIFT-257/);
+  assert.match(wallop.judgeReason, /additional-cost/);
+  assert.match(wallop.judgeReason, /play adapter/);
   assert.equal(wallop.rulesetVersion, "core-1.5");
   assert.equal(
     wallop.canonicalCardId,
@@ -136,14 +136,13 @@ test("Wallop golden: a unit that left the board makes the ready half ignored", (
 test.todo(
   "Wallop additional cost: the optional spend-buff decision is made at Finalize and its " +
     "paid receipt drives the base-cost rewrite (356.1.b.1/356.1.b.3, 356.4.f.1) through " +
-    "the cost planner; nothing consumes a CardProgram play.cost yet (RIFT-257), no " +
-    "continuous.cost-modification consumer turns the static ability into baseModifications and " +
-    "the registry has no cost.additional/cost.modify primitive (RIFT-261), and no Condition/Expr " +
-    "reads the receipt"
+  "the cost planner; the play adapter still rejects the authored additional-cost shape, " +
+  "static cost modifications are not collected into the play CostPlan, and no Condition/Expr " +
+  "reads the receipt"
 );
 
 test.todo(
   "Wallop cast: pays the printed 2 Energy (or 0 when the buff was spent) and [Action] " +
-    "showdown timing is enforced (依赖 RIFT-257 / RIFT-261 与 continuous.timing 生产接线)"
+  "showdown timing is enforced after the additional-cost and cost-modification adapters land"
 );
 

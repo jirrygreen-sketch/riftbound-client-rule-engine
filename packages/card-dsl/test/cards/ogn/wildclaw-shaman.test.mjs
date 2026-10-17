@@ -29,7 +29,7 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, verbatim sourceTe
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /spend/);
   assert.match(program.judgeReason, /383\.3\.b/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /TriggerRegistration/);
   assert.equal(
     program.sourceText,
     "When you play me, you may spend a buff to buff me and ready me. (If I don't have a buff, I get a +1 :rb_might: buff.)"
@@ -159,15 +159,10 @@ test.todo(
   "Wildclaw Shaman: the trigger's in-instruction cost — 'spend a buff' must be paid while finalizing " +
     "the triggered ability (CR 740.4.a/355.10.c.1/383.3.b/383.3.b.1), deciding whether the trigger is " +
     "placed on the chain; TriggerRegistration.cost does not consume the spend-buff inside the " +
-    "choice.optional body yet (RIFT-89/90)"
+    "choice.optional body yet"
 );
 test.todo(
   "Wildclaw Shaman: 'me' needs a host-selector form for effect.buff/effect.ready that is not a " +
     "TargetSpec (CR 355.10.d) — filed as a contract change request; effect.buff with no bound " +
     "TargetSpec resolves to ignored/mistargeted today"
-);
-test.todo(
-  "Wildclaw Shaman: the played trigger only becomes reachable once a CardProgram -> ChainDraft / " +
-    "TriggerRegistration adapter (RIFT-257) routes the authored ability; chain/engine.ts already " +
-    "emits the card-played timing point"
 );
