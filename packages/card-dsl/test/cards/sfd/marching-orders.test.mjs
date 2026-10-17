@@ -13,6 +13,9 @@ import { bindResolveContext } from "../../../../engine-core/dist/events/action-a
 import { matchesTriggerObject } from "../../../../engine-core/dist/events/pipeline-match.js";
 import { translateCost } from "../../../../engine-core/dist/programs/play.js";
 import { LayerEngine } from "../../../../engine-core/dist/layers/engine.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { describePlay } from "../../../../engine-core/dist/programs/play.js";
+import { abilitySpeed } from "../../../../engine-core/dist/programs/keywords.js";
 
 const CANONICAL = "card.hash-7665f836ecbe39043d8dd42f110ad82560fe857373dbf87d7348d347e764617c";
 const SOURCE_TEXT =
@@ -53,7 +56,8 @@ test("sfd-114-221 Marching Orders: judgeReason names the [Repeat] cost gap and i
   assert.match(program.judgeReason, /820\.1\.c/);
   assert.match(program.judgeReason, /programs\/play\.ts/);
   // The damage half is executable and must be reported as such, not as a gap.
-  assert.match(program.judgeReason, /golden 已真实执行/);
+  assert.match(program.judgeReason, /golden 已用生产链适配器真实执行/);
+  assert.match(program.judgeReason, /Unsupported play cost field keyword/);
 });
 
 test("sfd-114-221 Marching Orders: [Action] keyword plus the [Repeat] additional cost", () => {
@@ -243,6 +247,28 @@ test("sfd-114-221 Marching Orders: the printed Repeat cost still fails closed at
     assert.match(error.message, /cost field keyword|Additional costs/);
     return true;
   });
+});
+
+test("sfd-114-221 Marching Orders: [Action] speed is derivable but the play adapter never reaches a draft", () => {
+  // 806.1.b/806.1.c: [Action] is a permissive keyword the adapter already
+  // understands (abilitySpeed returns 'action'), yet describePlay cannot build
+  // the draft because translateCost refuses the printed Repeat component. Both
+  // facts are asserted so neither half is misreported.
+  const { judgeReason, ...binding } = program;
+  const kernel = world().hand("orders", {
+    cardId: program.canonicalCardId, types: ["spell"], energy: 3, power: null
+  }).build();
+  const source = kernel.getObject("orders");
+  assert.equal(abilitySpeed(program.abilities, source), "action");
+  assert.throws(
+    () => describePlay(new ProgramRegistry([{ ...binding, status: "executable" }]),
+      { type: "play", object: kernel.ref("orders"), player: "A" }, source),
+    error => {
+      assert.equal(error.code, "judge-required");
+      assert.match(error.message, /Unsupported play cost field keyword/);
+      return true;
+    }
+  );
 });
 
 test.todo(

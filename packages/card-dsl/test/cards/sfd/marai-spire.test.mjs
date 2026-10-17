@@ -4,6 +4,8 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/marai-spire.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { fixture } from "../../../../engine-core/test/programs/helpers.mjs";
 
 const [ability] = program.abilities;
 
@@ -44,9 +46,50 @@ test("sfd-211-221 Marai Spire: static Repeat-cost discount scoped to friendly Re
   assert.deepEqual(ability.condition, { kind: "always" });
 });
 
+test("sfd-211-221 Marai Spire: the merged static binder refuses this ability", () => {
+  // The production binder is the only CardProgram -> layers path for statics.
+  // It rejects appliesTo "repeat-additional-cost" before layerFor could even
+  // report that cost.modify has no mapping.
+  const f = fixture({ cards: [{ id: "spire", cardId: program.canonicalCardId, types: ["battlefield"] }] });
+  assert.throws(
+    () => createEngineStaticBinder(f.engine).bindStatic(ability, f.kernel.getObject("spire")),
+    error => {
+      assert.equal(error.code, "judge-required");
+      assert.match(error.message, /repeat-additional-cost/);
+      return true;
+    }
+  );
+  // Two further blockers are also owned by the merged binder: the printed
+  // `keyword: "Repeat"` filter field is unknown to staticFilter, and removing
+  // it leaves layerFor without any cost.modify mapping. Each is asserted
+  // separately so the reason names only live gaps.
+  // (a) With the unsupported appliesTo dropped, the printed keyword filter
+  // reaches staticFilter and is refused there.
+  const { appliesTo: _appliesTo, ...withoutAppliesTo } = ability.effect;
+  assert.throws(
+    () => createEngineStaticBinder(f.engine).bindStatic({ ...ability, effect: withoutAppliesTo }, f.kernel.getObject("spire")),
+    error => {
+      assert.equal(error.code, "judge-required");
+      assert.match(error.message, /Unsupported static filter field keyword/);
+      return true;
+    }
+  );
+  // (b) With both obstacles removed, layerFor still has no cost.modify mapping.
+  assert.throws(
+    () => createEngineStaticBinder(f.engine).bindStatic(
+      { ...ability, effect: { ...ability.effect, appliesTo: "self", filter: { controller: "self", zone: "board" } } },
+      f.kernel.getObject("spire")
+    ),
+    error => {
+      assert.equal(error.code, "judge-required");
+      assert.match(error.message, /no layer mapping/);
+      return true;
+    }
+  );
+});
+
 // The discount is not executable: no production consumer binds a static
-// cost.modify into Finalize (programs/statics.ts rejects appliesTo and has no
-// cost.modify layer), and Repeat's repeat.cost has no collector.
+// cost.modify into Finalize and Repeat's repeat.cost has no collector.
 test.todo(
   "sfd-211-221 Marai Spire: apply the -1 energy discount to friendly Repeat additional costs at Finalize (static cost.modify -> cost plan consumer; 356.4/356.4.f/356.6)"
 );
