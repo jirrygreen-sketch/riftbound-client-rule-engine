@@ -4,7 +4,12 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/irelia-fervent.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import deflect from "../../../../engine-core/dist/effects/keywords/Deflect.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 
 const CARD_ID = "card.hash-cdc4606d9f9f7a0a63ed596fdbdee4a120ac153f9b1a74dd38db8c4c34616644";
 const SOURCE_TEXT =
@@ -12,6 +17,55 @@ const SOURCE_TEXT =
   "When you choose or ready me, give me +1 :rb_might: this turn.";
 
 const [deflectAbility, chooseTrigger, readyTrigger] = program.abilities;
+
+/**
+ * Production installs the card-program binding on a real ChainEngine
+ * (RIFT-257: createProgramBinding + registerProgramTriggers). The golden
+ * builds the same pair on the reference kernel so the triggers subscribe to
+ * real emissions and the body resolves through the real interpreter.
+ */
+function ireliaFixture() {
+  const kernel = world()
+    .player("A", { energy: 10 })
+    .player("B", { energy: 10 })
+    .unit("irelia", {
+      owner: "A",
+      cardId: CARD_ID,
+      might: 4,
+      exhausted: true,
+      location: { type: "battlefield", id: "bf-1" }
+    })
+    .unit("enemy", { owner: "B", might: 3, location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const decide = () => { throw new AwaitChoice({ id: "x", type: "optional" }); };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (checkpoint) => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose: decide,
+    context: (sourceSnapshot, controller, timingPoint) => bindResolveContext(kernel, {
+      source: sourceSnapshot, controller, timingPoint, choose: decide
+    }),
+    testTrigger: (registration) => kernel.test(registration.spec.condition)
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  // ProgramRegistry.get refuses judge-required programs before binding; the
+  // local executable clone isolates the two halves this card already executes
+  // (the merged continuous.might body and the RIFT-257 trigger registration),
+  // while the shipped program keeps its judgeReason for the [Deflect] half.
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  const triggerIds = binding.registerProgramTriggers(engine, kernel.getObject("irelia"));
+  return { kernel, engine, binding, triggerIds };
+}
+
+function resolveAll(fixture, { limit = 12 } = {}) {
+  fixture.engine.advance();
+  let guard = 0;
+  while (fixture.engine.items.length && guard++ < limit) fixture.engine.pass(fixture.engine.priority);
+}
 
 test("sfd-057-221 Irelia, Fervent: program validates and is registered by canonicalCardId", () => {
   const result = validateCardProgram(program);
@@ -24,9 +78,10 @@ test("sfd-057-221 Irelia, Fervent: identity, ruleset, status, judgeReason and ve
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
+  assert.match(program.judgeReason, /target\.tax/);
+  assert.match(program.judgeReason, /RIFT-90/);
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /became-target/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -35,12 +90,14 @@ test("sfd-057-221 Irelia, Fervent: [Deflect] plus two parallel trigger subscript
   assert.deepEqual(deflectAbility, { kind: "keyword", keyword: "deflect" });
 
   // 383.4.b / 383.4.b.1: "When you choose me" is a Targeting Effect, so it
-  // subscribes to the became-target timing point.
+  // subscribes to the became-target timing point; the anchor names this host
+  // (objectId: "self") and the chooser (player: "self").
   assert.equal(chooseTrigger.kind, "triggered");
   assert.equal(chooseTrigger.trigger.at, "became-target");
   assert.deepEqual(chooseTrigger.trigger.filter, {
     event: "became-target",
-    target: { source: "self" }
+    objectId: "self",
+    player: "self"
   });
   assert.equal(chooseTrigger.optional, false);
 
@@ -48,7 +105,11 @@ test("sfd-057-221 Irelia, Fervent: [Deflect] plus two parallel trigger subscript
   // printed "or" joins trigger conditions, it is not a 355.11 mode choice.
   assert.equal(readyTrigger.kind, "triggered");
   assert.equal(readyTrigger.trigger.at, "object-readied");
-  assert.deepEqual(readyTrigger.trigger.filter, { event: "object-readied", filter: { source: "self" } });
+  assert.deepEqual(readyTrigger.trigger.filter, {
+    event: "object-readied",
+    objectId: "self",
+    player: "self"
+  });
   assert.equal(readyTrigger.optional, false);
 });
 
@@ -64,11 +125,63 @@ test("sfd-057-221 Irelia, Fervent: each trigger grants +1 Might this turn via a 
     assert.equal(instruction.op, "continuous.might");
     assert.deepEqual(instruction.args.amount, { kind: "constant", value: 1 });
     assert.deepEqual(instruction.args.duration, { kind: "constant", value: "this-turn" });
-    // "me" is the ability host, so no fresh target choice is authored.
+    // "me" is the ability host: the appliesTo "self" shorthand (contract 3.6),
+    // not a fresh target choice.
+    assert.deepEqual(instruction.args.appliesTo, { kind: "constant", value: "self" });
     assert.equal(instruction.targets, undefined);
     assert.equal(instruction.picks, undefined);
     assert.equal(instruction.linkedTo, undefined);
   }
+});
+
+test("sfd-057-221 Irelia, Fervent golden: a real became-target event on the host grants +1 Might this turn", () => {
+  const fixture = ireliaFixture();
+  // The merged chain emits became-target from TargetPlan finalization with the
+  // targeted object as both object and target (chain/engine.ts); the trigger
+  // subscribes with the same payload shape.
+  fixture.engine.emit({
+    timingPoint: "became-target",
+    object: fixture.kernel.getObject("irelia"),
+    target: fixture.kernel.getObject("irelia"),
+    source: fixture.kernel.getObject("enemy"),
+    player: "A"
+  });
+  resolveAll(fixture);
+
+  assert.equal(fixture.engine.layers.evaluate(fixture.kernel.ref("irelia")).might, 5);
+  assert.equal(fixture.engine.layers.evaluate(fixture.kernel.ref("enemy")).might, 3);
+  assert.equal(fixture.engine.layers.evaluate(fixture.kernel.ref("irelia")).buffs, 0);
+  assert.ok(fixture.engine.pipeline.events.some(event => event.timingPoint === "chain-item-resolve"));
+
+  // 317.1.a / 468.7.c: expires at end of turn.
+  fixture.engine.layers.expireAt("turn-end");
+  assert.equal(fixture.engine.layers.evaluate(fixture.kernel.ref("irelia")).might, 4);
+});
+
+test("sfd-057-221 Irelia, Fervent golden: a real ready action on the host grants +1 Might this turn", () => {
+  const fixture = ireliaFixture();
+  fixture.engine.commit({ type: "ready", object: fixture.kernel.ref("irelia") });
+  resolveAll(fixture);
+
+  assert.equal(fixture.kernel.getObject("irelia").exhausted, false);
+  assert.equal(fixture.engine.layers.evaluate(fixture.kernel.ref("irelia")).might, 5);
+  assert.ok(fixture.engine.pipeline.events.some(event => event.timingPoint === "object-readied"));
+});
+
+test("sfd-057-221 Irelia, Fervent golden: an enemy-controlled targeting does not trigger 'you choose me'", () => {
+  const fixture = ireliaFixture();
+  // player: "self" means the ability controller (events/pipeline-match.ts
+  // playerMatches); an opponent doing the choosing must not fire the trigger.
+  fixture.engine.emit({
+    timingPoint: "became-target",
+    object: fixture.kernel.getObject("irelia"),
+    target: fixture.kernel.getObject("irelia"),
+    source: fixture.kernel.getObject("enemy"),
+    player: "B"
+  });
+  resolveAll(fixture);
+
+  assert.equal(fixture.engine.layers.evaluate(fixture.kernel.ref("irelia")).might, 4);
 });
 
 test("sfd-057-221 Irelia, Fervent: the Deflect keyword definition stays a target tax, never a Might bonus", () => {
@@ -78,17 +191,7 @@ test("sfd-057-221 Irelia, Fervent: the Deflect keyword definition stays a target
 });
 
 test.todo(
-  "sfd-057-221 Irelia, Fervent: 'give me +1 :rb_might: this turn' needs a registered continuous.might " +
-    "instruction that lands a consumable arithmetic-layer effect via ResolveContext.addContinuous and " +
-    "expires at end of turn — never a Buff counter (702/703) — RIFT-9 / RIFT-91"
-);
-
-test.todo(
-  "sfd-057-221 Irelia, Fervent: both subscriptions must reach the chain as Pending items (383.4.b.2 for " +
-    "became-target, 412.4 for becomes-ready) through a CardProgram trigger registration — RIFT-120"
-);
-
-test.todo(
-  "sfd-057-221 Irelia, Fervent: [Deflect]'s tax must be collected as any-domain Power when an opponent " +
-    "chooses this unit (809.1.c.1) — RIFT-90 / RIFT-89"
+  "sfd-057-221 Irelia, Fervent: collect [Deflect]'s tax as any-domain Power when an opponent chooses this " +
+    "unit (809.1.c.1) — needs a target.tax consumer in the target selection/additional-cost path and " +
+    "Universal-Power payment (RIFT-90 / RIFT-89/261)"
 );

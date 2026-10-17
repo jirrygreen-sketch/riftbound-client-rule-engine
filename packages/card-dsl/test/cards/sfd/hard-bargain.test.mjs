@@ -51,8 +51,11 @@ test("sfd-136-221 Hard Bargain: program passes validateCardProgram", () => {
 test("sfd-136-221 Hard Bargain: judgeReason names the payment and [Repeat] gaps", () => {
   assert.match(program.judgeReason, /204\.3/);
   assert.match(program.judgeReason, /cost\.pay/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /RIFT-86/);
+  // The card-program binding's own refusal of the additional-cost shape is
+  // part of the current gap record.
+  assert.match(program.judgeReason, /additional-cost/);
   // The Counter half is merged and executed; the judgment records that.
   assert.match(program.judgeReason, /golden 已真实执行/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
@@ -192,16 +195,19 @@ test("sfd-136-221 Hard Bargain golden: declining runs the real Counter against t
 test.todo(
   "sfd-136-221 Hard Bargain: 'unless its controller pays :rb_energy_2:' must be executable as a Cost within " +
     "Instructions (204.3/204.3.a) and its payment receipt must gate the Counter (356.4.f.1-style binding) — " +
-    "needs the cost.pay primitive and a result binding (RIFT-89)"
+    "needs the cost.pay primitive and a result binding (RIFT-261)"
 );
 
 test.todo(
   "sfd-136-221 Hard Bargain: [Repeat] :rb_energy_2: — collecting the optional additional cost at Finalize " +
     "and executing the effect one extra time per paid instance (820.1.b/820.1.d) needs the Repeat keyword " +
-    "expansion (RIFT-86) and the cost plan (RIFT-89)"
+    "expansion (RIFT-86) and the cost plan (RIFT-261); the merged card-program binding also rejects the " +
+    "additional-cost CostSpec shape outright (programs/play.ts)"
 );
 
 test.todo(
   "sfd-136-221 Hard Bargain: the printed [Reaction] Closed-State permission and the chain admission " +
-    "(813.1.c, contract 3.5 canAct) need a CardProgram -> ChainDraft play adapter — RIFT-84/RIFT-85"
+    "(813.1.c, contract 3.5 canAct) need the play draft to survive the card-program binding, which today " +
+    "rejects the [Repeat] additional-cost shape (programs/play.ts 'Unsupported play cost field keyword') " +
+    "— RIFT-86/RIFT-261 cost-collection batch"
 );

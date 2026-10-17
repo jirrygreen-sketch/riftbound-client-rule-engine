@@ -5,6 +5,7 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import program from "../../../dist/cards/sfd/hexdrinker.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
@@ -52,7 +53,7 @@ test("sfd-102-221 Hexdrinker: identity, ruleset, status, judgeReason and verbati
   assert.match(program.judgeReason, /Equip/);
   assert.match(program.judgeReason, /params\.cost/);
   assert.match(program.judgeReason, /Unsupported payment kind: equip/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -110,10 +111,45 @@ test("sfd-102-221 Hexdrinker: the merged Equip body attaches this gear to the ch
   assert.deepEqual(bound.getObject("hexdrinker").attachedTo, bound.ref("ally"));
 });
 
+test("sfd-102-221 Hexdrinker: the merged expansion's cost placeholder is what Finalize cannot pay yet", () => {
+  // The merged Equip expansion is the real effect.attach slice (executed
+  // above); its generic cost placeholder is the exact gap the judgeReason
+  // names, recorded here through the real cost-plan entry point.
+  const activation = equipActivation();
+  const kernel = world()
+    .player("A", { energy: 20 })
+    .player("B", { energy: 20 })
+    .object("hexdrinker", {
+      owner: "A",
+      cardId: CARD_ID,
+      types: ["gear"],
+      might: null,
+      zone: "board",
+      location: { type: "base", player: "A" },
+      energy: 2,
+      power: []
+    })
+    .unit("ally", { might: 3 })
+    .build();
+  const bound = kernel.clone({
+    source: kernel.ref("hexdrinker"),
+    sourceSnapshot: kernel.getObject("hexdrinker")
+  });
+
+  assert.throws(
+    () => buildCostPlan(bound, { id: "cost:hexdrinker-equip", cost: activation.cost }),
+    (error) => {
+      assert.equal(error.reason, "judge-required");
+      assert.match(String(error.message), /Unsupported payment kind: equip/);
+      return true;
+    }
+  );
+  // Nothing was charged or attached by the refused plan.
+  assert.equal(bound.getObject("hexdrinker").attachedTo, null);
+  assert.equal(bound.getObject("hexdrinker").exhausted, false);
+});
+
 test.todo(
-  "sfd-102-221 Hexdrinker: paying the printed Equip cost (1 Body Power, CR 818.1.c) needs the \"equip\" cost-payment kind in cost/plan-values.ts " +
-    "(RIFT-89 cost-payment batch) and contract 3.8.3 params.cost so the printed rune reaches KeywordDef.expand."
-);
-test.todo(
-  "sfd-102-221 Hexdrinker: the card-program -> keyword expansion -> chain wiring from contract 3.5 must register the Equip activated ability before the whole card is executable."
+  "sfd-102-221 Hexdrinker: charge the printed Equip cost (1 Body Power, CR 818.1.c) at Finalize once the " +
+    "\"equip\" cost-payment kind exists (RIFT-261) and contract 3.8.3 params.cost is delivered to KeywordDef.expand"
 );

@@ -33,8 +33,8 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * status 判定（cards/README.md 第 2 节）：judge-required，三处缺口，均不近似实现：
  * (1) [Hidden] 的可执行路径缺失：keywords/Hidden.ts 的展开依赖 cost.hidden 的 Hide 行动、
- *     facedown 区域限制与从 facedown 免费打出（RIFT-89），以及后续 Reaction 的 continuous.timing
- *     时机许可（RIFT-91）——与已合入的 ogn-168-298 Fight or Flight / sfd-070-221 Wages of Pain
+ *     facedown 区域限制与从 facedown 免费打出（RIFT-261 cost 批次），以及后续 Reaction 的
+ *     continuous.timing 时机许可（RIFT-91）——与已合入的 ogn-168-298 Fight or Flight / sfd-070-221 Wages of Pain
  *     同一口径。
  * (2) "at end of turn" 的延迟注册缺卡牌可用 op：ResolveContext.registerDelayedTrigger 存在
  *     （契约 3.6），但指令注册表没有 trigger.delayed（同 ogn-221-298 Imperial Decree、
@@ -47,7 +47,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   本文件把该半段写成对收据 owner 的第二次 take-control，仅为可审查的描述，不作为执行主张。
  *   "Take control ... / Ready it." 两段本身只用已合入原语，golden 用真实原语执行（含控制权实际
  *   变更、横置单位被重置、以及延迟半段被明确阻断的守卫）。
- * 依赖：cost.hidden + continuous.timing（RIFT-89/RIFT-91）、trigger.delayed 原语（RIFT-9）、
+ * 依赖：cost.hidden + continuous.timing（RIFT-261/RIFT-91）、trigger.delayed 原语（RIFT-9）、
  * Recall 独立动作（RIFT-109 后续）。
  */
 const hostileTakeover = {
@@ -56,7 +56,7 @@ const hostileTakeover = {
   status: "judge-required",
   judgeReason:
     "三处缺口：(1) [Hidden]（811）无可执行路径——keywords/Hidden.ts 的展开依赖 cost.hidden 的 Hide 行动、" +
-    "facedown 区域限制与从 facedown 免费打出（RIFT-89），以及 continuous.timing 的后续 Reaction 时机许可（RIFT-91）；" +
+    "facedown 区域限制与从 facedown 免费打出（RIFT-261 cost 批次），以及 continuous.timing 的后续 Reaction 时机许可（RIFT-91）；" +
     "(2) 「Lose control of that unit and recall it at end of turn」按 391.2/392/393 是该咒语创建的 Delayed Ability" +
     "（359.3.e.16 的示例正是本卡），ResolveContext.registerDelayedTrigger 虽在契约 3.6 中，但指令注册表没有" +
     "卡牌可用的 trigger.delayed op（同 ogn-221-298 Imperial Decree / ogn-289-298 Targon's Peak），" +
@@ -65,8 +65,8 @@ const hostileTakeover = {
     "不得用 move-location 近似（458）。另：交回控制权需要控制效果的到期/还原身份（479.2.a、482.3），" +
     "已合入的 effect.control 明确说明 take-control 没有 duration/控制效果身份、非永久期限一律 blocked，" +
     "本文件里对该半段写的第二次 take-control 仅为可审查描述。" +
-    "「Take control ... / Ready it.」两段只用已合入原语并有执行测试。" +
-    "依赖：cost.hidden + continuous.timing（RIFT-89/RIFT-91）、trigger.delayed 原语（RIFT-9）、Recall 独立动作（RIFT-109 后续）。不近似实现。",
+    "「Take control ... / Ready it.」两段只用已合入原语并有执行测试，卡牌程序绑定（RIFT-257）也已能生成播放草稿。" +
+    "依赖：cost.hidden + continuous.timing（RIFT-261/RIFT-91）、trigger.delayed 原语（RIFT-9）、Recall 独立动作（RIFT-109 后续）。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     {

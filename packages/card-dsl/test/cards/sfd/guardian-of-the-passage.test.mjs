@@ -8,8 +8,10 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 // (chain/interpreter-adapter.ts), which keeps the card's Expr arguments inside
 // one literal envelope so each merged primitive validates and evaluates them
 // itself. The golden runs use that same path instead of hand-decoding args.
-import zone from "../../../../engine-core/dist/effects/instructions/effect.zone.js";
-import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { translateInstructionTargets } from "../../../../engine-core/dist/programs/index.js";
 
 const CARD_ID = "card.hash-291f978c4d26e5c73a603a5f856768f2a0714f4bbe78fc0e3dbe4ac83dfb8767";
 const TARGET_ID = "guardian-of-the-passage.card-in-trash";
@@ -18,19 +20,66 @@ const [ability] = program.abilities;
 const [choice] = ability.body;
 const [returnInstruction] = choice.args.body.value;
 
-// The reference kernel's matchesFilter does not evaluate an array-valued
-// `type` filter ("unit or gear"), while the production chain's layers filter
-// does; so the may-node wrapper cannot complete target preparation on the
-// reference kernel. The golden below executes the merged sub-effect (the
-// return-to-hand instruction) with a Finalize-locked target, exactly as the
-// production path would hand it to the primitive, and the wrapper execution is
-// recorded as a test.todo.
-function runReturn(kernel, cardRef) {
-  return runInstruction(
-    zone,
-    { target: returnInstruction.args.target.value, to: returnInstruction.args.to },
-    { world: kernel, targets: { [TARGET_ID]: cardRef === undefined ? [] : [cardRef] } }
-  );
+/**
+ * chain/engine.ts resolves the static controller/owner spellings (`self` /
+ * `opponent`) before it calls the production matcher, and the interpreter's
+ * target preparation reads candidates through the same query. The reference
+ * kernel compares raw values, so the golden binds the same normalization the
+ * production chain applies (the merged siphon-power / frostcoat-cub goldens use
+ * this exact helper).
+ */
+const chainQuery = (kernel, controller) => (value) => {
+  const normalized = { ...value };
+  for (const key of ["controller", "owner"]) {
+    if (normalized[key] === "self") normalized[key] = controller;
+  }
+  return kernel.query({}).filter((object) => {
+    for (const key of ["controller", "owner"]) {
+      if (normalized[key] === "opponent" && object[key] === controller) return false;
+    }
+    return matchesObjectFilter({
+      ...normalized,
+      ...(normalized.controller === "opponent" ? { controller: "any" } : {}),
+      ...(normalized.owner === "opponent" ? { owner: "any" } : {})
+    }, object);
+  });
+};
+
+const chainContext = (kernel, controller) => new Proxy(kernel, {
+  get(target, key) {
+    if (key === "query") return chainQuery(target, controller);
+    const value = Reflect.get(target, key);
+    return typeof value === "function" ? value.bind(target) : value;
+  }
+});
+
+/** The body exactly as the production program binding translates it. */
+const translatedBody = translateInstructionTargets(ability.body);
+
+function guardianWorld() {
+  return world()
+    .player("A", { energy: 10 })
+    .player("B", { energy: 10 })
+    .object("guardian", {
+      owner: "A",
+      controller: "A",
+      cardId: CARD_ID,
+      types: ["unit"],
+      zone: "board",
+      location: { type: "battlefield", id: "bf-1" },
+      might: 6
+    })
+    .card("dead-ally", { types: ["unit"], owner: "A", zone: "trash" })
+    .card("dead-gear", { types: ["gear"], owner: "A", zone: "trash" })
+    .card("enemy-dead", { types: ["unit"], owner: "B", zone: "trash" })
+    .build();
+}
+
+function runMayReturn(kernel, { accepted, target }) {
+  const bound = kernel.clone({ source: kernel.ref("guardian"), sourceSnapshot: kernel.getObject("guardian") });
+  bound.setTargets(TARGET_ID, [target]);
+  bound.setAnswers({ "guardian-of-the-passage.may-return/optional": accepted });
+  return { bound, outcome: resolveChainBody(translatedBody, chainContext(bound, "A")) };
 }
 
 test("sfd-035-221 Guardian of the Passage: program validates and is registered", () => {
@@ -50,11 +99,12 @@ test("sfd-035-221 Guardian of the Passage: identity, ruleset, status and verbati
   );
 });
 
-test("sfd-035-221 Guardian of the Passage: judgeReason names the trigger-anchor and owner-normalization gaps", () => {
-  assert.match(program.judgeReason, /owner/);
-  assert.match(program.judgeReason, /source/);
+test("sfd-035-221 Guardian of the Passage: judgeReason names the hold-payload gap and the merged half", () => {
+  assert.match(program.judgeReason, /held/);
+  assert.match(program.judgeReason, /objectId/);
   assert.match(program.judgeReason, /RIFT-120/);
-  assert.match(program.judgeReason, /归一化/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
 test("sfd-035-221 Guardian of the Passage: hold trigger whose body is the may-return shape", () => {
@@ -63,7 +113,7 @@ test("sfd-035-221 Guardian of the Passage: hold trigger whose body is the may-re
   assert.equal(program.abilities.length, 1);
   assert.equal(ability.kind, "triggered");
   assert.equal(ability.trigger.at, "hold");
-  assert.deepEqual(ability.trigger.filter, { event: "hold", filter: { source: "self" } });
+  assert.deepEqual(ability.trigger.filter, { event: "held", filter: { source: "self" } });
   assert.equal(ability.trigger.condition, undefined);
   assert.equal(ability.optional, false);
   assert.deepEqual(ability.body.map(instruction => instruction.id), ["guardian-of-the-passage.may-return"]);
@@ -106,66 +156,61 @@ test("sfd-035-221 Guardian of the Passage: contract 3.9 may-shape with the trash
   assert.equal(returnInstruction.targets, undefined);
 });
 
-test("sfd-035-221 Guardian of the Passage golden: the locked trash unit returns to its owner's hand", () => {
-  const kernel = world()
-    .card("dead-ally", { types: ["unit"], owner: "A", zone: "trash" })
-    .build();
-  const run = runReturn(kernel, kernel.ref("dead-ally"));
+test("sfd-035-221 Guardian of the Passage golden: accepting returns the chosen unit to its owner's hand", () => {
+  const kernel = guardianWorld();
+  const { bound, outcome } = runMayReturn(kernel, { accepted: true, target: kernel.ref("dead-ally") });
 
-  assert.equal(run.result.status, "executed");
-  assert.equal(kernel.getObject("dead-ally").zone, "hand");
-  assert.deepEqual(kernel.zone("A", "hand").map(ref => ref.id), ["dead-ally"]);
-  assert.deepEqual(run.events.map(event => event.action), ["return-to-hand"]);
-  assert.equal(run.linked.moved, 1);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(
+    outcome.results.map(entry => [entry.id, entry.result.status]),
+    [
+      ["guardian-of-the-passage.return-to-hand", "executed"],
+      ["guardian-of-the-passage.may-return", "executed"]
+    ]
+  );
+  assert.equal(bound.getObject("dead-ally").zone, "hand");
+  assert.deepEqual(bound.zone("A", "hand").map(ref => ref.id), ["dead-ally"]);
+  assert.deepEqual(outcome.events.map(event => event.action), ["return-to-hand"]);
+  // The interpreter namespaces linked values by the nested execution path
+  // (interpreter README's stable ids), so the may-node result is read under
+  // the parent/child key.
+  assert.equal(outcome.linkedValues["guardian-of-the-passage.may-return/guardian-of-the-passage.return-to-hand.moved"], 1);
+  assert.deepEqual(outcome.linkedValues["guardian-of-the-passage.may-return/guardian-of-the-passage.return-to-hand.movedIds"], ["dead-ally"]);
 });
 
-test("sfd-035-221 Guardian of the Passage golden: a locked gear in the trash returns the same way", () => {
-  const kernel = world()
-    .card("dead-gear", { types: ["gear"], owner: "A", zone: "trash" })
-    .build();
-  const run = runReturn(kernel, kernel.ref("dead-gear"));
-
-  assert.equal(run.result.status, "executed");
-  assert.equal(kernel.getObject("dead-gear").zone, "hand");
+test("sfd-035-221 Guardian of the Passage golden: a gear is a legal pick too (355.9.a.1)", () => {
+  const kernel = guardianWorld();
+  const { bound, outcome } = runMayReturn(kernel, { accepted: true, target: kernel.ref("dead-gear") });
+  assert.equal(outcome.status, "executed");
+  assert.equal(bound.getObject("dead-gear").zone, "hand");
 });
 
-test("sfd-035-221 Guardian of the Passage golden: a card that left the trash makes the return ignored (CR 359.3.e)", () => {
-  const kernel = world()
-    .card("fleeing-card", { types: ["unit"], owner: "A", zone: "trash" })
-    .build();
-  const stale = kernel.ref("fleeing-card");
-  kernel.perform({ type: "banish", object: stale });
+test("sfd-035-221 Guardian of the Passage golden: declining leaves every trash card in place", () => {
+  const kernel = guardianWorld();
+  const { bound, outcome } = runMayReturn(kernel, { accepted: false, target: kernel.ref("dead-ally") });
 
-  const run = runReturn(kernel, stale);
-
-  assert.deepEqual(run.result, { status: "ignored", reason: "mistargeted" });
-  assert.equal(kernel.getObject("fleeing-card").zone, "banishment");
-  assert.deepEqual(run.events, []);
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results[0].result, { status: "negated", reason: "skipped", events: [] });
+  assert.equal(bound.getObject("dead-ally").zone, "trash");
+  assert.equal(bound.getObject("dead-gear").zone, "trash");
+  assert.deepEqual(outcome.events, []);
 });
 
-test("sfd-035-221 Guardian of the Passage golden: no legal trash card leaves the instruction with nothing to move", () => {
-  const kernel = world().build();
-  const run = runReturn(kernel, undefined);
-
-  assert.deepEqual(run.result, { status: "ignored", reason: "mistargeted" });
-  assert.deepEqual(run.events, []);
+test("sfd-035-221 Guardian of the Passage golden: 'your trash' never offers an opponent's card", () => {
+  // The production chain normalizes owner: "controller" to the acting seat
+  // (chain/engine.ts); the translated filter therefore excludes enemy-dead.
+  assert.deepEqual(translatedBody[0].targets[0].filter, {
+    type: ["unit", "gear"],
+    zone: "trash",
+    owner: "self"
+  });
+  const kernel = guardianWorld();
+  const candidates = chainQuery(kernel, "A")(translatedBody[0].targets[0].filter).map(object => object.ref.id);
+  assert.deepEqual(candidates.sort(), ["dead-ally", "dead-gear"]);
 });
 
 test.todo(
-  "sfd-035-221 Guardian of the Passage: the hold timing point reaches this ability through the " +
-    "trigger -> chain pipeline with the held object's identity exposed to the card registration " +
-    "(CR 383.4.d, 383.4.d.2.a) — RIFT-33 / RIFT-120"
-);
-
-test.todo(
-  "sfd-035-221 Guardian of the Passage: Finalize resolves the TargetSpec's owner: \"controller\" against " +
-    "the ability controller and rejects opponent-trash cards (CR 108.2.b, 355.10.a); the reference path " +
-    "used above pre-locks the target, so this wiring is unverified (RIFT-90 / RIFT-120)"
-);
-
-test.todo(
-  "sfd-035-221 Guardian of the Passage: the may wrapper completes target preparation and then skips the " +
-    "return when declined (403.1, contract 3.9) — the reference kernel's matchesFilter ignores an " +
-    "array-valued type filter (\"unit or gear\"), while the production chain's layer filter evaluates it; " +
-    "the wrapper cannot be exercised on the reference kernel yet (RIFT-90 / RIFT-120)"
+  "sfd-035-221 Guardian of the Passage: emit the held battlefield's object/host identity with the hold " +
+    "timing point (383.4.d.2.a) so the card's source: \"self\" anchor can match and the Hold Effect enters " +
+    "the chain — depends on the RIFT-120 hold-payload work"
 );

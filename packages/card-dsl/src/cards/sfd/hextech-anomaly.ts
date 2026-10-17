@@ -21,14 +21,17 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * status = judge-required（三处缺口，均不近似实现）：
  * 1. 结算期任意数量支付没有已注册原语：204.3/204.3.a 的指令内费用要求玩家在结算时选择金额，
- *    且实付额必须可被后续指令读取；cost.pay 只处理 Finalize 费用计划，effects/instructions
- *    里也没有结算期的任意数量支付原语（同型缺口见 ogn 的 Bullet Time, Miss Fortune）。
+ *    且实付额必须可被后续指令读取；cost.pay / cost.pay-any 都未注册（结算期费用支付属
+ *    RIFT-261 cost.pay / cost.modify 批次），effects/instructions 里也没有结算期的任意数量
+ *    支付原语（同型缺口见 ogn 的 Bullet Time, Miss Fortune）。
  * 2. 任意域 Power [A] 的支付与增益无法表达：六域封闭 Domain 集合没有 Universal Power 成员，
  *    effect.resources 的文件头明确 Universal Power 保持 unsupported、绝不用某个域近似，
  *    因此实付额的域组成无法记录或重现。
- * 3. 缺少启动能力 → 链/费用管线的生产接线（契约 3.5）与 430.3 的「费用支付期间可启动
- *    Reaction Add」窗口（同 Seal of Focus 的判断，RIFT-89/120）。
- * 依赖：RIFT-89（结算期任意数量支付原语与费用管线）、Universal Power 的契约扩展、
+ * 3. 启动能力 → 链/费用管线的生产接线（契约 3.5）与 430.3 的「费用支付期间可启动
+ *    Reaction Add」窗口尚未接通：卡牌程序绑定（RIFT-257）的 describeActivate 能生成链草稿，
+ *    但 body 里的 cost.pay-any 没有注册原语，Finalize 后无法结算；golden 以真实费用管线
+ *    执行横置半段（415.4/415.5）与 Add 半段（effect.resources）。
+ * 依赖：RIFT-261（结算期任意数量支付原语与费用管线）、Universal Power 的契约扩展、
  * 启动能力到链的生产接线。不把金额写死，也不把 [A] 近似成某个具体域。
  */
 export default {
@@ -38,11 +41,14 @@ export default {
   judgeReason:
     "三处缺口：(1)「Pay any amount of [A]」是 204.3/204.3.a 的指令内费用（同型文本见该条示例 Ancient Henge）：" +
     "金额在结算时由玩家选择且 [Add] 的量必须是实付额，但已合入原语里没有任何结算期「任意数量支付并发布实付额」的形态" +
-    "——cost.pay 只处理 Finalize 费用计划（同型缺口见 Bullet Time, Miss Fortune）；" +
+    "——cost.pay / cost.pay-any 都未注册（结算期费用支付属 RIFT-261 批次；同型缺口见 Bullet Time, Miss Fortune）；" +
     "(2) :rb_rune_rainbow: 是任意域 Power [A]（135.2.e.5.a / 163.2.b 的 Universal Power），六域封闭 Domain 集合无法表达，" +
     "effect.resources 文件头明确 Universal Power 保持 unsupported、绝不用某个域近似，因此实付额的域组成无法记录或重现；" +
-    "(3) 缺少启动能力 → 链/费用管线的生产接线（契约 3.5）与 430.3 的「费用支付期间可启动 Reaction Add」窗口。" +
-    "依赖：RIFT-89（结算期任意数量支付原语与费用管线）、Universal Power 的契约扩展、启动能力到链的生产接线。" +
+    "(3) 启动能力 → 链/费用管线的生产接线（契约 3.5）与 430.3 的「费用支付期间可启动 Reaction Add」窗口未接通——" +
+    "卡牌程序绑定（RIFT-257）能生成链草稿，但 cost.pay-any 没有注册原语、Finalize 后无法结算。" +
+    "已可真实执行的部分：横置费用（415.4/415.5）与 [Add] 半段（effect.resources，实付额由调用方链接值提供），" +
+    "golden 均已执行。依赖：RIFT-261（结算期任意数量支付原语与费用管线）、Universal Power 的契约扩展、" +
+    "启动能力到链的生产接线。" +
     "不近似实现（金额不写死，[A] 不落到具体域）。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },

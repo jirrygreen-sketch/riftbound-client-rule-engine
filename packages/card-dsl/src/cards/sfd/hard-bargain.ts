@@ -14,8 +14,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   registry expands the Closed-State permission (contract 3.7) and the chain's
  *   canAct decides admission.
  * - "[Repeat] :rb_energy_2:" (820.1.c) is an Optional Additional Cost declared
- *   in the merged sfd/danger-zone / sfd/frigid-touch shape (356.2.b.1) with no
- *   merged collector (RIFT-86/RIFT-89).
+ *   in the merged sfd/frigid-touch shape (356.2.b.1) with no merged collector
+ *   (RIFT-86/RIFT-261).
  * - "a spell" refers to a finalized object on the Chain (355.9.a.2); Pending
  *   chain items are excluded from target candidates (contract 3.4), so the
  *   targeted spell is a Target locked at Finalize (355.5) and re-verified at
@@ -23,27 +23,30 @@ import type { CardProgram } from "../../ir/index.js";
  * - "unless its controller pays :rb_energy_2:" is a Cost within Instructions
  *   (204.3 / 204.3.a: it appears in a spell and must be paid to get the linked
  *   effect) — the spell's controller is the payer, and the payment gates the
- *   Counter. 426.1/426.1.a/426.2.a then describe what the Counter does (the
- *   countered card does nothing, is cleared from the Chain to the trash, and no
- *   cost is refunded, including additional costs per 426.1.c.1). The two
+ *   Counter. 426.1/426.1.a/426.2.a then describe what the Counter does. The two
  *   outcomes are therefore modelled as one mandatory resolution choice
  *   (355.18: undeclared choices are made at resolution) whose chooser is the
  *   targeted spell's controller, with one mode paying and one mode countering.
  *   This is not a "may" for the caster, so it is choice.mode and not
  *   choice.optional (contract 3.9).
  *
- * Status (cards/README.md §2): judge-required. Two merged gaps, neither
+ * Status (cards/README.md §2): judge-required. Two merged gaps remain, neither
  * approximated:
  * - the printed payment has no merged primitive: effects/instructions/ has no
- *   `cost.pay` instruction (the cost module's plan/payment path is called by
- *   Finalize, not by a resolving card body), and the frozen IR has no binding
- *   for the payment receipt that would gate the Counter (356.4.f.1-style
- *   "paid" result). The paying mode is recorded with the pending op so the
- *   reading stays reviewable, and executing it fails closed.
+ *   `cost.pay` instruction (RIFT-261 cost.pay / cost.modify batch; the cost
+ *   module's plan/payment path is called by Finalize, not by a resolving card
+ *   body), and the frozen IR has no binding for the payment receipt that would
+ *   gate the Counter (356.4.f.1-style "paid" result). The paying mode is
+ *   recorded with the pending op so the reading stays reviewable, and executing
+ *   it fails closed.
  * - the [Repeat] additional cost has no merged collection/count path
- *   (RIFT-86/RIFT-89).
+ *   (RIFT-86/RIFT-261); the card-program binding also rejects the
+ *   `kind: "additional-cost"` CostSpec field outright (programs/play.ts
+ *   judgeRequired "Unsupported play cost field keyword").
  * The Counter half itself uses the merged effect.counter and is executed by the
- * golden test (including the chooser identity and the pending-item exclusion).
+ * golden test (including the chooser identity and the pending-item exclusion),
+ * and the full body now also runs through the production chain adapter for the
+ * declining mode.
  */
 const hardBargain = {
   canonicalCardId: "card.hash-55adf64cca0264ddf7c18b80652ab54d84af691e7b2866565c41d9b05391ac81",
@@ -52,19 +55,21 @@ const hardBargain = {
   judgeReason:
     "两处依赖未合入，均不近似实现：(1)「unless its controller pays :rb_energy_2:」是 Costs within Instructions" +
     "（CR 204.3 / 204.3.a：出现在法术里、必须支付才能取得被链接的效果），付款者是目标法术的控制者，付款结果要作为" +
-    "门控「是否反制」的收据；effects/instructions/ 下没有 cost.pay 指令（费用模块的 plan/payment 由 Finalize 调用，" +
-    "不是结算期卡牌正文可用的原语），冻结 IR 也没有 356.4.f.1 型的「已支付」结果绑定，因此付款分支无法执行、反制无法被门控。" +
-    "(2)「[Repeat] :rb_energy_2:」的可选追加费用没有收取/计数路径（Repeat 关键词展开 RIFT-86 / 费用计划 RIFT-89；" +
-    "冻结的 KeywordAbility IR 不承载印刷费用）。" +
+    "门控「是否反制」的收据；effects/instructions/ 下没有 cost.pay 指令（结算期费用支付属 RIFT-261 批次，" +
+    "cost/ 的 plan/payment 只由 Finalize 调用），冻结 IR 也没有 356.4.f.1 型的「已支付」结果绑定，" +
+    "因此付款分支无法执行、反制无法被门控（该 op 保持 pending、执行时 fail closed）。" +
+    "(2)「[Repeat] :rb_energy_2:」的可选追加费用没有收取/计数路径（Repeat 关键词展开与费用计划属 RIFT-86/RIFT-261），" +
+    "且卡牌程序绑定直接拒绝该 CostSpec 形状（programs/play.ts 对 additional-cost 的 keyword 字段抛 judge-required）。" +
     "反制半段（目标为链上已定案法术、Pending 项不可选、426.1/426.1.a 的移入 Trash）只用已合入的 effect.counter，" +
-    "golden 已真实执行并断言 chooser 是目标法术的控制者。依赖：RIFT-89（cost.pay / 支付收据）、RIFT-86。",
+    "golden 已真实执行并断言 chooser 是目标法术的控制者；在 production 适配器下 declining 模式真实清链。" +
+    "依赖：RIFT-261（cost.pay / 支付收据）、RIFT-86。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {
       kind: "play",
       cost: {
         // 印刷基础费用 2 Energy、无 Power 由卡牌身份在 Finalize 绑定（356.1.c）；
-        // 这里只声明 [Repeat] :rb_energy_2:（820.1.c）的可选追加费用（无消费方，见 judgeReason）。
+        // 这里只声明 [Repeat] :rb_energy_2:（820.1.c）的可选追加费用（无消费方，且绑定层拒绝该形状）。
         kind: "additional-cost",
         keyword: "repeat",
         energy: { kind: "literal", value: 2 }
@@ -94,7 +99,7 @@ const hardBargain = {
                   body: [
                     {
                       // Costs within Instructions（204.3），由目标法术的控制者支付：
-                      // 该 op 没有已合入实现（见 judgeReason），golden 不声称它可执行。
+                      // 该 op 没有已合入实现（见 judgeReason），执行时 fail closed。
                       id: "hard-bargain.pay-two-energy",
                       op: "cost.pay",
                       args: { energy: { kind: "constant", value: 2 } }
