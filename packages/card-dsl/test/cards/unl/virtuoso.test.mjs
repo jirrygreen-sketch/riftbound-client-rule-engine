@@ -8,6 +8,8 @@ import channel from "../../../../engine-core/dist/effects/instructions/effect.ch
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 const CANONICAL_ID =
   "card.hash-cf809eb034135f7e3cd76d5eff022d2a22f25ee0fd5ce564ffc39eec131b51f6";
@@ -32,7 +34,7 @@ test("unl-181-219 Virtuoso: identity, status, judgeReason and verbatim sourceTex
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /spent/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /383\.2\.a\.1/);
   assert.match(program.judgeReason, /394/);
 });
@@ -159,6 +161,22 @@ test("unl-181-219 Virtuoso: effect.banish executes the printed banish on the ref
   assert.equal(kernel.getObject("spell-card").zone, "banishment");
 });
 
+test("unl-181-219 Virtuoso: the declared card-played trigger passes the merged adapter's closed vocabulary", () => {
+  // RIFT-257's programs/ adapter translates the declared filter and registers it
+  // with EventPipeline; the card-played timing point and the spell filter are
+  // both inside the closed vocabulary, so the trigger really becomes pending
+  // (the merged unl/<card> trigger scenarios use the same shape).
+  const translated = translateTriggerFilter(ability.trigger.filter, "virtuoso", ability.trigger.at);
+  // The event-object filter (spell, controlled by the ability controller) is kept
+  // as an object pattern; it is neither the ability's own source nor a self anchor.
+  assert.deepEqual(translated, {
+    event: "card-played",
+    object: { type: "spell", controller: "self" }
+  });
+  const validated = validateTriggerSpec({ at: ability.trigger.at, filter: translated });
+  assert.equal(validated.ok, true, JSON.stringify(validated.ok ? [] : validated.issues));
+});
+
 test("unl-181-219 Virtuoso: channel 4 and draw 1 execute the supported tail", () => {
   const channelKernel = world().rune(["r1", "r2", "r3", "r4", "r5"]).build();
   const channelRun = runInstruction(channel, channelFour.args, { world: channelKernel });
@@ -199,12 +217,18 @@ test("unl-181-219 Virtuoso: the four-banish tail is guarded per instruction, not
 
 test.todo(
   "unl-181-219 Virtuoso: evaluate 'if you spent [4] or more' from the finalized cost plan receipt (CR 383.2.a.1) — " +
-    "no ResolveContext spent/finalized-cost reader is merged (RIFT-89)"
+    "chain/engine.ts stores the payCostPlan receipt on ChainItem.payment, but ResolveContext has no spent/finalized-cost " +
+    "reader and cost kinds + cost.pay/cost.modify are still in progress (RIFT-261)"
 );
 test.todo(
   "unl-181-219 Virtuoso: bind 'banish it' to the triggering spell object at trigger time (CR 383.2.c.3.b / 359.3.f.3) — " +
-    "the frozen ObjectSelector vocabulary has no triggering-event object (engine batch 4)"
+    "the frozen ObjectSelector vocabulary has no triggering-event object and the trigger snapshot's PipelineEvent is not " +
+    "bindable as an object selector (engine batch 4 / RIFT-257 follow-up)"
 );
 test.todo(
   "unl-181-219 Virtuoso: track the Linked Ability window 'four spells banished with me' (CR 394–398 / 428.3) and move each to its owner's trash"
+);
+test.todo(
+  "unl-181-219 Virtuoso: settle the 'you may banish it' scope (CR 383.3.a finalize decision vs 383.3.a.3 resolve-time " +
+    "decision) and support the nested TargetSpec inside choice.optional — chain/engine.ts assertFinalizationSurface rejects nested targets"
 );

@@ -21,17 +21,26 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   · 184.1 / 185.2.d："exhausted" 是入场状态改写（与 143.4 的默认横置进场相对），
  *     不是先创建再补一次横置。
  *
- * status = judge-required（缺口不近似实现）：
- * - 触发条件 "if you assigned 3 or more excess damage" 无可求值路径：conquer 时点载荷
+ * status = judge-required（2026-10-16 复核：缺口不近似实现）：
+ * - 触发条件 "if you assigned 3 or more excess damage" 仍无可求值路径：conquer 时点载荷
  *   （events/timing-points.ts：payloadType "scoring"，未声明 payloadFields）不带本次战斗
  *   分配的超量伤害，ResolveContext 也没有读取伤害分配台账的入口（467.2.c.1 强调 Assigning
- *   与 Dealing 是两件事），契约 3.6 的 history 只按动作次数计数、不能表达金额。
- * - "play two Gold gear tokens exhausted" 无可执行路径：effect.token 的冻结定义表没有 gold
- *   （187.5 的 Gold gear token 带自身能力，按该原语文档保持 blocked，本条会返回
- *   negated/blockedReason 而不是创建替代物）；184.1 / 185.2.d 的入场状态改写同样不被支持。
+ *   与 Dealing 是两件事），契约 3.6 的 history 只按动作次数计数、不能表达金额；本程序的
+ *   count subject 只是保留形状（探针：4 个无关对象即让 compare 成立）。
+ * - 触发注册还差词汇翻译：RIFT-257 的 programs/triggers.ts 会把卡面 filter 交给
+ *   translateTriggerFilter + validateTriggerSpec，而封闭词汇要求 "conquered"/"held"；本卡写的
+ *   "conquer" 会在 registerTrigger 抛 TriggerSpecValidationError（探针确认），RIFT-270 的 conquer
+ *   波也不带事件对象，383.4.c.2.a 要求的“在场单位”载荷绑定无法验证。
+ * - "play two Gold gear tokens exhausted" 仍无可执行路径：effect.token 的冻结定义表没有 gold
+ *   （187.5 的 Gold gear token 带自身能力，按该原语文档保持 blocked，探针确认返回
+ *   negated/blockedReason 而不是创建替代物）。mode "play" 的链上创建 + 打出本身对已定义 token
+ *   可用（golden 用 recruit 真实执行 2 张），但链侧 effect Play 要求被打出对象有已注册的
+ *   CardProgram（chain/engine.ts routeAction + describePlay），token 无 cardId，会抛 “Effect Play
+ *   requires a card-program for a token”（探针确认）。184.1 / 185.2.d 的入场状态改写同样没有
+ *   IR 参数（写入额外键会被 argsSchema 拒绝）。
  *
- * 依赖：RIFT-62（create-token to chain 与 effect.play 交接）、Gold 定义（187.5）、入场状态
- * 改写、引擎批 4/5 的 conquer 事件载荷与伤害分配回执、RIFT-120（卡牌触发注册）。
+ * 依赖：RIFT-257 后续（触发词汇翻译与 token 的 play 交接接线）、Gold 定义（187.5）、入场状态
+ * 改写、引擎批 4/5 的 conquer 事件载荷与伤害分配回执。
  */
 const abilities: Ability[] = [
   {
@@ -79,17 +88,19 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入：(1) 触发条件「if you assigned 3 or more excess damage」无可求值路径——conquer 时点载荷" +
-    "（timing-points.ts：payloadType \"scoring\"，未声明 payloadFields）不带本次战斗的伤害分配总量/超量，" +
-    "ResolveContext 也没有读取伤害分配台账的入口（467.2.c.1 的 Assigning 与 Dealing 是两件事），" +
-    "契约 3.6 的 history 只按动作计数、不能表达金额，467.2.c.2/c.4 的 Lethal Damage 与“超出致命所需的分配量”" +
-    "因此无法表达。" +
-    "(2) 「play two Gold gear tokens exhausted」无可执行路径：effect.token 的冻结定义表没有 gold" +
-    "（187.5 的 Gold gear token 带自身能力 [Reaction][>] Kill this, [E]: [Add] [A]，按该原语文档保持 blocked），" +
-    "mode \"play\" 需要先在链上创建再交给打出流程（440.2.c / 185.2.a / 350.2 / 354），而 184.1 / 185.2.d 的" +
-    "“exhausted” 入场状态改写不被 create-token 支持，先创建再补一次横置会产生错误的“成为横置”事件。" +
-    "依赖：RIFT-62（create-token to chain 与 effect.play 交接）、Gold 定义（187.5）、入场状态改写、" +
-    "引擎批 4/5 的 conquer 事件载荷与伤害分配回执、RIFT-120（卡牌触发注册）。不近似实现。",
+    "三处缺口未合入，均不近似实现：(1) 触发条件「if you assigned 3 or more excess damage」无可求值路径——" +
+    "conquer 时点载荷（timing-points.ts：payloadType \"scoring\"，未声明 payloadFields）不带本次战斗的伤害分配总量/超量，" +
+    "ResolveContext 也没有读取伤害分配台账的入口（467.2.c.1 的 Assigning 与 Dealing 是两件事），契约 3.6 的 history 只按动作计数、" +
+    "不能表达金额；程序里的 count subject 只是保留形状（探针：4 个无关对象即让 compare 成立）。" +
+    "(2) 触发注册还差词汇翻译：RIFT-257 的 programs/triggers.ts 用 translateTriggerFilter + validateTriggerSpec 翻译卡面 filter，" +
+    "封闭词汇要求 \"conquered\"/\"held\"，本卡写的 \"conquer\" 会在 registerTrigger 抛 TriggerSpecValidationError（探针确认），" +
+    "且 RIFT-270 的 conquer 波不带事件对象，383.4.c.2.a 的“在场单位”载荷绑定无法验证。" +
+    "(3) 「play two Gold gear tokens exhausted」无可执行路径：effect.token 的冻结定义表没有 gold" +
+    "（187.5 的 Gold gear token 带自身能力 [Reaction][>] Kill this, [E]: [Add] [A]，按该原语文档保持 blocked，" +
+    "探针确认返回 negated/blockedReason），184.1 / 185.2.d 的“exhausted”入场状态改写没有 IR 参数（写入额外键会被 argsSchema 拒绝），" +
+    "先创建再补一次横置会产生错误的“成为横置”事件；另外链侧 effect Play 要求被打出对象有已注册 CardProgram" +
+    "（chain/engine.ts routeAction + describePlay），token 无 cardId，会抛 “Effect Play requires a card-program for a token”（探针确认）。" +
+    "依赖：RIFT-257 后续（触发词汇翻译与 token play 交接接线）、Gold 定义（187.5）、入场状态改写、引擎批 4/5 的 conquer 事件载荷与伤害分配回执。",
   abilities,
   sourceText:
     "When I conquer, if you assigned 3 or more excess damage, play two Gold gear tokens exhausted. " +
