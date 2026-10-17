@@ -49,8 +49,10 @@ test("sfd-045-221 Not So Fast: identity, ruleset, status and verbatim text", () 
 
 test("sfd-045-221 Not So Fast: judgeReason names the chosen-target restriction gap", () => {
   assert.match(program.judgeReason, /754/);
-  assert.match(program.judgeReason, /RIFT-90/);
   assert.match(program.judgeReason, /355\.9\.a\.2/);
+  // The counter body itself is merged; the reason must stay about the real gap:
+  // reading the chain item's finalized target plan (355.9.a.2 / CR 754).
+  assert.match(program.judgeReason, /Finalize 目标计划/);
 });
 
 test("sfd-045-221 Not So Fast: [Reaction] keyword plus the printed 2 energy + 1 Calm power cost", () => {

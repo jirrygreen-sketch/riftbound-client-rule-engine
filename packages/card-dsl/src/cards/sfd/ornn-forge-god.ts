@@ -27,16 +27,16 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   卡「每件友方装备」），"friendly" = 你控制（190.6.d）。"+1 Might" 是连续修正，不是 Buff 计数
  *   （702/703：Buff 是每单位限一个的 +1 计数器）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required，三处依赖仍未合入，均不近似实现：
- * - Deflect 的 KeywordDef 已合入（809.1.b.2），但 RIFT-349 static 绑定对 target.tax 没有图层映射，
- *   仍接不进目标选择与费用计划（RIFT-90），链上还把它记成 Energy 常量而非任意域 Power（809.1.c.1）。
- * - Weaponmaster 的 KeywordDef 与 cost.modify/cost.pay 原语已合入（RIFT-261），但
+ * status 判定（cards/README.md 第 2 节）：judge-required，三处当前真实缺口，均不近似实现：
+ * - Deflect 的 KeywordDef 已合入（809.1.b.2），但 static 绑定对 target.tax 没有图层映射，
+ *   仍接不进目标选择与费用计划，链上还把它记成 Energy 常量而非任意域 Power（809.1.c.1）。
+ * - Weaponmaster 的 KeywordDef 与 cost.modify/cost.pay 原语已合入，但
  *   reduce-equip-cost 分支以 judge-required 失败关闭：需要“原始 [A]/[C] 符号”绑定才能
  *   按 821.1.c.2 计算 Equip 费并减 [A]。
  * - 「I have +1 :rb_might: for each friendly gear」可用 continuous.might 的 IR 形状表达，
  *   但静态卡牌能力尚无图层注册入口，且 layers/engine.ts 的 valueOf 不求值 count 表达式；
- *   友方 gear 的动态计数因此不能执行（RIFT-91 后续）。
- * 依赖：RIFT-90、RIFT-91 后续（计数型图层求值）、Equip 原始符号绑定。
+ *   友方 gear 的动态计数因此不能执行（计数型图层求值缺口）。
+ * 依赖：target-tax 生产接线、计数型图层求值、Equip 原始符号绑定。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "deflect", value: 2 },
@@ -66,13 +66,13 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处依赖仍未合入，均不近似实现：(1) [Deflect 2]（809.1.b.2）的 KeywordDef 已合入，但 RIFT-349 static 绑定对 target.tax 没有图层映射，" +
-    "尚未接入目标选择与费用计划（RIFT-90），" +
+    "三处当前缺口，均不近似实现（相关展开与绑定均已合入）：(1) [Deflect 2]（809.1.b.2）的 KeywordDef 已合入，但静态绑定对 target.tax 没有图层映射，" +
+    "尚未接入目标选择与费用计划，" +
     "链上还把它记成 Energy 常量而非 809.1.c.1 要求的任意域 Power。" +
-    "(2) [Weaponmaster] 的 KeywordDef 与 cost.modify/cost.pay 原语已合入（RIFT-261），但 reduce-equip-cost 以 judge-required 失败关闭：" +
+    "(2) [Weaponmaster] 的 KeywordDef 与 cost.modify/cost.pay 原语已合入，但 reduce-equip-cost 以 judge-required 失败关闭：" +
     "缺少“原始 [A]/[C] 符号”绑定，无法按 821.1.c.2 计算 Equip 费并减 [A]。" +
     "(3)「I have +1 :rb_might: for each friendly gear」（143.2.a）需要静态卡牌能力注册到图层，且 layers/engine.ts 的 valueOf 不求值 count 表达式，" +
-    "无法执行动态友方 gear 计数（RIFT-91 后续）。绝不把 +1 Might 写成 Buff 计数（702/703 语义不同）。依赖：RIFT-90、RIFT-91 后续、Equip 原始符号绑定。",
+    "无法执行动态友方 gear 计数。绝不把 +1 Might 写成 Buff 计数（702/703 语义不同）。依赖：target-tax 生产接线、计数型图层求值、Equip 原始符号绑定。",
   abilities,
   sourceText:
     "[Deflect 2] (Opponents must pay :rb_rune_rainbow::rb_rune_rainbow: to choose me with a spell or ability.)\n" +

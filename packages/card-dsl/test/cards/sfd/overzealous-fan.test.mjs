@@ -41,9 +41,9 @@ test("sfd-128-221 Overzealous Fan: judgeReason names all three merged gaps", () 
   assert.match(program.judgeReason, /combatRole\/designation/);
   assert.match(program.judgeReason, /198\.2/);
   assert.match(program.judgeReason, /controller-base/);
-  assert.match(program.judgeReason, /RIFT-33\/RIFT-124/);
-  assert.match(program.judgeReason, /RIFT-90/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /combat 身份指派与事件发射/);
+  assert.match(program.judgeReason, /target\.location 未合入/);
+  assert.match(program.judgeReason, /Attacker designation/);
 });
 
 test("sfd-128-221 Overzealous Fan: 'when I defend' subscribes to defense-declared once per combat", () => {

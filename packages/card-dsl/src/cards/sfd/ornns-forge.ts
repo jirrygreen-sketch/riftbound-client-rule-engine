@@ -8,7 +8,7 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * Status rationale (contract §3.1): the ability is a cost modification whose
  * scope is a per-turn window keyed to the first qualifying play. The cost.modify
- * and cost.pay primitives are merged (RIFT-261), but the RIFT-349 static binder
+ * and cost.pay primitives are merged, but the static binder
  * rejects this card's `cost.modify` shape (no Finalize cost-plan mapping), so no
  * production path feeds the effect into the Finalize cost plan:
  * - the "first … each turn" window needs per-turn state reset by the turn
@@ -27,10 +27,10 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "The cost.modify shape is recorded and the cost.modify/cost.pay primitives are merged " +
-    "(RIFT-261), but the RIFT-349 static binder rejects this shape (cost-plan effects have no " +
-    "layer mapping), so no production path binds it into the Finalize cost plan (the plan " +
-    "applies only caller-supplied discounts). The 'first " +
+    "The cost.modify shape is recorded and the cost.modify/cost.pay primitives plus the " +
+    "card-static binding are merged, but the binder rejects this shape (cost-plan " +
+    "effects have no layer mapping), so no production path binds it into the Finalize cost " +
+    "plan (the plan applies only caller-supplied discounts). The 'first " +
     "friendly non-token gear played each turn' window additionally needs per-turn state and " +
     "history-gated expiry after the first qualifying play; the current ContinuousEffect/condition " +
     "model cannot express that window. No cost is approximated.",

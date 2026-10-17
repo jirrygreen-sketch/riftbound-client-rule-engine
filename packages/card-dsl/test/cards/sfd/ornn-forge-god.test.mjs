@@ -29,9 +29,9 @@ test("sfd-085-221 Ornn, Forge God: judgeReason names Deflect, Weaponmaster and t
   assert.match(program.judgeReason, /809\.1\.b\.2/);
   assert.match(program.judgeReason, /821\.1\.c/);
   assert.match(program.judgeReason, /143\.2\.a/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /target-tax 生产接线/);
   assert.match(program.judgeReason, /reduce-equip-cost/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /count evaluation|计数型图层求值/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 

@@ -29,4 +29,6 @@ test("sfd-015-221 Perched Grimwyrm: restriction is separate from the empty play 
   assert.deepEqual(ability.body, []);
 });
 
-test.todo("Perched Grimwyrm: enforce the conquered-this-turn battlefield restriction during play finalization (RIFT-89/RIFT-120)");
+// Remaining gap: the play Finalize does not read CardProgram play restrictions,
+// and no rule records conquered battlefields per turn (361/366), so the
+// "conquered this turn" predicate has no executable shape yet.

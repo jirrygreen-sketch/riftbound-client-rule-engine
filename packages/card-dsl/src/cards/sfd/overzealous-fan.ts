@@ -26,14 +26,14 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   TurnCombatBlockedError('combat-start-transaction')，全仓库没有 defense-declared 的 emit。
  * - "an attacking unit" 的目标合法性需要 Attacker 身份谓词（466.2.c）；ObjectFilter 的
  *   states 只有 ready/exhausted/stunned/attached/face-down，ObjectSnapshot 没有
- *   combatRole/designation（契约 3.8 只冻结了字段设计，实现属 RIFT-91/战斗批次），
+ *   combatRole/designation（契约 3.8 只冻结了字段设计，实现属战斗批次），
  *   目标无法在 Finalize 按「正在攻击」筛选。
  * - "to its base" 需要该攻击者拥有者的 Base Location：effect.move 的 to 只接受静态
  *   LocationRef、controller-base 或静态候选列表；controller-base 会落到移动后控制者的
  *   Base（若控制者中途改变便不等价），而 198.2 要求的是拥有者的 Base，且该值要按所选
- *   目标在结算时派生（target.location 未合入，属 RIFT-90）。
- * 依赖：RIFT-33/RIFT-124（combat 身份指派与事件管线发射）、RIFT-90（目标与目的地计划）、
- * RIFT-91（Attacker designation）。不近似实现（不换时点、不用 controller-base 冒充
+ *   目标在结算时派生（target.location 未合入）。
+ * 依赖：combat 身份指派与事件管线发射、目标与目的地计划、
+ * Attacker designation。不近似实现（不换时点、不用 controller-base 冒充
  * 拥有者 Base、不把「正在攻击」放宽成任意单位）。
  */
 const abilities: Ability[] = [
@@ -110,18 +110,18 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处已合入缺口：(1) defense-declared 时点没有发射方——events/action-adapter.ts 只为已提交游戏动作派生时点" +
+    "三处当前缺口（kill/optional 部分已合入并有 golden）：(1) defense-declared 时点没有发射方——events/action-adapter.ts 只为已提交游戏动作派生时点" +
     "（ACTION_TIMINGS 无 defense-declared），combat/ 的 Defender 身份指派（466.2.c/323.2、383.4.f.2）尚未接入事件管线，" +
     "combat/flow.ts 的 combat 开启路径直接抛 TurnCombatBlockedError('combat-start-transaction')，全仓库没有该时点的 emit；" +
     "(2)「an attacking unit」的目标合法性需要 Attacker 身份谓词（466.2.c）——ObjectFilter 的 states 只有 " +
     "ready/exhausted/stunned/attached/face-down，ObjectSnapshot 没有 combatRole/designation（契约 3.8 只冻结字段设计，" +
-    "实现属 RIFT-91/战斗批次），Finalize 无法按「正在攻击」筛选目标；" +
+    "实现属战斗批次），Finalize 无法按「正在攻击」筛选目标；" +
     "(3)「to its base」需要所选攻击者**拥有者**的 Base（198.2）：effect.move 的 to 只接受静态 LocationRef、" +
     "controller-base 或静态候选列表，controller-base 按移动后的控制者取 Base、不等价，按目标派生 LocationRef 的" +
-    "target.location 属 RIFT-90。" +
+    "target.location 未合入。" +
     "「kill me」的 effect.kill（self: true，429.1/429.1.a.1.a）与 choice.optional（403.1、契约 3.9）形状已合入，" +
-    "golden 对 kill 体做真实执行。依赖：RIFT-33/RIFT-124（combat 身份指派与事件发射）、RIFT-90（目标与目的地计划）、" +
-    "RIFT-91（Attacker designation）。不近似实现（不换时点、不用 controller-base 冒充拥有者 Base、不放宽成任意单位）。",
+    "golden 对 kill 体做真实执行。依赖：combat 身份指派与事件发射、目标与目的地计划、" +
+    "Attacker designation。不近似实现（不换时点、不用 controller-base 冒充拥有者 Base、不放宽成任意单位）。",
   abilities,
   sourceText: "When I defend, you may kill me to move an attacking unit to its base."
 } satisfies CardProgram;

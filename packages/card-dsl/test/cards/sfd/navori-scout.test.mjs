@@ -37,7 +37,7 @@ test("sfd-037-221 Navori Scout: judgeReason names the missing wiring and its tas
   assert.match(program.judgeReason, /Deflect/);
   assert.match(program.judgeReason, /target\.tax/);
   assert.match(program.judgeReason, /809\.1\.c\.1/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /target-tax production wiring/);
   assert.match(program.judgeReason, /Energy/);
   assert.match(program.judgeReason, /any-Domain Power/);
 });

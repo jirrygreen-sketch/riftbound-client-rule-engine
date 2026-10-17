@@ -44,7 +44,7 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  *   会让玩家选到非装备牌——按红线不近似实现。此外链适配器
  *   （chain/interpreter-adapter.ts 的 LITERAL_FIELDS）只为 effect.reveal 解包 target、
  *   未解包 pick，卡声明的 pick 在到原语前就被参数校验拒绝。
- * - 触发侧：hold 时点已由回合/计分流程发出，RIFT-257 的 program 绑定也在生产侧可用，
+ * - 触发侧：hold 时点已由回合/计分流程发出，program 绑定已合入并在生产侧可用，
  *   filter.event 已按 TriggerSpec 词汇写作 "held" 并能完成注册；但计分流程的 hold
  *   载荷只带 player/details、不含对象，filter 的 self 归属因此永远命中不了。
  * 依赖：有序区域 pick 的 Finalize 生命周期、hold 载荷的对象/归属接线、
@@ -185,7 +185,7 @@ const program = {
     "写进 PickSpec 的 filter 只是描述性数据（候选来自链接值），没有消费方把「链接列表 + gear 过滤」变成可重放的结算期选择；" +
     "用无过滤的 choose 近似会让玩家选到非装备牌，按红线不近似实现；并且链适配器（chain/interpreter-adapter.ts 的 LITERAL_FIELDS）" +
     "只为 effect.reveal 解包 target、未解包 pick，卡声明的 pick 在到原语前就被参数校验拒绝。" +
-    "(3) 触发侧：hold 时点已由回合/计分流程发出，RIFT-257 的 program 绑定也已在生产侧可用，" +
+    "(3) 触发侧：hold 时点已由回合/计分流程发出，program 绑定已合入并在生产侧可用，" +
     "filter.event 已按 TriggerSpec 词汇写作 \"held\" 并能完成注册；但计分流程的 hold 载荷只带 player/details、不含对象，" +
     "filter 的 self 归属永远命中不了。" +
     "look/reveal/draw-it/recycle 四段只用已合入原语，golden 用解释器与参考内核真实执行。" +
