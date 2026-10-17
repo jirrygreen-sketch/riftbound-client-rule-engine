@@ -31,7 +31,7 @@ test("tideturner: identity, ruleset, status, judgeReason and sourceText", () => 
   assert.match(program.judgeReason, /Hidden/);
   assert.match(program.judgeReason, /Facedown Zone/);
   assert.match(program.judgeReason, /assertFinalizationSurface/);
-  assert.match(program.judgeReason, /RIFT-357/);
+  assert.ok(!/RIFT-357/.test(program.judgeReason));
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
