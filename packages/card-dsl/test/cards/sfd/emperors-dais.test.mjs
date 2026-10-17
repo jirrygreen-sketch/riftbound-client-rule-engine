@@ -4,6 +4,7 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/emperors-dais.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import zone from "../../../../engine-core/dist/effects/instructions/effect.zone.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -12,7 +13,7 @@ const BATTLEFIELD = { type: "battlefield", id: "battlefield-1" };
 const constant = value => ({ kind: "constant", value });
 const [ability] = program.abilities;
 const [choice] = ability.body;
-const [pay, returnUnit, sandSoldier] = choice.args.body.value;
+const [pay, returnUnit, readHere, sandSoldier] = choice.args.body.value;
 
 test("sfd-207-221 Emperor's Dais: validates, is registered and keeps identity/source text", () => {
   const result = validateCardProgram(program);
@@ -45,6 +46,7 @@ test("sfd-207-221 Emperor's Dais: conquer trigger and optional pay â†’ return â†
   assert.deepEqual(choice.args.body.value.map(instruction => instruction.id), [
     "emperors-dais.pay",
     "emperors-dais.return-unit",
+    "emperors-dais.read-here",
     "emperors-dais.sand-soldier"
   ]);
 
@@ -69,15 +71,25 @@ test("sfd-207-221 Emperor's Dais: conquer trigger and optional pay â†’ return â†
   assert.equal(returnUnit.targets[0].selection, "one");
 
   // "If you do": the card-text half is gated on the payment step (204.3.a/205).
+  assert.equal(readHere.op, "condition.value");
+  assert.deepEqual(readHere.args.value, {
+    kind: "object-property",
+    object: "source",
+    property: "location"
+  });
+  assert.deepEqual(readHere.args.key, constant("here"));
+
   assert.equal(sandSoldier.op, "effect.token");
   assert.equal(sandSoldier.linkedTo, "emperors-dais.pay");
   assert.deepEqual(sandSoldier.args.token, constant("sand-soldier"));
   assert.deepEqual(sandSoldier.args.amount, constant(1));
   assert.deepEqual(sandSoldier.args.mode, constant("play"));
+  // "here": the source's own location, bound by condition.value and read back
+  // through the linked value (the merged royal-guard / azir-ascendant shape).
   assert.deepEqual(sandSoldier.args.location, {
-    kind: "object-property",
-    object: "source",
-    property: "location"
+    kind: "linked-value",
+    instructionId: "emperors-dais.read-here",
+    key: "here"
   });
   assert.deepEqual(sandSoldier.args.linkKey, constant("sandSoldier"));
 });
@@ -103,19 +115,30 @@ test("sfd-207-221 Emperor's Dais: the return-to-hand half moves to the printed o
   assert.deepEqual(run.events.map(event => event.action), ["return-to-hand"]);
 });
 
-test("sfd-207-221 Emperor's Dais: the Sand Soldier half plays the CR 187.3 token here", () => {
-  const kernel = world().unit("dais", { types: ["battlefield"], location: BATTLEFIELD }).build();
-  // The kernel has no static ObjectSelector host binding for object-property,
-  // so the "here" object-property is supplied as the concrete source location
-  // (same substitution convention as the merged royal-guard golden test);
-  // the card keeps { object: "source", property: "location" }.
-  const run = runInstruction(token, {
-    token: constant("sand-soldier"),
-    amount: constant(1),
-    mode: constant("play"),
-    location: constant(BATTLEFIELD),
-    linkKey: constant("sandSoldier")
-  }, { world: kernel });
+test("sfd-207-221 Emperor's Dais golden: the declared \"here\" read binds the source's own location", () => {
+  const base = world()
+    .unit("dais", { types: ["battlefield"], location: BATTLEFIELD })
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("dais") });
+
+  // Only the supported instruction runs: cost.pay is not registered yet
+  // (RIFT-261), so the whole authored body cannot be interpreted end to end.
+  const outcome = resolveChainBody([readHere], kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.deepEqual(outcome.linkedValues["emperors-dais.read-here.here"], BATTLEFIELD);
+});
+
+test("sfd-207-221 Emperor's Dais golden: the card's own token instruction plays the Sand Soldier at that linked location", () => {
+  const kernel = world().player("A").build();
+  // The linked value is the one the preceding condition.value instruction
+  // writes (key "here"); the instruction itself is the card's own argument set.
+  const run = runInstruction(token, sandSoldier.args, {
+    world: kernel,
+    linked: { here: BATTLEFIELD }
+  });
+
   assert.equal(run.result.status, "executed");
   const created = kernel.query({ zone: "board", type: "unit" }).filter(object => object.isToken);
   assert.equal(created.length, 1);
@@ -124,6 +147,7 @@ test("sfd-207-221 Emperor's Dais: the Sand Soldier half plays the CR 187.3 token
   assert.equal(soldier.might, 2);
   assert.deepEqual(soldier.tags, ["Shurima"]);
   assert.deepEqual(soldier.location, BATTLEFIELD);
+  // 185.3: tokens have no printed costs â€” null, never 0.
   assert.equal(soldier.energy, null);
   assert.equal(soldier.power, null);
   assert.deepEqual(run.linked["sandSoldier.objects"], [soldier.ref]);

@@ -27,6 +27,7 @@ test("sfd-152-221 Eminent Benefactor: identity, ruleset, status, judgeReason and
   assert.match(program.judgeReason, /187\.5/);
   assert.match(program.judgeReason, /440\.2\.c/);
   assert.match(program.judgeReason, /184\.1/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -62,17 +63,17 @@ test("sfd-152-221 Eminent Benefactor: hold trigger whose body plays two Gold tok
   assert.equal(playGold.linkedTo, undefined);
 });
 
-test("sfd-152-221 Eminent Benefactor golden: a supported token definition is really created twice", () => {
-  // The definition table does contain the ability-free tokens; this run uses the
-  // card's own amount/location/linkKey shape to show the creation path the Gold
-  // entry would take once its definition exists.
+test("sfd-152-221 Eminent Benefactor golden: the merged play path really creates+plays a supported token twice", () => {
+  // The Gold entry is the only blocked part: the merged play mode chains
+  // create-token(to: chain) with the play hand-off (440.2.c / 185.2.a), so the
+  // same amount/linkKey shape with an ability-free definition executes for real.
   const kernel = world().player("A").build();
   const run = runInstruction(
     token,
     {
       token: { kind: "constant", value: "recruit" },
       amount: { kind: "constant", value: 2 },
-      mode: { kind: "constant", value: "create" },
+      mode: { kind: "constant", value: "play" },
       location: { kind: "constant", value: { type: "base", player: "A" } },
       linkKey: { kind: "constant", value: "goldTokens" }
     },
@@ -80,16 +81,20 @@ test("sfd-152-221 Eminent Benefactor golden: a supported token definition is rea
   );
   assert.equal(run.result.status, "executed");
   assert.equal(run.linked["goldTokens.amount"], 2);
+  // The chain-creation receipts survive the hand-off.
+  assert.equal(run.linked["goldTokens.createdAmount"], 2);
+  assert.equal(run.linked["goldTokens.objectsComplete"], true);
   assert.equal(kernel.objects.filter((object) => object.isToken).length, 2);
+  assert.deepEqual(run.events.map((event) => event.action).filter((action) => action === "play").length, 2);
 });
 
 test.todo(
   "sfd-152-221 Eminent Benefactor: create and play two Gold gear tokens exhausted once the Gold definition " +
-    "(CR 187.5), chain creation (440.2.c / 185.2.a) and the entry-state stipulation (184.1 / 185.2.d) are " +
-    "merged (token primitive task)"
+    "(CR 187.5) and the exhausted entry stipulation (184.1 / 185.2.d) are merged (token primitive task); " +
+    "the chain-creation + play hand-off itself is merged and covered by the supported-definition run above"
 );
 
 test.todo(
   "sfd-152-221 Eminent Benefactor: the hold trigger reaches this ability through the trigger -> chain pipeline " +
-    "with the held unit's identity exposed to card registration (383.4.d / 383.4.d.2.a) — RIFT-120"
+    "with the held unit's identity exposed to card registration (383.4.d / 383.4.d.2.a) — RIFT-257"
 );

@@ -54,10 +54,10 @@ test("sfd-139-221 Edge of Night: identity, ruleset, status, judgeReason and verb
   // The judgeReason names the three real gaps and their dependencies.
   assert.match(program.judgeReason, /Hidden/);
   assert.match(program.judgeReason, /811\.1\.d/);
-  assert.match(program.judgeReason, /RIFT-84/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /equip/);
-  assert.match(program.judgeReason, /RIFT-120/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -165,21 +165,21 @@ test("sfd-139-221 Edge of Night: the merged Equip expansion is valid EffectIR fo
 
 test.todo(
   "sfd-139-221 Edge of Night: \"play this from face down\" needs the Hide action, the Facedown " +
-    "Zone and the facedown-play permission (CR 811.1.b/811.1.c.3, RIFT-84) plus a card-played " +
+    "Zone and the facedown-play permission (CR 811.1.b/811.1.c.3) plus a card-played " +
     "payload that says where the card was played from - no merged producer supplies it."
 );
 test.todo(
   "sfd-139-221 Edge of Night: the printed 811.1.d.1/811.1.d.3 restrictions (a hidden permanent " +
-    "must be played to that battlefield, and play-effect targets must come from it) need " +
-    "Facedown Zone + target.location wiring (RIFT-89/RIFT-90); the sameLocationAs \"here\" anchor " +
-    "has no consumer in the merged target pipeline."
+    "must be played to that battlefield, and play-effect targets must come from it) need the " +
+    "Facedown Zone plus a runtime Location binding (RIFT-90); the sameLocationAs \"here\" anchor " +
+    "has no consumer in the chain Finalize query (layers/filter.ts)."
 );
 test.todo(
   "sfd-139-221 Edge of Night: paying the printed Chaos Equip cost needs the \"equip\" payment " +
-    "kind in cost/plan-values.ts (RIFT-89 follow-up) plus the program -> keyword -> chain wiring " +
-    "(contract 3.5, RIFT-120 follow-up)."
+    "kind in cost/plan-values.ts (RIFT-261) plus the program -> keyword -> chain wiring " +
+    "(contract 3.5, RIFT-257)."
 );
 test.todo(
   "sfd-139-221 Edge of Night: the play-triggered ability needs the card-program -> " +
-    "TriggerRegistration producer (contract 3.5, RIFT-120 follow-up) before it can fire."
+    "TriggerRegistration producer (contract 3.5, RIFT-257) before it can fire."
 );

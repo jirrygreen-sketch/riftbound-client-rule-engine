@@ -7,6 +7,8 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
+import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
 
 const CARD_ID = "card.hash-85f0797777f47ae8cbaf1fc45bef08bec2cab5e31a48fa3cff8568018fc7ff8d";
 
@@ -31,10 +33,10 @@ test("sfd-027-221 Dunebreaker: identity, ruleset, status and verbatim text", () 
 });
 
 test("sfd-027-221 Dunebreaker: judgeReason names the replacement-enter and hand-size gaps", () => {
-  assert.match(program.judgeReason, /replacement\.enter/);
-  assert.match(program.judgeReason, /手牌/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /RIFT-260/);
+  assert.match(program.judgeReason, /matchesEnterAction/);
+  assert.match(program.judgeReason, /condition/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("sfd-027-221 Dunebreaker: enter-ready is a replacement, not a post-entry effect.ready", () => {
@@ -60,7 +62,9 @@ test("sfd-027-221 Dunebreaker: enter-ready is a replacement, not a post-entry ef
   assert.equal(enterReady.condition.operator, "lte");
   assert.deepEqual(enterReady.condition.right, { kind: "constant", value: 2 });
   assert.equal(enterReady.condition.left.kind, "count");
-  assert.deepEqual(enterReady.condition.left.filter, { zone: "hand", owner: "controller" });
+  // 190.6.d: "you" is the ability controller; chain/engine.ts normalizes the
+  // `self` PlayerSelector for owner/controller filters (merged behavior).
+  assert.deepEqual(enterReady.condition.left.filter, { zone: "hand", owner: "self" });
 });
 
 test("sfd-027-221 Dunebreaker: the hold trigger draws 2 (383.4.d, 414.3)", () => {
@@ -115,10 +119,40 @@ test("sfd-027-221 Dunebreaker golden: the printed draw instruction runs on the m
   assert.deepEqual(kernel.zone("A", "hand").map(ref => ref.id), ["alpha", "beta"]);
 });
 
+test("sfd-027-221 Dunebreaker golden: the merged replacement binding really rewrites the entry orientation", () => {
+  const f = fixture({ cards: [{ id: "dunebreaker", types: ["unit"] }, { id: "extra", types: ["unit"] }] });
+  const bound = bindReplacement(
+    {
+      replaces: enterReady.replaces,
+      with: enterReady.with
+    },
+    f.kernel.ref("dunebreaker"),
+    {
+      host: {
+        object: (ref) => f.kernel.object(ref),
+        objects: () => f.kernel.objects,
+        context: () => f.kernel
+      },
+      pipeline: f.engine.pipeline
+    }
+  );
+
+  f.engine.execute(f.card("dunebreaker", { kind: "unit", body: [] }));
+  resolveAll(f.engine);
+
+  const landed = f.kernel.getObject("dunebreaker");
+  assert.equal(landed.zone, "board");
+  // 359.2.c / 805.6.a: the orientation comes from the entry rewrite itself, so
+  // the permanent never passes through a separate "becomes ready" event.
+  assert.equal(landed.exhausted, false);
+  assert.equal(f.engine.pipeline.events.some((event) => event.timingPoint === "object-readied"), false);
+  bound.cancel();
+});
+
 test.todo(
-  "sfd-027-221 Dunebreaker: the board-entry replacement swaps exhausted entry for ready entry when " +
-    "the controller's hand has two or fewer cards (CR 359.2.c, 369.3, 369.3 example Master Yi, Honed; " +
-    "805.6.a: no intermediate exhausted state) — depends on the replacement.enter wiring (RIFT-89~91)"
+  "sfd-027-221 Dunebreaker: the entry-orientation matcher must evaluate the ability condition " +
+    "(\"If you have two or fewer cards in your hand\", 369.3) before rewriting the entry state — " +
+    "replacement/bind.ts matchesEnterAction returns before testCondition, so a 3-card hand still enters ready; RIFT-260 follow-up"
 );
 
 test.todo(
