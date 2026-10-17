@@ -21,10 +21,11 @@ import type { CardProgram } from "../../ir/index.js";
  * 费用声明 + 入场替代）由 engine-core 的 Effects/keywords/Accelerate.ts 负责，
  * 本文件不重复实现。
  *
- * status = judge-required：关键词展开（accelerate.cost + 入场替代）与费用计划对
- * optionalAdditional 的 accelerate 组件支持都已合入，但卡牌程序仍没有把 keyword
- * 能力接入打出费用与替代流程；accelerate.cost 也没有可由打出流程消费的绑定入口（见
- * judgeReason）。依赖落地后复核并改为 executable。
+ * status = judge-required：关键词展开（accelerate.cost + 入场替代）、费用计划对
+ * optionalAdditional accelerate 组件的支持，以及 chain resolve 按 selectedAdditional
+ * 的 accelerate 组件让单位就绪进场都已合入；仍缺卡牌程序到费用/替代管线的绑定入口：
+ * programs/play.ts 不把 accelerate.cost 转成 optionalAdditional accelerate 组件，
+ * 也不在支付凭证成立时把 805.2.b 的延迟替代注册进打出流程。依赖落地后复核并改为 executable。
  */
 const blazingScorcher = {
   canonicalCardId:
@@ -34,8 +35,8 @@ const blazingScorcher = {
   judgeReason:
     "Accelerate 的 accelerate.cost 静态声明仍未由 programs/play.ts 转成 optionalAdditional accelerate 组件，" +
     "无法在打出 Finalize 中询问并支付 [1][Fury]（CR 805.1.b.1）。还缺 selectedAdditional 支付凭证控制的延迟替代注册" +
-    "（805.2.b），以及 805.6.a 不产生 becomes-ready 触发的就绪进场接线；单独执行 effect.ready 不证明这些语义。" +
-    "依赖：卡牌程序到费用/替代管线的适配。",
+    "（805.2.b；chain resolve 已消费 accelerate 组件就绪进场，缺的是把已付凭证接到该替代注册）；" +
+    "单独执行 effect.ready 不证明这些语义。依赖：卡牌程序到费用/替代管线的适配。",
   abilities: [{ kind: "keyword", keyword: "accelerate" }],
   sourceText:
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_fury: as an additional cost to have me enter ready.)"
