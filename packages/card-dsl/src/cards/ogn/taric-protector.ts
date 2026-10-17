@@ -11,7 +11,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * the "here" anchor (sameLocationAs: self) and the "other" exclusion. Nothing is
  * added or approximated; the gap below is still open on the merged engine.
  * Execution evidence for what does run (play/payment/keyword expansion and the
- * fail-closed static bind attempt): packages/card-dsl/test/cards/templates/keyword-keyword-static-650.test.mjs.
+ * fail-closed static bind attempt): packages/card-dsl/test/cards/templates/keyword-keyword-static-698.test.mjs.
  */
 const abilities: Ability[] = [
   {

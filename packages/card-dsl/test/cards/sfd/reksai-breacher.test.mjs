@@ -1,8 +1,8 @@
 // Golden test for Rek'Sai, Breacher (sfd-029-221).
 //
-// Execution evidence for the real base play/payment path lives in the RIFT-674
+// Execution evidence for the real base play/payment path lives in the RIFT-698
 // parameterized template golden:
-// test/cards/templates/keyword-keyword-static-674.test.mjs.
+// test/cards/templates/keyword-keyword-static-698.test.mjs.
 // The card keeps judge-required: the production static binder translates the
 // grant through staticFilter, whose whitelist rejects the card's descriptive
 // playedFromZoneNot key, the printed "played from anywhere other than a
@@ -185,7 +185,7 @@ test("sfd-029-221 Rek'Sai, Breacher: [Assault] uses designation while the object
   };
   const binding = createProgramBinding({ cardPrograms: [executable] });
   const board = fixture({
-    cards: [{ id: "rekai", cardId: executable.canonicalCardId, types: ["unit"], energy: 3, power: [], might: 3 }],
+    cards: [{ id: "rekai", cardId: executable.canonicalCardId, types: ["unit"], energy: 3, power: null, might: 3 }],
     describePlay: binding.describePlay
   });
   binding.attachLifecycle(board.engine);
