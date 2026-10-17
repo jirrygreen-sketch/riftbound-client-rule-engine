@@ -29,7 +29,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   models `ignore-base` rewrites (cost/plan-types.ts BaseCostModification)
  *   but nothing in the merged instruction set lets a card declare "pay the
  *   optional additional cost, then ignore the base cost if it was paid"; the
- *   plan for this card still needs a CardProgram-to-Finalize cost adapter.
+ *   plan for this card still needs an optional-payment/ignore-base adapter.
  * - "Give a unit +3 :rb_might: this turn" is a temporary Might modification
  *   that expires in the end-of-turn cleanup (317.2.c "3d. All 'this turn'
  *   effects expire simultaneously."; 433.1.a layer modulation). It belongs to
@@ -47,17 +47,9 @@ const callToGlory = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入：(1)「As you play this, you may spend a buff as an additional cost. If you do, ignore " +
-    "this spell's cost.」：可选追加费用（356.2.b/356.2.b.1、357.2 支付；702.2.b.1/b.2 限定可消耗的 Buff）和" +
-    "「已支付则把本牌 Base Cost 置 0」的费用改写（356.1.b、357.2.a）缺少生产接线：merged cost plan 的" +
-    "非标准费用选项集要求 choice.options 是精确运行时 ObjectRef（cost/plan-values.ts 的 reference），" +
-    "静态 IR 按 README §3 禁止写运行时引用，因此该选项集只能由 Finalize 的费用系统在运行时生成。" +
-    "当前缺 CardProgram CostSpec 到 Finalize 费用计划的适配：运行时 Buff 对象选择不能由静态 IR 的 " +
-    "pay/decline 字符串提供，且没有把已支付的 spend-buff 映射为 ignore-base 费用改写。" +
-    "(2)「Give a unit +3 Might this turn」已改用已注册的 continuous.might 原语（RIFT-258：带符号增减、" +
-    "this-turn 期限、317.2.c 到期），本卡测试真实执行并验证 +3 与回合结束到期；effect.buff 明确临时 Might " +
-    "不入 Buff 计数器（703）。不近似实现（不免费打出、不用 Buff 冒充 Might）。" +
-    "Might 半段已可执行；费用半段仍保持 judge-required。",
+    "缺 Finalize 时可选 spend-buff 追加费用与条件 ignore-base 的联合适配（CR 356.2.b/356.2.b.1、356.1.b、357.2.a）：" +
+    "translateCost 已能传递 CostSpec，但本卡的 pay/decline 字符串不能提供费用管线所需的运行时友方 Buff 对象选择" +
+    "（702.2.b.1/b.2），也未将接受该追加费用映射为仅忽略基础费用、保留后续加费的费用计划。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {
@@ -87,13 +79,17 @@ const callToGlory = {
       },
       body: [
         {
-          // "Give a unit +3 Might this turn" — pending layers instruction
-          // (see judgeReason): continuous.might with a this-turn duration.
+          // "Give a unit +3 Might this turn" — supported arithmetic-layer
+          // instruction; the remaining gap is the optional cost above.
           id: "call-to-glory.grant-might",
           op: "continuous.might",
           args: {
             amount: { kind: "literal", value: 3 },
-            duration: { kind: "literal", value: "this-turn" }
+            duration: { kind: "literal", value: "this-turn" },
+            objects: {
+              kind: "constant",
+              value: { kind: "target", id: "call-to-glory.unit" }
+            }
           },
           targets: [
             {

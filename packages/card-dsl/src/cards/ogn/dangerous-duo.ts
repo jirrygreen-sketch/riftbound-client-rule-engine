@@ -7,11 +7,10 @@ import type { CardProgram } from "../../ir/index.js";
  * (Get the effect if you've played another card this turn.)
  *
  * Legion (CR v1.5 812.1.b.1: "If you have played another card this turn,
- * this card has [Text]") is a dependent keyword owned by RIFT-82
- * (kw-deathknell-legion); it gates the dependent ability. The dependent
+ * this card gains [Text]") is a dependent keyword; it gates the dependent
  * ability is a card-played trigger whose body grants +2 Might for the rest
  * of the turn. A duration-bounded Might modifier is continuous.might
- * territory (layers / RIFT-91); the merged instruction registers the
+ * territory; the merged instruction registers the
  * arithmetic-layer effect through ctx.addContinuous.
  */
 export default {
@@ -19,10 +18,10 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "continuous.might 已合入并可通过 dangerous-duo.unit 的 TargetSpec 注册本回合结束到期的 +2 Might；" +
-    "仍缺 [Legion] 的本回合另一张牌历史条件（包括排除本卡自身）以及 CardProgram triggered ability 的生产链绑定，" +
-    "不能仅凭局部 Might 执行证据将整卡标为 executable：TriggerSpec 的普通 count 条件不能读取 " +
-    "ResolveContext.history 中本回合已结算的牌，也不能表达排除本卡自身的 Legion 历史谓词。",
+    "缺 continuous.might 正文进链前的 Legion 历史条件适配（CR 812.1.b.1/812.1.c、383.2.c）：" +
+    "普通 count 表达式只查询当前对象，不读取 cards-finalized-this-turn 历史；" +
+    "condition.history 已是解释器指令，HistoryQuery.exclude:self 也已能排除本卡并保留同名的另一实体，但尚无将该查询用于 TriggerSpec.condition 的条件表达式。" +
+    "还须对齐本回合 Finalize 时点的记录与重置；程序触发注册本身已有实现。",
   abilities: [
     {
       kind: "triggered",

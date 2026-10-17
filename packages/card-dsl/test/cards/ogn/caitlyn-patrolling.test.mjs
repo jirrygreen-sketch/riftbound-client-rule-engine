@@ -5,6 +5,9 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/caitlyn-patrolling.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { translateRestriction } from "../../../../engine-core/dist/programs/play.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 
 
 test("ogn-068-298: identity, exact source text, pure data and explicit blocked status", () => {
@@ -16,6 +19,7 @@ test("ogn-068-298: identity, exact source text, pure data and explicit blocked s
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Backline|continuous\.combat/);
   assert.match(program.judgeReason, /at-battlefield/);
+  assert.match(program.judgeReason, /location/);
   assert.equal(program.sourceText, "I must be assigned combat damage last.\n:rb_exhaust:: Deal damage equal to my Might to a unit at a battlefield. Use this ability only while I'm at a battlefield.");
   assert.deepEqual(JSON.parse(JSON.stringify(program)), program);
 });
@@ -67,4 +71,19 @@ test("Caitlyn golden subeffect: loss of the finalized target is ignored without 
 });
 
 test.todo("Caitlyn: Backline lethal-last damage allocation through the continuous.combat consumer (CR 826)");
-test.todo("Caitlyn: bind the at-battlefield restriction through the activation legality adapter and execute the full ability");
+test.todo("Caitlyn: use Board.location for the battlefield restriction and target candidates, then execute the full ability through activation legality");
+
+test("Caitlyn: the production adapter already accepts the at-battlefield condition wrapper", () => {
+  assert.deepEqual(translateRestriction(activated.restriction, program.canonicalCardId), [activated.restriction.condition]);
+});
+
+test("Caitlyn: the printed Exhaust cost pays through the real cost pipeline", () => {
+  const initial = world().unit("caitlyn", { exhausted: false }).unit("other", { exhausted: false }).build();
+  const kernel = initial.clone({ sourceSnapshot: initial.getObject("caitlyn") });
+  const plan = buildCostPlan(kernel, { id: "caitlyn-exhaust", cost: activated.cost });
+  const paid = payCostPlan(kernel, plan);
+  assert.equal(paid.paid, true);
+  assert.equal(kernel.getObject("caitlyn").exhausted, true);
+  assert.equal(kernel.getObject("other").exhausted, false);
+  assert.deepEqual(paid.actions.map(entry => entry.action.type), ["pay", "exhaust"]);
+});

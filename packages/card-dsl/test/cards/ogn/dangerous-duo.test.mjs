@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { validateCardProgram } from "../../../../../packages/card-dsl/dist/ir/index.js";
 import program from "../../../../../packages/card-dsl/dist/cards/ogn/dangerous-duo.js";
 import { runAbilityBody } from "../../../../../packages/engine-core/dist/effects/interpreter.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { world } from "../../../../../packages/engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-d4e849d845765608b07bf4af4aa19877f6303dfff539b541d0d070320dd05d91";
@@ -17,6 +18,8 @@ test("program passes validateCardProgram and is judge-required", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason ?? "", /continuous\.might/);
+  assert.match(program.judgeReason, /TriggerSpec.condition/);
+  assert.match(program.judgeReason, /HistoryQuery.exclude:self/);
   assert.match(program.sourceText, /\[Legion\]/);
 });
 
@@ -73,9 +76,32 @@ test("golden execution: the selected unit receives a registered end-of-turn Migh
   assert.equal(scoped.continuousEffects[0].effect.effect.kind, "continuous.might");
   assert.equal(scoped.continuousEffects[0].effect.effect.amount, 2);
   assert.deepEqual(scoped.continuousEffects[0].duration, { type: "end-of-turn" });
+  const layers = createLayerEngine(scoped.objects, scoped.continuousEffects);
+  assert.equal(layers.evaluate(scoped.ref("chosen")).might, 6);
+  assert.equal(layers.evaluate(scoped.ref("duo")).might, scoped.getObject("duo").might);
+  layers.advance({ id: "turn-end" });
+  assert.equal(layers.evaluate(scoped.ref("chosen")).might, 4);
 });
 
 test.todo(
-  "bind the Legion history gate once TriggerSpec conditions can read ResolveContext.history " +
-    "and exclude the source card from the turn play count"
+  "bind the Legion history gate into TriggerSpec conditions with turn-scoped Finalize records; " +
+    "condition.history and physical-source exclusion already execute"
 );
+
+
+test("Legion supported history: exclude the source entity while retaining another copy of Dangerous Duo", () => {
+  const initial = world().hand("duo", { cardId: CANONICAL })
+    .hand("another-duo", { cardId: CANONICAL }).hand("opponents-card", { owner: "B" }).build();
+  const kernel = initial.clone({ sourceSnapshot: initial.getObject("duo") });
+  const read = () => runAbilityBody([{
+    id: "other-card-count", op: "condition.history",
+    args: { query: { kind: "constant", value: { scope: "turn", action: "play", player: "A", exclude: "self" } } }
+  }], kernel);
+  assert.equal(kernel.perform({ type: "play", object: kernel.ref("duo"), player: "A" }).status, "done");
+  assert.equal(read().linkedValues["other-card-count.count"], 0);
+  assert.equal(kernel.perform({ type: "play", object: kernel.ref("another-duo"), player: "A" }).status, "done");
+  assert.equal(kernel.perform({ type: "play", object: kernel.ref("opponents-card"), player: "B" }).status, "done");
+  const result = read();
+  assert.equal(result.status, "executed");
+  assert.equal(result.linkedValues["other-card-count.count"], 1);
+});

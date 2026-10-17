@@ -12,9 +12,9 @@ import type { CardProgram } from "../../ir/index.js";
  * Legion 能力，[Text] 是依赖能力；812.1.b.1 功能上等价于「本回合你已打出过另一张牌
  * 时，本卡获得 [Text]」）。
  * - Legion 按契约 3.7 用 { kind: "keyword", keyword: "legion" } 声明：
- *   effects/keywords/Legion.ts（RIFT-82 合入）展开为 condition.predicate 静态谓词。
- *   该谓词使用的 HistoryQuery 排除维度（excluding，812.1.c 要求排除本卡自身）在
- *   封闭的 HistoryQuery 结构里不存在，Legion 文件自己标注为契约级缺口。
+ *   effects/keywords/Legion.ts 展开为 condition.predicate 静态谓词。
+ *   HistoryQuery 已支持 exclude: self，按实体排除本卡并保留同名的其他牌；
+ *   关键词仍输出旧 excluding: canonicalCardId，且静态谓词与依赖触发未接线。
  * - [Text]「When you play me, ready me.」是打出触发（383.4.a Play Effect，时点
  *   card-played），指令体是已合入的 effect.ready 原语（416.1/416.1.c，缺省即"重置
  *   来源"= 重置我）。"ready me" 不改写成 enter-ready 替代：359.2.c 规定单位横置入场，
@@ -27,7 +27,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   位置，479.4.b 被动能力不做 snapshot，按结算时状态计算）。`here` 用契约 3.6 的
  *   锚点 sameLocationAs: "source" 表达，自身用 exclude: "source" 排除。
  *   但 static binder 会拒绝 exclude: "source"，而 layers/filter.ts 的匹配路径也
- *   不能表达 other + here 的动态范围，所以 +1 Might 与 "here" 范围都暂不可执行。
+ *   没有静态 other + here 的动态范围；sameLocationAs 也只在绑定时锁定位置。
  *
  * 整卡 judge-required：Legion 依赖（812.1.c 的按卡排除）与第二条静态修正都还不能
  * 落地；card-played 触发是触发管线（383.4.a.2 要求进链）职责，本卡只声明形状。
@@ -37,10 +37,10 @@ const dariusExecutioner = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Legion] 的 condition.predicate 需要历史谓词消费方：当前条件求值器不能读取该静态谓词的 " +
-    "HistoryQuery，也不能按 812.1.c 排除本卡自身；第二条「Other friendly units have +1 :rb_might: here.」的 " +
-    "static binder 会拒绝 exclude: source，且图层过滤器无法表达 479.4 的 other + here 动态范围，因此 +1 Might 光环仍不能执行。" +
-    "ready me 的触发结构和程序注册路径已有执行形状，但上述两个规则缺口仍使整卡保持 judge-required。",
+    "缺 Legion 的 condition.predicate 静态历史谓词到依赖触发的消费路径（CR 812.1.b.1/812.1.c）：" +
+    "HistoryQuery 已支持 exclude:self，但关键词仍输出 excluding:canonicalCardId，且 ready 触发未绑定该门槛；" +
+    "还须对齐本回合 Finalize 历史及重置。另缺 479.4 的动态 other+here 光环：" +
+    "static binder 拒绝 exclude:source，sameLocationAs 和 controller 仅在绑定时取值，不能随来源位置/控制权变化重算友方同地的其他单位。",
   abilities: [
     { kind: "keyword", keyword: "legion" },
     {

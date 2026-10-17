@@ -24,9 +24,9 @@ import type { CardProgram } from "../../ir/index.js";
  * - CardProgram keyword expansion and static binding are present. The remaining
  *   execution gap is in the combat state: Assault.ts still reads the legacy
  *   `designation` property while ObjectSnapshot exposes `combatRole`, and the
- *   live CombatFlow has not yet published attacker designations. LayerEngine
- *   also does not evaluate the compare(object-property) condition emitted by
- *   Assault, so the modifier cannot turn on and off at the combat boundary.
+ *   live CombatFlow has not yet published attacker designations. The static
+ *   binder already evaluates compare conditions; the missing characteristic
+ *   prevents this modifier from following the combat boundary.
  * 保留有依据的声明，执行证据写 test.todo，不近似实现。
  */
 const daringPoro = {
@@ -34,9 +34,9 @@ const daringPoro = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 Assault 的实时战斗条件求值（CR 807.1.c / 807.1.d.1）：Assault.ts 展开读 designation，" +
-    "而 ObjectSnapshot 公开的是 combatRole；CombatFlow 也尚未发布 attacker designation，" +
-    "且 LayerEngine 不识别该 compare(object-property) 条件，无法只在我攻击时 +1 Might。不近似实现。",
+    "缺 Assault 的攻击者特征映射与实时生产（CR 807.1.c/807.1.d/807.1.d.1）：" +
+    "Assault.ts 的条件读取 designation，但 ObjectSnapshot 提供 combatRole，CombatFlow 也未发布该角色的进入/退出变化。" +
+    "静态 binder 已能求值 compare(object-property) 条件，仍需让实际攻击者状态驱动 +1 Might 的生效与失效。",
   abilities: [{ kind: "keyword", keyword: "assault" }],
   sourceText: "[Assault] (+1 :rb_might: while I'm an attacker.)"
 } satisfies CardProgram;

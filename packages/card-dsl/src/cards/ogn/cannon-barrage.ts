@@ -15,8 +15,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   `{ kind: "query", filter }` selection shape that `effect.ready` already
  *   uses for its own "all/each" sets (355.10.d.1) instead of declared targets.
  *   The merged `effect.damage` consumes only a Finalize-locked TargetSpec id
- *   and has no set/query form, so this shape does not execute today (RIFT-9
- *   target.query/target.many set selection); the golden test drives the merged
+ *   and has no set/query form, so this shape does not execute today;
+ *   the golden test drives the merged
  *   damage primitive with the card's own amount over the locked set.
  * - ObjectSnapshot already carries combatRole, and the filter vocabulary reads
  *   it through characteristics, but the combat flow does not yet publish
@@ -28,11 +28,9 @@ const cannonBarrage = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "集合不是目标：355.10.d（例 “Kill all units at battlefields” 不取目标）规定 “all enemy units in combat” 由特征程序化选出，" +
-    "而 effect.damage 只消费 Finalize 锁定的 TargetSpec（context.targets），没有 355.10.d.1 的 query/集合形式" +
-    "故不声明 targets、不近似为选择目标（本卡测试用锁定集合真实执行该伤害原语与印刷数额）；" +
-    "同时 ObjectSnapshot 已有 combatRole，ObjectFilter 应通过 characteristics 读取它，但 CombatFlow 在 Combat 开始时" +
-    "尚未发布 attacker/defender designation，740.2.c 的实时集合仍无法求值。仍缺 effect.damage 的集合形态与战斗角色生产方。",
+    "缺 effect.damage 的非目标 query/集合入口（CR 355.10.d/355.10.d.1）；ctx.targets(id) 不能替代不成为目标的群伤集合。" +
+    "另缺 CombatFlow 对 ObjectSnapshot.combatRole 的实时发布及与正在战斗的战场关联（740.2.c），" +
+    "无法从当前局面得到全部在战斗中的敌方单位；已有 combatRole 字段及 characteristics 过滤不等于生产战斗状态已接通。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {
