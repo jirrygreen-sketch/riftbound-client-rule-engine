@@ -31,12 +31,10 @@ const dragUnder = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「I cost :rb_energy_2: less to play from anywhere other than your hand」是 Finalize 的印刷费用改写（CR v1.5 366.2，" +
-    "ability-templates 的 cost-modify 模板）：cost.modify 指令原语本身已合入（runInstruction 可链接 reduce 折扣计划，本卡测试已执行），" +
-    "但 statics.ts 的 layerFor 对 cost.modify 没有图层映射（直接 throw judge-required），" +
-    "所以卡牌静态费用效果无法进入 CostPlanInput.discounts（缺静态能力→费用计划的图层/生产绑定），" +
-    "且 fromZone: \"any-except-hand\" 这一打出区域约束也没有消费方；不近似实现。" +
-    "「Kill a unit at a battlefield」半段用已合入的 effect.kill 表达并执行。",
+    "缺静态费用效果到 Finalize 费用计划的绑定（CR 366.2）：" +
+    "cost.modify 指令已能生成折扣计划，但 programs/statics.ts 的 layerFor 没有静态 cost.modify 图层映射，" +
+    "卡牌静态折扣无法进入 CostPlanInput.discounts；fromZone: \"any-except-hand\" 也没有消费方。" +
+    "此外 programs/filters.ts 尚不能把 locationType: \"battlefield\" 翻译为合法目标范围（位置选择 RIFT-357）。",
   sourceText:
     "[Action] (Play on your turn or in showdowns.)\n" +
     "I cost :rb_energy_2: less to play from anywhere other than your hand.\n" +

@@ -10,7 +10,7 @@ import type { CardProgram } from "../../ir/index.js";
  * - 359.2.c / 369.3: units enter exhausted by default and "I enter ready"
  *   replaces that entry orientation. The effect.ready primitive states it does
  *   not participate in entry replacement, so the ability must be shaped as a
- *   replacement (805.6.a: never a post-entry becomes-ready event).
+ *   replacement (369.3: replace the entry itself, rather than ready afterward).
  * - The replacement binding (packages/engine-core/src/replacement/) is merged:
  *   a self-pointing effect.ready replaces body is recognized as an entry
  *   orientation declaration and rewrites the orientation before the permanent

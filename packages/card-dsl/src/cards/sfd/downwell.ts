@@ -37,7 +37,7 @@ const downwell = {
   status: "judge-required",
   judgeReason:
     "缺非目标集合的「回手」形态：CR 355.10.d（其自举例为 “Kill all units at battlefields”）规定按特征程序化选出、玩家无从选择的集合不是 Target（355.10.d.1 把例外限定为从不做选择的集合），" +
-    "因此不能为 “all units and gear” 声明 TargetSpec / PickSpec——那会让每个单位与装备触发成为目标相关的规则（355.7、754）。" +
+    "因此不能把 “all units and gear” 改成玩家选择的 TargetSpec（355.7、754），也不能用非目标 PickSpec 冒充自动选出的全集。" +
     "已合入的 effect.zone 只读取 Finalize 锁定的 TargetSpec（ctx.targets）或非目标 PickSpec（ctx.picks），没有 effect.ready / effect.heal 那样的 {kind:'query', filter} 集合分支；" +
     "本文件按该描述形状记录预期集合，指令会明确失败而不是近似。回手本身按 056.1/056.2 由动作层路由到**拥有者**手牌（effect.zone 的 to: \"hand\"），该半段可执行。" +
     "依赖：effect.zone 增加非目标集合形态（跨包共享契约/原语扩展；替代规划器 RIFT-260 同样只规划 target 拼写）。",

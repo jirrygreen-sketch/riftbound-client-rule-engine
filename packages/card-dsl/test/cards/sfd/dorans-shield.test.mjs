@@ -6,6 +6,7 @@ import program from "../../../dist/cards/sfd/dorans-shield.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import attach from "../../../../engine-core/dist/effects/instructions/effect.attach.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-6ef5f0dfecb89d68422cd4fa23ea64d155ef384d03c974ea67ff920203e89a46";
@@ -35,8 +36,9 @@ function equipWorld() {
 }
 
 function expansionFor() {
-  const definition = keywordDefinitionsById.get("Equip");
-  return definition.expand({ value: equip.value, host: { canonicalCardId: CANONICAL } });
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  return binding.inspect(equipWorld().getObject("gear")).abilities
+    .filter((ability) => ability.kind === "activated");
 }
 
 test("sfd-033-221 Doran's Shield: program passes validateCardProgram", () => {
@@ -52,7 +54,7 @@ test("sfd-033-221 Doran's Shield: identity, ruleset, status, judgeReason and ver
   // The judgeReason names the missing payment path and the real dependencies.
   assert.match(program.judgeReason, /Equip/);
   assert.match(program.judgeReason, /readCost/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /params\.cost/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   // The generated registry indexes this exact program object.
   assert.equal(cardRegistryById.get(CANONICAL), program);
@@ -145,5 +147,12 @@ test("sfd-033-221 Doran's Shield golden: the merged Equip activation declares it
   assert.deepEqual(expansion.cost.payments[0].value, { kind: "constant", value: { kind: "source" } });
 });
 
-test.todo("sfd-033-221 Doran's Shield: paying the printed Calm Equip cost (CR 818.1.b / 818.1.c.3) needs an Equip payment kind in cost/plan-values.ts plus the ExpandInput params.cost plumbing (contract 3.8 item 3) - RIFT-261 follow-up.");
-test.todo("sfd-033-221 Doran's Shield: the card-program -> keyword expansion -> chain activation wiring (contract 3.5) is not merged; the merged effect.attach body above runs directly, and payCostPlan is only exercised once the cost kind exists.");
+test.todo("sfd-033-221 Doran's Shield: paying the printed Calm Equip cost (CR 818.1.b / 818.1.c.3) needs an Equip payment kind in cost/plan-values.ts plus the ExpandInput params.cost plumbing (contract 3.8 item 3).");
+test("sfd-033-221 Doran's Shield: the real card-program adapter expands the Equip ability", () => {
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const inspected = binding.inspect(equipWorld().getObject("gear"));
+  assert.equal(inspected.program.canonicalCardId, CANONICAL);
+  assert.deepEqual(inspected.abilities[0], equip);
+  assert.equal(inspected.abilities[1].kind, "activated");
+  assert.deepEqual(inspected.abilities[1].body[0].targets[0].filter, { type: "unit", controller: "self" });
+});

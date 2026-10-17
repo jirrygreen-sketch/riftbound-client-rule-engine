@@ -17,8 +17,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   "identified by describing how the unit enters"），写在替代能力自身的 condition 上。
  *   「你」用手牌所有者的 PlayerSelector "self"（190.6.d；chain/engine.ts 的 query 把
  *   owner: "self" 归一化为能力控制者，已合入的 sfd/aspiring-engineer、sfd/here-to-help 同形）。
- * - "When I hold"（383.4.d、383.4.d.2.a）：Hold Effect，时点 hold（scoring/ 发射，
- *   ruleRefs 315.2.b.2/471.2/473.2.b），filter 用内层 source: "self" 指称本卡。
+ * - "When I hold"（383.4.d、383.4.d.2.a）：Hold Effect，时点 hold（turn/flow.ts 发射），
+ *   filter 用内层 source: "self" 指称本卡，仍缺按驻守战场识别该单位的绑定。
  * - "draw 2"：414.3/414.1.a，缺省抽牌者与来源是能力控制者的 Main Deck 顶；已合入的
  *   effect.draw 只提交封闭的 draw GameAction，牌库顺序与 Burn Out 由内核负责。
  *
@@ -29,8 +29,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   在 testCondition 之前就返回 true，所以「If you have two or fewer cards in your hand」
  *   的闸门无法生效（场上的单位一律就绪入场）。条件求值本身也不是本卡的问题：手牌计数用已合入的
  *   count + chain/engine.ts 的 owner/「self」归一化即可；缺的是把 condition 接进入场取向匹配。
- * - hold 触发本身只用已合入时点与 effect.draw，golden 测试对 draw 体做真实执行；
- * 依赖：RIFT-260 的入场取向条件求值补齐。不近似实现（不把 enter ready
+ * - hold 时点与通用触发注册已合入，但 turn/flow.ts 只发出 player/battlefieldId，
+ *   programs/filters.ts 把 source: "self" 翻译为 event.object，无法识别驻守该战场的单位。
+ *   golden 测试对已支持的 effect.draw 体做真实执行，不代表 383.4.d.2.a 的触发已可执行。
+ * 依赖：RIFT-260 的入场取向条件求值补齐及单位 Hold 事件/位置过滤绑定。不近似实现（不把 enter ready
  * 写成事后 effect.ready，也不把「手牌 ≤ 2」写成常量或干脆删掉）。
  */
 const abilities: Ability[] = [
@@ -81,8 +83,9 @@ const program = {
     "在 Chain 区永久物换到 Board 前改写取向），但该路径不求值 ability.condition：replacement/bind.ts 的 " +
     "matchesEnterAction 先于 testCondition 命中，于是「If you have two or fewer cards in your hand」的闸门" +
     "无法生效——手牌 3 张时单位仍以就绪状态入场。条件本身可用已合入的 count + chain/engine.ts 的 owner 归一化" +
-    "表达（owner: \"self\"），缺的是入场取向匹配把 condition 纳入判定。" +
-        "依赖：RIFT-260 入场取向条件求值。不近似实现。",
+    "表达（owner: \"self\"），缺的是入场取向匹配把 condition 纳入判定（RIFT-260 后续）。" +
+    "另缺单位 Hold 的事件/位置过滤绑定（CR 383.4.d.2.a）：turn/flow.ts 的 hold 仅含 player/battlefieldId，" +
+    "programs/filters.ts 却把 source: \"self\" 绑定到 event.object，无法判定本单位驻守了该战场。",
   abilities,
   sourceText:
     "If you have two or fewer cards in your hand, I enter ready.\n" +

@@ -28,7 +28,9 @@ test("sfd-152-221 Eminent Benefactor: identity, ruleset, status, judgeReason and
   assert.match(program.judgeReason, /440\.2\.c/);
   assert.match(program.judgeReason, /184\.1/);
   assert.match(program.judgeReason, /LocationRef/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /entersExhausted/);
+  assert.match(program.judgeReason, /383\.4\.d\.2\.a/);
+  assert.match(program.judgeReason, /battlefieldId/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -65,7 +67,7 @@ test("sfd-152-221 Eminent Benefactor: hold trigger whose body plays two Gold tok
 });
 
 test("sfd-152-221 Eminent Benefactor golden: the merged play path really creates+plays a supported token twice", () => {
-  // The Gold entry is the only blocked part: the merged play mode chains
+  // Only the supported token play path is tested here: the merged play mode chains
   // create-token(to: chain) with the play hand-off (440.2.c / 185.2.a), so the
   // same amount/linkKey shape with an ability-free definition executes for real.
   const kernel = world().player("A").build();
@@ -96,6 +98,6 @@ test.todo(
 );
 
 test.todo(
-  "sfd-152-221 Eminent Benefactor: the hold trigger reaches this ability through the trigger -> chain pipeline " +
-    "with the held unit's identity exposed to card registration (383.4.d / 383.4.d.2.a) — RIFT-257"
+  "sfd-152-221 Eminent Benefactor: queue the original Gold body only when this unit is present at the held battlefield " +
+    "(383.4.d.2.a); bind the hold player/battlefieldId to the unit's location instead of requiring event.object"
 );

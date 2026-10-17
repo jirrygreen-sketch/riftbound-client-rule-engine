@@ -54,9 +54,8 @@ test("sfd-139-221 Edge of Night: identity, ruleset, status, judgeReason and verb
   // The judgeReason names the three real gaps and their dependencies.
   assert.match(program.judgeReason, /Hidden/);
   assert.match(program.judgeReason, /811\.1\.d/);
-  assert.match(program.judgeReason, /RIFT-90/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-357/);
+  assert.match(program.judgeReason, /params\.cost/);
   assert.match(program.judgeReason, /equip/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
@@ -116,7 +115,7 @@ test("sfd-139-221 Edge of Night golden: the printed attach instruction really at
   // system locked). Selecting that host is the production target pipeline's
   // job: the reference kernel's scalar query does not resolve the frozen
   // PlayerSelector spelling (controller: "self", 740.1.a) or the
-  // sameLocationAs "here" scope, which is exactly the RIFT-90 gap recorded in
+  // sameLocationAs "here" scope, which is part of the target-translation gap recorded in
   // judgeReason. The printed args themselves are used unchanged.
   const run = runInstruction(
     attach,
@@ -171,15 +170,10 @@ test.todo(
 test.todo(
   "sfd-139-221 Edge of Night: the printed 811.1.d.1/811.1.d.3 restrictions (a hidden permanent " +
     "must be played to that battlefield, and play-effect targets must come from it) need the " +
-    "Facedown Zone plus a runtime Location binding (RIFT-90); the sameLocationAs \"here\" anchor " +
-    "has no consumer in the chain Finalize query (layers/filter.ts)."
+    "Facedown Zone plus a runtime Location binding (RIFT-357); the sameLocationAs \"here\" anchor " +
+    "needs support in programs/filters.ts target translation."
 );
 test.todo(
   "sfd-139-221 Edge of Night: paying the printed Chaos Equip cost needs the \"equip\" payment " +
-    "kind in cost/plan-values.ts (RIFT-261) plus the program -> keyword -> chain wiring " +
-    "(contract 3.5, RIFT-257)."
-);
-test.todo(
-  "sfd-139-221 Edge of Night: the play-triggered ability needs the card-program -> " +
-    "TriggerRegistration producer (contract 3.5, RIFT-257) before it can fire."
+    "kind in cost/plan-values.ts plus the printed Equip cost passed via KeywordDef.params.cost."
 );

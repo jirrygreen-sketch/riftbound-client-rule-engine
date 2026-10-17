@@ -13,7 +13,7 @@
  *   the next turn, this gains [Reaction] and you may play this, ignoring its base cost."。
  *   卡只声明 { kind: "keyword", keyword: "hidden" }；展开归 effects/keywords/Hidden.ts。
  * - 383.4.a / 383.4.a.1 / 383.4.a.2："When you play this …" 是 Gear 的 Play Effect，对应
- *   时点 card-played，filter 指向本卡自身；831.1.d.3（原文 811.1.d.3）规定从面朝下打出的
+ *   时点 card-played，filter 指向本卡自身；811.1.d.3 规定从面朝下打出的
  *   永久物的 Play Effect 若指定目标，必须从它被打到的战场中选择。
  * - "attach it to a unit you control here"（435/818.1.b.2；"here" = 本卡被打到的战场，
  *   359.3.f.1 的 referent）是一条附着指令，用已合入的 effect.attach，目标为你控制的单位
@@ -26,16 +26,14 @@
  *   消费方：Hide 行动、Facedown Zone 存储与"从面朝下打出"的流程都还没有落地（CR 811.1.b/
  *   811.1.c.3），card-played 载荷也无法判定打出前是否面朝下。cost/cost-plan.ts 的
  *   buildHiddenCostPlan 只覆盖费用侧（hide = 1 点任意域 Power，play = 忽略 base resources）。
- * - 从面朝下打出的入场位置与目标限制（811.1.d.1 / 811.1.d.3）需要 Facedown Zone 与
- *   运行时 Location 绑定；而同位置锚点 sameLocationAs 也没有生产消费方——
- *   effects/interpreter/selectors.ts 会解析它，但 chain/engine.ts 的 query 走
- *   layers/filter.ts，后者不读该锚点（实测 Finalize 的 ctx.query 对
- *   sameLocationAs: "source" 返回空集）。
+ * - 从面朝下打出的入场位置与目标限制（811.1.d.1 / 811.1.d.3）仍需 Facedown
+ *   位置绑定（RIFT-357）；programs/filters.ts 的目标翻译不接受 sameLocationAs，
+ *   而 programs/statics.ts 的静态过滤器已支持该锚点，不能把两条路径混为一谈。
  * - Equip 的启动费用仍不可支付：已合入 Equip 展开声明 payments: [{ kind: "equip" }]，
  *   而 cost/plan-values.ts 的 readCost 没有该支付种类，buildCostPlan 实测抛
  *   CostPlanError（reason "judge-required"，message "Unsupported payment kind: equip"）。
  * 与同目录已合入装备程序（long-sword / bf-sword / warmogs-armor / dorans-blade / sacred-shears）
- * 一致：关键词上的 costDomain（以及本卡的 costAdditions）是扩展字段，因此本文件按这些文件的写法用
+ * 一致：关键词上的 costDomain 是扩展字段，因此本文件按这些文件的写法用
  * as const 声明，由 golden 的 validateCardProgram 做结构校验（不是用类型断言绕过契约）。
  */
 export default {
@@ -43,19 +41,10 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "依赖未合入：(1) Hidden 展开（effects/keywords/Hidden.ts）只声明 static cost.hidden；" +
-    "cost/cost-plan.ts 的 buildHiddenCostPlan 已能算出 hide（1 点任意域 Power）与 play" +
-    "（忽略 base resources）的费用计划，但 Hide 行动本身、Facedown Zone 存储与「从面朝下打出」的" +
-    "流程（CR 811.1.b/811.1.c）没有任何消费方，" +
-    "\"play this from face down\" 的打出前区域在 card-played 载荷里无法判定；" +
-    "(2) 从面朝下打出的入场位置与目标限制（811.1.d.1/811.1.d.3）需要 Facedown Zone 与 " +
-    "运行时 Location 绑定，同位置锚点 sameLocationAs 也没有生产消费方（解释器 selectors 会解析，" +
-    "但 chain 的 query 走 layers/filter.ts，实测 Finalize 时对 sameLocationAs: \"source\" 返回空集）；" +
-    "(3) 印刷的 [Equip] :rb_rune_chaos: 仍无法支付：" +
-    "已合入 Equip 展开声明 payments: [{ kind: \"equip\" }]，cost/plan-values.ts 的 readCost " +
-    "没有该支付种类（实测 buildCostPlan 抛 \"Unsupported payment kind: equip\"），" +
-    "契约 3.8 第 3 条的 params.cost 也未落到 KeywordDef 接口（RIFT-261）。" +
-    "依赖：RIFT-90（Location/目标）、RIFT-261。不近似实现。",
+    "（1）Hidden 的 cost.hidden 尚无 Hide 行动、Facedown 存储及下一回合打出许可的运行时消费者（CR 811.1.b/811.1.c）；" +
+    "card-played 载荷也未提供打出前区域，无法约束 play this from face down；" +
+    "（2）811.1.d.1/811.1.d.3 的战场绑定仍缺（位置选择 RIFT-357），programs/filters.ts 的目标翻译不接受 sameLocationAs；" +
+    "（3）Equip 的印刷 Chaos 费用未传入 KeywordDef.params.cost，Equip.expand 仍使用费用计划不支持的 equip 支付种类（818.1.c.2）。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     {

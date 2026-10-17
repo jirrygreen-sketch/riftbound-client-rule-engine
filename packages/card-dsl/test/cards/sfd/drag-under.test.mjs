@@ -102,21 +102,26 @@ test("Drag Under golden: the merged cost.modify really reduces the printed energ
   // wiring that plan into the production play pipeline is the recorded gap.
   const base = world()
     .player("A", { energy: 20 })
-    .hand("drag-under", { types: ["spell"], energy: 5, power: [] })
+    .hand("drag-under", { types: ["spell"], energy: 5, power: ["Order"] })
     .build();
   const kernel = base.clone({ sourceSnapshot: base.getObject("drag-under") });
   const run = runInstruction(
     costModify,
     {
       id: "drag-under.cost-plan",
-      printed: { id: "drag-under", cardType: "Spell", energy: 5, power: 0, domains: ["Order"] },
-      modifier: { kind: "reduce", resource: "energy", amount: { kind: "constant", value: 2 } }
+      printed: { id: "drag-under", cardType: "Spell", energy: 5, power: 1, domains: ["Order"] },
+      modifier: {
+        kind: "reduce",
+        resource: costModification.effect.resource,
+        amount: { kind: "arithmetic", operator: "neg", operands: [costModification.effect.amount] }
+      }
     },
     { world: kernel }
   );
   assert.equal(run.result.status, "executed");
   const plan = run.linked["cost"];
   assert.equal(plan.total.energy, 3);
+  assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: ["Order"] }]);
   assert.deepEqual(plan.discounts.map((entry) => [entry.id, entry.before, entry.after]), [
     ["drag-under.cost-plan:modifier:0", 5, 3]
   ]);

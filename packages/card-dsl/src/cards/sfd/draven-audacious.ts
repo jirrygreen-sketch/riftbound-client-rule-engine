@@ -29,7 +29,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （同 ogn/mindsplitter、ogn/sabotage 记录）。"They score 1 point" 是给该被选对手的 effect.score。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required——依赖未合入，均不近似实现：
- * - 两个时点都没有发射方：
+ * - 仍缺战斗结果发射与战斗死亡载荷：
  *   combat/ 的胜利判定（468.3）没有把 combat-result 交给事件管线（全仓库只有 timing-points.ts 的声明
  *   与 duel/ 的其它流程引用），object-killed 的 in-combat 判别也没有落地（740.2.c 的战斗身份：
  *   ObjectSnapshot.combatRole 已在契约 3.8 落地，但没有任何时点/载荷把它带到 object-killed，
@@ -37,13 +37,12 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "choose an opponent" 缺玩家选择原语（target.player）与该选择结果作为 effect.score 的 player 实参的
  *   已合入链接值形状：effect.score 的 player 接受 PlayerId / PlayerId[] / choose(PlayerId 列表)，
  *   但没有「在所有对手里由控制者重放式选一个玩家」的已注册指令（注册表无 target.player），
- *   因此被选对手无法写进静态 IR；这是 RIFT-90 的玩家目标族缺口。
+ *   因此被选对手无法写进静态 IR；需要原生玩家目标契约。
  * - [Deflect] 的展开（static target.tax）没有消费方：TargetPlan 的 TargetTaxAdapter 只接受调用方显式传入的税，
  *   没有从图层读取 target.tax 的接线，且已合入的税→费用换算按 Energy 记账，与 809.1.c.1 的
- *   "任意域 Power"不符（RIFT-90/RIFT-261）。
+ *   "任意域 Power"不符（目标税 RIFT-360）。
  * - "you score 1 point" 本身只用已合入的 effect.score，golden 对该计分体做真实执行。
- * 依赖：RIFT-90（目标税与玩家目标/选择）、RIFT-124（combat-result 发射与战斗身份）、
- * RIFT-261（目标税的任意域 Power 支付）。
+ * 仍缺原生玩家目标、战斗结果/战斗死亡载荷，以及目标税图层与 Power 支付绑定（RIFT-360）。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "deflect" },
@@ -118,16 +117,10 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "(1) combat-result（468.3，由 combat/ 判定）与 object-killed 的「在战斗中」判别都没有发射方/消费方：" +
-    "全仓库只有 timing-points.ts 声明 combat-result，combat/ 的胜利判定没有把该时点交给事件管线，" +
-    "740.2.c 的战斗身份虽已作为 ObjectSnapshot.combatRole 落地（契约 3.8 item 1），但没有任何时点或载荷把它带到 " +
-    "object-killed，过滤器的 details.inCombat 也无消费方；依赖 RIFT-124。" +
-    "(2)「choose an opponent」缺玩家选择原语（注册表没有 target.player；调研表 target.player 行记录「each player 与 choose opponent " +
-    "不等价」），也没有把重放式玩家选择结果写进 effect.score 的 player 实参的静态形态（RIFT-90）。" +
-    "(3) [Deflect]（809.1）的展开（static target.tax）没有消费方：TargetPlan 的 TargetTaxAdapter 只接受调用方显式传入的税，" +
-    "没有从图层读取 target.tax 的接线，且已合入的 tax→费用换算按 Energy 记账，与 809.1.c.1 要求的任意域 Power 不符（RIFT-90）。" +
-    "「you score 1 point」只用已合入的 effect.score（470.1–470.3），golden 对该计分体做真实执行。" +
-    "依赖：RIFT-90、RIFT-124、RIFT-261（目标税的任意域 Power 支付）。不近似实现。",
+    "（1）combat-result 的战斗结果发射方，以及 object-killed 的 inCombat 载荷/过滤绑定尚缺（CR 468.3、740.2.c）；" +
+    "（2）choose an opponent 缺原生玩家目标及其链接值（target.player），effect.score 的 choose 形态只接收静态 PlayerId 选项，" +
+    "不能在静态卡牌 IR 中列出运行时所有对手；" +
+    "（3）Deflect 的静态 target.tax 尚未接入目标税与费用计划，现有税适配也未实现 809.1.c.1 的任意域 Power 支付（RIFT-360）。",
   abilities,
   sourceText:
     "[Deflect] (Opponents must pay :rb_rune_rainbow: to choose me with a spell or ability.)\n" +

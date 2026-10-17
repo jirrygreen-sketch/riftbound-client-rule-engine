@@ -60,8 +60,7 @@ test("sfd-006-221 Eager Drakehound golden: the merged card program enters ready 
   const landed = f.kernel.getObject("drake");
   assert.equal(landed.zone, "board");
   assert.equal(landed.exhausted, false);
-  // 805.6.a: the orientation comes from the entry rewrite, so the permanent
+  // 369.3: the orientation comes from the entry rewrite, so the permanent
   // never passes through a separate becomes-ready event.
   assert.equal(f.engine.pipeline.events.some((event) => event.timingPoint === "object-readied"), false);
 });
-
