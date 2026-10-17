@@ -29,14 +29,13 @@ import type { CardProgram } from "../../ir/index.js";
  *   filter pipeline has no comparator operator;
  * - a Condition (`compare` with operator gte) exists in the IR and the
  *   interpreter evaluates it, but a Condition on the instruction is only
- *   evaluated after targets are locked, so it would return `skipped` instead of
+ *   evaluated after targets are locked, so a false comparison would skip instead of
  *   making the spell unplayable at Finalize (355.8/355.17.b: a choice must
  *   satisfy the restrictions, otherwise the card cannot be finalized);
  * - the Power cost is a printed characteristic on the Chain object and the
  *   merged ObjectSnapshot exposes `power` as a Domain list, not a numeric
- *   Power cost. "any amount of Power" / universal Power is also not a number
- *   (163.2.b), so "[C] or more" would need the domain-agnostic accounting that
- *   cost/resources.ts keeps separate.
+ *   Power cost. The declared powerCost property therefore also needs a
+ *   characteristic reader before the comparison can be evaluated.
  * The target-plan contract still lacks the Finalize-time numeric target
  * restriction.
  * The instruction therefore records the restriction declaratively (filter +
@@ -49,12 +48,10 @@ const hush = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺「Power cost [rainbow][rainbow] or more」的落地：合并的 filter 管线（layers/filter.ts）只做" +
-    "标量/数组等值匹配，没有数值阈值比较器；IR 虽有 condition compare(gte) 且解释器能求值，但指令 condition " +
-    "是在目标锁定之后求值，只会得到 skipped，无法在 Finalize 阶段阻止 355.8/355.17.b 的非法定案；" +
-    "ObjectSnapshot.power 是域列表而非数值 Power 费用（163.2.b 的通用 Power 也不是数字），没有域无关的" +
-    "数值口径。effect.counter 已合入并有 golden 执行证据；限制条件仅按 IR 形状记录，不近似实现" +
-    "（不去掉限制，也不硬编码单一域）。当前 target-plan/Finalize 合同仍缺数值 Power 费用的比较与锁定前求值。",
+    "仍缺 355.9.b 的 Power cost >= 2 目标限制：(1) target-plan 的 filter 管线只做等值/成员匹配，" +
+    "没有 Finalize 阶段的数值阈值谓词；(2) ObjectSnapshot 只有域列表 power，没有可读的数值 powerCost 特征。" +
+    "当前 instruction condition 只在结算时检查，无法在锁定前排除 0/1 Power 法术并落实 355.8/355.17.b；" +
+    "effect.counter 已有局部执行证据，不省略目标限制。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {

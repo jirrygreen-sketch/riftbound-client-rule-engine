@@ -1,7 +1,6 @@
 // Golden test for Herald of the Emperor (rad-118-167).
 // The play trigger and the target selection are fixed; the printed Base Might
-// set has no Trait-Altering primitive and the trigger has no production
-// registration path (see judgeReason). The merged arithmetic equivalent is
+// set has no Trait-Altering primitive (see judgeReason). The arithmetic set is
 // executed separately as a contrast, never as this card's semantics.
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -35,6 +34,7 @@ test("rad-118-167 Herald of the Emperor: judgeReason names the Trait-Altering ga
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /479\.2/);
   assert.match(program.judgeReason, /143\.2\.a\.1/);
+  assert.match(program.judgeReason, /set-property\(might\)/);
 });
 
 test("rad-118-167 Herald of the Emperor: 'When you play me' is the self-scoped card-played trigger (383.4.a.1)", () => {

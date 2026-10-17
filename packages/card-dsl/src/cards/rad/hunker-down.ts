@@ -41,10 +41,9 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三段正文已通过真实解释器执行：effect.ready、continuous.movement 的 cannot-move 限制与 effect.draw；" +
-    "zones/movement.ts 的 Standard Move 已消费 MovementPermissions，且本回合结束后限制到期。" +
-    "当前缺口是效果移动：effect.move 把限制检查交给 move-location，但该动作及 chain/events 适配路径尚未读取持续移动限制，" +
-    "因此不能落实 054.1 对所有 Move（含 451 的效果移动）的禁止。依赖：move-location 的持续移动限制消费；不近似实现。",
+    "仍缺效果移动对 continuous.movement/cannot-move 的消费：effect.move 委托 move-location，" +
+    "该动作及 chain/events 提交路径尚未读取 MovementPermissions，因此不能落实 054.1 对 451 效果移动的禁止。" +
+    "Standard Move 的限制检查、this-turn 到期、ready/draw 和 Reaction 链执行已有证据；缺口仅为效果移动限制消费。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {

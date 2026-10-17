@@ -6,11 +6,12 @@ import program from "../../../dist/cards/rad/hexplosive-minefield.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import kill from "../../../../engine-core/dist/effects/instructions/effect.kill.js";
-import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { AwaitChoice, runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 
 const [speed, play] = program.abilities;
 const [killInstruction, delayedPlay] = play.body;
+const [chooseBattlefield, playBombs] = delayedPlay.args.body.value;
 const targetId = killInstruction.targets[0].id;
 
 /**
@@ -61,12 +62,12 @@ test("rad-142-167 Hexplosive Minefield: program validates and has expected ident
   );
 });
 
-test("rad-142-167 Hexplosive Minefield: judgeReason names the delayed op, the destination and the Bomb definition gaps", () => {
+test("rad-142-167 Hexplosive Minefield: judgeReason names the delayed op, full location candidates and the Bomb definition gaps", () => {
   assert.match(program.judgeReason, /trigger\.delayed/);
   assert.match(program.judgeReason, /390/);
   assert.match(program.judgeReason, /440\.2\.c/);
   assert.match(program.judgeReason, /187\.12/);
-  assert.match(program.judgeReason, /RIFT-357/);
+  assert.match(program.judgeReason, /LocationState/);
 });
 
 test("rad-142-167 Hexplosive Minefield: structure — Action keyword, any-number kill, delayed token play", () => {
@@ -106,19 +107,49 @@ test("rad-142-167 Hexplosive Minefield: structure — Action keyword, any-number
     key: "killed"
   });
   assert.equal(delayedPlay.args.body.kind, "constant");
-  const [playBombs] = delayedPlay.args.body.value;
+  assert.equal(delayedPlay.args.body.value.length, 2);
+  assert.equal(chooseBattlefield.op, "condition.value");
+  assert.deepEqual(chooseBattlefield.args.value, {
+    kind: "location",
+    value: { kind: "choose", id: "hexplosive-minefield.battlefield", filter: { type: "battlefield" } }
+  });
   assert.equal(playBombs.id, "hexplosive-minefield.play-bombs");
   assert.equal(playBombs.op, "effect.token");
   assert.deepEqual(playBombs.args.token, { kind: "constant", value: "bomb" });
   assert.deepEqual(playBombs.args.mode, { kind: "constant", value: "play" });
-  assert.deepEqual(playBombs.args.locations, {
-    kind: "constant",
-    value: [{ type: "battlefield", id: "hexplosive-minefield.chosen-battlefield" }]
+  assert.deepEqual(playBombs.args.location, {
+    kind: "linked-value", instructionId: chooseBattlefield.id, key: "value"
   });
-  assert.deepEqual(playBombs.args.choiceId, {
-    kind: "constant",
-    value: "hexplosive-minefield.battlefield"
+  assert.deepEqual(playBombs.args.amount, {
+    kind: "linked-value", instructionId: delayedPlay.id, key: "count"
   });
+  assert.equal(chooseBattlefield.targets, undefined);
+  assert.equal(playBombs.targets, undefined);
+});
+
+test("rad-142-167 Hexplosive Minefield supported delayed body: one public non-target choice binds the shared battlefield", () => {
+  const field = { type: "battlefield", id: "later-field" };
+  const other = { type: "battlefield", id: "other-field" };
+  const kernel = world().unit("field-marker", { location: field })
+    .unit("other-marker", { location: other }).base("base-unit").build();
+  const before = kernel.snapshot();
+  const choiceKey = `${chooseBattlefield.id}/hexplosive-minefield.battlefield`;
+  // Only the original supported location instruction runs here. Delayed
+  // registration and its captured killed count are still pending dependencies.
+  assert.throws(() => resolveChainBody([chooseBattlefield], kernel), error => {
+    assert.ok(error instanceof AwaitChoice);
+    assert.deepEqual(error.request, {
+      id: choiceKey, type: "mode", chooser: "A", visibility: "public", options: [field, other]
+    });
+    return true;
+  });
+  assert.deepEqual(kernel.snapshot(), before);
+  kernel.setAnswers({ [choiceKey]: other });
+  const outcome = resolveChainBody([chooseBattlefield], kernel);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.linkedValues[`${chooseBattlefield.id}.value`], other);
+  assert.deepEqual(outcome.events, []);
+  assert.deepEqual(kernel.snapshot(), before);
 });
 
 test("rad-142-167 Hexplosive Minefield: 'Kill any number of friendly Bomb tokens' kills the chosen Bomb tokens", () => {
@@ -182,6 +213,6 @@ test.todo(
 );
 test.todo(
   "rad-142-167 Hexplosive Minefield: playing NEW Bomb tokens to a single battlefield needs a " +
-    "resolution-time battlefield destination (CR 440.2.c / 185.2.a / 350.2 / 354 / 355.9.a.4) and the " +
-    "Bomb gear token definition with its Deploy + Deathknell abilities (CR 187.12) — RIFT-357"
+    "complete battlefield candidate list at resolution (CR 355.10.b), the delayed captured count, and the " +
+    "Bomb gear token definition with its Deploy + Deathknell abilities (CR 187.12); the location expression is merged"
 );

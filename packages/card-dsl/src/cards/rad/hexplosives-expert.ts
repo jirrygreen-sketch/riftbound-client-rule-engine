@@ -28,16 +28,16 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   sand-soldier / mech / reflection / tentacle，并明确记录“需要其他能力（含 Gold）
  *   的定义保持 blocked / judge-required”。Bomb 带 [Deploy] 与 [Deathknell] 两条
  *   能力，仍需要专门的 token 定义与能力展开才能执行。
- * - “to a battlefield” 的合法地点无法由冻结 IR 生成：effect.token 的 location 必须
- *   求值为字面 LocationRef（{type:"battlefield", id}），options 形式（locations +
- *   choiceId）要求作者侧提供完整的合法地点列表，而 IR 的 Expr 没有“当前所有战场”
- *   这样的集合表达式（355.2.a 的合法位置由规则流程产生）；地点选择仍依赖当前的位置选择契约。
+ * - “to a battlefield” 已能用 LocationExpr 的 choose + battlefield 过滤表达。
+ *   condition.value 绑定所选地点后，effect.token 用 linked-value 消费，兼容其 Expr schema。
+ *   仍需把完整战场列表接入该表达式的候选生成：目前只从对象 location 推导候选，
+ *   未出现在这些位置中的空战场需要外部 LocationState，而表达式路径尚未传入该列表。
  * - 括号里的 [Deploy] / [Deathknell] 是同一 token 能力的提醒文本，不是本卡的
  *   另一条独立能力；展开由 token 定义与 830 / 808 关键词负责（Deploy 的 KeywordDef
  *   已合入，Deathknell 的展开体仍引用未注册的 trigger.leave）。
  * 已可执行并有真实证据：印刷的 1 Energy + 1 [A] Power + Exhaust 费用由已合入的
  * 费用计划构建并支付（符费用与控制器任意域 Power 匹配，见 golden）。
- * 依赖：effect.token 的 Bomb 定义、Bomb 能力展开与位置选择（RIFT-357）。
+ * 依赖：effect.token 的 Bomb 定义、Bomb 能力展开与完整战场候选注入。
  */
 const abilities: Ability[] = [
   {
@@ -60,18 +60,32 @@ const abilities: Ability[] = [
     },
     body: [
       {
+        id: "hexplosives-expert.choose-battlefield",
+        op: "condition.value",
+        args: {
+          value: {
+            kind: "location",
+            value: {
+              kind: "choose",
+              id: "hexplosives-expert.battlefield",
+              filter: { type: "battlefield" }
+            }
+          }
+        }
+      },
+      {
         id: "hexplosives-expert.play-bomb",
         // 440.2.c / 185.2.a：在链上创建 Bomb gear token 后交给 play 动作。
-        // location 用字面 “某个战场” 的占位 id：IR 无法枚举当前合法战场（见
-        // judgeReason），实际结算仍需由位置选择绑定提供运行时地点。
+        // 地点由前一条非目标选择绑定，避免把占位 id 当成真实战场。
         op: "effect.token",
         args: {
           token: { kind: "constant", value: "bomb" },
           amount: { kind: "constant", value: 1 },
           mode: { kind: "constant", value: "play" },
           location: {
-            kind: "constant",
-            value: { type: "battlefield", id: "battlefield-chosen-by-effect" }
+            kind: "linked-value",
+            instructionId: "hexplosives-expert.choose-battlefield",
+            key: "value"
           },
           linkKey: { kind: "constant", value: "bombToken" }
         }
@@ -86,12 +100,10 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "保持 judge-required：缺 187.12 的 Bomb gear token 定义；effect.token 的已实现定义表只有 recruit / sand-soldier / mech / reflection / " +
-    "tentacle；Bomb 带 [Deploy] 与 [Deathknell] 两条能力，仍需要专门的 token 定义与能力展开才能执行。" +
-    "打出位置 “to a battlefield” 同样不可表达：effect.token 的 location 必须求值为字面 LocationRef，" +
-    "locations + choiceId 需要作者侧给出完整合法地点列表，而当前 IR 没有“当前所有战场”的集合表达式（355.2.a；依赖 RIFT-357）。" +
-    "已可执行并有真实证据：1 Energy + 1 [A] Power + Exhaust 的费用由已合入的费用计划构建并支付。" +
-    "依赖：effect.token 的 Bomb 定义、Bomb 能力展开与 RIFT-357 的位置选择；不近似实现。",
+    "保持 judge-required：effect.token 仍缺 187.12 的 Bomb gear token 定义及其 Deploy/Deathknell 正文绑定；" +
+    "Deathknell 展开仍引用未注册的 trigger.leave。另缺完整战场候选注入：355.2.a 的非目标地点选择已能表达，" +
+    "但 queryLocationCandidates 目前从对象 location 推导候选，LocationExpr 路径未传入外部 LocationState，" +
+    "无法保证包含未被对象位置引用的空战场。",
   abilities,
   sourceText:
     ":rb_energy_1::rb_rune_rainbow:, :rb_exhaust:: Play a Bomb gear token to a battlefield. " +

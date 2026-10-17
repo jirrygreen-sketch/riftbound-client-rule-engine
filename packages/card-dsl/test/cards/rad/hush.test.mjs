@@ -124,8 +124,7 @@ test.todo(
   "rad-041-167 Hush: the 'Power cost [rainbow][rainbow] or more' restriction (355.9.b) needs a " +
     "Finalize-time targeting restriction; the merged filter pipeline (layers/filter.ts) has no " +
     "numeric comparator, an instruction condition is evaluated only after targets lock " +
-    "(yielding skipped, not an illegal finalize per 355.8/355.17.b), and ObjectSnapshot.power is a " +
-    "domain list rather than a numeric Power cost"
+    "(355.8/355.17.b), and ObjectSnapshot.power is a domain list without the numeric powerCost reader"
 );
 test.todo(
   "rad-041-167 Hush: after the Power-cost target threshold is enforceable at Finalize, execute full CardProgram " +
