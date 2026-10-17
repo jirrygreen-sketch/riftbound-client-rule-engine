@@ -5,8 +5,10 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/rad/boy-who-shattered-time.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import empower from "../../../../engine-core/dist/effects/instructions/effect.empower.js";
+import empowerDef from "../../../../engine-core/dist/effects/keywords/Empower.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 
 const CANONICAL_ID =
   "card.hash-ad1eab15fd49b5de8236cadaa8e7c053d23218fb204a265a51a5ae2311445f11";
@@ -29,22 +31,62 @@ test("rad-139-167 Boy Who Shattered Time: identity, status and verbatim sourceTe
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   // The judgeReason must name the real gaps, not a generic complaint
-  // (cards README §2): the missing Empower KeywordDef, the Disempower cost,
-  // cost.modify and the granted end-of-turn kill.
+  // (cards README §2): the missing KeywordAbility cost carrier, the
+  // Disempower cost, cost.modify's next-unit consumer and the granted
+  // end-of-turn kill.
   assert.match(program.judgeReason, /Empower/);
+  assert.match(program.judgeReason, /KeywordAbility/);
+  assert.match(program.judgeReason, /params\.cost/);
+  assert.match(program.judgeReason, /Unsupported cost kind empower/);
   assert.match(program.judgeReason, /disempower/);
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /下一张打出的单位/);
   assert.match(program.judgeReason, /grant-ability/);
   assert.match(program.judgeReason, /163\.2\.b/);
+  assert.equal(program.judgeReason.includes("KeywordDef 尚无归属任务号"), false);
 });
 
-test("rad-139-167 Boy Who Shattered Time: [Empower] is declared as a keyword ability, not re-expanded", () => {
+test("rad-139-167 Boy Who Shattered Time: [Empower] stays a declaration while the merged KeywordDef expands it", () => {
   // cards README §5: the keyword is only declared; its printed 1 Energy +
   // Exhaust cost and its "Play only if not Empowered." restriction
-  // (827.1.c.1–c.2) belong to the EffectIR "Empower" KeywordDef, which is not
-  // merged (kw-empower). The card must not add IR fields of its own.
+  // (827.1.c.1–c.2) belong to the merged EffectIR "Empower" KeywordDef.
+  // The card still must not add a private re-expansion.
   assert.deepEqual(empowerKeyword, { kind: "keyword", keyword: "empower" });
+});
+
+test("rad-139-167 Boy Who Shattered Time: merged Empower expansion executes its source effect, but the card cost carrier is still blocked", () => {
+  const printedCost = {
+    kind: "activated",
+    energy: { kind: "constant", value: 1 },
+    payments: [{ kind: "exhaust", object: "self" }]
+  };
+  const [expanded] = empowerDef.expand({
+    host: { canonicalCardId: CANONICAL_ID },
+    params: { cost: printedCost }
+  });
+  assert.equal(expanded.kind, "activated");
+  assert.deepEqual(expanded.cost, printedCost);
+  assert.equal(expanded.body[0].op, "effect.empower");
+
+  const kernel = world()
+    .unit("ekko", { zone: "board", types: ["legend"], controller: "A", empowered: 0 })
+    .build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("ekko") });
+  const outcome = runAbilityBody(expanded.body, scoped);
+  assert.equal(outcome.status, "executed");
+  assert.equal(scoped.getObject("ekko").empowered, 1);
+  assert.deepEqual(outcome.events.map(event => event.action), ["empower"]);
+
+  const boundSource = world()
+    .unit("bound-ekko", { cardId: CANONICAL_ID, zone: "board", types: ["legend"], controller: "A" })
+    .build();
+  const binding = createProgramBinding({
+    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
+  });
+  assert.throws(
+    () => binding.describeActivate(boundSource.getObject("bound-ekko"), "A", 1),
+    /Unsupported cost kind empower/
+  );
 });
 
 test("rad-139-167 Boy Who Shattered Time: Disempower + Exhaust activated ability structure", () => {
@@ -116,6 +158,20 @@ test("rad-139-167 Boy Who Shattered Time: the Exhaust payment kind itself is mer
   assert.deepEqual(built.total.actions.map(action => action.action.type), ["exhaust"]);
 });
 
+test("rad-139-167 Boy Who Shattered Time: the printed Disempower payment is still rejected by the cost planner", () => {
+  const kernel = world()
+    .unit("ekko", { zone: "board", types: ["legend"], controller: "A" })
+    .build();
+  const ctx = kernel.clone({ sourceSnapshot: kernel.getObject("ekko") });
+  assert.throws(
+    () => buildCostPlan(ctx, {
+      id: "boy-who-shattered-time-disempower",
+      cost: { kind: "activated", payments: [{ kind: "disempower", object: "self" }] }
+    }),
+    /Unsupported payment kind: disempower/
+  );
+});
+
 test("rad-139-167 Boy Who Shattered Time: effect.empower executes the Disempower half", () => {
   // 443.1 / 443.2: the merged effect.empower primitive performs the
   // Disempower game action on the ability source once the state exists. The
@@ -176,12 +232,6 @@ test("rad-139-167 Boy Who Shattered Time: opponent-side player is unaffected by 
   assert.deepEqual(scoped.zone("B", "board").map(ref => ref.id), ["enemy"]);
   assert.deepEqual(scoped.zone("A", "board").map(ref => ref.id), ["ekko"]);
 });
-
-test.todo(
-  "rad-139-167: expand the [Empower] keyword (827.1.c “Empower [Cost]” with the printed " +
-    "1 Energy + Exhaust cost and the “Play only if not Empowered” restriction) once " +
-    "effects/keywords/empower.ts is merged (no assigned task yet)"
-);
 
 test.todo(
   "rad-139-167: reduce the cost of the next unit played this turn by 2 Energy and 1 [A] " +

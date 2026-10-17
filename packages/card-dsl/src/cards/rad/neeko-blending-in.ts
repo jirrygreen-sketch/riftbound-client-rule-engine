@@ -27,9 +27,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * status 判定（cards/README.md 第 2 节）：judge-required（2026-10-17 复核）。card-played
  * 触发注册已合入且实测可绑定（program:neeko:1:0）；三处依赖仍缺，执行该 body 实测抛
  * Unregistered instruction opcode: effect.create-legend：
- * 1. ZoneId 没有 legend-zone 成员（见 effect.empower / effect.exhaust / effect.stun 的
- *    同款契约缺口注释），也没有已注册的 "effect.create-legend" 原语把传奇 Create 到
- *    Legend Zone（440.2.b.4 / 107.4.d.1）；
+ * 1. CardProgram 使用的 ZoneId 与 effect.zone 的 ZoneDestination 都没有 legend-zone
+ *    成员（见 effect.empower / effect.exhaust / effect.stun 的同款契约缺口注释），也没有
+ *    已注册的 "effect.create-legend" 原语把传奇 Create 到 Legend Zone（440.2.b.4 / 107.4.d.1）；
  * 2. 运行期读不到构筑期决定的"those legends"：CardProgram.deckbuilding 有 IR 与校验，但
  *    engine-core/src/deck/index.ts 仍是 `export {}`，没有消费方把决定变成运行期名单；
  * 3. "while I'm on the board"（107.4.d.2）需要来源离场时移除该传奇：契约 Duration 已有
@@ -70,7 +70,8 @@ const program = {
   judgeReason:
     "2026-10-17 复核后仍有三处真实缺口：" +
     "(1) 把传奇加入 Legend Zone 是 Create 动作（CR 440.2.b.4/107.4.d.1），" +
-    "但契约 ZoneId（effects/contract.ts）没有 legend-zone 成员，也没有已注册的 effect.create-legend 原语——" +
+    "但 CardProgram 使用的 ZoneId 与 effect.zone 的 ZoneDestination（effects/contract.ts / effect.zone.ts）都没有 legend-zone 成员，" +
+    "也没有已注册的 effect.create-legend 原语——" +
     "card-played 触发与程序绑定均已合入并实测注册成功，但执行该 body 实测抛 " +
     "Unregistered instruction opcode: effect.create-legend；" +
     "(2) 运行期没有消费 CardProgram.deckbuilding 的 103.1 决定（engine-core/src/deck/index.ts 仍是 export {}），" +

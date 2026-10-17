@@ -37,6 +37,8 @@ test("rad-167-167 Neeko, Blending In: judgeReason names the three current gaps w
   // Rule-level anchors stay durable as dependencies merge; the reason must
   // name each missing piece and its owner.
   assert.match(program.judgeReason, /legend-zone/);
+  assert.match(program.judgeReason, /ZoneDestination/);
+  assert.match(program.judgeReason, /effect\.zone\.ts/);
   assert.match(program.judgeReason, /103\.1/);
   assert.match(program.judgeReason, /440\.2\.b\.4/);
   assert.match(program.judgeReason, /107\.4\.d\.2/);
