@@ -34,7 +34,7 @@ test("rad-024-167 Blossoming Dreamroot: the judgeReason names the actual merged 
   assert.match(program.judgeReason, /combat-result/);
   assert.match(program.judgeReason, /468\.3/);
   assert.match(program.judgeReason, /here/);
-  assert.match(program.judgeReason, /RIFT-357/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-357/);
 });
 
 test("rad-024-167 Blossoming Dreamroot: [Deploy] plus the combat-result trigger with a draw body", () => {
@@ -83,5 +83,5 @@ test.todo(
 
 test.todo(
     "anchor in the EventPattern/ObjectFilter vocabulary (053.3 here / sameLocationAs); the merged " +
-    "validator's allow-list has neither, so the placeholder cannot be evaluated (RIFT-357)."
+    "validator's allow-list has neither, so the placeholder cannot be evaluated."
 );

@@ -26,8 +26,8 @@ test("black-rose-sanctum: passes validateCardProgram and carries the catalog ide
 test("black-rose-sanctum: judgeReason names the per-player base, the per-player frequency and the play flow", () => {
   assert.match(program.judgeReason, /their base/);
   assert.match(program.judgeReason, /once/);
-  assert.match(program.judgeReason, /RIFT-357/);
   assert.match(program.judgeReason, /effect\.token/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-357/);
 });
 
 test("black-rose-sanctum: object-killed trigger for a non-token unit dying at this battlefield", () => {
@@ -138,5 +138,5 @@ test.todo(
 );
 test.todo(
   "black-rose-sanctum: the source-Battlefield here anchor must bind the dying object to this " +
-    "Battlefield before the token-play body can trigger (RIFT-357)"
+    "Battlefield before the token-play body can trigger"
 );

@@ -44,7 +44,7 @@ import type { CardProgram } from "../../ir/index.js";
  *    placed on the chain regardless of its filter.
  * 3. The [Deploy] hold trigger also needs the source-Battlefield anchor and its
  *    location/cleanup consumers; the merged program lifecycle is present, but
- *    this trigger still fails closed on the unresolved `here` filter (RIFT-357).
+ *    this trigger still fails closed on the unresolved `here` filter.
  * The structure below keeps the printed trigger, its timing point and the draw
  * body for review; the golden test validates the data and executes the draw
  * instruction in isolation. Not approximated: the win condition is not widened
@@ -56,7 +56,7 @@ const blossomingDreamroot = {
   status: "judge-required",
   judgeReason:
     "三处缺口，均不近似实现：(0) [Deploy] 的 KeywordDef 已合入（effects/keywords/Deploy.ts），" +
-    "但其展开依赖的 hold 时点归属由 scoring 提供，且 Deploy 的来源战场锚点仍需 RIFT-357 的位置接线。" +
+    "但其展开依赖的 hold 时点归属由 scoring 提供，且 Deploy 的来源战场锚点仍缺运行期消费方。" +
     "(1)「here」需要来源战场身份进入触发 filter，" +
     "但已合入的 EventPattern/ObjectFilter 词汇没有位置锚点（events/trigger-spec.ts 的允许字段白名单不含 " +
     "here/sameLocationAs，引擎侧 assertTriggerSpec 同样拒绝），程序按同类战场卡保留 here: true 占位（053.3）。" +
@@ -64,7 +64,7 @@ const blossomingDreamroot = {
     "emit 进唯一事件管线：chain/engine.ts 只产生 chain-item-*/cleanup-*/showdown-*/card-played/became-target，" +
     "combat/flow.ts 的胜负/结果事务仍是 combat-start-transaction 阻断，时点产生方审计把 combat-result 列为「待后续」" +
     "（契约 §7.2 批 5）。(3) [Deploy] 的 hold 展开仍会被来源战场锚点的验证拒绝，" +
-    "需要进行中的 RIFT-357 位置接线。draw 1（414.3）本身已合入并由 golden 单独执行；" +
+    "draw 1（414.3）本身已合入并由 golden 单独执行；" +
     "不把 win a combat 放宽为战斗结束或无条件抽牌。",
   abilities: [
     // 830.1：印刷的 [Deploy] 声明（展开由 effects/keywords/Deploy.ts 负责，

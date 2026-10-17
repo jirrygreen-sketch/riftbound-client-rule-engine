@@ -34,7 +34,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   encoding once: "per-turn" would wrongly allow only one trigger per turn
  *   across both players instead of one per player.
  * - The source-Battlefield "here" anchor is not in the trigger filter vocabulary,
- *   so the dying object cannot be restricted to this Battlefield (RIFT-357).
+ *   so the dying object cannot be restricted to this Battlefield.
  * The trigger and the intended body stay recorded so the shape is reviewable.
  */
 export default {
@@ -45,7 +45,7 @@ export default {
     "「they play a 1 [M] Recruit unit token to their base」三处缺口：" +
     "（1）Token 目的地是每个死亡单位控制者的基地（\"their base\"），不是能力控制者的基地；" +
     "effect.token 明确只允许能力控制者的基地作为单位 Token 目的地，frozen create-token 动作的 player 是创建者、不是目的地玩家；" +
-    "（2）触发过滤中的 \"here\" 需要来源战场锚点，当前 EventPattern/ObjectFilter 没有该运行期位置选择（RIFT-357）；" +
+    "（2）触发过滤中的 \"here\" 需要来源战场锚点，当前 EventPattern/ObjectFilter 没有该运行期位置选择；" +
     "（3）「For each player, the first time each turn」是按玩家计的每回合首触发上限，TriggerSpec.once 只有单个注册的 per-turn/per-combat/per-chain/per-game，" +
     "写成 once:\"per-turn\" 会把两名玩家整体限成每回合一次，属错误近似；" +
     "Trigger 与效果形状（Recruit 187.1、mode: play、controller-base 占位）已保留供审查；golden 已验证 Recruit 定义与“play 模式到控制者基地”的真实执行，不近似实现。",
