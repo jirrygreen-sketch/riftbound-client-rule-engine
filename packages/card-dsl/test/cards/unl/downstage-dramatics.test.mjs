@@ -9,6 +9,10 @@ import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { abilitySpeed, expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { translateCost } from "../../../../engine-core/dist/programs/play.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-4d7df9f6e2c06a81e7fa39857ec0cf86cac9681d94b0fd33a777ff235214dee2";
@@ -34,7 +38,8 @@ test("unl-061-219 Downstage Dramatics: identity, ruleset, status, judgeReason an
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /Repeat/);
   assert.match(program.judgeReason, /820\.1\.d\.1/);
-  assert.match(program.judgeReason, /programs\/play\.ts/);
+  assert.match(program.judgeReason, /translateCost/);
+  assert.match(program.judgeReason, /repeat\.cost/);
   assert.match(program.judgeReason, /paid-instance count/);
   assert.doesNotMatch(program.judgeReason, /RIFT-85|RIFT-89|RIFT-91|RIFT-120|RIFT-257/);
   assert.equal(cardProgramsById.get(program.canonicalCardId), program);
@@ -136,7 +141,49 @@ test("unl-061-219 Downstage Dramatics golden: an empty Main Deck draws as many a
   assert.equal(kernel.player("A").deckSize, 0);
 });
 
-test.todo(
-  "unl-061-219 Downstage Dramatics: translate the Repeat CostSpec through programs/play.ts into " +
-    "cost-plan optionalAdditional and pass the paid-instance count to resolution (CR 820.1.c.1 / 820.1.d.1 / 820.3)"
-);
+test("unl-061-219 Downstage Dramatics boundary: the Repeat cost has no Finalize binding on either declaration path (CR 820.1.c.1)", () => {
+  // Re-probed 2026-10-17: the play ability's additional-cost declaration is
+  // refused by the production cost translator, and the Repeat keyword's own
+  // repeat.cost static effect is refused by the production static binder. No path
+  // therefore puts the optional component into a Finalize plan, and no
+  // paid-instance count reaches resolution.
+  assert.throws(
+    () => translateCost(play.cost, "downstage-dramatics", "play"),
+    (error) => error.code === "judge-required" && /Unsupported play cost field keyword/.test(error.message)
+  );
+  const repeat = keywordDefinitionsById.get("Repeat");
+  const [repeatCost] = repeat.expand({ host: { canonicalCardId: CANONICAL_ID }, cost: { energy: { kind: "constant", value: 2 } } });
+  assert.equal(repeatCost.effect.kind, "repeat.cost");
+  const board = fixture({
+    cards: [{ id: "downstage", cardId: CANONICAL_ID, types: ["spell"], energy: 2, power: null, might: null }]
+  });
+  assert.throws(
+    () => createEngineStaticBinder(board.engine).bindStatic(repeatCost, board.kernel.getObject("downstage")),
+    (error) => error.code === "judge-required" && /repeat\.cost/.test(error.message) && /no layer mapping/.test(error.message)
+  );
+});
+
+test("unl-061-219 Downstage Dramatics boundary: Draw 1 is the only authored body, so no extra execution is hard-coded (CR 820.1.d.1)", () => {
+  // The card must not approximate Repeat by drawing twice. The interpreter's own
+  // repeat control node really repeats a body once per paid instance, but nothing
+  // derives that count from this card; the authored resolution still draws once.
+  const kernel = world().deck(["top-card", "second-card", "third-card"], { owner: "A" }).build();
+  const outcome = resolveChainBody(play.body, kernel);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map((entry) => entry.id), ["downstage-dramatics.draw-one"]);
+  assert.equal(kernel.player("A").handSize, 1);
+  assert.deepEqual(kernel.objectsInZone("A", "hand").map((ref) => ref.id), ["top-card"]);
+
+  const repeatedKernel = kernel.clone();
+  const repeated = resolveChainBody([{
+    id: "repeat-scope",
+    op: "repeat",
+    args: { count: { kind: "constant", value: 1 }, body: { kind: "constant", value: [drawInstruction] } }
+  }], repeatedKernel);
+  assert.equal(repeated.status, "executed");
+  // The interpreter records the repeat iteration count as the control node's
+  // receipt; the nested draw itself records the drawn card.
+  assert.equal(repeated.linkedValues["repeat-scope.count"], 1);
+  assert.equal(repeated.linkedValues["repeat-scope/0/downstage-dramatics.draw-one.drawn"], 1);
+  assert.equal(repeatedKernel.player("A").handSize, 2);
+});

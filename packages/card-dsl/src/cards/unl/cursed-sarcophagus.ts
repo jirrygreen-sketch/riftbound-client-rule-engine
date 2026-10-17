@@ -19,10 +19,16 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （CR 394–398：398 明确规定组件能力只能与同一组能力影响的对象互动）。
  * - "(You must pay its costs.)" 要求按正常 Play 流程支付该单位的印刷费用（420.3）。
  *
- * Status: judge-required. Current source audit:
- * Trash-unit banishment executes. The second chain item needs the first
- * ability's persistent, incarnation-scoped banishment records. Normal printed
- * costs already flow through effect.play -> Chain Finalize when cost is omitted.
+ * Status: judge-required. Re-checked 2026-10-17 against merged source:
+ * the trash banishment executes and links its receipt (golden), and the normal
+ * printed-cost path through effect.play -> Chain Finalize works when the pick is
+ * provisioned (golden). The blocker is that record's lifetime and provenance:
+ * linked values live on the interpreter/ResolveContext (`ctx.link` writes to the
+ * resolving context's link map, and chain/picks/plan.ts computes ordered-pick
+ * plans per chain item), so a receipt written while the play effect resolves is gone by the time
+ * the activated ability resolves later. Nothing in the merged code stores
+ * "units banished with this" per source incarnation for a later activation, so
+ * the activated ability cannot limit its choice to this card's own banishment.
  */
 const abilities: Ability[] = [
   {
@@ -98,9 +104,12 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "缺跨能力、按本卡入区身份保存的 Linked Ability 放逐记录（CR 394–398/428.3.a）：当前 linked 仅保存解析结果，" +
-    "没有按本卡来源保存并在下一次启动时恢复的对象关联。effect.play 的 Finalize 选牌因而无法限定为本卡放逐的单位，" +
-    "不能查询整个 banishment 混入其他来源。",
+    "仍缺跨能力、按本卡入区身份保存的 Linked Ability 放逐记录（CR 394–398/428.3.a，2026-10-17 复核）：" +
+    "放逐本身可执行且会写出 { count, objects, source } 回执（golden 已断言），但该回执只存在于解析该效果时的解释器/ResolveContext linked 作用域——" +
+    "同一个响应内可读，跨链项（本卡是触发器解析后再单独启动能力）不可读；chain/picks/plan.ts 的 ordered pick plan 也按链项现算，不是按来源保存的历史。" +
+    "合并代码里没有按本卡入区身份持久保存并在下一次启动时恢复的对象关联，effect.play 的 Finalize 选牌因此无法限定为“本卡放逐的单位”，" +
+    "也不能退化为查询整个 banishment（会混入其它来源的放逐对象，实测需要外部 provision 才能跑通 golden）。" +
+    "已合入并可执行：When you play this 的 trash→banishment 放逐与 effect.play + Chain Finalize 的正常印刷费用支付。",
   abilities,
   sourceText:
     "When you play this, banish all units from your trash.\n" +

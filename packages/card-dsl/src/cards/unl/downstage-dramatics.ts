@@ -18,24 +18,30 @@ import type { CardProgram } from "../../ir/index.js";
  *   （190.6.d 的隐含 “you”），以已合入的 effect.draw 执行；414.4 的牌库不足 Burn Out
  *   由内核处理。
  *
- * status = judge-required（README 第 2 节）：正文指令（effect.draw）本身已合入并可真实执行，
- * 但整卡依赖 [Repeat] 的追加费用收取与「已付费实例数 → 额外执行一次」的接线：
- * effects/keywords/Repeat.ts 已声明 repeat.cost，cost-plan 也有 optionalAdditional 与已付实例
- * 的数据结构；但 programs/play.ts::translateCost 仍拒绝 additional/additional-cost，且打出后的
- * paid-instance count 尚未传给结算端。按 README 第 2 节，仅结构校验通过或 IR 可表达不算可执行，
- * 故保持 judge-required；不把「额外执行」近似成写死的第二次 draw。Reaction 的关键词展开和
- * continuous.timing 原语已有独立执行路径，不再作为本卡缺口。
+ * status = judge-required（README 第 2 节，2026-10-17 复核）。已合入并可执行：Reaction 的
+ * 关键词展开（continuous.timing 授权 showdown/closed-state，abilitySpeed 得出 reaction）与
+ * 正文 Draw 1（414.3，golden 真实执行、含空牌库边界）。仍缺 [Repeat] 的两段接线：
+ * (1) 追加费用声明无法进入 Finalize：programs/play.ts::translateCost 直接拒绝 additional-cost
+ * （实测 "Unsupported play cost field keyword"），而 effects/keywords/Repeat.ts 展开的 static
+ * repeat.cost 也被 programs/statics.ts 的 layerFor 拒绝（"no layer mapping"），因此费用计划里
+ * 不会出现该可选组件，也不会被收取；(2) 已付费实例数没有传到结算端，解释器内建 repeat 指令的
+ * 「支付一次多执行一次」（CR 820.1.d.1/820.2.a）无从触发。按 README 第 2 节，仅结构校验或
+ * cost-plan 数据结构存在不算可执行，故保持 judge-required；不把额外执行近似成写死的第二次 draw。
  */
 const downstageDramatics = {
   canonicalCardId: "card.hash-4d7df9f6e2c06a81e7fa39857ec0cf86cac9681d94b0fd33a777ff235214dee2",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Repeat] :rb_energy_2: 的接线未合入：820.1.c.1 的追加费用收取与 820.1.d.1 的「已付费实例数 → 结算时额外执行一次」" +
-    "需要 programs/play.ts::translateCost 把 additional/additional-cost 翻译为 cost-plan 的 optionalAdditional，" +
-    "并由打出/结算管线把 paid-instance count 交给 Repeat 的额外执行；当前两段接线都不存在，因此整卡不能宣称可执行。" +
-    "正文「Draw 1」（414.3，控制者抽牌）只用已合入的 effect.draw，golden 用参考内核真实执行；" +
-    "不把额外执行近似成写死的第二次 draw。Reaction（813）已由 KeywordDef、continuous.timing 与 chain.canAct 支持。",
+    "仍缺 [Repeat] :rb_energy_2: 的两段接线（2026-10-17 复核，均不近似实现）：" +
+    "(1) 追加费用进入 Finalize（CR 820.1.c.1）：programs/play.ts::translateCost 仍拒绝 additional-cost 声明" +
+    "（实测 \"Unsupported play cost field keyword\"），effects/keywords/Repeat.ts 展开的 static repeat.cost 也被 " +
+    "programs/statics.ts 的 layerFor 拒绝（\"Static ability kind repeat.cost has no layer mapping\"），" +
+    "费用计划因此不会包含该可选组件，也不会收取；已有 cost-plan 的 optionalAdditional/回执只是调用方输入，不能代替卡牌声明绑定；" +
+    "(2) 已付费实例数 → 结算端额外执行（CR 820.1.d.1/820.2.a）：没有任何路径把 paid-instance count 交给解释器内建 repeat 指令，" +
+    "\"pay once, execute once more\" 无法触发。" +
+    "已合入并可执行：Reaction 展开（continuous.timing + abilitySpeed）与正文 Draw 1（414.3，golden 含空牌库边界）；" +
+    "不把额外执行近似成写死的第二次 draw。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {

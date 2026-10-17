@@ -10,6 +10,12 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { translateCost } from "../../../../engine-core/dist/programs/play.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-461012a9889f3812c0033854e007b78f0f8ad1f1d1ef943bf505bfd5defabca6";
@@ -69,7 +75,13 @@ test("unl-182-219 Curtain Call: identity, status, judgeReason and verbatim sourc
   // primitive itself is merged and executable.
   assert.match(program.judgeReason, /820\.1\.c\.2/);
   assert.match(program.judgeReason, /820\.1\.d\.1/);
-  assert.match(program.judgeReason, /Finalize optionalAdditional/);
+  // Re-probed 2026-10-17: the Repeat costs are refused on both declaration
+  // paths, the mode memory is missing, and the production surface still blocks
+  // choice.mode.
+  assert.match(program.judgeReason, /Finalize/);
+  assert.match(program.judgeReason, /translateCost/);
+  assert.match(program.judgeReason, /repeat\.cost/);
+  assert.match(program.judgeReason, /820\.2\.a/);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /assertFinalizationSurface/);
 });
@@ -261,16 +273,61 @@ test("unl-182-219 Curtain Call golden: effect.draw and effect.damage are the mer
   assert.equal(kernel.player("A").handSize, 1);
 });
 
-test.todo(
-  "unl-182-219 Curtain Call: pay each printed [Repeat] additional cost (1 / rainbow rune / 1 + rainbow rune) and execute the spell's instructions an additional time per paid instance " +
-    "(CR 820.1.c.1–820.1.d.1; Repeat still needs CardProgram-to-Finalize payment/count wiring)"
-);
-test.todo(
-  "unl-182-219 Curtain Call: remember the modes already chosen for this spell across executions so \"Choose one you haven't already chosen\" can exclude them (CR 355.3 / 820.2.a; choice.mode currently de-duplicates only within one selection request)"
-);
-test.todo(
-  "unl-182-219 Curtain Call: drive the card body through the production chain, whose Finalize surface currently blocks nested targets and resolution-time choice.mode (chain/engine.ts assertFinalizationSurface; production choice-plan adapter)"
-);
+test("unl-182-219 Curtain Call boundary: neither Repeat declaration reaches Finalize (CR 820.1.c.1/820.1.c.2)", () => {
+  // Re-probed 2026-10-17: the play ability's additional-cost declaration is
+  // refused by the production cost translator, and the Repeat keyword's own
+  // repeat.cost static effect has no layer mapping in the production binder.
+  // Finalize therefore never selects or pays an instance, and no paid-instance
+  // count exists for an extra execution.
+  assert.equal(play.cost.kind, "additional-cost");
+  assert.throws(
+    () => translateCost(play.cost, "curtain-call", "play"),
+    (error) => error.code === "judge-required" && /Unsupported play cost field keyword/.test(error.message)
+  );
+  const repeat = keywordDefinitionsById.get("Repeat");
+  const [repeatCost] = repeat.expand({ host: { canonicalCardId: CANONICAL_ID }, cost: play.cost.costs[0] });
+  assert.equal(repeatCost.effect.kind, "repeat.cost");
+  const board = fixture({
+    cards: [{ id: "curtain-call", cardId: CANONICAL_ID, types: ["spell"], energy: 4, power: null, might: null }]
+  });
+  assert.throws(
+    () => createEngineStaticBinder(board.engine).bindStatic(repeatCost, board.kernel.getObject("curtain-call")),
+    (error) => error.code === "judge-required" && /repeat\.cost/.test(error.message) && /no layer mapping/.test(error.message)
+  );
+});
+
+test("unl-182-219 Curtain Call boundary: mode selection has no per-spell memory and the production chain blocks choice.mode (CR 355.3/820.2.a)", () => {
+  // The interpreter de-duplicates only inside one request, so a second execution
+  // would ask "one you haven't already chosen" without remembering the first.
+  // Driving the same body twice shows the second request still offers all four
+  // modes, and the production surface refuses the body outright.
+  const kernel = world()
+    .unit("bf-unit", { owner: "B", might: 5, location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  kernel.setTargets("curtain-call.battlefield-unit", [kernel.ref("bf-unit")]);
+  const asked = [];
+  const chooser = (request) => {
+    if (request.type === "select-objects") return [...request.options];
+    if (request.type !== "mode") throw new Error(`Unexpected choice ${request.type}`);
+    asked.push([...request.options]);
+    // Always answer with the first mode: a per-spell memory would exclude it
+    // from the next request instead of offering it again.
+    return request.options[0];
+  };
+  const context = bindResolveContext(kernel, { choose: chooser });
+  resolveChainBody(executableBody(play.body), context);
+  resolveChainBody(executableBody(play.body), context);
+  assert.equal(asked.length, 2);
+  assert.deepEqual(asked[0], modes.map((mode) => mode.id));
+  assert.deepEqual(asked[1], asked[0]);
+
+  const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
+  const board = fixture({ cards: [{ id: "caster", cardId: CANONICAL_ID, types: ["spell"], energy: 4, power: null, might: null }] });
+  assert.throws(
+    () => binding.describePlay({ type: "play", player: "A", object: board.kernel.ref("caster") }, board.kernel.getObject("caster")),
+    (error) => error.constructor.name === "ProgramBindingError" && /Mode choices require a Finalize\/Resolve choice-plan adapter/.test(error.message)
+  );
+});
 
 test("unl-182-219 Curtain Call golden: the printed Deal 3 primitive damages only the locked base unit", () => {
   const kernel = world()

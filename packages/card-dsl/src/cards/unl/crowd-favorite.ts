@@ -29,18 +29,32 @@ import type { CardProgram } from "../../ir/index.js";
  *   { object: "self" } in the target filter (sett-brawler spelling), never a
  *   runtime ObjectRef.
  *
- * Status: judge-required. Current source audit:
- * Hunt expands and XP payment/Buff execute independently. Its conquer/hold
- * event spelling disagrees with EventPattern, and the scoring emission has
- * no conquering/holding unit identity for the self filter.
+ * Status: judge-required. Re-checked 2026-10-17 against merged source:
+ * the activated half is fully executable — the real cost plan spends exactly
+ * 2 XP and effect.buff places one Buff on the host (golden verified). The Hunt
+ * half still cannot subscribe: Hunt.ts expands to the timing points
+ * "conquer"/"hold", while the closed EVENT_PATTERN_TYPES vocabulary used by
+ * events/trigger-spec.ts is "conquered"/"held", so registerProgramTriggers
+ * throws invalid-event-type through the production adapter (probed). Even with
+ * the spelling fixed, turn/flow.ts emits { timingPoint, player, details } with
+ * details.battlefieldId and no object, so the expansion's source:"self" filter
+ * has no conquering/holding unit to match (CR 823.1.c.1).
  */
 export default {
   canonicalCardId: "card.hash-204eccc6166c5de77fb944367f972c5488c896a4054343aae4b3c15ca9b01b0f",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 Hunt 触发注册与计分单位归属接线（CR 823.1.c.1/823.2）：Hunt.ts 展开为 conquer/hold，但 events/trigger-spec.ts 的 EventPattern 只接受 conquered/held/scored，registerProgramTriggers 无法完成订阅。turn/flow.ts 的计分波只有 player 与 details.battlefieldId，没有 source:self 过滤器所需的征服/坚守单位对象，无法确定谁应获得 Hunt XP。",
+    "仍缺 Hunt 触发注册与计分单位归属接线（2026-10-17 复核，均不近似实现）：" +
+    "(1) 事件拼写不一致（CR 823.1.c.1/823.2）：Hunt.ts 的 KeywordDef 展开为 conquer/hold，" +
+    "而封闭 EVENT_PATTERN_TYPES（events/trigger-spec.ts）只接受 conquered/held/scored；" +
+    "实测经 createProgramBinding().registerProgramTriggers 注册时抛 TriggerSpecValidationError（invalid-event-type），订阅无法建立；" +
+    "(2) 计分载荷没有单位身份（CR 823.1.c.1）：即使拼写对齐，turn/flow.ts 的计分波只发出 " +
+    "{ timingPoint, player, details: { battlefieldId } }，没有 source:\"self\" 过滤器所需的征服/坚守单位对象，无法确定谁应获得 Hunt XP。" +
+    "已合入并可执行：Spend 2 XP 启动能力（费用计划真实支付 XP）与 effect.buff（golden 覆盖放置与已 Buff 的跳过）。",
   abilities: [
+    // 823.1.c.1 / 823.1.c.2：Hunt 是 Triggered Ability 关键词，缺省 X=1；
+    // 展开与订阅接线缺口见 judgeReason（不重写关键词逻辑）。
     { kind: "keyword", keyword: "hunt" },
     {
       kind: "activated",

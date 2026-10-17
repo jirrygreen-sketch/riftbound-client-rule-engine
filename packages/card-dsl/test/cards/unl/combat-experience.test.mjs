@@ -32,7 +32,10 @@ test("unl-031-219 Combat Experience: identity, status, judgeReason and verbatim 
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /824\.1/);
   assert.match(program.judgeReason, /XP/);
-  assert.match(program.judgeReason, /Buff/);
+  // The current gap is the missing XP read, refreshed 2026-10-17; the reason
+  // must name the evaluator that ignores the count subject.
+  assert.match(program.judgeReason, /subject/);
+  assert.match(program.judgeReason, /expr\.ts/);
 });
 
 test("unl-031-219 Combat Experience: [Reaction] plus the +1/+3 instead branches on one chosen unit", () => {
@@ -102,7 +105,28 @@ test("unl-031-219 Combat Experience golden: the non-Level branch registers +1 Mi
   assert.equal(engine.evaluate(kernel.ref("unit")).might, 4);
 });
 
-test.todo("unl-031-219 Combat Experience: evaluate the Level 6 XP predicate and its dynamic instead branch (CR 824.1.b.1 / 824.1.c / 824.1.d) — the merged Level declaration still lacks a controller-XP condition consumer");
+test("unl-031-219 Combat Experience boundary: the retained XP gate really counts objects, not the controller's XP (CR 824.1.b.1)", () => {
+  // Re-probed 2026-10-17: the merged interpreter evaluates `count` as
+  // queryObjects(filter).length and ignores `subject`, so the authored gate is
+  // not an XP read. These two kernels keep the object count and the XP total
+  // moving in opposite directions and assert exactly that inversion.
+  const withXpNoObjects = world().player("A", { xp: 6 }).unit("unit", { might: 4 }).build();
+  const withObjectsNoXp = world().player("A", { xp: 0 });
+  for (let index = 0; index < 7; index++) withObjectsNoXp.unit(`unit-${index}`, { might: 4 });
+  const populated = withObjectsNoXp.build();
+
+  const evaluate = (kernel) => resolveChainBody([{
+    id: "check-level-six",
+    op: "condition.predicate",
+    args: { condition: { kind: "constant", value: plusThreeInstead.condition } }
+  }], kernel).linkedValues["check-level-six.value"];
+
+  assert.equal(evaluate(withXpNoObjects), false);
+  assert.equal(evaluate(populated), true);
+  // Neither run is XP-gated: the "instead" branches therefore cannot be
+  // selected by this condition, so the card keeps judge-required.
+  assert.match(program.judgeReason, /不是 XP/);
+});
 
 
 test("unl-031-219 Combat Experience golden: the printed +3 primitive modifies Might and expires without adding a Buff", () => {

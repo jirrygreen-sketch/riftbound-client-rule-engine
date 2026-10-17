@@ -29,10 +29,17 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   "recall" 为 BLOCKED：封闭 move-location 动作无法区分 Recall 与 Move，原语
  *   返回 negated/impossible 与 blockedReason，且不得用普通移动近似（458）。
  *
- * Status: judge-required. Current source audit:
- * The cost plan can pay XP and the body can control/exhaust a locked object.
- * Card-declared optional costs, their target-range receipt, effective-Might
- * thresholds, and a Recall action still need production consumers.
+ * Status: judge-required. Re-checked 2026-10-17 against merged source:
+ * the cost plan really builds and pays a caller-supplied 5 XP optional component
+ * (cost/cost-plan.ts optionalAdditional), the merged condition.result predicate
+ * can read that receipt, and effect.control / effect.exhaust execute on a locked
+ * target. Still missing: (1) programs/play.ts rejects the card's cost.additional
+ * declaration outright ("Additional costs are not bound"), so Finalize never
+ * receives the optional component or its receipt; (2) programs/filters.ts
+ * translateObjectFilter rejects mightLte, so the printed "3 Might or less"
+ * restriction is never applied to the target range; (3) effect.move's recall mode
+ * still returns negated/impossible with blockedReason, because CR 457-460 need an
+ * action distinct from move-location.
  */
 const abilities: Ability[] = [
   {
@@ -71,7 +78,8 @@ const abilities: Ability[] = [
           {
             id: "conscription.enemy-unit",
             // 355.10.b：敌方单位是目标，「at a battlefield」只是 location 限制；
-            // mightLte 是 143.2.a 的描述性占位（见 judgeReason，无消费方）。
+            // mightLte 记录 143.2.a 的有效 Might 上限，生产过滤器翻译器仍拒绝该
+            // 字段（见 judgeReason 第 2 点），因此它不是可执行的 Finalize 限制。
             filter: {
               type: "unit",
               zone: "board",
@@ -115,7 +123,15 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "缺 programs/play.ts 将静态 cost.additional 接入 Finalize optionalAdditional 与支付决定回执，并据回执切换目标范围（CR 356.2.b/356.4.f.1）；现有 cost.pay 与 XP 费用计划不能代替此绑定。缺有效 Might 上限谓词（143.2.a）：programs/filters.ts 的 translateObjectFilter 仍拒绝 mightLte。effect.move 的 recall 模式仍被显式阻断；缺 CR 457–460 的独立 Recall 动作，不能以 move-location 近似。",
+    "仍缺三段接线（2026-10-17 复核，均不近似实现）：" +
+    "(1) programs/play.ts::translateCost 直接拒绝本卡的 cost.additional 声明（\"Additional costs are not bound for ...\"），" +
+    "Finalize 因此拿不到 optionalAdditional 组件与其支付回执，据回执切换目标范围（CR 356.2.b/356.2.b.1/356.4.f.1）无法执行；" +
+    "费用计划本身已能真实构建并支付调用方提供的 5 XP 组件，condition.result 也已能读回执，缺的只是卡牌声明→费用计划的绑定；" +
+    "(2) 有效 Might 上限（CR 143.2.a）：programs/filters.ts 的 translateObjectFilter 仍拒绝 mightLte（\"Unsupported filter field mightLte\"），" +
+    "TargetSpec 也没有动态数值谓词入口，Finalize 目标的 3 Might 上限不生效；" +
+    "(3) Recall（CR 457–460）：effect.move 的 recall 模式仍显式返回 negated/impossible 与 blockedReason" +
+    "（\"Recall requires an action distinct from Move\"），缺独立 Recall 动作，不能以 move-location 近似。" +
+    "已合入并可执行：effect.control 与 effect.exhaust（golden 已对锁定单位真实执行）、XP 费用计划与支付。",
   abilities,
   sourceText:
     "You may spend 5 XP as an additional cost to play this.\n" +

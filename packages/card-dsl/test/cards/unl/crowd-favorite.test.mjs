@@ -13,6 +13,8 @@ import { createProgramBinding } from "../../../../engine-core/dist/programs/inde
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { resolveChainBody as resolveProductionBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { triggerRegistrations, registerProgramTriggers } from "../../../../engine-core/dist/programs/triggers.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
 
 const CANONICAL_ID =
   "card.hash-204eccc6166c5de77fb944367f972c5488c896a4054343aae4b3c15ca9b01b0f";
@@ -186,6 +188,51 @@ test("unl-102-219 Crowd Favorite golden: the [Hunt] expansion's real xp body gra
   assert.equal(outcome.status, "executed");
   assert.equal(kernel.player("A").xp, 1);
   assert.equal(outcome.results[0].result.linkedValues.gained, 1);
+});
+
+test("unl-102-219 Crowd Favorite boundary: the [Hunt] expansion cannot subscribe — its event spelling is outside EventPattern (CR 823.1.c.1)", () => {
+  // Re-probed 2026-10-17: Hunt expands to the timing points conquer/hold while
+  // the closed EVENT_PATTERN_TYPES vocabulary accepts conquered/held/scored.
+  // Registering through the production adapter therefore throws a
+  // TriggerSpecValidationError, so the keyword never becomes a subscription.
+  const hunt = keywordDefinitionsById.get("Hunt");
+  const expanded = hunt.expand({ host: { canonicalCardId: CANONICAL_ID } });
+  assert.deepEqual(expanded.map((entry) => entry.trigger.filter.event), ["conquer", "hold"]);
+
+  const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
+  const board = fixture({
+    cards: [{ id: "crowd-favorite", cardId: program.canonicalCardId, types: ["unit"], energy: 3, power: [], might: 3 }]
+  });
+  const source = board.kernel.getObject("crowd-favorite");
+  const translated = triggerRegistrations(registry, source);
+  assert.deepEqual(translated.map((registration) => registration.spec.filter.event), ["conquer", "hold"]);
+  assert.throws(
+    () => registerProgramTriggers(registry, board.engine, source),
+    (error) => error.name === "TriggerSpecValidationError"
+      && error.issues.some((issue) => issue.code === "invalid-event-type")
+  );
+  assert.equal(board.engine.pipeline.triggers.size, 0);
+});
+
+test("unl-102-219 Crowd Favorite boundary: the scoring wave carries no conquering/holding unit for source:self (CR 823.1.c.1)", () => {
+  // The spelling gap is not the only blocker: the merged Score emission is
+  // { timingPoint, player, details: { battlefieldId } }. Without an object the
+  // expansion's source:"self" filter has nothing to match, so Hunt could not
+  // award XP to the right unit's controller even after the vocabulary is fixed.
+  const board = fixture({ cards: [] });
+  // The timing-point vocabulary the pipeline emits is conquer/hold; the closed
+  // EventPattern vocabulary that trigger specs accept is conquered/held, and the
+  // emission itself carries no object either way.
+  board.engine.emit({ timingPoint: "score", player: "A", details: { battlefieldId: "bf-1" } });
+  board.engine.emit({ timingPoint: "conquer", player: "A", details: { battlefieldId: "bf-1" } });
+  const scored = board.engine.pipeline.log.filter((event) => event.timingPoint === "score" || event.timingPoint === "conquer");
+  assert.equal(scored.length, 2);
+  for (const event of scored) {
+    assert.equal(event.player, "A");
+    assert.equal(event.object, undefined);
+    assert.deepEqual(event.details, { battlefieldId: "bf-1" });
+  }
+  assert.equal(scored.some((event) => event.source !== undefined), false);
 });
 
 test("unl-102-219 Crowd Favorite the binding inspects the authored activated cost/body while preserving judge-required", () => {
