@@ -68,11 +68,13 @@ test("applied-researchers: the Power component is 1 Power of any Domain without 
   assert.equal(powerDiscount.effect.minimum, undefined);
 });
 
-test("applied-researchers: the Empower keyword and the cost-modification op are still unmerged", () => {
+test("applied-researchers: the Empower keyword is unmerged and the cost op is instruction-level, not a consumer", () => {
   assert.equal(keywordDefinitionsById.get("Empower"), undefined);
   assert.equal(keywordDefinitionsById.get("Empowered"), undefined);
-  // static 分支不是靠某个缺失原语：continuous.cost-modification 不在 instructions 注册表里，
-  // 费用侧也没有读它的折扣通道（见 judgeReason）。
+  // 复核后的缺口形状：cost.pay / cost.modify 指令已注册，但 continuous.cost-modification
+  // 不是指令（static 效果走 bindStatic），费用计划侧也没有读它的折扣通道（见 judgeReason）。
+  assert.equal(instructionDefinitionsById.has("cost.pay"), true);
+  assert.equal(instructionDefinitionsById.has("cost.modify"), true);
   assert.equal(instructionDefinitionsById.has("continuous.cost-modification"), false);
 });
 

@@ -23,17 +23,16 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 053.1/355.10.g："me" 是能力宿主自身，不是目标。
  *
  * status = judge-required（三处依赖均不近似实现）：
- * 1. 缺 cost.pay 原语：effects/instructions/ 只注册了 effect.* 文件，RIFT-9 原语清单把 cost.pay
- *    列为必需（费用计划接线属 RIFT-89），因此 “you may pay :rb_rune_fury:” 的支付步没有已合入的
- *    执行路径（同 ven-162-166 Protective Sands 的记录）；程序里保留描述性 cost.pay 指令。
+ * 1. cost.pay 指令已随 RIFT-258 合入（golden 真实执行支付并产出 receipt），但生产触发接线未合入：
+ *    RIFT-89 的费用计划/触发接线仍在进行，攻击触发的支付步还没有 CardProgram → TriggerRegistration
+ *    的执行入口（同 ven-162-166 Protective Sands 的记录）。
  * 2. attack-declared 没有已合入的发出方：该 id 只出现在封闭枚举与关键词展开里，combat/ 不把它
  *    发进唯一事件管线，也没有订阅方把 CardProgram 的 triggered ability 注册成 TriggerRegistration
  *    （RIFT-120；同 ogn/crackshot-corsair 的记录）。
- * 3. “give me [Assault 2] this turn” 需要卡牌侧 continuous.grant-keyword 指令原语；
- *    effects/instructions/ 下没有该 op（RIFT-91 只合入图层引擎）。Assault 自身的展开文件
- *    effects/keywords/Assault.ts 已合入，但授予与注册入口未接通。
- * 依赖：RIFT-89（cost.pay 与费用计划）、RIFT-120（攻击时点发射与卡牌触发注册）、
- * RIFT-91（continuous.grant-keyword 卡牌侧入口）。
+ * 3. continuous.grant-keyword 指令已随 RIFT-258 合入且 golden 真实执行授予 [Assault 2]
+ *    （end-of-turn 到期，经 layers 引擎投影出关键词），但触发接线（第 2 条）仍使整条
+ *    攻击触发无法在生产管线中结算；Assault 自身的展开文件已合入。
+ * 依赖：RIFT-89（费用计划接线）、RIFT-120（攻击时点发射与卡牌触发注册）。
  * 已支持部分：choice.optional 的“可以”语义（拒绝时整条被选指令跳过）由 golden 用真实解释器 +
  * 参考内核执行。
  */
@@ -58,9 +57,9 @@ const abilities: Ability[] = [
             value: [
               {
                 id: "baccai-reaper.pay-fury",
-                // 描述性 cost.pay：RIFT-9 列为必需原语的支付指令，尚未有实现文件（见 judgeReason）。
+                // cost.pay 已合入（RIFT-258）；payments 承载 1 点 Fury Power 的可选支付。
                 op: "cost.pay",
-                args: { power: { kind: "constant", value: ["Fury"] } }
+                args: { payments: { kind: "constant", value: { power: ["Fury"] } } }
               },
               {
                 id: "baccai-reaper.grant-assault",
@@ -87,14 +86,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处依赖未合入：(1) 缺 cost.pay 原语——effects/instructions/ 只注册了 effect.* 文件，RIFT-9 原语清单把 cost.pay 列为必需" +
-    "（费用计划接线属 RIFT-89），所以「you may pay :rb_rune_fury:」的支付步没有已合入的执行路径，程序里保留描述性 cost.pay；" +
+    "三处依赖未合入：(1) cost.pay 指令已随 RIFT-258 合入（golden 真实执行 1 点 Fury Power 支付并产出 receipt），" +
+    "但 RIFT-89 的费用计划/触发接线未合入，生产管线还没有把攻击触发里的支付步接到 CardProgram 的执行入口；" +
     "(2) attack-declared 没有已合入的发出方——该 id 只出现在封闭枚举与关键词展开里，combat/ 不把它发进唯一事件管线，" +
     "也没有订阅方把 CardProgram 的 triggered ability 注册成 TriggerRegistration（RIFT-120，同 ogn/crackshot-corsair 的记录）；" +
-    "(3)「give me [Assault 2] this turn」需要卡牌侧 continuous.grant-keyword 指令原语，effects/instructions/ 下没有该 op" +
-    "（RIFT-91 只合入图层引擎；Assault 的展开文件虽已合入，但授予与静态注册入口未接通）。" +
+    "(3) continuous.grant-keyword 已随 RIFT-258 合入（golden 真实执行 [Assault 2] 授予，end-of-turn 到期并经 layers 引擎" +
+    "投影出关键词），但触发接线（第 2 条）仍使整条攻击触发无法在生产管线中结算；Assault 的展开文件已合入。" +
     "已支持部分：choice.optional 的「可以」语义（契约 3.9，拒绝时整条被选指令跳过）由 golden 用真实解释器 + 参考内核执行。" +
-    "依赖：RIFT-89、RIFT-120、RIFT-91。不近似实现。",
+    "依赖：RIFT-89、RIFT-120。不近似实现。",
   abilities,
   sourceText:
     "When I attack, you may pay :rb_rune_fury: to give me [Assault 2] this turn. " +

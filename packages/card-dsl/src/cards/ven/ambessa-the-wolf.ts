@@ -23,7 +23,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   369.2/438.7：Prevent 是 Delayed Replacement Effect）：战斗外的伤害事件被替换为“什么也不发生”。
  *   替代效果在动作执行前拦截（契约 3.5 的 GameAction 层），卡程序只能声明被替代的事件形状。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required，四处缺口见 judgeReason，
+ * status 判定（cards/README.md 第 2 节）：judge-required，三处缺口见 judgeReason，
  * 不近似实现（不把 +3 Might 写成 Buff，不把伤害防止写成伤害减免数值，也不用别的时点代替 Empowered）。
  */
 const abilities: Ability[] = [
@@ -93,9 +93,9 @@ export default {
     "“3 Energy + 1 Body Power：Empower me，仅当未 Empowered 时启动”无法展开（依赖新的 Empower/Empowered" +
     "关键词任务；RIFT-83/84 批次不含它们）；(2) 没有 Empowered 状态谓词——442.1.a 的二元状态不在 " +
     "ObjectSnapshot / Condition 里，两条依赖能力（828.1.b.1）的门槛不可求值，程序里的 empoweredCount " +
-    "只是描述性记录（依赖 RIFT-87 条件/谓词）；(3) 卡牌侧的 continuous.might 没有注册/求值原语，" +
-    "“I have +3 :rb_might:”无法产生图层修正（RIFT-91 只合入 layers 引擎，卡牌入口缺失）；" +
-    "(4) “can't be dealt damage unless I'm in combat”是 438.7 的伤害防止替代，但合并代码没有把 CardProgram 的" +
+    "只是描述性记录（依赖 RIFT-87 条件/谓词）；(3) continuous.might 原语已随 RIFT-258 合入（golden 真实执行 +3 " +
+    "并经 layers 引擎投影出有效 Might 4→7），但两条依赖能力的 Empowered 门控仍不可求值（同第 2 条）；" +
+    "(4) bindReplacement 已随 RIFT-258 合入且本卡 replacement 能 bind 成功（探针验证；438.7 的 Prevent 仍是 Delayed Replacement Effect），但合并代码没有把 CardProgram 的" +
     "replacement 能力注册成 ReplacementRegistration 的消费方（events/pipeline.ts 需要调用方提供 matches/apply；" +
     "RIFT-120 之后的 card-program 适配器未合入），伤害动作的 combat 分类也未接到该注册面。" +
     "不近似实现（不把 +3 Might 写成 Buff 计数器，也不把防止伤害改成数值减免）。",

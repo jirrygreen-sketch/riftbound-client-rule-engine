@@ -27,9 +27,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * status = judge-required（缺口均不近似实现）：
  * 1. 「your next card」是一次性（one-shot）费用改写窗口：Duration 只有 permanent /
  *    end-of-turn / end-of-combat / while-source-in-zone / until，没有 next-card 期限；
- *    cost.modify 也没有指令原语与「把折扣注册进本回合下一次 Finalize 的费用计划」的消费方
- *    （cost/cost-plan.ts 的 discounts 只在单次计划内生效，没有 CardProgram → CostPlan 接线；
- *    同 ogn/raging-firebrand、rad/boy-who-shattered-time 的记录）。
+ *    cost.modify 指令已合入注册表，但「把折扣注册进本回合下一次 Finalize 的费用计划」的消费方
+ *    仍缺：cost/cost-plan.ts 的 discounts 只在单次计划内生效，没有 CardProgram → CostPlan 接线
+ *    （RIFT-89；同 ogn/raging-firebrand、rad/boy-who-shattered-time 的记录）。
  * 2. 印刷的 :rb_rune_rainbow::rb_rune_rainbow: 是任意域 Power [A]：契约 3.6 的 Domain 是
  *    六域封闭枚举，effect.resources / 费用计划都明确记载 Universal Power 不可表示、不得用
  *    任一域近似，程序里以描述性 ["rainbow", "rainbow"] 记录。
@@ -64,7 +64,7 @@ const abilities: Ability[] = [
     body: [
       {
         id: "astral-heron.reduce-next-card",
-        // 356.4 的费用改写模板（cost.modify 属 RIFT-9 清单，未合入 effects/instructions）：
+        // 356.4 的费用改写模板（cost.modify 指令已合入，next-card 窗口与费用计划消费方属 RIFT-89）：
         // 对本回合打出的下一张牌减 2 Energy 与 2 点任意域 Power；window 是描述窗口的常量，
         // 不是对象引用。不写固定总价，也不自行改写印刷费用。
         op: "cost.modify",
@@ -88,7 +88,7 @@ export default {
   status: "judge-required",
   judgeReason:
     "四处依赖未合入，均不近似实现：(1)「your next card」是一次性费用改写窗口：Duration 只有 permanent/end-of-turn/" +
-    "end-of-combat/while-source-in-zone/until，没有 next-card 期限，cost.modify 也没有指令原语与「把折扣注册进本回合下一次" +
+    "end-of-combat/while-source-in-zone/until，没有 next-card 期限，cost.modify 指令已合入注册表，但「把折扣注册进本回合下一次" +
     " Finalize 的费用计划」的消费方（cost/cost-plan.ts 的 discounts 只在单次计划内生效，无 CardProgram → CostPlan 接线；" +
     "同 ogn/raging-firebrand、rad/boy-who-shattered-time），依赖 RIFT-89；" +
     "(2) 印刷的 :rb_rune_rainbow::rb_rune_rainbow: 是 2 点任意域 Power [A]（135.2.e.5.a / 163.2.b）：契约 3.6 的 Domain 是" +

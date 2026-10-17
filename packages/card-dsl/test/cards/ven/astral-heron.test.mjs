@@ -84,8 +84,8 @@ test("ven-044-166 Astral Heron: the discount is a next-card rewrite with 2 Energ
 });
 
 test.todo(
-  "ven-044-166 Astral Heron: apply the next-card discount while determining total cost (356.4) — no cost.modify " +
-    "instruction and no one-shot next-card window registered into a Finalize cost plan (RIFT-89)"
+  "ven-044-166 Astral Heron: apply the next-card discount while determining total cost (356.4) — cost.modify " +
+    "is merged, but no one-shot next-card window is registered into a Finalize cost plan (RIFT-89)"
 );
 
 test.todo(

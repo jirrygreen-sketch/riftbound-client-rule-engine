@@ -24,12 +24,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * status = judge-required（缺口均不近似实现）：
  * 1. 目标合法性限制没有消费方：契约 3.6 的封闭 GameAction 集合没有“限制被选为目标”的动作，
- *    effects/instructions 下没有 continuous.* 指令原语，target/target-plan.ts 只按调用方显式
- *    传入的 isLegal/taxAdapter 工作、不从特征派生；也没有已合入路径把 CardProgram 的 static
- *    能力注册成 ContinuousEffectSpec（RIFT-91 只交付图层引擎）。
+ *    target/target-plan.ts 只按调用方显式传入的 isLegal/taxAdapter 工作、不从特征派生；
+ *    也没有已合入路径把 CardProgram 的 static 能力注册成 ContinuousEffectSpec（RIFT-357 待合入）。
  * 2. "unless I'm in combat" 的例外需要战斗指定读数：契约 3.8 增补的 ObjectSnapshot.combatRole
  *    尚未进入 engine-core 的 effects/contract.ts（同 ogn/obelisk-of-power、rad/rakelstake）。
- * 3. 临时 Might +2 需要卡牌侧 continuous.might 原语与 this-turn 到期（RIFT-91 只合入图层求值侧）。
+ * 3. 临时 Might +2 的 continuous.might 原语已随 RIFT-258 合入（golden 真实执行），仍缺移动触发接线。
  * 4. object-moved 触发缺可判定载荷：events/action-adapter.ts 为 move-location 生成的事件不填
  *    toZone/toKind，内层锚点 source: "self" 也没有消费方（events/pipeline-match.ts 只读
  *    EventPattern 的 object/source/target/player/fromZone/toZone/amount/details）。
@@ -39,7 +38,6 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  */
 const abilities: Ability[] = [
   {
-    // 355.9.b 的目标合法性限制（被动/持续）。程序只记录印刷限制形状：
     // 消费者是目标计划，当前没有已合入路径把 static 能力注册成持续效果（见 judgeReason）。
     kind: "static",
     effect: {
@@ -63,15 +61,14 @@ const abilities: Ability[] = [
     body: [
       {
         id: "akali-silent.might-this-turn",
-        // 临时 Might +2（this turn）；原语未注册，见 judgeReason 第 3 条。
+        // 临时 Might +2（this turn）；continuous.might 已随 RIFT-258 合入。
         // 不写成 Buff 计数器（702/703 的 Buff 不是 Might 变化）。
         op: "continuous.might",
         args: {
           mode: { kind: "constant", value: "add" },
-          layer: { kind: "constant", value: "arithmetic" },
           amount: { kind: "constant", value: 2 },
           duration: { kind: "constant", value: "this-turn" },
-          object: { kind: "constant", value: { kind: "source" } }
+          appliesTo: { kind: "constant", value: "self" }
         }
       }
     ]
@@ -83,17 +80,15 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处缺口，均不近似实现：(1)「I can't be chosen by enemy spells and abilities」是 355.9.b 的目标合法性限制，" +
-    "但契约 3.6 的封闭 GameAction 集合没有“限制被选为目标”的动作，effects/instructions 下没有 continuous.* 指令原语，" +
-    "target/target-plan.ts 只按调用方显式传入的 isLegal/taxAdapter 工作、不从对象特征派生，也没有已合入路径把 CardProgram" +
-    " 的 static 能力注册成 ContinuousEffectSpec（RIFT-91 只交付图层引擎）；" +
+    "三处缺口，均不近似实现：(1)「I can't be chosen by enemy spells and abilities」是 355.9.b 的目标合法性限制，" +
+    "但契约 3.6 的封闭 GameAction 集合没有“限制被选为目标”的动作，target/target-plan.ts 只按调用方显式传入的 isLegal/taxAdapter 工作、" +
+    "不从对象特征派生，也没有已合入路径把 CardProgram 的 static 能力注册成 ContinuousEffectSpec（RIFT-357 待合入）；" +
     "(2)「unless I'm in combat」的例外需要战斗指定读数：契约 3.8 增补的 ObjectSnapshot.combatRole 尚未进入 engine-core " +
     "的 effects/contract.ts（同 ogn/obelisk-of-power、rad/rakelstake）；" +
-    "(3)「give me +2 :rb_might: this turn」需要卡牌侧 continuous.might 原语与 this-turn 到期（143.2.a / 317.2.c），" +
-    "RIFT-91 只合入图层求值侧，effect.buff 的文档明确临时 Might 不进入 Buff 计数器；" +
-    "(4) object-moved 触发缺可判定载荷：events/action-adapter.ts 为 move-location 生成的事件不填 toZone/toKind，" +
-    "内层锚点 source: \"self\" 也没有消费方（events/pipeline-match.ts 只读 EventPattern 的 object/source/target/player/" +
-    "fromZone/toZone/amount/details）。依赖 RIFT-90/RIFT-91、契约 3.8 的 combatRole 落地、RIFT-87 与 RIFT-120。",
+    "(3)「give me +2 :rb_might: this turn」的 continuous.might 原语已随 RIFT-258 合入（golden 真实执行 +2 并经 layers 引擎" +
+    "投影出有效 Might 4→6、duration 落为 end-of-turn 即 this-turn 别名），仍缺 object-moved 触发接线：" +
+    "events/action-adapter.ts 为 move-location 生成的事件不填 toZone/toKind，内层锚点 source: \"self\" 也没有消费方（RIFT-120）。" +
+    "依赖 RIFT-357（位置选择）、RIFT-90、契约 3.8 的 combatRole 落地、RIFT-359（条件）与 RIFT-120。",
   abilities,
   sourceText:
     "I can't be chosen by enemy spells and abilities unless I'm in combat.\n" +
