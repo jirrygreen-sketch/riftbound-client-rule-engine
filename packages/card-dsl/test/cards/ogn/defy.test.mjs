@@ -1,5 +1,5 @@
 // Partial execution evidence for the merged counter primitive is consolidated
-// in ../templates/keyword-play-effect-counter-657.test.mjs; Defy's printed
+// in ../templates/keyword-play-effect-counter-676.test.mjs; Defy's printed
 // cost restriction remains judge-required until Finalize can compare costs.
 import assert from "node:assert/strict";
 import test from "node:test";
