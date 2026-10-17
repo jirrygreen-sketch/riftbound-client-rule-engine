@@ -5,7 +5,9 @@ import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/flame-chompers.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-0f5f84f75dbe0744c93412016da28963e78fa05c747a4b3163be7cfef5f26cc9";
 const TRIGGERED = program.abilities[0];
@@ -109,4 +111,35 @@ test("flame-chompers: the 'play me' half runs as a real play of the trash card (
   const board = kernel.zone("A", "board");
   assert.equal(board.length, 1);
   assert.deepEqual(board[0], kernel.ref("flame-chompers"));
+});
+
+test("flame-chompers golden: the finalized 1-Fury-Power plan is planned and paid through the real cost primitives (356.1.a, 357)", () => {
+  // The printed Fury alternate cost stays out of the play execution above
+  // (judgeReason); this test isolates the payment half that IS merged: the
+  // finalized { power: ["Fury"] } plan is planned by buildCostPlan and paid by
+  // cost.pay, consuming A's printed Fury Power (no Energy is charged, because
+  // the card has no printed Energy cost).
+  const base = world()
+    .player("A", { power: ["Fury"] })
+    .card("flame-chompers", { owner: "A", zone: "trash" })
+    .build();
+  const context = base.clone({ sourceSnapshot: base.getObject("flame-chompers") });
+  const declared = ACCEPT_BODY[0].args.cost.value;
+  const plan = buildCostPlan(context, {
+    id: "flame-chompers.play:cost",
+    cost: {
+      kind: "activated",
+      energy: { kind: "constant", value: declared.energy ?? 0 },
+      payments: (declared.power ?? []).map(domain => ({ kind: "power", allowedDomains: [domain] }))
+    }
+  });
+  assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: ["Fury"] }]);
+  assert.equal(plan.total.energy, 0);
+  const run = runInstruction(costPay, { cost: { kind: "constant", value: plan } }, { world: context });
+  assert.equal(run.result.status, "executed");
+  const receipt = run.result.linkedValues.payment;
+  assert.equal(receipt.paid, true);
+  // The reference kernel's pay action keeps the allocation, not a per-domain
+  // pool deduction, so the receipt is the payment evidence.
+  assert.deepEqual(receipt.actions[0].action.plan.power, ["Fury"]);
 });
