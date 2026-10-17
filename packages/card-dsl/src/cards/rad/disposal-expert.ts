@@ -21,7 +21,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   关键词注册表负责）；其展开所用 effects/keywords/Disarm.ts 与 continuous.might
  *   均已合入（RIFT-267 / RIFT-258）。
  *
- * 复核（2026-10-16 第一轮复核）：
+ * 复核（2026-10-17 第二轮复核）：
  * - 入场替代（RIFT-260 的 src/replacement/ + bindReplacement）已合入：本卡的 static replaces 体
  *   （单条自指 effect.ready）按其“表单 2”绑定，golden 用真实 replacement 绑定 + ChainEngine
  *   打出，执行就绪入场并断言不产生 object-readied（CR 369.3）。
@@ -29,10 +29,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （bind.ts 的 matchesEnterAction 提前返回 true），故“if you control no other units”这道门
  *   目前不会被执行；表单 3（replacement.event）虽在匹配时求值 condition，但其 `instead` 参数
  *   在 bind.ts 里按原始数组读取，而卡牌 IR 校验器要求 args 是 Expr，卡牌侧写不出该形态。
- *   两条路径都要等 RIFT-257 的卡牌程序绑定接线后统一（见 judgeReason）。
- * - 缺口：没有已合入路径把 CardProgram 的 replacement/keyword 能力注册进生产（RIFT-257），
- *   且 Disarm 展开所需的 attack-declared 时点与一致的行动事务仍未生产（combat/flow.ts 明确
- *   抛 combat-start-transaction；见 docs/rules/timing-point-producers.md）。
+ *   两条路径的 CardProgram 注册已合入；当前仍需修复 form-2 entry 声明对 ability condition
+ *   的匹配，并补齐 Disarm 展开所需的运行时地点过滤与攻击行动事务。
+ *   815/831 类的战斗指派与身份也仍缺契约 3.8 combatRole 的落地。不近似实现。
  */
 const abilities: Ability[] = [
   {
@@ -68,13 +67,12 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处当前缺口：(1) 没有已合入路径把 CardProgram 的 replacement / keyword 能力注册进生产" +
-    "（RIFT-257 卡牌程序绑定）：入场替代（replacement.enter + effect.ready，RIFT-260 的 src/replacement/ + " +
-    "bindReplacement 已合入，golden 已用真实绑定 + ChainEngine 执行就绪入场）与 [Disarm 2] 的展开体" +
-    "（effects/keywords/Disarm.ts 已合入，RIFT-267）目前都只能由测试侧显式绑定。" +
-    "(2) [Disarm 2] 的攻击触发依赖 attack-declared 时点（CR 831.1.d / 466.2.c），该时点尚无生产者：" +
-    "combat/flow.ts 的角色事务明确抛 combat-start-transaction（docs/rules/timing-point-producers.md 标为待后续），" +
-    "815/831 类的战斗指派与身份也仍缺契约 3.8 combatRole 的落地。不近似实现。",
+    "两处当前缺口：(1) 入场替代的 CardProgram 绑定已合入（replacement.enter + effect.ready，RIFT-260 的 " +
+    "src/replacement/ + bindReplacement 已合入，golden 已用真实绑定 + ChainEngine 执行就绪入场），但 form-2 " +
+    "entry 声明路径仍不求值 ability condition，故‘no other units’门槛无法生效（依赖 RIFT-359 条件消费）。" +
+    "(2) [Disarm 2] 的攻击触发虽然有 attack-declared 时点与关键词展开（RIFT-267），但 target filter 的 " +
+    "sameLocationAs 仍没有运行时地点过滤器（RIFT-357），且 815/831 类的战斗指派与身份仍缺契约 3.8 combatRole 的落地。" +
+    "不近似实现",
   abilities,
   sourceText:
     "I enter ready if you control no other units.\n" +

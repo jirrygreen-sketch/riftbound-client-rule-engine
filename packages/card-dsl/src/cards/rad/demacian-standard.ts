@@ -11,7 +11,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * 规则依据（CR v1.5）：
  * - `[Deploy]`（830）只声明关键词身份；展开属 effects/keywords/Deploy.ts（已合入，RIFT-267），
- *   卡牌不自行展开（cards/README §5；卡牌侧注册路径见下）。
+ *   卡牌不自行展开（cards/README §5）。
  * - “When one or more friendly units attack here”：attack-declared 时点（323.2 / 466.2.c / 466.2.c.3；
  *   383.4.e 攻击触发）；`here` 绑定本卡所在战场，`player/controller` 为“你”，`one or more friendly units`
  *   是触发条件而非目标（355.10.c：触发条件里的对象不是目标），故不写 TargetSpec。
@@ -26,11 +26,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * 复核（2026-10-16 第一轮复核）：
  * - `continuous.might` 指令原语已合入（RIFT-258）：+2 Might this turn 走 arithmetic 层注册，
  *   选择器改为原语接受的 `objects.target` 形态；
- * - `[Deploy]` 的 KeywordDef 已合入（effects/keywords/Deploy.ts，RIFT-267），但 Deploy.ts 自身
- *   注明缺卡牌 → 关键词展开 → 图层/触发器 的生产方与 Finalize 位置校验消费方（RIFT-257）；
+ * - `[Deploy]` 的 KeywordDef 已合入（effects/keywords/Deploy.ts，RIFT-267），但其地点限制、清理
+ *   豁免和 Hold 的 here 触发仍缺可执行消费方；
  * - 缺口：`attack-declared` / `hold` 的 here 锚点不在封闭 EventPattern 词表里（assertTriggerSpec
- *   拒绝该字段），“one of them” 也仍缺“从触发条件收集到的攻击者集合里选一个”的触发式选择落地；
- *   另无路径把 CardProgram 的 triggered ability 注册成 TriggerRegistration（RIFT-257）。
+ *   拒绝该字段），“one of them” 也仍缺“从触发条件收集到的攻击者集合里选一个”的触发式选择落地。
  *
  * 可执行部分：hold 分支（`choice.optional` + `effect.zone` 返回手牌）、以及攻击分支的“无合格攻击者时不生效”
  * 只保留结构；golden 用参考内核真实执行 hold 分支的接受/拒绝两条路径。
@@ -68,7 +67,7 @@ const attackAbility: Ability = {
 
 const holdAbility: Ability = {
   kind: "triggered",
-  trigger: { at: "hold", filter: { event: "hold", here: true, player: "controller" } },
+  trigger: { at: "hold", filter: { event: "held", here: true, player: "controller" } },
   optional: true,
   body: [
     {
@@ -108,14 +107,13 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处当前缺口，均不近似实现：(1)「when one or more friendly units attack here」/「when you hold here」" +
+    "两处当前缺口，均不近似实现：(1)「when one or more friendly units attack here」/「when you hold here」" +
     "的 here 锚点不在封闭 EventPattern 词表里，assertTriggerSpec 直接拒绝该字段（实测），无法把触发注册到" +
-    "本卡所在战场；(2) 攻击触发里“one of them”需要在触发条件收集该处攻击者后由控制者选择其中之一，" +
-    "属触发式选择的落地（RIFT-33 / RIFT-9 condition 组），尚无路径；(3) 没有已合入路径把 CardProgram 的" +
-    "triggered ability 注册成 TriggerRegistration（RIFT-257 卡牌程序绑定）。" +
+    "本卡所在战场（RIFT-357 地点锚点）；(2) 攻击触发里“one of them”需要在触发条件收集该处攻击者后由控制者选择其中之一，" +
+    "属触发式选择与模式/目标 Finalize 的落地（RIFT-358），当前没有可执行路径。" +
     "已合入部分：+2 Might this turn 用 continuous.might（RIFT-258）表达并有真实执行测试；" +
     "hold 分支（choice.optional + effect.zone 返回手牌）已可执行且有接受/拒绝两条真实执行测试；" +
-    "[Deploy] 的 KeywordDef 已合入（effects/keywords/Deploy.ts，RIFT-267），缺的是卡牌侧展开/接线。",
+    "[Deploy] 的 KeywordDef 已合入（effects/keywords/Deploy.ts，RIFT-267），缺的是地点与 Hold 消费方。",
   abilities: [
     { kind: "keyword", keyword: "deploy" },
     attackAbility,

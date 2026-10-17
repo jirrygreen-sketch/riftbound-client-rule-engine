@@ -33,8 +33,10 @@ test("Demon Shade identity, ruleset, status and printed text (byte-for-byte)", (
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /170\.11\.c/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /RIFT-90/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-357/);
+  assert.match(program.judgeReason, /RIFT-358/);
+  assert.match(program.judgeReason, /RIFT-359/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(90|91|120|257)/);
   // The catalog text glues "battlefield.Give" together; sourceText keeps it.
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(program.sourceText.includes("battlefield.Give"), true);
@@ -101,23 +103,23 @@ test("Demon Shade structure: [Hidden], printed cost, and the two exclusive modes
 
 test.todo(
   "Demon Shade: 'an open battlefield' (CR 170.11.c) is a runtime Location choice and needs the runtime " +
-    "Location selector plus move restrictions — RIFT-90 / RIFT-91"
+    "Location selector plus move restrictions — RIFT-357"
 );
 
 test.todo(
   "Demon Shade: 'Give it [Ganking] this turn' needs the end-of-turn continuous.grant-keyword effect (CR 810, " +
     "contract 3.4) — the primitive is merged (RIFT-258); what is missing is the 810.1.c movement-permission" +
-    " consumer and the card-program registration path (RIFT-257)"
+    " consumer"
 );
 
 test.todo(
   "Demon Shade: 'if there are no open battlefields' needs an empty-collection predicate for the open-battlefield " +
-    "set (no compare operator covers set emptiness) — RIFT-90 condition.predicate"
+    "set (no compare operator covers set emptiness) — RIFT-359 condition.predicate"
 );
 
 test.todo(
   "Demon Shade: the printed 'Choose a friendly unit, then choose one' Finalize order (355.5 before 355.3) belongs " +
-    "to the target plan and chain — RIFT-90 / RIFT-120 follow-up"
+    "to the target and mode selection plan — RIFT-358"
 );
 
 test("Demon Shade: the [Ganking] grant really registers an ability-layer keyword for the turn", () => {

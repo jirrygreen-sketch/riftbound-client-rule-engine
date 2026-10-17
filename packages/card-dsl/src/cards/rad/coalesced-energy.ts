@@ -31,27 +31,23 @@ import type { CardProgram } from "../../ir/index.js";
  * (keywords/Equip.ts, keywords/Weaponmaster.ts).
  *
  * Status: judge-required. Both instructions are merged and the golden test runs
- * them through the real interpreter + reference kernel, and the "turn-end"
- * timing point now has a merged emitter (turn/flow.ts emits it in the Ending
- * Step before cleanup, per docs/rules/timing-point-producers.md). The trigger
- * still cannot fire in production: no merged consumer registers a CardProgram
- * triggered ability as a pipeline TriggerRegistration (contract 3.5; RIFT-257
- * owns src/programs/), so "At the end of your turn" is never subscribed.
+ * them through the real interpreter + reference kernel. The "turn-end" timing
+ * point also has a merged emitter (turn/flow.ts emits it in the Ending Step
+ * before cleanup, per docs/rules/timing-point-producers.md). The remaining
+ * blocker is the closed EventPattern vocabulary: it has no phase-event value
+ * that can express a player-filtered "turn-end" trigger, even though the
+ * timing point itself is triggerable.
  */
 const coalescedEnergy = {
   canonicalCardId: "card.hash-5a4ff9de2d69584e442e29d394392ce09de6bc41ca2d52dadd0958701383a1c1",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺卡牌触发注册：turn-end 时点已有发射方（src/turn/flow.ts 在 Ending Step 进入清理前 emit，" +
-    "CR 317.1.a；见 docs/rules/timing-point-producers.md），body 两条指令（effect.recycle 的 from 形式、" +
-    "effect.channel exhausted）也已合入并由 golden 用真实解释器 + 参考内核执行；" +
-    "但仍没有已合入的消费方把 CardProgram 的 triggered 能力注册成管线的 TriggerRegistration" +
-    "（契约 3.5；管线只消费外部提供的 registration，src/programs/ 属 RIFT-257 仍在进行），" +
-    "因此「At the end of your turn」在生产链路不会真的进链。" +
-    "另注：EventPattern 的封闭词表没有阶段类时点名（validateTriggerSpec 会拒绝 event: \"turn-end\"），" +
-    "运行时按 spec.at 命中时点，本卡沿用封闭时点拼写（与已合入的 ogn/dazzling-aurora 同类卡一致）。" +
-    "依赖：RIFT-257（卡牌程序绑定）。不近似实现。",
+    "body 两条指令（effect.recycle 的 from 形式、effect.channel exhausted）已合入并由 golden 用真实解释器 + " +
+    "参考内核执行，turn-end 时点也已有发射方（src/turn/flow.ts 在 Ending Step 进入清理前 emit，CR 317.1.a）。" +
+    "当前真实缺口是 EventPattern 的封闭事件词表没有阶段类事件值，validateTriggerSpec 会拒绝 event: \"turn-end\"；" +
+    "因此无法同时表达 \"At the end of your turn\" 与 player: self 的订阅过滤。需要契约补充阶段时点过滤，" +
+    "不近似实现。",
   abilities: [
     {
       kind: "triggered",

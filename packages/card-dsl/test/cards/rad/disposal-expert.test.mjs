@@ -21,9 +21,10 @@ test("rad-093-167 Disposal Expert: validates, identity and source text", () => {
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  // README §2: the reason names the current gaps — the card-program binding
-  // (RIFT-257) and the still-unproduced attack-declared timing point.
-  assert.match(program.judgeReason, /RIFT-257/);
+  // README §2: the reason names the current condition and location gaps.
+  assert.match(program.judgeReason, /RIFT-357/);
+  assert.match(program.judgeReason, /RIFT-359/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /attack-declared/);
   assert.match(program.judgeReason, /Disarm/);
   assert.equal(program.sourceText, SOURCE_TEXT);
@@ -160,16 +161,12 @@ test("rad-093-167 Disposal Expert: entering ready is not a post-hoc ready of an 
 });
 
 test.todo(
-  "disposal-expert: registering the card's replacement and keyword abilities from the card program — shared" +
-    " wiring owned by the RIFT-257 card-program binding workstream"
-);
-test.todo(
   "disposal-expert: the 'if you control no other units' gate on the entry replacement — the merged form-2 entry" +
     " declaration (bind.ts matchesEnterAction) does not evaluate the ability condition, and the form-3" +
     " replacement.event alternative reads args.instead as a raw array while the card IR validator requires an Expr;" +
-    " both need the engine-side wiring before the gate can be enforced (RIFT-257 / RIFT-260 follow-up)"
+    " the condition consumer remains an engine-side gap (RIFT-359 / RIFT-260 follow-up)"
 );
 test.todo(
   "disposal-expert: [Disarm 2]'s attack trigger needs an emitted attack-declared timing point (CR 831.1.d /" +
-    " 466.2.c); combat/flow.ts still throws combat-start-transaction for the role designation transaction"
+    " 466.2.c), a sameLocationAs runtime filter (RIFT-357), and the combatRole transaction"
 );

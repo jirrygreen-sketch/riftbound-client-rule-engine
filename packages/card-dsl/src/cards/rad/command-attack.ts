@@ -71,8 +71,9 @@ import type { CardProgram } from "../../ir/index.js";
  *   instruction below carries the pending ordered-look shape rather than
  *   falling back to query. The single-card Predict shape (rakelstake /
  *   keywords/Vision) does have a merged path; the 5-card one does not.
- * Dependencies: RIFT-90 (location/target plan), the ordered inspect contract
- * (RIFT-64/RIFT-66 follow-ups), the keyword filter vocabulary (830.3).
+ * Dependencies: RIFT-357 (runtime Battlefield Location selection), RIFT-358
+ * (ordered top-card picks and mode/target finalization), and a keyword
+ * characteristic predicate for 830.3.
  */
 
 /**
@@ -96,12 +97,13 @@ const commandAttack = {
     "(2)「with [Deploy]」没有可求值的过滤谓词：ObjectFilter 没有关键词字段，已合入查询也不读它（layers/filter.ts、" +
     "testing/test-kernel.ts），过滤里只记录待接线谓词名（Deploy 的 KeywordDef 已合入 effects/keywords/Deploy.ts，" +
     "但它的展开是程序级图层注册，不会给 ObjectFilter 增加关键词谓词）。(3) 卡牌程序 → 关键词展开 → 图层/触发的绑定" +
-    "仍未合入（RIFT-257 的 src/programs/ 仍在进行），模式 1 的 [Deploy] 限制与 Deploy 自身展开因此都不生效。" +
+    "程序绑定路径已合入；当前仍缺模式 1 的 Deploy 特征过滤器与 Deploy 展开的地点/hold 消费方。" +
     "(4)「Look at the top 5 cards of your Main Deck」是私下 top-N 查看，" +
     "effect.inspect 明确要求上游提供有序 picksSpecId（query 不保证牌库顺序，zoneSlice 未接入查看指令）；" +
     "单张 Predict 形状有已合入路径，5 张的没有。模式 2 的 reveal/draw/recycle 与 choice 包装已按契约 3.9 写出，" +
     "golden 执行其中已合入的部分；不近似实现上述缺口。" +
-    "依赖：RIFT-90（目标/地点计划）、有序查看契约（RIFT-64/RIFT-66 后续）、RIFT-257（卡牌程序绑定）。",
+    "依赖：RIFT-357（运行期地点选择）、RIFT-358（有序 picks 与模式/目标 Finalize）、" +
+    "以及 Deploy 特征过滤器契约。不近似实现。",
   abilities: [
     {
       kind: "play",

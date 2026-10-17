@@ -30,16 +30,17 @@ import type { CardProgram } from "../../ir/index.js";
  * difference under 370.1.a.2). The [Buff] body itself is fully executable and
  * is covered by the golden test. No semantics are approximated.
  *
- * Re-check (2026-10-16 first coverage re-sweep): the event pipeline now
+ * Re-check (2026-10-17 second coverage re-sweep): the event pipeline now
  * publishes `simultaneousGroup` on its emissions (events/pipeline.ts groups
  * by it), but TriggerSpec.once still only offers per-turn / per-phase /
  * per-combat / per-showdown / per-chain / per-object / per-game keyed on a
- * single registration + source, so a batch lifetime is still missing.
+ * single registration + source, so a batch lifetime is still missing. The
+ * CardProgram trigger adapter is already merged; it is not a remaining gap.
  *
  * Contract change request: TriggerSpec needs a batch/coalescing lifetime (for
  * example once: "per-batch", or an event-payload simultaneous-group key) for
- * "when one or more ..." conditions; owner: the events/trigger workstream that
- * followed RIFT-120.
+ * "when one or more ..." conditions; this is a contract change request for
+ * the events/trigger workstream.
  */
 export default {
   canonicalCardId: "card.hash-f6f48abbdfa8b29547d87803b943b002bce1b314d44763556dcb0f98a9b19c86",
@@ -51,9 +52,9 @@ export default {
     "simultaneousGroup（events/pipeline.ts 按组发布），但 TriggerSpec.once 仍只有 per-turn / per-phase / " +
     "per-combat / per-showdown / per-chain / per-object / per-game（频度键 = 单个注册 + 来源），" +
     "没有批次频度、也没有读取事件同时组键的口子，按现结构会每个死亡单位各触发一次（语义差异，非近似实现）。" +
-    "另：仍没有已合入路径把 CardProgram 的 triggered ability 注册成 TriggerRegistration（RIFT-257 卡牌程序绑定）。" +
+    "CardProgram 的 triggered ability 注册路径已合入；当前仅缺事件管线按 simultaneousGroup 对同一死亡批次去重。" +
     "「[Buff] a friendly unit」本体已由已合入的 effect.buff 覆盖并有真实执行测试。" +
-    "依赖：events/trigger 批次语义扩展（RIFT-120 单管线之后的契约变更请求）；不近似实现。",
+    "依赖：TriggerSpec 的批次频度契约变更；不近似实现。",
   abilities: [
     {
       kind: "triggered",

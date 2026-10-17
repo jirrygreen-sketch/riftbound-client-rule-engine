@@ -1,9 +1,8 @@
 // Golden test for Consult the Heavens (rad-025-167).
 //
-// judge-required (see the program's judgeReason): granting [Shield 2] to
-// another unit for the turn has no layer consumer. The runnable evidence is
-// the merged [Predict] half — effect.inspect (look + optional select) then
-// effect.recycle — plus the declared grant shape.
+// judge-required (see the program's judgeReason): [Reaction] timing, Defender
+// designation and ordered Predict picks still need complete consumers. The
+// runnable evidence covers both the merged grant and Predict instructions.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -37,12 +36,12 @@ test("rad-025-167 Consult the Heavens: identity, status, judgeReason and verbati
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
-  // README §2: the reason names the current gaps — the missing card-program
-  // binding (RIFT-257), the ordered deck-top picks the Predict step needs, and
-  // the Defender designation that is still not a snapshot characteristic.
-  assert.match(program.judgeReason, /RIFT-257/);
+  // README §2: the reason names the current gaps — Reaction timing, ordered
+  // deck-top picks and the Defender designation that is not yet a snapshot characteristic.
+  assert.match(program.judgeReason, /RIFT-358/);
   assert.match(program.judgeReason, /zoneSlice/);
   assert.match(program.judgeReason, /814\.1\.d\.1/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-257/);
   // The reported catalog data issue is recorded in the program header, not by
   // rewriting the text: this printing is catalogued as a Unit with no Might.
   assert.match(program.judgeReason, /cardType Unit/);
@@ -165,11 +164,6 @@ test("rad-025-167 Consult the Heavens: declining to recycle leaves the deck unto
   assert.deepEqual(kernel.zone("A", "deck").map((ref) => ref.id), ["top-seen", "rest"]);
 });
 
-test.todo(
-  "Consult the Heavens: registering the card's own play ability (and its chain cost/target lifecycle) from the card program — " +
-    "shared wiring owned by the RIFT-257 card-program binding workstream"
-);
-
 test("rad-025-167 Consult the Heavens: the [Shield 2] grant registers an ability-layer keyword through the real interpreter", () => {
   // CR 814.1.b.1/.c: the printed Shield Value is 2 and it is granted until the
   // end of the turn (317.2.c). The merged continuous.grant-keyword primitive
@@ -279,7 +273,7 @@ test.todo(
 
 test.todo(
   "Consult the Heavens: reading the top card of the Main Deck inside the resolving ability requires the upstream ordered picks " +
-    "(contract 3.6 zoneSlice); the golden supplies the top reference directly, which a production chain run must do (RIFT-66 wiring)"
+    "(contract 3.6 zoneSlice); the golden supplies the top reference directly, which a production chain run must do (RIFT-358)"
 );
 
 test.todo(
