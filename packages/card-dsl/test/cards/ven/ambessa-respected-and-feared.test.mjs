@@ -3,8 +3,11 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/ambessa-respected-and-feared.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -56,15 +59,23 @@ test("ven-136-166 Ambessa: identity, status, judgeReason and verbatim sourceText
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
+  assert.equal(cardRegistryById.get(CANONICAL_ID), program);
+  // 复核后的 judgeReason 只保留 Empower/Empowered 这一条未解决依赖：
+  // continuous.grant-keyword 已随 RIFT-258 合入，旧的“没有注册/求值原语”已删除。
   assert.match(program.judgeReason, /Empower/);
+  assert.match(program.judgeReason, /Empowered/);
+  assert.match(program.judgeReason, /442\.1\.a/);
   assert.match(program.judgeReason, /828\.1\.b\.1/);
-  assert.match(program.judgeReason, /RIFT-87/);
+  assert.doesNotMatch(program.judgeReason, /没有注册\/求值原语/);
+  assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
 test("ven-136-166 Ambessa: [Empower] plus the Empowered [Assault 2] grant", () => {
   assert.deepEqual(empower, { kind: "keyword", keyword: "empower" });
   assert.equal(keywordDefinitionsById.get("Empower"), undefined);
   assert.equal(keywordDefinitionsById.get("Empowered"), undefined);
+  // 复核证据：授予用的原语本身已合入（缺的是 Empowered 门控）。
+  assert.equal(instructionDefinitionsById.has("continuous.grant-keyword"), true);
   // 807.1.c: Assault 2 is a valued keyword whose expansion is merged; the card
   // only declares the 828.1.b.1 dependent grant of that keyword.
   assert.ok(keywordDefinitionsById.get("Assault"), "the Assault KeywordDef is merged");
@@ -80,6 +91,34 @@ test("ven-136-166 Ambessa: [Empower] plus the Empowered [Assault 2] grant", () =
   });
   assert.equal(assaultGrant.condition.operator, "gte");
   assert.deepEqual(assaultGrant.condition.right, { kind: "constant", value: 1 });
+});
+
+test("ven-136-166 Ambessa: the merged grant primitive really registers the Assault 2 grant", () => {
+  // 828.1.b.1 的门控仍未实现，但授予原语本身可执行：按程序里的静态效果形状
+  // 真实执行一次，断言 ability 层注册的 keyword/keywordValue（Assault 2 = 807.1.c）。
+  const kernel = world()
+    .unit("ambessa", { types: ["champion"], zone: "board", owner: "A", controller: "A" })
+    .build();
+  // appliesTo: "self" 绑定的是能力宿主（ResolveContext.source），所以要按
+  // clone({ sourceSnapshot }) 绑定来源，与其他卡 golden 的做法一致。
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("ambessa") });
+  const body = [{
+    id: "ambessa.grant-assault",
+    op: "continuous.grant-keyword",
+    args: {
+      keyword: { kind: "constant", value: assaultGrant.effect.keyword },
+      value: assaultGrant.effect.value,
+      // 828.1.b.1 的“我获得”= 授予宿主自身：契约 3.6 的 self 选择器。
+      appliesTo: { kind: "constant", value: "self" }
+    }
+  }];
+  const outcome = resolveChainBody(body, context);
+  assert.equal(outcome.status, "executed");
+  assert.equal(context.continuousEffects.length, 1);
+  assert.equal(context.continuousEffects[0].effect.layer, "ability");
+  assert.equal(context.continuousEffects[0].effect.effect.keyword, "assault");
+  assert.equal(context.continuousEffects[0].effect.effect.keywordValue, 2);
+  assert.deepEqual(context.continuousEffects[0].duration, { type: "permanent" });
 });
 
 test("ven-136-166 Ambessa: the Empowered attack trigger and its Might-comparison kill", () => {

@@ -23,29 +23,37 @@ import type { CardProgram } from "../../ir/index.js";
  *   （355.9/355.10.g）；“here” = 宿主所在战场（sameLocationAs 宿主）；
  *   “with less Might than me” 是结算时的目标效力比较（契约 3.6）。effect.kill 已合入。
  *
- * status = judge-required（三处缺口均不近似实现）：
- * 1. 没有 Empower / Empowered 的 KeywordDef，827.1.c.1 的启动费用与“仅当未
- *    Empowered 时”限制无法展开；
- * 2. 没有 Empowered 状态谓词（442.1.a）：两条 [Empowered][>] 依赖能力（828.1.b.1）
- *    的门槛不可求值，静态条件里的 empoweredCount 只是描述性记录；
- * 3. [Assault 2] 的授予需要持续授予关键词的消费方（卡牌侧 continuous.grant-keyword
- *    没有注册/求值原语，同 sfd/rumble-hotheaded、ven-134-166 Kayle 的缺口）。
- * 攻击触发的 “kill an enemy unit here with less Might than me” 半段结构完整，
- * golden 用真实解释器 + 参考内核执行（含 Might 不小于我时不消灭的边界）。
+ * 复核（2026-10-17，第一轮 M2 覆盖率复核）：原第 3 条已解决——continuous.grant-keyword
+ * 指令原语随 RIFT-258 合入（effects/instructions/continuous.grant-keyword.ts，注册表可见），
+ * 它按 478.1.a 建立 ability 层注册；卡侧选择器写法与 smoke-screen / siphon-power 一致。
+ * 攻击触发的 “kill an enemy unit here with less Might than me” 半段仍用真实解释器 +
+ * 生产链适配器执行（含 Might 不小于我时不消灭的边界）。
+ *
+ * status = judge-required（唯一未解决的依赖仍是 Empower / Empowered）：
+ * 1. 没有 Empower / Empowered 的 KeywordDef（effects/keywords/registry.generated.ts
+ *    的 RIFT-81~88 与 264~268 两批都不含它们），827.1.c.1 的“1 Energy + 2 Order Power：
+ *    Empower me，仅当未 Empowered 时启动”无法展开；
+ * 2. 没有 Empowered 状态谓词（442.1.a）：ObjectSnapshot / Condition 都没有该二元状态，
+ *    两条 [Empowered][>] 依赖能力（828.1.b.1）的门槛不可求值。程序里的 empowered /
+ *    empoweredCount 只是描述性记录：Condition 的 expression 分支在图层里落回
+ *    conditionMatches 的默认 true（layers/engine.ts），所以这些静态能力即使被绑定
+ *    也会恒真，不能当作可执行门控；
+ * 3. 依赖 828.1.d 的“成为 Empowered”来源事件与 Empowered 谓词一起落地后，本卡才能复核。
+ * 依赖新的 Empower/Empowered 关键词任务。不近似实现（不把依赖能力改成无条件能力）。
  */
 export default {
   canonicalCardId: "card.hash-e8af5c2839945839572f9122c2803fdda719845f1a7356eca006d791891545cd",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1) keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef，" +
+    "唯一未解决的依赖是 Empower / Empowered：(1) keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef，" +
     "827.1.c.1 的“1 Energy + 2 Order Power：Empower me，仅当未 Empowered 时启动”无法展开；" +
     "(2) 没有 Empowered 状态谓词——442.1.a 的二元状态不在 ObjectSnapshot / Condition 里，两条 " +
     "[Empowered][>] 依赖能力（828.1.b.1）的门槛不可求值（本程序以描述性 empoweredCount / " +
-    "empowered 记录门槛，不伪造可执行条件）；(3) “I have [Assault 2]” 需要持续授予关键词的消费方，" +
-    "卡牌侧 continuous.grant-keyword 没有注册/求值原语（同 rumble-hotheaded、kayle-justified 缺口）。" +
-    "依赖新的 Empower/Empowered 关键词任务、RIFT-87（条件/谓词）与 RIFT-91（layers 接线）。攻击触发的" +
-    "“kill an enemy unit here with less Might than me” 半段用已合入的 effect.kill 真实执行。",
+    "empowered 记录门槛，不伪造可执行条件；图层 conditionMatches 对未知 condition kind 落回 true，故这些静态能力不是可执行门控）；" +
+    "“I have [Assault 2]” 的授予原语 continuous.grant-keyword 已随 RIFT-258 合入（RIFT-91 的图层引擎也已合入），" +
+    "真正缺的是 828.1.b.1 的可求值门控本身。依赖新的 Empower/Empowered 关键词任务与 442.1.a 的状态谓词。" +
+    "攻击触发的 “kill an enemy unit here with less Might than me” 半段用已合入的 effect.kill 真实执行（含边界）。不近似实现。",
   abilities: [
     {
       // 印刷费 1 Energy + 2 Order Power 见 judgeReason；不伪造启动能力。

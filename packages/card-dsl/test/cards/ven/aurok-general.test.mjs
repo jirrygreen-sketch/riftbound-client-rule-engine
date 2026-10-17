@@ -3,7 +3,12 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/aurok-general.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
 const CANONICAL_ID =
   "card.hash-74533231e291deb55f594e5f04b19faf248214fac82769433d2d3387166f0bad";
@@ -25,9 +30,13 @@ test("ven-130-166 Aurok General: identity, status, judgeReason and verbatim sour
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
+  assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /Empower/);
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /442\.1\.a/);
+  // 复核后：continuous.might 已随 RIFT-258 合入，旧的“没有卡牌侧消费入口”已删除。
+  assert.doesNotMatch(program.judgeReason, /没有卡牌侧的 continuous\.might/);
+  assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
 test("ven-130-166 Aurok General: [Empower] is declared and stays unexpanded", () => {
@@ -55,13 +64,49 @@ test("ven-130-166 Aurok General: the Empowered dependent aura shape", () => {
   });
 });
 
+test("ven-130-166 Aurok General: continuous.might is merged (RIFT-258) and really moves the arithmetic layer", () => {
+  assert.equal(instructionDefinitionsById.has("continuous.might"), true);
+
+  // 本卡的依赖能力是「你控制的 Empowered 单位 +2 [M]」。Empowered 门控仍未实现，
+  // 但 478 / 478.1.a 的注册与算术求值路径已合入：用本卡声明的 amount 真实执行一次，
+  // 断言注册进 ability 之外的正确图层并真的改变有效 Might。
+  const kernel = world()
+    .unit("aurok-general", { types: ["unit"], zone: "board", owner: "A", controller: "A", might: 5 })
+    .build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("aurok-general") });
+  const body = [{
+    id: "aurok-general.grant-might",
+    op: "continuous.might",
+    args: {
+      amount: aura.effect.amount,
+      mode: { kind: "constant", value: aura.effect.mode },
+      // 依赖能力的门控走 appliesTo/objects；这里只为验证合并的注册与求值路径，
+      // 因此按宿主自身绑定（不是把门控近似成无条件能力——本卡仍为 judge-required）。
+      appliesTo: { kind: "constant", value: "self" }
+    }
+  }];
+  const outcome = resolveChainBody(body, context);
+  assert.equal(outcome.status, "executed");
+  assert.equal(context.continuousEffects.length, 1);
+  assert.deepEqual(context.continuousEffects[0].effect.effect.amount, 2);
+  assert.equal(context.continuousEffects[0].effect.layer, "arithmetic");
+
+  const layers = createLayerEngine(context.objects, context.continuousEffects.map((entry, index) => ({
+    effect: entry.effect,
+    duration: entry.duration,
+    timestamp: index + 1
+  })));
+  assert.equal(layers.evaluate(context.ref("aurok-general")).might, 7);
+});
+
 test.todo(
   "ven-130-166 Aurok General: [Empower] expansion (827.1.c.1: 3 Energy + 1 Order Power, " +
     "'use only if not Empowered') needs an Empower KeywordDef — none is merged"
 );
 
 test.todo(
-  "ven-130-166 Aurok General: the +2 Might aura needs an Empowered status predicate (442.1.a) " +
-    "and the card-side continuous.might registration into layers (RIFT-87 / RIFT-91)"
+  "ven-130-166 Aurok General: the +2 Might aura's Empowered gate (442.1.a / 828.1.b.1) needs an " +
+    "ObjectSnapshot/Condition predicate — 'empowered: true' resolves to the layers' unknown-kind " +
+    "default (true) today, so the dependent ability cannot be bound as written"
 );
 

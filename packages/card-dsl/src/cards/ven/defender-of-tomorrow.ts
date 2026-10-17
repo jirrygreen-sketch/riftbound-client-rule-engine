@@ -16,40 +16,45 @@ import type { CardProgram } from "../../ir/index.js";
  * - 828.1.a/828.1.b.1：[Empowered][>] 是依赖型关键词，从关键词到子句末尾整体是
  *   Empowered 能力，功能等价于 “当我拥有 Empowered 状态时，此牌获得 [Text]”。
  *
- * status = judge-required（缺口均不近似实现）：
- * 1. keywords/registry.generated.ts 目前没有任何 Empower/Empowered KeywordDef，
- *    827.1.c.1 的启动费用 + “仅当未 Empowered”限制、以及 828.1.b.1 的依赖能力
- *    都无法展开；已合入的关键词批次（RIFT-81~88：Assault/Shield、Deathknell/
- *    Legion、Ganking/Vision、Deflect/Hidden、Action/Reaction、Repeat/Accelerate、
- *    Equip/Quick-Draw/Weaponmaster、Mighty）都不含 Empower/Empowered，需要新的
- *    关键词任务；
- * 2. Empower 费用里的 :rb_rune_rainbow: 是任意域 Power [A]（135.2.e.5.a、
- *    163.2.b）；内核 Domain 是 Fury/Calm/Mind/Body/Chaos/Order 六域封闭集合，
- *    effect.resources 已记录 [A] 不可表达、绝不用某个域近似；且契约 3.8.3 的
- *    `params.cost` 只加在 KeywordDef.expand 的输入上，card-dsl 的 KeywordAbility
- *    没有 params 字段（见回复的契约变更请求），印刷费用只能写在本注释与
- *    judgeReason 里，不伪造第二条启动能力；
- * 3. “Ready 2 gear.” 的 Empowered 门槛需要 Empowered 状态谓词与依赖能力图层
- *    （RIFT-91 的 layers 引擎已合入，但卡牌侧入口缺失）。
- * 依赖：新的 Empower/Empowered 关键词任务（RIFT-81~88 批次未含）、
- * RIFT-89（费用/支付接线）、RIFT-91（图层/依赖能力）。
+ * 复核（2026-10-17，第一轮 M2 覆盖率复核）：
+ * - 旧第 2 条（[A] 不可表达）已不成立：合并费用管线的 payment 形状用
+ *   `{ kind: "power", amount, allowedDomains }` 表达任意域 Power 需求（cost/plan-values.ts
+ *   的 domains()；覆盖六域 = 135.2.e.5.a 的 [A]，与 dragon-roost / power-nexus 同形状）。
+ *   Empower 的印刷费用因此能写成本卡注释里的「2 Energy + 两条 1 点任意域 Power」，
+ *   golden 用真实 cost plan + payment 断言任意域 Power 付得起、单域/能量不足时拒绝。
+ *   注意：契约 3.8.3 的 `params.cost` 只加在 KeywordDef.expand 的输入上，card-dsl 的
+ *   KeywordAbility 仍然没有 params 字段——本卡没有把费用塞进 keyword 声明，费用语义
+ *   仍由缺失的 Empower KeywordDef 承担（契约变更请求见下）。
+ * - 「Ready a gear」/「Ready 2 gear」两条启动能力的费用与 effect.ready 本体已按契约写出，
+ *   golden 用解释器执行真实 body。
  *
- * 两条 “Ready … gear” 启动能力的费用与 effect.ready 本体已按契约写出；golden
- * 用解释器执行真实 body，Empowered 门槛与关键词展开保持 TODO。
+ * status = judge-required（缺口）：
+ * 1. 没有 Empower / Empowered KeywordDef（keywords/registry.generated.ts 的 RIFT-81~88
+ *    与 264~268 两批都不含它们）：827.1.c.1 的起动费用与「仅当未 Empowered」限制、
+ *    828.1.b.1 的依赖能力都无法展开；
+ * 2. 没有 442.1.a 的 Empowered 二元状态谓词：ObjectSnapshot / Condition 都没有该状态，
+ *    layers/engine.ts 的 conditionMatches 对未知 condition kind 落回 true，`restriction:
+ *    { kind: "dependent-keyword" }` 也没有消费方（programs/play.ts 的
+ *    translateLegalityCondition 只接受 condition 或 CONDITION_KINDS），所以「Ready 2 gear」
+ *    不能按依赖能力绑定。
+ * 依赖新的 Empower/Empowered 关键词任务与 442.1.a 的状态谓词。不近似实现。
  */
 export default {
   canonicalCardId: "card.hash-a83f38e4a2af89564ecd6ceb9b9d1eb607e58af4d10927e697cd6eb4c95fe037",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 Empower/Empowered KeywordDef：keywords/registry.generated.ts 没有 " +
-    "\"empower\"/\"empowered\" 的展开（RIFT-81~88 关键词批次不含它们），" +
-    "827.1.c.1 的「2 能量 + 2 [A]：Empower me，仅当未 Empowered 时启动」与 " +
-    "828.1.b.1 的「拥有 Empowered 时获得 [Ready 2 gear]」都无执行路径；" +
-    "费用中的 :rb_rune_rainbow: 是任意域 Power [A]（135.2.e.5.a、163.2.b），" +
-    "六域封闭 Domain 集合无法表达（effect.resources 记录不可近似）；Empowered " +
-    "状态谓词与依赖能力图层入口亦未接通。依赖新增 Empower/Empowered 关键词任务、" +
-    "RIFT-89（费用/支付）、RIFT-91（图层/依赖能力）。不近似实现。",
+    "两条缺口：(1) keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef" +
+    "（已合入批次不含它们），827.1.c.1 的「2 能量 + 2 [A]：Empower me，仅当未 Empowered 时启动」" +
+    "与 828.1.b.1 的「拥有 Empowered 时获得 [Ready 2 gear]」都无展开路径；" +
+    "(2) 442.1.a 的 Empowered 二元状态不在 ObjectSnapshot / Condition 中——" +
+    "layers/engine.ts 的 conditionMatches 对未知 condition kind 落回 true，且程序里的 " +
+    "restriction: { kind: \"dependent-keyword\" } 没有消费方（programs/play.ts 的 " +
+    "translateLegalityCondition 只接受 condition 或 CONDITION_KINDS），所以「Ready 2 gear」" +
+    "不能按依赖能力绑定。" +
+    "费用本身已可执行：两个 :rb_rune_rainbow: 用两条 amount 1、allowedDomains 覆盖六域的 Power" +
+    "需求表达（135.2.e.5.a；golden 用真实 cost plan + payment 断言任意域 Power 可付、" +
+    "单域或能量不足时拒绝）。依赖新的 Empower/Empowered 关键词任务与 442.1.a 的状态谓词。不近似实现。",
   abilities: [
     {
       kind: "keyword",
