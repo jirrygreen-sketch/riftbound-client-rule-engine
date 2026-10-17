@@ -30,7 +30,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * printed Energy/Mind Power costs, with self-exhaust on the scoring ability.
  * CR 377.2.b requires the source to be at a battlefield when activating.
  * Condition restrictions reach Finalize; this location-type restriction still
- * needs an adapter. Draw and Score bodies remain independently executable.
+ * needs an adapter. Draw, Score, and the printed cost plans remain independently
+ * executable; the reference TestWorld records Power allocations in the payment
+ * receipt even though its legacy `pay` action does not mutate the Power snapshot.
  */
 const abilities: Ability[] = [
   {
@@ -88,7 +90,7 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "「Use my abilities only while I'm at a battlefield」仍缺 CR v1.5 377.2.b、107.1.b/198.1 的来源位置类型启动检查：translateRestriction 已能把 Condition 送入 ChainDraft，在 Finalize 检查；当前 use-only-while-at-battlefield 仍是未适配的描述性 kind。object-property(self, \"location\") 只返回整个 Location，没有读取 location.type 的表达式；不能用其它单位在场或结算期 body 条件代替本来源的启动许可。另有真实执行证据缺口：effects/testing/test-kernel.ts 的 pay 只扣 Energy/XP、未消费 Power，Mind Power 扣除断言保留为 TODO。依赖：来源位置类型谓词/启动检查适配与 Power 支付执行载体。",
+    "「Use my abilities only while I'm at a battlefield」仍缺 CR v1.5 377.2.b、107.1.b/198.1 的来源位置类型启动检查：translateRestriction 已能把 Condition 送入 ChainDraft，在 Finalize 检查；当前 use-only-while-at-battlefield 仍是未适配的描述性 kind。object-property(self, \"location\") 只返回整个 Location，没有读取 location.type 的表达式；不能用其它单位在场或结算期 body 条件代替本来源的启动许可。两条打印费用的 cost.modify/cost.pay 已能生成并校验 Energy、Mind Power 及横置计划；参考 TestWorld 的 pay 动作只不回写 Power 快照，但 payment receipt 已提供领域分配证据。依赖：来源位置类型谓词/启动检查适配；不把测试内核的资源投影差异误报为卡牌规则缺口。",
   abilities,
   sourceText:
     ":rb_energy_1::rb_rune_mind:: Draw 1.\n" +

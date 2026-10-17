@@ -27,6 +27,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * expansion still reads designation instead of combatRole.
  * CR 349/355.17.b: the last sentence grants a play destination, requiring an
  * attacking-player/battlefield predicate rather than a restriction or a Move.
+ * The printed Fury payment plan is accepted by the chain; the reference
+ * TestWorld retains the Power snapshot after its legacy `pay` action.
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "reaction" },
@@ -53,7 +55,7 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "「I can be played to a battlefield you're attacking」缺 CR v1.5 349/355.17.b 的攻击方—战场打出位置许可：play-location-permission 不是 createEngineStaticBinder 支持的静态 kind，ChainEngine.playDestinationIsLegal 目前只消费 continuous.location 的 base/battlefield 类别限制，未按具体战场与攻击方校验手牌许可。[Assault 2]（807.1.c/.d.1）的展开条件仍读取 designation，而 ObjectSnapshot 提供 combatRole；默认 static binder 已能求值 compare，但该字段缺失会使条件不成立。Reaction 时机已有真实 Closed Chain 查询证据；完整打出支付还受 effects/testing/test-kernel.ts 的 pay 未消费 Power 所阻，Fury 扣除断言保留为 TODO。依赖：攻击方战场谓词/手牌许可与 Finalize 接线、Assault 的 designation/combatRole 对齐及 Power 支付执行载体。",
+    "「I can be played to a battlefield you're attacking」缺 CR v1.5 349/355.17.b 的攻击方—战场打出位置许可：play-location-permission 不是 createEngineStaticBinder 支持的静态 kind，ChainEngine.playDestinationIsLegal 目前只消费 continuous.location 的 base/battlefield 类别限制，未按具体战场与攻击方校验手牌许可。[Assault 2]（807.1.c/.d.1）的展开条件仍读取 designation，而 ObjectSnapshot 提供 combatRole；默认 static binder 已能求值 compare，但该字段缺失会使条件不成立。Reaction 时机与印刷 Energy/Fury 费用已有真实 Closed Chain 证据；参考 TestWorld 的 pay 动作不回写 Power 快照，但它已接受并执行 Fury 领域分配。依赖：攻击方战场谓词/手牌许可与 Finalize 接线、Assault 的 designation/combatRole 对齐。",
   abilities,
   sourceText:
     "[Reaction] (Play any time, even before spells and abilities resolve, including to a battlefield you control.)\n" +
