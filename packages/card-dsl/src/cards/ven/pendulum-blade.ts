@@ -38,10 +38,8 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Equip] 的印刷费用（1 点 Fury Power，818.1.c / 135.2.e.4）目前不可支付：" +
-    "(1) KeywordDef.expand 的 params.cost 签名已存在，但 programs/keywords.ts 没有从 KeywordAbility 传递印刷费用，Equip.ts 的 expand 也未读取 params.cost；" +
-    "(2) 展开仍声明 payments:[{kind:\"equip\"}]，cost/plan-values.ts 没有该支付种类的语义，无法得到可支付的 1 Fury Power 计划。" +
-    "activationAbilities/describeActivate 已接上关键词展开，effect.attach 半段由 golden 真实执行；不近似实现。",
+    "[Equip] 的印刷费用（1 Fury Power，818.1.c / 135.2.e.4）仍缺绑定：KeywordAbility 只有 keyword/value，programs/keywords.ts 未传递 params.cost，Equip.ts 也未读取该参数；描述性的 costDomain 不能产生可支付费用。" +
+    "Equip 展开仍给出 payments:[{kind:\"equip\"}]，cost/plan-values.ts 无此支付种类，不能生成 1 Fury Power 的计划。通用 Power 支付、activationAbilities / describeActivate 与 effect.attach 已存在；仅附件 body 的真实执行不证明 Equip 费用可用，也不将 Gear 的 3 Energy 打出费用充作 Equip 费。",
   abilities: [equip],
   sourceText:
     "[Equip] :rb_rune_fury: (:rb_rune_fury:: Attach this to a unit you control.)"

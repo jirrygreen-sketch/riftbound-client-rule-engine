@@ -4,6 +4,8 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/pakaa-protector.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
+import zone from "../../../../engine-core/dist/effects/instructions/effect.zone.js";
 import reveal from "../../../../engine-core/dist/effects/instructions/effect.reveal.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
@@ -17,24 +19,11 @@ const SOURCE_TEXT =
   "When I move, reveal the top card of your Main Deck. If it's a unit, draw it. Otherwise, put it in your trash and give me +2 :rb_might: this turn.";
 
 const [ability] = program.abilities;
-const [revealTop, branch] = ability.body;
-const [unitMode, otherwiseMode] = branch.args.modes.value;
-const [drawIt] = unitMode.body;
-const [intoTrash, mightThisTurn] = otherwiseMode.body;
+const [revealTop, branch, unitMode, otherwiseMode] = ability.body;
+const [drawIt] = unitMode.args.body.value;
+const [intoTrash, mightThisTurn] = otherwiseMode.args.body.value;
 
 const resultFor = (outcome, id) => outcome.results.find(result => result.id === id);
-
-/**
- * Run each supported branch independently; automatic selection from the revealed
- * type snapshot remains pending. The execution copy only unwraps reveal's pick
- * argument and supplies already locked PickSpecs, keeping every branch effect.
- */
-const executableBody = (modeId) => [
-  { id: revealTop.id, op: revealTop.op, args: { pick: revealTop.args.pick.value } },
-  ...branch.args.modes.value
-    .find(mode => mode.id === modeId)
-    .body.map(({ picks, ...instruction }) => instruction)
-];
 
 test("ven-033-166 Pakaa Protector: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -51,7 +40,7 @@ test("ven-033-166 Pakaa Protector: identity, status, judgeReason and verbatim so
   assert.match(program.judgeReason, /zoneSlice|ordered picks/);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /RIFT-358/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /condition\.predicate/);
   assert.match(program.judgeReason, /LITERAL_FIELDS/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
@@ -70,64 +59,66 @@ test("ven-033-166 Pakaa Protector: 'When I move' subscribes to object-moved scop
   assert.equal(ability.optional, false);
 });
 
-test("ven-033-166 Pakaa Protector: the deck-top reveal is an ordered pick, never a set query", () => {
-  // 425.1 / 425.3.a: reveal exposes the top card; contract 3.6 makes the top of a
-  // deck an ordered zoneSlice read, so effect.reveal's own contract demands the
-  // ordered pick rather than a query (see judgeReason).
+test("ven-033-166 Pakaa Protector: reveal records one Main Deck card without claiming query order is deck order", () => {
   assert.equal(revealTop.id, "pakaa-protector.reveal-top");
   assert.equal(revealTop.op, "effect.reveal");
-  assert.deepEqual(revealTop.args.pick, {
-    kind: "constant",
-    value: "pakaa-protector.top-card"
+  assert.deepEqual(revealTop.args, {
+    zone: { kind: "constant", value: "deck" },
+    count: { kind: "constant", value: 1 }
   });
   assert.equal(revealTop.targets, undefined);
   assert.equal(revealTop.linkedTo, undefined);
-  assert.deepEqual(revealTop.picks, [
-    {
-      id: "pakaa-protector.top-card",
-      options: ["dynamic:main-deck-top-one"],
-      min: 1,
-      max: 1,
-      selection: "any",
-      filter: { zone: "deck", owner: "controller" }
-    }
-  ]);
 });
 
-test("ven-033-166 Pakaa Protector: the two modes are 'draw it' and 'trash it, then +2 Might this turn'", () => {
-  assert.equal(branch.op, "choice.mode");
-  assert.equal(branch.linkedTo, "pakaa-protector.reveal-top");
-  assert.deepEqual(branch.args.count, { kind: "constant", value: 1 });
-  assert.deepEqual(branch.args.different, { kind: "constant", value: true });
-  assert.deepEqual(branch.args.modes.value.map(entry => entry.id), [
-    "pakaa-protector.unit-mode",
-    "pakaa-protector.otherwise-mode"
+test("ven-033-166 Pakaa Protector: a saved type predicate selects exactly one printed branch", () => {
+  assert.deepEqual(ability.body.map(step => step.id), [
+    "pakaa-protector.reveal-top", "pakaa-protector.branch",
+    "pakaa-protector.unit-mode", "pakaa-protector.otherwise-mode"
+  ]);
+  assert.equal(branch.op, "condition.predicate");
+  assert.equal(branch.linkedTo, revealTop.id);
+  assert.deepEqual(branch.args.condition, {
+    kind: "constant",
+    value: {
+      kind: "compare",
+      left: { kind: "constant", value: "unit" },
+      operator: "in",
+      right: {
+        kind: "object-property", object: { linked: revealTop.id }, property: "types"
+      }
+    }
+  });
+  assert.equal(unitMode.op, "sequence");
+  assert.equal(otherwiseMode.op, "sequence");
+  assert.equal(unitMode.linkedTo, branch.id);
+  assert.equal(otherwiseMode.linkedTo, branch.id);
+  assert.deepEqual(unitMode.condition, {
+    kind: "expression",
+    value: { kind: "linked-value", instructionId: branch.id, key: "value" }
+  });
+  assert.deepEqual(otherwiseMode.condition, { kind: "not", condition: unitMode.condition });
+  assert.deepEqual(unitMode.args.body.value.map(step => step.id), ["pakaa-protector.draw-it"]);
+  assert.deepEqual(otherwiseMode.args.body.value.map(step => step.id), [
+    "pakaa-protector.into-trash", "pakaa-protector.might-this-turn"
   ]);
 
-  // "If it's a unit, draw it": 414.1 adds the card to the hand; the deck top is
-  // not a public-zone target (355.10.a) and the revealed ref travels as a pick.
-  assert.equal(drawIt.op, "effect.zone");
-  assert.deepEqual(drawIt.args.to, { kind: "constant", value: "hand" });
-  // The pick's min/max (1/1) already fixes the count: no amount argument, which
-  // would also be the wrong shape for the primitive's declared move semantics.
-  assert.equal(drawIt.args.amount, undefined);
-  assert.equal(drawIt.picks[0].min, 1);
-  assert.equal(drawIt.picks[0].max, 1);
+  // 414.1/414.1.a: the unchanged top card is drawn, preserving the draw action.
+  assert.equal(drawIt.op, "effect.draw");
+  assert.deepEqual(drawIt.args.amount, { kind: "constant", value: 1 });
   assert.equal(drawIt.targets, undefined);
-  assert.deepEqual(drawIt.picks[0].options, [
-    { kind: "linked-value", instructionId: "pakaa-protector.reveal-top", key: "revealed" }
-  ]);
+  assert.equal(drawIt.picks, undefined);
 
-  // "Otherwise, put it in your trash": an effect zone change of that card, not a
-  // Burn by count; effect.mill only burns N cards from the deck top (441.1).
   assert.equal(intoTrash.op, "effect.zone");
   assert.deepEqual(intoTrash.args.to, { kind: "constant", value: "trash" });
-  assert.deepEqual(intoTrash.picks[0].options, [
-    { kind: "linked-value", instructionId: "pakaa-protector.reveal-top", key: "revealed" }
-  ]);
-
-  // "and give me +2 Might this turn": a temporary arithmetic-layer Might change
-  // (143.2.a), deliberately not a Buff counter (702/703).
+  assert.deepEqual(intoTrash.args.pick, { kind: "constant", value: "pakaa-protector.revealed-card" });
+  assert.equal(intoTrash.args.amount, undefined);
+  assert.equal(intoTrash.targets, undefined);
+  assert.equal(intoTrash.linkedTo, revealTop.id);
+  assert.deepEqual(intoTrash.picks, [{
+    id: "pakaa-protector.revealed-card",
+    options: [{ kind: "linked-value", instructionId: revealTop.id, key: "revealed" }],
+    min: 1, max: 1, selection: "one"
+  }]);
   assert.equal(mightThisTurn.op, "continuous.might");
   assert.deepEqual(mightThisTurn.args.amount, { kind: "constant", value: 2 });
   assert.deepEqual(mightThisTurn.args.duration, { kind: "constant", value: "this-turn" });
@@ -153,43 +144,49 @@ test("ven-033-166 Pakaa Protector golden: the merged reveal primitive displays t
   assert.deepEqual(run.events.map(event => event.action), ["reveal"]);
 });
 
-test("ven-033-166 Pakaa Protector golden: the unit mode moves the revealed card into hand", () => {
-  const kernel = world().deck(["top-unit", "second-card"]).build();
-  const ordered = kernel.zoneSlice("A", "deck", "top", 1).map(object => object.ref);
-  kernel.setPicks("pakaa-protector.top-card", ordered);
-  kernel.setPicks("pakaa-protector.revealed-card", ordered);
+test("ven-033-166 Pakaa Protector golden: the original body automatically draws a revealed unit", () => {
+  // A one-card deck is unambiguous. Multi-card ordered reveal remains blocked.
+  const base = world().unit("pakaa", { might: 4 })
+    .deck(["top-unit"], { types: ["unit"] }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("pakaa") });
+  const revealed = kernel.ref("top-unit");
+  const outcome = resolveChainBody(ability.body, kernel);
 
-  const outcome = resolveChainBody(executableBody("pakaa-protector.unit-mode"), kernel);
-
-  assert.equal(outcome.status, "executed");
-  assert.equal(resultFor(outcome, "pakaa-protector.reveal-top").result.status, "executed");
-  assert.equal(resultFor(outcome, "pakaa-protector.draw-it").result.status, "executed");
-  assert.deepEqual(outcome.linkedValues["pakaa-protector.reveal-top.revealed"], ordered);
+  assert.equal(outcome.status, "partial");
+  assert.equal(resultFor(outcome, revealTop.id).result.status, "executed");
+  assert.equal(resultFor(outcome, drawIt.id).result.status, "executed");
+  assert.deepEqual(resultFor(outcome, otherwiseMode.id).result, { status: "negated", reason: "skipped", events: [] });
+  assert.equal(outcome.linkedValues[`${branch.id}.value`], true);
+  assert.deepEqual(outcome.linkedValues[`${revealTop.id}.revealed`], [revealed]);
+  assert.equal(outcome.linkedValues[`${unitMode.id}/${drawIt.id}.drawn`], 1);
   assert.equal(kernel.getObject("top-unit").zone, "hand");
   assert.deepEqual(kernel.zone("A", "hand").map(ref => ref.id), ["top-unit"]);
-  assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["second-card"]);
-  assert.deepEqual(outcome.events.map(event => event.action), ["reveal", "return-to-hand"]);
+  assert.deepEqual(kernel.zone("A", "deck"), []);
+  assert.deepEqual(outcome.events.map(event => event.action), ["reveal", "draw"]);
+  assert.deepEqual(kernel.continuousEffects, []);
+  assert.equal(kernel.getObject("pakaa").might, 4);
 });
 
-test("ven-033-166 Pakaa Protector golden: the otherwise branch trashes the reveal and gives the host +2 Might this turn", () => {
+test("ven-033-166 Pakaa Protector golden: the original otherwise branch trashes the reveal and grants +2 Might", () => {
   const base = world().unit("pakaa", { might: 2 }).unit("other", { might: 3 })
-    .deck(["top-spell", "second-card"]).build();
+    .deck(["top-spell"], { types: ["spell"] }).build();
   const kernel = base.clone({ sourceSnapshot: base.getObject("pakaa") });
-  const ordered = kernel.zoneSlice("A", "deck", "top", 1).map(object => object.ref);
-  kernel.setPicks("pakaa-protector.top-card", ordered);
-  kernel.setPicks("pakaa-protector.revealed-card", ordered);
+  // Locked non-target selection only: linked PickSpec production is still pending.
+  kernel.setPicks("pakaa-protector.revealed-card", kernel.zoneSlice("A", "deck", "top", 1).map(object => object.ref));
+  const outcome = resolveChainBody(ability.body, kernel);
 
-  const outcome = resolveChainBody(executableBody("pakaa-protector.otherwise-mode"), kernel);
-
-  assert.equal(outcome.status, "executed");
-  assert.equal(resultFor(outcome, "pakaa-protector.into-trash").result.status, "executed");
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(resultFor(outcome, unitMode.id).result, { status: "negated", reason: "skipped", events: [] });
+  assert.equal(outcome.linkedValues[`${branch.id}.value`], false);
+  assert.equal(resultFor(outcome, intoTrash.id).result.status, "executed");
   assert.equal(resultFor(outcome, mightThisTurn.id).result.status, "executed");
   assert.equal(kernel.getObject("top-spell").zone, "trash");
   assert.deepEqual(kernel.zone("A", "trash").map(ref => ref.id), ["top-spell"]);
-  assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["second-card"]);
+  assert.deepEqual(kernel.zone("A", "deck"), []);
+  assert.deepEqual(kernel.zone("A", "hand"), []);
   assert.deepEqual(outcome.events.map(event => event.action), ["reveal", "move-zone"]);
   assert.equal(kernel.continuousEffects.length, 1);
-  assert.deepEqual(outcome.linkedValues[`${mightThisTurn.id}.affected.objects`], [kernel.ref("pakaa")]);
+  assert.deepEqual(outcome.linkedValues[`${otherwiseMode.id}/${mightThisTurn.id}.affected.objects`], [kernel.ref("pakaa")]);
   const layers = createLayerEngine(kernel.objects, kernel.continuousEffects);
   assert.equal(layers.evaluate(kernel.ref("pakaa")).might, 4);
   assert.equal(layers.evaluate(kernel.ref("pakaa")).buffs, 0);
@@ -198,20 +195,52 @@ test("ven-033-166 Pakaa Protector golden: the otherwise branch trashes the revea
   assert.equal(layers.evaluate(kernel.ref("pakaa")).might, 2);
 });
 
+test("ven-033-166 Pakaa Protector golden: an empty reveal ignores both branches without granting Might", () => {
+  const kernel = world().unit("pakaa", { might: 4 }).build();
+  const outcome = resolveChainBody(ability.body, kernel);
+  assert.equal(outcome.status, "partial");
+  assert.equal(resultFor(outcome, revealTop.id).result.status, "negated");
+  assert.deepEqual(resultFor(outcome, branch.id).result, { status: "ignored", reason: "mistargeted" });
+  for (const step of [unitMode, otherwiseMode]) {
+    assert.deepEqual(resultFor(outcome, step.id).result, { status: "ignored", reason: "linked-ignored" });
+  }
+  assert.deepEqual(outcome.events, []);
+  assert.deepEqual(kernel.continuousEffects, []);
+  assert.deepEqual(kernel.zone("A", "hand"), []);
+});
+
+test("ven-033-166 Pakaa Protector golden: the supported draw and trash effects preserve a second deck card", () => {
+  for (const isUnit of [true, false]) {
+    const kernel = world().deck(["top-card", "second-card"], { types: [isUnit ? "unit" : "spell"] }).build();
+    const ordered = kernel.zoneSlice("A", "deck", "top", 1).map(object => object.ref);
+    const revealed = runInstruction(reveal, { pick: "ordered-top" }, {
+      world: kernel, picks: { "ordered-top": ordered }
+    });
+    assert.equal(revealed.result.status, "executed");
+    assert.deepEqual(revealed.linked.revealed, ordered);
+    const moved = isUnit
+      ? runInstruction(draw, drawIt.args, { world: kernel })
+      : runInstruction(zone, { pick: "pakaa-protector.revealed-card", to: intoTrash.args.to }, {
+          world: kernel, picks: { "pakaa-protector.revealed-card": revealed.linked.revealed }
+        });
+    assert.equal(moved.result.status, "executed");
+    assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["second-card"]);
+    assert.equal(kernel.getObject("top-card").zone, isUnit ? "hand" : "trash");
+    assert.deepEqual(kernel.events.map(event => event.action), ["reveal", isUnit ? "draw" : "move-zone"]);
+  }
+});
+
 test("ven-033-166 Pakaa Protector golden: a revealed card that already left the deck is dropped by the zone move", () => {
   const kernel = world().deck(["top-card", "second-card"]).build();
   const stale = kernel.ref("top-card");
-  kernel.perform({ type: "return-to-hand", object: stale });
-  kernel.setPicks("pakaa-protector.revealed-card", [stale]);
-
-  const outcome = resolveChainBody(executableBody("pakaa-protector.unit-mode"), kernel);
-
-  // 359.3.e.7 / §124: a stale zone entry is not rebound; the pick yields no
-  // legal object and the instruction is ignored rather than moving a new object.
-  assert.equal(resultFor(outcome, "pakaa-protector.draw-it").result.status, "ignored");
-  assert.equal(resultFor(outcome, "pakaa-protector.draw-it").result.reason, "mistargeted");
+  assert.equal(kernel.perform({ type: "return-to-hand", object: stale }).status, "done");
+  const outcome = runInstruction(zone, { pick: "pakaa-protector.revealed-card", to: intoTrash.args.to }, {
+    world: kernel, picks: { "pakaa-protector.revealed-card": [stale] }
+  });
+  assert.deepEqual(outcome.result, { status: "ignored", reason: "mistargeted" });
   assert.equal(kernel.getObject("top-card").zone, "hand");
   assert.deepEqual(kernel.zone("A", "hand").map(ref => ref.id), ["top-card"]);
+  assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["second-card"]);
 });
 
 test("ven-033-166 Pakaa Protector golden: a real move emission matches only the bound host", () => {
@@ -244,11 +273,11 @@ test.todo(
 );
 
 test.todo(
-  "ven-033-166 Pakaa Protector: select the printed branch automatically from the revealed type snapshot " +
-    "(contract 3.4 Show Off, RIFT-359); a player-selected choice.mode cannot replace this condition"
+  "ven-033-166 Pakaa Protector: unwrap effect.reveal's pick Expr in the chain interpreter adapter " +
+    "so the original body can consume the ordered pick without a test-boundary argument conversion"
 );
 
 test.todo(
-  "ven-033-166 Pakaa Protector: unwrap effect.reveal's pick Expr in the chain interpreter adapter " +
-    "so the original body can consume the ordered pick without a test-boundary argument conversion"
+  "ven-033-166 Pakaa Protector: resolve linked-value options into the revealed-card PickSpec binding " +
+    "before effect.zone; interpreter instructionContext.picks currently delegates only to the caller's picks"
 );

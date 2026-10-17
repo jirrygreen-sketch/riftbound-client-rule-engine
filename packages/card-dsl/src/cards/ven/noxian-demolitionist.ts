@@ -61,8 +61,8 @@ const abilities: Ability[] = [
                   }
                 ],
                 // "with Energy cost no more than my Might"：355.9.b 的目标限制需要一个
-                // 动态比较（目标的印刷 Energy 值 vs 宿主当前 Might，143.2.a）。冻结的
-                // ObjectFilter / 已合入匹配器没有该类锚点或谓词（未知键被静默忽略），
+                // 动态比较（目标的印刷 Energy 值 vs 宿主当前 Might，143.2.a）。
+                // CardProgram → Chain 目标绑定尚未提供这种 object-property 谓词，
                 // 因此按 359.3.e 的重验语义写成结算期 condition（见 judgeReason）。
                 condition: {
                   kind: "compare",
@@ -92,14 +92,8 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处当前缺口：(1) “with Energy cost no more than my Might”是 Finalize 目标合法性里的动态比较" +
-    "（355.9.b；左侧是目标的印刷 Energy 值、右侧是能力宿主当前 Might，143.2.a），现有目标选项" +
-    "求值没有消费这种 object-property 谓词；程序保留 effect.kill 结算期 condition 作为重验，" +
-    "但它不能替代 Finalize 的合法目标集合。目标没有印刷 Energy 值（energy: null）时比较不可求值，" +
-    "不换算为 0。(2) gear TargetSpec 嵌在 choice.optional 的 body 内，Chain Finalize 尚没有嵌套目标" +
-    "生命周期，无法在选择 may-body 时锁定、重验并发出该目标。conquer 事件生产与 CardProgram trigger" +
-    "注册、effect.kill 本体和 optional 选择均已可用；golden 覆盖接受、动态重验拒绝与放弃三条路径。" +
-    "不近似实现。",
+    "两处当前缺口：(1) “with Energy cost no more than my Might”要求在 Finalize 合法目标集合中比较目标印刷 Energy cost 与宿主有效 Might（355.9.b / 143.2.a）。queryTargetCandidates 虽有 isLegal 回调，CardProgram TargetSpec → Chain 的绑定未提供此 object-property 谓词；effect.kill 的结算期 condition 不能替代选择时的限制，energy:null 也不能换算为 0。" +
+    "(2) gear TargetSpec 嵌在 choice.optional 的 body 内，chain/engine.ts 的 assertFinalizationSurface 拒绝嵌套目标，缺少 Finalize 锁定、目标事件与 Resolve 重验生命周期。conquer 事件、触发注册、optional 选择和 kill 原语已存在；真实 body 的接受、拒绝、放弃及空印刷值路径仅证明已支持部分。",
   abilities,
   sourceText: "When I conquer, you may kill a gear with Energy cost no more than my Might."
 } satisfies CardProgram;
