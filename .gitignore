@@ -40,3 +40,11 @@ packages/card-data/data/images-manifest.json
 .vscode/
 *.swp
 *.swo
+
+# Tracked judge coverage implementation and generated reports.
+!packages/judge-tools/src/coverage/
+!packages/judge-tools/src/coverage/**
+!packages/judge-tools/test/coverage/
+!packages/judge-tools/test/coverage/**
+!docs/coverage/
+!docs/coverage/**
