@@ -32,6 +32,8 @@ test("flame-chompers: identity, ruleset, status and verbatim sourceText", () => 
   assert.match(program.judgeReason, /Fury/);
   assert.match(program.judgeReason, /385\.1\/385\.2/);
   assert.match(program.judgeReason, /activeZones/);
+  assert.match(program.judgeReason, /programs\/lifecycle\.ts/);
+  assert.match(program.judgeReason, /programs\/filters\.ts/);
   assert.match(program.judgeReason, /383\.3\.a/);
   assert.match(program.judgeReason, /383\.3\.b\/383\.3\.b\.1/);
   assert.match(program.judgeReason, /TriggerRegistration\.cost\/mayAtFinalize/);

@@ -4,6 +4,7 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/imperial-decree.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { isTimingPointId } from "../../../../engine-core/dist/events/timing-points.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -24,10 +25,11 @@ test("Imperial Decree identity and judge-required status match the printing", ()
   assert.equal(program.status, "judge-required");
   assert.equal(program.judgeReason.includes("trigger.delayed"), true);
   assert.equal(program.judgeReason.includes("390"), true);
-  assert.match(program.judgeReason, /expiresAt/);
+  assert.match(program.judgeReason, /expiry/);
   assert.match(program.judgeReason, /绑定/);
   assert.match(program.judgeReason, /registerDelayedTrigger/);
   assert.match(program.judgeReason, /damage-dealt/);
+  assert.match(program.judgeReason, /instruction registry/);
   assert.ok(!/RIFT-\d+/.test(program.judgeReason));
   assert.equal(
     program.sourceText,
@@ -86,6 +88,10 @@ test("Imperial Decree: the delayed kill body itself is a valid, executable effec
     ["imperial-decree.kill-damaged-unit", "executed"]
   ]);
   assert.deepEqual(outcome.events.map(event => event.action), ["kill"]);
+});
+
+test("Imperial Decree current gap: the card-facing delayed-trigger opcode is not registered", () => {
+  assert.equal(instructionDefinitionsById.has("trigger.delayed"), false);
 });
 
 test.todo(

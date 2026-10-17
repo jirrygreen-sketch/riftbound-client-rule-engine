@@ -11,7 +11,13 @@ const fioraVictorious = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺动态授予关键词的行为消费：continuous.grant-keyword 只把 Deflect/Ganking/Shield 写入 ability 层特征，未把 Ganking 接到已有的 continuous.movement/Standard Move 许可，未把 Shield 接到 defender Might；Shield KeywordDef 仍读取 designation，而 ObjectSnapshot 的战斗字段是 combatRole（CR 810.1.b/144.4.c.1、814.1.c）。Deflect 的 target.tax 也未从该授予路径接入 Finalize：programs/statics.ts 没有 target.tax 绑定，Chain Finalize 仍把税额记为 Energy，绕过 target/tax 的任意域 Power 计划（CR 809.1.c/809.1.c.1）。实际 continuous.might 链结算中的静态阈值回测仍失败：createEngineStaticBinder 绑定的条件在 4→5 时不授予、5→4 时不撤销三关键词，尚缺 CR 478.3/478.4 要求的当前有效 Might 重验。",
+    "仍缺动态授予关键词的生产消费：continuous.grant-keyword 目前只把 Deflect/Ganking/Shield 写入图层关键词特征，" +
+    "当前分支没有把授予后的关键词重新展开并接到对应消费者；Ganking 的 Standard Move 许可、Shield 的 defender Might 都因此不可达。" +
+    "Shield KeywordDef 仍读取 designation；expr-ext/evaluate.ts 虽能映射 combatRole，生产 static binder 未接入该扩展（CR 810.1.b/144.4.c.1、814.1.c）。" +
+    "Deflect 的 target.tax 也未从该授予路径接入 Finalize：programs/statics.ts 没有 target.tax 的 layer/Finalize 绑定，" +
+    "Chain Finalize 仍不会生成税额要求的任意域 Power 计划（CR 809.1.c/809.1.c.1）。" +
+    "实际 continuous.might 链结算中的静态阈值回测仍失败：createEngineStaticBinder 绑定的条件在 4→5 时不授予、" +
+    "5→4 时不撤销三关键词，尚缺 CR 478.3/478.4 要求的当前有效 Might 重验。",
   sourceText:
     "While I'm [Mighty], I have [Deflect], [Ganking], and [Shield]. (I'm Mighty while I have 5+ :rb_might:.)",
   abilities: [

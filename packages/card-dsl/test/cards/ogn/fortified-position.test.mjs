@@ -32,7 +32,9 @@ test("ogn-279-298 Fortified Position: identity, ruleset, status and printed text
     "When you defend here, choose a unit. It gains [Shield 2] this combat. (+2 :rb_might: while it's a defender.)"
   );
   assert.match(program.judgeReason, /here/);
+  assert.match(program.judgeReason, /programs\/filters\.ts/);
   assert.match(program.judgeReason, /combatRole/);
+  assert.match(program.judgeReason, /expr-ext\/evaluate\.ts/);
 });
 
 test("ogn-279-298 Fortified Position: defend trigger with a once-per-combat identity check", () => {

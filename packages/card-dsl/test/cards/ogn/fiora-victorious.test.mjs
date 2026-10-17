@@ -30,6 +30,7 @@ test("ogn-232-298 Fiora, Victorious: identity, status and verbatim sourceText", 
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /programs\/statics\.ts/);
   assert.match(program.judgeReason, /combatRole/);
+  assert.match(program.judgeReason, /expr-ext\/evaluate\.ts/);
   assert.match(program.judgeReason, /createEngineStaticBinder/);
   assert.match(program.judgeReason, /478\.3\/478\.4/);
   assert.equal(
