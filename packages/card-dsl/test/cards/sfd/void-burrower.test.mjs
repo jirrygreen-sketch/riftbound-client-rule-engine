@@ -7,7 +7,12 @@ import program from "../../../dist/cards/sfd/void-burrower.js";
 import { buildExhaustCostPlan, canPayCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
 
 const ENGINE = new URL("../../../../engine-core/dist/", import.meta.url);
+const { runAbilityBody } = await import(new URL("effects/interpreter.js", ENGINE));
+const { instructionDefinitionsById } = await import(new URL("effects/instructions/registry.generated.js", ENGINE));
+const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js", ENGINE));
 const { runInstruction, world } = await import(new URL("effects/testing/index.js", ENGINE));
+const exhaust = (await import(new URL("effects/instructions/effect.exhaust.js", ENGINE))).default;
+const play = (await import(new URL("effects/instructions/effect.play.js", ENGINE))).default;
 const reveal = (await import(new URL("effects/instructions/effect.reveal.js", ENGINE))).default;
 const recycle = (await import(new URL("effects/instructions/effect.recycle.js", ENGINE))).default;
 
@@ -19,6 +24,24 @@ const SOURCE_TEXT =
 const [ability] = program.abilities;
 const [exhaustSelf, revealTopTwo, mayPlay, recycleRest] = ability.body;
 const [playOne] = mayPlay.args.body.value;
+
+function conquerWorld() {
+  const base = world()
+    .deck(["d1", "d2", "d3"])
+    .object("void-burrower", { cardId: CANONICAL_ID, zone: "board", types: ["legend"] })
+    .build();
+  return base.clone({ sourceSnapshot: base.getObject("void-burrower") });
+}
+
+// These are separate supported interpreter entry points, with the card's
+// instructions unchanged. The direct interpreter accepts reveal's literal pick;
+// the production chain adapter handles the optional play/recycle suffix's Exprs.
+// This does not execute the blocked leading-cost/Finalize path or establish that
+// the reference kernel's Play has paid the selected card's printed cost.
+function revealForSuffix(kernel) {
+  kernel.setPicks(revealTopTwo.args.pick.value, kernel.zoneSlice("A", "deck", "top", 2).map(object => object.ref));
+  return runAbilityBody([revealTopTwo], kernel, instructionDefinitionsById);
+}
 
 test("sfd-187-221 Void Burrower: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -129,6 +152,86 @@ test("sfd-187-221 Void Burrower: the merged reveal primitive accepts the ordered
   assert.equal(kernel.player("A").deckSize, 3);
 });
 
+test("Void Burrower supported reveal/play/recycle subpaths: accepting plays one and recycles the rest", () => {
+  const kernel = conquerWorld();
+  const receipt = payCostPlan(kernel, buildExhaustCostPlan(kernel, { object: kernel.ref("void-burrower") }, { id: "burrower-exhaust" }));
+  assert.equal(receipt.paid, true);
+  const revealed = revealForSuffix(kernel);
+  assert.equal(revealed.status, "executed");
+  const refs = revealed.linkedValues["void-burrower.reveal-top-two.revealed"];
+  assert.deepEqual(refs, [kernel.ref("d1"), kernel.ref("d2")]);
+  kernel.setPicks(playOne.picks[0].id, refs);
+  kernel.setAnswers({
+    "void-burrower.may-play-one/optional": true,
+    "void-burrower.may-play-one/void-burrower.play-one/void-burrower.play-one-choice": [refs[0]]
+  });
+  const outcome = resolveChainBody(ability.body.slice(2), kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual([...revealed.results, ...outcome.results].map(result => [result.id, result.result.status]), [
+    ["void-burrower.reveal-top-two", "executed"],
+    ["void-burrower.play-one", "executed"],
+    ["void-burrower.may-play-one", "executed"],
+    ["void-burrower.recycle-rest", "executed"]
+  ]);
+  assert.equal(kernel.getObject("void-burrower").exhausted, true);
+  assert.deepEqual(kernel.zone("A", "board").map(ref => ref.id), ["void-burrower", "d1"]);
+  assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["d3", "d2"]);
+  assert.deepEqual(kernel.events.map(event => event.action), ["pay", "exhaust", "reveal", "reveal", "play", "recycle"]);
+  assert.equal(outcome.results.at(-1).result.linkedValues.recycledCount, 1);
+  assert.equal(outcome.linkedValues["void-burrower.may-play-one/void-burrower.play-one.played"], 1);
+  assert.equal(kernel.object(refs[0]), null);
+});
+
+test("Void Burrower supported reveal/play/recycle subpaths: declining still recycles every revealed card", () => {
+  const kernel = conquerWorld();
+  const receipt = payCostPlan(kernel, buildExhaustCostPlan(kernel, { object: kernel.ref("void-burrower") }, { id: "burrower-exhaust" }));
+  assert.equal(receipt.paid, true);
+  const revealed = revealForSuffix(kernel);
+  assert.equal(revealed.status, "executed");
+  kernel.setAnswers({ "void-burrower.may-play-one/optional": false });
+  const outcome = resolveChainBody(ability.body.slice(2), kernel);
+
+  assert.deepEqual([...revealed.results, ...outcome.results].map(result => [result.id, result.result.status, result.result.reason ?? null]), [
+    ["void-burrower.reveal-top-two", "executed", null],
+    ["void-burrower.may-play-one", "negated", "skipped"],
+    ["void-burrower.recycle-rest", "executed", null]
+  ]);
+  assert.equal(kernel.getObject("void-burrower").exhausted, true);
+  assert.deepEqual(kernel.zone("A", "board").map(ref => ref.id), ["void-burrower"]);
+  assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["d3", "d1", "d2"]);
+  assert.equal(outcome.results.at(-1).result.linkedValues.recycledCount, 2);
+  assert.deepEqual(kernel.events.map(event => event.action), ["pay", "exhaust", "reveal", "reveal", "recycle", "recycle"]);
+});
+
+test("Void Burrower supported recycle subpath: the played card's stale deck identity is excluded", () => {
+  const kernel = world().deck(["d1", "d2"]).build();
+  const [first, second] = kernel.zoneSlice("A", "deck", "top", 2).map(object => object.ref);
+  // Invoke the real Play primitive rather than settling the play in the fixture.
+  const played = runInstruction(play, { pick: playOne.args.pick.value, choice: playOne.args.choice.value }, {
+    world: kernel,
+    picks: { [playOne.picks[0].id]: [first, second] },
+    answers: { [playOne.args.choice.value.id]: [first] }
+  });
+  assert.equal(played.result.status, "executed");
+  assert.equal(played.linked.played, 1);
+  const run = runInstruction(recycle, { objects: { kind: "constant", value: [first, second] } }, { world: kernel });
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.recycledCount, 1);
+  assert.deepEqual(kernel.zone("A", "deck").map((ref) => ref.id), ["d2"]);
+});
+
+test("Void Burrower supported Exhaust effect: an exhausted legend records no additional exhaust", () => {
+  const base = world().object("void-burrower", { cardId: CANONICAL_ID, types: ["legend"], zone: "board", exhausted: true }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("void-burrower") });
+  const run = runInstruction(exhaust, { choose: exhaustSelf.args.choose.value }, { world: kernel });
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.result.linkedValues.exhausted.count, 0);
+  assert.equal(run.result.linkedValues.exhausted.alreadyExhausted, 1);
+  assert.equal(kernel.getObject("void-burrower").exhausted, true);
+  assert.deepEqual(run.events, []);
+});
+
 test("Void Burrower supported cost subpath: exhausting the ready legend is a real paid cost", () => {
   const base = world().object("burrower", { cardId: CANONICAL_ID, types: ["legend"], zone: "board", location: { type: "base", player: "A" } }).build();
   const kernel = base.clone({ sourceSnapshot: base.getObject("burrower") });
@@ -140,13 +243,15 @@ test("Void Burrower supported cost subpath: exhausting the ready legend is a rea
 });
 
 test("Void Burrower supported cost subpath: an exhausted legend cannot pay and causes no reveal", () => {
-  const base = world().object("burrower", { cardId: CANONICAL_ID, types: ["legend"], zone: "board", exhausted: true, location: { type: "base", player: "A" } }).deck(["d1", "d2"]).build();
-  const kernel = base.clone({ sourceSnapshot: base.getObject("burrower") });
+  const base = world().object("void-burrower", { cardId: CANONICAL_ID, types: ["legend"], zone: "board", exhausted: true, location: { type: "base", player: "A" } }).deck(["d1", "d2", "d3"]).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("void-burrower") });
   const before = kernel.snapshot();
-  const plan = buildExhaustCostPlan(kernel, { object: kernel.ref("burrower") }, { id: "burrower-exhaust" });
+  const plan = buildExhaustCostPlan(kernel, { object: kernel.ref("void-burrower") }, { id: "burrower-exhaust" });
   assert.equal(canPayCostPlan(kernel, plan), false);
   assert.throws(() => payCostPlan(kernel, plan), error => error.reason === "cannot-pay-cost");
   assert.deepEqual(kernel.snapshot(), before);
+  assert.equal(kernel.getObject("void-burrower").exhausted, true);
+  assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["d1", "d2", "d3"]);
   assert.deepEqual(kernel.events, []);
 });
 

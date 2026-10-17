@@ -32,32 +32,83 @@ function runReturn(kernel, unitRef) {
   );
 }
 
-test("Windsinger: validates identity, registration, verbatim source and current blockers", () => {
+test("sfd-138-221 Windsinger: program validates and is registered by canonicalCardId", () => {
   const result = validateCardProgram(program);
-  assert.equal(result.ok, true, JSON.stringify(result.issues));
+  assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
   assert.deepEqual(result.issues, []);
   assert.equal(cardRegistryById.get(CARD_ID), program);
+});
+
+test("sfd-138-221 Windsinger: identity, ruleset, status, judgeReason and verbatim sourceText", () => {
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
+  // README section 2: the reason names the concrete current gaps and task numbers.
+  assert.match(program.judgeReason, /mightLte/);
+  assert.match(program.judgeReason, /355\.9\.b/);
+  assert.match(program.judgeReason, /exclude/);
+  assert.match(program.judgeReason, /811\.1\.d\.3/);
+  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /383\.3\.a/);
   assert.equal(program.sourceText, SOURCE_TEXT);
-  for (const gap of [/mightLte/, /exclude/, /RIFT-359/, /383\.3\.a/, /811\.1\.d\.3/]) assert.match(program.judgeReason, gap);
 });
 
-test("Windsinger: the leading may is a trigger Finalize decision and keeps all printed target restrictions", () => {
+test("sfd-138-221 Windsinger: Hidden keyword declared, never re-expanded in the card", () => {
   assert.equal(program.abilities.length, 2);
+  // 811.1: the Hide permission and its cost expansion live in the merged
+  // effects/keywords/Hidden.ts, so the card only names the keyword (contract 3.7).
   assert.deepEqual(hidden, { kind: "keyword", keyword: "hidden" });
   assert.equal(triggered.kind, "triggered");
-  assert.equal(triggered.optional, true);
+  // 383.4.a / 383.4.a.1: "When you play me" is a Play Effect on card-played.
+  assert.equal(triggered.trigger.at, "card-played");
+  assert.deepEqual(triggered.trigger.filter, { event: "card-played", filter: { source: "self" } });
+  assert.equal(triggered.trigger.condition, undefined);
+  assert.equal(triggered.trigger.once, undefined);
   assert.deepEqual(triggered.trigger, { at: "card-played", filter: { event: "card-played", filter: { source: "self" } } });
+  // 383.3.a: the leading "you may" is a trigger decision at Finalize.
+  assert.equal(triggered.optional, true);
+});
+
+test("sfd-138-221 Windsinger: the Finalize may keeps a single direct return and its target", () => {
+  assert.deepEqual(triggered.body.map((instruction) => instruction.id), ["windsinger.return-to-hand"]);
   assert.equal(triggered.body.length, 1);
-  assert.equal(returnToHand.op, "effect.zone");
+  assert.equal(triggered.optional, true);
+  // The former resolution-time prompt is represented by the leading printed may
+  // and optional:true; there is no second optional decision during resolution.
+  assert.match(program.sourceText, /When you play me, you may return another unit/);
   assert.equal(returnToHand.linkedTo, undefined);
+
+  // 355.7 / 355.12: "another unit at a battlefield" is chosen, so it is a target
+  // locked together with the may-action. "another" excludes the source (355.9.c)
+  // through the symbolic exclude selector; "at a battlefield" is a location
+  // restriction (355.10.b). The Might cap stays descriptive (see judgeReason).
+  assert.equal(returnToHand.targets.length, 1);
+  const [target] = returnToHand.targets;
+  assert.equal(target.id, TARGET_ID);
+  assert.deepEqual(target.filter, {
+    type: "unit",
+    zone: "board",
+    location: "battlefield",
+    exclude: "source",
+    mightLte: 3
+  });
+  assert.equal(target.min, 1);
+  assert.equal(target.max, 1);
+  assert.equal(target.selection, "one");
+  assert.equal(returnToHand.picks, undefined);
+
+  // The body moves the chosen unit to its owner's hand through the closed
+  // return-to-hand action (448.2: a zone change, not a Move).
+  assert.equal(returnToHand.op, "effect.zone");
+  assert.deepEqual(returnToHand.args.target, { kind: "constant", value: TARGET_ID });
+  assert.deepEqual(returnToHand.args.to, { kind: "constant", value: "hand" });
+  assert.deepEqual(returnToHand.args.amount, { kind: "constant", value: 1 });
   assert.deepEqual(returnToHand.args, {
     target: { kind: "constant", value: TARGET_ID },
     to: { kind: "constant", value: "hand" },
     amount: { kind: "constant", value: 1 }
   });
+  assert.equal(returnToHand.linkedTo, undefined);
   assert.deepEqual(returnToHand.targets, [{
     id: TARGET_ID,
     filter: { type: "unit", zone: "board", location: "battlefield", exclude: "source", mightLte: 3 },
@@ -105,9 +156,9 @@ test("sfd-138-221 Windsinger golden: no legal target leaves the return with noth
   assert.deepEqual(run.events, []);
 });
 
-test("Windsinger: Hidden expands through the real keyword registry", () => {
+test("sfd-138-221 Windsinger: Hidden expands through the real keyword registry", () => {
   const definition = keywordDefinitionsById.get("Hidden");
-  assert.ok(definition);
+  assert.ok(definition, "effects/keywords/Hidden.ts must be registered");
   const [expansion] = definition.expand({ host: { canonicalCardId: CARD_ID } });
   assert.equal(expansion.kind, "static");
   assert.equal(expansion.effect.kind, "cost.hidden");
