@@ -55,8 +55,6 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, sourceText", () =
   assert.match(program.judgeReason, /812\.1\.c/);
   assert.match(program.judgeReason, /HistoryQuery/);
   assert.match(program.judgeReason, /479\.4/);
-  assert.match(program.judgeReason, /TriggerRegistration/);
-  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });
@@ -172,13 +170,11 @@ test("golden execution: a source that already left the board is not readied (CR 
 
 test.todo(
   "[Legion] gate on the play trigger (CR 812.1.b.1, 812.1.c): the merged KeywordDef expansion needs a " +
-    "history query dimension that excludes this card's own identity, and the trigger pipeline must apply it " +
-    "(RIFT-82 Legion expansion + events/chain trigger subscription)"
+    "condition.predicate history consumption that excludes this card's own identity (812.1.c)"
 );
 
 test.todo(
   "'Other friendly units have +1 [M] here.' (CR 479.4 arithmetic layer, 053/740.1.a scoping): no path registers " +
-    "a card program's static ability into the layers pipeline (RIFT-91 merged the LayerEngine itself), and " +
-    "layers/filter.ts does not resolve the controller placeholder or implement the sameLocationAs/exclude anchors, " +
+    "the static binder and layer filter to support the dynamic controller, sameLocationAs, and exclude anchors, " +
     "so the aura's scope cannot be evaluated as printed"
 );

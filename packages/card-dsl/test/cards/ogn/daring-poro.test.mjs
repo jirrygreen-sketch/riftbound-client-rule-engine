@@ -21,9 +21,6 @@ test("ogn-210-298 Daring Poro: identity, ruleset, status, judgeReason, sourceTex
   assert.equal(daringPoro.status, "judge-required");
   assert.match(daringPoro.judgeReason, /Assault/);
   assert.match(daringPoro.judgeReason, /combatRole/);
-  assert.match(daringPoro.judgeReason, /RIFT-81/);
-  assert.match(daringPoro.judgeReason, /RIFT-91/);
-  assert.match(daringPoro.judgeReason, /RIFT-257/);
   assert.equal(daringPoro.sourceText, "[Assault] (+1 :rb_might: while I'm an attacker.)");
 });
 
@@ -63,11 +60,11 @@ test("ogn-210-298 Daring Poro: CR 807.1.c is +1 Might while the Attacker designa
 
 test.todo(
   "Daring Poro: +1 Might applies exactly while the unit holds the Attacker designation (CR 807.1.c/807.1.d.1) " +
-    "and drops back to 2 outside Combat — blocked on ObjectSnapshot.combatRole (契约 3.8) plus a layer " +
-    "condition that understands the compare predicate (RIFT-91)"
+    "and drops back to 2 outside Combat — blocked on the designation/combatRole " +
+    "mapping, live CombatFlow designation, and LayerEngine compare-condition evaluation"
 );
 
 test.todo(
   "Daring Poro: CR 807.2 stacking — a granted Assault 3 merges with this printed Assault into a single Assault 4 " +
-    "and one +4 Might expansion (RIFT-81/91 接线)"
+    "and one +4 Might expansion through the existing Assault stacking definition"
 );

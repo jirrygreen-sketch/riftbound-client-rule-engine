@@ -1,7 +1,7 @@
 // Golden test for Dangerous Duo (ogn-016-298).
 // The Legion gate is expressed as a trigger condition over the cards-finalized
 // history; the +2 Might body executes through continuous.might, while the
-// trigger gate remains pending on history and CardProgram binding.
+// trigger gate remains pending on the history-condition adapter.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { validateCardProgram } from "../../../../../packages/card-dsl/dist/ir/index.js";
@@ -17,8 +17,6 @@ test("program passes validateCardProgram and is judge-required", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason ?? "", /continuous\.might/);
-  assert.match(program.judgeReason ?? "", /RIFT-82/);
-  assert.match(program.judgeReason ?? "", /RIFT-257/);
   assert.match(program.sourceText, /\[Legion\]/);
 });
 
@@ -78,6 +76,6 @@ test("golden execution: the selected unit receives a registered end-of-turn Migh
 });
 
 test.todo(
-  "bind the Legion history gate and this triggered CardProgram ability once the history/excluding " +
-    "condition semantics and RIFT-257 program trigger binding are available"
+  "bind the Legion history gate once TriggerSpec conditions can read ResolveContext.history " +
+    "and exclude the source card from the turn play count"
 );

@@ -14,8 +14,8 @@ test("ogn-068-298: identity, exact source text, pure data and explicit blocked s
   assert.equal(program.canonicalCardId, "card.hash-46870901290d1c4082f78830943ec1e847b51ec8c511a04a60ad3c97410429df");
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /Backline|amount/);
-  assert.match(program.judgeReason, /RIFT-/);
+  assert.match(program.judgeReason, /Backline|continuous\.combat/);
+  assert.match(program.judgeReason, /at-battlefield/);
   assert.equal(program.sourceText, "I must be assigned combat damage last.\n:rb_exhaust:: Deal damage equal to my Might to a unit at a battlefield. Use this ability only while I'm at a battlefield.");
   assert.deepEqual(JSON.parse(JSON.stringify(program)), program);
 });
@@ -66,5 +66,5 @@ test("Caitlyn golden subeffect: loss of the finalized target is ignored without 
   assert.deepEqual(run.events, []);
 });
 
-test.todo("Caitlyn: Backline lethal-last damage allocation (CR 826; RIFT-91)");
-test.todo("Caitlyn: original body through interpreter, battlefield admission/target aliases, real exhaust payment and base rejection (RIFT-1/120)");
+test.todo("Caitlyn: Backline lethal-last damage allocation through the continuous.combat consumer (CR 826)");
+test.todo("Caitlyn: bind the at-battlefield restriction through the activation legality adapter and execute the full ability");

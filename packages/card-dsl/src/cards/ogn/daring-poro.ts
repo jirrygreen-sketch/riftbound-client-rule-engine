@@ -21,15 +21,12 @@ import type { CardProgram } from "../../ir/index.js";
  * 注册表负责（RIFT-81 已合入 keywords/Assault.ts），卡牌程序不重复展开。
  *
  * status 判定（README 第 2 节）：
- * - 没有已合入的内核路径把卡牌的 keyword 能力解析到 KeywordDef 并接入图层
- *   （契约 3.5 / 3.7）；当前 src 中只有 registry.generated.ts 与其测试消费
- *   关键词注册表。
- * - 即使接线完成，已合入的 keywords/Assault.ts 展开仍不可执行：展开读
- *   `designation` 对象属性（契约 3.8 新增的 ObjectSnapshot.combatRole），
- *   而当前 interpreter 的 ObjectSnapshot 没有该特征；layers/engine.ts 的
- *   conditionMatches 也不识别 compare 条件（只认 always/never/type/
- *   has-tag/has-keyword，其余一律按 true），所以 attacker 条件在图层计算里
- *   不能生效也不能正确关闭。
+ * - CardProgram keyword expansion and static binding are present. The remaining
+ *   execution gap is in the combat state: Assault.ts still reads the legacy
+ *   `designation` property while ObjectSnapshot exposes `combatRole`, and the
+ *   live CombatFlow has not yet published attacker designations. LayerEngine
+ *   also does not evaluate the compare(object-property) condition emitted by
+ *   Assault, so the modifier cannot turn on and off at the combat boundary.
  * 保留有依据的声明，执行证据写 test.todo，不近似实现。
  */
 const daringPoro = {
@@ -37,13 +34,9 @@ const daringPoro = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 Assault 关键词的可执行路径（CR 807.1.c / 807.1.d.1）：(1) 没有已合入的内核路径把卡牌的 keyword 能力解析到 " +
-    "KeywordDef 并交给 layers 计算（契约 3.5 / 3.7；当前 src 中只有 registry.generated.ts 与其测试消费关键词注册表）；" +
-    "(2) 已合入的 keywords/Assault.ts 展开依赖攻击者指定（展开读 designation 对象属性，即契约 3.8 的 " +
-    "ObjectSnapshot.combatRole），而 interpreter 的 ObjectSnapshot 没有该特征，layers/engine.ts 的 conditionMatches " +
-    "也不识别 compare 条件（只认 always/never/type/has-tag/has-keyword，其余按 true），attacker 条件在真实图层计算中恒真，" +
-    "无法只在我攻击时 +1 Might。依赖：RIFT-81（Assault 关键词展开，声明部分已合入）、RIFT-91（layers-continuous 条件支持）、" +
-    "RIFT-257（CardProgram 关键词/静态能力绑定）、契约 3.8 combatRole 落地。不近似实现。",
+    "缺 Assault 的实时战斗条件求值（CR 807.1.c / 807.1.d.1）：Assault.ts 展开读 designation，" +
+    "而 ObjectSnapshot 公开的是 combatRole；CombatFlow 也尚未发布 attacker designation，" +
+    "且 LayerEngine 不识别该 compare(object-property) 条件，无法只在我攻击时 +1 Might。不近似实现。",
   abilities: [{ kind: "keyword", keyword: "assault" }],
   sourceText: "[Assault] (+1 :rb_might: while I'm an attacker.)"
 } satisfies CardProgram;
