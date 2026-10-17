@@ -148,7 +148,7 @@ test("unl-189-219 Bashful Bloom: the frozen token table still has no Sprite defi
   assert.deepEqual(kernel.objects.filter(object => object.isToken), []);
 });
 
-test("unl-189-219 Bashful Bloom: the declared dynamic token location is still outside the primitive's Expr vocabulary (RIFT-357 boundary)", () => {
+test("unl-189-219 Bashful Bloom: the declared dynamic token location is still outside the primitive's Expr vocabulary", () => {
   // Evidence for gap (2)/(4): the card authors a relative location selector
   // (type base, player controller) that the merged LocationExpr resolver can
   // evaluate, but effect.token's frozen schema has no location expression kind
@@ -193,7 +193,7 @@ test.todo("bashful-bloom: apply ready entry as an entry-state override to the cr
 
 test.todo("bashful-bloom: bind live Temporary-unit count to the activation Finalize discount (CR 404.2/404.3)");
 
-test.todo("bashful-bloom: resolve the ability controllers Base as a relative token location (RIFT-357)");
+test.todo("bashful-bloom: resolve the ability controller's Base as a relative token location (needs the relative selector wired into effect.token's argument boundary)");
 
 test("Bashful Bloom: cost.modify and cost.pay settle the printed activation Energy and exhaust cost", () => {
   const kernel = world().player("A", { energy: 5 })

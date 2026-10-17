@@ -110,14 +110,15 @@ test("Bird: the reference kernel's pay action still ignores the prepared Power a
   assert.deepEqual(kernel.player("A").power, ["Fury"]);
 });
 
-test.todo("bird: derive Deflect on each enemy target choice and append unrestricted-domain Power to Finalize costs (CR 809.1.c.1/809.1.d; RIFT-360)");
+test.todo("bird: route the expanded target.tax through the static binder into the tax collector and append unrestricted-domain Power to Finalize costs (CR 809.1.c.1/809.1.d; the tax planner is merged, its static-binding and Chain consumers are not)");
 
 for (const domain of ["Fury", "Order"]) {
   test(`Bird: the cost allocator prepares the Deflect Power component using ${domain} (809.1.c.1)`, () => {
     const kernel = world().player("A", { energy: 2, power: [domain] }).build();
     const [expansion] = deflect.expand({ host: { canonicalCardId: CANONICAL_ID } });
     // This checks actual allocation and the kernel action, not resource
-    // consumption. Automatic target-tax derivation is RIFT-360.
+    // consumption. Automatic target-tax derivation needs the static-binding and
+    // Chain consumers named in judgeReason.
     const plan = buildCostPlan(kernel, {
       id: "bird:deflect", domains: [], cost: { energy: { kind: "constant", value: 2 } },
       mandatoryAdditional: [{ id: "bird:tax", cost: { power: expansion.effect.value } }]
@@ -134,7 +135,7 @@ for (const domain of ["Fury", "Order"]) {
   });
 }
 
-test.todo("bird: execute Deflect Power payment against a kernel that consumes the prepared Power action, then verify the resource delta (CR 809.1.c.1; RIFT-360 integration)");
+test.todo("bird: execute Deflect Power payment against a kernel that consumes the prepared Power action, then verify the resource delta (CR 809.1.c.1; needs the pay consumer to debit plan.power)");
 
 test("Bird: Energy cannot substitute for the required Deflect Power (809.1.c.1)", () => {
   const kernel = world().player("A", { energy: 10, power: [] }).build();

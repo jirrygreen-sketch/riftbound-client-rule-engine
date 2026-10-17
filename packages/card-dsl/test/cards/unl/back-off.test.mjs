@@ -221,6 +221,6 @@ test("Back Off: the production chain adapter still rejects the declared effect.s
   assert.equal(kernel.getObject("enemy").stunned, false);
 });
 
-test.todo("back-off: expose and evaluate the actual play-origin fact for the conditional draw (CR 356.1/356.2)");
+test.todo("back-off: supply the resolving event's play-origin payload to a card's own play.body so the merged played-from-hand predicate can evaluate it (CR 356.1/356.2)");
 
 test.todo("back-off: consume Hidden cost.hidden in the Hide action and facedown play timing/cost flow (CR 811)");

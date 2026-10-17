@@ -233,7 +233,7 @@ test("unl-170-219 Atakhan golden: a defender unit that already left makes the ki
 
 test.todo("atakhan: bind static optional kill costs and grantedBy discounts to Finalize, including the chosen printed/copied cost (CR 206/356.4.f.1)");
 
-test.todo("atakhan: produce attack-declared and bind defender, chooser and attack location to the forced kill (CR 383.4.e; RIFT-357)");
+test.todo("atakhan: produce attack-declared and bind defender, chooser and attack location to the forced kill (CR 383.4.e; needs the combat timing emitter and a defender/chooser scope)");
 
 test.todo("atakhan: normalize the Ganking static expansion into permission.routes before Standard Move consumes it (CR 810.1.c; the declaration binds but exposes only a permission string)");
 
