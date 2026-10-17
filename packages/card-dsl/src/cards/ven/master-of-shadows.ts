@@ -19,39 +19,17 @@ import type { CardProgram } from "../../ir/index.js";
  * - 423.1 / 423.4 / 414.1：“Discard 1, then draw 1” 是两条独立指令；“then” 不产生
  *   链接依赖——423.4 明确“无论弃掉几张，随后照常抽牌”，因此抽牌指令不写 linkedTo。
  *
- * status = judge-required（两处当前缺口均不近似实现）：
- * 1. 触发条件写不出来：banish 的观察时点在封闭时点表中是 "card-banished"（events/
- *    timing-points.ts，ruleRefs 428.1/428.2），但 events/trigger-spec.ts 的
- *    EVENT_PATTERN_TYPES 没有该判别值，validateTriggerSpec 会以 invalid-event-type
- *    拒绝注册；且事件载荷没有 “谁放逐 / 谁拥有” 的判别字段，已合入的
- *    translateTriggerFilter 也会以 unsupported filter field 拒绝 player/owner
- *    （契约变更请求）。
- * 2. “Disempower me” 作为启动费用没有付费种类：cost/plan-values.ts 的非标准费用只支持
- *    exhaust/discard/recycle/kill/reveal/spend-buff，没有 disempower（443.2.a）——与
- *    RIFT-238 的 Heart of the Tempest / Matriarch of War 同一缺口（RIFT-261）。
- * 启动能力 → 链的接线本身已合入（describeActivate + translateCost）；当前仍由
- * disempower 费用种类缺失阻止 Finalize 支付，不能把已合入的适配器再次列作缺口。
- * 触发 body 的 “empower me” 与启动 body 的 “Discard 1, then draw 1” 都只用已合入原语，
- * golden 用真实解释器 + 参考内核执行。
- * 依赖：banish 事件的 EventPattern 判别值与载荷（契约变更请求），以及 disempower 费用种类。
+ * status = judge-required。已合入依赖与剩余生产接线已重新核对；
+ * 当前真实缺口以 judgeReason 为准，子效果执行不证明整卡可执行。
  */
 const masterOfShadows = {
   canonicalCardId: "card.hash-7e2a7385750d6027b29a1da6a1f5a3301f7cea6ae37c0db13059d67f606b0f5b",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口：(1) 触发条件无法注册——封闭时点表的 Banish 观察时点是 card-banished" +
-    "（events/timing-points.ts，ruleRefs 428.1/428.2），但 EVENT_PATTERN_TYPES 没有该判别值，" +
-    "validateTriggerSpec 会以 invalid-event-type 拒绝；程序按运行时匹配形状（player = 能力控制者、" +
-    "owner = 能力控制者）写出 filter，事件载荷也没有这两个判别字段；已合入的 translateTriggerFilter " +
-    "会以 unsupported filter field 拒绝），需要事件判别值与载荷扩展（契约变更请求）。 " +
-    "(2) “Disempower me” 作为启动费用没有 disempower 付费种类（443.2.a / 443.2）：cost/plan-values.ts 的非标准费用" +
-    "只支持 exhaust/discard/recycle/kill/reveal/spend-buff，仍缺 disempower 付费种类，" +
-    "程序里以描述性 payment 记录。 " +
-    "启动能力 → 链的接线（describeActivate / translateCost）已合入，但缺 disempower 费用种类使该能力" +
-    "只能在 Finalize 以 judge-required 失败，没有可执行入口。 " +
-    "触发 body 的 “empower me”（442.1）与启动 body 的 “Discard 1, then draw 1”（423.1/423.4/414.1）" +
-    "都只用已合入原语，golden 用真实解释器执行。不近似实现。",
+    "仍缺：(1) card-banished 不在 EVENT_PATTERN_TYPES，无法注册 428.1/428.2 的触发条件；action-adapter.ts 对 banish 以对象 controller 推导 player，未保留实际放逐者，无法保证 you banish a card you own；" +
+    "(2) cost/plan-values.ts 尚无 disempower 支付种类，无法支付 Disempower me（443.2.a）；" +
+    "(3) 参考内核的 empower 动作直接累加，缺 442.1.b/.c 的二元状态幂等保证。",
   abilities: [
     {
       kind: "triggered",
@@ -89,8 +67,7 @@ const masterOfShadows = {
       cost: {
         kind: "activated",
         payments: [
-          // “Disempower me”：443.2 的 Limited Action；作为费用需要 disempower 付费种类
-          // （cost/plan-values.ts 暂不支持，见 judgeReason 第 2 条）。
+          // CR 443.2.a: Disempower is a payment, not an effect in the body.
           { kind: "disempower", object: "self" },
           // :rb_exhaust: = Exhaust 此来源（204.1.b、415.5）。
           { kind: "exhaust", object: "self" }

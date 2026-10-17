@@ -18,31 +18,16 @@ import type { CardProgram } from "../../ir/index.js";
  * - 053.3："here" 指本战场；479.1 / 478.1：该效果在战场被控制期间持续生效；
  *   190.6.a / 190.6.d：战场能力的控制者为战场控制者。
  *
- * status = judge-required（缺口均不近似实现）：
- * 1. RIFT-257 的 attachProgramLifecycle/createEngineStaticBinder 已能把 CardProgram 的
- *    static continuous.might 注册进 LayerEngine，并解析 sameLocationAs: self；
- *    真实生产绑定仍会因下述关键词过滤字段被拒绝。
- * 2. 已合入的图层过滤器没有关键词谓词：layers/filter.ts 的 matchesObjectFilter 实现了
- *    objectId/cardId/type/zone/location/controller/owner/state/tags/characteristics，
- *    不比较 ObjectSnapshot.keywords；本卡的门槛「有 [Tank]」无法求值（同
- *    ogn/guerilla-warfare-teemo 记录的关键词谓词缺口）。
- * 3. 053.3 的 "here" 锚点已由 RIFT-257 static binder 解析；它不再是本卡的独立缺口。
- * 已支持部分由 golden 用真实 LayerEngine 执行：把声明的 continuous.might 注册进图层后，
- * arithmetic 层真实把 Might 从 2 加到 3（479.4.e.1）；门槛与位置锚点的缺口见上。
- * 依赖：关键词谓词过滤器；CardProgram static 注册与 sameLocationAs 锚点已合入。
- * RIFT-264 已合入 Tank KeywordDef，但它是宿主自身的展开，不是本卡的门槛谓词。
+ * status = judge-required。已合入依赖与剩余生产接线已重新核对；
+ * 当前真实缺口以 judgeReason 为准，子效果执行不证明整卡可执行。
  */
 export default {
   canonicalCardId: "card.hash-0148fea511f023ebe4f6e9b7dd701d1290558c9cbf8bcd877bccd4cda78e5875",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "一处缺口，且不近似实现：(1)「with [Tank]」的门槛无法求值：" +
-    "layers/filter.ts 的 matchesObjectFilter 比较 objectId/cardId/type/zone/location/controller/owner/state/tags/characteristics，" +
-    "但不比较 ObjectSnapshot.keywords，关键词谓词缺口同 ogn/guerilla-warfare-teemo。sameLocationAs: self 的 " +
-    "生产绑定已由 RIFT-257 static binder 解析，不再过度应用到其它战场。" +
-    "层算术本身已合入（479.4 arithmetic 层、479.4.e.1 正增量先算），golden 用真实 LayerEngine 执行 Might 2→3。" +
-    "依赖：关键词谓词过滤器（RIFT-264 已合入的 Tank KeywordDef 是宿主自身展开，不是本卡门槛）。不近似实现。",
+    "仍缺：(1) programs/statics.ts 的 staticFilter 不接受 keywords，layers/filter.ts 也不检查 ObjectSnapshot.keywords，无法限定 with [Tank]（815.3）；" +
+    "(2) sameLocationAs: self 虽已翻译成来源位置，但 layers/filter.ts 对结构化 location 没有按 type/id 比较，无法保证只作用于同一战场（053.3）。",
   abilities: [
     {
       kind: "static",

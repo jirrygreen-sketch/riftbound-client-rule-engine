@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/kharox.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import mill from "../../../../engine-core/dist/effects/instructions/effect.mill.js";
+import { expandProgram } from "../../../../engine-core/dist/programs/keywords.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 
 const CANONICAL_ID =
   "card.hash-3d223dbad167b8ba77b7ea78144ef2178d6804de4c7d260449f02325a2d81e71";
@@ -182,8 +183,8 @@ test("ven-114-166 Kharox golden: a short deck burns only what is available (CR 4
 
 test.todo(
   "ven-114-166 Kharox: [Empower] expansion (827.1.c.1: 6 Energy + 2 Chaos Power, 'use only if not " +
-    "Empowered') and the [Empowered] dependent ability (828.1.b.1) need an Empower/Empowered " +
-    "KeywordDef and an Empowered status predicate (442.1.a / 828.1.d) — none is merged"
+    "Empowered') and the [Empowered] dependent ability (828.1.b.1) need the merged Empower " +
+    "KeywordDef to receive the printed cost plus authoritative state/event bindings (442.1.a / 828.1.d)"
 );
 
 test.todo(
@@ -197,3 +198,24 @@ test.todo(
     "previousCount/currentCount and the increase direction, 828.1.c) — the TriggerSpec direction filter " +
     "and empowered-changed payload fields still need a contract-level binding"
 );
+
+// Resolution-only evidence: no activation or printed-cost payment is claimed.
+test("kharox: the merged Empower resolution body checks live state and does not empower twice", () => {
+  const kernel = world().unit("kharox", { cardId: CANONICAL_ID }).build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("kharox") });
+  const [expanded] = expandProgram(program, context.source).expanded;
+  assert.equal(expanded.kind, "activated");
+  assert.equal(expanded.timing, "action");
+  assert.equal(expanded.body[0].op, "effect.empower");
+  assert.deepEqual(expanded.restriction.condition, {
+    kind: "compare", left: { kind: "object-property", object: "self", property: "empowered" },
+    operator: "eq", right: { kind: "constant", value: 0 }
+  });
+  const first = runAbilityBody(expanded.body, context, undefined, { host: context.source.ref });
+  assert.equal(first.status, "executed");
+  assert.equal(context.getObject("kharox").empowered, 1);
+  const second = runAbilityBody(expanded.body, context, undefined, { host: context.source.ref });
+  assert.equal(second.results[0].result.reason, "skipped");
+  assert.equal(context.getObject("kharox").empowered, 1);
+  assert.deepEqual(context.events.map(event => event.action), ["empower"]);
+});

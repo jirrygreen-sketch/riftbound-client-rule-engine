@@ -19,24 +19,14 @@ import type { Ability, CardProgram, Condition } from "../../ir/index.js";
  *   “当我拥有 Empowered 状态时，此牌获得 [Text]”。
  * - 143.2.a：“+1 :rb_might:” 是算术图层的 Might 修正（契约 3.4），不是 Buff 计数器。
  *
- * status = judge-required（三处缺口均不近似实现）：
- * 1. keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef：
- *    827.1.c.1 的启动能力与 827.1.c.2 的 “or” 二选一费用没有展开实现；契约 3.8.3 的
- *    `params` 只加在 KeywordDef.expand 的输入上，card-dsl 的 KeywordAbility 只有
- *    keyword / value（value 是 number），Carrier 不足以承载 “1 Energy 或 1 Body
- *    Power” 的二选一费用，因此本程序只声明关键词，印刷费用记录在此处与 judgeReason
- *   里（见回复的契约变更请求），不伪造第二条启动能力；
- * 2. 没有 Empowered 状态谓词（442.1.a）：Empowered 状态不在 ObjectSnapshot 也不在
- *    契约的 Condition 代数里；
- * 3. “I have +1 :rb_might:” 的 continuous.might 原语与图层注册已合入；它仍受
- *    Empowered 状态门控，不能在门控缺失时视为可执行。
- * 依赖新的 Empower/Empowered 关键词任务与 RIFT-87（条件/谓词）。
+ * status = judge-required。已合入依赖与剩余生产接线已重新核对；
+ * 当前真实缺口以 judgeReason 为准，子效果执行不证明整卡可执行。
  */
 
 /** 442.1.a / 828.1.c：Empowered 门槛（描述性谓词，见 judgeReason）。 */
 const empoweredGate: Condition = {
   kind: "compare",
-  left: { kind: "object-property", object: "self", property: "empoweredCount" },
+  left: { kind: "object-property", object: "self", property: "empowered" },
   operator: "gte",
   right: { kind: "constant", value: 1 }
 };
@@ -67,15 +57,8 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1) keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef：827.1.c.1 的" +
-    "「Empower me，仅当未 Empowered 时启动」无法展开，827.1.c.2 的「Pay either cost: :rb_energy_1: or" +
-    " :rb_rune_body:」二选一印刷费用也没有承载字段（契约 3.8.3 的 params 只加在 KeywordDef.expand 的输入上，" +
-    "card-dsl 的 KeywordAbility 只有 keyword / value，value 是 number）——印刷费用为 1 Energy 或 1 Body Power，" +
-    "登记为契约变更请求（依赖新的 Empower 关键词任务）；(2) 没有 Empowered 状态谓词——442.1.a 的二元状态" +
-    "不在 ObjectSnapshot / Condition 里，828.1.c 的门槛不可求值（依赖 RIFT-87）；(3) 「I have +1 :rb_might:」" +
-    "使用的 continuous.might 原语与 CardProgram static 注册已合入，但 Empowered 门控仍无法求值。" +
-    "不近似实现（不把 +1 :rb_might: 写成 Buff 计数器，也不把二选一费用写成" +
-    "单一路径的假费用）。",
+    "仍缺：(1) KeywordAbility / programs/keywords.ts 未传 params.cost，无法绑定 Empower 的 1 Energy 或 1 Body Power 二选一费用（827.1.c.1 / 827.1.c.2）；" +
+    "(2) ObjectSnapshot 契约未公开 Empowered 状态，continuous.might 的 442.1.a / 828.1.b.1 门控仍需权威状态接线。",
   abilities,
   sourceText:
     "[Empower] \u2014 :rb_energy_1: or :rb_rune_body: (Pay either cost: Empower me. Use only if " +
