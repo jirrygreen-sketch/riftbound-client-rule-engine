@@ -55,7 +55,10 @@ test("ogn-173-298 Ride the Wind: program passes validateCardProgram", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /355\.4/);
   assert.match(program.judgeReason, /LocationTargetSpec/);
+  assert.match(program.judgeReason, /RIFT-357.*已合入/);
+  assert.match(program.judgeReason, /排除所选单位当前地点/);
   assert.match(program.judgeReason, /合法目的地/);
+  assert.doesNotMatch(program.judgeReason, /LocationTargetSpec 也尚未合入/);
   assert.equal(
     program.sourceText,
     "[Action] (Play on your turn or in showdowns.)\n" +
@@ -172,7 +175,7 @@ test("ogn-173-298 Ride the Wind golden: a stale unit keeps the ready a no-op, no
 });
 
 test.todo(
-  "ogn-173-298 Ride the Wind: the 355.4 destination choice (a legal Location other than the " +
-    "unit's current one) needs a LocationTargetSpec and a Finalize/Make-relevant-choices provider that " +
-    "enumerates legal destinations while excluding the current battlefield"
+  "ogn-173-298 Ride the Wind: the 355.4 destination choice still needs Finalize binding, " +
+    "a predicate excluding the selected unit's current Location, and a producer that enumerates " +
+    "the legal destinations"
 );
