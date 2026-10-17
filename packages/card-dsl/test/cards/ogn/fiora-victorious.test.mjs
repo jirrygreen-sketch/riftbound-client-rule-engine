@@ -25,6 +25,9 @@ test("ogn-232-298 Fiora, Victorious: identity, status and verbatim sourceText", 
   assert.match(program.judgeReason, /target\.tax/);
   assert.match(program.judgeReason, /Ganking/);
   assert.match(program.judgeReason, /Shield/);
+  assert.match(program.judgeReason, /continuous\.grant-keyword/);
+  assert.match(program.judgeReason, /programs\/statics\.ts/);
+  assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /createEngineStaticBinder/);
   assert.match(program.judgeReason, /478\.3\/478\.4/);
   assert.equal(
@@ -95,7 +98,7 @@ test("ogn-232-298 Fiora, Victorious: the three granted KeywordDefs expand to the
   assert.equal(shield.expand({ value: 1, host })[0].effect.kind, "continuous.might");
 });
 
-test.todo("Fiora, Victorious: expand conditional keyword grants into live Ganking/Shield behaviors and effective-Might checks, and connect Deflect target costs to Finalize (CR 708/710, 809.1.c, 810.1.b, 814.1.c)");
+test.todo("Fiora, Victorious: consume the dynamic Deflect/Ganking/Shield grants as target.tax, Standard Move, and defender Might behavior, then recheck the Mighty threshold through the production static binder (CR 708/710, 809.1.c, 810.1.b, 814.1.c)");
 
 // Restore both directions of the threshold TODO with executable reproducers.
 // Bind the original static IR; no handwritten layer condition substitutes for
