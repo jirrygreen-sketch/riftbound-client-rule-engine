@@ -1,6 +1,7 @@
 import type { Expr, Instruction, InstructionDef, ResolveContext, Value } from '../effects/contract.js';
 import { runAbilityBody } from '../effects/interpreter.js';
 import { instructionDefinitionsById } from '../effects/instructions/registry.generated.js';
+import { bindOrderedPickInstructions, orderedPickResolver } from './picks/linked.js';
 
 /**
  * The current interpreter evaluates args before dispatch, while primitive v1
@@ -38,7 +39,7 @@ const LITERAL_FIELDS: Readonly<Record<string, readonly string[]>> = {
   'effect.detach': ['pick'],
   'effect.play': ['target', 'pick', 'choice', 'linkKey'],
   'effect.recycle': ['target', 'from'],
-  'effect.reveal': ['target'],
+  'effect.reveal': ['target', 'pick', 'choiceId'],
   'effect.zone': ['target', 'pick', 'choice'],
   'effect.repeat': ['actions', 'action', 'effect', 'choices', 'choice', 'linkKey', 'resultKey']
 };
@@ -57,5 +58,5 @@ const registry = new Map<string, InstructionDef<unknown>>([...instructionDefinit
 }]));
 
 export function resolveChainBody(body: readonly Instruction[], context: ResolveContext) {
-  return runAbilityBody(prepare(body), context, registry);
+  return runAbilityBody(prepare(body), context, bindOrderedPickInstructions(registry, body), { picks: orderedPickResolver(body) });
 }

@@ -488,7 +488,8 @@ function validatePick(value: unknown, path: string, context: ValidationContext):
     return false;
   }
   let valid = validateString(value.id, `${path}.id`, context, "Expected a pick id.", SYMBOL_PATTERN);
-  if (!Array.isArray(value.options) || value.options.length === 0) {
+  const orderedSource = hasOwn(value, "zoneSlice") || hasOwn(value, "linked");
+  if (!Array.isArray(value.options) || (!orderedSource && value.options.length === 0)) {
     addIssue(context, `${path}.options`, "invalid-pick-options", "Expected at least one non-target pick option.");
     valid = false;
   } else {
@@ -498,7 +499,77 @@ function validatePick(value: unknown, path: string, context: ValidationContext):
   }
   valid = validateSelectionBounds(value, path, context) && valid;
   if (hasOwn(value, "filter")) valid = validateFilter(value.filter, `${path}.filter`, context) && valid;
+  if (hasOwn(value, "ordered") && typeof value.ordered !== "boolean") {
+    addIssue(context, `${path}.ordered`, "invalid-pick-order", "Expected a boolean order flag.");
+    valid = false;
+  }
+  if (orderedSource) {
+    if (value.ordered !== true || value.selection !== "all" || !Array.isArray(value.options) || value.options.length !== 0 ||
+      hasOwn(value, "filter") || hasOwn(value, "min") || hasOwn(value, "max")) {
+      addIssue(context, path, "invalid-ordered-pick-source", "An ordered source requires options: [], ordered: true, selection: all, and no filter or selection bounds; perform subset choices in the resolving instruction.");
+      valid = false;
+    }
+    if (hasOwn(value, "zoneSlice") && hasOwn(value, "linked")) {
+      addIssue(context, path, "ambiguous-pick-source", "Use exactly one zone slice or linked result source.");
+      valid = false;
+    }
+  }
+  if (hasOwn(value, "zoneSlice")) valid = validatePickZoneSlice(value.zoneSlice, `${path}.zoneSlice`, context) && valid;
+  if (hasOwn(value, "exclude") && !hasOwn(value, "linked")) {
+    addIssue(context, `${path}.exclude`, "invalid-pick-exclusion", "An exclusion requires a linked source.");
+    valid = false;
+  }
+  for (const key of ["linked", "exclude"]) if (hasOwn(value, key)) {
+    const expression = value[key];
+    if (!isRecord(expression) || !["linked", "linked-value"].includes(String(expression.kind)) || !hasOwn(expression, "key")) {
+      addIssue(context, `${path}.${key}`, "invalid-pick-link", "Expected a linked expression with an explicit object-list result key.");
+      valid = false;
+    } else valid = validateExpr(expression, `${path}.${key}`, context) && valid;
+  }
   return valid;
+}
+
+function validatePickZoneSlice(value: unknown, path: string, context: ValidationContext): boolean {
+  if (!isRecord(value)) {
+    addIssue(context, path, "invalid-zone-slice", "Expected a zone slice source.");
+    return false;
+  }
+  let valid = true;
+  for (const key of Object.keys(value)) if (!["player", "zone", "from", "count"].includes(key)) {
+    addIssue(context, `${path}.${key}`, "invalid-zone-slice-field", "Unknown zone slice field.");
+    valid = false;
+  }
+  if (!["hand", "deck", "rune-deck", "trash", "banishment", "board", "rune-zone", "chain"].includes(String(value.zone))) {
+    addIssue(context, `${path}.zone`, "invalid-zone-slice-zone", "Expected a zone named by ResolveContext.zoneSlice.");
+    valid = false;
+  }
+  if (value.from !== "top" && value.from !== "bottom") {
+    addIssue(context, `${path}.from`, "invalid-zone-slice-edge", "Expected top or bottom.");
+    valid = false;
+  }
+  for (const key of ["player", "count"]) if (hasOwn(value, key)) {
+    valid = validateExpr(value[key], `${path}.${key}`, context) && valid;
+    if (containsLinkedPickInput(value[key])) {
+      addIssue(context, `${path}.${key}`, "unavailable-finalize-value", "A Finalize zone slice cannot read a Resolve-time linked value or selection.");
+      valid = false;
+    }
+  }
+  const count = value.count;
+  if (isRecord(count) && ["constant", "literal"].includes(String(count.kind)) &&
+    (typeof count.value !== "number" || !Number.isSafeInteger(count.value) || count.value < 0)) {
+    addIssue(context, `${path}.count.value`, "invalid-zone-slice-count", "Expected a nonnegative safe integer count.");
+    valid = false;
+  }
+  return valid;
+}
+
+/** Only source/self and state queries are available before the body executes. */
+function containsLinkedPickInput(value: unknown, seen = new WeakSet<object>()): boolean {
+  if (value === null || typeof value !== "object" || seen.has(value)) return false;
+  seen.add(value);
+  if (isRecord(value) && (["linked", "linked-value"].includes(String(value.kind)) ||
+    ["target", "pick", "linked"].some(key => hasOwn(value, key)))) return true;
+  return Object.values(value).some(item => containsLinkedPickInput(item, seen));
 }
 
 function validateCost(value: unknown, path: string, context: ValidationContext): value is CostSpec {

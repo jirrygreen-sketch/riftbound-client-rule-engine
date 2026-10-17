@@ -13,6 +13,7 @@ import { EventPipeline } from '../events/pipeline.js';
 import type { PipelineHost, TimingEmission, TriggerSnapshot } from '../events/pipeline-types.js';
 import type { TimingPointId } from '../events/timing-points.js';
 import { bindResolveContext } from '../events/action-adapter.js';
+import { finalizeOrderedPickPlans, lockedOrderedPicks, type OrderedPickPlan } from './picks/plan.js';
 
 export type ChainSpeed = 'normal' | 'action' | 'reaction';
 export type ChainKind = 'spell' | 'unit' | 'gear' | 'activated' | 'triggered' | 'add';
@@ -36,6 +37,7 @@ export interface ChainItem extends ChainDraft {
   status: 'pending' | 'finalized';
   object: ObjectRef;
   targetPlans: TargetPlan[];
+  pickPlans?: readonly OrderedPickPlan[];
   costPlan?: CostPlan;
   payment?: CostPaymentReceipt;
 }
@@ -262,6 +264,7 @@ export class ChainEngine {
     const overrides: Partial<ResolveContext> = {
       source, controller: item.controller, timingPoint: at,
       targets: id => targets.get(id) ?? [],
+      picks: id => lockedOrderedPicks((item as Partial<ChainItem>).pickPlans ?? [], id) ?? base.picks(id),
       object: ref => { this.layers.setObjects(this.options.host.objects()); return this.layers.evaluate(ref); },
       query: filter => {
         this.layers.setObjects(this.options.host.objects());
@@ -335,6 +338,7 @@ export class ChainEngine {
             if (object) this.pipeline.emit({ timingPoint: 'became-target', object, target: object, source: item.source, player: item.controller });
           }
         }));
+        item.pickPlans = finalizeOrderedPickPlans(context, item.body);
         const input = item.cost ?? (['unit', 'gear', 'spell'].includes(item.kind) ? { id: `cost:${item.id}`, cost: { kind: 'printed' } } : undefined);
         if (input || taxes.length) {
           // Leaving-source abilities retain LKI for the effect, but a leading

@@ -19,6 +19,8 @@ export type InstructionRegistry = ReadonlyMap<string, InstructionDef<unknown>>;
 export interface InterpreterOptions {
   /** Current zone-bound host identity; omitted when host and source coincide. */
   readonly host?: ObjectRef;
+  /** Optional chain binding; receives the current instruction's linked-value scope. */
+  readonly picks?: (id: string, context: ResolveContext, hasResult: (instructionId: string) => boolean) => readonly (ObjectRef | string)[] | undefined;
 }
 
 export interface InstructionExecution {
@@ -251,7 +253,7 @@ class AbilityExecution {
       },
       // Location selections are interpreter-local bindings; the frozen ResolveContext
       // contract remains object-target based.
-      picks: id => base.picks(id),
+      picks: id => this.options.picks?.(id, context, instructionId => findScope(current, instructionId) !== undefined) ?? base.picks(id),
       player: id => base.player(id),
       evaluate: expr => evaluateExpression(expr, this.expressionContext(current, ignoredTargets, context, locations)),
       test: condition => evaluateCondition(condition, this.expressionContext(current, ignoredTargets, context, locations)),
