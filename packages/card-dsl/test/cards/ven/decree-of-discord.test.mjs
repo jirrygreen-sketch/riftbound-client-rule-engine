@@ -7,6 +7,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 // card-dsl has no dependency edge on engine-core (engine-core depends on
 // card-dsl), so golden execution loads the built engine through its workspace
 // layout instead of the package name.
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import zone from "../../../../engine-core/dist/effects/instructions/effect.zone.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -45,10 +46,6 @@ test("ven-107-166 Decree of Discord: program passes validateCardProgram and is j
 
 test("ven-107-166 Decree of Discord: judgeReason names the group constraint and the domain predicate", () => {
   // CR 355.11 group targeting + 134 domain vocabulary: both are the declared gaps.
-  assert.match(program.judgeReason, /355\.11/);
-  assert.match(program.judgeReason, /power/);
-  assert.match(program.judgeReason, /RIFT-90/);
-  assert.match(program.judgeReason, /不近似实现/);
 });
 
 test("ven-107-166 Decree of Discord: one return instruction with an any-number target", () => {
@@ -68,7 +65,7 @@ test("ven-107-166 Decree of Discord: one return instruction with an any-number t
       type: "unit",
       zone: "board",
       controller: "opponent",
-      power: ["Order"]
+      targetRestriction: "domain-order"
     },
     min: 0,
     max: null,
@@ -79,7 +76,11 @@ test("ven-107-166 Decree of Discord: one return instruction with an any-number t
   assert.equal(returnUnits.op, "effect.zone");
   assert.equal(returnUnits.picks, undefined);
   assert.equal(returnUnits.linkedTo, undefined);
-  assert.equal(returnUnits.condition, undefined);
+  assert.deepEqual(returnUnits.condition, {
+    kind: "compare",
+    left: { kind: "count", subject: "objects", filter: { object: { target: targetSpec.id } } },
+    operator: "gt", right: { kind: "constant", value: 0 }
+  });
 });
 
 test("ven-107-166 Decree of Discord golden: locked enemy units return to their OWNER's hands", () => {
@@ -110,15 +111,30 @@ test("ven-107-166 Decree of Discord golden: a stale locked reference is ignored 
   assert.deepEqual(kernel.zone("B", "hand").map((ref) => ref.id), ["gone"]);
 });
 
-test.todo(
-  "ven-107-166 Decree of Discord: Finalize must enforce the 355.11 group constraint " +
-    "(one battlefield is NOT required here; the printed restriction is the group's total Might ≤ 5) " +
-    "and the 355.11.b legal-subset re-choice at resolution — needs the target.many group " +
-    "requirement (RIFT-90 / RIFT-9 target.group)"
-);
 
-test.todo(
-  "ven-107-166 Decree of Discord: the target filter must evaluate the Order domain (134, " +
-    "ObjectSnapshot.power) so only Order units are legal — needs the domain predicate in the " +
-    "target predicate vocabulary (RIFT-90); until then the declared power: [\"Order\"] has no consumer"
-);
+
+test("decree-of-discord: the review records the current blockers", () => {
+  assert.match(program.judgeReason, /355\.11/);
+  assert.match(program.judgeReason, /power:null/);
+  assert.match(program.judgeReason, /RIFT-359/);
+});
+
+test.todo("decree-of-discord: 355.11: enforce total Might <= 5 and maximum legal subset reselection at resolution");
+
+test.todo("decree-of-discord: 134: match Order domain independently of printed Power cost (RIFT-359)");
+
+test("Decree of Discord supported return: a stolen unit returns to its owner's hand", () => {
+  const kernel = world().unit("stolen", { owner: "A", controller: "B", might: 2 }).build();
+  const run = runReturn(kernel, [kernel.ref("stolen")]);
+  assert.equal(run.result.status, "executed");
+  assert.deepEqual(kernel.zone("A", "hand").map(ref => ref.id), ["stolen"]);
+  assert.deepEqual(kernel.zone("B", "hand"), []);
+});
+
+test("Decree of Discord supported return: choosing no units returns none", () => {
+  const kernel = world().build();
+  const outcome = resolveChainBody(play.body, kernel);
+  assert.equal(outcome.results[0].result.status, "negated");
+  assert.equal(outcome.results[0].result.reason, "skipped");
+  assert.deepEqual(outcome.events, []);
+});

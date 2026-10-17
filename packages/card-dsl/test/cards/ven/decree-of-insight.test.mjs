@@ -1,3 +1,6 @@
+import might from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -26,15 +29,7 @@ test("ven-061-166 Decree of Insight: program passes validateCardProgram with the
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("ven-061-166 Decree of Insight: judgeReason names the target-tax gap and the temporary-Might / domain-filter gaps", () => {
-  assert.match(program.judgeReason, /809\.1\.c/);
-  assert.match(program.judgeReason, /target\.tax/);
-  assert.match(program.judgeReason, /appendTargetTax/);
-  assert.match(program.judgeReason, /RIFT-90/);
-  assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /domain\/power/);
-  assert.match(program.judgeReason, /RIFT-91/);
-  assert.match(program.judgeReason, /targetRestriction/);
+test("ven-061-166 Decree of Insight: judgeReason names the remaining target-tax and domain-filter gaps", () => {
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -106,14 +101,41 @@ test("ven-061-166 Decree of Insight: the Body restriction stays descriptive and 
   assert.equal(Object.hasOwn(enemyUnit.filter, "power"), false);
 });
 
-test.todo(
-  "ven-061-166 Decree of Insight: 'Ignore [Deflect] while paying this spell's cost' needs the target tax " +
-    "reader/waiver on the spell's own Finalize target plan (CR 809.1.c; TargetTaxAdapter.appendTargetTax, " +
-    "RIFT-90) — the merged Deflect expansion only declares static target.tax and nothing consumes it"
-);
 
-test.todo(
-  "ven-061-166 Decree of Insight: 'Give an enemy Body unit -5 :rb_might: this turn' needs the " +
-    "continuous.might layers consumer with an end-of-turn duration (317.2.c) plus a domain (Power) " +
-    "predicate for 'Body' — RIFT-91 and the layers/filter.ts vocabulary"
-);
+
+test("decree-of-insight: the review records the current blockers", () => {
+  assert.match(program.judgeReason, /809\.1\.c/);
+  assert.match(program.judgeReason, /RIFT-360/);
+  assert.match(program.judgeReason, /RIFT-359/);
+});
+
+test.todo("decree-of-insight: 809.1.c: waive this spell Deflect target taxes in Finalize (RIFT-360)");
+
+test.todo("decree-of-insight: 134: match Body domain including power:null units (RIFT-359)");
+
+test("decree-of-insight supported effect: temporary Might changes through the real primitive and expires", () => {
+  const kernel = world().unit("locked-unit", { might: 8 }).build();
+  // Only the arithmetic sub-effect is exercised here; the printed target restriction remains blocked.
+  const run = runInstruction(might, { ...giveMight.args, target: giveMight.args.target.value }, {
+    world: kernel, targets: { [giveMight.args.target.value]: [kernel.ref("locked-unit")] }
+  });
+  assert.equal(run.result.status, "executed");
+  assert.deepEqual(run.linked.affected.objects, [kernel.ref("locked-unit")]);
+  assert.deepEqual(kernel.continuousEffects[0].duration, { type: "end-of-turn" });
+  const layers = createLayerEngine(kernel.objects, kernel.continuousEffects.map(entry => ({ ...entry, timestamp: 1 })));
+  assert.equal(layers.evaluate(kernel.ref("locked-unit")).might, 3);
+  assert.equal(kernel.getObject("locked-unit").buffs, 0);
+  layers.advance({ id: "turn-end", player: "A" });
+  assert.equal(layers.evaluate(kernel.ref("locked-unit")).might, 8);
+});
+
+test("decree-of-insight supported effect: a stale target produces no continuous registration", () => {
+  const kernel = world().unit("gone", { might: 8 }).build();
+  const stale = kernel.ref("gone");
+  assert.equal(kernel.perform({ type: "return-to-hand", object: stale }).status, "done");
+  const run = runInstruction(might, { ...giveMight.args, target: giveMight.args.target.value }, {
+    world: kernel, targets: { [giveMight.args.target.value]: [stale] }
+  });
+  assert.deepEqual(run.result, { status: "ignored", reason: "mistargeted" });
+  assert.deepEqual(kernel.continuousEffects, []);
+});

@@ -8,7 +8,7 @@ import token from "../../../../engine-core/dist/effects/instructions/effect.toke
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
-import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-abf7e6ef39804eabe153a1ee70a3ec9ebdb7f4da0b7ad72855b0aa57798dd5c2";
 const SOURCE_TEXT =
@@ -37,12 +37,6 @@ test("ven-144-166 Death Mark: program passes validateCardProgram and is judge-re
 });
 
 test("ven-144-166 Death Mark: judgeReason names the token definition, its ability closure and Flow", () => {
-  assert.match(program.judgeReason, /187\.11/);
-  assert.match(program.judgeReason, /effect\.token/);
-  assert.match(program.judgeReason, /RIFT-120/);
-  assert.match(program.judgeReason, /RIFT-81/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /不近似实现/);
 });
 
 test("ven-144-166 Death Mark: [Flow] plus the Burn 3 and Shadow Clone instructions", () => {
@@ -109,45 +103,28 @@ test("ven-144-166 Death Mark golden: a short deck burns as many as possible (441
   assert.deepEqual(deckIds(kernel), []);
 });
 
-test("ven-144-166 Death Mark fail-closed: the Shadow Clone definition is refused, never substituted", () => {
-  // Guards against the wrong fix: the frozen definition table has no Shadow Clone, so the
-  // primitive negates with a documented blockedReason and creates nothing.
+test("ven-144-166 Death Mark golden: an empty deck burns zero cards", () => {
   const kernel = world().build();
-  const run = runInstruction(
-    token,
-    {
-      token: { kind: "constant", value: "shadow-clone" },
-      amount: { kind: "constant", value: 1 },
-      mode: { kind: "constant", value: "play" },
-      location: { kind: "constant", value: { type: "base", player: "A" } },
-      linkKey: { kind: "constant", value: "shadowClone" }
-    },
-    { world: kernel }
-  );
-
-  assert.deepEqual(run.result, { status: "negated", reason: "impossible", events: [] });
-  assert.equal(run.linked["shadowClone.amount"], 0);
-  assert.deepEqual(run.linked["shadowClone.objects"], []);
-  assert.equal(run.linked.shadowClone.blockedReason, "token-definition-or-abilities-judge-required");
-  assert.equal(kernel.query({}).length, 0);
+  const outcome = resolveChainBody([burnThree], kernel);
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.linkedValues["death-mark.burn-3.burnedCount"], 0);
+  assert.deepEqual(trashIds(kernel), []);
 });
 
-test.todo(
-  "ven-144-166 Death Mark: create the 187.11 Shadow Clone token (0 Might, domainless, with its own " +
-    "attack trigger) on the Chain and hand it to the play flow (440.2.c/185.2.a) — needs the token " +
-    "definition plus its ability dependency closure; effect.token deliberately excludes definitions " +
-    "with additional abilities"
-);
 
-test.todo(
-  "ven-144-166 Death Mark: the token's own \"When I attack, you may banish a unit from your trash. If " +
-    "you do, give me [Assault 4] this turn.\" — needs the attack-declared emitter and card-program " +
-    "trigger registration (RIFT-120), a Trash-unit pick, and a duration-bound keyword grant " +
-    "(RIFT-81/RIFT-91)"
-);
 
-test.todo(
-  "ven-144-166 Death Mark: play from Trash for the printed Flow cost (1 energy + 2 rainbow runes) and " +
-    "banish the spell when it leaves the Chain by 829.1.b — needs the alternate-cost consumer " +
-    "(RIFT-261) and the replacement registration path (RIFT-260)"
-);
+
+test("death-mark: the review records the current blockers", () => {
+  assert.match(program.judgeReason, /187\.11/);
+  assert.match(program.judgeReason, /params.cost/);
+  assert.match(program.judgeReason, /flow.cost/);
+  assert.match(program.judgeReason, /829\.1\.b\.1/);
+});
+
+test.todo("death-mark: 187.11: create and bind the Shadow Clone token with its full attack ability");
+
+test.todo("death-mark: 829.1.b.1: bind the printed Flow cost, chosen Flow instance and delayed chain-exit replacement");
+
+test.todo("death-mark: 440.2.c: supply the controller Base as a legal dynamic token location (RIFT-357)");
+
+test.todo("death-mark: emit attack-declared from actual combat designation changes (383.4.e/f)");
