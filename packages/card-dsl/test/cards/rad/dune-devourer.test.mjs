@@ -15,7 +15,11 @@ test("rad-125-167 Dune Devourer: program validates and has expected identity", (
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /RIFT-358/);
   assert.match(program.judgeReason, /RIFT-359/);
-  assert.match(program.judgeReason, /RIFT-360/);
+  // RIFT-388/389 confirmed the merged target-tax primitive is unreachable:
+  // Deflect's static binding fails at layerFor, so the reason records that
+  // gap instead of the historical RIFT-360 dependency.
+  assert.match(program.judgeReason, /target\.tax/);
+  assert.match(program.judgeReason, /layerFor/);
   assert.equal(program.judgeReason.includes("Deflect"), true);
   assert.equal(
     program.sourceText,

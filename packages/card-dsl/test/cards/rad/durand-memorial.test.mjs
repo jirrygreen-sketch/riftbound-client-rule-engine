@@ -30,6 +30,10 @@ test("durand-memorial: judgeReason names the continuous keyword grant and the da
   assert.match(program.judgeReason, /815\.1\.c/);
   assert.match(program.judgeReason, /sameLocationAs/);
   assert.match(program.judgeReason, /defense-declared/);
+  // RIFT-357's interpreter sameLocationAs anchor is merged; the reason now
+  // records the trigger-side here filter and the Finalize binding as the
+  // remaining gaps instead of the historical selector gap.
+  assert.match(program.judgeReason, /RIFT-357 合入的解释器查询锚点/);
 });
 
 test("durand-memorial: defense-declared trigger at this battlefield", () => {

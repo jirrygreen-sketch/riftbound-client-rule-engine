@@ -69,7 +69,7 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "CR 428.3：缺按来源入区身份持久保存、跨 card-played/hold 结算读取且排除衍生物的放逐牌关联；ctx.link 仅覆盖本次结算。CR 830.1.b：Deploy 已展开，但 programs/statics.ts 未映射 continuous.location，programs/filters.ts 未绑定 hold 的 here 与目标 sameLocationAs，打出位置选择依赖 RIFT-357。CR 204.3：当前 kill→linkedTo play 不构成成功支付才继续的费用作用域；还需把被关联牌的忽略基础费用计划接入 effect.play 的 Finalize 流程（356.1.b.1），不能以常量 finalized 零计划替代。",
+    "CR 428.3：缺按来源入区身份持久保存、跨 card-played/hold 结算读取且排除衍生物的放逐牌关联；ctx.link 仅覆盖本次结算。CR 830.1.b：Deploy 已展开，但 programs/statics.ts 未映射 continuous.location，programs/filters.ts 未绑定 hold 触发的 here 锚点（targets 的 sameLocationAs 由 RIFT-357 已合入的解释器锚点处理）。CR 204.3：当前 kill→linkedTo play 不构成成功支付才继续的费用作用域；还需把被关联牌的忽略基础费用计划接入 effect.play 的 Finalize 流程（356.1.b.1），不能以常量 finalized 零计划替代。",
   abilities,
   sourceText:
     "[Deploy] (Play this only to a battlefield. When an opponent holds here, kill this.)\n" +

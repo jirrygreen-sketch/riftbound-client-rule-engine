@@ -58,7 +58,7 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "CR 811.1.d/355.10.a.1：缺从面朝下区域打出的历史来源事实及其到 recycle 条件的绑定（RIFT-359）；当前 source.playedFromFaceDown 不是 ObjectSnapshot 特征，不能以进场后的 faceDown 状态替代。Hidden 虽已展开且 cost/kinds/hidden.ts 已有费用辅助，programs/statics.ts 尚无 cost.hidden 图层映射，chain 尚未连接 Hide/后续回合 Reaction/忽略基础费用流程。programs/filters.ts 也未绑定 another 的 exclude 来源锚点；+3 Might 和 recycle 原语及 card-played 程序绑定均已合入。",
+    "CR 811.1.d/355.10.a.1：缺从面朝下区域打出的历史来源事实及其到 recycle 条件的绑定（RIFT-359 进行中）；当前 source.playedFromFaceDown 不是 ObjectSnapshot 特征，不能以进场后的 faceDown 状态替代。Hidden 虽已展开且 cost/kinds/hidden.ts 已有费用辅助，programs/statics.ts 尚无 cost.hidden 图层映射，chain 尚未连接 Hide/后续回合 Reaction/忽略基础费用流程（Hidden.ts 头注释同口径）。exclude 来源锚点在解释器查询已支持（OBJECT_FILTER_ANCHORS），剩余缺口是生产 Finalize 对 another friendly unit 目标过滤的等价绑定；+3 Might 和 recycle 原语及 card-played 程序绑定均已合入。",
   abilities,
   sourceText:
     "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n" +
