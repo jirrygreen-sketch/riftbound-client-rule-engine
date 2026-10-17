@@ -6,6 +6,7 @@ import program from "../../../dist/cards/unl/altar-of-blood.js";
 import exhaust from "../../../../engine-core/dist/effects/instructions/effect.exhaust.js";
 import heal from "../../../../engine-core/dist/effects/instructions/effect.heal.js";
 import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-8a6701849fc591215d101121138ec91bc46da22693dc4c35b90fbfe6c36f0155";
@@ -34,7 +35,7 @@ test("unl-206-219 Altar of Blood: identity, status, judgeReason and verbatim sou
   assert.match(program.judgeReason, /rainbow/);
   // RIFT-260's replacement layer is merged, so the reason must name what it
   // actually refuses rather than the old "no registration path" claim.
-  assert.match(program.judgeReason, /RIFT-260/);
+  assert.match(program.judgeReason, /bindReplacement/);
   assert.doesNotMatch(program.judgeReason, /没有任何已合入路径读取/);
 });
 
@@ -80,6 +81,10 @@ test("unl-206-219 Altar of Blood: the optional three-Rune payment wraps heal, ex
   assert.equal(healInstruction.linkedTo, "altar-of-blood.pay");
   assert.equal(exhaustInstruction.linkedTo, "altar-of-blood.heal");
   assert.equal(recallInstruction.linkedTo, "altar-of-blood.exhaust");
+  for (const instruction of [healInstruction, exhaustInstruction, recallInstruction]) {
+    assert.deepEqual(instruction.args.objects, { kind: "constant", value: { linked: "replacement.object" } });
+    assert.equal(instruction.targets, undefined, "the affected unit is a referent, not a chosen target");
+  }
 
   // 460.1: the printed recall is 457-460's Recall; effect.move accepts the mode
   // but reports the blocked action instead of substituting a Move.
@@ -124,46 +129,32 @@ test("unl-206-219 Altar of Blood: the merged exhaust primitive sets the state th
   assert.deepEqual(run.events.map(event => event.action), ["exhaust"]);
 });
 
-test("unl-206-219 Altar of Blood: the merged replacement layer registers the death replacement and exposes 'it'", () => {
+test("unl-206-219 Altar of Blood: the real pipeline accepts the isolated heal/exhaust replacement plan and binds 'it'", () => {
   // CR 370.1.a.1 / 355.10.c: RIFT-260 turns the card's replaces pattern into a
   // pipeline registration and binds the replaced event's object through
   // { linked: "replacement.object" }. The golden asserts that registration is
   // real; it deliberately does not re-implement the printed payment.
-  const kernel = world()
-    .unit("altar", { types: ["battlefield"], location: HERE })
-    .unit("doomed", { location: HERE, might: 3 })
-    .build();
-  // The body declares its referent with the runtime selector spelling the
-  // planner accepts, and no target claim (the unit is not a target).
+  const f = fixture({ cards: [
+    { id: "altar", types: ["battlefield"], might: null, energy: null, power: null },
+    { id: "doomed", types: ["unit"], might: 3 }
+  ] });
+  const kernel = f.kernel;
+  for (const id of ["altar", "doomed"]) {
+    f.engine.commit({ type: "move-zone", object: kernel.ref(id), to: "battlefield", location: HERE });
+  }
+  // Exercise the original supported subinstructions, without the still-blocked
+  // optional payment and Recall. This verifies planning, not the complete card.
   const ability = {
     replaces: replacement.replaces,
-    with: [
-      {
-        id: "altar-of-blood.heal",
-        op: "effect.heal",
-        args: {
-          objects: { kind: "constant", value: { kind: "linked", instructionId: "replacement.object" } },
-          linkKey: { kind: "constant", value: "healed" }
-        }
-      },
-      {
-        id: "altar-of-blood.exhaust",
-        op: "effect.exhaust",
-        // The planner reads the referent through the selector object, not a raw
-        // string spelling (RIFT-260 accepts the replaced-event binding this way).
-        args: {
-          objects: { kind: "constant", value: { kind: "linked", instructionId: "replacement.object" } }
-        }
-      }
-    ]
+    with: [healInstruction, exhaustInstruction]
   };
   const bound = bindReplacement(ability, kernel.ref("altar"), {
     host: { object: ref => kernel.object(ref), objects: () => kernel.objects, context: () => kernel },
-    pipeline: { clock: { turn: 1 }, registerReplacement: () => {} }
+    pipeline: f.engine.pipeline
   });
 
-  assert.equal(bound.registration.id, "replacement:altar:1");
-  assert.deepEqual(bound.registration.source.ref, { id: "altar", zoneEntryId: 1 });
+  assert.equal(bound.registration.id, `replacement:altar:${kernel.ref("altar").zoneEntryId}`);
+  assert.deepEqual(bound.registration.source.ref, kernel.ref("altar"));
   // The ability really matches a unit death at this battlefield.
   const plan = bound.registration.apply(
     { type: "kill", object: kernel.ref("doomed") },
@@ -176,12 +167,19 @@ test("unl-206-219 Altar of Blood: the merged replacement layer registers the dea
 
 test.todo(
   "unl-206-219 Altar of Blood: bind the program's printed body (choice.optional around the three-Rune payment) " +
-    "once RIFT-260's planner accepts an optional/payment replacement shape — today only the closed GameAction " +
+    "once the planner accepts an optional/payment replacement shape — today only the closed GameAction " +
     "opcode set is planned, so the wrapper fails loudly at bind time instead of replacing the death when the " +
     "player declines"
 );
 
 test.todo(
-  "unl-206-219 Altar of Blood: execute the three-rune Universal Power payment (163.2.b / 135.2.e.5, RIFT-261 " +
-    "cost plan) and the Recall action (457-460), so the doomed unit really reaches its Base without being a Move"
+  "unl-206-219 Altar of Blood: execute the three-rune Universal Power payment (163.2.b / 135.2.e.5) " +
+    "and the Recall action (457-460), so the doomed unit really reaches its Base without being a Move"
+);
+
+test.todo(
+  "Altar of Blood: plan unqualified Heal as clearing all marked damage (419.1), preserving the amount-omitted semantics of effect.heal"
+);
+test.todo(
+  "Altar of Blood: restrict the replacement to unit deaths during combat using an authoritative combat-death discriminator"
 );

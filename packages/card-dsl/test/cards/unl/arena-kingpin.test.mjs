@@ -12,7 +12,8 @@ import ready from "../../../../engine-core/dist/effects/instructions/effect.read
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
-import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL_ID =
   "card.hash-42a7a3191d0a9e6cd6ac270c7dc6e9f36ee510fbfccf82e3b005ffd797864187";
@@ -28,18 +29,12 @@ test("unl-001-219 Arena Kingpin: program passes validateCardProgram", () => {
   assert.equal(result.ok, true);
 });
 
-test("unl-001-219 Arena Kingpin: identity, status, judgeReason and verbatim sourceText", () => {
+test("unl-001-219 Arena Kingpin: identity, executable status and verbatim sourceText", () => {
   assert.equal(program.canonicalCardId, CANONICAL_ID);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
-  assert.equal(program.status, "judge-required");
+  assert.equal(program.status, "executable");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  assert.match(program.judgeReason, /369\.3/);
-  assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /415\.5/);
-  // The Might half is merged (RIFT-258) and verified by execution below; the
-  // remaining gap is the RIFT-257 binding of the entry replacement.
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.doesNotMatch(program.judgeReason, /effects\/instructions\/ 下没有该 op/);
+  assert.equal(program.judgeReason, undefined);
 });
 
 test("unl-001-219 Arena Kingpin: 'I enter ready' is an entry replacement, not a post-entry ready", () => {
@@ -150,34 +145,73 @@ test("unl-001-219 Arena Kingpin golden: a target that left the Board is ignored 
   assert.equal(ctx.continuousEffects.length, 0);
 });
 
-test.todo(
-  "unl-001-219 Arena Kingpin: register 'I enter ready' as a board-entry replacement (CR 143.4 / 359.2.c / 369.3) — " +
-    "the merged bindReplacement binds it (asserted below) but RIFT-257's attachLifecycle only calls the static " +
-    "binder during object-enters-board, after the zone change already happened, so a card's replacement never " +
-    "matches its own entry"
-);
-
-test("unl-001-219 Arena Kingpin golden: the merged replacement module accepts and applies the entry rewrite", () => {
-  // The card's replacement shape is executable once it is bound before the
-  // entry (Accelerate-class, RIFT-260); the golden binds it directly to show the
-  // declared IR is real, not illustrative. Production binding is the RIFT-257
-  // gap recorded above.
-  const kernel = world()
-    .unit("kingpin", { zone: "chain", controller: "A", exhausted: true })
-    .build();
-  const bound = bindReplacement(
-    { replaces: enterReady.replaces, with: enterReady.with },
-    kernel.ref("kingpin"),
-    {
-      host: { object: ref => kernel.object(ref), objects: () => kernel.objects, context: () => kernel },
-      pipeline: { clock: { turn: 1 }, registerReplacement: () => {} }
+function boundKingpin() {
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const requests = [];
+  const f = fixture({
+    cards: [
+      { id: "kingpin", cardId: CANONICAL_ID, types: ["unit"], energy: 5, power: null, might: 3 },
+      { id: "other", owner: "B", controller: "B", types: ["unit"], might: 2 }
+    ],
+    describePlay: binding.describePlay,
+    choose: request => {
+      requests.push(request);
+      if (request.type === "select-objects") {
+        const selected = request.options.find(ref => ref.id === "other");
+        assert.ok(selected, "the printed 'a unit' includes an opponent's unit");
+        return [selected];
+      }
     }
-  );
-  // The entry declaration is bound as the CR 369.3 orientation rewrite rather
-  // than as a board-state action; the pipeline registration id is stable.
-  assert.equal(bound.registration.id, "replacement:kingpin:1");
-  assert.deepEqual(bound.registration.source.ref, { id: "kingpin", zoneEntryId: 1 });
-  bound.cancel();
+  });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("other"), to: "battlefield", location: { type: "battlefield", id: "battlefield-1" } });
+  f.engine.advance();
+  const errors = [];
+  binding.attachLifecycle(f.engine, error => errors.push(error));
+  f.engine.commit({ type: "play", object: f.kernel.ref("kingpin"), player: "A", location: { type: "battlefield", id: "battlefield-1" } });
+  f.engine.advance();
+  resolveAll(f.engine);
+  assert.deepEqual(errors, []);
+  return { ...f, binding, requests };
+}
+
+test("unl-001-219 Arena Kingpin golden: production play applies the entry replacement before Board entry", () => {
+  const f = boundKingpin();
+  assert.equal(f.kernel.getObject("kingpin").zone, "board");
+  assert.equal(f.kernel.getObject("kingpin").exhausted, false);
+  assert.equal(f.kernel.player("A").energy, 15);
+  const entry = f.engine.pipeline.events.find(event => event.timingPoint === "object-enters-board" && event.object?.ref.id === "kingpin");
+  assert.equal(entry.object.exhausted, false, "the first Board snapshot is already ready");
+  assert.equal(f.engine.pipeline.events.filter(event =>
+    ["object-readied", "object-exhausted"].includes(event.timingPoint) && event.object?.ref.id === "kingpin"
+  ).length, 0, "entry orientation produces no intermediate ready/exhaust event on Board");
+});
+
+test("unl-001-219 Arena Kingpin golden: production activation pays Exhaust, locks a unit and grants +3 Might", () => {
+  const f = boundKingpin();
+  f.engine.execute(f.binding.describeActivate(f.kernel.getObject("kingpin"), "A"));
+  assert.equal(f.kernel.getObject("kingpin").exhausted, true);
+  assert.equal(f.engine.layers.snapshot(f.kernel.ref("other")).might, 2, "the grant waits for resolution");
+  assert.deepEqual(f.requests.at(-1).options.map(ref => ref.id).sort(), ["enemy", "kingpin", "other", "source"]);
+  resolveAll(f.engine);
+  f.engine.layers.setObjects(f.kernel.objects);
+  assert.equal(f.engine.layers.snapshot(f.kernel.ref("other")).might, 5);
+  assert.equal(f.engine.layers.snapshot(f.kernel.ref("kingpin")).might, 3);
+  assert.equal(f.kernel.player("A").energy, 15);
+  assert.equal(f.engine.pipeline.events.filter(event =>
+    event.timingPoint === "object-exhausted" && event.object?.ref.id === "kingpin"
+  ).length, 1);
+  assert.throws(() => f.engine.execute(f.binding.describeActivate(f.kernel.getObject("kingpin"), "A")), /exhaust|cost|pay/i);
+});
+
+test("unl-001-219 Arena Kingpin golden: a locked target leaving Board keeps the paid activation cost", () => {
+  const f = boundKingpin();
+  f.engine.execute(f.binding.describeActivate(f.kernel.getObject("kingpin"), "A"));
+  f.engine.commit({ type: "kill", object: f.kernel.ref("other") });
+  f.engine.advance();
+  resolveAll(f.engine);
+  assert.equal(f.kernel.getObject("other").zone, "trash");
+  assert.equal(f.kernel.getObject("kingpin").exhausted, true);
+  assert.equal(f.engine.layers.registry.list().length, 0);
 });
 
 test("unl-001-219 Arena Kingpin: the printed 'Exhaust me' cost is payable through the merged cost pipeline", () => {
@@ -206,9 +240,8 @@ test("unl-001-219 Arena Kingpin: an already-exhausted source cannot pay the cost
 });
 
 test("unl-001-219 Arena Kingpin: effect.ready in the replacement body readies the source", () => {
-  // The replacement body's instruction uses a registered primitive and the
-  // contract 3.6 symbolic selector; the entry-replacement pipeline that would
-  // register and run it during board entry is still missing (judgeReason).
+  // This is the isolated ready primitive. The production entry tests above
+  // verify that the same declaration rewrites orientation before Board entry.
   const kernel = world()
     .unit("kingpin", { zone: "board", controller: "A", exhausted: true })
     .build();

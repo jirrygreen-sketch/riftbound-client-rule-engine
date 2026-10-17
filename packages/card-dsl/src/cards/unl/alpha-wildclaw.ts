@@ -20,11 +20,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   对象正是 Alpha Wildclaw/Vilemaw），即限制随 Might 与位置的动态变化生效。
  *
  * status = judge-required（缺口不近似实现）：
- * - Utargetable 限制没有可执行形态：effects/instructions/ 没有原语，layers 也不消费
- *   卡片的 static 效果（LayerEngine 只处理经 ResolveContext.addContinuous 注册的持续效果），
- *   而目标合法性判定（TargetPlan / chain engine）不读取任何"不可被指定"集合，
- *   355.9.b / 757 / 758 无法落地。程序里的 continuous.restrict 只是待接线的声明形状
- *   （sfd/forgotten-monument、ogn/noxus-saboteur 同型）。
+ * - continuous.restrict 的 static binder 与 rules query 已合入，但本卡的 filter 含
+ *   source-relative `mightLt`；`programs/statics.ts` 目前拒绝该字段，因此这条
+ *   Untargetable 限制还不能注册到 LayerEngine/target legality。
  * - "with less Might than me" 是候选单位与来源的**关系比较**（355.9.b 的 targeting restriction）：
  *   ObjectFilter/TargetSpec 的取值是静态数据，没有"与另一对象（来源）比较 Might"的写法，
  *   condition 从句只作用于整条指令、不能过滤选择集合的成员。程序用 mightLt 占位键记录
@@ -34,8 +32,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   也不能算整卡可执行。
  * golden 只做校验、结构断言与缺口 todo，不为任一缺口写执行用例。
  *
- * 依赖：RIFT-91（静态持续效果与条件谓词的图层接线）、目标合法性判定的 Untargetable 消费方、
- * 属性关系比较（mightLt 类谓词）、战斗伤害分配批次。
+ * 依赖：source-relative Might 关系谓词与 static binder 支持（RIFT-359）、目标合法性判定对
+ * Untargetable 的消费，以及战斗伤害分配批次。
  */
 
 const abilities: Ability[] = [
@@ -71,17 +69,16 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：（1）『can't be chosen by enemy spells and abilities』是 756/757/757.1 的 Untargetable 被动能力：" +
-    "effects/instructions/ 没有对应原语，layers 也不消费卡片的 static 效果（LayerEngine 只处理经 ResolveContext.addContinuous 注册的持续效果），" +
-    "目标合法性判定（TargetPlan / chain engine）不读取任何『不可被指定』集合，355.9.b / 758 无法落地；" +
-    "程序里的 continuous.restrict 只是待接线声明（sfd/forgotten-monument、ogn/noxus-saboteur 同型）。" +
+    "三处缺口，均不近似实现：（1）『can't be chosen by enemy spells and abilities』是 756/757/757.1/758 的 Untargetable 被动能力：" +
+    "continuous.restrict 的 static binder 与 rules query 已合入，但本卡 appliesTo: spells-and-abilities 不符合 staticTarget 的选择形状，filter 的 source-relative mightLt 也不受支持，" +
+    "所以该限制还不能注册到 LayerEngine，也不能进入 target legality。" +
     "（2）『with less Might than me』是候选单位与来源的关系比较（355.9.b 的 targeting restriction）：" +
     "ObjectFilter/TargetSpec 的取值是静态数据，没有与另一对象（来源）比较 Might 的写法，" +
     "condition 从句只作用于整条指令、不能过滤选择集合成员；程序用 mightLt 占位键记录该谓词，" +
     "合并匹配器不读该键（ogn/kadregrin-the-infernal、sfd/sandshifter 记录同一静默忽略行为），绝不能当作已求值语义。" +
     "（3）[Tank]（815.1.c）的展开文件已合入，但战斗伤害分配的消费方尚未合入。" +
-    "依赖：RIFT-91（静态持续效果与条件谓词的图层接线）、目标合法性判定的 Untargetable 消费方、" +
-    "属性关系比较谓词与战斗伤害分配批次。本卡所有效果都依赖上述缺口，golden 只做校验、结构断言与缺口 todo。",
+    "依赖：source-relative Might 关系谓词（RIFT-359）、向 rules query 的 actions/restriction 与敌方 chooser 语义转换、" +
+    "以及战斗伤害分配批次。本卡所有效果都依赖上述缺口，golden 只做校验、结构断言与缺口 todo。",
   abilities,
   sourceText:
     "[Tank] (I must be assigned combat damage first.)\n" +

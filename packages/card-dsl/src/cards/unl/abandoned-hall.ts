@@ -22,8 +22,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   in `choice.optional`; the ability-level `optional` flag carries the
  *   finalize decision.
  * - 355.10.c.1 / 355.7: "a unit they control here" is chosen inside the
- *   instruction, so it is a resolution-time non-target pick, not a target.
- * - 053.3 / 199 / 199.1: "here" is this Battlefield (a Location); the pick
+ *   instruction, so it is a resolution-time non-target choice, not a target.
+ * - 053.3 / 199 / 199.1: "here" is this Battlefield (a Location); the choice
  *   filter carries the `sameLocationAs: "self"` anchor for the source
  *   Battlefield.
  * - 143.2.a / 476 / 479.4: "+1 :rb_might: this turn" is a temporary arithmetic
@@ -45,22 +45,22 @@ import type { CardProgram } from "../../ir/index.js";
  *    the `card-played` payload, so the printed choice would go to the
  *    Battlefield's controller instead of the spell's player.
  *
- * Dependencies: RIFT-257 follow-up (payload-driven event-player binding for
- * 190.6.c: the ability controller is the player named by the trigger event).
+ * Dependencies: payload-driven event-player binding (190.6.c) and Battlefield
+ * setup lifecycle registration.
  */
 export default {
   canonicalCardId: "card.hash-07b0ff2f6b2a7899316d0f3ec26470eae4923b0137b2818ab839dff113b77608",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "触发侧仍不可诚实执行，缺口只剩 190.6.c 的玩家绑定：RIFT-257 的 registerProgramTriggers 能注册本卡的 card-played 触发" +
+    "触发侧仍缺 190.6.c 的事件玩家绑定与 Battlefield setup 注册：registerProgramTriggers 能注册本卡的 card-played 触发" +
     "（golden 断言该注册），但事件管线把 EventPattern.player 的 \"self\" 解析成**能力控制者**（pipeline-match.ts），" +
     "而 190.6.c 规定「打出该法术的玩家」才是该战场能力的控制者并做选择；没有任何已合入的生产方/binder 按 card-played 载荷" +
     "重绑注册的 controller，因此实际会把选择交给战场控制者而非法术的玩家。" +
-    "已合入并以真实执行验证：RIFT-258 的 continuous.might 接受 objects 选择符并写入 arithmetic 图层 + end-of-turn 期限" +
+    "已合入并以真实执行验证：continuous.might 接受 objects 的 choose 选择符并写入 arithmetic 图层 + end-of-turn 期限" +
     "（golden 用 runAbilityBody + LayerEngine 断言注册、+1 有效 Might、位置锚点与拒绝选项的 skipped 边界）；" +
-    "choice.optional 与 sameLocationAs 锚点同样在执行路径上。" +
-    "依赖：RIFT-257 后续（按事件载荷绑定能力控制者，实现 190.6.c）。不近似实现。",
+    "choice.optional、结算时 select-objects 非目标选择与 sameLocationAs 锚点同样在执行路径上。" +
+    "依赖：按 card-played 事件载荷绑定能力控制者（190.6.c），以及 Battlefield setup 的程序注册。不近似实现。",
   sourceText:
     "When a player plays a spell, they may give a unit they control here +1 :rb_might: this turn.",
   abilities: [
@@ -92,33 +92,24 @@ export default {
                   args: {
                     amount: { kind: "constant", value: 1 },
                     duration: { kind: "constant", value: "end-of-turn" },
-                    // 355.10.c.1/355.7: the unit is chosen inside the
-                    // instruction — a non-target pick, not a target. RIFT-258's
-                    // parameter shape reads the pick through `objects`; the
-                    // pick's filter below carries the 053.3 "here" anchor.
+                    // 355.10.c.1/355.7: choose one non-target unit at resolution;
+                    // the primitive owns the select-objects request.
                     objects: {
                       kind: "constant",
-                      value: { kind: "pick", id: "abandoned-hall.unit-here" }
+                      value: {
+                        kind: "choose",
+                        id: "abandoned-hall.unit-here",
+                        filter: {
+                          type: "unit",
+                          zone: "board",
+                          controller: "self",
+                          sameLocationAs: "self"
+                        },
+                        min: 1,
+                        max: 1
+                      }
                     }
-                  },
-                  picks: [
-                    {
-                      id: "abandoned-hall.unit-here",
-                      options: ["unit-controlled-by-the-spells-player-here"],
-                      filter: {
-                        type: "unit",
-                        zone: "board",
-                        // 190.6.c: the ability's controller is the player who
-                        // played the spell, so "they control" is the ability
-                        // controller ("self") once that binding is wired.
-                        controller: "self",
-                        sameLocationAs: "self"
-                      },
-                      min: 1,
-                      max: 1,
-                      selection: "one"
-                    }
-                  ]
+                  }
                 }
               ]
             }

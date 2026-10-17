@@ -32,9 +32,7 @@ import type { CardProgram } from "../../ir/index.js";
  * - [Predict] (437.1 / 437.3 / 437.3.a: Predicting 1 card, looking at the top
  *   card of the Main Deck and choosing whether to Recycle it) is declared as a
  *   keyword ability per README section 5. There is no `Predict` KeywordDef in
- *   the merged registry (effects/keywords/ contains Accelerate, Action, Assault,
- *   Deathknell, Deflect, Equip, Ganking, Hidden, Legion, Mighty, Quick-Draw,
- *   Reaction, Repeat, Shield, Vision, Weaponmaster); the merged Vision keyword
+ *   the merged registry; the merged Vision keyword
  *   inlines Predict 1 for its own expansion, which the card cannot reuse. The
  *   survey's keyword table lists Predict as kw-predict backed by
  *   effect.inspect / effect.recycle / effect.order / choice.optional.
@@ -53,16 +51,11 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1)「Return it to its owner's hand instead of putting it in their trash」是被反制牌的落点改写：" +
-    "426.1.a.1 规定清理出链的牌进入 Trash，本卡把它改成拥有者手牌，而冻结的 GameAction counter 只有 " +
-    "{ type: \"counter\", object }、没有落点字段（effects/contract.ts），也没有落点改写原语；" +
-    "不用「先 counter 再把它从 Trash 移到手牌」近似——那会先进一次 Trash（对 428/423 类观察是错误的换区），" +
-    "并按 124 产生新的对象身份（sfd/riposte、ogn/portal-rescue 记录了同类费用/效果改写缺口）。" +
-    "(2) [Predict] 在 effects/keywords/ 没有 KeywordDef（已合入的注册表只有 Accelerate/Action/Assault/Deathknell/Deflect/Equip/" +
-    "Ganking/Hidden/Legion/Mighty/Quick-Draw/Reaction/Repeat/Shield/Vision/Weaponmaster），" +
-    "已合入的 Vision 关键词只为自己的展开内联了 Predict 1，无法复用；按 README 第 5 节本卡只声明 keyword: predict（437.1/437.3/437.3.a），" +
-    "不手写看牌与回收。依赖：带落点的反制（426.1.a.1 改写）与 Predict KeywordDef（kw-predict，暂无分配任务号）。" +
-    "已合入并由 golden 真实执行的部分：effect.counter（426.1–426.3，锁定链上法术并清理出链、链接 countered/counteredObjects）与 [Reaction] 声明（813）。",
+    "两处缺口：(1) 426.1.a.1 的反制落点需要从 Trash 改为拥有者手牌，" +
+    "但 GameAction counter 只有 object，没有落点参数；chain 的清理路径没有本次反制专用的落点改写。" +
+    "不能先进入 Trash 再回手，那会产生额外换区与 124 的新对象身份。" +
+    "(2) Predict 的 inspect/recycle 等原语已存在，但缺可由 keyword: predict 展开的 Predict KeywordDef" +
+    "（437.1/437.3/437.3.a）；Vision 的内部展开不能代替本卡声明的关键词。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     // 437.3.a：未写数值的 [Predict] 按 1 张处理；展开由关键词注册表负责（当前无 Predict KeywordDef）。

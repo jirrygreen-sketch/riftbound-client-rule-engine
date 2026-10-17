@@ -8,8 +8,7 @@ import program from "../../../dist/cards/unl/amateur-recital.js";
 // own schema validation (engine-core/src/chain/interpreter-adapter.ts).
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { EventPipeline } from "../../../../engine-core/dist/events/pipeline.js";
-import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { fixture } from "../../../../engine-core/test/turn/helpers.mjs";
 
 const CANONICAL = "card.hash-16deedb0db72d0ab2151c19d3fe3648037a218f76385c1a46853b273e5671102";
 const SOURCE_TEXT = "When you hold here, you may move a unit at a battlefield to its base.";
@@ -49,7 +48,7 @@ test("unl-207-219 Amateur Recital: identity, status, judgeReason and verbatim so
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /hold/);
   assert.match(program.judgeReason, /here/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-357/);
 });
 
 test("unl-207-219 Amateur Recital: a hold trigger with an optional move wrapped in choice.optional", () => {
@@ -158,42 +157,22 @@ test("unl-207-219 Amateur Recital: declining the option moves nothing", () => {
   assert.deepEqual(scoped.getObject("battle-unit").location, HERE);
 });
 
-test("unl-207-219 Amateur Recital: the merged hold emission reaches a plain hold registration", () => {
-  // turn/flow.ts publishes the Beginning Scoring Step's hold through the Score
-  // wave into the single event pipeline (471.2 / 473.2.b), carrying the held
-  // battlefield as details.battlefieldId. The card-side gap is the here anchor,
-  // not the producer (same assertion as ogn/startipped-peak).
-  const source = {
-    ref: { id: "recital", zoneEntryId: 1 }, cardId: CANONICAL, name: "Amateur Recital",
-    types: ["battlefield"], tags: [], keywords: [], owner: "A", controller: "A", zone: "board",
-    location: HERE, might: null, energy: null, power: null, exhausted: false, damage: 0,
-    stunned: false, buffs: 0, attachedTo: null, faceDown: false, isToken: false
-  };
-  const pipeline = new EventPipeline({
-    checkpoint: () => null,
-    restore: () => {},
-    execute: () => ({ outcome: { status: "done", events: [] }, emissions: [] }),
-    context: () => ({}),
-    objects: () => [source],
-    choose: () => { throw new Error("unexpected choose"); }
-  }, ["A", "B"], "A");
-  const seen = [];
-  pipeline.onTrigger = snapshot => seen.push(snapshot);
-  pipeline.registerTrigger({
-    id: "test.hold.plain",
-    source,
-    controller: "A",
-    spec: { at: "hold", filter: { event: "held", player: "self" } },
-    body: []
+test("unl-207-219 Amateur Recital: the real Beginning scoring flow emits hold with the battlefield identity", () => {
+  const f = fixture({
+    fields: [{ id: HERE.id, controller: "A" }, { id: ELSEWHERE.id, controller: null }],
+    setup: builder => builder.unit("holding-unit", { location: HERE })
   });
-
-  pipeline.emit({ timingPoint: "hold", player: "A", details: { battlefieldId: "battlefield-1" } });
-  assert.equal(seen.length, 1);
-  assert.equal(seen[0].event.details.battlefieldId, "battlefield-1");
+  f.flow.start();
+  const holds = f.flow.chain.pipeline.events.filter(event => event.timingPoint === "hold");
+  assert.equal(holds.length, 1);
+  assert.equal(holds[0].player, "A");
+  assert.equal(holds[0].details.battlefieldId, HERE.id);
+  assert.equal(f.kernel.player("A").score, 1);
+  assert.equal(f.flow.phase, "main");
 });
 
 test.todo(
   "unl-207-219 Amateur Recital: bind the here-anchored hold filter and the Battlefield program's lifecycle " +
-    "(RIFT-257) — the frozen EventPattern vocabulary has no battlefield-relative anchor, so the adapter fails " +
+    "(RIFT-357 for the location anchor) — the frozen EventPattern vocabulary has no battlefield-relative anchor, so the adapter fails " +
     "closed on the placeholder key instead of matching holds at every battlefield"
 );

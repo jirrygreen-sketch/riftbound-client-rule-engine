@@ -28,7 +28,8 @@ test("unl-057-219 Alpha Wildclaw: identity, status, judgeReason and verbatim sou
   assert.match(program.judgeReason, /757/);
   assert.match(program.judgeReason, /758/);
   assert.match(program.judgeReason, /mightLt/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /RIFT-359/);
+  assert.doesNotMatch(program.judgeReason, /没有对应原语|没有.*static.*binder/);
 });
 
 test("unl-057-219 Alpha Wildclaw: [Tank] is declared as a keyword only (815.1)", () => {
@@ -56,15 +57,14 @@ test("unl-057-219 Alpha Wildclaw: the untargetability is declared as a static re
 });
 
 test.todo(
-  "unl-057-219 Alpha Wildclaw: make the target plan read the Untargetable declaration and reject illegal choices " +
-    "(CR 756/757/757.1/758, 355.9.b) — no primitive, no layer consumer for card static effects, and no " +
-    "untargetable set in target legality (RIFT-91, target/chain batch)"
+  "unl-057-219 Alpha Wildclaw: bind continuous.restrict and make target legality consume the Untargetable rule " +
+    "(CR 756/757/757.1/758, 355.9.b) — the current static binder rejects the source-relative mightLt filter"
 );
 
 test.todo(
   "unl-057-219 Alpha Wildclaw: evaluate 'with less Might than me' as a relational targeting restriction " +
-    "(CR 355.9.b; 758.2.a uses this card as its example) — ObjectFilter values are static and cannot compare " +
-    "against another object's Might, and a condition clause cannot filter a selection's members"
+    "(CR 355.9.b; 758.2.a uses this card as its example) — the RIFT-359 relation predicate and its " +
+    "source-relative effective-Might query are still missing"
 );
 
 test.todo(

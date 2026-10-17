@@ -37,7 +37,7 @@ import type { CardProgram } from "../../ir/index.js";
  *    the single event pipeline, and the golden test asserts that delivery.
  * 2. the `here: true` key has no evaluable anchor in the frozen EventPattern
  *    vocabulary: the static filter cannot reference its own host's runtime
- *    location id. The RIFT-257 translator rejects the placeholder key outright
+ *    location id. The trigger translator rejects the placeholder key outright
  *    (`Unsupported filter field here`), so the declared trigger cannot be bound
  *    as written — the sibling battlefield programs carry the same placeholder.
  * 3. even with the anchor resolved, no merged path registers a Battlefield's
@@ -49,9 +49,8 @@ import type { CardProgram } from "../../ir/index.js";
  * primitives and runs through the golden test's real interpreter plus chain
  * adapter.
  *
- * Dependencies: RIFT-257 follow-up (an EventPattern "here" anchor and the
- * Battlefield program lifecycle binding, including 190.6's battlefield/event
- * player binding).
+ * Dependencies: an EventPattern "here" anchor (RIFT-357) and Battlefield setup
+ * lifecycle registration, including 190.6's battlefield/event player binding.
  */
 export default {
   canonicalCardId: "card.hash-16deedb0db72d0ab2151c19d3fe3648037a218f76385c1a46853b273e5671102",
@@ -59,15 +58,15 @@ export default {
   status: "judge-required",
   judgeReason:
     "触发侧仍不可执行，三处现状：(1) hold 时点已有生产者——turn/flow.ts 的 Score 波把 Beginning 计分步骤的 " +
-    "'hold' 发射（载荷 details.battlefieldId）推进唯一事件管线，golden 断言了该投递（471.2 / 473.2.b，RIFT-124/262 已合入）；" +
+    "'hold' 发射（载荷 details.battlefieldId）推进唯一事件管线，golden 断言了该投递（471.2 / 473.2.b）；" +
     "(2) 触发过滤里的 here=true 在封闭 EventPattern 词汇里没有可求值锚点：静态 filter 读不到宿主运行时的位置身份，" +
-    "RIFT-257 的翻译层会以 \"Unsupported filter field here\" 直接拒绝该占位键，因此按现状无法注册（同 the-papertree、" +
+    "programs/filters.ts 的翻译层会以 \"Unsupported filter field here\" 直接拒绝该占位键，因此按现状无法注册（同 the-papertree、" +
     "ogn/startipped-peak 等战场卡）；(3) 即使锚点落地，也没有已合入路径注册 Battlefield 的 CardProgram 能力：" +
     "attachLifecycle 只在 object-enters-board/chain 时绑定，而战场由 setup 放置而非被打出，" +
-    "190.6.a/190.6.d 的“固守玩家控制该战场能力”绑定同样未接线。" +
+    "190.6.a/190.6.d 的战场能力控制者与未受控战场处理同样没有接线。" +
     "能力本体只用已合入原语（choice.optional + effect.move，to: \"controller-base\"），目标形状（355.9/355.10：单位是目标、" +
     "“at a battlefield”是目标限制）与 421/451 的效果移动写在程序里，golden 用真实解释器执行。" +
-    "依赖：RIFT-257 后续（EventPattern 的 here 锚点与 Battlefield 程序的生命周期/事件玩家绑定）。",
+    "依赖：EventPattern 的 Battlefield here 锚点（位置选择 RIFT-357）与 setup 程序注册/190.6 控制者绑定。",
   sourceText: "When you hold here, you may move a unit at a battlefield to its base.",
   abilities: [
     {

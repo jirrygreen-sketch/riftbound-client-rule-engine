@@ -52,26 +52,26 @@ import type { CardProgram } from "../../ir/index.js";
  * real RIFT-260 layer to record exactly where the body stops; recall and payment
  * stay `test.todo`.
  *
- * Dependencies: a replacement-body optional/payment shape the RIFT-260 planner
- * accepts (contract change request), the Recall action (RIFT-75/91 follow-up,
- * `effect.move` blockedReason), and Universal Power payment (RIFT-261 cost plan).
+ * Dependencies: replacement-body optional/payment and full-heal planning,
+ * a combat-death discriminator, the Recall action, and Universal Power payment.
  */
 export default {
   canonicalCardId: "card.hash-8a6701849fc591215d101121138ec91bc46da22693dc4c35b90fbfe6c36f0155",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1) RIFT-260 的 bindReplacement 已能注册卡牌替代，并把被替代事件的对象暴露为 " +
+    "三处缺口，均不近似实现：(1) bindReplacement 已能注册卡牌替代，并把被替代事件的对象暴露为 " +
     "{ linked: \"replacement.object\" }（REPLACED_EVENT_LINK，355.10.c 的“it”因此可指称）；但这一版 planner 只接受封闭 GameAction 操作码，" +
     "本程序的 choice.optional 包装会在绑定期抛 Unsupported replacement opcode: choice.optional，而印刷的“may pay”也不能裸写进 with" +
     "（CR 370.2：可以/拒绝属于管线的 optional 判定，冻结的 ReplacementAbility 也没有 optional 字段）；" +
     "付款人按原文是该单位的控制者，planner 的 chooser 取自受影响对象的控制者，没有任何动作承载这笔由单位控制者支付的决定。" +
+    "替代 planner 对省略 heal amount 还默认映射 amount:1，而 419.1 的不定量 Heal 应清除全部标记伤害。" +
     "(2)「during combat」需要在被替代的死亡事件上判别战斗期，封闭时点载荷没有战斗期标志，Condition 也没有读取它的路径；" +
     "(3)「recall it」是 457-460 的 Recall——effect.move 的 mode recall 被原语显式阻断（封闭 move-location 动作无法区分 Recall 与 Move，" +
     "不得用普通移动近似），而 :rb_rune_rainbow:×3 是 163.2.b/135.2.e.5 的 Universal Power，封闭 Domain 集合与费用管线没有可执行的任意域 Power 值" +
     "（同 ven/matriarch-of-war 的缺口）。已支持部分：effect.heal 与 effect.exhaust 在 golden 里用真实原语执行，" +
-    "替代的绑定也在 golden 里通过 RIFT-260 层实测记录停止位置。" +
-    "依赖：RIFT-260 后续可接受的替代体可选/支付形状（契约变更请求）、Recall 动作（RIFT-75/91 后续）、RIFT-261 的费用计划。",
+    "替代的绑定也在 golden 里通过真实 pipeline 验证支持的子计划。" +
+    "依赖：replacement planner 可接受的替代体可选/支付形状（契约变更请求）、Recall 动作（457-460）与任意域 Power 费用值（163.2.b）。",
   sourceText:
     "If a unit here would die during combat, its controller may pay " +
     ":rb_rune_rainbow::rb_rune_rainbow::rb_rune_rainbow: to heal it, exhaust it, and recall it instead.",
@@ -108,24 +108,14 @@ export default {
                   op: "effect.heal",
                   linkedTo: "altar-of-blood.pay",
                   args: {
-                    // 355.10.c: the referent is the unit the replaced event
-                    // would have killed; the declarative TargetSpec below names
-                    // it without claiming a replacement-time target choice.
+                    // 355.10.c: the replaced event binds "it"; there is no
+                    // target choice for the unit being saved.
                     objects: {
                       kind: "constant",
-                      value: { kind: "target", id: "altar-of-blood.dying-unit" }
+                      value: { linked: "replacement.object" }
                     },
                     linkKey: { kind: "constant", value: "healed" }
-                  },
-                  targets: [
-                    {
-                      id: "altar-of-blood.dying-unit",
-                      filter: { type: "unit", zone: "board", sameLocationAs: "self" },
-                      min: 1,
-                      max: 1,
-                      selection: "one"
-                    }
-                  ]
+                  }
                 },
                 {
                   // 415.1: "exhaust it" is an explicit state change; the
@@ -133,7 +123,7 @@ export default {
                   id: "altar-of-blood.exhaust",
                   op: "effect.exhaust",
                   linkedTo: "altar-of-blood.heal",
-                  args: { target: { kind: "constant", value: "altar-of-blood.dying-unit" } }
+                  args: { objects: { kind: "constant", value: { linked: "replacement.object" } } }
                 },
                 {
                   // 457-460: a Recall returns the permanent to its Base
@@ -143,10 +133,9 @@ export default {
                   op: "effect.move",
                   linkedTo: "altar-of-blood.exhaust",
                   args: {
-                    // effect.move reads its object selection as
-                    // `{ target: <TargetSpec id> }`; the referent is the unit
-                    // the replaced event would have killed (355.10.c).
-                    objects: { kind: "constant", value: { target: "altar-of-blood.dying-unit" } },
+                    // The replacement planner binds the affected unit before
+                    // planning its actions. Recall remains blocked.
+                    objects: { kind: "constant", value: { linked: "replacement.object" } },
                     to: { kind: "constant", value: "controller-base" },
                     mode: { kind: "constant", value: "recall" },
                     linkKey: { kind: "constant", value: "recalled" }

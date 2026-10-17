@@ -31,12 +31,11 @@ test("unl-041-219 Allay, Eager Admirer: identity, status, judgeReason and verbat
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /809\.1\.c\.1/);
   assert.match(program.judgeReason, /809\.1\.b\.3/);
+  assert.match(program.judgeReason, /exclude/);
   assert.match(program.judgeReason, /target\.tax/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /RIFT-90/);
-  // The grant primitive is merged now; the remaining registration gap is
-  // RIFT-257, and the reason must say so instead of claiming the op is absent.
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /任意域|Power/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-257|RIFT-90|RIFT-84/);
   assert.doesNotMatch(program.judgeReason, /effects\/instructions\/ 下没有该原语/);
 });
 
@@ -107,7 +106,7 @@ test("unl-041-219 Allay, Eager Admirer: the aura filter anchors resolve on the m
 
 test.todo(
   "unl-041-219 Allay, Eager Admirer: wire the permanent's target.tax (CR 809.1.c/809.1.d) into target " +
-    "selection so Deflect really taxes opposing spells/abilities (RIFT-90; target-plan only appends a tax " +
+    "selection so Deflect really taxes opposing spells/abilities (target-plan only appends a tax " +
     "the caller explicitly supplies)"
 );
 test.todo(
@@ -167,7 +166,6 @@ test("unl-041-219 Allay, Eager Admirer golden: the declared aura really grants D
 });
 
 test.todo(
-  "unl-041-219 Allay, Eager Admirer: register the card's static ability as a ContinuousEffectSpec so the aura " +
-    "is visible in production (RIFT-257 ProgramStaticBinder), and re-expand the granted Deflect on each receiver " +
-    "so the target tax really applies (CR 809.1.c/809.1.d, contract 3.5/3.7)"
+  "unl-041-219 Allay, Eager Admirer: support the source-relative exclude:self filter in the static binder, " +
+    "then derive and re-expand Deflect target.tax on every affected receiver (CR 809.1.c/809.1.d)"
 );

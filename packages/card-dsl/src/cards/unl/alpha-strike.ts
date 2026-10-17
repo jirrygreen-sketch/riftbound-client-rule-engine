@@ -25,32 +25,33 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * status = judge-required（不近似实现）：
  * 1. 反身触发没有卡牌侧构造：IR 的六种 Ability 都不能表达"结算时把新能力作为链项加入链"
- *   （388 / 389），choice.optional 只在原地执行正文（与 ogn/twisted-fate-gambler 对 388 的
- *   记录一致）。
+ *   （388 / 389），choice.optional 只在原地执行正文。
  * 2. "for each unit this kills" 没有可求值的按次计数：被本结算的伤害消灭属 Cleanup 的
  *   致命伤害被动死亡（429.1.a.2 / 429.4 / 323.4），不是 Kill Instruction，effect.kill 的
- *   killed 链接值不会被写入；契约 3.6 的 history 只按游戏动作计数，没有以本次结算/本次
- *   伤害为窗口的消灭计数入口。
- * 3. 被消灭对象的归因（429.5 / 429.5.c，含 Immortal Phoenix 示例）由引擎的事件管线负责，
- *   卡牌侧不自行结算。
- * 依赖：引擎批 4 的反身触发构造与伤害→击杀归因 / history 窗口（RIFT-9 的 trigger.reflexive /
- * condition.result）。
+ *   killed 链接值不会被写入；仍缺本次伤害窗口的消灭计数与 429.5 归因。
+ * 3. 355.14.h 在可用伤害少于目标数时，效果控制者重新裁撤目标的路径尚未接入 production chain adapter；
+ *   参考内核可以验证已离开战场的目标被忽略，但不能证明完整的 Finalize/Resolve 重选流程。
+ * 4. `chain/interpreter-adapter.ts` 的 LITERAL_FIELDS 尚未解码 `effect.damage` 的 literal divide
+ *   标志，整个指令列表通过 production chain entry point 仍会被拒绝。
+ * 依赖：反身触发与伤害→击杀归因/窗口、355.14.h 的目标重选管线，以及 divide literal 的 chain adapter 支持。
  *
  * 可执行部分：effect.damage 的 divide 形态（355.14.e 的结算期逐目标分配、355.14.f–g 的
  * 正整数约束）与"数额 = 被选友方单位的 Might、来源 = 该单位"的表达式，golden 用参考内核
- * 真实执行（含 355.14.h 的目标在结算前离开的边界）。
+ * 真实执行（含 359.3.e 的目标在结算前离开的边界）。
  */
 export default {
   canonicalCardId: "card.hash-615c0725c9dee5568f8995d3c574c9270aea149c0f18dc1de8953693293494b2",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处依赖未合入，均不近似实现：(1) “Then for each unit this kills, do this: Gain 1 XP” 是反身触发（CR 388、389 / 389.1；" +
-    "429.5.d 的 “do this” 措辞正是反身触发的官方说明），结算时要把新能力作为链项加入链，IR 的六种 Ability 与 choice.optional 都做不到" +
-    "（与 ogn/twisted-fate-gambler 对 388 的记录一致，依赖 RIFT-9 的 trigger.reflexive）。" +
+    "四处依赖未合入，均不近似实现：(1) “Then for each unit this kills, do this: Gain 1 XP” 是反身触发（CR 388、389 / 389.1；" +
+    "429.5.d 的 “do this” 措辞正是反身触发的官方说明），结算时要把新能力作为链项加入链，" +
+    "IR 的六种 Ability 与 choice.optional 都做不到。" +
     "(2) “for each unit this kills” 没有按本次结算/本次伤害的消灭计数：被本次伤害消灭属 Cleanup 的致命伤害被动死亡（429.1.a.2 / 429.4 / 323.4），" +
-    "不是 Kill Instruction，effect.kill 的 killed 链接值不会被写入；契约 3.6 的 history 只按游戏动作计数，没有该窗口的计数入口。" +
-    "(3) 被消灭对象的归因（429.5 / 429.5.c）属于事件管线，卡牌侧不自行结算。" +
+    "不是 Kill Instruction，effect.kill 的 killed 链接值不会被写入；仍缺本次伤害窗口的计数与 429.5/429.5.c 归因。" +
+    "(3) 355.14.h 在可用伤害少于目标数时重选路径尚未接入 production chain adapter；参考内核只验证离场目标被忽略。" +
+    "(4) chain/interpreter-adapter.ts 的 LITERAL_FIELDS 不解码 effect.damage 的 literal divide 标志，" +
+    "因此完整指令列表不能通过 production chain entry point。" +
     "已合入并真实执行的部分：“Choose a friendly unit” 的目标声明（355.5 / 355.7 / 355.9.a.1）、" +
     "“It deals damage equal to its Might” 的数额与来源表达式（143.2 / 359.3.f.1 / 418.6.b.3）、" +
     "“split among … enemy units at battlefields” 的 divide 形态（355.14.a–g）。",
@@ -104,9 +105,8 @@ export default {
         {
           // “Then for each unit this kills, do this: Gain 1 XP.” 反身触发（388 /
           // 389.1）与按次击杀计数（429.1.a.2 / 429.4）两处缺口见 judgeReason；
-          // XP 数额读本次伤害指令的击杀计数链接值，该键目前没有生产者，合并解释器
-          // 按契约 3.4 以缺信息 ignored 处理（失败关闭，不会退化成无条件 Gain 1 XP，
-          // 与 ogn/disintegrate 的既有写法一致），golden 固定该行为。
+          // XP 数额声明本次伤害的击杀计数链接，但该键目前没有生产者；这只是
+          // 待接线的声明，不能代替反身触发。golden 只执行独立的 Gain 1 XP 子效果。
           id: "alpha-strike.gain-xp-per-kill",
           op: "effect.xp",
           linkedTo: "alpha-strike.deal-might-split",
