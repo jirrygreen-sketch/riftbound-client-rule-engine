@@ -6,6 +6,9 @@ import program from "../../../dist/cards/rad/parallel-convergence.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { translateCost } from "../../../../engine-core/dist/programs/play.js";
+import { translateObjectFilter, translateInstructionTargets } from "../../../../engine-core/dist/programs/filters.js";
+import { readCost } from "../../../../engine-core/dist/cost/plan-values.js";
 
 const CANONICAL = "card.hash-84ee715c26888cfa3850f44083e64823f41b5db0dc23a4f0511c4eb127d52175";
 const [play] = program.abilities;
@@ -33,10 +36,65 @@ test("rad-051-167 Parallel Convergence: judgeReason names the missing return-to-
   assert.match(program.judgeReason, /355\.1\.a/);
   assert.match(program.judgeReason, /356\.2\.b\.1/);
   assert.match(program.judgeReason, /Unsupported cost kind: additional/);
+  assert.match(program.judgeReason, /Additional costs are not bound/);
+  assert.match(program.judgeReason, /Structured location filters need a concrete location identity/);
   assert.equal(/RIFT-89|RIFT-261/.test(program.judgeReason), false);
   // The damage half is merged and executed; it must not be presented as a gap.
   assert.match(program.judgeReason, /effect\.damage/);
   assert.match(program.judgeReason, /真实执行证据/);
+});
+
+test("rad-051-167 Parallel Convergence: the program's cost never reaches the plan (355.1.a / 356.2.b.1)", () => {
+  // 356.2.b.1 mandatory additional costs belong in the Finalize plan, but the
+  // production adapter refuses the whole authored CostSpec before that: the
+  // card data's cost kind "additional" is not a kind it can bind. This is the
+  // first of the two recorded gates.
+  assert.throws(
+    () => translateCost(play.cost, "parallel-convergence", "play"),
+    error => error.code === "judge-required" && /Additional costs are not bound for parallel-convergence/.test(error.message)
+  );
+
+  // Second gate: even a hand-built plan cannot post this cost, because
+  // readCost rejects both the kind and the payment kind; the frozen GameAction
+  // set has no return-to-hand action either.
+  const kernel = world().unit("ally", { might: 2 }).build();
+  assert.throws(
+    () => readCost(kernel, { kind: "additional", energy: { kind: "constant", value: 2 }, power: { kind: "constant", value: 1 } }, { id: "x" }, "cost"),
+    error => error.name === "CostPlanError" && /Unsupported cost kind: additional/.test(error.message)
+  );
+  assert.throws(
+    () => readCost(
+      kernel,
+      {
+        energy: { kind: "constant", value: 2 },
+        payments: [{ kind: "return-to-hand", choice: { id: "returned-unit", options: [], min: 1, max: 1, selection: "one" } }]
+      },
+      { id: "x" },
+      "cost"
+    ),
+    error => error.name === "CostPlanError" && /Unsupported payment kind: return-to-hand/.test(error.message)
+  );
+});
+
+test("rad-051-167 Parallel Convergence: the battlefield target filter cannot bind in the production translator", () => {
+  // The damage half executes (below), but its "at a battlefield" restriction is
+  // a structured location filter: programs/filters.ts needs a concrete
+  // battlefield identity, so the Finalize target plan cannot be built from the
+  // authored spec even though the instruction itself is merged.
+  assert.deepEqual(targetSpec.filter, { type: "unit", location: { type: "battlefield" } });
+  assert.throws(
+    () => translateObjectFilter(targetSpec.filter),
+    error => error.code === "judge-required" &&
+      /Structured location filters need a concrete location identity/.test(error.message)
+  );
+  assert.throws(
+    () => translateInstructionTargets(play.body),
+    error => error.code === "judge-required" &&
+      /Structured location filters need a concrete location identity/.test(error.message)
+  );
+  // The interpreter-side location vocabulary does understand battlefield
+  // locations; the gap is the production filter translation.
+  assert.equal(typeof translateInstructionTargets, "function");
 });
 
 test("rad-051-167 Parallel Convergence: structure — printed cost plus the mandatory additional cost", () => {

@@ -31,8 +31,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   修改，由已合入的 continuous.might（RIFT-258）注册；317.2.c / 468.7.c 的
  *   "this turn" 由 end-of-turn 到期处理。
  *
- * status = judge-required（README 第 2 节）。本次复核后：两条能力里可执行的部分已
- * 拿到真实执行证据，未合入的缺口逐条保留。
+ * status = judge-required（README 第 2 节）。2026-10-17 复核：两条能力里可执行的部分已
+ * 拿到真实执行证据，未合入的缺口逐条保留（每条均实测）。
  * 已合入（golden 用解释器 + 参考内核真实执行）：
  * - effect.kill 的 picks 路径执行指令内费用（355.10.c.1）；
  * - continuous.might 注册 "+2 [M] this turn" 的 arithmetic 图层效果（RIFT-258），
@@ -45,13 +45,17 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *    "token-definition-or-abilities-judge-required")。定义表在 engine-core（不在本
  *    任务写域），不自行扩展或近似。
  * 2. 「to a battlefield」的 LocationExpr 选择器已能解析当前战场，但 effect.token 的解释器
- *    分发仍把已求值参数交给只接受 Expr 的冻结 argsSchema，动态地点尚未接到 token 原语；
- *    因此 token 执行边界仍需要一个具体 LocationRef。
+ *    分发仍把已求值参数交给只接受 Expr 的冻结 argsSchema（实测 argsSchema 拒绝
+ *    { kind: "location", ... }：Invalid effect.token argument: location），动态地点
+ *    尚未接到 token 原语；因此 token 执行边界仍需要一个具体 LocationRef。
  * 3. Deploy 与 Bomb 的 Deathknell 展开都不完整：Deploy KeywordDef（830.1）已合入，
- *    但仍缺 continuous.location 的 Finalize 目的地校验，以及 Deploy hold 触发的注册/地点
- *    过滤适配——turn/flow.ts 已提供非单位 Deploy 的清理豁免，hold/conquer/score 事件也已
- *    携带 battlefieldId，但 TriggerSpec 还不能把 Deploy 的“here”绑定到该字段；Deathknell
- *    KeywordDef（808）已合入，但其 [Effect] 正文需要的 trigger.leave 原语仍未注册
+ *    但其 static continuous.location 在生产静态绑定即被拒绝（实测 judge-required:
+ *    Static ability kind continuous.location has no layer mapping），Finalize 目的地校验
+ *    也仍缺；turn/flow.ts 已提供非单位 Deploy 的清理豁免，hold/conquer/score 事件也已
+ *    携带 battlefieldId，但 TriggerSpec 还不能把 Deploy 的“here”绑定到该字段
+ *    （实测 translateTriggerFilter 拒绝 { event: "hold", here: true }：
+ *    Unsupported filter field here）；Deathknell KeywordDef（808）已合入，
+ *    但其 [Effect] 正文需要的 trigger.leave 原语仍未注册
  *    （effects/keywords/Deathknell.ts 只声明 op id），“deal 2 to an enemy unit here and
  *    kill all other Bombs you control here”的 “here” 与集合消灭形态没有展开。
  * 4. defense-declared 时点没有产生方：timing-points.ts 已声明该时点，但 combat/flow.ts 在
@@ -161,10 +165,13 @@ export default {
     "(1) CR 187.12 的 Bomb gear token 定义不在 effect.token 的冻结定义表内（只有 recruit / sand-soldier / mech / reflection / tentacle），" +
     "TokenSpec 也只承载印制统计与 keywords，无法携带 Bomb 自己的 [Deploy] / [Deathknell] 能力文本；对 \"bomb\" 执行返回 " +
     "negated(impossible, blockedReason \"token-definition-or-abilities-judge-required\")。" +
-    "(2) LocationExpr 选择器虽已能解析当前战场，但 effect.token 的解释器分发仍把已求值参数交给只接受 Expr 的冻结 argsSchema，" +
+    "(2) LocationExpr 选择器虽已能解析当前战场，但 effect.token 的解释器分发仍把已求值参数交给只接受 Expr 的冻结 argsSchema" +
+    "（实测拒绝 { kind: \"location\", ... }：Invalid effect.token argument: location），" +
     "动态地点尚未接到 token 原语，执行边界仍需要具体 LocationRef。" +
     "(3) Deploy（830.1）与 Deathknell（808）的关键词展开仍缺消费方：" +
-    "continuous.location 的 Finalize 目的地校验、Deploy hold 触发的注册与地点过滤尚未接通；" +
+    "Deploy 的 static continuous.location 在生产静态绑定即被拒绝（实测 judge-required: Static ability kind " +
+    "continuous.location has no layer mapping）、Finalize 目的地校验与 Deploy hold 触发的注册/地点过滤尚未接通" +
+    "（实测 { event: \"hold\", here: true } 被拒：Unsupported filter field here）；" +
     "Deathknell [Effect] 正文所需的 trigger.leave 原语仍未注册，" +
     "因此 \"deal 2 to an enemy unit here and kill all other Bombs you control here\" 的 here 地点与集合消灭形态都没有展开。" +
     "(4) defense-declared 时点虽已在 timing-points.ts 声明，但 combat/flow.ts 在 combat 开启路径抛出 " +
