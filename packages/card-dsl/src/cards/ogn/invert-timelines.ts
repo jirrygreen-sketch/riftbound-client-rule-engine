@@ -1,45 +1,23 @@
 import type { CardProgram } from "../../ir/index.js";
 
 /**
- * Invert Timelines — ogn-201-298 (Spell, Chaos, 3 Energy + 1 Chaos Power).
- *
- * Printed text (packages/card-data/data/deck-catalog.json, ogn-201-298):
- *   Each player discards their hand, then draws 4.
- *
- * Modeling notes (Core Rules v1.5):
- * - No speed keyword is printed, so the spell defaults to Action timing
- *   (159.2.a).
- * - "Each player discards their hand" covers the whole table at once. Rule
- *   355.10.e explains why nothing here is targeted: the set of objects is
- *   "chosen in whole or in part by other players", and 355.18 puts those
- *   choices on resolution instead of Finalize. "their hand" is the acting
- *   player's own Hand (108.7.b: Hands are private information), so neither
- *   the cards nor the other seats are targets.
- * - "then draws 4" is the next instruction in the printed sequence; the
- *   "then" is sequencing, not a linkedTo result dependency.
- * - The merged effect.discard / effect.draw primitives act on one player per
- *   call: their player argument is an Expr evaluated in the ability context
- *   (contract 3.6), with 190.6.d's implied "you" as the default. Nothing in
- *   the merged instruction set enumerates the roster or repeats an
- *   instruction once per seat, and no Expr yields "each player" as a player
- *   list, so the table-wide sweep cannot be declared without inventing
- *   semantics.
- *
- * Status: judge-required. The body keeps the discard-then-draw structure with
- * the acting seat as the reference shape (exactly the half the golden test
- * executes) and claims no whole-table behavior until the multi-player form is
- * merged.
+ * Invert Timelines (ogn-201-298): whole-hand discard, then Draw 4, for every player.
+ * CR v1.5 355.10.d/e and 355.18: this is a non-targeting resolution-time sweep;
+ * discarding the entire Hand requires no choice of individual cards (423.1.a).
+ * effect.discard/effect.draw and programs/ binding are executable. The remaining
+ * gap is a runtime player-roster expression and a loop binding each player's
+ * identity; repeat only repeats a body without a player variable. The retained
+ * body proves the controller's subeffect, not the whole-table sweep.
  */
 const invertTimelines = {
   canonicalCardId: "card.hash-2b0d48b46b31dd4d55ffc8e62c6db42641a683f4550c4a410384c03a347a0cc9",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺「每个玩家各自弃掉手牌再抽 4」的多玩家指令形状：effect.discard / effect.draw 每次只作用于一个玩家，" +
-    "其 player 参数是能力上下文中的 Expr；355.10.e / 355.18 要求的「由全体玩家在结算时各自选择自己的手牌」" +
-    "没有可表达的选择形状，也没有可产出「每个玩家」席位列表的 Expr 或逐席位重复的控制结构。" +
-    "依赖多玩家选择/引用与逐席位结算支持（RIFT-9 target.player 及其 CardProgram 绑定接线 RIFT-257）；当前 IR 只记录行动玩家一侧的" +
-    "弃手牌→抽 4 结构，不近似实现整桌效果。",
+    "缺全体玩家结算：effect.discard 的 player 只接受单个玩家，effect.draw 的多候选玩家会选择一位而非遍历；" +
+    "现有 Expr 无法取得运行时玩家列表，repeat 也不能把每个席位绑定到指令的 player。" +
+    "CR 355.10.d、355.10.e、355.18、423.1.a 要求非目标的全体玩家弃整手牌→各抽 4；整手弃牌本身无需选牌。" +
+    "保留的 body 仅为控制者的已支持子效果，缺多人遍历与逐玩家引用绑定。",
   abilities: [
     {
       kind: "play",

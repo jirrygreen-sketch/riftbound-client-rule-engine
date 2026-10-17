@@ -60,7 +60,7 @@ test("Invert Timelines golden: one seat discards its whole hand then draws 4", (
     .hand("hand-3")
     .deck(["deck-1", "deck-2", "deck-3", "deck-4", "deck-5"])
     .build();
-    // resolveChainBody is the production handoff: it keeps the static IR Expr
+  // resolveChainBody is the production handoff: it keeps the static IR Expr
   // nodes intact for the registered primitive schemas (contract 3.6).
   const outcome = resolveChainBody(play.body, kernel);
 
@@ -82,7 +82,7 @@ test("Invert Timelines golden: one seat discards its whole hand then draws 4", (
 
 test("Invert Timelines golden: an empty hand still draws 4", () => {
   const kernel = world().deck(["deck-1", "deck-2", "deck-3", "deck-4"]).build();
-    // resolveChainBody is the production handoff: it keeps the static IR Expr
+  // resolveChainBody is the production handoff: it keeps the static IR Expr
   // nodes intact for the registered primitive schemas (contract 3.6).
   const outcome = resolveChainBody(play.body, kernel);
 
@@ -96,7 +96,7 @@ test("Invert Timelines golden: an empty hand still draws 4", () => {
 
 test("Invert Timelines golden: a short deck draws as many as possible (414.4)", () => {
   const kernel = world().hand("hand-1").deck(["deck-1", "deck-2"]).build();
-    // resolveChainBody is the production handoff: it keeps the static IR Expr
+  // resolveChainBody is the production handoff: it keeps the static IR Expr
   // nodes intact for the registered primitive schemas (contract 3.6).
   const outcome = resolveChainBody(play.body, kernel);
 
@@ -105,9 +105,22 @@ test("Invert Timelines golden: a short deck draws as many as possible (414.4)", 
   assert.equal(kernel.player("A").deckSize, 0);
 });
 
+test("Invert Timelines supported body uses the current controller's hand and deck", () => {
+  const initial = world()
+    .hand("A-hand")
+    .hand("B-hand", { owner: "B" })
+    .deck(["A-top"])
+    .deck(["B-1", "B-2", "B-3", "B-4"], { owner: "B" })
+    .build();
+  const kernel = initial.clone({ controller: "B" });
+  const outcome = resolveChainBody(play.body, kernel);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(kernel.zone("B", "hand").map(ref => ref.id), ["B-1", "B-2", "B-3", "B-4"]);
+  assert.deepEqual(kernel.zone("B", "trash").map(ref => ref.id), ["B-hand"]);
+  assert.deepEqual(kernel.zone("A", "hand").map(ref => ref.id), ["A-hand"]);
+});
+
 test.todo(
-  "Invert Timelines: the whole-table sweep \"Each player discards their hand, then draws 4\" " +
-    "(355.10.e / 355.18 resolution-time choices for every seat, including the opponent) needs " +
-    "the multi-player selection/repetition primitive (RIFT-9 target.player) and the CardProgram " +
-    "binding path (RIFT-257)."
+  "Invert Timelines full-table execution: obtain the runtime player roster, bind each seat to player, " +
+    "discard every Hand then draw 4 for every player (CR 355.10.d/e, 355.18); repeat has no player iteration binding"
 );

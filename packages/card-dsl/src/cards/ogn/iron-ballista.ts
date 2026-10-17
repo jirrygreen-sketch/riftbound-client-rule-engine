@@ -14,17 +14,19 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   “不先横置再就绪”是同一条路径；effect.exhaust 的文档明确入场横置不是
  *   一次横置动作（先入场再补 effect.exhaust 会多出一次“成为横置”事件、并
  *   错过入场替代），所以这里不能拿 effect.exhaust 近似。program 用
- *   replacement 能力 + 规划的 replacement.enter 原语描述该状态改写。
+ *   replacement 能力 + replacement.enter 绑定描述该状态改写。
  * - “:rb_exhaust:: Deal 2 to a unit at a battlefield.” 是 Gear 的启动能力
  *   （151、151.2：控制者 Main Phase 的 Open State 可执行，等同无卡法术），
  *   费用是横置自身（415.3.a、415.5，属 cost.exhaust / 费用计划），效果是
  *   effect.damage（418，目标为战场上的单位，355.10.b 的“at a battlefield”
  *   是选择限制而不是额外目标）。
  *
- * status = judge-required：入场即横置的 replacement.enter 原语与替代管线已经合入，
- * 并由 golden 直接绑定到 pipeline adapter 验证；Damage 半段（费用 + effect.damage）
- * 也全部使用已合入的费用计划与原语。整张卡仍等待 CardProgram → replacement/activated
- * 能力的生产接线（RIFT-257），所以不能把已支持的入场半段当成整卡 executable。
+ * Status: executable. programs/ lifecycle binds replacement.enter before the
+ * Gear moves from Chain to Board; the orientation is applied on Chain and emits
+ * no Board exhaust event (149.1 / 359.2.d / 369.3). describeActivate binds the
+ * exhaust cost and the battlefield target through Finalize and resolution.
+ * The string location filter is consumed by the production layer query for
+ * every battlefield; it does not require choosing a battlefield (355.10.b).
  */
 const abilities: Ability[] = [
   {
@@ -61,7 +63,7 @@ const abilities: Ability[] = [
             id: "unit-at-battlefield",
             // “a unit at a battlefield”：任一战场上的单位，位置限制而不是
             // 额外目标（355.10.b）。
-            filter: { type: "unit", location: { type: "battlefield" } },
+            filter: { type: "unit", zone: "board", location: "battlefield" },
             min: 1,
             max: 1,
             selection: "one"
@@ -75,12 +77,7 @@ const abilities: Ability[] = [
 const program = {
   canonicalCardId: "card.hash-d434f43890dfb7e3149efa46b08c5871f835e6526d2eeb6493d14f5157f3251e",
   rulesetVersion: "core-1.5" as const,
-  status: "judge-required" as const,
-  judgeReason:
-    "replacement.enter 入场替代原语与 pipeline binding 已合入，能够把 Gear 在进入 Base/Battlefield 前设为横置；" +
-    "effect.exhaust 仍不能近似该入场状态（143.4 / 359.2.d），而 Damage 半段只需要已合入的 cost.exhaust 费用计划与 effect.damage 原语，" +
-    "均由 golden 真实执行。整张卡仍缺 CardProgram → replacement/activated 能力的生产接线，依赖 RIFT-257；" +
-    "因此保持 judge-required，不把入场替代半段冒充为整卡 executable。",
+  status: "executable" as const,
   abilities,
   sourceText: "This enters exhausted.\n:rb_exhaust:: Deal 2 to a unit at a battlefield."
 } satisfies CardProgram;

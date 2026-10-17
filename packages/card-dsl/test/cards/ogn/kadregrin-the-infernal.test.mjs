@@ -10,11 +10,12 @@ const CARD_ID = "card.hash-398b3826ce23339dadae173c5f1fa39994abe8d2eed99f68d1de0
 
 test("ogn-038-298 Kadregrin the Infernal: program validates and is judge-required", () => {
   const result = validateCardProgram(program);
+  assert.deepEqual(result.issues, []);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Mighty/);
   assert.match(program.judgeReason, /mightGte/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-359/);
 });
 
 test("ogn-038-298 Kadregrin the Infernal: identity, ruleset and exact source text", () => {
@@ -41,7 +42,7 @@ test("ogn-038-298 Kadregrin the Infernal: card-played self trigger with a count-
   assert.deepEqual(instruction.args.amount, {
     kind: "count",
     subject: "units",
-    filter: { type: "unit", controller: "controller", mightGte: 5 }
+    filter: { type: "unit", controller: "self", zone: "board", mightGte: 5 }
   });
   // "for each of your [Mighty] units" is a programmatic set query (355.10.d),
   // not a target: no TargetSpec / PickSpec is declared.
@@ -89,8 +90,6 @@ test("ogn-038-298 Kadregrin the Infernal: zero qualifying units draws zero cards
 });
 
 test.todo(
-  "ogn-038-298 Kadregrin the Infernal: the [Mighty] set predicate (Might >= 5, CR 706-708/710) still has " +
-    "no query-filter consumer (layers/filter.ts, the reference kernel matchesFilter and chain/engine.ts " +
-    "ignore the mightGte/is-mighty key), so the count cannot distinguish Mighty units from non-Mighty ones; " +
-    "the card-played trigger also needs the RIFT-257 CardProgram -> TriggerRegistration binding."
+  "Kadregrin: apply the Mighty >=5 predicate to every friendly Board candidate using current layered Might; " +
+    "exclude non-Mighty, enemy and off-Board units before the declared count-driven draw (CR 706-711; RIFT-359)"
 );

@@ -7,6 +7,8 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
 import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
 
 const CANONICAL = "card.hash-d434f43890dfb7e3149efa46b08c5871f835e6526d2eeb6493d14f5157f3251e";
@@ -21,11 +23,7 @@ test("ogn-017-298 Iron Ballista: program passes validateCardProgram", () => {
   assert.deepEqual(result.issues, []);
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
-  assert.equal(program.status, "judge-required");
-  // The replacement primitive is merged; the remaining gap is CardProgram
-  // registration of replacement and activated abilities.
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /143\.4|359\.2\.d/);
+  assert.equal(program.status, "executable");
   assert.equal(
     program.sourceText,
     "This enters exhausted.\n:rb_exhaust:: Deal 2 to a unit at a battlefield."
@@ -66,7 +64,7 @@ test("Iron Ballista structure: enter-exhausted replacement, then the exhaust-cos
   // “a unit at a battlefield”: exactly one unit pinned to a battlefield location.
   assert.equal(damageInstruction.targets.length, 1);
   assert.equal(targetSpec.id, "unit-at-battlefield");
-  assert.deepEqual(targetSpec.filter, { type: "unit", location: { type: "battlefield" } });
+  assert.deepEqual(targetSpec.filter, { type: "unit", zone: "board", location: "battlefield" });
   assert.equal(targetSpec.min, 1);
   assert.equal(targetSpec.max, 1);
   assert.equal(targetSpec.selection, "one");
@@ -178,4 +176,77 @@ test("Iron Ballista golden: replacement.enter rewrites the board entry before it
   assert.deepEqual(entered.location, { type: "base", player: "A" });
   assert.equal(entered.exhausted, true);
   assert.deepEqual(kernel.events.map((event) => event.action), ["move-zone", "exhaust", "move-zone"]);
+});
+
+function boundBallista() {
+  const binding = createProgramBinding({ cardPrograms: [program] });
+  const requests = [];
+  const f = fixture({
+    cards: [
+      { id: "ballista", cardId: CANONICAL, types: ["gear"], energy: 3 },
+      { id: "victim", owner: "B", might: 5, zone: "board", location: { type: "battlefield", id: "other-battlefield" } },
+      { id: "ally", might: 4, zone: "board", location: { type: "battlefield", id: "battlefield-1" } }
+    ],
+    describePlay: binding.describePlay,
+    choose: request => {
+      requests.push(request);
+      if (request.type === "select-objects") return [request.options.find(ref => ref.id === "victim")];
+    }
+  });
+  for (const [id, battlefield] of [["victim", "other-battlefield"], ["ally", "battlefield-1"]]) {
+    f.engine.commit({ type: "move-zone", object: f.kernel.ref(id), to: "battlefield", location: { type: "battlefield", id: battlefield } });
+  }
+  f.engine.advance();
+  const errors = [];
+  binding.attachLifecycle(f.engine, error => errors.push(error));
+  f.engine.commit({ type: "play", object: f.kernel.ref("ballista"), player: "A" });
+  f.engine.advance();
+  resolveAll(f.engine);
+  assert.deepEqual(errors, []);
+  return { ...f, binding, requests };
+}
+
+test("Iron Ballista bound program: entry is exhausted and cannot pay its activation until ready", () => {
+  const f = boundBallista();
+  assert.equal(f.kernel.getObject("ballista").zone, "board");
+  assert.deepEqual(f.kernel.getObject("ballista").location, { type: "base", player: "A" });
+  assert.equal(f.kernel.getObject("ballista").exhausted, true);
+  assert.equal(f.kernel.player("A").energy, 17);
+  assert.equal(f.engine.pipeline.events.filter(event =>
+    event.timingPoint === "object-exhausted" && event.object?.ref.id === "ballista"
+  ).length, 0, "entry orientation does not exhaust a permanent already on Board");
+
+  const draft = f.binding.describeActivate(f.kernel.getObject("ballista"), "A");
+  assert.throws(() => f.engine.execute(draft), /exhaust|cost|pay/i);
+  assert.equal(f.kernel.getObject("victim").damage, 0);
+  assert.equal(f.engine.items.length, 0);
+});
+
+test("Iron Ballista bound program: Finalize exhausts the Gear and selects a unit at any battlefield", () => {
+  const f = boundBallista();
+  f.engine.commit({ type: "ready", object: f.kernel.ref("ballista") });
+  f.engine.advance();
+  f.engine.execute(f.binding.describeActivate(f.kernel.getObject("ballista"), "A"));
+  assert.equal(f.kernel.getObject("ballista").exhausted, true);
+  assert.equal(f.kernel.getObject("victim").damage, 0, "damage waits for chain resolution");
+  assert.deepEqual(f.requests.at(-1).options.map(ref => ref.id).sort(), ["ally", "victim"]);
+  resolveAll(f.engine);
+  assert.equal(f.kernel.getObject("victim").damage, 2);
+  assert.equal(f.kernel.getObject("ally").damage, 0);
+  assert.equal(f.kernel.getObject("enemy").damage, 0, "a unit at Base cannot be selected");
+  assert.equal(f.engine.pipeline.events.filter(event =>
+    event.timingPoint === "object-exhausted" && event.object?.ref.id === "ballista"
+  ).length, 1, "activation pays exactly one exhaust action");
+});
+
+test("Iron Ballista bound program: a finalized target moving to Base takes no damage and the cost stays paid", () => {
+  const f = boundBallista();
+  f.engine.commit({ type: "ready", object: f.kernel.ref("ballista") });
+  f.engine.advance();
+  f.engine.execute(f.binding.describeActivate(f.kernel.getObject("ballista"), "A"));
+  f.engine.commit({ type: "move-location", object: f.kernel.ref("victim"), to: { type: "base", player: "B" } });
+  f.engine.advance();
+  resolveAll(f.engine);
+  assert.equal(f.kernel.getObject("victim").damage, 0);
+  assert.equal(f.kernel.getObject("ballista").exhausted, true);
 });
