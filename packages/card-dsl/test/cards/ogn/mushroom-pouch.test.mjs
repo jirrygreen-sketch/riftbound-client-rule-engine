@@ -28,13 +28,14 @@ test("mushroom-pouch: identity, ruleset, status and specific judgeReason", () =>
     program.sourceText,
     "At the start of your Beginning Phase, if you control a facedown card at a battlefield, draw 1."
   );
-  // The reason must name the missing zone spelling and the timing owner.
+  // The reason must name the missing zone spelling; the timing producer and
+  // the condition fallback are merged, so the zone vocabulary is the blocker.
   assert.match(program.judgeReason, /Facedown/);
   assert.match(program.judgeReason, /ZoneId/);
   assert.match(program.judgeReason, /beginning-start/);
-  // Re-sweep after RIFT-270: the point and program trigger registration are
-  // present; only the Facedown Zone condition remains.
-  assert.match(program.judgeReason, /RIFT-270/);
+  // Re-sweep after RIFT-270: the point, program trigger registration and the
+  // condition fallback are present; only the Facedown Zone condition remains.
+  assert.match(program.judgeReason, /evaluateTriggerCondition/);
 });
 
 test("mushroom-pouch: one mandatory beginning-start trigger (CR 315.2.a.1)", () => {

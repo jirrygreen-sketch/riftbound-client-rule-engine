@@ -236,7 +236,7 @@ test.todo(
 
 test.todo(
   "ogn-282-298 Monastery of Hirana: bind the conquer trigger's `here` anchor to the scoring " +
-    "payload details.battlefieldId (RIFT-357), so only a conquer at the hosted battlefield can " +
-    "offer the spend-then-draw ability"
+    "payload details.battlefieldId (translateTriggerFilter still rejects the `here` key), so " +
+    "only a conquer at the hosted battlefield can offer the spend-then-draw ability"
 );
 

@@ -30,10 +30,10 @@ import type { CardProgram } from "../../ir/index.js";
  *   readable through `states: \"face-down\"`, which no merged query scopes to a
  *   battlefield Facedown Zone (355.9.a.3); `condition.value`'s count query is
  *   the only evaluation path and it reuses the same filter vocabulary;
- * - program trigger registration and the `beginning-start` producer are merged;
- *   in addition to the zone spelling, the production TriggerCondition path
- *   requires a testTrigger host adapter that the duel/lifecycle host does not
- *   provide yet (events/pipeline.ts throws without it).
+ * - program trigger registration, the `beginning-start` producer and the
+ *   events/pipeline.ts TriggerCondition fallback are merged; without the
+ *   Facedown Zone spelling that fallback's object/zone query still has no
+ *   battlefield sub-zone to count face-down cards from.
  * The draw half is executed in isolation by the golden test; nothing is
  * approximated to make the condition pass.
  */
@@ -47,7 +47,8 @@ const mushroomPouch = {
     "faceDown 只能经 states 读取而没有任何已合入查询能把它限定到战场的 Facedown Zone（355.9.a.3），" +
     "condition.value 的 count 求值复用同一套 filter 词汇，无法判定该从句。" +
     "beginning-start 已由 turn/flow.ts 在回合玩家 Beginning Phase 发出（RIFT-270），CardProgram 触发注册也已合入；" +
-    "此外，触发条件的生产求值需要 testTrigger 适配器：events/pipeline.ts 对带 condition 的注册直接抛「Trigger condition adapter required」，duel/生命周期宿主没有提供该成员。当前缺 Facedown Zone 词汇与触发条件适配器两段。Draw 1（414.3）已合入并由 golden 单独执行；不近似实现。",
+    "触发条件求值也已合入回退路径：events/pipeline.ts 在宿主缺 testTrigger 时改用 events/pipeline-match 的对象/区域匹配（evaluateTriggerCondition），生产事件不依赖 testTrigger 成员。" +
+    "当前唯一缺口仍是 Facedown Zone 词汇：该回退求值复用同一套 ObjectFilter/ZoneId 词汇，没有可限定位面朝下牌的战场子区域。Draw 1（414.3）已合入并由 golden 单独执行；不近似实现。",
   abilities: [
     {
       kind: "triggered",

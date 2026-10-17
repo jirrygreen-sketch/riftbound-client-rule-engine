@@ -33,7 +33,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   defenderId，需 details 维度）中；(3) “it” 需要一个事件对象选择器（383.2.c.3.b /
  *   359.3.f.3），ObjectSelector 只有 self/source/target/pick/linked；当前程序绑定
  *   已能注册该触发，仍缺事件物体到目标的运行时锁定。
- * 依赖：攻击/战斗时点产生方（RIFT-124 后续 combat 事务）、触发事件物体选择器
+ * 依赖：攻击/战斗时点产生方（RIFT-124 已合入，但 combat/flow.ts 的 combat-start
+ * 事务仍抛 TurnCombatBlockedError）、触发事件物体选择器
  * 与 attack-declared 载荷的战场控制状态。
  */
 const nineTailedFox = {
@@ -44,8 +45,7 @@ const nineTailedFox = {
   judgeReason:
     "临时 Might 修正已合入（continuous.might 的 amount/duration/minimum 与 layers/ops 的 applyMightMinimums，" +
     "按 478.1.c 逐步钳制；golden 已用真实原语执行并断言注册形状），整卡仍不可执行的原因在触发侧：" +
-    "(1) attack-declared 没有任何产生方——combat/flow.ts 的 combat-start 角色事务未实现（抛 TurnCombatBlockedError，CR 466.2），" +
-    "RIFT-270 审计把 attack-declared/defense-declared/combat-start 标为「待后续」；" +
+    "(1) attack-declared 没有任何产生方——RIFT-124 与 RIFT-270 均已合入，但 combat/flow.ts 的 combat-start 角色事务仍未实现（抛 TurnCombatBlockedError，CR 466.2）；" +
     "(2) attack-declared 载荷（combatId/battlefieldId/attackerId/defenderId）不带“该战场由你控制”的控制状态，触发过滤无从判定；" +
     "(3) “it” 需要触发事件物体选择器（383.2.c.3.b / 359.3.f.3），合并 ObjectSelector 只有 self/source/target/pick/linked。" +
     "依赖：combat 事务的时点产生方、载荷控制状态维度与事件物体选择器。不近似实现。",
