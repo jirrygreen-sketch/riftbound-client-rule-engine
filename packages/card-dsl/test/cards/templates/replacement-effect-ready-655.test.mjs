@@ -50,13 +50,15 @@ const rows = [
       operations: [{ type: "play", object: "lingering-animus", player: "A" }]
     },
     expect: {
+      players: { A: { energy: 8 } },
       objects: { "lingering-animus": { zone: "board", exhausted: false } },
       events: {
-        includes: [
+        sequence: [
           {
             timingPoint: "object-enters-board",
             object: { ref: { id: "lingering-animus" }, exhausted: false }
-          }
+          },
+          { timingPoint: "card-played", object: { ref: { id: "lingering-animus" } } }
         ]
       }
     }
@@ -91,16 +93,18 @@ const rows = [
       operations: [{ type: "play", object: "direwing", player: "A" }]
     },
     expect: {
+      players: { A: { energy: 3 } },
       objects: {
         direwing: { zone: "board", exhausted: false },
         "another-dragon": { zone: "board" }
       },
       events: {
-        includes: [
+        sequence: [
           {
             timingPoint: "object-enters-board",
             object: { ref: { id: "direwing" }, exhausted: false }
-          }
+          },
+          { timingPoint: "card-played", object: { ref: { id: "direwing" } } }
         ]
       }
     }
@@ -126,13 +130,15 @@ const rows = [
       operations: [{ type: "play", object: "shadow-watcher", player: "A" }]
     },
     expect: {
+      players: { A: { energy: 6 } },
       objects: { "shadow-watcher": { zone: "board", exhausted: false } },
       events: {
-        includes: [
+        sequence: [
           {
             timingPoint: "object-enters-board",
             object: { ref: { id: "shadow-watcher" }, exhausted: false }
-          }
+          },
+          { timingPoint: "card-played", object: { ref: { id: "shadow-watcher" } } }
         ]
       }
     }
@@ -166,16 +172,18 @@ const rows = [
       operations: [{ type: "play", object: "shadow-assassin", player: "A" }]
     },
     expect: {
+      players: { A: { energy: 5 } },
       objects: {
         "shadow-assassin": { zone: "board", exhausted: false },
         "shadow-assassin-in-trash": { zone: "trash" }
       },
       events: {
-        includes: [
+        sequence: [
           {
             timingPoint: "object-enters-board",
             object: { ref: { id: "shadow-assassin" }, exhausted: false }
-          }
+          },
+          { timingPoint: "card-played", object: { ref: { id: "shadow-assassin" } } }
         ]
       }
     }
