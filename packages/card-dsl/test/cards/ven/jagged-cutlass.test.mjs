@@ -4,11 +4,16 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/jagged-cutlass.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
+import { ChainContractBlockedError } from "../../../../engine-core/dist/chain/engine.js";
+import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CARD_ID = "card.hash-2c2d2ea79ffc4ad60c612406b6e615a62c4219ad076ec64e1c6d09747c71e39e";
 const SOURCE_TEXT = "Equip :rb_rune_body: (:rb_rune_body:: Attach this to a unit you control.)";
@@ -44,6 +49,39 @@ const cutlassWorld = () => world()
   .unit("ally", { might: 3 })
   .build();
 
+/** Merge the printed activation into the production program -> keyword -> chain path.
+ *
+ * ProgramRegistry rejects judge-required card programs, so the production-path
+ * probe uses the exact merged Equip expansion in an otherwise identical probe
+ * program marked executable. The card itself remains judge-required and gets a
+ * separate fail-closed executable-run assertion.
+ */
+const boundCutlass = ({ answerTargets = true } = {}) => {
+  const expansion = equipActivation();
+  const binding = createProgramBinding({ cardPrograms: [{
+    canonicalCardId: CARD_ID,
+    rulesetVersion: EFFECT_IR_V2_RULESET,
+    status: "executable",
+    abilities: [expansion],
+    sourceText: program.sourceText
+  }] });
+  const f = fixture({
+    cards: [{ id: "cutlass", cardId: CARD_ID, types: ["gear"], energy: 3 }],
+    describePlay: binding.describePlay,
+    choose: request => {
+      // Tests that probe chain registration leave the Equip target pick
+      // unanswered so the chain stops before the unsupported equip payment.
+      if (request.type === "select-objects") {
+        if (!answerTargets) throw new AwaitChoice(request);
+        return [request.options[0]];
+      }
+    }
+  });
+  const errors = [];
+  binding.attachLifecycle(f.engine, error => errors.push(error));
+  return { ...f, binding, errors };
+};
+
 test("ven-073-166 Jagged Cutlass: program validates and is registered by canonicalCardId", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues, null, 2));
@@ -59,7 +97,9 @@ test("ven-073-166 Jagged Cutlass: identity, ruleset, status, judgeReason and ver
   // The reason must name the real gap: the equip payment kind rejected by the cost plan.
   assert.match(program.judgeReason, /equip/);
   assert.match(program.judgeReason, /Unsupported payment kind: equip/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.ok(!/RIFT-89/.test(program.judgeReason), "RIFT-89 is merged; the reason names only the current payment-kind gap");
+  assert.ok(!/RIFT-87/.test(program.judgeReason), "the keyword wiring is merged");
+  assert.match(program.judgeReason, /params\.cost/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -148,12 +188,47 @@ test("ven-073-166 Jagged Cutlass: the Equip expansion carries the printed cost a
   assert.equal(activation.cost.power, undefined);
 });
 
+test("ven-073-166 golden: the merged card-program path binds the Equip activation as a chain draft", () => {
+  const f = boundCutlass({ answerTargets: false });
+  assert.deepEqual(f.errors, []);
+  const source = f.kernel.getObject("cutlass");
+  const activations = f.binding.activationAbilities(source);
+  assert.equal(activations.length, 1);
+  assert.equal(activations[0].cost.payments[0].kind, "equip");
+  const draft = f.binding.describeActivate(source, "A");
+  assert.equal(draft.kind, "activated");
+  assert.equal(draft.cost.cost.kind, "activated");
+  assert.equal(draft.body[0].op, "effect.attach");
+  assert.deepEqual(draft.body[0].targets, [{
+    id: "equip-target",
+    filter: { type: "unit", controller: "self" },
+    min: 1,
+    max: 1,
+    selection: "one"
+  }]);
+  assert.throws(() => f.engine.execute(draft), AwaitChoice, "the chain stops at target selection before the unsupported equip payment");
+  assert.equal(f.engine.items.length, 0, "the pending activation rolls back while the choice is open");
+});
+
+test("ven-073-166 golden: the merged Equip activation fails closed on the unpayable equip payment", () => {
+  const f = boundCutlass();
+  const source = f.kernel.getObject("cutlass");
+  const draft = f.binding.describeActivate(source, "A");
+  f.engine.commit({ type: "ready", object: f.kernel.ref("cutlass") });
+  f.engine.advance();
+  assert.throws(() => f.engine.execute(draft), ChainContractBlockedError);
+  try { f.engine.execute(draft); } catch (error) {
+    assert.ok(error instanceof ChainContractBlockedError);
+    assert.equal(error.message, "Unsupported payment kind: equip");
+  }
+  assert.equal(f.engine.items.length, 0);
+  assert.equal(f.kernel.getObject("cutlass").exhausted, false);
+  assert.deepEqual(f.kernel.query({ zone: "board" }).map(object => object.name), ["source", "enemy"]);
+});
+
 test.todo(
-  "ven-073-166 Jagged Cutlass: paying the printed Equip cost (1 Body rune, CR 818.1.c/135.2.e.4) needs the " +
-    "\"equip\" cost-payment kind in cost/plan-values.ts (RIFT-89 cost-payment batch) and contract 3.8.3 params.cost so the " +
-    "printed rune reaches KeywordDef.expand"
-);
-test.todo(
-  "ven-073-166 Jagged Cutlass: the card-program -> keyword expansion -> chain wiring from contract 3.5 must register the " +
-    "Equip activated ability before the whole card is executable"
+  "ven-073-166 Jagged Cutlass: paying the printed Equip cost (1 Body rune, CR 818.1.c/135.2.e.4) " +
+    "needs the CardProgram KeywordAbility to carry a CostSpec and expandProgram to forward it through " +
+    "KeywordDef.expand params.cost; Equip.ts must read that cost and cost/plan-values.ts must consume " +
+    "the resulting equip payment"
 );

@@ -22,25 +22,28 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   829.1.c.1 明确它是替换基础费用的 alternate cost，829.1.c.2 允许费用同时包含资源与
  *   非资源部分（此处 2 Energy + 1 Mind Power）。卡侧只声明 keyword（契约 3.7、
  *   README 第 5 节），展开由 effects/keywords/Flow.ts 负责。
- *   契约 3.1 的 KeywordAbility 只有 keyword / value 两个字段，契约 3.8 第 3 条的
- *   expand params.cost 尚未落到已合入接口，故印刷的 Flow 费用只记录在注释与
- *   judgeReason，不写 value、也不伪造第二条普通费用。
+ *   KeywordDef.expand 的接口已经支持可选 params.cost，Flow.ts 也会读取 input.params.cost；
+ *   但 CardProgram 的 KeywordAbility 仍只有 keyword/value，且 programs/keywords.ts 的
+ *   expandProgram 只传 value/host，不把卡牌侧的印刷费用转发到 params.cost，因此费用仍只
+ *   记录在注释与 judgeReason，不写 value、也不伪造第二条普通费用。
  *
  * status = judge-required（缺口均不近似实现）：
- * 1. token 的“打出”路径需要链上生成：effect.token 的 mode "play" 在说明里明确记录
- *    create-token 的 to: "chain" 路径由 440.2.c / 185.2.a 定义（契约 changelog RIFT-62）；
- *    参考内核可执行该路径，但生产链的 Finalize/Resolve 接线仍未合入，因此不能仅凭
- *    局部执行宣称整卡可执行（README 第 2 节）。
- * 2. Flow 的替代费用、垃圾场打出许可与延迟放逐缺消费方（effects/keywords/Flow.ts
- *    文件头登记的 RIFT-261 / RIFT-260 / RIFT-89）。
+ * 1. token 的“打出”路径（440.2.c / 185.2.a 的链上生成 + play 接手）只在参考内核可执行：
+ *    生产链的 Finalize（chain/engine.ts）通过 assertFinalizationSurface 拒绝
+ *    choice.mode 与嵌套 targets，但不消费 flow.cost 或 object-leaves-chain 替代，
+ *    也没有把 effect.token 的 to: "chain" 路径接进打出流程的生产路径。
+ * 2. Flow 的替代费用、垃圾场打出许可与 829.1.b.1 的延迟放逐缺消费方：
+ *    effects/keywords/Flow.ts 的 expand 已合入（输出 flow.cost 静态 + object-leaves-chain
+ *    replacement），但 cost/plan-values.ts 与 chain/engine.ts 都不读 flow.cost（grep 无结果），
+ *    replacement/bind.ts 的 object-leaves-chain 匹配也不消费 leavingInstruction 标记。
  * 3. 已支持部分：effect.token 的 187.4 Mech 定义与链上创建 + 打出路径由 golden 用
  *    解释器 + 参考内核真实执行；其余写 test.todo。
- * 依赖：RIFT-62（链上 token 创建接线）、RIFT-261（费用消费者/替代费用）、
- * RIFT-260（替代效果注册）、RIFT-89（费用计划接线）。
+ * 契约变更请求：effect.token 的“落点由常规打出流程决定”形态 + CardProgram
+ * KeywordAbility 的印刷费用参数承载（829.1.c.2 的 2 Energy + 1 Mind Power）。
  */
 const abilities = [
   // 829.1.c：格式为 "Flow [Cost]"；印刷费用 2 Energy + 1 Mind Power 记录在注释与
-  // judgeReason（KeywordAbility 无参数承载字段，见文件头）。
+  // judgeReason（KeywordAbility 没有标准化的印刷费用参数字段，见文件头）。
   { kind: "keyword", keyword: "flow" },
   {
     kind: "play",
@@ -72,15 +75,18 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入，均不近似实现：(1)「Play a 3 :rb_might: Mech unit token」的 token 定义（187.4 的 3 Might Mech）与 " +
+    "两处缺口，均不近似实现：(1)「Play a 3 :rb_might: Mech unit token」的 token 定义（187.4 的 3 Might Mech）与 " +
     "mode \"play\" 的链上创建 + 打出（440.2.c / 185.2.a / 350.2 / 354）只在参考内核可执行，生产链的 Finalize/Resolve 接线仍未合入" +
-    "（effect.token 说明记录的 RIFT-62 后续），因此不宣称整卡可执行；原文没有落点限定，位置由 355.2/355.2.a 的常规打出流程决定，" +
+    "（chain/engine.ts 的 assertFinalizationSurface 拒绝 choice.mode/嵌套 targets，但没有把 effect.token 的 to: \"chain\" " +
+    "路径接进打出流程的生产消费方），因此不宣称整卡可执行；原文没有落点限定，位置由 355.2/355.2.a 的常规打出流程决定，" +
     "程序不写死 LocationRef；但已合入的 effect.token 要求“恰好一个目的地参数”，该“由常规流程决定落点”的形态没有可写参数，" +
-    "本指令因此在真实原语下 fail-closed（argsSchema 抛错）而不是落到错误地点（见回复里的契约变更请求）。(2) Flow 的替代费用、垃圾场打出许可与 829.1.b.1 的延迟放逐缺消费方：" +
-    "flow.cost 需要费用管线（RIFT-261）暴露可选择的替代费用并保留 null 印刷费用，替代效果注册与排序属 RIFT-260，从垃圾场打出的 " +
-    "位置许可与链项状态属 RIFT-89；印刷的 Flow 费用是 2 Energy + 1 Mind Power（829.1.c.2 允许资源与非资源混合），" +
-    "但契约 3.1 的 KeywordAbility 只有 keyword / value 字段、契约 3.8 第 3 条的 expand params.cost 未落到已合入接口，" +
-    "故只记录在注释与 judgeReason，不写 value、也不伪造第二条普通费用。" +
+    "本指令因此在真实原语下 fail-closed（argsSchema 抛错）而不是落到错误地点（契约变更请求）。(2) Flow 的替代费用、垃圾场打出许可与 829.1.b.1 的延迟放逐缺消费方：" +
+    "effects/keywords/Flow.ts 的 expand 已合入（输出 flow.cost 静态 + object-leaves-chain replacement），但 " +
+    "cost/plan-values.ts 与 chain/engine.ts 都不读 flow.cost（grep 无结果），replacement/bind.ts 的 " +
+    "object-leaves-chain 匹配也不消费 leavingInstruction 标记；印刷的 Flow 费用是 2 Energy + 1 Mind Power（829.1.c.2 允许资源与非资源混合），" +
+    "KeywordDef.expand 的接口已经支持可选 params.cost，Flow.ts 也会读取 input.params.cost；但 CardProgram 的 " +
+    "KeywordAbility 仍只有 keyword/value，且 programs/keywords.ts 的 expandProgram 只传 value/host，" +
+    "不把卡牌侧印刷费用转发到 params.cost，故只记录在注释与 judgeReason，不写 value、也不伪造第二条普通费用。" +
     "已支持部分：effect.token 的 Mech 定义（might 3 / tags [\"Mech\"]）与链上创建 + 打出路径由 golden 真实执行。",
   abilities,
   sourceText:

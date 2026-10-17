@@ -6,6 +6,10 @@ import program from "../../../dist/cards/ven/keeper-of-law.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { attachProgramLifecycle } from "../../../../engine-core/dist/programs/lifecycle.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 
 const CANONICAL_ID =
   "card.hash-594a92ecf2468e6d6dce94696d391d740b2a698a2ac48085800d89cc1ec137cb";
@@ -50,10 +54,12 @@ test("ven-119-166 Keeper of Law: identity, ruleset, status, judgeReason and verb
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  // 费用改写无消费方 + “there” 的地点锚点缺契约表达。
+  // 费用改写无 CardProgram→费用计划的消费方 + “there” 的地点锚点缺契约表达。
   assert.match(program.judgeReason, /continuous\.cost-modification|cost\.modify/);
   assert.match(program.judgeReason, /356\.4\.b/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.ok(!/RIFT-89/.test(program.judgeReason), "cost.modify is merged; the reason names the real static-to-cost-plan gap");
+  assert.match(program.judgeReason, /no layer mapping/);
+  assert.match(program.judgeReason, /RIFT-359/);
 });
 
 test("ven-119-166 Keeper of Law: one static discount of 2 Energy and 1 Order Power on itself", () => {
@@ -165,15 +171,53 @@ test("ven-119-166 golden: the declared reductions drop a 5-energy + 1 Order plan
   );
 });
 
-test.todo(
-  "ven-119-166 Keeper of Law: read the static continuous.cost-modification from the card program into the " +
-    "Finalize cost plan (CR 356.4/356.4.b) and assert the actual payment of 3 Energy — cost.modify / the " +
-    "card-to-cost-plan wiring is not merged (RIFT-89)"
-);
+test("ven-119-166 golden: the production static binder rejects continuous.cost-modification as judge-required", () => {
+  // bindStaticToLayers 是已合入的 production 路径：kind 里含 cost-modification 的
+  // static 能力进不了任何图层（layerFor 直接抛 judge-required）。这正是折扣数据
+  // 到不了 Finalize 费用计划的第一道断点。
+  const kernel = world()
+    .unit("keeper-of-law", {
+      cardId: CANONICAL_ID,
+      might: 5,
+      owner: "A",
+      controller: "A",
+      zone: "board"
+    })
+    .build();
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: checkpoint => {
+      kernel.restore(checkpoint.state);
+      kernel.copyLinkedFrom(checkpoint.links);
+    },
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    choose: () => {
+      throw new Error("unexpected choice");
+    },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint }),
+    testTrigger: registration => kernel.test(registration.spec.condition)
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  const registry = new ProgramRegistry([program]);
+  const errors = [];
+  const lifecycle = attachProgramLifecycle(engine, registry, undefined, error => errors.push(error));
+  try {
+    // Board 进入：static 绑定在此时运行并按 layerFor 抛 judge-required。
+    engine.pipeline.emit({ timingPoint: "object-enters-board", object: kernel.getObject("keeper-of-law") });
+    assert.ok(errors.length > 0, "the canonical program reaches the static binder");
+    for (const error of errors) {
+      assert.match(String(error.message), /Static ability kind continuous\.cost-modification has no layer mapping/);
+    }
+    assert.equal(engine.layers.registry.snapshot().length, 0, "no layer entry is registered for the cost modification");
+  } finally {
+    lifecycle.detach();
+  }
+});
 
 test.todo(
   "ven-119-166 Keeper of Law: evaluate 'a battlefield with exactly two units there' honestly — the count " +
     "needs the traversed battlefield's own location as the anchor for 'there', which ObjectFilter cannot " +
     "express (contract change request) and layers/engine.ts conditionMatches returns true for every " +
-    "compare/count condition (RIFT-91 follow-up)"
+    "compare/count condition (RIFT-359 in progress)"
 );

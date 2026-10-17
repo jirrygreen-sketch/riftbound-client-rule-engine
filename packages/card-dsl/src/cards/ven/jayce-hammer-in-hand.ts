@@ -21,9 +21,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   effects/keywords/<keyword>.ts（契约 3.7），卡文件不重写。
  * - “this turn” 是带回合期限的授予（817 一类的临时授予；到期在回合结束清理，315.4 / 317.2.c）。
  *   授予动作是持续效果，按 layers 的 ability 层落地（契约 3.4 的图层顺序）。
+ * - “give me” 是自我指代（355.10.d/g 的按特征程序化选中，不是目标选择）：
+ *   continuous.grant-keyword 只接受 appliesTo self / objects / filter 等选择形状，
+ *   因此用字面 appliesTo self（指令将其解析为能力来源自身）。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required（缺口见 judgeReason；
- * 本卡没有任何已合入的可执行语句，因此 golden 只做结构/关键词身份断言，未合入依赖写 test.todo）。
+ * status 判定（cards/README.md 第 2 节）：judge-required。触发注册与 grant-keyword
+ * 指令都已合入并有探针执行证据（test.mjs 的 probe 用例）；仍缺的是链适配器与
+ * 关键词消费方，见 judgeReason。
  */
 const mode = (id: string, keyword: string, value?: number) => ({
   id,
@@ -35,9 +39,9 @@ const mode = (id: string, keyword: string, value?: number) => ({
         keyword: { kind: "constant", value: keyword },
         ...(value === undefined ? {} : { value: { kind: "constant", value } }),
         duration: { kind: "constant", value: "this-turn" },
-        // "give me" 是自我指代：355.10.d/g 的按特征程序化选中，不是目标选择，
-        // 因此用契约 3.6 的符号选择器 source（能力来源）而不是 TargetSpec。
-        object: { kind: "constant", value: { kind: "source" } }
+        // “give me” 的自我指代：355.10.d/g 不是目标选择；指令把 appliesTo self
+        // 解析为能力来源（resolveSelection 的 kind:"source" 分支）。
+        appliesTo: { kind: "constant", value: "self" }
       }
     }
   ]
@@ -78,16 +82,15 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1) 带 end-of-turn 期限的关键词授予需要卡牌侧的 continuous.grant-keyword 指令原语：" +
-    "effects/instructions/ 下只有 effect.* 文件，没有该 op（RIFT-91 只合入 layers 引擎与 duration 机制，" +
-    "卡牌入口缺失；同 sfd/block、ven/heart-of-the-tempest 的缺口），三个模式的授予都不可执行；" +
-    "(2) object-readied 触发进不了链——时点已在封闭枚举中（416.1/416.1.c），但没有已合入订阅方把 " +
-    "CardProgram 的 triggered ability 注册成 TriggerRegistration（chain/engine.ts 只注册延迟触发；" +
-    "RIFT-120，契约 §7.2 批 5）；(3) 关键词展开的消费方未接通：Assault 的 continuous.might + " +
-    "attacker 条件与 Shield/Assault 的 designation 读取（807.1.d.1）、Deflect 的 target.tax（809.1.c.1，" +
-    "RIFT-90）、Ganking 的 continuous.movement 许可（810.1.c）在合并代码里都没有求值方（RIFT-91）。" +
-    "已按契约 3.9 写出 choice.mode 的模式列表与被选 body，依赖落地后可直接复核。不近似实现（不把三个" +
-    "模式压成一个，也不把授予写成直接改 Might）。",
+    "触发注册与授予原语都已合入并有探针证据：object-readied 触发经 programs/triggers 注册、" +
+    "就绪后进链（probe 见 test.mjs），continuous.grant-keyword 是已注册指令，" +
+    "appliesTo self（355.10.d/g 自我指代）解析为来源对象。仍缺两处：" +
+    "(1) 被选模式进入 Finalize 时 choice.mode 被链适配器拒绝——assertFinalizationSurface 抛 " +
+    "ChainContractBlockedError('Mode choices require a Finalize/Resolve choice-plan adapter')，" +
+    "模式选择无法落到被选 body；(2) 关键词消费方：Deflect 的 target.tax 管线在进行中" +
+    "（RIFT-360），Assault 的战斗加成需要 807.1.d.1 的 designation 攻击方识别、" +
+    "Ganking 需要 810.1.c 的战场移动许可消费方（layers 的 keywords/movement 已能承载授予结果）。" +
+    "不近似实现（不把三个模式压成一个，也不把授予写成直接改 Might）。",
   abilities,
   sourceText:
     "When I become ready, choose one to give me this turn \u2014\n" +
