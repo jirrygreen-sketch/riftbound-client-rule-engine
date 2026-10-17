@@ -17,21 +17,24 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "banish the top card of your Main Deck" = effect.banish 的牌库顶区域选择（zoneSlice，417/428）；
  * - "Until your next Ending Phase, you may play that card" = 带期限的打出许可（见 judgeReason）。
  *
- * status: judge-required（不近似实现）：
+ * status: judge-required（复核 2026-10-17；不近似实现）：
+ * - 两段触发都无法订阅：object-moved 时点虽在 timing-points.ts（421.1、449.1/449.2），
+ *   但不在 EVENT_PATTERN_TYPES（events/trigger-spec.ts），pipeline.registerTrigger 的
+ *   assertTriggerSpec 会判 invalid-event-type，RIFT-257 的 programs/triggers.ts 与
+ *   filters.ts 也无法把该事件名交出去。
  * - Universal Power（[A]）没有可执行表达：契约 3.6 的 Domain 是六域封闭枚举，
  *   effect.resources 明确记载 “Universal Power (163.2.b) is not representable … never
- *   approximated by a chosen domain”，因此第一段只能声明能量部分，[A] 保持不许称可用；
- * - “The second time I move each turn” 的序数条件：TriggerSpec.once 只有 once 语义，
- *   已合入的 condition.history 只能得到动作计数（interpreter/history.ts 接受 scope/action/
- *   timingPoint/player/object，并已转为消费契约 3.8 的 exclude/objectFilter——但「本回合第
- *   N 次」的序数比较仍需历史谓词），且本卡用 count 占位写法不产生该语义；
- * - “you may play that card” 的期限化打出许可原语缺失：effect.play-permission 未注册
- *   （effects/instructions/ 无该文件），打出的费用交接归 RIFT-261；
- * - 触发订阅还需要 CardProgram → TriggerRegistration 绑定（RIFT-257）。
- *
- * 依赖：Universal Power 表示（RIFT-261 费用/RIFT-258 资源）、历史序数谓词、
- * effect.play-permission 原语与 RIFT-257。已合入部分（object-moved 时点、effect.banish
- * 牌库顶、effect.resources 能量）在 golden 测试真实执行。
+ *   approximated by a chosen domain”（实测 ['rainbow'] 得 negated/impossible），
+ *   因此第一段只能声明能量部分，[A] 不许称可用；
+ * - “The second time I move each turn” 的序数条件缺谓词：TriggerSpec.once 只有 once 语义，
+ *   interpreter 的 condition.history（history.ts 的 historyCount）只按 scope/action/
+ *   timingPoint/player/object/exclude/objectFilter 给出动作计数，「本回合第 N 次」的序数比较
+ *   仍需历史谓词；本卡用 count 占位写法不产生该语义；
+ * - “Until your next Ending Phase, you may play that card” 的期限化打出许可原语缺失：
+ *   effect.play-permission 未注册（effects/instructions/ 无该文件，实测落入解释器 default
+ *   分支抛错）；RIFT-261 的 cost.pay/cost.modify 已合入，但仍不提供打出许可。
+ * RIFT-257 的 CardProgram → TriggerRegistration 绑定已合入，不再是缺口。已合入部分
+ * （object-moved 时点、effect.banish 牌库顶、effect.resources 能量）在 golden 测试真实执行。
  */
 const abilities: Ability[] = [
   {
@@ -104,15 +107,18 @@ const program = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三个缺口：(1) Universal Power（[A]，135.2.e.5 / 163.2.b）无可执行表达——契约 3.6 的" +
-    "Domain 是六域封闭枚举，effect.resources 文件明确记载 Universal Power 不可表示、" +
-    "不得用任一域近似；(2) “The second time I move each turn” 需要按对象范围的本回合移动序数：" +
-    "condition.history 只提供动作计数（含契约 3.8 的 exclude/objectFilter 消费），没有序数谓词；" +
-    "(3) “Until your next Ending Phase, you may play that card. (You still pay its costs.)” 需要" +
-    "期限化的打出许可原语：effect.play-permission 未注册（effects/instructions/ 无该文件），" +
-    "effect.play 只消费已 Finalize 的费用计划（RIFT-261）。此外触发订阅还需要 CardProgram → " +
-    "TriggerRegistration 绑定（RIFT-257）。已合入部分（object-moved 时点、effect.banish 牌库顶、" +
-    "effect.resources 能量）在 golden 测试真实执行。不近似实现。",
+    "(1) 两段触发都无法订阅：object-moved 不在 EVENT_PATTERN_TYPES（events/trigger-spec.ts），" +
+    "pipeline.registerTrigger 的 assertTriggerSpec 判 invalid-event-type，RIFT-257 的" +
+    "programs/triggers.ts 与 filters.ts 也无法把该事件名交出去。" +
+    "(2) Universal Power（[A]，135.2.e.5 / 163.2.b）无可执行表达——契约 3.6 的 Domain 是六域" +
+    "封闭枚举，effect.resources 明确记载 Universal Power 不可表示、不得用任一域近似（实测得到 " +
+    "negated/impossible）。" +
+    "(3)「The second time I move each turn」需要按对象范围的本回合移动序数：condition.history " +
+    "（interpreter/history.ts）只提供动作计数（含契约 3.8 的 exclude/objectFilter 消费），没有序数谓词。" +
+    "(4)「Until your next Ending Phase, you may play that card. (You still pay its costs.)」需要" +
+    "期限化的打出许可原语：effect.play-permission 未注册（effects/instructions/ 无该文件）。" +
+    "RIFT-261 的 cost.pay/cost.modify 与 RIFT-257 的绑定均已合入，不再是缺口。已合入部分" +
+    "（object-moved 时点、effect.banish 牌库顶、effect.resources 能量）在 golden 测试真实执行。不近似实现。",
   abilities,
   sourceText:
     "The first time I move each turn, [Add] :rb_energy_1::rb_rune_rainbow:.\n" +

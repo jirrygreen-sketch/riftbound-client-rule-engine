@@ -19,20 +19,24 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   - "ready" 是入场状态改写（143.4.a、184.1 的 token 入场例外）：入场替代由
  *     replacement.enter / 创建动作处理，effect.ready 明确不能事后模拟“enter ready”。
  *
- * status: judge-required（不近似实现）：
- * - “I enter ready” 的入场替代管线（RIFT-260 replacement.enter / replacement 绑定）已合入，
- *   replacement 能力体因此改为 canonical 形状（effect.ready 的 objects 用符号选择器
+ * status: judge-required（复核 2026-10-17；不近似实现）：
+ * - “I enter ready” 的入场替代管线（RIFT-260 replacement.enter / RIFT-349 绑定）已合入，
+ *   replacement 能力体因此用 canonical 形状（effect.ready 的 objects 用符号选择器
  *   { kind: "source" }，由 replacement planner 绑定被替代事件的对象）；golden 用真实
  *   bindReplacement + 链内出场执行该替代。整卡仍缺：
- * - “play a ready … token” 的入场就绪改写没有已合入的表达位置：effect.token 文档
- *   明确 “Entry overrides are not supported”（也不能用 effect.ready 事后补一次就绪）；
- * - mode "play" 的链上生成 + 打出在生产链还需要 CardProgram → TriggerRegistration /
- *   打出适配器（RIFT-257）；
+ * - “play a ready … token” 的入场就绪改写没有已合入的表达位置：effect.token 的 argsSchema
+ *   只收 token/amount/mode/location/target/pick/locations/choiceId/linkKey（实测多传
+ *   exhausted 抛 Invalid effect.token argument），CR 143.4.a / 184.1 的 token 入场状态
+ *   例外因此无处声明；也不能用 effect.ready 事后补一次就绪（会多一次状态事件并错过入场替代）。
+ *   本卡的 replacement 只匹配“进场对象就是本卡”（replacement/pattern.ts 的 self/other
+ *   归一化用 hostRef 比较），无法改写到本卡打出的 token 的入场。
+ * - 生产链还没有消费 { type: "play" } 的 host 动作（chain/engine.ts 的 Play 要求调用方提供
+ *   describePlay；apps/game-server 的 EngineRuntimeHost 对 play 返回 impossible），所以
+ *   “链上生成 + 打出”整段目前只在参照内核可执行。
  * - “here” 的静态表达：effect.token 的 args schema 不接受 object-property 位置，
  *   本程序按已合入条件指令换成 condition.value 读出位置再以 linked-value 交给 token
- *   （contract 3.9 链接形状）。
- *
- * 依赖：token 入场状态改写、RIFT-257 CardProgram 绑定。
+ *   （contract 3.9 链接形状），该改写在参照内核真实执行。
+ * RIFT-257 的 CardProgram 绑定已合入，不再是缺口；依赖：token 入场状态改写与生产 play 动作消费。
  */
 const abilities: Ability[] = [
   {
@@ -92,13 +96,17 @@ const program = {
   status: "judge-required",
   judgeReason:
     "(1) “play a ready 3 :rb_might: Mech unit token here” 的入场就绪改写没有可表达位置：" +
-    "effect.token 明确不支持 entry override（143.4.a / 184.1 的 token 入场例外），也不能用 " +
-    "effect.ready 事后补一次就绪（会多一次状态事件并错过入场替代）；(2) mode \"play\" 的链上" +
-    "生成 + 打出在生产链需要 CardProgram 绑定与打出适配器（RIFT-257）。Mech token 定义" +
-    "（187.4，id \"mech\"）与 mode \"play\"（440.2.c / 185.2.a）按契约声明；“I enter ready”" +
-    "（143.4 + 369.3）改用已合入的 replacement.enter 形状（RIFT-260）并有真实绑定执行测试；" +
-    "“here” 用 condition.value 读取来源位置后经 linked-value 交给 token（effect.token 的" +
-    "位置参数不接受 object-property 形式）。不近似实现。",
+    "effect.token 的 argsSchema 只收 token/amount/mode/location/target/pick/locations/choiceId/" +
+    "linkKey（实测多传 exhausted 抛 Invalid effect.token argument），143.4.a / 184.1 的 token " +
+    "入场状态例外无处声明；也不能用 effect.ready 事后补一次就绪（会多一次状态事件并错过入场替代）。" +
+    "本卡的 replacement 只匹配进场对象就是本卡（replacement/pattern.ts 用 hostRef 比较 self/other），" +
+    "无法改写打出的 token 的入场。" +
+    "(2) 生产链还没有消费 { type: \"play\" } 的 host 动作（chain/engine.ts 要求调用方提供 " +
+    "describePlay；EngineRuntimeHost 对 play 返回 impossible），链上生成 + 打出目前只在参照内核可执行。" +
+    "Mech token 定义（187.4，id \"mech\"）与 mode \"play\"（440.2.c / 185.2.a）按契约声明；" +
+    "“I enter ready”（143.4 + 369.3）用已合入的 replacement 形状（RIFT-260 / RIFT-349）并有真实" +
+    "绑定执行测试；“here” 用 condition.value 读取来源位置后经 linked-value 交给 token，并在参照内核" +
+    "真实执行。RIFT-257 的 CardProgram 绑定已合入，不再是缺口。不近似实现。",
   abilities,
   sourceText: "I enter ready.\nWhen you play me, play a ready 3 :rb_might: Mech unit token here."
 } satisfies CardProgram;

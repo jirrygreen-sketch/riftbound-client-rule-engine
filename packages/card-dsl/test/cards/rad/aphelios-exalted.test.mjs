@@ -6,7 +6,9 @@ import program from "../../../dist/cards/rad/aphelios-exalted.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { translateInstructionTargets } from "../../../../engine-core/dist/programs/filters.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import channel from "../../../../engine-core/dist/effects/instructions/effect.channel.js";
 import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
@@ -37,7 +39,7 @@ test("rad-179-167 Aphelios, Exalted: identity, ruleset, status, judgeReason and 
   assert.match(program.judgeReason, /choice\.exclusive-once-per-turn/);
   assert.match(program.judgeReason, /ChainContractBlockedError/);
   assert.match(program.judgeReason, /object-attached/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -175,12 +177,12 @@ test("rad-179-167 Aphelios, Exalted golden: effect.buff places one buff counter 
   assert.deepEqual(run.events.map((event) => event.action), ["buff"]);
 });
 
-test("rad-179-167 Aphelios, Exalted: the mode-choice dispatch and its three body ops are merged", () => {
-  // The three mode bodies run through merged primitives; the per-turn chosen
-  // receipt is the gap recorded in judgeReason, not an assertion here.
-  assert.notEqual(instructionDefinitionsById.get("effect.ready"), undefined);
-  assert.notEqual(instructionDefinitionsById.get("effect.channel"), undefined);
-  assert.notEqual(instructionDefinitionsById.get("effect.buff"), undefined);
+test("rad-179-167 Aphelios, Exalted: the three mode bodies and the choice dispatcher are merged primitives", () => {
+  // The mode bodies and the choice dispatcher exist in the merged instruction
+  // registry; the per-turn chosen receipt stays in judgeReason.
+  assert.equal(instructionDefinitionsById.get("effect.ready").op, "effect.ready");
+  assert.equal(instructionDefinitionsById.get("effect.channel").op, "effect.channel");
+  assert.equal(instructionDefinitionsById.get("effect.buff").op, "effect.buff");
 });
 
 test("rad-179-167 Aphelios, Exalted golden: the trigger dispatches the chosen mode and executes its body", () => {
@@ -209,6 +211,39 @@ test("rad-179-167 Aphelios, Exalted golden: the trigger dispatches the chosen mo
     ["aphelios-exalted.choose", "executed"]
   ]);
   assert.equal(scoped.getObject("ally").buffs, 1);
+});
+
+test("rad-179-167 Aphelios, Exalted golden: the runes mode finalizes and readies two runes through the real chain", () => {
+  // 「Ready 2 runes」的目标经 RIFT-257 的生产翻译（controller → self）后要能在真实
+  // ChainEngine 的 Finalize 里锁定 Run 区对象；卡面只写 "runes"，IR 显式声明
+  // zone: "rune-zone"（355.9.a.1 的默认指称由此覆盖）。
+  const body = translateInstructionTargets(readyMode.body);
+  assert.deepEqual(body[0].targets, [{
+    id: "aphelios-exalted.runes",
+    filter: { type: "rune", controller: "self", zone: "rune-zone" },
+    min: 2,
+    max: 2,
+    selection: "any"
+  }]);
+
+  const f = fixture({
+    choose: request => request.type === "select-objects" ? [...request.options].slice(0, request.min ?? 1) : undefined
+  });
+  const template = f.kernel.getObject("source");
+  for (const id of ["rune-1", "rune-2"]) {
+    f.kernel.addObject(
+      { ...template, ref: { id, zoneEntryId: 1 }, name: id, types: ["rune"], zone: "rune-zone", location: null, exhausted: true, might: null },
+      "rune-zone"
+    );
+  }
+  f.engine.execute({ id: "aphelios-ready", controller: "A", source: f.kernel.getObject("source"), kind: "activated", speed: "reaction", body });
+  resolveAll(f.engine);
+
+  assert.ok(f.engine.trace.some(entry => entry.step === "resolved" && entry.item === "aphelios-ready"));
+  assert.deepEqual(
+    f.kernel.objects.filter(object => object.zone === "rune-zone").map(object => [object.ref.id, object.exhausted]),
+    [["rune-1", false], ["rune-2", false]]
+  );
 });
 
 test("rad-179-167 Aphelios, Exalted golden: the channel mode channels the top rune exhausted", () => {
@@ -252,5 +287,6 @@ test.todo(
 );
 
 test.todo(
-  "rad-179-167 Aphelios, Exalted: the trigger needs the CardProgram → TriggerRegistration binding (RIFT-257)"
+  "rad-179-167 Aphelios, Exalted: the object-attached event name must join EVENT_PATTERN_TYPES " +
+    "(events/trigger-spec.ts) before registerProgramTriggers can subscribe the attach trigger"
 );

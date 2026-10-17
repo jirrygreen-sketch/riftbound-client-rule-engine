@@ -27,7 +27,8 @@ test("rad-015-167 Akali, Brash: program validates and has expected identity", ()
   assert.match(program.judgeReason, /Universal Power/);
   assert.match(program.judgeReason, /condition\.history/);
   assert.match(program.judgeReason, /effect\.play-permission/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /invalid-event-type/);
 });
 
 test("rad-015-167: first-move resource trigger and second-move banish trigger", () => {
@@ -101,6 +102,10 @@ test("rad-015-167: the second-move body banishes the deck top through real effec
 test.todo(
   "rad-015-167 Akali, Brash: Universal Power（[A]，135.2.e.5 / 163.2.b）无可执行表达——" +
     "契约 3.6 的 Domain 是六域封闭枚举，effect.resources 明确不可用任一域近似"
+);
+test.todo(
+  "rad-015-167 Akali, Brash: the object-moved timing point must join EVENT_PATTERN_TYPES " +
+    "(events/trigger-spec.ts) before registerProgramTriggers can subscribe the two move triggers"
 );
 test.todo(
   "rad-015-167 Akali, Brash: “The second time I move each turn” 的序数条件需要按对象范围的历史序数谓词" +

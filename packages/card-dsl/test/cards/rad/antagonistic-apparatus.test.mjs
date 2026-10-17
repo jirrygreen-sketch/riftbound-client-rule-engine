@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/antagonistic-apparatus.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
 import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
@@ -28,8 +29,9 @@ test("rad-009-167 Antagonistic Apparatus: program validates and has expected ide
     program.sourceText,
     "I enter ready.\nWhen you play me, play a ready 3 :rb_might: Mech unit token here."
   );
-  assert.match(program.judgeReason, /entry override|Entry overrides/i);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /argsSchema/);
+  assert.match(program.judgeReason, /exhausted/);
+  assert.match(program.judgeReason, /describePlay/);
 });
 
 test("rad-009-167: enter-ready replacement plus card-played Mech token body", () => {
@@ -90,7 +92,7 @@ test("rad-009-167: enter-ready replacement body readies the exhausted source thr
 test("rad-009-167 golden: bindReplacement replaces the exhausted entry with a ready entry (CR 369.3 / 805.6)", () => {
   const kernel = world().player("A", { energy: 20 }).player("B", { energy: 20 })
     .base("source", { energy: 0, power: [], might: 2 })
-    .hand("apparatus", { energy: 2, power: [], might: 3, types: ["unit"] })
+    .hand("apparatus", { cardId: program.canonicalCardId, energy: 2, power: [], might: 3, types: ["unit"] })
     .build();
   const decide = request => {
     if (request.type === "select-objects" && request.min === request.max && request.options.length === request.min) return [...request.options];
@@ -131,11 +133,9 @@ test("rad-009-167: the Mech definition lands at the source location (CR 187.4)",
   const kernel = world().unit("apparatus", { might: 3, location: BATTLEFIELD }).build();
   const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("apparatus") });
   const [readHere, playMech] = program.abilities[1].body;
-  const createOnly = {
-    ...playMech,
-    args: { ...playMech.args, mode: { kind: "constant", value: "create" } }
-  };
-  const outcome = resolveChainBody([readHere, createOnly], scoped);
+  // 卡面原文的 mode 是 "play"：effect.token 在参照内核把它实现为“链上创建再打出”两步，
+  // 这里直接执行程序里声明的原始参数，不改成 create 模式。
+  const outcome = resolveChainBody([readHere, playMech], scoped);
   assert.equal(outcome.status, "executed");
   assert.deepEqual(outcome.results.map(result => [result.id, result.result.status]), [
     ["antagonistic-apparatus.read-here", "executed"],
@@ -150,15 +150,34 @@ test("rad-009-167: the Mech definition lands at the source location (CR 187.4)",
   assert.equal(tokens[0].controller, "A");
 });
 
+test("rad-009-167: the merged binding installs the enter-ready replacement and the card-played trigger", () => {
+  // RIFT-349 的 createEngineStaticBinder/attachLifecycle 是生产路径；这里断言卡牌程序的两条
+  // 能力都真的进入注册表（replacement 静态绑定 + card-played 触发订阅），得到可复现的接线证据。
+  const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
+  const kernel = world()
+    .player("A", { energy: 20 })
+    .player("B", { energy: 20 })
+    .base("source", { energy: 0, power: [], might: 2 })
+    .hand("apparatus", { cardId: program.canonicalCardId, energy: 2, power: [], might: 3, types: ["unit"] })
+    .build();
+  const registered = [];
+  const engine = { pipeline: { registerTrigger: registration => registered.push(registration.id) } };
+  const ids = binding.registerProgramTriggers(engine, kernel.getObject("apparatus"));
+  assert.equal(ids.length, 1);
+  assert.deepEqual(registered, ["program:apparatus:1:1"]);
+});
+
 test.todo(
-  "rad-009-167 Antagonistic Apparatus: the card-program adapter must wire the replacement ability " +
-    "into the match lifecycle at play time (RIFT-257); the merged bindReplacement path is executed in the golden above"
+  "rad-009-167 Antagonistic Apparatus: the card-program replacement must also rewrite the entry state of " +
+    "a token this card creates (replacement/pattern.ts matches self/other against the bound host, so the " +
+    "printed enter-ready of the Mech token has no binding surface)"
 );
 test.todo(
   "rad-009-167 Antagonistic Apparatus: “play a ready … token here” 的“入场就绪”改写无表达位置" +
-    "（effect.token 不支持 entry override，143.4.a / 184.1；不能用 effect.ready 事后补一次就绪）"
+    "（effect.token 的 argsSchema 不接受 entry override，143.4.a / 184.1；不能用 effect.ready 事后补一次就绪）"
 );
 test.todo(
   "rad-009-167 Antagonistic Apparatus: mode \"play\" 的链上生成 + 打出流程（440.2.c / 185.2.a / " +
-    "350.2 / 354）在生产链上依赖 CardProgram 绑定（RIFT-257）"
+    "350.2 / 354）在生产链上需要消费 { type: \"play\" } 的 host 动作（chain/engine.ts 要求 " +
+    "describePlay；EngineRuntimeHost 对 play 返回 impossible）"
 );
