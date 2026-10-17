@@ -1,8 +1,8 @@
-// RIFT-646 single-card golden: validation, identity, judgeReason and the key
+// RIFT-670 single-card golden: validation, identity, judgeReason and the key
 // structure of Sai Scout. Real execution evidence for this card (the whole-card
 // scenario through the generic card harness plus the measured outcome of
 // binding the expanded static play-location permission) lives in
-// `test/cards/templates/keyword-static-646.test.mjs`.
+// `test/cards/templates/keyword-static-670.test.mjs`.
 //
 // The card stays judge-required: the production play-location consumer still
 // does not lift this permission, and the Vision expansion needs an ordered

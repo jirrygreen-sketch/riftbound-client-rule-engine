@@ -1,8 +1,8 @@
-// RIFT-646 single-card golden: validation, identity, judgeReason and the key
+// RIFT-670 single-card golden: validation, identity, judgeReason and the key
 // structure of Party Crasher. Real execution evidence for this card (the
 // whole-card scenario through the generic card harness plus the measured
 // outcome of binding each expanded static ability) lives in
-// `test/cards/templates/keyword-static-646.test.mjs`.
+// `test/cards/templates/keyword-static-670.test.mjs`.
 //
 // The card stays judge-required: `continuous.cost-modification` has no layer
 // mapping, the combat layer's Tank consumer is still `proven-none`, and the
