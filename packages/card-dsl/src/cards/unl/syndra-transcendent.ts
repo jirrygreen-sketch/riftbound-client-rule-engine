@@ -57,7 +57,8 @@ export default {
   judgeReason:
     "「While I'm in a showdown, your spells have [Repeat] :rb_energy_2::rb_rune_chaos:」不可执行，三处缺口：" +
     "(1) 没有「在 showdown 中」的可求值谓词——308/310.3/310.4 的回合状态不是 ObjectSnapshot 特征，" +
-    "Condition 也没有读取它的形态（卡内以 expression 常量 \"in-showdown\" 记录意图，不写成恒真条件）；" +
+    "Condition 也没有读取它的形态（卡内以 expression 常量 \"in-showdown\" 记录意图）；但生产 binder 会把它交给 " +
+    "解释器求值，Boolean(\"in-showdown\") 恒为真，实测无 Showdown State 时授予照样生效，属待修的过度生效；" +
     "(2) continuous.grant-keyword 与 CardProgram static binder 已合入，但层上获得的 Repeat 尚未回流到" +
     "打出程序的 KeywordDef.expand/Finalize，不能向咒语传递可支付实例；" +
     "(3) 被授予的 Repeat 实例要携带印刷费用（820.1.c），当前 grant 结果没有把 cost 参数接到" +

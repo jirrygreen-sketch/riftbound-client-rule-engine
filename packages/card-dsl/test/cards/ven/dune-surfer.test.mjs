@@ -1,3 +1,6 @@
+// Scenario execution evidence: ../templates/static-644.test.mjs (one parameterized row per card).
+// This card stays judge-required; the template row pins the exact fail-closed binder error
+// (relative opponent filter) behind the ignore-ability gap.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -27,6 +30,9 @@ test("ven-004-166 Dune Surfer: identity, ruleset, status, judgeReason and verbat
   assert.match(program.judgeReason, /base-combat-allocation/);
   assert.match(program.judgeReason, /815\.1\.b/);
   assert.match(program.judgeReason, /layerFor/);
+  // Re-checked against merged source: staticFilter rejects the relative
+  // opponent filter before the missing layer mapping is even reached.
+  assert.match(program.judgeReason, /staticFilter|relative-player/);
   assert.doesNotMatch(program.judgeReason, /RIFT-9\d/);
   assert.doesNotMatch(program.judgeReason, /RIFT-120/);
   assert.doesNotMatch(program.judgeReason, /RIFT-257/);

@@ -40,7 +40,8 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1) 缺可选附加费用的声明接线——cost.additional 是静态声明，尚无绑定消费方；cost.pay 与 " +
+    "三处缺口，均不近似实现：(1) 缺可选附加费用的声明接线——cost.additional 是静态声明，生产 binder 直接拒绝" +
+    "（实测 'Static ability kind cost.additional has no layer mapping'，被 attachLifecycle 的 onError 吞掉，fail-closed）；cost.pay 与 " +
     "CostPlanInput.optionalAdditional 消费方已合入，但 Chain Finalize 只从打出项自身成本构建 input，" +
     "没有生产者把卡程序声明的附加费用与 356.4.f.1 的「决定支付」回执接进 Finalize；" +
     "(2) 缺「[A][A] 已付则打到本战场」的消费者：playDestinationIsLegal 已在 Finalize 校验位置" +

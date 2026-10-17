@@ -1,3 +1,6 @@
+// Scenario execution evidence: ../templates/static-644.test.mjs (one parameterized row per card).
+// This card stays judge-required; the template row drives the real lifecycle and the production
+// static binder, while the missing Standard Move / effect.move consumers stay asserted below.
 import assert from "node:assert/strict";
 import test from "node:test";
 
