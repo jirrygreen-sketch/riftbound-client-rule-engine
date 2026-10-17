@@ -146,6 +146,11 @@ test("ven-143-166 binding: the merged activated-ability adapter translates the a
   );
 });
 
+test.todo(
+  "ven-143-166: the activated ability still needs a Disempower payment kind in the finalized cost plan " +
+    "(CR 443.2.a); the body adapter itself is already executable"
+);
+
 test("ven-143-166 golden: 'Discard 1, then draw 1' discards and draws", () => {
   const kernel = world()
     .unit("master-of-shadows", { types: ["legend"], zone: "board" })

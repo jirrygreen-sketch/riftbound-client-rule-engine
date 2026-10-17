@@ -119,3 +119,16 @@ test("ven-110-166 golden: a stale target makes the banish ignored (359.3.e.7)", 
   assert.equal(run.result.reason, "mistargeted");
   assert.deepEqual(run.events, []);
 });
+
+test.todo(
+  "ven-110-166 Mel: [Empower]'s non-resource cost 'Discard a spell' (827.1.c.1 / 827.1.c.2) still needs " +
+    "an Empower KeywordDef and a payable spell-discard cost path"
+);
+test.todo(
+  "ven-110-166 Mel: the [Empowered] dependent trigger (828.1.d) still needs an Empowered predicate and " +
+    "increase-direction consumer for empowered-changed"
+);
+test.todo(
+  "ven-110-166 Mel: enforce 'with 3 :rb_might: or less' (143.2.a effective Might) — the frozen ObjectFilter " +
+    "has no Might predicate consumer; the golden pins today's fail-open boundary"
+);

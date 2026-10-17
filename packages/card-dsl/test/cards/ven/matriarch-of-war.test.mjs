@@ -83,6 +83,21 @@ test("ven-153-166 golden: 'empower me' empowers the legend source through the in
   assert.deepEqual(context.events.map(event => event.action), ["empower"]);
 });
 
+test("ven-153-166 golden: 'Ready a unit' readies an exhausted unit through the interpreter", () => {
+  const kernel = world()
+    .unit("matriarch-of-war", { types: ["legend"], zone: "board" })
+    .unit("friendly-unit", { zone: "board", exhausted: true })
+    .build();
+  kernel.setTargets("matriarch-of-war.unit", [kernel.ref("friendly-unit")]);
+
+  const outcome = runAbilityBody(activated.body, kernel, undefined, {
+    host: kernel.ref("matriarch-of-war")
+  });
+  assert.equal(outcome.status, "executed");
+  assert.equal(kernel.getObject("friendly-unit").exhausted, false);
+  assert.deepEqual(kernel.events.map(event => event.action), ["ready"]);
+});
+
 test("ven-153-166 golden: the printed [A] Power uses all six payable domains", () => {
   const kernel = world().unit("matriarch-of-war", { types: ["legend"], zone: "board" }).build();
   const context = kernel.clone({ sourceSnapshot: kernel.getObject("matriarch-of-war") });
@@ -99,6 +114,15 @@ test("ven-153-166 golden: the printed [A] Power uses all six payable domains", (
   });
   assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: sixDomains }]);
 });
+
+test.todo(
+  "ven-153-166: the empowered-changed trigger still needs increase-direction and " +
+    "something-else host exclusion fields in the event contract"
+);
+test.todo(
+  "ven-153-166: the activated cost still needs a Disempower payment kind in the finalized cost plan " +
+    "(CR 443.2.a)"
+);
 
 test("ven-153-166 binding: the merged program registry exposes the two printed abilities", () => {
   // ProgramRegistry 用 canonicalCardId 解析整张程序；两条能力的 IR

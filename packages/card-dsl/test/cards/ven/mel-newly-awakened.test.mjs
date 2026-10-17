@@ -107,3 +107,16 @@ test("ven-069-166 golden: drawing from an empty deck links the real drawn count 
   assert.equal(run.linked.drawn, 0);
   assert.equal(kernel.player("A").handSize, 0);
 });
+
+test.todo(
+  "ven-069-166 Mel, Newly Awakened: [Empower] expansion (827.1.c.1: 3 Energy, 'use only if not Empowered') " +
+    "and the [Empowered][>] dependent abilities (828.1.b.1) still need Empower/Empowered KeywordDefs"
+);
+test.todo(
+  "ven-069-166 Mel: 'Your spells and abilities can't be countered' (426.1/426.2) still needs a " +
+    "continuous.restrict consumer in the chain's Counter legality check"
+);
+test.todo(
+  "ven-069-166 Mel: 'an additional -1 :rb_might:' (479.4.b) still needs a consumer for the " +
+    "continuous Might-reduction modifier and the Empowered gate"
+);
