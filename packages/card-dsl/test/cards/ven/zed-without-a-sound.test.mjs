@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/zed-without-a-sound.js";
+import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { translateInstructionTargets, translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
@@ -140,6 +141,25 @@ test("ven-112-166 Zed: [Action][>] cost and the two locked swaps of the exchange
   });
   const translatedBody = translateInstructionTargets(activated.body);
   assert.equal(translatedBody[1].targets[0].filter.controller, "self");
+});
+
+test("ven-112-166 Zed golden: the activated Energy plus Chaos Power cost is paid by the cost pipeline", () => {
+  const kernel = world()
+    .player("A", { energy: 2, power: ["Chaos"] })
+    .unit("zed", { controller: "A", location: { type: "base", player: "A" } })
+    .build();
+  const plan = buildCostPlan(kernel, {
+    id: "cost:zed-without-a-sound",
+    cost: activated.cost
+  });
+  assert.equal(plan.total.energy, 1);
+  assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: ["Chaos"] }]);
+
+  const receipt = payCostPlan(kernel, plan);
+  assert.equal(receipt.paid, true);
+  assert.equal(kernel.player("A").energy, 1);
+  assert.deepEqual(receipt.power.power, [{ requirementIndex: 0, from: "Chaos", amount: 1 }]);
+  assert.deepEqual(receipt.actions.map(entry => entry.action.type), ["pay"]);
 });
 
 test("ven-112-166 Zed golden: the exchange swaps Zed and a Shadow Clone", () => {

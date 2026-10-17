@@ -3,6 +3,8 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/zed-from-the-shadows.js";
+import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
   "card.hash-d7b6ea328eac7b13a0a652c5d95b38895d7026cbb51f23007ecdce1f9a3d951c";
@@ -26,9 +28,10 @@ test("ven-023-166 Zed: identity, status, judgeReason and verbatim sourceText", (
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /condition\.result/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-357/);
-  assert.doesNotMatch(program.judgeReason, /RIFT-(89|90|91|120|257)/);
+  assert.match(program.judgeReason, /translateCost/);
+  assert.match(program.judgeReason, /ObjectRef/);
+  assert.match(program.judgeReason, /合法地点|地点候选/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-/);
   assert.match(program.judgeReason, /effect\.token/);
   assert.match(program.judgeReason, /187\.11/);
 });
@@ -100,14 +103,85 @@ test("ven-023-166 Zed: the token identity is the printed Shadow Clone, never a s
   assert.notEqual(playToken.args.token.value, "reflection");
 });
 
+test("ven-023-166 Zed golden: the merged cost modifier can plan the optional discard component", () => {
+  const buildWorld = () => world()
+    .player("A", { energy: 4, power: ["Fury"] })
+    .hand("zed", { types: ["unit"], energy: 4, power: ["Fury"] })
+    .hand("discard-me", { owner: "A" })
+    .build();
+  const optionalCost = kernel => ({
+    id: additionalCost.effect.id,
+    kind: "additional",
+    cost: {
+      kind: "explicit",
+      payments: [{
+        kind: "discard",
+        choice: {
+          id: paymentChoiceId,
+          options: [kernel.ref("discard-me")],
+          min: 1,
+          max: 1,
+          selection: "one"
+        }
+      }]
+    }
+  });
+
+  const paid = buildWorld();
+  const paidRun = runInstruction(costModify, {
+    id: "zed-from-the-shadows.plan",
+    cost: {
+      kind: "explicit",
+      energy: { kind: "constant", value: 4 },
+      power: { kind: "constant", value: ["Fury"] }
+    },
+    optionalAdditional: [{ ...optionalCost(paid), selected: true }]
+  }, {
+    world: paid,
+    answers: {
+      ["zed-from-the-shadows.plan:pick:" + paymentChoiceId]: [paid.ref("discard-me")]
+    }
+  });
+
+  assert.equal(paidRun.result.status, "executed");
+  assert.deepEqual(paidRun.linked.cost.selectedAdditional, [
+    { id: additionalCost.effect.id, kind: "additional" }
+  ]);
+  assert.deepEqual(paidRun.linked.cost.declinedAdditional, []);
+  assert.deepEqual(paidRun.linked.cost.total.actions.map(action => action.action), [
+    { type: "discard", object: paid.ref("discard-me") }
+  ]);
+  assert.equal(paid.query({ zone: "hand" }).length, 2);
+  assert.deepEqual(paid.query({ zone: "trash" }), []);
+
+  const declined = buildWorld();
+  const declinedRun = runInstruction(costModify, {
+    id: "zed-from-the-shadows.plan",
+    cost: {
+      kind: "explicit",
+      energy: { kind: "constant", value: 4 },
+      power: { kind: "constant", value: ["Fury"] }
+    },
+    optionalAdditional: [{ ...optionalCost(declined), selected: false }]
+  }, { world: declined });
+
+  assert.equal(declinedRun.result.status, "executed");
+  assert.deepEqual(declinedRun.linked.cost.selectedAdditional, []);
+  assert.deepEqual(declinedRun.linked.cost.declinedAdditional, [additionalCost.effect.id]);
+  assert.deepEqual(declinedRun.linked.cost.total.actions, []);
+  assert.equal(declined.query({ zone: "hand" }).length, 2);
+});
+
+const paymentChoiceId = "zed.discarded-card";
+
 test.todo(
   "ven-023-166 Zed: the optional additional discard cost needs CardProgram → CostPlan wiring and a " +
-    "paid-cost receipt readable by the Play Effect (356.2/356.2.a/356.4.f.1, RIFT-261)"
+    "paid-cost receipt readable by the Play Effect (356.2/356.2.a/356.4.f.1)"
 );
 
 test.todo(
   "ven-023-166 Zed: the 0 :rb_might: Shadow Clone token with its own attack ability (CR 187.11) is " +
     "absent from effect.token's frozen definition table (blocked there by design); playing it also " +
     "needs the Finalize location choice for a played token (355.2/355.2.a, 440.2.b.1), whose legal " +
-    "destination set is the position-selection gap tracked by RIFT-357"
+    "destination set still lacks a dynamic candidate producer"
 );
