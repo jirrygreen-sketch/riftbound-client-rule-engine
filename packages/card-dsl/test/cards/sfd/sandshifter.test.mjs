@@ -23,8 +23,9 @@ test("sfd-158-221 Sandshifter: program validates and keeps its identity", () => 
   assert.match(program.judgeReason, /mightLte/);
   assert.match(program.judgeReason, /355\.9\.b/);
   assert.match(program.judgeReason, /143\.2\.a/);
-  assert.match(program.judgeReason, /characteristics/);
-  assert.match(program.judgeReason, /translateObjectFilter|programs\/filters\.ts/);
+  assert.match(program.judgeReason, /TargetPlan/);
+  assert.match(program.judgeReason, /RIFT-359/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-81|RIFT-32\/33/);
   assert.equal(
     program.sourceText,
     "When you play me, kill an enemy unit with 3 :rb_might: or less."
@@ -93,15 +94,14 @@ test("sfd-158-221 Sandshifter: a unit that left the board makes the kill ignored
 
 test.todo(
   "sfd-158-221 Sandshifter: enforce the '3 :rb_might: or less' target ceiling at Finalize/Resolve " +
-    "(355.9.b / 143.2.a effective-Might predicate) once a Might filter predicate is merged (RIFT-81~91)"
+    "(355.9.b / 143.2.a effective-Might predicate) once the RIFT-359 target-query predicate is merged"
 );
 
-test("sfd-158-221 Sandshifter: the merged filter vocabulary is equality-only, so a Might ceiling needs a new predicate", () => {
-  // Evidence for the judgeReason: the merged layer filter expresses a Might
-  // characteristic only by equality (characteristics: { might: N }), which
-  // selects exactly the units whose Might is N. "3 or less" therefore has no
-  // spelling in the current predicate vocabulary, and the card's own
-  // descriptive mightLte key is outside it.
+test("sfd-158-221 Sandshifter: TargetPlan filters are equality-only, so a Might ceiling remains judge-required", () => {
+  // Evidence for the judgeReason: TargetPlan reaches the merged layer matcher,
+  // whose Might characteristic comparison is equality-only (characteristics: {
+  // might: N }). "3 or less" therefore has no target-query spelling, and the
+  // card's descriptive mightLte key is outside the production filter translator.
   const kernel = world()
     .unit("weak-enemy", { owner: "B", controller: "B", might: 2 })
     .unit("exactly-three", { owner: "B", controller: "B", might: 3 })
@@ -126,5 +126,9 @@ test("sfd-158-221 Sandshifter: the merged filter vocabulary is equality-only, so
   assert.deepEqual(
     translateObjectFilter({ type: "unit", zone: "board", controller: "opponent" }),
     { type: "unit", zone: "board", controller: "opponent" }
+  );
+  assert.throws(
+    () => translateObjectFilter({ type: "unit", zone: "board", controller: "opponent", mightLte: 3 }),
+    /Unsupported filter field mightLte/
   );
 });
