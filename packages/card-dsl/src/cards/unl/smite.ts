@@ -19,9 +19,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   同一形状，把替代写成 body 内的一条 replacement.event 指令，替代体用 effect.banish（428.1）。
  *
  * status = judge-required（缺口不近似实现）：
- * - 卡牌程序没有替代效果的注册入口：ResolveContext（契约 3.6）只有 addContinuous /
- *   registerDelayedTrigger，替代注册在引擎内部（RIFT-120 尚未把 CardProgram 的替代声明接成
- *   动作匹配器），effects/instructions/ 也没有 replacement.event 原语文件。
+ * - replacement.event 的注册入口已合入，但它消费的是能力级 replacement 声明；本卡把声明放在
+ *   play body 中，当前生产生命周期不会把它安装到 replacement registry。
  * - 替代体没有指向“被替代事件对象”的 ObjectSelector（该单位不是新目标选择，355.10.c.1），
  *   契约 3.1 的 replacement 能力也没有 duration 字段表达印刷的 “this turn” 窗口。
  * Deal 3 半段只用已合入的 effect.damage，放逐体只用已合入的 effect.banish；golden 用参考内核
@@ -33,11 +32,10 @@ const smite = {
   status: "judge-required",
   judgeReason:
     "「If it would die this turn, banish it instead」是替代效果（CR 369.1 / 370.1.b：把“将死”事件" +
-    "替换为放逐），但没有可执行路径：(1) 卡牌程序无法注册替代——ResolveContext（契约 3.6）只有 " +
-    "addContinuous / registerDelayedTrigger，替代注册在引擎内部（RIFT-120 尚未把 CardProgram 的替代声明" +
-    "转成动作匹配器），effects/instructions/ 也没有 replacement.event 原语；(2) 替代体无法绑定“被替代事件的对象" +
-    "（355.10.c.1 的 it），ObjectSelector 只有 self/source/target/pick/linked；(3) 契约 3.1 的 replacement " +
-    "能力没有 duration 字段，印刷的 this turn 有效期无法声明。" +
+    "替换为放逐），但本卡没有可执行路径：(1) replacement.event 的注册入口已合入，但当前 binder 只消费能力级 " +
+    "replacement.with；本卡把它放在 play body，生产生命周期不会安装它；(2) 替代体无法绑定“被替代事件的对象" +
+    "（355.10.c.1 的 it），ObjectSelector 只有 self/source/target/pick/linked；(3) 当前 replacement planner 不支持 " +
+    "effect.banish，且 body 里的 this-turn 窗口没有进入 replacement binder 的 next-time-this-turn 语义。" +
     "Deal 3（effect.damage，418.1/355.10.b）与放逐体（effect.banish）本身已合入，但不构成整卡证据；不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "action" },

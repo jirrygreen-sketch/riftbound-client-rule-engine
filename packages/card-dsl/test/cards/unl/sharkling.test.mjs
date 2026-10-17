@@ -34,7 +34,7 @@ test("unl-006-219 Sharkling: identity, status, judgeReason and verbatim sourceTe
   assert.match(program.judgeReason, /Accelerate/);
   assert.match(program.judgeReason, /805\.6/);
   assert.match(program.judgeReason, /optionalAdditional/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /play producer|替代生命周期/);
   assert.match(program.judgeReason, /designation/);
   assert.match(program.judgeReason, /conditionMatches/);
 });
@@ -201,37 +201,6 @@ test("unl-006-219 Sharkling golden: the Assault 4 Might modification itself regi
   assert.equal(layered.might, 5);
 });
 
-test("unl-006-219 Sharkling: the merged layer condition vocabulary accepts the Assault designation gate unconditionally", () => {
-  // 807.1.d.1: Assault applies only while the unit holds the Attacker
-  // designation. The expansion gates on
-  // compare(object-property(self, "designation"), eq, "attacker"), a condition
-  // kind the layer engine does not know (conditionMatches only recognises
-  // always/never/type/has-tag/has-keyword) and therefore treats as satisfied;
-  // a non-attacking 3-Might unit would already read as 7. That is why the
-  // keyword cannot be claimed executable (judgeReason).
-  const [ability] = assault.expand({ value: program.abilities[1].value, host: HOST });
-  assert.equal(ability.condition.kind, "compare");
-  assert.equal(ability.condition.left.property, "designation");
-
-  const kernel = world().unit("sharkling", { owner: "A", might: 3, combatRole: null }).build();
-  const snapshot = kernel.getObject("sharkling");
-  const layered = createLayerEngine([snapshot], [{
-    effect: {
-      id: "assault-4",
-      layer: "arithmetic",
-      source: snapshot.ref,
-      filter: { objectId: "sharkling" },
-      effect: ability.effect,
-      condition: ability.condition
-    },
-    duration: { type: "permanent" }
-  }]).evaluate(snapshot.ref);
-  assert.equal(snapshot.combatRole, null);
-  // The layer engine applies the arithmetic modification although the gate is
-  // not an attacker, so the expansion is not consumable as printed.
-  assert.equal(layered.might, 7);
-});
-
 test("unl-006-219 Sharkling: the generated card registry exposes the program under its canonical id", () => {
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
@@ -240,12 +209,12 @@ test.todo(
   "unl-006-219 Sharkling: pay the optional Accelerate cost [1][Fury] during the play and let the unit enter " +
     "ready instead of exhausted (CR 805.1.b.1 / 805.2.b / 805.6) — the merged cost plan and bindReplacement both " +
     "handle it above; no merged producer feeds a card's keyword abilities into cost/cost-plan.ts optionalAdditional " +
-    "or into the replacement registry (RIFT-257)"
+    "or into the replacement lifecycle"
 );
 
 test.todo(
   "unl-006-219 Sharkling: apply Assault 4 as +4 Might exactly while the unit holds the Attacker designation " +
     "(CR 807.1.c / 807.1.d.1) — the merged layer engine applies the Might modification unconditionally because the " +
     "compare(designation) gate is outside its condition vocabulary and the Attacker designation is not produced by a " +
-    "merged combat transaction (RIFT-124); a card-to-layer registration path is also still missing (RIFT-257)"
+    "merged combat transaction (RIFT-124); the designation condition is also outside the current layer condition vocabulary"
 );

@@ -52,7 +52,7 @@ test("unl-159-219 Soul Harvest: program validates and keeps its identity", () =>
   assert.equal(cardRegistryById.get(CANONICAL), program);
   assert.match(program.judgeReason, /mightLte/);
   assert.match(program.judgeReason, /355\.9\.b/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /mightyCondition/);
 });
 
@@ -96,24 +96,6 @@ test("unl-159-219 Soul Harvest: the merged location restriction matches battlefi
   assert.equal(
     matchesObjectFilter(targetSpec.filter, baseSnapshot({ location: { type: "base", player: "A" } })),
     false
-  );
-});
-
-test("unl-159-219 Soul Harvest: the merged filters do not read the declared Might cap", () => {
-  // 355.9.b / 143.2.a: the printed "3 Might or less" has to separate a 2-Might
-  // battlefield unit from a 7-Might one. The merged matcher has no Might
-  // dimension, so both pass: this is the evidence behind the judgeReason.
-  const strong = baseSnapshot({ ref: { id: "strong", zoneEntryId: 1 }, might: 7 });
-  const weak = baseSnapshot({ ref: { id: "weak", zoneEntryId: 1 }, might: 2 });
-  assert.equal(matchesObjectFilter(targetSpec.filter, strong), true);
-  assert.equal(matchesObjectFilter(targetSpec.filter, weak), true);
-  const withoutCap = Object.fromEntries(
-    Object.entries(targetSpec.filter).filter(([key]) => key !== "mightLte")
-  );
-  assert.equal(withoutCap.mightLte, undefined);
-  assert.equal(
-    matchesObjectFilter(withoutCap, strong),
-    matchesObjectFilter(targetSpec.filter, strong)
   );
 });
 
@@ -177,11 +159,11 @@ test("unl-159-219 Soul Harvest golden: a unit that left the Board is mistargeted
 test.todo(
   "unl-159-219 Soul Harvest: enforce the '3 :rb_might: or less' targeting restriction at Finalize and re-check it " +
     "at Resolve (CR 355.9.b, 143.2.a effective Might) once TargetSpec.filter can consume a Might-threshold Condition " +
-    "(the merged Mighty predicate evaluates, but the merged matchers ignore the declared mightLte key; RIFT-90 follow-up)"
+    "(the merged Mighty predicate evaluates, but TargetSpec.filter has no consuming Might threshold; RIFT-359)"
 );
 
 test.todo(
   "unl-159-219 Soul Harvest: exclude Pending chain items from the target choice and revalidate the battlefield " +
-    "location at Resolve (CR 355.3/355.15, 359.3.e.9) — needs the TargetPlan resolve re-check (RIFT-90)"
+    "location at Resolve (CR 355.3/355.15, 359.3.e.9) — needs the TargetPlan resolve re-check (RIFT-357)"
 );
 

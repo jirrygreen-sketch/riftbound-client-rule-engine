@@ -39,26 +39,29 @@ import type { CardProgram } from "../../ir/index.js";
  *   （模板里的 withoutKeyword 会被 layers/filter.ts 与测试内核静默忽略，
  *   Temporary 的 KeywordDef 与 continuous.grant-keyword 本身已合入），谓词也
  *   不能跨两个 TargetSpec 读取特征。
- * - 「at a different location」是两个选择之间的关系限制：TargetPlan（RIFT-90）
+ * - 「at a different location」是两个选择之间的关系限制：TargetPlan（RIFT-357）
  *   只有单 spec 的 filter/location，未提供成对关系重验。
+ * - [Hidden] 的 static cost.hidden 展开已存在，但 Hide 的 facedown 区域、费用支付与下一回合
+ *   Reaction 时点仍没有消费方；本卡不能把 Hidden 当作已可执行。
  * Draw 1 一半已合入并有 golden 执行测试。依赖：RIFT-9 的 effect.swap-location、
- * 关键词特征谓词与成对关系限制。
+ * 关键词特征谓词、成对关系限制（RIFT-357）以及 Hidden 的 cost.hidden 消费方。
  */
 const smokeAndMirrors = {
   canonicalCardId: "card.hash-6add1fe7f28222eaf95929c9ea158fc564653d8c24fc981553089763dd098361",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处依赖未合入，均不近似实现：(1) 缺 RIFT-9 建议的 effect.swap-location：" +
+    "四处当前缺口，均不近似实现：(1) 缺 RIFT-9 建议的 effect.swap-location：" +
     "CR 448.1/448.3 要求两个永久物的 Origin/Destination 作为同一个原子 Move 关系交换，" +
     "已合入的 effect.move 每条指令只把单个选择集移到固定 LocationRef/controller-base/静态候选，" +
     "顺序执行两次 effect.move 会在第二条的合法性重验与触发时点上产生不同结果（449.1/451.1），故不近似。" +
     "(2)「If at least one of them has [Temporary]」无求值路径：Condition 只有 always/never/compare/all/any/not/expression，" +
     "ObjectFilter 没有关键词维度（关键词键会被 layers/filter.ts 与测试内核静默忽略；Temporary 的 KeywordDef 与 " +
     "continuous.grant-keyword 本身已合入，缺的是跨选择的特征谓词），且谓词不能跨两个 TargetSpec 读特征。" +
-    "(3)「at a different location」是两个选择之间的关系限制，TargetPlan（RIFT-90）只有单 spec 的 filter/location，没有成对关系重验。" +
+    "(3)「at a different location」是两个选择之间的关系限制，TargetPlan（RIFT-357）只有单 spec 的 filter/location，没有成对关系重验。" +
+    "(4) [Hidden] 目前只有 static cost.hidden 展开，Hide 的 facedown 区域/费用支付与下一回合 Reaction 时点没有消费方。" +
     "「Draw 1」是独立语句，只用已合入的 effect.draw，golden 真实执行。依赖：RIFT-9 的 effect.swap-location、" +
-    "关键词特征谓词与成对关系限制（RIFT-90 后续）。",
+    "关键词特征谓词、成对关系限制（RIFT-357）以及 Hidden 的 cost.hidden 消费方。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     { kind: "keyword", keyword: "action" },

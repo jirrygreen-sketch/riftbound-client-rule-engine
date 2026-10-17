@@ -34,11 +34,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   "Unsupported payment kind: equip"）；818.1.c.3 允许的这条非资源费用因此
  *   无法在 Finalize 生效（本卡没有 818.1.c.4 的费用改写文本，缺的是把印刷费用送进
  *   费用计划）。
- * - 卡牌程序 → 关键词展开 → 时点/链的接线（契约 3.5）同样未合入（与 sfd/long-sword、
- *   rad/nazuman-ntofo 同一口径）。
  * "When you play this, gain 1 XP" 用已合入的 effect.xp 由 golden 真实执行；不近似实现
- * Equip 的 XP 支付。依赖：RIFT-89 的费用管线（equip 支付种类与印刷 Equip 费用参数）、
- * 关键词展开读取印刷参数、契约 3.5 接线。
+ * Equip 的 XP 支付。依赖：Equip 支付种类与印刷费用参数的契约/费用管线接线、关键词展开读取印刷参数。
  */
 const abilities: Ability[] = [
   {
@@ -82,10 +79,8 @@ const program = {
     "\"Unsupported payment kind: equip\"），也没有读取本卡印刷的 1 XP 费用" +
     "（818.1.c.3 / 818.1.c.4）；(2) 契约 3.1 的 KeywordAbility 没有费用参数槽，印刷的 " +
     "\"Spend 1 XP\" 只能以 value: 1 记录数量并在本字段说明单位（见回复的契约变更请求）；" +
-    "(3) 卡牌程序→关键词展开→时点/链的接线（契约 3.5）同样未合入（与 sfd/long-sword、" +
-    "rad/nazuman-ntofo 同一口径）。\"When you play this, gain 1 XP\"（728 / 730.1）已用合入的 " +
-    "effect.xp 由 golden 真实执行；不近似实现 Equip 的 XP 支付。依赖：RIFT-89（equip 支付种类与" +
-    "印刷 Equip 费用参数）、关键词展开读取印刷参数、契约 3.5 接线。",
+    "(3) 通用卡牌程序→关键词展开接线已合入，但 Equip 展开仍因上述支付种类而无法通过最终绑定。\"When you play this, gain 1 XP\"（728 / 730.1）已用合入的 " +
+    "effect.xp 由 golden 真实执行；不近似实现 Equip 的 XP 支付。依赖：Equip 支付种类与印刷费用参数的契约/费用管线接线、关键词展开读取印刷参数。",
   abilities,
   sourceText:
     "When you play this, gain 1 XP.\n" +

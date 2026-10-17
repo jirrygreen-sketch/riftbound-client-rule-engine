@@ -25,12 +25,12 @@ import type { CardProgram } from "../../ir/index.js";
  *   1 Calm Power 目前无法通过既有费用管线支付，本印刷又不含能量部分，没有可退化的支付路径。
  *   （Ogn 侧的卡牌级测试仍在跑 Equip 的展开体：attach 目标与 effect.attach 都已合入，
  *   golden 用真实解释器让装备附着到所选单位；缺口只在费用。）
- * - 缺少卡牌程序 → 关键词展开 → 时点/链的接线（契约 3.5）：programs/ 的适配器没有
- *   运行时调用方，没有人把 KeywordAbility 交给 keyword 注册表展开并注册到链上（RIFT-257）。
+ * - 通用卡牌程序 → 关键词展开 → 时点/链的接线已合入；本卡仍因 Equip 的费用展开不匹配而
+ *   无法通过最终绑定。KeywordAbility 也没有把印刷的 Calm 费用参数传入 Equip 展开。
  * 不把 Equip 近似成裸 effect.attach（那会绕开 818.1.c.3/c.4 的费用与费用改写语义），
  * 也不新增 IR 参数键。
  *
- * 依赖：Equip 费用支付种类与费用管线扩展（RIFT-89 后续）以及关键词接线（RIFT-257）。
+ * 依赖：Equip 费用支付种类与费用管线扩展，以及把印刷的 Calm 费用参数传入 Equip 展开。
  */
 export default {
   canonicalCardId:
@@ -42,9 +42,9 @@ export default {
     "payments: [{ kind: \"equip\", value: { kind: \"source\" } }]，而 cost/plan-values.ts 的 readCost 对未知支付种类直接 blocked，" +
     "实测 buildCostPlan 抛 CostPlanError（reason \"judge-required\"，message \"Unsupported payment kind: equip\"）；" +
     "本印刷的 Equip 费用是 1 个 Calm 符文符号（818.1.c 的 [Cost] 部分），不含能量部分，因此没有可退化的支付路径。" +
-    "缺口的另一半是接线：程序侧的适配器（programs/）没有运行时调用方，没有人把本卡的 KeywordAbility 交给关键词注册表展开并注册到链上（RIFT-257）；" +
-    "展开体本身可用——effect.attach 与目标选择都已合入，golden 用真实解释器让装备附着到所选单位。" +
-    "依赖：Equip 费用支付种类与费用管线扩展（RIFT-89 后续）以及关键词接线（RIFT-257）；不近似实现。",
+    "通用程序适配器已能展开并校验 KeywordAbility，但 Equip 展开没有读取本卡的 Calm 费用参数，仍生成不受 " +
+    "cost/plan-values.ts 支持的 equip payment；展开体本身可用——effect.attach 与目标选择都已合入，golden 用真实解释器让装备附着到所选单位。" +
+    "依赖：Equip 费用支付种类与费用管线扩展，以及印刷费用参数的契约/展开接线；不近似实现。",
   abilities: [
     // 818.1.c：印刷费用为 1 个 Calm 符文符号（= 1 Calm Power），无能量符号。
     { kind: "keyword", keyword: "equip", value: 1, costDomain: "Calm" }

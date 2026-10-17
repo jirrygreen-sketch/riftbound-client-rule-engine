@@ -48,7 +48,8 @@ test("unl-137-219 Sinister Poro: identity, status, judgeReason and verbatim sour
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /383\.3\.b/);
   assert.match(program.judgeReason, /attack-declared/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /CostSpec|Finalize/);
+  assert.match(program.judgeReason, /sameLocationAs/);
 });
 
 test("unl-137-219 Sinister Poro: attack-declared self trigger with the printed may cost as the Finalize decision", () => {
@@ -72,7 +73,7 @@ test("unl-137-219 Sinister Poro: 1 Energy recorded as the trigger's base cost, t
     ["sinister-poro.move-enemy", "effect.move"]
   ]);
   // 383.3.b: "pay :rb_energy_1:" follows the leading may, so it is the triggered ability's base cost
-  // (CR 204.1.c / 204.3.a). The primitive that would charge it is not registered (see judgeReason).
+  // (CR 204.1.c / 204.3.a). The body record is descriptive until a Finalize cost field exists.
   assert.deepEqual(payEnergy.args, { energy: { kind: "constant", value: 1 } });
   assert.equal(payEnergy.linkedTo, undefined);
 
@@ -154,7 +155,7 @@ test("unl-137-219 Sinister Poro golden: the card's own printed Move args run on 
 test.todo(
   "unl-137-219 Sinister Poro: charge the printed 1 Energy as the triggered ability's base cost at Finalize " +
     "(CR 383.3.b.1 / 415.4-415.5) — contract 3.1's TriggeredAbility has no CostSpec field and no cost.pay " +
-    "primitive exists (RIFT-89/90)"
+    "primitive in the triggered-ability cost position"
 );
 test.todo(
   "unl-137-219 Sinister Poro: fire the attack-declared trigger from the real combat workflow (CR 383.4.e / 466.2.c) " +
