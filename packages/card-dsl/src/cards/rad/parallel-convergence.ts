@@ -31,16 +31,14 @@ import type { CardProgram } from "../../ir/index.js";
  *   "additional" is not one of the bound kinds; and
  * - even bypassing that gate, cost/plan-values.ts readCost rejects both
  *   `kind: "additional"` ("Unsupported cost kind: additional") and the
- *   payment kind "return-to-hand" ("Unsupported payment kind"), which also has
- *   no GameAction in the frozen set
+ *   payment kind "return-to-hand" ("Unsupported payment kind"), which is
+ *   absent from the NonstandardCostAction set
  *   (`exhaust | discard | recycle | kill | reveal | spend-buff`).
- * - the authored battlefield target filter { type: "unit", location: { type:
- *   "battlefield" } } is likewise refused by programs/filters.ts
- *   translateObjectFilter ("Structured location filters need a concrete
- *   location identity"), so the production Finalize target plan cannot bind it.
- * The 355.1.a / 356.2.b.1 mandatory-additional-cost posting, the
- * return-to-hand payment kind, and the battlefield target binding are the
- * remaining dependencies.
+ * - the battlefield restriction uses TargetSpec.location, which the existing
+ *   Finalize target plan already understands (355.10.b).
+ * The 356.2.a.1 mandatory-additional-cost posting and return-to-hand payment
+ * kind remain blocked. The template scenario in play-effect-damage-659 is
+ * pending; the single-card golden proves only the supported damage body.
  */
 export default {
   canonicalCardId: "card.hash-84ee715c26888cfa3850f44083e64823f41b5db0dc23a4f0511c4eb127d52175",
@@ -50,9 +48,9 @@ export default {
     "2026-10-17 复核：伤害半段已用 effect.damage 真实执行（已有真实执行证据）；仍缺“return a friendly unit to its owner's hand”" +
     "强制附加费用的费用管线：programs/play.ts translateCost 先拒绝该 Spec（实测 Additional costs are not bound for ...），" +
     "cost/plan-values.ts readCost 也不接受 CostSpec.kind \"additional\"（Unsupported cost kind: additional），" +
-    "且 payments 没有 return-to-hand 种类、GameAction 封闭集里也没有对应动作，无法在 Finalize 投放 355.1.a/356.2.b.1 的 mandatory-additional。" +
-    "另外目标过滤 { type: \"unit\", location: { type: \"battlefield\" } } 也被 programs/filters.ts " +
-    "translateObjectFilter 拒绝（实测 Structured location filters need a concrete location identity），生产 Finalize 目标计划无法绑定。" +
+    "且 payments 没有 return-to-hand 种类，NonstandardCostAction 也不接受 return-to-hand/move-zone，无法在 Finalize 投放 356.2.a.1 的 mandatory-additional。" +
+    "战场限制已改用现有 TargetSpec.location，目标翻译不再是缺口；" +
+    "模板 play-effect-damage-659 的整卡场景仍 pending，单卡伤害证据不代表已支付附加费用。" +
     "不近似实现：不用 effect.zone 在结算期补做费用动作。",
   abilities: [
     {
@@ -89,7 +87,8 @@ export default {
           targets: [
             {
               id: "unit-at-battlefield",
-              filter: { type: "unit", location: { type: "battlefield" } },
+              filter: { type: "unit", zone: "board" },
+              location: { type: "battlefield" },
               min: 1,
               max: 1,
               selection: "one"
