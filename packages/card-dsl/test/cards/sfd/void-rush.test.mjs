@@ -5,6 +5,9 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/void-rush.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import reveal from "../../../../engine-core/dist/effects/instructions/effect.reveal.js";
+import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
+import effectPlay from "../../../../engine-core/dist/effects/instructions/effect.play.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-cd92b45de0981074325a5119213251cd97706ab04339f5fe7339e69c8761258a";
@@ -14,9 +17,10 @@ const SOURCE_TEXT =
 
 const [play] = program.abilities;
 const revealInstruction = play.body[0];
-const mayPlay = play.body[1];
+const costPlan = play.body[1];
+const mayPlay = play.body[2];
 const playInstruction = mayPlay.args.body.value[0];
-const drawRest = play.body[2];
+const drawRest = play.body[3];
 
 test("sfd-188-221 Void Rush: program validates, is registered and stays judge-required", () => {
   const result = validateCardProgram(program);
@@ -44,6 +48,7 @@ test("sfd-188-221 Void Rush structure: printed cost, ordered deck-top reveal, op
     play.body.map((instruction) => [instruction.id, instruction.op]),
     [
       ["void-rush.reveal", "effect.reveal"],
+      ["void-rush.cost-plan", "cost.modify"],
       ["void-rush.may-play", "choice.optional"],
       ["void-rush.draw-rest", "effect.zone"]
     ]
@@ -57,10 +62,32 @@ test("sfd-188-221 Void Rush structure: printed cost, ordered deck-top reveal, op
   assert.equal(revealInstruction.picks.length, 1);
   const [topTwo] = revealInstruction.picks;
   assert.equal(topTwo.id, "void-rush.top-two");
-  assert.equal(topTwo.selection, "up-to");
-  assert.equal(topTwo.min, 0);
-  assert.equal(topTwo.max, 2);
-  assert.deepEqual(topTwo.options, ["deck-top-two-of-controller"]);
+  assert.deepEqual(topTwo, {
+    id: "void-rush.top-two",
+    options: [],
+    ordered: true,
+    selection: "all",
+    zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 2 } }
+  });
+});
+
+test("sfd-188-221 Void Rush structure: the merged cost.modify really declares the [2] energy discount plan", () => {
+  // CR 356.4: the reduction is a real plan step, not a cost-plan-request.
+  // What the plan costs (the selected revealed card's printed cost) and how
+  // the plan crosses into effect.play/Finalize remain blocked (judgeReason 1).
+  assert.equal(costPlan.op, "cost.modify");
+  assert.deepEqual(costPlan.args.id, { kind: "constant", value: "void-rush.cost-plan" });
+  assert.deepEqual(costPlan.args.modifier, {
+    kind: "constant",
+    value: {
+      kind: "reduce",
+      resource: "energy",
+      amount: { kind: "constant", value: 2 },
+      minimum: { kind: "constant", value: 0 }
+    }
+  });
+  assert.equal(costPlan.linkedTo, undefined);
+  assert.equal(costPlan.picks, undefined);
 });
 
 test("sfd-188-221 Void Rush structure: the play inside the optional body names the reduced-cost requirement", () => {
@@ -73,8 +100,9 @@ test("sfd-188-221 Void Rush structure: the play inside the optional body names t
   assert.equal(playInstruction.op, "effect.play");
   assert.deepEqual(playInstruction.args.pick, { kind: "constant", value: "void-rush.played-card" });
   assert.deepEqual(playInstruction.args.cost, {
-    kind: "constant",
-    value: { kind: "cost-plan-request", from: "printed", reduction: { energy: 2 } }
+    kind: "linked-value",
+    instructionId: "void-rush.cost-plan",
+    key: "cost"
   });
   assert.equal(playInstruction.picks.length, 1);
   const [played] = playInstruction.picks;
@@ -100,11 +128,13 @@ test("sfd-188-221 Void Rush structure: pending Draw names all remaining revealed
   const [remaining] = drawRest.picks;
   assert.equal(remaining.id, "void-rush.remaining");
   assert.equal(remaining.selection, "all");
-  assert.equal(remaining.min, 0);
-  assert.equal(remaining.max, 2);
-  assert.deepEqual(remaining.options, [
-    { kind: "linked-value", instructionId: "void-rush.reveal", key: "revealed" }
-  ]);
+  assert.deepEqual(remaining, {
+    id: "void-rush.remaining",
+    options: [],
+    ordered: true,
+    selection: "all",
+    linked: { kind: "linked-value", instructionId: "void-rush.reveal", key: "revealed" }
+  });
 });
 
 test("sfd-188-221 Void Rush golden: the ordered deck-top reveal executes with a caller-supplied pick", () => {
@@ -135,6 +165,63 @@ test("sfd-188-221 Void Rush golden: a short deck reveals what is there instead o
   assert.deepEqual(run.linked.revealed, [kernel.ref("only-card")]);
 });
 
-test.todo("Void Rush: hand the selected revealed card's printed plan with the existing [2] Energy discount to effect.play/Finalize (356.4/420.3)");
-test.todo("Void Rush: bind ordered reveal picks through the real chain adapter (RIFT-358)");
-test.todo("Void Rush: Draw the actual unplayed revealed objects and emit draw events even when optional play is declined (414.1); the pending effect.zone block cannot implement Draw");
+test("Void Rush chain: the merged Finalize locks the ordered deck-top reveal source (RIFT-358)", () => {
+  const f = fixture();
+  f.engine.advance();
+  const top = f.kernel.zoneSlice("A", "deck", "top", 2).map(object => object.ref);
+  // The real production chain adapter captures the zoneSlice pick source at
+  // Finalize and locks the ordered refs for resolution; the optional play and
+  // pending draw stay blocked (see judgeReason 1 and 3).
+  f.engine.enqueue({
+    id: "void-rush-chain", kind: "triggered", controller: "A", source: f.kernel.getObject("source"),
+    body: [revealInstruction]
+  });
+  f.engine.advance();
+  assert.equal(f.engine.items[0].status, "finalized");
+  assert.equal(f.engine.items[0].pickPlans.length, 1);
+  assert.equal(f.engine.items[0].pickPlans[0].id, "void-rush.top-two");
+  assert.deepEqual(f.engine.items[0].pickPlans[0].refs, top);
+  assert.equal(f.engine.pipeline.events.some(event => event.timingPoint === "card-revealed"), false);
+  resolveAll(f.engine);
+  assert.equal(f.engine.items.length, 0);
+  assert.deepEqual(f.kernel.linked("void-rush.reveal.revealed"), top);
+  // Revealed cards stay revealed where they are (425.1.a.2).
+  assert.deepEqual(f.kernel.zone("A", "deck").map(ref => ref.id), ["A:deck:1", "A:deck:2", "A:deck:3", "A:deck:4"]);
+  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "card-revealed").length, 2);
+});
+
+test("Void Rush golden: cost.modify freezes a genuine [2] Energy discount plan on the selected card's printed cost", () => {
+  const kernel = world().player("A", { energy: 20 }).hand("void-rush", { types: ["spell"], energy: 2, power: [] }).build();
+  const run = runInstruction(costModify, {
+    id: "void-rush.cost-plan",
+    printed: { id: "void-rush", cardType: "Spell", energy: 2, power: 0, domains: [] },
+    modifier: {
+      kind: "reduce",
+      resource: "energy",
+      amount: { kind: "constant", value: 2 },
+      minimum: { kind: "constant", value: 0 }
+    }
+  }, { world: kernel });
+  assert.equal(run.result.status, "executed");
+  const plan = run.linked.cost;
+  assert.equal(plan.player, "A");
+  assert.equal(plan.total.energy, 0);
+  assert.deepEqual(plan.total.power, []);
+  assert.equal(plan.finalized, true);
+  assert.deepEqual(plan.discounts.map(value => [value.before, value.after]), [[2, 0]]);
+});
+
+test("Void Rush golden: effect.play consumes the frozen finalized plan and pays the discounted energy", () => {
+  const kernel = world().player("A", { energy: 20 }).hand("void-rush", { types: ["spell"], energy: 2, power: [] }).build();
+  const run = runInstruction(effectPlay, {
+    object: { kind: "constant", value: kernel.ref("void-rush") },
+    cost: { kind: "constant", value: { finalized: true, energy: 0, power: [], xp: 0 } }
+  }, { world: kernel });
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.played, 1);
+  // The [2] discount is real: the play consumes the frozen plan's zero energy
+  // instead of the printed 2; the plan handoff from the selected revealed card
+  // remains the recorded gap (see judgeReason 1).
+  assert.equal(kernel.player("A").energy, 20);
+  assert.deepEqual(kernel.events.map(event => event.action), ["pay", "play"]);
+});
