@@ -41,6 +41,7 @@ test("rad-013-167 Lost to the Sands: judge-required naming the blocked Finalize 
   assert.match(program.judgeReason, /assertFinalizationSurface/);
   assert.match(program.judgeReason, /355\.3/);
   assert.match(program.judgeReason, /目标生命周期/);
+  assert.match(program.judgeReason, /ordered pick/);
 });
 
 test("rad-013-167 Lost to the Sands: [Action] plus one mode choice with damage and kill branches", () => {

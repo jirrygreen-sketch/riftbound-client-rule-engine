@@ -3,10 +3,22 @@ import type { Ability, CardProgram } from "../../ir/index.js";
 /**
  * Mordekaiser, Twice Slain — CR v1.5 805, 807, 355.10.c.1, 369, 457-460.
  * Assault layers and generic replacement registration are implemented.
- * Remaining card-facing boundaries: filtered sacrifice selection, a true
- * Recall action, optional/once-per-turn metadata on ReplacementAbility, and
- * connecting Accelerate's selected additional payment to its entry replacement.
- * Pipeline oncePerTurn support exists; the CardProgram binder does not pass it.
+ * Re-probed 2026-10-17, the card-facing boundaries are:
+ * - replacement/planner.ts gives effect.kill no args.picks path: it requires an
+ *   object-selector args.target and throws "effect.kill target must be an object
+ *   selector spelling" at bind time, so the filtered friendly sacrifice never
+ *   plans (replacement/planner.ts also has no pick-selection lifecycle).
+ * - effect.move mode "recall" is explicitly negated ("no Recall action exists");
+ *   457-460 need a distinct recall action instead of move+mode.
+ * - ReplacementAbility (ir/types.ts) has no optional/oncePerTurn fields, so
+ *   bindReplacement cannot pass the pipeline's existing oncePerTurn support.
+ * - Accelerate: effects/keywords/Accelerate.ts expands static
+ *   { kind: "accelerate.cost" } and an entry-replacement, but
+ *   programs/statics.ts layerFor() rejects it ("Static ability kind
+ *   accelerate.cost has no layer mapping") and programs/play.ts never binds the
+ *   paid selection to the entry replacement. programs/play.ts also has no
+ *   optionalAdditional wiring, so even a declared accelerate cost would be a
+ *   base cost. Do not enter ready without payment.
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "accelerate" },
@@ -78,10 +90,12 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "缺替代内费用的非目标动态选择（CR 355.10.c.1）：replacement/planner.ts 的 effect.kill 只规划 args.target 对象，" +
-    "尚未消费本卡 args.picks；cost.choice 也只接受精确引用。缺区别于 Move 的 Recall 动作（457-460），effect.move 的 recall " +
-    "模式与替代 planner 均阻断。ReplacementAbility 没有 optional/oncePerTurn 字段，bindReplacement 未把本卡「you " +
-    "may/Once each turn」传给已有的管线支持。另缺 Accelerate（805.2.b）的付费门控：programs/play.ts 不消费 accelerate.cost，" +
-    "不能把费用选择与 enter-ready 替代关联；不得无付费就就绪。",
+    "尚未消费本卡 args.picks，实测 bindReplacement 直接抛 “effect.kill target must be an object selector spelling”；" +
+    "cost.choice 也只接受精确引用。缺区别于 Move 的 Recall 动作（457-460），effect.move 的 recall 模式与替代 planner 均阻断" +
+    "（原语返回 negated/impossible：“no Recall action exists”）。ReplacementAbility 没有 optional/oncePerTurn 字段，" +
+    "bindReplacement 未把本卡「you may/Once each turn」传给已有的管线支持。另缺 Accelerate（805.2.b）的付费门控：" +
+    "programs/statics.ts 的 layerFor 拒绝 Accelerate 展开的 static accelerate.cost（“Static ability kind accelerate.cost has no layer mapping”），" +
+    "programs/play.ts 既不消费 accelerate.cost 也不把它与 enter-ready 替代关联；不得无付费就就绪。",
   abilities,
   sourceText:
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_fury: as an additional cost to have me enter ready.)\n" +

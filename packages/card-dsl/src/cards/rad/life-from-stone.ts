@@ -2,13 +2,20 @@ import type { CardProgram } from "../../ir/index.js";
 
 /**
  * Life from Stone — CR v1.5 356.2.a.1, 355.10.c.1, 414.1, 431.2/431.3.
- * Reaction and the draw/channel body are supported. The remaining boundary is
- * translating this mandatory additional, non-target exhaust cost into Finalize:
- * programs/play.ts translates the whole CostSpec as an explicit base cost, so
- * ignore-base/ignore-all cannot preserve the mandatory component separately;
- * cost/plan-values.ts also requires runtime ObjectRefs in choice.options and
- * does not consume a static choice.filter. Keep the card judge-required until
- * both bindings are present.
+ * Reaction and the draw/channel body are supported. Both remaining boundaries
+ * were re-probed against the merged source on 2026-10-17:
+ * - programs/play.ts translateCost() turns cost.printed with payments into one
+ *   explicit base cost ("cost.printed" loses its kind and keeps energy plus the
+ *   payments), so the mandatory additional component cannot be separated from
+ *   the base CostPlanInput entry; CR 356.5's base-only / all-cost distinctions
+ *   and ignore-base mods therefore cannot tell them apart.
+ * - cost/plan-values.ts choiceObjects() still maps choice.options through
+ *   reference(), which only accepts "self" or a complete runtime ObjectRef, and
+ *   never reads choice.filter; building the plan with the card's
+ *   "ready-friendly-unit" placeholder throws "Cost requires an exact object
+ *   reference". RIFT-358's ordered picks cover zoneSlice / linked sources, not
+ *   this filtered board-object cost pick.
+ * Keep the card judge-required until both bindings are present.
  */
 const lifeFromStone = {
   canonicalCardId: "card.hash-0b434d5de4e3431420a6dddfc3ed5c57570643467c671f4efae850ed1f9905ea",
@@ -17,8 +24,9 @@ const lifeFromStone = {
   judgeReason:
     "缺 CR 356.2.a.1 的强制附加费用绑定：programs/play.ts translateCost 把带 payments 的 cost.printed 转为 explicit " +
     "基础费用，未把横置费用分离为 mandatoryAdditional，无法保持 356.5 的基础费用/全部费用豁免区别。" +
-    "另缺费用的非目标动态选择（355.10.c.1）：cost/plan-values.ts choiceObjects 只读取精确 ObjectRef 的 options，不消费 " +
-    "choice.filter 中的友方就绪单位条件。",
+    "另缺费用的非目标动态选择（355.10.c.1）：cost/plan-values.ts choiceObjects 仍只接受精确 ObjectRef 的 options，不消费 " +
+    "choice.filter 中的友方就绪单位条件，用本卡的 ready-friendly-unit 占位符构造计划会抛 “Cost requires an exact object reference”；" +
+    "RIFT-358 已合入的 ordered pick 只覆盖 zoneSlice/linked 来源，不含此处按 board filter 的费用选择。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {

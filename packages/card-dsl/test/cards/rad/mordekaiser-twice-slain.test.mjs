@@ -14,6 +14,8 @@ import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/key
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { buildAdditionalCostPlan, payAdditionalCostPlan } from "../../../../engine-core/dist/cost/kinds/additional.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL =
   "card.hash-f7168f36176ada340afa90fee63698e923fee7c44c455b65ba0fa4cf1b747c7e";
@@ -46,6 +48,10 @@ test("rad-020-167 Mordekaiser, Twice Slain: judgeReason names selection, Recall,
   assert.match(program.judgeReason, /Recall/);
   assert.match(program.judgeReason, /optional\/oncePerTurn/);
   assert.match(program.judgeReason, /accelerate\.cost/);
+  // Re-probed 2026-10-17: the production planner and static binder throw on the
+  // declared picks / accelerate.cost shapes.
+  assert.match(program.judgeReason, /object selector spelling/);
+  assert.match(program.judgeReason, /no layer mapping/);
 });
 
 test("rad-020-167 Mordekaiser, Twice Slain: Accelerate + Assault 3 declared in printed order", () => {
@@ -229,6 +235,29 @@ test("rad-020-167 Mordekaiser, Twice Slain: the within-cost kill stays a non-tar
   const run = runAbilityBody([killInstruction], scoped);
   assert.equal(run.results[0].result.status, "executed");
   assert.equal(scoped.getObject("ally").zone, "trash");
+});
+
+test("rad-020-167 Mordekaiser, Twice Slain boundary: the replacement planner rejects the declared within-cost picks", () => {
+  // replacement/planner.ts plans effect.kill only from args.target; the card's
+  // args.picks shape fails at bind time, so the sacrifice cannot be planned.
+  const f = fixture({ cards: [{ id: "morde", cardId: CANONICAL, types: ["unit"], might: 5 }] });
+  assert.throws(
+    () => createEngineStaticBinder(f.engine).bindReplacement(replacement, f.kernel.getObject("morde")),
+    /effect\.kill target must be an object selector spelling/
+  );
+});
+
+test("rad-020-167 Mordekaiser, Twice Slain boundary: the accelerate.cost static expansion has no layer mapping", () => {
+  // 805.2.b: the paid delay can only be declared through accelerate.cost, but
+  // programs/statics.ts cannot bind it, so payment can never be connected to the
+  // entry-orientation replacement.
+  const f = fixture({ cards: [{ id: "morde", cardId: CANONICAL, types: ["unit"], might: 5 }] });
+  const [costAbility] = accelerate.expand({ host: HOST });
+  assert.equal(costAbility.effect.kind, "accelerate.cost");
+  assert.throws(
+    () => createEngineStaticBinder(f.engine).bindStatic(costAbility, f.kernel.getObject("morde")),
+    /Static ability kind accelerate\.cost has no layer mapping/
+  );
 });
 
 test.todo('Mordekaiser, Twice Slain: select and pay a friendly-unit sacrifice inside the replacement, with payment failure gating (CR 355.10.c.1).');

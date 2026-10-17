@@ -6,6 +6,10 @@ import program from "../../../dist/cards/rad/mechanical-bandit.js";
 const ENGINE = new URL("../../../../engine-core/dist/", import.meta.url);
 const { isTimingPointId, getTimingPoint } = await import(new URL("events/timing-points.js", ENGINE));
 const { runInstruction, world } = await import(new URL("effects/testing/index.js", ENGINE));
+const { ProgramRegistry } = await import(new URL("programs/registry.js", ENGINE));
+const { triggerRegistrations } = await import(new URL("programs/triggers.js", ENGINE));
+const { bindResolveContext, createActionPipelineHost } = await import(new URL("events/action-adapter.js", ENGINE));
+const { ChainEngine } = await import(new URL("chain/engine.js", ENGINE));
 const reveal = (await import(new URL("effects/instructions/effect.reveal.js", ENGINE))).default;
 const recycle = (await import(new URL("effects/instructions/effect.recycle.js", ENGINE))).default;
 
@@ -27,6 +31,10 @@ test("rad-111-167 Mechanical Bandit: judgeReason records ordered picks and per-p
   assert.match(program.judgeReason, /arithmetic\.min/);
   assert.match(program.judgeReason, /null 不是 0/);
   assert.match(program.judgeReason, /Recycle the rest/);
+  // Re-probed 2026-10-17: each-player is not a PlayerId and no player-loop op
+  // is registered; the beginning-start pattern is outside EVENT_PATTERN_TYPES.
+  assert.match(program.judgeReason, /choice\.each-player/);
+  assert.match(program.judgeReason, /TriggerSpecValidationError/);
 });
 
 test("rad-111-167 Mechanical Bandit: identity, ruleset, status and verbatim source text", () => {
@@ -87,6 +95,25 @@ test("rad-111-167 Mechanical Bandit: revealing a whole single-card deck executes
   assert.equal(kernel.player("A").deckSize, 1);
 });
 
+test("rad-111-167 Mechanical Bandit boundary: the declared each-player reveal negates instead of fanning out", () => {
+  // Re-probed 2026-10-17: "each-player" is not a PlayerId, so the primitive
+  // cannot resolve a recipient and reports negated/impossible with an empty
+  // reveal. The per-player fan-out is the missing dependency (CR 425.3).
+  const instruction = program.abilities[0].body[0];
+  const kernel = world().deck(["d1", "d2"]).build();
+  const run = runInstruction(
+    reveal,
+    { player: instruction.args.player, zone: instruction.args.zone, count: instruction.args.count },
+    { world: kernel }
+  );
+  assert.equal(run.result.status, "negated");
+  assert.equal(run.result.reason, "impossible");
+  assert.equal(run.linked.revealedCount, 0);
+  assert.deepEqual(run.linked.revealed, []);
+  assert.deepEqual(run.events, []);
+  assert.equal(kernel.player("A").deckSize, 2);
+});
+
 test("rad-111-167 Mechanical Bandit: \"Recycle the rest\" would go through effect.recycle but has no bound \"rest\" set", () => {
   // 回收原语本身已合入：显式给出对象时它真的把牌放到拥有者牌库底（417.1.a / 417.1.c）。
   const kernel = world().deck(["d1", "d2"]).build();
@@ -111,4 +138,27 @@ test("Mechanical Bandit: the translated Beginning trigger matches only its contr
   const filter = translateTriggerFilter(program.abilities[0].trigger.filter, "bandit", "beginning-start");
   assert.equal(matchesTriggerEvent(filter, { timingPoint: "beginning-start", player: "A" }, "A"), true);
   assert.equal(matchesTriggerEvent(filter, { timingPoint: "beginning-start", player: "B" }, "A"), false);
+});
+
+test("rad-111-167 Mechanical Bandit boundary: the translated beginning-start trigger cannot be registered", () => {
+  // The translated filter names the controller's phase, but beginning-start is
+  // outside the closed EventPattern enum, so the production registration is
+  // rejected before the trigger can ever fire.
+  const kernel = world().unit("bandit", { cardId: CARD_ID, types: ["unit"] }).build();
+  const [registration] = triggerRegistrations(
+    new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]),
+    kernel.getObject("bandit")
+  );
+  assert.equal(registration.spec.at, "beginning-start");
+  const host = createActionPipelineHost({
+    checkpoint: () => kernel.snapshot(), restore: state => kernel.restore(state),
+    objects: () => kernel.objects, perform: action => kernel.perform(action),
+    choose: request => { throw new Error(`unexpected choice ${request.id}`); },
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+  assert.throws(
+    () => engine.pipeline.registerTrigger(registration),
+    error => error.name === "TriggerSpecValidationError" && /trigger\.filter\.event/.test(error.message)
+  );
 });
