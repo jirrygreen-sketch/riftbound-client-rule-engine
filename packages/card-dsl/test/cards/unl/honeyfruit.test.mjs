@@ -25,11 +25,12 @@ test("unl-049-219 Honeyfruit: program validates and is judge-required", () => {
   assert.deepEqual(result.issues, []);
   assert.equal(program.status, "judge-required");
   // Replacement registration and activation description are merged; the
-  // remaining gaps are Universal Power and the [Level N] predicate.
-  assert.match(program.judgeReason, /replacement\.enter/);
+  // remaining gaps are Universal Power, the [Level N] predicate and Add timing.
+  assert.equal(enterExhausted.with[0].op, "replacement.enter");
   assert.match(program.judgeReason, /rainbow/);
   assert.match(program.judgeReason, /824\.1/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /dependent-keyword/);
+  assert.match(program.judgeReason, /430\.2\.a/);
 });
 
 test("unl-049-219 Honeyfruit: identity, ruleset, status and the verbatim three-line source text", () => {
@@ -172,3 +173,12 @@ test.todo(
     "readable from Condition plus dynamic deactivation — the merged Level KeywordDef emits condition.predicate + " +
     "controller-xp, but layers/engine.ts does not consume it and PlayerSnapshot.xp is not Expr-readable"
 );
+
+test("unl-049-219 Honeyfruit: the original Level Add body grants no partial Energy for unsupported Universal Power", () => {
+  const kernel = world().player("A", { energy: 3, power: ["Calm"] }).build();
+  const run = runInstruction(resources, energyAndPower.args, { world: kernel });
+  assert.deepEqual(run.result, { status: "negated", reason: "impossible", events: [] });
+  assert.equal(kernel.player("A").energy, 3);
+  assert.deepEqual(kernel.player("A").power, ["Calm"]);
+  assert.deepEqual(run.events, []);
+});

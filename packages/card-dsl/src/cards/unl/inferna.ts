@@ -36,12 +36,8 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1) [Ambush]（822.1.b）的 KeywordDef 已展开为 play-location-permission 与 " +
-    "continuous.timing 静态声明，但 programs/statics.ts 没有 play-location-permission 的图层映射，" +
-    "Finalize 地点选择面也不能消费“有你控制单位的战场”这一符号权限；不能用全局 [Reaction] 冒充。" +
-    "(2) [Assault 2]（807.1.b.3）的 KeywordDef 会展开为 static continuous.might，CardProgram static 已接入图层，" +
-    "但条件读取宿主的 designation（807.1.d），ObjectSnapshot 只有 combatRole，Expr 求值无法取得攻击者身份并失败关闭，" +
-    "因此不能把 +2 误作常驻修正。依赖：Ambush 地点权限的 Finalize 消费方，以及 designation/combatRole 的条件谓词接线。",
+    "仍缺：(1) Ambush（CR 822.1.b/822.3）的 play-location-permission 没有 programs/statics.ts 图层映射及 Finalize 消费方；其有友方单位的战场限定与条件 Reaction 仍不能接入打出流程。" +
+    "(2) Assault 2（807.1.c/807.1.d.1）的展开条件读取 designation，而 ObjectSnapshot 提供 combatRole；Expr 与静态绑定尚未桥接二者，因此攻击时的 +2 Might 仍未生效。",
   abilities: [
     { kind: "keyword", keyword: "ambush" },
     // 807.1.b.1-2 / 807.1.b.3：印刷为 "Assault 2"，Assault Value = 2（缺省才是 1）。

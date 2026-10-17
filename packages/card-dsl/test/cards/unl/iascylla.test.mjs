@@ -5,6 +5,8 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/iascylla.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { isTimingPointId } from "../../../../engine-core/dist/events/timing-points.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -41,7 +43,7 @@ test("unl-050-219 Iascylla: 'When I hold' is a hold trigger scoped to this card 
   assert.equal(ability.kind, "triggered");
   assert.equal(ability.trigger.at, "hold");
   assert.equal(isTimingPointId("hold"), true);
-  assert.deepEqual(ability.trigger.filter, { event: "hold", filter: { source: "self" } });
+  assert.deepEqual(ability.trigger.filter, { event: "held", filter: { source: "self" } });
   assert.equal(ability.trigger.condition, undefined);
   // 383.3.a.3: the printed "you may" is not the first part of the effect (the
   // timing window is), so the trigger itself stays mandatory and the choice is
@@ -188,5 +190,13 @@ test.todo(
 test.todo(
   "unl-050-219 Iascylla: bind 'this battlefield' to the battlefield she held, locked when the " +
     "delayed trigger is generated (CR 359.3.f.3.b uses this exact card) — depends on the " +
-    "location referent selector work in RIFT-357"
+    "hold-event battlefieldId capture and delayed-trigger binding (generic linked-location is merged)"
 );
+
+test("unl-050-219 Iascylla: the held alias passes the production trigger schema", () => {
+  const translated = translateTriggerFilter(ability.trigger.filter, "iascylla", ability.trigger.at);
+  const result = validateTriggerSpec({ ...ability.trigger, filter: translated });
+  assert.equal(result.ok, true, JSON.stringify(result.issues));
+  assert.deepEqual(result.issues, []);
+  assert.deepEqual(translated, { event: "held", object: { objectId: "iascylla" } });
+});

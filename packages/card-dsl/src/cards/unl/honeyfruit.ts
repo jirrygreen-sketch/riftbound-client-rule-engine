@@ -32,20 +32,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   while you have 6+ XP.)” 是提醒文本（不是另外的能力）：前者对应 430.2.a 的
  *   Priority/Focus 不传递；后者是 824.1 的 XP 门槛本身。
  *
- * status = judge-required（已按合入依赖复核；缺口不近似实现）：
- * 1. 已解决：“This enters exhausted.” 的原语与绑定已合入，
- *    programs/statics.ts 也已把 CardProgram replacement 接入生产生命周期（RIFT-349）；golden 直接绑定本卡
- *    的声明并真实执行入场改写。
- * 2. “[A] 任意域 Power” 仍不可表达：契约与内核的 Domain 是 Fury/Calm/Mind/Body/Chaos/Order 六域封闭集合
- *    （effects/contract.ts），effect.resources 对 Universal Power 明确返回 negated(impossible)、绝不用某个域近似
- *    （已合入 ogn/daughter-of-the-void、rad/iron-revenant 同型）；程序以 { power: ["rainbow"] } 保留记号。
- * 3. 已解决：启动能力描述的生产适配器已合入，本卡 Reaction Add 能力能产出 ChainDraft。
- * 4. [Level 6] 的依赖能力仍不可用：程序用 restriction.kind = "dependent-keyword" 声明，但 programs/play.ts 的
- *    translateRestriction 拒绝该 kind（"needs a rules adapter"）；824.1.c 的 XP 谓词也没有求值方
- *    （合并的 Level KeywordDef 产出 condition.predicate + controller-xp 查询，但 layers/engine.ts 的 conditionMatches
- *    不消费它，PlayerSnapshot.xp 也不能被 Expr 读取），824.1.c.1/.d 的动态失活同样缺失。
- * 依赖：Universal Power 的契约级表示，以及 kw-level 的 XP 谓词求值（RIFT-359）；费用种类与 replacement
- * 注册已经合入，不把这些已解决任务继续列为缺口。
+ * status = judge-required：Universal Power 的资源契约、Level 的实时 XP 条件和
+ * Add 启动能力的立即结算分类仍缺接线；入场替代与横置费用已合入。
  */
 const abilities: Ability[] = [
   {
@@ -80,7 +68,7 @@ const abilities: Ability[] = [
         op: "effect.resources",
         args: {
           // 430.1 / 430.5 / 135.2.e.5：[A] 是任意域 Power；六域封闭集合下没有可执行值，
-          // 保留描述性记号，不改成某个具体域（见文件头第 2 点）。
+          // 保留描述性记号，不改成某个具体域（见 judgeReason）。
           power: { kind: "constant", value: ["rainbow"] }
         }
       }
@@ -90,7 +78,7 @@ const abilities: Ability[] = [
     kind: "activated",
     timing: "reaction",
     // 824.1.b.1：[Level 6][>] 的依赖能力——仅当控制者有 6+ XP 时该启动能力 Active；
-    // 谓词与动态失活没有合并实现（见文件头第 3 点），这里只记录依赖关系。
+    // 谓词与动态失活没有合并实现（见 judgeReason），这里只记录依赖关系。
     restriction: {
       kind: "dependent-keyword",
       keyword: "level",
@@ -120,15 +108,9 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "(1) “This enters exhausted.” 的 replacement.enter 原语、绑定与 CardProgram → replacement 生产注册均已接通，golden 直接绑定本卡声明并真实执行入场改写。" +
-    "effect.exhaust 不等价——143.4/359.2.d 规定入场状态由进场动作决定，先入场再补横置会多出一次“成为横置”事件并错过入场替代。" +
-    "(2) [Add] :rb_rune_rainbow: 的任意域 [A] Power（430.5、135.2.e.5、163.2.b）不可表达：契约与内核的 Domain 是六域封闭集合，" +
-    "effect.resources 明确记录 Universal Power 不可表达、返回 negated(impossible)，绝不用某个域近似。" +
-    "(3) 启动能力描述的生产适配器已接通，本卡 Reaction Add 能力能产出 ChainDraft；" +
-    "但 [Level 6] 的依赖能力仍不可用：restriction.kind = \"dependent-keyword\" 被 programs/play.ts 拒绝（\"needs a rules adapter\"），" +
-    "824.1.c 的 XP 谓词也没有求值方（合并的 Level KeywordDef 产出 condition.predicate + controller-xp 查询，layers/engine.ts 的 conditionMatches 不消费它，" +
-    "PlayerSnapshot.xp 也不能被 Expr 读取），824.1.c.1/.d 的动态失活同样缺失。" +
-    "依赖 kw-level 的 XP 谓词求值（RIFT-359）与 Universal Power 的契约级表示；费用与 replacement 注册已经合入。不近似实现。",
+    "仍缺三条生产路径：(1) Universal Power（rainbow/[A]；CR 163.2.b、430.5）没有 Domain / gain-power 的契约表示，effect.resources 不能加入该资源。" +
+    "(2) Level 6（824.1.c/824.1.d）的控制者 XP 不是 Expr 可读特征；programs/play.ts 的 translateRestriction 尚不能绑定 dependent-keyword 与其动态启停。" +
+    "(3) programs/activate.ts 将 Add 启动能力描述为普通 activated，尚未接到 ChainDraft.kind=add 的立即结算路径，不能满足 430.2.a 的不传递 Priority/Focus。",
   abilities,
   sourceText:
     "This enters exhausted.\n" +

@@ -32,7 +32,7 @@ test("unl-124-219 Isolate: identity, status, judgeReason and verbatim sourceText
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /740\.2\.a/);
-  assert.match(program.judgeReason, /condition|linked-result/);
+  assert.match(program.judgeReason, /ObjectFilter|movements\.from/);
   assert.doesNotMatch(program.judgeReason, /RIFT-89|RIFT-90|RIFT-120/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
@@ -151,6 +151,6 @@ test("unl-124-219 Isolate golden: the Draw 1 half runs through the merged primit
 
 test.todo(
   "Isolate: \"if there's an enemy unit alone at that battlefield\" needs the 740.2.a alone predicate (no other " +
-    "friendly unit at the same location) and a location read of the previous instruction's actual result; no merged " +
-    "filter key or Condition form expresses either, so the printed gate stays ungated rather than always true"
+    "friendly unit at the same location) plus extraction of movements.from into a dynamic count filter; " +
+    "compare/count and linked-location are merged, but those candidate-relative and origin-filter adapters remain missing"
 );

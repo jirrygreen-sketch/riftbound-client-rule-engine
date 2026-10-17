@@ -8,7 +8,8 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 // card-dsl), so golden execution loads the built engine through its workspace
 // layout instead of the package name.
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
-import { translateInstructionTargets } from "../../../../engine-core/dist/programs/filters.js";
+import { translateTriggerFilter, translateInstructionTargets } from "../../../../engine-core/dist/programs/filters.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -80,13 +81,13 @@ test("unl-027-219 Inviolus Vox: identity, status, judgeReason and verbatim sourc
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
-  assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /143\.2/);
-  assert.match(program.judgeReason, /702/);
+  assert.equal(grantMight.op, "continuous.might");
+  assert.equal(grantMight.args.amount.value, 8);
+  assert.equal(grantMight.op === "effect.buff", false);
   // The gap is now the conquer event subscription, not the Might primitive or
   // the friendly-unit controller binding.
   assert.match(program.judgeReason, /conquer/);
-  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES|来源对象/);
+  assert.match(program.judgeReason, /objectId|征服单位对象/);
   assert.doesNotMatch(program.judgeReason, /RIFT-90|RIFT-120|RIFT-257|RIFT-258/);
 });
 
@@ -98,7 +99,7 @@ test("unl-027-219 Inviolus Vox: the conquer trigger is a Conquer Effect on self"
   assert.equal(conquerTrigger.kind, "triggered");
   assert.equal(conquerTrigger.trigger.at, "conquer");
   assert.deepEqual(conquerTrigger.trigger.filter, {
-    event: "conquer",
+    event: "conquered",
     filter: { source: "self" }
   });
   assert.equal(conquerTrigger.trigger.condition, undefined);
@@ -219,6 +220,13 @@ test("unl-027-219 Inviolus Vox golden: a locked friendly unit that left the Boar
 
 test.todo(
   "unl-027-219 Inviolus Vox: fire 'When I conquer' from the real scoring flow — turn/flow.ts emits conquer" +
-    " with player/details only, so the {source: \"self\"} subscription has no event object to match; the EventPattern " +
-    "vocabulary also lacks the card's \"conquer\" spelling (CR 383.4.c.2.a)"
+    " with player/details only, so the {source: \"self\"} subscription has no event object to match; the conquered alias is already valid (CR 383.4.c.2.a)"
 );
+
+test("unl-027-219 Inviolus Vox: the conquered alias passes the production trigger schema", () => {
+  const translated = translateTriggerFilter(conquerTrigger.trigger.filter, "vox", conquerTrigger.trigger.at);
+  const result = validateTriggerSpec({ ...conquerTrigger.trigger, filter: translated });
+  assert.equal(result.ok, true, JSON.stringify(result.issues));
+  assert.deepEqual(result.issues, []);
+  assert.deepEqual(translated, { event: "conquered", object: { objectId: "vox" } });
+});

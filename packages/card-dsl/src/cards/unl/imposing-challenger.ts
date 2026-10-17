@@ -26,46 +26,21 @@ import type { CardProgram } from "../../ir/index.js";
  *   Standard Move, so there is no exhaust cost; effect.move submits the frozen
  *   move-location action.
  *
- * Status: judge-required. Re-checked against the merged instruction, program-
- * binding and event batches (2026-10-17). Three remaining
- * gaps (none approximated):
- * - "with less Might than me" compares a target's Effective Might (143.2.a.1)
- *   against the host's: neither ObjectFilter nor the frozen Expr algebra offers
- *   a comparison against another object's characteristic
- *   (sfd/soraka-wanderer records the same gap). The retained filter key
- *   `mightLessThan: "self"` is a descriptive placeholder, and
- *   programs/filters.ts would reject it as an unsupported filter field (RIFT-359).
- * - "to a different battlefield" needs the set of legal Battlefields other than
- *   the unit's current location. effect.move accepts a literal LocationRef,
- *   "controller-base", or a literal option list ({ kind: "choose", options }),
- *   and no merged Expr enumerates Battlefields, so the dynamic destination is
- *   not expressible; the retained `to: "different-battlefield"` records the
- *   intended destination kind and fails closed in the primitive's schema (RIFT-357).
- * - "here" must be the Destination of the triggering Move (the event payload's
- *   toLocationId). The merged trigger matcher reads event fields but
- *   events/action-adapter.ts still does not populate the declared from/to
- *   payload fields for move-location, so the trigger cannot match the event's
- *   destination; the movement payload remains an upstream contract gap.
- * The optional wrapper, the target spec bounds and the effect.move call shape
- * use merged contract structures only; the golden test asserts that structure
- * and the primitive-level rejection of the placeholder destination.
+ * Status: judge-required. Candidate-relative Might filtering and the program's
+ * sameLocationAs target anchor still lack a production filter adapter. The merged
+ * target.location machinery enumerates locations, but the card-side selector does
+ * not forward an exclusion for the current battlefield. The object-moved event
+ * vocabulary and Move Destination binding remain blocked (359.3.f.3).
+ * Placeholder destinations/filters stay descriptive and cannot enable the card.
  */
 export default {
   canonicalCardId: "card.hash-fda3e6799f2fd63235520803dbabc0e2093d7da103c78cd4af3d14b11d20c2f8",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现（已按 2026-10-17 合入批次复核）：(1)「with less Might than me」需要把候选单位的 " +
-    "Effective Might（143.2.a.1）与宿主比较，冻结 IR 的 ObjectFilter / Expr 都没有「与另一对象的特征比较」的谓词" +
-    "（同一缺口见 sfd/soraka-wanderer），filter 里的 mightLessThan: \"self\" 只是描述性占位键，" +
-    "programs/filters.ts 也会把它当不支持的过滤字段拒绝；" +
-    "(2)「to a different battlefield」需要「除当前所在战场以外的所有战场」这一动态目的地集合，" +
-    "而 effect.move 的 to 只接受字面 LocationRef、\"controller-base\" 或字面 options 列表（355.4/355.4.a），" +
-    "没有已合入表达式可枚举战场，to: \"different-battlefield\" 记录意图并在原语 schema 处失败关闭；" +
-    "(3)「here」必须取触发那次 Move 的目的地（事件载荷 toLocationId，449.2），" +
-    "合并触发匹配既没有「候选对象位置 = 事件载荷位置」的锚点，events/action-adapter.ts 也没有为 move-location 填充" +
-    "timing-points.ts 声明的 from/to 载荷字段，触发无法按 Destination 匹配；该 movement 事件载荷与位置锚点属于上游契约缺口。" +
-    "依赖：RIFT-357 的位置选择、RIFT-359 的跨对象比较谓词，以及 movement 事件的 from/to 载荷与位置锚点。可选包装与 effect.move 调用形状只用已合入契约结构。",
+    "仍缺三处：(1) 目标候选的 Effective Might 与宿主比较（CR 143.2.a.1）：programs/filters.ts 尚不能绑定 mightLessThan 或 sameLocationAs 目标锚点。" +
+    "(2) target.location 已能枚举地点且底层支持 exclude，但 LocationSelector/LocationTargetSpec 的卡牌消费路径没有将“排除当前战场”传给候选查询（355.4/355.4.a）；不能用 different-battlefield 字符串代替。" +
+    "(3) object-moved 的 EventPattern 注册词汇与事件地点捕获缺接线；action-adapter.ts 未填充 fromKind/toKind/fromLocationId/toLocationId，无法按触发那次 Move 的目的地绑定 here（449.2、359.3.f.3）。",
   abilities: [
     {
       kind: "triggered",
