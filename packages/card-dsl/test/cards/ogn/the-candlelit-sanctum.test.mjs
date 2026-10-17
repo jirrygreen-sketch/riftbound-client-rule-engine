@@ -7,6 +7,7 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import inspect from "../../../../engine-core/dist/effects/instructions/effect.inspect.js";
 import order from "../../../../engine-core/dist/effects/instructions/effect.order.js";
 import recycle from "../../../../engine-core/dist/effects/instructions/effect.recycle.js";
+import { finalizeOrderedPickPlans } from "../../../../engine-core/dist/chain/picks/plan.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-9cbd7ae406600f049622c2827bd155c0754bc7dee82570641d6f2eccff28654a";
@@ -29,15 +30,12 @@ test("The Candlelit Sanctum program validates and is judge-required", () => {
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.status, "judge-required");
-  // The reason must name the real gaps: the inspect/ObjectRef mismatch upstream,
-  // the missing ordered top-of-deck provider, and the unresolved here anchor.
-  assert.match(program.judgeReason, /effect\.inspect/);
-  assert.match(program.judgeReason, /ObjectRef/);
-  assert.match(program.judgeReason, /picksSpecId/);
-  assert.match(program.judgeReason, /RIFT-64/);
-  assert.match(program.judgeReason, /RIFT-358/);
-  assert.match(program.judgeReason, /RIFT-357/);
+  // The ordered source and linked remainder are now executable; only the
+  // Battlefield trigger's unresolved "here" anchor keeps the card pending.
+  assert.match(program.judgeReason, /zoneSlice/);
+  assert.match(program.judgeReason, /linked \+ exclude/);
   assert.match(program.judgeReason, /here/);
+  assert.ok(!/RIFT-(64|357|358)/.test(program.judgeReason));
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -94,16 +92,14 @@ test("The Candlelit Sanctum structure: conquer trigger, look at two, recycle, pu
     key: "controller"
   });
   assert.equal(look.targets, undefined);
-  // 108.4.e / contract 3.6: the ordered top-two set is provisioned by the
-  // caller; the primitive refuses to guess deck order from a set query.
+  // 108.4.e / ordered-pick contract: Finalize captures the top-two zone slice.
   assert.deepEqual(look.picks, [
     {
       id: "candlelit-sanctum.top-two",
-      options: ["dynamic:top-two-cards-of-your-main-deck-in-zone-order"],
-      min: 0,
-      max: 2,
-      selection: "up-to",
-      filter: { owner: "self", zone: "deck" }
+      options: [],
+      ordered: true,
+      selection: "all",
+      zoneSlice: { zone: "deck", from: "top", count: constant(2) }
     }
   ]);
   assert.deepEqual(look.args.picksSpecId, constant("candlelit-sanctum.top-two"));
@@ -118,9 +114,8 @@ test("The Candlelit Sanctum structure: conquer trigger, look at two, recycle, pu
     key: RECYCLED
   });
 
-  // 437.1.a: the not-recycled remainder goes back on top in any order through
-  // choice.order (effect.order's cardsPick + chooseOrder), never through a
-  // second look or a hand-rolled ordering loop.
+  // 437.1.a: the not-recycled remainder is a linked ordered source with an
+  // explicit exclusion for the actual recycle receipt.
   assert.equal(putRest.op, "effect.order");
   assert.equal(putRest.linkedTo, "candlelit-sanctum.look");
   assert.deepEqual(putRest.args.destination, constant("top"));
@@ -129,10 +124,11 @@ test("The Candlelit Sanctum structure: conquer trigger, look at two, recycle, pu
   assert.equal(putRest.picks.length, 1);
   assert.deepEqual(putRest.picks[0], {
     id: "candlelit-sanctum.put-back",
-    options: [{ kind: "linked-value", instructionId: "candlelit-sanctum.look", key: LOOKED }],
-    min: 0,
-    max: 2,
-    selection: "up-to"
+    options: [],
+    ordered: true,
+    selection: "all",
+    linked: { kind: "linked-value", instructionId: "candlelit-sanctum.look", key: LOOKED },
+    exclude: { kind: "linked-value", instructionId: "candlelit-sanctum.recycle", key: "recycled" }
   });
 });
 
@@ -200,7 +196,6 @@ test("The Candlelit Sanctum golden: the full look → recycle → put-back chain
   const [top, second] = kernel.zoneSlice("A", "deck", "top", 2).map(object => object.ref);
   // The ordered deck-top set the production Finalize lifecycle must provision.
   kernel.setPicks("candlelit-sanctum.top-two", [top, second]);
-  kernel.setPicks("candlelit-sanctum.put-back", [top, second]);
   kernel.setAnswers({
     // Choose the top card to recycle; put the rest back as [second, top].
     "candlelit-sanctum.look/effect.inspect%3Aselect%3AA%3AA%3Adeck": [top],
@@ -243,7 +238,6 @@ test("The Candlelit Sanctum golden: recycling none puts both looked cards back i
   const kernel = deckWorld();
   const [top, second] = kernel.zoneSlice("A", "deck", "top", 2).map(object => object.ref);
   kernel.setPicks("candlelit-sanctum.top-two", [top, second]);
-  kernel.setPicks("candlelit-sanctum.put-back", [top, second]);
   kernel.setAnswers({
     "candlelit-sanctum.look/effect.inspect%3Aselect%3AA%3AA%3Adeck": [],
     "candlelit-sanctum.put-rest/effect.order%3Atop%3AA": [second, top]
@@ -262,48 +256,15 @@ test("The Candlelit Sanctum golden: recycling none puts both looked cards back i
   assert.deepEqual(kernel.events.map(event => event.action), ["look", "order-top"]);
 });
 
-test("The Candlelit Sanctum golden: without an ordered top set the primitive refuses to guess deck order", () => {
+test("The Candlelit Sanctum golden: Finalize captures the ordered top-two source", () => {
   const kernel = deckWorld();
-  // Without any ordered picks source at all the look is negated/impossible
-  // rather than slicing the unordered set query.
-  const noSource = runInstruction(
-    inspect,
-    { ...look.args, picksSpecId: undefined, player: constant("A") },
-    { world: kernel }
-  );
-  assert.deepEqual(noSource.result, { status: "negated", reason: "impossible", events: [] });
-
-  // With the declared id but nothing provisioned the primitive looks at zero
-  // cards (never a guessed slice); no deck card moves and the look links an
-  // empty viewed set.
-  const blocked = runInstruction(inspect, { ...look.args, player: constant("A") }, { world: kernel });
-  assert.equal(blocked.result.status, "executed");
-  assert.equal(blocked.linked[LOOKED].length, 0);
-  assert.equal(blocked.linked[RECYCLED].length, 0);
-  assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), [
-    "top-card",
-    "second-card",
-    "third-card",
-    "fourth-card"
-  ]);
-  assert.deepEqual(kernel.zone("A", "hand"), []);
+  const plans = finalizeOrderedPickPlans(kernel, program.abilities[0].body);
+  assert.deepEqual(plans.map(plan => plan.id), ["candlelit-sanctum.top-two"]);
+  assert.deepEqual(plans[0].refs.map(ref => ref.id), ["top-card", "second-card"]);
 });
-
-test.todo(
-  "The Candlelit Sanctum look step: the production Finalize/AwaitChoice lifecycle must provision the " +
-    "ordered 'top two of your Main Deck' pick set — the merged chain Finalize surface only locks " +
-    "instruction.targets TargetSpecs (chain/engine.ts assertFinalizationSurface) and has no ordered " +
-    "zone-pick lifecycle, so the look range is empty in production"
-);
-
-test.todo(
-  "The Candlelit Sanctum ordering step: an at-resolution choice over 'looked minus recycled' " +
-    "(437.1.a). effect.order's non-target selection comes from a Finalize-locked PickSpec " +
-    "(359.3.e.9) and cannot name cards revealed while resolving"
-);
 
 test.todo(
   "The Candlelit Sanctum trigger: the conquer timing point is emitted by scoring (473.2.a, " +
     "471.1, now emitted by TurnFlow's Score wave), but the trigger filter still needs the " +
-    "053.3 'here' referent normalized before registration (RIFT-357)"
+    "053.3 'here' referent normalized before registration"
 );

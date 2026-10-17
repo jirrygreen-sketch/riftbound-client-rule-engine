@@ -57,6 +57,7 @@ test("the-boss identity: canonicalCardId, ruleset, judge-required status and ver
   assert.match(program.judgeReason, /replacement\/planner\.ts/);
   assert.match(program.judgeReason, /replacement\.event.*instead/);
   assert.match(program.judgeReason, /replacement\.object/);
+  assert.ok(!/RIFT-260/.test(program.judgeReason));
   assert.equal(
     program.sourceText,
     "When a buffed unit you control would die, you may pay :rb_rune_rainbow: and exhaust me to spend its buff and recall it exhausted instead. (Send it to base. This isn't a move.)\n" +
@@ -85,7 +86,7 @@ test("the-boss structure: death replacement for a buffed friendly unit with the 
   assert.deepEqual(spend.args.mode, { kind: "constant", value: "spend" });
   assert.equal(spend.linkedTo, "the-boss.pay");
   // The dying unit is the replaced event's object, not a target (CR 355.10.c),
-  // bound through the merged RIFT-260 selector, so the instruction must not
+  // bound through the merged replacement-event selector, so the instruction must not
   // declare a TargetSpec named by its selector.
   assert.deepEqual(spend.args.target, {
     kind: "constant",
@@ -176,7 +177,7 @@ test("the-boss binding: the replaced-event selector plans the buff/exhaust remed
   const instructionPlan = instruction => planReplacementBody([instruction], planInput, planner)
     .map(action => [action.type, action.object.id]);
 
-  // The merged RIFT-260 planner resolves { linked: "replacement.object" } to
+  // The merged replacement planner resolves { linked: "replacement.object" } to
   // the replaced event's object, so the spend-buff and exhaust instructions
   // address the dying unit without making it a target (CR 355.10.c). cost.pay
   // is merged, but replacement/planner.ts cannot lower its payment

@@ -17,45 +17,26 @@ import type { CardProgram } from "../../ir/index.js";
  * - 437.1.a: putting the remaining cards back on top "in any order" is the
  *   looking player's own ordering.
  *
- * Status: judge-required. The look step is now executable through merged code:
- * the body binds "your Main Deck" with `condition.value` + a linked value (the
- * merged pattern used by stacked-deck / double-trouble, because effect.inspect's
- * schema still validates object-property.object as a runtime ObjectRef instead
- * of contract 3.6's ObjectSelector), and the golden test drives the full
- * look → recycle → put-back chain through the production adapter with an
- * ordered deck-top pick set. Remaining merged gaps, none approximated:
- * - the ordered "top two cards" pick set has no production lifecycle: the chain
- *   Finalize surface only locks instruction.targets TargetSpecs
- *   (chain/engine.ts assertFinalizationSurface) and never provisions ordered
- *   zone picks. Without the ordered source the look range is empty and the
- *   whole ability looks at nothing (the primitive refuses to guess deck order);
- * - "Put those you don't back in any order" is an at-resolution choice over
- *   cards that are still unknown while the chain item finalizes: effect.order
- *   reads its non-target selection from a Finalize-locked PickSpec (359.3.e.9
- *   re-selection), so the printed "looked minus recycled" remainder cannot be
- *   named; the program offers the linked "looked" refs and relies on the
- *   recycled ones going stale (359.3.e.4), which the golden exercises both ways;
- * - the conquer timing point is now really emitted (TurnFlow schedules the
- *   Score wave, combat/flow.ts commits the conquer), but the trigger filter keeps the sibling
- *   battlefield spelling (here: true / player: "controller") for the 053.3
- *   referent, which the merged translateTriggerFilter/trigger-spec layer does
- *   not resolve.
+ * Status: judge-required. The look and remainder steps use the merged ordered
+ * pick lifecycle: the body binds "your Main Deck" with `condition.value` + a
+ * linked value, Finalize captures the ordered top-two zone slice, and Resolve
+ * computes the looked-minus-recycled remainder through a linked exclusion. The
+ * golden test drives the full look → recycle → put-back chain through the
+ * production adapter with both recycle choices. The remaining gap is the
+ * conquer timing point's 053.3 "here" referent: the trigger filter keeps the
+ * battlefield spelling (here: true / player: "controller"), which the merged
+ * translateTriggerFilter/trigger-spec layer does not resolve.
  */
 export default {
   canonicalCardId: "card.hash-9cbd7ae406600f049622c2827bd155c0754bc7dee82570641d6f2eccff28654a",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "“看主牌库顶两张，可以回收其中任意张，其余任意顺序放回”三步在提供有序牌表后已可用已合入原语完整执行（golden 经生产适配器真实运行），“your Main Deck”的查看者已按已合入写法绑定" +
-    "（condition.value + linked-value，因 effect.inspect 的 argsSchema 仍把 object-property.object 当运行时 ObjectRef 校验，见 RIFT-64 与契约 3.6 的未对齐）。" +
-    "整条能力仍不可执行的生产缺口：" +
-    "① 有序 picksSpecId 没有生产生命周期：链的 Finalize 只锁定 instruction.targets 的 TargetSpec（chain/engine.ts assertFinalizationSurface），" +
-    "没有把牌库顶两张解析成有序引用；缺该来源时 effect.inspect 的 top 作用域按 impossible 明确阻断（占位 pick 会静默变成看 0 张，故不写假占位）；" +
-    "② “Put those you don't back in any order”（437.1.a）是对结算时才揭晓的“看过但未回收”集合做排序选择，而 effect.order 的非目标选择来自 Finalize 锁定的 PickSpec（359.3.e.9 重选），" +
-    "只能排序指令已能命名的集合；本程序提供“看过的引用”，已回收者按陈旧引用丢弃（359.3.e.4），真正的“看过减已回收”余集仍不可表达；" +
-    "③ conquer 时点已由 TurnFlow 的 Score 波真实发出（combat/flow.ts 提交 conquer），但 filter 的 here: true / player: controller 是同类战场卡占位（053.3 的 here 指代），" +
-    "已合入的 translateTriggerFilter/trigger-spec 层仍不解析该位置锚点；该接线属于 RIFT-357 的进行中范围。" +
-    "依赖：RIFT-358 的有序区域 picks Finalize 生命周期、结算时动态 remainder，以及 RIFT-357 的 here 指代归一化。不近似实现。",
+    "“看主牌库顶两张，可以回收其中任意张，其余任意顺序放回”三步已按有序 pick 契约编码并可由已合入原语完整执行：" +
+    "zoneSlice 在 Finalize 锁定牌库顺序，linked + exclude 在 Resolve 计算“看过减已回收”的余集，golden 经生产适配器覆盖两种选择。" +
+    "“your Main Deck”的查看者用 condition.value + linked-value 绑定；这是对 effect.inspect 参数校验形状的兼容写法，不是规则缺口。" +
+    "整条能力仍不可执行的唯一当前缺口是 conquer 触发的 053.3 “here” 位置锚点：filter 的 here: true / player: controller 仍无法由 translateTriggerFilter / trigger-spec 解析，" +
+    "因此无法把本战场的征服事件绑定到该 Battlefield 能力；不近似实现。",
   sourceText:
     "When you conquer here, look at the top two cards of your Main Deck. " +
     "You may recycle one or both of them. Put those you don't back in any order.",
@@ -108,11 +89,10 @@ export default {
           picks: [
             {
               id: "candlelit-sanctum.top-two",
-              options: ["dynamic:top-two-cards-of-your-main-deck-in-zone-order"],
-              min: 0,
-              max: 2,
-              selection: "up-to",
-              filter: { owner: "self", zone: "deck" }
+              options: [],
+              ordered: true,
+              selection: "all",
+              zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 2 } }
             }
           ]
         },
@@ -148,16 +128,19 @@ export default {
           picks: [
             {
               id: "candlelit-sanctum.put-back",
-              options: [
-                {
-                  kind: "linked-value",
-                  instructionId: "candlelit-sanctum.look",
-                  key: "candlelit-sanctum-looked"
-                }
-              ],
-              min: 0,
-              max: 2,
-              selection: "up-to"
+              options: [],
+              ordered: true,
+              selection: "all",
+              linked: {
+                kind: "linked-value",
+                instructionId: "candlelit-sanctum.look",
+                key: "candlelit-sanctum-looked"
+              },
+              exclude: {
+                kind: "linked-value",
+                instructionId: "candlelit-sanctum.recycle",
+                key: "recycled"
+              }
             }
           ]
         }

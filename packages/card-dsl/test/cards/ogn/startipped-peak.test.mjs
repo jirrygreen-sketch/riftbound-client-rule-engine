@@ -46,8 +46,8 @@ test("ogn-288-298 Startipped Peak: program validates and is judge-required", () 
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /hold/);
-  assert.match(program.judgeReason, /RIFT-357/);
   assert.match(program.judgeReason, /battlefieldId/);
+  assert.ok(!/RIFT-357/.test(program.judgeReason));
   assert.equal(program.sourceText, "When you hold here, you may channel 1 rune exhausted.");
 });
 
@@ -140,7 +140,7 @@ test("ogn-288-298: the hold timing point is emitted by the merged scoring flow w
 
 test.todo(
   "ogn-288-298: normalize the here-anchored hold filter against details.battlefieldId " +
-    "before registering the trigger (RIFT-357)"
+    "before registering the trigger"
 );
 test.todo(
   "ogn-288-298: 431.2 的“exhausted 入场”状态由内核实现——参考测试内核的 channel-rune 不记录符文入场状态" +
