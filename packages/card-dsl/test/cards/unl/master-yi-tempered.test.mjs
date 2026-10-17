@@ -4,7 +4,6 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/master-yi-tempered.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 
 const CANONICAL_ID =
   "card.hash-c32a0493f88b4c947cb3f7806d8ba125b166dd6478a848bb39f1da87aed3ae92";
@@ -98,55 +97,30 @@ test("unl-113-219 Master Yi, Tempered: Hunt 2 expands to the conquer/hold XP tri
   ]);
 });
 
-test("unl-113-219 Master Yi, Tempered: the Hunt expansion's event spelling is outside the closed vocabulary", async () => {
-  // Evidence for the remaining gap: the closed EVENT_PATTERN_TYPES spells the
-  // scoring events "conquered"/"held" (events/trigger-spec.ts, with the
-  // EVENT_NAMES aliases in events/pipeline-match.ts), so programs/triggers.ts
-  // rejects Hunt's own "conquer"/"hold" filters before any subscription exists.
-  const { translateTriggerFilter } = await import("../../../../engine-core/dist/programs/filters.js");
-  const { validateTriggerSpec } = await import("../../../../engine-core/dist/events/trigger-spec.js");
-  const { default: hunt } = await import("../../../../engine-core/dist/effects/keywords/Hunt.js");
-  const expansion = hunt.expand({ value: program.abilities[0].value, host: { canonicalCardId: CANONICAL_ID } });
-
-  for (const ability of expansion) {
-    const translated = translateTriggerFilter(ability.trigger.filter, "yi");
-    const result = validateTriggerSpec({ at: ability.trigger.at, filter: translated });
-    assert.equal(result.ok, false);
-    assert.equal(result.issues[0].code, "invalid-event-type");
-    // The registrable alias for the same event is the closed spelling.
-    const alias = { conquer: "conquered", hold: "held" }[ability.trigger.at];
-    assert.equal(validateTriggerSpec({ at: ability.trigger.at, filter: translateTriggerFilter({ event: alias, filter: { source: "self" } }, "yi") }).ok, true);
-  }
-});
-
-test("unl-113-219 Master Yi, Tempered: the Level expansion publishes a predicate no merged evaluator consumes", async () => {
-  const { createLayerEngine } = await import("../../../../engine-core/dist/layers/index.js");
+test("unl-113-219 Master Yi, Tempered: the Level expansion publishes the 6+ XP predicate for the layers pipeline", async () => {
   const { default: level } = await import("../../../../engine-core/dist/effects/keywords/Level.js");
-  const { world } = await import("../../../../engine-core/dist/effects/testing/index.js");
   const [predicate] = level.expand({ value: 6, host: { canonicalCardId: CANONICAL_ID } });
-  // 824.1.a: [Level 6][>] publishes a condition.predicate static effect.
+  // 824.1.a / 824.1.b.1: [Level 6][>] publishes the threshold predicate that
+  // makes the dependent ability text Active while the controller has 6+ XP.
   assert.equal(predicate.kind, "static");
   assert.equal(predicate.effect.kind, "condition.predicate");
   assert.deepEqual(predicate.effect.threshold, { kind: "constant", value: 6 });
+  assert.equal(predicate.effect.operator, "gte");
+  assert.equal(predicate.effect.controller, "controller");
+  assert.equal(predicate.effect.link, "active");
+});
 
-  // layers/engine.ts applyAbility only handles keyword / timing / movement /
-  // text kinds, so the predicate changes nothing; the card's own grants are
-  // therefore not gated by the controller's XP in the merged layer path.
-  const kernel = world().unit("yi", { owner: "A", controller: "A", might: 4, location: { type: "battlefield", id: "bf-1" } }).build();
-  const engine = createLayerEngine(kernel.objects, [
-    {
-      effect: {
-        id: "level-predicate",
-        layer: "ability",
-        source: kernel.ref("yi"),
-        filter: { objectId: "yi" },
-        effect: predicate.effect
-      },
-      duration: { type: "permanent" },
-      timestamp: 1
-    }
+test("unl-113-219 Master Yi, Tempered: the card's own grants are registered as static declarations", () => {
+  // The two static abilities are the card's [Level 6][>] grants. They are
+  // authored per contract 3.7; installing them into layers is the recorded gap.
+  assert.deepEqual(program.abilities.filter(ability => ability.kind === "static").map(ability => [
+    ability.effect.kind,
+    ability.effect.keyword,
+    ability.condition.right.value
+  ]), [
+    ["continuous.grant-keyword", "Deflect", 6],
+    ["continuous.grant-keyword", "Ganking", 6]
   ]);
-  assert.deepEqual(engine.evaluate(kernel.ref("yi")).keywords, []);
 });
 
 test("unl-113-219 Master Yi, Tempered: the Deflect expansion is a target tax the merged target plan can bill", async () => {

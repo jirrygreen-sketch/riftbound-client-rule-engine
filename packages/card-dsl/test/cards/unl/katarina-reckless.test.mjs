@@ -112,43 +112,27 @@ test("unl-023-219 Katarina, Reckless: the second trigger is one enemy-unit damag
   assert.equal(dealTwo.linkedTo, undefined);
 });
 
-test("unl-023-219 Katarina, Reckless: the card-hidden subscription is outside the closed event vocabulary", async () => {
-  // Evidence for the remaining gap: events/timing-points.ts defines card-hidden,
-  // but the closed EVENT_PATTERN_TYPES (events/trigger-spec.ts) does not list it,
-  // so programs/triggers.ts throws before any subscription exists; and nothing
-  // in the merged event producers emits it (there is no Hide GameAction).
-  const { translateTriggerFilter } = await import("../../../../engine-core/dist/programs/filters.js");
-  const { validateTriggerSpec } = await import("../../../../engine-core/dist/events/trigger-spec.js");
-  const translated = translateTriggerFilter(hideTrigger.trigger.filter, "katarina");
-  const result = validateTriggerSpec({ at: hideTrigger.trigger.at, filter: translated });
-  assert.equal(result.ok, false);
-  assert.equal(result.issues[0].code, "invalid-event-type");
-
-  // The from-face-down provenance is also not part of the merged filter vocabulary.
-  const { translateObjectFilter } = await import("../../../../engine-core/dist/programs/filters.js");
-  assert.throws(
-    () => translateObjectFilter({ type: "unit", fromFaceDown: true }),
-    error => error.code === "judge-required" && /Unsupported filter field fromFaceDown/.test(error.message)
-  );
-});
-
-test("unl-023-219 Katarina, Reckless: the card-played trigger registers through the merged program binding", async () => {
+test("unl-023-219 Katarina, Reckless: the merged program binding exposes both declared triggers", async () => {
+  // programs/keywords.ts + programs/filters.ts (RIFT-257) parse the card and
+  // expose both declared triggered abilities with their anchors.
   const { createProgramBinding } = await import("../../../../engine-core/dist/programs/index.js");
   const { fixture } = await import("../../../../engine-core/test/chain/helpers.mjs");
   const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
   const f = fixture({ cards: [{ id: "katarina", cardId: CANONICAL_ID, types: ["unit"], energy: 1, power: [], might: 5 }], describePlay: binding.describePlay });
+  const snapshot = { ...f.kernel.getObject("katarina"), cardId: CANONICAL_ID, zone: "board" };
 
-  // The face-down spelling is rejected, so only inspect the safe registration
-  // surface: the two trigger registrations the card declares are seen by the
-  // binding, and the card-played one carries the host object anchor.
-  const abilities = binding.inspect({ ...f.kernel.getObject("katarina"), cardId: CANONICAL_ID, zone: "board" }).abilities;
-  const faceDown = abilities.find(ability => ability.kind === "triggered" && ability.trigger.at === "card-played");
-  assert.ok(faceDown);
-  const { translateTriggerFilter } = await import("../../../../engine-core/dist/programs/filters.js");
-  assert.throws(
-    () => translateTriggerFilter(faceDown.trigger.filter, "katarina"),
-    error => error.code === "judge-required" && /Unsupported filter field fromFaceDown/.test(error.message)
-  );
+  const abilities = binding.inspect(snapshot).abilities;
+  assert.equal(abilities.filter(ability => ability.kind === "triggered").length, 2);
+  // The two declared anchors are the timing point is what each ability watches:
+  // the Hide event and the face-down play are the recorded gaps (test.todo), so
+  // the merged binding cannot install either subscription yet.
+  assert.deepEqual(abilities.filter(ability => ability.kind === "triggered").map(ability => ability.trigger.at), [
+    "card-hidden",
+    "card-played"
+  ]);
+  // The card-played ability carries the ability-controller player anchor.
+  const cardPlayed = abilities.find(ability => ability.kind === "triggered" && ability.trigger.at === "card-played");
+  assert.equal(cardPlayed.trigger.filter.player, "self");
 });
 
 test("unl-023-219 Katarina, Reckless golden: 'ready me' readies the exhausted source", () => {
@@ -221,6 +205,10 @@ test.todo(
     " once the card-played payload records the played-from-face-down fact"
 );
 test.todo(
-  "unl-023-219 Katarina, Reckless: both triggers are registered through the CardProgram -> TriggerRegistration" +
-    " adapter (RIFT-120)"
+  "unl-023-219 Katarina, Reckless: register the card-hidden subscription — the closed EVENT_PATTERN_TYPES" +
+    " (events/trigger-spec.ts) has no card-hidden spelling and events/producers/ emits none (RIFT-89 / RIFT-120 follow-up)"
+);
+test.todo(
+  "unl-023-219 Katarina, Reckless: register the 'from face down' card-played subscription — programs/filters.ts" +
+    " rejects the fromFaceDown filter field until the card-played payload records that provenance (RIFT-120 follow-up)"
 );

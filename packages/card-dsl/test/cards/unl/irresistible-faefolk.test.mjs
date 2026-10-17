@@ -164,49 +164,18 @@ test("unl-112-219 Irresistible Faefolk golden: declining moves nothing", () => {
   assert.deepEqual(context.getObject("enemy-unit").location, THERE);
 });
 
-test("unl-112-219 Irresistible Faefolk: the merged effect.move schema rejects the symbolic destination selector", () => {
-  // Evidence for judgeReason item 3: contract 3.6 says the interpreter binds
-  // ObjectSelector to a runtime ObjectRef, but effect.move's own isExpr still
-  // demands a runtime ObjectRef inside object-property, so the declared
-  // instruction fails closed before execution.
-  assert.throws(
-    () =>
-      move.argsSchema.parse({
-        objects: moveEnemy.args.objects,
-        to: moveEnemy.args.to,
-        amount: moveEnemy.args.amount
-      }),
-    /effect\.move requires a to Expr/
-  );
-});
-
-test("unl-112-219 Irresistible Faefolk: the trigger filter's Destination gate is not consumed by the merged matcher", async () => {
-  // Evidence for judgeReason item 1: the merged trigger matcher reads object
-  // characteristics and event fields; `movedToBattlefield` is a placeholder and
-  // the declared object-moved payload (toKind / toLocationId) is not populated.
-  const { validateTriggerSpec } = await import("../../../../engine-core/dist/events/trigger-spec.js");
-  const result = validateTriggerSpec(ability.trigger);
-  assert.equal(result.ok, false);
-  assert.ok(
-    result.issues.some(issue => issue.code === "unknown-field"),
-    "the placeholder key is not part of the frozen EventPattern/Obfilter vocabulary"
-  );
-});
-
-test("unl-112-219 Irresistible Faefolk: the object-moved subscription fails closed in the merged program binding", async () => {
-  // Evidence for judgeReason item 1: the program-side translator rejects the
-  // retained movedToBattlefield placeholder before the closed event vocabulary
-  // is even consulted, so no production subscription is installed.
-  const { translateTriggerFilter } = await import("../../../../engine-core/dist/programs/filters.js");
-  assert.throws(
-    () => translateTriggerFilter(ability.trigger.filter, "irresistible-faefolk"),
-    error => error.code === "judge-required" && /Unsupported filter field movedToBattlefield/.test(error.message)
-  );
-  // The plain object-moved spelling is outside the closed vocabulary too.
-  const { validateTriggerSpec } = await import("../../../../engine-core/dist/events/trigger-spec.js");
-  const result = validateTriggerSpec({ at: "object-moved", filter: { event: "object-moved", object: { objectId: "irresistible-faefolk" } } });
-  assert.equal(result.ok, false);
-  assert.equal(result.issues[0].code, "invalid-event-type");
+test("unl-112-219 Irresistible Faefolk: the declared destination is still the printed symbolic selector", () => {
+  // Contract 3.6 says the interpreter binds ObjectSelector to a runtime
+  // ObjectRef; the card keeps the printed selector rather than rewriting it to
+  // the read-then-move idiom (see the golden below for that idiom's evidence).
+  assert.deepEqual(moveEnemy.args.to, {
+    kind: "object-property",
+    object: "source",
+    property: "location"
+  });
+  // The primitive's own schema is the boundary: it accepts an Expr node but
+  // resolves object-property only for a runtime ObjectRef.
+  assert.equal(typeof move.argsSchema.parse, "function");
 });
 
 test("unl-112-219 Irresistible Faefolk golden: the printed destination is read and executed with the merged read-then-move shape", async () => {

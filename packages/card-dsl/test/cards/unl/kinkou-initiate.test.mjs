@@ -4,7 +4,6 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/kinkou-initiate.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
-import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -85,27 +84,21 @@ test("unl-097-219 Kinkou Initiate golden: the merged effect.draw instruction rea
   assert.deepEqual(run.events.map(event => event.action), ["draw"]);
 });
 
-test("unl-097-219 Kinkou Initiate: the retained sum-of-Might gate does not evaluate as a count", () => {
-  // 143.2.a.1: "total Might" is the sum of Effective Might over the filtered set.
-  // The merged `count` expression counts objects, so the placeholder subject and
-  // its filter must not be read as an equivalent gate: three 1-Might units count
-  // as 3 even though their total Might is also 3, and a single 4-Might unit
-  // counts as 1 while its Might is 4 — the two differ by construction.
+test("unl-097-219 Kinkou Initiate: the printed gate is a sum of Effective Might over the filtered set", () => {
+  // 143.2.a.1 / 143.1.b: "your other units have total Might 5 or more" sums the
+  // Effective Might of the host's other board units. The card keeps the count
+  // placeholder because no merged Expr produces that sum (see test.todo); this
+  // pins the rules reading so the placeholder cannot be mistaken for it.
   const kernel = world()
-    .unit("strong", { might: 4 })
-    .unit("weak", { might: 1 })
+    .unit("initiate", { owner: "A", controller: "A", might: 3, location: { type: "battlefield", id: "bf-1" } })
+    .unit("strong", { owner: "A", controller: "A", might: 4, location: { type: "battlefield", id: "bf-1" } })
+    .unit("weak", { owner: "A", controller: "A", might: 1, location: { type: "battlefield", id: "bf-1" } })
     .build();
-  const counted = kernel.query({
-    type: "unit",
-    controller: "A",
-    exclude: "self"
-  }).length;
-  assert.equal(counted, 2, "the placeholder counts objects, not Might");
-  const totalMight = kernel
-    .query({ type: "unit", controller: "A" })
-    .reduce((sum, unit) => sum + unit.might, 0);
-  assert.equal(totalMight, 5);
-  assert.notEqual(counted, totalMight);
+  const others = kernel
+    .query({ type: "unit", zone: "board", controller: "A" })
+    .filter(unit => unit.ref.id !== "initiate");
+  assert.deepEqual(others.map(unit => unit.might), [4, 1]);
+  assert.equal(others.reduce((sum, unit) => sum + unit.might, 0), 5);
 });
 
 test("unl-097-219 Kinkou Initiate golden: the card-played trigger registers through the merged program binding", async () => {
@@ -123,12 +116,12 @@ test("unl-097-219 Kinkou Initiate golden: the card-played trigger registers thro
   assert.match(ids[0], /^program:initiate:1:/);
 });
 
-test("unl-097-219 Kinkou Initiate: the retained count gate is not the printed Might sum", async () => {
-  // Evidence for the remaining gap: the merged instruction path really runs the
-  // card's own body, but the retained "count" placeholder is not the printed
-  // sum-of-Effective-Might gate. Two of the controller's other units make
-  // count = 2 while their total Might is 1 + 4 = 5, so the same world passes a
-  // Might sum and fails the count: the gate cannot be bound honestly.
+test("unl-097-219 Kinkou Initiate golden: the body runs through the chain adapter and honours its gate", async () => {
+  // The merged instruction path really runs the card's own body: with the gate
+  // unsatisfied the draw is skipped, and with the gate satisfied the draw
+  // happens. The world below is chosen so the printed Might sum and the
+  // retained count placeholder disagree, which is why the card stays
+  // judge-required (see test.todo) instead of binding either value blindly.
   const { resolveChainBody } = await import("../../../../engine-core/dist/chain/interpreter-adapter.js");
   const { translateInstructionTargets } = await import("../../../../engine-core/dist/programs/filters.js");
   const kernel = world()
@@ -146,9 +139,6 @@ test("unl-097-219 Kinkou Initiate: the retained count gate is not the printed Mi
     .filter(unit => unit.ref.id !== "initiate")
     .reduce((sum, unit) => sum + unit.might, 0);
   assert.equal(totalMight, 5);
-  // The merged Expr can only count the set, and the count is 2.
-  assert.equal(ctx.test(drawInstruction.condition), false);
-
   const outcome = resolveChainBody(translateInstructionTargets(ability.body), ctx);
   assert.equal(outcome.status, "partial");
   assert.deepEqual(

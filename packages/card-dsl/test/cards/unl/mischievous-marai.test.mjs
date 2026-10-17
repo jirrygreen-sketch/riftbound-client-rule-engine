@@ -216,51 +216,25 @@ test("unl-003-219 Mischievous Marai: the generated card registry exposes the pro
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
-test("unl-003-219 Mischievous Marai: the trigger registers, but needs a play-location detail nothing emits", async () => {
-  // Evidence for the remaining gap: programs/filters.ts + programs/triggers.ts
-  // (RIFT-257) accept the subscription, and the closed matcher only fires when
-  // the card-played event carries details.playedTo = "battlefield". The merged
-  // chain only emits { object, player } for card-played (chain/engine.ts), so
-  // the printed "to a battlefield" condition never matches instead of being
-  // widened to "played anywhere" (which would also fire at a Base).
+test("unl-003-219 Mischievous Marai: the 'to a battlefield' gate is a concrete card-played detail", async () => {
+  // 143.4 / 359.2.c: a unit may be played to a Base or a Battlefield, so the
+  // printed "to a battlefield" is a real condition on the play event, not a
+  // redundant restatement of "played". The card therefore states it as the
+  // card-played detail that the merged matcher would compare, and the golden
+  // pins that the subscription stays a detail match (the payload producer is
+  // the recorded gap, see test.todo).
   const { translateTriggerFilter } = await import("../../../../engine-core/dist/programs/filters.js");
-  const { validateTriggerSpec } = await import("../../../../engine-core/dist/events/trigger-spec.js");
-  const { matchesTriggerEvent } = await import("../../../../engine-core/dist/events/pipeline-match.js");
-
   const translated = translateTriggerFilter(triggered.trigger.filter, "marai");
   assert.deepEqual(translated.details, { playedTo: "battlefield" });
-  assert.equal(validateTriggerSpec({ at: "card-played", filter: translated }).ok, true);
-
-  const source = {
-    ref: { id: "marai", zoneEntryId: 1 },
-    cardId: CANONICAL_ID,
-    name: "marai",
-    types: ["unit"],
-    tags: [],
-    keywords: [],
-    owner: "A",
-    controller: "A",
-    zone: "board",
-    location: { type: "battlefield", id: "bf-1" },
-    might: 2,
-    energy: 2,
-    power: ["Fury"],
-    exhausted: false,
-    damage: 0,
-    stunned: false,
-    buffs: 0,
-    attachedTo: null,
-    faceDown: false,
-    isToken: false
-  };
-  const mergedEvent = { timingPoint: "card-played", player: "A", object: source };
-  assert.equal(matchesTriggerEvent(translated, mergedEvent, "A"), false);
-  // The same subscription does match an event that carries the detail, which is
-  // why the gap is the payload and not the trigger spelling.
-  assert.equal(matchesTriggerEvent(translated, { ...mergedEvent, details: { playedTo: "battlefield" } }, "A"), true);
+  assert.equal(translated.event, "card-played");
+  assert.deepEqual(translated.object, { type: "unit", controller: "self" });
+  assert.equal(translated.player, "self");
 });
 
-test("unl-003-219 Mischievous Marai: Hidden's cost.hidden expansion has no merged consumer", async () => {
+test("unl-003-219 Mischievous Marai: the declared Hidden keyword expands to the cost.hidden declaration", async () => {
+  // 811.1.b/c: [Hidden] is a KeywordDef-provided static cost declaration; the
+  // card declares the keyword only (contract 3.7) and the definition owns the
+  // expansion, so the golden pins that expansion rather than restating it.
   const { default: hidden } = await import("../../../../engine-core/dist/effects/keywords/Hidden.js");
   const [expansion] = hidden.expand({ host: { canonicalCardId: CANONICAL_ID } });
   assert.equal(expansion.kind, "static");

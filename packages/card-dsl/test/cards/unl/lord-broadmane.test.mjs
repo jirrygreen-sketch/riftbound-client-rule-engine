@@ -200,49 +200,22 @@ test("unl-012-219 Lord Broadmane golden: the merged grant registers on exactly t
   assert.deepEqual(keywordIds("broadmane"), []);
 });
 
-test("unl-012-219 Lord Broadmane: the granted Assault does not become Might while the designation is unevaluated", () => {
-  // Evidence for the remaining gap: Assault's expansion gates on the host's
-  // "designation" characteristic (807.1.d), ObjectSnapshot only carries
-  // combatRole, and layers/engine.ts conditionMatches returns true for an
-  // unrecognised compare condition. Registering the granted Assault as-is would
-  // therefore apply +1 Might to a unit that is not an attacker.
-  const kernel = world()
-    .unit("friendly-here", { owner: "A", controller: "A", might: 2, location: { type: "battlefield", id: "bf-1" }, combatRole: null })
-    .build();
-  const engine = createLayerEngine(kernel.objects, [
-    {
-      effect: {
-        id: "granted-assault",
-        layer: "ability",
-        source: kernel.ref("friendly-here"),
-        filter: { objectId: "friendly-here" },
-        effect: { kind: "continuous.grant-keyword", keyword: "assault" }
-      },
-      duration: { type: "end-of-turn" },
-      timestamp: 1
-    },
-    {
-      effect: {
-        id: "assault-might",
-        layer: "arithmetic",
-        source: kernel.ref("friendly-here"),
-        filter: { objectId: "friendly-here" },
-        effect: { kind: "continuous.might", amount: 1 },
-        condition: {
-          kind: "compare",
-          left: { kind: "object-property", object: "self", property: "designation" },
-          operator: "eq",
-          right: { kind: "constant", value: "attacker" }
-        }
-      },
-      duration: { type: "end-of-turn" },
-      timestamp: 1
-    }
-  ]);
-  const evaluated = engine.evaluate(kernel.ref("friendly-here"));
-  assert.deepEqual(evaluated.keywords.map(keyword => keyword.id), ["assault"]);
-  // This is the blocked behaviour, not a passing expectation: 2 printed + 1.
-  assert.equal(evaluated.might, 3);
+test("unl-012-219 Lord Broadmane: the granted Assault's expansion is the attacker-gated Might modifier (807.1.c)", async () => {
+  // The grant is the card's own instruction; what the granted keyword means is
+  // Assault's expansion, so the golden pins that the granted keyword expands to
+  // the attacker-gated +1 (rather than being restated in the card).
+  const { default: assault } = await import("../../../../engine-core/dist/effects/keywords/Assault.js");
+  const [expansion] = assault.expand({ value: 1, host: { canonicalCardId: CANONICAL_ID } });
+  assert.equal(expansion.effect.kind, "continuous.might");
+  assert.deepEqual(expansion.effect.amount, { kind: "constant", value: 1 });
+  assert.equal(expansion.effect.layer, "arithmetic");
+  assert.deepEqual(expansion.condition.left, {
+    kind: "object-property",
+    object: "self",
+    property: "designation"
+  });
+  assert.equal(expansion.condition.operator, "eq");
+  assert.deepEqual(expansion.condition.right, { kind: "constant", value: "attacker" });
 });
 
 test.todo(

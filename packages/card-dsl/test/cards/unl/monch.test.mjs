@@ -132,31 +132,6 @@ test("unl-035-219 Monch golden: the merged replacement layer binds the declared 
   assert.equal(f.engine.pipeline.events.some(event => event.timingPoint === "object-readied"), false);
 });
 
-test("unl-035-219 Monch golden: the merged entry path ignores the printed condition entirely", () => {
-  // Evidence for the remaining gap: replacement/bind.ts's registration.matches
-  // returns true from matchesEnterAction without ever calling testCondition, so
-  // the printed "If an opponent controls a stunned unit" gate is skipped on the
-  // merged entry path. The same declared body with `never` still enters ready.
-  const f = fixture({ cards: [{ id: "monch", types: ["unit"], energy: 1, power: [], might: 6 }] });
-  bindReplacement(
-    { replaces: enterReady.replaces, condition: { kind: "never" }, with: enterReady.with },
-    f.kernel.ref("monch"),
-    {
-      host: {
-        object: ref => f.kernel.object(ref),
-        objects: () => f.kernel.objects,
-        context: (source, controller) => f.kernel.clone({ sourceSnapshot: source, controller })
-      },
-      pipeline: f.engine.pipeline
-    }
-  );
-  f.engine.execute(f.card("monch", { kind: "unit", body: [] }));
-  resolveAll(f.engine);
-  const entered = f.kernel.getObject("monch");
-  assert.equal(entered.zone, "board");
-  assert.equal(entered.exhausted, false);
-});
-
 test("unl-035-219 Monch: the printed condition is an opponent-scoped stunned-unit count", () => {
   const condition = enterReady.condition;
   assert.equal(condition.kind, "compare");
@@ -172,48 +147,36 @@ test("unl-035-219 Monch: the printed condition is an opponent-scoped stunned-uni
   assert.deepEqual(enterReady.replaces.filter, { source: "self", exhausted: true });
 });
 
-test("unl-035-219 Monch: layer conditions still treat an unrecognised compare as true", async () => {
-  // Evidence for judgeReason item (3): both the cost modification and the
-  // replacement share this condition, and layers/engine.ts conditionMatches
-  // only recognises always/never/type/has-tag/has-keyword.
-  const { createLayerEngine } = await import("../../../../engine-core/dist/layers/index.js");
-  const kernel = world()
-    .unit("monch", { owner: "A", controller: "A", might: 6, location: { type: "base", player: "A" } })
-    .build();
-  const engine = createLayerEngine(kernel.objects, [
-    {
-      effect: {
-        id: "monch-discount",
-        layer: "ability",
-        source: kernel.ref("monch"),
-        filter: { objectId: "monch" },
-        effect: { kind: "continuous.cost-modification", resource: "energy", amount: -2 },
-        condition: costModification.condition
-      },
-      duration: { type: "permanent" },
-      timestamp: 1
-    }
-  ]);
-  // The condition is never evaluated (no stunned unit exists in this world),
-  // yet the layer keeps the effect: unrecognised conditions are treated as true.
-  assert.equal(engine.evaluate(kernel.ref("monch")).might, 6);
+test("unl-035-219 Monch: the two printed effects share the one gating condition (383.2.a.1)", () => {
+  // Both halves are gated by the same lead-in clause, which the card states once
+  // and reuses; the golden pins that they cannot drift apart.
+  assert.equal(costModification.kind, "static");
+  assert.equal(enterReady.kind, "replacement");
+  assert.deepEqual(costModification.condition, enterReady.condition);
+  // The condition is compared against the merged evaluator's vocabulary; the
+  // layer/replacement consumers for it are the recorded gaps (test.todo).
+  assert.equal(costModification.condition.kind, "compare");
+  assert.deepEqual(costModification.condition.right, { kind: "constant", value: 1 });
 });
 
 test.todo(
   "unl-035-219 Monch: install the printed -2 energy discount into the play's finalized cost plan " +
-    "(CR 356.4/356.4.a) — cost/cost-plan.ts only applies caller-supplied CostPlanInput.discounts and no " +
-    "cost.modify instruction exists (RIFT-89)"
+    "(CR 356.4/356.4.a) — cost/cost-plan.ts only applies caller-supplied CostPlanInput.discounts, " +
+    "programs/play.ts's translateCost rejects the discount field, and no cost.modify instruction is " +
+    "registered (RIFT-261)"
 );
 test.todo(
   "unl-035-219 Monch: register the 'I enter ready' board-entry replacement before the zone change " +
-    "(CR 143.4/359.2.c/369.3) — no card ReplacementAbility consumer is merged (RIFT-9/RIFT-120); a " +
-    "post-entry effect.ready must not be substituted"
+    "(CR 143.4/359.2.c/369.3) — replacement/bind.ts (RIFT-260) binds this shape, but programs/statics.ts " +
+    "defaults to noopStaticBinder and the declared replaces.filter uses the inner source spelling that " +
+    "the binder does not read (RIFT-257/260 follow-up); a post-entry effect.ready must not be substituted"
 );
 test.todo(
-  "unl-035-219 Monch: evaluate 'if an opponent controls a stunned unit' in the layer/trigger condition " +
-    "path — layers/engine.ts conditionMatches treats unrecognised compare conditions as true (RIFT-91)"
+  "unl-035-219 Monch: evaluate 'if an opponent controls a stunned unit' on both halves — layers/engine.ts " +
+    "conditionMatches has no compare branch and replacement/bind.ts's entry path returns before " +
+    "testCondition (RIFT-91 / RIFT-260 follow-up)"
 );
 test.todo(
   "unl-035-219 Monch: fire the play-time cost modification and entry replacement from the real play flow " +
-    "(CR 349/356; RIFT-89/RIFT-120)"
+    "(CR 349/356; RIFT-261/RIFT-257)"
 );

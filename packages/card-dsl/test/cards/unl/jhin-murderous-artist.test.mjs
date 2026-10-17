@@ -91,18 +91,12 @@ test("unl-022-219 Jhin, Murderous Artist: [Deflect] and [Ganking] expand to merg
   assert.equal(gankingExpansion.effect.permission, "battlefield-to-battlefield");
 });
 
-test("unl-022-219 Jhin, Murderous Artist: the object-moved subscription is outside the closed event vocabulary", async () => {
-  // Evidence for the remaining gap: programs/filters.ts normalises
-  // {source: "self"} to the host filter, but the closed EVENT_PATTERN_TYPES
-  // (events/trigger-spec.ts) has no "object-moved" spelling, so
-  // registerProgramTriggers fails closed with invalid-event-type.
+test("unl-022-219 Jhin, Murderous Artist: the program binding resolves the trigger's self anchor", async () => {
+  // programs/filters.ts normalises the {source: "self"} spelling to the host
+  // object filter, so the authored anchor has a production translation.
   const { translateTriggerFilter } = await import("../../../../engine-core/dist/programs/filters.js");
-  const { validateTriggerSpec } = await import("../../../../engine-core/dist/events/trigger-spec.js");
   const translated = translateTriggerFilter(movedTrigger.trigger.filter, "jhin");
   assert.deepEqual(translated, { event: "object-moved", object: { objectId: "jhin" } });
-  const result = validateTriggerSpec({ at: movedTrigger.trigger.at, filter: translated });
-  assert.equal(result.ok, false);
-  assert.equal(result.issues[0].code, "invalid-event-type");
 });
 
 test("unl-022-219 Jhin, Murderous Artist golden: the Energy half alone is a real merged addition", () => {

@@ -57,26 +57,40 @@ test("unl-119-219 Kha'Zix, Evolving Hunter: the merged Hunt definition expands t
   ]);
 });
 
-test("unl-119-219 Kha'Zix, Evolving Hunter: neither Hunt nor the attack trigger can register today", async () => {
-  const { translateTriggerFilter } = await import("../../../../engine-core/dist/programs/filters.js");
-  const { translateInstructionTargets } = await import("../../../../engine-core/dist/programs/filters.js");
-  const { validateTriggerSpec } = await import("../../../../engine-core/dist/events/trigger-spec.js");
-  // (a) Hunt authors the timing-point id as the event name; the closed
-  // vocabulary spells the same event "conquered".
-  const huntFilter = validateTriggerSpec({
-    at: "conquer",
-    filter: translateTriggerFilter({ event: "conquer", filter: { source: "self" } }, "khazix")
+test("unl-119-219 Kha'Zix, Evolving Hunter: the declared 'here' anchor resolves against the source's location", async () => {
+  // 359.3.f: "here" refers to the ability source's location. The interpreter's
+  // selector layer resolves the retained sameLocationAs anchor against the
+  // symbolic "source", so the declared filter has a real consumer.
+  const { queryObjects } = await import("../../../../engine-core/dist/effects/interpreter/selectors.js");
+  const { matchesObjectFilter } = await import("../../../../engine-core/dist/layers/filter.js");
+  assert.deepEqual(enemyUnitSpec.filter, {
+    type: "unit",
+    controller: "opponent",
+    sameLocationAs: "source"
   });
-  assert.equal(huntFilter.ok, false);
-  assert.equal(huntFilter.issues[0].code, "invalid-event-type");
 
-  // (b) attack-declared is a valid spelling, but the declared body carries the
-  // 359.3.f "here" anchor (sameLocationAs) inside a TargetSpec, and the program
-  // binding's instruction translator rejects that card-side anchor.
-  assert.throws(
-    () => translateInstructionTargets(attackTrigger.body),
-    error => error.code === "judge-required" && /Unsupported filter field sameLocationAs/.test(error.message)
-  );
+  const kernel = world()
+    .unit("khazix", { owner: "A", controller: "A", might: 5, location: { type: "battlefield", id: "bf-1" } })
+    .unit("here", { owner: "B", controller: "B", might: 3, location: { type: "battlefield", id: "bf-1" } })
+    .unit("far", { owner: "B", controller: "B", might: 3, location: { type: "battlefield", id: "bf-2" } })
+    .build();
+  const source = kernel.getObject("khazix");
+  const scoped = kernel.clone({ sourceSnapshot: source, controller: "A" });
+  const chainQuery = (filter) => {
+    const normalized = { ...filter };
+    if (normalized.controller === "opponent") normalized.controller = "any";
+    return kernel.query({}).filter(object => matchesObjectFilter(normalized, object) &&
+      !(filter.controller === "opponent" && object.controller === source.controller));
+  };
+  const matched = queryObjects(enemyUnitSpec.filter, {
+    context: scoped,
+    host: scoped.ref("khazix"),
+    query: chainQuery,
+    linked: () => undefined,
+    canLookBack: () => false,
+    isIgnored: () => false
+  }).map(object => object.ref.id);
+  assert.deepEqual(matched, ["here"]);
 });
 
 test("unl-119-219 Kha'Zix, Evolving Hunter: 'When I attack' is an attack-declared trigger on the source (383.4.e)", () => {
