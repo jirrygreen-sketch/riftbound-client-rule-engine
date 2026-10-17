@@ -33,7 +33,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   现场查询——filter { player: "controller" } 的相对玩家占位符在集合查询里没有锚点，
  *   实测在没有弃牌的回合也会数到宿主自身并判为真，两个关键词被错误授予；需要把
  *   count/HistoryQuery 落到 ctx.history({ scope: "turn", action: "discard" }) 的消费方
- *   （RIFT-359，进行中）。
+ *   （当前条件消费方缺口）。
  * - 被授予的 Assault 仍需 Attacker designation：ObjectSnapshot 现在只有契约 3.8 的
  *   combatRole，而 Assault 的 KeywordDef 读 object-property "designation"，求值抛
  *   MissingInformation 后按 false 处理（实测 combatRole=attacker 时 Might 仍是印刷值）；
@@ -42,8 +42,8 @@ import type { CardProgram } from "../../ir/index.js";
  * - 被授予的 Ganking 的 continuous.movement 许可还没有可消费形态：Ganking 的 KeywordDef
  *   发出字符串 permission，而 layers/rules/query.ts 的 movement() 只读规范化的
  *   permission.routes（实测 movement().canGank 仍为 false）。
- * 依赖：RIFT-359（条件谓词/历史绑定）、combatRole 生产方与 designation 对齐、
- * movement() 许可形态对齐。
+ * 依赖：条件谓词的历史消费与绑定、combatRole 生产方与 designation 对齐、movement()
+ * 许可形态对齐。
  */
 const ragingSoul = {
   canonicalCardId: "card.hash-55958c501a029c3b3b6cc885be9c3637445d707ccf6347d1f0338abd97718571",
@@ -55,13 +55,13 @@ const ragingSoul = {
     "（programs/statics.ts 的 bindStaticToLayers）均已合入，golden 用真实 binder + 图层引擎注册两条 static；" +
     "整卡仍不可执行的三处：(1) 条件历史查询未接通——compare + count 的 count 是对当前对象集合的现场查询，" +
     "filter 里的相对玩家占位符在集合查询中无锚点，实测没有弃牌的回合也会数到宿主自身并判为真，两个关键词被错误授予；" +
-    "需要把 count/HistoryQuery 落到 ctx.history({ scope: \"turn\", action: \"discard\" }) 的消费方（RIFT-359 条件谓词/历史绑定，进行中）；" +
+    "需要把 count/HistoryQuery 落到 ctx.history({ scope: \"turn\", action: \"discard\" }) 的条件消费方；" +
     "(2) 被授予的 Assault 需要 Attacker designation：ObjectSnapshot 只有契约 3.8 的 combatRole，而 Assault 的 KeywordDef 读 " +
     "object-property \"designation\"（求值抛 MissingInformation 后按 false 处理，实测 combatRole=attacker 时 Might 仍是印刷值），" +
     "且没有已合入产者写入 combatRole（combat/flow.ts 对战斗开始抛 combat-start-transaction）；" +
     "(3) 被授予的 Ganking 的 continuous.movement 许可没有可消费形态：KeywordDef 发出字符串 permission，" +
     "而 layers/rules/query.ts 的 movement() 只读规范化的 permission.routes（实测 movement().canGank 仍为 false）。" +
-    "依赖：RIFT-359（条件谓词/历史绑定）、combatRole 生产方与 designation 对齐、movement() 许可形态对齐。不近似实现。",
+    "依赖：条件谓词的历史消费与绑定、combatRole 生产方与 designation 对齐、movement() 许可形态对齐。不近似实现。",
   abilities: [
     {
       kind: "static",

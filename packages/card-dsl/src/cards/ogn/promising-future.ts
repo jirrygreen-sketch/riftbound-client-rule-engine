@@ -19,13 +19,14 @@ import type { CardProgram } from "../../ir/index.js";
  *   instruction opcode exposes it to a look/reveal, and the inspecting set here
  *   spans every player (355.10.e's \"chosen in whole or in part by other
  *   players\" shape), which the card layer cannot declare per player. The
- *   PickSpec ordered vocabulary itself is NOT merged on this branch.
+ *   The ordered PickSpec vocabulary is merged, but it resolves one concrete
+ *   player and has no per-player iteration or result shape for this card.
  * - \"chooses one, then recycles the rest\": the choice is a non-target pick
  *   from the looked-at cards, and the recycle of the remainder needs 417.5's
  *   random-order placement (2+ cards recycled to the Main Deck are placed in a
  *   random order) driven by the kernel's deterministic shuffle, which no
  *   instruction opcode performs for effect-recycles, plus the complement
- *   \"the rest\" of the looked cards (no merged exclude/remainder shape).
+ *   \"the rest\" of the looked cards across every player.
  * - \"Starting with the next player, each player plays those cards, ignoring
  *   Energy costs. (They must still pay Power costs.)\": playing a card from a
  *   private zone for each player in turn order needs the 420.3 Play effect
@@ -50,17 +51,15 @@ const promisingFuture = {
   status: "judge-required",
   judgeReason:
     "三段式多人流程均无端到端已合入原语（复核 2026-10-17）：1）“Each player looks at the top 5 cards of their Main Deck” 需非零 top-N 私下查看，" +
-    "effect.inspect 明确要求上游提供有序 picksSpecId（query 不保证牌库顺序，zoneSlice 顺序并未接入任何指令原语），" +
-    "且有序 PickSpec 词表（ordered/zoneSlice/linked/exclude 字段）本分支未合入，查看者又是全体玩家（355.10.e 形状），卡层无法逐玩家声明；" +
-    "2）“chooses one, then recycles the rest” 需从查看集合做非目标选择并把余牌按 417.5 随机顺序回收，" +
-    "没有指令原语提交该回收/洗牌，也没有「余牌集合」的 exclude/remainder 形状；" +
+    "effect.inspect 可由 ordered PickSpec/zoneSlice 提供单一玩家的有序来源，但现有绑定只接受一个具体 PlayerId，" +
+    "没有逐玩家遍历或每位玩家独立查看/选择的结果形状，不能把 each-player 近似成施法者牌库；" +
+    "2）“chooses one, then recycles the rest” 的 linked/exclude 形状已合入单一结果，但仍没有多人余牌集合与 417.5 的同时随机顺序回收消费方；" +
     "3）“Starting with the next player, each player plays those cards, ignoring Energy costs” 需 420.3/420.4 的 " +
     "play 效果（仅忽略 Energy、保留印刷 Power 要求）加按回合顺序遍历玩家，effect.play 只消费已 finalize 的费用计划与已知对象，" +
     "无遍历玩家或部分忽略费用的路径（该半段以 effect.play-for-each-player 命名待合入原语，不套用 effect.play 的单一对象契约）。" +
     "cost.pay/cost.modify 与 ignore-base 算术、卡牌程序绑定均已合入，不是本卡缺口；" +
-    "依赖：effect.inspect 的非零 top-N 有序来源与 picks 生产接线、目标与选择管线（选择管线的" +
-    "多人查看形状）、按玩家遍历回合序的打出原语，以及按被选对象生成 ignore-Energy 计划的" +
-    "卡牌侧生产接线。不近似实现。",
+    "依赖：effect.inspect 的逐玩家有序来源与选择结果管线、多人余牌随机回收、按玩家遍历回合序的打出原语，" +
+    "以及按被选对象生成 ignore-Energy 计划的卡牌侧生产接线。不近似实现。",
   abilities: [
     {
       kind: "play",

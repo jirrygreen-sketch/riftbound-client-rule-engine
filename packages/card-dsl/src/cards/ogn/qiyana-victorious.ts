@@ -22,7 +22,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   静态效果的路径（静态绑定的 layerFor 也没有 target.tax 映射）；
  *   chain/engine.ts 虽然把税记进 mandatoryAdditional，但换算按 Energy 记账而
  *   809.1.c.1 要求任意域 Power。cost.pay/cost.modify 已合入，「目标税请求 →
- *   实际收费」仍缺的是目标税生产接线（RIFT-360，进行中）。
+ *   实际收费」仍缺的是目标税生产接线：静态 target.tax 尚未接入 Finalize 与支付。
  * - conquer 时点（473.1）现已由 turn/flow.ts 的 Score wave 发出（见
  *   docs/rules/timing-point-producers.md），但「When I conquer」指「我参与并成功
  *   征服」：conquer 载荷只有 player + details.battlefieldId，没有参战单位/地点
@@ -34,7 +34,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - body 的 choice.mode 也过不了链的 Finalize：assertFinalizationSurface 对
  *   choice.mode 抛 ChainContractBlockedError（Mode choices require a
  *   Finalize/Resolve choice-plan adapter）。
- * 依赖：RIFT-360（目标税生产接线）、EventPattern 的 source/here 参照词表、
+ * 依赖：目标税生产接线、EventPattern 的 source/here 参照词表、
  * choice.mode 的 Finalize/Resolve 接线。不近似实现（不把 Deflect 写成静态数值，
  * 也不跳过目标税）。
  */
@@ -97,7 +97,7 @@ const program = {
     "TargetPlan 的 TargetTaxAdapter 只接受调用方经 TargetFinalizeOptions.tax 传入的税，链的 Finalize 没有从图层读取 " +
     "CardProgram 静态 target.tax 的接线（静态绑定的 layerFor 也没有 target.tax 映射）；chain/engine.ts 已把税记进 " +
     "mandatoryAdditional，但换算按 Energy 记账而 809.1.c.1 要求任意域 Power。cost.pay/cost.modify 已合入，" +
-    "仍缺的是目标税生产接线（RIFT-360，进行中）。" +
+    "仍缺的是目标税生产接线：静态 target.tax 尚未接入 Finalize 与支付，且现有链路把税当作 Energy。" +
     "（2）conquer 时点（473.1）已由 turn/flow.ts 的 Score wave 发出，但「When I conquer」= 我参与并成功征服：" +
     "载荷只有 player + details.battlefieldId，没有参战单位/地点身份，EventPattern 词表也没有把事件源与宿主当前位置" +
     "比较的 source/here 锚点（嵌套 filter.source 拼写会被引擎校验拒绝），无法诚实收窄到本卡。（3）触发注册的卡牌程序绑定" +

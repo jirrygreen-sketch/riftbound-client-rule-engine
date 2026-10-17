@@ -175,7 +175,7 @@ test("ogn-250-298 Stormbringer boundary: a chosen unit lost at resolution makes 
 test.todo(
   "Stormbringer: a unit whose Might characteristic is null must not be read as 0 damage; the merged " +
     "reference kernel defaults Might (defaultObject may = 1), so the null-characteristic path can only " +
-    "be verified once the production layers/context supplies real null Might (RIFT-91)."
+    "be verified once the production layers/context supplies a real null Might characteristic."
 );
 
 test("ogn-250-298 Stormbringer golden: an enemy that left the board is dropped from the damage group", () => {
