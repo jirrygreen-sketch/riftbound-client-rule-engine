@@ -29,8 +29,9 @@ test("unl-009-219 Upstage Comedy: identity, status, judgeReason and verbatim sou
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /Repeat/);
   assert.match(program.judgeReason, /820\.1\.d\.1/);
-  assert.match(program.judgeReason, /RIFT-86/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /additional-cost|Finalize/);
+  assert.match(program.judgeReason, /RIFT-349/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(86|89)/);
 });
 
 test("unl-009-219 Upstage Comedy: the printed [Repeat] keyword is declared, not re-implemented", () => {
@@ -100,6 +101,6 @@ test("unl-009-219 Upstage Comedy golden: a stale target is ignored (359.3.e.7)",
   assert.deepEqual(outcome.results[0].result, { status: "ignored", reason: "mistargeted" });
 });
 
-test.todo("unl-009-219 Upstage Comedy: paying the printed Repeat cost (:rb_energy_2:) executes the spell's effect one additional time during resolution (820.1.d.1 / 820.2.a) and re-makes the choice — needs the Repeat additional-cost payment hook and the paid-instance count on the interpreter repeat instruction (RIFT-86 / RIFT-89)");
-test.todo("unl-009-219 Upstage Comedy: 820.3.a — repeating the effect must not play the spell a second time (no additional card-played timing point), which the paid-instance pipeline has to guarantee (RIFT-86 / RIFT-89)");
+test.todo("unl-009-219 Upstage Comedy: paying the printed Repeat cost (:rb_energy_2:) executes the spell's effect one additional time during resolution (820.1.d.1 / 820.2.a) and re-makes the choice — needs the Repeat additional-cost payment hook and the paid-instance count on the interpreter repeat instruction (RIFT-349)");
+test.todo("unl-009-219 Upstage Comedy: 820.3.a — repeating the effect must not play the spell a second time (no additional card-played timing point), which the paid-instance pipeline has to guarantee (RIFT-349)");
 

@@ -31,17 +31,16 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - unit-stunned 时点没有发射方：该时点的唯一产生处是 events/action-adapter.ts 的动作
  *   管线适配器，而合入的 ChainEngine 尚未安装它（仅 engine-core 测试使用）；
  *   combat/ 也没有把 Stun 之外的状态变化接入事件管线。触发无法进链（383.3 的
- *   Pending Item 路径缺失，RIFT-120）。
+ *   Pending Item 路径缺失；CardProgram 触发注册适配已合入）。
  * - "that battlefield" 需要触发事件中目标单位的 location：合并 ObjectSelector 只有
  *   self/source/target/pick/linked，没有事件对象/事件位置选择器，effect.move 的 to 只接受
  *   静态 LocationRef / controller-base / 静态候选列表。程序里的目的地是描述性标记，
  *   解释器会按 effect.move 的目的地校验拒绝它，不会把本卡移到错误地点。
  * - [Shield]（814.1.d.1 的 Defender designation）与 [Tank]（815.1.c 的分配优先级）的展开
- *   本身也没有图层/战斗消费方（RIFT-91 与战斗分配批次），故关键词声明也不能算整卡可执行。
+ *   本身也没有 designation/战斗分配消费方，故关键词声明也不能算整卡可执行。
  * golden 用真实解释器 + 参考内核执行已合入的 effect.move 子指令（目的地由事件位置锁定后传入）。
  *
- * 依赖：RIFT-120（unit-stunned 的发射与卡程序触发注册）、事件对象/事件位置选择器、
- * RIFT-91（Shield/Tank 展开的图层与战斗消费方）。
+ * 依赖：unit-stunned 的生产发射、事件对象/事件位置选择器、Shield/Tank 的战斗消费方。
  */
 
 /**
@@ -94,14 +93,14 @@ export default {
   judgeReason:
     "三处缺口，均不近似实现：（1）unit-stunned 时点（424.1）没有发射方：该时点的唯一产生处是 " +
     "events/action-adapter.ts 的动作管线适配器，而合入的 ChainEngine 尚未安装它（仅 engine-core 测试使用），" +
-    "因此触发无法进链（383.3 的 Pending Item 路径缺失，RIFT-120）。" +
+    "因此触发无法进链（383.3 的 Pending Item 路径缺失；CardProgram 触发注册适配已合入）。" +
     "（2）『move me to that battlefield』的『that battlefield』是那次 Stun 发生的战场（359.3.f.1 的 referent），" +
     "合并 ObjectSelector 只有 self/source/target/pick/linked，没有事件对象/事件位置选择器，" +
     "effect.move 的 to 只接受静态 LocationRef / controller-base / 静态候选列表；程序里的目的地是描述性标记，" +
     "解释器会按目的地校验拒绝它，不会把本卡移到错误地点。" +
     "（3）[Shield]（814.1.d.1 的 Defender designation 条件）与 [Tank]（815.1.c 的分配优先级）的展开文件虽已合入，" +
-    "但没有图层/战斗分配消费方（RIFT-91 与战斗分配批次）。" +
-    "依赖：RIFT-120（unit-stunned 发射与卡程序触发注册）、事件对象/事件位置选择器、RIFT-91。" +
+    "但没有 designation/战斗分配消费方。" +
+    "依赖：unit-stunned 发射、事件对象/事件位置选择器、Shield/Tank 的战斗消费方。" +
     "effect.move 本体已合入，golden 用真实解释器 + 参考内核执行它（目的地按事件位置锁定后传入）。",
   abilities,
   sourceText:

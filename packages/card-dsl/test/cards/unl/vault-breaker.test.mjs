@@ -48,10 +48,18 @@ test("unl-010-219 Vault Breaker: [Action] plus Assault 2 and Ganking granted to 
   assert.deepEqual(grantAssault.args.keyword, { kind: "constant", value: "Assault" });
   assert.deepEqual(grantAssault.args.value, { kind: "constant", value: 2 });
   assert.deepEqual(grantAssault.args.duration, { kind: "constant", value: "end-of-turn" });
+  assert.deepEqual(grantAssault.args.objects, {
+    kind: "constant",
+    value: { kind: "target", id: "vault-breaker.unit" }
+  });
   // 810.1: Ganking never carries a value; the same TargetSpec id keeps it the same unit.
   assert.deepEqual(grantGanking.args.keyword, { kind: "constant", value: "Ganking" });
   assert.equal(Object.hasOwn(grantGanking.args, "value"), false);
   assert.deepEqual(grantGanking.args.duration, { kind: "constant", value: "end-of-turn" });
+  assert.deepEqual(grantGanking.args.objects, {
+    kind: "constant",
+    value: { kind: "target", id: "vault-breaker.unit" }
+  });
   assert.deepEqual(grantAssault.targets[0], grantGanking.targets[0]);
   assert.deepEqual(grantAssault.targets[0], {
     id: "vault-breaker.unit",
@@ -65,8 +73,25 @@ test("unl-010-219 Vault Breaker: [Action] plus Assault 2 and Ganking granted to 
   assert.equal(grantGanking.picks, undefined);
 });
 
-test.todo("unl-010-219 Vault Breaker: grant [Assault 2] and [Ganking] to one unit for this turn — needs a duration-bounded continuous keyword-grant primitive with the card-side ctx.addContinuous entry (RIFT-9 / RIFT-91)");
-test.todo("unl-010-219 Vault Breaker: the granted Assault expands to +2 Might while the unit is an attacker (807.1.c / 807.1.d.1) — needs the attacker designation on ObjectSnapshot and the Assault expansion consumer (RIFT-81 / RIFT-91)");
-test.todo("unl-010-219 Vault Breaker: the granted Ganking permits the battlefield-to-battlefield Standard Move (810.1.b / 144.4.c.1) — needs the continuous.movement permission consumer in the movement system (RIFT-83)");
-test.todo("unl-010-219 Vault Breaker: all 'this turn' effects expire simultaneously (317.2.c) — the timing-point driven duration handling (RIFT-91)");
+test.todo("unl-010-219 Vault Breaker: consume the merged Assault/Ganking grants in attacker Might and Standard Move legality (807.1.c / 810.1.b)");
+test.todo("unl-010-219 Vault Breaker: the granted Assault expands to +2 Might while the unit is an attacker (807.1.c / 807.1.d.1) — needs attacker designation and the Assault expansion consumer");
+test.todo("unl-010-219 Vault Breaker: the granted Ganking permits the battlefield-to-battlefield Standard Move (810.1.b / 144.4.c.1) — needs the continuous.movement permission consumer in the movement system");
+test("unl-010-219 Vault Breaker: the merged grant primitive records end-of-turn expiry", async () => {
+  const { runAbilityBody } = await import("../../../../engine-core/dist/effects/interpreter.js");
+  const { createLayerEngine } = await import("../../../../engine-core/dist/layers/index.js");
+  const { world } = await import("../../../../engine-core/dist/effects/testing/index.js");
+  const kernel = world().unit("target", { zone: "board", might: 3 }).build();
+  kernel.setTargets("vault-breaker.unit", [kernel.ref("target")]);
+  const outcome = runAbilityBody(play.body, kernel);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(kernel.continuousEffects.map(entry => entry.effect.effect.keyword), ["Assault", "Ganking"]);
+  assert.deepEqual(kernel.continuousEffects.map(entry => entry.duration), [{ type: "end-of-turn" }, { type: "end-of-turn" }]);
+  const layers = createLayerEngine(kernel.objects, kernel.continuousEffects.map(entry => ({ effect: entry.effect, duration: entry.duration, timestamp: 1 })));
+  assert.deepEqual(
+    layers.evaluate(kernel.ref("target")).keywords.map(keyword => [keyword.id, keyword.value]),
+    [["Assault", 2], ["Ganking", undefined]]
+  );
+  assert.equal(layers.expireAt("turn-end").length, 2);
+  assert.deepEqual(layers.evaluate(kernel.ref("target")).keywords, []);
+});
 

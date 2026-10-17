@@ -21,8 +21,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   ⚠ 声明的是**替代费用**（356.1.a）：3 Energy + 1 Fury Power 取代印刷的 3 Energy；本卡没有印刷
  *   Power 费用（catalog power: null），这里不把它改写成 0。
  *
- * status = judge-required（复核后缺口更新如下）：
- * - Legion 的关键词展开已合入（RIFT-82）：effects/keywords/Legion.ts 发布 condition.predicate 的
+ * status = judge-required（复核 2026-10-17）：
+ * - Legion 的关键词展开已合入：effects/keywords/Legion.ts 发布 condition.predicate 的
  *   static 谓词（link "active"，history { scope: turn, action: play, player: controller,
  *   excluding: canonicalCardId }）。但该 payload 没有求值方：解释器的 condition.predicate 只求值
  *   随行的 Condition（interpreter.ts 的 "condition.predicate" 分支），不会把 history/excluding 翻成
@@ -33,8 +33,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （366.1 的 Trash 许可没有规则适配器），已合入的 cost/ 只消费调用方传入的费用计划，没有
  *   CardProgram → 费用计划的接线；参考内核的 effect.play 需要调用方提供已 Finalize 的费用计划，
  *   不能自行推导。
- * 依赖：RIFT-257（谓词/依赖能力的生产接线）、HistoryQuery 的按卡身份排除或等价谓词求值、
- * RIFT-261（费用种类与 cost.pay/cost.modify 接线）。
+ * 依赖：condition.predicate/history 的求值、HistoryQuery 的按卡身份排除或等价谓词、
+ * 依赖能力正文的绑定；以及 RIFT-261 的区域许可与替代费用 Finalize 接线。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "legion" },
@@ -62,14 +62,14 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处缺口：(1) [Legion] 的关键词展开已合入（effects/keywords/Legion.ts，RIFT-82），发布带 history { scope: turn, action: play, " +
+    "两处缺口：(1) [Legion] 的关键词展开已合入（effects/keywords/Legion.ts），发布带 history { scope: turn, action: play, " +
     "player: controller, excluding: canonicalCardId } 的 condition.predicate 静态谓词，但该 payload 没有求值方：解释器的 " +
     "condition.predicate 只求值随行的 Condition，不把 history/excluding 翻成历史查询；封闭 HistoryQuery 的排除维度是 " +
     "exclude?: ObjectSelector（按对象排除），不是 812.1.c 的按卡身份排除；也没有 binder 把依赖能力 [Text] 挂上谓词。" +
     "(2)「You may play me from your trash for [3][Fury]」需要 366.1 的区域许可适配器与 356.1.a 的替代费用计划接线：" +
-    "programs/play.ts 的 translateRestriction 对 kind \"play-from-zone\" 以 “needs a rules adapter” 拒绝，已合入 cost/ " +
-    "只消费调用方传入的费用计划（RIFT-261 的 cost.pay/cost.modify 仍未合入）。" +
-    "依赖：RIFT-257（谓词与依赖能力接线）、HistoryQuery 的按卡身份排除或等价谓词求值、RIFT-261（费用接线）。" +
+    "programs/play.ts 的 translateRestriction 对 kind \"play-from-zone\" 以 “needs a rules adapter” 拒绝；已合入 cost/ " +
+    "只消费调用方传入的费用计划，尚无 CardProgram → 费用计划的接线（RIFT-261）。" +
+    "依赖：condition.predicate/history 的求值、按卡身份排除或等价谓词、依赖能力正文绑定，以及 RIFT-261（区域许可与费用接线）。" +
     "本卡不平铺成无条件能力，也不把 Trash 打出近似成手牌打出；golden 只做身份与结构校验。",
   abilities,
   sourceText:

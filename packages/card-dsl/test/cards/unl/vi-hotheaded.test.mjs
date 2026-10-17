@@ -37,7 +37,8 @@ test("unl-030-219 Vi, Hotheaded: identity, status, judgeReason and verbatim sour
   assert.match(program.judgeReason, /433\.1/);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /target\.tax/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /RIFT-360/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(90|91|257)/);
 });
 
 test("unl-030-219 Vi, Hotheaded: [Deflect] declared without a value (CR 809.1.b.3 presumes 1)", () => {
@@ -165,5 +166,5 @@ test("unl-030-219 Vi, Hotheaded golden: Doubling reflects a smaller live Might i
 });
 test.todo(
   "unl-030-219 Vi, Hotheaded: append the [Deflect] target tax when an opponent chooses this unit (CR 809.1.c;" +
-    " RIFT-90 target tax + RIFT-89 cost.pay merge)"
+    " target.tax consumer + any-domain Power payment"
 );

@@ -23,17 +23,15 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * status = judge-required（缺口不近似实现）：
  * - [Deflect]（809）的展开文件虽已合入（static target.tax），但没有消费方把永久物上的 target.tax
- *   接进目标选择与费用计划（target/target-plan.ts 的 tax 只来自调用方显式传入，RIFT-90），
- *   也没有把 809.1.c.1 的“任意域 Power”接入费用计划（RIFT-89/RIFT-261）。
+ *   接进目标选择与费用计划（target/target-plan.ts 的 tax 只来自调用方显式传入，RIFT-360），
+ *   也没有把 809.1.c.1 的“任意域 Power”接入费用计划（RIFT-261）。
  * - “it” 指触发事件里的单位：契约 3.6 的 ObjectSelector 只有 self/source/target/pick/linked，
  *   没有“触发事件对象”选择器，因此效果里的 TargetSpec 只是形状保留（355.10.c 明确“it”不是选目标），
  *   真实绑定必须由触发系统在进链时完成（383.2.c.3.b / 359.3.f.3，引擎批 4）。
  * - 触发条件 “while I'm at a battlefield” 没有进链前求值路径：带 condition 的触发注册要求
  *   host.testTrigger 适配器，已合入 host 都不提供，也没有把来源的 last-known 位置交给卡牌条件。
- * - 持续移动限制与其本回合期限没有消费方：continuous.movement 没有已注册的原语，移动系统
- *   （zones/movement.ts）也不读图层许可/限制。
- * 依赖：RIFT-90（目标税）、RIFT-89/261（费用计划）、RIFT-91/259（continuous.movement 与期限）、
- * RIFT-257/120（触发注册与进链前条件求值）。不近似实现（不把 Deflect 换成数值近似，
+ * - continuous.movement 原语与本回合期限已合入，但移动系统（zones/movement.ts）仍不读图层许可/限制。
+ * 依赖：RIFT-360（目标税）、RIFT-261（费用计划）、移动许可消费方与触发条件求值。不近似实现（不把 Deflect 换成数值近似，
  * 也不把“不能移动”写成事实上的允许）。
  */
 const abilities: Ability[] = [
@@ -112,15 +110,14 @@ export default {
   status: "judge-required",
   judgeReason:
     "四处缺口（均不近似实现）：(1) [Deflect]（809.1.c/809.1.d）的展开（effects/keywords/Deflect.ts 的 static target.tax）没有消费方：" +
-    "target/target-plan.ts 的目标税只来自调用方显式传入的 tax，没有从永久物的持续效果派生目标税的路径（RIFT-90），" +
-    "809.1.c.1 的“任意域 Power”支付也没有接入费用计划（RIFT-89/261）。" +
+    "target/target-plan.ts 的目标税只来自调用方显式传入的 tax，没有从永久物的持续效果派生目标税的路径（RIFT-360），" +
+    "809.1.c.1 的“任意域 Power”支付也没有接入费用计划（RIFT-261）。" +
     "(2) “it” 指触发事件里的单位：契约 3.6 的 ObjectSelector 只有 self/source/target/pick/linked，缺“触发事件对象”选择器，" +
     "卡内的 TargetSpec 只是形状保留（355.10.c 明确该对象不是选目标），真实绑定按 383.2.c.3.b/359.3.f.3 属触发系统（引擎批 4）。" +
     "(3) 触发条件 “while I'm at a battlefield”（383.2.a.1 属触发条件）没有进链前求值路径：带 condition 的注册要求 host.testTrigger 适配器，" +
     "已合入 host 都不提供，也没有把来源的 last-known 位置交给卡牌条件。" +
-    "(4) “They can't move it this turn” 是持续移动禁止（054/054.1、449）：continuous.movement 没有已注册原语，" +
-    "移动系统（zones/movement.ts）也不读图层的移动许可/限制，本回合期限同样没有到期消费方（RIFT-259/91）。" +
-    "依赖：RIFT-90、RIFT-89/261、RIFT-91/259、RIFT-257/120。[Stun] 本体（effect.stun，424.1）已合入，" +
+    "(4) “They can't move it this turn” 是持续移动禁止（054/054.1、449）：continuous.movement 原语与本回合期限已合入，" +
+    "但移动系统（zones/movement.ts）仍不读图层的移动许可/限制。依赖：RIFT-360、RIFT-261、移动许可消费方与触发条件求值。[Stun] 本体（effect.stun，424.1）已合入，" +
     "golden 以锁定目标真实执行该半段。",
   abilities,
   sourceText:

@@ -19,33 +19,31 @@ import type { CardProgram } from "../../ir/index.js";
  * - “this turn” 是本回合期限：由时点驱动的到期（契约 3.5），起于 hold 结算、止于
  *   回合结束。
  *
- * status = judge-required（逐个记录缺口，不近似实现；复核后按当前 HEAD 更新）：
- * 1. 缺把加费安装到“本回合稍后打出”的原语：复核实测 effects/instructions/registry 没有
- *    cost.modify / cost.pay 条目（RIFT-261 未合入；同 sfd/ornns-forge、rad/hunters-circle）；
+ * status = judge-required（逐个记录缺口，复核 2026-10-17；不近似实现）：
+ * 1. cost.modify 原语与 CostPlan 的 increase 阶段已合入，但仍缺把该触发效果安装到
+ *    “本回合稍后打出”的 CardProgram→CostPlan 路径；
  *    cost/buildCostPlan 虽接受 increases（356.3 阶段）且 golden 证明算术成立，但只作用于
  *    调用方提供的单次计划，没有任何已合入路径把 CardProgram 的 static 能力放进后续打出的
  *    CostPlanInput.increases。
- * 2. 缺触发注册与时点载荷：hold 现已由 turn/flow.ts 的 Score wave 发出（timing-point-producers.md），
- *    但没有已合入订阅方把卡牌程序的 triggered ability 注册成触发（RIFT-257 的生产接线），
- *    且 programs/filters.ts 以 “Unsupported filter field here” 直接拒绝 here: true（053.3 的占位）；
+ * 2. hold 已由 turn/flow.ts 发出，且 CardProgram 的普通 triggered ability 注册接线已合入；
+ *    但 programs/filters.ts 仍以 “Unsupported filter field here” 拒绝 here: true（053.3 的占位）；
  *    复核实测 registerProgramTriggers 对整卡 fail-closed。
  * 3. 本回合期限需要与时点绑定：layers 的 Duration 有 end-of-turn，但没有“hold 之后到回合结束”
  *    这条由触发开启的费用期限的已合入接线。
- * 依赖：RIFT-261（cost.modify/静态加费注册，接在已合入的 cost-plan increases 阶段）与
- * RIFT-31/RIFT-33 的 here 载荷及 RIFT-257 的触发注册。
+ * 依赖：CardProgram→CostPlan 的静态加费接线（RIFT-261）、RIFT-31/RIFT-33 的 here 载荷。
  */
 export default {
   canonicalCardId: "card.hash-0b929c2c78280ff14e852a6d803fa3e55251591cfc73088ec115c83af1360d7e",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1) 缺少把 +1 Energy 加费安装到“本回合稍后打出”的原语：cost.modify 只在 RIFT-9 原语清单里，" +
-    "effects/instructions/registry 没有该 op 条目（复核实测；RIFT-261 未合入）；cost/buildCostPlan 虽然支持 356.3 阶段的 increases（CostComponentInput），但只作用于调用方提供的单次计划，" +
-    "没有任何已合入路径把 CardProgram 的 static 能力放进后续打出的 CostPlanInput.increases（同 sfd/ornns-forge、rad/hunters-circle 的缺口）。" +
+    "三处缺口，均不近似实现：(1) cost.modify 原语与 cost/buildCostPlan 的 356.3 increases 阶段已合入，" +
+    "但没有任何路径把本触发能力安装进本回合后续打出的 CostPlanInput.increases，" +
+    "该生产接线仍缺。" +
     "(2) 触发侧：hold 时点（383.4.d、315.2.b.2、471.2、473.2.b）现已由 turn/flow.ts 的 Score wave 发出，但没有已合入订阅方把卡牌程序的 triggered ability 注册成触发" +
-    "（RIFT-257 的生产接线），且 programs/filters.ts 以 \"Unsupported filter field here\" 拒绝 here: true（053.3 的占位）；复核实测 registerProgramTriggers 对整卡 fail-closed。" +
+    "但 programs/filters.ts 以 \"Unsupported filter field here\" 拒绝 here: true（053.3 的占位）；复核实测 registerProgramTriggers 对整卡 fail-closed。" +
     "(3) 「this turn」需要由触发开启、回合结束到期的费用期限：layers 的 Duration 可表达 end-of-turn，但没有 hold 触发开启该期限的已合入接线。" +
-    "程序保留 non-token 单位的过滤形状（185.1.a 的 token 性质、356.7 的付款玩家）；依赖 RIFT-261 与 RIFT-31/RIFT-33 的 here 载荷及 RIFT-257 的触发注册。不近似实现。",
+    "程序保留 non-token 单位的过滤形状（185.1.a 的 token 性质、356.7 的付款玩家）；依赖 CardProgram→CostPlan 的静态加费接线（RIFT-261）与 RIFT-31/RIFT-33 的 here 载荷。不近似实现。",
   sourceText: "When you hold here, your non-token units cost :rb_energy_1: more to play this turn.",
   abilities: [
     {
@@ -62,7 +60,7 @@ export default {
         {
           id: "vaults-of-helia.increase-unit-cost",
           // 356.3 / 356.4：这是费用增加阶段的声明（不是结算期的资源动作）；
-          // cost.modify 没有已合入原语（见 judgeReason 第 1 点）。
+          // cost.modify 原语已合入；CardProgram→CostPlan 的安装仍是 judgeReason 第 1 点。
           op: "cost.modify",
           args: {
             resource: { kind: "constant", value: "energy" },

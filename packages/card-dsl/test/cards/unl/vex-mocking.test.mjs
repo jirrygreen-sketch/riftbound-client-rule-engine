@@ -32,8 +32,7 @@ test("unl-055-219 Vex, Mocking: identity, status, judgeReason and verbatim sourc
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /unit-stunned/);
   assert.match(program.judgeReason, /that battlefield/);
-  assert.match(program.judgeReason, /RIFT-120/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(91|120|257)/);
 });
 
 test("unl-055-219 Vex, Mocking: [Shield] and [Tank] are declared as unvalued keywords (814.1, 815.1)", () => {
@@ -155,7 +154,7 @@ test("unl-055-219 Vex, Mocking golden: the descriptive destination marker is rej
 
 test.todo(
   "unl-055-219 Vex, Mocking: emit the unit-stunned timing point from the production chain (CR 424.1) and register " +
-    "this card's trigger — the emitter lives only in the action-pipeline adapter, which ChainEngine does not install (RIFT-120)"
+    "this card's trigger — the emitter lives only in the action-pipeline adapter, which ChainEngine does not install (production action emitter)"
 );
 
 test.todo(
@@ -165,5 +164,5 @@ test.todo(
 
 test.todo(
   "unl-055-219 Vex, Mocking: apply [Shield]'s defender-gated +1 Might (CR 814.1.c/814.1.d.1) and [Tank]'s " +
-    "damage-assignment priority (CR 815.1.c) — no layer or combat consumer for the expanded keywords (RIFT-91, combat batch)"
+    "damage-assignment priority (CR 815.1.c) — no layer or combat consumer for the expanded keywords (combat designation and damage-assignment consumers)"
 );

@@ -17,27 +17,25 @@ import type { CardProgram } from "../../ir/index.js";
  * - “a unit” 是目标（355.9.a.1：未特别说明时指 Board 上的单位），两条授予指令引用同一个
  *   TargetSpec id，Finalize 只做一次选择（对照已合入 ogn/solari-chief 的两条分支共用 same spec）。
  *
- * status = judge-required（缺口不近似实现）：
- * - 没有任何已注册原语能由卡牌 body 注册带 end-of-turn 期限的关键词授予：
- *   effects/instructions/ 没有 continuous.grant-keyword（或 continuous.keyword）文件
- *   （与 ogn/cleave、ven/heart-of-the-tempest、sfd/gem-jammer 同缺口，依赖 RIFT-91 / RIFT-9）。
+ * status = judge-required（复核 2026-10-17；缺口不近似实现）：
+ * - continuous.grant-keyword 已合入，卡内两条授予可通过解释器注册到 ability 层并在回合结束到期；
+ *   golden 覆盖该半段。
  * - 即使授予落地，Assault 的展开（keywords/Assault.ts）是“宿主是 attacker 时 +X Might”的静态
  *   图层效果，需要 ObjectSnapshot 的 attacker designation；Ganking 的展开（keywords/Ganking.ts）
  *   是 continuous.movement 许可，也没有消费方（移动系统尚未读该许可）。
- * 本卡没有可独立执行的正文指令，golden 只做校验、结构断言与缺口 todo。
+ * 本卡仍有 Assault/Ganking 消费缺口，golden 覆盖关键词授予与期限，不把授权近似成 Buff。
  */
 const vaultBreaker = {
   canonicalCardId: "card.hash-b80a5751bd715a9eea06f849357e5792330b5cc9e83d549c928891740c31e9d8",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「Give a unit [Assault 2] and [Ganking] this turn」需要带 end-of-turn 期限的连续关键词授予，" +
-    "但 effects/instructions/ 没有任何已注册原语能由卡牌 body 注册关键词授予（无 " +
-    "continuous.grant-keyword / continuous.keyword 文件；同 cleave / heart-of-the-tempest / gem-jammer 的缺口，" +
-    "依赖 RIFT-91 与 RIFT-9 原语清单）。即使授予落地：Assault 的展开（keywords/Assault.ts，807.1.c）" +
+    "「Give a unit [Assault 2] and [Ganking] this turn」的 continuous.grant-keyword 原语已合入，" +
+    "可真实注册同一目标的两个 ability-layer 授予并在 end-of-turn 到期（golden 覆盖）。整卡仍缺：" +
+    "Assault 的展开（keywords/Assault.ts，807.1.c）" +
     "是条件于宿主 attacker designation 的 static continuous.might，而 designation 尚未进入 ObjectSnapshot；" +
     "Ganking 的展开（keywords/Ganking.ts，810.1.b）是 continuous.movement 移动许可，移动系统没有该许可的消费方。" +
-    "本回合期限（317.2.c）同样需要 addContinuous 的卡牌侧入口。不近似实现（不写成 Buff 计数，也不省略 Ganking）。",
+    "本回合期限（317.2.c）由该原语记录；不近似实现（不写成 Buff 计数，也不省略 Ganking）。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {
@@ -49,13 +47,18 @@ const vaultBreaker = {
       },
       body: [
         {
-          // 授予的 Assault 2 与期限按 807.1.c / 317.2.c 声明；该 op 未注册（见 judgeReason）。
+          // 授予的 Assault 2 与期限按 807.1.c / 317.2.c 声明；对象选择器指向
+          // 同一 TargetSpec，供解释器在结算时读取已锁定的单位。
           id: "vault-breaker.grant-assault-2",
           op: "continuous.grant-keyword",
           args: {
             keyword: { kind: "constant", value: "Assault" },
             value: { kind: "constant", value: 2 },
-            duration: { kind: "constant", value: "end-of-turn" }
+            duration: { kind: "constant", value: "end-of-turn" },
+            objects: {
+              kind: "constant",
+              value: { kind: "target", id: "vault-breaker.unit" }
+            }
           },
           targets: [
             {
@@ -73,7 +76,11 @@ const vaultBreaker = {
           op: "continuous.grant-keyword",
           args: {
             keyword: { kind: "constant", value: "Ganking" },
-            duration: { kind: "constant", value: "end-of-turn" }
+            duration: { kind: "constant", value: "end-of-turn" },
+            objects: {
+              kind: "constant",
+              value: { kind: "target", id: "vault-breaker.unit" }
+            }
           },
           targets: [
             {

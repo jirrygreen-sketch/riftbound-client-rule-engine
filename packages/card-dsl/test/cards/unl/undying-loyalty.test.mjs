@@ -59,6 +59,7 @@ test("unl-168-219 Undying Loyalty: program validates and keeps its identity", ()
   assert.match(program.judgeReason, /356\.1\.c/);
   assert.match(program.judgeReason, /163\.2\.b/);
   assert.match(program.judgeReason, /RIFT-261/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(90|257)/);
 });
 
 test("unl-168-219 Undying Loyalty: the conditional [2] energy discount is declared as cost.modify", () => {
@@ -158,7 +159,7 @@ test.todo(
 
 test.todo(
   "unl-168-219 Undying Loyalty: enforce 'cost no more than :rb_energy_2: and no more than :rb_rune_rainbow:' as the " +
-    "printed-cost ceiling of the trash target (CR 356.1.c) — needs the printed-cost predicate (RIFT-90) and support " +
+    "printed-cost ceiling of the trash target (CR 356.1.c) — needs a printed-cost predicate and support " +
     "for the 163.2.b Universal Power ([A]); it must never be approximated with a named domain"
 );
 

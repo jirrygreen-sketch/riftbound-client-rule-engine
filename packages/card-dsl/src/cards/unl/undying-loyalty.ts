@@ -24,10 +24,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 「ignoring its cost」按 356.1.b.1 把基础 Energy/Power 设为 0，必须由费用管线生成
  *   已 finalize 的计划。
  *
- * status: judge-required（复核后缺口更新如下；本体解构与已合入原语不变）:
+ * status: judge-required（复核 2026-10-17；本体解构与已合入原语不变）:
  * - 折扣条件需要「本卡打出的选择对象」与标签集合，冻结 IR 的 Condition 只读对象特征、链接值与计数，
- *   没有指向「本次费用选择结果」的读数（调研记为 condition.result）；费用系统侧的折扣入口同样未接线
- *   （RIFT-261 的 cost.pay/cost.modify 未合入；RIFT-257 的 programs 只搬运调用方提供的费用计划）。
+ *   没有指向「本次费用选择结果」的读数（调研记为 condition.result）；CardProgram 的静态
+ *   cost.modify 也没有安装到这次打出的费用计划。
  * - 印刷费用上限谓词不存在：复核实测未知 filter 键（printedEnergyMax/printedPowerMax）被
  *   layers/filter.ts 与测试内核静默忽略，写成过滤器会放开对垃圾场单位的限制。
  * - :rb_rune_rainbow: 是 163.2.b 的 Universal Power，封闭 Domain 类型与 gain-power 不表达
@@ -36,8 +36,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * golden 用已合入的 effect.play + 显式零费计划对锁定目标真实执行，并单独执行
  * effect.channel 与 effect.draw 无关半段不适用（本卡无其它已合入指令）。
  *
- * 依赖：RIFT-261（费用计划/折扣/ignore-cost 接线）、RIFT-90（印刷费用上限谓词）、
- * Universal Power 的契约变更请求（163.2.b）。无本任务自有的契约变更。
+ * 依赖：条件结果读取与 CardProgram→CostPlan 接线（RIFT-261）、印刷费用上限谓词、
+ * Universal Power 的契约变更请求（163.2.b）。
  */
 const abilities: Ability[] = [
   {
@@ -106,14 +106,14 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "四处依赖未合入：(1)「This costs :rb_energy_2: less if you choose a Bird, Cat, Dog, or Poro.」是 356.4 的印刷费用折扣，" +
-    "Finalize 的费用系统需要 cost.modify 折扣入口（RIFT-261 仍未合入；RIFT-257 的 programs 只搬运调用方提供的费用计划），" +
+    "现有 cost.modify 原语可计算折扣，但没有把 CardProgram 静态能力安装到本次打出的费用计划，" +
     "且其条件需要一个指向「本次费用/打出选择结果」的读数" +
     "（调研记为 condition.result；冻结 IR 只读对象特征、链接值与计数）。(2)「cost no more than :rb_energy_2: and no more than " +
     ":rb_rune_rainbow:」是 356.1.c 的印刷费用上限谓词：冻结 ObjectFilter 没有该键，未知键会被 layers/filter.ts 与测试内核静默忽略，" +
     "写成过滤器等于放开选择范围。(3)「:rb_rune_rainbow:」是 163.2.b 的 Universal Power（[A]），封闭 Domain 类型与 gain-power " +
     "不表达；effect.resources 明确记录其 unsupported、绝不用具名域近似。(4)「ignoring its cost」按 356.1.b.1 需要 base Energy/Power 为 0 的 " +
     "finalized 费用计划，effect.play 从不自行推导印刷费用（RIFT-261）。golden 用已合入的 effect.play + 显式零费计划对锁定目标真实执行；不近似实现。" +
-    "依赖：RIFT-261（费用计划/折扣/ignore-cost）、RIFT-90（印刷费用上限谓词）、Universal Power 的契约变更请求。",
+    "依赖：条件结果读取与 CardProgram→CostPlan 接线（RIFT-261）、印刷费用上限谓词、Universal Power 的契约变更请求。",
   abilities,
   sourceText:
     "This costs :rb_energy_2: less if you choose a Bird, Cat, Dog, or Poro.\n" +
