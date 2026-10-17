@@ -29,6 +29,8 @@ test("ogn-281-298 Hallowed Tomb: identity, ruleset, status and printed text", ()
     "When you hold here, you may return your Chosen Champion from your trash to your Champion Zone if it is empty."
   );
   assert.match(program.judgeReason, /Champion Zone/);
+  assert.match(program.judgeReason, /count\/compare/);
+  assert.match(program.judgeReason, /here/);
 });
 
 test("ogn-281-298 Hallowed Tomb: optional hold trigger wrapping the return instruction", () => {
@@ -100,7 +102,7 @@ test.todo(
 );
 
 test.todo(
-  "ogn-281-298 Hallowed Tomb: 'if it is empty' (CR 108.3.c.1) needs a zone-emptiness condition; the " +
+  "ogn-281-298 Hallowed Tomb: 'if it is empty' (CR 108.3.c.1) needs Champion Zone support for the existing count/compare query; the " +
     "hold event's `here` relation also needs an adapter that binds the scoring event's battlefield identity " +
     "to this source"
 );

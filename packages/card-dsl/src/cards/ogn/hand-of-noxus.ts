@@ -22,12 +22,13 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * status = judge-required：
  * - ResolveContext.history supports turn/action/player/object/exclude queries,
+ *   and condition.history / condition.predicate instructions have merged,
  *   but the CardProgram Condition vocabulary has no history/predicate node and
  *   the activated restriction binder cannot consume the Legion gate. The
  *   restriction keeps the printed gate auditable; it is not treated as an
  *   executable comparison.
  * - The ordinary exhaust payment and resource primitive are merged, but the
- *   activation path does not classify this resource-adding ability as the
+ *   chain already supports immediate Add, but the activation binder does not classify this resource-adding ability as the
  *   immediate Add window required by 430.2.a/430.3.
  */
 const handOfNoxus = {
@@ -36,10 +37,9 @@ const handOfNoxus = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Legion 闸门（812.1.b.1：本回合已 Finalize 过另一张牌才获得 [Text]）仍不能执行：" +
-    "ResolveContext.history 已支持 turn/action/player/object/exclude 查询，但 CardProgram 的封闭 Condition 词汇没有 history/predicate 节点，" +
-    "activated restriction 的绑定层也没有消费该历史闸门；812.1.c 的“另一张牌”因此不能被写成普通 compare。" +
-    "此外，当前启动能力路径虽能支付 exhaust 并执行 effect.resources，却没有把资源增加能力路由到 430.2.a/430.3 所需的即时 Add 窗口。",
+    "Legion 仍缺启动前历史闸门（CR 812.1.b.1 / 812.1.c）：Condition 没有 history/predicate 节点，count 只查询当前对象且忽略 " +
+    "cards-finalized-this-turn 的 subject；translateRestriction 不能在支付启动费用前执行历史指令并读取结果。还缺 describeActivate " +
+    "按资源增加正文识别 kind: add 的桥接：当前固定生成 activated，不能进入 CR 430.2.a 的即时 Add 结算与 430.3 的 Reaction-Add 支付窗口。",
   abilities: [
     {
       kind: "activated",

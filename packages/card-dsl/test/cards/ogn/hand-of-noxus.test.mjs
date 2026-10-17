@@ -5,6 +5,7 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ogn/hand-of-noxus.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import resources from "../../../../engine-core/dist/effects/instructions/effect.resources.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -49,7 +50,7 @@ test("ogn-253-298 Hand of Noxus: [Legion] gate preserved as a restriction shape"
   // 812.1 / 812.1.b.1 / 812.1.c: Legion gates the dependent ability on having
   // played another card this turn, excluding the Legion card itself. The gate
   // is declared as a restriction carrying the history comparison; its
-  // history/predicate consumer still needs to evaluate 812.1.c's exclude dimension.
+  // activation binder must consume a Finalize-history query before paying costs.
   assert.equal(ability.restriction.kind, "legion");
   assert.deepEqual(ability.restriction.condition, {
     kind: "compare",
@@ -95,28 +96,44 @@ test("ogn-253-298 Hand of Noxus: the Exhaust cost is payable and the body runs t
   assert.equal(ctx.object(ctx.ref("noxus")).exhausted, true);
   assert.equal(ctx.player("A").energy, 1);
 
-  // effect.resources must be driven through runInstruction: the merged
-  // interpreter pre-evaluates instruction args, while the resource primitive
-  // re-parses them as Exprs (see the todo). The card's own declared args are
-  // used unchanged.
-  const run = runInstruction(resources, addEnergy.args, { world: ctx });
-  assert.equal(run.result.status, "executed");
+  // The production chain adapter preserves the primitive Expr arguments.
+  const run = resolveChainBody(ability.body, ctx);
+  assert.equal(run.status, "executed");
   assert.equal(ctx.player("A").energy, 2, "the [Add] 1 Energy lands after the exhaust cost");
-  assert.deepEqual(run.linked.resources, { player: "A", energy: 1, power: [] });
+  assert.deepEqual(run.linkedValues["hand-of-noxus.add-energy.resources"], { player: "A", energy: 1, power: [] });
+  assert.deepEqual(run.events.map(event => event.action), ["gain-energy"]);
 });
 
 test.todo(
-  "ogn-253-298: evaluate the Legion gate (812.1.b.1 / 812.1.c “another card this turn”) via a merged " +
-    "condition.history / condition.predicate path with HistoryQuery.exclude"
+  "ogn-253-298: evaluate the Legion gate (812.1.b.1 / 812.1.c “another card this turn”) at activation Finalize before costs; " +
+    "condition.history / condition.predicate and HistoryQuery.exclude exist but the restriction binder cannot run them"
 );
 
 test.todo(
-  "ogn-253-298: honor the 430.2.a immediate finalize/resolve and 430.3 Reaction-Add payment window for " +
-    "resource-adding activated abilities"
+  "ogn-253-298: describeActivate must classify the ability as Add so the merged 430.2.a immediate " +
+    "finalize/resolve and 430.3 Reaction-Add payment window are reachable from this card"
 );
 
-test.todo(
-  "ogn-253-298: run the whole body through runAbilityBody — the merged interpreter evaluates args before " +
-    "dispatch while effect.resources re-parses Exprs, so interpreter-driven execution of Expr-parsing " +
-    "primitives (effect.resources/draw/channel) is not wired through the card-program activation path"
-);
+test("Hand of Noxus supported history primitive excludes self but counts another physical copy", () => {
+  // A synthetic pair of playable units isolates HistoryQuery.exclude; the
+  // actual Legend activation still needs a pre-cost Finalize-history binder.
+  const initial = world().hand("noxus", { cardId: "card:history-unit" })
+    .hand("copy", { cardId: "card:history-unit" }).hand("enemy", { owner: "B" }).build();
+  const kernel = initial.clone({ sourceSnapshot: initial.getObject("noxus") });
+  kernel.perform({ type: "play", object: kernel.ref("noxus"), player: "A" });
+  kernel.perform({ type: "play", object: kernel.ref("enemy"), player: "B" });
+  const body = [{
+    id: "legion-history", op: "condition.history", args: {
+      query: { kind: "constant", value: { scope: "turn", action: "play", player: "A", exclude: "self" } },
+      operator: { kind: "constant", value: "gte" }, right: { kind: "constant", value: 1 }
+    }
+  }];
+  const before = resolveChainBody(body, kernel);
+  assert.equal(before.linkedValues["legion-history.count"], 0);
+  assert.equal(before.linkedValues["legion-history.value"], false);
+  kernel.perform({ type: "play", object: kernel.ref("copy"), player: "A" });
+  const after = resolveChainBody(body, kernel);
+  assert.equal(after.linkedValues["legion-history.count"], 1);
+  assert.equal(after.linkedValues["legion-history.value"], true);
+  // This is history execution evidence, not an activation restriction adapter.
+});

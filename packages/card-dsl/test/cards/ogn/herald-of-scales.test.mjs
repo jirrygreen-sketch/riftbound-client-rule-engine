@@ -3,6 +3,9 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/herald-of-scales.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+
 const CANONICAL = "card.hash-8f0ac98c17845f49a654e9543fdfa1946ec646cc7efc52fbd3395790fb4be660";
 const [discountAbility] = program.abilities;
 
@@ -50,5 +53,40 @@ test.todo(
 );
 test.todo(
   "Herald of Scales: the passive ability must apply while the card sits on the board (CR 366.2/366.2.a) " +
-    "and not stack per Dragon; the static ability registration and cost-plan bridge remain pending"
+    "and register each Herald source exactly once; general static lifecycle registration exists but the cost-plan bridge remains pending"
 );
+
+function explicitDiscount(id = "herald") {
+  return {
+    id, resource: discountAbility.effect.resource,
+    amount: { kind: "arithmetic", operator: "neg", operands: [discountAbility.effect.amount] },
+    minimum: discountAbility.effect.minimum
+  };
+}
+
+test("Herald of Scales supported cost planner: Energy minimum is per discount and Power is unchanged", () => {
+  for (const [energy, expected] of [[6, 4], [2, 1], [1, 1], [0, 0]]) {
+    const initial = world().hand("dragon", { tags: ["Dragon"], energy, power: ["Body"] }).build();
+    const kernel = initial.clone({ sourceSnapshot: initial.getObject("dragon") });
+    const plan = buildCostPlan(kernel, { id: `dragon-${energy}`, cost: { kind: "printed" }, discounts: [explicitDiscount()] });
+    assert.equal(plan.total.energy, expected);
+    assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: ["Body"] }]);
+    assert.equal(plan.printed.energy, energy);
+    assert.equal(kernel.getObject("dragon").energy, energy);
+    assert.equal(plan.discounts[0].minimum, 1);
+  }
+});
+
+test("Herald of Scales supported cost planner: another discount can reduce the final Energy below one", () => {
+  const initial = world().hand("dragon", { tags: ["Dragon"], energy: 6, power: null }).build();
+  const kernel = initial.clone({ sourceSnapshot: initial.getObject("dragon") });
+  const plan = buildCostPlan(kernel, {
+    id: "dragon-discounts", cost: { kind: "printed" },
+    discounts: [explicitDiscount(), { id: "other", resource: "energy", amount: { kind: "constant", value: 4 } }],
+    discountOrder: ["herald", "other"]
+  });
+  assert.equal(plan.total.energy, 0);
+  assert.deepEqual(plan.discounts.map(discount => [discount.before, discount.after]), [[6, 4], [4, 0]]);
+  assert.equal(plan.printed.power, null);
+  assert.equal(kernel.getObject("dragon").power, null);
+});

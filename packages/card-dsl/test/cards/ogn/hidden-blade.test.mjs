@@ -27,17 +27,10 @@ function bladeWorld() {
     .build();
 }
 
-/**
- * Execute the card's own body with the Finalize-locked target supplied to the
- * kernel (the pit-rookie convention): the reference kernel filters by exact
- * JSON values, so it cannot re-run the richer card filter
- * ({ location: { type: "battlefield" } }); locking the target exercises the
- * merged interpreter's linked-instruction and last-known-information paths.
- */
+/** Execute the original body, retaining target filters and location rechecks. */
 function runBody(kernel) {
   kernel.setTargets(killSpec.id, [kernel.ref("blade-victim")]);
-  const body = play.body.map(({ targets, ...rest }) => rest);
-  return resolveChainBody(body, kernel);
+  return resolveChainBody(play.body, kernel);
 }
 
 test("Hidden Blade program is valid EffectIR v2 data", () => {
@@ -77,7 +70,8 @@ test("Hidden Blade structure: Hidden + Action keywords, printed cost, kill then 
   assert.equal(kill.linkedTo, undefined);
   assert.equal(kill.targets.length, 1);
   assert.equal(killSpec.id, "hidden-blade.unit");
-  assert.deepEqual(killSpec.filter, { types: "unit", location: { type: "battlefield" } });
+  assert.deepEqual(killSpec.filter, { type: "unit" });
+  assert.deepEqual(killSpec.location, { type: "battlefield" });
   assert.equal(killSpec.min, 1);
   assert.equal(killSpec.max, 1);
   assert.equal(killSpec.selection, "one");
@@ -130,8 +124,7 @@ test("Hidden Blade golden: a lost target ignores both instructions (359.3.e.14.a
   // The victim leaves its zone in response: the kill is mistargeted and the
   // linked draw must not execute.
   kernel.perform({ type: "return-to-hand", object: stale });
-  const body = play.body.map(({ targets, ...rest }) => rest);
-  const outcome = resolveChainBody(body, kernel);
+  const outcome = resolveChainBody(play.body, kernel);
 
   assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status, entry.result.reason ?? ""]), [
     ["hidden-blade.kill", "ignored", "mistargeted"],
@@ -146,9 +139,37 @@ test("Hidden Blade golden: a lost target ignores both instructions (359.3.e.14.a
 test.todo(
   "Hidden Blade: Hide for :rb_rune_rainbow: and the facedown reaction play (for " +
     ":rb_energy_0:) need a consumer for Hidden's cost.hidden expansion plus the facedown zone, " +
-    "Hide action, and cost plan."
+    "Hide action and next-turn timing; Hidden cost plans are already available."
 );
 test.todo(
   "Hidden Blade: the 811.1.d.2 restriction that a facedown play must target the battlefield " +
     "the card was hidden at is enforced by Hidden's expansion consumer and the target system."
 );
+
+test("Hidden Blade golden: moving to Base keeps the reference but mistargets both instructions", () => {
+  const kernel = bladeWorld();
+  const locked = kernel.ref("blade-victim");
+  kernel.setTargets(killSpec.id, [locked]);
+  kernel.perform({ type: "move-location", object: locked, to: { type: "base", player: "B" } });
+  assert.deepEqual(kernel.ref("blade-victim"), locked);
+  const outcome = resolveChainBody(play.body, kernel);
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status, entry.result.reason]), [
+    ["hidden-blade.kill", "ignored", "mistargeted"],
+    ["hidden-blade.controller-draws", "ignored", "linked-ignored"]
+  ]);
+  assert.deepEqual(outcome.events, []);
+  assert.equal(kernel.getObject("blade-victim").zone, "board");
+  assert.equal(kernel.player("B").handSize, 0);
+  assert.equal(kernel.player("A").handSize, 0);
+});
+
+test("Hidden Blade golden: a controlled opposing card draws for its controller after the kill", () => {
+  const kernel = world().deck(["one", "two"], { owner: "B" })
+    .unit("blade-victim", { owner: "A", controller: "B" }).build();
+  const outcome = runBody(kernel);
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(kernel.zone("A", "trash").map(ref => ref.id), ["blade-victim"]);
+  assert.equal(kernel.player("B").handSize, 2);
+  assert.equal(kernel.player("A").handSize, 0);
+  assert.deepEqual(outcome.events.map(event => event.action), ["kill", "draw"]);
+});
