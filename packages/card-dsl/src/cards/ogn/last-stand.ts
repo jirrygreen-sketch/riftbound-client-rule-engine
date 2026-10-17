@@ -26,49 +26,54 @@ import type { CardProgram } from "../../ir/index.js";
  *   scoring, kill this"), so the second instruction references the same unit
  *   as the first and is linked to it (359.3.e.14): a lost target ignores both.
  *
- * Status: judge-required — neither clause has a merged producer:
- * - no file under effects/instructions/ registers a Might modification through
- *   ResolveContext.addContinuous, and contract 3.6's closed GameAction set has
- *   no Might-modification action. The layers engine (RIFT-91) evaluates the
- *   arithmetic layer and expires this-turn durations, but a resolving spell has
- *   no opcode that reaches it.
- * - the keyword registry has no Temporary KeywordDef (CR 816; 816.1.b is the
- *   kill trigger, 816.2 makes multiple instances redundant), so the grant
- *   cannot be declared or expanded, and the beginning-start timing point it
- *   would subscribe to has no keyword consumer.
- * Neither half is approximated: the Might change is not written as a Buff
- * counter (702), and the [Temporary] grant is not dropped.
+ * Status: judge-required — the printed body now executes/registers on merged
+ * paths, but the granted keyword has no runtime consumer yet:
+ * - "Double a friendly unit's Might this turn" is captured as the target's
+ *   current Might with the merged condition.value value node and added back
+ *   through the merged continuous.might instruction (RIFT-258) with the
+ *   this-turn duration; the arithmetic layer and end-of-turn expiry evaluate
+ *   the result. The golden test drives the card's own body through the
+ *   production chain adapter and asserts the real registration, the doubled
+ *   effective Might, expiry and the lost-target edge.
+ * - "Give it [Temporary]" uses the merged continuous.grant-keyword instruction
+ *   (RIFT-258) with the merged Temporary KeywordDef (RIFT-265); the ability
+ *   layer really carries the Temporary keyword, but nothing binds a card's
+ *   keyword expansion into the trigger pipeline (RIFT-257), so 816.1.b's
+ *   "kill this at the start of your Beginning Phase" trigger never fires. The
+ *   grant is not dropped or faked into a direct kill.
+ * - [Action] (806) is declared as a keyword ability only; the keyword registry
+ *   owns its expansion, but chain ownership of Action admissions is unchanged.
  */
 const lastStand = {
   canonicalCardId: "card.hash-cfe83e821b0faa83120c2096c34d250fad91786b0aba091191591e6936237f0a",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两句都缺已合入的生产者：(1)「Double a friendly unit's Might this turn」是 CR 433.1 的 Doubling" +
-    "（按结算时该单位 Might 的当前值增加同量，CR 433.1.a 的示例正是本卡），属于 arithmetic 层的临时 Might 修改" +
-    "（143.2.a/475/478），但 effects/instructions/ 下没有任何原语通过 ResolveContext.addContinuous 注册它，" +
-    "契约 3.6 的封闭 GameAction 集合也没有 Might 修改动作（RIFT-91 只合入了 layers 求值侧）；" +
-    "(2)「Give it [Temporary]」需要 Temporary 关键词的 KeywordDef（CR 816：816.1.b 在控制者 Beginning Phase 开始时消灭它，" +
-    "816.2 多次冗余），关键词注册表没有该条目，Beginning Phase 时点也没有消费方（依赖 RIFT-83 关键词范围）。" +
-    "不近似实现：Might 变化不写成 Buff 计数（702），[Temporary] 授予不省略。",
+    "「Double a friendly unit's Might this turn」（CR 433.1 的 Doubling）已可执行：condition.value 捕获目标当前 Might" +
+    "（433.1/433.1.a）后由 continuous.might 以 add + this-turn 期限注册（RIFT-258），golden 用生产链适配器执行并断言翻倍、" +
+    "end-of-turn 到期与目标丢失边界。整卡仍不可执行：「Give it [Temporary]」的 continuous.grant-keyword（RIFT-258）" +
+    "已能把 Temporary 写进 ability 层，且 Temporary 的 KeywordDef（RIFT-265）已合入，但没有把卡牌关键词展开绑定进触发管线的消费方" +
+    "（RIFT-257），816.1.b「在控制者 Beginning Phase 开始时消灭它」的触发不会运行；[Action]（806）同样只有声明与展开、" +
+    "chain 的 timing 许可接线未变。依赖：RIFT-257（关键词展开→触发绑定）。不近似实现：不把 [Temporary] 省略，也不写成直接消灭。",
   abilities: [
     { kind: "keyword", keyword: "action" },
     {
       kind: "play",
       body: [
         {
-          // "Double a friendly unit's Might this turn" (433.1/433.1.a): the
-          // amount is the target's current Might at resolution, and the
-          // modification lasts for the turn (arithmetic layer, 478).
-          id: "last-stand.double-might",
-          op: "continuous.might",
+          // 433.1/433.1.a: Doubling is "increase by an amount equal to the
+          // attribute's CURRENT value". The current Might is captured once at
+          // resolution (condition.value is the data-only value node that
+          // publishes a named binding) and re-read by the modification below.
+          id: "last-stand.capture-might",
+          op: "condition.value",
           args: {
-            amount: {
+            key: { kind: "constant", value: "doubled" },
+            value: {
               kind: "object-property",
               object: { target: "last-stand.unit" },
               property: "might"
-            },
-            duration: { kind: "constant", value: "this-turn" }
+            }
           },
           targets: [
             {
@@ -83,24 +88,30 @@ const lastStand = {
           ]
         },
         {
+          // The modification itself: arithmetic layer (478), this-turn
+          // duration (317.2.c / 468.7.c), amount = the captured current Might.
+          id: "last-stand.double-might",
+          op: "continuous.might",
+          linkedTo: "last-stand.capture-might",
+          args: {
+            amount: { kind: "linked-value", instructionId: "last-stand.capture-might", key: "doubled" },
+            duration: { kind: "constant", value: "this-turn" },
+            objects: { kind: "constant", value: { kind: "target", id: "last-stand.unit" } }
+          }
+        },
+        {
           // "Give it [Temporary]" — the same unit, so this instruction is
-          // linked to the doubling (359.3.e.14) and grants the Temporary
-          // keyword (CR 816) through the pending keyword expansion.
+          // linked to the target choice (359.3.e.14); a lost target ignores the
+          // whole clause. The grant registers the merged Temporary keyword
+          // (CR 816, RIFT-265) into the ability layer through the merged
+          // continuous.grant-keyword instruction (RIFT-258).
           id: "last-stand.give-temporary",
           op: "continuous.grant-keyword",
-          linkedTo: "last-stand.double-might",
+          linkedTo: "last-stand.capture-might",
           args: {
-            keyword: { kind: "constant", value: "Temporary" }
-          },
-          targets: [
-            {
-              id: "last-stand.unit",
-              filter: { type: "unit", controller: "self" },
-              min: 1,
-              max: 1,
-              selection: "one"
-            }
-          ]
+            keyword: { kind: "constant", value: "Temporary" },
+            objects: { kind: "constant", value: { kind: "target", id: "last-stand.unit" } }
+          }
         }
       ]
     }

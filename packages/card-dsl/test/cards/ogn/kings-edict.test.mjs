@@ -35,6 +35,7 @@ test("ogn-237-298 King's Edict judgeReason names the chooser order and per-spell
   assert.match(program.judgeReason, /hasn't been chosen for this spell/);
   assert.match(program.judgeReason, /355\.10\.e/);
   assert.match(program.judgeReason, /RIFT-9/);
+  assert.match(program.judgeReason, /choice\.optional|choice\.mode/);
 });
 
 test("ogn-237-298 King's Edict structure: other-player choice node then a linked non-target kill", () => {

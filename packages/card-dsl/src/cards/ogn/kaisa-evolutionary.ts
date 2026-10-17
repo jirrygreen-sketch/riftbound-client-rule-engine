@@ -27,31 +27,38 @@ import type { CardProgram } from "../../ir/index.js";
  * - “Then recycle it”：同一条效果的后续独立句子（359.3.e.14 的独立性），回收
  *   刚打出并已进 Trash 的那张牌（417.1 的 Recycle）。
  *
- * 状态：judge-required。已合入的时点、choice.optional、effect.play（含 cost 覆盖与
- * location 改写）与 effect.recycle 都能表达骨架，但整条效果还有三处缺口：
- * 1. “Energy cost less than your points”的动态目标过滤：需要把玩家 points 与候选牌
- *    printed Energy 在 Finalize 做比较的谓词/过滤能力（调研 ability-templates.md
- *    的 condition.predicate 与 356.x 费用过滤），当前 TargetSpec.filter 只能写静态值。
- * 2. “ignoring its Energy cost”需要按 356.1.b.2 生成 base Energy=0、Power 保留的
- *    finalized cost plan（cost.printed / cost.pay 未合入，RIFT-89）。
- * 3. “Then recycle it”要把上一步真正打出的那张牌的对象引用链接出来（effect.play 的
- *    链接值当前只有成功次数 played，没有对象引用），由链/费用管线的结果绑定补齐。
- * 因此本卡保持 judge-required，不近似实现。
- *
- * 依赖：RIFT-89（batch3-cost-plan）、RIFT-8x/90（condition.predicate、目标过滤与
- * 链上结果绑定）、RIFT-82 之外的关键词任务（Ganking 展开：RIFT-91）。
+ * 状态：judge-required。已合入的时点（conquer 由 TurnFlow Score wave 发出）、
+ * choice.optional、effect.play（含 cost 覆盖与 location 改写）与 effect.recycle 能表达骨架，
+ * golden 对「trash 法术以零 Energy finalized 计划被打出」与「拒绝执行」有真实执行证据，
+ * 但整条效果仍有三处缺口：
+ * 1. “Energy cost less than your points”的动态目标过滤：需要把能力控制者当前 Points
+ *    （CR 4138–4155）与候选牌 printed Energy 在 Finalize 比较的过滤谓词；合并的
+ *    ObjectFilter 实现（layers/filter.ts、参考内核 matchesFilter、chain/engine.ts 的
+ *    query 归一化）只识别 type/tags/controller/owner/zone/location/states，
+ *    energyLessThan/points 键被静默忽略，写成它会选中任意法术（近似实现）。
+ * 2. “ignoring its Energy cost”需要按 356.1.b.2 对实际选中的牌生成 base Energy=0、
+ *    Power 保留的 finalized cost plan；静态 IR 生成不出该计划，cost.printed / cost.pay /
+ *    cost.modify 未合入（RIFT-261）。
+ * 3. “Then recycle it”要把上一步真正打出的那张牌的对象引用链接出来；effect.play 的链接值
+ *    只有成功次数 played，没有对象引用（链/费用管线的结果绑定补齐）。
+ * [Ganking]（810）的 KeywordDef（RIFT-83）已合入，但展开的 continuous.movement 只被
+ * layers/rules 查询读取，卡牌/关键词展开→图层的注册接线未合入（RIFT-257）。
+ * 依赖：RIFT-261（费用管线）、动态 points 比较谓词与链上结果绑定、RIFT-257（绑定/展开消费）。
+ * 不近似实现。
  */
 const kaisaEvolutionary = {
   canonicalCardId: "card.hash-697cf91efe23c8a9d145276f047432baac8d3218d9975045d3e27ad7573275ec",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「a spell from your trash with Energy cost less than your points」需要在 Finalize 比较「候选牌的 printed Energy」与" +
-    "「能力控制者当前 points」的动态目标过滤（CR v1.5 4138–4155 的 Points；调研 condition.predicate / 356.x 费用过滤），" +
-    "当前 TargetSpec.filter 只能写静态值；「without paying its Energy cost」需要按 356.1.b.2 生成 base Energy=0、Power 保留的" +
-    " finalized cost plan（cost.printed / cost.pay 未合入，RIFT-89）；「Then recycle it」需要把真正打出的那张牌的对象引用" +
-    "链接出来，effect.play 当前只链接成功次数。Ganking 展开（RIFT-91，continuous.movement）也未合入。不近似实现。" +
-    "依赖：RIFT-89、RIFT-8x/90（condition.predicate 与目标过滤 / 结果绑定）、RIFT-91（Ganking 展开）。",
+    "三处缺口：(1)「a spell from your trash with Energy cost less than your points」需要 Finalize 期比较候选牌 printed Energy " +
+    "与能力控制者当前 Points（CR 4138–4155）的动态过滤谓词——合并的 ObjectFilter 实现（layers/filter.ts、参考内核 matchesFilter、" +
+    "chain/engine.ts 的 query 归一化）只识别 type/tags/controller/owner/zone/location/states，energyLessThan/points 键被静默忽略；" +
+    "(2)「without paying its Energy cost」需要按 356.1.b.2 对实际选中的牌生成 base Energy=0、Power 保留的 finalized cost plan，" +
+    "cost.printed / cost.pay / cost.modify 未合入（RIFT-261）；(3)「Then recycle it」需要链接真正打出的那张牌的对象引用，" +
+    "effect.play 的链接值只有成功次数。另：Ganking 的 KeywordDef（RIFT-83）已合入，但展开的 continuous.movement " +
+    "没有卡牌/关键词展开→图层的注册接线（RIFT-257）。effect.play / effect.recycle / choice.optional 与 conquer 时点已合入并有执行测试。" +
+    "依赖：RIFT-261、动态 points 比较谓词与结果绑定、RIFT-257。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "ganking" },
     {
@@ -82,7 +89,7 @@ const kaisaEvolutionary = {
                     // 356.1.b.2：只忽略 Energy（base Energy cost 置 0），Power 仍须按被
                     // 选牌的印刷费用支付 —— 后者只有结算时才知道，静态 IR 生成不出可支付
                     // 的 finalized 计划，因此这里的计划只是形状（本卡 judge-required，
-                    // RIFT-89 之前不得当作可执行费用）。
+                    // RIFT-261 之前不得当作可执行费用）。
                     cost: { kind: "constant", value: { finalized: true, energy: 0 } }
                   },
                   targets: [

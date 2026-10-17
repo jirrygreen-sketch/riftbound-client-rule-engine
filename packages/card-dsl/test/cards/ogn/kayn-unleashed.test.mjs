@@ -46,16 +46,20 @@ test("damage immunity records the intended twice-moved condition and a preventio
     right: { kind: "constant", value: 2 }
   });
   // "I don't take damage" prevents the damage event (438.1/438.7); an empty
-  // replacement body is the prevention shape, but no merged consumer turns it
-  // into an executable prevention, so the card stays judge-required.
+  // replacement body is the prevention shape consumed by the merged RIFT-260
+  // pipeline; the card stays judge-required because the "moved twice"
+  // condition cannot be evaluated from event history (see judgeReason).
   assert.deepEqual(replacement.with, []);
 });
 
 test.todo(
   "expand [Ganking] into an executable battlefield-to-battlefield movement permission once the movement " +
-    "system consumes continuous.movement (RIFT-83 keyword expansion + RIFT-91 layers)"
+    "system consumes continuous.movement and a card/keyword-expansion binding registers it (RIFT-83 " +
+    "KeywordDef and RIFT-258/259 continuous.movement are merged; RIFT-257 binding and the zones/movement " +
+    "consumer are still missing)"
 );
 test.todo(
   "count this unit's own Move events in the current turn inside a replacement condition; the closed Condition " +
-    "IR has no history form and ResolveContext.history is not reachable from a replacement condition (RIFT-90)"
+    "IR has no history form and ResolveContext.history is not reachable from a replacement condition, so the " +
+    "declared compare/count predicate (CR 438.7) cannot gate the prevention yet"
 );

@@ -24,7 +24,7 @@ test("ogn-150-298 Kraken Hunter: program validates and keeps identity", () => {
 test("ogn-150-298 Kraken Hunter: judgeReason cites the variable additional cost and linked discount", () => {
   assert.match(program.judgeReason, /spend-buff/);
   assert.match(program.judgeReason, /optionalAdditional/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /356\.4\.c/);
 });
 
@@ -73,10 +73,11 @@ test("ogn-150-298 Kraken Hunter: the merged Accelerate KeywordDef declares the o
 test.todo(
   "ogn-150-298 Kraken Hunter: 'you may spend any number of buffs as an additional cost' needs a " +
     "variable-count optional additional cost at Finalize (CR v1.5 356.4 / 203.x); the merged " +
-    "cost-plan optionalAdditional is a per-component boolean (cost/README.md), not an unbounded count."
+    "cost-plan optionalAdditional is a per-component boolean (cost/README.md), not an unbounded " +
+    "count, and cost.pay/cost.modify are not merged (RIFT-261)."
 );
 test.todo(
   "ogn-150-298 Kraken Hunter: 'Reduce my cost by [Body] for each buff you spend' needs a component " +
     "discount that reads the paid spend-buff count (CR v1.5 356.4.c); CostDiscount.amount only takes a " +
-    "static Expr today (RIFT-89 cost-plan workstream)."
+    "static Expr today (RIFT-261 cost-plan workstream)."
 );

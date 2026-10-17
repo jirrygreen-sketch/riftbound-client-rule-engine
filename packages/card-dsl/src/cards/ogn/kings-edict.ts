@@ -14,10 +14,11 @@ import type { CardProgram } from "../../ir/index.js";
  * primitives, and the missing pieces are rules-level, not cosmetic:
  * - the choosers are the OTHER players, in turn order starting with the next
  *   player. `ResolveContext.choose` (contract 3.6) asks one chooser per request
- *   and the card cannot name runtime player ids; there is no merged primitive or
- *   control node that iterates "each other player" in turn order, and
- *   `choice.optional` / `choice.mode` choosers are single static ids (355.18
- *   leaves these resolution-time choices to the engine).
+ *   and the card cannot name runtime player ids; the merged interpreter control
+ *   nodes are choice.optional / choice.mode / choice.order only, all with
+ *   static chooser ids, and events/pipeline.ts turnOrder is engine-internal. No
+ *   merged primitive or control node iterates "each other player" in turn order
+ *   (355.18 leaves these resolution-time choices to the engine).
  * - "that hasn't been chosen for this spell" is a per-spell memory across the
  *   other players' choices; no primitive exposes a set that accumulates the
  *   previous choosers' picks, and the IR has no per-spell exclusion set.
@@ -33,11 +34,12 @@ const kingsEdict = {
   status: "judge-required",
   judgeReason:
     "缺多玩家顺序选择原语：chooser 是「从下一位玩家开始，每个其他玩家」，" +
-    "契约 3.6 的 choose 只支持单个 chooser，choice.optional/choice.mode 的 chooser 是静态 id，" +
-    "无法按回合顺序遍历其他玩家；" +
+    "契约 3.6 的 choose 只支持单个 chooser；合并解释器只有 choice.optional/choice.mode/choice.order 三个控制节点，" +
+    "chooser 都是静态 id，events/pipeline.ts 的 turnOrder 是引擎内部状态，无法按回合顺序遍历其他玩家；" +
     "「hasn't been chosen for this spell」需要跨选择累计的在本法术内排除集合，当前没有原语或 IR 记录它；" +
     "被选单位由对手在结算时选择，按 355.10.e 不是 target 而是 pick。" +
-    "依赖：RIFT-9 target.player/多玩家选择协调与 RIFT-90 目标计划；不近似实现。",
+    "effect.kill（含 picks 来源）已合入并有执行测试；依赖：多玩家选择协调原语（RIFT-9 的 target.player 原型）" +
+    "与 RIFT-90 目标计划；不近似实现。",
   abilities: [
     {
       kind: "play",
