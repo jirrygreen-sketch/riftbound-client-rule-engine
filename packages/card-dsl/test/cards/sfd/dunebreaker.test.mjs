@@ -9,6 +9,7 @@ import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 
 const CARD_ID = "card.hash-85f0797777f47ae8cbaf1fc45bef08bec2cab5e31a48fa3cff8568018fc7ff8d";
 
@@ -33,7 +34,8 @@ test("sfd-027-221 Dunebreaker: identity, ruleset, status and verbatim text", () 
 });
 
 test("sfd-027-221 Dunebreaker: judgeReason names the replacement-enter and hand-size gaps", () => {
-  assert.match(program.judgeReason, /RIFT-260/);
+  // RIFT-260 landed; the reason must name the concrete remaining matcher gap.
+  assert.doesNotMatch(program.judgeReason, /RIFT-260/);
   assert.match(program.judgeReason, /matchesEnterAction/);
   assert.match(program.judgeReason, /condition/);
   assert.match(program.judgeReason, /383\.4\.d\.2\.a/);
@@ -145,6 +147,58 @@ test("sfd-027-221 Dunebreaker golden: the merged replacement binding really rewr
   assert.equal(landed.exhausted, false);
   assert.equal(f.engine.pipeline.events.some((event) => event.timingPoint === "object-readied"), false);
   bound.cancel();
+});
+
+test("sfd-027-221 Dunebreaker: the merged entry matcher still ignores the hand-size condition", () => {
+  // CR 369.3: "If you have two or fewer cards in your hand" gates the entry
+  // replacement. The merged matcher returns before evaluating the condition,
+  // so a three-card hand still enters ready instead of exhausted.
+  // The fixture holds every listed card, so Dunebreaker plus two others is a
+  // three-card hand and the printed "two or fewer" condition is false.
+  const f = fixture({ cards: [{ id: "h1", types: ["unit"] }, { id: "h2", types: ["unit"] }, { id: "dunebreaker", types: ["unit"] }] });
+  assert.equal(f.kernel.query({ zone: "hand" }).length, 3);
+  // chain/engine.ts normalizes the declared owner:"self" selector to the
+  // ability controller, so the printed gate is evaluated against three cards
+  // in the controller's hand and is false for this state.
+  const handCount = f.kernel.query({ zone: "hand", owner: "A" }).length;
+  assert.equal(handCount, 3);
+  assert.equal(handCount <= 2, false);
+
+  const bound = bindReplacement(
+    enterReady,
+    f.kernel.ref("dunebreaker"),
+    {
+      host: {
+        object: ref => f.kernel.object(ref),
+        objects: () => f.kernel.objects,
+        context: f.host.context
+      },
+      pipeline: f.engine.pipeline
+    }
+  );
+  f.engine.execute(f.card("dunebreaker", { kind: "unit", body: [] }));
+  resolveAll(f.engine);
+
+  const landed = f.kernel.getObject("dunebreaker");
+  assert.equal(landed.zone, "board");
+  // The condition is false, yet the merged matcher rewrote the orientation.
+  assert.equal(landed.exhausted, false);
+  bound.cancel();
+});
+
+test("sfd-027-221 Dunebreaker: the merged hold payload still carries no object for the source:self filter", () => {
+  // CR 383.4.d.2.a: "When I hold" must identify this unit at the held
+  // battlefield. turn/flow.ts emits only player + details.battlefieldId, and
+  // the translated source:"self" filter requires event.object, so the real
+  // payload never matches.
+  assert.equal(
+    matchesTriggerEvent(
+      { event: "hold", filter: { source: "self" } },
+      { timingPoint: "hold", kind: "scoring", player: "A", details: { battlefieldId: "bf-1" } },
+      "A"
+    ),
+    false
+  );
 });
 
 test.todo(

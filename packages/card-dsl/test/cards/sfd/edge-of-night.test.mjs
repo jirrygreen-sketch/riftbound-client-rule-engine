@@ -10,6 +10,7 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 const ENGINE = new URL("../../../../engine-core/dist/", import.meta.url);
 const { keywordDefinitionsById } = await import(new URL("effects/keywords/registry.generated.js", ENGINE));
 const { runInstruction, world } = await import(new URL("effects/testing/index.js", ENGINE));
+const { translateInstructionTargets } = await import(new URL("programs/filters.js", ENGINE));
 const attach = (await import(new URL("effects/instructions/effect.attach.js", ENGINE))).default;
 
 const CANONICAL = "card.hash-8c103a7762e84199cb05a20d7107bd2ceb136e632e7df30beaaf4e7629b544da";
@@ -54,7 +55,12 @@ test("sfd-139-221 Edge of Night: identity, ruleset, status, judgeReason and verb
   // The judgeReason names the three real gaps and their dependencies.
   assert.match(program.judgeReason, /Hidden/);
   assert.match(program.judgeReason, /811\.1\.d/);
-  assert.match(program.judgeReason, /RIFT-357/);
+  // RIFT-357 landed but only on the interpreter/target-plan side: the printed
+  // "here" anchor still cannot reach a TargetSpec, and the refreshed reason
+  // must name that specific gap rather than the landed task number.
+  assert.doesNotMatch(program.judgeReason, /RIFT-357/);
+  assert.match(program.judgeReason, /invalid-location-kind/);
+  assert.match(program.judgeReason, /sameLocationAs/);
   assert.match(program.judgeReason, /params\.cost/);
   assert.match(program.judgeReason, /equip/);
   assert.equal(program.sourceText, SOURCE_TEXT);
@@ -147,6 +153,59 @@ test("sfd-139-221 Edge of Night golden: a stale host is ignored instead of being
   assert.equal(kernel.getObject("edge-of-night").attachedTo, null);
 });
 
+test("sfd-139-221 Edge of Night: the printed 'here' anchor is still refused at both target-side spellings", () => {
+  // The refreshed judgeReason must be reproducible, not asserted from prose.
+  // 811.1.d.3 / 359.3.f.1: "here" is this card's battlefield. RIFT-357 merged
+  // the symbolic location selector into the interpreter and target-plan
+  // resolver, but the target-side spellings are still closed:
+  //  - TargetSpec.location goes through validateTarget -> validateLocationFilter,
+  //    whose `type`/`kind` predicates only accept base/battlefield/any;
+  //  - the sameLocationAs filter anchor is refused by the production target
+  //    translation in programs/filters.ts.
+  const symbolic = validateCardProgram({
+    canonicalCardId: CANONICAL,
+    rulesetVersion: "core-1.5",
+    status: "executable",
+    sourceText: SOURCE_TEXT,
+    abilities: [{
+      ...triggered,
+      body: [{
+        ...attachOnPlay,
+        targets: [{
+          ...attachOnPlay.targets[0],
+          filter: { type: "unit", controller: "self", zone: "board" },
+          location: { kind: "source-location" }
+        }]
+      }]
+    }]
+  });
+  assert.equal(symbolic.ok, false);
+  assert.deepEqual(
+    symbolic.issues.map((issue) => [issue.path, issue.code]),
+    [["$.abilities[0].body[0].targets[0].location.kind", "invalid-location-kind"]]
+  );
+
+  assert.throws(
+    () => translateInstructionTargets(triggered.body),
+    (error) => /Unsupported filter field sameLocationAs/.test(error.message)
+  );
+});
+
+test("sfd-139-221 Edge of Night golden: the merged attach still ignores the printed 'here' restriction", () => {
+  // The declared args and the merged effect.attach are real, but nothing in the
+  // merged binding restricts the host to this card's battlefield: an equally
+  // locked unit at another battlefield is attached just the same. That is the
+  // exact gap the refreshed judgeReason names, so the card stays judge-required.
+  const elsewhere = edgeWorld();
+  const unenforced = runInstruction(
+    attach,
+    { host: attachOnPlay.args.host },
+    { world: elsewhere, targets: { "edge-of-night.controlled-unit-here": [elsewhere.ref("ally-elsewhere")] } }
+  );
+  assert.equal(unenforced.result.status, "executed");
+  assert.deepEqual(elsewhere.getObject("edge-of-night").attachedTo, elsewhere.ref("ally-elsewhere"));
+});
+
 test("sfd-139-221 Edge of Night: the merged Equip expansion is valid EffectIR for this card", () => {
   const definition = keywordDefinitionsById.get("Equip");
   assert.ok(definition, "effects/keywords/Equip.ts must be registered");
@@ -170,8 +229,9 @@ test.todo(
 test.todo(
   "sfd-139-221 Edge of Night: the printed 811.1.d.1/811.1.d.3 restrictions (a hidden permanent " +
     "must be played to that battlefield, and play-effect targets must come from it) need the " +
-    "Facedown Zone plus a runtime Location binding (RIFT-357); the sameLocationAs \"here\" anchor " +
-    "needs support in programs/filters.ts target translation."
+    "Facedown Zone plus a hidden-battlefield binding for both the play destination and the " +
+    "target range; the attach instruction's own \"here\" anchor is still refused at both " +
+    "target-side spellings (evidence above)."
 );
 test.todo(
   "sfd-139-221 Edge of Night: paying the printed Chaos Equip cost needs the \"equip\" payment " +

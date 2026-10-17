@@ -27,8 +27,14 @@
  *   811.1.c.3），card-played 载荷也无法判定打出前是否面朝下。cost/cost-plan.ts 的
  *   buildHiddenCostPlan 只覆盖费用侧（hide = 1 点任意域 Power，play = 忽略 base resources）。
  * - 从面朝下打出的入场位置与目标限制（811.1.d.1 / 811.1.d.3）仍需 Facedown
- *   位置绑定（RIFT-357）；programs/filters.ts 的目标翻译不接受 sameLocationAs，
- *   而 programs/statics.ts 的静态过滤器已支持该锚点，不能把两条路径混为一谈。
+ *   位置绑定：需要知道隐藏时所在的战场，并据此限制可打出的战场与打出效果的目标范围。
+ *   RIFT-357 只把符号位置选择符接进了解释器与 target-plan 解析器；目标侧仍不可用：
+ *   ir/validation.ts 的 validateTarget 只把 TargetSpec.location 当 LocationFilter
+ *   处理（``type`` 仅接受 base/battlefield/any），TargetSpec.location 写
+ *   `{ kind: "source-location" }` 实测报 invalid-location-kind；而 ``filter`` 里的
+ *   sameLocationAs 锚点被 programs/filters.ts 的 translateObjectFilter 直接拒绝
+ *   （Unsupported filter field sameLocationAs）。因此正文仍按原锚点记录，不改成
+ *   会在绑定期抛错、或会退化成"任意战场"的写法。
  * - Equip 的启动费用仍不可支付：已合入 Equip 展开声明 payments: [{ kind: "equip" }]，
  *   而 cost/plan-values.ts 的 readCost 没有该支付种类，buildCostPlan 实测抛
  *   CostPlanError（reason "judge-required"，message "Unsupported payment kind: equip"）。
@@ -43,7 +49,12 @@ export default {
   judgeReason:
     "（1）Hidden 的 cost.hidden 尚无 Hide 行动、Facedown 存储及下一回合打出许可的运行时消费者（CR 811.1.b/811.1.c）；" +
     "card-played 载荷也未提供打出前区域，无法约束 play this from face down；" +
-    "（2）811.1.d.1/811.1.d.3 的战场绑定仍缺（位置选择 RIFT-357），programs/filters.ts 的目标翻译不接受 sameLocationAs；" +
+    "（2）即使打出前区域可判定，811.1.d.1/811.1.d.3 仍要求已知隐藏时所在的战场并据此限制可打出的战场与目标范围，" +
+    "而 Facedown 位置绑定不存在；" +
+    "TargetSpec 侧的目标位置限制同样未接通：ir/validation.ts 的 validateTarget 把 TargetSpec.location 当 LocationFilter 校验" +
+    "（type 仅接受 base/battlefield/any），写 { kind: \"source-location\" } 实测报 invalid-location-kind；" +
+    "而 filter 里的 sameLocationAs 锚点被 programs/filters.ts 的 translateObjectFilter 直接拒绝（Unsupported filter field sameLocationAs），" +
+    "目标翻译只保留 controller/owner 等标量。因此附着指令的 \"here\" 仍只能按原锚点记录，不改写成绑定即抛错的写法；" +
     "（3）Equip 的印刷 Chaos 费用未传入 KeywordDef.params.cost，Equip.expand 仍使用费用计划不支持的 equip 支付种类（818.1.c.2）。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
@@ -68,7 +79,8 @@ export default {
             {
               id: "edge-of-night.controlled-unit-here",
               // "a unit you control here"：控制器用冻结的 PlayerSelector "self"，"here"
-              // 用契约 3.6 的 sameLocationAs 锚点；两者的运行时绑定见 judgeReason。
+              // 用契约 3.6 的 sameLocationAs 锚点；目标侧对该锚点与符号位置
+              // 选择符的绑定都尚未接通，见 judgeReason 第 2 点。
               filter: {
                 type: "unit",
                 controller: "self",
