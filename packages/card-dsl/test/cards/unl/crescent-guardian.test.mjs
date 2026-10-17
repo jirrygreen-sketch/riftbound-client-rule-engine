@@ -1,4 +1,6 @@
-// Scenario execution evidence: ../templates/static-replacement-effect-ready-663.test.mjs (blocked full-card candidates).
+// Scenario execution evidence: ../templates/static-replacement-effect-ready-677.test.mjs
+// (one row per card; the printed expectations the merged engine cannot produce
+// yet are reported there as TODO rows, never as a pass).
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -58,8 +60,10 @@ test("unl-122-219 Crescent Guardian: the printed power is null, and the extra co
   assert.equal(additionalCost.effect.optional, true);
   assert.equal(additionalCost.effect.appliesTo, "self");
   assert.equal(additionalCost.effect.stage, "optional-additional");
+  // RIFT-677: the merged cost vocabulary reads a Power payment's domain list
+  // from allowedDomains (cost/plan-values.ts) and blocks any other field.
   assert.deepEqual(additionalCost.effect.payments, [
-    { kind: "power", amount: { kind: "constant", value: 1 }, domain: "Chaos" }
+    { kind: "power", amount: { kind: "constant", value: 1 }, allowedDomains: ["Chaos"] }
   ]);
   assert.equal(additionalCost.effect.energy, undefined);
 });

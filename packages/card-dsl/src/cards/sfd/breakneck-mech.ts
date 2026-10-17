@@ -58,7 +58,7 @@ export default {
     "计数恒为 0；现按引擎词汇改写为 tags: [\"Mech\"] 加 exclude: \"self\" 锚点（契约 3.6），\"another Mech\" 的计数在" +
     "解释器与链的 query 归一化下都正确（golden 用合并的 evaluateCondition 真实求值）。" +
     "另按 CR 133.3.a/133.8 修正授予范围：Mech 是标签，不额外限制为 unit。" +
-    "执行证据：test/cards/templates/static-replacement-effect-ready-663.test.mjs；仅覆盖已支持部分，整卡与条件边界仍阻塞。" +
+    "执行证据：test/cards/templates/static-replacement-effect-ready-677.test.mjs；仅覆盖已支持部分，整卡与条件边界仍阻塞。" +
     "依赖：target.tax 图层派生、Ganking permission 形状调和、入场替代 condition 求值。",
   abilities: [
     {
