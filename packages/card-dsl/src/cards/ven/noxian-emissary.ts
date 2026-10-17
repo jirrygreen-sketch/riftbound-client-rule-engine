@@ -26,39 +26,20 @@ import type { CardProgram } from "../../ir/index.js";
  * - 187.1：Recruit 是 1 Might 的单位 token；契约 3.6 的 create-token 只允许单位
  *   进入控制者自己的 Base，对应原文 “to your base”。
  *
- * status = judge-required（四处缺口均不近似实现）：
- * 1. keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef（已合入的
- *    26 个关键词里没有它们），827.1.c.1 的启动费用与“仅当未 Empowered 时”限制、
- *    828.1.b.1 的依赖能力都无法展开（依赖新的 Empower/Empowered 关键词任务）；
- * 2. 没有 Empowered 状态谓词：442.1.a 的二元状态不在 ObjectSnapshot / Condition
- *    里，触发过滤里的 `empowered: true` 只是描述性记录（严格触发器校验会以
- *    unknown-field 拒绝，RIFT-257 的 translateTriggerFilter 同样以 unsupported 拒绝）；
- * 3. effects/keywords/Deathknell.ts 展开出的触发能力引用 trigger.leave 原语，但
- *    effects/instructions/ 下没有该文件（与 RIFT-154 的 kogmaw-caustic 同型缺口）；
- * 4. 727.1.c.1 的“依赖能力在宿主死亡瞬间仍 Active”判定与 808.1.d.3 的换区前
- *    最后已知信息没有卡牌可用路径（RIFT-257 的 binder 只把 static/replacement
- *    交给调用方，关键词依赖能力的门控没有消费方）。
- * “Play two 1 [M] Recruit unit tokens to your base” 半段已合入（effect.token 的
- * mode "play"），golden 用真实解释器 + 参考内核执行。
+ * status = judge-required：Empower/Empowered 的关键词展开和印刷费用绑定仍缺，
+ * Empowered 状态还不能由 Condition 或死亡前的最后已知快照查询，因此无法判定
+ * 727.1.c.1 / 828.1.b.1 的依赖能力。object-killed 生产、trigger 注册与 LKI 捕获已经存在，
+ * 不再把通用 Deathknell 展开的 trigger.leave 缺口当成本显式死亡触发的依赖。
+ * effect.token 的 mode play 半段由 golden 真实执行。
  */
 export default {
   canonicalCardId: "card.hash-f94f709693f78579dcd97c1ebdba7859c74403424ef6cd195238e47541869fbf",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处缺口：(1) keywords/registry.generated.ts 没有 Empower / Empowered 的 KeywordDef（已合入的 26 个" +
-    "已注册关键词里没有它们），" +
-    "827.1.c.1 的“1 Energy + 1 Order Power：Empower me，仅当未 Empowered 时启动”与 828.1.b.1 的" +
-    "依赖能力（仅当 Empowered 时获得后面的 Deathknell 效果）都无展开实现；(2) 没有 Empowered 状态" +
-    "谓词——442.1.a 的二元状态不在 ObjectSnapshot / Condition 里，触发过滤中的 `empowered: true`" +
-    "只是描述性记录（严格触发器校验以 unknown-field 拒绝，RIFT-257 的 translateTriggerFilter 同样按 " +
-    "unsupported filter field 拒绝）；(3) Deathknell 展开依赖 " +
-    "trigger.leave 原语，effects/instructions/ 下没有该文件（与 kogmaw-caustic 同型缺口）；" +
-    "(4) 727.1.c.1 的“依赖能力在宿主死亡时仍 Active”判定与 808.1.d.3 的换区前最后已知信息没有卡牌" +
-    "可用路径（RIFT-257 的 binder 只转交 static/replacement，依赖能力门控无消费方）。依赖新的 " +
-    "Empower/Empowered 关键词任务、RIFT-82（Deathknell / trigger.leave）与 " +
-    "RIFT-87（条件/谓词）。“Play two 1 :rb_might: Recruit unit tokens to your base” 半段用已合入的 " +
-    "effect.token（mode play）真实执行。",
+    "当前缺口：(1) Empower/Empowered 关键词的展开和印刷的 1 Energy + 1 Order Power 费用绑定仍不可用（827.1.c.1 / 828.1.b.1）。" +
+    "(2) Condition 与 ObjectSnapshot 没有可查询的 Empowered 状态，无法在宿主死亡前的最后已知信息上判定依赖能力是否 Active（442.1.a、727.1.c.1、808.1.d.3）；描述性 empowered:true 不能代替该门控，需 RIFT-359 条件谓词及状态查询支持。" +
+    "object-killed 的事件生产、触发注册和 LKI 捕获已可用，effect.token（mode play）已真实执行；不近似实现。",
   abilities: [
     {
       // 印刷费 1 Energy + 1 Order Power 见 judgeReason；KeywordAbility 没有 params

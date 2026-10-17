@@ -18,11 +18,10 @@ import type { CardProgram } from "../../ir/index.js";
  *   次数，没有“某玩家的第 N 回合”范围（同已合入的 sfd/forgotten-monument 的判定）。
  *
  * status = judge-required（两处缺口均不近似实现）：
- * 1. 没有“某玩家第 N 回合”的可求值谓词（context 无回合序数读数；也协议/内核没有把该序数暴露
+ * 1. 没有“某玩家第 N 回合”的可求值谓词（context 无回合序数读数；协议/内核也没有把该序数暴露
  *    给卡牌侧 Condition）；
- * 2. Finalize 侧没有 Requirement 的消费方：chain/engine.ts 的 Finalize 只吃调用方传入的
- *    requirements/restrictions（Condition 列表），没有任何模块把卡牌程序的 play 要求接进该流程
- *    （RIFT-89/RIFT-90 的打出计划接线）。
+ * 2. translateLegalityCondition 没有把自定义的 not-before-own-turn Requirement 转成可执行 Condition；
+ *    现有打出计划已能转交标准 requirements/restrictions，但没有这个回合序数适配器。
  * 本文件按契约 3.1 的 PlayAbility 形状记录该要求（descriptive kind + 常量“第 3 回合为止”），
  * 空 body 表示该牌没有任何指令；不写成恒真的 Condition、也不把该禁止改成任何可执行近似。
  */
@@ -34,10 +33,10 @@ export default {
     "两处缺口：(1)「your first, second, or third turns」需要按玩家的回合序数谓词——冻结的 Condition" +
     "（always/never/compare/all/any/not/expression）与 HistoryQuery 的封闭字段（scope/action/timingPoint/player/object）" +
     "都只计数动作/时点，没有“某玩家的第 N 回合”范围（同已合入的 sfd/forgotten-monument 判定）；" +
-    "(2) Finalize 侧没有 play 要求的消费方——chain/engine.ts 只消费调用方传入的 requirements/restrictions，" +
-    "没有把卡牌程序的 PlayAbility 要求接进打出校验的路径（RIFT-89/RIFT-90 的打出计划接线）。" +
+    "(2) 打出计划虽已转交标准 requirements/restrictions，但 translateLegalityCondition 没有 " +
+    "not-before-own-turn 的回合序数适配器，Finalize 因而仍不能消费这条要求。" +
     "程序按契约 3.1 的 PlayAbility 记录该 Requirement（空 body，因为该牌没有其它指令），不写成恒真条件、" +
-    "也不把该禁止改成任何近似实现。依赖：回合序数谓词与打出计划的 Requirement 接线。",
+    "也不把该禁止改成任何近似实现。依赖：回合序数谓词与 not-before-own-turn 的规则适配器。",
   abilities: [
     {
       kind: "play",

@@ -23,17 +23,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "you may return …"：契约 3.9 的可选效果，写成 choice.optional 并把被选指令包在
  *   body 里。
  *
- * status = judge-required（两处缺口，均不近似实现）：
- * 1. 「You may play me to an open battlefield」需要打出位置许可的消费方：
- *    "play-location-permission" 只有卡数据声明，layers / Make Relevant Choices
- *    （CR 355.2.a/355.2.b；open = 170.11.c）没有读取实现，也没有把相对控制者的
- *    LocationRef（"your base" / "a battlefield"）绑定到运行时的路径。
- * 2. 「non-Dragon」的否定 tag 过滤缺失：ObjectFilter 与各匹配器只支持正向 tags/tag，
- *    没有排除 tag 的字段，只能用扩展键 excludeTags 声明占位（其它卡同样用 other /
- *    isToken / mightLte 这类占位；当前匹配器不读该键，只写 type: unit 会把 Dragon
- *    一并匹配），因此返回半段不得宣称可执行。
- * 返回动作本身（effect.zone 的 hand 目的地 + owner 路由）可用已合入原语执行，golden 以
- * 真实解释器（锁定 TargetSpec）覆盖该子效果，并把整卡的两处缺口保留为 test.todo。
+ * status = judge-required：仍缺 play-location-permission 的静态图层映射和打出位置
+ * Finalize 消费（355.2.b，RIFT-357）、non-Dragon 的否定标签过滤（133.8），以及
+ * choice.optional 内嵌套 TargetSpec 的 Finalize 生命周期。
+ * effect.zone 回手与 owner 路由已有真实执行证据；不以手动锁定目标证明整卡可执行。
  */
 const abilities: Ability[] = [
   {
@@ -113,15 +106,12 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1) 「You may play me to an open battlefield」需要打出位置许可的消费者：" +
-    "play-location-permission 目前只有卡数据声明，layers / Make Relevant Choices（355.2.a/355.2.b；" +
-    "open = 未占据且未控制，170.11.a/170.11.c）没有读取实现，也没有把相对控制者的 LocationRef " +
-    "（controller base / 该控制者控制的战场）绑定到运行时的路径。(2) 「non-Dragon」的否定 tag 过滤缺失：" +
-    "ObjectFilter 与各匹配器只有正向 tags/tag（133.8/133.8.a），只能按占位约定写扩展键 excludeTags" +
-    "（当前匹配器不读，只写 type: unit 会把 Dragon 一并匹配，故不得放行整卡）。依赖：RIFT-91" +
-    "（layers-continuous 的位置许可）、RIFT-90（打出位置校验）、否定 tag 过滤的契约增补。" +
-    "「return … to its owner's hand」本体（355.7/355.9.a 的目标选择 + effect.zone 的 hand 目的地、" +
-    "126 的 owner 路由）用已合入原语真实执行，golden 覆盖接受 / 拒绝与 owner 路由。",
+    "三处当前缺口：(1) play-location-permission 缺 programs/statics.ts 的图层映射与打出 " +
+    "Finalize 的位置许可消费（355.2.b；open = 未占据且未控制，170.11.c；RIFT-357）。" +
+    "(2) non-Dragon 需要否定标签过滤（133.8）：当前 ObjectFilter 与 programs/filters.ts " +
+    "只支持正向 tags/tag，描述性的 excludeTags 不能提供合法目标集合，需契约增补。" +
+    "(3) TargetSpec 位于 choice.optional 的 body 内，仍需嵌套目标的 Finalize 锁定与重验。" +
+    "effect.zone 的 hand 目的地与 owner 路由（126/108.7）已由解释器真实执行，测试覆盖接受、拒绝与失效目标；不近似实现。",
   abilities,
   sourceText:
     "You may play me to an open battlefield.\n" +

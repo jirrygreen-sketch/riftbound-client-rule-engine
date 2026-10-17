@@ -200,11 +200,11 @@ test("ven-115-166 Ocean Drake golden: a stale target ignores only the return ins
 test.todo(
   "ven-115-166 Ocean Drake: 'You may play me to an open battlefield' reaches the Make Relevant Choices / " +
     "Finalize play-location permission (CR 355.2.a/355.2.b; open = unoccupied + uncontrolled, 170.11.a/170.11.c) " +
-    "— the layers/play-location consumer is not merged (RIFT-91 / RIFT-90)"
+    "— programs/statics.ts needs a play-location-permission mapping and the play Finalize consumer (RIFT-357)"
 );
 
 test.todo(
   "ven-115-166 Ocean Drake: 'a non-Dragon unit' filters by excluding the Dragon tag (CR 133.8/133.8.a) — " +
     "ObjectFilter and every matcher only support positive tags, so the placeholder excludeTags key is not read " +
-    "and a Dragon would be matched (contract change request)"
+    "(contract change request); nested optional targets also need the Finalize target lifecycle"
 );

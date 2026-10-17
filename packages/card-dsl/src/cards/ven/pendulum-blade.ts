@@ -15,17 +15,10 @@ import type { CardProgram } from "../../ir/index.js";
  *   成为附着动作的 Top-Most Card。
  * - 135.2.e.4 / 163.2.b：印刷的 :rb_rune_fury: 是 1 点 Fury Power（本卡无能量费用）。
  *
- * status = judge-required（缺可支付的费用路径与关键词接线，不近似实现）：
- * 1. 没有已合入路径把 CardProgram 的 keyword 能力接进 effects/keywords/Equip.ts 并
- *    在链上形成启动能力（契约 3.5 的卡牌程序 → 关键词展开 → 时点/链接线）；契约 3.8.3
- *    要求的 KeywordDef.expand 印刷费用入口（params.cost）尚未实现，已合入的 expand
- *    只接受 value / host，印刷的 1 Fury Power 无法传进去。
- * 2. 已合入的 Equip 展开声明 cost.payments: [{ kind: "equip", value: source }]，
- *    cost/plan-values.ts 的 readCost 对未知支付种类直接 blocked —— golden 实测
- *    buildCostPlan 抛 CostPlanError（reason "judge-required"，message
- *    "Unsupported payment kind: equip"）。
- * 依赖：RIFT-89 之后的 Equip 费用支付支持与 RIFT-120 的关键词/触发接线。
- * 已合入的 effect.attach 半段由 golden 用真实原语执行；费用不可支付，故整卡不标 executable。
+ * status = judge-required：卡牌关键词展开与 describeActivate 接线已存在，effect.attach 可真实执行。
+ * 仍缺 KeywordAbility → expand params.cost 的印刷费用传递，以及 Equip.ts 对该费用的消费；
+ * 展开仍声明 payments:[{kind:"equip"}]，费用计划没有对应支付语义（818.1.c）。
+ * 不把 Gear 的打出费用当成 Equip 费，也不把 Equip 降级成裸 effect.attach。
  */
 /**
  * 818.1.c：印刷的 Equip 费用是 1 点 Fury Power；value 记印刷资源符号数，costDomain 记该
@@ -45,15 +38,10 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Equip] 的印刷费用（1 点 Fury Power，818.1.c / 135.2.e.4）目前不可支付，且关键词无法接线：" +
-    "(1) 没有已合入路径把 CardProgram 的 keyword 能力经 effects/keywords/Equip.ts 展开后注册为链上的启动能力" +
-    "（契约 3.5 的卡牌程序→关键词→时点/链接线未合入），契约 3.8.3 要求的 KeywordDef.expand 输入 " +
-    "params.cost 也还没有落进已合入的 KeywordDef 签名，印刷费用无法传给展开；" +
-    "(2) 已合入的 Equip 展开声明 cost.payments: [{ kind: \"equip\", value: source }]，" +
-    "cost/plan-values.ts 的 readCost 对未知支付种类直接 blocked：golden 实测 buildCostPlan 抛 " +
-    "CostPlanError（reason \"judge-required\"，message \"Unsupported payment kind: equip\"）。" +
-    "依赖 RIFT-89 之后的 Equip 费用支付支持与 RIFT-120 的关键词接线；不近似实现" +
-    "（不把 Equip 降级成裸 effect.attach）。已合入的 effect.attach 半段由 golden 真实执行。",
+    "[Equip] 的印刷费用（1 点 Fury Power，818.1.c / 135.2.e.4）目前不可支付：" +
+    "(1) KeywordDef.expand 的 params.cost 签名已存在，但 programs/keywords.ts 没有从 KeywordAbility 传递印刷费用，Equip.ts 的 expand 也未读取 params.cost；" +
+    "(2) 展开仍声明 payments:[{kind:\"equip\"}]，cost/plan-values.ts 没有该支付种类的语义，无法得到可支付的 1 Fury Power 计划。" +
+    "activationAbilities/describeActivate 已接上关键词展开，effect.attach 半段由 golden 真实执行；不近似实现。",
   abilities: [equip],
   sourceText:
     "[Equip] :rb_rune_fury: (:rb_rune_fury:: Attach this to a unit you control.)"

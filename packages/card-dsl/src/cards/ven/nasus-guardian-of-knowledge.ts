@@ -29,11 +29,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * 结构说明：引用的都是契约 3.6 的符号选择器与封闭时点，不写运行时 ObjectRef、
  * 不自己推进回合、不手改符文状态。
  *
- * 复核（RIFT-337）：RIFT-257 的卡牌触发注册已合入（triggerRegistrations 把
- * CardProgram 的 triggered 能力注册到 EventPipeline，translateTriggerFilter 逐字段
- * 翻译过滤器、unsupported 字段直接判 judge-required），因此“触发怎么注册”不再是
- * 缺口；仍缺的是 sameLocationAs（“here”）：它在翻译层被判为 unsupported filter
- * field（fail closed），运行时事件匹配器也不识别该锚点。
+ * 复核：triggerRegistrations 已把 CardProgram 的 triggered 能力接入 EventPipeline，
+ * per-turn frequencyKey 也会消费 TriggerSpec.once；仍缺的是 sameLocationAs（“here”）：
+ * 它在翻译层被判为 unsupported filter field（fail closed），运行时事件匹配器也不识别
+ * 该锚点。
  */
 const abilities: Ability[] = [
   {
@@ -71,15 +70,15 @@ export default {
   status: "judge-required",
   judgeReason:
     "触发条件里的“here”无法可靠判定：契约 3.6 的 ObjectFilter 有 sameLocationAs 锚点，" +
-    "但 RIFT-257 的卡牌触发注册链路（triggerRegistrations → translateTriggerFilter → " +
-    "translateObjectFilter）只接受白名单字段，sameLocationAs 会被判为 unsupported filter field " +
+    "但 triggerRegistrations → translateTriggerFilter → translateObjectFilter 只接受白名单字段，" +
+    "sameLocationAs 会被判为 unsupported filter field " +
     "而拒绝注册（fail closed，不会退化成“任意位置”），同时时点事件 filter 的运行时匹配走 " +
     "events/pipeline-match.ts 的 matchesTriggerEvent / matchesTriggerObject，它只识别 " +
     "objectId/cardId/type/controller/owner/" +
     "zone/states/tags/characteristics，不识别 sameLocationAs，也没有把“事件对象的 location 与来源 " +
     "location 比较”的路径；" +
     "同时 808.1.d.3 要求先记录来源位置再处理触发，死亡事件虽携带 last-known 快照，却没有把该位置交给" +
-    "卡牌条件的通道。“Once each turn”的 per-turn 寿命（383.3.e.1、契约 TriggerSpec.once，RIFT-120 的 " +
+    "卡牌条件的通道。“Once each turn”的 per-turn 寿命（383.3.e.1、契约 TriggerSpec.once，" +
     "frequencyKey 已消费）与 effect.channel 1 rune exhausted（431.1/431.2.a，已合入）本身可用；" +
     "不近似实现：不用“任意敌方单位死亡”替代“这里”，也不放宽 once-per-turn。" +
     "依赖：事件匹配器的 sameLocationAs/位置锚点扩展（契约变更请求）。",

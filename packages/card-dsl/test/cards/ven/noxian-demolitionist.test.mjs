@@ -61,9 +61,9 @@ test("ven-080-166 Noxian Demolitionist: identity, ruleset, status, judgeReason a
   assert.equal(cardRegistryById.get(CANONICAL), program);
   // README 第 2 节：judgeReason 必须写明缺哪个时点/谓词与依赖任务。
   assert.match(program.judgeReason, /conquer/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /Finalize/);
   assert.match(program.judgeReason, /Energy cost/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /choice\.optional/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -220,13 +220,11 @@ test("ven-080-166 golden: the merged kill primitive re-checks the locked gear re
 });
 
 test.todo(
-  "ven-080-166 Noxian Demolitionist: the conquer trigger runs end to end (Conquer Effect → chain) — needs " +
-    "scoring → chain/events conquer emission and a CardProgram TriggerRegistration subscriber (RIFT-76/RIFT-120, " +
-    "contract §7.2 batch 5)"
+  "ven-080-166 Noxian Demolitionist: enforce Energy cost <= host effective Might in the Finalize legal-target " +
+    "set (355.9.b / 143.2.a); a resolution-time condition cannot replace the dynamic target predicate (RIFT-359)"
 );
 
 test.todo(
-  "ven-080-166 Noxian Demolitionist: the 'Energy cost no more than my Might' targeting restriction is enforced at " +
-    "Finalize (355.9.b, 143.2.a effective Might vs the catalog Energy cost) once a dynamic target predicate is merged " +
-    "(RIFT-90 target pipeline)"
+  "ven-080-166 Noxian Demolitionist: lock and revalidate the gear TargetSpec nested inside choice.optional " +
+    "through the chain target lifecycle before resolving the accepted may-body"
 );

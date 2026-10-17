@@ -92,16 +92,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口：(1) conquer 触发进不了链——conquer 时点虽在 events/timing-points.ts 的封闭枚举中" +
-    "（468.5.d/471.1/473.2.a），但 scoring/（RIFT-76）未接入 chain/events 单管线（RIFT-120），" +
-    "没有生产者 emit conquer，也没有已合入订阅方把 CardProgram 的 triggered ability 注册成 " +
-    "TriggerRegistration（契约 §7.2 批 5）；(2) “with Energy cost no more than my Might”是 Finalize " +
-    "目标合法性里的动态比较（355.9.b；左侧是目标的印刷 Energy 值、右侧是能力宿主当前 Might，" +
-    "143.2.a），冻结 ObjectFilter 与已合入匹配器没有该类锚点/谓词（未知键被静默忽略），程序按 " +
-    "359.3.e 的目标重验语义把它写成 effect.kill 指令上的结算期 condition，Finalize 侧的限制求值仍" +
-    "依赖 RIFT-90 的目标管线；目标没有印刷 Energy 值（energy: null）时比较不可求值，不换算为 0。" +
-    "已支持部分：effect.kill 本体已合入，golden 用真实解释器 + 参考内核执行接受、拒绝（Energy 值" +
-    "高于 Might 时整条未执行）与选项放弃三条路径。不近似实现。",
+    "两处当前缺口：(1) “with Energy cost no more than my Might”是 Finalize 目标合法性里的动态比较" +
+    "（355.9.b；左侧是目标的印刷 Energy 值、右侧是能力宿主当前 Might，143.2.a），现有目标选项" +
+    "求值没有消费这种 object-property 谓词；程序保留 effect.kill 结算期 condition 作为重验，" +
+    "但它不能替代 Finalize 的合法目标集合。目标没有印刷 Energy 值（energy: null）时比较不可求值，" +
+    "不换算为 0。(2) gear TargetSpec 嵌在 choice.optional 的 body 内，Chain Finalize 尚没有嵌套目标" +
+    "生命周期，无法在选择 may-body 时锁定、重验并发出该目标。conquer 事件生产与 CardProgram trigger" +
+    "注册、effect.kill 本体和 optional 选择均已可用；golden 覆盖接受、动态重验拒绝与放弃三条路径。" +
+    "不近似实现。",
   abilities,
   sourceText: "When I conquer, you may kill a gear with Energy cost no more than my Might."
 } satisfies CardProgram;

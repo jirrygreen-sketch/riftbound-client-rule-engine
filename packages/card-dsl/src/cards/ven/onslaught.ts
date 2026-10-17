@@ -16,35 +16,21 @@ import type { CardProgram } from "../../ir/index.js";
  *   "你可以从废牌堆以 Flow 费用打出此牌，然后放逐它"；印刷费用为 :rb_energy_4:（4 Energy）。
  *   按 README 第 5 节本卡只声明关键词身份，展开与费用改写归 effects/keywords/Flow.ts。
  *
- * status = judge-required（两处缺口均不近似实现）：
- * 1. 缺临时 Might 修正的卡牌侧指令原语：effects/instructions/ 只有 effect.* 文件，没有
- *    continuous.might（RIFT-258 的 continuous.* 指令批次刻在 sibling 分支、未合入本基线），
- *    契约 3.6 的封闭 GameAction 集合也没有 Might 修改动作；layers 引擎（RIFT-91）能求值
- *    arithmetic 持续效果，但没有已注册 op 通过 ResolveContext.addContinuous 注册它。
- *    effect.buff 明确只做 Buff 计数（702 / 703），不得用来近似临时 Might 修正。
- * 2. Flow 关键词展开依赖未合入：Flow.ts 自身记录 flow.cost 需要 RIFT-261 的替代费用消费方
- *    （选择 Flow 费用、保留 energy:null、记录实际支付的 Flow 实例），替代放逐需要 RIFT-260 的
- *    replacement 注册/排序路径；[Flow] 的 Trash 打出许可（829.1.b.2 不改变可打出的时机）也没有
- *    消费方。印刷 Flow 费用（4 Energy）按契约 3.8.3 应经 KeywordDef.expand 的 params.cost 承载，
- *    但 card-dsl 的 KeywordAbility 没有该字段（见最终回复的契约变更请求），故只在本注释与
- *    judgeReason 中记录，不伪造成第二条启动能力。
- * 依赖：continuous.might 指令原语（RIFT-258 / RIFT-91）、Flow 费用与替代路径（RIFT-260/261）。
- * golden 覆盖校验、身份与结构；未合入的两半以 test.todo 注明缺什么。
+ * status = judge-required：continuous.might 的卡牌侧原语和 arithmetic 图层注册已合入并可执行；
+ * 仍缺 Flow 的完整消费链。Flow.ts 已声明 alternate-cost、Trash 打出许可和离链 banish replacement，
+ * 但费用选择、Flow 实例记录、离链替代消费和印刷 Flow 费用的 params.cost 传递尚未接入。
+ * golden 覆盖校验、身份、结构和 +6 Might 的真实图层执行；Flow 半段以 test.todo 注明当前缺口。
  */
 const onslaught = {
   canonicalCardId: "card.hash-3d956150539f05acad046c9b3b303490605a2e9f9546aa9bc58fb0b8256412a9",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口：(1) 缺临时 Might 修正的卡牌侧指令原语——effects/instructions/ 只有 effect.* 文件，" +
-    "没有 continuous.might（continuous.* 指令批次属 RIFT-258，且 layers 的 RIFT-91 只合入求值侧），" +
-    "契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，因此「Give a unit +6 :rb_might: this turn」" +
-    "（143.2.a 有效 Might、317.2.c 回合结束到期、478.1.a arithmetic 图层）无法执行；" +
-    "effect.buff 只做 Buff 计数（702/703），不得近似。" +
-    "(2) [Flow]（829.1）的展开依赖未合入：Flow.ts 记录 flow.cost 需要 RIFT-261 的替代费用消费方、" +
-    "替代放逐需要 RIFT-260 的 replacement 路径，且印刷 Flow 费用（4 Energy）按契约 3.8.3 需经 " +
-    "params.cost 承载而 KeywordAbility 无该字段（契约变更请求）。" +
-    "依赖：continuous.might 指令原语（RIFT-258 / RIFT-91）、Flow 费用与替代路径（RIFT-260/261）。不近似实现。",
+    "[Flow]（829.1）的消费链仍不完整：Flow.ts 已声明 alternate-cost、从 Trash 打出的许可和离链时的 " +
+    "banish replacement，但当前费用管线没有选择/记录 Flow 实例，链也没有消费该离链 replacement；印刷的 " +
+    "4 Energy Flow 费用还没有从卡牌 KeywordAbility 通过 params.cost 传给 KeywordDef.expand。" +
+    "continuous.might 已注册到 ResolveContext.addContinuous，+6 Might 的 arithmetic 图层效果（143.2.a、" +
+    "317.2.c、478.1.a）可真实执行；effect.buff 不作替代。不近似实现。",
   abilities: [
     // 829.1.c：印刷 "[Flow] :rb_energy_4:"；费用本身归 Flow.ts 的展开（见 judgeReason）。
     { kind: "keyword", keyword: "flow" },
@@ -58,12 +44,12 @@ const onslaught = {
       body: [
         {
           id: "onslaught.give-plus-6",
-          // 「+6 Might this turn」= arithmetic 图层的带期限持续效果；该 op 未注册（见 judgeReason）。
+          // 「+6 Might this turn」= arithmetic 图层的带期限持续效果；通过已注册 continuous.might 创建图层效果。
           op: "continuous.might",
           args: {
             amount: { kind: "constant", value: 6 },
             duration: { kind: "constant", value: "this-turn" },
-            target: { kind: "constant", value: "onslaught.unit" }
+            objects: { kind: "constant", value: { kind: "target", id: "onslaught.unit" } }
           },
           targets: [
             {
