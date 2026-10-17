@@ -20,20 +20,22 @@ import type { CardProgram } from "../../ir/index.js";
  *   示例一致：附着时本卡印刷规则文本 Inactive（135.4/718.2/724），故消灭只在未附着时触发。
  *
  * status = judge-required（README 第 2 节，逐项列出缺口，不近似实现）：
- * - [Temporary] 没有已合入的 KeywordDef：effects/keywords/ 注册的 16 个关键词
- *   （Accelerate/Action/Assault/Deathknell/Deflect/Equip/Ganking/Hidden/Legion/Mighty/
- *   Quick-Draw/Reaction/Repeat/Shield/Vision/Weaponmaster）不含 Temporary，
- *   ability-templates.md 的 kw-temporary 行仍把 trigger.phase + effect.kill 列为待实现；
- *   卡内手写展开会重复关键词语义（README 第 5 节）。
+ * - [Temporary] 的 KeywordDef 已合入（effects/keywords/Temporary.ts，RIFT-264～268 关键词批次），
+ *   展开体的 effect.kill 也真实执行；但展开出的触发订阅 beginning-start，而
+ *   EVENT_PATTERN_TYPES 封闭词表仍不含 beginning-start（events/trigger-spec.ts），
+ *   events/pipeline.ts 的 registerTrigger 会对该 spec 调 assertTriggerSpec 并抛
+ *   TriggerSpecValidationError（invalid-event-type），因此经 CardProgram 绑定层注册会失败。
+ *   依赖：RIFT-39 的 EventPattern 词表补齐 beginning-start（时点本身已存在）。
  * - [Equip] 的费用管线缺口：已合入的 Equip 展开声明 payments: [{ kind: "equip" }]，
  *   而 cost/plan-values.ts 的支付种类只有 energy/power/xp/exhaust/discard/recycle/kill/
- *   reveal/spend-buff（RIFT-89），该启动费用无法在 Finalize 支付。
+ *   reveal/spend-buff，该启动费用无法在 Finalize 支付（进行中的 RIFT-261）。
  * - [A] 任意域 Power 在契约层不可表示：契约与内核的 Domain 是 Fury/Calm/Mind/Body/Chaos/
  *   Order 六域封闭集合，effect.resources 明确记录 163.2.b 的 Universal Power 不可表达、
  *   绝不用某个域近似。本卡以描述性记号 costDomain: "rainbow" 记录印刷费用。
- * - Quick-Draw 展开的打出触发需要事件携带本卡身份：events/pipeline-match.ts 读
- *   EventPattern 的 object/source/target，而 chain/engine.ts 的 card-played 事件只带
- *   object（本卡快照）与 player（RIFT-120）。
+ * - Quick-Draw 展开的打出触发依赖 event.source 身份：展开 filter 是
+ *   source: { canonicalCardId }，而 chain/engine.ts 的 card-played 事件只带 object/player；
+ *   events/pipeline-match.ts 只在 event.source 存在时匹配 source 过滤（RIFT-257 的
+ *   EventPattern.source 适配仍未拿到载荷）。
  *
  * golden 测试真实执行已合入的两段：Quick-Draw 展开的 effect.attach 本体与 Equip 展开的
  * effect.attach 本体（都以 Finalize 锁定的目标上下文运行）；依赖缺口写成 test.todo。
@@ -54,17 +56,18 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "三处已确认的依赖缺口，均不近似实现：" +
-    "（1）[Temporary] 无已合入 KeywordDef——effects/keywords/ 注册的 16 个关键词不含 Temporary，" +
-    "也没有把 816.1.b/816.1.c（控制者 Beginning Phase 开始、计分前 kill this）注册为 beginning-start 触发的内核路径" +
-    "（ability-templates.md kw-temporary = trigger.phase + effect.kill，未实现）；卡内手写会重复关键词语义。" +
+    "（1）[Temporary] 的 KeywordDef 已合入（effects/keywords/Temporary.ts），816.1.b/816.1.c 的" +
+    "触发体用已合入的 effect.kill 真实执行（golden）；但展开出的触发订阅 beginning-start，而 events/trigger-spec.ts 的 " +
+    "EVENT_PATTERN_TYPES 封闭词表仍不含 beginning-start，events/pipeline.ts 注册路径会调 assertTriggerSpec 并抛 " +
+    "TriggerSpecValidationError（invalid-event-type）——依赖 RIFT-39 的 EventPattern 词表补齐（时点本身已存在）。" +
     "（2）[Equip] 的印刷费用 :rb_rune_rainbow: 是 135.2.e.5/163.2.b 的 [A] 任意域（Universal）Power，" +
     "但契约与内核的 Domain 是 Fury/Calm/Mind/Body/Chaos/Order 六域封闭集合，effect.resources 明确记录 Universal Power 不可表达、" +
     "绝不近似成某个具体域；本卡以描述性记号 costDomain: \"rainbow\" 记录印刷费用。" +
     "（3）已合入的 Equip 展开声明 payments: [{ kind: \"equip\" }]，而 cost/plan-values.ts 的支付种类不含 equip，" +
-    "该启动费用目前无法在 Finalize 支付（RIFT-89）。" +
-    "另外 Quick-Draw 展开（effects/keywords/Quick-Draw.ts）依赖 card-played 事件携带本卡身份：events/pipeline-match.ts 读 EventPattern 的 " +
-    "object/source/target，chain/engine.ts 的 card-played 事件只带 object/player（RIFT-120）。" +
-    "依赖：关键词展开工作流（Temporary）、RIFT-89（费用支付种类）、RIFT-120（事件载荷与卡牌注册）；[A] 属契约级缺口。" +
+    "该启动费用目前无法在 Finalize 支付（进行中的 RIFT-261）。" +
+    "另外 Quick-Draw 展开（effects/keywords/Quick-Draw.ts）依赖 card-played 事件携带本卡身份：events/pipeline-match.ts 只在 event.source " +
+    "存在时匹配 source 过滤，chain/engine.ts 的 card-played 事件只带 object/player（RIFT-257 的 EventPattern.source 适配）。" +
+    "依赖：RIFT-39（EventPattern 词表补齐 beginning-start）、RIFT-261（费用支付种类）、RIFT-257（事件载荷身份）；[A] 属契约级缺口。" +
     "golden 只把已合入的 Quick-Draw attach 与 Equip attach 本体当真执行证据，不据此宣称整卡可执行。",
   abilities,
   sourceText:

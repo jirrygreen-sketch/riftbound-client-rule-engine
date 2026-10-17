@@ -18,26 +18,30 @@ import type { CardProgram } from "../../ir/index.js";
  *   指令包进 choice.optional 的 body（不用 choice + linkedTo）。
  * - "draw 1"：414.1 / 414.3，抽牌者缺省为能力控制者（190.6.d）。
  *
- * status = judge-required（缺触发接线与成本内费用原语，不近似实现）：
- * - 触发侧：没有已合入模块把卡牌程序的 triggered 能力注册成 TriggerRegistration
- *   （events/pipeline.ts 只有引擎内部的 delayed 注册路径），became-target 虽由
- *   chain/engine.ts 的 TargetPlan finalize 发出，但没有卡牌程序订阅方（契约 3.5，RIFT-120 后续）。
- * - 费用侧："pay :rb_energy_1: and exhaust this" 按 383.3.b 是基础费用，但契约 3.1 的
- *   TriggeredAbility 没有 cost 字段，指令层也没有已注册的 cost.pay 原语（effects/instructions/
- *   只有 effect.* 原语）；费用计划与 Finalize 收费管线未接通（RIFT-89）。
- * - 已可真实执行的部分：effect.draw 本体（golden 用参考内核执行）。
+ * status = judge-required（缺成本内费用原语，不近似实现）：
+ * - 触发侧已合入：CardProgram → TriggerRegistration 的绑定层（RIFT-257，programs/triggers.ts）
+ *   能把本卡的 became-target 订阅注册进 events/pipeline（golden 实测 spec.at = became-target、
+ *   target 过滤解析为 controller: self），不再缺订阅方。
+ * - 费用侧仍是缺口："pay :rb_energy_1: and exhaust this" 按 383.3.b 是基础费用，但契约 3.1 的
+ *   TriggeredAbility 没有 cost 字段，指令层也没有已注册的 cost.pay 原语
+ *   （effects/instructions/registry.generated.ts 只有 effect.* / continuous.*）——golden 实测
+ *   执行 choice.optional 接受分支时抛 "Unregistered instruction opcode: cost.pay"。
+ *   依赖：RIFT-261（cost.pay / cost.modify 与费用计划接线）。
+ * - 已可真实执行的部分：became-target 订阅与 effect.draw 本体（golden 用参考内核执行）。
  */
 export default {
   canonicalCardId: "card.hash-498c7e8ce2e20ef011de716db7cf2ff6e0f71a410cc40dace65553df8b0b2518",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口：(1) 触发侧没有卡牌程序→TriggerRegistration 的订阅方（became-target 由 chain/engine.ts " +
-    "的 TargetPlan finalize 发出，但没有模块把卡牌程序的 triggered 能力注册进 events/pipeline，契约 3.5，RIFT-120 后续）；" +
-    "(2) 费用侧「you may pay :rb_energy_1: and exhaust this」按 CR 383.3.b/383.3.b.1 是该触发能力的" +
-    "基础费用、必须在 Finalize 支付，但契约 3.1 的 TriggeredAbility 没有 cost 字段，指令层也没有已注册的 " +
-    "cost.pay 原语（effects/instructions/ 只有 effect.* 文件），费用计划与收费管线未接通（RIFT-89）。" +
-    "effect.draw 本体已合入并单独执行；不近似实现（不把横置写成 effect.exhaust，也不把费用写成免费）。",
+    "触发侧缺口已收窄：CardProgram → TriggerRegistration 的绑定层（RIFT-257，programs/triggers.ts）已合入，" +
+    "能把本卡的 became-target 订阅注册进 events/pipeline（golden 实测 spec.at = became-target、" +
+    "target 过滤解析为 controller: self）。仍然缺的是费用侧：「you may pay :rb_energy_1: and exhaust this」" +
+    "按 CR 383.3.b/383.3.b.1 是该触发能力的基础费用、必须在 Finalize 支付，但契约 3.1 的 TriggeredAbility " +
+    "没有 cost 字段，指令层也没有已注册的 cost.pay 原语（effects/instructions/registry.generated.ts 只有 " +
+    "effect.* / continuous.* 注册项）——golden 实测执行 choice.optional 接受分支时抛 \"Unregistered instruction " +
+    "opcode: cost.pay\"。effect.draw 本体已合入并单独执行；不近似实现（不把横置写成 effect.exhaust，" +
+    "也不把费用写成免费）。依赖：进行中的 RIFT-261（cost.pay / cost.modify 与费用计划接线）。",
   abilities: [
     {
       kind: "triggered",

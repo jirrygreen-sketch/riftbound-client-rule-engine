@@ -11,6 +11,7 @@ import attach from "../../../../engine-core/dist/effects/instructions/effect.att
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import weaponmaster from "../../../../engine-core/dist/effects/keywords/Weaponmaster.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID =
@@ -57,7 +58,13 @@ test("sfd-008-221 Sentinel Adept: judgeReason names the missing cost opcodes and
   assert.match(program.judgeReason, /cost\.modify/);
   assert.match(program.judgeReason, /cost\.pay/);
   assert.match(program.judgeReason, /821\.1\.c\.2/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /821\.1\.c\.3/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  // The card-played source-identity payload is the second merged-but-incomplete
+  // path: the expansion filters on event.source, which the production event
+  // does not carry yet.
+  assert.match(program.judgeReason, /event\.source/);
+  assert.match(program.judgeReason, /pipeline-match/);
 });
 
 test("sfd-008-221 Sentinel Adept: exactly one unvalued Weaponmaster keyword ability", () => {
@@ -107,10 +114,77 @@ test("sfd-008-221 Sentinel Adept golden: declining to choose an Equipment leaves
   assert.deepEqual(kernel.events, []);
 });
 
+test("sfd-008-221 Sentinel Adept: the source-identity filter needs a payload the production card-played event does not carry yet", () => {
+  // The expansion filters on event.source (this card's identity). The
+  // production card-played event from chain/engine.ts carries object/player
+  // only, and events/pipeline-match.ts only matches a source filter when
+  // event.source exists. This locks both durable halves: the card must keep the
+  // host-bound source filter rather than rewrite the trigger onto an unrelated
+  // event, and the matcher must keep the source discriminator strict.
+  const [triggered] = weaponmaster.expand({ host });
+  assert.deepEqual(triggered.trigger.filter, {
+    event: "card-played",
+    source: { canonicalCardId: CARD_ID }
+  });
+
+  const productionEvent = {
+    timingPoint: "card-played",
+    kind: "card-played",
+    object: {
+      ref: { id: "sentinel-adept", zoneEntryId: 1 },
+      cardId: CARD_ID,
+      name: "Sentinel Adept",
+      types: ["unit"],
+      tags: [],
+      keywords: [],
+      owner: "A",
+      controller: "A",
+      zone: "board",
+      location: { type: "battlefield", id: "battlefield-1" },
+      might: 3,
+      energy: null,
+      power: null,
+      exhausted: true,
+      damage: 0,
+      stunned: false,
+      buffs: 0,
+      attachedTo: null,
+      faceDown: false,
+      isToken: false
+    },
+    player: "A"
+  };
+
+  // The source discriminator must stay strict: it matches only when the event
+  // reports this card itself as the source (the payload the production
+  // card-played event still lacks), never an unrelated card.
+  assert.equal(
+    matchesTriggerEvent(triggered.trigger.filter, { ...productionEvent, source: productionEvent.object }, "A"),
+    true
+  );
+  assert.equal(
+    matchesTriggerEvent(
+      triggered.trigger.filter,
+      {
+        ...productionEvent,
+        source: {
+          ...productionEvent.object,
+          cardId: "card.hash-0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      },
+      "A"
+    ),
+    false
+  );
+  // Without a source payload the strict filter cannot match; this records the
+  // current production event shape rather than claiming the card runs.
+  assert.equal(matchesTriggerEvent(triggered.trigger.filter, productionEvent, "A"), false);
+});
+
 test.todo(
   "sfd-008-221 Sentinel Adept: on play, choose one of your Equipment, pay its Equip cost " +
     "reduced by [A], then attach it to me even if it is already attached (821.1.c / " +
     "821.1.c.2 / 821.1.c.3) — blocked because cost.modify / cost.pay have no registered " +
-    "InstructionDef and no producer expands a card's keyword ability into the play " +
-    "pipeline (RIFT-89)"
+    "InstructionDef and no Finalize cost-plan consumer binds the printed Equip cost " +
+    "(in-progress RIFT-261); the merged RIFT-257 adapter already registers the trigger"
 );

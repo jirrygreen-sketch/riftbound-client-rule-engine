@@ -16,30 +16,34 @@
  * - 150.1–150.3：Equipment 是带 Equipment 标签的 Gear，可以有 Equip；本地 catalog 的
  *   tags 为 ["Equipment"]，与 818.1.a 一致。
  *
- * status = judge-required（缺可支付的费用路径与关键词接线，不近似实现）：
- * - 已合入的 Equip 展开（RIFT-87，effects/keywords/Equip.ts）声明
- *   payments: [{ kind: "equip", value: source }]，而费用管线 cost/plan-values.ts 的 readCost
- *   对未知支付种类直接 blocked：golden 实测 buildCostPlan 抛 CostPlanError
- *   （reason "judge-required"，message "Unsupported payment kind: equip"），即
- *   818.1.b / 818.1.c 的启动费用目前无法支付。
- * - 契约 3.8 第 3 条要求 KeywordDef.expand 用 params.cost 承载印刷的 Equip 费用，已合入的
- *   KeywordDef 接口（engine-core/src/effects/keyword-contract.ts）还没有该参数；卡牌程序 →
- *   关键词展开 → 时点/链的接线（契约 3.5）同样未合入。
- * - 依赖：RIFT-89 之后的 Equip 费用支付支持与 RIFT-120 的关键词/链接线。不把 Equip 降级成
- *   裸 effect.attach（那会绕开 818.1.c.4 的费用改写与 355 的 Finalize 流程）。
+ * status = judge-required（缺可支付的费用路径，不近似实现）。已合入的部分：KeywordDef.expand 的
+ * params（契约 3.8 第 3 条）、Equip KeywordDef（RIFT-87/264～268 关键词批次）与 CardProgram
+ * 绑定（RIFT-257）——programs/activate.ts 的 describeActivate 能为本卡给出
+ * { kind: "activated", timing: "action", cost.payments: [{ kind: "equip" }] } 的链草稿，
+ * 展开体末步的 effect.attach 也真实附着（golden 执行）。仍然缺的部分：
+ * - 费用管线 cost/plan-values.ts 的 readCost 对未知支付种类直接 blocked：golden 实测
+ *   buildCostPlan 抛 CostPlanError（reason "judge-required"，message
+ *   "Unsupported payment kind: equip"），即 818.1.b / 818.1.c 的启动费用目前无法支付；
+ * - 印刷的 1 点 Fury Power 也还没有从 KeywordAbility 流到 expand 的 params.cost 的调用方
+ *   （programs/keywords.ts 的 expandProgram 只传 value/host）。
+ * 依赖：RIFT-261（cost.pay / cost.modify 与 Equip 费用计划接线）。不把 Equip 降级成裸 effect.attach
+ * （那会绕开 818.1.c.4 的费用改写与 355 的 Finalize 流程）。
  */
 export default {
   canonicalCardId: "card.hash-2d46595233b37a0868857eab035ad4fa4dc53fc8c932d35ad32cca2c54ff06d2",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "印刷的 [Equip] 费用（1 点 Fury Power，818.1.c.2）目前无法支付：已合入的 Equip 展开" +
-    "（RIFT-87，effects/keywords/Equip.ts）声明 payments: [{ kind: \"equip\", value: source }]，" +
-    "费用管线 cost/plan-values.ts 的 readCost 对未知支付种类直接 blocked —— golden 实测 buildCostPlan " +
-    "抛 CostPlanError（reason \"judge-required\"，message \"Unsupported payment kind: equip\"）；" +
-    "契约 3.8 第 3 条要求 expand 用 params.cost 承载印刷装备费，已合入的 KeywordDef 接口仍无该参数，" +
-    "也缺卡牌程序→关键词展开→时点/链的接线（契约 3.5）。依赖：RIFT-89 之后的 Equip 费用支付支持" +
-    "与 RIFT-120 的关键词接线。不近似实现（不把 Equip 降级成裸 effect.attach）。",
+    "印刷的 [Equip] 费用（1 点 Fury Power，818.1.c.2）仍无法支付，但缺失环节已收窄到费用管线：" +
+    "KeywordDef.expand 的 params（契约 3.8 第 3 条）、Equip KeywordDef（RIFT-87）与 CardProgram 绑定" +
+    "（RIFT-257）都已合入——describeActivate 能返回带着 { kind: \"equip\" } 支付分量的启动草稿，" +
+    "展开体末步 effect.attach 也真实执行。费用管线 cost/plan-values.ts 的 readCost 仍对未知支付种类直接 " +
+    "blocked —— golden 实测 buildCostPlan 抛 CostPlanError（reason \"judge-required\"，message " +
+    "\"Unsupported payment kind: equip\"）；同时印刷费用还没有从 KeywordAbility 流到 expand 的 " +
+    "params.cost 的调用方（契约 3.8 第 3 条的 expand params.cost；programs/keywords.ts 只传 value/host，故 818.1.c.2 的" +
+    "装备费形状目前只由 KeywordAbility 的 value/costDomain 描述）。" +
+    "依赖：进行中的 RIFT-261（cost.pay / cost.modify 与 Equip 费用计划接线）。" +
+    "不近似实现（不把 Equip 降级成裸 effect.attach）。",
   abilities: [
     { kind: "keyword", keyword: "equip", value: 1, costDomain: "Fury" }
   ],

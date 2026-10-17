@@ -6,6 +6,8 @@ import program from "../../../dist/cards/sfd/simian-ancestor.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-971a51eafa8489e035057774061242847cfa0865c5aa2018f634cc048d093610";
@@ -29,7 +31,8 @@ test("sfd-047-221 Simian Ancestor: identity, ruleset, status, judgeReason and ve
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /buff-added/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /RIFT-39/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -91,8 +94,28 @@ test("sfd-047-221 Simian Ancestor golden: the merged ready primitive alone readi
   assert.deepEqual(run.linked.readied, { count: 1, objects: [kernel.ref("simian")] });
 });
 
+test("sfd-047-221 Simian Ancestor golden: the merged binding layer binds the buff-added trigger to the host", () => {
+  // Durable contract (RIFT-257 programs/triggers.ts): the declared
+  // `{ event: "buff-added", filter: { source: "self" } }` must translate into a
+  // filter whose object anchor is this card's host, so "me" in "When you buff
+  // me" is the unit itself and never a fresh target choice (355.10.c).
+  const translated = translateTriggerFilter(ability.trigger.filter, "simian", "buff-added");
+  assert.deepEqual(translated, { event: "buff-added", object: { objectId: "simian" } });
+
+  // The card must keep the printed event name rather than rewrite the trigger
+  // onto a different (already-listed) timing point to slip past the validator;
+  // any validation failure must concern the event-name vocabulary only, never
+  // the translated object anchor.
+  assert.equal(translated.event, "buff-added");
+  assert.equal(ability.trigger.at, "buff-added");
+  const validation = validateTriggerSpec({ at: "buff-added", filter: translated });
+  if (!validation.ok) {
+    assert.deepEqual([...new Set(validation.issues.map(issue => issue.code))], ["invalid-event-type"]);
+  }
+});
+
 test.todo(
   "sfd-047-221 Simian Ancestor: buff-added must be emitted only when a Buff counter is actually placed " +
-    "(427.1.c: a unit that is chosen but already has a counter is not Buffed and must not trigger) and the " +
-    "CardProgram must be registered as an event subscriber (RIFT-120)"
+    "(427.1.c: a unit that is chosen but already has a counter is not Buffed and must not trigger); the " +
+    "timing point producer already emits it, the remaining dependency is the RIFT-39 EventPattern vocabulary"
 );

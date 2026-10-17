@@ -6,7 +6,7 @@ import program from "../../../dist/cards/sfd/serrated-dirk.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import attach from "../../../../engine-core/dist/effects/instructions/effect.attach.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
-import { buildCostPlan, CostPlanError } from "../../../../engine-core/dist/cost/index.js";
+import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-2d46595233b37a0868857eab035ad4fa4dc53fc8c932d35ad32cca2c54ff06d2";
@@ -52,9 +52,12 @@ test("sfd-009-221 Serrated Dirk: identity, ruleset, status, judgeReason and verb
   assert.equal(program.status, "judge-required");
   // The judgeReason names the missing payment path and the real dependencies.
   assert.match(program.judgeReason, /Equip/);
-  assert.match(program.judgeReason, /Unsupported payment kind: equip/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /818\.1\.c\.2/);
+  assert.match(program.judgeReason, /params\.cost/);
+  // The remaining gap is the in-progress cost work (RIFT-261); the keyword
+  // definition and CardProgram binding (RIFT-257) are merged.
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   // The generated registry indexes this exact program object.
   assert.equal(cardRegistryById.get(CANONICAL), program);
@@ -136,20 +139,26 @@ test("sfd-009-221 Serrated Dirk golden: a controlled Unit that left the Board is
   assert.equal(kernel.getObject("gear").attachedTo, null);
 });
 
-test("sfd-009-221 Serrated Dirk golden: the merged Equip activation cost cannot be paid (real evidence for judge-required)", () => {
-  const kernel = equipWorld();
-  const context = kernel.clone({ sourceSnapshot: kernel.getObject("gear") });
-  const [expansion] = expansionFor();
+test("sfd-009-221 Serrated Dirk: the merged CardProgram binding builds the activation draft with its Equip payment", () => {
+  // Durable structural guard: the RIFT-257 adapter must keep deriving the
+  // card's activated ability and carrying its declared Equip payment into the
+  // chain cost plan. This does not assert whether the cost kind is payable yet
+  // (that surface is owned by the in-progress RIFT-261 cost work and is
+  // recorded as a TODO); it locks the binding contract that must hold forever.
+  const source = equipWorld().getObject("gear");
+  // The registry refuses judge-required programs (ProgramRegistry.get), so the
+  // binding path is exercised against the same abilities with the status lifted
+  // for this scenario only; the shipped program keeps judge-required.
+  const lifted = { ...program, status: "executable" };
+  delete lifted.judgeReason;
+  const binding = createProgramBinding({ cardPrograms: [lifted] });
+  const draft = binding.describeActivate(source, "A");
 
-  // Guard against substituting a no-op/fake cost: the unmerged payment kind fails loudly.
-  assert.throws(
-    () => buildCostPlan(context, { id: "serrated-dirk:equip", cost: expansion.cost }),
-    (error) =>
-      error instanceof CostPlanError &&
-      error.reason === "judge-required" &&
-      /Unsupported payment kind: equip/.test(error.message)
-  );
+  assert.equal(draft.kind, "activated");
+  assert.equal(draft.speed, "action");
+  assert.deepEqual(draft.cost.cost.payments.map((payment) => payment.kind), ["equip"]);
+  assert.deepEqual(draft.body.map((step) => [step.id, step.op]), [["equip-attach", "effect.attach"]]);
 });
 
-test.todo("sfd-009-221 Serrated Dirk: paying the printed Fury Equip cost (CR 818.1.b / 818.1.c.3) needs an equipped-cost payment kind in cost/plan-values.ts plus ExpandInput params.cost (contract 3.8 item 3) - RIFT-89 follow-up.");
-test.todo("sfd-009-221 Serrated Dirk: the card-program -> keyword expansion -> chain activation wiring (contract 3.5) is not merged - RIFT-120 follow-up; the merged effect.attach body above runs directly, and payCostPlan is only exercised once the cost kind exists.");
+test.todo("sfd-009-221 Serrated Dirk: paying the printed Fury Equip cost (CR 818.1.b / 818.1.c.3) needs an equip payment kind in cost/plan-values.ts plus the printed cost flowing through ExpandInput params.cost (contract 3.8 item 3) - in-progress RIFT-261.");
+test.todo("sfd-009-221 Serrated Dirk: the printed Fury Equip cost still cannot flow through KeywordAbility -> expand params.cost -> Finalize (RIFT-261); the merged RIFT-257 describeActivate already builds the activation draft for this card.");
