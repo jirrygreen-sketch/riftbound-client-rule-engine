@@ -24,14 +24,12 @@ test("unl-036-219 Mutated Mouser: identity, status, judgeReason and verbatim sou
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  // The stale "no KeywordDef / no keyword-expansion path" gap is gone
-  // (RIFT-81 + RIFT-264 + RIFT-257); the reason must name the real gaps.
-  assert.match(program.judgeReason, /RIFT-257/);
+  // The reason names the designation condition and combat allocation consumers.
   assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /conditionMatches/);
   assert.match(program.judgeReason, /814\.1\.d/);
   assert.match(program.judgeReason, /815\.1\.c/);
-  assert.doesNotMatch(program.judgeReason, /未进 HEAD/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+|未进 HEAD/);
 });
 
 test("unl-036-219 Mutated Mouser: the card only declares Shield 2 and Tank (contract 3.7)", () => {
@@ -71,13 +69,12 @@ test("unl-036-219 Mutated Mouser: the merged Shield and Tank expansions match th
 });
 
 test.todo(
-  "unl-036-219 Mutated Mouser: read the Defender designation in the arithmetic layer so Shield 2 applies " +
-    "only while defending (CR 814.1.d/814.1.d.1) — ObjectSnapshot.combatRole exists, but layers/engine.ts " +
-    "conditionMatches does not evaluate the compare condition and no combat designation transaction emits it"
+  "unl-036-219 Mutated Mouser: evaluate the Defender designation in the arithmetic layer so Shield 2 applies " +
+    "only while defending (CR 814.1.d/814.1.d.1) by wiring combatRole reads and designation transactions"
 );
 test.todo(
-  "unl-036-219 Mutated Mouser: honour [Tank] when assigning combat damage (CR 815.1.b/815.1.c.1/.c.2) — " +
-    "combat/base-combat-allocation.ts records 'No Tank/Backline/other assignment-priority requirement is bound here'"
+  "unl-036-219 Mutated Mouser: consume [Tank]'s lethal-first priority while assigning combat damage " +
+    "(CR 815.1.b/815.1.c.1/.c.2) in the combat allocation workflow"
 );
 
 test("unl-036-219 Mutated Mouser: every declared keyword resolves to a merged KeywordDef (contract 3.5/3.7)", () => {

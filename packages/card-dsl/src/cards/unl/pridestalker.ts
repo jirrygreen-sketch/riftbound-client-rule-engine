@@ -13,12 +13,11 @@ import type { CardProgram } from "../../ir/index.js";
  *   不是 pick（355.7：pick 不触发“成为目标”相关触发）。
  * - “+1 [M] this turn” 是带 end-of-turn 期限的临时 Might 修正：effect.buff 的
  *   文档明确临时 Might 归 layers 的 continuous.might（CR 702/703 的 Buff 计数
- *   是另一回事），因此需要未合并的原语与到期消费者。
+ *   是另一回事），因此使用 continuous.might 原语与到期消费者。
  *
- * status = judge-required。自本程序初写后合入的依赖：continuous.might 原语（RIFT-258：
- * 经 ctx.addContinuous 注册 arithmetic 层效果、end-of-turn 期限按 315.4/468.7.c 到期、
- * 479.4.b 的印刷下限），以及 CardProgram → TriggerRegistration 绑定（RIFT-257：
- * card-played 订阅、Finalize 锁定目标、触发生成链项）。body 因此改用该原语的真实
+ * status = judge-required。continuous.might 原语经 ctx.addContinuous 注册 arithmetic 层效果、
+ * end-of-turn 期限按 315.4/468.7.c 到期，CardProgram → TriggerRegistration 绑定负责
+ * card-played 订阅、Finalize 锁定目标与触发生成链项。body 因此改用该原语的真实
  * args 形状（args.objects 指向 TargetSpec，契约 3.6 的符号选择器），不再只是记录意图；
  * golden 用生产链适配器 + 参考内核真实执行“敌方打出不触发 / 己方打出触发 / arithmetic
  * 注册与到期”，不近似用 effect.buff 表达（Buff 是 702 的计数器）。
@@ -39,8 +38,8 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "副作用与绑定已合入并可真实执行：continuous.might（RIFT-258）按 143.2.a/475 注册 arithmetic 层修正、" +
-    "按 315.4/468.7.c 以 end-of-turn 到期；CardProgram → TriggerRegistration（RIFT-257）建立 card-played 订阅" +
+    "副作用与绑定已合入并可真实执行：continuous.might 按 143.2.a/475 注册 arithmetic 层修正、" +
+    "按 315.4/468.7.c 以 end-of-turn 到期；CardProgram → TriggerRegistration 建立 card-played 订阅" +
     "并在 Finalize 锁定目标。仍有的唯一缺口：本卡是 Legend，而合并绑定把 card-played 订阅的 activeZones 定为 " +
     "['board']（programs/triggers.ts 的 permanent 分支），对局生命周期却把 Legend 创建在 chain 区并留在那里" +
     "（game/lifecycle.ts 的 createToken；契约 ZoneId 无 legend-zone 成员，CR 107.4 的 Legend Zone 未建模），" +
