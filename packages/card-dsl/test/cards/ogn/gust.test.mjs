@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/gust.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import zone from "../../../../engine-core/dist/effects/instructions/effect.zone.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -30,7 +31,7 @@ test("ogn-169-298 Gust: program passes validateCardProgram", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Might/);
   assert.match(program.judgeReason, /mightLte/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /TargetRequirement/);
   assert.equal(
     program.sourceText,
     "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +
@@ -54,7 +55,8 @@ test("ogn-169-298 Gust: [Reaction] keyword plus one battlefield/owner-zone targe
   // Location restriction; the Might cap stays descriptive (judgeReason).
   assert.deepEqual(targetSpec, {
     id: "gust.unit-at-battlefield",
-    filter: { type: "unit", zone: "board", location: "battlefield", mightLte: 3 },
+    filter: { type: "unit", zone: "board", mightLte: 3 },
+    location: { type: "battlefield" },
     min: 1,
     max: 1,
     selection: "one"
@@ -93,8 +95,37 @@ test("ogn-169-298 Gust golden: a stale reference is ignored (359.3.e.6-e.8)", ()
 });
 
 test.todo(
-  "ogn-169-298 Gust: a unit still on the board but no longer at a battlefield must be Mistargeted " +
-    "by the 359.3.e.9 Location re-check at resolution, and the 'Might 3 or less' cap must gate " +
-    "Finalize targeting — ordinary target locking/revalidation is merged, but the Might comparison " +
-    "still needs the condition-predicate path (RIFT-359)"
+  "ogn-169-298 Gust: the 'Might 3 or less' cap must gate " +
+    "Finalize targeting — ordinary target locking/revalidation and location checks are merged, but the Might comparison " +
+    "still needs a target-candidate/Resolve predicate binding"
 );
+
+// This isolates only the supported location/return clause; it deliberately
+// does not claim to enforce the still-unbound Might cap.
+function runSupportedReturn(kernel, ref) {
+  const { mightLte, ...filter } = targetSpec.filter;
+  assert.equal(mightLte, 3);
+  kernel.setTargets(targetSpec.id, [ref]);
+  return resolveChainBody([{ ...returnInstruction, targets: [{ ...targetSpec, filter }] }], kernel);
+}
+
+test("Gust supported location clause: rechecks a locked unit that moved to Base", () => {
+  const kernel = world().unit("unit", { owner: "B", location: { type: "battlefield", id: "one" } }).build();
+  const locked = kernel.ref("unit");
+  kernel.perform({ type: "move-location", object: locked, to: { type: "base", player: "B" } });
+  const outcome = runSupportedReturn(kernel, locked);
+  assert.deepEqual(outcome.results[0].result, { status: "ignored", reason: "mistargeted" });
+  assert.deepEqual(outcome.events, []);
+  assert.equal(kernel.getObject("unit").zone, "board");
+  assert.deepEqual(kernel.getObject("unit").location, { type: "base", player: "B" });
+});
+
+test("Gust supported location clause: returns a locked battlefield unit to its owner's hand", () => {
+  const kernel = world().unit("unit", { owner: "B", controller: "A", location: { type: "battlefield", id: "one" } }).build();
+  const outcome = runSupportedReturn(kernel, kernel.ref("unit"));
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.linkedValues["gust.return-unit.moved"], 1);
+  assert.deepEqual(outcome.events.map(event => event.action), ["return-to-hand"]);
+  assert.deepEqual(kernel.zone("B", "hand").map(ref => ref.id), ["unit"]);
+  assert.deepEqual(kernel.zone("A", "hand"), []);
+});

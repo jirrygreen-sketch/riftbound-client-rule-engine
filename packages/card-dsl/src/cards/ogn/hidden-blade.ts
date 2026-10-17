@@ -36,7 +36,8 @@ import type { CardProgram } from "../../ir/index.js";
  * - The card cannot honestly be marked executable because Hidden's own
  *   expansion is still blocked: it is a static
  *   `cost.hidden` continuous effect with no merged consumer — nothing reads
- *   cost.hidden to grant the Hide action or the facedown play — and
+ *   cost.hidden to grant the Hide action or the facedown play — while
+ *   buildHiddenCostPlan already supplies both cost modes — and
  *   cost/README.md records that the current zones/actions omit the
  *   Champion/facedown zones and Hide. Both printed instructions themselves
  *   execute against the merged kernel.
@@ -46,11 +47,8 @@ const hiddenBlade = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Hidden] 展开仍不可执行：Hidden 关键词展开只声明了 cost.hidden 持续效果，但当前链/行动层没有消费方——" +
-    "没有已合入代码据它授予 Hide 动作、facedown 区域或「facedown 免费/受限打出」；cost/README.md 记录现有区域与" +
-    "动作尚缺 Hide/facedown。来自 facedown 的「目标限为藏匿所在战场」（811.1.d.2）同样依赖 Hidden 展开的消费方与" +
-    "目标系统。两条正文指令（targeted 消灭 + 链接的「Its controller draws 2」）可用已合入解释器真实执行，" +
-    "见 golden 测试；整卡不因正文可执行而宣称 executable。",
+    "仍缺 [Hidden] cost.hidden 展开的行动/区域/时机消费者：Hide 行动、facedown 区域、次回合 Reaction 许可及隐藏来源战场绑定尚未接入。CR 811.1.d.2 的从 " +
+    "facedown 打出目标限制仍须绑定该来源战场；单有普通 target.location 重验不能推导这段隐藏来源历史。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     { kind: "keyword", keyword: "action" },
@@ -69,7 +67,8 @@ const hiddenBlade = {
           targets: [
             {
               id: "hidden-blade.unit",
-              filter: { types: "unit", location: { type: "battlefield" } },
+              filter: { type: "unit" },
+              location: { type: "battlefield" },
               min: 1,
               max: 1,
               selection: "one"

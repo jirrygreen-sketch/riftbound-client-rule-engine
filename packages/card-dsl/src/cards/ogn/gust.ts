@@ -18,16 +18,15 @@ import type { CardProgram } from "../../ir/index.js";
  *   the card to its OWNER's hand, not the caster's (359.3.e.9 example: 2142
  *   "returns the friendly unit to its owner's hand").
  * - "at a battlefield" is a targeting restriction on the unit, not a second
- *   target (355.10.b); it is recorded as `location: "battlefield"`, the frozen
- *   ObjectFilter Location spelling (events/trigger-spec.ts `location?: string`,
- *   layers/filter.ts accepts the location name or the exact Location).
+ *   target (355.10.b); TargetSpec.location records a battlefield restriction,
+ *   consumed by target.location at Finalize and Resolve.
  *
  * Status: judge-required — the "with 3 :rb_might: or less" restriction still
  * has no target predicate. Target plans now lock and revalidate ordinary
  * filters, but the filter vocabulary has no comparison against a unit's
  * current Might. The `mightLte: 3` field below remains descriptive until the
- * condition-predicate work exposes that comparison to target Finalize and
- * Resolve; no approximate Might test is substituted. The move half uses only
+ * target binder exposes that comparison to target Finalize and Resolve; no
+ * approximate Might test is substituted. The move half uses only
  * the merged effect.zone primitive and is executed in the golden test.
  */
 const gust = {
@@ -35,10 +34,8 @@ const gust = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺「Might 3 或更少」的目标限制谓词：目标合法性只由静态 ObjectFilter / TargetRequirement 在 Finalize 求值（target/target-plan.ts），" +
-    "冻结的 IR 与 ObjectFilter 没有把当前 Might 的数值比较接入目标 Finalize/Resolve；layers/engine 虽能计算当前 Might，" +
-    "但不会消费本文件里的 mightLte: 3，因此不能用计数或等价近似替代。普通目标的锁定与重验已由当前 TargetPlan 提供；" +
-    "缺口是把该数值比较作为条件谓词接入目标候选与 Resolve 重验（RIFT-359）。Return 半段只用已合入的 effect.zone 表达并有执行测试。",
+    "CR 355.10.b / 359.3.e.9 的当前 Might ≤ 3 目标限制仍缺候选与 Resolve 重验绑定：programs/filters.ts 不接受 " +
+    "mightLte，layers/filter.ts 不消费该数值比较。TargetRequirement 没有对应动态谓词入口；不能用结算时跳过指令替代 Finalize 目标合法性。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {
@@ -58,10 +55,10 @@ const gust = {
               filter: {
                 type: "unit",
                 zone: "board",
-                location: "battlefield",
                 // 描述性占位：见 judgeReason，尚无 Might 比较谓词。
                 mightLte: 3
               },
+              location: { type: "battlefield" },
               min: 1,
               max: 1,
               selection: "one"

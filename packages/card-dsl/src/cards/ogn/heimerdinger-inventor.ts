@@ -17,8 +17,8 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * 状态：judge-required。所需能力授予层尚未合入：
  * - 当前静态绑定器只消费已知的 timing/keyword/movement/restrict/combat 等能力层
- *   效果，没有 `continuous.grant-abilities` 的能力正文复制消费者（调研文件
- *   ability-templates.md 第 4 节把能力授予族列为 0/0 已实现的容量）。
+ *   效果，没有 `continuous.grant-abilities` 的任意能力正文复制消费者；已合入的
+ *   continuous.grant-keyword 只授予关键词，不能替代运行时启动能力复制。
  * - 该能力是动态依赖：被授予的是运行时可变的引用集合（每个合法正面对象的
  *   :rb_exhaust: 能力），调研明确要求这类 grant 必须有依赖闭包或显式运行时能力
  *   边界，不能只看本卡出现的词（(ability-templates.md 第 4 节末段）。
@@ -31,9 +31,9 @@ const heimerdingerInventor = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「I have all :rb_exhaust: abilities of all friendly legends, units, and gear」需要 CR v1.5 479.3 的能力授予层，" +
-    "把运行时己方对象的启动能力正文复制到本卡；当前静态绑定器没有 `continuous.grant-abilities` 的 layer 映射或能力复制消费者。" +
-    "该效果还是动态依赖（引用集合变化时能力闭包随之变化），不能用关键词授予或单卡逻辑近似。",
+    "「I have all :rb_exhaust: abilities of all friendly legends, units, and gear」仍缺 CR 479.3 " +
+    "的运行时能力授予：programs/statics.ts 没有 continuous.grant-abilities 映射，能力层不能复制任意启动能力正文、费用、时机与限制。还缺将复制后的能力接入 " +
+    "activationAbilities/describeActivate，并在己方合法来源集合变化时更新动态依赖闭包；关键词授予不能代替能力复制。",
   abilities: [
     {
       kind: "static",

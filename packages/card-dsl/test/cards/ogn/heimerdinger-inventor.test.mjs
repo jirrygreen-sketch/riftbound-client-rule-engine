@@ -25,6 +25,7 @@ test("Heimerdinger, Inventor identity and judge-required reason", () => {
   assert.match(program.judgeReason, /479\.3/);
   assert.match(program.judgeReason, /continuous\.grant-abilities/);
   assert.match(program.judgeReason, /動態|动态/);
+  assert.match(program.judgeReason, /activationAbilities\/describeActivate/);
   assert.equal(
     program.sourceText,
     "I have all :rb_exhaust: abilities of all friendly legends, units, and gear."
@@ -79,5 +80,5 @@ test("golden: the granted-source filter selects friendly legends/units/gear on t
 test.todo(
   "Heimerdinger, Inventor: the ability-altering (479.3) grant layer that copies each referenced object's " +
     "exhaust-cost activated abilities onto this unit, with a dependency closure over the runtime source set " +
-    "(ability-templates.md section 4)"
+    "(programs/statics.ts, layers ability operations, activationAbilities/describeActivate)"
 );

@@ -33,9 +33,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   same contract gap for legend-zone/champion-zone;
  * - ObjectFilter has no Chosen Champion predicate (no field for 103.3.a.3
  *   status), so the target cannot be restricted to that card;
- * - Condition has no zone-emptiness test, so "if it is empty" cannot be
- *   evaluated (the nearest spelling, a count over zone "champion-zone", uses a
- *   zone outside the frozen vocabulary).
+ * - count/compare already evaluate zone counts, but "if it is empty" still
+ *   depends on Champion Zone being available to the query and move contracts.
  *
  * - the hold filter's `here` relation has no adapter that binds the scoring
  *   event's battlefield identity to this source.
@@ -47,9 +46,10 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "The Champion Zone exists in duel state but is absent from the EffectIR engine ZoneId/ZoneDestination contract, so effect.zone cannot name it (CR 108.3). " +
-    "ObjectFilter also has no Chosen Champion predicate for CR 103.3.a.3, and the closed Condition vocabulary has no zone-emptiness test for the printed 'if it is empty' (CR 108.3.c.1). " +
-    "The hold filter's `here` relation also lacks an adapter that binds the scoring event's battlefield identity to this source. The hold timing point and trigger registration path exist; these zone, predicate, and event-binding consumers remain missing.",
+    "The EffectIR ZoneId/ZoneDestination and effect.zone still lack Champion Zone routing (CR 108.3); " +
+    "ObjectFilter/programs/filters.ts lack the physical Chosen Champion marker (103.3.a.3). The empty-zone " +
+    "count/compare query (108.3.c.1) needs that unsupported zone. programs/filters.ts also cannot bind the " +
+    "hold event here relation to this source battlefield (383.4.d).",
   sourceText:
     "When you hold here, you may return your Chosen Champion from your trash to your Champion Zone if it is empty.",
   abilities: [
@@ -75,8 +75,8 @@ export default {
                   id: "hallowed-tomb.return-champion",
                   op: "effect.zone",
                   // "if it is empty" (108.3.c.1): the condition belongs to this
-                  // instruction; the zone-emptiness predicate it needs (a count
-                  // over the Champion Zone) is not available yet — see
+                  // instruction; its count query
+                  // still needs Champion Zone support — see
                   // judgeReason.
                   condition: {
                     kind: "compare",
