@@ -21,8 +21,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * 2. 仍不能整卡执行：动态授予的 Disarm 关键词没有运行期的关键词 → attack-declared
  *    触发再展开 / 注册消费方（expandProgram 只展开 CardProgram 声明与 source.keywords，
  *    图层授予不会回流）。而且 attack-declared 时点本身也没有事件发射方——
- *    combat/flow.ts 在 staged combat 仍抛 combat-start-transaction（原子战斗事务，
- *    RIFT-124 待合入；docs/rules/timing-point-producers.md 记为待后续）。生产对局因此
+ *    combat/flow.ts 在 staged combat 仍抛 combat-start-transaction（原子战斗事务；
+ *    docs/rules/timing-point-producers.md 记为待后续）。生产对局因此
  *    不会为受授予的 Mech 安排该攻击触发。
  * 不近似实现。
  */
@@ -51,7 +51,7 @@ const program = {
     "ability 图层的 disarm 登记、只作用于己方 Mech、以及回合结束到期。" +
     "静态程序绑定已经能把 CardProgram 的 static 能力注册成 ContinuousEffectSpec；" +
     "仍缺的是动态 grant-keyword 产生后，按 831.1.d 把 Disarm 再展开并注册到 attack-declared 的消费方，" +
-    "且 attack-declared 时点尚无事件发射方（combat/flow.ts 抛 combat-start-transaction，原子战斗事务 RIFT-124 待合入），" +
+    "且 attack-declared 时点尚无事件发射方（combat/flow.ts 抛 combat-start-transaction，" +
     "因此受授予的 Mech 在生产对局里不会安排该攻击触发。不近似实现。",
   abilities,
   sourceText:
