@@ -22,7 +22,8 @@ test("sfd-044-221 Legion Quartermaster: identity, ruleset, status, judgeReason a
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /mandatoryAdditional/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /translateCost/);
   assert.match(program.judgeReason, /return-to-hand/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -60,11 +61,12 @@ test("sfd-044-221 Legion Quartermaster: the friendly gear is a cost choice, neve
 test.todo(
   "sfd-044-221 Legion Quartermaster: the mandatory additional cost must be collected in Total Cost step 2 " +
     "(356.2/356.2.a) — the cost plan only consumes caller-supplied mandatoryAdditional and has no " +
-    "CardProgram wiring, and no nonstandard cost component performs return-to-hand (414.1) — RIFT-89"
+    "CardProgram wiring (RIFT-257's translateCost turns non-printed CostSpec fields into judge-required), " +
+    "and no nonstandard cost component performs return-to-hand (414.1) — RIFT-261"
 );
 
 test.todo(
   "sfd-044-221 Legion Quartermaster: a play with no friendly gear on the Board must be illegal rather than " +
     "paying the cost partially (417.3-style completeness for a mandatory component) — needs the same " +
-    "Finalize cost pipeline as above (RIFT-89)"
+    "Finalize cost pipeline as above (RIFT-261)"
 );

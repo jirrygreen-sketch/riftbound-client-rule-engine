@@ -34,8 +34,9 @@ test("sfd-036-221 Lonely Poro: judgeReason names the trigger.leave and pre-chain
   assert.match(program.judgeReason, /trigger\.leave/);
   assert.match(program.judgeReason, /Deathknell/);
   assert.match(program.judgeReason, /740\.2\.a/);
-  assert.match(program.judgeReason, /RIFT-82/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /attachProgramLifecycle/);
+  assert.match(program.judgeReason, /object-leaves-board/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("sfd-036-221 Lonely Poro: [Deathknell] is declared, not re-implemented (contract 3.7)", () => {
@@ -111,12 +112,20 @@ test("sfd-036-221 Lonely Poro golden: an empty deck draws as much as possible (C
 test.todo(
   "sfd-036-221 Lonely Poro: [Deathknell] expansion (subscribe object-killed, 808.1.d.1 removal from " +
     "the chain when the death is replaced, 808.1.d.3 last-known information recorded pre-chain) — the " +
-    "KeywordDef only references the unmerged trigger.leave op and card triggers are not registered " +
-    "into the event pipeline (RIFT-82 / RIFT-120)"
+    "KeywordDef only references the unmerged trigger.leave op (no InstructionDef is registered)"
 );
 
 test.todo(
   "sfd-036-221 Lonely Poro: 'died alone' is checked against the source's location before the trigger " +
-    "is queued (CR 740.2.a, 808.1.c.2) — the reference kernel can evaluate sameLocationAs/exclude, " +
-    "but the event pipeline does not evaluate a CardProgram trigger condition yet (RIFT-120)"
+    "is queued (CR 740.2.a, 808.1.c.2) — the reference kernel's test() does not interpret the " +
+    "sameLocationAs/exclude anchors or normalize the controller placeholder, so the count collapses " +
+    "to 0 and the condition is always true; a production condition adapter with last-known location " +
+    "is required"
+);
+
+test.todo(
+  "sfd-036-221 Lonely Poro: the object-killed trigger must be delivered to the chain — " +
+    "attachProgramLifecycle unregisters the card's registration on object-leaves-board, and the kill " +
+    "action's object-killed event scans after it, so the death trigger is removed before delivery " +
+    "(reproduced on the real ChainEngine: registration present, no chain item after a kill)"
 );

@@ -17,17 +17,24 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   位置状态判定（359.3.f.1 referent 的口径：从触发时刻的来源位置读取）。
  * - "draw 1"：414.3/414.1.a；已合入的 effect.draw 只提交 draw GameAction。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。
- * - [Deathknell] 的展开体（effects/keywords/Deathknell.ts）只引用 trigger.leave，而该 op
- *   没有已合入的 InstructionDef（effects/instructions/registry.generated.ts 无 trigger.*
- *   条目），卡牌程序的触发也尚未注册进事件管线；808.1.d.1（死亡被替代则移出链）/
- *   808.1.d.2/.d.3（进链前记录 last-known）同样依赖该管线。
- * - 「died alone」的条件（740.2.a）需要「同一位置（sameLocationAs: "source"）且排除自身」
- *   的友方单位计数：解释器的查询锚点支持 sameLocationAs、exclude，但触发进链前的条件
- *   求值路径（事件管线对卡牌程序触发条件的判定）尚未接线，且来源在进链前仍须有可用的
- *   last-known 位置。
- * 依赖：RIFT-82（kw-deathknell-legion）与 RIFT-120（事件管线 trigger.leave / 触发注册 /
- * 进链前条件求值）。draw 1 本体只用已合入的 effect.draw。不近似实现。
+ * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-16）。
+ * - 已合入：RIFT-258/259 的 registration 后，RIFT-257 的 triggerRegistrations 能把本卡
+ *   显式 triggered ability 翻译并安装（golden 证明安装成功）；effect.draw 本体真实执行。
+ * - 仍缺（两处已实证的缺口）：
+ *   1. [Deathknell] 的展开体引用 trigger.leave，而该 op 没有已合入的 InstructionDef
+ *      （effects/instructions/registry.generated.ts 无 trigger.* 条目）；一旦该展开的
+ *      触发结算就会抛 Unregistered instruction opcode。
+ *   2. 生产触发生命周期（programs/lifecycle.ts 的 attachProgramLifecycle）在
+ *      object-leaves-board 事件后即 unregister 该卡的注册，而 kill 动作的
+ *      object-killed 事件在 leaves-board 之后才扫描——死亡触发在送达前已被移除
+ *      （golden 在真实链上复现：注册存在、kill 后无触发进链）。808.1.d.1
+ *      （死亡被替代则移出链）与 808.1.d.2/.d.3（进链前记录 last-known）也依赖该管线。
+ * - 「died alone」的条件（740.2.a）另需触发进链前的条件求值：条件用
+ *   sameLocationAs/exclude 锚点与 controller 占位符，参考内核的 test() 不解释锚点、
+ *   也不归一化 "controller"（计数落到 0 → 条件恒真），生产 host 必须提供等价的
+ *   条件适配器与 last-known 位置。
+ * 依赖：Deathknell 展开体的 trigger.leave 原语、死亡触发的生命周期送达、进链前条件求值。
+ * draw 1 本体只用已合入的 effect.draw。不近似实现。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "deathknell" },
@@ -69,14 +76,15 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "[Deathknell]（808.1）的展开不可执行：effects/keywords/Deathknell.ts 的触发体只引用 trigger.leave，" +
-    "而该 op 没有已合入的 InstructionDef（effects/instructions/registry.generated.ts 无 trigger.* 条目），" +
-    "卡牌程序的触发尚未注册进事件管线；808.1.d.1（死亡被替代则移出链）与 808.1.d.2/.d.3（进链前记录 last-known）同属该管线。" +
-    "「If I died alone」的条件（CR 740.2.a：同位置没有其他友方单位；808.1.c.2 的过去式指进链那一刻）" +
-    "需要触发进链前的条件求值路径：sameLocationAs/exclude 锚点解释器支持，但事件管线对卡牌程序触发条件的判定未接线；" +
-    "且条件里的 controller: \"controller\" 占位符在解释器/条件求值路径上没有归一化（参考内核与 chain 的 query 只归一化 self/opponent），" +
-    "计数会落到 0、让条件恒真——在归一化落地前不能宣称该条件可执行。" +
-    "依赖：RIFT-82（kw-deathknell-legion）、RIFT-120（trigger.leave / 触发注册 / 进链前条件求值）。" +
+    "两处已实证的缺口：(1) [Deathknell]（808.1）的展开体引用 trigger.leave，而该 op 没有已合入的 InstructionDef" +
+    "（effects/instructions/registry.generated.ts 无 trigger.* 条目），展开的触发一旦结算就抛 Unregistered instruction opcode；" +
+    "(2) 生产触发生命周期（programs/lifecycle.ts attachProgramLifecycle）在 object-leaves-board 事件后即取消注册，" +
+    "而 kill 的 object-killed 事件在 leaves-board 之后扫描——死亡触发在送达前被移除（真实链上复现：注册成功、kill 后触发不进链）；" +
+    "808.1.d.1（死亡被替代则移出链）与 808.1.d.2/.d.3（进链前记录 last-known）同属该管线。" +
+    "「If I died alone」的条件（CR 740.2.a；808.1.c.2 的过去式指进链那一刻）还需要进链前的条件求值：" +
+    "sameLocationAs/exclude 锚点与 controller 占位符在参考内核的 test() 里不解释/不归一化（计数落到 0、条件恒真），" +
+    "生产 host 必须提供等价的条件适配器与来源的 last-known 位置。RIFT-257 的注册对显式 triggered ability 已可安装（golden 证明）。" +
+    "依赖：Deathknell 展开体的 trigger.leave、死亡触发生命周期送达、进链前条件求值。" +
     "draw 1 本体只用已合入的 effect.draw。不近似实现（不把「died alone」写成无条件抽牌，也不用近似谓词）。",
   abilities,
   sourceText:

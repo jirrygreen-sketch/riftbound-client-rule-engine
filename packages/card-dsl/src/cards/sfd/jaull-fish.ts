@@ -9,22 +9,28 @@ import type { CardProgram } from "../../ir/index.js";
  *   I cost :rb_energy_2: less for each of your [Mighty] units. (A unit is
  *   Mighty while it has 5+ :rb_might:.)
  *
- * 表达说明：
- * - [Accelerate] 按契约 3.1 表示为 keyword 能力（805，可选附加费 [1][Body]，
- *   该卡域为 Body）。其展开（费用改写 + 入场就绪替代）由
- *   effects/keywords/accelerate.ts 负责，卡牌本身不再重复展开。
- * - “I cost 2 less for each of your Mighty units” 是静态费用改写
- *   （cost-modify 模板，见 ability-templates.md 的 cost-modify 行），该原语
- *   尚未定义，故整条能力保持 judge-required，不做近似实现（契约 1.5 红线）。
+ * 表达说明（复核 2026-10-16）：
+ * - [Accelerate]（805）已由 effects/keywords/Accelerate.ts 展开为
+ *   static accelerate.cost（可选附加费 [1] + 域匹配 Power）与 replacement
+ *   （object-enters-board + exhausted → effect.ready，805.6）；RIFT-257 的
+ *   expandProgram 会把本卡的 keyword 声明解析为这两条能力（golden 验证）。
+ * - “I cost 2 less for each of your Mighty units” 是静态费用改写（356.4/
+ *   356.4.b，cost-modify 模板）：effects/instructions/ 没有 cost.modify 原语，
+ *   cost/cost-plan.ts 也不读 CardProgram 声明的折扣（属仍在进行的 RIFT-261）；
+ *   “for each of your Mighty units”还需要 706–711 的 Mighty 谓词计数作为
+ *   折扣 amount 的输入，费用侧同样没有计数入口。故整卡保持 judge-required，
+ *   不做近似实现（契约 1.5 红线）。
  */
 const jaullFish = {
   canonicalCardId: "card.hash-db90e8eaf24230cfbc3b68d99971c58f465f65465b5c52be37ae1564d6e86732",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Missing primitive: cost.modify (cost reduction 'I cost 2 less for each of your Mighty units', " +
-    "catalog cost-modify template). The Accelerate keyword is expressed but its expansion also " +
-    "requires the unimplemented keywords/accelerate.ts (cost.additional + replacement.enter).",
+    "缺 cost.modify 与费用计划消费方：「I cost 2 less for each of your Mighty units」（356.4/356.4.b）需要静态费用改写" +
+    "（effects/instructions/ 没有 cost.modify 原语，cost/cost-plan.ts 的折扣只读调用方传入的 CostDiscount，" +
+    "属仍在进行的 RIFT-261），折扣数量还依赖 706–711 的 Mighty 计数，费用侧没有该谓词入口。" +
+    "[Accelerate]（805）的展开（effects/keywords/Accelerate.ts：成本声明 + 入场就绪替代）已合入，" +
+    "RIFT-257 的 expandProgram 可把它解析为可校验的能力（golden 验证展开形状），但不构成整卡可执行证据。不近似实现。",
   abilities: [{ kind: "keyword", keyword: "accelerate" }],
   sourceText:
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_body: as an additional cost to have me enter ready.)\n" +

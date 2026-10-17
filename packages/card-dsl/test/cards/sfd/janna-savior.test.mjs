@@ -20,10 +20,12 @@ const [reaction, ability] = program.abilities;
 const [healHere, moveEnemyHome] = ability.body;
 
 /**
- * The chain's query wrapper binds the controller/owner placeholders (chain/engine.ts)
- * and asks the layers filter, which implements the sameLocationAs anchor. The
- * reference kernel does neither, so the goldens bind both here rather than editing
- * the card data.
+ * Emulates the production query path for the goldens below: the chain's query
+ * wrapper binds the controller placeholder (chain/engine.ts normalizes "self")
+ * and asks the layers filter for the rest. The merged program binding
+ * (RIFT-257) rejects the sameLocationAs anchor before this point (see
+ * judgeReason), so the anchor comparison is performed here for the golden
+ * scenario; this proves the effect bodies, not the binding of the anchor.
  */
 function productionContext(kernel) {
   const query = (filter) => {
@@ -68,8 +70,9 @@ test("sfd-053-221 Janna, Savior: identity, ruleset, status, judgeReason and verb
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /RIFT-120/);
   assert.match(program.judgeReason, /sameLocationAs/);
+  assert.match(program.judgeReason, /translateObjectFilter|filters\.ts/);
+  assert.match(program.judgeReason, /canAct/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -177,12 +180,12 @@ test("sfd-053-221 Janna, Savior golden: an already undamaged board heals nothing
 });
 
 test.todo(
-  "sfd-053-221 Janna, Savior: 'When you play me' must reach the chain as a Pending item (383.4.a.2 / " +
-    "420.4.a) through a CardProgram trigger registration, and [Reaction]'s continuous.timing permission must " +
-    "be consumed by the chain's canAct query — RIFT-120 / RIFT-91"
+  "sfd-053-221 Janna, Savior: the card's own binding must accept the 'here' anchor — the merged " +
+    "programs/filters.ts translateObjectFilter reports Unsupported filter field sameLocationAs for the heal " +
+    "query and the move target, so the TriggerRegistration cannot be installed (RIFT-257 translation surface)"
 );
 
 test.todo(
-  "sfd-053-221 Janna, Savior: 'here' must compare the event/target Location against the source's Location " +
-    "through the production trigger matcher (events/pipeline-match.ts recognizes no sameLocationAs anchor) — RIFT-120"
+  "sfd-053-221 Janna, Savior: [Reaction]'s continuous.timing permission (813.1.c) must be consumed by the " +
+    "chain's canAct query (P0 contract 3.5) — chain/engine.ts canAct still decides from the passed speed alone"
 );
