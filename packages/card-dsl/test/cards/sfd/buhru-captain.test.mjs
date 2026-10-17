@@ -142,19 +142,41 @@ test("sfd-091-221 Buhru Captain golden: an already-buffed unit is not buffed aga
   assert.deepEqual(outcome.events, []);
 });
 
-test("sfd-091-221 Buhru Captain golden: both declared modes run through the interpreter and kernel", () => {
-  // Each mode body is executed as authored; the production chain refuses
-  // choice.mode today (assertFinalizationSurface), which the todo below records.
-  const drawKernel = world().deck(["a", "b"]).build();
-  const drawOutcome = resolveChainBody([{ ...drawInstruction, op: "effect.draw" }], drawKernel);
-  assert.equal(drawOutcome.status, "executed");
-  assert.equal(drawKernel.player("A").handSize, 1);
+test("sfd-091-221 Buhru Captain golden: the declared mode choice really selects and runs one branch", () => {
+  // 355.3 / contract 3.9: the printed "or" is a mode choice of exactly one of
+  // the two declared modes. The interpreter selects the answered mode and runs
+  // only its body — the draw branch draws, and the buff branch never runs.
+  const kernel = world().deck(["a", "b"]).build();
+  kernel.setAnswers({ "buhru-captain.mode/mode%3A0": "buhru-captain.draw-mode" });
 
-  const buffKernel = captainWorld();
-  buffKernel.setTargets("buhru-captain.self", [buffKernel.ref("captain")]);
-  const buffOutcome = resolveChainBody([buffInstruction], buffKernel);
-  assert.equal(buffOutcome.status, "executed");
-  assert.equal(buffKernel.getObject("captain").buffs, 1);
+  const outcome = resolveChainBody([mode], kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.linkedValues["buhru-captain.mode.value"], ["buhru-captain.draw-mode"]);
+  assert.equal(kernel.player("A").handSize, 1);
+  // The buff branch did not run: no mode execution for it and no Buff landed.
+  assert.deepEqual([...new Set(outcome.results.map((entry) => entry.id))], [
+    "buhru-captain.draw",
+    "buhru-captain.mode"
+  ]);
+});
+
+test("sfd-091-221 Buhru Captain golden: selecting the buff mode buffers the host instead of drawing", () => {
+  const kernel = captainWorld();
+  kernel.setTargets("buhru-captain.self", [kernel.ref("captain")]);
+  kernel.setAnswers({ "buhru-captain.mode/mode%3A0": "buhru-captain.buff-mode" });
+
+  const outcome = resolveChainBody([mode], kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.linkedValues["buhru-captain.mode.value"], ["buhru-captain.buff-mode"]);
+  assert.equal(kernel.getObject("captain").buffs, 1);
+  // "or" is exclusive: the draw branch never runs when the buff mode is chosen.
+  assert.deepEqual([...new Set(outcome.results.map((entry) => entry.id))], [
+    "buhru-captain.buff",
+    "buhru-captain.mode"
+  ]);
+  assert.equal(kernel.player("A").handSize, 0);
 });
 
 test.todo(

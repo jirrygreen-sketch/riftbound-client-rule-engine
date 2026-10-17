@@ -3,6 +3,8 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/chemtech-cask.js";
+import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 const ENGINE = new URL("../../../../engine-core/dist/", import.meta.url);
 const { matchesTriggerEvent } = await import(new URL("events/pipeline-match.js", ENGINE));
 
@@ -105,15 +107,35 @@ test("sfd-063-221 Chemtech Cask: the declared filter matches the merged matcher 
 
 test.todo(
   "sfd-063-221 Chemtech Cask: paying \"exhaust me\" as a cost within instructions (CR 204.1.c / 204.3 / 355.10.c.1) needs " +
-    "a merged cost.pay instruction and the Finalize cost pipeline (RIFT-89/90); the exhaust must not be approximated " +
+    "a merged cost.pay instruction and the Finalize cost pipeline (RIFT-257/261); the exhaust must not be approximated " +
     "with effect.exhaust"
 );
 test.todo(
   "sfd-063-221 Chemtech Cask: playing the Gold gear token (CR 187.5 definition plus 440.2.c / 185.2.a chain creation and " +
-    "184.1 / 185.2.d exhausted entry) needs the Gold token definition plus the create-token entry-state rewrite; " +
-    "effect.token reports blockedReason \"token-definition-or-abilities-judge-required\" today"
+    "184.1 / 185.2.d exhausted entry) needs the Gold token definition plus the create-token entry-state rewrite"
 );
 test.todo(
   "sfd-063-221 Chemtech Cask: \"on an opponent's turn\" needs an event payload / trigger-filter predicate for turn ownership " +
-    "(continuous.timing opponent's turn, RIFT-91) plus the program -> TriggerRegistration adapter (contract 3.5)"
+    "plus the program -> TriggerRegistration adapter (contract 3.5 / RIFT-257)"
 );
+
+test("sfd-063-221 Chemtech Cask: the merged effect.token primitive refuses the Gold definition", () => {
+  // The card's instruction names the printed "gold" definition; the merged
+  // primitive refuses definitions with their own abilities (CR 187.5) and
+  // reports the reason, so the exhaust-cost half can never fall through to a
+  // substitute token.
+  const kernel = world().player("A")
+    .unit("cask", { types: ["gear"], zone: "board", location: { type: "base", player: "A" } })
+    .build();
+  const run = runInstruction(token, {
+    token: { kind: "constant", value: "gold" },
+    amount: { kind: "constant", value: 1 },
+    mode: { kind: "constant", value: "play" },
+    location: { kind: "constant", value: { type: "base", player: "A" } },
+    linkKey: { kind: "constant", value: "goldToken" }
+  }, { world: kernel.clone({ sourceSnapshot: kernel.getObject("cask") }) });
+
+  assert.deepEqual(run.result, { status: "negated", reason: "impossible", events: [] });
+  assert.equal(run.linked.goldToken.blockedReason, "token-definition-or-abilities-judge-required");
+  assert.deepEqual(kernel.objects.filter((object) => object.isToken).map((object) => object.ref.id), []);
+});

@@ -6,8 +6,9 @@ import program from "../../../dist/cards/sfd/chem-baroness.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { buildCostPlan, payCostPlan } from "../../../../engine-core/dist/cost/index.js";
+import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-db953801bed05d82fb44e885fa9fb48eee8dd92368d3933f1b858ca4c05c67e5";
 const SOURCE_TEXT =
@@ -187,15 +188,16 @@ test("sfd-201-221 Chem-Baroness: the Gold scope matches the named token only", (
 
 test.todo(
   "sfd-201-221 Chem-Baroness: the Gold gear token (187.5, with its own 'Kill this, [E]: [Add] [A]' ability) " +
-    "is not in effect.token's frozen definition table, so 'play a Gold gear token' cannot be executed"
+    "cannot be created by the merged effect.token primitive; it reports " +
+    "blockedReason 'token-definition-or-abilities-judge-required' for definitions with their own abilities"
 );
 test.todo(
-  "sfd-201-221 Chem-Baroness: 'exhausted' is an entry state (143.4/185.2.d) that create-token does not " +
+  "sfd-201-221 Chem-Baroness: 'exhausted' is an entry state (143.4/185.2.d) that effect.token does not " +
     "support; adding effect.exhaust afterwards would emit a second 'becomes exhausted' event and is not equivalent"
 );
 test.todo(
   "sfd-201-221 Chem-Baroness: 'within 3 points of the Victory Score' needs the current Victory Score " +
-    "(194.3/194.3.a), which ResolveContext does not expose; hard-coding the default 8 would invent semantics"
+    "(194.3/194.3.a), which PlayerSnapshot/ResolveContext do not expose; hard-coding the default 8 would invent semantics"
 );
 test.todo(
   "sfd-201-221 Chem-Baroness: 'or an ally' is the Teammate relation (491.8.e); ResolveContext has no ally/team " +
@@ -203,5 +205,38 @@ test.todo(
 );
 test.todo(
   "sfd-201-221 Chem-Baroness: 'your Gold [Add] an additional :rb_energy_1:' needs a conditional continuous " +
-    "effect over resource abilities plus a CardProgram -> LayerEngine registration path (RIFT-91)"
+    "effect over resource abilities plus a CardProgram -> LayerEngine registration path (RIFT-257)"
 );
+
+test("sfd-201-221 Chem-Baroness: the exhaust cost is charged as a real payment through the merged cost plan", () => {
+  // 415.4/415.5: "exhaust me" is a cost, so it is charged by the cost plan and
+  // not by effect.exhaust. The declared payment really exhausts the legend.
+  const kernel = legendWorld();
+  const plan = buildCostPlan(kernel, {
+    id: "cost:chem-baroness:exhaust",
+    cost: { kind: "activated", payments: [{ kind: "exhaust", object: "self" }] }
+  });
+  assert.deepEqual(plan.total.actions.map((entry) => entry.action.type), ["exhaust"]);
+  const receipt = payCostPlan(kernel, plan);
+  assert.equal(receipt.paid, true);
+  assert.equal(kernel.getObject("chem-baroness").exhausted, true);
+});
+
+test("sfd-201-221 Chem-Baroness: the merged effect.token primitive refuses the Gold definition", () => {
+  // The optional body names the printed "gold" definition; the merged primitive
+  // refuses definitions with their own abilities (CR 187.5). The refusal is the
+  // actual evidence for the judge-required Gold half, and nothing is created
+  // in its place.
+  const kernel = legendWorld();
+  const run = runInstruction(token, {
+    token: { kind: "constant", value: "gold" },
+    amount: { kind: "constant", value: 1 },
+    mode: { kind: "constant", value: "play" },
+    location: { kind: "constant", value: { type: "base", player: "A" } },
+    linkKey: { kind: "constant", value: "goldToken" }
+  }, { world: kernel });
+
+  assert.deepEqual(run.result, { status: "negated", reason: "impossible", events: [] });
+  assert.equal(run.linked.goldToken.blockedReason, "token-definition-or-abilities-judge-required");
+  assert.deepEqual(kernel.objects.filter((object) => object.isToken).map((object) => object.ref.id), []);
+});

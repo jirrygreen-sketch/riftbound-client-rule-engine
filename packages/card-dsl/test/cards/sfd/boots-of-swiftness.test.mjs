@@ -46,9 +46,9 @@ test("sfd-133-221 Boots of Swiftness: identity, ruleset, status, judgeReason and
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Equip/);
-  assert.match(program.judgeReason, /params\.cost/);
-  assert.match(program.judgeReason, /Unsupported payment kind: equip/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /equip/);
+  assert.match(program.judgeReason, /params\.cost|3\.8\.3/);
+  assert.match(program.judgeReason, /818\.1\.c/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -107,8 +107,9 @@ test("sfd-133-221 Boots of Swiftness: the merged Equip body attaches this gear t
 });
 
 test.todo(
-  "sfd-133-221 Boots of Swiftness: paying the printed Equip cost (1 Chaos Power, CR 818.1.c) needs the \"equip\" cost-payment kind in cost/plan-values.ts " +
-    "(RIFT-89 cost-payment batch) and contract 3.8.3 params.cost so the printed rune reaches KeywordDef.expand."
+  "sfd-133-221 Boots of Swiftness: paying the printed Equip cost (1 Chaos Power, CR 818.1.c) needs an " +
+    "\"equip\" cost-payment kind in cost/plan-values.ts and contract 3.8.3 params.cost so the printed rune " +
+    "reaches KeywordDef.expand; the expansion's cost component is declared today and the cost plan rejects it"
 );
 test.todo(
   "sfd-133-221 Boots of Swiftness: the card-program -> keyword expansion -> chain wiring from contract 3.5 must register the Equip activated ability before the whole card is executable."

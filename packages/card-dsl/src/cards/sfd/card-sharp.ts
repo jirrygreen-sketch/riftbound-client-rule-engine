@@ -24,12 +24,12 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * status 判定（cards/README.md 第 2 节）：judge-required，三处依赖未合入，均不近似实现：
  * - 多玩家选择与逐席位结果计数没有 IR 形状（契约 3.6 的 choose 单 chooser、无其他玩家席位枚举、
  *   无按选择结果重复/分支的结构；同 ogn/party-favors 的 RIFT-9 target.player 缺口）。
- * - Gold gear token（CR 187.5）不在 effect.token 的冻结定义表里，该文件明确此类定义保持
- *   blocked/judge-required；mode: "play" 还需 440.2.c/185.2.a 的链上创建 + 打出接手，
- *   "exhausted" 的入场状态改写同样不受支持（184.1/185.2.d）。
+ * - Gold gear token（CR 187.5）不在 effect.token 的冻结定义表里，该原语对带自身能力的定义返回
+ *   blockedReason "token-definition-or-abilities-judge-required"；"exhausted" 的入场状态改写
+ *   同样没有参数（184.1/185.2.d）。
+ * - 卡牌程序 → TriggerRegistration 的接线（契约 3.5 / RIFT-257）未合入。
  * 程序把两条从句的形状都保留下来（第二条的重复次数经链接值读取第一条的选择结果），供审查与
  * 依赖落地后复核；golden 只做校验/结构断言，执行场景写 test.todo。
- * 依赖：RIFT-9（target.player / 多玩家选择协调）、Gold 定义与链上创建/入场状态（token 原语任务）、RIFT-90（选择结果绑定）。
  */
 const abilities: Ability[] = [
   {
@@ -39,8 +39,8 @@ const abilities: Ability[] = [
     body: [
       {
         // 「you and each opponent may play a Gold gear token exhausted」：一次由多个玩家（你与每名对手）
-        // 分别做出的可选决定。冻结 IR 没有该控制结构（见 judgeReason），这里以按席位选择的
-        // 描述性 op 记录形状；
+        // 分别做出的可选决定。契约 3.9 的 choice.optional 只表达单一决定者的拒绝，冻结 IR 没有
+        // 「其他玩家席位列表」控制结构（见 judgeReason），这里以按席位选择的描述性 op 记录形状；
         // linked 结果键 opponentsWhoPlayed 供下一条从句读取（依赖落地后由该原语写入）。
         id: "card-sharp.each-player-may-play-gold",
         op: "choice.each-player",
@@ -69,7 +69,6 @@ const abilities: Ability[] = [
           },
           mode: { kind: "constant", value: "play" },
           location: { kind: "constant", value: { type: "base", player: "controller" } },
-          entersExhausted: { kind: "constant", value: true },
           linkKey: { kind: "constant", value: "bonusGoldTokens" }
         }
       }
@@ -87,9 +86,11 @@ const program = {
     "IR 也没有「其他玩家席位列表」的 Expr 或按席位重复的控制结构（同 ogn/party-favors 记录的 RIFT-9 target.player 缺口），" +
     "更无法表达「For each opponent who did」的逐席位结果计数（无选择结果绑定）。" +
     "(2) Gold gear token（CR 187.5，domainless gear token，自带 Reaction/Kill/[E]: [Add] [A] 能力）不在 effect.token 的冻结定义表，" +
-    "该文件明确此类定义保持 blocked/judge-required；「play ... exhausted」还需 440.2.c/185.2.a 的链上创建 + 打出接手与" +
-    "184.1/185.2.d 的入场状态改写（不支持）。程序保留两条从句的形状（第二条经 linked 读取第一条的结果键），golden 不做执行断言（执行场景为 test.todo）。" +
-    "依赖：RIFT-9（多玩家选择协调）、RIFT-90（选择结果绑定）、Gold 定义与链上创建/入场状态（token 原语任务）。",
+    "该原语对带自身能力的定义返回 blockedReason \"token-definition-or-abilities-judge-required\"；「play ... exhausted」还需" +
+    "440.2.c/185.2.a 的链上创建 + 打出接手与 184.1/185.2.d 的入场状态改写（argsSchema 不接受入场状态参数）。" +
+    "(3) 卡牌程序 → TriggerRegistration 的接线（契约 3.5 / RIFT-257）未合入。程序保留两条从句的形状" +
+    "（第二条经 linked 读取第一条的结果键），golden 不做执行断言（执行场景为 test.todo）。" +
+    "依赖：RIFT-9（多玩家选择协调）、RIFT-257（卡牌程序绑定）、Gold 定义与入场状态改写。",
   abilities,
   sourceText:
     "When you play me, you and each opponent may play a Gold gear token exhausted. " +
