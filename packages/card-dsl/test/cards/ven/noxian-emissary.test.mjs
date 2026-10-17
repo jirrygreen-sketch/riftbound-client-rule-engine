@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ven/noxian-emissary.js";
+import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
@@ -22,6 +23,7 @@ test("ven-128-166 Noxian Emissary: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
   assert.deepEqual(result.issues, []);
   assert.equal(result.ok, true);
+  assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
 test("ven-128-166 Noxian Emissary: identity, status, judgeReason and verbatim sourceText", () => {
@@ -32,13 +34,15 @@ test("ven-128-166 Noxian Emissary: identity, status, judgeReason and verbatim so
   assert.match(program.judgeReason, /Empower/);
   assert.match(program.judgeReason, /trigger\.leave/);
   assert.match(program.judgeReason, /727\.1\.c\.1/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("ven-128-166 Noxian Emissary: [Empower] is declared, not re-implemented (contract 3.7)", () => {
   assert.deepEqual(empower, { kind: "keyword", keyword: "empower" });
   // 827.1.c.1's cost expansion must come from the keyword registry; the merged
-  // registry has no Empower KeywordDef yet (asserted below).
+  // registry (26 definitions) still has no Empower/Empowered KeywordDef.
   assert.equal(keywordDefinitionsById.get("Empower"), undefined);
+  assert.equal(keywordDefinitionsById.get("Empowered"), undefined);
 });
 
 test("ven-128-166 Noxian Emissary: the Empowered Deathknell dependent ability shape", () => {
@@ -138,11 +142,11 @@ test("ven-128-166 golden: an opponent's base destination negates the token play"
 
 test.todo(
   "ven-128-166 Noxian Emissary: [Empower] expansion (827.1.c.1: 1 Energy + 1 Order Power, " +
-    "'use only if not Empowered') needs an Empower KeywordDef — none is merged"
+    "'use only if not Empowered') needs an Empower KeywordDef — the merged 26-keyword registry has none"
 );
 
 test.todo(
   "ven-128-166 Noxian Emissary: [Empowered][>>][Deathknell] dependent-keyword gating " +
-    "(828.1.b.1 + 727.1.b.3) needs an Empowered status predicate and a merged trigger.leave " +
-    "primitive for the Deathknell expansion (RIFT-82)"
+    "(828.1.b.1 + 727.1.b.3) needs an Empowered status predicate (RIFT-87) and the trigger.leave " +
+    "primitive that the merged Deathknell expansion names (RIFT-82)"
 );
