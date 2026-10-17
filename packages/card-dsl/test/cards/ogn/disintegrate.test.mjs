@@ -116,6 +116,6 @@ test("Disintegrate golden execution: a stale target ignores the damage and the l
 test.todo(
   "Disintegrate: the 'If this kills it' gate needs the lethal-damage to kill " +
     "attribution (429.5.c) plus a condition.result / if-killed result binding " +
-    "(RIFT-9) and the survey's proposed reflexive trigger, so a real kill draws " +
+    "the result-condition producer and lethal-damage attribution, so a real kill draws " +
     "1 while a replaced death does not."
 );

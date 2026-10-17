@@ -91,5 +91,5 @@ test("golden: the +2 Might grant registers and expires at turn-end", () => {
 test.todo(
   "Dune Drake: the trigger only becomes reachable when the combat flow emits attack-declared " +
     "and resolves its ready-enemy condition (CR 383.2.a.1 / 383.4.e / 466.2.c); the combat role " +
-    "transaction and CardProgram trigger binding remain RIFT-124/RIFT-257/RIFT-270 work"
+    "transaction and attack-source/ready-enemy condition binding remain engine work"
 );

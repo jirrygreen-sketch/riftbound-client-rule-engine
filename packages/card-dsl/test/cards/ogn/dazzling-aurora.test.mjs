@@ -21,8 +21,7 @@ test("ogn-160-298 Dazzling Aurora: identity, version and verbatim source text", 
     program.sourceText,
     "At the end of your turn, reveal cards from the top of your Main Deck until you reveal a unit. Play it, ignoring its cost, and recycle the rest."
   );
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-66/);
+  assert.match(program.judgeReason, /RIFT-358/);
 });
 
 test("ogn-160-298 Dazzling Aurora: turn-end trigger with reveal/play/recycle body shape", () => {
@@ -58,11 +57,11 @@ test("ogn-160-298 Dazzling Aurora: turn-end trigger with reveal/play/recycle bod
 });
 
 test.todo(
-  "Dazzling Aurora: ordered reveal-until-unit over the Main Deck top (zoneSlice / RIFT-66 reveal-until)"
+  "Dazzling Aurora: ordered reveal-until-unit over the Main Deck top (RIFT-358 ordered picks and stop condition)"
 );
 test.todo(
-  "Dazzling Aurora: play the revealed unit ignoring its printed cost via a zeroed finalized cost plan (cost.modify / RIFT-261)"
+  "Dazzling Aurora: derive a zeroed finalized cost plan from the revealed unit before effect.play"
 );
 test.todo(
-  "Dazzling Aurora: recycle the non-unit cards revealed before the unit (linked result of reveal-until, RIFT-66)"
+  "Dazzling Aurora: recycle the non-unit cards revealed before the unit from the linked reveal-until result"
 );

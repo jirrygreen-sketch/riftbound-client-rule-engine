@@ -16,7 +16,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   are not refunded). The spell is a target on the chain (355.9.a.2); pending
  *   chain items are not legal targets (contract 3.4) and a spell cannot target
  *   itself (355.9.c) — both are the target system's Finalize obligations
- *   (RIFT-90), not card data.
+ *   (RIFT-359), not card data.
  *
  * Status: judge-required — the cost restriction is not expressible:
  * - "a spell that costs no more than [4] and no more than [A]" restricts
@@ -45,9 +45,7 @@ const defy = {
     "type/tag/controller/zone/location 等字段，没有任何已合入的目标谓词能读取链上法术的印刷 Energy 费用" +
     "或印刷 Power 需求；ObjectSnapshot 暴露的是当前 energy 与 Power 列表，不是印刷/复制费用。" +
     "不近似实现（去掉费用限制会把“反制任意法术”写成事实）；限制以未实现的描述性键 energyMax/powerMax 保留。" +
-    "依赖：target 系统的印刷费用谓词（RIFT-90 target/链 目标锁定，RIFT-261 cost.pay/cost.modify 提供印刷费用读取）" +
-    "与 RIFT-257 的 CardProgram 反应能力绑定。" +
-    "effect.counter（426.1-426.3）与 [Reaction]（813）本身已合入。",
+    "依赖：target 系统的印刷费用谓词（RIFT-359）；effect.counter（426.1-426.3）与 [Reaction]（813）本身已合入。",
   sourceText:
     "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +
     "Counter a spell that costs no more than :rb_energy_4: and no more than :rb_rune_rainbow:.",

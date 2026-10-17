@@ -57,7 +57,6 @@ test("Dr. Mundo, Expert identity and judge-required reason", () => {
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /479\.4/);
   assert.equal(
     program.sourceText,
@@ -157,10 +156,10 @@ test("golden: an empty trash recycles nothing and does not fail the trigger", ()
 test.todo(
   "Dr. Mundo, Expert: applying 'My Might is increased by the number of cards in your trash' as a " +
     "dynamic arithmetic-layer amount needs count evaluation in LayerEngine and the CardProgram-to-layers " +
-    "binding (CR 479.4; RIFT-257)"
+    "dynamic count binding (CR 479.4)"
 );
 
 test.todo(
   "Dr. Mundo, Expert: the CardProgram adapter must bind the phase trigger and static continuous.might " +
-    "effect into the production runtime (beginning-start / RIFT-257)"
+    "effect into the production runtime (beginning-start)"
 );

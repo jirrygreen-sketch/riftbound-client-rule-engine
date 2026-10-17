@@ -29,7 +29,7 @@ export default {
   judgeReason:
     "continuous.might 与 end-of-turn 期限已经由 RIFT-258/259 合入，正文 +2 Might 可通过解释器和图层内核执行；" +
     "仍缺「if there is a ready enemy unit here」在 attack-declared 触发中的运行时条件求值，以及 attack-declared 的 Combat 角色事务发射方" +
-    "（CR 383.2.a.1、383.4.e、466.2.c；RIFT-124、RIFT-270）。卡牌程序触发绑定仍依赖 RIFT-257，不近似实现。",
+    "（CR 383.2.a.1、383.4.e、466.2.c）。当前 attack-declared 事件没有把攻击者来源与位置条件接入该触发条件；不近似实现。",
   abilities: [
     {
       kind: "triggered",

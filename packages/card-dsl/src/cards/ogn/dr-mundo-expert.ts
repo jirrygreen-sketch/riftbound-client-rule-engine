@@ -20,10 +20,9 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * 状态：judge-required。已合入的 continuous.might、时点、filter 与 effect.recycle 都能表达
  * 局部能力，但静态 Might 加成的 amount 仍是 trash 计数表达式；当前 LayerEngine 只消费已解析的
- * 数值/对象属性，尚未把该集合计数作为 arithmetic amount 动态重算。卡牌程序静态能力到图层的
- * 生产绑定也仍由 RIFT-257 负责；按红线不做近似实现（不得改用 Buff counter）。
+ * 数值/对象属性，尚未把该集合计数作为 arithmetic amount 动态重算。按红线不做近似实现（不得改用 Buff counter）。
  *
- * 依赖：RIFT-257（CardProgram 到 layers 的绑定）与动态 count 图层求值缺口。
+ * 依赖：动态 count 图层求值（CR 479.4）。
  */
 const drMundoExpert = {
   canonicalCardId: "card.hash-e6d907e16eabec4df39898b5e0b88759b3c4a756d746eb210b9feaa3437d822e",
@@ -32,7 +31,7 @@ const drMundoExpert = {
   judgeReason:
     "continuous.might 与 arithmetic 图层已经合入，但本卡 amount 是「你 trash 中的牌数」count 表达式；" +
     "当前 LayerEngine 尚未把该集合计数作为静态 Might 的动态 amount 求值并在 trash 变化后重算（CR v1.5 479.4）。" +
-    "同时 CardProgram 静态能力到 layers 的生产绑定仍依赖 RIFT-257；beginning-start/effect.recycle 局部能力已有执行证据，不近似实现。",
+    "beginning-start/effect.recycle 局部能力已有执行证据；当前仅缺动态 count 在 arithmetic 图层中的求值与重算，不近似实现。",
   abilities: [
     {
       kind: "static",
