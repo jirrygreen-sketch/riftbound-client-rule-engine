@@ -98,8 +98,7 @@ test("ogn-216-298 Soaring Scout: an empty Rune Deck channels as many as possible
 
 test.todo(
   "ogn-216-298 Soaring Scout: Deathknell keyword expansion (订阅 object-killed、808.1.d.1 死亡被替代时移出链、" +
-    "808.1.d.3 进链前记录最后已知信息) — effects/keywords/Deathknell.ts 展开引用尚未合入的 trigger.leave 原语，" +
-    "依赖 RIFT-82"
+    "808.1.d.3 进链前记录最后已知信息) — effects/keywords/Deathknell.ts 展开引用尚未注册的 trigger.leave 原语"
 );
 
 test.todo(

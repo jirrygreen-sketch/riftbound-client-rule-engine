@@ -28,9 +28,10 @@ test("Shakedown program is valid EffectIR v2 data and judge-required", () => {
   assert.deepEqual(result.issues, []);
   assert.equal(result.ok, true);
   assert.equal(program.status, "judge-required");
-  // The only open item is the rules meaning of "unless".
+  // The wording ruling and the production choice-plan adapter remain open.
   assert.match(program.judgeReason, /unless/);
   assert.match(program.judgeReason, /unclassified-ogn/);
+  assert.match(program.judgeReason, /choice-plan adapter/);
 });
 
 test("Shakedown identity, status and sourceText match the printing", () => {
