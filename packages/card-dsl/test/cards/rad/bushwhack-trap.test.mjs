@@ -29,7 +29,7 @@ test("rad-108-167 Bushwhack Trap: program validates and keeps identity", () => {
 test("rad-108-167 Bushwhack Trap: judgeReason names Deploy, the Facedown Zone and the control clause", () => {
   assert.match(program.judgeReason, /Deploy/);
   assert.match(program.judgeReason, /830\.1\.b/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-357/);
   assert.match(program.judgeReason, /facedown-zone/);
   assert.match(program.judgeReason, /107\.3\.b\.1/);
   assert.match(program.judgeReason, /190\.6/);
@@ -38,8 +38,8 @@ test("rad-108-167 Bushwhack Trap: judgeReason names Deploy, the Facedown Zone an
 test("rad-108-167 Bushwhack Trap: [Deploy] is declared as a keyword and nothing else (830.1/830.2)", () => {
   assert.equal(program.abilities.length, 2);
   assert.deepEqual(deployKeyword, { kind: "keyword", keyword: "deploy" });
-  // Deploy has no merged KeywordDef, so the card cannot expand it itself: the
-  // program must not rewrite the keyword as bespoke play/permission effects.
+  // Deploy is expanded by the merged KeywordDef; the card must not rewrite the
+  // keyword as bespoke play/permission effects.
   assert.equal(program.abilities.filter(ability => ability.kind === "triggered").length, 0);
   assert.equal(program.abilities.filter(ability => ability.kind === "replacement").length, 0);
 });
@@ -56,17 +56,16 @@ test("rad-108-167 Bushwhack Trap: the Facedown-Zone permission is a static trait
 });
 
 test.todo(
-  "rad-108-167 Bushwhack Trap: [Deploy] expansion (play/create only to a battlefield, no recall for " +
-    "non-unit permanents, kill this when an opponent holds here; CR 830.1.b) exists in " +
-    "effects/keywords/Deploy.ts but has no CardProgram -> layer/trigger registration consumer (RIFT-257)"
+  "rad-108-167 Bushwhack Trap: [Deploy] expansion still needs its source-Battlefield here anchor " +
+    "and the location/cleanup consumers before the hold trigger can bind (CR 830.1.b; RIFT-357)"
 );
 test.todo(
   "rad-108-167 Bushwhack Trap: 'that player may hide an additional card here' raising the battlefield's " +
     "Facedown Zone capacity (CR 107.3.a/107.3.b/107.3.b.1, 422.1) — the contract has no facedown-zone " +
-    "ZoneId and no Hide action (RIFT-84 batch)"
+    "ZoneId and no Hide action"
 );
 test.todo(
   "rad-108-167 Bushwhack Trap: 'while you or an ally control this battlefield' resolving the battlefield " +
-    "controller (190.6.a/190.6.d) with the here referent (CR 053.3; target.location family not merged)"
+    "controller (190.6.a/190.6.d) with the here referent (CR 053.3; RIFT-357 / RIFT-359)"
 );
 

@@ -37,9 +37,8 @@ test("Cataclysm identity, ruleset, status and printed text", () => {
   // permission query does not consume the registered prohibition, and the
   // destination still has no runtime Location selector.
   assert.match(program.judgeReason, /continuous\.restrict/);
-  assert.match(program.judgeReason, /RIFT-259/);
   assert.match(program.judgeReason, /canAct/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /RIFT-357/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });
@@ -62,7 +61,7 @@ test("Cataclysm structure: printed cost, restriction declaration, targeted Move"
   );
 
   // "Opponents can't play spells this turn" (355.8 / 806 / 159.2) is registered
-  // through the merged continuous.restrict instruction (RIFT-259) as an
+  // through the merged continuous.restrict instruction as an
   // ability-layer prohibition over the opponent's spell plays.
   assert.deepEqual(restriction.args.mode, { kind: "constant", value: "prohibit" });
   assert.deepEqual(restriction.args.action, { kind: "constant", value: "play-spell" });
@@ -152,10 +151,10 @@ test("Cataclysm golden: the descriptive destination is rejected, never guessed",
 test.todo(
   "Cataclysm: the registered prohibition must actually block the opponent's spell plays — " +
     "chain/engine.ts canAct consumes Priority/Showdown/turn state only and does not query " +
-    "layers/rules/query.ts restrictions() (CR 355.8 / 806 / 159.2, RIFT-347 follow-up)"
+    "layers/rules/query.ts restrictions() (CR 355.8 / 806 / 159.2)"
 );
 
 test.todo(
   "Cataclysm: moving a friendly unit to an occupied enemy battlefield needs the runtime Location " +
-    "selector and the 355.4 / 451.1 destination restrictions — RIFT-90"
+    "selector and the 355.4 / 451.1 destination restrictions — RIFT-357"
 );

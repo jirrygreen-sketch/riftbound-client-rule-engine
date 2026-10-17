@@ -24,16 +24,14 @@ import type { Ability, CardProgram, Instruction } from "../../ir/index.js";
  *   356.1.b.2 明确"ignoring its Energy cost"只把 Base Energy cost 置零、其余费用仍适用。
  *
  * 状态：judge-required。缺口：
- * 1. [Predict 3] 没有关键词展开（注册表无 predict；RIFT-83 的 Vision 只内联了
+ * 1. [Predict 3] 没有关键词展开（注册表无 predict；现有 Vision 只内联了
  *    Predict 1 的两步），按 README 第 5 节不在卡里手写同一套逻辑。
  * 2. [Deathknell] 的关键词展开（keywords/Deathknell.ts）产出 trigger.leave 指令，
- *    该 op 未注册（实测 instructionDefinitionsById 无 "trigger.leave"），因此展开
- *    还不能执行；本程序把 Deathknell 的 [Effect] 用等价的 object-killed 触发写出来
+ *    该 op 仍没有运行期消费路径，因此展开还不能执行；本程序把 Deathknell 的 [Effect] 用等价的 object-killed 触发写出来
  *    （808.1.c 的"功能等价"），并保留 keyword 声明。
- * 3. "ignoring its Energy cost" 需要费用改写（Base Energy cost → 0，356.1.b.2）并把
- *    finalized cost plan 交给 effect.play；cost.modify / 费用计划生成属 RIFT-89，
- *    当前没有已合入原语接受该改写（effect.play 只接受已 finalized 的 cost plan）。
- * 依赖：Predict / Deathknell 关键词展开、RIFT-89（batch3-cost-plan）。
+ * The finalized zero-Energy plan for "ignoring its Energy cost" is already
+ * consumed by effect.play; the golden covers that path.
+ * 依赖：Predict 关键词展开、Deathknell 的 trigger.leave 消费与离场入链时序。
  * 不近似实现：不把"ignoring its Energy cost"当作忽略全部费用，也不用手写 Predict 冒充关键词。
  */
 
@@ -111,7 +109,7 @@ const deathknellBody: readonly Instruction[] = [
   {
     // 420.3 + "You may play it"（383.3 的可选效果写在效果后段→在结算时决定）。
     // 356.1.b.2："ignoring its Energy cost"只把 Base Energy cost 置零，其余费用仍适用；
-    // 该 finalized cost plan 由费用管线生成（RIFT-89），这里只写出费用改写的意图。
+    // effect.play 已能消费这个只把 Base Energy 置零的 finalized plan。
     id: "clocktower-guardian.may-play",
     op: "choice.optional",
     args: {
@@ -185,12 +183,11 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "三处缺口：(1) [Predict 3] 没有关键词展开（注册表无 predict；RIFT-83 的 Vision 只内联 Predict 1 的两步），" +
+    "两处缺口：(1) [Predict 3] 没有关键词展开（注册表无 predict；现有 Vision 只内联 Predict 1 的两步），" +
     "按 README 第 5 节不在卡里手写同一套看顶/回收/放回展开；(2) [Deathknell] 的关键词展开产出 trigger.leave 订阅指令，" +
-    "该 op 未注册（实测 instructionDefinitionsById 无 trigger.leave），808.1.d.2 的「进 Trash 前入链」时序无消费方；" +
-    "(3) 「ignoring its Energy cost」需要按 356.1.b.2 把 Base Energy cost 置零并生成 finalized cost plan（cost.modify / RIFT-89），" +
-    "effect.play 只接受已 finalized 的 cost plan。Predict 三步与 Deathknell 的 Banish 半段已按 437 / 428 / 420.3 写出，golden 覆盖结构。" +
-    "依赖：Predict 与 Deathknell 关键词展开、RIFT-89（batch3-cost-plan）。不近似实现：不把「ignore Energy cost」当成忽略全部费用。",
+    "该 op 仍没有运行期消费路径，808.1.d.2 的「进 Trash 前入链」时序无消费方。" +
+    "Predict 三步、Deathknell 的 Banish 半段以及 finalized zero-Energy plan for effect.play 已按 437 / 428 / 420.3 写出并由 golden 覆盖。" +
+    "依赖：Predict 关键词展开、Deathknell 的 trigger.leave 消费与离场入链时序。不近似实现：不把「ignore Energy cost」当成忽略全部费用。",
   abilities,
   sourceText:
     "When you play me or when I hold, [Predict 3].\n" +

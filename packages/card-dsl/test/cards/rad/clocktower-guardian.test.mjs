@@ -9,7 +9,7 @@ import order from "../../../../engine-core/dist/effects/instructions/effect.orde
 import play from "../../../../engine-core/dist/effects/instructions/effect.play.js";
 import recycle from "../../../../engine-core/dist/effects/instructions/effect.recycle.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 
 const CARD_ID =
   "card.hash-9acbf5e3c7be24dcd9c72b8ec614e8dd1d7ef60d52c6394559ece574843ccdaf";
@@ -26,8 +26,8 @@ test("rad-067-167 Clocktower Guardian: program validates and is judge-required",
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /trigger\.leave/);
-  assert.match(program.judgeReason, /356\.1\.b\.2/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /finalized zero-Energy plan/);
+  assert.match(program.judgeReason, /Predict/);
 });
 
 test("rad-067-167 Clocktower Guardian: sourceText is the verbatim deck-catalog ability text", () => {
@@ -124,9 +124,13 @@ test("rad-067-167 Clocktower Guardian: 'You may play it, ignoring its Energy cos
   );
 });
 
-test("rad-067-167 Clocktower Guardian: the Deathknell keyword expansion's trigger primitive is not registered", () => {
-  // Documents the concrete dependency behind judge-required instead of approximating it.
-  assert.equal(instructionDefinitionsById.has("trigger.leave"), false);
+test("rad-067-167 Clocktower Guardian: Deathknell expansion carries its leave-trigger body", () => {
+  const deathknellDefinition = keywordDefinitionsById.get("Deathknell");
+  assert.notEqual(deathknellDefinition, undefined);
+  const [expanded] = deathknellDefinition.expand({ host: { canonicalCardId: CARD_ID } });
+  assert.equal(expanded.kind, "triggered");
+  assert.equal(expanded.trigger.at, "object-killed");
+  assert.equal(expanded.body[0].op, "trigger.leave");
 });
 
 test("rad-067-167 Clocktower Guardian: the Predict 3 body executes against the reference kernel (437.1 / 437.1.a)", () => {
@@ -231,17 +235,10 @@ test("rad-067-167 Clocktower Guardian: the optional play half could move the ban
 
 test.todo(
   "rad-067-167 Clocktower Guardian: [Predict 3] as a reusable keyword expansion (437) — the Predict " +
-    "KeywordDef has no assigned RIFT task; RIFT-83's Vision inlines only Predict 1"
+    "KeywordDef has no registered Predict expansion; the existing Vision keyword inlines only Predict 1"
 );
 
 test.todo(
-  "rad-067-167 Clocktower Guardian: [Deathknell] expansion timing — keywords/Deathknell.ts emits a " +
-    "trigger.leave instruction that is not registered, and 808.1.d.2's pending-item-before-Trash " +
-    "ordering has no consumer (RIFT-82 keyword task plus the chain/event integration)"
-);
-
-test.todo(
-  "rad-067-167 Clocktower Guardian: 'ignoring its Energy cost' — resetting the Base Energy cost and " +
-    "materializing the finalized cost plan is cost.modify / RIFT-89 work; effect.play only accepts " +
-    "an already-finalized plan"
+  "rad-067-167 Clocktower Guardian: [Deathknell] trigger.leave must enter the chain before the " +
+    "permanent reaches Trash (808.1.d.2); the leave-trigger consumer and event ordering remain open"
 );

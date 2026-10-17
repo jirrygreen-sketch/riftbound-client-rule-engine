@@ -21,15 +21,15 @@
  *   effect.attach 到己方单位），它的 body 用已合入的 effect.attach 可真实执行（本卡 golden 已跑通）。
  * - rainbow Power 可由任意域支付：已合入的费用计划接受 allowedDomains 为六域的 power 费用。
  *
- * 仍缺的缺口（依 RIFT-261「费用种类与 cost.pay / cost.modify」与 RIFT-257）：
+ * 仍缺的缺口：
  * 1. 候选单位是**费用里的选择**而不是目标（355.10.c / 355.10.c.1）：已合入的 cost/plan-values.ts
  *    对非标准费用只接受一个精确 ObjectRef（payment.object / payment.objects 会被 reference() 拒绝
  *    非 {id, zoneEntryId} 的候选列表），没有把 PickSpec 候选集展开成可重放选择的能力；
  *    实测 kind: "equip" 会被 readCost 以 judge-required 拒绝（"Unsupported payment kind: equip"）。
  * 2. 因此 Equip.ts 的展开目前只有固定单一 payments 形状，承载不了印刷的“rainbow Power 或横置友方单位”
  *    二选一，也承载不了 818.1.c.4 / 818.1.c.5 的费用改写。
- * 3. 展开还缺卡牌程序 → 关键词展开 → 激活/链的绑定（RIFT-257）。
- * 依赖：RIFT-261（cost.pay / cost.modify 与费用侧对象选择）、RIFT-257（卡牌程序绑定）。
+ * 3. 费用管线没有把 Equip 的印刷费用绑定到一个可支付的费用计划；
+ *    cost.pay / cost.modify 本身已合入，但 kind: "equip" 仍需权威的 Equip 费用来源。
  * 不近似实现：两个费用选项继续只以扩展字段记录，不把“exhaust a friendly unit”改写成目标或免费效果。
  */
 const program = {
@@ -40,10 +40,10 @@ const program = {
     "[Equip] 展开仍无法表达印刷费用的二选一，且费用侧对象选择未合入：(1) 已合入的 Equip.ts 只展开固定单一 " +
     "payments 形状（kind: \"equip\"），而本卡是“任意领域 1 Power（135.2.e.5.a）或 横置一个友方单位”；" +
     "cost/plan-values.ts 的 readCost 对 kind: \"equip\" 直接以 judge-required 拒绝，也没有把 PickSpec 候选集" +
-    "展开成费用选择的路径（非标准费用只接受一个精确 ObjectRef），后者属 RIFT-261 的费用种类/费用侧选择。" +
+    "展开成费用选择的路径（非标准费用只接受一个精确 ObjectRef）；" +
     "(2) “exhaust a friendly unit”的候选单位是费用里的选择而非目标（355.10.c / 355.10.c.1）。" +
-    "(3) 展开还缺卡牌程序 → 关键词展开 → 激活/链的绑定（RIFT-257）。" +
-    "依赖：RIFT-261、RIFT-257。不近似实现：两个费用选项继续以扩展字段记录。",
+    "(3) Equip 的印刷费用仍没有权威的费用计划绑定；已合入的 cost.pay / cost.modify 不能凭空推断 Equip 的 [A] 或费用侧对象。" +
+    "不近似实现：两个费用选项继续以扩展字段记录。",
   abilities: [
     {
       kind: "keyword",

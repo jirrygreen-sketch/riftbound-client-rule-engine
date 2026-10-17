@@ -26,8 +26,8 @@ test("black-rose-sanctum: passes validateCardProgram and carries the catalog ide
 test("black-rose-sanctum: judgeReason names the per-player base, the per-player frequency and the play flow", () => {
   assert.match(program.judgeReason, /their base/);
   assert.match(program.judgeReason, /once/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-357/);
+  assert.match(program.judgeReason, /effect\.token/);
 });
 
 test("black-rose-sanctum: object-killed trigger for a non-token unit dying at this battlefield", () => {
@@ -35,11 +35,13 @@ test("black-rose-sanctum: object-killed trigger for a non-token unit dying at th
   assert.equal(trigger.kind, "triggered");
   assert.equal(trigger.trigger.at, "object-killed");
   assert.equal(trigger.trigger.filter.event, "object-killed");
-  // The dying object is any player's unit; "here" (source battlefield),
-  // the non-token restriction and the per-player window are descriptive
-  // keys the merged EventPattern cannot express.
-  assert.deepEqual(trigger.trigger.filter.object, { type: "unit", controller: "any" });
-  assert.equal(trigger.trigger.filter.nonToken, true);
+  // The dying object is any player's non-token unit; "here" (source
+  // battlefield) and the per-player window remain descriptive keys.
+  assert.deepEqual(trigger.trigger.filter.object, {
+    type: "unit",
+    controller: "any",
+    characteristics: { isToken: false }
+  });
   assert.equal(trigger.trigger.filter.here, true);
   // The per-player-per-turn window cannot be expressed by TriggerSpec.once,
   // which is a single lifetime for the whole registration.
@@ -106,6 +108,26 @@ test("black-rose-sanctum: the ability-controller base placeholder is not the pri
   assert.deepEqual(kernel.query({ zone: "board" }), []);
 });
 
+test("black-rose-sanctum: the merged token primitive creates then plays Recruit to the controller base", () => {
+  const kernel = world().build();
+  const run = runInstruction(
+    token,
+    {
+      token: { kind: "constant", value: "recruit" },
+      amount: { kind: "constant", value: 1 },
+      mode: { kind: "constant", value: "play" },
+      location: { kind: "constant", value: { type: "base", player: "A" } }
+    },
+    { world: kernel }
+  );
+  assert.equal(run.result.status, "executed");
+  const [recruit] = kernel.query({ zone: "board" }).filter((object) => object.isToken);
+  assert.equal(recruit.name, "Recruit");
+  assert.deepEqual(recruit.location, { type: "base", player: "A" });
+  assert.equal(run.linked.token.createdAmount, 1);
+  assert.equal(run.linked.token.amount, 1);
+});
+
 test.todo(
   "black-rose-sanctum: play the Recruit token into the dying unit controller's base " +
     "(the frozen create-token action carries no destination player)"
@@ -115,6 +137,6 @@ test.todo(
     "(TriggerSpec.once is one lifetime for the whole registration)"
 );
 test.todo(
-  "black-rose-sanctum: chain creation plus the finalized cost plan for playing the new token " +
-    "(440.2.c / 185.2.a / 185.3.a.1; RIFT-261 / RIFT-257)"
+  "black-rose-sanctum: the source-Battlefield here anchor must bind the dying object to this " +
+    "Battlefield before the token-play body can trigger (RIFT-357)"
 );

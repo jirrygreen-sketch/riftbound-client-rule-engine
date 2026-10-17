@@ -34,7 +34,7 @@ test("rad-139-167 Boy Who Shattered Time: identity, status and verbatim sourceTe
   assert.match(program.judgeReason, /Empower/);
   assert.match(program.judgeReason, /disempower/);
   assert.match(program.judgeReason, /cost\.modify/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /下一张打出的单位/);
   assert.match(program.judgeReason, /grant-ability/);
   assert.match(program.judgeReason, /163\.2\.b/);
 });
@@ -69,8 +69,8 @@ test("rad-139-167 Boy Who Shattered Time: Disempower + Exhaust activated ability
     value: "next-unit-played-this-turn"
   });
   assert.deepEqual(reduce.args.energy, { kind: "constant", value: -2 });
-  // [A] (135.2.e.5 / 163.2.b): the six-domain closed set has no executable
-  // value, so the descriptive "rainbow" spelling is kept.
+  // [A] (135.2.e.5 / 163.2.b): the deferred window is missing, so the
+  // descriptive "rainbow" spelling remains in this blocked shape.
   assert.deepEqual(reduce.args.power, { kind: "constant", value: ["rainbow"] });
   assert.deepEqual(reduce.args.duration, { kind: "constant", value: "this-turn" });
   assert.equal(reduce.targets, undefined);
@@ -185,9 +185,8 @@ test.todo(
 
 test.todo(
   "rad-139-167: reduce the cost of the next unit played this turn by 2 Energy and 1 [A] " +
-    "through cost.modify with a per-turn “next unit” window — needs the cost modification " +
-    "consumer (RIFT-261) and a representable Universal Power value (contract-level gap, " +
-    "CR 135.2.e.5 / 163.2.b)"
+    "through the merged cost.modify primitive with a per-turn “next unit” window — the " +
+    "deferred CostPlan consumer is still missing (CR 135.2.e.5 / 163.2.b)"
 );
 
 test.todo(

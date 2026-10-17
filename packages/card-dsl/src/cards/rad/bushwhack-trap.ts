@@ -29,18 +29,17 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * status = judge-required（README 第 2 节）。复核后的三处缺口，均不近似实现：
  * 1. Deploy 的 KeywordDef 已合入（effects/keywords/Deploy.ts：continuous.location 的
  *    入场/移动许可 + 830.1.b 的「对手在此固守时消灭」触发），但它的展开依赖卡牌程序
- *    → 图层/触发注册的消费方（RIFT-257 的 src/programs/ 仍在进行），且它的 hold 触发
- *    用 here 锚点，同样受第 3 点限制。
+ *    → 图层/触发注册已合入，但它的 hold 触发仍用未解决的 here 锚点。
  * 2. 「hide an additional card here」是 Facedown Zone 上限改写（107.3.b.1），需要
  *    Facedown Zone 的区域对象与 Hide 动作：合同 ZoneId 只含 hand/deck/rune-deck/
  *    trash/banishment/board/rune-zone/chain，没有 facedown-zone（effect.stun.ts 的
- *    边界注释记录了同一缺口，RIFT-270 的时点产生方审计同样把 card-hidden 列为「待后续」），
+ *    边界注释记录了同一缺口，card-hidden 时点也尚未接入），
  *    layers 也没有读写 Facedown Zone 上限的消费方。
  * 3. 「you or an ally control this battlefield」需要按 190.6 解析战场控制者并支持
  *    队友口径；战场上「this battlefield」的指代（053.3）在静态 IR 里没有已合入的
  *    地点锚点（target.location 一族未合入）。
- * 依赖：RIFT-257（卡牌程序 → 图层/触发注册）、Facedown Zone 区域模型与 Hide 动作
- * （RIFT-84 kw-deflect-hidden 的 cost.hidden 同批）、地点锚点（RIFT-90 目标/地点计划）。
+ * 依赖：Facedown Zone 区域模型与 Hide 动作、
+ * 地点锚点与队友控制条件（RIFT-357 / RIFT-359）。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "deploy" },
@@ -68,15 +67,14 @@ export default {
   status: "judge-required",
   judgeReason:
     "三处缺口，均不近似实现：(1) Deploy 的 KeywordDef 已合入（effects/keywords/Deploy.ts，830.1.b 的" +
-    "入场/移动许可与「对手在此固守时消灭」触发），但缺卡牌程序 → 图层/触发注册的消费方（RIFT-257 的 src/programs/ 仍在进行），" +
+    "入场/移动许可与「对手在此固守时消灭」触发），但 hold 触发的 here 锚点仍无法通过程序过滤器绑定，" +
     "且它的 hold 触发用 here 锚点、同样受第 3 点限制；" +
     "(2) 「hide an additional card here」是 Facedown Zone 上限改写（107.3.b.1），需要 Facedown Zone 区域对象与 " +
-    "Hide 动作，而契约 ZoneId 没有 facedown-zone（同 effect.stun.ts 记录的缺口；RIFT-270 的时点审计也把 card-hidden 列为待后续），" +
+    "Hide 动作，而契约 ZoneId 没有 facedown-zone（同 effect.stun.ts 记录的缺口；card-hidden 时点也没有接入），" +
     "layers 也没有读写上限的消费方；" +
     "(3) 「you or an ally control this battlefield」（190.6.a/190.6.d、053.3）需要战场控制者与队友口径的地点锚点，" +
     "target.location 一族未合入。另注：本印刷是 Unit 且 might = null（无印刷值），程序保留 null 与 Device 标签，不改数据。" +
-    "依赖：RIFT-257（卡牌程序 → 图层/触发注册）、Facedown Zone 区域模型与 Hide 动作（RIFT-84 同批 cost.hidden）、" +
-    "地点锚点（RIFT-90）。",
+    "依赖：Facedown Zone 区域模型与 Hide 动作、地点锚点与队友控制条件（RIFT-357 / RIFT-359）。",
   abilities,
   sourceText:
     "[Deploy] (Play this only to a battlefield. When an opponent holds here, kill this.)\n" +
