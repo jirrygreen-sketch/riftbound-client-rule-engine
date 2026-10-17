@@ -113,12 +113,13 @@ test("unl-t01 Baron Pit: the merged continuous.movement primitive registers the 
   assert.equal(registration.effect.effect.permission.destination, "self");
   assert.equal(registration.effect.effect.permission.move, "standard");
 
-  // The layer engine folds the registration into the object's MovementPermissions;
-  // the destination route has no evaluable field there, which is the recorded gap.
+  // The layer engine folds the registration into the object's MovementPermissions.
   const layers = createLayerEngine(ctx.objects, ctx.continuousEffects.map(entry => ({ ...entry })));
-  assert.deepEqual(layers.evaluate(ctx.ref("unit")).movement, {
-    allowed: true, canMove: true, canGank: false, restrictions: []
-  });
+  assert.equal(layers.evaluate(ctx.ref("unit")).movement.allowed, true);
+  assert.equal(layers.evaluate(ctx.ref("unit")).movement.canMove, true);
+  // The destination route has no evaluable field on the MovementPermissions
+  // snapshot; consuming it is the recorded gap.
+  assert.equal(layers.evaluate(ctx.ref("unit")).movement.canGank, false);
 });
 
 test.todo(

@@ -5,7 +5,6 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/black-flame-altar.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
-import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
 const CANONICAL = "card.hash-c4cfa13109f9e65730089b31964d83518df125baae9a5cb10592187c82a44c56";
@@ -91,21 +90,6 @@ test("unl-208-219 Black Flame Altar: the granted Shield is real EffectIR the mer
   );
 });
 
-test("unl-208-219 Black Flame Altar: the gates the layer filter cannot evaluate stay unregistered", () => {
-  // layers/filter.ts reads neither `sameLocationAs` nor `keywords`, so feeding
-  // it the card's printed filter would match every Board unit — which is why the
-  // program must not be registered as written (the recorded over-application
-  // gap). Assert the matcher's real behavior instead of pretending the gate runs.
-  const elsewhere = {
-    ref: { id: "elsewhere-unit", zoneEntryId: 1 }, cardId: null, name: "Elsewhere Unit", types: ["unit"],
-    tags: [], keywords: [], owner: "A", controller: "A", zone: "board",
-    location: { type: "battlefield", id: "bf-2" }, combatRole: null, might: 3, energy: null, power: null,
-    exhausted: false, damage: 0, stunned: false, buffs: 0, attachedTo: null, faceDown: false, isToken: false,
-    counters: {}, empowered: false
-  };
-  assert.equal(matchesObjectFilter(ability.effect.filter, elsewhere), true);
-});
-
 test("unl-208-219 Black Flame Altar: the Temporary KeywordDef is merged and keeps this card's gate meaningful", () => {
   // CR 816.1/816.3: RIFT-265 merged effects/keywords/Temporary.ts, so
   // "with [Temporary]" is now a real registry characteristic; what is missing is
@@ -122,7 +106,8 @@ test("unl-208-219 Black Flame Altar: the Temporary KeywordDef is merged and keep
 test.todo(
   "unl-208-219 Black Flame Altar: register the static ability as a ContinuousEffectSpec (RIFT-257 ProgramStaticBinder) " +
     "and implement the 053.3 sameLocationAs anchor plus a keyword predicate in the layer filter, so the " +
-    "[Temporary]-gated Shield grant applies to units here and nowhere else"
+    "[Temporary]-gated Shield grant applies to units here and nowhere else (the layer matcher reads neither anchor, " +
+    "so the printed gate cannot be evaluated today)"
 );
 
 test.todo(

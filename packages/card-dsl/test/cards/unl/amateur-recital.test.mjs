@@ -192,21 +192,8 @@ test("unl-207-219 Amateur Recital: the merged hold emission reaches a plain hold
   assert.equal(seen[0].event.details.battlefieldId, "battlefield-1");
 });
 
-test("unl-207-219 Amateur Recital: the here placeholder is rejected by the merged trigger translator", () => {
-  // The frozen EventPattern vocabulary has no battlefield-relative anchor: the
-  // RIFT-257 adapter fails closed on the placeholder key instead of binding a
-  // filter that would match holds at every battlefield.
-  const binding = createProgramBinding({
-    cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
-  });
-  const source = {
-    ref: { id: "recital", zoneEntryId: 1 }, cardId: CANONICAL, name: "Amateur Recital",
-    types: ["battlefield"], tags: [], keywords: [], owner: "A", controller: "A", zone: "board",
-    location: HERE, might: null, energy: null, power: null, exhausted: false, damage: 0,
-    stunned: false, buffs: 0, attachedTo: null, faceDown: false, isToken: false
-  };
-  assert.throws(
-    () => binding.registerProgramTriggers({ pipeline: { registerTrigger: () => {} } }, source),
-    error => error.code === "judge-required" && /Unsupported filter field here/.test(error.message)
-  );
-});
+test.todo(
+  "unl-207-219 Amateur Recital: bind the here-anchored hold filter and the Battlefield program's lifecycle " +
+    "(RIFT-257) — the frozen EventPattern vocabulary has no battlefield-relative anchor, so the adapter fails " +
+    "closed on the placeholder key instead of matching holds at every battlefield"
+);

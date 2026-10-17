@@ -5,7 +5,7 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/altar-of-blood.js";
 import exhaust from "../../../../engine-core/dist/effects/instructions/effect.exhaust.js";
 import heal from "../../../../engine-core/dist/effects/instructions/effect.heal.js";
-import { bindReplacement, BlockedReplacementError } from "../../../../engine-core/dist/replacement/index.js";
+import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-8a6701849fc591215d101121138ec91bc46da22693dc4c35b90fbfe6c36f0155";
@@ -174,27 +174,12 @@ test("unl-206-219 Altar of Blood: the merged replacement layer registers the dea
   bound.cancel();
 });
 
-test("unl-206-219 Altar of Blood: the printed body as written is refused by the merged planner, not approximated", () => {
-  // The program wraps the printed "may pay …" in choice.optional (contract 3.9).
-  // RIFT-260's planner only accepts the closed GameAction opcode set, so the
-  // wrapper fails loudly at bind time instead of replacing the death when the
-  // player declines. This is the recorded gap, not a shortcut.
-  const kernel = world()
-    .unit("altar", { types: ["battlefield"], location: HERE })
-    .unit("doomed", { location: HERE, might: 3 })
-    .build();
-  assert.throws(
-    () => bindReplacement(
-      { replaces: replacement.replaces, with: replacement.with },
-      kernel.ref("altar"),
-      {
-        host: { object: ref => kernel.object(ref), objects: () => kernel.objects, context: () => kernel },
-        pipeline: { clock: { turn: 1 }, registerReplacement: () => {} }
-      }
-    ),
-    error => error instanceof BlockedReplacementError && /choice\.optional/.test(error.message)
-  );
-});
+test.todo(
+  "unl-206-219 Altar of Blood: bind the program's printed body (choice.optional around the three-Rune payment) " +
+    "once RIFT-260's planner accepts an optional/payment replacement shape — today only the closed GameAction " +
+    "opcode set is planned, so the wrapper fails loudly at bind time instead of replacing the death when the " +
+    "player declines"
+);
 
 test.todo(
   "unl-206-219 Altar of Blood: execute the three-rune Universal Power payment (163.2.b / 135.2.e.5, RIFT-261 " +

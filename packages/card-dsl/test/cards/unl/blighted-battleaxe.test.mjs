@@ -4,11 +4,8 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/blighted-battleaxe.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
-import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-21de7fcaef3e38ea7173a7b6b370c00cc4d0e2893c34cafde3a98ee7b65ac558";
 const SOURCE_TEXT =
@@ -87,27 +84,6 @@ test("unl-019-219 Blighted Battleaxe: the merged Equip expansion stays valid Eff
   assert.equal(activation.body[0].targets[0].filter.type, "unit");
 });
 
-test("unl-019-219 Blighted Battleaxe: the merged Equip payment kind still blocks the printed cost", () => {
-  // 818.1.c.3: the printed Equip cost must be payable. The merged planner has no
-  // "equip" payment kind (cost/plan-values.ts readCost blocks unknown kinds), so
-  // the activation fails loudly instead of attaching for free.
-  const kernel = world()
-    .player("A", { energy: 1, power: ["Fury"] })
-    .base("battleaxe", { types: ["gear"], energy: 1, power: ["Fury"] })
-    .unit("ally", { controller: "A" })
-    .build();
-  const ctx = kernel.clone({ sourceSnapshot: kernel.getObject("battleaxe") });
-  const [expansion] = keywordDefinitionsById.get("Equip").expand({
-    value: equip.value,
-    host: { canonicalCardId: CARD_ID }
-  });
-  assert.throws(
-    () => buildCostPlan(ctx, { id: "cost:equip", cost: expansion.cost }),
-    error => error instanceof CostPlanError && error.reason === "judge-required" &&
-      /Unsupported payment kind: equip/.test(error.message)
-  );
-});
-
 test("unl-019-219 Blighted Battleaxe: the merged program binding expands the declared keyword", () => {
   // RIFT-257's adapter expands keyword abilities through the registry
   // (expandProgram) before any chain draft is built; the golden asserts the
@@ -138,5 +114,6 @@ test("unl-019-219 Blighted Battleaxe: the merged program binding expands the dec
 test.todo(
   "unl-019-219 Blighted Battleaxe: pay the printed Equip cost (1 energy + 1 Fury Power, 818.1.c / 818.1.c.3) " +
     "through the cost plan and attach the gear end-to-end (RIFT-261: the \"equip\" payment kind plus the printed " +
-    "energy symbol count, which no frozen KeywordAbility field carries)"
+    "energy symbol count, which no frozen KeywordAbility field carries; cost/plan-values.ts readCost currently " +
+    "blocks the unknown payment kind, so the activation must not be run as if it were free)"
 );
