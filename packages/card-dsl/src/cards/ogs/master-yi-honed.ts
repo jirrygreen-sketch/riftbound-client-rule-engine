@@ -8,6 +8,8 @@ import type { CardProgram } from "../../ir/index.js";
  * query's { routes: [...] } input, so the whole card remains judge-required.
  * The enter-ready replacement (143.4, 359.2.c, 369.3) has real entry evidence;
  * it rewrites entry rather than readying an already entered unit.
+ * RIFT-678 rechecks the unchanged IR against the catalog and CR v1.5; the
+ * template golden covers paid entry and the self-only replacement boundary.
  */
 export default {
   canonicalCardId: "card.hash-65cd9565fff10c8779998a9b1ca3843ab54b34a3cc338af891157cfbf9ec1761",
