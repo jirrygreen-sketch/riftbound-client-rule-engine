@@ -28,7 +28,7 @@ test("bounty-hunter identity: canonicalCardId, ruleset, judge-required status an
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /Ganking/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /hasGanking/);
   assert.equal(
     program.sourceText,
     ":rb_exhaust:: Give a unit [Ganking] this turn. (It can move from battlefield to battlefield.)"
@@ -100,5 +100,5 @@ test("bounty-hunter golden: the exhaust cost pays and the grant gives any chosen
 
 test.todo(
   "bounty-hunter end-to-end: bind the activated CardProgram ability to the chain so paying the cost runs the " +
-    "granted Ganking and derive hasGanking for the production movement path (RIFT-257 + movement wiring)."
+    "granted Ganking and derive hasGanking for the production movement path (movement permission wiring)."
 );

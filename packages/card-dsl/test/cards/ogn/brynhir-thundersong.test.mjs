@@ -31,7 +31,7 @@ test("brynhir-thundersong: identity, ruleset, status and verbatim sourceText", (
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /continuous\.restrict/);
   assert.match(program.judgeReason, /canAct/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /生产链|消费/);
   assert.equal(program.sourceText, "When you play me, opponents can't play cards this turn.");
 });
 
@@ -67,8 +67,7 @@ test("brynhir-thundersong: the body declares a turn-long play prohibition for op
 
 test.todo(
   "brynhir-thundersong: bind the card-played trigger from the CardProgram and make chain canAct(player, speed) / " +
-    "Finalize consult the lasting restriction so opponents cannot play cards (400/402-407; RIFT-257 program binding " +
-    "plus the chain-side restriction consumer)"
+    "Finalize consult the lasting restriction so opponents cannot play cards (400/402-407; chain-side restriction consumer)"
 );
 
 test("brynhir-thundersong golden: the printed prohibition registers for opponents and expires at end of turn", () => {

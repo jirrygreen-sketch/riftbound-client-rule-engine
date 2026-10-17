@@ -26,7 +26,7 @@ test("ogn-001-298 Blazing Scorcher: identity, status, and verbatim sourceText", 
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
-test("ogn-001-298 Blazing Scorcher: judgeReason names the missing wiring and its tasks", () => {
+test("ogn-001-298 Blazing Scorcher: judgeReason names the missing wiring", () => {
   // CR 805.1.b / 805.1.b.1: the printed cost is [1][C], and this unit's Fury
   // domain constrains the Power portion. The keyword itself is not implementable
   // inside the card file, so the reason must name what is missing.
@@ -35,8 +35,7 @@ test("ogn-001-298 Blazing Scorcher: judgeReason names the missing wiring and its
   assert.match(program.judgeReason, /optionalAdditional/);
   assert.match(program.judgeReason, /805\.1\.b\.1/);
   assert.match(program.judgeReason, /805\.2\.b/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /卡牌程序绑定层/);
+  assert.match(program.judgeReason, /费用\/替代管线/);
 });
 
 test("ogn-001-298 Blazing Scorcher: exactly one unvalued Accelerate keyword ability", () => {
@@ -82,7 +81,7 @@ test("ogn-001-298 Blazing Scorcher: the merged Accelerate enter-ready body readi
 test.todo(
   "Blazing Scorcher: pay [1][Fury] as an optional additional cost while playing me, then have the "
     + "delayed replacement make me enter ready instead of exhausted (CR 805.1.b/805.2.b/805.6, "
-    + "805.6.a does not trigger 'becomes ready') — blocked because the RIFT-257 card-program binding "
-    + "that turns the card's keyword ability into an optionalAdditional accelerate component and "
-    + "registers the accelerate.cost / enter-ready replacement is not merged"
+    + "805.6.a does not trigger 'becomes ready') — blocked because the card-program play adapter "
+    + "does not yet turn the keyword into an optionalAdditional accelerate component or consume the "
+    + "accelerate.cost / enter-ready replacement"
 );

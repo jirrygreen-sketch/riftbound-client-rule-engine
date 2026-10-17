@@ -22,8 +22,8 @@ test("brazen-buccaneer: identity, ruleset, status and verbatim sourceText", () =
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /356\.2\.b\.1/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /CostPlan|Finalize/);
+  assert.match(program.judgeReason, /paid-proof/);
   assert.equal(
     program.sourceText,
     "As you play me, you may discard 1 as an additional cost. If you do, reduce my cost by :rb_energy_2:."
@@ -86,7 +86,7 @@ test("brazen-buccaneer golden: paying the discard reduces the 6-Energy cost to 4
 
   // The card's PickSpec options are the descriptive "card-in-controller-hand";
   // resolving that string into the controller's actual hand refs is part of
-  // the missing RIFT-257 CardProgram -> CostPlan binding (README §3 keeps
+  // the missing CardProgram -> CostPlan binding (README §3 keeps
   // runtime refs out of static IR), so the golden test supplies the resolved
   // option set the plan consumes.
   const payments = costAbility.effect.payments.map((payment) => ({
@@ -112,7 +112,7 @@ test("brazen-buccaneer golden: paying the discard reduces the 6-Energy cost to 4
         // 356.4: "reduce my cost by [2]" is a total-cost reduction. The merged
         // plan applies a component-less discount to the combined total; the
         // 356.4.f.1 paid-proof gate that would drop it on decline is the
-        // missing piece named in judgeReason (RIFT-257/RIFT-261).
+        // missing piece named in judgeReason (the paid-proof binding).
         resource: discountAbility.effect.resource,
         amount: discountAbility.effect.amount
       }
@@ -159,7 +159,6 @@ test("brazen-buccaneer golden: declining the discard keeps the full printed cost
 
 test.todo(
   "brazen-buccaneer: bind the static cost.additional / cost.modify declarations to the play cost plan " +
-    "(RIFT-257), including the 356.4.f.1 paid-proof gate that applies the 2-Energy discount only when the " +
-    "optional additional cost is selected; the card-facing cost.pay / cost.modify instructions (RIFT-261) " +
-    "are also not merged."
+    "including the 356.4.f.1 paid-proof gate that applies the 2-Energy discount only when the " +
+    "optional additional cost is selected; the card-facing cost declarations still need a Finalize adapter."
 );

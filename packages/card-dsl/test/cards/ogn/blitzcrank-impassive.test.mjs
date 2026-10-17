@@ -15,8 +15,8 @@ test("ogn-067-298: identity, exact source text, pure data and explicit blocked s
   assert.equal(program.canonicalCardId, "card.hash-bee1f175cdca184a24a8807736a261b1b06bcc189438914248f9b1fba6eade3b");
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /Tank|effect.zone/);
-  assert.match(program.judgeReason, /RIFT-/);
+  assert.match(program.judgeReason, /continuous\.combat|effect\.zone/);
+  assert.match(program.judgeReason, /trigger|effect\.move/);
   assert.equal(program.sourceText, "[Tank] (I must be assigned combat damage first.)\nWhen you play me to a battlefield, you may move an enemy unit to here.\nWhen I hold, return me to my owner's hand.");
   assert.deepEqual(JSON.parse(JSON.stringify(program)), program);
 });
@@ -84,6 +84,6 @@ test("Blitzcrank golden subeffect: real Move primitive brings the finalized enem
   assert.deepEqual(run.events.map(event => event.action), ["move-location"]);
 });
 
-test.todo("Blitzcrank: accept the original optional body after effect.move Expr/evaluated-args and relative-enemy filter binding align (RIFT-1/67/120)");
-test.todo("Blitzcrank: Tank lethal-first allocation, including multiple Tank units (CR 815; RIFT-91)");
-test.todo("Blitzcrank: real self Hold trigger and non-target self return to OWNER under changed control; effect.zone lacks self selector (RIFT-1/67/120)");
+test.todo("Blitzcrank: bind the card-played self/relative-enemy trigger and nested optional body to the production target lifecycle");
+test.todo("Blitzcrank: Tank lethal-first allocation, including multiple Tank units (CR 815; continuous.combat consumer)");
+test.todo("Blitzcrank: real self Hold trigger and non-target self return to OWNER under changed control; effect.zone needs a self selector");
