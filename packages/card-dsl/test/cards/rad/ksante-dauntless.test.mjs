@@ -1,3 +1,4 @@
+// Execution evidence for keyword expansion is consolidated in ../templates/keyword-only.test.mjs.
 import assert from "node:assert/strict";
 import test from "node:test";
 

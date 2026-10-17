@@ -1,3 +1,4 @@
+// Execution evidence for keyword expansion is consolidated in ../templates/keyword-only.test.mjs.
 // Golden test for Forgefire Cape (sfd-190-221).
 //
 // The program declares two keyword identities (contract 3.1 / 3.7). The
