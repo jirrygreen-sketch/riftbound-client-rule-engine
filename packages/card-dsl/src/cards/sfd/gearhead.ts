@@ -20,12 +20,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   而不是当前图层计算结果）。这是附着物侧的持续修正，不是本卡的 Buff 计数（702/703）。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required，两处当前缺口：
- * - Accelerate 的展开已合入（accelerate.cost + 805.6 的入场就绪替代，RIFT-257 的词条展开
- *   与 RIFT-260 的替代管线都在 HEAD），但可选附加费用 [1][Mind] 没有自动接线：merged
- *   cost 计划只在调用方显式传入 optionalAdditional 时支付 accelerate 组件（golden 以调用方
- *   计划作孤立证据），打出流程不会读取卡牌/关键词声明的 accelerate.cost，且
- *   replaceAbility 的绑定仍要由 RIFT-257 的 binder 钩子注入（默认 noopStaticBinder），
- *   属 RIFT-261 的费用种类批次。
+ * - Accelerate 的展开与入场就绪替代已可执行，但可选附加费用 [1][Mind] 没有自动接线：
+ *   merged cost 计划只在调用方显式传入 optionalAdditional 时支付 accelerate 组件（golden
+ *   以调用方计划作孤立证据），打出流程不会读取关键词展开产生的 accelerate.cost；静态
+ *   binder 也没有 cost effect 的层映射。
  * - 「Each Equipment attached to me gives double its base Might bonus」需要附着物正确读取其
  *   Might Bonus（137.1–137.3）特征并按 433.1 式倍化：ObjectSnapshot 只有 might/energy/power
  *   等当前特征，没有 Might Bonus 字段，layers 的 continuous.might 也没有「按附着物基础
@@ -60,9 +58,9 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "两处当前缺口：(1) [Accelerate] 的展开已合入（accelerate.cost + 805.6 的入场就绪替代，词条展开 RIFT-257、替代管线 RIFT-260），" +
-    "但可选附加费用 [1][Mind]（805.1.b/805.1.b.1）没有自动接线：merged cost 计划只在调用方显式传入 optionalAdditional 时支付 accelerate 组件" +
-    "（golden 以调用方计划作孤立证据），打出流程不读取关键词声明的 accelerate.cost，replacement 绑定也仍需 binder 钩子注入（属 RIFT-261 批次）。" +
+    "两处当前缺口：(1) [Accelerate] 的展开与 805.6 入场就绪替代已可执行，但可选附加费用 [1][Mind]（805.1.b/805.1.b.1）没有自动接线：" +
+    "merged cost 计划只在调用方显式传入 optionalAdditional 时支付 accelerate 组件（golden 以调用方计划作孤立证据），" +
+    "Play/Finalize 不读取关键词展开的 accelerate.cost，静态 binder 也没有该 cost effect 的层映射。" +
     "(2)「Each Equipment attached to me gives double its base Might bonus」需要附着物 Might Bonus 特征（137.1–137.3、435.1.d，" +
     "137.3.a 仅在 Attached 期间生效）与算术层倍化：ObjectSnapshot 无 Might Bonus 字段，layers 的 continuous.might 也没有" +
     "「按附着物基础 Might Bonus 附加等量修正」规则，卡牌 static 能力 → 图层注册仍无端到端消费方。不近似实现。",

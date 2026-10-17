@@ -45,12 +45,9 @@ test("sfd-140-221 Fizz, Trickster: identity, ruleset, status, judgeReason and ve
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /costEnergyLte/);
   assert.match(program.judgeReason, /356\.1\.b\.2/);
-  assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /RIFT-90/);
-  // The old reason blamed RIFT-89 for the cost plan, which is merged; the
-  // remaining gaps are the printed-cost predicate and the cost.printed /
-  // cost.pay wiring (RIFT-261).
-  assert.doesNotMatch(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /所选对象.*费用计划/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-89|RIFT-257|RIFT-261/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -98,7 +95,7 @@ test("sfd-140-221 Fizz, Trickster: contract 3.9 may-shape wraps the play and the
 
   // 420.3: the effect names no play location, so the normal play procedure
   // decides it and no location argument is authored. 356.1.b.2's ignore-Energy
-  // needs a finalized cost plan (RIFT-89); the card never fakes a zero plan.
+  // needs a finalized cost plan from the selected spell; the card never fakes a zero plan.
   assert.equal(playSpell.op, "effect.play");
   assert.deepEqual(playSpell.args.target, { kind: "constant", value: TRASH_TARGET });
   assert.equal(playSpell.args.location, undefined);
@@ -121,7 +118,7 @@ test("sfd-140-221 Fizz, Trickster: contract 3.9 may-shape wraps the play and the
 test("sfd-140-221 Fizz, Trickster golden: the merged effect.play plays a locked trash spell", () => {
   // "ignoring its Energy cost" is represented by the finalized zero-Energy plan
   // the cost pipeline would build (356.1.b.2). The card itself never authors it;
-  // this run supplies it the way Finalize would after RIFT-89 wiring.
+  // this run supplies it the way a future selected-object cost adapter would.
   const kernel = world().player("A").build();
   kernel.addObject(
     {
@@ -194,13 +191,14 @@ test("sfd-140-221 Fizz, Trickster golden: a trash spell that already left makes 
 
 test.todo(
   "sfd-140-221 Fizz, Trickster: enforce the 'Energy cost no more than 3' printed-cost ceiling at Finalize " +
-    "(356.1.c / 206) once a cost predicate is merged (RIFT-89 / RIFT-90) — the reference filter ignores the " +
+    "(356.1.c / 206) once a cost predicate is merged (RIFT-90) — the reference filter ignores the " +
     "descriptive key, so it must never be treated as a working restriction"
 );
 
 test.todo(
   "sfd-140-221 Fizz, Trickster: generate the ignore-Energy finalized plan for the chosen trash spell " +
-    "(356.1.b.2: base Energy 0, printed Power still paid) instead of authoring a zero plan in the card — RIFT-89"
+    "(356.1.b.2: base Energy 0, printed Power still paid) from the selected object's printed cost " +
+    "instead of requiring a caller-supplied finalized override"
 );
 
 test.todo(
@@ -211,5 +209,6 @@ test.todo(
 
 test.todo(
   "sfd-140-221 Fizz, Trickster: the card-played trigger reaches this ability through the trigger -> chain " +
-    "pipeline with the source-identity filter evaluated (383.4.a / 420.4.a) — RIFT-120"
+    "pipeline with the source-identity filter evaluated (383.4.a / 420.4.a) once the printed-cost " +
+    "predicate and played-object link are available to the executable program"
 );

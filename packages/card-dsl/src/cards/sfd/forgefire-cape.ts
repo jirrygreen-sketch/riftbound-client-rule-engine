@@ -22,9 +22,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   构筑期限制的语义位置（只有 deckbuilding?: DeckbuildingDecision[] 这一未定义形状），
  *   卡内自造一套构筑限制会发明语义。
  * - [Equip] 的启动费用无法在 Finalize 支付：已合入的 Equip 展开声明
- *   payments: [{ kind: "equip", value: { kind: "source" } }]，而 cost/plan-values.ts 的
- *   支付种类仍只支持 energy/power/xp/exhaust/discard/recycle/kill/reveal/spend-buff，
- *   该种类属 RIFT-261 的费用种类批次（未合入 HEAD）。
+ *   payments: [{ kind: "equip", value: { kind: "source" } }]，但 cost/plan-values.ts
+ *   仍把 equip 支付识别为 judge-required，缺少从装备身份读取原始 Equip CostSpec 的绑定。
  * - [A] 任意域 Power 在契约层不可表示：契约与内核的 Domain 是六域封闭集合
  *   （Fury/Calm/Mind/Body/Chaos/Order），effect.resources 明确记录 163.2.b 的 Universal
  *   Power 不可表达、绝不用某个域近似；本卡以描述性记号 costDomain: "rainbow" 记录印刷费用。
@@ -53,9 +52,8 @@ const program = {
     "但契约与内核的 Domain 是 Fury/Calm/Mind/Body/Chaos/Order 六域封闭集合，effect.resources 明确记录 Universal Power 不可表达、" +
     "绝不近似成某个具体域；本卡以描述性记号 costDomain: \"rainbow\" 记录印刷费用。" +
     "（3）已合入的 Equip 展开声明 payments: [{ kind: \"equip\", value: { kind: \"source\" } }]，" +
-    "而 cost/plan-values.ts 的支付种类仍只支持 energy/power/xp/exhaust/discard/recycle/kill/reveal/spend-buff，" +
-    "该启动费用无法在 Finalize 支付（费用种类属 RIFT-261，未合入 HEAD）。" +
-    "依赖：关键词展开工作流（kw-unique）、RIFT-261（Equip 支付种类）；[A] 属契约级缺口。" +
+    "而 cost/plan-values.ts 对 equip payment 仍返回 judge-required，缺少从装备身份读取原始 Equip CostSpec 的绑定。" +
+    "依赖：Unique 关键词与构筑约束消费方、装备身份到 Equip CostSpec 的绑定；[A] 属契约级缺口。" +
     "golden 只把已合入的 Equip attach 本体当真执行证据。",
   abilities,
   sourceText:

@@ -31,11 +31,11 @@ test("sfd-068-221 Gearhead: program validates, is registered and stays judge-req
 test("sfd-068-221 Gearhead: judgeReason names the Accelerate expansion and the Might Bonus gaps", () => {
   assert.match(program.judgeReason, /805/);
   assert.match(program.judgeReason, /805\.6/);
-  assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /137\.1/);
-  // The old reason blamed the unmerged replacement/enter pipeline; RIFT-260's
-  // replacement binder and Accelerate's expansion are both merged.
-  assert.doesNotMatch(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /Play\/Finalize/);
+  // The replacement binder and Accelerate expansion are executable; the
+  // remaining gap is collecting the keyword cost and the Might Bonus feature.
+  assert.doesNotMatch(program.judgeReason, /RIFT-91|RIFT-257|RIFT-260|RIFT-261/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -69,14 +69,14 @@ test("sfd-068-221 Gearhead: the attached-Equipment doubling is a static self Mig
 test.todo(
   "sfd-068-221 Gearhead: [Accelerate]'s optional additional cost [1][Mind] charges in Finalize and the " +
     "805.6 enter-ready replacement runs through the replacement pipeline automatically — the merged " +
-    "cost plan only pays accelerate when the caller passes optionalAdditional, and the card-static " +
-    "binder hook (RIFT-257) must feed it (RIFT-261 cost kinds)"
+    "cost plan only pays accelerate when the caller passes optionalAdditional, and Play/Finalize does " +
+    "not consume the keyword-expanded accelerate.cost"
 );
 
 test("sfd-068-221 Gearhead golden: the merged Accelerate expansion and the enter-ready replacement are registered", () => {
   // 805.1.b/805.1.b.1: optional [1][Mind]; 805.6: the paid instance replaces
-  // the exhausted entry. The expansion landed with RIFT-257's keyword registry
-  // plus the merged replacement pipeline (RIFT-260); the golden executes the
+  // the exhausted entry. The keyword expansion and replacement pipeline are
+  // executable; the golden executes the
   // resulting [1][Mind] plan and the declare-structure evidence, while the
   // automatic Finalize wiring stays the judged gap.
   assert.equal(keywordDefinitionsById.has("Accelerate"), true);

@@ -36,14 +36,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - the ignore-cost play needs a FinalizedCostPlan produced from the chosen
  *   card's printed cost: effect.play requires an already-finalized plan and
  *   never derives printed costs. cost/cost-plan.ts can express ignore-base
- *   (356.1.b), but no card-program → cost plan wiring exists (the cost.printed /
- *   cost.pay kinds belong to RIFT-261, unmerged), and the plan cannot be built
- *   for a not-yet-chosen object.
+ *   (356.1.b), but no card-program → selected-object cost-plan wiring exists,
+ *   and the plan cannot be built for a not-yet-chosen object.
  * The Golden test executes the merged effect.play primitive with a supplied
  * ignored-cost plan against a Finalize-locked trash unit, and the merged
  * [Deathknell] keyword registration is present.
- * Dependencies: RIFT-90 (printed-cost predicate or contract change), RIFT-261
- * (cost.printed / ignore-cost plan), the contract change for Universal Power.
+ * Dependencies: RIFT-90 (printed-cost predicate or contract change), selected-object
+ * cost-plan wiring, the contract change for Universal Power, and trigger.leave.
  */
 const abilities: Ability[] = [
   {
@@ -118,14 +117,14 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "三处当前缺口：(1)「cost no more than :rb_energy_3: and no more than :rb_rune_rainbow:」需要印刷费用上限比较，" +
-    "冻结 ObjectFilter 没有费用谓词，merged 过滤器对未知键静默放行，而生产绑定 translateObjectFilter 对 costEnergyLte 描述性键直接 fail closed——" +
+    "冻结 ObjectFilter 没有费用谓词，生产绑定 translateObjectFilter 对 costEnergyLte/costPowerLte 描述性键直接 fail closed——" +
     "两者都不表达上限（RIFT-90 或契约变更），写成过滤器会让任意垃圾场单位合法；" +
     "(2)「:rb_rune_rainbow:」是 163.2.b 的 Universal Power，封闭 Domain 类型与 gain-power 不表达；effect.resources 明确记录其 " +
     "unsupported、绝不用具名域近似；(3)「ignoring its cost」需要费用管线生成 finalized plan（356.1.b.1 把 base Energy/Power 置零），" +
-    "effect.play 只接受已完成 finalize 的计划、从不推导印刷费用，cost.printed / cost.pay 的接线属 RIFT-261（未合入 HEAD）。" +
-    "[Deathknell] KeywordDef（RIFT-82）已注册，但其展开体引用的 trigger.leave 原语仍未合入；" +
+    "effect.play 只接受已完成 finalize 的计划、从不推导印刷费用，当前没有从已选垃圾场单位生成 ignore-base 计划的 CardProgram 接线。" +
+    "[Deathknell] KeywordDef 已注册，但其展开体引用的 trigger.leave 原语仍未注册；" +
     "golden 用 effect.play + 显式零费计划对锁定目标真实执行（含接受/拒绝/失效边界）。" +
-    "依赖：RIFT-90、RIFT-261、trigger.leave 与 Universal Power 的契约变更请求。",
+    "依赖：RIFT-90、trigger.leave、已选对象费用计划接线与 Universal Power 的契约变更请求。",
   abilities,
   sourceText:
     "[Deathknell] — You may play a unit with cost no more than :rb_energy_3: and no more than :rb_rune_rainbow: from your trash, ignoring its cost. (When I die, get the effect.)"

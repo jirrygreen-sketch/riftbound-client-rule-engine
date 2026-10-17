@@ -22,15 +22,14 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * status 判定（cards/README.md 第 2 节）：judge-required，两处当前缺口：
  * - 可选追加费用没有端到端通路：merged cost 计划能支付 power 组件（golden 以调用方传入的
- *   mandatoryAdditional 作孤立证据），但没有任何已合入入口把卡牌程序声明的这条可选费用
- *   接进打出流程的 Finalize（cost.additional / cost.pay 与 optionalAdditional 的自动读取属
- *   RIFT-261 费用种类批次，未合入 HEAD）。
+ *   mandatoryAdditional 作孤立证据），但 Play/Finalize 没有读取卡牌程序声明的
+ *   cost.additional 并自动生成 optionalAdditional 费用计划。
  * - 「if you paid the additional cost」需要 356.4.f.1 的支付回执（以支付决定为凭证，与实付量无关）：
  *   冻结 IR 没有费用结果绑定（调研记为 condition.result），第二条指令无法按已付/未付开闸；
  *   程序刻意不加恒真条件，也不把费用改写成效果。
- * 「give a unit -2 :rb_might: this turn」半段已可执行：continuous.might（RIFT-258）注册
+ * 「give a unit -2 :rb_might: this turn」半段已可执行：continuous.might 注册
  * arithmetic 层修正并按回合末到期，golden 经生产链适配器真实执行（含目标失效 ignored）。
- * 依赖：RIFT-261（可选追加费用接线）与费用回执的契约缺口。
+ * 依赖：Play/Finalize 的可选追加费用接线与费用回执的契约缺口。
  */
 const abilities: Ability[] = [
   {
@@ -94,11 +93,12 @@ const program = {
   judgeReason:
     "两处当前缺口：(1)「You may pay :rb_rune_mind: as an additional cost to play me」（356.2.b/356.2.b.1，355.1.a 选择、356.2 施加）" +
     "没有端到端通路：merged cost 计划能支付 power 组件（golden 以调用方传入的 mandatoryAdditional 作孤立证据），" +
-    "但没有已合入入口把卡牌程序声明的这条可选费用接进 Finalize 的 optionalAdditional（cost.additional / cost.pay 属 RIFT-261，未合入 HEAD）。" +
+    "但 Play/Finalize 没有读取卡牌程序声明的 cost.additional 并自动生成 optionalAdditional 费用计划。" +
     "(2)「if you paid the additional cost」需要 356.4.f.1 的支付回执（以支付决定为凭证，与实付量无关）：" +
     "冻结 IR 没有费用结果绑定（调研记为 condition.result），第二条指令无法按已付/未付开闸；程序不伪造恒真条件。" +
-    "「give a unit -2 :rb_might: this turn」半段已可执行：continuous.might（RIFT-258）注册 arithmetic 层修正并回合末到期，" +
-    "golden 已用生产链适配器真实执行（含目标失效 ignored）；绝不用 effect.buff 计数近似（702/703）。依赖：RIFT-261 与费用回执契约缺口。",
+    "「give a unit -2 :rb_might: this turn」半段已可执行：continuous.might 注册 arithmetic 层修正并回合末到期，" +
+    "golden 已用生产链适配器真实执行（含目标失效 ignored）；绝不用 effect.buff 计数近似（702/703）。" +
+    "依赖：可选追加费用接线与费用回执契约缺口。",
   abilities,
   sourceText:
     "You may pay :rb_rune_mind: as an additional cost to play me.\n" +

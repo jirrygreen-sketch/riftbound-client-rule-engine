@@ -1,9 +1,8 @@
 // Golden test for Forecaster (sfd-065-221).
 //
-// The static Vision grant itself executes through the merged
-// continuous.grant-keyword primitive (RIFT-258) with the Vision KeywordDef
-// registered (RIFT-83); the remaining gap is the card-static → layers
-// registration path plus the semantic expansion of a gained Vision.
+// The static Vision grant executes through the production static binder and
+// continuous.grant-keyword primitive. The remaining gap is the semantic
+// expansion of a runtime-gained Vision.
 import test from "node:test";
 import assert from "node:assert/strict";
 
@@ -15,8 +14,10 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
 const CANONICAL = "card.hash-cdeb1c4bb2202d43d0f4ccb7c3e0ddfa25caf4f81c41dde5c8bdaa6bbeddfe40";
 const SOURCE_TEXT =
@@ -41,12 +42,9 @@ test("sfd-065-221 Forecaster: program passes validateCardProgram and is judge-re
 
 test("sfd-065-221 Forecaster: judgeReason names the current binding and expansion gaps", () => {
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /RIFT-258/);
-  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /817\.1\.b/);
-  // The old reason claimed the grant primitive itself was missing; RIFT-258
-  // merged it, so the reason must not still say so.
-  assert.doesNotMatch(program.judgeReason, /尚无已注册实现/);
+  assert.match(program.judgeReason, /运行时获得的 Vision/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-257|RIFT-258|RIFT-83/);
   assert.equal(keywordDefinitionsById.has("Vision"), true);
   assert.equal(keywordDefinitionsById.get("Vision").stacking, "separate");
 });
@@ -172,9 +170,36 @@ test("sfd-065-221 Forecaster golden: no friendly Mech makes the grant a skipped 
   assert.equal(base.continuousEffects.length, 0);
 });
 
+test("sfd-065-221 Forecaster golden: the production static binder installs the friendly-Mech Vision aura", () => {
+  const f = fixture({
+    cards: [
+      { id: "forecaster", cardId: CANONICAL, types: ["unit"], tags: ["Mech"] },
+      { id: "friendly-mech", types: ["unit"], tags: ["Mech"] },
+      { id: "enemy-mech", types: ["unit"], tags: ["Mech"], owner: "B", controller: "B" }
+    ]
+  });
+  for (const id of ["forecaster", "friendly-mech", "enemy-mech"]) {
+    f.engine.commit({
+      type: "move-zone",
+      object: f.kernel.ref(id),
+      to: "battlefield",
+      location: { type: "battlefield", id: "battlefield-1" }
+    });
+  }
+  f.engine.advance();
+  const source = f.kernel.getObject("forecaster");
+  const handle = createEngineStaticBinder(f.engine).bindStatic(grant, source);
+  f.engine.layers.setObjects(f.kernel.objects);
+  assert.deepEqual(f.engine.layers.evaluate(f.kernel.ref("friendly-mech")).keywords, [
+    { id: "Vision", value: undefined }
+  ]);
+  assert.deepEqual(f.engine.layers.evaluate(f.kernel.ref("enemy-mech")).keywords, []);
+  handle.unbind();
+  assert.deepEqual(f.engine.layers.evaluate(f.kernel.ref("friendly-mech")).keywords, []);
+});
+
 test.todo(
-  "sfd-065-221 Forecaster: binding the card's static continuous.grant-keyword ability into " +
-    "layers (RIFT-257 ProgramStaticBinder has only a noop hook) and expanding a gained Vision " +
-    "per instance into its 817.1.b Predict trigger with a real controller and ordered deck-top " +
-    "binding are still missing"
+  "sfd-065-221 Forecaster: expand a runtime-gained Vision per instance into its 817.1.b Predict " +
+    "trigger with a real controller and ordered deck-top binding; expandProgram currently only " +
+    "consumes printed/declared keywords"
 );

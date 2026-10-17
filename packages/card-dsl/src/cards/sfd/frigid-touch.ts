@@ -23,11 +23,9 @@ import type { CardProgram } from "../../ir/index.js";
  *   the same TargetSpec for a re-made choice (820.2.a).
  *
  * status 判定（cards/README.md 第 2 节）：judge-required，两处当前缺口：
- * - [Repeat] 的收费与计数仍无已合入路径：Repeat KeywordDef（RIFT-86/
- *   effects/keywords/Repeat.ts）只声明 repeat.cost 静态能力，Finalize 费用计划从不读取它，
- *   effects/instructions/ 下没有已注册的 cost.pay / cost.additional 原语
- *   （RIFT-261 费用种类批次未合入 HEAD），也没有消费方把已付费实例数接到解释器的
- *   repeat 节点。程序因此不把 count 写成固定 1（会近似成未付费也重复）。
+ * - [Repeat] 的费用原语、费用计划和 effect.repeat 本体都已存在，但 Play/Finalize
+ *   还没有从关键词展开的 repeat.cost 静态效果收集可选附加费用，也没有把实际付费实例数
+ *   接到本卡的 repeat 节点。程序因此不把 count 写成固定 1（会近似成未付费也重复）。
  * - effect.repeat 的闭集动作里没有 Might 修改动作：契约 3.6 的 GameAction 集合无 might
  *   动作，用 buff 动作代替会把 -2 Might 写成 Buff counter（702/703），属禁止的近似。
  * 已合入并真实执行：Reaction 关键词声明、continuous.might 的临时 -2 Might 注册与
@@ -38,13 +36,13 @@ const frigidTouch = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处当前缺口：(1)「[Repeat] :rb_energy_2:」（820.1.c.1）的收费与计数没有已合入路径——Repeat KeywordDef" +
-    "（RIFT-86）只输出 repeat.cost 静态能力，Finalize 费用计划从不读取它，effects/instructions/ 也没有已注册的 " +
-    "cost.pay / cost.additional 原语（RIFT-261 批次未合入 HEAD），已付费实例数到解释器 repeat 节点的接线同样缺失；" +
+    "两处当前缺口：(1)「[Repeat] :rb_energy_2:」（820.1.c.1）的费用原语、费用计划和 effect.repeat 本体都已存在，" +
+    "但 Play/Finalize 不读取关键词展开的 repeat.cost 静态效果，也没有把实际付费实例数接到本卡的 repeat 节点；" +
     "本卡不把 count 写成固定 1。(2) effect.repeat 的闭集动作集合（契约 3.6）没有 Might 修改动作，" +
     "用 buff 动作重复会把 -2 Might 变成 Buff counter（702/703），属禁止的近似。" +
-    "「Give a unit -2 :rb_might: this turn」半段已可执行：continuous.might（RIFT-258）注册 arithmetic 层修正、" +
-    "回合末到期，golden 已用生产链适配器真实执行（含目标失效 ignored）。依赖：RIFT-261 与 repeat 付费计数接线。",
+    "「Give a unit -2 :rb_might: this turn」半段已可执行：continuous.might 注册 arithmetic 层修正、" +
+    "回合末到期，golden 已用生产链适配器真实执行（含目标失效 ignored）。依赖：关键词费用收集、付费实例到 repeat 的接线" +
+    "以及 effect.repeat 的 Might 动作契约。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {
