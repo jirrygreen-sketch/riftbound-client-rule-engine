@@ -11,22 +11,33 @@ import type { CardProgram } from "../../ir/index.js";
  * §5): the reminder text belongs to the printed keyword, it is not a second
  * instruction to author here.
  *
- * Status: judge-required, matching ogn/sunlit-guardian and ogn/stormclaw-ursine.
- * Both KeywordDefs are now merged (Shield since RIFT-81, Tank since RIFT-264),
- * so both declarations expand — but neither expansion has a runtime consumer:
- * - [Shield 2] (814.1.b / 814.1.b.1 / 814.1.b.2 / 814.1.c / 814.1.d.1) expands
- *   to a static continuous.might ability gated on the Defender designation.
- *   Two pieces are still missing: (a) nothing registers a CardProgram
- *   keyword/static ability into the layers engine (programs/statics.ts ships
- *   only the default noop binder hook); (b) the gate is written as a `compare`
- *   condition on the host's designation, and layers/engine.ts conditionMatches
- *   evaluates no `compare` at all — registering it today would add a
- *   restriction-free +2 Might (the golden pins that over-application).
+ * Status: judge-required (2026-10-17 re-check against the merged code). Merged
+ * and exercised by the golden:
+ * - both KeywordDefs are registered (Shield since RIFT-81, Tank since RIFT-264);
+ * - the CardProgram -> layers registration path is merged (RIFT-349:
+ *   programs/statics.ts createEngineStaticBinder + programs/lifecycle.ts, with
+ *   keyword expansion through programs/keywords.ts expandProgram), so the earlier
+ *   "no binder exists / statics.ts ships only a noop hook" claim is stale. The
+ *   golden registers both expansions through the production binder on one real
+ *   board unit.
+ *
+ * Still missing (each pinned by a real execution in the golden, not approximated):
+ * - [Shield 2] (814.1.c / 814.1.d / 814.1.d.1) expands to a static
+ *   continuous.might ability gated on the Defender designation. The gate reads
+ *   object-property "designation"; the merged ObjectSnapshot exposes only
+ *   combatRole (contract 3.8), so the interpreter raises MissingInformation, the
+ *   binder wrapper catches it and the condition is always false. The golden
+ *   registers the expansion and shows a genuinely defending unit (combatRole
+ *   "defender") still evaluates at its printed Might 3: 814.1.c never grants the
+ *   +2. The mismatch is produced by keywords/Shield.ts, outside this card scope.
  * - [Tank] (815.1.b / 815.1.c.1 / 815.1.c.2) expands to a static
- *   continuous.combat damage-assignment requirement, but the merged combat
- *   allocation binds no assignment-priority requirement
- *   (combat/base-combat-allocation.ts: "No Tank/Backline/other
- *   assignment-priority requirement is bound here").
+ *   continuous.combat damage-assignment requirement. The production binder does
+ *   register it in the ability layer (the golden asserts the registered layer and
+ *   the mode/priority/damage payload), but nothing consumes it:
+ *   combat/base-combat-allocation.ts binds no assignment-priority requirement and
+ *   no merged query returns it (the golden shows 0 restrictions and 0
+ *   requirements for the damage action), so the printed assignment order is not
+ *   enforced.
  * Neither keyword is rewritten as static numbers or instructions.
  */
 export default {
@@ -34,14 +45,16 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两个关键词的 KeywordDef 都已合入（[Shield 2]：effects/keywords/Shield.ts，RIFT-81；[Tank]：effects/keywords/Tank.ts，RIFT-264），" +
-    "但展开体都没有运行时消费方：(1) [Shield 2]（814.1.c/814.1.d.1）展开为以 compare(designation eq defender) 为门控的 static " +
-    "continuous.might——没有已合入路径把 CardProgram 的 keyword/static 能力注册进 layers（programs/statics.ts 只有默认 noop 的 binder 钩子），" +
-    "且 layers/engine.ts 的 conditionMatches 完全不求值 compare，现在注册就等于无条件 +2 Might（golden 固化该过度生效）。" +
-    "(2) [Tank]（815.1.b/815.1.c.1/815.1.c.2）展开为 static continuous.combat 的伤害分配优先要求，但 combat/ 的分配不读取它" +
-    "（combat/base-combat-allocation.ts 明确注明未绑定 Tank/Backline 等指派优先级），也没有渲染该要求的 continuous.combat 消费方。" +
-    "依赖：卡牌关键词/static 能力 → layers 的注册路径与 compare/designation 求值（RIFT-91 后续/RIFT-257）、" +
-    "continuous.combat 的战斗伤害分配消费方（RIFT-258 交接/战斗工作流）。不近似实现。",
+    "当前缺口（CR v1.5）：(1) [Shield 2]（814.1.c/814.1.d.1）展开为以 compare(object-property self \"designation\" eq " +
+    "\"defender\") 为门控的 static continuous.might；卡牌 → layers 的注册路径（RIFT-349 的 createEngineStaticBinder/attachProgramLifecycle，经 " +
+    "programs/keywords.ts 展开）已合入，旧「statics.ts 只有 noop binder」的结论过时，但判别式读的是快照里不存在的 designation：" +
+    "合并的 ObjectSnapshot 只有契约 3.8 的 combatRole，解释器求值抛 MissingInformation、binder 包装后恒为 false，" +
+    "golden 实测一个真实 combatRole=\"defender\" 的单位仍按印刷 Might 3 求值，814.1.c 的 +2 永不生效（判别式在 keywords/Shield.ts，属本卡范围外）。" +
+    "(2) [Tank]（815.1.b/815.1.c.1/815.1.c.2）展开为 static continuous.combat 的伤害分配优先要求；生产 binder 确实把它注册进 ability 图层" +
+    "（golden 断言注册的 layer 与 mode/priority/damage 载荷），但没有消费方：combat/base-combat-allocation.ts 明确未绑定 " +
+    "assignment-priority，也没有任何合并查询返回该要求（golden 实测 damage 动作的 restrictions 与 requirements 都是 0），" +
+    "815.1.b/815.1.c.2 的指派顺序不生效。依赖：keywords/Shield.ts 的 designation/combatRole 判别式修正与 designation 产生方（RIFT-359 条件谓词工作），" +
+    "以及 continuous.combat 的战斗伤害分配消费方（RIFT-258 交接/战斗工作流）。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "shield", value: 2 },
     { kind: "keyword", keyword: "tank" }
