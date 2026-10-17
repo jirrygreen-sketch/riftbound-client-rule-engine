@@ -8,6 +8,7 @@ import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/key
 import channel from "../../../../engine-core/dist/effects/instructions/effect.channel.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 
 const CANONICAL = "card.hash-e3ecc6164765d02357568348735bbb2eb8e6ed9a6a919fd16c4dde83bf5c765e";
 
@@ -123,6 +124,24 @@ test("Find Your Center golden: a short Rune Deck channels as much as possible (C
   assert.equal(run.result.status, "executed");
   assert.equal(run.linked.channeled, 1);
   assert.equal(kernel.player("A").runeDeckSize, 0);
+});
+
+test("Find Your Center original body still channels when Draw is prevented", () => {
+  const kernel = world().deck(["top", "next"]).rune(["first-rune", "second-rune"]).build();
+  kernel.addReplacement(action => action.type === "draw" ? "prevented" : null);
+  const outcome = resolveChainBody(play.body, kernel);
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
+    [drawInstruction.id, "negated"], [channelInstruction.id, "executed"]
+  ]);
+  assert.equal(kernel.player("A").handSize, 0);
+  assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["top", "next"]);
+  assert.equal(kernel.getObject("first-rune").zone, "rune-zone");
+  assert.equal(kernel.getObject("second-rune").zone, "rune-deck");
+  assert.equal(outcome.results[1].result.linkedValues.channeled, 1);
+  assert.deepEqual(outcome.events.map(event => [event.action, event.outcome ?? null]), [["draw", "prevented"], ["channel-rune", null]]);
+  assert.equal(kernel.history({ action: "draw", player: "A" }), 0);
+  assert.equal(kernel.history({ action: "channel-rune", player: "A" }), 1);
+  // This proves independent actions, not the still-missing exhausted entry state.
 });
 
 test.todo("Find Your Center: read current Victory Score in the condition (CR 194.3/194.3.a) and bind the static discount into Finalize");

@@ -91,3 +91,30 @@ test("Eager Apprentice minimum belongs only to its own discount (CR 356.4.e)", (
     ["eager", 3, 2], ["other", 2, 0]
   ]);
 });
+
+test("Eager Apprentice discount component includes additional Energy without rewriting null printed costs", () => {
+  const effect = program.abilities[0].effect;
+  const base = world().player("A", { energy: 3 })
+    .hand("spell", { types: ["spell"], energy: null, power: null }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("spell") });
+  const run = runInstruction(costModify, {
+    id: "eager-additional-discount",
+    cost: { kind: "explicit", energy: { kind: "constant", value: 1 } },
+    mandatoryAdditional: [{ id: "additional", cost: { energy: { kind: "constant", value: 2 } } }],
+    modifier: {
+      kind: "reduce", resource: effect.resource,
+      amount: { kind: "arithmetic", operator: "multiply", operands: [effect.amount, { kind: "constant", value: -1 }] },
+      minimum: effect.minimum
+    }
+  }, { world: kernel });
+  assert.equal(run.result.status, "executed");
+  assert.deepEqual(run.linked.cost.printed, { energy: null, power: null });
+  assert.equal(run.linked.cost.total.energy, 2);
+  assert.deepEqual(run.linked.cost.total.power, []);
+  assert.deepEqual(run.linked.cost.discounts.map(discount => [discount.before, discount.after]), [[3, 2]]);
+  const payment = runInstruction(costPay, { cost: { kind: "constant", value: run.linked.cost } }, { world: kernel });
+  assert.equal(payment.result.status, "executed");
+  assert.equal(kernel.player("A").energy, 1);
+  assert.equal(kernel.getObject("spell").energy, null);
+  assert.equal(kernel.getObject("spell").power, null);
+});
