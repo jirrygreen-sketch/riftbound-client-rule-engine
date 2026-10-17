@@ -1,3 +1,10 @@
+// Golden test for Square Up (unl-017-219) — layers 1 and 2 of cards/README §4
+// (validation/identity and structure).
+//
+// Execution evidence (4 Energy payment, board-unit target, end-of-turn
+// ability-layer Assault 4 registration and the Assault-stacking boundary) lives
+// in the RIFT-681 parameterized template golden:
+// test/cards/templates/keyword-play-continuous-grant-keyword-681.test.mjs.
 import assert from "node:assert/strict";
 import test from "node:test";
 

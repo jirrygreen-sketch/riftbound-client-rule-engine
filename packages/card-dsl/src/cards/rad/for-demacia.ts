@@ -30,21 +30,23 @@ import type { CardProgram, TargetSpec } from "../../ir/index.js";
  * 3. 本卡是 play 正文指令，CardProgram static 能力的绑定不参与本卡结算。
  *
  * 依赖：Shield 的 defender designation 特征与图层条件求值（814.1.d）。
- * golden 真实执行战场筛选 + [Shield 2] 授予。
+ * RIFT-681 的模板参数化 golden（test/cards/templates/
+ * keyword-play-continuous-grant-keyword-681.test.mjs）经通用测试台真实执行 3 能量支付、
+ * 战场筛选与 [Shield 2] 授予，并覆盖「所选战场没有友方单位」的边界。
  */
 const forDemacia = {
   canonicalCardId: "card.hash-88b2b6a8fd884959d1de40824d4d5035cc609570087e598ecc6e808b8b3cc790",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1) [Shield 2] 的授予本身已可执行——continuous.grant-keyword（RIFT-258）" +
-    "按 args.objects 的集合查询解析所选战场的 sameLocationAs 锚点，golden 用真实解释器执行并断言只有该战场的友方单位" +
-    "拿到 Shield 2（814.1.c 的 this turn 用 end-of-turn 期限，317.2.c）。" +
-    "(2) 仍未合入的是授予之后的行为：Shield 展开为 continuous.might 静态效果 + designation === \"defender\" 条件，" +
-    "而战斗系统不给 ObjectSnapshot 写 defender 指定（interpreter 的 object-property 对未知属性抛 MissingInformation，" +
-    "Shield 展开的 compare 条件因此无法求值成功），该 +2 Might 在任何战斗里都不会生效（814.1.d）；" +
+    "唯一未合入的依赖是 [Shield 2] 授予之后的行为（814.1.c/814.1.d.1）：战场筛选与本回合授予已可执行——" +
+    "continuous.grant-keyword 原语由 RIFT-681 的模板参数化 golden 经通用测试台真实支付 3 能量、锁定所选战场，并由 sameLocationAs 集合查询" +
+    "断言只有该战场的友方单位在 ability 图层拿到 Shield 2 与 end-of-turn 期限（317.2.c）。" +
+    "缺的是 Shield 的展开：它要求 object-property(self, \"designation\") === \"defender\"，" +
+    "但生产 ObjectSnapshot 只有 combatRole（默认 null），layers 没有 designation 读取器，战斗系统也没有指定产生方，" +
+    "该 +2 Might 在真实图层计算里无法只在防御者状态下生效。" +
     "依赖：814.1.d 的 designation 特征与战斗指定，以及 Shield 展开条件的图层求值。" +
-    "战场按 170 / 170.7 / 355.10.a.1 是目标；受影响单位按 355.10.d 不是目标。[Reaction] 声明本身可校验。",
+    "战场按 170 / 170.7 / 355.10.a.1 是目标；受影响单位按 355.10.d 不是目标。[Reaction] 声明本身可校验，不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {

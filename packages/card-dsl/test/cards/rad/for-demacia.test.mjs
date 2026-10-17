@@ -1,3 +1,11 @@
+// Golden test for For Demacia! (rad-117-167) — layers 1 and 2 of cards/README §4
+// (validation/identity and structure).
+//
+// Execution evidence (the real play through the generic card scenario harness:
+// 3 Energy payment, battlefield target, sameLocationAs-scoped friendly set, the
+// ability-layer Shield 2 registration and the empty-set boundary) lives in the
+// RIFT-681 parameterized template golden:
+// test/cards/templates/keyword-play-continuous-grant-keyword-681.test.mjs.
 
 import assert from "node:assert/strict";
 import test from "node:test";

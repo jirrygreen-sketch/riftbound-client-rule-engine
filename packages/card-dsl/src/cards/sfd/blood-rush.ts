@@ -51,21 +51,27 @@ import type { CardProgram } from "../../ir/index.js";
  * The unit target and the Assault 2 value it would receive are recorded for
  * review; nothing is approximated (no Buff counter stands in for Assault's
  * conditional +2 Might).
+ *
+ * RIFT-681 execution evidence: test/cards/templates/
+ * keyword-play-continuous-grant-keyword-681.test.mjs runs the printed base cost
+ * and the Assault 2 grant row through the generic scenario harness, and pins the
+ * declared [Repeat] cost failing closed in translateCost. The program stays
+ * judge-required for the two gaps above.
  */
 export default {
   canonicalCardId: "card.hash-01042b9eeb52d036e7ddeb7a52f785ab5acaf5fc08d6923554a753376d2b7529",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入，均不近似实现：(1)「Give a unit [Assault 2]」的 continuous.grant-keyword 指令原语" +
-    "（ability 图层 + 时限）已合入并能登记授予的关键词，但运行时授予关键词没有进入 KeywordDef 展开路径，" +
-    "无法把 Assault 转成攻击者期间的 continuous.might；现有 Assault 展开还读取 designation，而 ObjectSnapshot " +
-    "提供的是 combatRole，特征字段也未对齐，故不能声称已有安全的 Might 结果。把 [Assault 2] 声明成这张法术自身的关键词会描述错误的对象，故不这样写。" +
-    "(2) [Repeat] :rb_energy_1: 的可选附加费用无法收取或回读：Repeat 关键词、effect.repeat 与 cost 计划的 optionalAdditional 输入已合入，" +
-    "但没有把卡牌程序声明的可选附加费用接进法术打出 Finalize 收取的接线，已付实例数也没有供结算读取的绑定（820.1.c.1 / 820.1.d.1）。" +
-    "卡片保留可审查的结构：目标单位（355.5/355.7/355.9.a.1）、Assault 2 数值、820.1.c 的 1 能量印刷费用与显式 pay/decline 选择。" +
-    "不用 Buff 计数冒充 Assault 的条件 +2 Might。依赖：运行时授予关键词的 KeywordDef/Assault 消费路径与 " +
-    "designation/combatRole 特征对齐、" +
+    "两处依赖未合入，均不近似实现（RIFT-681 模板 golden 给出了真实证据边界）：" +
+    "(1)「Give a unit [Assault 2]」的 continuous.grant-keyword 指令原语已能登记 ability 图层的 Assault 2" +
+    "（golden 以目录印刷基础费用 1 能量、power null 的测试视图打出，并断言 chosen 单位读取到 Assault 2），但运行时授予的关键词不进入 " +
+    "KeywordDef 展开路径，且 Assault 展开读取 designation 而 ObjectSnapshot 只提供 combatRole，" +
+    "无法得到攻击者期间的条件 +2 Might。把 [Assault 2] 声明成这张法术自身的关键词会描述错误的对象，故不这样写。" +
+    "(2) [Repeat] :rb_energy_1: 的附加费用无法收取：programs/play.ts 的 translateCost 对 kind:\"additional\" fail-closed" +
+    "（\"Additional costs are not bound\"），卡牌程序声明的可选附加费用因此进不了 CostPlanInput.optionalAdditional，" +
+    "已付实例数也没有供结算读取以额外执行一次的绑定（820.1.c.1 / 820.1.d.1）；golden 直接订住该 fail-closed 行为。" +
+    "依赖：运行时授予关键词的 KeywordDef/Assault 消费路径与 designation/combatRole 特征对齐、" +
     "Repeat 附加费用的 Finalize 收取与已付实例绑定。",
   abilities: [
     { kind: "keyword", keyword: "action" },

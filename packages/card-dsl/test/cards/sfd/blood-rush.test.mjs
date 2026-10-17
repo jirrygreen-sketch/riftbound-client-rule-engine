@@ -1,3 +1,10 @@
+// Golden test for Blood Rush (sfd-003-221) — layers 1 and 2 of cards/README §4
+// (validation/identity and structure).
+//
+// Execution evidence (printed base cost, board-unit target, permanent
+// ability-layer Assault 2 grant, the declared [Repeat] cost failing closed and
+// the Showdown timing query) lives in the RIFT-681 parameterized template
+// golden: test/cards/templates/keyword-play-continuous-grant-keyword-681.test.mjs.
 import assert from "node:assert/strict";
 import test from "node:test";
 
