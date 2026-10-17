@@ -40,8 +40,6 @@ test("sfd-078-221 Temporal Portal: program validates and is judge-required", () 
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Repeat/);
   assert.match(program.judgeReason, /next-spell|一次性/);
-  assert.match(program.judgeReason, /RIFT-258/);
-  assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /equal to its cost|印刷费用/);
 });
 
@@ -122,17 +120,3 @@ test("sfd-078-221 Temporal Portal: the merged grant-keyword primitive really gra
   assert.equal(bound.continuousEffects[0].effect.effect.keyword, "Shield");
   assert.equal(bound.continuousEffects[0].effect.effect.keywordValue, 2);
 });
-
-test.todo(
-  "sfd-078-221 Temporal Portal: granting a Repeat instance to the NEXT spell played this turn (CR 820.1.b/820.1.c) needs " +
-    "the one-shot next-spell duration and a pending-spell binding on top of the merged continuous.grant-keyword primitive " +
-    "(RIFT-258/RIFT-91 follow-up); the declared amount/appliesTo forms are rejected by the primitive's schema"
-);
-test.todo(
-  "sfd-078-221 Temporal Portal: \"equal to its cost\" needs the future spell's own printed cost read at Finalize (CR 206) " +
-    "to build the optional additional-cost component (RIFT-261); no expression can read a not-yet-played object's printed cost"
-);
-test.todo(
-  "sfd-078-221 Temporal Portal: the printed :rb_rune_rainbow: cost is Universal Power [A] (CR 135.2.e.5.a / 163.2.b); the " +
-    "closed six-domain Domain set cannot carry it, so only a descriptive [\"rainbow\"] marker is recorded"
-);

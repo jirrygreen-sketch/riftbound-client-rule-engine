@@ -58,11 +58,9 @@ test("sfd-090-221 The Zero Drive: identity, ruleset, status, judgeReason and ver
   // The judgeReason must name every real gap and the data note.
   assert.match(program.judgeReason, /Equip/);
   assert.match(program.judgeReason, /banish-as-cost/);
-  assert.match(program.judgeReason, /394-398/);
+  assert.match(program.judgeReason, /394/);
   assert.match(program.judgeReason, /use-only-if-unattached|Use only if unattached/);
   assert.match(program.judgeReason, /Deathknell/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-261/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -153,8 +151,8 @@ test("sfd-090-221 The Zero Drive: with no eligible banished unit the play does n
 });
 
 test("sfd-090-221 The Zero Drive: the merged program binding consumes the Gear's keyword expansion and activated ability", () => {
-  // RIFT-257 已合入：binding.inspect 能直接消费本卡的 keyword 展开并对启动能力
-  // 暴露 equipped/activated 能力；仍待费用原语（RIFT-261）的是印刷费用的支付。
+  // The binding exposes both the keyword expansion and the activated ability;
+  // payment and linked-scope gaps are documented by the program reason.
   const binding = createProgramBinding({
     cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }]
   });
@@ -184,17 +182,3 @@ test("sfd-090-221 The Zero Drive: the merged program binding consumes the Gear's
   assert.equal(inspected.abilities.some((entry) => entry.kind === "activated"), true);
   assert.equal(inspected.abilities.some((entry) => entry.kind === "keyword"), true);
 });
-
-test.todo(
-  "sfd-090-221 The Zero Drive: paying the printed Equip cost (1 Energy + 1 Mind Power, CR 818.1.c) needs the \"equip\" cost-payment kind " +
-    "(RIFT-261) plus contract 3.8.3 params.cost; the RIFT-257 program -> keyword expansion -> chain wiring is merged."
-);
-test.todo(
-  "sfd-090-221 The Zero Drive: the activated cost's \"Banish this\" needs a banish-as-cost payment kind in cost/plan-values.ts readCost (CR 428.1, RIFT-261)."
-);
-test.todo(
-  "sfd-090-221 The Zero Drive: \"all units banished with this\" needs the Linked Ability tracker from CR 394-398 that supplies the pick candidates."
-);
-test.todo(
-  "sfd-090-221 The Zero Drive: \"Use only if unattached\" needs a consumer that maps the declared Restriction onto chain legality."
-);

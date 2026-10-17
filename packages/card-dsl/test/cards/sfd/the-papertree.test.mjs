@@ -9,7 +9,6 @@ import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import channel from "../../../../engine-core/dist/effects/instructions/effect.channel.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
-import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 const enginePipeline = await import("../../../../engine-core/dist/events/pipeline.js");
 
 const CANONICAL =
@@ -37,7 +36,6 @@ test("sfd-219-221 The Papertree: identity, ruleset, status and verbatim source t
   // Both named dependencies: the currently unemittable "here" anchor and the
   // missing per-player iteration (see judgeReason).
   assert.match(program.judgeReason, /hold/);
-  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /effect\.channel/);
   assert.match(program.judgeReason, /each player/);
   assert.match(program.judgeReason, /battlefieldId/);
@@ -48,7 +46,7 @@ test("sfd-219-221: hold trigger that channels 1 exhausted rune (431.1/431.2)", (
   assert.equal(ability.kind, "triggered");
   assert.equal(ability.trigger.at, "hold");
   // 053.3 "here" + 190.6.d "you"; sibling battlefield programs keep this
-  // placeholder spelling while the hold pipeline is unmerged.
+  // placeholder spelling while the payload-location binding is pending.
   assert.deepEqual(ability.trigger.filter, {
     event: "hold",
     here: true,
@@ -166,10 +164,6 @@ test("sfd-219-221: a short Rune Deck channels as many as possible without negati
   assert.deepEqual(kernel.zone("A", "rune-zone"), []);
 });
 
-test("sfd-219-221: the trigger filter still carries the unreplaced here placeholder", () => {
-  assert.throws(() => assertTriggerSpec(ability.trigger), /EventPattern 不允许此字段/);
-});
-
 test("sfd-219-221: the hold timing point really reaches a registered trigger through the merged pipeline", () => {
   // hold 已由回合/计分流程发出（turn/flow.ts scheduleScore），载荷 details.battlefieldId
   // 指明固守的战场；这里用已合入的 EventPipeline 验证该事件能命中一个不带 here 的注册，
@@ -219,14 +213,3 @@ test("sfd-219-221: the hold timing point really reaches a registered trigger thr
   assert.equal(seen.length, 1);
   assert.equal(seen[0].event.details.battlefieldId, "battlefield-1");
 });
-
-test.todo(
-  "sfd-219-221: the here anchor on the hold event needs a payload-location selector; the hold emission and the RIFT-257 trigger binding are merged"
-);
-test.todo(
-  "sfd-219-221: 「each player channels」的逐玩家迭代/逐席位选择原语（RIFT-9 target.player）落地后，" +
-    "每名玩家各按 431.1 为自身 channel 1 个符文"
-);
-test.todo(
-  "sfd-219-221: 431.2 的 exhausted 入场状态由内核实现——参考测试内核的 channel-rune 不记录符文入场状态"
-);

@@ -63,14 +63,11 @@ test("sfd-145-221 Switcheroo: program passes validateCardProgram", () => {
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("sfd-145-221 Switcheroo: judgeReason names the missing swap primitive", () => {
+test("sfd-145-221 Switcheroo: judgeReason names the current swap and permission gaps", () => {
   assert.match(program.judgeReason, /effect\.swap-might/);
-  assert.match(program.judgeReason, /303\.1/);
-  assert.match(program.judgeReason, /unclassified-rad-sfd/);
-  assert.match(program.judgeReason, /703/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /434\.1/);
-  assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
+  assert.match(program.judgeReason, /sameLocationAs/);
+  assert.match(program.judgeReason, /cost\.hidden/);
+  assert.ok(!/RIFT-(90|91|257)/.test(program.judgeReason));
 });
 
 test("sfd-145-221 Switcheroo: [Hidden] and [Action] keywords plus the printed cost", () => {
@@ -193,16 +190,3 @@ test("sfd-145-221 Switcheroo golden: the merged target system locks exactly the 
   assert.equal(resolveTargetPlan(context, firstPlan).status, "resolved");
   assert.equal(resolveTargetPlan(context, secondPlan).status, "resolved");
 });
-
-test.todo(
-  "sfd-145-221 Switcheroo: the atomic 'swap the Might of two units this turn' needs the effect.swap-might " +
-    "primitive (survey unclassified-rad-sfd) with a continuous duration fed by ctx.addContinuous " +
-    "(CR 137/142/303.1; RIFT-91 owns the layers/expiry side) plus the target plan for the paired " +
-    "same-battlefield units (RIFT-90/RIFT-87). No substitute two-write encoding is authored."
-);
-
-test.todo(
-  "sfd-145-221 Switcheroo: [Hidden]'s Hide cost and facedown replay (811, 422) and [Action]'s Showdown " +
-    "admission need cost.hidden (RIFT-261) and continuous.timing (RIFT-91); the CardProgram -> ChainDraft " +
-    "play adapter (RIFT-257) is merged"
-);

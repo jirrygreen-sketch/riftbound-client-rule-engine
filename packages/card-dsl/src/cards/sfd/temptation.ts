@@ -13,10 +13,10 @@ import type { CardProgram } from "../../ir/index.js";
  * - "[Repeat] :rb_energy_2:" (820.1.c) is an Optional Additional Cost: the
  *   printed component is declared on the play ability's CostSpec in the merged
  *   sfd/danger-zone / sfd/frigid-touch shape (356.2.b.1). The merged program
- *   binding (RIFT-257) does not collect it: programs/play.ts translateCost
- *   rejects kind "additional-cost" and the detached `keyword`/`additional`
- *   fields, so describePlay throws (verified by the golden). Cost-plan
- *   optionalAdditional exists but has no card-program producer (RIFT-261).
+ *   play binding does not collect it: programs/play.ts translateCost rejects
+ *   kind "additional-cost" and the detached `keyword`/`additional` fields, so
+ *   describePlay cannot produce a payable Repeat component. Cost-plan
+ *   optionalAdditional has no card-program producer.
  * - "Move an enemy unit" is an effect Move (451, not the Standard Move of 144
  *   and not a Recall of 457/458): the named unit is chosen by the spell's
  *   controller in the public Board zone, so it is a Target (355.7 /
@@ -34,12 +34,12 @@ import type { CardProgram } from "../../ir/index.js";
  * - The spell has no [Action]/[Reaction] line: spells default to Action timing
  *   (159.2.a), so no speed keyword is declared.
  *
- * Status (cards/README.md §2): judge-required. Both clauses are blocked by
- * missing dependencies; nothing is approximated (no fixed destination is
- * substituted, and the printed [Repeat] cost is not executed twice by hand).
- * The CardProgram binding itself (RIFT-257) is merged; the remaining gaps are
- * the runtime Location destination (RIFT-90) and the Repeat additional-cost
- * collector (RIFT-261).
+ * Status (cards/README.md §2): judge-required. The enemy target and effect.move
+ * body are executable when a Finalize-selected LocationRef is supplied. Two
+ * printed details still lack production consumers: a runtime destination
+ * selector that finds a Location containing another unit with the moved unit's
+ * controller, and the optional Repeat additional-cost collector. The program
+ * keeps the destination descriptive and never substitutes a fixed Location.
  */
 
 /**
@@ -61,14 +61,11 @@ const temptation = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入，均不近似实现：(1)「to a location where there's a unit with the same controller」是效果移动的目的地" +
-    "（CR 355.4 / 355.4.a：控制者在 Finalize 选择“除该单位当前位置外、且其被允许出现”的合法 Location），" +
-    "而冻结 IR 无法枚举运行期 Location（target.location 未合入），effect.move 的 to 只接受静态 LocationRef / " +
-    "controller-base / 静态合法候选列表；本卡只保留描述性目的地标记，原语会拒绝它而不是落到错误地点。" +
-    "同时“存在同一控制者的单位”这一地点占用限制需要按 Location 查询占用者的谓词，合并过滤器词表没有该形态。" +
-    "(2)「[Repeat] :rb_energy_2:」的可选追加费用没有收取/计数路径：卡牌程序绑定（RIFT-257）已合入，但 programs/play.ts 的 translateCost " +
-    "对 additional-cost 与 keyword/additional 字段直接 judgeRequired（golden 在 describePlay 上实测抛错），费用计划里的 optionalAdditional 没有卡牌产出方（RIFT-261）。" +
-    "被移动的敌方单位按 355.7 / 355.9.a.1 / 355.9.b 声明为目标，effect.move 本身已合入。依赖：RIFT-90（目标/目的地计划）、RIFT-261（Repeat 追加费用）。",
+    "仍有两个真实缺口：(1)「to a location where there's a unit with the same controller」需要在 Finalize " +
+    "枚举运行期合法 Location，并按被移动单位的 controller 查询该地点的其他单位；当前 effect.move 的 to 只接受 " +
+    "静态 LocationRef，过滤器没有按 Location 占用者求值的谓词。(2) [Repeat] :rb_energy_2: 的可选追加费用" +
+    "尚未由 play Finalize 收取并把已付费实例数接到结算重复执行。enemy 目标、effect.move 本体与程序绑定已合入，" +
+    "不固定目的地，也不手工执行第二次效果。",
   abilities: [
     {
       kind: "play",

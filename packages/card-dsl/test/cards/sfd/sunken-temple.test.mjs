@@ -4,6 +4,7 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/sunken-temple.js";
 import effectDraw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 test("sunken-temple: passes validateCardProgram", () => {
@@ -15,7 +16,7 @@ test("sunken-temple: conquer-with-Mighty structure with pay and draw", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Mighty/);
   assert.match(program.judgeReason, /mightGte|is-mighty/);
-  assert.match(program.judgeReason, /cost\.pay/);
+  assert.match(program.judgeReason, /Might/);
   assert.match(program.judgeReason, /here/);
   assert.equal(program.abilities.length, 1);
   const ability = program.abilities[0];
@@ -38,7 +39,7 @@ test("sunken-temple: conquer-with-Mighty structure with pay and draw", () => {
   assert.deepEqual(choice.args.body.value.map(instruction => instruction.id), ["sunken-temple.pay", "sunken-temple.draw"]);
   assert.equal(pay.op, "cost.pay");
   assert.equal(pay.linkedTo, undefined);
-  assert.deepEqual(pay.args.energy, { kind: "constant", value: 1 });
+  assert.deepEqual(pay.args.payments, { kind: "constant", value: { energy: 1 } });
   assert.equal(draw.op, "effect.draw");
   assert.deepEqual(draw.args.amount, { kind: "constant", value: 1 });
   assert.equal(draw.linkedTo, "sunken-temple.pay");
@@ -55,10 +56,30 @@ test("sunken-temple: declining skips both payment and draw", () => {
   assert.equal(kernel.zone("A", "hand").length, 0);
 });
 
+test("sunken-temple: accepting the optional choice pays then draws through the production adapter", () => {
+  const kernel = world().player("A", { energy: 2 }).deck("top-card").build();
+  kernel.setAnswers({ "sunken-temple.opt-in/optional": true });
+  const outcome = resolveChainBody(program.abilities[0].body, kernel);
+  assert.equal(outcome.status, "executed");
+  assert.equal(kernel.player("A").energy, 1);
+  assert.deepEqual(kernel.zone("A", "hand").map((ref) => ref.id), ["top-card"]);
+  assert.deepEqual(kernel.events.map((event) => event.action), ["pay", "draw"]);
+});
+
+test("sunken-temple: the merged cost.pay primitive executes the optional one-energy payment", () => {
+  const kernel = world().player("A", { energy: 2 }).deck("top-card").build();
+  const [choice] = program.abilities[0].body;
+  const [pay] = choice.args.body.value;
+  const outcome = runAbilityBody([pay], kernel);
+  assert.equal(outcome.status, "executed");
+  assert.equal(kernel.player("A").energy, 1);
+  assert.equal(kernel.events.at(-1).action, "pay");
+});
+
 test("sunken-temple: the merged draw primitive executes the printed draw-1 for real", () => {
   // The card's own draw args (amount 1) are executed through the merged
-  // effect.draw primitive; the missing half is only the cost.pay instruction
-  // that the card links it to (see the test.todo below).
+  // effect.draw primitive; the trigger condition remains the only unresolved
+  // card-level selection path.
   const kernel = world().deck("top-card").build();
   const [choice] = program.abilities[0].body;
   const [, drawInstruction] = choice.args.body.value;
@@ -69,8 +90,3 @@ test("sunken-temple: the merged draw primitive executes the printed draw-1 for r
   assert.deepEqual(kernel.zone("A", "hand").map((ref) => ref.id), ["top-card"]);
   assert.equal(drawInstruction.linkedTo, "sunken-temple.pay");
 });
-
-test.todo("sunken-temple: the here anchor on the conquer event needs an event-payload location selector (RIFT-120)");
-test.todo("sunken-temple: an is-mighty/mightGte predicate inside the trigger condition count (Mighty keyword expansion is merged; the filter vocabulary is not)");
-test.todo("sunken-temple: the cost.pay primitive for the printed 1-energy payment (RIFT-261)");
-test.todo("sunken-temple: end-to-end trigger registration through the card-program binding once the condition and payment exist (RIFT-257)");

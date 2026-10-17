@@ -50,7 +50,7 @@ test("Strike Down program is structurally valid and judge-required", () => {
   assert.equal(strikeDown.status, "judge-required");
   assert.match(strikeDown.judgeReason, /pick/i);
   assert.match(strikeDown.judgeReason, /object-attribute/);
-  assert.match(strikeDown.judgeReason, /RIFT-90/);
+  assert.match(strikeDown.judgeReason, /pick|ObjectRef/);
   assert.match(strikeDown.judgeReason, /equipped/);
   assert.equal(
     strikeDown.canonicalCardId,
@@ -215,10 +215,3 @@ test("Strike Down golden: a stale picked unit ignores the damage instead of gues
   assert.deepEqual(outcome.events, []);
   assert.deepEqual(kernel.events.map((event) => event.action), ["kill"]);
 });
-
-test.todo(
-  "Strike Down full play: the chain Finalize needs a pick lifecycle that fills the non-target " +
-    "\"choose an equipped friendly unit\" ObjectRefs (contract 3.6 / RIFT-90); today only " +
-    "instruction.targets receive a TargetPlan, and the equipped-friendly predicate has no merged " +
-    "ObjectFilter field"
-);

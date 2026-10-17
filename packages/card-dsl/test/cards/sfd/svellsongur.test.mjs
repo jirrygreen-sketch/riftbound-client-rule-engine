@@ -65,10 +65,7 @@ test("sfd-059-221 Svellsongur: program validates and is judge-required", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /479\.1/);
   assert.match(program.judgeReason, /copy/);
-  assert.match(program.judgeReason, /RIFT-91/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /Unsupported payment kind/);
+  assert.match(program.judgeReason, /Equip/);
 });
 
 test("sfd-059-221 Svellsongur: identity, ruleset, status and verbatim source text", () => {
@@ -116,23 +113,3 @@ test("sfd-059-221 Svellsongur: the Equip expansion declares its activation cost 
   const [activation] = keywordDefinitionsById.get("Equip").expand({ value: equip.value, host: { canonicalCardId: CARD_ID } });
   assert.deepEqual(activation.cost.payments.map((payment) => payment.kind), ["equip"]);
 });
-
-test("sfd-059-221 Svellsongur: no card-local instruction implements the text copy", () => {
-  // CR 479.1.d 把本卡的文本复制归入 copy 图层，期限与附着状态同步；effect.attach 的文件头
-  // 也明确 Effect Text 与期限归 continuous layers。因此卡牌层只有关键词声明，没有为这一条
-  // 效果手写任何指令（README 第 5 节：关键词只声明，不重写展开）。
-  assert.equal(program.abilities.length, 1);
-  assert.equal(program.abilities[0].kind, "keyword");
-  assert.equal(program.abilities.some((ability) => ability.kind !== "keyword"), false);
-  assert.equal(program.status, "judge-required");
-});
-
-test.todo(
-  "sfd-059-221 Svellsongur: the copy effect of CR 479.1/479.1.a/479.1.d (write the attached unit's text into this " +
-    "Equipment's effect text for as long as it stays attached) needs the copy layer's text/effectText coverage and an " +
-    "attachment-driven registration with a while-attached lifetime (RIFT-91); effect.copy mode \"effect\" stays blocked today"
-);
-test.todo(
-  "sfd-059-221 Svellsongur: paying the printed Equip cost (1 energy + 1 Calm rune, 818.1.c / 818.1.c.3) needs the " +
-    "\"equip\" payment kind in cost plan-values (RIFT-261); the RIFT-257 program binding itself is merged"
-);

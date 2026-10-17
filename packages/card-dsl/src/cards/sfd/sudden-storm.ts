@@ -39,18 +39,13 @@ import type { CardProgram } from "../../ir/index.js";
  *   (807.1.d.1 / 461 defines the designation gained in Combat). Contract 3.8
  *   adds `combatRole: "attacker" | "defender" | null` to `ObjectSnapshot` for
  *   exactly this reading; the condition below reads it as
- *   `object-property(target, "combatRole")`, which is fail-closed while the
- *   field is missing (the interpreter reports missing information instead of
- *   guessing the state, so no wrong amount is ever dealt).
+ *   `object-property(target, "combatRole")` through the merged expression
+ *   interpreter.
  *
- * Status: judge-required, with both gaps named:
- * - `combatRole` is not merged into `ObjectSnapshot`, so "it's attacking" cannot
- *   be evaluated (contract 3.8 item 1; the same gap the merged Assault / Shield
- *   cards record for their designations). Neither amount is approximated: the
- *   conditions are written honestly and the missing characteristic makes the
- *   instruction ignored rather than dealing a substituted amount.
- * - [Hidden]'s expansion still has no consumer (RIFT-84 declared cost.hidden,
- *   no code grants Hide or the facedown play; RIFT-89 owns the cost work).
+ * Status: judge-required. The attacker branch is executable through the merged
+ * ObjectSnapshot.combatRole characteristic and condition interpreter. [Hidden]
+ * remains blocked because its `cost.hidden` declaration still has no consumer
+ * that grants Hide, facedown storage, or facedown play permissions.
  */
 const TARGET_ID = "sudden-storm.unit-at-battlefield";
 
@@ -70,14 +65,11 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入，均不近似实现：(1)「If it's attacking」需要读取目标的战斗身份，而契约 3.8 第 1 条才要求给 " +
-    "ObjectSnapshot 增加 combatRole（attacker/defender/null），当前 interpreter 的 ObjectSnapshot 与图层过滤器都没有该特征" +
-    "（807.1.d.1/461 的 Attacker designation；已合入的 Assault/Shield 卡牌记录同一缺口）。条件按 object-property(target, 'combatRole') " +
-    "如实书写，字段缺失时解释器按缺信息把指令 ignored（fail-closed），不会结算被替换的错误数额。" +
-    "(2) [Hidden] 展开仍无消费方：RIFT-84 已合入 keywords/Hidden.ts 的 cost.hidden 声明，但没有代码据它授予 Hide 动作或 " +
-    "「从 facedown 打出」许可（811.1.b / 811.1.c / 811.6；依赖 RIFT-89 的费用/区域批次）。" +
-    "[Action] 声明、目标（355.5/355.7/355.10.b + TargetRequirement.location）与两个互斥的 effect.damage 数额已如实编码，" +
-    "且用真实原语测试锁定目标的伤害与 stale 目标边界。依赖：契约 3.8 combatRole 落地（RIFT-91 图层条件求值）、RIFT-84/RIFT-89（Hidden）。",
+    "[Hidden] 的 cost.hidden 声明仍没有消费方：当前链/区域流程没有据此授予 Hide 动作、" +
+    "facedown 区域存储或从 facedown 打出的许可（CR 811.1.b/811.1.c/811.6）。" +
+    "「If it's attacking」所需的 ObjectSnapshot.combatRole 已在契约中存在，条件解释器会按 attacker " +
+    "分支求值；[Action] 的时机声明也由关键词与链时机查询消费。保持整卡 judge-required，" +
+    "不把 Hidden 近似成普通打出或公开区域。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },
     { kind: "keyword", keyword: "action" },
