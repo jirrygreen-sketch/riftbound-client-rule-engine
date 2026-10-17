@@ -6,6 +6,7 @@ import program from "../../../dist/cards/ven/perfect-execution.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
 import grantKeyword from "../../../../engine-core/dist/effects/instructions/continuous.grant-keyword.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
@@ -30,12 +31,12 @@ test("ven-012-166 Perfect Execution: identity, ruleset, status, judgeReason and 
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
-  // RIFT-258 merged the continuous.grant-keyword primitive; the current gaps
-  // are the Assault layer consumer (designation predicate) and Flow.
+  // continuous.grant-keyword is merged; the current gaps are the Assault layer
+  // consumer (designation predicate) and Flow.
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /RIFT-258/);
   assert.match(program.judgeReason, /807\.1\.c/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /combatRole|designation/);
+  assert.match(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /params\.cost|3\.8\.3/);
   assert.ok(!/RIFT-9 清单|没有已合入原语/.test(program.judgeReason));
 });
@@ -66,7 +67,8 @@ test("ven-012-166 Perfect Execution: [Flow] declared, printed cost, and the Assa
   assert.deepEqual(grantInstruction.args, {
     keyword: { kind: "constant", value: "Assault" },
     value: { kind: "constant", value: 3 },
-    duration: { kind: "constant", value: "end-of-turn" }
+    duration: { kind: "constant", value: "end-of-turn" },
+    objects: { kind: "constant", value: { kind: "target", id: "perfect-execution.unit" } }
   });
   // "it" refers to the same unit, so both instructions name the same target.
   assert.deepEqual(grantInstruction.targets, readyInstruction.targets);
@@ -155,23 +157,49 @@ test("ven-012-166 Perfect Execution golden: the grant instruction registers an a
   assert.deepEqual(registered.effect.filter.objectId, "ally");
 
   // The ability layer consumes the registered grant: the target really holds
-  // [Assault 3]. The attacker-designation expansion of that keyword (807.1.c,
-  // RIFT-91) is the remaining judged gap and stays out of this execution.
+  // [Assault 3]. The attacker-designation expansion of that keyword (807.1.c)
+  // is the remaining judged gap and stays out of this execution.
   const layers = createLayerEngine(kernel.objects, [{ effect: registered.effect, duration: registered.duration, timestamp: 1 }]);
   const evaluated = layers.evaluate(locked);
   assert.deepEqual(evaluated.keywords.map((keyword) => [keyword.id, keyword.value]), [["Assault", 3]]);
   assert.equal(evaluated.might, 2);
 });
 
+test("ven-012-166 Perfect Execution golden: the original body uses its locked unit target for both effects", () => {
+  // The spell is the source object; the selected unit is a different object.
+  // Running the unmodified CardProgram body catches a missing `objects` target
+  // selector on the grant (which would otherwise report mistargeted and register
+  // no ability-layer effect).
+  const kernel = world()
+    .object("perfect-execution", { owner: "A", controller: "A", types: ["spell"], zone: "chain" })
+    .unit("ally", { owner: "A", controller: "A", exhausted: true, might: 2 })
+    .build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("perfect-execution") });
+  scoped.setTargets(unitSpec.id, [kernel.ref("ally")]);
+
+  const outcome = runAbilityBody(play.body, scoped);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(
+    outcome.results.map(entry => [entry.id, entry.result.status]),
+    [
+      ["perfect-execution.ready-unit", "executed"],
+      ["perfect-execution.grant-assault", "executed"]
+    ]
+  );
+  assert.equal(scoped.getObject("ally").exhausted, false);
+  assert.equal(scoped.continuousEffects.length, 1);
+  assert.equal(scoped.continuousEffects[0].effect.filter.objectId, "ally");
+});
+
 test.todo(
   "ven-012-166 Perfect Execution: [Assault 3] actually adds +3 Might while the granted unit is an attacker " +
     "(807.1.c / 807.2) — keywords/Assault.ts expands to a designation-eq-attacker condition, but the " +
-    "designation/combatRole predicate is not on ObjectSnapshot (turn contract 3.8) and the layer consumer " +
-    "for the granted keyword's expansion is unmerged (RIFT-91 side)"
+    "combatRole-to-designation predicate mapping is not wired into the layer consumer (in-flight RIFT-359)"
 );
 
 test.todo(
   "ven-012-166 Perfect Execution: play from trash for the printed Flow cost (3 energy + 1 Fury power) then " +
-    "banish it — the printed cost cannot reach KeywordDef.expand (contract 3.8.3) and the Flow consumers " +
-    "(RIFT-261 alternate cost, RIFT-260 delayed replacement) are unmerged"
+    "banish it — the printed cost cannot reach KeywordDef.expand (contract 3.8.3), and the Flow alternate-cost " +
+    "and delayed replacement consumers are not wired"
 );

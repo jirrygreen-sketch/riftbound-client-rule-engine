@@ -79,6 +79,8 @@ test("ven-154-166 Public Execution: judgeReason names the relative-Might target 
   assert.match(program.judgeReason, /mightLessThanTarget/);
   assert.match(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /Flow/);
+  assert.match(program.judgeReason, /params\.cost/);
+  assert.ok(!/RIFT-266/.test(program.judgeReason));
 });
 
 test("ven-154-166 Public Execution: [Flow] is declared as a keyword, not re-implemented", () => {
@@ -243,6 +245,6 @@ test.todo(
 
 test.todo(
   "ven-154-166 Public Execution: the printed [Flow] :rb_energy_5::rb_rune_rainbow::rb_rune_rainbow: alternate cost and its " +
-    "then-banish replacement (829.1.b/829.1.c) need the Flow KeywordDef expansion plus a card-program -> keyword -> " +
-    "chain/cost wiring (RIFT-266)"
+    "then-banish replacement (829.1.b/829.1.c) need the card-program -> KeywordDef params.cost forwarding, " +
+    "Flow alternate-cost Finalize consumer, and replacement.event chain wiring"
 );

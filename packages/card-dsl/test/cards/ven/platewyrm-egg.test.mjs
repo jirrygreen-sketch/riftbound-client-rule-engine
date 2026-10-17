@@ -252,7 +252,7 @@ test("ven-075-166 Platewyrm Egg golden: \"This enters exhausted.\" really rewrit
     }
   );
 
-  f.engine.execute(f.card("platewyrm-egg", { kind: "unit", body: [] }));
+  f.engine.execute(f.card("platewyrm-egg", { kind: "gear", body: [] }));
   f.resolveAll();
 
   // The entry orientation is exhausted (149.1 / 359.2.d), and the replacement
@@ -260,6 +260,19 @@ test("ven-075-166 Platewyrm Egg golden: \"This enters exhausted.\" really rewrit
   assert.equal(f.kernel.getObject("platewyrm-egg").zone, "board");
   assert.equal(f.kernel.getObject("platewyrm-egg").exhausted, true);
   assert.equal(f.engine.pipeline.events.some((event) => event.timingPoint === "object-readied"), false);
+});
+
+test("ven-075-166 Platewyrm Egg golden: a Gear enters ready without the replacement", () => {
+  // Gear is the printed card type. The reference chain defaults a Gear to ready
+  // on entry; using a Unit here would exercise the Unit entry default instead of
+  // the replacement under review.
+  const f = chainFixture({ cards: [{ id: "platewyrm-egg", types: ["gear"] }] });
+
+  f.engine.execute(f.card("platewyrm-egg", { kind: "gear", body: [] }));
+  f.resolveAll();
+
+  assert.equal(f.kernel.getObject("platewyrm-egg").zone, "board");
+  assert.equal(f.kernel.getObject("platewyrm-egg").exhausted, false);
 });
 test.todo(
   "ven-075-166 Platewyrm Egg: [Empower] (1 Energy + exhaust, CR 827.1.c.1/415.5) and the Empowered gate for " +
@@ -269,5 +282,5 @@ test.todo(
 test.todo(
   "ven-075-166 Platewyrm Egg: the printed either/or branch has no merged runtime form — contract 3.4 conditions " +
     "scope to one instruction and choice.mode is blocked by chain/engine.ts assertFinalizationSurface " +
-    "(\"Mode choices require a Finalize/Resolve choice-plan adapter\"), so no branch may be silently dropped (RIFT-89/90)"
+    "(\"Mode choices require a Finalize/Resolve choice-plan adapter\"), so no branch may be silently dropped"
 );

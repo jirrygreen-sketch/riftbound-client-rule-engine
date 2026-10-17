@@ -63,6 +63,8 @@ test("ven-162-166 Protective Sands: identity, ruleset, status and exact source t
   // the 053.3 "here" anchor (the conquer timing point and cost.pay are merged).
   assert.match(program.judgeReason, /here/);
   assert.match(program.judgeReason, /conquer/);
+  assert.match(program.judgeReason, /740\.4\.a\.2/);
+  assert.match(program.judgeReason, /TriggeredAbility/);
   assert.ok(!/RIFT-261（分支未合入）|cost\.pay\/ cost\.modify 属仍在进行/.test(program.judgeReason));
 });
 
@@ -274,8 +276,9 @@ test("ven-162-166 Protective Sands golden: the closed 'conquered' discriminant f
 });
 
 test("ven-162-166 Protective Sands golden: accepting the may really pays 1 Energy and draws 1", () => {
-  // 405.2.a / 414.3: the optional body pays the printed :rb_energy_1: with the
-  // merged cost.pay primitive (RIFT-261) and then draws 1 for the controller.
+  // 405.2.a / 414.3: this only proves the body-level cost.pay primitive and the
+  // subsequent draw. CR 740.4.a.2 still requires the payment to be extracted
+  // into the triggered ability's Finalize cost plan (see the TODO below).
   const kernel = world().player("A", { energy: 2 }).deck(["top-card"]).build();
   kernel.setAnswers({ [OPTIONAL_ID]: true });
 
@@ -294,6 +297,13 @@ test("ven-162-166 Protective Sands golden: accepting the may really pays 1 Energ
   assert.equal(kernel.zone("A", "hand")[0].id, "top-card");
   assert.deepEqual(kernel.events.filter(event => event.action === "draw").length, 1);
 });
+
+test.todo(
+  "ven-162-166 Protective Sands: extract the 1-Energy trigger cost into Finalize (CR 740.4.a.2) " +
+    "and reject the trigger before it enters the chain when the controller cannot pay; " +
+    "TriggeredAbility has no cost field and CardProgram -> TriggerRegistration cost/mayAtFinalize " +
+    "binding is still missing"
+);
 
 test.todo(
   "ven-162-166 Protective Sands: bind \"here\" to the conquer event's battlefield payload (053.3) and resolve " +
