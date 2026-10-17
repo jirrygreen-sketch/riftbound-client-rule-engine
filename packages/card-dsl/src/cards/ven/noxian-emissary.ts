@@ -26,7 +26,10 @@ import type { CardProgram } from "../../ir/index.js";
  * - 187.1：Recruit 是 1 Might 的单位 token；契约 3.6 的 create-token 只允许单位
  *   进入控制者自己的 Base，对应原文 “to your base”。
  *
- * 当前执行边界见 judgeReason 与对应 golden；保留所有印刷语义。
+ * 当前执行边界见 judgeReason 与对应 golden；保留所有印刷语义。测试台级执行证据见
+ * test/cards/templates/keyword-triggered-object-killed-conditio-679.test.mjs
+ * （2026-10-17 复核）：真实的 effect.empower 动作把死亡前状态翻成 Empowered 后，
+ * 测试台用其声明的 trigger 操作入链并锁定了正文与 source.empowered=LKI。
  */
 export default {
   canonicalCardId: "card.hash-f94f709693f78579dcd97c1ebdba7859c74403424ef6cd195238e47541869fbf",

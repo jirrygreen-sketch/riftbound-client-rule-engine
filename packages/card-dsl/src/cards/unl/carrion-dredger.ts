@@ -18,7 +18,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 809.1.b.3：token 上的 [Deflect] 省略数值 → 视为 1；Deflect 是 token 的印刷特征（187.7），
  *   不是由本效果另行授予的关键词。
  *
- * 2026-10-17 复核：仍为 judge-required，当前缺口见 judgeReason。
+ * 2026-10-17 复核（测试台证据见
+ * test/cards/templates/keyword-triggered-object-killed-conditio-679.test.mjs）：
+ * 仍为 judge-required，当前缺口见 judgeReason。
  * 已有原语、关键词定义或通用适配器不代表本卡完整生产路径可执行。
  */
 const abilities: Ability[] = [
@@ -65,6 +67,9 @@ export default {
   judgeReason:
     "缺 effect.token 的 CR 187.7 Bird 定义（无域、1 Might、Bird 标签、Deflect），当前 bird 返回 negated/impossible 与 token-definition-or-abilities-judge-required；" +
     "缺 Deathknell 的 trigger.leave InstructionDef 及其与印刷死亡正文的绑定（808.1.c/808.1.d）：关键词展开和本卡正文仍形成两个 object-killed 订阅，不能保证一次死亡只执行一次正文；" +
+    "programs/lifecycle.ts 又把 detach 挂在 object-leaves-board/object-killed 一拍，pipeline 扫完 object-leaves-board 即注销注册" +
+    "（实测 kill 提交后订阅数由 2 降到 1，object-killed 扫描无命中），真实 kill 动作无法把已绑定的死亡订阅入链，" +
+    "测试台行只能用其声明的 trigger 操作发时点；" +
     "Bird 的 Deflect 还需将 target.tax 接入 Chain Finalize 的任意域 Power 费用路径（809.1.c.1）。不以其他 token 替代 Bird。",
   abilities,
   sourceText:

@@ -20,8 +20,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - Gold gear token = CR 187.5 (a domainless gear token that carries its own
  *   printed "[Reaction][>] Kill this, [E]: [Add] [A]" ability).
  *
- * Status: judge-required. The ability cannot be executed with merged code,
- * and nothing is approximated:
+ * Status: judge-required (rechecked 2026-10-17; template-level execution
+ * evidence: test/cards/templates/keyword-triggered-object-killed-conditio-679.test.mjs).
+ * The ability cannot be executed with merged code, and nothing is approximated:
  * - the Gold definition is absent from effect.token's frozen DEFINITIONS table;
  *   that file documents that "definitions requiring other abilities, including
  *   Gold, remain blocked/judge-required" (187.5). Playing a NEW token requires
@@ -41,6 +42,12 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   keyword's own instruction is not executable either; the card's explicit
  *   object-killed trigger does bind through the merged card-program binding,
  *   but resolving its body hits the missing Gold definition first.
+ * - programs/lifecycle.ts hangs its detach on the object-leaves-board /
+ *   object-killed emission: the pipeline scans object-leaves-board and then
+ *   unregisters, so nothing is left to match object-killed (measured: the
+ *   registration count drops 2 -> 1 across a real kill commit). A real kill
+ *   action therefore never queues this authored death trigger; the template row
+ *   emits the declared timing point instead of a real kill.
  * Dependencies: the Gold token definition plus the chain-creation/entry-state
  * work of the token primitive task, trigger.leave, and the cost-waived play
  * handoff.
@@ -126,6 +133,8 @@ const program = {
     "[Deathknell] 展开体引用的 trigger.leave 原语仍未注册（effects/keywords/Deathknell.ts 只声明 op id）；" +
     "已合入部分：本卡显式声明的 object-killed 触发与 [Deathknell] 关键词展开都能经卡牌程序绑定注册" +
     "（golden 用真实 EventPipeline 断言注册成功），阻止执行的是 Gold 定义与入场状态。" +
+    "programs/lifecycle.ts 又把 detach 挂在 object-leaves-board/object-killed 一拍，pipeline 扫完 object-leaves-board 即注销注册" +
+    "（实测 kill 提交后订阅数由 2 降到 1，object-killed 扫描无命中），真实 kill 动作无法把已绑定的死亡订阅入链。" +
     "依赖：Gold token 定义（含其内建 [Reaction][>] 能力）与入场状态改写、trigger.leave 原语。",
   abilities,
   sourceText: "[Deathknell] — Play a Gold gear token exhausted. (When I die, get the effect.)"
