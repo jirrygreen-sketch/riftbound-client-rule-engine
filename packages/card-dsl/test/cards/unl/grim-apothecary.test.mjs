@@ -9,6 +9,8 @@ import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 // layout instead of the package name. resolveChainBody is the production
 // chain adapter (chain/interpreter-adapter.ts).
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { translateInstructionTargets } from "../../../../engine-core/dist/programs/filters.js";
+import { finalizeTargetPlan, queryTargetCandidates } from "../../../../engine-core/dist/target/target-plan.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import zone from "../../../../engine-core/dist/effects/instructions/effect.zone.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -64,13 +66,15 @@ test("unl-021-219 Grim Apothecary: identity, status, judgeReason and verbatim so
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
-  // The merge resolved the old missing-KeywordDef gap; the remaining ones are
-  // the absent play-location/timing consumers and the battlefield location
-  // vocabulary in the program filter translation.
+  // The merge resolved the KeywordDef, timing grant consumption, and
+  // battlefield target-location shape; only Ambush play-location/conditional
+  // Reaction binding remains.
   assert.match(program.judgeReason, /Ambush/);
   assert.match(program.judgeReason, /822\.1/);
   assert.match(program.judgeReason, /play-location-permission/);
-  assert.match(program.judgeReason, /Structured location/);
+  assert.match(program.judgeReason, /actionTimings|canAct/);
+  assert.match(program.judgeReason, /Finalize|playLocations/);
+  assert.doesNotMatch(program.judgeReason, /Structured location/);
   assert.doesNotMatch(program.judgeReason, /RIFT-(84|120|257|264|265|266|267|268)/);
 });
 
@@ -118,9 +122,9 @@ test("unl-021-219 Grim Apothecary: contract 3.9 may-shape wraps the return insid
     id: "grim-apothecary.friendly-unit",
     filter: {
       type: "unit",
-      controller: "controller",
-      location: { type: "battlefield" }
+      controller: "controller"
     },
+    location: { type: "battlefield" },
     min: 1,
     max: 1,
     selection: "one"
@@ -135,6 +139,40 @@ test("unl-021-219 Grim Apothecary: contract 3.9 may-shape wraps the return insid
   });
   assert.equal(returnInstruction.linkedTo, undefined);
   assert.equal(returnInstruction.targets, undefined);
+});
+
+test("unl-021-219 Grim Apothecary: location translation and TargetPlan exclude a Base unit", () => {
+  const [translated] = translateInstructionTargets([mayReturn]);
+  assert.deepEqual(translated.targets[0], {
+    id: targetSpec.id,
+    filter: { type: "unit", controller: "self" },
+    location: { type: "battlefield" },
+    min: 1,
+    max: 1,
+    selection: "one"
+  });
+
+  const kernel = world()
+    .unit("apothecary", { owner: "A", controller: "A", location: { type: "base", player: "A" } })
+    .unit("battlefield-ally", { owner: "A", controller: "A", location: { type: "battlefield", id: "bf-1" } })
+    .unit("base-ally", { owner: "A", controller: "A", location: { type: "base", player: "A" } })
+    .build();
+  const context = new Proxy(kernel, {
+    get(target, key) {
+      if (key === "query") {
+        return filter => target.query({
+          ...filter,
+          ...(filter.controller === "self" ? { controller: "A" } : {})
+        });
+      }
+      const value = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    }
+  });
+  const requirement = translated.targets[0];
+  assert.deepEqual(queryTargetCandidates(context, requirement), [kernel.ref("battlefield-ally")]);
+  const plan = finalizeTargetPlan(context, requirement, { selected: [kernel.ref("battlefield-ally")] });
+  assert.deepEqual(plan.selected, [kernel.ref("battlefield-ally")]);
 });
 
 test("unl-021-219 Grim Apothecary golden: accepting returns the locked unit to its owner's hand", () => {
@@ -205,11 +243,6 @@ test("unl-021-219 Grim Apothecary golden: the merged effect.zone alone performs 
 
 test.todo(
   "unl-021-219 Grim Apothecary: consume [Ambush]'s expansion (CR 822.1.b battlefield-with-your-units play " +
-    "permission and 822.1.c Reaction permission) in the play-location and timing consumers — the " +
-    "KeywordDef is merged but no code reads play-location-permission or the chain reads continuous.timing"
-);
-test.todo(
-  "unl-021-219 Grim Apothecary: bind the card-played Play Effect as written — programs/filters.ts rejects the " +
-    "structured battlefield location filter ('Structured location filters need a concrete location identity'), " +
-    "so the target cannot be finalized in production"
+    "permission and 822.1.c location-scoped Reaction permission) in Finalize/playLocations and the " +
+    "location-aware timing binding — actionTimings/canAct already reads the timing grants"
 );
