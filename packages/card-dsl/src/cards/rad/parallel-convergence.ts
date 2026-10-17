@@ -21,23 +21,31 @@ import type { CardProgram } from "../../ir/index.js";
  *   source is the ability itself) that targets one unit; "at a battlefield" is
  *   only a targeting restriction (355.10.b), not a target on the battlefield.
  *
- * Status: judge-required. The damage half below is fully covered by the merged
- * `effect.damage` primitive and is executed by the golden test. The additional
- * cost is not: the frozen cost plan recognizes only the nonstandard payment
- * kinds `exhaust | discard | recycle | kill | reveal | spend-buff`
- * (effects/../cost/plan-values.ts), so "return a friendly unit to its owner's
- * hand" has no payment kind and no finalized-plan wiring yet.
+ * Status: judge-required (2026-10-17 recheck). The damage half below is fully
+ * covered by the merged `effect.damage` primitive and is executed by the
+ * golden test. The additional cost is not, and it is not approximated:
+ * - cost/plan-values.ts readCost still rejects `kind: "additional"`
+ *   ("Unsupported cost kind: additional"), so `CostSpec.kind` "additional" has
+ *   no posting; and
+ * - the frozen cost plan recognizes only the nonstandard payment kinds
+ *   `exhaust | discard | recycle | kill | reveal | spend-buff`, so "return a
+ *   friendly unit to its owner's hand" has no payment kind either.
+ * The 355.1.a / 356.2.b.1 mandatory-additional-cost posting and the
+ * return-to-hand payment kind (cost.pay / cost.modify, RIFT-261; the RIFT-89
+ * cost pipeline) are the remaining dependencies.
  */
 export default {
   canonicalCardId: "card.hash-84ee715c26888cfa3850f44083e64823f41b5db0dc23a4f0511c4eb127d52175",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺“将友方单位移回其拥有者手牌”的费用种类：费用计划把非资源费用冻结为 " +
-    "exhaust/discard/recycle/kill/reveal/spend-buff（cost/plan-values.ts 的 readCost），" +
-    "return-to-hand 支付动作与强制附加费用（mandatory-additional，355.1.a/356.2.b.1）未合入（RIFT-89，" +
-    "cost.additional/cost.pay）；CostSpec.kind \"additional\" 也不被 readCost 接受。" +
-    "伤害半段“Deal 5 to a unit at a battlefield”用已合入的 effect.damage + 目标过滤表达，并有执行证据。",
+    "2026-10-17 复核：伤害半段「Deal 5 to a unit at a battlefield」用已合入的 effect.damage + 目标过滤表达，" +
+    "并有真实执行证据，不再列为缺口。仍缺的是强制附加费用：" +
+    "(1) cost/plan-values.ts readCost 不接受 CostSpec.kind \"additional\"（实测 buildCostPlan 抛 " +
+    "CostPlanError \"Unsupported cost kind: additional\"），355.1.a/356.2.b.1 的 mandatory-additional 阶段没有投放点；" +
+    "(2) 费用计划把非资源费用冻结为 exhaust/discard/recycle/kill/reveal/spend-buff，" +
+    "「return a friendly unit to its owner's hand」没有支付种类（cost.pay / cost.modify，RIFT-261；RIFT-89 费用管线）。" +
+    "不近似实现（不用 effect.zone 在结算期补做费用动作）。",
   abilities: [
     {
       kind: "play",

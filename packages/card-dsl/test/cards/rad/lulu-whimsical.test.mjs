@@ -1,6 +1,7 @@
 // Golden test for Lulu, Whimsical (rad-110-167).
 // The move trigger, the optional wrapper and the target selection are encoded;
-// the base-Might trait-layer set and the object-moved emitter are the judged gaps.
+// the Trait-Altering base-Might set and the real Move flow are the judged gaps
+// (see the program's judgeReason).
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -28,12 +29,18 @@ test("rad-110-167 Lulu, Whimsical: program validates and keeps identity", () => 
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("rad-110-167 Lulu, Whimsical: judgeReason names the base-Might primitive and the move emitter", () => {
+test("rad-110-167 Lulu, Whimsical: judgeReason names the current gaps (Trait-Altering set, real Move)", () => {
+  // 143.2.a.1 / 479.2: the base-Might set still has no primitive, and the
+  // merged continuous.might only covers the arithmetic layer.
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /continuous\.duration/);
+  assert.match(program.judgeReason, /RIFT-258/);
   assert.match(program.judgeReason, /143\.2\.a/);
+  assert.match(program.judgeReason, /479\.2/);
+  // The object-moved producer is merged; the remaining Move gap is the real
+  // transaction plus card-program trigger registration.
   assert.match(program.judgeReason, /object-moved/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /standard-move-transaction/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("rad-110-167 Lulu, Whimsical: 'When I move' subscribes to object-moved for this card (421.1/449.1)", () => {
@@ -76,28 +83,32 @@ test("rad-110-167 Lulu, Whimsical: the wrapped instruction sets base Might to 4 
   });
 });
 
-test("rad-110-167 Lulu, Whimsical: declining the optional choice touches nothing", () => {
+test("rad-110-167 Lulu, Whimsical: declining the optional choice touches nothing (real interpreter)", () => {
   const kernel = world()
     .unit("lulu", { might: 3, location: { type: "battlefield", id: "bf-1" } })
     .unit("ally", { might: 2, location: { type: "battlefield", id: "bf-1" } })
     .build();
-  kernel.setTargets("lulu.another-unit", [kernel.ref("ally")]);
-  kernel.setAnswers({ "lulu.may-set-base-might/optional": false });
-  const outcome = runAbilityBody(moveTrigger.body, kernel);
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("lulu") });
+  scoped.setTargets("lulu.another-unit", [kernel.ref("ally")]);
+  scoped.setAnswers({ "lulu.may-set-base-might/optional": false });
+
+  const outcome = runAbilityBody(moveTrigger.body, scoped);
   assert.equal(outcome.results[0].result.status, "negated");
   assert.equal(outcome.results[0].result.reason, "skipped");
   assert.deepEqual(outcome.events, []);
-  assert.equal(kernel.getObject("ally").might, 2);
+  // 355.13: a declined optional changes no characteristic and registers nothing.
+  assert.equal(scoped.getObject("ally").might, 2);
+  assert.equal(scoped.continuousEffects.length, 0);
 });
 
 test.todo(
   "rad-110-167 Lulu, Whimsical: 'another unit\'s base Might becomes 4 this turn' applied in the " +
-    "Trait-Altering layer and expiring at end of turn (CR 143.2.a.1/475/479.2) — needs the " +
-    "continuous.might (base-Might) and continuous.duration primitives (RIFT-91)"
+    "Trait-Altering layer (CR 143.2.a.1/475/479.2) — the merged continuous.might only covers the " +
+    "arithmetic layer; the base-Might set and its this-turn duration have no primitive"
 );
 test.todo(
-  "rad-110-167 Lulu, Whimsical: the object-moved timing point emitted for real Moves (Standard Move / " +
-    "Ganking between battlefields; not Recall or entry, CR 421.1/449.1/458) — zones/movement is not " +
-    "wired into the event pipeline (batch 5)"
+  "rad-110-167 Lulu, Whimsical: the object-moved trigger firing for a real Move — the time is already " +
+    "produced by the action adapter for move-location, but combat/flow.ts still throws " +
+    "standard-move-transaction for the Standard Move, and no merged path registers a CardProgram " +
+    "triggered ability (RIFT-257)"
 );
-

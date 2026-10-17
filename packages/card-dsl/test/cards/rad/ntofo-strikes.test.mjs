@@ -3,12 +3,24 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/ntofo-strikes.js";
+import shield from "../../../../engine-core/dist/effects/keywords/Shield.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const [speed, play] = program.abilities;
 const [grantShield, shieldValue, dealShield] = play.body;
+
+function fixture() {
+  const kernel = world()
+    .unit("ksante", { might: 4 })
+    .unit("enemy", { owner: "B", might: 5 })
+    .build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("ksante") });
+  scoped.setTargets("ntofo-strikes.friendly-unit", [kernel.ref("ksante")]);
+  return { kernel, scoped };
+}
 
 test("rad-148-167 Ntofo Strikes: program validates and has expected identity", () => {
   const result = validateCardProgram(program);
@@ -28,11 +40,14 @@ test("rad-148-167 Ntofo Strikes: program validates and has expected identity", (
   );
 });
 
-test("rad-148-167 Ntofo Strikes: judgeReason names the keyword-grant and Shield-value gaps", () => {
-  assert.match(program.judgeReason, /814\.1\.b\.2/);
+test("rad-148-167 Ntofo Strikes: judgeReason records only the remaining Shield-value read", () => {
+  // The keyword-grant dependency is merged; the reason must say so instead of
+  // still listing it as a gap, and must name the real remaining one.
+  assert.match(program.judgeReason, /continuous\.grant-keyword/);
+  assert.match(program.judgeReason, /RIFT-258/);
+  assert.match(program.judgeReason, /effect\.shield-value/);
   assert.match(program.judgeReason, /814\.2/);
-  assert.match(program.judgeReason, /关键词/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.equal(/RIFT-91/.test(program.judgeReason), false);
 });
 
 test("rad-148-167 Ntofo Strikes: structure — Action keyword, Shield grant, Shield-value read, linked damage", () => {
@@ -45,7 +60,7 @@ test("rad-148-167 Ntofo Strikes: structure — Action keyword, Shield grant, Shi
   ]);
 
   // "Give a friendly unit [Shield 2] this turn" — duration-bounded keyword
-  // grant (CR 801.3.a / 814.1.b.2); no merged op creates it.
+  // grant (801.3.a / 814.1.b.2) through the merged continuous.grant-keyword op.
   assert.equal(grantShield.op, "continuous.grant-keyword");
   assert.deepEqual(grantShield.args.keyword, { kind: "constant", value: "Shield" });
   assert.deepEqual(grantShield.args.value, { kind: "constant", value: 2 });
@@ -58,8 +73,8 @@ test("rad-148-167 Ntofo Strikes: structure — Action keyword, Shield grant, Shi
   assert.equal(grantShield.targets[0].selection, "one");
 
   // "then deal damage equal to its [Shield]" — the Shield Value read ("then"
-  // makes this linked to the grant, 359.3.e.14); no merged expression reads a
-  // keyword value or a snapshot keywords entry.
+  // makes this linked to the grant, 359.3.e.14). No merged expression reads a
+  // keyword value, so the amount stays linked to the pending op.
   assert.equal(shieldValue.op, "effect.shield-value");
   assert.equal(shieldValue.linkedTo, "ntofo-strikes.grant-shield");
   assert.deepEqual(shieldValue.args.object, {
@@ -87,9 +102,48 @@ test("rad-148-167 Ntofo Strikes: structure — Action keyword, Shield grant, Shi
   assert.equal(dealShield.targets[0].selection, "one");
 });
 
-test("rad-148-167 Ntofo Strikes: neither the keyword grant nor the Shield-value read is registered", () => {
-  assert.equal(instructionDefinitionsById.has("continuous.grant-keyword"), false);
-  assert.equal(instructionDefinitionsById.has("effect.shield-value"), false);
+test("rad-148-167 Ntofo Strikes: the merged Shield KeywordDef carries the printed Shield Value", () => {
+  assert.equal(keywordDefinitionsById.get("Shield"), shield);
+  // 814.1.b.2 / 814.2: a Shield Value sums its instances and is a characteristic.
+  assert.equal(shield.valued, true);
+  assert.equal(shield.stacking, "sum");
+  assert.ok(shield.ruleRefs.includes("814.1.b.3"));
+  assert.ok(shield.ruleRefs.includes("814.2"));
+});
+
+test("rad-148-167 Ntofo Strikes: the declared grant really registers the Shield 2 ability-layer grant", () => {
+  const { scoped } = fixture();
+  const outcome = runAbilityBody([{ ...grantShield, targets: undefined }], scoped);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(
+    outcome.results.map(result => [result.id, result.result.status]),
+    [["ntofo-strikes.grant-shield", "executed"]]
+  );
+  assert.equal(scoped.continuousEffects.length, 1);
+  const [registered] = scoped.continuousEffects;
+  assert.equal(registered.effect.layer, "ability");
+  assert.equal(registered.effect.effect.kind, "continuous.grant-keyword");
+  assert.equal(registered.effect.effect.keyword, "Shield");
+  // 814.1.b.2: the granted Shield Value is the printed 2.
+  assert.equal(registered.effect.effect.keywordValue, 2);
+  // "this turn" (801.3.a / 317.2.c): the grant expires at end of turn.
+  assert.deepEqual(registered.duration, { type: "end-of-turn" });
+});
+
+test("rad-148-167 Ntofo Strikes: the granted Shield expands to +2 Might while defending (814.1.c)", () => {
+  const [expansion] = shield.expand({ value: 2, host: { canonicalCardId: program.canonicalCardId } });
+  assert.equal(expansion.kind, "static");
+  assert.equal(expansion.effect.kind, "continuous.might");
+  assert.equal(expansion.effect.mode, "add");
+  assert.equal(expansion.effect.layer, "arithmetic");
+  assert.deepEqual(expansion.effect.amount, { kind: "constant", value: 2 });
+  // 814.1.d.1: the bonus applies exactly while the unit holds the Defender
+  // designation.
+  assert.equal(expansion.condition.kind, "compare");
+  assert.equal(expansion.condition.operator, "eq");
+  assert.equal(expansion.condition.left.property, "designation");
+  assert.deepEqual(expansion.condition.right, { kind: "constant", value: "defender" });
 });
 
 test("rad-148-167 Ntofo Strikes: the damage half deals the Shield Value once it is supplied (418.1.b)", () => {
@@ -117,13 +171,7 @@ test("rad-148-167 Ntofo Strikes: the damage half deals the Shield Value once it 
 });
 
 test.todo(
-  "rad-148-167 Ntofo Strikes: 'Give a friendly unit [Shield 2] this turn' needs a duration-bounded " +
-    "keyword grant (CR 801.3.a.2); layers/engine.ts can apply keyword layers but no card-facing op " +
-    "registers one (same gap as sfd-007-221 Gem Jammer; RIFT-91)"
-);
-
-test.todo(
   "rad-148-167 Ntofo Strikes: 'damage equal to its [Shield]' needs a read of the unit's summed Shield " +
     "Value (ObjectSnapshot.keywords { id, value }; CR 814.1.b.2 / 814.2); no merged Expr reads a keyword " +
-    "value (RIFT-81 Shield keyword + expression support)"
+    "value"
 );

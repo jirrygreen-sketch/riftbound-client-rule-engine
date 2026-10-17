@@ -2,7 +2,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
 
 /**
  * Lulu, Whimsical (rad-110-167) — Unit, 3 Energy, Might 3, Chaos,
- * tags Yordle/Bandle City/Lulu/Champion.
+ * tags Yordle/Bandle City/Lulu/Champion。
  *
  * sourceText（packages/card-data/data/deck-catalog.json, rad-110-167，逐字）：
  *   "When I move, you may have another unit's base Might become 4 this turn."
@@ -19,21 +19,25 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - "this turn" = end-of-turn 期限，由时点驱动的期限清理负责（契约 3.5）。
  * - "another unit" 排除来源自身（可用 ObjectFilter.exclude: "source" 表达，契约 3.6
  *   的锚点），且是选目标（355.9.b："unit you control" 一类限制的目标仍然选目标）。
-
- * status = judge-required（README 第 2 节）。两处缺口，均不近似实现：
- * 1. 没有已注册的「把 Base Might 设为 N（本回合）」原语：effects/instructions/ 里
- *    continuous.might 与 continuous.duration 都不存在（RIFT-91 layers-continuous
- *    未合入），effect.buff 的边界注释明确临时 Might 修改归 layers，不能拿 Buff
- *    计数器冒充；把 Base Might 当作有效 Might 处理也会改变 143.2.a 的三层语义
- *    （Trait-Altering 与 Arithmetic 不同层）。
- * 2. object-moved 时点没有发射方：事件管线的 action 适配器只为 move-location 动作
- *    生成该时点，而真实移动流程（Standard Move / zones-movement）尚未接入事件管线
- *    （同 ogn/traveling-merchant、ogn/miss-fortune-captain 的缺口记录）。
+ *
+ * status = judge-required（README 第 2 节）。2026-10-17 复核后的当前缺口，均不近似实现：
+ * 1. 「把 Base Might 设为 N（本回合）」仍无原语。已合入的 continuous.might
+ *    （RIFT-258）只注册 arithmetic 层的 add / set-might（effects/instructions/
+ *    continuous.might.ts → layers/ops/index.ts buildMightSpec → layers/engine.ts
+ *    applyArithmetic，479.4），那是「Increase its Might to 5」的写法；143.2.a.1 的
+ *    「Its base Might becomes 4」落在 479.2 Trait-Altering 图层，registry 里没有
+ *    continuous.base-might / trait 设值指令，也没有对应的图层消费者。effect.buff（702）
+ *    只处理 Buff 计数，不能冒充 Might 特征修改。
+ * 2. 「When I move」仍不能执行：object-moved 已有时点产生方（events/action-adapter.ts
+ *    把 move-location 映射为该时点，docs/rules/timing-point-producers.md 第 66 行记录），
+ *    但真实 Move 流程未实现——combat/flow.ts 的 move() 明确抛 standard-move-transaction
+ *    （Standard Move 需要 Exhaust + Move 的原子事务，CR 144.2），且没有已合入路径把
+ *    卡牌程序的触发注册进事件管线（RIFT-257）。
  * 下面保留有依据的形状：object-moved 自发触发 + choice.optional 包住一条
- * continuous.base-might 指令（含 target/exclude 与 this-turn 期限），执行部分由
- * golden 测试与 test.todo 记录。
- * 依赖：RIFT-91（layers-continuous，含 Trait-Altering 的 Base Might 设值与期限）、
- * 移动时点接线（批 5）。
+ * continuous.base-might 指令（含 target/exclude 与 this-turn 期限）；可选拒绝路径由
+ * golden 真实执行，缺原语的部分由 test.todo 记录。
+ * 依赖：Trait-Altering 的 Base Might 设值原语（RIFT-91 后续）、卡牌程序触发注册
+ * （RIFT-257）、真实 Move 事务（批次 5）。
  */
 const abilities: Ability[] = [
   {
@@ -57,7 +61,7 @@ const abilities: Ability[] = [
             value: [
               {
                 // 143.2.a.1 / 475 / 479.2：Trait-Altering 图层的 Base Might 设值；
-                // continuous.* 指令尚未注册（见 judgeReason 第 1 点），保留印刷语义。
+                // 该指令尚未注册（见 judgeReason 第 1 点），保留印刷语义。
                 id: "lulu.set-base-might",
                 op: "continuous.base-might",
                 args: {
@@ -89,14 +93,17 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1) 缺少「把 Base Might 设为 N（本回合）」的原语——effects/instructions/ 没有 " +
-    "continuous.might / continuous.duration（RIFT-91 layers-continuous 未合入），effect.buff 明确不含临时 Might 修改，" +
-    "用 Buff 计数器或写成有效 Might 修改都会改变 143.2.a/475 的 Trait-Altering 与 Arithmetic 分层语义；" +
-    "(2) object-moved 时点没有发射方：事件管线的 action 适配器只为 move-location 动作生成该时点，真实移动流程" +
-    "（Standard Move / zones-movement）尚未接入（同 ogn/traveling-merchant 的缺口记录）。已写出的形状：" +
-    "object-moved 自发触发 + choice.optional 包住 continuous.base-might 指令（target 排除 source、this-turn 期限）。" +
-    "依赖：RIFT-91（layers-continuous 的 Base Might 设值与期限）、移动时点接线（批 5）。",
+    "两处缺口，均不近似实现：(1) 缺少「把 Base Might 设为 N（本回合）」的原语：已合入的 continuous.might（RIFT-258）" +
+    "只注册 arithmetic 层的 add / set-might（buildMightSpec → layers/engine.ts applyArithmetic，479.4），" +
+    "而 143.2.a.1 / 475 / 479.2 的 \"its base Might becomes 4\" 落在 Trait-Altering 图层，" +
+    "effects/instructions/ 没有对应的 continuous.base-might / trait 设值指令与图层消费者（RIFT-91 后续）；" +
+    "把 Base Might 当作有效 Might 写会改变 143.2.a 的三层语义，effect.buff 只处理 702 的 Buff 计数。" +
+    "(2) 「When I move」仍不能执行：object-moved 的时点产生方已合入（events/action-adapter.ts 把 move-location " +
+    "映射为该时点，docs/rules/timing-point-producers.md 已记录），但真实 Move 流程未实现" +
+    "（combat/flow.ts move() 抛 standard-move-transaction，Standard Move 需要 Exhaust + Move 的原子事务），" +
+    "且没有已合入路径把卡牌程序的触发注册进事件管线（RIFT-257）。" +
+    "已写出的形状：object-moved 自发触发 + choice.optional 包住 continuous.base-might 指令（target 排除 source、this-turn 期限）；" +
+    "可选拒绝路径有真实执行证据。依赖：Base Might 设值原语（RIFT-91 后续）、卡牌程序触发注册（RIFT-257）、真实 Move 事务。",
   abilities,
   sourceText: "When I move, you may have another unit's base Might become 4 this turn."
 } satisfies CardProgram;
-

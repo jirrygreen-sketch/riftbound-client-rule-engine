@@ -26,20 +26,23 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   不能被移动限制阻止；460.1 除特别说明外不改变状态）。"kill a friendly unit to heal me"
  *   按 355.10.c.1 是费用式动作（“[do X] to [do Y]”），不是目标选择。
  *
- * status = judge-required（见 judgeReason）：三处 IR 缺口，不近似实现：
- * 1. 替代效果的可选性：IR 的 ReplacementAbility 没有 optional 字段；把 "you may" 写成
- *    替代体内部的 choice.optional 会在玩家拒绝时仍然替代死亡，语义错误（同 The Boss
- *    ogn-269-298 的判定）。
- * 2. “kill a friendly unit” 是替代体内的费用式动作（355.10.c.1），需要不选目标的
- *    filter 式费用选择；CostSpec 的 choice 目前只接受逐项列出的精确 ObjectRef
- *    （cost/plan-values.ts 的 choiceObjects），静态卡程序无法写出（同 Garbage Grabber
- *    ogn-099-298 的缺口）。
- * 3. recall 没有可执行动作：effect.move 的 mode "recall" 被原语显式阻断
- *    （“Recall requires an action distinct from Move (CR v1.5 457-460)”）。
- * 另：“Once each turn” 需要替代效果的一次性/每回合频率记账，卡牌级替代效果也还没有
- * 已合入的注册路径（事件/链层的 registerReplacement 只有引擎内部调用方）。
- * 依赖：RIFT-89（cost.pay / 费用计划）、RIFT-109（recall 动作）、RIFT-120（替代注册管线）、
- * RIFT-81/86（Assault/Accelerate 展开落地）、RIFT-91（图层接线）。
+ * status = judge-required（2026-10-17 复核）。已合入、不再列为缺口的依赖：
+ * - Accelerate / Assault 的 KeywordDef 已注册（keywords/registry.generated.ts）；
+ * - continuous.might（RIFT-258）已能注册 arithmetic 图层修改（Assault 展开消费它）；
+ * - replacement（RIFT-260）已提供 bindReplacement + replacement.enter / replacement.event，
+ *   且 ReplacementRegistration 有 optional 字段，可选替代本身有表示（replacement.event 的 optional）。
+ * 当前缺口（不近似实现）：
+ * 1. 「kill a friendly unit」是替代体内的费用式动作（355.10.c.1，不选目标），需要不选目标的
+ *    filter 式选择：replacement/planner.ts 的 planInstruction 对 effect.kill 只接受
+ *    args.target（objectSelectorArg 拒绝 args.picks），静态替代体写不出运行时可解析的引用；
+ *    CostSpec 的 choice 也只接受逐项列出的精确 ObjectRef（cost/plan-values.ts choiceObjects）。
+ * 2. recall 没有可执行动作：effect.move 的 mode "recall" 被原语显式阻断
+ *    （"Recall requires an action distinct from Move (CR v1.5 457-460)"），
+ *    replacement/planner.ts 对同一 mode 也抛 BlockedReplacementError。
+ * 3. 「Once each turn」的每回合一次性频率与卡牌级替代注册路径未接线：bindReplacement 需要
+ *    调用方提供 pipeline/host，引擎源码不读取 CardProgram 的 replacement 能力（RIFT-257），
+ *    card-level once-per-turn 窗口未建模。
+ * 依赖：RIFT-89（费用/替代内动作选择）、Recall 动作、RIFT-257（卡牌程序绑定）。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "accelerate" },
@@ -110,18 +113,17 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "替代死亡的三段缺口（CR v1.5 369.1/369.3、355.10.c.1、457-460）：" +
-    "(1) 印刷的 \"you may … instead\" 是替代效果本身的可选决定，但 IR 的 ReplacementAbility 没有 optional 字段；" +
-    "写成替代体内部的 choice.optional 会在玩家拒绝时仍然替代死亡（同 The Boss ogn-269-298），不近似实现；" +
-    "(2) \"kill a friendly unit\" 是替代体内的费用式动作（355.10.c.1 明确不计为选目标），需要不选目标的 filter 式费用选择，" +
-    "而 CostSpec.pick 只接受逐项精确 ObjectRef（cost/plan-values.ts choiceObjects），静态卡程序无法写出，" +
-    "cost.sacrifice / cost.pay 亦未合入（RIFT-89）；" +
-    "(3) recall 无动作：effect.move 的 mode \"recall\" 被显式阻断（Recall requires an action distinct from Move，CR 457-460），" +
-    "不能用普通 move-location 或离区再入场近似（458.3/460.1），依赖 RIFT-109。" +
-    "另：\"Once each turn\" 的每回合一次性频率与卡牌级替代效果注册路径未接线（事件/链层 registerReplacement 只有引擎内部调用方，RIFT-120）。" +
-    "keyword 部分：[Accelerate]（805）与 [Assault 3]（807.1.c/.d）的 KeywordDef 已合入（RIFT-81/86），" +
-    "但卡牌 keyword 能力→展开→图层注册的生产方仍缺（RIFT-91），Attacker designation 也还不是 ObjectSnapshot 特征。" +
-    "已知可执行部分：替代体前三条指令中的 effect.kill / effect.heal / effect.exhaust 均为已合入原语。",
+    "2026-10-17 复核：Accelerate/Assault 的 KeywordDef 与 continuous.might 已合入，" +
+    "replacement 层（RIFT-260）也已提供 bindReplacement + replacement.event 的 optional 表示，这些不再列为缺口。" +
+    "当前三处缺口，不近似实现：" +
+    "(1) \"kill a friendly unit\" 是替代体内的费用式动作（355.10.c.1，不选目标）：replacement/planner.ts 的 " +
+    "planInstruction 对 effect.kill 只接受 args.target（objectSelectorArg 拒绝 args.picks），静态替代体无法表达运行时可解析的该选择；" +
+    "CostSpec 的 choice 也只接受逐项精确 ObjectRef（cost/plan-values.ts choiceObjects）。" +
+    "(2) recall 无动作：effect.move 的 mode \"recall\" 被显式阻断（Recall requires an action distinct from Move，CR 457-460），" +
+    "replacement/planner.ts 对同一 mode 也抛 BlockedReplacementError；不能用普通 move-location 或离区再入场近似（458.3/460.1）。" +
+    "(3) 卡牌级替代注册与 \"Once each turn\" 频率：bindReplacement 需要调用方提供 pipeline/host，" +
+    "没有已合入路径读取 CardProgram 的 replacement 能力（RIFT-257），card-level once-per-turn 窗口也未建模。" +
+    "依赖：RIFT-89（替代内动作选择）、Recall 动作、RIFT-257。",
   abilities,
   sourceText:
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_fury: as an additional cost to have me enter ready.)\n" +

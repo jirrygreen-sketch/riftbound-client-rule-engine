@@ -21,27 +21,30 @@ import type { CardProgram } from "../../ir/index.js";
  * - “me from your trash”不是 Move（435.4.a），是打出动作：本卡离开 trash 打出后按 124 取得新的区域
  *   身份，旧引用失效（解释器负责，静态 IR 不写运行时 ObjectRef）。
  *
- * 缺口（不近似实现，故 judge-required）：
- * - 触发条件里“被播下的那张牌的 Energy cost ≥ 7”需要事件载荷把**该事件对象的基础 Energy 费用**
- *   带入条件求值；当前 `TriggerSpec.condition` 的 `Condition`/`Expr` 没有读取“触发事件对象及其印刷
- *   费用”的形式（`object-property` 只读静态选择器 `self`/`source`，读不到事件里的另一张牌）。
- * - 该能量阈值判定依赖 condition.predicate / condition.value 对事件载荷的落地（RIFT-9 清单
- *   condition 组；对应契约 3.5 触发消费的事件载荷），未合入前不能声称整卡可执行。
- *
- * 已可执行部分：条件满足后的“从 trash 打出本卡（Order 符文费）”这条效果链用 `effect.play` + `"source"`
- * 选择器 + 已 Finalize 费用计划表达，golden test 用参考内核真实执行；触发器与阈值条件用 `test.todo`。
+ * status = judge-required（2026-10-17 复核）。条件满足后的「从 trash 打出本卡（Order 符文费）」
+ * 用已合入的 `effect.play` + `"source"` 选择器 + 已 Finalize 费用计划表达，golden test 用参考内核真实执行。
+ * 当前缺口（不近似实现）：
+ * - 触发条件「you play a card with Energy cost :rb_energy_7: or more」需要读取被播下事件对象的
+ *   印刷（基础）Energy 费用（206.1：判定费用时不看费用改写）。已合入的卡牌侧 `Condition`/`Expr`
+ *   仍只能读静态选择器（self/source）或链接值，没有「读触发事件对象特征」的形式；
+ *   events/timing-points.ts 的 card-played 时点也没有可被条件消费的载荷字段声明。
+ * - 没有已合入路径把卡牌程序的 triggered 能力注册进事件管线并订阅 card-played：引擎不读取
+ *   CardProgram 能力，testTrigger 适配器也没有宿主提供（RIFT-257 卡牌程序绑定仍在进行）。
+ * 依赖：RIFT-257（卡牌程序绑定）、触发事件载荷与 condition 求值（RIFT-9 condition 组）。
  */
 const program = {
   canonicalCardId: "card.hash-c53e9086202d34746759796f864fa5b794a4a294941dad556175a2e226acace5",
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "触发条件“you play a card with Energy cost :rb_energy_7: or more”需要读取被播下事件对象的印刷" +
-    "（基础）Energy 费用（206.1：判定费用时不看费用改写）：static IR 的 Condition/Expr 只能读 " +
-    "self/source 等静态选择器，没有“读触发事件对象特征”的形式，因此阈值条件无法求值；" +
-    "依赖 condition.predicate / condition.value 对事件载荷的支持（RIFT-9 清单 condition 组，" +
-    "契约 3.5 事件载荷消费）未合入。条件满足后的“从 trash 打出本卡（Order 符文费）”已用 effect.play + " +
-    "已 Finalize 费用计划表达并且可执行（单独测试）；不近似实现。",
+    "2026-10-17 复核：条件满足后的「从 trash 打出本卡（Order 符文费）」已用 effect.play + 已 Finalize 费用计划" +
+    "表达并且可执行（golden 有真实执行证据），不再把费用计划列为缺口。当前缺口两处：" +
+    "(1) 触发条件「you play a card with Energy cost :rb_energy_7: or more」需要读取被播下事件对象的印刷" +
+    "（基础）Energy 费用（206.1：判定费用时不看费用改写）：已合入的 Condition/Expr 只能读 self/source 等静态" +
+    "选择器或链接值，card-played 时点也没有供条件消费的事件载荷字段；" +
+    "(2) 没有已合入路径把 CardProgram 的 triggered 能力注册进事件管线并订阅 card-played" +
+    "（引擎不读取卡牌程序能力，带 condition 的注册还要求宿主 testTrigger 适配器，均未合入；RIFT-257）。" +
+    "依赖：RIFT-257、触发事件载荷 + condition 求值（RIFT-9 condition 组）。不近似实现。",
   abilities: [
     {
       kind: "triggered",

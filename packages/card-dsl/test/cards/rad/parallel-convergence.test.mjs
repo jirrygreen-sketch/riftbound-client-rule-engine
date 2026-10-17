@@ -28,9 +28,15 @@ test("rad-051-167 Parallel Convergence: program passes validateCardProgram with 
 });
 
 test("rad-051-167 Parallel Convergence: judgeReason names the missing return-to-hand cost kind", () => {
-  assert.match(program.judgeReason, /return-to-hand/);
-  assert.match(program.judgeReason, /mandatory-additional|355\.1\.a|356\.2\.b\.1/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  // The reason names the printed clause plus the two structural gaps.
+  assert.match(program.judgeReason, /return a friendly unit to its owner's hand/);
+  assert.match(program.judgeReason, /355\.1\.a/);
+  assert.match(program.judgeReason, /356\.2\.b\.1/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /Unsupported cost kind: additional/);
+  // The damage half is merged and executed; it must not be presented as a gap.
+  assert.match(program.judgeReason, /effect\.damage/);
+  assert.match(program.judgeReason, /真实执行证据/);
 });
 
 test("rad-051-167 Parallel Convergence: structure — printed cost plus the mandatory additional cost", () => {
@@ -43,8 +49,9 @@ test("rad-051-167 Parallel Convergence: structure — printed cost plus the mand
   assert.equal(play.cost.payments.length, 1);
   const [additional] = play.cost.payments;
   // The payment kind has no representation in the frozen cost plan
-  // (exhaust/discard/recycle/kill/reveal/spend-buff only), which is exactly
-  // what judgeReason records.
+  // (exhaust/discard/recycle/kill/reveal/spend-buff only), and the CostSpec
+  // kind "additional" itself is not a stage the plan accepts — both are what
+  // judgeReason records.
   assert.equal(additional.kind, "return-to-hand");
   assert.deepEqual(additional.choice, {
     id: "returned-unit",
@@ -111,7 +118,8 @@ test("rad-051-167 Parallel Convergence: a stale battlefield target is ignored, n
 
 test.todo(
   "rad-051-167 Parallel Convergence: collecting the mandatory additional cost 'return a friendly " +
-    "unit to its owner's hand' during Finalize needs a return-to-hand cost payment kind in the cost " +
-    "plan (cost/plan-values.ts readCost accepts only exhaust/discard/recycle/kill/reveal/spend-buff) " +
-    "and its finalized-plan wiring — RIFT-89 (cost.additional/cost.pay)."
+    "unit to its owner's hand' during Finalize needs a return-to-hand cost payment kind and the " +
+    "mandatory-additional stage in the cost plan (cost/plan-values.ts readCost accepts only " +
+    "exhaust/discard/recycle/kill/reveal/spend-buff and rejects kind additional) — RIFT-261 " +
+    "(cost.pay / cost.modify) and the RIFT-89 cost pipeline."
 );

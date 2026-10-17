@@ -4,7 +4,6 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/neeko-blending-in.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 
 const CANONICAL = "card.hash-8beb5aeeb976500ce49a3d84121eaee83cbcc32357ee206dfdb2aefdcb2439f7";
 const SOURCE_TEXT =
@@ -26,11 +25,20 @@ test("rad-167-167 Neeko, Blending In: identity, ruleset, status, judgeReason and
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
+  assert.equal(program.sourceText, SOURCE_TEXT);
+  assert.equal(cardRegistryById.get(CANONICAL), program);
+});
+
+test("rad-167-167 Neeko, Blending In: judgeReason names the three current gaps with rule anchors", () => {
+  // Rule-level anchors stay durable as dependencies merge; the reason must
+  // name each missing piece and its owner.
   assert.match(program.judgeReason, /legend-zone/);
   assert.match(program.judgeReason, /103\.1/);
   assert.match(program.judgeReason, /440\.2\.b\.4/);
-  assert.equal(program.sourceText, SOURCE_TEXT);
-  assert.equal(cardRegistryById.get(CANONICAL), program);
+  assert.match(program.judgeReason, /107\.4\.d\.2/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /create-legend/);
+  assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
 test("rad-167-167 Neeko, Blending In: 103.1 in-deck decision chooses 3 differently-named additional legends", () => {
@@ -57,7 +65,7 @@ test("rad-167-167 Neeko, Blending In: card-played self trigger adds one of those
 
 test("rad-167-167 Neeko, Blending In: the add instruction carries the Legend Zone destination and the on-board duration", () => {
   assert.equal(addLegend.id, "neeko-blending-in.add-chosen-legend");
-  // 440.2.b.4 / 107.4.d.1：待接线原语把传奇 Create 到 Legend Zone；注册表没有该 op。
+  // 440.2.b.4 / 107.4.d.1：待接线原语把传奇 Create 到 Legend Zone。
   assert.equal(addLegend.op, "effect.create-legend");
   assert.deepEqual(addLegend.args.from, {
     kind: "constant",
@@ -69,12 +77,6 @@ test("rad-167-167 Neeko, Blending In: the add instruction carries the Legend Zon
   assert.deepEqual(addLegend.args.duration, { kind: "constant", value: "while-source-in-zone" });
   assert.equal(addLegend.targets, undefined);
   assert.equal(addLegend.linkedTo, undefined);
-});
-
-test("rad-167-167 Neeko, Blending In: the ops this card needs are not registered", () => {
-  assert.equal(instructionDefinitionsById.get("effect.create-legend"), undefined);
-  // 已合入的 effect.zone 没有 legend-zone 目的地（契约 ZoneId 缺口），所以不能拿它兜底。
-  assert.notEqual(instructionDefinitionsById.get("effect.zone"), undefined);
 });
 
 test.todo(
@@ -89,6 +91,7 @@ test.todo(
 );
 
 test.todo(
-  "rad-167-167 Neeko, Blending In: remove the added legend when the source leaves the board (CR 107.4.d.2) — " +
-    "the while-source-in-zone duration has no card-facing consumer"
+  "rad-167-167 Neeko, Blending In: remove the added legend when the source leaves the board (CR 107.4.d.2) and " +
+    "register the card-played trigger — the while-source-in-zone duration has no card-facing consumer and no " +
+    "merged path registers a CardProgram triggered ability (RIFT-257)"
 );
