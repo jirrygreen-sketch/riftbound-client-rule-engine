@@ -3,9 +3,6 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/sett-brawler.js";
-// card-dsl has no dependency edge on engine-core (engine-core depends on
-// card-dsl), so golden execution loads the built engine through its workspace
-// layout instead of the package name.
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
@@ -40,11 +37,12 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, sourceText", () =
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  // The refreshed reason: the +4 Might half now executes (continuous.might,
-  // RIFT-258); the remaining gaps are the trigger-binding ones.
-  assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-21/);
+  // The refreshed reason: the nested trigger filter is translated by the
+  // merged programs/filters.ts path; the remaining gap is the trigger-body
+  // TargetSpec `filter: { object: "self" }` rejection.
+  assert.match(program.judgeReason, /translateTriggerFilter/);
+  assert.match(program.judgeReason, /translateObjectFilter/);
+  assert.match(program.judgeReason, /Unsupported filter field object/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -173,6 +171,9 @@ test("golden: the activated +4 Might registers an end-of-turn arithmetic effect 
   assert.equal(expireContinuousEffectsAt(registry, "turn-end", (ref) => kernel.object(ref)).length, 1);
   assert.equal(createLayerEngine(kernel.objects, registry.list()).evaluate(kernel.ref("sett")).might, 4);
 });
+
 test.todo(
-  "conquer trigger end-to-end: object-killed/conquer timing subscription with last-known source capture (RIFT-90/820)"
+  "trigger body registration: translateObjectFilter rejects TargetSpec filter: { object: \"self\" } with " +
+  "Unsupported filter field object; effect.buff also has no host-selector target form. Until that lands the " +
+  "whole-card triggers cannot be registered (see judgeReason)"
 );

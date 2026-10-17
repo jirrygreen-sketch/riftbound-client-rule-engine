@@ -18,31 +18,39 @@ import type { CardProgram } from "../../ir/index.js";
  *   engine outside the chain (contract 3.4). This program declares the
  *   intended continuous.might effect with an arithmetic layer, +2, appliesTo
  *   self and a duration matching the ability's own presence.
-
- * Status: judge-required. The static CardProgram binding and continuous.might
- * primitive are merged, but the condition still cannot be evaluated safely:
- * - the ability's condition needs two characteristics the merged layer path
- *   cannot read: contract 3.8 `combatRole` is now in effects/contract.ts, but
- *   layers/engine.ts `conditionMatches` still only recognizes
- *   always/never/type/has-tag/has-keyword and evaluates anything else as true
- *   (so a naive registration would apply +2 Might unconditionally), and the
- *   "alone" predicate (740.2.a) needs a location-relative count of other
- *   friendly units — layers/filter.ts implements no sameLocationAs anchor
- *   (verified: it matches objects at any location).
- * Dependencies: the layers condition evaluator's combatRole/alone support.
- * Not approximated.
+ * - "attacking or defending" has a real execution path: the merged contract
+ *   3.8 combatRole characteristic is on ObjectSnapshot and the static binder's
+ *   abilityEnvironment (programs/statics.ts) evaluates Condition IR through
+ *   the merged effects/interpreter. The count half cannot follow it: 740.2.a
+ *   counts only other *friendly* units, and the static binder's count query
+ *   resolves non-anchor fields through layers/filter.ts matchesObjectFilter,
+ *   whose selectorMatches passes the candidate unit's own controller as the
+ *   owner comparison value (filter.ts:62) — `controller: "self"` therefore
+ *   matches every candidate at the location instead of only friendlies and
+ *   `controller: "opponent"` matches none (the hand-authored expression
+ *   constant and the old missing-sameLocationAs note are obsolete).
+ *
+ * Status: judge-required. The condition is compiled into a real predicate by
+ * the static binder and the continuous.might arithmetic layer is merged, but
+ * the 740.2.a friendly-only count has no correct static path; approximating
+ * it (dropping the controller key) would count enemies and misread the rule.
+ * Dependencies: a relative-controller (ability-source) query path for static
+ * count conditions, or 740.2.a support in the static binder's condition
+ * evaluation. Not approximated.
  */
 export default {
   canonicalCardId: "card.hash-2cbbc0b067da2370a522b50188aead6aa06a594259be55b5951e6f51601e59ef",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「While I'm attacking or defending alone, I have +2 [M]」（364.3.a 的条件被动、740.2.a 的 alone）不可执行：" +
-    "static CardProgram binding 与 continuous.might 指令已经合入；条件还要读两个合并图层路径没有的能力：" +
-    "攻防身份（契约 3.8 的 ObjectSnapshot.combatRole 已在 effects/contract.ts，但 layers/engine.ts 的 conditionMatches " +
-    "仍只识别 always/never/type/has-tag/has-keyword，其它条件一律按 true 处理，草率注册会把 +2 Might 无条件套用）" +
-    "与「同位置无敌方/友方单位」的 alone 谓词（740.2.a；layers/filter.ts 不实现 sameLocationAs 锚点，实测会匹配任意位置）。" +
-    "依赖：图层条件求值器的 combatRole / alone 支持。不近似实现。",
+    "「While I'm attacking or defending alone, I have +2 [M]」（364.3.a 的条件被动）不可执行：" +
+    "攻防半段已可执行——契约 3.8 的 ObjectSnapshot.combatRole 已合入，static binder 的 abilityEnvironment " +
+    "（programs/statics.ts）通过 effects/interpreter 真实求值 Condition；旧理由里的 expression 常量与 " +
+    "sameLocationAs 缺口已过时。当前真实缺口是 740.2.a 的 alone 只统计同位置的其他友好单位：" +
+    "static binder 的 count 查询把非锚点字段交给 layers/filter.ts 的 matchesObjectFilter，其 selectorMatches " +
+    "以候选单位自己的 controller 作为 owner 比较值（filter.ts:62），controller:\"self\" 对同位置所有候选恒真、" +
+    "controller:\"opponent\" 恒假，「仅友方」计数无正确执行路径。依赖：static 条件查询的相对 controller " +
+    "（能力来源）解析，或 740.2.a 的专用 static 求值支持。不近似实现。",
   abilities: [
     {
       kind: "static",
@@ -57,14 +65,23 @@ export default {
         kind: "all",
         conditions: [
           {
-            // "I'm attacking or defending": the merged IR has no combat-role
-            // characteristic yet (contract 3.8 combatRole); this names the
-            // intended predicate for the layers consumer.
-            kind: "expression",
-            value: { kind: "constant", value: "self-in-combat-as-attacker-or-defender" }
+            // "I'm attacking or defending": contract 3.8 stores the merged
+            // Attacker/Defender designation (461) on ObjectSnapshot.combatRole;
+            // the merged interpreter compares it with the real `in` operator.
+            kind: "compare",
+            left: {
+              kind: "object-property",
+              object: "self",
+              property: "combatRole"
+            },
+            operator: "in",
+            right: { kind: "constant", value: ["attacker", "defender"] }
           },
           {
-            // "alone": no other friendly unit at the same location (740.2.a).
+            // "alone": no other friendly unit at the same location (740.2.a);
+            // the count keeps the rule's friendly scope via controller:
+            // "self", which the static binder cannot resolve correctly yet
+            // (see the status note above).
             kind: "compare",
             left: {
               kind: "count",

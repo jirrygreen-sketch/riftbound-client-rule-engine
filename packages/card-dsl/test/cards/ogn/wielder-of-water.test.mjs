@@ -10,6 +10,9 @@ const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
 const { default: continuousMight } = await import(new URL("effects/instructions/continuous.might.js", engineCore));
 const { createLayerEngine } = await import(new URL("layers/index.js", engineCore));
 const { runInstruction, world } = await import(new URL("effects/testing/index.js", engineCore));
+const { bindResolveContext, createActionPipelineHost } = await import(new URL("events/action-adapter.js", engineCore));
+const { ChainEngine } = await import(new URL("chain/engine.js", engineCore));
+const { createEngineStaticBinder } = await import(new URL("programs/statics.js", engineCore));
 
 const CANONICAL =
   "card.hash-2cbbc0b067da2370a522b50188aead6aa06a594259be55b5951e6f51601e59ef";
@@ -22,14 +25,14 @@ test("ogn-055-298 Wielder of Water: program passes validateCardProgram", () => {
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues, null, 2));
 });
 
-test("ogn-055-298 Wielder of Water: identity, ruleset, status, judgeReason and source text", () => {
+test("ogn-055-298 Wielder of Water: identity, ruleset, status and source text", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /combatRole/);
-  assert.match(program.judgeReason, /static CardProgram binding/);
-  assert.match(program.judgeReason, /conditionMatches/);
+  assert.match(program.judgeReason, /740\.2\.a/);
+  assert.match(program.judgeReason, /matchesObjectFilter/);
+  assert.match(program.judgeReason, /filter\.ts:62/);
+  assert.match(program.judgeReason, /相对 controller/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });
@@ -47,10 +50,42 @@ test("ogn-055-298 Wielder of Water: the +2 Might is a static arithmetic-layer ef
   assert.equal(staticAbility.effect.value, undefined);
 });
 
+test("ogn-055-298 Wielder of Water: the condition is combat role plus the friendly lone predicate", () => {
+  const condition = staticAbility.condition;
+  assert.equal(condition.kind, "all");
+  assert.equal(condition.conditions.length, 2);
+
+  // "I'm attacking or defending": 461 designations on ObjectSnapshot.combatRole.
+  const combat = condition.conditions[0];
+  assert.equal(combat.kind, "compare");
+  assert.deepEqual(combat.left, {
+    kind: "object-property",
+    object: "self",
+    property: "combatRole"
+  });
+  assert.equal(combat.operator, "in");
+  assert.deepEqual(combat.right, { kind: "constant", value: ["attacker", "defender"] });
+
+  // "alone" (740.2.a): no other *friendly* unit at the same location; the
+  // count keeps the friendly scope via controller:'self', whose static-path
+  // defect is documented in the program's judgeReason.
+  const lone = condition.conditions[1];
+  assert.equal(lone.kind, "compare");
+  assert.equal(lone.operator, "eq");
+  assert.deepEqual(lone.right, { kind: "constant", value: 0 });
+  assert.equal(lone.left.kind, "count");
+  assert.deepEqual(lone.left.filter, {
+    type: "unit",
+    controller: "self",
+    sameLocationAs: "self",
+    exclude: "self"
+  });
+});
+
 test("ogn-055-298 Wielder of Water golden: the merged continuous.might primitive applies +2 through the real layer engine", () => {
   // The declared amount/mode/layer reach the layer engine through the merged
-  // instruction primitive. (The card-program static registration and the
-  // condition evaluation are the still-missing halves — see judgeReason.)
+  // instruction primitive; the binder golden below proves the same declared
+  // effect is registered by the production static binder with its condition.
   const kernel = world().unit("wielder", { might: 2 }).build();
   // The card's static ability targets its own host, so bind the source
   // snapshot the way the card-program static path would.
@@ -68,51 +103,79 @@ test("ogn-055-298 Wielder of Water golden: the merged continuous.might primitive
   assert.equal(run.result.status, "executed");
   assert.equal(scoped.continuousEffects.length, 1);
 
-  const engine = createLayerEngine([scoped.getObject("wielder")], [
-    { effect: scoped.continuousEffects[0].effect, duration: scoped.continuousEffects[0].duration, timestamp: 1 }
-  ]);
-  engine.setObjects([scoped.getObject("wielder")]);
+  const registrations = scoped.continuousEffects.map((entry) => ({
+    effect: entry.effect,
+    duration: entry.duration,
+    timestamp: 1
+  }));
+  const engine = createLayerEngine(scoped.objects, registrations);
   assert.equal(engine.evaluate(scoped.ref("wielder")).might, 4);
 });
 
-test("ogn-055-298 Wielder of Water: the condition is combat role plus the lone predicate", () => {
-  const condition = staticAbility.condition;
-  assert.equal(condition.kind, "all");
-  assert.equal(condition.conditions.length, 2);
-
-  // "I'm attacking or defending": the merged IR has no designation field
-  // (contract 3.8 combatRole); the program states the predicate it needs.
-  const combat = condition.conditions[0];
-  assert.equal(combat.kind, "expression");
-  assert.deepEqual(combat.value, {
-    kind: "constant",
-    value: "self-in-combat-as-attacker-or-defender"
+function chainEngineFor(kernel) {
+  const decide = (request) => { throw new Error("Unexpected choice: " + request.id); };
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (checkpoint) => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose: decide,
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint }),
+    testTrigger: () => true
   });
+  return new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false });
+}
 
-  // "alone" (740.2.a): no other friendly unit at the same location.
-  const lone = condition.conditions[1];
-  assert.equal(lone.kind, "compare");
-  assert.equal(lone.operator, "eq");
-  assert.deepEqual(lone.right, { kind: "constant", value: 0 });
-  assert.equal(lone.left.kind, "count");
-  assert.deepEqual(lone.left.filter, {
-    type: "unit",
-    controller: "self",
-    sameLocationAs: "self",
-    exclude: "self"
-  });
+test("ogn-055-298 Wielder of Water golden: the production static binder grants +2 Might while attacking alone", () => {
+  // 461: the Attacker designation is combatRole; 740.2.a: alone. The static
+  // binder compiles the declared condition into the merged interpreter
+  // predicate and the continuous.might effect into the real arithmetic layer.
+  const kernel = world().player("A")
+    .unit("wielder", { might: 2, combatRole: "attacker", controller: "A", owner: "A", location: { type: "battlefield", id: "bf-1" } })
+    .unit("ally-elsewhere", { might: 2, controller: "A", owner: "A", location: { type: "base", player: "A" } })
+    .unit("enemy-elsewhere", { might: 2, controller: "B", owner: "B", location: { type: "base", player: "B" } })
+    .build();
+  const engine = chainEngineFor(kernel);
+  const handle = createEngineStaticBinder(engine).bindStatic(staticAbility, kernel.getObject("wielder"));
+
+  assert.equal(engine.layers.evaluate(kernel.ref("wielder")).might, 4);
+  assert.equal(engine.layers.evaluate(kernel.ref("ally-elsewhere")).might, 2);
+  assert.equal(engine.layers.evaluate(kernel.ref("enemy-elsewhere")).might, 2);
+  handle?.unbind();
+  assert.equal(engine.layers.evaluate(kernel.ref("wielder")).might, 2);
+  assert.equal(engine.layers.evaluate(kernel.ref("ally-elsewhere")).might, 2);
+});
+
+test("ogn-055-298 Wielder of Water golden: the production static binder does not apply the bonus while out of combat even when alone", () => {
+  const kernel = world().player("A")
+    .unit("wielder", { might: 2, combatRole: null, controller: "A", owner: "A", location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const engine = chainEngineFor(kernel);
+  const handle = createEngineStaticBinder(engine).bindStatic(staticAbility, kernel.getObject("wielder"));
+  assert.equal(engine.layers.evaluate(kernel.ref("wielder")).might, 2);
+  handle?.unbind();
+});
+
+test("ogn-055-298 Wielder of Water: the static binder's filter bridge cannot resolve the 740.2.a friendly count (documented gap, pinned)", () => {
+  // layers/filter.ts:62 evaluates controller candidates against each
+  // candidate's own controller, so controller:'self' cannot express the
+  // rule's friendly-only scope. The pin asserts the documented defect
+  // (same-location allies suppress the bonus by over-matching, and a lone
+  // attacker next to an enemy would wrongly count as alone); fixing the
+  // defect and flipping this pin is the dependency named in judgeReason.
+  const kernel = world().player("A")
+    .unit("wielder", { might: 2, combatRole: "defender", controller: "A", owner: "A", location: { type: "battlefield", id: "bf-1" } })
+    .unit("friend-here", { might: 2, controller: "A", owner: "A", location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const engine = chainEngineFor(kernel);
+  const handle = createEngineStaticBinder(engine).bindStatic(staticAbility, kernel.getObject("wielder"));
+  assert.equal(engine.layers.evaluate(kernel.ref("wielder")).might, 2);
+  handle?.unbind();
 });
 
 test.todo(
-  "ogn-055-298 Wielder of Water: the 'attacking or defending' half needs the combat designation " +
-    "on ObjectSnapshot (contract 3.8 combatRole is in effects/contract.ts) plus its evaluation in " +
-    "the layers engine: conditionMatches still only recognizes always/never/type/has-tag/has-keyword " +
-    "and treats unknown conditions as true"
-);
-
-test.todo(
-  "ogn-055-298 Wielder of Water: the 'alone' predicate (740.2.a, no other friendly unit at the " +
-    "same location) has no merged evaluator in the static-effect layer path: layers/filter.ts " +
-    "implements no sameLocationAs anchor (verified over-match), and the interpreter-side anchor " +
-    "resolution is not reachable from a static ability"
+  "ogn-055-298 Wielder of Water: the 740.2.a friendly-only count needs a relative-controller query path " +
+    "for static count conditions (layers/filter.ts selectorMatches compares candidates against their own " +
+    "controller, so controller:'self' matches every candidate at the location) or dedicated 740.2.a " +
+    "support in the static binder's condition evaluation"
 );
