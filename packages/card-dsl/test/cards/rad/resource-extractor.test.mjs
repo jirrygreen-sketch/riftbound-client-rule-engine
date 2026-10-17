@@ -39,7 +39,8 @@ test("rad-052-167 Resource Extractor: the judgeReason names the actual merged ga
   assert.match(program.judgeReason, /187\.5/);
   assert.match(program.judgeReason, /entry overrides/);
   assert.match(program.judgeReason, /143\.4/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /TriggerRegistration/);
+  assert.match(program.judgeReason, /invalid-event-type|here:true/);
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
 });
 
@@ -133,7 +134,8 @@ test.todo(
 
 test.todo(
   "rad-052-167 Resource Extractor: the merged Deploy KeywordDef (RIFT-267) still needs its " +
-    "continuous.location / cleanup-consumer wiring, the turn-end trigger needs the RIFT-120 " +
-    "CardProgram -> TriggerRegistration adapter, and the 'you control this battlefield' condition " +
-    "needs an evaluated battlefield-control predicate."
+    "continuous.location / cleanup-consumer wiring; the merged CardProgram -> TriggerRegistration " +
+    "adapter cannot bind Deploy's here:true hold filter or the turn-end EventPattern until the " +
+    "location filter and event vocabulary are supported, and the 'you control this battlefield' " +
+    "condition needs an evaluated battlefield-control predicate."
 );

@@ -40,6 +40,7 @@ test("rad-114-167 Riven, Deserter: judgeReason names temporary Might, the exhaus
   assert.match(program.judgeReason, /choiceObjects/);
   assert.match(program.judgeReason, /386/);
   assert.match(program.judgeReason, /translateLegalityCondition|rules adapter/);
+  assert.match(program.judgeReason, /Unsupported filter field|exclude/);
 });
 
 test("rad-114-167 Riven, Deserter: the first ability is an object-exhausted trigger excluding this unit (415.1)", () => {
@@ -204,6 +205,7 @@ test.todo(
 test.todo(
   "rad-114-167 Riven, Deserter: 'Use this ability only once each turn' enforced (CR 386/386.1) — the " +
     "activation limit reaches translateLegalityCondition's rules adapter (programs/play.ts), and the " +
-    "object-exhausted trigger needs the CardProgram -> TriggerRegistration adapter"
+    "object-exhausted trigger's CardProgram -> TriggerRegistration adapter is merged, but its " +
+    "exclude/controller filter shape still needs concrete ObjectFilter support"
 );
 

@@ -40,13 +40,11 @@ import type { CardProgram } from "../../ir/index.js";
  *    one registration+source, not per event player, and the closed timing-point
  *    payload does not expose the play's destination Battlefield for a
  *    "played here" filter.
- * 3. the binding layer is merged (programs/triggers.ts), but this card's filter
- *    is still unusable: the engine trigger-spec validator rejects the sibling
- *    battlefield placeholder spelling (here: true) with an unknown-field issue,
- *    and translateTriggerFilter would silently drop here:true (over-triggering)
- *    if the strict validator were bypassed — fail-closed is the intended path,
- *    so production must supply a real destination filter before this trigger can
- *    register.
+ * 3. the binding layer is merged (programs/triggers.ts). On the normal path,
+ *    translateTriggerFilter drops the sibling battlefield placeholder here:true
+ *    before EventPipeline's strict validation, so the resulting registration
+ *    validates but loses the "played here" restriction and can over-trigger.
+ *    A real destination filter/payload is still required.
  * Order is preserved: Predict looks first, then the optional recycle of the
  * looked-at card (437.1), so the recycle is linked to the inspect step.
  * Dependencies: an event-player selector and per-player once frequency
@@ -65,12 +63,13 @@ export default {
     "(2) 「the first time they play a unit or gear here each turn」是每名玩家、每回合一次、且限定打出到本战场：" +
     "TriggerSpec.once 的频度键是单个 registration+source（events/pipeline.ts frequencyKey 用 source.ref），不是按事件玩家分别各一次；" +
     "封闭的 card-played 载荷也不暴露打出目的地战场，filter 的 here: true 仍是 053.3 的占位（引擎 trigger-spec 校验器不接受该键）。" +
-    "(3) 绑定层已合入（programs/triggers.ts 的 triggerRegistrations/registerProgramTriggers），" +
-    "但本卡的 filter 还不能用：引擎 trigger-spec 校验器把 here: true 记为 unknown-field（fail-closed），" +
-    "translateTriggerFilter 若绕过严格校验会静默丢弃 here:true 造成过度触发，必须先有真实的打出目的地过滤。" +
+    "(3) 绑定层已合入（programs/triggers.ts 的 triggerRegistrations/registerProgramTriggers）。" +
+    "正常路径先由 translateTriggerFilter 处理 filter，再进入 EventPipeline 的严格校验；实测 here: true " +
+    "会在翻译时被丢弃，随后生成的 registration 通过校验却失去「打出到此处」限制，可能过度触发。" +
+    "仍需真实的打出目的地过滤/载荷。" +
     "Predict 本体（437.1/437.3.a/437.4）已用 effect.inspect + effect.recycle 表达并由 golden 真实执行。" +
-    "依赖：契约变更请求（事件玩家选择器 + per-player once + 打出地点载荷），以及把 CardProgram " +
-    "triggered ability 经已合入绑定层接进生产的主机接线。",
+    "依赖：契约变更请求（事件玩家选择器 + per-player once + 打出地点载荷/过滤），" +
+    "以及具体打出地点过滤的绑定支持。",
   sourceText:
     "For each player, the first time they play a unit or gear here each turn, they [Predict]. " +
     "(They look at the top card of their Main Deck. They may recycle it.)",

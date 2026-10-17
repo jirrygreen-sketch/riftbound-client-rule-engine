@@ -8,6 +8,9 @@ import program from "../../../dist/cards/rad/rakelstake.js";
 // layout instead of the package name.
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
 
 const CANONICAL =
   "card.hash-1b896afb48233f602257054e1545c35265f320f21b47acd9ff53e914226707f7";
@@ -35,7 +38,7 @@ test("rad-165-167 Rakelstake: identity, ruleset, status and exact source text", 
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /event-player/);
   assert.match(program.judgeReason, /per-player/);
-  assert.match(program.judgeReason, /programs\.triggers|triggerRegistrations/);
+  assert.match(program.judgeReason, /destination|地点|here/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -56,6 +59,31 @@ test("rad-165-167 Rakelstake: per-turn play trigger for units and gear played he
   // The trigger is the judged part: no event-player selector, no per-player
   // frequency and no play-location payload exist in the frozen IR.
   assert.match(program.judgeReason, /TriggerSpec\.once/);
+});
+
+test("rad-165-167 Rakelstake: normal trigger binding drops here before strict validation", () => {
+  const lifted = { ...program, status: "executable" };
+  delete lifted.judgeReason;
+  const registry = new ProgramRegistry([lifted]);
+  const source = world()
+    .card("rakelstake", {
+      cardId: CANONICAL,
+      types: ["battlefield"],
+      zone: "board",
+      location: { type: "battlefield", id: "battlefield-1" }
+    })
+    .build()
+    .getObject("rakelstake");
+  const [registration] = triggerRegistrations(registry, source);
+
+  assert.deepEqual(registration.spec.filter, {
+    event: "card-played",
+    object: { type: ["unit", "gear"] }
+  });
+  assert.equal(validateTriggerSpec(registration.spec).ok, true);
+  // The adapter has registered a valid-looking filter, but the destination
+  // Battlefield restriction was discarded during translation.
+  assert.equal("here" in registration.spec.filter, false);
 });
 
 test("rad-165-167 Rakelstake: Predict is inspect-top-one-then-optionally-recycle", () => {
@@ -172,10 +200,8 @@ test.todo(
 );
 
 test.todo(
-  "rad-165-167 Rakelstake: register the card program's triggered ability as a TriggerRegistration " +
-    "and run it from the real play pipeline: the adapter exists (programs/triggers.ts), but the " +
-    "here:true filter is rejected by the strict validator and silently dropped by the translator, " +
-    "so a real destination filter must land first (053.3 here referent, 190.6 Battlefield-controller " +
-    "resolution)"
+  "rad-165-167 Rakelstake: preserve the printed 'played here' restriction through normal trigger binding " +
+    "(053.3 here referent, 190.6 Battlefield-controller resolution) — translateTriggerFilter currently " +
+    "drops here:true before strict validation, so the registration can over-trigger"
 );
 

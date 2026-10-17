@@ -6,6 +6,9 @@ import program from "../../../dist/cards/rad/riven-broken-blade.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
 
 const CANONICAL = "card.hash-92a8f107905f2dafc89ae0242541a797fd2b39c572e28a280cde2e6ef343444f";
 const SOURCE_TEXT =
@@ -59,7 +62,6 @@ test("rad-043-167 Riven, Broken Blade: identity, ruleset, status, judgeReason an
   assert.match(program.judgeReason, /choice\.exclusive-once-per-turn/);
   assert.match(program.judgeReason, /cost\.pay/);
   assert.match(program.judgeReason, /success-gated/);
-  assert.match(program.judgeReason, /RIFT-120/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -87,6 +89,23 @@ test("rad-043-167 Riven, Broken Blade: the object-exhausted trigger owns a singl
   ]);
   // 契约 3.9："可以……" 用 choice.optional 包住 body；本卡是"choose one"（choice.mode）。
   assert.equal(choose.linkedTo, undefined);
+});
+
+test("rad-043-167 Riven, Broken Blade: normal trigger binding translates and validates the nested self anchor", () => {
+  const lifted = { ...program, status: "executable" };
+  delete lifted.judgeReason;
+  const registry = new ProgramRegistry([lifted]);
+  const source = world()
+    .unit("riven", { cardId: CANONICAL })
+    .build()
+    .getObject("riven");
+  const [registration] = triggerRegistrations(registry, source);
+
+  assert.deepEqual(registration.spec.filter, {
+    event: "object-exhausted",
+    object: { objectId: "riven" }
+  });
+  assert.equal(validateTriggerSpec(registration.spec).ok, true);
 });
 
 test("rad-043-167 Riven, Broken Blade: the Buff mode targets this unit and places one Buff (CR 702.2.a)", () => {
@@ -178,16 +197,9 @@ test.todo(
   "rad-043-167 Riven, Broken Blade: record the per-turn chosen-mode receipt so each mode can be chosen only once this " +
     "turn (CR 303 / 319) — choice.exclusive-once-per-turn has no merged implementation (no assigned task)"
 );
-
 test.todo(
   "rad-043-167 Riven, Broken Blade: make spending the Buff an in-instruction cost ([do X] to [do Y], CR 355.10.c.1 / " +
     "404.1.b.1) so a failed spend blocks the Stun / ready branch — the cost plan pays spend-buff but no " +
     "in-instruction cost.pay path is merged — cost.pay itself is merged, the open piece is the success-gated " +
     "payment body (cost/kinds/README.md contract change request #2)"
-);
-
-test.todo(
-  "rad-043-167 Riven, Broken Blade: wire the object-exhausted trigger to the real exhaust action events (CR 415.1.b) " +
-    "so 'When I become exhausted' fires from production play — translateTriggerFilter already translates the " +
-    "nested {source:'self'} anchor; RIFT-120 owns the production registration"
 );

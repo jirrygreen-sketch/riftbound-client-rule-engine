@@ -6,6 +6,8 @@ import program from "../../../dist/cards/rad/raving-witness.js";
 import recycle from "../../../../engine-core/dist/effects/instructions/effect.recycle.js";
 import reveal from "../../../../engine-core/dist/effects/instructions/effect.reveal.js";
 import zone from "../../../../engine-core/dist/effects/instructions/effect.zone.js";
+import { mightyCondition } from "../../../../engine-core/dist/effects/keywords/Mighty.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID =
@@ -21,8 +23,8 @@ test("rad-074-167 Raving Witness: program validates and is judge-required", () =
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Mighty/);
-  assert.match(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /if\/otherwise/);
+  assert.match(program.judgeReason, /object-moved/);
 });
 
 test("rad-074-167 Raving Witness: sourceText is the verbatim deck-catalog ability text", () => {
@@ -156,11 +158,20 @@ test("rad-074-167 Raving Witness: the otherwise branch recycles the revealed car
   assert.deepEqual(run.events.map(event => event.action), ["recycle"]);
 });
 
-test.todo(
-  "rad-074-167 Raving Witness: branch on the revealed card's Mighty predicate — keywords/Mighty.ts " +
-    "expands to a condition.value/predicate continuous effect, but layers and condition evaluation " +
-    "have no consumer for it (RIFT-359); no object predicate operator exists in Condition"
-);
+test("rad-074-167 Raving Witness: Mighty threshold executes at 5 and above (CR 707/708/711)", () => {
+  for (const [might, expected] of [[4, false], [5, true], [6, true]]) {
+    const kernel = world().unit(`mighty-${might}`, { might }).build();
+    const outcome = runAbilityBody([{
+      id: "mighty-check",
+      op: "condition.predicate",
+      args: {
+        condition: { kind: "constant", value: mightyCondition({ canonicalCardId: CARD_ID }) }
+      }
+    }], kernel, undefined, { host: kernel.ref(`mighty-${might}`) });
+    assert.equal(outcome.results[0].result.status, "executed");
+    assert.equal(outcome.linkedValues["mighty-check.value"], expected);
+  }
+});
 
 test.todo(
   "rad-074-167 Raving Witness: if/otherwise control structure — contract 3.9 has only sequence / " +
