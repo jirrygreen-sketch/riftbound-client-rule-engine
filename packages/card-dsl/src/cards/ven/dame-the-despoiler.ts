@@ -65,7 +65,12 @@ const abilities: Ability[] = [
     kind: "triggered",
     trigger: {
       at: "attack-declared",
-      filter: { event: "attack-declared", filter: { source: "self" } }
+      filter: { event: "attack-declared", filter: { source: "self" } },
+      condition: {
+        kind: "compare",
+        left: { kind: "object-property", object: "self", property: "empowered" },
+        operator: "gt", right: { kind: "constant", value: 0 }
+      }
     },
     optional: false,
     body: combatBody("dame-the-despoiler.attack")
@@ -75,7 +80,12 @@ const abilities: Ability[] = [
     kind: "triggered",
     trigger: {
       at: "defense-declared",
-      filter: { event: "defense-declared", filter: { source: "self" } }
+      filter: { event: "defense-declared", filter: { source: "self" } },
+      condition: {
+        kind: "compare",
+        left: { kind: "object-property", object: "self", property: "empowered" },
+        operator: "gt", right: { kind: "constant", value: 0 }
+      }
     },
     optional: false,
     body: combatBody("dame-the-despoiler.defend")
@@ -87,7 +97,12 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺 Empower/Empowered 关键词展开、印刷 5 Energy + 1 Body Power 费用参数与 827.1.c.1 的未 Empowered 起动限制；KeywordAbility 只有 value，programs/keywords 不传 params.cost。ObjectSnapshot 也未暴露 442.1.a 的 Empowered 状态，828.1.c 的依赖能力门控需状态读取/条件谓词（RIFT-359）。programs/filters 还不能翻译目标的 sameLocationAs 符号锚点。此外 combat/ 尚未发出 attack-declared / defense-declared，需要把实际取得战斗身份的路径接入现有事件管线。",
+    "Empower KeywordDef 与 effect.empower 已合入，827.1.c.1 的未 Empowered 限制已展开为比较条件；" +
+    "仍缺 KeywordAbility → programs/keywords 的 params.cost 传递，印刷 5 Energy + 1 Body Power 无法随声明绑定。" +
+    "828.1.c 的依赖战斗触发已用 empowered > 0 门控，参考内核可求值，但公开 ObjectSnapshot 契约未声明 " +
+    "442.1.a 的 empowered 状态，正式适配器的状态读取尚无契约保证。" +
+    "解释器已支持 sameLocationAs 锚点，但 programs/filters 的目标翻译仍拒绝该字段（355.9）。" +
+    "combat/ 的真实战斗身份变更仍未生产 attack-declared / defense-declared（383.4.e/f）。",
   abilities,
   sourceText:
     "[Empower] :rb_energy_5::rb_rune_body: (:rb_energy_5::rb_rune_body:: Empower me. Use only if not " +

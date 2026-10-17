@@ -6,7 +6,11 @@ const curatorOfTheSands = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "仍缺两条语义：(1) 206/206.1 的 Energy cost >= 7 需要读取事件所指 unit/gear 的印刷费用或 activated ability 的 base cost；触发条件未绑定事件对象/能力费用读取，energyCostAtLeast 仅为描述（RIFT-359）。(2) 383.3.b/383.3.b.1 要求把 exhaust me 作为触发能力的基础费用在 Finalize 支付，但 TriggeredAbility 没有 cost 字段、programs/triggers 不生成该费用计划。不能把横置费用当作结算期效果。",
+    "仍缺两条接线：(1) 206/206.1：card-played 的印刷 Energy >= 7 已用 event-printed 条件表达，Chain 已提供 details.printed；" +
+    "ability-activated 生产者只提供来源快照和 abilityId，未提供启动能力的 base cost，不能用来源卡的印刷费用替代。" +
+    "activation 过滤器的 energyCostAtLeast 仍无 programs/filters 消费方。" +
+    "(2) 383.3.b/383.3.b.1：TriggeredAbility 没有 cost 字段，programs/triggers 未把 exhaust me 绑定为 Finalize 基础费用；" +
+    "TriggerRegistration.cost 与横置费用支付本体已存在，缺卡声明到该费用计划的接线。不能把横置费用当作结算期效果。",
   abilities: [
     {
       kind: "triggered",
@@ -19,9 +23,16 @@ const curatorOfTheSands = {
               "unit",
               "gear"
             ],
-            player: "self",
-            energyCostAtLeast: 7
+            player: "self"
           }
+        },
+        // 206：读取事件单位/装备的印刷（或复制后）费用，不读取实付费用。
+        condition: {
+          kind: "event-printed",
+          object: "object",
+          characteristic: "energy",
+          operator: "gte",
+          right: { kind: "constant", value: 7 }
         }
       },
       optional: true,
