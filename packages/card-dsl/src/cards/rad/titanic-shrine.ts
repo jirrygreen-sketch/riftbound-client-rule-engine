@@ -49,7 +49,16 @@ export default {
       kind: "triggered",
       trigger: {
         at: "card-played",
-        filter: { event: "card-played", filter: { type: "unit", player: "self" } }
+        filter: {
+          event: "card-played",
+          // 被触发的能力必须确认“打出的牌是单位”。programs/filters.ts 只把嵌套
+          // `filter` 之外的同级字段翻译成事件模式：`filter: { type, player }` 会整段
+          // 被丢弃，只留下 self（实测会把对手打出的任意牌也算作“单位”）。
+          // EventPattern.object（contract 3.5）才是被 events/pipeline-match.ts 消费的
+          // 角色过滤器形状，因此把“类型是单位”写在这里。
+          object: { type: "unit" },
+          player: "self"
+        }
       },
       optional: false,
       body: [

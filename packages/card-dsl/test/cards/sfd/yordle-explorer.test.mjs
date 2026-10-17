@@ -1,5 +1,10 @@
 // Golden test for Yordle Explorer (sfd-100-221).
 //
+// Whole-card execution evidence (the 2-Power gate and the Draw 1 body through
+// the real chain path) lives in
+// test/cards/templates/triggered-card-played-effect-draw-656.test.mjs. This file
+// keeps validation, identity, structure and the remaining power: null gap.
+//
 // status = judge-required (see the program's judgeReason). The printed-Power
 // cost gate of "with Power cost [[A]][[A]] or more" (CR 135.2.e.5 / 206.1,
 // applied as a 383.2.a.1 trigger condition) is now the merged event-printed

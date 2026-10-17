@@ -1,5 +1,10 @@
 // Golden test for Lady of Luminosity, Starter (ogs-021-024).
 //
+// Whole-card execution evidence (the printed-cost gate, the "you play" gate
+// and the Draw 1 body through the real chain path) lives in
+// test/cards/templates/triggered-card-played-effect-draw-656.test.mjs. This file
+// keeps validation, identity, structure and the remaining Legend Zone gap.
+//
 // The merged event-printed predicate reads the production card-played cost
 // snapshot. These tests execute the trigger's actual gate and Draw 1 body;
 // registering a Legend in its own zone remains explicitly blocked.
