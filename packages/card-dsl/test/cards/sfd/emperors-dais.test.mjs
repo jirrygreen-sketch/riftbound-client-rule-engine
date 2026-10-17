@@ -7,7 +7,9 @@ import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import zone from "../../../../engine-core/dist/effects/instructions/effect.zone.js";
 import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
+import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 
 const BATTLEFIELD = { type: "battlefield", id: "battlefield-1" };
 const constant = value => ({ kind: "constant", value });
@@ -52,8 +54,11 @@ test("sfd-207-221 Emperor's Dais: conquer trigger and optional pay → return �
 
   assert.equal(pay.op, "cost.pay");
   assert.equal(pay.linkedTo, undefined);
-  assert.deepEqual(pay.args.energy, constant(1));
-  assert.deepEqual(pay.args.power, constant([]));
+  // 204.3.a/205/356: the 1-energy payment is cost.pay's finalized payments
+  // record — a plain { energy } value, not an array-shaped pseudo plan.
+  assert.deepEqual(pay.args, {
+    payments: { kind: "constant", value: { energy: 1 } }
+  });
 
   assert.equal(returnUnit.op, "effect.zone");
   assert.equal(returnUnit.linkedTo, "emperors-dais.pay");
@@ -156,9 +161,90 @@ test("sfd-207-221 Emperor's Dais golden: the card's own token instruction plays 
 
 // The 1-energy payment still has no merged instruction primitive (RIFT-261
 // cost.pay/cost.modify), so the "If you do" receipt cannot be produced yet.
-test.todo(
-  "sfd-207-221 Emperor's Dais: pay 1 energy and gate the Sand Soldier on the payment receipt (cost.pay, RIFT-261)"
-);
-test.todo(
-  "sfd-207-221 Emperor's Dais: 383.3.b base-cost handling for the cost within instructions right after 'you may' (cost/trigger Finalize)"
-);
+test("sfd-207-221 Emperor's Dais golden: the full optional body pays 1 energy, returns the unit and plays the Sand Soldier", () => {
+  const base = world()
+    .player("A", { energy: 1, power: [] })
+    .player("B", { power: [] })
+    .unit("dais", { types: ["battlefield"], power: [], location: BATTLEFIELD })
+    .unit("u1", { controller: "A", owner: "B", power: [], location: BATTLEFIELD })
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("dais") });
+  kernel.setTargets("emperors-dais.unit-here", [kernel.ref("u1")]);
+  kernel.setAnswers({ "emperors-dais.opt-in/optional": true });
+
+  const outcome = resolveChainBody(ability.body, kernel);
+
+  // The optional wrapper accepted, the payment executed and both gated
+  // instructions ran: 205 reads the payment receipt, not the choice.
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(
+    outcome.results.map((entry) => [entry.id, entry.result.status]),
+    [
+      ["emperors-dais.opt-in", "executed"],
+      ["emperors-dais.pay", "executed"],
+      ["emperors-dais.return-unit", "executed"],
+      ["emperors-dais.read-here", "executed"],
+      ["emperors-dais.sand-soldier", "executed"]
+    ]
+  );
+  // cost.pay really charged the controller's energy pool (204.3.a).
+  assert.equal(kernel.player("A").energy, 0);
+  // 460: the returned unit went to its OWNER's hand, not the controller's.
+  assert.deepEqual(kernel.zone("B", "hand").map((ref) => ref.id), ["u1"]);
+  assert.deepEqual(kernel.zone("A", "hand").map((ref) => ref.id), []);
+  assert.equal(kernel.zone("A", "board").filter((object) => object.id === "u1").length, 0);
+  // "If you do": the token was created and played here (440.2.c / 185.2.a).
+  const soldier = kernel.query({ zone: "board", type: "unit" }).find((object) => object.isToken);
+  assert.ok(soldier, "the Sand Soldier must exist on the battlefield");
+  assert.equal(soldier.name, "Sand Soldier");
+  assert.equal(soldier.might, 2);
+  assert.deepEqual(soldier.location, BATTLEFIELD);
+  assert.deepEqual(soldier.tags, ["Shurima"]);
+  assert.equal(soldier.energy, null);
+  assert.equal(soldier.power, null);
+  const actions = outcome.events.map((event) => event.action);
+  assert.equal(actions.filter((action) => action === "pay").length, 1);
+  assert.equal(actions.includes("return-to-hand"), true);
+  assert.equal(actions.includes("create-token"), true);
+  assert.equal(actions.includes("play"), true);
+});
+
+test("sfd-207-221 Emperor's Dais golden: declining the optional payment skips the whole gated body", () => {
+  const base = world()
+    .player("A", { energy: 1, power: [] })
+    .player("B", { power: [] })
+    .unit("dais", { types: ["battlefield"], power: [], location: BATTLEFIELD })
+    .unit("u1", { controller: "A", owner: "B", power: [], location: BATTLEFIELD })
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("dais") });
+  kernel.setTargets("emperors-dais.unit-here", [kernel.ref("u1")]);
+  kernel.setAnswers({ "emperors-dais.opt-in/optional": false });
+
+  const outcome = resolveChainBody(ability.body, kernel);
+
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results.map((entry) => entry.result.status), ["negated"]);
+  assert.equal(outcome.results[0].result.reason, "skipped");
+  // Nothing else ran: the pool, the unit and the board are untouched.
+  assert.equal(kernel.player("A").energy, 1);
+  assert.deepEqual(kernel.getObject("u1").location, BATTLEFIELD);
+  assert.equal(kernel.query({ zone: "board", type: "unit" }).filter((object) => object.isToken).length, 0);
+  assert.deepEqual(kernel.events, []);
+});
+
+test("sfd-207-221 Emperor's Dais golden: the payment alone is the merged cost.pay energy settlement", () => {
+  // The merged cost.pay primitive really charges the acting seat. The battle
+  // field is the source so the plan's locked source matches the resolution.
+  const base = world()
+    .player("A", { energy: 2, power: [] })
+    .unit("dais-probe", { types: ["battlefield"], power: [] })
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("dais-probe") });
+  const plan = buildCostPlan(kernel, { id: "emperors-dais.pay-probe", cost: { kind: "printed" } });
+  const run = runInstruction(costPay, { cost: { kind: "constant", value: plan } }, { world: kernel });
+
+  assert.equal(run.result.status, "executed");
+  assert.equal(kernel.player("A").energy, 1);
+  assert.equal(run.events.filter((event) => event.action === "pay").length, 1);
+  assert.deepEqual(run.linked.payment.actions.map((action) => action.action.type), ["pay"]);
+});

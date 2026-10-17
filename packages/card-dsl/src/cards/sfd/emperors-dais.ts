@@ -28,25 +28,32 @@ import type { CardProgram } from "../../ir/index.js";
  *   sfd/royal-guard / sfd/azir-ascendant convention). No controller-relative
  *   LocationRef spelling is needed for the destination any more.
  *
- * Status rationale (contract 3.1): the trigger, the optional wrapper, the unit
- * target, the return-to-hand zone move, the "here" destination and the Sand
- * Soldier token are each expressible, but the 1-energy payment is NOT: no
- * cost.pay / cost.modify instruction is merged yet (RIFT-261 owns cost.*), so
- * the "If you do" receipt and the 383.3.b base-cost treatment (a cost inside a
- * triggered ability's leading "you may" is paid during Finalize, but the frozen
- * TriggeredAbility shape has no cost slot) cannot be evaluated. Nothing is
- * approximated and no state is edited outside the primitives.
+ * Status rationale (contract 3.1): the payment instruction, the trigger, the
+ * optional wrapper, the unit target, the return-to-hand zone move, the "here"
+ * destination and the Sand Soldier token are each expressible with merged
+ * primitives, but the ability as a whole stays judge-required for two wiring
+ * gaps that the card program cannot close by itself:
+ * - CR 383.3.b/383.3.b.1 pays the 1-energy cost as the triggered ability's base
+ *   cost during Finalize. The merged trigger registration keeps its own
+ *   TriggerRegistration without a cost slot and ChainEngine.finalize only
+ *   prices spell/unit/gear chains, so nothing charges this base cost yet.
+ * - "When you conquer here" needs the conquer timing point with the here
+ *   restriction; the card-facing trigger-filter translator rejects the
+ *   sameLocationAs/here anchors it would have to read.
  */
 export default {
   canonicalCardId: "card.hash-0049ad19b30eb5fd30b02674e302272e9df4b060fbe5a8e672fb9f5bb9c5e417",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 cost.pay/cost.modify 指令原语（RIFT-261 未合入）：1 能量支付（204.3.a/205）无法执行，'If you do' 的支付回执" +
-    "也因此不可求值，后续 Sand Soldier token 的 gating 不可执行；383.3.b 又规定紧跟 'you may' 的费用应作为触发式能力的" +
-    "基础费用在 Finalize 支付，但契约 3.1 的 TriggeredAbility 无 cost 槽位、Finalize 收取管线也未接通。" +
-    "trigger/conquer、可选包装、unit target、effect.zone 与「here」目的地的 effect.token（condition.value 绑定来源位置后经 " +
-    "linked-value 读取）都已按现契约编码并有执行测试，不近似支付。",
+    "1 能量支付原语已合入（cost.pay，payments: { energy: 1 } 的 finalized record 形状，204.3.a/205/356），" +
+    "payment → return-to-hand → Sand Soldier 的 'If you do' 回执链路有真实执行测试；但整卡仍 judge-required，" +
+    "缺口是接线而非原语：(1) CR 383.3.b/383.3.b.1 要求紧跟 'you may' 的该费用作为触发式能力的基础费用在 " +
+    "Finalize 支付，而卡牌程序 → TriggerRegistration 的注册路径不填 cost 槽位，ChainEngine.finalize 也只对 " +
+    "spell/unit/gear 收取印刷费用，触发链无处收取这笔基础费用（契约 3.1/3.5）。" +
+    "(2) 'When you conquer here' 的触发过滤（conquer 时点 + here 锚点）在卡牌注册层的 translateObjectFilter " +
+    "里被拒（sameLocationAs/here 锚点不在其封闭词表），卡侧无法订阅该时点。" +
+    "不近似实现：不省略能量支付，也不把它写成普通触发体内动作。",
   sourceText:
     "When you conquer here, you may pay :rb_energy_1: and return a unit you control here to its owner's hand. If you do, play a 2 :rb_might: Sand Soldier unit token here.",
   abilities: [
@@ -69,7 +76,13 @@ export default {
                 {
                   id: "emperors-dais.pay",
                   op: "cost.pay",
-                  args: { energy: { kind: "constant", value: 1 }, power: { kind: "constant", value: [] } }
+                  // 204.3.a/205 + 356：1 能量结算支付；能量从控制者的资源池扣除。
+                  args: {
+                    payments: {
+                      kind: "constant",
+                      value: [{ kind: "energy", amount: { kind: "constant", value: 1 } }]
+                    }
+                  }
                 },
                 {
                   id: "emperors-dais.return-unit",
