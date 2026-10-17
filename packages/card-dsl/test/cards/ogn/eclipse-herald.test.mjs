@@ -26,7 +26,7 @@ test("ogn-059-298 Eclipse Herald: identity, ruleset, status, judgeReason and sou
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /continuous\.might/);
+  assert.match(program.judgeReason, /行动责任玩家/);
   assert.match(program.judgeReason, /unit-stunned/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
@@ -41,6 +41,7 @@ test("ogn-059-298 Eclipse Herald: unit-stunned trigger for an enemy unit", () =>
   assert.equal(triggered.trigger.at, "unit-stunned");
   assert.deepEqual(triggered.trigger.filter, {
     event: "unit-stunned",
+    player: "controller",
     object: { type: "unit", controller: "opponent" }
   });
   assert.equal(triggered.optional, false);
@@ -142,14 +143,19 @@ test("ogn-059-298 Eclipse Herald golden: +1 Might applies through turn-end", () 
   assert.equal(layers.evaluate(kernel.ref("herald")).might, 7);
 });
 
-test.todo(
-  "ogn-059-298 Eclipse Herald: the unit-stunned timing point's only emitter is the action " +
-    "pipeline adapter (events/action-adapter.ts), but the CardProgram trigger binding and production " +
-    "Chain event registration remain RIFT-257/RIFT-270 work"
-);
+test.todo("Eclipse Herald: propagate the Stun responsible player into unit-stunned, then exercise player-scoped triggers (CR 412.1/412.4)");
 
-test.todo(
-  "ogn-059-298 Eclipse Herald: an already-Stunned unit must not re-trigger the ability " +
-    "(CR 424.1.a.1: a Stunned Unit can not be Stunned again); verifying that through the merged " +
-    "chain needs the stun action adapter plus the trigger pipeline together"
-);
+test("Eclipse Herald complete effect body gives Might even when ready is replaced", () => {
+  const base = world().unit("herald", { might: 7, exhausted: true }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("herald") });
+  kernel.addReplacement(action => action.type === "ready" ? "replaced" : null);
+  const outcome = runAbilityBody(triggered.body, kernel);
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
+    [readyInstruction.id, "negated"], [mightInstruction.id, "executed"]
+  ]);
+  assert.equal(kernel.getObject("herald").exhausted, true);
+  const layers = createLayerEngine(kernel.objects, kernel.continuousEffects);
+  assert.equal(layers.snapshot(kernel.ref("herald")).might, 8);
+  layers.advance({ id: "turn-end" });
+  assert.equal(layers.snapshot(kernel.ref("herald")).might, 7);
+});

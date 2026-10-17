@@ -1,36 +1,16 @@
 import type { CardProgram } from "../../ir/index.js";
 
 /**
- * Eager Apprentice (ogn-084-298) — Unit, 3 energy, 3 Might, Mind, Piltover.
- *
- * Printed text:
- *   While I'm at a battlefield, the Energy costs for spells you play is
- *   reduced by :rb_energy_1:, to a minimum of :rb_energy_1:.
- *
- * Status: judge-required — the discount is described with the contract's
- * continuous cost layer, but no merged consumer can apply it:
- * - the Finalize cost plan applies discounts only when the caller supplies
- *   them (engine-core `cost/cost-plan.ts` reads `CostPlanInput.discounts`),
- *   and no card-program adapter turns this static effect into such a
- *   discount; there is also no registered `cost.modify` instruction opcode;
- * - 356.4.e ("If a discount applies a minimum cost, that minimum applies only
- *   to that discount") and the 356.4.c.1 / 356.4.d ordering of component vs
- *   total discounts are cost-plan responsibilities that only exist for
- *   caller-supplied discounts;
- * - "spells you play" additionally needs the playing-player scope, which
- *   belongs to the cost.modify and CardProgram binding batches (RIFT-261, RIFT-257).
- * Not approximated: the reduction is kept as data instead of a substituted
- * Energy cost, and `energy: null` on the source card is never treated as 0.
+ * Eager Apprentice — CR v1.5 356.4.c–f.
+ * cost.modify/cost.pay already execute discounts and per-discount minima.
+ * The remaining boundary is the static spell-discount subscription at Finalize.
  */
 export default {
   canonicalCardId: "card.hash-e5d8b2e1e9ee0d9e2669fae947f4252a33dfc970df9cd39ad8477263b66fccc6",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺少把静态减费效果接进 Finalize 费用计划的消费者：RIFT-261 的 cost.modify / cost.pay 费用原语尚未合入，" +
-    "cost/cost-plan.ts 只在调用方显式提供 CostPlanInput.discounts 时应用折扣（356.4.c.1 / 356.4.d 的组件与总价顺序、" +
-    "356.4.e 每条折扣自带最低值），CardProgram 到 Finalize 费用计划的绑定也尚未合入；「spells you play」的玩家范围同理。" +
-    "依赖：RIFT-261（费用原语）与 RIFT-257（CardProgram 绑定）；不近似实现。",
+    "仍缺把 continuous.cost-modification 静态效果按宿主在战场的条件、打出玩家和 spell 类型收集为 Chain Finalize 的 CostPlanInput.discounts。programs/statics.ts 无费用层映射，programs/play.ts 未传递该折扣（CR 356.4.c/356.4.d/356.4.e）；不能把减费放到结算正文中。",
   abilities: [
     {
       kind: "static",

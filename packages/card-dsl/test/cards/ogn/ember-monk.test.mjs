@@ -21,9 +21,7 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, sourceText", () =
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Hidden/);
-  assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /fromHidden/);
   assert.equal(
     program.sourceText,
     "When you play a card from [Hidden], give me +2 :rb_might: this turn."
@@ -36,6 +34,7 @@ test("trigger records the intended 'played from Hidden' card-played filter", () 
   assert.equal(ability.trigger.at, "card-played");
   assert.deepEqual(ability.trigger.filter, {
     event: "card-played",
+    player: "controller",
     filter: { fromHidden: true }
   });
   assert.equal(ability.optional, false);
@@ -47,25 +46,17 @@ test("body records the +2 Might-this-turn self grant and does not fake it as a B
   assert.equal(instruction.op, "continuous.might");
   assert.deepEqual(instruction.args.amount, { kind: "constant", value: 2 });
   assert.deepEqual(instruction.args.duration, { kind: "constant", value: "this-turn" });
-  assert.deepEqual(instruction.targets, [
-    {
-      id: "ember-monk.self",
-      filter: { object: "self", type: "unit" },
-      min: 1,
-      max: 1,
-      selection: "one"
-    }
-  ]);
+  assert.equal(instruction.targets, undefined);
+  assert.deepEqual(instruction.args.objects, { kind: "constant", value: { kind: "source" } });
   // No effect.buff instruction: a Buff counter would be a different effect (703).
   assert.notEqual(instruction.op, "effect.buff");
 });
 
 test("golden: the +2 Might grant registers and expires at turn-end", () => {
   const base = world().unit("monk", { might: 4 }).build();
-  base.setTargets("ember-monk.self", [base.ref("monk")]);
   const kernel = base.clone({ source: base.ref("monk"), sourceSnapshot: base.getObject("monk") });
   const outcome = runAbilityBody(
-    [{ ...instruction, targets: undefined }],
+    ability.body,
     kernel,
     undefined,
     { host: kernel.ref("monk") }
@@ -78,7 +69,4 @@ test("golden: the +2 Might grant registers and expires at turn-end", () => {
   assert.equal(layers.evaluate(kernel.ref("monk")).might, 4);
 });
 
-test.todo(
-  "trigger on cards played from Hidden/facedown: the card-played payload needs a Hidden origin discriminator " +
-    "and the cost.hidden/CardProgram binding path (811.1.d, RIFT-257/RIFT-261)"
-);
+test.todo("Ember Monk: retain Hidden origin on card-played and translate the fromHidden trigger filter (CR 811/412.4)");
