@@ -17,22 +17,23 @@ import type { CardProgram } from "../../ir/index.js";
  *   允许规定入场状态，`exhausted: true`）。
  *
  * Status: judge-required.
- * Tank expands and registers as continuous.combat; combat allocation still
- * does not consume its first/lethal assignment priority (815.1.b/815.1.c).
- * The authored body submits exhausted channeling; the reference kernel ignores
- * the exhausted flag, leaving CR 431.2 entry-state execution unproven.
+ * The Tank expansion and card-played/channel body are available, but the two
+ * rule consumers that would make the whole card executable are still missing:
+ * combat allocation does not consume Tank's first/lethal assignment priority
+ * (815.1.b/815.1.c), and the reference channel-rune action ignores the
+ * exhausted entry-state stipulation (431.2).
  */
 export default {
   canonicalCardId: "card.hash-c18b4d77a6fdbfcd9607beb0b7cb54e7133f47d1442f38f5e6dc0c7c5b88a769",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "[Tank] 的关键词展开与程序静态注册已合入（effects/keywords/Tank.ts、programs/statics.ts），但 " +
-    "continuous.combat 的 damage-assignment/priority first 尚无战斗消费方：" +
-    "combat/base-combat-allocation.ts 只允许已证明没有分配优先级要求的基础分配，不能执行 815.1.b/815.1.c 的先分配致命伤害约束。" +
-    "card-played 程序触发绑定和 effect.channel 已合入，原始 body 会提交 exhausted:true 并从符文牌库移出 1 张；但 " +
-    "effects/testing/test-kernel.ts 的 channel-rune 忽略 exhausted，431.2 的横置入场状态尚未执行正确。仍缺 Tank " +
-    "战斗分配优先级与 channel-rune 入场状态落实，不近似实现。",
+    "[Tank] 的关键词展开与静态注册已可用，但 continuous.combat 的 damage-assignment/priority first " +
+    "尚无战斗消费方：combat/base-combat-allocation.ts 只接受 keywordPriority=proven-none 的基础分配证明，" +
+    "不能执行 CR 815.1.b/815.1.c 的先分配致命伤害约束。card-played 触发过滤绑定、解释器链路与 " +
+    "effect.channel 已有真实执行证据；但 effects/testing/test-kernel.ts 的 channel-rune 仍忽略 exhausted，" +
+    "CR 431.2 的横置入场状态尚未真正落地。仍缺 Tank 战斗分配优先级与 channel-rune exhausted 入场状态，" +
+    "不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "tank" },
     {

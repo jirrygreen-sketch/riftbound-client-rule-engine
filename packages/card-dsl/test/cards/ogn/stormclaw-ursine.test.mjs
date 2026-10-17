@@ -30,7 +30,13 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, verbatim sourceTe
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Tank/);
-  assert.match(program.judgeReason, /keywords\//);
+  assert.match(program.judgeReason, /effects\/keywords\/|关键词展开/);
+  assert.match(program.judgeReason, /815\.1\.b|815\.1\.c/);
+  assert.match(program.judgeReason, /base-combat-allocation\.ts/);
+  assert.match(program.judgeReason, /431\.2/);
+  assert.match(program.judgeReason, /channel-rune/);
+  assert.match(program.judgeReason, /exhausted/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.equal(
     program.sourceText,
     "[Tank] (I must be assigned combat damage first.)\n" +
@@ -134,7 +140,7 @@ test("golden: the merged Tank expansion is a static ability carrying no instruct
 
 test.todo(
   "Stormclaw Ursine: [Tank] (CR 815.1.b combat-damage assignment order) has the merged KeywordDef " +
-    "(RIFT-264) but nothing consumes the continuous.combat declaration — " +
+    "but nothing consumes the continuous.combat declaration — " +
     "combat/base-combat-allocation.ts explicitly binds no Tank requirement"
 );
 test("Stormclaw Ursine: the merged program filter binder resolves the played source", () => {
