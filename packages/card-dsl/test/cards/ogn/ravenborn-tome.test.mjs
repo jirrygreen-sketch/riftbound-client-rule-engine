@@ -23,8 +23,12 @@ test("ogn-032-298 Ravenborn Tome: program passes validateCardProgram", () => {
   // The judgeReason must cite the delayed passive ability rule that names this card.
   assert.match(program.judgeReason, /392/);
   assert.match(program.judgeReason, /Bonus Damage/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  // The chain/event work is merged; the missing piece is the registered op and
+  // its next-spell association, so the reason no longer lists RIFT-120 as a gap.
+  assert.ok(!/RIFT-120/.test(program.judgeReason));
   assert.match(program.judgeReason, /trigger\.delayed/);
+  assert.match(program.judgeReason, /生效的指令注册表里没有/);
+  assert.match(program.judgeReason, /链\/事件接线已合入/);
   assert.equal(
     program.sourceText,
     ":rb_exhaust:: The next spell you play this turn deals 1 Bonus Damage. " +
@@ -101,13 +105,13 @@ test("Ravenborn Tome golden: effect.damage applies the Bonus Damage it is handed
 test.todo(
   "Ravenborn Tome: “The next spell you play this turn deals 1 Bonus Damage.” is a Delayed Passive " +
     "Ability named by CR v1.5 392. Registering it needs a delayed-passive registration path " +
-    "(ResolveContext.registerDelayedTrigger has no merged instruction primitive: no trigger.delayed " +
-    "or continuous.bonus-damage file under effects/instructions/) plus the consumer that grants " +
-    "Bonus Damage (713/714/715) to just that spell; RIFT-120 owns that path."
+    "(ResolveContext.registerDelayedTrigger has no registered instruction primitive: the effective " +
+    "registry has no trigger.delayed or continuous.bonus-damage op) plus the consumer that grants " +
+    "Bonus Damage (713/714/715) to just that spell."
 );
 
 test.todo(
   "Ravenborn Tome: the “this turn” expiry (CR v1.5 392 specified time / 393 delayed abilities) " +
-    "depends on the delayed-ability registration and grant pipeline (RIFT-120); the layer duration " +
+    "depends on the delayed-ability registration and grant pipeline; the layer duration " +
     "registry already models end-of-turn expiry, but nothing registers the grant to expire."
 );

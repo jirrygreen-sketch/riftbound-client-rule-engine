@@ -5,6 +5,7 @@ import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/portal-rescue.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import banish from "../../../../engine-core/dist/effects/instructions/effect.banish.js";
+import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
 import play from "../../../../engine-core/dist/effects/instructions/effect.play.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
@@ -37,18 +38,20 @@ test("ogn-102-298 Portal Rescue identity, ruleset, status and printed text", () 
   assert.equal(cardRegistryById.get(CARD_ID), program);
 });
 
-test("ogn-102-298 Portal Rescue judgeReason names the ignore-cost rule and the missing producer", () => {
+test("ogn-102-298 Portal Rescue judgeReason names the merged arithmetic and the missing card-side producer", () => {
   // The reason cites the ignore-cost family (356.1.b) including the
-  // both-resources branch 356.1.b.1, the 356.6 floor, effect.play's
-  // FinalizedCostPlan requirement and the cost-plan dependency.
+  // both-resources branch 356.1.b.1, the 356.6 floor, the merged cost.modify /
+  // ignore-base arithmetic and the remaining card-side producer gap.
   assert.match(program.judgeReason, /356\.1\.b\.1/);
   assert.match(program.judgeReason, /356\.1\.b/);
   assert.match(program.judgeReason, /356\.6/);
   assert.match(program.judgeReason, /FinalizedCostPlan/);
-  // The merged cost pipeline already models ignore-base; what is missing is
-  // the descriptor consumer plus the unmerged cost.pay/cost.modify primitives.
   assert.match(program.judgeReason, /ignore-base/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /已合入/);
+  assert.ok(!/RIFT-261/.test(program.judgeReason), "merged cost-op task must not stay a listed dependency");
+  // The current gap is the card-side descriptor consumer, not the primitive.
+  assert.match(program.judgeReason, /resolveChainBody/);
+  assert.match(program.judgeReason, /费用描述符→Finalize 计划的卡牌侧消费接线/);
 });
 
 test("ogn-102-298 Portal Rescue structure: [Action] keyword plus a linked banish-then-play pair", () => {
@@ -106,6 +109,29 @@ test("ogn-102-298 Portal Rescue structure: [Action] keyword plus a linked banish
 test("ogn-102-298 Portal Rescue: the merged registry really registers both used primitives", () => {
   assert.equal(banish.op, "effect.banish");
   assert.equal(play.op, "effect.play");
+  assert.equal(costModify.op, "cost.modify");
+});
+
+test("ogn-102-298 Portal Rescue golden: the merged cost.modify primitive really zeroes both base costs (356.1.b.1/356.6)", () => {
+  // The merged primitive (RIFT-261) builds a finalized plan through
+  // buildCostPlan + BaseCostModification ignore-base: resources. This is the
+  // arithmetic the card's play half needs; only the card-side producer that
+  // turns this card's cost descriptor into that plan is missing.
+  const kernel = world()
+    .unit("rescued", { owner: "A", controller: "A", types: ["unit"], energy: 3, power: ["Mind"] })
+    .build();
+  const run = runInstruction(costModify, {
+    id: "portal-rescue.ignore-cost",
+    cost: { kind: "explicit", energy: { kind: "constant", value: 3 }, power: { kind: "constant", value: ["Mind"] } },
+    baseModifications: [{ kind: "ignore-base", ignore: "resources" }],
+    linkKey: "plan"
+  }, { world: kernel });
+
+  assert.equal(run.result.status, "executed");
+  const plan = run.linked.plan;
+  assert.equal(plan.finalized, true);
+  assert.deepEqual(plan.total, { energy: 0, power: [], xp: 0, actions: [] });
+  assert.deepEqual(plan.modifications, [{ kind: "ignore-base", ignore: "resources" }]);
 });
 
 test("ogn-102-298 Portal Rescue golden: the banished unit reaches Banishment and its receipt carries the new ref", () => {
@@ -186,11 +212,11 @@ test("ogn-102-298 Portal Rescue golden: an unfinalized ignore-cost plan never pl
 });
 
 test.todo(
-  "Portal Rescue: materialize the ignore-cost plan (base Energy cost and base Power cost set to zero per " +
-    "CR 356.1.b/356.1.b.1, floor 0 per 356.6, without rewriting 356.1.b.3 additional costs) and play the " +
-    "banished card to base as a Limited Action (420.3/420.3.a) - the merged cost pipeline already implements " +
-    "BaseCostModification ignore-base, but no consumer reads this card's cost descriptor and the " +
-    "cost.pay/cost.modify primitives are unmerged (RIFT-261)"
+  "Portal Rescue: the merged cost.modify arithmetic must be reachable from this card's IR - the production " +
+    "chain dispatch (chain/interpreter-adapter.ts primitiveArgs LITERAL_FIELDS) does not decode a card-side " +
+    "cost.modify, so its Expr id/args are rejected, and the plan has to be built from the banished card's own " +
+    "printed Energy/Power cost (CR 356.1.b.1, floor 0 per 356.6) for the play to base as a Limited Action " +
+    "(420.3/420.3.a). Depends on the card-side cost-descriptor to Finalize cost-plan consumer."
 );
 
 test.todo(

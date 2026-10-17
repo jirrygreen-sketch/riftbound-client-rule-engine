@@ -30,8 +30,11 @@ test("radiant-dawn identity: canonicalCardId, ruleset, judge-required status and
   assert.match(program.judgeReason, /412\.4/);
   assert.match(program.judgeReason, /412\.5/);
   assert.match(program.judgeReason, /one or more/);
-  assert.match(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /testTrigger/);
+  // RIFT-257 is merged; the remaining authoring gap is the missing event-name
+  // discriminant plus per-batch grouping, not the program binding.
+  assert.match(program.judgeReason, /卡牌触发绑定已合入/);
+  assert.match(program.judgeReason, /per-batch/);
   assert.equal(
     program.sourceText,
     "When you stun one or more enemy units, buff a friendly unit. (If it doesn't have a buff, it gets a +1 :rb_might: buff.)"
@@ -117,5 +120,5 @@ test.todo(
 test.todo(
   "radiant-dawn \"one or more enemy units\": one trigger per Stun action/batch even when it " +
     "stuns several enemy units; needs batch grouping on the stun timing point plus a per-batch " +
-    "lifetime, and a merged CardProgram→TriggerRegistration binder (RIFT-257)."
+    "lifetime (the CardProgram→TriggerRegistration binder itself is merged)."
 );

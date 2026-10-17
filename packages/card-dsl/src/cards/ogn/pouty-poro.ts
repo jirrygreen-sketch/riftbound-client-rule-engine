@@ -19,12 +19,17 @@ import type { CardProgram } from "../../ir/index.js";
  * 卡牌只声明关键词（契约 3.1/3.7、README 第 5 节）；展开（static target.tax）
  * 由 effects/keywords/Deflect.ts 负责。
  *
- * status = judge-required：TargetPlan 只在调用方显式传入 tax 时才追加 Deflect
- * 追加费（target/target-plan.ts 的 taxSpecs/appendTaxes），没有任何已合入消费方从
- * 永久物的 target.tax 持续效果派生该税；chain/engine.ts 的 Finalize 已能接收
- * taxAdapter 回调，但把回调接进实际付费仍依赖未合入的 cost.pay/cost.modify
- * （RIFT-261），且已合入的 tax→费用换算按 Energy 记账（chain/engine.ts:307），与
- * 809.1.c.1 要求的「任意域 Power」不符。
+ * status = judge-required（复核 2026-10-17）：cost.pay / cost.modify 已合入，旧依赖任务
+ * 已过时；当前真实缺口是「Deflect → 目标税 → 任意域 Power 支付」的生产接线：
+ * - TargetPlan 只在调用方显式传入 options.tax 时才追加 Deflect 税
+ *   （target/target-plan.ts 的 taxSpecs/appendTaxes），没有已合入消费方从被选永久物的
+ *   静态 target.tax 派生该税；
+ * - 已合入的 static 绑定（programs/statics.ts 的 layerFor）没有 target.tax 的 layer
+ *   映射，绑定时抛 ProgramBindingError「Static ability kind target.tax has no layer
+ *   mapping」，展开结果接不进图层；
+ * - chain/engine.ts 的 Finalize 把收到的税记为 Energy mandatoryAdditional，而
+ *   809.1.c/809.1.c.1 要求追加费用用任意域 Power 支付。
+ * 依赖：目标税生产接线与任意域 Power 收费（RIFT-360，进行中）。
  */
 const poutyPoro = {
   canonicalCardId:
@@ -32,13 +37,17 @@ const poutyPoro = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "Deflect 的展开文件（effects/keywords/Deflect.ts：static target.tax）已合入，但没有任何已合入消费方把永久物上的 " +
-    "target.tax 持续效果接进目标选择：target/target-plan.ts 的 taxSpecs/appendTaxes 只在调用方显式传入 tax 时才追加，" +
-    "chain/engine.ts 的 Finalize 虽然提供 taxAdapter 回调，但从「目标税请求」到实际收费仍依赖未合入的 " +
-    "cost.pay / cost.modify（RIFT-261）；并且已合入的 tax→费用换算按 Energy 记账（chain/engine.ts:307），" +
-    "而 809.1.c/809.1.c.1 要求追加费用用任意域 Power 支付。缺少的是" +
-    "「持续效果 → TargetPlan 税 → 任意域 Power 支付」接线，不属于本卡的 write scope；不近似实现。" +
-    "依赖：RIFT-261（cost.pay/cost.modify）与目标税消费接线。",
+    "Deflect 的展开文件（effects/keywords/Deflect.ts：static target.tax）已合入，" +
+    "cost.pay / cost.modify 也已合入（旧依赖任务已过时）；当前真实缺口是" +
+    "「Deflect → 目标税 → 任意域 Power 支付」生产接线：" +
+    "(1) target/target-plan.ts 的 taxSpecs/appendTaxes 只在调用方显式传入 options.tax 时才追加税，" +
+    "没有已合入消费方从被选永久物的静态 target.tax 派生该税；" +
+    "(2) 已合入的 static 绑定（programs/statics.ts 的 layerFor）没有 target.tax 的 layer 映射，" +
+    "绑定时抛 \"Static ability kind target.tax has no layer mapping\"，" +
+    "展开结果接不进图层；(3) chain/engine.ts 的 Finalize 把目标税记为 Energy mandatoryAdditional，" +
+    "而 809.1.c/809.1.c.1 要求追加费用用任意域 Power 支付。" +
+    "依赖：RIFT-360 的目标税生产接线与任意域 Power 收费（进行中）；不近似实现" +
+    "（不把 Deflect 写成静态数值、不跳过目标税）。",
   abilities: [{ kind: "keyword", keyword: "deflect" }],
   sourceText:
     "[Deflect] (Opponents must pay :rb_rune_rainbow: to choose me with a spell or ability.)"
