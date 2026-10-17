@@ -6,6 +6,7 @@ import program from "../../../dist/cards/ogn/volibear-imposing.js";
 import draw from "../../../../engine-core/dist/effects/instructions/effect.draw.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { getTimingPoint } from "../../../../engine-core/dist/events/timing-points.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
@@ -40,6 +41,7 @@ test("ogn-158-298 Volibear, Imposing: judgeReason names the current keyword and 
   assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /movedToOtherThanSourceLocation/);
   assert.match(program.judgeReason, /zones\/movement/);
+  assert.match(program.judgeReason, /standard-move-executor-v2/);
   assert.doesNotMatch(program.judgeReason, /RIFT-257|RIFT-264/);
 });
 
@@ -150,6 +152,44 @@ test("ogn-158-298 Volibear, Imposing: Tank and Shield expand through the registe
   assert.deepEqual(expanded.condition.right, { kind: "constant", value: "defender" });
 });
 
+test("ogn-158-298 Volibear, Imposing: movement timing declares origin, destination and cause (421/449)", () => {
+  const timing = getTimingPoint(moveTrigger.trigger.at);
+  assert.equal(timing.id, "object-moved");
+  assert.equal(timing.payloadType, "movement");
+  for (const field of ["controllerId", "fromKind", "fromLocationId", "toKind", "toLocationId", "cause"]) {
+    assert.ok(timing.payloadFields.includes(field), field);
+  }
+});
+
+test("ogn-158-298 Volibear, Imposing: committed moves capture controller and each destination; entering a zone is distinct (448.2/449.2)", () => {
+  for (const controller of ["A", "B"]) {
+    const owner = controller === "A" ? "B" : "A";
+    const f = fixture({ cards: [{ id: "mover", owner, controller, types: ["unit"], might: 2 }] });
+    const base = { type: "base", player: controller };
+    const battlefield = { type: "battlefield", id: "battlefield-2" };
+    assert.equal(f.engine.commit({ type: "move-zone", object: f.kernel.ref("mover"), to: "board", location: base }).status, "done");
+    f.engine.advance();
+    assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === moveTrigger.trigger.at).length, 0);
+    const ref = f.kernel.ref("mover");
+
+    assert.equal(f.engine.commit({ type: "move-location", object: ref, to: battlefield }).status, "done");
+    assert.equal(f.engine.commit({ type: "move-location", object: ref, to: base }).status, "done");
+
+    const events = f.engine.pipeline.events.filter(event => event.timingPoint === moveTrigger.trigger.at);
+    assert.equal(events.length, 2);
+    assert.deepEqual(events.map(event => event.object.location), [battlefield, base]);
+    for (const event of events) {
+      assert.deepEqual(event.object.ref, ref);
+      assert.equal(event.object.controller, controller);
+      assert.equal(event.object.owner, owner);
+      assert.equal(event.player, controller);
+      assert.equal(event.object.zone, "board");
+    }
+    assert.deepEqual(f.kernel.getObject("mover").location, base);
+    assert.deepEqual(f.kernel.ref("mover"), ref);
+  }
+});
+
 test.todo(
   "ogn-158-298 Volibear, Imposing: [Tank] needs continuous.combat's damage-assignment/priority:first " +
     "to require lethal damage before non-Tank allies (CR v1.5 815.1.b/815.1.c.2); " +
@@ -157,9 +197,9 @@ test.todo(
 );
 test.todo(
   "ogn-158-298 Volibear, Imposing: 'When an opponent moves to a battlefield other than mine, draw 1.' " +
-    "needs zones/movement's Standard Move group connected to object-moved (CR v1.5 421.1/449.1/449.2; " +
+    "needs zones/movement's Standard Move group and standard-move-executor-v2's handler settlement connected to this CardProgram (CR v1.5 421.1/449.1/449.2; " +
     "committed move-location already emits it) and a predicate comparing the destination battlefield " +
-    "against the source's current location; bases and Recall (458.1) must not trigger it."
+    "against the source's current location; EventPattern must accept object-moved, and bases and Recall (458.1) must not trigger it."
 );
 test.todo(
   "ogn-158-298 Volibear, Imposing: [Shield 3] must add 3 Might only while defending (CR v1.5 " +
