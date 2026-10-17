@@ -68,10 +68,7 @@ export function translateTriggerFilter(input: ObjectFilter | EventPattern | Reco
   const player = raw.player ?? objectFilter.player;
   if (player !== undefined) pattern.player = normalizePlayer(player);
   for (const key of ['fromZone', 'toZone', 'amount', 'details'] as const) if (raw[key] !== undefined) pattern[key] = raw[key];
-  if (!pattern.event) {
-    if (defaultEvent) pattern.event = defaultEvent;
-    else return {} as EventPattern;
-  }
+  if (!pattern.event) pattern.event = defaultEvent;
   return pattern as EventPattern;
 }
 
