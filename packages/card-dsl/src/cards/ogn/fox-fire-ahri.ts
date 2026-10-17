@@ -15,11 +15,12 @@ import type { CardProgram } from "../../ir/index.js";
  *
  * Status: judge-required. The kill clause is a 355.11 group target:
  * - the affected units are chosen and must collectively sit at ONE battlefield
- *   with a total Might of 4 or less. The merged target plan resolves min/max over
- *   independent candidates plus per-member legality; it has a `kind: "group"`
- *   field but no group-coherence or total-Might constraint, and no resolution-time
- *   re-choice of a legal subset (355.11.b). The Core Rules use this very card as
- *   the example for that rule (units that were given +1 Might force the controller
+ *   with a total Might of 4 or less. `TargetSpec.location` now expresses the
+ *   battlefield restriction, but the merged target plan still resolves only
+ *   min/max plus per-member legality; its `kind: "group"` field has no
+ *   group-coherence or total-Might constraint, and no resolution-time re-choice
+ *   of a legal subset (355.11.b). The Core Rules use this very card as the
+ *   example for that rule (units that were given +1 Might force the controller
  *   to pick a legal subset of the original targets).
  * - "any number ... including zero" is expressed here as min 0 / selection
  *   "any" (355.13), but the group constraint above cannot be enforced, so the card
@@ -36,7 +37,8 @@ const foxFire = {
   status: "judge-required",
   judgeReason:
     "缺分组目标与总 Might 约束：'any number of units at a battlefield with total Might 4 or less' 是 355.11 的分组要求" +
-    "（同一战场 + 组内 Might 合计 ≤ 4），target-plan 只有 min/max 与单体合法性，kind:\"group\" 字段无实现，" +
+    "（同一战场 + 组内 Might 合计 ≤ 4），TargetSpec.location 已能表达 battlefield，但 target-plan 仍只有 min/max 与单体合法性，" +
+    "kind:\"group\" 字段不会执行组内一致性或 Might 合计，" +
     "也没有 355.11.b/355.11.b.1 的结算时合法子集重选（CR 本条示例正是 Fox-Fire）；" +
     "[Hidden]（811）的展开还依赖 cost.hidden（隐藏行动、facedown 区域与免费打出）及其流程绑定。" +
     "Kill 原语本身已合入并有执行测试；不近似实现。",
@@ -53,7 +55,8 @@ const foxFire = {
           targets: [
             {
               id: "fox-fire-units",
-              filter: { type: "unit", locationType: "battlefield" },
+              filter: { type: "unit", zone: "board" },
+              location: { type: "battlefield" },
               min: 0,
               max: null,
               selection: "any",
