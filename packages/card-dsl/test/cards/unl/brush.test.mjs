@@ -73,12 +73,8 @@ test("unl-t03 Brush: identity, status, judgeReason and verbatim sourceText", () 
   assert.match(program.judgeReason, /tagsAnyOf/);
   assert.match(program.judgeReason, /sameLocationAs/);
   assert.match(program.judgeReason, /439\.7/);
-  assert.match(program.judgeReason, /RIFT-91/);
-  // RIFT-329 re-review: the score/conquer/hold wave is emitted (RIFT-270) and
-  // the registration adapter exists (RIFT-257); what the reason still names is
-  // the here vocabulary inside that adapter.
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-270/);
+  assert.match(program.judgeReason, /here/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(91|257|270)/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -124,11 +120,10 @@ test("unl-t03 Brush: the merged arithmetic layer really applies the declared +1 
   assert.equal(engine.evaluate(here.ref).might, 3);
 });
 
-test("unl-t03 Brush golden: RIFT-257's binding expands the declared keyword-free program and exposes its statics", () => {
-  // RIFT-329 re-review: the production binding really does read this CardProgram
-  // (RIFT-257). The static Might ability keeps its declared arithmetic-layer
+test("unl-t03 Brush golden: the binding expands the declared keyword-free program and exposes its statics", () => {
+  // The production binding reads this CardProgram. The static Might ability keeps its declared arithmetic-layer
   // shape, and the layer engine above proves that shape is executable — the
-  // missing piece is only the card-static registration path itself.
+  // remaining card-specific blocker is the tagsAnyOf filter semantics.
   const executable = {
     canonicalCardId: program.canonicalCardId,
     rulesetVersion: program.rulesetVersion,
@@ -208,12 +203,6 @@ test.todo(
 );
 
 test.todo(
-  "unl-t03 Brush: register the static +1 Might as a ContinuousEffectSpec and honour the 053.3 'here' " +
-    "anchor (sameLocationAs) in the layers filter so only units at this Battlefield are affected " +
-    "(RIFT-91 follow-up, same gap as rad/packed-amphitheater)"
-);
-
-test.todo(
   "unl-t03 Brush: implement the Replace / Swap-Back action (439.3, 439.5, 439.7, 439.7.b, 439.7.c) " +
     "so scoring may return the replaced battlefield card from Banishment into the token's space with " +
     "its current effects and statuses, and the token ceases to exist"
@@ -222,11 +211,4 @@ test.todo(
 test.todo(
   "unl-t03 Brush: read the battlefield this token replaced (the Replace action's stored reference) " +
     "from IR — contract 3.6 offers only self/source/target/pick/linked"
-);
-
-test.todo(
-  "unl-t03 Brush: emit the score timing point from scoring/ into the chain/events pipeline and " +
-    "register this CardProgram's triggered ability with the 053.3 'here' filter — the score wave is " +
-    "emitted by turn/flow.ts (RIFT-270) and RIFT-257 registers triggers, but programs/filters.ts " +
-    "refuses the EventPattern 'here' field and 190.6.d battlefield-controller binding is missing"
 );

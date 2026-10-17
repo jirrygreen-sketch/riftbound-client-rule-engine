@@ -14,7 +14,7 @@ import type { CardProgram } from "../../ir/index.js";
  * Rules evidence (Core Rules v1.5):
  * - [Hidden] (811) is declared as a keyword ability only; its expansion
  *   (effects/keywords/Hidden.ts) is a `cost.hidden` static effect whose
- *   consumer is still pending (RIFT-89), so the hide/facedown-play half of the
+ *   consumer is still pending, so the hide/facedown-play half of the
  *   card cannot execute. The card declares the keyword as README section 5
  *   requires instead of re-writing the expansion.
  * - "Choose a battlefield" chooses a specific Game Object in a public zone
@@ -59,9 +59,9 @@ import type { CardProgram } from "../../ir/index.js";
  * executes only the merged halves (the battlefield target, the full-hand reveal
  * and the non-target pick).
  *
- * Dependencies: RIFT-89 (cost.hidden / cost.pay / FinalizedCostPlan for
- * "ignoring any and all costs", CR 356.5.a), target.player for the opponent
- * choice, and trigger.reflexive for "When they do".
+ * Dependencies: the cost.hidden consumer and a finalized zero-cost play plan
+ * for CR 356.5.a, target.player for the opponent choice, and trigger.reflexive
+ * for "When they do".
  */
 export default {
   canonicalCardId:
@@ -70,7 +70,7 @@ export default {
   status: "judge-required",
   judgeReason:
     "四处依赖未合入，均不近似实现：(1) [Hidden]（811）的展开是 cost.hidden 静态效果，其消费方（隐藏与背面打出、" +
-    "[A] 支付）属 RIFT-89，尚未接线（effects/keywords/Hidden.ts 自述）。" +
+    "[A] 支付）尚未接线（effects/keywords/Hidden.ts 自述）。" +
     "(2)「An opponent reveals their hand」需要玩家选择原语：冻结的 TargetSpec 只描述对象过滤器、PickSpec.options 是静态值数组，" +
     "「在所有对手中选一个玩家」没有形态（ogn/mindsplitter 记为 target.player 缺口）；本程序用带文档说明的占位 pick 绑定该对手。" +
     "(3)「They play that unit to that battlefield, ignoring any and all costs」按 356.5.a 是把总费用置 0；" +
@@ -79,7 +79,7 @@ export default {
     "(4)「When they do, [Stun] it」是反身触发（388.1/388.2/389.1，由 “When they do” 识别，结算后另建 Pending Item）：" +
     "已合入的 IR 没有任何创建反身 Pending Item 的能力/指令形态（ogn/dragons-rage-lee-sin 记为 trigger.reflexive），" +
     "写成普通后续指令会把反身触发偷偷变成咒语的结算部分。" +
-    "依赖：RIFT-89（cost.hidden / 忽略全部费用的打出计划）、target.player、trigger.reflexive。" +
+    "依赖：cost.hidden 的消费方、忽略全部费用的已 Finalize 打出计划、target.player、trigger.reflexive。" +
     "已合入并由 golden 真实执行的部分：战场目标声明（170/355.7）、effect.reveal 展示对手全部手牌（425.3.a）、" +
     "以及从展示集合做的非目标 pick（355.10.a/e；effect.stun 本体 424.1 亦已合入）。",
   abilities: [

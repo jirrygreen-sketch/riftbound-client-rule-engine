@@ -33,8 +33,8 @@ test("unl-152-219 Black Rose Dignitary: identity, status, judgeReason and verbat
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /807\.1\.c/);
   assert.match(program.judgeReason, /trigger\.leave/);
-  assert.match(program.judgeReason, /RIFT-82/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /combatRole/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(82|91|120|257)/);
 });
 
 test("unl-152-219 Black Rose Dignitary: both keywords are declared, not re-implemented", () => {
@@ -114,13 +114,13 @@ test("unl-152-219 Black Rose Dignitary golden: an empty Rune Deck channels as mu
 
 test.todo(
   "unl-152-219 Black Rose Dignitary: expand [Assault] into a conditional +1 Might in the arithmetic " +
-    "layer for as long as I hold the Attacker designation (CR 807.1.c / 807.1.d / 807.1.d.1) — no " +
-    "card keyword-to-KeywordDef expansion consumer, no combatRole characteristic (contract 3.8), and " +
-    "the layer condition matcher does not evaluate compare conditions (RIFT-91)"
+    "layer for as long as I hold the Attacker designation (CR 807.1.c / 807.1.d / 807.1.d.1) — the " +
+    "combatRole/Attacker characteristic is not present in ObjectSnapshot, so the compare condition cannot " +
+    "be evaluated"
 );
 test.todo(
   "unl-152-219 Black Rose Dignitary: expand [Deathknell] (subscribe object-killed, removal from the " +
     "chain when the death is replaced per 808.1.d.1, last-known information recorded pre-chain per " +
-    "808.1.d.3) — the KeywordDef only references the unmerged trigger.leave op and card triggers are " +
-    "not registered into the event pipeline (RIFT-82 / RIFT-257)"
+    "808.1.d.3) — the KeywordDef still references the unregistered trigger.leave op and its death " +
+    "replacement/LKI semantics are not executable"
 );

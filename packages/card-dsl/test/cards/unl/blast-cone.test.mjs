@@ -44,11 +44,12 @@ test("unl-133-219 Blast Cone: identity, ruleset, status, judgeReason and verbati
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /355\.4/);
-  assert.match(program.judgeReason, /target\.location/);
+  assert.match(program.judgeReason, /runtime|运行期/);
   assert.match(program.judgeReason, /412\.4/);
   assert.match(program.judgeReason, /ObjectSelector/);
   assert.match(program.judgeReason, /cost\.pay/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /TriggeredAbility/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(89|120|257)/);
   assert.equal(/待实现|需要裁定/.test(program.judgeReason), false);
 });
 
@@ -116,7 +117,8 @@ test("unl-133-219 Blast Cone: 'exhaust this to [Stun] it' keeps the in-effect co
     "blast-cone.stun-moved-unit"
   ]);
 
-  // 415.5: "exhaust this" is an in-effect cost; the op is not merged.
+  // 415.5: "exhaust this" is an in-effect cost; the current card body keeps
+  // the nonstandard payment shape while TriggeredAbility has no base-cost slot.
   assert.equal(payExhaust.op, "cost.pay");
   assert.deepEqual(payExhaust.args.payments, {
     kind: "constant",
@@ -348,7 +350,7 @@ test("unl-133-219 Blast Cone golden: the printed exhaust cost is payable and the
 
 test.todo(
   "unl-133-219 Blast Cone: choose the Move destination from runtime-legal Locations (CR 355.4 / 355.4.a / 451.1) — " +
-    "the frozen IR has no runtime Location selector (target.location is not merged), so the card keeps a fail-closed marker"
+    "the card has no producer that enumerates the runtime-legal destinations; effect.move only consumes a caller-supplied candidate list"
 );
 test.todo(
   "unl-133-219 Blast Cone: expose the acting player of a Move so 'you move an enemy unit' can filter it (CR 412.4 / " +
@@ -360,5 +362,6 @@ test.todo(
 );
 test.todo(
   "unl-133-219 Blast Cone: pay the in-effect 'exhaust this' cost via the merged cost.pay primitive and give the " +
-    "triggered ability a base-cost slot (CR 383.3.b; contract 3.1, RIFT-89)"
+    "triggered ability a base-cost slot (CR 383.3.b / contract 3.1); the current cost.pay path cannot consume this " +
+    "nonstandard payment directly from the frozen triggered-ability body"
 );

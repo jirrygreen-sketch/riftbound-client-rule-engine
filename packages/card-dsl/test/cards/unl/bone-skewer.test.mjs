@@ -32,9 +32,9 @@ test("unl-139-219 Bone Skewer: identity, status, judgeReason and verbatim source
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  // README section 2: each gap names the missing piece, the rule and the task.
+  // README section 2: each gap names the missing piece and the governing rule.
   assert.match(program.judgeReason, /cost\.hidden/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(89|9|120|257)/);
   assert.match(program.judgeReason, /356\.5\.a/);
   assert.match(program.judgeReason, /388\.1/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
@@ -233,12 +233,12 @@ test("unl-139-219 Bone Skewer fail-closed: the merged effect.play refuses the un
 
 test.todo(
   "Bone Skewer: [Hidden] (CR 811) needs its cost.hidden consumer - the Hide action, facedown-zone restrictions " +
-    "and the free facedown play are RIFT-89's cost.* work; the merged Hidden KeywordDef only declares the static effect"
+    "and the free facedown play are not consumed by the merged Hidden KeywordDef, which only declares the static effect"
 );
 
 test.todo(
   "Bone Skewer: \"They play that unit ... ignoring any and all costs\" is CR 356.5.a's total-cost rewrite, which needs a " +
-    "finalized cost plan produced by the cost system (effect.play never derives printed costs); RIFT-89 / RIFT-9"
+    "finalized zero-cost plan produced by the cost system (effect.play never derives printed costs)"
 );
 
 test.todo(

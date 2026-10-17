@@ -32,7 +32,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   没有消费者，触发收集阶段（events/）也没有倍率接口。
  * - 延迟触发 “at the start of your next Main Phase” 没有已注册原语消费 ctx.registerDelayedTrigger，
  *   也没有“下一次 Main Phase”的期限模型。
- * 依赖：触发倍率接口、延迟触发原语（RIFT-9 trigger.delayed / RIFT-120）、Universal Power 的契约变更请求。
+ * 依赖：触发倍率接口、trigger.delayed 原语与“下一次 Main Phase”窗口、Universal Power 的契约变更请求。
  */
 const abilities: Ability[] = [
   // 814.1.b：印刷为 [Shield 2]，带数值。
@@ -100,7 +100,7 @@ const program = {
     "(3)「[Add] :rb_rune_rainbow:」的 [A]（163.2.b / 135.2.e.5）不在封闭 Domain 集合内：effect.resources 明确 Universal Power " +
     "不可表达、绝不用某个域近似（实测 power: [\"rainbow\"] 返回 negated(impossible)），本卡保留记号并提交契约变更请求。" +
     "[Shield 2]（814）已声明；hold 触发结构（383.4.d 的时点 hold）已保留。" +
-    "依赖：触发倍率接口（events/）、RIFT-9 的 trigger.delayed 原语 / RIFT-120、Universal Power 的契约变更请求。",
+    "依赖：触发倍率接口（events/）、trigger.delayed 原语与“下一次 Main Phase”窗口、Universal Power 的契约变更请求。",
   abilities,
   sourceText:
     "[Shield 2] (+2 :rb_might: while I'm a defender.)\n" +
