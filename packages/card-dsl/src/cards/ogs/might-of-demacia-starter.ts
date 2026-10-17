@@ -19,11 +19,12 @@ import type { CardProgram } from "../../ir/index.js";
  *   Legend Zone。
  *
  * status = judge-required：见 judgeReason。conquer 时点已由 TurnFlow 的 Score 波真实
- * 发出（turn/flow.ts 的结构化 timing wave，RIFT-270 审计表），但触发条件里的
- * 「在 that battlefield 有 4+ 单位」需要按征服事件的战场引用（359.3.f 的 referent）
- * 做集合计数：事件 details 只带 battlefieldId 标量，ObjectFilter/EventPattern 没有
- * "事件本轮次的战场" 锚点，也没有按事件位置计数的 condition 形式；同时没有生产方把
- * 卡牌程序的 triggered 能力注册为管线 TriggerRegistration（RIFT-257）。不近似实现。
+ * 发出（turn/flow.ts 的结构化 timing wave），details 带 battlefieldId 标量；但触发
+ * 条件里的「在 that battlefield 有 4+ 单位」仍需要：按征服事件的战场引用（359.3.f
+ * 的 referent）做集合计数的 condition 形式（count/compare 读不到事件载荷、没有
+ * "事件本轮次的战场" 位置锚点），以及带 condition 的注册所要求的宿主 testTrigger
+ * 适配器（events/pipeline.ts 抛 "Trigger condition adapter required"）。触发绑定" +
+ * 本身（RIFT-257）已合入。不近似实现。
  */
 const mightOfDemaciaStarter = {
   canonicalCardId:
@@ -31,17 +32,18 @@ const mightOfDemaciaStarter = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不属于本卡 write scope：(1) 触发条件里的参照物「4+ units at that battlefield」" +
+    "两处缺口，均不属于本卡 write scope：(1) 触发条件里的参照物「4+ units at that battlefield」" +
     "需要征服事件携带的“本次征服的战场”引用（CR 359.3.f）并据此计数：conquer 时点已由 TurnFlow 的 " +
     "Score 波真实发出且 details 带 battlefieldId 标量（turn/flow.ts；383.2.a.1 的触发条件语义），" +
-    "但 TriggerSpec/EventPattern 没有“事件本轮次的战场”位置锚点（ObjectFilter.location 只接受具体 " +
-    "位置 id 或 region 字符串），也没有按事件位置计数的 condition 形式，count/compare 也读不到事件载荷；" +
-    "(2) 没有生产方把卡牌程序的 triggered 能力注册为管线的 TriggerRegistration（契约 3.5，" +
-    "engine-core src 不读取 CardProgram.abilities；卡牌触发绑定属 RIFT-257）；" +
-    "(3) Legend 的来源区域是 Legend Zone（CR 107.4.c / 174.2.b），契约 ZoneId 与参考内核都没有" +
-    "该区域（默认 activeZones 为 ['board']）。效果本体 effect.draw 与 conquer 时点均已合入，" +
-    "golden 对 draw 体与 conquer 时点做真实执行/匹配验证；依赖：RIFT-257（卡牌触发绑定）、" +
-    "事件位置 referent 的契约变更请求。不近似实现。",
+    "但 count/compare 条件读不到事件载荷，TriggerSpec/EventPattern 没有“事件本轮次的战场”位置锚点" +
+    "（ObjectFilter.location 只接受具体位置 id 或 region 字符串），也没有按事件位置计数的 condition 形式；" +
+    "(2) 带 condition 的触发注册要求宿主提供 testTrigger 适配器（events/pipeline.ts 抛 \"" +
+    "Trigger condition adapter required\"，已合入 host 都不提供）。" +
+    "已合入的部分：effect.draw、conquer 时点与卡牌触发绑定（RIFT-257，attachLifecycle/" +
+    "registerProgramTriggers）均已合入；golden 对 draw 体、conquer 时点与 filter 的玩家等值半边做" +
+    "真实执行/匹配验证；Legend 的来源区域是 Legend Zone（CR 107.4.c / 174.2.b），契约 ZoneId 与参考内核" +
+    "都没有该区域。依赖：事件战场 referent 的计数条件与事件位置载荷（契约变更请求）、" +
+    "testTrigger 适配器、Legend Zone 扩展。不近似实现。",
   abilities: [
     {
       kind: "triggered",

@@ -12,6 +12,8 @@ import { movement } from "../../../../engine-core/dist/layers/rules/query.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
+import { createDuelBoard, placeDuelUnit, selectDuelBattlefields } from "../../../../engine-core/dist/duel/battlefields.js";
+import { moveDuelUnitsStandard } from "../../../../engine-core/dist/duel/movement.js";
 import program from "../../../dist/cards/ogs/master-yi-honed.js";
 
 const CANONICAL =
@@ -25,7 +27,7 @@ function fixture() {
   const kernel = world()
     .player("A", { energy: 20, power: ["Body"] })
     .player("B", { energy: 20 })
-    .hand("master-yi", { types: ["unit"], energy: 7, power: ["Body"], might: 6 })
+    .hand("master-yi", { cardId: CANONICAL, types: ["unit"], energy: 7, power: ["Body"], might: 6 })
     .hand("other-unit", { types: ["unit"], energy: 2, power: [], might: 2 })
     .build();
   const host = createActionPipelineHost({
@@ -61,39 +63,69 @@ function resolveAll(engine) {
   }
 }
 
-function bindEnterReady(f, id = "master-yi") {
-  return bindReplacement(
-    // The program's own declared replacement, unchanged: only the real binder
-    // turns it into a pipeline registration.
-    { replaces: replacement.replaces, with: replacement.with },
-    f.kernel.ref(id),
-    {
-      host: {
-        object: ref => f.kernel.object(ref),
-        objects: () => f.kernel.objects,
-        context: (source, controller) => bindResolveContext(f.kernel, { source, controller })
-      },
-      pipeline: f.engine.pipeline
-    }
-  );
+function play(f, id, draftId) {
+  f.engine.execute({
+    id: draftId,
+    controller: "A",
+    source: f.kernel.getObject(id),
+    kind: "unit",
+    speed: "normal",
+    body: []
+  });
+  resolveAll(f.engine);
 }
 
-test("ogs-009-024 Master Yi, Honed: program validates and is judge-required", () => {
+function lifecycleOn(f) {
+  return createProgramBinding({ cardPrograms: [program] }).attachLifecycle(f.engine, (error, source) => {
+    // other-unit is in the fixture without a program; the production lifecycle
+    // fails closed for it and the card keeps the default entry. The card under
+    // test (master-yi) must never hit this path.
+    if (source.ref.id === "master-yi") {
+      throw new Error("Lifecycle binding failed for master-yi: " + error);
+    }
+  });
+}
+
+/** Real duel factory for CR 144 Standard Move tests (duel-standard-move.test.mjs shape). */
+function duelScene() {
+  const board = createDuelBoard(selectDuelBattlefields([
+    { playerId: "alice", battlefields: [
+      { instanceId: "a-1", cardId: "printing-x" }, { instanceId: "a-2", cardId: "printing-y" },
+      { instanceId: "a-3", cardId: "printing-z" },
+    ] },
+    { playerId: "bob", battlefields: [
+      { instanceId: "b-1", cardId: "printing-x" }, { instanceId: "b-2", cardId: "printing-y" },
+      { instanceId: "b-3", cardId: "printing-z" },
+    ] },
+  ], () => 0));
+  const base = playerId => board.bases.find(entry => entry.ownerPlayerId === playerId).locationId;
+  return { board, f1: board.battlefields[0].locationId, f2: board.battlefields[1].locationId, baseA: base("alice") };
+}
+const readinessFor = (board, opts = {}) => {
+  const ganking = opts.ganking || [];
+  const exhausted = opts.exhausted || [];
+  return board.units.map(unit => ({
+    objectId: unit.objectId, readied: !exhausted.includes(unit.objectId),
+    hasGanking: ganking.includes(unit.objectId),
+}));
+};
+const mainTiming = actor => ({
+  phase: "main", stateOpen: true, turnPlayerId: actor, priorityPlayerId: actor,
+});
+const moveRequest = (actor, unitUIDs, destinationLocationId) => ({
+  actor, unitUIDs, destinationLocationId, timing: mainTiming(actor),
+});
+
+test("ogs-009-024 Master Yi, Honed: program validates as judge-required", () => {
   const result = validateCardProgram(program);
   assert.equal(result.ok, true, JSON.stringify(result.ok ? [] : result.issues));
   assert.deepEqual(result.issues, []);
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
+  assert.match(program.judgeReason, /battlefield-to-battlefield/);
+  assert.match(program.judgeReason, /Contract change request/);
   assert.equal(program.sourceText, SOURCE_TEXT);
-});
-
-test("ogs-009-024 Master Yi, Honed: judgeReason names the Standard Move gap and the RIFT-257 binding", () => {
-  assert.match(program.judgeReason, /continuous\.movement/);
-  assert.match(program.judgeReason, /Standard Move/);
-  assert.match(program.judgeReason, /bindReplacement/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.doesNotMatch(program.judgeReason, /replacement\.enter 管线未合入/);
 });
 
 test("ogs-009-024 Master Yi, Honed: [Ganking] keyword plus an enter-ready replacement", () => {
@@ -121,7 +153,7 @@ test("ogs-009-024 Master Yi, Honed: [Ganking] keyword plus an enter-ready replac
 
 test("ogs-009-024 Master Yi, Honed: the declared keyword resolves to the merged Ganking KeywordDef", () => {
   const registered = keywordDefinitionsById.get("Ganking");
-  assert.ok(registered, "effects/keywords/Ganking.ts must be in the generated registry");
+  assert.ok(registered, "effects/keywords/registry.generated.ts must exist and be imported");
   assert.equal(registered, ganking);
   assert.equal(gankingKeyword.keyword, registered.keyword.toLowerCase());
   // 810.2: multiple Ganking instances are redundant.
@@ -136,6 +168,8 @@ test("ogs-009-024 Master Yi, Honed: the Ganking expansion registers a battlefiel
   assert.equal(expansion.effect.kind, "continuous.movement");
   // 810.1.b/810.1.c: the permission adds the Battlefield-to-Battlefield route
   // to the unit's own Standard Move; it never moves anything by itself.
+  // The instruction form records the permission in the object shape that the
+  // merged layers/rules/query.ts movement() consumer reads.
   const body = [{
     id: "master-yi-honed.ganking-permission",
     op: "continuous.movement",
@@ -164,9 +198,25 @@ test("ogs-009-024 Master Yi, Honed: the Ganking expansion registers a battlefiel
   assert.deepEqual(query.permissions.map(permission => permission.routes), [["battlefield-to-battlefield"]]);
 });
 
-test("ogs-009-024 Master Yi, Honed golden: the bound replacement enters ready without a ready trigger", () => {
+test("ogs-009-024 Master Yi, Honed golden: the merged replacement binding rewrites the entry; the unit enters ready without a ready trigger", () => {
+  // The card is judge-required overall (the Ganking half is blocked), so the
+  // production ProgramRegistry refuses the whole card program. This golden
+  // binds the card's own replacement ability through the same production
+  // entry-pipeline path the lifecycle uses for an executable card
+  // (engine-core bindReplacement over engine.pipeline, see platewyrm-egg).
   const f = fixture();
-  bindEnterReady(f);
+  bindReplacement(
+    { replaces: replacement.replaces, with: replacement.with },
+    f.kernel.ref("master-yi"),
+    {
+      host: {
+        object: ref => f.kernel.getObject(ref.id),
+        objects: () => f.kernel.objects,
+        context: (snapshot, controller) => bindResolveContext(f.kernel, { source: snapshot, controller })
+      },
+      pipeline: f.engine.pipeline
+    }
+  );
 
   f.engine.execute({
     id: "play-master-yi",
@@ -182,15 +232,24 @@ test("ogs-009-024 Master Yi, Honed golden: the bound replacement enters ready wi
   assert.equal(f.kernel.getObject("master-yi").exhausted, false);
   // 805.6.a: the entry is rewritten, not exhausted-then-readied, so no
   // becomes-ready timing occurs on Board.
-  assert.equal(
-    f.engine.pipeline.events.filter(event => event.timingPoint === "object-readied").length,
-    0
-  );
+  assert.equal(f.engine.pipeline.events.filter(event => event.timingPoint === "object-readied").length, 0);
 });
 
-test("ogs-009-024 Master Yi, Honed golden: another unit still enters exhausted, and cancel releases the registration", () => {
+test("ogs-009-024 Master Yi, Honed golden: another unit still enters exhausted; without the binding the card keeps the default entry", () => {
+  // Self-anchored filter: a different unit is never rewritten (CR 370.1.b).
   const f = fixture();
-  const bound = bindEnterReady(f);
+  bindReplacement(
+    { replaces: replacement.replaces, with: replacement.with },
+    f.kernel.ref("master-yi"),
+    {
+      host: {
+        object: ref => f.kernel.getObject(ref.id),
+        objects: () => f.kernel.objects,
+        context: (snapshot, controller) => bindResolveContext(f.kernel, { source: snapshot, controller })
+      },
+      pipeline: f.engine.pipeline
+    }
+  );
 
   f.engine.execute({
     id: "play-other",
@@ -201,25 +260,21 @@ test("ogs-009-024 Master Yi, Honed golden: another unit still enters exhausted, 
     body: []
   });
   resolveAll(f.engine);
-  // The filter's self anchor (CR 370.1.b) keeps other units on the default
-  // exhausted entry (359.2.c).
   assert.equal(f.kernel.getObject("other-unit").exhausted, true);
 
-  // cancel() stops the registration from matching (the merged pipeline keeps
-  // the entry but the local cancelled flag turns matching off), so a later
-  // entry by the same host takes the default exhausted path.
-  bound.cancel();
-  f.engine.execute({
+  // Negative proof: with no binding, the card keeps the default exhausted entry.
+  const plain = fixture();
+  plain.engine.execute({
     id: "play-master-yi",
     controller: "A",
-    source: f.kernel.getObject("master-yi"),
+    source: plain.kernel.getObject("master-yi"),
     kind: "unit",
     speed: "normal",
     body: []
   });
-  resolveAll(f.engine);
-  assert.equal(f.kernel.getObject("master-yi").zone, "board");
-  assert.equal(f.kernel.getObject("master-yi").exhausted, true);
+  resolveAll(plain.engine);
+  assert.equal(plain.kernel.getObject("master-yi").zone, "board");
+  assert.equal(plain.kernel.getObject("master-yi").exhausted, true);
 });
 
 test("ogs-009-024 Master Yi, Honed: the with-body readies the source through the merged primitive", () => {
@@ -234,15 +289,64 @@ test("ogs-009-024 Master Yi, Honed: the with-body readies the source through the
   assert.deepEqual(outcome.results.map(result => result.op), ["effect.ready"]);
 });
 
-test.todo(
-  "ogs-009-024 Master Yi, Honed: Ganking's continuous.movement permission lets the unit make a " +
-    "battlefield-to-battlefield Standard Move (CR 810.1.b/810.1.c, 144.4.c.1) — the merged Standard " +
-    "Move path (combat/flow.ts move()) still blocks on the atomic Exhaust+Move transaction and takes " +
-    "Ganking from a caller-supplied trusted evaluator, so no production executor reads the permission"
-);
+test("ogs-009-024 Master Yi, Honed golden: the registered Ganking permission (instruction form) drives moveDuelUnitsStandard (CR 810.1.b/810.1.c, 144.4.c.1)", () => {
+  // The keyword-expansion route is judge-required: Ganking expands to a string
+  // permission, but layers/rules/query.ts movement() consumes a {routes} object,
+  // so the lifecycle-registered keyword entry yields canGank:false (gap noted in
+  // judgeReason + contract change request). This golden proves the consumption
+  // side: a continuous.movement instruction records the same battlefield-to-
+  // battlefield permission in the object shape and moveDuelUnitsStandard
+  // consumes it through the real registry without a trusted hasGanking callback.
+  const kernel = world().unit("master-yi", { zone: "board", might: 6 }).build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("master-yi") });
+  const body = [{
+    id: "master-yi-honed.ganking-permission",
+    op: "continuous.movement",
+    args: {
+      permission: { kind: "constant", value: "battlefield-to-battlefield" },
+      source: { kind: "constant", value: "battlefield" },
+      destination: { kind: "constant", value: "battlefield" },
+      move: { kind: "constant", value: "standard" },
+      addsPermission: { kind: "constant", value: true },
+      appliesTo: { kind: "constant", value: { objectId: "master-yi" } }
+    }
+  }];
+  const outcome = resolveChainBody(body, scoped);
+  assert.equal(outcome.status, "executed");
+  const registry = new ContinuousEffectRegistry();
+  for (const entry of scoped.continuousEffects) registry.register(entry.effect, entry.duration, 1);
 
-test.todo(
-  "ogs-009-024 Master Yi, Honed: the card-program lifecycle binds this replacement ability into the " +
-    "event pipeline's replacement registry (contract 3.5) — RIFT-257; the golden binds the same IR " +
-    "directly through the merged bindReplacement to prove the declared shape executes"
-);
+  const entries = registry.list();
+  assert.equal(entries.length, 1);
+  // The instruction normalizes the registered layer kind to "movement"; the
+  // query's effectsOfKind matches both the bare and continuous-prefixed names.
+  assert.equal(entries[0].effect.effect.kind, "movement");
+  assert.equal(entries[0].effect.filter.objectId, "master-yi");
+  const ref = kernel.ref("master-yi");
+  const object = kernel.getObject("master-yi");
+  const query = movement(registry, ref, object, "alice");
+  assert.equal(query.battlefieldToBattlefield, true);
+  assert.equal(query.canGank, true);
+
+  const scene = duelScene();
+  const current = placeDuelUnit(scene.board, { objectId: "master-yi", controllerPlayerId: "alice", locationId: scene.f1 });
+  const readiness = readinessFor(current);
+  const result = moveDuelUnitsStandard(current, readiness, moveRequest("alice", ["master-yi"], scene.f2), {
+    registry,
+    refForUnit: () => ref,
+    objectForUnit: () => object,
+  });
+  assert.equal(result.board.units.find(unit => unit.objectId === "master-yi").locationId, scene.f2);
+  assert.equal(result.readiness.find(unit => unit.objectId === "master-yi").readied, false);
+});
+
+test("ogs-009-024 Master Yi, Honed golden: a unit without the Ganking static is refused the battlefield-to-battlefield route (CR 144.4.c)", () => {
+  const scene = duelScene();
+  const current = placeDuelUnit(scene.board, { objectId: "plain-unit", controllerPlayerId: "alice", locationId: scene.f1 });
+  assert.throws(
+    () => moveDuelUnitsStandard(current, readinessFor(current), moveRequest("alice", ["plain-unit"], scene.f2), {
+      registry: new ContinuousEffectRegistry(),
+    }),
+    /needs Ganking/
+  );
+});

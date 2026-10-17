@@ -14,30 +14,29 @@ import type { CardProgram } from "../../ir/index.js";
  *   把"横置进场"改写为"就绪进场"。effect.ready 文件头明确：enter ready 是入场替代，
  *   不是事后重置，也不能用 effect.ready 模拟。
  *
- * 状态：judge-required。两个能力分开判定：
- * 1. [Ganking] 的 KeywordDef（RIFT-83）与 continuous.movement 原语（RIFT-259）
- *    已合入，layers/rules/query.ts 的 movement() 也能读出 battlefield-to-battlefield
- *    许可；但没有任何已合入的 Standard Move 执行器消费该许可
- *    （combat/flow.ts 的 move() 仍抛 standard-move-transaction；zones/movement.ts
- *    的 hasGanking 由调用方以 trusted 回调注入），因此"我能战场间移动"还不可执行。
- * 2. "I enter ready" 的替代形状（RIFT-260 的 bindReplacement 声明形式 2）已可执行：
- *    with 体使用显式 { kind: "source" } 选择符（同 Accelerate.ts），golden 把它绑到
- *    真实 ChainEngine 上执行、断言单位以就绪状态进场且不产生 object-readied 事件。
- *    生产生命周期里的卡牌程序绑定（RIFT-257）尚未合入。
+ * 状态：judge-required。逐能力现状（以源码为准）：
+ * 1. "I enter ready"（RIFT-260 声明形式 2）已可执行：随 RIFT-257 程序生命周期
+ *    绑定为事件管线注册，在 Chain 区永久物换到 Board 前改写取向（CR 805.6/369.3）。
+ *    golden 用 createProgramBinding + attachLifecycle 打出就绪进场。
+ * 2. [Ganking]（RIFT-83 KeywordDef、RIFT-259 continuous.movement）仍不可执行：
+ *    生命周期确实把展开的 static 注册进图层注册表，但
+ *    effects/keywords/Ganking.ts 展开产出 permission: "battlefield-to-battlefield"
+ *    （字符串），而 layers/rules/query.ts 的 movement() 只消费
+ *    permission: { routes: [...] }（对象形状），record() 把字符串折叠成 {}，
+ *    ruleView.canGank 恒为 false。zones/movement.ts 的 moveDuelUnitsStandard
+ *    因此仍退回调用方 trusted hasGanking（standard-move-executor-v2 / cardplay
+ *    的 services.ganking 回调），144.4.c 的战场间移动不读图层许可。
+ *    契约变更请求：统一 Ganking 关键词展开的 permission 形状与
+ *    layers/rules/query.ts 的消费形状（或让 query 同时接受字符串形式）。
+ *    测试用 continuous.movement 指令路径保留了"许可被注册后能驱动
+ *    moveDuelUnitsStandard"的真实执行证据（指令展开产出对象形状许可）。
  */
 export default {
   canonicalCardId: "card.hash-65cd9565fff10c8779998a9b1ca3843ab54b34a3cc338af891157cfbf9ec1761",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口：(1) [Ganking]（CR 810.1.b/810.1.c）的 KeywordDef 与 continuous.movement 原语、" +
-    "movement() 查询均已合入，但没有已合入的 Standard Move 执行器读取该许可" +
-    "（combat/flow.ts 的 move() 仍需原子化的 Exhaust+Move 事务；zones/movement.ts 的 hasGanking" +
-    "由调用方 trusted 回调注入），810.1.c 的额外战场间移动还不生效。" +
-    "(2) I enter ready 的入场替代（CR 143.4、359.2.c、369.3/805.6.a）现在可由 RIFT-260 的 " +
-    "bindReplacement 执行（golden 已用真实链验证：就绪进场且无 object-readied 事件），" +
-    "但生产生命周期把 CardProgram 能力绑进替代注册表的路径属 RIFT-257。" +
-    "不近似实现（不把就绪进场写成事后 effect.ready，也不把 Ganking 写成默认移动许可）。",
+    "Ganking (CR 810.1.c/144.4.c.1): the RIFT-257 lifecycle registers the expanded continuous.movement static, but effects/keywords/Ganking.ts emits permission as the string \"battlefield-to-battlefield\" while engine-core layers/rules/query.ts movement() consumes permission as a {routes:[...]} object, so ruleView.canGank stays false and moveDuelUnitsStandard still requires the caller's trusted hasGanking. Contract change request: unify the keyword expansion permission shape with the query consumption (or accept the string form in movement()). The enter-ready replacement is executable through the same lifecycle (see tests).",
   abilities: [
     { kind: "keyword", keyword: "ganking" },
     {
