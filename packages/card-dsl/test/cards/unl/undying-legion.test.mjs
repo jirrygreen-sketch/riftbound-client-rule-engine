@@ -33,19 +33,19 @@ test("unl-025-219 Undying Legion: identity, status, judgeReason and verbatim sou
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   // 812.1.b.1 / 812.1.c: the dependent-keyword gate is named with its rule.
   assert.match(program.judgeReason, /812\.1/);
-  assert.match(program.judgeReason, /RIFT-82|Legion\.ts/);
+  assert.match(program.judgeReason, /Legion\.ts/);
   // 366.1 / 356.1.a: the trash play permission and alternate cost.
   assert.match(program.judgeReason, /366\.1/);
   assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(82|257)/);
 });
 
 test("unl-025-219 Undying Legion: the merged Legion KeywordDef publishes the history predicate without a consumer", async () => {
   const { keywordDefinitionsById } = await import(
     "../../../../engine-core/dist/effects/keywords/registry.generated.js"
   );
-  // RIFT-82's expansion is a condition.predicate declaration whose payload names
-  // the 812.1.c one-card-different history query; the interpreter's
+  // The expansion is a condition.predicate declaration whose payload names the
+  // 812.1.c one-card-different history query; the interpreter's
   // condition.predicate branch only evaluates a companion Condition, so this
   // payload has no evaluator yet (see judgeReason).
   const definition = keywordDefinitionsById.get("Legion");
@@ -126,12 +126,12 @@ test("unl-025-219 Undying Legion golden: an insufficient Fury Power pool cannot 
 
 test.todo(
   "unl-025-219 Undying Legion: expand [Legion][>] (CR 812.1.b.1 'if you have played another card this turn, this" +
-    " card gains [Text]') with the 812.1.c card-identity exclusion — RIFT-82 publishes the predicate payload, but the" +
+    " card gains [Text]') with the 812.1.c card-identity exclusion — the merged KeywordDef publishes the predicate payload, but the" +
     " condition.predicate consumer must translate its history/excluding fields (or HistoryQuery needs a card-identity" +
-    " exclusion) and a binder must attach the dependent [Text] (RIFT-257)"
+    " exclusion) and a binder must attach the dependent [Text]"
 );
 test.todo(
   "unl-025-219 Undying Legion: the printed trash play permission (CR 366.1 / 420.1.a) and the 356.1.a alternate" +
-    " cost are consumed by Finalize legality and the cost plan — translateRestriction rejects play-from-zone without" +
-    " a rules adapter and cost wiring is RIFT-261"
+    " cost are consumed by Finalize legality and the cost plan — translateRestriction still rejects play-from-zone" +
+    " without a rules adapter, and CardProgram-to-CostPlan wiring is still missing (RIFT-261)"
 );

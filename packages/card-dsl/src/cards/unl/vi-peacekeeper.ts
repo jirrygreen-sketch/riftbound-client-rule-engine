@@ -24,11 +24,11 @@ import type { CardProgram } from "../../ir/index.js";
  * - 括注 "(It doesn't deal combat damage this turn.)" 是 424.1.b 的提醒文本，不另写指令。
  *
  * status 判定（README 第 2 节）：judge-required —— 两处依赖未合入，均不近似实现：
- * 1. [Ambush]（822）没有关键词展开文件（effects/keywords 无 Ambush.ts），其打出位置许可与
- *    Reaction 时间许可（continuous.timing + 位置许可）没有消费方（依赖 RIFT-84）。
+ * 1. [Ambush]（822）的关键词展开已合入，但其打出位置许可与 Reaction 时间许可
+ *    （continuous.timing + 位置许可）没有消费方（依赖 RIFT-84）。
  * 2. attack-declared 时点在封闭枚举中声明但没有已合入发射方：combat/ 的流程（引擎批 5 /
  *    RIFT-31/33/77）不发出该时点，且没有把 CardProgram 触发注册进 TriggerRegistration 的
- *    路径（引擎批 4 / RIFT-120），触发在真实链路上不可达（同 icevale-archer 的判定）。
+ *    路径已合入，但触发在真实链路上不可达（同 icevale-archer 的判定）。
  * "When I attack, [Stun] an enemy unit here" 的结构、目标过滤与 sameLocationAs 锚点已用
  * 已合入的 effect.stun + 解释器/参考内核真实执行验证（见 golden）。
  */
@@ -38,12 +38,12 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入：(1) [Ambush]（822.1.b/822.1.c）没有已合入的关键词展开（effects/keywords 无 Ambush.ts），" +
+    "两处依赖未合入：(1) [Ambush]（822.1.b/822.1.c）的关键词展开已合入，但" +
     "其「可向有你控制单位的战场打出」的位置许可与「按此方式打出时具有 [Reaction]」的时间许可" +
-    "（continuous.timing + 位置许可）都没有消费方，依赖 RIFT-84（Ambush/Hidden 关键词任务）。" +
+    "（continuous.timing + 位置许可）都没有消费方，依赖 RIFT-84（Ambush/Hidden 消费接线）。" +
     "(2) attack-declared 时点虽然在封闭枚举中（events/timing-points.ts），但没有已合入的发射方——" +
-    "combat/ 不发射战斗时点（引擎批 5 / RIFT-31/33/77），且没有把 CardProgram 的 triggered ability " +
-    "注册成 TriggerRegistration 的路径（引擎批 4 / RIFT-120），触发在真实链路上不可达。" +
+    "combat/ 不发射战斗时点（引擎批 5 / RIFT-31/33/77）；CardProgram 的 triggered ability 注册接线已合入，" +
+    "但触发在真实链路上仍不可达。" +
     "「When I attack, [Stun] an enemy unit here」的触发结构、目标过滤（controller: opponent + sameLocationAs 锚点）" +
     "与 effect.stun 动作已在 golden 中用解释器与参考内核真实执行；整卡不因此标记 executable，不近似实现 Ambush。",
   abilities: [

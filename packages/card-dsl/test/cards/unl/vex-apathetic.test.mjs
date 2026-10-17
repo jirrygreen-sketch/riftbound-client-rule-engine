@@ -40,7 +40,8 @@ test("unl-150-219 Vex, Apathetic: identity, status, judgeReason and verbatim sou
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /809\.1\.c/);
   assert.match(program.judgeReason, /target\.tax/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /RIFT-360/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-(89|90|91|120|257|259)/);
   assert.match(program.judgeReason, /continuous\.movement/);
 });
 
@@ -158,8 +159,8 @@ test("unl-150-219 Vex, Apathetic golden: a stale played-unit reference makes the
 test.todo(
   "unl-150-219 Vex, Apathetic: an opponent's spell or ability that chooses me costs 1 additional " +
     "Power payable with any Domain as a mandatory additional cost (CR 809.1.c / 809.1.c.1 / 809.1.d) — " +
-    "no producer derives the Deflect tax from my target.tax effect (RIFT-90) and the tax is not " +
-    "converted into any-domain Power (RIFT-89 / RIFT-261)"
+    "no producer derives the Deflect tax from my target.tax effect (RIFT-360) and the tax is not " +
+    "converted into any-domain Power (RIFT-261)"
 );
 test.todo(
   "unl-150-219 Vex, Apathetic: bind 'it' to the unit played by the opponent and stun it through the " +
@@ -169,10 +170,10 @@ test.todo(
 test.todo(
   "unl-150-219 Vex, Apathetic: evaluate 'while I'm at a battlefield' before the trigger is queued " +
     "(CR 383.2.a.1, 808.1.d.3 last-known location) — the pipeline requires a host.testTrigger adapter " +
-    "that no merged host provides (RIFT-257 / RIFT-120)"
+    "that the trigger host still lacks the condition evaluator"
 );
 test.todo(
   "unl-150-219 Vex, Apathetic: enforce 'they can't move it this turn' against the Move action and " +
     "expire the prohibition with this turn's cleanup (CR 054 / 054.1, 317 / 318, 449) — " +
-    "continuous.movement has no primitive and the movement system reads no layer restrictions (RIFT-259 / RIFT-91)"
+    "the merged continuous.movement primitive is not consumed by the movement system"
 );

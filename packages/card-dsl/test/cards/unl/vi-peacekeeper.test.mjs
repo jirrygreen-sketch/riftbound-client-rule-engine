@@ -33,7 +33,7 @@ test("unl-176-219 Vi, Peacekeeper: identity, status, judgeReason and verbatim so
   assert.match(program.judgeReason, /822\.1\.b/);
   assert.match(program.judgeReason, /attack-declared/);
   assert.match(program.judgeReason, /RIFT-84/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-120|RIFT-257/);
 });
 
 test("unl-176-219 Vi, Peacekeeper: [Ambush] is declared without a value", () => {
@@ -146,9 +146,9 @@ test("unl-176-219 Vi, Peacekeeper golden: a stun target that already left the bo
 
 test.todo(
   "unl-176-219 Vi, Peacekeeper: [Ambush] keyword expansion (822.1.b battlefield entry permission + " +
-    "Reaction timing) — effects/keywords/ has no Ambush.ts and there is no continuous.timing/location-permission consumer (RIFT-84)"
+    "Reaction timing) — the Ambush expansion is present, but no continuous.timing/location-permission consumer is connected (RIFT-84)"
 );
 test.todo(
   "unl-176-219 Vi, Peacekeeper: reach the attack-declared timing point from the real combat flow and register " +
-    "the CardProgram trigger as a TriggerRegistration (combat emitters are engine batch 5, RIFT-120)"
+    "the CardProgram trigger through the production combat emitter (attack-declared is not emitted yet)"
 );

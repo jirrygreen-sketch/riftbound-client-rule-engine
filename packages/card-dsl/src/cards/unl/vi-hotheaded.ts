@@ -34,7 +34,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   已合入的 effects/keywords/Deflect.ts 只展开成 target.tax 图层声明，没有任何已合入消费方——链的
  *   Finalize（chain/engine.ts）只接受调用方经 TargetFinalizeOptions.tax / taxAdapter 传入的税，
  *   TargetPlan 不读取图层里的 target.tax，且没有卡牌关键词展开→layers 的生产注册路径（programs/
- *   statics.ts 只有默认 noop 的 binder 钩子）。依赖：RIFT-90（target tax 接线）与 layers 注册路径。
+ *   statics.ts 只有默认 noop 的 binder 钩子）。依赖：target.tax 接线（RIFT-360）与 CardProgram static → layers 注册路径。
  * 已合入并可真实执行的部分（golden 覆盖）：2 Energy + 1 Fury Power 的印刷费用与上面的 Doubling。
  */
 const abilities: Ability[] = [
@@ -92,7 +92,7 @@ const program = {
     "只有 effects/keywords/Deflect.ts 展开的 target.tax 图层声明，没有消费方——链的 Finalize 只接受调用方经 " +
     "TargetFinalizeOptions.tax / taxAdapter 传入的税（chain/engine.ts），TargetPlan 不读取图层 target.tax，" +
     "也没有卡牌关键词展开 → layers 的生产注册路径（programs/statics.ts 只有默认 noop 的 binder 钩子）。" +
-    "依赖：RIFT-90（target tax 接线）与 layers 注册路径（RIFT-91 后续/RIFT-257）。不近似实现。",
+    "依赖：target.tax 接线（RIFT-360）与 CardProgram static → layers 注册路径。不近似实现。",
   abilities,
   sourceText:
     "[Deflect] (Opponents must pay :rb_rune_rainbow: to choose me with a spell or ability.)\n" +
