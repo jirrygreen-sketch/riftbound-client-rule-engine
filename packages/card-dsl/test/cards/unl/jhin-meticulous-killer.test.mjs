@@ -26,8 +26,6 @@ test("unl-089-219 Jhin, Meticulous Killer: identity, status, judgeReason and ver
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /Energy/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-64/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -73,20 +71,3 @@ test("unl-089-219 Jhin, Meticulous Killer: the declared keyword resolves to the 
   assert.equal(expansion[0].kind, "triggered");
   assert.equal(expansion[0].trigger.at, "object-enters-board");
 });
-
-test.todo(
-  "unl-089-219 Jhin, Meticulous Killer: read the Energy actually spent on the spell played this turn " +
-    "(CR 383.2.a.1 / 355.1) — no finalized cost receipt is exposed to Expr/Condition (RIFT-89)"
-);
-test.todo(
-  "unl-089-219 Jhin, Meticulous Killer: generate the 1 Mind Power alternate cost plan for 'play me for [C]' " +
-    "(CR 356.1.a) — no cost primitive or CardProgram → CostPlan wiring (RIFT-89)"
-);
-test.todo(
-  "unl-089-219 Jhin, Meticulous Killer: Vision's Predict binds the ordered top card (CR 437.1 / 817.1.b) — " +
-    "effect.inspect needs the contract 3.6 zoneSlice picks source (RIFT-64)"
-);
-test.todo(
-  "unl-089-219 Jhin, Meticulous Killer: fire the Vision trigger from the real Board-entry flow (CR 817.1.c) — " +
-    "needs keyword→trigger registration (RIFT-120)"
-);

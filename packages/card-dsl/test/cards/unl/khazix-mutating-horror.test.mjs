@@ -5,6 +5,7 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/khazix-mutating-horror.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/engine.js";
 
 const CARD_ID =
   "card.hash-6080c717cf342299d6073468f9de4f808e7a244d4edd6bbe1ec9d6a519127a24";
@@ -78,8 +79,8 @@ test("unl-143-219 Kha'Zix, Mutating Horror: +2 Might this turn plus gain 2 XP as
     assert.equal(grant.op, "continuous.might");
     assert.deepEqual(grant.args.amount, { kind: "constant", value: 2 });
     assert.deepEqual(grant.args.duration, { kind: "constant", value: "this-turn" });
-    // "me" is the ability host (355.10.d): the self selector, never a fabricated target.
-    assert.deepEqual(grant.args.object, { kind: "constant", value: "self" });
+    // "me" is the ability host (355.10.d): the appliesTo self selector, never a fabricated target.
+    assert.deepEqual(grant.args.appliesTo, { kind: "constant", value: "self" });
     assert.equal(grant.targets, undefined);
 
     // 359.3.e.14.c: "and gain 2 XP" is its own instruction and does not link to the Might half.
@@ -102,15 +103,27 @@ test("unl-143-219 Kha'Zix, Mutating Horror golden: the gain 2 XP half really gra
   assert.deepEqual(outcome.events.map(event => event.action), ["gain-xp"]);
 });
 
-test.todo(
-  "unl-143-219 Kha'Zix, Mutating Horror: give me +2 [M] this turn (CR 143.2.a / 479.4 temporary Might with the " +
-    "317.2.c end-of-turn expiry) — no continuous.might primitive and no CardProgram-to-layers path (RIFT-91)"
-);
-test.todo(
-  "unl-143-219 Kha'Zix, Mutating Horror: fire the attack-declared / defense-declared triggers from the real combat " +
-    "workflow (CR 383.4.e / 383.4.f) — the timing points exist but combat/ has no emit path wired yet"
-);
-test.todo(
-  "unl-143-219 Kha'Zix, Mutating Horror: [Ambush] (CR 822.1.b/822.1.c valid play locations plus the Reaction " +
-    "permission) — there is no merged Ambush expansion wired into the play flow (RIFT-84)"
-);
+test("unl-143-219 Kha'Zix, Mutating Horror golden: +2 Might registers for this turn and expires", () => {
+  const base = world()
+    .unit("khazix", { owner: "A", controller: "A", might: 4, location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("khazix"), controller: "A" });
+  const outcome = resolveChainBody([attackGrant], kernel);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
+    ["khazix-mutating-horror.grant-might", "executed"]
+  ]);
+  assert.equal(kernel.continuousEffects.length, 1);
+  const [registration] = kernel.continuousEffects;
+  assert.equal(registration.effect.layer, "arithmetic");
+  assert.equal(registration.effect.effect.kind, "continuous.might");
+  assert.equal(registration.effect.effect.amount, 2);
+  assert.equal(registration.effect.filter.objectId, "khazix");
+  assert.deepEqual(registration.duration, { type: "end-of-turn" });
+
+  const layers = createLayerEngine(kernel.objects, kernel.continuousEffects);
+  assert.equal(layers.evaluate(kernel.ref("khazix")).might, 6);
+  assert.equal(layers.expireAt("turn-end").length, 1);
+  assert.equal(layers.evaluate(kernel.ref("khazix")).might, 4);
+});

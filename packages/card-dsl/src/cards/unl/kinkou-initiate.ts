@@ -24,7 +24,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   sums their Effective Might.
  *
  * Status: judge-required. Re-checked against the merged instruction, program-
- * binding and continuous-effect batches (RIFT-257/258/259, 2026-10-16):
+ * binding and continuous-effect implementations:
  * - The printed gate still needs the sum of a filtered set's Might. `count`
  *   counts matching objects and `object-property` reads one object's
  *   characteristic; no merged Expr returns Σ Effective Might of "your other
@@ -40,8 +40,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   the count placeholder would silently count the host itself instead of
  *   failing closed.
  * Dependencies: a sum-over-set Expr plus the `exclude` anchor in the program
- * filter translator (RIFT-9 expression inventory, RIFT-257 follow-up). Not
- * approximated.
+ * filter translator. Not approximated.
  */
 export default {
   canonicalCardId: "card.hash-578f670d7fdae87fd32e34179e331f901a8f108dcb51c337c971db00b3e3c498",
@@ -51,13 +50,13 @@ export default {
     "缺「合计 Might」值表达式：'if your other units have total Might 5 or more' 需要把一组对象" +
     "（你控制的、除我以外的场上单位）的 Effective Might（143.2.a.1）求和后与 5 比较，" +
     "但冻结的 Expr 只有 count（计数）与 object-property（读单个对象特征），没有 sum-over-set / reduce 形式；" +
-    "contract 3.2 的 Expr 需要新增该值表达式（RIFT-9 表达式清单）。程序里 count 的 subject " +
+    "contract 3.2 的 Expr 需要新增该值表达式。程序里 count 的 subject " +
     "'other-friendly-units-total-might' 只是该缺口的描述性占位，不近似实现印刷语义。" +
     "已合入并可由 golden 真实执行的部分：card-played 触发（programs/filters.ts 把 {source: \"self\"} 归一化为宿主对象、" +
-    "programs/triggers.ts 注册订阅，RIFT-257）与 effect.draw 抽 1 张。" +
+    "programs/triggers.ts 注册订阅）与 effect.draw 抽 1 张。" +
     "条件本身还缺消费方：程序绑定侧的 filter 翻译器（engine-core/src/programs/filters.ts）不接受 retain 的 " +
     "exclude 锚点（报 Unsupported filter field exclude），因此即使换成 count 也会把宿主自己算进去而不是失败关闭。" +
-    "依赖：sum-over-set 表达式（RIFT-9）与程序绑定 filter 锚点（RIFT-257 后续）。不近似实现。",
+    "依赖：sum-over-set 表达式与程序绑定 filter 锚点。不近似实现。",
   abilities: [
     {
       kind: "triggered",

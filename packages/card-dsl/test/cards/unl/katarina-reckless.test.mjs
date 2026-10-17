@@ -58,11 +58,9 @@ test("unl-023-219 Katarina, Reckless: identity, status, judgeReason and verbatim
   assert.match(program.judgeReason, /card-hidden/);
   assert.match(program.judgeReason, /422\.1/);
   assert.match(program.judgeReason, /811\.1\.d/);
-  assert.match(program.judgeReason, /RIFT-120/);
-  // The registration path (RIFT-257) is merged; the reason must name the two
-  // blocked event facts instead of a missing adapter.
+  // The trigger registration path is merged; the reason names the two blocked
+  // event facts instead of a missing adapter.
   assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
-  assert.match(program.judgeReason, /RIFT-89/);
 });
 
 test("unl-023-219 Katarina, Reckless: the hide trigger waits on the card-hidden timing point", () => {
@@ -113,8 +111,8 @@ test("unl-023-219 Katarina, Reckless: the second trigger is one enemy-unit damag
 });
 
 test("unl-023-219 Katarina, Reckless: the merged program binding exposes both declared triggers", async () => {
-  // programs/keywords.ts + programs/filters.ts (RIFT-257) parse the card and
-  // expose both declared triggered abilities with their anchors.
+  // programs/keywords.ts + programs/filters.ts parse the card and expose both
+  // declared triggered abilities with their anchors.
   const { createProgramBinding } = await import("../../../../engine-core/dist/programs/index.js");
   const { fixture } = await import("../../../../engine-core/test/chain/helpers.mjs");
   const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
@@ -124,7 +122,7 @@ test("unl-023-219 Katarina, Reckless: the merged program binding exposes both de
   const abilities = binding.inspect(snapshot).abilities;
   assert.equal(abilities.filter(ability => ability.kind === "triggered").length, 2);
   // The two declared anchors are the timing point is what each ability watches:
-  // the Hide event and the face-down play are the recorded gaps (test.todo), so
+  // the Hide event and the face-down play are the recorded gaps, so
   // the merged binding cannot install either subscription yet.
   assert.deepEqual(abilities.filter(ability => ability.kind === "triggered").map(ability => ability.trigger.at), [
     "card-hidden",
@@ -195,20 +193,3 @@ test("unl-023-219 Katarina, Reckless golden: the merged effect.damage alone appl
   assert.deepEqual(run.linked.dealtCount, 1);
   assert.equal(kernel.getObject("enemy-unit").damage, 2);
 });
-
-test.todo(
-  "unl-023-219 Katarina, Reckless: the card-hidden timing point (CR 422.1) is emitted for a completed Hide —" +
-    " the closed GameAction set has no Hide action and the facedown zone belongs to the cost.hidden workstream (RIFT-89)"
-);
-test.todo(
-  "unl-023-219 Katarina, Reckless: 'When you play a card from face down' provenance (CR 811.1.d facedown zone)" +
-    " once the card-played payload records the played-from-face-down fact"
-);
-test.todo(
-  "unl-023-219 Katarina, Reckless: register the card-hidden subscription — the closed EVENT_PATTERN_TYPES" +
-    " (events/trigger-spec.ts) has no card-hidden spelling and events/producers/ emits none (RIFT-89 / RIFT-120 follow-up)"
-);
-test.todo(
-  "unl-023-219 Katarina, Reckless: register the 'from face down' card-played subscription — programs/filters.ts" +
-    " rejects the fromFaceDown filter field until the card-played payload records that provenance (RIFT-120 follow-up)"
-);

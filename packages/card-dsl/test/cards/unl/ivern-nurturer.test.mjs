@@ -71,8 +71,6 @@ test("unl-051-219 Ivern, Nurturer: identity, status, judgeReason and verbatim so
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /Bird, Cat, Dog, or Poro/);
   assert.match(program.judgeReason, /Recycle the rest/);
-  assert.match(program.judgeReason, /RIFT-90/);
-  assert.match(program.judgeReason, /RIFT-66/);
 });
 
 test("unl-051-219 Ivern, Nurturer: the printed text hangs off both the play and the hold condition (383.4.a.1/383.4.d.1)", () => {
@@ -315,7 +313,7 @@ test("unl-051-219 Ivern, Nurturer golden: 'Recycle the rest' recycles the looked
 test("unl-051-219 Ivern, Nurturer golden: the trait Buff really places one Buff counter on the chosen friendly unit", () => {
   // 702.2.a / 702.3.a: the printed Buff action runs on the merged effect.buff
   // primitive with this card's own arguments; the trait clause that gates it is
-  // the recorded gap (see judgeReason and the todo below).
+  // the recorded gap (see judgeReason).
   const kernel = worldWithDeck();
   // The interpreter evaluates each argument expression before dispatch, so the
   // primitive receives the literal mode and TargetSpec id from the card's args.
@@ -328,30 +326,3 @@ test("unl-051-219 Ivern, Nurturer golden: the trait Buff really places one Buff 
   assert.equal(kernel.getObject("ally").buffs, 1);
   assert.deepEqual(run.events.map(event => event.action), ["buff"]);
 });
-
-test.todo(
-  "unl-051-219 Ivern, Nurturer: evaluate 'Then if you revealed a Bird, Cat, Dog, or Poro' against the " +
-    "tags snapshot locked at reveal time (contract 3.4 Show Off; CR 425) — Condition has no " +
-    "array-intersection test and effect.inspect/effect.reveal link only refs, not trait snapshots"
-);
-
-test.todo(
-  "unl-051-219 Ivern, Nurturer: express 'Recycle the rest' as the looked-at set minus the revealed card " +
-    "(CR 417.1/417.1.a) — no merged set-difference expression writes the rest binding"
-);
-
-test.todo(
-  "unl-051-219 Ivern, Nurturer: apply the 'a unit from among them' filter to the pick's linked option set " +
-    "at Finalize (CR 355.9.b/355.10.a) — the merged pick resolution locks options without consuming a filter " +
-    "over a linked set (RIFT-90)"
-);
-
-test.todo(
-  "unl-051-219 Ivern, Nurturer: produce the ordered Main-Deck-top picks for effect.inspect in production " +
-    "(contract 3.6 zoneSlice ordering must reach the look; RIFT-66 follow-up)"
-);
-
-test.todo(
-  "unl-051-219 Ivern, Nurturer: register the card-played and hold triggers end to end " +
-    "(CR 383.4.a.1/383.4.d.2.a; hold payload must name the unit present during the hold) — RIFT-31/33, RIFT-120"
-);

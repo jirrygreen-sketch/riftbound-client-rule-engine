@@ -43,7 +43,6 @@ test("unl-204-219 Keeper's Verdict: identity, status, judgeReason and verbatim s
   assert.match(program.judgeReason, /355\.16/);
   assert.match(program.judgeReason, /assertFinalizationSurface/);
   assert.match(program.judgeReason, /choice-plan adapter/);
-  assert.match(program.judgeReason, /RIFT-90/);
 });
 
 test("unl-204-219 Keeper's Verdict: [Action] plus one top-or-bottom mode choice by the unit's owner", () => {
@@ -198,10 +197,3 @@ test("unl-204-219 Keeper's Verdict golden: a stale unit reference is mistargeted
   assert.deepEqual(run.events, []);
   assert.deepEqual(kernel.zone("B", "deck"), []);
 });
-
-test.todo(
-  "unl-204-219 Keeper's Verdict: let the unit's owner choose top or bottom while the spell resolves through the production chain (CR 355.16/355.17; chain/engine.ts assertFinalizationSurface blocks resolution-time choice.mode - RIFT-90 Finalize/Resolve choice-plan adapter)"
-);
-test.todo(
-  "unl-204-219 Keeper's Verdict: apply the printed [Action] Showdown timing permission through the keyword registry and the chain's canAct (CR 806.1.b; keyword expansion wiring - RIFT-84/RIFT-89)"
-);

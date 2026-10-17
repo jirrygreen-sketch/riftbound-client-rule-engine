@@ -35,8 +35,6 @@ test("unl-081-219 Keeper of Masks: identity, status, judgeReason and verbatim so
   assert.match(program.judgeReason, /Temporary/);
   assert.match(program.judgeReason, /816/);
   assert.match(program.judgeReason, /446|479\.1/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-120/);
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
 });
 
@@ -164,20 +162,6 @@ test("unl-081-219 Keeper of Masks golden: a replacement on the play action leave
   );
 });
 
-test("unl-081-219 Keeper of Masks: effect.copy is the merged primitive named by the second instruction", () => {
+test("unl-081-219 Keeper of Masks: effect.copy is the primitive named by the second instruction", () => {
   assert.equal(becomeCopies.op, copy.op);
 });
-
-test.todo(
-  "unl-081-219 Keeper of Masks: Hide and the facedown play (CR 811.1 / 811.1.c.3) need the cost.hidden and " +
-    "continuous.timing consumers — effects/keywords/Hidden.ts declares only the static cost shape (RIFT-89 / RIFT-91)"
-);
-test.todo(
-  "unl-081-219 Keeper of Masks: the [Temporary] keyword expansion (CR 816.1.b: kill at the controller's " +
-    "Beginning Phase start, before scoring) plus the keyword→timing/chain registration path (RIFT-265 / RIFT-120)"
-);
-test.todo(
-  "unl-081-219 Keeper of Masks: 'They become copies of me' as an applied copy effect on the two played tokens " +
-    "(CR 446 / 479.1 Copy Effects layer) — effect.copy mode \"effect\" needs the layer consumer and the " +
-    "documented attachment-duration/exceptions model"
-);
