@@ -42,25 +42,20 @@ import type { CardProgram } from "../../ir/index.js";
  * 2. "equal to its base cost" needs that later spell's printed cost read at the
  *    moment its Repeat cost is built. The merged IR can read a linked value or
  *    an object characteristic, but the base cost of a not-yet-played spell is
- *    neither, and no merged instruction installs a cost-modifying continuous
- *    effect (cost.modify is not a merged primitive; RIFT-89 owns cost.*);
- * 3. no merged consumer installs the grant or the hold trigger: engine-core
- *    never reads CardProgram abilities, so the declared continuous.grant-keyword
- *    (RIFT-258) and the TriggerRegistration for this triggered ability are never
- *    attached in the production match path (RIFT-257/RIFT-120). Repeat's own
- *    expansion (effects/keywords/Repeat.ts) documents that its additional-cost
- *    payment is not yet wired into Finalize (cost.additional / cost.pay);
- * 4. the card-side hold filter is now well-formed ("held" is the closed
- *    EVENT_PATTERN_TYPES spelling and player "self" is the accepted selector;
- *    validateEventPattern + translateTriggerFilter accept both), but the
- *    "here"=this-Battlefield referent has no EventPattern field and no binding
- *    from the scoring payload (player/battlefieldId only) to the registered
- *    source, and the production path still has no caller that attaches
- *    CardProgram triggers, so the trigger cannot enter the chain (190.6
- *    controller resolution included).
+ *    neither; cost.modify and ignoreAllCosts are merged, while no finalized
+ *    FinalizedCostPlan path yet supplies this delayed Repeat payment.
+ * 3. The grant primitive and Repeat KeywordDef are merged (RIFT-258), and
+ *    expandProgram/trigger registration/lifecycle binding handle explicitly
+ *    supplied CardPrograms. The default room does not inject this program, and
+ *    Repeat's optional additional payment still is not wired into Finalize.
+ * 4. The hold filter retains the source Battlefield anchor as nested
+ *    filter {source: "self"}; translateTriggerFilter binds it to the registered
+ *    source object. The Score wave carries only player and battlefieldId,
+ *    however, so no source/object snapshot or source-to-Battlefield binding is
+ *    available to match CR 053.3 "here".
  * Dependencies: a one-shot "next spell this turn" window and a base-cost read,
- * plus the finalized-cost wiring (RIFT-89) and the CardProgram -> engine
- * registration bridge (RIFT-257/RIFT-120), including the "here" binding.
+ * finalized-cost wiring (RIFT-89), the scoring source/Battlefield binding for
+ * "here", and default-room injection of the CardProgram.
  * Nothing is approximated; the golden tests assert the declared grant shape,
  * the merged Repeat definition and the well-formed hold filter, and record the
  * missing consumers as todos.
@@ -78,13 +73,14 @@ export default {
     "(2)「equal to its base cost」要在该法术构建 Repeat 附加费用时读取它的印刷基础费用（204.1.a、206），" +
     "而合并 IR 只能读链接值与对象特征，读不到「尚未打出的法术的基础费用」；cost.modify 与 ignoreAllCosts 虽已合入，" +
     "但没有已合入通路把卡内描述性 cost.modify 冻结成 finalized 的 FinalizedCostPlan 供 effect.play 使用。" +
-    "(3) 授予原语已合入（continuous.grant-keyword，RIFT-258），但对局生产路径没有把 CardProgram 能力装进引擎：" +
-    "engine-core 不读取卡牌能力，本授予与本触发都不会被附加（RIFT-257/RIFT-120）；" +
-    "且 Repeat 自身的 KeywordDef 文档说明其附加费用尚未接入 Finalize（cost.additional / cost.pay）。" +
-    "(4) hold 时点（CR 383.4.d、471.2、473.2.b）已由 turn/flow.ts 的 Score wave 发出，卡面过滤已改用封闭 EVENT_PATTERN_TYPES 的 \"held\" 与 player \"self\" " +
-    "（validateEventPattern / translateTriggerFilter 实测接受）；但 053.3 的 \"here\"=本源战场在 EventPattern 中没有对应字段，" +
-    "载荷只有 player/battlefieldId，没有把事件与注册源关联起来的绑定；且生产路径无调用方把 CardProgram 触发附加进对局（RIFT-257/RIFT-120）。" +
-    "依赖：一次性 next-spell 窗口与基础费用读取、RIFT-89（finalized 成本计划接线）、RIFT-257/RIFT-120（CardProgram → 触发/持续效果注册，含 053.3 here 绑定）。",
+    "(3) 授予原语与 Repeat KeywordDef 已合入（continuous.grant-keyword，RIFT-258）；expandProgram、" +
+    "trigger registration 与 lifecycle binder 能处理显式传入的 CardProgram，apps/game-server 在显式传入 programs 时也会 attachLifecycle，" +
+    "但默认房间不注入本卡程序，而且 Repeat 的附加费用仍未接入最终费用计划（cost.additional / cost.pay）。" +
+    "(4) hold 时点（CR 383.4.d、471.2、473.2.b）已由 turn/flow.ts 的 Score wave 发出；卡面过滤保留了 053.3 的完整 \"here\" 语义，" +
+    "用 CardProgram 允许的嵌套 filter {source: \"self\"} 把事件对象锚定到注册源。translateTriggerFilter 能把该锚点绑定为 sourceRef，" +
+    "但当前 hold emission 只有 player 与 details.battlefieldId，没有 source/object snapshot 或 source-to-battlefield 绑定供事件匹配器消费；" +
+    "apps/game-server 仅在显式传入 programs 时调用 attachLifecycle，默认房间不注入本卡程序。依赖：一次性 next-spell 窗口与基础费用读取、" +
+    "RIFT-89（finalized 成本计划接线）、计分载荷的 source/Battlefield 绑定，以及默认房间的 CardProgram 注入。",
   sourceText:
     "When you hold here, give your next spell this turn [Repeat] equal to its base cost. " +
     "(You may pay the additional cost to repeat the spell's effect.)",
@@ -93,14 +89,11 @@ export default {
       kind: "triggered",
       trigger: {
         at: "hold",
-        // "you hold here": the hold happens at this Battlefield and is
-        // performed by its controller (053.3, 190.6.d). "held" is the
-        // closed EVENT_PATTERN_TYPES spelling for the hold timing point and
-        // "self" is the accepted player selector (validateEventPattern and
-        // translateTriggerFilter accept both in tests). The
-        // "here"=this-Battlefield binding still has no EventPattern field (see
-        // judgeReason).
-        filter: { event: "held", player: "self" }
+        // "you hold here": retain the source Battlefield anchor in the
+        // CardProgram filter. The nested source:self selector is translated to
+        // the registered source object; the scoring event still lacks the
+        // source/object snapshot needed to consume that anchor (053.3).
+        filter: { event: "held", filter: { source: "self" }, player: "self" }
       },
       optional: false,
       body: [

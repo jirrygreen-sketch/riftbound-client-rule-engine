@@ -119,8 +119,8 @@ test.todo(
 test.todo(
   "unl-048-219 Trevor Snoozebottom: expand the token's [Temporary] (CR 816.1.b: kill it at the start of its " +
     "controller's Beginning Phase before scoring; 816.2.a redundant instances) — the KeywordDef is merged (RIFT-265) " +
-    "but its beginning-start trigger filter is outside the closed event-pattern vocabulary and no producer expands " +
-    "keyword instances into TriggerRegistrations (RIFT-257/RIFT-120)"
+    "but its beginning-start trigger filter is outside the closed EventPattern vocabulary; expandProgram and " +
+    "the lifecycle binder register supplied programs, while the default room does not inject this CardProgram"
 );
 test.todo(
   "unl-048-219 Trevor Snoozebottom: bind the hold trigger to the unit present at the held battlefield " +
@@ -128,6 +128,6 @@ test.todo(
 );
 test.todo(
   "unl-048-219 Trevor Snoozebottom: read the Defender designation for [Shield] (CR 814.1.d/814.1.d.1) — " +
-    "the Shield KeywordDef is merged (RIFT-81), but no card keyword consumer is merged and layers/engine.ts " +
-    "conditionMatches does not evaluate the compare(designation) gate (RIFT-91 follow-up / RIFT-257)"
+    "the Shield KeywordDef and static binder are merged (RIFT-81/RIFT-257), but the current ObjectSnapshot " +
+    "does not provide designation; the unknown value is fail-closed as false, so +1 cannot apply while defending"
 );

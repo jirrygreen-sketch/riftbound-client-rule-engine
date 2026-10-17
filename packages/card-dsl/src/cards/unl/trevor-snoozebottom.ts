@@ -35,16 +35,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   不用别的 token 顶替）。
  * - “ready” 的入场状态改写不受支持（未变）：create-token / play 动作明确不支持 entry override，
  *   先创建再补一次 effect.ready 会产生错误的“成为就绪”事件。
- * - [Temporary] 的 KeywordDef 已合入（RIFT-265），但授予/印在 token 上的实例仍进不了触发注册：
- *   展开的 filter 事件名 beginning-start 不在 events/trigger-spec.ts 的封闭 EVENT_PATTERN_TYPES
- *   词表内（assertTriggerSpec 以 invalid-event-type 拒绝），且生产路径没有把运行时关键词展开成
- *   TriggerRegistration 的订阅方（RIFT-257）。
- * - hold 触发缺少「本卡是在固守的战场上在场的那个单位」的时点载荷绑定（383.4.d.2/.2.a）：hold
- *   已由 turn/flow.ts 的 Score wave 发出，但载荷只带战场/玩家，没有在场单位快照。
- * - [Shield] 的 KeywordDef 已合入（RIFT-81），但同样缺卡牌→layers 的注册路径，且 814.1.d.1 的
- *   Defender designation 门控是 compare 条件、layers/engine.ts 不求值（现注册会无条件 +1）。
- * 依赖：effect.token 定义表扩展（187.2）与入场状态改写、阶段时点进入事件词表与运行时关键词展开
- * （RIFT-257/RIFT-120）、RIFT-31/33 的 hold 载荷、卡牌 static 能力 → layers 注册（RIFT-91 后续）。
+ * - [Temporary] 的 KeywordDef 已合入（RIFT-265），expandProgram 与 lifecycle binder 能处理显式
+ *   传入的 CardProgram；但 expansion 的 beginning-start 过滤不在 EventPattern 词表，且默认房间
+ *   不注入本卡程序，因此该 token 触发仍 fail-closed。
+ * - [Shield] 的 KeywordDef 与 static binder 已合入（RIFT-81/RIFT-257），但 Defender designation
+ *   仍不是当前 ObjectSnapshot 的可求值特征；未知 designation 会 fail-closed 为 false。
+ * 依赖：effect.token 定义表扩展（187.2）与入场状态改写、beginning-start 事件词表/生产者、
+ * RIFT-31/33 的 hold 载荷、designation 特征求值与默认房间的程序注入。
  * 不近似实现：不用其他 token 代替 Sprite，不用事后 effect.ready 冒充入场就绪，
  * 不把 [Shield] 写成无条件的数值加算。
  */
@@ -94,13 +91,13 @@ const program = {
     "(2) “ready” 是入场状态改写（143.4 / 184.1 / 185.2.d），create-token/play 动作明确不支持 entry override，" +
     "先创建再补一次 effect.ready 会产生多余的“成为就绪”事件。(3) token 上的 [Temporary]（816.1.b 的" +
     "“在控制者 Beginning Phase 开始、计分前 kill this”，816.2.a 多实例冗余）的 KeywordDef 已合入（RIFT-265），" +
-    "但其展开的 filter 事件名 beginning-start 不在 events/trigger-spec.ts 的封闭 EVENT_PATTERN_TYPES 词表内" +
-    "（assertTriggerSpec 以 invalid-event-type 拒绝），也没有生产订阅方把运行时/印刷关键词展开成 TriggerRegistration（RIFT-257）。" +
+    "expandProgram 与 lifecycle binder 也已能展开并注册显式传入的 CardProgram；但展开使用的 beginning-start 事件名不在" +
+    "events/trigger-spec.ts 的 EventPattern 词表内，导致该 token 关键词的触发注册仍 fail-closed，且默认房间不注入本卡程序。" +
     "(4) hold 触发缺少「本卡是在固守的战场上在场的那个单位」的载荷绑定（383.4.d.2/.2.a；hold 现由 turn/flow.ts 的 Score wave 发出，" +
-    "但载荷只带战场/玩家）。另外 [Shield]（814.1.b.3 省略值按 1）的 KeywordDef 已合入（RIFT-81），但卡牌 keyword 能力 → KeywordDef 展开 → 图层注册的生产方未合入，" +
-    "且 814.1.d.1 的 Defender designation 门控是 compare 条件、layers/engine.ts 的 conditionMatches 不求值（现注册会无条件 +1）。" +
-    "依赖：effect.token 定义表扩展与入场状态改写、阶段时点进入事件词表与运行时关键词展开（RIFT-257/RIFT-120）、" +
-    "RIFT-31/33（hold 载荷）、卡牌 static 能力 → layers 注册（RIFT-91 后续）。",
+    "但载荷只带战场/玩家）。另外 [Shield]（814.1.b.3 省略值按 1）的 KeywordDef 与 static binder 已合入（RIFT-81/RIFT-257），" +
+    "但 814.1.d.1 的 Defender designation 门控依赖当前 ObjectSnapshot 未提供的 designation 特征；未知值会被求值器 fail-closed 为 false，" +
+    "因此 +1 不能在成为 defender 时生效。依赖：effect.token 定义表扩展与入场状态改写、beginning-start 的事件词表/生产者、" +
+    "RIFT-31/33（hold 载荷）、designation 特征求值，以及默认房间的程序注入。",
   abilities,
   sourceText:
     "[Shield] (+1 :rb_might: while I'm a defender.)\n" +

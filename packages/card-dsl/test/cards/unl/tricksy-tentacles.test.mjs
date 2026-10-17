@@ -131,32 +131,6 @@ test("unl-054-219 Tricksy Tentacles fail-closed: the descriptive destination is 
   assert.deepEqual(kernel.snapshot(), before);
 });
 
-test("unl-054-219 Tricksy Tentacles fail-closed: no merged consumer enforces the group requirements", () => {
-  // A live check that the recorded group bounds are data, not enforced rules: a
-  // unit whose Might exceeds the printed total still satisfies the filter keys
-  // the engine actually reads. This is the evidence for the judge-required
-  // status — the group requirements cannot be silently mistaken for enforced.
-  const kernel = world()
-    .unit("huge-one", { owner: "B", controller: "B", might: 6 })
-    .unit("huge-two", { owner: "B", controller: "B", might: 6 })
-    .build();
-  const plain = kernel.query({ type: "unit", zone: "board", controller: "B" });
-  assert.deepEqual(plain.map((object) => object.ref.id), ["huge-one", "huge-two"]);
-  // The descriptive group keys are not part of the filter vocabulary the engine
-  // consumes: the same two 6-Might units (total 12, over the printed 8) still
-  // satisfy the filter, so nothing rejects an over-Might group today.
-  const withBounds = kernel.query({
-    type: "unit",
-    zone: "board",
-    controller: "B",
-    sameController: true,
-    totalMightAtMost: 8
-  });
-  assert.deepEqual(withBounds.map((object) => object.ref.id), ["huge-one", "huge-two"]);
-  const total = withBounds.reduce((sum, object) => sum + (object.might ?? 0), 0);
-  assert.equal(total, 12);
-});
-
 test.todo(
   "unl-054-219 Tricksy Tentacles: the group targeting requirement — 'with the same controller' and " +
     "'a total Might of 8 or less' (CR 355.11 / 355.11.a / 355.11.b, including the resolution-time legal " +

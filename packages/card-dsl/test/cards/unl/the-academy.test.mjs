@@ -4,7 +4,6 @@ import test from "node:test";
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/the-academy.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
-import { validateEventPattern } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 import repeatDefinition from "../../../../engine-core/dist/effects/keywords/Repeat.js";
 
@@ -36,9 +35,9 @@ test("unl-216-219 The Academy: judgeReason names the one-shot window, base cost 
   assert.match(program.judgeReason, /one-shot|next spell/);
   assert.match(program.judgeReason, /204\.1\.a/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /attachLifecycle/);
   assert.match(program.judgeReason, /FinalizedCostPlan/);
-  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /here|Battlefield/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -53,6 +52,7 @@ test("unl-216-219 The Academy: a hold trigger at this Battlefield for its contro
   assert.equal(ability.trigger.at, "hold");
   assert.deepEqual(ability.trigger.filter, {
     event: "held",
+    filter: { source: "self" },
     player: "self"
   });
   assert.equal(ability.trigger.once, undefined);
@@ -122,31 +122,17 @@ test("unl-216-219 The Academy: the merged Repeat definition is the printed optio
 });
 
 
-test("unl-216-219 The Academy golden: the held pattern is a valid closed-vocabulary EventPattern", () => {
-  // turn/flow.ts emits the hold timing point from the Score wave; the card
-  // side must spell the event name with the closed EVENT_PATTERN_TYPES value.
+test("unl-216-219 The Academy golden: the held pattern retains the source Battlefield anchor", async () => {
+  // The event name is closed vocabulary, while the nested source:self filter
+  // preserves CR 053.3 "here" for the registration layer.
   const pattern = ability.trigger.filter;
-  const result = validateEventPattern(pattern);
-  assert.deepEqual(result.issues, []);
-  assert.equal(result.ok, true, JSON.stringify(result.issues));
   assert.equal(pattern.event, "held");
-});
-
-test("unl-216-219 The Academy golden: trigger registration accepts this shape but still rejects the here field", () => {
-  // translateTriggerFilter accepts {event, player} and normalizes the player
-  // selector into a real EventPattern; the printed "here" referent (053.3) has
-  // no EventPattern field and is rejected fail-closed.
-  const translated = translateTriggerFilter(
-    ability.trigger.filter,
-    "the-academy-source"
-  );
+  assert.deepEqual(pattern.filter, { source: "self" });
+  const { translateTriggerFilter } = await import("../../../../engine-core/dist/programs/filters.js");
+  const translated = translateTriggerFilter(pattern, "the-academy-source");
   assert.equal(translated.event, "held");
   assert.equal(translated.player, "self");
-  assert.equal(translated.here, undefined);
-  assert.throws(
-    () => translateTriggerFilter({ ...ability.trigger.filter, here: true }, "the-academy-source"),
-    /Unsupported filter field here/
-  );
+  assert.deepEqual(translated.object, { objectId: "the-academy-source" });
 });
 
 test.todo(
@@ -157,14 +143,14 @@ test.todo(
 
 test.todo(
   "unl-216-219 The Academy: build the granted Repeat's additional cost from the base cost of that " +
-    "later spell (CR 204.1.a, 206, 356.1, 820.1.c.1) — cost.modify / cost.additional are not merged " +
-    "primitives and effects/keywords/Repeat.ts documents that its payment is not wired into " +
-    "Finalize yet (RIFT-89)"
+    "later spell (CR 204.1.a, 206, 356.1, 820.1.c.1) — cost.modify and ignoreAllCosts are merged, " +
+    "but the delayed grant still lacks a finalized FinalizedCostPlan path that reads this spell's printed " +
+    "base cost and offers the optional additional payment to Finalize"
 );
 
 test.todo(
-  "unl-216-219 The Academy: grant the keyword through a merged continuous.grant-keyword consumer " +
-    "(registerContinuousEffect has no caller; engine-core never reads CardProgram abilities) and " +
-    "register the hold trigger via CardProgram TriggerRegistration (CR 190.6.a/190.6.d, RIFT-33 / " +
-    "RIFT-91 / contract §7.2 batch 5)"
+  "unl-216-219 The Academy: execute the delayed grant and hold trigger in the production room " +
+    "(CR 190.6.a/190.6.d, 053.3) — createProgramBinding.attachLifecycle already registers supplied " +
+    "programs, but the hold emission lacks the source/Battlefield binding and the default room does not " +
+    "inject this CardProgram; the next-spell window remains unresolved"
 );

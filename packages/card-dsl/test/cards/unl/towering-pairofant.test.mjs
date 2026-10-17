@@ -135,5 +135,6 @@ test.todo(
   "unl-008-219 Towering Pairofant: register 'If a unit died this turn, I enter ready' as a board-entry replacement " +
     "(CR 143.4 / 359.2.c / 369.3) — the RIFT-260 binder consumes the entry rewrite and the lifecycle registers it, " +
     "but the condition needs a history predicate: compare(count) silently counts the live board (expr.ts ignores the " +
-    "subject), so entering ready would fire without any death this turn, and the match flow never attaches the binding"
+    "subject), so entering ready would fire without any death this turn; engine-runtime attaches supplied programs, " +
+    "while the default room does not inject this CardProgram"
 );

@@ -3,7 +3,6 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/trapping-grounds.js";
-import { validateEventPattern } from "../../../../engine-core/dist/events/trigger-spec.js";
 import { translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 const CANONICAL_ID =
@@ -33,8 +32,8 @@ test("unl-217-219 Trapping Grounds: identity, status, judgeReason and verbatim s
   assert.match(program.judgeReason, /355\.2/);
   assert.match(program.judgeReason, /467\.2\.c/);
   assert.match(program.judgeReason, /RIFT-9/);
-  assert.match(program.judgeReason, /RIFT-31\/RIFT-33/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /source\/Battlefield/);
+  assert.match(program.judgeReason, /attachLifecycle/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -47,6 +46,7 @@ test("unl-217-219 Trapping Grounds: conquer trigger with the excess-damage claus
   assert.equal(ability.trigger.at, "conquer");
   assert.deepEqual(ability.trigger.filter, {
     event: "conquered",
+    filter: { source: "self" },
     player: "self"
   });
   // 383.2.a.1: the clause follows the trigger condition directly, so it belongs
@@ -91,31 +91,17 @@ test("unl-217-219 Trapping Grounds: one Bird token play with no fixed destinatio
 });
 
 
-test("unl-217-219 Trapping Grounds golden: the conquered pattern is a valid closed-vocabulary EventPattern", () => {
-  // turn/flow.ts emits the conquer timing point from the Score wave; the card
-  // side must spell the event name with the closed EVENT_PATTERN_TYPES value.
+test("unl-217-219 Trapping Grounds golden: the conquered pattern retains the source Battlefield anchor", async () => {
+  // The event name is closed vocabulary, while the nested source:self filter
+  // preserves CR 053.3 "here" for the registration layer.
   const pattern = ability.trigger.filter;
-  const result = validateEventPattern(pattern);
-  assert.deepEqual(result.issues, []);
-  assert.equal(result.ok, true, JSON.stringify(result.issues));
   assert.equal(pattern.event, "conquered");
-});
-
-test("unl-217-219 Trapping Grounds golden: trigger registration accepts this shape but still rejects the here field", () => {
-  // translateTriggerFilter accepts {event, player} and normalizes the player
-  // selector into a real EventPattern; the printed "here" referent (053.3) has
-  // no EventPattern field and is rejected fail-closed.
-  const translated = translateTriggerFilter(
-    ability.trigger.filter,
-    "trapping-grounds-source"
-  );
+  assert.deepEqual(pattern.filter, { source: "self" });
+  const { translateTriggerFilter } = await import("../../../../engine-core/dist/programs/filters.js");
+  const translated = translateTriggerFilter(pattern, "trapping-grounds-source");
   assert.equal(translated.event, "conquered");
   assert.equal(translated.player, "self");
-  assert.equal(translated.here, undefined);
-  assert.throws(
-    () => translateTriggerFilter({ ...ability.trigger.filter, here: true }, "trapping-grounds-source"),
-    /Unsupported filter field here/
-  );
+  assert.deepEqual(translated.object, { objectId: "trapping-grounds-source" });
 });
 
 test.todo(
@@ -125,10 +111,10 @@ test.todo(
 );
 
 test.todo(
-  "unl-217-219 Trapping Grounds: emit the conquer timing point from scoring/ into the chain/events " +
-    "pipeline and register this CardProgram's triggered ability as a trigger, including the 053.3 " +
-    "'here' referent (conquer is emitted by turn/flow.ts now; the here filter is rejected by " +
-    "programs/filters.ts — RIFT-31/RIFT-33 payload, RIFT-120/RIFT-257 registration)"
+  "unl-217-219 Trapping Grounds: bind the conquer trigger to the source Battlefield in production " +
+    "(conquer is emitted by turn/flow.ts and createProgramBinding.attachLifecycle registers supplied " +
+    "programs, but the scoring emission carries only battlefieldId/player and lacks the source/object " +
+    "snapshot needed for the retained 053.3 here anchor; the default room does not inject this program)"
 );
 
 test.todo(
