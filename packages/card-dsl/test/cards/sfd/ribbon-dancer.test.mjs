@@ -4,6 +4,10 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/sfd/ribbon-dancer.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { translateObjectFilter, translateTriggerFilter } from "../../../../engine-core/dist/programs/filters.js";
 
 const CARD_ID = "card.hash-1d9968343e4ab4ff83ad67e03bc124632358c3526c2bbddcc0667b4849c03538";
 const TARGET_ID = "ribbon-dancer.other-friendly-unit";
@@ -30,11 +34,16 @@ test("sfd-038-221 Ribbon Dancer: identity, ruleset, status and verbatim text", (
 });
 
 test("sfd-038-221 Ribbon Dancer: judgeReason names the temporary-Might and move-payload gaps", () => {
+  // RIFT-258 merged continuous.might, so the reason must not claim the
+  // Might-modification primitive is missing; the remaining gaps are the
+  // move-event destination payload and the relative object anchors.
   assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /临时 Might/);
-  assert.match(program.judgeReason, /effect\.buff/);
+  assert.match(program.judgeReason, /RIFT-258/);
   assert.match(program.judgeReason, /object-moved/);
   assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /exclude/);
+  assert.match(program.judgeReason, /translateObjectFilter/);
+  assert.doesNotMatch(program.judgeReason, /没有注册 continuous\.might 的原语/);
 });
 
 test("sfd-038-221 Ribbon Dancer: 'When I move to a battlefield' subscribes to object-moved", () => {
@@ -63,6 +72,13 @@ test("sfd-038-221 Ribbon Dancer: the effect is a one-turn Might grant targeted a
   assert.equal(mightInstruction.op, "continuous.might");
   assert.deepEqual(mightInstruction.args.amount, { kind: "constant", value: 1 });
   assert.deepEqual(mightInstruction.args.duration, { kind: "constant", value: "this-turn" });
+  // "give another friendly unit +1 Might" modifies the chosen unit, so the
+  // instruction reads its object from the declared target (the merged
+  // continuous.might selection shape), never from the ability source.
+  assert.deepEqual(mightInstruction.args.objects, {
+    kind: "constant",
+    value: { kind: "target", id: TARGET_ID }
+  });
   assert.equal(mightInstruction.linkedTo, undefined);
 
   // 355.7 / 355.9.b: "another friendly unit" is chosen, so it is a target;
@@ -81,20 +97,79 @@ test("sfd-038-221 Ribbon Dancer: the effect is a one-turn Might grant targeted a
   assert.equal(mightInstruction.picks, undefined);
 });
 
+test("sfd-038-221 Ribbon Dancer golden: the merged continuous.might primitive registers the end-of-turn arithmetic effect", () => {
+  // RIFT-258 merged continuous.might, so the card's Might clause now runs for
+  // real through the merged interpreter path: the +1 lands in the arithmetic
+  // layer with the end-of-turn duration (478.1.a, 317.1.a / 468.7.c).
+  const kernel = world()
+    .unit("ribbon-dancer", { owner: "A", controller: "A", might: 3 })
+    .unit("ally", { owner: "A", controller: "A", might: 2 })
+    .build();
+  const allyRef = kernel.ref("ally");
+  // The card's static filter spelling reaches the chain already normalized by
+  // the merged programs layer ('controller' -> the ability controller), and
+  // the interpreter's own queryObjects handles the object anchors; only the
+  // scalar part goes through the reference kernel's literal filter match.
+  const context = new Proxy(kernel, {
+    get(target, key) {
+      if (key === "targets") return (id) => (id === TARGET_ID ? [allyRef] : target.targets(id));
+      if (key === "query") {
+        return (filter) => target.query({
+          ...filter,
+          ...(filter.controller === "controller" || filter.controller === "self" ? { controller: "A" } : {})
+        });
+      }
+      const value = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    }
+  });
+  const outcome = resolveChainBody(ability.body, context);
+
+  assert.equal(outcome.status, "executed");
+  assert.deepEqual(
+    outcome.results.map((entry) => [entry.id, entry.result.status]),
+    [["ribbon-dancer.give-plus-1", "executed"]]
+  );
+  assert.equal(kernel.continuousEffects.length, 1);
+  const [registration] = kernel.continuousEffects;
+  assert.equal(registration.effect.layer, "arithmetic");
+  assert.equal(registration.effect.effect.kind, "continuous.might");
+  assert.equal(registration.effect.effect.amount, 1);
+  assert.deepEqual(registration.duration, { type: "end-of-turn" });
+
+  const engine = createLayerEngine(
+    kernel.objects,
+    kernel.continuousEffects.map((entry) => ({ effect: entry.effect, duration: entry.duration, timestamp: 1 }))
+  );
+  // 143.2.a: only the chosen ally rises by 1; the source itself is untouched.
+  assert.equal(engine.evaluate(kernel.ref("ally")).might, 3);
+  assert.equal(engine.evaluate(kernel.ref("ribbon-dancer")).might, 3);
+  assert.equal(engine.expireAt("turn-end").length, 1);
+  assert.equal(engine.evaluate(kernel.ref("ally")).might, 2);
+});
+
+test("sfd-038-221 Ribbon Dancer: the move trigger filter is translated with the printed destination match", () => {
+  // Structure evidence for the remaining trigger gap: the production filter
+  // translator emits the destination match the card authors, while the
+  // emitted object-moved event still carries no destination payload for it.
+  assert.deepEqual(
+    translateTriggerFilter(
+      { event: "object-moved", toZone: "battlefield", filter: { source: "self" } },
+      "ribbon-dancer",
+      "object-moved"
+    ),
+    { event: "object-moved", object: { objectId: "ribbon-dancer" }, toZone: "battlefield" }
+  );
+});
+
 test.todo(
-  "sfd-038-221 Ribbon Dancer: '+1 Might this turn' needs a merged continuous.might instruction that " +
-    "registers the arithmetic-layer effect through ResolveContext.addContinuous with an end-of-turn " +
-    "duration (CR 703 keeps buffs and temporary Might changes distinct; the layers engine itself can " +
-    "evaluate the effect, but effects/instructions/ has no primitive that registers one) — RIFT-9"
+  "sfd-038-221 Ribbon Dancer: the object-moved event must carry the destination kind/id so that " +
+    "toZone: \"battlefield\" matches only genuine Moves onto a battlefield (449.1/449.2, with " +
+    "458/458.1 excluding Recalls), and the card trigger must reach the pipeline — RIFT-120"
 );
 
 test.todo(
-  "sfd-038-221 Ribbon Dancer: the object-moved event must carry to/toKind so that toZone: \"battlefield\" " +
-    "matches only genuine Moves onto a battlefield (449.1/449.2, with 458/458.1 excluding Recalls) and " +
-    "must expose the moved object's identity to the card registration (RIFT-120)"
-);
-
-test.todo(
-  "sfd-038-221 Ribbon Dancer: Finalize legalizes 'another friendly unit' (controller + exclude source) " +
-    "and re-checks it at resolution (355.8, 355.9, 359.3.e) — RIFT-90"
+  "sfd-038-221 Ribbon Dancer: programs/filters.ts must translate the relative object anchors " +
+    "(exclude: \"source\" for 'another', sameLocationAs), after which Finalize must legalize and " +
+    "re-check 'another friendly unit' at resolution (355.8, 355.9, 359.3.e) — RIFT-257 follow-up / RIFT-90"
 );

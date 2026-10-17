@@ -6,6 +6,7 @@ import program from "../../../dist/cards/sfd/royal-entourage.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import exhaust from "../../../../engine-core/dist/effects/instructions/effect.exhaust.js";
 import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-a32cc7d6df90c5796f8d933adb5747a302972d467cce6c5c691af4ece82b4429";
@@ -153,12 +154,59 @@ test("sfd-039-221 Royal Entourage golden: an already-ready legend is left untouc
 test.todo(
   "sfd-039-221 Royal Entourage: the Legend Zone must exist in the frozen zone vocabulary (CR 107.4, " +
     "174.2.b) so the resolving choose can anchor a legend in its own zone and the golden can build a " +
-    "legal board — the contract change request records ZoneId/ZoneDestination missing legend-zone"
+    "legal board — the contract change request records ZoneId/ZoneDestination missing legend-zone; the " +
+    "card-played trigger must also reach the chain (CR 383.4.a.2, 420.4.a) — RIFT-89 / RIFT-120"
 );
 
+test("sfd-039-221 Royal Entourage golden: the ready branch executes through the production adapter", () => {
+  // RIFT-257's adapter hands the whole argument object to the primitive schema,
+  // so effect.ready's choose selection really resolves on the merged path.
+  const kernel = world()
+    .unit("chosen-legend", { types: ["legend"], exhausted: true, owner: "A", controller: "A" })
+    .build();
+  kernel.answers.set(
+    "royal-entourage.ready-legend/royal-entourage.choose-legend-to-ready",
+    [kernel.ref("chosen-legend")]
+  );
+
+  const outcome = resolveChainBody([readyInstruction], kernel);
+  assert.equal(outcome.status, "executed");
+  assert.equal(kernel.getObject("chosen-legend").exhausted, false);
+  assert.deepEqual(outcome.results[0].result.linkedValues.readied, {
+    count: 1,
+    objects: [{ id: "chosen-legend", zoneEntryId: 1 }]
+  });
+});
+
+test("sfd-039-221 Royal Entourage golden: the exhaust branch executes when the selection is literal", () => {
+  // Evidence for the judgeReason: the exhaust branch's execution depends only
+  // on the selection encoding. effect.exhaust parses `choose` as literal shape
+  // data; with the literal spelling the merged adapter runs the branch for
+  // real, which isolates the Expr wrapper as the remaining card-side blocker.
+  const kernel = world()
+    .unit("chosen-legend", { types: ["legend"], exhausted: false, owner: "A", controller: "A" })
+    .build();
+  kernel.answers.set(
+    "royal-entourage.exhaust-legend/royal-entourage.choose-legend-to-exhaust",
+    [kernel.ref("chosen-legend")]
+  );
+  const literal = resolveChainBody(
+    [{
+      id: exhaustInstruction.id,
+      op: exhaustInstruction.op,
+      args: {
+        choose: exhaustInstruction.args.choose.value,
+        amount: exhaustInstruction.args.amount
+      }
+    }],
+    kernel
+  );
+  assert.equal(literal.status, "executed");
+  assert.equal(kernel.getObject("chosen-legend").exhausted, true);
+});
+
 test.todo(
-  "sfd-039-221 Royal Entourage: the resolving choose selections must survive the production adapter " +
-    "(chain/interpreter-adapter.ts only unwraps whitelisted literal fields; effect.ready's objects and " +
-    "effect.exhaust's choose are not unwrapped), and the card-played trigger must reach the chain " +
-    "(CR 383.4.a.2, 420.4.a) — RIFT-89 / RIFT-120"
+  "sfd-039-221 Royal Entourage: the exhaust branch's Expr-wrapped choose must reach the primitive " +
+    "(effect.exhaust parses `choose` as literal shape data, unlike every other argument) so the " +
+    "card's own IR runs unmodified — RIFT-89 follow-up"
 );

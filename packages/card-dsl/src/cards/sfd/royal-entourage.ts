@@ -19,17 +19,22 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 416.1/415.1：ready 与 exhaust 各自是独立 GameAction，由两条原语提交。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required。
- * - 传奇的来源区域是 Legend Zone（CR 107.4/174.2.b "Legends … start the game in the Legend
- *   Zone and cannot typically leave it"），而契约的 ZoneId 只含 hand/deck/rune-deck/trash/
- *   banishment/board/rune-zone/chain（effects/contract.ts），参考内核也没有该区域：
- *   choose 的 filter 无法锚定 Legend Zone 中的传奇，golden 无法构造合法局面（只能用
- *   合成的 legend 引用做原语层执行）。effect.ready.ts/effect.exhaust.ts 的文件头记录了同一缺口。
- * - 另有结算期 choose 的接线缺口：生产线路径（chain/interpreter-adapter.ts）只为白名单字段
- *   解包 Expr，未解包 effect.ready 的 objects / effect.exhaust 的 choose，两条 choose 分支
- *   目前都到不了原语。
+ * - RIFT-257 修正了一条旧结论：生产线路径（chain/interpreter-adapter.ts）现在把整包 args
+ *   交给原语的 argsSchema（primitiveArgs），只有 effect.counter / effect.buff 等白名单字段
+ *   会被解包，effect.ready 的 objects 与 effect.exhaust 的 choose 仍按原语自己的 schema 解析。
+ *   实测：effect.ready 的 choose 形状在参考内核上真实执行并改写 legend 的就绪状态；
+ *   effect.exhaust 的 choose 在 choose 已是字面对象时同样可执行。
+ * - 仍有两处缺口：
+ *   1. effect.exhaust 只接受字面 choose 对象，本卡写的是 Expr 包装
+ *      （{ kind: "constant", value: { id, filter, prompt } }），原语以
+ *      "effect.exhaust choose requires a stable non-empty choice id" 拒绝。
+ *   2. 传奇来源区域不在契约里：CR 107.4/174.2.b 的 Legend Zone 未列入 ZoneId
+ *      （effects/contract.ts 只有 hand/deck/rune-deck/trash/banishment/board/rune-zone/chain），
+ *      game/lifecycle.ts 的 legend 也先落在 chain 区，choose 的 filter 无法锚定真实传奇区，
+ *      golden 只能用合成 legend 引用做原语层执行。
  * 依赖：契约变更（ZoneId/ZoneDestination 增补 legend-zone，并让结算期 choose 的目标空间覆盖
- * 该区域）、目标/选择批次接线（RIFT-89/90）。不近似实现（不把 legend 当作 board 上的对象，
- * 也不用固定 seat 的假引用）。
+ * 该区域）、effect.exhaust.choose 的 Expr 解包或卡牌拼写对齐（RIFT-89/90 后续）。不近似实现
+ * （不把 legend 当作 board 上的对象，也不用固定 seat 的假引用）。
  */
 const abilities: Ability[] = [
   {
@@ -103,12 +108,14 @@ const program = {
   judgeReason:
     "「ready or exhaust a legend」的 or 模式（契约 3.9 的 choice.mode）与 effect.ready/effect.exhaust 原语都已合入，" +
     "355.10.g 也明确「a legend」不是目标、应在结算时由控制者选择（本卡用两条原语的 choose 结算期选择形态表达），" +
-    "但传奇的来源区域 Legend Zone（CR 107.4/174.2.b）不在契约的 ZoneId 词汇里" +
-    "（effects/contract.ts 只有 hand/deck/rune-deck/trash/banishment/board/rune-zone/chain；effect.ready.ts 与 effect.exhaust.ts 的文件头记录同一缺口），" +
-    "参考内核也没有该区域，choose 的 filter 无法锚定 Legend Zone 中的传奇，golden 无法构造合法局面。" +
-    "另有结算期 choose 的接线缺口：chain/interpreter-adapter.ts 只为白名单字段解包 Expr，未解包 effect.ready 的 objects 与 effect.exhaust 的 choose，" +
-    "两条 choose 分支目前都到不了原语。依赖：契约变更（ZoneId/ZoneDestination 增补 legend-zone，并让结算期 choose 覆盖该区域）与目标/选择批次接线（RIFT-89/90）。" +
-    "不近似实现（不把 legend 当作 board 上的对象，也不用固定 seat 的假引用）。",
+    "但仍有两处缺口，不近似实现：" +
+    "(1) effect.exhaust 只接受字面 choose 对象，本卡写的 Expr 包装（{ kind: constant, value: { id, filter, prompt } }）会被原语以" +
+    "「effect.exhaust choose requires a stable non-empty choice id」拒绝（实测：字面值可真实执行并改写就绪状态）；" +
+    "(2) 传奇的来源区域 Legend Zone（CR 107.4/174.2.b）不在契约的 ZoneId 词汇里（effects/contract.ts 只有 " +
+    "hand/deck/rune-deck/trash/banishment/board/rune-zone/chain），game/lifecycle.ts 的 legend 也先落在 chain 区，" +
+    "choose 的 filter 无法锚定真实传奇区，golden 只能用合成 legend 引用做原语层执行。" +
+    "RIFT-257 之后 interpreter-adapter 已把整包 args 交给原语 schema，因此 effect.ready 的 choose 分支实测能真实执行。" +
+    "依赖：契约变更（ZoneId/ZoneDestination 增补 legend-zone，并让结算期 choose 覆盖该区域）与 effect.exhaust.choose 的 Expr 解包/拼写对齐（RIFT-89/90 后续）。",
   abilities,
   sourceText: "When you play me, ready or exhaust a legend."
 } satisfies CardProgram;

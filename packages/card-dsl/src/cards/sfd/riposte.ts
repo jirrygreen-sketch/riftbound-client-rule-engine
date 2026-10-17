@@ -24,28 +24,32 @@ import type { CardProgram } from "../../ir/index.js";
  *   with an end-of-turn duration whose value is the countered spell's Energy
  *   cost (Show-Off-style locking per contract 3.4: the value is locked when
  *   read during resolution, so the spell leaving the chain does not unset it).
+ *   The merged `continuous.might` primitive (RIFT-258) registers that
+ *   arithmetic-layer modification through ResolveContext.addContinuous with
+ *   the end-of-turn duration (317.1.a / 468.7.c).
+ * - The value read uses the merged `condition.value` shape (the same pattern
+ *   as the merged ogn/faithful-manufactor program for a value the primitive
+ *   schemas cannot take as a raw symbolic expression): the interpreter
+ *   evaluates `object-property({ linked: "counter-spell" }, "energy")` at
+ *   resolution time and binds it as a linked value, which `continuous.might`
+ *   then consumes. CR 206: a card's cost is its printed cost, so the
+ *   characteristic `energy` of the countered spell is the correct source and
+ *   `energy: null` (no printed cost) is never coerced to 0.
  *
- * Status is judge-required: no merged primitive currently creates a
- * value-carrying temporary Might modification (`continuous.might` with
- * `continuous.duration` from the M1 primitive list), so the second clause
- * cannot be declared with only merged ops. The body is the nearest faithful
- * structure, and judgeReason records the exact missing primitive instead of
- * approximating the Might grant with Buff counters (CR 702: Buffs are
- * counters, not a printed Might change).
+ * Status: executable. Both printed clauses run on merged paths: effect.counter
+ * counters the chain spell and links the countered references, and the
+ * Might clause registers a real end-of-turn arithmetic effect whose amount is
+ * the locked printed Energy cost. The golden test drives the card's own body
+ * through the production chain adapter and asserts the real counter, the
+ * linked ignore chain when the spell is gone, the value lock, the
+ * arithmetic-layer registration, the end-of-turn expiry and the
+ * no-printed-cost boundary (a null Energy cost negates the grant instead of
+ * turning it into 0).
  */
 export default {
   canonicalCardId: "card.hash-6e1bdc294002f23d867897b239a644801a07effca16fc07c31ab55c7f41ff26d",
   rulesetVersion: "core-1.5",
-  status: "judge-required",
-  judgeReason:
-    "Missing merged primitive for the temporary Might modification: 'give that unit +[M] equal to " +
-    "that spell's Energy cost this turn' needs a continuous.might arithmetic effect with an " +
-    "end-of-turn duration (continuous.duration) via ctx.addContinuous; effects/instructions " +
-    "currently exposes no such op (effect.buff only adds CR 702 Buff counters, which are not a " +
-    "Might value change, and has no duration). The counter clause itself is fully covered by " +
-    "effect.counter. Tracked under the M1 continuous.might / continuous.duration primitive work " +
-    "(RIFT-87); until it lands, the 'grant-might' instruction references the planned " +
-    "'effect.modify-might' op and does not execute.",
+  status: "executable",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {
@@ -71,17 +75,43 @@ export default {
           ]
         },
         {
-          id: "grant-might",
-          op: "effect.modify-might",
+          // "equal to that spell's Energy cost": CR 206 reads the printed cost
+          // of the countered card. The interpreter evaluates the object
+          // property against the reference linked by the counter (its last
+          // known information once the spell has left the chain) and binds a
+          // literal for the primitive below, which is the merged shape for a
+          // value the primitive schemas cannot take as a raw symbolic
+          // expression (see merged ogn/faithful-manufactor).
+          id: "read-spell-energy",
+          op: "condition.value",
           linkedTo: "counter-spell",
           args: {
-            target: { kind: "constant", value: "target-unit" },
+            value: {
+              kind: "object-property",
+              object: { linked: "counter-spell" },
+              property: "energy"
+            },
+            key: { kind: "constant", value: "energyCost" }
+          }
+        },
+        {
+          id: "grant-might",
+          // "give that unit +[M] ... this turn": an arithmetic-layer Might
+          // modification registered through ResolveContext.addContinuous
+          // (RIFT-258) with the end-of-turn duration (317.1.a / 468.7.c).
+          op: "continuous.might",
+          linkedTo: "read-spell-energy",
+          args: {
+            objects: {
+              kind: "constant",
+              value: { kind: "target", id: "target-unit" }
+            },
             amount: {
               kind: "linked-value",
-              instructionId: "counter-spell",
-              key: "counteredEnergy"
+              instructionId: "read-spell-energy",
+              key: "energyCost"
             },
-            duration: { kind: "constant", value: "end-of-turn" }
+            duration: { kind: "constant", value: "this-turn" }
           },
           targets: [
             {
