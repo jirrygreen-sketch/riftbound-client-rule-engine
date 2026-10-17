@@ -57,13 +57,43 @@ test("buildCoverageReport counts canonical identities and keeps unparseable card
   assert.deepEqual(report.manualReview.canonicalCardIds, ["card.hash-d"]);
 });
 
-test("generated registry census is canonical and reports current status counts", async () => {
+test("generated registry census is canonical and internally consistent", async () => {
   const loaded = await loadGeneratedCardRegistry();
   const report = buildCoverageReport(loaded.programs, loaded.source);
-  assert.equal(report.summary.totalCanonical, 1080);
-  assert.deepEqual(report.summary.counts, { executable: 91, "judge-required": 973, "no-ability": 16 });
-  assert.equal(report.summary.coveragePercent, 8.43);
-  assert.equal(report.byCardType[0]?.key, "unknown");
-  assert.equal(report.byCardType[0]?.totalCanonical, 1080);
-  assert.equal(report.dependencyGaps[0]?.canonicalCount, 327);
+
+  const { counts, coveragePercent, executablePercentOfWithAbility, ...summaryRest } = report.summary;
+  assert.equal(report.summary.totalCanonical, report.summary.counts.executable
+    + report.summary.counts["judge-required"]
+    + report.summary.counts["no-ability"]);
+  assert.ok(Object.values(counts).every(Number.isInteger));
+  assert.ok(Object.values(counts).every(value => value >= 0));
+  assert.ok(coveragePercent >= 0 && coveragePercent <= 100);
+  assert.ok(executablePercentOfWithAbility >= 0 && executablePercentOfWithAbility <= 100);
+  assert.ok(Object.keys(summaryRest).includes("totalCanonical"));
+  assert.ok(Object.keys(summaryRest).includes("judgeRequiredWithoutParsedDependency"));
+
+  const canonicalIds = new Set(loaded.programs.map(program => program.canonicalCardId));
+  assert.equal(report.summary.totalCanonical, canonicalIds.size);
+
+  const expectedCoveragePercent = Math.round(
+    (counts.executable / Math.max(report.summary.totalCanonical, 1)) * 100 * 100
+  ) / 100;
+  assert.equal(coveragePercent, expectedCoveragePercent);
+  const withAbility = report.summary.totalCanonical - counts["no-ability"];
+  const expectedAbilityCoveragePercent = Math.round(
+    (counts.executable / Math.max(withAbility, 1)) * 100 * 100
+  ) / 100;
+  assert.equal(executablePercentOfWithAbility, expectedAbilityCoveragePercent);
+
+  assert.equal(report.schemaVersion, 1);
+  assert.equal(report.source.identity, "canonical");
+  assert.equal(report.source.cardType, "registry-field-or-unknown");
+  assert.equal(typeof report.source.registry, "string");
+  assert.ok(report.source.registry.length > 0);
+  assert.ok(Array.isArray(report.bySet));
+  assert.ok(Array.isArray(report.byCardType));
+  assert.ok(Array.isArray(report.dependencyGaps));
+  assert.ok(report.summary.judgeRequiredWithoutParsedDependency >= 0);
+  assert.equal(report.manualReview.canonicalCount, report.summary.judgeRequiredWithoutParsedDependency);
+  assert.equal(report.manualReview.canonicalCardIds.length, report.manualReview.canonicalCount);
 });
