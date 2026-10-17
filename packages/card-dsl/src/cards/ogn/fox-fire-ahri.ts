@@ -25,9 +25,12 @@ import type { CardProgram } from "../../ir/index.js";
  * - "any number ... including zero" is expressed here as min 0 / selection
  *   "any" (355.13), but the group constraint above cannot be enforced, so the card
  *   is not executable.
- * - [Hidden] (811) is declared, but its expansion still needs the cost.hidden
- *   primitive for the Hide action, the facedown zone and the free facedown play,
- *   so the printed Hide line cannot be executed either.
+ * - [Hidden] (811) is declared; the cost side is merged (cost/kinds/hidden.ts:
+ *   buildHiddenCostPlan locks the 1 any-domain Power hide plan, the play plan
+ *   ignores the printed base while keeping additional fees). What is still
+ *   missing is the 811.1.c/811.1.d flow binding: the Hide free action, the
+ *   facedown zone handling and the next-turn Reaction play permission/timing,
+ *   so the printed Hide line cannot be executed end to end yet.
  * The kill half itself uses the merged effect.kill primitive with non-target board
  * units chosen at Finalize; it is covered by a real execution test.
  */
@@ -40,7 +43,8 @@ const foxFire = {
     "（同一战场 + 组内 Might 合计 ≤ 4），TargetSpec.location 已能表达 battlefield，但 target-plan 仍只有 min/max 与单体合法性，" +
     "kind:\"group\" 字段不会执行组内一致性或 Might 合计，" +
     "也没有 355.11.b/355.11.b.1 的结算时合法子集重选（CR 本条示例正是 Fox-Fire）；" +
-    "[Hidden]（811）的展开还依赖 cost.hidden（隐藏行动、facedown 区域与免费打出）及其流程绑定。" +
+    "[Hidden]（811）的费用侧已合入（cost.hidden 的 buildHiddenCostPlan：hide 锁 1 点任意域 Power、play 忽略印刷基础费，cost/kinds/hidden.ts 与 cost-plan.ts 有执行证据），" +
+    "但仍缺 811.1.c/811.1.d 的流程绑定：Hide 自由行动、facedown 区域处理与下回合 Reaction 打出的许可/时机（programs/statics.ts 的 layerFor 也还没有 cost.hidden 映射）。" +
     "Kill 原语本身已合入并有执行测试；不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "hidden" },

@@ -19,16 +19,18 @@ import type { CardProgram } from "../../ir/index.js";
  * 结构说明:
  * - triggered + choice.optional（契约 3.9：被选指令包进 body）：接受后由 effect.play
  *   打出仍在 Trash 的本卡，费用用 356.1.a 的"for [Cost]"改写写成已 Finalize 的费用
- *   计划（只声明 1 Fury Power；不写 energy 组件，避免把"没有印刷费用"表达成 0）。
+ *   计划（只声明 1 Fury Power，替代本卡印刷的 3 Energy 基础费用；省略 energy
+ *   组件不改变卡牌的印刷值）。
  * - effect.play 的 TargetSpec 用 { source: "self" } 锚点（IR 静态数据用契约 3.6 的
  *   符号选择器，不写运行时 ObjectRef）选择仍在 Trash 的本卡。
+ * - effect.play 已支持 finalized cost override，chain/engine.ts 会将其接入费用计划；
+ *   Fury 替代费用不再是缺口。测试内核可证明费用计划与支付回执，不证明 Power 扣除。
  *
  * 未完成部分（不近似实现）:
  * - 绑定器当前拒绝 effect.play 的 self/source Trash 目标过滤，无法把接受分支
  *   绑定到仍在 Trash 的本卡。
- * - 费用计划虽已支持 pay/modify 与 Fury cost kind，但接受分支仍没有把
- *   :rb_rune_fury: 的替代支付、从 Trash 的区域许可和嵌套 play 目标生命周期
- *   一起交给 Finalize/Resolve；不能只把一个静态 finalized 费用对象当成完整支付证据。
+ * - 接受分支仍缺从 Trash 的区域许可（366.1）与嵌套 play 目标生命周期的流程绑定；
+ *   单独的费用计划与支付回执不能证明该分支已完整执行。
  */
 const flameChompers = {
   canonicalCardId: "card.hash-0f5f84f75dbe0744c93412016da28963e78fa05c747a4b3163be7cfef5f26cc9",
@@ -36,8 +38,9 @@ const flameChompers = {
   status: "judge-required",
   judgeReason:
     "『you may pay :rb_rune_fury: to play me』的触发时点与可选分支已写入 IR；" +
+    "Fury 替代费用已支持由 effect.play 的 finalized cost override 接入链费用计划；" +
     "但程序绑定器会因 effect.play 的 self/source Trash 目标过滤而拒绝接受分支，" +
-    "且当前完整结算仍缺 Fury 替代费用支付、366.1 区域许可和嵌套 play 目标生命周期的联合消费。" +
+    "且当前完整结算仍缺 366.1 区域许可和嵌套 play 目标生命周期的流程绑定。" +
     "拒绝分支与 play 子效果已有执行测试，不近似实现。",
   abilities: [
     {

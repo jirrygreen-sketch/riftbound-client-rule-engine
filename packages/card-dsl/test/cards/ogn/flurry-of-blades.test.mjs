@@ -101,7 +101,7 @@ test("Flurry of Blades golden: balanced damage dealing 1 to each unit in the set
   assert.deepEqual(run.events.map((event) => event.action), ["damage", "damage"]);
 });
 
-test("Flurry of Blades golden: an empty set negates the damage as impossible", () => {
+test("Flurry of Blades golden: an empty set means no legal objects, so the instruction is ignored as mistargeted", () => {
   const kernel = world().base("base-unit", { owner: "B", might: 3 }).build();
   const run = runInstruction(
     damage,

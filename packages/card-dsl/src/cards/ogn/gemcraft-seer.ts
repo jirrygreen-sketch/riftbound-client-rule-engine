@@ -32,7 +32,9 @@ export default {
   judgeReason:
     "「Other friendly units have [Vision]」需要静态 grant 的 layer 注册与 source-relative 排除；" +
     "当前 Vision 触发过滤含有 binder 不支持的 object.id 字段，静态 grant 又含有 binder 不支持的 exclude:self 锚点，" +
-    "所以无法同时证明 Vision 触发和 other-friendly 授予的完整执行链。[Vision]（817）本体已合入并可在参考内核执行，不近似实现。",
+   "所以无法同时证明 Vision 触发和 other-friendly 授予的完整执行链。" +
+   "另外 Vision 展开体的 effect.inspect 仍固定 player:A 占位，生产侧也没有在每次结算时向其注入真实控制者与有序 vision-top picks；" +
+   "[Vision]（817）本体已合入并可在参考内核执行，不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "vision" },
     {

@@ -5,7 +5,9 @@ import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/ogn/flame-chompers.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-0f5f84f75dbe0744c93412016da28963e78fa05c747a4b3163be7cfef5f26cc9";
 const TRIGGERED = program.abilities[0];
@@ -59,8 +61,8 @@ test("flame-chompers: the accepted body declares a finalized 1-Fury-Power play o
   assert.deepEqual(play.args.target, { kind: "constant", value: "flame-chompers.self" });
   assert.deepEqual(play.args.cost, {
     kind: "constant",
-    // No energy/xp component: this card has no printed Energy cost, and the
-    // alternate cost never turns "no printed cost" into "energy 0" (356.1.a).
+    // The 1-Fury-Power alternate cost replaces the printed 3-Energy base cost
+    // (356.1.a); omitting an Energy component does not change the printed value.
     value: { finalized: true, power: ["Fury"] }
   });
   assert.deepEqual(play.args.location, { kind: "constant", value: { type: "base", player: "controller" } });
@@ -87,10 +89,10 @@ test("flame-chompers: declining skips the whole accepted body and leaves the tra
 });
 
 test("flame-chompers: the 'play me' half runs as a real play of the trash card (420.3)", () => {
-  // Sub-effect evidence only: the printed 1-Fury-Power payment is the unmerged
-  // half (judgeReason), so this scenario deliberately supplies no cost plan to
-  // effect.play and asserts nothing about payment. The reference kernel's pay
-  // action models Energy/XP and cannot prove a Power payment either way.
+  // Sub-effect evidence only: this scenario supplies no cost plan and isolates
+  // play movement. The merged finalized-cost override is separate from the
+  // remaining Trash binding, zone permission and nested Play lifecycle gaps.
+  // The cost test below supplies plan/receipt evidence, not a Fury pool debit.
   const base = world().card("flame-chompers", { owner: "A", zone: "trash" }).build();
   const kernel = base.clone({
     source: base.ref("flame-chompers"),
@@ -109,4 +111,34 @@ test("flame-chompers: the 'play me' half runs as a real play of the trash card (
   const board = kernel.zone("A", "board");
   assert.equal(board.length, 1);
   assert.deepEqual(board[0], kernel.ref("flame-chompers"));
+});
+
+test("flame-chompers golden: real cost primitives record the 1-Fury-Power alternate plan and payment receipt (356.1.a, 357)", () => {
+  // Under 356.1.a, the 1-Fury-Power alternate cost replaces the printed
+  // 3-Energy base cost. buildCostPlan and cost.pay provide plan/receipt evidence;
+  // the reference kernel does not deduct Power, so this proves no Fury debit.
+  const base = world()
+    .player("A", { power: ["Fury"] })
+    .card("flame-chompers", { owner: "A", zone: "trash", energy: 3 })
+    .build();
+  const context = base.clone({ sourceSnapshot: base.getObject("flame-chompers") });
+  const declared = ACCEPT_BODY[0].args.cost.value;
+  const plan = buildCostPlan(context, {
+    id: "flame-chompers.play:cost",
+    cost: {
+      kind: "activated",
+      energy: { kind: "constant", value: declared.energy ?? 0 },
+      payments: (declared.power ?? []).map(domain => ({ kind: "power", allowedDomains: [domain] }))
+    }
+  });
+  assert.equal(plan.printed.energy, 3);
+  assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: ["Fury"] }]);
+  assert.equal(plan.total.energy, 0);
+  const run = runInstruction(costPay, { cost: { kind: "constant", value: plan } }, { world: context });
+  assert.equal(run.result.status, "executed");
+  const receipt = run.result.linkedValues.payment;
+  assert.equal(receipt.paid, true);
+  // The reference kernel's pay action keeps the allocation, not a per-domain
+  // pool deduction, so the receipt is the payment evidence.
+  assert.deepEqual(receipt.actions[0].action.plan.power, ["Fury"]);
 });
