@@ -23,11 +23,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * status 判定（cards/README.md 第 2 节）：judge-required，三处依赖未合入，均不近似实现：
  * - 多玩家选择与逐席位结果计数没有 IR 形状（契约 3.6 的 choose 单 chooser、无其他玩家席位枚举、
- *   无按选择结果重复/分支的结构；同 ogn/party-favors 的 RIFT-9 target.player 缺口）。
+ *   无按选择结果重复/分支的结构；同 ogn/party-favors 的 target.player 缺口）。
  * - Gold gear token（CR 187.5）不在 effect.token 的冻结定义表里，该原语对带自身能力的定义返回
  *   blockedReason "token-definition-or-abilities-judge-required"；"exhausted" 的入场状态改写
  *   同样没有参数（184.1/185.2.d）。
- * - 卡牌程序 → TriggerRegistration 的接线（契约 3.5 / RIFT-257）未合入。
+ * - 事件侧触发的选择协调依赖多玩家选择生命周期。
  * 程序把两条从句的形状都保留下来（第二条的重复次数经链接值读取第一条的选择结果），供审查与
  * 依赖落地后复核；golden 只做校验/结构断言，执行场景写 test.todo。
  */
@@ -83,14 +83,15 @@ const program = {
   judgeReason:
     "三处依赖未合入，均不近似实现：(1)「you and each opponent may play a Gold gear token exhausted」是由多玩家分别做出的可选决定" +
     "（355.10.e/355.18 的非目标结算期选择）：契约 3.6 的 choose 每次只支持一个 chooser、choice.mode 的 chooser 是单个静态 id，" +
-    "IR 也没有「其他玩家席位列表」的 Expr 或按席位重复的控制结构（同 ogn/party-favors 记录的 RIFT-9 target.player 缺口），" +
+    "IR 也没有「其他玩家席位列表」的 Expr 或按席位重复的控制结构（同 ogn/party-favors 记录的 target.player 缺口），" +
     "更无法表达「For each opponent who did」的逐席位结果计数（无选择结果绑定）。" +
     "(2) Gold gear token（CR 187.5，domainless gear token，自带 Reaction/Kill/[E]: [Add] [A] 能力）不在 effect.token 的冻结定义表，" +
     "该原语对带自身能力的定义返回 blockedReason \"token-definition-or-abilities-judge-required\"；「play ... exhausted」还需" +
     "440.2.c/185.2.a 的链上创建 + 打出接手与 184.1/185.2.d 的入场状态改写（argsSchema 不接受入场状态参数）。" +
-    "(3) 卡牌程序 → TriggerRegistration 的接线（契约 3.5 / RIFT-257）未合入。程序保留两条从句的形状" +
-    "（第二条经 linked 读取第一条的结果键），golden 不做执行断言（执行场景为 test.todo）。" +
-    "依赖：RIFT-9（多玩家选择协调）、RIFT-257（卡牌程序绑定）、Gold 定义与入场状态改写。",
+    "(3) 选择落地的完整生命周期还缺多玩家选择协调（同 ogn/party-favors 记录的 target.player 缺口），" +
+    "「For each opponent who did」也缺逐席位选择结果绑定。程序保留两条从句的形状" +
+    "（第二条经 linked 读取第一条的结果键），golden 不做整链执行断言（执行场景为 test.todo）。" +
+    "依赖：多玩家选择协调与逐席位结果绑定、Gold 定义与入场状态改写。",
   abilities,
   sourceText:
     "When you play me, you and each opponent may play a Gold gear token exhausted. " +

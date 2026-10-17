@@ -42,11 +42,13 @@ test("sfd-122-221 Called Shot: program passes validateCardProgram", () => {
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
 
-test("sfd-122-221 Called Shot: judgeReason names both gaps and their tasks", () => {
+test("sfd-122-221 Called Shot: judgeReason names both current engine gaps", () => {
   assert.match(program.judgeReason, /effect\.inspect/);
   assert.match(program.judgeReason, /zoneSlice/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /assertFinalizationSurface/);
+  assert.match(program.judgeReason, /additional-cost/);
   assert.match(program.judgeReason, /820\.1\.c|Repeat/);
+  assert.ok(!/RIFT-\d+/.test(program.judgeReason));
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -248,11 +250,11 @@ test("sfd-122-221 Called Shot golden: an empty Main Deck looks at nothing withou
 test.todo(
   "sfd-122-221 Called Shot: the ordered 'top 2 cards of your Main Deck' pick set must be provisioned by " +
     "the production Finalize/AwaitChoice lifecycle instead of the test kernel (contract 3.6 zoneSlice; the " +
-    "chain Finalize only locks TargetSpecs) — RIFT-257"
+    "chain's assertFinalizationSurface locks instruction targets only)"
 );
 
 test.todo(
   "sfd-122-221 Called Shot: [Repeat] :rb_rune_chaos: — collecting the optional additional cost at Finalize " +
-    "and executing the effect one extra time per paid instance (820.1.b/820.1.d/820.2.a) needs the Repeat " +
-    "keyword expansion (RIFT-86) and the cost plan (RIFT-89)"
+    "and executing the effect one extra time per paid instance (820.1.b/820.1.d/820.2.a) needs an " +
+    "additional-cost binding (programs/play.ts currently rejects additional-cost) and the Repeat cost plan"
 );

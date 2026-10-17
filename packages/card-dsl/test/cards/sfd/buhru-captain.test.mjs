@@ -44,8 +44,10 @@ test("sfd-091-221 Buhru Captain: identity, ruleset, status and verbatim text", (
 test("sfd-091-221 Buhru Captain: judgeReason names the choice.mode chain block and the may-or reading", () => {
   assert.match(program.judgeReason, /choice\.mode/);
   assert.match(program.judgeReason, /assertFinalizationSurface/);
-  assert.match(program.judgeReason, /RIFT-120/);
   assert.match(program.judgeReason, /355\.3/);
+  assert.match(program.judgeReason, /Finalize\/Resolve/);
+  assert.match(program.judgeReason, /validateSurface/);
+  assert.ok(!/RIFT-\d+/.test(program.judgeReason));
 });
 
 test("sfd-091-221 Buhru Captain: card-played self trigger with a one-of-two mode choice", () => {
@@ -116,8 +118,8 @@ test("sfd-091-221 Buhru Captain golden: the merged draw primitive draws the top 
 test("sfd-091-221 Buhru Captain golden: the buff mode places exactly one Buff on the host", () => {
   const kernel = captainWorld();
   // Finalize locks the target set; the reference kernel compares the filter's
-  // raw values and ignores the contract 3.6 "object" anchor (RIFT-90 owns that
-  // binding), so the golden pins the host reference itself.
+  // raw values and ignores the contract 3.6 "object" anchor (the target anchor
+  // lifecycle owns that binding), so the golden pins the host reference itself.
   kernel.setTargets("buhru-captain.self", [kernel.ref("captain")]);
   // resolveChainBody is the production card-body path: it unwraps the declared
   // literal fields (effect.buff mode/target) for the merged primitive.
@@ -182,7 +184,7 @@ test("sfd-091-221 Buhru Captain golden: selecting the buff mode buffers the host
 test.todo(
   "sfd-091-221 Buhru Captain: the choice.mode branch must survive the chain's Finalize/Resolve choice-plan " +
     "adapter — chain/engine.ts assertFinalizationSurface throws ChainContractBlockedError for any body " +
-    "choice.mode (RIFT-120 follow-up)"
+    "choice.mode, and the play binding's validateSurface rejects it too"
 );
 
 test.todo(
@@ -193,5 +195,6 @@ test.todo(
 
 test.todo(
   "sfd-091-221 Buhru Captain: the card-played trigger must reach the chain and re-check the { source: \"self\" } " +
-    "anchor at Finalize/Resolve (383.4.a.2, 420.4.a, 355.8) — RIFT-120 / RIFT-90"
+    "anchor at Finalize/Resolve (383.4.a.2, 420.4.a, 355.8) — the trigger registration and the target anchor " +
+    "lifecycle are the remaining binding dependencies"
 );

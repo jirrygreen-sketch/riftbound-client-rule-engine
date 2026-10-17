@@ -105,10 +105,33 @@ test("sfd-063-221 Chemtech Cask: the declared filter matches the merged matcher 
   );
 });
 
+test("sfd-063-221 Chemtech Cask: an unfulfilled Gold play preserves the gear and creates no substitute token", () => {
+  const kernel = world().player("A")
+    .unit("cask", { types: ["gear"], zone: "board", location: { type: "base", player: "A" } })
+    .build();
+  const bound = kernel.clone({ sourceSnapshot: kernel.getObject("cask") });
+  const before = bound.objects;
+  // Preserve the original Gold subeffect's event and state assertions without
+  // asserting that the definition must remain unsupported.
+  const run = runInstruction(token, {
+    token: { kind: "constant", value: "gold" },
+    amount: { kind: "constant", value: 1 },
+    mode: { kind: "constant", value: "play" },
+    location: { kind: "constant", value: { type: "base", player: "A" } },
+    linkKey: { kind: "constant", value: "goldToken" }
+  }, { world: bound });
+
+  assert.deepEqual(run.result.events, []);
+  assert.deepEqual(bound.objects.filter((object) => object.isToken).map((object) => object.ref.id), []);
+  assert.deepEqual(bound.objects, before);
+  assert.deepEqual(bound.events, []);
+});
+
 test.todo(
-  "sfd-063-221 Chemtech Cask: paying \"exhaust me\" as a cost within instructions (CR 204.1.c / 204.3 / 355.10.c.1) needs " +
-    "a merged cost.pay instruction and the Finalize cost pipeline (RIFT-257/261); the exhaust must not be approximated " +
-    "with effect.exhaust"
+  "sfd-063-221 Chemtech Cask: paying \"exhaust me\" as a cost within instructions (CR 204.1.c / 204.3 / 355.10.c.1) " +
+    "needs a cost.pay payments shape that accepts declared nonstandard payment arrays (paymentsPlan currently " +
+    "accepts only energy/power/xp and rejects this card's array with cannot-pay-cost) plus the trigger Finalize " +
+    "cost pipeline; the exhaust must not be approximated with effect.exhaust"
 );
 test.todo(
   "sfd-063-221 Chemtech Cask: playing the Gold gear token (CR 187.5 definition plus 440.2.c / 185.2.a chain creation and " +
@@ -116,26 +139,5 @@ test.todo(
 );
 test.todo(
   "sfd-063-221 Chemtech Cask: \"on an opponent's turn\" needs an event payload / trigger-filter predicate for turn ownership " +
-    "plus the program -> TriggerRegistration adapter (contract 3.5 / RIFT-257)"
+    "so the trigger condition can compare the event's turn player with the ability controller"
 );
-
-test("sfd-063-221 Chemtech Cask: the merged effect.token primitive refuses the Gold definition", () => {
-  // The card's instruction names the printed "gold" definition; the merged
-  // primitive refuses definitions with their own abilities (CR 187.5) and
-  // reports the reason, so the exhaust-cost half can never fall through to a
-  // substitute token.
-  const kernel = world().player("A")
-    .unit("cask", { types: ["gear"], zone: "board", location: { type: "base", player: "A" } })
-    .build();
-  const run = runInstruction(token, {
-    token: { kind: "constant", value: "gold" },
-    amount: { kind: "constant", value: 1 },
-    mode: { kind: "constant", value: "play" },
-    location: { kind: "constant", value: { type: "base", player: "A" } },
-    linkKey: { kind: "constant", value: "goldToken" }
-  }, { world: kernel.clone({ sourceSnapshot: kernel.getObject("cask") }) });
-
-  assert.deepEqual(run.result, { status: "negated", reason: "impossible", events: [] });
-  assert.equal(run.linked.goldToken.blockedReason, "token-definition-or-abilities-judge-required");
-  assert.deepEqual(kernel.objects.filter((object) => object.isToken).map((object) => object.ref.id), []);
-});
