@@ -23,8 +23,8 @@ import type { CardProgram } from "../../ir/index.js";
  *    不含排除锚点，实测 isTriggerSpec 对 { object: { …, exclude: "self" } } 返回 false；
  *    events/pipeline-match.ts 也不解析排除。写成普通 "a friendly unit dies" 会让本卡
  *    自身死亡也触发，属近似实现，故不写。
- * 2. 效果本体需要 continuous.might（RIFT-91）；effects/instructions 无该原语，
- *    封闭 GameAction 集合也没有 might 修改动作。
+ * 2. 效果本体使用已合入的 continuous.might（RIFT-91），但触发到图层的卡牌接线仍缺，
+ *    封闭 GameAction 集合也没有直接的 might 修改动作。
  * 3. CardProgram 的 triggered ability 尚无注册进 TriggerRegistration 的路径
  *    （引擎批 4 / RIFT-120），object-killed 订在生产链路上不可达。
  * 依赖：RIFT-91（layers-continuous）、RIFT-120（链/事件管线）。
@@ -37,8 +37,8 @@ const spectralCentaur = {
     "三处缺口，均不近似实现：(1)「another friendly unit」的排除无已合入形态：events/trigger-spec.ts 的 ObjectFilter 白名单" +
     "不含 exclude 锚点（实测 isTriggerSpec({ object: { …, exclude: \"self\" } }) === false），events/pipeline-match.ts 也不解析排除；" +
     "写成普通「a friendly unit dies」会连本卡自身死亡一起触发；" +
-    "(2)「give me +2 :rb_might: this turn」需要 continuous.might 图层修正（RIFT-91），effects/instructions 无该原语，" +
-    "封闭 GameAction 集合也没有 might 修改动作；" +
+    "(2)「give me +2 :rb_might: this turn」使用已合入的 continuous.might 图层修正（RIFT-91），但触发到图层的卡牌接线仍缺，" +
+    "封闭 GameAction 集合也没有直接的 might 修改动作；" +
     "(3) 没有模块把 CardProgram 的 triggered ability 注册成 TriggerRegistration（引擎批 4 / RIFT-120），object-killed 订不可达。" +
     "依赖：RIFT-91、RIFT-120。",
   abilities: [

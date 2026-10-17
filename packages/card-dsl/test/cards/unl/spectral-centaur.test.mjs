@@ -3,9 +3,9 @@ import test from "node:test";
 
 import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/unl/spectral-centaur.js";
-import { matchesTriggerEvent } from "../../../../engine-core/dist/events/pipeline-match.js";
-import { isTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
 const CANONICAL =
   "card.hash-54a2013f8d1b41ecedba3f879be7fae1727fe8209e602a142e8ba6550ed829c9";
@@ -14,30 +14,6 @@ const SOURCE_TEXT = "When another friendly unit dies, give me +2 :rb_might: this
 const [ability] = program.abilities;
 const [instruction] = ability.body;
 const [meSpec] = instruction.targets;
-
-const snapshot = (id, values = {}) => ({
-  ref: { id, zoneEntryId: 1 },
-  cardId: "card:" + id,
-  name: id,
-  types: ["unit"],
-  tags: [],
-  keywords: [],
-  owner: "A",
-  controller: "A",
-  zone: "trash",
-  location: null,
-  might: 5,
-  energy: 6,
-  power: ["Mind"],
-  exhausted: false,
-  damage: 0,
-  stunned: false,
-  buffs: 0,
-  attachedTo: null,
-  faceDown: false,
-  isToken: false,
-  ...values
-});
 
 test("unl-068-219 Spectral Centaur: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -83,30 +59,16 @@ test("unl-068-219 Spectral Centaur: the body grants +2 Might to this unit for th
   assert.equal(meSpec.selection, "one");
 });
 
-test("unl-068-219 Spectral Centaur: the merged trigger validator rejects the 'another' exclusion", () => {
-  // events/trigger-spec.ts 的 ObjectFilter 白名单不含 exclude 锚点，因此本卡声明
-  // 的触发条件目前无法注册；这正是 judgeReason 记录的第 1 处缺口。
-  assert.equal(isTriggerSpec(ability.trigger), false);
-  // 去掉排除锚点后它是合法的触发形状——说明失败来自 exclude 本身，而不是别的写法错误。
-  assert.equal(
-    isTriggerSpec({ at: "object-killed", filter: { event: "object-killed", object: { type: "unit", controller: "self" } } }),
-    true
-  );
-});
-
-test("unl-068-219 Spectral Centaur: the trigger matcher would also fire on the host's own death", () => {
-  // events/pipeline-match.ts 不解析排除锚点：写成普通 friendly unit 会让本卡自身死亡也触发。
-  // 这不是本程序采用的写法，而是记录"近似为什么不成立"的证据。
-  const withoutExclusion = { event: "object-killed", object: { type: "unit", controller: "self" } };
-  const host = snapshot("spectral-centaur");
-  assert.equal(
-    matchesTriggerEvent(withoutExclusion, { timingPoint: "object-killed", kind: "object-killed", object: host, eventId: 1 }, "A"),
-    true
-  );
-});
-
-test("unl-068-219 Spectral Centaur: the temporary Might modifier is not a registered primitive", () => {
-  assert.equal(instructionDefinitionsById.has("continuous.might"), false);
+test("unl-068-219 Spectral Centaur golden: the merged continuous.might op applies +2 this turn", () => {
+  const base = world().unit("spectral-centaur", { might: 5, controller: "A", zone: "board" }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("spectral-centaur") });
+  kernel.setTargets("spectral-centaur.me", [kernel.ref("spectral-centaur")]);
+  const outcome = runAbilityBody([instruction], kernel);
+  assert.equal(outcome.status, "executed");
+  const layers = createLayerEngine(kernel.objects, kernel.continuousEffects);
+  assert.equal(layers.evaluate(kernel.ref("spectral-centaur")).might, 7);
+  assert.equal(layers.expireAt("turn-end").length, 1);
+  assert.equal(layers.evaluate(kernel.ref("spectral-centaur")).might, 5);
 });
 
 test.todo(
@@ -116,7 +78,7 @@ test.todo(
 );
 test.todo(
   "unl-068-219 Spectral Centaur: 'give me +2 :rb_might: this turn' needs the continuous.might layers " +
-    "effect with an end-of-turn duration (RIFT-91)"
+    "card-program trigger registration; the merged op execution is covered above (RIFT-91/RIFT-120)"
 );
 test.todo(
   "unl-068-219 Spectral Centaur: registering the card's triggered ability as a TriggerRegistration " +

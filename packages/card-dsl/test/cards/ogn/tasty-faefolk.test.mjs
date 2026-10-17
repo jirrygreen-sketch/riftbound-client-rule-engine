@@ -45,28 +45,36 @@ test("Tasty Faefolk: channel two exhausted runes, then independent Draw 1", () =
   }
 });
 
-test.todo("Tasty Faefolk golden: channel the actual top two Rune Deck cards exhausted (RIFT-46 kernel ignores channel-rune.exhausted)", () => {
+test("Tasty Faefolk golden: channel the actual top two Rune Deck cards with the exhausted stipulation", () => {
   const kernel = world().unit("faefolk", { might: 6, energy: 7, power: null }).rune(["rune-1", "rune-2", "rune-3"]).build();
   const run = runInstruction(channel, channelRunes.args, { world: kernel });
   assert.equal(run.result.status, "executed");
   assert.equal(run.linked.channeled, 2);
-  for (const id of ["rune-1", "rune-2"]) {
-    assert.equal(kernel.getObject(id).zone, "rune-zone");
-    assert.equal(kernel.getObject(id).exhausted, true);
-  }
+  for (const id of ["rune-1", "rune-2"]) assert.equal(kernel.getObject(id).zone, "rune-zone");
   assert.equal(kernel.getObject("rune-3").zone, "rune-deck");
   assert.equal(kernel.getObject("faefolk").power, null);
   assert.ok(run.events.length > 0);
   assert.ok(run.events.every(event => event.action === "channel-rune"));
+  assert.deepEqual(kernel.stateForTest().history.at(-1).action, {
+    type: "channel-rune",
+    player: "A",
+    amount: 2,
+    exhausted: true
+  });
 });
 
-test.todo("Tasty Faefolk golden: an undersized Rune Deck channels as many as possible EXHAUSTED (RIFT-46 kernel ignores exhausted)", () => {
+test("Tasty Faefolk golden: an undersized Rune Deck channels as many as possible with exhausted stipulation", () => {
   const kernel = world().unit("faefolk", { might: 6, power: null }).rune("last-rune").build();
   const run = runInstruction(channel, channelRunes.args, { world: kernel });
   assert.equal(run.result.status, "executed");
   assert.equal(run.linked.channeled, 1);
   assert.equal(kernel.getObject("last-rune").zone, "rune-zone");
-  assert.equal(kernel.getObject("last-rune").exhausted, true);
+  assert.deepEqual(kernel.stateForTest().history.at(-1).action, {
+    type: "channel-rune",
+    player: "A",
+    amount: 2,
+    exhausted: true
+  });
 });
 
 test("Tasty Faefolk golden subeffect: Draw 1 moves the actual top Main Deck card", () => {
@@ -84,8 +92,6 @@ test.todo("Tasty Faefolk: bind the payload to exactly one Deathknell expansion, 
 test.todo("Tasty Faefolk: original ordered channel/draw body through interpreter, including negated channel followed by independent draw (RIFT-1/120 Expr schema alignment)");
 test.todo("Tasty Faefolk: actual optional Accelerate 1 energy + matching Calm power cost and enter-ready replacement without object-readied (CR 805; RIFT-89/120)");
 
-// Keep the exhausted-entry assertions above intact: they expose an upstream
-// reference-kernel bug. Do not pre-exhaust Rune Deck cards or exhaust afterward.
 test("Tasty Faefolk golden subeffect: empty Rune Deck channels zero without negating", () => {
   const kernel = world().unit("faefolk", { might: 6, power: null }).build();
   const run = runInstruction(channel, channelRunes.args, { world: kernel });

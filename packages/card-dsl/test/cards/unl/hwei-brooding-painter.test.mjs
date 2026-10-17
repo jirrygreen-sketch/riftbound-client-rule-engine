@@ -5,8 +5,8 @@ import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/unl/hwei-brooding-painter.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
 const CANONICAL =
   "card.hash-ffb82a1c4cfcf34e538fde6b389b55d4affeceb3cdb2ba50ada212c3237fe8f2";
@@ -228,7 +228,7 @@ test("unl-080-219 Hwei, Brooding Painter golden: the type readout selects exactl
     kernel.setAnswers({
       "hwei.gear-branch/hwei.gear-ready-runes/hwei-runes": [kernel.ref("rune-one")]
     });
-    // Unit 分支的连续图层原语未合入：只跑到前四条指令，验证三条条件互斥。
+    // Unit 分支的卡牌触发接线仍未合入：只跑到前四条指令，验证三条条件互斥。
     const outcome = resolveChainBody(prepareCallerBody(ability.body.slice(0, 4), "A"), kernel);
     const executed = outcome.results
       .filter((entry) => entry.id.endsWith("-branch") && entry.result.status === "executed")
@@ -237,17 +237,17 @@ test("unl-080-219 Hwei, Brooding Painter golden: the type readout selects exactl
   }
 });
 
-test("unl-080-219 Hwei, Brooding Painter: the Unit branch cannot dispatch without continuous.might", () => {
+test("unl-080-219 Hwei, Brooding Painter golden: the Unit branch registers +3 Might for this turn", () => {
   const kernel = hweiWorld("unit");
-  assert.equal(instructionDefinitionsById.has("continuous.might"), false);
-  // 目标锚点（object: "self"）指向上文宿主；宿主仍在场时解释器进入派发阶段，
-  // 真实注册表对未注册的 continuous.might 直接抛出。
   const hostBound = kernel.clone({ sourceSnapshot: kernel.getObject("hwei") });
   hostBound.setTargets("hwei.me", [hostBound.ref("hwei")]);
-  assert.throws(
-    () => runAbilityBody([unitBranch.args.body.value[0]], hostBound, instructionDefinitionsById),
-    /Unregistered instruction opcode: continuous\.might/
-  );
+  const outcome = runAbilityBody([unitModifier], hostBound);
+  assert.equal(outcome.status, "executed");
+  assert.equal(hostBound.continuousEffects.length, 1);
+  const layers = createLayerEngine(hostBound.objects, hostBound.continuousEffects);
+  assert.equal(layers.evaluate(hostBound.ref("hwei")).might, 8);
+  assert.equal(layers.expireAt("turn-end").length, 1);
+  assert.equal(layers.evaluate(hostBound.ref("hwei")).might, 5);
 });
 
 test.todo(
@@ -263,7 +263,8 @@ test.todo(
 );
 test.todo(
   "unl-080-219 Hwei, Brooding Painter: the Unit branch 'Give me +3 :rb_might: this turn' needs the " +
-    "continuous.might layers primitive (RIFT-91)"
+    "card-program trigger registration and production source binding; the merged continuous.might " +
+    "execution is covered above (RIFT-91/RIFT-120)"
 );
 test.todo(
   "unl-080-219 Hwei, Brooding Painter: registering the card's triggered ability as a TriggerRegistration " +

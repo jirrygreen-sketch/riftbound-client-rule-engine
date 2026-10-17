@@ -7,6 +7,9 @@ import buff from "../../../../engine-core/dist/effects/instructions/effect.buff.
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 
 const CARD_ID =
   "card.hash-9dec9472d1f77a1c3d9249566ca3fa89140e7b6a4efcb6fe375c4fab210d2e87";
@@ -38,10 +41,43 @@ test("rad-063-167 Kai'Sa, Rebel: [Disarm] carries the printed default value 1 (8
   assert.deepEqual(disarm, { kind: "keyword", keyword: "disarm", value: 1 });
 });
 
-test("rad-063-167 Kai'Sa, Rebel: the Disarm keyword is not registered, so no expansion can run (831.1.d)", () => {
-  // The blocking fact, asserted instead of approximated: effects/keywords has no Disarm.
-  assert.equal(keywordDefinitionsById.has("disarm"), false);
-  assert.equal(keywordDefinitionsById.has("Disarm"), false);
+test("rad-063-167 Kai'Sa, Rebel: the merged Disarm definition expands the printed attack trigger (831.1.d)", () => {
+  const definition = keywordDefinitionsById.get("Disarm");
+  assert.ok(definition);
+  assert.equal(definition.valued, true);
+  assert.equal(definition.stacking, "sum");
+  const [expanded] = definition.expand({ value: 1, host: { canonicalCardId: CARD_ID } });
+  assert.equal(expanded.kind, "triggered");
+  assert.equal(expanded.trigger.at, "attack-declared");
+  assert.deepEqual(expanded.trigger.filter, { event: "attack-declared", filter: { source: "self" } });
+  assert.equal(expanded.body[0].op, "continuous.might");
+  assert.deepEqual(expanded.body[0].args.amount, { kind: "constant", value: -1 });
+  assert.deepEqual(expanded.body[0].args.duration, { kind: "constant", value: "this-turn" });
+  assert.deepEqual(expanded.body[0].targets[0].filter, {
+    type: "unit", zone: "board", controller: "opponent", sameLocationAs: "source"
+  });
+});
+
+test("rad-063-167 Kai'Sa, Rebel: the merged Disarm expansion registers a temporary -1 Might layer", () => {
+  const definition = keywordDefinitionsById.get("Disarm");
+  const [expanded] = definition.expand({ value: 1, host: { canonicalCardId: CARD_ID } });
+  const base = world()
+    .unit("kaisa", { controller: "A", owner: "A", might: 4, location: { type: "battlefield", id: "bf-1" } })
+    .unit("enemy", { controller: "B", owner: "B", might: 3, location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  const kernel = bindResolveContext(base, {
+    source: base.getObject("kaisa"),
+    controller: "A",
+    query: filter => base.query({
+      ...filter,
+      ...(filter.controller === "opponent" ? { controller: "B" } : {})
+    })
+  });
+  kernel.setTargets("disarm.enemy-unit", [kernel.ref("enemy")]);
+  const outcome = runAbilityBody(expanded.body, kernel);
+  assert.equal(outcome.status, "executed");
+  assert.equal(kernel.continuousEffects.length, 1);
+  assert.equal(createLayerEngine(kernel.objects, kernel.continuousEffects).evaluate(kernel.ref("enemy")).might, 2);
 });
 
 test("rad-063-167 Kai'Sa, Rebel: the showdown grant is a conditional static ability, not this card's own [Reaction] (364.3 / 813.4)", () => {
@@ -70,7 +106,7 @@ test("rad-063-167 Kai'Sa, Rebel: the showdown grant is a conditional static abil
   );
 });
 
-test("rad-063-167 Kai'Sa, Rebel: the temporary -1 Might the Disarm trigger wants has no primitive (contract 3.6)", () => {
+test("rad-063-167 Kai'Sa, Rebel: effect.damage and effect.buff are distinct from Disarm's Might layer", () => {
   // Evidence that the *shape* is understood: effect.buff only places Buff counters (702),
   // it never lowers Might, so Disarm cannot be approximated with it.
   const kernel = world().unit("enemy-unit", { might: 2 }).build();
@@ -105,8 +141,8 @@ test("rad-063-167 Kai'Sa, Rebel: effect.damage is unrelated to the negative-Migh
 test.todo(
   "rad-063-167 Kai'Sa, Rebel: [Disarm] attack trigger gives an enemy unit here -1 Might this " +
     "turn, merging several Disarm instances into one trigger with summed values (831.1.d / " +
-    "831.1.d.1 / 831.2) — needs a Disarm KeywordDef (no assigned RIFT task) plus temporary " +
-    "negative Might via layers/continuous.might (RIFT-91)"
+    "831.1.d.1 / 831.2) — attack event registration and multi-source trigger aggregation remain " +
+    "open; the merged KeywordDef and continuous.might execution are covered above"
 );
 
 test.todo(

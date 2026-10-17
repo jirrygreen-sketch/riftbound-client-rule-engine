@@ -5,7 +5,11 @@ import { validateCardProgram } from "../../../dist/ir/validation.js";
 import program from "../../../dist/cards/unl/chakram-dancer.js";
 import { evaluateExpression } from "../../../../engine-core/dist/effects/interpreter/expr.js";
 import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 
 const CANONICAL =
   "card.hash-932827b7cff5b4083f49ad39fa73a27896d400178b231d5a1952c9016f9dbaf3";
@@ -92,17 +96,44 @@ test("unl-071-219 Chakram Dancer golden: the declared filter really resolves 'ot
   assert.equal(count, 1);
 });
 
-test("unl-071-219 Chakram Dancer: neither Ambush nor the keyword grant has a merged consumer", () => {
-  assert.equal(instructionDefinitionsById.has("continuous.grant-keyword"), false);
-  // Shield 的展开文件已合入，但其 consumer（图层）属 RIFT-91。
+test("unl-071-219 Chakram Dancer: merged Ambush and grant-keyword dependencies are registered", () => {
+  const ambushDef = keywordDefinitionsById.get("Ambush");
+  assert.ok(ambushDef);
+  assert.equal(ambushDef.valued, false);
+  const expansion = ambushDef.expand({ host: { canonicalCardId: CANONICAL } });
+  assert.deepEqual(expansion.map(ability => ability.effect.kind), ["play-location-permission", "continuous.timing"]);
+  assert.equal(instructionDefinitionsById.has("continuous.grant-keyword"), true);
   assert.equal(targetSpec.filter.controller, "controller");
+});
+
+test("unl-071-219 Chakram Dancer golden: the merged grant-keyword op gives Shield to the locked set", () => {
+  const base = world()
+    .unit("chakram-dancer", { location: { type: "battlefield", id: "bf-1" } })
+    .unit("ally-here", { location: { type: "battlefield", id: "bf-1" } })
+    .unit("enemy-here", { owner: "B", controller: "B", location: { type: "battlefield", id: "bf-1" } })
+    .build();
+  base.setTargets(targetSpec.id, [base.ref("ally-here")]);
+  const kernel = bindResolveContext(base, {
+    source: base.getObject("chakram-dancer"),
+    controller: "A",
+    query: filter => base.query({
+      ...filter,
+      ...(filter.controller === "controller" ? { controller: "A" } : {})
+    })
+  });
+  const outcome = runAbilityBody([instruction], kernel);
+  assert.equal(outcome.status, "executed");
+  assert.equal(kernel.continuousEffects.length, 1);
+  const layers = createLayerEngine(kernel.objects, kernel.continuousEffects);
+  assert.deepEqual(layers.evaluate(kernel.ref("ally-here")).keywords.map(keyword => keyword.id), ["Shield"]);
+  assert.deepEqual(layers.evaluate(kernel.ref("enemy-here")).keywords, []);
 });
 
 test.todo(
   "unl-071-219 Chakram Dancer: [Ambush] (CR 822.1.b/822.1.c) needs a KeywordDef expanding to the " +
-    "battlefield play-location permission plus the [Reaction] timing; no effects/keywords/Ambush.ts exists"
+    "battlefield play-location permission plus the [Reaction] timing; Finalize and Chain consumers remain open"
 );
 test.todo(
   "unl-071-219 Chakram Dancer: 'give your other units here [Shield] this turn' needs a merged " +
-    "continuous.grant-keyword primitive with an end-of-turn duration and the layers consumer (RIFT-91)"
+    "card-program registration path plus the Shield defender consumer (RIFT-91)"
 );
