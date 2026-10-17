@@ -42,6 +42,8 @@ test("rad-013-167 Lost to the Sands: judge-required naming the blocked Finalize 
   assert.match(program.judgeReason, /choice\.mode/);
   assert.match(program.judgeReason, /assertFinalizationSurface/);
   assert.match(program.judgeReason, /355\.3/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("rad-013-167 Lost to the Sands: [Action] plus one mode choice with damage and kill branches", () => {
@@ -148,9 +150,10 @@ test("rad-013-167 Lost to the Sands boundary: a gear that left the Board ignores
 test.todo(
   "rad-013-167 Lost to the Sands: CR 355.3 requires the 'Choose one' mode decision at " +
     "Finalize; ChainEngine.finalize throws ChainContractBlockedError for choice.mode until the " +
-    "Finalize/Resolve choice-plan adapter lands (engine batch 4 / RIFT-90 scope)"
+    "Finalize/Resolve choice-plan adapter lands"
 );
 test.todo(
   "rad-013-167 Lost to the Sands: full chain play (3 Energy + 1 Fury Power payment, [Action] " +
-    "timing) needs the Finalize cost plan adapter (RIFT-89) and chain admission"
+    "timing) needs the Finalize cost plan adapter (cost kinds and cost.pay / cost.modify: " +
+    "RIFT-261; card-program binding: RIFT-257) and chain admission"
 );

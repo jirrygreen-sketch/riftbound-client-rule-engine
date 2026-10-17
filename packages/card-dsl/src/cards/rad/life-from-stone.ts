@@ -30,10 +30,11 @@ import type { CardProgram } from "../../ir/index.js";
  * path: chain Finalize builds cost plans from CostPlanInput and only ever
  * supplies `{ kind: 'printed' }` for a card's printed cost (chain/engine.ts),
  * so a card program's additional-cost clause is never turned into
- * mandatoryAdditional. No cost.additional / effect.play primitive is merged
- * either (the play path is the coordinator-owned describePlay adapter).
- * Moving the cost into the body would resolve it at the wrong time
- * (356.3/356.5), so that near-implementation is refused.
+ * mandatoryAdditional. No cost.additional / cost.pay primitive is merged
+ * either — cost kinds and cost.pay / cost.modify are RIFT-261, and the
+ * CardProgram cost binding is RIFT-257. Moving the cost into the body would
+ * resolve it at the wrong time (356.3/356.5), so that near-implementation is
+ * refused.
  */
 const lifeFromStone = {
   canonicalCardId: "card.hash-0b434d5de4e3431420a6dddfc3ed5c57570643467c671f4efae850ed1f9905ea",
@@ -43,10 +44,11 @@ const lifeFromStone = {
     "缺「As an additional cost」的落地路径：CR 356.2 要求强制附加费用在费用计划阶段收取，但卡牌侧" +
     "只有 { kind: 'printed' } 会进入 buildCostPlan（chain/engine.ts finalize），没有已合入的适配器" +
     "把卡程序的附加费用子句转成 CostPlanInput.mandatoryAdditional，也没有 cost.additional / " +
-    "effect.play 原语（打出路径由协调任务的 describePlay 适配器持有）。写成 body 指令会在错误时机" +
-    "结算（356.3/356.5）并允许不付费用就结算，故不近似实现。" +
+    "cost.pay 原语（费用种类与 cost.pay / cost.modify 属 RIFT-261，卡程序绑定属 RIFT-257，" +
+    "打出路径由协调任务的 describePlay 适配器持有）。写成 body 指令会在错误时机结算（356.3/356.5）" +
+    "并允许不付费用就结算，故不近似实现。" +
     "Draw 1（effect.draw）与 channel 1 rune exhausted（effect.channel，CR 431.2）已合入并有" +
-    "golden 执行证据；依赖：费用管线接线（RIFT-89 范围）与集成适配器。",
+    "golden 执行证据；依赖：RIFT-261 + RIFT-257。",
   abilities: [
     { kind: "keyword", keyword: "reaction" },
     {

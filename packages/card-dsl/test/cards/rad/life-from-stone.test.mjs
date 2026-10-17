@@ -31,6 +31,8 @@ test("rad-029-167 Life from Stone: judge-required naming the missing additional-
   assert.match(program.judgeReason, /356\.2/);
   assert.match(program.judgeReason, /mandatoryAdditional/);
   assert.match(program.judgeReason, /431\.2/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("rad-029-167 Life from Stone: [Reaction], a mandatory exhaust cost, then Draw 1 and channel 1 exhausted", () => {
@@ -121,7 +123,8 @@ test.todo(
   "rad-029-167 Life from Stone: CR 356.2 charges 'As an additional cost to play this, exhaust a " +
     "friendly unit' during Finalize together with the printed 1 Energy; no merged adapter maps a " +
     "card program's additional-cost clause into CostPlanInput.mandatoryAdditional (the chain only " +
-    "supplies { kind: 'printed' }), and no cost.additional primitive exists (RIFT-89 scope)"
+    "supplies { kind: 'printed' }), and no cost.additional / cost.pay primitive exists (cost kinds " +
+    "and cost.pay / cost.modify: RIFT-261; card-program binding: RIFT-257)"
 );
 test.todo(
   "rad-029-167 Life from Stone: the [Reaction] Closed-State play window (CR 813.1.c) and the " +

@@ -28,7 +28,8 @@ test("rad-028-167 Ki Burst: judge-required naming the missing additional-cost pa
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /356\.2/);
   assert.match(program.judgeReason, /mandatoryAdditional/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /RIFT-257/);
 });
 
 test("rad-028-167 Ki Burst: [Action] plus a mandatory exhaust cost and a one-unit stun", () => {
@@ -122,7 +123,8 @@ test.todo(
   "rad-028-167 Ki Burst: CR 356.2 charges 'As an additional cost to play this, exhaust a " +
     "friendly unit' during the Finalize cost plan; no merged adapter turns a card program's " +
     "additional-cost clause into CostPlanInput.mandatoryAdditional (chain Finalize only supplies " +
-    "{ kind: 'printed' }), and no cost.additional / effect.play primitive exists (RIFT-89 scope)"
+    "{ kind: 'printed' }), and no cost.additional / cost.pay primitive exists (cost kinds and " +
+    "cost.pay / cost.modify: RIFT-261; card-program binding: RIFT-257)"
 );
 test.todo(
   "rad-028-167 Ki Burst: 424.1.b (a stunned unit does not deal combat damage and is not a " +

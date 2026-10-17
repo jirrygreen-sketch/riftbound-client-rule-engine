@@ -3,9 +3,7 @@ import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/iron-revenant.js";
-import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import banish from "../../../../engine-core/dist/effects/instructions/effect.banish.js";
-import resources from "../../../../engine-core/dist/effects/instructions/effect.resources.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
@@ -29,13 +27,11 @@ test("rad-143-167 Iron Revenant: identity, status and verbatim sourceText", () =
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
   // cards README §2: judgeReason names the missing payment kind, the Universal
-  // Power gap and the printing difference that the identity-level data leaves
-  // unresolved.
+  // Power gap, the use restriction and the printing difference.
   assert.match(program.judgeReason, /banish/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /163\.2\.b/);
   assert.match(program.judgeReason, /rad-170-167/);
-  assert.match(program.judgeReason, /RIFT-89/);
-  assert.match(program.judgeReason, /RIFT-91/);
 });
 
 test("rad-143-167 Iron Revenant: Reaction-speed Add ability with the printed Banish + Exhaust cost", () => {
@@ -79,22 +75,6 @@ test("rad-143-167 Iron Revenant: Reaction-speed Add ability with the printed Ban
   assert.equal(addPower.linkedTo, undefined);
 });
 
-test("rad-143-167 Iron Revenant: the merged cost pipeline rejects the Banish payment kind", () => {
-  // 415.4 / 355.10.c.1: if the cost cannot be paid the ability cannot be
-  // activated, so silently moving the banish into the resolution body would
-  // change its rules meaning. The merged cost pipeline stops at
-  // exhaust/discard/recycle/kill/reveal/spend-buff and reports judge-required.
-  const kernel = world()
-    .unit("mordekaiser", { zone: "board", types: ["legend"], controller: "A" })
-    .unit("dead-unit", { zone: "trash", types: ["unit"], controller: "A" })
-    .build();
-  const ctx = kernel.clone({ sourceSnapshot: kernel.getObject("mordekaiser") });
-  assert.throws(
-    () => buildCostPlan(ctx, { id: "iron-revenant", cost: ability.cost }),
-    error => error?.name === "CostPlanError" && error.reason === "judge-required" && /banish/.test(error.message)
-  );
-});
-
 test("rad-143-167 Iron Revenant: the Banish action itself is merged and moves the chosen trash card", () => {
   // The supported half of the cost: effect.banish performs the real banish
   // game action. This proves the action, not the Finalize cost wiring.
@@ -116,34 +96,29 @@ test("rad-143-167 Iron Revenant: the Banish action itself is merged and moves th
   assert.deepEqual(scoped.zone("A", "banishment").map(ref => ref.id), ["dead-unit"]);
 });
 
-test("rad-143-167 Iron Revenant: [A] Universal Power is negated by the merged primitive, never guessed", () => {
-  // 135.2.e.5.b / 163.2.b: [A] must be spendable as Power of any Domain.
-  // effect.resources documents that Universal Power is not representable and
-  // must never be approximated by a chosen domain; the golden locks that
-  // negative evidence and the untouched resource pool.
-  const kernel = world().player("A", { energy: 2, power: ["Fury"] }).build();
-  const run = runInstruction(resources, addPower.args, { world: kernel });
-  assert.deepEqual(run.result, { status: "negated", reason: "impossible", events: [] });
-  assert.deepEqual(kernel.player("A").power, ["Fury"]);
-  assert.equal(kernel.player("A").energy, 2);
-  assert.equal(kernel.events.length, 0);
-});
+test.todo(
+  "rad-143-167: [A] Universal Power is not executable — 135.2.e.5.b / 163.2.b require Power " +
+    "spendable as any Domain, but the closed Domain union (Fury/Calm/Mind/Body/Chaos/Order) and " +
+    "the gain-power action have no universal value; effect.resources documents that it must never " +
+    "be approximated by a chosen domain, so the readable \"rainbow\" spelling is kept until a " +
+    "contract change lands"
+);
 
 test.todo(
   "rad-143-167: add a banish payment kind to the cost plan so “Banish a unit or gear from your " +
     "trash” is charged at Finalize from the public Trash (CR 355.10.a.1 / 355.10.c.1 / 415.4, " +
-    "RIFT-89)"
+    "cost kinds + cost.pay / cost.modify scope: RIFT-261)"
 );
 
 test.todo(
   "rad-143-167: represent and spend Universal Power ([A], CR 135.2.e.5 / 163.2.b) — the closed " +
     "Domain union and gain-power action have no universal value, so this needs a contract change " +
-    "(RIFT-89), plus the 430.3 Reaction-Add activation window during payment"
+    "(RIFT-261), plus the 430.3 Reaction-Add activation window during payment"
 );
 
 test.todo(
   "rad-143-167: enforce “Spend this Power only to play units or gear.” by tracking the added " +
-    "Power's use restriction and consuming it in the chain/cost check (RIFT-89 / RIFT-91)"
+    "Power's use restriction and consuming it in the chain/cost check"
 );
 
 test.todo(

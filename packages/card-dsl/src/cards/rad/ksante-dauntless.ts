@@ -3,8 +3,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
 /**
  * K'Sante, Dauntless (rad-045-167) — Unit, 4 energy + 1 Calm power, 4 Might.
  *
- * 原文："[Shield] (+1 :rb_might: while I'm a defender.)\n"
- *       "When I attack or defend, double the [Shield] of a unit you control here this turn."
+ * 原文（packages/card-data/data/deck-catalog.json，sourceText 逐字）：
+ *   "[Shield] (+1 :rb_might: while I'm a defender.)\n"
+ *   "When I attack or defend, double the [Shield] of a unit you control here this turn."
  *
  * 规则依据（CR v1.5）：
  * - 814.1 / 814.1.b.3 / 814.1.c：Shield 是被动能力关键词，省略 X 时按 1（"While I am a
@@ -14,20 +15,23 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   defense-declared 两个时点；466.2.c 战斗中后来取得身份也算）。
  * - "double the [Shield] of a unit you control here this turn"：把目标单位本回合的
  *   Shield 值加倍 = 对 Shield 关键词值的算术修改，属 arithmetic 层 + 本回合结束到期的
- *   持续效果（143.2.a / 475 / continuous.duration）。这里的 "[Shield]" 是 814.1.b 的
- *   Shield Value（814.2 说明多个 Shield 来源相加成一个 Shield 值）。
+ *   持续效果（143.2.a / 475）。这里的 "[Shield]" 是 814.1.b 的 Shield Value
+ *   （814.2 说明多个 Shield 来源相加成一个 Shield 值）。
  *
- * status 判定（README 第 2 节）：judge-required。缺口：
- * 1. `continuous.might`（对 Might / 关键词值的 arithmetic 修改）+ `continuous.duration`
- *    没有已注册的卡牌侧原语；已合入的 effect.buff 只放 Buff counter（702），不是 Might 或
- *    Shield 值修改，LayerEngine 也只消费经 ResolveContext.addContinuous 注册的
- *    ContinuousEffectSpec（CardProgram static 未接线）；
- * 2. "double the [Shield]" 需要把"Shield 关键词值"作为可被持续效果算术修改的特征；
- *    LayerEngine 的 arithmetic 分支虽能在关键词上做增量，但没有卡牌侧入口。
- * 依赖：RIFT-91（layers-continuous）与后续 continuous.might / Shield 值修改原语批次。
- * golden 测试断言 Shield 关键词声明、双时点触发结构与目标过滤器，并以 test.todo 记录缺口。
+ * status = judge-required（逐个缺口写出证据，不近似实现）：
+ * 1. 卡牌侧没有可用的“把关键词取值倍增”的 continuous 指令：已合入的 continuous.might
+ *    只做 Might 的 add/set（478.1.a 的 arithmetic 修改），argsSchema 不接受 multiply
+ *    或 layer 字段（直接抛出 “Invalid continuous.might argument”）；continuous.grant-keyword
+ *    的 value 是“新增一则带值关键词”，也不是倍增。LayerEngine 的 applyArithmetic 有
+ *    multiply/double 分支，但只识别 kind 里含 "multiply"/"double" 的连续效果，且没有
+ *    卡牌可写的入口（乘的是 snapshot.might，不是 Shield 关键词值）。
+ * 2. Shield 的展开本身也没有消费者：effects/keywords/Shield.ts 已合入，但卡牌 static →
+ *    图层的注册方不存在（RIFT-257 + RIFT-91）；其 condition 依赖的 designation 特征不在
+ *    ObjectSnapshot 里（contract 3.8 的 combatRole 未落地），且 layers/engine.ts 的
+ *    conditionMatches 对未知条件默认返回 true，直接把 +X Might 常驻化是错误语义。
+ * 依赖：RIFT-261/257（费用与卡程序/图层绑定）与“关键词取值倍增”的 continuous 原语批次。
+ * golden 只锁定已合入的 Shield 声明、双时点触发结构与真实执行不了的部分（见 test）。
  */
-
 const SHIELD_UNIT_HERE = "ksante-dauntless.unit-here";
 
 const grantShieldDoubling = (id: string): Ability => ({
@@ -43,15 +47,19 @@ const grantShieldDoubling = (id: string): Ability => ({
   body: [
     {
       id,
-      // 814.1.b 的 Shield Value 加倍（arithmetic 层，本回合到期）；原语未注册，见 judgeReason。
+      // 814.1.b 的 Shield Value 加倍（arithmetic 层，本回合到期）；见 judgeReason 第 1 点。
       op: "continuous.might",
       args: {
-        // 814.1.b 的 Shield Value 加倍：arithmetic 层的乘法修改。
+        // 语义：arithmetic 层的 Shield 值倍增。合并的 continuous.might 不接受 multiply，
+        // 此处保留有依据的声明形状，不写成 +N 或 set 这类近似。
         mode: { kind: "constant", value: "multiply" },
         layer: { kind: "constant", value: "arithmetic" },
         amount: { kind: "constant", value: 2 },
         duration: { kind: "constant", value: "end-of-turn" },
-        target: { kind: "constant", value: SHIELD_UNIT_HERE }
+        objects: {
+          kind: "constant",
+          value: { kind: "target", id: SHIELD_UNIT_HERE }
+        }
       },
       targets: [
         {
@@ -85,12 +93,14 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "「double the [Shield] of a unit you control here this turn」需要把单位本回合的 Shield 值（814.1.b/814.2）" +
-    "在 arithmetic 层加倍并到期于回合结束，属 continuous.might + continuous.duration；这两个卡牌侧原语" +
-    "尚未注册（effect.buff 只放 Buff counter，LayerEngine 也只消费 ResolveContext.addContinuous 注册的" +
-    "持续效果，CardProgram static 未接线）。依赖：RIFT-91（layers-continuous）与后续 " +
-    "continuous.might / Shield 值修改原语批次。[Shield] 关键词本身由已合入的 effects/keywords/Shield.ts " +
-    "负责展开（814）。不近似实现：不把 Shield 加倍写成 Buff counter 或临时 Might 修改之外的语义。",
+    "「double the [Shield] of a unit you control here this turn」需要把单位本回合的 Shield 值（814.1.b/814.2）在 " +
+    "arithmetic 层倍增。合并的 continuous.might 只做 Might 的 add/set（argsSchema 直接拒绝 multiply/layer 字段：" +
+    "Invalid continuous.might argument），continuous.grant-keyword 的 value 是新增一则带值关键词而非倍增；LayerEngine 的 " +
+    "multiply/double 分支只认 kind 含 multiply/double 的连续效果、且乘的是 Might 而非 Shield 关键词值，没有卡牌可写入口。" +
+    "另外 effects/keywords/Shield.ts 的展开虽已合入，但卡牌 static → 图层的注册方不存在（RIFT-257 + RIFT-91），其 condition 依赖的 " +
+    "designation 特征不在 ObjectSnapshot 里（contract 3.8 的 combatRole 未落地），layers/engine.ts 的 conditionMatches 对未知条件" +
+    "默认返回 true——直接接线会把 +X Might 常驻化，属错误语义。依赖：RIFT-261/257（费用与卡程序/图层绑定）与「关键词取值倍增」的" +
+    "continuous 原语批次。不近似实现（不写成 +N 或 set Might）。",
   abilities,
   sourceText:
     "[Shield] (+1 :rb_might: while I'm a defender.)\n" +

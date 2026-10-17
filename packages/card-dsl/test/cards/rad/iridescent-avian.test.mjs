@@ -1,20 +1,19 @@
 // Golden test for Iridescent Avian (rad-027-167).
 //
-// judge-required (see the program's judgeReason): the "already buffed → +2
-// Might this turn" branch needs a temporary Might primitive, and the "instead"
-// either/or needs a runtime branch that the frozen finalization surface blocks.
-// The runnable evidence is the exhaust cost plus the merged effect.buff branch,
-// including CR 427.1.c's already-buffed no-op.
+// status: executable. The exhaust cost, effect.buff and the conditional
+// temporary Might change (continuous.might + condition.value) are all merged,
+// so both printed branches execute for real against the reference kernel.
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/iridescent-avian.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { buildCostPlan, buildHiddenCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL =
@@ -24,13 +23,22 @@ const SOURCE_TEXT =
   "(To buff a unit, give it a +1 :rb_might: buff if it doesn't have one.)";
 
 const [activated] = program.abilities;
-const [buffInstruction, plusTwo] = activated.body;
+const [readBuffed, buffInstruction, plusTwo] = activated.body;
 
-const bodyWithoutTargets = () =>
-  [buffInstruction, plusTwo].map(({ targets, picks, ...rest }) => rest);
+// The reference kernel compares contract-layer controller anchors verbatim, so
+// the goldens lock the target through setTargets and run the card's own body
+// (the improvised-projectile / one-two-punch convention). The TargetSpec below
+// is asserted structurally instead.
+const bodyWithoutTargets = (body) => body.map(({ targets, ...rest }) => rest);
 
-/** Only the merged [Buff] half, isolated from the unmerged temporary-Might op. */
-const buffOnly = ({ targets, picks, ...rest }) => rest;
+function fixture(buffs) {
+  const kernel = world()
+    .unit("avian", { might: 3 })
+    .unit("target", { might: 2, buffs })
+    .build();
+  kernel.setTargets("iridescent-avian.unit", [kernel.ref("target")]);
+  return kernel;
+}
 
 test("rad-027-167 Iridescent Avian: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -38,15 +46,11 @@ test("rad-027-167 Iridescent Avian: program passes validateCardProgram", () => {
   assert.equal(result.ok, true);
 });
 
-test("rad-027-167 Iridescent Avian: identity, status, judgeReason and verbatim sourceText", () => {
+test("rad-027-167 Iridescent Avian: identity, executable status and verbatim sourceText", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
-  assert.equal(program.status, "judge-required");
-  // README §2: name the missing primitive and the blocked either/or path.
-  assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /choice\.mode/);
-  assert.match(program.judgeReason, /assertFinalizationSurface/);
-  assert.match(program.judgeReason, /RIFT-83\/84/);
+  assert.equal(program.status, "executable");
+  assert.equal(program.judgeReason, undefined);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -60,77 +64,131 @@ test("rad-027-167 Iridescent Avian: one action-speed activation whose cost is ex
     kind: "activated",
     payments: [{ kind: "exhaust" }]
   });
-  // "[Buff] a unit" is a merged effect.buff on one chosen unit (355.7/355.10.a).
-  assert.equal(buffInstruction.op, "effect.buff");
-  assert.deepEqual(buffInstruction.args.mode, { kind: "constant", value: "buff" });
-  assert.deepEqual(buffInstruction.args.target, {
-    kind: "constant",
-    value: "iridescent-avian.unit"
-  });
-  assert.equal(buffInstruction.targets.length, 1);
-  assert.deepEqual(buffInstruction.targets[0].filter, { type: "unit", zone: "board" });
-  assert.equal(buffInstruction.targets[0].selection, "one");
 });
 
-test("rad-027-167 Iridescent Avian: the 'already buffed' branch is a guarded temporary Might change", () => {
+test("rad-027-167 Iridescent Avian: the 'already buffed' read is frozen before the Buff step", () => {
+  // "If it's already buffed" is decided once, at resolution start: the buff
+  // count is read into a linked value (contract 3.9 condition.value) rather
+  // than re-read after the Buff action could have changed it.
+  assert.equal(readBuffed.op, "condition.value");
+  assert.deepEqual(readBuffed.args, {
+    value: {
+      kind: "object-attribute",
+      object: { target: "iridescent-avian.unit" },
+      attribute: "buffs"
+    },
+    key: { kind: "constant", value: "alreadyBuffed" }
+  });
+  assert.deepEqual(readBuffed.targets, [
+    {
+      id: "iridescent-avian.unit",
+      filter: { type: "unit", zone: "board" },
+      min: 1,
+      max: 1,
+      selection: "one"
+    }
+  ]);
+
+  // "[Buff] a unit" is a merged effect.buff on that one chosen unit
+  // (355.7/355.10.a), linked to the frozen read.
+  assert.equal(buffInstruction.op, "effect.buff");
+  assert.deepEqual(buffInstruction.args, {
+    mode: { kind: "constant", value: "buff" },
+    target: { kind: "constant", value: "iridescent-avian.unit" }
+  });
+  assert.equal(buffInstruction.linkedTo, "iridescent-avian.read-buffed");
+
+  // "instead": the +2 Might step carries the guard as its own condition
+  // (contract 3.4), reading the frozen value.
   assert.equal(plusTwo.op, "continuous.might");
   assert.deepEqual(plusTwo.args.amount, { kind: "constant", value: 2 });
-  // CR 317.2.c: a "this turn" modification expires in the end-of-turn cleanup.
+  // CR 317.2.c: "this turn" expires in the end-of-turn cleanup.
   assert.deepEqual(plusTwo.args.duration, { kind: "constant", value: "end-of-turn" });
-  // Contract §3.4: the condition clause covers only the instruction carrying it.
-  assert.equal(plusTwo.condition.kind, "compare");
-  assert.equal(plusTwo.condition.operator, "gt");
-  assert.deepEqual(plusTwo.condition.left.object, { target: "iridescent-avian.unit" });
-  assert.equal(plusTwo.condition.left.attribute, "buffs");
-  assert.deepEqual(plusTwo.condition.right, { kind: "constant", value: 0 });
+  assert.deepEqual(plusTwo.condition, {
+    kind: "compare",
+    left: {
+      kind: "linked-value",
+      instructionId: "iridescent-avian.read-buffed",
+      key: "alreadyBuffed"
+    },
+    operator: "gt",
+    right: { kind: "constant", value: 0 }
+  });
   assert.equal(plusTwo.linkedTo, "iridescent-avian.buff");
-  // The unchanged instruction is NOT the temporary Might op used by Stupefy.
-  assert.notEqual(plusTwo.op, "effect.buff");
 });
 
-test("rad-027-167 Iridescent Avian: the [Buff] branch really resolves and places one buff (427.1.b)", () => {
-  const kernel = world()
-    .unit("avian", { might: 3 })
-    .unit("target", { might: 2 })
-    .build();
-  kernel.setTargets("iridescent-avian.unit", [kernel.ref("target")]);
-  const outcome = runAbilityBody([buffOnly(buffInstruction)], kernel);
+test("rad-027-167 Iridescent Avian: an unbuffed unit really gains exactly one Buff and no Might change", () => {
+  const kernel = fixture(0);
+  const outcome = runAbilityBody(bodyWithoutTargets(activated.body), kernel);
 
-  // The buff step executes through the merged primitive.
-  assert.equal(outcome.status, "executed");
-  assert.equal(outcome.results[0].result.status, "executed");
-  assert.equal(outcome.results[0].result.linkedValues.buffedCount, 1);
-  assert.equal(kernel.getObject("target").buffs, 1);
-});
-
-test("rad-027-167 Iridescent Avian: an already-buffed unit is not buffed again (427.1.c), so the +2 branch applies", () => {
-  const kernel = world()
-    .unit("avian", { might: 3 })
-    .unit("target", { might: 2, buffs: 1 })
-    .build();
-  kernel.setTargets("iridescent-avian.unit", [kernel.ref("target")]);
-  const outcome = runAbilityBody([buffOnly(buffInstruction)], kernel);
-
-  // CR 427.1.c / 702.3.a: the unit may be chosen but gains no second Buff.
-  assert.deepEqual(outcome.results[0].result, { status: "negated", reason: "skipped", events: [] });
-  assert.equal(kernel.getObject("target").buffs, 1);
-  // The +2 branch condition is satisfied (buffs > 0) and it is exactly the step
-  // that cannot execute until continuous.might lands.
-  assert.equal(plusTwo.condition.operator, "gt");
-  assert.equal(kernel.getObject("target").might, 2);
-});
-
-test("rad-027-167 Iridescent Avian: the temporary Might op is genuinely unregistered (fail closed)", () => {
-  // The +2 Might branch is declared with the shape the layers system will own.
-  assert.equal(instructionDefinitionsById.has("continuous.might"), false);
-  const kernel = world().unit("avian", { might: 3 }).unit("target", { might: 2, buffs: 1 }).build();
-  kernel.setTargets("iridescent-avian.unit", [kernel.ref("target")]);
-  // Running the full printed body cannot silently produce a +2: the interpreter
-  // refuses the unregistered opcode instead.
-  assert.throws(
-    () => runAbilityBody(bodyWithoutTargets(), kernel),
-    /Unregistered instruction opcode: continuous\.might/
+  // 427.2.a: the Buff is placed; the +2 branch is skipped (the unit was not
+  // already buffed), so no temporary Might effect is registered.
+  assert.deepEqual(
+    outcome.results.map((entry) => [entry.id, entry.result.status]),
+    [
+      ["iridescent-avian.read-buffed", "executed"],
+      ["iridescent-avian.buff", "executed"],
+      ["iridescent-avian.plus-2", "negated"]
+    ]
   );
+  assert.equal(kernel.getObject("target").buffs, 1);
+  assert.equal(outcome.linkedValues["iridescent-avian.read-buffed.alreadyBuffed"], 0);
+  assert.equal(kernel.continuousEffects.length, 0);
+  assert.deepEqual(
+    outcome.events.map((event) => event.action),
+    ["buff"]
+  );
+});
+
+test("rad-027-167 Iridescent Avian: an already buffed unit gets +2 Might this turn instead", () => {
+  const kernel = fixture(1);
+  const outcome = runAbilityBody(bodyWithoutTargets(activated.body), kernel);
+
+  // 427.1.c / 702.3.a: the unit may be chosen but gains no second Buff, so the
+  // Buff step is negated/skipped and the +2 branch executes instead.
+  assert.deepEqual(
+    outcome.results.map((entry) => [entry.id, entry.result.status, entry.result.reason ?? null]),
+    [
+      ["iridescent-avian.read-buffed", "executed", null],
+      ["iridescent-avian.buff", "negated", "skipped"],
+      ["iridescent-avian.plus-2", "executed", null]
+    ]
+  );
+  assert.equal(kernel.getObject("target").buffs, 1);
+  assert.equal(outcome.linkedValues["iridescent-avian.read-buffed.alreadyBuffed"], 1);
+  assert.equal(kernel.events.length, 0);
+
+  // The registered arithmetic effect is a real +2, and it expires at turn end
+  // (317.2.c / 478.1.a).
+  assert.equal(kernel.continuousEffects.length, 1);
+  const registration = kernel.continuousEffects[0];
+  assert.equal(registration.effect.layer, "arithmetic");
+  assert.equal(registration.effect.effect.kind, "continuous.might");
+  assert.equal(registration.effect.effect.amount, 2);
+  assert.deepEqual(registration.duration, { type: "end-of-turn" });
+
+  const layers = createLayerEngine([kernel.getObject("target")], kernel.continuousEffects);
+  assert.equal(layers.evaluate(kernel.ref("target")).might, 4);
+  assert.deepEqual(layers.advance({ id: "turn-end" }), [registration.effect.id]);
+  assert.equal(layers.evaluate(kernel.ref("target")).might, 2);
+});
+
+test("rad-027-167 Iridescent Avian: a target that left the Board ignores the whole body (359.3.e.7)", () => {
+  const kernel = fixture(0);
+  const stale = kernel.ref("target");
+  kernel.perform({ type: "kill", object: stale });
+  kernel.setTargets("iridescent-avian.unit", [stale]);
+
+  const outcome = runAbilityBody(bodyWithoutTargets(activated.body), kernel);
+  assert.deepEqual(
+    outcome.results.map((entry) => [entry.id, entry.result.status, entry.result.reason]),
+    [
+      ["iridescent-avian.read-buffed", "ignored", "mistargeted"],
+      ["iridescent-avian.buff", "ignored", "linked-ignored"],
+      ["iridescent-avian.plus-2", "ignored", "linked-ignored"]
+    ]
+  );
+  assert.equal(kernel.continuousEffects.length, 0);
 });
 
 test("rad-027-167 Iridescent Avian: exhausting the source really pays the printed cost", () => {
@@ -152,18 +210,21 @@ test("rad-027-167 Iridescent Avian: exhausting the source really pays the printe
     () => payCostPlan(context, plan),
     /An exhaust cost requires a ready controlled object/
   );
-  // A hidden-cost helper is unrelated to this card's cost shape.
-  assert.equal(typeof buildHiddenCostPlan, "function");
 });
 
-test.todo(
-  "Iridescent Avian: 'If it's already buffed, give it +2 :rb_might: this turn instead' — blocked because temporary Might " +
-    "modification has no merged primitive (contract 3.6's closed GameAction set has no might change; effect.buff delegates it to " +
-    "layers continuous.might) and the layers consumer is unmerged (RIFT-83/84, RIFT-91)"
-);
-
-test.todo(
-  "Iridescent Avian: the printed 'instead' either/or between Buff and +2 Might — blocked because the condition clause covers only " +
-    "its own instruction (contract 3.4) and the selectable choice mode path (choice.mode) is rejected by chain/engine.ts's " +
-    "assertFinalizationSurface pending a Finalize/Resolve choice-plan adapter (RIFT-89/90)"
-);
+test("rad-027-167 Iridescent Avian: the same body resolves through the production chain adapter", () => {
+  // The chain adapter wraps primitive args for the v1 schemas; both branches
+  // must still reach the same result as the plain interpreter path.
+  for (const [buffs, expected] of [
+    [0, [["iridescent-avian.buff", "executed"], ["iridescent-avian.plus-2", "negated"]]],
+    [1, [["iridescent-avian.buff", "negated"], ["iridescent-avian.plus-2", "executed"]]]
+  ]) {
+    const kernel = fixture(buffs);
+    const outcome = resolveChainBody(bodyWithoutTargets(activated.body), kernel);
+    assert.deepEqual(
+      outcome.results.slice(1).map((entry) => [entry.id, entry.result.status]),
+      expected
+    );
+    assert.equal(kernel.continuousEffects.length, buffs === 1 ? 1 : 0);
+  }
+});

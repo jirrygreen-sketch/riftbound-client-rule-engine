@@ -4,7 +4,6 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/jarvan-iv-martial-paragon.js";
 import channel from "../../../../engine-core/dist/effects/instructions/effect.channel.js";
-import { instructionDefinitionsById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 
@@ -19,8 +18,11 @@ test("rad-091-167 Jarvan IV, Martial Paragon: validates, identity and source tex
   assert.equal(program.canonicalCardId, CARD_ID);
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
+  // README §2: the reason names the still-missing bindings and their owners.
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
-  assert.match(program.judgeReason, /Deploy/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /canAct/);
+  assert.match(program.judgeReason, /830\.3/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -101,20 +103,18 @@ test("rad-091-167 Jarvan IV, Martial Paragon: the exhausted stipulation reaches 
   assert.equal(kernel.zone("A", "rune-zone").length, 1);
 });
 
-test("rad-091-167 Jarvan IV, Martial Paragon: the grant and Deploy predicate consumers are unregistered", () => {
-  // Evidence for the judgeReason: neither continuous grant nor Deploy expansion exist yet.
-  assert.equal(instructionDefinitionsById.has("continuous.grant-keyword"), false);
-  assert.equal(instructionDefinitionsById.has("continuous.might"), false);
-});
-
 test.todo(
-  "jarvan-iv-martial-paragon: [Action] grant to 'your gear with [Deploy]' through layers (RIFT-91) plus the" +
-    " Action keyword expansion and the 'has [Deploy]' predicate (CR 830.3)"
+  "jarvan-iv-martial-paragon: bind the static continuous.grant-keyword into the layers so " +
+    "“your gear with [Deploy] have [Action]” actually grants the permission (RIFT-257 programs " +
+    "binding + RIFT-91 layers)"
 );
 test.todo(
-  "jarvan-iv-martial-paragon: the conquer condition 'a friendly gear with [Deploy] here' needs keyword and" +
-    " sameLocationAs evaluation in the trigger condition (RIFT-90) and a Deploy KeywordDef"
+  "jarvan-iv-martial-paragon: wire keyword-form Action grants into the timing-permission query — " +
+    "layers/rules canAct reads continuous.timing grants/timings only, so object.keywords.Action " +
+    "currently grants no timing (CR 806.1.b)"
 );
 test.todo(
-  "jarvan-iv-martial-paragon: conquer subscription through the trigger pipeline with the self source filter"
+  "jarvan-iv-martial-paragon: evaluate the “has [Deploy]” predicate (CR 830.3) in filters — " +
+    "layers/filter.ts ignores unknown keys, so both the static filter and the conquer condition's " +
+    "count + keyword would match every gear; keyword/sameLocationAs evaluation is the RIFT-90 gap"
 );
