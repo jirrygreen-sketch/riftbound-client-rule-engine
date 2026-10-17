@@ -111,3 +111,12 @@ test("unl-022-219 Jhin, Murderous Artist golden: the Energy half alone is a real
   assert.equal(kernel.player("A").energy, 1);
   assert.deepEqual(kernel.events.map(event => event.action), ["gain-energy"]);
 });
+
+test.todo(
+  "unl-022-219 Jhin, Murderous Artist: [Deflect] target.tax (CR 809.1.c) is applied when an opponent chooses this " +
+    "unit — the target-tax permission still needs to enter target locking and the additional cost plan"
+);
+test.todo(
+  "unl-022-219 Jhin, Murderous Artist: [Ganking] continuous.movement permission (CR 810.1.b / 144.4.c.1) is " +
+    "read by the movement system and a completed move emits the object-moved trigger for this unit"
+);

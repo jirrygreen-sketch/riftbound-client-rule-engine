@@ -127,3 +127,12 @@ test("unl-143-219 Kha'Zix, Mutating Horror golden: +2 Might registers for this t
   assert.equal(layers.expireAt("turn-end").length, 1);
   assert.equal(layers.evaluate(kernel.ref("khazix")).might, 4);
 });
+
+test.todo(
+  "unl-143-219 Kha'Zix, Mutating Horror: fire the attack-declared / defense-declared triggers from the real " +
+    "combat workflow (CR 383.4.e / 383.4.f) so the supported Might and XP body enters the chain"
+);
+test.todo(
+  "unl-143-219 Kha'Zix, Mutating Horror: [Ambush] (CR 822.1.b/822.1.c) is consumed by the play flow for its " +
+    "valid battlefield locations and Reaction permission"
+);

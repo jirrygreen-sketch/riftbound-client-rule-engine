@@ -165,3 +165,8 @@ test("unl-081-219 Keeper of Masks golden: a replacement on the play action leave
 test("unl-081-219 Keeper of Masks: effect.copy is the primitive named by the second instruction", () => {
   assert.equal(becomeCopies.op, copy.op);
 });
+
+test.todo(
+  "unl-081-219 Keeper of Masks: the [Temporary] keyword expansion (CR 816.1.b) kills the token at the start of " +
+    "its controller's Beginning Phase through the keyword-to-timing/chain registration path"
+);

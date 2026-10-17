@@ -156,3 +156,8 @@ test("unl-203-219 Keeper of the Hammer golden: fewer than 3 XP fails the cost be
   assert.equal(ctx.player("A").xp, 2);
   assert.equal(ctx.object(ctx.ref("poppy")).exhausted, false);
 });
+
+test.todo(
+  "unl-203-219 Keeper of the Hammer: the hold timing point reaches this ability through the trigger-to-chain " +
+    "pipeline, and the activated CardProgram body reaches the ChainDraft adapter"
+);

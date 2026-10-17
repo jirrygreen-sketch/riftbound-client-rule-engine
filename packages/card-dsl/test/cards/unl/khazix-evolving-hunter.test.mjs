@@ -220,3 +220,12 @@ test("unl-119-219 Kha'Zix, Evolving Hunter golden: a Might of 0 deals no damage 
   assert.equal(kernel.getObject("here").damage, 0);
   assert.deepEqual(run.events, []);
 });
+
+test.todo(
+  "unl-119-219 Kha'Zix, Evolving Hunter: [Hunt] reaches the real conquered/held event producers with the " +
+    "conquering unit in the payload (CR 823.1.c.1/.c.2)"
+);
+test.todo(
+  "unl-119-219 Kha'Zix, Evolving Hunter: the attack-declared timing point reaches this trigger from the combat " +
+    "workflow (CR 383.4.e), including the attack role designation and trigger registration"
+);

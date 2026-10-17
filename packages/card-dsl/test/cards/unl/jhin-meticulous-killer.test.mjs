@@ -71,3 +71,14 @@ test("unl-089-219 Jhin, Meticulous Killer: the declared keyword resolves to the 
   assert.equal(expansion[0].kind, "triggered");
   assert.equal(expansion[0].trigger.at, "object-enters-board");
 });
+
+test.todo(
+  "unl-089-219 Jhin, Meticulous Killer: Vision's Predict binds the ordered top card " +
+    "(CR 437.1 / 817.1.b) — effect.inspect still needs production injection of the ordered top-card picks " +
+    "and a binding for the keyword's controller"
+);
+test.todo(
+  "unl-089-219 Jhin, Meticulous Killer: fire the Vision trigger from the real Board-entry flow " +
+    "(CR 817.1.c) — the keyword expansion exists, but the Board-entry producer and trigger registration " +
+    "must deliver the resolved controller and source"
+);

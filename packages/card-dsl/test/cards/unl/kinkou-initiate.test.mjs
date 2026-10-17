@@ -113,3 +113,31 @@ test("unl-097-219 Kinkou Initiate golden: the card-played trigger registers thro
   assert.equal(ids.length, 1);
   assert.match(ids[0], /^program:initiate:1:/);
 });
+
+test("unl-097-219 Kinkou Initiate golden: the body runs through the chain adapter and honours its gate", async () => {
+  // The merged instruction path runs the card's own body. The world below is
+  // chosen so the printed Might sum is 5 while the retained count placeholder
+  // does not satisfy the gate, preserving evidence for the judge-required gap.
+  const { resolveChainBody } = await import("../../../../engine-core/dist/chain/interpreter-adapter.js");
+  const { translateInstructionTargets } = await import("../../../../engine-core/dist/programs/filters.js");
+  const kernel = world()
+    .unit("initiate", { owner: "A", controller: "A", might: 3, location: { type: "battlefield", id: "bf-1" } })
+    .unit("weak-ally", { owner: "A", controller: "A", might: 1, location: { type: "battlefield", id: "bf-1" } })
+    .unit("strong-ally", { owner: "A", controller: "A", might: 4, location: { type: "battlefield", id: "bf-1" } })
+    .deck(["top", "second"])
+    .build();
+  const ctx = kernel.clone({ sourceSnapshot: kernel.getObject("initiate"), controller: "A" });
+
+  const totalMight = kernel
+    .query({ type: "unit", zone: "board", controller: "A" })
+    .filter(unit => unit.ref.id !== "initiate")
+    .reduce((sum, unit) => sum + unit.might, 0);
+  assert.equal(totalMight, 5);
+  const outcome = resolveChainBody(translateInstructionTargets(ability.body), ctx);
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(
+    [outcome.results[0].result.status, outcome.results[0].result.reason],
+    ["negated", "skipped"]
+  );
+  assert.equal(ctx.player("A").handSize, 0);
+});

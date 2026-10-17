@@ -326,3 +326,13 @@ test("unl-051-219 Ivern, Nurturer golden: the trait Buff really places one Buff 
   assert.equal(kernel.getObject("ally").buffs, 1);
   assert.deepEqual(run.events.map(event => event.action), ["buff"]);
 });
+
+test.todo(
+  "unl-051-219 Ivern, Nurturer: produce the ordered Main-Deck-top picks for effect.inspect in production " +
+    "(contract 3.6 zoneSlice ordering must reach the look)"
+);
+
+test.todo(
+  "unl-051-219 Ivern, Nurturer: register the card-played and hold triggers end to end " +
+    "(CR 383.4.a.1/383.4.d.2.a; the hold event must carry the held unit so the self filter can match)"
+);

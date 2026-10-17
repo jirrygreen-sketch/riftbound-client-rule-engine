@@ -197,3 +197,8 @@ test("unl-204-219 Keeper's Verdict golden: a stale unit reference is mistargeted
   assert.deepEqual(run.events, []);
   assert.deepEqual(kernel.zone("B", "deck"), []);
 });
+
+test.todo(
+  "unl-204-219 Keeper's Verdict: apply the printed [Action] Showdown timing permission through the keyword " +
+    "registry and the chain's canAct (CR 806.1.b)"
+);
