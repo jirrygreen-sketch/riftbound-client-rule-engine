@@ -6,6 +6,9 @@ import program from "../../../dist/cards/ven/resonating-strike.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
 import continuousMight from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
+import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-fa3fca39f51f36c4a7eaf70e836d2271f5e26b7994a64cbafa1b79ec0ea7dad7";
@@ -95,6 +98,7 @@ test("ven-034-166 Resonating Strike: printed cost, the two Finalize choices and 
   assert.equal(mightInstruction.linkedTo, "resonating-strike.move-unit");
   assert.deepEqual(mightInstruction.args.amount, { kind: "constant", value: 2 });
   assert.deepEqual(mightInstruction.args.duration, { kind: "constant", value: "this-turn" });
+  assert.deepEqual(mightInstruction.args.target, { kind: "constant", value: unitSpec.id });
   assert.deepEqual(mightInstruction.targets, [unitSpec]);
 });
 
@@ -129,20 +133,26 @@ test("ven-034-166 Resonating Strike golden: +2 Might this turn registers on the 
     .unit("ally", { zone: "board", location: { type: "base", player: "A" } })
     .build();
   const locked = kernel.ref("ally");
+  kernel.setTargets(unitSpec.id, [locked]);
 
-  const run = runInstruction(
-    continuousMight,
-    // runInstruction receives the evaluator-resolved argument shape, so bind
-    // the Expr args (plus the selection target) to plain values.
-    {
-      amount: 2,
-      duration: "this-turn",
-      target: "ally",
-    },
-    { world: kernel, targets: { [unitSpec.id]: [locked], ally: [locked] } }
-  );
+  // Execute the card's own Expr arguments through the merged primitive. The
+  // test supplies only the finalized TargetSpec binding; it does not replace
+  // the card's target argument with a hand-written runtime object selector.
+  const context = bindResolveContext(kernel, {
+    query: filter => {
+      const normalized = { ...filter };
+      for (const key of ["controller", "owner"]) {
+        if (normalized[key] === "self" || normalized[key] === "controller") normalized[key] = kernel.controller;
+      }
+      return kernel.objects.filter(object => matchesObjectFilter(normalized, object));
+    }
+  });
 
-  assert.equal(run.result.status, "executed");
+  // The Move link is removed only to isolate this already merged instruction;
+  // all args and the TargetSpec are the card's originals.
+  const run = runAbilityBody([{ ...mightInstruction, linkedTo: undefined }], context);
+
+  assert.equal(run.results[0].result.status, "executed");
   assert.equal(kernel.continuousEffects.length, 1);
   const [registration] = kernel.continuousEffects;
   assert.equal(registration.effect.layer, "arithmetic");

@@ -86,6 +86,8 @@ test("ven-041-166 Riven, Shattered: identity, status, judgeReason and verbatim s
   assert.match(program.judgeReason, /Weaponmaster/);
   assert.match(program.judgeReason, /821\.1\.c\.2/);
   assert.match(program.judgeReason, /attack-declared/);
+  assert.match(program.judgeReason, /sameLocationAs/);
+  assert.match(program.judgeReason, /RIFT-90/);
   // The stale RIFT-89 citation was removed; the judgeReason now names the
   // concrete Equip-cost binding and attack-declared producer gaps.
   assert.doesNotMatch(program.judgeReason, /RIFT-89/);
@@ -232,5 +234,5 @@ test.todo(
 
 test.todo(
   "ven-041-166 Riven, Shattered: resolve 'When I attack' end to end (383.4.e.2) — combat must emit the " +
-    "attack-declared timing point and card programs must register their triggers as TriggerRegistrations"
+    "attack-declared timing point and the programs/filters adapter must support the sameLocationAs target filter"
 );

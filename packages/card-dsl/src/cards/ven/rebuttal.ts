@@ -20,8 +20,8 @@ import type { CardProgram } from "../../ir/index.js";
  *   效果后的复制）费用，忽略已支付的追加费用——Defy 正是该条自带的示例。冻结的 TargetSpec 过滤器
  *   无法读取链上法术的印刷 Energy 费用，因此限制以描述性键保留（见 judgeReason），绝不去掉限制。
  * - 「You may pay :rb_rune_rainbow:」：:rb_rune_rainbow: 是任意域 Power [A]（135.2.e.5.a、
- *   163.2.b）；结算期的“支付任意域 Power”没有已合入原语，且六域封闭 Domain 集合表达不了 [A]，
- *   故以描述性 ["rainbow"] 记录（同 Matriarch of War / Hextech Anomaly 的口径）。
+ *   163.2.b）；已合入的 cost.pay 以 payments.power 数值 1 表达 [A]，并写入可由
+ *   linked-value 读取的支付回执。
  * - 「If you do, gain control of it」：控制权变更由已合入的 effect.control 经冻结的 take-control
  *   动作执行（RIFT-117）；链上法术的控制层改写与 359.3.e 的引用复核由该原语负责。
  * - 「and you may make new choices for it」：CR 750-755 的 Making New Choices 流程（752.1 只允许
@@ -29,13 +29,11 @@ import type { CardProgram } from "../../ir/index.js";
  *   negated，754 重新触发成为目标，755 忽略因此产生的 to-play 费用）；IR 既没有重开已 Finalize 链项
  *   选择计划的节点，也没有 753.2 的结果绑定。按契约 3.9 用 choice.optional 把该从句包进 body。
  * - 「Otherwise, counter it」：未支付时反制该法术（426.1-426.3：被反制的牌不产生效果、离开链、费用
- *   不退还），由已合入的 effect.counter 执行；"Otherwise" 是对“是否支付”的结果分支（359 型结果绑定），
- *   当前没有可求值的费用回执（Condition 词汇没有回执谓词），因此判别器缺失时显式 { kind: "never" }
- *   fail-closed，
- *   绝不在未支付时执行控制、也绝不在已支付时反制。
+ *   不退还），由已合入的 effect.counter 执行；支付回执和两路 body 已能写入 IR，实际打出仍受
+ *   choice.mode 的 Finalize/Resolve choice-plan 适配器阻断。
  *
  * status = judge-required：链上目标的锁定与 effect.counter / effect.control 都已合入并有执行测试，
- * 但费用限制谓词、结算期 [A] 支付与费用回执分支、Making New Choices 三处缺口见 judgeReason。
+ * 但费用限制谓词、结算分支的 choice-plan 适配器、Making New Choices 三处缺口见 judgeReason。
  */
 
 /** 355.12：may 动作的目标选择与是否执行该动作无关，因此在 Finalize 一并锁定同一个法术目标。 */
@@ -50,11 +48,9 @@ const rebuttal = {
     "读不到链上法术的印刷 Energy 费用：CR 206 明确只看印刷（或复制）费用、忽略已支付的追加费用（该条自带 Defy 示例），" +
     "而冻结的 TargetSpec filter 只能逐键比较 type/zone/location 等字段，没有任何已合入谓词读取链上项的印刷费用；" +
     "限制以描述性键 energyMax 保留（去掉它会变成“反制任意法术”）。依赖：target 系统的印刷费用谓词（RIFT-90 目标/链，或 cost-plan 的印刷费用读取）。" +
-    "(2)「You may pay :rb_rune_rainbow:. If you do … Otherwise, counter it」缺结算期的支付原语与费用回执：" +
-    ":rb_rune_rainbow: 是任意域 Power [A]（135.2.e.5.a、163.2.b），六域封闭 Domain 集合无法表达（effect.resources 记录不可近似），" +
-    "cost.pay 原语虽已注册，但没有 [A] 付费种类，也没有“由后续指令读取实付结果”的 Condition 回执谓词，" +
-    "因此“已支付 → 取得控制权 + 重选”和“未支付 → 反制”这一对互斥分支没有可求值的判别器；程序用描述性条件表达，" +
-    "在判别器缺失时两条分支都 fail-closed（既不控制也不反制），不会把未支付当已支付。依赖：RIFT-89（结算期费用/费用回执）与结果绑定。" +
+    "(2)「You may pay :rb_rune_rainbow:. If you do … Otherwise, counter it」的两路结算分支虽已用 choice.mode、" +
+    "cost.pay 的 payments.power: 1 与 linked-value 回执表达，但 chain/engine.ts 的 Finalize/Resolve choice-plan 适配器" +
+    "仍阻断 choice.mode，因此支付后控制/重选与未支付反制尚不能经打出管线执行。依赖：结算期分支选择计划适配器。" +
     "(3)「you may make new choices for it」是 CR 750-755 的 Making New Choices：752.1 只允许重选 location/mode/destination/target，" +
     "753/753.3 要求全部重选并沿用原限制，753.2 在无合法新选择时 negated，754 重新触发成为目标，755 忽略因此产生的 to-play 费用；" +
     "IR 没有重开已 Finalize 链项选择计划的节点，也没有 753.2 的结果绑定。依赖：链/目标计划的重选支持（RIFT-90/RIFT-120）。" +
@@ -66,28 +62,32 @@ const rebuttal = {
       kind: "play",
       body: [
         {
-          // 「Choose a spell with Energy cost no more than :rb_energy_4:.」——355.12：may 动作的目标选择
-          // 与是否执行该动作无关，因此 TargetSpec 挂在这一层并在 Finalize 锁定一次；两条分支都用同一个 id。
-          id: "rebuttal.may-pay-rainbow",
-          op: "choice.optional",
+          // 「Choose a spell with Energy cost no more than :rb_energy_4:.」——355.12：目标选择
+          // 与结算时的支付分支无关，因此 TargetSpec 挂在这一层并在 Finalize 锁定一次；choice.mode
+          // 记录“支付并取得控制”与“否则反制”两路互斥结果。
+          id: "rebuttal.payment-branch",
+          op: "choice.mode",
           args: {
-            prompt: {
-              kind: "constant",
-              value: "Pay :rb_rune_rainbow: to gain control of that spell?"
-            },
-            body: {
+            chooser: { kind: "constant", value: "controller" },
+            count: { kind: "constant", value: 1 },
+            different: { kind: "constant", value: true },
+            prompt: { kind: "constant", value: "Pay :rb_rune_rainbow: or counter that spell?" },
+            modes: {
               kind: "constant",
               value: [
                 {
-                  // 结算期支付 [A]：135.2.e.5.a / 163.2.b 的任意域 Power 无法落在六域封闭集合里，
-                  // 以描述性 ["rainbow"] 记录（见 judgeReason 第 2 点；原语未注册，不近似成某个域）。
+                  id: "rebuttal.pays-rainbow",
+                  body: [
+                    {
+                  // 结算期支付 [A]：135.2.e.5.a / 163.2.b 的任意域 Power 由数值 1 表达；
+                  // cost.pay 的 payment receipt 可由后续 linked-value 读取。
                   id: "rebuttal.pay-rainbow",
                   op: "cost.pay",
                   args: {
-                    power: { kind: "constant", value: ["rainbow"] }
+                    payments: { kind: "constant", value: { power: 1 } }
                   }
-                },
-                {
+                    },
+                    {
                   // 「gain control of it」：链上法术（355.9.a.2）的控制层改写经冻结的 take-control
                   // 动作执行（RIFT-117），引用复核仍在链上由原语按 359.3.e 完成。
                   id: "rebuttal.gain-control",
@@ -97,9 +97,15 @@ const rebuttal = {
                     objects: { kind: "constant", value: { target: CHOSEN_SPELL } },
                     amount: { kind: "constant", value: 1 },
                     linkKey: { kind: "constant", value: "rebuttal-controlled" }
+                  },
+                  condition: {
+                    kind: "compare",
+                    left: { kind: "linked-value", instructionId: "rebuttal.pay-rainbow", key: "paid" },
+                    operator: "eq",
+                    right: { kind: "constant", value: true }
                   }
-                },
-                {
+                    },
+                    {
                   // 「you may make new choices for it」：CR 750-755 的重选从句，按契约 3.9 包进
                   // choice.optional 的 body；重选节点本身仍未注册（见 judgeReason 第 3 点）。
                   id: "rebuttal.may-remake-choices",
@@ -129,6 +135,18 @@ const rebuttal = {
                       ]
                     }
                   }
+                    }
+                  ]
+                },
+                {
+                  id: "rebuttal.counter-branch",
+                  body: [
+                    {
+                      id: "rebuttal.counter-otherwise",
+                      op: "effect.counter",
+                      args: { target: { kind: "constant", value: CHOSEN_SPELL } }
+                    }
+                  ]
                 }
               ]
             }
@@ -145,16 +163,6 @@ const rebuttal = {
               selection: "one"
             }
           ]
-        },
-        {
-          // 「Otherwise, counter it」：426.1-426.3 由已合入的 effect.counter 执行（被反制的牌不产生
-          // 效果、离开链、费用不退还）。条件读的是“是否支付”的费用回执；Condition 词汇没有回执谓词
-          // （见 judgeReason 第 2 点），因此显式 { kind: "never" } fail-closed：判别器缺失就不反制，
-          // 也不会与上面的控制分支同时发生。
-          id: "rebuttal.counter-otherwise",
-          op: "effect.counter",
-          args: { target: { kind: "constant", value: CHOSEN_SPELL } },
-          condition: { kind: "never" }
         }
       ]
     }

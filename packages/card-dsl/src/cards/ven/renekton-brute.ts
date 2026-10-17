@@ -14,8 +14,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * 规则依据（Core Rules v1.5）：
  * - 404.1.a / 415.5：“:” 前的 :rb_energy_1: 是启动能力的 Base Cost（1 Energy）；契约 3.1 用
- *   activated + CostSpec 记录（同 ven/heart-of-the-tempest 一类写法）。415.4 要求费用必须能
- *   完成才能支付，费用校验属 Finalize / 费用管线（RIFT-89）。
+ *   activated + CostSpec 记录（同 ven/heart-of-the-tempest 一类写法）。程序侧 activated cost
+ *   已由 programs/activate.ts 绑定到 ChainDraft 的费用计划，415.4 的可支付性由费用管线校验。
  * - “give me +1 :rb_might: this turn”：带回合期限的临时 Might 修正（479.4.e.1 的算术层增加；
  *   到期在回合结束清理，315.4 / 317.2.c）。已合入的 continuous.might 指令（RIFT-258）通过
  *   appliesTo "self" 把算术层 +1 注册到能力来源上，不写成 Buff 计数（702/703）。
@@ -126,8 +126,8 @@ export default {
     "（442.1.a 的二元状态不在 ObjectSnapshot / Condition 里，快照无 empowered 字段），[Empowered][>] 依赖能力（828.1.b.1）的门槛" +
     "不可求值，empoweredCount 只是描述性记录；(3) Deflect/Ganking 的关键词语义没有运行时消费方（Deflect 的 target.tax 属 RIFT-360；" +
     "Ganking 的 continuous.movement 移动系统不读该关键词；continuous.grant-keyword 指令与 static 绑定已合入，缺的是下游消费）。" +
-    "已支持部分：effect.empower（“empower me”，442.1）与 continuous.might（“+1 Might this turn”，479.4.e.1/317.2.c，" +
-    "appliesTo self）由 golden 用真实解释器 + 参考内核执行。依赖：RIFT-89（费用/启动接线）、RIFT-87、RIFT-120、" +
+    "已支持部分：activated cost 已由 programs/activate.ts 绑定；effect.empower（“empower me”，442.1）与 continuous.might（“+1 Might this turn”，479.4.e.1/317.2.c，" +
+    "appliesTo self）由 golden 用真实解释器 + 参考内核执行。依赖：RIFT-87、RIFT-120、" +
     "RIFT-360（Deflect 目标税）。不近似实现。",
   abilities,
   sourceText:

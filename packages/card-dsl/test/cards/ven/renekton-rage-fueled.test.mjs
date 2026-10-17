@@ -62,6 +62,7 @@ test("ven-019-166 Renekton: identity, status, judgeReason and verbatim sourceTex
   assert.match(program.judgeReason, /355\.10\.d/);
   assert.match(program.judgeReason, /attack-declared/);
   assert.match(program.judgeReason, /RIFT-89/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-120/);
 });
 
 test("ven-019-166 Renekton: unvalued [Accelerate] with the merged 805 expansion", () => {
@@ -152,7 +153,7 @@ test.todo(
 
 test.todo(
   "ven-019-166 Renekton: the attack-declared timing point needs its combat emitter and the " +
-    "CardProgram trigger registration (RIFT-120 plus the engine batch 4–5 combat transaction)"
+    "engine batch 4–5 combat transaction; CardProgram → TriggerRegistration binding is already merged"
 );
 
 test.todo(

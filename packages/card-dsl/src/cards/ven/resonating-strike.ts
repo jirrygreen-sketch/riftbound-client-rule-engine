@@ -133,7 +133,8 @@ export default {
           linkedTo: "resonating-strike.move-unit",
           args: {
             amount: { kind: "constant", value: 2 },
-            duration: { kind: "constant", value: "this-turn" }
+            duration: { kind: "constant", value: "this-turn" },
+            target: { kind: "constant", value: "resonating-strike.friendly-unit" }
           },
           targets: [
             {

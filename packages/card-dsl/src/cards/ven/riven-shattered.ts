@@ -30,16 +30,17 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   再乘印刷常量 2（contract 3.4 的 arithmetic 图层外的实数计算）。战斗与非战斗伤害由
  *   combat: false 区分（本条是效果伤害，不是 467 的战斗伤害）。
  *
- * status = judge-required（缺口均不近似实现）：
+ * status = judge-required（三处缺口均不近似实现）：
  * 1. [Weaponmaster] 的展开文件（effects/keywords/Weaponmaster.ts）虽然已合入，但其引用的
  *    cost.modify / cost.pay 原语在 821.1.c.2 的 Equip 费用语义上没有消费方：
  *    cost.modify 的 reduce-equip-cost 分支会按“821.1.c.2 缺权威 Equip 费用绑定”设计性抛出，
  *    费用计算与支付不会执行。
- * 2. attack-declared 时点没有发射方：combat/ 不把 Attacker 指定接入事件管线（全仓库没有
- *    attack-declared 的 emit 调用，同 sfd/azir-sovereign、sfd/lucian-gunslinger 的记录），
- *    也没有已合入订阅方把 CardProgram 的 triggered ability 注册成 TriggerRegistration
- *    （RIFT-120 的链/事件单管线接线）。
- * 依赖：权威 Equip 费用绑定与 reduce-equip-cost 消费方、战斗触发发射与卡牌触发注册。
+ * 2. CardProgram → TriggerRegistration 的通用路径已由 programs/triggers.ts + lifecycle.ts
+ *    接入，但 programs/filters.ts 尚不支持 TargetSpec 的 sameLocationAs（053.3/355.11），
+ *    所以本卡的注册在目标翻译处仍被 judge-required 阻断。
+ * 3. attack-declared 时点没有发射方：combat/ 不把 Attacker 指定接入事件管线（全仓库没有
+ *    attack-declared 的 emit 调用，同 sfd/azir-sovereign、sfd/lucian-gunslinger 的记录）。
+ * 依赖：权威 Equip 费用绑定与 reduce-equip-cost 消费方、sameLocationAs 目标过滤适配、战斗触发发射。
  * 已合入的 effect.damage 与 count + attachedTo 锚点在 golden 中用真实目标与真实附着关系执行，
  * 不手改 frame / attachedTo。
  */
@@ -112,12 +113,13 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处缺口，均不近似实现：(1) [Weaponmaster] 的展开文件（effects/keywords/Weaponmaster.ts）虽已合入，" +
+    "三处缺口，均不近似实现：(1) [Weaponmaster] 的展开文件（effects/keywords/Weaponmaster.ts）虽已合入，" +
     "cost.modify 与 cost.pay 原语也已合入，但 reduce-equip-cost 分支按 821.1.c.2 缺权威 Equip 费用绑定而设计性抛出，" +
     "费用计算与支付不会执行；" +
-    "(2) attack-declared 时点（323.2 / 383.4.e / 466.2.c）没有发射方：combat/ 不把 Attacker 指定接入事件管线（全仓库没有 attack-declared " +
-    "的 emit 调用），也没有已合入订阅方把 CardProgram 的 triggered ability 注册成 TriggerRegistration。" +
-    "依赖权威 Equip 费用绑定（reduce-equip-cost 消费方）与战斗触发发射/卡牌触发注册。" +
+    "(2) CardProgram → TriggerRegistration 的通用路径已由 programs/triggers.ts + lifecycle.ts 合入，" +
+    "但 programs/filters.ts 尚不支持 TargetSpec 的 sameLocationAs（053.3/355.11，RIFT-90），本卡注册会在目标翻译处以 judge-required 阻断；" +
+    "(3) attack-declared 时点（323.2 / 383.4.e / 466.2.c）没有发射方：combat/ 不把 Attacker 指定接入事件管线（全仓库没有 attack-declared " +
+    "的 emit 调用）。依赖权威 Equip 费用绑定（reduce-equip-cost 消费方）、sameLocationAs 目标过滤适配与战斗触发发射。" +
     "「choose an enemy unit here」按 355.9.b 声明为被选目标（sameLocationAs: \"self\" 的 053.3 here 锚点），" +
     "「Deal 2 to it for each Equipment attached to me」用 count + attachedTo 锚点在结算时读取附着数量（418.1）；" +
     "effect.damage 本体已合入，golden 用真实目标与真实附着关系执行。",

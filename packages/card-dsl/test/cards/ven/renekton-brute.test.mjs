@@ -54,6 +54,7 @@ test("ven-092-166 Renekton: identity, ruleset, status, judgeReason and verbatim 
   assert.match(program.judgeReason, /might-changed/);
   assert.match(program.judgeReason, /RIFT-87/);
   assert.match(program.judgeReason, /RIFT-360/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-89/);
   assert.doesNotMatch(program.judgeReason, /RIFT-91/);
   assert.doesNotMatch(program.judgeReason, /没有注册的 Might 修正原语/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
