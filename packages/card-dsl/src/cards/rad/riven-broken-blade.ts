@@ -166,7 +166,7 @@ const program = {
   judgeReason:
     "「choose one that has not been chosen this turn」缺跨触发的每模式回合历史（CR 303、319）；choice.mode different 只约束单次选择，没有 choice.exclusive-once-per-turn 等价的历史消费。生产 Finalize 还缺 choice-plan adapter。" +
     "「Spend my buff to Stun/ready」是指令内费用（355.10.c.1、404.1.b.1）：现有 effect.buff spend + linkedTo 在无 Buff 时仍会执行后续，不能作为支付门控。" +
-    "cost.pay、费用计划的 spend-buff 支付和 condition.result 均已合入；缺的是静态符号 self→运行时 Buff 费用计划的 body 绑定及 success-gated payment body/savepoint（203.3），并非 Buff 支付原语尚未实现。" +
+    "cost.pay、费用计划的 spend-buff 支付和 condition.result 均已合入；缺的是把静态符号 self 绑定到运行时 Buff 的指令内费用（需要 effect.spend-buff 或等价的 body 费用计划）以及支付成功后的 success-gated Stun/Ready 门控（203.3），并非 Buff 支付原语尚未实现。" +
     "object-exhausted 触发适配及 buff/stun/ready 子效果已有真实执行证据，不能把这些局部证据算作整卡执行。",
   abilities,
   sourceText:
