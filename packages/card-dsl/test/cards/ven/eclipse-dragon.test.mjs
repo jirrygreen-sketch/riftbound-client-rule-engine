@@ -68,8 +68,10 @@ test("ven-016-166 Eclipse Dragon: identity, ruleset, status, judgeReason and ver
   assert.match(program.judgeReason, /Accelerate/);
   assert.match(program.judgeReason, /805\.1\.b/);
   assert.match(program.judgeReason, /object-moved/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /optionalAdditional/);
   assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /RIFT-359/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-89/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
@@ -144,7 +146,7 @@ test("ven-016-166 Eclipse Dragon golden: the trigger body draws 1 through the re
 test.todo(
   "ven-016-166 Eclipse Dragon: pay the 805.1.b Accelerate cost (1 Energy + 1 Fury Power) during " +
     "finalization and let the unit enter ready — keywords/Accelerate.ts expands the structure, but " +
-    "its cost-plan consumer (Finalize optionalAdditional wiring) is RIFT-89"
+    "no producer wires accelerate.cost into Finalize optionalAdditional (cost-plan itself supports the accelerate kind)"
 );
 test.todo(
   "ven-016-166 Eclipse Dragon: fire 'When I move' — events/action-adapter.ts does not fill " +

@@ -33,7 +33,10 @@ test("ven-142-166 Dominus: program passes validateCardProgram and is judge-requi
 test("ven-142-166 Dominus: judgeReason names the ability grant, the Might doubling and [A]", () => {
   assert.match(program.judgeReason, /continuous\.grant-ability/);
   assert.match(program.judgeReason, /433/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /mode 只接受 add\|set/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-9\d/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-120/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /135\.2\.e\.5\.a/);
   assert.match(program.judgeReason, /163\.2\.b/);
   assert.match(program.judgeReason, /不近似实现/);
@@ -121,8 +124,8 @@ test("ven-142-166 Dominus: the printed [A][A] cost is descriptive and not payabl
 
 test.todo(
   "ven-142-166 Dominus: double the chosen unit's Might for this turn (433.1/433.1.a, arithmetic layer " +
-    "per 475) — needs a registered continuous.might multiplication instruction with an end-of-turn " +
-    "duration (RIFT-91 follow-up); not approximated as a Buff counter"
+    "per 475) — continuous.might is registered but only accepts add|set (multiply is rejected and " +
+    "factor is not a legal argument key); not approximated as a Buff counter"
 );
 
 test.todo(

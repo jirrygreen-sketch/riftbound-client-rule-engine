@@ -36,7 +36,7 @@ test("ven-049-166 Dredge Up: judgeReason names the Flow cost, banish replacement
   assert.match(program.judgeReason, /829\.1\.b\.1/);
   assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /RIFT-260/);
-  assert.match(program.judgeReason, /RIFT-89/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-89/);
   assert.ok(!/待实现|需要裁定/.test(program.judgeReason));
 });
 
@@ -100,7 +100,7 @@ test("ven-049-166 Dredge Up golden: an empty Main Deck draws 0 without inventing
 test.todo(
   "ven-049-166 Dredge Up: play from Trash for the 2 Energy Flow cost (829.1.c.1 alternate cost, " +
     "829.1.c.3 instance tracking) — the flow.cost consumer and the Trash play permission need the " +
-    "RIFT-261 cost consumer and the RIFT-89 cost-plan wiring"
+    "RIFT-261 cost consumer; the Trash-play permission and finalized-item state are still unwired in the play flow"
 );
 
 test.todo(

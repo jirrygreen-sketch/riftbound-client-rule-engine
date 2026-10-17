@@ -23,11 +23,11 @@ import type { CardProgram } from "../../ir/index.js";
  *   展开（keywords/Flow.ts 的 flow.cost + 延迟替代）归关键词注册表。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required。两处依赖未合入，均不近似实现：
- * (1) Trait-Altering 层的 Base Might 设值没有已注册的卡牌侧原语：契约 3.6 的封闭 GameAction
- *     集合没有 Might 修改动作，effects/instructions/ 下没有 continuous.base-might / set-base-might
- *     （LayerEngine 只消费 ResolveContext.addContinuous 注册的 ContinuousEffectSpec，CardProgram
- *     的指令体尚未接线；同型记录见 rad/piltovan-guidebot、rad/herald-of-the-emperor），
- *     也没有 this-turn 期限的落地（依赖 RIFT-91 layers-continuous 与设值原语批次）。
+ * (1) Trait-Altering 层的 Base Might 设值没有已注册的卡牌侧原语：effects/instructions/ 的
+ *     注册表没有 continuous.base-might / set-base-might；continuous.might 的 set 模式落在
+ *     算术层（buildMightSpec 产 kind:"set-might"），不等于 143.2.a 的 Trait 层设值；
+ *     this-turn 期限别名本身已支持（DurationAlias），缺的是设值原语与其图层消费方
+ *     （同型记录见 rad/piltovan-guidebot、rad/herald-of-the-emperor）。
  * (2) [Flow] 的可执行路径缺失：[Flow] 虽已在关键词注册表（keywords/Flow.ts），但 829.1.b/829.1.c
  *     依赖 RIFT-261（费用消费方暴露可选择的备选费用、保留 null 印刷费用、记录实付的 Flow 实例）
  *     与 RIFT-260（替代注册/排序路径，并区分本卡自身执行造成的离链），两者都未合入；
@@ -41,8 +41,9 @@ const dragonForm = {
   judgeReason:
     "两处依赖未合入，均不近似实现：(1)「Its base Might becomes 5 this turn」是 143.2.a 的 Trait-Altering " +
     "层设值（该条规则的示例正是本句，非算术层加减、非 CR 702 的 Buff 计数），但契约 3.6 的封闭 GameAction " +
-    "集合没有 Might 修改动作，effects/instructions/ 下没有已注册的 continuous.base-might / set-base-might" +
-    "（同型记录见 rad/piltovan-guidebot、rad/herald-of-the-emperor），本回合结束的到期属 RIFT-91 layers-continuous；" +
+    "集合没有 Might 修改动作，effects/instructions/ 的注册表没有 continuous.base-might / set-base-might，" +
+    "continuous.might 的 set 模式属算术层（buildMightSpec 产 kind:\"set-might\"），不等于 143.2.a 的 Trait 层设值；" +
+    "this-turn 期限别名已支持，缺的是设值原语与图层消费方（同型记录见 rad/piltovan-guidebot、rad/herald-of-the-emperor）；" +
     "143.2.c.1 说明实际值不被钳制，因此不写印刷下限。" +
     "(2) [Flow]（829）的展开虽在 keywords/Flow.ts，但 829.1.b/829.1.c 依赖未合入的 RIFT-261" +
     "（费用消费方暴露可选择的备选费用、保留 null 印刷费用、记录实付 Flow 实例）与 RIFT-260" +

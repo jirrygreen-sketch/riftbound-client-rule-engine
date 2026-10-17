@@ -65,11 +65,12 @@ test("ven-117-166 Disciple of Shen: identity, ruleset, status, judgeReason and v
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  // [Hidden] 无消费方、授予侧无卡牌注册入口。
+  // [Hidden] 无结算消费方；授予侧注册入口已合入，但条件选择符不解析。
   assert.match(program.judgeReason, /Hidden/);
   assert.match(program.judgeReason, /cost\.hidden/);
   assert.match(program.judgeReason, /continuous\.grant-keyword/);
   assert.match(program.judgeReason, /RIFT-89/);
+  assert.match(program.judgeReason, /RIFT-359/);
 });
 
 test("ven-117-166 Disciple of Shen: [Hidden] is declared as a bare keyword (contract 3.7)", () => {
@@ -173,12 +174,12 @@ test("ven-117-166 golden: the declared Grant-Keyword adds Shield 3 to the layere
 
 test.todo(
   "ven-117-166 Disciple of Shen: [Hidden]'s Hide action, the facedown zone, the later [Reaction] and the " +
-    "0-Energy play (CR 811.1.d / 811.5 / 811.6) have no runtime — the KeywordDef is merged but records that " +
-    "cost.hidden / cost.pay / effect.zone / continuous.timing are unmerged (RIFT-89)"
+    "0-Energy play (CR 811.1.d / 811.5 / 811.6) have no runtime — Hidden.ts records that " +
+    "cost.hidden / cost.pay / effect.zone are unmerged (RIFT-89) and cost.hidden has no layerFor mapping"
 );
 
 test.todo(
   "ven-117-166 Disciple of Shen: the conditional Shield 3 grant reaches the layers with an honest " +
-    "'exactly one other unit you control here' predicate — card-side continuous registration is not wired and " +
-    "layers/engine.ts conditionMatches returns true for every compare/count condition (RIFT-91 follow-up)"
+    "'exactly one other unit you control here' predicate — bindStaticToLayers exists but the " +
+    "controller：“controller” selector is not parsed by layers/filter.ts (RIFT-359)"
 );

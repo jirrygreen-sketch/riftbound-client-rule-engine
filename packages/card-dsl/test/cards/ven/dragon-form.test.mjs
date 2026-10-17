@@ -26,10 +26,13 @@ test("ven-116-166 Dragon Form: program passes validateCardProgram and is judge-r
 });
 
 test("ven-116-166 Dragon Form: judgeReason names the trait layer setting, the duration and Flow", () => {
-  // 143.2.a trait-altering set + RIFT-91 layers, and the unmerged Flow cost consumer.
+  // 143.2.a trait-altering set (no registered continuous.base-might) and the unmerged Flow cost consumer.
   assert.match(program.judgeReason, /143\.2\.a/);
   assert.match(program.judgeReason, /continuous\.base-might/);
-  assert.match(program.judgeReason, /RIFT-91/);
+  assert.match(program.judgeReason, /set-might/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-9\d/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-120/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-257/);
   assert.match(program.judgeReason, /829\.1\.b/);
   assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /RIFT-260/);
@@ -80,7 +83,7 @@ test("ven-116-166 Dragon Form: the [Flow] keyword the card declares is a registe
 test.todo(
   "ven-116-166 Dragon Form: execute 'Its base Might becomes 5 this turn' in the trait-altering " +
     "layer (143.2.a) with an end-of-turn expiry (317.2.c/318) — needs the continuous.base-might " +
-    "instruction plus its layers consumer (RIFT-91)"
+    "instruction plus its layers consumer (continuous.might's set is the arithmetic layer, not the trait layer)"
 );
 
 test.todo(
