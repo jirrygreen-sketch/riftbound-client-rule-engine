@@ -25,9 +25,7 @@ import type { CardProgram } from "../../ir/index.js";
  *    Battlefield only as a payload detail (details.battlefieldId), and the
  *    static filter cannot reference its own host's runtime location id;
  *    the `here: true` key below is the documented placeholder, and the
- *    engine-side trigger translation rejects it;
- * 2. the reference test kernel does not model the exhausted state of a rune
- *    entering the rune zone, so that part remains an integration gap.
+ *    engine-side trigger translation rejects it.
  */
 const startippedPeak = {
   canonicalCardId: "card.hash-3baf147c819e802d3468d8c30b6fb475909fc861e0dda2bdaa7adba32bfc23e9",
@@ -39,8 +37,7 @@ const startippedPeak = {
     "能力本体只用已合入的 effect.channel（exhausted=true 对应 431.2 的入场限定），并用契约 3.9 的 choice.optional 包装“you may”。" +
     "整卡仍不可执行：(1)「here」没有可求值的锚点——事件只以 details 载荷携带战场 id，" +
     "静态 filter 读不到宿主运行时的地点身份，程序里的 here=true 是等待载荷绑定的占位键，" +
-    "当前 translateTriggerFilter 会以 unsupported filter field 拒绝它；该位置锚点属于 RIFT-357 的进行中接线。" +
-    "另外参考测试内核不模拟符文入场状态（exhausted），该部分在执行测试中标为 todo。",
+    "当前 translateTriggerFilter 会以 unsupported filter field 拒绝它；需要将 hold 载荷的 battlefieldId 与能力宿主绑定。",
   sourceText: "When you hold here, you may channel 1 rune exhausted.",
   abilities: [
     {
