@@ -27,19 +27,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   必须由费用管线生成已 finalize 的计划（effect.play 明确只接受已 finalize 的计划，
  *   从不自己推导印刷费用）。
  *
- * status: judge-required（已按合入依赖复核；缺口不近似实现）:
- * - 强制追加费用仍未接线（356.2.a.1 / 356.2.a / 357.2）：cost/plan-values.ts 已支持 kill 类的对象支付，
- *   但没有卡牌程序消费方把本卡声明的 static cost.additional 能力变成 CostPlanInput.mandatoryAdditional；
- *   同一声明里的 PickSpec options 也不能枚举运行期 Board 单位（cost/plan-values.ts 要求精确 ObjectRef）。
- * - 费用结果无法绑定进效果体：冻结 IR 的 ObjectSelector 只有 self/source/target/pick/linked，费用计划里的非目标选择
- *   不是链接值，因此 356.1.c 的「印刷费用不高于被消灭单位」比较既没有求值路径，也没有对应的 ObjectFilter 键
- *   （programs/filters.ts 会拒绝描述性键；未知键在 layers/ 与测试内核里也只是被静默忽略，不能当成已实现）。
- * - 「ignoring its cost」需要生产打出流程消费 baseModifications/ignore-base，产出 base Energy/Power 为 0 的
- *   finalized 计划（356.1.b.1）；现有 cost.modify 与 cost.pay 原语具备该计划能力，但卡牌打出适配器尚未接线。
- * golden 用已合入的 effect.play + 显式零费计划对锁定目标真实执行，并单独执行 effect.kill 的 pick 形态证明
- * 费用半段可执行；整卡不宣称可执行。依赖：static cost.additional 的卡牌消费方、费用结果到目标过滤器的绑定、
- * 以及 ignore-base 计划到打出 Finalize 的接线。
- * 无契约变更请求。
+ * status = judge-required：
+ * - 缺 static cost.additional 到 CostPlanInput.mandatoryAdditional 的卡牌消费方，
+ *   以及将费用 PickSpec 绑定为实时单位引用的 Finalize 选择（356.2.a.1/355.10.c）。
+ * - 缺被费用消灭单位的 ObjectSelector/linked 绑定与候选牌的印刷 Energy/Power 上限谓词
+ *   （356.1.c）；programs/filters.ts 不接受 printedCostNoMoreThanKilledUnit。
+ * - cost/ 已能处理 ignore-base；本卡仍缺把 356.1.b.1 的忽略基础费用语义接入
+ *   被打出单位的真实费用计划，保留其追加费用和加费；常量零费回执不证明这条路径。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "reaction" },
@@ -116,15 +110,7 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "(1)「As an additional cost to play this, kill a friendly unit.」是 356.2.a.1 的强制追加费用（cost.sacrifice 型）：" +
-    "cost/plan-values.ts 已支持 kill 类的对象支付，但没有卡牌程序消费方把本卡声明的 static cost.additional 能力变成 CostPlanInput.mandatoryAdditional；" +
-    "同一声明的 PickSpec options 也不能枚举运行期 Board 单位。" +
-    "(2) 费用结果无法绑定进效果体：冻结 IR 的 ObjectSelector 只有 self/source/target/pick/linked，费用计划里的非目标选择不是链接值，" +
-    "因此「that costs no more Energy and no more Power than the killed unit」（356.1.c 的印刷费用比较）既缺少与费用选择相连的求值路径，" +
-    "也缺少印刷费用上限谓词（programs/filters.ts 拒绝描述性键；未知键会被 layers/filter.ts 与测试内核静默忽略，不能当成已实现）。" +
-    "(3)「ignoring its cost」按 356.1.b.1 需要打出适配器把 ignore-base 计划交给费用系统产出 base Energy/Power 为 0 的 finalized 计划（effect.play 明确不接受自行推导的费用）；" +
-    "golden 用已合入的 effect.play + 显式零费计划与 effect.kill 的 picks 形态执行已支持部分；整卡不近似实现。" +
-    "依赖：static cost.additional 的卡牌消费方、费用结果到目标过滤器的绑定，以及 ignore-base 计划到打出 Finalize 的接线。",
+    "缺 static cost.additional 到 CostPlanInput.mandatoryAdditional 的卡牌消费方，以及费用 PickSpec 到实时友方单位引用的 Finalize 绑定（CR 356.2.a.1、355.10.c）。缺费用消灭对象的 ObjectSelector/linked 绑定与 356.1.c 的候选单位印刷 Energy/Power 上限谓词；programs/filters.ts 不接受 printedCostNoMoreThanKilledUnit。缺将 356.1.b.1 的 ignore-base 语义接入被打出单位的真实费用计划并保留追加费用/加费；当前 effect.play.args.cost 的常量零费计划只覆盖子效果，不能证明整条忽略基础费用路径。",
   abilities,
   sourceText:
     "[Reaction] (Play any time, even before spells and abilities resolve.)\n" +

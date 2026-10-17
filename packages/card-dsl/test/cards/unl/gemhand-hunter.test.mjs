@@ -8,6 +8,7 @@ import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/key
 import { validateCardProgram as validateExpansion } from "../../../dist/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import xp from "../../../../engine-core/dist/effects/instructions/effect.xp.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 
 const CANONICAL_ID =
   "card.hash-ab13903af22d097efdc5e4e666b4055e6ef532fd5138f05aef5bd99a8ae78a8c";
@@ -100,6 +101,25 @@ test("unl-094-219 Gemhand Hunter golden: the merged Hunt XP instruction executes
   assert.equal(run.result.status, "executed");
   assert.equal(kernel.player("A").xp, 3);
   assert.deepEqual(run.events.map(event => event.action), ["gain-xp"]);
+});
+
+test("unl-094-219 Gemhand Hunter golden: both Hunt bodies award their source controller exactly 1 XP", () => {
+  const definition = keywordDefinitionsById.get("Hunt");
+  assert.ok(definition);
+  // Execute the expanded bodies only; scoring-unit attribution remains a TODO.
+  for (const trigger of definition.expand({ host: { canonicalCardId: CANONICAL_ID } })) {
+    const kernel = world().player("A", { xp: 4 }).player("B", { xp: 5 })
+      .unit("hunter", { owner: "A", controller: "B", cardId: CANONICAL_ID })
+      .build();
+    const context = kernel.clone({ sourceSnapshot: kernel.getObject("hunter"), controller: "B" });
+    const outcome = resolveChainBody(trigger.body, context);
+    assert.equal(outcome.status, "executed");
+    assert.equal(context.player("A").xp, 4);
+    assert.equal(context.player("B").xp, 6);
+    assert.equal(outcome.linkedValues[`${encodeURIComponent(trigger.body[0].id)}.gained`], 1);
+    assert.equal(outcome.linkedValues[`${encodeURIComponent(trigger.body[0].id)}.gainedTo`], "B");
+    assert.deepEqual(outcome.events.map(event => event.action), ["gain-xp"]);
+  }
 });
 
 test.todo(

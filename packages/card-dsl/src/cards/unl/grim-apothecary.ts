@@ -16,8 +16,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   （契约 3.7、README 第 5 节），展开归 effects/keywords/<keyword>.ts。
  * - “When you play me”（383.4.a.1 / 383.4.a.2）：打出后进链的 Play Effect，时点用封闭表的
  *   card-played，filter 指向本卡为事件来源。
- * - “you may return …”（403.1、契约 3.9）：效果首段是 “you may”，把被选指令写进
- *   choice.optional 的 body，而不是 choice + 后续 linkedTo。355.12 要求 may-action 的全部
+ * - “you may return …”（383.3.a、403.1、契约 3.9）：首段 “you may” 应在触发 Finalize 决定；
+ *   现有声明保留 choice.optional 的 body，缺生产适配（见 judgeReason）。355.12 要求 may-action 的全部
  *   选择随该动作一起做，因此 “a friendly unit at a battlefield” 的 TargetSpec 挂在
  *   choice.optional 节点上、随打出一起 Finalize 锁定（与已合入 sfd-032-221 Disarming Rake 同型）。
  * - “a friendly unit at a battlefield”：由能力控制者控制、位于战场的单个单位是选目标
@@ -25,17 +25,13 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - “return … to its owner's hand”：把手牌以外的对象移回拥有者手牌（055 / 108 的区域路由与
  *   新的区域身份）由已合入的 effect.zone（to: hand → return-to-hand 动作）提交，卡牌不自己改区域。
  *
- * status = judge-required（已按合入依赖复核，缺口不近似实现）：
- * - [Ambush] 的 KeywordDef 已合入；continuous.timing 的 grants 已由
- *   layers/rules 的 actionTimings 与 chain/engine.ts 的 canAct 读取。剩余缺口是
- *   play-location-permission 尚未接入 Finalize/playLocations 的合法打出位置消费方，且
- *   Ambush 的 location-scoped Reaction 许可尚未在该打出位置上完成绑定。
- * - card-played 触发体的目标 “a friendly unit at a battlefield” 由 TargetSpec.location
- *   表达，目标计划会在 Finalize/Resolve 按 battlefield 位置过滤；该位置形状已可翻译和执行。
- * - 已解决的部分：card-played 触发的生产注册接线（programs/triggers.ts）已合入；
- *   choice.optional + effect.zone 的 may-return 半段已用解释器 + 参考内核真实执行（接受 / 拒绝 / 目标失效三种分支）。
- * 依赖：Ambush 的 play-location-permission Finalize/playLocations 消费方，以及
- * location-scoped Reaction timing 的绑定。
+ * status = judge-required：
+ * - Ambush 的 play-location-permission 尚无 programs/statics.ts 图层映射和
+ *   Finalize/playLocations 消费方；822.1.b/822.3 的「你有单位的战场」需要在 Finalize 重验。
+ * - continuous.timing 的位置限定尚未绑定到该次打出；actionTimings/canAct 读取 grants
+ *   不能证明地点限定的 Reaction 许可已实现（822.1.b/c）。
+ * - 前置 you may 尚未转为 TriggerRegistration.mayAtFinalize，当前只在 Resolve 决定回手（383.3.a）。
+ * card-played 的目标翻译、TargetSpec.location 与可选回手子效果保持真实执行测试。
  */
 const abilities: Ability[] = [
   { kind: "keyword", keyword: "ambush" },
@@ -46,7 +42,7 @@ const abilities: Ability[] = [
       // 383.4.a.1：“When you play me” 是 Play Effect，事件来源是本卡。
       filter: { event: "card-played", filter: { source: "self" } }
     },
-    // 403.1：印刷的 “you may” 属于指令级的可选执行，触发本身不是可选的。
+    // 保留当前声明；383.3.a 的前置 may 尚未绑定为 Finalize 决定（见 judgeReason）。
     optional: false,
     body: [
       {
@@ -96,14 +92,7 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "(1) [Ambush]（822.1.b/822.1.c）的 KeywordDef、continuous.timing → actionTimings/canAct 消费已合入；" +
-    "剩余缺口是 play-location-permission 尚未接入 Finalize/playLocations 的合法打出位置消费方，" +
-    "且 location-scoped Reaction 许可尚未绑定到该次打出位置。" +
-    "(2) 已解决：card-played 触发体的 “a friendly unit at a battlefield” 用 TargetSpec.location 表达，" +
-    "目标计划在 Finalize/Resolve 按 battlefield 位置过滤。" +
-    "(3) 已解决：card-played 触发的生产注册接线（programs/triggers.ts）已合入；" +
-    "「When you play me, you may return a friendly unit at a battlefield to its owner's hand.」半段用 403.1 / 契约 3.9 的 choice.optional（被选指令包进 body）" +
-    "+ effect.zone（to: hand），golden 用解释器 + 参考内核真实执行接受 / 拒绝 / 目标失效三种分支。依赖 Ambush 的 play-location-permission Finalize/playLocations 消费方与 location-scoped Reaction 绑定。",
+    "缺 [Ambush] 的 play-location-permission 生产消费（CR 822.1.b/822.1.c、822.3）：programs/statics.ts 没有该声明的图层映射，Finalize/playLocations 未据此提供并重验「你有单位的战场」。continuous.timing 的 location 也未绑定到本次打出位置；actionTimings/canAct 的 grants 查询不能实现仅在该位置打出时拥有 Reaction 的限定。另缺前置 you may 的 Finalize 决定（383.3.a）：programs/triggers.ts 未生成 mayAtFinalize，当前 optional:false + choice.optional 只在 Resolve 决定回手。",
   abilities,
   sourceText:
     "[Ambush] (You may play me as a [Reaction] to a battlefield where you have units.)\n" +

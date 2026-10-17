@@ -26,20 +26,12 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   是无域、1 Might、Bird 标签、带 [Deflect] 的单位 token，按打出 token 的规则在链上生成后
  *   打出；地点未印刷，按 355.2 在打出流程中选择合法 Location。
  *
- * status = judge-required（README 第 2 节），缺口逐条列出且不近似实现：
- * (1) Bird token 没有定义：冻结的 effect.token 定义表只有 recruit / sand-soldier / mech /
- *     reflection / tentacle；187.7 的 Bird 还带 [Deflect] 关键词（809），带自身能力或关键词的
- *     token 定义按该原语文件头保持 blocked。
- * (2) token 的进入地点未印刷：355.2 在打出流程中选择合法 Location。RIFT-357 已合入
- *     LocationSelector、LocationExpr 与解释器的候选查询；本卡用该选择器表达「控制者 Base
- *     或其控制的战场」。当前剩余缺口是 effect.token 的解释器/argsSchema 边界尚未接收
- *     evaluated LocationExpr，因此 token destination 仍需专门的适配接线。
- * (3) Discard 1 费用要求 Finalize 提供精确的手牌对象引用：cost/plan-values.ts 的 reference 只
- *     接受运行时 ObjectRef，静态 IR 按 README 第 3 节禁止写运行时引用；当前卡牌启动能力适配器
- *     尚未把该 PickSpec 选择接入费用计划。
- * (4) 触发注册和 beginning-start 时点已经存在；剩余的 exact-count 条件需要生产触发宿主提供
- *     对手牌与战场单位集合的查询，并由同一注册路径消费该条件。
- * effect.win 本体已合入，golden 用解释器真实执行。
+ * status = judge-required：
+ * - 缺 187.7 的 Bird token 定义与 Deflect 的 token 能力装配。
+ * - effect.token.argsSchema 不接受 LocationExpr，链适配器保留原始 Expr 而未适配目的地。
+ * - 启动费用的 PickSpec 尚未动态绑定为 Finalize 的精确手牌引用。
+ * - EventPipeline 已能求值 exact-count 条件，但直接使用宿主 context.query；
+ *   本卡的 controller 相对玩家与 battlefield 类型过滤尚无统一宿主查询接线。
  */
 const abilities: Ability[] = [
   {
@@ -147,17 +139,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "四处依赖未合入，均不近似实现：(1)「Play a 1 :rb_might: Bird unit token with [Deflect]」不可执行：CR 187.7 的 Bird 是无域 1 Might、" +
-    "Bird 标签、带 [Deflect]（809）的单位 token，而冻结的 effect.token 定义表只有 recruit / sand-soldier / mech / reflection / tentacle，" +
-    "带自身关键词或能力的 token 定义按该原语文件头保持 blocked。" +
-    "(2) token 的进入地点未印刷：355.2 要求在该牌的打出流程中选择合法 Location；" +
-    "RIFT-357 已合入 LocationSelector/LocationExpr 与解释器候选查询，程序用该选择器表达「控制者 Base 或其控制的战场」；" +
-    "当前 effect.token 的解释器/argsSchema 边界仍未接收 evaluated LocationExpr，token destination 需要专门适配，" +
-    "(3)「Discard 1」作为费用要求 Finalize 提供精确手牌引用：cost/plan-values.ts 的 reference 只接受运行时 ObjectRef，" +
-    "静态 IR 按 README 第 3 节禁止写运行时引用；当前卡牌启动能力适配器尚未把该 PickSpec 选择接入费用计划。" +
-    "(4) 触发注册和 beginning-start 时点已经存在，但生产触发宿主仍需提供 exact-count 条件对手牌与战场单位集合的查询，" +
-    "并由同一注册路径消费该条件。" +
-    "effect.win 本体已合入，golden 用解释器真实执行。",
+    "缺 CR 187.7 的 Bird token 定义及其 [Deflect] 能力装配：effect.token 仅定义 recruit/sand-soldier/mech/reflection/tentacle。缺 355.2 的目的地适配：LocationSelector 能选择合法位置，但 effect.token 的 argsSchema 不接受 LocationExpr，链适配器仍传入原始表达式。缺启动费用 PickSpec 到 Finalize 精确手牌引用的动态绑定（423.1.a/423.3）。beginning-start 的 exact-count 条件还需统一宿主查询：EventPipeline 直接使用 PipelineHost.context().query，未转换本卡 controller 相对玩家与 battlefield 类型过滤（315.2.a.1/383.2.a.1）。",
   abilities,
   sourceText:
     "At the start of your Beginning Phase, if you have exactly 4 cards in hand and exactly 4 units at battlefields, you win the game.\n" +
