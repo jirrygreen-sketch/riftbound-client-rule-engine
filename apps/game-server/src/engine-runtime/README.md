@@ -20,6 +20,10 @@ viewer-specific projection digests. A duplicate command returns the original
 receipt and never invokes the engine again. A stale command is rejected without
 an entry in the journal body.
 
+Journal restore verifies the v1 digest chain before replay and carries the
+deterministic setup inputs (first player, battlefield choices, and mulligans)
+in the header, so a recovered match recreates the same opening state.
+
 Projection v2 is built from engine-owned snapshots. Hidden hand, deck, and rune
 deck identities are omitted or replaced with viewer-scoped opaque references;
 the authority object and physical card provenance never cross the projection
