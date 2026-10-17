@@ -20,7 +20,10 @@ import type { CardProgram } from "../../ir/index.js";
  *   控制者（190.6.d 的隐含 you）；该集合按特征程序化选出，不是目标（355.10.d）。计数用
  *   已合入的 count 表达式 + sameLocationAs 锚点，从 move 的结果读引用（359.3.e.14）。
  * - 「they each get +1 :rb_might: this turn」：临时 Might 修正是图层算术（143.2.a 的有效
- *   Might；317.2.c 本回合到期），不是 Buff 计数器（CR 702）。
+ *   Might；317.2.c 本回合到期），不是 Buff 计数器（CR 702）。continuous.might 原语已合入
+ *   （RIFT-91）：引用数组形状真实注册图层并返回受影响收据（golden 有执行证据）；卡面
+ *   “sameLocationAs 集合选择器” 不在原语接受的选择器词汇里（objects 与 appliesTo:"self"
+ *   之外的查询锚点会被原语拒绝），同位置集合读取属 RIFT-90 的目标/位置计划。
  * - [Flow]（829）是费用改写关键词；卡面只声明关键词，展开归 effects/keywords/Flow。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required，两处执行缺口见 judgeReason；
@@ -47,9 +50,11 @@ const shadowDash = {
     "（355.4 / 355.4.a 的合法目的地，451.1 的目的地限制）：冻结 IR 没有运行期 Location 选择器，" +
     "已合入的 effect.move 的 to 只接受静态 LocationRef / \"controller-base\" / 静态候选列表，" +
     "程序只保留描述性目的地标记，原语直接拒绝该形状而不是把敌方单位移到错误的地点。依赖 RIFT-90（target/location plan）。" +
-    "(2)「they each get +1 :rb_might: this turn」缺临时 Might 修正的卡牌侧入口：layers/engine.ts 消费 continuous.might，" +
-    "但 effects/instructions 里没有任何已合入的 op 创建该持续效果（143.2.a 有效 Might、317.2.c 本回合到期），" +
-    "依赖 RIFT-91；不用 effect.buff 近似（CR 702 的 Buff 是计数器，不是 Might 修改）。" +
+    "(2)「they each get +1 :rb_might: this turn」的临时 Might 修正原语已合入：continuous.might（RIFT-91）" +
+    "接受引用数组 / { objects: [refs] } 形状并真实注册图层（143.2.a 有效 Might、317.2.c 本回合到期，" +
+    "golden 有执行证据）；卡面需要的「sameLocationAs 集合选择器」不在该原语的选择器词汇里" +
+    "（objects 与 appliesTo:'self' 之外的查询锚点会被拒绝），同位置集合读取依赖 RIFT-90 的目标/位置计划；" +
+    "不用 effect.buff 近似（CR 702 的 Buff 是计数器，不是 Might 修改）。" +
     "条件「exactly two units there」用已合入的 count 表达式 + sameLocationAs 锚点读 move 收据（359.3.e.14），" +
     "golden 用真实解释器执行该判定；[Flow]（829）的关键词展开仍未合入（RIFT-266），卡面只声明印刷关键词。",
   abilities: [

@@ -5,6 +5,7 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/ven/shadow-dash.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
+import might from "../../../../engine-core/dist/effects/instructions/continuous.might.js";
 // Card bodies run through the chain's own interpreter adapter — the production
 // entry point that re-wraps Expr arguments for the registered primitives.
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
@@ -73,6 +74,9 @@ test("ven-148-166 Shadow Dash: judgeReason names the runtime destination and the
   assert.match(program.judgeReason, /143\.2\.a/);
   assert.match(program.judgeReason, /RIFT-91/);
   assert.match(program.judgeReason, /Flow/);
+  // The might primitive is merged; the remaining gap is the same-location
+  // selector vocabulary, not a missing op.
+  assert.match(program.judgeReason, /sameLocationAs 集合选择器/);
 });
 
 test("ven-148-166 Shadow Dash: [Flow] is declared as a keyword, not re-implemented", () => {
@@ -258,6 +262,55 @@ test("ven-148-166 Shadow Dash golden: the exactly-two condition reads the moved 
   assert.equal(conditioned(2, { alliesAt: "bf-2", movedTo: "bf-2", extra: 1 }), true);
 });
 
+test("ven-148-166 Shadow Dash golden: the merged continuous.might registers a per-object layer from refs", () => {
+  // The card's same-location selector is not in the merged primitive's
+  // vocabulary (judgeReason gap 2), so this golden runs the merged
+  // continuous.might on the ref-array shape it does accept and asserts the
+  // layer registration plus the affected receipt. It proves the primitive, not
+  // the card's selector.
+  const kernel = world().unit("friend", { zone: "board" }).build();
+  const run = runInstruction(
+    might,
+    {
+      amount: grantMight.args.amount,
+      duration: grantMight.args.duration,
+      objects: { kind: "constant", value: { objects: [kernel.ref("friend")] } }
+    },
+    { world: kernel }
+  );
+
+  assert.equal(run.result.status, "executed");
+  assert.deepEqual(run.linked.affected, {
+    count: 1,
+    objects: [kernel.ref("friend")]
+  });
+  // addContinuous produces no events (contract 3.8); the layer registration is
+  // the effect's output.
+  assert.deepEqual(run.events, []);
+  assert.ok(Object.hasOwn(run.linked, "__continuous.settlement.continuous.might.source.1"));
+});
+
+test("ven-148-166 Shadow Dash golden: the same-location filter selector is rejected by the merged primitive", () => {
+  // Fail-closed: the card's appliesTo filter with sameLocationAs is not a
+  // selector the merged primitive accepts, so feeding it the card's real shape
+  // must throw rather than silently apply the grant to the wrong set.
+  const kernel = world().unit("friend", { zone: "board" }).build();
+  assert.throws(
+    () => runInstruction(
+      might,
+      {
+        amount: grantMight.args.amount,
+        duration: grantMight.args.duration,
+        appliesTo: grantMight.args.appliesTo
+      },
+      { world: kernel }
+    ),
+    /continuous\.might appliesTo must be "self"/
+  );
+  // The rejected instruction never committed anything (fail closed).
+  assert.deepEqual(kernel.events, []);
+});
+
 test.todo(
   "Shadow Dash: 'to a battlefield where you have units' (355.4 / 355.4.a) needs a runtime Location selector in the " +
     "target/location plan (RIFT-90); effect.move only accepts static LocationRefs, 'controller-base' or a static candidate list"
@@ -265,7 +318,8 @@ test.todo(
 
 test.todo(
   "Shadow Dash: 'they each get +1 :rb_might: this turn' (143.2.a effective Might, 317.2.c end-of-turn expiry) needs a card-facing " +
-    "continuous.might registration primitive; layers/engine.ts consumes such effects but effects/instructions registers no op that creates one (RIFT-91)"
+    "continuous.might selector for the same-location set; the merged primitive accepts refs/{objects:[refs]} shapes " +
+    "(executed above) but rejects the card's sameLocationAs filter anchor, which belongs to the RIFT-90 target/location plan"
 );
 
 test.todo(
