@@ -10,8 +10,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * 规则依据（CR v1.5）：
  * - "When you or an ally hold" 是 Hold Effect（383.4.d/383.4.d.1：条件包含"做出 Hold 的玩家"的能力）；
- *   封闭时点 hold（refs 315.2.b.2/471.2/473.2.b）。"you" = 能力控制者；"an ally" 是 491.8.e 的
- *   Teammate 关系（740.1.a 的 friendly 定义包含 teammates），闭源的单挑内核没有队友关系读法。
+ *   封闭时点 hold（refs 315.2.b.2/471.2/473.2.b）。事件词汇写作 "held"——TriggerSpec 的
+ *   EVENT_PATTERN_TYPES 只接受 "held"，events/pipeline-match.ts 的 EVENT_NAMES 把
+ *   时点 hold 映射到 "held"；写 "hold" 会在 registerTrigger 的 assertTriggerSpec 处被拒。
+ *   "you" = 能力控制者；"an ally" 是 491.8.e 的 Teammate 关系（740.1.a 的 friendly 定义包含
+ *   teammates），闭源的单挑内核没有队友关系读法。
  * - "you may exhaust me to play a Gold gear token exhausted."：[do X] to [do Y] 的代价式结构
  *   （740.4.a.2：触发能力效果首段的代价在 Finalization 支付）；415.5 说明能力里的 :rb_exhaust: 是
  *   费用 "Exhaust me"，415.4 要求该动作必须能完成。"you may" 是效果首段的可选项（403.1/383.3.a），
@@ -28,12 +31,12 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   让由其控制的 Gold 的 [Add] 多产生 1 Energy。194.3/194.3.a：Victory Score 默认 8，可被游戏模式或
  *   卡牌效果改变（485.3.a 允许任意正整数），因此不能硬编码 8。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。
+ * status 判定（cards/README.md 第 2 节）：judge-required（复核 2026-10-17，逐条对源码）。
  * - Gold 的 token 定义不在 effect.token 的冻结定义表里（文件头明确记录：需要自身能力的定义（包括 Gold）
- *   保持 blocked/judge-required；表内只有 recruit/sand-soldier/mech/reflection/tentacle），"play" 模式也
- *   要求 create-token(to: chain) + 交给 play 流程的完整路径。
+ *   保持 blocked/judge-required；表内只有 recruit/sand-soldier/mech/reflection/tentacle），
+ *   运行期以 blockedReason "token-definition-or-abilities-judge-required" 判负。
  * - "exhausted" 是 143.4/185.2.d 的入场状态规定；合并的 effect.token 明确记录"Entry overrides are not
- *   supported"，create-token 不接受入场状态，事后补 effect.exhaust 不等价（原语文档已写明）。
+ *   supported"，argsSchema 对 entersExhausted 直接抛 TypeError，事后补 effect.exhaust 不等价。
  * - 费用式 "exhaust me" 依赖 legend-zone 表达与触发点费用计划接线（契约 3.6 的 ZoneId 没有
  *   Legend Zone，CR 108.3；同 ogn/the-boss）。
  * - "an ally"（491.8.e 的 Teammate）没有已合入的队友关系读法：ResolveContext 只暴露 player/query，
@@ -54,8 +57,11 @@ const abilities: Ability[] = [
   {
     kind: "triggered",
     // "When you or an ally hold"：383.4.d.1 的 Hold Effect；"you" = 能力控制者。
+    // 事件词汇用 "held"：时点 hold 事件名在 TriggerSpec 词汇表里就是 held
+    // （events/pipeline-match 的 EVENT_NAMES 把 hold 映射到 held），写 "hold"
+    // 会被 registerTrigger 的 assertTriggerSpec 拒绝。
     // "an ally"（491.8.e 的 Teammate）没有已合入的关系读法，见 judgeReason。
-    trigger: { at: "hold", filter: { event: "hold", player: "self" } },
+    trigger: { at: "hold", filter: { event: "held", player: "self" } },
     optional: true,
     body: [
       {
@@ -133,10 +139,12 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
+    "按 2026-10-17 源码逐条复核，仍缺六项，均不近似实现。" +
     "（1）Gold token 定义缺失：187.5 的 Gold 是带自身能力的 gear token（\"[Reaction][>] Kill this, [E]: [Add] [A].\"），" +
-    "effect.token 的冻结定义表按设计保持 blocked/judge-required，表内只有 recruit/sand-soldier/mech/reflection/tentacle；" +
+    "effect.token 的冻结定义表按设计保持 blocked/judge-required，表内只有 recruit/sand-soldier/mech/reflection/tentacle，" +
+    "实测该原语对 gold 返回 negated + blockedReason \"token-definition-or-abilities-judge-required\"；" +
     "（2）「exhausted」是 143.4/185.2.d 的入场状态规定，但合并的 create-token 明确不支持入场改写（effect.token：Entry overrides are not supported），" +
-    "事后补 effect.exhaust 不等价（会多产生一次「成为横置」事件并错过入场替代）；" +
+    "argsSchema 对 entersExhausted 抛 TypeError，事后补 effect.exhaust 不等价（会多产生一次「成为横置」事件并错过入场替代）；" +
     "（3）费用式「exhaust me」（415.4/415.5）依赖 legend-zone 表达（契约 3.6 的 ZoneId 无 Legend Zone，CR 108.3）；" +
     "cost.pay 原语已注册，但其 payments 参数只接受 { energy, power, xp } 形状，本卡声明的裸数组 " +
     "[{ kind: \"exhaust\", object: \"self\" }] 会被 paymentsPlan 拒绝（CostPlanError cannot-pay-cost）——" +
@@ -146,6 +154,8 @@ const program = {
     "（6）「your Gold [Add] an additional :rb_energy_1:」是改写 [Add] 产出的条件持续效果：programs/statics.ts 的 layerFor 对 " +
     "modify-resource-ability 没有映射，绑定会抛 ProgramBindingError（static ability kind has no layer mapping），" +
     "也没有资源产出加成的持续效果形状。" +
+    "复核记录：hold 时点的订阅词汇是 \"held\"（TriggerSpec 的 EVENT_PATTERN_TYPES 只接受 held，" +
+    "events/pipeline-match.ts 的 EVENT_NAMES 把 hold 映射为 held），本卡已按该词汇声明，触发注册可达。" +
     "依赖：cost.pay 非资源支付数组形状、modify-resource-ability 图层读者，以及 legend-zone、Victory Score 读数、" +
     "Teammate(ally) 关系、Gold token 定义与入场状态的契约补充。不近似实现。",
   abilities,

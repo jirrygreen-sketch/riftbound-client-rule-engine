@@ -5,6 +5,7 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import program from "../../../dist/cards/sfd/boots-of-swiftness.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/index.js";
 import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
@@ -104,6 +105,43 @@ test("sfd-133-221 Boots of Swiftness: the merged Equip body attaches this gear t
     host: bound.ref("ally")
   });
   assert.deepEqual(bound.getObject("boots-of-swiftness").attachedTo, bound.ref("ally"));
+});
+
+test("sfd-133-221 Boots of Swiftness: the printed Equip cost is declared but cannot be planned yet", () => {
+  // CR 818.1.c.2: the activation is "[Cost]: Attach this gear to a unit you
+  // control". The expansion declares exactly that payment component; the cost
+  // pipeline has no "equip" payment kind, so the plan fails closed instead of
+  // quietly charging the card's 3 Energy play cost as the Equip cost.
+  const activation = equipActivation();
+  assert.deepEqual(activation.cost.payments.map((payment) => payment.kind), ["equip"]);
+  assert.deepEqual(activation.cost.payments[0].value.value, { kind: "source" });
+
+  const kernel = world()
+    .unit("boots-of-swiftness", {
+      types: ["gear"],
+      might: null,
+      zone: "board",
+      location: { type: "base", player: "A" }
+    })
+    .unit("ally", { might: 2 })
+    .build();
+  const bound = kernel.clone({
+    source: kernel.ref("boots-of-swiftness"),
+    sourceSnapshot: kernel.getObject("boots-of-swiftness")
+  });
+
+  assert.throws(
+    () => buildCostPlan(bound, { id: "cost:boots-of-swiftness", cost: activation.cost }),
+    (error) => {
+      assert.equal(error.name, "CostPlanError");
+      assert.equal(error.reason, "judge-required");
+      assert.match(error.message, /Unsupported payment kind: equip/);
+      return true;
+    }
+  );
+  // The Chaos rune is never rewritten into the card's Energy play cost.
+  assert.equal(program.abilities[0].value, 1);
+  assert.equal(program.abilities[0].costDomain, "Chaos");
 });
 
 test.todo(

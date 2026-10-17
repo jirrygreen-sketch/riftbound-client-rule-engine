@@ -36,16 +36,20 @@ import type { CardProgram } from "../../ir/index.js";
  *   a token whose default state would be ready (149.1 / 359.2.d: non-Unit Gear
  *   enters Ready at the player's Base), not a later Exhaust (143.4).
  *
- * Status: judge-required. Three real gaps, none approximated:
+ * Status: judge-required (re-checked 2026-10-17). Three real gaps, none
+ * approximated:
  * - Hidden has no executable reader: the merged `cost.hidden` static effect has
  *   no consumer that grants the Hide action, the facedown zone or the facedown
  *   play (cost/README.md records the full payment-scope contract as still
- *   requested);
+ *   requested), the GameAction set has no "hide" action, and
+ *   programs/statics.ts layerFor has no mapping for the cost.hidden kind;
  * - the body-level `replacement.enter` shape is not an executable op: the
  *   merged replacement family only consumes `replacement.enter` declarations
- *   inside a bound replacement ability, and no instruction or program adapter
- *   registers a temporary board-entry replacement for the rest of the turn,
- *   while effect.ready is not equivalent (see above);
+ *   inside a bound replacement ability (ven/platewyrm-egg is the merged
+ *   example), and the instruction registry has no `replacement.enter` entry:
+ *   no instruction or program adapter registers a temporary board-entry
+ *   replacement for the rest of the turn, while effect.ready is not equivalent
+ *   (see above);
  * - the Gold token cannot be played: 187.5's definition carries its own
  *   ability, which `effect.token`'s frozen DEFINITIONS table deliberately
  *   excludes ("definitions requiring other abilities, including Gold, remain
@@ -59,12 +63,14 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处依赖未合入，均不近似实现：(1) [Hidden] 展开没有可执行读者——合并的 keywords/Hidden.ts 已声明 " +
+    "复核 2026-10-17，三处依赖未合入，均不近似实现：(1) [Hidden] 展开没有可执行读者——合并的 keywords/Hidden.ts 已声明 " +
     "static effect { kind: \"cost.hidden\" }，但当前没有任何代码据它授予 Hide 动作、facedown 区域或「从 facedown 打出」许可" +
-    "（811.1.b / 811.1.c / 811.6；cost/README.md 仍把完整 payment-scope/savepoint 契约列为待请求共享契约）。" +
+    "（811.1.b / 811.1.c / 811.6）；GameAction 闭集里没有 hide 动作，programs/statics.ts 的 layerFor 对 cost.hidden " +
+    "kind 直接抛 ProgramBindingError（no layer mapping），cost/README.md 也仍把完整 payment-scope/savepoint 契约列为待请求共享契约。" +
     "(2)「Friendly units enter ready this turn」是入场替代（143.4 / 184.1 / 185.2.d；369.1/369.3 以 Master Yi, Honed 为例，" +
     "805.6 明确它不是『先横置再就绪』），effect.ready 文件头亦自述不参与入场流程。本卡把形状写成 body 内的 replacement.enter 指令，" +
-    "但合并的替代族只消费替换能力声明里的 replacement.enter（replacement/bind.ts），没有任何指令或程序适配器能为本回合注册" +
+    "但合并的替代族只消费替换能力声明里的 replacement.enter（replacement/bind.ts；ven/platewyrm-egg 是同形已合入例），" +
+    "指令注册表里没有 replacement.enter 原语，也没有任何指令或程序适配器能为本回合注册" +
     "临时入场替代，同时还要完成被替代事件的来源绑定。(3)「Play a Gold gear token exhausted」缺 Gold gear token 定义与入场状态改写：" +
     "CR 187.5 的 Gold 自带 \"[Reaction][>] Kill this, [E]: [Add] [A]\" 能力，effect.token 的冻结定义表按设计不收录带能力的 token" +
     "（blockedReason: token-definition-or-abilities-judge-required），且 create-token/play 动作明确不支持入场状态覆盖" +

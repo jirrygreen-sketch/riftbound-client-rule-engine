@@ -40,7 +40,11 @@ import type { CardProgram } from "../../ir/index.js";
  *    185.2.d / 143.4），effect.token 的 argsSchema 不接受入场状态参数（文件头明确 “Entry
  *    overrides are not supported”）；事后补 effect.exhaust 会多产生一次“成为横置”事件并错过
  *    入场替代，故不这样做。
- * 依赖：回合归属触发器谓词、cost.pay 的非资源支付数组与触发器收费接线、Gold token 定义与入场状态改写。
+ * 5. “to your base” 的落点仍是占位符：effect.token 对 base 目的地只做字面量比较
+ *    （location.player !== ctx.controller 即 negated），本卡按同批 Gold 卡写
+ *    player: "controller"，需要打出/建 token 流程把该占位符解析为能力控制者。
+ * 依赖：回合归属触发器谓词、cost.pay 的非资源支付数组与触发器收费接线、Gold token 定义与入场状态改写、
+ * 目的地占位符解析。
  */
 export default {
   canonicalCardId: "card.hash-b17653c3279ad7444bd22e0e4bbc50082723df4f070dcc8c6ac42259fb58b54e",
@@ -58,7 +62,10 @@ export default {
     "实测 effect.token 以 blockedReason \"token-definition-or-abilities-judge-required\" 返回 negated；" +
     "(4)「play a Gold gear token exhausted」的横置入场是 create-token 的入场改写（184.1/185.2.d/143.4），闭集动作不支持" +
     "（effect.token 的 argsSchema 明确不接受入场状态参数），事后补 effect.exhaust 会多产生一次“成为横置”事件并错过入场替代，" +
-    "故不近似。依赖：回合归属触发器谓词、cost.pay 非资源支付数组与触发器收费接线、Gold token 定义与入场状态改写。不近似实现。",
+    "故不近似；" +
+    "(5)「to your base」的落点仍是占位符：effect.token 对 base 目的地只做字面量比较（location.player !== ctx.controller 即 negated），" +
+    "本卡按同批 Gold 卡写 player: \"controller\"，需要打出/建 token 流程把该占位符解析为能力控制者。" +
+    "依赖：回合归属触发器谓词、cost.pay 非资源支付数组与触发器收费接线、Gold token 定义与入场状态改写、目的地占位符解析。不近似实现。",
   abilities: [
     {
       // 383.2.a / 383.4.a：订阅 card-played（“你打出法术”），事件对象是 spell、事件玩家是控制者。
@@ -95,6 +102,10 @@ export default {
             token: { kind: "constant", value: "gold" },
             amount: { kind: "constant", value: 1 },
             mode: { kind: "constant", value: "play" },
+            // 149.1 / 149.2 / 359.2.d：Gear 默认打进操控者的 Base。此处按同批
+            // Gold 卡（bushwhack / card-sharp / blood-money 等）的记录形式写该
+            // 目的地；"your base" 仍需由打出流程把占位符解析为能力控制者，
+            // effect.token 只做字面量比较（见 judgeReason 第 4 点）。
             location: { kind: "constant", value: { type: "base", player: "controller" } },
             linkKey: { kind: "constant", value: "goldToken" }
           }
