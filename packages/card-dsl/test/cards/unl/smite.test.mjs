@@ -5,8 +5,11 @@ import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.j
 import program from "../../../dist/cards/unl/smite.js";
 import banish from "../../../../engine-core/dist/effects/instructions/effect.banish.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
-import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { bindReplacement, BlockedReplacementError } from "../../../../engine-core/dist/replacement/index.js";
+import { planReplacementBody } from "../../../../engine-core/dist/replacement/planner.js";
+import { EventPipeline } from "../../../../engine-core/dist/events/pipeline.js";
+import replacementEvent from "../../../../engine-core/dist/effects/instructions/replacement.event.js";
 
 const CANONICAL_ID =
   "card.hash-f2df74bd99eb5d2087462817264a1b9f0becc96353a67b98a7401ca7e5a5109a";
@@ -18,6 +21,22 @@ const [speed, play] = program.abilities;
 const [dealThree, banishInstead] = play.body;
 const banishInstruction = banishInstead.args.instead.value[0];
 const UNIT = "smite.unit";
+const constant = value => ({ kind: "constant", value });
+
+function pipelineKernel(kernel) {
+  Object.defineProperty(kernel, "source", { value: kernel.objects[0], configurable: true });
+  const pipeline = new EventPipeline({
+    checkpoint: () => kernel.snapshot(), restore: state => kernel.restore(state),
+    execute: action => ({ outcome: kernel.perform(action), emissions: [] }),
+    context: () => kernel, objects: () => kernel.objects,
+    choose: request => request.type === "mode" ? request.options[0] : true
+  }, ["A", "B"], "A");
+  Object.defineProperty(kernel, "replacement", {
+    value: { host: { object: ref => kernel.object(ref), objects: () => kernel.objects, context: () => kernel }, pipeline },
+    configurable: true
+  });
+  return pipeline;
+}
 
 test("unl-007-219 Smite: program passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -30,9 +49,19 @@ test("unl-007-219 Smite: identity, status, judgeReason and verbatim sourceText",
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
   assert.equal(program.sourceText, SOURCE_TEXT);
-  assert.match(program.judgeReason, /replacement\.event/);
+  // The refreshed reason names the three real, still-open blockers instead of
+  // the merged replacement binder itself.
   assert.match(program.judgeReason, /369\.1/);
-  assert.match(program.judgeReason, /能力级|replacement registry/);
+  assert.match(program.judgeReason, /370\.1\.b/);
+  assert.match(program.judgeReason, /replacement\.event/);
+  assert.match(program.judgeReason, /replacementDependencies/);
+  assert.match(program.judgeReason, /host \+ pipeline/);
+  assert.match(program.judgeReason, /Finalize target adapter/);
+  assert.match(program.judgeReason, /Unsupported replacement opcode: effect\.banish/);
+  assert.match(program.judgeReason, /355\.10\.c\.1/);
+  // The merged pieces are named as merged and are no longer the blocker.
+  assert.match(program.judgeReason, /replacement\.event 原语已合入/);
+  assert.match(program.judgeReason, /428\.1/);
 });
 
 test("unl-007-219 Smite: [Action] plus a battlefield-restricted damage target", () => {
@@ -114,5 +143,66 @@ test("unl-007-219 Smite golden: the instead-body banishes the unit through the r
   assert.deepEqual(run.events.map(event => event.action), ["banish"]);
 });
 
-test.todo("unl-007-219 Smite: install the for-this-turn death replacement (CR 369.1 / 370.1.b) so the chosen unit is banished instead of dying — move the declaration into the ability-level replacement lifecycle, bind the chosen unit, and plan effect.banish");
+test("unl-007-219 Smite: the settled body still has no production replacement registration (gap 1)", () => {
+  // Evidence for gap (1): the merged replacement.event primitive requires the
+  // resolution context to expose replacement dependencies; neither ChainEngine's
+  // context overrides nor createActionPipelineHost supply that field, so the
+  // card's own registration cannot reach the pipeline at resolution time.
+  const kernel = world()
+    .player("A", { energy: 3, power: ["Fury"] })
+    .unit("battlefield-unit", { might: 4, location: { type: "battlefield", id: "battlefield-1" } })
+    .build();
+  assert.equal(kernel.replacement, undefined, "a plain resolve context must not expose replacement deps");
+  assert.throws(
+    () => replacementEvent.execute(kernel, { event: constant({ event: "object-killed" }), instead: [] }),
+    error => error instanceof BlockedReplacementError && /requires ResolveContext\.replacement dependencies/.test(error.message),
+    "replacement.event must fail closed without the dependencies"
+  );
+});
 
+test("unl-007-219 Smite: the Finalize object binding for 'it' is still missing (gap 2)", () => {
+  // Evidence for gap (2): 355.10.c.1's "it" is the previously chosen unit, but
+  // the merged primitive rejects the object argument instead of guessing a binding.
+  const kernel = world().unit("battlefield-unit", { might: 4 }).build();
+  pipelineKernel(kernel);
+  assert.throws(
+    () => replacementEvent.execute(kernel, {
+      event: constant({ event: "object-killed" }),
+      object: banishInstead.args.object,
+      instead: banishInstead.args.instead
+    }),
+    /replacement\.event object binding needs a Finalize target adapter/
+  );
+});
+
+test("unl-007-219 Smite: the replacement planner still cannot plan the banish instead-body (gap 3)", () => {
+  // Evidence for gap (3): the instead-body uses effect.banish, which the merged
+  // planner does not map onto a frozen GameAction.
+  const kernel = world().unit("battlefield-unit", { might: 4 }).build();
+  assert.throws(
+    () => planReplacementBody([banishInstruction], {
+      hostRef: { id: "smite", zoneEntryId: 1 },
+      replacedObject: kernel.ref("battlefield-unit"),
+      usedWindow: false
+    }, {
+      host: { object: ref => kernel.object(ref), objects: () => kernel.objects, context: () => kernel },
+      controller: "A",
+      evaluate: expression => expression.kind === "constant" ? expression.value : null
+    }),
+    /Unsupported replacement opcode: effect\.banish/
+  );
+});
+
+test("unl-007-219 Smite: the declared window is not a registration the pipeline consumes (gap 1)", () => {
+  // Evidence for gap (1): the declaration is never installed, so a lethal
+  // damage/kill still sends the unit to the trash instead of Banishment.
+  const kernel = world().unit("battlefield-unit", { might: 3 }).build();
+  const pipeline = pipelineKernel(kernel);
+  const target = kernel.ref("battlefield-unit");
+  assert.equal(pipeline.commit({ type: "damage", source: { id: "smite", zoneEntryId: 1 }, target, amount: 3, combat: false }).status, "done");
+  assert.equal(pipeline.commit({ type: "kill", object: target }).status, "done");
+  assert.equal(kernel.getObject("battlefield-unit").zone, "trash");
+  assert.notEqual(kernel.getObject("battlefield-unit").zone, "banishment");
+});
+
+test.todo("unl-007-219 Smite: install the for-this-turn death replacement (CR 369.1 / 370.1.b) so the chosen unit is banished instead of dying — needs the resolution-time replacement dependencies (host + pipeline), a Finalize binding for the chosen unit, and a planner mapping for effect.banish");
