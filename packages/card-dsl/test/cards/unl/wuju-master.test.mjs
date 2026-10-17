@@ -1,16 +1,19 @@
+// Scenario execution evidence: ../templates/static-replacement-effect-ready-663.test.mjs (XP and entry dependencies remain blocked).
 import assert from "node:assert/strict";
 import test from "node:test";
 
 import { EFFECT_IR_V2_RULESET, validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/unl/wuju-master.js";
 import { bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
-import ready from "../../../../engine-core/dist/effects/instructions/effect.ready.js";
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { bindReplacement } from "../../../../engine-core/dist/replacement/index.js";
-import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { evaluateCondition } from "../../../../engine-core/dist/effects/interpreter/condition.js";
+import { EventPipeline } from "../../../../engine-core/dist/events/pipeline.js";
+import { createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL_ID =
   "card.hash-8b7f21bf0986b17b411aeaaeffd500931ea02096c94389c90265a214f7707ab4";
@@ -55,11 +58,10 @@ test("unl-191-219 Wuju Master: [Level 6][>] is a static +1 Might layer scoped to
     controller: "controller"
   });
   // The XP gate: 824.1.c / 824.1.d; retained shape only (see judgeReason).
-  assert.equal(levelSix.condition.kind, "compare");
+  assert.equal(levelSix.condition.kind, "result");
   assert.equal(levelSix.condition.operator, "gte");
   assert.deepEqual(levelSix.condition.right, { kind: "constant", value: 6 });
-  assert.equal(levelSix.condition.left.kind, "count");
-  assert.equal(levelSix.condition.left.subject, "controller-xp");
+  assert.equal(levelSix.condition.result, "wuju-master.controller-xp");
 });
 
 test("unl-191-219 Wuju Master: [Level 11][>] is an enter-ready replacement gated on 11 XP", () => {
@@ -70,62 +72,35 @@ test("unl-191-219 Wuju Master: [Level 11][>] is an enter-ready replacement gated
     event: "object-enters-board",
     filter: { controller: "self", type: "unit", exhausted: true }
   });
-  assert.equal(levelEleven.condition.kind, "compare");
+  assert.equal(levelEleven.condition.kind, "result");
   assert.equal(levelEleven.condition.operator, "gte");
   assert.deepEqual(levelEleven.condition.right, { kind: "constant", value: 11 });
-  assert.equal(levelEleven.condition.left.subject, "controller-xp");
+  assert.equal(levelEleven.condition.result, "wuju-master.controller-xp");
   assert.equal(levelEleven.with.length, 1);
   assert.equal(enterReady.id, "wuju-master.enter-ready");
   assert.equal(enterReady.op, "effect.ready");
   assert.deepEqual(enterReady.args.objects, {
     kind: "constant",
-    value: { kind: "source" }
+    value: { linked: "replacement.object" }
   });
 });
 
-test("unl-191-219 Wuju Master: the replacement body's effect.ready is merged and ready-resets an exhausted legend", () => {
-  const kernel = world()
-    .unit("yi", { zone: "board", types: ["legend"], controller: "A", exhausted: true })
+test("unl-191-219 Wuju Master: missing live XP results cannot be replaced with an object count", () => {
+  const kernel = world().player("A", { xp: 0 })
+    .unit("master", { types: ["legend"], controller: "A" })
+    .unit("one").unit("two").unit("three").unit("four").unit("five").unit("six")
     .build();
-  const ctx = kernel.clone({ sourceSnapshot: kernel.object(kernel.ref("yi")) });
-  const outcome = runAbilityBody([enterReady], ctx);
-  assert.equal(outcome.status, "executed");
-  assert.deepEqual(outcome.results.map(result => [result.id, result.result.status]), [
-    ["wuju-master.enter-ready", "executed"]
-  ]);
-  assert.deepEqual(ctx.events.map(event => event.action), ["ready"]);
-  assert.equal(ctx.object(ctx.ref("yi")).exhausted, false);
-
-  // 416.1.b/416.1.c: an already-ready object is not readied again.
-  // effect.ready's default selector is "source", so the kernel source is bound
-  // to the legend through the clone used by runInstruction.
-  const readyKernel = world()
-    .unit("yi", { zone: "board", types: ["legend"], controller: "A", exhausted: false })
-    .build();
-  const readyCtx = readyKernel.clone({ sourceSnapshot: readyKernel.object(readyKernel.ref("yi")) });
-  const noop = runInstruction(
-    ready,
-    { objects: { kind: "source" } },
-    { world: readyCtx }
-  );
-  assert.equal(noop.result.status, "executed");
-  assert.deepEqual(readyCtx.events, []);
-  const direct = runInstruction(
-    ready,
-    { objects: { kind: "source" } },
-    { world: readyCtx }
-  );
-  assert.equal(direct.result.status, "executed");
-  assert.equal(direct.linked.readied.count, 0);
-});
-
-test("unl-191-219 Wuju Master: the 6-XP static gate cannot be evaluated with merged conditions", () => {
-  // The retained condition reads a player-side XP value; the merged Condition
-  // algebra and `count` expression only count queried objects, and
-  // PlayerSnapshot.xp has no Expr path (see judgeReason). Asserting the shape
-  // keeps the gap explicit without pretending it evaluates.
-  assert.equal(levelSix.condition.left.filter.player, "controller");
-  assert.equal(levelSix.effect.filter.controller, "controller");
+  const context = bindResolveContext(kernel, { source: kernel.getObject("master"), controller: "A" });
+  for (const ability of [levelSix, levelEleven]) {
+    assert.throws(() => evaluateCondition(ability.condition, {
+      context,
+      host: kernel.ref("master"),
+      linked: key => kernel.linked(key),
+      canLookBack: () => true,
+      isIgnored: () => false
+    }), /Unavailable condition result: wuju-master\.controller-xp/);
+  }
+  assert.equal(kernel.player("A").xp, 0);
 });
 
 test("unl-191-219 Wuju Master golden: the declared +1 Might really applies to your units only", () => {
@@ -169,27 +144,26 @@ test("unl-191-219 Wuju Master golden: the declared +1 Might really applies to yo
   );
 });
 
-test("unl-191-219 Wuju Master: the declared entry replacement passes the merged bind-time validation", () => {
-  // RIFT-260's replacement/ validates the declaration's body at bind time; the
-  // card's declared shape (one source-targeted effect.ready under a static
-  // object-enters-board replaces) is accepted as an entry-orientation
-  // declaration, so the remaining gap is the per-object window, not the body.
-  const kernel = world()
-    .unit("master", { types: ["legend"], owner: "A", controller: "A", might: 2, zone: "board" })
-    .build();
-  const registrations = [];
-  bindReplacement(levelEleven, kernel.ref("master"), {
-    host: { object: (ref) => kernel.object(ref), objects: () => kernel.objects, context: () => kernel },
-    pipeline: { clock: { turn: 1 }, registerReplacement: (registration) => registrations.push(registration) }
-  });
-  assert.equal(registrations.length, 1);
-  assert.equal(registrations[0].id, "replacement:master:1");
+test("unl-191-219 Wuju Master: the entry binder blocks the correct entering-unit selector", () => {
+  // The old accepted body readied the Legend source. That binding assertion
+  // depended on the incorrect target and cannot prove “Your units enter ready”.
+  const kernel = world().unit("master", { types: ["legend"], controller: "A" }).build();
+  const pipeline = new EventPipeline(createActionPipelineHost({
+    checkpoint: () => kernel.snapshot(),
+    restore: checkpoint => kernel.restore(checkpoint),
+    objects: () => kernel.objects,
+    perform: action => kernel.perform(action),
+    context: () => kernel
+  }), ["A", "B"], "A");
+  assert.throws(() => bindReplacement(levelEleven, kernel.ref("master"), {
+    host: { object: ref => kernel.object(ref), objects: () => kernel.objects, context: () => kernel },
+    pipeline
+  }), /Unsupported entry body target value/);
 });
 
 test.todo(
   "unl-191-219 Wuju Master: make 'Your units enter ready' apply to friendly units — RIFT-260's entry " +
-    "declaration only matches the declaring permanent's own entrance, and this card's declared filter " +
-    "(type: \"unit\") never matches the Legend host itself (CR 369.3 / 143.4)"
+    "declaration only supports the source orientation (CR 369.3 / 143.4)"
 );
 test.todo(
   "unl-191-219 Wuju Master: evaluate ability.condition (the 11+ XP gate) on the entry-declaration path — " +

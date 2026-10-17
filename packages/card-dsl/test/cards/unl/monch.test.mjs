@@ -1,3 +1,4 @@
+// Scenario execution evidence: ../templates/static-replacement-effect-ready-663.test.mjs (entry fragment; costs blocked).
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -147,14 +148,14 @@ test("unl-035-219 Monch: the printed condition is an opponent-scoped stunned-uni
   assert.deepEqual(enterReady.replaces.filter, { self: true, exhausted: true });
 });
 
-test("unl-035-219 Monch: the two printed effects share the one gating condition (383.2.a.1)", () => {
+test("unl-035-219 Monch: the two printed effects share the one passive condition (364.3.a)", () => {
   // Both halves are gated by the same lead-in clause, which the card states once
   // and reuses; the golden pins that they cannot drift apart.
   assert.equal(costModification.kind, "static");
   assert.equal(enterReady.kind, "replacement");
   assert.deepEqual(costModification.condition, enterReady.condition);
-  // The condition is compared against the merged evaluator's vocabulary; the
-  // layer/replacement consumers for it are the recorded gaps (test.todo).
+  // The production static binder wraps evaluateCondition; the remaining
+  // consumers are Finalize discounts and conditional entry replacement.
   assert.equal(costModification.condition.kind, "compare");
   assert.deepEqual(costModification.condition.right, { kind: "constant", value: 1 });
 });
@@ -171,9 +172,7 @@ test.todo(
     "does not evaluate the ability condition before applying the replacement; a post-entry effect.ready must not be substituted"
 );
 test.todo(
-  "unl-035-219 Monch: evaluate 'if an opponent controls a stunned unit' on both halves — layers/engine.ts " +
-    "conditionMatches has no compare branch and replacement/bind.ts's entry path returns before " +
-    "testCondition"
+  "unl-035-219 Monch: evaluate 'if an opponent controls a stunned unit' on both halves — Finalize still has no static discount consumer and replacement/bind.ts returns before testCondition"
 );
 test.todo(
   "unl-035-219 Monch: fire the play-time cost modification and entry replacement from the real play flow " +

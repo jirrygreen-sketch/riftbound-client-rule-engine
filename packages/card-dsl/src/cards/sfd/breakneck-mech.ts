@@ -1,7 +1,7 @@
 import type { CardProgram } from "../../ir/index.js";
 
 /**
- * Breakneck Mech (sfd-071-221) — Unit, Body, tag Mech.
+ * Breakneck Mech (sfd-071-221) — Unit, Mind, tag Mech.
  *
  * Printed text:
  *   Your Mechs have [Deflect] and [Ganking]. (Opponents must pay [rainbow]
@@ -12,7 +12,7 @@ import type { CardProgram } from "../../ir/index.js";
  * Modeling notes (Core Rules v1.5):
  * - "Your Mechs have [Deflect] and [Ganking]" is a static continuous grant
  *   (802.2 style trait-programmatic ability): a single grant-keyword static
- *   ability covering every Mech unit the controller controls. The Deflect
+ *   ability covering every Mech permanent the controller controls (133.3.a/133.8). The Deflect
  *   (809) and Ganking (810) KeywordDef files are merged, so the granted
  *   keywords expand through the registry.
  * - "I enter ready if you control another Mech" replaces the default
@@ -57,6 +57,8 @@ export default {
     "已修：该 condition 原先用单数 tag / other 键，layers/filter.ts 只认 tags 列表、也没有 other-exclusion 语义，" +
     "计数恒为 0；现按引擎词汇改写为 tags: [\"Mech\"] 加 exclude: \"self\" 锚点（契约 3.6），\"another Mech\" 的计数在" +
     "解释器与链的 query 归一化下都正确（golden 用合并的 evaluateCondition 真实求值）。" +
+    "另按 CR 133.3.a/133.8 修正授予范围：Mech 是标签，不额外限制为 unit。" +
+    "执行证据：test/cards/templates/static-replacement-effect-ready-663.test.mjs；仅覆盖已支持部分，整卡与条件边界仍阻塞。" +
     "依赖：target.tax 图层派生、Ganking permission 形状调和、入场替代 condition 求值。",
   abilities: [
     {
@@ -64,8 +66,8 @@ export default {
       effect: {
         kind: "grant-keyword",
         keywords: ["Deflect", "Ganking"],
-        // "Your Mechs"：由本能力控制者控制、标签为 Mech 的场上单位。
-        filter: { type: "unit", tag: "Mech", controller: "controller", zone: "board" }
+        // 133.3.a/133.8：“Your Mechs”按标签引用场上对象，不额外限制 type。
+        filter: { tag: "Mech", controller: "controller", zone: "board" }
       }
     },
     {
