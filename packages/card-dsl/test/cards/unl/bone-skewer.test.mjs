@@ -8,6 +8,29 @@ import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter
 import play from "../../../../engine-core/dist/effects/instructions/effect.play.js";
 import reveal from "../../../../engine-core/dist/effects/instructions/effect.reveal.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { registryById } from "../../../../engine-core/dist/effects/instructions/registry.generated.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
+import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
+
+/** Minimal engine so the production static binder can be exercised directly. */
+function binderFor(kernel) {
+  const host = createActionPipelineHost({
+    checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
+    restore: (checkpoint) => { kernel.restore(checkpoint.state); kernel.copyLinkedFrom(checkpoint.links); },
+    objects: () => kernel.objects,
+    perform: (action) => kernel.perform(action),
+    choose: (request) => { throw new Error(`Unexpected choice: ${request.id}`); },
+    context: (source, controller, timingPoint) =>
+      bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({
+    turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host, cleanup: () => false
+  });
+  return createEngineStaticBinder(engine);
+}
 
 const CANONICAL_ID =
   "card.hash-5726eb484767a4425aeceb77e181b534986492340b0bc94c0bcf8d4ae478d598";
@@ -229,6 +252,69 @@ test("unl-139-219 Bone Skewer fail-closed: the merged effect.play refuses the un
   // The card stayed in hand: no play happened and no cost was paid.
   assert.equal(kernel.getObject("u1").zone, "hand");
   assert.deepEqual(kernel.events, []);
+});
+
+test("Bone Skewer: the merged Hidden expansion is only the static cost.hidden marker", () => {
+  // 811: the keyword registry's Hidden KeywordDef still expands to a single
+  // static cost.hidden ability. The production static binder has no layer
+  // mapping for it, and no Hide action / facedown-zone restriction / free
+  // facedown play consumes it.
+  const hidden = keywordDefinitionsById.get("Hidden");
+  assert.ok(hidden, "effects/keywords/Hidden.ts must be registered");
+  assert.deepEqual(hidden.expand(), [{ kind: "static", effect: { kind: "cost.hidden" } }]);
+
+  const kernel = world()
+    .unit("skewer", { types: ["spell"], owner: "A", controller: "A" })
+    .build();
+  assert.throws(
+    () => binderFor(kernel).bindStatic(hidden.expand()[0], kernel.getObject("skewer")),
+    /has no layer mapping/
+  );
+});
+
+test("Bone Skewer: the card's own body stops at the unregistered target.player opcode", () => {
+  // 355.7 / 355.9.a: "An opponent" is a player choice. The merged instruction
+  // registry has no target.player entry, so the authored body cannot run past
+  // the battlefield read.
+  assert.equal(registryById.has("target.player"), false);
+  assert.equal(registryById.has("trigger.reflexive"), false);
+  const kernel = world()
+    .unit("skewer", { types: ["spell"], owner: "A", controller: "A" })
+    .object("bf-1", { owner: "A", controller: "A", types: ["battlefield"], zone: "board", location: null })
+    .build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("skewer") });
+  scoped.setTargets("bone-skewer.battlefield", [kernel.ref("bf-1")]);
+  assert.throws(
+    () => resolveChainBody([battlefieldInstruction, chooseOpponent], scoped),
+    /Unregistered instruction opcode: target\.player/
+  );
+});
+
+test("Bone Skewer fail-closed: the ignore-all-costs rewrite cannot reach a finalized plan", () => {
+  // 356.5.a: "ignoring any and all costs" sets the total cost to [0]. The merged
+  // cost.modify exposes ignoreAllCosts, but the chain adapter does not decode its
+  // declared literal arguments, so the interpreter path cannot produce that
+  // plan: the Expr-wrapped id/ignoreAllCosts reach the primitive as objects and
+  // it throws. The primitive does accept plain evaluated values, which is what a
+  // future adapter would have to supply.
+  const kernel = world()
+    .unit("skewer", { types: ["spell"], owner: "A", controller: "A" })
+    .build();
+  const scoped = kernel.clone({ sourceSnapshot: kernel.getObject("skewer") });
+  assert.throws(
+    () => resolveChainBody(
+      [{
+        id: "bone-skewer.ignore-costs",
+        op: "cost.modify",
+        args: { id: { kind: "constant", value: "ignore" }, ignoreAllCosts: { kind: "constant", value: true } }
+      }],
+      scoped
+    ),
+    /cost\.modify id must be a non-empty string/
+  );
+  const direct = runInstruction(costModify, { id: "ignore", ignoreAllCosts: true }, { world: kernel });
+  assert.equal(direct.result.status, "executed");
+  assert.deepEqual(direct.linked.cost.total, { energy: 0, power: [], xp: 0, actions: [] });
 });
 
 test.todo(

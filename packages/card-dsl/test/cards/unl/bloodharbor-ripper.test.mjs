@@ -229,6 +229,42 @@ test("unl-185-219 Bloodharbor Ripper: playing the Gold token is blocked, not app
   assert.deepEqual(kernel.events, []);
 });
 
+test("unl-185-219 Bloodharbor Ripper: the Gold definition is absent from the frozen token table (187.5)", () => {
+  // 187.5's Gold gear token carries its own "[Reaction][>] Kill this, [E]: [Add]
+  // [A]" ability. effect.token's frozen DEFINITIONS table has no gold entry, so
+  // the card's own token id is rejected with the blocked reason instead of a
+  // substitute. The exact id/key pair is asserted so the gap is visible.
+  const kernel = world().player("A", { energy: 0 }).build();
+  const run = runInstruction(
+    token,
+    {
+      token: { kind: "constant", value: "gold" },
+      mode: { kind: "constant", value: "play" },
+      amount: { kind: "constant", value: 1 },
+      location: { kind: "constant", value: { type: "base", player: "A" } }
+    },
+    { world: kernel }
+  );
+  assert.equal(run.result.status, "negated");
+  assert.equal(run.linked.token.blockedReason, "token-definition-or-abilities-judge-required");
+  assert.equal(run.linked.token.createdAmount, 0);
+  assert.deepEqual(kernel.events, []);
+});
+
+test("unl-185-219 Bloodharbor Ripper: effect.token has no exhausted entry override argument (143.4 / 184.1)", () => {
+  // 185.2.d / 143.4 put the entry orientation on the creation action itself.
+  // The primitive's frozen argument list is exactly
+  // token/amount/mode/location/target/pick/locations/choiceId/linkKey, so there
+  // is no entry-state argument and create-then-exhaust cannot substitute.
+  assert.throws(
+    () => token.argsSchema.parse({
+      token: { kind: "constant", value: "gold" },
+      exhausted: { kind: "constant", value: true }
+    }),
+    /Invalid effect\.token argument: exhausted/
+  );
+});
+
 test.todo(
   "unl-185-219 Bloodharbor Ripper: Gold gear token definition with its printed ability (CR 187.5) — effect.token's frozen table has no gold entry"
 );
