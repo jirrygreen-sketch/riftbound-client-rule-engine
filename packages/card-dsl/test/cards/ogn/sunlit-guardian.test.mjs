@@ -30,6 +30,7 @@ test("ogn-054-298 Sunlit Guardian: identity, ruleset, status, judgeReason and so
   assert.match(program.judgeReason, /815/);
   assert.match(program.judgeReason, /combatRole/);
   assert.match(program.judgeReason, /combat\/derived-might\.ts/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(program.canonicalCardId), program);
 });

@@ -38,6 +38,7 @@ test("ogn-052-298 Stalwart Poro: judgeReason names the missing wiring and its ta
   assert.match(program.judgeReason, /combatRole/);
   // 复核后写入的实测缺口：条件求值抛 MissingInformation，+1 Might 永不生效。
   assert.match(program.judgeReason, /MissingInformation|Unavailable characteristic/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-\d+/);
 });
 
 test("ogn-052-298 Stalwart Poro: exactly one unvalued Shield keyword ability", () => {
