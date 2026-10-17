@@ -15,7 +15,7 @@ const SOURCE_TEXT =
 
 const [, play] = program.abilities;
 const [countEnemies, grantMight] = play.body;
-const unitSpec = grantMight.targets[0];
+const unitSpec = countEnemies.targets[0];
 
 /**
  * The resolving effect's own registrations, shaped for the real layer engine.
@@ -139,7 +139,7 @@ test(
       key: "enemyCount"
     });
     assert.deepEqual(grantMight.args.duration, { kind: "constant", value: "this-turn" });
-    assert.equal(grantMight.targets.length, 1);
+    assert.equal(countEnemies.targets.length, 1);
     assert.equal(unitSpec.id, "against-the-odds.unit");
     assert.deepEqual(unitSpec.filter, { type: "unit", controller: "self", location: "battlefield" });
     assert.equal(unitSpec.min, 1);
@@ -191,24 +191,18 @@ test("sfd-001-221 Against the Odds golden: an enemy that left the battlefield st
     .unit("enemy-two", { owner: "B", controller: "B", location: { type: "battlefield", id: "bf-1" } })
     .build();
   kernel.setTargets(unitSpec.id, [kernel.ref("chosen")]);
-  const before = resolveChainBody(play.body, chainKernel(kernel));
-  assert.equal(before.linkedValues["against-the-odds.count-enemies.enemyCount"], 4);
-
-  // The count is re-read at resolution, so the state when the effect resolves
-  // decides the amount (359.3.f.2). The reference kernel stores registrations
-  // without settlement identities, so the second pass is asserted on its own
-  // kernel instead of accumulating a duplicate id on the first kernel.
-  const movedKernel = world()
-    .unit("chosen", { owner: "A", controller: "A", might: 3, location: { type: "battlefield", id: "bf-1" } })
-    .unit("enemy-one", { owner: "B", controller: "B", location: { type: "battlefield", id: "bf-1" } })
-    .unit("enemy-two", { owner: "B", controller: "B", location: { type: "battlefield", id: "bf-2" } })
-    .build();
-  movedKernel.setTargets(unitSpec.id, [movedKernel.ref("chosen")]);
-  const outcome = resolveChainBody(play.body, chainKernel(movedKernel));
+  // The count is read at resolution (359.3.f.2). Move an enemy out through
+  // the kernel after locking the target, rather than building a second world.
+  const departed = kernel.ref("enemy-two");
+  assert.equal(kernel.perform({ type: "return-to-hand", object: departed }).status, "done");
+  assert.equal(kernel.object(departed), null);
+  assert.equal(kernel.getObject("enemy-two").zone, "hand");
+  const outcome = resolveChainBody(play.body, chainKernel(kernel));
+  assert.equal(outcome.status, "executed");
   assert.equal(outcome.linkedValues["against-the-odds.count-enemies.enemyCount"], 2);
-  assert.equal(movedKernel.continuousEffects.length, 1);
-  assert.equal(movedKernel.continuousEffects[0].effect.effect.amount, 2);
-  assert.equal(effectiveMight(movedKernel, "chosen"), 5);
+  assert.equal(kernel.continuousEffects.length, 1);
+  assert.equal(kernel.continuousEffects[0].effect.effect.amount, 2);
+  assert.equal(effectiveMight(kernel, "chosen"), 5);
 });
 
 test("sfd-001-221 Against the Odds golden: no enemy unit there means no modification", () => {
@@ -236,28 +230,33 @@ test("sfd-001-221 Against the Odds golden: no enemy unit there means no modifica
 });
 
 test("sfd-001-221 Against the Odds golden: a chosen unit off the battlefield is not a legal target", () => {
-  // "at a battlefield" restricts the target: a friendly unit moved away fails
-  // the target lock and the whole grant is ignored (359.3.e.6).
+  // Lock the target first, then use a real zone-changing action so the old
+  // ObjectRef becomes stale before resolution (124 / 359.3.e.6).
   const kernel = world()
-    .unit("chosen", { owner: "A", controller: "A", might: 3, zone: "hand", location: null })
+    .unit("chosen", { owner: "A", controller: "A", might: 3, location: { type: "battlefield", id: "bf-1" } })
     .unit("enemy", { owner: "B", controller: "B", location: { type: "battlefield", id: "bf-1" } })
     .build();
   kernel.setTargets(unitSpec.id, [kernel.ref("chosen")]);
+  const stale = kernel.ref("chosen");
+  assert.equal(kernel.perform({ type: "return-to-hand", object: stale }).status, "done");
+  assert.equal(kernel.object(stale), null);
+  assert.notEqual(kernel.ref("chosen").zoneEntryId, stale.zoneEntryId);
+  assert.deepEqual(kernel.events.map((event) => event.action), ["return-to-hand"]);
 
   const outcome = resolveChainBody(play.body, chainKernel(kernel));
   assert.equal(outcome.status, "partial");
   assert.deepEqual(
     outcome.results.map((entry) => [entry.id, entry.result.status]),
     [
-      ["against-the-odds.count-enemies", "executed"],
-      // The grant's objects resolve to zero Board references, so the merged
-      // primitive negates instead of registering (resolveCandidates -> ignored,
-      // surfaced as the interpreter's negated result for this instruction).
-      ["against-the-odds.grant-might", "negated"]
+      ["against-the-odds.count-enemies", "ignored"],
+      ["against-the-odds.grant-might", "ignored"]
     ]
   );
+  assert.equal(outcome.results[0].result.reason, "mistargeted");
+  assert.equal(outcome.results[1].result.reason, "linked-ignored");
+  assert.equal(outcome.linkedValues["against-the-odds.count-enemies.enemyCount"], undefined);
+  assert.deepEqual(kernel.events.map((event) => event.action), ["return-to-hand"]);
   assert.equal(kernel.continuousEffects.length, 0);
-  // The chosen unit is in its owner's hand, so the layer engine no longer
-  // evaluates it as a Board object (the hand snapshot keeps the printed might).
+  assert.equal(kernel.getObject("chosen").zone, "hand");
   assert.equal(effectiveMight(kernel, "chosen"), 3);
 });

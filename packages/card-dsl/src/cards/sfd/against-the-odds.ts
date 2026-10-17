@@ -92,7 +92,16 @@ export default {
             },
             operator: { kind: "constant", value: "multiply" },
             key: { kind: "constant", value: "enemyCount" }
-          }
+          },
+          targets: [
+            {
+              id: "against-the-odds.unit",
+              filter: { type: "unit", controller: "self", location: "battlefield" },
+              min: 1,
+              max: 1,
+              selection: "one"
+            }
+          ]
         },
         {
           // "Give a friendly unit ... +2 Might this turn for each enemy unit
@@ -112,16 +121,7 @@ export default {
               key: "enemyCount"
             },
             duration: { kind: "constant", value: "this-turn" }
-          },
-          targets: [
-            {
-              id: "against-the-odds.unit",
-              filter: { type: "unit", controller: "self", location: "battlefield" },
-              min: 1,
-              max: 1,
-              selection: "one"
-            }
-          ]
+          }
         }
       ]
     }

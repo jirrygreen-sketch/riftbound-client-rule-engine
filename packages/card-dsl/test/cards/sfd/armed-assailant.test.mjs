@@ -18,6 +18,9 @@ test("sfd-002-221 Armed Assailant: validates, identity and registry", () => {
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Accelerate/);
   assert.match(program.judgeReason, /Weaponmaster/);
+  assert.match(program.judgeReason, /reduce-equip-cost/);
+  assert.match(program.judgeReason, /821\.1\.c\.3/);
+  assert.doesNotMatch(program.judgeReason, /TestWorld/);
   assert.equal(program.sourceText, "[Accelerate] (You may pay :rb_energy_1::rb_rune_fury: as an additional cost to have me enter ready.)\n[Weaponmaster] (When you play me, you may [Equip] one of your Equipment to me for :rb_rune_rainbow: less, even if it's already attached.)");
 });
 

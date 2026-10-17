@@ -31,17 +31,18 @@ import type { CardProgram } from "../../ir/index.js";
  *   reminder "(+2 :rb_might: while it's an attacker.)" is the functional text of
  *   Assault 2 (807.1.b.2 / 807.1.c), not a second ability, so it is not encoded
  *   as a separate instruction.
+ * - No duration is printed for the grant: 801.3.a.3 keeps it for this Board
+ *   existence. The permanent layer registration is scoped to the target's
+ *   zone-entry identity; Assault's attacker condition is a separate gate.
  *
  * Status: judge-required, with both gaps named:
  * - the [Assault 2] grant now has a merged instruction op
  *   (`effects/instructions/continuous.grant-keyword.ts`) that registers an
- *   ability-layer keyword for a duration, but the merged Assault expansion
- *   (`effects/keywords/Assault.ts`) is a static `continuous.might` ability
- *   conditioned on the host's attacker designation, and the layers engine's
- *   `conditionMatches` falls through unknown condition kinds to `true` — the
- *   designation gate would be applied unconditionally, so the granted Assault
- *   would add +2 Might outside combat too. That is not an approximation that
- *   can be shipped.
+ *   ability-layer keyword for a duration, but runtime granted keywords are not
+ *   passed through the KeywordDef expansion path that turns Assault into its
+ *   attacker-conditioned `continuous.might` effect. The existing Assault
+ *   expansion also names the `designation` property while ObjectSnapshot
+ *   exposes `combatRole`; no safe runtime Might result can be claimed.
  * - the [Repeat] additional cost cannot be charged or read back: the Repeat
  *   keyword, effect.repeat and the cost-plan `optionalAdditional` input exist,
  *   but no code turns a card program's declared optional additional cost into
@@ -56,14 +57,15 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "两处依赖未合入，均不近似实现：(1)「Give a unit [Assault 2]」是限时关键词授予，continuous.grant-keyword 指令原语（ability 图层 + 时限）已合入，" +
-    "但已合入的 Assault 展开（effects/keywords/Assault.ts）是条件于宿主 attacker designation 的 " +
-    "static continuous.might，而 layers 的 conditionMatches 对未知条件 kind 返回 true——designation 门控会被无条件过度应用，" +
-    "授予的 Assault 在非战斗阶段也会 +2 Might，故不可执行。把 [Assault 2] 声明成这张法术自身的关键词会描述错误的对象，故不这样写。" +
+    "两处依赖未合入，均不近似实现：(1)「Give a unit [Assault 2]」的 continuous.grant-keyword 指令原语" +
+    "（ability 图层 + 时限）已合入并能登记授予的关键词，但运行时授予关键词没有进入 KeywordDef 展开路径，" +
+    "无法把 Assault 转成攻击者期间的 continuous.might；现有 Assault 展开还读取 designation，而 ObjectSnapshot " +
+    "提供的是 combatRole，特征字段也未对齐，故不能声称已有安全的 Might 结果。把 [Assault 2] 声明成这张法术自身的关键词会描述错误的对象，故不这样写。" +
     "(2) [Repeat] :rb_energy_1: 的可选附加费用无法收取或回读：Repeat 关键词、effect.repeat 与 cost 计划的 optionalAdditional 输入已合入，" +
     "但没有把卡牌程序声明的可选附加费用接进法术打出 Finalize 收取的接线，已付实例数也没有供结算读取的绑定（820.1.c.1 / 820.1.d.1）。" +
     "卡片保留可审查的结构：目标单位（355.5/355.7/355.9.a.1）、Assault 2 数值、820.1.c 的 1 能量印刷费用与显式 pay/decline 选择。" +
-    "不用 Buff 计数冒充 Assault 的条件 +2 Might。依赖：layers conditionMatches 的 designation 条件求值、" +
+    "不用 Buff 计数冒充 Assault 的条件 +2 Might。依赖：运行时授予关键词的 KeywordDef/Assault 消费路径与 " +
+    "designation/combatRole 特征对齐、" +
     "Repeat 附加费用的 Finalize 收取与已付实例绑定。",
   abilities: [
     { kind: "keyword", keyword: "action" },
@@ -90,18 +92,18 @@ export default {
       body: [
         {
           // "Give a unit [Assault 2]" — the granted keyword id, its printed
-          // value and the chosen unit are stated for review; the op is the
-          // pending duration-bounded keyword grant (see judgeReason).
+          // value and the chosen unit use the merged keyword-grant primitive;
+          // the keyword's Might behavior still needs its consumer (see judgeReason).
           id: "blood-rush.grant-assault-2",
           op: "continuous.grant-keyword",
           args: {
+            objects: { kind: "constant", value: { kind: "target", id: "blood-rush.unit" } },
             keyword: { kind: "constant", value: "Assault" },
             value: { kind: "constant", value: 2 },
-            // 807.1.d.1: Assault applies only while the host holds the
-            // Attacker designation, so the grant has no separate end-of-turn
-            // lifetime of its own; "while it's an attacker" is stated by the
-            // keyword's own expansion.
-            duration: { kind: "constant", value: "end-of-turn" }
+            // 801.3.a.3: no printed duration means the grant lasts until the
+            // target leaves its zone; per-target zoneEntryId scopes the effect.
+            // 807.1.d.1 separately gates Might on the Attacker designation.
+            duration: { kind: "constant", value: "permanent" }
           },
           targets: [
             {

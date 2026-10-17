@@ -20,23 +20,19 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - reminder 括号（“+1 :rb_might: while I'm an attacker for each instance of Assault.”）是
  *   807.1.c 的释义（Assault 在攻击时按每份 +1 Might），不是独立指令。
  *
- * status 判定（cards/README.md 第 2 节）：judge-required。三处已合入缺口：
- * - 动态关键词授予的指令入口（effects/instructions/continuous.grant-keyword.ts，
- *   op: continuous.grant-keyword）与 layers/ 的 ability 层消费已合入，但把卡程序的
- *   static 能力注册进图层的接线（programs/statics.ts 的 engine static binder）不支持
- *   controller:opponent / sameLocationAs:self 的来源相对 filter（staticFilter 对
- *   opponent 与非 self 锚点显式抛 judge-required），且 layers 的 conditionMatches
- *   对未知条件 kind 返回 true，designation 条件会被过度应用。
- * - 授予数值需要「此处敌方单位数」的计数位置：ObjectFilter 有 sameLocationAs 锚点，
- *   能表达「与本卡同在一个战场」，但把该计数作为另一个单位的 Assault 值需要一个表达式位置
- *   读它；且 Assault 的图层按 807.1.d 只在获得 Attacker 身份期间生效，而图层
- *   conditionMatches 目前把未知的 designation 条件 fallthrough 为 true，无法表达
- *   「仅攻击者身份期间生效」。
+ * status 判定（cards/README.md 第 2 节）：judge-required。三处当前缺口：
+ * - 静态绑定本身可以把 appliesTo:self 的 ability 层效果登记进图层；真正缺口在动态值：
+ *   static binder 会保留嵌套的 count 表达式，但 layers/engine.ts 的 applyAbility
+ *   把原始 effect.value 交给只接受整数的 keywordValue；valueOf 也不求值 count，
+ *   因此授予值不会变成此处敌方单位数。
+ * - 即使动态数值可读，运行时授予的 Assault 仍需要 KeywordDef/Assault 消费路径把 ability 层关键词
+ *   展开成攻击者期间的 Might；现有 Assault 展开读取 designation，而 ObjectSnapshot 提供 combatRole，
+ *   特征字段也未对齐。
  * - [Accelerate] 的展开（effects/keywords/Accelerate.ts）与费用计划
  *   （src/cost/kinds/additional.ts 的 accelerate 组件）已合入，但把该费用接进
  *   链上打出 Finalize 的 optionalAdditional 收取与 805.6 付费后入场就绪替代的
  *   条件管线仍无消费方。
- * 依赖：static→图层接线的相对 filter 支持、layers designation 条件求值、
+ * 依赖：ability 图层动态 count 求值、运行时授予 Assault 的消费与 designation/combatRole 对齐、
  * Finalize 的 Accelerate optionalAdditional 收取与入场就绪替代接线。
  * 不近似实现（不把动态数值写成固定 Assault、不把手写展开塞进卡程序）。
  */
@@ -46,8 +42,8 @@ const abilities: Ability[] = [
     kind: "static",
     effect: {
       // 契约 3.7 模板中的 continuous.grant-keyword：把 Assault 授予本卡，
-      // 数值为「此处敌方单位数」。op 与 layers ability 层已合入；卡程序接线
-      // 无法解析这里的相对 filter（见 judgeReason）。
+      // 数值为「此处敌方单位数」。static binder 可登记自身效果，但动态
+      // count 仍需 ability 图层的数值消费（见 judgeReason）。
       kind: "continuous.grant-keyword",
       appliesTo: "self",
       keyword: "assault",
@@ -73,15 +69,15 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "「I have [Assault] equal to the number of enemy units here」的动态关键词授予有三处当前真实缺口：" +
-    "(1) continuous.grant-keyword 指令原语与 layers ability 层已合入，但把卡程序 static 能力注册进" +
-    "图层的 statics 接线不支持 controller:'opponent' / sameLocationAs:'self' 的来源相对 filter" +
-    "（statics.ts staticFilter 对 opponent 与非 self 锚点抛 judge-required）；" +
-    "(2) layers conditionMatches 对未知条件 kind 返回 true，807.1.d 的「只在攻击者身份期间生效」" +
-    "designation 条件会被无条件过度应用；" +
+    "(1) static binder 可以登记 appliesTo:self 的 ability 层效果，但会保留嵌套 count 表达式，" +
+    "layers/engine.ts 的 applyAbility 把原始 effect.value 交给只接受整数的 keywordValue，" +
+    "valueOf 也不求值 kind:\"count\"，所以授予值不会变成此处敌方单位数；" +
+    "(2) 运行时授予的 Assault 还没有进入 KeywordDef/Assault 消费路径，且 Assault 展开读取 designation、" +
+    "ObjectSnapshot 提供 combatRole，807.1.d 的攻击者期间 Might 条件无法完成字段对齐；" +
     "(3) [Accelerate]（805）的关键词展开与 accelerate 费用计划已合入，但接进打出流程" +
     "Finalize 的 optionalAdditional 收取与 805.6 入场就绪替代条件的管线仍无消费方。" +
     "数值本身是动态计数（此处敌方单位数），不能用静态的 { keyword: \"assault\", value: N } 冒充。" +
-    "依赖：static→图层接线的相对 filter 支持、layers designation 条件求值、" +
+    "依赖：layers 动态 count 求值、运行时授予关键词的 Assault 消费与 designation/combatRole 对齐、" +
     "Finalize Accelerate 接线。不近似实现（动态数值不写成固定 Assault、" +
     "不把关键词展开手写进卡程序）。",
   abilities,

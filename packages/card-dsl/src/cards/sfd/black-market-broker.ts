@@ -27,12 +27,10 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   details.fromFaceDown 声明该缺失载荷字段，fail-closed 而不是把普通打出的牌算进来。
  * - token 体：Gold 定义（187.5，自带 "[Reaction][>] Kill this, [E]: [Add] [A]"）不在
  *   effect.token 的冻结定义表里——该文件明确 Gold 等自带能力的定义保持 blocked/judge-required；
- *   mode "play" 需要链上创建（440.2.c/185.2.a），而冻结的 create-token 只在场上创建、
- *   effect.token 对 mode "play" 返回 negated（blockedReason: token-play-requires-chain-creation）；
- *   "exhausted" 是入场规定（184.1/185.2.d），create-token/play 不支持入场状态改写，
- *   effect.exhaust 的事后横置会多一次「成为横置」事件、错过 143.4，故不近似。
- * 依赖：card-played 来源区域载荷与 facedown zone 词汇、触发过滤对 details 的消费、
- * token 链上创建与入场状态、Gold 冻结定义。
+ *   mode "play" 的链上创建与交接本身已由原语支持并执行；"exhausted" 是入场规定
+ *   （184.1/185.2.d），但当前 effect.token 不支持入场状态改写，effect.exhaust 的事后横置
+ *   会多一次「成为横置」事件、错过 143.4，故不近似。
+ * 依赖：card-played 来源区域载荷与 facedown zone 词汇、exhausted 入场状态、Gold 冻结定义。
  */
 const abilities: Ability[] = [
   {
@@ -78,13 +76,11 @@ const program = {
     "不在 ObjectFilter 的 zone 词汇里（events/trigger-spec.ts 的 OBJECT_FILTER_ZONES 无 facedown-zone），" +
     "card-played 时点的载荷也不携带打出前的来源区域（chain/engine.ts 的 emit 只给 object/player），" +
     "因此无法判定该牌是否从面朝下打出（需要 card-played 载荷增加来源区域字段，且 facedown 不在 zone 词汇里）。" +
-    "token 体同样不可执行：Gold gear token（CR 187.5 自带 [Reaction][>] Kill this, [E]: [Add] [A]）" +
+    "token 体仍不可完整执行：Gold gear token（CR 187.5 自带 [Reaction][>] Kill this, [E]: [Add] [A]）" +
     "不在 effect.token 的冻结定义表里（该文件明确 Gold 等自带能力的定义保持 blocked/judge-required）；" +
-    "「play a … token」要求按 440.2.c/185.2.a/350.2/354 先在链上创建再接手打出，" +
-    "而冻结的 create-token 只在场上创建，effect.token 的 mode \"play\" 被显式 negated" +
-    "（blockedReason: token-play-requires-chain-creation）；「exhausted」是入场规定（184.1/185.2.d），" +
-    "create-token/play 不支持入场状态改写，effect.exhaust 的事后横置会多一次「成为横置」事件并错过 143.4，故不近似。" +
-    "依赖：card-played 来源区域载荷与 facedown zone 支持、Gold token 冻结定义、token 链上创建与入场状态。",
+    "mode \"play\" 按 440.2.c/185.2.a/350.2/354 的链上创建与交接本身已可执行；但「exhausted」是入场规定（184.1/185.2.d），" +
+    "当前 effect.token 不支持入场状态改写，effect.exhaust 的事后横置会多一次「成为横置」事件并错过 143.4，故不近似。" +
+    "依赖：card-played 来源区域载荷与 facedown zone 支持、Gold token 冻结定义、exhausted 入场状态。",
   abilities,
   sourceText: "When you play a card from face down, play a Gold gear token exhausted."
 } satisfies CardProgram;

@@ -15,13 +15,12 @@ import type { CardProgram } from "../../ir/index.js";
  *   费用减 1 个任意 power（821.1.c.3），即使已附带也可重挂（821.1.c.2.a/.2.b）。
  *
  * status 判定（cards/README.md 第 2 节）：judge-required，当前真实缺口：
- * - [Weaponmaster] 的展开 effects/keywords/Weaponmaster.ts 已合入但自身保持
- *   judge-required：play-effect 的目标层不会绑定符号性 controller filter（TestWorld
- *   不绑定 self 别名），且 cost.modify 对 reduce-equip-cost 显式判负（821.1.c.3 的
- *   [A]/[C] symbol provenance 会丢失），cost.pay 与 Attach 的整体收费流程因此缺。
+ * - [Weaponmaster] 的展开 effects/keywords/Weaponmaster.ts 已合入，生产链的目标查询
+ *   可绑定 controller:self；剩余费用缺口是 cost.modify 对 reduce-equip-cost 显式判负
+ *   （821.1.c.3 的 [A]/[C] symbol provenance 会丢失），阻断后续 cost.pay 与 Attach。
  * - [Accelerate] 的关键词展开与 accelerate 费用计划已合入，但打出流程 Finalize 的
  *   optionalAdditional 收取与 805.6 入场就绪替代条件管线仍无消费方。
- * 依赖：Weaponmaster 展开的相对 controller 目标绑定与 reduce-equip-cost 费用支持、
+ * 依赖：Weaponmaster 的 reduce-equip-cost 费用支持、
  * Finalize Accelerate 接线。不近似实现（不把手写 Equip 收费塞进卡程序）。
  */
 export default {
@@ -30,7 +29,7 @@ export default {
   status: "judge-required",
   judgeReason:
     "[Accelerate]（805）的关键词展开与 accelerate 费用计划已合入，但把费用接进打出流程 Finalize 的 optionalAdditional 收取与 805.6 入场就绪替代条件管线仍无消费方；" +
-    "[Weaponmaster]（821）的展开 effects/keywords/Weaponmaster.ts 已合入但保持 judge-required：play-effect 的目标层不会绑定符号性 controller filter（TestWorld 不绑定 self 别名），且 cost.modify 对 reduce-equip-cost 显式判负（821.1.c.3 的 [A]/[C] symbol provenance 会丢失），cost.pay 与 Attach 的整体收费流程因此缺。不近似实现。",
+    "[Weaponmaster]（821）的展开 effects/keywords/Weaponmaster.ts 与生产链的 controller:self 目标绑定已合入；剩余缺口是 cost.modify 对 reduce-equip-cost 显式判负（821.1.c.3 的 [A]/[C] symbol provenance 会丢失），阻断后续 cost.pay 与 Attach。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "accelerate" },
     { kind: "keyword", keyword: "weaponmaster" }
