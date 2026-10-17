@@ -147,10 +147,11 @@ test("sfd-214-221: the merged Score half really gains the printed 1 point (470.1
   assert.deepEqual(run.linked.scored, [{ player: "A", amount: 1 }]);
 });
 
-test("sfd-214-221 golden: accepting the optional really pays four [A] Power, then scores 1 point", () => {
+test("sfd-214-221 golden: accepting the optional runs cost.pay and scores 1 point within the reference-kernel evidence boundary", () => {
   // The accepted branch runs the program's own choice.optional body with the
-  // merged cost.pay instruction; the test kernel deliberately keeps Power
-  // resources (so only the receipt and Score side effects are asserted).
+  // merged cost.pay instruction. The reference test kernel currently records
+  // the Power payment plan and event but deducts only Energy and XP; this test
+  // therefore proves instruction ordering and Score, never resource settlement.
   const kernel = world().player("A", { score: 2, power: ["Calm", "Calm", "Calm", "Calm"] }).player("B", { score: 4 }).build();
   kernel.setAnswers({ "power-nexus.opt-in/optional": true });
 
@@ -164,15 +165,15 @@ test("sfd-214-221 golden: accepting the optional really pays four [A] Power, the
     ["power-nexus.opt-in", "power-nexus.pay-four-runes", "power-nexus.score-1"]
   );
   for (const entry of outcome.results) assert.equal(entry.result.status, "executed");
-  // cost.pay's receipt: the four [A] requirement was paid as a single plan
-  // (CR 356-357), with the pay event on the task pipeline.
+  // The receipt is only structural evidence of the locked four-[A] plan. The
+  // reference kernel does not consume its Power resources.
   const payment = outcome.results.find((entry) => entry.id === "power-nexus.pay-four-runes").result.linkedValues.payment;
-  assert.equal(payment.paid, true);
   assert.deepEqual(payment.total.power, [
     { amount: 4, allowedDomains: ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"] }
   ]);
   assert.deepEqual(payment.actions.map((entry) => entry.action.type), ["pay"]);
   assert.deepEqual(outcome.events.map((event) => event.action), ["pay", "score"]);
+  assert.equal(kernel.player("A").power.length, 4);
   // The printed "pay … to score" dependency: the point gain is linked to the
   // payment and both happen in the same optional branch (contract 3.9).
   assert.deepEqual(outcome.results.find((entry) => entry.id === "power-nexus.score-1").result.linkedValues.scored, [
@@ -181,6 +182,12 @@ test("sfd-214-221 golden: accepting the optional really pays four [A] Power, the
   assert.equal(kernel.player("A").score, 3);
   assert.equal(kernel.player("B").score, 4);
 });
+
+test.todo(
+  "sfd-214-221: the accepted branch must deduct four [A] Power and reject a second payment " +
+    "after resources are spent; the reference test kernel currently ignores Power in its pay action, " +
+    "so receipt/event evidence above is intentionally limited"
+);
 
 test("sfd-214-221 golden: the accepted branch fails closed when the player cannot pay four [A]", () => {
   // CR 203.3: an unpayable cost must throw, not silently skip the payment or

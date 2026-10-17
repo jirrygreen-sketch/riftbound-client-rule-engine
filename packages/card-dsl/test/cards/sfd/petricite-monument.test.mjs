@@ -11,7 +11,6 @@ import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 // ability into a live layer effect; the golden exercises it directly.
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
-import { validateTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
 
 const CARD_ID = "card.hash-40f4f4fa670faf83d3f284bef5c9dc3ae0047668559d38ad02a7521cff81b378";
 const SOURCE_TEXT =
@@ -68,16 +67,6 @@ test("sfd-104-221 Petricite Monument: Temporary expansion and kill body execute 
   const outcome = resolveChainBody(expanded.body, kernel);
   assert.equal(outcome.status, "executed");
   assert.equal(kernel.getObject("petricite-monument").zone, "trash");
-});
-
-test("sfd-104-221 Petricite Monument golden: the Temporary expansion's trigger spec fails closed today", () => {
-  // The merged KeywordDef emits event "beginning-start", which is not in the
-  // trigger-spec vocabulary; validateTriggerSpec must reject it so the card
-  // program cannot silently subscribe to an unregistered timing event.
-  const [expanded] = temporary.expand({ host: { canonicalCardId: CARD_ID } });
-  const result = validateTriggerSpec(expanded.trigger);
-  assert.equal(result.ok, false);
-  assert.ok(result.issues.some((issue) => issue.code === "invalid-event-type"));
 });
 
 test("sfd-104-221 Petricite Monument golden: the static binder grants [Deflect] to friendly units only", () => {

@@ -73,7 +73,7 @@ test("sfd-183-221 Purifier golden: the static binder grants [Assault] to your Eq
   const binding = createProgramBinding({ cardPrograms: [executable] });
   const { engine, kernel } = fixture({
     cards: [
-      { id: "purifier", cardId: CANONICAL_ID, types: ["legend"], energy: 0, power: [], might: null },
+      { id: "purifier", cardId: CANONICAL_ID, types: ["legend"], energy: null, power: null, might: null },
       { id: "blade", types: ["gear"], tags: ["Equipment"], energy: 1, power: [], might: null },
       { id: "enemy-blade", types: ["gear"], tags: ["Equipment"], energy: 1, power: [], might: null, owner: "B", controller: "B" },
       { id: "rig", types: ["gear"], energy: 2, power: [], might: null }
