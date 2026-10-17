@@ -24,15 +24,17 @@ import type { CardProgram } from "../../ir/index.js";
  *   body 依序为 effect.discard(2) 与 effect.draw(2)。
  *
  * 未合入依赖（不近似实现）:
- * - Legion 的 KeywordDef 展开（RIFT-82）已合入，但展开出的 condition.predicate
+ * - Legion 的 KeywordDef 展开已合入，但展开出的 condition.predicate
  *   静态能力没有消费方把"本回合已 Finalized 与本卡不同的另一张牌"求值；
- * - 812.1.c 的"与本卡不同"需要 HistoryQuery 的按卡身份排除维度；已合入的 history
- *   查询结构（scope/action/timingPoint/player/object）仍拒绝其它字段（契约 3.8 增补的
- *   HistoryQuery.exclude/objectFilter 尚未在 interpreter/history.ts 落地），因此闸门无法求值；
- * - 触发 → 进链的卡牌程序接线（RIFT-257）也没有消费方，且触发 filter 的嵌套拼写
- *   （filter: { source: "self", player: "controller" }）会被 assertTriggerSpec 拒绝、
- *   被 events/pipeline-match.ts 忽略。body 两条指令本身只用已合入的 effect.discard / effect.draw。
- * 依赖：RIFT-257、HistoryQuery 消费方/契约 3.8 字段。
+ * - 812.1.c 的"与本卡不同"需要 HistoryQuery 的按卡身份排除维度；当前
+ *   interpreter/history.ts 支持对象引用 `exclude` / `objectFilter`，但 Legion
+ *   展开仍发出按 canonical card identity 的 `excluding` 字段，因此闸门无法求值；
+ * - CardProgram trigger registration and the nested self/player filter binding
+ *   are merged. The remaining gaps are the condition.predicate consumer and
+ *   Legion's canonical-card exclusion: the expansion emits `history.excluding`,
+ *   while HistoryQuery currently supports object-ref `exclude` / objectFilter,
+ *   not a canonical-card identity exclusion. body 两条指令本身只用已合入的
+ *   effect.discard / effect.draw。
  */
 const scrapyardChampion = {
   canonicalCardId: "card.hash-813e3cdd87747fd72b9679e715bca8af859194bf01e8160ea2b0bc3334d66ec7",
@@ -40,11 +42,10 @@ const scrapyardChampion = {
   status: "judge-required",
   judgeReason:
     "『discard 2, then draw 2』本体只用已合入的 effect.discard / effect.draw（CR 423.1/423.4/414.3）并有执行测试；缺口是 [Legion] 闸门：" +
-    "(1) Legion 的关键词展开（RIFT-82）已合入，但展开出的 condition.predicate 静态能力没有消费方求值；" +
+    "(1) Legion 的关键词展开已合入，但展开出的 condition.predicate 静态能力没有消费方求值；" +
     "(2) 812.1.c 要求本回合已 Finalized『与本卡不同』的另一张牌，已合入的 HistoryQuery（scope/action/timingPoint/player/object）" +
-    "仍拒绝其它字段（interpreter/history.ts 的 allowedKeys），契约 3.8 的 exclude/objectFilter 未落地；" +
-    "(3) 卡牌触发注册成实时触发依赖 RIFT-257，触发 filter 的嵌套拼写也会被 assertTriggerSpec 拒绝、被 pipeline-match 忽略。" +
-    "依赖：RIFT-257、HistoryQuery 消费者。不近似实现。",
+    "支持 exclude/objectFilter，但 Legion 展开使用的 canonical-card identity 字段 `excluding` 仍无消费方；" +
+    "触发注册及嵌套 self/player filter 绑定已合入。依赖：Legion HistoryQuery canonical-card exclusion、condition.predicate 消费者。不近似实现。",
   abilities: [
     { kind: "keyword", keyword: "legion" },
     {

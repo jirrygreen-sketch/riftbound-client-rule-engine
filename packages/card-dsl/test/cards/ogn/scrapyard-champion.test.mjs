@@ -23,7 +23,7 @@ test("scrapyard-champion: identity, ruleset, status and verbatim sourceText", ()
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /812\.1\.c/);
   assert.match(program.judgeReason, /HistoryQuery/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /condition\.predicate/);
   assert.equal(
     program.sourceText,
     "[Legion] — When you play me, discard 2, then draw 2. (Get the effect if you've played another card this turn.)"
@@ -122,10 +122,11 @@ test("scrapyard-champion: swallowing the discard's negated status would hide rea
 });
 
 test.todo(
-  "scrapyard-champion: the Legion gate needs the history query's card-exclusion dimension (812.1.c; contract 3.8 " +
-    "exclude/objectFilter) before the trigger can be honestly evaluated"
+  "scrapyard-champion: the Legion gate needs HistoryQuery canonical-card identity exclusion (812.1.c; " +
+    "the expansion emits `excluding`, while object-ref exclude/objectFilter are the only current fields) before " +
+    "the trigger can be honestly evaluated"
 );
 test.todo(
-  "scrapyard-champion: the trigger -> chain wiring for card programs (RIFT-257) is unmerged; the Legion expansion " +
-    "(RIFT-82) itself is merged but its condition.predicate has no evaluating consumer"
+  "scrapyard-champion: the Legion expansion is merged but its condition.predicate has no evaluating consumer; " +
+    "the expansion's canonical-card `excluding` history field also needs a HistoryQuery consumer"
 );

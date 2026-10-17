@@ -20,8 +20,7 @@ test("identity: canonicalCardId, ruleset, status, judgeReason, sourceText", () =
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Vision/);
-  assert.match(program.judgeReason, /RIFT-259/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /play-location-permission/);
   assert.equal(
     program.sourceText,
     "[Vision] (When you play me, look at the top card of your Main Deck. You may recycle it.)\n" +
@@ -52,7 +51,7 @@ test("open-battlefield permission is a static play-location permission for self 
 
 test("golden: the merged [Vision] expansion executes its Predict look with an ordered top-of-deck pick", () => {
   // 817.1.b: Vision is functionally "When this is played, [Predict]". The
-  // keyword expansion (RIFT-82) is merged; its look + optional recycle execute
+  // The keyword expansion is merged; its look + optional recycle execute
   // through the production adapter once the ordered top card is supplied (the
   // production lifecycle that supplies it is the remaining gap, see reason).
   const [expanded] = Vision.expand({ host: { canonicalCardId: CANONICAL } });
@@ -77,11 +76,11 @@ test("golden: the merged [Vision] expansion executes its Predict look with an or
 
 test.todo(
   "execute [Vision]: the Predict step needs the ordered top-of-deck picks contract for effect.inspect " +
-    "in the production lifecycle (its scope \"top\" negates without an upstream ordered picksSpecId) and the " +
-    "object-enters-board trigger wiring (RIFT-257); the Vision expansion itself (RIFT-82) is merged and the " +
+    "in the production lifecycle (its scope \"top\" negates without an upstream ordered picksSpecId); the Vision " +
+    "expansion itself is merged and the " +
     "engine-core Vision suite executes it with a supplied ordered pick"
 );
 test.todo(
-  "accept the open-battlefield play location at Make Relevant Choices once a consumer of " +
-    "play-location-permission exists (RIFT-90/91)"
+  "accept the open-battlefield play location at Make Relevant Choices once programs/statics.ts " +
+    "maps play-location-permission and the Finalize placement consumer reads the playLocations query"
 );

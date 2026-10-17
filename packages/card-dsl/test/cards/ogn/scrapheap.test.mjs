@@ -22,9 +22,7 @@ test("ogn-182-298 Scrapheap: identity, version and verbatim source text", () => 
   assert.match(program.judgeReason, /423\.1\.b/);
   assert.match(program.judgeReason, /activeZones/);
   assert.match(program.judgeReason, /385/);
-  assert.match(program.judgeReason, /pipeline-match/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-21/);
+  assert.match(program.judgeReason, /Trash/);
   assert.equal(program.sourceText, "When this is played, discarded, or killed, draw 1.");
 });
 
@@ -81,5 +79,6 @@ test("ogn-182-298 Scrapheap: every draw-1 instruction executes through effect.dr
 
 test.todo(
   "Scrapheap: production trigger registration for card-played / card-discarded / object-killed " +
-    "with the card's own incarnation identity (card-program adapter / RIFT-257 integration)"
+    "with the card's own incarnation identity, including a Trash active zone for card-discarded (the " +
+    "nested self filter binding is already merged)"
 );

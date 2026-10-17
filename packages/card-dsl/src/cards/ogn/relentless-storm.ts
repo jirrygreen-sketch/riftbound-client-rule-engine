@@ -22,14 +22,15 @@ import type { CardProgram } from "../../ir/index.js";
  *   exhausted true；431.3 符文不足时尽量 channel。
  *
  * status = judge-required：
- * - [Mighty] 的 KeywordDef（RIFT-264）与 continuous.might（RIFT-258）已合入，但触发 filter 的
+ * - [Mighty] 的 KeywordDef 与 continuous.might 已合入，但触发 filter 的
  *   [Mighty] 条件没有求值路径：程序里的 characteristics: { mighty: true } 是占位标记，706–709 的
  *   "Might ≥ 5" 既不是 ObjectFilter 的封闭可求值字段，也没有把谓词接进触发匹配的消费方，
  *   events/pipeline-match.ts 按快照字面属性比较会让它永不匹配。
  * - 触发式 “exhaust me” 的费用语义（415.4 / 404.1.b.1：位于效果开头的 [do X] 按费用在
  *   Finalize 支付，415.1.b/c 下已横置的来源无法支付、触发应移出链）没有接线：
  *   TriggeredAbility 无费用字段，合并管线也没有把卡牌程序里的 [do X] 转成触发费用的路径。
- * - 卡牌 triggered ability 注册成实时触发依赖 RIFT-257（card-program 绑定）。
+ * - CardProgram triggered ability registration is merged; the predicate and
+ *   leading-cost wiring below still block a live executable card.
  * effect.exhaust / effect.channel 子效果已可用，golden 用解释器实际执行该子效果。
  */
 const relentlessStorm = {
@@ -38,12 +39,12 @@ const relentlessStorm = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：[Mighty] 的 KeywordDef（RIFT-264）与 continuous.might（RIFT-258）已合入，" +
+    "两处缺口：[Mighty] 的 KeywordDef 与 continuous.might 已合入，" +
     "但 (1) 触发 filter 的 [Mighty] 条件仍没有求值路径——characteristics: { mighty: true } 是占位标记，" +
     "706–709 的 “Might ≥ 5” 既不是 ObjectFilter 的封闭可求值字段，也没有把谓词接进触发匹配的消费方，" +
     "events/pipeline-match.ts 会因快照没有该属性而永不匹配；(2) 触发效果开头 “exhaust me” 的费用语义" +
     "（404.1.b.1：费用在 Finalize 支付、不能支付则该触发移出链）没有接线——TriggeredAbility 无费用字段，" +
-    "合并管线没有把卡牌程序里的 [do X] 转成触发费用的路径；(3) 卡牌 triggered ability 注册成实时触发依赖 RIFT-257。" +
+    "合并管线没有把卡牌程序里的 [do X] 转成触发费用的路径；卡牌程序触发注册本身已合入，但不提供这两个语义消费者。" +
     "effect.exhaust / effect.channel 子效果已可用并有执行测试；整卡保持 judge-required，不近似实现。",
   abilities: [
     {
