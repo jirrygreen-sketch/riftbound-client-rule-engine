@@ -32,7 +32,7 @@ test("unl-007-219 Smite: identity, status, judgeReason and verbatim sourceText",
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /replacement\.event/);
   assert.match(program.judgeReason, /369\.1/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.match(program.judgeReason, /能力级|replacement registry/);
 });
 
 test("unl-007-219 Smite: [Action] plus a battlefield-restricted damage target", () => {
@@ -114,6 +114,5 @@ test("unl-007-219 Smite golden: the instead-body banishes the unit through the r
   assert.deepEqual(run.events.map(event => event.action), ["banish"]);
 });
 
-test.todo("unl-007-219 Smite: install the for-this-turn death replacement (CR 369.1 / 370.1.b) so the chosen unit is banished instead of dying — needs the card replacement registration path and a replaced-event ObjectSelector (RIFT-120)");
-test.todo("unl-007-219 Smite: the printed [Action] Showdown permission needs the continuous.timing consumer and the chain canAct wiring (CR 806 / 159.2.a) — RIFT-85 / RIFT-120 follow-up");
+test.todo("unl-007-219 Smite: install the for-this-turn death replacement (CR 369.1 / 370.1.b) so the chosen unit is banished instead of dying — move the declaration into the ability-level replacement lifecycle, bind the chosen unit, and plan effect.banish");
 

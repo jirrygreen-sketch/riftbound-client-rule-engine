@@ -27,7 +27,7 @@ import type { CardProgram } from "../../ir/index.js";
  * 708/710）已可用 condition.predicate 求值，但 TargetSpec.filter 不消费 Condition。
  * effect.kill 本体与 location 限制在 golden 中对锁定目标真实执行；精确的 Might 阈值不近似实现。
  *
- * 依赖：TargetPlan/TargetSpec 的有效 Might 阈値谓词（RIFT-90 后续）。无契约变更请求。
+ * 依赖：TargetPlan/TargetSpec 的有效 Might 阈値谓词（RIFT-359）。
  */
 const program = {
   canonicalCardId: "card.hash-1874eb10cc2af76bced76159e28914196dd012c232435193372275264084a018",
@@ -41,7 +41,7 @@ const program = {
     "把它当已实现会让本卡消灭任意战场单位。Mighty 关键词的阈值谓词（effects/keywords/Mighty.ts 的 mightyCondition，708/710）" +
     "已可用 condition.predicate 求值，但 TargetSpec.filter 不消费 Condition。effect.kill（429.1.a.1.a）与 location 限制" +
     "已合入并在 golden 中真实执行；整卡因阈值谓词保持 judge-required，不近似实现。依赖：TargetPlan/TargetSpec 的有效 Might" +
-    "阈值谓词（RIFT-90 后续）。",
+    "阈值谓词（RIFT-359）。",
   abilities: [
     {
       kind: "play",

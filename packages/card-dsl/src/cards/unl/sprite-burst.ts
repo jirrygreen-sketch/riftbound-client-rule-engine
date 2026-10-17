@@ -29,7 +29,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   185.2.d）；fixture 里的 entersReady 参数不在 effect.token 的 ARGUMENTS
  *   白名单内，实测直接 TypeError（"Invalid effect.token argument: entersReady"），
  *   所以它只是待办说明而不是可用 IR；
- * - Temporary 关键词展开（RIFT-265 已合入 keywords/Temporary.ts，816.1.b）只
+ * - Temporary 关键词展开（keywords/Temporary.ts，816.1.b）只
  *   解决 token 自身的触发；token 定义与就绪入场仍缺失。
  * 依赖：effect.token 定义表扩充（按 187.2 的官方 Sprite）与入场状态改写；
  * 不用其他 token 替代 Sprite，也不先创建再补 ready。
@@ -45,7 +45,7 @@ const spriteBurst = {
     "golden 用同一 mode \"play\" 形状的可解析定义证明「create on Chain → play」交接本身已可用，缺口只在定义与入场状态。" +
     "「ready」是入场状态改写（143.4 默认横置入场 / 184.1 / 185.2.d），create-token 明确不支持 entry override，" +
     "先创建再补 effect.ready 会产生错误的「成为就绪」事件；fixture 里的 entersReady 也不在 effect.token 的 ARGUMENTS 白名单内" +
-    "（实测 TypeError \"Invalid effect.token argument: entersReady\"）。Temporary 关键词展开（816.1.b，RIFT-265）只覆盖" +
+    "（实测 TypeError \"Invalid effect.token argument: entersReady\"）。Temporary 关键词展开（816.1.b）只覆盖" +
     "token 自身触发，不能替代 token 定义与入场状态。依赖：effect.token 定义表扩充与入场状态改写；不近似实现。",
   abilities: [
     {

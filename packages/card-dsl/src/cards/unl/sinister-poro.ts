@@ -31,7 +31,8 @@ import type { CardProgram } from "../../ir/index.js";
  * 已合入且被 golden 真实执行的是效果本体：effect.move 把锁定的敌方单位移到它自己的 Base
  * （controller-base 逐对象解析），并验证目标失效时按 359.3.e 被忽略。
  *
- * 依赖：RIFT-89/90（触发能力的 Finalize 费用与费用计划接线）、RIFT-33（战斗时点发射路径）。
+ * 依赖：TriggeredAbility 的 Finalize 基础费用契约、RIFT-33（战斗时点发射路径）以及
+ * sameLocationAs 目标锚点的生产绑定；不近似实现。
  */
 export default {
   canonicalCardId:
@@ -43,9 +44,10 @@ export default {
     "383.3.b/383.3.b.1 把它当作触发能力的基础费用（必须在 Finalize 支付，付不出则整条触发移出链），" +
     "383.3.e.2.a/b 的 “you may” 也是在 Finalize 决定的；契约 3.1 的 TriggeredAbility 没有 CostSpec 字段" +
     "（只有 activated/play 带 cost），因此“付 1 能量才成立 / 拒绝即移出链 / 415.4-415.5 的付得出校验”" +
-    "都无法表达，需要费用接线（RIFT-89/90）。" +
+    "都无法表达；把 cost.pay 放进 body 只会在结算时执行。" +
     "(2) attack-declared 时点（383.4.e）在已合入代码里没有发射方：combat/ 尚未接入事件管线，触发无法被真实订阅" +
-    "（同 rad/ezreal-dashing、sfd/lucian-gunslinger 的记录）。已合入且由 golden 真实执行的是效果本体：effect.move 把" +
+    "（同 rad/ezreal-dashing、sfd/lucian-gunslinger 的记录）。另外，程序目标翻译器当前拒绝 sameLocationAs，" +
+    "所以“here”还没有生产绑定路径。已合入且由 golden 真实执行的是效果本体：effect.move 把" +
     "锁定的敌方单位移到其控制者的 Base（controller-base 逐对象解析），并按 359.3.e 忽略失效目标；不近似实现。",
   abilities: [
     {
