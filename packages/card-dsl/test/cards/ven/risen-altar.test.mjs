@@ -166,11 +166,11 @@ test.todo(
 
 test.todo(
   "ven-163-166 Risen Altar: the Empower/Empowered keyword expansion (827.1.c.1 activation cost + 828.1.b.1 dependent " +
-    "ability) — effects/keywords/registry.generated.ts has no Empower/Empowered KeywordDef (RIFT-81~88 batch excludes them)"
+    "ability) — Empower KeywordDef is registered; KeywordAbility/programs/keywords.ts still do not forward params.cost"
 );
 
 test.todo(
   "ven-163-166 Risen Altar: restrict 'your units here' to this battlefield — layers/filter.ts does not implement the " +
-    "sameLocationAs (053.3 'here') anchor (the interpreter query path has it), so the declared filter would apply at " +
-    "every battlefield"
+    "structured LocationRef value comparison after staticFilter normalizes sameLocationAs (053.3 'here'), plus live-source anchor updates; no proof covers " +
+    "the intended battlefield"
 );

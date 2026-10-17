@@ -1,3 +1,6 @@
+import { createActionPipelineHost, bindResolveContext } from "../../../../engine-core/dist/events/action-adapter.js";
+import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
+import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -52,7 +55,7 @@ test("ven-092-166 Renekton: identity, ruleset, status, judgeReason and verbatim 
   assert.equal(cardRegistryById.get(CANONICAL), program);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /might-changed/);
-  assert.match(program.judgeReason, /RIFT-360/);
+  assert.match(program.judgeReason, /createTargetTaxAdapter/);
   assert.doesNotMatch(program.judgeReason, /RIFT-(87|89|90|120)/);
   assert.doesNotMatch(program.judgeReason, /RIFT-91/);
   assert.doesNotMatch(program.judgeReason, /没有注册的 Might 修正原语/);
@@ -137,7 +140,7 @@ test("ven-092-166 golden: 'empower me' empowers the ability source through the r
   });
 });
 
-test("ven-092-166: [Empowered][>] grants Deflect and Ganking behind the descriptive Empowered gate", () => {
+test("ven-092-166: [Empowered][>] grants Deflect and Ganking behind the live Empowered gate", () => {
   assert.equal(keywordGrant.kind, "static");
   // 828.1.b.1 的依赖能力：只在宿主 Empowered 时授予两个关键词（809/810）。
   // continuous.grant-keyword 的指令与 static 绑定已合入；缺的是关键词的下游图层消费方，故按契约写出 shape。
@@ -145,6 +148,9 @@ test("ven-092-166: [Empowered][>] grants Deflect and Ganking behind the descript
     kind: "continuous.grant-keyword",
     keywords: [{ id: "Deflect" }, { id: "Ganking" }],
     appliesTo: "self"
+  });
+  assert.deepEqual(keywordGrant.condition.left, {
+    kind: "object-property", object: "self", property: "empowered"
   });
   assert.equal(keywordGrant.condition.kind, "compare");
   assert.equal(keywordGrant.condition.operator, "gte");
@@ -176,7 +182,47 @@ test.todo(
 );
 
 test.todo(
-  "ven-092-166 Renekton: the [Empowered][>] grant of [Deflect] and [Ganking] needs an Empowered predicate (442.1.a) " +
-    "plus keyword consumers — Deflect's target tax (RIFT-360) and Ganking's movement permission, which the " +
-    "movement system leaves unread (continuous.grant-keyword itself is merged)"
+  "ven-092-166 Renekton: the [Empowered][>] grant of [Deflect] and [Ganking] needs the production ObjectSnapshot.empowered contract (442.1.a) " +
+    "plus production consumers — the merged Deflect target tax collector must enter Chain Finalize as Power, and " +
+    "granted Ganking must enter standard movement (continuous.grant-keyword and rule queries are merged)"
 );
+
+test("ven-092-166 Renekton regression: the original keyword grant follows real Empower and Disempower actions", () => {
+  const { kernel, engine } = staticFixture([
+    { id: "renekton", cardId: CANONICAL, types: ["unit"], zone: "board", might: 9 }
+  ]);
+  const source = kernel.getObject("renekton");
+  createEngineStaticBinder(engine).bindStatic(keywordGrant, source);
+  assert.deepEqual(engine.layers.snapshot(source.ref).keywords, []);
+  assert.equal(engine.commit({ type: "empower", object: source.ref }).status, "done");
+  assert.deepEqual(engine.layers.snapshot(source.ref).keywords.map(keyword => keyword.id), ["Deflect", "Ganking"]);
+  assert.equal(engine.commit({ type: "disempower", object: source.ref }).status, "done");
+  assert.deepEqual(engine.layers.snapshot(source.ref).keywords, []);
+});
+
+
+function staticFixture(cards) {
+  const builder = world().player("A", { energy: 20 }).player("B", { energy: 20 })
+    .unit("source", { might: 2, location: { type: "base", player: "A" } })
+    .unit("enemy", { owner: "B", might: 5, location: { type: "base", player: "B" } });
+  for (const card of cards) builder.object(card.id, { location: { type: "base", player: "A" }, ...card });
+  const kernel = builder.build();
+  const host = createActionPipelineHost({
+    checkpoint: () => kernel.snapshot(), restore: state => kernel.restore(state),
+    objects: () => kernel.objects, perform: action => kernel.perform(action),
+    choose: request => kernel.choose(request),
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint })
+  });
+  const engine = new ChainEngine({ host, turnOrder: ["A", "B"], turnPlayer: "A", cleanup: engine => {
+    engine.layers.setObjects(kernel.objects);
+    let changed = false;
+    for (const object of engine.layers.evaluateAll()) {
+      if (object.zone === "board" && object.types.includes("unit") && object.might !== null &&
+          (object.might <= 0 || object.damage >= object.might)) {
+        changed = engine.commit({ type: "kill", object: object.ref }).status === "done" || changed;
+      }
+    }
+    return changed;
+  } });
+  return { kernel, engine };
+}

@@ -53,9 +53,9 @@ test("ven-152-166 Rebuttal: judgeReason names the real branch, printed-cost pred
   assert.match(program.judgeReason, /payments\.power/);
   assert.match(program.judgeReason, /750-755/);
   assert.match(program.judgeReason, /753\.2/);
-  assert.match(program.judgeReason, /RIFT-357/);
-  assert.match(program.judgeReason, /RIFT-358/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /通用地点选择/);
+  assert.match(program.judgeReason, /choice\.remake-chain-item-choices/);
+  assert.match(program.judgeReason, /condition\.result/);
   assert.doesNotMatch(program.judgeReason, /RIFT-(89|90|120)/);
   assert.doesNotMatch(program.judgeReason, /cost\.pay 原语虽已注册/);
   assert.doesNotMatch(program.judgeReason, /没有 \[A\] 付费种类/);
@@ -249,7 +249,7 @@ test("ven-152-166 Rebuttal golden: both merged clauses ignore a chain item that 
 test.todo(
   "ven-152-166 Rebuttal: 'a spell with Energy cost no more than :rb_energy_4:' must restrict target legality by the " +
     "printed/copied cost (CR 206 / 206.1, ignoring paid additional costs) — needs a printed-cost target predicate in the " +
-    "target/chain condition plan (RIFT-359); today the descriptive energyMax key is evaluated by no merged code"
+    "target/chain condition plan (programs/filters.ts); today the descriptive energyMax key is evaluated by no merged code"
 );
 
 test.todo(
@@ -260,5 +260,5 @@ test.todo(
 test.todo(
   "ven-152-166 Rebuttal: 'you may make new choices for it' (CR 750-755) needs chain/target-plan re-selection: remake " +
     "locations/modes/destinations/targets only (752.1), remake all of them (753/753.3), negate when no legal choice exists " +
-    "(753.2), re-trigger targeting effects (754) and ignore resulting to-play costs (755) — RIFT-357/RIFT-358/RIFT-359"
+    "(753.2), re-trigger targeting effects (754) and ignore resulting to-play costs (755) — chain item choice-plan rebuild adapter"
 );

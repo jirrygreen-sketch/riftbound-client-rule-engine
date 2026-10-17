@@ -1,3 +1,4 @@
+import { buildHiddenCostPlan } from "../../../../engine-core/dist/cost/kinds/hidden.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -38,8 +39,8 @@ test("ven-034-166 Resonating Strike: identity, ruleset, status, judgeReason and 
   assert.match(program.judgeReason, /355\.11/);
   assert.match(program.judgeReason, /continuous\.might/);
   assert.match(program.judgeReason, /811/);
-  assert.match(program.judgeReason, /RIFT-357/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /target\.location/);
+  assert.match(program.judgeReason, /differentLocationThan/);
   assert.doesNotMatch(program.judgeReason, /RIFT-(89|90|120)/);
 });
 
@@ -50,7 +51,7 @@ test("ven-034-166 Resonating Strike: both printed keywords are declared only", (
   assert.equal(reactionKeyword.value, undefined);
 });
 
-test("ven-034-166 Resonating Strike: printed cost, the two Finalize choices and the descriptive destination", () => {
+test("ven-034-166 Resonating Strike: printed cost, the two Finalize choices and the symbolic destination", () => {
   assert.deepEqual(play.cost, {
     kind: "cost.printed",
     energy: { kind: "constant", value: 2 },
@@ -58,15 +59,14 @@ test("ven-034-166 Resonating Strike: printed cost, the two Finalize choices and 
   });
 
   // 355.4/355.4.a: the Move destination is the chosen battlefield, a runtime
-  // Location with no merged selector. The authored marker is rejected by
-  // effect.move's destination() instead of silently moving to a guessed place.
+  // Location resolved from the finalized battlefield target by the interpreter.
   assert.equal(moveInstruction.id, "resonating-strike.move-unit");
   assert.equal(moveInstruction.op, "effect.move");
-  assert.equal(moveInstruction.args.to.value.kind, "destination-selector");
-  assert.deepEqual(moveInstruction.args.to.value.filter, {
-    type: "battlefield",
-    controller: "self"
+  assert.deepEqual(moveInstruction.args.to, {
+    kind: "location",
+    value: { kind: "target-location", target: battlefieldSpec.id }
   });
+  assert.deepEqual(battlefieldSpec.filter, { type: "battlefield", controller: "self" });
   assert.deepEqual(moveInstruction.args.amount, { kind: "constant", value: 1 });
   assert.deepEqual(moveInstruction.args.linkKey, { kind: "constant", value: "moved" });
 
@@ -105,9 +105,8 @@ test("ven-034-166 Resonating Strike: printed cost, the two Finalize choices and 
 });
 
 test("ven-034-166 Resonating Strike golden: the merged Move really relocates the unit", () => {
-  // The destination marker itself is the unmerged half; the Move body is merged
-  // and is exercised with an equivalent literal Location so the relocation and
-  // its link receipt are proven for real.
+  // Isolate the Move primitive with a literal Location and verify its receipt.
+  // The original symbolic destination and linked body execute in the regression below.
   const kernel = world()
     .unit("ally", { zone: "board", location: { type: "base", player: "A" } })
     .build();
@@ -164,24 +163,63 @@ test("ven-034-166 Resonating Strike golden: +2 Might this turn registers on the 
   assert.deepEqual(registration.duration, { type: "end-of-turn" });
 });
 
-test.todo(
-  "ven-034-166 Resonating Strike: move the chosen unit to the chosen battlefield (355.4/355.4.a) — the " +
-    "runtime Location selector is unmerged; effect.move only takes static LocationRefs / controller-base / " +
-    "static candidate lists (RIFT-357 location plan)"
-);
+test("ven-034-166 Resonating Strike regression: the original linked body moves to the selected battlefield then grants +2", () => {
+  const kernel = world()
+    .unit("ally", { might: 3, location: { type: "base", player: "A" } })
+    .unit("battlefield", { types: ["battlefield"], location: { type: "battlefield", id: "bf-2" } })
+    .build();
+  kernel.setTargets(unitSpec.id, [kernel.ref("ally")]);
+  kernel.setTargets(battlefieldSpec.id, [kernel.ref("battlefield")]);
+  const outcome = runAbilityBody(play.body, finalizedContext(kernel));
+  assert.deepEqual(outcome.results.map(entry => [entry.id, entry.result.status]), [
+    [moveInstruction.id, "executed"], [mightInstruction.id, "executed"]
+  ]);
+  assert.deepEqual(kernel.getObject("ally").location, { type: "battlefield", id: "bf-2" });
+  assert.deepEqual(outcome.events.map(event => event.action), ["move-location"]);
+  assert.equal(outcome.linkedValues[`${moveInstruction.id}.moved`].count, 1);
+  const [registration] = kernel.continuousEffects;
+  assert.equal(registration.effect.filter.objectId, "ally");
+  assert.equal(registration.effect.effect.amount, 2);
+  assert.deepEqual(registration.duration, { type: "end-of-turn" });
+});
 
 test.todo(
   "ven-034-166 Resonating Strike: enforce 'a unit you control at a different location' as a 355.11 group " +
     "restriction over both targets, and the 190 battlefield-control predicate for 'a battlefield you control' " +
-    "— the merged target plan and filter vocabulary have neither (RIFT-357/RIFT-359)"
+    "— programs/filters.ts and target-plan still lack the cross-target/battlefield-control adapter"
 );
 
 test.todo(
   "ven-034-166 Resonating Strike: give the moved unit +2 Might this turn — the +2 arithmetic registration is " +
-    "proven by golden, but its linked placement behind the Move needs the destination/group-restriction plan first"
+    "proven with the original linked body, but production Finalize still needs the group-restriction plan"
 );
 
 test.todo(
   "ven-034-166 Resonating Strike: [Hidden] (811) — the Hide action, the facedown zone, free play from facedown " +
-    "and the 811.1.d.2 target narrowing all lack a consumer for the merged cost.hidden expansion"
+    "and the 811.1.d.2 target narrowing need a consumer for cost.hidden; buildHiddenCostPlan already supports both costs"
 );
+
+function finalizedContext(kernel) {
+  return bindResolveContext(kernel, { query: filter => {
+    const normalized = { ...filter };
+    for (const key of ["controller", "owner"]) {
+      if (normalized[key] === "self" || normalized[key] === "controller") normalized[key] = kernel.controller;
+      if (normalized[key] === "opponent") normalized[key] = kernel.playerIds().find(id => id !== kernel.controller);
+    }
+    return kernel.query(normalized);
+  } });
+}
+
+test("ven-034-166 Resonating Strike: Hidden cost plans already support the [A] hide cost and zero base play cost", () => {
+  const base = world().hand("strike", { types: ["spell"], energy: 2, power: ["Calm"] }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("strike") });
+  const hide = buildHiddenCostPlan(kernel, { id: "strike:hide", mode: "hide", domains: [] });
+  assert.equal(hide.total.energy, 0);
+  assert.equal(hide.total.power[0].amount, 1);
+  assert.deepEqual(hide.total.power[0].allowedDomains, ["Fury", "Calm", "Mind", "Body", "Chaos", "Order"]);
+  const playHidden = buildHiddenCostPlan(kernel, { id: "strike:play-hidden", mode: "play" });
+  assert.equal(playHidden.total.energy, 0);
+  assert.deepEqual(playHidden.total.power, []);
+  assert.deepEqual(playHidden.printed, { energy: 2, power: ["Calm"] });
+  assert.equal(kernel.getObject("strike").zone, "hand", "cost planning alone does not perform Hide or Play");
+});

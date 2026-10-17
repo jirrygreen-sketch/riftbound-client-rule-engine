@@ -1,3 +1,5 @@
+import flowDefinition from "../../../../engine-core/dist/effects/keywords/Flow.js";
+import { buildCostPlan, payCostPlan, DUEL_DOMAINS } from "../../../../engine-core/dist/cost/index.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -77,7 +79,7 @@ test("ven-154-166 Public Execution: judgeReason names the relative-Might target 
   assert.match(program.judgeReason, /355\.9\.b/);
   assert.match(program.judgeReason, /143\.2\.a/);
   assert.match(program.judgeReason, /mightLessThanTarget/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.match(program.judgeReason, /target\/target-plan/);
   assert.match(program.judgeReason, /Flow/);
   assert.match(program.judgeReason, /params\.cost/);
   assert.ok(!/RIFT-266/.test(program.judgeReason));
@@ -239,7 +241,7 @@ test("ven-154-166 Public Execution golden: the kill primitive itself refuses a s
 test.todo(
   "ven-154-166 Public Execution: 'an enemy unit with less Might than it' (355.9.b / 143.2.a) must be enforced while the " +
     "targets are chosen, not only at resolve — needs a relative-characteristic target predicate in the target/chain plan " +
-    "(in-flight RIFT-359 condition predicates / RIFT-360 target side); today the descriptive mightLessThanTarget key " +
+    "(programs/filters.ts and target-plan relative predicates); today the descriptive mightLessThanTarget key " +
     "is evaluated by no merged code"
 );
 
@@ -248,3 +250,27 @@ test.todo(
     "then-banish replacement (829.1.b/829.1.c) need the card-program -> KeywordDef params.cost forwarding, " +
     "Flow alternate-cost Finalize consumer, and replacement.event chain wiring"
 );
+
+test("ven-154-166 Public Execution: the merged Flow cost planner selects the printed 5 Energy and two any-domain Power", () => {
+  const base = world().player("A", { energy: 5, power: ["Fury", "Calm"] })
+    .card("execution", { zone: "trash", types: ["spell"], energy: 2, power: ["Body"] }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("execution") });
+  const cost = { kind: "explicit", energy: { kind: "constant", value: 5 },
+    payments: [{ kind: "power", amount: { kind: "constant", value: 2 }, allowedDomains: DUEL_DOMAINS }] };
+  const [declaration, replacement] = flowDefinition.expand({ host: { canonicalCardId: CARD_ID }, params: { cost } });
+  assert.deepEqual(declaration.effect.cost, cost);
+  assert.equal(declaration.effect.sourceZone, "trash");
+  const plan = buildCostPlan(kernel, { id: "execution:flow", cost: { kind: "printed" },
+    baseModifications: [{ id: "execution:flow", kind: "flow", cost: declaration.effect.cost }] });
+  assert.equal(plan.total.energy, 5);
+  assert.equal(plan.total.power.length, 1);
+  assert.equal(plan.total.power[0].amount, 2);
+  assert.deepEqual(plan.total.power[0].allowedDomains, DUEL_DOMAINS);
+  const receipt = payCostPlan(kernel, plan);
+  assert.equal(receipt.paid, true);
+  assert.equal(kernel.player("A").energy, 0);
+  assert.deepEqual(receipt.actions[0].action.plan.power, ["Fury", "Calm"]);
+  assert.equal(replacement.replaces.event, "object-leaves-chain");
+  assert.equal(replacement.replaces.filter.leavingInstruction, false);
+  assert.equal(replacement.with[0].op, "effect.banish");
+});
