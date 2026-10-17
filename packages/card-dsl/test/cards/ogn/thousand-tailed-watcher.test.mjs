@@ -26,10 +26,9 @@ test("Thousand-Tailed Watcher identity and judge-required reason", () => {
   );
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /continuous\.might/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /478\.1\.c/);
+  assert.match(program.judgeReason, /Accelerate/);
+  assert.match(program.judgeReason, /optionalAdditional/);
+  assert.match(program.judgeReason, /805\.6\.a/);
   assert.equal(
     program.sourceText,
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_mind: as an additional cost to have me enter ready.)\n" +
@@ -137,13 +136,17 @@ test("golden: the debuff registers -3 Might this turn on the enemy units only, w
   assert.equal(engine.evaluate(kernel.ref("enemy-5")).might, 5);
 });
 
-test.todo(
-  "Thousand-Tailed Watcher: bind the card-played CardProgram trigger through the complete program " +
-    "adapter (RIFT-257), including the filter { role: 'self' } self anchor"
-);
+test("Thousand-Tailed Watcher: merged binding normalizes the own-play anchor and expands Accelerate", async () => {
+  const { translateTriggerFilter, expandProgram } = await import("../../../../engine-core/dist/programs/index.js");
+  const kernel = world().unit("watcher", { cardId: program.canonicalCardId }).build();
+  assert.deepEqual(translateTriggerFilter(triggered.trigger.filter, "watcher", "card-played"), {
+    event: "card-played", object: { objectId: "watcher" }
+  });
+  const expanded = expandProgram(program, kernel.getObject("watcher"));
+  assert.deepEqual(expanded.expanded.map(ability => ability.kind), ["static", "replacement"]);
+  assert.equal(expanded.expanded[0].effect.kind, "accelerate.cost");
+  assert.deepEqual(expanded.expanded[0].effect.cost.payments.map(payment => payment.kind), ["energy", "power"]);
+  assert.equal(expanded.expanded[1].with[0].op, "effect.ready");
+});
 
-test.todo(
-  "Thousand-Tailed Watcher: [Accelerate] expansion — consume effects/keywords/Accelerate.ts " +
-    "(optional {1 energy + 1 Mind power} additional cost, RIFT-261, plus the 805.6 enter-ready " +
-    "replacement) through the production program binding"
-);
+test.todo("Thousand-Tailed Watcher: bind the paid Accelerate optionalAdditional choice to the delayed enter-ready replacement without object-readied (CR 805.2.b / 805.6.a)");

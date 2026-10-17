@@ -21,8 +21,9 @@ test("ogn-186-298 Treasure Trove: identity, version and verbatim multiline sourc
   );
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /pipeline-match/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /383\.2\.c\.3/);
+  assert.match(program.judgeReason, /detachSource/);
+  assert.match(program.judgeReason, /object-left-zone/);
   assert.equal(
     program.sourceText,
     "When this leaves the board, draw 1 and channel 1 rune exhausted.\n" +
@@ -37,7 +38,7 @@ test("ogn-186-298 Treasure Trove: leave-board trigger draws 1 and channels 1 exh
   assert.equal(leaveTrigger.kind, "triggered");
   assert.equal(leaveTrigger.trigger.at, "object-leaves-board");
   assert.deepEqual(leaveTrigger.trigger.filter, {
-    event: "object-leaves-board",
+    event: "object-left-zone",
     filter: { role: "self" }
   });
   assert.equal(leaveTrigger.optional, false);
@@ -107,12 +108,94 @@ test("ogn-186-298 Treasure Trove: kill-this half kills the source gear through e
   assert.equal(instruction.args.self.value, true);
 });
 
-test.todo(
-  "Treasure Trove: production object-leaves-board trigger registration with last-known source information " +
-    "(383.2.c.3 / card-program trigger adapter, RIFT-257 programs/triggers.ts, whose " +
-    "translateTriggerFilter normalizes the role/self anchor the merged matcher ignores)"
-);
-test.todo(
-  "Treasure Trove: pay 1 Chaos Power plus exhaust-this at Finalize before the kill-self ability resolves " +
-    "(chain cost plan + the activated-ability program binding, RIFT-257/RIFT-261)"
-);
+test("Treasure Trove: the own-leave filter matches actual action-producer emissions only for this source", async () => {
+  const { fixture } = await import("../../../../engine-core/test/chain/helpers.mjs");
+  const { translateTriggerFilter } = await import("../../../../engine-core/dist/programs/filters.js");
+  const { matchesTriggerEvent } = await import("../../../../engine-core/dist/events/pipeline-match.js");
+  const f = fixture({ cards: [{ id: "trove", cardId: program.canonicalCardId, types: ["gear"], power: ["Chaos"] }] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("trove"), to: "board", location: { type: "base", player: "A" } });
+  const filter = translateTriggerFilter(program.abilities[0].trigger.filter, "trove", "object-leaves-board");
+  const own = f.host.execute({ type: "kill", object: f.kernel.ref("trove") }).emissions.find(event => event.timingPoint === "object-leaves-board");
+  assert.equal(own.kind, "object-left-zone");
+  assert.equal(matchesTriggerEvent(filter, own, "A"), true);
+  assert.equal(own.object.zone, "board");
+  const other = f.host.execute({ type: "kill", object: f.kernel.ref("enemy") }).emissions.find(event => event.timingPoint === "object-leaves-board");
+  assert.equal(matchesTriggerEvent(filter, other, "A"), false);
+});
+
+test("Treasure Trove: the merged activated binding pays exhaust at Finalize before kill-this", async () => {
+  const { fixture, resolveAll } = await import("../../../../engine-core/test/chain/helpers.mjs");
+  const { createProgramBinding } = await import("../../../../engine-core/dist/programs/index.js");
+  // Bind only the supported activated ability, keeping the blocked leave
+  // lifecycle outside this component test.
+  const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined, abilities: [program.abilities[1]] }] });
+  const f = fixture({ cards: [{ id: "trove", cardId: program.canonicalCardId, types: ["gear"], power: ["Chaos"] }] });
+  f.kernel.addPlayer("A", { power: ["Chaos"] });
+  f.engine.commit({ type: "move-zone", object: f.kernel.ref("trove"), to: "board", location: { type: "base", player: "A" } });
+  f.engine.advance();
+  const draft = binding.describeActivate(f.kernel.getObject("trove"), "A");
+  assert.deepEqual(draft.body, program.abilities[1].body);
+  f.engine.execute(draft);
+  assert.equal(f.kernel.getObject("trove").exhausted, true);
+  assert.equal(f.kernel.getObject("trove").zone, "board");
+  const [item] = f.engine.items;
+  assert.equal(item.status, "finalized");
+  assert.equal(item.payment.paid, true);
+  assert.deepEqual(item.costPlan.total.power, [{ amount: 1, allowedDomains: ["Chaos"] }]);
+  resolveAll(f.engine);
+  assert.equal(f.kernel.getObject("trove").zone, "trash");
+  const timings = f.engine.pipeline.events.map(event => event.timingPoint);
+  assert.ok(timings.indexOf("object-exhausted") < timings.indexOf("object-killed"));
+});
+
+test("Treasure Trove: the original leave body draws and submits the exhausted-channel action through the interpreter", async () => {
+  const { resolveChainBody } = await import("../../../../engine-core/dist/chain/interpreter-adapter.js");
+  const base = world().unit("trove", { types: ["gear"] }).deck(["top"]).rune(["rune"]).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("trove") });
+  const { bindResolveContext } = await import("../../../../engine-core/dist/events/action-adapter.js");
+  const actions = [];
+  const result = resolveChainBody(program.abilities[0].body, bindResolveContext(kernel, {
+    perform: action => { actions.push(action); return kernel.perform(action); }
+  }));
+  assert.equal(result.status, "executed");
+  assert.deepEqual(result.events.map(event => event.action), ["draw", "channel-rune"]);
+  assert.equal(kernel.player("A").handSize, 1);
+  assert.equal(kernel.getObject("rune").zone, "rune-zone");
+  assert.deepEqual(actions, [
+    { type: "draw", player: "A", amount: 1 },
+    { type: "channel-rune", player: "A", amount: 1, exhausted: true }
+  ]);
+});
+
+test.todo("Treasure Trove: preserve the own-leave registration until deferred event scanning captures LKI, then detach it (CR 383.2.c.3/a/b; programs/lifecycle + events/pipeline.publish)", async () => {
+  const { fixture, resolveAll } = await import("../../../../engine-core/test/chain/helpers.mjs");
+  const { createProgramBinding } = await import("../../../../engine-core/dist/programs/index.js");
+  // Test the desired lifecycle with the authored IR; this TODO is not evidence
+  // that the judge-required registry entry can be enabled in production.
+  const binding = createProgramBinding({ cardPrograms: [{ ...program, status: "executable", judgeReason: undefined }] });
+  const f = fixture({ cards: [{ id: "trove", cardId: program.canonicalCardId, types: ["gear"] }] });
+  const lifecycle = binding.attachLifecycle(f.engine);
+  try {
+    f.engine.commit({ type: "move-zone", object: f.kernel.ref("trove"), to: "board", location: { type: "base", player: "A" } });
+    f.engine.advance();
+    f.engine.commit({ type: "kill", object: f.kernel.ref("trove") });
+    assert.equal(f.kernel.getObject("trove").zone, "trash");
+    assert.equal(f.engine.items.length, 1);
+    assert.equal(f.engine.items[0].source.zone, "board");
+    assert.deepEqual(f.engine.items[0].body, program.abilities[0].body);
+    const handBefore = f.kernel.player("A").handSize;
+    resolveAll(f.engine);
+    assert.equal(f.kernel.player("A").handSize, handBefore + 1);
+  } finally {
+    lifecycle.detach();
+  }
+});
+
+test.todo("Treasure Trove: channel-rune must consume exhausted:true as the rune entry state, without a later exhaust action (CR 431.2; effects/testing/test-kernel action consumer)", () => {
+  const kernel = world().rune(["rune"]).build();
+  const run = runInstruction(channel, program.abilities[0].body[1].args, { world: kernel });
+  assert.equal(run.result.status, "executed");
+  assert.equal(kernel.getObject("rune").zone, "rune-zone");
+  assert.equal(kernel.getObject("rune").exhausted, true);
+  assert.deepEqual(run.events.map(event => event.action), ["channel-rune"]);
+});

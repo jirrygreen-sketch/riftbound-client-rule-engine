@@ -1,62 +1,19 @@
 import type { CardProgram } from "../../ir/index.js";
 
 /**
- * Viktor, Innovator (ogn-117-298) — Unit, 4 energy + 1 Mind power, Might 3，
- * 标签 Viktor / Zaun / Champion。
- *
- * 原文：When you play a card on an opponent's turn, play a 1 :rb_might: Recruit
- *      unit token in your base.
- *
- * 规则依据（CR v1.5）：
- * - "When you play a card on an opponent's turn"：打出牌事件的触发；
- *   383.1.a 说明识别句不必在句首；触发时点 card-played（420.4.a：打出动作完成
- *   后触发）。"on an opponent's turn" 是触发条件的一部分（"当…时"之后的条件
- *   从句，383.2.a.1 属于触发条件），不是结算时的例外。
- * - 触发者："you" 指本能力控制者 → 事件载荷的 player 必须是 controller。
- *   当前时点载荷带有 activePlayerId / player（events/pipeline.ts 把
- *   emission.player 透传），但 TriggerSpec 的 ObjectFilter/EventPattern 里没有
- *   “事件发生时的回合玩家不是控制者”这一谓词（只有 controller/owner 选择符）。
- * - "play a 1 [M] Recruit unit token in your base"：440.2.c / 185.2.a 规定被
- *   “played”的 token 先在链上生成再由 play 动作接手；187.1 的 Recruit 单位 token
- *   为 1 Might。effect.token 的 mode "play" 走 create-token(to: chain) + play，
- *   已合入并可用（见 golden）。
- *
- * 状态：judge-required。token 打出链路本身已能真实执行（下方 golden 用真实原语
- * 跑通「链上生成 → play 到基地」），受阻的是触发条件与触发绑定：
- * - “on an opponent's turn” 需要在触发时比较事件发生的回合玩家与能力控制者。
- *   复核合并代码后，continuous.timing（RIFT-259）只注册「速度许可」（grants/
- *   timings 是 Action/Reaction 一类速度名），没有回合归属谓词；冻结的
- *   TriggerSpec 也只有 at / filter / condition / once，filter 里的
- *   ObjectFilter/EventPattern 只暴露 object/source/target 的 controller/owner
- *   选择符与事件 player，没有“当前回合玩家”读数，condition 的 Expr 也没有
- *   （history 计数按 action/timingPoint/player 过滤，不区分为谁的回合）。
- *   程序里 condition 的常数字符串是占位描述值：真实解释器把它当普通常量求值为真，
- *   因此绝不能作为可执行语义。
- * - 触发能力没有 CardProgram → TriggerRegistration 的注册路径（RIFT-257）；
- *   events/pipeline.registerTrigger 目前只被可信内核适配器调用。
- * - 另外触发 filter 里的 `player: "controller"` 不是 engine ObjectFilter/
- *   EventPattern 的合法选择符（validateTriggerSpec 只接受 self/opponent/any/
- *   playerId 对象）；引擎侧应以事件 player 与条件的组合表达，属上面缺口的同一处。
- * - 因此本卡不得声称整卡可执行；token 部分的执行证据只证明局部原语正确。
- *
- * 依赖：RIFT-257（CardProgram 触发绑定）、回合归属谓词（continuous.timing 族的
- * 后续任务）。
+ * Viktor, Innovator — CR v1.5 383.2.a.1, 187.1, 185.2.a, 440.2.c.
+ * Trigger registration and token Expr dispatch are merged. The remaining gaps
+ * are trigger-time turn ownership (RIFT-359) and controller-base location binding
+ * (RIFT-357). mode:play already hands the newly created Chain token to play.
  */
 const viktorInnovator = {
   canonicalCardId: "card.hash-27a69aef36a430f79f170618dfa72e36b2605b39fa8a3a67366ac01669844aa0",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「on an opponent's turn」这个触发条件无法判定：已合入的 continuous.timing（RIFT-259）只注册速度许可" +
-    "（grants/timings 为 Action/Reaction 等速度名），没有回合归属谓词；冻结的 TriggerSpec 只有 at / filter / " +
-    "condition / once，ObjectFilter/EventPattern 只支持 object/source/target 的 controller/owner 选择符与事件 " +
-    "player，没有「事件发生时的回合玩家不是能力控制者」读数；history 计数也只按 action / timingPoint / player " +
-    "过滤，不区分回合归属。程序 condition 里的常数字符串只是占位描述值，解释器按普通常量求值为真，不构成语义。" +
-    "触发能力也没有 CardProgram → TriggerRegistration 的注册路径（RIFT-257；events/pipeline.registerTrigger " +
-    "只被可信内核适配器调用），且 filter 的 player: \"controller\" 不是 validateTriggerSpec 的合法选择符" +
-    "（只接受 self/opponent/any/playerId 对象）。" +
-    "token 部分（440.2.c / 185.2.a / 187.1 Recruit）已能真实执行，但不构成整卡可执行。" +
-    "依赖：RIFT-257 与回合归属谓词（continuous.timing 后续），不近似实现。",
+    "「on an opponent's turn」需要 CR 383.2.a.1 的触发时回合归属谓词；Condition/Expr 目前不能读取事件的 activePlayerId，常数字符串占位不构成语义（条件谓词 RIFT-359）。" +
+    "「in your base」还需把 controller 绑定为合法 LocationRef；effect.token 不解析 {type:base,player:controller}，需位置绑定 RIFT-357。" +
+    "CardProgram 触发注册和 player:controller→self 归一化已合入，resolveChainBody 也已适配 effect.token 的 Expr schema；mode:play 自行创建 Chain token 并交给 play，不应再追加第二次 effect.play。整卡等待回合谓词与基地绑定。",
   abilities: [
     {
       kind: "triggered",
@@ -90,22 +47,6 @@ const viktorInnovator = {
               value: { type: "base", player: "controller" }
             },
             linkKey: { kind: "constant", value: "recruitToken" }
-          }
-        },
-        {
-          id: "viktor.finish-recruit",
-          op: "effect.play",
-          linkedTo: "viktor.play-recruit",
-          args: {
-            object: {
-              kind: "linked-value",
-              instructionId: "viktor.play-recruit",
-              key: "recruitToken.objects"
-            },
-            location: {
-              kind: "constant",
-              value: { type: "base", player: "controller" }
-            }
           }
         }
       ]

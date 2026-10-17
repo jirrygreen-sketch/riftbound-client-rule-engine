@@ -6,6 +6,7 @@ import program from "../../../dist/cards/ogn/tideturner.js";
 const engineCore = new URL("../../../../engine-core/dist/", import.meta.url);
 const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js", engineCore));
 const { world } = await import(new URL("effects/testing/index.js", engineCore));
+const { bindResolveContext } = await import(new URL("events/action-adapter.js", engineCore));
 
 const CANONICAL = "card.hash-2e073bafe3ab30d9d490463b071263df4273ed757b8f819b07328932fa2b04a5";
 const SOURCE_TEXT =
@@ -16,25 +17,6 @@ const SOURCE_TEXT =
 const [keyword, triggered] = program.abilities;
 const [swap] = triggered.body;
 const [origin, chosenLocation, moveMe, moveChosen] = swap.args.body.value;
-
-/** 剥离 IR 里的目标声明，模拟 Finalize 已锁定目标后的解释器调用（契约 3.6）。 */
-function withLockedTargets(body) {
-  return body.map(({ targets, picks, ...rest }) => rest);
-}
-
-/** 递归剥离 choice.optional body 里的目标声明。 */
-function withLockedChoiceTargets(instruction) {
-  return {
-    ...instruction,
-    args: {
-      ...instruction.args,
-      body: {
-        ...instruction.args.body,
-        value: withLockedTargets(instruction.args.body.value)
-      }
-    }
-  };
-}
 
 test("tideturner: passes validateCardProgram", () => {
   const result = validateCardProgram(program);
@@ -48,9 +30,9 @@ test("tideturner: identity, ruleset, status, judgeReason and sourceText", () => 
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /Hidden/);
   assert.match(program.judgeReason, /Facedown Zone/);
+  assert.match(program.judgeReason, /assertFinalizationSurface/);
+  assert.match(program.judgeReason, /RIFT-357/);
   assert.equal(program.sourceText, SOURCE_TEXT);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-261/);
 });
 
 test("tideturner: [Hidden] keyword + play trigger with a choice.optional body", () => {
@@ -131,8 +113,10 @@ test("tideturner golden: accepting swaps the two units' locations", () => {
   kernel.setAnswers({ "tideturner.swap/optional": true });
 
   const outcome = resolveChainBody(
-    triggered.body.map(withLockedChoiceTargets),
-    kernel
+    triggered.body,
+    bindResolveContext(kernel, {
+      query: filter => kernel.query({ ...filter, controller: filter.controller === "self" ? kernel.controller : filter.controller })
+    })
   );
   assert.equal(outcome.status, "executed");
   assert.deepEqual(outcome.results.map((entry) => [entry.id, entry.result.status]), [
@@ -165,13 +149,12 @@ test("tideturner golden: declining performs no move", () => {
   assert.deepEqual(outcome.events, []);
 });
 
-test.todo(
-  "tideturner: [Hidden] 的藏牌、后续 [Reaction] 与 0 能量打出（811.1.d / 811.5）依赖 Hide 的" +
-    "面向区域契约（Facedown Zone）与 cost.hidden 消费方（展开已合入，运行时未接线；RIFT-261）"
-);
+test("tideturner: the merged trigger adapter binds only this card's play event", async () => {
+  const { translateTriggerFilter } = await import("../../../../engine-core/dist/programs/filters.js");
+  assert.deepEqual(translateTriggerFilter(triggered.trigger.filter, "tideturner", "card-played"), {
+    event: "card-played", object: { objectId: "tideturner" }
+  });
+});
 
-test.todo(
-  "tideturner: bind the card-played CardProgram trigger through the complete program adapter " +
-    "(RIFT-257); the flat filter { self: true } is treated as an empty filter by the merged " +
-    "pipeline-match and would over-trigger on any card-played event"
-);
+test.todo("Tideturner: Hidden Hide/Facedown Zone and next-turn Reaction/0 Energy play (CR 811.1.b–d / 811.5; location integration RIFT-357)");
+test.todo("Tideturner: Finalize the optional nested friendly-unit targets through the real chain before the original swap body resolves (CR 355.5 / 355.12; assertFinalizationSurface)");

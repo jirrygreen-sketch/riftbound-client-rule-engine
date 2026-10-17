@@ -1,55 +1,18 @@
 import type { CardProgram } from "../../ir/index.js";
 
 /**
- * Void Gate (ogn-296-298) — Battlefield, Colorless.
- *
- * sourceText:
- *   Spells and abilities affecting units here each deal 1 Bonus Damage. (Each
- *   instance of damage the spell deals is increased by 1.)
- *
- * CR v1.5 anchors:
- * - 418.4 / 418.5 / 713: Bonus Damage is an intrinsic property granted to a
- *   Deal action, not damage itself; 714 sums several instances and applies once
- *   per action; 715.2 increases the damage dealt to each target of a multi-target
- *   deal separately; 715.4 grants nothing when no damage is dealt.
- * - 715.4.a: the example uses this Battlefield with a prevent effect — the
- *   prevention includes the Bonus Damage when computing the total.
- * - 053.3: "here" is this Battlefield.
- *
- * Status: judge-required. effect.damage already accepts a bonus argument
- * (CR 714/715.2) and the golden tests execute the bonus math through the
- * reference kernel, but the card cannot be executable:
- * - no instruction or layer primitive models "grant Bonus Damage to Deal
- *   actions": the merged instruction registry has no continuous.bonus-damage
- *   (or equivalent) op, and the layers arithmetic/ability consumers only apply
- *   might/keyword/movement/restriction/timing effects, so nothing computes this
- *   Battlefield's contribution and feeds it into a Deal action's bonus
- *   argument;
- * - "affecting units here" is a scope over the Deal action's targets
- *   (053.3 + sameLocationAs), and the merged filter matcher implements no
- *   sameLocationAs anchor (verified: the filter matches an object at any
- *   location), so a naive filter would grant the bonus to every deal anywhere on
- *   the board;
- * - no merged producer registers a CardProgram's static ability as a
- *   ContinuousEffectSpec at all (RIFT-257 card-program binding), and the
- *   battlefield-ability controller resolution of 190.6 is likewise missing.
- * The static ability below declares the Bonus Damage grant for whichever
- * consumer lands; it is not approximated into an instruction that would add
- * damage to every deal.
+ * Void Gate — CR v1.5 053.3, 418.4, 713–715, especially 715.4.a.
+ * effect.damage consumes Bonus Damage, but a static grant over Deal actions
+ * still needs a producer, action scope, and value-based here matching. Static
+ * lifecycle registration itself is merged and is no longer a missing dependency.
  */
 export default {
   canonicalCardId: "card.hash-914c78ed19d1829c8172e4fcce5b399b51f05e15d1a02fb7eaaaf64e7132bc08",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「Spells and abilities affecting units here each deal 1 Bonus Damage」是 418.4/713 的 Bonus Damage 授予（714 多实例求和、715.2 每个目标分别 +1、" +
-    "715.4 无伤害则不适用；715.4.a 的官方例子正好用本战场）。effect.damage 已接受 bonus 参数并在 golden 中真实执行了加总，" +
-    "但没有任何计算方把本战场的授予喂进 Deal 动作的 bonus：已合入的指令注册表没有 continuous.bonus-damage（或等价）原语，" +
-    "图层 arithmetic/ability 消费方只处理 might/关键词/movement/restriction/timing，没有“对 Deal 动作授予 Bonus Damage”的模型；" +
-    "「affecting units here」的作用域（053.3）需要 sameLocationAs 锚点而 layers/filter 未实现（实测带 sameLocationAs 的过滤会匹配任意位置的单位），" +
-    "简单过滤器会把加成发给全场所有伤害；也没有已合入路径把 CardProgram 的 static 能力注册成 ContinuousEffectSpec（RIFT-257），" +
-    "190.6 的战场能力控制者亦未解析。依赖：Bonus Damage 授予消费方（continuous.* 族后续任务）与 RIFT-257 卡牌绑定。" +
-    "不近似实现（不写成给每次伤害额外 +1 的指令）。",
+    "CR 418.4/713、714、715.2、715.4/715.4.a 的 Bonus Damage 授予仍缺 Deal 动作的生产计算入口：effect.damage 已消费 bonus 参数，但尚无消费者汇总本战场的 continuous.bonus-damage 并注入每次 Deal。" +
+    "programs/statics.staticTarget 不接受 appliesTo:deal-actions；还需按动作是否影响此处单位确定作用域，且 layers/filter 的结构化 LocationRef 仍需值比较（053.3）。已有的 bonus 原语与全额防止测试只证明消费端，不证明战场授予端。",
   sourceText:
     "Spells and abilities affecting units here each deal 1 Bonus Damage. " +
     "(Each instance of damage the spell deals is increased by 1.)",

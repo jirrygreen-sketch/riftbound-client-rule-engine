@@ -20,13 +20,11 @@ test("Void Gate program validates and is judge-required", () => {
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.status, "judge-required");
-  // The reason must name the granting path and the exact rules it depends on.
   assert.match(program.judgeReason, /Bonus Damage/);
   assert.match(program.judgeReason, /713/);
   assert.match(program.judgeReason, /715\.4\.a/);
-  assert.match(program.judgeReason, /sameLocationAs/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /continuous\.bonus-damage|Bonus Damage 授予/);
+  assert.match(program.judgeReason, /deal-actions/);
+  // The reason must name the granting path and the exact rules it depends on.
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -97,25 +95,12 @@ test("Void Gate golden: a prevented Deal action deals no damage, so the Bonus Da
   assert.deepEqual(run.events.map(event => [event.action, event.outcome]), [["damage", "prevented"]]);
 });
 
-test("Void Gate: the declared static grant keeps its printed scope and amount (no consumer yet)", () => {
-  // The declaration is complete (053.3 "here" + 418.4 amount). The two blocking
-  // gaps — no continuous.bonus-damage consumer and no sameLocationAs anchor in
-  // the layer matcher — live in judgeReason and the todos below; this test only
-  // locks the declared shape so a later consumer cannot silently drop the scope.
+test("Void Gate: the declared static grant keeps its printed scope and amount", () => {
+  // Lock the declaration independently of the blocked Deal-action binding.
   assert.equal(ability.effect.filter.sameLocationAs, "self");
   assert.equal(ability.effect.appliesTo, "deal-actions");
   assert.equal(ability.effect.amount.value, 1);
 });
 
-test.todo(
-  "Void Gate grant: a continuous effect must add 1 Bonus Damage to each Deal action whose " +
-    "targets are units at this Battlefield (418.4/713, 714 sum-once, 715.2 per target), " +
-    "including the prevention example of 715.4.a — the merged instruction registry has no " +
-    "continuous.bonus-damage primitive and no producer registers card-program statics (RIFT-257)"
-);
-
-test.todo(
-  "Void Gate scope: the 053.3 'here' referent needs the sameLocationAs anchor in the engine " +
-    "matchers (layers/filter.ts ignores it and over-matches, verified), plus 190.6's controller " +
-    "resolution for the Battlefield ability"
-);
+test.todo("Void Gate: grant Bonus Damage to qualifying Deal actions, preserving per-target sum and prevention semantics (CR 418.4 / 713–715.4.a; continuous.bonus-damage action consumer)");
+test.todo("Void Gate: bind appliesTo:deal-actions and the affecting-units-here action scope before injecting the bonus (CR 053.3 / 715.2; static action target contract)");

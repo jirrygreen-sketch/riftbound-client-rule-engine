@@ -23,11 +23,11 @@ test("Time Warp program is structurally valid and judge-required", () => {
   assert.deepEqual(result.issues, []);
   assert.equal(result.ok, true);
   assert.equal(program.status, "judge-required");
-  // The judgeReason must name the actual gap (contract 3.1 / README §2).
   assert.match(program.judgeReason, /734/);
   assert.match(program.judgeReason, /Additional Turn/);
   assert.match(program.judgeReason, /effect\.banish/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /回合队列/);
+  // The judgeReason must name the actual gap (contract 3.1 / README §2).
 });
 
 test("Time Warp identity and printed text match the catalog", () => {
@@ -96,3 +96,17 @@ test.todo(
     "turn queue (734/735-738): a turn-queue GameAction or turn/ API plus the appropriate " +
     "timing boundary. Not approximated by skipping a phase or reusing turn-start."
 );
+
+test("Time Warp: the merged play binder preserves both independent instructions", async () => {
+  const { describePlay } = await import("../../../../engine-core/dist/programs/play.js");
+  const { ProgramRegistry } = await import("../../../../engine-core/dist/programs/registry.js");
+  // Inspect the supported play adapter with an explicit test-only binding view;
+  // the real registry entry remains judge-required for Additional Turns.
+  const registry = new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]);
+  const kernel = world().hand("time-warp", { cardId: CANONICAL, types: ["spell"], energy: 10, power: ["Mind", "Mind", "Mind", "Mind"] }).build();
+  const source = kernel.getObject("time-warp");
+  const draft = describePlay(registry, { type: "play", object: source.ref, player: "A" }, source);
+  assert.equal(draft.kind, "spell");
+  assert.deepEqual(draft.body, play.body);
+  assert.equal(draft.speed, "normal");
+});
