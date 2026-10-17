@@ -38,6 +38,7 @@ import type { CardProgram } from "../../ir/index.js";
  *    engine's EventPattern/ObjectFilter vocabulary has no host-relative
  *    anchor, and the emission only carries details.battlefieldId, which cannot
  *    be compared against this Battlefield's own identity from static IR.
+ * 2. the Battlefield ability's Controller still needs the 190.6 resolution.
  * Nothing about the effect is approximated: the discard is not rewritten as a
  * cost, and "exhausted" is passed through to the channel-rune action (the
  * reference kernel records the action; its rune entry state is not modelled,
@@ -52,7 +53,7 @@ export default {
     "conquer 时点也已由 TurnFlow 的 Score 波真实发出（src/turn/flow.ts，player + details.battlefieldId），" +
     "阻断只在触发侧：① 印刷的 053.3 「here」没有可求值拼写——引擎的 EventPattern/ObjectFilter 词表没有宿主相对锚点，" +
     "而事件只带 details.battlefieldId，静态 IR 无法把它与本战场自身身份比较（filter 因此只声明事件与征服者）。" +
-    "CardProgram → TriggerRegistration 的绑定与 190.6 的战场能力控制者解析缺失；" +
+    "② 190.6 的战场能力控制者解析仍缺失；CardProgram → TriggerRegistration 的绑定已合入并由绑定测试验证。" +
     "另注：契约 3.9 要求「you may A and B」写成一个 choice.optional 包住两条指令（本文件如此实现），不使用 choice + linkedTo；" +
     "参考测试内核不模拟符文入场状态（exhausted 仅作为动作参数传递），该部分在执行测试中标为 todo。" +
     "不近似实现。",
@@ -67,7 +68,7 @@ export default {
         // EVENT_PATTERN_TYPES), which pipeline-match maps to the conquer timing point.
         // The printed 053.3 "here" restriction has no host-relative anchor in that
         // vocabulary, so it is not written as an unevaluable placeholder; see
-        // judgeReason point 2.
+        // judgeReason point 1.
         filter: { event: "conquered", player: "self" }
       },
       // The printed "you may …" is recorded on the ability and realised by the

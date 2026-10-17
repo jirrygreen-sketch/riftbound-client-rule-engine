@@ -7,10 +7,10 @@ import token from "../../../../engine-core/dist/effects/instructions/effect.toke
 import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
-import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
+import { createProgramBinding, ProgramBindingError } from "../../../../engine-core/dist/programs/index.js";
 import { attachProgramLifecycle } from "../../../../engine-core/dist/programs/lifecycle.js";
 import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
-import { createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
+import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
 
 const CANONICAL = "card.hash-628d472ac3458206c95d893f3af0ac4bc4561ccd533988196a3c1c20ccd7eb20";
@@ -25,7 +25,8 @@ test("rad-138-167 Seraphine, Not Alone: program validates and has expected ident
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.judgeReason.includes("continuous.might"), true);
-  assert.equal(program.judgeReason.includes("object-exhausted"), false);
+  assert.match(program.judgeReason, /per\(count\)/);
+  assert.match(program.judgeReason, /Invalid effect\.token argument/);
   assert.equal(
     program.sourceText,
     "When you play me or when I become exhausted, play a 1 :rb_might: Recruit unit token to your base.\n" +
@@ -210,45 +211,52 @@ test("rad-138-167 Seraphine, Not Alone: per 计数的 \"other exhausted unit\" �
 });
 
 test.todo(
-  "rad-138-167 Seraphine, Not Alone: \"I have +1 Might for each other exhausted unit you control\" 需要" +
-    "continuous.might 的图层消费方读取 per 计数；当前静态能力只作为 IR 存在"
+  "rad-138-167 Seraphine, Not Alone: 两个触发的完整 Recruit 结算需要 effect.token 与解释器的" +
+    "参数桥；原始 body 当前抛出 Invalid effect.token argument，触发注册本身已合入"
 );
 
-test.todo(
-  "rad-138-167 Seraphine, Not Alone: \"when I become exhausted\"（object-exhausted，415.1）与\"when you" +
-    " play me\"（card-played，420.4.a）的触发注册需要事件管线接线（批 4）"
-);
-
-test("rad-138-167 Seraphine, Not Alone: the two triggers really register and the static layer still adds a scalar might", () => {
-  // The shipped program stays judge-required. The in-memory executable copy
-  // proves the merged program registry turns both triggered abilities into
-  // real TriggerRegistrations; the layer engine evaluates the static might as
-  // an unconditional scalar +1, confirming that per(count) has no layer
-  // consumer (0 or 3 other exhausted units both yield might 2).
-  const executable = { ...program, status: "executable" };
-  delete executable.judgeReason;
-  const binding = createProgramBinding({ cardPrograms: [executable] });
-  const kernel = world()
+function bindingFixture({ exhaustedAllies = 0, executable = true } = {}) {
+  // Only the local copy bypasses the card's judge-required admission gate so
+  // the supported registration path can be tested with the declared abilities.
+  const candidate = { ...program };
+  if (executable) {
+    candidate.status = "executable";
+    delete candidate.judgeReason;
+  }
+  const binding = createProgramBinding({ cardPrograms: [candidate] });
+  const builder = world()
     .player("A")
     .player("B")
-    .card("seraphine", { cardId: CANONICAL, types: ["unit"], energy: 2, power: [] })
-    .card("ally-exhausted", { types: ["unit"], energy: 1, power: [] })
-    .build();
+    .hand("seraphine", { cardId: CANONICAL, types: ["unit"], might: 1, energy: 5, power: ["Order"] })
+    .unit("ally-ready", { exhausted: false })
+    .unit("enemy-exhausted", { owner: "B", controller: "B", exhausted: true });
+  for (let index = 0; index < exhaustedAllies; index++) {
+    builder.unit(`ally-exhausted-${index}`, { exhausted: true });
+  }
+  const kernel = builder.build();
   const host = createActionPipelineHost({
     checkpoint: () => ({ state: kernel.snapshot(), links: kernel.clone() }),
-    restore: () => {},
+    restore: saved => { kernel.restore(saved.state); kernel.copyLinkedFrom(saved.links); },
     objects: () => kernel.objects,
-    perform: (action) => kernel.perform(action),
-    choose: (request) => { throw new Error(`choice ${request.id} was not expected`); },
-    context: (source, controller, timingPoint) => kernel.clone({ sourceSnapshot: source, controller, timingPoint }),
-    testTrigger: () => true
+    perform: action => kernel.perform(action),
+    choose: request => kernel.choose(request),
+    context: (source, controller, timingPoint) => bindResolveContext(kernel, { source, controller, timingPoint }),
+    testTrigger: registration => kernel.test(registration.spec.condition)
   });
   const engine = new ChainEngine({ turnOrder: ["A", "B"], turnPlayer: "A", phase: "main", host });
-  const lifecycle = attachProgramLifecycle(engine, binding.registry, undefined, () => {});
-  engine.commit({ type: "move-zone", object: kernel.ref("seraphine"), to: "board" });
-  engine.commit({ type: "move-zone", object: kernel.ref("ally-exhausted"), to: "board" });
-  engine.commit({ type: "exhaust", object: kernel.ref("ally-exhausted") });
+  const bindingErrors = [];
+  const lifecycle = attachProgramLifecycle(engine, binding.registry, undefined, (error, source) => {
+    bindingErrors.push({ error, source });
+    throw error;
+  });
+  return { binding, kernel, engine, lifecycle, bindingErrors };
+}
 
+test("rad-138-167 Seraphine, Not Alone: lifecycle binds both triggers and only self-exhaust creates a Pending ability", t => {
+  const { binding, kernel, engine, lifecycle, bindingErrors } = bindingFixture();
+  t.after(() => lifecycle.detach());
+  assert.equal(engine.commit({ type: "move-zone", object: kernel.ref("seraphine"), to: "board", location: BASE }).status, "done");
+  assert.deepEqual(bindingErrors, []);
   const registrations = triggerRegistrations(binding.registry, kernel.getObject("seraphine"));
   assert.equal(registrations.length, 2);
   assert.deepEqual(
@@ -259,13 +267,56 @@ test("rad-138-167 Seraphine, Not Alone: the two triggers really register and the
     assert.deepEqual(registration.activeZones, ["board"]);
     assert.equal(registration.id.startsWith("program:seraphine:"), true);
   }
+  assert.deepEqual([...engine.pipeline.checkpoint().triggers.keys()], registrations.map(registration => registration.id));
+  assert.equal(engine.items.length, 0);
 
-  const selfRef = kernel.ref("seraphine");
-  // 0 other exhausted units on the board: the static layer still adds +1, so
-  // the per(count) arithmetic is not consumed by the layers engine.
-  assert.equal(engine.layers.evaluate(selfRef).might, 2);
-  const exhaustEvent = engine.pipeline.log.find((event) => event.timingPoint === "object-exhausted");
-  assert.equal(exhaustEvent.object.ref.id, "ally-exhausted");
-  lifecycle.detach();
-  assert.equal(engine.layers.evaluate(selfRef).might, 1);
+  assert.equal(engine.commit({ type: "exhaust", object: kernel.ref("ally-ready") }).status, "done");
+  assert.equal(engine.items.length, 0, "another unit becoming exhausted does not trigger Seraphine");
+  assert.equal(engine.commit({ type: "exhaust", object: kernel.ref("seraphine") }).status, "done");
+  const exhaustEvent = engine.pipeline.events.findLast(event => event.timingPoint === "object-exhausted");
+  assert.equal(exhaustEvent.object.ref.id, "seraphine");
+  assert.equal(kernel.getObject("seraphine").exhausted, true);
+  assert.deepEqual(bindingErrors, []);
+  assert.equal(engine.items.length, 1);
+  const [pending] = engine.items;
+  assert.equal(pending.status, "pending");
+  assert.equal(pending.kind, "triggered");
+  assert.equal(pending.trigger.event.eventId, exhaustEvent.eventId);
+  assert.equal(pending.trigger.registration.spec.at, "object-exhausted");
+  assert.deepEqual(pending.body, abilities()[1].body);
+  // This proves detection and registration only. The unsupported token body
+  // and the per-count Might result retain their separate TODOs.
 });
+
+test("rad-138-167 Seraphine, Not Alone: shipped judge-required binding fails explicitly and rolls back the board entry", t => {
+  const { kernel, engine, lifecycle, bindingErrors } = bindingFixture({ executable: false });
+  t.after(() => lifecycle.detach());
+  const savedWorld = kernel.snapshot();
+  const savedEvents = engine.pipeline.events;
+  assert.throws(
+    () => engine.commit({ type: "move-zone", object: kernel.ref("seraphine"), to: "board", location: BASE }),
+    error => error instanceof ProgramBindingError && error.code === "judge-required" && error.message === program.judgeReason
+  );
+  assert.equal(bindingErrors.length, 1);
+  assert.equal(bindingErrors[0].source.ref.id, "seraphine");
+  assert.equal(bindingErrors[0].error.code, "judge-required");
+  assert.deepEqual(kernel.snapshot(), savedWorld);
+  assert.deepEqual(engine.pipeline.events, savedEvents);
+  assert.equal(engine.pipeline.checkpoint().triggers.size, 0);
+  assert.equal(engine.items.length, 0);
+});
+
+for (const exhaustedAllies of [0, 3]) {
+  test.todo(`rad-138-167 Seraphine, Not Alone: per(count) gives Might ${1 + exhaustedAllies} for ${exhaustedAllies} other exhausted friendly units`, t => {
+    const { kernel, engine, lifecycle, bindingErrors } = bindingFixture({ exhaustedAllies });
+    t.after(() => lifecycle.detach());
+    assert.equal(engine.commit({ type: "move-zone", object: kernel.ref("seraphine"), to: "board", location: BASE }).status, "done");
+    assert.deepEqual(bindingErrors, []);
+    const counted = kernel.query({ type: "unit", zone: "board", controller: "A" })
+      .filter(object => object.ref.id !== "seraphine" && object.exhausted);
+    assert.deepEqual(counted.map(object => object.ref.id), Array.from({ length: exhaustedAllies }, (_, index) => `ally-exhausted-${index}`));
+    // The expected value follows the printing. A fixed +1 implementation must
+    // fail these TODOs for both 0 and 3 eligible units.
+    assert.equal(engine.layers.evaluate(kernel.ref("seraphine")).might, 1 + exhaustedAllies);
+  });
+}

@@ -40,6 +40,7 @@ test("rad-166-167 Ruined Monastery: identity, ruleset, status and exact source t
   assert.match(program.judgeReason, /宿主相对|host-relative/);
   assert.match(program.judgeReason, /here/);
   assert.match(program.judgeReason, /battlefieldId/);
+  assert.match(program.judgeReason, /190\.6 的战场能力控制者解析仍缺失/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -195,9 +196,7 @@ test("rad-166-167 Ruined Monastery: the conquer trigger really binds through the
   const { engine, kernel } = fixture({
     cards: [{ id: "monastery", cardId: CANONICAL, types: ["battlefield"], energy: null, power: [] }]
   });
-  const board = () => engine.commit({ type: "move-zone", object: kernel.ref("monastery"), to: "board" });
-  board();
-  engine.pipeline.emit({ timingPoint: "object-enters-board", object: kernel.getObject("monastery") });
+  assert.equal(engine.commit({ type: "move-zone", object: kernel.ref("monastery"), to: "board" }).status, "done");
 
   const registrations = triggerRegistrations(binding.registry, kernel.getObject("monastery"));
   assert.equal(registrations.length, 1);

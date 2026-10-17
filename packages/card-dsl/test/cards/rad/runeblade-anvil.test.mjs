@@ -5,6 +5,7 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/rad/runeblade-anvil.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { isDurationActive } from "../../../../engine-core/dist/layers/duration.js";
 import { createProgramBinding } from "../../../../engine-core/dist/programs/index.js";
 import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
@@ -33,6 +34,7 @@ test("rad-012-167 Runeblade Anvil: program validates and has expected identity",
   assert.match(program.judgeReason, /Banishment/);
   assert.match(program.judgeReason, /play-permission/);
   assert.match(program.judgeReason, /your next Ending Phase/);
+  assert.match(program.judgeReason, /until \+ turn-end \+ player/);
 });
 
 test("rad-012-167: play trigger, leave-board trigger and the activated Kill-this ability", () => {
@@ -107,24 +109,37 @@ test("rad-012-167: the activated ability kills the source (429.1.a.1)", () => {
 
 test.todo(
   "rad-012-167 Runeblade Anvil: “Until your next Ending Phase, you may play that card. (You still " +
-    "pay its costs.)” 需要带具名期限的 from-Banishment 打出许可原语：已合入的 " +
+    "pay its costs.)” 仍需要 from-Banishment 打出许可原语：已合入的 " +
     "continuous.timing/location/restrict 都不改写可打出区域，effect.play 只消费已 Finalize 的" +
-    "费用计划，Duration 没有 “your next Ending Phase” 具名期限"
+    "费用计划；期限本身已可由 until + turn-end + player 表达"
 );
+
+test("rad-012-167 Runeblade Anvil: the existing until duration expires only at the controller's next turn-end", () => {
+  // This exercises only the merged duration matcher. It grants no permission
+  // to play the banished card; that separate channel remains judge-required.
+  for (const controller of ["A", "B"]) {
+    const kernel = world().unit("anvil", { controller, owner: controller }).build();
+    const duration = { type: "until", at: "turn-end", player: kernel.getObject("anvil").controller };
+    const other = controller === "A" ? "B" : "A";
+    const object = ref => kernel.object(ref);
+    assert.equal(isDurationActive(duration, undefined, object), true);
+    assert.equal(isDurationActive(duration, { id: "turn-end", player: other }, object), true);
+    assert.equal(isDurationActive(duration, { id: "main-start", player: controller }, object), true);
+    assert.equal(isDurationActive(duration, { id: "turn-end", player: controller }, object), false);
+  }
+});
 
 test("rad-012-167 Runeblade Anvil: both triggers really bind through the merged program registry", () => {
   // The shipped program stays judge-required; the in-memory copy proves that
   // src/programs/triggers.ts can register both printed triggers. The remaining
-  // gap is the play-permission opcode and its named duration (see judgeReason).
+  // gap is the from-Banishment play permission (see judgeReason).
   const executable = { ...program, status: "executable" };
   delete executable.judgeReason;
   const binding = createProgramBinding({ cardPrograms: [executable] });
   const { engine, kernel } = fixture({
     cards: [{ id: "anvil", cardId: program.canonicalCardId, types: ["unit"], energy: 1, power: [], might: null }]
   });
-  const board = () => engine.commit({ type: "move-zone", object: kernel.ref("anvil"), to: "board" });
-  board();
-  engine.pipeline.emit({ timingPoint: "object-enters-board", object: kernel.getObject("anvil") });
+  assert.equal(engine.commit({ type: "move-zone", object: kernel.ref("anvil"), to: "board" }).status, "done");
 
   const registrations = triggerRegistrations(binding.registry, kernel.getObject("anvil"));
   assert.equal(registrations.length, 2);
@@ -133,6 +148,6 @@ test("rad-012-167 Runeblade Anvil: both triggers really bind through the merged 
     assert.deepEqual(registration.activeZones, ["board"]);
     assert.equal(registration.optional, false);
     assert.equal(registration.body.length, 2);
-     assert.equal(registration.body[1].op, "effect.play-permission");
+    assert.equal(registration.body[1].op, "effect.play-permission");
   }
 });
