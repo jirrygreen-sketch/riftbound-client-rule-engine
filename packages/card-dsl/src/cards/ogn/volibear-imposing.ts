@@ -17,16 +17,20 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   触发能力；"moves" 对应 421.1 / 449.1 的 Move（时点 "object-moved"，
  *   421.1/449.1/449.2/458），"other than mine" 以来源当前位置为锚点比较。
  *
- * 复核后的边界（cards/README.md 第 2 节）：judge-required。
+ * 复核后的边界（cards/README.md 第 2 节）：judge-required（复核 2026-10-17）。
  * - programs/triggers.ts 已提供 CardProgram → TriggerRegistration 注册，filters.ts
  *   也会转译 { event, filter }；不能再把通用绑定列为未合入依赖。
- * - Shield 展开读取 object-property "designation"，ObjectSnapshot 却只有 combatRole；
- *   programs/statics.ts 的条件包装捕获求值异常后返回 false，防守时的 +3 尚不生效。
- * - Tank 的 continuous.combat damage-assignment/priority:first 尚无图层/战斗消费方；
- *   combat/base-combat-allocation.ts 不读取该优先级要求。
- * - 提交 move-location 已由 events/action-adapter.ts 发射 object-moved；zones/movement
- *   的 Standard Move group 返回 events/requiresMoveTriggers，duel/standard-move-executor-v2
- *   已提供等待完整触发结算的入口，仍缺此 CardProgram 的移动触发处理接线。
+ * - Shield 展开读取 object-property "designation"，契约的 ObjectSnapshot 只有 combatRole、
+ *   没有 designation 的产生方；programs/statics.ts 的条件包装捕获求值异常后返回 false，
+ *   实测 combatRole=defender 时 +3 Might 不生效。
+ * - Tank 的 continuous.combat damage-assignment/priority:first 已能绑定到 ability 图层，
+ *   但 layers/engine.ts 的 applyAbility 不消费该 kind，combat/base-combat-allocation.ts
+ *   的 keywordPriority 只接受 "proven-none"，没有 lethal-first 的分配消费方。
+ * - 提交 move-location 已由 events/action-adapter.ts 发射 object-moved；但 production
+ *   Standard Move（duel/standard-move-executor-v2.ts → duel/cardplay-unit-v2.ts）不向
+ *   EventPipeline 发布该时点，且 "object-moved" 不在 EVENT_PATTERN_TYPES，
+ *   programs/filters.ts 会拒绝 movedToOtherThanSourceLocation 占位键，
+ *   timing-points.ts 声明的 fromKind/fromLocationId/toKind/toLocationId 载荷也没有生产者。
  * - 触发判定还需比较目的战场与来源当前位置，排除 Base（原文）与 Recall（458.1）。
  *   movedToOtherThanSourceLocation 保留为不可执行的占位描述键：programs/filters.ts
  *   拒绝它，TriggerSpec/EventPattern 没有相对位置不等谓词，EventPattern 枚举也未包含
@@ -62,15 +66,21 @@ const program = {
   rulesetVersion: "core-1.5" as const,
   status: "judge-required" as const,
   judgeReason:
-    "[Shield 3] 的防守条件（CR v1.5 814.1.c/814.1.d.1）仍需修正：keywords/Shield.ts 读取 " +
-    "designation，但 ObjectSnapshot 暴露 combatRole，programs/statics.ts 捕获求值异常后使 +3 Might 不生效。" +
-    "[Tank] 的 continuous.combat damage-assignment/priority:first 尚无图层/战斗消费方，" +
-    "combat/base-combat-allocation.ts 未绑定致命伤害优先分配要求（815.1.b/815.1.c.2）。" +
-    "object-moved 触发（383.1；421.1/449.1/449.2）仍缺目的地为战场且不同于来源当前位置的动态比较：" +
-    "movedToOtherThanSourceLocation 只是占位键，programs/filters.ts 会拒绝，TriggerSpec/EventPattern " +
-    "没有该相对位置谓词，EventPattern 枚举也未包含 object-moved；须排除 Base 与 Recall（458.1）。" +
-    "zones/movement 的 Standard Move group 返回 events/requiresMoveTriggers，" +
-    "duel/standard-move-executor-v2.ts 已有等待整组触发结算的入口，仍需绑定此 CardProgram 的真实移动触发处理。",
+    "复核 2026-10-17，三处缺口仍不可执行，均不近似实现：" +
+    "(1) [Shield 3]（814.1.c/814.1.d.1）的展开条件读 object-property(self, \"designation\")，" +
+    "而契约的 ObjectSnapshot 只有 combatRole、没有 designation 的产生方；programs/statics.ts 捕获求值异常后返回 false，" +
+    "实测 combatRole=defender 时 Might 仍为印刷值 10，防守 +3 不生效。" +
+    "(2) [Tank]（815.1.b/815.1.c.2）已展开并绑定 continuous.combat 到 ability 图层，" +
+    "但 layers/engine.ts 的 applyAbility 不消费该 kind，combat/base-combat-allocation.ts 的 " +
+    "DuelBaseCombatSourceEffectProof.keywordPriority 只接受 \"proven-none\"，没有 lethal-first 的分配消费方。" +
+    "(3) object-moved 触发（383.1；421.1/449.1/449.2）不可注册：\"object-moved\" 不在 events/trigger-spec.ts 的 " +
+    "EVENT_PATTERN_TYPES，assertTriggerSpec 判 invalid-event-type；目的地为战场且不同于来源当前位置的比较谓词也不存在，" +
+    "占位键 movedToOtherThanSourceLocation 会被 programs/filters.ts 的 translateObjectFilter 拒绝；" +
+    "zones/movement.ts 的 Standard Move group 只返回 events/requiresMoveTriggers，" +
+    "production Standard Move（duel/standard-move-executor-v2.ts → duel/cardplay-unit-v2.ts）不向 EventPipeline 发布 object-moved，" +
+    "events/action-adapter.ts 只为直接提交的 move-location 发射且不填充 timing-points.ts 声明的 " +
+    "fromKind/fromLocationId/toKind/toLocationId，无法按 458.1 排除 Recall。" +
+    "effect.draw 本体、Shield/Tank 展开与提交移动的事件发射均有 golden 执行证据，但不覆盖以上三处。",
   abilities,
   sourceText:
     "[Shield 3] (+3 :rb_might: while I'm a defender.)\n" +

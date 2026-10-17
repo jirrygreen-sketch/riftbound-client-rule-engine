@@ -20,13 +20,18 @@ import type { CardProgram } from "../../ir/index.js";
  *   读「本回合本单位被移动的次数」并要求等于 3（第三次）；
  * - body 用 effect.score 获得 1 点（470.2）。
  *
- * status = judge-required：effect.score 原语、object-moved 事件绑定与历史查询都可执行（golden 真实执行），
- * 阻断在：(1) 「第 N 次恰好触发一次」需要历史条件谓词与生产触发求值适配：
- * condition.history 是指令，当前 TriggerSpec 的 count 走对象查询，未接回合移动历史；
- * (2) Ganking 展开的 continuous.movement 许可已由 RIFT-347 桥入
- * moveDuelUnitsStandard 的可选 rules 桥（layers/rules/query.ts），可消费 canGank；
- * 剩余缺口是生产装配 DuelMovementRuleContext，并把关键词静态展开的字符串 permission
- * 规范化为查询器读取的 permission.routes，再将持续效果注册表接入移动入口。
+ * status = judge-required（复核 2026-10-17）：effect.score 原语与历史查询都可执行（golden 真实执行），
+ * 阻断在：(1) 触发不可注册："object-moved" 不在 events/trigger-spec.ts 的 EVENT_PATTERN_TYPES，
+ * 实测 programs/triggers.ts 经 assertTriggerSpec 抛 TriggerSpecValidationError(invalid-event-type)；
+ * 且「第 N 次恰好触发一次」（383.1.b）需要按对象的本回合 Move 历史边沿：TriggerSpec.condition
+ * 的 count 表达式只做当前区域对象查询（参考内核实测对在板单位返回 1），condition.history 是
+ * body 指令、不能作为 TriggerSpec 条件，生产宿主也没有事件级 testTrigger 适配器；
+ * (2) [Ganking] 展开的 continuous.movement 许可已有 zones/movement.ts 的
+ * moveDuelUnitsStandard 可选 rules 桥（layers/rules/query.ts 消费 canGank），但生产装配缺失：
+ * duel/standard-move-executor-v2.ts 调 moveDuelUnitsWithMetadata 时不传 rules，
+ * apps/game-server 的 authoritative-runtime-p4.ts 只对 no-ability/pure-accelerate 单位返回 ganking，
+ * 本卡会抛 "unresolved movement keyword"；同时关键词静态展开经 programs/statics.ts 原样注册字符串
+ * permission，而查询器读取 permission.routes，仍需规范化。
  *
  * 数据备注（不在本任务改数据）：同一 canonicalCardId 的 SFD 印刷在本地 catalog 中不存在
  * （docs/plans/survey/unclassified-ogn.json 把 ogn-205-298 记为 data-issue：OGN 带 Ionia、
@@ -37,13 +42,22 @@ const yasuoWindrider = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "已合入并已用真实执行核验：「you score 1 point」按 CR 470.2 用 effect.score 原语执行（golden 里真实获得 1 点）；" +
-    "「本回合本单位被移动的次数」用 object-moved 的历史查询（action: move-location）计数，golden 里真实走完三次 effect.move 并读到 count = 3（458 Recall 不计入）。" +
-    "整卡仍不可执行：(1)「The third time I move in a turn」（383.1.b）需要「第 N 次事件恰好触发一次」的触发形状——" +
-    "condition.history 是指令，不能直接作为 TriggerSpec 条件；当前 count 表达式走对象查询，未接本回合自身移动历史，生产触发求值还缺 testTrigger 适配器；" +
-    "(2) [Ganking] 展开成 continuous.movement 静态效果，RIFT-347 已让 zones/movement.ts 的 moveDuelUnitsStandard 接收可选 rules 参数并查询、消费 canGank（810.1.c/144.4.c）；" +
-    "剩余缺口是生产装配 DuelMovementRuleContext：关键词静态展开的字符串 permission 经 statics.ts 原样注册，而查询器读取 permission.routes，仍需规范化该许可并将持续效果注册表传入移动入口。" +
-    "依赖：RIFT-359（条件谓词/第 N 次事件边沿）与移动许可的生产装配。不近似实现（不用每三次循环代替第三次，也不用战场 Scoring 流程代替 Gaining Points）。",
+    "复核 2026-10-17，两处缺口使整卡仍不可执行，均不近似实现：" +
+    "(1) 触发无法注册：「The third time I move in a turn」（383.1.b）订阅的 object-moved 不在 " +
+    "events/trigger-spec.ts 的 EVENT_PATTERN_TYPES 词表内，实测 programs/triggers.ts 经 assertTriggerSpec " +
+    "抛 TriggerSpecValidationError（invalid-event-type，事件词表只到 final-point）；" +
+    "即使可注册，条件形状也不对：TriggerSpec.condition 的 count 表达式只查询当前区域对象（参考内核实测对在板单位返回 1），" +
+    "本回合自身 Move 历史只能由 condition.history 指令读取，它不能作为 TriggerSpec 条件，生产 EventPipeline 宿主也缺事件级 " +
+    "testTrigger 适配器，且 383.1.b 要求同时多次满足时只触发一次。" +
+    "(2) [Ganking]（810.1.b/810.1.c/144.4.c）的连续移动许可未接通生产：" +
+    "zones/movement.ts 的 moveDuelUnitsStandard 已接收可选 rules 并查询 canGank（layers/rules/query.ts 读 permission.routes），" +
+    "但 duel/standard-move-executor-v2.ts 调 moveDuelUnitsWithMetadata 时不传 rules（没有生产方装配 DuelMovementRuleContext），" +
+    "apps/game-server 的 authoritative-runtime-p4.ts 的 ganking 只接受 no-ability/pure-accelerate 单位、对本卡抛 " +
+    "\"unresolved movement keyword\"；关键词静态展开经 programs/statics.ts 原样注册字符串 permission，查询器读取的 " +
+    "permission.routes 仍未规范化。" +
+    "已用真实执行核验并保留：「you score 1 point」按 CR 470.2 用 effect.score 执行（golden 真实获得 1 点）；" +
+    "本回合自身 Move 计数用 object-moved 历史查询（action: move-location、scope: turn）计数，golden 真实走完三次 effect.move " +
+    "并读到 count = 3（458 Recall 不计入）。这些不构成整卡、关键词展开或生产触发链路的执行证据。",
   abilities: [
     { kind: "keyword", keyword: "ganking" },
     {
