@@ -26,13 +26,12 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   Empowered 状态（442.2/443.1.a），两条分支互斥，因此用两条各自带条件的指令绑定同一个
  *   TargetSpec（Finalize 只选一次；同 ogn/solari-chief 的 stunned 分支写法）。
  *
- * status = judge-required（缺口均不近似实现）：
+ * status = judge-required（唯一缺口不近似实现）：
  * 1. 没有 Empowered 状态谓词：442.1.a/442.2 的状态不在 ObjectSnapshot / Condition 里，
  *   "If it's [Empowered]" 与 "Otherwise" 的分支判别器没有可求值形态（effect.empower 的
  *   文件也记录同一契约缺口）；
- * 2. card-played 时点虽在封闭枚举中，但没有已合入订阅方把 CardProgram 的 triggered
- *   ability 注册成 TriggerRegistration（RIFT-120 的链/事件单管线接线）。
- * 依赖：RIFT-87（条件/谓词：Empowered 状态读数）与 RIFT-120（卡牌触发注册）。
+ * card-played 时点和 CardProgram 的 triggered binding 已合入；不再把触发注册列为缺口。
+ * 依赖：Empowered 状态条件谓词（进行中的 RIFT-359）。
  * 已合入的 effect.empower（mode: disempower）与 effect.kill 本体在 golden 中用锁定目标真实执行，
  * 不伪造分支判定。
  */
@@ -116,9 +115,8 @@ export default {
     "两处缺口，均不近似实现：(1) 没有 Empowered 状态谓词——442.1.a / 442.2 的状态不在 ObjectSnapshot / Condition 里" +
     "（effect.empower 的文件记录同一契约缺口），因此「If it's [Empowered], disempower it. Otherwise, kill it.」的两条" +
     "分支判别器没有可求值形态；程序用同一个 TargetSpec 上的互斥 expression 条件保留印刷分支，不把判定交给玩家；" +
-    "(2) card-played 时点虽在封闭枚举中（359 / 383.4.a），但没有已合入订阅方把 CardProgram 的 triggered ability 注册成" +
-    " TriggerRegistration（RIFT-120 的链/事件单管线接线）。依赖 RIFT-87（条件/谓词：Empowered 状态读数）与 RIFT-120" +
-    "（卡牌触发注册）。符号 7 是 383.2.a.1 的触发条件（符文区 rune 计数 >= 7，133.5.a.1 / 431.1）；" +
+    "card-played 时点和 triggered binding 已由现有程序管线提供。依赖进行中的 RIFT-359（Empowered 状态条件谓词）。" +
+    "符号 7 是 383.2.a.1 的触发条件（符文区 rune 计数 >= 7，133.5.a.1 / 431.1）；" +
     "effect.empower（mode: disempower，443.1.b）与 effect.kill（429.1/429.2.a）本体已合入，golden 用锁定目标真实执行。",
   abilities,
   sourceText:

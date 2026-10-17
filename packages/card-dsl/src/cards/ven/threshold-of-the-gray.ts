@@ -37,7 +37,7 @@ import type { CardProgram } from "../../ir/index.js";
  * 2. combat-start 时点仍未发射：combat/flow.ts 的战斗开始事务尚未实现（主动抛出
  *    combat-start-transaction），事件管线只在收到该时点时递增战斗计数；
  *    docs/rules/timing-point-producers.md 仍将该时点标为"待后续"。
- *    RIFT-257 的卡牌程序绑定（src/programs/triggers.ts）已能注册 CardProgram 的
+ *    卡牌程序绑定（src/programs/triggers.ts）已能注册 CardProgram 的
  *    triggered ability，190.6 的战场能力控制者解析仍未接线；filter 的 here: true 是
  *    053.3 的战场指代占位（静态 filter 读不到事件出的战场，且会被 programs/filters.ts
  *    以 judge-required 拒绝，fail closed）。
@@ -60,7 +60,7 @@ export default {
     "combat-start-transaction；同 ogn/obelisk-of-power、rad/rakelstake 的缺口）。" +
     "程序中的 \"event-combat-attacker\"/\"event-combat-defender\" 是缺选择器的占位值，不可执行。" +
     "(2) combat-start 时点（466.1/466.2.b）仍未发射：combat/flow.ts 的战斗开始事务尚未实现（主动抛 combat-start-transaction），" +
-    "事件管线仅在该时点递增战斗计数，docs/rules/timing-point-producers.md 仍标为待后续；RIFT-257 的卡牌程序绑定" +
+    "事件管线仅在该时点递增战斗计数，docs/rules/timing-point-producers.md 仍标为待后续；卡牌程序绑定" +
     "（src/programs/triggers.ts）已能注册 CardProgram 的 triggered ability，190.6 的战场能力控制者解析仍未接线；" +
     "filter 的 here: true 是 053.3 的占位（静态 filter 读不到事件出的战场），会被 programs/filters.ts " +
     "以 judge-required 拒绝（fail closed）。" +

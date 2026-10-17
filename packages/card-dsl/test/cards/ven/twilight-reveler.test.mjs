@@ -44,7 +44,7 @@ test("ven-020-166 Twilight Reveler: identity, status, judgeReason and verbatim s
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /attack-declared/);
   assert.match(program.judgeReason, /383\.4\.e/);
-  assert.match(program.judgeReason, /RIFT-120/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-120/);
 });
 
 test("ven-020-166 Twilight Reveler: one per-combat Attack Trigger scoped to self", () => {
@@ -135,7 +135,7 @@ test("ven-020-166 golden: an ally that left the board makes the ready ignored (3
 });
 
 test.todo(
-  "ven-020-166 Twilight Reveler: the attack-declared timing point has no combat emitter and no " +
-    "CardProgram trigger registration, so 'When I attack' never reaches the chain " +
-    "(CR 383.4.e.2 / 383.4.e.2.a, RIFT-120 and the engine batch 4–5 combat transaction)"
+  "ven-020-166 Twilight Reveler: the attack-declared timing point has no combat emitter; the existing " +
+    "CardProgram trigger binding therefore cannot place 'When I attack' on the chain " +
+    "(CR 383.4.e.2 / 383.4.e.2.a; combat/flow.ts still blocks the combat transaction)"
 );

@@ -33,11 +33,11 @@ test("ven-105-166 Twilight Step: identity, ruleset, status and exact source text
 test("ven-105-166 Twilight Step: judgeReason names the Might predicate, destination and Flow gaps", () => {
   assert.match(program.judgeReason, /mightLte/);
   assert.match(program.judgeReason, /143\.2\.a/);
-  assert.match(program.judgeReason, /RIFT-83/);
+  assert.match(program.judgeReason, /RIFT-359/);
   assert.match(program.judgeReason, /355\.4/);
-  assert.match(program.judgeReason, /RIFT-90/);
+  assert.match(program.judgeReason, /RIFT-357/);
   assert.match(program.judgeReason, /Flow/);
-  assert.match(program.judgeReason, /RIFT-260\/261/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-83|RIFT-90|RIFT-260|RIFT-261/);
   assert.match(program.judgeReason, /不近似实现/);
 });
 
@@ -97,18 +97,18 @@ test("ven-105-166 Twilight Step: the merged Move instruction is what the card ca
 
 test.todo(
   "ven-105-166 Twilight Step: enforce the 'Might 3 or less' targeting restriction with effective Might " +
-    "(CR 143.2.a / 355.9.b) — needs the merged Might predicate (RIFT-83/RIFT-91); unknown filter keys are " +
+    "(CR 143.2.a / 355.9.b) — needs the effective-Might predicate and condition wiring (RIFT-359); unknown filter keys are " +
     "silently ignored today, which would make every unit a legal target"
 );
 
 test.todo(
   "ven-105-166 Twilight Step: choose a valid destination for the moved unit at Finalize (CR 355.4 / " +
-    "355.4.a) — needs the legal-destination set reader (RIFT-9 target.location) wired into the target plan " +
-    "(RIFT-90); effect.move's choose form requires concrete LocationRefs that static IR cannot write"
+    "355.4.a) — needs the legal-destination set reader wired into the target plan (RIFT-357); effect.move's " +
+    "choose form requires concrete LocationRefs that static IR cannot write"
 );
 
 test.todo(
   "ven-105-166 Twilight Step: play this from Trash for its printed Flow cost (:rb_energy_4::rb_rune_chaos:) " +
-    "and banish it afterwards (CR 829.1 / 829.1.b / 829.1.c.1) — needs the RIFT-261 alternate-cost consumer " +
-    "and the RIFT-260 replacement registration"
+    "and banish it afterwards (CR 829.1 / 829.1.b / 829.1.c.1) — needs the Flow alternate-cost consumer " +
+    "and replacement/banish path"
 );

@@ -140,5 +140,5 @@ test.todo(
 test.todo(
   "ven-166-166 Threshold of the Gray: the combat-start-here trigger runs end to end — combat/flow.ts still throws " +
     "combat-start-transaction (no combat-start emission), and the 053.3 \"here\" anchor / 190.6 battlefield-ability " +
-    "binding are missing; the RIFT-257 trigger registrar itself is merged"
+    "binding are missing"
 );

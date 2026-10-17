@@ -20,38 +20,22 @@ import type { CardProgram } from "../../ir/index.js";
  * - 「[Flow] :rb_energy_2:」同 Brittle Steel 的判定：829.1.b 的功能文本、829.1.b.1 的延迟
  *   放逐替代、829.1.c.1 的替代费用；印刷 Flow 费用为 2 能量（无 Power）。
  *
- * status = judge-required（三处缺口，均不近似实现）：
- * 1. 临时 Might 修改没有已合入原语：契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，
- *    effects/instructions 下没有任何原语通过 ResolveContext.addContinuous 注册
- *    continuous.might（RIFT-91 只合入了 layers 求值侧）。
- * 2. 目标限制没有消费方：chain/ 的目标计划只按 ObjectFilter 的字段匹配（layers/filter.ts 的
- *    objectId/cardId/type/zone/location/controller/owner/states/tags/characteristics），不读取
- *    任何“不可被敌方法术/能力选中”的持续限制；continual.restrict 类原语（RIFT-9 清单第 27 项
- *    continuous.restrict）没有文件，也没有把 CardProgram 的 static 能力注册成持续效果的路径。
- * 3. 印刷 Flow 费用送不进展开（契约 3.8.3 的 params.cost 未落地），Flow 消费方依赖
- *    RIFT-261/RIFT-260。
- * 已合入并可真实执行的部分：目标形状本身（type/zone/controller 与 355.9.b 的限制语义）；
- * golden 用参考内核与已合入的过滤器匹配器断言该 TargetSpec 的合法性判定，并锁定未注册的
- * Might / 限制指令在当前解释器上 fail-closed（抛错而不是静默施加 Buff）。
- * 依赖：continuous.might 指令原语（RIFT-9 / RIFT-91）、目标限制消费方（RIFT-90 之后）、
- * RIFT-261/RIFT-260（Flow）。
+ * status = judge-required（整卡仍有两处缺口，均不近似实现）：
+ * - continuous.might 与 continuous.restrict 已合入，目标选择通过同一个 TargetSpec 绑定；
+ *   golden 直接执行并验证 arithmetic/ability 图层登记。限制查询已能读取 continuous.restrict，
+ *   但“敌方法术/能力”这一更细的动作与施法者关系仍由后续目标消费方解释。
+ * - 印刷 Flow 费用送不进展开（契约 3.8.3 的 params.cost 未落地），Flow 的替代费用与放逐消费链仍未闭合。
+ * 依赖：Flow 的 params.cost/替代费用消费链；目标限制的 enemy spell/ability 消费语义。
  */
 export default {
   canonicalCardId: "card.hash-e54ee1b49e982f2d0d89cb2a1ada3688523cfee6c53db33c9aa872c7802ea0df",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口，均不近似实现：(1)「Give a friendly unit +1 :rb_might: this turn」是带 end-of-turn 期限的临时 Might 修改" +
-    "（317.2.c/143.2.a，layers 的 arithmetic 层 continuous.might）：契约 3.6 的封闭 GameAction 集合没有 Might 修改动作，" +
-    "effects/instructions 下也没有任何原语通过 ResolveContext.addContinuous 注册它（RIFT-91 只合入了层求值侧）；" +
-    "effect.buff 只处理 CR 702 的 Buff 计数，不能代替。" +
-    "(2)「It can't be chosen by enemy spells and abilities this turn」（355.9.b 的原文示例）是持续期限内的目标合法性限制，" +
-    "而 chain/ 的目标计划只按 ObjectFilter 字段匹配（layers/filter.ts），不读取任何“不可被敌方法术/能力选中”的持续限制；" +
-    "continuous.restrict 类原语（RIFT-9 第 27 项）没有文件，也没有把 CardProgram 的 static 能力注册成持续效果的路径。" +
-    "(3) 印刷 Flow 费用（829.1.c：2 能量）送不进展开——契约 3.8.3 的 params.cost 未落地，Flow 消费方依赖 RIFT-261/RIFT-260（829.1.b.1）。" +
-    "已合入可验证：目标形状（team/zone 与 355.9.b 的 “friendly” 控制者限制）由 golden 用参考内核与合并过滤器匹配器断言，" +
-    "并锁定未注册的 Might / 限制指令在解释器上 fail-closed（抛错而非静默施加 Buff）。" +
-    "依赖：continuous.might 指令原语（RIFT-9/RIFT-91）、目标限制消费方（RIFT-90 之后）、RIFT-261/RIFT-260。",
+    "两处缺口，均不近似实现：(1)「It can't be chosen by enemy spells and abilities this turn」（355.9.b）虽然已用" +
+    "continuous.restrict 登记并可由 layers/rules/query.ts 读取，但目标消费方仍需把 restriction 与敌方法术/能力的施法者关系接入；" +
+    "(2) 印刷 Flow 费用（829.1.c：2 能量）送不进展开——契约 3.8.3 的 params.cost 未落地，Flow 的替代费用与放逐消费链仍未闭合。" +
+    "continuous.might、目标选择和 end-of-turn 图层登记均已合入并有 golden 执行证据；不近似实现。",
   abilities: [
     // 829.1.a：Flow 在法术上；卡只声明关键词（展开见 judgeReason 第 3 条）。
     { kind: "keyword", keyword: "flow" },
@@ -69,7 +53,11 @@ export default {
           op: "continuous.might",
           args: {
             amount: { kind: "constant", value: 1 },
-            duration: { kind: "constant", value: "this-turn" }
+            duration: { kind: "constant", value: "this-turn" },
+            objects: {
+              kind: "constant",
+              value: { kind: "target", id: "twilight-shroud.friendly-unit" }
+            }
           },
           targets: [
             {
@@ -83,13 +71,14 @@ export default {
         },
         {
           // 「It can't be chosen by enemy spells and abilities this turn」：对同一单位的持续目标限制
-          // （355.9.b），用符号选择器表达 “it”（359.3.e.14）。op 未注册，见 judgeReason 第 2 条。
+          // （355.9.b），用同一 TargetSpec 表达 “it”（359.3.e.14）；当前缺口在限制消费语义。
           id: "twilight-shroud.cannot-be-chosen",
           op: "continuous.restrict",
           linkedTo: "twilight-shroud.grant-might",
           args: {
             restriction: { kind: "constant", value: "cannot-be-chosen-by-enemy-spells-and-abilities" },
-            appliesTo: { kind: "constant", value: { target: "twilight-shroud.friendly-unit" } },
+            action: { kind: "constant", value: "target" },
+            target: { kind: "constant", value: "twilight-shroud.friendly-unit" },
             duration: { kind: "constant", value: "this-turn" }
           },
           targets: [

@@ -21,16 +21,16 @@ import type { CardProgram } from "../../ir/index.js";
  * 1. "with 3 :rb_might: or less" 的 Might 上限不可执行：冻结的 ObjectFilter 没有 Might 谓词，已合入的
  *    过滤器（layers/filter.ts 的 matchesObjectFilter、参考内核的 matchesFilter）只按
  *    type/types/zone/location/controller/owner/states/tags/characteristics 匹配，未知键（如程序里的
- *    mightLte）会被静默忽略——把它当成已实现会让任意单位都合法（同 sfd-158-221 Sandshifter、ogn-169-298 Gust
- *    的记录）。143.2.a 的有效 Might 读数与阈值谓词属 RIFT-83/RIFT-91 的 Mighty 类关键词批次。
+ *    mightLte）不会被当前目标计划消费——把它当成已实现会让任意单位都合法。143.2.a 的有效 Might 读数与阈值谓词
+ *    属进行中的 RIFT-359 条件/谓词接线。
  * 2. 移动目的地没有生产者：355.4 要求在选择目标时同时选定合法目的地（355.4.a：不是当前位置、且该单位
  *    被允许存在），但契约 3.6 与已合入原语里都没有"合法目的地集合"的读数（target.location）；
  *    effect.move 的 choose 形态要求 options 是一串具体 LocationRef，静态 IR 写不出来（同 rad-005-167
- *    Parallel Convergence 一类"移动到某地"的缺口，依赖 RIFT-9 target.location / RIFT-90 目标计划）。
- * 3. [Flow] 的展开依赖未合入：flow.cost 需要 RIFT-261 的替代费用消费方、替代放逐需要 RIFT-260 的
- *    replacement 路径；印刷 Flow 费用按契约 3.8.3 应经 params.cost 承载，而 KeywordAbility 无该字段
+ *    Parallel Convergence 一类"移动到某地"的缺口，依赖进行中的 RIFT-357 位置选择）。
+ * 3. [Flow] 的展开依赖未合入：Flow 的替代费用与替代放逐消费链仍未闭合；印刷 Flow 费用按契约 3.8.3
+ *    应经 params.cost 承载，而 KeywordAbility 无该字段
  *    （见最终回复的契约变更请求）。
- * 依赖：RIFT-83/RIFT-91（Might 谓词）、RIFT-9/RIFT-90（合法目的地集合与目标计划）、RIFT-260/261（Flow）。
+ * 依赖：RIFT-359（Might 谓词）、RIFT-357（合法目的地集合与位置选择）、Flow 的费用/替代消费链。
  * golden 覆盖校验、身份与结构；三类依赖都以 test.todo 注明缺什么，不做整卡执行。
  */
 const twilightStep = {
@@ -39,14 +39,13 @@ const twilightStep = {
   status: "judge-required",
   judgeReason:
     "三处缺口：(1)「a unit with 3 :rb_might: or less」的 Might 上限不可执行——冻结的 ObjectFilter 没有 Might 谓词，" +
-    "已合入过滤器只按 type/types/zone/location/controller/owner/states/tags/characteristics 匹配，描述性 mightLte 会被静默忽略" +
-    "（当成已实现会让任意单位合法），143.2.a 的有效 Might 阈值属 RIFT-83/RIFT-91（同 sfd-158-221 Sandshifter、ogn-169-298 Gust）；" +
+    "已合入目标计划不消费描述性 mightLte（当成已实现会让任意单位合法），143.2.a 的有效 Might 阈值依赖进行中的 RIFT-359；" +
     "(2) 移动目的地没有生产者——355.4/355.4.a 要求在选定目标时同时选定该单位被允许存在的合法目的地，但契约 3.6 与已合入原语都没有" +
     "「合法目的地集合」读数（target.location），effect.move 的 choose 形态要求 options 是具体 LocationRef 列表，静态 IR 写不出来" +
-    "（依赖 RIFT-9 与 RIFT-90）；" +
-    "(3) [Flow]（829.1/829.1.c.1）的展开依赖未合入：flow.cost 需要 RIFT-261 的替代费用消费方、替代放逐需要 RIFT-260 的 replacement 路径，" +
+    "（依赖进行中的 RIFT-357 位置选择）；" +
+    "(3) [Flow]（829.1/829.1.c.1）的展开依赖未合入：Flow 的替代费用与替代放逐消费链仍未闭合，" +
     "且印刷 Flow 费用（4 Energy + 1 Chaos Power）按契约 3.8.3 应经 params.cost 承载而 KeywordAbility 无该字段（契约变更请求）。" +
-    "依赖：RIFT-83/RIFT-91、RIFT-9/RIFT-90、RIFT-260/261。golden 只做校验/身份/结构断言。不近似实现。",
+    "依赖：RIFT-359、RIFT-357、Flow 的费用/替代消费链。golden 只做校验/身份/结构断言。不近似实现。",
   abilities: [
     // 829.1.c.1：印刷 "[Flow] :rb_energy_4::rb_rune_chaos:"；费用归 Flow.ts 的展开（见 judgeReason 第 3 条）。
     { kind: "keyword", keyword: "flow" },
