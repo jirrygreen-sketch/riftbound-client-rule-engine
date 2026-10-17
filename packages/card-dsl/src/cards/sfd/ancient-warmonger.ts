@@ -28,12 +28,11 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  * - 即使动态数值可读，运行时授予的 Assault 仍需要 KeywordDef/Assault 消费路径把 ability 层关键词
  *   展开成攻击者期间的 Might；现有 Assault 展开读取 designation，而 ObjectSnapshot 提供 combatRole，
  *   特征字段也未对齐。
- * - [Accelerate] 的展开（effects/keywords/Accelerate.ts）与费用计划
- *   （src/cost/kinds/additional.ts 的 accelerate 组件）已合入，但把该费用接进
- *   链上打出 Finalize 的 optionalAdditional 收取与 805.6 付费后入场就绪替代的
- *   条件管线仍无消费方。
+ * - [Accelerate] 的 KeywordDef 已展开出 accelerate.cost 与入场替代；替代绑定器能消费
+ *   effect.ready，但 programs/statics.ts 没有 accelerate.cost 的图层映射，且
+ *   programs/play.ts 的 translateCost / Finalize 不会从该静态效果收集 optionalAdditional。
  * 依赖：ability 图层动态 count 求值、运行时授予 Assault 的消费与 designation/combatRole 对齐、
- * Finalize 的 Accelerate optionalAdditional 收取与入场就绪替代接线。
+ * Accelerate 静态费用到 Finalize optionalAdditional 的生产接线。
  * 不近似实现（不把动态数值写成固定 Assault、不把手写展开塞进卡程序）。
  */
 const abilities: Ability[] = [
@@ -74,11 +73,12 @@ const program = {
     "valueOf 也不求值 kind:\"count\"，所以授予值不会变成此处敌方单位数；" +
     "(2) 运行时授予的 Assault 还没有进入 KeywordDef/Assault 消费路径，且 Assault 展开读取 designation、" +
     "ObjectSnapshot 提供 combatRole，807.1.d 的攻击者期间 Might 条件无法完成字段对齐；" +
-    "(3) [Accelerate]（805）的关键词展开与 accelerate 费用计划已合入，但接进打出流程" +
-    "Finalize 的 optionalAdditional 收取与 805.6 入场就绪替代条件的管线仍无消费方。" +
+    "(3) [Accelerate]（805）的 KeywordDef 已展开出 accelerate.cost 与入场替代，替代绑定器能消费 effect.ready，" +
+    "但 programs/statics.ts 没有 accelerate.cost 的图层映射，programs/play.ts 的 translateCost / Finalize 也不会从该静态效果" +
+    "收集 optionalAdditional，因此 805.1.b 的费用选择仍没有卡牌生产接线。" +
     "数值本身是动态计数（此处敌方单位数），不能用静态的 { keyword: \"assault\", value: N } 冒充。" +
     "依赖：layers 动态 count 求值、运行时授予关键词的 Assault 消费与 designation/combatRole 对齐、" +
-    "Finalize Accelerate 接线。不近似实现（动态数值不写成固定 Assault、" +
+    "Accelerate 静态费用到 Finalize 的接线。不近似实现（动态数值不写成固定 Assault、" +
     "不把关键词展开手写进卡程序）。",
   abilities,
   sourceText:

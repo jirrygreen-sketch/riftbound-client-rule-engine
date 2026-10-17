@@ -6,6 +6,7 @@ import program from "../../../dist/cards/sfd/ancient-warmonger.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import assault from "../../../../engine-core/dist/effects/keywords/Assault.js";
 import accelerate from "../../../../engine-core/dist/effects/keywords/Accelerate.js";
+import { keywordDefinitionsById } from "../../../../engine-core/dist/effects/keywords/registry.generated.js";
 import { createEngineStaticBinder } from "../../../../engine-core/dist/programs/statics.js";
 import { fixture } from "../../../../engine-core/test/chain/helpers.mjs";
 
@@ -37,7 +38,9 @@ test("sfd-131-221 Ancient Warmonger: judgeReason names the dynamic-grant and des
   assert.match(program.judgeReason, /combatRole|designation/);
   assert.doesNotMatch(program.judgeReason, /staticFilter/);
   assert.doesNotMatch(program.judgeReason, /conditionMatches/);
-  assert.match(program.judgeReason, /805/);
+  assert.match(program.judgeReason, /accelerate\.cost/);
+  assert.match(program.judgeReason, /optionalAdditional/);
+  assert.match(program.judgeReason, /translateCost/);
 });
 
 test("sfd-131-221 Ancient Warmonger: [Accelerate] is declared, not expanded", () => {
@@ -114,6 +117,32 @@ test("sfd-131-221 Ancient Warmonger: production static binding registers the sel
   assert.equal(engine.layers.registry.list().length, 0);
 });
 
+test("sfd-131-221 Ancient Warmonger: merged Accelerate expansion preserves the optional cost and entry replacement", () => {
+  const definition = keywordDefinitionsById.get("Accelerate");
+  assert.ok(definition, "effects/keywords/Accelerate.ts must be registered");
+  const [cost, replacement] = definition.expand({ host: { canonicalCardId: CANONICAL } });
+  assert.equal(cost.kind, "static");
+  assert.equal(cost.effect.kind, "accelerate.cost");
+  assert.deepEqual(cost.effect.cost, {
+    kind: "additional-cost",
+    optional: true,
+    payments: [
+      { kind: "energy", amount: { kind: "constant", value: 1 } },
+      { kind: "power", amount: { kind: "constant", value: 1 } }
+    ]
+  });
+  assert.equal(replacement.kind, "replacement");
+  assert.deepEqual(replacement.replaces, {
+    event: "object-enters-board",
+    filter: { self: true, cardId: CANONICAL, exhausted: true }
+  });
+  assert.deepEqual(replacement.with, [{
+    id: "accelerate.enter-ready",
+    op: "effect.ready",
+    args: { objects: { kind: "constant", value: { kind: "source" } } }
+  }]);
+});
+
 test.todo(
   "sfd-131-221 Ancient Warmonger: grant [Assault] to this unit at a dynamic value through " +
     "continuous.grant-keyword and the layers engine, active only while it holds the Attacker " +
@@ -124,5 +153,5 @@ test.todo(
 test.todo(
   "sfd-131-221 Ancient Warmonger: the printed [Accelerate] optional additional cost (1 energy + 1 " +
     "Chaos power, 805.1.b/805.1.b.1) and its delayed enter-ready replacement (805.2.b/805.6/805.6.a) " +
-    "need the Finalize optional-additional wiring and the replacement.enter consumer"
+    "needs card-static accelerate.cost collection in Finalize optionalAdditional; the merged replacement binder already consumes its entry-ready body"
 );

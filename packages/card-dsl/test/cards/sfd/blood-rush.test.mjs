@@ -5,6 +5,7 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/blood-rush.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import assault from "../../../../engine-core/dist/effects/keywords/Assault.js";
+import repeat from "../../../../engine-core/dist/effects/keywords/Repeat.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
@@ -102,6 +103,17 @@ test("sfd-003-221 Blood Rush: the granted Assault 2 expands with the printed val
     operator: "eq",
     right: { kind: "constant", value: "attacker" }
   });
+});
+
+test("sfd-003-221 Blood Rush: the merged Repeat keyword preserves the printed one-Energy additional cost", () => {
+  const [repeatCost] = repeat.expand({
+    host: { canonicalCardId: CANONICAL },
+    cost: { energy: 1 }
+  });
+  assert.equal(repeatCost.kind, "static");
+  assert.equal(repeatCost.effect.kind, "repeat.cost");
+  assert.equal(repeatCost.effect.count, 1);
+  assert.deepEqual(repeatCost.effect.cost, { energy: 1 });
 });
 
 test("sfd-003-221 Blood Rush: the original body grants Assault 2 to the chosen unit for its Board existence", () => {

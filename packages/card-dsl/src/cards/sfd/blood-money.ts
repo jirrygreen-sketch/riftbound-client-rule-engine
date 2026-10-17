@@ -45,9 +45,9 @@ const bloodMoney = {
     "而且 effect.token 的 argsSchema 没有入场状态参数（文件头明确 \"Entry overrides are not supported\"），" +
     "印刷的 \"exhausted\"（143.4 / 185.2.d）无处表达，事后补 effect.exhaust 不等价（会多产生一次「成为横置」事件并错过入场替代）。" +
     "mode \"play\" 的 create-token(to: chain) + play 接手（440.2.c / 185.2.a）已在 effect.token 内实现，但被 Gold 定义判负挡住。" +
-    "「Kill a unit at a battlefield with 2 :rb_might: or less」半段用已合入的 effect.kill 表达（目标过滤器保留战场与 Might≤2 限制数据），" +
+    "「Kill a unit at a battlefield with 2 :rb_might: or less」半段用已合入的 effect.kill 表达（目标过滤器保留 locationType:battlefield 与 mightAtMost:2 限制数据），" +
     "两条 enemy/friendly 分支条件经 linked kill 结果真实求值，均由 golden 覆盖；token 半段不近似实现。" +
-    "依赖：Gold token 冻结定义、effect.token 的入场状态参数、目标过滤器的数值 Might 谓词。",
+    "依赖：Gold token 冻结定义、effect.token 的入场状态参数、Finalize 目标过滤器对 locationType:battlefield 与 mightAtMost 数值谓词的生产消费者。",
   sourceText:
     "[Action] (Play on your turn or in showdowns.)\n" +
     "Kill a unit at a battlefield with 2 :rb_might: or less. If it was an enemy unit, play a Gold gear token exhausted. If it was a friendly unit, play two Gold gear tokens exhausted.",
@@ -64,11 +64,12 @@ const bloodMoney = {
             {
               id: "blood-money.unit",
               // 355.9.b: the unit must be at a battlefield and have Might <= 2.
-              // "at a battlefield" is the location restriction carried by the
-              // filter data; the merged query vocabulary has no numeric Might
-              // predicate, so the printed cap stays declared filter data and is
-              // reported as a gap instead of being invented as executable
-              // legality (see the todo in the golden test).
+              // "at a battlefield" and the Might cap are carried as filter
+              // data; the production matcher currently has no consumers for
+              // locationType or numeric Might predicates, so both restrictions
+              // remain declared and are reported as a gap instead of being
+              // invented as executable legality (see the todo in the golden
+              // test).
               filter: {
                 type: "unit",
                 locationType: "battlefield",

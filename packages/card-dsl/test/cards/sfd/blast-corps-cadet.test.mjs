@@ -3,6 +3,8 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/blast-corps-cadet.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
+import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
+import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -44,6 +46,65 @@ test("sfd-013-221 Blast Corps Cadet: deal-two body resolves against a locked bat
   });
   assert.equal(run.result.status, "executed");
   assert.equal(kernel.getObject("battlefield-unit").damage, 2);
+});
+
+test("sfd-013-221 Blast Corps Cadet: the merged cost planner records the selected Fury additional cost", () => {
+  const kernel = world().player("A", { energy: 2, power: ["Fury"] }).build();
+  const plan = buildCostPlan(kernel, {
+    id: "cost:blast-corps-cadet",
+    cost: { kind: "explicit", energy: { kind: "constant", value: 0 } },
+    optionalAdditional: [
+      {
+        id: cost.effect.id,
+        kind: "additional",
+        cost: {
+          kind: "explicit",
+          energy: { kind: "constant", value: 1 },
+          payments: [{ kind: "power", amount: { kind: "constant", value: 1 }, allowedDomains: ["Fury"] }]
+        },
+        selected: true
+      }
+    ]
+  });
+
+  assert.deepEqual(plan.selectedAdditional, [{ id: cost.effect.id, kind: "additional" }]);
+  assert.equal(plan.total.energy, 1);
+  assert.deepEqual(plan.total.power, [{ amount: 1, allowedDomains: ["Fury"] }]);
+
+  const receipt = payCostPlan(kernel, plan);
+  assert.equal(receipt.paid, true);
+  assert.deepEqual(receipt.additional, [{ id: cost.effect.id, kind: "additional", paid: true }]);
+  assert.equal(kernel.player("A").energy, 1);
+  assert.deepEqual(receipt.power.power, [{ requirementIndex: 0, from: "Fury", amount: 1 }]);
+});
+
+test("sfd-013-221 Blast Corps Cadet: declining the optional additional cost leaves the base plan unchanged", () => {
+  const kernel = world().player("A", { energy: 2, power: ["Fury"] }).build();
+  const plan = buildCostPlan(kernel, {
+    id: "cost:blast-corps-cadet:declined",
+    cost: { kind: "explicit", energy: { kind: "constant", value: 0 } },
+    optionalAdditional: [
+      {
+        id: cost.effect.id,
+        kind: "additional",
+        cost: {
+          kind: "explicit",
+          energy: { kind: "constant", value: 1 },
+          payments: [{ kind: "power", amount: { kind: "constant", value: 1 }, allowedDomains: ["Fury"] }]
+        },
+        selected: false
+      }
+    ]
+  });
+
+  assert.deepEqual(plan.selectedAdditional, []);
+  assert.deepEqual(plan.declinedAdditional, [cost.effect.id]);
+  assert.equal(plan.total.energy, 0);
+  assert.deepEqual(plan.total.power, []);
+  const receipt = payCostPlan(kernel, plan);
+  assert.deepEqual(receipt.additional, []);
+  assert.equal(kernel.player("A").energy, 2);
+  assert.deepEqual(kernel.player("A").power, ["Fury"]);
 });
 
 test.todo("Blast Corps Cadet: wire the card-declared optional additional cost into play Finalize and bind the paid receipt so the damage runs only after the cost is chosen (356.4.f.1)");

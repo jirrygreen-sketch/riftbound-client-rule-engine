@@ -44,13 +44,15 @@ import type { CardProgram, TargetSpec } from "../../ir/index.js";
  *   detach action, so it is not linked and resolves even when the chosen mode
  *   does nothing (359.3.e.14, 359.3.e.11).
  *
- * Status: judge-required. The 355.11 "same controller" group requirement has no
- * evaluable form: neither `finalizeTargetPlan` nor the merged query anchors
- * compare two chosen objects' controllers, and the 355.11.b subset re-choice
- * has no implementation. Nothing is approximated — the group marker records the
- * restriction instead of dropping it, and the mode bodies use only merged
- * primitives so the attach/detach/draw behaviour is executable once the group
- * constraint exists.
+ * Status: judge-required. The mode choice is still blocked by production
+ * lifecycle wiring: programs/play.ts rejects `choice.mode` because no
+ * Finalize/Resolve choice-plan adapter passes the selected mode and the
+ * detach pick its already-locked Equipment reference. The 355.11 "same
+ * controller" group requirement also has no evaluable form: neither
+ * `finalizeTargetPlan` nor the merged query anchors compare two chosen
+ * objects' controllers, and the 355.11.b subset re-choice has no
+ * implementation. Reaction timing and the attach/detach/draw primitives are
+ * merged and covered independently; nothing is approximated.
  */
 const targets: TargetSpec[] = [
   {
@@ -86,7 +88,9 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "缺 355.11 的分组目标约束求值：「Choose a unit and an Equipment with the same controller」要求两个选择整体满足" +
+    "当前有两处生产缺口：「Attach ... or detach ...」的 choice.mode 没有 Finalize/Resolve choice-plan 适配器，" +
+    "programs/play.ts 的 validateSurface 会拒绝该模式；detach 的非目标 pick 也没有从第一组目标传入已锁定的 Equipment 引用。" +
+    "另缺 355.11 的分组目标约束求值：「Choose a unit and an Equipment with the same controller」要求两个选择整体满足" +
     "「同一控制者」（355.11.a），并在结算时按 355.11.b 重选合法子集；合并的目标系统只有 TargetRequirement.kind/group 的形状，" +
     "没有任何分组级关系求值，contract 3.6 的过滤器锚点也没有「与另一被选对象同一控制者」的可用键。" +
     "本卡不丢约束（两个 TargetSpec 上保留 kind: group / group: true / sameController 描述性标记），也不近似成无约束的两个独立选择。" +
