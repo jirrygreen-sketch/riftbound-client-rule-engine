@@ -1,3 +1,7 @@
+// RIFT-648 template execution evidence: ../templates/empty-648.test.mjs.
+// The template row runs this program through the scenario harness with its
+// printed null Energy/Power untouched and the Victory Score gap still declared
+// below; this file keeps validation, identity and the key structure only.
 import assert from "node:assert/strict";
 import test from "node:test";
 
