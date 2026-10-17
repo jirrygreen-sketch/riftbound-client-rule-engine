@@ -6,6 +6,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { validateCardProgram } from "../../../../../packages/card-dsl/dist/ir/index.js";
 import program from "../../../../../packages/card-dsl/dist/cards/sfd/ferrous-forerunner.js";
+import { keywordDefinitionsById } from "../../../../../packages/engine-core/dist/effects/keywords/registry.generated.js";
+import { resolveChainBody } from "../../../../../packages/engine-core/dist/chain/interpreter-adapter.js";
 import tokenDef from "../../../../../packages/engine-core/dist/effects/instructions/effect.token.js";
 import { world, runInstruction } from "../../../../../packages/engine-core/dist/effects/testing/index.js";
 
@@ -71,6 +73,26 @@ test("golden: the printed play mode really creates and plays both 3-Might Mech t
     assert.deepEqual(token.location, { type: "base", player: "A" });
   }
   assert.equal(run.events.filter(event => event.action === "play").length, 2);
+});
+
+test("sfd-021-221 Ferrous Forerunner: the authored controller-relative base is rejected by effect.token", () => {
+  const testWorld = world().player("A").build();
+  const [instruction] = program.abilities[0].body;
+  const run = runInstruction(tokenDef, instruction.args, { world: testWorld });
+  assert.equal(run.result?.status, "negated");
+  assert.equal(testWorld.objects.filter(object => object.isToken).length, 0);
+});
+
+test("sfd-021-221 Ferrous Forerunner: the merged Deathknell skeleton still references an unregistered body opcode", () => {
+  const definition = keywordDefinitionsById.get("Deathknell");
+  assert.ok(definition);
+  const [expanded] = definition.expand({ host: { canonicalCardId: CANONICAL } });
+  assert.equal(expanded.kind, "triggered");
+  assert.equal(expanded.body[0].op, "trigger.leave");
+  assert.throws(
+    () => resolveChainBody(expanded.body, world().unit("forerunner").build()),
+    /Unregistered instruction opcode: trigger\.leave/
+  );
 });
 
 test.todo(

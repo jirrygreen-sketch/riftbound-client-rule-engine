@@ -4,6 +4,8 @@ import { validateCardProgram } from "../../../dist/index.js";
 import { cardProgramsById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
 import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
@@ -119,6 +121,24 @@ test("fiora-peerless golden: doubling reads the current Might, not a fixed amoun
   assert.equal(layers.evaluate(kernel.ref("fiora")).might, 4);
 });
 
+test("fiora-peerless: attack and defense trigger registrations are structurally bindable before combat emits them", () => {
+  const source = world()
+    .unit("fiora", {
+      cardId,
+      controller: "A",
+      location: { type: "battlefield", id: "duel" },
+      might: 6
+    })
+    .build()
+    .getObject("fiora");
+  const registrations = triggerRegistrations(
+    new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]),
+    source
+  );
+  assert.deepEqual(registrations.map(registration => registration.spec.at), ["attack-declared", "defense-declared"]);
+  assert.deepEqual(registrations.map(registration => registration.spec.once), ["per-combat", "per-combat"]);
+});
+
 // Run the authored trigger condition through the real condition interpreter.
 // This is predicate evidence, not a fabricated combat declaration event.
 function controllerContext(kernel) {
@@ -171,5 +191,5 @@ for (const controller of ["A", "B"]) {
 
 test.todo(
   "fiora-peerless: produce attack-declared/defense-declared from CR 466.2's atomic combat-start role " +
-    "transaction and evaluate the authored condition at trigger collection via testTrigger (RIFT-359)"
+    "transaction and evaluate the authored condition at trigger collection via the production testTrigger adapter"
 );

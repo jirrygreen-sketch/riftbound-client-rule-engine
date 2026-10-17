@@ -6,7 +6,11 @@ import program from "../../../dist/cards/sfd/fae-dragon.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 import { translateObjectFilter } from "../../../../engine-core/dist/programs/filters.js";
-import { world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { ProgramRegistry } from "../../../../engine-core/dist/programs/registry.js";
+import { triggerRegistrations } from "../../../../engine-core/dist/programs/triggers.js";
+import { assertTriggerSpec } from "../../../../engine-core/dist/events/trigger-spec.js";
+import token from "../../../../engine-core/dist/effects/instructions/effect.token.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CARD_ID = "card.hash-25827836268ab76ff935741b947b08a906c9a719348a2c911526d1b8321ecce9";
 const SOURCE_TEXT =
@@ -188,6 +192,35 @@ test("sfd-101-221 Fae Dragon golden: an already-buffed unit is not buffed again 
   assert.equal(kernel.getObject("buffed-ally").buffs, 1);
   assert.equal(kernel.getObject("fresh-ally").buffs, 1);
   assert.equal(outcome.events.filter(event => event.action === "buff").length, 1);
+});
+
+test("sfd-101-221 Fae Dragon: Gold remains an unsupported token definition", () => {
+  const kernel = world().player("A").build();
+  const run = runInstruction(token, {
+    ...tokenInstruction.args,
+    location: { kind: "constant", value: { type: "base", player: "A" } }
+  }, { world: kernel });
+  assert.equal(run.result.status, "negated");
+  assert.equal(run.linked.goldToken.blockedReason, "token-definition-or-abilities-judge-required");
+  assert.equal(kernel.objects.filter(object => object.isToken).length, 0);
+});
+
+test("sfd-101-221 Fae Dragon: the real buff-spent trigger is rejected by the event-pattern vocabulary", () => {
+  const source = world()
+    .unit("fae-dragon", { cardId: CARD_ID, controller: "A" })
+    .build()
+    .getObject("fae-dragon");
+  const registrations = triggerRegistrations(
+    new ProgramRegistry([{ ...program, status: "executable", judgeReason: undefined }]),
+    source
+  );
+  const spendRegistration = registrations.find(registration => registration.spec.at === "buff-spent");
+  assert.ok(spendRegistration);
+  assert.throws(
+    () => assertTriggerSpec(spendRegistration.spec),
+    error => error.name === "TriggerSpecValidationError" &&
+      /trigger\.filter\.event/.test(error.message)
+  );
 });
 
 test.todo(

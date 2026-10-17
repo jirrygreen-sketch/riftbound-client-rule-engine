@@ -14,7 +14,7 @@ import type { CardProgram, Condition, Instruction } from "../../ir/index.js";
  *   expressions can evaluate that condition; no dedicated opcode is needed.
  * - 433.1 / 433.1.a: "double my Might" is Doubling — increase the numeric
  *   attribute by its CURRENT value. The merged continuous.might instruction
- *   (RIFT-258) registers an arithmetic-layer modification and the merged
+ *   registers an arithmetic-layer modification and the merged
  *   duration vocabulary maps "this combat" to end-of-combat (468.7.c), so the
  *   body is authored as condition.value (read this unit's Might at
  *   resolution) followed by continuous.might on the source.
@@ -23,7 +23,7 @@ import type { CardProgram, Condition, Instruction } from "../../ir/index.js";
  * CombatFlow.startCombat still blocks on the atomic role/timing transaction
  * (466.2), so neither attack-declared nor defense-declared has a producer.
  * The event host also needs its testTrigger adapter to evaluate this authored
- * condition when collecting the trigger (383.2, ongoing RIFT-359), rather
+ * condition when collecting the trigger (383.2), rather
  * than treating the old literal "one-on-one" placeholder as a truthy value.
  */
 const constant = <T,>(value: T) => ({ kind: "constant" as const, value });
@@ -72,7 +72,7 @@ export default {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "one-on-one（740.2.a/740.2.b）现可由同地友方/敌方单位各为 1 的 count 条件表达，已有解释器边界测试；continuous.might 也已真实翻倍并使用 end-of-combat 时长（433.1/468.7.c）。剩余缺口是 CombatFlow.startCombat 的 combat-start-transaction（466.2 的同时角色/时点事务），attack-declared/defense-declared 仍无生产者；事件宿主还需通过 testTrigger 在触发收集时求值此条件（383.2，RIFT-359）。不再将专用 one-on-one opcode 当作必要依赖，整卡保持 judge-required。",
+    "one-on-one（740.2.a/740.2.b）现可由同地友方/敌方单位各为 1 的 count 条件表达，已有解释器边界测试；continuous.might 也已真实翻倍并使用 end-of-combat 时长（433.1/468.7.c）。剩余缺口是 CombatFlow.advance 的 combat-start-transaction（466.2 的同时角色/时点事务），attack-declared/defense-declared 尚无生产者；生产事件宿主还必须提供 testTrigger，在触发收集时求值此条件（383.2）。不再将专用 one-on-one opcode 当作必要依赖，整卡保持 judge-required。",
   abilities: [
     {
       kind: "triggered",
