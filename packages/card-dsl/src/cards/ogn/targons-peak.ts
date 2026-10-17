@@ -18,9 +18,12 @@ import type { CardProgram } from "../../ir/index.js";
  * - 416.1: readying a rune readies it; effect.ready is the merged primitive
  *   for the action, and 417.1.b / 108.5 place runes in the Rune Zone.
  *
- * Status: judge-required — three merged gaps, none approximated:
- * 1. no merged module emits the `conquer` timing point into the single event
- *    pipeline, so the outer trigger cannot enter the chain;
+ * Status: judge-required — two merged gaps, none approximated:
+ * 1. the `conquer` timing point is now emitted by TurnFlow's Score wave
+ *    (src/turn/flow.ts, verified in docs/rules/timing-point-producers.md), but
+ *    the trigger filter still needs the battlefield-relative `here` anchor and
+ *    the card-program binding (RIFT-257) before the outer trigger can enter the
+ *    chain from a real play;
  * 2. no merged primitive registers a delayed trigger with an expiry window:
  *    RIFT-9's primitive list names `trigger.delayed` and ResolveContext has
  *    `registerDelayedTrigger(at, body)` for engine internals, but the
@@ -38,8 +41,9 @@ const targonsPeak = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1) conquer 时点（CR 471.1、473.2.a）没有被任何已合入模块 emit 进唯一事件管线，" +
-    "外层触发无法进链（需 scoring/触发接线，RIFT-31/RIFT-33 及契约 §7.2 批 5）；" +
+    "两处缺口：(1) conquer 时点（CR 471.1、473.2.a）已由 TurnFlow 的 Score wave emit 进唯一事件管线" +
+    "（docs/rules/timing-point-producers.md 记为已有），触发侧仍缺战场相对的 here 锚点与 CardProgram 绑定（RIFT-257），" +
+    "无法从真实打出进入链；" +
     "(2) 缺 RIFT-9 清单中的 trigger.delayed 延迟触发注册原语：CR 391.2/355.5.b 要求把 ready 2 runes 作为" +
     "本回合结束时的延迟触发，且选择在该延迟触发 finalize 时才做出，但 effects/instructions/ 没有任何 opcode " +
     "消费 ResolveContext.registerDelayedTrigger，chain/README.md 契约变更请求 3 亦记录延迟窗口/期限信息缺失，" +

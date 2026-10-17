@@ -11,23 +11,26 @@ import type { CardProgram } from "../../ir/index.js";
  *   Choose a friendly unit in your base. Deal damage equal to its Might to all
  *   enemy units at a battlefield, then move your unit there.
  *
- * Status: judge-required. Two parts of the clause cannot be expressed with the
- * merged primitives:
- * - "all enemy units at a battlefield" does NOT target the units: 355.10.b/355.10.d
- *   ("Kill all units at a battlefield" targets a battlefield, but not any units)
- *   make the BATTLEFIELD the targeted choice, and every enemy unit there is then
- *   affected without a choice. The merged target plan only resolves collections of
- *   board objects with per-member filters (`query` + min/max); it has no battlefield
- *   target and no derived "all objects at the chosen location" affected set, so the
- *   battlefield choice and its dependent unit set cannot be expressed or verified.
- * - "then move your unit there" needs that chosen battlefield: the destination is
- *   not a static LocationRef, not "controller-base", and not a static choice list,
- *   so no merged value/Expr can feed effect.move's `to`.
+ * Status: judge-required. "all enemy units at a battlefield" still cannot be
+ * expressed and is not approximated:
+ * - the units are NOT targeted: 355.10.b/355.10.d ("Kill all units at a
+ *   battlefield" targets a battlefield, but not any units) make the BATTLEFIELD
+ *   the targeted choice, and every enemy unit there is then affected without a
+ *   choice. effect.damage consumes only a TargetSpec id, and the merged target
+ *   plan resolves collections of board objects with per-member filters; there is
+ *   no non-target "all objects at the chosen location" affected set for the
+ *   damage primitive, so the battlefield choice plus its derived unit set cannot
+ *   be executed. Declaring the units as a TargetSpec would violate 355.10.b.
  * Expressible and covered by real tests: the chosen unit is a normal target
  * (355.7, in your Base, a public zone), and its Might is read at resolution via
  * `object-property` over that target (contract 3.2 Expr); damage is dealt by the
  * spell itself, which is the default source when the text does not name one
  * (418.6.a).
+ * "then move your unit there" executes on merged paths since RIFT-258: the
+ * chosen battlefield's LocationRef is bound with `condition.value` over the
+ * battlefield target (`object-property` "location") and read back as the linked
+ * `to` destination of effect.move, which moves the chosen unit without a Move
+ * cost or Main Phase gate (this is an effect Move, not the Standard Move).
  */
 const stormbringer = {
   canonicalCardId: "card.hash-0ff7c0201c85564ecdaf790021fc4115874fec7665a462b27901498984988f3c",
@@ -36,11 +39,12 @@ const stormbringer = {
   judgeReason:
     "缺战场目标与派生受影响集合：按 355.10.b/355.10.d，'all enemy units at a battlefield' 的目标是**战场**而非各单位" +
     "（CR 原文 \"Kill all units at a battlefield\" targets a battlefield, but not any units），选定战场后其上的敌人全部受影响；" +
-    "target-plan 只按 query + min/max 处理场上对象集合，既没有战场目标，也没有「按所选地点派生对象集合」的表示；" +
-    "'then move your unit there' 的 to 需要引用该已选战场的 LocationRef，" +
-    "effect.move 的 to 只接受静态 LocationRef/controller-base/静态选项列表，没有 Expr 能取分组位置。" +
-    "「其上等于其 Might 的伤害」与「选择我方基地单位」已用 object-property + effect.damage 表达并有执行测试。" +
-    "依赖：RIFT-90 目标计划（战场目标/位置）与 RIFT-9 target.location；不近似实现。",
+    "effect.damage 只接受 TargetSpec id（没有非目标的 query/集合形态），target-plan 也没有「按所选地点派生对象集合」的表示；" +
+    "把单位写成 TargetSpec 会违反 355.10.b 并错误触发成为目标。" +
+    "'then move your unit there' 已可执行（condition.value 绑定战场 LocationRef + effect.move 的 linked to），见 golden。" +
+    "「其上等于其 Might 的伤害」的取值表达式与「选择我方基地单位」本身也已用 object-property + 目标表达并有执行测试，" +
+    "唯独受影响集合无法执行，故整卡保持 judge-required。" +
+    "依赖：355.10.b/355.10.d 的战场目标 + 派生集合消费方（RIFT-90 目标计划与 effect.damage 的非目标集合形态）；不近似实现。",
   abilities: [
     {
       kind: "play",
@@ -88,15 +92,37 @@ const stormbringer = {
           ]
         },
         {
-          // "then move your unit there" — effect.move is the intended
-          // primitive, but `to` needs the chosen battlefield's LocationRef and no
-          // merged Expr reads a target's location (see judgeReason).
+          // "then move your unit there" — the chosen battlefield's LocationRef
+          // is bound once so the move's `to` can read it back as a linked value
+          // (355.5.b: the choice is the battlefield; contract 3.9 binds values).
+          // The battlefield TargetSpec stays declared once, on the damage
+          // instruction above; this instruction re-reads the same locked choice.
+          id: "stormbringer-battlefield-location",
+          op: "condition.value",
+          args: {
+            value: {
+              kind: "object-property",
+              object: { target: "stormbringer-battlefield" },
+              property: "location"
+            },
+            key: { kind: "constant", value: "battlefieldLocation" }
+          }
+        },
+        {
+          // "then move your unit there" — an effect Move to the chosen
+          // battlefield (421/448-455), not the Standard Move: no exhaust cost
+          // and no Main Phase gate. Not linkedTo the damage clause: the
+          // anaphora refers to the chosen unit/battlefield, not to the damage
+          // action, so a negated deal does not suppress the move (359.3.e.14).
           id: "stormbringer-move",
           op: "effect.move",
-          linkedTo: "stormbringer-damage",
           args: {
             objects: { kind: "literal", value: { target: "stormbringer-unit" } },
-            to: { kind: "literal", value: { locationOf: { target: "stormbringer-battlefield" } } },
+            to: {
+              kind: "linked-value",
+              instructionId: "stormbringer-battlefield-location",
+              key: "battlefieldLocation"
+            },
             amount: { kind: "literal", value: 1 }
           }
         }

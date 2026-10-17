@@ -36,6 +36,8 @@ test("ogn-252-298 Death Rocket judgeReason names the trash-zone, cost.discard an
   assert.match(program.judgeReason, /cost\.discard/);
   assert.match(program.judgeReason, /423\.3/);
   assert.match(program.judgeReason, /source\/self/);
+  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /不近似实现/);
 });
 
@@ -122,8 +124,9 @@ test.todo(
 );
 
 test.todo(
-  "Death Rocket: 'discard 1' as the clause's cost needs a merged cost.discard primitive " +
-    "(423.3, RIFT-89); effect.discard is the effect-discard form of 423.4 and cannot stand in."
+  "Death Rocket: 'discard 1' as the clause's cost needs a registered cost.discard instruction " +
+    "(423.3, RIFT-261). The cost plan can plan a discard payment, but no primitive consumes it " +
+    "from an ability body; effect.discard is the effect-discard form of 423.4 and cannot stand in."
 );
 
 test.todo(

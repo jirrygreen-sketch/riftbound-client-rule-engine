@@ -37,12 +37,16 @@ import type { CardProgram } from "../../ir/index.js";
  *   with an ordinary Move would both trigger Move triggers (458.1) and apply
  *   movement restrictions (458.3) that a Recall ignores, so no near-form is
  *   authored.
+ *   The merged RIFT-260 replacement planner makes the same refusal: planning a
+ *   replacement body with `mode: recall` throws BlockedReplacementError.
  * - the Combat Special Cleanup step 3d insertion point (468.1.a.2) is
  *   engine-internal combat flow: the closed timing-point enum has no
  *   "tie / combat cleanup 3d" point, and `replaces` (an EventPattern) cannot
- *   name the procedure insertion. The declared pattern below records the
- *   intended replacement (attacker's combat result + tie) without claiming a
- *   merged interception site.
+ *   name the procedure insertion. The combat-result timing point itself is still
+ *   listed as pending in docs/rules/timing-point-producers.md (the combat result
+ *   transaction has no commit point yet), so even the declared pattern has no
+ *   producer. The pattern below records the intended replacement (attacker's
+ *   combat result + tie) without claiming a merged interception site.
  * - "ALL units" would additionally have to be read at resolution across both
  *   players' boards; the merged `choose` selection in effect.move is a
  *   non-target set query whose `amount` is an Expr, so the count form is
@@ -55,9 +59,11 @@ const symbolOfTheSolari = {
   judgeReason:
     "(1) 缺可执行的 Recall：已合入的 effect.move 只把 mode: recall 作为 fail-closed 拒绝实现" +
     "（Recall requires an action distinct from Move，CR 457-460），返回 negated/impossible 且不提交任何替代动作；" +
+    "RIFT-260 的替代 planner 对同一模式同样抛 BlockedReplacementError；" +
     "用普通 Move 近似会错误触发 Move 触发（458.1）并应用 Recall 本应忽略的移动限制（458.3），故不近似。" +
     "(2) 替代点无法表达：被替代的是战斗 Resolution Step 的 Combat Special Cleanup 3d（468.1.a.2，" +
-    "仅 Recall Attackers），封闭时点枚举里没有 tie / combat cleanup 3d 时点，`replaces` 的 EventPattern 也无法指名流程插入点。" +
+    "仅 Recall Attackers），封闭时点枚举里没有 tie / combat cleanup 3d 时点，`replaces` 的 EventPattern 也无法指名流程插入点；" +
+    "combat-result 本身在 timing-point-producers 审计里仍是待后续（战斗结果事务没有提交点），连事件产生方都没有。" +
     "(3) ALL units 需要跨双方棋盘在结算时读取（355.5.a 的按条件作用集合、非目标选择），该部分依赖 (1) 落地后才有意义。" +
     "依赖：Recall 动作原语与战斗清理替代接入（引擎 combat 流程 / 新增时点，属契约变更）。",
   abilities: [

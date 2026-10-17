@@ -37,6 +37,7 @@ test("swift-scout identity: canonicalCardId, ruleset, judge-required status and 
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /811\.1/);
   assert.match(program.judgeReason, /Champion Zone/);
+  assert.match(program.judgeReason, /RIFT-260/);
   assert.equal(
     program.sourceText,
     "You may pay :rb_energy_1: to hide a card with [Hidden] instead of :rb_rune_rainbow:.\n" +
@@ -119,8 +120,9 @@ test("swift-scout golden: a locked Teemo that left the board is ignored (CR 359.
 
 test.todo(
   "swift-scout Hidden-cost replacement: intercept the Hide Discretionary Action cost payment " +
-    "(CR 811.1.b/c, 422.1) and pay 1 energy instead of the rainbow rune; needs cost.hidden / " +
-    "cost.pay (RIFT-89) plus a replacement hook over cost payment (engine batch 4)."
+    "(CR 811.1.b/c, 422.1) and pay 1 energy instead of the rainbow rune; RIFT-260's replacement " +
+    "binding matches only closed GameAction events, and no cost-payment/hide event exists in " +
+    "either vocabulary, so a cost-payment hook is still missing."
 );
 
 test.todo(

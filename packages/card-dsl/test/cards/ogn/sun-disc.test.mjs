@@ -20,8 +20,10 @@ test("ogn-021-298 Sun Disc: program passes validateCardProgram", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.rulesetVersion, EFFECT_IR_V2_RULESET);
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /registerDelayedTrigger|replacement\.enter/);
+  assert.match(program.judgeReason, /registerDelayedTrigger/);
+  assert.match(program.judgeReason, /replacement\.enter/);
   assert.match(program.judgeReason, /812\.1\.c/);
+  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(
     program.sourceText,
     ":rb_exhaust:: [Legion] — The next unit you play this turn enters ready. " +
@@ -106,12 +108,15 @@ test.todo(
   "Sun Disc: “The next unit you play this turn enters ready.” needs the delayed entry " +
     "replacement (CR v1.5 392 delayed passive ability, 143.4 / 359.2.c unit entry state, " +
     "805.6 ready-entry replacement). ResolveContext.registerDelayedTrigger is declared but no " +
-    "merged instruction primitive registers one, and no entry-ready replacement consumer " +
-    "exists (RIFT-120 / RIFT-91)."
+    "merged instruction primitive registers one; RIFT-260's replacement.enter handles entry " +
+    "moves already registered on the event pipeline, and bindReplacement consumes only a " +
+    "body-embedded with clause, so there is no 'next unit you play' window for card data " +
+    "(RIFT-257 program binding is also pending)."
 );
 
 test.todo(
   "Sun Disc: the Legion condition (CR v1.5 812.1.c “a card different than the one with the " +
     "Legion ability”) needs a history query that excludes the host by card identity; the merged " +
-    "HistoryQuery carries only scope/action/timingPoint/player/object (RIFT-82 / RIFT-89)."
+    "HistoryQuery carries only scope/action/timingPoint/player/object (contract 3.8's " +
+    "exclude/objectFilter are not landed)."
 );
