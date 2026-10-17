@@ -6,6 +6,8 @@ import program from "../../../dist/cards/ogn/fight-or-flight.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
+import { buildHiddenCostPlan, payHiddenCostPlan } from "../../../../engine-core/dist/cost/kinds/hidden.js";
+
 const CARD_ID = "card.hash-ae89acfc3272efb2e11f1ffd438022efc8a49ff3d3e37cfa6ede1a1b15bffca7";
 const play = program.abilities.find((ability) => ability.kind === "play");
 const [moveInstruction] = play.body;
@@ -25,8 +27,6 @@ test("ogn-168-298 Fight or Flight: program passes validateCardProgram", () => {
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /cost\.hidden/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-261/);
   assert.equal(
     program.sourceText,
     "[Hidden] (Hide now for :rb_rune_rainbow: to react with later for :rb_energy_0:.)\n" +
@@ -107,8 +107,27 @@ test("ogn-168-298 Fight or Flight golden: a stale target is ignored (359.3.e)", 
   assert.equal(run.events.length, 0);
 });
 
-test.todo(
-  "ogn-168-298 Fight or Flight: the [Hidden] half — Hide now for :rb_rune_rainbow: and the " +
-    "facedown play for :rb_energy_0: with its later Reaction timing — depends on cost.hidden " +
-    "and its CardProgram/Finalize binding (RIFT-257/RIFT-261); continuous.timing/canAct is already merged"
-);
+test.todo("Fight or Flight: Hide/facedown lifecycle, next-turn Reaction and Hidden battlefield target restrictions (CR 811.1.b–d)");
+
+test("Hidden cost component: hide pays one any-domain Power; later play waives base but retains additional costs", () => {
+  const base = world().player("A", { energy: 3, power: ["Mind"] })
+    .hand("hidden-spell", { cardId: CARD_ID, types: ["spell"], energy: 2, power: null }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("hidden-spell") });
+  const hide = buildHiddenCostPlan(kernel, { id: "hide", mode: "hide" });
+  assert.equal(hide.total.energy, 0);
+  assert.equal(hide.total.power[0].amount, 1);
+  const hiding = payHiddenCostPlan(kernel, hide);
+  assert.deepEqual(hiding.actions[0].action.plan.power, ["Mind"]);
+  assert.equal(kernel.player("A").energy, 3);
+  const play = buildHiddenCostPlan(kernel, {
+    id: "hidden-play", mode: "play",
+    mandatoryAdditional: [{ id: "additional", cost: { energy: { kind: "constant", value: 1 } } }]
+  });
+  assert.equal(play.printed.energy, 2);
+  assert.equal(play.printed.power, null);
+  assert.equal(play.total.energy, 1);
+  assert.deepEqual(play.total.power, []);
+  const playing = payHiddenCostPlan(kernel, play);
+  assert.equal(playing.paid, true);
+  assert.equal(kernel.player("A").energy, 2);
+});

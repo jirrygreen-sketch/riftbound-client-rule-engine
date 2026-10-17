@@ -12,6 +12,8 @@ import { queryObjects } from "../../../../engine-core/dist/effects/interpreter/s
 import { matchesObjectFilter } from "../../../../engine-core/dist/layers/filter.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
+import { buildHiddenCostPlan, payHiddenCostPlan } from "../../../../engine-core/dist/cost/kinds/hidden.js";
+
 const CARD_ID = "card.hash-87a99b58ae6328e24ded8a032bff52588b3676f3c2eec58aafc5bafaa7a78aa0";
 const [hidden, action, play] = program.abilities;
 const [stunFriendly, stunEnemy] = play.body;
@@ -59,8 +61,6 @@ test("Facebreaker identity and judge-required status match the printing", () => 
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.equal(program.judgeReason.includes("cost.hidden"), true);
-  assert.equal(program.judgeReason.includes("RIFT-257"), true);
-  assert.equal(program.judgeReason.includes("RIFT-261"), true);
   assert.equal(program.judgeReason.includes("sameLocationAs"), true);
   assert.equal(
     program.sourceText,
@@ -209,19 +209,28 @@ test("Facebreaker anchor: the enemy spec matches only a unit at the first target
   assert.deepEqual(queryObjects(filter, environment(onlyElsewhere)), []);
 });
 
-test.todo(
-  "Facebreaker: Hide for :rb_rune_rainbow: and the facedown reaction play (for " +
-    ":rb_energy_0:) need a consumer for Hidden's cost.hidden expansion (the keyword " +
-    "definition is merged) plus the facedown zone and its cost plan (RIFT-257/RIFT-261)."
-);
+test.todo("Facebreaker: Hide/facedown lifecycle, next-turn Reaction and Hidden battlefield restrictions (CR 811.1.b–d)");
+test.todo("Facebreaker: bind sameLocationAs across the two Finalize targets (RIFT-359; CR 355.9.b)");
 
-test.todo(
-  "Facebreaker: Finalize-time resolution of the two target specs, pending-chain exclusion and " +
-    "became-target triggers belong to the target system (RIFT-90)."
-);
-
-test.todo(
-  "Facebreaker: the 424.1.a.2 end-of-turn cleanup that removes the Stunned status and the " +
-    "424.1.b combat-damage interaction belong to continuous.duration/continuous.combat " +
-    "(RIFT-91)."
-);
+test("Hidden cost component: hide pays one any-domain Power; later play waives base but retains additional costs", () => {
+  const base = world().player("A", { energy: 3, power: ["Mind"] })
+    .hand("hidden-spell", { cardId: CARD_ID, types: ["spell"], energy: 2, power: null }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("hidden-spell") });
+  const hide = buildHiddenCostPlan(kernel, { id: "hide", mode: "hide" });
+  assert.equal(hide.total.energy, 0);
+  assert.equal(hide.total.power[0].amount, 1);
+  const hiding = payHiddenCostPlan(kernel, hide);
+  assert.deepEqual(hiding.actions[0].action.plan.power, ["Mind"]);
+  assert.equal(kernel.player("A").energy, 3);
+  const play = buildHiddenCostPlan(kernel, {
+    id: "hidden-play", mode: "play",
+    mandatoryAdditional: [{ id: "additional", cost: { energy: { kind: "constant", value: 1 } } }]
+  });
+  assert.equal(play.printed.energy, 2);
+  assert.equal(play.printed.power, null);
+  assert.equal(play.total.energy, 1);
+  assert.deepEqual(play.total.power, []);
+  const playing = payHiddenCostPlan(kernel, play);
+  assert.equal(playing.paid, true);
+  assert.equal(kernel.player("A").energy, 2);
+});

@@ -4,6 +4,10 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/eager-apprentice.js";
 
+import costModify from "../../../../engine-core/dist/effects/instructions/cost.modify.js";
+import costPay from "../../../../engine-core/dist/effects/instructions/cost.pay.js";
+import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+
 const CANONICAL = "card.hash-e5d8b2e1e9ee0d9e2669fae947f4252a33dfc970df9cd39ad8477263b66fccc6";
 
 test("Eager Apprentice program validates and is judge-required", () => {
@@ -14,8 +18,6 @@ test("Eager Apprentice program validates and is judge-required", () => {
   assert.equal(program.canonicalCardId, CANONICAL);
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /cost\.modify|CostPlanInput\.discounts|cost\/cost-plan/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
   assert.equal(
     program.sourceText,
     "While I'm at a battlefield, the Energy costs for spells you play is reduced by :rb_energy_1:, to a minimum of :rb_energy_1:."
@@ -46,13 +48,46 @@ test("Eager Apprentice structure: one static cost-modification ability gated on 
   });
 });
 
-test.todo(
-  "Eager Apprentice discount applies at Finalize: Energy cost of a spell the controller plays is reduced " +
-    "by 1 with the printed minimum of 1 (356.4.c.1 / 356.4.d ordering, 356.4.e per-discount floor), consumed by " +
-    "the cost plan through cost.modify and CardProgram binding (RIFT-261/RIFT-257)"
-);
+test.todo("Eager Apprentice: collect the battlefield-scoped static spell discount into Chain Finalize (CR 356.4.c–e)");
 
-test.todo(
-  "Eager Apprentice scope: the discount does not apply while the unit is at Base, and the minimum is a per-discount " +
-    "floor (356.4.e worked example with Sky Splitter), verified once the cost consumer lands (RIFT-261)"
-);
+test("Eager Apprentice supported discount component preserves its own minimum and printed null Power", () => {
+  const effect = program.abilities[0].effect;
+  for (const [energy, expected] of [[3, 2], [1, 1], [0, 0]]) {
+    const base = world().player("A", { energy: 5 })
+      .hand("spell", { types: ["spell"], energy, power: null }).build();
+    const kernel = base.clone({ sourceSnapshot: base.getObject("spell") });
+    const run = runInstruction(costModify, {
+      id: "eager-discount",
+      modifier: { kind: "reduce", resource: effect.resource,
+        amount: { kind: "arithmetic", operator: "multiply", operands: [effect.amount, { kind: "constant", value: -1 }] },
+        minimum: effect.minimum }
+    }, { world: kernel });
+    assert.equal(run.result.status, "executed");
+    assert.equal(run.linked.cost.total.energy, expected);
+    assert.equal(run.linked.cost.printed.power, null);
+    const payment = runInstruction(costPay, { cost: { kind: "constant", value: run.linked.cost } }, { world: kernel });
+    assert.equal(payment.result.status, "executed");
+    assert.equal(kernel.player("A").energy, 5 - expected);
+    assert.equal(kernel.getObject("spell").energy, energy);
+    assert.equal(kernel.getObject("spell").power, null);
+  }
+});
+
+test("Eager Apprentice minimum belongs only to its own discount (CR 356.4.e)", () => {
+  const effect = program.abilities[0].effect;
+  const base = world().hand("spell", { types: ["spell"], energy: 3, power: null }).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("spell") });
+  const run = runInstruction(costModify, {
+    id: "independent-minimum",
+    modifiers: [
+      { id: "eager", kind: "reduce", resource: "energy", amount: { kind: "constant", value: 1 }, minimum: effect.minimum },
+      { id: "other", kind: "reduce", resource: "energy", amount: { kind: "constant", value: 2 } }
+    ],
+    discountOrder: ["eager", "other"]
+  }, { world: kernel });
+  assert.equal(run.result.status, "executed");
+  assert.equal(run.linked.cost.total.energy, 0);
+  assert.deepEqual(run.linked.cost.discounts.map(discount => [discount.id, discount.before, discount.after]), [
+    ["eager", 3, 2], ["other", 2, 0]
+  ]);
+});

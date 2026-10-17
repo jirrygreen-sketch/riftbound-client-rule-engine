@@ -4,35 +4,11 @@ import test from "node:test";
 import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/ogn/ekko-recurrent.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
-import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
+import { buildAdditionalCostPlan, payAdditionalCostPlan, buildRecycleCostPlan, payRecycleCostPlan } from "../../../../engine-core/dist/cost/kinds/index.js";
 import { world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const [accelerate, deathknell, triggered] = program.abilities;
-const c = value => ({ kind: "constant", value });
-
-const rune = (id, extra = {}) => ({
-  ref: { id, zoneEntryId: 1 },
-  cardId: `card:${id}`,
-  name: id,
-  types: ["rune"],
-  tags: [],
-  keywords: [],
-  owner: "A",
-  controller: "A",
-  zone: "rune-deck",
-  location: null,
-  might: null,
-  energy: null,
-  power: null,
-  exhausted: true,
-  damage: 0,
-  stunned: false,
-  buffs: 0,
-  attachedTo: null,
-  faceDown: false,
-  isToken: false,
-  ...extra
-});
 
 test("Ekko, Recurrent program is valid EffectIR v2 data", () => {
   const result = validateCardProgram(program);
@@ -47,8 +23,6 @@ test("Ekko, Recurrent identity and judge-required reason", () => {
   );
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-261/);
   assert.match(program.judgeReason, /383\.3\.b/);
   assert.equal(
     program.sourceText,
@@ -91,105 +65,61 @@ test("structure: Deathknell body recycles me, then readies your runes", () => {
   // 416.1："ready your runes" 是该区域的无选择集合查询（355.10.d）。
   const [ready] = [triggered.body[1]];
   assert.equal(ready.op, "effect.ready");
-  assert.equal(ready.linkedTo, "ekko.recycle-me");
-  assert.deepEqual(ready.args.objects, c({
+  assert.equal(ready.linkedTo, undefined, "the leading recycle must be extracted as a Finalize cost");
+  assert.deepEqual(ready.args.objects, { kind: "constant", value: {
     kind: "query",
-    filter: { zone: "rune-zone", type: "rune", owner: "controller" }
-  }));
+    filter: { zone: "rune-zone", type: "rune", controller: "self" }
+  } });
 });
 
-test("golden: recycle me then ready your runes, leaving enemy runes exhausted", () => {
-  const kernel = world()
-    .unit("ekko", { might: 5 })
-    .card("rune-a", { types: ["rune"], zone: "rune-zone", exhausted: true })
-    .card("rune-b", { types: ["rune"], zone: "rune-zone", exhausted: true })
-    .card("enemy-rune", { types: ["rune"], zone: "rune-zone", exhausted: true, owner: "B", controller: "B" })
-    .deck(["deck:1", "deck:2"])
-    .build();
-  // 宿主与来源绑定：能力执行开始时提供宿主当前 zone-bound 引用（解释器不按 id 重绑），
-  // 并把"来源"设为 Ekko 自己的快照（object-killed 触发时来源已离场，这里用作 last-known）。
-  const sourced = kernel.clone({ sourceSnapshot: kernel.getObject("ekko") });
-  // "your runes" 里的 owner 是选择管线占位符（190.6.d 的 implied "you"）：静态 IR 写
-  // "controller"，由 Finalize/选择管线绑定成实际玩家。参考测试内核按值比较，不解析该
-  // 占位符，所以这里像 assembly-rig 的 golden 一样把它替换成具体玩家后才执行。
-  const body = [
-    triggered.body[0],
-    {
-      ...triggered.body[1],
-      args: {
-        ...triggered.body[1].args,
-        objects: c({
-          kind: "query",
-          filter: { zone: "rune-zone", type: "rune", owner: "A" }
-        })
-      }
+test("Ekko supported Accelerate cost locks 1 Energy and 1 Mind Power in addition to printed costs", () => {
+  for (const selected of [false, true]) {
+    const base = world().player("A", { energy: 6, power: ["Mind", "Mind"] })
+      .hand("ekko", { cardId: program.canonicalCardId, types: ["unit"], energy: 5, power: ["Mind"] }).build();
+    const kernel = base.clone({ sourceSnapshot: base.getObject("ekko") });
+    const plan = buildAdditionalCostPlan(kernel, { id: "ekko-cost", cost: { kind: "printed" }, domains: ["Mind"] }, [
+      { id: "accelerate", kind: "accelerate", selected }
+    ]);
+    assert.equal(plan.total.energy, selected ? 6 : 5);
+    assert.equal(plan.total.power.reduce((total, cost) => total + cost.amount, 0), selected ? 2 : 1);
+    assert.ok(plan.total.power.every(cost => cost.allowedDomains.join() === "Mind"));
+    assert.deepEqual(plan.selectedAdditional, selected ? [{ id: "accelerate", kind: "accelerate" }] : []);
+    const receipt = payAdditionalCostPlan(kernel, plan);
+    assert.equal(receipt.actions[0].action.type, "pay");
+    assert.deepEqual(receipt.actions[0].action.plan.power, selected ? ["Mind", "Mind"] : ["Mind"]);
+    assert.equal(kernel.player("A").energy, selected ? 0 : 1);
+  }
+});
+
+test("Ekko supported leading recycle payment acts on the current Trash incarnation", () => {
+  const base = world().card("ekko", { zone: "trash", cardId: program.canonicalCardId, types: ["unit"], might: 5 })
+    .deck(["top", "bottom"]).build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("ekko") });
+  const plan = buildRecycleCostPlan(kernel, { object: kernel.ref("ekko") }, { id: "recycle-ekko" });
+  const receipt = payRecycleCostPlan(kernel, plan);
+  assert.deepEqual(receipt.actions.map(entry => entry.action.type), ["pay", "recycle"]);
+  assert.equal(kernel.getObject("ekko").zone, "deck");
+  assert.deepEqual(kernel.zone("A", "deck").map(ref => ref.id), ["top", "bottom", "ekko"]);
+});
+
+test("Ekko rune-ready sub-body executes unchanged through Chain with controller-relative queries", () => {
+  for (const count of [0, 2]) {
+    const runes = Array.from({ length: count }, (_, index) => ({ id: `rune-${index}`, types: ["rune"], exhausted: true }));
+    const f = fixture({ cards: [...runes, { id: "enemy-rune", types: ["rune"], exhausted: true, owner: "B", controller: "B" }] });
+    for (const id of [...runes.map(rune => rune.id), "enemy-rune"]) {
+      f.engine.commit({ type: "move-zone", object: f.kernel.ref(id), to: "rune-zone" });
     }
-  ];
-  const outcome = resolveChainBody(body, sourced);
-
-  assert.equal(outcome.status, "executed");
-  assert.deepEqual(
-    outcome.results.map(result => ({ id: result.id, status: result.result.status })),
-    [
-      { id: "ekko.recycle-me", status: "executed" },
-      { id: "ekko.ready-runes", status: "executed" }
-    ]
-  );
-
-  // "Recycle me" 把我从 board 放到牌库底（417.1）。
-  assert.equal(sourced.getObject("ekko").zone, "deck");
-  assert.deepEqual(sourced.objectsInZone("A", "deck").map(ref => ref.id).slice(-1), ["ekko"]);
-
-  // "ready your runes"：只重置己方的符文。
-  assert.equal(sourced.getObject("rune-a").exhausted, false);
-  assert.equal(sourced.getObject("rune-b").exhausted, false);
-  assert.equal(sourced.getObject("enemy-rune").exhausted, true);
+    f.engine.advance();
+    // Only the supported rune-ready sub-body is under test; this does not
+    // register a Deathknell or stand in for its missing Finalize cost binding.
+    f.engine.execute(f.draft("ready-sub-body", { body: [triggered.body[1]] }));
+    resolveAll(f.engine);
+    for (let index = 0; index < count; index++) assert.equal(f.kernel.getObject(`rune-${index}`).exhausted, false);
+    assert.equal(f.kernel.getObject("enemy-rune").exhausted, true);
+    assert.equal(f.kernel.events.filter(event => event.action === "ready").length, count);
+  }
 });
 
-test("golden: with no exhausted rune the ready instruction still executes with zero objects", () => {
-  const kernel = world()
-    .unit("ekko", { might: 5 })
-    .deck(["deck:1"])
-    .build();
-
-  const sourced = kernel.clone({ sourceSnapshot: kernel.getObject("ekko") });
-  const outcome = resolveChainBody(
-    [
-      triggered.body[0],
-      {
-        ...triggered.body[1],
-        args: {
-          ...triggered.body[1].args,
-          objects: c({
-            kind: "query",
-            filter: { zone: "rune-zone", type: "rune", owner: "A" }
-          })
-        }
-      }
-    ],
-    sourced
-  );
-
-  assert.equal(outcome.results[0].result.status, "executed");
-  assert.equal(outcome.results[1].result.status, "executed");
-  assert.equal(outcome.results[1].result.linkedValues.readied.count, 0);
-});
-
-test.todo(
-  "Ekko, Recurrent: the registered Deathknell KeywordDef still needs its trigger.leave/object-killed " +
-    "consumer — subscribing object-killed through the keyword " +
-    "registry, removing the pending item when the death is replaced (808.1.d.1), and recording " +
-    "last-known information before the trash move (808.1.d.3)"
-);
-
-test.todo(
-  "Ekko, Recurrent: the registered Accelerate KeywordDef still needs cost.modify/cost.pay and the entry " +
-    "replacement pipeline (RIFT-261) — the optional " +
-    "{1 energy + 1 Mind power} additional cost and the enter-ready replacement (805.2.b / 805.6)"
-);
-
-test.todo(
-  "Ekko, Recurrent: the card-program adapter must parse the leading 'Recycle me' instruction into the " +
-    "triggered ability's base cost at Finalize (CR 383.3.b.1), so the trigger only enters the chain " +
-    "once the cost is paid (RIFT-257)"
-);
+test.todo("Ekko: bind accelerate.cost to optionalAdditional and gate entry replacement on committed payment (CR 805.2.b/805.6.a)");
+test.todo("Ekko: attach Deathknell body to the object-killed registration and translate cause/destination filters (CR 808.1.d)");
+test.todo("Ekko: extract leading Recycle as the triggered base cost at Finalize (CR 383.3.b/383.3.b.1), then resolve ready only after payment");

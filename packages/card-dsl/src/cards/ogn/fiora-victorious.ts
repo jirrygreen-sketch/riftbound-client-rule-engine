@@ -1,41 +1,18 @@
 import type { CardProgram } from "../../ir/index.js";
 
 /**
- * Fiora, Victorious (ogn-232-298) - Unit, Order, Fiora/Demacia/Champion (M2 unit shard 12).
- *
- * sourceText (packages/card-data/data/deck-catalog.json, ogn-232-298):
- *   While I'm [Mighty], I have [Deflect], [Ganking], and [Shield].
- *   (I'm Mighty while I have 5+ :rb_might:.)
- *
- * 规则依据（CR v1.5）：
- * - 706-711：Mighty 是"有效 Might >= 5"的描述；710 在场上按当前 Might 评估。
- *   因此 "While I'm [Mighty]" 是持续效果的条件（condition），按 compare(self.might >= 5) 表达，
- *   与已合入的 unsung-hero / grand-duelist 的 Mighty 阈值写法一致。
- * - 809 / 810 / 814（对照 keywords/Deflect.ts、Ganking.ts、Shield.ts 的 ruleRefs）：
- *   Deflect / Ganking / Shield 各自是被动能力关键词；未写数值时 Deflect = 1（809.1.b.3）、
- *   Shield = 1（814.1.b.3）。
- * - 809.1.c：Deflect 是对对手选择本永久物的法术/能力追加的 Mandatory Additional Cost；
- * - 810.1.b / 144.4.c.1：Ganking 给单位 Standard Move 增加 battlefield-to-battlefield 许可；
- * - 814.1.c：Shield 功能上等价于"我是防御者时 +X [M]"。
- *
- * status: judge-required —— 关键词声明和三个 KeywordDef 展开已经合入，但完整消费链仍缺：
- * 1. 卡牌 static 持续效果进入 layers 的 ability 层，并由卡牌程序绑定器注册（RIFT-257）；
- * 2. Deflect 展开（target.tax）在目标选择 / 费用计划上生效；
- * 3. Ganking 展开（continuous.movement）被移动系统读取、Shield 展开（continuous.might）被图层
- *    算术层读取；且 layers 的 condition 求值当前不支持对象属性比较（本卡条件），无法按 710
- *    在场上评估 Might。以上任一缺失都会让条件性关键词变成空声明，故保持 judge-required。
+ * Fiora, Victorious — CR v1.5 708/710, 809, 810 and 814.
+ * Static program binding and object-property comparisons are merged.
+ * Conditional granted keywords still need their live behavior expansion:
+ * Deflect into target costs, Ganking into movement permissions, and Shield
+ * into defender Might, refreshed as effective Might changes.
  */
 const fioraVictorious = {
   canonicalCardId: "card.hash-184064ceedf3bc8c1c777c425d1bc971c0b7a878cde5573d58da57509cf5d08e",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "「While I'm [Mighty], I have [Deflect], [Ganking], and [Shield]」需要条件性关键词授予的完整消费链：" +
-    "卡牌 static 效果进 layers 的 ability 层并由卡牌程序绑定器注册（RIFT-257）、[Deflect] 展开的 target.tax 在目标选择/费用计划生效" +
-    "（809.1.c）、[Ganking] 展开的 continuous.movement 被移动系统读取（810.1.b、144.4.c.1）、" +
-    "[Shield] 展开的 continuous.might 被算术层读取（814.1.c）；" +
-    "同时 layers 的条件求值尚不支持按 710 读取对象当前 Might 做比较（706-711 的 Mighty 判定）。" +
-    "仅声明关键词不构成完整执行证据，故不标 executable。依赖：RIFT-257（CardProgram static 绑定）、target.tax / cost.pay 消费链与 defender 条件图层消费。",
+    "仍缺条件性关键词授予后的实时行为消费：continuous.grant-keyword 的图层关键词尚未展开为 Ganking 的移动许可与 Shield 的 defender Might 效果（CR 810.1.b/144.4.c.1、814.1.c）；Deflect 的 target.tax 到 Finalize 附加费用接线依赖 RIFT-360（CR 809.1.c）。Shield KeywordDef 还读取 designation，而 ObjectSnapshot 的战斗指定字段为 combatRole（RIFT-359）。须按完整有效 Might 动态重验 Mighty 阈值及移除上述行为（CR 708/710；RIFT-359）。",
   sourceText:
     "While I'm [Mighty], I have [Deflect], [Ganking], and [Shield]. (I'm Mighty while I have 5+ :rb_might:.)",
   abilities: [
