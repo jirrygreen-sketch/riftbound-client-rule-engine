@@ -2,11 +2,11 @@
 // The printed ability is [Deploy] plus the Facedown-Zone capacity permission.
 // Neither has a merged expansion or consumer, so this file fixes the declaration,
 // the card-data observations (Device Unit with might null) and the gap inventory.
-// RIFT-646 single-card golden: validation, identity, judgeReason and the key
+// RIFT-670 single-card golden: validation, identity, judgeReason and the key
 // structure of Bushwhack Trap. Real execution evidence for this card (the
 // whole-card scenario through the generic card harness plus the measured
 // outcome of binding each expanded static ability) lives in
-// `test/cards/templates/keyword-static-646.test.mjs`.
+// `test/cards/templates/keyword-static-670.test.mjs`.
 //
 // The card stays judge-required: the Deploy expansion's `continuous.location`
 // has no layer mapping, its `hold` trigger carries the `here` anchor the

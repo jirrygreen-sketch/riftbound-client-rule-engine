@@ -1,8 +1,8 @@
-// RIFT-646 single-card golden: validation, identity, judgeReason and the key
+// RIFT-670 single-card golden: validation, identity, judgeReason and the key
 // structure of Deadbloom Predator. The real execution evidence for this card
 // (whole-card scenarios through the generic card harness plus the measured
 // outcome of binding each expanded static ability) lives in
-// `test/cards/templates/keyword-static-646.test.mjs`.
+// `test/cards/templates/keyword-static-670.test.mjs`.
 //
 // The card stays judge-required: [Deflect]'s expanded `target.tax` and the
 // printed play-location permission still have no layer mapping in
