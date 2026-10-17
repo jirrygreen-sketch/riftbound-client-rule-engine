@@ -17,7 +17,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *
  * status 判定（cards/README.md 第 2 节）：judge-required。
  * - [Deflect] 的展开仍需要把静态 target.tax 接到目标 Finalize 和支付计划（RIFT-360）。
- * - play-location-permission 仍需要位置选择/Finalize 消费方（RIFT-357）。
+ * - play-location-permission 仍需要在打出 Finalize 中读取该持续许可并把
+ *   occupied enemy battlefield 加入合法位置集合；位置选择器本身已经合入，
+ *   但还没有该许可的生产消费方。
  * 不近似实现（不把 Deflect 写成静态数值，也不假装许可已生效）。
  */
 const abilities: Ability[] = [
@@ -46,7 +48,7 @@ const program = {
   judgeReason:
     "两处当前缺口未合入：（1）[Deflect]（809.1.c/d）展开的 static target.tax 尚未从持续效果接入目标 Finalize，" +
     "并把目标税纳入支付计划（RIFT-360）；（2）static play-location-permission 对 170.11.a 的 occupied enemy battlefield" +
-    "尚未接入 RIFT-357 的运行时位置选择与 Finalize 校验。不近似实现。",
+    "尚未由打出 Finalize 的合法位置管线消费；位置选择器已经存在，但没有把该持续许可接入位置集合与校验。不近似实现。",
   abilities,
   sourceText:
     "[Deflect] (Opponents must pay :rb_rune_rainbow: to choose me with a spell or ability.)\n" +

@@ -35,7 +35,7 @@ test("ogn-244-298 Divine Judgment judgeReason names the per-player picks and com
   assert.match(program.judgeReason, /355\.10\.a/);
   assert.match(program.judgeReason, /417\.1\.a/);
   assert.match(program.judgeReason, /effect\.recycle/);
-  assert.match(program.judgeReason, /RIFT-357/);
+  assert.match(program.judgeReason, /运行时 picks/);
 });
 
 test("ogn-244-298 Divine Judgment structure: four per-player picks then the recycle-the-rest node", () => {
@@ -146,7 +146,7 @@ test("ogn-244-298 Divine Judgment golden: the merged recycle primitive recycles 
 test.todo(
   "Divine Judgment: iterating every player for each of the four categories (2 units, 2 gear, " +
     "2 runes, 2 hand cards) needs the multi-player choice primitive and runtime pick options " +
-    "(RIFT-357), including the non-public hand choice (355.10.a)."
+    "including the non-public hand choice (355.10.a)."
 );
 
 test.todo(

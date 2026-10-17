@@ -6,6 +6,7 @@ import dragonsRage from "../../../dist/cards/ogn/dragons-rage-lee-sin.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import damage from "../../../../engine-core/dist/effects/instructions/effect.damage.js";
 import move from "../../../../engine-core/dist/effects/instructions/effect.move.js";
+import { runAbilityBody } from "../../../../engine-core/dist/effects/interpreter.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
 
 const CANONICAL = "card.hash-5db2b31990da2ad96271bf74f4d78f1ae9ef9c614ec7bcec1735b3cc17f301ae";
@@ -32,14 +33,13 @@ test("Dragon's Rage identity, ruleset, status, printed text and judgeReason", ()
     "Move an enemy unit. Then choose another enemy unit at its destination. " +
       "They deal damage equal to their Mights to each other."
   );
-  // The judgeReason must name the missing reflexive trigger, the missing Move
-  // Destination form and the target/legality ordering, with rule numbers.
+  // The judgeReason must name the missing reflexive trigger and the target/
+  // legality ordering, with rule numbers. The Move Destination itself now has
+  // a merged LocationExpr form.
   assert.match(dragonsRage.judgeReason, /trigger\.reflexive/);
   assert.match(dragonsRage.judgeReason, /388\.1/);
   assert.match(dragonsRage.judgeReason, /389\.1/);
   assert.match(dragonsRage.judgeReason, /355\.5\.b/);
-  assert.match(dragonsRage.judgeReason, /355\.4/);
-  assert.match(dragonsRage.judgeReason, /effect\.move/);
   assert.equal(cardRegistryById.get(dragonsRage.canonicalCardId), dragonsRage);
 });
 
@@ -56,19 +56,23 @@ test("Dragon's Rage has no printed [Action]/[Reaction] keyword", () => {
 test("Dragon's Rage structure: the Move, then both directions of the mutual damage", () => {
   assert.equal(play.body.length, 3);
 
-  // "Move an enemy unit" — one enemy target; the Destination is a Finalize-time
-  // runtime choice the frozen IR can only mark (355.4.a).
+  // "Move an enemy unit" — one enemy target and one runtime Location choice
+  // (355.4 / 355.4.a).
   assert.equal(moveInstruction.id, "move-enemy-unit");
   assert.equal(moveInstruction.op, "effect.move");
   assert.deepEqual(moveInstruction.args.objects, { kind: "constant", value: { target: "moved-unit" } });
   assert.deepEqual(moveInstruction.args.to, {
-    kind: "constant",
-    value: {
-      kind: "choose",
-      id: "dragons-rage.destination",
-      options: ["runtime:valid-move-destination"]
-    }
+    kind: "location",
+    value: { kind: "target-location", target: "dragons-rage.destination" }
   });
+  assert.deepEqual(moveInstruction.locations, [{
+    id: "dragons-rage.destination",
+    type: "any",
+    controller: "opponent",
+    min: 1,
+    max: 1,
+    selection: "one"
+  }]);
   assert.deepEqual(movedSpec, {
     id: "moved-unit",
     filter: { type: "unit", controller: "opponent" },
@@ -124,33 +128,26 @@ test("Dragon's Rage structure: the Move, then both directions of the mutual dama
   assert.equal(damageOther.targets, undefined);
 });
 
-test("Dragon's Rage fails closed: the placeholder Destination is rejected by effect.move", () => {
-  // The card must not silently accept an invented Location: effect.move only
-  // takes a real LocationRef, the literal "controller-base" or a static option
-  // list (CR 355.4.a has no IR form yet).
+test("Dragon's Rage golden: the Move half chooses and consumes a runtime LocationRef", () => {
   const kernel = world().battlefield("enemy", { owner: "B", location: BATTLEFIELD("bf1") }).build();
-  assert.throws(
-    () =>
-      runInstruction(move, moveInstruction.args, {
-        world: kernel,
-        targets: { "moved-unit": [kernel.ref("enemy")] }
-      }),
-    /effect\.move to must be a location, controller-base, or location choice/
-  );
-  assert.deepEqual(kernel.getObject("enemy").location, BATTLEFIELD("bf1"));
-});
-
-test("Dragon's Rage golden: the Move half drives the real primitive with a Finalize destination", () => {
-  const kernel = world().battlefield("enemy", { owner: "B", location: BATTLEFIELD("bf1") }).build();
+  // The reference TestWorld does not normalize relative player words inside
+  // its raw query() implementation. Keep the card's exact opponent filter in
+  // the structural assertions above, and use the same instruction with a
+  // broad runtime target filter here to exercise the merged location pipeline.
+  const runtimeMove = {
+    ...moveInstruction,
+    targets: [{ ...movedSpec, filter: { type: "unit" } }]
+  };
+  kernel.setAnswers({
+    "move-enemy-unit/location%3Adragons-rage.destination": BASE("B")
+  });
+  kernel.setTargets("moved-unit", [kernel.ref("enemy")]);
   const before = kernel.getObject("enemy");
-  const run = runInstruction(
-    move,
-    { objects: moveInstruction.args.objects, to: { kind: "constant", value: BASE("B") } },
-    { world: kernel, targets: { "moved-unit": [kernel.ref("enemy")] } }
-  );
+  const outcome = runAbilityBody([runtimeMove], kernel);
 
-  assert.equal(run.result.status, "executed");
-  assert.deepEqual(run.events.map(event => event.action), ["move-location"]);
+  assert.equal(outcome.status, "executed");
+  assert.equal(outcome.results[0].result.status, "executed");
+  assert.deepEqual(outcome.events.map(event => event.action), ["move-location"]);
   assert.deepEqual(kernel.getObject("enemy"), { ...before, location: BASE("B") });
   assert.equal(kernel.getObject("enemy").zone, "board");
 });
@@ -206,12 +203,6 @@ test.todo(
     "unit at the moved unit destination and resolves the mutual damage (388.1 / 388.2 / 389.1 / 389.2, " +
     "355.5.b) — needs the trigger.reflexive primitive and the pending-item " +
     "target legality rules"
-);
-
-test.todo(
-  "Dragon's Rage Move Destination: enumerate the runtime-legal Locations at Finalize and offer the " +
-    "choice to the controller (355.4 / 355.4.a / 449.2 / 451.1) — needs the target.location primitive and " +
-    "the Move pipeline (contract 7.2 batch 5 Turn/Combat)"
 );
 
 test.todo(
