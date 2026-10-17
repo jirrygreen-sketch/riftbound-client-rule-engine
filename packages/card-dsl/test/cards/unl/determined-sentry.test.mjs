@@ -1,3 +1,5 @@
+// RIFT-668 partial execution / boundaries: ../templates/static-668.test.mjs.
+// Published status stays judge-required; existing component coverage is retained below.
 // Scenario execution evidence: ../templates/static-644.test.mjs (one parameterized row per card).
 // This card stays judge-required; the template row drives the real lifecycle and the production
 // static binder, while the missing Standard Move / effect.move consumers stay asserted below.

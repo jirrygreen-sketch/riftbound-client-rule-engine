@@ -58,6 +58,9 @@ const abilities: Ability[] = [
       destination: { kind: "self-battlefield" },
       // 204.4.b / 204.4.c：由执行该 Game Action 的对手随动作支付；付不出则不能执行。
       payer: "moving-player",
+      // "Opponents" is an additional relative-player gate, not every mover.
+      // Descriptive only until the Applied Cost consumer resolves this scope.
+      payerScope: "opponent",
       // 135.2.e.5 / 163.2.b：:rb_rune_rainbow: 是任意域 Power（[A]）。
       resource: "power",
       domain: "any",
@@ -84,7 +87,8 @@ const program = {
     "对卡面采用的 `continuous.restrict` + mode applied-cost 会保留 kind \"restriction\"；appliedCosts() 只匹配 applied-cost，" +
     "实测静态绑定后 registered effect 为 { kind: \"restriction\", mode: \"applied-cost\", actions: [\"move\"] } 且 appliedCosts(\"move\") 为空" +
     "（同一形状经 continuous.restrict 指令路径登记时 kind 是 applied-cost，读回正常）；卡内已改用查询实际读取的复数 actions 拼写。" +
-    "依赖：Applied Cost 的移动消费、universal Power、移动批次计数，以及“my battlefield”的运行期位置锚定。" +
+    "依赖：Applied Cost 的移动消费、universal Power、移动批次计数，以及“my battlefield”的运行期位置锚定；" +
+    "payerScope: opponent 保留原文 Opponents 的相对付款人门槛，仍需消费方按本卡当前控制者解析，不能向己方移动收费。" +
     "指令路径的登记已有局部执行证据；不近似实现。",
   abilities,
   sourceText:

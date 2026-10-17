@@ -14,7 +14,7 @@ import type { CardProgram } from "../../ir/index.js";
  *   图层），不是 702 的 Buff 计数器（effect.buff 文件头明确临时 Might 修正归 layers
  *   的 continuous.might）。
  * - 「you've spent :rb_energy_4: or more to play a spell this turn」：需要读取"本回合为
- *   打出法术实际支付的 Energy 总量"的历史事实。契约 3.6 的 HistoryQuery 只有
+ *   打出某一张法术实际支付至少 4 Energy"的历史事实，不能累计多张低费法术。契约 3.6 的 HistoryQuery 只有
  *   { scope, action, timingPoint, player, object }，只按动作次数计数、不能表达金额；
  *   已合入的 condition.history 原语（effects/interpreter.ts 的 condition.history →
  *   interpreter/history.ts）也只支持这五个字段，额外字段会抛错。

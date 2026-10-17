@@ -1,3 +1,5 @@
+// RIFT-668 partial execution / boundaries: ../templates/static-668.test.mjs.
+// Published status stays judge-required; existing component coverage is retained below.
 // Scenario execution evidence: ../templates/static-644.test.mjs (one parameterized row per card).
 // This card stays judge-required (frozen controller after take-control); the template row asserts
 // the supported positive path for the controller's token units.
@@ -41,11 +43,12 @@ test("unl-077-219 Soul Shepherd: a static arithmetic Might aura scoped to your t
   assert.equal(effect.mode, "add");
   assert.equal(effect.layer, "arithmetic");
   assert.deepEqual(effect.amount, { kind: "constant", value: 1 });
-  // 740.1.a: "your" scopes the controller; type "token" is the merged layers
-  // vocabulary for token membership (ObjectSnapshot.isToken).
+  // 740.1.a: "your" scopes the controller. Both "token" and "units" must
+  // hold; token Gear must not receive a Might value from this aura.
   assert.deepEqual(effect.filter, {
     zone: "board",
-    type: "token",
+    type: "unit",
+    characteristics: { isToken: true },
     controller: "controller"
   });
 });

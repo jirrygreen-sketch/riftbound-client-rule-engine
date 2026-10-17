@@ -24,7 +24,8 @@ const soulShepherd = {
   judgeReason:
     "生产静态绑定会在首次绑定时把 controller: controller 固化为来源当时的控制者；" +
     "来源经 take-control 改变控制者后，光环仍作用于原控制者的 token，" +
-    "无法满足 479.4 的 your token units 随当前控制者变化。待共享静态绑定路径修复。",
+    "无法满足 479.4 的 your token units 随当前控制者变化。待共享静态绑定路径修复。" +
+    "RIFT-668 已将集合明确为 type: unit 且 characteristics.isToken: true，排除非单位 token；正向与排除场景见 static-668.test.mjs。",
   abilities: [
     {
       kind: "static",
@@ -35,7 +36,8 @@ const soulShepherd = {
         amount: { kind: "constant", value: 1 },
         filter: {
           zone: "board",
-          type: "token",
+          type: "unit",
+          characteristics: { isToken: true },
           controller: "controller"
         }
       }
