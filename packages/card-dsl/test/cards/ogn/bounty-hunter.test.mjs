@@ -8,6 +8,7 @@ import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
 import grantKeyword from "../../../../engine-core/dist/effects/instructions/continuous.grant-keyword.js";
 import { createLayerEngine } from "../../../../engine-core/dist/layers/index.js";
 import { runInstruction, world } from "../../../../engine-core/dist/effects/testing/index.js";
+import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
 
 const ability = program.abilities[0];
 const instruction = ability.body[0];
@@ -44,6 +45,7 @@ test("bounty-hunter structure: exhaust-only activated ability granting Ganking f
   assert.equal(ability.body.length, 1);
   assert.equal(instruction.id, "bounty-hunter.grant-ganking");
   assert.equal(instruction.op, "continuous.grant-keyword");
+  assert.deepEqual(instruction.args.objects, { kind: "constant", value: { kind: "target", id: "bounty-hunter.unit" } });
   assert.deepEqual(instruction.args.keyword, { kind: "constant", value: "Ganking" });
   assert.deepEqual(instruction.args.duration, { kind: "constant", value: "end-of-turn" });
   assert.equal(instruction.linkedTo, undefined);
@@ -56,6 +58,37 @@ test("bounty-hunter structure: exhaust-only activated ability granting Ganking f
   assert.equal(targetSpec.min, 1);
   assert.equal(targetSpec.max, 1);
   assert.equal(targetSpec.selection, "one");
+});
+
+test("Bounty Hunter original body grants the chosen friendly or enemy unit Ganking without granting the legend", () => {
+  for (const owner of ["A", "B"]) {
+    const base = world().base("legend", { types: ["legend"], might: null }).unit("target", { owner }).build();
+    const kernel = base.clone({ sourceSnapshot: base.getObject("legend") });
+    const target = kernel.ref("target");
+    kernel.setTargets(targetSpec.id, [target]);
+    const receipt = payCostPlan(kernel, buildCostPlan(kernel, { id: `activate:${owner}`, cost: ability.cost }));
+    assert.equal(receipt.paid, true);
+    const outcome = resolveChainBody(ability.body, kernel);
+    assert.equal(outcome.results[0].result.status, "executed");
+    assert.equal(kernel.getObject("legend").exhausted, true);
+    const layers = createLayerEngine(kernel.objects, kernel.continuousEffects.map((entry, index) => ({ ...entry, timestamp: index + 1 })));
+    assert.deepEqual(layers.evaluate(kernel.ref("legend")).keywords, []);
+    assert.deepEqual(layers.evaluate(target).keywords.map(({ id }) => id), ["Ganking"]);
+    layers.advance({ id: "turn-end" });
+    assert.deepEqual(layers.evaluate(target).keywords, []);
+  }
+});
+
+test("Bounty Hunter original body ignores a target that has left the Board", () => {
+  const base = world().base("legend", { types: ["legend"], might: null }).unit("target").build();
+  const kernel = base.clone({ sourceSnapshot: base.getObject("legend") });
+  const target = kernel.ref("target");
+  kernel.setTargets(targetSpec.id, [target]);
+  kernel.perform({ type: "return-to-hand", object: target });
+  const outcome = resolveChainBody(ability.body, kernel);
+  assert.equal(outcome.results[0].result.status, "ignored");
+  assert.equal(outcome.results[0].result.reason, "mistargeted");
+  assert.deepEqual(kernel.continuousEffects, []);
 });
 
 test("bounty-hunter golden: the exhaust cost pays and the grant gives any chosen unit Ganking for the turn", () => {
@@ -100,5 +133,5 @@ test("bounty-hunter golden: the exhaust cost pays and the grant gives any chosen
 
 test.todo(
   "bounty-hunter end-to-end: bind the activated CardProgram ability to the chain so paying the cost runs the " +
-    "granted Ganking and derive hasGanking for the production movement path (movement permission wiring)."
+    "granted Ganking, re-expand dynamic keywords, normalize permission.routes and revoke that Standard Move permission at turn end."
 );

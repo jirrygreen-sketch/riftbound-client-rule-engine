@@ -24,6 +24,8 @@ test("brazen-buccaneer: identity, ruleset, status and verbatim sourceText", () =
   assert.match(program.judgeReason, /356\.2\.b\.1/);
   assert.match(program.judgeReason, /CostPlan|Finalize/);
   assert.match(program.judgeReason, /paid-proof/);
+  assert.match(program.judgeReason, /grantedBy.*selectedAdditional/);
+  assert.match(program.judgeReason, /card-in-controller-hand/);
   assert.equal(
     program.sourceText,
     "As you play me, you may discard 1 as an additional cost. If you do, reduce my cost by :rb_energy_2:."
