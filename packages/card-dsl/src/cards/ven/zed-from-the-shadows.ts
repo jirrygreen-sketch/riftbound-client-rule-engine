@@ -21,31 +21,36 @@ import type { CardProgram } from "../../ir/index.js";
  *   被“play”时先在链上生成再由 play 动作接手；440.2.b.1 规定未指定区域时创建到“可被打出的任意地点”。
  * - 807.1.c / 807.1.b.3：token 自带能力里的 [Assault 4] 是 token 特征，不是本卡的能力。
  *
- * status = judge-required（三处缺口均不近似实现）：
- * 1. 可选附加费用仍没有从 CardProgram 的 `cost.additional` 声明接入打出 Finalize，且
- *    “if you paid the additional cost” 没有可读取的费用回执绑定（冻结 IR 没有
- *    `condition.result`）；费用种类/程序接线属于 RIFT-261，不能用恒真条件近似；
- * 2. Shadow Clone 的定义不在 effect.token 的冻结 DEFINITIONS 表（表内只有 recruit/
+ * status = judge-required（四处缺口均不近似实现）：
+ * 1. 可选附加费用仍没有从 CardProgram 的 `cost.additional` 声明接入打出 Finalize；
+ *    `programs/play.ts` 的 `translateCost` 会拒绝追加费用字段，且费用计划的非目标
+ *    弃牌选择要求调用方提供具体 ObjectRef，当前没有把“控制者手牌”过滤器转成候选的适配器。
+ * 2. “if you paid the additional cost” 没有可读取的费用回执绑定（冻结 IR 没有
+ *    `condition.result`），不能用恒真条件近似；
+ * 3. Shadow Clone 的定义不在 effect.token 的冻结 DEFINITIONS 表（表内只有 recruit/
  *    sand-soldier/mech/reflection/tentacle；187.11 带自身能力的 token 被该文件显式阻断为
  *    token-definition-or-abilities-judge-required），token 自身的 [Assault 4] 能力也无法由本卡数据表达；
- * 3. token 的打出地点是 Finalize 的 Location 选择（355.2/355.2.a、440.2.b.1），
+ * 4. token 的打出地点是 Finalize 的 Location 选择（355.2/355.2.a、440.2.b.1），
  *    已合入原语只接受具体 LocationRef 列表，没有任何读数把“可被打出的地点集合”解析出来
- *    （同 sfd/arise 的判定）。
- * 本文件仍按契约 3.1/3.2 写出完整的触发与费用形状（含非目标 pick 的弃牌组件），golden 只做
- * 校验与结构断言，执行场景以待办标注；不伪造回执、不发明 token 特征、不写死地点。
+ *    （费用/打出位置的动态候选生产器仍缺失）。
+ * 本文件仍按契约 3.1/3.2 写出完整的触发与费用形状（含非目标 pick 的弃牌组件）；golden
+ * 对已合入的费用修改原语保留真实执行证据，剩余待办继续覆盖未接线的打出与 token 场景。
+ * 不伪造回执、不发明 token 特征、不写死地点。
  */
 export default {
   canonicalCardId: "card.hash-d7b6ea328eac7b13a0a652c5d95b38895d7026cbb51f23007ecdce1f9a3d951c",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处缺口：(1) 可选附加费用仍没有从 CardProgram 的 cost.additional 声明接入打出 Finalize，且" +
-    "“if you paid the additional cost”（356.4.f.1）没有可读取的费用回执绑定（冻结 IR 没有 condition.result）；" +
-    "费用种类与程序接线属于 RIFT-261，不能用恒真条件近似；(2) Shadow Clone 不在 effect.token 的冻结 DEFINITIONS 表，" +
+    "四处缺口：(1) CardProgram 的 cost.additional 尚未接入打出 Finalize；programs/play.ts 的 " +
+    "translateCost 会拒绝追加费用字段，且费用计划的非目标弃牌选择要求具体 ObjectRef，" +
+    "当前没有把控制者手牌过滤器转换为候选的适配器；(2) “if you paid the additional cost”（356.4.f.1）" +
+    "没有可读取的费用回执绑定（冻结 IR 没有 condition.result），不能用恒真条件近似；(3) Shadow Clone 不在 effect.token 的冻结 DEFINITIONS 表，" +
     "187.11 带自身能力的 token 被该文件显式阻断（token-definition-or-abilities-judge-required），" +
-    "token 自带能力里的 [Assault 4] 也无法由本卡数据表达；(3) token 的打出地点是 Finalize 的 Location 选择" +
+    "token 自带能力里的 [Assault 4] 也无法由本卡数据表达；(4) token 的打出地点是 Finalize 的 Location 选择" +
     "（355.2/355.2.a、440.2.b.1），已合入原语只接受具体 LocationRef 列表，没有读数能解析“可被打出的地点集合”" +
-    "（RIFT-357）。费用对象按 355.10.c 记为非目标 pick，不写成 TargetSpec；不伪造回执、不发明 token 特征、不写死地点。",
+    "（动态合法地点候选生产器仍缺失）。费用对象按 355.10.c 记为非目标 pick，不写成 TargetSpec；" +
+    "不伪造回执、不发明 token 特征、不写死地点。",
   abilities: [
     {
       // 356.2.b / 356.2.b.1：可选的附加费用（由打出之牌自身的被动能力指定）。

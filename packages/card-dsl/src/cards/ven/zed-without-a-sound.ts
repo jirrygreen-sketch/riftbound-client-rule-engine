@@ -34,9 +34,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *    negated + blockedReason "token-definition-or-abilities-judge-required"。本卡保留
  *    有依据的 effect.token IR（与 sfd/trove-golem 的 Gold 写法一致），但不宣称可执行，
  *    golden 也不断言「当前被拒绝」（依赖落地后会失效）。
- * 2. conquer 触发的闭合事件已有 `conquered` 判别词和程序绑定，但 scoring 的 conquer
- *    发射只携带 player/details，不携带征服单位对象；因此 `source: self` 无法在真实计分
- *    流程匹配到本单位，不能把触发改成仅按玩家匹配来近似。
+ * 2. conquer 触发的闭合事件已有 `conquered` 判别词和程序绑定，但 `turn/flow.ts` 的
+ *    conquer Score 发射只携带 player/details，不携带征服单位对象；事件匹配器因此无法用
+ *    `source: self` 匹配到本单位，不能把触发改成仅按玩家匹配来近似。
  * 交换本体（两条 condition.value 锁位 + 两条 effect.move）以及 [Action][>] 的费用均只用已合入原语，golden 用真实
  * 解释器 + 参考内核执行。
  */
@@ -178,8 +178,8 @@ export default {
     "Shadow Clone 自带攻击触发能力（banish + [Assault 4]），而 effects/instructions/effect.token.ts 的冻结定义表按设计只含" +
     "无额外能力的 recruit / sand-soldier / mech / reflection / tentacle，对 shadow-clone 执行会 negated + " +
     "blockedReason \"token-definition-or-abilities-judge-required\"；(2) conquer 触发的闭合事件判别词已改为 " +
-    "\"conquered\"，但 scoring 的 conquer 发射只携带 player/details，不携带征服单位对象，" +
-    "因此 source: self 无法在真实计分流程匹配到本单位，不能把触发改成仅按玩家匹配来近似。" +
+    "\"conquered\"，但 turn/flow.ts 的 conquer Score 发射只携带 player/details，不携带征服单位对象，" +
+    "事件匹配器因此无法用 source: self 匹配到本单位，不能把触发改成仅按玩家匹配来近似。" +
     "[Action][>] 的 1 Energy + 1 Chaos Power 费用以及交换本体（两条 condition.value 锁位 + 两条 effect.move，" +
     "355.4 / 448.3）均已有 Finalize/Chain 接线，golden 用真实解释器执行；token 与真实 conquer 来源对象保持 test.todo。",
   abilities,
