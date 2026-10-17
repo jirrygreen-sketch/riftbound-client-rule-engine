@@ -5,6 +5,7 @@ import { validateCardProgram } from "../../../dist/index.js";
 import program from "../../../dist/cards/sfd/ornn-blacksmith.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { resolveChainBody } from "../../../../engine-core/dist/chain/interpreter-adapter.js";
+import { fixture, resolveAll } from "../../../../engine-core/test/chain/helpers.mjs";
 // Production resolves a card body through the chain's interpreter adapter
 // (chain/interpreter-adapter.ts), which keeps each card Expr argument inside one
 // literal envelope so the merged primitives validate and evaluate them themselves.
@@ -56,48 +57,42 @@ test("sfd-058-221 Ornn, Blacksmith: identity, ruleset, status, judgeReason and v
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
-test("sfd-058-221 Ornn, Blacksmith: the reveal pick is rejected before the primitive sees it", () => {
-  // 425.1/425.1.a.2: the card declares the picked gear through account 3.6's
-  // pick selector. chain/interpreter-adapter.ts's LITERAL_FIELDS unpacks only
-  // `target` for effect.reveal, so the Expr envelope reaches the primitive and its
-  // argument validator rejects it. This is the executed evidence for the adapter
-  // half of gap (2).
+test("sfd-058-221 Ornn, Blacksmith: the chain adapter unwraps the declared reveal pick", () => {
+  // 425.1/425.1.a.2: the card declares the picked gear through contract 3.6's
+  // pick selector. The merged chain adapter unwraps the Expr envelope before the
+  // primitive validates the literal pick id; the remaining gap is the missing
+  // gear-only filter over the linked look result.
   const kernel = world().deck(["gear-a"], { owner: "A" }).build();
   kernel.setPicks("ornn-blacksmith.revealed-gear", kernel.zone("A", "deck"));
-  assert.throws(
-    () => resolveChainBody([revealGear], kernel),
-    /effect\.reveal: pick must be a non-empty id/
-  );
-  // The same declaration is executable when the primitive is called with the
-  // unwrapped literal (what the golden below uses), so only the adapter is missing.
-  const direct = runInstruction(
-    reveal,
-    { pick: revealGear.args.pick.value },
-    { world: kernel, picks: { "ornn-blacksmith.revealed-gear": kernel.zone("A", "deck") } }
-  );
-  assert.equal(direct.result.status, "executed");
+  const outcome = resolveChainBody([{ ...revealGear, picks: undefined }], kernel);
+  assert.equal(outcome.status, "executed");
+  assert.equal(resultFor(outcome, "ornn-blacksmith.reveal-gear").result.status, "executed");
+  assert.deepEqual(outcome.linkedValues["ornn-blacksmith.reveal-gear.revealed"], [kernel.ref("gear-a")]);
 });
 
-test("sfd-058-221 Ornn, Blacksmith: a production play has no ordered deck-top source at Finalize", () => {
-  // 128.3-128.4 + contract 3.6: the top-4 look needs ordered picks supplied by the
-  // chain Finalize. chain/engine.ts `assertFinalizationSurface` locks only
-  // instruction.targets TargetSpecs, so the engine never captures this card's
-  // picksSpecId and effect.inspect sees an empty range. This is the executed
-  // evidence for gap (1).
-  const kernel = world().deck(["a", "b", "c", "d"], { owner: "A" }).build();
-  // Run the card's own look sequence (controller binding + top-4 inspect) with no
-  // Finalize-captured ordered source, exactly as a production play reaches it.
-  const run = resolveChainBody([bindController, { ...lookTopFour, linkedTo: undefined }], kernel);
-
-  assert.equal(run.status, "executed");
-  assert.equal(
-    run.linkedValues["ornn-blacksmith.look-top-four.lookedCount"],
-    0,
-    "without a Finalize-captured ordered source the look sees nothing"
-  );
-  assert.deepEqual(run.linkedValues["ornn-blacksmith.look-top-four.lookedCards"], []);
-  assert.equal(kernel.player("A").deckSize, 4);
-  assert.equal(kernel.zone("A", "deck")[0].id, "a");
+test("sfd-058-221 Ornn, Blacksmith: production Finalize locks the ordered deck-top source", () => {
+  // 128.3-128.4 + contract 3.6: the merged Finalize lifecycle captures the
+  // declared zoneSlice without exposing its cards before resolution.
+  const f = fixture();
+  f.engine.advance();
+  const top = f.kernel.zoneSlice("A", "deck", "top", 4).map((object) => object.ref);
+  f.engine.enqueue({
+    id: "ornn-blacksmith-chain",
+    kind: "triggered",
+    controller: "A",
+    source: f.kernel.getObject("source"),
+    body: [bindController, lookTopFour]
+  });
+  f.engine.advance();
+  assert.equal(f.engine.items[0].status, "finalized");
+  assert.equal(f.engine.items[0].pickPlans.length, 1);
+  assert.equal(f.engine.items[0].pickPlans[0].id, "ornn-blacksmith.top-four");
+  assert.deepEqual(f.engine.items[0].pickPlans[0].refs, top);
+  assert.equal(f.engine.pipeline.events.some((event) => event.timingPoint === "card-looked"), false);
+  resolveAll(f.engine);
+  assert.deepEqual(f.kernel.linked("ornn-blacksmith.look-top-four.lookedCards"), top);
+  assert.equal(f.engine.pipeline.events.filter((event) => event.timingPoint === "card-looked").length, 0);
+  assert.equal(f.kernel.events.filter((event) => event.action === "look").length, 1);
 });
 
 test("sfd-058-221 Ornn, Blacksmith: the real hold payload cannot match the self-scoped trigger", () => {
@@ -174,11 +169,10 @@ test("sfd-058-221 Ornn, Blacksmith: look is a private top-4 inspect whose ordere
   assert.deepEqual(lookTopFour.picks, [
     {
       id: "ornn-blacksmith.top-four",
-      options: ["runtime:main-deck-top-four-in-zone-order"],
-      min: 0,
-      max: 4,
-      selection: "up-to",
-      filter: { owner: "self", zone: "deck" }
+      options: [],
+      ordered: true,
+      selection: "all",
+      zoneSlice: { zone: "deck", from: "top", count: { kind: "constant", value: 4 } }
     }
   ]);
   assert.equal(lookTopFour.targets, undefined);
@@ -275,9 +269,9 @@ test("sfd-058-221 Ornn, Blacksmith golden: accepting reveals the chosen gear, dr
   const looked = kernel.zone("A", "deck").slice(0, 4);
 
   // The reveal / draw / recycle steps run on the merged primitives with the card's
-  // own declared arguments. The reveal step is driven at the primitive level because
-  // chain/interpreter-adapter.ts unwraps only `target` for effect.reveal; the card
-  // keeps the declared `pick` shape (see judgeReason).
+  // own declared arguments. This isolated primitive path supplies the chosen
+  // linked reference directly; the production chain adapter also unwraps the
+  // card's Expr pick id (see the adapter golden above).
   const revealed = runInstruction(
     reveal,
     { pick: revealGear.args.pick.value },
@@ -381,12 +375,6 @@ test.todo(
   "sfd-058-221 Ornn, Blacksmith: 'reveal a gear from among them' needs a consumer that turns the linked " +
     "look result plus the gear type filter into a replayable resolution choice — effect.inspect's choose " +
     "offers every looked-at card with no type gate, so an unfiltered choose would let a non-gear be revealed"
-);
-
-test.todo(
-  "sfd-058-221 Ornn, Blacksmith: the ordered deck-top pick ('ornn-blacksmith.top-four') needs a Finalize " +
-    "lifecycle; chain/engine.ts locks only instruction.targets TargetSpecs, so a production play has no " +
-    "ordered source and effect.inspect sees nothing (contract 3.6 zoneSlice)"
 );
 
 test.todo(
