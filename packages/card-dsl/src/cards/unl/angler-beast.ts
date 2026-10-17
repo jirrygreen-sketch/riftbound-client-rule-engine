@@ -27,7 +27,7 @@ import type { CardProgram } from "../../ir/index.js";
  * 已合入且可执行的是回手动作本体：golden 用解释器 + 参考内核真实执行 effect.zone（对已锁定
  * 的弱单位集合回手，且强单位留在场上），并按 359.3.e 验证失效引用被忽略。
  *
- * 依赖：RIFT-359（有效 Might 读取与阈值谓词）。目标查询与 effect.zone 回手动作已经合入。
+ * 依赖：有效 Might 读取与阈值谓词。目标查询与 effect.zone 回手动作已经合入。
  */
 export default {
   canonicalCardId:
@@ -41,7 +41,7 @@ export default {
     "不能省略过滤把场上所有单位（含 Might ≥ 3 的）都回手；" +
     "355.9.b 的「2 [M] or less」需要 143.2.a 的有效 Might 读取与阈值谓词（与 sfd/sandshifter、ogn/gust 同一缺口）。" +
     "回手本体 effect.zone（to: hand，各牌按拥有者路由）已合入，golden 用解释器 + 参考内核对该集合真实执行，" +
-    "并验证 359.3.e 的失效引用被忽略。依赖：RIFT-359（有效 Might 阈值谓词）。不近似实现。",
+    "并验证 359.3.e 的失效引用被忽略。依赖：有效 Might 阈值谓词。不近似实现。",
   abilities: [
     {
       kind: "triggered",

@@ -20,9 +20,9 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   431.4.b 明确“由游戏效果指示的 Channel”正是该原语覆盖的范围（Channel Phase 的常规 Channel 不属这里）。
  *
  * status = judge-required（缺口不近似实现）：
- * - [Assault] 的 KeywordDef 展开、卡牌程序静态绑定和 arithmetic 图层已经接通；但 807.1.d 的
- *   Attacker designation 仍不在 ObjectSnapshot 特征里，compare 条件无法读取 combatRole，故不能
- *   只在攻击者期间应用 +1 Might。
+ * - [Assault] 的 KeywordDef 展开、卡牌程序静态绑定和 arithmetic 图层已经接通；但展开条件读取
+ *   `designation`，而 ObjectSnapshot 提供的是 `combatRole`，生产绑定器对缺失属性 fail-closed，
+ *   因而不能只在攻击者期间应用 +1 Might。
  * - [Deathknell] 的 KeywordDef 展开与 object-killed 触发注册已经接通；展开体仍引用没有
  *   InstructionDef 的 trigger.leave，且死亡被替代时移除触发、最后已知信息和离场前收集的完整
  *   语义尚未由该原语承载。
@@ -62,8 +62,8 @@ export default {
   status: "judge-required",
   judgeReason:
     "两处当前缺口，均不近似实现：(1) [Assault]（807.1.c/807.1.d）的 KeywordDef 展开、卡牌程序静态绑定和 arithmetic 图层" +
-    "已经接通，但 Attacker designation 仍不在 ObjectSnapshot 特征里，compare 条件无法读取" +
-    "combatRole，不能只在攻击者期间应用 +1 Might。(2) [Deathknell] 的 KeywordDef 展开与 object-killed" +
+    "已经接通，但展开条件读取 designation，而 ObjectSnapshot 提供的是 combatRole；生产绑定器对缺失属性 fail-closed，" +
+    "不能只在攻击者期间应用 +1 Might。(2) [Deathknell] 的 KeywordDef 展开与 object-killed" +
     "触发注册已经接通，但展开体仍引用没有 InstructionDef 的 trigger.leave；死亡被替代时移除触发、" +
     "最后已知信息和离场前收集的语义也没有可执行承载。依赖：契约 3.8 的 combatRole/Attacker 特征、" +
     "trigger.leave 原语及其死亡替代/LKI 语义。Channel 1 rune exhausted 本体（effect.channel，431.1/431.2）已合入，" +

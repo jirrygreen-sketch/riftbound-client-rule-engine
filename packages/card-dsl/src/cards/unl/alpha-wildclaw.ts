@@ -32,8 +32,8 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   也不能算整卡可执行。
  * golden 只做校验、结构断言与缺口 todo，不为任一缺口写执行用例。
  *
- * 依赖：source-relative Might 关系谓词与 static binder 支持（RIFT-359）、目标合法性判定对
- * Untargetable 的消费，以及战斗伤害分配批次。
+ * 依赖：source-relative Might 关系谓词与 static binder 支持、目标合法性判定对 Untargetable
+ * 的消费，以及战斗伤害分配批次。
  */
 
 const abilities: Ability[] = [
@@ -77,7 +77,7 @@ export default {
     "condition 从句只作用于整条指令、不能过滤选择集合成员；程序用 mightLt 占位键记录该谓词，" +
     "合并匹配器不读该键（ogn/kadregrin-the-infernal、sfd/sandshifter 记录同一静默忽略行为），绝不能当作已求值语义。" +
     "（3）[Tank]（815.1.c）的展开文件已合入，但战斗伤害分配的消费方尚未合入。" +
-    "依赖：source-relative Might 关系谓词（RIFT-359）、向 rules query 的 actions/restriction 与敌方 chooser 语义转换、" +
+    "依赖：source-relative Might 关系谓词、向 rules query 的 actions/restriction 与敌方 chooser 语义转换、" +
     "以及战斗伤害分配批次。本卡所有效果都依赖上述缺口，golden 只做校验、结构断言与缺口 todo。",
   abilities,
   sourceText:

@@ -33,6 +33,7 @@ test("unl-152-219 Black Rose Dignitary: identity, status, judgeReason and verbat
   assert.equal(cardRegistryById.get(CANONICAL_ID), program);
   assert.match(program.judgeReason, /807\.1\.c/);
   assert.match(program.judgeReason, /trigger\.leave/);
+  assert.match(program.judgeReason, /designation/);
   assert.match(program.judgeReason, /combatRole/);
   assert.doesNotMatch(program.judgeReason, /RIFT-(82|91|120|257)/);
 });
@@ -115,8 +116,8 @@ test("unl-152-219 Black Rose Dignitary golden: an empty Rune Deck channels as mu
 test.todo(
   "unl-152-219 Black Rose Dignitary: expand [Assault] into a conditional +1 Might in the arithmetic " +
     "layer for as long as I hold the Attacker designation (CR 807.1.c / 807.1.d / 807.1.d.1) — the " +
-    "combatRole/Attacker characteristic is not present in ObjectSnapshot, so the compare condition cannot " +
-    "be evaluated"
+    "KeywordDef currently reads designation while ObjectSnapshot exposes combatRole; the production " +
+    "binder fail-closes the missing property instead of evaluating the attacker condition"
 );
 test.todo(
   "unl-152-219 Black Rose Dignitary: expand [Deathknell] (subscribe object-killed, removal from the " +

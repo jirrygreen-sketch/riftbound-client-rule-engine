@@ -83,8 +83,8 @@ export default {
     "仍缺 383.4.c.2.a/383.4.d.2.a、823.1.c.1 要求的在场单位 Conquer/Hold 事件归属。" +
     "(3) play-location-permission 没有 static layer mapping，Finalize 的 playLocations 查询也没有消费这两条 355.2.b 许可。" +
     "(4) occupied/enemyUnitAlone 条件没有 170.11.a/740.2.a 的位置占用与同位置友方单位计数求值。" +
-    "依赖：Hunt 事件过滤器枚举对齐、单位 Conquer/Hold 事件匹配、play-location-permission 绑定/消费（位置选择 RIFT-357），" +
-    "以及 occupied/alone 谓词（RIFT-359）。",
+    "依赖：Hunt 事件过滤器枚举对齐、单位 Conquer/Hold 事件匹配、play-location-permission 绑定/消费，" +
+    "以及 occupied/alone 谓词。",
   abilities,
   sourceText:
     "[Hunt 2] (When I conquer or hold, gain 2 XP.)\n" +

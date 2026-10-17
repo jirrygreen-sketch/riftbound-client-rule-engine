@@ -48,7 +48,7 @@ test("unl-207-219 Amateur Recital: identity, status, judgeReason and verbatim so
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /hold/);
   assert.match(program.judgeReason, /here/);
-  assert.match(program.judgeReason, /RIFT-357/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-357/);
 });
 
 test("unl-207-219 Amateur Recital: a hold trigger with an optional move wrapped in choice.optional", () => {
@@ -173,6 +173,6 @@ test("unl-207-219 Amateur Recital: the real Beginning scoring flow emits hold wi
 
 test.todo(
   "unl-207-219 Amateur Recital: bind the here-anchored hold filter and the Battlefield program's lifecycle " +
-    "(RIFT-357 for the location anchor) — the frozen EventPattern vocabulary has no battlefield-relative anchor, so the adapter fails " +
+    "— the frozen EventPattern vocabulary has no battlefield-relative anchor, so the adapter fails " +
     "closed on the placeholder key instead of matching holds at every battlefield"
 );

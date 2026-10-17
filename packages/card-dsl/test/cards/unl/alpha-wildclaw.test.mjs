@@ -28,7 +28,7 @@ test("unl-057-219 Alpha Wildclaw: identity, status, judgeReason and verbatim sou
   assert.match(program.judgeReason, /757/);
   assert.match(program.judgeReason, /758/);
   assert.match(program.judgeReason, /mightLt/);
-  assert.match(program.judgeReason, /RIFT-359/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-359/);
   assert.doesNotMatch(program.judgeReason, /没有对应原语|没有.*static.*binder/);
 });
 
@@ -63,7 +63,7 @@ test.todo(
 
 test.todo(
   "unl-057-219 Alpha Wildclaw: evaluate 'with less Might than me' as a relational targeting restriction " +
-    "(CR 355.9.b; 758.2.a uses this card as its example) — the RIFT-359 relation predicate and its " +
+    "(CR 355.9.b; 758.2.a uses this card as its example) — the source-relative relation predicate and its " +
     "source-relative effective-Might query are still missing"
 );
 
