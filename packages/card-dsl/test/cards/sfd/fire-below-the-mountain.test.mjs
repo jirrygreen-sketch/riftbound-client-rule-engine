@@ -13,6 +13,10 @@ const { buildCostPlan } = await import(new URL("cost/cost-plan.js", ENGINE));
 const { payCostPlan } = await import(new URL("cost/payment.js", ENGINE));
 const { runInstruction, world } = await import(new URL("effects/testing/index.js", ENGINE));
 const resources = (await import(new URL("effects/instructions/effect.resources.js", ENGINE))).default;
+const { resolveChainBody } = await import(new URL("chain/interpreter-adapter.js", ENGINE));
+const { translateRestriction } = await import(new URL("programs/play.js", ENGINE));
+const { ProgramRegistry } = await import(new URL("programs/registry.js", ENGINE));
+const { describeActivate } = await import(new URL("programs/activate.js", ENGINE));
 
 const CANONICAL_ID = "card.hash-4f7b6e74a78c84b04922aadf51f0f8ef02368e59a4158f98eec18e4f301f75fe";
 const SOURCE_TEXT =
@@ -102,12 +106,64 @@ test("sfd-189-221 Fire Below the Mountain: the Add instruction only names Power 
 });
 
 // The previous "Universal Add fails closed", "restriction needs a rules
-// adapter" and "activation adapter cannot build an Add draft" goldens asserted
-// that the missing dependencies are still missing, so they would break as soon
-// as one of them lands (cards README section 4.1 / RIFT-189 precedent). The
-// current gaps stay recorded in judgeReason and in the test.todo entries below;
-// the merged Exhaust payment and the Add instruction's shape keep their
-// positive goldens above.
+// adapter" and "activation adapter cannot build an Add draft" goldens assert
+// the missing-adapter gaps that judgeReason also records; they are restored
+// under the tightened review rule and stay aligned with the TODO entries below.
+test("sfd-189-221 Fire Below the Mountain: the original Universal Add body fails closed without changing resources", () => {
+  const kernel = world().player("A", { energy: 2, power: ["Order"] }).build();
+  const outcome = resolveChainBody(ability.body, kernel);
+  assert.equal(outcome.status, "partial");
+  assert.deepEqual(outcome.results[0].result, { status: "negated", reason: "impossible", events: [] });
+  assert.deepEqual(kernel.player("A").power, ["Order"]);
+  assert.equal(kernel.player("A").energy, 2);
+  assert.deepEqual(kernel.events, []);
+});
+
+test("sfd-189-221 Fire Below the Mountain: the printed resource-use restriction requires a rules adapter", () => {
+  // programs/play.ts translateRestriction rejects this descriptive resource-use
+  // kind; the judge-required error is the missing-adapter gap, named in
+  // judgeReason, not an approved game rule.
+  assert.throws(() => translateRestriction(ability.restriction, CANONICAL_ID), error => {
+    assert.equal(error.code, "judge-required");
+    assert.match(error.message, /use-only-to-play-gear-or-gear-abilities/);
+    return true;
+  });
+});
+
+test("sfd-189-221 Fire Below the Mountain: the production activation adapter cannot build an Add draft", () => {
+  // 430.2 / 430.3: a Reaction Add ability finalizes immediately and may be
+  // activated while costs are paid. chain/engine.ts only admits kind "add"
+  // (and only at reaction speed) for that path, while programs/activate.ts
+  // always emits kind "activated" — after the printed restriction already
+  // fails closed. Both halves are asserted instead of treating the Board
+  // exhaust fixture as activation support.
+  const { judgeReason, ...binding } = program;
+  const registry = new ProgramRegistry([{ ...binding, status: "executable" }]);
+  const kernel = world()
+    .unit("fire-below-the-mountain", { cardId: CANONICAL_ID, types: ["legend"], energy: null, power: null, might: null })
+    .build();
+  assert.throws(
+    () => describeActivate(registry, kernel.getObject("fire-below-the-mountain"), "A", 0),
+    error => {
+      assert.equal(error.code, "judge-required");
+      assert.match(error.message, /use-only-to-play-gear-or-gear-abilities/);
+      return true;
+    }
+  );
+  // Even with the restriction satisfied, the adapter emits an activated draft;
+  // there is no merged producer that turns this program into kind "add".
+  assert.equal(callActivateWithNoRestriction(binding), "activated");
+});
+
+/** Mirrors programs/activate.ts's draft kind for this ability without its restriction. */
+function callActivateWithNoRestriction(binding) {
+  const { restriction: _restriction, ...unrestricted } = binding.abilities[0];
+  const registry = new ProgramRegistry([{ ...binding, abilities: [unrestricted], status: "executable" }]);
+  const kernel = world()
+    .unit("fire-below-the-mountain", { cardId: CANONICAL_ID, types: ["legend"], energy: null, power: null, might: null })
+    .build();
+  return describeActivate(registry, kernel.getObject("fire-below-the-mountain"), "A", 0).kind;
+}
 
 test.todo(
   "sfd-189-221 Fire Below the Mountain: represent and spend Universal Power ([A], CR 135.2.e.5 / " +

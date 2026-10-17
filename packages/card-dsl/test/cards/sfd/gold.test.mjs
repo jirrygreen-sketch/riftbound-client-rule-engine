@@ -17,6 +17,7 @@ import program from "../../../dist/cards/sfd/gold.js";
 import { cardRegistryById } from "../../../dist/cards/registry.generated.js";
 import { buildCostPlan } from "../../../../engine-core/dist/cost/cost-plan.js";
 import { payCostPlan } from "../../../../engine-core/dist/cost/payment.js";
+import { CostPlanError } from "../../../../engine-core/dist/cost/plan-types.js";
 import { AwaitChoice } from "../../../../engine-core/dist/effects/contract.js";
 import { bindResolveContext, createActionPipelineHost } from "../../../../engine-core/dist/events/action-adapter.js";
 import { ChainEngine } from "../../../../engine-core/dist/chain/engine.js";
@@ -231,10 +232,33 @@ test("sfd-t03 golden: a second activation cannot be paid once the token is in th
 });
 
 // The previous "[A] cannot be paid" boundary asserted that the missing
-// Universal Power representation is still missing, so it would break as soon as
-// the contract lands (contract 3.1 / README section 4 / RIFT-189 precedent). The
-// gap stays recorded in judgeReason and in the test.todo below; the real cost
-// plan and the card-program binding keep their positive goldens above.
+// Universal Power representation is still missing; it is restored under the
+// tightened review rule and stays aligned with the TODO entry below, while the
+// real cost plan and the card-program binding keep their positive goldens above.
+test("sfd-t03 boundary: [A] cannot be paid either, so the gap stays a contract request", () => {
+  // 135.2.e.5 / 163.2.b: [A] is Universal Power. The merged payer rejects the
+  // descriptive spelling outright instead of substituting a domain (cost/README
+  // contract integration request 2).
+  const kernel = world().player("A", { energy: 10, power: ["Calm"] }).player("B", { energy: 10 }).build();
+  const context = kernel.clone({ sourceSnapshot: kernel.getObject("gold") });
+  // The planner's domain validator is the closed six-domain set too, so it
+  // refuses the descriptive [A] spelling rather than locking a plan whose
+  // composition cannot be represented (plan-values.ts domains(); cost/README
+  // integration request 2 asks for a distinct universal source).
+  assert.throws(
+    () => buildCostPlan(context, {
+      id: "gold:universal",
+      cost: {
+        kind: "activated",
+        payments: [{ kind: "power", amount: { kind: "constant", value: 1 }, allowedDomains: ["rainbow"] }]
+      }
+    }),
+    (error) => error instanceof CostPlanError && error.reason === "invalid-cost-plan"
+  );
+  assert.deepEqual(context.player("A").power, ["Calm"]);
+  assert.equal(context.player("A").energy, 10);
+});
+
 test.todo(
   "sfd-t03 Gold: adding Universal Power ([A], CR 135.2.e.5 / 163.2.b) needs a contract representation — the " +
     "closed six-domain union and the gain-power action have no universal value"
