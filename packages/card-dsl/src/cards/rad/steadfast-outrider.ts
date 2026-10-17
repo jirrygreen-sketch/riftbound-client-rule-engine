@@ -29,8 +29,7 @@ import type { Ability, CardProgram } from "../../ir/index.js";
  *   成功注册。剩余缺口在绑定后的条件求值：layers 条件查询没有把 controller: "controller"
  *   解析为来源控制者，且查询适配器不消费 sameLocationAs / exclude 这类相对锚点，导致
  *   “other friendly ... at my battlefield”不能按印刷语义筛选。
- * - continuous.might 的图层算术消费方（layers/engine.ts 的 applyArithmetic）已合入
- *   （RIFT-91 结论过时）。
+ * - continuous.might 的图层算术消费方（layers/engine.ts 的 applyArithmetic）已合入。
  */
 const othersAtMyBattlefieldFilter = {
   type: ["unit", "gear"],
@@ -76,7 +75,7 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "「I have +2 Might」的 continuous.might 图层算术消费方与生产绑定链（programs/statics.ts + lifecycle）" +
-    "均已合入（RIFT-91 结论过时），且 appliesTo: \"self\" 使原 IR 的 static 能力可以成功注册；" +
+    "均已合入，且 appliesTo: \"self\" 使原 IR 的 static 能力可以成功注册；" +
     "剩余缺口在绑定后的条件查询：layers 条件环境没有把 controller: \"controller\" 解析为来源控制者，" +
     "查询适配器也不消费 sameLocationAs / exclude 这类相对锚点，因而 740.1 的 \"other friendly ... at my battlefield\"" +
     "不能按印刷语义筛选。" +

@@ -41,7 +41,7 @@ test("rad-146-167 The Ball: program validates and has expected identity", () => 
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.match(program.judgeReason, /Deploy/);
   assert.match(program.judgeReason, /sameLocationAs/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /programs\/triggers\.ts/);
 });
 
 test("rad-146-167 The Ball: Deploy + Ganking keywords and play/move mode bodies", () => {

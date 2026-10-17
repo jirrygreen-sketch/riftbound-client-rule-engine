@@ -72,7 +72,7 @@ const program = {
     "「choose an opponent」是玩家选择（CR v1.5 355.7/355.9.a：玩家可以是目标；355.10 的豁免都不适用），" +
     "但契约 3.6 的 `targets()` 只返回 ObjectRef[]，没有玩家目标形状；ChoiceRequest 也没有选择玩家的请求类型" +
     "（只有 optional/mode/select-objects/order/number），所以「把对手集合解析为 PlayerId 并在 Finalize 锁定」" +
-    "没有已合入实现：card-played 触发的生产注册已合入（programs/triggers.ts，RIFT-257 未合入的结论过时），" +
+    "没有已合入实现：card-played 触发的生产注册已合入（programs/triggers.ts），" +
     "但 dynamic:opponent-players 的 pick 解析没有 Finalize 生产解析。这里用非目标 pick（ctx.picks() 允许 PlayerId）" +
     "+ 动态选项标记保留可审查结构；effect.draw 的 player/pick 与「You draw 1」半段已合入并在 golden 测试中真实执行" +
     "（card-played 时点由 chain/engine.ts 产生，pick 绑定 PlayerId 的路径由测试内核 provision）。" +

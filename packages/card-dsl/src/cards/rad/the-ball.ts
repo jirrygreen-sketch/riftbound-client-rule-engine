@@ -99,8 +99,8 @@ const program = {
   status: "judge-required" as const,
   judgeReason:
     "缺 [Deploy] 展开的消费者（830.1.b：只能打到战场、对手在此固守时消灭、非单位 Gear 清理不召回）：触发注册" +
-    "（programs/triggers.ts 经 attachProgramLifecycle）与 keyword 展开（programs/keywords.ts）已合入" +
-    "（RIFT-257 未合入的结论过时），但 Deploy 展开的 continuous.location 没有 layerFor 映射（卡牌 static 绑定" +
+    "（programs/triggers.ts 经 attachProgramLifecycle）与 keyword 展开（programs/keywords.ts）已合入，" +
+    "但 Deploy 展开的 continuous.location 没有 layerFor 映射（卡牌 static 绑定" +
     "实测抛 judge-required），也没有 Finalize 位置校验调用方；hold 触发的 { here: true } 过滤器会被 " +
     "translateTriggerFilter/translateObjectFilter 拒绝（Unsupported filter field here）。turn/flow.ts 的清理召回" +
     "已有 Deploy 豁免。" +
