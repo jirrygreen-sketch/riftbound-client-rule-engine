@@ -20,13 +20,13 @@ import type { CardProgram } from "../../ir/index.js";
  * 第 5 节）；展开由 engine-core 的 effects/keywords/Weaponmaster.ts 负责，
  * 卡内不重写关键词逻辑。
  *
- * status = judge-required（cards/README.md 第 2 节）：展开文件已合入（RIFT-87），但
- * - cost.modify / cost.pay 在 effects/instructions/registry.generated.ts 仍没有
- *   注册的 InstructionDef（该批属 RIFT-261，未合入 HEAD），821.1.c.2 的 Equip 费
- *   计算与 821.1.c.3 的 [A] 减费无法执行；
- * - 没有生产方把卡牌上的 keyword 能力展开并接进打出流程（卡牌程序绑定 RIFT-257，
- *   未合入 HEAD）；
- * - 已合入的 cost 管线对 Equip 支付种类（payments kind "equip"）仍判 blocked。
+ * status = judge-required（cards/README.md 第 2 节）：展开文件与 programs/ 绑定已合入，但
+ * - 费用路径在解释器侧即被拒：effects/instructions/cost.modify.ts 对 Weaponmaster 来源
+ *   形态抛 judge-required（821.1.c.3 的 [A] 减费），另一分支对不含 [A] 的目标 Equip 费
+ *   抛 judge-required（821.1.c.2 的「如同激活」计算）；
+ * - cost/plan-values.ts 的 readCost 对 Equip 支付种类（payments kind "equip"）判 blocked；
+ * - programs/keywords.ts 的 expandProgram 只把 { value, host } 传给 KeywordDef.expand，
+ *   契约 3.8.3 的 params.cost 没有路径。
  * 不近似实现。
  */
 const combatChef = {
@@ -35,18 +35,16 @@ const combatChef = {
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "The Weaponmaster expansion file (effects/keywords/Weaponmaster.ts) is merged, " +
-    "but the card is not executable end to end: the expansion body pays the chosen " +
-    "Equipment's Equip cost through cost.modify / cost.pay, and neither opcode has a " +
-    "registered InstructionDef in effects/instructions/registry.generated.ts, nor does " +
-    "any producer expand a card's keyword ability into the play pipeline. 821.1.c.2 " +
-    "(cost determined as though the Equip ability were activated targeting this unit) " +
-    "and 821.1.c.3 (the [A] reduction) therefore cannot be calculated or paid before " +
-    "effect.attach runs, and the merged cost pipeline has no Equip payment kind at all " +
-    "(cost/plan-values.ts readCost supports only the resource and nonstandard kinds " +
-    "merged with RIFT-89). " +
-    "Depends on RIFT-261 (cost.pay / cost.modify instruction ops) and RIFT-257 " +
-    "(card-program keyword expansion into the play pipeline); not approximated.",
+    "The Weaponmaster expansion and the programs/ binding are merged, but the cost " +
+    "path is judge-required end to end: effects/instructions/cost.modify.ts throws " +
+    "judgeRequired for the Weaponmaster source shape (821.1.c.3, the [A] reduction) " +
+    "and for a target Equip cost containing no [A] (821.1.c.2, the as-if activation " +
+    "calculation), so the Equip cost cannot be calculated or paid before effect.attach " +
+    "runs. cost/plan-values.ts readCost also blocks the expansion's Equip payment kind " +
+    "\"equip\" (\"Unsupported payment kind: equip\"). programs/keywords.ts " +
+    "expandProgram passes only { value, host } to KeywordDef.expand, so the printed " +
+    "cost composition has no params.cost path (contract 3.8.3). " +
+    "The merged effect.attach step is exercised by the golden test; not approximated.",
   abilities: [{ kind: "keyword", keyword: "weaponmaster" }],
   sourceText:
     "[Weaponmaster] (When you play me, you may [Equip] one of your Equipment to me for :rb_rune_rainbow: less, even if it's already attached.)"

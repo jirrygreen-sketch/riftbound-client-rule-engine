@@ -48,8 +48,8 @@ test("sfd-124-221 Doran's Ring: identity, ruleset, status, judgeReason and verba
   assert.match(program.judgeReason, /Equip/);
   assert.match(program.judgeReason, /params/);
   assert.match(program.judgeReason, /Equip payment kind/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /Unsupported payment kind/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-261|RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
 });
 
@@ -109,8 +109,8 @@ test("sfd-124-221 Doran's Ring: the merged Equip body attaches this gear to the 
 
 test.todo(
   "sfd-124-221 Doran's Ring: paying the printed Equip cost (1 Chaos Power, CR 818.1.c) needs the \"equip\" cost-payment kind in cost/plan-values.ts " +
-    "(RIFT-261 cost-ops batch) and the contract 3.8.3 params.cost plumbing so the printed rune reaches KeywordDef.expand."
+    "and the contract 3.8.3 params.cost plumbing so the printed rune reaches KeywordDef.expand."
 );
 test.todo(
-  "sfd-124-221 Doran's Ring: the card-program -> keyword expansion -> chain wiring from contract 3.5 must register the Equip activated ability before the whole card is executable."
+  "sfd-124-221 Doran's Ring: the programs/ activation path is merged; only the two Equip cost gaps above keep the whole card judge-required."
 );

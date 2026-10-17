@@ -27,6 +27,8 @@ test("sfd-123-221 Corrupt Enforcer: program validates and keeps its identity", (
 });
 
 test("sfd-123-221 Corrupt Enforcer: judgeReason names both unmerged trigger paths with rule refs", () => {
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /TriggerSpecValidationError/);
   assert.match(program.judgeReason, /toZone\/toKind/);
   assert.match(program.judgeReason, /449\.1\/449\.2/);
   assert.match(program.judgeReason, /458/);
@@ -34,7 +36,6 @@ test("sfd-123-221 Corrupt Enforcer: judgeReason names both unmerged trigger path
   assert.match(program.judgeReason, /468\.3/);
   assert.match(program.judgeReason, /423\.1/);
   assert.match(program.judgeReason, /414\.1/);
-  assert.match(program.judgeReason, /RIFT-120/);
   assert.match(program.judgeReason, /RIFT-33/);
 });
 
@@ -144,9 +145,10 @@ test("sfd-123-221 Corrupt Enforcer golden: an empty deck links 0 drawn and inven
 });
 
 test.todo(
-  "sfd-123-221 Corrupt Enforcer: the object-moved timing point carries toZone/toKind so the " +
-    "toZone: \"battlefield\" filter can hit, and the moved object's identity is exposed to the card " +
-    "registration so source: \"self\" binds this unit (449.1/449.2; a Recall must stay excluded per 458) — RIFT-120"
+  "sfd-123-221 Corrupt Enforcer: object-moved must become a registrable EVENT_PATTERN_TYPE and its " +
+    "move-location emission must carry the destination (toZone/toKind) plus the moved object's identity so " +
+    "the toZone: \"battlefield\" + source: \"self\" filter can match " +
+    "(449.1/449.2; a Recall must stay excluded per 458)"
 );
 
 test.todo(

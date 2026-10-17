@@ -128,9 +128,9 @@ test("sfd-064-221 Cloth Armor: the Equip expansion declares its activation cost 
 
 test.todo(
   "sfd-064-221 Cloth Armor: paying the printed Equip cost (1 Mind rune, 818.1.c) needs the \"equip\" payment kind " +
-    "in cost plan-values (RIFT-89 follow-up) plus the program -> keyword expansion -> chain wiring (contract 3.5)"
+    "in cost/plan-values.ts and a params.cost path from the card program to KeywordDef.expand (contract 3.8.3)"
 );
 test.todo(
-  "sfd-064-221 Cloth Armor: Quick-Draw's expansion (CR 819.1.b-d) needs the continuous.timing layer consumer (RIFT-91) " +
-    "and the program -> TriggerRegistration adapter (contract 3.5)"
+  "sfd-064-221 Cloth Armor: Quick-Draw's card-played attach trigger and continuous.timing admission are already " +
+    "wired through programs/ and layers/rules; only the Equip cost path above keeps this card judge-required"
 );

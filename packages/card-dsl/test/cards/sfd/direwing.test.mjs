@@ -34,7 +34,7 @@ test("sfd-094-221 Direwing: identity, ruleset, status and verbatim text", () => 
 test("sfd-094-221 Direwing: judgeReason names the replacement-enter and Dragon-filter gaps", () => {
   assert.match(program.judgeReason, /replacement\/bind\.ts/);
   assert.match(program.judgeReason, /RIFT-260/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /programs\/registry/);
   assert.match(program.judgeReason, /Dragon/);
   assert.match(program.judgeReason, /condition/);
 });
@@ -107,9 +107,9 @@ test("sfd-094-221 Direwing golden: an already-ready unit is not readied again (4
 test.todo(
   "sfd-094-221 Direwing: register this CardProgram replacement with the event pipeline, evaluate the " +
     "'another Dragon' condition (133.8/133.8.a, 740.1.a) and swap exhausted entry for ready entry before " +
-    "the zone change (143.4 / 359.2.c / 369.3, 364.3.a) — the merged RIFT-260 binder exists, but the " +
-    "card-program binding (RIFT-257) and the entry-path condition evaluation are unmerged; effect.ready " +
-    "must not be used as a post-entry approximation"
+    "the zone change (143.4 / 359.2.c / 369.3, 364.3.a) — the merged RIFT-260 binder exists, but " +
+    "matchesEnterAction does not evaluate the ability condition and no producer registers CardProgram " +
+    "replacements; effect.ready must not be used as a post-entry approximation"
 );
 
 test.todo(

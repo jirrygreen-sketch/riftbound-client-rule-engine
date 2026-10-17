@@ -72,13 +72,14 @@ test("sfd-182-221 Danger Zone: program is structurally valid and judge-required"
 
 test("sfd-182-221 Danger Zone: judgeReason names the current Repeat cost gap", () => {
   assert.match(dangerZone.judgeReason, /Repeat/);
-  assert.match(dangerZone.judgeReason, /RIFT-261/);
-  assert.match(dangerZone.judgeReason, /RIFT-257/);
+  assert.match(dangerZone.judgeReason, /translateCost/);
+  assert.match(dangerZone.judgeReason, /Additional costs are not bound/);
+  assert.match(dangerZone.judgeReason, /repeat\.cost/);
   assert.match(dangerZone.judgeReason, /continuous\.might/);
-  assert.match(dangerZone.judgeReason, /RIFT-258/);
+  assert.doesNotMatch(dangerZone.judgeReason, /RIFT-261|RIFT-257|RIFT-258/);
   assert.equal(keywordDefinitionsById.has("Repeat"), true);
   // The old description claimed the Repeat KeywordDef itself was missing;
-  // RIFT-86 merged it, so the reason must not still say so.
+  // it merged long ago, so the reason must not still say so.
   assert.doesNotMatch(dangerZone.judgeReason, /无已合入 KeywordDef/);
 });
 
@@ -89,8 +90,8 @@ test("sfd-182-221 Danger Zone ability structure: [Reaction] + play with Repeat a
   assert.equal(play.kind, "play");
 
   // [Repeat] 1 energy + 1 rainbow rune: declared as an additional cost on
-  // the play ability (contract 3.1 CostSpec). The Repeat KeywordDef (RIFT-86)
-  // is merged, but the declared cost still has no Finalize consumer.
+  // the play ability (contract 3.1 CostSpec). The Repeat KeywordDef
+  // is merged, but the play flow still has no additional-cost consumer.
   assert.equal(play.cost.kind, "additional-cost");
   assert.equal(play.cost.keyword, "repeat");
   assert.deepEqual(play.cost.energy, { kind: "literal", value: 1 });
@@ -177,6 +178,6 @@ test("sfd-182-221 Danger Zone golden: no friendly Mech produces no registration 
 
 test.todo(
   "sfd-182-221 Danger Zone: [Repeat] paying 1 energy + 1 rainbow rune repeats the buff (CR 820.1.c; " +
-    "the Repeat KeywordDef landed with RIFT-86, but the Finalize additional-cost collection and the " +
-    "paid-repeat-to-interpreter wiring are unmerged — RIFT-261 cost ops / RIFT-257 binding)"
+    "play.ts translateCost currently throws judgeRequired for additional-cost, static repeat.cost " +
+    "has no layer/Finalize consumer, and the paid-repeat count is unwired)"
 );

@@ -32,9 +32,11 @@ test("sfd-179-221 Corinna Veraza: identity, ruleset, status, judgeReason and ver
   assert.equal(program.rulesetVersion, "core-1.5");
   assert.equal(program.status, "judge-required");
   assert.match(program.judgeReason, /object-moved/);
+  assert.match(program.judgeReason, /EVENT_PATTERN_TYPES/);
+  assert.match(program.judgeReason, /TriggerSpecValidationError/);
   assert.match(program.judgeReason, /toZone/);
-  assert.match(program.judgeReason, /RIFT-257/);
-  assert.match(program.judgeReason, /RIFT-261/);
+  assert.match(program.judgeReason, /Accelerate/);
+  assert.match(program.judgeReason, /Additional costs are not bound/);
   assert.equal(
     program.sourceText,
     "[Accelerate] (You may pay :rb_energy_1::rb_rune_order: as an additional cost to have me enter ready.)\n" +
@@ -132,13 +134,14 @@ test("sfd-179-221 Corinna Veraza: \"here\" is read at resolution, so a source ba
 });
 
 test.todo(
-  "sfd-179-221 Corinna Veraza: the object-moved emission must carry the Move's origin/destination payload " +
-    "(fromKind/fromLocationId/toKind/toLocationId, timing-points.ts) and expose the moved object so the " +
-    "toZone: \"battlefield\" + source-self trigger can be evaluated; events/action-adapter.ts leaves the " +
-    "payload empty for move-location today, and the card-program trigger binding (RIFT-257) that would " +
-    "supply the host identity has not merged."
+  "sfd-179-221 Corinna Veraza: object-moved must become a registrable EVENT_PATTERN_TYPE and the " +
+    "move-location emission must carry the Move's origin/destination payload " +
+    "(fromKind/fromLocationId/toKind/toLocationId, timing-points.ts) plus the moved object, so the " +
+    "toZone: \"battlefield\" + source-self trigger can be evaluated."
 );
 test.todo(
   "sfd-179-221 Corinna Veraza: paying the optional Accelerate cost [1][Order] and the enter-ready replacement " +
-    "run through the Finalize cost plan and the replacement pipeline (805 / RIFT-261 cost ops + RIFT-257 binding)."
+    "run through the play translateCost and the cost plan's optionalAdditional consumer; play.ts currently " +
+    "throws judgeRequired (\"Additional costs are not bound\") and static accelerate.cost has no Finalize " +
+    "consumer (805)."
 );

@@ -20,24 +20,26 @@ import type { CardProgram } from "../../ir/index.js";
  * 2. 印刷的 Mind 符文到不了 KeywordDef.expand：契约 3.1 的 KeywordAbility 只有 kind/keyword/value，
  *    卡牌程序的消费方没有传契约 3.8.3 的 params.cost；本卡只声明 keyword + 印刷符号数 value，
  *    费用组成记在注释与 judgeReason 中。
- * 3. Quick-Draw 展开的 continuous.timing 静态许可仍缺消费方（RIFT-259 已提供图层查询，但卡牌程序 →
- *    TriggerRegistration / 时点接线尚未合入），card-played 附着触发也没有卡牌程序接线。
+ * 3. Quick-Draw 的 card-played 附着触发已由 programs/lifecycle.ts + triggers.ts 接线，
+ *    continuous.timing 静态许可也已接入 layers/rules（actionTimings → canAct）；
+ *    该半段执行证据由展开结构与管线绑定覆盖，剩余缺口只剩上述费用路径。
  */
 export default {
   canonicalCardId: "card.hash-4cea7af35d00d653a3ecebd33dde5212a7ce582deb4a293fcdaf8fd6acdd293c",
   rulesetVersion: "core-1.5",
   status: "judge-required",
   judgeReason:
-    "三处依赖未合入：(1) Equip 的启动费用无法在费用管线支付——已合入的 Equip 展开（effects/keywords/Equip.ts）" +
+    "两处依赖未合入：(1) Equip 的启动费用无法在费用管线支付——已合入的 Equip 展开（effects/keywords/Equip.ts）" +
     "声明 payments: [{ kind: \"equip\" }]，cost/plan-values.ts 的 readCost 对未知支付种类调用 blocked，" +
     "buildCostPlan 抛 CostPlanError（reason \"judge-required\"，message \"Unsupported payment kind: equip\"）；" +
     "(2) 印刷 Equip 费用为 1 个 Mind 符文（:rb_rune_mind:，无能量符号），契约 3.1 的 KeywordAbility 没有承载" +
     "印刷费用组成的字段，卡牌程序的消费方也没有传契约 3.8.3 的 params.cost，故只以 value: 1 记录印刷符号数，" +
     "费用组成保持在注释与 judgeReason 中；" +
-    "(3) Quick-Draw 展开（CR 819.1.b/819.1.c/819.1.d）的 continuous.timing 静态许可与 card-played 附着触发" +
-    "没有卡牌程序 → TriggerRegistration / 时点接线（契约 3.5）。" +
-    "已合入的 effect.attach 半段与 Quick-Draw 展开结构由 golden 真实执行；这些局部证据不足以让整卡可执行。不近似实现。" +
-    "依赖：Equip 费用支付种类、params.cost 接线、卡牌程序 → 链/触发接线。",
+    "(3) Quick-Draw 展开（CR 819.1.b/819.1.c/819.1.d）的 card-played 附着触发已由 programs/lifecycle.ts " +
+    "→ triggers.ts 接线，continuous.timing 静态许可也已接入 layers/rules（actionTimings → canAct）；" +
+    "这两半不再构成缺口。" +
+    "已合入的 effect.attach 半段与 Quick-Draw 展开结构由 golden 真实执行；剩余费用缺口不近似实现。" +
+    "依赖：Equip 费用支付种类、params.cost 接线。",
   abilities: [
     { kind: "keyword", keyword: "quick-draw" },
     // 818.1.c：印刷费用为 1 个 Mind 符文（:rb_rune_mind:，无能量符号）；value 记录印刷符号数 1。

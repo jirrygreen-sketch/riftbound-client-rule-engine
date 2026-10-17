@@ -56,8 +56,9 @@ test("sfd-134-221 Cull: identity, ruleset, status, judgeReason and verbatim sour
   // The judgeReason must name the actual gap and the real dependencies
   // (cards/README.md section 2).
   assert.match(program.judgeReason, /Equip/);
-  assert.match(program.judgeReason, /RIFT-261/);
-  assert.match(program.judgeReason, /RIFT-257/);
+  assert.match(program.judgeReason, /Unsupported payment kind/);
+  assert.match(program.judgeReason, /params\.cost/);
+  assert.doesNotMatch(program.judgeReason, /RIFT-261|RIFT-257/);
   assert.equal(program.sourceText, SOURCE_TEXT);
   assert.equal(cardRegistryById.get(CANONICAL), program);
 });
@@ -139,9 +140,9 @@ test("sfd-134-221 Cull golden: a controlled Unit that left the Board is ignored,
 test.todo(
   "sfd-134-221 Cull: paying the printed Chaos Equip cost (818.1.b / 818.1.c.2) needs the " +
     "\"equip\" cost-payment kind in cost/plan-values.ts plus ExpandInput params.cost " +
-    "(contract 3.8 item 3) - RIFT-261 cost-ops follow-up."
+    "(contract 3.8 item 3); expandProgram currently passes only { value, host }."
 );
 test.todo(
-  "sfd-134-221 Cull: the card-program -> keyword expansion -> chain activation wiring " +
-    "(contract 3.5) is not merged - RIFT-257 binding follow-up."
+  "sfd-134-221 Cull: the programs/ activation path is merged, but its Finalize cost plan " +
+    "cannot plan the expansion's \"equip\" payment until the payment kind exists."
 );
